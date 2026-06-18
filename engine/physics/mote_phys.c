@@ -110,21 +110,103 @@ static int collide_wall(const MoteWorld *w, MoteBody *b, Vec3 N) {
     return 1;
 }
 
-static int walls(const MoteWorld *w, MoteBody *b) {
+static int sphere_walls(const MoteWorld *w, MoteBody *b) {
     int hit = 0;
     float lo, hi;
-    /* X */
     lo = w->bmin.x + b->radius; hi = w->bmax.x - b->radius;
     if (b->pos.x < lo) { b->pos.x = lo; hit |= collide_wall(w, b, v3( 1, 0, 0)); }
     if (b->pos.x > hi) { b->pos.x = hi; hit |= collide_wall(w, b, v3(-1, 0, 0)); }
-    /* Y */
     lo = w->bmin.y + b->radius; hi = w->bmax.y - b->radius;
     if (b->pos.y < lo) { b->pos.y = lo; hit |= collide_wall(w, b, v3(0,  1, 0)); }
     if (b->pos.y > hi) { b->pos.y = hi; hit |= collide_wall(w, b, v3(0, -1, 0)); }
-    /* Z */
     lo = w->bmin.z + b->radius; hi = w->bmax.z - b->radius;
     if (b->pos.z < lo) { b->pos.z = lo; hit |= collide_wall(w, b, v3(0, 0,  1)); }
     if (b->pos.z > hi) { b->pos.z = hi; hit |= collide_wall(w, b, v3(0, 0, -1)); }
+    return hit;
+}
+
+/* --- box (OBB) physics -------------------------------------------------- */
+
+/* Apply the body-frame diagonal inverse inertia in world space, without
+ * forming the tensor: Iinv*v = sum_i d_i * a_i * (a_i . v), a_i = orient.r[i].
+ * Box: I_x = (1/3) m (hy^2+hz^2) -> inv = 3*inv_mass/(hy^2+hz^2). */
+static Vec3 iinv_mul(const MoteBody *b, Vec3 v) {
+    Vec3 d;
+    if (b->shape == MOTE_SHAPE_BOX) {
+        float hx = b->half.x, hy = b->half.y, hz = b->half.z;
+        d = v3(3.0f * b->inv_mass / (hy*hy + hz*hz),
+               3.0f * b->inv_mass / (hx*hx + hz*hz),
+               3.0f * b->inv_mass / (hx*hx + hy*hy));
+    } else {
+        float s = (b->radius > 1e-6f) ? 2.5f * b->inv_mass / (b->radius * b->radius) : 0.0f;
+        d = v3(s, s, s);
+    }
+    Vec3 a0 = b->orient.r[0], a1 = b->orient.r[1], a2 = b->orient.r[2];
+    return v3_add(v3_add(v3_scale(a0, d.x * v3_dot(a0, v)),
+                         v3_scale(a1, d.y * v3_dot(a1, v))),
+                  v3_scale(a2, d.z * v3_dot(a2, v)));
+}
+
+/* General contact between a body and an immovable plane (inward normal N) at
+ * world contact point cp. Uses the full inertia tensor, so off-centre contacts
+ * apply torque (a corner-down box tips, a face-down box rests). */
+static void resolve_contact(const MoteWorld *w, MoteBody *b, Vec3 cp, Vec3 N) {
+    Vec3 r = v3_sub(cp, b->pos);
+    Vec3 vc = v3_add(b->vel, v3_cross(b->w, r));
+    float vn = v3_dot(vc, N);
+    if (vn >= 0.0f) return;
+
+    Vec3 rn = v3_cross(r, N);
+    float kn = b->inv_mass + v3_dot(N, v3_cross(iinv_mul(b, rn), r));
+    if (kn < 1e-9f) return;
+
+    float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
+    float Jn = -(1.0f + e) * vn / kn;
+    Vec3 Jn_v = v3_scale(N, Jn);
+    b->vel = v3_add(b->vel, v3_scale(Jn_v, b->inv_mass));
+    b->w   = v3_add(b->w, iinv_mul(b, v3_cross(r, Jn_v)));
+
+    /* Friction. */
+    vc = v3_add(b->vel, v3_cross(b->w, r));
+    Vec3 vt = v3_sub(vc, v3_scale(N, v3_dot(vc, N)));
+    float vtl = v3_len(vt);
+    if (vtl > 1e-5f) {
+        Vec3 t = v3_scale(vt, -1.0f / vtl);
+        Vec3 rt = v3_cross(r, t);
+        float kt = b->inv_mass + v3_dot(t, v3_cross(iinv_mul(b, rt), r));
+        float Jt_stop = (kt > 1e-9f) ? vtl / kt : 0.0f;
+        float Jt_max = w->friction * fabsf(Jn);
+        float Jt = (Jt_stop < Jt_max) ? Jt_stop : Jt_max;
+        Vec3 Jt_v = v3_scale(t, Jt);
+        b->vel = v3_add(b->vel, v3_scale(Jt_v, b->inv_mass));
+        b->w   = v3_add(b->w, iinv_mul(b, v3_cross(r, Jt_v)));
+    }
+}
+
+static int box_walls(const MoteWorld *w, MoteBody *b) {
+    struct { Vec3 N; float d; } wall[6] = {
+        { v3( 1, 0, 0),  w->bmin.x }, { v3(-1, 0, 0), -w->bmax.x },
+        { v3( 0, 1, 0),  w->bmin.y }, { v3( 0,-1, 0), -w->bmax.y },
+        { v3( 0, 0, 1),  w->bmin.z }, { v3( 0, 0,-1), -w->bmax.z },
+    };
+    int hit = 0;
+    for (int k = 0; k < 6; k++) {
+        Vec3 N = wall[k].N; float d = wall[k].d;
+        Vec3 cps[8]; int np = 0; float maxpen = 0.0f;
+        for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2)
+        for (int sz = -1; sz <= 1; sz += 2) {
+            Vec3 lv = v3(sx * b->half.x, sy * b->half.y, sz * b->half.z);
+            Vec3 wv = v3_add(b->pos, m3_mul_v3(&b->orient, lv));
+            float pen = d - v3_dot(N, wv);          /* >0 = penetrating */
+            if (pen > 0.0f) { cps[np++] = wv; if (pen > maxpen) maxpen = pen; }
+        }
+        if (np == 0) continue;
+        hit = 1;
+        b->pos = v3_add(b->pos, v3_scale(N, maxpen));     /* depenetrate */
+        for (int i = 0; i < np; i++)
+            resolve_contact(w, b, v3_add(cps[i], v3_scale(N, maxpen)), N);
+    }
     return hit;
 }
 
@@ -157,8 +239,11 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         for (int i = 0; i < n; i++)
             for (int j = i + 1; j < n; j++)
                 if (collide_pair(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
-        for (int i = 0; i < n; i++)
-            if (walls(w, &bodies[i])) ev |= MOTE_PHYS_HIT;
+        for (int i = 0; i < n; i++) {
+            int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
+                       ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);
+            if (h2) ev |= MOTE_PHYS_HIT;
+        }
     }
     return ev;
 }

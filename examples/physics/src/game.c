@@ -30,11 +30,18 @@ static float frand(void) {       /* xorshift -> [-1,1) */
 static void toss(void) {
     for (int i = 0; i < NBODY; i++) {
         MoteBody *b = &body[i];
-        b->radius = 0.30f;
         b->inv_mass = 1.0f / 0.3f;
-        b->pos = v3(frand() * 1.2f, 1.2f + (float)i * 0.18f, frand() * 1.2f);
-        b->vel = v3(frand() * 2.0f, frand() * 1.5f, frand() * 2.0f);
-        b->w   = v3(frand() * 4.0f, frand() * 4.0f, frand() * 4.0f);
+        if (i & 1) {                       /* sphere */
+            b->shape = MOTE_SHAPE_SPHERE;
+            b->radius = 0.30f;
+        } else {                           /* box (acts like a cube) */
+            b->shape = MOTE_SHAPE_BOX;
+            b->half = v3(0.28f, 0.28f, 0.28f);
+            b->radius = 0.30f;             /* bounding radius for body-body */
+        }
+        b->pos = v3(frand() * 1.2f, 1.3f + (float)i * 0.2f, frand() * 1.2f);
+        b->vel = v3(frand() * 2.0f, frand() * 1.2f, frand() * 2.0f);
+        b->w   = v3(frand() * 3.0f, frand() * 3.0f, frand() * 3.0f);
         b->orient = m3_identity();
     }
 }
@@ -81,11 +88,11 @@ static void g_update(float dt) {
     };
     for (int i = 0; i < NBODY; i++) {
         Vec3 p = v3_sub(body[i].pos, cam_pos);
-        if (i & 1) {
-            mote->scene_add_sphere(p, body[i].radius, pal[i & 3]);
-        } else {
+        if (body[i].shape == MOTE_SHAPE_BOX) {
             MoteObject o = { .pos = p, .basis = body[i].orient, .mesh = &k_body_mesh };
-            mote->scene_add_object_scaled(&o, body[i].radius * 0.8f);
+            mote->scene_add_object_scaled(&o, body[i].half.x);
+        } else {
+            mote->scene_add_sphere(p, body[i].radius, pal[i & 3]);
         }
     }
 }

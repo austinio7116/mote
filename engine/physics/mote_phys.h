@@ -17,13 +17,19 @@
 #include <stdint.h>
 #include "mote_vec.h"
 
+#define MOTE_SHAPE_SPHERE 0u
+#define MOTE_SHAPE_BOX    1u
+
 typedef struct {
     Vec3  pos;        /* centre, world metres */
     Vec3  vel;        /* m/s */
     Vec3  w;          /* angular velocity, rad/s (world) */
-    Mat3  orient;     /* render orientation, integrated from w */
-    float radius;     /* metres */
+    Mat3  orient;     /* orientation, integrated from w */
+    float radius;     /* sphere radius; box: bounding radius for body-body */
     float inv_mass;   /* 1/kg; 0 = immovable */
+    uint32_t shape;   /* MOTE_SHAPE_SPHERE (default) or MOTE_SHAPE_BOX */
+    Vec3  half;       /* box half-extents (box only) */
+    uint32_t _reserved[4];   /* room to grow without breaking the data ABI */
 } MoteBody;
 
 typedef struct {
