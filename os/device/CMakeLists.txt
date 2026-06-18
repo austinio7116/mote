@@ -90,6 +90,7 @@ add_executable(mote_os
     ${ENGINE}/render/mote_pipe.c
     ${ENGINE}/render/mote_scene3d.c
     ${ENGINE}/render/mote_font.c
+    ${ENGINE}/render/mote_2d.c
     ${ENGINE}/input/mote_input.c)
 add_dependencies(mote_os game_modules)
 

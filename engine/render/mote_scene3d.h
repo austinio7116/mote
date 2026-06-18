@@ -24,6 +24,7 @@
 void mote_scene_set_background(uint16_t rgb565);
 
 void mote_scene_begin(const Mat3 *cam_basis, float fov_deg);
+void mote_scene_clear(void);   /* drop the draw-list, keep the camera */
 
 /* Returns triangles added (0 if culled or the list is full). */
 int mote_scene_add_object(const MoteObject *obj);

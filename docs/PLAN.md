@@ -246,3 +246,47 @@ Highest-leverage files to design first:
 - **Phase 2:** push 3+ games; verify catalog/icons/settings persist across reboot; replace and delete games; confirm no reflash of the OS at any point.
 - **Phase 3:** each sample exercises a different backend (raster / raycast / physics) at target fps on device; profiler confirms dual-core balance.
 - **Ongoing:** every example game is an ABI regression test — a CI host build + SDL smoke-run per example catches ABI drift before it reaches hardware.
+
+---
+
+## 2D sprite + tile subsystem (added 2026-06-18)
+
+Mote supports 2D sprite/tile games *alongside* the 3D engine, not as a separate
+mode. A screen-space **2D scene** is rastered AFTER the 3D scene each frame
+(both banded across cores), so a game can be:
+- **pure-2D** — tilemap + sprites (platformers, RPGs, puzzles)
+- **pure-3D** — the mesh pipeline (as before)
+- **hybrid** — a 3D world with a 2D HUD/sprite layer on top
+
+"Good sprite management" = the engine owns the sprite list (layers, frames,
+flips) and composes it; games manipulate `MoteSprite` structs, not raw blits.
+
+### API (ABI v2, append-only — `sdk/mote_api.h`)
+- `mote->scene2d_begin(cam_x, cam_y)` — start the 2D frame, set the scroll camera
+- `mote->scene2d_set_tilemap(map, tileset)` — a scrolling background tile layer
+- `mote->scene2d_add(sprite)` — add a sprite (drawn in `layer` order)
+- `mote->blit(...)` — immediate-mode band-clipped, colour-keyed blit (HUD)
+
+### Data (`engine/render/mote_2d.h`, header-only structs)
+- `MoteImage` — RGB565 pixel rect in flash + transparent colour key (magenta)
+- `MoteTileset` — an atlas image divided into `tile_w x tile_h` cells
+- `MoteTilemap` — `cols*rows` byte indices into a tileset (0xFF = empty)
+- `MoteSprite` — image + frame rect + screen pos + layer + h/v flip flags
+
+### Rasteriser (`engine/render/mote_2d.c`)
+Tilemap drawn first (only tiles overlapping the band), then sprites in layer
+order. Read-only over the sprite list so both cores raster concurrently.
+The OS clears both scenes at the start of every frame, so a game only renders
+what it adds this frame (no stale state within a game or across games).
+
+Verified on host: `examples/tiledemo` — a scrolling grass/stone/water world
+with a player sprite + camera follow, loaded as a separate ABI-v2 module while
+the abi-1 3D games still load.
+
+### Roadmap (not yet built)
+- **img2tex** baker (PNG/BMP -> `MoteImage` header), wired into `mote bake`
+  alongside obj2mesh — so sprite sheets come from art, not code.
+- **Sprite animation** helper (frame sequence + fps + loop) over `MoteSprite`.
+- **Multiple tile layers** + per-layer parallax scroll.
+- **Tilemap collision** helpers (point/AABB vs tile flags) for platformers.
+- **Text as sprites** / bitmap-font atlas option beyond the built-in 3x5 font.

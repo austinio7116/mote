@@ -27,8 +27,9 @@
 #include "mote_mesh.h"     /* Mesh / MeshVert / MeshFace — data only */
 #include "mote_input.h"    /* MoteInput, MoteButtons, MoteBtnId */
 #include "mote_object.h"   /* MoteObject — header-only */
+#include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 
-#define MOTE_ABI_VERSION 1u
+#define MOTE_ABI_VERSION 2u   /* v2: appended the 2D scene API (append-only) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -51,6 +52,16 @@ typedef struct MoteApi {
     /* Control / misc. */
     uint64_t (*micros)(void);
     void     (*exit_to_launcher)(void);
+
+    /* --- ABI v2: 2D scene (sprites + tilemap), rastered AFTER the 3D scene
+     * (both banded across cores). Pure-2D, pure-3D, or hybrid (3D + 2D HUD).
+     * Build in update(); the OS rasters it. APPEND-ONLY past this point. */
+    void (*scene2d_begin)(int cam_x, int cam_y);
+    void (*scene2d_set_tilemap)(const MoteTilemap *map, const MoteTileset *tiles);
+    int  (*scene2d_add)(const MoteSprite *spr);
+    /* Immediate-mode sprite blit (HUD/UI), band-clipped + colour-keyed. */
+    void (*blit)(uint16_t *fb, const MoteImage *img, int x, int y,
+                 int fx, int fy, int fw, int fh, uint8_t flags, int y0, int y1);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

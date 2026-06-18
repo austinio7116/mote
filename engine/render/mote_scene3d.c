@@ -35,6 +35,11 @@ void mote_scene_begin(const Mat3 *cam_basis, float fov_deg) {
     mote_pipe_set_camera(cam_basis, fov_deg);
 }
 
+/* Drop the draw-list without touching the camera — the OS calls this at the
+ * start of every frame so a game that doesn't use the 3D scene never inherits
+ * stale triangles from a previously-run game. */
+void mote_scene_clear(void) { s_ntris = 0; }
+
 int mote_scene_add_object(const MoteObject *obj) {
     return mote_pipe_draw_object(obj);
 }
