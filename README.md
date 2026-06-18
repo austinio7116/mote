@@ -34,16 +34,21 @@ Prereqs: `cmake`, a C toolchain, `libsdl2-dev`.
 ```bash
 cmake -B build_host -S .
 cmake --build build_host -j8
-./build_host/hello_mesh           # spinning cube; D-pad nudges spin, A resets
+# Mote OS: launcher over a set of game modules. Pick one with the D-pad + A;
+# MENU returns to the launcher. (dlopen here is the host stand-in for the
+# device's ATRANS map.)
+./build_host/mote_host build_host/hello_mesh.so build_host/tumbler.so
 ```
 
 Controls: D-pad = arrows / WASD, A = `.` / K, B = `,` / J,
 LB = LShift, RB = Space, MENU = Enter, quit = Esc.
 
-Headless render check (CI / no display):
+Headless render check (CI / no display): `MOTE_SHOT=/p.ppm` dumps a frame and
+exits; `MOTE_PICK=N` auto-selects launcher entry N.
 
 ```bash
-SDL_VIDEODRIVER=dummy MOTE_SHOT=/tmp/shot.ppm ./build_host/hello_mesh
+SDL_VIDEODRIVER=dummy MOTE_SHOT=/tmp/shot.ppm \
+    ./build_host/mote_host build_host/hello_mesh.so build_host/tumbler.so
 ```
 
 ## Conventions (inherited from the source engines)

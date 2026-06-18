@@ -15,6 +15,7 @@ set(MOTE_ENGINE_SOURCES
     ${MOTE_ENGINE_DIR}/render/mote_raster.c
     ${MOTE_ENGINE_DIR}/render/mote_pipe.c
     ${MOTE_ENGINE_DIR}/render/mote_scene3d.c
+    ${MOTE_ENGINE_DIR}/render/mote_font.c
     ${MOTE_ENGINE_DIR}/input/mote_input.c
 )
 
@@ -60,24 +61,29 @@ if(MOTE_TARGET STREQUAL "host")
         target_link_libraries(mote_plat_host PUBLIC ${SDL2_LIBRARIES})
     endif()
 
-    # Mote OS host: dlopen a game module and run the resident loop.
+    # Mote OS host: launcher + dlopen a selected game module + run the loop.
     add_executable(mote_host
         os/host/mote_host.c
+        os/mote_launcher.c
         os/mote_os.c)
     target_include_directories(mote_host PRIVATE ${MOTE_INCLUDE_DIRS})
+    target_compile_definitions(mote_host PRIVATE MOTE_HOST=1)
     target_compile_options(mote_host PRIVATE -O2 -ffast-math)
     target_link_libraries(mote_host PRIVATE mote_engine mote_plat_host ${CMAKE_DL_LIBS})
-    # Export mote_game_abi_version/mote_game_register lookups are in the module;
-    # the host itself needs no special export flags.
 
-    # Game module: a standalone .so that links NO engine code — it drives the
-    # engine only through the ABI it is handed. (Device analogue: a .mote.)
-    add_library(hello_mesh MODULE examples/hello-mesh/src/game.c)
-    set_target_properties(hello_mesh PROPERTIES PREFIX "" SUFFIX ".so")
-    target_include_directories(hello_mesh PRIVATE
-        ${MOTE_INCLUDE_DIRS}
-        examples/hello-mesh/src)
-    target_compile_options(hello_mesh PRIVATE -O2 -ffast-math -fPIC)
+    # Game modules: standalone .so files that link NO engine code — each drives
+    # the engine only through the ABI it is handed. (Device analogue: a .mote.)
+    foreach(g hello_mesh:hello-mesh tumbler:tumbler)
+        string(REPLACE ":" ";" parts ${g})
+        list(GET parts 0 gname)
+        list(GET parts 1 gdir)
+        add_library(${gname} MODULE examples/${gdir}/src/game.c)
+        set_target_properties(${gname} PROPERTIES PREFIX "" SUFFIX ".so")
+        target_include_directories(${gname} PRIVATE
+            ${MOTE_INCLUDE_DIRS}
+            examples/${gdir}/src)
+        target_compile_options(${gname} PRIVATE -O2 -ffast-math -fPIC)
+    endforeach()
 
     # Phase 0 standalone (own loop, links engine directly) — kept as the
     # parity reference and the basis of the device firmware.
