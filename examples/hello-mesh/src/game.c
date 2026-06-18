@@ -13,6 +13,11 @@
 
 TE_GAME_MODULE();   /* exports te_game_abi_version + te_game_register, sets `te` */
 
+#ifdef TE_TGM_BUILD
+#include "te_tgm.h"
+TE_TGM_HEADER();    /* device .tgm flash header (linker symbols from game.ld) */
+#endif
+
 static Mat3  s_cube;
 static float s_spin_x, s_spin_y;
 

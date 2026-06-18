@@ -1,0 +1,60 @@
+/*
+ * ThumbyOS device — ATRANS execute-in-place game-module loader.
+ *
+ * The game module is embedded in the OS image as a 4 KB-aligned blob
+ * (g_game_blob). To "load" it we point RP2350 QMI ATRANS slot 2 — whose
+ * virtual window is TE_TGM_VADDR (0x10800000) — at the blob's physical flash
+ * offset, so the module executes in place at the address it was linked for.
+ * No copy of code, no relocation, no flash programming.
+ *
+ * ATRANS encoding (per ThumbyOne's proven handoff code):
+ *   atrans[i] = (SIZE_in_4KB << 16) | (BASE_in_4KB)
+ * slot 2 covers virtual 0x10800000..0x10C00000; BASE is the physical 4 KB
+ * page the window's base maps to; SIZE 0x400 = a full 4 MB window.
+ *
+ * We do NOT touch QMI read timing/format: this OS cold-boots (no rom_chain)
+ * and does not program flash before launch, so fast QPI XIP set up by our own
+ * boot2 is intact. (If a future deploy writes flash, call a fast-XIP-restore
+ * before the next launch — see ThumbyOne thumbyone_xip_fast_setup.)
+ */
+#include "te_loader.h"
+#include "te_tgm.h"
+
+#include "pico/stdlib.h"
+#include "hardware/structs/qmi.h"
+#include "hardware/regs/addressmap.h"   /* XIP_BASE */
+#include <string.h>
+
+/* The embedded game image (sdk/game.ld output), 4 KB-aligned by game_blob.S. */
+extern const uint8_t g_game_blob[];
+
+const TeGameVtbl *te_loader_map_embedded(const TeApi *api, uint32_t *out_map_us) {
+    uint64_t t0 = to_us_since_boot(get_absolute_time());
+
+    /* Physical flash offset of the blob (its XIP address minus the XIP base).
+     * 4 KB-aligned, so the shift is exact. */
+    uint32_t phys = (uint32_t)(uintptr_t)g_game_blob - XIP_BASE;
+
+    /* Point the slot-2 window at it. */
+    qmi_hw->atrans[2] = (0x400u << 16) | (phys >> 12);
+    __asm__ volatile("dsb" ::: "memory");
+
+    /* The module's header now reads through the window. */
+    const TgmHeader *h = (const TgmHeader *)(uintptr_t)TE_TGM_VADDR;
+    if (h->magic != TE_TGM_MAGIC)        return 0;
+    if (h->abi_version > TE_ABI_VERSION) return 0;   /* too new for this engine */
+    if (!h->reg)                          return 0;
+
+    /* Mini-crt: copy the .data init image (XIP -> RAM) and zero .bss. */
+    uint32_t dn = h->data_end - h->data_start;
+    if (dn) memcpy((void *)(uintptr_t)h->data_start,
+                   (const void *)(uintptr_t)h->data_load, dn);
+    uint32_t bn = h->bss_end - h->bss_start;
+    if (bn) memset((void *)(uintptr_t)h->bss_start, 0, bn);
+
+    const TeGameVtbl *vt = h->reg(api);
+
+    if (out_map_us)
+        *out_map_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
+    return vt;
+}

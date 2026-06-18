@@ -1,0 +1,17 @@
+/*
+ * ThumbyOS device — embeds a built game module (.tgm flat image) into the OS
+ * image as a 4 KB-aligned blob, so the loader can ATRANS-map it. Generated
+ * from game_blob.S.in by CMake with the absolute path to the game .bin.
+ *
+ * (In Phase 2 the game store / USB deploy replaces this single embedded blob
+ * with games loaded from the filesystem; the loader mechanism is unchanged —
+ * it just gets a different physical offset.)
+ */
+    .section .rodata.game_blob, "a"
+    .balign 4096
+    .global g_game_blob
+g_game_blob:
+    .incbin "@GAME_BIN_PATH@"
+    .balign 4
+    .global g_game_blob_end
+g_game_blob_end:
