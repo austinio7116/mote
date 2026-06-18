@@ -61,15 +61,17 @@ endfunction()
 
 set(GAME0_BIN ${CMAKE_BINARY_DIR}/hello_mesh.bin)
 set(GAME1_BIN ${CMAKE_BINARY_DIR}/tumbler.bin)
+set(GAME2_BIN ${CMAKE_BINARY_DIR}/tiledemo.bin)
 build_mote_module(hello_mesh ${ROOT}/examples/hello-mesh/src ${GAME0_BIN})
 build_mote_module(tumbler    ${ROOT}/examples/tumbler/src    ${GAME1_BIN})
-add_custom_target(game_modules DEPENDS ${GAME0_BIN} ${GAME1_BIN})
+build_mote_module(tiledemo   ${ROOT}/examples/tiledemo/src   ${GAME2_BIN})
+add_custom_target(game_modules DEPENDS ${GAME0_BIN} ${GAME1_BIN} ${GAME2_BIN})
 
 # Embed both modules (4 KB-aligned) into the OS image as the game store.
 configure_file(${CMAKE_CURRENT_LIST_DIR}/store_blob.S.in
                ${CMAKE_BINARY_DIR}/store_blob.S @ONLY)
 set_source_files_properties(${CMAKE_BINARY_DIR}/store_blob.S
-    PROPERTIES OBJECT_DEPENDS "${GAME0_BIN};${GAME1_BIN}" LANGUAGE ASM)
+    PROPERTIES OBJECT_DEPENDS "${GAME0_BIN};${GAME1_BIN};${GAME2_BIN}" LANGUAGE ASM)
 
 # ---------------------------------------------------------------------------
 # The OS executable: resident engine + launcher + platform + loader + store.

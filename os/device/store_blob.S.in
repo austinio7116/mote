@@ -19,6 +19,13 @@ g_game0_blob_end:
     .global g_game1_blob
 g_game1_blob:
     .incbin "@GAME1_BIN@"
-    .balign 4
     .global g_game1_blob_end
 g_game1_blob_end:
+
+    .balign 4096
+    .global g_game2_blob
+g_game2_blob:
+    .incbin "@GAME2_BIN@"
+    .balign 4
+    .global g_game2_blob_end
+g_game2_blob_end:

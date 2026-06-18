@@ -23,6 +23,7 @@
 /* Embedded game store (store_blob.S): each module image, 4 KB-aligned. */
 extern const uint8_t g_game0_blob[], g_game0_blob_end[];
 extern const uint8_t g_game1_blob[], g_game1_blob_end[];
+extern const uint8_t g_game2_blob[], g_game2_blob_end[];
 
 static uint16_t s_err_fb[MOTE_FB_W * MOTE_FB_H];
 
@@ -50,6 +51,7 @@ int main(void) {
     cat.count = 0;
     add(&cat, "hello-mesh", g_game0_blob, g_game0_blob_end);
     add(&cat, "tumbler",    g_game1_blob, g_game1_blob_end);
+    add(&cat, "tiledemo",   g_game2_blob, g_game2_blob_end);
 
     mote_usb_set_catalog(&cat);     /* USB LIST reflects the live catalog */
 
