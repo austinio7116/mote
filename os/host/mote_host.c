@@ -54,26 +54,30 @@ static int run_game(const char *path) {
     return 0;
 }
 
+/* The host's stand-in for the device flash store: the .so paths from argv. */
+static char **g_paths;
+static int    g_npaths;
+
+static void host_fill(MoteCatalog *c) {
+    c->count = 0;
+    for (int i = 0; i < g_npaths && i < MOTE_CATALOG_MAX; i++)
+        nice_name(g_paths[i], c->e[c->count++].name, MOTE_NAME_MAX);
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <game1.so> [game2.so ...]\n", argv[0]);
         return 2;
     }
-
-    int n = argc - 1;
-    if (n > MOTE_CATALOG_MAX) n = MOTE_CATALOG_MAX;
-
-    MoteCatalog cat;
-    cat.count = n;
-    for (int i = 0; i < n; i++)
-        nice_name(argv[i + 1], cat.e[i].name, MOTE_NAME_MAX);
+    g_paths = argv + 1;
+    g_npaths = argc - 1;
 
     if (mote_plat_init("Mote OS (host)") != 0) return 1;
 
     for (;;) {
-        int idx = mote_launcher_run(&cat);
+        int idx = mote_launcher_run(host_fill);
         if (idx < 0) break;                 /* window closed */
-        run_game(argv[idx + 1]);
+        if (idx < g_npaths) run_game(g_paths[idx]);
     }
 
     mote_plat_shutdown();

@@ -33,6 +33,10 @@ uint64_t mote_plat_micros(void);
  * Always false on device in normal operation; the host sets it on SDL_QUIT. */
 bool mote_plat_should_quit(void);
 
+/* A pending "launch game N" request from outside the input loop (device: a USB
+ * LAUNCH command). Returns the index and clears it, or -1 if none. Host: -1. */
+int mote_plat_pending_launch(void);
+
 /* Release platform resources. */
 void mote_plat_shutdown(void);
 

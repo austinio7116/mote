@@ -8,10 +8,8 @@
 #ifndef MOTE_USB_H
 #define MOTE_USB_H
 
-#include "mote_catalog.h"
-
-void mote_usb_init(void);                          /* tusb_init() */
-void mote_usb_task(void);                          /* pump: tud_task + protocol */
-void mote_usb_set_catalog(const MoteCatalog *cat); /* for LIST */
+void mote_usb_init(void);     /* tusb_init() */
+void mote_usb_task(void);     /* pump: tud_task + protocol */
+int  mote_usb_take_launch(void);   /* index from a LAUNCH cmd (clears), or -1 */
 
 #endif /* MOTE_USB_H */

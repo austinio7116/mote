@@ -22,6 +22,7 @@
  * than #included so the platform layer doesn't pull in OS headers. */
 extern void mote_usb_init(void);
 extern void mote_usb_task(void);
+extern int  mote_usb_take_launch(void);
 
 int mote_plat_init(const char *title) {
     (void)title;
@@ -56,5 +57,7 @@ uint64_t mote_plat_micros(void) {
 }
 
 bool mote_plat_should_quit(void) { return false; }
+
+int mote_plat_pending_launch(void) { return mote_usb_take_launch(); }
 
 void mote_plat_shutdown(void) { mote_lcd_backlight(0); }

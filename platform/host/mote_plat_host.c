@@ -116,6 +116,8 @@ uint64_t mote_plat_micros(void) {
 
 bool mote_plat_should_quit(void) { return s_quit; }
 
+int mote_plat_pending_launch(void) { return -1; }
+
 void mote_plat_shutdown(void) {
     if (s_tex) SDL_DestroyTexture(s_tex);
     if (s_ren) SDL_DestroyRenderer(s_ren);

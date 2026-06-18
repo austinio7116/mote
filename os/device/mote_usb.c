@@ -106,9 +106,19 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 
 /* ---- protocol ------------------------------------------------------- */
 
-static const MoteCatalog *s_cat;
+#include "mote_store.h"
 
-void mote_usb_set_catalog(const MoteCatalog *cat) { s_cat = cat; }
+/* Incoming game image is buffered in the reserved game-RAM region (free while
+ * the launcher runs — no game is mapped). Cap a pushed module at 128 KB. */
+#define RXBUF      ((uint8_t *)0x20060000u)
+#define RXBUF_MAX  (128u * 1024u)
+
+static int  s_launch_req = -1;
+static int  s_rx_active;
+static uint32_t s_put_size, s_put_got;
+static char s_put_name[MOTE_STORE_NAME_MAX];
+
+int mote_usb_take_launch(void) { int r = s_launch_req; s_launch_req = -1; return r; }
 
 static void cdc_say(const char *s) {
     tud_cdc_write(s, strlen(s));
@@ -116,18 +126,31 @@ static void cdc_say(const char *s) {
 }
 
 static void handle(const char *cmd) {
+    char name[MOTE_STORE_NAME_MAX];
+    unsigned size;
     if (strcmp(cmd, "PING") == 0) {
         char b[24];
         snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO);
         cdc_say(b);
     } else if (strcmp(cmd, "LIST") == 0) {
-        if (s_cat) {
-            char b[48];
-            for (int i = 0; i < s_cat->count; i++) {
-                snprintf(b, sizeof b, "%d %s\n", i, s_cat->e[i].name);
-                cdc_say(b);
-            }
+        char b[48];
+        for (int i = 0; i < mote_store_count(); i++) {
+            snprintf(b, sizeof b, "%d %s\n", i, mote_store_get(i)->name);
+            cdc_say(b);
         }
+        cdc_say("OK\n");
+    } else if (sscanf(cmd, "PUT %19s %u", name, &size) == 2) {
+        if (size == 0 || size > RXBUF_MAX) { cdc_say("ERR size\n"); return; }
+        strncpy(s_put_name, name, MOTE_STORE_NAME_MAX - 1);
+        s_put_name[MOTE_STORE_NAME_MAX - 1] = 0;
+        s_put_size = size; s_put_got = 0; s_rx_active = 1;
+        cdc_say("READY\n");
+    } else if (sscanf(cmd, "LAUNCH %19s", name) == 1) {
+        int idx = mote_store_find(name);
+        if (idx >= 0) { s_launch_req = idx; cdc_say("OK\n"); }
+        else cdc_say("ERR notfound\n");
+    } else if (strcmp(cmd, "WIPE") == 0) {
+        mote_store_wipe();
         cdc_say("OK\n");
     } else if (cmd[0] == 0) {
         /* ignore blank lines */
@@ -140,6 +163,25 @@ void mote_usb_init(void) { tusb_init(); }
 
 void mote_usb_task(void) {
     tud_task();
+
+    /* Binary receive mode (PUT payload). */
+    if (s_rx_active) {
+        while (s_put_got < s_put_size && tud_cdc_available()) {
+            uint8_t tmp[64];
+            uint32_t want = s_put_size - s_put_got;
+            if (want > sizeof tmp) want = sizeof tmp;
+            uint32_t n = tud_cdc_read(tmp, want);
+            memcpy(RXBUF + s_put_got, tmp, n);
+            s_put_got += n;
+        }
+        if (s_put_got >= s_put_size) {
+            s_rx_active = 0;     /* clear before the write (no re-entry) */
+            int r = mote_store_add(s_put_name, RXBUF, s_put_size);
+            cdc_say(r == 0 ? "OK\n" : "ERR write\n");
+        }
+        return;
+    }
+
     static char line[128];
     static int  len = 0;
     while (tud_cdc_available()) {

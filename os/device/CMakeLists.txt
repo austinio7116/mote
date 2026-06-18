@@ -1,6 +1,7 @@
 #
-# Mote OS — device firmware (RP2350). Phase 2b: resident engine + launcher +
-# ATRANS execute-in-place loader over an embedded multi-game store.
+# Mote OS — device firmware (RP2350). Phase 2c: resident engine + launcher +
+# ATRANS loader + USB-CDC control channel + runtime flash game store.
+# Games are PUSHED over USB (mote push) into the store — none are built in.
 #
 # Build:
 #   cmake -S os/device -B build_os -DPICO_SDK_PATH=$HOME/mp-thumby/lib/pico-sdk
@@ -29,60 +30,20 @@ set(MOTE_INCS
     ${ENGINE}/assets ${ENGINE}/input
     ${SDK} ${OSDIR})
 
-# Float/ABI flags shared by the engine, the OS and the game modules so the
-# soft-float ABI matches across the ABI boundary.
 set(MOTE_ARCH -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mfpu=fpv5-sp-d16)
 
 # ---------------------------------------------------------------------------
-# Build a GAME MODULE: linked at the fixed virtual window via sdk/game.ld, no
-# engine/crt0 — talks to the engine only through the ABI. -> a flat .bin.
-# ---------------------------------------------------------------------------
-function(build_mote_module name srcdir outbin)
-    set(obj ${CMAKE_BINARY_DIR}/${name}_mod.o)
-    set(elf ${CMAKE_BINARY_DIR}/${name}.elf)
-    set(incs)
-    foreach(d ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render ${ENGINE}/assets
-              ${ENGINE}/input ${SDK} ${srcdir})
-        list(APPEND incs -I${d})
-    endforeach()
-    add_custom_command(
-        OUTPUT ${outbin}
-        COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -O2 -ffast-math -ffreestanding
-                -fno-common -ffunction-sections -fdata-sections
-                -DMOTE_DEVICE=1 -DMOTE_MODULE_BUILD=1 ${incs}
-                -c ${srcdir}/game.c -o ${obj}
-        COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -nostartfiles
-                -T ${SDK}/game.ld -Wl,--gc-sections ${obj} -lm -lgcc -o ${elf}
-        COMMAND ${CMAKE_OBJCOPY} -O binary -j .mote -j .data ${elf} ${outbin}
-        DEPENDS ${srcdir}/game.c ${SDK}/game.ld ${SDK}/mote_api.h ${SDK}/mote_module.h
-        COMMENT "Building ${name} module (.mote)"
-        VERBATIM)
-endfunction()
-
-set(GAME0_BIN ${CMAKE_BINARY_DIR}/hello_mesh.bin)
-set(GAME1_BIN ${CMAKE_BINARY_DIR}/tumbler.bin)
-set(GAME2_BIN ${CMAKE_BINARY_DIR}/tiledemo.bin)
-build_mote_module(hello_mesh ${ROOT}/examples/hello-mesh/src ${GAME0_BIN})
-build_mote_module(tumbler    ${ROOT}/examples/tumbler/src    ${GAME1_BIN})
-build_mote_module(tiledemo   ${ROOT}/examples/tiledemo/src   ${GAME2_BIN})
-add_custom_target(game_modules DEPENDS ${GAME0_BIN} ${GAME1_BIN} ${GAME2_BIN})
-
-# Embed both modules (4 KB-aligned) into the OS image as the game store.
-configure_file(${CMAKE_CURRENT_LIST_DIR}/store_blob.S.in
-               ${CMAKE_BINARY_DIR}/store_blob.S @ONLY)
-set_source_files_properties(${CMAKE_BINARY_DIR}/store_blob.S
-    PROPERTIES OBJECT_DEPENDS "${GAME0_BIN};${GAME1_BIN};${GAME2_BIN}" LANGUAGE ASM)
-
-# ---------------------------------------------------------------------------
-# The OS executable: resident engine + launcher + platform + loader + store.
+# The OS executable: resident engine + launcher + platform + loader + store +
+# USB. No games are embedded — they live in the runtime flash store.
 # ---------------------------------------------------------------------------
 add_executable(mote_os
     ${OSDIR}/device/os_main.c
     ${OSDIR}/device/mote_loader.c
     ${OSDIR}/device/mote_usb.c
+    ${OSDIR}/device/mote_store.c
+    ${OSDIR}/device/mote_xip.c
     ${OSDIR}/mote_os.c
     ${OSDIR}/mote_launcher.c
-    ${CMAKE_BINARY_DIR}/store_blob.S
 
     ${PLATDEV}/mote_plat_device.c
     ${PLATDEV}/lcd_gc9107.c
@@ -94,7 +55,6 @@ add_executable(mote_os
     ${ENGINE}/render/mote_font.c
     ${ENGINE}/render/mote_2d.c
     ${ENGINE}/input/mote_input.c)
-add_dependencies(mote_os game_modules)
 
 # tusb_config.h must be found before TinyUSB's own headers.
 target_include_directories(mote_os BEFORE PRIVATE ${OSDIR}/device)

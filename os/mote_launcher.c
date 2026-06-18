@@ -72,8 +72,9 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     mote_font_draw(s_fb, hint, (MOTE_FB_W - mote_font_width(hint)) / 2, MOTE_FB_H - 10, COL_HINT);
 }
 
-int mote_launcher_run(const MoteCatalog *cat) {
+int mote_launcher_run(MoteCatalogFn rebuild) {
     int sel = 0, top = 0;
+    MoteCatalog cat;
     MoteInput in;
     memset(&in, 0, sizeof in);
     uint64_t last = mote_plat_micros();
@@ -88,23 +89,31 @@ int mote_launcher_run(const MoteCatalog *cat) {
         uint32_t dt_ms = (uint32_t)((now - last) / 1000);
         last = now;
 
+        cat.count = 0;
+        if (rebuild) rebuild(&cat);            /* live: reflects USB pushes */
+        if (sel >= cat.count) sel = cat.count > 0 ? cat.count - 1 : 0;
+
         MoteButtons raw;
         mote_plat_buttons(&raw);
         mote_input_update(&in, &raw, dt_ms);
 
-        if (cat->count > 0) {
-            if (mote_just_pressed(&in, MOTE_BTN_DOWN)) sel = (sel + 1) % cat->count;
-            if (mote_just_pressed(&in, MOTE_BTN_UP))   sel = (sel - 1 + cat->count) % cat->count;
+        if (cat.count > 0) {
+            if (mote_just_pressed(&in, MOTE_BTN_DOWN)) sel = (sel + 1) % cat.count;
+            if (mote_just_pressed(&in, MOTE_BTN_UP))   sel = (sel - 1 + cat.count) % cat.count;
             if (sel < top)               top = sel;
             if (sel >= top + VISIBLE)    top = sel - VISIBLE + 1;
             if (mote_just_pressed(&in, MOTE_BTN_A)) return sel;
         }
 
+        /* A LAUNCH command pushed over USB (mote push --launch). */
+        int pl = mote_plat_pending_launch();
+        if (pl >= 0 && pl < cat.count) return pl;
+
 #ifdef MOTE_HOST
-        if (pick && ++frame > 12) return atoi(pick) % (cat->count > 0 ? cat->count : 1);
+        if (pick && ++frame > 12) return atoi(pick) % (cat.count > 0 ? cat.count : 1);
 #endif
 
-        draw(cat, sel, top);
+        draw(&cat, sel, top);
         mote_plat_present(s_fb);
     }
     return -1;

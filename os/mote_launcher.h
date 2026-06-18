@@ -10,6 +10,11 @@
 
 #include "mote_catalog.h"
 
-int mote_launcher_run(const MoteCatalog *cat);
+/* Fills `out` with the current catalog. Called every frame so games pushed
+ * over USB while the launcher is up appear immediately. */
+typedef void (*MoteCatalogFn)(MoteCatalog *out);
+
+/* Returns the selected index, or -1 on quit (host window close). */
+int mote_launcher_run(MoteCatalogFn rebuild);
 
 #endif /* MOTE_LAUNCHER_H */

@@ -233,6 +233,52 @@ def _serial(port):
     return serial.Serial(port, 115200, timeout=1.0)
 
 
+def _readline(ser, timeout):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        raw = ser.readline()
+        if raw:
+            return raw.decode(errors="replace").rstrip("\r\n")
+    return ""
+
+
+def cmd_push(args):
+    d = args.dir
+    name = game_name(d)
+    srcs, gamesrc = game_sources(d)
+    outdir = os.path.join(d, "build")
+    os.makedirs(outdir, exist_ok=True)
+    mote = build_device(d, name, srcs, gamesrc, outdir)
+    data = open(mote, "rb").read()
+
+    ser = _serial(args.port)
+    try:
+        ser.reset_input_buffer()
+        ser.write(("PUT %s %d\n" % (name, len(data))).encode()); ser.flush()
+        if _readline(ser, 3.0) != "READY":
+            sys.exit("mote: device did not accept PUT")
+        ser.write(data); ser.flush()
+        res = _readline(ser, 15.0)
+        if res != "OK":
+            sys.exit("mote: push failed: %r" % res)
+        print("pushed %s (%d bytes)" % (name, len(data)))
+        if args.launch:
+            ser.write(("LAUNCH %s\n" % name).encode()); ser.flush()
+            print("launch:", _readline(ser, 3.0))
+    finally:
+        ser.close()
+
+
+def cmd_wipe(args):
+    ser = _serial(args.port)
+    try:
+        ser.write(b"WIPE\n"); ser.flush()
+        print("wipe:", _readline(ser, 3.0))
+    finally:
+        ser.close()
+
+
 def _command(ser, line, multi=False):
     import time
     ser.reset_input_buffer()
@@ -283,11 +329,15 @@ def main():
     p.add_argument("--device", action="store_true", help="also build the .mote")
     p = sub.add_parser("run", help="build + launch the emulator"); p.add_argument("dir")
     p.add_argument("--device", action="store_true")
+    p = sub.add_parser("push", help="build + push a game to the device"); p.add_argument("dir")
+    p.add_argument("--launch", action="store_true", help="launch it after pushing")
     sub.add_parser("ping", help="device handshake")
     sub.add_parser("list", help="list device games")
+    sub.add_parser("wipe", help="erase all games from the device store")
 
     args = ap.parse_args()
     {"new": cmd_new, "bake": cmd_bake, "build": cmd_build, "run": cmd_run,
+     "push": cmd_push, "wipe": cmd_wipe,
      "ping": cmd_ping, "list": cmd_list}[args.cmd](args)
 
 
