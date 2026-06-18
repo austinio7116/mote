@@ -52,7 +52,7 @@
 /* On device, mark a function to live in SRAM (avoids XIP flash latency in the
  * render/physics inner loops). Resolves to nothing on host. */
 #if defined(MOTE_DEVICE) && !defined(MOTE_HOST)
-#define MOTE_HOT __attribute__((section(".time_critical.te")))
+#define MOTE_HOT __attribute__((section(".time_critical.mote")))
 #else
 #define MOTE_HOT
 #endif

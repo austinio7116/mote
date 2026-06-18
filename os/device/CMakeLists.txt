@@ -1,6 +1,6 @@
 #
-# Mote OS — device firmware (RP2350). Phase 1: resident engine + ATRANS
-# execute-in-place loader running one embedded game module.
+# Mote OS — device firmware (RP2350). Phase 2b: resident engine + launcher +
+# ATRANS execute-in-place loader over an embedded multi-game store.
 #
 # Build:
 #   cmake -S os/device -B build_os -DPICO_SDK_PATH=$HOME/mp-thumby/lib/pico-sdk
@@ -20,67 +20,66 @@ pico_sdk_init()
 
 set(ROOT    ${CMAKE_CURRENT_LIST_DIR}/../..)
 set(ENGINE  ${ROOT}/engine)
-set(SDK      ${ROOT}/sdk)
+set(SDK     ${ROOT}/sdk)
 set(OSDIR   ${ROOT}/os)
 set(PLATDEV ${ROOT}/platform/device)
-set(EXAMPLE ${ROOT}/examples/hello-mesh/src)
 
 set(MOTE_INCS
     ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render
     ${ENGINE}/assets ${ENGINE}/input
     ${SDK} ${OSDIR})
 
-# Float/ABI flags shared by the engine, the OS and the game module so the
+# Float/ABI flags shared by the engine, the OS and the game modules so the
 # soft-float ABI matches across the ABI boundary.
 set(MOTE_ARCH -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mfpu=fpv5-sp-d16)
 
 # ---------------------------------------------------------------------------
-# 1) Build the GAME MODULE separately: linked at the fixed virtual window via
-#    sdk/game.ld, no engine/crt0 — talks to the engine only through the ABI.
+# Build a GAME MODULE: linked at the fixed virtual window via sdk/game.ld, no
+# engine/crt0 — talks to the engine only through the ABI. -> a flat .bin.
 # ---------------------------------------------------------------------------
-set(GAME_OBJ ${CMAKE_BINARY_DIR}/hello_mesh_mod.o)
-set(GAME_ELF ${CMAKE_BINARY_DIR}/hello_mesh.elf)
-set(GAME_BIN ${CMAKE_BINARY_DIR}/hello_mesh.bin)
+function(build_mote_module name srcdir outbin)
+    set(obj ${CMAKE_BINARY_DIR}/${name}_mod.o)
+    set(elf ${CMAKE_BINARY_DIR}/${name}.elf)
+    set(incs)
+    foreach(d ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render ${ENGINE}/assets
+              ${ENGINE}/input ${SDK} ${srcdir})
+        list(APPEND incs -I${d})
+    endforeach()
+    add_custom_command(
+        OUTPUT ${outbin}
+        COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -O2 -ffast-math -ffreestanding
+                -fno-common -ffunction-sections -fdata-sections
+                -DMOTE_DEVICE=1 -DMOTE_MODULE_BUILD=1 ${incs}
+                -c ${srcdir}/game.c -o ${obj}
+        COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -nostartfiles
+                -T ${SDK}/game.ld -Wl,--gc-sections ${obj} -lm -lgcc -o ${elf}
+        COMMAND ${CMAKE_OBJCOPY} -O binary -j .mote -j .data ${elf} ${outbin}
+        DEPENDS ${srcdir}/game.c ${SDK}/game.ld ${SDK}/mote_api.h ${SDK}/mote_module.h
+        COMMENT "Building ${name} module (.mote)"
+        VERBATIM)
+endfunction()
 
-set(GAME_INC_FLAGS)
-foreach(d ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render ${ENGINE}/assets ${ENGINE}/input ${SDK} ${EXAMPLE})
-    list(APPEND GAME_INC_FLAGS -I${d})
-endforeach()
+set(GAME0_BIN ${CMAKE_BINARY_DIR}/hello_mesh.bin)
+set(GAME1_BIN ${CMAKE_BINARY_DIR}/tumbler.bin)
+build_mote_module(hello_mesh ${ROOT}/examples/hello-mesh/src ${GAME0_BIN})
+build_mote_module(tumbler    ${ROOT}/examples/tumbler/src    ${GAME1_BIN})
+add_custom_target(game_modules DEPENDS ${GAME0_BIN} ${GAME1_BIN})
 
-add_custom_command(
-    OUTPUT ${GAME_BIN}
-    COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -O2 -ffast-math -ffreestanding
-            -fno-common -ffunction-sections -fdata-sections
-            -DTE_DEVICE=1 -DMOTE_MODULE_BUILD=1 ${GAME_INC_FLAGS}
-            -c ${EXAMPLE}/game.c -o ${GAME_OBJ}
-    COMMAND ${CMAKE_C_COMPILER} ${MOTE_ARCH} -nostartfiles
-            -T ${SDK}/game.ld -Wl,--gc-sections
-            ${GAME_OBJ} -lm -lgcc -o ${GAME_ELF}
-    COMMAND ${CMAKE_OBJCOPY} -O binary
-            -j .mote -j .data ${GAME_ELF} ${GAME_BIN}
-    DEPENDS ${EXAMPLE}/game.c ${EXAMPLE}/cube.h ${SDK}/game.ld
-            ${SDK}/mote_api.h ${SDK}/mote_module.h
-    COMMENT "Building hello-mesh game module (.mote)"
-    VERBATIM)
-add_custom_target(game_module DEPENDS ${GAME_BIN})
+# Embed both modules (4 KB-aligned) into the OS image as the game store.
+configure_file(${CMAKE_CURRENT_LIST_DIR}/store_blob.S.in
+               ${CMAKE_BINARY_DIR}/store_blob.S @ONLY)
+set_source_files_properties(${CMAKE_BINARY_DIR}/store_blob.S
+    PROPERTIES OBJECT_DEPENDS "${GAME0_BIN};${GAME1_BIN}" LANGUAGE ASM)
 
 # ---------------------------------------------------------------------------
-# 2) Embed the game .bin (4 KB-aligned) into the OS image.
-# ---------------------------------------------------------------------------
-set(GAME_BIN_PATH ${GAME_BIN})
-configure_file(${CMAKE_CURRENT_LIST_DIR}/game_blob.S.in
-               ${CMAKE_BINARY_DIR}/game_blob.S @ONLY)
-set_source_files_properties(${CMAKE_BINARY_DIR}/game_blob.S
-    PROPERTIES OBJECT_DEPENDS ${GAME_BIN} LANGUAGE ASM)
-
-# ---------------------------------------------------------------------------
-# 3) The OS executable: resident engine + platform + loader + embedded game.
+# The OS executable: resident engine + launcher + platform + loader + store.
 # ---------------------------------------------------------------------------
 add_executable(mote_os
     ${OSDIR}/device/os_main.c
     ${OSDIR}/device/mote_loader.c
     ${OSDIR}/mote_os.c
-    ${CMAKE_BINARY_DIR}/game_blob.S
+    ${OSDIR}/mote_launcher.c
+    ${CMAKE_BINARY_DIR}/store_blob.S
 
     ${PLATDEV}/mote_plat_device.c
     ${PLATDEV}/lcd_gc9107.c
@@ -89,8 +88,9 @@ add_executable(mote_os
     ${ENGINE}/render/mote_raster.c
     ${ENGINE}/render/mote_pipe.c
     ${ENGINE}/render/mote_scene3d.c
+    ${ENGINE}/render/mote_font.c
     ${ENGINE}/input/mote_input.c)
-add_dependencies(mote_os game_module)
+add_dependencies(mote_os game_modules)
 
 target_include_directories(mote_os PRIVATE ${MOTE_INCS})
 target_compile_definitions(mote_os PRIVATE

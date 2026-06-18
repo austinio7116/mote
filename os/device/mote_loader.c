@@ -25,18 +25,13 @@
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
 
-/* The embedded game image (sdk/game.ld output), 4 KB-aligned by game_blob.S. */
-extern const uint8_t g_game_blob[];
-
-const MoteGameVtbl *mote_loader_map_embedded(const MoteApi *api, uint32_t *out_map_us) {
+const MoteGameVtbl *mote_loader_map(uint32_t phys_off, const MoteApi *api,
+                                    uint32_t *out_map_us) {
     uint64_t t0 = to_us_since_boot(get_absolute_time());
 
-    /* Physical flash offset of the blob (its XIP address minus the XIP base).
-     * 4 KB-aligned, so the shift is exact. */
-    uint32_t phys = (uint32_t)(uintptr_t)g_game_blob - XIP_BASE;
-
-    /* Point the slot-2 window at it. */
-    qmi_hw->atrans[2] = (0x400u << 16) | (phys >> 12);
+    /* Point the slot-2 window (virtual MOTE_MODULE_VADDR) at the module's
+     * physical flash offset. 4 KB-aligned, so the shift is exact. */
+    qmi_hw->atrans[2] = (0x400u << 16) | (phys_off >> 12);
     __asm__ volatile("dsb" ::: "memory");
 
     /* The module's header now reads through the window. */

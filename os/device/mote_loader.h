@@ -11,11 +11,13 @@
 
 #include "mote_api.h"
 
-/* Map the embedded game module into its fixed virtual window via ATRANS, run
- * its mini-crt (copy .data, zero .bss), and register it. Returns the game's
- * vtable, or NULL if the module is missing/corrupt/ABI-incompatible.
+/* Map the game module at physical flash offset `phys_off` into the fixed
+ * virtual window via ATRANS, run its mini-crt (copy .data, zero .bss), and
+ * register it. `phys_off` must be 4 KB-aligned. Returns the game's vtable, or
+ * NULL if the module is missing/corrupt/ABI-incompatible.
  *
  * out_map_us (optional): microseconds the map+crt+register took. */
-const MoteGameVtbl *mote_loader_map_embedded(const MoteApi *api, uint32_t *out_map_us);
+const MoteGameVtbl *mote_loader_map(uint32_t phys_off, const MoteApi *api,
+                                    uint32_t *out_map_us);
 
 #endif /* MOTE_LOADER_H */

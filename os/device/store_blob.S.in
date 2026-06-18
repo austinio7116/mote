@@ -1,0 +1,24 @@
+/*
+ * Mote OS device — the embedded game store: each built module (.mote flat
+ * image) placed 4 KB-aligned so the loader can ATRANS-map it. Generated from
+ * store_blob.S.in by CMake with the absolute paths to the module .bins.
+ *
+ * Phase 2c replaces this baked store with a USB-writable store so games are
+ * pushed without reflashing; the loader mechanism is unchanged.
+ */
+    .section .rodata.mote_store, "a"
+
+    .balign 4096
+    .global g_game0_blob
+g_game0_blob:
+    .incbin "@GAME0_BIN@"
+    .global g_game0_blob_end
+g_game0_blob_end:
+
+    .balign 4096
+    .global g_game1_blob
+g_game1_blob:
+    .incbin "@GAME1_BIN@"
+    .balign 4
+    .global g_game1_blob_end
+g_game1_blob_end:
