@@ -16,13 +16,8 @@
 #include "../math/te_vec.h"
 #include "../assets/te_mesh.h"
 #include "../core/te_config.h"
+#include "te_object.h"
 #include <stdint.h>
-
-typedef struct {
-    Vec3 pos;          /* camera-relative world position */
-    Mat3 basis;        /* object orientation (rows: right/up/forward) */
-    const Mesh *mesh;
-} TeObject;
 
 void te_pipe_set_camera(const Mat3 *cam_basis, float fov_deg);
 void te_pipe_set_sun(Vec3 dir_toward_light_world);

@@ -13,6 +13,8 @@
  */
 #include "../../engine/core/te_platform.h"
 #include <SDL2/SDL.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #ifndef TE_HOST_SCALE
 #define TE_HOST_SCALE 4
@@ -25,6 +27,26 @@ static bool          s_quit;
 static bool          s_headless;   /* no display: present is a no-op */
 static uint64_t      s_freq;
 
+/* Headless capture: TE_SHOT=/path.ppm dumps frame TE_SHOT_FRAME (default 20)
+ * then quits. Works with or without a display — handy for CI and parity
+ * checks since it reads the engine's own framebuffer. */
+static const char *s_shot_path;
+static int          s_shot_frame = 20;
+static int          s_frame;
+
+static void dump_ppm(const char *path, const uint16_t *fb) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "P6\n%d %d\n255\n", TE_FB_W, TE_FB_H);
+    for (int i = 0; i < TE_FB_W * TE_FB_H; i++) {
+        uint16_t c = fb[i];
+        fputc(((c >> 11) & 0x1F) << 3, f);
+        fputc(((c >> 5) & 0x3F) << 2, f);
+        fputc((c & 0x1F) << 3, f);
+    }
+    fclose(f);
+}
+
 int te_plat_init(const char *title) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -33,6 +55,9 @@ int te_plat_init(const char *title) {
     s_freq = SDL_GetPerformanceFrequency();
     s_quit = false;
     s_headless = false;
+    s_shot_path = getenv("TE_SHOT");
+    if (getenv("TE_SHOT_FRAME")) s_shot_frame = atoi(getenv("TE_SHOT_FRAME"));
+    s_frame = 0;
 
     s_win = SDL_CreateWindow(title ? title : "ThumbyEngine",
                              SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -59,6 +84,11 @@ void te_plat_present(const uint16_t *fb565) {
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) s_quit = true;
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) s_quit = true;
+    }
+    if (s_shot_path && ++s_frame == s_shot_frame) {
+        dump_ppm(s_shot_path, fb565);
+        SDL_Log("te_plat: wrote %s at frame %d", s_shot_path, s_frame);
+        s_quit = true;
     }
     if (s_headless) return;
     SDL_UpdateTexture(s_tex, NULL, fb565, TE_FB_W * (int)sizeof(uint16_t));
