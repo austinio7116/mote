@@ -21,6 +21,7 @@
 #include "mote_module.h"
 
 #include "pico/stdlib.h"
+#include "pico/bootrom.h"               /* rom_flash_flush_cache */
 #include "hardware/structs/qmi.h"
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
@@ -32,6 +33,15 @@ const MoteGameVtbl *mote_loader_map(uint32_t phys_off, const MoteApi *api,
     /* Point the slot-2 window (virtual MOTE_MODULE_VADDR) at the module's
      * physical flash offset. 4 KB-aligned, so the shift is exact. */
     qmi_hw->atrans[2] = (0x400u << 16) | (phys_off >> 12);
+    __asm__ volatile("dsb" ::: "memory");
+
+    /* CRITICAL: invalidate the XIP cache. All modules share this one virtual
+     * window, so after a previous game ran here the cache holds ITS lines for
+     * MOTE_MODULE_VADDR. Without this flush, switching to a different module
+     * executes a stale mix of the old module's cached code and the new one's
+     * uncached code -> hard fault / hang. (The single-game Phase 1 build never
+     * hit this because the window was only ever mapped once.) */
+    rom_flash_flush_cache();
     __asm__ volatile("dsb" ::: "memory");
 
     /* The module's header now reads through the window. */
