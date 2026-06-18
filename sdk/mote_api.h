@@ -30,7 +30,7 @@
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 
-#define MOTE_ABI_VERSION 3u   /* v3: appended the physics API (append-only) */
+#define MOTE_ABI_VERSION 4u   /* v4: appended scene_add_sphere (append-only) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -65,9 +65,13 @@ typedef struct MoteApi {
                  int fx, int fy, int fw, int fh, uint8_t flags, int y0, int y1);
 
     /* --- ABI v3: rigid-sphere physics. The game owns the body array; the
-     * engine runs the solver on it. APPEND-ONLY past this point. */
+     * engine runs the solver on it. */
     void     (*phys_world_defaults)(MoteWorld *w);
     uint32_t (*phys_step)(MoteWorld *w, MoteBody *bodies, int n, float dt);
+
+    /* --- ABI v4: per-pixel shaded sphere impostor (camera-relative position),
+     * drawn in the 3D scene pass (depth-tested with meshes). APPEND-ONLY. */
+    int (*scene_add_sphere)(Vec3 cam_rel_pos, float radius, uint16_t color);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

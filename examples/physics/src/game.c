@@ -72,12 +72,14 @@ static void g_update(float dt) {
     floor.pos = v3_sub(floor.pos, cam_pos);
     mote->scene_add_object_scaled(&floor, 1.9f);
 
-    /* Bodies. */
-    for (int i = 0; i < NBODY; i++) {
-        MoteObject o = { .pos = v3_sub(body[i].pos, cam_pos),
-                         .basis = body[i].orient, .mesh = &k_body_mesh };
-        mote->scene_add_object_scaled(&o, body[i].radius);
-    }
+    /* Bodies as shaded sphere impostors — matches the sphere physics, rests
+     * naturally on the floor. */
+    static const uint16_t pal[4] = {
+        MOTE_RGB565(235, 90, 90), MOTE_RGB565(90, 200, 110),
+        MOTE_RGB565(90, 150, 240), MOTE_RGB565(235, 200, 80),
+    };
+    for (int i = 0; i < NBODY; i++)
+        mote->scene_add_sphere(v3_sub(body[i].pos, cam_pos), body[i].radius, pal[i & 3]);
 }
 
 static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update };

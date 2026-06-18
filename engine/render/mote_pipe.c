@@ -51,6 +51,7 @@ static inline uint16_t shade565(uint16_t c, float shade) {
 
 const Mat3 *mote_pipe_camera(void) { return &s_cam; }
 float mote_pipe_focal(void) { return s_focal; }
+Vec3 mote_pipe_sun_view(void) { return s_sun_view; }
 
 int mote_pipe_draw_object(const MoteObject *obj) {
     return mote_pipe_draw_object_scaled(obj, 1.0f);

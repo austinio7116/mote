@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #define MOTE_SCENE_MAX_TRIS 512
+#define MOTE_SCENE_MAX_SPHERES 64
 
 void mote_scene_set_background(uint16_t rgb565);
 
@@ -29,6 +30,9 @@ void mote_scene_clear(void);   /* drop the draw-list, keep the camera */
 /* Returns triangles added (0 if culled or the list is full). */
 int mote_scene_add_object(const MoteObject *obj);
 int mote_scene_add_object_scaled(const MoteObject *obj, float scale);
+
+/* A per-pixel shaded sphere impostor at a camera-relative world position. */
+int mote_scene_add_sphere(Vec3 cam_rel_pos, float radius, uint16_t color);
 
 /* Rasterise LOGICAL rows [y0, y1): clears that physical band of fb + depth,
  * then every listed triangle clamped to the band. Safe to call concurrently

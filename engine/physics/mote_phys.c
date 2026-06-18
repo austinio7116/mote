@@ -10,7 +10,10 @@
 #include "mote_config.h"
 #include <math.h>
 
-#define DEFAULT_H (1.0f / 480.0f)   /* ~2 ms substep */
+#define DEFAULT_H   (1.0f / 480.0f)   /* ~2 ms substep */
+#define REST_SLOP   0.45f             /* below this approach speed, no bounce
+                                       * (kills gravity micro-bouncing -> bodies
+                                       * actually come to rest) */
 
 void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
@@ -47,7 +50,8 @@ static int collide_pair(const MoteWorld *w, MoteBody *bi, MoteBody *bj) {
     float vn = v3_dot(dv, n);
     if (vn >= 0.0f) return 1;                       /* separating; overlap fixed */
 
-    float Jn = -(1.0f + w->restitution) * vn / ims;
+    float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
+    float Jn = -(1.0f + e) * vn / ims;
     Vec3 Jn_v = v3_scale(n, Jn);
     bi->vel = v3_sub(bi->vel, v3_scale(Jn_v, imi));
     bj->vel = v3_add(bj->vel, v3_scale(Jn_v, imj));
@@ -84,7 +88,8 @@ static int collide_wall(const MoteWorld *w, MoteBody *b, Vec3 N) {
     float vn = v3_dot(vc, N);
     if (vn >= 0.0f) return 0;
 
-    float Jn = -(1.0f + w->restitution) * vn / im;
+    float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
+    float Jn = -(1.0f + e) * vn / im;
     b->vel = v3_add(b->vel, v3_scale(N, Jn * im));
 
     if (-vn < 0.02f) return 1;                      /* resting: skip friction churn */

@@ -34,5 +34,6 @@ void mote_emit_tri(float ax, float ay, uint16_t az,
 
 const Mat3 *mote_pipe_camera(void);
 float mote_pipe_focal(void);
+Vec3 mote_pipe_sun_view(void);
 
 #endif /* MOTE_PIPE_H */

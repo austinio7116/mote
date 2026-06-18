@@ -37,6 +37,8 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v3: physics. */
     a->phys_world_defaults   = mote_phys_world_defaults;
     a->phys_step             = mote_phys_step;
+    /* ABI v4: sphere impostor. */
+    a->scene_add_sphere      = mote_scene_add_sphere;
 }
 
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
