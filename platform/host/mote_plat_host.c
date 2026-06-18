@@ -33,6 +33,8 @@ static uint64_t      s_freq;
 static const char *s_shot_path;
 static int          s_shot_frame = 20;
 static int          s_frame;
+static uint64_t     s_dt_us;     /* fixed timestep (0 = real clock) */
+static uint64_t     s_vclock;    /* virtual clock for fixed-timestep mode */
 
 static void dump_ppm(const char *path, const uint16_t *fb) {
     FILE *f = fopen(path, "wb");
@@ -55,6 +57,11 @@ int mote_plat_init(const char *title) {
     s_freq = SDL_GetPerformanceFrequency();
     s_quit = false;
     s_headless = false;
+    /* Fixed-timestep mode: MOTE_DT_MS makes the clock advance a fixed amount
+     * per frame, so emulation is deterministic and decoupled from wall-clock
+     * (reproducible runs, headless physics capture). */
+    s_dt_us = getenv("MOTE_DT_MS") ? (uint64_t)(atof(getenv("MOTE_DT_MS")) * 1000.0) : 0;
+    s_vclock = 0;
     s_shot_path = getenv("MOTE_SHOT");
     if (getenv("MOTE_SHOT_FRAME")) s_shot_frame = atoi(getenv("MOTE_SHOT_FRAME"));
     s_frame = 0;
@@ -85,6 +92,7 @@ void mote_plat_present(const uint16_t *fb565) {
         if (e.type == SDL_QUIT) s_quit = true;
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) s_quit = true;
     }
+    if (s_dt_us) s_vclock += s_dt_us;     /* advance the virtual clock per frame */
     if (s_shot_path && ++s_frame == s_shot_frame) {
         dump_ppm(s_shot_path, fb565);
         SDL_Log("mote_plat: wrote %s at frame %d", s_shot_path, s_frame);
@@ -111,6 +119,7 @@ void mote_plat_buttons(MoteButtons *out) {
 }
 
 uint64_t mote_plat_micros(void) {
+    if (s_dt_us) return s_vclock;     /* fixed-timestep: constant within a frame */
     return (uint64_t)((SDL_GetPerformanceCounter() * 1000000ull) / s_freq);
 }
 

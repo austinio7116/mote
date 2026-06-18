@@ -6,6 +6,7 @@
 #include "mote_scene3d.h"
 #include "mote_pipe.h"
 #include "mote_2d.h"
+#include "mote_phys.h"
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -33,6 +34,9 @@ void mote_api_fill(MoteApi *a) {
     a->scene2d_set_tilemap   = mote_scene2d_set_tilemap;
     a->scene2d_add           = mote_scene2d_add;
     a->blit                  = mote_blit;
+    /* ABI v3: physics. */
+    a->phys_world_defaults   = mote_phys_world_defaults;
+    a->phys_step             = mote_phys_step;
 }
 
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {

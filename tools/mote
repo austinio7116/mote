@@ -24,7 +24,7 @@ ENGINE = os.path.join(ROOT, "engine")
 SDK = os.path.join(ROOT, "sdk")
 
 ENGINE_INCS = [os.path.join(ENGINE, d)
-               for d in ("core", "math", "render", "assets", "input")] + [SDK]
+               for d in ("core", "math", "render", "assets", "input", "physics")] + [SDK]
 
 ARM = "arm-none-eabi-"
 ARM_ARCH = ["-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mfpu=fpv5-sp-d16"]

@@ -17,6 +17,7 @@ set(MOTE_ENGINE_SOURCES
     ${MOTE_ENGINE_DIR}/render/mote_scene3d.c
     ${MOTE_ENGINE_DIR}/render/mote_font.c
     ${MOTE_ENGINE_DIR}/render/mote_2d.c
+    ${MOTE_ENGINE_DIR}/physics/mote_phys.c
     ${MOTE_ENGINE_DIR}/input/mote_input.c
 )
 
@@ -74,7 +75,7 @@ if(MOTE_TARGET STREQUAL "host")
 
     # Game modules: standalone .so files that link NO engine code — each drives
     # the engine only through the ABI it is handed. (Device analogue: a .mote.)
-    foreach(g hello_mesh:hello-mesh tumbler:tumbler tiledemo:tiledemo)
+    foreach(g hello_mesh:hello-mesh tumbler:tumbler tiledemo:tiledemo physics:physics)
         string(REPLACE ":" ";" parts ${g})
         list(GET parts 0 gname)
         list(GET parts 1 gdir)

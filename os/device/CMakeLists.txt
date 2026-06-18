@@ -27,7 +27,7 @@ set(PLATDEV ${ROOT}/platform/device)
 
 set(MOTE_INCS
     ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render
-    ${ENGINE}/assets ${ENGINE}/input
+    ${ENGINE}/assets ${ENGINE}/input ${ENGINE}/physics
     ${SDK} ${OSDIR})
 
 set(MOTE_ARCH -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mfpu=fpv5-sp-d16)
@@ -54,6 +54,7 @@ add_executable(mote_os
     ${ENGINE}/render/mote_scene3d.c
     ${ENGINE}/render/mote_font.c
     ${ENGINE}/render/mote_2d.c
+    ${ENGINE}/physics/mote_phys.c
     ${ENGINE}/input/mote_input.c)
 
 # tusb_config.h must be found before TinyUSB's own headers.

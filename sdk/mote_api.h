@@ -28,8 +28,9 @@
 #include "mote_input.h"    /* MoteInput, MoteButtons, MoteBtnId */
 #include "mote_object.h"   /* MoteObject — header-only */
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
+#include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 
-#define MOTE_ABI_VERSION 2u   /* v2: appended the 2D scene API (append-only) */
+#define MOTE_ABI_VERSION 3u   /* v3: appended the physics API (append-only) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -62,6 +63,11 @@ typedef struct MoteApi {
     /* Immediate-mode sprite blit (HUD/UI), band-clipped + colour-keyed. */
     void (*blit)(uint16_t *fb, const MoteImage *img, int x, int y,
                  int fx, int fy, int fw, int fh, uint8_t flags, int y0, int y1);
+
+    /* --- ABI v3: rigid-sphere physics. The game owns the body array; the
+     * engine runs the solver on it. APPEND-ONLY past this point. */
+    void     (*phys_world_defaults)(MoteWorld *w);
+    uint32_t (*phys_step)(MoteWorld *w, MoteBody *bodies, int n, float dt);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------
