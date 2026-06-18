@@ -1,88 +1,294 @@
 #!/usr/bin/env python3
 """
-mote — host CLI for the Mote dev platform.
+mote — the Mote dev-platform CLI.
 
-The control/debug channel to a Mote device over USB-CDC. 2c-1 implements the
-handshake (ping) and catalog query (list); push/launch/log land in 2c-2.
+Dev workflow (host, no device needed):
+    mote new <name>           scaffold a new game folder
+    mote build <dir>          compile -> host .so (+ device .mote with --device)
+    mote run <dir>            build for host + launch the SDL emulator
 
-Usage:
-    mote ping                 # handshake: confirm a Mote device is connected
-    mote list                 # list installed games (catalog)
-    mote --port /dev/ttyACM0 ping
+Device control channel (USB-CDC):
+    mote ping                 handshake: confirm a Mote device is connected
+    mote list                 list installed games (catalog)
+
+Add --device to build to also cross-compile the deployable .mote module.
 """
 import argparse
+import os
+import shutil
+import subprocess
 import sys
-import time
 
-try:
-    import serial
-    from serial.tools import list_ports
-except ImportError:
-    sys.exit("mote: needs pyserial  (pip install pyserial)")
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+ENGINE = os.path.join(ROOT, "engine")
+SDK = os.path.join(ROOT, "sdk")
 
-MOTE_VID = 0xCAFE
-MOTE_PID = 0x4D01
+ENGINE_INCS = [os.path.join(ENGINE, d)
+               for d in ("core", "math", "render", "assets", "input")] + [SDK]
 
+ARM = "arm-none-eabi-"
+ARM_ARCH = ["-mcpu=cortex-m33", "-mthumb", "-mfloat-abi=softfp", "-mfpu=fpv5-sp-d16"]
 
-def find_port():
-    for p in list_ports.comports():
-        if p.vid == MOTE_VID and p.pid == MOTE_PID:
-            return p.device
-    return None
+MOTE_VID, MOTE_PID = 0xCAFE, 0x4D01
 
 
-def open_port(port):
-    port = port or find_port()
+# ---------------------------------------------------------------- helpers
+def run(cmd):
+    r = subprocess.run(cmd)
+    if r.returncode != 0:
+        sys.exit("mote: command failed: %s" % " ".join(cmd))
+
+
+def game_name(d):
+    toml = os.path.join(d, "game.toml")
+    if os.path.isfile(toml):
+        for line in open(toml):
+            line = line.strip()
+            if line.startswith("name") and "=" in line:
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return os.path.basename(os.path.abspath(d))
+
+
+def game_sources(d):
+    src = os.path.join(d, "src")
+    if not os.path.isdir(src):
+        sys.exit("mote: %s has no src/ directory" % d)
+    cs = sorted(os.path.join(src, f) for f in os.listdir(src) if f.endswith(".c"))
+    if not cs:
+        sys.exit("mote: no .c files in %s/src" % d)
+    return cs, src
+
+
+def incs_flags(gamesrc):
+    return ["-I" + p for p in ENGINE_INCS + [gamesrc]]
+
+
+# ---------------------------------------------------------------- build
+def build_host(d, name, srcs, gamesrc, outdir):
+    """A game module is a .so that links NO engine code — it reaches the
+    engine only through the ABI it is handed (device analogue: a .mote)."""
+    out = os.path.join(outdir, name + ".so")
+    cmd = ["gcc", "-shared", "-fPIC", "-O2", "-ffast-math", "-DMOTE_HOST=1"]
+    cmd += incs_flags(gamesrc) + srcs + ["-lm", "-o", out]
+    run(cmd)
+    return out
+
+
+def build_device(d, name, srcs, gamesrc, outdir):
+    """Cross-compile to a deployable .mote: linked at the fixed virtual window
+    via sdk/game.ld, no engine/crt0 — talks to the engine only via the ABI."""
+    if not shutil.which(ARM + "gcc"):
+        sys.exit("mote: %sgcc not found (install gcc-arm-none-eabi)" % ARM)
+    objs = []
+    base = ["-O2", "-ffast-math", "-ffreestanding", "-fno-common",
+            "-ffunction-sections", "-fdata-sections",
+            "-DMOTE_DEVICE=1", "-DMOTE_MODULE_BUILD=1"]
+    for c in srcs:
+        o = os.path.join(outdir, os.path.basename(c) + ".o")
+        run([ARM + "gcc"] + ARM_ARCH + base + incs_flags(gamesrc) + ["-c", c, "-o", o])
+        objs.append(o)
+    elf = os.path.join(outdir, name + ".elf")
+    run([ARM + "gcc"] + ARM_ARCH + ["-nostartfiles",
+        "-T", os.path.join(SDK, "game.ld"), "-Wl,--gc-sections"]
+        + objs + ["-lm", "-lgcc", "-o", elf])
+    mote = os.path.join(outdir, name + ".mote")
+    run([ARM + "objcopy", "-O", "binary", "-j", ".mote", "-j", ".data", elf, mote])
+    return mote
+
+
+def cmd_build(args):
+    d = args.dir
+    name = game_name(d)
+    srcs, gamesrc = game_sources(d)
+    outdir = os.path.join(d, "build")
+    os.makedirs(outdir, exist_ok=True)
+    so = build_host(d, name, srcs, gamesrc, outdir)
+    print("built host module: %s" % so)
+    if args.device:
+        mote = build_device(d, name, srcs, gamesrc, outdir)
+        print("built device module: %s (%d bytes)" % (mote, os.path.getsize(mote)))
+    return so
+
+
+def cmd_bake(args):
+    """Bake assets/*.obj into src/<name>.h headers the game can #include."""
+    import tempfile
+    d = args.dir
+    assets = os.path.join(d, "assets")
+    objs = sorted(f for f in os.listdir(assets) if f.endswith(".obj")) \
+        if os.path.isdir(assets) else []
+    if not objs:
+        print("mote: no .obj assets in %s/assets" % d); return
+    tool = os.path.join(tempfile.gettempdir(), "mote_obj2mesh")
+    if not os.path.isfile(tool):
+        run(["gcc", "-O2", os.path.join(ROOT, "tools", "obj2mesh.c"), "-lm", "-o", tool])
+    for o in objs:
+        name = os.path.splitext(o)[0]
+        run([tool, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
+
+
+def cmd_run(args):
+    so = cmd_build(args)
+    emu = os.path.join(ROOT, "build_host", "mote_host")
+    if not os.path.isfile(emu):
+        sys.exit("mote: emulator not built — run:\n"
+                 "  cmake -B build_host -S . && cmake --build build_host -j8")
+    os.execv(emu, [emu, so])
+
+
+# ---------------------------------------------------------------- new
+TEMPLATE_TOML = '[game]\nname = "%s"\nauthor = "you"\nabi = 1\n'
+
+TEMPLATE_GAME = '''/*
+ * %s — a Mote game module.
+ *
+ * The OS hands you the engine jump table (`mote`) and drives your vtable.
+ * You link no engine code; reach everything through `mote->...`.
+ */
+#include "mote_api.h"
+#include "shape.h"
+
+MOTE_GAME_MODULE();
+
+#ifdef MOTE_MODULE_BUILD
+#include "mote_module.h"
+MOTE_MODULE_HEADER();
+#endif
+
+static Mat3 s_m;
+
+static void g_init(void) {
+    mote->scene_set_background(MOTE_RGB565(10, 12, 26));
+    mote->scene_set_sun(v3(0.4f, 0.7f, -0.6f));
+    s_m = m3_identity();
+}
+
+static void g_update(float dt) {
+    const MoteInput *in = mote->input();
+    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
+
+    m3_rotate_local(&s_m, 1, 0.9f * dt);
+    m3_orthonormalize(&s_m);
+
+    Mat3 cam = m3_identity();
+    mote->scene_begin(&cam, 60.0f);
+    MoteObject obj = { .pos = v3(0, 0, 4.5f), .basis = s_m, .mesh = &k_shape };
+    mote->scene_add_object(&obj);
+}
+
+static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update };
+static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
+'''
+
+TEMPLATE_SHAPE = '''/* A starter mesh (cube). Replace with a baked .obj via `mote bake`. */
+#ifndef SHAPE_H
+#define SHAPE_H
+#include "mote_mesh.h"
+#include "mote_config.h"
+static const MeshVert k_v[8] = {
+    {-127,-127,-127},{127,-127,-127},{127,127,-127},{-127,127,-127},
+    {-127,-127, 127},{127,-127, 127},{127,127, 127},{-127,127, 127},
+};
+#define A MOTE_RGB565(230,80,80)
+#define B MOTE_RGB565(80,200,120)
+#define C MOTE_RGB565(80,140,230)
+static const MeshFace k_f[12] = {
+    {4,5,6,0,0,127,A},{4,6,7,0,0,127,A}, {1,0,3,0,0,-127,A},{1,3,2,0,0,-127,A},
+    {5,1,2,127,0,0,B},{5,2,6,127,0,0,B}, {0,4,7,-127,0,0,B},{0,7,3,-127,0,0,B},
+    {7,6,2,0,127,0,C},{7,2,3,0,127,0,C}, {0,1,5,0,-127,0,C},{0,5,4,0,-127,0,C},
+};
+static const Mesh k_shape = { k_v, k_f, 8, 12, 1.0f, 1.8f, 0 };
+#endif
+'''
+
+
+def cmd_new(args):
+    d = os.path.abspath(args.name)
+    name = os.path.basename(d)            # game name is the folder name, not the path
+    if os.path.exists(d):
+        sys.exit("mote: %s already exists" % d)
+    os.makedirs(os.path.join(d, "src"))
+    os.makedirs(os.path.join(d, "assets"), exist_ok=True)
+    open(os.path.join(d, "game.toml"), "w").write(TEMPLATE_TOML % name)
+    open(os.path.join(d, "src", "game.c"), "w").write(TEMPLATE_GAME % name)
+    open(os.path.join(d, "src", "shape.h"), "w").write(TEMPLATE_SHAPE)
+    open(os.path.join(d, ".gitignore"), "w").write("build/\n")
+    print("created %s/\n  edit src/game.c, then:  mote run %s" % (name, name))
+
+
+# ---------------------------------------------------------------- device
+def _serial(port):
+    try:
+        import serial
+        from serial.tools import list_ports
+    except ImportError:
+        sys.exit("mote: needs pyserial for device commands  (pip install pyserial)")
     if not port:
-        sys.exit("mote: no Mote device found (VID:PID %04X:%04X). "
-                 "Is it plugged in and at the launcher?" % (MOTE_VID, MOTE_PID))
+        for p in list_ports.comports():
+            if p.vid == MOTE_VID and p.pid == MOTE_PID:
+                port = p.device
+                break
+    if not port:
+        sys.exit("mote: no Mote device found (VID:PID %04X:%04X)" % (MOTE_VID, MOTE_PID))
     return serial.Serial(port, 115200, timeout=1.0)
 
 
-def command(ser, line, read_until_ok=False):
+def _command(ser, line, multi=False):
+    import time
     ser.reset_input_buffer()
-    ser.write((line + "\n").encode())
-    ser.flush()
-    out = []
-    deadline = time.time() + 2.0
+    ser.write((line + "\n").encode()); ser.flush()
+    out, deadline = [], time.time() + 2.0
     while time.time() < deadline:
         raw = ser.readline()
         if not raw:
             break
         s = raw.decode(errors="replace").rstrip("\r\n")
         out.append(s)
-        if not read_until_ok:
-            break
-        if s in ("OK", "ERR") or s.startswith("ERR"):
+        if not multi or s == "OK" or s.startswith("ERR"):
             break
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser(prog="mote")
-    ap.add_argument("--port", help="serial port (default: auto-detect by VID:PID)")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("ping", help="handshake with the device")
-    sub.add_parser("list", help="list installed games")
-    args = ap.parse_args()
-
-    ser = open_port(args.port)
+def cmd_ping(args):
+    ser = _serial(args.port)
     try:
-        if args.cmd == "ping":
-            r = command(ser, "PING")
-            if r and r[0].startswith("MOTE "):
-                print("Mote device OK — protocol %s" % r[0].split()[1])
-            else:
-                sys.exit("mote: no/odd reply: %r" % r)
-        elif args.cmd == "list":
-            r = command(ser, "LIST", read_until_ok=True)
-            games = [l for l in r if l not in ("OK", "ERR") and not l.startswith("ERR")]
-            if not games:
-                print("(no games installed)")
-            for g in games:
-                print(g)
+        r = _command(ser, "PING")
+        if r and r[0].startswith("MOTE "):
+            print("Mote device OK — protocol %s" % r[0].split()[1])
+        else:
+            sys.exit("mote: no/odd reply: %r" % r)
     finally:
         ser.close()
+
+
+def cmd_list(args):
+    ser = _serial(args.port)
+    try:
+        r = _command(ser, "LIST", multi=True)
+        games = [l for l in r if l != "OK" and not l.startswith("ERR")]
+        print("\n".join(games) if games else "(no games installed)")
+    finally:
+        ser.close()
+
+
+# ---------------------------------------------------------------- main
+def main():
+    ap = argparse.ArgumentParser(prog="mote")
+    ap.add_argument("--port", help="serial port (default: auto-detect)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("new", help="scaffold a new game"); p.add_argument("name")
+    p = sub.add_parser("bake", help="bake assets/*.obj -> src headers"); p.add_argument("dir")
+    p = sub.add_parser("build", help="compile a game"); p.add_argument("dir")
+    p.add_argument("--device", action="store_true", help="also build the .mote")
+    p = sub.add_parser("run", help="build + launch the emulator"); p.add_argument("dir")
+    p.add_argument("--device", action="store_true")
+    sub.add_parser("ping", help="device handshake")
+    sub.add_parser("list", help="list device games")
+
+    args = ap.parse_args()
+    {"new": cmd_new, "bake": cmd_bake, "build": cmd_build, "run": cmd_run,
+     "ping": cmd_ping, "list": cmd_list}[args.cmd](args)
 
 
 if __name__ == "__main__":
