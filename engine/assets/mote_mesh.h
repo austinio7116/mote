@@ -1,5 +1,5 @@
 /*
- * ThumbyEngine — mesh data format (ported from ThumbyElite r3d_mesh.h).
+ * Mote — mesh data format (ported from ThumbyElite r3d_mesh.h).
  *
  * Meshes live in flash (.rodata) as quantised int8 vertices + 8-byte faces.
  * Winding: counter-clockwise viewed from OUTSIDE (outward normal =
@@ -10,8 +10,8 @@
  * world_pos = vert * (scale / 127): scale is the model's half-extent in
  * world units (meters), so an int8 of +-127 spans +-scale.
  */
-#ifndef TE_MESH_H
-#define TE_MESH_H
+#ifndef MOTE_MESH_H
+#define MOTE_MESH_H
 
 #include <stdint.h>
 
@@ -33,4 +33,4 @@ typedef struct Mesh {
     const struct Mesh *lod_lo;  /* optional lower-detail swap, NULL if none */
 } Mesh;
 
-#endif /* TE_MESH_H */
+#endif /* MOTE_MESH_H */

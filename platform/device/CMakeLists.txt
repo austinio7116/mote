@@ -1,5 +1,5 @@
 #
-# ThumbyEngine — device firmware build (RP2350, Thumby Color).
+# Mote — device firmware build (RP2350, Thumby Color).
 #
 # Phase 0: builds the hello-mesh example as a standalone .uf2 so host/device
 # parity can be confirmed on hardware. The OS (launcher + loadable game
@@ -32,13 +32,13 @@ set(EXAMPLE ${ROOT}/examples/hello-mesh/src)
 
 add_executable(hello_mesh
     # Engine core (platform-independent — same files the host links).
-    ${ENGINE}/render/te_raster.c
-    ${ENGINE}/render/te_pipe.c
-    ${ENGINE}/render/te_scene3d.c
-    ${ENGINE}/input/te_input.c
+    ${ENGINE}/render/mote_raster.c
+    ${ENGINE}/render/mote_pipe.c
+    ${ENGINE}/render/mote_scene3d.c
+    ${ENGINE}/input/mote_input.c
 
     # Device platform layer.
-    ${DEVICE}/te_plat_device.c
+    ${DEVICE}/mote_plat_device.c
     ${DEVICE}/lcd_gc9107.c
     ${DEVICE}/buttons.c
 
@@ -56,7 +56,7 @@ target_include_directories(hello_mesh PRIVATE
 )
 
 target_compile_definitions(hello_mesh PRIVATE
-    TE_DEVICE=1
+    MOTE_DEVICE=1
     PICO_HEAP_SIZE=0x4000
     PICO_STACK_SIZE=0x1000
     PICO_CORE1_STACK_SIZE=0x1000

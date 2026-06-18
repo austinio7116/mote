@@ -1,5 +1,5 @@
 /*
- * ThumbyEngine — flat-shaded depth-tested triangle rasterizer.
+ * Mote — flat-shaded depth-tested triangle rasterizer.
  * (Ported from ThumbyElite r3d_raster.c.)
  *
  * Technique: half-space (edge function) rasterisation with incremental
@@ -7,49 +7,49 @@
  * colour only, with depth interpolated by plane equation instead of
  * per-pixel barycentrics, so the inner loop is 4 fadds + 2 compares.
  */
-#include "te_raster.h"
+#include "mote_raster.h"
 #include <math.h>
 #include <string.h>
 
 /* All coordinates and row bands in this file are PHYSICAL pixels
- * (TE_FB_PW x TE_FB_PH). With TE_SS == 1 they equal logical space. */
+ * (MOTE_FB_PW x MOTE_FB_PH). With MOTE_SS == 1 they equal logical space. */
 
 static uint16_t *s_fb;
 /* Depth buffer (32 KB .bss on device) — both cores read/write disjoint row
  * bands during the screen-half split. */
-static uint16_t s_depth[TE_FB_PW * TE_FB_PH];
+static uint16_t s_depth[MOTE_FB_PW * MOTE_FB_PH];
 
-void te_raster_set_fb(uint16_t *fb) { s_fb = fb; }
-uint16_t *te_depth_buffer(void) { return s_depth; }
+void mote_raster_set_fb(uint16_t *fb) { s_fb = fb; }
+uint16_t *mote_depth_buffer(void) { return s_depth; }
 
-void te_depth_clear(int y_min, int y_max) {
+void mote_depth_clear(int y_min, int y_max) {
     if (y_min < 0) y_min = 0;
-    if (y_max > TE_FB_PH) y_max = TE_FB_PH;
+    if (y_max > MOTE_FB_PH) y_max = MOTE_FB_PH;
     if (y_max > y_min)
-        memset(s_depth + y_min * TE_FB_PW, 0,
-               (size_t)(y_max - y_min) * TE_FB_PW * sizeof(uint16_t));
+        memset(s_depth + y_min * MOTE_FB_PW, 0,
+               (size_t)(y_max - y_min) * MOTE_FB_PW * sizeof(uint16_t));
 }
 
 static inline float edge(float ax, float ay, float bx, float by, float px, float py) {
     return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
 }
 
-void te_point(int x, int y, uint16_t d, uint16_t color, int size,
+void mote_point(int x, int y, uint16_t d, uint16_t color, int size,
               int y_min, int y_max) {
     for (int dy = 0; dy < size; dy++) {
         int py = y + dy;
         if (py < y_min || py >= y_max) continue;
-        uint16_t *fb_row = s_fb + py * TE_FB_PW;
-        uint16_t *dp_row = s_depth + py * TE_FB_PW;
+        uint16_t *fb_row = s_fb + py * MOTE_FB_PW;
+        uint16_t *dp_row = s_depth + py * MOTE_FB_PW;
         for (int dx = 0; dx < size; dx++) {
             int px = x + dx;
-            if ((unsigned)px >= TE_FB_PW) continue;
+            if ((unsigned)px >= MOTE_FB_PW) continue;
             if (d > dp_row[px]) fb_row[px] = color;
         }
     }
 }
 
-void te_disc(int cx, int cy, uint16_t d, int r, uint16_t color,
+void mote_disc(int cx, int cy, uint16_t d, int r, uint16_t color,
              int y_min, int y_max) {
     if (r < 1) r = 1;
     for (int dy = -r; dy <= r; dy++) {
@@ -58,39 +58,39 @@ void te_disc(int cx, int cy, uint16_t d, int r, uint16_t color,
         int half = (int)sqrtf((float)(r * r - dy * dy));
         int x0 = cx - half, x1 = cx + half;
         if (x0 < 0) x0 = 0;
-        if (x1 > TE_FB_PW - 1) x1 = TE_FB_PW - 1;
-        uint16_t *fb_row = s_fb + py * TE_FB_PW;
-        uint16_t *dp_row = s_depth + py * TE_FB_PW;
+        if (x1 > MOTE_FB_PW - 1) x1 = MOTE_FB_PW - 1;
+        uint16_t *fb_row = s_fb + py * MOTE_FB_PW;
+        uint16_t *dp_row = s_depth + py * MOTE_FB_PW;
         for (int px = x0; px <= x1; px++)
             if (d > dp_row[px]) fb_row[px] = color;
     }
 }
 
-void te_line(float x0, float y0, uint16_t d0,
+void mote_line(float x0, float y0, uint16_t d0,
              float x1, float y1, uint16_t d1,
              uint16_t color, int y_min, int y_max) {
     float dx = x1 - x0, dy = y1 - y0;
     float adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     int steps = (int)(adx > ady ? adx : ady) + 1;
-    if (steps > 256 * TE_SS) steps = 256 * TE_SS;
+    if (steps > 256 * MOTE_SS) steps = 256 * MOTE_SS;
     float inv = 1.0f / (float)steps;
     float sx = dx * inv, sy = dy * inv, sd = ((float)d1 - (float)d0) * inv;
     float px = x0, py = y0, pd = (float)d0;
     for (int i = 0; i <= steps; i++) {
         int ix = (int)px, iy = (int)py;
-#if TE_SS == 1
-        if (iy >= y_min && iy < y_max && (unsigned)ix < TE_FB_PW) {
-            int idx = iy * TE_FB_PW + ix;
+#if MOTE_SS == 1
+        if (iy >= y_min && iy < y_max && (unsigned)ix < MOTE_FB_PW) {
+            int idx = iy * MOTE_FB_PW + ix;
             if ((uint16_t)pd > s_depth[idx]) s_fb[idx] = color;
         }
 #else
-        for (int by = 0; by < TE_SS; by++) {
+        for (int by = 0; by < MOTE_SS; by++) {
             int yy = iy + by;
             if (yy < y_min || yy >= y_max) continue;
-            for (int bx = 0; bx < TE_SS; bx++) {
+            for (int bx = 0; bx < MOTE_SS; bx++) {
                 int xx = ix + bx;
-                if ((unsigned)xx >= TE_FB_PW) continue;
-                int idx = yy * TE_FB_PW + xx;
+                if ((unsigned)xx >= MOTE_FB_PW) continue;
+                int idx = yy * MOTE_FB_PW + xx;
                 if ((uint16_t)pd > s_depth[idx]) s_fb[idx] = color;
             }
         }
@@ -99,8 +99,8 @@ void te_line(float x0, float y0, uint16_t d0,
     }
 }
 
-TE_HOT
-void te_tri(float ax, float ay, uint16_t az,
+MOTE_HOT
+void mote_tri(float ax, float ay, uint16_t az,
             float bx, float by, uint16_t bz,
             float cx, float cy, uint16_t cz,
             uint16_t color, int y_min, int y_max) {
@@ -116,7 +116,7 @@ void te_tri(float ax, float ay, uint16_t az,
 
     int min_x = (int)fminx; if (min_x < 0) min_x = 0;
     int min_y = (int)fminy; if (min_y < y_min) min_y = y_min;
-    int max_x = (int)fmaxx; if (max_x > TE_FB_PW - 1) max_x = TE_FB_PW - 1;
+    int max_x = (int)fmaxx; if (max_x > MOTE_FB_PW - 1) max_x = MOTE_FB_PW - 1;
     int max_y = (int)fmaxy; if (max_y >= y_max) max_y = y_max - 1;
     if (min_x > max_x || min_y > max_y) return;
 
@@ -136,8 +136,8 @@ void te_tri(float ax, float ay, uint16_t az,
 
     for (int py = min_y; py <= max_y; py++) {
         float w0 = w0_row, w1 = w1_row, w2 = w2_row, z = z_row;
-        uint16_t *fb_row = s_fb + py * TE_FB_PW;
-        uint16_t *dp_row = s_depth + py * TE_FB_PW;
+        uint16_t *fb_row = s_fb + py * MOTE_FB_PW;
+        uint16_t *dp_row = s_depth + py * MOTE_FB_PW;
         for (int px = min_x; px <= max_x; px++) {
             if (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f) {
                 uint16_t d = (uint16_t)z;

@@ -1,17 +1,17 @@
 /*
- * ThumbyEngine — game module (.tgm) linker script.
+ * Mote — game module (.mote) linker script.
  *
  * Links a game at the FIXED virtual window the loader's ATRANS slot points at
  * (code/rodata/header execute in place from flash via XIP), with mutable state
  * (.data/.bss) at the FIXED reserved RAM region. No engine code is linked —
  * the module reaches the engine only through the ABI pointer it is handed.
  *
- * The header (.tgm_header) is forced first at the window base so the loader
- * can read it at TE_TGM_VADDR. .data's load image (LMA) trails .rodata in the
+ * The header (.mote_header) is forced first at the window base so the loader
+ * can read it at MOTE_MODULE_VADDR. .data's load image (LMA) trails .rodata in the
  * flash image; the loader copies it to RAM and zeroes .bss before entry.
  *
- *   TE_TGM_VADDR = 0x10800000   (ATRANS slot 2 virtual window)
- *   TE_TGM_RAM   = 0x20060000   (top 128 KB, reserved by the OS linker script)
+ *   MOTE_MODULE_VADDR = 0x10800000   (ATRANS slot 2 virtual window)
+ *   MOTE_MODULE_RAM   = 0x20060000   (top 128 KB, reserved by the OS linker script)
  */
 MEMORY
 {
@@ -19,12 +19,12 @@ MEMORY
     GAME_RAM  (rwx) : ORIGIN = 0x20060000, LENGTH = 128K
 }
 
-ENTRY(te_game_register)
+ENTRY(mote_game_register)
 
 SECTIONS
 {
-    .tgm : {
-        KEEP(*(.tgm_header))
+    .mote : {
+        KEEP(*(.mote_header))
         *(.text*)
         *(.rodata*)
         *(.srodata*)
@@ -34,24 +34,24 @@ SECTIONS
         . = ALIGN(4);
     } > FLASH_IMG
 
-    __tgm_data_load = LOADADDR(.data);
+    __mote_data_load = LOADADDR(.data);
     .data : {
         . = ALIGN(4);
-        __tgm_data_start = .;
+        __mote_data_start = .;
         *(.data*)
         *(.sdata*)
         . = ALIGN(4);
-        __tgm_data_end = .;
+        __mote_data_end = .;
     } > GAME_RAM AT> FLASH_IMG
 
     .bss (NOLOAD) : {
         . = ALIGN(4);
-        __tgm_bss_start = .;
+        __mote_bss_start = .;
         *(.bss*)
         *(COMMON)
         *(.sbss*)
         . = ALIGN(4);
-        __tgm_bss_end = .;
+        __mote_bss_end = .;
     } > GAME_RAM
 
     /DISCARD/ : { *(.comment) *(.note*) *(.debug*) }

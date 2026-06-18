@@ -1,12 +1,12 @@
 /*
- * A unit cube mesh in the te_mesh.h format — one colour per face so rotation
+ * A unit cube mesh in the mote_mesh.h format — one colour per face so rotation
  * is obvious. CCW winding viewed from outside (engine front-face convention).
  */
 #ifndef HELLO_CUBE_H
 #define HELLO_CUBE_H
 
-#include "te_mesh.h"
-#include "te_config.h"
+#include "mote_mesh.h"
+#include "mote_config.h"
 
 static const MeshVert k_cube_verts[8] = {
     {-127, -127, -127}, /* 0 */
@@ -19,12 +19,12 @@ static const MeshVert k_cube_verts[8] = {
     {-127,  127,  127}, /* 7 */
 };
 
-#define C_RED    TE_RGB565(220,  40,  40)
-#define C_GREEN  TE_RGB565( 40, 200,  60)
-#define C_BLUE   TE_RGB565( 60, 110, 230)
-#define C_YELLOW TE_RGB565(230, 200,  40)
-#define C_CYAN   TE_RGB565( 40, 200, 210)
-#define C_PURPLE TE_RGB565(180,  70, 210)
+#define C_RED    MOTE_RGB565(220,  40,  40)
+#define C_GREEN  MOTE_RGB565( 40, 200,  60)
+#define C_BLUE   MOTE_RGB565( 60, 110, 230)
+#define C_YELLOW MOTE_RGB565(230, 200,  40)
+#define C_CYAN   MOTE_RGB565( 40, 200, 210)
+#define C_PURPLE MOTE_RGB565(180,  70, 210)
 
 static const MeshFace k_cube_faces[12] = {
     /* +Z (cyan) */

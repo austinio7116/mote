@@ -1,6 +1,6 @@
 /*
- * ThumbyEngine device — button reader (ported from ThumbyCraft craft_buttons).
- * Fills TeButtons directly (identical 9-bool layout to CraftRawButtons).
+ * Mote device — button reader (ported from ThumbyCraft craft_buttons).
+ * Fills MoteButtons directly (identical 9-bool layout to CraftRawButtons).
  */
 #include "buttons.h"
 
@@ -23,7 +23,7 @@ static void init_pull_up(uint pin) {
     gpio_pull_up(pin);
 }
 
-void te_buttons_init(void) {
+void mote_buttons_init(void) {
     init_pull_up(BTN_LEFT_GP);
     init_pull_up(BTN_UP_GP);
     init_pull_up(BTN_RIGHT_GP);
@@ -35,7 +35,7 @@ void te_buttons_init(void) {
     init_pull_up(BTN_MENU_GP);
 }
 
-void te_buttons_read(TeButtons *out) {
+void mote_buttons_read(MoteButtons *out) {
     out->left  = !gpio_get(BTN_LEFT_GP);
     out->right = !gpio_get(BTN_RIGHT_GP);
     out->up    = !gpio_get(BTN_UP_GP);

@@ -1,7 +1,7 @@
 /*
- * ThumbyEngine — SDL2 host platform (the PC emulator).
+ * Mote — SDL2 host platform (the PC emulator).
  *
- * Implements te_platform.h on SDL2: a 128x128 RGB565 frame scaled up into a
+ * Implements mote_platform.h on SDL2: a 128x128 RGB565 frame scaled up into a
  * window, keyboard mapped to the handheld's buttons. Same engine + game code
  * runs here and on the device; only this file (and the device twin) differ.
  *
@@ -11,13 +11,13 @@
  *   LB    : Left Shift        RB: Space
  *   MENU  : Enter             Quit: Esc / window close
  */
-#include "../../engine/core/te_platform.h"
+#include "../../engine/core/mote_platform.h"
 #include <SDL2/SDL.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifndef TE_HOST_SCALE
-#define TE_HOST_SCALE 4
+#ifndef MOTE_HOST_SCALE
+#define MOTE_HOST_SCALE 4
 #endif
 
 static SDL_Window   *s_win;
@@ -27,7 +27,7 @@ static bool          s_quit;
 static bool          s_headless;   /* no display: present is a no-op */
 static uint64_t      s_freq;
 
-/* Headless capture: TE_SHOT=/path.ppm dumps frame TE_SHOT_FRAME (default 20)
+/* Headless capture: MOTE_SHOT=/path.ppm dumps frame MOTE_SHOT_FRAME (default 20)
  * then quits. Works with or without a display — handy for CI and parity
  * checks since it reads the engine's own framebuffer. */
 static const char *s_shot_path;
@@ -37,8 +37,8 @@ static int          s_frame;
 static void dump_ppm(const char *path, const uint16_t *fb) {
     FILE *f = fopen(path, "wb");
     if (!f) return;
-    fprintf(f, "P6\n%d %d\n255\n", TE_FB_W, TE_FB_H);
-    for (int i = 0; i < TE_FB_W * TE_FB_H; i++) {
+    fprintf(f, "P6\n%d %d\n255\n", MOTE_FB_W, MOTE_FB_H);
+    for (int i = 0; i < MOTE_FB_W * MOTE_FB_H; i++) {
         uint16_t c = fb[i];
         fputc(((c >> 11) & 0x1F) << 3, f);
         fputc(((c >> 5) & 0x3F) << 2, f);
@@ -47,7 +47,7 @@ static void dump_ppm(const char *path, const uint16_t *fb) {
     fclose(f);
 }
 
-int te_plat_init(const char *title) {
+int mote_plat_init(const char *title) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
@@ -55,31 +55,31 @@ int te_plat_init(const char *title) {
     s_freq = SDL_GetPerformanceFrequency();
     s_quit = false;
     s_headless = false;
-    s_shot_path = getenv("TE_SHOT");
-    if (getenv("TE_SHOT_FRAME")) s_shot_frame = atoi(getenv("TE_SHOT_FRAME"));
+    s_shot_path = getenv("MOTE_SHOT");
+    if (getenv("MOTE_SHOT_FRAME")) s_shot_frame = atoi(getenv("MOTE_SHOT_FRAME"));
     s_frame = 0;
 
-    s_win = SDL_CreateWindow(title ? title : "ThumbyEngine",
+    s_win = SDL_CreateWindow(title ? title : "Mote",
                              SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                             TE_FB_W * TE_HOST_SCALE, TE_FB_H * TE_HOST_SCALE,
+                             MOTE_FB_W * MOTE_HOST_SCALE, MOTE_FB_H * MOTE_HOST_SCALE,
                              SDL_WINDOW_SHOWN);
     if (s_win)
         s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_PRESENTVSYNC);
     if (s_ren) {
-        SDL_RenderSetLogicalSize(s_ren, TE_FB_W, TE_FB_H);
+        SDL_RenderSetLogicalSize(s_ren, MOTE_FB_W, MOTE_FB_H);
         s_tex = SDL_CreateTexture(s_ren, SDL_PIXELFORMAT_RGB565,
-                                  SDL_TEXTUREACCESS_STREAMING, TE_FB_W, TE_FB_H);
+                                  SDL_TEXTUREACCESS_STREAMING, MOTE_FB_W, MOTE_FB_H);
     }
     if (!s_win || !s_ren || !s_tex) {
         /* No usable display (headless CI / dummy driver). The engine still
          * renders into its framebuffer; present just does nothing. */
-        SDL_Log("te_plat: no display (%s) — running headless", SDL_GetError());
+        SDL_Log("mote_plat: no display (%s) — running headless", SDL_GetError());
         s_headless = true;
     }
     return 0;
 }
 
-void te_plat_present(const uint16_t *fb565) {
+void mote_plat_present(const uint16_t *fb565) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) s_quit = true;
@@ -87,17 +87,17 @@ void te_plat_present(const uint16_t *fb565) {
     }
     if (s_shot_path && ++s_frame == s_shot_frame) {
         dump_ppm(s_shot_path, fb565);
-        SDL_Log("te_plat: wrote %s at frame %d", s_shot_path, s_frame);
+        SDL_Log("mote_plat: wrote %s at frame %d", s_shot_path, s_frame);
         s_quit = true;
     }
     if (s_headless) return;
-    SDL_UpdateTexture(s_tex, NULL, fb565, TE_FB_W * (int)sizeof(uint16_t));
+    SDL_UpdateTexture(s_tex, NULL, fb565, MOTE_FB_W * (int)sizeof(uint16_t));
     SDL_RenderClear(s_ren);
     SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
     SDL_RenderPresent(s_ren);
 }
 
-void te_plat_buttons(TeButtons *out) {
+void mote_plat_buttons(MoteButtons *out) {
     const Uint8 *k = SDL_GetKeyboardState(NULL);
     out->up    = k[SDL_SCANCODE_UP]    || k[SDL_SCANCODE_W];
     out->down  = k[SDL_SCANCODE_DOWN]  || k[SDL_SCANCODE_S];
@@ -110,13 +110,13 @@ void te_plat_buttons(TeButtons *out) {
     out->menu  = k[SDL_SCANCODE_RETURN];
 }
 
-uint64_t te_plat_micros(void) {
+uint64_t mote_plat_micros(void) {
     return (uint64_t)((SDL_GetPerformanceCounter() * 1000000ull) / s_freq);
 }
 
-bool te_plat_should_quit(void) { return s_quit; }
+bool mote_plat_should_quit(void) { return s_quit; }
 
-void te_plat_shutdown(void) {
+void mote_plat_shutdown(void) {
     if (s_tex) SDL_DestroyTexture(s_tex);
     if (s_ren) SDL_DestroyRenderer(s_ren);
     if (s_win) SDL_DestroyWindow(s_win);

@@ -1,4 +1,4 @@
-# ThumbyEngine + ThumbyOS
+# Mote + Mote OS
 
 A native-C game-development platform for the Thumby Color (RP2350). A
 consolidated engine (`libte`) extracted from ThumbyElite (rasterizer),
@@ -12,7 +12,7 @@ Full design + roadmap: `docs/PLAN.md`.
 
 **Phase 0 — dual-target build skeleton: host milestone DONE.**
 A spinning, lit, depth-tested cube renders through the real 3D pipeline +
-rasterizer, driven entirely through the `te_platform` abstraction. The device
+rasterizer, driven entirely through the `mote_platform` abstraction. The device
 half (same code on RP2350) lands with the OS in Phase 1.
 
 ## Layout
@@ -20,8 +20,8 @@ half (same code on RP2350) lands with the OS in Phase 1.
 ```
 engine/      libte — platform-independent C (math, render, input, ...)
 platform/    host/ (SDL2 PC build)   device/ (RP2350 — Phase 1)
-os/          ThumbyOS launcher + engine + USB deploy (Phase 1)
-sdk/         te_api.h ABI + game linker script (Phase 1)
+os/          Mote OS launcher + engine + USB deploy (Phase 1)
+sdk/         mote_api.h ABI + game linker script (Phase 1)
 tools/       asset bakers + the `thumby` CLI (Phase 2)
 examples/    sample games (hello-mesh, ...)
 docs/        PLAN.md
@@ -43,7 +43,7 @@ LB = LShift, RB = Space, MENU = Enter, quit = Esc.
 Headless render check (CI / no display):
 
 ```bash
-SDL_VIDEODRIVER=dummy TE_SHOT=/tmp/shot.ppm ./build_host/hello_mesh
+SDL_VIDEODRIVER=dummy MOTE_SHOT=/tmp/shot.ppm ./build_host/hello_mesh
 ```
 
 ## Conventions (inherited from the source engines)

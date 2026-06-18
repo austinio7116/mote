@@ -1,5 +1,5 @@
 /*
- * ThumbyEngine device — GC9107 LCD driver (ported from ThumbyCraft,
+ * Mote device — GC9107 LCD driver (ported from ThumbyCraft,
  * standalone variant: ThumbyOne slot branches removed).
  *
  * The init register flow is the panel-mandated GC9107 startup sequence.
@@ -48,7 +48,7 @@ static void lcd_set_window_full(void) {
     lcd_cmd(0x2c, NULL, 0);
 }
 
-void te_lcd_init(void) {
+void mote_lcd_init(void) {
     spi_init(LCD_SPI, LCD_SPI_HZ);
     gpio_set_function(PIN_TX,  GPIO_FUNC_SPI);
     gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
@@ -107,14 +107,14 @@ void te_lcd_init(void) {
     gpio_put(PIN_BL, 1);
 }
 
-void te_lcd_wait_idle(void) {
+void mote_lcd_wait_idle(void) {
     if (dma_ch < 0) return;
     while (dma_channel_is_busy(dma_ch)) tight_loop_contents();
     while (spi_get_hw(LCD_SPI)->sr & SPI_SSPSR_BSY_BITS) tight_loop_contents();
 }
 
-void te_lcd_present(const uint16_t *fb_rgb565) {
-    te_lcd_wait_idle();
+void mote_lcd_present(const uint16_t *fb_rgb565) {
+    mote_lcd_wait_idle();
     lcd_set_window_full();
     gpio_put(PIN_CS, 0);
     gpio_put(PIN_DC, 1);
@@ -125,6 +125,6 @@ void te_lcd_present(const uint16_t *fb_rgb565) {
         true);
 }
 
-void te_lcd_backlight(int on) {
+void mote_lcd_backlight(int on) {
     gpio_put(PIN_BL, on ? 1 : 0);
 }

@@ -1,5 +1,5 @@
 /*
- * ThumbyOS device — embeds a built game module (.tgm flat image) into the OS
+ * Mote OS device — embeds a built game module (.mote flat image) into the OS
  * image as a 4 KB-aligned blob, so the loader can ATRANS-map it. Generated
  * from game_blob.S.in by CMake with the absolute path to the game .bin.
  *

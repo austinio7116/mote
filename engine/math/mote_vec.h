@@ -1,5 +1,5 @@
 /*
- * ThumbyEngine — float vector/matrix helpers (header-only).
+ * Mote — float vector/matrix helpers (header-only).
  *
  * Vec3 + Mat3 (row-vectors are basis axes: right/up/forward). All floats —
  * the RP2350 M33 FPU + -ffast-math makes these competitive with fixed point
@@ -9,8 +9,8 @@
  * Convention: world is right-handed, camera looks down +Z in view space,
  * screen x right / y down. Mat3 rows: m[0]=right, m[1]=up, m[2]=forward.
  */
-#ifndef TE_VEC_H
-#define TE_VEC_H
+#ifndef MOTE_VEC_H
+#define MOTE_VEC_H
 
 #include <math.h>
 
@@ -81,4 +81,4 @@ static inline void m3_orthonormalize(Mat3 *m) {
     m->r[1] = v3_cross(m->r[2], m->r[0]);
 }
 
-#endif /* TE_VEC_H */
+#endif /* MOTE_VEC_H */
