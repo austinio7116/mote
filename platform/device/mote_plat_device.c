@@ -29,13 +29,22 @@ int mote_plat_init(const char *title) {
     mote_lcd_init();
     mote_buttons_init();
     mote_usb_init();
+    /* Burst-service USB so enumeration completes promptly: the render loop
+     * only pumps tud_task ~once per ~7 ms frame, which can be too slow for the
+     * host's initial descriptor handshake (-> "Device Descriptor Request
+     * Failed"). Give it a tight ~400 ms window up front. */
+    uint32_t t0 = to_ms_since_boot(get_absolute_time());
+    while (to_ms_since_boot(get_absolute_time()) - t0 < 400) mote_usb_task();
     return 0;
 }
 
 void mote_plat_present(const uint16_t *fb565) {
-    mote_usb_task();           /* pump USB every frame (launcher + in-game) */
-    mote_lcd_present(fb565);   /* waits for prior DMA, then kicks a new one */
-    mote_lcd_wait_idle();      /* block until flushed: tear-free single buffer */
+    mote_usb_task();
+    mote_lcd_present(fb565);                /* prior DMA already drained below; kicks new */
+    /* Service USB continuously during the ~6.5 ms frame flush instead of
+     * starving tud_task in a spin — USB enumeration/transfers need prompt
+     * servicing (the starvation ThumbyOne's flash code is careful to avoid). */
+    while (mote_lcd_busy()) mote_usb_task();
 }
 
 void mote_plat_buttons(MoteButtons *out) {

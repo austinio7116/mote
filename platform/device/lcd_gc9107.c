@@ -113,6 +113,14 @@ void mote_lcd_wait_idle(void) {
     while (spi_get_hw(LCD_SPI)->sr & SPI_SSPSR_BSY_BITS) tight_loop_contents();
 }
 
+/* True while the async frame transfer is still in flight — lets the caller do
+ * useful work (servicing USB) during the ~6.5 ms flush instead of spinning. */
+int mote_lcd_busy(void) {
+    if (dma_ch < 0) return 0;
+    if (dma_channel_is_busy(dma_ch)) return 1;
+    return (spi_get_hw(LCD_SPI)->sr & SPI_SSPSR_BSY_BITS) ? 1 : 0;
+}
+
 void mote_lcd_present(const uint16_t *fb_rgb565) {
     mote_lcd_wait_idle();
     lcd_set_window_full();
