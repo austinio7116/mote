@@ -17,6 +17,7 @@
 #include "mote_os.h"
 #include "mote_launcher.h"
 #include "mote_loader.h"
+#include "mote_usb.h"
 #include <string.h>
 
 /* Embedded game store (store_blob.S): each module image, 4 KB-aligned. */
@@ -49,6 +50,8 @@ int main(void) {
     cat.count = 0;
     add(&cat, "hello-mesh", g_game0_blob, g_game0_blob_end);
     add(&cat, "tumbler",    g_game1_blob, g_game1_blob_end);
+
+    mote_usb_set_catalog(&cat);     /* USB LIST reflects the live catalog */
 
     for (;;) {
         int idx = mote_launcher_run(&cat);     /* never -1 on device */

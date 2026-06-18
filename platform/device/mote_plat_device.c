@@ -18,15 +18,22 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
+/* USB-CDC control/debug channel (os/device/mote_usb.c). Declared here rather
+ * than #included so the platform layer doesn't pull in OS headers. */
+extern void mote_usb_init(void);
+extern void mote_usb_task(void);
+
 int mote_plat_init(const char *title) {
     (void)title;
     set_sys_clock_khz(280000, true);
     mote_lcd_init();
     mote_buttons_init();
+    mote_usb_init();
     return 0;
 }
 
 void mote_plat_present(const uint16_t *fb565) {
+    mote_usb_task();           /* pump USB every frame (launcher + in-game) */
     mote_lcd_present(fb565);   /* waits for prior DMA, then kicks a new one */
     mote_lcd_wait_idle();      /* block until flushed: tear-free single buffer */
 }

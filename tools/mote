@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""
+mote — host CLI for the Mote dev platform.
+
+The control/debug channel to a Mote device over USB-CDC. 2c-1 implements the
+handshake (ping) and catalog query (list); push/launch/log land in 2c-2.
+
+Usage:
+    mote ping                 # handshake: confirm a Mote device is connected
+    mote list                 # list installed games (catalog)
+    mote --port /dev/ttyACM0 ping
+"""
+import argparse
+import sys
+import time
+
+try:
+    import serial
+    from serial.tools import list_ports
+except ImportError:
+    sys.exit("mote: needs pyserial  (pip install pyserial)")
+
+MOTE_VID = 0xCAFE
+MOTE_PID = 0x4D01
+
+
+def find_port():
+    for p in list_ports.comports():
+        if p.vid == MOTE_VID and p.pid == MOTE_PID:
+            return p.device
+    return None
+
+
+def open_port(port):
+    port = port or find_port()
+    if not port:
+        sys.exit("mote: no Mote device found (VID:PID %04X:%04X). "
+                 "Is it plugged in and at the launcher?" % (MOTE_VID, MOTE_PID))
+    return serial.Serial(port, 115200, timeout=1.0)
+
+
+def command(ser, line, read_until_ok=False):
+    ser.reset_input_buffer()
+    ser.write((line + "\n").encode())
+    ser.flush()
+    out = []
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        raw = ser.readline()
+        if not raw:
+            break
+        s = raw.decode(errors="replace").rstrip("\r\n")
+        out.append(s)
+        if not read_until_ok:
+            break
+        if s in ("OK", "ERR") or s.startswith("ERR"):
+            break
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="mote")
+    ap.add_argument("--port", help="serial port (default: auto-detect by VID:PID)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("ping", help="handshake with the device")
+    sub.add_parser("list", help="list installed games")
+    args = ap.parse_args()
+
+    ser = open_port(args.port)
+    try:
+        if args.cmd == "ping":
+            r = command(ser, "PING")
+            if r and r[0].startswith("MOTE "):
+                print("Mote device OK — protocol %s" % r[0].split()[1])
+            else:
+                sys.exit("mote: no/odd reply: %r" % r)
+        elif args.cmd == "list":
+            r = command(ser, "LIST", read_until_ok=True)
+            games = [l for l in r if l not in ("OK", "ERR") and not l.startswith("ERR")]
+            if not games:
+                print("(no games installed)")
+            for g in games:
+                print(g)
+    finally:
+        ser.close()
+
+
+if __name__ == "__main__":
+    main()

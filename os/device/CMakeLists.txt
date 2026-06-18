@@ -77,6 +77,7 @@ set_source_files_properties(${CMAKE_BINARY_DIR}/store_blob.S
 add_executable(mote_os
     ${OSDIR}/device/os_main.c
     ${OSDIR}/device/mote_loader.c
+    ${OSDIR}/device/mote_usb.c
     ${OSDIR}/mote_os.c
     ${OSDIR}/mote_launcher.c
     ${CMAKE_BINARY_DIR}/store_blob.S
@@ -92,6 +93,8 @@ add_executable(mote_os
     ${ENGINE}/input/mote_input.c)
 add_dependencies(mote_os game_modules)
 
+# tusb_config.h must be found before TinyUSB's own headers.
+target_include_directories(mote_os BEFORE PRIVATE ${OSDIR}/device)
 target_include_directories(mote_os PRIVATE ${MOTE_INCS})
 target_compile_definitions(mote_os PRIVATE
     MOTE_DEVICE=1 PICO_HEAP_SIZE=0x4000
@@ -100,8 +103,10 @@ target_compile_options(mote_os PRIVATE
     -O3 -g -ffast-math -Wall -Wextra -Wno-unused-parameter ${MOTE_ARCH})
 
 target_link_libraries(mote_os
-    pico_stdlib pico_multicore
-    hardware_spi hardware_dma hardware_clocks hardware_gpio)
+    pico_stdlib pico_multicore pico_unique_id
+    hardware_spi hardware_dma hardware_clocks hardware_gpio
+    hardware_flash hardware_sync
+    tinyusb_device tinyusb_board)
 
 # Reserve the top 128 KB of SRAM for the loaded game module.
 pico_set_linker_script(mote_os ${CMAKE_CURRENT_LIST_DIR}/os_memmap.ld)
