@@ -27,6 +27,16 @@
 #define GRID_MAX_BODIES 256           /* broad-phase grid covers up to this many;
                                        * above it, fall back to all-pairs */
 #define GRID_CELLS 4096               /* uniform-grid cell budget (16 KB) */
+#define SLEEP_LIN2  (0.05f * 0.05f)   /* below this speed^2 ... */
+#define SLEEP_ANG2  (0.40f * 0.40f)   /* ... and spin^2 ... */
+#define SLEEP_FRAMES 20               /* ... for this many frames -> sleep. A
+                                       * settled pile stops integrating and
+                                       * sleeper-vs-sleeper pairs are skipped, so
+                                       * a resting heap costs almost nothing.
+                                       * Impulse from an awake body raises a
+                                       * sleeper's velocity -> it wakes next frame
+                                       * (the velocity test below). _reserved[0]
+                                       * holds the still-frame counter. */
 
 void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
@@ -379,6 +389,7 @@ static int   g_nx, g_ny, g_nz;
 static float g_cs, g_x0, g_y0, g_z0;
 
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static inline int body_asleep(const MoteBody *b) { return b->_reserved[0] >= SLEEP_FRAMES; }
 
 static inline int cell_index(const MoteBody *b) {
     int cx = clampi((int)((b->pos.x - g_x0) / g_cs), 0, g_nx - 1);
@@ -423,8 +434,11 @@ MOTE_HOT static uint32_t grid_collide(const MoteWorld *w, MoteBody *bodies, int 
         for (int y = (cy ? cy - 1 : 0); y <= (cy < g_ny - 1 ? cy + 1 : cy); y++)
         for (int x = (cx ? cx - 1 : 0); x <= (cx < g_nx - 1 ? cx + 1 : cx); x++) {
             int c = (z * g_ny + y) * g_nx + x;
-            for (int j = g_cell[c]; j >= 0; j = g_next[j])
-                if (j > i && collide_bodies(w, bi, &bodies[j])) ev |= MOTE_PHYS_HIT;
+            for (int j = g_cell[c]; j >= 0; j = g_next[j]) {
+                if (j <= i) continue;
+                if (body_asleep(bi) && body_asleep(&bodies[j])) continue;  /* both at rest */
+                if (collide_bodies(w, bi, &bodies[j])) ev |= MOTE_PHYS_HIT;
+            }
         }
     }
     return ev;
@@ -437,21 +451,38 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     int use_grid = (n > 24 && n <= GRID_MAX_BODIES);   /* grid pays off past ~24 */
     int cap = (w->max_substeps > 0) ? w->max_substeps : MAX_SUBSTEPS;
     if (dt > 0.1f) dt = 0.1f;
+
+    /* Sleep bookkeeping (per frame, from current velocity): bodies slow for
+     * SLEEP_FRAMES go to sleep; any real velocity (gravity fall, an impulse from
+     * a neighbour, a fresh toss) resets the counter so they wake immediately. */
+    for (int i = 0; i < n; i++) {
+        MoteBody *b = &bodies[i];
+        if (v3_dot(b->vel, b->vel) < SLEEP_LIN2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
+            if (b->_reserved[0] < SLEEP_FRAMES) b->_reserved[0]++;
+        } else {
+            b->_reserved[0] = 0;
+        }
+    }
+
     w->_acc += dt;
     int sub = 0;
     while (w->_acc >= h && sub < cap) {
         w->_acc -= h;
-        for (int i = 0; i < n; i++) integrate(w, &bodies[i], h);
-        if (use_grid) grid_build(w, bodies, n);
+        for (int i = 0; i < n; i++)
+            if (!body_asleep(&bodies[i])) integrate(w, &bodies[i], h);
+        if (use_grid) grid_build(w, bodies, n);          /* sleepers still bin (collision targets) */
         for (int it = 0; it < SOLVER_ITERS; it++) {     /* relaxation passes */
             if (use_grid) {
                 ev |= grid_collide(w, bodies, n);
             } else {
                 for (int i = 0; i < n; i++)
-                    for (int j = i + 1; j < n; j++)
+                    for (int j = i + 1; j < n; j++) {
+                        if (body_asleep(&bodies[i]) && body_asleep(&bodies[j])) continue;
                         if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
+                    }
             }
             for (int i = 0; i < n; i++) {
+                if (body_asleep(&bodies[i])) continue;
                 int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
                            ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);
                 if (h2) ev |= MOTE_PHYS_HIT;
