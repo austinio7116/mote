@@ -23,6 +23,14 @@ int  mote_plat_init(const char *title);
 /* Push a finished 128x128 RGB565 logical frame to the display. */
 void mote_plat_present(const uint16_t *fb565);
 
+/* Rasterise a frame across both cores. `band(fb, y0, y1)` draws logical rows
+ * [y0,y1); the platform runs the top half on core0 and the bottom on core1
+ * (device) or both serially (host). Returns each core's band time (us) so the
+ * perf overlay can show per-core load. */
+typedef void (*MoteBandFn)(uint16_t *fb, int y0, int y1);
+void mote_plat_render2(uint16_t *fb, MoteBandFn band,
+                       uint32_t *out_c0_us, uint32_t *out_c1_us);
+
 /* Poll current raw button state into `out`. */
 void mote_plat_buttons(MoteButtons *out);
 

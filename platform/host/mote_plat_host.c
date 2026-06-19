@@ -127,6 +127,14 @@ bool mote_plat_should_quit(void) { return s_quit; }
 
 int mote_plat_pending_launch(void) { return -1; }
 
+void mote_plat_render2(uint16_t *fb, MoteBandFn band,
+                       uint32_t *out_c0_us, uint32_t *out_c1_us) {
+    uint64_t t0 = mote_plat_micros();
+    band(fb, 0, MOTE_FB_H);          /* host is single-threaded */
+    *out_c0_us = (uint32_t)(mote_plat_micros() - t0);
+    *out_c1_us = 0;
+}
+
 void mote_plat_shutdown(void) {
     if (s_tex) SDL_DestroyTexture(s_tex);
     if (s_ren) SDL_DestroyRenderer(s_ren);

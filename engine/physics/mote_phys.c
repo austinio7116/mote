@@ -14,6 +14,10 @@
 #define REST_SLOP   0.45f             /* below this approach speed, no bounce
                                        * (kills gravity micro-bouncing -> bodies
                                        * actually come to rest) */
+#define SOLVER_ITERS 4                /* contact relaxation passes per substep —
+                                       * lets penetration resolve and stacks
+                                       * settle instead of sinking into each
+                                       * other */
 
 void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
@@ -32,7 +36,7 @@ static inline float inv_I(const MoteBody *b) {
     return (b->radius > 1e-6f) ? (2.5f * b->inv_mass) / (b->radius * b->radius) : 0.0f;
 }
 
-static int collide_pair(const MoteWorld *w, MoteBody *bi, MoteBody *bj) {
+MOTE_HOT static int collide_pair(const MoteWorld *w, MoteBody *bi, MoteBody *bj) {
     Vec3 d = v3_sub(bj->pos, bi->pos);
     float dist = v3_len(d);
     float mind = bi->radius + bj->radius;
@@ -130,7 +134,7 @@ static int sphere_walls(const MoteWorld *w, MoteBody *b) {
 /* Apply the body-frame diagonal inverse inertia in world space, without
  * forming the tensor: Iinv*v = sum_i d_i * a_i * (a_i . v), a_i = orient.r[i].
  * Box: I_x = (1/3) m (hy^2+hz^2) -> inv = 3*inv_mass/(hy^2+hz^2). */
-static Vec3 iinv_mul(const MoteBody *b, Vec3 v) {
+MOTE_HOT static Vec3 iinv_mul(const MoteBody *b, Vec3 v) {
     Vec3 d;
     if (b->shape == MOTE_SHAPE_BOX) {
         float hx = b->half.x, hy = b->half.y, hz = b->half.z;
@@ -150,7 +154,7 @@ static Vec3 iinv_mul(const MoteBody *b, Vec3 v) {
 /* General contact between a body and an immovable plane (inward normal N) at
  * world contact point cp. Uses the full inertia tensor, so off-centre contacts
  * apply torque (a corner-down box tips, a face-down box rests). */
-static void resolve_contact(const MoteWorld *w, MoteBody *b, Vec3 cp, Vec3 N) {
+MOTE_HOT static void resolve_contact(const MoteWorld *w, MoteBody *b, Vec3 cp, Vec3 N) {
     Vec3 r = v3_sub(cp, b->pos);
     Vec3 vc = v3_add(b->vel, v3_cross(b->w, r));
     float vn = v3_dot(vc, N);
@@ -183,7 +187,7 @@ static void resolve_contact(const MoteWorld *w, MoteBody *b, Vec3 cp, Vec3 N) {
     }
 }
 
-static int box_walls(const MoteWorld *w, MoteBody *b) {
+MOTE_HOT static int box_walls(const MoteWorld *w, MoteBody *b) {
     struct { Vec3 N; float d; } wall[6] = {
         { v3( 1, 0, 0),  w->bmin.x }, { v3(-1, 0, 0), -w->bmax.x },
         { v3( 0, 1, 0),  w->bmin.y }, { v3( 0,-1, 0), -w->bmax.y },
@@ -218,7 +222,7 @@ static inline float clampf(float x, float lo, float hi) {
 
 /* Resolve a contact between two bodies at world point cp with unit normal n
  * (n points the way `a` must move to separate from `b`). Full inertia tensor. */
-static void resolve_pair(const MoteWorld *w, MoteBody *a, MoteBody *b,
+MOTE_HOT static void resolve_pair(const MoteWorld *w, MoteBody *a, MoteBody *b,
                          Vec3 cp, Vec3 n) {
     Vec3 ra = v3_sub(cp, a->pos), rb = v3_sub(cp, b->pos);
     Vec3 vrel = v3_sub(v3_add(a->vel, v3_cross(a->w, ra)),
@@ -268,7 +272,7 @@ static void depenetrate(MoteBody *a, MoteBody *b, Vec3 n, float pen) {
 
 /* Contacts for P's vertices that lie inside box Q (n = Q's face normal, out of
  * Q — the way P must move). Gives face-on-face stacking 4 contacts. */
-static int verts_into_box(const MoteWorld *w, MoteBody *P, MoteBody *Q) {
+MOTE_HOT static int verts_into_box(const MoteWorld *w, MoteBody *P, MoteBody *Q) {
     Vec3 qax[3] = { Q->orient.r[0], Q->orient.r[1], Q->orient.r[2] };
     float qh[3] = { Q->half.x, Q->half.y, Q->half.z };
     int hit = 0;
@@ -294,7 +298,7 @@ static int verts_into_box(const MoteWorld *w, MoteBody *P, MoteBody *Q) {
     return hit;
 }
 
-static int box_box(const MoteWorld *w, MoteBody *a, MoteBody *b) {
+MOTE_HOT static int box_box(const MoteWorld *w, MoteBody *a, MoteBody *b) {
     Vec3 d = v3_sub(b->pos, a->pos);
     float br = v3_len(a->half) + v3_len(b->half);
     if (v3_dot(d, d) > br * br) return 0;                /* broad phase */
@@ -304,7 +308,7 @@ static int box_box(const MoteWorld *w, MoteBody *a, MoteBody *b) {
 }
 
 /* Sphere S vs box B: nearest point on B to the sphere centre. */
-static int sphere_box(const MoteWorld *w, MoteBody *S, MoteBody *B) {
+MOTE_HOT static int sphere_box(const MoteWorld *w, MoteBody *S, MoteBody *B) {
     Vec3 ax[3] = { B->orient.r[0], B->orient.r[1], B->orient.r[2] };
     float h[3] = { B->half.x, B->half.y, B->half.z };
     Vec3 rel = v3_sub(S->pos, B->pos);
@@ -332,7 +336,7 @@ static int sphere_box(const MoteWorld *w, MoteBody *S, MoteBody *B) {
     return 1;
 }
 
-static int collide_bodies(const MoteWorld *w, MoteBody *a, MoteBody *b) {
+MOTE_HOT static int collide_bodies(const MoteWorld *w, MoteBody *a, MoteBody *b) {
     int abox = (a->shape == MOTE_SHAPE_BOX), bbox = (b->shape == MOTE_SHAPE_BOX);
     if (!abox && !bbox) return collide_pair(w, a, b);
     if (abox && bbox)   return box_box(w, a, b);
@@ -365,13 +369,15 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     while (w->_acc >= h && guard++ < 64) {
         w->_acc -= h;
         for (int i = 0; i < n; i++) integrate(w, &bodies[i], h);
-        for (int i = 0; i < n; i++)
-            for (int j = i + 1; j < n; j++)
-                if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
-        for (int i = 0; i < n; i++) {
-            int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
-                       ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);
-            if (h2) ev |= MOTE_PHYS_HIT;
+        for (int it = 0; it < SOLVER_ITERS; it++) {     /* relaxation passes */
+            for (int i = 0; i < n; i++)
+                for (int j = i + 1; j < n; j++)
+                    if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
+            for (int i = 0; i < n; i++) {
+                int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
+                           ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);
+                if (h2) ev |= MOTE_PHYS_HIT;
+            }
         }
     }
     return ev;

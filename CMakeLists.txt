@@ -18,6 +18,7 @@ set(MOTE_ENGINE_SOURCES
     ${MOTE_ENGINE_DIR}/render/mote_font.c
     ${MOTE_ENGINE_DIR}/render/mote_2d.c
     ${MOTE_ENGINE_DIR}/physics/mote_phys.c
+    ${MOTE_ENGINE_DIR}/core/mote_perf.c
     ${MOTE_ENGINE_DIR}/input/mote_input.c
 )
 

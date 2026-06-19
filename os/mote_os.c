@@ -8,6 +8,7 @@
 #include "mote_2d.h"
 #include "mote_phys.h"
 #include "mote_font.h"
+#include "mote_perf.h"
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -45,20 +46,35 @@ void mote_api_fill(MoteApi *a) {
     a->text_2x               = mote_font_draw_2x;
 }
 
+/* The per-band render, run on BOTH cores (disjoint row bands). Reads the
+ * scene data populated by update() — read-only, so it's race-free. */
+static const MoteGameVtbl *s_vt;
+static void render_band_cb(uint16_t *fb, int y0, int y1) {
+    if (s_vt->render_band) {
+        s_vt->render_band(fb, y0, y1);
+    } else {
+        mote_scene_raster(fb, y0, y1);
+        mote_scene2d_raster(fb, y0, y1);
+    }
+}
+
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     (void)api;
     static uint16_t fb[MOTE_FB_PW * MOTE_FB_PH];   /* the OS owns the framebuffer */
 
     s_exit_req = false;
+    s_vt = vt;
     if (vt->init) vt->init();
 
     MoteInput in;
     memset(&in, 0, sizeof in);
     uint64_t last = mote_plat_micros();
+    int was_both = 0;
 
     while (!mote_plat_should_quit() && !s_exit_req) {
         uint64_t now = mote_plat_micros();
-        float dt = (float)(now - last) * 1e-6f;
+        uint32_t frame_us = (uint32_t)(now - last);
+        float dt = (float)frame_us * 1e-6f;
         if (dt > 0.1f) dt = 0.1f;
         last = now;
 
@@ -67,26 +83,31 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_input_update(&in, &raw, (uint32_t)(dt * 1000.0f));
         s_cur_input = &in;
 
+        /* Reserved engine shortcut: LB+RB toggles the perf overlay (any game). */
+        int both = mote_pressed(&in, MOTE_BTN_LB) && mote_pressed(&in, MOTE_BTN_RB);
+        if (both && !was_both) mote_perf_toggle();
+        was_both = both;
+
         /* Start each frame with empty scenes so a game only renders what it
          * adds this frame — no stale state within a game or across games. */
         mote_scene_clear();
         mote_scene2d_clear();
 
+        uint64_t tu = mote_plat_micros();
         if (vt->update) vt->update(dt);
+        uint32_t update_us = (uint32_t)(mote_plat_micros() - tu);
 
-        /* Rasterise. On device this band split runs on both cores; on host
-         * one pass covers the whole frame. Default path: 3D scene (clears the
-         * band to background + draws tris), then the 2D scene (tilemap +
-         * sprites) on top. render_band fully overrides for custom renderers. */
-        if (vt->render_band) {
-            vt->render_band(fb, 0, MOTE_FB_H);
-        } else {
-            mote_scene_raster(fb, 0, MOTE_FB_H);
-            mote_scene2d_raster(fb, 0, MOTE_FB_H);
-        }
+        /* Rasterise across both cores (core0 top, core1 bottom on device). */
+        uint32_t c0_us = 0, c1_us = 0;
+        mote_plat_render2(fb, render_band_cb, &c0_us, &c1_us);
 
-        if (vt->overlay) vt->overlay(fb);
+        if (vt->overlay) vt->overlay(fb);      /* game HUD (core0) */
+        mote_perf_overlay(fb);                 /* perf graph (core0) */
 
+        uint64_t tf = mote_plat_micros();
         mote_plat_present(fb);
+        uint32_t flush_us = (uint32_t)(mote_plat_micros() - tf);
+
+        mote_perf_record(update_us, c0_us, c1_us, flush_us, frame_us);
     }
 }
