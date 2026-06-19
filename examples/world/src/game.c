@@ -30,8 +30,19 @@ static MeshVert tv[GRID*GRID];
 static MeshFace tf[(GRID-1)*(GRID-1)*2];
 static Mesh terrain_mesh;
 
+/* terrain as a physics collider (float verts + triangle indices) */
+static Vec3     mcv[GRID*GRID];
+static uint16_t mct[(GRID-1)*(GRID-1)*2*3];
+static MoteMesh terrain_col;
+
+/* ---- rain: 50 tiny balls that fall onto the terrain ---- */
+#define NBALL 50
+static MoteWorld pw;
+static MoteBody  balls[NBALL+1];      /* [0] = terrain mesh, [1..] = spheres */
+static int       s_rt[NBALL];         /* per-ball settle timer (for respawn) */
+
 /* ---- splats ---- */
-#define MAXSPLAT 2300
+#define MAXSPLAT 2000
 static MoteSplat s_splat[MAXSPLAT];
 static int s_order[MAXSPLAT];
 static int s_n;
@@ -100,21 +111,51 @@ static void gen_terrain(void){
     for(int gz=0;gz<GRID;gz++) for(int gx=0;gx<GRID;gx++){
         float x=((float)gx/(GRID-1)-0.5f)*2*EXT, z=((float)gz/(GRID-1)-0.5f)*2*EXT;
         float y=terrain_h(x,z);
-        MeshVert *v=&tv[gz*GRID+gx];
+        int idx=gz*GRID+gx;
+        MeshVert *v=&tv[idx];
         v->x=(int8_t)(x/TSCALE*127); v->y=(int8_t)(y/TSCALE*127); v->z=(int8_t)(z/TSCALE*127);
+        mcv[idx]=v3(x,y,z);                       /* float world vert for the collider */
     }
-    int fi=0;
+    int fi=0, ti=0;
     for(int gz=0;gz<GRID-1;gz++) for(int gx=0;gx<GRID-1;gx++){
         int a=gz*GRID+gx, b=a+1, c=a+GRID, d=c+1;
         add_face(&fi,a,c,b); add_face(&fi,b,c,d);
+        mct[ti++]=a; mct[ti++]=c; mct[ti++]=b;
+        mct[ti++]=b; mct[ti++]=c; mct[ti++]=d;
     }
     terrain_mesh.verts=tv; terrain_mesh.faces=tf; terrain_mesh.nverts=GRID*GRID;
     terrain_mesh.nfaces=fi; terrain_mesh.scale=TSCALE; terrain_mesh.bound_r=EXT*1.5f;
+    terrain_col.verts=mcv; terrain_col.nverts=GRID*GRID; terrain_col.tris=mct;
+    terrain_col.ntris=ti/3; terrain_col.bound_r=EXT*1.5f;
+}
+
+static void spawn_ball(int k){
+    MoteBody *b = &balls[1+k];
+    float x = frnd2()*(EXT-1.0f), z = frnd2()*(EXT-1.0f);
+    b->pos = v3(x, 4.5f + frand()*2.5f, z);
+    b->vel = v3(frnd2()*0.3f, 0, frnd2()*0.3f);
+    b->w = v3(0,0,0); b->_reserved[0] = 0;       /* wake */
+    s_rt[k] = 0;
 }
 
 static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(135, 170, 205));   /* sky */
     gen_terrain();
+
+    /* rain: terrain mesh collider + 50 falling spheres */
+    mote->phys_world_defaults(&pw);
+    pw.walls = 0; pw.gravity = v3(0,-9.8f,0);
+    pw.restitution = 0.4f; pw.friction = 0.5f;
+    pw.substep = 1.0f/240.0f; pw.max_substeps = 8;
+    balls[0].shape = MOTE_SHAPE_MESH; balls[0].shape_data = &terrain_col;
+    balls[0].orient = m3_identity(); balls[0].inv_mass = 0.0f;
+    for (int k = 0; k < NBALL; k++) {
+        MoteBody *b = &balls[1+k];
+        b->shape = MOTE_SHAPE_SPHERE; b->radius = 0.06f; b->inv_mass = 1.0f/0.05f;
+        b->restitution = 0.25f; b->orient = m3_identity();
+        spawn_ball(k);
+        b->pos.y += k * 0.10f;                   /* stagger the drop */
+    }
     s_n = 0;
     /* a grove straddling the +Z path the camera walks through */
     static const float tpos[11][2] = {
@@ -136,6 +177,20 @@ static void g_update(float dt){
     if (mote_pressed(in, MOTE_BTN_LEFT))  s_yaw -= 1.3f*dt;
     if (mote_pressed(in, MOTE_BTN_RIGHT)) s_yaw += 1.3f*dt;
 
+    /* rain physics: spheres fall onto the terrain mesh; respawn when settled */
+    mote->phys_step(&pw, balls, NBALL+1, dt);
+    for (int k = 0; k < NBALL; k++) {
+        MoteBody *b = &balls[1+k];
+        float th = terrain_h(b->pos.x, b->pos.z), sp = v3_len(b->vel);
+        /* self-heal: a ball that tunnelled or got flung by a pile just re-rains,
+         * so the field always reads as clean falling rain (the solver can blow
+         * up when many light balls cluster in a basin — we don't let it show). */
+        if (b->pos.y < th - 0.5f || sp > 9.0f) { spawn_ball(k); continue; }
+        if (sp < 0.3f && b->pos.y < th + 0.25f) {
+            if (++s_rt[k] > 45) spawn_ball(k);                   /* settled -> re-rain */
+        } else s_rt[k] = 0;
+    }
+
     Vec3 fwd_xz = v3(sinf(s_yaw), 0, cosf(s_yaw));
     float step = 0.0f;
     if (mote_pressed(in, MOTE_BTN_UP))   step += 1.8f*dt;
@@ -155,6 +210,8 @@ static void g_update(float dt){
     mote->scene_begin(&s_basis, 60.0f);
     MoteObject ground = { .pos = v3_sub(v3(0,0,0), s_cam), .basis = m3_identity(), .mesh = &terrain_mesh };
     mote->scene_add_object(&ground);                         /* rasters + writes depth */
+    for (int k = 0; k < NBALL; k++)                          /* the rain (depth-tested) */
+        mote->scene_add_sphere(v3_sub(balls[1+k].pos, s_cam), 0.06f, MOTE_RGB565(225,238,255));
     /* trees: dual-core measured pass after the terrain, occluded by its depth */
     mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 60.0f, mote->depth_buffer());
 }

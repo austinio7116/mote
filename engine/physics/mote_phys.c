@@ -606,27 +606,38 @@ static void gen_vs_mesh(MoteBody *bodies, int i, int mi) {
         Vec3 B = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+1]]));
         Vec3 C = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+2]]));
         Vec3 cen = v3_scale(v3_add(v3_add(A, B), C), 1.0f/3.0f);
-        float tr = v3_len(v3_sub(A, cen)); if (v3_len(v3_sub(B,cen))>tr) tr=v3_len(v3_sub(B,cen));
+        float tr = v3_len(v3_sub(A, cen));
+        float trb = v3_len(v3_sub(B, cen)); if (trb > tr) tr = trb;
+        float trc = v3_len(v3_sub(C, cen)); if (trc > tr) tr = trc;
         if (v3_len2(v3_sub(b->pos, cen)) > (br+tr+0.05f)*(br+tr+0.05f)) continue;  /* broad phase */
         if (faceted) {
             build_cvx_tri(A, B, C, &s_cxb);
             convex_manifold(&s_cxa, &s_cxb, i, mi, 1000u + (uint32_t)t*8u);
-        } else {  /* sphere / capsule: closest point on the triangle */
-            Vec3 q = b->pos;
-            if (b->shape == MOTE_SHAPE_CAPSULE) {
-                Vec3 e0 = v3_add(b->pos, v3_scale(b->orient.r[1], -b->half.y));
-                Vec3 cp0 = closest_tri(e0, A, B, C);
-                Vec3 e1 = v3_add(b->pos, v3_scale(b->orient.r[1],  b->half.y));
-                Vec3 cp1 = closest_tri(e1, A, B, C);
-                q = (v3_len2(v3_sub(e0,cp0)) < v3_len2(v3_sub(e1,cp1))) ? e0 : e1;
-            }
-            Vec3 cp = closest_tri(q, A, B, C);
-            Vec3 d = v3_sub(q, cp); float dist = v3_len(d);
-            if (dist < b->radius && dist > 1e-5f)
-                add_contact(i, mi, v3_scale(d, 1.0f/dist), cp, b->radius - dist, 1000u + (uint32_t)t);
+            continue;
+        }
+        Vec3 q = b->pos;
+        if (b->shape == MOTE_SHAPE_CAPSULE) {
+            Vec3 e0 = v3_add(b->pos, v3_scale(b->orient.r[1], -b->half.y));
+            Vec3 cp0 = closest_tri(e0, A, B, C);
+            Vec3 e1 = v3_add(b->pos, v3_scale(b->orient.r[1],  b->half.y));
+            Vec3 cp1 = closest_tri(e1, A, B, C);
+            q = (v3_len2(v3_sub(e0,cp0)) < v3_len2(v3_sub(e1,cp1))) ? e0 : e1;
+        }
+        Vec3 cp = closest_tri(q, A, B, C);
+        Vec3 d = v3_sub(q, cp); float dist = v3_len(d);
+        if (dist < b->radius) {
+            /* push along the face normal oriented TOWARD the body, so a body that
+             * dips just below the surface depenetrates back out, not deeper in
+             * (closest-point direction would drive it further into the solid). */
+            Vec3 fn = v3_norm(v3_cross(v3_sub(B, A), v3_sub(C, A)));
+            if (v3_dot(d, fn) < 0.0f) fn = v3_scale(fn, -1.0f);
+            float pen = b->radius - v3_dot(d, fn);
+            if (pen > 0.0f) add_contact(i, mi, fn, cp, pen, 1000u + (uint32_t)t);
         }
     }
 }
+
+
 
 /* Collision for any pair involving a capsule or hull (single contact). */
 static void gen_gjk(MoteBody *bodies, int i, int j) {
