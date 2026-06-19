@@ -41,13 +41,13 @@ static float frand(void) {       /* xorshift -> [-1,1) */
 }
 
 static void toss(void) {
-    /* Lay the bodies out on a non-overlapping lattice (6x6 per layer, 0.6 m
-     * spacing > the 0.52 m body diameter) so nothing ever starts inside
-     * anything else — random-scatter spawning crammed them together and the
-     * deep initial overlap made box-box resolution shove cubes through each
-     * other. They free-fall the short gap and settle into a clean pile. */
-    const int   per = 6;
-    const float sp  = 0.6f;
+    /* Lay the bodies out on a tight non-overlapping lattice: 4x4 per layer,
+     * spacing just over the 0.52 m diameter so they don't start inside each
+     * other, but a SMALL enough footprint that upper layers land on lower ones
+     * and actually stack/interact (a 6x6 grid spread them so far they never
+     * touched). They free-fall the small gap and settle into a real pile. */
+    const int   per = 4;
+    const float sp  = 0.56f;
     for (int i = 0; i < s_active; i++) {
         MoteBody *b = &body[i];
         b->inv_mass = 1.0f / 0.3f;
@@ -62,7 +62,7 @@ static void toss(void) {
         int cell = i % (per * per), layer = i / (per * per);
         int gx = cell % per, gz = cell / per;
         b->pos = v3((gx - (per - 1) * 0.5f) * sp + frand() * 0.02f,
-                    0.6f + layer * sp,
+                    0.8f + layer * sp,
                     (gz - (per - 1) * 0.5f) * sp + frand() * 0.02f);
         b->vel = v3(0.0f, 0.0f, 0.0f);
         b->w   = v3(0.0f, 0.0f, 0.0f);
