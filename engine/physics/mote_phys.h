@@ -12,21 +12,23 @@
  * The engine runs the solver on the game's body array (via the ABI); the game
  * owns the bodies and renders them however it likes.
  *
- * SLEEPING: a body that stays slow (low linear AND angular velocity) for ~20
- * frames goes to sleep — it stops integrating, skips wall checks, and
- * sleeper-vs-sleeper collision pairs are skipped — so a settled pile costs
- * almost nothing. Waking is purely velocity-based: any impulse from an awake
- * body (a collision), gravity, or a fresh velocity written by the game resets
- * the counter and the body wakes next frame; disturbances cascade through a
- * heap from the point of impact. The state lives in MoteBody._reserved[0]
- * (still-frame counter) — do not repurpose it if you use the solver.
+ * SLEEPING: a body that barely MOVES (small net displacement from an anchor)
+ * and isn't spinning for ~20 frames goes to sleep — it stops integrating, skips
+ * wall checks, and sleeper-vs-sleeper collision pairs are skipped — so a settled
+ * pile costs almost nothing. Sleep is POSITION-based, not velocity-based, so a
+ * body that jitters in place (the residual velocity a deep stack never fully
+ * solves out) still sleeps. Net movement re-anchors and wakes it: a fall, a
+ * hit's depenetration, or a fresh position/velocity from the game; disturbances
+ * cascade through a heap from the point of impact. State lives in
+ * MoteBody._reserved[0..3] (still-frame counter + anchor position) — do not
+ * repurpose those if you use the solver.
  *
- *   LIMITATION: waking requires *velocity*. If a body's support is removed with
- *   no impulse (you delete the body underneath it, or move a kinematic floor
- *   out from under a resting stack), the sleepers above have zero velocity and
- *   will hang frozen in mid-air until something hits them. For destructible /
- *   removable stacks, give the affected bodies a tiny velocity nudge (e.g.
- *   b->vel.y -= 0.01f) to force a wake, or re-toss.
+ *   LIMITATION: waking requires *net motion*. If a body's support is removed
+ *   with no nudge (you delete the body underneath it, or move a kinematic floor
+ *   out from under a resting stack), the sleepers above don't move and will hang
+ *   frozen in mid-air until something disturbs them. For destructible /
+ *   removable stacks, displace the affected bodies a touch (e.g.
+ *   b->pos.y -= 0.05f) to force a wake, or re-toss.
  */
 #ifndef MOTE_PHYS_H
 #define MOTE_PHYS_H

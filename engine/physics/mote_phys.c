@@ -27,16 +27,24 @@
 #define GRID_MAX_BODIES 256           /* broad-phase grid covers up to this many;
                                        * above it, fall back to all-pairs */
 #define GRID_CELLS 4096               /* uniform-grid cell budget (16 KB) */
-#define SLEEP_LIN2  (0.05f * 0.05f)   /* below this speed^2 ... */
-#define SLEEP_ANG2  (0.40f * 0.40f)   /* ... and spin^2 ... */
-#define SLEEP_FRAMES 20               /* ... for this many frames -> sleep. A
-                                       * settled pile stops integrating and
-                                       * sleeper-vs-sleeper pairs are skipped, so
-                                       * a resting heap costs almost nothing.
-                                       * Impulse from an awake body raises a
-                                       * sleeper's velocity -> it wakes next frame
-                                       * (the velocity test below). _reserved[0]
-                                       * holds the still-frame counter. */
+#define SLEEP_DIST2 (0.025f * 0.025f) /* net displacement^2 from an anchor ... */
+#define SLEEP_ANG2  (0.40f * 0.40f)   /* ... and spin^2 below these ... */
+#define SLEEP_FRAMES 20               /* ... for this many frames -> sleep. POSITION-
+                                       * based, not velocity-based: a body that
+                                       * jitters in place (high velocity, ~zero net
+                                       * displacement) still sleeps, so deep dense
+                                       * piles that never fully converge can rest.
+                                       * A sleeper stops integrating and
+                                       * sleeper-vs-sleeper pairs are skipped, so a
+                                       * resting heap costs almost nothing. A real
+                                       * hit moves a sleeper past SLEEP_DIST (or it
+                                       * starts spinning) -> it re-anchors and wakes;
+                                       * disturbances cascade through the heap.
+                                       * _reserved[0]=still-frame counter,
+                                       * _reserved[1..3]=anchor position (bit-cast). */
+
+static inline float u2f(uint32_t u) { float f; __builtin_memcpy(&f, &u, 4); return f; }
+static inline uint32_t f2u(float f) { uint32_t u; __builtin_memcpy(&u, &f, 4); return u; }
 
 void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
@@ -452,15 +460,21 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     int cap = (w->max_substeps > 0) ? w->max_substeps : MAX_SUBSTEPS;
     if (dt > 0.1f) dt = 0.1f;
 
-    /* Sleep bookkeeping (per frame, from current velocity): bodies slow for
-     * SLEEP_FRAMES go to sleep; any real velocity (gravity fall, an impulse from
-     * a neighbour, a fresh toss) resets the counter so they wake immediately. */
+    /* Sleep bookkeeping (per frame, position-based): a body that stays within
+     * SLEEP_DIST of its anchor and isn't spinning for SLEEP_FRAMES sleeps —
+     * jitter velocity doesn't block it. Net movement (a fall, a hit's
+     * depenetration, a fresh toss) re-anchors and resets the counter -> wakes. */
     for (int i = 0; i < n; i++) {
         MoteBody *b = &bodies[i];
-        if (v3_dot(b->vel, b->vel) < SLEEP_LIN2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
+        Vec3 anchor = v3(u2f(b->_reserved[1]), u2f(b->_reserved[2]), u2f(b->_reserved[3]));
+        Vec3 d = v3_sub(b->pos, anchor);
+        if (v3_dot(d, d) < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
             if (b->_reserved[0] < SLEEP_FRAMES) b->_reserved[0]++;
         } else {
             b->_reserved[0] = 0;
+            b->_reserved[1] = f2u(b->pos.x);
+            b->_reserved[2] = f2u(b->pos.y);
+            b->_reserved[3] = f2u(b->pos.z);
         }
     }
 
