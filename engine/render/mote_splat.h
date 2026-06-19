@@ -48,4 +48,13 @@ int mote_splat_render(uint16_t *fb, const MoteSplat *splats, int n,
                       const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
                       int *order, const uint16_t *depth);
 
+/* Split form for dual-core / measured rendering: sort once (returns visible m),
+ * then blit each row-strip [y0,y1) — call blit on both cores with disjoint
+ * strips. blit frustum-culls splats that miss the strip. */
+int  mote_splat_sort(const MoteSplat *splats, int n, const Mat3 *cam_basis,
+                     Vec3 cam_pos, int *order);
+void mote_splat_blit(uint16_t *fb, int y0, int y1, const MoteSplat *splats, int m,
+                     const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
+                     const int *order, const uint16_t *depth);
+
 #endif /* MOTE_SPLAT_H */

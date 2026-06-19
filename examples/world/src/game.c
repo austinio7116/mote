@@ -155,10 +155,11 @@ static void g_update(float dt){
     mote->scene_begin(&s_basis, 60.0f);
     MoteObject ground = { .pos = v3_sub(v3(0,0,0), s_cam), .basis = m3_identity(), .mesh = &terrain_mesh };
     mote->scene_add_object(&ground);                         /* rasters + writes depth */
+    /* trees: dual-core measured pass after the terrain, occluded by its depth */
+    mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 60.0f, mote->depth_buffer());
 }
 
 static void g_overlay(uint16_t *fb){
-    mote->splat_render(fb, s_splat, s_n, &s_basis, s_cam, 60.0f, s_order, mote->depth_buffer());
     mote->text(fb, "SPLAT WORLD", 3, 3, MOTE_RGB565(30,40,20));
     mote->text(fb, "UD WALK LR TURN A AUTO", 2, 118, MOTE_RGB565(30,40,20));
 }

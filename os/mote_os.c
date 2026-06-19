@@ -21,6 +21,9 @@ static const MoteInput *os_input(void)  { return s_cur_input; }
 static uint64_t       os_micros(void) { return mote_plat_micros(); }
 static void           os_exit(void)   { s_exit_req = true; }
 
+static void mote_api_scene_set_splats(const MoteSplat *sp, int n, int *order,
+        const Mat3 *cam, Vec3 cam_pos, float fov, const uint16_t *depth);
+
 void mote_api_fill(MoteApi *a) {
     memset(a, 0, sizeof *a);
     a->abi_version           = MOTE_ABI_VERSION;
@@ -55,6 +58,7 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v8: Gaussian-splat renderer. */
     a->splat_render          = mote_splat_render;
     a->depth_buffer          = (const uint16_t *(*)(void))mote_depth_buffer;
+    a->scene_set_splats      = mote_api_scene_set_splats;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -67,6 +71,24 @@ static void render_band_cb(uint16_t *fb, int y0, int y1) {
         mote_scene_raster(fb, y0, y1);
         mote_scene2d_raster(fb, y0, y1);
     }
+}
+
+/* A Gaussian-splat set a game registers per frame; rendered as a SECOND banded
+ * (dual-core) pass after the 3D scene, so it composites with depth AND its cost
+ * lands in the measured raster budget instead of hiding in overlay(). */
+static struct {
+    const MoteSplat *sp; int n, m; int *order;
+    Mat3 cam; Vec3 cam_pos; float fov; const uint16_t *depth; int active;
+} s_splatset;
+static void mote_api_scene_set_splats(const MoteSplat *sp, int n, int *order,
+        const Mat3 *cam, Vec3 cam_pos, float fov, const uint16_t *depth) {
+    s_splatset.sp = sp; s_splatset.n = n; s_splatset.order = order;
+    s_splatset.cam = *cam; s_splatset.cam_pos = cam_pos; s_splatset.fov = fov;
+    s_splatset.depth = depth; s_splatset.active = 1;
+}
+static void splat_band_cb(uint16_t *fb, int y0, int y1) {
+    mote_splat_blit(fb, y0, y1, s_splatset.sp, s_splatset.m, &s_splatset.cam,
+                    s_splatset.cam_pos, s_splatset.fov, s_splatset.order, s_splatset.depth);
 }
 
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
@@ -103,6 +125,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
          * adds this frame — no stale state within a game or across games. */
         mote_scene_clear();
         mote_scene2d_clear();
+        s_splatset.active = 0;                 /* game re-registers splats each frame */
 
         /* Game update — runs CONCURRENTLY with the previous frame's LCD flush
          * (kicked async at the end of last frame). It only touches game state +
@@ -118,6 +141,16 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         /* Rasterise across both cores (work-stealing strips on device). */
         uint32_t c0_us = 0, c1_us = 0;
         mote_plat_render2(fb, render_band_cb, &c0_us, &c1_us);
+
+        /* Splats: sort once, then blend across both cores OVER the 3D scene
+         * (depth-tested). Counted in the raster budget, not hidden in overlay. */
+        if (s_splatset.active) {
+            s_splatset.m = mote_splat_sort(s_splatset.sp, s_splatset.n,
+                                           &s_splatset.cam, s_splatset.cam_pos, s_splatset.order);
+            uint32_t sc0 = 0, sc1 = 0;
+            mote_plat_render2(fb, splat_band_cb, &sc0, &sc1);
+            c0_us += sc0; c1_us += sc1;
+        }
 
         if (vt->overlay) vt->overlay(fb);      /* game HUD (core0) */
         mote_perf_overlay(fb);                 /* perf graph (core0) */

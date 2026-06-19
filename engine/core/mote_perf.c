@@ -19,7 +19,12 @@ int  mote_perf_enabled(void) { return s_on; }
 
 void mote_perf_get(uint32_t out[6]) {
     const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
-    int c0b = l->update + l->flush + l->c0;
+    /* TRUE per-core utilisation over the whole frame: core0 runs the frame
+     * serially and only idles while waiting on the DMA flush, so its busy
+     * fraction is (frame - flush)/frame — this counts update + raster + the
+     * splat pass + overlay. core1 only works the banded passes (c0/c1 already
+     * include the dual-core splat blit). */
+    int c0b = (int)l->frame - (int)l->flush; if (c0b < 0) c0b = 0;
     out[0] = l->frame ? 1000000u / l->frame : 0;                 /* fps */
     out[1] = l->update;                                          /* update us */
     out[2] = l->c0 > l->c1 ? l->c0 : l->c1;                      /* raster us */
@@ -87,7 +92,8 @@ void mote_perf_overlay(uint16_t *fb) {
         const Sample *s = &s_hist[(s_head + i) % HIST];
         if (!s->frame) continue;
         int x = GX + i;
-        int c0 = (s->update + s->flush + s->c0) * 100 / s->frame; if (c0 > 100) c0 = 100;
+        int c0b = (int)s->frame - (int)s->flush; if (c0b < 0) c0b = 0;
+        int c0 = c0b * 100 / s->frame; if (c0 > 100) c0 = 100;
         int c1 = s->c1 * 100 / s->frame; if (c1 > 100) c1 = 100;
         int y0 = CU_B - 1 - c0 * (CU_H - 1) / 100;
         int y1 = CU_B - 1 - c1 * (CU_H - 1) / 100;
@@ -115,8 +121,8 @@ void mote_perf_overlay(uint16_t *fb) {
     const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
     int raster = l->c0 > l->c1 ? l->c0 : l->c1;
     int fps  = l->frame ? (int)(1000000u / l->frame) : 0;
-    int c0b  = l->update + l->flush + l->c0;
-    int c0pct = l->frame ? (c0b > l->frame ? 100 : c0b * 100 / l->frame) : 0;
+    int c0b  = (int)l->frame - (int)l->flush; if (c0b < 0) c0b = 0;
+    int c0pct = l->frame ? (c0b > (int)l->frame ? 100 : c0b * 100 / l->frame) : 0;
     int c1pct = l->frame ? (l->c1 * 100 / l->frame) : 0;
     snprintf(b, sizeof b, "CPU C0:%d C1:%d", c0pct, c1pct);
     mote_font_draw(fb, b, GX, CU_Y - 7, COL_TEXT);

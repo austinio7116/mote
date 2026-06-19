@@ -120,10 +120,10 @@ static void g_update(float dt) {
     Vec3 right = v3_norm(v3_cross(v3(0,1,0), fwd));
     s_basis.r[0] = right; s_basis.r[1] = v3_cross(fwd, right); s_basis.r[2] = fwd;
     mote->scene_begin(&s_basis, 52.0f);
+    mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 52.0f, 0);
 }
 
 static void g_overlay(uint16_t *fb) {
-    mote->splat_render(fb, s_splat, s_n, &s_basis, s_cam, 52.0f, s_order, 0);
     mote->text(fb, "SPLAT TREE", 3, 3, MOTE_RGB565(40,50,30));
     mote->text(fb, "LR/UD ORBIT  A SPIN", 3, 118, MOTE_RGB565(40,50,30));
 }

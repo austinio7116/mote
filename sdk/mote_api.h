@@ -101,6 +101,15 @@ typedef struct MoteApi {
                         const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
                         int *order, const uint16_t *depth);
     const uint16_t *(*depth_buffer)(void);   /* scene depth (K/z, larger=nearer) */
+
+    /* Register a splat cloud to render THIS frame as a measured, dual-core
+     * banded pass AFTER the 3D scene (composites with depth, and its cost shows
+     * in the perf graph instead of hiding in overlay()). Call from update();
+     * `order` is your scratch of >= n ints, `depth` from depth_buffer() or NULL.
+     * Preferred over splat_render() for anything heavy. APPEND-ONLY. */
+    void (*scene_set_splats)(const MoteSplat *splats, int n, int *order,
+                             const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
+                             const uint16_t *depth);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------
