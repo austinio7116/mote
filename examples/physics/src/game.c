@@ -41,6 +41,13 @@ static float frand(void) {       /* xorshift -> [-1,1) */
 }
 
 static void toss(void) {
+    /* Lay the bodies out on a non-overlapping lattice (6x6 per layer, 0.6 m
+     * spacing > the 0.52 m body diameter) so nothing ever starts inside
+     * anything else — random-scatter spawning crammed them together and the
+     * deep initial overlap made box-box resolution shove cubes through each
+     * other. They free-fall the short gap and settle into a clean pile. */
+    const int   per = 6;
+    const float sp  = 0.6f;
     for (int i = 0; i < s_active; i++) {
         MoteBody *b = &body[i];
         b->inv_mass = 1.0f / 0.3f;
@@ -52,12 +59,15 @@ static void toss(void) {
             b->half = v3(0.24f, 0.24f, 0.24f);
             b->radius = 0.26f;             /* bounding radius for body-body */
         }
-        /* Scatter through the box volume; the solver depenetrates and they
-         * settle into a pile (lots of bodies -> a deep stress-test heap). */
-        b->pos = v3(frand() * 1.5f, 1.0f + frand() * 3.5f, frand() * 1.5f);
-        b->vel = v3(frand() * 0.6f, 0.0f, frand() * 0.6f);
-        b->w   = v3(frand() * 1.5f, frand() * 1.5f, frand() * 1.5f);
+        int cell = i % (per * per), layer = i / (per * per);
+        int gx = cell % per, gz = cell / per;
+        b->pos = v3((gx - (per - 1) * 0.5f) * sp + frand() * 0.02f,
+                    0.6f + layer * sp,
+                    (gz - (per - 1) * 0.5f) * sp + frand() * 0.02f);
+        b->vel = v3(0.0f, 0.0f, 0.0f);
+        b->w   = v3(0.0f, 0.0f, 0.0f);
         b->orient = m3_identity();
+        b->_reserved[0] = 0;               /* wake (clear sleep counter) */
     }
 }
 
