@@ -1,15 +1,32 @@
 /*
- * Mote — rigid-sphere physics (generalised from ThumbyCue's billiard solver).
+ * Mote — rigid-body physics (spheres + OBB boxes; generalised from ThumbyCue's
+ * billiard solver).
  *
- * Full-3D rigid spheres under gravity in a bounding box. Impulse-based
- * collisions with restitution, Coulomb friction and the sphere's rotational
- * inertia (so bodies pick up spin off impacts), a fixed-substep integrator
- * driven by an accumulator (frame-rate independent), and continuous-ish
+ * Full-3D rigid bodies under gravity in a bounding box. Impulse-based collisions
+ * with restitution, Coulomb friction and rotational inertia (so bodies pick up
+ * spin off impacts), a fixed-substep integrator driven by an accumulator
+ * (frame-rate independent), a uniform-grid broad phase, and continuous-ish
  * overlap separation so bodies never stick.
  *
  * SI units (metres, kg, seconds). Per-body inverse mass: 0 = immovable.
  * The engine runs the solver on the game's body array (via the ABI); the game
  * owns the bodies and renders them however it likes.
+ *
+ * SLEEPING: a body that stays slow (low linear AND angular velocity) for ~20
+ * frames goes to sleep — it stops integrating, skips wall checks, and
+ * sleeper-vs-sleeper collision pairs are skipped — so a settled pile costs
+ * almost nothing. Waking is purely velocity-based: any impulse from an awake
+ * body (a collision), gravity, or a fresh velocity written by the game resets
+ * the counter and the body wakes next frame; disturbances cascade through a
+ * heap from the point of impact. The state lives in MoteBody._reserved[0]
+ * (still-frame counter) — do not repurpose it if you use the solver.
+ *
+ *   LIMITATION: waking requires *velocity*. If a body's support is removed with
+ *   no impulse (you delete the body underneath it, or move a kinematic floor
+ *   out from under a resting stack), the sleepers above have zero velocity and
+ *   will hang frozen in mid-air until something hits them. For destructible /
+ *   removable stacks, give the affected bodies a tiny velocity nudge (e.g.
+ *   b->vel.y -= 0.01f) to force a wake, or re-toss.
  */
 #ifndef MOTE_PHYS_H
 #define MOTE_PHYS_H
