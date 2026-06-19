@@ -18,6 +18,7 @@
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/clocks.h"
+#include "hardware/sync.h"
 
 /* USB-CDC control/debug channel (os/device/mote_usb.c). Declared here rather
  * than #included so the platform layer doesn't pull in OS headers. */
@@ -25,19 +26,45 @@ extern void mote_usb_init(void);
 extern void mote_usb_task(void);
 extern int  mote_usb_take_launch(void);
 
-/* --- dual-core banded raster -------------------------------------------- */
-static volatile MoteBandFn  s_band_fn;
-static volatile uint16_t   *s_band_fb;
-static volatile int         s_core1_go;
-static volatile int         s_core1_done;
-static volatile uint32_t    s_core1_us;
+/* --- dual-core work-stealing banded raster ------------------------------ *
+ * The frame is cut into NSTRIPS horizontal strips; both cores pull the next
+ * unclaimed strip from a shared counter until they're gone. Whoever finishes
+ * a strip grabs another, so the load self-balances no matter where the
+ * geometry sits on screen (a fixed top/bottom split idles a core when the
+ * scene clusters in one half). */
+#define NSTRIPS 8
+#define STRIP_H (MOTE_FB_H / NSTRIPS)
+
+static volatile MoteBandFn s_band_fn;
+static volatile uint16_t  *s_band_fb;
+static volatile int        s_core1_go, s_core1_done;
+static volatile uint32_t   s_core1_us;
+static volatile int        s_next_strip;
+static spin_lock_t        *s_strip_lock;
+
+static int claim_strip(void) {
+    uint32_t save = spin_lock_blocking(s_strip_lock);
+    int v = s_next_strip++;
+    spin_unlock(s_strip_lock, save);
+    return v;
+}
+
+static void work_strips(uint16_t *fb, MoteBandFn band) {
+    for (;;) {
+        int s = claim_strip();
+        if (s >= NSTRIPS) break;
+        int y0 = s * STRIP_H, y1 = y0 + STRIP_H;
+        if (y1 > MOTE_FB_H) y1 = MOTE_FB_H;
+        band(fb, y0, y1);
+    }
+}
 
 static void core1_entry(void) {
     for (;;) {
         while (!s_core1_go) tight_loop_contents();
         s_core1_go = 0;
         uint64_t t0 = to_us_since_boot(get_absolute_time());
-        s_band_fn((uint16_t *)s_band_fb, MOTE_FB_H / 2, MOTE_FB_H);
+        work_strips((uint16_t *)s_band_fb, s_band_fn);
         s_core1_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
         s_core1_done = 1;
     }
@@ -47,12 +74,13 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
                        uint32_t *out_c0_us, uint32_t *out_c1_us) {
     s_band_fb = fb;
     s_band_fn = band;
+    s_next_strip = 0;
     s_core1_done = 0;
     __asm__ volatile("dsb" ::: "memory");
-    s_core1_go = 1;                                  /* kick core1: bottom half */
+    s_core1_go = 1;                                  /* core1 joins the pool */
 
     uint64_t t0 = to_us_since_boot(get_absolute_time());
-    band(fb, 0, MOTE_FB_H / 2);                      /* core0: top half */
+    work_strips(fb, band);                           /* core0 works the pool */
     *out_c0_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
 
     while (!s_core1_done) tight_loop_contents();
@@ -64,6 +92,7 @@ int mote_plat_init(const char *title) {
     set_sys_clock_khz(280000, true);
     mote_lcd_init();
     mote_buttons_init();
+    s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
     multicore_launch_core1(core1_entry);
     mote_usb_init();
     /* Burst-service USB so enumeration completes promptly: the render loop
