@@ -97,6 +97,7 @@ typedef struct {
 static Contact s_ct[MAX_CONTACTS];
 static int     s_nct;
 static Vec3    s_pv[PHYS_MAX_BODIES], s_pw[PHYS_MAX_BODIES];  /* position pseudo-velocities */
+static uint8_t s_touch[PHYS_MAX_BODIES];                      /* had a contact this substep */
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
 static Imp  s_cacheA[CACHE_N], s_cacheB[CACHE_N];
@@ -126,6 +127,8 @@ static void add_contact(int a, int b, Vec3 n, Vec3 p, float pen, uint32_t fid) {
     c->jn = c->jt = 0.0f;
     uint32_t k = ((uint32_t)(a + 1) * 73856093u) ^ ((uint32_t)(b + 2) * 19349663u) ^ (fid * 83492791u);
     c->key = k ? k : 1u;
+    if (a < PHYS_MAX_BODIES) s_touch[a] = 1;             /* gate sleep on real contact */
+    if (b >= 0 && b < PHYS_MAX_BODIES) s_touch[b] = 1;
 }
 
 /* --- narrow phase: emit contacts ---------------------------------------- */
@@ -518,19 +521,6 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     uint32_t ev = 0;
     if (dt > 0.1f) dt = 0.1f;
 
-    /* sleep bookkeeping (position-based): still + not spinning for SLEEP_FRAMES. */
-    for (int i = 0; i < n; i++) {
-        MoteBody *b = &bodies[i];
-        Vec3 anchor = v3(u2f(b->_reserved[1]), u2f(b->_reserved[2]), u2f(b->_reserved[3]));
-        Vec3 dd = v3_sub(b->pos, anchor);
-        if (v3_dot(dd, dd) < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
-            if (b->_reserved[0] < SLEEP_FRAMES) b->_reserved[0]++;
-        } else {
-            b->_reserved[0] = 0;
-            b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
-        }
-    }
-
     w->_acc += dt;
     int sub = 0;
     while (w->_acc >= h && sub < cap) {
@@ -538,6 +528,7 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         for (int i = 0; i < n; i++) if (!body_asleep(&bodies[i])) integrate(w, &bodies[i], h);
 
         s_nct = 0;
+        if (n <= PHYS_MAX_BODIES) memset(s_touch, 0, (size_t)n);
         for (int i = 0; i < n; i++) build_walls(w, bodies, i);   /* floor first */
         if (use_grid) { grid_build(w, bodies, n); build_pairs_grid(bodies, n); }
         else            build_pairs_all(bodies, n);
@@ -563,6 +554,28 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
             }
         }
         Imp *t = s_cache_prev; s_cache_prev = s_cache_cur; s_cache_cur = t;
+
+        /* Contact-gated sleep: a body may only fall asleep while it is RESTING on
+         * something (had a contact) and barely moving — so it can never sleep in
+         * mid-air (the floating-sphere bug). Once asleep it stays put (immovable)
+         * until displaced; an awake body intruding past WAKE_PEN wakes it. */
+        if (n <= PHYS_MAX_BODIES) for (int i = 0; i < n; i++) {
+            MoteBody *b = &bodies[i];
+            Vec3 anchor = v3(u2f(b->_reserved[1]), u2f(b->_reserved[2]), u2f(b->_reserved[3]));
+            Vec3 dd = v3_sub(b->pos, anchor);
+            float disp2 = v3_dot(dd, dd);
+            if (body_asleep(b)) {
+                if (disp2 > SLEEP_DIST2) {                 /* moved -> wake + re-anchor */
+                    b->_reserved[0] = 0;
+                    b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
+                }
+            } else if (s_touch[i] && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
+                b->_reserved[0]++;                         /* resting + still -> drift toward sleep */
+            } else {                                       /* airborne / moving -> stay awake, re-anchor */
+                b->_reserved[0] = 0;
+                b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
+            }
+        }
         sub++;
     }
     if (w->_acc > h) w->_acc = 0.0f;

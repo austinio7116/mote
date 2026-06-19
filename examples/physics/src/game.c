@@ -78,7 +78,8 @@ static void g_init(void) {
     mote->phys_world_defaults(&world);
     world.bmin = v3(-1.8f, -1.4f, -1.8f);
     world.bmax = v3( 1.8f,  5.0f,  1.8f);   /* tall box: room for a deep pile */
-    world.restitution = 0.55f;
+    world.restitution = 0.25f;   /* calm settling: high restitution compounds into
+                                  * spike-bounces across a stack's many contacts */
     /* Many slow-settling bodies: a low substep rate is plenty (no fast-moving
      * tunnelling like pool needs) and keeps the per-frame cost bounded. */
     world.substep = 1.0f / 120.0f;
