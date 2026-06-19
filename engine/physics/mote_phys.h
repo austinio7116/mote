@@ -36,23 +36,36 @@
 #include <stdint.h>
 #include "mote_vec.h"
 
-#define MOTE_SHAPE_SPHERE 0u
-#define MOTE_SHAPE_BOX    1u
-#define MOTE_SHAPE_PLANE  2u   /* infinite static half-space; normal = orient.r[1]
+#define MOTE_SHAPE_SPHERE  0u
+#define MOTE_SHAPE_BOX     1u
+#define MOTE_SHAPE_PLANE   2u  /* infinite static half-space; normal = orient.r[1]
                                 * (up), solid below it. Use for ground/walls/ramps.
                                 * Always treated as static (set inv_mass 0). */
+#define MOTE_SHAPE_CAPSULE 3u  /* swept sphere: segment along local +Y of half-
+                                * length `half.y`, thickened by `radius`. Great
+                                * for characters / pills / rounded props. */
+#define MOTE_SHAPE_HULL    4u  /* arbitrary CONVEX shape: shape_data -> MoteHull
+                                * (vertex cloud). Collides via GJK/EPA. */
+
+/* Convex hull = a vertex cloud in local space (the convex set is their hull). */
+typedef struct {
+    const Vec3 *verts;   /* local-space vertices */
+    int   nverts;
+    float bound_r;       /* bounding-sphere radius (local), for broad phase */
+} MoteHull;
 
 typedef struct {
     Vec3  pos;        /* centre, world metres (plane: a point on the surface) */
     Vec3  vel;        /* m/s */
     Vec3  w;          /* angular velocity, rad/s (world) */
-    Mat3  orient;     /* orientation, integrated from w (plane: r[1] = normal) */
-    float radius;     /* sphere radius; box: bounding radius for body-body */
+    Mat3  orient;     /* orientation (plane: r[1] = normal; capsule: r[1] = axis) */
+    float radius;     /* sphere/capsule radius; box: bounding radius for body-body */
     float inv_mass;   /* 1/kg; 0 = immovable (static collider) */
-    uint32_t shape;   /* MOTE_SHAPE_SPHERE (default) / _BOX / _PLANE */
-    Vec3  half;       /* box half-extents (box only) */
+    uint32_t shape;   /* MOTE_SHAPE_SPHERE / _BOX / _PLANE / _CAPSULE / _HULL */
+    Vec3  half;       /* box half-extents; capsule: half.y = segment half-length */
     float friction;    /* per-body Coulomb coefficient; 0 -> use world.friction */
     float restitution; /* per-body bounce 0..1; 0 -> use world.restitution */
+    const void *shape_data;  /* MOTE_SHAPE_HULL -> const MoteHull *; else NULL */
     uint32_t _reserved[4];   /* sleep state (counter + anchor) — do not repurpose */
 } MoteBody;
 

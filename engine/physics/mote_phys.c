@@ -67,13 +67,17 @@ static inline float eff_im(const MoteBody *b) { return body_asleep(b) ? 0.0f : b
 static Vec3 iinv_mul(const MoteBody *b, Vec3 v) {
     if (body_asleep(b)) return v3(0, 0, 0);
     Vec3 d;
-    if (b->shape == MOTE_SHAPE_BOX) {
-        float hx = b->half.x, hy = b->half.y, hz = b->half.z;
+    if (b->shape == MOTE_SHAPE_BOX || b->shape == MOTE_SHAPE_CAPSULE) {
+        float hx, hy, hz;
+        if (b->shape == MOTE_SHAPE_CAPSULE) { hx = hz = b->radius; hy = b->half.y + b->radius; }
+        else { hx = b->half.x; hy = b->half.y; hz = b->half.z; }
         d = v3(3.0f * b->inv_mass / (hy*hy + hz*hz),
                3.0f * b->inv_mass / (hx*hx + hz*hz),
                3.0f * b->inv_mass / (hx*hx + hy*hy));
     } else {
-        float s = (b->radius > 1e-6f) ? 2.5f * b->inv_mass / (b->radius * b->radius) : 0.0f;
+        float r = b->radius;
+        if (b->shape == MOTE_SHAPE_HULL && b->shape_data) r = ((const MoteHull *)b->shape_data)->bound_r;
+        float s = (r > 1e-6f) ? 2.5f * b->inv_mass / (r * r) : 0.0f;
         d = v3(s, s, s);
     }
     Vec3 a0 = b->orient.r[0], a1 = b->orient.r[1], a2 = b->orient.r[2];
@@ -271,8 +275,171 @@ static void gen_sphere_box(MoteBody *bodies, int si, int bi) {
     add_contact(si, bi, n, cp, pen, 0);                  /* sphere moves +n off box */
 }
 
+/* --- GJK + EPA for convex shapes (capsule / hull and any pair with them) - */
+
+/* Farthest world-space point of a body in direction d. */
+static Vec3 mote_support(const MoteBody *b, Vec3 d) {
+    switch (b->shape) {
+    case MOTE_SHAPE_SPHERE:
+        return v3_add(b->pos, v3_scale(v3_norm(d), b->radius));
+    case MOTE_SHAPE_CAPSULE: {
+        Vec3 ax = b->orient.r[1];
+        Vec3 c = v3_add(b->pos, v3_scale(ax, v3_dot(d, ax) >= 0.0f ? b->half.y : -b->half.y));
+        return v3_add(c, v3_scale(v3_norm(d), b->radius));
+    }
+    case MOTE_SHAPE_HULL: {
+        const MoteHull *h = (const MoteHull *)b->shape_data;
+        Vec3 ld = m3_mul_v3_t(&b->orient, d);
+        int best = 0; float bd = -1e30f;
+        for (int i = 0; i < h->nverts; i++) { float dd = v3_dot(h->verts[i], ld); if (dd > bd) { bd = dd; best = i; } }
+        return v3_add(b->pos, m3_mul_v3(&b->orient, h->verts[best]));
+    }
+    default: {  /* BOX */
+        Vec3 ld = m3_mul_v3_t(&b->orient, d);
+        Vec3 lp = v3(ld.x >= 0 ? b->half.x : -b->half.x,
+                     ld.y >= 0 ? b->half.y : -b->half.y,
+                     ld.z >= 0 ? b->half.z : -b->half.z);
+        return v3_add(b->pos, m3_mul_v3(&b->orient, lp));
+    }
+    }
+}
+
+typedef struct { Vec3 v, a, b; } SupPt;   /* CSO point + the two witness supports */
+
+static SupPt cso_support(const MoteBody *A, const MoteBody *B, Vec3 d) {
+    SupPt s;
+    s.a = mote_support(A, d);
+    s.b = mote_support(B, v3_scale(d, -1.0f));
+    s.v = v3_sub(s.a, s.b);
+    return s;
+}
+
+/* GJK: returns 1 if A,B overlap, leaving a tetrahedron simplex in sp[0..3]. */
+static int gjk(const MoteBody *A, const MoteBody *B, SupPt sp[4]) {
+    Vec3 d = v3_sub(B->pos, A->pos);
+    if (v3_len2(d) < 1e-12f) d = v3(1, 0, 0);
+    sp[0] = cso_support(A, B, d);
+    int n = 1;
+    d = v3_scale(sp[0].v, -1.0f);
+    for (int iter = 0; iter < 40; iter++) {
+        if (v3_len2(d) < 1e-12f) return 1;               /* origin on simplex */
+        SupPt s = cso_support(A, B, d);
+        if (v3_dot(s.v, d) < 0.0f) return 0;             /* no overlap */
+        sp[n++] = s;
+        /* --- evolve simplex toward the origin --- */
+        Vec3 ao = v3_scale(sp[n - 1].v, -1.0f);
+        if (n == 2) {
+            Vec3 ab = v3_sub(sp[0].v, sp[1].v);
+            d = v3_cross(v3_cross(ab, ao), ab);
+            if (v3_len2(d) < 1e-12f) d = v3_cross(ab, v3(1,0,0)), d = (v3_len2(d)<1e-12f)?v3_cross(ab,v3(0,1,0)):d;
+        } else if (n == 3) {
+            Vec3 a = sp[2].v, b = sp[1].v, c = sp[0].v;
+            Vec3 abc = v3_cross(v3_sub(b, a), v3_sub(c, a));
+            d = (v3_dot(abc, v3_scale(a, -1.0f)) >= 0.0f) ? abc : v3_scale(abc, -1.0f);
+        } else {  /* n == 4 tetrahedron: which face faces the origin? */
+            Vec3 a = sp[3].v, b = sp[2].v, c = sp[1].v, dd = sp[0].v;
+            Vec3 nabc = v3_cross(v3_sub(b, a), v3_sub(c, a));
+            Vec3 nacd = v3_cross(v3_sub(c, a), v3_sub(dd, a));
+            Vec3 nadb = v3_cross(v3_sub(dd, a), v3_sub(b, a));
+            Vec3  A0 = v3_scale(a, -1.0f);
+            if (v3_dot(nabc, v3_sub(dd, a)) > 0.0f) nabc = v3_scale(nabc, -1.0f);
+            if (v3_dot(nacd, v3_sub(b, a))  > 0.0f) nacd = v3_scale(nacd, -1.0f);
+            if (v3_dot(nadb, v3_sub(c, a))  > 0.0f) nadb = v3_scale(nadb, -1.0f);
+            if (v3_dot(nabc, A0) > 0.0f)      { sp[0] = sp[1]; sp[1] = sp[2]; sp[2] = sp[3]; n = 3; d = nabc; }
+            else if (v3_dot(nacd, A0) > 0.0f) { sp[1] = sp[2]; sp[2] = sp[3]; n = 3; d = nacd; }
+            else if (v3_dot(nadb, A0) > 0.0f) { sp[0] = sp[1]; sp[2] = sp[3]; n = 3; d = nadb; }
+            else return 1;                               /* origin inside tetra */
+        }
+    }
+    return 1;
+}
+
+#define EPA_MAXF 64
+#define EPA_MAXV 40
+
+/* EPA: from the GJK tetrahedron, find penetration normal/depth + contact point. */
+static int epa(const MoteBody *A, const MoteBody *B, SupPt sp[4],
+               Vec3 *out_n, float *out_depth, Vec3 *out_point) {
+    SupPt verts[EPA_MAXV]; int nv = 4;
+    for (int i = 0; i < 4; i++) verts[i] = sp[i];
+    int faces[EPA_MAXF][3]; int nf = 0;
+    /* seed tetra faces (outward winding fixed below) */
+    int seed[4][3] = { {0,1,2}, {0,3,1}, {0,2,3}, {1,3,2} };
+    for (int f = 0; f < 4; f++) { faces[nf][0]=seed[f][0]; faces[nf][1]=seed[f][1]; faces[nf][2]=seed[f][2]; nf++; }
+
+    for (int iter = 0; iter < 32; iter++) {
+        /* closest face to origin */
+        int best = -1; float bestDist = 1e30f; Vec3 bestN = v3(0,1,0);
+        for (int f = 0; f < nf; f++) {
+            Vec3 a = verts[faces[f][0]].v, b = verts[faces[f][1]].v, c = verts[faces[f][2]].v;
+            Vec3 nrm = v3_cross(v3_sub(b, a), v3_sub(c, a));
+            float l = v3_len(nrm); if (l < 1e-9f) continue;
+            nrm = v3_scale(nrm, 1.0f / l);
+            float dist = v3_dot(nrm, a);
+            if (dist < 0.0f) { nrm = v3_scale(nrm, -1.0f); dist = -dist; }  /* face origin-facing */
+            if (dist < bestDist) { bestDist = dist; best = f; bestN = nrm; }
+        }
+        if (best < 0) return 0;
+        SupPt s = cso_support(A, B, bestN);
+        float sd = v3_dot(s.v, bestN);
+        if (sd - bestDist < 1e-4f || nv >= EPA_MAXV) {
+            /* converged: barycentric contact point on the best face */
+            int *fa = faces[best];
+            Vec3 a = verts[fa[0]].v, b = verts[fa[1]].v, c = verts[fa[2]].v;
+            Vec3 p = v3_scale(bestN, bestDist);          /* projection of origin onto face */
+            float u, v, ww; {
+                Vec3 v0 = v3_sub(b, a), v1 = v3_sub(c, a), v2 = v3_sub(p, a);
+                float d00=v3_dot(v0,v0), d01=v3_dot(v0,v1), d11=v3_dot(v1,v1), d20=v3_dot(v2,v0), d21=v3_dot(v2,v1);
+                float den = d00*d11 - d01*d01; if (fabsf(den) < 1e-12f) den = 1e-12f;
+                v = (d11*d20 - d01*d21)/den; ww = (d00*d21 - d01*d20)/den; u = 1.0f - v - ww;
+            }
+            Vec3 pa = v3_add(v3_add(v3_scale(verts[fa[0]].a, u), v3_scale(verts[fa[1]].a, v)), v3_scale(verts[fa[2]].a, ww));
+            *out_n = bestN; *out_depth = bestDist; *out_point = pa;
+            return 1;
+        }
+        /* expand: remove faces seen by s, re-triangulate the horizon */
+        int horizon[EPA_MAXF][2]; int nh = 0;
+        for (int f = 0; f < nf; ) {
+            Vec3 a = verts[faces[f][0]].v, b = verts[faces[f][1]].v, c = verts[faces[f][2]].v;
+            Vec3 nrm = v3_cross(v3_sub(b, a), v3_sub(c, a));
+            int vis = v3_dot(nrm, v3_sub(s.v, a)) > 0.0f;
+            if (vis) {
+                int e[3][2] = { {faces[f][0],faces[f][1]}, {faces[f][1],faces[f][2]}, {faces[f][2],faces[f][0]} };
+                for (int k = 0; k < 3; k++) {
+                    int found = -1;
+                    for (int hh = 0; hh < nh; hh++) if (horizon[hh][0]==e[k][1] && horizon[hh][1]==e[k][0]) { found = hh; break; }
+                    if (found >= 0) { horizon[found][0]=horizon[nh-1][0]; horizon[found][1]=horizon[nh-1][1]; nh--; }
+                    else if (nh < EPA_MAXF) { horizon[nh][0]=e[k][0]; horizon[nh][1]=e[k][1]; nh++; }
+                }
+                faces[f][0]=faces[nf-1][0]; faces[f][1]=faces[nf-1][1]; faces[f][2]=faces[nf-1][2]; nf--;
+            } else f++;
+        }
+        int si = nv; verts[nv++] = s;
+        for (int hh = 0; hh < nh && nf < EPA_MAXF; hh++) {
+            faces[nf][0]=horizon[hh][0]; faces[nf][1]=horizon[hh][1]; faces[nf][2]=si; nf++;
+        }
+    }
+    return 0;
+}
+
+/* Collision for any pair involving a capsule or hull (single contact). */
+static void gen_gjk(MoteBody *bodies, int i, int j) {
+    MoteBody *A = &bodies[i], *B = &bodies[j];
+    SupPt sp[4];
+    if (!gjk(A, B, sp)) return;
+    Vec3 n, p; float depth;
+    if (!epa(A, B, sp, &n, &depth, &p)) return;
+    if (depth <= 0.0f) return;
+    /* n points from B into A (A separates along -n? cso = A-B, origin->face = n
+     * means A penetrates B along +n) -> body A (=i) moves along +n. */
+    add_contact(i, j, n, p, depth, 0);
+}
+
 static void gen_pair(MoteBody *bodies, int i, int j) {
-    int ab = (bodies[i].shape == MOTE_SHAPE_BOX), bb = (bodies[j].shape == MOTE_SHAPE_BOX);
+    uint32_t si = bodies[i].shape, sj = bodies[j].shape;
+    if (si == MOTE_SHAPE_CAPSULE || si == MOTE_SHAPE_HULL ||
+        sj == MOTE_SHAPE_CAPSULE || sj == MOTE_SHAPE_HULL) { gen_gjk(bodies, i, j); return; }
+    int ab = (si == MOTE_SHAPE_BOX), bb = (sj == MOTE_SHAPE_BOX);
     if (!ab && !bb) gen_sphere_sphere(bodies, i, j);
     else if (ab && bb) gen_box_box(bodies, i, j);
     else if (ab) gen_sphere_box(bodies, j, i);
@@ -287,6 +454,19 @@ static void gen_vs_plane(MoteBody *bodies, int d, int pl) {
         float dist = v3_dot(v3_sub(b->pos, plane->pos), N);
         float pen = b->radius - dist;
         if (pen > 0.0f) add_contact(d, pl, N, v3_sub(b->pos, v3_scale(N, b->radius)), pen, 200);
+    } else if (b->shape == MOTE_SHAPE_CAPSULE) {          /* two segment ends */
+        for (int e = 0; e < 2; e++) {
+            Vec3 c = v3_add(b->pos, v3_scale(b->orient.r[1], e ? b->half.y : -b->half.y));
+            float pen = b->radius - v3_dot(v3_sub(c, plane->pos), N);
+            if (pen > 0.0f) add_contact(d, pl, N, v3_sub(c, v3_scale(N, b->radius)), pen, (uint32_t)(200 + e));
+        }
+    } else if (b->shape == MOTE_SHAPE_HULL) {             /* each hull vertex */
+        const MoteHull *h = (const MoteHull *)b->shape_data;
+        for (int k = 0; k < h->nverts; k++) {
+            Vec3 wv = v3_add(b->pos, m3_mul_v3(&b->orient, h->verts[k]));
+            float pen = -v3_dot(v3_sub(wv, plane->pos), N);
+            if (pen > 0.0f) add_contact(d, pl, N, wv, pen, (uint32_t)(200 + k));
+        }
     } else {                                              /* box: 8 corners vs plane */
         int corner = 0;
         for (int sx = -1; sx <= 1; sx += 2)
@@ -447,7 +627,10 @@ static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
     for (int i = 0; i < n; i++) {
         const MoteBody *b = &bodies[i];
         if (b->shape == MOTE_SHAPE_PLANE) continue;       /* infinite: not gridded */
-        float r = (b->shape == MOTE_SHAPE_BOX) ? v3_len(b->half) : b->radius;
+        float r = (b->shape == MOTE_SHAPE_BOX) ? v3_len(b->half)
+                : (b->shape == MOTE_SHAPE_CAPSULE) ? b->half.y + b->radius
+                : (b->shape == MOTE_SHAPE_HULL && b->shape_data) ? ((const MoteHull *)b->shape_data)->bound_r
+                : b->radius;
         if (r > maxr) maxr = r;
     }
     g_cs = 2.0f * maxr; g_x0 = w->bmin.x; g_y0 = w->bmin.y; g_z0 = w->bmin.z;
