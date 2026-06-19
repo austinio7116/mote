@@ -19,6 +19,8 @@
 #define DEFAULT_H    (1.0f / 240.0f)  /* default substep; per-world overridable */
 #define REST_SLOP    0.45f            /* below this approach speed e=0 (no jitter-bounce) */
 #define SOLVER_ITERS 8                /* velocity iterations per substep */
+#define POS_ITERS    4                /* position (split-impulse) iterations */
+#define PHYS_MAX_BODIES 256           /* split-impulse pseudo-velocity capacity */
 #define MAX_SUBSTEPS 8                /* default cap (per-world overridable) + drop backlog */
 #define GRID_MAX_BODIES 256
 #define GRID_CELLS   4096
@@ -86,13 +88,15 @@ typedef struct {
     Vec3 p;            /* world contact point */
     float pen;         /* penetration depth */
     float kn, kt;      /* effective masses along n, t */
-    float bias;        /* target separating velocity (restitution + Baumgarte) */
+    float bias;        /* target separating velocity (restitution only) */
     float jn, jt;      /* accumulated impulses (warm-started) */
+    float jp;          /* accumulated position (split-impulse) impulse */
     uint32_t key;      /* warm-start match key */
 } Contact;
 
 static Contact s_ct[MAX_CONTACTS];
 static int     s_nct;
+static Vec3    s_pv[PHYS_MAX_BODIES], s_pw[PHYS_MAX_BODIES];  /* position pseudo-velocities */
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
 static Imp  s_cacheA[CACHE_N], s_cacheB[CACHE_N];
@@ -315,8 +319,8 @@ static int prepare(MoteBody *bodies, const MoteWorld *w, float h) {
         c->kt = eff_mass(bodies, c, c->t);
         float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
         if (-vn >= REST_SLOP) impact = 1;
-        float baum = POS_BETA * fmaxf(c->pen - POS_SLOP, 0.0f) / h;
-        c->bias = (e > 0.0f ? -e * vn : 0.0f) + baum;
+        c->bias = (e > 0.0f) ? -e * vn : 0.0f;           /* restitution only; */
+        c->jp = 0.0f;                                    /* position via split impulse */
         cache_lookup(c->key, &c->jn, &c->jt);            /* warm start */
         apply_impulse(bodies, c, v3_add(v3_scale(c->n, c->jn), v3_scale(c->t, c->jt)));
     }
@@ -347,6 +351,43 @@ static void solve_vel(MoteBody *bodies, const MoteWorld *w) {
 
 static void store_impulses(void) {
     for (int i = 0; i < s_nct; i++) cache_store(s_ct[i].key, s_ct[i].jn, s_ct[i].jt);
+}
+
+/* --- split-impulse position correction (no energy injection) ------------ *
+ * Penetration is removed via a separate PSEUDO-velocity field that integrates
+ * into positions only — it never touches real velocity, so deep simultaneous
+ * landings can't explode the way Baumgarte-in-velocity does. */
+static void apply_pseudo(MoteBody *bodies, Contact *c, float Jp) {
+    Vec3 J = v3_scale(c->n, Jp);
+    int a = c->a;
+    s_pv[a] = v3_add(s_pv[a], v3_scale(J, eff_im(&bodies[a])));
+    s_pw[a] = v3_add(s_pw[a], iinv_mul(&bodies[a], v3_cross(v3_sub(c->p, bodies[a].pos), J)));
+    if (c->b >= 0) {
+        int b = c->b;
+        s_pv[b] = v3_sub(s_pv[b], v3_scale(J, eff_im(&bodies[b])));
+        s_pw[b] = v3_sub(s_pw[b], iinv_mul(&bodies[b], v3_cross(v3_sub(c->p, bodies[b].pos), J)));
+    }
+}
+
+static void solve_pos(MoteBody *bodies, float h) {
+    for (int i = 0; i < s_nct; i++) {
+        Contact *c = &s_ct[i];
+        if (c->kn < 1e-9f) continue;
+        int a = c->a;
+        Vec3 pvr = v3_add(s_pv[a], v3_cross(s_pw[a], v3_sub(c->p, bodies[a].pos)));
+        if (c->b >= 0) {
+            int b = c->b;
+            Vec3 pvB = v3_add(s_pv[b], v3_cross(s_pw[b], v3_sub(c->p, bodies[b].pos)));
+            pvr = v3_sub(pvr, pvB);
+        }
+        float pvn = v3_dot(pvr, c->n);
+        float corr = clampf(c->pen - POS_SLOP, 0.0f, 0.2f);   /* cap deep-pen correction */
+        float target = POS_BETA * corr / h;
+        float dJp = (target - pvn) / c->kn;
+        float jp0 = c->jp;
+        c->jp = fmaxf(0.0f, c->jp + dJp);
+        apply_pseudo(bodies, c, c->jp - jp0);
+    }
 }
 
 /* --- broad phase (uniform grid) ----------------------------------------- */
@@ -505,6 +546,22 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         if (prepare(bodies, w, h)) ev |= MOTE_PHYS_HIT;
         for (int it = 0; it < SOLVER_ITERS; it++) solve_vel(bodies, w);
         store_impulses();
+
+        /* position correction via split impulse (positions only, no energy). */
+        if (n <= PHYS_MAX_BODIES) {
+            memset(s_pv, 0, (size_t)n * sizeof s_pv[0]);
+            memset(s_pw, 0, (size_t)n * sizeof s_pw[0]);
+            for (int it = 0; it < POS_ITERS; it++) solve_pos(bodies, h);
+            for (int i = 0; i < n; i++) {
+                if (body_asleep(&bodies[i])) continue;
+                bodies[i].pos = v3_add(bodies[i].pos, v3_scale(s_pv[i], h));
+                float wl = v3_len(s_pw[i]);
+                if (wl > 1e-6f) {
+                    m3_rotate_world(&bodies[i].orient, v3_scale(s_pw[i], 1.0f / wl), wl * h);
+                    m3_orthonormalize(&bodies[i].orient);
+                }
+            }
+        }
         Imp *t = s_cache_prev; s_cache_prev = s_cache_cur; s_cache_cur = t;
         sub++;
     }
