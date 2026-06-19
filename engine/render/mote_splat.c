@@ -3,15 +3,14 @@
 #include <math.h>
 #include <string.h>
 
-#define SPLAT_MAX  6144     /* per-frame visible cap (RAM for the sort arrays) */
 #define NB         512      /* depth buckets for the back-to-front sort */
 #define BLUR       0.30f    /* low-pass: min screen variance so tiny splats show */
 #define RMAX       30.0f    /* clamp a splat's screen radius (perf guard) */
 
-static float    s_vz[SPLAT_MAX];
-static int      s_src[SPLAT_MAX];   /* original splat index */
-static int      s_order[SPLAT_MAX]; /* sorted far->near, holds positions in s_vz */
+/* Only small per-frame state lives here (the OS RAM region is tight); the big
+ * per-splat sort buffer is GAME-provided scratch (`order`, size >= n). */
 static int      s_cnt[NB];
+static int      s_off[NB];
 
 /* exp() lookup over power in [-9,0] (beyond 3 sigma the weight is negligible). */
 static float s_exp[256];
@@ -36,39 +35,50 @@ static inline uint16_t blend565(uint16_t bg, uint16_t fg, float a) {
 }
 
 int mote_splat_render(uint16_t *fb, const MoteSplat *splats, int n,
-                      const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg) {
+                      const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
+                      int *order, const uint16_t *depth) {
     if (!s_exp_ready) exp_init();
     float f = (MOTE_FB_W * 0.5f) / tanf(fov_deg * (3.14159265f/180.0f) * 0.5f);
     Vec3 R0 = cam_basis->r[0], R1 = cam_basis->r[1], R2 = cam_basis->r[2];
 
-    /* pass 1: cull behind camera, record view-z, find range */
+    /* pass 0: view-z range over visible splats (vz recomputed, never stored) */
     int m = 0;
     float zmin = 1e30f, zmax = -1e30f;
-    for (int i = 0; i < n && m < SPLAT_MAX; i++) {
-        Vec3 d = v3_sub(splats[i].pos, cam_pos);
-        float vz = v3_dot(d, R2);
+    for (int i = 0; i < n; i++) {
+        float vz = v3_dot(v3_sub(splats[i].pos, cam_pos), R2);
         if (vz <= 0.15f) continue;
-        s_vz[m] = vz; s_src[m] = i;
-        if (vz < zmin) zmin = vz; if (vz > zmax) zmax = vz;
+        if (vz < zmin) zmin = vz;
+        if (vz > zmax) zmax = vz;
         m++;
     }
     if (m == 0) return 0;
 
-    /* counting sort by view-z, placed far->near */
+    /* counting sort into game scratch `order`, placed far -> near */
     float scale = (NB - 1) / (zmax - zmin + 1e-4f);
     for (int b = 0; b < NB; b++) s_cnt[b] = 0;
-    for (int k = 0; k < m; k++) { int b = (int)((s_vz[k]-zmin)*scale); s_cnt[b]++; }
-    int acc = 0;                                  /* offsets, highest bucket first */
-    static int off[NB];
-    for (int b = NB-1; b >= 0; b--) { off[b] = acc; acc += s_cnt[b]; }
-    for (int k = 0; k < m; k++) { int b = (int)((s_vz[k]-zmin)*scale); s_order[off[b]++] = k; }
+    for (int i = 0; i < n; i++) {
+        float vz = v3_dot(v3_sub(splats[i].pos, cam_pos), R2);
+        if (vz <= 0.15f) continue;
+        s_cnt[(int)((vz-zmin)*scale)]++;
+    }
+    int acc = 0;
+    for (int b = NB-1; b >= 0; b--) { s_off[b] = acc; acc += s_cnt[b]; }
+    for (int i = 0; i < n; i++) {
+        float vz = v3_dot(v3_sub(splats[i].pos, cam_pos), R2);
+        if (vz <= 0.15f) continue;
+        order[s_off[(int)((vz-zmin)*scale)]++] = i;
+    }
 
     /* pass 2: project + blend, far -> near */
     for (int t = 0; t < m; t++) {
-        const MoteSplat *sp = &splats[s_src[s_order[t]]];
+        const MoteSplat *sp = &splats[order[t]];
         Vec3 d = v3_sub(sp->pos, cam_pos);
         float vx = v3_dot(d, R0), vy = v3_dot(d, R1), vz = v3_dot(d, R2);
         float inv = 1.0f / vz;
+        /* this splat's depth in the raster's units (K/z, larger = nearer), so a
+         * terrain triangle in front can occlude it. */
+        uint16_t sd16 = 0;
+        if (depth) { float dd = MOTE_DEPTH_K * inv; sd16 = (dd >= 65535.0f) ? 65535u : (uint16_t)dd; }
 
         /* 3D covariance in view space: Sv_ij = Ri^T Sigma Rj (symmetric) */
         const float *c = sp->cov;
@@ -111,8 +121,10 @@ int mote_splat_render(uint16_t *fb, const MoteSplat *splats, int n,
         for (int py = y0; py < y1; py++) {
             float dy = (float)py - sy;
             uint16_t *row = fb + py*MOTE_FB_W;
+            const uint16_t *drow = depth ? depth + py*MOTE_FB_PW : 0;
             float bdy = ib*dy, half = 0.5f*ic*dy*dy;   /* per-row constants */
             for (int px = x0; px < x1; px++) {
+                if (drow && drow[px] > sd16) continue;          /* behind terrain */
                 float dx = (float)px - sx;
                 float power = -(0.5f*ia*dx*dx + bdy*dx + half);
                 if (power <= -9.0f) continue;

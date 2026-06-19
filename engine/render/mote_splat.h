@@ -40,8 +40,12 @@ static inline MoteSplat mote_splat_make(Vec3 pos, Vec3 scale, Mat3 rot,
 
 /* Render `n` splats into fb (128x128 RGB565), back-to-front, OVER existing
  * pixels. Camera-relative (centres are world; cam_pos subtracted internally).
- * Returns the number actually drawn (after culling / the internal cap). */
+ * `order` is caller-owned scratch of >= n ints (the depth-sort index buffer —
+ * lives in the game's RAM, not the OS's). `depth` (or NULL) is the scene depth
+ * buffer (from a rastered 3D scene): when given, splats behind opaque geometry
+ * are occluded. Returns the number drawn (visible). */
 int mote_splat_render(uint16_t *fb, const MoteSplat *splats, int n,
-                      const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);
+                      const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
+                      int *order, const uint16_t *depth);
 
 #endif /* MOTE_SPLAT_H */

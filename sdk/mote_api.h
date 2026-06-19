@@ -94,10 +94,13 @@ typedef struct MoteApi {
                         Vec3 center, float radius, int *out, int max);
 
     /* --- ABI v8: Gaussian-splat renderer. Call from overlay() with the frame
-     * buffer (blends OVER the rastered 3D scene), or with a cleared bg. The OS
-     * gives you a 128x128 RGB565 fb. APPEND-ONLY. */
+     * buffer (blends OVER the rastered 3D scene), or with a cleared bg. `order`
+     * is your scratch of >= n ints. Pass depth_buffer() to have the rastered
+     * scene (e.g. terrain) occlude splats behind it, or NULL. APPEND-ONLY. */
     int (*splat_render)(uint16_t *fb, const MoteSplat *splats, int n,
-                        const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);
+                        const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
+                        int *order, const uint16_t *depth);
+    const uint16_t *(*depth_buffer)(void);   /* scene depth (K/z, larger=nearer) */
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

@@ -18,8 +18,9 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#define MAXSPLAT 4200
+#define MAXSPLAT 2600             /* device GAME_RAM is 128KB; ~44B/splat */
 static MoteSplat s_splat[MAXSPLAT];
+static int s_order[MAXSPLAT];     /* depth-sort scratch for the renderer */
 static int s_n;
 
 static uint32_t rng = 0x2f6b1cdu;
@@ -68,7 +69,7 @@ static void grow(Vec3 start, Vec3 dir, float len, float thick, int depth) {
              col_of(br, br*0.62f, br*0.34f), 0.97f);
     }
     Vec3 end = v3_add(start, v3_scale(dir, len));
-    if (depth <= 0 || s_n > MAXSPLAT - 80) { leaf_cluster(end, 0.17f, 46); return; }
+    if (depth <= 0 || s_n > MAXSPLAT - 80) { leaf_cluster(end, 0.17f, 30); return; }
 
     int nb = 2 + (frand() < 0.45f ? 1 : 0);
     for (int c = 0; c < nb; c++) {
@@ -81,7 +82,7 @@ static void grow(Vec3 start, Vec3 dir, float len, float thick, int depth) {
         nd = v3_norm(v3_add(nd, v3(0, 0.18f, 0)));         /* upward bias */
         grow(end, nd, len*0.74f, thick*0.62f, depth - 1);
     }
-    if (depth <= 2) leaf_cluster(end, 0.14f, 22);          /* fill the inner canopy */
+    if (depth <= 2) leaf_cluster(end, 0.14f, 14);          /* fill the inner canopy */
 }
 
 static void g_init(void) {
@@ -90,7 +91,7 @@ static void g_init(void) {
     grow(v3(0, -1.15f, 0), v3(0,1,0), 0.95f, 0.14f, 4);
 
     /* soft ground splats */
-    for (int i = 0; i < 360 && s_n < MAXSPLAT; i++) {
+    for (int i = 0; i < 220 && s_n < MAXSPLAT; i++) {
         float a = 6.2831853f*frand(), rr = 1.9f*sqrtf(frand());
         float sh = 0.30f + 0.18f*frand();
         emit(v3(rr*cosf(a), -1.18f, rr*sinf(a)), v3(0.20f,0.20f,0.02f),
@@ -122,7 +123,7 @@ static void g_update(float dt) {
 }
 
 static void g_overlay(uint16_t *fb) {
-    mote->splat_render(fb, s_splat, s_n, &s_basis, s_cam, 52.0f);
+    mote->splat_render(fb, s_splat, s_n, &s_basis, s_cam, 52.0f, s_order, 0);
     mote->text(fb, "SPLAT TREE", 3, 3, MOTE_RGB565(40,50,30));
     mote->text(fb, "LR/UD ORBIT  A SPIN", 3, 118, MOTE_RGB565(40,50,30));
 }
