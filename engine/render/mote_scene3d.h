@@ -19,8 +19,8 @@
 #include "mote_pipe.h"
 #include <stdint.h>
 
-#define MOTE_SCENE_MAX_TRIS 4096
-#define MOTE_SCENE_MAX_SPHERES 256
+#define MOTE_SCENE_MAX_TRIS 2048
+#define MOTE_SCENE_MAX_SPHERES 200
 
 void mote_scene_set_background(uint16_t rgb565);
 

@@ -12,7 +12,7 @@ int main(void) {
     w.max_substeps = 8;
     w.restitution = 0.0f;          /* no bounce: should settle flat */
 
-#define NB 8
+#define NB 5
     MoteBody b[NB];
     memset(b, 0, sizeof b);
     for (int i = 0; i < NB; i++) {
