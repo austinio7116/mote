@@ -30,7 +30,7 @@
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 
-#define MOTE_ABI_VERSION 6u   /* v6: appended log + perf telemetry (append-only) */
+#define MOTE_ABI_VERSION 7u   /* v7: appended physics queries (raycast/overlap) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -83,6 +83,14 @@ typedef struct MoteApi {
      * for the latest frame. APPEND-ONLY. */
     void (*log)(const char *s);
     void (*perf)(uint32_t out[6]);
+
+    /* --- ABI v7: physics queries (no simulation). Static colliders, per-body
+     * materials and optional walls are plain MoteBody/MoteWorld fields (set them
+     * directly); these are the function-table entries. APPEND-ONLY. */
+    int (*phys_raycast)(const MoteWorld *w, const MoteBody *bodies, int n,
+                        Vec3 origin, Vec3 dir, float max_dist, int skip, MoteRayHit *hit);
+    int (*phys_overlap)(const MoteWorld *w, const MoteBody *bodies, int n,
+                        Vec3 center, float radius, int *out, int max);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

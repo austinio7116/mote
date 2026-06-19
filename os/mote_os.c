@@ -47,6 +47,9 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
+    /* ABI v7: physics queries. */
+    a->phys_raycast          = mote_phys_raycast;
+    a->phys_overlap          = mote_phys_overlap;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

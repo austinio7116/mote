@@ -49,6 +49,7 @@ void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
     w->bmin = v3(-2.0f, -2.0f, -2.0f);
     w->bmax = v3( 2.0f,  2.0f,  2.0f);
+    w->walls = 1;
     w->restitution = 0.6f;
     w->friction    = 0.3f;
     w->linear_damp  = 0.05f;
@@ -91,6 +92,7 @@ typedef struct {
     float pen;         /* penetration depth */
     float kn, kt;      /* effective masses along n, t */
     float bias;        /* target separating velocity (restitution only) */
+    float mu, emat;    /* combined friction + restitution for this contact */
     float jn, jt;      /* accumulated impulses (warm-started) */
     float jp;          /* accumulated position (split-impulse) impulse */
     uint32_t key;      /* warm-start match key */
@@ -277,6 +279,28 @@ static void gen_pair(MoteBody *bodies, int i, int j) {
     else gen_sphere_box(bodies, i, j);
 }
 
+/* Dynamic body `d` vs static plane `pl` (infinite half-space, normal = r[1]). */
+static void gen_vs_plane(MoteBody *bodies, int d, int pl) {
+    MoteBody *b = &bodies[d], *plane = &bodies[pl];
+    Vec3 N = plane->orient.r[1];
+    if (b->shape == MOTE_SHAPE_SPHERE) {
+        float dist = v3_dot(v3_sub(b->pos, plane->pos), N);
+        float pen = b->radius - dist;
+        if (pen > 0.0f) add_contact(d, pl, N, v3_sub(b->pos, v3_scale(N, b->radius)), pen, 200);
+    } else {                                              /* box: 8 corners vs plane */
+        int corner = 0;
+        for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2)
+        for (int sz = -1; sz <= 1; sz += 2) {
+            Vec3 lv = v3(sx * b->half.x, sy * b->half.y, sz * b->half.z);
+            Vec3 wv = v3_add(b->pos, m3_mul_v3(&b->orient, lv));
+            float pen = -v3_dot(v3_sub(wv, plane->pos), N);
+            if (pen > 0.0f) add_contact(d, pl, N, wv, pen, (uint32_t)(200 + corner));
+            corner++;
+        }
+    }
+}
+
 /* --- velocity solver ---------------------------------------------------- */
 
 static void apply_impulse(MoteBody *bodies, Contact *c, Vec3 J) {
@@ -324,7 +348,17 @@ static int prepare(MoteBody *bodies, const MoteWorld *w, float h) {
         c->t = (vtl > 1e-4f) ? v3_scale(vt, 1.0f / vtl) : v3_perp(c->n);
         c->kn = eff_mass(bodies, c, c->n);
         c->kt = eff_mass(bodies, c, c->t);
-        float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
+        /* Combine per-body materials (0 -> world default). Wall = body A only. */
+        MoteBody *A = &bodies[c->a];
+        float fa = A->friction > 0.0f ? A->friction : w->friction;
+        float ea = A->restitution > 0.0f ? A->restitution : w->restitution;
+        if (c->b >= 0) {
+            MoteBody *B = &bodies[c->b];
+            float fb = B->friction > 0.0f ? B->friction : w->friction;
+            float eb = B->restitution > 0.0f ? B->restitution : w->restitution;
+            c->mu = sqrtf(fa * fb); c->emat = ea > eb ? ea : eb;
+        } else { c->mu = fa; c->emat = ea; }
+        float e = (-vn < REST_SLOP) ? 0.0f : c->emat;
         if (-vn >= REST_SLOP) impact = 1;
         c->bias = (e > 0.0f) ? -e * vn : 0.0f;           /* restitution only; */
         c->jp = 0.0f;                                    /* position via split impulse */
@@ -352,7 +386,7 @@ static void solve_vel(MoteBody *bodies, const MoteWorld *w) {
         if (c->kt < 1e-9f) continue;
         float vt = v3_dot(contact_vrel(bodies, c), c->t);
         float dJt = -vt / c->kt;
-        float jt0 = c->jt, maxf = w->friction * c->jn;
+        float jt0 = c->jt, maxf = c->mu * c->jn;
         c->jt = clampf(c->jt + dJt, -maxf, maxf);
         dJt = c->jt - jt0;
         apply_impulse(bodies, c, v3_scale(c->t, dJt));
@@ -412,6 +446,7 @@ static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
     float maxr = 0.05f;
     for (int i = 0; i < n; i++) {
         const MoteBody *b = &bodies[i];
+        if (b->shape == MOTE_SHAPE_PLANE) continue;       /* infinite: not gridded */
         float r = (b->shape == MOTE_SHAPE_BOX) ? v3_len(b->half) : b->radius;
         if (r > maxr) maxr = r;
     }
@@ -426,6 +461,7 @@ static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
     int nc = g_nx * g_ny * g_nz;
     for (int c = 0; c < nc; c++) g_cell[c] = -1;
     for (int i = 0; i < n; i++) {
+        if (bodies[i].shape == MOTE_SHAPE_PLANE) { g_next[i] = -1; continue; }
         int cx = clampi((int)((bodies[i].pos.x - g_x0) / g_cs), 0, g_nx - 1);
         int cy = clampi((int)((bodies[i].pos.y - g_y0) / g_cs), 0, g_ny - 1);
         int cz = clampi((int)((bodies[i].pos.z - g_z0) / g_cs), 0, g_nz - 1);
@@ -451,6 +487,7 @@ static void wake_check(MoteBody *bodies, int ia, int ib, int before) {
 static void build_pairs_grid(MoteBody *bodies, int n) {
     for (int i = 0; i < n; i++) {
         MoteBody *bi = &bodies[i];
+        if (bi->shape == MOTE_SHAPE_PLANE) continue;      /* planes handled separately */
         int cx = clampi((int)((bi->pos.x - g_x0) / g_cs), 0, g_nx - 1);
         int cy = clampi((int)((bi->pos.y - g_y0) / g_cs), 0, g_ny - 1);
         int cz = clampi((int)((bi->pos.z - g_z0) / g_cs), 0, g_nz - 1);
@@ -470,19 +507,22 @@ static void build_pairs_grid(MoteBody *bodies, int n) {
 }
 
 static void build_pairs_all(MoteBody *bodies, int n) {
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
+        if (bodies[i].shape == MOTE_SHAPE_PLANE) continue;
         for (int j = i + 1; j < n; j++) {
+            if (bodies[j].shape == MOTE_SHAPE_PLANE) continue;
             if (body_asleep(&bodies[i]) && body_asleep(&bodies[j])) continue;
             int before = s_nct;
             gen_pair(bodies, i, j);
             wake_check(bodies, i, j, before);
         }
+    }
 }
 
 /* body i vs the 6 box walls -> wall contacts (b = -1). */
 static void build_walls(const MoteWorld *w, MoteBody *bodies, int i) {
     MoteBody *b = &bodies[i];
-    if (body_asleep(b)) return;
+    if (body_asleep(b) || b->shape == MOTE_SHAPE_PLANE) return;
     struct { Vec3 N; float d; } wall[6] = {
         { v3( 1, 0, 0),  w->bmin.x }, { v3(-1, 0, 0), -w->bmax.x },
         { v3( 0, 1, 0),  w->bmin.y }, { v3( 0,-1, 0), -w->bmax.y },
@@ -547,7 +587,11 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
             memset(s_woke, 0, (size_t)n);
             memset(s_pen, 0, (size_t)n * sizeof s_pen[0]);
         }
-        for (int i = 0; i < n; i++) build_walls(w, bodies, i);   /* floor first */
+        if (w->walls) for (int i = 0; i < n; i++) build_walls(w, bodies, i);  /* support first */
+        for (int p = 0; p < n; p++) if (bodies[p].shape == MOTE_SHAPE_PLANE)  /* static planes */
+            for (int i = 0; i < n; i++)
+                if (bodies[i].shape != MOTE_SHAPE_PLANE && !body_asleep(&bodies[i]))
+                    gen_vs_plane(bodies, i, p);
         if (use_grid) { grid_build(w, bodies, n); build_pairs_grid(bodies, n); }
         else            build_pairs_all(bodies, n);
 
@@ -598,4 +642,92 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     }
     if (w->_acc > h) w->_acc = 0.0f;
     return ev;
+}
+
+/* --- queries (stateless; no simulation) --------------------------------- */
+
+static int ray_sphere(Vec3 o, Vec3 d, Vec3 c, float r, float *t, Vec3 *p, Vec3 *nm) {
+    Vec3 m = v3_sub(o, c);
+    float b = v3_dot(m, d), cc = v3_dot(m, m) - r * r;
+    if (cc > 0.0f && b > 0.0f) return 0;
+    float disc = b * b - cc;
+    if (disc < 0.0f) return 0;
+    float tt = -b - sqrtf(disc);
+    if (tt < 0.0f) tt = 0.0f;
+    *t = tt; *p = v3_add(o, v3_scale(d, tt)); *nm = v3_norm(v3_sub(*p, c));
+    return 1;
+}
+static int ray_plane(Vec3 o, Vec3 d, Vec3 pt, Vec3 N, float *t, Vec3 *p, Vec3 *nm) {
+    float dn = v3_dot(d, N);
+    if (dn > -1e-8f && dn < 1e-8f) return 0;
+    float tt = v3_dot(v3_sub(pt, o), N) / dn;
+    if (tt < 0.0f) return 0;
+    *t = tt; *p = v3_add(o, v3_scale(d, tt)); *nm = (dn < 0.0f) ? N : v3_scale(N, -1.0f);
+    return 1;
+}
+static int ray_box(Vec3 o, Vec3 d, const MoteBody *b, float *t, Vec3 *p, Vec3 *nm) {
+    Vec3 lo = m3_mul_v3_t(&b->orient, v3_sub(o, b->pos));
+    Vec3 ld = m3_mul_v3_t(&b->orient, d);
+    float lop[3] = { lo.x, lo.y, lo.z }, ldp[3] = { ld.x, ld.y, ld.z };
+    float h[3] = { b->half.x, b->half.y, b->half.z };
+    float tmin = -1e30f, tmax = 1e30f, sign = 1.0f; int axis = 0;
+    for (int i = 0; i < 3; i++) {
+        if (ldp[i] > -1e-8f && ldp[i] < 1e-8f) { if (lop[i] < -h[i] || lop[i] > h[i]) return 0; continue; }
+        float inv = 1.0f / ldp[i], t1 = (-h[i] - lop[i]) * inv, t2 = (h[i] - lop[i]) * inv, s = -1.0f;
+        if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; s = 1.0f; }
+        if (t1 > tmin) { tmin = t1; axis = i; sign = s; }
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) return 0;
+    }
+    if (tmax < 0.0f) return 0;
+    *t = tmin >= 0.0f ? tmin : 0.0f;
+    *p = v3_add(o, v3_scale(d, *t));
+    Vec3 ln = v3(axis == 0 ? sign : 0.0f, axis == 1 ? sign : 0.0f, axis == 2 ? sign : 0.0f);
+    *nm = m3_mul_v3(&b->orient, ln);
+    return 1;
+}
+
+int mote_phys_raycast(const MoteWorld *w, const MoteBody *bodies, int n,
+                      Vec3 origin, Vec3 dir, float max_dist, int skip, MoteRayHit *hit) {
+    (void)w;
+    dir = v3_norm(dir);
+    float best = max_dist; int bi = -1; Vec3 bp = origin, bn = v3(0, 1, 0);
+    for (int i = 0; i < n; i++) {
+        if (i == skip) continue;
+        const MoteBody *b = &bodies[i];
+        float t; Vec3 p, nm; int got;
+        if (b->shape == MOTE_SHAPE_SPHERE)    got = ray_sphere(origin, dir, b->pos, b->radius, &t, &p, &nm);
+        else if (b->shape == MOTE_SHAPE_BOX)  got = ray_box(origin, dir, b, &t, &p, &nm);
+        else                                  got = ray_plane(origin, dir, b->pos, b->orient.r[1], &t, &p, &nm);
+        if (got && t < best) { best = t; bi = i; bp = p; bn = nm; }
+    }
+    if (bi < 0) return 0;
+    hit->body = bi; hit->t = best; hit->point = bp; hit->normal = bn;
+    return 1;
+}
+
+static int sphere_obb_overlap(Vec3 c, float r, const MoteBody *b) {
+    Vec3 rel = v3_sub(c, b->pos);
+    float ql[3] = { v3_dot(rel, b->orient.r[0]), v3_dot(rel, b->orient.r[1]), v3_dot(rel, b->orient.r[2]) };
+    float h[3] = { b->half.x, b->half.y, b->half.z }, d2 = 0.0f;
+    for (int i = 0; i < 3; i++) {
+        float e = ql[i] < -h[i] ? -h[i] - ql[i] : ql[i] > h[i] ? ql[i] - h[i] : 0.0f;
+        d2 += e * e;
+    }
+    return d2 < r * r;
+}
+
+int mote_phys_overlap(const MoteWorld *w, const MoteBody *bodies, int n,
+                      Vec3 center, float radius, int *out, int max) {
+    (void)w;
+    int cnt = 0;
+    for (int i = 0; i < n && cnt < max; i++) {
+        const MoteBody *b = &bodies[i];
+        int ov;
+        if (b->shape == MOTE_SHAPE_SPHERE) { float rr = radius + b->radius; ov = v3_len2(v3_sub(b->pos, center)) < rr * rr; }
+        else if (b->shape == MOTE_SHAPE_BOX) ov = sphere_obb_overlap(center, radius, b);
+        else ov = v3_dot(v3_sub(center, b->pos), b->orient.r[1]) < radius;
+        if (ov) out[cnt++] = i;
+    }
+    return cnt;
 }

@@ -38,23 +38,30 @@
 
 #define MOTE_SHAPE_SPHERE 0u
 #define MOTE_SHAPE_BOX    1u
+#define MOTE_SHAPE_PLANE  2u   /* infinite static half-space; normal = orient.r[1]
+                                * (up), solid below it. Use for ground/walls/ramps.
+                                * Always treated as static (set inv_mass 0). */
 
 typedef struct {
-    Vec3  pos;        /* centre, world metres */
+    Vec3  pos;        /* centre, world metres (plane: a point on the surface) */
     Vec3  vel;        /* m/s */
     Vec3  w;          /* angular velocity, rad/s (world) */
-    Mat3  orient;     /* orientation, integrated from w */
+    Mat3  orient;     /* orientation, integrated from w (plane: r[1] = normal) */
     float radius;     /* sphere radius; box: bounding radius for body-body */
-    float inv_mass;   /* 1/kg; 0 = immovable */
-    uint32_t shape;   /* MOTE_SHAPE_SPHERE (default) or MOTE_SHAPE_BOX */
+    float inv_mass;   /* 1/kg; 0 = immovable (static collider) */
+    uint32_t shape;   /* MOTE_SHAPE_SPHERE (default) / _BOX / _PLANE */
     Vec3  half;       /* box half-extents (box only) */
-    uint32_t _reserved[4];   /* room to grow without breaking the data ABI */
+    float friction;    /* per-body Coulomb coefficient; 0 -> use world.friction */
+    float restitution; /* per-body bounce 0..1; 0 -> use world.restitution */
+    uint32_t _reserved[4];   /* sleep state (counter + anchor) — do not repurpose */
 } MoteBody;
 
 typedef struct {
     Vec3  gravity;        /* e.g. (0,-9.8,0) */
-    Vec3  bmin, bmax;     /* bounding box (6 walls: floor/ceiling/sides) */
-    float restitution;    /* bounce 0..1 (body-body and body-wall) */
+    Vec3  bmin, bmax;     /* bounding box (6 walls) — used only if walls != 0 */
+    int   walls;          /* 1 = auto bounding-box walls (default); 0 = none
+                           * (build your own world from static PLANE/BOX bodies) */
+    float restitution;    /* default bounce 0..1 (per-body can override) */
     float friction;       /* Coulomb coefficient */
     float linear_damp;    /* per-second linear velocity damping (air drag) */
     float angular_damp;   /* per-second angular damping */
@@ -76,5 +83,27 @@ void mote_phys_world_defaults(MoteWorld *w);
 /* Advance the simulation by dt seconds. Returns an event bitmask (MOTE_PHYS_*)
  * for sound/feedback. */
 uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt);
+
+/* --- queries (no simulation; for aiming / ground checks / picking / AI) --- */
+
+typedef struct {
+    int   body;       /* index of the hit body, -1 if none */
+    float t;          /* distance along the ray to the hit point */
+    Vec3  point;      /* world-space hit point */
+    Vec3  normal;     /* surface normal (points back toward the ray origin) */
+} MoteRayHit;
+
+/* Cast a ray from origin along unit dir, up to max_dist, against every body
+ * (sphere / box / plane). Returns 1 and fills `hit` with the NEAREST
+ * intersection, or 0 if nothing is hit. Pass skip = a body index to ignore
+ * (e.g. the shooter), or skip < 0 to test all. */
+int mote_phys_raycast(const MoteWorld *w, const MoteBody *bodies, int n,
+                      Vec3 origin, Vec3 dir, float max_dist, int skip,
+                      MoteRayHit *hit);
+
+/* Sphere-overlap query: fill out[] with up to `max` indices of bodies whose
+ * shape overlaps the test sphere (center,radius). Returns the count found. */
+int mote_phys_overlap(const MoteWorld *w, const MoteBody *bodies, int n,
+                      Vec3 center, float radius, int *out, int max);
 
 #endif /* MOTE_PHYS_H */
