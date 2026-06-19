@@ -29,6 +29,8 @@
 #define POS_BETA     0.2f             /* Baumgarte position-bias factor */
 #define POS_SLOP     0.005f           /* allowed penetration before bias kicks in */
 #define WAKE_PEN     0.02f            /* an awake body intruding this deep wakes a sleeper */
+#define WAKE_VEL     0.30f            /* ...or contacting a sleeper while moving this fast
+                                       * (a fast strike wakes before it can penetrate WAKE_PEN) */
 #define SLEEP_DIST2  (0.025f * 0.025f)
 #define SLEEP_ANG2   (0.40f * 0.40f)
 #define SLEEP_FRAMES 20
@@ -98,6 +100,8 @@ static Contact s_ct[MAX_CONTACTS];
 static int     s_nct;
 static Vec3    s_pv[PHYS_MAX_BODIES], s_pw[PHYS_MAX_BODIES];  /* position pseudo-velocities */
 static uint8_t s_touch[PHYS_MAX_BODIES];                      /* had a contact this substep */
+static float   s_pen[PHYS_MAX_BODIES];                        /* deepest penetration this substep */
+static uint8_t s_woke[PHYS_MAX_BODIES];                       /* woke this substep -> no warm-start */
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
 static Imp  s_cacheA[CACHE_N], s_cacheB[CACHE_N];
@@ -127,8 +131,8 @@ static void add_contact(int a, int b, Vec3 n, Vec3 p, float pen, uint32_t fid) {
     c->jn = c->jt = 0.0f;
     uint32_t k = ((uint32_t)(a + 1) * 73856093u) ^ ((uint32_t)(b + 2) * 19349663u) ^ (fid * 83492791u);
     c->key = k ? k : 1u;
-    if (a < PHYS_MAX_BODIES) s_touch[a] = 1;             /* gate sleep on real contact */
-    if (b >= 0 && b < PHYS_MAX_BODIES) s_touch[b] = 1;
+    if (a < PHYS_MAX_BODIES) { s_touch[a] = 1; if (pen > s_pen[a]) s_pen[a] = pen; }
+    if (b >= 0 && b < PHYS_MAX_BODIES) { s_touch[b] = 1; if (pen > s_pen[b]) s_pen[b] = pen; }
 }
 
 /* --- narrow phase: emit contacts ---------------------------------------- */
@@ -324,7 +328,10 @@ static int prepare(MoteBody *bodies, const MoteWorld *w, float h) {
         if (-vn >= REST_SLOP) impact = 1;
         c->bias = (e > 0.0f) ? -e * vn : 0.0f;           /* restitution only; */
         c->jp = 0.0f;                                    /* position via split impulse */
-        cache_lookup(c->key, &c->jn, &c->jt);            /* warm start */
+        int woke = (c->a < PHYS_MAX_BODIES && s_woke[c->a]) ||
+                   (c->b >= 0 && c->b < PHYS_MAX_BODIES && s_woke[c->b]);
+        if (woke) { c->jn = 0.0f; c->jt = 0.0f; }        /* cold start a just-woken body */
+        else cache_lookup(c->key, &c->jn, &c->jt);       /* warm start */
         apply_impulse(bodies, c, v3_add(v3_scale(c->n, c->jn), v3_scale(c->t, c->jt)));
     }
     return impact;
@@ -427,6 +434,20 @@ static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
     }
 }
 
+/* Wake a sleeper that an awake body has hit: deep intrusion OR a fast approach
+ * (done during build so the solve this substep sees it movable). A freshly woken
+ * body is flagged so prepare() skips its (stale, immovable-era) warm-start. */
+static void wake_check(MoteBody *bodies, int ia, int ib, int before) {
+    if (s_nct == before) return;
+    float pen = 0.0f;
+    for (int k = before; k < s_nct; k++) if (s_ct[k].pen > pen) pen = s_ct[k].pen;
+    int hard = pen > WAKE_PEN;
+    float wv2 = WAKE_VEL * WAKE_VEL;
+    MoteBody *a = &bodies[ia], *b = &bodies[ib];
+    if (body_asleep(a) && (hard || v3_dot(b->vel, b->vel) > wv2)) { a->_reserved[0] = 0; s_woke[ia] = 1; }
+    if (body_asleep(b) && (hard || v3_dot(a->vel, a->vel) > wv2)) { b->_reserved[0] = 0; s_woke[ib] = 1; }
+}
+
 static void build_pairs_grid(MoteBody *bodies, int n) {
     for (int i = 0; i < n; i++) {
         MoteBody *bi = &bodies[i];
@@ -442,11 +463,7 @@ static void build_pairs_grid(MoteBody *bodies, int n) {
                 if (body_asleep(bi) && body_asleep(&bodies[jj])) continue;
                 int before = s_nct;
                 gen_pair(bodies, i, jj);
-                /* wake a sleeper the other body has really intruded into */
-                for (int k = before; k < s_nct; k++) if (s_ct[k].pen > WAKE_PEN) {
-                    if (body_asleep(bi)) bi->_reserved[0] = 0;
-                    if (body_asleep(&bodies[jj])) bodies[jj]._reserved[0] = 0;
-                }
+                wake_check(bodies, i, jj, before);
             }
         }
     }
@@ -458,10 +475,7 @@ static void build_pairs_all(MoteBody *bodies, int n) {
             if (body_asleep(&bodies[i]) && body_asleep(&bodies[j])) continue;
             int before = s_nct;
             gen_pair(bodies, i, j);
-            for (int k = before; k < s_nct; k++) if (s_ct[k].pen > WAKE_PEN) {
-                if (body_asleep(&bodies[i])) bodies[i]._reserved[0] = 0;
-                if (body_asleep(&bodies[j])) bodies[j]._reserved[0] = 0;
-            }
+            wake_check(bodies, i, j, before);
         }
 }
 
@@ -528,7 +542,11 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         for (int i = 0; i < n; i++) if (!body_asleep(&bodies[i])) integrate(w, &bodies[i], h);
 
         s_nct = 0;
-        if (n <= PHYS_MAX_BODIES) memset(s_touch, 0, (size_t)n);
+        if (n <= PHYS_MAX_BODIES) {
+            memset(s_touch, 0, (size_t)n);
+            memset(s_woke, 0, (size_t)n);
+            memset(s_pen, 0, (size_t)n * sizeof s_pen[0]);
+        }
         for (int i = 0; i < n; i++) build_walls(w, bodies, i);   /* floor first */
         if (use_grid) { grid_build(w, bodies, n); build_pairs_grid(bodies, n); }
         else            build_pairs_all(bodies, n);
@@ -569,8 +587,8 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
                     b->_reserved[0] = 0;
                     b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);
                 }
-            } else if (s_touch[i] && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
-                b->_reserved[0]++;                         /* resting + still -> drift toward sleep */
+            } else if (s_touch[i] && s_pen[i] < 0.012f && disp2 < SLEEP_DIST2 && v3_dot(b->w, b->w) < SLEEP_ANG2) {
+                b->_reserved[0]++;                         /* resting (not deeply overlapping) + still -> sleep */
             } else {                                       /* airborne / moving -> stay awake, re-anchor */
                 b->_reserved[0] = 0;
                 b->_reserved[1] = f2u(b->pos.x); b->_reserved[2] = f2u(b->pos.y); b->_reserved[3] = f2u(b->pos.z);

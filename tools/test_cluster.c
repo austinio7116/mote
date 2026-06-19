@@ -8,7 +8,7 @@ int main(void){
     w.substep=1.0f/120.0f; w.max_substeps=4; w.restitution=0.55f;
     int N=48; MoteBody b[48]; memset(b,0,sizeof b);
     // tight 4x4x3 cluster, slightly overlapping spacing to provoke simultaneous deep contacts
-    int per=4; float sp=0.50f;  // < 0.52 diameter -> initial overlap, worst case
+    int per=4; float sp=0.56f;  /* realistic (non-overlapping) spawn */
     for(int i=0;i<N;i++){
         b[i].inv_mass=1.0f/0.3f; b[i].orient=m3_identity();
         if(i&1){b[i].shape=MOTE_SHAPE_SPHERE;b[i].radius=0.26f;}
