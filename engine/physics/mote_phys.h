@@ -44,15 +44,34 @@
 #define MOTE_SHAPE_CAPSULE 3u  /* swept sphere: segment along local +Y of half-
                                 * length `half.y`, thickened by `radius`. Great
                                 * for characters / pills / rounded props. */
-#define MOTE_SHAPE_HULL    4u  /* arbitrary CONVEX shape: shape_data -> MoteHull
-                                * (vertex cloud). Collides via GJK/EPA. */
+#define MOTE_SHAPE_HULL    4u  /* arbitrary CONVEX shape: shape_data -> MoteHull.
+                                * Multi-point manifolds (SAT + clip) for stable
+                                * collision/stacking. */
+#define MOTE_SHAPE_MESH    5u  /* STATIC concave triangle mesh (the actual model,
+                                * not its hull): shape_data -> MoteMesh. Dynamic
+                                * bodies collide against its triangles. inv_mass 0. */
 
-/* Convex hull = a vertex cloud in local space (the convex set is their hull). */
+/* Convex hull (local space). Verts power the support function; faces + edges
+ * give SAT axes and face clipping for multi-point contact manifolds (stable
+ * stacking — not the single-point GJK fallback). Build with the obj2hull baker
+ * or by hand. facev is a flat list of vertex indices; face f spans
+ * faceoff[f]..faceoff[f+1]. edges are vertex-index pairs. */
 typedef struct {
-    const Vec3 *verts;   /* local-space vertices */
-    int   nverts;
-    float bound_r;       /* bounding-sphere radius (local), for broad phase */
+    const Vec3   *verts;    int nverts;
+    const Vec3   *fnorm;                    /* per-face outward unit normal */
+    const uint8_t *faceoff;                 /* nfaces+1 offsets into facev */
+    const uint8_t *facev;                   /* flat face vertex indices */
+    int           nfaces;
+    const uint8_t *edges;   int nedges;     /* edge vertex-index pairs (2*nedges) */
+    float         bound_r;                  /* bounding-sphere radius (local) */
 } MoteHull;
+
+/* Static concave triangle-mesh collider (the model's actual surface). */
+typedef struct {
+    const Vec3     *verts;  int nverts;
+    const uint16_t *tris;   int ntris;      /* 3 vertex indices per triangle */
+    float           bound_r;
+} MoteMesh;
 
 typedef struct {
     Vec3  pos;        /* centre, world metres (plane: a point on the surface) */
