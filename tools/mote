@@ -259,7 +259,7 @@ def cmd_push(args):
         if _readline(ser, 3.0) != "READY":
             sys.exit("mote: device did not accept PUT")
         ser.write(data); ser.flush()
-        res = _readline(ser, 15.0)
+        res = _readline(ser, max(20.0, len(data) / 8000.0))   # big images: lots of flash
         if res != "OK":
             sys.exit("mote: push failed: %r" % res)
         print("pushed %s (%d bytes)" % (name, len(data)))

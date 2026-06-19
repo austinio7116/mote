@@ -140,7 +140,10 @@ int mote_store_begin(const char *name, uint32_t size) {
     uint32_t aligned = (size + BLOCK - 1) & ~(BLOCK - 1);
     uint32_t off = g_cat.next_free;
     if (off + aligned > FLASH_TOTAL) return -2;
-    flash_erase_region(off, aligned);                    /* erase the slot up front */
+    /* NB: no erase here — erasing the whole (possibly 500KB+) slot would blow
+     * past the host's READY timeout. Each 4KB sector is erased lazily, just
+     * before its page is programmed (pages are 4KB-aligned -> 1 page = 1
+     * sector). begin() is therefore instant. */
     s_wr.base = off; s_wr.size = size; s_wr.got = 0; s_wr.active = 1;
     memset(s_wr.name, 0, MOTE_STORE_NAME_MAX);
     strncpy(s_wr.name, name, MOTE_STORE_NAME_MAX - 1);
@@ -154,8 +157,10 @@ void mote_store_write(const uint8_t *data, uint32_t n) {
         uint32_t take = BLOCK - s_page_len; if (take > n) take = n;
         memcpy(s_page + s_page_len, data, take);
         s_page_len += take; data += take; n -= take; s_wr.got += take;
-        if (s_page_len == BLOCK) {                        /* flush a full page */
-            flash_program_region(s_wr.base + s_wr.got - BLOCK, s_page, BLOCK);
+        if (s_page_len == BLOCK) {                        /* erase + program a page */
+            uint32_t po = s_wr.base + s_wr.got - BLOCK;
+            flash_erase_region(po, BLOCK);
+            flash_program_region(po, s_page, BLOCK);
             s_page_len = 0;
         }
     }
@@ -163,8 +168,10 @@ void mote_store_write(const uint8_t *data, uint32_t n) {
 
 int mote_store_end(void) {
     if (!s_wr.active) return -1;
-    if (s_page_len) {                                     /* tail (already erased) */
-        flash_program_region(s_wr.base + s_wr.got - s_page_len, s_page, s_page_len);
+    if (s_page_len) {                                     /* erase + program the tail */
+        uint32_t po = s_wr.base + s_wr.got - s_page_len;
+        flash_erase_region(po, BLOCK);
+        flash_program_region(po, s_page, s_page_len);
         s_page_len = 0;
     }
     rom_flash_flush_cache();
