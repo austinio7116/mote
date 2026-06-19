@@ -210,6 +210,135 @@ static int box_walls(const MoteWorld *w, MoteBody *b) {
     return hit;
 }
 
+/* --- two-body contact (box-box, sphere-box) ----------------------------- */
+
+static inline float clampf(float x, float lo, float hi) {
+    return x < lo ? lo : (x > hi ? hi : x);
+}
+
+/* Resolve a contact between two bodies at world point cp with unit normal n
+ * (n points the way `a` must move to separate from `b`). Full inertia tensor. */
+static void resolve_pair(const MoteWorld *w, MoteBody *a, MoteBody *b,
+                         Vec3 cp, Vec3 n) {
+    Vec3 ra = v3_sub(cp, a->pos), rb = v3_sub(cp, b->pos);
+    Vec3 vrel = v3_sub(v3_add(a->vel, v3_cross(a->w, ra)),
+                       v3_add(b->vel, v3_cross(b->w, rb)));
+    float vn = v3_dot(vrel, n);
+    if (vn >= 0.0f) return;
+
+    float kn = a->inv_mass + b->inv_mass
+             + v3_dot(n, v3_cross(iinv_mul(a, v3_cross(ra, n)), ra))
+             + v3_dot(n, v3_cross(iinv_mul(b, v3_cross(rb, n)), rb));
+    if (kn < 1e-9f) return;
+
+    float e = (-vn < REST_SLOP) ? 0.0f : w->restitution;
+    float Jn = -(1.0f + e) * vn / kn;
+    Vec3 Jnv = v3_scale(n, Jn);
+    a->vel = v3_add(a->vel, v3_scale(Jnv, a->inv_mass));
+    a->w   = v3_add(a->w, iinv_mul(a, v3_cross(ra, Jnv)));
+    b->vel = v3_sub(b->vel, v3_scale(Jnv, b->inv_mass));
+    b->w   = v3_sub(b->w, iinv_mul(b, v3_cross(rb, Jnv)));
+
+    vrel = v3_sub(v3_add(a->vel, v3_cross(a->w, ra)),
+                  v3_add(b->vel, v3_cross(b->w, rb)));
+    Vec3 vt = v3_sub(vrel, v3_scale(n, v3_dot(vrel, n)));
+    float vtl = v3_len(vt);
+    if (vtl > 1e-5f) {
+        Vec3 t = v3_scale(vt, -1.0f / vtl);
+        float kt = a->inv_mass + b->inv_mass
+                 + v3_dot(t, v3_cross(iinv_mul(a, v3_cross(ra, t)), ra))
+                 + v3_dot(t, v3_cross(iinv_mul(b, v3_cross(rb, t)), rb));
+        float Jt_stop = (kt > 1e-9f) ? vtl / kt : 0.0f;
+        float Jt_max = w->friction * fabsf(Jn);
+        float Jt = (Jt_stop < Jt_max) ? Jt_stop : Jt_max;
+        Vec3 Jtv = v3_scale(t, Jt);
+        a->vel = v3_add(a->vel, v3_scale(Jtv, a->inv_mass));
+        a->w   = v3_add(a->w, iinv_mul(a, v3_cross(ra, Jtv)));
+        b->vel = v3_sub(b->vel, v3_scale(Jtv, b->inv_mass));
+        b->w   = v3_sub(b->w, iinv_mul(b, v3_cross(rb, Jtv)));
+    }
+}
+
+static void depenetrate(MoteBody *a, MoteBody *b, Vec3 n, float pen) {
+    float ws = a->inv_mass + b->inv_mass;
+    if (ws <= 0.0f) return;
+    a->pos = v3_add(a->pos, v3_scale(n, pen * (a->inv_mass / ws)));
+    b->pos = v3_sub(b->pos, v3_scale(n, pen * (b->inv_mass / ws)));
+}
+
+/* Contacts for P's vertices that lie inside box Q (n = Q's face normal, out of
+ * Q — the way P must move). Gives face-on-face stacking 4 contacts. */
+static int verts_into_box(const MoteWorld *w, MoteBody *P, MoteBody *Q) {
+    Vec3 qax[3] = { Q->orient.r[0], Q->orient.r[1], Q->orient.r[2] };
+    float qh[3] = { Q->half.x, Q->half.y, Q->half.z };
+    int hit = 0;
+    for (int sx = -1; sx <= 1; sx += 2)
+    for (int sy = -1; sy <= 1; sy += 2)
+    for (int sz = -1; sz <= 1; sz += 2) {
+        Vec3 lv = v3(sx * P->half.x, sy * P->half.y, sz * P->half.z);
+        Vec3 wv = v3_add(P->pos, m3_mul_v3(&P->orient, lv));
+        Vec3 rel = v3_sub(wv, Q->pos);
+        float ql[3] = { v3_dot(rel, qax[0]), v3_dot(rel, qax[1]), v3_dot(rel, qax[2]) };
+        if (fabsf(ql[0]) >= qh[0] || fabsf(ql[1]) >= qh[1] || fabsf(ql[2]) >= qh[2])
+            continue;                                   /* vertex outside Q */
+        int axis = 0; float minpen = qh[0] - fabsf(ql[0]);
+        for (int k = 1; k < 3; k++) {
+            float pen = qh[k] - fabsf(ql[k]);
+            if (pen < minpen) { minpen = pen; axis = k; }
+        }
+        Vec3 n = v3_scale(qax[axis], (ql[axis] > 0.0f) ? 1.0f : -1.0f);
+        depenetrate(P, Q, n, minpen);
+        resolve_pair(w, P, Q, wv, n);
+        hit = 1;
+    }
+    return hit;
+}
+
+static int box_box(const MoteWorld *w, MoteBody *a, MoteBody *b) {
+    Vec3 d = v3_sub(b->pos, a->pos);
+    float br = v3_len(a->half) + v3_len(b->half);
+    if (v3_dot(d, d) > br * br) return 0;                /* broad phase */
+    int hit = verts_into_box(w, a, b);
+    hit |= verts_into_box(w, b, a);
+    return hit;
+}
+
+/* Sphere S vs box B: nearest point on B to the sphere centre. */
+static int sphere_box(const MoteWorld *w, MoteBody *S, MoteBody *B) {
+    Vec3 ax[3] = { B->orient.r[0], B->orient.r[1], B->orient.r[2] };
+    float h[3] = { B->half.x, B->half.y, B->half.z };
+    Vec3 rel = v3_sub(S->pos, B->pos);
+    float ql[3] = { v3_dot(rel, ax[0]), v3_dot(rel, ax[1]), v3_dot(rel, ax[2]) };
+    float cl[3] = { clampf(ql[0], -h[0], h[0]),
+                    clampf(ql[1], -h[1], h[1]),
+                    clampf(ql[2], -h[2], h[2]) };
+    Vec3 cp = v3_add(v3_add(v3_add(B->pos, v3_scale(ax[0], cl[0])),
+                            v3_scale(ax[1], cl[1])), v3_scale(ax[2], cl[2]));
+    Vec3 dv = v3_sub(S->pos, cp);
+    float dist = v3_len(dv);
+    Vec3 n; float pen;
+    if (dist > 1e-5f) {
+        if (dist >= S->radius) return 0;
+        n = v3_scale(dv, 1.0f / dist);
+        pen = S->radius - dist;
+    } else {                                            /* centre inside box */
+        int axis = 0; float minpen = h[0] - fabsf(ql[0]);
+        for (int k = 1; k < 3; k++) { float p = h[k] - fabsf(ql[k]); if (p < minpen) { minpen = p; axis = k; } }
+        n = v3_scale(ax[axis], (ql[axis] > 0.0f) ? 1.0f : -1.0f);
+        pen = minpen + S->radius;
+    }
+    depenetrate(S, B, n, pen);
+    resolve_pair(w, S, B, cp, n);
+    return 1;
+}
+
+static int collide_bodies(const MoteWorld *w, MoteBody *a, MoteBody *b) {
+    int abox = (a->shape == MOTE_SHAPE_BOX), bbox = (b->shape == MOTE_SHAPE_BOX);
+    if (!abox && !bbox) return collide_pair(w, a, b);
+    if (abox && bbox)   return box_box(w, a, b);
+    return abox ? sphere_box(w, b, a) : sphere_box(w, a, b);
+}
+
 static void integrate(const MoteWorld *w, MoteBody *b, float h) {
     if (b->inv_mass <= 0.0f) return;
     b->vel = v3_add(b->vel, v3_scale(w->gravity, h));
@@ -238,7 +367,7 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         for (int i = 0; i < n; i++) integrate(w, &bodies[i], h);
         for (int i = 0; i < n; i++)
             for (int j = i + 1; j < n; j++)
-                if (collide_pair(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
+                if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
         for (int i = 0; i < n; i++) {
             int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
                        ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);

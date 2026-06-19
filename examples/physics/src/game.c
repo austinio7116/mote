@@ -39,9 +39,10 @@ static void toss(void) {
             b->half = v3(0.28f, 0.28f, 0.28f);
             b->radius = 0.30f;             /* bounding radius for body-body */
         }
-        b->pos = v3(frand() * 1.2f, 1.3f + (float)i * 0.2f, frand() * 1.2f);
-        b->vel = v3(frand() * 2.0f, frand() * 1.2f, frand() * 2.0f);
-        b->w   = v3(frand() * 3.0f, frand() * 3.0f, frand() * 3.0f);
+        /* Spawn in a loose column so they pile and stack. */
+        b->pos = v3(frand() * 0.5f, 0.2f + (float)i * 0.45f, frand() * 0.5f);
+        b->vel = v3(frand() * 0.6f, 0.0f, frand() * 0.6f);
+        b->w   = v3(frand() * 1.5f, frand() * 1.5f, frand() * 1.5f);
         b->orient = m3_identity();
     }
 }
