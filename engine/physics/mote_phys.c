@@ -298,41 +298,120 @@ static void depenetrate(MoteBody *a, MoteBody *b, Vec3 n, float pen) {
     b->pos = v3_sub(b->pos, v3_scale(n, pen * (b->inv_mass / ws)));
 }
 
-/* Contacts for P's vertices that lie inside box Q (n = Q's face normal, out of
- * Q — the way P must move). Gives face-on-face stacking 4 contacts. */
-MOTE_HOT static int verts_into_box(const MoteWorld *w, MoteBody *P, MoteBody *Q) {
-    Vec3 qax[3] = { Q->orient.r[0], Q->orient.r[1], Q->orient.r[2] };
-    float qh[3] = { Q->half.x, Q->half.y, Q->half.z };
-    int hit = 0;
-    for (int sx = -1; sx <= 1; sx += 2)
-    for (int sy = -1; sy <= 1; sy += 2)
-    for (int sz = -1; sz <= 1; sz += 2) {
-        Vec3 lv = v3(sx * P->half.x, sy * P->half.y, sz * P->half.z);
-        Vec3 wv = v3_add(P->pos, m3_mul_v3(&P->orient, lv));
-        Vec3 rel = v3_sub(wv, Q->pos);
-        float ql[3] = { v3_dot(rel, qax[0]), v3_dot(rel, qax[1]), v3_dot(rel, qax[2]) };
-        if (fabsf(ql[0]) >= qh[0] || fabsf(ql[1]) >= qh[1] || fabsf(ql[2]) >= qh[2])
-            continue;                                   /* vertex outside Q */
-        int axis = 0; float minpen = qh[0] - fabsf(ql[0]);
-        for (int k = 1; k < 3; k++) {
-            float pen = qh[k] - fabsf(ql[k]);
-            if (pen < minpen) { minpen = pen; axis = k; }
-        }
-        Vec3 n = v3_scale(qax[axis], (ql[axis] > 0.0f) ? 1.0f : -1.0f);
-        depenetrate(P, Q, n, minpen);
-        resolve_pair(w, P, Q, wv, n);
-        hit = 1;
-    }
-    return hit;
+static inline float half_i(const MoteBody *b, int i) {
+    return (i == 0) ? b->half.x : (i == 1) ? b->half.y : b->half.z;
 }
 
+/* Box half-extent projected onto a (unit) world axis. */
+static float obb_radius(const MoteBody *b, Vec3 ax) {
+    return fabsf(v3_dot(b->orient.r[0], ax)) * b->half.x
+         + fabsf(v3_dot(b->orient.r[1], ax)) * b->half.y
+         + fabsf(v3_dot(b->orient.r[2], ax)) * b->half.z;
+}
+
+/* World corners (CCW) of box bx's face along local axis `ax`, side `s` (+/-1). */
+static void face_corners(const MoteBody *bx, int ax, int s, Vec3 out[4]) {
+    int u = (ax + 1) % 3, v = (ax + 2) % 3;
+    Vec3 c  = v3_add(bx->pos, v3_scale(bx->orient.r[ax], (float)s * half_i(bx, ax)));
+    Vec3 du = v3_scale(bx->orient.r[u], half_i(bx, u));
+    Vec3 dv = v3_scale(bx->orient.r[v], half_i(bx, v));
+    out[0] = v3_add(v3_add(c, du), dv);
+    out[1] = v3_add(v3_sub(c, du), dv);
+    out[2] = v3_sub(v3_sub(c, du), dv);
+    out[3] = v3_sub(v3_add(c, du), dv);
+}
+
+/* Sutherland-Hodgman: keep the part of polygon `in` on the inside of the plane
+ * through `p` with outward normal `m` (inside = dot(x-p,m) <= 0). */
+static int clip_plane(const Vec3 *in, int n, Vec3 p, Vec3 m, Vec3 *out) {
+    int cnt = 0;
+    for (int i = 0; i < n; i++) {
+        Vec3 A = in[i], B = in[(i + 1) % n];
+        float da = v3_dot(v3_sub(A, p), m), db = v3_dot(v3_sub(B, p), m);
+        if (da <= 0.0f) out[cnt++] = A;
+        if ((da < 0.0f) != (db < 0.0f)) {
+            float t = da / (da - db);
+            out[cnt++] = v3_add(A, v3_scale(v3_sub(B, A), t));
+        }
+    }
+    return cnt;
+}
+
+/* OBB-OBB via SAT (15 axes) for separation + min-penetration normal, then a
+ * clipped face manifold so equal/aligned boxes stack robustly (the old
+ * per-vertex-inside test missed face-aligned contact entirely). One position
+ * correction by the max penetration; velocity resolved at every contact point
+ * for stable, torque-correct stacking. */
 MOTE_HOT static int box_box(const MoteWorld *w, MoteBody *a, MoteBody *b) {
     Vec3 d = v3_sub(b->pos, a->pos);
     float br = v3_len(a->half) + v3_len(b->half);
     if (v3_dot(d, d) > br * br) return 0;                /* broad phase */
-    int hit = verts_into_box(w, a, b);
-    hit |= verts_into_box(w, b, a);
-    return hit;
+
+    Vec3 axes[15]; int na = 0;
+    for (int i = 0; i < 3; i++) axes[na++] = a->orient.r[i];
+    for (int i = 0; i < 3; i++) axes[na++] = b->orient.r[i];
+    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
+        Vec3 c = v3_cross(a->orient.r[i], b->orient.r[j]);
+        float l2 = v3_dot(c, c);
+        if (l2 > 1e-6f) axes[na++] = v3_scale(c, 1.0f / sqrtf(l2));
+    }
+    float bestOv = 1e30f; Vec3 bestN = v3(0, 1, 0);
+    for (int k = 0; k < na; k++) {
+        Vec3 ax = axes[k];
+        float dist = v3_dot(d, ax);
+        float ov = obb_radius(a, ax) + obb_radius(b, ax) - fabsf(dist);
+        if (ov <= 0.0f) return 0;                        /* separating axis */
+        if (ov < bestOv) { bestOv = ov; bestN = (dist < 0.0f) ? v3_scale(ax, -1.0f) : ax; }
+    }
+    /* bestN points a -> b, penetration bestOv. */
+
+    /* Reference = the box with a face normal most parallel to bestN. */
+    int refA = 1, rax = 0, rs = 1; float bestAlign = -1.0f;
+    for (int i = 0; i < 3; i++) {
+        float da = v3_dot(a->orient.r[i], bestN);
+        if (fabsf(da) > bestAlign) { bestAlign = fabsf(da); refA = 1; rax = i; rs = (da > 0) ? 1 : -1; }
+        float db = v3_dot(b->orient.r[i], bestN);
+        if (fabsf(db) > bestAlign) { bestAlign = fabsf(db); refA = 0; rax = i; rs = (db > 0) ? -1 : 1; }
+    }
+    MoteBody *ref = refA ? a : b, *inc = refA ? b : a;
+    Vec3 refN = v3_scale(ref->orient.r[rax], (float)rs);  /* ref face outward normal */
+
+    /* Incident face: inc's face most anti-parallel to refN. */
+    int iax = 0, is = 1; float bd = 1e30f;
+    for (int i = 0; i < 3; i++) {
+        float dp = v3_dot(inc->orient.r[i], refN);
+        if (dp < bd)  { bd = dp;  iax = i; is = 1; }
+        if (-dp < bd) { bd = -dp; iax = i; is = -1; }
+    }
+    Vec3 poly[16], tmp[16];
+    face_corners(inc, iax, is, poly);
+
+    int u = (rax + 1) % 3, v = (rax + 2) % 3;
+    Vec3 refC = v3_add(ref->pos, v3_scale(refN, half_i(ref, rax)));
+    Vec3 du = ref->orient.r[u]; float hu = half_i(ref, u);
+    Vec3 dv = ref->orient.r[v]; float hv = half_i(ref, v);
+    int n = 4;
+    n = clip_plane(poly, n, v3_add(refC, v3_scale(du,  hu)), du,                 tmp);
+    n = clip_plane(tmp,  n, v3_sub(refC, v3_scale(du,  hu)), v3_scale(du, -1.0f), poly);
+    n = clip_plane(poly, n, v3_add(refC, v3_scale(dv,  hv)), dv,                 tmp);
+    n = clip_plane(tmp,  n, v3_sub(refC, v3_scale(dv,  hv)), v3_scale(dv, -1.0f), poly);
+
+    /* Penetrating clipped points -> contacts; incident box moves along +refN. */
+    int nc = 0; Vec3 cps[8]; float maxpen = 0.0f;
+    for (int i = 0; i < n && nc < 8; i++) {
+        float pen = -v3_dot(v3_sub(poly[i], refC), refN);
+        if (pen > 0.0f) { cps[nc++] = poly[i]; if (pen > maxpen) maxpen = pen; }
+    }
+    if (nc == 0) {                                        /* edge-edge fallback */
+        Vec3 cp = v3_add(a->pos, v3_scale(bestN, obb_radius(a, bestN)));
+        depenetrate(a, b, bestN, bestOv);
+        resolve_pair(w, a, b, cp, bestN);
+        return 1;
+    }
+    depenetrate(inc, ref, refN, maxpen);                  /* one position fix */
+    for (int i = 0; i < nc; i++)                          /* velocity at each contact */
+        resolve_pair(w, inc, ref, cps[i], refN);
+    return 1;
 }
 
 /* Sphere S vs box B: nearest point on B to the sphere centre. */
