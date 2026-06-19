@@ -14,10 +14,11 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#define NBODY 14
+#define NBODY 200          /* max; live count adjusts with UP/DOWN */
 
 static MoteWorld world;
 static MoteBody  body[NBODY];
+static int       s_active = 24;
 static uint32_t  rng = 1u;
 static Vec3      cam_pos;
 static Mat3      cam_basis;
@@ -29,19 +30,20 @@ static float frand(void) {       /* xorshift -> [-1,1) */
 }
 
 static void toss(void) {
-    for (int i = 0; i < NBODY; i++) {
+    for (int i = 0; i < s_active; i++) {
         MoteBody *b = &body[i];
         b->inv_mass = 1.0f / 0.3f;
         if (i & 1) {                       /* sphere */
             b->shape = MOTE_SHAPE_SPHERE;
-            b->radius = 0.30f;
+            b->radius = 0.26f;
         } else {                           /* box (acts like a cube) */
             b->shape = MOTE_SHAPE_BOX;
-            b->half = v3(0.28f, 0.28f, 0.28f);
-            b->radius = 0.30f;             /* bounding radius for body-body */
+            b->half = v3(0.24f, 0.24f, 0.24f);
+            b->radius = 0.26f;             /* bounding radius for body-body */
         }
-        /* Spawn in a loose cluster above the floor so they pile and stack. */
-        b->pos = v3(frand() * 0.9f, 1.2f + (float)i * 0.13f, frand() * 0.9f);
+        /* Scatter through the box volume; the solver depenetrates and they
+         * settle into a pile (lots of bodies -> a deep stress-test heap). */
+        b->pos = v3(frand() * 1.5f, 1.0f + frand() * 3.5f, frand() * 1.5f);
         b->vel = v3(frand() * 0.6f, 0.0f, frand() * 0.6f);
         b->w   = v3(frand() * 1.5f, frand() * 1.5f, frand() * 1.5f);
         b->orient = m3_identity();
@@ -54,7 +56,7 @@ static void g_init(void) {
 
     mote->phys_world_defaults(&world);
     world.bmin = v3(-1.8f, -1.4f, -1.8f);
-    world.bmax = v3( 1.8f,  3.0f,  1.8f);
+    world.bmax = v3( 1.8f,  5.0f,  1.8f);   /* tall box: room for a deep pile */
     world.restitution = 0.55f;
 
     rng = (uint32_t)mote->micros() | 1u;
@@ -70,11 +72,14 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_A))    toss();
+    /* UP/DOWN dial the body count live to stress the engine. */
+    if (mote_just_pressed(in, MOTE_BTN_UP))   { s_active += 16; if (s_active > NBODY) s_active = NBODY; toss(); }
+    if (mote_just_pressed(in, MOTE_BTN_DOWN)) { s_active -= 16; if (s_active < 8) s_active = 8; toss(); }
 
     float inst = (dt > 1e-5f) ? 1.0f / dt : 0.0f;     /* smoothed FPS */
     s_fps = s_fps * 0.92f + inst * 0.08f;
 
-    mote->phys_step(&world, body, NBODY, dt);
+    mote->phys_step(&world, body, s_active, dt);
 
     mote->scene_begin(&cam_basis, 55.0f);
 
@@ -91,7 +96,7 @@ static void g_update(float dt) {
         MOTE_RGB565(235, 90, 90), MOTE_RGB565(90, 200, 110),
         MOTE_RGB565(90, 150, 240), MOTE_RGB565(235, 200, 80),
     };
-    for (int i = 0; i < NBODY; i++) {
+    for (int i = 0; i < s_active; i++) {
         Vec3 p = v3_sub(body[i].pos, cam_pos);
         if (body[i].shape == MOTE_SHAPE_BOX) {
             MoteObject o = { .pos = p, .basis = body[i].orient, .mesh = &k_body_mesh };
@@ -112,6 +117,15 @@ static void g_overlay(uint16_t *fb) {
     else b[n++] = '0' + f;
     b[n] = 0;
     mote->text(fb, b, 3, 3, MOTE_RGB565(255, 255, 0));
+
+    char c[16]; int m = 0;
+    int bodies = s_active;
+    c[m++] = 'N'; c[m++] = ' ';
+    if (bodies >= 100) { c[m++] = '0' + bodies / 100; bodies %= 100; c[m++] = '0' + bodies / 10; c[m++] = '0' + bodies % 10; }
+    else if (bodies >= 10) { c[m++] = '0' + bodies / 10; c[m++] = '0' + bodies % 10; }
+    else c[m++] = '0' + bodies;
+    c[m] = 0;
+    mote->text(fb, c, 3, 11, MOTE_RGB565(120, 220, 255));
 }
 
 static const MoteGameVtbl k_vtbl = {
