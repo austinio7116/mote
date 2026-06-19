@@ -10,7 +10,11 @@
 #include "mote_config.h"
 #include <math.h>
 
-#define DEFAULT_H   (1.0f / 480.0f)   /* ~2 ms substep */
+#define DEFAULT_H   (1.0f / 120.0f)   /* ~8 ms substep. 480Hz was overkill: under
+                                       * load it pinned the loop at the substep cap,
+                                       * paying substeps*iters collision passes per
+                                       * frame. 120Hz + solver iters is standard and
+                                       * ~4x cheaper under load. */
 #define REST_SLOP   0.45f             /* below this approach speed, no bounce
                                        * (kills gravity micro-bouncing -> bodies
                                        * actually come to rest) */
@@ -18,7 +22,7 @@
                                        * lets penetration resolve and stacks
                                        * settle instead of sinking into each
                                        * other */
-#define MAX_SUBSTEPS 8                /* cap substeps/frame + drop the backlog so
+#define MAX_SUBSTEPS 4                /* cap substeps/frame + drop the backlog so
                                        * heavy load can't trigger the fixed-step
                                        * "spiral of death" (slows gracefully) */
 #define GRID_MAX_BODIES 256           /* broad-phase grid covers up to this many;
