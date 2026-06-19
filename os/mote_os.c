@@ -7,6 +7,7 @@
 #include "mote_pipe.h"
 #include "mote_2d.h"
 #include "mote_phys.h"
+#include "mote_splat.h"
 #include "mote_font.h"
 #include "mote_perf.h"
 #include <string.h>
@@ -50,6 +51,8 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v7: physics queries. */
     a->phys_raycast          = mote_phys_raycast;
     a->phys_overlap          = mote_phys_overlap;
+    /* ABI v8: Gaussian-splat renderer. */
+    a->splat_render          = mote_splat_render;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

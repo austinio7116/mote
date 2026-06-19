@@ -52,6 +52,7 @@ add_executable(mote_os
     ${ENGINE}/render/mote_raster.c
     ${ENGINE}/render/mote_pipe.c
     ${ENGINE}/render/mote_scene3d.c
+    ${ENGINE}/render/mote_splat.c
     ${ENGINE}/render/mote_font.c
     ${ENGINE}/render/mote_2d.c
     ${ENGINE}/physics/mote_phys.c

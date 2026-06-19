@@ -29,8 +29,9 @@
 #include "mote_object.h"   /* MoteObject — header-only */
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
+#include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 7u   /* v7: appended physics queries (raycast/overlap) */
+#define MOTE_ABI_VERSION 8u   /* v8: appended splat_render (Gaussian splats) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -91,6 +92,12 @@ typedef struct MoteApi {
                         Vec3 origin, Vec3 dir, float max_dist, int skip, MoteRayHit *hit);
     int (*phys_overlap)(const MoteWorld *w, const MoteBody *bodies, int n,
                         Vec3 center, float radius, int *out, int max);
+
+    /* --- ABI v8: Gaussian-splat renderer. Call from overlay() with the frame
+     * buffer (blends OVER the rastered 3D scene), or with a cleared bg. The OS
+     * gives you a 128x128 RGB565 fb. APPEND-ONLY. */
+    int (*splat_render)(uint16_t *fb, const MoteSplat *splats, int n,
+                        const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

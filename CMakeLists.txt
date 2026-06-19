@@ -15,6 +15,7 @@ set(MOTE_ENGINE_SOURCES
     ${MOTE_ENGINE_DIR}/render/mote_raster.c
     ${MOTE_ENGINE_DIR}/render/mote_pipe.c
     ${MOTE_ENGINE_DIR}/render/mote_scene3d.c
+    ${MOTE_ENGINE_DIR}/render/mote_splat.c
     ${MOTE_ENGINE_DIR}/render/mote_font.c
     ${MOTE_ENGINE_DIR}/render/mote_2d.c
     ${MOTE_ENGINE_DIR}/physics/mote_phys.c
