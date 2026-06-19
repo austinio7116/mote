@@ -25,6 +25,9 @@
 extern void mote_usb_init(void);
 extern void mote_usb_task(void);
 extern int  mote_usb_take_launch(void);
+extern void mote_usb_log(const char *s);
+
+void mote_plat_log(const char *s) { mote_usb_log(s); }
 
 /* --- dual-core work-stealing banded raster ------------------------------ *
  * The frame is cut into NSTRIPS horizontal strips; both cores pull the next

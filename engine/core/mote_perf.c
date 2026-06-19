@@ -17,6 +17,17 @@ static int    s_on;
 void mote_perf_toggle(void)  { s_on = !s_on; }
 int  mote_perf_enabled(void) { return s_on; }
 
+void mote_perf_get(uint32_t out[6]) {
+    const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
+    int c0b = l->update + l->flush + l->c0;
+    out[0] = l->frame ? 1000000u / l->frame : 0;                 /* fps */
+    out[1] = l->update;                                          /* update us */
+    out[2] = l->c0 > l->c1 ? l->c0 : l->c1;                      /* raster us */
+    out[3] = l->flush;                                           /* flush us */
+    out[4] = l->frame ? (c0b > (int)l->frame ? 100 : c0b * 100 / l->frame) : 0;
+    out[5] = l->frame ? l->c1 * 100 / l->frame : 0;
+}
+
 void mote_perf_record(uint32_t upd, uint32_t c0, uint32_t c1,
                       uint32_t flush, uint32_t frame) {
     Sample *s = &s_hist[s_head];

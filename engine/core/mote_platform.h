@@ -53,6 +53,9 @@ bool mote_plat_should_quit(void);
  * LAUNCH command). Returns the index and clears it, or -1 if none. Host: -1. */
 int mote_plat_pending_launch(void);
 
+/* Emit a log line (device: over USB-CDC to `mote logs`; host: stdout). */
+void mote_plat_log(const char *s);
+
 /* Release platform resources. */
 void mote_plat_shutdown(void);
 

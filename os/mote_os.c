@@ -44,6 +44,9 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v5: text. */
     a->text                  = mote_font_draw;
     a->text_2x               = mote_font_draw_2x;
+    /* ABI v6: telemetry. */
+    a->log                   = mote_plat_log;
+    a->perf                  = mote_perf_get;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

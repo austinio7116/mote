@@ -159,6 +159,15 @@ static void handle(const char *cmd) {
     }
 }
 
+/* Stream a log line to the host (mote logs). Non-blocking: if no host is
+ * reading, the CDC FIFO fills and the write is dropped — never stalls the game. */
+void mote_usb_log(const char *s) {
+    if (!tud_cdc_connected()) return;
+    tud_cdc_write(s, strlen(s));
+    tud_cdc_write("\n", 1);
+    tud_cdc_write_flush();
+}
+
 void mote_usb_init(void) { tusb_init(); }
 
 void mote_usb_task(void) {

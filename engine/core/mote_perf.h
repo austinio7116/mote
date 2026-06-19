@@ -19,6 +19,10 @@ void mote_perf_record(uint32_t update_us, uint32_t c0_us, uint32_t c1_us,
 void mote_perf_toggle(void);
 int  mote_perf_enabled(void);
 
+/* Fill the latest frame's stats: [fps, update_us, raster_us, flush_us,
+ * core0_pct, core1_pct]. For games to read / log their own telemetry. */
+void mote_perf_get(uint32_t out[6]);
+
 /* Draw the overlay into the framebuffer (no-op when disabled). */
 void mote_perf_overlay(uint16_t *fb);
 

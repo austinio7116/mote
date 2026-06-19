@@ -270,6 +270,21 @@ def cmd_push(args):
         ser.close()
 
 
+def cmd_logs(args):
+    import time
+    ser = _serial(args.port)
+    deadline = time.time() + args.seconds if args.seconds else None
+    try:
+        while deadline is None or time.time() < deadline:
+            raw = ser.readline()
+            if raw:
+                print(raw.decode(errors="replace").rstrip("\r\n"), flush=True)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        ser.close()
+
+
 def cmd_wipe(args):
     ser = _serial(args.port)
     try:
@@ -334,10 +349,12 @@ def main():
     sub.add_parser("ping", help="device handshake")
     sub.add_parser("list", help="list device games")
     sub.add_parser("wipe", help="erase all games from the device store")
+    p = sub.add_parser("logs", help="stream device log lines over CDC")
+    p.add_argument("--seconds", type=float, default=0, help="stop after N seconds")
 
     args = ap.parse_args()
     {"new": cmd_new, "bake": cmd_bake, "build": cmd_build, "run": cmd_run,
-     "push": cmd_push, "wipe": cmd_wipe,
+     "push": cmd_push, "wipe": cmd_wipe, "logs": cmd_logs,
      "ping": cmd_ping, "list": cmd_list}[args.cmd](args)
 
 

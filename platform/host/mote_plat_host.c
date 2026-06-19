@@ -127,6 +127,8 @@ bool mote_plat_should_quit(void) { return s_quit; }
 
 int mote_plat_pending_launch(void) { return -1; }
 
+void mote_plat_log(const char *s) { printf("%s\n", s); fflush(stdout); }
+
 void mote_plat_render2(uint16_t *fb, MoteBandFn band,
                        uint32_t *out_c0_us, uint32_t *out_c1_us) {
     uint64_t t0 = mote_plat_micros();

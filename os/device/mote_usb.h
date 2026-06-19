@@ -11,5 +11,6 @@
 void mote_usb_init(void);     /* tusb_init() */
 void mote_usb_task(void);     /* pump: tud_task + protocol */
 int  mote_usb_take_launch(void);   /* index from a LAUNCH cmd (clears), or -1 */
+void mote_usb_log(const char *s);  /* stream a log line over CDC (non-blocking) */
 
 #endif /* MOTE_USB_H */

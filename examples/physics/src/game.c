@@ -23,6 +23,17 @@ static uint32_t  rng = 1u;
 static Vec3      cam_pos;
 static Mat3      cam_basis;
 static float     s_fps;
+static float     s_logt;
+
+static char *ap_s(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+static char *ap_i(char *p, int v) {
+    if (v < 0) { *p++ = '-'; v = -v; }
+    char t[12]; int n = 0;
+    if (v == 0) t[n++] = '0';
+    while (v) { t[n++] = (char)('0' + v % 10); v /= 10; }
+    while (n) *p++ = t[--n];
+    return p;
+}
 
 static float frand(void) {       /* xorshift -> [-1,1) */
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
@@ -78,6 +89,24 @@ static void g_update(float dt) {
 
     float inst = (dt > 1e-5f) ? 1.0f / dt : 0.0f;     /* smoothed FPS */
     s_fps = s_fps * 0.92f + inst * 0.08f;
+
+    /* Stream a telemetry line once a second (mote logs collects it). */
+    s_logt += dt;
+    if (s_logt >= 1.0f) {
+        s_logt = 0.0f;
+        uint32_t pf[6];
+        mote->perf(pf);
+        char line[96], *p = line;
+        p = ap_s(p, "N=");    p = ap_i(p, s_active);
+        p = ap_s(p, " fps="); p = ap_i(p, (int)pf[0]);
+        p = ap_s(p, " U=");   p = ap_i(p, (int)pf[1]);
+        p = ap_s(p, " R=");   p = ap_i(p, (int)pf[2]);
+        p = ap_s(p, " F=");   p = ap_i(p, (int)pf[3]);
+        p = ap_s(p, " C0=");  p = ap_i(p, (int)pf[4]);
+        p = ap_s(p, " C1=");  p = ap_i(p, (int)pf[5]);
+        *p = 0;
+        mote->log(line);
+    }
 
     mote->phys_step(&world, body, s_active, dt);
 
