@@ -59,20 +59,25 @@ int mote_store_find(const char *name) {
 
 /* Erase the aligned region then program `size` bytes at flash offset `off`.
  * IRQ-off only for the minimum window; pumps USB between program chunks. */
-static void flash_write(uint32_t off, const uint8_t *data, uint32_t size) {
-    uint32_t esz = (size + BLOCK - 1) & ~(BLOCK - 1);
-
-    uint32_t ints = save_and_disable_interrupts();
+static void flash_erase_region(uint32_t off, uint32_t aligned) {
     uint32_t sa[4];
-    mote_xip_save_atrans(sa);
-    flash_range_erase(off, esz);
-    mote_xip_restore_atrans(sa);
-    mote_xip_fast_setup();
-    restore_interrupts(ints);
+    for (uint32_t i = 0; i < aligned; i += BLOCK) {
+        uint32_t ints = save_and_disable_interrupts();
+        mote_xip_save_atrans(sa);
+        flash_range_erase(off + i, BLOCK);
+        mote_xip_restore_atrans(sa);
+        mote_xip_fast_setup();
+        restore_interrupts(ints);
+        pump_usb();                 /* don't starve the upload during a big erase */
+    }
+}
 
+/* Program `size` bytes (region must already be erased) at `off`, 256B chunks. */
+static void flash_program_region(uint32_t off, const uint8_t *data, uint32_t size) {
+    uint32_t sa[4];
     uint32_t psz = (size + 255) & ~255u;
     for (uint32_t i = 0; i < psz; i += 256) {
-        ints = save_and_disable_interrupts();
+        uint32_t ints = save_and_disable_interrupts();
         mote_xip_save_atrans(sa);
         flash_range_program(off + i, data + i, 256);
         mote_xip_restore_atrans(sa);
@@ -80,6 +85,12 @@ static void flash_write(uint32_t off, const uint8_t *data, uint32_t size) {
         restore_interrupts(ints);
         pump_usb();
     }
+}
+
+/* Erase + program `size` bytes at flash offset `off` (small, buffered images). */
+static void flash_write(uint32_t off, const uint8_t *data, uint32_t size) {
+    flash_erase_region(off, (size + BLOCK - 1) & ~(BLOCK - 1));
+    flash_program_region(off, data, size);
     rom_flash_flush_cache();
 }
 
@@ -108,6 +119,66 @@ int mote_store_add(const char *name, const uint8_t *data, uint32_t size) {
     g_cat.e[idx].offset = off;
     g_cat.e[idx].size   = size;
     g_cat.next_free     = off + aligned;
+    write_catalog();
+    return 0;
+}
+
+/* --- streaming write: program straight to flash, page at a time, so a pushed
+ * image is bounded by GAME_MAX (1 MB), not by any RAM receive buffer. --- */
+static struct {
+    uint32_t base, size, got;
+    int      active;
+    char     name[MOTE_STORE_NAME_MAX];
+} s_wr;
+/* reuse g_block as the page buffer (the catalog write only touches it at end(),
+ * after the last data page has been flushed) — saves 4 KB of OS RAM. */
+#define s_page g_block
+static uint32_t s_page_len;
+
+int mote_store_begin(const char *name, uint32_t size) {
+    if (size == 0 || size > GAME_MAX) return -1;
+    uint32_t aligned = (size + BLOCK - 1) & ~(BLOCK - 1);
+    uint32_t off = g_cat.next_free;
+    if (off + aligned > FLASH_TOTAL) return -2;
+    flash_erase_region(off, aligned);                    /* erase the slot up front */
+    s_wr.base = off; s_wr.size = size; s_wr.got = 0; s_wr.active = 1;
+    memset(s_wr.name, 0, MOTE_STORE_NAME_MAX);
+    strncpy(s_wr.name, name, MOTE_STORE_NAME_MAX - 1);
+    s_page_len = 0;
+    return 0;
+}
+
+void mote_store_write(const uint8_t *data, uint32_t n) {
+    if (!s_wr.active) return;
+    while (n) {
+        uint32_t take = BLOCK - s_page_len; if (take > n) take = n;
+        memcpy(s_page + s_page_len, data, take);
+        s_page_len += take; data += take; n -= take; s_wr.got += take;
+        if (s_page_len == BLOCK) {                        /* flush a full page */
+            flash_program_region(s_wr.base + s_wr.got - BLOCK, s_page, BLOCK);
+            s_page_len = 0;
+        }
+    }
+}
+
+int mote_store_end(void) {
+    if (!s_wr.active) return -1;
+    if (s_page_len) {                                     /* tail (already erased) */
+        flash_program_region(s_wr.base + s_wr.got - s_page_len, s_page, s_page_len);
+        s_page_len = 0;
+    }
+    rom_flash_flush_cache();
+    s_wr.active = 0;
+    int idx = mote_store_find(s_wr.name);
+    if (idx < 0) {
+        if (g_cat.count >= STORE_MAX) return -3;
+        idx = (int)g_cat.count++;
+    }
+    memset(g_cat.e[idx].name, 0, MOTE_STORE_NAME_MAX);
+    strncpy(g_cat.e[idx].name, s_wr.name, MOTE_STORE_NAME_MAX - 1);
+    g_cat.e[idx].offset = s_wr.base;
+    g_cat.e[idx].size   = s_wr.size;
+    g_cat.next_free     = s_wr.base + ((s_wr.size + BLOCK - 1) & ~(BLOCK - 1));
     write_catalog();
     return 0;
 }

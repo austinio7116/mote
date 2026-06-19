@@ -108,15 +108,11 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 
 #include "mote_store.h"
 
-/* Incoming game image is buffered in the reserved game-RAM region (free while
- * the launcher runs — no game is mapped). Cap a pushed module at 128 KB. */
-#define RXBUF      ((uint8_t *)0x20060000u)
-#define RXBUF_MAX  (128u * 1024u)
-
+/* Pushed images stream straight to flash (mote_store_begin/write/end), so the
+ * size is bounded by the store's per-game cap, not a RAM receive buffer. */
 static int  s_launch_req = -1;
 static int  s_rx_active;
 static uint32_t s_put_size, s_put_got;
-static char s_put_name[MOTE_STORE_NAME_MAX];
 
 int mote_usb_take_launch(void) { int r = s_launch_req; s_launch_req = -1; return r; }
 
@@ -140,11 +136,9 @@ static void handle(const char *cmd) {
         }
         cdc_say("OK\n");
     } else if (sscanf(cmd, "PUT %19s %u", name, &size) == 2) {
-        if (size == 0 || size > RXBUF_MAX) { cdc_say("ERR size\n"); return; }
-        strncpy(s_put_name, name, MOTE_STORE_NAME_MAX - 1);
-        s_put_name[MOTE_STORE_NAME_MAX - 1] = 0;
+        if (mote_store_begin(name, size) != 0) { cdc_say("ERR size\n"); return; }
         s_put_size = size; s_put_got = 0; s_rx_active = 1;
-        cdc_say("READY\n");
+        cdc_say("READY\n");                              /* erase done; stream now */
     } else if (sscanf(cmd, "LAUNCH %19s", name) == 1) {
         int idx = mote_store_find(name);
         if (idx >= 0) { s_launch_req = idx; cdc_say("OK\n"); }
@@ -180,12 +174,12 @@ void mote_usb_task(void) {
             uint32_t want = s_put_size - s_put_got;
             if (want > sizeof tmp) want = sizeof tmp;
             uint32_t n = tud_cdc_read(tmp, want);
-            memcpy(RXBUF + s_put_got, tmp, n);
+            mote_store_write(tmp, n);        /* straight to flash, page-buffered */
             s_put_got += n;
         }
         if (s_put_got >= s_put_size) {
-            s_rx_active = 0;     /* clear before the write (no re-entry) */
-            int r = mote_store_add(s_put_name, RXBUF, s_put_size);
+            s_rx_active = 0;     /* clear before commit (no re-entry) */
+            int r = mote_store_end();
             cdc_say(r == 0 ? "OK\n" : "ERR write\n");
         }
         return;
