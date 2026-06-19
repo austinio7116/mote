@@ -69,6 +69,10 @@ static void g_init(void) {
     world.bmin = v3(-1.8f, -1.4f, -1.8f);
     world.bmax = v3( 1.8f,  5.0f,  1.8f);   /* tall box: room for a deep pile */
     world.restitution = 0.55f;
+    /* Many slow-settling bodies: a low substep rate is plenty (no fast-moving
+     * tunnelling like pool needs) and keeps the per-frame cost bounded. */
+    world.substep = 1.0f / 120.0f;
+    world.max_substeps = 4;
 
     rng = (uint32_t)mote->micros() | 1u;
     toss();

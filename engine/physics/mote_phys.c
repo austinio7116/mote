@@ -10,11 +10,10 @@
 #include "mote_config.h"
 #include <math.h>
 
-#define DEFAULT_H   (1.0f / 120.0f)   /* ~8 ms substep. 480Hz was overkill: under
-                                       * load it pinned the loop at the substep cap,
-                                       * paying substeps*iters collision passes per
-                                       * frame. 120Hz + solver iters is standard and
-                                       * ~4x cheaper under load. */
+#define DEFAULT_H   (1.0f / 240.0f)   /* default substep; per-world overridable.
+                                       * Few fast bodies (pool) raise the rate for
+                                       * accuracy; many slow bodies lower it since
+                                       * cost = substeps*iters*collisions. */
 #define REST_SLOP   0.45f             /* below this approach speed, no bounce
                                        * (kills gravity micro-bouncing -> bodies
                                        * actually come to rest) */
@@ -22,9 +21,9 @@
                                        * lets penetration resolve and stacks
                                        * settle instead of sinking into each
                                        * other */
-#define MAX_SUBSTEPS 4                /* cap substeps/frame + drop the backlog so
-                                       * heavy load can't trigger the fixed-step
-                                       * "spiral of death" (slows gracefully) */
+#define MAX_SUBSTEPS 8                /* default substep cap (per-world overridable)
+                                       * + drop the backlog so heavy load can't
+                                       * trigger the fixed-step spiral of death */
 #define GRID_MAX_BODIES 256           /* broad-phase grid covers up to this many;
                                        * above it, fall back to all-pairs */
 #define GRID_CELLS 4096               /* uniform-grid cell budget (16 KB) */
@@ -38,6 +37,7 @@ void mote_phys_world_defaults(MoteWorld *w) {
     w->linear_damp  = 0.05f;
     w->angular_damp = 0.4f;
     w->substep = DEFAULT_H;
+    w->max_substeps = MAX_SUBSTEPS;
     w->_acc = 0.0f;
 }
 
@@ -435,10 +435,11 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     float h = (w->substep > 0.0f) ? w->substep : DEFAULT_H;
     uint32_t ev = 0;
     int use_grid = (n > 24 && n <= GRID_MAX_BODIES);   /* grid pays off past ~24 */
+    int cap = (w->max_substeps > 0) ? w->max_substeps : MAX_SUBSTEPS;
     if (dt > 0.1f) dt = 0.1f;
     w->_acc += dt;
     int sub = 0;
-    while (w->_acc >= h && sub < MAX_SUBSTEPS) {
+    while (w->_acc >= h && sub < cap) {
         w->_acc -= h;
         for (int i = 0; i < n; i++) integrate(w, &bodies[i], h);
         if (use_grid) grid_build(w, bodies, n);

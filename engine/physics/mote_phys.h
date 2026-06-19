@@ -39,7 +39,13 @@ typedef struct {
     float friction;       /* Coulomb coefficient */
     float linear_damp;    /* per-second linear velocity damping (air drag) */
     float angular_damp;   /* per-second angular damping */
-    float substep;        /* fixed substep seconds (0 -> default) */
+    float substep;        /* fixed substep seconds (0 -> default ~1/240). Raise
+                           * the RATE (e.g. 1/2000) for few, fast bodies that
+                           * need accuracy/no-tunnel (pool); lower it (1/120) for
+                           * many slow bodies where the per-step cost dominates. */
+    int   max_substeps;   /* cap substeps/frame, 0 -> default. Bound against the
+                           * spiral-of-death; a high-rate game (pool) must raise
+                           * this so its intended substeps run (e.g. 40). */
     float _acc;           /* integrator accumulator (do not touch) */
 } MoteWorld;
 
