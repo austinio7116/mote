@@ -8,7 +8,7 @@
 
 #define HIST 100
 
-typedef struct { uint16_t update, c0, c1, flush, frame; } Sample;
+typedef struct { uint32_t update, c0, c1, flush, frame; } Sample;
 
 static Sample s_hist[HIST];
 static int    s_head;
@@ -17,16 +17,14 @@ static int    s_on;
 void mote_perf_toggle(void)  { s_on = !s_on; }
 int  mote_perf_enabled(void) { return s_on; }
 
-static inline uint16_t c16(uint32_t v) { return v > 65535u ? 65535u : (uint16_t)v; }
-
 void mote_perf_record(uint32_t upd, uint32_t c0, uint32_t c1,
                       uint32_t flush, uint32_t frame) {
     Sample *s = &s_hist[s_head];
-    s->update = c16(upd);
-    s->c0     = c16(c0);
-    s->c1     = c16(c1);
-    s->flush  = c16(flush);
-    s->frame  = c16(frame);
+    s->update = upd;
+    s->c0     = c0;
+    s->c1     = c1;
+    s->flush  = flush;
+    s->frame  = frame;
     s_head = (s_head + 1) % HIST;
 }
 

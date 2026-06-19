@@ -18,6 +18,12 @@
                                        * lets penetration resolve and stacks
                                        * settle instead of sinking into each
                                        * other */
+#define MAX_SUBSTEPS 8                /* cap substeps/frame + drop the backlog so
+                                       * heavy load can't trigger the fixed-step
+                                       * "spiral of death" (slows gracefully) */
+#define GRID_MAX_BODIES 256           /* broad-phase grid covers up to this many;
+                                       * above it, fall back to all-pairs */
+#define GRID_CELLS 4096               /* uniform-grid cell budget (16 KB) */
 
 void mote_phys_world_defaults(MoteWorld *w) {
     w->gravity = v3(0.0f, -9.8f, 0.0f);
@@ -359,26 +365,95 @@ static void integrate(const MoteWorld *w, MoteBody *b, float h) {
     }
 }
 
+/* --- broad-phase uniform grid ------------------------------------------- *
+ * Bin bodies into a uniform grid (cell ~ 2x the largest body) so each body
+ * only narrow-phases against its 27 neighbour cells -> ~O(n) instead of the
+ * O(n^2) all-pairs check. The single biggest win for high body counts. */
+static int   g_cell[GRID_CELLS];
+static int   g_next[GRID_MAX_BODIES];
+static int   g_nx, g_ny, g_nz;
+static float g_cs, g_x0, g_y0, g_z0;
+
+static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+static inline int cell_index(const MoteBody *b) {
+    int cx = clampi((int)((b->pos.x - g_x0) / g_cs), 0, g_nx - 1);
+    int cy = clampi((int)((b->pos.y - g_y0) / g_cs), 0, g_ny - 1);
+    int cz = clampi((int)((b->pos.z - g_z0) / g_cs), 0, g_nz - 1);
+    return (cz * g_ny + cy) * g_nx + cx;
+}
+
+static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
+    float maxr = 0.05f;
+    for (int i = 0; i < n; i++) {
+        const MoteBody *b = &bodies[i];
+        float r = (b->shape == MOTE_SHAPE_BOX) ? v3_len(b->half) : b->radius;
+        if (r > maxr) maxr = r;
+    }
+    g_cs = 2.0f * maxr;
+    g_x0 = w->bmin.x; g_y0 = w->bmin.y; g_z0 = w->bmin.z;
+    for (;;) {
+        g_nx = (int)((w->bmax.x - w->bmin.x) / g_cs) + 1; if (g_nx < 1) g_nx = 1;
+        g_ny = (int)((w->bmax.y - w->bmin.y) / g_cs) + 1; if (g_ny < 1) g_ny = 1;
+        g_nz = (int)((w->bmax.z - w->bmin.z) / g_cs) + 1; if (g_nz < 1) g_nz = 1;
+        if ((long)g_nx * g_ny * g_nz <= GRID_CELLS) break;
+        g_cs *= 1.5f;                                  /* too many cells: coarsen */
+    }
+    int nc = g_nx * g_ny * g_nz;
+    for (int c = 0; c < nc; c++) g_cell[c] = -1;
+    for (int i = 0; i < n; i++) {
+        int c = cell_index(&bodies[i]);
+        g_next[i] = g_cell[c];
+        g_cell[c] = i;
+    }
+}
+
+MOTE_HOT static uint32_t grid_collide(const MoteWorld *w, MoteBody *bodies, int n) {
+    uint32_t ev = 0;
+    for (int i = 0; i < n; i++) {
+        MoteBody *bi = &bodies[i];
+        int cx = clampi((int)((bi->pos.x - g_x0) / g_cs), 0, g_nx - 1);
+        int cy = clampi((int)((bi->pos.y - g_y0) / g_cs), 0, g_ny - 1);
+        int cz = clampi((int)((bi->pos.z - g_z0) / g_cs), 0, g_nz - 1);
+        for (int z = (cz ? cz - 1 : 0); z <= (cz < g_nz - 1 ? cz + 1 : cz); z++)
+        for (int y = (cy ? cy - 1 : 0); y <= (cy < g_ny - 1 ? cy + 1 : cy); y++)
+        for (int x = (cx ? cx - 1 : 0); x <= (cx < g_nx - 1 ? cx + 1 : cx); x++) {
+            int c = (z * g_ny + y) * g_nx + x;
+            for (int j = g_cell[c]; j >= 0; j = g_next[j])
+                if (j > i && collide_bodies(w, bi, &bodies[j])) ev |= MOTE_PHYS_HIT;
+        }
+    }
+    return ev;
+}
+
 MOTE_HOT
 uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
     float h = (w->substep > 0.0f) ? w->substep : DEFAULT_H;
     uint32_t ev = 0;
-    if (dt > 0.1f) dt = 0.1f;                         /* clamp after a stall */
+    int use_grid = (n > 24 && n <= GRID_MAX_BODIES);   /* grid pays off past ~24 */
+    if (dt > 0.1f) dt = 0.1f;
     w->_acc += dt;
-    int guard = 0;
-    while (w->_acc >= h && guard++ < 64) {
+    int sub = 0;
+    while (w->_acc >= h && sub < MAX_SUBSTEPS) {
         w->_acc -= h;
         for (int i = 0; i < n; i++) integrate(w, &bodies[i], h);
+        if (use_grid) grid_build(w, bodies, n);
         for (int it = 0; it < SOLVER_ITERS; it++) {     /* relaxation passes */
-            for (int i = 0; i < n; i++)
-                for (int j = i + 1; j < n; j++)
-                    if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
+            if (use_grid) {
+                ev |= grid_collide(w, bodies, n);
+            } else {
+                for (int i = 0; i < n; i++)
+                    for (int j = i + 1; j < n; j++)
+                        if (collide_bodies(w, &bodies[i], &bodies[j])) ev |= MOTE_PHYS_HIT;
+            }
             for (int i = 0; i < n; i++) {
                 int h2 = (bodies[i].shape == MOTE_SHAPE_BOX)
                            ? box_walls(w, &bodies[i]) : sphere_walls(w, &bodies[i]);
                 if (h2) ev |= MOTE_PHYS_HIT;
             }
         }
+        sub++;
     }
+    if (w->_acc > h) w->_acc = 0.0f;                    /* drop backlog: no spiral */
     return ev;
 }
