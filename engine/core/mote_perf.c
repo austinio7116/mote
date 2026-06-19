@@ -8,7 +8,7 @@
 
 #define HIST 100
 
-typedef struct { uint16_t update, raster, flush, c1, frame; } Sample;
+typedef struct { uint16_t update, c0, c1, flush, frame; } Sample;
 
 static Sample s_hist[HIST];
 static int    s_head;
@@ -23,9 +23,9 @@ void mote_perf_record(uint32_t upd, uint32_t c0, uint32_t c1,
                       uint32_t flush, uint32_t frame) {
     Sample *s = &s_hist[s_head];
     s->update = c16(upd);
-    s->raster = c16(c0 > c1 ? c0 : c1);   /* wall-clock raster = slower core */
-    s->flush  = c16(flush);
+    s->c0     = c16(c0);
     s->c1     = c16(c1);
+    s->flush  = c16(flush);
     s->frame  = c16(frame);
     s_head = (s_head + 1) % HIST;
 }
@@ -63,32 +63,54 @@ void mote_perf_overlay(uint16_t *fb) {
 #endif
     if (!s_on) return;
 
-    const int GW = HIST, GH = 34;
-    const int GX = (MOTE_FB_W - GW) / 2;
-    const int GY = MOTE_FB_H - GH - 2;            /* graph top */
-    const int YB = GY + GH;                        /* baseline */
-    const float scale = (float)GH / 33333.0f;      /* full height = 33ms (30fps) */
+    const int W = MOTE_FB_W;
+    const int GW = HIST, GX = (W - GW) / 2;
+    char b[44];
 
-    fillrect(fb, GX - 1, GY - 1, GW + 2, GH + 2, COL_PANEL);
-
-    int y60 = YB - (int)(16667.0f * scale);        /* 60fps reference */
-    for (int x = GX; x < GX + GW; x++)
-        if ((unsigned)y60 < MOTE_FB_H) fb[y60 * MOTE_FB_W + x] = COL_REF;
-
+    /* ---------- graph 1: CPU core utilisation over time (0..100%) -------- */
+    const int CU_Y = 64, CU_H = 22, CU_B = CU_Y + CU_H;
+    fillrect(fb, GX - 1, CU_Y - 1, GW + 2, CU_H + 2, COL_PANEL);
+    for (int x = GX; x < GX + GW; x++) {        /* 100% (top) + 50% ref */
+        fb[CU_Y * W + x] = COL_REF;
+        fb[(CU_Y + CU_H / 2) * W + x] = COL_REF;
+    }
     for (int i = 0; i < HIST; i++) {
         const Sample *s = &s_hist[(s_head + i) % HIST];
-        int x = GX + i, yb = YB;
+        if (!s->frame) continue;
+        int x = GX + i;
+        int c0 = (s->update + s->flush + s->c0) * 100 / s->frame; if (c0 > 100) c0 = 100;
+        int c1 = s->c1 * 100 / s->frame; if (c1 > 100) c1 = 100;
+        int y0 = CU_B - 1 - c0 * (CU_H - 1) / 100;
+        int y1 = CU_B - 1 - c1 * (CU_H - 1) / 100;
+        fb[y0 * W + x] = COL_UPDATE;            /* core0 (red) */
+        fb[y1 * W + x] = COL_RASTER;            /* core1 (green) */
+    }
+
+    /* ---------- graph 2: frame time / phase split (0..33ms) -------------- */
+    const int FT_H = 26, FT_Y = MOTE_FB_H - FT_H - 2, FT_B = FT_Y + FT_H;
+    const float scale = (float)FT_H / 33333.0f;
+    fillrect(fb, GX - 1, FT_Y - 1, GW + 2, FT_H + 2, COL_PANEL);
+    int y60 = FT_B - (int)(16667.0f * scale);
+    for (int x = GX; x < GX + GW; x++)
+        if ((unsigned)y60 < MOTE_FB_H) fb[y60 * W + x] = COL_REF;
+    for (int i = 0; i < HIST; i++) {
+        const Sample *s = &s_hist[(s_head + i) % HIST];
+        int x = GX + i, yb = FT_B;
+        int raster = s->c0 > s->c1 ? s->c0 : s->c1;
         yb = vbar(fb, x, yb, (int)(s->update * scale), COL_UPDATE);
-        yb = vbar(fb, x, yb, (int)(s->raster * scale), COL_RASTER);
+        yb = vbar(fb, x, yb, (int)(raster   * scale), COL_RASTER);
         yb = vbar(fb, x, yb, (int)(s->flush  * scale), COL_FLUSH);
     }
 
+    /* ---------- readouts ------------------------------------------------- */
     const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
-    int fps   = l->frame ? (int)(1000000u / l->frame) : 0;
+    int raster = l->c0 > l->c1 ? l->c0 : l->c1;
+    int fps  = l->frame ? (int)(1000000u / l->frame) : 0;
+    int c0b  = l->update + l->flush + l->c0;
+    int c0pct = l->frame ? (c0b > l->frame ? 100 : c0b * 100 / l->frame) : 0;
     int c1pct = l->frame ? (l->c1 * 100 / l->frame) : 0;
-    char b[40];
-    snprintf(b, sizeof b, "U%u R%u F%u us", l->update, l->raster, l->flush);
-    mote_font_draw(fb, b, GX, GY - 14, COL_TEXT);
-    snprintf(b, sizeof b, "%dfps  core1 %d%%", fps, c1pct);
-    mote_font_draw(fb, b, GX, GY - 7, COL_TEXT);
+    snprintf(b, sizeof b, "CPU C0:%d C1:%d", c0pct, c1pct);
+    mote_font_draw(fb, b, GX, CU_Y - 7, COL_TEXT);
+    snprintf(b, sizeof b, "%dfps U%u R%u F%u", fps, l->update, raster, l->flush);
+    mote_font_draw(fb, b, GX, FT_Y - 7, COL_TEXT);
 }

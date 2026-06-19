@@ -11,7 +11,8 @@
 #include <stdint.h>
 
 void mote_lcd_init(void);
-void mote_lcd_present(const uint16_t *fb_rgb565);   /* starts async DMA */
+void mote_lcd_present(const uint16_t *fb_rgb565);   /* wait prior + kick async DMA */
+void mote_lcd_kick(const uint16_t *fb_rgb565);      /* kick async DMA, no wait */
 void mote_lcd_wait_idle(void);
 int  mote_lcd_busy(void);                           /* DMA/SPI still flushing? */
 void mote_lcd_backlight(int on);

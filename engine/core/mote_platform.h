@@ -20,8 +20,16 @@
 /* One-time platform bring-up (window/LCD, audio, input). Returns 0 on ok. */
 int  mote_plat_init(const char *title);
 
-/* Push a finished 128x128 RGB565 logical frame to the display. */
+/* Push a finished 128x128 RGB565 logical frame to the display (blocking). */
 void mote_plat_present(const uint16_t *fb565);
+
+/* Overlapped present: kick the display flush and return immediately, so the
+ * next frame's update() runs concurrently with the flush. The caller MUST
+ * mote_plat_wait_flush() before writing the framebuffer again (i.e. before the
+ * next raster). mote_plat_wait_flush returns the microseconds spent waiting
+ * (0 if the flush was fully hidden behind compute). */
+void     mote_plat_present_async(const uint16_t *fb565);
+uint32_t mote_plat_wait_flush(void);
 
 /* Rasterise a frame across both cores. `band(fb, y0, y1)` draws logical rows
  * [y0,y1); the platform runs the top half on core0 and the bottom on core1

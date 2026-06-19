@@ -90,6 +90,12 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
 int mote_plat_init(const char *title) {
     (void)title;
     set_sys_clock_khz(280000, true);
+    /* Run the peripheral clock at full clk_sys so the LCD SPI actually reaches
+     * 80 MHz. The SDK default clk_peri is 48 MHz, which caps spi_init(80MHz) to
+     * 24 MHz -> a ~10.9 ms full-frame flush; at clk_peri=280 MHz the SPI does
+     * ~70-80 MHz -> ~3.7 ms. (The biggest single frame-time win.) */
+    clock_configure(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
+                    280 * 1000 * 1000, 280 * 1000 * 1000);
     mote_lcd_init();
     mote_buttons_init();
     s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
@@ -106,11 +112,21 @@ int mote_plat_init(const char *title) {
 
 void mote_plat_present(const uint16_t *fb565) {
     mote_usb_task();
-    mote_lcd_present(fb565);                /* prior DMA already drained below; kicks new */
-    /* Service USB continuously during the ~6.5 ms frame flush instead of
-     * starving tud_task in a spin — USB enumeration/transfers need prompt
-     * servicing (the starvation ThumbyOne's flash code is careful to avoid). */
+    mote_lcd_present(fb565);                /* wait prior + kick new */
+    /* Service USB continuously during the flush instead of starving tud_task. */
     while (mote_lcd_busy()) mote_usb_task();
+}
+
+/* Overlapped path: kick the flush and return — the next update() overlaps it. */
+void mote_plat_present_async(const uint16_t *fb565) {
+    mote_usb_task();           /* keep CDC serviced at least once per frame */
+    mote_lcd_kick(fb565);
+}
+
+uint32_t mote_plat_wait_flush(void) {
+    uint64_t t0 = to_us_since_boot(get_absolute_time());
+    while (mote_lcd_busy()) mote_usb_task();   /* finish the in-flight flush */
+    return (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
 }
 
 void mote_plat_buttons(MoteButtons *out) {

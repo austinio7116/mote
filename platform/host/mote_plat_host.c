@@ -135,6 +135,10 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
     *out_c1_us = 0;
 }
 
+/* No async DMA on host — present immediately, nothing to wait for. */
+void mote_plat_present_async(const uint16_t *fb565) { mote_plat_present(fb565); }
+uint32_t mote_plat_wait_flush(void) { return 0; }
+
 void mote_plat_shutdown(void) {
     if (s_tex) SDL_DestroyTexture(s_tex);
     if (s_ren) SDL_DestroyRenderer(s_ren);

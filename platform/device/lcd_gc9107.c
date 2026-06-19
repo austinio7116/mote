@@ -121,6 +121,17 @@ int mote_lcd_busy(void) {
     return (spi_get_hw(LCD_SPI)->sr & SPI_SSPSR_BSY_BITS) ? 1 : 0;
 }
 
+/* Kick the async DMA flush WITHOUT waiting for a prior one — the caller must
+ * have already ensured the previous transfer finished (mote_lcd_wait_idle /
+ * mote_lcd_busy). Lets the flush overlap the next frame's compute. */
+void mote_lcd_kick(const uint16_t *fb_rgb565) {
+    lcd_set_window_full();
+    gpio_put(PIN_CS, 0);
+    gpio_put(PIN_DC, 1);
+    dma_channel_configure(dma_ch, &dma_cfg,
+        &spi_get_hw(LCD_SPI)->dr, fb_rgb565, LCD_PIXELS, true);
+}
+
 void mote_lcd_present(const uint16_t *fb_rgb565) {
     mote_lcd_wait_idle();
     lcd_set_window_full();

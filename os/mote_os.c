@@ -93,20 +93,25 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_scene_clear();
         mote_scene2d_clear();
 
+        /* Game update — runs CONCURRENTLY with the previous frame's LCD flush
+         * (kicked async at the end of last frame). It only touches game state +
+         * the scene draw-list, never the framebuffer, so it's safe to overlap. */
         uint64_t tu = mote_plat_micros();
         if (vt->update) vt->update(dt);
         uint32_t update_us = (uint32_t)(mote_plat_micros() - tu);
 
-        /* Rasterise across both cores (core0 top, core1 bottom on device). */
+        /* Now wait for that flush to finish before we touch the framebuffer.
+         * If update took longer than the flush, this is ~0 (flush fully hidden). */
+        uint32_t flush_us = mote_plat_wait_flush();
+
+        /* Rasterise across both cores (work-stealing strips on device). */
         uint32_t c0_us = 0, c1_us = 0;
         mote_plat_render2(fb, render_band_cb, &c0_us, &c1_us);
 
         if (vt->overlay) vt->overlay(fb);      /* game HUD (core0) */
         mote_perf_overlay(fb);                 /* perf graph (core0) */
 
-        uint64_t tf = mote_plat_micros();
-        mote_plat_present(fb);
-        uint32_t flush_us = (uint32_t)(mote_plat_micros() - tf);
+        mote_plat_present_async(fb);           /* kick flush; overlaps next update */
 
         mote_perf_record(update_us, c0_us, c1_us, flush_us, frame_us);
     }
