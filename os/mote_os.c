@@ -7,6 +7,7 @@
 #include "mote_pipe.h"
 #include "mote_2d.h"
 #include "mote_phys.h"
+#include "mote_font.h"
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -39,6 +40,9 @@ void mote_api_fill(MoteApi *a) {
     a->phys_step             = mote_phys_step;
     /* ABI v4: sphere impostor. */
     a->scene_add_sphere      = mote_scene_add_sphere;
+    /* ABI v5: text. */
+    a->text                  = mote_font_draw;
+    a->text_2x               = mote_font_draw_2x;
 }
 
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {

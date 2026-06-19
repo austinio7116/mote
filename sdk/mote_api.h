@@ -30,7 +30,7 @@
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 
-#define MOTE_ABI_VERSION 4u   /* v4: appended scene_add_sphere (append-only) */
+#define MOTE_ABI_VERSION 5u   /* v5: appended text drawing (append-only) */
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -70,8 +70,13 @@ typedef struct MoteApi {
     uint32_t (*phys_step)(MoteWorld *w, MoteBody *bodies, int n, float dt);
 
     /* --- ABI v4: per-pixel shaded sphere impostor (camera-relative position),
-     * drawn in the 3D scene pass (depth-tested with meshes). APPEND-ONLY. */
+     * drawn in the 3D scene pass (depth-tested with meshes). */
     int (*scene_add_sphere)(Vec3 cam_rel_pos, float radius, uint16_t color);
+
+    /* --- ABI v5: bitmap text into the framebuffer (HUD/overlay). Returns the
+     * advanced x. Draw from overlay(). APPEND-ONLY. */
+    int (*text)(uint16_t *fb, const char *s, int x, int y, uint16_t color);
+    int (*text_2x)(uint16_t *fb, const char *s, int x, int y, uint16_t color);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

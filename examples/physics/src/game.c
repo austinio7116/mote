@@ -14,13 +14,14 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#define NBODY 8
+#define NBODY 14
 
 static MoteWorld world;
 static MoteBody  body[NBODY];
 static uint32_t  rng = 1u;
 static Vec3      cam_pos;
 static Mat3      cam_basis;
+static float     s_fps;
 
 static float frand(void) {       /* xorshift -> [-1,1) */
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
@@ -39,8 +40,8 @@ static void toss(void) {
             b->half = v3(0.28f, 0.28f, 0.28f);
             b->radius = 0.30f;             /* bounding radius for body-body */
         }
-        /* Spawn in a loose column so they pile and stack. */
-        b->pos = v3(frand() * 0.5f, 0.2f + (float)i * 0.45f, frand() * 0.5f);
+        /* Spawn in a loose cluster above the floor so they pile and stack. */
+        b->pos = v3(frand() * 0.9f, 1.2f + (float)i * 0.13f, frand() * 0.9f);
         b->vel = v3(frand() * 0.6f, 0.0f, frand() * 0.6f);
         b->w   = v3(frand() * 1.5f, frand() * 1.5f, frand() * 1.5f);
         b->orient = m3_identity();
@@ -70,6 +71,9 @@ static void g_update(float dt) {
     if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_A))    toss();
 
+    float inst = (dt > 1e-5f) ? 1.0f / dt : 0.0f;     /* smoothed FPS */
+    s_fps = s_fps * 0.92f + inst * 0.08f;
+
     mote->phys_step(&world, body, NBODY, dt);
 
     mote->scene_begin(&cam_basis, 55.0f);
@@ -98,5 +102,19 @@ static void g_update(float dt) {
     }
 }
 
-static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update };
+static void g_overlay(uint16_t *fb) {
+    char b[16]; int n = 0;
+    b[n++] = 'F'; b[n++] = 'P'; b[n++] = 'S'; b[n++] = ' ';
+    int f = (int)(s_fps + 0.5f);
+    if (f < 0) f = 0; if (f > 999) f = 999;
+    if (f >= 100) { b[n++] = '0' + f / 100; f %= 100; b[n++] = '0' + f / 10; b[n++] = '0' + f % 10; }
+    else if (f >= 10) { b[n++] = '0' + f / 10; b[n++] = '0' + f % 10; }
+    else b[n++] = '0' + f;
+    b[n] = 0;
+    mote->text(fb, b, 3, 3, MOTE_RGB565(255, 255, 0));
+}
+
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update, .overlay = g_overlay,
+};
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
