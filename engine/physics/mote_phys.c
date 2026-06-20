@@ -594,48 +594,71 @@ static float body_bound_r(const MoteBody *b) {
     return b->radius;
 }
 
+/* one triangle of mesh `mi` vs body `i` (faceted -> manifold, round -> face-
+ * normal point). Factored out so the grid + brute-force paths share it. */
+static void mesh_test_tri(MoteBody *bodies, int i, int mi, int t, int faceted) {
+    MoteBody *b = &bodies[i], *m = &bodies[mi];
+    const MoteMesh *mesh = (const MoteMesh *)m->shape_data;
+    float br = body_bound_r(b);
+    Vec3 A = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+0]]));
+    Vec3 B = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+1]]));
+    Vec3 C = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+2]]));
+    Vec3 cen = v3_scale(v3_add(v3_add(A, B), C), 1.0f/3.0f);
+    float tr = v3_len(v3_sub(A, cen));
+    float trb = v3_len(v3_sub(B, cen)); if (trb > tr) tr = trb;
+    float trc = v3_len(v3_sub(C, cen)); if (trc > tr) tr = trc;
+    if (v3_len2(v3_sub(b->pos, cen)) > (br+tr+0.05f)*(br+tr+0.05f)) return;   /* narrow phase */
+    if (faceted) {
+        build_cvx_tri(A, B, C, &s_cxb);
+        convex_manifold(&s_cxa, &s_cxb, i, mi, 1000u + (uint32_t)t*8u);
+        return;
+    }
+    Vec3 q = b->pos;
+    if (b->shape == MOTE_SHAPE_CAPSULE) {
+        Vec3 e0 = v3_add(b->pos, v3_scale(b->orient.r[1], -b->half.y));
+        Vec3 cp0 = closest_tri(e0, A, B, C);
+        Vec3 e1 = v3_add(b->pos, v3_scale(b->orient.r[1],  b->half.y));
+        Vec3 cp1 = closest_tri(e1, A, B, C);
+        q = (v3_len2(v3_sub(e0,cp0)) < v3_len2(v3_sub(e1,cp1))) ? e0 : e1;
+    }
+    Vec3 cp = closest_tri(q, A, B, C);
+    Vec3 d = v3_sub(q, cp); float dist = v3_len(d);
+    if (dist < b->radius) {
+        Vec3 fn = v3_norm(v3_cross(v3_sub(B, A), v3_sub(C, A)));
+        if (v3_dot(d, fn) < 0.0f) fn = v3_scale(fn, -1.0f);
+        float pen = b->radius - v3_dot(d, fn);
+        if (pen > 0.0f) add_contact(i, mi, fn, cp, pen, 1000u + (uint32_t)t);
+    }
+}
+
 /* dynamic body `i` vs a static triangle MESH `mi`. */
 static void gen_vs_mesh(MoteBody *bodies, int i, int mi) {
     MoteBody *b = &bodies[i], *m = &bodies[mi];
     const MoteMesh *mesh = (const MoteMesh *)m->shape_data;
-    float br = body_bound_r(b);
     int faceted = (b->shape == MOTE_SHAPE_BOX || b->shape == MOTE_SHAPE_HULL);
     if (faceted) build_cvx(b, &s_cxa);
-    for (int t = 0; t < mesh->ntris; t++) {
-        Vec3 A = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+0]]));
-        Vec3 B = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+1]]));
-        Vec3 C = v3_add(m->pos, m3_mul_v3(&m->orient, mesh->verts[mesh->tris[t*3+2]]));
-        Vec3 cen = v3_scale(v3_add(v3_add(A, B), C), 1.0f/3.0f);
-        float tr = v3_len(v3_sub(A, cen));
-        float trb = v3_len(v3_sub(B, cen)); if (trb > tr) tr = trb;
-        float trc = v3_len(v3_sub(C, cen)); if (trc > tr) tr = trc;
-        if (v3_len2(v3_sub(b->pos, cen)) > (br+tr+0.05f)*(br+tr+0.05f)) continue;  /* broad phase */
-        if (faceted) {
-            build_cvx_tri(A, B, C, &s_cxb);
-            convex_manifold(&s_cxa, &s_cxb, i, mi, 1000u + (uint32_t)t*8u);
-            continue;
+
+    if (mesh->grid_n > 0) {
+        /* only the triangles in the 3x3 cells around the body (mesh assumed at
+         * rest, so use the body's local XZ vs the grid's world bounds). */
+        int gn = mesh->grid_n;
+        Vec3 lp = v3_sub(b->pos, m->pos);
+        int bx = (int)((lp.x - mesh->grid_x0) * mesh->grid_invx);
+        int bz = (int)((lp.z - mesh->grid_z0) * mesh->grid_invz);
+        for (int dz = -1; dz <= 1; dz++) {
+            int gz = bz + dz; if (gz < 0 || gz >= gn) continue;
+            for (int dx = -1; dx <= 1; dx++) {
+                int gx = bx + dx; if (gx < 0 || gx >= gn) continue;
+                int cell = gz*gn + gx;
+                for (int e = mesh->grid_start[cell]; e < mesh->grid_start[cell+1]; e++)
+                    mesh_test_tri(bodies, i, mi, mesh->grid_tri[e], faceted);
+            }
         }
-        Vec3 q = b->pos;
-        if (b->shape == MOTE_SHAPE_CAPSULE) {
-            Vec3 e0 = v3_add(b->pos, v3_scale(b->orient.r[1], -b->half.y));
-            Vec3 cp0 = closest_tri(e0, A, B, C);
-            Vec3 e1 = v3_add(b->pos, v3_scale(b->orient.r[1],  b->half.y));
-            Vec3 cp1 = closest_tri(e1, A, B, C);
-            q = (v3_len2(v3_sub(e0,cp0)) < v3_len2(v3_sub(e1,cp1))) ? e0 : e1;
-        }
-        Vec3 cp = closest_tri(q, A, B, C);
-        Vec3 d = v3_sub(q, cp); float dist = v3_len(d);
-        if (dist < b->radius) {
-            /* push along the face normal oriented TOWARD the body, so a body that
-             * dips just below the surface depenetrates back out, not deeper in
-             * (closest-point direction would drive it further into the solid). */
-            Vec3 fn = v3_norm(v3_cross(v3_sub(B, A), v3_sub(C, A)));
-            if (v3_dot(d, fn) < 0.0f) fn = v3_scale(fn, -1.0f);
-            float pen = b->radius - v3_dot(d, fn);
-            if (pen > 0.0f) add_contact(i, mi, fn, cp, pen, 1000u + (uint32_t)t);
-        }
+    } else {
+        for (int t = 0; t < mesh->ntris; t++) mesh_test_tri(bodies, i, mi, t, faceted);
     }
 }
+
 
 
 

@@ -29,6 +29,7 @@ static Mesh terrain_mesh;
 static Vec3     mcv[GRID*GRID];
 static uint16_t mct[(GRID-1)*(GRID-1)*2*3];
 static MoteMesh terrain_col;
+static uint16_t g_gstart[16*16+1], g_gtri[(GRID-1)*(GRID-1)*2];   /* mesh broad-phase grid */
 
 /* ---- trees: branch MESH + leaf SPLATS ---- */
 #define NTREE 6
@@ -151,6 +152,7 @@ static void gen_terrain(void){
     terrain_mesh.verts=tv; terrain_mesh.faces=tf; terrain_mesh.nverts=GRID*GRID;
     terrain_mesh.nfaces=fi; terrain_mesh.scale=TSCALE; terrain_mesh.bound_r=EXT*1.5f;
     terrain_col.verts=mcv; terrain_col.nverts=GRID*GRID; terrain_col.tris=mct; terrain_col.ntris=ti/3; terrain_col.bound_r=EXT*1.5f;
+    mote_phys_mesh_build_grid(&terrain_col, 16, g_gstart, g_gtri, (int)(sizeof g_gtri/2));
 }
 
 static Vec3 s_cam;
@@ -184,7 +186,7 @@ static void g_init(void){
 
     mote->phys_world_defaults(&pw);
     pw.walls=0; pw.gravity=v3(0,-9.8f,0); pw.restitution=0.3f; pw.friction=0.5f;
-    pw.substep=1.0f/300.0f; pw.max_substeps=10;
+    pw.substep=1.0f/150.0f; pw.max_substeps=4;        /* rain doesn't need 300Hz */
     balls[0].shape=MOTE_SHAPE_MESH; balls[0].shape_data=&terrain_col; balls[0].orient=m3_identity(); balls[0].inv_mass=0;
     for(int k=0;k<NBALL;k++){
         MoteBody *b=&balls[1+k];

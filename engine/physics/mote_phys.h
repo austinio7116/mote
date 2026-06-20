@@ -71,7 +71,58 @@ typedef struct {
     const Vec3     *verts;  int nverts;
     const uint16_t *tris;   int ntris;      /* 3 vertex indices per triangle */
     float           bound_r;
+    /* Optional XZ broad-phase grid (mote_phys_mesh_build_grid). When set, a body
+     * tests only the triangles in/around its cell instead of all ntris — essential
+     * once you have many bodies on a big mesh. 0 = brute force. */
+    int    grid_n;
+    float  grid_x0, grid_z0, grid_invx, grid_invz;
+    const uint16_t *grid_start;   /* (grid_n*grid_n + 1) CSR offsets */
+    const uint16_t *grid_tri;     /* triangle indices, CSR-packed by cell */
 } MoteMesh;
+
+/* Build an XZ broad-phase grid for `m` (call ONCE after filling verts/tris).
+ * Caller owns the scratch: `start` holds grid_n*grid_n+1 uint16, `tri` holds
+ * >= m->ntris uint16. Bins each triangle by its centroid; a query tests the 3x3
+ * cells around a body. Pick grid_n so a cell is ~one triangle wide. Returns 0,
+ * or -1 if tri_cap < ntris / grid_n out of [1,64]. Header-inline (no engine link). */
+static inline int mote_phys_mesh_build_grid(MoteMesh *m, int grid_n,
+                                            uint16_t *start, uint16_t *tri, int tri_cap) {
+    if (grid_n < 1 || grid_n > 64 || m->ntris > tri_cap) return -1;
+    float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+    for (int i = 0; i < m->nverts; i++) {
+        Vec3 v = m->verts[i];
+        if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+        if (v.z < z0) z0 = v.z; if (v.z > z1) z1 = v.z;
+    }
+    x0 -= 1e-3f; z0 -= 1e-3f; x1 += 1e-3f; z1 += 1e-3f;
+    float cx = (x1 - x0) / grid_n, cz = (z1 - z0) / grid_n;
+    float invx = cx > 1e-6f ? 1.0f/cx : 0.0f, invz = cz > 1e-6f ? 1.0f/cz : 0.0f;
+    int nc = grid_n * grid_n;
+    for (int c = 0; c <= nc; c++) start[c] = 0;
+    for (int t = 0; t < m->ntris; t++) {                         /* count per cell */
+        const uint16_t *tr = &m->tris[t*3];
+        float mx = (m->verts[tr[0]].x + m->verts[tr[1]].x + m->verts[tr[2]].x) * (1.0f/3.0f);
+        float mz = (m->verts[tr[0]].z + m->verts[tr[1]].z + m->verts[tr[2]].z) * (1.0f/3.0f);
+        int gx = (int)((mx - x0)*invx); if (gx < 0) gx = 0; if (gx >= grid_n) gx = grid_n-1;
+        int gz = (int)((mz - z0)*invz); if (gz < 0) gz = 0; if (gz >= grid_n) gz = grid_n-1;
+        start[gz*grid_n + gx + 1]++;
+    }
+    for (int c = 1; c <= nc; c++) start[c] += start[c-1];        /* prefix sum */
+    for (int t = 0; t < m->ntris; t++) {                         /* scatter */
+        const uint16_t *tr = &m->tris[t*3];
+        float mx = (m->verts[tr[0]].x + m->verts[tr[1]].x + m->verts[tr[2]].x) * (1.0f/3.0f);
+        float mz = (m->verts[tr[0]].z + m->verts[tr[1]].z + m->verts[tr[2]].z) * (1.0f/3.0f);
+        int gx = (int)((mx - x0)*invx); if (gx < 0) gx = 0; if (gx >= grid_n) gx = grid_n-1;
+        int gz = (int)((mz - z0)*invz); if (gz < 0) gz = 0; if (gz >= grid_n) gz = grid_n-1;
+        tri[start[gz*grid_n + gx]++] = (uint16_t)t;
+    }
+    for (int c = nc; c >= 1; c--) start[c] = start[c-1];         /* shift cursors back */
+    start[0] = 0;
+    m->grid_n = grid_n; m->grid_x0 = x0; m->grid_z0 = z0;
+    m->grid_invx = invx; m->grid_invz = invz;
+    m->grid_start = start; m->grid_tri = tri;
+    return 0;
+}
 
 typedef struct {
     Vec3  pos;        /* centre, world metres (plane: a point on the surface) */
