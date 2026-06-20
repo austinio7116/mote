@@ -21,6 +21,7 @@ static void exp_init(void) {
 }
 static inline float fexp(float power) {       /* power <= 0 */
     if (power <= -9.0f) return 0.0f;
+    if (power >= 0.0f)  return 1.0f;           /* guard a positive arg -> negative idx */
     int idx = (int)(-power * (255.0f / 9.0f));
     return s_exp[idx];
 }
@@ -54,14 +55,20 @@ int mote_splat_sort(const MoteSplat *splats, int n, const Mat3 *cam_basis,
     for (int i = 0; i < n; i++) {
         float vz = v3_dot(v3_sub(splats[i].pos, cam_pos), R2);
         if (vz <= 0.15f) continue;
-        s_cnt[(int)((vz - zmin) * scale)]++;
+        int bk = (int)((vz - zmin) * scale);            /* clamp: float reorders + tiny
+                                                         * depth ranges can push this OOB
+                                                         * (device hardfault) */
+        if (bk < 0) bk = 0; else if (bk >= NB) bk = NB - 1;
+        s_cnt[bk]++;
     }
     int acc = 0;
     for (int b = NB - 1; b >= 0; b--) { s_off[b] = acc; acc += s_cnt[b]; }
     for (int i = 0; i < n; i++) {
         float vz = v3_dot(v3_sub(splats[i].pos, cam_pos), R2);
         if (vz <= 0.15f) continue;
-        order[s_off[(int)((vz - zmin) * scale)]++] = i;
+        int bk = (int)((vz - zmin) * scale);
+        if (bk < 0) bk = 0; else if (bk >= NB) bk = NB - 1;
+        order[s_off[bk]++] = i;
     }
     return m;
 }
