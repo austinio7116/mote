@@ -43,7 +43,7 @@ static float    tcx, tcy, tcz, tscale;
 #define NTREE 14
 #define TVV 72                            /* depth-1 trunk: ~32 verts/faces, ample */
 #define TFF 80
-#define TREE_S 2.0f
+#define TREE_S 8.0f                       /* model half-extent: lets trees be ~7m */
 typedef struct { MeshVert v[TVV]; MeshFace f[TFF]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
 static TreeMesh trees[NTREE]; static int n_tree;
 #define MAXSPLAT 800
@@ -72,7 +72,7 @@ static void emit_splat(Vec3 p,Vec3 sc,Mat3 b,uint16_t c,float op){ if(s_n<MAXSPL
 static void leaf_cluster(Vec3 c,float rad,int n){
     for(int i=0;i<n;i++){ Vec3 pos=v3_add(c,v3_scale(v3(frnd2(),frnd2()*0.8f,frnd2()),rad));
         Vec3 nrm=v3(frnd2(),0.5f+0.5f*frand(),frnd2());
-        emit_splat(pos,v3(0.08f,0.062f,0.014f),basis_from_normal(nrm),col_of(0.14f+0.2f*frand(),0.42f+0.28f*frand(),0.12f),0.6f); }
+        emit_splat(pos,v3(0.32f,0.26f,0.05f),basis_from_normal(nrm),col_of(0.14f+0.2f*frand(),0.42f+0.28f*frand(),0.12f),0.6f); }
 }
 static MeshVert quantv(Vec3 p){ MeshVert v; v.x=(int8_t)(p.x/TREE_S*127); v.y=(int8_t)(p.y/TREE_S*127); v.z=(int8_t)(p.z/TREE_S*127); return v; }
 static void add_tri_t(TreeMesh*tm,int i0,int i1,int i2,Vec3 p0,Vec3 p1,Vec3 p2,Vec3 out,uint16_t col){
@@ -96,14 +96,14 @@ static void add_branch(TreeMesh*tm,Vec3 a,Vec3 b,float ra,float rb,uint16_t col)
 static void grow(TreeMesh*tm,Vec3 a,Vec3 dir,float len,float thick,int depth){
     dir=v3_norm(dir); Vec3 b=v3_add(a,v3_scale(dir,len));
     add_branch(tm,a,b,thick,thick*0.66f,col_of(0.30f,0.19f,0.10f));
-    if(depth<=0||s_n>MAXSPLAT-20){ leaf_cluster(v3_add(tm->base,b),0.22f,14); return; }
+    if(depth<=0||s_n>MAXSPLAT-20){ leaf_cluster(v3_add(tm->base,b),1.5f,14); return; }
     int nb=2+(frand()<0.4f?1:0);
     for(int c=0;c<nb;c++){ Vec3 t=(fabsf(dir.y)<0.9f)?v3(0,1,0):v3(1,0,0);
         Vec3 p1=v3_norm(v3_cross(dir,t)),p2=v3_cross(dir,p1); float an=6.2831853f*frand();
         Vec3 perp=v3_add(v3_scale(p1,cosf(an)),v3_scale(p2,sinf(an))); float sp=0.5f+0.4f*frand();
         Vec3 nd=v3_norm(v3_add(v3_scale(dir,cosf(sp)),v3_scale(perp,sinf(sp)))); nd=v3_norm(v3_add(nd,v3(0,0.2f,0)));
         grow(tm,b,nd,len*0.72f,thick*0.6f,depth-1);}
-    if(depth<=1) leaf_cluster(v3_add(tm->base,b),0.16f,8);
+    if(depth<=1) leaf_cluster(v3_add(tm->base,b),1.2f,8);
 }
 
 static uint16_t lie_color(int lie, float ny){
@@ -251,7 +251,7 @@ static void build_hole(uint32_t seed){
         if(golf_lie(&hole,wx,wz)!=GOLF_ROUGH) continue;       /* skip fairway/water/sand */
         TreeMesh*tm=&trees[n_tree]; tm->nv=0; tm->nf=0;
         tm->base=v3(wx, golf_height(&hole,wx,wz)-0.1f, wz);
-        grow(tm, v3(0,0,0), v3(0,1,0), 0.7f+0.3f*frand(), 0.10f, 1);   /* cheap trunk + leaf splats */
+        grow(tm, v3(0,0,0), v3(0,1,0), 3.8f+1.4f*frand(), 0.28f, 1);   /* ~5-7m tree */
         tm->mesh.verts=tm->v; tm->mesh.faces=tm->f; tm->mesh.nverts=tm->nv; tm->mesh.nfaces=tm->nf;
         tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
         n_tree++;
