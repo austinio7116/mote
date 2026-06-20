@@ -29,10 +29,14 @@ static float noise_aniso(float wx, float wz, float p, float ca, float sa, float 
     return a+(b-a)*tz;
 }
 typedef struct { float hp,ha,mp,ma,ip,ia,lp,la,aniso,ridge; } StyleNoise;
+/* Cranked for DRAMA: hero wavelength ~hole-length so a hill + valley fit INSIDE
+ * the hole, with big amplitudes (ThumbyGolf's gentle "playable" tuning read flat
+ * over 60m). The fairway/green still mow toward the low-freq contour so the
+ * relief shows but the green stays puttable. */
 static const StyleNoise STY[3] = {
-    {95,7.5f,36,2.0f,14,0.55f,6,0.14f,2.6f,0.55f},   /* Links */
-    {85,5.0f,32,1.5f,14,0.40f,7,0.10f,1.0f,0.0f},    /* Parkland */
-    {80,6.5f,30,1.7f,13,0.50f,6,0.12f,1.5f,0.30f},   /* Heathland */
+    {46,14.0f,21,5.0f,10,1.0f,5,0.24f,2.2f,0.5f},    /* Links: big dunes */
+    {52,11.0f,23,4.0f,11,0.8f,6,0.18f,1.0f,0.0f},    /* Parkland: rolling */
+    {44,13.0f,19,4.5f,10,0.9f,5,0.22f,1.5f,0.30f},   /* Heathland: heaving heath */
 };
 static float natural_h(uint32_t seed, int style, float x, float z){
     const StyleNoise *s=&STY[style]; float ca=0.7071f, sa=0.7071f, h=BASE_Y;
@@ -42,7 +46,7 @@ static float natural_h(uint32_t seed, int style, float x, float z){
     h += hero*s->ha;
     h += noise2d(x,z,s->mp,seed^0x1111u)*s->ma;
     h += noise2d(x,z,s->ip,seed^0x2222u)*s->ia;
-    h += noise2d(x,z,s->mp,seed^0x1111u)*s->ma;   /* (already added once above) */
+    h += noise2d(x,z,s->lp,seed^0x3333u)*s->la;
     return h;
 }
 /* low-frequency contour only (hero+macro) — the "mown" surface a fairway/green
