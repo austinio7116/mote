@@ -161,7 +161,6 @@ static void strike(void) {
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_B))    { s_n = cue_table_rack(&s_table, s_balls); s_state = AIM; }
 
     if (s_state == AIM || s_state == CHARGE) {

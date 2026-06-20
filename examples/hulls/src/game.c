@@ -84,7 +84,6 @@ static Vec3 cam_pos; static Mat3 cam_basis; static float s_orbit = 0.6f;
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_B))    toss(1);
     if (mote_just_pressed(in, MOTE_BTN_A))    toss(0);
     if (mote_pressed(in, MOTE_BTN_LEFT))  s_orbit -= 1.0f*dt;

@@ -73,7 +73,6 @@ static void g_init(void) {
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
 
     int sp = (int)(48.0f * dt) + 1;
     if (mote_pressed(in, MOTE_BTN_LEFT))  px -= sp;

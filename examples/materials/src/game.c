@@ -92,7 +92,6 @@ static MoteBody s_floor;
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_A))    drop();
 
     /* Auto re-drop on a ~3s cadence so the bounce is always visible. */

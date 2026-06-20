@@ -214,7 +214,6 @@ static void play(int fr,int ff,int tr,int tf,int promo){
 
 static void g_update(float dt){
     const MoteInput*in=mote->input();
-    if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
 
     /* Camera: hold LB + D-pad UP/DOWN = ZOOM; hold RB + D-pad = PAN (LR yaw,
      * UD pitch). Hold BOTH shoulders to peek the piece gallery. */

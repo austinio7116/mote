@@ -343,7 +343,6 @@ static int itoa10(int n,char*o){ char t[8]; int p=0,q=0; if(n<0){o[q++]='-';n=-n
 
 static void g_update(float dt){
     const MoteInput*in=mote->input();
-    if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
     if(mote_just_pressed(in,MOTE_BTN_LB)){ s_fly=!s_fly; s_flyt=0.0f; }   /* fly-over preview */
     if(s_fly){ s_flyt+=dt; if(s_flyt>8.0f || mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B)) s_fly=0; }
     if(s_showcard){ if(mote_just_pressed(in,MOTE_BTN_A)) { next_hole(); s_armed=0; } return; }  /* scorecard: A = next hole */

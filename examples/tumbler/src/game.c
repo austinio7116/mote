@@ -25,7 +25,6 @@ static void g_init(void) {
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
 
     m3_rotate_local(&s_m, 0, 0.7f * dt);
     m3_rotate_local(&s_m, 1, 1.1f * dt);

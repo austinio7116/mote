@@ -40,7 +40,6 @@ static void g_update(float dt) {
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         s_cube = m3_identity(); s_spin_x = 0.6f; s_spin_y = 0.9f;
     }
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
 
     m3_rotate_local(&s_cube, 0, s_spin_x * dt);
     m3_rotate_local(&s_cube, 1, s_spin_y * dt);

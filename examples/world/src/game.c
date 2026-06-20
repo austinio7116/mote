@@ -199,7 +199,6 @@ static float s_yaw = 0.0f; static Mat3 s_basis; static int s_auto = 1;
 
 static void g_update(float dt){
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_A))    s_auto = !s_auto;
     if (mote_pressed(in, MOTE_BTN_LEFT))  s_yaw -= 1.3f*dt;
     if (mote_pressed(in, MOTE_BTN_RIGHT)) s_yaw += 1.3f*dt;

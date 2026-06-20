@@ -96,7 +96,6 @@ static void g_init(void) {
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
     if (mote_just_pressed(in, MOTE_BTN_A))    toss();
     /* UP/DOWN dial the body count live to stress the engine. */
     if (mote_just_pressed(in, MOTE_BTN_UP))   { s_active += 16; if (s_active > NBODY) s_active = NBODY; toss(); }
