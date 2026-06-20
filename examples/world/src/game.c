@@ -153,10 +153,15 @@ static void gen_terrain(void){
     terrain_col.verts=mcv; terrain_col.nverts=GRID*GRID; terrain_col.tris=mct; terrain_col.ntris=ti/3; terrain_col.bound_r=EXT*1.5f;
 }
 
+static Vec3 s_cam;
 static void spawn_ball(int k){
     MoteBody *b=&balls[1+k];
-    float x=frnd2()*(EXT-1.0f), z=frnd2()*(EXT-1.0f);
-    b->pos=v3(x, 4.0f+frand()*2.5f, z); b->vel=v3(frnd2()*0.3f,0,frnd2()*0.3f);
+    /* rain in a disc AROUND the camera so it's always falling in view */
+    float a=6.2831853f*frand(), rr=3.6f*sqrtf(frand());
+    float x=s_cam.x+rr*cosf(a), z=s_cam.z+rr*sinf(a);
+    float lim=EXT-0.4f;
+    if(x> lim)x= lim; if(x<-lim)x=-lim; if(z> lim)z= lim; if(z<-lim)z=-lim;
+    b->pos=v3(x, terrain_h(x,z)+3.2f+frand()*1.2f, z); b->vel=v3(0,-1.5f,0);
     b->w=v3(0,0,0); b->_reserved[0]=0; s_rt[k]=0;
 }
 
@@ -183,12 +188,12 @@ static void g_init(void){
     balls[0].shape=MOTE_SHAPE_MESH; balls[0].shape_data=&terrain_col; balls[0].orient=m3_identity(); balls[0].inv_mass=0;
     for(int k=0;k<NBALL;k++){
         MoteBody *b=&balls[1+k];
-        b->shape=MOTE_SHAPE_SPHERE; b->radius=0.07f; b->inv_mass=1.0f/0.06f; b->restitution=0.3f; b->orient=m3_identity();
-        spawn_ball(k); b->pos.y += k*0.09f;
+        b->shape=MOTE_SHAPE_SPHERE; b->radius=0.10f; b->inv_mass=1.0f/0.09f; b->restitution=0.3f; b->orient=m3_identity();
+        spawn_ball(k); b->pos.y += k*0.12f;
     }
 }
 
-static Vec3  s_cam; static float s_yaw = 0.0f; static Mat3 s_basis; static int s_auto = 1;
+static float s_yaw = 0.0f; static Mat3 s_basis; static int s_auto = 1;
 
 static void g_update(float dt){
     const MoteInput *in = mote->input();
@@ -231,7 +236,7 @@ static void g_update(float dt){
         mote->scene_add_object(&to);
     }
     for (int k = 0; k < NBALL; k++)
-        mote->scene_add_sphere(v3_sub(balls[1+k].pos, s_cam), 0.07f, MOTE_RGB565(225,238,255));
+        mote->scene_add_sphere(v3_sub(balls[1+k].pos, s_cam), 0.10f, MOTE_RGB565(235,245,255));
     /* leaves: splats over the rastered scene, occluded by branches + terrain */
     mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 60.0f, mote->depth_buffer());
 }
