@@ -33,6 +33,9 @@ void mote_perf_get(uint32_t out[6]) {
     out[5] = l->frame ? l->c1 * 100 / l->frame : 0;
 }
 
+static uint32_t s_mem_used, s_mem_total;
+void mote_perf_set_mem(uint32_t used_kb, uint32_t total_kb) { s_mem_used = used_kb; s_mem_total = total_kb; }
+
 void mote_perf_record(uint32_t upd, uint32_t c0, uint32_t c1,
                       uint32_t flush, uint32_t frame) {
     Sample *s = &s_hist[s_head];
@@ -128,4 +131,8 @@ void mote_perf_overlay(uint16_t *fb) {
     mote_font_draw(fb, b, GX, CU_Y - 7, COL_TEXT);
     snprintf(b, sizeof b, "%dfps U%u R%u F%u", fps, l->update, raster, l->flush);
     mote_font_draw(fb, b, GX, FT_Y - 7, COL_TEXT);
+    if (s_mem_total) {
+        snprintf(b, sizeof b, "ARENA %u/%uK", s_mem_used, s_mem_total);
+        mote_font_draw(fb, b, GX, FT_Y + 2, COL_TEXT);
+    }
 }

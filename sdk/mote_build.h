@@ -106,6 +106,53 @@ static inline const Mesh *mote_mesh_sphere(const MoteApi *api, float r, int segs
     return mote_mesh_revolve(api, p, K + 1, segs, col);
 }
 
+/* ---- heightfield terrain (auto-chunked past the 256-vert mesh cap) ---- */
+typedef float    (*MoteHeightFn)(float x, float z, void *user);
+typedef uint16_t (*MoteTerrColFn)(float x, float z, float ny, void *user);
+/* Sample an nx*nz heightfield over [x0,z0]..[x1,z1] and emit it as one or more
+ * arena-allocated render meshes, each <= 255 verts (the uint8 index cap). Fills
+ * out[] (size max_out), returns the chunk count, and writes the grid CENTRE to
+ * *center — render each chunk at (center - cam). hf gives height; cf gives the
+ * RGB565 colour for a face (ny = its up-ness, for shading). */
+static inline int mote_mesh_grid(const MoteApi *api, int nx, int nz,
+        float x0, float z0, float x1, float z1,
+        MoteHeightFn hf, MoteTerrColFn cf, void *user, const Mesh **out, int max_out, Vec3 *center) {
+    float spanx = x1 - x0, spanz = z1 - z0;
+    float cx = (x0 + x1) * 0.5f, cz = (z0 + z1) * 0.5f, cy = hf(cx, cz, user);
+    *center = v3(cx, cy, cz);
+    float sc = (spanx > spanz ? spanx : spanz) * 0.5f; if (sc < 1e-3f) sc = 1e-3f;
+    int rows = 255 / nx - 1; if (rows < 1) rows = 1;
+    int produced = 0;
+    for (int z0i = 0; z0i < nz - 1 && produced < max_out; z0i += rows) {
+        int z1i = z0i + rows; if (z1i > nz - 1) z1i = nz - 1;
+        int nr = z1i - z0i + 1, nv = nr * nx, nf = (nr - 1) * (nx - 1) * 2;
+        MeshVert *v = (MeshVert *)api->alloc(nv * sizeof(MeshVert));
+        MeshFace *f = (MeshFace *)api->alloc(nf * sizeof(MeshFace));
+        Mesh *m = (Mesh *)api->alloc(sizeof(Mesh));
+        if (!v || !f || !m) break;
+        for (int r = 0; r < nr; r++) for (int gx = 0; gx < nx; gx++) {
+            float wx = x0 + spanx * gx / (nx - 1), wz = z0 + spanz * (z0i + r) / (nz - 1), wy = hf(wx, wz, user);
+            mote__qv(v, r * nx + gx, wx - cx, wy - cy, wz - cz, sc);
+        }
+        int nff = 0;
+        for (int r = 0; r < nr - 1; r++) for (int gx = 0; gx < nx - 1; gx++) {
+            int a = r*nx+gx, b = a+1, c = a+nx, d = c+1;
+            int tri[2][3] = {{a,c,b},{b,c,d}};
+            for (int t = 0; t < 2; t++) {
+                int i0=tri[t][0],i1=tri[t][1],i2=tri[t][2];
+                Vec3 p0=v3(v[i0].x,v[i0].y,v[i0].z),p1=v3(v[i1].x,v[i1].y,v[i1].z),p2=v3(v[i2].x,v[i2].y,v[i2].z);
+                Vec3 n=v3_norm(v3_cross(v3_sub(p1,p0),v3_sub(p2,p0)));
+                float mx=x0+spanx*(gx+0.5f)/(nx-1), mz=z0+spanz*(z0i+r+0.5f)/(nz-1);
+                uint16_t col = cf ? cf(mx,mz,n.y,user) : MOTE_RGB565(96,150,86);
+                f[nff++]=(MeshFace){(uint8_t)i0,(uint8_t)i1,(uint8_t)i2,(int8_t)(n.x*127),(int8_t)(n.y*127),(int8_t)(n.z*127),col};
+            }
+        }
+        *m = (Mesh){v, f, (uint16_t)nv, (uint16_t)nf, sc, sc * 1.2f, 0};
+        out[produced++] = m;
+    }
+    return produced;
+}
+
 /* ---- tiny immediate-mode UI (pure framebuffer; pair with mote->text) ---- */
 static inline void mote_ui_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t c) {
     for (int j = y; j < y + h; j++) { if ((unsigned)j >= MOTE_FB_H) continue;

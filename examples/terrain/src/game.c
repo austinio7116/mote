@@ -15,6 +15,7 @@
  */
 #include <math.h>
 #include "mote_api.h"
+#include "mote_build.h"
 
 MOTE_GAME_MODULE();
 
@@ -34,9 +35,9 @@ static Vec3      mverts[G * G];             /* collider verts (world metres) */
 static uint16_t  mtris[NTRI * 3];           /* collider tris (3 indices each) */
 static MoteMesh  terrain_mesh;
 
-static MeshVert  rverts[G * G];             /* render verts (int8) */
-static MeshFace  rtris[NTRI];               /* render faces */
-static Mesh      terrain_render;
+/* render terrain: a higher-res heightfield, auto-chunked by mote_mesh_grid */
+#define RG 33
+static const Mesh *rchunks[8]; static int n_rchunk; static Vec3 rcenter;
 
 /* ---- bodies -------------------------------------------------------------- */
 #define I_MESH   0
@@ -89,93 +90,30 @@ static float terrain_h(float nx, float nz) {
          + 0.12f * sinf(nx * 4.0f) * cosf(nz * 4.0f);
 }
 
-/* clamp a world coordinate to int8 range scaled by SCALE */
-static int8_t q8(float w) {
-    int v = (int)(w * 127.0f / SCALE + (w >= 0 ? 0.5f : -0.5f));
-    if (v > 127)  v = 127;
-    if (v < -127) v = -127;
-    return (int8_t)v;
+/* height + colour callbacks for the render terrain (world x,z) */
+static float th(float x, float z, void *u) { (void)u; return terrain_h(x / EXTENT, z / EXTENT); }
+static uint16_t tcol(float x, float z, float ny, void *u) { (void)u;
+    float hy = terrain_h(x / EXTENT, z / EXTENT);
+    float t01 = (hy + 0.30f) / 1.15f; if (t01 < 0) t01 = 0; if (t01 > 1) t01 = 1;
+    float lit = 0.55f + 0.45f * (ny > 0 ? ny : 0);
+    return MOTE_RGB565((int)((30 + 90*t01)*lit), (int)((80 + 150*t01)*lit), (int)((40 + 40*t01)*lit));
 }
 
 static void build_terrain(void) {
-    /* vertices: grid over [-EXTENT, EXTENT] in X/Z, y = terrain_h. nx,nz in [-1,1]. */
-    for (int gz = 0; gz < G; gz++) {
-        for (int gx = 0; gx < G; gx++) {
-            float nx = (float)gx / (G - 1) * 2.0f - 1.0f;
-            float nz = (float)gz / (G - 1) * 2.0f - 1.0f;
-            float x  = nx * EXTENT;
-            float z  = nz * EXTENT;
-            float y  = terrain_h(nx, nz);
-            int idx  = gz * G + gx;
-            mverts[idx] = v3(x, y, z);
-            rverts[idx].x = q8(x);
-            rverts[idx].y = q8(y);
-            rverts[idx].z = q8(z);
-        }
+    /* collider: a coarse GxG world heightfield (physics doesn't need fine detail). */
+    for (int gz = 0; gz < G; gz++) for (int gx = 0; gx < G; gx++) {
+        float nx = (float)gx/(G-1)*2-1, nz = (float)gz/(G-1)*2-1;
+        mverts[gz*G+gx] = v3(nx*EXTENT, terrain_h(nx, nz), nz*EXTENT);
     }
-
-    /* two triangles per cell. */
-    int t = 0;       /* collider index triple counter */
-    int f = 0;       /* render face counter */
-    for (int gz = 0; gz < G - 1; gz++) {
-        for (int gx = 0; gx < G - 1; gx++) {
-            uint16_t v00 = (uint16_t)(gz * G + gx);
-            uint16_t v10 = (uint16_t)(gz * G + gx + 1);
-            uint16_t v01 = (uint16_t)((gz + 1) * G + gx);
-            uint16_t v11 = (uint16_t)((gz + 1) * G + gx + 1);
-
-            /* triangle pairs: (v00,v01,v11) and (v00,v11,v10).
-             * Collider winding is irrelevant (two-sided), but use a consistent
-             * order and reuse it for the render faces, fixing winding below. */
-            uint16_t tri[2][3] = {
-                { v00, v01, v11 },
-                { v00, v11, v10 },
-            };
-
-            for (int k = 0; k < 2; k++) {
-                uint16_t a = tri[k][0], b = tri[k][1], c = tri[k][2];
-
-                /* collider */
-                mtris[t++] = a; mtris[t++] = b; mtris[t++] = c;
-
-                /* render: compute world-space normal from winding; we want it to
-                 * point UP (+Y). If it points down, swap b/c so the top face is
-                 * front-facing (the pipe is CCW-from-outside). */
-                Vec3 e1 = v3_sub(mverts[b], mverts[a]);
-                Vec3 e2 = v3_sub(mverts[c], mverts[a]);
-                Vec3 nrm = v3_cross(e1, e2);
-                if (nrm.y < 0.0f) {
-                    uint16_t tmp = b; b = c; c = tmp;
-                    nrm = v3_scale(nrm, -1.0f);
-                }
-                nrm = v3_norm(nrm);
-
-                /* height tint: low (valley) -> dark green, high -> bright green */
-                float ymin = -0.30f, ymax = 0.85f;
-                float hy = (mverts[a].y + mverts[b].y + mverts[c].y) / 3.0f;
-                float t01 = (hy - ymin) / (ymax - ymin);
-                if (t01 < 0.0f) t01 = 0.0f;
-                if (t01 > 1.0f) t01 = 1.0f;
-                int gr = (int)(80.0f + 150.0f * t01);
-                int rd = (int)(30.0f +  90.0f * t01);
-                int bl = (int)(40.0f +  40.0f * t01);
-
-                rtris[f].a = (uint8_t)a;
-                rtris[f].b = (uint8_t)b;
-                rtris[f].c = (uint8_t)c;
-                rtris[f].nx = (int8_t)(nrm.x * 127.0f);
-                rtris[f].ny = (int8_t)(nrm.y * 127.0f);
-                rtris[f].nz = (int8_t)(nrm.z * 127.0f);
-                rtris[f].color = MOTE_RGB565(rd, gr, bl);
-                f++;
-            }
-        }
+    int t = 0;
+    for (int gz = 0; gz < G-1; gz++) for (int gx = 0; gx < G-1; gx++) {
+        uint16_t v00 = (uint16_t)(gz*G+gx), v10 = (uint16_t)(v00+1), v01 = (uint16_t)((gz+1)*G+gx), v11 = (uint16_t)(v01+1);
+        mtris[t++]=v00; mtris[t++]=v01; mtris[t++]=v11; mtris[t++]=v00; mtris[t++]=v11; mtris[t++]=v10;
     }
-
-    terrain_mesh = (MoteMesh){ mverts, G * G, mtris, NTRI,
-                               EXTENT * 1.5f /* bound_r */ };
-    terrain_render = (Mesh){ rverts, rtris, (uint16_t)(G * G), (uint16_t)NTRI,
-                             SCALE, SCALE * 1.8f, 0 };
+    terrain_mesh = (MoteMesh){ mverts, G*G, mtris, NTRI, EXTENT*1.5f };
+    /* render: a finer RGxRG heightfield — mote_mesh_grid auto-chunks it under the
+     * 256-vert mesh cap, winds + normals + colours every face for us. */
+    n_rchunk = mote_mesh_grid(mote, RG, RG, -EXTENT, -EXTENT, EXTENT, EXTENT, th, tcol, 0, rchunks, 8, &rcenter);
 }
 
 /* Drop the dynamic bodies high above the terrain centre so they roll inward. */
@@ -276,9 +214,10 @@ static void g_update(float dt) {
     mote->scene_begin(&cam_basis, 60.0f);
 
     /* Terrain. */
-    MoteObject terr = { .pos = v3_sub(v3(0, 0, 0), cam_pos),
-                        .basis = m3_identity(), .mesh = &terrain_render };
-    mote->scene_add_object(&terr);
+    for (int i = 0; i < n_rchunk; i++) {
+        MoteObject terr = { .pos = v3_sub(rcenter, cam_pos), .basis = m3_identity(), .mesh = rchunks[i] };
+        mote->scene_add_object(&terr);
+    }
 
     /* Dynamic bodies. */
     static const uint16_t pal[3] = {

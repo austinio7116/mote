@@ -26,4 +26,7 @@ void mote_perf_get(uint32_t out[6]);
 /* Draw the overlay into the framebuffer (no-op when disabled). */
 void mote_perf_overlay(uint16_t *fb);
 
+/* Report arena usage (KB) for the overlay's ARENA line. Called by the OS. */
+void mote_perf_set_mem(uint32_t used_kb, uint32_t total_kb);
+
 #endif /* MOTE_PERF_H */

@@ -143,6 +143,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
             if (r.menu || mote_plat_should_quit()) break; mote_plat_present(fb); }
         return;
     }
+    mote_perf_set_mem((uint32_t)(s_arena.used / 1024), MOTE_ARENA_SIZE / 1024);
 
     MoteInput in;
     memset(&in, 0, sizeof in);
