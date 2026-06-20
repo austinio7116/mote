@@ -21,18 +21,20 @@ MOTE_MODULE_HEADER();
 #define TAU 6.2831853f
 int64_t chess_time_ms(void) { return (int64_t)(mote->micros() / 1000ull); }   /* chal time hook */
 
-/* ---- procedural piece meshes (revolution of a profile) ---- */
-#define SEG 7
-#define MAXPV 80
-#define MAXPF 150
+/* ---- procedural Staunton piece meshes (revolution + finials) ---- */
+#define SEG 10
+#define PSCALE 1.6f            /* model half-extent: profiles may reach ~1.6 tall */
+#define MAXPV 200
+#define MAXPF 360
 typedef struct { MeshVert v[MAXPV]; MeshFace f[MAXPF]; Mesh mesh; int nv, nf; } PMesh;
 static PMesh g_piece[6][2];      /* [type-1][color] */
 static MeshVert bd_v[81]; static MeshFace bd_f[128]; static Mesh bd_mesh;
 
-static Vec3 dq(MeshVert v){ return v3((float)v.x/127.0f, (float)v.y/127.0f, (float)v.z/127.0f); }
+static Vec3 dq(MeshVert v){ return v3((float)v.x*PSCALE/127.0f,(float)v.y*PSCALE/127.0f,(float)v.z*PSCALE/127.0f); }
 static int addv(PMesh*m,float x,float y,float z){
     if(m->nv>=MAXPV) return m->nv-1;
-    MeshVert*v=&m->v[m->nv]; v->x=(int8_t)(x*127); v->y=(int8_t)(y*127); v->z=(int8_t)(z*127); return m->nv++;
+    MeshVert*v=&m->v[m->nv];
+    v->x=(int8_t)(x/PSCALE*127); v->y=(int8_t)(y/PSCALE*127); v->z=(int8_t)(z/PSCALE*127); return m->nv++;
 }
 static void addf(PMesh*m,int a,int b,int c,uint16_t col){
     if(m->nf>=MAXPF) return;
@@ -41,37 +43,50 @@ static void addf(PMesh*m,int a,int b,int c,uint16_t col){
     MeshFace*f=&m->f[m->nf++]; f->a=(uint8_t)a;f->b=(uint8_t)b;f->c=(uint8_t)c;
     f->nx=(int8_t)(n.x*127);f->ny=(int8_t)(n.y*127);f->nz=(int8_t)(n.z*127);f->color=col;
 }
-/* prof: pairs {radius, height}; a final radius < 0.03 is treated as the apex. */
-static void revolve(PMesh*m,const float*prof,int np,uint16_t col){
-    m->nv=0; m->nf=0;
+/* axis-aligned box (12 faces) — finials (king cross, queen coronet spikes). */
+static void add_box(PMesh*m,float cx,float cy,float cz,float hx,float hy,float hz,uint16_t col){
+    int b=m->nv;
+    addv(m,cx-hx,cy-hy,cz-hz); addv(m,cx+hx,cy-hy,cz-hz); addv(m,cx+hx,cy-hy,cz+hz); addv(m,cx-hx,cy-hy,cz+hz);
+    addv(m,cx-hx,cy+hy,cz-hz); addv(m,cx+hx,cy+hy,cz-hz); addv(m,cx+hx,cy+hy,cz+hz); addv(m,cx-hx,cy+hy,cz+hz);
+    int F[12][3]={{0,5,4},{0,1,5},{1,6,5},{1,2,6},{2,7,6},{2,3,7},{3,4,7},{3,0,4},{4,5,6},{4,6,7},{0,7,3},{0,4,7}};
+    for(int i=0;i<12;i++) addf(m,b+F[i][0],b+F[i][1],b+F[i][2],col);
+}
+/* prof: pairs {radius, height}; a final radius < 0.03 is the apex. append=0 resets. */
+static void revolve_app(PMesh*m,const float*prof,int np,uint16_t col,int append){
+    if(!append){ m->nv=0; m->nf=0; }
+    int v0=m->nv;
     int apex = prof[(np-1)*2] < 0.03f;
     int rings = apex ? np-1 : np;
     for(int i=0;i<rings;i++){ float r=prof[i*2], y=prof[i*2+1];
         for(int s=0;s<SEG;s++){ float a=s*TAU/SEG; addv(m, r*cosf(a), y, r*sinf(a)); } }
     for(int i=0;i<rings-1;i++) for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG;
-        int a=i*SEG+s,b=i*SEG+s2,c=(i+1)*SEG+s,d=(i+1)*SEG+s2;
-        addf(m,a,b,d,col); addf(m,a,d,c,col); }
-    if(apex){ int ai=addv(m,0,prof[(np-1)*2+1],0); int base=(rings-1)*SEG;
-        for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,base+s,base+s2,ai,col); } }
-    int ci=addv(m,0,prof[1],0);                        /* bottom cap centre */
-    for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,ci,s2,s,col); }
+        int a=v0+i*SEG+s,b=v0+i*SEG+s2,c=v0+(i+1)*SEG+s,d=v0+(i+1)*SEG+s2;
+        addf(m,a,d,b,col); addf(m,a,c,d,col); }
+    if(apex){ int ai=addv(m,0,prof[(np-1)*2+1],0); int base=v0+(rings-1)*SEG;
+        for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,base+s2,base+s,ai,col); } }
+    int ci=addv(m,0,prof[1],0);
+    for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,ci,v0+s,v0+s2,col); }
     m->mesh.verts=m->v; m->mesh.faces=m->f; m->mesh.nverts=m->nv; m->mesh.nfaces=m->nf;
-    m->mesh.scale=1.0f; m->mesh.bound_r=1.3f;
+    m->mesh.scale=PSCALE; m->mesh.bound_r=1.7f;
 }
-/* knight: revolved base + a forward-leaning wedge head (distinct silhouette). */
+static void revolve(PMesh*m,const float*prof,int np,uint16_t col){ revolve_app(m,prof,np,col,0); }
+
+/* knight: revolved base + an extruded horse-head silhouette (forward = +z). */
+static const float KN_SIL[]={ -0.16f,0.30f, -0.23f,0.50f, -0.16f,0.66f, -0.02f,0.76f,
+    0.17f,0.71f, 0.30f,0.58f, 0.37f,0.46f, 0.26f,0.40f, 0.10f,0.36f, -0.05f,0.32f };
 static void build_knight(PMesh*m,uint16_t col){
-    static const float base[]={0.32f,0,0.35f,0.05f,0.20f,0.12f,0.18f,0.30f};
-    revolve(m,base,4,col);
-    int b0=addv(m,-0.14f,0.30f,-0.10f), b1=addv(m,0.14f,0.30f,-0.10f);
-    int b2=addv(m,0.14f,0.34f,0.30f),   b3=addv(m,-0.14f,0.34f,0.30f);   /* snout, forward +z */
-    int t0=addv(m,-0.14f,0.62f,-0.16f), t1=addv(m,0.14f,0.62f,-0.16f);
-    int t2=addv(m,0.13f,0.58f,0.20f),   t3=addv(m,-0.13f,0.58f,0.20f);   /* head top */
-    addf(m,b0,b1,t1,col); addf(m,b0,t1,t0,col);     /* back */
-    addf(m,b3,t3,t2,col); addf(m,b3,t2,b2,col);     /* snout front */
-    addf(m,b1,b2,t2,col); addf(m,b1,t2,t1,col);     /* right */
-    addf(m,b0,t0,t3,col); addf(m,b0,t3,b3,col);     /* left */
-    addf(m,t0,t1,t2,col); addf(m,t0,t2,t3,col);     /* crown */
-    m->mesh.nverts=m->nv; m->mesh.nfaces=m->nf;
+    static const float base[]={0.40f,0,0.45f,0.06f,0.30f,0.14f,0.22f,0.24f,0.20f,0.34f};
+    revolve(m,base,5,col);
+    int N=10; float wx=0.155f;
+    int fr=m->nv; for(int i=0;i<N;i++) addv(m, wx, KN_SIL[i*2+1], KN_SIL[i*2]);   /* right side */
+    int bk=m->nv; for(int i=0;i<N;i++) addv(m,-wx, KN_SIL[i*2+1], KN_SIL[i*2]);   /* left side */
+    for(int i=1;i<N-1;i++){ addf(m,fr+0,fr+i,fr+i+1,col); addf(m,bk+0,bk+i+1,bk+i,col); } /* faces */
+    for(int i=0;i<N;i++){ int j=(i+1)%N;                                          /* rim */
+        addf(m,fr+i,bk+i,bk+j,col); addf(m,fr+i,bk+j,fr+j,col); }
+    add_box(m,0.10f,0.80f,-0.06f,0.05f,0.10f,0.05f,col);                          /* ears */
+    add_box(m,-0.10f,0.80f,-0.06f,0.05f,0.10f,0.05f,col);
+    m->mesh.verts=m->v; m->mesh.faces=m->f; m->mesh.nverts=m->nv; m->mesh.nfaces=m->nf;
+    m->mesh.scale=PSCALE; m->mesh.bound_r=1.7f;
 }
 
 static uint16_t shade(float r,float g,float b){
@@ -80,19 +95,24 @@ static uint16_t shade(float r,float g,float b){
     return MOTE_RGB565(R,G,B);
 }
 static void build_pieces(void){
-    static const float pawn[]  ={0.28f,0,0.31f,0.05f,0.17f,0.12f,0.13f,0.20f,0.20f,0.30f,0.10f,0.40f,0.0f,0.46f};
-    static const float rook[]  ={0.30f,0,0.33f,0.05f,0.21f,0.12f,0.23f,0.45f,0.29f,0.52f,0.29f,0.62f,0.20f,0.60f,0.20f,0.66f,0.0f,0.66f};
-    static const float bishop[]={0.29f,0,0.32f,0.05f,0.17f,0.12f,0.14f,0.40f,0.23f,0.52f,0.11f,0.66f,0.07f,0.72f,0.0f,0.82f};
-    static const float queen[] ={0.33f,0,0.36f,0.05f,0.19f,0.12f,0.16f,0.45f,0.27f,0.58f,0.30f,0.66f,0.16f,0.72f,0.21f,0.80f,0.0f,0.90f};
-    static const float king[]  ={0.34f,0,0.37f,0.05f,0.20f,0.12f,0.17f,0.50f,0.27f,0.62f,0.30f,0.70f,0.15f,0.78f,0.16f,0.92f,0.0f,1.0f};
+    static const float pawn[]  ={0.40f,0,0.44f,0.06f,0.34f,0.13f,0.18f,0.22f,0.155f,0.40f,0.225f,0.47f,0.15f,0.52f,0.205f,0.63f,0.16f,0.70f,0.0f,0.85f};
+    static const float rook[]  ={0.42f,0,0.46f,0.06f,0.33f,0.13f,0.30f,0.24f,0.29f,0.62f,0.34f,0.70f,0.37f,0.80f,0.37f,0.90f,0.27f,0.85f,0.27f,0.95f};
+    static const float bishop[]={0.40f,0,0.44f,0.06f,0.30f,0.13f,0.155f,0.24f,0.135f,0.60f,0.205f,0.72f,0.225f,0.80f,0.14f,0.92f,0.175f,0.99f,0.08f,1.10f,0.105f,1.15f,0.0f,1.20f};
+    static const float queen[] ={0.43f,0,0.47f,0.06f,0.32f,0.13f,0.175f,0.24f,0.15f,0.66f,0.235f,0.80f,0.17f,0.88f,0.30f,1.00f,0.235f,1.06f,0.165f,1.16f,0.205f,1.21f,0.0f,1.35f};
+    static const float king[]  ={0.44f,0,0.48f,0.06f,0.33f,0.13f,0.185f,0.24f,0.16f,0.72f,0.245f,0.86f,0.18f,0.94f,0.295f,1.06f,0.225f,1.12f,0.17f,1.22f,0.205f,1.28f,0.0f,1.40f};
     for(int c=0;c<2;c++){
-        uint16_t lo = c==0 ? shade(0.86f,0.84f,0.74f) : shade(0.30f,0.26f,0.30f);   /* ivory / charcoal */
-        revolve(&g_piece[0][c],pawn,7,lo);
-        revolve(&g_piece[2][c],bishop,8,lo);
-        revolve(&g_piece[3][c],rook,9,lo);
-        revolve(&g_piece[4][c],queen,9,lo);
-        revolve(&g_piece[5][c],king,9,lo);
+        uint16_t lo = c==0 ? shade(0.88f,0.86f,0.76f) : shade(0.26f,0.22f,0.26f);   /* ivory / charcoal */
+        revolve(&g_piece[0][c],pawn,10,lo);
+        revolve(&g_piece[2][c],bishop,12,lo);
+        revolve(&g_piece[3][c],rook,10,lo);
         build_knight(&g_piece[1][c],lo);
+        revolve(&g_piece[4][c],queen,12,lo);                          /* + coronet spikes */
+        for(int k=0;k<6;k++){ float a=k*TAU/6; add_box(&g_piece[4][c],cosf(a)*0.27f,1.06f,sinf(a)*0.27f,0.05f,0.08f,0.05f,lo); }
+        g_piece[4][c].mesh.nverts=g_piece[4][c].nv; g_piece[4][c].mesh.nfaces=g_piece[4][c].nf;
+        revolve(&g_piece[5][c],king,11,lo);                           /* + cross finial */
+        add_box(&g_piece[5][c],0,1.46f,0,0.045f,0.14f,0.045f,lo);
+        add_box(&g_piece[5][c],0,1.45f,0,0.13f,0.045f,0.045f,lo);
+        g_piece[5][c].mesh.nverts=g_piece[5][c].nv; g_piece[5][c].mesh.nfaces=g_piece[5][c].nf;
     }
 }
 static void build_board(void){
@@ -118,7 +138,8 @@ enum { ST_PLAYER, ST_ANIM, ST_THINK, ST_SEARCH, ST_OVER };
 static int s_state=ST_PLAYER;
 static int s_result=0;                 /* 0 none, 1 white mates, 2 black mates, 3 draw */
 /* camera orbit */
-static float s_yaw=0.0f, s_pitch=0.85f, s_dist=11.0f;
+static float s_yaw=0.0f, s_pitch=0.85f, s_dist=11.0f, s_spin=0.0f;
+static int   s_galleryv=0;
 /* move animation */
 static float s_at; static Vec3 s_a_from, s_a_to; static int s_a_type, s_a_col, s_a_active, s_a_to_r, s_a_to_f;
 
@@ -145,7 +166,7 @@ static void g_init(void){
     s_dyn = mote->alloc((uint32_t)chal_get_dynamic_size());
     chal_set_dynamic_buffer(s_dyn);
     chal_init();
-    int ttc=2048; s_tt = mote->alloc((uint32_t)(ttc*chal_get_tt_entry_size()));
+    int ttc=1024; s_tt = mote->alloc((uint32_t)(ttc*chal_get_tt_entry_size()));
     chal_set_tt(s_tt, ttc);
     chal_new_game();
     build_pieces(); build_board(); refresh_moves();
@@ -175,20 +196,24 @@ static void g_update(float dt){
     const MoteInput*in=mote->input();
     if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
 
-    /* camera orbit (always available) */
-    int modify = mote_pressed(in,MOTE_BTN_B);
-    if(mote_pressed(in,MOTE_BTN_LB)) s_yaw -= 1.4f*dt;
-    if(mote_pressed(in,MOTE_BTN_RB)) s_yaw += 1.4f*dt;
+    /* Camera: RB/LB zoom in/out; hold B + D-pad to orbit (LR yaw, UD pitch).
+     * Hold BOTH shoulders to peek the piece gallery. */
+    int lb=mote_pressed(in,MOTE_BTN_LB), rb=mote_pressed(in,MOTE_BTN_RB);
+    int gallery = lb && rb;
+    int modify  = mote_pressed(in,MOTE_BTN_B);
+    s_galleryv = gallery;
+    if(!gallery){ if(rb) s_dist -= 8.0f*dt; if(lb) s_dist += 8.0f*dt; }
     if(modify){
-        if(mote_pressed(in,MOTE_BTN_UP))   s_pitch += 0.9f*dt;
-        if(mote_pressed(in,MOTE_BTN_DOWN)) s_pitch -= 0.9f*dt;
-        if(mote_pressed(in,MOTE_BTN_LEFT)) s_dist += 5.0f*dt;
-        if(mote_pressed(in,MOTE_BTN_RIGHT))s_dist -= 5.0f*dt;
-        if(s_pitch<0.25f)s_pitch=0.25f; if(s_pitch>1.45f)s_pitch=1.45f;
-        if(s_dist<6.0f)s_dist=6.0f; if(s_dist>18.0f)s_dist=18.0f;
+        if(mote_pressed(in,MOTE_BTN_LEFT))  s_yaw   -= 1.5f*dt;
+        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_yaw   += 1.5f*dt;
+        if(mote_pressed(in,MOTE_BTN_UP))    s_pitch += 1.0f*dt;
+        if(mote_pressed(in,MOTE_BTN_DOWN))  s_pitch -= 1.0f*dt;
     }
+    if(s_pitch<0.18f)s_pitch=0.18f; if(s_pitch>1.45f)s_pitch=1.45f;
+    if(s_dist<4.5f)s_dist=4.5f; if(s_dist>20.0f)s_dist=20.0f;
+    s_spin += dt*0.8f;
 
-    if(s_state==ST_PLAYER && !modify){
+    if(s_state==ST_PLAYER && !modify && !gallery){
         if(mote_just_pressed(in,MOTE_BTN_LEFT)  && s_cf>0) s_cf--;
         if(mote_just_pressed(in,MOTE_BTN_RIGHT) && s_cf<7) s_cf++;
         if(mote_just_pressed(in,MOTE_BTN_UP)    && s_cr>0) s_cr--;
@@ -200,11 +225,24 @@ static void g_update(float dt){
             } else {
                 int promo;
                 if(find_move(s_sr,s_sf,s_cr,s_cf,&promo)){ s_sel=0; play(s_sr,s_sf,s_cr,s_cf,promo); }
-                else if(piece_at(s_cr,s_cf,&type,&col) && col==CHAL_WHITE){ s_sf=s_cf; s_sr=s_cr; } /* reselect */
+                else if(piece_at(s_cr,s_cf,&type,&col) && col==CHAL_WHITE){ s_sf=s_cf; s_sr=s_cr; }
                 else s_sel=0;
             }
         }
-        if(mote_just_pressed(in,MOTE_BTN_B) && !modify) s_sel=0;
+    }
+
+    if(gallery){                                    /* ---- piece gallery ---- */
+        s_cam=v3(0,1.7f,5.6f); s_target=v3(0,0.42f,0);
+        Vec3 fwd=v3_norm(v3_sub(s_target,s_cam)), rgt=v3_norm(v3_cross(v3(0,1,0),fwd));
+        s_basis.r[0]=rgt; s_basis.r[1]=v3_cross(fwd,rgt); s_basis.r[2]=fwd;
+        mote->scene_begin(&s_basis, 62.0f);
+        Mat3 sp; float cs=cosf(s_spin), sn=sinf(s_spin);
+        sp.r[0]=v3(cs,0,sn); sp.r[1]=v3(0,1,0); sp.r[2]=v3(-sn,0,cs);
+        int order[6]={CHAL_PAWN,CHAL_KNIGHT,CHAL_BISHOP,CHAL_ROOK,CHAL_QUEEN,CHAL_KING};
+        for(int i=0;i<6;i++){ Vec3 p=v3((i-2.5f)*1.28f,0,0);
+            MoteObject o={.pos=v3_sub(p,s_cam),.basis=sp,.mesh=&g_piece[order[i]-1][0].mesh};
+            mote->scene_add_object(&o); }
+        return;
     }
 
     if(s_state==ST_ANIM){
@@ -259,13 +297,18 @@ static void g_overlay(uint16_t*fb){
         mote->text(fb,m,38,58,MOTE_RGB565(255,240,120));
         return;
     }
+    if(s_galleryv){
+        mote->text(fb,"PIECE GALLERY",30,4,MOTE_RGB565(230,220,160));
+        mote->text(fb,"PAWN KNT BSH ROOK Q K",2,118,MOTE_RGB565(200,210,225));
+        return;
+    }
     if(s_state==ST_THINK||s_state==ST_SEARCH) mote->text(fb,"BLACK THINKING",26,4,MOTE_RGB565(230,180,120));
-    else mote->text(fb, s_sel?"A DROP  B CANCEL":"A PICK  LR ORBIT", 8,4, MOTE_RGB565(210,220,235));
+    else mote->text(fb, s_sel?"A DROP   B+DPAD ORBIT":"A PICK  RB/LB ZOOM", 6,4, MOTE_RGB565(210,220,235));
     if(chal_is_in_check() && s_state==ST_PLAYER) mote->text(fb,"CHECK",48,118,MOTE_RGB565(255,90,90));
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init=g_init, .update=g_update, .overlay=g_overlay,
-    .config = { .max_tris=2600, .max_spheres=8, .depth=1 },   /* no physics, no splats */
+    .config = { .max_tris=5600, .max_spheres=8, .depth=1 },   /* no physics, no splats */
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
