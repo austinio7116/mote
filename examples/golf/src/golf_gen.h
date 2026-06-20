@@ -10,7 +10,7 @@
 #define GOLF_GEN_H
 #include <stdint.h>
 
-enum { GOLF_ROUGH=0, GOLF_FAIRWAY=1, GOLF_GREEN=2, GOLF_TEE=3, GOLF_BUNKER=4 };
+enum { GOLF_ROUGH=0, GOLF_FAIRWAY=1, GOLF_GREEN=2, GOLF_TEE=3, GOLF_BUNKER=4, GOLF_WATER=5 };
 enum { GOLF_LINKS=0, GOLF_PARKLAND=1, GOLF_HEATHLAND=2 };
 
 typedef struct {
@@ -18,10 +18,13 @@ typedef struct {
     float tee_x, tee_z, cup_x, cup_z, bend_x, bend_z;
     float tee_h, cup_h, length_m;
     float min_x, max_x, min_z, max_z;     /* bounding box (m) */
+    float water_level;                    /* land below this floods */
+    int   n_bunker; float bunker_x[4], bunker_z[4], bunker_r[4];
 } GolfHole;
 
 void  golf_generate(GolfHole *h, uint32_t seed);
-float golf_height(const GolfHole *h, float x, float z);   /* terrain height (m) */
+float golf_surface(const GolfHole *h, float x, float z);  /* land surface, no water */
+float golf_height(const GolfHole *h, float x, float z);   /* surface, clamped up to water */
 int   golf_lie(const GolfHole *h, float x, float z);      /* GOLF_* lie */
 float golf_route_dist(const GolfHole *h, float x, float z);
 int   golf_tree(const GolfHole *h, float x, float z);     /* 1 if a tree sits here */

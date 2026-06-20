@@ -76,11 +76,21 @@ void golf_generate(GolfHole *h, uint32_t seed){
     h->par = (h->length_m < 68.0f) ? 4 : 5;
     h->tee_h = smooth_h(seed,h->style,h->tee_x,h->tee_z);
     h->cup_h = smooth_h(seed,h->style,h->cup_x,h->cup_z);
-    float pad=13.0f;
+    float pad=22.0f;   /* more space around the hole */
     h->min_x = fmin2(h->tee_x,fmin2(h->cup_x,h->bend_x))-pad;
     h->max_x = fmax2(h->tee_x,fmax2(h->cup_x,h->bend_x))+pad;
     h->min_z = fmin2(h->tee_z,h->cup_z)-pad;
     h->max_z = fmax2(h->tee_z,h->cup_z)+pad;
+    /* water: deep natural lows flood */
+    h->water_level = fmin2(h->tee_h,h->cup_h) - 4.5f;
+    /* bunkers: greenside pair (from the approach direction) + a fairway bunker */
+    float ax=h->cup_x-h->bend_x, az=h->cup_z-h->bend_z, al=sqrtf(ax*ax+az*az); if(al<1e-3f)al=1.0f; ax/=al; az/=al;
+    float px=-az, pz=ax;
+    h->n_bunker=0;
+    h->bunker_x[0]=h->cup_x+px*9.0f-ax*3.0f; h->bunker_z[0]=h->cup_z+pz*9.0f-az*3.0f; h->bunker_r[0]=4.5f;
+    h->bunker_x[1]=h->cup_x-px*8.0f-ax*2.0f; h->bunker_z[1]=h->cup_z-pz*8.0f-az*2.0f; h->bunker_r[1]=4.0f;
+    h->bunker_x[2]=h->bend_x+px*7.0f;        h->bunker_z[2]=h->bend_z+pz*7.0f;        h->bunker_r[2]=5.0f;
+    h->n_bunker=3;
 }
 
 static float dist_seg(float px,float pz,float ax,float az,float bx,float bz){
@@ -95,23 +105,28 @@ float golf_route_dist(const GolfHole *h, float x, float z){
     return d1<d2?d1:d2;
 }
 
-float golf_height(const GolfHole *h, float x, float z){
+float golf_surface(const GolfHole *h, float x, float z){
     float nat = natural_h(h->seed,h->style,x,z);        /* rough: full detail */
     float smo = smooth_h(h->seed,h->style,x,z);         /* mown low-freq contour */
     float ht  = nat;
-    /* fairway: mow toward the smooth contour, with a soft apron fade to rough */
     float rd = golf_route_dist(h,x,z);
     float fw = (rd < FAIR_HALF) ? 1.0f : (rd < FAIR_HALF+4.0f ? ss(1.0f-(rd-FAIR_HALF)*0.25f) : 0.0f);
-    if (fw > 0.0f) ht = nat*(1.0f-fw) + smo*fw;
-    /* green: flatten to the cup's mown height (puttable), apron fade */
+    if (fw > 0.0f) ht = nat*(1.0f-fw) + smo*fw;          /* fairway mown to contour */
     float dg = sqrtf((x-h->cup_x)*(x-h->cup_x)+(z-h->cup_z)*(z-h->cup_z));
     float gw = (dg < GREEN_R) ? 1.0f : (dg < GREEN_R+2.5f ? ss(1.0f-(dg-GREEN_R)*0.4f) : 0.0f);
-    if (gw > 0.0f) ht = ht*(1.0f-gw) + h->cup_h*gw;
-    /* tee: flat pad */
+    if (gw > 0.0f) ht = ht*(1.0f-gw) + h->cup_h*gw;      /* green flat */
     float dt = sqrtf((x-h->tee_x)*(x-h->tee_x)+(z-h->tee_z)*(z-h->tee_z));
     float tw = (dt < TEE_R) ? 1.0f : (dt < TEE_R+1.5f ? ss(1.0f-(dt-TEE_R)*0.66f) : 0.0f);
-    if (tw > 0.0f) ht = ht*(1.0f-tw) + h->tee_h*tw;
+    if (tw > 0.0f) ht = ht*(1.0f-tw) + h->tee_h*tw;      /* tee flat */
+    for(int i=0;i<h->n_bunker;i++){                       /* bunker hollows */
+        float dx=x-h->bunker_x[i], dz=z-h->bunker_z[i], d=sqrtf(dx*dx+dz*dz);
+        if(d<h->bunker_r[i]) ht -= 1.3f*ss(1.0f-d/h->bunker_r[i]);
+    }
     return ht;
+}
+float golf_height(const GolfHole *h, float x, float z){
+    float s = golf_surface(h,x,z);
+    return s < h->water_level ? h->water_level : s;       /* flat water surface */
 }
 
 int golf_lie(const GolfHole *h, float x, float z){
@@ -119,14 +134,19 @@ int golf_lie(const GolfHole *h, float x, float z){
     if(dg<GREEN_R) return GOLF_GREEN;
     float dt = sqrtf((x-h->tee_x)*(x-h->tee_x)+(z-h->tee_z)*(z-h->tee_z));
     if(dt<TEE_R) return GOLF_TEE;
+    for(int i=0;i<h->n_bunker;i++){
+        float dx=x-h->bunker_x[i], dz=z-h->bunker_z[i];
+        if(dx*dx+dz*dz < h->bunker_r[i]*h->bunker_r[i]) return GOLF_BUNKER;
+    }
+    if(golf_surface(h,x,z) < h->water_level) return GOLF_WATER;
     return (golf_route_dist(h,x,z)<FAIR_HALF) ? GOLF_FAIRWAY : GOLF_ROUGH;
 }
 
 int golf_tree(const GolfHole *h, float x, float z){
     if(golf_lie(h,x,z)!=GOLF_ROUGH) return 0;
     if(golf_route_dist(h,x,z) < FAIR_HALF+3.0f) return 0;       /* keep clear of play */
-    float c = noise2d(x,z,22.0f,h->seed^0xABCDu)*0.5f+0.5f;     /* low-freq cluster */
-    float dens = (h->style==GOLF_PARKLAND)?0.55f:(h->style==GOLF_HEATHLAND?0.35f:0.18f);
+    float c = noise2d(x,z,20.0f,h->seed^0xABCDu)*0.5f+0.5f;     /* low-freq cluster */
+    float dens = (h->style==GOLF_PARKLAND)?0.78f:(h->style==GOLF_HEATHLAND?0.58f:0.40f);
     float roll = (float)(hash32((int)floorf(x),(int)floorf(z),h->seed^0x9999u)&255)/255.0f;
     return c*dens > roll;
 }

@@ -40,7 +40,7 @@ static Mesh     chunk_mesh[NCHUNK];
 static float    tcx, tcy, tcz, tscale;
 
 /* ---- trees: mesh trunks + splat leaves ---- */
-#define NTREE 5
+#define NTREE 12
 #define TVV 220
 #define TFF 300
 #define TREE_S 2.0f
@@ -110,8 +110,10 @@ static uint16_t lie_color(int lie, float ny){
     float lit = 0.6f + 0.4f*(ny>0?ny:0);
     switch(lie){
         case GOLF_FAIRWAY: return col_of(0.28f*lit,0.58f*lit,0.24f*lit);
-        case GOLF_GREEN:   return col_of(0.42f*lit,0.74f*lit,0.34f*lit);
+        case GOLF_GREEN:   return col_of(0.44f*lit,0.78f*lit,0.36f*lit);
         case GOLF_TEE:     return col_of(0.34f*lit,0.64f*lit,0.30f*lit);
+        case GOLF_BUNKER:  return col_of(0.88f*lit,0.80f*lit,0.54f*lit);   /* sand */
+        case GOLF_WATER:   return col_of(0.15f,0.33f,0.60f);                /* water (flat) */
         default:           return col_of(0.22f*lit,0.40f*lit,0.18f*lit);   /* rough */
     }
 }
@@ -171,39 +173,45 @@ static void gen_flag(void){
 }
 
 /* ---- state ---- */
-static float s_aim, s_power; static int s_charging, s_strokes, s_holed;
+static float s_aim, s_power; static int s_charging, s_strokes, s_holed, s_armed;
+static float s_last_x, s_last_z; static uint32_t s_seed;
 static Vec3  s_cam; static Mat3 s_basis;
 
 static void aim_at_cup(void){ s_aim = atan2f(hole.cup_x - BALL.pos.x, hole.cup_z - BALL.pos.z); }
 static void tee_up(void){
     BALL.pos = v3(hole.tee_x, golf_height(&hole,hole.tee_x,hole.tee_z)+0.1f, hole.tee_z);
     BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0;
-    s_power=0; s_charging=0; s_holed=0; s_strokes=0; aim_at_cup();
+    s_last_x=hole.tee_x; s_last_z=hole.tee_z;
+    s_power=0; s_charging=0; s_holed=0; s_strokes=0; s_armed=0; aim_at_cup();
 }
 
-static void g_init(void){
-    mote->scene_set_background(MOTE_RGB565(150,185,215));
-    golf_generate(&hole, 0x9E3779B9u);
+static void build_hole(uint32_t seed){
+    s_seed=seed;
+    golf_generate(&hole, seed);
     gen_terrain();
     gen_flag();
-    /* trees scattered in the rough */
     s_n=0; n_tree=0;
-    for(float wz=hole.min_z+2; wz<hole.max_z-2 && n_tree<NTREE; wz+=3.5f)
-      for(float wx=hole.min_x+2; wx<hole.max_x-2 && n_tree<NTREE; wx+=3.5f)
+    for(float wz=hole.min_z+2; wz<hole.max_z-2 && n_tree<NTREE; wz+=2.4f)
+      for(float wx=hole.min_x+2; wx<hole.max_x-2 && n_tree<NTREE; wx+=2.4f)
         if(golf_tree(&hole,wx,wz)){
             TreeMesh*tm=&trees[n_tree]; tm->nv=0; tm->nf=0;
             tm->base=v3(wx, golf_height(&hole,wx,wz)-0.1f, wz);
-            grow(tm, v3(0,0,0), v3(0,1,0), 0.6f+0.2f*frand(), 0.08f, 3);
+            grow(tm, v3(0,0,0), v3(0,1,0), 0.6f+0.25f*frand(), 0.085f, 2);
             tm->mesh.verts=tm->v; tm->mesh.faces=tm->f; tm->mesh.nverts=tm->nv; tm->mesh.nfaces=tm->nf;
             tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
             n_tree++;
         }
+    bodies[0].shape=MOTE_SHAPE_MESH; bodies[0].shape_data=&terr_col; bodies[0].orient=m3_identity(); bodies[0].inv_mass=0;
+    tee_up();
+}
+
+static void g_init(void){
+    mote->scene_set_background(MOTE_RGB565(150,185,215));
     mote->phys_world_defaults(&pw);
     pw.walls=0; pw.gravity=v3(0,-9.8f,0); pw.restitution=0.4f; pw.friction=0.4f;
     pw.substep=1.0f/240.0f; pw.max_substeps=6;
-    bodies[0].shape=MOTE_SHAPE_MESH; bodies[0].shape_data=&terr_col; bodies[0].orient=m3_identity(); bodies[0].inv_mass=0;
     BALL.shape=MOTE_SHAPE_SPHERE; BALL.radius=0.12f; BALL.inv_mass=1.0f/0.045f; BALL.restitution=0.35f; BALL.orient=m3_identity();
-    tee_up();
+    build_hole((uint32_t)mote->micros() * 2654435761u + 0x9E3779B9u);   /* random each launch */
 }
 
 static void fillrect(uint16_t*fb,int x,int y,int w,int h,uint16_t c){
@@ -214,7 +222,8 @@ static int itoa10(int n,char*o){ char t[8]; int p=0,q=0; if(n<0){o[q++]='-';n=-n
 static void g_update(float dt){
     const MoteInput*in=mote->input();
     if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
-    if(mote_just_pressed(in,MOTE_BTN_B))    tee_up();
+    if(mote_just_pressed(in,MOTE_BTN_B))    build_hole(s_seed*1664525u + 1013904223u);  /* new hole */
+    if(!mote_pressed(in,MOTE_BTN_A)) s_armed=1;   /* must release A (held from launcher) before a shot */
 
     float bspeed=v3_len(BALL.vel);
     int resting = bspeed<0.35f && BALL.pos.y < golf_height(&hole,BALL.pos.x,BALL.pos.z)+0.3f;
@@ -225,19 +234,34 @@ static void g_update(float dt){
     if(!s_holed && resting){
         if(mote_pressed(in,MOTE_BTN_LEFT))  s_aim -= 1.1f*dt;
         if(mote_pressed(in,MOTE_BTN_RIGHT)) s_aim += 1.1f*dt;
-        if(mote_pressed(in,MOTE_BTN_A)){ s_charging=1; s_power+=0.85f*dt; if(s_power>1)s_power=1; }
+        if(s_armed && mote_pressed(in,MOTE_BTN_A)){ s_charging=1; s_power+=0.8f*dt; if(s_power>1)s_power=1; }
         else if(s_charging){
-            s_charging=0;
+            s_charging=0; s_armed=0;
+            s_last_x=BALL.pos.x; s_last_z=BALL.pos.z;            /* for the water penalty */
             Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
-            float p=18.0f*s_power;
-            BALL.vel=v3(dir.x*p, 3.5f*s_power+1.0f, dir.z*p);   /* drive with loft */
+            Vec3 rightv=v3(cosf(s_aim),0,-sinf(s_aim));
+            float p=16.0f*s_power;
+            BALL.vel=v3(dir.x*p, 9.0f*s_power+1.5f, dir.z*p);    /* proper launch arc */
+            BALL.w=v3_scale(rightv, -30.0f*s_power);             /* backspin */
             BALL._reserved[0]=0; s_strokes++; s_power=0;
         }
     }
     int lie=golf_lie(&hole,BALL.pos.x,BALL.pos.z);
-    BALL.friction = (lie==GOLF_GREEN)?0.05f:(lie==GOLF_FAIRWAY?0.22f:0.55f);
+    BALL.friction = (lie==GOLF_GREEN)?0.05f:(lie==GOLF_FAIRWAY?0.22f:(lie==GOLF_BUNKER?0.85f:0.5f));
+
+    /* Magnus: backspin lifts (carry), sidespin curves — while airborne */
+    if(BALL.pos.y > golf_height(&hole,BALL.pos.x,BALL.pos.z) + BALL.radius + 0.15f){
+        Vec3 mag = v3_cross(BALL.w, BALL.vel);
+        BALL.vel = v3_add(BALL.vel, v3_scale(mag, 0.01f*dt));
+    }
 
     mote->phys_step(&pw, bodies, 2, dt);
+
+    /* water penalty: settled in water -> drop at the last shot spot, +1 stroke */
+    if(!s_holed && v3_len(BALL.vel)<0.4f && golf_lie(&hole,BALL.pos.x,BALL.pos.z)==GOLF_WATER){
+        BALL.pos=v3(s_last_x, golf_height(&hole,s_last_x,s_last_z)+0.1f, s_last_z);
+        BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0; s_strokes++;
+    }
 
     Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
     s_cam = v3(BALL.pos.x - dir.x*5.0f, BALL.pos.y + 3.4f, BALL.pos.z - dir.z*5.0f);
