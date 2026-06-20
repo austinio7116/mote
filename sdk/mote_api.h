@@ -31,7 +31,26 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 8u   /* v8: appended splat_render (Gaussian splats) */
+#define MOTE_ABI_VERSION 9u   /* v9: MoteConfig pools + alloc (dynamic load-time arena) */
+
+/* ---------------------------------------------------------------------------
+ * MoteConfig — the game declares the resource pools it needs. The OS sizes the
+ * engine's buffers to THIS at load (not a fixed worst case), allocates them
+ * from one shared SRAM arena, and hands the remainder to the game via
+ * MoteApi.alloc. A pool left 0 costs nothing. If the declared pools + the
+ * game's allocations don't fit, the loader refuses to launch (clear failure).
+ * This is the whole resource model: you pay only for what you declare.
+ * ------------------------------------------------------------------------- */
+typedef struct MoteConfig {
+    uint16_t max_tris;        /* 3D triangle draw-list capacity (0 = no 3D raster) */
+    uint16_t max_spheres;     /* sphere impostors in the 3D pass */
+    uint16_t max_splats;      /* Gaussian splats (0 = none) */
+    uint16_t max_sprites;     /* 2D sprites per frame (0 = no 2D scene) */
+    uint16_t max_bodies;      /* physics bodies (0 = no physics engine) */
+    uint16_t max_contacts;    /* physics contact manifolds */
+    uint16_t max_mesh_tris;   /* largest mesh collider's triangle count (0 = none) */
+    uint8_t  depth;           /* 1 = allocate the 32KB depth buffer (3D / splats) */
+} MoteConfig;
 
 /* ---------------------------------------------------------------------------
  * The engine jump table. Populated by the OS, called by the game.
@@ -110,6 +129,14 @@ typedef struct MoteApi {
     void (*scene_set_splats)(const MoteSplat *splats, int n, int *order,
                              const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg,
                              const uint16_t *depth);
+
+    /* --- ABI v9: load-time arena. alloc() carves the game's own large buffers
+     * out of the SAME arena the engine pools came from (sized by MoteConfig),
+     * so a lean game keeps the slack. 8-byte aligned + zeroed; NULL if the
+     * arena is exhausted. Valid from init() onward; freed wholesale on exit.
+     * arena_free() reports the bytes left for the game. */
+    void   *(*alloc)(uint32_t bytes);
+    uint32_t (*arena_free)(void);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------
@@ -123,6 +150,9 @@ typedef struct MoteGameVtbl {
      * row bands [y0,y1). */
     void (*render_band)(uint16_t *fb, int y0, int y1);
     void (*overlay)(uint16_t *fb);                       /* HUD, core0, optional */
+    /* --- ABI v9: resource pools. The OS reads this BEFORE init() to size the
+     * engine arena. Leave a field 0 to opt out of that subsystem entirely. */
+    MoteConfig config;
 } MoteGameVtbl;
 
 /* The game module's single entry symbol. Stash `api`, return your vtable. */

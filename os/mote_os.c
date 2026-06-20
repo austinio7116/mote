@@ -12,15 +12,24 @@
 #include "mote_font.h"
 #include "mote_perf.h"
 #include "mote_launcher.h"   /* shared framebuffer (mote_launcher_fb) */
+#include "mote_arena.h"      /* load-time resource arena */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
 static const MoteInput *s_cur_input;
 static bool           s_exit_req;
 
+/* One SRAM arena: the engine's per-game pools (sized by MoteConfig) and the
+ * game's own alloc()s come out of this. Reset between games. */
+#define MOTE_ARENA_SIZE (160 * 1024)
+static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
+static MoteArena s_arena;
+
 static const MoteInput *os_input(void)  { return s_cur_input; }
 static uint64_t       os_micros(void) { return mote_plat_micros(); }
 static void           os_exit(void)   { s_exit_req = true; }
+static void          *os_alloc(uint32_t n) { return mote_arena_alloc(&s_arena, n); }
+static uint32_t       os_arena_free(void)  { return (uint32_t)mote_arena_free(&s_arena); }
 
 static void mote_api_scene_set_splats(const MoteSplat *sp, int n, int *order,
         const Mat3 *cam, Vec3 cam_pos, float fov, const uint16_t *depth);
@@ -60,6 +69,9 @@ void mote_api_fill(MoteApi *a) {
     a->splat_render          = mote_splat_render;
     a->depth_buffer          = (const uint16_t *(*)(void))mote_depth_buffer;
     a->scene_set_splats      = mote_api_scene_set_splats;
+    /* ABI v9: load-time arena. */
+    a->alloc                 = os_alloc;
+    a->arena_free            = os_arena_free;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -100,6 +112,12 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
     s_exit_req = false;
     s_vt = vt;
+
+    /* Size the engine's pools to THIS game's declared config, from the shared
+     * arena; whatever's left the game claims via alloc(). Reset per game. */
+    mote_arena_init(&s_arena, s_arena_mem, MOTE_ARENA_SIZE);
+    mote_phys_configure(&s_arena, vt->config.max_bodies, vt->config.max_contacts);
+
     if (vt->init) vt->init();
 
     MoteInput in;

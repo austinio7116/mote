@@ -426,5 +426,9 @@ static void g_overlay(uint16_t*fb){
     mote->text(fb, s_swing==0?"UD CLUB  A SWING":(s_swing==1?"A LOCK POWER":"A SET ACCURACY"),3,106,MOTE_RGB565(235,240,200));
 }
 
-static const MoteGameVtbl k_vtbl = { .init=g_init, .update=g_update, .overlay=g_overlay };
+static const MoteGameVtbl k_vtbl = {
+    .init=g_init, .update=g_update, .overlay=g_overlay,
+    .config = { .max_tris=3328, .max_spheres=64, .max_splats=800,
+                .max_bodies=2, .max_contacts=64, .max_mesh_tris=3266, .depth=1 },
+};
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }

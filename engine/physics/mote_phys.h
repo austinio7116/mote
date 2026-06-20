@@ -189,4 +189,10 @@ int mote_phys_raycast(const MoteWorld *w, const MoteBody *bodies, int n,
 int mote_phys_overlap(const MoteWorld *w, const MoteBody *bodies, int n,
                       Vec3 center, float radius, int *out, int max);
 
+/* Allocate the physics pools from the load-time arena, sized to the game's
+ * MoteConfig (max_bodies==0 = physics opted out). Called by the OS at load,
+ * before the game's init. Returns 0 if the arena couldn't fit the request. */
+struct MoteArena;
+int mote_phys_configure(struct MoteArena *arena, int max_bodies, int max_contacts);
+
 #endif /* MOTE_PHYS_H */

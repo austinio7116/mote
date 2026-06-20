@@ -11,6 +11,7 @@
  * Sleeping (position-based) parks settled bodies as immovable anchors so a
  * resting heap costs almost nothing. SI units; per-body inv_mass 0 = immovable.
  */
+#include "mote_arena.h"
 #include "mote_phys.h"
 #include "mote_config.h"
 #include <math.h>
@@ -20,12 +21,7 @@
 #define REST_SLOP    0.45f            /* below this approach speed e=0 (no jitter-bounce) */
 #define SOLVER_ITERS 8                /* velocity iterations per substep */
 #define POS_ITERS    4                /* position (split-impulse) iterations */
-#define PHYS_MAX_BODIES 256           /* split-impulse pseudo-velocity capacity */
 #define MAX_SUBSTEPS 8                /* default cap (per-world overridable) + drop backlog */
-#define GRID_MAX_BODIES 256
-#define GRID_CELLS   4096
-#define MAX_CONTACTS 768              /* manifold capacity (excess pairs dropped) */
-#define CACHE_N      1024             /* warm-start impulse cache (power of two) */
 #define POS_BETA     0.2f             /* Baumgarte position-bias factor */
 #define POS_SLOP     0.005f           /* allowed penetration before bias kicks in */
 #define WAKE_PEN     0.02f            /* an awake body intruding this deep wakes a sleeper */
@@ -102,43 +98,71 @@ typedef struct {
     uint32_t key;      /* warm-start match key */
 } Contact;
 
-static Contact s_ct[MAX_CONTACTS];
-static int     s_nct;
-static Vec3    s_pv[PHYS_MAX_BODIES], s_pw[PHYS_MAX_BODIES];  /* position pseudo-velocities */
-static uint8_t s_touch[PHYS_MAX_BODIES];                      /* had a contact this substep */
-static float   s_pen[PHYS_MAX_BODIES];                        /* deepest penetration this substep */
-static uint8_t s_woke[PHYS_MAX_BODIES];                       /* woke this substep -> no warm-start */
+/* Pools are arena-allocated at load by mote_phys_configure(), sized to the
+ * game's declared MoteConfig — not a fixed worst case. */
+static Contact *s_ct;     static int s_max_contacts;
+static int      s_nct;
+static Vec3    *s_pv, *s_pw;                                  /* position pseudo-velocities */
+static uint8_t *s_touch, *s_woke;                            /* contact this substep / woke this substep */
+static float   *s_pen;                                        /* deepest penetration this substep */
+static int      s_max_bodies;
 
 typedef struct { uint32_t key; float jn, jt; } Imp;
-static Imp  s_cacheA[CACHE_N], s_cacheB[CACHE_N];
-static Imp *s_cache_prev = s_cacheA, *s_cache_cur = s_cacheB;
+static Imp     *s_cacheA, *s_cacheB, *s_cache_prev, *s_cache_cur;
+static int      s_cache_n, s_cache_mask;
+static int     *g_cell, *g_next; static int s_grid_cells, s_grid_bodies;
+
+/* Allocate the physics pools from the load-time arena. max_bodies==0 opts out
+ * (no allocation). Returns 0 if the arena couldn't fit the request. */
+int mote_phys_configure(MoteArena *arena, int max_bodies, int max_contacts) {
+    if (max_bodies <= 0) { s_max_bodies = 0; return 1; }
+    s_max_bodies   = max_bodies;
+    s_max_contacts = max_contacts > 0 ? max_contacts : max_bodies * 4;
+    s_cache_n = 64; while (s_cache_n < s_max_contacts * 2) s_cache_n <<= 1;
+    s_cache_mask  = s_cache_n - 1;
+    s_grid_bodies = max_bodies;
+    if (max_bodies > 24) { s_grid_cells = 64; while (s_grid_cells < max_bodies * 16 && s_grid_cells < 4096) s_grid_cells <<= 1; }
+    else s_grid_cells = 16;
+    s_ct     = mote_arena_alloc(arena, (size_t)s_max_contacts * sizeof(Contact));
+    s_pv     = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(Vec3));
+    s_pw     = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(Vec3));
+    s_touch  = mote_arena_alloc(arena, (size_t)s_max_bodies);
+    s_woke   = mote_arena_alloc(arena, (size_t)s_max_bodies);
+    s_pen    = mote_arena_alloc(arena, (size_t)s_max_bodies * sizeof(float));
+    s_cacheA = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
+    s_cacheB = mote_arena_alloc(arena, (size_t)s_cache_n * sizeof(Imp));
+    s_cache_prev = s_cacheA; s_cache_cur = s_cacheB;
+    g_cell   = mote_arena_alloc(arena, (size_t)s_grid_cells * sizeof(int));
+    g_next   = mote_arena_alloc(arena, (size_t)s_grid_bodies * sizeof(int));
+    return s_ct && s_pv && s_pw && s_touch && s_woke && s_pen && s_cacheA && s_cacheB && g_cell && g_next;
+}
 
 static void cache_lookup(uint32_t key, float *jn, float *jt) {
-    uint32_t i = key & (CACHE_N - 1);
+    uint32_t i = key & s_cache_mask;
     for (int p = 0; p < 8; p++) {
-        Imp *e = &s_cache_prev[(i + p) & (CACHE_N - 1)];
+        Imp *e = &s_cache_prev[(i + p) & s_cache_mask];
         if (e->key == key) { *jn = e->jn; *jt = e->jt; return; }
         if (e->key == 0) break;
     }
     *jn = 0.0f; *jt = 0.0f;
 }
 static void cache_store(uint32_t key, float jn, float jt) {
-    uint32_t i = key & (CACHE_N - 1);
+    uint32_t i = key & s_cache_mask;
     for (int p = 0; p < 8; p++) {
-        Imp *e = &s_cache_cur[(i + p) & (CACHE_N - 1)];
+        Imp *e = &s_cache_cur[(i + p) & s_cache_mask];
         if (e->key == 0 || e->key == key) { e->key = key; e->jn = jn; e->jt = jt; return; }
     }
 }
 
 static void add_contact(int a, int b, Vec3 n, Vec3 p, float pen, uint32_t fid) {
-    if (s_nct >= MAX_CONTACTS) return;
+    if (s_nct >= s_max_contacts) return;
     Contact *c = &s_ct[s_nct++];
     c->a = a; c->b = b; c->n = n; c->p = p; c->pen = pen;
     c->jn = c->jt = 0.0f;
     uint32_t k = ((uint32_t)(a + 1) * 73856093u) ^ ((uint32_t)(b + 2) * 19349663u) ^ (fid * 83492791u);
     c->key = k ? k : 1u;
-    if (a < PHYS_MAX_BODIES) { s_touch[a] = 1; if (pen > s_pen[a]) s_pen[a] = pen; }
-    if (b >= 0 && b < PHYS_MAX_BODIES) { s_touch[b] = 1; if (pen > s_pen[b]) s_pen[b] = pen; }
+    if (a < s_max_bodies) { s_touch[a] = 1; if (pen > s_pen[a]) s_pen[a] = pen; }
+    if (b >= 0 && b < s_max_bodies) { s_touch[b] = 1; if (pen > s_pen[b]) s_pen[b] = pen; }
 }
 
 /* --- narrow phase: emit contacts ---------------------------------------- */
@@ -788,8 +812,8 @@ static int prepare(MoteBody *bodies, const MoteWorld *w, float h) {
         if (-vn >= REST_SLOP) impact = 1;
         c->bias = (e > 0.0f) ? -e * vn : 0.0f;           /* restitution only; */
         c->jp = 0.0f;                                    /* position via split impulse */
-        int woke = (c->a < PHYS_MAX_BODIES && s_woke[c->a]) ||
-                   (c->b >= 0 && c->b < PHYS_MAX_BODIES && s_woke[c->b]);
+        int woke = (c->a < s_max_bodies && s_woke[c->a]) ||
+                   (c->b >= 0 && c->b < s_max_bodies && s_woke[c->b]);
         if (woke) { c->jn = 0.0f; c->jt = 0.0f; }        /* cold start a just-woken body */
         else cache_lookup(c->key, &c->jn, &c->jt);       /* warm start */
         apply_impulse(bodies, c, v3_add(v3_scale(c->n, c->jn), v3_scale(c->t, c->jt)));
@@ -862,7 +886,6 @@ static void solve_pos(MoteBody *bodies, float h) {
 
 /* --- broad phase (uniform grid) ----------------------------------------- */
 
-static int   g_cell[GRID_CELLS], g_next[GRID_MAX_BODIES];
 static int   g_nx, g_ny, g_nz;
 static float g_cs, g_x0, g_y0, g_z0;
 
@@ -884,7 +907,7 @@ static void grid_build(const MoteWorld *w, MoteBody *bodies, int n) {
         g_nx = (int)((w->bmax.x - w->bmin.x) / g_cs) + 1; if (g_nx < 1) g_nx = 1;
         g_ny = (int)((w->bmax.y - w->bmin.y) / g_cs) + 1; if (g_ny < 1) g_ny = 1;
         g_nz = (int)((w->bmax.z - w->bmin.z) / g_cs) + 1; if (g_nz < 1) g_nz = 1;
-        if ((long)g_nx * g_ny * g_nz <= GRID_CELLS) break;
+        if ((long)g_nx * g_ny * g_nz <= s_grid_cells) break;
         g_cs *= 1.5f;
     }
     int nc = g_nx * g_ny * g_nz;
@@ -998,9 +1021,10 @@ static void integrate(const MoteWorld *w, MoteBody *b, float h) {
 
 MOTE_HOT
 uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
+    if (!s_ct || n > s_max_bodies) return 0;   /* physics not configured (or under-declared) for this game */
     float h = (w->substep > 0.0f) ? w->substep : DEFAULT_H;
     int cap = (w->max_substeps > 0) ? w->max_substeps : MAX_SUBSTEPS;
-    int use_grid = (n > 24 && n <= GRID_MAX_BODIES);
+    int use_grid = (n > 24 && n <= s_grid_bodies);
     uint32_t ev = 0;
     if (dt > 0.1f) dt = 0.1f;
 
@@ -1011,7 +1035,7 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         for (int i = 0; i < n; i++) if (!body_asleep(&bodies[i])) integrate(w, &bodies[i], h);
 
         s_nct = 0;
-        if (n <= PHYS_MAX_BODIES) {
+        if (n <= s_max_bodies) {
             memset(s_touch, 0, (size_t)n);
             memset(s_woke, 0, (size_t)n);
             memset(s_pen, 0, (size_t)n * sizeof s_pen[0]);
@@ -1028,13 +1052,13 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
         if (use_grid) { grid_build(w, bodies, n); build_pairs_grid(bodies, n); }
         else            build_pairs_all(bodies, n);
 
-        memset(s_cache_cur, 0, sizeof s_cacheA);
+        memset(s_cache_cur, 0, (size_t)s_cache_n * sizeof(Imp));
         if (prepare(bodies, w, h)) ev |= MOTE_PHYS_HIT;
         for (int it = 0; it < SOLVER_ITERS; it++) solve_vel(bodies, w);
         store_impulses();
 
         /* position correction via split impulse (positions only, no energy). */
-        if (n <= PHYS_MAX_BODIES) {
+        if (n <= s_max_bodies) {
             memset(s_pv, 0, (size_t)n * sizeof s_pv[0]);
             memset(s_pw, 0, (size_t)n * sizeof s_pw[0]);
             for (int it = 0; it < POS_ITERS; it++) solve_pos(bodies, h);
@@ -1054,7 +1078,7 @@ uint32_t mote_phys_step(MoteWorld *w, MoteBody *bodies, int n, float dt) {
          * something (had a contact) and barely moving — so it can never sleep in
          * mid-air (the floating-sphere bug). Once asleep it stays put (immovable)
          * until displaced; an awake body intruding past WAKE_PEN wakes it. */
-        if (n <= PHYS_MAX_BODIES) for (int i = 0; i < n; i++) {
+        if (n <= s_max_bodies) for (int i = 0; i < n; i++) {
             MoteBody *b = &bodies[i];
             Vec3 anchor = v3(u2f(b->_reserved[1]), u2f(b->_reserved[2]), u2f(b->_reserved[3]));
             Vec3 dd = v3_sub(b->pos, anchor);
