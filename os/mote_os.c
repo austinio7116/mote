@@ -13,6 +13,7 @@
 #include "mote_perf.h"
 #include "mote_launcher.h"   /* shared framebuffer (mote_launcher_fb) */
 #include "mote_arena.h"      /* load-time resource arena */
+#include "mote_menu.h"       /* engine overlay menu (3s MENU hold) */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -148,7 +149,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     MoteInput in;
     memset(&in, 0, sizeof in);
     uint64_t last = mote_plat_micros();
-    int was_both = 0;
+    uint32_t menu_hold_ms = 0;
 
     while (!mote_plat_should_quit() && !s_exit_req) {
         uint64_t now = mote_plat_micros();
@@ -162,10 +163,23 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_input_update(&in, &raw, (uint32_t)(dt * 1000.0f));
         s_cur_input = &in;
 
-        /* Reserved engine shortcut: LB+RB toggles the perf overlay (any game). */
-        int both = mote_pressed(&in, MOTE_BTN_LB) && mote_pressed(&in, MOTE_BTN_RB);
-        if (both && !was_both) mote_perf_toggle();
-        was_both = both;
+        /* Engine menu: a 3-second SOLO hold of MENU (no other button) opens it.
+         * Short taps, sub-3s long presses, and MENU chords stay free for games. */
+        int menu_solo = mote_pressed(&in, MOTE_BTN_MENU) &&
+            !mote_pressed(&in, MOTE_BTN_A)    && !mote_pressed(&in, MOTE_BTN_B)  &&
+            !mote_pressed(&in, MOTE_BTN_UP)   && !mote_pressed(&in, MOTE_BTN_DOWN) &&
+            !mote_pressed(&in, MOTE_BTN_LEFT) && !mote_pressed(&in, MOTE_BTN_RIGHT) &&
+            !mote_pressed(&in, MOTE_BTN_LB)   && !mote_pressed(&in, MOTE_BTN_RB);
+        menu_hold_ms = menu_solo ? menu_hold_ms + (uint32_t)(dt * 1000.0f) : 0;
+#ifdef MOTE_HOST
+        { extern char *getenv(const char *); static int mf; if (getenv("MOTE_MENU") && ++mf > 30) menu_hold_ms = 3000; }
+#endif
+        if (menu_hold_ms >= 3000) {
+            menu_hold_ms = 0;
+            if (mote_engine_menu(fb)) s_exit_req = true;   /* "Return to lobby" */
+            last = mote_plat_micros();                     /* drop the paused interval */
+            continue;
+        }
 
         /* Start each frame with empty scenes so a game only renders what it
          * adds this frame — no stale state within a game or across games. */

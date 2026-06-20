@@ -59,4 +59,9 @@ void mote_plat_log(const char *s);
 /* Release platform resources. */
 void mote_plat_shutdown(void);
 
+/* Engine-menu system controls (0..100). Brightness drives the LCD backlight;
+ * volume is held for the audio mixer. No-ops where unsupported. */
+void mote_plat_set_brightness(int pct);
+void mote_plat_set_volume(int pct);
+
 #endif /* MOTE_PLATFORM_H */

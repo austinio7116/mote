@@ -44,6 +44,7 @@ add_executable(mote_os
     ${OSDIR}/device/mote_xip.c
     ${OSDIR}/mote_os.c
     ${OSDIR}/mote_launcher.c
+    ${OSDIR}/mote_menu.c
 
     ${PLATDEV}/mote_plat_device.c
     ${PLATDEV}/lcd_gc9107.c
@@ -72,7 +73,7 @@ target_compile_options(mote_os PRIVATE
 target_link_libraries(mote_os
     pico_stdlib pico_multicore pico_unique_id
     hardware_spi hardware_dma hardware_clocks hardware_gpio
-    hardware_flash hardware_sync
+    hardware_flash hardware_sync hardware_pwm
     tinyusb_device tinyusb_board)
 
 # Reserve the top 128 KB of SRAM for the loaded game module.

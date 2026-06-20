@@ -145,3 +145,6 @@ bool mote_plat_should_quit(void) { return false; }
 int mote_plat_pending_launch(void) { return mote_usb_take_launch(); }
 
 void mote_plat_shutdown(void) { mote_lcd_backlight(0); }
+
+void mote_plat_set_brightness(int pct) { mote_lcd_brightness(pct); }
+void mote_plat_set_volume(int pct) { (void)pct; }   /* no audio mixer yet */

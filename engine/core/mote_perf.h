@@ -16,7 +16,12 @@
 void mote_perf_record(uint32_t update_us, uint32_t c0_us, uint32_t c1_us,
                       uint32_t flush_us, uint32_t frame_us);
 
-void mote_perf_toggle(void);
+/* Overlay detail level, cycled from the engine menu:
+ * 0 OFF · 1 FPS only · 2 FPS + frame graph · 3 FPS + full graphs. */
+enum { MOTE_PERF_OFF = 0, MOTE_PERF_FPS, MOTE_PERF_GRAPH, MOTE_PERF_FULL, MOTE_PERF_LEVELS };
+void mote_perf_set_level(int level);
+int  mote_perf_level(void);
+void mote_perf_toggle(void);          /* cycle through the levels */
 int  mote_perf_enabled(void);
 
 /* Fill the latest frame's stats: [fps, update_us, raster_us, flush_us,

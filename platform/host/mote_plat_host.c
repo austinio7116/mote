@@ -147,3 +147,6 @@ void mote_plat_shutdown(void) {
     if (s_win) SDL_DestroyWindow(s_win);
     SDL_Quit();
 }
+
+void mote_plat_set_brightness(int pct) { (void)pct; }   /* host: no backlight */
+void mote_plat_set_volume(int pct) { (void)pct; }

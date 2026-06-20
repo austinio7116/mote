@@ -12,10 +12,12 @@ typedef struct { uint32_t update, c0, c1, flush, frame; } Sample;
 
 static Sample s_hist[HIST];
 static int    s_head;
-static int    s_on;
+static int    s_level;       /* 0..3 — see MOTE_PERF_* */
 
-void mote_perf_toggle(void)  { s_on = !s_on; }
-int  mote_perf_enabled(void) { return s_on; }
+void mote_perf_set_level(int l) { if (l < 0) l = 0; if (l >= MOTE_PERF_LEVELS) l = MOTE_PERF_LEVELS - 1; s_level = l; }
+int  mote_perf_level(void)   { return s_level; }
+void mote_perf_toggle(void)  { s_level = (s_level + 1) % MOTE_PERF_LEVELS; }
+int  mote_perf_enabled(void) { return s_level > 0; }
 
 void mote_perf_get(uint32_t out[6]) {
     const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
@@ -76,15 +78,50 @@ static int vbar(uint16_t *fb, int x, int yb, int h, uint16_t c) {
 void mote_perf_overlay(uint16_t *fb) {
 #ifdef MOTE_HOST
     static int s_checked;
-    if (!s_checked) { s_checked = 1; extern char *getenv(const char *); if (getenv("MOTE_PERF")) s_on = 1; }
+    if (!s_checked) { s_checked = 1; extern char *getenv(const char *); if (getenv("MOTE_PERF")) s_level = MOTE_PERF_FULL; }
 #endif
-    if (!s_on) return;
+    if (s_level <= MOTE_PERF_OFF) return;
 
     const int W = MOTE_FB_W;
     const int GW = HIST, GX = (W - GW) / 2;
     char b[44];
+    const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
+    int raster = l->c0 > l->c1 ? l->c0 : l->c1;
+    int fps  = l->frame ? (int)(1000000u / l->frame) : 0;
 
-    /* ---------- graph 1: CPU core utilisation over time (0..100%) -------- */
+    /* ---------- level 1: just FPS, top-right corner ---------------------- */
+    if (s_level == MOTE_PERF_FPS) {
+        snprintf(b, sizeof b, "%d FPS", fps);
+        int w = mote_font_width(b);
+        fillrect(fb, W - w - 4, 1, w + 3, 9, COL_PANEL);
+        mote_font_draw(fb, b, W - w - 2, 2, COL_TEXT);
+        return;
+    }
+
+    /* ---------- graph 2: frame time / phase split (0..33ms) — lvl >= 2 --- */
+    const int FT_H = 26, FT_Y = MOTE_FB_H - FT_H - 2, FT_B = FT_Y + FT_H;
+    const float scale = (float)FT_H / 33333.0f;
+    fillrect(fb, GX - 1, FT_Y - 1, GW + 2, FT_H + 2, COL_PANEL);
+    int y60 = FT_B - (int)(16667.0f * scale);
+    for (int x = GX; x < GX + GW; x++)
+        if ((unsigned)y60 < MOTE_FB_H) fb[y60 * W + x] = COL_REF;
+    for (int i = 0; i < HIST; i++) {
+        const Sample *s = &s_hist[(s_head + i) % HIST];
+        int x = GX + i, yb = FT_B;
+        int r = s->c0 > s->c1 ? s->c0 : s->c1;
+        yb = vbar(fb, x, yb, (int)(s->update * scale), COL_UPDATE);
+        yb = vbar(fb, x, yb, (int)(r          * scale), COL_RASTER);
+        yb = vbar(fb, x, yb, (int)(s->flush   * scale), COL_FLUSH);
+    }
+    snprintf(b, sizeof b, "%dfps U%u R%u F%u", fps, l->update, raster, l->flush);
+    mote_font_draw(fb, b, GX, FT_Y - 7, COL_TEXT);
+    if (s_mem_total) {
+        snprintf(b, sizeof b, "ARENA %u/%uK", s_mem_used, s_mem_total);
+        mote_font_draw(fb, b, GX, FT_Y + 2, COL_TEXT);
+    }
+    if (s_level < MOTE_PERF_FULL) return;
+
+    /* ---------- level 3: + CPU core utilisation graph -------------------- */
     const int CU_Y = 64, CU_H = 22, CU_B = CU_Y + CU_H;
     fillrect(fb, GX - 1, CU_Y - 1, GW + 2, CU_H + 2, COL_PANEL);
     for (int x = GX; x < GX + GW; x++) {        /* 100% (top) + 50% ref */
@@ -103,36 +140,9 @@ void mote_perf_overlay(uint16_t *fb) {
         fb[y0 * W + x] = COL_UPDATE;            /* core0 (red) */
         fb[y1 * W + x] = COL_RASTER;            /* core1 (green) */
     }
-
-    /* ---------- graph 2: frame time / phase split (0..33ms) -------------- */
-    const int FT_H = 26, FT_Y = MOTE_FB_H - FT_H - 2, FT_B = FT_Y + FT_H;
-    const float scale = (float)FT_H / 33333.0f;
-    fillrect(fb, GX - 1, FT_Y - 1, GW + 2, FT_H + 2, COL_PANEL);
-    int y60 = FT_B - (int)(16667.0f * scale);
-    for (int x = GX; x < GX + GW; x++)
-        if ((unsigned)y60 < MOTE_FB_H) fb[y60 * W + x] = COL_REF;
-    for (int i = 0; i < HIST; i++) {
-        const Sample *s = &s_hist[(s_head + i) % HIST];
-        int x = GX + i, yb = FT_B;
-        int raster = s->c0 > s->c1 ? s->c0 : s->c1;
-        yb = vbar(fb, x, yb, (int)(s->update * scale), COL_UPDATE);
-        yb = vbar(fb, x, yb, (int)(raster   * scale), COL_RASTER);
-        yb = vbar(fb, x, yb, (int)(s->flush  * scale), COL_FLUSH);
-    }
-
-    /* ---------- readouts ------------------------------------------------- */
-    const Sample *l = &s_hist[(s_head + HIST - 1) % HIST];
-    int raster = l->c0 > l->c1 ? l->c0 : l->c1;
-    int fps  = l->frame ? (int)(1000000u / l->frame) : 0;
     int c0b  = (int)l->frame - (int)l->flush; if (c0b < 0) c0b = 0;
     int c0pct = l->frame ? (c0b > (int)l->frame ? 100 : c0b * 100 / l->frame) : 0;
     int c1pct = l->frame ? (l->c1 * 100 / l->frame) : 0;
     snprintf(b, sizeof b, "CPU C0:%d C1:%d", c0pct, c1pct);
     mote_font_draw(fb, b, GX, CU_Y - 7, COL_TEXT);
-    snprintf(b, sizeof b, "%dfps U%u R%u F%u", fps, l->update, raster, l->flush);
-    mote_font_draw(fb, b, GX, FT_Y - 7, COL_TEXT);
-    if (s_mem_total) {
-        snprintf(b, sizeof b, "ARENA %u/%uK", s_mem_used, s_mem_total);
-        mote_font_draw(fb, b, GX, FT_Y + 2, COL_TEXT);
-    }
 }

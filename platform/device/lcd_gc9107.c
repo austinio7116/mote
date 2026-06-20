@@ -10,6 +10,7 @@
 #include "hardware/spi.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
+#include "hardware/pwm.h"
 
 #define LCD_SPI            spi0
 #define LCD_SPI_HZ         (80 * 1000 * 1000)
@@ -146,4 +147,19 @@ void mote_lcd_present(const uint16_t *fb_rgb565) {
 
 void mote_lcd_backlight(int on) {
     gpio_put(PIN_BL, on ? 1 : 0);
+}
+
+/* PWM-dimmable backlight (engine-menu brightness). Switches PIN_BL to PWM the
+ * first time it's called; level 0..100. A floor keeps the screen visible. */
+void mote_lcd_brightness(int pct) {
+    if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+    static int s_init;
+    uint slice = pwm_gpio_to_slice_num(PIN_BL);
+    if (!s_init) {
+        gpio_set_function(PIN_BL, GPIO_FUNC_PWM);
+        pwm_set_wrap(slice, 255);
+        pwm_set_enabled(slice, true);
+        s_init = 1;
+    }
+    pwm_set_gpio_level(PIN_BL, (uint16_t)(pct * 255 / 100));
 }
