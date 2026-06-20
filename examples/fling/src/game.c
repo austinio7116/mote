@@ -65,35 +65,32 @@ static void build_level(void){
     /* ground plane */
     MoteBody*g=&body[n_body]; *g=(MoteBody){0}; g->shape=MOTE_SHAPE_PLANE; g->pos=v3(0,0,0);
     g->orient=m3_identity(); g->inv_mass=0; g->friction=0.8f; b_mesh[n_body]=0; b_col[n_body]=0; n_body++;
-    /* two block towers: 2 planks + a beam on top, a pig perched above */
-    uint16_t wood=MOTE_RGB565(176,128,72), wood2=MOTE_RGB565(150,108,60);
-    for(int t=0;t<2;t++){
-        float cx=3.2f + t*3.6f;
-        set_box(n_body++, &mk_plank, 0.18f,0.7f,0.4f, cx-0.7f,0.7f, 1.2f);
-        set_box(n_body++, &mk_plank, 0.18f,0.7f,0.4f, cx+0.7f,0.7f, 1.2f);
-        set_box(n_body++, &mk_beam,  1.0f,0.18f,0.4f, cx,1.58f, 1.6f);
-        b_col[n_body-1]=wood2; mk_beam.f[0].color=wood2;
-    }
-    /* a couple of loose cubes between the towers */
-    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.0f,0.4f, 0.9f);
-    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.0f,1.2f, 0.9f);
-    /* pigs (green) perched on the beams + one on the cubes */
+    /* a two-level timber fort with pigs nested on the platforms + up top */
+    float bp[4]={3.0f,4.6f,6.2f,7.8f};                 /* base pillars */
+    for(int i=0;i<4;i++) set_box(n_body++, &mk_plank, 0.18f,0.7f,0.4f, bp[i],0.7f, 1.2f);
+    set_box(n_body++, &mk_beam, 1.0f,0.18f,0.45f, 3.8f,1.58f, 1.7f);   /* left platform */
+    set_box(n_body++, &mk_beam, 1.0f,0.18f,0.45f, 7.0f,1.58f, 1.7f);   /* right platform */
+    set_box(n_body++, &mk_plank, 0.18f,0.55f,0.4f, 3.3f,2.31f, 0.9f);  /* second storey (left) */
+    set_box(n_body++, &mk_plank, 0.18f,0.55f,0.4f, 4.3f,2.31f, 0.9f);
+    set_box(n_body++, &mk_beam, 0.72f,0.18f,0.4f, 3.8f,3.04f, 1.3f);   /* roof */
+    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.4f,0.4f, 0.9f);      /* centre cube tower */
+    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.4f,1.2f, 0.9f);
+    /* pigs */
     pig0=n_body;
-    set_sphere(n_body++, 0.42f, 3.2f, 2.15f, 0.7f, MOTE_RGB565(90,200,90));
-    set_sphere(n_body++, 0.42f, 6.8f, 2.15f, 0.7f, MOTE_RGB565(90,200,90));
-    set_sphere(n_body++, 0.42f, 5.0f, 2.05f, 0.7f, MOTE_RGB565(110,210,110));
+    set_sphere(n_body++, 0.40f, 3.8f, 1.93f, 0.7f, MOTE_RGB565(90,200,90));   /* sheltered, left base */
+    set_sphere(n_body++, 0.42f, 7.0f, 1.95f, 0.7f, MOTE_RGB565(90,200,90));   /* right platform */
+    set_sphere(n_body++, 0.38f, 3.8f, 3.40f, 0.7f, MOTE_RGB565(120,215,120)); /* roof top */
+    set_sphere(n_body++, 0.38f, 5.4f, 2.00f, 0.7f, MOTE_RGB565(120,215,120)); /* cube tower */
     pig1=n_body;
-    /* the bird at the slingshot */
     bird=n_body;
-    set_sphere(n_body++, 0.38f, -7.0f, 2.6f, 1.4f, MOTE_RGB565(225,70,60));
+    set_sphere(n_body++, 0.38f, -6.6f, 2.6f, 1.4f, MOTE_RGB565(225,70,60));
     body[bird].inv_mass=0;   /* held until fling */
     s_pigs_out=0;
-    (void)wood;
 }
 
 /* ---- aim / fling state ---- */
 enum { ST_AIM, ST_CHARGE, ST_FLY, ST_DONE };
-static int s_state=ST_AIM;
+static int s_state=ST_AIM, s_armed;
 static float s_angle=0.7f, s_power, s_settle;
 static Vec3 s_cam={0};
 
@@ -130,12 +127,13 @@ static void g_update(float dt){
     const MoteInput*in=mote->input();
     if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
     if(mote_just_pressed(in,MOTE_BTN_B)){ s_birds=4; build_level(); reset_bird(); }
+    if(!mote_pressed(in,MOTE_BTN_A)) s_armed=1;   /* require A release (held from launcher) before flinging */
 
     if(s_state==ST_AIM){
         if(mote_pressed(in,MOTE_BTN_UP))   s_angle += 0.9f*dt;
         if(mote_pressed(in,MOTE_BTN_DOWN)) s_angle -= 0.9f*dt;
         if(s_angle<0.1f)s_angle=0.1f; if(s_angle>1.45f)s_angle=1.45f;
-        if(mote_just_pressed(in,MOTE_BTN_A)){ s_state=ST_CHARGE; s_power=0; }
+        if(s_armed && mote_just_pressed(in,MOTE_BTN_A)){ s_state=ST_CHARGE; s_power=0; }
     } else if(s_state==ST_CHARGE){
         s_power += 0.9f*dt; if(s_power>1)s_power=1;
         if(!mote_pressed(in,MOTE_BTN_A)) launch_bird(s_power);
@@ -167,9 +165,15 @@ static void g_update(float dt){
         for(int i=0;i<8;i++)gv[i]=gb.v[i]; for(int i=0;i<12;i++)gf[i]=gb.f[i];
         gm=gb.mesh; gm.verts=gv; gm.faces=gf; gi=1; }
     { MoteObject o={.pos=v3_sub(v3(2,-0.3f,0),s_cam),.basis=m3_identity(),.mesh=&gm}; mote->scene_add_object(&o); }
+    /* slingshot fork (visual only): two planks in a V at the bird base */
+    { float bx = body[bird].pos.x;
+      for(int s=-1;s<=1;s+=2){ float a=s*0.32f, ca=cosf(a), sa=sinf(a);
+          Mat3 r; r.r[0]=v3(ca,sa,0); r.r[1]=v3(-sa,ca,0); r.r[2]=v3(0,0,1);
+          MoteObject o={.pos=v3_sub(v3(bx+s*0.28f,1.25f,0),s_cam),.basis=r,.mesh=&mk_plank.mesh};
+          mote->scene_add_object(&o); } }
     /* blocks (boxes) + pigs/bird (spheres) */
     for(int i=1;i<n_body;i++){
-        if(b_mesh[i]){ b_mesh[i]->f[0].color=b_col[i];
+        if(b_mesh[i]){
             MoteObject o={.pos=v3_sub(body[i].pos,s_cam),.basis=body[i].orient,.mesh=&b_mesh[i]->mesh};
             mote->scene_add_object(&o);
         } else {
