@@ -61,7 +61,7 @@ typedef struct {
     Move move; int piece_captured; int capt_slot;  int ep_square_prev; unsigned int castle_rights_prev; int halfmove_clock_prev; HASH hash_prev; int in_check;
 } State;
 
-enum { MAX_PLY = 64 };
+enum { MAX_PLY = 32 };   /* Mote: search depth <= ~6+quiescence; 64 wasted 12KB of arena */
 static inline int sq64(int sq) { return (sq >> 4) * 8 + (sq & 7); }
 
 /* ---- Dynamically allocated large buffers ----
