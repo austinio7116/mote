@@ -386,31 +386,44 @@ static void g_update(float dt){
     mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
 }
 
+static void tri(uint16_t*fb,int cx,int y,int up,uint16_t c){   /* small up/down arrow */
+    for(int r=0;r<4;r++){ int yy = up ? y+r : y+(3-r); fillrect(fb,cx-r,yy,2*r+1,1,c); }
+}
 static void g_overlay(uint16_t*fb){
     char b[28]; int q=0;
     b[q++]='P';b[q++]='A';b[q++]='R';q+=itoa10(hole.par,b+q); b[q++]=' ';
     int d=(int)sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
     q+=itoa10(d,b+q); b[q++]='m'; b[q++]=' '; b[q++]='S'; q+=itoa10(s_strokes,b+q); b[q]=0;
     mote->text(fb,b,3,3,MOTE_RGB565(20,40,20));
-    mote->text(fb,CLUBS[s_club].name,86,3,MOTE_RGB565(245,245,230));   /* club */
-    if(s_holed){ mote->text(fb,"HOLED!",46,56,MOTE_RGB565(255,240,80)); }
-    else if(s_sink){ mote->text(fb,"WATER! +1",36,56,MOTE_RGB565(120,180,255)); }
-    else {
-        /* 3-click swing meter: power LEFT of baseline... actually right-growing.
-         * baseline x=BX, cursor 0..1.2 -> px; snap zone (sweet spot) at baseline. */
-        int BX=12, SC=58;
-        fillrect(fb,BX-14,117,92,9,MOTE_RGB565(18,20,26));            /* bar bg */
-        fillrect(fb,BX+SC,117,1,9,MOTE_RGB565(210,210,210));          /* 100% tick */
-        float sh=(s_swing==2)?s_snaphalf:SW_SNAP;                     /* snap (sweet) zone */
-        int z0=BX-(int)(sh*SC), z1=BX+(int)(sh*SC);
-        fillrect(fb,z0,118,z1-z0+1,7,MOTE_RGB565(60,170,90));
-        if(s_swing>=1){                                              /* power fill */
-            float c=(s_swing==1)?s_cursor:s_powerlock;
-            if(c>0) fillrect(fb,BX,119,(int)(c*SC),5, c<0.9f?MOTE_RGB565(240,180,40):MOTE_RGB565(240,70,40));
-        }
-        if(s_swing>=1){ int cx=BX+(int)(s_cursor*SC); fillrect(fb,cx,116,2,11,MOTE_RGB565(255,255,130)); }
-        mote->text(fb, s_swing==0?"UD CLUB  A SWING":(s_swing==1?"A LOCK POWER":"A SET ACCURACY"),3,106,MOTE_RGB565(235,240,200));
+
+    /* club HUD: bordered panel, up/down arrows, club name, relative-distance bar */
+    int px=76, py=1, pw=51, ph=21;
+    fillrect(fb,px,py,pw,ph,MOTE_RGB565(14,20,16));
+    fillrect(fb,px,py,pw,1,MOTE_RGB565(70,115,78));
+    fillrect(fb,px,py+ph-1,pw,1,MOTE_RGB565(70,115,78));
+    fillrect(fb,px,py,1,ph,MOTE_RGB565(70,115,78));
+    tri(fb,px+6,py+3,1,MOTE_RGB565(215,235,215));
+    tri(fb,px+6,py+12,0,MOTE_RGB565(215,235,215));
+    mote->text(fb,CLUBS[s_club].name,px+13,py+3,MOTE_RGB565(255,225,120));
+    int bw=pw-16, fw=(int)(CLUBS[s_club].speed/46.0f*bw);
+    fillrect(fb,px+13,py+13,bw,4,MOTE_RGB565(40,44,40));
+    fillrect(fb,px+13,py+13,fw,4,MOTE_RGB565(95,205,125));
+
+    if(s_holed){ mote->text(fb,"HOLED!",46,56,MOTE_RGB565(255,240,80)); return; }
+    if(s_sink){ mote->text(fb,"WATER! +1",36,56,MOTE_RGB565(120,180,255)); return; }
+
+    /* 3-click swing meter: baseline on the RIGHT, power builds LEFT (ThumbyGolf-style) */
+    int BX=112, SC=58;
+    fillrect(fb,BX-(int)(1.25f*SC),117,(int)(1.45f*SC)+2,9,MOTE_RGB565(18,20,26));   /* bar bg */
+    fillrect(fb,BX-SC,117,1,9,MOTE_RGB565(210,210,210));                            /* 100% tick */
+    float sh=(s_swing==2)?s_snaphalf:SW_SNAP;                                        /* sweet zone */
+    int zw=(int)(sh*SC); fillrect(fb,BX-zw,118,2*zw+1,7,MOTE_RGB565(60,170,90));
+    if(s_swing>=1){                                                                 /* power fill */
+        float c=(s_swing==1)?s_cursor:s_powerlock;
+        if(c>0) fillrect(fb,BX-(int)(c*SC),119,(int)(c*SC),5, c<0.9f?MOTE_RGB565(240,180,40):MOTE_RGB565(240,70,40));
     }
+    if(s_swing>=1){ int cx=BX-(int)(s_cursor*SC); fillrect(fb,cx-1,116,2,11,MOTE_RGB565(255,255,130)); }
+    mote->text(fb, s_swing==0?"UD CLUB  A SWING":(s_swing==1?"A LOCK POWER":"A SET ACCURACY"),3,106,MOTE_RGB565(235,240,200));
 }
 
 static const MoteGameVtbl k_vtbl = { .init=g_init, .update=g_update, .overlay=g_overlay };
