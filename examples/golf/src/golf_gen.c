@@ -67,13 +67,13 @@ static float fmin2(float a,float b){return a<b?a:b;} static float fmax2(float a,
 void golf_generate(GolfHole *h, uint32_t seed){
     h->seed=seed; h->style=(int)(seed%3u);
     h->tee_x=0; h->tee_z=0;
-    float ang = 0.28f*((float)(hash32(7,7,seed)&255)/255.0f - 0.5f);   /* small dogleg angle */
-    h->length_m = 52.0f + 26.0f*((float)(hash32(3,9,seed)&255)/255.0f);
+    float ang = 0.30f*((float)(hash32(7,7,seed)&255)/255.0f - 0.5f);   /* dogleg angle */
+    h->length_m = 38.0f + 92.0f*((float)(hash32(3,9,seed)&255)/255.0f);  /* 38..130m: par 3/4/5 */
     h->cup_x = sinf(ang)*h->length_m;
     h->cup_z = cosf(ang)*h->length_m;
-    h->bend_x = (h->tee_x+h->cup_x)*0.5f + 9.0f*((float)(hash32(5,5,seed)&255)/255.0f-0.5f);
+    h->bend_x = (h->tee_x+h->cup_x)*0.5f + 12.0f*((float)(hash32(5,5,seed)&255)/255.0f-0.5f);
     h->bend_z = (h->tee_z+h->cup_z)*0.5f;
-    h->par = (h->length_m < 68.0f) ? 4 : 5;
+    h->par = (h->length_m < 55.0f) ? 3 : (h->length_m < 92.0f ? 4 : 5);
     h->tee_h = smooth_h(seed,h->style,h->tee_x,h->tee_z);
     h->cup_h = smooth_h(seed,h->style,h->cup_x,h->cup_z);
     float pad=22.0f;   /* more space around the hole */
@@ -81,8 +81,8 @@ void golf_generate(GolfHole *h, uint32_t seed){
     h->max_x = fmax2(h->tee_x,fmax2(h->cup_x,h->bend_x))+pad;
     h->min_z = fmin2(h->tee_z,h->cup_z)-pad;
     h->max_z = fmax2(h->tee_z,h->cup_z)+pad;
-    /* water: deep natural lows flood */
-    h->water_level = fmin2(h->tee_h,h->cup_h) - 4.5f;
+    /* water: natural lows flood (higher level -> more visible water) */
+    h->water_level = fmin2(h->tee_h,h->cup_h) - 2.2f;
     /* bunkers: greenside pair (from the approach direction) + a fairway bunker */
     float ax=h->cup_x-h->bend_x, az=h->cup_z-h->bend_z, al=sqrtf(ax*ax+az*az); if(al<1e-3f)al=1.0f; ax/=al; az/=al;
     float px=-az, pz=ax;
@@ -144,7 +144,7 @@ int golf_lie(const GolfHole *h, float x, float z){
 
 int golf_tree(const GolfHole *h, float x, float z){
     if(golf_lie(h,x,z)!=GOLF_ROUGH) return 0;
-    if(golf_route_dist(h,x,z) < FAIR_HALF+3.0f) return 0;       /* keep clear of play */
+    if(golf_route_dist(h,x,z) < FAIR_HALF+1.5f) return 0;       /* line the fairway closely */
     float c = noise2d(x,z,20.0f,h->seed^0xABCDu)*0.5f+0.5f;     /* low-freq cluster */
     float dens = (h->style==GOLF_PARKLAND)?0.78f:(h->style==GOLF_HEATHLAND?0.58f:0.40f);
     float roll = (float)(hash32((int)floorf(x),(int)floorf(z),h->seed^0x9999u)&255)/255.0f;
