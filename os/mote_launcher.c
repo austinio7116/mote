@@ -6,6 +6,7 @@
 #include "mote_font.h"
 #include "mote_config.h"
 #include "mote_input.h"
+#include "mote_icons.h"
 #include <string.h>
 
 #ifdef MOTE_HOST
@@ -42,36 +43,57 @@ static void clear(uint16_t c) {
     for (int i = 0; i < MOTE_FB_W * MOTE_FB_H; i++) s_fb[i] = c;
 }
 
-static void draw(const MoteCatalog *cat, int sel, int top) {
-    clear(COL_BG);
+static void blit_icon(const uint16_t *ic, int dx, int dy) {
+    for (int y = 0; y < MOTE_ICON_H; y++) { int ry = dy + y; if ((unsigned)ry >= MOTE_FB_H) continue;
+        for (int x = 0; x < MOTE_ICON_W; x++) { int rx = dx + x; if ((unsigned)rx >= MOTE_FB_W) continue;
+            s_fb[ry * MOTE_FB_W + rx] = ic[y * MOTE_ICON_W + x]; } }
+}
+/* a stable accent colour from the name (for games with no baked icon) */
+static uint16_t accent(const char *n) {
+    uint32_t h = 2166136261u; for (const char *p = n; *p; p++) h = (h ^ (uint8_t)*p) * 16777619u;
+    return MOTE_RGB565(60 + (h & 127), 60 + ((h >> 8) & 127), 70 + ((h >> 16) & 127));
+}
+static void uppch(char *o, const char *n) { o[0] = (n[0] >= 'a' && n[0] <= 'z') ? n[0] - 32 : n[0]; o[1] = 0; }
 
-    /* Title. */
-    const char *title = "MOTE";
-    mote_font_draw_2x(s_fb, title, (MOTE_FB_W - mote_font_width_2x(title)) / 2, 6, COL_TITLE);
-    const char *sub = "select a game";
-    mote_font_draw(s_fb, sub, (MOTE_FB_W - mote_font_width(sub)) / 2, 24, COL_DIM);
+static void draw(const MoteCatalog *cat, int sel, int top) {
+    (void)top;
+    clear(COL_BG);
+    /* top band */
+    fill(0, 0, MOTE_FB_W, 12, MOTE_RGB565(18, 22, 38));
+    mote_font_draw(s_fb, "MOTE", 4, 3, COL_TITLE);
 
     if (cat->count == 0) {
-        const char *none = "no games installed";
-        mote_font_draw(s_fb, none, (MOTE_FB_W - mote_font_width(none)) / 2, 60, COL_DIM);
+        mote_font_draw(s_fb, "no games installed", (MOTE_FB_W - mote_font_width("no games installed")) / 2, 56, COL_DIM);
+        mote_font_draw(s_fb, "mote push a game", (MOTE_FB_W - mote_font_width("mote push a game")) / 2, 68, COL_HINT);
+        return;
     }
+    const char *nm = cat->e[sel].name;
 
-    for (int row = 0; row < VISIBLE; row++) {
-        int idx = top + row;
-        if (idx >= cat->count) break;
-        int y = LIST_Y + row * ROW_H;
-        bool is_sel = (idx == sel);
-        if (is_sel) fill(8, y - 2, MOTE_FB_W - 16, ROW_H - 2, COL_SEL_BG);
-        mote_font_draw(s_fb, cat->e[idx].name, 16, y + 2, is_sel ? COL_SEL_TX : COL_TEXT);
+    /* hero icon, framed + dropshadow */
+    int ix = (MOTE_FB_W - MOTE_ICON_W) / 2, iy = 18;
+    fill(ix, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 5, 10));   /* shadow */
+    fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(90, 150, 230)); /* frame */
+    const uint16_t *ic = mote_icon_for(nm);
+    if (ic) blit_icon(ic, ix, iy);
+    else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
+        char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
+
+    /* carousel arrows */
+    if (cat->count > 1) {
+        mote_font_draw_2x(s_fb, "<", 4, 38, COL_DIM);
+        mote_font_draw_2x(s_fb, ">", MOTE_FB_W - 14, 38, COL_DIM);
     }
+    /* game name (2x, scaled to fit) */
+    int nw = mote_font_width_2x(nm);
+    if (nw <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - nw) / 2, 84, COL_SEL_TX);
+    else                     mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm)) / 2, 88, COL_SEL_TX);
 
-    /* Scroll arrows. */
-    if (top > 0)                       mote_font_draw(s_fb, "^", MOTE_FB_W - 12, LIST_Y, COL_DIM);
-    if (top + VISIBLE < cat->count)    mote_font_draw(s_fb, "v", MOTE_FB_W - 12, LIST_Y + (VISIBLE - 1) * ROW_H, COL_DIM);
+    /* position dots */
+    int n = cat->count, dx = (MOTE_FB_W - n * 4) / 2; if (dx < 2) dx = 2;
+    for (int i = 0; i < n && dx + i*4 < MOTE_FB_W - 2; i++)
+        fill(dx + i*4, 104, 2, 2, i == sel ? COL_SEL_TX : MOTE_RGB565(50, 58, 74));
 
-    /* Footer hint. */
-    const char *hint = "A play";
-    mote_font_draw(s_fb, hint, (MOTE_FB_W - mote_font_width(hint)) / 2, MOTE_FB_H - 10, COL_HINT);
+    mote_font_draw(s_fb, "A PLAY", (MOTE_FB_W - mote_font_width("A PLAY")) / 2, MOTE_FB_H - 10, COL_HINT);
 }
 
 int mote_launcher_run(MoteCatalogFn rebuild) {
@@ -100,10 +122,9 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
         mote_input_update(&in, &raw, dt_ms);
 
         if (cat.count > 0) {
-            if (mote_just_pressed(&in, MOTE_BTN_DOWN)) sel = (sel + 1) % cat.count;
-            if (mote_just_pressed(&in, MOTE_BTN_UP))   sel = (sel - 1 + cat.count) % cat.count;
-            if (sel < top)               top = sel;
-            if (sel >= top + VISIBLE)    top = sel - VISIBLE + 1;
+            if (mote_just_pressed(&in, MOTE_BTN_DOWN) || mote_just_pressed(&in, MOTE_BTN_RIGHT)) sel = (sel + 1) % cat.count;
+            if (mote_just_pressed(&in, MOTE_BTN_UP)   || mote_just_pressed(&in, MOTE_BTN_LEFT))  sel = (sel - 1 + cat.count) % cat.count;
+            (void)top;
             if (mote_just_pressed(&in, MOTE_BTN_A)) return sel;
         }
 

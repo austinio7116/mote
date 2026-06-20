@@ -496,17 +496,15 @@ static void g_overlay(uint16_t*fb){
         return;
     }
 
-    /* ---- top-left HUD panel ---- */
-    fillrect(fb,1,1,74,30,MOTE_RGB565(12,26,16));
-    fillrect(fb,1,1,74,1,MOTE_RGB565(60,110,72)); fillrect(fb,1,30,74,1,MOTE_RGB565(60,110,72)); fillrect(fb,1,1,1,30,MOTE_RGB565(60,110,72));
+    /* top-left: hole/par + round score (compact, no big panel) */
     q=0; b[q++]='H';putint(b,&q,s_hole);b[q++]='/';b[q++]='1';b[q++]='8';b[q++]=' ';b[q++]='P';b[q++]='A';b[q++]='R';putint(b,&q,hole.par);b[q]=0;
-    mote->text(fb,b,4,3,MOTE_RGB565(235,240,235));
+    mote->text(fb,b,3,3,MOTE_RGB565(235,240,235));
+    q=0; int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
+    mote->text(fb,b,3,12,MOTE_RGB565(255,225,120));
+    /* bottom-left (by the power bar): distance to pin + strokes */
     int d=(int)(sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z))*YARD);
-    q=0; putint(b,&q,d); b[q++]='y';b[q++]='d';b[q++]=' ';b[q++]='P';b[q++]='I';b[q++]='N'; b[q]=0;
-    mote->text(fb,b,4,12,MOTE_RGB565(190,225,160));
-    q=0; b[q++]='S';b[q++]='T';b[q++]='K';putint(b,&q,s_strokes);b[q++]=' ';b[q++]=' ';
-    int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
-    mote->text(fb,b,4,21,MOTE_RGB565(255,225,120));
+    q=0; putint(b,&q,d); b[q++]='y';b[q++]=' '; b[q++]='S';b[q++]='T';b[q++]='K';putint(b,&q,s_strokes); b[q]=0;
+    mote->text(fb,b,3,118,MOTE_RGB565(235,240,200));
 
     /* top-down hole minimap (right edge, below the club panel) + markers */
     int Mx=92, My=26, gx, gy;
