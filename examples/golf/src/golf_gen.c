@@ -73,7 +73,8 @@ void golf_generate(GolfHole *h, uint32_t seed){
     h->cup_z = cosf(ang)*h->length_m;
     h->bend_x = (h->tee_x+h->cup_x)*0.5f + 12.0f*((float)(hash32(5,5,seed)&255)/255.0f-0.5f);
     h->bend_z = (h->tee_z+h->cup_z)*0.5f;
-    h->par = (h->length_m < 55.0f) ? 3 : (h->length_m < 92.0f ? 4 : 5);
+    /* world units * 4 = yards (see YARD in game.c): <248y par3, <460y par4, else par5 */
+    h->par = (h->length_m < 62.0f) ? 3 : (h->length_m < 115.0f ? 4 : 5);
     h->tee_h = smooth_h(seed,h->style,h->tee_x,h->tee_z);
     h->cup_h = smooth_h(seed,h->style,h->cup_x,h->cup_z);
     float pad=34.0f;   /* generous space around the hole for wayward shots */

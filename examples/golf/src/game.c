@@ -117,6 +117,33 @@ static uint16_t lie_color(int lie, float ny){
         default:           return col_of(0.22f*lit,0.40f*lit,0.18f*lit);   /* rough */
     }
 }
+/* ---- top-down hole minimap (precomputed lie map) ---- */
+#define MMW 34
+#define MMH 48
+static uint16_t s_mini[MMW*MMH];
+static void build_minimap(void){
+    float spanx=hole.max_x-hole.min_x, spanz=hole.max_z-hole.min_z;
+    for(int my=0;my<MMH;my++) for(int mx=0;mx<MMW;mx++){
+        float wx=hole.min_x+spanx*(mx+0.5f)/MMW;
+        float wz=hole.max_z-spanz*(my+0.5f)/MMH;     /* row 0 (top) = green end */
+        uint16_t c;
+        switch(golf_lie(&hole,wx,wz)){
+            case GOLF_FAIRWAY: c=MOTE_RGB565(74,140,74);  break;
+            case GOLF_GREEN:   c=MOTE_RGB565(120,205,120); break;
+            case GOLF_TEE:     c=MOTE_RGB565(150,175,150); break;
+            case GOLF_BUNKER:  c=MOTE_RGB565(216,198,138); break;
+            case GOLF_WATER:   c=MOTE_RGB565(58,112,200);  break;
+            default:           c=MOTE_RGB565(36,64,40);    break;   /* rough border */
+        }
+        s_mini[my*MMW+mx]=c;
+    }
+}
+static void mini_xy(float wx,float wz,int*ox,int*oy){
+    float spanx=hole.max_x-hole.min_x, spanz=hole.max_z-hole.min_z;
+    int mx=(int)((wx-hole.min_x)/spanx*MMW); int my=(int)((hole.max_z-wz)/spanz*MMH);
+    if(mx<0)mx=0; if(mx>=MMW)mx=MMW-1; if(my<0)my=0; if(my>=MMH)my=MMH-1; *ox=mx; *oy=my;
+}
+
 /* Concentrate grid samples toward gf (the green's fraction along an axis): cells
  * are ~0.4x average near the green, ~1.6x out in the pad — fine where you putt,
  * coarse where wayward shots land, same triangle count. */
@@ -189,6 +216,7 @@ static void gen_flag(void){
 static float s_aim; static int s_strokes, s_holed, s_armed;
 static float s_last_x, s_last_z; static uint32_t s_seed;
 static Vec3  s_cam; static Mat3 s_basis;
+static int   s_fly; static float s_flyt;   /* hole fly-over preview */
 /* 3-click swing (ThumbyGolf-style): AIM -> RISING -> FALLING -> launch */
 static int   s_swing;       /* 0 aim, 1 rising, 2 falling */
 static float s_cursor, s_powerlock, s_snaphalf;
@@ -201,11 +229,17 @@ static int   s_sink;        /* >0: ball sinking in water (frames) */
 
 /* ---- clubs: max speed (m/s) + launch loft (deg) + spin scale ---- */
 typedef struct { const char *name; float speed, loft, spin; } Club;
-static const Club CLUBS[] = {
-    {"DRIVER", 46.0f, 12.0f, 0.5f}, {"3 WOOD", 40.0f, 16.0f, 0.7f},
-    {"5 IRON", 34.0f, 24.0f, 1.0f}, {"8 IRON", 27.0f, 36.0f, 1.4f},
-    {"WEDGE",  19.0f, 53.0f, 2.0f}, {"PUTTER", 12.0f, 1.0f,  0.0f},
+#define YARD 4.0f                 /* world units * 4 = yards (golf-realistic display) */
+#define TAU 6.2831853f
+static const Club CLUBS[] = {      /* speeds gapped so carries step ~350/300/240/170/100y */
+    {"DRIVER", 46.0f, 12.0f, 0.5f}, {"3 WOOD", 37.0f, 16.0f, 0.7f},
+    {"5 IRON", 28.0f, 24.0f, 1.0f}, {"8 IRON", 21.0f, 36.0f, 1.4f},
+    {"WEDGE",  16.0f, 53.0f, 2.0f}, {"PUTTER", 12.0f, 1.0f,  0.0f},
 };
+static int club_carry_yd(int ci){  /* projectile carry of club ci, in yards */
+    const Club*c=&CLUBS[ci]; float lr=c->loft*(3.14159265f/180.0f);
+    return (int)(c->speed*c->speed*sinf(2.0f*lr)/9.8f*YARD);
+}
 #define NCLUB 6
 static int s_club;
 
@@ -272,7 +306,8 @@ static void build_hole(uint32_t seed){
         emit_splat(v3(hole.cup_x+0.12f+0.14f*(i%4), hole.cup_h+1.95f-0.14f*(i/4), hole.cup_z),
                    v3(0.11f,0.085f,0.02f), basis_from_normal(v3(0,0,1)), MOTE_RGB565(225,45,45), 0.92f);
     bodies[0].shape=MOTE_SHAPE_MESH; bodies[0].shape_data=&terr_col; bodies[0].orient=m3_identity(); bodies[0].inv_mass=0;
-    s_club=0;
+    build_minimap();
+    s_club=0; s_fly=0;
     tee_up();
 }
 
@@ -293,7 +328,9 @@ static int itoa10(int n,char*o){ char t[8]; int p=0,q=0; if(n<0){o[q++]='-';n=-n
 static void g_update(float dt){
     const MoteInput*in=mote->input();
     if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
-    if(mote_just_pressed(in,MOTE_BTN_B))    build_hole(s_seed*1664525u + 1013904223u);  /* new hole */
+    if(mote_just_pressed(in,MOTE_BTN_LB)){ s_fly=!s_fly; s_flyt=0.0f; }   /* fly-over preview */
+    if(s_fly){ s_flyt+=dt; if(s_flyt>8.0f || mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B)) s_fly=0; }
+    if(!s_fly && mote_just_pressed(in,MOTE_BTN_B)) build_hole(s_seed*1664525u + 1013904223u);  /* new hole */
     if(!mote_pressed(in,MOTE_BTN_A)) s_armed=1;   /* must release A (held from launcher) before a shot */
 
     float bspeed=v3_len(BALL.vel);
@@ -302,7 +339,7 @@ static void g_update(float dt){
     float dcup=sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
     if(!s_holed && dcup<0.8f && bspeed<2.5f){ s_holed=1; BALL.vel=v3(0,0,0); }
 
-    if(!s_holed && resting && !s_sink){
+    if(!s_holed && resting && !s_sink && !s_fly){
         if(s_swing==0){                                          /* AIM */
             if(mote_pressed(in,MOTE_BTN_LEFT))  s_aim -= 1.1f*dt;
             if(mote_pressed(in,MOTE_BTN_RIGHT)) s_aim += 1.1f*dt;
@@ -354,7 +391,7 @@ static void g_update(float dt){
         BALL.w   = v3_scale(BALL.w, f);
     }
 
-    mote->phys_step(&pw, bodies, 2, dt);
+    if(!s_fly) mote->phys_step(&pw, bodies, 2, dt);
 
     /* WATER: a ball reaching a flooded hollow sinks below the blue surface (driven
      * manually past the flat water collider), then drops at the last shot spot +1. */
@@ -370,11 +407,21 @@ static void g_update(float dt){
         }
     }
 
-    Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
-    s_cam = v3(BALL.pos.x - dir.x*5.0f, BALL.pos.y + 3.4f, BALL.pos.z - dir.z*5.0f);
-    float lax=BALL.pos.x+dir.x*13.0f, laz=BALL.pos.z+dir.z*13.0f;
-    Vec3 look = s_holed ? v3(hole.cup_x,hole.cup_h,hole.cup_z)
-                        : v3(lax, golf_height(&hole,lax,laz), laz);   /* look down the fairway */
+    Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim)), look;
+    if(s_fly){
+        /* aerial chase: glide above the tee->cup route, looking down at the hole */
+        float u=s_flyt/8.0f; if(u>1)u=1;
+        float rx=hole.cup_x-hole.tee_x, rz=hole.cup_z-hole.tee_z, rl=sqrtf(rx*rx+rz*rz); if(rl<1)rl=1; rx/=rl; rz/=rl;
+        float tx=hole.tee_x+(hole.cup_x-hole.tee_x)*u, tz=hole.tee_z+(hole.cup_z-hole.tee_z)*u;
+        float ty=golf_height(&hole,tx,tz);
+        look=v3(tx,ty+1.0f,tz);
+        s_cam=v3(tx - rx*13.0f, ty+9.0f, tz - rz*13.0f);
+    } else {
+        s_cam = v3(BALL.pos.x - dir.x*5.0f, BALL.pos.y + 3.4f, BALL.pos.z - dir.z*5.0f);
+        float lax=BALL.pos.x+dir.x*13.0f, laz=BALL.pos.z+dir.z*13.0f;
+        look = s_holed ? v3(hole.cup_x,hole.cup_h,hole.cup_z)
+                       : v3(lax, golf_height(&hole,lax,laz), laz);   /* look down the fairway */
+    }
     Vec3 fwd=v3_norm(v3_sub(look,s_cam)); Vec3 right=v3_norm(v3_cross(v3(0,1,0),fwd));
     s_basis.r[0]=right; s_basis.r[1]=v3_cross(fwd,right); s_basis.r[2]=fwd;
 
@@ -387,12 +434,14 @@ static void g_update(float dt){
     MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
     mote->scene_add_object(&flo);
     mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
-    if(!s_holed && !s_sink && s_swing==0 && resting){         /* aim line + landing (predict is fresh) */
+    if(!s_holed && !s_sink && s_swing==0 && resting && !s_fly){ /* aim line + landing (predict is fresh) */
         Vec3 ad=v3(sinf(s_aim),0,cosf(s_aim));
-        for(int i=1;i<=12;i++){ float d=i*1.6f; float ax=BALL.pos.x+ad.x*d, az=BALL.pos.z+ad.z*d;
-            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.18f,az),s_cam),0.09f,MOTE_RGB565(255,245,70)); }
+        for(int i=1;i<=10;i++){ float d=i*1.6f; float ax=BALL.pos.x+ad.x*d, az=BALL.pos.z+ad.z*d;
+            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.18f,az),s_cam),0.08f,MOTE_RGB565(255,245,70)); }
         float ld=sqrtf((s_land.x-BALL.pos.x)*(s_land.x-BALL.pos.x)+(s_land.z-BALL.pos.z)*(s_land.z-BALL.pos.z));
-        if(ld>4.0f) mote->scene_add_sphere(v3_sub(s_land,s_cam),0.45f,MOTE_RGB565(255,255,255)); /* landing */
+        if(ld>4.0f) for(int k=0;k<14;k++){          /* target ring on the ground at the arc's end */
+            float a=k*(TAU/14.0f), rx=s_land.x+cosf(a)*1.4f, rz=s_land.z+sinf(a)*1.4f;
+            mote->scene_add_sphere(v3_sub(v3(rx,golf_height(&hole,rx,rz)+0.08f,rz),s_cam),0.07f,MOTE_RGB565(255,255,255)); }
     }
     mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
 }
@@ -403,9 +452,25 @@ static void tri(uint16_t*fb,int cx,int y,int up,uint16_t c){   /* small up/down 
 static void g_overlay(uint16_t*fb){
     char b[28]; int q=0;
     b[q++]='P';b[q++]='A';b[q++]='R';q+=itoa10(hole.par,b+q); b[q++]=' ';
-    int d=(int)sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
-    q+=itoa10(d,b+q); b[q++]='m'; b[q++]=' '; b[q++]='S'; q+=itoa10(s_strokes,b+q); b[q]=0;
+    int d=(int)(sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z))*YARD);
+    q+=itoa10(d,b+q); b[q++]='y'; b[q++]=' '; b[q++]='S'; q+=itoa10(s_strokes,b+q); b[q]=0;
     mote->text(fb,b,3,3,MOTE_RGB565(20,40,20));
+
+    /* top-down hole minimap (right edge, below the club panel) + markers */
+    int Mx=92, My=26, gx, gy;
+    fillrect(fb,Mx-1,My-1,MMW+2,MMH+2,MOTE_RGB565(18,26,18));
+    for(int y=0;y<MMH;y++){ int row=(My+y)*128; for(int x=0;x<MMW;x++) fb[row+Mx+x]=s_mini[y*MMW+x]; }
+    mini_xy(hole.cup_x,hole.cup_z,&gx,&gy);                      /* flag at the green */
+    fillrect(fb,Mx+gx,My+gy-4,1,5,MOTE_RGB565(235,235,235));
+    fillrect(fb,Mx+gx+1,My+gy-4,3,2,MOTE_RGB565(235,60,60));
+    mini_xy(hole.tee_x,hole.tee_z,&gx,&gy);                      /* tee */
+    fillrect(fb,Mx+gx-1,My+gy-1,2,2,MOTE_RGB565(245,245,245));
+    mini_xy(BALL.pos.x,BALL.pos.z,&gx,&gy);                      /* ball */
+    fillrect(fb,Mx+gx-1,My+gy-1,2,2,MOTE_RGB565(255,235,50));
+    /* 100yd + 200yd-to-green markers (25/50 world units from the cup, dashed) */
+    for(int mk=1;mk<=2;mk++){ int rx,row; mini_xy(hole.cup_x,hole.cup_z-mk*25.0f,&rx,&row);
+        if(row>2 && row<MMH-2) for(int x=2;x<MMW-2;x+=2) fb[(My+row)*128+Mx+x]=MOTE_RGB565(240,240,150); }
+    if(s_fly){ mote->text(fb,"HOLE PREVIEW  LB EXIT",4,118,MOTE_RGB565(235,240,200)); return; }
 
     /* club HUD: bordered panel, up/down arrows, club name, relative-distance bar */
     int px=76, py=1, pw=51, ph=21;
@@ -416,9 +481,9 @@ static void g_overlay(uint16_t*fb){
     tri(fb,px+6,py+3,1,MOTE_RGB565(215,235,215));
     tri(fb,px+6,py+12,0,MOTE_RGB565(215,235,215));
     mote->text(fb,CLUBS[s_club].name,px+13,py+3,MOTE_RGB565(255,225,120));
-    int bw=pw-16, fw=(int)(CLUBS[s_club].speed/46.0f*bw);
-    fillrect(fb,px+13,py+13,bw,4,MOTE_RGB565(40,44,40));
-    fillrect(fb,px+13,py+13,fw,4,MOTE_RGB565(95,205,125));
+    if(CLUBS[s_club].loft<3.0f) mote->text(fb,"PUTT",px+14,py+12,MOTE_RGB565(150,230,150));
+    else { char cb[8]; int cq=itoa10(club_carry_yd(s_club),cb); cb[cq++]='y'; cb[cq]=0;
+           mote->text(fb,cb,px+14,py+12,MOTE_RGB565(150,230,150)); }
 
     if(s_holed){ mote->text(fb,"HOLED!",46,56,MOTE_RGB565(255,240,80)); return; }
     if(s_sink){ mote->text(fb,"WATER! +1",36,56,MOTE_RGB565(120,180,255)); return; }

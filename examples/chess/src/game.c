@@ -64,6 +64,8 @@ static void revolve_app(PMesh*m,const float*prof,int np,uint16_t col,int append)
         addf(m,a,d,b,col); addf(m,a,c,d,col); }
     if(apex){ int ai=addv(m,0,prof[(np-1)*2+1],0); int base=v0+(rings-1)*SEG;
         for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,base+s2,base+s,ai,col); } }
+    else { int ti=addv(m,0,prof[(rings-1)*2+1],0); int top=v0+(rings-1)*SEG;   /* cap open top (rook) */
+        for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,ti,top+s2,top+s,col); } }
     int ci=addv(m,0,prof[1],0);
     for(int s=0;s<SEG;s++){ int s2=(s+1)%SEG; addf(m,ci,v0+s,v0+s2,col); }
     m->mesh.verts=m->v; m->mesh.faces=m->f; m->mesh.nverts=m->nv; m->mesh.nfaces=m->nf;
@@ -75,7 +77,7 @@ static void revolve(PMesh*m,const float*prof,int np,uint16_t col){ revolve_app(m
 static const float KN_SIL[]={ -0.16f,0.30f, -0.23f,0.50f, -0.16f,0.66f, -0.02f,0.76f,
     0.17f,0.71f, 0.30f,0.58f, 0.37f,0.46f, 0.26f,0.40f, 0.10f,0.36f, -0.05f,0.32f };
 static void build_knight(PMesh*m,uint16_t col){
-    static const float base[]={0.40f,0,0.45f,0.06f,0.30f,0.14f,0.22f,0.24f,0.20f,0.34f};
+    static const float base[]={0.27f,0,0.35f,0.05f,0.30f,0.12f,0.22f,0.22f,0.20f,0.32f};
     revolve(m,base,5,col);
     int N=10; float wx=0.155f;
     int fr=m->nv; for(int i=0;i<N;i++) addv(m, wx, KN_SIL[i*2+1], KN_SIL[i*2]);   /* right side */
@@ -95,23 +97,26 @@ static uint16_t shade(float r,float g,float b){
     return MOTE_RGB565(R,G,B);
 }
 static void build_pieces(void){
-    static const float pawn[]  ={0.40f,0,0.44f,0.06f,0.34f,0.13f,0.18f,0.22f,0.155f,0.40f,0.225f,0.47f,0.15f,0.52f,0.205f,0.63f,0.16f,0.70f,0.0f,0.85f};
-    static const float rook[]  ={0.42f,0,0.46f,0.06f,0.33f,0.13f,0.30f,0.24f,0.29f,0.62f,0.34f,0.70f,0.37f,0.80f,0.37f,0.90f,0.27f,0.85f,0.27f,0.95f};
-    static const float bishop[]={0.40f,0,0.44f,0.06f,0.30f,0.13f,0.155f,0.24f,0.135f,0.60f,0.205f,0.72f,0.225f,0.80f,0.14f,0.92f,0.175f,0.99f,0.08f,1.10f,0.105f,1.15f,0.0f,1.20f};
-    static const float queen[] ={0.43f,0,0.47f,0.06f,0.32f,0.13f,0.175f,0.24f,0.15f,0.66f,0.235f,0.80f,0.17f,0.88f,0.30f,1.00f,0.235f,1.06f,0.165f,1.16f,0.205f,1.21f,0.0f,1.35f};
-    static const float king[]  ={0.44f,0,0.48f,0.06f,0.33f,0.13f,0.185f,0.24f,0.16f,0.72f,0.245f,0.86f,0.18f,0.94f,0.295f,1.06f,0.225f,1.12f,0.17f,1.22f,0.205f,1.28f,0.0f,1.40f};
+    /* rounded narrow feet (widest a touch up from the base, not a flat wide disc) */
+    static const float pawn[]  ={0.26f,0,0.34f,0.05f,0.30f,0.11f,0.17f,0.20f,0.15f,0.38f,0.22f,0.45f,0.15f,0.50f,0.205f,0.61f,0.16f,0.68f,0.0f,0.83f};
+    static const float rook[]  ={0.28f,0,0.36f,0.05f,0.31f,0.12f,0.28f,0.22f,0.27f,0.60f,0.32f,0.68f,0.35f,0.78f,0.35f,0.88f,0.26f,0.84f,0.26f,0.93f};
+    static const float bishop[]={0.27f,0,0.35f,0.05f,0.29f,0.12f,0.15f,0.22f,0.13f,0.58f,0.20f,0.70f,0.22f,0.78f,0.14f,0.90f,0.175f,0.97f,0.08f,1.08f,0.105f,1.13f,0.0f,1.18f};
+    static const float queen[] ={0.29f,0,0.38f,0.05f,0.31f,0.12f,0.17f,0.22f,0.15f,0.64f,0.23f,0.78f,0.17f,0.86f,0.29f,0.98f,0.23f,1.04f,0.16f,1.14f,0.20f,1.19f,0.0f,1.33f};
+    static const float king[]  ={0.30f,0,0.39f,0.05f,0.32f,0.12f,0.18f,0.22f,0.16f,0.70f,0.24f,0.84f,0.18f,0.92f,0.29f,1.04f,0.225f,1.10f,0.17f,1.20f,0.13f,1.28f,0.10f,1.34f};
     for(int c=0;c<2;c++){
         uint16_t lo = c==0 ? shade(0.88f,0.86f,0.76f) : shade(0.26f,0.22f,0.26f);   /* ivory / charcoal */
+        uint16_t hi = c==0 ? shade(0.26f,0.22f,0.26f) : shade(0.88f,0.86f,0.76f);   /* inverted: top finials */
         revolve(&g_piece[0][c],pawn,10,lo);
         revolve(&g_piece[2][c],bishop,12,lo);
-        revolve(&g_piece[3][c],rook,10,lo);
+        revolve(&g_piece[3][c],rook,10,lo);                           /* top now capped */
         build_knight(&g_piece[1][c],lo);
-        revolve(&g_piece[4][c],queen,12,lo);                          /* + coronet spikes */
-        for(int k=0;k<6;k++){ float a=k*TAU/6; add_box(&g_piece[4][c],cosf(a)*0.27f,1.06f,sinf(a)*0.27f,0.05f,0.08f,0.05f,lo); }
+        revolve(&g_piece[4][c],queen,12,lo);                          /* coronet + ball in inverted colour */
+        for(int k=0;k<6;k++){ float a=k*TAU/6; add_box(&g_piece[4][c],cosf(a)*0.25f,1.04f,sinf(a)*0.25f,0.05f,0.09f,0.05f,hi); }
+        add_box(&g_piece[4][c],0,1.20f,0,0.10f,0.10f,0.10f,hi);       /* coronet ball */
         g_piece[4][c].mesh.nverts=g_piece[4][c].nv; g_piece[4][c].mesh.nfaces=g_piece[4][c].nf;
-        revolve(&g_piece[5][c],king,11,lo);                           /* + cross finial */
-        add_box(&g_piece[5][c],0,1.46f,0,0.045f,0.14f,0.045f,lo);
-        add_box(&g_piece[5][c],0,1.45f,0,0.13f,0.045f,0.045f,lo);
+        revolve(&g_piece[5][c],king,12,lo);                           /* knob top + cross in inverted colour */
+        add_box(&g_piece[5][c],0,1.46f,0,0.05f,0.14f,0.05f,hi);       /* vertical bar, base 1.32 on knob */
+        add_box(&g_piece[5][c],0,1.50f,0,0.14f,0.05f,0.05f,hi);       /* horizontal bar */
         g_piece[5][c].mesh.nverts=g_piece[5][c].nv; g_piece[5][c].mesh.nfaces=g_piece[5][c].nf;
     }
 }
@@ -127,6 +132,19 @@ static void build_board(void){
         bd_f[nf]=(MeshFace){(uint8_t)b,(uint8_t)c,(uint8_t)d,0,127,0,col}; nf++;
     }
     bd_mesh.verts=bd_v; bd_mesh.faces=bd_f; bd_mesh.nverts=81; bd_mesh.nfaces=nf; bd_mesh.scale=4.0f; bd_mesh.bound_r=7.0f;
+}
+
+/* flat square-ring highlight (a box around a square) — cursor + selection */
+static MeshVert cur_v[8], sel_v[8]; static MeshFace cur_f[8], sel_f[8]; static Mesh cur_mesh, sel_mesh;
+static void build_frame(MeshVert*v,MeshFace*f,Mesh*m,uint16_t col){
+    int8_t O=(int8_t)(0.47f*127), I=(int8_t)(0.36f*127), Y=(int8_t)(0.03f*127);
+    v[0]=(MeshVert){(int8_t)-O,Y,(int8_t)-O}; v[1]=(MeshVert){O,Y,(int8_t)-O}; v[2]=(MeshVert){O,Y,O}; v[3]=(MeshVert){(int8_t)-O,Y,O};
+    v[4]=(MeshVert){(int8_t)-I,Y,(int8_t)-I}; v[5]=(MeshVert){I,Y,(int8_t)-I}; v[6]=(MeshVert){I,Y,I}; v[7]=(MeshVert){(int8_t)-I,Y,I};
+    int nf=0;
+    for(int i=0;i<4;i++){ int j=(i+1)&3; int o0=i,o1=j,i0=4+i,i1=4+j;
+        f[nf++]=(MeshFace){(uint8_t)o0,(uint8_t)i1,(uint8_t)o1,0,127,0,col};
+        f[nf++]=(MeshFace){(uint8_t)o0,(uint8_t)i0,(uint8_t)i1,0,127,0,col}; }
+    m->verts=v; m->faces=f; m->nverts=8; m->nfaces=8; m->scale=1.0f; m->bound_r=0.9f;
 }
 
 /* ---- game state ---- */
@@ -170,6 +188,8 @@ static void g_init(void){
     chal_set_tt(s_tt, ttc);
     chal_new_game();
     build_pieces(); build_board(); refresh_moves();
+    build_frame(cur_v,cur_f,&cur_mesh,shade(1.0f,0.92f,0.30f));   /* cursor: yellow */
+    build_frame(sel_v,sel_f,&sel_mesh,shade(0.35f,0.65f,1.0f));   /* selection: blue */
 }
 
 static Vec3 s_cam, s_target;
@@ -286,8 +306,10 @@ static void g_update(float dt){
     }
     /* cursor + selection markers */
     if(s_state==ST_PLAYER){
-        mote->scene_add_sphere(v3_sub(v3(sq_world(s_cr,s_cf).x,0.06f,sq_world(s_cr,s_cf).z),s_cam),0.12f,MOTE_RGB565(255,230,60));
-        if(s_sel) mote->scene_add_sphere(v3_sub(v3(sq_world(s_sr,s_sf).x,0.06f,sq_world(s_sr,s_sf).z),s_cam),0.14f,MOTE_RGB565(80,160,255));
+        MoteObject co={.pos=v3_sub(sq_world(s_cr,s_cf),s_cam),.basis=m3_identity(),.mesh=&cur_mesh};
+        mote->scene_add_object(&co);
+        if(s_sel){ MoteObject so={.pos=v3_sub(sq_world(s_sr,s_sf),s_cam),.basis=m3_identity(),.mesh=&sel_mesh};
+                   mote->scene_add_object(&so); }
     }
 }
 
