@@ -1,6 +1,7 @@
 /*
  * Mote — scene draw-list + dual-core banded rasterisation.
  */
+#include "mote_arena.h"
 #include "mote_scene3d.h"
 #include "mote_raster.h"
 #include "mote_config.h"
@@ -22,11 +23,21 @@ typedef struct {
     uint16_t color;
 } ScreenSphere;
 
-static ScreenTri    s_tris[MOTE_SCENE_MAX_TRIS];
+/* Draw-list + impostor pools are arena-allocated at load, sized to the game's
+ * MoteConfig (max_tris / max_spheres). */
+static ScreenTri    *s_tris;    static int s_max_tris;
 static int          s_ntris;
-static ScreenSphere s_spheres[MOTE_SCENE_MAX_SPHERES];
+static ScreenSphere *s_spheres; static int s_max_spheres;
 static int          s_nspheres;
 static uint16_t     s_bg = 0x0000;
+
+int mote_scene_configure(MoteArena *arena, int max_tris, int max_spheres) {
+    s_max_tris    = max_tris;
+    s_max_spheres = max_spheres;
+    s_tris    = max_tris    > 0 ? mote_arena_alloc(arena, (size_t)max_tris * sizeof(ScreenTri))    : 0;
+    s_spheres = max_spheres > 0 ? mote_arena_alloc(arena, (size_t)max_spheres * sizeof(ScreenSphere)) : 0;
+    return (max_tris == 0 || s_tris) && (max_spheres == 0 || s_spheres);
+}
 
 static inline uint16_t shade565(uint16_t c, float sh) {
     int r = (int)(((c >> 11) & 0x1F) * sh);
@@ -41,7 +52,7 @@ void mote_scene_set_background(uint16_t rgb565) { s_bg = rgb565; }
 void mote_emit_tri(float ax, float ay, uint16_t az,
                  float bx, float by, uint16_t bz,
                  float cx, float cy, uint16_t cz, uint16_t color) {
-    if (s_ntris >= MOTE_SCENE_MAX_TRIS) return;
+    if (s_ntris >= s_max_tris) return;
     ScreenTri *t = &s_tris[s_ntris++];
     t->ax = ax; t->ay = ay; t->az = az;
     t->bx = bx; t->by = by; t->bz = bz;
@@ -63,7 +74,7 @@ void mote_scene_clear(void) { s_ntris = 0; s_nspheres = 0; }
 /* Add a sphere (camera-relative world position). Projected now; shaded as a
  * per-pixel impostor during the band raster — perfect spheres, cheap. */
 int mote_scene_add_sphere(Vec3 cam_rel_pos, float radius, uint16_t color) {
-    if (s_nspheres >= MOTE_SCENE_MAX_SPHERES) return 0;
+    if (s_nspheres >= s_max_spheres) return 0;
     const Mat3 *cam = mote_pipe_camera();
     Vec3 v = m3_mul_v3_t(cam, cam_rel_pos);          /* world -> view */
     if (v.z <= MOTE_NEAR) return 0;

@@ -21,7 +21,7 @@ static bool           s_exit_req;
 
 /* One SRAM arena: the engine's per-game pools (sized by MoteConfig) and the
  * game's own alloc()s come out of this. Reset between games. */
-#define MOTE_ARENA_SIZE (160 * 1024)
+#define MOTE_ARENA_SIZE (280 * 1024)
 static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
 static MoteArena s_arena;
 
@@ -115,8 +115,17 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
     /* Size the engine's pools to THIS game's declared config, from the shared
      * arena; whatever's left the game claims via alloc(). Reset per game. */
+    MoteConfig c = vt->config;
+    if (!c.max_tris && !c.max_spheres && !c.max_bodies && !c.max_splats && !c.max_sprites) {
+        /* No config declared: fall back to the old static worst case so legacy
+         * games run unchanged. Declared games get exactly what they ask for. */
+        c.max_tris = 3328; c.max_spheres = 256;
+        c.max_bodies = 256; c.max_contacts = 512; c.depth = 1;
+    }
     mote_arena_init(&s_arena, s_arena_mem, MOTE_ARENA_SIZE);
-    mote_phys_configure(&s_arena, vt->config.max_bodies, vt->config.max_contacts);
+    mote_scene_configure(&s_arena, c.max_tris, c.max_spheres);
+    mote_raster_configure(&s_arena, c.depth || c.max_tris > 0 || c.max_splats > 0);
+    mote_phys_configure(&s_arena, c.max_bodies, c.max_contacts);
 
     if (vt->init) vt->init();
 

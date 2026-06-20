@@ -41,4 +41,9 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1);
 
 int mote_scene_tri_count(void);
 
+/* Allocate the draw-list + sphere-impostor pools from the load-time arena,
+ * sized to the game's MoteConfig. 0 = that pool is unused (costs nothing). */
+struct MoteArena;
+int mote_scene_configure(struct MoteArena *arena, int max_tris, int max_spheres);
+
 #endif /* MOTE_SCENE3D_H */

@@ -8,6 +8,7 @@
  * per-pixel barycentrics, so the inner loop is 4 fadds + 2 compares.
  */
 #include "mote_raster.h"
+#include "mote_arena.h"
 #include <math.h>
 #include <string.h>
 
@@ -15,14 +16,20 @@
  * (MOTE_FB_PW x MOTE_FB_PH). With MOTE_SS == 1 they equal logical space. */
 
 static uint16_t *s_fb;
-/* Depth buffer (32 KB .bss on device) — both cores read/write disjoint row
- * bands during the screen-half split. */
-static uint16_t s_depth[MOTE_FB_PW * MOTE_FB_PH];
+/* Depth buffer (32 KB) — arena-allocated at load only when the game does 3D
+ * (a pure-2D game pays nothing). Both cores read/write disjoint row bands. */
+static uint16_t *s_depth;
+
+int mote_raster_configure(MoteArena *arena, int want_depth) {
+    s_depth = want_depth ? mote_arena_alloc(arena, (size_t)MOTE_FB_PW * MOTE_FB_PH * sizeof(uint16_t)) : 0;
+    return !want_depth || s_depth;
+}
 
 void mote_raster_set_fb(uint16_t *fb) { s_fb = fb; }
 uint16_t *mote_depth_buffer(void) { return s_depth; }
 
 void mote_depth_clear(int y_min, int y_max) {
+    if (!s_depth) return;
     if (y_min < 0) y_min = 0;
     if (y_max > MOTE_FB_PH) y_max = MOTE_FB_PH;
     if (y_max > y_min)

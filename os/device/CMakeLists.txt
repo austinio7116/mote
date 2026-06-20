@@ -57,6 +57,7 @@ add_executable(mote_os
     ${ENGINE}/render/mote_2d.c
     ${ENGINE}/physics/mote_phys.c
     ${ENGINE}/core/mote_perf.c
+    ${ENGINE}/core/mote_arena.c
     ${ENGINE}/input/mote_input.c)
 
 # tusb_config.h must be found before TinyUSB's own headers.

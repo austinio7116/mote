@@ -42,4 +42,9 @@ void mote_line(float x0, float y0, uint16_t d0,
 void mote_disc(int cx, int cy, uint16_t d, int r, uint16_t color,
              int y_min, int y_max);
 
+/* Allocate the depth buffer from the load-time arena (only when the game does
+ * 3D). want_depth==0 leaves it NULL and depth ops become no-ops. */
+struct MoteArena;
+int mote_raster_configure(struct MoteArena *arena, int want_depth);
+
 #endif /* MOTE_RASTER_H */
