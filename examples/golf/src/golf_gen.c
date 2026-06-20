@@ -76,7 +76,7 @@ void golf_generate(GolfHole *h, uint32_t seed){
     h->par = (h->length_m < 55.0f) ? 3 : (h->length_m < 92.0f ? 4 : 5);
     h->tee_h = smooth_h(seed,h->style,h->tee_x,h->tee_z);
     h->cup_h = smooth_h(seed,h->style,h->cup_x,h->cup_z);
-    float pad=22.0f;   /* more space around the hole */
+    float pad=34.0f;   /* generous space around the hole for wayward shots */
     h->min_x = fmin2(h->tee_x,fmin2(h->cup_x,h->bend_x))-pad;
     h->max_x = fmax2(h->tee_x,fmax2(h->cup_x,h->bend_x))+pad;
     h->min_z = fmin2(h->tee_z,h->cup_z)-pad;

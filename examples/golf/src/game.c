@@ -117,13 +117,24 @@ static uint16_t lie_color(int lie, float ny){
         default:           return col_of(0.22f*lit,0.40f*lit,0.18f*lit);   /* rough */
     }
 }
+/* Concentrate grid samples toward gf (the green's fraction along an axis): cells
+ * are ~0.4x average near the green, ~1.6x out in the pad — fine where you putt,
+ * coarse where wayward shots land, same triangle count. */
+static float warp_to(float t, float gf){
+    float d=t-gf, span=(d>=0.0f)?(1.0f-gf):gf;
+    if(span<1e-3f) return t;
+    float u=d/span;
+    return gf + (u*(0.4f+0.6f*fabsf(u)))*span;
+}
 static void gen_terrain(void){
     tcx=(hole.min_x+hole.max_x)*0.5f; tcz=(hole.min_z+hole.max_z)*0.5f; tcy=hole.tee_h;
     float spanx=hole.max_x-hole.min_x, spanz=hole.max_z-hole.min_z;
     tscale = (spanx>spanz?spanx:spanz)*0.5f + 8.0f;
-    /* collider: full-resolution world heightfield */
+    float gfx=(hole.cup_x-hole.min_x)/spanx, gfz=(hole.cup_z-hole.min_z)/spanz;
+    /* collider: world heightfield, sampling concentrated around the green */
     for(int gz=0;gz<NZ;gz++) for(int gx=0;gx<NX;gx++){
-        float wx=hole.min_x+spanx*gx/(NX-1), wz=hole.min_z+spanz*gz/(NZ-1);
+        float wx=hole.min_x+spanx*warp_to((float)gx/(NX-1),gfx);
+        float wz=hole.min_z+spanz*warp_to((float)gz/(NZ-1),gfz);
         mcvg[gz*NX+gx]=v3(wx, golf_height(&hole,wx,wz), wz);
     }
     int ti=0;
