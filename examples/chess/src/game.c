@@ -221,8 +221,10 @@ static void g_update(float dt){
     int gallery = lb && rb;
     s_galleryv = gallery;
     if(!gallery && lb){
-        if(mote_pressed(in,MOTE_BTN_UP))    s_dist -= 9.0f*dt;
+        if(mote_pressed(in,MOTE_BTN_UP))    s_dist -= 9.0f*dt;   /* zoom */
         if(mote_pressed(in,MOTE_BTN_DOWN))  s_dist += 9.0f*dt;
+        if(mote_pressed(in,MOTE_BTN_LEFT))  s_yaw  -= 1.6f*dt;   /* pan L/R */
+        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_yaw  += 1.6f*dt;
     }
     if(!gallery && rb){
         if(mote_pressed(in,MOTE_BTN_LEFT))  s_yaw   -= 1.6f*dt;
