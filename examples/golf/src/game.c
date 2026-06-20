@@ -238,13 +238,13 @@ typedef struct { const char *name; float speed, loft, spin; int carry; } Club;
 /* Tuned with tools/club_rig.c to club-player carries + sensible shapes (apex,
  * descent, roll). carry = full-power carry in yards (for the HUD). */
 static const Club CLUBS[] = {      /* full 14-club bag, tuned in tools/club_rig.c */
-    {"DRIVER", 28.6f, 18.0f, 0.40f, 215}, {"3 WOOD", 25.6f, 21.0f, 0.55f, 200},
-    {"5 WOOD", 23.7f, 23.0f, 0.65f, 186}, {"4 IRON", 22.1f, 25.0f, 0.80f, 174},
-    {"5 IRON", 20.5f, 28.0f, 0.95f, 164}, {"6 IRON", 19.1f, 31.0f, 1.10f, 152},
-    {"7 IRON", 18.0f, 34.0f, 1.25f, 141}, {"8 IRON", 17.0f, 38.0f, 1.45f, 130},
-    {"9 IRON", 16.1f, 42.0f, 1.65f, 118}, {"PW",     15.3f, 47.0f, 1.95f, 105},
-    {"GW",     14.7f, 51.0f, 2.25f,  92}, {"SW",     14.4f, 56.0f, 2.60f,  78},
-    {"LW",     14.4f, 62.0f, 3.00f,  62}, {"PUTTER", 12.0f, 1.0f,  0.0f,    0},
+    {"DRV", 28.6f, 18.0f, 0.40f, 215}, {"3W", 25.6f, 21.0f, 0.55f, 200},
+    {"5W", 23.7f, 23.0f, 0.65f, 186}, {"4I", 22.1f, 25.0f, 0.80f, 174},
+    {"5I", 20.5f, 28.0f, 0.95f, 164}, {"6I", 19.1f, 31.0f, 1.10f, 152},
+    {"7I", 18.0f, 34.0f, 1.25f, 141}, {"8I", 17.0f, 38.0f, 1.45f, 130},
+    {"9I", 16.1f, 42.0f, 1.65f, 118}, {"PW", 15.3f, 47.0f, 1.95f, 105},
+    {"GW", 14.7f, 51.0f, 2.25f,  92}, {"SW", 14.4f, 56.0f, 2.60f,  78},
+    {"LW", 14.4f, 62.0f, 3.00f,  62}, {"PUT", 12.0f, 1.0f,  0.0f,    0},
 };
 static int club_carry_yd(int ci){ return CLUBS[ci].carry; }
 #define NCLUB 14
@@ -343,6 +343,11 @@ static int itoa10(int n,char*o){ char t[8]; int p=0,q=0; if(n<0){o[q++]='-';n=-n
 
 static void g_update(float dt){
     const MoteInput*in=mote->input();
+#ifdef MOTE_HOST
+    { extern char*getenv(const char*); if(getenv("GOLF_CARD")&&!s_showcard){
+        for(int i=0;i<13;i++){ s_holepar[i]=(i%3==0?5:(i%3==1?3:4)); s_scores[i]=s_holepar[i]+((i*5)%4-1); }
+        s_hole=14; s_showcard=1; } }
+#endif
     if(mote_just_pressed(in,MOTE_BTN_LB)){ s_fly=!s_fly; s_flyt=0.0f; }   /* fly-over preview */
     if(s_fly){ s_flyt+=dt; if(s_flyt>8.0f || mote_just_pressed(in,MOTE_BTN_A) || mote_just_pressed(in,MOTE_BTN_B)) s_fly=0; }
     if(s_showcard){ if(mote_just_pressed(in,MOTE_BTN_A)) { next_hole(); s_armed=0; } return; }  /* scorecard: A = next hole */
@@ -482,35 +487,67 @@ static const char* result_name(int d){
     return d<=-3?"ALBATROSS":d==-2?"EAGLE":d==-1?"BIRDIE":d==0?"PAR":d==1?"BOGEY":d==2?"DBL BOGEY":"TRIPLE+";
 }
 static void putint(char*b,int*q,int v){ *q+=itoa10(v,b+*q); }
+/* to-par colour: birdie green / par white / bogey amber / double+ red */
+static uint16_t tocol(int d){ return d<0?MOTE_RGB565(96,224,134):d==0?MOTE_RGB565(232,232,232):d==1?MOTE_RGB565(236,178,92):MOTE_RGB565(236,112,92); }
+/* draw v centred in a [cx,cx+cw) cell at row y */
+static void cell_num(uint16_t*fb,int cx,int cw,int y,int v,uint16_t c){
+    char n[4]; int q=itoa10(v,n); n[q]=0; int w=q*6-1; mote->text(fb,n,cx+(cw-w)/2,y,c);
+}
 static void g_overlay(uint16_t*fb){
     char b[28]; int q;
     if(s_showcard){                                  /* ---- scorecard between holes ---- */
-        int h=s_hole, sc=s_scores[h-1], par=s_holepar[h-1], d=sc-par;
-        q=0; b[q++]='H';b[q++]='O';b[q++]='L';b[q++]='E';b[q++]=' '; putint(b,&q,h); b[q]=0;
-        mote->text_2x(fb,b,30,14,MOTE_RGB565(255,240,150));
-        q=0; putint(b,&q,sc); b[q++]=' ';b[q++]='-';b[q++]=' ';b[q++]='P';b[q++]='A';b[q++]='R';b[q++]=' ';putint(b,&q,par); b[q]=0;
-        mote->text(fb,b,40,36,MOTE_RGB565(220,230,240));
-        mote->text(fb,result_name(d),40,46,d<0?MOTE_RGB565(120,235,140):d==0?MOTE_RGB565(235,235,235):MOTE_RGB565(245,160,120));
-        /* mini row of played holes (to-par colour squares) */
-        for(int i=0;i<18;i++){ int x=4+i*7, y=64; if(!s_scores[i]){ fillrect(fb,x,y,6,6,MOTE_RGB565(30,40,34)); continue; }
-            int dd=s_scores[i]-s_holepar[i]; uint16_t c=dd<0?MOTE_RGB565(70,200,110):dd==0?MOTE_RGB565(210,210,210):MOTE_RGB565(220,120,90);
-            fillrect(fb,x,y,6,6,c); }
-        q=0; b[q++]='T';b[q++]='H';b[q++]='R';b[q++]='U';b[q++]=' ';putint(b,&q,h);b[q++]=':';b[q++]=' ';
-        int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
-        mote->text(fb,b,40,80,MOTE_RGB565(255,225,120));
-        mote->text(fb, h>=18?"A  FINISH ROUND":"A  NEXT HOLE",34,108,MOTE_RGB565(200,220,235));
+        int h=s_hole, d=s_scores[h-1]-s_holepar[h-1];
+        fillrect(fb,0,0,128,128,MOTE_RGB565(20,54,32));                 /* green felt */
+        mote->text_2x(fb,"SCORECARD",15,2,MOTE_RGB565(238,246,214));
+        mote->text(fb,result_name(d),4,18,tocol(d));
+        const int LX=2, GX=20, CW=10, OX=110, OW=16;
+        int gp=0, gs=0;
+        for(int half=0;half<2;half++){
+            int base=half*9, ty=27+half*38, psum=0, ssum=0;
+            fillrect(fb,LX,ty,124,35,MOTE_RGB565(26,66,40));
+            for(int i=0;i<=9;i++) fillrect(fb,GX+i*CW,ty,1,35,MOTE_RGB565(44,94,58));   /* column rules */
+            fillrect(fb,LX,ty,124,1,MOTE_RGB565(64,124,80));
+            fillrect(fb,LX,ty+11,124,1,MOTE_RGB565(44,94,58));
+            fillrect(fb,LX,ty+23,124,1,MOTE_RGB565(44,94,58));
+            mote->text(fb,"PAR",LX+1,ty+13,MOTE_RGB565(190,214,196));
+            mote->text(fb,"YOU",LX+1,ty+25,MOTE_RGB565(224,236,224));
+            mote->text(fb,half?"IN":"OUT",OX+1,ty+2,MOTE_RGB565(162,216,170));
+            for(int i=0;i<9;i++){ int hi=base+i, cx=GX+i*CW;
+                cell_num(fb,cx,CW,ty+2,hi+1,MOTE_RGB565(150,210,160));
+                if(s_scores[hi]>0){ int pp=s_holepar[hi], dd=s_scores[hi]-pp;
+                    cell_num(fb,cx,CW,ty+13,pp,MOTE_RGB565(190,214,196));
+                    cell_num(fb,cx,CW,ty+25,s_scores[hi],tocol(dd));
+                    psum+=pp; ssum+=s_scores[hi]; } }
+            if(psum){ cell_num(fb,OX,OW,ty+13,psum,MOTE_RGB565(220,232,224));
+                      cell_num(fb,OX,OW,ty+25,ssum,MOTE_RGB565(255,235,150)); }
+            gp+=psum; gs+=ssum;
+        }
+        /* totals strip */
+        int ty=104; fillrect(fb,LX,ty,124,16,MOTE_RGB565(34,82,50));
+        mote->text(fb,"TOTAL",LX+3,ty+6,MOTE_RGB565(226,238,226));
+        if(gp){ char t[14]; q=itoa10(gs,t); t[q++]='/'; q+=itoa10(gp,t+q); t[q]=0;
+                mote->text(fb,t,44,ty+6,MOTE_RGB565(255,235,150)); }
+        q=0; int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
+        mote->text_2x(fb,b,90,ty+2,tp<0?MOTE_RGB565(120,235,140):tp==0?MOTE_RGB565(238,238,238):MOTE_RGB565(246,176,110));
+        mote->text(fb, h>=18?"A FINISH ROUND":"A  NEXT HOLE",LX+3,121,MOTE_RGB565(196,216,232));
         return;
     }
 
-    /* top-left: hole/par + round score (compact, no big panel) */
+    /* top-left HUD box: hole/par + round to-par */
+    fillrect(fb,1,1,66,20,MOTE_RGB565(13,26,17));
+    fillrect(fb,1,1,66,1,MOTE_RGB565(64,116,76)); fillrect(fb,1,20,66,1,MOTE_RGB565(64,116,76)); fillrect(fb,67,1,1,20,MOTE_RGB565(64,116,76));
     q=0; b[q++]='H';putint(b,&q,s_hole);b[q++]='/';b[q++]='1';b[q++]='8';b[q++]=' ';b[q++]='P';b[q++]='A';b[q++]='R';putint(b,&q,hole.par);b[q]=0;
-    mote->text(fb,b,3,3,MOTE_RGB565(235,240,235));
-    q=0; int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
-    mote->text(fb,b,3,12,MOTE_RGB565(255,225,120));
-    /* bottom-left (by the power bar): distance to pin + strokes */
+    mote->text(fb,b,4,4,MOTE_RGB565(235,240,235));
+    q=0; b[q++]='R';b[q++]='N';b[q++]='D';b[q++]=' '; int tp=round_to_par(); if(tp==0)b[q++]='E'; else { if(tp>0)b[q++]='+'; putint(b,&q,tp);} b[q]=0;
+    mote->text(fb,b,4,12,MOTE_RGB565(255,225,120));
+    /* bottom-left HUD box: distance + strokes, stacked, kept LEFT of the swing meter (x>=39) */
     int d=(int)(sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z))*YARD);
-    q=0; putint(b,&q,d); b[q++]='y';b[q++]=' '; b[q++]='S';b[q++]='T';b[q++]='K';putint(b,&q,s_strokes); b[q]=0;
-    mote->text(fb,b,3,118,MOTE_RGB565(235,240,200));
+    fillrect(fb,1,112,36,15,MOTE_RGB565(13,26,17));
+    fillrect(fb,1,112,36,1,MOTE_RGB565(64,116,76)); fillrect(fb,37,112,1,15,MOTE_RGB565(64,116,76));
+    q=0; putint(b,&q,d); b[q++]='y'; b[q]=0;
+    mote->text(fb,b,4,114,MOTE_RGB565(235,240,200));
+    q=0; b[q++]='S';b[q++]='T';b[q++]='K';putint(b,&q,s_strokes); b[q]=0;
+    mote->text(fb,b,4,121,MOTE_RGB565(255,225,120));
 
     /* top-down hole minimap (right edge, below the club panel) + markers */
     int Mx=92, My=26, gx, gy;
@@ -528,10 +565,10 @@ static void g_overlay(uint16_t*fb){
         if(row>2 && row<MMH-2) for(int x=2;x<MMW-2;x+=2) fb[(My+row)*128+Mx+x]=MOTE_RGB565(240,240,150); }
     if(s_fly){ mote->text(fb,"HOLE PREVIEW  LB EXIT",4,118,MOTE_RGB565(235,240,200)); return; }
 
-    /* club HUD: compact panel top-right (name + carry, tiny up/down arrows) */
-    int px=84, py=1, pw=43, ph=16;
+    /* club HUD: narrow panel top-right (3-char name + carry, tiny up/down arrows) */
+    int px=92, py=1, pw=35, ph=16;
     fillrect(fb,px,py,pw,ph,MOTE_RGB565(14,20,16));
-    fillrect(fb,px,py,pw,1,MOTE_RGB565(70,115,78)); fillrect(fb,px,py+ph-1,pw,1,MOTE_RGB565(70,115,78));
+    fillrect(fb,px,py,pw,1,MOTE_RGB565(70,115,78)); fillrect(fb,px,py+ph-1,pw,1,MOTE_RGB565(70,115,78)); fillrect(fb,px,py,1,ph,MOTE_RGB565(70,115,78));
     tri(fb,px+4,py+2,1,MOTE_RGB565(200,220,200)); tri(fb,px+4,py+9,0,MOTE_RGB565(200,220,200));
     mote->text(fb,CLUBS[s_club].name,px+9,py+2,MOTE_RGB565(255,225,120));
     if(CLUBS[s_club].loft<3.0f) mote->text(fb,"PUTT",px+9,py+9,MOTE_RGB565(150,230,150));
