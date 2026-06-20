@@ -376,13 +376,12 @@ static void g_update(float dt){
     MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
     mote->scene_add_object(&flo);
     mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
-    if(!s_holed && !s_sink && s_swing==0){                    /* aim line + flight preview */
+    if(!s_holed && !s_sink && s_swing==0 && resting){         /* aim line + landing (predict is fresh) */
         Vec3 ad=v3(sinf(s_aim),0,cosf(s_aim));
-        for(int i=1;i<=7;i++){ float ax=BALL.pos.x+ad.x*i*1.9f, az=BALL.pos.z+ad.z*i*1.9f;
-            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.12f,az),s_cam),0.06f,MOTE_RGB565(255,240,60)); }
-        for(int i=0;i<s_prevn;i++)
-            mote->scene_add_sphere(v3_sub(s_preview[i],s_cam),0.05f,MOTE_RGB565(255,150,40));
-        mote->scene_add_sphere(v3_sub(s_land,s_cam),0.22f,MOTE_RGB565(255,90,30));    /* landing */
+        for(int i=1;i<=12;i++){ float d=i*1.6f; float ax=BALL.pos.x+ad.x*d, az=BALL.pos.z+ad.z*d;
+            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.18f,az),s_cam),0.09f,MOTE_RGB565(255,245,70)); }
+        float ld=sqrtf((s_land.x-BALL.pos.x)*(s_land.x-BALL.pos.x)+(s_land.z-BALL.pos.z)*(s_land.z-BALL.pos.z));
+        if(ld>4.0f) mote->scene_add_sphere(v3_sub(s_land,s_cam),0.45f,MOTE_RGB565(255,255,255)); /* landing */
     }
     mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
 }
