@@ -22,12 +22,12 @@ static GolfHole hole;
 
 /* ---- terrain: one collider mesh (any size) + render mesh CHUNKED to fit the
  * pipe's per-object vertex cap (MOTE_MAX_VERTS) ---- */
-#define NX 18
-#define NZ 50
+#define NX 23
+#define NZ 62
 #define NV (NX*NZ)
 #define NF ((NX-1)*(NZ-1)*2)
-#define CHUNK_ROWS 13
-#define NCHUNK 4                          /* ceil((NZ-1)/CHUNK_ROWS) */
+#define CHUNK_ROWS 10
+#define NCHUNK 7                          /* ceil((NZ-1)/CHUNK_ROWS) */
 #define CVN (NX*(CHUNK_ROWS+1))           /* <= 256 verts/chunk (uint8 indices) */
 #define CFN ((NX-1)*CHUNK_ROWS*2)
 static Vec3     mcvg[NV];                  /* collider world verts */
@@ -46,7 +46,7 @@ static float    tcx, tcy, tcz, tscale;
 #define TREE_S 2.0f
 typedef struct { MeshVert v[TVV]; MeshFace f[TFF]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
 static TreeMesh trees[NTREE]; static int n_tree;
-#define MAXSPLAT 1100
+#define MAXSPLAT 800
 static MoteSplat s_splat[MAXSPLAT]; static int s_order[MAXSPLAT]; static int s_n;
 
 /* ---- ball physics ---- */

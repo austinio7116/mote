@@ -26,6 +26,8 @@
 
 static uint16_t s_fb[MOTE_FB_W * MOTE_FB_H];
 
+uint16_t *mote_launcher_fb(void) { return s_fb; }
+
 static void fill(int x, int y, int w, int h, uint16_t c) {
     for (int j = y; j < y + h; j++) {
         if ((unsigned)j >= MOTE_FB_H) continue;

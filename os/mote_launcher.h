@@ -17,4 +17,8 @@ typedef void (*MoteCatalogFn)(MoteCatalog *out);
 /* Returns the selected index, or -1 on quit (host window close). */
 int mote_launcher_run(MoteCatalogFn rebuild);
 
+/* The launcher's 128x128 framebuffer — reusable by the OS for boot/panic
+ * solid screens (avoids a second dedicated 32KB buffer). */
+uint16_t *mote_launcher_fb(void);
+
 #endif /* MOTE_LAUNCHER_H */

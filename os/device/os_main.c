@@ -16,11 +16,10 @@
 #include "mote_store.h"
 #include <string.h>
 
-static uint16_t s_err_fb[MOTE_FB_W * MOTE_FB_H];
-
 static void show_solid(uint16_t color) {
-    for (int i = 0; i < MOTE_FB_W * MOTE_FB_H; i++) s_err_fb[i] = color;
-    mote_plat_present(s_err_fb);
+    uint16_t *fb = mote_launcher_fb();   /* reuse the launcher buffer (idle here) */
+    for (int i = 0; i < MOTE_FB_W * MOTE_FB_H; i++) fb[i] = color;
+    mote_plat_present(fb);
 }
 
 /* Rebuild the launcher catalog from the flash store (called every frame). */

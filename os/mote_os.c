@@ -11,6 +11,7 @@
 #include "mote_raster.h"   /* mote_depth_buffer */
 #include "mote_font.h"
 #include "mote_perf.h"
+#include "mote_launcher.h"   /* shared framebuffer (mote_launcher_fb) */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -93,7 +94,9 @@ static void splat_band_cb(uint16_t *fb, int y0, int y1) {
 
 void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     (void)api;
-    static uint16_t fb[MOTE_FB_PW * MOTE_FB_PH];   /* the OS owns the framebuffer */
+    /* Reuse the launcher's framebuffer — it's idle while a game runs, so we don't
+     * pay for a second 32KB buffer (that RAM goes to a bigger scene draw-list). */
+    uint16_t *fb = mote_launcher_fb();
 
     s_exit_req = false;
     s_vt = vt;
@@ -159,4 +162,5 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
         mote_perf_record(update_us, c0_us, c1_us, flush_us, frame_us);
     }
+    mote_plat_wait_flush();   /* let the launcher safely reclaim the shared fb */
 }
