@@ -82,7 +82,9 @@ void mote_splat_blit(uint16_t *fb, int y0, int y1, const MoteSplat *splats, int 
         float inv = 1.0f / vz;
         float sx = (MOTE_FB_W*0.5f) + f*vx*inv;
         float sy = (MOTE_FB_H*0.5f) - f*vy*inv;
-        /* cheap frustum cull vs this strip + screen (skips the covariance math) */
+        /* cheap frustum cull vs this strip + screen (skips the covariance math
+         * for off-strip splats — the per-splat sqrt of a tighter bound cost more
+         * than it saved, so this loose RMAX margin wins). */
         if (sx < -RMAX || sx > MOTE_FB_W + RMAX || sy < y0 - RMAX || sy > y1 + RMAX) continue;
 
         uint16_t sd16 = 0;
@@ -120,21 +122,31 @@ void mote_splat_blit(uint16_t *fb, int y0, int y1, const MoteSplat *splats, int 
         if (ya < y0) ya = y0; if (yb > y1) yb = y1;
         if (x0 >= x1 || ya >= yb) continue;
 
-        float op = sp->opacity; uint16_t col = sp->color;
+        float op = sp->opacity, ha = 0.5f*ia, d2 = ia;     /* d2 = 2*ha */
+        int cr = (sp->color>>11)&31, cg = (sp->color>>5)&63, cb = sp->color&31;
         for (int py = ya; py < yb; py++) {
             float dy = (float)py - sy;
             uint16_t *row = fb + py*MOTE_FB_W;
             const uint16_t *drow = depth ? depth + py*MOTE_FB_PW : 0;
             float bdy = ib*dy, halfc = 0.5f*ic*dy*dy;
-            for (int px = x0; px < x1; px++) {
+            /* q(dx) = ha*dx^2 + bdy*dx + halfc  (= half the Mahalanobis dist);
+             * advance it across the row by forward differencing — no per-pixel
+             * multiply for the quadratic. al = op*exp(-q). */
+            float dx0 = (float)x0 - sx;
+            float q  = ha*dx0*dx0 + bdy*dx0 + halfc;
+            float dq = ha*(2.0f*dx0 + 1.0f) + bdy;
+            for (int px = x0; px < x1; px++, q += dq, dq += d2) {
+                if (q >= 9.0f) continue;
                 if (drow && drow[px] > sd16) continue;
-                float dx = (float)px - sx;
-                float power = -(0.5f*ia*dx*dx + bdy*dx + halfc);
-                if (power <= -9.0f) continue;
-                float al = op * fexp(power);
+                float al = op * s_exp[(int)(q * (255.0f/9.0f))];
                 if (al < 0.004f) continue;
                 if (al > 1.0f) al = 1.0f;
-                row[px] = blend565(row[px], col, al);
+                int bg = row[px];
+                int r = ((bg>>11)&31), g = ((bg>>5)&63), b = (bg&31);
+                r += (int)((cr-r)*al + 0.5f);
+                g += (int)((cg-g)*al + 0.5f);
+                b += (int)((cb-b)*al + 0.5f);
+                row[px] = (uint16_t)((r<<11)|(g<<5)|b);
             }
         }
     }
