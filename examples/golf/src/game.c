@@ -22,13 +22,13 @@ static GolfHole hole;
 
 /* ---- terrain: one collider mesh (any size) + render mesh CHUNKED to fit the
  * pipe's per-object vertex cap (MOTE_MAX_VERTS) ---- */
-#define NX 15
-#define NZ 40
+#define NX 18
+#define NZ 50
 #define NV (NX*NZ)
 #define NF ((NX-1)*(NZ-1)*2)
-#define CHUNK_ROWS 16
-#define NCHUNK 3                          /* ceil((NZ-1)/CHUNK_ROWS) */
-#define CVN (NX*(CHUNK_ROWS+1))           /* <= 255 verts/chunk */
+#define CHUNK_ROWS 13
+#define NCHUNK 4                          /* ceil((NZ-1)/CHUNK_ROWS) */
+#define CVN (NX*(CHUNK_ROWS+1))           /* <= 256 verts/chunk (uint8 indices) */
 #define CFN ((NX-1)*CHUNK_ROWS*2)
 static Vec3     mcvg[NV];                  /* collider world verts */
 static uint16_t mctg[NF*3];
@@ -40,7 +40,7 @@ static Mesh     chunk_mesh[NCHUNK];
 static float    tcx, tcy, tcz, tscale;
 
 /* ---- trees: mesh trunks + splat leaves ---- */
-#define NTREE 12
+#define NTREE 10
 #define TVV 220
 #define TFF 300
 #define TREE_S 2.0f
@@ -159,30 +159,41 @@ static void gen_terrain(void){
     }
 }
 
-/* ---- flag at the cup ---- */
-static MeshVert flag_v[7]; static MeshFace flag_f[5]; static Mesh flag_mesh;
+/* ---- flagstick + the hole (cup) at the green; flag cloth is splats ---- */
+static MeshVert flag_v[13]; static MeshFace flag_f[12]; static Mesh flag_mesh;
 static void gen_flag(void){
-    /* a thin pole (a vertical quad pair) + a red flag triangle, local m, scale 1 */
-    flag_v[0]=(MeshVert){-1,0,0}; flag_v[1]=(MeshVert){1,0,0}; flag_v[2]=(MeshVert){1,127,0}; flag_v[3]=(MeshVert){-1,127,0};
-    flag_v[4]=(MeshVert){1,127,0}; flag_v[5]=(MeshVert){40,108,0}; flag_v[6]=(MeshVert){1,88,0};
-    uint16_t white=MOTE_RGB565(235,235,235), red=MOTE_RGB565(220,40,40);
+    /* scale 2 -> verts are metres/2*127. A thin white pole (double-sided quad)
+     * + a dark octagon disc = the actual hole on the green. */
+    uint16_t white=MOTE_RGB565(240,240,240), dark=MOTE_RGB565(12,22,12);
+    flag_v[0]=(MeshVert){-2,1,0}; flag_v[1]=(MeshVert){2,1,0}; flag_v[2]=(MeshVert){2,127,0}; flag_v[3]=(MeshVert){-2,127,0};
     flag_f[0]=(MeshFace){0,1,2,0,0,127,white}; flag_f[1]=(MeshFace){0,2,3,0,0,127,white};
-    flag_f[2]=(MeshFace){1,0,3,0,0,-127,white}; flag_f[3]=(MeshFace){4,5,6,0,0,127,red};
-    flag_f[4]=(MeshFace){4,6,5,0,0,-127,red};
-    flag_mesh.verts=flag_v; flag_mesh.faces=flag_f; flag_mesh.nverts=7; flag_mesh.nfaces=5; flag_mesh.scale=1.6f; flag_mesh.bound_r=2.0f;
+    flag_f[2]=(MeshFace){0,2,1,0,0,-127,white}; flag_f[3]=(MeshFace){0,3,2,0,0,-127,white};
+    flag_v[4]=(MeshVert){0,1,0};                                  /* hole disc centre */
+    for(int i=0;i<8;i++){ float a=i*0.7853982f; flag_v[5+i]=(MeshVert){(int8_t)(cosf(a)*22.0f),1,(int8_t)(sinf(a)*22.0f)}; }
+    for(int i=0;i<8;i++){ int n=(i+1)&7; flag_f[4+i]=(MeshFace){4,(uint8_t)(5+i),(uint8_t)(5+n),0,127,0,dark}; }
+    flag_mesh.verts=flag_v; flag_mesh.faces=flag_f; flag_mesh.nverts=13; flag_mesh.nfaces=12; flag_mesh.scale=2.0f; flag_mesh.bound_r=2.5f;
 }
 
 /* ---- state ---- */
-static float s_aim, s_power; static int s_charging, s_strokes, s_holed, s_armed;
+static float s_aim; static int s_strokes, s_holed, s_armed;
 static float s_last_x, s_last_z; static uint32_t s_seed;
 static Vec3  s_cam; static Mat3 s_basis;
+/* 3-click swing (ThumbyGolf-style): AIM -> RISING -> FALLING -> launch */
+static int   s_swing;       /* 0 aim, 1 rising, 2 falling */
+static float s_cursor, s_powerlock, s_snaphalf;
+static int   s_sink;        /* >0: ball sinking in water (frames) */
+#define SW_RISE   1.35f
+#define SW_FALL   0.55f
+#define SW_BARMAX 1.20f
+#define SW_FLOOR  (-0.20f)
+#define SW_SNAP   0.07f
 
 /* ---- clubs: max speed (m/s) + launch loft (deg) + spin scale ---- */
 typedef struct { const char *name; float speed, loft, spin; } Club;
 static const Club CLUBS[] = {
-    {"DRIVER", 30.0f, 12.0f, 0.5f}, {"3 WOOD", 26.0f, 17.0f, 0.7f},
-    {"5 IRON", 22.0f, 25.0f, 1.0f}, {"8 IRON", 18.0f, 37.0f, 1.4f},
-    {"WEDGE",  13.0f, 54.0f, 2.0f}, {"PUTTER", 9.0f,  1.0f,  0.0f},
+    {"DRIVER", 46.0f, 12.0f, 0.5f}, {"3 WOOD", 40.0f, 16.0f, 0.7f},
+    {"5 IRON", 34.0f, 24.0f, 1.0f}, {"8 IRON", 27.0f, 36.0f, 1.4f},
+    {"WEDGE",  19.0f, 53.0f, 2.0f}, {"PUTTER", 12.0f, 1.0f,  0.0f},
 };
 #define NCLUB 6
 static int s_club;
@@ -216,7 +227,7 @@ static void tee_up(void){
     BALL.pos = v3(hole.tee_x, golf_height(&hole,hole.tee_x,hole.tee_z)+0.1f, hole.tee_z);
     BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0;
     s_last_x=hole.tee_x; s_last_z=hole.tee_z;
-    s_power=0; s_charging=0; s_holed=0; s_strokes=0; s_armed=0; aim_at_cup();
+    s_swing=0; s_cursor=0; s_holed=0; s_strokes=0; s_armed=0; s_sink=0; aim_at_cup();
 }
 
 static void build_hole(uint32_t seed){
@@ -238,6 +249,10 @@ static void build_hole(uint32_t seed){
             tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
             n_tree++;
         }
+    /* flag cloth as red splats off the top of the pole */
+    for(int i=0;i<8 && s_n<MAXSPLAT;i++)
+        emit_splat(v3(hole.cup_x+0.12f+0.14f*(i%4), hole.cup_h+1.95f-0.14f*(i/4), hole.cup_z),
+                   v3(0.11f,0.085f,0.02f), basis_from_normal(v3(0,0,1)), MOTE_RGB565(225,45,45), 0.92f);
     bodies[0].shape=MOTE_SHAPE_MESH; bodies[0].shape_data=&terr_col; bodies[0].orient=m3_identity(); bodies[0].inv_mass=0;
     s_club=0;
     tee_up();
@@ -269,19 +284,41 @@ static void g_update(float dt){
     float dcup=sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
     if(!s_holed && dcup<0.8f && bspeed<2.5f){ s_holed=1; BALL.vel=v3(0,0,0); }
 
-    if(!s_holed && resting){
-        if(mote_pressed(in,MOTE_BTN_LEFT))  s_aim -= 1.1f*dt;
-        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_aim += 1.1f*dt;
-        if(mote_just_pressed(in,MOTE_BTN_UP))   s_club=(s_club+1)%NCLUB;        /* club */
-        if(mote_just_pressed(in,MOTE_BTN_DOWN)) s_club=(s_club+NCLUB-1)%NCLUB;
-        if(s_armed && mote_pressed(in,MOTE_BTN_A)){ s_charging=1; s_power+=0.8f*dt; if(s_power>1)s_power=1; }
-        else if(s_charging){
-            s_charging=0; s_armed=0;
-            s_last_x=BALL.pos.x; s_last_z=BALL.pos.z;            /* for the water penalty */
-            Vec3 v,w; shot_vec(s_power,&v,&w);                   /* club-based launch + spin */
-            BALL.vel=v; BALL.w=w; BALL._reserved[0]=0; s_strokes++; s_power=0;
+    if(!s_holed && resting && !s_sink){
+        if(s_swing==0){                                          /* AIM */
+            if(mote_pressed(in,MOTE_BTN_LEFT))  s_aim -= 1.1f*dt;
+            if(mote_pressed(in,MOTE_BTN_RIGHT)) s_aim += 1.1f*dt;
+            if(mote_just_pressed(in,MOTE_BTN_UP))   s_club=(s_club+1)%NCLUB;
+            if(mote_just_pressed(in,MOTE_BTN_DOWN)) s_club=(s_club+NCLUB-1)%NCLUB;
+            predict(0.95f);                                      /* aim preview (only in AIM) */
+            if(s_armed && mote_just_pressed(in,MOTE_BTN_A)){ s_swing=1; s_cursor=0; }
+        } else if(s_swing==1){                                   /* RISING: power climbs */
+            s_cursor += SW_RISE*dt; if(s_cursor>SW_BARMAX) s_cursor=SW_BARMAX;
+            if(mote_just_pressed(in,MOTE_BTN_A)){
+                s_powerlock=s_cursor;
+                s_snaphalf = SW_SNAP * (s_powerlock>1.0f ? 1.0f/s_powerlock : 1.0f);  /* overpower shrinks snap */
+                s_swing=2;
+            }
+        } else {                                                /* FALLING: click 3 = accuracy */
+            s_cursor -= SW_FALL*dt;
+            if(mote_just_pressed(in,MOTE_BTN_A) || s_cursor < SW_FLOOR){
+                float snap=s_cursor, diroff=0.0f, pf=1.0f;       /* + early=hook, - late=slice */
+                if(fabsf(snap) > s_snaphalf){
+                    float ex=(snap>s_snaphalf)?snap-s_snaphalf:(snap>-0.2f?-(snap+s_snaphalf):0.3f);
+                    if(ex<0)ex=0; if(ex>0.3f)ex=0.3f;
+                    diroff=((snap>0.0f)?-1.0f:1.0f)*ex*0.6f;
+                    pf=1.0f-ex*1.5f; if(pf<0.45f)pf=0.45f;
+                }
+                float power=s_powerlock*pf; if(power<0.1f)power=0.1f;
+                float yaw=s_aim + diroff*0.4f;
+                Vec3 dir=v3(sinf(yaw),0,cosf(yaw)), rightv=v3(cosf(yaw),0,-sinf(yaw));
+                const Club*c=&CLUBS[s_club]; float speed=c->speed*power, lr=c->loft*(3.14159265f/180.0f);
+                BALL.vel=v3(dir.x*speed*cosf(lr), speed*sinf(lr), dir.z*speed*cosf(lr));
+                BALL.w=v3_add(v3_scale(rightv,-28.0f*c->spin*power), v3(0, diroff*120.0f, 0)); /* back+side spin */
+                BALL._reserved[0]=0; s_strokes++; s_swing=0; s_armed=0;
+                s_last_x=BALL.pos.x; s_last_z=BALL.pos.z;
+            }
         }
-        predict(s_charging ? s_power : 0.7f);                    /* flight preview arc */
     }
     int lie=golf_lie(&hole,BALL.pos.x,BALL.pos.z);
     BALL.friction = (lie==GOLF_GREEN)?0.04f:(lie==GOLF_FAIRWAY?0.20f:(lie==GOLF_BUNKER?0.9f:0.5f));
@@ -293,7 +330,7 @@ static void g_update(float dt){
         /* grounded: PER-SURFACE rolling resistance. The rigid-body model has
          * none (a rolling ball never slips, so Coulomb friction can't slow it) —
          * green rolls far, fairway medium, rough/sand grabs. */
-        float rd = (lie==GOLF_GREEN)?0.4f : (lie==GOLF_FAIRWAY?1.1f : (lie==GOLF_BUNKER?7.0f : 3.0f));
+        float rd = (lie==GOLF_GREEN)?0.7f : (lie==GOLF_FAIRWAY?2.0f : (lie==GOLF_BUNKER?9.0f : 5.0f));
         float f = 1.0f - rd*dt; if(f<0.0f) f=0.0f;
         BALL.vel = v3(BALL.vel.x*f, BALL.vel.y, BALL.vel.z*f);
         BALL.w   = v3_scale(BALL.w, f);
@@ -301,10 +338,18 @@ static void g_update(float dt){
 
     mote->phys_step(&pw, bodies, 2, dt);
 
-    /* water penalty: settled in water -> drop at the last shot spot, +1 stroke */
-    if(!s_holed && v3_len(BALL.vel)<0.4f && golf_lie(&hole,BALL.pos.x,BALL.pos.z)==GOLF_WATER){
-        BALL.pos=v3(s_last_x, golf_height(&hole,s_last_x,s_last_z)+0.1f, s_last_z);
-        BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0; s_strokes++;
+    /* WATER: a ball reaching a flooded hollow sinks below the blue surface (driven
+     * manually past the flat water collider), then drops at the last shot spot +1. */
+    if(!s_holed && s_sink==0 && lie==GOLF_WATER && v3_len(BALL.vel)<2.5f && BALL.pos.y < hole.water_level+0.35f){
+        s_sink=1;
+    }
+    if(s_sink){
+        BALL.pos = v3(BALL.pos.x, BALL.pos.y-0.05f, BALL.pos.z);   /* glug under */
+        BALL.vel = v3(BALL.vel.x*0.8f, 0, BALL.vel.z*0.8f);
+        if(++s_sink > 30){
+            BALL.pos=v3(s_last_x, golf_height(&hole,s_last_x,s_last_z)+0.1f, s_last_z);
+            BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0; s_strokes++; s_sink=0;
+        }
     }
 
     Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
@@ -324,7 +369,7 @@ static void g_update(float dt){
     MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
     mote->scene_add_object(&flo);
     mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
-    if(!s_holed && resting){                                  /* flight-path preview */
+    if(!s_holed && resting && s_swing==0){                    /* preview only while aiming */
         for(int i=0;i<s_prevn;i++)
             mote->scene_add_sphere(v3_sub(s_preview[i],s_cam),0.06f,MOTE_RGB565(255,235,80));
         mote->scene_add_sphere(v3_sub(s_land,s_cam),0.20f,MOTE_RGB565(255,110,40));  /* landing */
@@ -340,10 +385,22 @@ static void g_overlay(uint16_t*fb){
     mote->text(fb,b,3,3,MOTE_RGB565(20,40,20));
     mote->text(fb,CLUBS[s_club].name,86,3,MOTE_RGB565(245,245,230));   /* club */
     if(s_holed){ mote->text(fb,"HOLED!",46,56,MOTE_RGB565(255,240,80)); }
-    else { /* power bar + controls */
-        fillrect(fb,3,120,62,5,MOTE_RGB565(30,30,30));
-        fillrect(fb,4,121,(int)(s_power*60),3,s_power<0.5f?MOTE_RGB565(80,220,80):(s_power<0.85f?MOTE_RGB565(240,220,60):MOTE_RGB565(240,70,70)));
-        mote->text(fb,"UD CLUB  A HIT",70,120,MOTE_RGB565(20,40,20));
+    else if(s_sink){ mote->text(fb,"WATER! +1",36,56,MOTE_RGB565(120,180,255)); }
+    else {
+        /* 3-click swing meter: power LEFT of baseline... actually right-growing.
+         * baseline x=BX, cursor 0..1.2 -> px; snap zone (sweet spot) at baseline. */
+        int BX=12, SC=58;
+        fillrect(fb,BX-14,117,92,9,MOTE_RGB565(18,20,26));            /* bar bg */
+        fillrect(fb,BX+SC,117,1,9,MOTE_RGB565(210,210,210));          /* 100% tick */
+        float sh=(s_swing==2)?s_snaphalf:SW_SNAP;                     /* snap (sweet) zone */
+        int z0=BX-(int)(sh*SC), z1=BX+(int)(sh*SC);
+        fillrect(fb,z0,118,z1-z0+1,7,MOTE_RGB565(60,170,90));
+        if(s_swing>=1){                                              /* power fill */
+            float c=(s_swing==1)?s_cursor:s_powerlock;
+            if(c>0) fillrect(fb,BX,119,(int)(c*SC),5, c<0.9f?MOTE_RGB565(240,180,40):MOTE_RGB565(240,70,40));
+        }
+        if(s_swing>=1){ int cx=BX+(int)(s_cursor*SC); fillrect(fb,cx,116,2,11,MOTE_RGB565(255,255,130)); }
+        mote->text(fb, s_swing==0?"UD CLUB  A SWING":(s_swing==1?"A LOCK POWER":"A SET ACCURACY"),3,106,MOTE_RGB565(235,240,200));
     }
 }
 

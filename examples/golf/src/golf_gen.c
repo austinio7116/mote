@@ -144,9 +144,11 @@ int golf_lie(const GolfHole *h, float x, float z){
 
 int golf_tree(const GolfHole *h, float x, float z){
     if(golf_lie(h,x,z)!=GOLF_ROUGH) return 0;
-    if(golf_route_dist(h,x,z) < FAIR_HALF+1.5f) return 0;       /* line the fairway closely */
+    float rd = golf_route_dist(h,x,z);
+    if(rd < FAIR_HALF+1.0f) return 0;
     float c = noise2d(x,z,20.0f,h->seed^0xABCDu)*0.5f+0.5f;     /* low-freq cluster */
-    float dens = (h->style==GOLF_PARKLAND)?0.78f:(h->style==GOLF_HEATHLAND?0.58f:0.40f);
+    float dens = (h->style==GOLF_PARKLAND)?0.80f:(h->style==GOLF_HEATHLAND?0.60f:0.45f);
+    if(rd < FAIR_HALF+7.0f && dens < 0.75f) dens = 0.75f;        /* always line the fairway */
     float roll = (float)(hash32((int)floorf(x),(int)floorf(z),h->seed^0x9999u)&255)/255.0f;
     return c*dens > roll;
 }
