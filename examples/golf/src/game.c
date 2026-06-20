@@ -1,0 +1,281 @@
+/*
+ * golf — a procedural golf hole. Natural terrain (ThumbyGolf's vendored multi-
+ * octave heightmap noise, golf_gen.c) with the course "mown in": fairway smoothed
+ * to the land's contour, green flat, rough left natural. Terrain is a heightfield
+ * MESH coloured by lie; trees are mesh trunks + splat leaves; the ball is a physics
+ * sphere rolling on the terrain mesh collider (grid broad-phase). Drive it to the
+ * pin.
+ *
+ * Controls: LEFT/RIGHT aim · hold A to charge power, release to hit · B re-tee · MENU exit
+ */
+#include "mote_api.h"
+#include "golf_gen.h"
+#include <math.h>
+
+MOTE_GAME_MODULE();
+#ifdef MOTE_MODULE_BUILD
+#include "mote_module.h"
+MOTE_MODULE_HEADER();
+#endif
+
+static GolfHole hole;
+
+/* ---- terrain: one collider mesh (any size) + render mesh CHUNKED to fit the
+ * pipe's per-object vertex cap (MOTE_MAX_VERTS) ---- */
+#define NX 15
+#define NZ 34
+#define NV (NX*NZ)
+#define NF ((NX-1)*(NZ-1)*2)
+#define CHUNK_ROWS 16
+#define NCHUNK 3                          /* ceil((NZ-1)/CHUNK_ROWS) */
+#define CVN (NX*(CHUNK_ROWS+1))           /* <= 255 verts/chunk */
+#define CFN ((NX-1)*CHUNK_ROWS*2)
+static Vec3     mcvg[NV];                  /* collider world verts */
+static uint16_t mctg[NF*3];
+static MoteMesh terr_col;
+static uint16_t g_gstart[16*16+1], g_gtri[NF];
+static MeshVert cv[NCHUNK][CVN];          /* render chunk verts (local, quantised) */
+static MeshFace cf[NCHUNK][CFN];
+static Mesh     chunk_mesh[NCHUNK];
+static float    tcx, tcy, tcz, tscale;
+
+/* ---- trees: mesh trunks + splat leaves ---- */
+#define NTREE 5
+#define TVV 220
+#define TFF 300
+#define TREE_S 2.0f
+typedef struct { MeshVert v[TVV]; MeshFace f[TFF]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
+static TreeMesh trees[NTREE]; static int n_tree;
+#define MAXSPLAT 1100
+static MoteSplat s_splat[MAXSPLAT]; static int s_order[MAXSPLAT]; static int s_n;
+
+/* ---- ball physics ---- */
+static MoteWorld pw;
+static MoteBody  bodies[2];            /* [0]=terrain mesh, [1]=ball */
+#define BALL (bodies[1])
+
+static uint32_t rng = 0x1234u;
+static float frand(void){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return (float)(rng&0xFFFFFF)/(float)0xFFFFFF; }
+static float frnd2(void){ return 2.0f*frand()-1.0f; }
+static Mat3 basis_from_normal(Vec3 n){
+    Mat3 m; m.r[2]=v3_norm(n); Vec3 t=(fabsf(m.r[2].y)<0.92f)?v3(0,1,0):v3(1,0,0);
+    m.r[0]=v3_norm(v3_cross(t,m.r[2])); m.r[1]=v3_cross(m.r[2],m.r[0]); return m;
+}
+static inline uint16_t col_of(float r,float g,float b){
+    int R=(int)(r*255),G=(int)(g*255),B=(int)(b*255);
+    if(R<0)R=0;if(R>255)R=255;if(G<0)G=0;if(G>255)G=255;if(B<0)B=0;if(B>255)B=255;
+    return MOTE_RGB565(R,G,B);
+}
+
+/* ---- tree mesh (from the world demo) ---- */
+static void emit_splat(Vec3 p,Vec3 sc,Mat3 b,uint16_t c,float op){ if(s_n<MAXSPLAT) s_splat[s_n++]=mote_splat_make(p,sc,b,c,op); }
+static void leaf_cluster(Vec3 c,float rad,int n){
+    for(int i=0;i<n;i++){ Vec3 pos=v3_add(c,v3_scale(v3(frnd2(),frnd2()*0.8f,frnd2()),rad));
+        Vec3 nrm=v3(frnd2(),0.5f+0.5f*frand(),frnd2());
+        emit_splat(pos,v3(0.08f,0.062f,0.014f),basis_from_normal(nrm),col_of(0.14f+0.2f*frand(),0.42f+0.28f*frand(),0.12f),0.6f); }
+}
+static MeshVert quantv(Vec3 p){ MeshVert v; v.x=(int8_t)(p.x/TREE_S*127); v.y=(int8_t)(p.y/TREE_S*127); v.z=(int8_t)(p.z/TREE_S*127); return v; }
+static void add_tri_t(TreeMesh*tm,int i0,int i1,int i2,Vec3 p0,Vec3 p1,Vec3 p2,Vec3 out,uint16_t col){
+    if(tm->nf>=TFF) return; Vec3 fn=v3_cross(v3_sub(p1,p0),v3_sub(p2,p0));
+    if(v3_dot(fn,out)<0){int t=i1;i1=i2;i2=t;} Vec3 nn=v3_norm(out);
+    MeshFace*f=&tm->f[tm->nf++]; f->a=(uint16_t)i0;f->b=(uint16_t)i1;f->c=(uint16_t)i2;
+    f->nx=(int8_t)(nn.x*127);f->ny=(int8_t)(nn.y*127);f->nz=(int8_t)(nn.z*127);f->color=col;
+}
+static void add_branch(TreeMesh*tm,Vec3 a,Vec3 b,float ra,float rb,uint16_t col){
+    if(tm->nv+8>TVV||tm->nf+8>TFF) return; Vec3 ax=v3_norm(v3_sub(b,a)); Mat3 bs=basis_from_normal(ax);
+    Vec3 u=bs.r[0],vv=bs.r[1],rA[4],rB[4]; int base=tm->nv;
+    for(int k=0;k<4;k++){float an=k*1.5707963f; Vec3 rad=v3_add(v3_scale(u,cosf(an)),v3_scale(vv,sinf(an)));
+        rA[k]=v3_add(a,v3_scale(rad,ra)); rB[k]=v3_add(b,v3_scale(rad,rb));}
+    for(int k=0;k<4;k++) tm->v[tm->nv++]=quantv(rA[k]);
+    for(int k=0;k<4;k++) tm->v[tm->nv++]=quantv(rB[k]);
+    Vec3 mid=v3_scale(v3_add(a,b),0.5f);
+    for(int k=0;k<4;k++){int kn=(k+1)&3,a0=base+k,a1=base+kn,b0=base+4+k,b1=base+4+kn;
+        Vec3 fmid=v3_scale(v3_add(v3_add(rA[k],rA[kn]),v3_add(rB[k],rB[kn])),0.25f); Vec3 out=v3_sub(fmid,mid);
+        add_tri_t(tm,a0,a1,b1,rA[k],rA[kn],rB[kn],out,col); add_tri_t(tm,a0,b1,b0,rA[k],rB[kn],rB[k],out,col);}
+}
+static void grow(TreeMesh*tm,Vec3 a,Vec3 dir,float len,float thick,int depth){
+    dir=v3_norm(dir); Vec3 b=v3_add(a,v3_scale(dir,len));
+    add_branch(tm,a,b,thick,thick*0.66f,col_of(0.30f,0.19f,0.10f));
+    if(depth<=0||s_n>MAXSPLAT-20){ leaf_cluster(v3_add(tm->base,b),0.22f,14); return; }
+    int nb=2+(frand()<0.4f?1:0);
+    for(int c=0;c<nb;c++){ Vec3 t=(fabsf(dir.y)<0.9f)?v3(0,1,0):v3(1,0,0);
+        Vec3 p1=v3_norm(v3_cross(dir,t)),p2=v3_cross(dir,p1); float an=6.2831853f*frand();
+        Vec3 perp=v3_add(v3_scale(p1,cosf(an)),v3_scale(p2,sinf(an))); float sp=0.5f+0.4f*frand();
+        Vec3 nd=v3_norm(v3_add(v3_scale(dir,cosf(sp)),v3_scale(perp,sinf(sp)))); nd=v3_norm(v3_add(nd,v3(0,0.2f,0)));
+        grow(tm,b,nd,len*0.72f,thick*0.6f,depth-1);}
+    if(depth<=1) leaf_cluster(v3_add(tm->base,b),0.16f,8);
+}
+
+static uint16_t lie_color(int lie, float ny){
+    float lit = 0.6f + 0.4f*(ny>0?ny:0);
+    switch(lie){
+        case GOLF_FAIRWAY: return col_of(0.28f*lit,0.58f*lit,0.24f*lit);
+        case GOLF_GREEN:   return col_of(0.42f*lit,0.74f*lit,0.34f*lit);
+        case GOLF_TEE:     return col_of(0.34f*lit,0.64f*lit,0.30f*lit);
+        default:           return col_of(0.22f*lit,0.40f*lit,0.18f*lit);   /* rough */
+    }
+}
+static void gen_terrain(void){
+    tcx=(hole.min_x+hole.max_x)*0.5f; tcz=(hole.min_z+hole.max_z)*0.5f; tcy=hole.tee_h;
+    float spanx=hole.max_x-hole.min_x, spanz=hole.max_z-hole.min_z;
+    tscale = (spanx>spanz?spanx:spanz)*0.5f + 8.0f;
+    /* collider: full-resolution world heightfield */
+    for(int gz=0;gz<NZ;gz++) for(int gx=0;gx<NX;gx++){
+        float wx=hole.min_x+spanx*gx/(NX-1), wz=hole.min_z+spanz*gz/(NZ-1);
+        mcvg[gz*NX+gx]=v3(wx, golf_height(&hole,wx,wz), wz);
+    }
+    int ti=0;
+    for(int gz=0;gz<NZ-1;gz++) for(int gx=0;gx<NX-1;gx++){
+        int a=gz*NX+gx,b=a+1,c=a+NX,d=c+1;
+        mctg[ti++]=a;mctg[ti++]=c;mctg[ti++]=b; mctg[ti++]=b;mctg[ti++]=c;mctg[ti++]=d;
+    }
+    terr_col.verts=mcvg; terr_col.nverts=NV; terr_col.tris=mctg; terr_col.ntris=ti/3; terr_col.bound_r=tscale*1.6f;
+    mote_phys_mesh_build_grid(&terr_col, 16, g_gstart, g_gtri, NF);
+    /* render chunks (each <= MOTE_MAX_VERTS verts, uint8 face indices) */
+    for(int ch=0; ch<NCHUNK; ch++){
+        int z0=ch*CHUNK_ROWS, z1=z0+CHUNK_ROWS; if(z1>NZ-1) z1=NZ-1;
+        int nrows=z1-z0+1;
+        for(int lz=0; lz<nrows; lz++) for(int gx=0; gx<NX; gx++){
+            Vec3 w=mcvg[(z0+lz)*NX+gx]; MeshVert*v=&cv[ch][lz*NX+gx];
+            v->x=(int8_t)((w.x-tcx)/tscale*127); v->y=(int8_t)((w.y-tcy)/tscale*127); v->z=(int8_t)((w.z-tcz)/tscale*127);
+        }
+        int nf=0;
+        for(int lz=0; lz<nrows-1; lz++) for(int gx=0; gx<NX-1; gx++){
+            int a=lz*NX+gx,b=a+1,c=a+NX,d=c+1;
+            for(int tri=0;tri<2;tri++){
+                int i0,i1,i2; if(tri==0){i0=a;i1=c;i2=b;}else{i0=b;i1=c;i2=d;}
+                Vec3 p0=mcvg[(z0+(i0/NX))*NX+(i0%NX)], p1=mcvg[(z0+(i1/NX))*NX+(i1%NX)], p2=mcvg[(z0+(i2/NX))*NX+(i2%NX)];
+                Vec3 fn=v3_norm(v3_cross(v3_sub(p1,p0),v3_sub(p2,p0)));
+                float mx=(p0.x+p1.x+p2.x)/3, mz=(p0.z+p1.z+p2.z)/3;
+                MeshFace*f=&cf[ch][nf++]; f->a=(uint8_t)i0;f->b=(uint8_t)i1;f->c=(uint8_t)i2;
+                f->nx=(int8_t)(fn.x*127);f->ny=(int8_t)(fn.y*127);f->nz=(int8_t)(fn.z*127);
+                f->color=lie_color(golf_lie(&hole,mx,mz), fn.y);
+            }
+        }
+        chunk_mesh[ch].verts=cv[ch]; chunk_mesh[ch].faces=cf[ch]; chunk_mesh[ch].nverts=nrows*NX;
+        chunk_mesh[ch].nfaces=nf; chunk_mesh[ch].scale=tscale; chunk_mesh[ch].bound_r=tscale*1.2f;
+    }
+}
+
+/* ---- flag at the cup ---- */
+static MeshVert flag_v[7]; static MeshFace flag_f[5]; static Mesh flag_mesh;
+static void gen_flag(void){
+    /* a thin pole (a vertical quad pair) + a red flag triangle, local m, scale 1 */
+    flag_v[0]=(MeshVert){-1,0,0}; flag_v[1]=(MeshVert){1,0,0}; flag_v[2]=(MeshVert){1,127,0}; flag_v[3]=(MeshVert){-1,127,0};
+    flag_v[4]=(MeshVert){1,127,0}; flag_v[5]=(MeshVert){40,108,0}; flag_v[6]=(MeshVert){1,88,0};
+    uint16_t white=MOTE_RGB565(235,235,235), red=MOTE_RGB565(220,40,40);
+    flag_f[0]=(MeshFace){0,1,2,0,0,127,white}; flag_f[1]=(MeshFace){0,2,3,0,0,127,white};
+    flag_f[2]=(MeshFace){1,0,3,0,0,-127,white}; flag_f[3]=(MeshFace){4,5,6,0,0,127,red};
+    flag_f[4]=(MeshFace){4,6,5,0,0,-127,red};
+    flag_mesh.verts=flag_v; flag_mesh.faces=flag_f; flag_mesh.nverts=7; flag_mesh.nfaces=5; flag_mesh.scale=1.6f; flag_mesh.bound_r=2.0f;
+}
+
+/* ---- state ---- */
+static float s_aim, s_power; static int s_charging, s_strokes, s_holed;
+static Vec3  s_cam; static Mat3 s_basis;
+
+static void aim_at_cup(void){ s_aim = atan2f(hole.cup_x - BALL.pos.x, hole.cup_z - BALL.pos.z); }
+static void tee_up(void){
+    BALL.pos = v3(hole.tee_x, golf_height(&hole,hole.tee_x,hole.tee_z)+0.1f, hole.tee_z);
+    BALL.vel=v3(0,0,0); BALL.w=v3(0,0,0); BALL._reserved[0]=0;
+    s_power=0; s_charging=0; s_holed=0; s_strokes=0; aim_at_cup();
+}
+
+static void g_init(void){
+    mote->scene_set_background(MOTE_RGB565(150,185,215));
+    golf_generate(&hole, 0x9E3779B9u);
+    gen_terrain();
+    gen_flag();
+    /* trees scattered in the rough */
+    s_n=0; n_tree=0;
+    for(float wz=hole.min_z+2; wz<hole.max_z-2 && n_tree<NTREE; wz+=3.5f)
+      for(float wx=hole.min_x+2; wx<hole.max_x-2 && n_tree<NTREE; wx+=3.5f)
+        if(golf_tree(&hole,wx,wz)){
+            TreeMesh*tm=&trees[n_tree]; tm->nv=0; tm->nf=0;
+            tm->base=v3(wx, golf_height(&hole,wx,wz)-0.1f, wz);
+            grow(tm, v3(0,0,0), v3(0,1,0), 0.6f+0.2f*frand(), 0.08f, 3);
+            tm->mesh.verts=tm->v; tm->mesh.faces=tm->f; tm->mesh.nverts=tm->nv; tm->mesh.nfaces=tm->nf;
+            tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
+            n_tree++;
+        }
+    mote->phys_world_defaults(&pw);
+    pw.walls=0; pw.gravity=v3(0,-9.8f,0); pw.restitution=0.4f; pw.friction=0.4f;
+    pw.substep=1.0f/240.0f; pw.max_substeps=6;
+    bodies[0].shape=MOTE_SHAPE_MESH; bodies[0].shape_data=&terr_col; bodies[0].orient=m3_identity(); bodies[0].inv_mass=0;
+    BALL.shape=MOTE_SHAPE_SPHERE; BALL.radius=0.12f; BALL.inv_mass=1.0f/0.045f; BALL.restitution=0.35f; BALL.orient=m3_identity();
+    tee_up();
+}
+
+static void fillrect(uint16_t*fb,int x,int y,int w,int h,uint16_t c){
+    for(int j=y;j<y+h;j++){ if((unsigned)j>=128)continue; for(int i=x;i<x+w;i++){ if((unsigned)i>=128)continue; fb[j*128+i]=c; } }
+}
+static int itoa10(int n,char*o){ char t[8]; int p=0,q=0; if(n<0){o[q++]='-';n=-n;} if(n==0)t[p++]='0'; while(n){t[p++]='0'+n%10;n/=10;} while(p)o[q++]=t[--p]; o[q]=0; return q; }
+
+static void g_update(float dt){
+    const MoteInput*in=mote->input();
+    if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
+    if(mote_just_pressed(in,MOTE_BTN_B))    tee_up();
+
+    float bspeed=v3_len(BALL.vel);
+    int resting = bspeed<0.35f && BALL.pos.y < golf_height(&hole,BALL.pos.x,BALL.pos.z)+0.3f;
+
+    float dcup=sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
+    if(!s_holed && dcup<0.8f && bspeed<2.5f){ s_holed=1; BALL.vel=v3(0,0,0); }
+
+    if(!s_holed && resting){
+        if(mote_pressed(in,MOTE_BTN_LEFT))  s_aim -= 1.1f*dt;
+        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_aim += 1.1f*dt;
+        if(mote_pressed(in,MOTE_BTN_A)){ s_charging=1; s_power+=0.85f*dt; if(s_power>1)s_power=1; }
+        else if(s_charging){
+            s_charging=0;
+            Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
+            float p=18.0f*s_power;
+            BALL.vel=v3(dir.x*p, 3.5f*s_power+1.0f, dir.z*p);   /* drive with loft */
+            BALL._reserved[0]=0; s_strokes++; s_power=0;
+        }
+    }
+    int lie=golf_lie(&hole,BALL.pos.x,BALL.pos.z);
+    BALL.friction = (lie==GOLF_GREEN)?0.05f:(lie==GOLF_FAIRWAY?0.22f:0.55f);
+
+    mote->phys_step(&pw, bodies, 2, dt);
+
+    Vec3 dir=v3(sinf(s_aim),0,cosf(s_aim));
+    s_cam = v3(BALL.pos.x - dir.x*5.0f, BALL.pos.y + 3.4f, BALL.pos.z - dir.z*5.0f);
+    float lax=BALL.pos.x+dir.x*13.0f, laz=BALL.pos.z+dir.z*13.0f;
+    Vec3 look = s_holed ? v3(hole.cup_x,hole.cup_h,hole.cup_z)
+                        : v3(lax, golf_height(&hole,lax,laz), laz);   /* look down the fairway */
+    Vec3 fwd=v3_norm(v3_sub(look,s_cam)); Vec3 right=v3_norm(v3_cross(v3(0,1,0),fwd));
+    s_basis.r[0]=right; s_basis.r[1]=v3_cross(fwd,right); s_basis.r[2]=fwd;
+
+    mote->scene_begin(&s_basis, 60.0f);
+    for(int ch=0; ch<NCHUNK; ch++){
+        MoteObject to={.pos=v3_sub(v3(tcx,tcy,tcz),s_cam),.basis=m3_identity(),.mesh=&chunk_mesh[ch]};
+        mote->scene_add_object(&to);
+    }
+    for(int k=0;k<n_tree;k++){ MoteObject o={.pos=v3_sub(trees[k].base,s_cam),.basis=m3_identity(),.mesh=&trees[k].mesh}; mote->scene_add_object(&o); }
+    MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
+    mote->scene_add_object(&flo);
+    mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
+    if(!s_holed && resting){
+        for(int i=1;i<=4;i++){ float ax=BALL.pos.x+dir.x*i*1.3f, az=BALL.pos.z+dir.z*i*1.3f;
+            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.1f,az),s_cam),0.05f,MOTE_RGB565(255,225,50)); }
+    }
+    mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
+}
+
+static void g_overlay(uint16_t*fb){
+    char b[28]; int q=0;
+    b[q++]='P';b[q++]='A';b[q++]='R';q+=itoa10(hole.par,b+q); b[q++]=' ';
+    int d=(int)sqrtf((BALL.pos.x-hole.cup_x)*(BALL.pos.x-hole.cup_x)+(BALL.pos.z-hole.cup_z)*(BALL.pos.z-hole.cup_z));
+    q+=itoa10(d,b+q); b[q++]='m'; b[q++]=' '; b[q++]='S'; q+=itoa10(s_strokes,b+q); b[q]=0;
+    mote->text(fb,b,3,3,MOTE_RGB565(20,40,20));
+    if(s_holed){ mote->text(fb,"HOLED!",46,56,MOTE_RGB565(255,240,80)); }
+    else { /* power bar */
+        fillrect(fb,3,120,62,5,MOTE_RGB565(30,30,30));
+        fillrect(fb,4,121,(int)(s_power*60),3,s_power<0.5f?MOTE_RGB565(80,220,80):(s_power<0.85f?MOTE_RGB565(240,220,60):MOTE_RGB565(240,70,70)));
+        mote->text(fb,"LR AIM  A POWER",70,120,MOTE_RGB565(20,40,20));
+    }
+}
+
+static const MoteGameVtbl k_vtbl = { .init=g_init, .update=g_update, .overlay=g_overlay };
+static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
