@@ -247,12 +247,19 @@ static void g_update(float dt){
         }
     }
     int lie=golf_lie(&hole,BALL.pos.x,BALL.pos.z);
-    BALL.friction = (lie==GOLF_GREEN)?0.05f:(lie==GOLF_FAIRWAY?0.22f:(lie==GOLF_BUNKER?0.85f:0.5f));
-
-    /* Magnus: backspin lifts (carry), sidespin curves — while airborne */
-    if(BALL.pos.y > golf_height(&hole,BALL.pos.x,BALL.pos.z) + BALL.radius + 0.15f){
-        Vec3 mag = v3_cross(BALL.w, BALL.vel);
-        BALL.vel = v3_add(BALL.vel, v3_scale(mag, 0.01f*dt));
+    BALL.friction = (lie==GOLF_GREEN)?0.04f:(lie==GOLF_FAIRWAY?0.20f:(lie==GOLF_BUNKER?0.9f:0.5f));
+    float gy=golf_height(&hole,BALL.pos.x,BALL.pos.z);
+    if(BALL.pos.y > gy + BALL.radius + 0.15f){
+        /* airborne: Magnus — backspin lifts (carry), sidespin curves */
+        BALL.vel = v3_add(BALL.vel, v3_scale(v3_cross(BALL.w, BALL.vel), 0.01f*dt));
+    } else {
+        /* grounded: PER-SURFACE rolling resistance. The rigid-body model has
+         * none (a rolling ball never slips, so Coulomb friction can't slow it) —
+         * green rolls far, fairway medium, rough/sand grabs. */
+        float rd = (lie==GOLF_GREEN)?0.4f : (lie==GOLF_FAIRWAY?1.1f : (lie==GOLF_BUNKER?7.0f : 3.0f));
+        float f = 1.0f - rd*dt; if(f<0.0f) f=0.0f;
+        BALL.vel = v3(BALL.vel.x*f, BALL.vel.y, BALL.vel.z*f);
+        BALL.w   = v3_scale(BALL.w, f);
     }
 
     mote->phys_step(&pw, bodies, 2, dt);
