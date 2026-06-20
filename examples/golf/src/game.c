@@ -440,10 +440,14 @@ static void g_update(float dt){
         look=v3(tx,ty+1.0f,tz);
         s_cam=v3(tx - rx*13.0f, ty+9.0f, tz - rz*13.0f);
     } else {
-        s_cam = v3(BALL.pos.x - dir.x*5.0f, BALL.pos.y + 3.4f, BALL.pos.z - dir.z*5.0f);
-        float lax=BALL.pos.x+dir.x*13.0f, laz=BALL.pos.z+dir.z*13.0f;
+        /* frame the selected club's landing zone so the target ring is in view:
+         * pull back + up with the carry, look ~70% of the way to the target. */
+        float carry_w = CLUBS[s_club].carry / YARD; if(carry_w<10.0f) carry_w=10.0f;
+        float back = 4.5f + carry_w*0.09f, high = 3.2f + carry_w*0.05f;
+        s_cam = v3(BALL.pos.x - dir.x*back, BALL.pos.y + high, BALL.pos.z - dir.z*back);
+        float lk=carry_w*0.62f; float lax=BALL.pos.x+dir.x*lk, laz=BALL.pos.z+dir.z*lk;
         look = s_holed ? v3(hole.cup_x,hole.cup_h,hole.cup_z)
-                       : v3(lax, golf_height(&hole,lax,laz), laz);   /* look down the fairway */
+                       : v3(lax, golf_height(&hole,lax,laz)+0.6f, laz);
     }
     Vec3 fwd=v3_norm(v3_sub(look,s_cam)); Vec3 right=v3_norm(v3_cross(v3(0,1,0),fwd));
     s_basis.r[0]=right; s_basis.r[1]=v3_cross(fwd,right); s_basis.r[2]=fwd;
@@ -457,14 +461,17 @@ static void g_update(float dt){
     MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
     mote->scene_add_object(&flo);
     mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
-    if(!s_holed && !s_sink && s_swing==0 && resting && !s_fly){ /* aim line + landing (predict is fresh) */
+    if(!s_holed && !s_sink && s_swing==0 && resting && !s_fly){
+        /* target = the SELECTED CLUB'S full carry projected down the aim line */
         Vec3 ad=v3(sinf(s_aim),0,cosf(s_aim));
-        for(int i=1;i<=10;i++){ float d=i*1.6f; float ax=BALL.pos.x+ad.x*d, az=BALL.pos.z+ad.z*d;
+        float carry_w = CLUBS[s_club].carry / YARD;       /* world units */
+        float tx=BALL.pos.x+ad.x*carry_w, tz=BALL.pos.z+ad.z*carry_w;
+        /* aim line up to the target */
+        for(int i=1;i<=10;i++){ float d=carry_w*i/11.0f; float ax=BALL.pos.x+ad.x*d, az=BALL.pos.z+ad.z*d;
             mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.18f,az),s_cam),0.08f,MOTE_RGB565(255,245,70)); }
-        float ld=sqrtf((s_land.x-BALL.pos.x)*(s_land.x-BALL.pos.x)+(s_land.z-BALL.pos.z)*(s_land.z-BALL.pos.z));
-        if(ld>4.0f) for(int k=0;k<14;k++){          /* target ring on the ground at the arc's end */
-            float a=k*(TAU/14.0f), rx=s_land.x+cosf(a)*1.4f, rz=s_land.z+sinf(a)*1.4f;
-            mote->scene_add_sphere(v3_sub(v3(rx,golf_height(&hole,rx,rz)+0.08f,rz),s_cam),0.07f,MOTE_RGB565(255,255,255)); }
+        if(carry_w>2.0f) for(int k=0;k<16;k++){           /* target ring at the club's carry distance */
+            float a=k*(TAU/16.0f), rx=tx+cosf(a)*1.6f, rz=tz+sinf(a)*1.6f;
+            mote->scene_add_sphere(v3_sub(v3(rx,golf_height(&hole,rx,rz)+0.08f,rz),s_cam),0.08f,MOTE_RGB565(255,255,255)); }
     }
     mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
 }
@@ -522,18 +529,15 @@ static void g_overlay(uint16_t*fb){
         if(row>2 && row<MMH-2) for(int x=2;x<MMW-2;x+=2) fb[(My+row)*128+Mx+x]=MOTE_RGB565(240,240,150); }
     if(s_fly){ mote->text(fb,"HOLE PREVIEW  LB EXIT",4,118,MOTE_RGB565(235,240,200)); return; }
 
-    /* club HUD: bordered panel, up/down arrows, club name, relative-distance bar */
-    int px=76, py=1, pw=51, ph=21;
+    /* club HUD: compact panel top-right (name + carry, tiny up/down arrows) */
+    int px=84, py=1, pw=43, ph=16;
     fillrect(fb,px,py,pw,ph,MOTE_RGB565(14,20,16));
-    fillrect(fb,px,py,pw,1,MOTE_RGB565(70,115,78));
-    fillrect(fb,px,py+ph-1,pw,1,MOTE_RGB565(70,115,78));
-    fillrect(fb,px,py,1,ph,MOTE_RGB565(70,115,78));
-    tri(fb,px+6,py+3,1,MOTE_RGB565(215,235,215));
-    tri(fb,px+6,py+12,0,MOTE_RGB565(215,235,215));
-    mote->text(fb,CLUBS[s_club].name,px+13,py+3,MOTE_RGB565(255,225,120));
-    if(CLUBS[s_club].loft<3.0f) mote->text(fb,"PUTT",px+14,py+12,MOTE_RGB565(150,230,150));
+    fillrect(fb,px,py,pw,1,MOTE_RGB565(70,115,78)); fillrect(fb,px,py+ph-1,pw,1,MOTE_RGB565(70,115,78));
+    tri(fb,px+4,py+2,1,MOTE_RGB565(200,220,200)); tri(fb,px+4,py+9,0,MOTE_RGB565(200,220,200));
+    mote->text(fb,CLUBS[s_club].name,px+9,py+2,MOTE_RGB565(255,225,120));
+    if(CLUBS[s_club].loft<3.0f) mote->text(fb,"PUTT",px+9,py+9,MOTE_RGB565(150,230,150));
     else { char cb[8]; int cq=itoa10(club_carry_yd(s_club),cb); cb[cq++]='y'; cb[cq]=0;
-           mote->text(fb,cb,px+14,py+12,MOTE_RGB565(150,230,150)); }
+           mote->text(fb,cb,px+9,py+9,MOTE_RGB565(150,230,150)); }
 
     /* ball locator ring — always shows where the ball is, even far away */
     { Vec3 rel=v3_sub(BALL.pos,s_cam);
