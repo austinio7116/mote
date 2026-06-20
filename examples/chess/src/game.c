@@ -215,26 +215,29 @@ static void g_update(float dt){
     const MoteInput*in=mote->input();
     if(mote_just_pressed(in,MOTE_BTN_MENU)) mote->exit_to_launcher();
 
-    /* Camera: RB/LB zoom in/out; hold B + D-pad to orbit (LR yaw, UD pitch).
-     * Hold BOTH shoulders to peek the piece gallery. */
+    /* Camera: hold LB + D-pad UP/DOWN = ZOOM; hold RB + D-pad = PAN (LR yaw,
+     * UD pitch). Hold BOTH shoulders to peek the piece gallery. */
     int lb=mote_pressed(in,MOTE_BTN_LB), rb=mote_pressed(in,MOTE_BTN_RB);
     int gallery = lb && rb;
-    int modify  = mote_pressed(in,MOTE_BTN_B);
     s_galleryv = gallery;
-    if(!gallery){ if(rb) s_dist -= 8.0f*dt; if(lb) s_dist += 8.0f*dt; }
-    if(modify){
-        if(mote_pressed(in,MOTE_BTN_LEFT))  s_yaw   -= 1.5f*dt;
-        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_yaw   += 1.5f*dt;
-        if(mote_pressed(in,MOTE_BTN_UP))    s_pitch += 1.0f*dt;
-        if(mote_pressed(in,MOTE_BTN_DOWN))  s_pitch -= 1.0f*dt;
+    if(!gallery && lb){
+        if(mote_pressed(in,MOTE_BTN_UP))    s_dist -= 9.0f*dt;
+        if(mote_pressed(in,MOTE_BTN_DOWN))  s_dist += 9.0f*dt;
+    }
+    if(!gallery && rb){
+        if(mote_pressed(in,MOTE_BTN_LEFT))  s_yaw   -= 1.6f*dt;
+        if(mote_pressed(in,MOTE_BTN_RIGHT)) s_yaw   += 1.6f*dt;
+        if(mote_pressed(in,MOTE_BTN_UP))    s_pitch += 1.1f*dt;
+        if(mote_pressed(in,MOTE_BTN_DOWN))  s_pitch -= 1.1f*dt;
     }
     if(s_pitch<0.18f)s_pitch=0.18f; if(s_pitch>1.45f)s_pitch=1.45f;
     if(s_dist<4.5f)s_dist=4.5f; if(s_dist>20.0f)s_dist=20.0f;
     s_spin += dt*0.8f;
 
-    if(s_state==ST_PLAYER && !modify && !gallery){
-        if(mote_just_pressed(in,MOTE_BTN_LEFT)  && s_cf>0) s_cf--;
-        if(mote_just_pressed(in,MOTE_BTN_RIGHT) && s_cf<7) s_cf++;
+    if(s_state==ST_PLAYER && !lb && !rb){
+        /* file L/R is screen-relative: at the default view +x (file 7) is screen-left */
+        if(mote_just_pressed(in,MOTE_BTN_LEFT)  && s_cf<7) s_cf++;
+        if(mote_just_pressed(in,MOTE_BTN_RIGHT) && s_cf>0) s_cf--;
         if(mote_just_pressed(in,MOTE_BTN_UP)    && s_cr>0) s_cr--;
         if(mote_just_pressed(in,MOTE_BTN_DOWN)  && s_cr<7) s_cr++;
         if(mote_just_pressed(in,MOTE_BTN_A)){
@@ -324,7 +327,7 @@ static void g_overlay(uint16_t*fb){
         return;
     }
     if(s_state==ST_THINK||s_state==ST_SEARCH) mote->text(fb,"BLACK THINKING",26,4,MOTE_RGB565(230,180,120));
-    else mote->text(fb, s_sel?"A DROP   B+DPAD ORBIT":"A PICK  RB/LB ZOOM", 6,4, MOTE_RGB565(210,220,235));
+    else mote->text(fb, s_sel?"A DROP  LB ZOOM RB PAN":"A PICK  LB ZOOM RB PAN", 4,4, MOTE_RGB565(210,220,235));
     if(chal_is_in_check() && s_state==ST_PLAYER) mote->text(fb,"CHECK",48,118,MOTE_RGB565(255,90,90));
 }
 

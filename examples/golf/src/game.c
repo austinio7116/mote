@@ -228,18 +228,17 @@ static int   s_sink;        /* >0: ball sinking in water (frames) */
 #define SW_SNAP   0.07f
 
 /* ---- clubs: max speed (m/s) + launch loft (deg) + spin scale ---- */
-typedef struct { const char *name; float speed, loft, spin; } Club;
+typedef struct { const char *name; float speed, loft, spin; int carry; } Club;
 #define YARD 4.0f                 /* world units * 4 = yards (golf-realistic display) */
 #define TAU 6.2831853f
-static const Club CLUBS[] = {      /* speeds gapped so carries step ~350/300/240/170/100y */
-    {"DRIVER", 46.0f, 12.0f, 0.5f}, {"3 WOOD", 37.0f, 16.0f, 0.7f},
-    {"5 IRON", 28.0f, 24.0f, 1.0f}, {"8 IRON", 21.0f, 36.0f, 1.4f},
-    {"WEDGE",  16.0f, 53.0f, 2.0f}, {"PUTTER", 12.0f, 1.0f,  0.0f},
+/* Tuned with tools/club_rig.c to club-player carries + sensible shapes (apex,
+ * descent, roll). carry = full-power carry in yards (for the HUD). */
+static const Club CLUBS[] = {
+    {"DRIVER", 28.6f, 18.0f, 0.40f, 215}, {"3 WOOD", 25.5f, 21.0f, 0.60f, 200},
+    {"5 IRON", 20.5f, 28.0f, 1.00f, 165}, {"8 IRON", 17.0f, 38.0f, 1.50f, 132},
+    {"WEDGE",  15.5f, 54.0f, 2.20f,  96}, {"PUTTER", 12.0f, 1.0f,  0.0f,    0},
 };
-static int club_carry_yd(int ci){  /* projectile carry of club ci, in yards */
-    const Club*c=&CLUBS[ci]; float lr=c->loft*(3.14159265f/180.0f);
-    return (int)(c->speed*c->speed*sinf(2.0f*lr)/9.8f*YARD);
-}
+static int club_carry_yd(int ci){ return CLUBS[ci].carry; }
 #define NCLUB 6
 static int s_club;
 
@@ -380,7 +379,7 @@ static void g_update(float dt){
     float gy=golf_height(&hole,BALL.pos.x,BALL.pos.z);
     if(BALL.pos.y > gy + BALL.radius + 0.15f){
         /* airborne: Magnus — backspin lifts (carry), sidespin curves */
-        BALL.vel = v3_add(BALL.vel, v3_scale(v3_cross(BALL.w, BALL.vel), 0.01f*dt));
+        BALL.vel = v3_add(BALL.vel, v3_scale(v3_cross(BALL.w, BALL.vel), 0.003f*dt));  /* Magnus (matches club_rig) */
     } else {
         /* grounded: PER-SURFACE rolling resistance. The rigid-body model has
          * none (a rolling ball never slips, so Coulomb friction can't slow it) —
