@@ -40,9 +40,9 @@ static Mesh     chunk_mesh[NCHUNK];
 static float    tcx, tcy, tcz, tscale;
 
 /* ---- trees: mesh trunks + splat leaves ---- */
-#define NTREE 10
-#define TVV 220
-#define TFF 300
+#define NTREE 14
+#define TVV 72                            /* depth-1 trunk: ~32 verts/faces, ample */
+#define TFF 80
 #define TREE_S 2.0f
 typedef struct { MeshVert v[TVV]; MeshFace f[TFF]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
 static TreeMesh trees[NTREE]; static int n_tree;
@@ -236,19 +236,26 @@ static void build_hole(uint32_t seed){
     gen_terrain();
     gen_flag();
     s_n=0; n_tree=0;
-    /* scan the PLAY corridor (tee -> past the green) so trees line the hole you
-     * see, not the area behind the tee. */
-    float tz0=hole.tee_z-4.0f, tz1=hole.cup_z+12.0f;
-    for(float wz=tz0; wz<tz1 && n_tree<NTREE; wz+=3.0f)
-      for(float wx=hole.min_x+2; wx<hole.max_x-2 && n_tree<NTREE; wx+=3.0f)
-        if(golf_tree(&hole,wx,wz)){
-            TreeMesh*tm=&trees[n_tree]; tm->nv=0; tm->nf=0;
-            tm->base=v3(wx, golf_height(&hole,wx,wz)-0.1f, wz);
-            grow(tm, v3(0,0,0), v3(0,1,0), 0.6f+0.25f*frand(), 0.085f, 2);
-            tm->mesh.verts=tm->v; tm->mesh.faces=tm->f; tm->mesh.nverts=tm->nv; tm->mesh.nfaces=tm->nf;
-            tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
-            n_tree++;
-        }
+    /* Line the fairway you actually see: step along the tee->cup route, place a
+     * tree just into the rough on alternating sides at each interval (the scan
+     * version put the first trees behind the tee, off-camera). */
+    float rx=hole.cup_x-hole.tee_x, rz=hole.cup_z-hole.tee_z, rl=sqrtf(rx*rx+rz*rz); if(rl<1.0f) rl=1.0f;
+    float prx=-rz/rl, prz=rx/rl;
+    for(int k=0; k<NTREE*3 && n_tree<NTREE; k++){
+        float t=((float)(k/2)+0.5f)/(NTREE*0.5f)*1.08f;      /* 0..~1.08 tee->past green */
+        int side=(k&1)?1:-1;
+        float cx=hole.tee_x+rx*t, cz=hole.tee_z+rz*t;
+        float off=8.0f + 5.0f*frand();                        /* just past the 6m fairway */
+        float wx=cx+prx*side*off+frnd2()*2.0f, wz=cz+prz*side*off+frnd2()*2.0f;
+        if(wx<hole.min_x+1||wx>hole.max_x-1||wz<hole.min_z+1||wz>hole.max_z-1) continue;
+        if(golf_lie(&hole,wx,wz)!=GOLF_ROUGH) continue;       /* skip fairway/water/sand */
+        TreeMesh*tm=&trees[n_tree]; tm->nv=0; tm->nf=0;
+        tm->base=v3(wx, golf_height(&hole,wx,wz)-0.1f, wz);
+        grow(tm, v3(0,0,0), v3(0,1,0), 0.7f+0.3f*frand(), 0.10f, 1);   /* cheap trunk + leaf splats */
+        tm->mesh.verts=tm->v; tm->mesh.faces=tm->f; tm->mesh.nverts=tm->nv; tm->mesh.nfaces=tm->nf;
+        tm->mesh.scale=TREE_S; tm->mesh.bound_r=TREE_S*1.5f;
+        n_tree++;
+    }
     /* flag cloth as red splats off the top of the pole */
     for(int i=0;i<8 && s_n<MAXSPLAT;i++)
         emit_splat(v3(hole.cup_x+0.12f+0.14f*(i%4), hole.cup_h+1.95f-0.14f*(i/4), hole.cup_z),
@@ -369,10 +376,13 @@ static void g_update(float dt){
     MoteObject flo={.pos=v3_sub(v3(hole.cup_x,hole.cup_h,hole.cup_z),s_cam),.basis=m3_identity(),.mesh=&flag_mesh};
     mote->scene_add_object(&flo);
     mote->scene_add_sphere(v3_sub(BALL.pos,s_cam),0.12f,MOTE_RGB565(248,248,248));
-    if(!s_holed && resting && s_swing==0){                    /* preview only while aiming */
+    if(!s_holed && !s_sink && s_swing==0){                    /* aim line + flight preview */
+        Vec3 ad=v3(sinf(s_aim),0,cosf(s_aim));
+        for(int i=1;i<=7;i++){ float ax=BALL.pos.x+ad.x*i*1.9f, az=BALL.pos.z+ad.z*i*1.9f;
+            mote->scene_add_sphere(v3_sub(v3(ax,golf_height(&hole,ax,az)+0.12f,az),s_cam),0.06f,MOTE_RGB565(255,240,60)); }
         for(int i=0;i<s_prevn;i++)
-            mote->scene_add_sphere(v3_sub(s_preview[i],s_cam),0.06f,MOTE_RGB565(255,235,80));
-        mote->scene_add_sphere(v3_sub(s_land,s_cam),0.20f,MOTE_RGB565(255,110,40));  /* landing */
+            mote->scene_add_sphere(v3_sub(s_preview[i],s_cam),0.05f,MOTE_RGB565(255,150,40));
+        mote->scene_add_sphere(v3_sub(s_land,s_cam),0.22f,MOTE_RGB565(255,90,30));    /* landing */
     }
     mote->scene_set_splats(s_splat,s_n,s_order,&s_basis,s_cam,60.0f,mote->depth_buffer());
 }
