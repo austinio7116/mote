@@ -7,6 +7,7 @@
  * Controls: UP/DOWN aim · hold A to charge power, release to fling · B reset level
  */
 #include "mote_api.h"
+#include "mote_build.h"
 #include <math.h>
 
 MOTE_GAME_MODULE();
@@ -20,38 +21,21 @@ static MoteWorld pw;
 static MoteBody  body[MAXB];
 static int n_body;
 
-/* ---- box meshes (plank / beam / cube), half-extents baked, scale 1.5 ---- */
-#define BS 1.5f
-typedef struct { MeshVert v[8]; MeshFace f[12]; Mesh mesh; } Box;
-static Box mk_plank, mk_beam, mk_cube;
-static void make_box_s(Box*b, float hx,float hy,float hz, float sc, uint16_t col){
-    int8_t X=(int8_t)(hx/sc*127), Y=(int8_t)(hy/sc*127), Z=(int8_t)(hz/sc*127);
-    b->v[0]=(MeshVert){(int8_t)-X,(int8_t)-Y,(int8_t)-Z}; b->v[1]=(MeshVert){X,(int8_t)-Y,(int8_t)-Z};
-    b->v[2]=(MeshVert){X,(int8_t)-Y,Z}; b->v[3]=(MeshVert){(int8_t)-X,(int8_t)-Y,Z};
-    b->v[4]=(MeshVert){(int8_t)-X,Y,(int8_t)-Z}; b->v[5]=(MeshVert){X,Y,(int8_t)-Z};
-    b->v[6]=(MeshVert){X,Y,Z}; b->v[7]=(MeshVert){(int8_t)-X,Y,Z};
-    int q[6][4]={{0,1,5,4},{1,2,6,5},{2,3,7,6},{3,0,4,7},{4,5,6,7},{3,2,1,0}};
-    int8_t nrm[6][3]={{0,0,-127},{127,0,0},{0,0,127},{-127,0,0},{0,127,0},{0,-127,0}};
-    for(int s=0;s<6;s++){    /* wind CCW-from-outside so the visible faces aren't culled */
-        b->f[s*2]  =(MeshFace){(uint8_t)q[s][0],(uint8_t)q[s][2],(uint8_t)q[s][1],nrm[s][0],nrm[s][1],nrm[s][2],col};
-        b->f[s*2+1]=(MeshFace){(uint8_t)q[s][0],(uint8_t)q[s][3],(uint8_t)q[s][2],nrm[s][0],nrm[s][1],nrm[s][2],col};
-    }
-    b->mesh.verts=b->v; b->mesh.faces=b->f; b->mesh.nverts=8; b->mesh.nfaces=12; b->mesh.scale=sc; b->mesh.bound_r=sc*1.4f;
-}
-static void make_box(Box*b, float hx,float hy,float hz, uint16_t col){ make_box_s(b,hx,hy,hz,BS,col); }
+/* block meshes built once in init via mote_mesh_box (auto-wound/normalled) */
+static const Mesh *mk_plank, *mk_beam, *mk_cube, *mk_ground;
 
 /* per-body render/type info kept parallel to body[] */
-static Box* b_mesh[MAXB];   /* NULL = sphere (pig/bird), drawn as an impostor */
+static const Mesh *b_mesh[MAXB];   /* NULL = sphere (pig/bird), drawn as an impostor */
 static uint16_t b_col[MAXB];
 static int pig0, pig1;       /* pig body index range [pig0,pig1) */
 static int bird;             /* bird body index */
 static int s_birds, s_pigs_out;
 
-static void set_box(int i, Box*m, float hx,float hy,float hz, float x,float y, float mass){
+static void set_box(int i, const Mesh*m, float hx,float hy,float hz, float x,float y, float mass){
     MoteBody*b=&body[i]; *b=(MoteBody){0};
     b->shape=MOTE_SHAPE_BOX; b->half=v3(hx,hy,hz); b->radius=sqrtf(hx*hx+hy*hy+hz*hz);
     b->pos=v3(x,y,0); b->orient=m3_identity(); b->inv_mass=1.0f/mass; b->friction=0.7f; b->restitution=0.1f;
-    b_mesh[i]=m; b_col[i]=m->f[0].color;
+    b_mesh[i]=m; b_col[i]=MOTE_RGB565(180,130,75);
 }
 static void set_sphere(int i, float r, float x,float y, float mass, uint16_t col){
     MoteBody*b=&body[i]; *b=(MoteBody){0};
@@ -67,14 +51,14 @@ static void build_level(void){
     g->orient=m3_identity(); g->inv_mass=0; g->friction=0.8f; b_mesh[n_body]=0; b_col[n_body]=0; n_body++;
     /* a two-level timber fort with pigs nested on the platforms + up top */
     float bp[4]={3.0f,4.6f,6.2f,7.8f};                 /* base pillars */
-    for(int i=0;i<4;i++) set_box(n_body++, &mk_plank, 0.18f,0.7f,0.4f, bp[i],0.7f, 1.2f);
-    set_box(n_body++, &mk_beam, 1.0f,0.18f,0.45f, 3.8f,1.58f, 1.7f);   /* left platform */
-    set_box(n_body++, &mk_beam, 1.0f,0.18f,0.45f, 7.0f,1.58f, 1.7f);   /* right platform */
-    set_box(n_body++, &mk_plank, 0.18f,0.55f,0.4f, 3.3f,2.31f, 0.9f);  /* second storey (left) */
-    set_box(n_body++, &mk_plank, 0.18f,0.55f,0.4f, 4.3f,2.31f, 0.9f);
-    set_box(n_body++, &mk_beam, 0.72f,0.18f,0.4f, 3.8f,3.04f, 1.3f);   /* roof */
-    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.4f,0.4f, 0.9f);      /* centre cube tower */
-    set_box(n_body++, &mk_cube, 0.4f,0.4f,0.4f, 5.4f,1.2f, 0.9f);
+    for(int i=0;i<4;i++) set_box(n_body++, mk_plank, 0.18f,0.7f,0.4f, bp[i],0.7f, 1.2f);
+    set_box(n_body++, mk_beam, 1.0f,0.18f,0.45f, 3.8f,1.58f, 1.7f);   /* left platform */
+    set_box(n_body++, mk_beam, 1.0f,0.18f,0.45f, 7.0f,1.58f, 1.7f);   /* right platform */
+    set_box(n_body++, mk_plank, 0.18f,0.55f,0.4f, 3.3f,2.31f, 0.9f);  /* second storey (left) */
+    set_box(n_body++, mk_plank, 0.18f,0.55f,0.4f, 4.3f,2.31f, 0.9f);
+    set_box(n_body++, mk_beam, 0.72f,0.18f,0.4f, 3.8f,3.04f, 1.3f);   /* roof */
+    set_box(n_body++, mk_cube, 0.4f,0.4f,0.4f, 5.4f,0.4f, 0.9f);      /* centre cube tower */
+    set_box(n_body++, mk_cube, 0.4f,0.4f,0.4f, 5.4f,1.2f, 0.9f);
     /* pigs */
     pig0=n_body;
     set_sphere(n_body++, 0.40f, 3.8f, 1.93f, 0.7f, MOTE_RGB565(90,200,90));   /* sheltered, left base */
@@ -111,9 +95,10 @@ static void reset_bird(void){
 static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(120,170,225));
     mote->scene_set_sun(v3_norm(v3(-0.3f,1.0f,0.4f)));
-    make_box(&mk_plank, 0.18f,0.7f,0.4f, MOTE_RGB565(176,128,72));
-    make_box(&mk_beam,  1.0f,0.18f,0.4f, MOTE_RGB565(150,108,60));
-    make_box(&mk_cube,  0.4f,0.4f,0.4f,  MOTE_RGB565(196,150,86));
+    mk_plank = mote_mesh_box(mote, 0.18f,0.7f,0.4f, MOTE_RGB565(176,128,72));
+    mk_beam  = mote_mesh_box(mote, 1.0f,0.18f,0.4f, MOTE_RGB565(150,108,60));
+    mk_ground= mote_mesh_box(mote, 14.0f,0.3f,3.0f, MOTE_RGB565(96,156,86));
+    mk_cube  = mote_mesh_box(mote, 0.4f,0.4f,0.4f,  MOTE_RGB565(196,150,86));
     mote->phys_world_defaults(&pw);
     pw.walls=0; pw.gravity=v3(0,-9.8f,0); pw.restitution=0.12f; pw.friction=0.7f;
     pw.substep=1.0f/240.0f; pw.max_substeps=8;
@@ -155,26 +140,20 @@ static void g_update(float dt){
     if(fx<-1.5f)fx=-1.5f; if(fx>6)fx=6;
     Vec3 tgt=v3(fx+1.5f, 2.6f, 0);
     s_cam=v3(tgt.x, tgt.y+0.4f, -16.5f);   /* -z side: +x (structure) on the right, slingshot left */
-    Vec3 fwd=v3_norm(v3_sub(tgt,s_cam)), right=v3_norm(v3_cross(v3(0,1,0),fwd));
-    Mat3 basis; basis.r[0]=right; basis.r[1]=v3_cross(fwd,right); basis.r[2]=fwd;
+    Mat3 basis = mote_camera_look(s_cam, tgt);
 
     mote->scene_begin(&basis, 56.0f);
-    /* ground strip (a big flat box as the field) */
-    static MeshVert gv[8]; static MeshFace gf[12]; static Mesh gm; static int gi=0;
-    if(!gi){ Box gb; make_box_s(&gb, 14.0f,0.3f,3.0f, 14.0f, MOTE_RGB565(96,156,86));
-        for(int i=0;i<8;i++)gv[i]=gb.v[i]; for(int i=0;i<12;i++)gf[i]=gb.f[i];
-        gm=gb.mesh; gm.verts=gv; gm.faces=gf; gi=1; }
-    { MoteObject o={.pos=v3_sub(v3(2,-0.3f,0),s_cam),.basis=m3_identity(),.mesh=&gm}; mote->scene_add_object(&o); }
+    { MoteObject o={.pos=v3_sub(v3(2,-0.3f,0),s_cam),.basis=m3_identity(),.mesh=mk_ground}; mote->scene_add_object(&o); }
     /* slingshot fork (visual only): two planks in a V at the bird base */
     { float bx = body[bird].pos.x;
       for(int s=-1;s<=1;s+=2){ float a=s*0.32f, ca=cosf(a), sa=sinf(a);
           Mat3 r; r.r[0]=v3(ca,sa,0); r.r[1]=v3(-sa,ca,0); r.r[2]=v3(0,0,1);
-          MoteObject o={.pos=v3_sub(v3(bx+s*0.28f,1.25f,0),s_cam),.basis=r,.mesh=&mk_plank.mesh};
+          MoteObject o={.pos=v3_sub(v3(bx+s*0.28f,1.25f,0),s_cam),.basis=r,.mesh=mk_plank};
           mote->scene_add_object(&o); } }
     /* blocks (boxes) + pigs/bird (spheres) */
     for(int i=1;i<n_body;i++){
         if(b_mesh[i]){
-            MoteObject o={.pos=v3_sub(body[i].pos,s_cam),.basis=body[i].orient,.mesh=&b_mesh[i]->mesh};
+            MoteObject o={.pos=v3_sub(body[i].pos,s_cam),.basis=body[i].orient,.mesh=b_mesh[i]};
             mote->scene_add_object(&o);
         } else {
             mote->scene_add_sphere(v3_sub(body[i].pos,s_cam), body[i].radius, b_col[i]);
@@ -190,20 +169,15 @@ static void g_update(float dt){
     }
 }
 
-static void fillrect(uint16_t*fb,int x,int y,int w,int h,uint16_t c){
-    for(int j=y;j<y+h;j++){ if((unsigned)j>=128)continue; for(int i=x;i<x+w;i++){ if((unsigned)i>=128)continue; fb[j*128+i]=c; } }
-}
-static int itoa10(int n,char*o){ char t[8];int p=0,q=0; if(n==0)t[p++]='0'; while(n){t[p++]='0'+n%10;n/=10;} while(p)o[q++]=t[--p]; o[q]=0; return q; }
 static void g_overlay(uint16_t*fb){
     char b[20]; int q=0;
-    b[q++]='B';b[q++]='I';b[q++]='R';b[q++]='D';b[q++]='S';b[q++]=' '; q+=itoa10(s_birds<0?0:s_birds,b+q);
-    b[q++]=' ';b[q++]='P';b[q++]='I';b[q++]='G';b[q++]='S';b[q++]=' '; q+=itoa10(pigs_left(),b+q); b[q]=0;
+    b[q++]='B';b[q++]='I';b[q++]='R';b[q++]='D';b[q++]='S';b[q++]=' '; q+=mote_itoa(s_birds<0?0:s_birds,b+q);
+    b[q++]=' ';b[q++]='P';b[q++]='I';b[q++]='G';b[q++]='S';b[q++]=' '; q+=mote_itoa(pigs_left(),b+q); b[q]=0;
     mote->text(fb,b,4,4,MOTE_RGB565(20,30,20));
-    /* angle/power bars (left) */
-    fillrect(fb,4,118,40,5,MOTE_RGB565(25,25,25));
-    fillrect(fb,4,119,(int)((s_angle/1.45f)*38),3,MOTE_RGB565(120,200,255));
-    if(s_state==ST_CHARGE){ fillrect(fb,4,110,40,5,MOTE_RGB565(25,25,25));
-        fillrect(fb,4,111,(int)(s_power*38),3, s_power<0.85f?MOTE_RGB565(240,200,60):MOTE_RGB565(240,80,60)); }
+    /* angle/power bars (left) via the UI helper */
+    mote_ui_bar(fb,4,118,40,4, s_angle/1.45f, MOTE_RGB565(120,200,255), MOTE_RGB565(25,25,25));
+    if(s_state==ST_CHARGE)
+        mote_ui_bar(fb,4,110,40,4, s_power, s_power<0.85f?MOTE_RGB565(240,200,60):MOTE_RGB565(240,80,60), MOTE_RGB565(25,25,25));
     if(s_state==ST_DONE){
         int win=pigs_left()==0;
         mote->text_2x(fb, win?"CLEARED!":"OUT OF BIRDS", win?40:18, 54, win?MOTE_RGB565(120,235,120):MOTE_RGB565(245,160,120));

@@ -142,11 +142,13 @@ TEMPLATE_TOML = '[game]\nname = "%s"\nauthor = "you"\nabi = 1\n'
 TEMPLATE_GAME = '''/*
  * %s — a Mote game module.
  *
- * The OS hands you the engine jump table (`mote`) and drives your vtable.
- * You link no engine code; reach everything through `mote->...`.
+ * The OS hands you the engine jump table (`mote`) and drives your vtable. You
+ * link no engine code; reach everything through `mote->...`. mote_build.h gives
+ * you safe mesh primitives, a camera helper, and a tiny UI — no hand-rolled
+ * quantisation or face winding.
  */
 #include "mote_api.h"
-#include "shape.h"
+#include "mote_build.h"
 
 MOTE_GAME_MODULE();
 
@@ -155,11 +157,14 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
+static const Mesh *s_cube;
 static Mat3 s_m;
 
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(10, 12, 26));
     mote->scene_set_sun(v3(0.4f, 0.7f, -0.6f));
+    /* a unit cube — give world-unit half-extents + a colour, that's it */
+    s_cube = mote_mesh_box(mote, 1.0f, 1.0f, 1.0f, MOTE_RGB565(120, 180, 230));
     s_m = m3_identity();
 }
 
@@ -170,13 +175,18 @@ static void g_update(float dt) {
     m3_rotate_local(&s_m, 1, 0.9f * dt);
     m3_orthonormalize(&s_m);
 
-    Mat3 cam = m3_identity();
+    Mat3 cam = mote_camera_look(v3(0, 0, 0), v3(0, 0, 1));   /* eye -> target */
     mote->scene_begin(&cam, 60.0f);
-    MoteObject obj = { .pos = v3(0, 0, 4.5f), .basis = s_m, .mesh = &k_shape };
+    MoteObject obj = { .pos = v3(0, 0, 4.5f), .basis = s_m, .mesh = s_cube };
     mote->scene_add_object(&obj);
 }
 
-static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update };
+/* Declare the pools you use so the loader sizes the arena to YOUR game (a lean
+ * game keeps the slack). Leave a field 0 to opt out of that subsystem. */
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update,
+    .config = { .max_tris = 256, .depth = 1 },
+};
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 '''
 
@@ -211,7 +221,6 @@ def cmd_new(args):
     os.makedirs(os.path.join(d, "assets"), exist_ok=True)
     open(os.path.join(d, "game.toml"), "w").write(TEMPLATE_TOML % name)
     open(os.path.join(d, "src", "game.c"), "w").write(TEMPLATE_GAME % name)
-    open(os.path.join(d, "src", "shape.h"), "w").write(TEMPLATE_SHAPE)
     open(os.path.join(d, ".gitignore"), "w").write("build/\n")
     print("created %s/\n  edit src/game.c, then:  mote run %s" % (name, name))
 

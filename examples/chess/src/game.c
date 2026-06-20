@@ -10,6 +10,7 @@
  */
 #include "mote_api.h"
 #include "chal.h"
+#include "mote_build.h"
 #include <math.h>
 
 MOTE_GAME_MODULE();
@@ -287,9 +288,7 @@ static void g_update(float dt){
     s_cam=v3(s_target.x + sinf(s_yaw)*cosf(s_pitch)*s_dist,
              s_target.y + sinf(s_pitch)*s_dist,
              s_target.z + cosf(s_yaw)*cosf(s_pitch)*s_dist);
-    Vec3 fwd=v3_norm(v3_sub(s_target,s_cam));
-    Vec3 right=v3_norm(v3_cross(v3(0,1,0),fwd));
-    s_basis.r[0]=right; s_basis.r[1]=v3_cross(fwd,right); s_basis.r[2]=fwd;
+    s_basis = mote_camera_look(s_cam, s_target);
 
     mote->scene_begin(&s_basis, 58.0f);
     MoteObject bo={.pos=v3_sub(v3(0,0,0),s_cam),.basis=m3_identity(),.mesh=&bd_mesh};

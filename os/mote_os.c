@@ -129,6 +129,21 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
     if (vt->init) vt->init();
 
+    /* Guardrail: if the engine pools + the game's alloc()s didn't fit the arena,
+     * tell the developer instead of running into a NULL-deref crash on device. */
+    if (s_arena.overflow) {
+        uint16_t *fb = mote_launcher_fb();
+        for (int i = 0; i < MOTE_FB_PW * MOTE_FB_PH; i++) fb[i] = MOTE_RGB565(60, 10, 14);
+        mote_font_draw(fb, "OUT OF MEMORY", 18, 44, MOTE_RGB565(255, 220, 220));
+        mote_font_draw(fb, "lower max_tris / pools", 8, 58, MOTE_RGB565(230, 180, 180));
+        mote_font_draw(fb, "in this game's config", 10, 68, MOTE_RGB565(230, 180, 180));
+        mote_font_draw(fb, "MENU to go back", 22, 86, MOTE_RGB565(200, 160, 160));
+        mote_plat_present(fb);
+        for (int g = 0; g < 600; g++) { MoteButtons r; mote_plat_buttons(&r);
+            if (r.menu || mote_plat_should_quit()) break; mote_plat_present(fb); }
+        return;
+    }
+
     MoteInput in;
     memset(&in, 0, sizeof in);
     uint64_t last = mote_plat_micros();

@@ -10,6 +10,7 @@
  */
 #include "mote_api.h"
 #include "golf_gen.h"
+#include "mote_build.h"
 #include <math.h>
 
 MOTE_GAME_MODULE();
@@ -449,8 +450,7 @@ static void g_update(float dt){
         look = s_holed ? v3(hole.cup_x,hole.cup_h,hole.cup_z)
                        : v3(lax, golf_height(&hole,lax,laz)+0.6f, laz);
     }
-    Vec3 fwd=v3_norm(v3_sub(look,s_cam)); Vec3 right=v3_norm(v3_cross(v3(0,1,0),fwd));
-    s_basis.r[0]=right; s_basis.r[1]=v3_cross(fwd,right); s_basis.r[2]=fwd;
+    s_basis = mote_camera_look(s_cam, look);
 
     mote->scene_begin(&s_basis, 60.0f);
     for(int ch=0; ch<NCHUNK; ch++){
