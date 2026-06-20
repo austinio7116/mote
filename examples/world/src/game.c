@@ -1,13 +1,10 @@
 /*
- * world — a mesh-terrain landscape with Gaussian-splat TREES you walk through.
+ * world — a mesh-terrain landscape you walk through. Trees are MESH trunks +
+ * branches (rasterised, depth-writing) with Gaussian-SPLAT leaves (depth-tested
+ * against the branches + terrain). Plus 50 balls of rain that bounce on the
+ * terrain mesh collider.
  *
- * The rolling terrain is a triangle MESH (rastered, writes the depth buffer).
- * A handful of trees are grown as Gaussian splats and rendered with mote_splat
- * AFTER the terrain — passing the depth buffer, so hills correctly OCCLUDE the
- * trees behind them. A first-person camera walks the heightfield (eye height
- * tracks the ground), auto-strolling by default.
- *
- * Controls: UP/DOWN walk · LEFT/RIGHT turn · A auto-walk toggle · MENU exit
+ * Controls: UP/DOWN walk · LEFT/RIGHT turn · A auto-walk · MENU exit
  */
 #include "mote_api.h"
 #include <math.h>
@@ -20,32 +17,37 @@ MOTE_MODULE_HEADER();
 
 /* ---- terrain ---- */
 #define GRID   16
-#define EXT    6.0f          /* half-extent of the world (metres) */
-#define TSCALE 7.0f          /* mesh int8 quantise scale */
+#define EXT    6.0f
+#define TSCALE 7.0f
 static float terrain_h(float x, float z) {
-    return 0.55f*sinf(x*0.52f)*cosf(z*0.48f) + 0.32f*sinf(x*0.9f+1.3f)
-         + 0.22f*cosf(z*0.8f-0.7f) - 0.2f;
+    return 0.45f*sinf(x*0.52f)*cosf(z*0.48f) + 0.26f*sinf(x*0.9f+1.3f)
+         + 0.18f*cosf(z*0.8f-0.7f) - 0.15f;          /* gentler than before */
 }
 static MeshVert tv[GRID*GRID];
 static MeshFace tf[(GRID-1)*(GRID-1)*2];
 static Mesh terrain_mesh;
-
-/* terrain as a physics collider (float verts + triangle indices) */
 static Vec3     mcv[GRID*GRID];
 static uint16_t mct[(GRID-1)*(GRID-1)*2*3];
 static MoteMesh terrain_col;
 
-/* ---- rain: 50 tiny balls that fall onto the terrain ---- */
-#define NBALL 50
-static MoteWorld pw;
-static MoteBody  balls[NBALL+1];      /* [0] = terrain mesh, [1..] = spheres */
-static int       s_rt[NBALL];         /* per-ball settle timer (for respawn) */
+/* ---- trees: branch MESH + leaf SPLATS ---- */
+#define NTREE 6
+#define TV_MAX 256
+#define TF_MAX 320
+#define TREE_SCALE 2.0f
+typedef struct { MeshVert v[TV_MAX]; MeshFace f[TF_MAX]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
+static TreeMesh trees[NTREE];
 
-/* ---- splats ---- */
-#define MAXSPLAT 2000
+#define MAXSPLAT 1600
 static MoteSplat s_splat[MAXSPLAT];
 static int s_order[MAXSPLAT];
 static int s_n;
+
+/* ---- rain ---- */
+#define NBALL 50
+static MoteWorld pw;
+static MoteBody  balls[NBALL+1];
+static int       s_rt[NBALL];
 
 static uint32_t rng = 0x51ed27u;
 static float frand(void){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return (float)(rng&0xFFFFFF)/(float)0xFFFFFF; }
@@ -61,27 +63,54 @@ static inline uint16_t col_of(float r,float g,float b){
     if(R<0)R=0; if(R>255)R=255; if(G<0)G=0; if(G>255)G=255; if(B<0)B=0; if(B>255)B=255;
     return MOTE_RGB565(R,G,B);
 }
-static void emit(Vec3 p, Vec3 sc, Mat3 b, uint16_t c, float op){ if(s_n<MAXSPLAT) s_splat[s_n++]=mote_splat_make(p,sc,b,c,op); }
+static void emit_splat(Vec3 p, Vec3 sc, Mat3 b, uint16_t c, float op){ if(s_n<MAXSPLAT) s_splat[s_n++]=mote_splat_make(p,sc,b,c,op); }
 
 static void leaf_cluster(Vec3 c, float rad, int n){
     for(int i=0;i<n;i++){
         Vec3 pos=v3_add(c, v3_scale(v3(frnd2(),frnd2()*0.8f,frnd2()), rad));
         Vec3 nrm=v3(frnd2(),0.5f+0.5f*frand(),frnd2());
-        float g=0.48f+0.30f*frand(), r=0.15f+0.24f*frand(), bl=0.11f+0.13f*frand();
-        emit(pos, v3(0.07f,0.055f,0.013f), basis_from_normal(nrm), col_of(r*0.7f,g,bl), 0.6f);
+        float g=0.46f+0.30f*frand(), r=0.14f+0.22f*frand(), bl=0.10f+0.12f*frand();
+        emit_splat(pos, v3(0.08f,0.062f,0.014f), basis_from_normal(nrm), col_of(r*0.7f,g,bl), 0.62f);
     }
 }
-static void grow(Vec3 start, Vec3 dir, float len, float thick, int depth){
-    dir=v3_norm(dir);
-    int steps=(int)(len/(thick*0.9f))+2;
-    for(int s=0;s<=steps;s++){
-        float u=(float)s/(float)steps;
-        Vec3 p=v3_add(start, v3_scale(dir,len*u));
-        float th=thick*(1.0f-0.35f*u), br=0.30f+0.12f*frand();
-        emit(p, v3(th,th,th*1.4f), basis_from_normal(dir), col_of(br,br*0.62f,br*0.34f), 0.97f);
+
+/* add a tapered 4-side prism (a branch segment) to a tree mesh, local coords */
+static MeshVert quantv(Vec3 p){ MeshVert v; v.x=(int8_t)(p.x/TREE_SCALE*127); v.y=(int8_t)(p.y/TREE_SCALE*127); v.z=(int8_t)(p.z/TREE_SCALE*127); return v; }
+static void add_tri(TreeMesh *tm, int i0,int i1,int i2, Vec3 p0,Vec3 p1,Vec3 p2, Vec3 outward, uint16_t col){
+    if (tm->nf >= TF_MAX) return;
+    Vec3 fn = v3_cross(v3_sub(p1,p0), v3_sub(p2,p0));
+    if (v3_dot(fn, outward) < 0.0f) { int t=i1; i1=i2; i2=t; }     /* CCW-from-outside */
+    Vec3 nn = v3_norm(outward);
+    MeshFace *f=&tm->f[tm->nf++];
+    f->a=(uint8_t)i0; f->b=(uint8_t)i1; f->c=(uint8_t)i2;
+    f->nx=(int8_t)(nn.x*127); f->ny=(int8_t)(nn.y*127); f->nz=(int8_t)(nn.z*127); f->color=col;
+}
+static void add_branch(TreeMesh *tm, Vec3 a, Vec3 b, float ra, float rb, uint16_t col){
+    if (tm->nv + 8 > TV_MAX || tm->nf + 8 > TF_MAX) return;
+    Vec3 ax=v3_norm(v3_sub(b,a)); Mat3 bs=basis_from_normal(ax); Vec3 u=bs.r[0], vv=bs.r[1];
+    Vec3 rA[4], rB[4]; int base=tm->nv;
+    for(int k=0;k<4;k++){
+        float ang=k*1.5707963f; Vec3 rad=v3_add(v3_scale(u,cosf(ang)),v3_scale(vv,sinf(ang)));
+        rA[k]=v3_add(a,v3_scale(rad,ra)); rB[k]=v3_add(b,v3_scale(rad,rb));
     }
-    Vec3 end=v3_add(start, v3_scale(dir,len));
-    if(depth<=0 || s_n>MAXSPLAT-60){ leaf_cluster(end,0.18f,34); return; }
+    for(int k=0;k<4;k++) tm->v[tm->nv++]=quantv(rA[k]);
+    for(int k=0;k<4;k++) tm->v[tm->nv++]=quantv(rB[k]);
+    Vec3 mid=v3_scale(v3_add(a,b),0.5f);
+    for(int k=0;k<4;k++){
+        int kn=(k+1)&3, a0=base+k,a1=base+kn,b0=base+4+k,b1=base+4+kn;
+        Vec3 fmid=v3_scale(v3_add(v3_add(rA[k],rA[kn]),v3_add(rB[k],rB[kn])),0.25f);
+        Vec3 out=v3_sub(fmid, mid);
+        add_tri(tm,a0,a1,b1, rA[k],rA[kn],rB[kn], out, col);
+        add_tri(tm,a0,b1,b0, rA[k],rB[kn],rB[k], out, col);
+    }
+}
+
+/* recursive tree: branch mesh (local) + leaf splats (world) */
+static void grow(TreeMesh *tm, Vec3 a, Vec3 dir, float len, float thick, int depth){
+    dir=v3_norm(dir);
+    Vec3 b=v3_add(a, v3_scale(dir,len));
+    add_branch(tm, a, b, thick, thick*0.66f, col_of(0.32f,0.20f,0.11f));
+    if(depth<=0 || s_n>MAXSPLAT-30){ leaf_cluster(v3_add(tm->base,b), 0.20f, 14); return; }
     int nb=2+(frand()<0.4f?1:0);
     for(int c=0;c<nb;c++){
         Vec3 t=(fabsf(dir.y)<0.9f)?v3(0,1,0):v3(1,0,0);
@@ -91,80 +120,71 @@ static void grow(Vec3 start, Vec3 dir, float len, float thick, int depth){
         float spread=0.5f+0.4f*frand();
         Vec3 nd=v3_norm(v3_add(v3_scale(dir,cosf(spread)),v3_scale(perp,sinf(spread))));
         nd=v3_norm(v3_add(nd,v3(0,0.2f,0)));
-        grow(end, nd, len*0.72f, thick*0.6f, depth-1);
+        grow(tm, b, nd, len*0.72f, thick*0.62f, depth-1);
     }
-    if(depth<=1) leaf_cluster(end,0.14f,12);
+    if(depth<=1) leaf_cluster(v3_add(tm->base,b), 0.16f, 8);
 }
 
-static void add_face(int *fi, int ia, int ib, int ic){
+static void add_face_t(int *fi, int ia, int ib, int ic){
     Vec3 a=v3(tv[ia].x,tv[ia].y,tv[ia].z), b=v3(tv[ib].x,tv[ib].y,tv[ib].z), c=v3(tv[ic].x,tv[ic].y,tv[ic].z);
     Vec3 nf=v3_norm(v3_cross(v3_sub(b,a),v3_sub(c,a)));
-    float h=(a.y+b.y+c.y)/3.0f/127.0f*TSCALE;         /* avg world height */
-    float lit=0.55f+0.45f*(nf.y>0?nf.y:0);            /* flat-up = brighter */
-    float tone=0.5f+0.35f*h;                          /* higher = paler/sunlit */
+    float h=(a.y+b.y+c.y)/3.0f/127.0f*TSCALE;
+    float lit=0.55f+0.45f*(nf.y>0?nf.y:0), tone=0.5f+0.35f*h;
     MeshFace *f=&tf[*fi]; f->a=ia; f->b=ib; f->c=ic;
     f->nx=(int8_t)(nf.x*127); f->ny=(int8_t)(nf.y*127); f->nz=(int8_t)(nf.z*127);
-    f->color=col_of(0.28f*lit*tone, (0.45f+0.15f*tone)*lit, 0.24f*lit*tone);
+    f->color=col_of(0.26f*lit*tone,(0.42f+0.15f*tone)*lit,0.22f*lit*tone);
     (*fi)++;
 }
 static void gen_terrain(void){
     for(int gz=0;gz<GRID;gz++) for(int gx=0;gx<GRID;gx++){
-        float x=((float)gx/(GRID-1)-0.5f)*2*EXT, z=((float)gz/(GRID-1)-0.5f)*2*EXT;
-        float y=terrain_h(x,z);
+        float x=((float)gx/(GRID-1)-0.5f)*2*EXT, z=((float)gz/(GRID-1)-0.5f)*2*EXT, y=terrain_h(x,z);
         int idx=gz*GRID+gx;
-        MeshVert *v=&tv[idx];
-        v->x=(int8_t)(x/TSCALE*127); v->y=(int8_t)(y/TSCALE*127); v->z=(int8_t)(z/TSCALE*127);
-        mcv[idx]=v3(x,y,z);                       /* float world vert for the collider */
+        tv[idx].x=(int8_t)(x/TSCALE*127); tv[idx].y=(int8_t)(y/TSCALE*127); tv[idx].z=(int8_t)(z/TSCALE*127);
+        mcv[idx]=v3(x,y,z);
     }
     int fi=0, ti=0;
     for(int gz=0;gz<GRID-1;gz++) for(int gx=0;gx<GRID-1;gx++){
-        int a=gz*GRID+gx, b=a+1, c=a+GRID, d=c+1;
-        add_face(&fi,a,c,b); add_face(&fi,b,c,d);
-        mct[ti++]=a; mct[ti++]=c; mct[ti++]=b;
-        mct[ti++]=b; mct[ti++]=c; mct[ti++]=d;
+        int a=gz*GRID+gx,b=a+1,c=a+GRID,d=c+1;
+        add_face_t(&fi,a,c,b); add_face_t(&fi,b,c,d);
+        mct[ti++]=a;mct[ti++]=c;mct[ti++]=b; mct[ti++]=b;mct[ti++]=c;mct[ti++]=d;
     }
     terrain_mesh.verts=tv; terrain_mesh.faces=tf; terrain_mesh.nverts=GRID*GRID;
     terrain_mesh.nfaces=fi; terrain_mesh.scale=TSCALE; terrain_mesh.bound_r=EXT*1.5f;
-    terrain_col.verts=mcv; terrain_col.nverts=GRID*GRID; terrain_col.tris=mct;
-    terrain_col.ntris=ti/3; terrain_col.bound_r=EXT*1.5f;
+    terrain_col.verts=mcv; terrain_col.nverts=GRID*GRID; terrain_col.tris=mct; terrain_col.ntris=ti/3; terrain_col.bound_r=EXT*1.5f;
 }
 
 static void spawn_ball(int k){
-    MoteBody *b = &balls[1+k];
-    float x = frnd2()*(EXT-1.0f), z = frnd2()*(EXT-1.0f);
-    b->pos = v3(x, 4.5f + frand()*2.5f, z);
-    b->vel = v3(frnd2()*0.3f, 0, frnd2()*0.3f);
-    b->w = v3(0,0,0); b->_reserved[0] = 0;       /* wake */
-    s_rt[k] = 0;
+    MoteBody *b=&balls[1+k];
+    float x=frnd2()*(EXT-1.0f), z=frnd2()*(EXT-1.0f);
+    b->pos=v3(x, 4.0f+frand()*2.5f, z); b->vel=v3(frnd2()*0.3f,0,frnd2()*0.3f);
+    b->w=v3(0,0,0); b->_reserved[0]=0; s_rt[k]=0;
 }
 
 static void g_init(void){
-    mote->scene_set_background(MOTE_RGB565(135, 170, 205));   /* sky */
+    mote->scene_set_background(MOTE_RGB565(135, 170, 205));
     gen_terrain();
-
-    /* rain: terrain mesh collider + 50 falling spheres */
-    mote->phys_world_defaults(&pw);
-    pw.walls = 0; pw.gravity = v3(0,-9.8f,0);
-    pw.restitution = 0.4f; pw.friction = 0.5f;
-    pw.substep = 1.0f/240.0f; pw.max_substeps = 8;
-    balls[0].shape = MOTE_SHAPE_MESH; balls[0].shape_data = &terrain_col;
-    balls[0].orient = m3_identity(); balls[0].inv_mass = 0.0f;
-    for (int k = 0; k < NBALL; k++) {
-        MoteBody *b = &balls[1+k];
-        b->shape = MOTE_SHAPE_SPHERE; b->radius = 0.06f; b->inv_mass = 1.0f/0.05f;
-        b->restitution = 0.25f; b->orient = m3_identity();
-        spawn_ball(k);
-        b->pos.y += k * 0.10f;                   /* stagger the drop */
-    }
     s_n = 0;
-    /* a grove straddling the +Z path the camera walks through */
-    static const float tpos[11][2] = {
-        {0.2f,2.8f},{-1.9f,3.4f},{1.7f,3.7f},{-0.7f,4.4f},{1.4f,4.7f},{-2.7f,4.1f},
-        {2.8f,4.5f},{0.5f,5.2f},{-1.6f,5.5f},{2.1f,5.7f},{-3.2f,2.4f},
+    static const float tpos[NTREE][2] = {
+        {0.2f,2.8f},{-2.0f,3.6f},{1.8f,3.8f},{-0.8f,5.0f},{1.5f,5.2f},{-2.6f,2.6f},
     };
-    for (int k = 0; k < 11 && s_n < MAXSPLAT - 240; k++) {
-        float tx = tpos[k][0], tz = tpos[k][1];
-        grow(v3(tx, terrain_h(tx,tz)-0.1f, tz), v3(0,1,0), 0.72f+0.22f*frand(), 0.10f, 3);
+    for (int k = 0; k < NTREE; k++) {
+        trees[k].nv = 0; trees[k].nf = 0;
+        float tx=tpos[k][0], tz=tpos[k][1];
+        trees[k].base = v3(tx, terrain_h(tx,tz)-0.1f, tz);
+        grow(&trees[k], v3(0,0,0), v3(0,1,0), 0.62f+0.18f*frand(), 0.085f, 3);
+        trees[k].mesh.verts=trees[k].v; trees[k].mesh.faces=trees[k].f;
+        trees[k].mesh.nverts=trees[k].nv; trees[k].mesh.nfaces=trees[k].nf;
+        trees[k].mesh.scale=TREE_SCALE; trees[k].mesh.bound_r=TREE_SCALE*1.5f;
+    }
+
+    mote->phys_world_defaults(&pw);
+    pw.walls=0; pw.gravity=v3(0,-9.8f,0); pw.restitution=0.3f; pw.friction=0.5f;
+    pw.substep=1.0f/300.0f; pw.max_substeps=10;
+    balls[0].shape=MOTE_SHAPE_MESH; balls[0].shape_data=&terrain_col; balls[0].orient=m3_identity(); balls[0].inv_mass=0;
+    for(int k=0;k<NBALL;k++){
+        MoteBody *b=&balls[1+k];
+        b->shape=MOTE_SHAPE_SPHERE; b->radius=0.07f; b->inv_mass=1.0f/0.06f; b->restitution=0.3f; b->orient=m3_identity();
+        spawn_ball(k); b->pos.y += k*0.09f;
     }
 }
 
@@ -177,18 +197,15 @@ static void g_update(float dt){
     if (mote_pressed(in, MOTE_BTN_LEFT))  s_yaw -= 1.3f*dt;
     if (mote_pressed(in, MOTE_BTN_RIGHT)) s_yaw += 1.3f*dt;
 
-    /* rain physics: spheres fall onto the terrain mesh; respawn when settled */
     mote->phys_step(&pw, balls, NBALL+1, dt);
     for (int k = 0; k < NBALL; k++) {
         MoteBody *b = &balls[1+k];
         float th = terrain_h(b->pos.x, b->pos.z), sp = v3_len(b->vel);
-        /* self-heal: a ball that tunnelled or got flung by a pile just re-rains,
-         * so the field always reads as clean falling rain (the solver can blow
-         * up when many light balls cluster in a basin — we don't let it show). */
-        if (b->pos.y < th - 0.5f || sp > 9.0f) { spawn_ball(k); continue; }
-        if (sp < 0.3f && b->pos.y < th + 0.25f) {
-            if (++s_rt[k] > 45) spawn_ball(k);                   /* settled -> re-rain */
-        } else s_rt[k] = 0;
+        /* re-rain a ball once it has slowed near the ground (before it can pile
+         * with others and over-energise the solver) or if it ever misbehaves. */
+        if (b->pos.y < th - 0.4f || sp > 8.0f) { spawn_ball(k); continue; }
+        if (sp < 0.6f && b->pos.y < th + 0.18f) { if (++s_rt[k] > 12) spawn_ball(k); }
+        else s_rt[k] = 0;
     }
 
     Vec3 fwd_xz = v3(sinf(s_yaw), 0, cosf(s_yaw));
@@ -197,11 +214,10 @@ static void g_update(float dt){
     if (mote_pressed(in, MOTE_BTN_DOWN)) step -= 1.8f*dt;
     if (s_auto) { step += 1.0f*dt; s_yaw += 0.06f*dt; }
     s_cam = v3_add(s_cam, v3_scale(fwd_xz, step));
-    /* keep inside the world */
     float lim = EXT - 1.2f;
     if (s_cam.x >  lim) s_cam.x =  lim; if (s_cam.x < -lim) s_cam.x = -lim;
     if (s_cam.z >  lim) s_cam.z =  lim; if (s_cam.z < -lim) s_cam.z = -lim;
-    s_cam.y = terrain_h(s_cam.x, s_cam.z) + 0.65f;            /* eye height */
+    s_cam.y = terrain_h(s_cam.x, s_cam.z) + 0.65f;
 
     Vec3 fwd = v3_norm(v3(sinf(s_yaw), -0.18f, cosf(s_yaw)));
     Vec3 right = v3_norm(v3_cross(v3(0,1,0), fwd));
@@ -209,10 +225,14 @@ static void g_update(float dt){
 
     mote->scene_begin(&s_basis, 60.0f);
     MoteObject ground = { .pos = v3_sub(v3(0,0,0), s_cam), .basis = m3_identity(), .mesh = &terrain_mesh };
-    mote->scene_add_object(&ground);                         /* rasters + writes depth */
-    for (int k = 0; k < NBALL; k++)                          /* the rain (depth-tested) */
-        mote->scene_add_sphere(v3_sub(balls[1+k].pos, s_cam), 0.06f, MOTE_RGB565(225,238,255));
-    /* trees: dual-core measured pass after the terrain, occluded by its depth */
+    mote->scene_add_object(&ground);
+    for (int k = 0; k < NTREE; k++) {                        /* mesh trunks/branches */
+        MoteObject to = { .pos = v3_sub(trees[k].base, s_cam), .basis = m3_identity(), .mesh = &trees[k].mesh };
+        mote->scene_add_object(&to);
+    }
+    for (int k = 0; k < NBALL; k++)
+        mote->scene_add_sphere(v3_sub(balls[1+k].pos, s_cam), 0.07f, MOTE_RGB565(225,238,255));
+    /* leaves: splats over the rastered scene, occluded by branches + terrain */
     mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 60.0f, mote->depth_buffer());
 }
 
