@@ -1,0 +1,1 @@
+Play 3D chess against the Chal engine. Procedural piece models, orbit camera, animated moves.
