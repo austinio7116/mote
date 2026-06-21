@@ -1,0 +1,20 @@
+<svg width="1000" height="250" viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg" font-family="'DejaVu Sans','Segoe UI',sans-serif">
+  <rect width="1000" height="250" rx="14" fill="#0e1018"/>
+  <text x="40" y="44" fill="#ebd28c" font-size="22" font-weight="700">The 280 KB load-time arena</text>
+  <text x="40" y="70" fill="#9aa3b6" font-size="14">one fixed block, carved once when your game loads — overflow it and the game won't start</text>
+  <!-- the bar -->
+  <rect x="40" y="92" width="920" height="58" rx="6" fill="#11151d" stroke="#2a3240"/>
+  <rect x="42" y="94" width="470" height="54" rx="5" fill="#1d3050"/>
+  <rect x="514" y="94" width="300" height="54" rx="5" fill="#1d3a2e"/>
+  <rect x="816" y="94" width="142" height="54" rx="5" fill="#23262f"/>
+  <text x="277" y="120" fill="#bcd3f3" font-size="14" font-weight="700" text-anchor="middle">engine pools</text>
+  <text x="277" y="138" fill="#7e93b4" font-size="12" text-anchor="middle">sized to YOUR MoteConfig</text>
+  <text x="664" y="120" fill="#a9e0c2" font-size="14" font-weight="700" text-anchor="middle">your mote-&gt;alloc()s</text>
+  <text x="664" y="138" fill="#79b196" font-size="12" text-anchor="middle">terrain meshes, splats, scratch</text>
+  <text x="887" y="125" fill="#8c93a0" font-size="13" text-anchor="middle">slack</text>
+  <!-- callouts -->
+  <text x="42" y="180" fill="#7e93b4" font-size="12.5">• 3D draw-list (max_tris)   • sphere impostors   • depth buffer (32 KB if depth=1)</text>
+  <text x="42" y="200" fill="#7e93b4" font-size="12.5">• physics bodies / contacts   • 2D sprite pool (max_sprites)</text>
+  <text x="514" y="180" fill="#79b196" font-size="12.5">• whatever you allocate yourself at load time,</text>
+  <text x="514" y="200" fill="#79b196" font-size="12.5">  from the same budget — keep an eye on the Inspector meter</text>
+</svg>

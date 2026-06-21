@@ -313,19 +313,9 @@ asset — images, 3D meshes — is **baked into a C header** of plain constant a
 which you `#include` and the compiler embeds straight into your module. The data
 ends up in flash (`.rodata`) and you point the engine at it.
 
-```
-   assets/logo.png  ──(img2tex, uses ImageMagick)──►  src/logo.h
-                                                       ┌──────────────────────────┐
-                                                       │ static const uint16_t    │
-                                                       │   logo_px[3120] = {...};  │  ← RGB565 pixels
-                                                       │ static const MoteImage    │
-                                                       │   logo_img = {logo_px,    │  ← the struct you use
-                                                       │     104, 30, 0xF81F};     │
-                                                       │ #define logo_W 104        │
-                                                       │ #define logo_H 30         │
-                                                       └──────────────────────────┘
-   #include "logo.h"  in game.c  →  mote->blit(fb, &logo_img, ...)
-```
+![Baking an asset: assets/logo.png is converted by img2tex into src/logo.h — a uint16_t RGB565 pixel array plus a MoteImage struct and W/H defines that you #include and draw](docs/img/asset-pipeline.png)
+
+Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, y)`.
 
 ### What bakes, and how you use it
 
@@ -363,21 +353,16 @@ See `examples/modelview` (a 6,742-tri fighter → 1,494 tris in 4 chunks).
 
 ### When does baking happen? Do I *have* to bake?
 
-```
-  ┌─ CLI ─────────────────────────────────────────────────────────────────┐
-  │  mote bake <dir>     manual: scans assets/, writes src/*.h headers.     │
-  │  mote build / run    does NOT auto-bake. It compiles whatever headers   │
-  │                      already exist in src/. Bake first (or once).       │
-  └────────────────────────────────────────────────────────────────────────┘
-  ┌─ Studio ──────────────────────────────────────────────────────────────┐
-  │  Pixel Art ▸ Save    AUTO-bakes: writes assets/sprite.png AND the       │
-  │                      matching MoteImage header in one click.            │
-  │  Inspector ▸ Bake    manual "Bake → Header" button on an asset.         │
-  │  Build / Push (k=1)  cross-build for device; bake is a SEPARATE action  │
-  │                      (k=2) — Studio does not implicitly re-bake on build │
-  │                      either.                                            │
-  └────────────────────────────────────────────────────────────────────────┘
-```
+| Where | Action | Bakes? |
+|---|---|---|
+| **CLI** | `mote bake <dir>` | Yes — scans `assets/`, writes `src/*.h` headers |
+| **CLI** | `mote build` / `mote run` | **No** — compiles whatever headers already exist; bake first (or once) |
+| **Studio** | Pixel Art ▸ Save | **Auto** — writes `assets/sprite.png` *and* its `MoteImage` header in one click |
+| **Studio** | Inspector ▸ Bake → Header | Yes — manual bake of the selected asset |
+| **Studio** | Build / Push | **No** — baking is a separate action; build doesn't implicitly re-bake |
+
+So: you **must** have a baked header before your C can use an asset — but in practice
+the Studio bakes for you on Pixel-Art Save, and you rarely click Bake by hand.
 
 So: **baking is a one-time-per-asset-change step, not part of every build.** You
 re-bake only when the source art/model changes. The generated `.h` is committed
@@ -777,15 +762,7 @@ mote_ui_bar(fb, 4, 24, 60, 4, hp/100.0f, MOTE_RGB565(80,220,120), MOTE_RGB565(40
 
 ## 6. Coordinate systems + math types
 
-```
-   3D WORLD (right-handed)              SCREEN / 2D (pixels)
-        +Y up                            (0,0) ───────► +x  (127,0)
-         │     +Z forward                  │
-         │    ╱   (camera looks            │
-         │   ╱     down +Z)                ▼ +y
-         │  ╱                            (0,127)        (127,127)
-         └──────► +X right               128 × 128 RGB565
-```
+![Coordinate systems: a right-handed 3D world with +X right, +Y up, +Z forward (the camera looks along +Z, object positions are relative to the camera); and the 2D screen with (0,0) top-left, +x right, +y down, 128×128 RGB565](docs/img/coordinates.png)
 
 - **Camera-relative 3D world.** The camera is the origin of the rendered scene; you
   pass object positions as `world − cam_pos`. The camera's *orientation* comes from
@@ -831,16 +808,7 @@ There is **one shared 280 KB SRAM arena** per game. At load, the OS sizes the
 engine's pools to *your* declared `MoteConfig`; whatever's left, your game claims
 via `mote->alloc()`. A lean game keeps the slack.
 
-```
-   ┌──────────────────────── 280 KB arena ─────────────────────────┐
-   │ engine pools (sized to YOUR MoteConfig) │ your mote->alloc()s  │ slack │
-   │  • 3D draw-list (max_tris × ~36 B)       │  • terrain meshes    │       │
-   │  • sphere impostors (max_spheres)        │  • splat clouds      │       │
-   │  • depth buffer (32 KB, if depth=1)      │  • scratch buffers   │       │
-   │  • physics bodies/contacts               │                      │       │
-   │  • 2D sprite pool (max_sprites)          │                      │       │
-   └──────────────────────────────────────────────────────────────────────────┘
-```
+![The 280 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
 Declare your pools in the vtable `config`:
 
