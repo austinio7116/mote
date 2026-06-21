@@ -119,6 +119,7 @@ static void draw_autotile(uint16_t *fb, int y0, int y1) {
             uint8_t cell = at->lut[mask];
             int tpr = at->sheet->w / (at->tile_w ? at->tile_w : 1);
             int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
+            if (at->nvar > 1) fy += (int)(mote__at_hash(c, r) % at->nvar) * at->tile_h;   /* pick a random variant row */
             mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, 0, y0, y1);
         }
     }

@@ -33,11 +33,19 @@ enum {
 };
 
 typedef struct MoteAutotile {
-    const MoteImage *sheet;     /* the tileset atlas */
+    const MoteImage *sheet;     /* the tileset atlas (ncell wide x nvar tall) */
     uint16_t tile_w, tile_h;    /* cell size in the atlas */
-    uint8_t  lut[256];          /* neighbour-mask -> atlas cell index */
+    uint8_t  lut[256];          /* neighbour-mask -> atlas cell index (row 0) */
     uint8_t  edge_is_solid;     /* 1 = off-map neighbours count as the same terrain (seamless edges) */
+    uint8_t  nvar;              /* random variants per config (atlas rows); 0/1 = none. The engine
+                                 * picks a row per cell from its position, so big areas don't repeat. */
 } MoteAutotile;
+
+/* deterministic per-cell hash, for picking a random variant by position. */
+static inline unsigned mote__at_hash(int x, int y) {
+    unsigned h = (unsigned)x * 73856093u ^ (unsigned)y * 19349663u;
+    h ^= h >> 13; return h * 1274126177u;
+}
 
 /* Drop a corner bit unless BOTH its adjacent cardinals are set — the reduction
  * that collapses 256 neighbour configurations to the 47 distinct blob tiles. */
