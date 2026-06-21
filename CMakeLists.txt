@@ -68,6 +68,8 @@ if(MOTE_TARGET STREQUAL "host")
     endif()
 
     # Mote OS host: launcher + dlopen a selected game module + run the loop.
+    # (Linux-only reference loader; the Studio is the cross-platform target.)
+    if(NOT WIN32)
     add_executable(mote_host
         os/host/mote_host.c
         os/mote_launcher.c
@@ -78,6 +80,7 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_definitions(mote_host PRIVATE MOTE_HOST=1)
     target_compile_options(mote_host PRIVATE -O2 -ffast-math)
     target_link_libraries(mote_host PRIVATE mote_engine mote_plat_host ${CMAKE_DL_LIBS})
+    endif()
 
     # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
@@ -99,9 +102,15 @@ if(MOTE_TARGET STREQUAL "host")
         target_include_directories(mote_studio PRIVATE ${SDL2_INCLUDE_DIRS})
         target_link_libraries(mote_studio PRIVATE mote_engine ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
     endif()
+    if(WIN32)
+        # SDL2main must precede SDL2 (circular static refs); winpthread for clock_gettime/nanosleep
+        target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2 -Wl,--end-group setupapi winpthread)
+    endif()
 
     # Game modules: standalone .so files that link NO engine code — each drives
     # the engine only through the ABI it is handed. (Device analogue: a .mote.)
+    # (Built by CMake on Linux only; the Studio builds game modules itself at runtime.)
+    if(NOT WIN32)
     foreach(g hello_mesh:hello-mesh tumbler:tumbler tiledemo:tiledemo physics:physics)
         string(REPLACE ":" ";" parts ${g})
         list(GET parts 0 gname)
@@ -113,5 +122,6 @@ if(MOTE_TARGET STREQUAL "host")
             examples/${gdir}/src)
         target_compile_options(${gname} PRIVATE -O2 -ffast-math -fPIC)
     endforeach()
+    endif()  # NOT WIN32 (game modules)
 
 endif()

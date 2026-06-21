@@ -19,3 +19,8 @@ build/
 *.ppm
 build_os/
 build_*/
+
+# windows cross-build artifacts
+.winbuild/
+build_win/
+dist-windows/
