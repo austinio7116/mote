@@ -26,6 +26,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "third_party/stb_truetype.h"
 
 #define WIN_W   1280
 #define WIN_H   820
@@ -92,9 +94,33 @@ static SDL_Texture* clabel(SDL_Renderer*R,const char*s,Col fg,Col bg,int*outw){
     SDL_UpdateTexture(t,NULL,buf,MOTE_FB_W*2);
     if(g_nlc<384){ snprintf(g_lc[g_nlc].s,48,"%s",s); g_lc[g_nlc].key=key; g_lc[g_nlc].t=t; g_lc[g_nlc].w=w; g_nlc++; }
     if(outw)*outw=w; return t; }
-static void text(SDL_Renderer*R,const char*s,int x,int y,int sc,Col fg,Col bg){
+/* pixel bitmap font (kept for the device screen) */
+static void ptext(SDL_Renderer*R,const char*s,int x,int y,int sc,Col fg,Col bg){
     int w; SDL_Texture*t=clabel(R,s,fg,bg,&w); SDL_Rect src={0,0,w,9},dst={x,y,w*sc,9*sc}; SDL_RenderCopy(R,t,&src,&dst); }
-static int textw(SDL_Renderer*R,const char*s,int sc){ int w; clabel(R,s,C_TXT,C_BG,&w); return w*sc; }
+static int ptextw(SDL_Renderer*R,const char*s,int sc){ int w; clabel(R,s,C_TXT,C_BG,&w); return w*sc; }
+
+/* anti-aliased UI font (stb_truetype) for all IDE chrome — scale 1 small, >=2 large */
+typedef struct { stbtt_bakedchar ch[96]; SDL_Texture*tex; int px; } UFont;
+static UFont g_uf[2]; static unsigned char g_ttf[1<<21];
+static void bake_font(SDL_Renderer*R,UFont*uf,int px){
+    static unsigned char bmp[512*256]; memset(bmp,0,sizeof bmp);
+    stbtt_BakeFontBitmap(g_ttf,0,(float)px,bmp,512,256,32,96,uf->ch);
+    static unsigned int rgba[512*256]; for(int i=0;i<512*256;i++){ unsigned a=bmp[i]; rgba[i]=(a<<24)|0x00FFFFFFu; }
+    uf->tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,512,256);
+    SDL_UpdateTexture(uf->tex,NULL,rgba,512*4); SDL_SetTextureBlendMode(uf->tex,SDL_BLENDMODE_BLEND); uf->px=px; }
+static void ui_font_init(SDL_Renderer*R){ FILE*f=fopen("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf","rb"); if(!f)return;
+    if(fread(g_ttf,1,sizeof g_ttf,f)<10){ fclose(f); return; } fclose(f); bake_font(R,&g_uf[0],14); bake_font(R,&g_uf[1],19); }
+static void text(SDL_Renderer*R,const char*s,int x,int y,int sc,Col fg,Col bg){ (void)bg;
+    UFont*uf=&g_uf[sc>=2?1:0]; if(!uf->tex){ ptext(R,s,x,y,sc,fg,bg); return; }
+    SDL_SetTextureColorMod(uf->tex,fg.r,fg.g,fg.b);
+    float fx=(float)x, fy=(float)y+uf->px*0.80f; stbtt_aligned_quad q;
+    for(const unsigned char*p=(const unsigned char*)s;*p;p++){ if(*p<32||*p>126)continue;
+        stbtt_GetBakedQuad(uf->ch,512,256,*p-32,&fx,&fy,&q,1);
+        SDL_Rect src={(int)(q.s0*512),(int)(q.t0*256),(int)((q.s1-q.s0)*512),(int)((q.t1-q.t0)*256)};
+        SDL_FRect dst={q.x0,q.y0,q.x1-q.x0,q.y1-q.y0}; SDL_RenderCopyF(R,uf->tex,&src,&dst); } }
+static int textw(SDL_Renderer*R,const char*s,int sc){ UFont*uf=&g_uf[sc>=2?1:0]; if(!uf->tex)return ptextw(R,s,sc);
+    float fx=0,fy=0; stbtt_aligned_quad q; for(const unsigned char*p=(const unsigned char*)s;*p;p++){ if(*p<32||*p>126)continue;
+        stbtt_GetBakedQuad(uf->ch,512,256,*p-32,&fx,&fy,&q,1);} return (int)fx; }
 static int hit(int mx,int my,int x,int y,int w,int h){ return mx>=x&&mx<x+w&&my>=y&&my<y+h; }
 
 /* ================= project + engine ================= */
@@ -269,9 +295,9 @@ static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK);
         text(R,r->name,x+16,y+5,1,fg,i==g_tsel?C_SEL:C_DOCK); } }
 
 /* the emulator — faithful irregular-octagon Thumby Color shell */
-static void rainbow_logo(SDL_Renderer*R,int cx,int cy,Col bg){ const char*w1="Thumby "; int x=cx; text(R,w1,x,cy,2,(Col){235,235,245},bg); x+=textw(R,w1,2);
+static void rainbow_logo(SDL_Renderer*R,int cx,int cy,Col bg){ const char*w1="Thumby "; int x=cx; ptext(R,w1,x,cy,2,(Col){235,235,245},bg); x+=ptextw(R,w1,2);
     const char*L="COLOR"; Col cs[5]={{235,70,70},{245,150,60},{245,210,70},{90,200,90},{80,140,235}};
-    for(int i=0;i<5;i++){ char ch[2]={L[i],0}; text(R,ch,x,cy,2,cs[i],bg); x+=textw(R,ch,2); } }
+    for(int i=0;i<5;i++){ char ch[2]={L[i],0}; ptext(R,ch,x,cy,2,cs[i],bg); x+=ptextw(R,ch,2); } }
 static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ Col idle={46,40,62},glow={150,196,255};
     disc(R,cx,cy+3,rad+1,(Col){70,48,104}); if(lit)disc(R,cx,cy,rad+4,mul(glow,0.8f));
     disc(R,cx,cy,rad,lit?mul(glow,0.6f):(Col){30,26,42}); disc(R,cx,cy,rad-3,lit?glow:idle);
@@ -305,7 +331,7 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     else { plain(R,dx,dy,dsz,dsz,(Col){12,16,30}); rainbow_logo(R,dx+(int)(dsz*0.10f),dy+dsz/2-8,(Col){12,16,30}); }
     disc(R,mx+mw-(int)(0.03f*DW),my+(int)(0.05f*DH),4,(Col){255,150,40});                    /* power LED */
     int lw; clabel(R,"THUMBY COLOR",(Col){200,206,222},(Col){14,14,18},&lw);
-    text(R,"THUMBY COLOR",mx+(mw-lw)/2,dy+dsz+(my+mh-(dy+dsz)-9)/2,1,(Col){206,212,228},(Col){14,14,18});
+    ptext(R,"THUMBY COLOR",mx+(mw-lw)/2,dy+dsz+(my+mh-(dy+dsz)-9)/2,1,(Col){206,212,228},(Col){14,14,18});
     /* D-pad plus at (0.153,0.471) */
     int dcx=PXx(0.153f),dcy=PYy(0.471f),al=(int)(0.103f*DW),dw=(int)(0.07f*DW);
     rrect(R,dcx-al,dcy-dw/2,2*al,dw,dw/2,C_DPAD); rrect(R,dcx-dw/2,dcy-al,dw,2*al,dw/2,C_DPAD);
@@ -428,6 +454,7 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,0);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
+    ui_font_init(ren);
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
