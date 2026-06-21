@@ -216,11 +216,21 @@ static void scan_into(const char*dir,int depth){ DIR*d=opendir(dir); if(!d)retur
     while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.')continue; snprintf(nm[nn++],80,"%.78s",e->d_name); } closedir(d);
     for(int i=0;i<nn;i++)for(int j=i+1;j<nn;j++)if(strcmp(nm[j],nm[i])<0){ char t[80]; memcpy(t,nm[i],80); memcpy(nm[i],nm[j],80); memcpy(nm[j],t,80); }
     for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]); tadd(nm[i],p,depth,kind_of(nm[i])); } }
-static void build_tree(const char*dir){ g_ntree=0; g_tsel=-1; char p[320];
+static time_t g_treewatch;
+static void build_tree(const char*dir){
+    char keep[320]=""; if(g_tsel>=0&&g_tsel<g_ntree) snprintf(keep,sizeof keep,"%s",g_tree[g_tsel].path);  /* preserve selection */
+    g_ntree=0; g_tsel=-1; char p[320];
     tadd(g_sel>=0?g_games[g_sel].name:"project",dir,0,0);
     snprintf(p,sizeof p,"%.250s/game.toml",dir); tadd("game.toml",p,1,1);
     snprintf(p,sizeof p,"%.250s/src",dir); tadd("src",p,1,0); scan_into(p,2);
-    snprintf(p,sizeof p,"%.250s/assets",dir); tadd("assets",p,1,0); scan_into(p,2); }
+    snprintf(p,sizeof p,"%.250s/assets",dir); tadd("assets",p,1,0); scan_into(p,2);
+    if(keep[0]) for(int i=0;i<g_ntree;i++) if(!strcmp(g_tree[i].path,keep)){ g_tsel=i; break; } }
+/* dir mtimes change when files are added/removed -> drives auto-refresh */
+static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320];
+    if(stat(dir,&st)==0)m=st.st_mtime;
+    snprintf(p,sizeof p,"%.250s/src",dir); if(stat(p,&st)==0&&st.st_mtime>m)m=st.st_mtime;
+    snprintf(p,sizeof p,"%.250s/assets",dir); if(stat(p,&st)==0&&st.st_mtime>m)m=st.st_mtime; return m; }
+static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
 enum { TAB_PIXEL, TAB_ASSETS, TAB_MESH, TAB_CONSOLE, TAB_N };
@@ -310,8 +320,11 @@ static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL)
 
 /* does the ancestor at level `a` have a later sibling (so the vertical continues)? */
 static int tree_continues(int i,int a){ for(int j=i+1;j<g_ntree;j++){ if(g_tree[j].depth<a)return 0; if(g_tree[j].depth==a)return 1; } return 0; }
+static SDL_Rect g_tree_refresh;
 static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK); plain(R,LEFT_W-1,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,0,TOPH,LEFT_W,24,C_HDR); icon(R,IC_TREE,9,TOPH+6,13,C_DIM); text(R,"EXPLORER",28,TOPH+7,1,C_DIM,C_HDR);
+    { int mx,my; SDL_GetMouseState(&mx,&my); g_tree_refresh=(SDL_Rect){LEFT_W-26,TOPH+4,18,18};
+      int hv=hit(mx,my,LEFT_W-26,TOPH+4,18,18); icon(R,IC_UNDO,LEFT_W-24,TOPH+5,14,hv?C_ACC:C_DIM); }
     if(g_sel<0){ text(R,"Project ‣ Open…",14,TOPH+40,1,C_DIM,C_DOCK); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
     for(int i=0;i<g_ntree;i++){ int y=TOPH+28+i*ROW_H; if(y>BOT_Y-ROW_H)break; TRow*r=&g_tree[i];
@@ -350,43 +363,77 @@ static void load_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","r"); if
 static void save_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","w"); if(!f)return;
     fprintf(f,"%.1f %.1f %.1f\n",g_spx,g_spy,g_sps); fclose(f);
     snprintf(g_status,sizeof g_status,"screen calibrated: x=%.0f y=%.0f side=%.0f",g_spx,g_spy,g_sps); }
-static void aglow(SDL_Renderer*R,int cx,int cy,int rad,Col c){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
+static int g_emu_x,g_emu_y,g_emu_w,g_emu_h;   /* the drawn device rect (for hit-testing) */
+static int g_zoom=0, g_emu_N=1, g_emu_maxN=1; static SDL_Rect g_zoom_m, g_zoom_p;
+static void aglow(SDL_Renderer*R,int cx,int cy,int rad,Col c,int amax){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
     for(int dy=-rad;dy<=rad;dy++){ int dx=(int)sqrtf((float)(rad*rad-dy*dy)); float f=1.0f-(float)(dy*dy)/(rad*rad);
-        SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(150*f)); SDL_RenderDrawLine(R,cx-dx,cy+dy,cx+dx,cy+dy); } }
-/* soft rounded-rect glow — for the bumpers (which are tabs, not circles) */
-static void aglow_rect(SDL_Renderer*R,int x,int y,int w,int h,Col c){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
-    for(int j=0;j<h;j++){ float f=1.0f-fabsf(j-h/2.0f)/(h/2.0f); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(130*f));
+        SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(amax*f)); SDL_RenderDrawLine(R,cx-dx,cy+dy,cx+dx,cy+dy); } }
+static void aglow_rect(SDL_Renderer*R,int x,int y,int w,int h,Col c,int amax){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
+    for(int j=0;j<h;j++){ float f=1.0f-fabsf(j-h/2.0f)/(h/2.0f); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(amax*f));
         int in=(h/2-abs(j-h/2))<4?(4-(h/2-abs(j-h/2))):0; SDL_RenderDrawLine(R,x+in,y+j,x+w-in,y+j); } }
+/* map a mouse pos to an emulator button (optionally pressing it on *s) */
+enum { EB_A,EB_B,EB_UP,EB_DOWN,EB_LEFT,EB_RIGHT,EB_LB,EB_RB,EB_MENU };
+static int emu_hit(int mx,int my,MoteButtons*s){ if(!g_emu_w)return -1; int w=g_emu_w;
+    #define EBX(n) (g_emu_x+(int)((n)*g_emu_w))
+    #define EBY(n) (g_emu_y+(int)((n)*g_emu_h))
+    #define EIN(cx,cy,rr) ((long)(mx-EBX(cx))*(mx-EBX(cx))+(long)(my-EBY(cy))*(my-EBY(cy)) < (long)((int)((rr)*w))*((int)((rr)*w)))
+    if(EIN(0.901f,0.442f,0.062f)){ if(s)s->a=1; return EB_A; }
+    if(EIN(0.793f,0.510f,0.062f)){ if(s)s->b=1; return EB_B; }
+    if(EIN(0.196f,0.790f,0.05f)){ if(s)s->menu=1; return EB_MENU; }
+    float ndx=(mx-EBX(0.153f))/(float)w, ndy=(my-EBY(0.471f))/(float)w;
+    if(fabsf(ndx)<0.115f&&fabsf(ndy)<0.115f){ if(fabsf(ndx)>fabsf(ndy)){ if(ndx<0){if(s)s->left=1;return EB_LEFT;} if(s)s->right=1;return EB_RIGHT; }
+        if(ndy<0){if(s)s->up=1;return EB_UP;} if(s)s->down=1;return EB_DOWN; }
+    if(mx>=EBX(0.02f)&&mx<EBX(0.21f)&&my>=EBY(0.0f)&&my<EBY(0.12f)){ if(s)s->lb=1; return EB_LB; }
+    if(mx>=EBX(0.79f)&&mx<EBX(0.98f)&&my>=EBY(0.0f)&&my<EBY(0.12f)){ if(s)s->rb=1; return EB_RB; }
+    #undef EBX
+    #undef EBY
+    #undef EIN
+    return -1; }
+static void emu_glow(SDL_Renderer*R,int btn,int a){ if(!g_emu_w)return; int dx=g_emu_x,dy=g_emu_y,dw=g_emu_w,dh=g_emu_h; Col gl={150,212,255};
+    int br=(int)(0.052f*dw),dr=(int)(0.045f*dw);
+    #define BX(n) (dx+(int)((n)*dw))
+    #define BY(n) (dy+(int)((n)*dh))
+    switch(btn){ case EB_A: aglow(R,BX(0.901f),BY(0.442f),br,gl,a);break; case EB_B: aglow(R,BX(0.793f),BY(0.510f),br,gl,a);break;
+        case EB_UP: aglow(R,BX(0.153f),BY(0.355f),dr,gl,a);break; case EB_DOWN: aglow(R,BX(0.153f),BY(0.590f),dr,gl,a);break;
+        case EB_LEFT: aglow(R,BX(0.088f),BY(0.471f),dr,gl,a);break; case EB_RIGHT: aglow(R,BX(0.220f),BY(0.471f),dr,gl,a);break;
+        case EB_LB: aglow_rect(R,BX(0.02f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl,a);break;
+        case EB_RB: aglow_rect(R,BX(0.79f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl,a);break;
+        case EB_MENU: aglow(R,BX(0.196f),BY(0.790f),(int)(0.035f*dw),gl,a);break; }
+    #undef BX
+    #undef BY
+}
 static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     plain(R,CENTER_X,TOPH,CENTER_W,BOT_Y-TOPH,C_BG);
     static uint16_t fr[MOTE_FB_W*MOTE_FB_H]; mote_studio_get_frame(fr); SDL_UpdateTexture(tex,NULL,fr,MOTE_FB_W*(int)sizeof(uint16_t));
     if(!g_dev) return;
     /* integer pixel scaling: the screen renders at N*128 (crisp); the photo is
      * sized so its calibrated screen square == N*128, and centred in the region. */
-    int regw=CENTER_W-28, regh=BOT_Y-TOPH-24, N=1;
+    int regw=CENTER_W-28, regh=BOT_Y-TOPH-44, maxN=1;
     for(int n=1;n<=8;n++){ float s=(float)(n*MOTE_FB_W)/g_sps;
-        if((int)(g_devw*s)<=regw && (int)(g_devh*s)<=regh) N=n; else break; }
+        if((int)(g_devw*s)<=regw && (int)(g_devh*s)<=regh) maxN=n; else break; }
+    int N = g_zoom>0 ? (g_zoom<maxN?g_zoom:maxN) : maxN; g_emu_N=N; g_emu_maxN=maxN;
     float scale=(float)(N*MOTE_FB_W)/g_sps;
     int dw=(int)(g_devw*scale), dh=(int)(g_devh*scale);
     int dx=CENTER_X+(CENTER_W-dw)/2, dy=TOPH+((BOT_Y-TOPH)-dh)/2;
     SDL_Rect dd={dx,dy,dw,dh}; SDL_RenderCopy(R,g_dev,NULL,&dd);
     int sps=N*MOTE_FB_W, ssx=dx+(int)(g_spx*scale), ssy=dy+(int)(g_spy*scale);
     if(g_sel>=0&&g_eng){ SDL_Rect sc={ssx,ssy,sps,sps}; SDL_RenderCopy(R,tex,NULL,&sc); }
-    #define BX(n) (dx+(int)((n)*dw))
-    #define BY(n) (dy+(int)((n)*dh))
-    Col gl={150,212,255}; int br=(int)(0.052f*dw), dr=(int)(0.045f*dw);
-    if(b->a)    aglow(R,BX(0.901f),BY(0.442f),br,gl);
-    if(b->b)    aglow(R,BX(0.793f),BY(0.510f),br,gl);
-    if(b->up)   aglow(R,BX(0.153f),BY(0.355f),dr,gl);
-    if(b->down) aglow(R,BX(0.153f),BY(0.590f),dr,gl);
-    if(b->left) aglow(R,BX(0.088f),BY(0.471f),dr,gl);
-    if(b->right)aglow(R,BX(0.220f),BY(0.471f),dr,gl);
-    if(b->lb)   aglow_rect(R,BX(0.02f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl);  /* bumpers are tabs */
-    if(b->rb)   aglow_rect(R,BX(0.79f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl);
-    if(b->menu) aglow(R,BX(0.196f),BY(0.790f),(int)(0.035f*dw),gl);
+    g_emu_x=dx; g_emu_y=dy; g_emu_w=dw; g_emu_h=dh;
+    if(b->a)emu_glow(R,EB_A,150); if(b->b)emu_glow(R,EB_B,150);
+    if(b->up)emu_glow(R,EB_UP,150); if(b->down)emu_glow(R,EB_DOWN,150);
+    if(b->left)emu_glow(R,EB_LEFT,150); if(b->right)emu_glow(R,EB_RIGHT,150);
+    if(b->lb)emu_glow(R,EB_LB,130); if(b->rb)emu_glow(R,EB_RB,130); if(b->menu)emu_glow(R,EB_MENU,150);
+    int hmx,hmy; SDL_GetMouseState(&hmx,&hmy); int hov=emu_hit(hmx,hmy,NULL);
+    if(hov>=0){ int pr=(hov==EB_A&&b->a)||(hov==EB_B&&b->b)||(hov==EB_UP&&b->up)||(hov==EB_DOWN&&b->down)||
+            (hov==EB_LEFT&&b->left)||(hov==EB_RIGHT&&b->right)||(hov==EB_LB&&b->lb)||(hov==EB_RB&&b->rb)||(hov==EB_MENU&&b->menu);
+        if(!pr)emu_glow(R,hov,55); }
     SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
-    #undef BX
-    #undef BY
+    /* zoom control, bottom-centre of the region */
+    int zy=BOT_Y-30, zx=CENTER_X+CENTER_W/2-40; char z[16]; snprintf(z,sizeof z,"%dx",N);
+    g_zoom_m=(SDL_Rect){zx,zy,24,22}; g_zoom_p=(SDL_Rect){zx+56,zy,24,22};
+    rrect(R,zx,zy,24,22,4,C_BTN); icon(R,IC_ZOOM,zx+5,zy+4,14,C_DIM);
+    rrect(R,zx+28,zy,24,22,4,C_DOCK); { int zw=textw(R,z,1); text(R,z,zx+28+(24-zw)/2,zy+5,1,C_TITLE,C_DOCK); }
+    rrect(R,zx+56,zy,24,22,4,C_BTN); text(R,"+",zx+63,zy+4,1,C_TXT,C_BTN);
 }
 
 static SDL_Rect g_insp_edit, g_insp_bake;
@@ -521,7 +568,7 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
         g_sps=2*half; g_spx=cx-half; g_spy=cy-half; }
     g_lastmx=mx; g_lastmy=my; }
 
-static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_picker=0; }
+static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); g_picker=0; }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
 
@@ -577,9 +624,14 @@ int main(int argc,char**argv){
                     if(mx>=x&&mx<x+w&&my>=y&&my<y+m->n*22+6){ int i=(my-y-4)/22; if(i>=0&&i<m->n)dispatch(m->it[i].a); }
                     g_menu_open=-1; continue; }
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }
-                if(mx<LEFT_W&&my<BOT_Y){ int i=(my-(TOPH+28))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
+                if(mx<LEFT_W&&my<BOT_Y){ if(hit(mx,my,g_tree_refresh.x,g_tree_refresh.y,18,18)){ tree_refresh(); continue; }
+                    int i=(my-(TOPH+28))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
                 if(mx>=INSP_X&&my<BOT_Y){ if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
                     else if(hit(mx,my,g_insp_bake.x,g_insp_bake.y,g_insp_bake.w,g_insp_bake.h))dispatch(A_BAKEALL); continue; }
+                if(mx>=CENTER_X&&mx<INSP_X&&my>=TOPH&&my<BOT_Y){   /* zoom control (else: device button via per-frame feed) */
+                    if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
+                    else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
+                    continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
                     else if(g_tab==TAB_PIXEL)pixel_click(mx,my,0); continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP) g_split=0;
@@ -591,10 +643,14 @@ int main(int argc,char**argv){
             }
         }
         if(g_quitreq)running=0;
-        if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); } }
+        if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); }
+            time_t tm=tree_mtime(g_games[g_sel].dir); if(tm!=g_treewatch){ g_treewatch=tm; build_tree(g_games[g_sel].dir); } }
 
         MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&g_menu_open<0;
-        if(over_emu){ poll_input(&b,pad); mote_studio_set_buttons(&b); }
+        if(over_emu){ poll_input(&b,pad);
+            int mmx,mmy; Uint32 ms=SDL_GetMouseState(&mmx,&mmy);
+            if((ms&SDL_BUTTON_LMASK)&&!g_split&&mmx>=CENTER_X&&mmx<INSP_X&&mmy>=TOPH&&mmy<BOT_Y) emu_hit(mmx,mmy,&b);
+            mote_studio_set_buttons(&b); }
         if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
         SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
