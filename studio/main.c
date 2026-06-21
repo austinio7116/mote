@@ -755,7 +755,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
-static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w,g_au_y;
+static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w,g_au_y; static char g_au_name[64]="sfx";
 static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_audio.raw",tmpdir());
     char cmd[800]; snprintf(cmd,sizeof cmd,"ffmpeg -y -i \"%.300s\" -ac 1 -ar 22050 -f s16le \"%.200s\" 2>%s",path,raw,NULDEV); if(system(cmd)){}
     FILE*f=fopen(raw,"rb"); if(!f){ snprintf(g_status,sizeof g_status,"could not decode audio (is ffmpeg on PATH?)"); return; }
@@ -766,20 +766,20 @@ static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,
     const char*b2=strrchr(path,'\\'); if(b2>b)b=b2;
 #endif
     snprintf(g_wav_name,sizeof g_wav_name,"%.120s",b?b+1:path);
+    snprintf(g_au_name,sizeof g_au_name,"%.60s",b?b+1:path); char*dt=strrchr(g_au_name,'.'); if(dt)*dt=0;   /* save-name field */
     snprintf(g_status,sizeof g_status,"loaded %s  (%.2fs)",g_wav_name,g_wavn/22050.0f); }
 static void import_audio(void){ fp_open(0); }
 static void crop_raw(const char*out){ if(!g_wav||g_crop_a<0)return; long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a;
     if(a<0)a=0; if(b>g_wavn)b=g_wavn; FILE*f=fopen(out,"wb"); if(f){ fwrite(g_wav+a,2,(size_t)(b-a),f); fclose(f); } }
-static void audio_play(void){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_crop.raw",tmpdir()); crop_raw(raw); char cmd[600];
-#ifdef _WIN32
-    snprintf(cmd,sizeof cmd,"ffplay -nodisp -autoexit -f s16le -ar 22050 -ch_layout mono \"%s\" >%s 2>&1",raw,NULDEV);
-#else
-    snprintf(cmd,sizeof cmd,"aplay -q -r 22050 -f S16_LE -c 1 \"%s\"",raw);
-#endif
-    run_job(cmd,"play"); }
+static SDL_AudioDeviceID g_audev;   /* studio's own preview output (works under WSL2/Windows) */
+static void audio_init(void){ SDL_AudioSpec want; memset(&want,0,sizeof want); want.freq=22050; want.format=AUDIO_S16SYS; want.channels=1; want.samples=512;
+    g_audev=SDL_OpenAudioDevice(NULL,0,&want,NULL,0); if(g_audev)SDL_PauseAudioDevice(g_audev,0); }
+static void audio_play(void){ if(!g_wav||!g_audev){ snprintf(g_status,sizeof g_status,"no audio device"); return; }
+    long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; if(a<0)a=0; if(b>g_wavn)b=g_wavn;
+    SDL_ClearQueuedAudio(g_audev); SDL_QueueAudio(g_audev,g_wav+a,(Uint32)((b-a)*2)); }
 static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     char raw[400]; snprintf(raw,sizeof raw,"%s/mote_crop.raw",tmpdir()); crop_raw(raw);
-    char base[80]; snprintf(base,sizeof base,"%.70s",g_wav_name); char*d=strrchr(base,'.'); if(d)*d=0;
+    char base[80]; snprintf(base,sizeof base,"%.60s",g_au_name[0]?g_au_name:"sfx"); char*d=strrchr(base,'.'); if(d)*d=0;
     char ad[300]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
     char cmd[900]; snprintf(cmd,sizeof cmd,"ffmpeg -y -f s16le -ar 22050 -ac 1 -i \"%s\" \"%.180s/assets/%.60s.wav\" 2>%s",raw,g_games[g_sel].dir,base,NULDEV);
     run_job(cmd,"save wav"); }
@@ -833,58 +833,94 @@ static void sfx_render(Sfx*p){ static float buf[88200]; if(p->lpf_freq<=0)p->lpf
     int n22=n/2; if(n22<1)n22=1; g_wavn=n22; g_wav=realloc(g_wav,(size_t)n22*2);
     for(int i=0;i<n22;i++){ float v=(buf[i*2]+buf[i*2+1])*0.5f; int s=(int)(v*16000); if(s>32767)s=32767; if(s<-32768)s=-32768; g_wav[i]=(int16_t)s; }
     g_crop_a=0; g_crop_b=g_wavn; }
+/* ===== SFX editor: a SEED preset fills g_sfx, sliders tweak every parameter live ===== */
+static Sfx g_sfx; static int g_au_namefocus, g_sfx_drag=-1;
 static const char *SFX_NAME[8]={ "coin","laser","explosion","powerup","hit","jump","blip","random" };
 static const char *SFX_LABEL[8]={ "Coin","Laser","Boom","Power","Hit","Jump","Blip","Random" };
-static SDL_Rect g_sfxb[8];
-static void sfx_generate(int k){ Sfx p; memset(&p,0,sizeof p); p.env_sustain=0.3f; p.env_decay=0.4f; p.base_freq=0.3f; p.duty=0.5f; p.lpf_freq=1.0f;
+static const char *WAVE_L[4]={ "Square","Saw","Sine","Noise" };
+typedef struct { const char*lab; float*v; float lo,hi; } SParam;
+static SParam SPAR[]={
+    {"Attack",&g_sfx.env_attack,0,1},{"Sustain",&g_sfx.env_sustain,0,1},{"Punch",&g_sfx.env_punch,0,1},{"Decay",&g_sfx.env_decay,0,1},
+    {"Freq",&g_sfx.base_freq,0,1},{"Freq min",&g_sfx.freq_limit,0,1},{"Slide",&g_sfx.freq_ramp,-1,1},{"Delta slide",&g_sfx.freq_dramp,-1,1},
+    {"Vibrato",&g_sfx.vib_strength,0,1},{"Vib speed",&g_sfx.vib_speed,0,1},{"Arp mod",&g_sfx.arp_mod,-1,1},{"Arp speed",&g_sfx.arp_speed,0,1},
+    {"Duty",&g_sfx.duty,0,1},{"Duty sweep",&g_sfx.duty_ramp,-1,1},{"Phaser",&g_sfx.pha_offset,-1,1},{"Phaser sweep",&g_sfx.pha_ramp,-1,1},
+    {"LP cutoff",&g_sfx.lpf_freq,0,1},{"LP resonance",&g_sfx.lpf_resonance,0,1},{"LP sweep",&g_sfx.lpf_ramp,-1,1},{"HP cutoff",&g_sfx.hpf_freq,0,1},{"HP sweep",&g_sfx.hpf_ramp,-1,1},
+};
+#define NSPAR ((int)(sizeof SPAR/sizeof*SPAR))
+static SDL_Rect g_sparr[NSPAR], g_waveb[4], g_sfxb[8], g_au_rnd, g_au_mut, g_au_name_r;
+static void sfx_apply(int play){ Sfx p=g_sfx; if(p.lpf_freq<=0)p.lpf_freq=1.0f; sfx_render(&p);
+    snprintf(g_status,sizeof g_status,"%s.wav  (%.2fs)",g_au_name,g_wavn/22050.0f); if(play)audio_play(); }
+static void sfx_preset(int k){ Sfx*P=&g_sfx; memset(P,0,sizeof *P); P->env_sustain=0.3f; P->env_decay=0.4f; P->base_freq=0.3f; P->duty=0.5f; P->lpf_freq=1.0f;
     switch(k){
-      case 0: p.base_freq=0.4f+frnd(0.5f); p.env_attack=0; p.env_sustain=frnd(0.1f); p.env_decay=0.1f+frnd(0.4f); p.env_punch=0.3f+frnd(0.3f);
-              if(frnd(1)<0.5f){ p.arp_speed=0.5f+frnd(0.2f); p.arp_mod=0.2f+frnd(0.4f); } break;
-      case 1: p.wave=(int)frnd(3); if(p.wave==2)p.wave=(int)frnd(2); p.base_freq=0.5f+frnd(0.4f); p.freq_limit=p.base_freq-0.2f-frnd(0.6f); if(p.freq_limit<0.1f)p.freq_limit=0.1f;
-              p.freq_ramp=-0.15f-frnd(0.2f); p.duty=frnd(0.5f); p.duty_ramp=frnd(0.2f); p.env_attack=0; p.env_sustain=0.1f+frnd(0.2f); p.env_decay=frnd(0.4f); p.env_punch=frnd(0.3f); break;
-      case 2: p.wave=3; p.base_freq=0.1f+frnd(0.4f); p.freq_ramp=-0.1f+frnd(0.2f); p.env_attack=0; p.env_sustain=0.2f+frnd(0.2f); p.env_decay=0.3f+frnd(0.3f); p.env_punch=0.2f+frnd(0.4f);
-              if(frnd(1)<0.5f){ p.vib_strength=frnd(0.6f); p.vib_speed=frnd(0.6f); } break;
-      case 3: p.wave=frnd(1)<0.5f?0:1; p.base_freq=0.2f+frnd(0.3f); p.freq_ramp=0.1f+frnd(0.3f); p.env_attack=0; p.env_sustain=0.2f+frnd(0.3f); p.env_decay=0.2f+frnd(0.3f);
-              if(frnd(1)<0.5f){ p.vib_strength=frnd(0.7f); p.vib_speed=frnd(0.6f); } break;
-      case 4: p.wave=(int)frnd(3); if(p.wave==2)p.wave=3; if(p.wave<2)p.duty=frnd(0.6f); p.base_freq=0.2f+frnd(0.4f); p.freq_ramp=-0.3f-frnd(0.4f); p.env_attack=0; p.env_sustain=frnd(0.1f); p.env_decay=0.1f+frnd(0.2f); break;
-      case 5: p.wave=0; p.duty=frnd(0.6f); p.base_freq=0.2f+frnd(0.3f); p.freq_ramp=0.1f+frnd(0.2f); p.env_attack=0; p.env_sustain=0.1f+frnd(0.3f); p.env_decay=0.1f+frnd(0.2f); break;
-      case 6: p.wave=frnd(1)<0.5f?0:1; if(p.wave==0)p.duty=frnd(0.6f); p.base_freq=0.3f+frnd(0.3f); p.env_attack=0; p.env_sustain=0.05f+frnd(0.1f); p.env_decay=0.05f+frnd(0.15f); p.hpf_freq=0.1f; break;
-      default: p.wave=(int)frnd(4); p.base_freq=frnd(1); p.freq_ramp=frnd(0.8f)-0.4f; p.duty=frnd(1); p.duty_ramp=frnd(0.4f)-0.2f; p.env_attack=frnd(0.2f); p.env_sustain=0.1f+frnd(0.4f); p.env_decay=0.1f+frnd(0.5f);
-              p.env_punch=frnd(0.5f); p.vib_strength=frnd(0.5f); p.vib_speed=frnd(0.6f); p.arp_speed=frnd(0.7f); p.arp_mod=frnd(1.2f)-0.5f; p.lpf_freq=0.2f+frnd(0.8f); p.lpf_resonance=frnd(1); break;
+      case 0: P->base_freq=0.4f+frnd(0.5f); P->env_sustain=frnd(0.1f); P->env_decay=0.1f+frnd(0.4f); P->env_punch=0.3f+frnd(0.3f);
+              if(frnd(1)<0.5f){ P->arp_speed=0.5f+frnd(0.2f); P->arp_mod=0.2f+frnd(0.4f); } break;
+      case 1: P->wave=(int)frnd(3); if(P->wave==2)P->wave=(int)frnd(2); P->base_freq=0.5f+frnd(0.4f); P->freq_limit=P->base_freq-0.2f-frnd(0.6f); if(P->freq_limit<0.1f)P->freq_limit=0.1f;
+              P->freq_ramp=-0.15f-frnd(0.2f); P->duty=frnd(0.5f); P->duty_ramp=frnd(0.2f); P->env_sustain=0.1f+frnd(0.2f); P->env_decay=frnd(0.4f); P->env_punch=frnd(0.3f); break;
+      case 2: P->wave=3; P->base_freq=0.1f+frnd(0.4f); P->freq_ramp=-0.1f+frnd(0.2f); P->env_sustain=0.2f+frnd(0.2f); P->env_decay=0.3f+frnd(0.3f); P->env_punch=0.2f+frnd(0.4f);
+              if(frnd(1)<0.5f){ P->vib_strength=frnd(0.6f); P->vib_speed=frnd(0.6f); } break;
+      case 3: P->wave=frnd(1)<0.5f?0:1; P->base_freq=0.2f+frnd(0.3f); P->freq_ramp=0.1f+frnd(0.3f); P->env_sustain=0.2f+frnd(0.3f); P->env_decay=0.2f+frnd(0.3f);
+              if(frnd(1)<0.5f){ P->vib_strength=frnd(0.7f); P->vib_speed=frnd(0.6f); } break;
+      case 4: P->wave=(int)frnd(3); if(P->wave==2)P->wave=3; if(P->wave<2)P->duty=frnd(0.6f); P->base_freq=0.2f+frnd(0.4f); P->freq_ramp=-0.3f-frnd(0.4f); P->env_sustain=frnd(0.1f); P->env_decay=0.1f+frnd(0.2f); break;
+      case 5: P->wave=0; P->duty=frnd(0.6f); P->base_freq=0.2f+frnd(0.3f); P->freq_ramp=0.1f+frnd(0.2f); P->env_sustain=0.1f+frnd(0.3f); P->env_decay=0.1f+frnd(0.2f); break;
+      case 6: P->wave=frnd(1)<0.5f?0:1; if(P->wave==0)P->duty=frnd(0.6f); P->base_freq=0.3f+frnd(0.3f); P->env_sustain=0.05f+frnd(0.1f); P->env_decay=0.05f+frnd(0.15f); P->hpf_freq=0.1f; break;
+      default: P->wave=(int)frnd(4); P->base_freq=frnd(1); P->freq_ramp=frnd(0.8f)-0.4f; P->duty=frnd(1); P->duty_ramp=frnd(0.4f)-0.2f; P->env_attack=frnd(0.2f); P->env_sustain=0.1f+frnd(0.4f); P->env_decay=0.1f+frnd(0.5f);
+              P->env_punch=frnd(0.5f); P->vib_strength=frnd(0.5f); P->vib_speed=frnd(0.6f); P->arp_speed=frnd(0.7f); P->arp_mod=frnd(1.2f)-0.5f; P->lpf_freq=0.2f+frnd(0.8f); P->lpf_resonance=frnd(1); break;
     }
-    sfx_render(&p); snprintf(g_wav_name,sizeof g_wav_name,"%s.wav",SFX_NAME[k]);
-    snprintf(g_status,sizeof g_status,"generated %s  (%.2fs) - tweak via Random / Save Crop to assets",SFX_NAME[k],g_wavn/22050.0f); }
+    snprintf(g_au_name,sizeof g_au_name,"%s",SFX_NAME[k]); sfx_apply(1); }
+static void sfx_mutate(void){ for(int i=0;i<NSPAR;i++)if(frnd(1)<0.4f){ float nv=*SPAR[i].v+(frnd(2)-1)*0.08f*(SPAR[i].hi-SPAR[i].lo);
+        if(nv<SPAR[i].lo)nv=SPAR[i].lo; if(nv>SPAR[i].hi)nv=SPAR[i].hi; *SPAR[i].v=nv; } sfx_apply(1); }
+static void draw_slider(SDL_Renderer*R,int i,int x,int y,int w){ SParam*sp=&SPAR[i]; g_sparr[i]=(SDL_Rect){x,y,w,18};
+    float v=*sp->v, t=(v-sp->lo)/(sp->hi-sp->lo); if(t<0)t=0; if(t>1)t=1;
+    text(R,sp->lab,x,y,1,(Col){168,176,196},C_DOCK); char vs[12]; snprintf(vs,sizeof vs,"%.2f",v); text(R,vs,x+w-textw(R,vs,1),y,1,(Col){198,205,222},C_DOCK);
+    int ty2=y+13; plain(R,x,ty2,w,4,(Col){27,30,40}); if(sp->lo<0)plain(R,x+w/2,ty2-2,1,8,(Col){68,74,96});
+    plain(R,x,ty2,(int)(w*t),4,(Col){110,160,225}); int hx=x+(int)(w*t); plain(R,hx-2,ty2-3,4,10,(Col){206,215,236}); }
 
-static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my);
-    int tx=ox,ty=oy;
-    g_au_import=(SDL_Rect){tx,ty,90,24}; rrect(R,tx,ty,90,24,4,hit(mx,my,tx,ty,90,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty+5,14,C_TXT); text(R,"Load",tx+28,ty+6,1,C_TXT,C_BTN); tx+=98;
-    g_au_play=(SDL_Rect){tx,ty,78,24}; rrect(R,tx,ty,78,24,4,hit(mx,my,tx,ty,78,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty+5,14,(Col){150,230,160}); text(R,"Play",tx+28,ty+6,1,C_TXT,C_BTN); tx+=86;
-    g_au_save=(SDL_Rect){tx,ty,112,24}; rrect(R,tx,ty,112,24,4,hit(mx,my,tx,ty,112,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty+5,14,C_TXT); text(R,"Save Crop",tx+28,ty+6,1,C_TXT,C_BTN); tx+=124;
-    /* SFX generator row (always shown) */
-    int sx=ox, sy=oy+32; text(R,"GENERATE",sx,sy+5,1,(Col){235,180,90},C_DOCK); sx+=textw(R,"GENERATE",1)+12;
-    for(int i=0;i<8;i++){ int bw=textw(R,SFX_LABEL[i],1)+18; g_sfxb[i]=(SDL_Rect){sx,sy,bw,22};
-        int hov=hit(mx,my,sx,sy,bw,22); rrect(R,sx,sy,bw,22,4,hov?C_BTNHI:C_BTN);
-        icon(R,i==7?IC_UNDO:IC_PLAY,sx+7,sy+5,12,i==7?C_TXT:(Col){235,180,90}); text(R,SFX_LABEL[i],sx+24,sy+5,1,C_TXT,hov?C_BTNHI:C_BTN); sx+=bw+6; }
-    if(!g_wav){ text(R,"Click a GENERATE preset to make a sound effect (click again to vary it), or Load a WAV/MP3.",ox,oy+66,1,C_DIM,C_DOCK);
-        text(R,"Then drag across the waveform to crop, Play to preview, Save Crop -> writes a .wav into the game's assets/.",ox,oy+82,1,C_DIM,C_DOCK); return; }
-    long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; char inf[160];
-    snprintf(inf,sizeof inf,"%.80s   crop %.3f-%.3fs  (%.3fs)",g_wav_name,a/22050.0f,b/22050.0f,(b-a)/22050.0f); text(R,inf,ox,oy+64,1,C_DIM,C_DOCK);
-    int wy=oy+82, wh=h-92, cyl=wy+wh/2; g_au_x=ox; g_au_w=w; g_au_y=wy; plain(R,ox,wy,w,wh,(Col){12,14,20});
-    int xa=ox+(int)((double)a/g_wavn*w), xb=ox+(int)((double)b/g_wavn*w);
-    SDL_SetRenderDrawColor(R,110,200,230,255);
-    for(int x=0;x<w;x++){ long s0=(long)x*g_wavn/w,s1=(long)(x+1)*g_wavn/w; if(s1<=s0)s1=s0+1; int mn=32767,mx2=-32768;
-        for(long s=s0;s<s1&&s<g_wavn;s++){ int v=g_wav[s]; if(v<mn)mn=v; if(v>mx2)mx2=v; }
-        SDL_RenderDrawLine(R,ox+x,cyl-mx2*wh/2/32768,ox+x,cyl-mn*wh/2/32768); }
-    SDL_SetRenderDrawColor(R,60,66,86,255); SDL_RenderDrawLine(R,ox,cyl,ox+w,cyl);
-    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,120);
-    SDL_Rect dl={ox,wy,xa-ox,wh},dr2={xb,wy,ox+w-xb,wh}; SDL_RenderFillRect(R,&dl); SDL_RenderFillRect(R,&dr2); SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
-    SDL_SetRenderDrawColor(R,250,210,90,255); SDL_RenderDrawLine(R,xa,wy,xa,wy+wh); SDL_RenderDrawLine(R,xb,wy,xb,wy+wh); }
-static void audio_down(int mx,int my){ if(hit(mx,my,g_au_import.x,g_au_import.y,g_au_import.w,g_au_import.h)){ import_audio(); return; }
-    if(hit(mx,my,g_au_play.x,g_au_play.y,g_au_play.w,g_au_play.h)){ audio_play(); return; }
+static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); int tx=ox,ty=oy;
+    text(R,"WAVE",tx,ty+5,1,C_DIM,C_DOCK); tx+=textw(R,"WAVE",1)+8;
+    for(int i=0;i<4;i++){ int bw=textw(R,WAVE_L[i],1)+14; g_waveb[i]=(SDL_Rect){tx,ty,bw,22}; int sel=g_sfx.wave==i,hov=hit(mx,my,tx,ty,bw,22);
+        rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,WAVE_L[i],tx+7,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+4; }
+    tx+=14; text(R,"SEED",tx,ty+5,1,(Col){235,180,90},C_DOCK); tx+=textw(R,"SEED",1)+8;
+    for(int i=0;i<8;i++){ int bw=textw(R,SFX_LABEL[i],1)+12; g_sfxb[i]=(SDL_Rect){tx,ty,bw,22}; int hov=hit(mx,my,tx,ty,bw,22);
+        rrect(R,tx,ty,bw,22,4,hov?C_BTNHI:C_BTN); text(R,SFX_LABEL[i],tx+6,ty+5,1,C_TXT,hov?C_BTNHI:C_BTN); tx+=bw+3; }
+    int ty1=oy+30; tx=ox;
+    g_au_play=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty1+5,14,(Col){150,230,160}); text(R,"Play",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=80;
+    g_au_rnd=(SDL_Rect){tx,ty1,98,24}; rrect(R,tx,ty1,98,24,4,hit(mx,my,tx,ty1,98,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Randomize",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=106;
+    g_au_mut=(SDL_Rect){tx,ty1,78,24}; rrect(R,tx,ty1,78,24,4,hit(mx,my,tx,ty1,78,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Mutate",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=86;
+    g_au_import=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty1+5,14,C_TXT); text(R,"Load",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=84;
+    text(R,"name",tx,ty1+6,1,C_DIM,C_DOCK); tx+=textw(R,"name",1)+6;
+    g_au_name_r=(SDL_Rect){tx,ty1,148,24}; rrect(R,tx,ty1,148,24,4,g_au_namefocus?(Col){12,14,20}:C_DOCK);
+    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.wav",g_au_name,g_au_namefocus?"_":""); text(R,nm,tx+8,ty1+6,1,C_TXT,g_au_namefocus?(Col){12,14,20}:C_DOCK); } tx+=156;
+    g_au_save=(SDL_Rect){tx,ty1,134,24}; rrect(R,tx,ty1,134,24,4,hit(mx,my,tx,ty1,134,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty1+5,14,C_TXT); text(R,"Save to assets",tx+27,ty1+6,1,C_TXT,C_BTN);
+    int sy0=oy+62, colw=(w*52/100)/3; if(colw<118)colw=118;
+    for(int i=0;i<NSPAR;i++){ int c=i/7,r=i%7; draw_slider(R,i,ox+c*colw,sy0+r*24,colw-14); }
+    int wx=ox+3*colw+10, ww=w-(3*colw+10); if(ww<120)ww=120;
+    int wy=sy0, wh=h-(sy0-oy)-6, cyl=wy+wh/2; g_au_x=wx; g_au_w=ww; g_au_y=wy; plain(R,wx,wy,ww,wh,(Col){12,14,20});
+    if(g_wav){ long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a;
+        int xa=wx+(int)((double)a/g_wavn*ww), xb=wx+(int)((double)b/g_wavn*ww);
+        SDL_SetRenderDrawColor(R,110,200,230,255);
+        for(int x=0;x<ww;x++){ long s0=(long)x*g_wavn/ww,s1=(long)(x+1)*g_wavn/ww; if(s1<=s0)s1=s0+1; int mn=32767,mx2=-32768;
+            for(long s=s0;s<s1&&s<g_wavn;s++){ int v=g_wav[s]; if(v<mn)mn=v; if(v>mx2)mx2=v; }
+            SDL_RenderDrawLine(R,wx+x,cyl-mx2*wh/2/32768,wx+x,cyl-mn*wh/2/32768); }
+        SDL_SetRenderDrawColor(R,60,66,86,255); SDL_RenderDrawLine(R,wx,cyl,wx+ww,cyl);
+        SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,120);
+        SDL_Rect dl={wx,wy,xa-wx,wh},dr2={xb,wy,wx+ww-xb,wh}; SDL_RenderFillRect(R,&dl); SDL_RenderFillRect(R,&dr2); SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(R,250,210,90,255); SDL_RenderDrawLine(R,xa,wy,xa,wy+wh); SDL_RenderDrawLine(R,xb,wy,xb,wy+wh);
+    } else text(R,"pick a SEED or WAVE,",wx+10,wy+12,1,C_DIM,(Col){12,14,20}); }
+static void slider_set(int i,int mx){ SParam*sp=&SPAR[i]; SDL_Rect*r=&g_sparr[i]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *sp->v=sp->lo+t*(sp->hi-sp->lo); sfx_apply(0); }
+static void audio_down(int mx,int my){
+    for(int i=0;i<4;i++)if(hit(mx,my,g_waveb[i].x,g_waveb[i].y,g_waveb[i].w,g_waveb[i].h)){ g_sfx.wave=i; sfx_apply(1); return; }
+    for(int i=0;i<8;i++)if(hit(mx,my,g_sfxb[i].x,g_sfxb[i].y,g_sfxb[i].w,g_sfxb[i].h)){ sfx_preset(i); return; }
+    if(hit(mx,my,g_au_play.x,g_au_play.y,g_au_play.w,g_au_play.h)){ if(!g_wav)sfx_apply(0); audio_play(); return; }
+    if(hit(mx,my,g_au_rnd.x,g_au_rnd.y,g_au_rnd.w,g_au_rnd.h)){ sfx_preset(7); return; }
+    if(hit(mx,my,g_au_mut.x,g_au_mut.y,g_au_mut.w,g_au_mut.h)){ sfx_mutate(); return; }
+    if(hit(mx,my,g_au_import.x,g_au_import.y,g_au_import.w,g_au_import.h)){ import_audio(); return; }
+    if(hit(mx,my,g_au_name_r.x,g_au_name_r.y,g_au_name_r.w,g_au_name_r.h)){ g_au_namefocus=1; SDL_StartTextInput(); return; }
+    g_au_namefocus=0;
     if(hit(mx,my,g_au_save.x,g_au_save.y,g_au_save.w,g_au_save.h)){ audio_save(); return; }
-    for(int i=0;i<8;i++)if(hit(mx,my,g_sfxb[i].x,g_sfxb[i].y,g_sfxb[i].w,g_sfxb[i].h)){ sfx_generate(i); return; }
+    for(int i=0;i<NSPAR;i++)if(hit(mx,my,g_sparr[i].x,g_sparr[i].y-2,g_sparr[i].w,g_sparr[i].h+4)){ g_sfx_drag=i; slider_set(i,mx); return; }
     if(g_wav&&g_au_w>0&&mx>=g_au_x&&mx<g_au_x+g_au_w&&my>=g_au_y){ g_crop_a=(long)(mx-g_au_x)*g_wavn/g_au_w; g_crop_b=g_crop_a; g_wavdrag=1; } }
-static void audio_drag(int mx){ if(g_wavdrag&&g_au_w>0){ long s=(long)(mx-g_au_x)*g_wavn/g_au_w; if(s<0)s=0; if(s>g_wavn)s=g_wavn; g_crop_b=s; } }
+static void audio_drag(int mx){ if(g_sfx_drag>=0){ slider_set(g_sfx_drag,mx); return; }
+    if(g_wavdrag&&g_au_w>0){ long s=(long)(mx-g_au_x)*g_wavn/g_au_w; if(s<0)s=0; if(s>g_wavn)s=g_wavn; g_crop_b=s; } }
 
 /* ================= device / USB panel ================= */
 static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Push","Push & Launch","Stream Logs","Wipe Store" };
@@ -1212,7 +1248,7 @@ int main(int argc,char**argv){
     /* Be DPI-unaware so Windows scales the window to the expected physical size — by
      * default SDL declares awareness and the whole UI renders tiny on hi-DPI displays. */
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS,"unaware");
-    SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
+    SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_AUDIO); mote_plat_init("Mote Studio"); audio_init(); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
@@ -1237,7 +1273,7 @@ int main(int argc,char**argv){
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
-    if(getenv("MOTE_STUDIO_SFX")){ sfx_generate(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
+    if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
@@ -1268,6 +1304,9 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
+            if(g_tab==TAB_AUDIO&&g_au_namefocus){   /* editing the SFX save-name field */
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_au_name); if(l<60){ g_au_name[l]=c; g_au_name[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_au_name); if(l)g_au_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_au_namefocus=0; continue; } }
             /* wheel scrolls the editor whenever the pointer is over it (no click needed) */
             if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_CODE&&g_code){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(hit(wx,wy,g_code_area.x,g_code_area.y,g_code_area.w,g_code_area.h)){
@@ -1312,7 +1351,9 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
                     else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; } if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
+            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
+                if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
