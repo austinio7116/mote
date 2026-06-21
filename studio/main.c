@@ -253,12 +253,24 @@ static void run_job(const char*cmd,const char*label){ Job*j=calloc(1,sizeof*j);
     snprintf(j->cmd,sizeof j->cmd,"%s 2>&1",cmd); snprintf(j->label,sizeof j->label,"%s",label);
     snprintf(g_status,sizeof g_status,"%s...",label); SDL_CreateThread(job_thread,"job",j); }
 
+/* On Windows a loaded DLL is locked, so the linker can't overwrite the game module
+ * while the emulator is running it (build/<name>.dll: permission denied). We load a
+ * throwaway COPY, so the linker's output is never the locked file — Build / Run work
+ * while a game is running, on both platforms. */
+static void copy_file(const char*src,const char*dst){ FILE*a=fopen(src,"rb"); if(!a)return; FILE*b=fopen(dst,"wb"); if(!b){ fclose(a); return; }
+    char buf[1<<15]; size_t n; while((n=fread(buf,1,sizeof buf,a))>0){ if(fwrite(buf,1,n,b)!=n)break; } fclose(a); fclose(b); }
+static int g_runver; static char g_runprev[320];
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel=idx;
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
         int rc=mc_build(g_games[idx].dir,0,log_add);
-        snprintf(g_status,sizeof g_status, rc==0?"running %s":"BUILD FAILED: %s", g_games[idx].name); }
-    snprintf(g_so,sizeof g_so,"%.200s/build/%.60s.%s",g_games[idx].dir,g_games[idx].name,mc_host_ext());
-    g_watch=src_mtime(g_games[idx].dir); stop_engine(); start_engine(); }
+        if(rc){ snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[idx].name); return; }   /* keep the running build on failure */
+        snprintf(g_status,sizeof g_status,"running %s",g_games[idx].name); }
+    stop_engine();                                   /* unload (and release) the previous copy */
+    if(g_runprev[0])remove(g_runprev);               /* delete the now-unloaded stale copy */
+    char built[320]; snprintf(built,sizeof built,"%.200s/build/%.60s.%s",g_games[idx].dir,g_games[idx].name,mc_host_ext());
+    snprintf(g_so,sizeof g_so,"%.180s/build/.run%d.%s",g_games[idx].dir,++g_runver,mc_host_ext());
+    copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
+    g_watch=src_mtime(g_games[idx].dir); start_engine(); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
 #define CMAX 128
