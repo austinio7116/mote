@@ -54,10 +54,10 @@ static const Col C_TITLE = { 255, 206, 92 };
 static const Col C_ACC   = { 120, 180, 255 };
 static const Col C_BTN   = { 56, 62, 84 };
 static const Col C_BTNHI = { 74, 100, 156 };
-/* Thumby Color body (indigo-purple) */
-static const Col C_BODY  = { 96, 58, 166 };
-static const Col C_BODYHI= { 132, 96, 200 };
-static const Col C_BODYLO= { 64, 36, 120 };
+/* Thumby Color body — sampled from the product photo (median rgb 63,44,109) */
+static const Col C_BODY  = { 82, 58, 138 };
+static const Col C_BODYHI= { 116, 92, 168 };
+static const Col C_BODYLO= { 44, 28, 82 };
 static const Col C_DPAD  = { 36, 30, 50 };
 static const Col C_DPADL = { 150, 196, 255 };
 
@@ -276,37 +276,55 @@ static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ C
     disc(R,cx,cy+3,rad+1,(Col){70,48,104}); if(lit)disc(R,cx,cy,rad+4,mul(glow,0.8f));
     disc(R,cx,cy,rad,lit?mul(glow,0.6f):(Col){30,26,42}); disc(R,cx,cy,rad-3,lit?glow:idle);
     int w; clabel(R,l,(Col){210,200,230},idle,&w); text(R,l,cx-w,cy-6,2,(Col){220,215,240},lit?glow:idle); }
+/* device geometry extracted from the product photo (OpenCV); body aspect 1.73,
+ * coords normalized to the body bbox. Octagon vertices clockwise from top-left. */
+static const float OCT[8][2]={ {0.051f,0.074f},{0.949f,0.074f},{1.000f,0.217f},{0.995f,0.823f},
+    {0.688f,1.000f},{0.312f,1.000f},{0.005f,0.823f},{0.000f,0.217f} };
 static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     plain(R,CENTER_X,TOPH,CENTER_W,BOT_Y-TOPH,C_BG);
     static uint16_t fr[MOTE_FB_W*MOTE_FB_H]; mote_studio_get_frame(fr); SDL_UpdateTexture(tex,NULL,fr,MOTE_FB_W*(int)sizeof(uint16_t));
-    int ccx=CENTER_X+CENTER_W/2, ccy=TOPH+(BOT_Y-TOPH)/2;
-    int DW=560,DH=300, L=ccx-DW/2,Rr=ccx+DW/2,T=ccy-DH/2,Bm=ccy+DH/2;
-    int ct=58,cb=108,et=44,eb=56;   /* top corner inset, bottom corner inset (bottom narrower), corner heights */
-    int xs[8]={ L+ct, Rr-ct, Rr,    Rr,     Rr-cb, L+cb,  L,     L     };
-    int ys[8]={ T,    T,     T+et,  Bm-eb,  Bm,    Bm,    Bm-eb, T+et  };
-    int xs2[8],ys2[8]; for(int i=0;i<8;i++){ xs2[i]=xs[i]; ys2[i]=ys[i]+8; } fill_poly(R,xs2,ys2,8,C_BODYLO);  /* underside */
-    fill_poly(R,xs,ys,8,C_BODY);
-    rrect(R,L+ct+16,T+6,DW-2*ct-32,26,10,C_BODYHI);                       /* top gloss */
-    rrect(R,L+ct+26,T+4,150,12,6,mul(C_BODYHI,1.12f));
-    /* shoulder buttons on the two angled top faces */
-    rrect(R,L+ct-6,T+et-6,86,18,8,b->lb?C_DPADL:mul(C_BODYLO,0.85f));
-    rrect(R,Rr-ct-80,T+et-6,86,18,8,b->rb?C_DPADL:mul(C_BODYLO,0.85f));
-    /* black screen module: display upper, label below */
-    int mw=212,mh=196,mx=ccx-mw/2,my=T+24; rrect(R,mx,my,mw,mh,12,(Col){14,14,18}); rrect(R,mx,my,mw,8,12,(Col){30,30,40});
-    int SCR=158,sx=ccx-SCR/2,sy=my+16; plain(R,sx-2,sy-2,SCR+4,SCR+4,(Col){4,4,6});
-    if(g_sel>=0&&g_eng){ SDL_Rect dst={sx,sy,SCR,SCR}; SDL_RenderCopy(R,tex,NULL,&dst); }
-    else { plain(R,sx,sy,SCR,SCR,(Col){12,16,30}); rainbow_logo(R,sx+18,sy+SCR/2-8,(Col){12,16,30}); }
-    disc(R,mx+mw-14,my+13,4,(Col){255,150,40});
-    int lw; clabel(R,"THUMBY COLOR",(Col){200,206,222},(Col){14,14,18},&lw); text(R,"THUMBY COLOR",mx+(mw-lw)/2,my+mh-22,1,(Col){206,212,228},(Col){14,14,18});
-    /* D-pad left, A/B right (diagonal), menu, screw */
-    int dcx=L+(mx-L)/2+4,dcy=my+mh/2-6,dw=30,al=40;
+    int DW=600,DH=(int)(DW/1.73f), ox=CENTER_X+CENTER_W/2-DW/2, oy=TOPH+(BOT_Y-TOPH)/2-DH/2;
+    #define PXx(n) (ox+(int)((n)*DW))
+    #define PYy(n) (oy+(int)((n)*DH))
+    int xs[8],ys[8],xs2[8],ys2[8];
+    for(int i=0;i<8;i++){ xs[i]=ox+(int)(OCT[i][0]*DW); ys[i]=oy+(int)(OCT[i][1]*DH); xs2[i]=xs[i]; ys2[i]=ys[i]+9; }
+    fill_poly(R,xs2,ys2,8,C_BODYLO); fill_poly(R,xs,ys,8,C_BODY);
+    SDL_SetRenderDrawColor(R,mul(C_BODYLO,0.7f).r,mul(C_BODYLO,0.7f).g,mul(C_BODYLO,0.7f).b,255);
+    for(int i=0;i<8;i++){ int j=(i+1)%8; SDL_RenderDrawLine(R,xs[i],ys[i],xs[j],ys[j]); }
+    rrect(R,PXx(0.14f),PYy(0.05f),(int)(0.72f*DW),(int)(0.10f*DH),8,C_BODYHI);              /* gloss */
+    rrect(R,PXx(0.16f),PYy(0.035f),(int)(0.28f*DW),(int)(0.05f*DH),5,mul(C_BODYHI,1.12f));
+    int shw=(int)(0.17f*DW),shh=(int)(0.05f*DH);                                            /* shoulders on top edge */
+    rrect(R,PXx(0.10f),oy-3,shw,shh,7,b->lb?C_DPADL:mul(C_BODYLO,0.9f));
+    rrect(R,PXx(0.73f),oy-3,shw,shh,7,b->rb?C_DPADL:mul(C_BODYLO,0.9f));
+    /* screen module: tall rounded rect (NOT square) */
+    int mx=PXx(0.267f),my=PYy(0.084f),mw=(int)(0.464f*DW),mh=(int)(0.834f*DH);
+    rrect(R,mx,my,mw,mh,14,(Col){14,14,18}); rrect(R,mx,my,mw,8,14,(Col){32,32,42});
+    int dsz=(int)(mw*0.84f),dx=mx+(mw-dsz)/2,dy=my+(int)(mw*0.07f);                          /* display: upper square */
+    plain(R,dx-2,dy-2,dsz+4,dsz+4,(Col){4,4,6});
+    if(g_sel>=0&&g_eng){ SDL_Rect d={dx,dy,dsz,dsz}; SDL_RenderCopy(R,tex,NULL,&d); }
+    else { plain(R,dx,dy,dsz,dsz,(Col){12,16,30}); rainbow_logo(R,dx+(int)(dsz*0.10f),dy+dsz/2-8,(Col){12,16,30}); }
+    disc(R,mx+mw-(int)(0.03f*DW),my+(int)(0.05f*DH),4,(Col){255,150,40});                    /* power LED */
+    int lw; clabel(R,"THUMBY COLOR",(Col){200,206,222},(Col){14,14,18},&lw);
+    text(R,"THUMBY COLOR",mx+(mw-lw)/2,dy+dsz+(my+mh-(dy+dsz)-9)/2,1,(Col){206,212,228},(Col){14,14,18});
+    /* D-pad plus at (0.153,0.471) */
+    int dcx=PXx(0.153f),dcy=PYy(0.471f),al=(int)(0.103f*DW),dw=(int)(0.07f*DW);
     rrect(R,dcx-al,dcy-dw/2,2*al,dw,dw/2,C_DPAD); rrect(R,dcx-dw/2,dcy-al,dw,2*al,dw/2,C_DPAD);
     if(b->up)plain(R,dcx-dw/2+4,dcy-al+4,dw-8,al-dw/2,C_DPADL); if(b->down)plain(R,dcx-dw/2+4,dcy+dw/2,dw-8,al-dw/2-4,C_DPADL);
     if(b->left)plain(R,dcx-al+4,dcy-dw/2+4,al-dw/2,dw-8,C_DPADL); if(b->right)plain(R,dcx+dw/2,dcy-dw/2+4,al-dw/2-4,dw-8,C_DPADL);
-    disc(R,dcx,dcy,6,mul(C_DPAD,1.5f));
-    int acx=(mx+mw+Rr)/2; ab_btn(R,acx+20,dcy-16,22,"A",b->a); ab_btn(R,acx-24,dcy+4,22,"B",b->b);
-    rrect(R,ccx-22,Bm-40,44,14,7,mul(C_BODYLO,0.85f)); rrect(R,ccx-20,Bm-38,40,10,5,b->menu?C_DPADL:(Col){70,50,104});
-    disc(R,Rr-34,Bm-30,4,(Col){188,192,204}); }
+    disc(R,dcx,dcy,6,mul(C_DPAD,1.4f));
+    /* A/B dark circles at exact centres (B lower-left, A upper-right) */
+    int ar=(int)(0.045f*DW); Col cd={34,28,46},ch={58,50,76};
+    int bcx=PXx(0.793f),bcy=PYy(0.510f),acx=PXx(0.901f),acy=PYy(0.442f);
+    disc(R,bcx,bcy+2,ar+1,mul(C_BODYLO,0.7f)); disc(R,bcx,bcy,ar,b->b?C_DPADL:cd); disc(R,bcx-ar/3,bcy-ar/3,ar/3,b->b?mul(C_DPADL,1.2f):ch);
+    disc(R,acx,acy+2,ar+1,mul(C_BODYLO,0.7f)); disc(R,acx,acy,ar,b->a?C_DPADL:cd); disc(R,acx-ar/3,acy-ar/3,ar/3,b->a?mul(C_DPADL,1.2f):ch);
+    /* menu button below the D-pad; vents + screw lower-right */
+    int sbx=PXx(0.105f),sby=PYy(0.74f); disc(R,sbx,sby,7,mul(C_BODYLO,0.8f)); disc(R,sbx,sby,5,b->menu?C_DPADL:(Col){70,52,100});
+    SDL_SetRenderDrawColor(R,mul(C_BODYLO,0.7f).r,mul(C_BODYLO,0.7f).g,mul(C_BODYLO,0.7f).b,255);
+    for(int i=0;i<4;i++){ int vx=PXx(0.80f)+i*7,vy=PYy(0.80f); SDL_RenderDrawLine(R,vx,vy,vx+14,vy-14); }
+    disc(R,PXx(0.93f),PYy(0.88f),4,(Col){188,192,204});
+    #undef PXx
+    #undef PYy
+}
 
 static SDL_Rect g_insp_edit, g_insp_bake;
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
@@ -415,6 +433,7 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ open_project(i); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
 
     int running=1,watch=0;
     do { SDL_Event e;
