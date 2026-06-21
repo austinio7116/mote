@@ -1,12 +1,19 @@
 /*
- * pickups — an OVERLAP / collectibles demo, proving mote->phys_overlap behind
- * the ABI. Roll a player ball around a flat arena with the D-pad and sweep up
- * the floating gems. Each frame we ask the engine which bodies overlap the
- * player's sphere; any gem in that set is collected.
+ * pickups — a fast little collectibles game built on mote->phys_overlap.
  *
- * Controls: D-pad rolls the player, A respawns all gems, MENU exits.
+ * Roll the player ball around a flat arena with the D-pad and sweep up the
+ * spinning, bobbing gems. Each frame we hand the whole body array to
+ * phys_overlap(center, radius) and collect any gem that touches the player.
+ * You have 30 seconds to grab as many as you can — each collected gem instantly
+ * respawns somewhere new, so the arena never empties. Beat your best score.
+ *
+ * Controls: D-pad rolls the player · B restarts the round
+ *
+ * Built with the mote_build.h helpers (mesh builders, camera, immediate UI).
  */
 #include "mote_api.h"
+#include "mote_build.h"
+#include <math.h>
 
 MOTE_GAME_MODULE();
 
@@ -20,100 +27,119 @@ MOTE_MODULE_HEADER();
  *   [0]            player    (dynamic sphere, stepped)
  *   [1 .. NGEM]    gems      (static spheres, inv_mass 0, never stepped)
  *   [GROUND]       ground    (static PLANE, normal +Y at y=0)
- * Gems are pinned (inv_mass 0) so phys_step leaves them put even though we hand
- * the whole array to the solver; we only ever read their positions back.
+ * Gems use a sphere collider (cheap overlap test) but RENDER as spinning
+ * diamonds; the collider radius is tuned so the surfaces touch fairly.
  */
-#define NGEM    12
+#define NGEM    8
 #define IPLAYER 0
 #define IGEM0   1
-#define GROUND  (IGEM0 + NGEM)   /* = 13 */
-#define NBODY   (GROUND + 1)     /* = 14 */
+#define GROUND  (IGEM0 + NGEM)
+#define NBODY   (GROUND + 1)
 
 #define PLAYER_R   0.45f
-#define GEM_R      0.28f
-#define GEM_Y      0.45f         /* float the gems just above the floor */
-#define MOVE_SPEED 2.5f          /* m/s target ground speed */
+#define GEM_R      0.34f         /* collider radius (a touch generous = juicy) */
+#define GEM_Y      0.55f         /* float height the gems bob around */
+#define MOVE_SPEED 3.0f          /* m/s target ground speed */
 #define ARENA      4.0f          /* half-extent the gems scatter within */
+#define ROUND_SEC  30.0f         /* round length */
 
 static MoteWorld world;
 static MoteBody  body[NBODY];
-static bool      gem_live[NGEM];
-static int       s_collected;
+static int       gem_kind[NGEM];      /* index into the gem palette/mesh */
+static float     gem_phase[NGEM];     /* per-gem spin/bob phase offset */
+static int       s_score;
+static int       s_best;
+static float     s_time_left;
+static bool      s_over;
 static uint32_t  rng = 1u;
 
-static Vec3 cam_pos;
-static Mat3 cam_basis;
+/* collect-pop effects: a brief expanding ring of light at a grabbed gem */
+#define NPOP 6
+static struct { Vec3 pos; float t; uint16_t col; } pop[NPOP];
+static int pop_next;
 
-/* gem palette (bright) */
-static const uint16_t k_gem_col[6] = {
+static Vec3 cam_pos;
+
+/* gem palette (bright, jewel-toned) */
+#define NGEM_KIND 6
+static const uint16_t k_gem_col[NGEM_KIND] = {
     MOTE_RGB565(255, 70, 90),  MOTE_RGB565(80, 230, 120),
     MOTE_RGB565(90, 160, 255), MOTE_RGB565(255, 215, 60),
     MOTE_RGB565(230, 90, 255), MOTE_RGB565(60, 235, 235),
 };
 
-/* ---- a rendered ground quad (a PLANE collider has no geometry) ------------ */
-static const MeshVert k_floor_v[4] = {
-    {-127, 0, -127}, {127, 0, -127}, {127, 0, 127}, {-127, 0, 127},
-};
-#define FCOL MOTE_RGB565(48, 58, 78)
-static const MeshFace k_floor_f[2] = {
-    {0, 3, 2, 0, 127, 0, FCOL}, {0, 2, 1, 0, 127, 0, FCOL},
-};
-static const Mesh k_floor_mesh = { k_floor_v, k_floor_f, 4, 2, 1.0f, 1.5f, 0 };
-
-/* ---- tiny text helpers (decimal append) ---------------------------------- */
-static char *ap_s(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
-static char *ap_i(char *p, int v) {
-    if (v < 0) { *p++ = '-'; v = -v; }
-    char t[12]; int n = 0;
-    if (v == 0) t[n++] = '0';
-    while (v) { t[n++] = (char)('0' + v % 10); v /= 10; }
-    while (n) *p++ = t[--n];
-    return p;
-}
+/* meshes — built once in init() from the arena */
+static const Mesh *mesh_floor;
+static const Mesh *mesh_gem[NGEM_KIND];   /* a faceted diamond per colour */
 
 static float frand01(void) {     /* xorshift -> [0,1) */
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
     return (float)(rng & 0xFFFFFF) / 16777216.0f;
 }
 
-static void spawn_gems(void) {
-    s_collected = 0;
-    for (int g = 0; g < NGEM; g++) {
-        MoteBody *b = &body[IGEM0 + g];
-        gem_live[g] = true;
-        b->shape    = MOTE_SHAPE_SPHERE;
-        b->radius   = GEM_R;
-        b->inv_mass = 0.0f;                 /* pinned: never moved by the solver */
-        b->orient   = m3_identity();
-        b->vel      = v3(0, 0, 0);
-        b->w        = v3(0, 0, 0);
-        b->_reserved[0] = 0;
-        /* scatter across the arena, avoiding the player's spawn at the centre */
-        float x, z;
-        do {
-            x = (frand01() * 2.0f - 1.0f) * ARENA;
-            z = (frand01() * 2.0f - 1.0f) * ARENA;
-        } while (x * x + z * z < 1.2f);
-        b->pos = v3(x, GEM_Y, z);
-    }
+/* place gem g at a fresh scattered spot, away from the player's current pos */
+static void place_gem(int g) {
+    MoteBody *b = &body[IGEM0 + g];
+    b->shape    = MOTE_SHAPE_SPHERE;
+    b->radius   = GEM_R;
+    b->inv_mass = 0.0f;                 /* pinned: never moved by the solver */
+    b->orient   = m3_identity();
+    b->vel      = v3(0, 0, 0);
+    b->w        = v3(0, 0, 0);
+    b->_reserved[0] = 0;
+    gem_kind[g]  = (int)(frand01() * NGEM_KIND) % NGEM_KIND;
+    gem_phase[g] = frand01() * 6.2831853f;
+    float x, z, px = body[IPLAYER].pos.x, pz = body[IPLAYER].pos.z;
+    do {
+        x = (frand01() * 2.0f - 1.0f) * ARENA;
+        z = (frand01() * 2.0f - 1.0f) * ARENA;
+    } while ((x - px) * (x - px) + (z - pz) * (z - pz) < 2.0f);
+    b->pos = v3(x, GEM_Y, z);
+}
+
+static void start_round(void) {
+    s_score = 0;
+    s_time_left = ROUND_SEC;
+    s_over = false;
+    body[IPLAYER].pos = v3(0.0f, PLAYER_R, 0.0f);
+    body[IPLAYER].vel = v3(0, 0, 0);
+    body[IPLAYER].w   = v3(0, 0, 0);
+    for (int g = 0; g < NGEM; g++) place_gem(g);
+    for (int i = 0; i < NPOP; i++) pop[i].t = 0.0f;
+    pop_next = 0;
 }
 
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(14, 16, 28));
-    mote->scene_set_sun(v3(0.4f, 0.85f, -0.3f));
+    mote->scene_set_sun(v3_norm(v3(0.4f, 0.9f, -0.35f)));
 
     mote->phys_world_defaults(&world);
-    world.walls   = 0;                  /* no bounding box; ground is a PLANE */
-    world.friction = 0.9f;              /* the ball slows and stops on its own */
+    world.walls    = 0;                  /* no bounding box; ground is a PLANE */
+    world.friction = 0.9f;               /* the ball slows and stops on its own */
     world.substep  = 1.0f / 120.0f;
     world.max_substeps = 4;
+
+    /* a thin floor slab covering the arena (a PLANE collider has no geometry) */
+    mesh_floor = mote_mesh_box(mote, ARENA + 1.0f, 0.12f, ARENA + 1.0f,
+                               MOTE_RGB565(64, 80, 116));
+
+    /* a faceted diamond per colour: bottom point -> wide girdle -> table top.
+     * The revolve apexes at both ends and caps the table, giving a gem look. */
+    for (int k = 0; k < NGEM_KIND; k++) {
+        const float prof[] = {
+            0.00f, -0.34f,   /* bottom apex (culet) */
+            0.30f, -0.05f,   /* girdle (widest) */
+            0.22f,  0.10f,   /* crown */
+            0.16f,  0.20f,   /* table (capped flat) */
+        };
+        mesh_gem[k] = mote_mesh_revolve(mote, prof, 4, 6, k_gem_col[k]);
+    }
 
     /* player */
     body[IPLAYER] = (MoteBody){0};
     body[IPLAYER].shape    = MOTE_SHAPE_SPHERE;
     body[IPLAYER].radius   = PLAYER_R;
-    body[IPLAYER].inv_mass = 1.0f / 1.0f;
+    body[IPLAYER].inv_mass = 1.0f;
     body[IPLAYER].orient   = m3_identity();
     body[IPLAYER].pos      = v3(0.0f, PLAYER_R, 0.0f);
 
@@ -121,32 +147,50 @@ static void g_init(void) {
     body[GROUND] = (MoteBody){0};
     body[GROUND].shape    = MOTE_SHAPE_PLANE;
     body[GROUND].inv_mass = 0.0f;
-    body[GROUND].orient   = m3_identity();   /* r[1] = (0,1,0) -> normal up */
+    body[GROUND].orient   = m3_identity();
     body[GROUND].pos      = v3(0, 0, 0);
     body[GROUND].radius   = 0.0f;
 
     rng = (uint32_t)mote->micros() | 1u;
-    spawn_gems();
+    s_best = 0;
+    start_round();
+}
 
-    cam_basis = m3_identity();
-    m3_rotate_local(&cam_basis, 0, 0.45f);   /* pitch down to look at the floor */
+static void spawn_pop(Vec3 at, uint16_t col) {
+    pop[pop_next].pos = at;
+    pop[pop_next].t   = 1.0f;
+    pop[pop_next].col = col;
+    pop_next = (pop_next + 1) % NPOP;
 }
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_A))    spawn_gems();
+    if (mote_just_pressed(in, MOTE_BTN_B)) start_round();
 
-    /* --- movement: build a ground-plane direction from the D-pad, relative to
-     * the camera's facing (its forward/right flattened onto the XZ plane). --- */
-    Vec3 fwd   = v3_norm(v3(cam_basis.r[2].x, 0.0f, cam_basis.r[2].z));
-    Vec3 right = v3_norm(v3(cam_basis.r[0].x, 0.0f, cam_basis.r[0].z));
-    Vec3 dir = v3(0, 0, 0);
-    if (mote_pressed(in, MOTE_BTN_UP))    dir = v3_add(dir, fwd);
-    if (mote_pressed(in, MOTE_BTN_DOWN))  dir = v3_sub(dir, fwd);
-    if (mote_pressed(in, MOTE_BTN_RIGHT)) dir = v3_add(dir, right);
-    if (mote_pressed(in, MOTE_BTN_LEFT))  dir = v3_sub(dir, right);
+    /* fade the collect-pops regardless of state */
+    for (int i = 0; i < NPOP; i++)
+        if (pop[i].t > 0.0f) { pop[i].t -= dt * 2.2f; if (pop[i].t < 0) pop[i].t = 0; }
 
     MoteBody *pl = &body[IPLAYER];
+
+    if (!s_over) {
+        s_time_left -= dt;
+        if (s_time_left <= 0.0f) {
+            s_time_left = 0.0f;
+            s_over = true;
+            if (s_score > s_best) s_best = s_score;
+        }
+    }
+
+    /* --- movement: a ground-plane direction from the D-pad. The camera looks
+     * straight down +Z, so UP = +Z (away), RIGHT = +X. --- */
+    Vec3 dir = v3(0, 0, 0);
+    if (!s_over) {
+        if (mote_pressed(in, MOTE_BTN_UP))    dir.z += 1.0f;
+        if (mote_pressed(in, MOTE_BTN_DOWN))  dir.z -= 1.0f;
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) dir.x += 1.0f;
+        if (mote_pressed(in, MOTE_BTN_LEFT))  dir.x -= 1.0f;
+    }
     if (v3_len2(dir) > 1e-4f) {
         dir = v3_norm(dir);
         pl->vel.x = dir.x * MOVE_SPEED;
@@ -169,61 +213,111 @@ static void g_update(float dt) {
 
     /* --- THE DEMO: ask the engine which bodies overlap the player's sphere.
      * phys_overlap tests (center,radius) against each body, adding that body's
-     * own radius — so passing the player radius makes a gem register exactly
-     * when the two surfaces touch (threshold = PLAYER_R + GEM_R). --- */
-    int hits[NBODY];
-    int nh = mote->phys_overlap(&world, body, NBODY, pl->pos,
-                                PLAYER_R, hits, NBODY);
-    for (int k = 0; k < nh; k++) {
-        int idx = hits[k];
-        if (idx >= IGEM0 && idx < IGEM0 + NGEM) {
-            int g = idx - IGEM0;
-            if (gem_live[g]) {
-                gem_live[g] = false;
-                s_collected++;
-                body[idx].pos.y = -100.0f;   /* park it out of the query/scene */
+     * own radius, so a gem registers exactly when the surfaces touch. --- */
+    if (!s_over) {
+        int hits[NBODY];
+        int nh = mote->phys_overlap(&world, body, NBODY, pl->pos,
+                                    PLAYER_R, hits, NBODY);
+        for (int k = 0; k < nh; k++) {
+            int idx = hits[k];
+            if (idx >= IGEM0 && idx < IGEM0 + NGEM) {
+                int g = idx - IGEM0;
+                s_score++;
+                spawn_pop(body[idx].pos, k_gem_col[gem_kind[g]]);
+                place_gem(g);            /* instant respawn elsewhere */
             }
         }
     }
 
-    /* --- camera chases the player from behind/above, looking down at it --- */
-    cam_pos = v3(pl->pos.x, pl->pos.y + 3.6f, pl->pos.z - 5.0f);
+    /* --- top-down chase camera, slightly behind so we see the gems' faces --- */
+    cam_pos = v3(pl->pos.x, pl->pos.y + 6.0f, pl->pos.z - 3.6f);
+    Mat3 basis = mote_camera_look(cam_pos, v3(pl->pos.x, 0.0f, pl->pos.z));
 
-    mote->scene_begin(&cam_basis, 55.0f);
+    mote->scene_begin(&basis, 55.0f);
 
-    /* floor quad, scaled to cover the arena (mesh spans +-scale meters) */
-    MoteObject floor = { .pos = v3_sub(v3(0, 0, 0), cam_pos),
-                         .basis = m3_identity(), .mesh = &k_floor_mesh };
-    mote->scene_add_object_scaled(&floor, ARENA + 1.0f);
+    /* floor slab (sits with its top face at y=0) */
+    {
+        MoteObject fl = { .pos = v3_sub(v3(0, -0.12f, 0), cam_pos),
+                          .basis = m3_identity(), .mesh = mesh_floor };
+        mote->scene_add_object(&fl);
+    }
 
     /* player ball */
     mote->scene_add_sphere(v3_sub(pl->pos, cam_pos), PLAYER_R,
                            MOTE_RGB565(245, 245, 245));
 
-    /* gems (only the live ones) */
+    /* gems — spin about Y and bob up/down; render as diamonds */
+    float t = (float)mote->micros() * 1e-6f;
     for (int g = 0; g < NGEM; g++) {
-        if (!gem_live[g]) continue;
-        Vec3 p = v3_sub(body[IGEM0 + g].pos, cam_pos);
-        mote->scene_add_sphere(p, GEM_R, k_gem_col[g % 6]);
+        float ph  = gem_phase[g];
+        float spin = t * 2.2f + ph;
+        float bob  = sinf(t * 2.6f + ph) * 0.12f;
+        Vec3 gp = body[IGEM0 + g].pos;
+        gp.y += bob;
+        float c = cosf(spin), s = sinf(spin);
+        Mat3 o; o.r[0] = v3(c, 0, s); o.r[1] = v3(0, 1, 0); o.r[2] = v3(-s, 0, c);
+        MoteObject go = { .pos = v3_sub(gp, cam_pos), .basis = o,
+                          .mesh = mesh_gem[gem_kind[g]] };
+        mote->scene_add_object(&go);
+    }
+
+    /* collect-pops: an expanding faint sphere of the gem's colour */
+    for (int i = 0; i < NPOP; i++) {
+        if (pop[i].t <= 0.0f) continue;
+        float r = 0.3f + (1.0f - pop[i].t) * 0.9f;
+        mote->scene_add_sphere(v3_sub(pop[i].pos, cam_pos), r, pop[i].col);
     }
 }
 
 static void g_overlay(uint16_t *fb) {
-    char line[24], *p = line;
-    p = ap_s(p, "GEMS ");
-    p = ap_i(p, s_collected);
-    *p++ = '/';
-    p = ap_i(p, NGEM);
-    *p = 0;
-    mote->text(fb, line, 3, 3, MOTE_RGB565(255, 230, 80));
+    char buf[16];
 
-    if (s_collected >= NGEM)
-        mote->text(fb, "ALL CLEAR! A=RESET", 3, 118, MOTE_RGB565(120, 255, 140));
-    else
-        mote->text(fb, "DPAD ROLL  A RESET", 3, 118, MOTE_RGB565(150, 170, 200));
+    /* top-left score panel */
+    mote_ui_panel(fb, 2, 2, 60, 14, MOTE_RGB565(18, 22, 36), MOTE_RGB565(80, 96, 140));
+    int q = 0;
+    buf[q++] = 'S'; buf[q++] = 'C'; buf[q++] = ':'; buf[q++] = ' ';
+    q += mote_itoa(s_score, buf + q); buf[q] = 0;
+    mote->text(fb, buf, 6, 5, MOTE_RGB565(255, 230, 80));
+
+    /* top-right time panel + countdown bar */
+    mote_ui_panel(fb, 66, 2, 60, 14, MOTE_RGB565(18, 22, 36), MOTE_RGB565(80, 96, 140));
+    int secs = (int)(s_time_left + 0.999f);
+    q = 0;
+    buf[q++] = 'T'; buf[q++] = ':'; buf[q++] = ' ';
+    q += mote_itoa(secs, buf + q); buf[q] = 0;
+    uint16_t tcol = (s_time_left <= 5.0f && !s_over)
+                    ? MOTE_RGB565(255, 90, 80) : MOTE_RGB565(150, 220, 255);
+    mote->text(fb, buf, 70, 5, tcol);
+    mote_ui_bar(fb, 4, 122, 120, 3, s_time_left / ROUND_SEC,
+                MOTE_RGB565(90, 200, 255), MOTE_RGB565(30, 34, 50));
+
+    if (s_over) {
+        mote_ui_panel(fb, 18, 40, 92, 48,
+                      MOTE_RGB565(20, 24, 40), MOTE_RGB565(120, 140, 200));
+        mote->text_2x(fb, "TIME!", 44, 46, MOTE_RGB565(255, 210, 90));
+        q = 0;
+        buf[q++] = 'S'; buf[q++] = 'C'; buf[q++] = 'O'; buf[q++] = 'R';
+        buf[q++] = 'E'; buf[q++] = ' '; q += mote_itoa(s_score, buf + q); buf[q] = 0;
+        mote->text(fb, buf, 30, 64, MOTE_RGB565(235, 240, 250));
+        q = 0;
+        buf[q++] = 'B'; buf[q++] = 'E'; buf[q++] = 'S'; buf[q++] = 'T';
+        buf[q++] = ' '; q += mote_itoa(s_best, buf + q); buf[q] = 0;
+        mote->text(fb, buf, 30, 74, MOTE_RGB565(120, 255, 150));
+        mote->text(fb, "B  PLAY AGAIN", 24, 102, MOTE_RGB565(180, 195, 220));
+    } else {
+        mote->text(fb, "DPAD  ROLL  &  GRAB  GEMS", 8, 116,
+                   MOTE_RGB565(150, 170, 200));
+    }
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = {
+        .max_tris    = 700,    /* floor box + 8 diamonds (~16 tris each) */
+        .max_spheres = 24,     /* player + collect-pops */
+        .max_bodies  = NBODY,
+        .max_contacts = 64,
+        .depth       = 1,
+    },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

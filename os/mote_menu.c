@@ -95,13 +95,23 @@ int mote_engine_menu(uint16_t *fb) {
             else if (sel == M_VOL)    { s_vol += d * 10; if (s_vol < 0) s_vol = 0; if (s_vol > 100) s_vol = 100;
                                         mote_plat_set_volume(s_vol); }
         }
+        int ret = -1;
         if (mote_just_pressed(&in, MOTE_BTN_A)) {
-            if (sel == M_LOBBY)  return 1;
-            if (sel == M_RESUME) return 0;
-            if (sel == M_PERF)   mote_perf_set_level((mote_perf_level() + 1) % MOTE_PERF_LEVELS);
+            if (sel == M_LOBBY)  ret = 1;
+            else if (sel == M_RESUME) ret = 0;
+            else if (sel == M_PERF)   mote_perf_set_level((mote_perf_level() + 1) % MOTE_PERF_LEVELS);
         }
         if (armed && (mote_just_pressed(&in, MOTE_BTN_B) || mote_just_pressed(&in, MOTE_BTN_MENU)))
-            return 0;
+            ret = 0;
+
+        if (ret >= 0) {
+            /* Drain A/B/MENU before handing control back, so the game or launcher
+             * doesn't see a phantom just-pressed from the button we exited on. */
+            for (;;) { MoteButtons r; mote_plat_buttons(&r);
+                if ((!r.a && !r.b && !r.menu) || mote_plat_should_quit()) break;
+                mote_plat_present(fb); }
+            return ret;
+        }
 
         draw_panel(fb, sel);
         mote_plat_present(fb);

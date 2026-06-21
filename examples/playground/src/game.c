@@ -1,18 +1,23 @@
 /*
  * playground — a physics PLAYGROUND showcasing STATIC colliders + per-body
- * materials. A ground plane, two tilted brown ramps and low grey perimeter
- * walls are all immovable (inv_mass = 0). A pool of dynamic balls drops onto
- * the ramps; the balls come in three MATERIALS whose behaviour you can see:
+ * MATERIALS. A ground plane, two tilted brown ramps forming a shallow valley,
+ * and low grey perimeter walls are all immovable (inv_mass = 0). A pool of
+ * dynamic balls drops onto the ramps; the balls come in three MATERIALS whose
+ * behaviour you can read off the colour:
  *
- *   - BOUNCY  (red)   restitution 0.9   -> springs back up off the ramp/ground
- *   - ICE     (cyan)  friction 0.02     -> barely grips, slides far down-slope
- *   - DEFAULT (gold)  world material     -> rolls/settles normally
+ *   - BOUNCY (red)   restitution 0.9   -> springs back up off the ramp/ground
+ *   - ICE    (cyan)  friction 0.02     -> barely grips, slides far down-slope
+ *   - NORMAL (gold)  world material     -> rolls and settles
  *
- * Controls: A spawn/respawn a ball at the top of a ramp (small push);
- *           B reset all; MENU exit.
+ * Statics + tilted-box colliders are built with mote_build.h (a tilt matrix is
+ * the ramp's orient, used for BOTH render and collision). Balls re-drop on
+ * their own when everything settles, so the scene stays lively.
+ *
+ * Controls: A drop a ball · B reset all · (hold MENU 3s for the engine menu)
  */
 #include "mote_api.h"
-#include "pg_meshes.h"
+#include "mote_build.h"
+#include <math.h>
 
 MOTE_GAME_MODULE();
 
@@ -21,13 +26,13 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-/* Body layout in the array: statics first (fixed indices), then the dynamic
- * ball pool. The solver treats inv_mass==0 bodies as immovable colliders. */
+/* Body layout: statics first (fixed indices), then the dynamic ball pool. The
+ * solver treats inv_mass==0 bodies as immovable colliders. */
 #define MAT_BOUNCY  0
 #define MAT_ICE     1
-#define MAT_DEFAULT 2
+#define MAT_NORMAL  2
 
-#define NBALL      8                 /* dynamic ball pool */
+#define NBALL      10                /* dynamic ball pool */
 #define I_GROUND   0
 #define I_RAMP_L   1
 #define I_RAMP_R   2
@@ -40,37 +45,44 @@ static MoteBody  body[NTOTAL];
 static int       s_mat[NBALL];       /* material of each pool ball */
 static int       s_live = 0;         /* how many balls have been spawned */
 static int       s_next = 0;         /* round-robin index into the pool */
+static int       s_dropped = 0;      /* lifetime drop counter (HUD) */
+static float     s_settled_t = 0.0f; /* seconds the scene has been at rest */
 static uint32_t  rng = 1u;
-static Vec3      cam_pos;
-static Mat3      cam_basis;
 
-/* Ramp geometry (must match k_slab_mesh proportions: half 2.0 x 0.205 x 1.40). */
-static const Vec3 RAMP_HALF = { 2.0f, 0.205f, 1.40f };
-static const float RAMP_TILT = 0.44f;   /* ~25 degrees */
+static Vec3  cam_pos;
+static Mat3  cam_basis;
 
-static char *ap_s(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
-static char *ap_i(char *p, int v) {
-    if (v < 0) { *p++ = '-'; v = -v; }
-    char t[12]; int n = 0;
-    if (v == 0) t[n++] = '0';
-    while (v) { t[n++] = (char)('0' + v % 10); v /= 10; }
-    while (n) *p++ = t[--n];
-    return p;
-}
+/* arena-built meshes (held from init) */
+static const Mesh *m_ground, *m_ramp, *m_wall_x, *m_wall_z;
+
+/* Ramp geometry. The two ramps form a shallow VALLEY: each tilts so its OUTER
+ * edge is high and its inner (centre) edge is low, so a ball dropped on the
+ * high edge rolls DOWN toward the middle where they meet. */
+static const Vec3  RAMP_HALF = { 2.0f, 0.18f, 1.40f };
+static const float RAMP_TILT = 0.44f;   /* ~25 degrees, about world Z */
+
+/* ball colours by material (also used for the legend) */
+static const uint16_t k_mat_col[3] = {
+    MOTE_RGB565(238, 64, 64),    /* BOUNCY  red  */
+    MOTE_RGB565(96, 222, 240),   /* ICE     cyan */
+    MOTE_RGB565(244, 198, 64),   /* NORMAL  gold */
+};
+
 static float frand(void) {       /* xorshift -> [-1,1) */
     rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
     return (float)(rng & 0xFFFF) / 32768.0f - 1.0f;
 }
 
-/* The two ramps form a shallow VALLEY: each tilts so its OUTER edge is high
- * and its inner edge (near the centre) is low. A ball dropped on the outer
- * high edge rolls DOWN toward the centre, where the two ramps meet, and the
- * balls collect there instead of rolling off. Rotation is about world Z. */
+/* left ramp: high edge at -X -> tilt so +X goes down (negative about Z);
+ * right ramp mirrors. */
 static Mat3 ramp_orient(int left) {
     Mat3 m = m3_identity();
-    /* left ramp: high edge at -X -> tilt so +X goes down (negative about Z);
-     * right ramp mirrors. */
     m3_rotate_local(&m, 2, left ? -RAMP_TILT : RAMP_TILT);
+    return m;
+}
+static Mat3 wall_orient_z(void) {           /* rotate a +X wall to run along Z */
+    Mat3 m = m3_identity();
+    m3_rotate_local(&m, 1, 1.5707963f);
     return m;
 }
 
@@ -78,14 +90,13 @@ static void make_static(void) {
     /* Ground: infinite plane half-space, normal = orient.r[1] = +Y. */
     MoteBody *g = &body[I_GROUND];
     *g = (MoteBody){0};
-    g->shape   = MOTE_SHAPE_PLANE;
-    g->pos     = v3(0, 0, 0);
-    g->orient  = m3_identity();
+    g->shape    = MOTE_SHAPE_PLANE;
+    g->pos      = v3(0, 0, 0);
+    g->orient   = m3_identity();
     g->inv_mass = 0.0f;
-    g->radius  = 0.0f;
 
-    /* Two tilted ramp slabs. Centre lowered so the slab sits just above the
-     * ground, high edge raised by the tilt. Left ramp left of centre. */
+    /* Two tilted ramp slabs, one each side of centre. Centre raised so the low
+     * (inner) edge clears the ground as the ~25deg tilt drops it. */
     for (int s = 0; s < 2; s++) {
         MoteBody *r = &body[I_RAMP_L + s];
         int left = (s == 0);
@@ -95,36 +106,35 @@ static void make_static(void) {
         r->radius   = v3_len(RAMP_HALF);
         r->orient   = ramp_orient(left);
         r->inv_mass = 0.0f;
-        /* Place each ramp's centre off to its side; raise centre so the low
-         * edge clears the ground (slab tilts ~25 deg over a 2 m half-width). */
-        float cx = left ? -1.9f : 1.9f;
-        r->pos = v3(cx, 1.05f, 0.0f);
+        r->friction = 0.55f;
+        r->pos      = v3(left ? -1.9f : 1.9f, 1.02f, 0.0f);
     }
 
     /* Four low perimeter walls boxing in the play area (~+-4 m). */
+    const Vec3 wall_half_x = { 4.0f, 0.4f, 0.18f };   /* runs along X */
     struct { Vec3 pos; int along_x; } w[4] = {
-        { v3(0.0f,  0.4f, -4.0f), 1 },   /* far  (runs along X) */
-        { v3(0.0f,  0.4f,  4.0f), 1 },   /* near (along X) */
-        { v3(-4.0f, 0.4f,  0.0f), 0 },   /* left (along Z) */
-        { v3( 4.0f, 0.4f,  0.0f), 0 },   /* right(along Z) */
+        { v3(0.0f,  0.4f, -4.0f), 1 },   /* far  */
+        { v3(0.0f,  0.4f,  4.0f), 1 },   /* near */
+        { v3(-4.0f, 0.4f,  0.0f), 0 },   /* left */
+        { v3( 4.0f, 0.4f,  0.0f), 0 },   /* right */
     };
+    Mat3 zrot = wall_orient_z();
     for (int i = 0; i < 4; i++) {
         MoteBody *b = &body[I_WALL0 + i];
         *b = (MoteBody){0};
         b->shape    = MOTE_SHAPE_BOX;
-        /* k_wall_mesh half-extents: 2.4 x 0.4 x 0.18 (scale 2.4). */
-        Vec3 half = w[i].along_x ? v3(2.4f, 0.4f, 0.18f) : v3(0.18f, 0.4f, 2.4f);
-        b->half     = half;
-        b->radius   = v3_len(half);
-        if (w[i].along_x) b->orient = m3_identity();
-        else { Mat3 m = m3_identity(); m3_rotate_local(&m, 1, 1.5707963f); b->orient = m; }
+        b->half     = w[i].along_x ? wall_half_x
+                                   : v3(wall_half_x.z, wall_half_x.y, wall_half_x.x);
+        b->radius   = v3_len(b->half);
+        b->orient   = w[i].along_x ? m3_identity() : zrot;
         b->inv_mass = 0.0f;
-        b->pos = w[i].pos;
+        b->friction = 0.6f;
+        b->pos      = w[i].pos;
     }
 }
 
-/* Spawn one ball into pool slot `slot` at the top (high edge) of a ramp,
- * with a small push down-slope. Cycles materials so the mix is visible. */
+/* Spawn one ball into pool slot `slot` on the high edge of a ramp, with a small
+ * push down-slope. Cycles materials so the mix is always visible. */
 static void spawn_ball(int slot) {
     MoteBody *b = &body[NSTATIC + slot];
     int mat = slot % 3;
@@ -132,78 +142,91 @@ static void spawn_ball(int slot) {
 
     *b = (MoteBody){0};
     b->shape    = MOTE_SHAPE_SPHERE;
-    b->radius   = 0.26f;
+    b->radius   = 0.27f;
     b->inv_mass = 1.0f / 0.3f;
     b->orient   = m3_identity();
 
     switch (mat) {
-        case MAT_BOUNCY:  b->restitution = 0.9f;  b->friction = 0.0f;  break;
-        case MAT_ICE:     b->restitution = 0.0f;  b->friction = 0.02f; break;
-        default:          b->restitution = 0.0f;  b->friction = 0.0f;  break; /* world */
+        case MAT_BOUNCY:  b->restitution = 0.9f;  b->friction = 0.30f; break;
+        case MAT_ICE:     b->restitution = 0.05f; b->friction = 0.02f; break;
+        default:          b->restitution = 0.25f; b->friction = 0.5f;  break; /* world-ish */
     }
 
-    /* Alternate which ramp's high edge we drop from. Left ramp high edge is
-     * at -X; right ramp high edge at +X. Drop a little above the surface. */
+    /* Alternate which ramp we drop from: left ramp high edge at -X, right at +X.
+     * The ball then rolls down toward the centre valley. */
     int left = (slot & 1) == 0;
-    /* Drop on the OUTER (high) edge of a ramp: left ramp high edge at -X,
-     * right ramp at +X. The ball then rolls down toward the centre. */
-    float hi_x = left ? -3.4f : 3.4f;
-    b->pos = v3(hi_x + frand() * 0.2f,
-                3.2f,
-                frand() * 0.7f);
-    /* Small push down-slope (toward centre). */
-    b->vel = v3(left ? 0.7f : -0.7f, 0.0f, 0.0f);
+    float hi_x = left ? -3.3f : 3.3f;
+    b->pos = v3(hi_x + frand() * 0.25f, 3.1f, frand() * 0.8f);
+    b->vel = v3(left ? 0.8f : -0.8f, 0.0f, 0.0f);
     b->_reserved[0] = 0;                          /* wake */
 
     if (slot >= s_live) s_live = slot + 1;
+    s_dropped++;
+}
+
+static void park_ball(int slot) {
+    MoteBody *b = &body[NSTATIC + slot];
+    *b = (MoteBody){0};
+    b->shape    = MOTE_SHAPE_SPHERE;
+    b->radius   = 0.27f;
+    b->inv_mass = 0.0f;                /* solver ignores it */
+    b->orient   = m3_identity();
+    b->pos      = v3(0.0f, -50.0f, 0.0f);
 }
 
 static void reset_all(void) {
-    /* Park every pool ball far below/out of sight (inv_mass 0 so the solver
-     * ignores them) and clear the live count. */
-    for (int i = 0; i < NBALL; i++) {
-        MoteBody *b = &body[NSTATIC + i];
-        *b = (MoteBody){0};
-        b->shape   = MOTE_SHAPE_SPHERE;
-        b->radius  = 0.26f;
-        b->inv_mass = 0.0f;
-        b->orient  = m3_identity();
-        b->pos     = v3(0.0f, -50.0f, 0.0f);
-    }
+    for (int i = 0; i < NBALL; i++) park_ball(i);
     s_live = 0;
     s_next = 0;
+    s_settled_t = 0.0f;
+}
+
+/* True once every live ball is moving slowly (the pile has settled). */
+static int scene_at_rest(void) {
+    int any = 0;
+    for (int i = 0; i < NBALL; i++) {
+        MoteBody *b = &body[NSTATIC + i];
+        if (b->inv_mass == 0.0f) continue;
+        any = 1;
+        if (v3_len(b->vel) > 0.35f) return 0;
+    }
+    return any;
 }
 
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(120, 165, 210));   /* sky */
-    mote->scene_set_sun(v3(0.45f, 0.85f, -0.3f));
+    mote->scene_set_sun(v3_norm(v3(0.45f, 0.85f, -0.3f)));
 
     mote->phys_world_defaults(&world);
-    world.walls   = 0;                       /* NO auto box; we build statics */
-    world.gravity = v3(0.0f, -9.8f, 0.0f);
-    world.substep = 1.0f / 240.0f;
+    world.walls        = 0;                  /* NO auto box; we build statics */
+    world.gravity      = v3(0.0f, -9.8f, 0.0f);
+    world.substep      = 1.0f / 240.0f;
     world.max_substeps = 8;
-    /* World defaults for the "default" material balls. */
-    world.restitution = 0.25f;
-    world.friction    = 0.5f;
+    world.restitution  = 0.25f;
+    world.friction     = 0.5f;
+
+    /* arena meshes (half-extents). Ramp/wall colliders reuse these dims. */
+    m_ground = mote_mesh_box(mote, 6.0f, 0.10f, 6.0f, MOTE_RGB565(70, 96, 64));
+    m_ramp   = mote_mesh_box(mote, RAMP_HALF.x, RAMP_HALF.y, RAMP_HALF.z, MOTE_RGB565(156, 100, 56));
+    m_wall_x = mote_mesh_box(mote, 4.0f, 0.4f, 0.18f, MOTE_RGB565(122, 126, 134));
+    m_wall_z = mote_mesh_box(mote, 0.18f, 0.4f, 4.0f, MOTE_RGB565(122, 126, 134));
 
     rng = (uint32_t)mote->micros() | 1u;
     make_static();
     reset_all();
 
-    /* Seed a few balls so the scene shows material variety immediately. */
+    /* Seed a full mix so material variety shows immediately. */
     for (int i = 0; i < 6; i++) spawn_ball(i);
     s_next = 6 % NBALL;
 
-    /* Camera: off to the side and above, tilted down to view the ramps. */
-    cam_pos = v3(0.0f, 3.4f, -7.6f);
-    cam_basis = m3_identity();
-    m3_rotate_local(&cam_basis, 0, 0.34f);   /* pitch down */
+    /* Camera: off to the side and above, framing the whole valley. */
+    cam_pos   = v3(0.5f, 4.0f, -7.8f);
+    cam_basis = mote_camera_look(cam_pos, v3(0.0f, 0.7f, 0.0f));
 }
 
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_B))    reset_all();
+    if (mote_just_pressed(in, MOTE_BTN_B)) reset_all();
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         spawn_ball(s_next);
         s_next = (s_next + 1) % NBALL;
@@ -211,57 +234,73 @@ static void g_update(float dt) {
 
     mote->phys_step(&world, body, NTOTAL, dt);
 
-    mote->scene_begin(&cam_basis, 58.0f);
+    /* Keep it lively: once everything has been at rest for a moment, drop a
+     * fresh ball; if the pool is full, clear and start a new wave. */
+    if (scene_at_rest()) {
+        s_settled_t += dt;
+        if (s_settled_t > 1.4f) {
+            s_settled_t = 0.0f;
+            if (s_live >= NBALL) reset_all();
+            spawn_ball(s_next);
+            s_next = (s_next + 1) % NBALL;
+        }
+    } else {
+        s_settled_t = 0.0f;
+    }
 
-    /* Ground (the PLANE has no geometry — draw a big quad at y=0). */
-    MoteObject ground = { .pos = v3_sub(v3(0, 0, 0), cam_pos),
-                          .basis = m3_identity(), .mesh = &k_ground_mesh };
+    mote->scene_begin(&cam_basis, 56.0f);
+
+    /* Ground slab (top face sits at y=0). */
+    MoteObject ground = { .pos = v3_sub(v3(0.0f, -0.10f, 0.0f), cam_pos),
+                          .basis = m3_identity(), .mesh = m_ground };
     mote->scene_add_object(&ground);
 
-    /* Ramps. */
+    /* Ramps — tilted boxes; the body's orient IS the tilt used for collision. */
     for (int s = 0; s < 2; s++) {
         MoteBody *r = &body[I_RAMP_L + s];
-        MoteObject o = { .pos = v3_sub(r->pos, cam_pos),
-                         .basis = r->orient, .mesh = &k_slab_mesh };
+        MoteObject o = { .pos = v3_sub(r->pos, cam_pos), .basis = r->orient, .mesh = m_ramp };
         mote->scene_add_object(&o);
     }
     /* Walls. */
     for (int i = 0; i < 4; i++) {
         MoteBody *b = &body[I_WALL0 + i];
-        MoteObject o = { .pos = v3_sub(b->pos, cam_pos),
-                         .basis = b->orient, .mesh = &k_wall_mesh };
+        const Mesh *wm = (i < 2) ? m_wall_x : m_wall_z;
+        MoteObject o = { .pos = v3_sub(b->pos, cam_pos), .basis = b->orient, .mesh = wm };
         mote->scene_add_object(&o);
     }
 
-    /* Balls: colour by material so the difference is visible. */
-    static const uint16_t mat_col[3] = {
-        MOTE_RGB565(235, 70, 70),    /* BOUNCY  red   */
-        MOTE_RGB565(90, 220, 235),   /* ICE     cyan  */
-        MOTE_RGB565(240, 200, 70),   /* DEFAULT gold  */
-    };
+    /* Balls: shaded impostor spheres coloured by material. */
     for (int i = 0; i < NBALL; i++) {
         MoteBody *b = &body[NSTATIC + i];
         if (b->inv_mass == 0.0f) continue;       /* parked / not spawned */
         Vec3 p = v3_sub(b->pos, cam_pos);
-        mote->scene_add_sphere(p, b->radius, mat_col[s_mat[i]]);
+        mote->scene_add_sphere(p, b->radius, k_mat_col[s_mat[i]]);
     }
 }
 
 static void g_overlay(uint16_t *fb) {
-    mote->text(fb, "PLAYGROUND", 3, 3, MOTE_RGB565(255, 255, 255));
+    /* title panel */
+    mote_ui_panel(fb, 1, 1, 108, 11, MOTE_RGB565(16, 20, 30), MOTE_RGB565(70, 90, 130));
+    int x = mote->text(fb, "PLAYGROUND", 4, 3, MOTE_RGB565(235, 240, 250));
+    char num[12]; mote_itoa(s_dropped, num);
+    x = mote->text(fb, "  x", x, 3, MOTE_RGB565(150, 170, 200));
+    mote->text(fb, num, x, 3, MOTE_RGB565(150, 220, 255));
 
-    char line[24], *p = line;
-    p = ap_s(p, "BALLS ");
-    p = ap_i(p, s_live);
-    *p = 0;
-    mote->text(fb, line, 3, 12, MOTE_RGB565(120, 220, 255));
+    /* material legend with colour swatches */
+    static const char *k_name[3] = { "BOUNCY", "ICE", "NORMAL" };
+    int ly = 92;
+    for (int m = 0; m < 3; m++) {
+        mote_ui_rect(fb, 3, ly + 1, 6, 6, k_mat_col[m]);
+        mote->text(fb, k_name[m], 12, ly, k_mat_col[m]);
+        ly += 9;
+    }
 
-    /* Tiny material legend. */
-    mote->text(fb, "RED bouncy",  3, 108, MOTE_RGB565(235, 70, 70));
-    mote->text(fb, "CYAN ice",    3, 116, MOTE_RGB565(90, 220, 235));
+    mote->text(fb, "A DROP  B RESET", 3, 120, MOTE_RGB565(160, 180, 210));
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = { .max_tris = 220, .max_spheres = NBALL, .max_bodies = NTOTAL,
+                .max_contacts = 96, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
