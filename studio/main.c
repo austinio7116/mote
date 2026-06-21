@@ -81,8 +81,11 @@ static const Col C_DPADL = { 150, 196, 255 };
 
 #ifdef _WIN32
 #include <direct.h>
+#define GETCWD _getcwd
 static void mkdir_portable(const char*p){ (void)_mkdir(p); }
 #else
+#include <unistd.h>
+#define GETCWD getcwd
 static void mkdir_portable(const char*p){ (void)mkdir(p,0755); }
 #endif
 static Col mul(Col c, float f){ int r=(int)(c.r*f),g=(int)(c.g*f),b=(int)(c.b*f);
@@ -239,6 +242,7 @@ static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b
     for(int x=a;x<=b;x++){ if(d>=0&&d<g_csize)g_canvas[d*g_csize+x]=c; if(e>=0&&e<g_csize)g_canvas[e*g_csize+x]=c; }
     for(int y=d;y<=e;y++){ if(a>=0&&a<g_csize)g_canvas[y*g_csize+a]=c; if(b>=0&&b<g_csize)g_canvas[y*g_csize+b]=c; } }
 static void njob(int kind,const char*dir);   /* fwd: native build/bake worker */
+static void fp_open(int cb);                 /* fwd: built-in file browser */
 static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:".";
     static unsigned char rgba[CMAX*CMAX*4];
     for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
@@ -667,8 +671,7 @@ static void load_audio(const char*path){ char cmd[700]; snprintf(cmd,sizeof cmd,
     if(fread(g_wav,2,g_wavn,f)!=(size_t)g_wavn){} fclose(f); g_crop_a=0; g_crop_b=g_wavn;
     const char*b=strrchr(path,'/'); snprintf(g_wav_name,sizeof g_wav_name,"%.120s",b?b+1:path);
     snprintf(g_status,sizeof g_status,"loaded %s  (%.2fs)",g_wav_name,g_wavn/22050.0f); }
-static void import_audio(void){ FILE*p=popen("zenity --file-selection --title='Load audio' 2>/dev/null","r"); char pa[600]={0};
-    if(p){ if(fgets(pa,sizeof pa,p)){ pa[strcspn(pa,"\n")]=0; if(pa[0])load_audio(pa); } pclose(p); } else snprintf(g_status,sizeof g_status,"install zenity to load audio"); }
+static void import_audio(void){ fp_open(0); }
 static void crop_raw(const char*out){ if(!g_wav||g_crop_a<0)return; long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a;
     if(a<0)a=0; if(b>g_wavn)b=g_wavn; FILE*f=fopen(out,"wb"); if(f){ fwrite(g_wav+a,2,(size_t)(b-a),f); fclose(f); } }
 static void audio_play(void){ crop_raw("/tmp/mote_crop.raw"); run_job("aplay -q -r 22050 -f S16_LE -c 1 /tmp/mote_crop.raw","play"); }
@@ -750,9 +753,7 @@ static void pixel_down(int mx,int my){
         if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==7)g_grid=!g_grid;
         else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
         else if(id==11){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c>2?c-2:1; } else if(id==12){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c+2; } else if(id==13){ g_pzoom=0; g_panx=g_pany=0; }
-        else if(id==9){ FILE*p=popen("zenity --file-selection --title='Import image' 2>/dev/null","r"); char pa[600]={0};
-            if(p){ if(fgets(pa,sizeof pa,p)){ pa[strcspn(pa,"\n")]=0; if(pa[0]){ undo_push(); load_png(pa); } } pclose(p); }
-            else snprintf(g_status,sizeof g_status,"install zenity to import, or select an asset in the tree"); }
+        else if(id==9)fp_open(1);
         return; }
     int sizes[5]={8,16,32,64,128};
     for(int i=0;i<5;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
@@ -776,6 +777,51 @@ static void pixel_up(int mx,int my){ g_hsvdrag=g_huedrag=0;
     g_dx0=-1; }
 
 /* project picker + new-game modals */
+/* ===== built-in file browser (replaces zenity; cross-platform) ===== */
+static int g_fpick, g_fpick_cb; static char g_fpdir[600];
+static char g_fpitem[400][160]; static unsigned char g_fpisdir[400]; static int g_fpn, g_fpscroll;
+static SDL_Rect g_fp_cancel;
+static int ci_ends(const char*s,const char*suf){ int ls=(int)strlen(s),lf=(int)strlen(suf); return ls>=lf&&!strcasecmp(s+ls-lf,suf); }
+static int fp_match(const char*n,int cb){ if(cb==0)return ci_ends(n,".wav")||ci_ends(n,".mp3")||ci_ends(n,".ogg")||ci_ends(n,".flac")||ci_ends(n,".m4a")||ci_ends(n,".aac");
+    return ci_ends(n,".png")||ci_ends(n,".bmp")||ci_ends(n,".jpg")||ci_ends(n,".jpeg")||ci_ends(n,".gif")||ci_ends(n,".tga"); }
+static int fpcmp(const void*a,const void*b){ return strcasecmp((const char*)a,(const char*)b); }
+static void fp_scan(void){ g_fpn=0; g_fpscroll=0;
+    snprintf(g_fpitem[g_fpn],160,".."); g_fpisdir[g_fpn]=1; g_fpn++;
+    DIR*d=opendir(g_fpdir); if(!d)return; struct dirent*e;
+    static char dirs[400][160],files[400][160]; int nd=0,nf=0;
+    while((e=readdir(d))){ if(e->d_name[0]=='.')continue; char p[800]; snprintf(p,sizeof p,"%.560s/%.200s",g_fpdir,e->d_name); struct stat st;
+        if(stat(p,&st)==0&&S_ISDIR(st.st_mode)){ if(nd<400)snprintf(dirs[nd++],160,"%s",e->d_name); }
+        else if(fp_match(e->d_name,g_fpick_cb)){ if(nf<400)snprintf(files[nf++],160,"%s",e->d_name); } }
+    closedir(d); qsort(dirs,nd,160,fpcmp); qsort(files,nf,160,fpcmp);
+    for(int i=0;i<nd&&g_fpn<400;i++){ snprintf(g_fpitem[g_fpn],160,"%s",dirs[i]); g_fpisdir[g_fpn]=1; g_fpn++; }
+    for(int i=0;i<nf&&g_fpn<400;i++){ snprintf(g_fpitem[g_fpn],160,"%s",files[i]); g_fpisdir[g_fpn]=0; g_fpn++; } }
+static void fp_open(int cb){ g_fpick=1; g_fpick_cb=cb; if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
+static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
+    int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
+    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
+    text(R,g_fpdir,bx+14,by+38,1,C_DIM,C_PANEL);
+    int mx,my; SDL_GetMouseState(&mx,&my); int ly=by+58, rows=(bh-96)/20;
+    for(int i=0;i<rows&&g_fpscroll+i<g_fpn;i++){ int idx=g_fpscroll+i,y=ly+i*20,hov=hit(mx,my,bx+8,y,bw-16,20);
+        if(hov)plain(R,bx+8,y,bw-16,20,C_SEL);
+        icon(R,g_fpisdir[idx]?IC_FOLDER:IC_FILE,bx+14,y+3,14,g_fpisdir[idx]?(Col){222,200,120}:C_DIM);
+        text(R,g_fpitem[idx],bx+36,y+5,1,g_fpisdir[idx]?C_TXT:(Col){190,196,214},hov?C_SEL:C_PANEL); }
+    g_fp_cancel=(SDL_Rect){bx+bw-100,by+bh-36,86,26}; rrect(R,g_fp_cancel.x,g_fp_cancel.y,86,26,5,C_BTN); text(R,"Cancel",g_fp_cancel.x+18,g_fp_cancel.y+7,1,C_TXT,C_BTN);
+    text(R,"click a folder to enter · wheel to scroll · Esc to close",bx+14,by+bh-30,1,C_DIM,C_PANEL); }
+static void fp_pick(int idx){ if(idx<0||idx>=g_fpn)return; char path[840];
+    if(g_fpisdir[idx]){ if(!strcmp(g_fpitem[idx],"..")){ char*s=strrchr(g_fpdir,'/');
+#ifdef _WIN32
+        char*s2=strrchr(g_fpdir,'\\'); if(s2>s)s=s2;
+#endif
+        if(s&&s!=g_fpdir)*s=0; else if(s)*(s+1)=0; }
+        else { snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); snprintf(g_fpdir,sizeof g_fpdir,"%s",path); }
+        fp_scan(); return; }
+    snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); g_fpick=0;
+    if(g_fpick_cb==0)load_audio(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
+static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2;
+    if(hit(mx,my,g_fp_cancel.x,g_fp_cancel.y,86,26)){ g_fpick=0; return; }
+    int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
+    if(!hit(mx,my,bx,by,bw,bh))g_fpick=0; }
+
 static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
@@ -870,6 +916,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
+    if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
@@ -895,6 +942,10 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)align_press(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEBUTTONUP)g_aldrag=0;
                 else if(e.type==SDL_MOUSEMOTION&&(e.motion.state&SDL_BUTTON_LMASK))align_drag(e.motion.x,e.motion.y);
+                continue; }
+            if(g_fpick){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_fpick=0;
+                else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
+                else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
@@ -936,7 +987,7 @@ int main(int argc,char**argv){
             if(cmy>=TOPH&&cmy<BOT_Y&&(abs(cmx-LEFT_W)<=4||abs(cmx-INSP_X)<=4))want=g_cur_we;
             else if(cmy>=BOT_Y-4&&cmy<=BOT_Y+1)want=g_cur_ns; }
           if(want)SDL_SetCursor(want); }
-        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&g_menu_open<0;
+        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&!g_fpick&&g_menu_open<0;
         if(over_emu){ poll_input(&b,pad);
             int mmx,mmy; Uint32 ms=SDL_GetMouseState(&mmx,&mmy);
             if((ms&SDL_BUTTON_LMASK)&&!g_split&&mmx>=CENTER_X&&mmx<INSP_X&&mmy>=TOPH&&mmy<BOT_Y) emu_hit(mmx,mmy,&b);
@@ -946,7 +997,7 @@ int main(int argc,char**argv){
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren);
         if(g_align)draw_align(ren);
-        if(g_picker)draw_picker(ren); if(g_modal)draw_modal(ren);
+        if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren);
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
     } while(running);
