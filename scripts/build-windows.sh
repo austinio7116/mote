@@ -44,6 +44,15 @@ if [ ! -d "$WB/ffmpeg" ]; then
   mv "$WB"/ffmpeg-master-latest-win64-gpl "$WB/ffmpeg"
 fi
 
+# --- 3b. arm-none-eabi-gcc (win64) — device .mote builds -------------------
+ARMVER=13.3.1-1.1
+if [ ! -d "$WB/arm" ]; then
+  echo "==> fetching arm-none-eabi-gcc $ARMVER (win64, ~278MB)"
+  curl -sL "https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v$ARMVER/xpack-arm-none-eabi-gcc-$ARMVER-win32-x64.zip" -o "$WB/arm.zip"
+  unzip -q "$WB/arm.zip" -d "$WB"
+  mv "$WB"/xpack-arm-none-eabi-gcc-* "$WB/arm"
+fi
+
 # --- 4. stage the bundle ---------------------------------------------------
 STAGE=dist-windows/MoteStudio
 echo "==> staging bundle -> $STAGE"
@@ -54,7 +63,7 @@ cp CMakeLists.txt README.md "$STAGE/" 2>/dev/null || true
 find "$STAGE" -type d -name build -prune -exec rm -rf {} + 2>/dev/null || true
 # portable toolchain (rename w64devkit -> toolchain so add_bundled_toolchain finds toolchain/bin)
 cp -r "$WB/w64devkit" "$STAGE/toolchain"
-# arm-none-eabi for device .mote builds is optional; host gcc covers Run/Build/Bake.
+cp -r "$WB/arm" "$STAGE/arm"          # arm-none-eabi-gcc for device .mote builds (Push & Launch)
 mkdir -p "$STAGE/ffmpeg/bin"
 cp "$WB/ffmpeg/bin/ffmpeg.exe" "$WB/ffmpeg/bin/ffplay.exe" "$WB/ffmpeg/bin/ffprobe.exe" "$STAGE/ffmpeg/bin/" 2>/dev/null || true
 cat > "$STAGE/README.txt" <<'TXT'
@@ -64,10 +73,8 @@ Unzip this folder anywhere on a LOCAL drive (e.g. C:\MoteStudio) and run
 mote_studio.exe from inside it.
 
 Everything is bundled: the engine + examples, a portable MinGW gcc (toolchain\),
-and ffmpeg (ffmpeg\). Run / Build / Bake / audio Load all work with no setup.
-
-Note: device Push (.mote) additionally needs arm-none-eabi-gcc on PATH; the host
-gcc bundled here covers everything else.
+arm-none-eabi-gcc for device builds (arm\), and ffmpeg (ffmpeg\). Run / Build / Bake /
+Push & Launch / audio Load all work with no setup — just connect a Mote board over USB.
 TXT
 
 # --- 5. zip ----------------------------------------------------------------
