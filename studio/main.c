@@ -82,12 +82,54 @@ static const Col C_DPADL = { 150, 196, 255 };
 #ifdef _WIN32
 #include <direct.h>
 #define GETCWD _getcwd
+#define CHDIR _chdir
+#define NULDEV "NUL"
 static void mkdir_portable(const char*p){ (void)_mkdir(p); }
+static const char* tmpdir(void){ const char*t=getenv("TEMP"); if(!t)t=getenv("TMP"); return t?t:"."; }
 #else
 #include <unistd.h>
 #define GETCWD getcwd
+#define CHDIR chdir
+#define NULDEV "/dev/null"
 static void mkdir_portable(const char*p){ (void)mkdir(p,0755); }
+static const char* tmpdir(void){ return "/tmp"; }
 #endif
+/* run from anywhere: chdir to the executable's dir so relative asset paths resolve */
+static void ensure_cwd(void){ FILE*t=fopen("studio/assets/icons.png","rb"); if(t){ fclose(t); return; }
+    char ep[700]={0};
+#ifdef _WIN32
+    GetModuleFileNameA(NULL,ep,(unsigned long)sizeof ep-1);
+#else
+    ssize_t k=readlink("/proc/self/exe",ep,sizeof ep-1); if(k>0)ep[k]=0;
+#endif
+    char*s=strrchr(ep,'/');
+#ifdef _WIN32
+    char*s2=strrchr(ep,'\\'); if(s2>s)s=s2;
+#endif
+    if(s){ *s=0; if(CHDIR(ep)!=0){} } }
+/* prepend a bundled toolchain (gcc / ffmpeg) sitting next to the exe onto PATH */
+static void add_bundled_toolchain(void){ struct stat st;
+#ifdef _WIN32
+    const char *sub[]={ "toolchain\\bin","ffmpeg\\bin" }; char sep=';';
+#else
+    const char *sub[]={ "toolchain/bin","ffmpeg/bin" }; char sep=':';
+#endif
+    char base[700]; if(!GETCWD(base,sizeof base))base[0]=0;
+    char path[8000]; int p=0,any=0; const char*cur=getenv("PATH");
+    for(int i=0;i<2;i++){ if(stat(sub[i],&st)==0){ p+=snprintf(path+p,sizeof path-p,"%s%c%s%c",base,
+#ifdef _WIN32
+        '\\',
+#else
+        '/',
+#endif
+        sub[i],sep); any=1; } }
+    if(!any)return; snprintf(path+p,sizeof path-p,"%s",cur?cur:"");
+#ifdef _WIN32
+    SetEnvironmentVariableA("PATH",path); _putenv_s("PATH",path);
+#else
+    setenv("PATH",path,1);
+#endif
+}
 static Col mul(Col c, float f){ int r=(int)(c.r*f),g=(int)(c.g*f),b=(int)(c.b*f);
     if(r>255)r=255; if(g>255)g=255; if(b>255)b=255; Col o={(Uint8)r,(Uint8)g,(Uint8)b}; return o; }
 
@@ -133,8 +175,26 @@ static void bake_font(SDL_Renderer*R,UFont*uf,int px){
     static unsigned int rgba[512*256]; for(int i=0;i<512*256;i++){ unsigned a=bmp[i]; rgba[i]=(a<<24)|0x00FFFFFFu; }
     uf->tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,512,256);
     SDL_UpdateTexture(uf->tex,NULL,rgba,512*4); SDL_SetTextureBlendMode(uf->tex,SDL_BLENDMODE_BLEND); uf->px=px; }
-static void ui_font_init(SDL_Renderer*R){ FILE*f=fopen("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf","rb"); if(!f)return;
-    if(fread(g_ttf,1,sizeof g_ttf,f)<10){ fclose(f); return; } fclose(f); bake_font(R,&g_uf[0],14); bake_font(R,&g_uf[1],19); }
+static UFont g_mono; static int g_mono_cw=8, g_mono_h=18;   /* monospace face for the code editor */
+static FILE *open_first(const char *const *paths,int n){ for(int i=0;i<n;i++){ FILE*f=fopen(paths[i],"rb"); if(f)return f; } return NULL; }
+static void ui_font_init(SDL_Renderer*R){
+    /* bundled first (cross-platform), then OS locations (Linux DejaVu, Windows fonts) */
+    const char *sans[]={ "studio/assets/fonts/DejaVuSans.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/segoeui.ttf","C:/Windows/Fonts/arial.ttf" };
+    const char *mono[]={ "studio/assets/fonts/DejaVuSansMono.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "C:/Windows/Fonts/consola.ttf","C:/Windows/Fonts/cour.ttf" };
+    FILE*f=open_first(sans,4); if(!f)return;
+    if(fread(g_ttf,1,sizeof g_ttf,f)<10){ fclose(f); return; } fclose(f); bake_font(R,&g_uf[0],14); bake_font(R,&g_uf[1],19);
+    FILE*fm=open_first(mono,4);
+    if(fm){ if(fread(g_ttf,1,sizeof g_ttf,fm)>=10){ fclose(fm); bake_font(R,&g_mono,15); g_mono_h=g_mono.px+4;
+        float fx=0,fy=0; stbtt_aligned_quad q; stbtt_GetBakedQuad(g_mono.ch,512,256,'M'-32,&fx,&fy,&q,1); g_mono_cw=(int)(fx+0.5f); } else fclose(fm); } }
+/* draw a single monospace glyph at (x,y) top-left */
+static void mono_char(SDL_Renderer*R,char c,int x,int y,Col fg){ if(c<32||c>126||!g_mono.tex)return;
+    SDL_SetTextureColorMod(g_mono.tex,fg.r,fg.g,fg.b); float fx=(float)x, fy=(float)y+g_mono.px*0.80f; stbtt_aligned_quad q;
+    stbtt_GetBakedQuad(g_mono.ch,512,256,c-32,&fx,&fy,&q,1);
+    SDL_Rect src={(int)(q.s0*512),(int)(q.t0*256),(int)((q.s1-q.s0)*512),(int)((q.t1-q.t0)*256)};
+    SDL_FRect dst={q.x0,q.y0,q.x1-q.x0,q.y1-q.y0}; SDL_RenderCopyF(R,g_mono.tex,&src,&dst); }
+static void mono_str(SDL_Renderer*R,const char*s,int x,int y,Col fg){ for(const char*p=s;*p;p++){ mono_char(R,*p,x,y,fg); x+=g_mono_cw; } }
 static void text(SDL_Renderer*R,const char*s,int x,int y,int sc,Col fg,Col bg){ (void)bg;
     UFont*uf=&g_uf[sc>=2?1:0]; if(!uf->tex){ ptext(R,s,x,y,sc,fg,bg); return; }
     SDL_SetTextureColorMod(uf->tex,fg.r,fg.g,fg.b);
@@ -293,8 +353,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_ASSETS, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","ASSETS","MESH","AUDIO","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_CODE, TAB_ASSETS, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","CODE","ASSETS","MESH","AUDIO","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 
 /* ================= menu bar ================= */
@@ -332,7 +392,13 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_NEW: open_new_game(); break;
     case A_OPEN: g_picker=1; break;
     case A_QUIT: g_quitreq=1; break;
-    case A_REVEAL: snprintf(c,sizeof c,"xdg-open %.250s",dir); run_job(c,"reveal"); break;
+    case A_REVEAL:
+#ifdef _WIN32
+        snprintf(c,sizeof c,"explorer \"%.250s\"",dir);
+#else
+        snprintf(c,sizeof c,"xdg-open %.250s",dir);
+#endif
+        run_job(c,"reveal"); break;
     case A_RELOAD: if(g_sel>=0)load_game(g_sel,1); break;
     case A_STOP: stop_engine(); snprintf(g_status,sizeof g_status,"stopped"); break;
     case A_BUILD: njob(0,dir); break;
@@ -667,19 +733,32 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
 static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w;
-static void load_audio(const char*path){ char cmd[700]; snprintf(cmd,sizeof cmd,"ffmpeg -y -i %.300s -ac 1 -ar 22050 -f s16le /tmp/mote_audio.raw 2>/dev/null",path); if(system(cmd)){}
-    FILE*f=fopen("/tmp/mote_audio.raw","rb"); if(!f){ snprintf(g_status,sizeof g_status,"could not decode audio"); return; }
+static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_audio.raw",tmpdir());
+    char cmd[800]; snprintf(cmd,sizeof cmd,"ffmpeg -y -i \"%.300s\" -ac 1 -ar 22050 -f s16le \"%.200s\" 2>%s",path,raw,NULDEV); if(system(cmd)){}
+    FILE*f=fopen(raw,"rb"); if(!f){ snprintf(g_status,sizeof g_status,"could not decode audio (is ffmpeg on PATH?)"); return; }
     fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET); g_wavn=(int)(sz/2); g_wav=realloc(g_wav,(size_t)g_wavn*2);
     if(fread(g_wav,2,g_wavn,f)!=(size_t)g_wavn){} fclose(f); g_crop_a=0; g_crop_b=g_wavn;
-    const char*b=strrchr(path,'/'); snprintf(g_wav_name,sizeof g_wav_name,"%.120s",b?b+1:path);
+    const char*b=strrchr(path,'/');
+#ifdef _WIN32
+    const char*b2=strrchr(path,'\\'); if(b2>b)b=b2;
+#endif
+    snprintf(g_wav_name,sizeof g_wav_name,"%.120s",b?b+1:path);
     snprintf(g_status,sizeof g_status,"loaded %s  (%.2fs)",g_wav_name,g_wavn/22050.0f); }
 static void import_audio(void){ fp_open(0); }
 static void crop_raw(const char*out){ if(!g_wav||g_crop_a<0)return; long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a;
     if(a<0)a=0; if(b>g_wavn)b=g_wavn; FILE*f=fopen(out,"wb"); if(f){ fwrite(g_wav+a,2,(size_t)(b-a),f); fclose(f); } }
-static void audio_play(void){ crop_raw("/tmp/mote_crop.raw"); run_job("aplay -q -r 22050 -f S16_LE -c 1 /tmp/mote_crop.raw","play"); }
-static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; } crop_raw("/tmp/mote_crop.raw");
+static void audio_play(void){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_crop.raw",tmpdir()); crop_raw(raw); char cmd[600];
+#ifdef _WIN32
+    snprintf(cmd,sizeof cmd,"ffplay -nodisp -autoexit -f s16le -ar 22050 -ch_layout mono \"%s\" >%s 2>&1",raw,NULDEV);
+#else
+    snprintf(cmd,sizeof cmd,"aplay -q -r 22050 -f S16_LE -c 1 \"%s\"",raw);
+#endif
+    run_job(cmd,"play"); }
+static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    char raw[400]; snprintf(raw,sizeof raw,"%s/mote_crop.raw",tmpdir()); crop_raw(raw);
     char base[80]; snprintf(base,sizeof base,"%.70s",g_wav_name); char*d=strrchr(base,'.'); if(d)*d=0;
-    char cmd[900]; snprintf(cmd,sizeof cmd,"mkdir -p %.180s/assets && ffmpeg -y -f s16le -ar 22050 -ac 1 -i /tmp/mote_crop.raw %.180s/assets/%.60s.wav 2>/dev/null",g_games[g_sel].dir,g_games[g_sel].dir,base);
+    char ad[300]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char cmd[900]; snprintf(cmd,sizeof cmd,"ffmpeg -y -f s16le -ar 22050 -ac 1 -i \"%s\" \"%.180s/assets/%.60s.wav\" 2>%s",raw,g_games[g_sel].dir,base,NULDEV);
     run_job(cmd,"save wav"); }
 static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my);
     int tx=ox,ty=oy;
@@ -728,11 +807,88 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
     if(i==0)dev_run(0); else if(i==1)dev_run(1); else if(i==4)dev_run(4); else if(i==5)dev_run(5);
     else if(i==2)njob(3,dir); else if(i==3)njob(4,dir); return; } }
 
+/* ================= code editor (CODE tab) ================= */
+static char *g_code; static unsigned char *g_codecol; static int g_codelen,g_codecap;
+static char g_codepath[400]; static int g_cur,g_codescroll,g_codedirty,g_codefocus;
+static int g_errline[128]; static unsigned char g_errkind[128]; static volatile int g_nerr;
+static SDL_Rect g_code_area;
+static const char *CKW[]={"if","else","for","while","do","switch","case","default","break","continue","return","goto",
+    "sizeof","typedef","struct","union","enum","static","const","volatile","extern","register","inline"};
+static const char *CTY[]={"int","char","float","double","void","bool","short","long","unsigned","signed",
+    "uint8_t","uint16_t","uint32_t","uint64_t","int8_t","int16_t","int32_t","int64_t","size_t"};
+static int word_in(const char*s,int n,const char*const*L,int c){ for(int i=0;i<c;i++)if((int)strlen(L[i])==n&&!strncmp(s,L[i],n))return 1; return 0; }
+static Col code_pal(int k){ switch(k){ case 1:return (Col){200,140,230}; case 2:return (Col){110,190,235}; case 3:return (Col){170,210,130};
+    case 4:return (Col){110,120,135}; case 5:return (Col){230,170,110}; case 6:return (Col){215,150,120}; case 7:return (Col){150,160,180}; } return (Col){205,210,222}; }
+static void code_relex(void){ if(!g_code)return; g_codecol=realloc(g_codecol,g_codecap); int i=0,n=g_codelen;
+    while(i<n){ char c=g_code[i];
+        if(c=='/'&&i+1<n&&g_code[i+1]=='*'){ g_codecol[i++]=4; g_codecol[i++]=4; while(i<n&&!(g_code[i]=='*'&&i+1<n&&g_code[i+1]=='/'))g_codecol[i++]=4; if(i<n)g_codecol[i++]=4; if(i<n)g_codecol[i++]=4; continue; }
+        if(c=='/'&&i+1<n&&g_code[i+1]=='/'){ while(i<n&&g_code[i]!='\n')g_codecol[i++]=4; continue; }
+        if(c=='#'){ while(i<n&&g_code[i]!='\n')g_codecol[i++]=6; continue; }
+        if(c=='"'||c=='\''){ char q=c; g_codecol[i++]=3; while(i<n&&g_code[i]!=q&&g_code[i]!='\n'){ if(g_code[i]=='\\'&&i+1<n)g_codecol[i++]=3; if(i<n)g_codecol[i++]=3; } if(i<n&&g_code[i]==q)g_codecol[i++]=3; continue; }
+        if(c>='0'&&c<='9'){ while(i<n&&(strchr("0123456789abcdefABCDEFxX.uUlLfF",g_code[i])))g_codecol[i++]=5; continue; }
+        if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'){ int s=i; while(i<n&&((g_code[i]>='a'&&g_code[i]<='z')||(g_code[i]>='A'&&g_code[i]<='Z')||(g_code[i]>='0'&&g_code[i]<='9')||g_code[i]=='_'))i++;
+            int w=i-s,k=0; if(word_in(g_code+s,w,CKW,(int)(sizeof CKW/sizeof*CKW)))k=1;
+            else if(word_in(g_code+s,w,CTY,(int)(sizeof CTY/sizeof*CTY))||(w>4&&!strncmp(g_code+s,"Mote",4))||(w>2&&g_code[s+w-2]=='_'&&g_code[s+w-1]=='t'))k=2;
+            for(int j=s;j<i;j++)g_codecol[j]=k; continue; }
+        g_codecol[i]=strchr("(){}[];,+-*/=<>&|!%^~?:.",c)?7:0; i++; } }
+static int code_lines(void){ int n=1; for(int i=0;i<g_codelen;i++)if(g_code[i]=='\n')n++; return n; }
+static int line_start(int p){ while(p>0&&g_code[p-1]!='\n')p--; return p; }
+static int line_end(int p){ while(p<g_codelen&&g_code[p]!='\n')p++; return p; }
+static int cur_line(void){ int l=0; for(int i=0;i<g_cur;i++)if(g_code[i]=='\n')l++; return l; }
+static int line_off(int ln){ int i=0,c=0; while(i<g_codelen&&c<ln){ if(g_code[i]=='\n')c++; i++; } return i; }
+static void code_check(void);
+static void code_open(const char*path){ FILE*f=fopen(path,"rb"); if(!f){ snprintf(g_status,sizeof g_status,"can't open %s",path); return; }
+    fseek(f,0,SEEK_END); long n=ftell(f); fseek(f,0,SEEK_SET); free(g_code); g_codecap=(int)n+4096; g_code=malloc(g_codecap);
+    g_codelen=(int)fread(g_code,1,n,f); g_code[g_codelen]=0; fclose(f); snprintf(g_codepath,sizeof g_codepath,"%.398s",path);
+    g_cur=0; g_codescroll=0; g_codedirty=0; g_nerr=0; g_codefocus=1; code_relex(); g_tab=TAB_CODE; SDL_StartTextInput(); code_check(); }
+static void code_grow(int e){ if(g_codelen+e+1>g_codecap){ g_codecap=(g_codelen+e+1)*2; g_code=realloc(g_code,g_codecap); g_codecol=realloc(g_codecol,g_codecap); } }
+static void code_insert(const char*s,int n){ if(!g_code)return; code_grow(n); memmove(g_code+g_cur+n,g_code+g_cur,g_codelen-g_cur+1); memcpy(g_code+g_cur,s,n); g_codelen+=n; g_cur+=n; g_codedirty=1; code_relex(); }
+static void code_back(void){ if(!g_code||g_cur<=0)return; memmove(g_code+g_cur-1,g_code+g_cur,g_codelen-g_cur+1); g_cur--; g_codelen--; g_codedirty=1; code_relex(); }
+static void code_delfwd(void){ if(!g_code||g_cur>=g_codelen)return; memmove(g_code+g_cur,g_code+g_cur+1,g_codelen-g_cur); g_codelen--; g_codedirty=1; code_relex(); }
+static void cur_vert(int dir){ int ls=line_start(g_cur),col=g_cur-ls;
+    if(dir<0){ if(ls==0)return; int p=line_start(ls-1),e=ls-1; g_cur=p+(col<e-p?col:e-p); }
+    else { int e=line_end(g_cur); if(e>=g_codelen)return; int p=e+1,e2=line_end(p); g_cur=p+(col<e2-p?col:e2-p); } }
+static void code_save(void){ if(!g_codepath[0]||!g_code)return; FILE*f=fopen(g_codepath,"wb"); if(!f){ snprintf(g_status,sizeof g_status,"save FAILED"); return; }
+    fwrite(g_code,1,g_codelen,f); fclose(f); g_codedirty=0; snprintf(g_status,sizeof g_status,"saved %s",g_codepath); code_check(); }
+/* gcc -fsyntax-only on a worker thread -> per-line error/warning markers */
+static int code_check_thread(void*a){ (void)a; char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir);
+    char cmd[1400]; snprintf(cmd,sizeof cmd,"gcc -fsyntax-only -DMOTE_HOST=1 -Iengine/core -Iengine/math -Iengine/render -Iengine/assets -Iengine/input -Iengine/physics -Isdk -I%.200s/src %.400s 2>&1",dir,g_codepath);
+    FILE*p=popen(cmd,"r"); if(!p)return 0; char ln[600]; int nn=0;
+    while(fgets(ln,sizeof ln,p)){ char*c=strstr(ln,".c:"); if(!c)c=strstr(ln,".h:"); if(!c)continue; int line=atoi(c+3);
+        int kind=strstr(ln,"error")?1:(strstr(ln,"warning")?0:-1); if(line>0&&kind>=0&&nn<128){ g_errline[nn]=line; g_errkind[nn]=(unsigned char)kind; nn++; } }
+    pclose(p); g_nerr=nn; if(!nn)snprintf(g_status,sizeof g_status,"%s — no issues",g_codepath); else snprintf(g_status,sizeof g_status,"%s — %d issue(s)",g_codepath,nn); return 0; }
+static void code_check(void){ g_nerr=0; SDL_CreateThread(code_check_thread,"check",NULL); }
+static int code_visrows(int h){ return (h-6)/g_mono_h; }
+static void code_click(int mx,int my){ if(!g_code)return; g_codefocus=1;
+    int gut=46,tx=g_code_area.x+gut+6,r=(my-(g_code_area.y+4))/g_mono_h; if(r<0)r=0; int ln=g_codescroll+r; if(ln>=code_lines())ln=code_lines()-1;
+    int off=line_off(ln),e=line_end(off),col=(mx-tx+g_mono_cw/2)/g_mono_cw; if(col<0)col=0; g_cur=off+(col<e-off?col:e-off); }
+static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_Rect){x,y,w,h}; plain(R,x,y,w,h,(Col){24,26,33});
+    if(!g_code){ text(R,"Select a .c / .h / .toml / .txt file in the tree to edit it here.",x+10,y+10,1,C_DIM,(Col){24,26,33}); return; }
+    int gut=46,tx=x+gut+6,rows=code_visrows(h),total=code_lines(),cl=cur_line();
+    if(cl<g_codescroll)g_codescroll=cl; if(cl>=g_codescroll+rows)g_codescroll=cl-rows+1;
+    if(g_codescroll>total-1)g_codescroll=total>0?total-1:0; if(g_codescroll<0)g_codescroll=0;
+    plain(R,x,y,gut,h,(Col){19,21,27});
+    int i=line_off(g_codescroll),ln=g_codescroll;
+    for(int r=0;r<rows&&i<=g_codelen;r++,ln++){ int ly=y+4+r*g_mono_h,lend=line_end(i);
+        int emk=-1; for(int e=0;e<g_nerr;e++)if(g_errline[e]==ln+1){ emk=g_errkind[e]; if(emk)break; }
+        if(emk>=0){ Col ec=emk?(Col){210,80,80}:(Col){205,175,90}; plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){emk?44:40,30,30}); plain(R,x,ly-2,3,g_mono_h,ec); }
+        if(ln==cl)plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){32,35,46});
+        char num[12]; snprintf(num,sizeof num,"%d",ln+1); mono_str(R,num,x+gut-10-(int)strlen(num)*g_mono_cw,ly,ln==cl?(Col){150,160,180}:(Col){82,90,108});
+        int col=0; for(int j=i;j<lend;j++){ char c=g_code[j]; if(c=='\t'){ col+=4-(col&3); continue; } int cx=tx+col*g_mono_cw; if(cx>x+w-4)break;
+            mono_char(R,c,cx,ly,code_pal(g_codecol?g_codecol[j]:0)); col++; }
+        if(ln==cl&&g_codefocus){ int cc=0; for(int j=i;j<g_cur;j++)cc=(g_code[j]=='\t')?cc+4-(cc&3):cc+1; plain(R,tx+cc*g_mono_cw,ly-1,1,g_mono_h,(Col){235,235,245}); }
+        i=lend+1; }
+    /* footer: path + dirty + issue count */
+    plain(R,x,y+h-18,w,18,(Col){19,21,27}); char ft[300]; int ne=g_nerr;
+    snprintf(ft,sizeof ft,"%s%.220s   ·   Ctrl+S save   ·   %d issue%s",g_codedirty?"*":"",g_codepath,ne,ne==1?"":"s");
+    text(R,ft,x+8,y+h-15,1,g_codedirty?(Col){230,200,120}:C_DIM,(Col){19,21,27}); }
+
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
         text(R,TAB_L[i],x+12,BOT_Y+7,1,g_tab==i?C_TXT:C_DIM,g_tab==i?C_PANEL:C_DOCK); x+=w; }
     plain(R,0,BOT_Y+22,WIN_W,1,C_LINE); int cy=BOT_Y+30;
+    if(g_tab==TAB_CODE){ draw_code(R,0,BOT_Y+23,WIN_W,WIN_H-(BOT_Y+23)); return; }
     if(g_tab==TAB_CONSOLE){ SDL_LockMutex(g_logmx?g_logmx:(g_logmx=SDL_CreateMutex()));
         int rows=(WIN_H-cy-8)/13, start=g_logn>rows?g_logn-rows:0;
         for(int i=start;i<g_logn;i++){ const char*s=g_log[i%80]; Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
@@ -797,7 +953,32 @@ static void fp_scan(void){ g_fpn=0; g_fpscroll=0;
     closedir(d); qsort(dirs,nd,160,fpcmp); qsort(files,nf,160,fpcmp);
     for(int i=0;i<nd&&g_fpn<400;i++){ snprintf(g_fpitem[g_fpn],160,"%s",dirs[i]); g_fpisdir[g_fpn]=1; g_fpn++; }
     for(int i=0;i<nf&&g_fpn<400;i++){ snprintf(g_fpitem[g_fpn],160,"%s",files[i]); g_fpisdir[g_fpn]=0; g_fpn++; } }
-static void fp_open(int cb){ g_fpick=1; g_fpick_cb=cb; if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
+/* native OS file dialog: Win32 GetOpenFileName / zenity / kdialog. Returns 1 picked
+ * (path in out), 0 cancelled, -1 no native dialog available (use the in-app browser). */
+static int native_pick(int cb,char*out,int n){
+#ifdef _WIN32
+    char buf[1040]=""; OPENFILENAMEA o; memset(&o,0,sizeof o); o.lStructSize=sizeof o; o.lpstrFile=buf; o.nMaxFile=sizeof buf;
+    o.lpstrFilter = cb==0 ? "Audio (wav/mp3/ogg/flac)\0*.wav;*.mp3;*.ogg;*.flac;*.m4a;*.aac\0All files\0*.*\0"
+                          : "Images (png/bmp/jpg)\0*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga\0All files\0*.*\0";
+    o.lpstrTitle = cb==0 ? "Open audio" : "Open image";
+    o.Flags = OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;   /* keep our cwd intact */
+    if(GetOpenFileNameA(&o)){ snprintf(out,n,"%s",buf); return 1; } return 0;
+#else
+    const char *f = cb==0 ? "--file-filter=Audio | *.wav *.mp3 *.ogg *.flac *.m4a *.aac"
+                          : "--file-filter=Images | *.png *.bmp *.jpg *.jpeg *.gif *.tga";
+    char cmd[400];
+    if(system("which zenity >/dev/null 2>&1")==0){ snprintf(cmd,sizeof cmd,"zenity --file-selection %s 2>/dev/null",f);
+        FILE*p=popen(cmd,"r"); if(p){ int got=fgets(out,n,p)!=NULL; pclose(p); if(got){ out[strcspn(out,"\n")]=0; return out[0]?1:0; } return 0; } }
+    if(system("which kdialog >/dev/null 2>&1")==0){ FILE*p=popen("kdialog --getopenfilename 2>/dev/null","r");
+        if(p){ int got=fgets(out,n,p)!=NULL; pclose(p); if(got){ out[strcspn(out,"\n")]=0; return out[0]?1:0; } return 0; } }
+    return -1;
+#endif
+}
+static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
+    if(r==1){ if(cb==0)load_audio(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==0)return;                                   /* native dialog cancelled */
+    g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
+    if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
 static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
@@ -893,10 +1074,14 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
 
 static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); g_picker=0; }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
-    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
+    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; }
+    else if(r->kind==1||r->kind==2)code_open(r->path);   /* .toml / .c / .h -> code editor */
+    else if(r->kind==5&&(ci_ends(r->name,".txt")||ci_ends(r->name,".md")||ci_ends(r->name,".ld")||ci_ends(r->name,".cfg")||ci_ends(r->name,".toml")))code_open(r->path); }
 
 int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
+    ensure_cwd();              /* resolve relative asset paths regardless of launch dir */
+    add_bundled_toolchain();   /* put a bundled gcc/ffmpeg (if shipped) onto PATH */
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
@@ -949,7 +1134,20 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
-            if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
+            if(g_tab==TAB_CODE&&g_codefocus&&g_code){            /* code editor has keyboard focus */
+                if(e.type==SDL_TEXTINPUT){ code_insert(e.text.text,(int)strlen(e.text.text)); continue; }
+                if(e.type==SDL_MOUSEWHEEL){ g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0; continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; int ctrl=(SDL_GetModState()&KMOD_CTRL)!=0;
+                    if(ctrl&&k==SDLK_s)code_save();
+                    else if(k==SDLK_BACKSPACE)code_back(); else if(k==SDLK_DELETE)code_delfwd();
+                    else if(k==SDLK_RETURN||k==SDLK_KP_ENTER)code_insert("\n",1); else if(k==SDLK_TAB)code_insert("    ",4);
+                    else if(k==SDLK_LEFT){ if(g_cur>0)g_cur--; } else if(k==SDLK_RIGHT){ if(g_cur<g_codelen)g_cur++; }
+                    else if(k==SDLK_UP)cur_vert(-1); else if(k==SDLK_DOWN)cur_vert(1);
+                    else if(k==SDLK_HOME)g_cur=line_start(g_cur); else if(k==SDLK_END)g_cur=line_end(g_cur);
+                    else if(k==SDLK_PAGEUP){ for(int z=0;z<12;z++)cur_vert(-1); } else if(k==SDLK_PAGEDOWN){ for(int z=0;z<12;z++)cur_vert(1); }
+                    else if(k==SDLK_ESCAPE)g_codefocus=0;
+                    continue; } }
+            if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y; g_codefocus=0;   /* refocus editor only on an editor click */
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-INSP_X)<=4){ g_split=2; continue; }
                 if(my>=BOT_Y-4&&my<=BOT_Y+1){ g_split=3; continue; }
@@ -966,8 +1164,8 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
-                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; } }
+                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); else if(g_tab==TAB_CODE){ g_codefocus=1; code_click(mx,my); } else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
@@ -989,7 +1187,7 @@ int main(int argc,char**argv){
             if(cmy>=TOPH&&cmy<BOT_Y&&(abs(cmx-LEFT_W)<=4||abs(cmx-INSP_X)<=4))want=g_cur_we;
             else if(cmy>=BOT_Y-4&&cmy<=BOT_Y+1)want=g_cur_ns; }
           if(want)SDL_SetCursor(want); }
-        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&!g_fpick&&g_menu_open<0;
+        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&!g_fpick&&!g_codefocus&&g_menu_open<0;
         if(over_emu){ poll_input(&b,pad);
             int mmx,mmy; Uint32 ms=SDL_GetMouseState(&mmx,&mmy);
             if((ms&SDL_BUTTON_LMASK)&&!g_split&&mmx>=CENTER_X&&mmx<INSP_X&&mmy>=TOPH&&mmy<BOT_Y) emu_hit(mmx,mmy,&b);
