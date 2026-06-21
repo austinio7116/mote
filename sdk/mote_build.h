@@ -175,4 +175,74 @@ static inline int mote_itoa(int n, char *o) {
     while (p) o[q++] = t[--p]; o[q] = 0; return q;
 }
 
+/* ===================================================================== */
+/* Convenience helpers added to smooth the sharpest edges (all header-only, */
+/* no ABI change). Use them or ignore them.                                */
+/* ===================================================================== */
+#include <stdarg.h>
+
+/* ---- printf-style HUD text — replaces the pervasive buf[q++]=… + mote_itoa
+ * boilerplate. Supports %d %i %u %x %c %s %f (%f = 2 decimals) and %%.
+ *   mote_textf(mote, fb, 4, 4, white, "FPS %d  pos %.2f", fps, x);          */
+static inline int mote__ftoa(float f, char *o, int dec) {
+    int q = 0; if (f < 0) { o[q++] = '-'; f = -f; }
+    int scale = 1; for (int i = 0; i < dec; i++) scale *= 10;
+    long whole = (long)f; long frac = (long)((f - (float)whole) * (float)scale + 0.5f);
+    if (frac >= scale) { whole++; frac -= scale; }
+    q += mote_itoa((int)whole, o + q);
+    if (dec > 0) { o[q++] = '.'; for (int s = scale / 10; s >= 1; s /= 10) o[q++] = (char)('0' + (frac / s) % 10); }
+    o[q] = 0; return q;
+}
+static inline int mote_vtextf(const MoteApi *mote, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, va_list ap) {
+    char b[128]; int q = 0;
+    for (const char *p = fmt; *p && q < 120; p++) {
+        if (*p != '%') { b[q++] = *p; continue; }
+        p++;
+        switch (*p) {
+            case 'd': case 'i': q += mote_itoa(va_arg(ap, int), b + q); break;
+            case 'u': { unsigned u = va_arg(ap, unsigned); char t[12]; int tp = 0; if (!u) t[tp++] = '0'; while (u) { t[tp++] = (char)('0'+u%10); u/=10; } while (tp) b[q++] = t[--tp]; } break;
+            case 'x': { unsigned u = va_arg(ap, unsigned); char t[12]; int tp = 0; if (!u) t[tp++]='0'; while (u) { unsigned d=u&15u; t[tp++]=(char)(d<10?'0'+d:'a'+d-10); u>>=4; } while (tp) b[q++]=t[--tp]; } break;
+            case 'c': b[q++] = (char)va_arg(ap, int); break;
+            case 's': { const char *s = va_arg(ap, const char *); while (*s && q < 120) b[q++] = *s++; } break;
+            case 'f': q += mote__ftoa((float)va_arg(ap, double), b + q, 2); break;
+            case '%': b[q++] = '%'; break;
+            default: b[q++] = '%'; if (*p) b[q++] = *p; break;
+        }
+    }
+    b[q] = 0; return mote->text(fb, b, x, y, col);
+}
+static inline int mote_textf(const MoteApi *mote, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, ...) {
+    va_list ap; va_start(ap, fmt); int r = mote_vtextf(mote, fb, x, y, col, fmt, ap); va_end(ap); return r;
+}
+
+/* ---- sprites — build a MoteSprite without hand-ordering its 9 positional fields. */
+static inline MoteSprite mote_sprite(const MoteImage *img, int x, int y) {
+    MoteSprite s = {0}; s.img = img; s.x = (int16_t)x; s.y = (int16_t)y; s.fw = img->w; s.fh = img->h; return s;
+}
+static inline MoteSprite mote_sprite_cell(const MoteImage *img, int x, int y, int cw, int ch, int col, int row) {
+    MoteSprite s = {0}; s.img = img; s.x = (int16_t)x; s.y = (int16_t)y;
+    s.fx = (uint16_t)(col * cw); s.fy = (uint16_t)(row * ch); s.fw = (uint16_t)cw; s.fh = (uint16_t)ch; return s;
+}
+static inline int mote_sprite_add(const MoteApi *mote, const MoteImage *img, int x, int y) {
+    MoteSprite s = mote_sprite(img, x, y); return mote->scene2d_add(&s);
+}
+
+/* ---- physics body factories — set the shape and AUTO-COMPUTE the box bounding
+ * radius (forgetting it silently disables box collisions). mass <= 0 -> static. */
+static inline MoteBody mote_body_sphere(Vec3 pos, float r, float mass) {
+    MoteBody b = {0}; b.pos = pos; b.orient = m3_identity(); b.shape = MOTE_SHAPE_SPHERE;
+    b.radius = r; b.inv_mass = mass > 0.0f ? 1.0f / mass : 0.0f; return b;
+}
+static inline MoteBody mote_body_box(Vec3 pos, Vec3 half, float mass) {
+    MoteBody b = {0}; b.pos = pos; b.orient = m3_identity(); b.shape = MOTE_SHAPE_BOX;
+    b.half = half; b.radius = v3_len(half); b.inv_mass = mass > 0.0f ? 1.0f / mass : 0.0f; return b;
+}
+
+/* ---- fixed timestep — run game logic at a steady rate regardless of frame dt:
+ *   static MoteFixed t; mote_fixed_feed(&t, dt);
+ *   while (mote_fixed_step(&t, 1.0f/60)) update_logic(1.0f/60);              */
+typedef struct { float acc; } MoteFixed;
+static inline void mote_fixed_feed(MoteFixed *f, float dt) { f->acc += dt; if (f->acc > 0.25f) f->acc = 0.25f; }
+static inline int  mote_fixed_step(MoteFixed *f, float step) { if (f->acc >= step) { f->acc -= step; return 1; } return 0; }
+
 #endif /* MOTE_BUILD_H */

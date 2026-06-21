@@ -972,52 +972,37 @@ RP2350 mass-storage drive.
 - **Arena allocations never individually free.** `mote->alloc` is bump-allocated and
   freed wholesale on exit. Allocate your buffers once in `init()`.
 
-### Rough edges (honest, fixable API friction — feeds the next improvement pass)
+### Rough edges
 
-- **Manual sprite/HUD string building is painful.** There's no `printf`-style text
-  helper; every game open-codes `buf[q++]='F'; buf[q++]='P'; …` plus `mote_itoa`. A
-  `mote->textf(fb, x, y, col, "FPS %d", n)` (or even a `mote_strcat`/`mote_fmt`
-  helper in `mote_build.h`) would delete a lot of boilerplate in every example.
-- **`MoteSprite` is an unlabelled positional struct.** `{ &player, px, py, frame*8,
-  0, 8, 8, 10, flags }` — nine fields, easy to mis-order (the `fx,fy,fw,fh` block in
-  particular). Designated initialisers help but most examples don't use them. Worth a
-  `mote_sprite(img, x, y, frame_index)` convenience for the common single-row-sheet case.
-- **Camera-relative positions are a constant `v3_sub(world, cam)` footgun.** Almost
-  every `scene_add_object` call wraps its position in `v3_sub(..., cam_pos)`; forget
-  it once and the object jumps. And `scene_set_splats` inconsistently wants the
-  *absolute* `cam_pos` while objects want the *relative* one — surprising. Consider
-  an API that takes a camera (basis + pos) once and absolute world positions thereafter.
-- **`render_band` is called from two cores but the docs/types don't enforce it.**
-  It's easy to write a `render_band` that mutates shared state and only discover the
-  race on device. The signature gives no hint which core you're on or that you must
-  be reentrant.
-- **Physics body setup is verbose and error-prone.** You must set `shape`, `half`,
-  `radius` (a *bounding* radius for boxes, separate from `half`!), `inv_mass`,
-  `restitution`, `friction`, *and* remember to clear `_reserved[0]` to wake a
-  teleported body — with no constructor and no validation. A `mote_body_box(half,
-  mass)` / `mote_body_sphere(r, mass)` factory in `mote_build.h` would prevent a
-  whole class of bugs (e.g. a box with `radius` left 0 silently never collides in the
-  broad-phase).
-- **Sleeping bodies hang in mid-air if their support vanishes** with no net motion
-  (documented in `mote_phys.h`, but a real surprise: delete the floor and the stack
-  freezes). The advice ("nudge `pos.y -= 0.05f`") is a workaround, not a fix.
-- **The audio/Studio mismatch is the sharpest edge for newcomers.** The Studio Audio
-  tab strongly implies you can author and play WAV SFX, but the runtime has only
-  `audio_note`. Either the synth should gain a sampler + a `.wav`→header baker, or the
-  Audio tab should clearly say "preview only / synth presets".
-- **`game.toml`'s `abi` field is inert.** The actual ABI check is the C symbol
-  `MOTE_ABI_VERSION`; `abi = 1` in the toml does nothing. Confusing to have two
-  "abi" notions.
-- **`config` lives in C, but Studio parses it out of source text** to show the
-  budget meter — so an unusual formatting of the struct can defeat the meter. A
-  declarative pool count (or a tiny ABI query) would be more robust.
-- **No `dt`-independent fixed timestep for game logic.** Physics has a substep
-  accumulator, but gameplay code gets raw `dt` (clamped to 0.1). Fast/slow frames can
-  change feel; a helper or guidance for fixed-step game logic would help.
-- **`MoteImage.key` semantics are subtle.** "No transparency" is expressed as a key
-  that won't occur, and the baker nudges real magenta off the key — workable, but
-  there's no explicit "opaque image" flag, so it's easy to be confused about whether
-  a given image is keyed.
+#### Fixed — new header-only helpers in `mote_build.h` (no ABI change)
+
+| Was painful | Now |
+|---|---|
+| Open-coding HUD strings with `buf[q++]=…` + `mote_itoa` | `mote_textf(mote, fb, x, y, col, "FPS %d  %.2f", n, x)` — `%d %i %u %x %c %s %f %%` |
+| `MoteSprite` 9-field positional struct, easy to mis-order | `mote_sprite(img, x, y)` / `mote_sprite_cell(img, x, y, cw, ch, col, row)` / `mote_sprite_add(mote, img, x, y)` |
+| Box bodies silently never collide if you forget the bounding `radius` | `mote_body_box(pos, half, mass)` / `mote_body_sphere(pos, r, mass)` — auto-computes `radius`, sets `orient`, wakes the body; `mass<=0` = static |
+| Gameplay logic gets raw, frame-rate-dependent `dt` | `MoteFixed t; mote_fixed_feed(&t, dt); while (mote_fixed_step(&t, 1.0f/60)) update(1.0f/60);` |
+
+#### Open — let's discuss (these touch the ABI, the engine, or behaviour)
+
+- **Camera-relative positions / the `scene_set_splats` inconsistency.** Objects want
+  positions relative to the camera, but `scene_set_splats` wants the *absolute*
+  `cam_pos`. Fixing it cleanly means a new camera-aware API (and likely an ABI bump) —
+  worth doing, but a design decision.
+- **`render_band` reentrancy isn't enforced by the type/signature.** A safety/ergonomics
+  improvement (pass a core id? a `const` scene handle?) rather than a one-line fix.
+- **The audio/Studio mismatch.** The Studio now has a full SFX *editor*, but the runtime
+  still only has `audio_note` — sampled SFX can be authored + previewed on PC but won't
+  play on-device yet. The agreed fix is a **PCM sample channel in the engine + a
+  `.wav`→header baker** (an engine/firmware change); this is the next engine task.
+- **Sleeping bodies hang in mid-air** if their support vanishes with no net motion — a
+  physics-solver behaviour, not a clean helper fix.
+- **`game.toml`'s `abi` field is inert** (the real check is the C `MOTE_ABI_VERSION`
+  symbol). Cheap to remove or wire up — let's pick one.
+- **Studio parses `config` out of source text** for the budget meter, so unusual struct
+  formatting defeats it. A tiny ABI query (or a declarative pool count) would be robust.
+- **`MoteImage.key` has no explicit "opaque" flag** — "no transparency" is an
+  unlikely-key convention. A flag would be clearer but is a (small) format change.
 
 ---
 
