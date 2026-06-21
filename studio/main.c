@@ -30,6 +30,7 @@
 #include "third_party/stb_truetype.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb_image.h"
+#include "usb.h"   /* native device link (no Python/pyserial) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
 static int WIN_W=1380, WIN_H=920;
@@ -671,12 +672,20 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         rrect(R,x,y,bw,28,4,hit(mx,my,x,y,bw,28)?C_BTNHI:C_BTN); icon(R,ic[i],x+10,y+7,14,C_TXT); text(R,DVB_L[i],x+30,y+8,1,C_TXT,C_BTN);
         x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
     text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK); }
+/* native device ops (no Python) run on a worker thread, logging into the Console */
+static int g_devop; static volatile int g_devstop;
+static int dev_thread(void*a){ (void)a;
+    switch(g_devop){ case 0: log_add(""); log_add("$ ping");  mote_dev_ping(log_add); break;
+        case 1: log_add(""); log_add("$ list");  mote_dev_list(log_add); break;
+        case 4: log_add(""); log_add("$ logs (6s)"); g_devstop=0; mote_dev_logs(6,log_add,&g_devstop); log_add("(log stream ended)"); break;
+        case 5: log_add(""); log_add("$ wipe");  mote_dev_wipe(log_add); break; }
+    return 0; }
+static void dev_run(int op){ g_devop=op; g_tab=TAB_CONSOLE; SDL_CreateThread(dev_thread,"dev",NULL); }
 static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].x,g_dvb[i].y,g_dvb[i].w,g_dvb[i].h)){
     char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600]; g_tab=TAB_CONSOLE;
-    if(i==0)run_job("./tools/mote ping","ping"); else if(i==1)run_job("./tools/mote list","list");
-    else if(i==2){ snprintf(c,sizeof c,"./tools/mote push %.250s",dir); run_job(c,"push"); }
-    else if(i==3){ snprintf(c,sizeof c,"./tools/mote push %.250s --launch",dir); run_job(c,"push launch"); }
-    else if(i==4)run_job("./tools/mote logs --seconds 6","logs"); else if(i==5)run_job("./tools/mote wipe","wipe"); return; } }
+    if(i==0)dev_run(0); else if(i==1)dev_run(1); else if(i==4)dev_run(4); else if(i==5)dev_run(5);
+    else if(i==2){ snprintf(c,sizeof c,"./tools/mote push %.250s",dir); run_job(c,"push"); }   /* push waits on native build (Part B) */
+    else if(i==3){ snprintf(c,sizeof c,"./tools/mote push %.250s --launch",dir); run_job(c,"push launch"); } return; } }
 
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};

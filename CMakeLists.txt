@@ -83,6 +83,7 @@ if(MOTE_TARGET STREQUAL "host")
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
     add_executable(mote_studio
         studio/main.c
+        studio/usb.c
         os/mote_os.c
         os/mote_launcher.c
         os/mote_menu.c
