@@ -44,6 +44,7 @@ add_executable(mote_os
     ${OSDIR}/device/mote_xip.c
     ${OSDIR}/mote_os.c
     ${OSDIR}/mote_launcher.c
+    ${OSDIR}/mote_ui.c
     ${OSDIR}/mote_menu.c
 
     ${PLATDEV}/mote_plat_device.c

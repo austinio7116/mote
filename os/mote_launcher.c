@@ -7,6 +7,7 @@
 #include "mote_config.h"
 #include "mote_input.h"
 #include "mote_icons.h"
+#include "mote_ui.h"
 #include <string.h>
 
 #ifdef MOTE_HOST
@@ -57,43 +58,42 @@ static void uppch(char *o, const char *n) { o[0] = (n[0] >= 'a' && n[0] <= 'z') 
 
 static void draw(const MoteCatalog *cat, int sel, int top) {
     (void)top;
-    clear(COL_BG);
-    /* top band */
-    fill(0, 0, MOTE_FB_W, 12, MOTE_RGB565(18, 22, 38));
-    mote_font_draw(s_fb, "MOTE", 4, 3, COL_TITLE);
+    mote_ui_ground(s_fb);
+    mote_ui_header(s_fb, "MOTE", sel + 1, cat->count);
 
     if (cat->count == 0) {
         mote_font_draw(s_fb, "no games installed", (MOTE_FB_W - mote_font_width("no games installed")) / 2, 56, COL_DIM);
         mote_font_draw(s_fb, "mote push a game", (MOTE_FB_W - mote_font_width("mote push a game")) / 2, 68, COL_HINT);
+        mote_ui_footer(s_fb, 0);
         return;
     }
     const char *nm = cat->e[sel].name;
 
-    /* hero icon, framed + dropshadow */
-    int ix = (MOTE_FB_W - MOTE_ICON_W) / 2, iy = 18;
-    fill(ix, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 5, 10));   /* shadow */
-    fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(90, 150, 230)); /* frame */
+    /* hero icon (left), framed + dropshadow */
+    int ix = 5, iy = 24;
+    fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));      /* shadow */
+    fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));  /* frame */
     const uint16_t *ic = mote_icon_for(nm);
     if (ic) blit_icon(ic, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
 
-    /* carousel arrows */
-    if (cat->count > 1) {
-        mote_font_draw_2x(s_fb, "<", 4, 38, COL_DIM);
-        mote_font_draw_2x(s_fb, ">", MOTE_FB_W - 14, 38, COL_DIM);
+    /* browse list (right): a window of names centred on the selection */
+    int lx = 70, ly = 23, rh = 13, rows = 6;
+    int start = sel - 2;
+    if (start > cat->count - rows) start = cat->count - rows;
+    if (start < 0) start = 0;
+    for (int r = 0; r < rows && start + r < cat->count; r++) {
+        int i = start + r, y = ly + r * rh;
+        if (i == sel) {
+            fill(lx - 2, y, MOTE_FB_W - (lx - 2) - 2, 11, MOTE_RGB565(36, 74, 138));
+            fill(lx - 2, y, 2, 11, MOTE_RGB565(120, 200, 255));
+            mote_font_draw(s_fb, cat->e[i].name, lx + 3, y + 2, MOTE_RGB565(255, 255, 255));
+        } else {
+            mote_font_draw(s_fb, cat->e[i].name, lx + 3, y + 2, MOTE_RGB565(122, 136, 164));
+        }
     }
-    /* game name (2x, scaled to fit) */
-    int nw = mote_font_width_2x(nm);
-    if (nw <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - nw) / 2, 84, COL_SEL_TX);
-    else                     mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm)) / 2, 88, COL_SEL_TX);
-
-    /* position dots */
-    int n = cat->count, dx = (MOTE_FB_W - n * 4) / 2; if (dx < 2) dx = 2;
-    for (int i = 0; i < n && dx + i*4 < MOTE_FB_W - 2; i++)
-        fill(dx + i*4, 104, 2, 2, i == sel ? COL_SEL_TX : MOTE_RGB565(50, 58, 74));
-
-    mote_font_draw(s_fb, "A PLAY", (MOTE_FB_W - mote_font_width("A PLAY")) / 2, MOTE_FB_H - 10, COL_HINT);
+    mote_ui_footer(s_fb, "A PLAY   UP/DN BROWSE");
 }
 
 int mote_launcher_run(MoteCatalogFn rebuild) {

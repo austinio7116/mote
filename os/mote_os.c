@@ -15,6 +15,7 @@
 #include "mote_arena.h"      /* load-time resource arena */
 #include "mote_audio.h"      /* synth */
 #include "mote_menu.h"       /* engine overlay menu (3s MENU hold) */
+#include "mote_ui.h"         /* shared styled-UI kit (mote->menu) */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -26,6 +27,39 @@ static bool           s_exit_req;
 #define MOTE_ARENA_SIZE (280 * 1024)
 static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
 static MoteArena s_arena;
+
+/* Blocking styled list menu a game can pop up (ABI v11). Renders full-screen in
+ * the system look + drives its own input/present loop until A (-> index) or B
+ * (-> -1). The audio keeps pumping so notes don't stall while paused. */
+static int os_menu(const char *title, const char *const *items, int n) {
+    if (n <= 0) return -1;
+    uint16_t *fb = mote_launcher_fb();
+    mote_plat_wait_flush();
+    MoteInput in; memset(&in, 0, sizeof in);
+    int sel = 0, top = 0, armed = 0;
+    uint64_t last = mote_plat_micros();
+    for (;;) {
+        uint64_t now = mote_plat_micros(); uint32_t dt = (uint32_t)((now - last) / 1000); last = now;
+        MoteButtons raw; mote_plat_buttons(&raw); mote_input_update(&in, &raw, dt);
+        mote_plat_audio_pump();
+        if (!mote_pressed(&in, MOTE_BTN_A) && !mote_pressed(&in, MOTE_BTN_B)) armed = 1;
+        if (mote_just_pressed(&in, MOTE_BTN_DOWN)) sel = (sel + 1) % n;
+        if (mote_just_pressed(&in, MOTE_BTN_UP))   sel = (sel - 1 + n) % n;
+        int ret = -2;
+        if (armed && mote_just_pressed(&in, MOTE_BTN_A)) ret = sel;
+        else if (armed && mote_just_pressed(&in, MOTE_BTN_B)) ret = -1;
+        else if (mote_plat_should_quit()) ret = -1;
+        if (ret > -2) {
+            for (;;) { MoteButtons r; mote_plat_buttons(&r); if ((!r.a && !r.b) || mote_plat_should_quit()) break; mote_plat_present(fb); }
+            return ret;
+        }
+        mote_ui_ground(fb);
+        mote_ui_header(fb, title, sel + 1, n);
+        top = mote_ui_list(fb, items, n, sel, top, 22);
+        mote_ui_footer(fb, "A SELECT   B BACK");
+        mote_plat_present(fb);
+    }
+}
 
 static const MoteInput *os_input(void)  { return s_cur_input; }
 static uint64_t       os_micros(void) { return mote_plat_micros(); }
@@ -77,6 +111,8 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v10: audio. */
     a->audio_note            = mote_audio_note;
     a->audio_off             = mote_audio_off;
+    /* ABI v11: styled modal menu. */
+    a->menu                  = os_menu;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

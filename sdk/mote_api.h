@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 10u  /* v10: audio (audio_note / audio_off) */
+#define MOTE_ABI_VERSION 11u  /* v11: styled modal menu (menu) */
 
 /* ---------------------------------------------------------------------------
  * MoteConfig — the game declares the resource pools it needs. The OS sizes the
@@ -145,6 +145,12 @@ typedef struct MoteApi {
      * volume follows the engine menu. */
     void (*audio_note)(float freq, float amp);
     void (*audio_off)(void);
+
+    /* --- ABI v11: a styled modal menu, in the system look (the launcher / engine
+     * menu share it). Pops up over the current frame, lists `items` (n labels),
+     * UP/DOWN to move; returns the chosen index (A) or -1 (B / quit). Blocking —
+     * call it from update() for pause / game-over / level menus. */
+    int (*menu)(const char *title, const char *const *items, int n);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

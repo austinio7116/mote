@@ -71,6 +71,7 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(mote_host
         os/host/mote_host.c
         os/mote_launcher.c
+        os/mote_ui.c
         os/mote_menu.c
         os/mote_os.c)
     target_include_directories(mote_host PRIVATE ${MOTE_INCLUDE_DIRS})

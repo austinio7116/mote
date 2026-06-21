@@ -215,7 +215,11 @@ int  mote_itoa(int n, char *out);                                // → length
   cycle the **performance overlay** (off / FPS / mini-graph / full graphs),
   adjust **brightness** + **volume**, or **return to the lobby**. Short MENU taps,
   sub-3 s holds, and every MENU chord stay free for your game.
-- **Hero-menu launcher** — a carousel with a baked screenshot icon per game.
+- **Hero-menu launcher** — a framed screenshot hero icon + a highlighted browse list.
+- **Reusable menus** — `mote->menu(title, items, n)` pops up a modal list menu in
+  the same system look (gold title, accent rules, selection bar) and returns the
+  chosen index (or -1). Use it for pause / game-over / level-select menus — the
+  whole system shares one menu style (`os/mote_ui.c`). See `arkanoid3d`'s game-over.
 
 ---
 

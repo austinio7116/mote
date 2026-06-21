@@ -42,15 +42,18 @@ static void bar(uint16_t *fb, int x, int y, int w, int h, int pct, uint16_t fg) 
 
 static void draw_panel(uint16_t *fb, int sel) {
     fill(fb, PX, PY, PW, PH, MOTE_RGB565(16, 20, 32));
-    fill(fb, PX, PY, PW, 1, MOTE_RGB565(80, 140, 220));
-    fill(fb, PX, PY + PH - 1, PW, 1, MOTE_RGB565(80, 140, 220));
-    fill(fb, PX, PY, 1, PH, MOTE_RGB565(80, 140, 220));
-    fill(fb, PX + PW - 1, PY, 1, PH, MOTE_RGB565(80, 140, 220));
-    mote_font_draw(fb, "ENGINE MENU", PX + 8, PY + 6, MOTE_RGB565(150, 205, 255));
+    fill(fb, PX, PY, PW, 14, MOTE_RGB565(22, 28, 48));                       /* title bar */
+    fill(fb, PX, PY, PW, 1, MOTE_RGB565(96, 176, 255));
+    fill(fb, PX, PY + PH - 1, PW, 1, MOTE_RGB565(96, 176, 255));
+    fill(fb, PX, PY, 1, PH, MOTE_RGB565(96, 176, 255));
+    fill(fb, PX + PW - 1, PY, 1, PH, MOTE_RGB565(96, 176, 255));
+    fill(fb, PX, PY + 13, PW, 1, MOTE_RGB565(96, 176, 255));                 /* accent rule */
+    mote_font_draw(fb, "ENGINE MENU", PX + 8, PY + 4, MOTE_RGB565(255, 206, 92));  /* gold */
 
     for (int i = 0; i < M_N; i++) {
         int y = ROW_Y + i * ROW_H;
-        if (i == sel) fill(fb, PX + 3, y - 2, PW - 6, 12, MOTE_RGB565(40, 72, 134));
+        if (i == sel) { fill(fb, PX + 2, y - 2, PW - 4, 12, MOTE_RGB565(36, 74, 138));
+                        fill(fb, PX + 2, y - 2, 2, 12, MOTE_RGB565(120, 200, 255)); }
         uint16_t tc = (i == sel) ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(190, 200, 220);
         int vx = PX + 52;
         switch (i) {

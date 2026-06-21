@@ -108,7 +108,11 @@ static void g_update(float dt){
     if(s_slow>0) s_slow-=dt;
     float spd = s_speed * (s_slow>0?0.72f:1.0f);
 
-    if(s_over){ if(s_armed && mote_just_pressed(in,MOTE_BTN_A)) new_game(); }
+    if(s_over){ if(s_armed && mote_just_pressed(in,MOTE_BTN_A)){
+        static const char *items[2]={"PLAY AGAIN","QUIT TO LOBBY"};   /* engine menu (ABI v11) */
+        int c=mote->menu(s_won?"YOU WIN!":"GAME OVER", items, 2);
+        if(c==0) new_game(); else if(c==1) mote->exit_to_launcher();
+    }}
     else {
         if(mote_pressed(in,MOTE_BTN_LEFT))  px -= 12.0f*dt;
         if(mote_pressed(in,MOTE_BTN_RIGHT)) px += 12.0f*dt;
