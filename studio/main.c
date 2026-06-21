@@ -811,7 +811,7 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
 static char *g_code; static unsigned char *g_codecol; static int g_codelen,g_codecap;
 static char g_codepath[400]; static int g_cur,g_codescroll,g_codedirty,g_codefocus;
 static int g_errline[128]; static unsigned char g_errkind[128]; static volatile int g_nerr;
-static SDL_Rect g_code_area, g_code_track; static int g_codesbdrag, g_code_vis, g_code_total;
+static SDL_Rect g_code_area, g_code_track; static int g_codesbdrag, g_code_vis, g_code_total, g_codefollow;
 static const char *CKW[]={"if","else","for","while","do","switch","case","default","break","continue","return","goto",
     "sizeof","typedef","struct","union","enum","static","const","volatile","extern","register","inline"};
 static const char *CTY[]={"int","char","float","double","void","bool","short","long","unsigned","signed",
@@ -865,8 +865,8 @@ static void code_click(int mx,int my){ if(!g_code)return; g_codefocus=1;
 static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_Rect){x,y,w,h}; plain(R,x,y,w,h,(Col){24,26,33});
     if(!g_code){ text(R,"Select a .c / .h / .toml / .txt file in the tree to edit it here.",x+10,y+10,1,C_DIM,(Col){24,26,33}); return; }
     int gut=46,tx=x+gut+6,rows=code_visrows(h-18),total=code_lines(),cl=cur_line();
-    if(cl<g_codescroll)g_codescroll=cl; if(cl>=g_codescroll+rows)g_codescroll=cl-rows+1;
-    if(g_codescroll>total-1)g_codescroll=total>0?total-1:0; if(g_codescroll<0)g_codescroll=0;
+    if(g_codefollow){ if(cl<g_codescroll)g_codescroll=cl; else if(cl>=g_codescroll+rows)g_codescroll=cl-rows+1; g_codefollow=0; }
+    int maxs=total>rows?total-rows:0; if(g_codescroll>maxs)g_codescroll=maxs; if(g_codescroll<0)g_codescroll=0;
     plain(R,x,y,gut,h,(Col){19,21,27});
     int i=line_off(g_codescroll),ln=g_codescroll;
     for(int r=0;r<rows&&i<=g_codelen;r++,ln++){ int ly=y+4+r*g_mono_h,lend=line_end(i);
@@ -1089,6 +1089,9 @@ int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
     ensure_cwd();              /* resolve relative asset paths regardless of launch dir */
     add_bundled_toolchain();   /* put a bundled gcc/ffmpeg (if shipped) onto PATH */
+    /* Be DPI-unaware so Windows scales the window to the expected physical size — by
+     * default SDL declares awareness and the whole UI renders tiny on hi-DPI displays. */
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS,"unaware");
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
@@ -1147,11 +1150,11 @@ int main(int argc,char**argv){
             /* wheel scrolls the editor whenever the pointer is over it (no click needed) */
             if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_CODE&&g_code){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(hit(wx,wy,g_code_area.x,g_code_area.y,g_code_area.w,g_code_area.h)){
-                    g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0;
-                    if(g_codescroll>g_code_total-1)g_codescroll=g_code_total>0?g_code_total-1:0; continue; } }
+                    int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0;
+                    g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; } }
             if(g_tab==TAB_CODE&&g_codefocus&&g_code){            /* code editor has keyboard focus */
                 if(e.type==SDL_TEXTINPUT){ code_insert(e.text.text,(int)strlen(e.text.text)); continue; }
-                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; int ctrl=(SDL_GetModState()&KMOD_CTRL)!=0;
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; int ctrl=(SDL_GetModState()&KMOD_CTRL)!=0; g_codefollow=1;   /* keep cursor in view on edit/nav */
                     if(ctrl&&k==SDLK_s)code_save();
                     else if(k==SDLK_BACKSPACE)code_back(); else if(k==SDLK_DELETE)code_delfwd();
                     else if(k==SDLK_RETURN||k==SDLK_KP_ENTER)code_insert("\n",1); else if(k==SDLK_TAB)code_insert("    ",4);
@@ -1185,7 +1188,7 @@ int main(int argc,char**argv){
             else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
-                    if(g_codescroll<0)g_codescroll=0; if(g_codescroll>g_code_total-1)g_codescroll=g_code_total>0?g_code_total-1:0; continue; }
+                    int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
