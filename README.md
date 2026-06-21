@@ -982,27 +982,23 @@ RP2350 mass-storage drive.
 | `MoteSprite` 9-field positional struct, easy to mis-order | `mote_sprite(img, x, y)` / `mote_sprite_cell(img, x, y, cw, ch, col, row)` / `mote_sprite_add(mote, img, x, y)` |
 | Box bodies silently never collide if you forget the bounding `radius` | `mote_body_box(pos, half, mass)` / `mote_body_sphere(pos, r, mass)` — auto-computes `radius`, sets `orient`, wakes the body; `mass<=0` = static |
 | Gameplay logic gets raw, frame-rate-dependent `dt` | `MoteFixed t; mote_fixed_feed(&t, dt); while (mote_fixed_step(&t, 1.0f/60)) update(1.0f/60);` |
+| Studio SFX couldn't play on-device (`audio_note` only) | **ABI v12** `audio_play(snd, gain)` + a `.wav`→`MoteSound` baker; SFX-editor Save bakes a playable header |
+| Camera-relative positions + `scene_set_splats` inconsistency | **ABI v13** `scene_camera(basis, cam_pos, fov)` — add objects with ABSOLUTE world positions; pass the same `cam_pos` to splats (legacy `scene_begin` still works) |
+| `game.toml`'s `abi` field was inert | removed from the scaffold; the real check is the C `MOTE_ABI_VERSION` symbol |
 
-#### Open — let's discuss (these touch the ABI, the engine, or behaviour)
+#### Open — still design decisions (not clean fixes)
 
-- **Camera-relative positions / the `scene_set_splats` inconsistency.** Objects want
-  positions relative to the camera, but `scene_set_splats` wants the *absolute*
-  `cam_pos`. Fixing it cleanly means a new camera-aware API (and likely an ABI bump) —
-  worth doing, but a design decision.
-- **`render_band` reentrancy isn't enforced by the type/signature.** A safety/ergonomics
-  improvement (pass a core id? a `const` scene handle?) rather than a one-line fix.
-- **The audio/Studio mismatch.** The Studio now has a full SFX *editor*, but the runtime
-  still only has `audio_note` — sampled SFX can be authored + previewed on PC but won't
-  play on-device yet. The agreed fix is a **PCM sample channel in the engine + a
-  `.wav`→header baker** (an engine/firmware change); this is the next engine task.
+- **`render_band` reentrancy isn't enforced by the type/signature.** Both cores call it;
+  the signature gives no hint you must be reentrant. A fix means changing the vtable
+  signature (a core id? a `const` scene handle?) — an ABI change touching every game.
 - **Sleeping bodies hang in mid-air** if their support vanishes with no net motion — a
-  physics-solver behaviour, not a clean helper fix.
-- **`game.toml`'s `abi` field is inert** (the real check is the C `MOTE_ABI_VERSION`
-  symbol). Cheap to remove or wire up — let's pick one.
-- **Studio parses `config` out of source text** for the budget meter, so unusual struct
-  formatting defeats it. A tiny ABI query (or a declarative pool count) would be robust.
+  physics-solver behaviour (needs support-tracking), not a helper.
+- **Studio parses `config` out of source text** for the budget meter. The robust fix is
+  to read `MoteGameVtbl.config` from the loaded module instead — a Studio change worth
+  doing, but it means loading the `.so` just for the meter.
 - **`MoteImage.key` has no explicit "opaque" flag** — "no transparency" is an
-  unlikely-key convention. A flag would be clearer but is a (small) format change.
+  unlikely-key convention. A flag is clearer but changes the image format + every baked
+  header, so it needs a migration, not a drop-in.
 
 ---
 
