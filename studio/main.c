@@ -811,7 +811,7 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
 static char *g_code; static unsigned char *g_codecol; static int g_codelen,g_codecap;
 static char g_codepath[400]; static int g_cur,g_codescroll,g_codedirty,g_codefocus;
 static int g_errline[128]; static unsigned char g_errkind[128]; static volatile int g_nerr;
-static SDL_Rect g_code_area;
+static SDL_Rect g_code_area, g_code_track; static int g_codesbdrag, g_code_vis, g_code_total;
 static const char *CKW[]={"if","else","for","while","do","switch","case","default","break","continue","return","goto",
     "sizeof","typedef","struct","union","enum","static","const","volatile","extern","register","inline"};
 static const char *CTY[]={"int","char","float","double","void","bool","short","long","unsigned","signed",
@@ -864,7 +864,7 @@ static void code_click(int mx,int my){ if(!g_code)return; g_codefocus=1;
     int off=line_off(ln),e=line_end(off),col=(mx-tx+g_mono_cw/2)/g_mono_cw; if(col<0)col=0; g_cur=off+(col<e-off?col:e-off); }
 static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_Rect){x,y,w,h}; plain(R,x,y,w,h,(Col){24,26,33});
     if(!g_code){ text(R,"Select a .c / .h / .toml / .txt file in the tree to edit it here.",x+10,y+10,1,C_DIM,(Col){24,26,33}); return; }
-    int gut=46,tx=x+gut+6,rows=code_visrows(h),total=code_lines(),cl=cur_line();
+    int gut=46,tx=x+gut+6,rows=code_visrows(h-18),total=code_lines(),cl=cur_line();
     if(cl<g_codescroll)g_codescroll=cl; if(cl>=g_codescroll+rows)g_codescroll=cl-rows+1;
     if(g_codescroll>total-1)g_codescroll=total>0?total-1:0; if(g_codescroll<0)g_codescroll=0;
     plain(R,x,y,gut,h,(Col){19,21,27});
@@ -874,10 +874,17 @@ static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_
         if(emk>=0){ Col ec=emk?(Col){210,80,80}:(Col){205,175,90}; plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){emk?44:40,30,30}); plain(R,x,ly-2,3,g_mono_h,ec); }
         if(ln==cl)plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){32,35,46});
         char num[12]; snprintf(num,sizeof num,"%d",ln+1); mono_str(R,num,x+gut-10-(int)strlen(num)*g_mono_cw,ly,ln==cl?(Col){150,160,180}:(Col){82,90,108});
-        int col=0; for(int j=i;j<lend;j++){ char c=g_code[j]; if(c=='\t'){ col+=4-(col&3); continue; } int cx=tx+col*g_mono_cw; if(cx>x+w-4)break;
+        int col=0; for(int j=i;j<lend;j++){ char c=g_code[j]; if(c=='\t'){ col+=4-(col&3); continue; } int cx=tx+col*g_mono_cw; if(cx>x+w-16)break;
             mono_char(R,c,cx,ly,code_pal(g_codecol?g_codecol[j]:0)); col++; }
         if(ln==cl&&g_codefocus){ int cc=0; for(int j=i;j<g_cur;j++)cc=(g_code[j]=='\t')?cc+4-(cc&3):cc+1; plain(R,tx+cc*g_mono_cw,ly-1,1,g_mono_h,(Col){235,235,245}); }
         i=lend+1; }
+    /* scrollbar */
+    g_code_vis=rows; g_code_total=total;
+    if(total>rows){ int sbw=11,sbx=x+w-sbw,sbh=h-18; plain(R,sbx,y,sbw,sbh,(Col){17,19,25}); g_code_track=(SDL_Rect){sbx,y,sbw,sbh};
+        int th=sbh*rows/total; if(th<24)th=24; int denom=total-rows>0?total-rows:1; int ty=y+(sbh-th)*g_codescroll/denom;
+        int mx,my; SDL_GetMouseState(&mx,&my); int hov=g_codesbdrag||hit(mx,my,sbx,ty,sbw,th);
+        plain(R,sbx+2,ty,sbw-4,th,hov?(Col){112,122,152}:(Col){64,70,92}); }
+    else g_code_track=(SDL_Rect){0,0,0,0};
     /* footer: path + dirty + issue count */
     plain(R,x,y+h-18,w,18,(Col){19,21,27}); char ft[300]; int ne=g_nerr;
     snprintf(ft,sizeof ft,"%s%.220s   ·   Ctrl+S save   ·   %d issue%s",g_codedirty?"*":"",g_codepath,ne,ne==1?"":"s");
@@ -1165,9 +1172,13 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; } }
-                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); else if(g_tab==TAB_CODE){ g_codefocus=1; code_click(mx,my); } else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
+                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my);
+                    else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; } else code_click(mx,my); }
+                    else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
+            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
+                if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
+                    if(g_codescroll<0)g_codescroll=0; if(g_codescroll>g_code_total-1)g_codescroll=g_code_total>0?g_code_total-1:0; continue; }
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
