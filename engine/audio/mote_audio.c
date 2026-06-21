@@ -11,7 +11,7 @@ typedef struct { float phase, inc, amp, decay; int on; } Voice;
 
 static Voice s_v[NVOICE];
 static float s_sin[LUT];
-static float s_vol = 0.7f;
+static float s_vol = 1.0f;
 static int   s_ready;
 
 void mote_audio_init(void){
@@ -54,8 +54,12 @@ void mote_audio_render(int16_t *out, int n){
             v->amp *= v->decay;
             if(v->amp < 0.0008f) v->on = 0;
         }
-        mix *= s_vol;
-        int val = (int)(mix * 24000.0f);
+        /* boost hard, then soft-clip so a single note is LOUD (near full scale)
+         * while chords saturate gracefully instead of harsh hard-clipping. */
+        float m = mix * s_vol * 2.4f;
+        if(m >  1.6f) m =  1.6f; else if(m < -1.6f) m = -1.6f;
+        m = m - (m*m*m) * (1.0f/12.0f);          /* gentle cubic saturator */
+        int val = (int)(m * 22000.0f);
         if(val > 32767) val = 32767;
         if(val < -32768) val = -32768;
         out[s] = (int16_t)val;

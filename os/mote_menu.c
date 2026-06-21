@@ -11,7 +11,7 @@
 
 /* Sticky across opens so the player's choices persist within a session. */
 static int s_bright = 100;
-static int s_vol    = 70;
+static int s_vol    = 100;
 
 enum { M_PERF, M_BRIGHT, M_VOL, M_LOBBY, M_RESUME, M_N };
 static const char *PERF_NAME[MOTE_PERF_LEVELS] = { "OFF", "FPS", "MINI", "FULL" };

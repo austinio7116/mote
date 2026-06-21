@@ -31,7 +31,7 @@ static const float TUNED[] = {.34f,.34f,.34f,.34f,.34f,.34f,.62f, .34f,.34f,.34f
 static int   tune_i; static float tune_t; static int playing;
 
 static void strike(int i){ if(i<0||i>=NKEYS) return; key[i].press=1.0f; cursor=i;
-    mote->audio_note(key[i].freq, 0.62f); }
+    mote->audio_note(key[i].freq, 0.85f); }
 
 static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(26,20,36));

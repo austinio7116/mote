@@ -227,6 +227,12 @@ Drop sources in `<game>/assets/` and run `mote bake <game>`; headers land in `sr
 |---|---|---|
 | `*.obj` | `obj2mesh` | `<name>_mesh` (small models that fit ≤255 verts) |
 | `*.stl` (binary or ASCII) | `stl2mesh` | `<name>_chunks[]` + `<name>_NCHUNKS` |
+| `*.png` / `*.bmp` | `img2tex` (ImageMagick) | `<name>_img` (`MoteImage`, RGB565 + magenta key) + `<name>_W/_H` |
+
+Images bake to a `MoteImage` (RGB565 pixels + a transparent colour-key from the
+alpha channel) — load it as a sprite/tilemap (`scene2d_add`) or `blit` it. A sheet
+is just one image whose frames you select with the sprite's `fx,fy,fw,fh`. See
+`examples/imgdemo` (a baked logo + an animated 2-frame sprite).
 
 `stl2mesh` welds duplicate vertices, **decimates by vertex clustering** (binary-
 searched to a triangle budget, default ~1500), and **chunks** into ≤255-vertex
@@ -264,6 +270,7 @@ sub-meshes. Render a model by drawing every chunk at one transform — see
 | `modelview` | loading a real STL model |
 | `piano3d` | the audio synth — a playable 3D keyboard |
 | `tiledemo` | the 2D scene + sprites |
+| `imgdemo` | loading baked PNG/BMP images (sprites + blit) |
 
 ---
 
