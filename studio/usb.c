@@ -45,11 +45,14 @@
   #define SBAD (-1)
   static long now_ms(void){ struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec*1000+t.tv_nsec/1000000; }
   static int find_port(char *out,int n){ DIR *d=opendir("/sys/class/tty"); if(!d)return 0; struct dirent *e; int found=0;
+      /* idVendor/idProduct live on the USB *device* (device/..), not the hub above it.
+       * Walk a few levels up to be robust across sysfs layouts. */
+      const char *ups[]={ "device/..", "device/../..", "device/../../.." };
       while((e=readdir(d))&&!found){ if(strncmp(e->d_name,"ttyACM",6)&&strncmp(e->d_name,"ttyUSB",6))continue;
-          char p[300]; unsigned vid=0,pid=0; FILE *f;
-          snprintf(p,sizeof p,"/sys/class/tty/%s/device/../../idVendor",e->d_name); if((f=fopen(p,"r"))){ if(fscanf(f,"%x",&vid)!=1)vid=0; fclose(f); }
-          snprintf(p,sizeof p,"/sys/class/tty/%s/device/../../idProduct",e->d_name); if((f=fopen(p,"r"))){ if(fscanf(f,"%x",&pid)!=1)pid=0; fclose(f); }
-          if(vid==MVID&&pid==MPID){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } }
+          for(int u=0;u<3&&!found;u++){ char p[360]; unsigned vid=0,pid=0; FILE *f;
+              snprintf(p,sizeof p,"/sys/class/tty/%s/%s/idVendor",e->d_name,ups[u]); if(!(f=fopen(p,"r")))continue; if(fscanf(f,"%x",&vid)!=1)vid=0; fclose(f);
+              snprintf(p,sizeof p,"/sys/class/tty/%s/%s/idProduct",e->d_name,ups[u]); if((f=fopen(p,"r"))){ if(fscanf(f,"%x",&pid)!=1)pid=0; fclose(f); }
+              if(vid==MVID&&pid==MPID){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } } }
       closedir(d); return found; }
   static shandle ser_open(void){ char port[64]; if(!find_port(port,sizeof port))return SBAD;
       int fd=open(port,O_RDWR|O_NOCTTY); if(fd<0)return SBAD;
