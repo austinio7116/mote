@@ -52,6 +52,10 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     for(int i=0;i<ns;i++)p+=snprintf(cmd+p,sizeof cmd-p," %.320s/src/%s",dir,nm[i]);
     p+=snprintf(cmd+p,sizeof cmd-p," -lm -o %.320s/build/%s.%s 2>&1",dir,name,HOST_EXT);
     { char m[120]; snprintf(m,sizeof m,"$ build %s (host)",name); log(m); }
+    /* Free the output path even if a stale copy is still loaded somewhere: deleting a
+     * loaded DLL fails on Windows, but RENAMING it aside succeeds, so ld can write fresh. */
+    { char out[420]; snprintf(out,sizeof out,"%.320s/build/%s.%s",dir,name,HOST_EXT);
+      if(remove(out)!=0){ char aside[470]; snprintf(aside,sizeof aside,"%.400s.stale",out); remove(aside); rename(out,aside); } }
     if(run_logged(cmd,log)!=0){ log("host build FAILED"); return -1; }
     log("host module built");
     if(!device)return 0;

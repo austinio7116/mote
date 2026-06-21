@@ -110,13 +110,13 @@ static void ensure_cwd(void){ FILE*t=fopen("studio/assets/icons.png","rb"); if(t
 /* prepend a bundled toolchain (gcc / ffmpeg) sitting next to the exe onto PATH */
 static void add_bundled_toolchain(void){ struct stat st;
 #ifdef _WIN32
-    const char *sub[]={ "toolchain\\bin","ffmpeg\\bin" }; char sep=';';
+    const char *sub[]={ "toolchain\\bin","arm\\bin","ffmpeg\\bin" }; char sep=';';
 #else
-    const char *sub[]={ "toolchain/bin","ffmpeg/bin" }; char sep=':';
+    const char *sub[]={ "toolchain/bin","arm/bin","ffmpeg/bin" }; char sep=':';
 #endif
     char base[700]; if(!GETCWD(base,sizeof base))base[0]=0;
     char path[8000]; int p=0,any=0; const char*cur=getenv("PATH");
-    for(int i=0;i<2;i++){ if(stat(sub[i],&st)==0){ p+=snprintf(path+p,sizeof path-p,"%s%c%s%c",base,
+    for(int i=0;i<3;i++){ if(stat(sub[i],&st)==0){ p+=snprintf(path+p,sizeof path-p,"%s%c%s%c",base,
 #ifdef _WIN32
         '\\',
 #else
