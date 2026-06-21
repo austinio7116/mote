@@ -282,6 +282,7 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
 #define CMAX 128
 #define KEY565 0xF81F
 static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=32; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
+static char g_px_name[64]="sprite"; static int g_px_namefocus; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
@@ -321,16 +322,16 @@ static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b
     for(int y=d;y<=e;y++){ if(a>=0&&a<g_csize)g_canvas[y*g_csize+a]=c; if(b>=0&&b<g_csize)g_canvas[y*g_csize+b]=c; } }
 static void njob(int kind,const char*dir);   /* fwd: native build/bake worker */
 static void fp_open(int cb);                 /* fwd: built-in file browser */
-static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:".";
+static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first (Project > Open) to save into its assets/"); return; }
+    const char*dir=g_games[g_sel].dir;
     static unsigned char rgba[CMAX*CMAX*4];
     for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
         if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
         else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
-    char p[400]; snprintf(p,sizeof p,"%.360s/assets",dir); mkdir_portable(p);
-    if(g_px_path[0]) snprintf(p,sizeof p,"%.398s",g_px_path);              /* save back to the loaded file */
-    else snprintf(p,sizeof p,"%.360s/assets/sprite.png",dir);             /* fresh canvas -> default name */
-    if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED"); return; }
-    snprintf(g_status,sizeof g_status,"saved %s + baking",g_px_path[0]?g_px_path:"assets/sprite.png"); njob(2,dir); }
+    char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",dir); mkdir_portable(ad);
+    char p[420]; snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:"sprite");   /* edit the name field to save a new file */
+    if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
+    snprintf(g_status,sizeof g_status,"saved %s + baking",p); njob(2,dir); }
 /* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
 static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4);
     if(!d){ snprintf(g_status,sizeof g_status,"could not read image"); return; }
@@ -338,7 +339,13 @@ static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path
     for(int y=0;y<cs;y++)for(int x=0;x<cs;x++){ int sx=x*dim/cs, sy=y*dim/cs;
         if(sx<w&&sy<h){ int i=(sy*w+sx)*4, r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
             g_canvas[y*cs+x]= (a<128||(r>200&&g<60&&b>200)) ? KEY565 : (uint16_t)MOTE_RGB565(r,g,b); } }
-    stbi_image_free(d); snprintf(g_px_path,sizeof g_px_path,"%.398s",path); snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
+    stbi_image_free(d); snprintf(g_px_path,sizeof g_px_path,"%.398s",path);
+    { const char*b=strrchr(path,'/');
+#ifdef _WIN32
+      const char*b2=strrchr(path,'\\'); if(b2>b)b=b2;
+#endif
+      snprintf(g_px_name,sizeof g_px_name,"%.60s",b?b+1:path); char*dt=strrchr(g_px_name,'.'); if(dt)*dt=0; }   /* name field <- loaded file */
+    snprintf(g_status,sizeof g_status,"imported %dx%d (%s)",w,h,g_px_name); }
 
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
@@ -734,6 +741,9 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
     tx+=10; int sizes[5]={8,16,32,64,128};
     for(int i=0;i<5;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+14, act=g_csize==sizes[i];
         rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+7,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+4; }
+    tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
+    g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
+    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",g_px_name[0]?g_px_name:"sprite",g_px_namefocus?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,g_px_namefocus?(Col){12,14,20}:C_DOCK); }
     draw_texgen(R,10,cy+27);
     /* HSV colour picker */
     int px0=12, py0=cy+58, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
@@ -1143,6 +1153,8 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)ret
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
 static void pixel_down(int mx,int my){
+    if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; SDL_StartTextInput(); return; }
+    g_px_namefocus=0;
     if(texgen_click(mx,my))return;   /* procedural texture controls */
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
         if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==7)g_grid=!g_grid;
@@ -1389,6 +1401,9 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
+            if(g_tab==TAB_PIXEL&&g_px_namefocus){   /* editing the sprite save-name field */
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_px_name); if(l<50){ g_px_name[l]=c; g_px_name[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_px_namefocus=0; continue; } }
             if(g_tab==TAB_AUDIO&&g_au_namefocus){   /* editing the SFX save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_au_name); if(l<60){ g_au_name[l]=c; g_au_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_au_name); if(l)g_au_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_au_namefocus=0; continue; } }
