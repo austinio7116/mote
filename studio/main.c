@@ -33,9 +33,9 @@
 #define WIN_W     (SIDEBAR_W + DEV_W + INSP_W)
 #define WIN_H     580
 #define INSP_X    (SIDEBAR_W + DEV_W)
-#define SCR   216                 /* ~1.7x; the real screen is ~40% of the body width */
-#define SCR_X ((DEV_W - SCR) / 2)
-#define SCR_Y (((WIN_H - SCR) / 2) - 20)
+#define SCR   158                 /* small display in the upper part of the black module */
+#define SCR_X 204
+#define SCR_Y 200
 #define ROW_H 24
 
 typedef struct { Uint8 r, g, b; } Col;
@@ -46,10 +46,10 @@ static const Col C_SEL    = { 46, 86, 150 };
 static const Col C_TXT    = { 214, 222, 238 };
 static const Col C_DIMTXT = { 132, 144, 170 };
 static const Col C_TITLE  = { 255, 206, 92 };
-/* Thumby Color: purple GBA-style body */
-static const Col C_BODY   = { 124, 90, 182 };
-static const Col C_BODY_HI= { 150, 118, 206 };
-static const Col C_BODY_LO= { 96, 66, 146 };
+/* Thumby Color: vivid indigo-purple GBA-style body */
+static const Col C_BODY   = { 96, 58, 166 };
+static const Col C_BODY_HI= { 132, 96, 200 };
+static const Col C_BODY_LO= { 66, 36, 122 };
 static const Col C_BEZEL  = { 10, 11, 16 };
 static const Col C_DPAD   = { 38, 32, 54 };
 static const Col C_DPAD_L = { 150, 196, 255 };
@@ -187,11 +187,11 @@ static void draw_sidebar(SDL_Renderer *R) {
 static void draw_welcome(SDL_Renderer *R) {
     Col sbg = { 12, 16, 30 }; plain(R, SCR_X, SCR_Y, SCR, SCR, sbg);
     int w; clabel(R, "MOTE", C_TITLE, sbg, &w);
-    text(R, "MOTE", SCR_X + (SCR - w*4)/2, SCR_Y + 62, 4, C_TITLE, sbg);
+    text(R, "MOTE", SCR_X + (SCR - w*4)/2, SCR_Y + 40, 4, C_TITLE, sbg);
     clabel(R, "STUDIO", (Col){150,200,255}, sbg, &w);
-    text(R, "STUDIO", SCR_X + (SCR - w*2)/2, SCR_Y + 100, 2, (Col){150,200,255}, sbg);
+    text(R, "STUDIO", SCR_X + (SCR - w*2)/2, SCR_Y + 74, 2, (Col){150,200,255}, sbg);
     clabel(R, "pick a game", (Col){120,140,170}, sbg, &w);
-    text(R, "pick a game", SCR_X + (SCR - w)/2, SCR_Y + 138, 1, (Col){120,140,170}, sbg);
+    text(R, "pick a game", SCR_X + (SCR - w)/2, SCR_Y + 106, 1, (Col){120,140,170}, sbg);
 }
 
 /* a dark translucent action button with an A/B label that glows when pressed */
@@ -211,30 +211,29 @@ static void draw_device(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b)
     static uint16_t fr[MOTE_FB_W * MOTE_FB_H];
     mote_studio_get_frame(fr); SDL_UpdateTexture(tex, NULL, fr, MOTE_FB_W * (int)sizeof(uint16_t));
 
-    /* GBA stadium body: wide, VERY rounded ends, purple, bevelled */
-    int bw = 540, bh = 300, bx = (DEV_W - bw) / 2, by = (WIN_H - bh) / 2, br = bh / 2 - 8;
-    round_rect(R, bx, by + 7, bw, bh, br, C_BODY_LO);
-    round_rect(R, bx, by, bw, bh - 8, br, C_BODY);
-    round_rect(R, bx + 14, by + 7, bw - 28, 48, br - 12, C_BODY_HI);   /* top sheen */
+    /* wide flat GBA body: rounded-rectangle with grip ends, glossy purple */
+    int bw = 556, bh = 238, bx = (DEV_W - bw) / 2, by = (WIN_H - bh) / 2, br = 84;
+    round_rect(R, bx, by + 9, bw, bh, br, C_BODY_LO);             /* underside */
+    round_rect(R, bx, by, bw, bh - 9, br, C_BODY);               /* body */
+    round_rect(R, bx + 22, by + 7, bw - 44, 30, br - 22, C_BODY_HI); /* top gloss streak */
+    round_rect(R, bx + 30, by + 5, 150, 14, 7, mul(C_BODY_HI, 1.12f)); /* bright reflection */
+    /* shoulder tabs on the top edge */
+    round_rect(R, bx + 96, by - 6, 96, 20, 9, b->lb ? C_ACCENT : mul(C_BODY_LO, 0.85f));
+    round_rect(R, bx + bw - 192, by - 6, 96, 20, 9, b->rb ? C_ACCENT : mul(C_BODY_LO, 0.85f));
 
-    /* shoulder buttons moulded into the top edge */
-    round_rect(R, bx + 64, by - 7, 112, 24, 11, mul(C_BODY_LO, 0.85f));
-    round_rect(R, bx + 66, by - 5, 108, 20, 9, b->lb ? C_ACCENT : C_SHLD);
-    round_rect(R, bx + bw - 176, by - 7, 112, 24, 11, mul(C_BODY_LO, 0.85f));
-    round_rect(R, bx + bw - 174, by - 5, 108, 20, 9, b->rb ? C_ACCENT : C_SHLD);
-
-    /* screen: black bezel + a thin glossy top + the live fb */
-    round_rect(R, SCR_X - 15, SCR_Y - 15, SCR + 30, SCR + 44, 12, C_BEZEL);
-    round_rect(R, SCR_X - 15, SCR_Y - 15, SCR + 30, 8, 12, (Col){ 30, 32, 42 });
-    plain(R, SCR_X - 2, SCR_Y - 2, SCR + 4, SCR + 4, (Col){ 38, 42, 54 });
+    /* central BLACK screen module (display + label live on it) */
+    int mx = 177, my = 186, mw = 212, mh = 204;
+    round_rect(R, mx, my, mw, mh, 12, (Col){ 14, 14, 18 });
+    round_rect(R, mx, my, mw, 8, 12, (Col){ 30, 30, 40 });        /* glossy top edge */
+    plain(R, SCR_X - 2, SCR_Y - 2, SCR + 4, SCR + 4, (Col){ 4, 4, 6 });  /* display recess */
     SDL_Rect dst = { SCR_X, SCR_Y, SCR, SCR };
     if (g_sel >= 0) SDL_RenderCopy(R, tex, NULL, &dst); else draw_welcome(R);
-    /* "THUMBY COLOR" printed on the bezel below the screen */
-    int lw; clabel(R, "THUMBY COLOR", (Col){ 190, 196, 214 }, C_BEZEL, &lw);
-    text(R, "THUMBY COLOR", SCR_X + (SCR - lw)/2, SCR_Y + SCR + 12, 1, (Col){ 198, 204, 222 }, C_BEZEL);
+    disc(R, mx + mw - 14, my + 13, 4, (Col){ 255, 150, 40 });     /* power LED */
+    int lw; clabel(R, "THUMBY COLOR", (Col){ 200, 206, 222 }, (Col){14,14,18}, &lw);
+    text(R, "THUMBY COLOR", mx + (mw - lw)/2, my + mh - 22, 1, (Col){ 206, 212, 228 }, (Col){14,14,18});
 
-    /* black + D-pad, left of the screen */
-    int dcx = bx + (SCR_X - bx) / 2 + 4, dcy = SCR_Y + SCR/2 + 4, dw = 30, al = 40;
+    /* black + D-pad, left of the module */
+    int dcx = (bx + mx) / 2 + 6, dcy = my + mh/2 - 6, dw = 30, al = 40;
     round_rect(R, dcx - al, dcy - dw/2, 2*al, dw, dw/2, C_DPAD);
     round_rect(R, dcx - dw/2, dcy - al, dw, 2*al, dw/2, C_DPAD);
     if (b->up)    plain(R, dcx-dw/2+4, dcy-al+4,  dw-8, al-dw/2, C_DPAD_L);
@@ -243,14 +242,19 @@ static void draw_device(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b)
     if (b->right) plain(R, dcx+dw/2,   dcy-dw/2+4, al-dw/2-4, dw-8, C_DPAD_L);
     disc(R, dcx, dcy, 6, mul(C_DPAD, 1.5f));
 
-    /* A / B dark buttons, right of the screen, GBA diagonal (A upper-right) */
-    int acx = SCR_X + SCR + (bx + bw - (SCR_X + SCR)) / 2;
-    ab_button(R, acx + 20, dcy - 14, 22, "A", b->a);
-    ab_button(R, acx - 24, dcy + 18, 22, "B", b->b);
+    /* A / B dark round buttons, right of the module, close + diagonal (A upper) */
+    int acx = (mx + mw + bx + bw) / 2;
+    ab_button(R, acx + 20, dcy - 16, 22, "A", b->a);
+    ab_button(R, acx - 24, dcy + 4, 22, "B", b->b);
 
-    /* small MENU button low-centre */
-    round_rect(R, DEV_W/2 - 22, by + bh - 44, 44, 14, 7, mul(C_BODY_LO, 0.85f));
-    round_rect(R, DEV_W/2 - 20, by + bh - 42, 40, 10, 5, b->menu ? C_ACCENT : C_SHLD);
+    /* speaker vent slits, lower-right */
+    SDL_SetRenderDrawColor(R, mul(C_BODY_LO,0.7f).r, mul(C_BODY_LO,0.7f).g, mul(C_BODY_LO,0.7f).b, 255);
+    for (int i = 0; i < 4; i++) { int vx = acx - 6 + i*8, vy = dcy + 48;
+        SDL_RenderDrawLine(R, vx, vy, vx + 16, vy - 16); SDL_RenderDrawLine(R, vx+1, vy, vx + 17, vy - 16); }
+    /* MENU = small round button below the D-pad; a screw dot bottom-right */
+    disc(R, dcx, my + mh + 4, 8, mul(C_BODY_LO, 0.8f));
+    disc(R, dcx, my + mh + 4, 6, b->menu ? C_ACCENT : C_SHLD);
+    disc(R, bx + bw - 30, by + bh - 30, 4, (Col){ 188, 192, 204 });
 }
 
 /* ---- inspector with clickable actions ---- */
