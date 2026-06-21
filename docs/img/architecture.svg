@@ -1,0 +1,80 @@
+<svg width="1120" height="620" viewBox="0 0 1120 620" xmlns="http://www.w3.org/2000/svg" font-family="'DejaVu Sans','Segoe UI',sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161922"/><stop offset="1" stop-color="#0e1018"/>
+    </linearGradient>
+    <linearGradient id="game" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243049"/><stop offset="1" stop-color="#1b2540"/>
+    </linearGradient>
+    <linearGradient id="eng" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26303f"/><stop offset="1" stop-color="#1c242f"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="11" markerHeight="11" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L9,5 L0,10 z" fill="#ebd28c"/>
+    </marker>
+    <marker id="arrb" markerWidth="11" markerHeight="11" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L9,5 L0,10 z" fill="#7a8398"/>
+    </marker>
+  </defs>
+
+  <rect width="1120" height="620" rx="16" fill="url(#bg)"/>
+  <text x="40" y="52" fill="#ebd28c" font-size="26" font-weight="700">Mote architecture</text>
+  <text x="40" y="78" fill="#9aa3b6" font-size="15">your game is a native module the resident engine loads and drives through a stable ABI</text>
+
+  <!-- GAME MODULE -->
+  <rect x="40" y="108" width="392" height="250" rx="12" fill="url(#game)" stroke="#3f5170" stroke-width="1.5"/>
+  <text x="60" y="140" fill="#9ec2f0" font-size="13" font-weight="700" letter-spacing="1">YOUR GAME MODULE</text>
+  <text x="60" y="160" fill="#6f7c95" font-size="13" font-family="monospace">src/game.c  →  mygame.so / .mote</text>
+  <g font-family="monospace" font-size="14" fill="#d7dded">
+    <rect x="60" y="176" width="352" height="30" rx="6" fill="#11192b"/><text x="74" y="196">g_init()        build the scene, load assets</text>
+    <rect x="60" y="212" width="352" height="30" rx="6" fill="#11192b"/><text x="74" y="232">g_update(dt)    game logic, each frame</text>
+    <rect x="60" y="248" width="352" height="30" rx="6" fill="#11192b"/><text x="74" y="268">g_overlay(fb)   draw HUD / 2D on top</text>
+    <rect x="60" y="284" width="352" height="30" rx="6" fill="#11192b"/><text x="74" y="304">config { pools }   memory budget</text>
+  </g>
+  <text x="60" y="338" fill="#6f7c95" font-size="12.5">links NO engine code — only #include &lt;mote_api.h&gt; + &lt;mote_build.h&gt;</text>
+
+  <!-- ABI arrow -->
+  <line x1="432" y1="210" x2="688" y2="210" stroke="#ebd28c" stroke-width="2.5" marker-end="url(#arr)"/>
+  <line x1="688" y1="250" x2="432" y2="250" stroke="#ebd28c" stroke-width="2.5" marker-end="url(#arr)"/>
+  <rect x="486" y="196" width="148" height="68" rx="9" fill="#0e1018" stroke="#ebd28c" stroke-width="1.3"/>
+  <text x="560" y="222" fill="#ebd28c" font-size="14" font-weight="700" text-anchor="middle">THE ABI</text>
+  <text x="560" y="242" fill="#cdb985" font-size="12.5" font-family="monospace" text-anchor="middle">mote-&gt;...()</text>
+  <text x="560" y="258" fill="#6f7c95" font-size="11" text-anchor="middle">versioned vtable</text>
+
+  <!-- ENGINE + OS -->
+  <rect x="688" y="108" width="392" height="250" rx="12" fill="url(#eng)" stroke="#46535f" stroke-width="1.5"/>
+  <text x="708" y="140" fill="#9be0c0" font-size="13" font-weight="700" letter-spacing="1">RESIDENT ENGINE + OS</text>
+  <g font-size="12.5" fill="#d7dded">
+    <rect x="708" y="156" width="168" height="34" rx="6" fill="#13202a"/><text x="722" y="178">render — 3D / 2D / splats</text>
+    <rect x="892" y="156" width="168" height="34" rx="6" fill="#13202a"/><text x="906" y="178">physics — rigid bodies</text>
+    <rect x="708" y="198" width="168" height="34" rx="6" fill="#13202a"/><text x="722" y="220">audio — synth</text>
+    <rect x="892" y="198" width="168" height="34" rx="6" fill="#13202a"/><text x="906" y="220">input — edge / held</text>
+    <rect x="708" y="240" width="352" height="34" rx="6" fill="#1a2733"/><text x="722" y="262">os/mote_os.c — the frame loop (calls your callbacks)</text>
+    <rect x="708" y="282" width="352" height="34" rx="6" fill="#1a2733"/><text x="722" y="304">os/mote_launcher — the hero-menu game picker</text>
+  </g>
+
+  <!-- platform boundary -->
+  <line x1="884" y1="358" x2="884" y2="402" stroke="#7a8398" stroke-width="2" marker-end="url(#arrb)"/>
+  <rect x="688" y="402" width="392" height="58" rx="10" fill="#1a1d27" stroke="#46535f" stroke-width="1.3"/>
+  <text x="884" y="427" fill="#9aa3b6" font-size="13" font-weight="700" text-anchor="middle">PLATFORM ABSTRACTION</text>
+  <text x="884" y="447" fill="#6f7c95" font-size="12" text-anchor="middle">engine/core/mote_platform.h — the ONLY host/device split</text>
+
+  <rect x="688" y="486" width="188" height="86" rx="10" fill="#172230" stroke="#3f5170" stroke-width="1.3"/>
+  <text x="782" y="512" fill="#9ec2f0" font-size="14" font-weight="700" text-anchor="middle">platform/host</text>
+  <text x="782" y="534" fill="#9aa3b6" font-size="12.5" text-anchor="middle">SDL2 — your PC</text>
+  <text x="782" y="552" fill="#6f7c95" font-size="11.5" text-anchor="middle">the emulator</text>
+  <rect x="892" y="486" width="188" height="86" rx="10" fill="#22182a" stroke="#5a4a6e" stroke-width="1.3"/>
+  <text x="986" y="512" fill="#d2b0e0" font-size="14" font-weight="700" text-anchor="middle">platform/device</text>
+  <text x="986" y="534" fill="#9aa3b6" font-size="12.5" text-anchor="middle">RP2350 — LCD / USB</text>
+  <text x="986" y="552" fill="#6f7c95" font-size="11.5" text-anchor="middle">the handheld</text>
+  <line x1="782" y1="460" x2="782" y2="486" stroke="#7a8398" stroke-width="1.6" marker-end="url(#arrb)"/>
+  <line x1="986" y1="460" x2="986" y2="486" stroke="#7a8398" stroke-width="1.6" marker-end="url(#arrb)"/>
+
+  <!-- Studio / CLI compiles the module -->
+  <rect x="40" y="486" width="392" height="86" rx="10" fill="#1d1a14" stroke="#6b5a2e" stroke-width="1.3"/>
+  <text x="60" y="514" fill="#ebd28c" font-size="14" font-weight="700">Mote Studio  /  mote CLI</text>
+  <text x="60" y="536" fill="#9aa3b6" font-size="12.5">compiles src/game.c → native module, runs it in</text>
+  <text x="60" y="553" fill="#9aa3b6" font-size="12.5">the emulator, and pushes it to the device over USB</text>
+  <line x1="236" y1="358" x2="236" y2="486" stroke="#6b5a2e" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#arrb)"/>
+  <text x="248" y="430" fill="#a8924e" font-size="11.5">builds the .so / .mote</text>
+</svg>

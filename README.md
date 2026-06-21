@@ -47,25 +47,7 @@ a small chunk of compiled code (a `.so` on your PC, a `.mote` file on the device
 that the OS loads, hands a table of engine function pointers, and then drives. You
 write three or four callbacks; the OS calls them every frame.
 
-```
-        YOUR GAME MODULE                    THE RESIDENT ENGINE + OS
-   ┌──────────────────────────┐        ┌──────────────────────────────────────┐
-   │  src/game.c               │        │  os/mote_os.c   — the frame loop      │
-   │   • g_init()              │  ABI   │  engine/render  — triangle raster,    │
-   │   • g_update(dt) ─────────┼───────►│                   2D sprites, splats  │
-   │   • g_overlay(fb)         │ (mote->)│  engine/physics — rigid bodies        │
-   │   • config { pools }      │◄───────┤  engine/audio   — synth               │
-   │                           │ vtable  │  engine/input   — edge/held state     │
-   │  links NO engine code     │        │  os/mote_launcher — the game picker    │
-   └──────────────────────────┘        └───────────────┬──────────────────────┘
-              ▲                                          │
-              │ #include <mote_api.h>                    │  platform abstraction
-              │          <mote_build.h>  (header-only)   ▼  (one boundary, two impls)
-              │                              ┌───────────────────────────────────┐
-              │                              │ platform/host  — SDL2 (your PC)     │
-              └── compiled by `mote` / Studio│ platform/device— RP2350 (LCD/USB…) │
-                                             └───────────────────────────────────┘
-```
+![Mote architecture — your game module talks to the resident engine + OS through the versioned ABI; the platform layer is the only host/device split, and the Studio/CLI compiles + runs + pushes the module](docs/img/architecture.png)
 
 Two things make this work:
 
@@ -172,12 +154,11 @@ abi = 1
 
 ```bash
 mote studio              # or: ./build_host/mote_studio   (run from the repo root)
-mote studio calibrate    # one-off: align the emulator screen to the device photo
 ```
 
 ![Mote Studio — project tree, the live emulator in a photo-accurate Thumby Color shell, the inspector, and the Pixel-Art dock](docs/img/studio-ide.png)
 
-**The foolproof loop — open Studio, pick a game, edit, watch it hot-reload:**
+**The everyday loop — open Studio, pick a game, edit, watch it hot-reload:**
 
 ```
  1. Launch Studio.                A project picker (Project ▸ Open) lists
