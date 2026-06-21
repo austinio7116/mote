@@ -103,7 +103,10 @@ if(MOTE_TARGET STREQUAL "host")
         target_link_libraries(mote_studio PRIVATE mote_engine ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
     endif()
     if(WIN32)
-        # SDL2main must precede SDL2 (circular static refs); winpthread for clock_gettime/nanosleep
+        # Static-link the MinGW runtime (libgcc/libwinpthread/...) so the .exe is
+        # self-contained — only SDL2.dll is needed beside it. SDL2main must precede
+        # SDL2 (circular static refs); winpthread provides clock_gettime/nanosleep.
+        target_link_options(mote_studio PRIVATE -static -static-libgcc)
         target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2 -Wl,--end-group setupapi winpthread)
     endif()
 

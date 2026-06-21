@@ -637,7 +637,9 @@ static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_ntri)ret
         g_mcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2}; float d=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_mscale=d>0?2.0f/d:1; }
     snprintf(g_status,sizeof g_status,"mesh: %d triangles",g_ntri); }
 static float *g_mdepth;
-static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?1:(d>0?-1:0); }
+/* painter's: draw farthest first. larger z = nearer (projection divides by dist-z),
+ * so sort ASCENDING by z (smallest/farthest first). */
+static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?-1:(d>0?1:0); }
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
     if(!g_ntri){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
     if(!g_mdrag) g_myaw+=0.008f;
