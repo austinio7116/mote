@@ -278,7 +278,7 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
 /* ================= pixel-art studio (bottom dock tab) ================= */
 #define CMAX 128
 #define KEY565 0xF81F
-static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=32;
+static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=32; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
@@ -301,7 +301,7 @@ static void rgb2hsv(int R,int G,int B,float*h,float*s,float*v){ float r=R/255.0f
 static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)<<2,(c&31)<<3,&g_hue,&g_sat,&g_val); }
 static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_px_path[0]=0; }
 static void undo_push(void){ int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize;
     g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; }
 static void undo_pop(void){ if(g_undo_cnt<=0)return; g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--;
@@ -324,9 +324,10 @@ static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:".";
         if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
         else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
     char p[400]; snprintf(p,sizeof p,"%.360s/assets",dir); mkdir_portable(p);
-    snprintf(p,sizeof p,"%.360s/assets/sprite.png",dir);
+    if(g_px_path[0]) snprintf(p,sizeof p,"%.398s",g_px_path);              /* save back to the loaded file */
+    else snprintf(p,sizeof p,"%.360s/assets/sprite.png",dir);             /* fresh canvas -> default name */
     if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED"); return; }
-    snprintf(g_status,sizeof g_status,"saved assets/sprite.png + baking"); njob(2,dir); }
+    snprintf(g_status,sizeof g_status,"saved %s + baking",g_px_path[0]?g_px_path:"assets/sprite.png"); njob(2,dir); }
 /* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
 static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4);
     if(!d){ snprintf(g_status,sizeof g_status,"could not read image"); return; }
@@ -334,7 +335,7 @@ static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path
     for(int y=0;y<cs;y++)for(int x=0;x<cs;x++){ int sx=x*dim/cs, sy=y*dim/cs;
         if(sx<w&&sy<h){ int i=(sy*w+sx)*4, r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
             g_canvas[y*cs+x]= (a<128||(r>200&&g<60&&b>200)) ? KEY565 : (uint16_t)MOTE_RGB565(r,g,b); } }
-    stbi_image_free(d); snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
+    stbi_image_free(d); snprintf(g_px_path,sizeof g_px_path,"%.398s",path); snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
 
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
