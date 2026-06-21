@@ -1094,6 +1094,9 @@ int main(int argc,char**argv){
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
         SDL_SetWindowMinimumSize(win,1000,680);
+        { int iw,ih,in; unsigned char*id=stbi_load("studio/assets/mote_icon.png",&iw,&ih,&in,4);   /* title-bar / taskbar icon */
+          if(id){ SDL_Surface*is=SDL_CreateRGBSurfaceWithFormatFrom(id,iw,ih,32,iw*4,SDL_PIXELFORMAT_RGBA32);
+              if(is){ SDL_SetWindowIcon(win,is); SDL_FreeSurface(is); } stbi_image_free(id); } }
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
     ui_font_init(ren); load_device(ren); load_icons(ren); load_scr_cfg();
@@ -1141,9 +1144,13 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
+            /* wheel scrolls the editor whenever the pointer is over it (no click needed) */
+            if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_CODE&&g_code){ int wx,wy; SDL_GetMouseState(&wx,&wy);
+                if(hit(wx,wy,g_code_area.x,g_code_area.y,g_code_area.w,g_code_area.h)){
+                    g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0;
+                    if(g_codescroll>g_code_total-1)g_codescroll=g_code_total>0?g_code_total-1:0; continue; } }
             if(g_tab==TAB_CODE&&g_codefocus&&g_code){            /* code editor has keyboard focus */
                 if(e.type==SDL_TEXTINPUT){ code_insert(e.text.text,(int)strlen(e.text.text)); continue; }
-                if(e.type==SDL_MOUSEWHEEL){ g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0; continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; int ctrl=(SDL_GetModState()&KMOD_CTRL)!=0;
                     if(ctrl&&k==SDLK_s)code_save();
                     else if(k==SDLK_BACKSPACE)code_back(); else if(k==SDLK_DELETE)code_delfwd();

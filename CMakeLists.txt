@@ -98,6 +98,10 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(mote_studio PRIVATE -O2 -ffast-math -Wno-format-truncation)
     target_link_libraries(mote_studio PRIVATE mote_engine ${CMAKE_DL_LIBS})
     if(WIN32)
+        # embed the Mote app icon into the .exe
+        enable_language(RC)
+        target_sources(mote_studio PRIVATE studio/mote.rc)
+        target_include_directories(mote_studio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/studio)
         # Fully self-contained single .exe: static SDL2 + static MinGW runtime, no DLLs.
         # SDL2main must precede SDL2 (circular static refs); winpthread provides
         # clock_gettime/nanosleep; SDL2::SDL2-static pulls SDL's own Windows deps.
