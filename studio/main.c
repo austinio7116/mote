@@ -481,10 +481,61 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
     if(r->kind==3||r->kind==4){ g_insp_bake=(SDL_Rect){x,y,120,28}; rrect(R,x,y,120,28,6,C_BTN); text(R,"BAKE",x+8,y+8,2,C_TXT,C_BTN); } }
 
 /* bottom dock */
-#define PXC_X (LEFT_W+250)
-static SDL_Rect g_tabr[TAB_N]; static Tbtn g_pxtb[12]; static int g_npxtb;
-static const Tbtn PXTOOLS[]={ {0,0,0,0,"NEW",0},{0,0,0,0,"SAVE",1},{0,0,0,0,"8",2},{0,0,0,0,"16",3},{0,0,0,0,"32",4},
-    {0,0,0,0,"PENCIL",5},{0,0,0,0,"ERASE",6},{0,0,0,0,"FILL",7},{0,0,0,0,"PICK",8} };
+static SDL_Rect g_tabr[TAB_N];
+/* pixel editor geometry (set by draw_pixel, read by the input handlers) */
+static SDL_Rect g_pxb[16]; static int g_pxb_id[16], g_npxb;
+static SDL_Rect g_pxsize[5], g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
+static int g_hsvdrag,g_huedrag,g_lx,g_ly;
+static SDL_Texture *g_hsv_tex; static float g_hsv_baked=-1;
+static float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
+static void bake_hsv(SDL_Renderer*R){ if(!g_hsv_tex){ g_hsv_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,64,64); SDL_SetTextureScaleMode(g_hsv_tex,SDL_ScaleModeLinear); }
+    static uint16_t buf[64*64]; for(int y=0;y<64;y++)for(int x=0;x<64;x++)buf[y*64+x]=hsv565(g_hue,x/63.0f,1.0f-y/63.0f);
+    SDL_UpdateTexture(g_hsv_tex,NULL,buf,64*2); g_hsv_baked=g_hue; }
+static void px_swatch(SDL_Renderer*R,int x,int y,int s,uint16_t c){
+    if(c==KEY565){ plain(R,x,y,s,s,(Col){50,52,62}); plain(R,x,y,s/2,s/2,(Col){34,36,44}); plain(R,x+s/2,y+s/2,s/2,s/2,(Col){34,36,44}); }
+    else plain(R,x,y,s,s,c565(c)); if(c==g_pcol)rect_outline(R,x-1,y-1,s+2,s+2,C_ACC,1); }
+static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
+    int tx=10,ty=cy-3; g_npxb=0;
+    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
+        {-1,-1},{IC_UNDO2,6},{IC_GRID,7},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
+    for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic<0){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }
+        int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid); int hov=hit(mx,my,tx,ty,27,24);
+        rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
+        g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tx+=30; }
+    tx+=10; int sizes[5]={8,16,32,64,128};
+    for(int i=0;i<5;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+14, act=g_csize==sizes[i];
+        rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+7,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+4; }
+    /* HSV colour picker */
+    int px0=12, py0=cy+30, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
+    g_hsv_r=(SDL_Rect){px0,py0,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_hsv_r); rect_outline(R,px0,py0,sq,sq,C_LINE,1);
+    int cxp=px0+(int)(g_sat*sq), cyp=py0+(int)((1-g_val)*sq); ring(R,cxp,cyp,5,(Col){0,0,0},1); ring(R,cxp,cyp,4,(Col){255,255,255},2);
+    g_hue_r=(SDL_Rect){px0+sq+8,py0,18,sq};
+    for(int yy=0;yy<sq;yy++){ Col c=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,g_hue_r.x,py0+yy,g_hue_r.x+18,py0+yy); }
+    { int hy=py0+(int)(g_hue/360*sq); rect_outline(R,g_hue_r.x-2,hy-2,22,4,(Col){255,255,255},1); }
+    int yy=py0+sq+8; px_swatch(R,px0,yy,28,g_pcol); { int c=g_pcol; char hx[12]; snprintf(hx,sizeof hx,"#%02X%02X%02X",((c>>11)&31)<<3,((c>>5)&63)<<2,(c&31)<<3); text(R,hx,px0+36,yy+9,1,C_TXT,C_DOCK); }
+    int swy=yy+36; text(R,"RECENT",px0,swy,1,C_DIM,C_DOCK);
+    for(int i=0;i<g_recent_n&&i<11;i++)px_swatch(R,px0+i*15,swy+12,13,g_recent[i]);
+    text(R,"PALETTE",px0,swy+32,1,C_DIM,C_DOCK);
+    for(int i=0;i<G_NPAL;i++)px_swatch(R,px0+(i%11)*15,swy+44+(i/11)*15,13,pal565(i));
+    /* canvas */
+    int cax=px0+sq+18+26, cay=cy+30, availh=WIN_H-cay-12, availw=WIN_W-cax-160;
+    int fit=availh/g_csize; { int fw=availw/g_csize; if(fw<fit)fit=fw; } if(fit<1)fit=1;
+    int cell=g_pzoom?g_pzoom:fit; if(cell*g_csize>availh)cell=availh/g_csize; if(cell*g_csize>availw)cell=availw/g_csize; if(cell<1)cell=1;
+    int cw=cell*g_csize; g_canv_x=cax; g_canv_y=cay; g_canv_cell=cell;
+    plain(R,cax-2,cay-2,cw+4,cw+4,(Col){8,8,12});
+    for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; int X=cax+xx*cell,Y=cay+y*cell;
+        if(pc==KEY565){ Col a=((xx^y)&1)?(Col){58,60,70}:(Col){44,46,54}; plain(R,X,Y,cell,cell,a); } else plain(R,X,Y,cell,cell,c565(pc)); }
+    if(g_grid&&cell>=6){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,55);
+        for(int i=0;i<=g_csize;i++){ SDL_RenderDrawLine(R,cax+i*cell,cay,cax+i*cell,cay+cw); SDL_RenderDrawLine(R,cax,cay+i*cell,cax+cw,cay+i*cell); } SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
+    int gx=(mx-cax)/cell, gy=(my-cay)/cell, over=(mx>=cax&&my>=cay&&gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize);
+    if(over){ rect_outline(R,cax+gx*cell,cay+gy*cell,cell,cell,(Col){255,255,255},1);
+        if((g_ptool==4||g_ptool==5)&&g_dx0>=0) rect_outline(R,cax+(g_dx0<gx?g_dx0:gx)*cell,cay+(g_dy0<gy?g_dy0:gy)*cell,(abs(gx-g_dx0)+1)*cell,(abs(gy-g_dy0)+1)*cell,(Col){255,255,255},1);
+        int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH;
+        icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
+    int prx=cax+cw+20; if(prx<WIN_W-130){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=g_csize<=32?3:(g_csize<=64?2:1);
+        plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
+        for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
+        char info[40]; snprintf(info,sizeof info,"%dx%d  %s",g_csize,g_csize,g_sel>=0?"-> assets/sprite.png":""); text(R,info,prx,cay+18+g_csize*s,1,C_DIM,C_DOCK); } }
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
@@ -500,32 +551,39 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
             ax+=210; if(ax>WIN_W-220){ ax=12; ay+=32; } n++; }
         if(!n)text(R,"no baked assets yet - paint one in Pixel Art, or Import",12,cy+18,1,C_DIM,C_DOCK); return; }
     if(g_tab==TAB_MESH){ text(R,"MESH PREVIEW - select a .stl/.obj in the tree (coming soon)",12,cy,1,C_DIM,C_DOCK); return; }
-    /* PIXEL ART */
-    int tx=12; g_npxtb=0; for(int i=0;i<9;i++){ const Tbtn*t=&PXTOOLS[i]; int w=textw(R,t->l,1)+16;
-        int act=(t->a==2&&g_csize==8)||(t->a==3&&g_csize==16)||(t->a==4&&g_csize==32)||(t->a>=5&&g_ptool==t->a-5);
-        rrect(R,tx,cy,w,22,5,act?C_BTNHI:C_BTN); text(R,t->l,tx+8,cy+7,1,C_TXT,act?C_BTNHI:C_BTN);
-        g_pxtb[g_npxtb++]=(Tbtn){tx,cy,w,22,t->l,t->a}; tx+=w+6; }
-    int palx=12,paly=cy+32; for(int i=0;i<G_NPAL;i++){ int c=i%5,rw=i/5,px=palx+c*26,py=paly+rw*26;
-        plain(R,px,py,22,22,c565(pal565(i))); if(pal565(i)==g_pcol)rrect(R,px-2,py-2,26,26,4,C_ACC); }
-    int cvx=PXC_X,cvy=cy+32,maxc=BOTTOM_H-70,cell=maxc/g_csize,cw=cell*g_csize;
-    plain(R,cvx-2,cvy-2,cw+4,cw+4,(Col){8,8,12});
-    for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; int px=cvx+xx*cell,py=cvy+y*cell;
-        if(pc==KEY565){ Col a=((xx^y)&1)?(Col){54,56,66}:(Col){40,42,50}; plain(R,px,py,cell,cell,a); } else plain(R,px,py,cell,cell,c565(pc)); }
-    int prx=cvx+cw+30; text(R,"PREVIEW",prx,cvy-2,1,C_DIM,C_DOCK);
-    for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*3,cvy+12+y*3,3,3,c565(pc)); }
-    char info[100]; snprintf(info,sizeof info,"%dx%d  current:",g_csize,g_csize); text(R,info,prx,cvy+12+g_csize*3+10,1,C_DIM,C_DOCK);
-    plain(R,prx+textw(R,info,1)+6,cvy+12+g_csize*3+8,22,12,c565(g_pcol)); }
+    draw_pixel(R); }
 
-static void pixel_click(int mx,int my,int drag){ int cy=BOT_Y+30;
-    if(!drag){ for(int i=0;i<g_npxtb;i++){ Tbtn*t=&g_pxtb[i]; if(hit(mx,my,t->x,t->y,t->w,t->h)){ int a=t->a;
-        if(a==0)canvas_new(); else if(a==1)canvas_save(); else if(a==2){g_csize=8;canvas_new();} else if(a==3){g_csize=16;canvas_new();}
-        else if(a==4){g_csize=32;canvas_new();} else g_ptool=a-5; return; } }
-        int palx=12,paly=cy+32; for(int i=0;i<G_NPAL;i++){ int c=i%5,rw=i/5,px=palx+c*26,py=paly+rw*26;
-            if(hit(mx,my,px,py,22,22)){ g_pcol=pal565(i); if(g_ptool>1)g_ptool=0; return; } } }
-    int cvx=PXC_X,cvy=cy+32,cell=(BOTTOM_H-70)/g_csize; int gx=(mx-cvx)/cell,gy=(my-cvy)/cell;
-    if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
-    if(g_ptool==0)g_canvas[idx]=g_pcol; else if(g_ptool==1)g_canvas[idx]=KEY565;
-    else if(g_ptool==2)flood(gx,gy,g_canvas[idx],g_pcol); else if(g_ptool==3&&g_canvas[idx]!=KEY565)g_pcol=g_canvas[idx]; }
+static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
+    if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
+    else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
+static void pixel_down(int mx,int my){
+    for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
+        if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==7)g_grid=!g_grid;
+        else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
+        else if(id==9){ FILE*p=popen("zenity --file-selection --title='Import image' 2>/dev/null","r"); char pa[600]={0};
+            if(p){ if(fgets(pa,sizeof pa,p)){ pa[strcspn(pa,"\n")]=0; if(pa[0]){ undo_push(); load_png(pa); } } pclose(p); }
+            else snprintf(g_status,sizeof g_status,"install zenity to import, or select an asset in the tree"); }
+        return; }
+    int sizes[5]={8,16,32,64,128};
+    for(int i=0;i<5;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
+    if(hit(mx,my,g_hsv_r.x,g_hsv_r.y,g_hsv_r.w,g_hsv_r.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
+    if(hit(mx,my,g_hue_r.x,g_hue_r.y,g_hue_r.w,g_hue_r.h)){ g_huedrag=1; g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
+    int cy=BOT_Y+30, px0=12, py0=cy+30, sq=126, yy=py0+sq+8, swy=yy+36;
+    for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,px0+i*15,swy+12,13,13)){ px_setcol(g_recent[i]); return; }
+    for(int i=0;i<G_NPAL;i++)if(hit(mx,my,px0+(i%11)*15,swy+44+(i/11)*15,13,13)){ px_setcol(pal565(i)); return; }
+    if(g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
+    if(gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy;
+        if(g_ptool<=3){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1)px_recent(g_pcol); } } }
+static void pixel_drag(int mx,int my){
+    if(g_hsvdrag){ g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
+    if(g_huedrag){ g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
+    if(g_dx0<0||g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
+    if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; } }
+static void pixel_up(int mx,int my){ g_hsvdrag=g_huedrag=0;
+    if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_csize-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_csize-1);
+        if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
+    if(g_dx0>=0&&(g_ptool==0||g_ptool==1))px_recent(g_pcol);
+    g_dx0=-1; }
 
 /* project picker + new-game modals */
 static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
@@ -663,13 +721,13 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
-                    else if(g_tab==TAB_PIXEL)pixel_click(mx,my,0); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP) g_split=0;
+                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); continue; } }
+            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
-                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_click(e.motion.x,e.motion.y,1);
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
             }
         }
         if(g_quitreq)running=0;
