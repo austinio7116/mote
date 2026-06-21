@@ -178,8 +178,12 @@ static void draw_sidebar(SDL_Renderer *R) {
     plain(R, 0, 0, SIDEBAR_W, WIN_H, C_SB);
     plain(R, 0, 0, SIDEBAR_W, 30, C_SB_HDR); plain(R, 0, 30, SIDEBAR_W, 2, C_ACCENT);
     text(R, "MOTE STUDIO", 8, 8, 2, C_TITLE, C_SB_HDR);
-    text(R, "LIBRARY", 10, 38, 1, C_DIMTXT, C_SB);
-    for (int i = 0; i < g_ngame; i++) { int y = 52 + i * ROW_H; if (y > WIN_H - 18) break;
+    round_rect(R, 8, 36, SIDEBAR_W - 16, 26, 6, C_BTN);          /* enter pixel studio */
+    round_rect(R, 8, 36, SIDEBAR_W - 16, 2, 6, C_BTN_HI);
+    { int w; clabel(R, "PIXEL ART STUDIO", C_TXT, C_BTN, &w);
+      text(R, "PIXEL ART STUDIO", (SIDEBAR_W - w*2)/2, 41, 2, C_TXT, C_BTN); }
+    text(R, "LIBRARY", 10, 70, 1, C_DIMTXT, C_SB);
+    for (int i = 0; i < g_ngame; i++) { int y = 84 + i * ROW_H; if (y > WIN_H - 18) break;
         if (i == g_sel) plain(R, 0, y, SIDEBAR_W, ROW_H - 2, C_SEL);
         text(R, g_games[i].name, 10, y + 5, 2, i == g_sel ? C_TXT : C_DIMTXT, i == g_sel ? C_SEL : C_SB); }
 }
@@ -310,6 +314,142 @@ static void poll_input(MoteButtons *b, SDL_GameController *pad) {
         b->menu|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_START); }
 }
 
+/* ===================== Pixel-Art Studio ===================== */
+enum { MODE_LIB, MODE_PIXEL };
+static int g_mode = MODE_LIB;
+
+#define CMAX 64
+#define KEY565 0xF81F                 /* magenta transparent key */
+static uint16_t g_canvas[CMAX*CMAX];
+static int g_csize = 16;
+static uint16_t g_col = 0xF800;       /* current colour (RGB565) */
+static int g_tool = 0;                /* 0 pencil, 1 erase, 2 fill, 3 pick */
+
+static const uint8_t PAL[][3] = {
+    {0,0,0},{64,64,76},{128,132,148},{205,210,220},{255,255,255},
+    {130,40,44},{214,66,66},{244,104,92},{255,150,92},{255,206,92},
+    {250,240,150},{156,212,96},{74,176,84},{42,116,74},{40,150,162},
+    {84,206,224},{72,132,224},{52,72,164},{122,92,206},{182,112,212},
+    {232,122,182},{124,74,52},{184,134,84},{232,192,142},{255,222,194},
+};
+static const int G_NPAL = (int)(sizeof PAL / 3);
+static uint16_t pal565(int i){ return (uint16_t)MOTE_RGB565(PAL[i][0],PAL[i][1],PAL[i][2]); }
+static void canvas_new(void){ for (int i=0;i<CMAX*CMAX;i++) g_canvas[i]=KEY565; }
+
+static void flood(int x,int y,uint16_t from,uint16_t to){
+    if (from==to) return;
+    static int sx[CMAX*CMAX*2], sy[CMAX*CMAX*2]; int sp=0;
+    sx[sp]=x; sy[sp]=y; sp++;
+    while (sp){ sp--; int cx=sx[sp],cy=sy[sp];
+        if (cx<0||cy<0||cx>=g_csize||cy>=g_csize) continue;
+        if (g_canvas[cy*g_csize+cx]!=from) continue;
+        g_canvas[cy*g_csize+cx]=to;
+        if (sp<CMAX*CMAX*2-4){ sx[sp]=cx+1;sy[sp]=cy;sp++; sx[sp]=cx-1;sy[sp]=cy;sp++;
+                               sx[sp]=cx;sy[sp]=cy+1;sp++; sx[sp]=cx;sy[sp]=cy-1;sp++; } }
+}
+static void canvas_save(void){
+    const char *dir = g_sel>=0 ? g_games[g_sel].dir : "/tmp";
+    FILE *f = fopen("/tmp/mote_sprite.ppm","wb");
+    if (!f){ snprintf(g_status,sizeof g_status,"save FAILED"); return; }
+    fprintf(f,"P6\n%d %d\n255\n", g_csize, g_csize);
+    for (int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
+        int r,g,bl; if (c==KEY565){ r=255; g=0; bl=255; }
+        else { r=((c>>11)&31)<<3; g=((c>>5)&63)<<2; bl=(c&31)<<3; }
+        fputc(r,f); fputc(g,f); fputc(bl,f); }
+    fclose(f);
+    char cmd[900]; snprintf(cmd,sizeof cmd,
+        "mkdir -p %.240s/assets && convert /tmp/mote_sprite.ppm %.240s/assets/sprite.png && ./tools/mote bake %.240s >/dev/null 2>&1",
+        dir, dir, dir);
+    run_async(cmd, "save sprite");
+}
+
+/* toolbar buttons (shared by draw + click) */
+typedef struct { int x,y,w,h; const char *l; } Btn;
+static const Btn TBAR[] = {
+    {16,12,82,28,"< LIBRARY"}, {116,12,60,28,"NEW"}, {184,12,72,28,"SAVE"},
+    {280,12,32,28,"8"},{318,12,40,28,"16"},{364,12,40,28,"32"},
+    {424,12,74,28,"PENCIL"},{504,12,66,28,"ERASE"},{576,12,56,28,"FILL"},{638,12,58,28,"PICK"},
+};
+#define NTBAR ((int)(sizeof TBAR / sizeof TBAR[0]))
+#define PX_PAL_X 20
+#define PX_PAL_Y 84
+#define PX_PAL_CELL 38
+#define PX_PAL_COLS 4
+#define PX_CANV_X 252
+#define PX_CANV_Y 80
+#define PX_CANV_MAX 456
+
+static void draw_pixel_studio(SDL_Renderer *R) {
+    SDL_RenderSetViewport(R, NULL);
+    plain(R, 0, 0, WIN_W, WIN_H, (Col){ 20, 22, 30 });
+    plain(R, 0, 0, WIN_W, 52, C_SB_HDR); plain(R, 0, 52, WIN_W, 2, C_ACCENT);
+    for (int i = 0; i < NTBAR; i++) { const Btn *t = &TBAR[i];
+        int active = (i>=6 && g_tool==i-6) || (i==3&&g_csize==8) || (i==4&&g_csize==16) || (i==5&&g_csize==32);
+        round_rect(R, t->x, t->y, t->w, t->h, 7, active ? C_BTN_HI : C_BTN);
+        int w; clabel(R, t->l, C_TXT, active?C_BTN_HI:C_BTN, &w);
+        text(R, t->l, t->x + (t->w - w*2)/2, t->y + (t->h-16)/2, 2, C_TXT, active?C_BTN_HI:C_BTN); }
+
+    /* palette */
+    text(R, "PALETTE", PX_PAL_X, PX_PAL_Y - 16, 1, C_DIMTXT, (Col){20,22,30});
+    for (int i = 0; i < G_NPAL; i++) { int c = i % PX_PAL_COLS, r = i / PX_PAL_COLS;
+        int x = PX_PAL_X + c*PX_PAL_CELL, y = PX_PAL_Y + r*PX_PAL_CELL;
+        uint16_t pc = pal565(i);
+        plain(R, x, y, PX_PAL_CELL-4, PX_PAL_CELL-4, (Col){ (Uint8)(((pc>>11)&31)<<3), (Uint8)(((pc>>5)&63)<<2), (Uint8)((pc&31)<<3) });
+        if (pc == g_col) round_rect(R, x-2, y-2, PX_PAL_CELL, PX_PAL_CELL, 4, C_ACCENT); }
+    /* current colour + transparent swatch */
+    int ty = PX_PAL_Y + ((G_NPAL+PX_PAL_COLS-1)/PX_PAL_COLS)*PX_PAL_CELL + 12;
+    text(R, "CURRENT", PX_PAL_X, ty, 1, C_DIMTXT, (Col){20,22,30});
+    plain(R, PX_PAL_X, ty+12, 60, 28, (Col){ (Uint8)(((g_col>>11)&31)<<3), (Uint8)(((g_col>>5)&63)<<2), (Uint8)((g_col&31)<<3) });
+    plain(R, PX_PAL_X+70, ty+12, 60, 28, (Col){ 60,60,72 });
+    text(R, "ERASE=", PX_PAL_X+72, ty+2, 1, C_DIMTXT, (Col){20,22,30});
+    text(R, "MAGENTA KEY", PX_PAL_X+72, ty+22, 1, (Col){240,80,240}, (Col){60,60,72});
+
+    /* canvas */
+    int cell = PX_CANV_MAX / g_csize, cw = cell * g_csize;
+    plain(R, PX_CANV_X-3, PX_CANV_Y-3, cw+6, cw+6, (Col){ 8, 8, 12 });
+    for (int y = 0; y < g_csize; y++) for (int x = 0; x < g_csize; x++) {
+        uint16_t pc = g_canvas[y*g_csize+x]; int px = PX_CANV_X + x*cell, py = PX_CANV_Y + y*cell;
+        if (pc == KEY565) { int ck = ((x^y)&1); Col a = ck?(Col){54,56,66}:(Col){40,42,50}; plain(R, px, py, cell, cell, a); }
+        else plain(R, px, py, cell, cell, (Col){ (Uint8)(((pc>>11)&31)<<3), (Uint8)(((pc>>5)&63)<<2), (Uint8)((pc&31)<<3) }); }
+    /* grid */
+    SDL_SetRenderDrawColor(R, 0,0,0,70);
+    for (int i = 0; i <= g_csize; i++) { SDL_RenderDrawLine(R, PX_CANV_X+i*cell, PX_CANV_Y, PX_CANV_X+i*cell, PX_CANV_Y+cw);
+        SDL_RenderDrawLine(R, PX_CANV_X, PX_CANV_Y+i*cell, PX_CANV_X+cw, PX_CANV_Y+i*cell); }
+
+    /* preview at 1x + 3x */
+    int prx = PX_CANV_X + cw + 40, pry = PX_CANV_Y + 8;
+    text(R, "PREVIEW", prx, pry - 16, 1, C_DIMTXT, (Col){20,22,30});
+    for (int y=0;y<g_csize;y++) for (int x=0;x<g_csize;x++){ uint16_t pc=g_canvas[y*g_csize+x]; if(pc==KEY565) continue;
+        plain(R, prx + x*3, pry + y*3, 3, 3, (Col){ (Uint8)(((pc>>11)&31)<<3), (Uint8)(((pc>>5)&63)<<2), (Uint8)((pc&31)<<3) }); }
+    char info[96]; snprintf(info, sizeof info, "%dx%d  ->  %s/assets/sprite.png", g_csize, g_csize, g_sel>=0?g_games[g_sel].name:"/tmp");
+    text(R, info, prx, pry + g_csize*3 + 16, 1, C_DIMTXT, (Col){20,22,30});
+    text(R, g_status, prx, pry + g_csize*3 + 32, 1, (Col){150,230,150}, (Col){20,22,30});
+}
+
+static void canvas_paint(int mx, int my) {
+    int cell = PX_CANV_MAX / g_csize;
+    int gx = (mx - PX_CANV_X)/cell, gy = (my - PX_CANV_Y)/cell;
+    if (gx<0||gy<0||gx>=g_csize||gy>=g_csize) return;
+    int idx = gy*g_csize + gx;
+    if (g_tool==0) g_canvas[idx]=g_col;
+    else if (g_tool==1) g_canvas[idx]=KEY565;
+    else if (g_tool==2) flood(gx,gy,g_canvas[idx],g_col);
+    else if (g_tool==3) g_col = g_canvas[idx]==KEY565 ? g_col : g_canvas[idx];
+}
+static void pixel_click(int mx, int my, int drag) {
+    if (!drag) {
+        for (int i=0;i<NTBAR;i++){ const Btn *t=&TBAR[i];
+            if (mx>=t->x&&mx<t->x+t->w&&my>=t->y&&my<t->y+t->h) {
+                if (i==0) g_mode=MODE_LIB; else if (i==1) canvas_new(); else if (i==2) canvas_save();
+                else if (i==3){ g_csize=8; canvas_new(); } else if (i==4){ g_csize=16; canvas_new(); }
+                else if (i==5){ g_csize=32; canvas_new(); } else g_tool=i-6; return; } }
+        for (int i=0;i<G_NPAL;i++){ int c=i%PX_PAL_COLS,r=i/PX_PAL_COLS;
+            int x=PX_PAL_X+c*PX_PAL_CELL,y=PX_PAL_Y+r*PX_PAL_CELL;
+            if (mx>=x&&mx<x+PX_PAL_CELL-4&&my>=y&&my<y+PX_PAL_CELL-4){ g_col=pal565(i); if(g_tool>1)g_tool=0; return; } }
+    }
+    canvas_paint(mx, my);
+}
+
 static void do_action(int a) {
     if (a == A_EDIT) { char c[400]; snprintf(c, sizeof c, "code %.250s >/dev/null 2>&1 &",
         g_sel >= 0 ? g_games[g_sel].dir : "."); run_async(c, "open VS Code"); return; }
@@ -337,9 +477,11 @@ int main(int argc, char **argv) {
     SDL_GameController *pad = NULL;
     for (int i = 0; i < SDL_NumJoysticks(); i++) if (SDL_IsGameController(i)) { pad = SDL_GameControllerOpen(i); break; }
 
+    canvas_new();
     const char *g0 = getenv("MOTE_STUDIO_GAME");   /* capture/test hook: preload a game */
     if (g0) { for (int i = 0; i < g_ngame; i++) if (!strcmp(g_games[i].name, g0)) { load_game(i, 1); break; }
         if (shot) SDL_Delay(700); }
+    if (getenv("MOTE_STUDIO_PIXEL")) g_mode = MODE_PIXEL;
 
     int running = 1, watch_tick = 0;
     do {
@@ -348,17 +490,24 @@ int main(int argc, char **argv) {
             if (e.type == SDL_QUIT) running = 0;
             else if (e.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = e.button.x, my = e.button.y;
-                if (mx < SIDEBAR_W) { int i = (my - 52) / ROW_H; if (i >= 0 && i < g_ngame && i != g_sel) load_game(i, 1); }
-                else if (mx >= INSP_X) for (int i = 0; i < A_N; i++)
+                if (g_mode == MODE_PIXEL) pixel_click(mx, my, 0);
+                else if (mx < SIDEBAR_W) {
+                    if (my >= 36 && my < 62) g_mode = MODE_PIXEL;
+                    else { int i = (my - 84) / ROW_H; if (i >= 0 && i < g_ngame && i != g_sel) load_game(i, 1); }
+                } else if (mx >= INSP_X) for (int i = 0; i < A_N; i++)
                     if (mx >= g_arect[i].x && mx < g_arect[i].x+g_arect[i].w && my >= g_arect[i].y && my < g_arect[i].y+g_arect[i].h) do_action(i);
             }
+            else if (e.type == SDL_MOUSEMOTION && (e.motion.state & SDL_BUTTON_LMASK) && g_mode == MODE_PIXEL)
+                pixel_click(e.motion.x, e.motion.y, 1);
         }
-        if (++watch_tick >= 30 && g_sel >= 0) { watch_tick = 0; time_t m = src_mtime(g_games[g_sel].dir);
+        if (++watch_tick >= 30 && g_sel >= 0 && g_mode == MODE_LIB) { watch_tick = 0; time_t m = src_mtime(g_games[g_sel].dir);
             if (m > g_watch) { snprintf(g_status, sizeof g_status, "source changed, reloading..."); load_game(g_sel, 1); } }
 
-        MoteButtons b; poll_input(&b, pad); mote_studio_set_buttons(&b);
+        MoteButtons b; memset(&b, 0, sizeof b);
+        if (g_mode == MODE_LIB) { poll_input(&b, pad); mote_studio_set_buttons(&b); }
         SDL_SetRenderDrawColor(ren, C_BG.r, C_BG.g, C_BG.b, 255); SDL_RenderClear(ren);
-        draw_sidebar(ren); draw_device(ren, tex, &b); draw_inspector(ren);
+        if (g_mode == MODE_PIXEL) draw_pixel_studio(ren);
+        else { draw_sidebar(ren); draw_device(ren, tex, &b); draw_inspector(ren); }
         SDL_RenderPresent(ren);
         if (shot) { SDL_SaveBMP(surf, shot); printf("studio: wrote %s\n", shot); break; }
     } while (running);
