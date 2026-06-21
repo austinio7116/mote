@@ -808,6 +808,29 @@ There is **one shared 280 KB SRAM arena** per game. At load, the OS sizes the
 engine's pools to *your* declared `MoteConfig`; whatever's left, your game claims
 via `mote->alloc()`. A lean game keeps the slack.
 
+### Why 280 KB and not the chip's full 520 KB?
+
+The RP2350 has 520 KB of SRAM, but the game arena is only one tenant. The arena
+(`MOTE_ARENA_SIZE` in `os/mote_os.c`) is a fixed 280 KB block carved out at link
+time; the **other ~240 KB is the resident OS + engine's own working memory**, which
+has to coexist with your game (the engine never unloads — that's the whole point):
+
+- **Framebuffers (~64 KB).** A 128×128 RGB565 frame is 32 KB. The display is
+  double-buffered so the engine can render the next frame while the previous one is
+  still streaming to the LCD over async SPI DMA — two buffers, ~64 KB.
+- **Both core stacks.** The RP2350 is dual-core and the engine rasterises on *both*
+  cores; each needs its own stack (the Pico SDK also reserves the SCRATCH banks).
+- **Engine + OS globals & code working set** — the pipeline's per-vertex scratch, the
+  launcher/menu, the audio mixer, the **USB-CDC** buffers (`mote push`/`logs`), plus
+  the C runtime/BSS.
+- **Headroom.** The 280 KB is set as a deliberate, round budget with margin to spare,
+  not "whatever's left after everything else." That guarantee matters: if your
+  `MoteConfig` + `alloc()`s fit in 280 KB, your game is *certain* to load and run
+  alongside the framebuffers, stacks, USB and audio — no per-game tuning of the system.
+
+The 32 KB depth buffer (when `depth = 1`) is allocated **from** this 280 KB arena, so
+it counts against your budget — that's why it shows in the arena meter.
+
 ![The 280 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
 Declare your pools in the vtable `config`:
