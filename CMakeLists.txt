@@ -79,6 +79,25 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(mote_host PRIVATE -O2 -ffast-math)
     target_link_libraries(mote_host PRIVATE mote_engine mote_plat_host ${CMAKE_DL_LIBS})
 
+    # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
+    # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
+    add_executable(mote_studio
+        studio/main.c
+        os/mote_os.c
+        os/mote_launcher.c
+        os/mote_menu.c
+        os/mote_ui.c
+        platform/studio/mote_plat_studio.c)
+    target_include_directories(mote_studio PRIVATE ${MOTE_INCLUDE_DIRS})
+    target_compile_definitions(mote_studio PRIVATE MOTE_HOST=1)
+    target_compile_options(mote_studio PRIVATE -O2 -ffast-math)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(mote_studio PRIVATE mote_engine SDL2::SDL2 ${CMAKE_DL_LIBS})
+    else()
+        target_include_directories(mote_studio PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(mote_studio PRIVATE mote_engine ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
+    endif()
+
     # Game modules: standalone .so files that link NO engine code — each drives
     # the engine only through the ABI it is handed. (Device analogue: a .mote.)
     foreach(g hello_mesh:hello-mesh tumbler:tumbler tiledemo:tiledemo physics:physics)

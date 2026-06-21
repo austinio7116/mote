@@ -185,6 +185,15 @@ def cmd_bake(args):
         bake_image(name, os.path.join(assets, im), os.path.join(d, "src", name + ".h"))
 
 
+def cmd_studio(args):
+    """Build the Studio + a game, then launch the embedded emulator IDE."""
+    so = cmd_build(args)
+    studio = os.path.join(ROOT, "build_host", "mote_studio")
+    if not os.path.isfile(studio):
+        run(["cmake", "--build", os.path.join(ROOT, "build_host"), "--target", "mote_studio", "-j8"])
+    os.execv(studio, [studio, so])
+
+
 def cmd_run(args):
     so = cmd_build(args)
     emu = os.path.join(ROOT, "build_host", "mote_host")
@@ -411,6 +420,8 @@ def main():
     p.add_argument("--device", action="store_true", help="also build the .mote")
     p = sub.add_parser("run", help="build + launch the emulator"); p.add_argument("dir")
     p.add_argument("--device", action="store_true")
+    p = sub.add_parser("studio", help="build + open the Studio IDE emulator"); p.add_argument("dir")
+    p.set_defaults(device=False)
     p = sub.add_parser("push", help="build + push a game to the device"); p.add_argument("dir")
     p.add_argument("--launch", action="store_true", help="launch it after pushing")
     sub.add_parser("ping", help="device handshake")
@@ -421,7 +432,7 @@ def main():
 
     args = ap.parse_args()
     {"new": cmd_new, "bake": cmd_bake, "build": cmd_build, "run": cmd_run,
-     "push": cmd_push, "wipe": cmd_wipe, "logs": cmd_logs,
+     "studio": cmd_studio, "push": cmd_push, "wipe": cmd_wipe, "logs": cmd_logs,
      "ping": cmd_ping, "list": cmd_list}[args.cmd](args)
 
 
