@@ -124,6 +124,7 @@ static int textw(SDL_Renderer*R,const char*s,int sc){ UFont*uf=&g_uf[sc>=2?1:0];
 static int hit(int mx,int my,int x,int y,int w,int h){ return mx>=x&&mx<x+w&&my>=y&&my<y+h; }
 static int clampi(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
 static int g_split;   /* 0 none, 1 left sep, 2 right sep, 3 bottom sep */
+static SDL_Cursor *g_cur_arrow,*g_cur_we,*g_cur_ns;
 
 /* ================= project + engine ================= */
 typedef struct { char dir[256], name[64]; } Game;
@@ -174,9 +175,14 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
     g_watch=src_mtime(g_games[idx].dir); stop_engine(); start_engine(); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
-#define CMAX 64
+#define CMAX 128
 #define KEY565 0xF81F
-static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=16; static uint16_t g_pcol=0xF800; static int g_ptool=0;
+static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=32;
+static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
+static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
+static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
+#define UNDON 12
+static uint16_t g_undo[UNDON][CMAX*CMAX]; static int g_undo_sz[UNDON], g_undo_head, g_undo_cnt;
 static const uint8_t PAL[][3]={ {0,0,0},{64,64,76},{128,132,148},{205,210,220},{255,255,255},
     {130,40,44},{214,66,66},{244,104,92},{255,150,92},{255,206,92},{250,240,150},{156,212,96},{74,176,84},
     {42,116,74},{40,150,162},{84,206,224},{72,132,224},{52,72,164},{122,92,206},{182,112,212},{232,122,182},
@@ -184,22 +190,43 @@ static const uint8_t PAL[][3]={ {0,0,0},{64,64,76},{128,132,148},{205,210,220},{
 static const int G_NPAL=(int)(sizeof PAL/3);
 static uint16_t pal565(int i){ return (uint16_t)MOTE_RGB565(PAL[i][0],PAL[i][1],PAL[i][2]); }
 static Col c565(uint16_t c){ Col o={(Uint8)(((c>>11)&31)<<3),(Uint8)(((c>>5)&63)<<2),(Uint8)((c&31)<<3)}; return o; }
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; }
-static void flood(int x,int y,uint16_t from,uint16_t to){ if(from==to)return; static int sx[CMAX*CMAX*2],sy[CMAX*CMAX*2]; int sp=0;
+static uint16_t hsv565(float h,float s,float v){ float c=v*s,x=c*(1-fabsf(fmodf(h/60.0f,2)-1)),m=v-c,r,g,b;
+    if(h<60){r=c;g=x;b=0;}else if(h<120){r=x;g=c;b=0;}else if(h<180){r=0;g=c;b=x;}
+    else if(h<240){r=0;g=x;b=c;}else if(h<300){r=x;g=0;b=c;}else{r=c;g=0;b=x;}
+    return (uint16_t)MOTE_RGB565((int)((r+m)*255),(int)((g+m)*255),(int)((b+m)*255)); }
+static void rgb2hsv(int R,int G,int B,float*h,float*s,float*v){ float r=R/255.0f,g=G/255.0f,b=B/255.0f;
+    float mx=fmaxf(r,fmaxf(g,b)),mn=fminf(r,fminf(g,b)),d=mx-mn; *v=mx; *s=mx>0?d/mx:0;
+    if(d<1e-5f){*h=0;return;} if(mx==r)*h=60*fmodf((g-b)/d+6,6); else if(mx==g)*h=60*((b-r)/d+2); else *h=60*((r-g)/d+4); }
+static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)<<2,(c&31)<<3,&g_hue,&g_sat,&g_val); }
+static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
+    for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; }
+static void undo_push(void){ int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize;
+    g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; }
+static void undo_pop(void){ if(g_undo_cnt<=0)return; g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--;
+    g_csize=g_undo_sz[g_undo_head]; memcpy(g_canvas,g_undo[g_undo_head],g_csize*g_csize*2); }
+static void flood(int x,int y,uint16_t from,uint16_t to){ if(from==to)return; static int sx[CMAX*CMAX],sy[CMAX*CMAX]; int sp=0;
     sx[sp]=x;sy[sp]=y;sp++; while(sp){ sp--; int cx=sx[sp],cy=sy[sp]; if(cx<0||cy<0||cx>=g_csize||cy>=g_csize)continue;
         if(g_canvas[cy*g_csize+cx]!=from)continue; g_canvas[cy*g_csize+cx]=to;
-        if(sp<CMAX*CMAX*2-4){ sx[sp]=cx+1;sy[sp]=cy;sp++; sx[sp]=cx-1;sy[sp]=cy;sp++; sx[sp]=cx;sy[sp]=cy+1;sp++; sx[sp]=cx;sy[sp]=cy-1;sp++; } } }
+        if(sp<CMAX*CMAX-4){ sx[sp]=cx+1;sy[sp]=cy;sp++; sx[sp]=cx-1;sy[sp]=cy;sp++; sx[sp]=cx;sy[sp]=cy+1;sp++; sx[sp]=cx;sy[sp]=cy-1;sp++; } } }
+static void px_line(int x0,int y0,int x1,int y1,uint16_t c){ int dx=abs(x1-x0),dy=-abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx+dy;
+    for(;;){ if(x0>=0&&y0>=0&&x0<g_csize&&y0<g_csize)g_canvas[y0*g_csize+x0]=c; if(x0==x1&&y0==y1)break; int e2=2*err;
+        if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } }
+static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b=x0<x1?x1:x0,d=y0<y1?y0:y1,e=y0<y1?y1:y0;
+    for(int x=a;x<=b;x++){ if(d>=0&&d<g_csize)g_canvas[d*g_csize+x]=c; if(e>=0&&e<g_csize)g_canvas[e*g_csize+x]=c; }
+    for(int y=d;y<=e;y++){ if(a>=0&&a<g_csize)g_canvas[y*g_csize+a]=c; if(b>=0&&b<g_csize)g_canvas[y*g_csize+b]=c; } }
 static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:"/tmp"; FILE*f=fopen("/tmp/mote_sprite.ppm","wb");
     if(!f){ snprintf(g_status,sizeof g_status,"save FAILED"); return; } fprintf(f,"P6\n%d %d\n255\n",g_csize,g_csize);
     for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i]; int r,g,bl; if(c==KEY565){r=255;g=0;bl=255;}
         else{ r=((c>>11)&31)<<3; g=((c>>5)&63)<<2; bl=(c&31)<<3; } fputc(r,f);fputc(g,f);fputc(bl,f); } fclose(f);
     char cmd[900]; snprintf(cmd,sizeof cmd,"mkdir -p %.240s/assets && convert /tmp/mote_sprite.ppm %.240s/assets/sprite.png && ./tools/mote bake %.240s",dir,dir,dir);
     run_job(cmd,"save sprite"); }
-static void load_png(const char*path){ char cmd[500]; snprintf(cmd,sizeof cmd,"convert %.300s /tmp/mote_load.ppm 2>/dev/null",path); if(system(cmd)){}
+static void load_png(const char*path){ char cmd[600]; snprintf(cmd,sizeof cmd,"convert %.300s -background magenta -flatten -resize 128x128\\> /tmp/mote_load.ppm 2>/dev/null",path); if(system(cmd)){}
     FILE*f=fopen("/tmp/mote_load.ppm","rb"); if(!f)return; char m[3]={0}; int w=0,h=0,mx=0;
-    if(fscanf(f,"%2s %d %d %d",m,&w,&h,&mx)!=4||w<1||h<1||w>64||h>64){ fclose(f); return; } fgetc(f);
+    if(fscanf(f,"%2s %d %d %d",m,&w,&h,&mx)!=4||w<1||h<1||w>128||h>128){ fclose(f); return; } fgetc(f);
     g_csize=w>h?w:h; canvas_new(); for(int y=0;y<h;y++)for(int x=0;x<w;x++){ int r=fgetc(f),g=fgetc(f),b=fgetc(f);
-        g_canvas[y*g_csize+x]=(r>200&&g<60&&b>200)?KEY565:(uint16_t)MOTE_RGB565(r,g,b); } fclose(f); }
+        g_canvas[y*g_csize+x]=(r>200&&g<60&&b>200)?KEY565:(uint16_t)MOTE_RGB565(r,g,b); } fclose(f);
+    snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
 
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
@@ -286,7 +313,8 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
 static SDL_Texture *g_icons;
 enum { IC_CHEV_R,IC_CHEV_D,IC_FOLDER,IC_FOLDER_O,IC_FILE,IC_FILE_CODE,IC_SETTINGS,IC_IMAGE,IC_BOX,
        IC_PLAY,IC_SQUARE,IC_HAMMER,IC_UPLOAD,IC_CODE,IC_PLUS,IC_SAVE,IC_PENCIL,IC_ERASER,IC_BUCKET,
-       IC_PIPETTE,IC_GRID,IC_ZOOM,IC_UNDO,IC_TREE };
+       IC_PIPETTE,IC_GRID,IC_ZOOM,IC_UNDO,IC_TREE,IC_MINUS,IC_DOWNLOAD,IC_PALETTE,IC_MOVE,IC_SLASH,
+       IC_SQDASH,IC_UNDO2,IC_REDO2 };
 static void load_icons(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/icons.png",&w,&h,&n,4);
     if(!d)return; g_icons=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
     SDL_SetTextureScaleMode(g_icons,SDL_ScaleModeLinear); SDL_UpdateTexture(g_icons,NULL,d,w*4);
@@ -365,12 +393,12 @@ static void save_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","w"); if
     snprintf(g_status,sizeof g_status,"screen calibrated: x=%.0f y=%.0f side=%.0f",g_spx,g_spy,g_sps); }
 static int g_emu_x,g_emu_y,g_emu_w,g_emu_h;   /* the drawn device rect (for hit-testing) */
 static int g_zoom=0, g_emu_N=1, g_emu_maxN=1; static SDL_Rect g_zoom_m, g_zoom_p;
-static void aglow(SDL_Renderer*R,int cx,int cy,int rad,Col c,int amax){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
-    for(int dy=-rad;dy<=rad;dy++){ int dx=(int)sqrtf((float)(rad*rad-dy*dy)); float f=1.0f-(float)(dy*dy)/(rad*rad);
-        SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(amax*f)); SDL_RenderDrawLine(R,cx-dx,cy+dy,cx+dx,cy+dy); } }
-static void aglow_rect(SDL_Renderer*R,int x,int y,int w,int h,Col c,int amax){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
-    for(int j=0;j<h;j++){ float f=1.0f-fabsf(j-h/2.0f)/(h/2.0f); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(amax*f));
-        int in=(h/2-abs(j-h/2))<4?(4-(h/2-abs(j-h/2))):0; SDL_RenderDrawLine(R,x+in,y+j,x+w-in,y+j); } }
+/* a ring (circle outline of thickness th) + a thick rectangle outline */
+static void ring(SDL_Renderer*R,int cx,int cy,int rad,Col c,int th){ SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255);
+    for(int dy=-rad;dy<=rad;dy++){ int o=(int)sqrtf((float)(rad*rad-dy*dy)); int i2=(rad-th)*(rad-th)-dy*dy; int in=i2>0?(int)sqrtf((float)i2):0;
+        SDL_RenderDrawLine(R,cx-o,cy+dy,cx-in,cy+dy); SDL_RenderDrawLine(R,cx+in,cy+dy,cx+o,cy+dy); } }
+static void rect_outline(SDL_Renderer*R,int x,int y,int w,int h,Col c,int th){ SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255);
+    for(int t=0;t<th;t++){ SDL_Rect r={x+t,y+t,w-2*t,h-2*t}; SDL_RenderDrawRect(R,&r); } }
 /* map a mouse pos to an emulator button (optionally pressing it on *s) */
 enum { EB_A,EB_B,EB_UP,EB_DOWN,EB_LEFT,EB_RIGHT,EB_LB,EB_RB,EB_MENU };
 static int emu_hit(int mx,int my,MoteButtons*s){ if(!g_emu_w)return -1; int w=g_emu_w;
@@ -389,16 +417,17 @@ static int emu_hit(int mx,int my,MoteButtons*s){ if(!g_emu_w)return -1; int w=g_
     #undef EBY
     #undef EIN
     return -1; }
-static void emu_glow(SDL_Renderer*R,int btn,int a){ if(!g_emu_w)return; int dx=g_emu_x,dy=g_emu_y,dw=g_emu_w,dh=g_emu_h; Col gl={150,212,255};
-    int br=(int)(0.052f*dw),dr=(int)(0.045f*dw);
+/* an OUTLINE shaped to each button (a line around the button), th thick */
+static void emu_outline(SDL_Renderer*R,int btn,Col c,int th){ if(!g_emu_w)return; int dx=g_emu_x,dy=g_emu_y,dw=g_emu_w,dh=g_emu_h;
     #define BX(n) (dx+(int)((n)*dw))
     #define BY(n) (dy+(int)((n)*dh))
-    switch(btn){ case EB_A: aglow(R,BX(0.901f),BY(0.442f),br,gl,a);break; case EB_B: aglow(R,BX(0.793f),BY(0.510f),br,gl,a);break;
-        case EB_UP: aglow(R,BX(0.153f),BY(0.355f),dr,gl,a);break; case EB_DOWN: aglow(R,BX(0.153f),BY(0.590f),dr,gl,a);break;
-        case EB_LEFT: aglow(R,BX(0.088f),BY(0.471f),dr,gl,a);break; case EB_RIGHT: aglow(R,BX(0.220f),BY(0.471f),dr,gl,a);break;
-        case EB_LB: aglow_rect(R,BX(0.02f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl,a);break;
-        case EB_RB: aglow_rect(R,BX(0.79f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl,a);break;
-        case EB_MENU: aglow(R,BX(0.196f),BY(0.790f),(int)(0.035f*dw),gl,a);break; }
+    int br=(int)(0.054f*dw), mr=(int)(0.04f*dw), aw=(int)(0.036f*dw), al=(int)(0.105f*dw), dcx=BX(0.153f), dcy=BY(0.471f);
+    switch(btn){ case EB_A: ring(R,BX(0.901f),BY(0.442f),br,c,th);break; case EB_B: ring(R,BX(0.793f),BY(0.510f),br,c,th);break;
+        case EB_MENU: ring(R,BX(0.196f),BY(0.790f),mr,c,th);break;
+        case EB_UP: rect_outline(R,dcx-aw,dcy-al,2*aw,al,c,th);break; case EB_DOWN: rect_outline(R,dcx-aw,dcy,2*aw,al,c,th);break;
+        case EB_LEFT: rect_outline(R,dcx-al,dcy-aw,al,2*aw,c,th);break; case EB_RIGHT: rect_outline(R,dcx,dcy-aw,al,2*aw,c,th);break;
+        case EB_LB: rect_outline(R,BX(0.02f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),c,th);break;
+        case EB_RB: rect_outline(R,BX(0.79f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),c,th);break; }
     #undef BX
     #undef BY
 }
@@ -419,15 +448,13 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     int sps=N*MOTE_FB_W, ssx=dx+(int)(g_spx*scale), ssy=dy+(int)(g_spy*scale);
     if(g_sel>=0&&g_eng){ SDL_Rect sc={ssx,ssy,sps,sps}; SDL_RenderCopy(R,tex,NULL,&sc); }
     g_emu_x=dx; g_emu_y=dy; g_emu_w=dw; g_emu_h=dh;
-    if(b->a)emu_glow(R,EB_A,150); if(b->b)emu_glow(R,EB_B,150);
-    if(b->up)emu_glow(R,EB_UP,150); if(b->down)emu_glow(R,EB_DOWN,150);
-    if(b->left)emu_glow(R,EB_LEFT,150); if(b->right)emu_glow(R,EB_RIGHT,150);
-    if(b->lb)emu_glow(R,EB_LB,130); if(b->rb)emu_glow(R,EB_RB,130); if(b->menu)emu_glow(R,EB_MENU,150);
+    Col on={120,210,255}, hv={96,150,196};   /* pressed = bright thick line, hover = thin line */
     int hmx,hmy; SDL_GetMouseState(&hmx,&hmy); int hov=emu_hit(hmx,hmy,NULL);
-    if(hov>=0){ int pr=(hov==EB_A&&b->a)||(hov==EB_B&&b->b)||(hov==EB_UP&&b->up)||(hov==EB_DOWN&&b->down)||
-            (hov==EB_LEFT&&b->left)||(hov==EB_RIGHT&&b->right)||(hov==EB_LB&&b->lb)||(hov==EB_RB&&b->rb)||(hov==EB_MENU&&b->menu);
-        if(!pr)emu_glow(R,hov,55); }
-    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
+    if(hov>=0) emu_outline(R,hov,hv,2);
+    if(b->a)emu_outline(R,EB_A,on,3); if(b->b)emu_outline(R,EB_B,on,3);
+    if(b->up)emu_outline(R,EB_UP,on,3); if(b->down)emu_outline(R,EB_DOWN,on,3);
+    if(b->left)emu_outline(R,EB_LEFT,on,3); if(b->right)emu_outline(R,EB_RIGHT,on,3);
+    if(b->lb)emu_outline(R,EB_LB,on,3); if(b->rb)emu_outline(R,EB_RB,on,3); if(b->menu)emu_outline(R,EB_MENU,on,3);
     /* zoom control, bottom-centre of the region */
     int zy=BOT_Y-30, zx=CENTER_X+CENTER_W/2-40; char z[16]; snprintf(z,sizeof z,"%dx",N);
     g_zoom_m=(SDL_Rect){zx,zy,24,22}; g_zoom_p=(SDL_Rect){zx+56,zy,24,22};
@@ -583,6 +610,9 @@ int main(int argc,char**argv){
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
     ui_font_init(ren); load_device(ren); load_icons(ren); load_scr_cfg();
     SDL_SetTextureScaleMode(tex,SDL_ScaleModeNearest);   /* crisp integer-scaled pixels */
+    g_cur_arrow=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+    g_cur_we=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
+    g_cur_ns=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENS);
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
@@ -646,6 +676,12 @@ int main(int argc,char**argv){
         if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); }
             time_t tm=tree_mtime(g_games[g_sel].dir); if(tm!=g_treewatch){ g_treewatch=tm; build_tree(g_games[g_sel].dir); } }
 
+        { int cmx,cmy; SDL_GetMouseState(&cmx,&cmy); SDL_Cursor*want=g_cur_arrow;   /* resize cursor over separators */
+          if(g_split==1||g_split==2)want=g_cur_we; else if(g_split==3)want=g_cur_ns;
+          else if(!g_modal&&!g_picker&&!g_align){
+            if(cmy>=TOPH&&cmy<BOT_Y&&(abs(cmx-LEFT_W)<=4||abs(cmx-INSP_X)<=4))want=g_cur_we;
+            else if(cmy>=BOT_Y-4&&cmy<=BOT_Y+1)want=g_cur_ns; }
+          if(want)SDL_SetCursor(want); }
         MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&g_menu_open<0;
         if(over_emu){ poll_input(&b,pad);
             int mmx,mmy; Uint32 ms=SDL_GetMouseState(&mmx,&mmy);
