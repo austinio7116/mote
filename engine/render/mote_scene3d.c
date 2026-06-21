@@ -66,6 +66,15 @@ void mote_scene_begin(const Mat3 *cam_basis, float fov_deg) {
     mote_pipe_set_camera(cam_basis, fov_deg);
 }
 
+/* Camera-aware begin: pass the camera world position once, then add objects/
+ * spheres/splats with ABSOLUTE world positions (no manual v3_sub(.., cam_pos)). */
+void mote_scene_camera(const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg) {
+    s_ntris = 0;
+    s_nspheres = 0;
+    mote_pipe_set_camera(cam_basis, fov_deg);
+    mote_pipe_set_camera_pos(cam_pos);
+}
+
 /* Drop the draw-list without touching the camera — the OS calls this at the
  * start of every frame so a game that doesn't use the 3D scene never inherits
  * stale triangles from a previously-run game. */
@@ -76,7 +85,7 @@ void mote_scene_clear(void) { s_ntris = 0; s_nspheres = 0; }
 int mote_scene_add_sphere(Vec3 cam_rel_pos, float radius, uint16_t color) {
     if (s_nspheres >= s_max_spheres) return 0;
     const Mat3 *cam = mote_pipe_camera();
-    Vec3 v = m3_mul_v3_t(cam, cam_rel_pos);          /* world -> view */
+    Vec3 v = m3_mul_v3_t(cam, v3_sub(cam_rel_pos, mote_pipe_cam_pos()));   /* world->view (cam_pos 0 = relative) */
     if (v.z <= MOTE_NEAR) return 0;
     float focal = mote_pipe_focal(), inv = 1.0f / v.z;
     ScreenSphere *s = &s_spheres[s_nspheres++];

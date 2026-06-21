@@ -25,6 +25,7 @@
 void mote_scene_set_background(uint16_t rgb565);
 
 void mote_scene_begin(const Mat3 *cam_basis, float fov_deg);
+void mote_scene_camera(const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);  /* absolute world positions */
 void mote_scene_clear(void);   /* drop the draw-list, keep the camera */
 
 /* Returns triangles added (0 if culled or the list is full). */

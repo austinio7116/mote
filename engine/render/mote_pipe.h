@@ -20,6 +20,8 @@
 #include <stdint.h>
 
 void mote_pipe_set_camera(const Mat3 *cam_basis, float fov_deg);
+void mote_pipe_set_camera_pos(Vec3 cam_pos);   /* opt into absolute world positions */
+Vec3 mote_pipe_cam_pos(void);
 void mote_pipe_set_sun(Vec3 dir_toward_light_world);
 
 /* Transform, light, clip and project one object, emitting final screen

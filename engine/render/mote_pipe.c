@@ -13,6 +13,7 @@
 #include <math.h>
 
 static Mat3  s_cam;            /* camera basis (rows: right/up/forward) */
+static Vec3  s_cam_pos;        /* camera world position; {0,0,0} -> positions are camera-relative (legacy) */
 static float s_focal;          /* pixels: 64 / tan(fov/2) */
 static Vec3  s_sun_view;       /* sun dir rotated into view space */
 static Vec3  s_sun_world = {0.577f, 0.577f, -0.577f};
@@ -24,9 +25,13 @@ static uint8_t  s_front[MOTE_MAX_VERTS];
 
 void mote_pipe_set_camera(const Mat3 *cam_basis, float fov_deg) {
     s_cam = *cam_basis;
+    s_cam_pos = v3(0, 0, 0);    /* legacy scene_begin: positions stay camera-relative */
     s_focal = (MOTE_FB_W * 0.5f) / tanf(fov_deg * (3.14159265f / 180.0f) * 0.5f);
     s_sun_view = m3_mul_v3_t(&s_cam, s_sun_world);
 }
+/* Opt into absolute world positions: subtract this camera pos before the basis. */
+void mote_pipe_set_camera_pos(Vec3 cam_pos) { s_cam_pos = cam_pos; }
+Vec3 mote_pipe_cam_pos(void) { return s_cam_pos; }
 
 void mote_pipe_set_sun(Vec3 dir_toward_light_world) {
     s_sun_world = v3_norm(dir_toward_light_world);
@@ -63,7 +68,7 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
     float br = mesh->bound_r * os;
 
     /* Whole-object cull: bounding sphere behind near plane or outside cone. */
-    Vec3 c_view = m3_mul_v3_t(&s_cam, obj->pos);
+    Vec3 c_view = m3_mul_v3_t(&s_cam, v3_sub(obj->pos, s_cam_pos));
     if (c_view.z + br < MOTE_NEAR) return 0;
     float lim = c_view.z + br * 2.0f;
     if (c_view.x - br > lim || -c_view.x - br > lim ||

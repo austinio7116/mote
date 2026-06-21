@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 12u  /* v12: PCM sample playback (audio_play) */
+#define MOTE_ABI_VERSION 13u  /* v13: camera-aware scene (scene_camera) */
 
 /* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
  * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
@@ -161,6 +161,13 @@ typedef struct MoteApi {
      * header — see `mote bake` / Studio Audio ▸ Save). `gain` 0..1+. Up to 4
      * samples mix at once (oldest is stolen); they sum on top of the synth. */
     void (*audio_play)(const MoteSound *snd, float gain);
+
+    /* --- ABI v13: camera-aware 3D scene. Like scene_begin(), but you also pass
+     * the camera's world position — then add objects with ABSOLUTE world
+     * positions instead of pre-subtracting cam_pos (the legacy scene_begin()
+     * convention). Pass the SAME cam_pos to scene_set_splats() for a consistent
+     * scene. scene_begin() still works (it's just scene_camera with pos 0). */
+    void (*scene_camera)(const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

@@ -116,6 +116,8 @@ void mote_api_fill(MoteApi *a) {
     a->menu                  = os_menu;
     /* ABI v12: PCM sample playback. */
     a->audio_play            = os_audio_play;
+    /* ABI v13: camera-aware 3D scene. */
+    a->scene_camera          = mote_scene_camera;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
