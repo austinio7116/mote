@@ -218,12 +218,15 @@ static char g_so[1024]; static time_t g_watch;
 static char g_status[160]="open a project to begin";
 static SDL_Thread *g_eng;
 
+static MoteConfig g_loaded_cfg; static volatile int g_loaded_cfg_for=-1;   /* real config read from the running module */
 static int engine_thread(void*arg){ (void)arg;
     void*mod=DLOPEN(g_so); if(!mod){ fprintf(stderr,"studio: load: %s\n",DLERR()); return 1; }
     MoteGameRegisterFn reg=(MoteGameRegisterFn)DLSYM(mod,"mote_game_register");
     const uint32_t*abi=(const uint32_t*)DLSYM(mod,"mote_game_abi_version");
     if(!reg||!abi){ DLCLOSE(mod); return 1; }
-    MoteApi api; mote_api_fill(&api); const MoteGameVtbl*vt=reg(&api); if(vt)mote_os_run(&api,vt); DLCLOSE(mod); return 0; }
+    MoteApi api; mote_api_fill(&api); const MoteGameVtbl*vt=reg(&api);
+    if(vt){ g_loaded_cfg=vt->config; g_loaded_cfg_for=g_sel; mote_os_run(&api,vt); }   /* exact pools from the compiled game */
+    DLCLOSE(mod); return 0; }
 static void stop_engine(void){ if(!g_eng)return; mote_studio_request_quit(); SDL_WaitThread(g_eng,NULL); g_eng=NULL; }
 static void start_engine(void){ mote_studio_reset(); g_eng=SDL_CreateThread(engine_thread,"engine",NULL); }
 
@@ -604,6 +607,12 @@ static MCfg parse_config(const char*dir){ MCfg c={0,0,0,0,0,0,0,0,0}; char p[320
     for(int i=0;i<8;i++){ char key[24]; snprintf(key,sizeof key,".%s",fl[i].k); char*k=strstr(op,key);
         if(k&&(!cl||k<cl)){ char*eq=strchr(k,'='); if(eq)*fl[i].v=eval_expr(eq+1); } }
     return c; }
+/* prefer the EXACT config from the running module (robust to any source formatting);
+ * fall back to parsing src/game.c when the game isn't loaded. */
+static MCfg get_config(int gi,const char*dir){
+    if(gi>=0&&gi==g_loaded_cfg_for){ MoteConfig*m=&g_loaded_cfg; MCfg c={ m->max_tris,m->max_spheres,m->max_splats,m->max_sprites,
+        m->max_bodies,m->max_contacts,m->max_mesh_tris,m->depth,1 }; return c; }
+    return parse_config(dir); }
 static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*20+(long)c->splats*24+(long)c->sprites*16
     +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0); }
 
@@ -618,7 +627,7 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
     struct stat st; if(stat(r->path,&st)==0){ char sz[48]; snprintf(sz,sizeof sz,"%ld bytes",(long)st.st_size); text(R,sz,x,y,1,C_DIM,C_DOCK); y+=18; }
     text(R,r->path,x,y,1,C_DIM,C_DOCK); y+=24;
     if(r->kind==1){ FILE*f=fopen(r->path,"r"); if(f){ char ln[120]; while(fgets(ln,sizeof ln,f)){ ln[strcspn(ln,"\n")]=0; if(ln[0])text(R,ln,x,y,1,C_TXT,C_DOCK),y+=16; } fclose(f); } y+=10;
-        MCfg c=parse_config(g_games[g_sel].dir);                /* MoteConfig pools from src/game.c */
+        MCfg c=get_config(g_sel,g_games[g_sel].dir);            /* exact pools from the running module (else parse src) */
         if(c.found){ plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
             struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"spheres",c.spheres},{"splats",c.splats},
                 {"2D sprites",c.sprites},{"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
