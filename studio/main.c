@@ -755,7 +755,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
-static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w;
+static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w,g_au_y;
 static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_audio.raw",tmpdir());
     char cmd[800]; snprintf(cmd,sizeof cmd,"ffmpeg -y -i \"%.300s\" -ac 1 -ar 22050 -f s16le \"%.200s\" 2>%s",path,raw,NULDEV); if(system(cmd)){}
     FILE*f=fopen(raw,"rb"); if(!f){ snprintf(g_status,sizeof g_status,"could not decode audio (is ffmpeg on PATH?)"); return; }
@@ -783,15 +783,93 @@ static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
     char ad[300]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
     char cmd[900]; snprintf(cmd,sizeof cmd,"ffmpeg -y -f s16le -ar 22050 -ac 1 -i \"%s\" \"%.180s/assets/%.60s.wav\" 2>%s",raw,g_games[g_sel].dir,base,NULDEV);
     run_job(cmd,"save wav"); }
+/* ===== SFX generator (sfxr-style procedural synthesis) ===== */
+typedef struct { int wave; float base_freq,freq_limit,freq_ramp,freq_dramp,duty,duty_ramp,
+    vib_strength,vib_speed,env_attack,env_sustain,env_punch,env_decay,
+    lpf_freq,lpf_ramp,lpf_resonance,hpf_freq,hpf_ramp,pha_offset,pha_ramp,arp_speed,arp_mod; } Sfx;
+static unsigned g_sfxrng=0x1234567u;
+static float frnd(float r){ g_sfxrng=g_sfxrng*1103515245u+12345u; return (float)((g_sfxrng>>16)&0x7fff)/32768.0f*r; }
+static void sfx_render(Sfx*p){ static float buf[88200]; if(p->lpf_freq<=0)p->lpf_freq=1.0f;
+    double fperiod=100.0/(p->base_freq*p->base_freq+0.001); int period=(int)fperiod;
+    double fmaxperiod=100.0/(p->freq_limit*p->freq_limit+0.001);
+    double fslide=1.0-pow((double)p->freq_ramp,3.0)*0.01, fdslide=-pow((double)p->freq_dramp,3.0)*0.000001;
+    float sq_duty=0.5f-p->duty*0.5f, sq_slide=-p->duty_ramp*0.00005f;
+    double arp_mod; if(p->arp_mod>=0)arp_mod=1.0-pow((double)p->arp_mod,2.0)*0.9; else arp_mod=1.0+pow((double)p->arp_mod,2.0)*10.0;
+    int arp_time=0, arp_limit=(int)(powf(1.0f-p->arp_speed,2.0f)*20000+32); if(p->arp_speed==1.0f)arp_limit=0;
+    float fltp=0,fltdp=0,fltw=powf(p->lpf_freq,3.0f)*0.1f, fltw_d=1.0f+p->lpf_ramp*0.0001f;
+    float fltdmp=5.0f/(1.0f+powf(p->lpf_resonance,2.0f)*20.0f)*(0.01f+fltw); if(fltdmp>0.8f)fltdmp=0.8f;
+    float fltphp=0, flthp=powf(p->hpf_freq,2.0f)*0.1f, flthp_d=1.0f+p->hpf_ramp*0.0003f;
+    float vib_phase=0, vib_speed=powf(p->vib_speed,2.0f)*0.01f, vib_amp=p->vib_strength*0.5f;
+    int env_stage=0, env_time=0; float env_vol=0;
+    int env_len[3]={ (int)(p->env_attack*p->env_attack*100000.0f),(int)(p->env_sustain*p->env_sustain*100000.0f),(int)(p->env_decay*p->env_decay*100000.0f) };
+    float fphase=powf(p->pha_offset,2.0f)*1020.0f; if(p->pha_offset<0)fphase=-fphase;
+    float fdphase=powf(p->pha_ramp,2.0f); if(p->pha_ramp<0)fdphase=-fdphase;
+    int iphase=abs((int)fphase), ipp=0; static float phaser[1024]; for(int i=0;i<1024;i++)phaser[i]=0;
+    float noise[32]; for(int i=0;i<32;i++)noise[i]=frnd(2.0f)-1.0f;
+    int phase=0,n=0;
+    for(;n<88200;n++){
+        arp_time++; if(arp_limit!=0&&arp_time>=arp_limit){ arp_limit=0; fperiod*=arp_mod; }
+        fslide+=fdslide; fperiod*=fslide; if(fperiod>fmaxperiod){ fperiod=fmaxperiod; if(p->freq_limit>0)break; }
+        float rfp=(float)fperiod; if(vib_amp>0){ vib_phase+=vib_speed; rfp=(float)(fperiod*(1.0+sin(vib_phase)*vib_amp)); }
+        period=(int)rfp; if(period<8)period=8;
+        sq_duty+=sq_slide; if(sq_duty<0)sq_duty=0; if(sq_duty>0.5f)sq_duty=0.5f;
+        env_time++; if(env_time>env_len[env_stage]){ env_time=0; if(++env_stage==3)break; }
+        if(env_stage==0)env_vol=env_len[0]?(float)env_time/env_len[0]:1.0f;
+        else if(env_stage==1)env_vol=1.0f+(1.0f-(env_len[1]?(float)env_time/env_len[1]:1.0f))*2.0f*p->env_punch;
+        else env_vol=1.0f-(env_len[2]?(float)env_time/env_len[2]:1.0f);
+        fphase+=fdphase; iphase=abs((int)fphase); if(iphase>1023)iphase=1023;
+        float ss=0;
+        for(int si=0;si<8;si++){ phase++; if(phase>=period){ phase%=period; if(p->wave==3)for(int i=0;i<32;i++)noise[i]=frnd(2.0f)-1.0f; }
+            float fp=(float)phase/period, sample;
+            switch(p->wave){ case 0: sample=fp<sq_duty?0.5f:-0.5f; break; case 1: sample=1.0f-fp*2; break;
+                case 2: sample=sinf(fp*6.2831853f); break; default: sample=noise[phase*32/period]; break; }
+            float pp=fltp; fltw*=fltw_d; if(fltw<0)fltw=0; if(fltw>0.1f)fltw=0.1f;
+            if(p->lpf_freq!=1.0f){ fltdp+=(sample-fltp)*fltw; fltdp-=fltdp*fltdmp; } else { fltp=sample; fltdp=0; }
+            fltp+=fltdp; fltphp+=fltp-pp; flthp*=flthp_d; fltphp-=fltphp*flthp; sample=fltphp;
+            phaser[ipp&1023]=sample; sample+=phaser[(ipp-iphase+1024)&1023]; ipp=(ipp+1)&1023;
+            ss+=sample*env_vol; }
+        ss=ss/8*2.0f; if(ss>1)ss=1; if(ss<-1)ss=-1; buf[n]=ss;
+    }
+    int n22=n/2; if(n22<1)n22=1; g_wavn=n22; g_wav=realloc(g_wav,(size_t)n22*2);
+    for(int i=0;i<n22;i++){ float v=(buf[i*2]+buf[i*2+1])*0.5f; int s=(int)(v*16000); if(s>32767)s=32767; if(s<-32768)s=-32768; g_wav[i]=(int16_t)s; }
+    g_crop_a=0; g_crop_b=g_wavn; }
+static const char *SFX_NAME[8]={ "coin","laser","explosion","powerup","hit","jump","blip","random" };
+static const char *SFX_LABEL[8]={ "Coin","Laser","Boom","Power","Hit","Jump","Blip","Random" };
+static SDL_Rect g_sfxb[8];
+static void sfx_generate(int k){ Sfx p; memset(&p,0,sizeof p); p.env_sustain=0.3f; p.env_decay=0.4f; p.base_freq=0.3f; p.duty=0.5f; p.lpf_freq=1.0f;
+    switch(k){
+      case 0: p.base_freq=0.4f+frnd(0.5f); p.env_attack=0; p.env_sustain=frnd(0.1f); p.env_decay=0.1f+frnd(0.4f); p.env_punch=0.3f+frnd(0.3f);
+              if(frnd(1)<0.5f){ p.arp_speed=0.5f+frnd(0.2f); p.arp_mod=0.2f+frnd(0.4f); } break;
+      case 1: p.wave=(int)frnd(3); if(p.wave==2)p.wave=(int)frnd(2); p.base_freq=0.5f+frnd(0.4f); p.freq_limit=p.base_freq-0.2f-frnd(0.6f); if(p.freq_limit<0.1f)p.freq_limit=0.1f;
+              p.freq_ramp=-0.15f-frnd(0.2f); p.duty=frnd(0.5f); p.duty_ramp=frnd(0.2f); p.env_attack=0; p.env_sustain=0.1f+frnd(0.2f); p.env_decay=frnd(0.4f); p.env_punch=frnd(0.3f); break;
+      case 2: p.wave=3; p.base_freq=0.1f+frnd(0.4f); p.freq_ramp=-0.1f+frnd(0.2f); p.env_attack=0; p.env_sustain=0.2f+frnd(0.2f); p.env_decay=0.3f+frnd(0.3f); p.env_punch=0.2f+frnd(0.4f);
+              if(frnd(1)<0.5f){ p.vib_strength=frnd(0.6f); p.vib_speed=frnd(0.6f); } break;
+      case 3: p.wave=frnd(1)<0.5f?0:1; p.base_freq=0.2f+frnd(0.3f); p.freq_ramp=0.1f+frnd(0.3f); p.env_attack=0; p.env_sustain=0.2f+frnd(0.3f); p.env_decay=0.2f+frnd(0.3f);
+              if(frnd(1)<0.5f){ p.vib_strength=frnd(0.7f); p.vib_speed=frnd(0.6f); } break;
+      case 4: p.wave=(int)frnd(3); if(p.wave==2)p.wave=3; if(p.wave<2)p.duty=frnd(0.6f); p.base_freq=0.2f+frnd(0.4f); p.freq_ramp=-0.3f-frnd(0.4f); p.env_attack=0; p.env_sustain=frnd(0.1f); p.env_decay=0.1f+frnd(0.2f); break;
+      case 5: p.wave=0; p.duty=frnd(0.6f); p.base_freq=0.2f+frnd(0.3f); p.freq_ramp=0.1f+frnd(0.2f); p.env_attack=0; p.env_sustain=0.1f+frnd(0.3f); p.env_decay=0.1f+frnd(0.2f); break;
+      case 6: p.wave=frnd(1)<0.5f?0:1; if(p.wave==0)p.duty=frnd(0.6f); p.base_freq=0.3f+frnd(0.3f); p.env_attack=0; p.env_sustain=0.05f+frnd(0.1f); p.env_decay=0.05f+frnd(0.15f); p.hpf_freq=0.1f; break;
+      default: p.wave=(int)frnd(4); p.base_freq=frnd(1); p.freq_ramp=frnd(0.8f)-0.4f; p.duty=frnd(1); p.duty_ramp=frnd(0.4f)-0.2f; p.env_attack=frnd(0.2f); p.env_sustain=0.1f+frnd(0.4f); p.env_decay=0.1f+frnd(0.5f);
+              p.env_punch=frnd(0.5f); p.vib_strength=frnd(0.5f); p.vib_speed=frnd(0.6f); p.arp_speed=frnd(0.7f); p.arp_mod=frnd(1.2f)-0.5f; p.lpf_freq=0.2f+frnd(0.8f); p.lpf_resonance=frnd(1); break;
+    }
+    sfx_render(&p); snprintf(g_wav_name,sizeof g_wav_name,"%s.wav",SFX_NAME[k]);
+    snprintf(g_status,sizeof g_status,"generated %s  (%.2fs) - tweak via Random / Save Crop to assets",SFX_NAME[k],g_wavn/22050.0f); }
+
 static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my);
     int tx=ox,ty=oy;
     g_au_import=(SDL_Rect){tx,ty,90,24}; rrect(R,tx,ty,90,24,4,hit(mx,my,tx,ty,90,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty+5,14,C_TXT); text(R,"Load",tx+28,ty+6,1,C_TXT,C_BTN); tx+=98;
     g_au_play=(SDL_Rect){tx,ty,78,24}; rrect(R,tx,ty,78,24,4,hit(mx,my,tx,ty,78,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty+5,14,(Col){150,230,160}); text(R,"Play",tx+28,ty+6,1,C_TXT,C_BTN); tx+=86;
     g_au_save=(SDL_Rect){tx,ty,112,24}; rrect(R,tx,ty,112,24,4,hit(mx,my,tx,ty,112,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty+5,14,C_TXT); text(R,"Save Crop",tx+28,ty+6,1,C_TXT,C_BTN); tx+=124;
-    if(!g_wav){ text(R,"Load a WAV/MP3/etc - converted to 22050 Hz mono. Drag across the waveform to crop, then Save Crop.",ox,oy+40,1,C_DIM,C_DOCK); return; }
-    long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; char inf[140];
-    snprintf(inf,sizeof inf,"%.80s   crop %.3f-%.3fs  (%.3fs)",g_wav_name,a/22050.0f,b/22050.0f,(b-a)/22050.0f); text(R,inf,tx,ty+6,1,C_DIM,C_DOCK);
-    int wy=oy+34, wh=h-44, cyl=wy+wh/2; g_au_x=ox; g_au_w=w; plain(R,ox,wy,w,wh,(Col){12,14,20});
+    /* SFX generator row (always shown) */
+    int sx=ox, sy=oy+32; text(R,"GENERATE",sx,sy+5,1,(Col){235,180,90},C_DOCK); sx+=textw(R,"GENERATE",1)+12;
+    for(int i=0;i<8;i++){ int bw=textw(R,SFX_LABEL[i],1)+18; g_sfxb[i]=(SDL_Rect){sx,sy,bw,22};
+        int hov=hit(mx,my,sx,sy,bw,22); rrect(R,sx,sy,bw,22,4,hov?C_BTNHI:C_BTN);
+        icon(R,i==7?IC_UNDO:IC_PLAY,sx+7,sy+5,12,i==7?C_TXT:(Col){235,180,90}); text(R,SFX_LABEL[i],sx+24,sy+5,1,C_TXT,hov?C_BTNHI:C_BTN); sx+=bw+6; }
+    if(!g_wav){ text(R,"Click a GENERATE preset to make a sound effect (click again to vary it), or Load a WAV/MP3.",ox,oy+66,1,C_DIM,C_DOCK);
+        text(R,"Then drag across the waveform to crop, Play to preview, Save Crop -> writes a .wav into the game's assets/.",ox,oy+82,1,C_DIM,C_DOCK); return; }
+    long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; char inf[160];
+    snprintf(inf,sizeof inf,"%.80s   crop %.3f-%.3fs  (%.3fs)",g_wav_name,a/22050.0f,b/22050.0f,(b-a)/22050.0f); text(R,inf,ox,oy+64,1,C_DIM,C_DOCK);
+    int wy=oy+82, wh=h-92, cyl=wy+wh/2; g_au_x=ox; g_au_w=w; g_au_y=wy; plain(R,ox,wy,w,wh,(Col){12,14,20});
     int xa=ox+(int)((double)a/g_wavn*w), xb=ox+(int)((double)b/g_wavn*w);
     SDL_SetRenderDrawColor(R,110,200,230,255);
     for(int x=0;x<w;x++){ long s0=(long)x*g_wavn/w,s1=(long)(x+1)*g_wavn/w; if(s1<=s0)s1=s0+1; int mn=32767,mx2=-32768;
@@ -804,7 +882,8 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
 static void audio_down(int mx,int my){ if(hit(mx,my,g_au_import.x,g_au_import.y,g_au_import.w,g_au_import.h)){ import_audio(); return; }
     if(hit(mx,my,g_au_play.x,g_au_play.y,g_au_play.w,g_au_play.h)){ audio_play(); return; }
     if(hit(mx,my,g_au_save.x,g_au_save.y,g_au_save.w,g_au_save.h)){ audio_save(); return; }
-    if(g_wav&&g_au_w>0&&mx>=g_au_x&&mx<g_au_x+g_au_w&&my>BOT_Y+56){ g_crop_a=(long)(mx-g_au_x)*g_wavn/g_au_w; g_crop_b=g_crop_a; g_wavdrag=1; } }
+    for(int i=0;i<8;i++)if(hit(mx,my,g_sfxb[i].x,g_sfxb[i].y,g_sfxb[i].w,g_sfxb[i].h)){ sfx_generate(i); return; }
+    if(g_wav&&g_au_w>0&&mx>=g_au_x&&mx<g_au_x+g_au_w&&my>=g_au_y){ g_crop_a=(long)(mx-g_au_x)*g_wavn/g_au_w; g_crop_b=g_crop_a; g_wavdrag=1; } }
 static void audio_drag(int mx){ if(g_wavdrag&&g_au_w>0){ long s=(long)(mx-g_au_x)*g_wavn/g_au_w; if(s<0)s=0; if(s>g_wavn)s=g_wavn; g_crop_b=s; } }
 
 /* ================= device / USB panel ================= */
@@ -1158,6 +1237,7 @@ int main(int argc,char**argv){
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
+    if(getenv("MOTE_STUDIO_SFX")){ sfx_generate(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
