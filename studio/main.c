@@ -30,7 +30,10 @@
 #include "third_party/stb_truetype.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb_image.h"
-#include "usb.h"   /* native device link (no Python/pyserial) */
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "third_party/stb_image_write.h"
+#include "usb.h"        /* native device link (no Python/pyserial) */
+#include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
 static int WIN_W=1380, WIN_H=920;
@@ -64,6 +67,12 @@ static const Col C_BODYLO= { 44, 28, 82 };
 static const Col C_DPAD  = { 36, 30, 50 };
 static const Col C_DPADL = { 150, 196, 255 };
 
+#ifdef _WIN32
+#include <direct.h>
+static void mkdir_portable(const char*p){ (void)_mkdir(p); }
+#else
+static void mkdir_portable(const char*p){ (void)mkdir(p,0755); }
+#endif
 static Col mul(Col c, float f){ int r=(int)(c.r*f),g=(int)(c.g*f),b=(int)(c.b*f);
     if(r>255)r=255; if(g>255)g=255; if(b>255)b=255; Col o={(Uint8)r,(Uint8)g,(Uint8)b}; return o; }
 
@@ -170,9 +179,10 @@ static void run_job(const char*cmd,const char*label){ Job*j=calloc(1,sizeof*j);
     snprintf(g_status,sizeof g_status,"%s...",label); SDL_CreateThread(job_thread,"job",j); }
 
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel=idx;
-    if(rebuild){ char cmd[700]; snprintf(cmd,sizeof cmd,"./tools/mote build %.250s >/dev/null 2>&1",g_games[idx].dir);
-        snprintf(g_status,sizeof g_status, system(cmd)==0?"running %s":"BUILD FAILED: %s", g_games[idx].name); }
-    snprintf(g_so,sizeof g_so,"%.200s/build/%.60s.so",g_games[idx].dir,g_games[idx].name);
+    if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
+        int rc=mc_build(g_games[idx].dir,0,log_add);
+        snprintf(g_status,sizeof g_status, rc==0?"running %s":"BUILD FAILED: %s", g_games[idx].name); }
+    snprintf(g_so,sizeof g_so,"%.200s/build/%.60s.%s",g_games[idx].dir,g_games[idx].name,mc_host_ext());
     g_watch=src_mtime(g_games[idx].dir); stop_engine(); start_engine(); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
@@ -216,18 +226,24 @@ static void px_line(int x0,int y0,int x1,int y1,uint16_t c){ int dx=abs(x1-x0),d
 static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b=x0<x1?x1:x0,d=y0<y1?y0:y1,e=y0<y1?y1:y0;
     for(int x=a;x<=b;x++){ if(d>=0&&d<g_csize)g_canvas[d*g_csize+x]=c; if(e>=0&&e<g_csize)g_canvas[e*g_csize+x]=c; }
     for(int y=d;y<=e;y++){ if(a>=0&&a<g_csize)g_canvas[y*g_csize+a]=c; if(b>=0&&b<g_csize)g_canvas[y*g_csize+b]=c; } }
-static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:"/tmp"; FILE*f=fopen("/tmp/mote_sprite.ppm","wb");
-    if(!f){ snprintf(g_status,sizeof g_status,"save FAILED"); return; } fprintf(f,"P6\n%d %d\n255\n",g_csize,g_csize);
-    for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i]; int r,g,bl; if(c==KEY565){r=255;g=0;bl=255;}
-        else{ r=((c>>11)&31)<<3; g=((c>>5)&63)<<2; bl=(c&31)<<3; } fputc(r,f);fputc(g,f);fputc(bl,f); } fclose(f);
-    char cmd[900]; snprintf(cmd,sizeof cmd,"mkdir -p %.240s/assets && convert /tmp/mote_sprite.ppm %.240s/assets/sprite.png && ./tools/mote bake %.240s",dir,dir,dir);
-    run_job(cmd,"save sprite"); }
-static void load_png(const char*path){ char cmd[600]; snprintf(cmd,sizeof cmd,"convert %.300s -background magenta -flatten -resize 128x128\\> /tmp/mote_load.ppm 2>/dev/null",path); if(system(cmd)){}
-    FILE*f=fopen("/tmp/mote_load.ppm","rb"); if(!f)return; char m[3]={0}; int w=0,h=0,mx=0;
-    if(fscanf(f,"%2s %d %d %d",m,&w,&h,&mx)!=4||w<1||h<1||w>128||h>128){ fclose(f); return; } fgetc(f);
-    g_csize=w>h?w:h; canvas_new(); for(int y=0;y<h;y++)for(int x=0;x<w;x++){ int r=fgetc(f),g=fgetc(f),b=fgetc(f);
-        g_canvas[y*g_csize+x]=(r>200&&g<60&&b>200)?KEY565:(uint16_t)MOTE_RGB565(r,g,b); } fclose(f);
-    snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
+static void njob(int kind,const char*dir);   /* fwd: native build/bake worker */
+static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:".";
+    static unsigned char rgba[CMAX*CMAX*4];
+    for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
+        if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
+        else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
+    char p[400]; snprintf(p,sizeof p,"%.360s/assets",dir); mkdir_portable(p);
+    snprintf(p,sizeof p,"%.360s/assets/sprite.png",dir);
+    if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED"); return; }
+    snprintf(g_status,sizeof g_status,"saved assets/sprite.png + baking"); njob(2,dir); }
+/* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
+static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4);
+    if(!d){ snprintf(g_status,sizeof g_status,"could not read image"); return; }
+    int dim=w>h?w:h, cs=dim>128?128:dim; if(cs<1)cs=1; g_csize=cs; canvas_new();
+    for(int y=0;y<cs;y++)for(int x=0;x<cs;x++){ int sx=x*dim/cs, sy=y*dim/cs;
+        if(sx<w&&sy<h){ int i=(sy*w+sx)*4, r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
+            g_canvas[y*cs+x]= (a<128||(r>200&&g<60&&b>200)) ? KEY565 : (uint16_t)MOTE_RGB565(r,g,b); } }
+    stbi_image_free(d); snprintf(g_status,sizeof g_status,"imported %dx%d",w,h); }
 
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
@@ -281,11 +297,20 @@ static int g_picker, g_modal; static char g_newname[48];
 static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_al_done;
 static SDL_Rect g_mk_create,g_mk_cancel;
 static void open_new_game(void){ g_modal=1; g_newname[0]=0; SDL_StartTextInput(); }
-static void create_game(void){ if(!g_newname[0])return; char cmd[400]; snprintf(cmd,sizeof cmd,"./tools/mote new examples/%.40s >/dev/null 2>&1",g_newname);
-    if(system(cmd)){} scan_games(); for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g_newname)){ load_game(i,1); build_tree(g_games[i].dir); break; }
+static void create_game(void){ if(!g_newname[0])return; mc_new(g_newname,log_add);
+    scan_games(); for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g_newname)){ load_game(i,1); build_tree(g_games[i].dir); break; }
     g_modal=0; SDL_StopTextInput(); }
 
 static int g_quitreq;
+/* native build/bake/push run on a worker thread, logging into the Console */
+static char g_jdir[300]; static int g_jkind;
+static int job_native(void*a){ (void)a; int k=g_jkind;
+    if(k==0)mc_build(g_jdir,0,log_add); else if(k==1)mc_build(g_jdir,1,log_add); else if(k==2)mc_bake(g_jdir,log_add);
+    else if(k==3||k==4){ if(mc_build(g_jdir,1,log_add)==0){ char nm[80]; mc_name(g_jdir,nm,sizeof nm);
+        char mp[420]; snprintf(mp,sizeof mp,"%.300s/build/%.60s.mote",g_jdir,nm); mote_dev_push(mp,nm,k==4,log_add); } }
+    snprintf(g_status,sizeof g_status,"done"); return 0; }
+static void njob(int kind,const char*dir){ g_jkind=kind; snprintf(g_jdir,sizeof g_jdir,"%.290s",dir); g_tab=TAB_CONSOLE; SDL_CreateThread(job_native,"njob",NULL); }
+
 static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600];
     switch(a){
     case A_NEW: open_new_game(); break;
@@ -294,11 +319,11 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_REVEAL: snprintf(c,sizeof c,"xdg-open %.250s",dir); run_job(c,"reveal"); break;
     case A_RELOAD: if(g_sel>=0)load_game(g_sel,1); break;
     case A_STOP: stop_engine(); snprintf(g_status,sizeof g_status,"stopped"); break;
-    case A_BUILD: snprintf(c,sizeof c,"./tools/mote build %.250s",dir); run_job(c,"build"); g_tab=TAB_CONSOLE; break;
-    case A_BUILDDEV: snprintf(c,sizeof c,"./tools/mote build %.250s --device",dir); run_job(c,"build device"); g_tab=TAB_CONSOLE; break;
-    case A_PUSH: snprintf(c,sizeof c,"./tools/mote push %.250s",dir); run_job(c,"push"); g_tab=TAB_CONSOLE; break;
-    case A_PUSHLAUNCH: snprintf(c,sizeof c,"./tools/mote push %.250s --launch",dir); run_job(c,"push launch"); g_tab=TAB_CONSOLE; break;
-    case A_BAKEALL: snprintf(c,sizeof c,"./tools/mote bake %.250s",dir); run_job(c,"bake"); g_tab=TAB_CONSOLE; break;
+    case A_BUILD: njob(0,dir); break;
+    case A_BUILDDEV: njob(1,dir); break;
+    case A_PUSH: njob(3,dir); break;
+    case A_PUSHLAUNCH: njob(4,dir); break;
+    case A_BAKEALL: njob(2,dir); break;
     case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_ASSETS; break;
     case A_VSCODE:
         if(g_tsel>=0 && g_tree[g_tsel].kind!=0)   /* a file selected -> open it, reuse the window */
@@ -684,8 +709,7 @@ static void dev_run(int op){ g_devop=op; g_tab=TAB_CONSOLE; SDL_CreateThread(dev
 static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].x,g_dvb[i].y,g_dvb[i].w,g_dvb[i].h)){
     char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600]; g_tab=TAB_CONSOLE;
     if(i==0)dev_run(0); else if(i==1)dev_run(1); else if(i==4)dev_run(4); else if(i==5)dev_run(5);
-    else if(i==2){ snprintf(c,sizeof c,"./tools/mote push %.250s",dir); run_job(c,"push"); }   /* push waits on native build (Part B) */
-    else if(i==3){ snprintf(c,sizeof c,"./tools/mote push %.250s --launch",dir); run_job(c,"push launch"); } return; } }
+    else if(i==2)njob(3,dir); else if(i==3)njob(4,dir); return; } }
 
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};

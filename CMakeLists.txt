@@ -84,6 +84,7 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(mote_studio
         studio/main.c
         studio/usb.c
+        studio/motecore.c
         os/mote_os.c
         os/mote_launcher.c
         os/mote_menu.c
