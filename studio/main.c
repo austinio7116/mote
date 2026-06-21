@@ -327,8 +327,9 @@ static TRow g_tree[300]; static int g_ntree, g_tsel=-1;
 static int kind_of(const char*n){ size_t l=strlen(n);
     if(l>5&&!strcmp(n+l-5,".toml"))return 1;
     if(l>2&&(!strcmp(n+l-2,".c")||!strcmp(n+l-2,".h")))return 2;
-    if(l>4&&(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")))return 3;
+    if(l>4&&(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")))return 3;
     if(l>4&&(!strcasecmp(n+l-4,".obj")||!strcasecmp(n+l-4,".stl")))return 4;
+    if(l>4&&(!strcasecmp(n+l-4,".wav")||!strcasecmp(n+l-4,".mp3")||!strcasecmp(n+l-4,".ogg")))return 6;  /* audio */
     return 5; }
 static void tadd(const char*name,const char*path,int depth,int kind){ if(g_ntree>=300)return;
     TRow*r=&g_tree[g_ntree++]; snprintf(r->name,80,"%s",name); snprintf(r->path,320,"%s",path); r->depth=depth; r->kind=kind; }
@@ -472,8 +473,8 @@ static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK);
         for(int a=1;a<d;a++) if(tree_continues(i,a)) plain(R,6+a*16,y,1,ROW_H,lc);   /* ancestor verticals */
         if(d>0){ int vx=6+d*16, midy=y+ROW_H/2;                                       /* this item's ├─ / └─ */
             plain(R,vx,y,1,tree_continues(i,d)?ROW_H:(ROW_H/2),lc); plain(R,vx,midy,8,1,lc); }
-        int icid = r->kind==0?IC_FOLDER_O : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : IC_FILE;
-        Col icc = r->kind==0?(Col){222,200,120} : r->kind==2?(Col){122,182,240} : r->kind==3?(Col){130,206,150} : r->kind==4?(Col){200,150,230} : C_DIM;
+        int icid = r->kind==0?IC_FOLDER_O : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : r->kind==6?IC_PLAY : IC_FILE;
+        Col icc = r->kind==0?(Col){222,200,120} : r->kind==2?(Col){122,182,240} : r->kind==3?(Col){130,206,150} : r->kind==4?(Col){200,150,230} : r->kind==6?(Col){235,180,90} : C_DIM;
         icon(R,icid,ix,y+(ROW_H-15)/2,15,icc);
         text(R,r->name,ix+20,y+(ROW_H-14)/2+1,1,sel?C_TXT:(r->kind==0?C_TXT:(Col){186,194,214}),bg); } }
 
@@ -590,13 +591,13 @@ static MCfg parse_config(const char*dir){ MCfg c={0,0,0,0,0,0,0,0,0}; char p[320
 static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*20+(long)c->splats*24+(long)c->sprites*16
     +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0); }
 
-static SDL_Rect g_insp_edit, g_insp_bake;
+static SDL_Rect g_insp_edit, g_insp_bake, g_insp_open;
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR); text(R,"INSPECTOR",INSP_X+8,TOPH+6,1,C_DIM,C_HDR);
-    int x=INSP_X+14,y=TOPH+34; g_insp_edit=(SDL_Rect){0,0,0,0}; g_insp_bake=(SDL_Rect){0,0,0,0};
+    int x=INSP_X+14,y=TOPH+34; g_insp_edit=(SDL_Rect){0,0,0,0}; g_insp_bake=(SDL_Rect){0,0,0,0}; g_insp_open=(SDL_Rect){0,0,0,0};
     if(g_tsel<0||g_sel<0){ text(R,g_sel<0?"no project open":"select a file",x,y,1,C_DIM,C_DOCK); return; }
     TRow*r=&g_tree[g_tsel]; text(R,r->name,x,y,2,C_TXT,C_DOCK); y+=24;
-    const char*tn=r->kind==1?"project manifest":r->kind==2?"C source":r->kind==3?"image asset":r->kind==4?"3D mesh":r->kind==0?"folder":"file";
+    const char*tn=r->kind==1?"project manifest":r->kind==2?"C source":r->kind==3?"image asset":r->kind==4?"3D mesh":r->kind==6?"audio asset":r->kind==0?"folder":"file";
     text(R,tn,x,y,1,C_ACC,C_DOCK); y+=20;
     struct stat st; if(stat(r->path,&st)==0){ char sz[48]; snprintf(sz,sizeof sz,"%ld bytes",(long)st.st_size); text(R,sz,x,y,1,C_DIM,C_DOCK); y+=18; }
     text(R,r->path,x,y,1,C_DIM,C_DOCK); y+=24;
@@ -612,11 +613,17 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
             text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>286720?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
             plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
             plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24; } }
-    if(r->kind==3){ char info[64]; FILE*f=fopen("/tmp/mote_isz.txt","w"); (void)f; if(f)fclose(f);
-        snprintf(info,sizeof info,"transparent key = magenta"); text(R,info,x,y,1,C_DIM,C_DOCK); y+=18;
-        text(R,"opens in Pixel Art tab",x,y,1,C_DIM,C_DOCK); y+=22; }
-    g_insp_edit=(SDL_Rect){x,y,120,28}; rrect(R,x,y,120,28,6,C_BTN); rrect(R,x,y,120,2,6,C_BTNHI); text(R,"EDIT IN VSCODE",x+8,y+8,1,C_TXT,C_BTN); y+=36;
-    if(r->kind==3||r->kind==4){ g_insp_bake=(SDL_Rect){x,y,120,28}; rrect(R,x,y,120,28,6,C_BTN); text(R,"BAKE",x+8,y+8,2,C_TXT,C_BTN); } }
+    if(r->kind==3) text(R,"transparent key = magenta",x,y,1,C_DIM,C_DOCK),y+=22;
+    int mx,my; SDL_GetMouseState(&mx,&my); int bw=RIGHT_W-28;
+    /* primary action: open this asset in its dedicated tool (image->Pixel Art, etc.) */
+    if(r->kind==3||r->kind==4||r->kind==6){ const char*ol=r->kind==3?"OPEN IN PIXEL ART":r->kind==4?"OPEN IN MESH VIEW":"OPEN IN AUDIO";
+        int oic=r->kind==3?IC_IMAGE:r->kind==4?IC_BOX:IC_PLAY; g_insp_open=(SDL_Rect){x,y,bw,30};
+        int hov=hit(mx,my,x,y,bw,30); rrect(R,x,y,bw,30,6,hov?C_ACC:C_BTN); icon(R,oic,x+10,y+8,15,hov?C_HDR:C_TXT);
+        text(R,ol,x+32,y+9,1,hov?C_HDR:C_TXT,hov?C_ACC:C_BTN); y+=38; }
+    g_insp_edit=(SDL_Rect){x,y,bw,28}; { int hov=hit(mx,my,x,y,bw,28); rrect(R,x,y,bw,28,6,hov?C_BTNHI:C_BTN);
+        icon(R,IC_CODE,x+10,y+7,14,C_TXT); text(R,"EDIT IN VS CODE",x+32,y+8,1,C_TXT,hov?C_BTNHI:C_BTN); } y+=36;
+    if(r->kind==3||r->kind==4){ g_insp_bake=(SDL_Rect){x,y,bw,28}; int hov=hit(mx,my,x,y,bw,28); rrect(R,x,y,bw,28,6,hov?C_BTNHI:C_BTN);
+        icon(R,IC_HAMMER,x+10,y+7,14,C_TXT); text(R,"BAKE -> HEADER",x+32,y+8,1,C_TXT,hov?C_BTNHI:C_BTN); } }
 
 /* bottom dock */
 static SDL_Rect g_tabr[TAB_N];
@@ -1082,6 +1089,7 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
 static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); g_picker=0; }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; }
+    else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
     else if(r->kind==1||r->kind==2)code_open(r->path);   /* .toml / .c / .h -> code editor */
     else if(r->kind==5&&(ci_ends(r->name,".txt")||ci_ends(r->name,".md")||ci_ends(r->name,".ld")||ci_ends(r->name,".cfg")||ci_ends(r->name,".toml")))code_open(r->path); }
 
@@ -1175,7 +1183,8 @@ int main(int argc,char**argv){
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }
                 if(mx<LEFT_W&&my<BOT_Y){ if(hit(mx,my,g_tree_refresh.x,g_tree_refresh.y,18,18)){ tree_refresh(); continue; }
                     int i=(my-(TOPH+28))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
-                if(mx>=INSP_X&&my<BOT_Y){ if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
+                if(mx>=INSP_X&&my<BOT_Y){ if(g_insp_open.w&&hit(mx,my,g_insp_open.x,g_insp_open.y,g_insp_open.w,g_insp_open.h))tree_select(g_tsel);
+                    else if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
                     else if(hit(mx,my,g_insp_bake.x,g_insp_bake.y,g_insp_bake.w,g_insp_bake.h))dispatch(A_BAKEALL); continue; }
                 if(mx>=CENTER_X&&mx<INSP_X&&my>=TOPH&&my<BOT_Y){   /* zoom control (else: device button via per-frame feed) */
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
