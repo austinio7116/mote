@@ -24,21 +24,33 @@
 #include <string.h>
 #include <math.h>
 
-#define WIN_W 760
-#define WIN_H 520
+#define WIN_W 720
+#define WIN_H 500
 #define SCR   256                 /* 128 * 2 */
-#define SCR_X 252
-#define SCR_Y 96
+#define SCR_X 232
+#define SCR_Y 104
 
 typedef struct { Uint8 r, g, b; } Col;
-static const Col C_BG    = { 14, 16, 24 };
-static const Col C_BODY  = { 38, 42, 52 };
-static const Col C_EDGE  = { 92, 100, 118 };
-static const Col C_LIT   = { 96, 176, 255 };
-static const Col C_DIM   = { 58, 64, 78 };
-static const Col C_BEZEL = { 8, 9, 14 };
+static const Col C_BG     = { 18, 20, 28 };
+static const Col C_BODY   = { 64, 86, 124 };     /* the Thumby body */
+static const Col C_BODY_HI= { 86, 110, 150 };    /* top bevel highlight */
+static const Col C_BODY_LO= { 44, 60, 90 };      /* bottom shade */
+static const Col C_EDGE   = { 28, 38, 58 };
+static const Col C_BEZEL  = { 10, 11, 16 };
+static const Col C_DPAD   = { 32, 40, 58 };
+static const Col C_DPAD_L = { 120, 196, 255 };   /* lit d-pad */
+static const Col C_A      = { 240, 96, 110 };    /* A red */
+static const Col C_B      = { 250, 204, 84 };    /* B yellow */
+static const Col C_SHLD   = { 40, 52, 76 };
+static const Col C_ACCENT = { 120, 196, 255 };
 
 static char g_so[1024];
+
+static Col mul(Col c, float f) {
+    int r=(int)(c.r*f), g=(int)(c.g*f), b=(int)(c.b*f);
+    if(r>255)r=255; if(g>255)g=255; if(b>255)b=255;
+    Col o={(Uint8)r,(Uint8)g,(Uint8)b}; return o;
+}
 
 /* ---- engine worker: load the game module + run the real OS loop ---- */
 static int engine_thread(void *arg) {
@@ -58,48 +70,74 @@ static int engine_thread(void *arg) {
 }
 
 /* ---- drawing helpers ---- */
-static void rect(SDL_Renderer *R, int x, int y, int w, int h, Col c) {
+static void plain(SDL_Renderer *R, int x, int y, int w, int h, Col c) {
     SDL_SetRenderDrawColor(R, c.r, c.g, c.b, 255); SDL_Rect r = { x, y, w, h }; SDL_RenderFillRect(R, &r);
 }
-static void outline(SDL_Renderer *R, int x, int y, int w, int h, Col c) {
-    SDL_SetRenderDrawColor(R, c.r, c.g, c.b, 255); SDL_Rect r = { x, y, w, h }; SDL_RenderDrawRect(R, &r);
+/* filled rounded rectangle (scanline-inset corners) */
+static void round_rect(SDL_Renderer *R, int x, int y, int w, int h, int rad, Col c) {
+    SDL_SetRenderDrawColor(R, c.r, c.g, c.b, 255);
+    for (int j = 0; j < h; j++) {
+        int in = 0, dy = -1;
+        if (j < rad) dy = rad - j; else if (j >= h - rad) dy = j - (h - rad) + 1;
+        if (dy >= 0) in = rad - (int)sqrtf((float)(rad*rad - dy*dy));
+        SDL_RenderDrawLine(R, x + in, y + j, x + w - 1 - in, y + j);
+    }
 }
-static void circ(SDL_Renderer *R, int cx, int cy, int rad, Col c) {
+static void disc(SDL_Renderer *R, int cx, int cy, int rad, Col c) {
     SDL_SetRenderDrawColor(R, c.r, c.g, c.b, 255);
     for (int dy = -rad; dy <= rad; dy++) { int dx = (int)sqrtf((float)(rad*rad - dy*dy));
         SDL_RenderDrawLine(R, cx - dx, cy + dy, cx + dx, cy + dy); }
 }
-static void key_rect(SDL_Renderer *R, int x, int y, int w, int h, int lit) {
-    rect(R, x, y, w, h, lit ? C_LIT : C_DIM);
-    outline(R, x, y, w, h, C_EDGE);
-}
-static void key_circ(SDL_Renderer *R, int cx, int cy, int rad, int lit) {
-    circ(R, cx, cy, rad, lit ? C_LIT : C_DIM);
+/* a chunky 3D action button (shadow, bevel ring, face, highlight; glows when lit) */
+static void button(SDL_Renderer *R, int cx, int cy, int rad, Col base, int lit) {
+    disc(R, cx, cy + 3, rad + 1, (Col){ 12, 14, 22 });          /* drop shadow */
+    if (lit) disc(R, cx, cy, rad + 4, mul(base, 0.9f));          /* glow halo */
+    disc(R, cx, cy, rad, mul(base, 0.55f));                      /* bevel ring */
+    disc(R, cx, cy, rad - 3, lit ? mul(base, 1.2f) : base);      /* face */
+    disc(R, cx - rad/3, cy - rad/3, rad/3, mul(lit ? mul(base,1.2f) : base, 1.5f)); /* highlight */
 }
 
 static void draw(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b) {
+    static uint16_t fr[MOTE_FB_W * MOTE_FB_H];
+    mote_studio_get_frame(fr);                                  /* tear-free latest frame */
+    SDL_UpdateTexture(tex, NULL, fr, MOTE_FB_W * (int)sizeof(uint16_t));
     SDL_SetRenderDrawColor(R, C_BG.r, C_BG.g, C_BG.b, 255); SDL_RenderClear(R);
-    /* device body */
-    rect(R, 44, 24, 672, 472, C_BODY);
-    outline(R, 44, 24, 672, 472, C_EDGE);
-    /* screen bezel + the live framebuffer at 2x */
-    rect(R, SCR_X - 5, SCR_Y - 5, SCR + 10, SCR + 10, C_BEZEL);
-    SDL_UpdateTexture(tex, NULL, mote_launcher_fb(), MOTE_FB_W * (int)sizeof(uint16_t));
+
+    /* --- device body: a rounded shell with a top bevel + bottom shade --- */
+    int bx = 36, by = 18, bw = 648, bh = 464, br = 46;
+    round_rect(R, bx, by + 6, bw, bh, br, C_BODY_LO);           /* bottom shade */
+    round_rect(R, bx, by, bw, bh - 8, br, C_BODY);             /* body */
+    round_rect(R, bx + 8, by + 6, bw - 16, 60, br - 8, C_BODY_HI); /* top highlight band */
+
+    /* --- shoulder buttons recessed into the top edge --- */
+    round_rect(R, bx + 40, by + 2, 120, 30, 12, mul(C_SHLD, 0.7f));
+    round_rect(R, bx + 42, by + 4, 116, 24, 10, b->lb ? C_ACCENT : C_SHLD);
+    round_rect(R, bw + bx - 160, by + 2, 120, 30, 12, mul(C_SHLD, 0.7f));
+    round_rect(R, bw + bx - 158, by + 4, 116, 24, 10, b->rb ? C_ACCENT : C_SHLD);
+
+    /* --- screen: glossy black bezel + a thin inner frame + the live fb at 2x --- */
+    round_rect(R, SCR_X - 14, SCR_Y - 14, SCR + 28, SCR + 28, 16, C_BEZEL);
+    round_rect(R, SCR_X - 14, SCR_Y - 14, SCR + 28, 10, 16, (Col){ 30, 32, 42 });   /* glossy top */
+    plain(R, SCR_X - 2, SCR_Y - 2, SCR + 4, SCR + 4, (Col){ 40, 44, 56 });          /* inner frame */
     SDL_Rect dst = { SCR_X, SCR_Y, SCR, SCR }; SDL_RenderCopy(R, tex, NULL, &dst);
-    /* D-pad (left) */
-    int dx = 120, dy = 300, s = 30;
-    key_rect(R, dx - s/2, dy - s - s/2, s, s, b->up);
-    key_rect(R, dx - s/2, dy + s/2, s, s, b->down);
-    key_rect(R, dx - s - s/2, dy - s/2, s, s, b->left);
-    key_rect(R, dx + s/2, dy - s/2, s, s, b->right);
-    /* A / B (right) */
-    key_circ(R, 648, 300, 22, b->a);
-    key_circ(R, 600, 344, 22, b->b);
-    /* shoulders */
-    key_rect(R, 70, 40, 96, 26, b->lb);
-    key_rect(R, 594, 40, 96, 26, b->rb);
-    /* MENU */
-    key_rect(R, 330, 430, 100, 24, b->menu);
+
+    /* --- D-pad (left): a cross with the held arm lit --- */
+    int dcx = 116, dcy = 300, dw = 34, al = 44;
+    round_rect(R, dcx - al, dcy - dw/2, 2*al, dw, dw/2, C_DPAD);       /* horizontal */
+    round_rect(R, dcx - dw/2, dcy - al, dw, 2*al, dw/2, C_DPAD);       /* vertical */
+    if (b->up)    plain(R, dcx - dw/2 + 4, dcy - al + 4,  dw - 8, al - dw/2, C_DPAD_L);
+    if (b->down)  plain(R, dcx - dw/2 + 4, dcy + dw/2,    dw - 8, al - dw/2 - 4, C_DPAD_L);
+    if (b->left)  plain(R, dcx - al + 4,   dcy - dw/2 + 4, al - dw/2, dw - 8, C_DPAD_L);
+    if (b->right) plain(R, dcx + dw/2,     dcy - dw/2 + 4, al - dw/2 - 4, dw - 8, C_DPAD_L);
+    disc(R, dcx, dcy, 7, mul(C_DPAD, 1.4f));                            /* centre pivot */
+
+    /* --- A / B (right), Game-Boy diagonal --- */
+    button(R, 612, 318, 26, C_A, b->a);
+    button(R, 556, 280, 26, C_B, b->b);
+
+    /* --- MENU pill (bottom centre) --- */
+    round_rect(R, 322, 432, 76, 22, 11, mul(C_SHLD, 0.7f));
+    round_rect(R, 324, 434, 72, 18, 9, b->menu ? C_ACCENT : C_SHLD);
 }
 
 static void poll_input(MoteButtons *b, SDL_GameController *pad) {

@@ -18,9 +18,30 @@
 static MoteButtons   s_btn;
 static volatile int  s_quit;
 
+/* Double-buffer: the engine renders into the shared fb, then present copies the
+ * COMPLETE frame here under a lock; the UI reads only this. No more tearing. */
+static uint16_t      s_display[MOTE_FB_W * MOTE_FB_H];
+static SDL_mutex    *s_lock;
+static uint64_t      s_last_present;
+
 void mote_studio_set_buttons(const MoteButtons *b) { s_btn = *b; }
 void mote_studio_request_quit(void) { s_quit = 1; }
 void mote_studio_reset(void) { s_quit = 0; SDL_memset(&s_btn, 0, sizeof s_btn); }
+
+void mote_studio_get_frame(uint16_t *out) {
+    if (!s_lock) { SDL_memset(out, 0, sizeof s_display); return; }
+    SDL_LockMutex(s_lock); SDL_memcpy(out, s_display, sizeof s_display); SDL_UnlockMutex(s_lock);
+}
+
+static void publish(const uint16_t *fb) {
+    if (!s_lock) s_lock = SDL_CreateMutex();
+    SDL_LockMutex(s_lock); SDL_memcpy(s_display, fb, sizeof s_display); SDL_UnlockMutex(s_lock);
+    /* cap the engine at ~60 fps so it doesn't spin a core (and dt stays sane) */
+    uint64_t now = mote_plat_micros(), tgt = s_last_present + 16667;
+    if (s_last_present && now < tgt) { struct timespec ts = { 0, (long)((tgt - now) * 1000) };
+        nanosleep(&ts, NULL); now = mote_plat_micros(); }
+    s_last_present = now;
+}
 
 static void audio_cb(void *u, Uint8 *stream, int len) { (void)u;
     mote_audio_render((int16_t *)stream, len / 2);
@@ -37,8 +58,8 @@ int mote_plat_init(const char *title) { (void)title;
     return 0;
 }
 
-void     mote_plat_present(const uint16_t *fb)       { (void)fb; }   /* Studio reads the fb */
-void     mote_plat_present_async(const uint16_t *fb) { (void)fb; }
+void     mote_plat_present(const uint16_t *fb)       { publish(fb); }
+void     mote_plat_present_async(const uint16_t *fb) { publish(fb); }
 uint32_t mote_plat_wait_flush(void)                  { return 0; }
 
 void mote_plat_render2(uint16_t *fb, MoteBandFn band, uint32_t *c0, uint32_t *c1) {
