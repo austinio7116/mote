@@ -228,7 +228,7 @@ static const char *TAB_L[TAB_N]={ "PIXEL ART","ASSETS","MESH","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 
 /* ================= menu bar ================= */
-enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_VSCODE, A_ABOUT };
+enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_VSCODE, A_ALIGN, A_ABOUT };
 typedef struct { const char*title; struct { const char*l; int a; } it[8]; int n; int mx,mw; } Menu;
 static Menu MENUS[]={
     {"Project",{{"New Game...",A_NEW},{"Open...",A_OPEN},{"Reveal in Files",A_REVEAL},{"Quit",A_QUIT}},4},
@@ -240,6 +240,7 @@ static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
 static int g_menu_open=-1;
 
 static int g_picker, g_modal; static char g_newname[48];
+static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_al_done;
 static SDL_Rect g_mk_create,g_mk_cancel;
 static void open_new_game(void){ g_modal=1; g_newname[0]=0; SDL_StartTextInput(); }
 static void create_game(void){ if(!g_newname[0])return; char cmd[400]; snprintf(cmd,sizeof cmd,"./tools/mote new examples/%.40s >/dev/null 2>&1",g_newname);
@@ -262,6 +263,7 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_BAKEALL: snprintf(c,sizeof c,"./tools/mote bake %.250s",dir); run_job(c,"bake"); g_tab=TAB_CONSOLE; break;
     case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_ASSETS; break;
     case A_VSCODE: snprintf(c,sizeof c,"code %.250s >/dev/null 2>&1 &",dir); run_job(c,"VS Code"); break;
+    case A_ALIGN: g_align=1; break;
     case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio - native C/SDL2 IDE for Thumby Color"); break;
     } }
 
@@ -308,24 +310,40 @@ static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ C
  * We overlay the live screen on the LCD rect and glow the buttons when pressed.
  * Rects/points are normalized to the device image (tuned against the photo). */
 static SDL_Texture *g_dev; static int g_devw=718, g_devh=417;
-static float SCRN[4]={0.290f,0.120f,0.420f,0.490f};   /* x,y,w,h of the LCD on the photo */
+/* screen is a SQUARE, located in device-image pixels — set with the calibration rig */
+static float g_spx=216, g_spy=62, g_sps=250;
 static void load_device(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/thumby_color.png",&w,&h,&n,4);
     if(!d)return; g_dev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
     SDL_UpdateTexture(g_dev,NULL,d,w*4); SDL_SetTextureBlendMode(g_dev,SDL_BLENDMODE_BLEND); g_devw=w; g_devh=h; stbi_image_free(d); }
+static void load_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","r"); if(!f)return;
+    float a,b,c; if(fscanf(f,"%f %f %f",&a,&b,&c)==3){ g_spx=a; g_spy=b; g_sps=c; } fclose(f); }
+static void save_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","w"); if(!f)return;
+    fprintf(f,"%.1f %.1f %.1f\n",g_spx,g_spy,g_sps); fclose(f);
+    snprintf(g_status,sizeof g_status,"screen calibrated: x=%.0f y=%.0f side=%.0f",g_spx,g_spy,g_sps); }
 static void aglow(SDL_Renderer*R,int cx,int cy,int rad,Col c){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
     for(int dy=-rad;dy<=rad;dy++){ int dx=(int)sqrtf((float)(rad*rad-dy*dy)); float f=1.0f-(float)(dy*dy)/(rad*rad);
         SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(150*f)); SDL_RenderDrawLine(R,cx-dx,cy+dy,cx+dx,cy+dy); } }
+/* soft rounded-rect glow — for the bumpers (which are tabs, not circles) */
+static void aglow_rect(SDL_Renderer*R,int x,int y,int w,int h,Col c){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
+    for(int j=0;j<h;j++){ float f=1.0f-fabsf(j-h/2.0f)/(h/2.0f); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(130*f));
+        int in=(h/2-abs(j-h/2))<4?(4-(h/2-abs(j-h/2))):0; SDL_RenderDrawLine(R,x+in,y+j,x+w-in,y+j); } }
 static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     plain(R,CENTER_X,TOPH,CENTER_W,BOT_Y-TOPH,C_BG);
     static uint16_t fr[MOTE_FB_W*MOTE_FB_H]; mote_studio_get_frame(fr); SDL_UpdateTexture(tex,NULL,fr,MOTE_FB_W*(int)sizeof(uint16_t));
     if(!g_dev) return;
-    int rw=CENTER_W-28, rh=BOT_Y-TOPH-24; float ar=(float)g_devw/g_devh;
-    int dw=rw,dh=(int)(dw/ar); if(dh>rh){ dh=rh; dw=(int)(dh*ar); }
+    /* integer pixel scaling: the screen renders at N*128 (crisp); the photo is
+     * sized so its calibrated screen square == N*128, and centred in the region. */
+    int regw=CENTER_W-28, regh=BOT_Y-TOPH-24, N=1;
+    for(int n=1;n<=8;n++){ float s=(float)(n*MOTE_FB_W)/g_sps;
+        if((int)(g_devw*s)<=regw && (int)(g_devh*s)<=regh) N=n; else break; }
+    float scale=(float)(N*MOTE_FB_W)/g_sps;
+    int dw=(int)(g_devw*scale), dh=(int)(g_devh*scale);
     int dx=CENTER_X+(CENTER_W-dw)/2, dy=TOPH+((BOT_Y-TOPH)-dh)/2;
     SDL_Rect dd={dx,dy,dw,dh}; SDL_RenderCopy(R,g_dev,NULL,&dd);
+    int sps=N*MOTE_FB_W, ssx=dx+(int)(g_spx*scale), ssy=dy+(int)(g_spy*scale);
+    if(g_sel>=0&&g_eng){ SDL_Rect sc={ssx,ssy,sps,sps}; SDL_RenderCopy(R,tex,NULL,&sc); }
     #define BX(n) (dx+(int)((n)*dw))
     #define BY(n) (dy+(int)((n)*dh))
-    if(g_sel>=0&&g_eng){ SDL_Rect sc={BX(SCRN[0]),BY(SCRN[1]),(int)(SCRN[2]*dw),(int)(SCRN[3]*dh)}; SDL_RenderCopy(R,tex,NULL,&sc); }
     Col gl={150,212,255}; int br=(int)(0.052f*dw), dr=(int)(0.045f*dw);
     if(b->a)    aglow(R,BX(0.901f),BY(0.442f),br,gl);
     if(b->b)    aglow(R,BX(0.793f),BY(0.510f),br,gl);
@@ -333,8 +351,8 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     if(b->down) aglow(R,BX(0.153f),BY(0.590f),dr,gl);
     if(b->left) aglow(R,BX(0.088f),BY(0.471f),dr,gl);
     if(b->right)aglow(R,BX(0.220f),BY(0.471f),dr,gl);
-    if(b->lb)   aglow(R,BX(0.110f),BY(0.060f),(int)(0.075f*dw),gl);
-    if(b->rb)   aglow(R,BX(0.890f),BY(0.060f),(int)(0.075f*dw),gl);
+    if(b->lb)   aglow_rect(R,BX(0.02f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl);  /* bumpers are tabs */
+    if(b->rb)   aglow_rect(R,BX(0.79f),BY(0.0f),(int)(0.19f*dw),(int)(0.115f*dh),gl);
     if(b->menu) aglow(R,BX(0.196f),BY(0.790f),(int)(0.035f*dw),gl);
     SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
     #undef BX
@@ -432,24 +450,69 @@ static void poll_input(MoteButtons*b,SDL_GameController*pad){ const Uint8*k=SDL_
         b->lb|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_LEFTSHOULDER); b->rb|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
         b->menu|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_START); } }
 
+/* ---- screen calibration rig: the user places the square LCD over the photo ---- */
+static void align_geom(int*px,int*py,int*pw,int*ph,float*sc){
+    int aw=WIN_W-160, ah=WIN_H-200; float ar=(float)g_devw/g_devh;
+    int w=aw,h=(int)(w/ar); if(h>ah){ h=ah; w=(int)(h*ar); }
+    *px=(WIN_W-w)/2; *py=78; *pw=w; *ph=h; *sc=(float)w/g_devw; }
+static void draw_align(SDL_Renderer*R){
+    plain(R,0,0,WIN_W,WIN_H,(Col){22,24,32});
+    text(R,"CALIBRATE SCREEN",24,18,2,C_TITLE,(Col){22,24,32});
+    text(R,"Drag the square onto the LCD (it stays a perfect square). Drag a corner to resize.",24,46,1,C_DIM,(Col){22,24,32});
+    if(!g_dev) return;
+    int px,py,pw,ph; float sc; align_geom(&px,&py,&pw,&ph,&sc);
+    SDL_Rect dd={px,py,pw,ph}; SDL_RenderCopy(R,g_dev,NULL,&dd);
+    int sx=px+(int)(g_spx*sc), sy=py+(int)(g_spy*sc), ss=(int)(g_sps*sc);
+    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(R,90,230,255,55); SDL_Rect fr={sx,sy,ss,ss}; SDL_RenderFillRect(R,&fr);
+    SDL_SetRenderDrawColor(R,90,230,255,255); SDL_RenderDrawRect(R,&fr);
+    SDL_Rect o2={sx-1,sy-1,ss+2,ss+2}; SDL_RenderDrawRect(R,&o2);
+    int cs[4][2]={{sx,sy},{sx+ss,sy},{sx+ss,sy+ss},{sx,sy+ss}};
+    SDL_SetRenderDrawColor(R,255,210,90,255);
+    for(int i=0;i<4;i++){ SDL_Rect hr={cs[i][0]-6,cs[i][1]-6,12,12}; SDL_RenderFillRect(R,&hr); }
+    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
+    char c[120]; snprintf(c,sizeof c,"x=%.0f  y=%.0f  side=%.0f px  (image %dx%d)",g_spx,g_spy,g_sps,g_devw,g_devh);
+    text(R,c,px,py+ph+12,1,C_DIM,(Col){22,24,32});
+    g_al_save=(SDL_Rect){px,py+ph+36,160,32}; rrect(R,g_al_save.x,g_al_save.y,160,32,4,C_BTNHI); text(R,"SAVE & APPLY",g_al_save.x+16,g_al_save.y+9,1,C_TXT,C_BTNHI);
+    g_al_done=(SDL_Rect){px+172,py+ph+36,90,32}; rrect(R,g_al_done.x,g_al_done.y,90,32,4,C_BTN); text(R,"CLOSE",g_al_done.x+22,g_al_done.y+9,1,C_TXT,C_BTN); }
+static void align_press(int mx,int my){
+    if(hit(mx,my,g_al_save.x,g_al_save.y,g_al_save.w,g_al_save.h)){ save_scr_cfg(); g_align=0; return; }
+    if(hit(mx,my,g_al_done.x,g_al_done.y,g_al_done.w,g_al_done.h)){ g_align=0; return; }
+    int px,py,pw,ph; float sc; align_geom(&px,&py,&pw,&ph,&sc);
+    int sx=px+(int)(g_spx*sc), sy=py+(int)(g_spy*sc), ss=(int)(g_sps*sc);
+    int cs[4][2]={{sx,sy},{sx+ss,sy},{sx+ss,sy+ss},{sx,sy+ss}}; g_aldrag=0;
+    for(int i=0;i<4;i++) if(abs(mx-cs[i][0])<14&&abs(my-cs[i][1])<14){ g_aldrag=2; break; }
+    if(!g_aldrag && mx>=sx&&mx<sx+ss&&my>=sy&&my<sy+ss) g_aldrag=1;
+    g_lastmx=mx; g_lastmy=my; }
+static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; float sc; align_geom(&px,&py,&pw,&ph,&sc);
+    if(g_aldrag==1){ g_spx+=(mx-g_lastmx)/sc; g_spy+=(my-g_lastmy)/sc; }
+    else { float cx=g_spx+g_sps/2, cy=g_spy+g_sps/2;
+        float hx=fabsf((mx-px)/sc-cx), hy=fabsf((my-py)/sc-cy), half=hx>hy?hx:hy; if(half<24)half=24;
+        g_sps=2*half; g_spx=cx-half; g_spy=cy-half; }
+    g_lastmx=mx; g_lastmy=my; }
+
 static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_picker=0; }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
 
-int main(int argc,char**argv){ (void)argc;(void)argv;
+int main(int argc,char**argv){
+    int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,0);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
-    ui_font_init(ren); load_device(ren);
+    ui_font_init(ren); load_device(ren); load_scr_cfg();
+    SDL_SetTextureScaleMode(tex,SDL_ScaleModeNearest);   /* crisp integer-scaled pixels */
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ open_project(i); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
+    if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
+    if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
 
     int running=1,watch=0;
     do { SDL_Event e;
@@ -465,6 +528,11 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
             if(g_picker){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEBUTTONDOWN){ int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2,mx=e.button.x,my=e.button.y;
                     if(mx>=bx&&mx<bx+bw&&my>=by+40&&my<by+bh-24){ int i=(my-(by+40))/22; if(i>=0&&i<g_ngame)open_project(i); } else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
+                continue; }
+            if(g_align){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_align=0;
+                else if(e.type==SDL_MOUSEBUTTONDOWN)align_press(e.button.x,e.button.y);
+                else if(e.type==SDL_MOUSEBUTTONUP)g_aldrag=0;
+                else if(e.type==SDL_MOUSEMOTION&&(e.motion.state&SDL_BUTTON_LMASK))align_drag(e.motion.x,e.motion.y);
                 continue; }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
                 if(my<MENU_H){ int hitm=-1; for(int i=0;i<NMENU;i++)if(mx>=MENUS[i].mx&&mx<MENUS[i].mx+MENUS[i].mw)hitm=i; g_menu_open=(g_menu_open==hitm)?-1:hitm; continue; }
@@ -482,12 +550,13 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
         if(g_quitreq)running=0;
         if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); } }
 
-        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&g_menu_open<0;
+        MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&g_menu_open<0;
         if(over_emu){ poll_input(&b,pad); mote_studio_set_buttons(&b); }
         if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
         SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren);
+        if(g_align)draw_align(ren);
         if(g_picker)draw_picker(ren); if(g_modal)draw_modal(ren);
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
