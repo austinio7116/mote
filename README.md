@@ -50,6 +50,8 @@ Headless (CI / screenshots): `SDL_VIDEODRIVER=dummy MOTE_PICK=0 MOTE_SHOT=/tmp/s
 building Thumby Color games — no Electron/web, no Python. It builds for Linux and
 **Windows** (a single self-contained `mote_studio.exe`).
 
+![Mote Studio — project tree, the live emulator in a photo-accurate Thumby Color shell, inspector, and the Pixel-Art dock](docs/img/studio-ide.png)
+
 ```bash
 mote studio              # or: ./build_host/mote_studio  (run from the repo root)
 mote studio calibrate    # one-off: align the emulator screen to the device photo
