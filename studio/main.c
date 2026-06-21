@@ -33,9 +33,9 @@
 #define WIN_W     (SIDEBAR_W + DEV_W + INSP_W)
 #define WIN_H     580
 #define INSP_X    (SIDEBAR_W + DEV_W)
-#define SCR   256
+#define SCR   216                 /* ~1.7x; the real screen is ~40% of the body width */
 #define SCR_X ((DEV_W - SCR) / 2)
-#define SCR_Y ((WIN_H - SCR) / 2)
+#define SCR_Y (((WIN_H - SCR) / 2) - 20)
 #define ROW_H 24
 
 typedef struct { Uint8 r, g, b; } Col;
@@ -187,11 +187,23 @@ static void draw_sidebar(SDL_Renderer *R) {
 static void draw_welcome(SDL_Renderer *R) {
     Col sbg = { 12, 16, 30 }; plain(R, SCR_X, SCR_Y, SCR, SCR, sbg);
     int w; clabel(R, "MOTE", C_TITLE, sbg, &w);
-    text(R, "MOTE", SCR_X + (SCR - w*5)/2, SCR_Y + 78, 5, C_TITLE, sbg);
+    text(R, "MOTE", SCR_X + (SCR - w*4)/2, SCR_Y + 62, 4, C_TITLE, sbg);
     clabel(R, "STUDIO", (Col){150,200,255}, sbg, &w);
-    text(R, "STUDIO", SCR_X + (SCR - w*3)/2, SCR_Y + 124, 3, (Col){150,200,255}, sbg);
+    text(R, "STUDIO", SCR_X + (SCR - w*2)/2, SCR_Y + 100, 2, (Col){150,200,255}, sbg);
     clabel(R, "pick a game", (Col){120,140,170}, sbg, &w);
-    text(R, "pick a game", SCR_X + (SCR - w*2)/2, SCR_Y + 172, 2, (Col){120,140,170}, sbg);
+    text(R, "pick a game", SCR_X + (SCR - w)/2, SCR_Y + 138, 1, (Col){120,140,170}, sbg);
+}
+
+/* a dark translucent action button with an A/B label that glows when pressed */
+static void ab_button(SDL_Renderer *R, int cx, int cy, int rad, const char *lbl, int lit) {
+    Col idle = { 46, 40, 62 }, glow = { 150, 196, 255 };
+    disc(R, cx, cy + 3, rad + 1, (Col){ 70, 48, 104 });            /* socket shadow */
+    if (lit) disc(R, cx, cy, rad + 4, mul(glow, 0.8f));
+    disc(R, cx, cy, rad, lit ? mul(glow, 0.6f) : (Col){ 30, 26, 42 });
+    disc(R, cx, cy, rad - 3, lit ? glow : idle);
+    disc(R, cx - rad/3, cy - rad/3, rad/3, lit ? mul(glow,1.3f) : mul(idle,1.6f));
+    int w; clabel(R, lbl, (Col){ 210, 200, 230 }, idle, &w);
+    text(R, lbl, cx - w, cy - 6, 2, (Col){ 220, 215, 240 }, lit ? glow : idle);
 }
 
 static void draw_device(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b) {
@@ -199,26 +211,30 @@ static void draw_device(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b)
     static uint16_t fr[MOTE_FB_W * MOTE_FB_H];
     mote_studio_get_frame(fr); SDL_UpdateTexture(tex, NULL, fr, MOTE_FB_W * (int)sizeof(uint16_t));
 
-    /* GBA-style landscape body: a wide pill, purple, bevelled */
-    int bx = 18, by = 126, bw = DEV_W - 36, bh = 326, br = 78;
-    round_rect(R, bx, by + 6, bw, bh, br, C_BODY_LO);
+    /* GBA stadium body: wide, VERY rounded ends, purple, bevelled */
+    int bw = 540, bh = 300, bx = (DEV_W - bw) / 2, by = (WIN_H - bh) / 2, br = bh / 2 - 8;
+    round_rect(R, bx, by + 7, bw, bh, br, C_BODY_LO);
     round_rect(R, bx, by, bw, bh - 8, br, C_BODY);
-    round_rect(R, bx + 10, by + 6, bw - 20, 54, br - 10, C_BODY_HI);
-    /* shoulder buttons on the top edge */
-    round_rect(R, bx + 50, by - 6, 110, 26, 12, mul(C_SHLD, 0.7f));
-    round_rect(R, bx + 52, by - 4, 106, 22, 10, b->lb ? C_ACCENT : C_SHLD);
-    round_rect(R, bw + bx - 160, by - 6, 110, 26, 12, mul(C_SHLD, 0.7f));
-    round_rect(R, bw + bx - 158, by - 4, 106, 22, 10, b->rb ? C_ACCENT : C_SHLD);
+    round_rect(R, bx + 14, by + 7, bw - 28, 48, br - 12, C_BODY_HI);   /* top sheen */
 
-    /* screen: glossy bezel + the live fb at 2x */
-    round_rect(R, SCR_X - 16, SCR_Y - 16, SCR + 32, SCR + 32, 14, C_BEZEL);
-    round_rect(R, SCR_X - 16, SCR_Y - 16, SCR + 32, 9, 14, (Col){ 28, 30, 40 });
-    plain(R, SCR_X - 2, SCR_Y - 2, SCR + 4, SCR + 4, (Col){ 40, 44, 56 });
+    /* shoulder buttons moulded into the top edge */
+    round_rect(R, bx + 64, by - 7, 112, 24, 11, mul(C_BODY_LO, 0.85f));
+    round_rect(R, bx + 66, by - 5, 108, 20, 9, b->lb ? C_ACCENT : C_SHLD);
+    round_rect(R, bx + bw - 176, by - 7, 112, 24, 11, mul(C_BODY_LO, 0.85f));
+    round_rect(R, bx + bw - 174, by - 5, 108, 20, 9, b->rb ? C_ACCENT : C_SHLD);
+
+    /* screen: black bezel + a thin glossy top + the live fb */
+    round_rect(R, SCR_X - 15, SCR_Y - 15, SCR + 30, SCR + 44, 12, C_BEZEL);
+    round_rect(R, SCR_X - 15, SCR_Y - 15, SCR + 30, 8, 12, (Col){ 30, 32, 42 });
+    plain(R, SCR_X - 2, SCR_Y - 2, SCR + 4, SCR + 4, (Col){ 38, 42, 54 });
     SDL_Rect dst = { SCR_X, SCR_Y, SCR, SCR };
     if (g_sel >= 0) SDL_RenderCopy(R, tex, NULL, &dst); else draw_welcome(R);
+    /* "THUMBY COLOR" printed on the bezel below the screen */
+    int lw; clabel(R, "THUMBY COLOR", (Col){ 190, 196, 214 }, C_BEZEL, &lw);
+    text(R, "THUMBY COLOR", SCR_X + (SCR - lw)/2, SCR_Y + SCR + 12, 1, (Col){ 198, 204, 222 }, C_BEZEL);
 
-    /* d-pad (left bezel) */
-    int dcx = (SCR_X) / 2 + 6, dcy = SCR_Y + SCR/2, dw = 32, al = 42;
+    /* black + D-pad, left of the screen */
+    int dcx = bx + (SCR_X - bx) / 2 + 4, dcy = SCR_Y + SCR/2 + 4, dw = 30, al = 40;
     round_rect(R, dcx - al, dcy - dw/2, 2*al, dw, dw/2, C_DPAD);
     round_rect(R, dcx - dw/2, dcy - al, dw, 2*al, dw/2, C_DPAD);
     if (b->up)    plain(R, dcx-dw/2+4, dcy-al+4,  dw-8, al-dw/2, C_DPAD_L);
@@ -226,13 +242,15 @@ static void draw_device(SDL_Renderer *R, SDL_Texture *tex, const MoteButtons *b)
     if (b->left)  plain(R, dcx-al+4,   dcy-dw/2+4, al-dw/2, dw-8, C_DPAD_L);
     if (b->right) plain(R, dcx+dw/2,   dcy-dw/2+4, al-dw/2-4, dw-8, C_DPAD_L);
     disc(R, dcx, dcy, 6, mul(C_DPAD, 1.5f));
-    /* A / B (right bezel, GBA side-by-side diagonal) */
-    int rcx = SCR_X + SCR + (DEV_W - (SCR_X + SCR)) / 2 - 4;
-    button(R, rcx + 22, dcy + 6, 24, C_A, b->a);
-    button(R, rcx - 26, dcy + 22, 24, C_B, b->b);
-    /* menu pill below the screen */
-    round_rect(R, DEV_W/2 - 36, by + bh - 42, 72, 20, 10, mul(C_SHLD, 0.7f));
-    round_rect(R, DEV_W/2 - 34, by + bh - 40, 68, 16, 8, b->menu ? C_ACCENT : C_SHLD);
+
+    /* A / B dark buttons, right of the screen, GBA diagonal (A upper-right) */
+    int acx = SCR_X + SCR + (bx + bw - (SCR_X + SCR)) / 2;
+    ab_button(R, acx + 20, dcy - 14, 22, "A", b->a);
+    ab_button(R, acx - 24, dcy + 18, 22, "B", b->b);
+
+    /* small MENU button low-centre */
+    round_rect(R, DEV_W/2 - 22, by + bh - 44, 44, 14, 7, mul(C_BODY_LO, 0.85f));
+    round_rect(R, DEV_W/2 - 20, by + bh - 42, 40, 10, 5, b->menu ? C_ACCENT : C_SHLD);
 }
 
 /* ---- inspector with clickable actions ---- */
