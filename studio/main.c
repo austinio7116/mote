@@ -655,6 +655,61 @@ static void bake_hsv(SDL_Renderer*R){ if(!g_hsv_tex){ g_hsv_tex=SDL_CreateTextur
 static void px_swatch(SDL_Renderer*R,int x,int y,int s,uint16_t c){
     if(c==KEY565){ plain(R,x,y,s,s,(Col){50,52,62}); plain(R,x,y,s/2,s/2,(Col){34,36,44}); plain(R,x+s/2,y+s/2,s/2,s/2,(Col){34,36,44}); }
     else plain(R,x,y,s,s,c565(c)); if(c==g_pcol)rect_outline(R,x-1,y-1,s+2,s+2,C_ACC,1); }
+/* ===== procedural texture generator (Pixel-Art tab) ===== */
+static int g_texkind, g_texdrag=-1; static unsigned g_texseed=1;
+static float g_texscale=6, g_texdetail=4, g_texcontrast=0.4f, g_texwarp=0.35f;
+static uint16_t g_texa=0x2945, g_texb=0xC618;   /* low / high colour (value 0->1 maps A->B) */
+static const char *TEX_L[10]={ "Noise","Wood","Marble","Brick","Check","Grad","Cloud","Stone","Stars","Plasma" };
+static SDL_Rect g_texkb[10], g_texsl[4], g_texa_r, g_texb_r, g_texgen_r, g_texseed_r;
+static float *TEXSLV[4]={ &g_texscale,&g_texdetail,&g_texcontrast,&g_texwarp }; static const float TEXSLLO[4]={1,1,0,0}, TEXSLHI[4]={32,6,1,1};
+static unsigned thash(int x,int y,unsigned s){ unsigned h=(unsigned)x*374761393u+(unsigned)y*668265263u+s*2246822519u; h=(h^(h>>13))*1274126177u; return h^(h>>16); }
+static float vnz(float x,float y,unsigned s){ int xi=(int)floorf(x),yi=(int)floorf(y); float xf=x-xi,yf=y-yi;
+    float a=(thash(xi,yi,s)&0xffff)/65535.0f,b=(thash(xi+1,yi,s)&0xffff)/65535.0f,c=(thash(xi,yi+1,s)&0xffff)/65535.0f,d=(thash(xi+1,yi+1,s)&0xffff)/65535.0f;
+    float u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; }
+static float fbm(float x,float y,int oct,unsigned s){ float val=0,amp=0.5f,f=1,tot=0; for(int i=0;i<oct;i++){ val+=amp*vnz(x*f,y*f,s+i*101u); tot+=amp; f*=2; amp*=0.5f; } return tot>0?val/tot:0; }
+static float texval(int k,float nx,float ny){ float sc=g_texscale<1?1:g_texscale; int oct=(int)g_texdetail; if(oct<1)oct=1; unsigned s=g_texseed; float x=nx*sc,y=ny*sc;
+    switch(k){
+      case 1: { float dx=nx-0.5f,dy=ny-0.5f,r=sqrtf(dx*dx+dy*dy)*sc*2.2f, g=fbm(x,y,oct,s)*g_texwarp*4; return 0.5f+0.5f*sinf((r+g)*6.2831853f); }
+      case 2: { float g=fbm(x,y,oct,s)*g_texwarp*6; return 0.5f+0.5f*sinf((x+y+g)*1.6f); }
+      case 3: { float by=ny*sc*0.5f; int row=(int)by; float off=(row&1)?0.5f:0; float bx=fmodf(nx*sc*0.5f+off+8,1.0f),fy=fmodf(by,1.0f);
+                float m=(bx<0.05f||bx>0.95f||fy<0.07f||fy>0.93f)?0.05f:0.9f; return m+(fbm(x*2,y*2,2,s)-0.5f)*0.18f; }
+      case 4: { int cx=(int)(nx*sc),c2=(int)(ny*sc); return ((cx+c2)&1)?0.85f:0.15f; }
+      case 5: return nx;
+      case 6: { float v=fbm(x*0.6f,y*0.6f,oct,s); return v*0.6f+0.25f; }
+      case 7: return fbm(x,y,oct,s);
+      case 8: { float v=(thash((int)(nx*sc*5),(int)(ny*sc*5),s)&0xffff)/65535.0f; return v>0.97f?1.0f:0.02f+fbm(x,y,2,s)*0.06f; }
+      case 9: return 0.5f+0.22f*sinf(x*1.1f)+0.22f*sinf(y*1.4f)+0.16f*sinf((x+y+fbm(x,y,2,s)*5)*0.9f);
+      default: return fbm(x,y,oct,s);
+    } }
+static void tex_generate(void){ undo_push(); int n=g_csize;
+    int ar=((g_texa>>11)&31)<<3,ag=((g_texa>>5)&63)<<2,ab=(g_texa&31)<<3, br=((g_texb>>11)&31)<<3,bg=((g_texb>>5)&63)<<2,bb=(g_texb&31)<<3;
+    for(int y=0;y<n;y++)for(int x=0;x<n;x++){ float v=texval(g_texkind,(x+0.5f)/n,(y+0.5f)/n);
+        float k=0.5f+g_texcontrast*5; v=0.5f+(v-0.5f)*k; if(v<0)v=0; if(v>1)v=1;
+        int r=ar+(int)((br-ar)*v),g=ag+(int)((bg-ag)*v),b=ab+(int)((bb-ab)*v);
+        g_canvas[y*n+x]=(uint16_t)MOTE_RGB565(r,g,b); }
+    snprintf(g_status,sizeof g_status,"generated %s texture",TEX_L[g_texkind]); }
+static void draw_texgen(SDL_Renderer*R,int ox,int oy){ int mx,my; SDL_GetMouseState(&mx,&my); int x=ox;
+    text(R,"TEXTURE",x,oy+5,1,(Col){170,200,140},C_DOCK); x+=textw(R,"TEXTURE",1)+8;
+    for(int i=0;i<10;i++){ int bw=textw(R,TEX_L[i],1)+10; g_texkb[i]=(SDL_Rect){x,oy,bw,22}; int sel=g_texkind==i,hov=hit(mx,my,x,oy,bw,22);
+        rrect(R,x,oy,bw,22,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,TEX_L[i],x+5,oy+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); x+=bw+3; }
+    x+=8; const char*sll[4]={"Scale","Detail","Contrast","Warp"};
+    for(int i=0;i<4;i++){ int sw=64; g_texsl[i]=(SDL_Rect){x,oy,sw,22}; float t=(*TEXSLV[i]-TEXSLLO[i])/(TEXSLHI[i]-TEXSLLO[i]); if(t<0)t=0; if(t>1)t=1;
+        text(R,sll[i],x,oy-9,1,(Col){150,158,178},C_DOCK); plain(R,x,oy+9,sw,4,(Col){27,30,40}); plain(R,x,oy+9,(int)(sw*t),4,(Col){120,180,130});
+        int hx=x+(int)(sw*t); plain(R,hx-2,oy+6,4,10,(Col){200,214,200}); x+=sw+10; }
+    g_texa_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texa); x+=26; g_texb_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texb); x+=26;
+    text(R,"A/B",x,oy+6,1,C_DIM,C_DOCK); x+=textw(R,"A/B",1)+8;
+    g_texgen_r=(SDL_Rect){x,oy,76,22}; rrect(R,x,oy,76,22,4,hit(mx,my,x,oy,76,22)?C_BTNHI:C_ACC); text(R,"Generate",x+9,oy+5,1,C_HDR,C_ACC); x+=82;
+    g_texseed_r=(SDL_Rect){x,oy,60,22}; rrect(R,x,oy,60,22,4,hit(mx,my,x,oy,60,22)?C_BTNHI:C_BTN); icon(R,IC_UNDO,x+7,oy+4,13,C_TXT); text(R,"Seed",x+23,oy+5,1,C_TXT,C_BTN); }
+static void texgen_drag(int mx){ if(g_texdrag<0)return; SDL_Rect*r=&g_texsl[g_texdrag]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *TEXSLV[g_texdrag]=TEXSLLO[g_texdrag]+t*(TEXSLHI[g_texdrag]-TEXSLLO[g_texdrag]); }
+static int texgen_click(int mx,int my){
+    for(int i=0;i<10;i++)if(hit(mx,my,g_texkb[i].x,g_texkb[i].y,g_texkb[i].w,g_texkb[i].h)){ g_texkind=i; tex_generate(); return 1; }
+    for(int i=0;i<4;i++)if(hit(mx,my,g_texsl[i].x,g_texsl[i].y-2,g_texsl[i].w,g_texsl[i].h+4)){ g_texdrag=i; texgen_drag(mx); return 1; }
+    if(hit(mx,my,g_texa_r.x,g_texa_r.y,22,22)){ g_texa=g_pcol; return 1; }
+    if(hit(mx,my,g_texb_r.x,g_texb_r.y,22,22)){ g_texb=g_pcol; return 1; }
+    if(hit(mx,my,g_texgen_r.x,g_texgen_r.y,76,22)){ tex_generate(); return 1; }
+    if(hit(mx,my,g_texseed_r.x,g_texseed_r.y,60,22)){ g_texseed=thash((int)g_texseed,7,99); tex_generate(); return 1; }
+    return 0; }
+
 static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
     struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
@@ -666,8 +721,9 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
     tx+=10; int sizes[5]={8,16,32,64,128};
     for(int i=0;i<5;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+14, act=g_csize==sizes[i];
         rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+7,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+4; }
+    draw_texgen(R,10,cy+27);
     /* HSV colour picker */
-    int px0=12, py0=cy+30, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
+    int px0=12, py0=cy+58, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_hsv_r=(SDL_Rect){px0,py0,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_hsv_r); rect_outline(R,px0,py0,sq,sq,C_LINE,1);
     int cxp=px0+(int)(g_sat*sq), cyp=py0+(int)((1-g_val)*sq); ring(R,cxp,cyp,5,(Col){0,0,0},1); ring(R,cxp,cyp,4,(Col){255,255,255},2);
     g_hue_r=(SDL_Rect){px0+sq+8,py0,18,sq};
@@ -679,7 +735,7 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
     text(R,"PALETTE",px0,swy+32,1,C_DIM,C_DOCK);
     for(int i=0;i<G_NPAL;i++)px_swatch(R,px0+(i%11)*15,swy+44+(i/11)*15,13,pal565(i));
     /* canvas (zoom + pan, clipped to its viewport) */
-    int cax=px0+sq+18+26, cay=cy+30, vw=WIN_W-cax-150, vh=WIN_H-cay-12;
+    int cax=px0+sq+18+26, cay=cy+58, vw=WIN_W-cax-150, vh=WIN_H-cay-12;
     int fit; { int fh=vh/g_csize, fwd=vw/g_csize; fit=fh<fwd?fh:fwd; if(fit<1)fit=1; }
     int cell=g_pzoom?g_pzoom:fit; if(cell<1)cell=1; int cw=cell*g_csize;
     if(cw<=vw)g_panx=0; else g_panx=clampi(g_panx,vw-cw,0);
@@ -1061,6 +1117,7 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)ret
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
 static void pixel_down(int mx,int my){
+    if(texgen_click(mx,my))return;   /* procedural texture controls */
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
         if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==7)g_grid=!g_grid;
         else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
@@ -1071,18 +1128,19 @@ static void pixel_down(int mx,int my){
     for(int i=0;i<5;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
     if(hit(mx,my,g_hsv_r.x,g_hsv_r.y,g_hsv_r.w,g_hsv_r.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(hit(mx,my,g_hue_r.x,g_hue_r.y,g_hue_r.w,g_hue_r.h)){ g_huedrag=1; g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
-    int cy=BOT_Y+30, px0=12, py0=cy+30, sq=126, yy=py0+sq+8, swy=yy+36;
+    int cy=BOT_Y+30, px0=12, py0=cy+58, sq=126, yy=py0+sq+8, swy=yy+36;
     for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,px0+i*15,swy+12,13,13)){ px_setcol(g_recent[i]); return; }
     for(int i=0;i<G_NPAL;i++)if(hit(mx,my,px0+(i%11)*15,swy+44+(i/11)*15,13,13)){ px_setcol(pal565(i)); return; }
     if(g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy;
         if(g_ptool<=3){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1)px_recent(g_pcol); } } }
 static void pixel_drag(int mx,int my){
+    if(g_texdrag>=0){ texgen_drag(mx); return; }
     if(g_hsvdrag){ g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_huedrag){ g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_dx0<0||g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; } }
-static void pixel_up(int mx,int my){ g_hsvdrag=g_huedrag=0;
+static void pixel_up(int mx,int my){ g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
     if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_csize-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_csize-1);
         if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
     if(g_dx0>=0&&(g_ptool==0||g_ptool==1))px_recent(g_pcol);
@@ -1274,6 +1332,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
+    if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_PIXEL; }
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
