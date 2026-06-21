@@ -259,18 +259,21 @@ static void run_job(const char*cmd,const char*label){ Job*j=calloc(1,sizeof*j);
  * while a game is running, on both platforms. */
 static void copy_file(const char*src,const char*dst){ FILE*a=fopen(src,"rb"); if(!a)return; FILE*b=fopen(dst,"wb"); if(!b){ fclose(a); return; }
     char buf[1<<15]; size_t n; while((n=fread(buf,1,sizeof buf,a))>0){ if(fwrite(buf,1,n,b)!=n)break; } fclose(a); fclose(b); }
-static int g_runver; static char g_runprev[320];
+static int g_runver; static char g_runprev[320]; static volatile int g_builddone, g_loading;
+static void load_async(int idx);   /* fwd: build on a worker thread, swap engine on the main thread */
+/* swap the running engine to a freshly-built module (main thread only) */
+static void finish_load(int idx){ stop_engine();                 /* unload (and release) the previous copy */
+    if(g_runprev[0])remove(g_runprev);                           /* delete the now-unloaded stale copy */
+    char built[320]; snprintf(built,sizeof built,"%.200s/build/%.60s.%s",g_games[idx].dir,g_games[idx].name,mc_host_ext());
+    snprintf(g_so,sizeof g_so,"%.180s/build/.run%d.%s",g_games[idx].dir,++g_runver,mc_host_ext());
+    copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
+    g_watch=src_mtime(g_games[idx].dir); start_engine(); }
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel=idx;
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
         int rc=mc_build(g_games[idx].dir,0,log_add);
         if(rc){ snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[idx].name); return; }   /* keep the running build on failure */
         snprintf(g_status,sizeof g_status,"running %s",g_games[idx].name); }
-    stop_engine();                                   /* unload (and release) the previous copy */
-    if(g_runprev[0])remove(g_runprev);               /* delete the now-unloaded stale copy */
-    char built[320]; snprintf(built,sizeof built,"%.200s/build/%.60s.%s",g_games[idx].dir,g_games[idx].name,mc_host_ext());
-    snprintf(g_so,sizeof g_so,"%.180s/build/.run%d.%s",g_games[idx].dir,++g_runver,mc_host_ext());
-    copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
-    g_watch=src_mtime(g_games[idx].dir); start_engine(); }
+    finish_load(idx); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
 #define CMAX 128
@@ -412,7 +415,7 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
         snprintf(c,sizeof c,"xdg-open %.250s",dir);
 #endif
         run_job(c,"reveal"); break;
-    case A_RELOAD: if(g_sel>=0)load_game(g_sel,1); break;
+    case A_RELOAD: if(g_sel>=0)load_async(g_sel); break;
     case A_STOP: stop_engine(); snprintf(g_status,sizeof g_status,"stopped"); break;
     case A_BUILD: njob(0,dir); break;
     case A_BUILDDEV: njob(1,dir); break;
@@ -1043,8 +1046,11 @@ static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H
 static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
-    for(int i=0;i<g_ngame;i++){ int y=by+40+i*22; if(y>by+bh-20)break; if(i==g_sel)plain(R,bx+6,y,bw-12,20,C_SEL);
-        text(R,g_games[i].name,bx+18,y+5,1,i==g_sel?C_TXT:C_DIM,i==g_sel?C_SEL:C_PANEL); }
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    for(int i=0;i<g_ngame;i++){ int y=by+40+i*22; if(y>by+bh-26)break; int hov=hit(mx,my,bx+6,y,bw-12,20);
+        if(hov)plain(R,bx+6,y,bw-12,20,C_SEL); else if(i==g_sel)plain(R,bx+6,y,bw-12,20,(Col){36,40,54});
+        icon(R,IC_FOLDER,bx+14,y+3,14,hov?(Col){230,210,140}:(Col){150,150,170});
+        text(R,g_games[i].name,bx+36,y+5,1,(hov||i==g_sel)?C_TXT:(Col){175,182,200},hov?C_SEL:C_PANEL); }
     text(R,"click a project   (Esc to close)",bx+14,by+bh-20,1,C_DIM,C_PANEL); }
 static void draw_modal(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=420,bh=190,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
@@ -1107,7 +1113,12 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
         g_sps=2*half; g_spx=cx-half; g_spy=cy-half; }
     g_lastmx=mx; g_lastmy=my; }
 
-static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); g_picker=0; }
+static int build_worker(void*a){ int i=(int)(intptr_t)a; int rc=mc_build(g_games[i].dir,0,log_add); g_builddone= rc==0?(i+1):-(i+1); return 0; }
+/* build off the UI thread (keeps the Studio responsive); the main loop swaps the
+ * engine in finish_load() once the build signals via g_builddone. */
+static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel=idx; build_tree(g_games[idx].dir); g_treewatch=tree_mtime(g_games[idx].dir);
+    g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
+static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; }
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
@@ -1139,7 +1150,7 @@ int main(int argc,char**argv){
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
-    if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ open_project(i); if(shot)SDL_Delay(700); break; } } else g_picker=1;
+    if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
@@ -1235,7 +1246,10 @@ int main(int argc,char**argv){
             }
         }
         if(g_quitreq)running=0;
-        if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); }
+        if(g_builddone){ int v=g_builddone; g_builddone=0; g_loading=0;   /* async build finished -> swap engine on the main thread */
+            if(v>0){ int i=v-1; finish_load(i); snprintf(g_status,sizeof g_status,"running %s",g_games[i].name); }
+            else { snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[(-v)-1].name); } }
+        if(++watch>=30&&g_sel>=0&&!g_loading){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_async(g_sel); }
             time_t tm=tree_mtime(g_games[g_sel].dir); if(tm!=g_treewatch){ g_treewatch=tm; build_tree(g_games[g_sel].dir); } }
 
         { int cmx,cmy; SDL_GetMouseState(&cmx,&cmy); SDL_Cursor*want=g_cur_arrow;   /* resize cursor over separators */
