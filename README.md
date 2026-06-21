@@ -810,26 +810,28 @@ via `mote->alloc()`. A lean game keeps the slack.
 
 ### Why 280 KB and not the chip's full 520 KB?
 
-The RP2350 has 520 KB of SRAM, but the game arena is only one tenant. The arena
-(`MOTE_ARENA_SIZE` in `os/mote_os.c`) is a fixed 280 KB block carved out at link
-time; the **other ~240 KB is the resident OS + engine's own working memory**, which
-has to coexist with your game (the engine never unloads — that's the whole point):
+The RP2350's 520 KB SRAM is **one 512 KB contiguous bank + two 4 KB scratch banks**
+(measured from the firmware's linker map: `RAM 0x20000000 len 0x80000`, plus
+`SCRATCH_X`/`SCRATCH_Y` 4 KB each). The arena and the resident OS+engine share that
+512 KB bank — the engine never unloads, so it has to coexist with your game.
 
-- **Framebuffers (~64 KB).** A 128×128 RGB565 frame is 32 KB. The display is
-  double-buffered so the engine can render the next frame while the previous one is
-  still streaming to the LCD over async SPI DMA — two buffers, ~64 KB.
-- **Both core stacks.** The RP2350 is dual-core and the engine rasterises on *both*
-  cores; each needs its own stack (the Pico SDK also reserves the SCRATCH banks).
-- **Engine + OS globals & code working set** — the pipeline's per-vertex scratch, the
-  launcher/menu, the audio mixer, the **USB-CDC** buffers (`mote push`/`logs`), plus
-  the C runtime/BSS.
-- **Headroom.** The 280 KB is set as a deliberate, round budget with margin to spare,
-  not "whatever's left after everything else." That guarantee matters: if your
-  `MoteConfig` + `alloc()`s fit in 280 KB, your game is *certain* to load and run
-  alongside the framebuffers, stacks, USB and audio — no per-game tuning of the system.
+Measured against the real RP2350 firmware (`arm-none-eabi-size` on the device build),
+the budget breaks down like this:
 
-The 32 KB depth buffer (when `depth = 1`) is allocated **from** this 280 KB arena, so
-it counts against your budget — that's why it shows in the arena meter.
+| Region | Size | Notes |
+|--------|------|-------|
+| **Game arena** | **280 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
+| Framebuffer | 32 KB | 128×128 RGB565. A second 32 KB buffer is used when the async-overlap present is on (render frame N+1 while N streams to the LCD over SPI DMA). |
+| Pipeline vertex scratch | ~7 KB | `s_view`/`s_sx`/`s_sy`/`s_sd`/`s_front` (320-vertex working set). |
+| Core0 + Core1 stacks | 8 KB | both cores rasterise; `PICO_STACK_SIZE` + `PICO_CORE1_STACK_SIZE`, 4 KB each. |
+| SDK malloc heap | 16 KB | `PICO_HEAP_SIZE` (engine/SDK use, separate from the game arena). |
+| Vector table + SDK/libc/clocks BSS + code statics | ~9 KB | `ram_vector_table`, audio mixer, USB-CDC, launcher/menu, C runtime. |
+
+That's **280 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
+of headroom.** So 280 KB isn't "whatever's left" — it's a deliberate, round budget set
+*below* the true ceiling. That margin is the guarantee: if your `MoteConfig` + `alloc()`s
+fit in 280 KB, the game is *certain* to load and run alongside the framebuffers, both
+stacks, the SDK heap, USB and audio — with no per-game tuning of the system.
 
 ![The 280 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
@@ -1008,6 +1010,16 @@ RP2350 mass-storage drive.
 | Studio SFX couldn't play on-device (`audio_note` only) | **ABI v12** `audio_play(snd, gain)` + a `.wav`→`MoteSound` baker; SFX-editor Save bakes a playable header |
 | Camera-relative positions + `scene_set_splats` inconsistency | **ABI v13** `scene_camera(basis, cam_pos, fov)` — add objects with ABSOLUTE world positions; pass the same `cam_pos` to splats (legacy `scene_begin` still works) |
 | `game.toml`'s `abi` field was inert | removed from the scaffold; the real check is the C `MOTE_ABI_VERSION` symbol |
+| `MoteImage` "no transparency" was an implicit unlikely-key convention | explicit `opaque` flag (appended to `MoteImage`; old `{px,w,h,key}` headers default to keyed); both bakers set it, the blit skips the key compare when opaque |
+| Studio budget meter parsed `MoteConfig` out of source text (broke on unusual formatting) | reads the **exact** `config` from the running module's vtable; falls back to source-parse only when no game is loaded |
+
+#### Fixed — Studio authoring (no engine/ABI change)
+
+| Was painful | Now |
+|---|---|
+| Pixel-art Save wrote nothing useful with no project open, and always overwrote `sprite.png` | Save requires an open project + a **save-as name field** → `assets/<name>.png` (then auto-bakes) |
+| Procedural textures didn't tessellate, or only at certain scales | seamless **tileable** generators (periodic noise + integer-frequency patterns) + a **3×3 tiled preview**; a **Tile ON/off** toggle restores free continuous-scale mode |
+| The SFX waveform was a fixed full-width block | **Audacity-style** waveform: wheel-zoom, drag-pan scrollbar, Fit, time ruler, amplitude grid, per-sample at high zoom, live cursor time |
 
 #### Open — still design decisions (not clean fixes)
 
@@ -1016,12 +1028,6 @@ RP2350 mass-storage drive.
   signature (a core id? a `const` scene handle?) — an ABI change touching every game.
 - **Sleeping bodies hang in mid-air** if their support vanishes with no net motion — a
   physics-solver behaviour (needs support-tracking), not a helper.
-- **Studio parses `config` out of source text** for the budget meter. The robust fix is
-  to read `MoteGameVtbl.config` from the loaded module instead — a Studio change worth
-  doing, but it means loading the `.so` just for the meter.
-- **`MoteImage.key` has no explicit "opaque" flag** — "no transparency" is an
-  unlikely-key convention. A flag is clearer but changes the image format + every baked
-  header, so it needs a migration, not a drop-in.
 
 ---
 
