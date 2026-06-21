@@ -31,15 +31,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb_image.h"
 
-#define WIN_W   1280
-#define WIN_H   820
+/* layout is RUNTIME — window resizable, separators draggable */
+static int WIN_W=1380, WIN_H=920;
+static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=320;
 #define MENU_H  26
 #define TOOL_H  44
 #define TOPH    (MENU_H + TOOL_H)
-#define LEFT_W  234
-#define RIGHT_W 302
-#define BOTTOM_H 300
-#define ROW_H   20
+#define ROW_H   22
 #define BOT_Y   (WIN_H - BOTTOM_H)
 #define CENTER_X LEFT_W
 #define CENTER_W (WIN_W - LEFT_W - RIGHT_W)
@@ -124,6 +122,8 @@ static int textw(SDL_Renderer*R,const char*s,int sc){ UFont*uf=&g_uf[sc>=2?1:0];
     float fx=0,fy=0; stbtt_aligned_quad q; for(const unsigned char*p=(const unsigned char*)s;*p;p++){ if(*p<32||*p>126)continue;
         stbtt_GetBakedQuad(uf->ch,512,256,*p-32,&fx,&fy,&q,1);} return (int)fx; }
 static int hit(int mx,int my,int x,int y,int w,int h){ return mx>=x&&mx<x+w&&my>=y&&my<y+h; }
+static int clampi(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
+static int g_split;   /* 0 none, 1 left sep, 2 right sep, 3 bottom sep */
 
 /* ================= project + engine ================= */
 typedef struct { char dir[256], name[64]; } Game;
@@ -195,7 +195,7 @@ static void canvas_save(void){ const char*dir=g_sel>=0?g_games[g_sel].dir:"/tmp"
         else{ r=((c>>11)&31)<<3; g=((c>>5)&63)<<2; bl=(c&31)<<3; } fputc(r,f);fputc(g,f);fputc(bl,f); } fclose(f);
     char cmd[900]; snprintf(cmd,sizeof cmd,"mkdir -p %.240s/assets && convert /tmp/mote_sprite.ppm %.240s/assets/sprite.png && ./tools/mote bake %.240s",dir,dir,dir);
     run_job(cmd,"save sprite"); }
-static void load_png(const char*path){ char cmd[500]; snprintf(cmd,sizeof cmd,"convert %.300s /tmp/mote_load.ppm 2>/dev/null",path); system(cmd);
+static void load_png(const char*path){ char cmd[500]; snprintf(cmd,sizeof cmd,"convert %.300s /tmp/mote_load.ppm 2>/dev/null",path); if(system(cmd)){}
     FILE*f=fopen("/tmp/mote_load.ppm","rb"); if(!f)return; char m[3]={0}; int w=0,h=0,mx=0;
     if(fscanf(f,"%2s %d %d %d",m,&w,&h,&mx)!=4||w<1||h<1||w>64||h>64){ fclose(f); return; } fgetc(f);
     g_csize=w>h?w:h; canvas_new(); for(int y=0;y<h;y++)for(int x=0;x<w;x++){ int r=fgetc(f),g=fgetc(f),b=fgetc(f);
@@ -213,7 +213,7 @@ static int kind_of(const char*n){ size_t l=strlen(n);
 static void tadd(const char*name,const char*path,int depth,int kind){ if(g_ntree>=300)return;
     TRow*r=&g_tree[g_ntree++]; snprintf(r->name,80,"%s",name); snprintf(r->path,320,"%s",path); r->depth=depth; r->kind=kind; }
 static void scan_into(const char*dir,int depth){ DIR*d=opendir(dir); if(!d)return; struct dirent*e; char nm[128][80]; int nn=0;
-    while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.')continue; snprintf(nm[nn++],80,"%s",e->d_name); } closedir(d);
+    while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.')continue; snprintf(nm[nn++],80,"%.78s",e->d_name); } closedir(d);
     for(int i=0;i<nn;i++)for(int j=i+1;j<nn;j++)if(strcmp(nm[j],nm[i])<0){ char t[80]; memcpy(t,nm[i],80); memcpy(nm[i],nm[j],80); memcpy(nm[j],t,80); }
     for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]); tadd(nm[i],p,depth,kind_of(nm[i])); } }
 static void build_tree(const char*dir){ g_ntree=0; g_tsel=-1; char p[320];
@@ -244,7 +244,7 @@ static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_a
 static SDL_Rect g_mk_create,g_mk_cancel;
 static void open_new_game(void){ g_modal=1; g_newname[0]=0; SDL_StartTextInput(); }
 static void create_game(void){ if(!g_newname[0])return; char cmd[400]; snprintf(cmd,sizeof cmd,"./tools/mote new examples/%.40s >/dev/null 2>&1",g_newname);
-    system(cmd); scan_games(); for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g_newname)){ load_game(i,1); build_tree(g_games[i].dir); break; }
+    if(system(cmd)){} scan_games(); for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g_newname)){ load_game(i,1); build_tree(g_games[i].dir); break; }
     g_modal=0; SDL_StopTextInput(); }
 
 static int g_quitreq;
@@ -262,7 +262,11 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_PUSHLAUNCH: snprintf(c,sizeof c,"./tools/mote push %.250s --launch",dir); run_job(c,"push launch"); g_tab=TAB_CONSOLE; break;
     case A_BAKEALL: snprintf(c,sizeof c,"./tools/mote bake %.250s",dir); run_job(c,"bake"); g_tab=TAB_CONSOLE; break;
     case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_ASSETS; break;
-    case A_VSCODE: snprintf(c,sizeof c,"code %.250s >/dev/null 2>&1 &",dir); run_job(c,"VS Code"); break;
+    case A_VSCODE:
+        if(g_tsel>=0 && g_tree[g_tsel].kind!=0)   /* a file selected -> open it, reuse the window */
+            snprintf(c,sizeof c,"code -r %.250s; code -r -g %.300s >/dev/null 2>&1 &",dir,g_tree[g_tsel].path);
+        else snprintf(c,sizeof c,"code -r %.250s >/dev/null 2>&1 &",dir);
+        run_job(c,"VS Code"); break;
     case A_ALIGN: g_align=1; break;
     case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio - native C/SDL2 IDE for Thumby Color"); break;
     } }
@@ -286,7 +290,7 @@ static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL)
     struct { const char*l; int a; } btns[]={ {"RUN",A_RELOAD},{"STOP",A_STOP},{"BUILD",A_BUILD},{"PUSH",A_PUSH},{"VS CODE",A_VSCODE} };
     for(int i=0;i<5;i++){ int w=textw(R,btns[i].l,2)+20; rrect(R,x,y,w,28,6,C_BTN); rrect(R,x,y,w,2,6,C_BTNHI);
         text(R,btns[i].l,x+10,y+7,2,C_TXT,C_BTN); g_tb[g_ntb++]=(Tbtn){x,y,w,28,btns[i].l,btns[i].a}; x+=w+8; }
-    char st[120]; snprintf(st,sizeof st,"%s",g_status); int sw=textw(R,st,1); text(R,st,WIN_W-sw-14,y+9,1,C_DIM,C_PANEL); }
+    char st[200]; snprintf(st,sizeof st,"%.180s",g_status); int sw=textw(R,st,1); text(R,st,WIN_W-sw-14,y+9,1,C_DIM,C_PANEL); }
 
 static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK); plain(R,LEFT_W-1,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,0,TOPH,LEFT_W,20,C_HDR); text(R,"PROJECT",8,TOPH+6,1,C_DIM,C_HDR);
@@ -310,8 +314,8 @@ static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ C
  * We overlay the live screen on the LCD rect and glow the buttons when pressed.
  * Rects/points are normalized to the device image (tuned against the photo). */
 static SDL_Texture *g_dev; static int g_devw=718, g_devh=417;
-/* screen is a SQUARE, located in device-image pixels — set with the calibration rig */
-static float g_spx=216, g_spy=62, g_sps=250;
+/* screen is a SQUARE in device-image pixels — calibrated via `mote studio calibrate` */
+static float g_spx=252.8f, g_spy=79.9f, g_sps=222.2f;
 static void load_device(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/thumby_color.png",&w,&h,&n,4);
     if(!d)return; g_dev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
     SDL_UpdateTexture(g_dev,NULL,d,w*4); SDL_SetTextureBlendMode(g_dev,SDL_BLENDMODE_BLEND); g_devw=w; g_devh=h; stbi_image_free(d); }
@@ -392,7 +396,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
             text(R,s,12,cy+(i-start)*13,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx); return; }
     if(g_tab==TAB_ASSETS){ text(R,"ASSETS",12,cy,1,C_DIM,C_DOCK); int ax=12,ay=cy+18,n=0;
         for(int i=0;i<g_ntree;i++)if(g_tree[i].kind==3||g_tree[i].kind==4){ char l[100]; struct stat st; long sz=stat(g_tree[i].path,&st)==0?st.st_size:0;
-            snprintf(l,sizeof l,"%s  (%ld b)",g_tree[i].name,sz); rrect(R,ax,ay,200,26,5,C_PANEL); text(R,l,ax+8,ay+6,1,C_TXT,C_PANEL);
+            snprintf(l,sizeof l,"%.78s  (%ld b)",g_tree[i].name,sz); rrect(R,ax,ay,200,26,5,C_PANEL); text(R,l,ax+8,ay+6,1,C_TXT,C_PANEL);
             ax+=210; if(ax>WIN_W-220){ ax=12; ay+=32; } n++; }
         if(!n)text(R,"no baked assets yet - paint one in Pixel Art, or Import",12,cy+18,1,C_DIM,C_DOCK); return; }
     if(g_tab==TAB_MESH){ text(R,"MESH PREVIEW - select a .stl/.obj in the tree (coming soon)",12,cy,1,C_DIM,C_DOCK); return; }
@@ -500,7 +504,8 @@ int main(int argc,char**argv){
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
-    else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,0);
+    else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
+        SDL_SetWindowMinimumSize(win,1000,680);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
     ui_font_init(ren); load_device(ren); load_scr_cfg();
@@ -517,6 +522,9 @@ int main(int argc,char**argv){
     int running=1,watch=0;
     do { SDL_Event e;
         while(SDL_PollEvent(&e)){ if(e.type==SDL_QUIT){running=0;continue;}
+            if(e.type==SDL_WINDOWEVENT&&e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED){ WIN_W=e.window.data1; WIN_H=e.window.data2; continue; }
+            if(e.type==SDL_CONTROLLERDEVICEADDED){ if(!pad){ pad=SDL_GameControllerOpen(e.cdevice.which); printf("studio: gamepad connected: %s\n",SDL_GameControllerName(pad)); } continue; }
+            if(e.type==SDL_CONTROLLERDEVICEREMOVED){ if(pad){ SDL_GameControllerClose(pad); pad=NULL; } continue; }
             if(g_modal){ if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;
                     if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'){ int l=(int)strlen(g_newname); if(l<40){ g_newname[l]=(c>='A'&&c<='Z')?c+32:c; g_newname[l+1]=0; } } } }
                 else if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_newname); if(l)g_newname[l-1]=0; }
@@ -535,6 +543,9 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEMOTION&&(e.motion.state&SDL_BUTTON_LMASK))align_drag(e.motion.x,e.motion.y);
                 continue; }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
+                if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
+                if(my>=TOPH&&my<BOT_Y&&abs(mx-INSP_X)<=4){ g_split=2; continue; }
+                if(my>=BOT_Y-4&&my<=BOT_Y+1){ g_split=3; continue; }
                 if(my<MENU_H){ int hitm=-1; for(int i=0;i<NMENU;i++)if(mx>=MENUS[i].mx&&mx<MENUS[i].mx+MENUS[i].mw)hitm=i; g_menu_open=(g_menu_open==hitm)?-1:hitm; continue; }
                 if(g_menu_open>=0){ Menu*m=&MENUS[g_menu_open]; int x=m->mx,y=MENU_H,w=150;
                     if(mx>=x&&mx<x+w&&my>=y&&my<y+m->n*22+6){ int i=(my-y-4)/22; if(i>=0&&i<m->n)dispatch(m->it[i].a); }
@@ -545,7 +556,13 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_insp_bake.x,g_insp_bake.y,g_insp_bake.w,g_insp_bake.h))dispatch(A_BAKEALL); continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
                     else if(g_tab==TAB_PIXEL)pixel_click(mx,my,0); continue; } }
-            else if(e.type==SDL_MOUSEMOTION&&(e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_click(e.motion.x,e.motion.y,1);
+            else if(e.type==SDL_MOUSEBUTTONUP) g_split=0;
+            else if(e.type==SDL_MOUSEMOTION){
+                if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
+                else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
+                else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_click(e.motion.x,e.motion.y,1);
+            }
         }
         if(g_quitreq)running=0;
         if(++watch>=30&&g_sel>=0){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_game(g_sel,1); } }
