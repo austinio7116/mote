@@ -656,30 +656,34 @@ static void px_swatch(SDL_Renderer*R,int x,int y,int s,uint16_t c){
     if(c==KEY565){ plain(R,x,y,s,s,(Col){50,52,62}); plain(R,x,y,s/2,s/2,(Col){34,36,44}); plain(R,x+s/2,y+s/2,s/2,s/2,(Col){34,36,44}); }
     else plain(R,x,y,s,s,c565(c)); if(c==g_pcol)rect_outline(R,x-1,y-1,s+2,s+2,C_ACC,1); }
 /* ===== procedural texture generator (Pixel-Art tab) ===== */
-static int g_texkind, g_texdrag=-1; static unsigned g_texseed=1;
+static int g_texkind, g_texdrag=-1; static unsigned g_texseed=1; static SDL_Texture *g_texprev;
 static float g_texscale=6, g_texdetail=4, g_texcontrast=0.4f, g_texwarp=0.35f;
 static uint16_t g_texa=0x2945, g_texb=0xC618;   /* low / high colour (value 0->1 maps A->B) */
 static const char *TEX_L[10]={ "Noise","Wood","Marble","Brick","Check","Grad","Cloud","Stone","Stars","Plasma" };
 static SDL_Rect g_texkb[10], g_texsl[4], g_texa_r, g_texb_r, g_texgen_r, g_texseed_r;
 static float *TEXSLV[4]={ &g_texscale,&g_texdetail,&g_texcontrast,&g_texwarp }; static const float TEXSLLO[4]={1,1,0,0}, TEXSLHI[4]={32,6,1,1};
 static unsigned thash(int x,int y,unsigned s){ unsigned h=(unsigned)x*374761393u+(unsigned)y*668265263u+s*2246822519u; h=(h^(h>>13))*1274126177u; return h^(h>>16); }
-static float vnz(float x,float y,unsigned s){ int xi=(int)floorf(x),yi=(int)floorf(y); float xf=x-xi,yf=y-yi;
-    float a=(thash(xi,yi,s)&0xffff)/65535.0f,b=(thash(xi+1,yi,s)&0xffff)/65535.0f,c=(thash(xi,yi+1,s)&0xffff)/65535.0f,d=(thash(xi+1,yi+1,s)&0xffff)/65535.0f;
+/* tileable value noise: the lattice WRAPS at period P, so the left/right + top/
+ * bottom edges match exactly -> the texture tessellates seamlessly. */
+static float tnz(float x,float y,int P,unsigned s){ if(P<1)P=1; int xi=(int)floorf(x),yi=(int)floorf(y); float xf=x-xi,yf=y-yi;
+    int X0=((xi%P)+P)%P,X1=(((xi+1)%P)+P)%P,Y0=((yi%P)+P)%P,Y1=(((yi+1)%P)+P)%P;
+    float a=(thash(X0,Y0,s)&0xffff)/65535.0f,b=(thash(X1,Y0,s)&0xffff)/65535.0f,c=(thash(X0,Y1,s)&0xffff)/65535.0f,d=(thash(X1,Y1,s)&0xffff)/65535.0f;
     float u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; }
-static float fbm(float x,float y,int oct,unsigned s){ float val=0,amp=0.5f,f=1,tot=0; for(int i=0;i<oct;i++){ val+=amp*vnz(x*f,y*f,s+i*101u); tot+=amp; f*=2; amp*=0.5f; } return tot>0?val/tot:0; }
-static float texval(int k,float nx,float ny){ float sc=g_texscale<1?1:g_texscale; int oct=(int)g_texdetail; if(oct<1)oct=1; unsigned s=g_texseed; float x=nx*sc,y=ny*sc;
+static float tfbm(float nx,float ny,int P,int oct,unsigned s){ float val=0,amp=0.5f,tot=0; int f=1;   /* each octave wraps at P*2^i */
+    for(int i=0;i<oct;i++){ val+=amp*tnz(nx*P*f,ny*P*f,P*f,s+i*101u); tot+=amp; f*=2; amp*=0.5f; } return tot>0?val/tot:0; }
+static float texval(int k,float nx,float ny){ int P=(int)(g_texscale+0.5f); if(P<1)P=1; int oct=(int)g_texdetail; if(oct<1)oct=1; unsigned s=g_texseed; float w=g_texwarp; float TAU=6.2831853f;
     switch(k){
-      case 1: { float dx=nx-0.5f,dy=ny-0.5f,r=sqrtf(dx*dx+dy*dy)*sc*2.2f, g=fbm(x,y,oct,s)*g_texwarp*4; return 0.5f+0.5f*sinf((r+g)*6.2831853f); }
-      case 2: { float g=fbm(x,y,oct,s)*g_texwarp*6; return 0.5f+0.5f*sinf((x+y+g)*1.6f); }
-      case 3: { float by=ny*sc*0.5f; int row=(int)by; float off=(row&1)?0.5f:0; float bx=fmodf(nx*sc*0.5f+off+8,1.0f),fy=fmodf(by,1.0f);
-                float m=(bx<0.05f||bx>0.95f||fy<0.07f||fy>0.93f)?0.05f:0.9f; return m+(fbm(x*2,y*2,2,s)-0.5f)*0.18f; }
-      case 4: { int cx=(int)(nx*sc),c2=(int)(ny*sc); return ((cx+c2)&1)?0.85f:0.15f; }
-      case 5: return nx;
-      case 6: { float v=fbm(x*0.6f,y*0.6f,oct,s); return v*0.6f+0.25f; }
-      case 7: return fbm(x,y,oct,s);
-      case 8: { float v=(thash((int)(nx*sc*5),(int)(ny*sc*5),s)&0xffff)/65535.0f; return v>0.97f?1.0f:0.02f+fbm(x,y,2,s)*0.06f; }
-      case 9: return 0.5f+0.22f*sinf(x*1.1f)+0.22f*sinf(y*1.4f)+0.16f*sinf((x+y+fbm(x,y,2,s)*5)*0.9f);
-      default: return fbm(x,y,oct,s);
+      case 1: { float g=tfbm(nx,ny,P,oct,s); return 0.5f+0.5f*sinf(ny*TAU*P + g*w*10); }                        /* wood grain */
+      case 2: { float g=tfbm(nx,ny,P,oct,s); return 0.5f+0.5f*sinf((nx+ny)*TAU*P + g*w*12); }                    /* marble */
+      case 3: { float bw=1.0f/P,bh=bw*0.5f; int row=(int)(ny/bh); float off=(row&1)?bw*0.5f:0; float bx=fmodf(nx+off+1,bw)/bw,by=fmodf(ny,bh)/bh;
+                float m=(bx<0.06f||bx>0.94f||by<0.08f||by>0.92f)?0.05f:0.9f; return m+(tfbm(nx,ny,P,2,s)-0.5f)*0.18f; }  /* brick */
+      case 4: { int cx=(int)(nx*P),c2=(int)(ny*P); return ((cx+c2)&1)?0.85f:0.15f; }                             /* checker */
+      case 5: { float t=nx; return t<0.5f?t*2:(1-t)*2; }                                                         /* gradient (triangle, tiles) */
+      case 6: { float v=tfbm(nx,ny,P,oct,s); return v*0.7f+0.18f; }                                              /* cloud */
+      case 7: return tfbm(nx,ny,P,oct,s);                                                                        /* stone */
+      case 8: { int gx=(int)(nx*P*5),gy=(int)(ny*P*5); float v=(thash(gx,gy,s)&0xffff)/65535.0f; return v>0.97f?1.0f:0.02f+tfbm(nx,ny,P,2,s)*0.06f; } /* stars */
+      case 9: return 0.5f+0.22f*sinf(nx*TAU*P)+0.22f*sinf(ny*TAU*P)+0.16f*sinf((nx+ny)*TAU*P + tfbm(nx,ny,P,2,s)*6); /* plasma */
+      default: return tfbm(nx,ny,P,oct,s);                                                                       /* noise */
     } }
 static void tex_generate(void){ undo_push(); int n=g_csize;
     int ar=((g_texa>>11)&31)<<3,ag=((g_texa>>5)&63)<<2,ab=(g_texa&31)<<3, br=((g_texb>>11)&31)<<3,bg=((g_texb>>5)&63)<<2,bb=(g_texb&31)<<3;
@@ -753,11 +757,17 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
         if((g_ptool==4||g_ptool==5)&&g_dx0>=0) rect_outline(R,cox+(g_dx0<gx?g_dx0:gx)*cell,coy+(g_dy0<gy?g_dy0:gy)*cell,(abs(gx-g_dx0)+1)*cell,(abs(gy-g_dy0)+1)*cell,(Col){255,255,255},1); }
     SDL_RenderSetClipRect(R,NULL);
     if(over){ int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH; icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
-    int prx=cax+vw+18; if(prx<WIN_W-100){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=g_csize<=32?3:(g_csize<=64?2:1);
+    int prx=cax+vw+18; if(prx<WIN_W-120){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=g_csize<=32?2:1;
         plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
         for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
-        char info[40]; snprintf(info,sizeof info,"%dx%d",g_csize,g_csize); text(R,info,prx,cay+18+g_csize*s,1,C_DIM,C_DOCK);
-        text(R,"middle-drag to pan",prx,cay+34+g_csize*s,1,C_DIM,C_DOCK); } }
+        char info[40]; snprintf(info,sizeof info,"%dx%d",g_csize,g_csize); text(R,info,prx+g_csize*s+8,cay+5,1,C_DIM,C_DOCK);
+        /* TILED 3x3 — does the texture tessellate? seams show as a grid. */
+        int typ=cay+22+g_csize*s; text(R,"TILED 3x3",prx,typ,1,(Col){170,200,140},C_DOCK);
+        if(!g_texprev){ g_texprev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,128,128); SDL_SetTextureScaleMode(g_texprev,SDL_ScaleModeNearest); }
+        { SDL_Rect ur={0,0,g_csize,g_csize}; SDL_UpdateTexture(g_texprev,&ur,g_canvas,g_csize*2); }
+        int tile=40; plain(R,prx-1,typ+12,tile*3+2,tile*3+2,(Col){20,22,28});
+        for(int ty=0;ty<3;ty++)for(int tx=0;tx<3;tx++){ SDL_Rect src={0,0,g_csize,g_csize},dst={prx+tx*tile,typ+13+ty*tile,tile,tile}; SDL_RenderCopy(R,g_texprev,&src,&dst); }
+        text(R,"middle-drag to pan",prx,typ+13+tile*3+6,1,C_DIM,C_DOCK); } }
 
 /* ================= mesh preview (software 3D) ================= */
 typedef struct { float x,y,z; } V3;
