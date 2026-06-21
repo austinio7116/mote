@@ -275,6 +275,7 @@ static Menu MENUS[]={
 };
 static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
 static int g_menu_open=-1;
+static SDL_Rect g_wc_min,g_wc_max,g_wc_close; static int g_maximized;   /* custom window controls */
 
 static int g_picker, g_modal; static char g_newname[48];
 static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_al_done;
@@ -325,7 +326,18 @@ static void icon(SDL_Renderer*R,int idx,int x,int y,int sz,Col c){ if(!g_icons)r
 static void draw_menubar(SDL_Renderer*R){ plain(R,0,0,WIN_W,MENU_H,C_HDR); plain(R,0,MENU_H-1,WIN_W,1,C_LINE);
     int x=10; text(R,"MOTE STUDIO",x,7,1,C_TITLE,C_HDR); x+=textw(R,"MOTE STUDIO",1)+22;
     for(int i=0;i<NMENU;i++){ int w=textw(R,MENUS[i].title,1)+20; if(g_menu_open==i)plain(R,x,0,w,MENU_H,C_PANEL);
-        text(R,MENUS[i].title,x+10,7,1,C_TXT,g_menu_open==i?C_PANEL:C_HDR); MENUS[i].mx=x; MENUS[i].mw=w; x+=w; } }
+        text(R,MENUS[i].title,x+10,7,1,C_TXT,g_menu_open==i?C_PANEL:C_HDR); MENUS[i].mx=x; MENUS[i].mw=w; x+=w; }
+    /* client-side window controls (the title bar IS the menu bar) */
+    int cw=34, cx=WIN_W-cw*3, mh=MENU_H, my2=mh/2; int mmx,mmy; SDL_GetMouseState(&mmx,&mmy);
+    g_wc_min=(SDL_Rect){cx,0,cw,mh}; g_wc_max=(SDL_Rect){cx+cw,0,cw,mh}; g_wc_close=(SDL_Rect){cx+cw*2,0,cw,mh};
+    if(hit(mmx,mmy,cx,0,cw,mh))plain(R,cx,0,cw,mh-1,C_PANEL);
+    if(hit(mmx,mmy,cx+cw,0,cw,mh))plain(R,cx+cw,0,cw,mh-1,C_PANEL);
+    if(hit(mmx,mmy,cx+cw*2,0,cw,mh))plain(R,cx+cw*2,0,cw,mh-1,(Col){200,64,64});
+    SDL_SetRenderDrawColor(R,206,212,228,255);
+    SDL_RenderDrawLine(R,cx+12,my2+3,cx+22,my2+3);                                   /* minimise */
+    SDL_Rect mr={cx+cw+12,my2-5,10,9}; SDL_RenderDrawRect(R,&mr);                    /* maximise */
+    SDL_RenderDrawLine(R,cx+cw*2+12,my2-5,cx+cw*2+22,my2+5);                         /* close X */
+    SDL_RenderDrawLine(R,cx+cw*2+22,my2-5,cx+cw*2+12,my2+5); }
 static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=&MENUS[g_menu_open];
     int w=150,h=m->n*22+6,x=m->mx,y=MENU_H; plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC);
     for(int i=0;i<m->n;i++){ int iy=y+4+i*22; text(R,m->it[i].l,x+10,iy+4,1,C_TXT,C_PANEL); } }
@@ -802,13 +814,23 @@ static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); buil
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
 
+/* title-bar drag + window-edge resize for the borderless (theme-coloured) window */
+static SDL_HitTestResult SDLCALL hittest(SDL_Window*w,const SDL_Point*p,void*d){ (void)w;(void)d; int x=p->x,y=p->y; const int E=6;
+    if(!g_maximized){ int L=x<E,Rr=x>WIN_W-E,T=y<E,B=y>WIN_H-E;
+        if(T&&L)return SDL_HITTEST_RESIZE_TOPLEFT; if(T&&Rr)return SDL_HITTEST_RESIZE_TOPRIGHT;
+        if(B&&L)return SDL_HITTEST_RESIZE_BOTTOMLEFT; if(B&&Rr)return SDL_HITTEST_RESIZE_BOTTOMRIGHT;
+        if(L)return SDL_HITTEST_RESIZE_LEFT; if(Rr)return SDL_HITTEST_RESIZE_RIGHT; if(T)return SDL_HITTEST_RESIZE_TOP; if(B)return SDL_HITTEST_RESIZE_BOTTOM; }
+    if(y<MENU_H){ for(int i=0;i<NMENU;i++) if(x>=MENUS[i].mx&&x<MENUS[i].mx+MENUS[i].mw) return SDL_HITTEST_NORMAL;
+        if(x>=g_wc_min.x) return SDL_HITTEST_NORMAL; return SDL_HITTEST_DRAGGABLE; }
+    return SDL_HITTEST_NORMAL; }
+
 int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER); mote_plat_init("Mote Studio"); scan_games(); canvas_new();
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
-    else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
-        SDL_SetWindowMinimumSize(win,1000,680);
+    else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE|SDL_WINDOW_BORDERLESS);
+        SDL_SetWindowMinimumSize(win,1000,680); SDL_SetWindowHitTest(win,hittest,NULL);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
     ui_font_init(ren); load_device(ren); load_icons(ren); load_scr_cfg();
@@ -831,7 +853,7 @@ int main(int argc,char**argv){
     int running=1,watch=0;
     do { SDL_Event e;
         while(SDL_PollEvent(&e)){ if(e.type==SDL_QUIT){running=0;continue;}
-            if(e.type==SDL_WINDOWEVENT&&e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED){ WIN_W=e.window.data1; WIN_H=e.window.data2; continue; }
+            if(e.type==SDL_WINDOWEVENT){ if(e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED){ WIN_W=e.window.data1; WIN_H=e.window.data2; } else if(e.window.event==SDL_WINDOWEVENT_MAXIMIZED)g_maximized=1; else if(e.window.event==SDL_WINDOWEVENT_RESTORED)g_maximized=0; continue; }
             if(e.type==SDL_CONTROLLERDEVICEADDED){ if(!pad){ pad=SDL_GameControllerOpen(e.cdevice.which); printf("studio: gamepad connected: %s\n",SDL_GameControllerName(pad)); } continue; }
             if(e.type==SDL_CONTROLLERDEVICEREMOVED){ if(pad){ SDL_GameControllerClose(pad); pad=NULL; } continue; }
             if(g_modal){ if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;
@@ -855,7 +877,10 @@ int main(int argc,char**argv){
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-INSP_X)<=4){ g_split=2; continue; }
                 if(my>=BOT_Y-4&&my<=BOT_Y+1){ g_split=3; continue; }
-                if(my<MENU_H){ int hitm=-1; for(int i=0;i<NMENU;i++)if(mx>=MENUS[i].mx&&mx<MENUS[i].mx+MENUS[i].mw)hitm=i; g_menu_open=(g_menu_open==hitm)?-1:hitm; continue; }
+                if(my<MENU_H){ if(hit(mx,my,g_wc_close.x,0,g_wc_close.w,MENU_H)){ running=0; continue; }
+                    if(hit(mx,my,g_wc_min.x,0,g_wc_min.w,MENU_H)){ SDL_MinimizeWindow(win); continue; }
+                    if(hit(mx,my,g_wc_max.x,0,g_wc_max.w,MENU_H)){ if(g_maximized)SDL_RestoreWindow(win); else SDL_MaximizeWindow(win); continue; }
+                    int hitm=-1; for(int i=0;i<NMENU;i++)if(mx>=MENUS[i].mx&&mx<MENUS[i].mx+MENUS[i].mw)hitm=i; g_menu_open=(g_menu_open==hitm)?-1:hitm; continue; }
                 if(g_menu_open>=0){ Menu*m=&MENUS[g_menu_open]; int x=m->mx,y=MENU_H,w=150;
                     if(mx>=x&&mx<x+w&&my>=y&&my<y+m->n*22+6){ int i=(my-y-4)/22; if(i>=0&&i<m->n)dispatch(m->it[i].a); }
                     g_menu_open=-1; continue; }
@@ -902,6 +927,7 @@ int main(int argc,char**argv){
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren);
         if(g_align)draw_align(ren);
         if(g_picker)draw_picker(ren); if(g_modal)draw_modal(ren);
+        if(!g_maximized)rect_outline(ren,0,0,WIN_W,WIN_H,C_LINE,1);   /* window edge */
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
     } while(running);
