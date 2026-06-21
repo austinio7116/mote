@@ -186,12 +186,15 @@ def cmd_bake(args):
 
 
 def cmd_studio(args):
-    """Build the Studio + a game, then launch the embedded emulator IDE."""
-    so = cmd_build(args)
+    """Build + launch the Studio IDE (opens to the game library)."""
     studio = os.path.join(ROOT, "build_host", "mote_studio")
-    if not os.path.isfile(studio):
-        run(["cmake", "--build", os.path.join(ROOT, "build_host"), "--target", "mote_studio", "-j8"])
-    os.execv(studio, [studio, so])
+    bh = os.path.join(ROOT, "build_host")
+    if os.path.isdir(bh):
+        run(["cmake", "--build", bh, "--target", "mote_studio", "-j8"])
+    elif not os.path.isfile(studio):
+        sys.exit("mote: build the host first:\n  cmake -B build_host -S . && cmake --build build_host -j8")
+    os.chdir(ROOT)                                   # Studio shells ./tools/mote + scans examples/
+    os.execv(studio, [studio])
 
 
 def cmd_run(args):
@@ -420,8 +423,7 @@ def main():
     p.add_argument("--device", action="store_true", help="also build the .mote")
     p = sub.add_parser("run", help="build + launch the emulator"); p.add_argument("dir")
     p.add_argument("--device", action="store_true")
-    p = sub.add_parser("studio", help="build + open the Studio IDE emulator"); p.add_argument("dir")
-    p.set_defaults(device=False)
+    sub.add_parser("studio", help="build + open the Studio IDE (game library)")
     p = sub.add_parser("push", help="build + push a game to the device"); p.add_argument("dir")
     p.add_argument("--launch", action="store_true", help="launch it after pushing")
     sub.add_parser("ping", help="device handshake")
