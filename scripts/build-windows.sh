@@ -15,6 +15,5 @@ cmake -B build_win -S . -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/mingw-toolchain.cma
 cmake --build build_win --target mote_studio -j8
 mkdir -p dist-windows
 cp build_win/mote_studio.exe dist-windows/
-cp "$SDL2W/bin/SDL2.dll" dist-windows/
 cp scripts/WINDOWS-README.txt dist-windows/ 2>/dev/null || true
-echo "==> dist-windows/mote_studio.exe (+ SDL2.dll)"
+echo "==> dist-windows/mote_studio.exe (single self-contained file)"

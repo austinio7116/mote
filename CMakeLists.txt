@@ -96,18 +96,18 @@ if(MOTE_TARGET STREQUAL "host")
     target_include_directories(mote_studio PRIVATE ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_studio PRIVATE MOTE_HOST=1)
     target_compile_options(mote_studio PRIVATE -O2 -ffast-math -Wno-format-truncation)
-    if(TARGET SDL2::SDL2)
-        target_link_libraries(mote_studio PRIVATE mote_engine SDL2::SDL2 ${CMAKE_DL_LIBS})
+    target_link_libraries(mote_studio PRIVATE mote_engine ${CMAKE_DL_LIBS})
+    if(WIN32)
+        # Fully self-contained single .exe: static SDL2 + static MinGW runtime, no DLLs.
+        # SDL2main must precede SDL2 (circular static refs); winpthread provides
+        # clock_gettime/nanosleep; SDL2::SDL2-static pulls SDL's own Windows deps.
+        target_link_options(mote_studio PRIVATE -static -static-libgcc)
+        target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2-static -Wl,--end-group setupapi winpthread)
+    elseif(TARGET SDL2::SDL2)
+        target_link_libraries(mote_studio PRIVATE SDL2::SDL2)
     else()
         target_include_directories(mote_studio PRIVATE ${SDL2_INCLUDE_DIRS})
-        target_link_libraries(mote_studio PRIVATE mote_engine ${SDL2_LIBRARIES} ${CMAKE_DL_LIBS})
-    endif()
-    if(WIN32)
-        # Static-link the MinGW runtime (libgcc/libwinpthread/...) so the .exe is
-        # self-contained — only SDL2.dll is needed beside it. SDL2main must precede
-        # SDL2 (circular static refs); winpthread provides clock_gettime/nanosleep.
-        target_link_options(mote_studio PRIVATE -static -static-libgcc)
-        target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2 -Wl,--end-group setupapi winpthread)
+        target_link_libraries(mote_studio PRIVATE ${SDL2_LIBRARIES})
     endif()
 
     # Game modules: standalone .so files that link NO engine code — each drives
