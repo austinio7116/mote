@@ -9,7 +9,11 @@
 
 typedef struct { float phase, inc, amp, decay; int on; } Voice;
 
+#define NSAMP 4
+typedef struct { const int16_t *pcm; int n, pos; float gain; int on; } SampV;   /* one-shot PCM */
+
 static Voice s_v[NVOICE];
+static SampV s_s[NSAMP];
 static float s_sin[LUT];
 static float s_vol = 1.0f;
 static int   s_ready;
@@ -17,10 +21,24 @@ static int   s_ready;
 void mote_audio_init(void){
     for(int i=0;i<LUT;i++) s_sin[i] = sinf(6.2831853f * (float)i / LUT);
     for(int i=0;i<NVOICE;i++) s_v[i].on = 0;
+    for(int i=0;i<NSAMP;i++)  s_s[i].on = 0;
     s_ready = 1;
 }
 void mote_audio_set_volume(float v){ if(v<0)v=0; if(v>1)v=1; s_vol = v; }
-void mote_audio_off(void){ for(int i=0;i<NVOICE;i++) s_v[i].on = 0; }
+void mote_audio_off(void){
+    for(int i=0;i<NVOICE;i++) s_v[i].on = 0;
+    for(int i=0;i<NSAMP;i++)  s_s[i].on = 0;
+}
+
+/* one-shot PCM sample — fire and forget; oldest-progress voice is stolen when full */
+void mote_audio_play(const int16_t *pcm, int count, float gain){
+    if(!pcm || count <= 0) return;
+    if(!s_ready) mote_audio_init();
+    int best = -1;
+    for(int i=0;i<NSAMP;i++){ if(!s_s[i].on){ best = i; break; } }
+    if(best < 0){ best = 0; for(int i=1;i<NSAMP;i++){ if(s_s[i].pos > s_s[best].pos) best = i; } }
+    s_s[best].pcm = pcm; s_s[best].n = count; s_s[best].pos = 0; s_s[best].gain = gain; s_s[best].on = 1;
+}
 
 void mote_audio_note(float freq, float amp){
     if(!s_ready) mote_audio_init();
@@ -66,7 +84,11 @@ void mote_audio_render(int16_t *out, int n){
          * linear makes blended notes sound like a chord. */
         float target = 1.45f / (float)(active > 0 ? active : 1);
         s_g += (target - s_g) * (target < s_g ? 0.02f : 0.0008f);   /* fast duck, slow release */
-        float m = mix * s_g * s_vol;
+        float smix = 0.0f;                          /* one-shot PCM samples, summed on top */
+        for(int i=0;i<NSAMP;i++){ SampV *sv=&s_s[i]; if(!sv->on) continue;
+            smix += (float)sv->pcm[sv->pos] * (1.0f/32768.0f) * sv->gain;
+            if(++sv->pos >= sv->n) sv->on = 0; }
+        float m = (mix * s_g + smix) * s_vol;
         /* gentle soft backstop only for the rare in-phase peak */
         float a = m < 0.0f ? -m : m;
         const float k = 0.85f;

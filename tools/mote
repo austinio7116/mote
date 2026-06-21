@@ -210,7 +210,7 @@ def cmd_run(args):
 
 
 # ---------------------------------------------------------------- new
-TEMPLATE_TOML = '[game]\nname = "%s"\nauthor = "you"\nabi = 1\n'
+TEMPLATE_TOML = '[game]\nname = "%s"\nauthor = "you"\n'
 
 TEMPLATE_GAME = '''/*
  * %s — a Mote game module.

@@ -15,6 +15,7 @@
 
 void mote_audio_init(void);
 void mote_audio_note(float freq, float amp);     /* strike a note (auto-allocates a voice) */
+void mote_audio_play(const int16_t *pcm, int count, float gain);  /* one-shot 22050 Hz mono PCM sample */
 void mote_audio_off(void);                        /* silence every voice */
 void mote_audio_set_volume(float v);              /* 0..1 master (engine menu) */
 void mote_audio_render(int16_t *out, int n);      /* mix n mono samples */

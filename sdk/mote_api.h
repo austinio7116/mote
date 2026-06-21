@@ -31,7 +31,11 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 11u  /* v11: styled modal menu (menu) */
+#define MOTE_ABI_VERSION 12u  /* v12: PCM sample playback (audio_play) */
+
+/* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
+ * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
+typedef struct { const int16_t *pcm; int count; } MoteSound;
 
 /* ---------------------------------------------------------------------------
  * MoteConfig — the game declares the resource pools it needs. The OS sizes the
@@ -151,6 +155,12 @@ typedef struct MoteApi {
      * UP/DOWN to move; returns the chosen index (A) or -1 (B / quit). Blocking —
      * call it from update() for pause / game-over / level menus. */
     int (*menu)(const char *title, const char *const *items, int n);
+
+    /* --- ABI v12: PCM sample playback. Fire a one-shot 22050 Hz mono sample
+     * (e.g. a sound effect authored in the Studio's SFX editor and baked to a
+     * header — see `mote bake` / Studio Audio ▸ Save). `gain` 0..1+. Up to 4
+     * samples mix at once (oldest is stolen); they sum on top of the synth. */
+    void (*audio_play)(const MoteSound *snd, float gain);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

@@ -66,6 +66,7 @@ static uint64_t       os_micros(void) { return mote_plat_micros(); }
 static void           os_exit(void)   { s_exit_req = true; }
 static void          *os_alloc(uint32_t n) { return mote_arena_alloc(&s_arena, n); }
 static uint32_t       os_arena_free(void)  { return (uint32_t)mote_arena_free(&s_arena); }
+static void           os_audio_play(const MoteSound *s, float g) { if (s) mote_audio_play(s->pcm, s->count, g); }
 
 static void mote_api_scene_set_splats(const MoteSplat *sp, int n, int *order,
         const Mat3 *cam, Vec3 cam_pos, float fov, const uint16_t *depth);
@@ -113,6 +114,8 @@ void mote_api_fill(MoteApi *a) {
     a->audio_off             = mote_audio_off;
     /* ABI v11: styled modal menu. */
     a->menu                  = os_menu;
+    /* ABI v12: PCM sample playback. */
+    a->audio_play            = os_audio_play;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

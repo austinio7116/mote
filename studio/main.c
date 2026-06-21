@@ -833,12 +833,19 @@ static void audio_init(void){ SDL_AudioSpec want; memset(&want,0,sizeof want); w
 static void audio_play(void){ if(!g_wav||!g_audev){ snprintf(g_status,sizeof g_status,"no audio device"); return; }
     long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; if(a<0)a=0; if(b>g_wavn)b=g_wavn;
     SDL_ClearQueuedAudio(g_audev); SDL_QueueAudio(g_audev,g_wav+a,(Uint32)((b-a)*2)); }
+static void write_wav(const char*path,const int16_t*pcm,int n){ FILE*f=fopen(path,"wb"); if(!f)return;
+    unsigned rate=22050,byterate=rate*2,datalen=(unsigned)n*2,riff=36+datalen; unsigned short pcmfmt=1,ch=1,bits=16,ba=2; unsigned fmtlen=16;
+    fwrite("RIFF",1,4,f); fwrite(&riff,4,1,f); fwrite("WAVE",1,4,f); fwrite("fmt ",1,4,f); fwrite(&fmtlen,4,1,f);
+    fwrite(&pcmfmt,2,1,f); fwrite(&ch,2,1,f); fwrite(&rate,4,1,f); fwrite(&byterate,4,1,f); fwrite(&ba,2,1,f); fwrite(&bits,2,1,f);
+    fwrite("data",1,4,f); fwrite(&datalen,4,1,f); fwrite(pcm,2,(size_t)n,f); fclose(f); }
 static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
-    char raw[400]; snprintf(raw,sizeof raw,"%s/mote_crop.raw",tmpdir()); crop_raw(raw);
+    if(!g_wav){ snprintf(g_status,sizeof g_status,"nothing to save"); return; }
+    long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a; if(a<0)a=0; if(b>g_wavn)b=g_wavn; int n=(int)(b-a); if(n<=0)return;
     char base[80]; snprintf(base,sizeof base,"%.60s",g_au_name[0]?g_au_name:"sfx"); char*d=strrchr(base,'.'); if(d)*d=0;
-    char ad[300]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
-    char cmd[900]; snprintf(cmd,sizeof cmd,"ffmpeg -y -f s16le -ar 22050 -ac 1 -i \"%s\" \"%.180s/assets/%.60s.wav\" 2>%s",raw,g_games[g_sel].dir,base,NULDEV);
-    run_job(cmd,"save wav"); }
+    char ad[320]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,base); write_wav(wp,g_wav+a,n);
+    njob(2,g_games[g_sel].dir);                                      /* bake -> assets header (wav2snd) */
+    snprintf(g_status,sizeof g_status,"saved + baked %s.wav  ->  mote->audio_play(&%s_snd, 1.0f)",base,base); }
 /* ===== SFX generator (sfxr-style procedural synthesis) ===== */
 typedef struct { int wave; float base_freq,freq_limit,freq_ramp,freq_dramp,duty,duty_ramp,
     vib_strength,vib_speed,env_attack,env_sustain,env_punch,env_decay,
