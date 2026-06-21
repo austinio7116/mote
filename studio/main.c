@@ -183,6 +183,8 @@ static void draw_sidebar(SDL_Renderer *R) {
     { int w; clabel(R, "PIXEL ART STUDIO", C_TXT, C_BTN, &w);
       text(R, "PIXEL ART STUDIO", (SIDEBAR_W - w*2)/2, 41, 2, C_TXT, C_BTN); }
     text(R, "LIBRARY", 10, 70, 1, C_DIMTXT, C_SB);
+    round_rect(R, SIDEBAR_W - 60, 64, 52, 18, 5, C_BTN);         /* + new game */
+    { int w; clabel(R, "+ NEW", C_ACCENT, C_BTN, &w); text(R, "+ NEW", SIDEBAR_W - 60 + (52 - w)/2, 67, 1, C_ACCENT, C_BTN); }
     for (int i = 0; i < g_ngame; i++) { int y = 84 + i * ROW_H; if (y > WIN_H - 18) break;
         if (i == g_sel) plain(R, 0, y, SIDEBAR_W, ROW_H - 2, C_SEL);
         text(R, g_games[i].name, 10, y + 5, 2, i == g_sel ? C_TXT : C_DIMTXT, i == g_sel ? C_SEL : C_SB); }
@@ -462,6 +464,40 @@ static void do_action(int a) {
     if (a == A_BAKE)   { snprintf(c, sizeof c, "./tools/mote bake %.250s", dir); run_async(c, "bake"); }
 }
 
+/* ===================== New-Game wizard (modal) ===================== */
+static int g_modal;
+static char g_newname[48];
+static SDL_Rect g_mk_create, g_mk_cancel;
+
+static void create_game(void) {
+    if (!g_newname[0]) return;
+    char cmd[400]; snprintf(cmd, sizeof cmd, "./tools/mote new examples/%.40s >/dev/null 2>&1", g_newname);
+    system(cmd);
+    g_ngame = 0; scan_games();
+    for (int i = 0; i < g_ngame; i++) if (!strcmp(g_games[i].name, g_newname)) { load_game(i, 1); break; }
+    g_modal = 0; SDL_StopTextInput();
+}
+static void draw_modal(SDL_Renderer *R) {
+    SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(R, 0, 0, 0, 168); SDL_Rect full = { 0, 0, WIN_W, WIN_H }; SDL_RenderFillRect(R, &full);
+    int bw = 420, bh = 196, bx = (WIN_W-bw)/2, by = (WIN_H-bh)/2;
+    round_rect(R, bx, by, bw, bh, 12, C_PANEL);
+    round_rect(R, bx, by, bw, 30, 12, C_SB_HDR);
+    text(R, "NEW GAME", bx+14, by+8, 2, C_TITLE, C_SB_HDR);
+    text(R, "NAME  (created under examples/)", bx+18, by+44, 1, C_DIMTXT, C_PANEL);
+    round_rect(R, bx+18, by+58, bw-36, 32, 6, (Col){ 12, 14, 20 });
+    char shown[64]; snprintf(shown, sizeof shown, "%s_", g_newname);
+    text(R, shown, bx+26, by+66, 2, C_TXT, (Col){ 12, 14, 20 });
+    g_mk_cancel = (SDL_Rect){ bx+18, by+bh-44, 104, 32 };
+    g_mk_create = (SDL_Rect){ bx+bw-134, by+bh-44, 116, 32 };
+    round_rect(R, g_mk_cancel.x, g_mk_cancel.y, g_mk_cancel.w, g_mk_cancel.h, 7, C_BTN);
+    round_rect(R, g_mk_create.x, g_mk_create.y, g_mk_create.w, g_mk_create.h, 7, C_BTN_HI);
+    int w; clabel(R, "CANCEL", C_TXT, C_BTN, &w); text(R, "CANCEL", g_mk_cancel.x+(g_mk_cancel.w-w*2)/2, g_mk_cancel.y+8, 2, C_TXT, C_BTN);
+    clabel(R, "CREATE", C_TXT, C_BTN_HI, &w); text(R, "CREATE", g_mk_create.x+(g_mk_create.w-w*2)/2, g_mk_create.y+8, 2, C_TXT, C_BTN_HI);
+    text(R, "Enter = create   Esc = cancel", bx+18, by+bh-56, 1, C_DIMTXT, C_PANEL);
+}
+static void open_new_game(void) { g_modal = 1; g_newname[0] = 0; SDL_StartTextInput(); }
+
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER);
@@ -482,17 +518,32 @@ int main(int argc, char **argv) {
     if (g0) { for (int i = 0; i < g_ngame; i++) if (!strcmp(g_games[i].name, g0)) { load_game(i, 1); break; }
         if (shot) SDL_Delay(700); }
     if (getenv("MOTE_STUDIO_PIXEL")) g_mode = MODE_PIXEL;
+    if (getenv("MOTE_STUDIO_MODAL")) { open_new_game(); snprintf(g_newname, sizeof g_newname, "spacegame"); }
 
     int running = 1, watch_tick = 0;
     do {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_QUIT) running = 0;
-            else if (e.type == SDL_MOUSEBUTTONDOWN) {
+            if (e.type == SDL_QUIT) { running = 0; continue; }
+            if (g_modal) {     /* new-game dialog grabs all input */
+                if (e.type == SDL_TEXTINPUT) { for (char *p = e.text.text; *p; p++) { char c = *p;
+                    if ((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_') {
+                        int l = (int)strlen(g_newname); if (l < 40) { g_newname[l] = (c>='A'&&c<='Z')?c+32:c; g_newname[l+1]=0; } } } }
+                else if (e.type == SDL_KEYDOWN) { SDL_Keycode k = e.key.keysym.sym;
+                    if (k == SDLK_BACKSPACE) { int l=(int)strlen(g_newname); if (l) g_newname[l-1]=0; }
+                    else if (k == SDLK_RETURN) create_game();
+                    else if (k == SDLK_ESCAPE) { g_modal = 0; SDL_StopTextInput(); } }
+                else if (e.type == SDL_MOUSEBUTTONDOWN) { int mx=e.button.x, my=e.button.y;
+                    if (mx>=g_mk_create.x&&mx<g_mk_create.x+g_mk_create.w&&my>=g_mk_create.y&&my<g_mk_create.y+g_mk_create.h) create_game();
+                    else if (mx>=g_mk_cancel.x&&mx<g_mk_cancel.x+g_mk_cancel.w&&my>=g_mk_cancel.y&&my<g_mk_cancel.y+g_mk_cancel.h) { g_modal=0; SDL_StopTextInput(); } }
+                continue;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN) {
                 int mx = e.button.x, my = e.button.y;
                 if (g_mode == MODE_PIXEL) pixel_click(mx, my, 0);
                 else if (mx < SIDEBAR_W) {
                     if (my >= 36 && my < 62) g_mode = MODE_PIXEL;
+                    else if (mx >= SIDEBAR_W-60 && my >= 64 && my < 82) open_new_game();
                     else { int i = (my - 84) / ROW_H; if (i >= 0 && i < g_ngame && i != g_sel) load_game(i, 1); }
                 } else if (mx >= INSP_X) for (int i = 0; i < A_N; i++)
                     if (mx >= g_arect[i].x && mx < g_arect[i].x+g_arect[i].w && my >= g_arect[i].y && my < g_arect[i].y+g_arect[i].h) do_action(i);
@@ -504,10 +555,11 @@ int main(int argc, char **argv) {
             if (m > g_watch) { snprintf(g_status, sizeof g_status, "source changed, reloading..."); load_game(g_sel, 1); } }
 
         MoteButtons b; memset(&b, 0, sizeof b);
-        if (g_mode == MODE_LIB) { poll_input(&b, pad); mote_studio_set_buttons(&b); }
+        if (g_mode == MODE_LIB && !g_modal) { poll_input(&b, pad); mote_studio_set_buttons(&b); }
         SDL_SetRenderDrawColor(ren, C_BG.r, C_BG.g, C_BG.b, 255); SDL_RenderClear(ren);
         if (g_mode == MODE_PIXEL) draw_pixel_studio(ren);
         else { draw_sidebar(ren); draw_device(ren, tex, &b); draw_inspector(ren); }
+        if (g_modal) draw_modal(ren);
         SDL_RenderPresent(ren);
         if (shot) { SDL_SaveBMP(surf, shot); printf("studio: wrote %s\n", shot); break; }
     } while (running);
