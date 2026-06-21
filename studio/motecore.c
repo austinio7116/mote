@@ -77,15 +77,27 @@ int mc_build(const char *dir, int device, mote_log_fn log){
 
 static const char *TMPL_TOML = "[game]\nname = \"%s\"\nauthor = \"you\"\n";
 static const char *TMPL_GAME =
+"/* %s — a Mote game module. Reach the engine through `mote->...`; mote_build.h\n"
+" * gives safe mesh primitives, a camera helper, and a tiny UI. */\n"
 "#include \"mote_api.h\"\n#include \"mote_build.h\"\n\nMOTE_GAME_MODULE();\n\n"
 "#ifdef MOTE_MODULE_BUILD\n#include \"mote_module.h\"\nMOTE_MODULE_HEADER();\n#endif\n\n"
-"static MoteCamera cam;\nstatic float t;\n\n"
-"static void start(void){ mote_mesh_box(0,0,0, 1,1,1, MOTE_RGB565(120,180,240)); }\n"
-"static void update(float dt){ t+=dt; }\n"
-"static void render(void){ mote->clear(MOTE_RGB565(20,22,34));\n"
-"    mote_camera_look(&cam, t*0.6f, 0.3f, 4.0f); mote->camera(&cam);\n"
-"    mote->mesh_instance(0, (MoteVec3){0,0,0}, (MoteVec3){0,t,0}, 1.0f); }\n\n"
-"MOTE_GAME(\"%s\", start, update, render);\n";
+"static const Mesh *s_cube;\nstatic Mat3 s_m;\n\n"
+"static void g_init(void) {\n"
+"    mote->scene_set_background(MOTE_RGB565(10, 12, 26));\n"
+"    mote->scene_set_sun(v3(0.4f, 0.7f, -0.6f));\n"
+"    s_cube = mote_mesh_box(mote, 1.0f, 1.0f, 1.0f, MOTE_RGB565(120, 180, 230));\n"
+"    s_m = m3_identity();\n}\n\n"
+"static void g_update(float dt) {\n"
+"    m3_rotate_local(&s_m, 1, 0.9f * dt); m3_orthonormalize(&s_m);\n"
+"    Mat3 cam = mote_camera_look(v3(0, 0, 0), v3(0, 0, 1));   /* eye -> target */\n"
+"    mote->scene_begin(&cam, 60.0f);\n"
+"    MoteObject obj = { .pos = v3(0, 0, 4.5f), .basis = s_m, .mesh = s_cube };\n"
+"    mote->scene_add_object(&obj);\n}\n\n"
+"/* Declare the pools you use so the loader sizes the arena to YOUR game. */\n"
+"static const MoteGameVtbl k_vtbl = {\n"
+"    .init = g_init, .update = g_update,\n"
+"    .config = { .max_tris = 256, .depth = 1 },\n};\n"
+"static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }\n";
 
 int mc_new(const char *name, mote_log_fn log){
     char dir[200]; snprintf(dir,sizeof dir,"examples/%.180s",name);
