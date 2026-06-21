@@ -672,7 +672,7 @@ static void px_swatch(SDL_Renderer*R,int x,int y,int s,uint16_t c){
     if(c==KEY565){ plain(R,x,y,s,s,(Col){50,52,62}); plain(R,x,y,s/2,s/2,(Col){34,36,44}); plain(R,x+s/2,y+s/2,s/2,s/2,(Col){34,36,44}); }
     else plain(R,x,y,s,s,c565(c)); if(c==g_pcol)rect_outline(R,x-1,y-1,s+2,s+2,C_ACC,1); }
 /* ===== procedural texture generator (Pixel-Art tab) ===== */
-static int g_texkind, g_texdrag=-1; static unsigned g_texseed=1; static SDL_Texture *g_texprev;
+static int g_texkind, g_texdrag=-1, g_textile=1; static unsigned g_texseed=1; static SDL_Texture *g_texprev; static SDL_Rect g_textile_r;
 static float g_texscale=6, g_texdetail=4, g_texcontrast=0.4f, g_texwarp=0.35f;
 static uint16_t g_texa=0x2945, g_texb=0xC618;   /* low / high colour (value 0->1 maps A->B) */
 static const char *TEX_L[10]={ "Noise","Wood","Marble","Brick","Check","Grad","Cloud","Stone","Stars","Plasma" };
@@ -681,26 +681,36 @@ static float *TEXSLV[4]={ &g_texscale,&g_texdetail,&g_texcontrast,&g_texwarp }; 
 static unsigned thash(int x,int y,unsigned s){ unsigned h=(unsigned)x*374761393u+(unsigned)y*668265263u+s*2246822519u; h=(h^(h>>13))*1274126177u; return h^(h>>16); }
 /* tileable value noise: the lattice WRAPS at period P, so the left/right + top/
  * bottom edges match exactly -> the texture tessellates seamlessly. */
+/* continuous (non-tiling) value noise + FBM — richer, any scale */
+static float vnz(float x,float y,unsigned s){ int xi=(int)floorf(x),yi=(int)floorf(y); float xf=x-xi,yf=y-yi;
+    float a=(thash(xi,yi,s)&0xffff)/65535.0f,b=(thash(xi+1,yi,s)&0xffff)/65535.0f,c=(thash(xi,yi+1,s)&0xffff)/65535.0f,d=(thash(xi+1,yi+1,s)&0xffff)/65535.0f;
+    float u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; }
+static float fbm(float x,float y,int oct,unsigned s){ float val=0,amp=0.5f,f=1,tot=0; for(int i=0;i<oct;i++){ val+=amp*vnz(x*f,y*f,s+i*101u); tot+=amp; f*=2; amp*=0.5f; } return tot>0?val/tot:0; }
 static float tnz(float x,float y,int P,unsigned s){ if(P<1)P=1; int xi=(int)floorf(x),yi=(int)floorf(y); float xf=x-xi,yf=y-yi;
     int X0=((xi%P)+P)%P,X1=(((xi+1)%P)+P)%P,Y0=((yi%P)+P)%P,Y1=(((yi+1)%P)+P)%P;
     float a=(thash(X0,Y0,s)&0xffff)/65535.0f,b=(thash(X1,Y0,s)&0xffff)/65535.0f,c=(thash(X0,Y1,s)&0xffff)/65535.0f,d=(thash(X1,Y1,s)&0xffff)/65535.0f;
     float u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; }
 static float tfbm(float nx,float ny,int P,int oct,unsigned s){ float val=0,amp=0.5f,tot=0; int f=1;   /* each octave wraps at P*2^i */
     for(int i=0;i<oct;i++){ val+=amp*tnz(nx*P*f,ny*P*f,P*f,s+i*101u); tot+=amp; f*=2; amp*=0.5f; } return tot>0?val/tot:0; }
-static float texval(int k,float nx,float ny){ int P=(int)(g_texscale+0.5f); if(P<1)P=1; int oct=(int)g_texdetail; if(oct<1)oct=1; unsigned s=g_texseed; float w=g_texwarp; float TAU=6.2831853f;
+static float texval(int k,float nx,float ny){ int tile=g_textile; float sc=g_texscale<1?1:g_texscale; int P=(int)(sc+0.5f); if(P<1)P=1;
+    int oct=(int)g_texdetail; if(oct<1)oct=1; unsigned s=g_texseed; float w=g_texwarp; float TAU=6.2831853f; float fr=tile?(float)P:sc;
+    /* FB() = tileable FBM (wraps at P) when tiling, else continuous FBM at scale sc */
+    #define FB(a,b,o) (tile ? tfbm((a),(b),P,(o),s) : fbm((a)*sc,(b)*sc,(o),s))
     switch(k){
-      case 1: { float g=tfbm(nx,ny,P,oct,s); return 0.5f+0.5f*sinf(ny*TAU*P + g*w*10); }                        /* wood grain */
-      case 2: { float g=tfbm(nx,ny,P,oct,s); return 0.5f+0.5f*sinf((nx+ny)*TAU*P + g*w*12); }                    /* marble */
-      case 3: { float bw=1.0f/P,bh=bw*0.5f; int row=(int)(ny/bh); float off=(row&1)?bw*0.5f:0; float bx=fmodf(nx+off+1,bw)/bw,by=fmodf(ny,bh)/bh;
-                float m=(bx<0.06f||bx>0.94f||by<0.08f||by>0.92f)?0.05f:0.9f; return m+(tfbm(nx,ny,P,2,s)-0.5f)*0.18f; }  /* brick */
-      case 4: { int cx=(int)(nx*P),c2=(int)(ny*P); return ((cx+c2)&1)?0.85f:0.15f; }                             /* checker */
+      case 1: { float g=FB(nx,ny,oct); return 0.5f+0.5f*sinf(ny*TAU*fr + g*w*10); }                              /* wood grain */
+      case 2: { float g=FB(nx,ny,oct); return 0.5f+0.5f*sinf((nx+ny)*TAU*fr + g*w*12); }                          /* marble */
+      case 3: { float bw=1.0f/fr,bh=bw*0.5f; int row=(int)(ny/bh); float off=(row&1)?bw*0.5f:0; float bx=fmodf(nx+off+1,bw)/bw,by=fmodf(ny,bh)/bh;
+                float m=(bx<0.06f||bx>0.94f||by<0.08f||by>0.92f)?0.05f:0.9f; return m+(FB(nx,ny,2)-0.5f)*0.18f; }  /* brick */
+      case 4: { int cx=(int)(nx*fr),c2=(int)(ny*fr); return ((cx+c2)&1)?0.85f:0.15f; }                           /* checker */
       case 5: { float t=nx; return t<0.5f?t*2:(1-t)*2; }                                                         /* gradient (triangle, tiles) */
-      case 6: { float v=tfbm(nx,ny,P,oct,s); return v*0.7f+0.18f; }                                              /* cloud */
-      case 7: return tfbm(nx,ny,P,oct,s);                                                                        /* stone */
-      case 8: { int gx=(int)(nx*P*5),gy=(int)(ny*P*5); float v=(thash(gx,gy,s)&0xffff)/65535.0f; return v>0.97f?1.0f:0.02f+tfbm(nx,ny,P,2,s)*0.06f; } /* stars */
-      case 9: return 0.5f+0.22f*sinf(nx*TAU*P)+0.22f*sinf(ny*TAU*P)+0.16f*sinf((nx+ny)*TAU*P + tfbm(nx,ny,P,2,s)*6); /* plasma */
-      default: return tfbm(nx,ny,P,oct,s);                                                                       /* noise */
-    } }
+      case 6: { float v=FB(nx,ny,oct); return v*0.7f+0.18f; }                                                    /* cloud */
+      case 7: return FB(nx,ny,oct);                                                                              /* stone */
+      case 8: { int gx=(int)(nx*fr*5),gy=(int)(ny*fr*5); float v=(thash(gx,gy,s)&0xffff)/65535.0f; return v>0.97f?1.0f:0.02f+FB(nx,ny,2)*0.06f; } /* stars */
+      case 9: return 0.5f+0.22f*sinf(nx*TAU*fr)+0.22f*sinf(ny*TAU*fr)+0.16f*sinf((nx+ny)*TAU*fr + FB(nx,ny,2)*6); /* plasma */
+      default: return FB(nx,ny,oct);                                                                            /* noise */
+    }
+    #undef FB
+}
 static void tex_generate(void){ undo_push(); int n=g_csize;
     int ar=((g_texa>>11)&31)<<3,ag=((g_texa>>5)&63)<<2,ab=(g_texa&31)<<3, br=((g_texb>>11)&31)<<3,bg=((g_texb>>5)&63)<<2,bb=(g_texb&31)<<3;
     for(int y=0;y<n;y++)for(int x=0;x<n;x++){ float v=texval(g_texkind,(x+0.5f)/n,(y+0.5f)/n);
@@ -719,7 +729,8 @@ static void draw_texgen(SDL_Renderer*R,int ox,int oy){ int mx,my; SDL_GetMouseSt
     g_texa_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texa); x+=26; g_texb_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texb); x+=26;
     text(R,"A/B",x,oy+6,1,C_DIM,C_DOCK); x+=textw(R,"A/B",1)+8;
     g_texgen_r=(SDL_Rect){x,oy,76,22}; rrect(R,x,oy,76,22,4,hit(mx,my,x,oy,76,22)?C_BTNHI:C_ACC); text(R,"Generate",x+9,oy+5,1,C_HDR,C_ACC); x+=82;
-    g_texseed_r=(SDL_Rect){x,oy,60,22}; rrect(R,x,oy,60,22,4,hit(mx,my,x,oy,60,22)?C_BTNHI:C_BTN); icon(R,IC_UNDO,x+7,oy+4,13,C_TXT); text(R,"Seed",x+23,oy+5,1,C_TXT,C_BTN); }
+    g_texseed_r=(SDL_Rect){x,oy,60,22}; rrect(R,x,oy,60,22,4,hit(mx,my,x,oy,60,22)?C_BTNHI:C_BTN); icon(R,IC_UNDO,x+7,oy+4,13,C_TXT); text(R,"Seed",x+23,oy+5,1,C_TXT,C_BTN); x+=66;
+    g_textile_r=(SDL_Rect){x,oy,62,22}; rrect(R,x,oy,62,22,4,g_textile?C_ACC:C_BTN); text(R,g_textile?"Tile ON":"Tile off",x+8,oy+5,1,g_textile?C_HDR:C_DIM,g_textile?C_ACC:C_BTN); }
 static void texgen_drag(int mx){ if(g_texdrag<0)return; SDL_Rect*r=&g_texsl[g_texdrag]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *TEXSLV[g_texdrag]=TEXSLLO[g_texdrag]+t*(TEXSLHI[g_texdrag]-TEXSLLO[g_texdrag]); }
 static int texgen_click(int mx,int my){
     for(int i=0;i<10;i++)if(hit(mx,my,g_texkb[i].x,g_texkb[i].y,g_texkb[i].w,g_texkb[i].h)){ g_texkind=i; tex_generate(); return 1; }
@@ -728,6 +739,7 @@ static int texgen_click(int mx,int my){
     if(hit(mx,my,g_texb_r.x,g_texb_r.y,22,22)){ g_texb=g_pcol; return 1; }
     if(hit(mx,my,g_texgen_r.x,g_texgen_r.y,76,22)){ tex_generate(); return 1; }
     if(hit(mx,my,g_texseed_r.x,g_texseed_r.y,60,22)){ g_texseed=thash((int)g_texseed,7,99); tex_generate(); return 1; }
+    if(hit(mx,my,g_textile_r.x,g_textile_r.y,62,22)){ g_textile=!g_textile; tex_generate(); return 1; }
     return 0; }
 
 static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
