@@ -18,7 +18,19 @@
 #include "../platform/studio/mote_plat_studio.h"
 
 #include <SDL2/SDL.h>
-#include <dlfcn.h>
+#ifdef _WIN32
+  #include <windows.h>
+  #define DLOPEN(p)   ((void*)LoadLibraryA(p))
+  #define DLSYM(h,s)  ((void*)(uintptr_t)GetProcAddress((HMODULE)(h),(s)))
+  #define DLCLOSE(h)  FreeLibrary((HMODULE)(h))
+  #define DLERR()     "LoadLibrary failed"
+#else
+  #include <dlfcn.h>
+  #define DLOPEN(p)   dlopen((p),RTLD_NOW|RTLD_LOCAL)
+  #define DLSYM(h,s)  dlsym((h),(s))
+  #define DLCLOSE(h)  dlclose(h)
+  #define DLERR()     dlerror()
+#endif
 #include <dirent.h>
 #include <sys/stat.h>
 #include <strings.h>
@@ -144,11 +156,11 @@ static char g_status[160]="open a project to begin";
 static SDL_Thread *g_eng;
 
 static int engine_thread(void*arg){ (void)arg;
-    void*mod=dlopen(g_so,RTLD_NOW|RTLD_LOCAL); if(!mod){ fprintf(stderr,"studio: dlopen: %s\n",dlerror()); return 1; }
-    MoteGameRegisterFn reg=(MoteGameRegisterFn)dlsym(mod,"mote_game_register");
-    const uint32_t*abi=(const uint32_t*)dlsym(mod,"mote_game_abi_version");
-    if(!reg||!abi){ dlclose(mod); return 1; }
-    MoteApi api; mote_api_fill(&api); const MoteGameVtbl*vt=reg(&api); if(vt)mote_os_run(&api,vt); dlclose(mod); return 0; }
+    void*mod=DLOPEN(g_so); if(!mod){ fprintf(stderr,"studio: load: %s\n",DLERR()); return 1; }
+    MoteGameRegisterFn reg=(MoteGameRegisterFn)DLSYM(mod,"mote_game_register");
+    const uint32_t*abi=(const uint32_t*)DLSYM(mod,"mote_game_abi_version");
+    if(!reg||!abi){ DLCLOSE(mod); return 1; }
+    MoteApi api; mote_api_fill(&api); const MoteGameVtbl*vt=reg(&api); if(vt)mote_os_run(&api,vt); DLCLOSE(mod); return 0; }
 static void stop_engine(void){ if(!g_eng)return; mote_studio_request_quit(); SDL_WaitThread(g_eng,NULL); g_eng=NULL; }
 static void start_engine(void){ mote_studio_reset(); g_eng=SDL_CreateThread(engine_thread,"engine",NULL); }
 
