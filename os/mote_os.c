@@ -189,6 +189,9 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
     MoteInput in;
     memset(&in, 0, sizeof in);
+    /* The A (or whatever) that launched this game is still physically down — arm the
+     * suppress mask so it doesn't fire as a fresh press on the game's first frame. */
+    { MoteButtons raw0; mote_plat_buttons(&raw0); mote_input_arm(&in, &raw0); }
     uint64_t last = mote_plat_micros();
     uint32_t menu_hold_ms = 0;
 

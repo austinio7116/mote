@@ -101,6 +101,9 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
     MoteCatalog cat;
     MoteInput in;
     memset(&in, 0, sizeof in);
+    /* Returning from a game, the MENU/A used to exit it may still be held — arm the
+     * suppress mask so it doesn't immediately act on the launcher's first frame. */
+    { MoteButtons raw0; mote_plat_buttons(&raw0); mote_input_arm(&in, &raw0); }
     uint64_t last = mote_plat_micros();
 
 #ifdef MOTE_HOST
