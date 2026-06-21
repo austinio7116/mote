@@ -28,6 +28,8 @@
 #include <math.h>
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "third_party/stb_truetype.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "third_party/stb_image.h"
 
 #define WIN_W   1280
 #define WIN_H   820
@@ -302,54 +304,41 @@ static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ C
     disc(R,cx,cy+3,rad+1,(Col){70,48,104}); if(lit)disc(R,cx,cy,rad+4,mul(glow,0.8f));
     disc(R,cx,cy,rad,lit?mul(glow,0.6f):(Col){30,26,42}); disc(R,cx,cy,rad-3,lit?glow:idle);
     int w; clabel(R,l,(Col){210,200,230},idle,&w); text(R,l,cx-w,cy-6,2,(Col){220,215,240},lit?glow:idle); }
-/* device geometry extracted from the product photo (OpenCV); body aspect 1.73,
- * coords normalized to the body bbox. Octagon vertices clockwise from top-left. */
-static const float OCT[8][2]={ {0.051f,0.074f},{0.949f,0.074f},{1.000f,0.217f},{0.995f,0.823f},
-    {0.688f,1.000f},{0.312f,1.000f},{0.005f,0.823f},{0.000f,0.217f} };
+/* The emulator chassis IS the real product photo (studio/assets/thumby_color.png).
+ * We overlay the live screen on the LCD rect and glow the buttons when pressed.
+ * Rects/points are normalized to the device image (tuned against the photo). */
+static SDL_Texture *g_dev; static int g_devw=718, g_devh=417;
+static float SCRN[4]={0.290f,0.120f,0.420f,0.490f};   /* x,y,w,h of the LCD on the photo */
+static void load_device(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/thumby_color.png",&w,&h,&n,4);
+    if(!d)return; g_dev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
+    SDL_UpdateTexture(g_dev,NULL,d,w*4); SDL_SetTextureBlendMode(g_dev,SDL_BLENDMODE_BLEND); g_devw=w; g_devh=h; stbi_image_free(d); }
+static void aglow(SDL_Renderer*R,int cx,int cy,int rad,Col c){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
+    for(int dy=-rad;dy<=rad;dy++){ int dx=(int)sqrtf((float)(rad*rad-dy*dy)); float f=1.0f-(float)(dy*dy)/(rad*rad);
+        SDL_SetRenderDrawColor(R,c.r,c.g,c.b,(Uint8)(150*f)); SDL_RenderDrawLine(R,cx-dx,cy+dy,cx+dx,cy+dy); } }
 static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     plain(R,CENTER_X,TOPH,CENTER_W,BOT_Y-TOPH,C_BG);
     static uint16_t fr[MOTE_FB_W*MOTE_FB_H]; mote_studio_get_frame(fr); SDL_UpdateTexture(tex,NULL,fr,MOTE_FB_W*(int)sizeof(uint16_t));
-    int DW=600,DH=(int)(DW/1.73f), ox=CENTER_X+CENTER_W/2-DW/2, oy=TOPH+(BOT_Y-TOPH)/2-DH/2;
-    #define PXx(n) (ox+(int)((n)*DW))
-    #define PYy(n) (oy+(int)((n)*DH))
-    int xs[8],ys[8],xs2[8],ys2[8];
-    for(int i=0;i<8;i++){ xs[i]=ox+(int)(OCT[i][0]*DW); ys[i]=oy+(int)(OCT[i][1]*DH); xs2[i]=xs[i]; ys2[i]=ys[i]+9; }
-    fill_poly(R,xs2,ys2,8,C_BODYLO); fill_poly(R,xs,ys,8,C_BODY);
-    SDL_SetRenderDrawColor(R,mul(C_BODYLO,0.7f).r,mul(C_BODYLO,0.7f).g,mul(C_BODYLO,0.7f).b,255);
-    for(int i=0;i<8;i++){ int j=(i+1)%8; SDL_RenderDrawLine(R,xs[i],ys[i],xs[j],ys[j]); }
-    rrect(R,PXx(0.14f),PYy(0.05f),(int)(0.72f*DW),(int)(0.10f*DH),8,C_BODYHI);              /* gloss */
-    rrect(R,PXx(0.16f),PYy(0.035f),(int)(0.28f*DW),(int)(0.05f*DH),5,mul(C_BODYHI,1.12f));
-    int shw=(int)(0.17f*DW),shh=(int)(0.05f*DH);                                            /* shoulders on top edge */
-    rrect(R,PXx(0.10f),oy-3,shw,shh,7,b->lb?C_DPADL:mul(C_BODYLO,0.9f));
-    rrect(R,PXx(0.73f),oy-3,shw,shh,7,b->rb?C_DPADL:mul(C_BODYLO,0.9f));
-    /* screen module: tall rounded rect (NOT square) */
-    int mx=PXx(0.267f),my=PYy(0.084f),mw=(int)(0.464f*DW),mh=(int)(0.834f*DH);
-    rrect(R,mx,my,mw,mh,14,(Col){14,14,18}); rrect(R,mx,my,mw,8,14,(Col){32,32,42});
-    int dsz=(int)(mw*0.84f),dx=mx+(mw-dsz)/2,dy=my+(int)(mw*0.07f);                          /* display: upper square */
-    plain(R,dx-2,dy-2,dsz+4,dsz+4,(Col){4,4,6});
-    if(g_sel>=0&&g_eng){ SDL_Rect d={dx,dy,dsz,dsz}; SDL_RenderCopy(R,tex,NULL,&d); }
-    else { plain(R,dx,dy,dsz,dsz,(Col){12,16,30}); rainbow_logo(R,dx+(int)(dsz*0.10f),dy+dsz/2-8,(Col){12,16,30}); }
-    disc(R,mx+mw-(int)(0.03f*DW),my+(int)(0.05f*DH),4,(Col){255,150,40});                    /* power LED */
-    int lw; clabel(R,"THUMBY COLOR",(Col){200,206,222},(Col){14,14,18},&lw);
-    ptext(R,"THUMBY COLOR",mx+(mw-lw)/2,dy+dsz+(my+mh-(dy+dsz)-9)/2,1,(Col){206,212,228},(Col){14,14,18});
-    /* D-pad plus at (0.153,0.471) */
-    int dcx=PXx(0.153f),dcy=PYy(0.471f),al=(int)(0.103f*DW),dw=(int)(0.07f*DW);
-    rrect(R,dcx-al,dcy-dw/2,2*al,dw,dw/2,C_DPAD); rrect(R,dcx-dw/2,dcy-al,dw,2*al,dw/2,C_DPAD);
-    if(b->up)plain(R,dcx-dw/2+4,dcy-al+4,dw-8,al-dw/2,C_DPADL); if(b->down)plain(R,dcx-dw/2+4,dcy+dw/2,dw-8,al-dw/2-4,C_DPADL);
-    if(b->left)plain(R,dcx-al+4,dcy-dw/2+4,al-dw/2,dw-8,C_DPADL); if(b->right)plain(R,dcx+dw/2,dcy-dw/2+4,al-dw/2-4,dw-8,C_DPADL);
-    disc(R,dcx,dcy,6,mul(C_DPAD,1.4f));
-    /* A/B dark circles at exact centres (B lower-left, A upper-right) */
-    int ar=(int)(0.045f*DW); Col cd={34,28,46},ch={58,50,76};
-    int bcx=PXx(0.793f),bcy=PYy(0.510f),acx=PXx(0.901f),acy=PYy(0.442f);
-    disc(R,bcx,bcy+2,ar+1,mul(C_BODYLO,0.7f)); disc(R,bcx,bcy,ar,b->b?C_DPADL:cd); disc(R,bcx-ar/3,bcy-ar/3,ar/3,b->b?mul(C_DPADL,1.2f):ch);
-    disc(R,acx,acy+2,ar+1,mul(C_BODYLO,0.7f)); disc(R,acx,acy,ar,b->a?C_DPADL:cd); disc(R,acx-ar/3,acy-ar/3,ar/3,b->a?mul(C_DPADL,1.2f):ch);
-    /* menu button below the D-pad; vents + screw lower-right */
-    int sbx=PXx(0.105f),sby=PYy(0.74f); disc(R,sbx,sby,7,mul(C_BODYLO,0.8f)); disc(R,sbx,sby,5,b->menu?C_DPADL:(Col){70,52,100});
-    SDL_SetRenderDrawColor(R,mul(C_BODYLO,0.7f).r,mul(C_BODYLO,0.7f).g,mul(C_BODYLO,0.7f).b,255);
-    for(int i=0;i<4;i++){ int vx=PXx(0.80f)+i*7,vy=PYy(0.80f); SDL_RenderDrawLine(R,vx,vy,vx+14,vy-14); }
-    disc(R,PXx(0.93f),PYy(0.88f),4,(Col){188,192,204});
-    #undef PXx
-    #undef PYy
+    if(!g_dev) return;
+    int rw=CENTER_W-28, rh=BOT_Y-TOPH-24; float ar=(float)g_devw/g_devh;
+    int dw=rw,dh=(int)(dw/ar); if(dh>rh){ dh=rh; dw=(int)(dh*ar); }
+    int dx=CENTER_X+(CENTER_W-dw)/2, dy=TOPH+((BOT_Y-TOPH)-dh)/2;
+    SDL_Rect dd={dx,dy,dw,dh}; SDL_RenderCopy(R,g_dev,NULL,&dd);
+    #define BX(n) (dx+(int)((n)*dw))
+    #define BY(n) (dy+(int)((n)*dh))
+    if(g_sel>=0&&g_eng){ SDL_Rect sc={BX(SCRN[0]),BY(SCRN[1]),(int)(SCRN[2]*dw),(int)(SCRN[3]*dh)}; SDL_RenderCopy(R,tex,NULL,&sc); }
+    Col gl={150,212,255}; int br=(int)(0.052f*dw), dr=(int)(0.045f*dw);
+    if(b->a)    aglow(R,BX(0.901f),BY(0.442f),br,gl);
+    if(b->b)    aglow(R,BX(0.793f),BY(0.510f),br,gl);
+    if(b->up)   aglow(R,BX(0.153f),BY(0.355f),dr,gl);
+    if(b->down) aglow(R,BX(0.153f),BY(0.590f),dr,gl);
+    if(b->left) aglow(R,BX(0.088f),BY(0.471f),dr,gl);
+    if(b->right)aglow(R,BX(0.220f),BY(0.471f),dr,gl);
+    if(b->lb)   aglow(R,BX(0.110f),BY(0.060f),(int)(0.075f*dw),gl);
+    if(b->rb)   aglow(R,BX(0.890f),BY(0.060f),(int)(0.075f*dw),gl);
+    if(b->menu) aglow(R,BX(0.196f),BY(0.790f),(int)(0.035f*dw),gl);
+    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE);
+    #undef BX
+    #undef BY
 }
 
 static SDL_Rect g_insp_edit, g_insp_bake;
@@ -454,7 +443,7 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,0);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
-    ui_font_init(ren);
+    ui_font_init(ren); load_device(ren);
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
@@ -495,6 +484,7 @@ int main(int argc,char**argv){ (void)argc;(void)argv;
 
         MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&g_menu_open<0;
         if(over_emu){ poll_input(&b,pad); mote_studio_set_buttons(&b); }
+        if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
         SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren);
