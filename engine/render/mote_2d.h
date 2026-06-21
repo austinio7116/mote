@@ -22,7 +22,9 @@
 typedef struct {
     const uint16_t *pixels;   /* w*h RGB565, row-major */
     uint16_t w, h;
-    uint16_t key;             /* transparent colour (no transparency: 0xFFFF won't occur as key if unused) */
+    uint16_t key;             /* transparent colour key (ignored when opaque) */
+    uint8_t  opaque;          /* 1 = no transparency: draw every pixel, ignore key.
+                               * Defaults to 0 for older {px,w,h,key} initialisers. */
 } MoteImage;
 
 /* A tileset: an atlas image divided into tile_w x tile_h cells, indexed

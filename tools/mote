@@ -129,10 +129,11 @@ def bake_image(name, path, out):
     raw = subprocess.check_output(conv + [path, "-depth", "8", "RGBA:-"])
     KEY = 0xF81F
     px = []
+    keyed = False
     for i in range(w * h):
         r, g, b, a = raw[i*4], raw[i*4+1], raw[i*4+2], raw[i*4+3]
         if a < 128:
-            px.append(KEY)
+            px.append(KEY); keyed = True
         else:
             v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
             px.append(0xF81E if v == KEY else v)   # nudge real magenta off the key
@@ -143,7 +144,7 @@ def bake_image(name, path, out):
     for i in range(0, len(px), 16):
         L.append('  ' + ','.join('0x%04x' % v for v in px[i:i+16]) + ',')
     L += ['};',
-          'static const MoteImage %s_img = { %s_px, %d, %d, 0x%04X };' % (name, name, w, h, KEY),
+          'static const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };' % (name, name, w, h, KEY, 0 if keyed else 1),
           '#define %s_W %d' % (name, w), '#define %s_H %d' % (name, h), '', '#endif']
     open(out, "w").write('\n'.join(L))
     print("[img2tex] %s: %dx%d -> %s" % (name, w, h, out))

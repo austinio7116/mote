@@ -41,6 +41,7 @@ void mote_blit(uint16_t *fb, const MoteImage *img,
                int x, int y, int fx, int fy, int fw, int fh,
                uint8_t flags, int y0, int y1) {
     const uint16_t key = img->key;
+    const int opaque = img->opaque;
     const int iw = img->w;
     for (int row = 0; row < fh; row++) {
         int sy = y + row;
@@ -54,7 +55,7 @@ void mote_blit(uint16_t *fb, const MoteImage *img,
             if ((unsigned)sx >= MOTE_FB_W) continue;
             int src_col = (flags & MOTE_SPR_HFLIP) ? (fw - 1 - col) : col;
             uint16_t px = srow[src_col];
-            if (px != key) drow[sx] = px;
+            if (opaque || px != key) drow[sx] = px;
         }
     }
 }
