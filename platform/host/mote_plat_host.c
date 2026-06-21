@@ -163,3 +163,4 @@ void mote_plat_shutdown(void) {
 void mote_plat_set_brightness(int pct) { (void)pct; }   /* host: no backlight */
 void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
 void mote_plat_audio_pump(void) { }                      /* host: SDL pulls via callback */
+void mote_plat_audio_start(void) { mote_audio_off(); }   /* host: SDL persists; just clear voices */

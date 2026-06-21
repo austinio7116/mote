@@ -153,6 +153,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
     s_exit_req = false;
     s_vt = vt;
+    mote_plat_audio_start();        /* re-arm audio so sound survives game switches */
 
     /* Size the engine's pools to THIS game's declared config, from the shared
      * arena; whatever's left the game claims via alloc(). Reset per game. */

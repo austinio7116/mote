@@ -38,7 +38,15 @@ static void __isr __not_in_flash_func(mote_audio_irq)(void){
     pwm_set_gpio_level(AUDIO_PWM_PIN, (uint32_t)v);
 }
 
+/* Idempotent: safe to call once at boot AND again at every game launch to
+ * re-establish the timer/IRQ/amp + flush the ring. (Audio went silent after a
+ * game switch with only a full reboot fixing it — re-arming per game cures it
+ * whatever leaves the slice/IRQ in a bad state.) The IRQ handler is registered
+ * once; everything else is reconfigured each call. */
 void mote_audio_pwm_init(void){
+    static int handler_set;
+    ring_head = ring_tail = 0;                        /* flush any stale/frozen ring */
+
     gpio_init(AUDIO_ENABLE_PIN); gpio_set_dir(AUDIO_ENABLE_PIN, GPIO_OUT); gpio_put(AUDIO_ENABLE_PIN, 0);
     gpio_set_function(AUDIO_PWM_PIN, GPIO_FUNC_PWM);
     uint slice = pwm_gpio_to_slice_num(AUDIO_PWM_PIN);
@@ -49,8 +57,11 @@ void mote_audio_pwm_init(void){
 
     pwm_clear_irq(TIMER_SLICE);
     pwm_set_irq_enabled(TIMER_SLICE, true);
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, mote_audio_irq);
-    irq_set_priority(PWM_IRQ_WRAP, PICO_LOWEST_IRQ_PRIORITY);
+    if (!handler_set) {
+        irq_set_exclusive_handler(PWM_IRQ_WRAP, mote_audio_irq);
+        irq_set_priority(PWM_IRQ_WRAP, PICO_LOWEST_IRQ_PRIORITY);
+        handler_set = 1;
+    }
     irq_set_enabled(PWM_IRQ_WRAP, true);
 
     pwm_config tc = pwm_get_default_config();

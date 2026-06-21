@@ -157,3 +157,5 @@ void mote_plat_audio_pump(void) {
     int room = mote_audio_pwm_room();
     while (room >= 128) { int16_t buf[128]; mote_audio_render(buf, 128); mote_audio_pwm_push(buf, 128); room -= 128; }
 }
+
+void mote_plat_audio_start(void) { mote_audio_off(); mote_audio_pwm_init(); }   /* re-arm per game */
