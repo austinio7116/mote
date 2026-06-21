@@ -111,20 +111,37 @@ def cmd_build(args):
 
 
 def cmd_bake(args):
-    """Bake assets/*.obj into src/<name>.h headers the game can #include."""
+    """Bake assets/*.obj and assets/*.stl into src/<name>.h headers to #include.
+
+    OBJ -> one <name>_mesh (small models). STL (binary or ASCII) is welded,
+    decimated to a triangle budget and split into <=255-vert chunks, emitting
+    <name>_chunks[] + <name>_NCHUNKS (real-world models are far over the cap)."""
     import tempfile
     d = args.dir
     assets = os.path.join(d, "assets")
-    objs = sorted(f for f in os.listdir(assets) if f.endswith(".obj")) \
-        if os.path.isdir(assets) else []
-    if not objs:
-        print("mote: no .obj assets in %s/assets" % d); return
-    tool = os.path.join(tempfile.gettempdir(), "mote_obj2mesh")
-    if not os.path.isfile(tool):
-        run(["gcc", "-O2", os.path.join(ROOT, "tools", "obj2mesh.c"), "-lm", "-o", tool])
-    for o in objs:
-        name = os.path.splitext(o)[0]
-        run([tool, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
+    files = sorted(os.listdir(assets)) if os.path.isdir(assets) else []
+    objs = [f for f in files if f.endswith(".obj")]
+    stls = [f for f in files if f.lower().endswith(".stl")]
+    if not objs and not stls:
+        print("mote: no .obj/.stl assets in %s/assets" % d); return
+
+    def tool_for(src, exe):
+        t = os.path.join(tempfile.gettempdir(), exe)
+        if not os.path.isfile(t):
+            run(["gcc", "-O2", os.path.join(ROOT, "tools", src), "-lm", "-o", t])
+        return t
+
+    if objs:
+        ot = tool_for("obj2mesh.c", "mote_obj2mesh")
+        for o in objs:
+            name = os.path.splitext(o)[0]
+            run([ot, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
+    if stls:
+        st = tool_for("stl2mesh.c", "mote_stl2mesh")
+        budget = str(getattr(args, "budget", None) or 1500)
+        for s in stls:
+            name = os.path.splitext(s)[0]
+            run([st, name, os.path.join(assets, s), os.path.join(d, "src", name + ".h"), budget])
 
 
 def cmd_run(args):
