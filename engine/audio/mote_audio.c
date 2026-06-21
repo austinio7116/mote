@@ -36,12 +36,13 @@ void mote_audio_note(float freq, float amp){
     v->on    = 1;
 }
 
-/* additive fundamental + 2 harmonics -> a mellow struck-string timbre, normalised */
+/* fundamental + mild harmonics — a low-crest-factor timbre so more of the signal
+ * is near the peak (more RMS = perceived louder on the weak PWM speaker), peak ~1 */
 static inline float wave(float ph){
     int i0 = (int)(ph * LUT) & (LUT-1);
     int i1 = (int)(ph * 2.0f * LUT) & (LUT-1);
     int i2 = (int)(ph * 3.0f * LUT) & (LUT-1);
-    return (s_sin[i0] + 0.45f*s_sin[i1] + 0.22f*s_sin[i2]) * 0.6f;
+    return (s_sin[i0] + 0.30f*s_sin[i1] + 0.12f*s_sin[i2]) * 0.70f;
 }
 
 void mote_audio_render(int16_t *out, int n){
@@ -54,14 +55,12 @@ void mote_audio_render(int16_t *out, int n){
             v->amp *= v->decay;
             if(v->amp < 0.0008f) v->on = 0;
         }
-        /* boost hard, then soft-clip so a single note is LOUD (near full scale)
-         * while chords saturate gracefully instead of harsh hard-clipping. */
-        float m = mix * s_vol * 2.4f;
-        if(m >  1.6f) m =  1.6f; else if(m < -1.6f) m = -1.6f;
-        m = m - (m*m*m) * (1.0f/12.0f);          /* gentle cubic saturator */
-        int val = (int)(m * 22000.0f);
-        if(val > 32767) val = 32767;
-        if(val < -32768) val = -32768;
-        out[s] = (int16_t)val;
+        /* push a single note to ~95% of full scale CLEANLY (no saturation), then
+         * a soft knee that only engages for chords — loud but not clipping. */
+        float m = mix * s_vol * 1.5f;
+        float a = m < 0.0f ? -m : m;
+        if(a > 0.85f){ float e = a - 0.85f; a = 0.85f + e / (1.0f + e * 2.2f); }
+        if(a > 1.0f) a = 1.0f;
+        out[s] = (int16_t)((m < 0.0f ? -a : a) * 32200.0f);
     }
 }
