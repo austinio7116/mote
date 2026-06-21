@@ -536,6 +536,55 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
         plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
         for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
         char info[40]; snprintf(info,sizeof info,"%dx%d  %s",g_csize,g_csize,g_sel>=0?"-> assets/sprite.png":""); text(R,info,prx,cay+18+g_csize*s,1,C_DIM,C_DOCK); } }
+
+/* ================= mesh preview (software 3D) ================= */
+typedef struct { float x,y,z; } V3;
+static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_mesh_path[320];
+static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
+static void mtri(V3 a,V3 b,V3 c){ if(g_ntri>=g_tricap){ g_tricap=g_tricap?g_tricap*2:8192; g_tri=realloc(g_tri,g_tricap*sizeof*g_tri); }
+    g_tri[g_ntri].a=a; g_tri[g_ntri].b=b; g_tri[g_ntri].c=c; g_ntri++; }
+static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_ntri)return; g_ntri=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
+    size_t l=strlen(path); FILE*f=fopen(path,"rb"); if(!f)return;
+    if(l>4&&!strcasecmp(path+l-4,".obj")){ static V3 vs[300000]; int nv=0; char ln[256];
+        while(fgets(ln,sizeof ln,f)){ if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<300000)vs[nv++]=v; }
+            else if(ln[0]=='f'&&ln[1]==' '){ int idx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break; int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n++]=vi; while(*p&&*p!=' '&&*p!='\t')p++; }
+                for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) mtri(vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } } }
+    else { unsigned char hdr[84]; if(fread(hdr,1,84,f)==84){ unsigned n=hdr[80]|hdr[81]<<8|hdr[82]<<16|((unsigned)hdr[83]<<24);
+            fseek(f,0,SEEK_END); long sz=ftell(f);
+            if(sz==84+(long)n*50){ fseek(f,84,SEEK_SET); for(unsigned i=0;i<n;i++){ float t[9]; fseek(f,12,SEEK_CUR); if(fread(t,4,9,f)!=9)break; fseek(f,2,SEEK_CUR);
+                    mtri((V3){t[0],t[1],t[2]},(V3){t[3],t[4],t[5]},(V3){t[6],t[7],t[8]}); } }
+            else { fseek(f,0,SEEK_SET); char ln[256]; V3 v[3]; int vi=0; while(fgets(ln,sizeof ln,f)){ char*p=strstr(ln,"vertex"); if(p&&sscanf(p+6,"%f %f %f",&v[vi].x,&v[vi].y,&v[vi].z)==3){ if(++vi==3){ mtri(v[0],v[1],v[2]); vi=0; } } } } } }
+    fclose(f);
+    if(g_ntri){ V3 mn=g_tri[0].a,mx=g_tri[0].a; for(int i=0;i<g_ntri;i++){ V3*vv[3]={&g_tri[i].a,&g_tri[i].b,&g_tri[i].c};
+        for(int k=0;k<3;k++){ V3 p=*vv[k]; mn.x=fminf(mn.x,p.x);mn.y=fminf(mn.y,p.y);mn.z=fminf(mn.z,p.z); mx.x=fmaxf(mx.x,p.x);mx.y=fmaxf(mx.y,p.y);mx.z=fmaxf(mx.z,p.z); } }
+        g_mcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2}; float d=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_mscale=d>0?2.0f/d:1; }
+    snprintf(g_status,sizeof g_status,"mesh: %d triangles",g_ntri); }
+static float *g_mdepth;
+static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?1:(d>0?-1:0); }
+static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
+    if(!g_ntri){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
+    if(!g_mdrag) g_myaw+=0.008f;
+    float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    int cx=ox+w/2, cyy=oy+h/2; float persp=(h<w?h:w)*0.62f, dist=2.7f;
+    static int *order; static float *depth; static int cap; static V3 *sa,*sb,*sc;
+    if(g_ntri>cap){ cap=g_ntri; order=realloc(order,cap*sizeof(int)); depth=realloc(depth,cap*sizeof(float));
+        sa=realloc(sa,cap*sizeof(V3)); sb=realloc(sb,cap*sizeof(V3)); sc=realloc(sc,cap*sizeof(V3)); }
+    for(int i=0;i<g_ntri;i++){ V3 vv[3]={g_tri[i].a,g_tri[i].b,g_tri[i].c},rr[3];
+        for(int k=0;k<3;k++){ V3 p=vv[k]; p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
+            float x=p.x*cyw-p.z*syw, z=p.x*syw+p.z*cyw, y=p.y*cp-z*sp, z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
+        sa[i]=rr[0]; sb[i]=rr[1]; sc[i]=rr[2]; order[i]=i; depth[i]=(rr[0].z+rr[1].z+rr[2].z)/3; }
+    g_mdepth=depth; qsort(order,g_ntri,sizeof(int),cmp_depth);
+    for(int o=0;o<g_ntri;o++){ int i=order[o]; V3 a=sa[i],b=sb[i],c=sc[i];
+        float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
+        float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl; ny/=nl; nz/=nl;
+        if(nz<0)continue;
+        float sh=0.28f+0.72f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
+        Col col={(Uint8)(118*sh),(Uint8)(150*sh),(Uint8)(220*sh)};
+        int xs[3]={cx+(int)(a.x*persp/(dist-a.z)),cx+(int)(b.x*persp/(dist-b.z)),cx+(int)(c.x*persp/(dist-c.z))};
+        int ys[3]={cyy-(int)(a.y*persp/(dist-a.z)),cyy-(int)(b.y*persp/(dist-b.z)),cyy-(int)(c.y*persp/(dist-c.z))};
+        fill_poly(R,xs,ys,3,col); }
+    char info[60]; snprintf(info,sizeof info,"%d triangles  -  drag to rotate",g_ntri); text(R,info,ox+12,oy+h-20,1,C_DIM,(Col){16,18,26}); }
+
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
@@ -550,7 +599,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
             snprintf(l,sizeof l,"%.78s  (%ld b)",g_tree[i].name,sz); rrect(R,ax,ay,200,26,5,C_PANEL); text(R,l,ax+8,ay+6,1,C_TXT,C_PANEL);
             ax+=210; if(ax>WIN_W-220){ ax=12; ay+=32; } n++; }
         if(!n)text(R,"no baked assets yet - paint one in Pixel Art, or Import",12,cy+18,1,C_DIM,C_DOCK); return; }
-    if(g_tab==TAB_MESH){ text(R,"MESH PREVIEW - select a .stl/.obj in the tree (coming soon)",12,cy,1,C_DIM,C_DOCK); return; }
+    if(g_tab==TAB_MESH){ draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     draw_pixel(R); }
 
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
@@ -655,7 +704,7 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
 
 static void open_project(int i){ if(i<0||i>=g_ngame)return; load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); g_picker=0; }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
-    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
+    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; } else if(r->kind==1){ /* inspector shows it */ } }
 
 int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
@@ -679,6 +728,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
+    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
 
     int running=1,watch=0;
     do { SDL_Event e;
@@ -721,13 +771,14 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
-                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
+                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my); else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } continue; } }
+            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
             }
         }
         if(g_quitreq)running=0;
