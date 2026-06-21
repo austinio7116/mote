@@ -463,13 +463,18 @@ static void draw_menubar(SDL_Renderer*R){ plain(R,0,0,WIN_W,MENU_H,C_HDR); plain
     for(int i=0;i<NMENU;i++){ int w=textw(R,MENUS[i].title,1)+20; if(g_menu_open==i)plain(R,x,0,w,MENU_H,C_PANEL);
         text(R,MENUS[i].title,x+10,7,1,C_TXT,g_menu_open==i?C_PANEL:C_HDR); MENUS[i].mx=x; MENUS[i].mw=w; x+=w; } }
 static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=&MENUS[g_menu_open];
+    int mx,my; SDL_GetMouseState(&mx,&my);
     int w=150,h=m->n*22+6,x=m->mx,y=MENU_H; plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC);
-    for(int i=0;i<m->n;i++){ int iy=y+4+i*22; text(R,m->it[i].l,x+10,iy+4,1,C_TXT,C_PANEL); } }
+    for(int i=0;i<m->n;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22);
+        if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,m->it[i].l,x+10,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
+/* mouse is currently inside an open dropdown (so panels below shouldn't hover). */
+static int menu_blocks(int mx,int my){ if(g_menu_open<0)return 0; Menu*m=&MENUS[g_menu_open];
+    return hit(mx,my,m->mx,MENU_H,150,m->n*22+6) || my<MENU_H; }
 
 typedef struct { int x,y,w,h; const char*l; int a; } Tbtn;
 static Tbtn g_tb[8]; static int g_ntb;
 static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL); plain(R,0,MENU_H+TOOL_H-1,WIN_W,1,C_LINE);
-    int y=MENU_H+8,x=12; g_ntb=0; int mx,my; SDL_GetMouseState(&mx,&my);
+    int y=MENU_H+8,x=12; g_ntb=0; int mx,my; SDL_GetMouseState(&mx,&my); if(menu_blocks(mx,my))mx=my=-99999;   /* don't hover under an open dropdown */
     char proj[80]; snprintf(proj,sizeof proj,"%.70s",g_sel>=0?g_games[g_sel].name:"no project");
     rrect(R,x,y,158,28,4,C_DOCK); icon(R,IC_FOLDER_O,x+9,y+7,15,g_sel>=0?(Col){220,200,120}:C_DIM);
     text(R,proj,x+30,y+8,1,g_sel>=0?C_TITLE:C_DIM,C_DOCK); x+=170;
@@ -492,7 +497,7 @@ static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK);
     if(g_sel<0){ text(R,"Project ‣ Open…",14,TOPH+40,1,C_DIM,C_DOCK); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
     for(int i=0;i<g_ntree;i++){ int y=TOPH+28+i*ROW_H; if(y>BOT_Y-ROW_H)break; TRow*r=&g_tree[i];
-        int sel=(i==g_tsel), hov=(mx<LEFT_W&&my>=y&&my<y+ROW_H);
+        int sel=(i==g_tsel), hov=(mx<LEFT_W&&my>=y&&my<y+ROW_H&&!menu_blocks(mx,my));
         Col bg = sel?C_SEL : (hov?(Col){36,40,54}:C_DOCK);
         if(sel||hov) plain(R,0,y,LEFT_W,ROW_H,bg);
         if(sel) plain(R,0,y,2,ROW_H,C_ACC);
