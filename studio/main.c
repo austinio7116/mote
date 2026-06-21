@@ -831,6 +831,8 @@ static char *g_code; static unsigned char *g_codecol; static int g_codelen,g_cod
 static char g_codepath[400]; static int g_cur,g_codescroll,g_codedirty,g_codefocus;
 static int g_errline[128]; static unsigned char g_errkind[128]; static volatile int g_nerr;
 static SDL_Rect g_code_area, g_code_track; static int g_codesbdrag, g_code_vis, g_code_total, g_codefollow;
+static int g_csel=-1, g_codeseldrag;   /* selection anchor (-1 none); range = [min(g_csel,g_cur), max) */
+static int code_selrange(int*lo,int*hi){ if(g_csel<0||g_csel==g_cur)return 0; *lo=g_csel<g_cur?g_csel:g_cur; *hi=g_csel<g_cur?g_cur:g_csel; return 1; }
 static const char *CKW[]={"if","else","for","while","do","switch","case","default","break","continue","return","goto",
     "sizeof","typedef","struct","union","enum","static","const","volatile","extern","register","inline"};
 static const char *CTY[]={"int","char","float","double","void","bool","short","long","unsigned","signed",
@@ -861,9 +863,13 @@ static void code_open(const char*path){ FILE*f=fopen(path,"rb"); if(!f){ snprint
     g_codelen=(int)fread(g_code,1,n,f); g_code[g_codelen]=0; fclose(f); snprintf(g_codepath,sizeof g_codepath,"%.398s",path);
     g_cur=0; g_codescroll=0; g_codedirty=0; g_nerr=0; g_codefocus=1; code_relex(); g_tab=TAB_CODE; SDL_StartTextInput(); code_check(); }
 static void code_grow(int e){ if(g_codelen+e+1>g_codecap){ g_codecap=(g_codelen+e+1)*2; g_code=realloc(g_code,g_codecap); g_codecol=realloc(g_codecol,g_codecap); } }
-static void code_insert(const char*s,int n){ if(!g_code)return; code_grow(n); memmove(g_code+g_cur+n,g_code+g_cur,g_codelen-g_cur+1); memcpy(g_code+g_cur,s,n); g_codelen+=n; g_cur+=n; g_codedirty=1; code_relex(); }
-static void code_back(void){ if(!g_code||g_cur<=0)return; memmove(g_code+g_cur-1,g_code+g_cur,g_codelen-g_cur+1); g_cur--; g_codelen--; g_codedirty=1; code_relex(); }
-static void code_delfwd(void){ if(!g_code||g_cur>=g_codelen)return; memmove(g_code+g_cur,g_code+g_cur+1,g_codelen-g_cur); g_codelen--; g_codedirty=1; code_relex(); }
+static void code_delsel(void){ int lo,hi; if(!code_selrange(&lo,&hi))return; memmove(g_code+lo,g_code+hi,g_codelen-hi+1); g_codelen-=(hi-lo); g_cur=lo; g_csel=-1; g_codedirty=1; code_relex(); }
+static void code_insert(const char*s,int n){ if(!g_code)return; code_delsel(); code_grow(n); memmove(g_code+g_cur+n,g_code+g_cur,g_codelen-g_cur+1); memcpy(g_code+g_cur,s,n); g_codelen+=n; g_cur+=n; g_csel=-1; g_codedirty=1; code_relex(); }
+static void code_back(void){ if(!g_code)return; int lo,hi; if(code_selrange(&lo,&hi)){ code_delsel(); return; } if(g_cur<=0)return; memmove(g_code+g_cur-1,g_code+g_cur,g_codelen-g_cur+1); g_cur--; g_codelen--; g_codedirty=1; code_relex(); }
+static void code_delfwd(void){ if(!g_code)return; int lo,hi; if(code_selrange(&lo,&hi)){ code_delsel(); return; } if(g_cur>=g_codelen)return; memmove(g_code+g_cur,g_code+g_cur+1,g_codelen-g_cur); g_codelen--; g_codedirty=1; code_relex(); }
+static void code_copy(void){ int lo,hi; if(!code_selrange(&lo,&hi))return; char*t=malloc(hi-lo+1); memcpy(t,g_code+lo,hi-lo); t[hi-lo]=0; SDL_SetClipboardText(t); free(t); }
+static void code_cut(void){ code_copy(); code_delsel(); g_codefollow=1; }
+static void code_paste(void){ char*t=SDL_GetClipboardText(); if(t&&t[0]){ code_insert(t,(int)strlen(t)); g_codefollow=1; } if(t)SDL_free(t); }
 static void cur_vert(int dir){ int ls=line_start(g_cur),col=g_cur-ls;
     if(dir<0){ if(ls==0)return; int p=line_start(ls-1),e=ls-1; g_cur=p+(col<e-p?col:e-p); }
     else { int e=line_end(g_cur); if(e>=g_codelen)return; int p=e+1,e2=line_end(p); g_cur=p+(col<e2-p?col:e2-p); } }
@@ -887,14 +893,17 @@ static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_
     if(g_codefollow){ if(cl<g_codescroll)g_codescroll=cl; else if(cl>=g_codescroll+rows)g_codescroll=cl-rows+1; g_codefollow=0; }
     int maxs=total>rows?total-rows:0; if(g_codescroll>maxs)g_codescroll=maxs; if(g_codescroll<0)g_codescroll=0;
     plain(R,x,y,gut,h,(Col){19,21,27});
+    int slo,shi,shas=code_selrange(&slo,&shi);
     int i=line_off(g_codescroll),ln=g_codescroll;
     for(int r=0;r<rows&&i<=g_codelen;r++,ln++){ int ly=y+4+r*g_mono_h,lend=line_end(i);
         int emk=-1; for(int e=0;e<g_nerr;e++)if(g_errline[e]==ln+1){ emk=g_errkind[e]; if(emk)break; }
         if(emk>=0){ Col ec=emk?(Col){210,80,80}:(Col){205,175,90}; plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){emk?44:40,30,30}); plain(R,x,ly-2,3,g_mono_h,ec); }
         if(ln==cl)plain(R,x+gut,ly-2,w-gut,g_mono_h,(Col){32,35,46});
         char num[12]; snprintf(num,sizeof num,"%d",ln+1); mono_str(R,num,x+gut-10-(int)strlen(num)*g_mono_cw,ly,ln==cl?(Col){150,160,180}:(Col){82,90,108});
-        int col=0; for(int j=i;j<lend;j++){ char c=g_code[j]; if(c=='\t'){ col+=4-(col&3); continue; } int cx=tx+col*g_mono_cw; if(cx>x+w-16)break;
+        int col=0; for(int j=i;j<lend;j++){ char c=g_code[j]; if(c=='\t'){ if(shas&&j>=slo&&j<shi)plain(R,tx+col*g_mono_cw,ly-2,4*g_mono_cw,g_mono_h,(Col){48,66,104}); col+=4-(col&3); continue; } int cx=tx+col*g_mono_cw; if(cx>x+w-16)break;
+            if(shas&&j>=slo&&j<shi)plain(R,cx,ly-2,g_mono_cw,g_mono_h,(Col){48,66,104});
             mono_char(R,c,cx,ly,code_pal(g_codecol?g_codecol[j]:0)); col++; }
+        if(shas&&lend>=slo&&lend<shi)plain(R,tx+col*g_mono_cw,ly-2,g_mono_cw/2,g_mono_h,(Col){48,66,104});   /* selected newline */
         if(ln==cl&&g_codefocus){ int cc=0; for(int j=i;j<g_cur;j++)cc=(g_code[j]=='\t')?cc+4-(cc&3):cc+1; plain(R,tx+cc*g_mono_cw,ly-1,1,g_mono_h,(Col){235,235,245}); }
         i=lend+1; }
     /* scrollbar */
@@ -1174,15 +1183,19 @@ int main(int argc,char**argv){
                     g_codescroll-=e.wheel.y*3; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; } }
             if(g_tab==TAB_CODE&&g_codefocus&&g_code){            /* code editor has keyboard focus */
                 if(e.type==SDL_TEXTINPUT){ code_insert(e.text.text,(int)strlen(e.text.text)); continue; }
-                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; int ctrl=(SDL_GetModState()&KMOD_CTRL)!=0; g_codefollow=1;   /* keep cursor in view on edit/nav */
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; SDL_Keymod md=SDL_GetModState(); int ctrl=(md&(KMOD_CTRL|KMOD_GUI))!=0, shift=(md&KMOD_SHIFT)!=0; g_codefollow=1;
                     if(ctrl&&k==SDLK_s)code_save();
+                    else if(ctrl&&k==SDLK_c)code_copy(); else if(ctrl&&k==SDLK_x)code_cut(); else if(ctrl&&k==SDLK_v)code_paste();
+                    else if(ctrl&&k==SDLK_a){ g_csel=0; g_cur=g_codelen; }
                     else if(k==SDLK_BACKSPACE)code_back(); else if(k==SDLK_DELETE)code_delfwd();
                     else if(k==SDLK_RETURN||k==SDLK_KP_ENTER)code_insert("\n",1); else if(k==SDLK_TAB)code_insert("    ",4);
-                    else if(k==SDLK_LEFT){ if(g_cur>0)g_cur--; } else if(k==SDLK_RIGHT){ if(g_cur<g_codelen)g_cur++; }
-                    else if(k==SDLK_UP)cur_vert(-1); else if(k==SDLK_DOWN)cur_vert(1);
-                    else if(k==SDLK_HOME)g_cur=line_start(g_cur); else if(k==SDLK_END)g_cur=line_end(g_cur);
-                    else if(k==SDLK_PAGEUP){ for(int z=0;z<12;z++)cur_vert(-1); } else if(k==SDLK_PAGEDOWN){ for(int z=0;z<12;z++)cur_vert(1); }
-                    else if(k==SDLK_ESCAPE)g_codefocus=0;
+                    else if(k==SDLK_LEFT||k==SDLK_RIGHT||k==SDLK_UP||k==SDLK_DOWN||k==SDLK_HOME||k==SDLK_END||k==SDLK_PAGEUP||k==SDLK_PAGEDOWN){
+                        if(shift){ if(g_csel<0)g_csel=g_cur; } else g_csel=-1;   /* shift extends a selection, else collapse */
+                        if(k==SDLK_LEFT){ if(g_cur>0)g_cur--; } else if(k==SDLK_RIGHT){ if(g_cur<g_codelen)g_cur++; }
+                        else if(k==SDLK_UP)cur_vert(-1); else if(k==SDLK_DOWN)cur_vert(1);
+                        else if(k==SDLK_HOME)g_cur=line_start(g_cur); else if(k==SDLK_END)g_cur=line_end(g_cur);
+                        else if(k==SDLK_PAGEUP){ for(int z=0;z<12;z++)cur_vert(-1); } else if(k==SDLK_PAGEDOWN){ for(int z=0;z<12;z++)cur_vert(1); } }
+                    else if(k==SDLK_ESCAPE){ if(g_csel>=0)g_csel=-1; else g_codefocus=0; }
                     continue; } }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y; g_codefocus=0;   /* refocus editor only on an editor click */
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
@@ -1204,12 +1217,14 @@ int main(int argc,char**argv){
                     continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; } }
                     else if(g_tab==TAB_PIXEL)pixel_down(mx,my);
-                    else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; } else code_click(mx,my); }
+                    else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
+                        else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
                     else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
+            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; } if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
+                if(g_codeseldrag){ code_click(e.motion.x,e.motion.y); continue; }   /* drag-select text */
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
