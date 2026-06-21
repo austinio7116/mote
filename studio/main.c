@@ -272,6 +272,18 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     } }
 
 /* ================= panels ================= */
+/* ---- Lucide icon atlas (1152x48, 48px cells) ---- */
+static SDL_Texture *g_icons;
+enum { IC_CHEV_R,IC_CHEV_D,IC_FOLDER,IC_FOLDER_O,IC_FILE,IC_FILE_CODE,IC_SETTINGS,IC_IMAGE,IC_BOX,
+       IC_PLAY,IC_SQUARE,IC_HAMMER,IC_UPLOAD,IC_CODE,IC_PLUS,IC_SAVE,IC_PENCIL,IC_ERASER,IC_BUCKET,
+       IC_PIPETTE,IC_GRID,IC_ZOOM,IC_UNDO,IC_TREE };
+static void load_icons(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/icons.png",&w,&h,&n,4);
+    if(!d)return; g_icons=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
+    SDL_SetTextureScaleMode(g_icons,SDL_ScaleModeLinear); SDL_UpdateTexture(g_icons,NULL,d,w*4);
+    SDL_SetTextureBlendMode(g_icons,SDL_BLENDMODE_BLEND); stbi_image_free(d); }
+static void icon(SDL_Renderer*R,int idx,int x,int y,int sz,Col c){ if(!g_icons)return;
+    SDL_SetTextureColorMod(g_icons,c.r,c.g,c.b); SDL_Rect s={idx*48,0,48,48},d={x,y,sz,sz}; SDL_RenderCopy(R,g_icons,&s,&d); }
+
 static void draw_menubar(SDL_Renderer*R){ plain(R,0,0,WIN_W,MENU_H,C_HDR); plain(R,0,MENU_H-1,WIN_W,1,C_LINE);
     int x=10; text(R,"MOTE STUDIO",x,7,1,C_TITLE,C_HDR); x+=textw(R,"MOTE STUDIO",1)+22;
     for(int i=0;i<NMENU;i++){ int w=textw(R,MENUS[i].title,1)+20; if(g_menu_open==i)plain(R,x,0,w,MENU_H,C_PANEL);
@@ -283,24 +295,38 @@ static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=
 typedef struct { int x,y,w,h; const char*l; int a; } Tbtn;
 static Tbtn g_tb[8]; static int g_ntb;
 static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL); plain(R,0,MENU_H+TOOL_H-1,WIN_W,1,C_LINE);
-    int y=MENU_H+8,x=12; g_ntb=0;
-    char proj[80]; snprintf(proj,sizeof proj,"%s",g_sel>=0?g_games[g_sel].name:"(no project)");
-    rrect(R,x,y,150,28,6,C_DOCK); text(R,proj,x+10,y+7,2,g_sel>=0?C_TITLE:C_DIM,C_DOCK); x+=164;
-    plain(R,x,y,1,28,C_LINE); x+=12;
-    struct { const char*l; int a; } btns[]={ {"RUN",A_RELOAD},{"STOP",A_STOP},{"BUILD",A_BUILD},{"PUSH",A_PUSH},{"VS CODE",A_VSCODE} };
-    for(int i=0;i<5;i++){ int w=textw(R,btns[i].l,2)+20; rrect(R,x,y,w,28,6,C_BTN); rrect(R,x,y,w,2,6,C_BTNHI);
-        text(R,btns[i].l,x+10,y+7,2,C_TXT,C_BTN); g_tb[g_ntb++]=(Tbtn){x,y,w,28,btns[i].l,btns[i].a}; x+=w+8; }
-    char st[200]; snprintf(st,sizeof st,"%.180s",g_status); int sw=textw(R,st,1); text(R,st,WIN_W-sw-14,y+9,1,C_DIM,C_PANEL); }
+    int y=MENU_H+8,x=12; g_ntb=0; int mx,my; SDL_GetMouseState(&mx,&my);
+    char proj[80]; snprintf(proj,sizeof proj,"%.70s",g_sel>=0?g_games[g_sel].name:"no project");
+    rrect(R,x,y,158,28,4,C_DOCK); icon(R,IC_FOLDER_O,x+9,y+7,15,g_sel>=0?(Col){220,200,120}:C_DIM);
+    text(R,proj,x+30,y+8,1,g_sel>=0?C_TITLE:C_DIM,C_DOCK); x+=170;
+    plain(R,x,y-2,1,32,C_LINE); x+=12;
+    struct { const char*l; int a,ic; } btns[]={ {"Run",A_RELOAD,IC_PLAY},{"Stop",A_STOP,IC_SQUARE},
+        {"Build",A_BUILD,IC_HAMMER},{"Push",A_PUSH,IC_UPLOAD},{"VS Code",A_VSCODE,IC_CODE} };
+    for(int i=0;i<5;i++){ int w=textw(R,btns[i].l,1)+40; int hov=hit(mx,my,x,y,w,28);
+        Col bg=hov?C_BTNHI:C_BTN; rrect(R,x,y,w,28,4,bg);
+        icon(R,btns[i].ic,x+10,y+7,14,i==1?(Col){240,150,150}:i==0?(Col){150,230,160}:C_TXT);
+        text(R,btns[i].l,x+30,y+8,1,C_TXT,bg); g_tb[g_ntb++]=(Tbtn){x,y,w,28,btns[i].l,btns[i].a}; x+=w+7; }
+    char st[200]; snprintf(st,sizeof st,"%.180s",g_status); int sw=textw(R,st,1); text(R,st,WIN_W-sw-16,y+8,1,C_DIM,C_PANEL); }
 
+/* does the ancestor at level `a` have a later sibling (so the vertical continues)? */
+static int tree_continues(int i,int a){ for(int j=i+1;j<g_ntree;j++){ if(g_tree[j].depth<a)return 0; if(g_tree[j].depth==a)return 1; } return 0; }
 static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK); plain(R,LEFT_W-1,TOPH,1,BOT_Y-TOPH,C_LINE);
-    plain(R,0,TOPH,LEFT_W,20,C_HDR); text(R,"PROJECT",8,TOPH+6,1,C_DIM,C_HDR);
-    if(g_sel<0){ text(R,"Project > Open...",12,TOPH+34,1,C_DIM,C_DOCK); return; }
-    for(int i=0;i<g_ntree;i++){ int y=TOPH+24+i*ROW_H; if(y>BOT_Y-ROW_H)break; TRow*r=&g_tree[i];
-        if(i==g_tsel)plain(R,0,y,LEFT_W,ROW_H,C_SEL);
-        Col fg = r->kind==0? C_TITLE : (i==g_tsel?C_TXT:C_DIM);
-        const char*ic = r->kind==0?"[]":r->kind==1?"::":r->kind==2?"<>":r->kind==3?"##":r->kind==4?"3d":". ";
-        int x=8+r->depth*12; text(R,ic,x,y+5,1,r->kind==3?C_ACC:fg,i==g_tsel?C_SEL:C_DOCK);
-        text(R,r->name,x+16,y+5,1,fg,i==g_tsel?C_SEL:C_DOCK); } }
+    plain(R,0,TOPH,LEFT_W,24,C_HDR); icon(R,IC_TREE,9,TOPH+6,13,C_DIM); text(R,"EXPLORER",28,TOPH+7,1,C_DIM,C_HDR);
+    if(g_sel<0){ text(R,"Project ‣ Open…",14,TOPH+40,1,C_DIM,C_DOCK); return; }
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    for(int i=0;i<g_ntree;i++){ int y=TOPH+28+i*ROW_H; if(y>BOT_Y-ROW_H)break; TRow*r=&g_tree[i];
+        int sel=(i==g_tsel), hov=(mx<LEFT_W&&my>=y&&my<y+ROW_H);
+        Col bg = sel?C_SEL : (hov?(Col){36,40,54}:C_DOCK);
+        if(sel||hov) plain(R,0,y,LEFT_W,ROW_H,bg);
+        if(sel) plain(R,0,y,2,ROW_H,C_ACC);
+        int d=r->depth, ix=14+d*16; Col lc={70,76,98};
+        for(int a=1;a<d;a++) if(tree_continues(i,a)) plain(R,6+a*16,y,1,ROW_H,lc);   /* ancestor verticals */
+        if(d>0){ int vx=6+d*16, midy=y+ROW_H/2;                                       /* this item's ├─ / └─ */
+            plain(R,vx,y,1,tree_continues(i,d)?ROW_H:(ROW_H/2),lc); plain(R,vx,midy,8,1,lc); }
+        int icid = r->kind==0?IC_FOLDER_O : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : IC_FILE;
+        Col icc = r->kind==0?(Col){222,200,120} : r->kind==2?(Col){122,182,240} : r->kind==3?(Col){130,206,150} : r->kind==4?(Col){200,150,230} : C_DIM;
+        icon(R,icid,ix,y+(ROW_H-15)/2,15,icc);
+        text(R,r->name,ix+20,y+(ROW_H-14)/2+1,1,sel?C_TXT:(r->kind==0?C_TXT:(Col){186,194,214}),bg); } }
 
 /* the emulator — faithful irregular-octagon Thumby Color shell */
 static void rainbow_logo(SDL_Renderer*R,int cx,int cy,Col bg){ const char*w1="Thumby "; int x=cx; ptext(R,w1,x,cy,2,(Col){235,235,245},bg); x+=ptextw(R,w1,2);
@@ -508,7 +534,7 @@ int main(int argc,char**argv){
         SDL_SetWindowMinimumSize(win,1000,680);
         ren=SDL_CreateRenderer(win,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC); }
     SDL_Texture*tex=SDL_CreateTexture(ren,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,MOTE_FB_W,MOTE_FB_H);
-    ui_font_init(ren); load_device(ren); load_scr_cfg();
+    ui_font_init(ren); load_device(ren); load_icons(ren); load_scr_cfg();
     SDL_SetTextureScaleMode(tex,SDL_ScaleModeNearest);   /* crisp integer-scaled pixels */
     SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
 
@@ -551,7 +577,7 @@ int main(int argc,char**argv){
                     if(mx>=x&&mx<x+w&&my>=y&&my<y+m->n*22+6){ int i=(my-y-4)/22; if(i>=0&&i<m->n)dispatch(m->it[i].a); }
                     g_menu_open=-1; continue; }
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }
-                if(mx<LEFT_W&&my<BOT_Y){ int i=(my-(TOPH+24))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
+                if(mx<LEFT_W&&my<BOT_Y){ int i=(my-(TOPH+28))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
                 if(mx>=INSP_X&&my<BOT_Y){ if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
                     else if(hit(mx,my,g_insp_bake.x,g_insp_bake.y,g_insp_bake.w,g_insp_bake.h))dispatch(A_BAKEALL); continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h))g_tab=i; }
