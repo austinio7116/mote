@@ -31,7 +31,9 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 13u  /* v13: camera-aware scene (scene_camera) */
+#define MOTE_ABI_VERSION 14u  /* v14: render-time autotiling (scene2d_set_autotiles) */
+
+struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
 /* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
  * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
@@ -168,6 +170,15 @@ typedef struct MoteApi {
      * convention). Pass the SAME cam_pos to scene_set_splats() for a consistent
      * scene. scene_begin() still works (it's just scene_camera with pos 0). */
     void (*scene_camera)(const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg);
+
+    /* --- ABI v14: render-time autotiling. Hand the engine a LOGICAL terrain map
+     * (one byte per cell: 0 = empty, 1..n index `tiles`) plus a ruleset per
+     * terrain; the 2D raster picks each cell's atlas tile from its 8 neighbours.
+     * No resolved buffer — re-call it for free when the map changes (procgen,
+     * destructible). Build rulesets with mote_autotile_template() (mote_tile.h)
+     * or bake them in Mote Studio's Tiles tab. */
+    void (*scene2d_set_autotiles)(const uint8_t *terrain, int cols, int rows,
+                                  const struct MoteAutotile *const *tiles, int n);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

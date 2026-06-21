@@ -118,6 +118,8 @@ void mote_api_fill(MoteApi *a) {
     a->audio_play            = os_audio_play;
     /* ABI v13: camera-aware 3D scene. */
     a->scene_camera          = mote_scene_camera;
+    /* ABI v14: render-time autotiling. */
+    a->scene2d_set_autotiles = mote_scene2d_set_autotiles;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

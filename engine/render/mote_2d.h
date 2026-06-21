@@ -62,6 +62,9 @@ typedef struct {
 void mote_scene2d_begin(int cam_x, int cam_y);
 void mote_scene2d_clear(void);   /* empty the 2D scene (OS calls each frame) */
 void mote_scene2d_set_tilemap(const MoteTilemap *map, const MoteTileset *tiles);
+struct MoteAutotile;
+void mote_scene2d_set_autotiles(const uint8_t *terrain, int cols, int rows,
+                                const struct MoteAutotile *const *tiles, int n);
 int  mote_scene2d_add(const MoteSprite *spr);     /* returns 0 if full */
 void mote_scene2d_raster(uint16_t *fb, int y0, int y1);
 int  mote_scene2d_sprite_count(void);
