@@ -463,6 +463,25 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     rrect(R,zx+56,zy,24,22,4,C_BTN); text(R,"+",zx+63,zy+4,1,C_TXT,C_BTN);
 }
 
+/* ---- parse the game's MoteConfig from src/game.c for the inspector ---- */
+static int eval_expr(const char*s){ int total=0,term=1,n=0,innum=0,mul=0;
+    for(const char*p=s;;p++){ char c=*p;
+        if(c>='0'&&c<='9'){ n=n*10+(c-'0'); innum=1; }
+        else { if(innum){ if(mul)term*=n; else term=n; innum=0; n=0; }
+            if(c=='*')mul=1; else if(c=='+'){ total+=term; term=1; mul=0; } else if(c==0||c=='}'||c==','||c=='\n'){ total+=term; break; } } }
+    return total; }
+typedef struct { int tris,spheres,splats,sprites,bodies,contacts,mesh_tris,depth,found; } MCfg;
+static MCfg parse_config(const char*dir){ MCfg c={0,0,0,0,0,0,0,0,0}; char p[320]; snprintf(p,sizeof p,"%.250s/src/game.c",dir);
+    FILE*f=fopen(p,"r"); if(!f)return c; static char buf[400000]; size_t n=fread(buf,1,sizeof buf-1,f); buf[n]=0; fclose(f);
+    char*cf=strstr(buf,".config"); if(!cf)return c; char*op=strchr(cf,'{'); if(!op)return c; c.found=1; char*cl=strchr(op,'}');
+    struct { const char*k; int*v; } fl[]={ {"max_tris",&c.tris},{"max_spheres",&c.spheres},{"max_splats",&c.splats},{"max_sprites",&c.sprites},
+        {"max_bodies",&c.bodies},{"max_contacts",&c.contacts},{"max_mesh_tris",&c.mesh_tris},{"depth",&c.depth} };
+    for(int i=0;i<8;i++){ char key[24]; snprintf(key,sizeof key,".%s",fl[i].k); char*k=strstr(op,key);
+        if(k&&(!cl||k<cl)){ char*eq=strchr(k,'='); if(eq)*fl[i].v=eval_expr(eq+1); } }
+    return c; }
+static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*20+(long)c->splats*24+(long)c->sprites*16
+    +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0); }
+
 static SDL_Rect g_insp_edit, g_insp_bake;
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR); text(R,"INSPECTOR",INSP_X+8,TOPH+6,1,C_DIM,C_HDR);
@@ -473,7 +492,18 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
     text(R,tn,x,y,1,C_ACC,C_DOCK); y+=20;
     struct stat st; if(stat(r->path,&st)==0){ char sz[48]; snprintf(sz,sizeof sz,"%ld bytes",(long)st.st_size); text(R,sz,x,y,1,C_DIM,C_DOCK); y+=18; }
     text(R,r->path,x,y,1,C_DIM,C_DOCK); y+=24;
-    if(r->kind==1){ FILE*f=fopen(r->path,"r"); if(f){ char ln[120]; while(fgets(ln,sizeof ln,f)){ ln[strcspn(ln,"\n")]=0; if(ln[0])text(R,ln,x,y,1,C_TXT,C_DOCK),y+=16; } fclose(f); } y+=8; }
+    if(r->kind==1){ FILE*f=fopen(r->path,"r"); if(f){ char ln[120]; while(fgets(ln,sizeof ln,f)){ ln[strcspn(ln,"\n")]=0; if(ln[0])text(R,ln,x,y,1,C_TXT,C_DOCK),y+=16; } fclose(f); } y+=10;
+        MCfg c=parse_config(g_games[g_sel].dir);                /* MoteConfig pools from src/game.c */
+        if(c.found){ plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
+            struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"spheres",c.spheres},{"splats",c.splats},
+                {"2D sprites",c.sprites},{"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
+            for(int i=0;i<7;i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
+                int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
+            text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
+            long used=arena_bytes(&c); float frac=used/286720.0f; if(frac>1)frac=1;          /* 280 KB load arena */
+            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>286720?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
+            plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
+            plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24; } }
     if(r->kind==3){ char info[64]; FILE*f=fopen("/tmp/mote_isz.txt","w"); (void)f; if(f)fclose(f);
         snprintf(info,sizeof info,"transparent key = magenta"); text(R,info,x,y,1,C_DIM,C_DOCK); y+=18;
         text(R,"opens in Pixel Art tab",x,y,1,C_DIM,C_DOCK); y+=22; }
@@ -729,6 +759,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
+    if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
     int running=1,watch=0;
     do { SDL_Event e;
