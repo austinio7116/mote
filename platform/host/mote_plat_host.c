@@ -12,9 +12,14 @@
  *   MENU  : Enter             Quit: Esc / window close
  */
 #include "../../engine/core/mote_platform.h"
+#include "../../engine/audio/mote_audio.h"
 #include <SDL2/SDL.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+static void mote_host_audio_cb(void *u, Uint8 *stream, int len){ (void)u;
+    mote_audio_render((int16_t *)stream, len / 2);   /* 16-bit mono */
+}
 
 #ifndef MOTE_HOST_SCALE
 #define MOTE_HOST_SCALE 4
@@ -53,6 +58,13 @@ int mote_plat_init(const char *title) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
+    }
+    mote_audio_init();
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+        SDL_AudioSpec want; SDL_memset(&want, 0, sizeof want);
+        want.freq = MOTE_AUDIO_RATE; want.format = AUDIO_S16SYS; want.channels = 1;
+        want.samples = 512; want.callback = mote_host_audio_cb;
+        if (SDL_OpenAudio(&want, NULL) == 0) SDL_PauseAudio(0);
     }
     s_freq = SDL_GetPerformanceFrequency();
     s_quit = false;
@@ -149,4 +161,5 @@ void mote_plat_shutdown(void) {
 }
 
 void mote_plat_set_brightness(int pct) { (void)pct; }   /* host: no backlight */
-void mote_plat_set_volume(int pct) { (void)pct; }
+void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
+void mote_plat_audio_pump(void) { }                      /* host: SDL pulls via callback */

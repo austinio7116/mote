@@ -13,6 +13,7 @@
 #include "mote_perf.h"
 #include "mote_launcher.h"   /* shared framebuffer (mote_launcher_fb) */
 #include "mote_arena.h"      /* load-time resource arena */
+#include "mote_audio.h"      /* synth */
 #include "mote_menu.h"       /* engine overlay menu (3s MENU hold) */
 #include <string.h>
 
@@ -73,6 +74,9 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v9: load-time arena. */
     a->alloc                 = os_alloc;
     a->arena_free            = os_arena_free;
+    /* ABI v10: audio. */
+    a->audio_note            = mote_audio_note;
+    a->audio_off             = mote_audio_off;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -162,6 +166,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_plat_buttons(&raw);
         mote_input_update(&in, &raw, (uint32_t)(dt * 1000.0f));
         s_cur_input = &in;
+        mote_plat_audio_pump();        /* keep the audio buffer fed (device) */
 
         /* Engine menu: a 3-second SOLO hold of MENU (no other button) opens it.
          * Short taps, sub-3s long presses, and MENU chords stay free for games. */
@@ -219,5 +224,6 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 
         mote_perf_record(update_us, c0_us, c1_us, flush_us, frame_us);
     }
+    mote_audio_off();         /* don't let notes ring into the launcher */
     mote_plat_wait_flush();   /* let the launcher safely reclaim the shared fb */
 }

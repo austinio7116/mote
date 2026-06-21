@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 9u   /* v9: MoteConfig pools + alloc (dynamic load-time arena) */
+#define MOTE_ABI_VERSION 10u  /* v10: audio (audio_note / audio_off) */
 
 /* ---------------------------------------------------------------------------
  * MoteConfig — the game declares the resource pools it needs. The OS sizes the
@@ -137,6 +137,14 @@ typedef struct MoteApi {
      * arena_free() reports the bytes left for the game. */
     void   *(*alloc)(uint32_t bytes);
     uint32_t (*arena_free)(void);
+
+    /* --- ABI v10: audio. A small polyphonic synth mixed to 22050 Hz (SDL on the
+     * host, 12-bit PWM on the device). audio_note() strikes a one-shot note with
+     * a piano-ish decay (freq in Hz, amp 0..1) — fire one per key press; voices
+     * are stolen when all 8 are busy. audio_off() silences everything. Master
+     * volume follows the engine menu. */
+    void (*audio_note)(float freq, float amp);
+    void (*audio_off)(void);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

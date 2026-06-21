@@ -126,6 +126,12 @@ directly** — only the ABI.
 - Buttons: `MOTE_BTN_A B UP DOWN LEFT RIGHT LB RB MENU`
 - **MENU is yours** — the OS reserves only a **3-second solo MENU hold** for the system menu (§7).
 
+### Audio
+- `audio_note(float freq, float amp)` — strike a note on the polyphonic synth
+  (piano-ish strike + decay; 8 voices, stolen when busy). Mixed to 22050 Hz — SDL
+  on the host, 12-bit PWM (GP23) on the device. `audio_off()` silences everything.
+  Master volume follows the engine menu's VOLUME. See `piano3d`.
+
 ### Text & telemetry & memory
 - `text(fb, str, x, y, col)` · `text_2x(...)` — 8×8 bitmap font
 - `micros()` → `uint64_t` · `log(const char *)` · `perf(uint32_t out[6])` (fps, update_us, raster_us, flush_us, c0%, c1%)
@@ -256,6 +262,7 @@ sub-meshes. Render a model by drawing every chunk at one transform — see
 | `terrain` | `mote_mesh_grid` auto-chunked heightfield |
 | `cluster`, `zelda`, `splats` | Gaussian-splat scenes |
 | `modelview` | loading a real STL model |
+| `piano3d` | the audio synth — a playable 3D keyboard |
 | `tiledemo` | the 2D scene + sprites |
 
 ---

@@ -27,7 +27,7 @@ set(PLATDEV ${ROOT}/platform/device)
 
 set(MOTE_INCS
     ${ENGINE}/core ${ENGINE}/math ${ENGINE}/render
-    ${ENGINE}/assets ${ENGINE}/input ${ENGINE}/physics
+    ${ENGINE}/assets ${ENGINE}/input ${ENGINE}/physics ${ENGINE}/audio
     ${SDK} ${OSDIR})
 
 set(MOTE_ARCH -mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mfpu=fpv5-sp-d16)
@@ -48,6 +48,7 @@ add_executable(mote_os
 
     ${PLATDEV}/mote_plat_device.c
     ${PLATDEV}/lcd_gc9107.c
+    ${PLATDEV}/mote_audio_pwm.c
     ${PLATDEV}/buttons.c
 
     ${ENGINE}/render/mote_raster.c
@@ -57,6 +58,7 @@ add_executable(mote_os
     ${ENGINE}/render/mote_font.c
     ${ENGINE}/render/mote_2d.c
     ${ENGINE}/physics/mote_phys.c
+    ${ENGINE}/audio/mote_audio.c
     ${ENGINE}/core/mote_perf.c
     ${ENGINE}/core/mote_arena.c
     ${ENGINE}/input/mote_input.c)
@@ -73,7 +75,7 @@ target_compile_options(mote_os PRIVATE
 target_link_libraries(mote_os
     pico_stdlib pico_multicore pico_unique_id
     hardware_spi hardware_dma hardware_clocks hardware_gpio
-    hardware_flash hardware_sync hardware_pwm
+    hardware_flash hardware_sync hardware_pwm hardware_irq
     tinyusb_device tinyusb_board)
 
 # Reserve the top 128 KB of SRAM for the loaded game module.

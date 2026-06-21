@@ -19,6 +19,7 @@ set(MOTE_ENGINE_SOURCES
     ${MOTE_ENGINE_DIR}/render/mote_font.c
     ${MOTE_ENGINE_DIR}/render/mote_2d.c
     ${MOTE_ENGINE_DIR}/physics/mote_phys.c
+    ${MOTE_ENGINE_DIR}/audio/mote_audio.c
     ${MOTE_ENGINE_DIR}/core/mote_perf.c
     ${MOTE_ENGINE_DIR}/core/mote_arena.c
     ${MOTE_ENGINE_DIR}/input/mote_input.c
@@ -91,12 +92,4 @@ if(MOTE_TARGET STREQUAL "host")
         target_compile_options(${gname} PRIVATE -O2 -ffast-math -fPIC)
     endforeach()
 
-    # Phase 0 standalone (own loop, links engine directly) — kept as the
-    # parity reference and the basis of the device firmware.
-    add_executable(hello_mesh_standalone examples/hello-mesh/src/main.c)
-    target_include_directories(hello_mesh_standalone PRIVATE
-        ${MOTE_INCLUDE_DIRS}
-        examples/hello-mesh/src)
-    target_compile_options(hello_mesh_standalone PRIVATE -O2 -ffast-math)
-    target_link_libraries(hello_mesh_standalone PRIVATE mote_engine mote_plat_host)
 endif()

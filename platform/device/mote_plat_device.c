@@ -12,8 +12,10 @@
  * the OS render loop in Phase 1.
  */
 #include "../../engine/core/mote_platform.h"
+#include "../../engine/audio/mote_audio.h"
 #include "lcd_gc9107.h"
 #include "buttons.h"
+#include "mote_audio_pwm.h"
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -101,6 +103,8 @@ int mote_plat_init(const char *title) {
                     280 * 1000 * 1000, 280 * 1000 * 1000);
     mote_lcd_init();
     mote_buttons_init();
+    mote_audio_init();
+    mote_audio_pwm_init();
     s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
     multicore_launch_core1(core1_entry);
     mote_usb_init();
@@ -147,4 +151,9 @@ int mote_plat_pending_launch(void) { return mote_usb_take_launch(); }
 void mote_plat_shutdown(void) { mote_lcd_backlight(0); }
 
 void mote_plat_set_brightness(int pct) { mote_lcd_brightness(pct); }
-void mote_plat_set_volume(int pct) { (void)pct; }   /* no audio mixer yet */
+void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
+
+void mote_plat_audio_pump(void) {
+    int room = mote_audio_pwm_room();
+    while (room >= 128) { int16_t buf[128]; mote_audio_render(buf, 128); mote_audio_pwm_push(buf, 128); room -= 128; }
+}

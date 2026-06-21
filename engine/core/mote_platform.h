@@ -60,8 +60,12 @@ void mote_plat_log(const char *s);
 void mote_plat_shutdown(void);
 
 /* Engine-menu system controls (0..100). Brightness drives the LCD backlight;
- * volume is held for the audio mixer. No-ops where unsupported. */
+ * volume sets the audio mixer master. No-ops where unsupported. */
 void mote_plat_set_brightness(int pct);
 void mote_plat_set_volume(int pct);
+
+/* Keep the audio output fed — called once per frame by the OS. On the device it
+ * refills the PWM ring from the synth; on the host SDL pulls, so it's a no-op. */
+void mote_plat_audio_pump(void);
 
 #endif /* MOTE_PLATFORM_H */
