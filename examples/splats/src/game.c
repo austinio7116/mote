@@ -7,9 +7,10 @@
  * sorts back-to-front and alpha-blends — so the canopy reads as soft layered
  * foliage and front leaves occlude the branches behind as you orbit.
  *
- * Controls: LEFT/RIGHT orbit · UP/DOWN tilt · A spin toggle · MENU exit
+ * Controls: LEFT/RIGHT orbit · UP/DOWN tilt · A spin toggle
  */
 #include "mote_api.h"
+#include "mote_build.h"
 #include <math.h>
 
 MOTE_GAME_MODULE();
@@ -114,18 +115,25 @@ static void g_update(float dt) {
     if (s_tilt < -0.3f) s_tilt = -0.3f;
 
     float r = 4.2f;
+    Vec3 target = v3(0, 0.25f, 0);
     s_cam = v3(sinf(s_orbit)*cosf(s_tilt)*r, 0.3f + sinf(s_tilt)*r, -cosf(s_orbit)*cosf(s_tilt)*r);
-    Vec3 fwd = v3_norm(v3_sub(v3(0,0.25f,0), s_cam));
-    Vec3 right = v3_norm(v3_cross(v3(0,1,0), fwd));
-    s_basis.r[0] = right; s_basis.r[1] = v3_cross(fwd, right); s_basis.r[2] = fwd;
+    s_basis = mote_camera_look(s_cam, target);
     mote->scene_begin(&s_basis, 52.0f);
     mote->scene_set_splats(s_splat, s_n, s_order, &s_basis, s_cam, 52.0f, 0);
 }
 
 static void g_overlay(uint16_t *fb) {
-    mote->text(fb, "SPLAT TREE", 3, 3, MOTE_RGB565(40,50,30));
-    mote->text(fb, "LR/UD ORBIT  A SPIN", 3, 118, MOTE_RGB565(40,50,30));
+    char b[20]; int q = 0; const char *pre = "TREE ";
+    while (*pre) b[q++] = *pre++;
+    q += mote_itoa(s_n, b + q);
+    b[q++] = ' '; b[q++] = 'G'; b[q] = 0;     /* G = Gaussians */
+    mote_ui_panel(fb, 1, 1, 78, 11, MOTE_RGB565(40, 60, 40), MOTE_RGB565(110, 160, 110));
+    mote->text(fb, b, 4, 3, MOTE_RGB565(220, 240, 210));
+    mote->text(fb, "LR/UD ORBIT  A SPIN", 3, 118, MOTE_RGB565(40, 56, 34));
 }
 
-static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update, .overlay = g_overlay };
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = { .max_splats = MAXSPLAT, .depth = 1 },
+};
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

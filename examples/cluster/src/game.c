@@ -1,12 +1,13 @@
 /*
  * cluster — a REAL captured 3D Gaussian-Splatting scene ("cluster fly", a
  * Postshot photogrammetry capture), converted with tools/ply2splat.py and
- * rendered by mote_splat. 6000 of the 25627 Gaussians (importance-downsampled
+ * rendered by mote_splat. 12000 of the 25627 Gaussians (importance-downsampled
  * to fit the device), depth-sorted + blended across both cores.
  *
- * Controls: LEFT/RIGHT orbit · UP/DOWN tilt · A spin toggle · MENU exit
+ * Controls: LEFT/RIGHT orbit · UP/DOWN splat count · A spin toggle
  */
 #include "mote_api.h"
+#include "mote_build.h"
 #include "cluster_data.h"
 #include <math.h>
 
@@ -17,9 +18,13 @@ MOTE_MODULE_HEADER();
 #endif
 
 static int s_order[CLUSTER_SPLATS_COUNT];
-static float s_orbit = 0.5f, s_tilt = 0.2f; static int s_spin = 1;
+static float s_orbit = 0.5f, s_tilt = 0.18f; static int s_spin = 1;
 static float s_countf = CLUSTER_SPLATS_COUNT;   /* live splat-count dial (UP/DOWN) */
 static Vec3 s_cam; static Mat3 s_basis;
+
+/* frame the capture: orbit centre + radius chosen so the fly fills the view */
+static const Vec3 k_target = { 0.0f, 0.05f, 0.0f };
+#define ORBIT_R 4.0f
 
 static void g_init(void){ mote->scene_set_background(MOTE_RGB565(6, 7, 12)); }
 
@@ -36,27 +41,29 @@ static void g_update(float dt){
     if (s_countf < 100.0f) s_countf = 100.0f;
     if (s_spin) s_orbit += 0.25f*dt;
 
-    float r = 4.0f;
-    s_cam = v3(sinf(s_orbit)*cosf(s_tilt)*r, sinf(s_tilt)*r, -cosf(s_orbit)*cosf(s_tilt)*r);
-    Vec3 fwd = v3_norm(v3_sub(v3(0,0,0), s_cam));
-    Vec3 right = v3_norm(v3_cross(v3(0,1,0), fwd));
-    s_basis.r[0] = right; s_basis.r[1] = v3_cross(fwd, right); s_basis.r[2] = fwd;
+    s_cam = v3_add(k_target, v3(sinf(s_orbit)*cosf(s_tilt)*ORBIT_R,
+                                sinf(s_tilt)*ORBIT_R,
+                               -cosf(s_orbit)*cosf(s_tilt)*ORBIT_R));
+    s_basis = mote_camera_look(s_cam, k_target);
 
     mote->scene_begin(&s_basis, 50.0f);
     mote->scene_set_splats(cluster_splats, (int)s_countf, s_order, &s_basis, s_cam, 50.0f, 0);
 }
 
 static void g_overlay(uint16_t *fb){
-    char b[24]; int n = (int)s_countf;
-    /* tiny int->str (no snprintf dependency in the module) */
-    char num[8]; int p = 0; if (n == 0) num[p++]='0';
-    char tmp[8]; int t2 = 0; while (n > 0) { tmp[t2++] = '0' + n%10; n/=10; }
-    while (t2 > 0) num[p++] = tmp[--t2]; num[p] = 0;
-    int q = 0; const char *pre = "SPLATS "; while (*pre) b[q++]=*pre++;
-    for (int i = 0; num[i]; i++) b[q++] = num[i]; b[q] = 0;
-    mote->text(fb, b, 3, 3, MOTE_RGB565(210,220,240));
-    mote->text(fb, "LR ORBIT UD COUNT A SPIN", 2, 118, MOTE_RGB565(150,160,180));
+    char b[16]; int q = 0; const char *pre = "SPLATS ";
+    while (*pre) b[q++] = *pre++;
+    q += mote_itoa((int)s_countf, b + q);
+    mote_ui_panel(fb, 1, 1, 74, 11, MOTE_RGB565(8, 10, 18), MOTE_RGB565(60, 80, 120));
+    mote->text(fb, b, 4, 3, MOTE_RGB565(210, 220, 240));
+    /* live fraction bar of the splat-count dial */
+    mote_ui_bar(fb, 1, 13, 74, 3, s_countf / (float)CLUSTER_SPLATS_COUNT,
+                MOTE_RGB565(90, 150, 240), MOTE_RGB565(20, 26, 40));
+    mote->text(fb, "LR ORBIT UD COUNT A SPIN", 2, 118, MOTE_RGB565(150, 160, 180));
 }
 
-static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update, .overlay = g_overlay };
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = { .max_splats = CLUSTER_SPLATS_COUNT, .depth = 1 },
+};
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }

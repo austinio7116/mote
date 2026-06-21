@@ -17,6 +17,7 @@
  *   B          : re-rack    MENU : exit
  */
 #include "mote_api.h"
+#include "mote_build.h"     /* mote_camera_look + immediate-mode HUD helpers */
 #include "cue_table.h"      /* -> cue_physics.h -> mote_vec.h (vendored) */
 #include <math.h>
 
@@ -144,10 +145,7 @@ static void update_camera(void) {
     float dist = 0.58f, elev = 0.34f;        /* aim-cam orbit behind the cue ball */
     Vec3 cam = v3(P.x - dir.x*dist, s_table.R + elev, P.z - dir.z*dist);
     Vec3 target = v3(P.x + dir.x*0.20f, s_table.R, P.z + dir.z*0.20f);
-    Vec3 fwd = v3_norm(v3_sub(target, cam));
-    Vec3 right = v3_norm(v3_cross(v3(0,1,0), fwd));
-    Vec3 up = v3_cross(fwd, right);
-    cam_basis.r[0] = right; cam_basis.r[1] = up; cam_basis.r[2] = fwd;
+    cam_basis = mote_camera_look(cam, target);
     cam_pos = cam;
 }
 
@@ -206,24 +204,27 @@ static void g_update(float dt) {
     }
 }
 
-/* --- HUD ---------------------------------------------------------------- */
+/* --- HUD (immediate-mode helpers from mote_build.h) --------------------- */
 static inline void px(uint16_t *fb, int x, int y, uint16_t c) {
     if ((unsigned)x < 128u && (unsigned)y < 128u) fb[y * 128 + x] = c;
 }
-static void rect(uint16_t *fb, int x, int y, int w, int h, uint16_t c) {
-    for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) px(fb, x+i, y+j, c);
-}
 static void g_overlay(uint16_t *fb) {
     if (s_state == SHOOT) { mote->text(fb, "...", 4, 118, MOTE_RGB565(150,150,160)); return; }
-    rect(fb, 4, 120, 52, 4, MOTE_RGB565(40,40,48));
-    rect(fb, 4, 120, (int)(s_power * 52.0f), 4, MOTE_RGB565(240,200,40));
-    /* spin tip indicator */
+    /* power bar */
+    mote_ui_bar(fb, 4, 120, 52, 4, s_power,
+                MOTE_RGB565(240,200,40), MOTE_RGB565(40,40,48));
+    /* spin tip indicator: ring outline + a marker for the contact point */
     int cx = 116, cy = 116, r = 9;
     for (int a = 0; a < 20; a++) { float t = a * 0.314159f; px(fb, cx+(int)(r*cosf(t)), cy+(int)(r*sinf(t)), MOTE_RGB565(110,110,130)); }
     int sx = cx + (int)(s_tip_side * (r - 2) / 0.45f);
     int sy = cy - (int)(s_tip_vert * (r - 2) / 0.45f);
-    rect(fb, sx-1, sy-1, 3, 3, MOTE_RGB565(255,90,90));
+    mote_ui_rect(fb, sx-1, sy-1, 3, 3, MOTE_RGB565(255,90,90));
 }
 
-static const MoteGameVtbl k_vtbl = { .init = g_init, .update = g_update, .overlay = g_overlay };
+/* 3D scene: the procedural table mesh (~200 tris) plus sphere impostors for the
+ * balls (<=16) and the 8 aim-guideline dots; depth buffer for the 3D pass. */
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = { .max_tris = 220, .max_spheres = 32, .depth = 1 },
+};
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
