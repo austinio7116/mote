@@ -55,12 +55,14 @@ void mote_audio_render(int16_t *out, int n){
             v->amp *= v->decay;
             if(v->amp < 0.0008f) v->on = 0;
         }
-        /* push a single note to ~95% of full scale CLEANLY (no saturation), then
-         * a soft knee that only engages for chords — loud but not clipping. */
+        /* A single note runs clean up to the knee; above it a TRUE soft limiter
+         * asymptotes to exactly 1.0 (x/(1+x)) so any number of overlapping notes
+         * compress smoothly toward full scale and NEVER hard-clip — the clipping
+         * was overlapping decay tails summing past the old 1.0 clamp. */
         float m = mix * s_vol * 1.5f;
         float a = m < 0.0f ? -m : m;
-        if(a > 0.85f){ float e = a - 0.85f; a = 0.85f + e / (1.0f + e * 2.2f); }
-        if(a > 1.0f) a = 1.0f;
+        const float k = 0.80f;
+        if(a > k){ float x = (a - k) / (1.0f - k); a = k + (1.0f - k) * (x / (1.0f + x)); }
         out[s] = (int16_t)((m < 0.0f ? -a : a) * 32200.0f);
     }
 }
