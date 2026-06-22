@@ -51,7 +51,7 @@
 
 /* layout is RUNTIME — window resizable, separators draggable */
 static int WIN_W=1380, WIN_H=920;
-static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=320;
+static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=540;   /* dock tall; emulator sits at 1x up top */
 #define MENU_H  26
 #define TOOL_H  44
 #define TOPH    (MENU_H + TOOL_H)
@@ -403,8 +403,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_ASSETS, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","ASSETS","MESH","AUDIO","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","AUDIO","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 
 /* ================= menu bar ================= */
@@ -459,7 +459,7 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_PUSH: njob(3,dir); break;
     case A_PUSHLAUNCH: njob(4,dir); break;
     case A_BAKEALL: njob(2,dir); break;
-    case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_ASSETS; break;
+    case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_CONSOLE; break;
     case A_VSCODE:
         if(g_tsel>=0 && g_tree[g_tsel].kind!=0)   /* a file selected -> open it, reuse the window */
             snprintf(c,sizeof c,"code -r %.250s; code -r -g %.300s >/dev/null 2>&1 &",dir,g_tree[g_tsel].path);
@@ -531,14 +531,16 @@ static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL)
 
 /* does the ancestor at level `a` have a later sibling (so the vertical continues)? */
 static int tree_continues(int i,int a){ for(int j=i+1;j<g_ntree;j++){ if(g_tree[j].depth<a)return 0; if(g_tree[j].depth==a)return 1; } return 0; }
-static SDL_Rect g_tree_refresh;
+static SDL_Rect g_tree_refresh, g_tree_sb; static int g_treescroll, g_tree_sbdrag;
 static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK); plain(R,LEFT_W-1,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,0,TOPH,LEFT_W,24,C_HDR); icon(R,IC_TREE,9,TOPH+6,13,C_DIM); text(R,"EXPLORER",28,TOPH+7,1,C_DIM,C_HDR);
     { int mx,my; SDL_GetMouseState(&mx,&my); g_tree_refresh=(SDL_Rect){LEFT_W-26,TOPH+4,18,18};
       int hv=hit(mx,my,LEFT_W-26,TOPH+4,18,18); icon(R,IC_UNDO,LEFT_W-24,TOPH+5,14,hv?C_ACC:C_DIM); }
     if(g_sel<0){ text(R,"Project ‣ Open…",14,TOPH+40,1,C_DIM,C_DOCK); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<g_ntree;i++){ int y=TOPH+28+i*ROW_H; if(y>BOT_Y-ROW_H)break; TRow*r=&g_tree[i];
+    int top=TOPH+28, H=BOT_Y-top, total=g_ntree*ROW_H, maxs=total>H?total-H:0;
+    if(g_treescroll>maxs)g_treescroll=maxs; if(g_treescroll<0)g_treescroll=0;
+    for(int i=0;i<g_ntree;i++){ int y=top+i*ROW_H-g_treescroll; if(y+ROW_H<=top)continue; if(y>=BOT_Y)break; TRow*r=&g_tree[i];
         int sel=(i==g_tsel), hov=(mx<LEFT_W&&my>=y&&my<y+ROW_H&&!menu_blocks(mx,my));
         Col bg = sel?C_SEL : (hov?(Col){36,40,54}:C_DOCK);
         if(sel||hov) plain(R,0,y,LEFT_W,ROW_H,bg);
@@ -550,7 +552,15 @@ static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK);
         int icid = r->kind==0?IC_FOLDER_O : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : r->kind==6?IC_PLAY : IC_FILE;
         Col icc = r->kind==0?(Col){222,200,120} : r->kind==2?(Col){122,182,240} : r->kind==3?(Col){130,206,150} : r->kind==4?(Col){200,150,230} : r->kind==6?(Col){235,180,90} : C_DIM;
         icon(R,icid,ix,y+(ROW_H-15)/2,15,icc);
-        text(R,r->name,ix+20,y+(ROW_H-14)/2+1,1,sel?C_TXT:(r->kind==0?C_TXT:(Col){186,194,214}),bg); } }
+        text(R,r->name,ix+20,y+(ROW_H-14)/2+1,1,sel?C_TXT:(r->kind==0?C_TXT:(Col){186,194,214}),bg); }
+    /* mask any row overflow under the header, then a scrollbar when the list is long */
+    plain(R,0,TOPH,LEFT_W,24,C_HDR); icon(R,IC_TREE,9,TOPH+6,13,C_DIM); text(R,"EXPLORER",28,TOPH+7,1,C_DIM,C_HDR);
+    { int hv=hit(mx,my,LEFT_W-26,TOPH+4,18,18); icon(R,IC_UNDO,LEFT_W-24,TOPH+5,14,hv?C_ACC:C_DIM); }
+    if(total>H){ int sbw=5,sbx=LEFT_W-sbw-1; plain(R,sbx,top,sbw,H,(Col){20,22,32});
+        int th=H*H/total; if(th<20)th=20; int ty=top+(maxs>0?g_treescroll*(H-th)/maxs:0);
+        g_tree_sb=(SDL_Rect){sbx,ty,sbw,th}; int hv=hit(mx,my,sbx,top,sbw,H)||g_tree_sbdrag;
+        rrect(R,sbx,ty,sbw,th,2,hv?C_ACC:(Col){80,86,110}); }
+    else g_tree_sb=(SDL_Rect){0,0,0,0}; }
 
 /* the emulator — faithful irregular-octagon Thumby Color shell */
 static void rainbow_logo(SDL_Renderer*R,int cx,int cy,Col bg){ const char*w1="Thumby "; int x=cx; ptext(R,w1,x,cy,2,(Col){235,235,245},bg); x+=ptextw(R,w1,2);
@@ -1011,15 +1021,18 @@ static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)ret
     fclose(f);
     g_mesh_dirty=1; mesh_reprocess();
     g_mesh_size=g_mesh_qmax;          /* default to the model's natural half-extent (matches the CLI baker) */
+    rgb2hsv((g_mesh_rgb>>16)&0xFF,(g_mesh_rgb>>8)&0xFF,g_mesh_rgb&0xFF,&g_hue,&g_sat,&g_val);  /* seed the colour picker */
     snprintf(g_status,sizeof g_status,"mesh: %d raw tris -> %d (budget %d), %d chunks",g_nraw,g_mesh_outf,g_mesh_budget,g_mesh_nchunk); }
 static float *g_mdepth;
 /* painter's: draw farthest first. larger z = nearer (projection divides by dist-z),
  * so sort ASCENDING by z (smallest/farthest first). */
 static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?-1:(d>0?1:0); }
 /* mesh parameter-card hit rects (immediate-mode; tested in mesh_down) */
-static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_col,g_me_bake,g_me_view;
-static const long MESH_COLPRE[]={0xA8AEB8,0xC85050,0x58B868,0x5888E0,0xE0B048,0xB070D8,0xE6E6EC};
-static int g_mesh_colidx=0;
+static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_hsv,g_me_hue,g_me_bake,g_me_view;
+static int g_me_hsvdrag,g_me_huedrag;
+/* current HSV (g_hue/g_sat/g_val, shared) -> the baked 0xRRGGBB base colour */
+static long mesh_hsv_rgb(void){ uint16_t c=hsv565(g_hue,g_sat,g_val);
+    int r=((c>>11)&31)<<3,g=((c>>5)&63)<<2,b=(c&31)<<3; return ((long)r<<16)|((long)g<<8)|b; }
 #define MESH_CARDW 232
 
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
@@ -1060,8 +1073,21 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     snprintf(vb,sizeof vb,"%.2fm",g_mesh_size); ui_stepper(R,lx,cy,"size",vb,&g_me_smin,&g_me_spls,mx,my); cy+=UI_H+10;
     int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
     ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
-    px=ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my);
-    { char cb[16]; snprintf(cb,sizeof cb,"#%06lX",g_mesh_rgb&0xFFFFFF); ui_pill(R,px,cy,NULL,cb,0,&g_me_col,mx,my); } cy+=UI_H+12;
+    ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+12;
+
+    /* colour picker (HSV square + hue strip + swatch), like the Pixel Art tab */
+    text(R,"COLOUR",lx,cy,1,C_DIM,C_PANEL); cy+=14;
+    if(g_hsv_baked!=g_hue)bake_hsv(R);
+    int sq=84;
+    g_me_hsv=(SDL_Rect){lx,cy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_me_hsv); rect_outline(R,lx,cy,sq,sq,C_LINE,1);
+    { int cxp=lx+(int)(g_sat*sq),cyp=cy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
+    g_me_hue=(SDL_Rect){lx+sq+8,cy,16,sq};
+    for(int yy=0;yy<sq;yy++){ Col hc=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,hc.r,hc.g,hc.b,255); SDL_RenderDrawLine(R,g_me_hue.x,cy+yy,g_me_hue.x+16,cy+yy); }
+    { int hyy=cy+(int)(g_hue/360*sq); rect_outline(R,g_me_hue.x-2,hyy-2,20,4,(Col){255,255,255},1); }
+    { int sw=lx+sq+32, r=(g_mesh_rgb>>16)&0xFF,g=(g_mesh_rgb>>8)&0xFF,b=g_mesh_rgb&0xFF;
+      plain(R,sw,cy,26,26,(Col){(Uint8)r,(Uint8)g,(Uint8)b}); rect_outline(R,sw,cy,26,26,C_LINE,1);
+      char hx[12]; snprintf(hx,sizeof hx,"#%06lX",g_mesh_rgb&0xFFFFFF); text(R,hx,sw,cy+32,1,C_DIM,C_PANEL); }
+    cy+=sq+12;
 
     plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
     Col bgp=C_PANEL; char s[64];
@@ -1085,7 +1111,8 @@ static int mesh_down(int mx,int my){
     else if(HITR(g_me_up)){ g_mesh_up=!g_mesh_up; ch=1; }
     else if(HITR(g_me_rc)){ g_mesh_recenter=!g_mesh_recenter; ch=1; }
     else if(HITR(g_me_cv)){ g_mesh_chunkview=!g_mesh_chunkview; return 1; }   /* view-only, no reprocess */
-    else if(HITR(g_me_col)){ g_mesh_colidx=(g_mesh_colidx+1)%(int)(sizeof MESH_COLPRE/sizeof*MESH_COLPRE); g_mesh_rgb=MESH_COLPRE[g_mesh_colidx]; return 1; }
+    else if(HITR(g_me_hsv)){ g_me_hsvdrag=1; g_sat=clampf((mx-g_me_hsv.x)/(float)g_me_hsv.w,0,1); g_val=clampf(1-(my-g_me_hsv.y)/(float)g_me_hsv.h,0,1); g_mesh_rgb=mesh_hsv_rgb(); return 1; }
+    else if(HITR(g_me_hue)){ g_me_huedrag=1; g_hue=clampf((my-g_me_hue.y)/(float)g_me_hue.h,0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); return 1; }
     else if(HITR(g_me_bake)){ mesh_bake(); return 1; }
     if(ch){ g_mesh_dirty=1; mesh_reprocess(); return 1; }
     return 0;
@@ -1927,10 +1954,10 @@ static void draw_anim_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my
     y+=52+8;
     /* ---- SHEET card (load + cell size + the cells) ---- */
     int cy=ui_card(R,ox,y,w,h-(y-oy)-4,"SPRITE SHEET"); int ax=ox+12;
-    int bx=ui_btn(R,ax,cy,84,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_an_load,mx,my);
-    text(R,"cell",bx,cy+5,1,C_DIM,C_PANEL); bx+=textw(R,"cell",1)+6;
+    ui_btn(R,ax,cy,w-24,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_an_load,mx,my); cy+=UI_H+8;
+    text(R,"cell",ax,cy+5,1,C_DIM,C_PANEL); int bx=ax+textw(R,"cell",1)+6;
     { char b[6]; snprintf(b,sizeof b,"%d",g_an_tw); int xx=ui_stepper(R,bx,cy,"",b,&g_an_twm,&g_an_twp,mx,my);
-      text(R,"x",xx,cy+5,1,C_DIM,C_PANEL); char b2[6]; snprintf(b2,sizeof b2,"%d",g_an_th); ui_stepper(R,xx+10,cy,"",b2,&g_an_thm,&g_an_thp,mx,my); } cy+=28;
+      text(R,"x",xx,cy+5,1,C_DIM,C_PANEL); char b2[6]; snprintf(b2,sizeof b2,"%d",g_an_th); ui_stepper(R,xx+12,cy,"",b2,&g_an_thm,&g_an_thp,mx,my); } cy+=28;
     text(R,"click a cell to append it to the clip",ax,cy,1,C_DIM,C_PANEL); cy+=16;
     int nc=an_ncell(); int dz=24,per=(w-24)/(dz+3); if(per<1)per=1;
     for(int i=0;i<nc&&i<256;i++){ int gx=ax+(i%per)*(dz+3),gy=cy+(i/per)*(dz+3); g_an_cell[i]=(SDL_Rect){gx,gy,dz,dz};
@@ -2174,11 +2201,6 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
         int rows=(WIN_H-cy-8)/13, start=g_logn>rows?g_logn-rows:0;
         for(int i=start;i<g_logn;i++){ const char*s=g_log[i%80]; Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
             text(R,s,12,cy+(i-start)*13,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx); return; }
-    if(g_tab==TAB_ASSETS){ text(R,"ASSETS",12,cy,1,C_DIM,C_DOCK); int ax=12,ay=cy+18,n=0;
-        for(int i=0;i<g_ntree;i++)if(g_tree[i].kind==3||g_tree[i].kind==4){ char l[100]; struct stat st; long sz=stat(g_tree[i].path,&st)==0?st.st_size:0;
-            snprintf(l,sizeof l,"%.78s  (%ld b)",g_tree[i].name,sz); rrect(R,ax,ay,200,26,5,C_PANEL); text(R,l,ax+8,ay+6,1,C_TXT,C_PANEL);
-            ax+=210; if(ax>WIN_W-220){ ax=12; ay+=32; } n++; }
-        if(!n)text(R,"no baked assets yet - paint one in Pixel Art, or Import",12,cy+18,1,C_DIM,C_DOCK); return; }
     if(g_tab==TAB_MESH){ draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
@@ -2491,6 +2513,7 @@ int main(int argc,char**argv){
             char nm[16]; snprintf(nm,sizeof nm,"level%d",L); snprintf(g_tl_name,sizeof g_tl_name,"%s",nm); g_loaded_level[0]=0; bake_all(); }
         snprintf(g_status,sizeof g_status,"baked ground.tiles.h + level1..3.level.h"); } }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
+    if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));   /* re-apply last: wins over content hooks that switch tabs (e.g. bake -> console) */
 
     int running=1,watch=0;
     do { SDL_Event e;
@@ -2540,6 +2563,9 @@ int main(int argc,char**argv){
             if(g_tab==TAB_AUDIO&&g_au_namefocus){   /* editing the SFX save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_au_name); if(l<60){ g_au_name[l]=c; g_au_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_au_name); if(l)g_au_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_au_namefocus=0; continue; } }
+            /* wheel scrolls the Explorer tree when the pointer is over it */
+            if(e.type==SDL_MOUSEWHEEL){ int wx,wy; SDL_GetMouseState(&wx,&wy);
+                if(wx<LEFT_W&&wy>=TOPH&&wy<BOT_Y){ g_treescroll-=e.wheel.y*ROW_H*2; if(g_treescroll<0)g_treescroll=0; continue; } }
             /* wheel scrolls the editor whenever the pointer is over it (no click needed) */
             if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_CODE&&g_code){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(hit(wx,wy,g_code_area.x,g_code_area.y,g_code_area.w,g_code_area.h)){
@@ -2568,7 +2594,7 @@ int main(int argc,char**argv){
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y; g_codefocus=0;   /* refocus editor only on an editor click */
                 if(g_ctx){ ctx_click(mx,my); g_ctx=0; continue; }                              /* a click closes the context menu */
                 if(e.button.button==SDL_BUTTON_RIGHT && mx<LEFT_W && my>=TOPH && my<BOT_Y){     /* right-click the file tree */
-                    int i=(my-(TOPH+28))/ROW_H; g_ctxpath[0]=g_ctxdir[0]=0;
+                    int i=(my-(TOPH+28)+g_treescroll)/ROW_H; g_ctxpath[0]=g_ctxdir[0]=0;
                     if(i>=0&&i<g_ntree){ TRow*r=&g_tree[i]; if(r->kind==0)snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",r->path);
                         else { snprintf(g_ctxpath,sizeof g_ctxpath,"%.330s",r->path); snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",r->path); char*s=strrchr(g_ctxdir,'/'); if(s)*s=0; } }
                     else if(g_sel>=0)snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",g_games[g_sel].dir);
@@ -2582,7 +2608,8 @@ int main(int argc,char**argv){
                     g_menu_open=-1; continue; }
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }
                 if(mx<LEFT_W&&my<BOT_Y){ if(hit(mx,my,g_tree_refresh.x,g_tree_refresh.y,18,18)){ tree_refresh(); continue; }
-                    int i=(my-(TOPH+28))/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
+                    if(g_tree_sb.w&&hit(mx,my,g_tree_sb.x,g_tree_sb.y,g_tree_sb.w,g_tree_sb.h)){ g_tree_sbdrag=1; continue; }
+                    int i=(my-(TOPH+28)+g_treescroll)/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
                 if(mx>=INSP_X&&my<BOT_Y){ if(g_tab==TAB_TILES){ tiles_inspector_down(mx,my); continue; } if(g_tab==TAB_ANIM){ anim_inspector_down(mx,my); continue; }
                     if(g_insp_open.w&&hit(mx,my,g_insp_open.x,g_insp_open.y,g_insp_open.w,g_insp_open.h))tree_select(g_tsel);
                     else if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
@@ -2601,17 +2628,21 @@ int main(int argc,char**argv){
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
-                g_split=0; g_mdrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
                 if(g_codeseldrag){ code_click(e.motion.x,e.motion.y); continue; }   /* drag-select text */
+                if(g_tree_sbdrag){ int top=TOPH+28,H=BOT_Y-top,total=g_ntree*ROW_H,maxs=total>H?total-H:0;
+                    float f=(float)(e.motion.y-top)/(H>0?H:1); g_treescroll=(int)(f*maxs); if(g_treescroll<0)g_treescroll=0; if(g_treescroll>maxs)g_treescroll=maxs; continue; }
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
