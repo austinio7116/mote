@@ -270,7 +270,7 @@ static void g_update(float dt){
     /* slingshot Y-frame, FIXED at the launch point (no longer follows the bird) */
     mote_draw(mote, mesh_post, v3(SLING_X, 0.62f, 0));
     for (int s = -1; s <= 1; s += 2){
-        float a = s * 0.34f, ca = cosf(a), sa = sinf(a);
+        float a = -s * 0.34f, ca = cosf(a), sa = sinf(a);   /* forks splay OUTWARD (a proper Y, not inverted) */
         Mat3 r;
         r.r[0] = v3(ca, sa, 0);
         r.r[1] = v3(-sa, ca, 0);
