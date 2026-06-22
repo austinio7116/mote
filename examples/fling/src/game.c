@@ -32,50 +32,73 @@ static int       n_body;
 static const Mesh *mesh_plank, *mesh_beam, *mesh_cube, *mesh_post, *mesh_beak;
 static const Mesh *mesh_pillar, *mesh_floor, *mesh_block;
 
-/* ---- terrain: a per-level heightfield, rebuilt in place each level (no arena).
- * Serves as BOTH the rendered ground and the static MoteMesh collider. ---- */
-#define TNX 24
-#define TNZ 10
-#define TX0 (-10.0f)
-#define TX1 ( 12.0f)
-#define TZ0 ( -4.0f)
-#define TZ1 (  6.0f)
+/* ---- terrain: a big per-level heightfield, rebuilt in place each level (no arena).
+ * One float mesh is the static MoteMesh collider (uint16 indices, no vertex cap); the
+ * rendered ground is the SAME grid split into Z-band chunks (the render Mesh's face
+ * indices are uint8, capped at 256 verts/chunk). All chunks share one center+scale so
+ * shared-edge vertices quantise identically -> seamless, no cracks. ---- */
+#define TNX 38                              /* grid verts across (x) */
+#define TNZ 20                              /* grid verts deep (z) */
+#define TX0 (-22.0f)
+#define TX1 ( 30.0f)
+#define TZ0 ( -5.0f)                        /* a little in front of the action */
+#define TZ1 ( 42.0f)                        /* ...stretching far into the background */
 #define TNV (TNX * TNZ)
 #define TNF ((TNX - 1) * (TNZ - 1) * 2)
+#define ROWS_PC 5                           /* cell-rows per render chunk (TNX*(ROWS_PC+1) <= 256) */
+#define NCHUNK ((TNZ - 1 + ROWS_PC - 1) / ROWS_PC)
 
 static Vec3     ter_w[TNV];                 /* world verts (collider) */
-static uint16_t ter_tri[TNF * 3];           /* collider triangle indices */
+static uint16_t ter_tri[TNF * 3];           /* collider triangle indices (uint16 -> no cap) */
 static MoteMesh ter_collider;
-static uint16_t ter_gstart[16 * 16 + 1], ter_gtri[TNF];   /* broad-phase grid */
-static MeshVert ter_v[TNV];                 /* render verts (int8, rel ter_center) */
-static MeshFace ter_f[TNF];
+static uint16_t ter_gstart[24 * 24 + 1], ter_gtri[TNF];   /* broad-phase grid */
+static MeshVert ter_v[TNV];                 /* render verts (int8, rel ter_center, global quant) */
+static MeshFace ter_f[TNF];                 /* render faces (uint8, indices LOCAL to each chunk) */
 static uint16_t ter_fcol[TNF];
-static Mesh     ter_mesh;
+static Mesh     ter_mesh[NCHUNK];           /* one render Mesh per Z-band chunk */
+static int      ter_nchunk;
 static Vec3     ter_center;
-static float    ter_scale = 11.0f;
+static float    ter_scale = 27.0f;          /* half-extent: covers x (26) and z (23.5) */
 static float    sling_y;                    /* ground height at the slingshot */
 
 /* per-level heightfield params (set in build_terrain) */
-static float th_base, th_a1, th_f1, th_p1, th_a2, th_f2, th_p2;
+static float th_base, th_a1, th_f1, th_p1, th_a2, th_f2, th_p2, th_a3, th_f3, th_p3;
 static int   th_pal;
 static float th_pad_y;                                /* flat building-pad height */
 #define PAD_X0 1.2f
 #define PAD_X1 9.2f
-#define PAD_BAND 1.6f                                 /* smooth ramp from hills onto the pad */
+#define PAD_BAND 1.8f                                 /* smooth ramp from hills onto the pad */
+#define PAD_Z   3.5f                                  /* flat pad half-depth around the play plane */
+#define PAD_ZBAND 3.0f
+
+static float smooth01(float t){ if (t < 0) t = 0; if (t > 1) t = 1; return t * t * (3 - 2 * t); }
 
 static float rolling(float x, float z){
-    float h = th_base + th_a1 * sinf(th_f1 * x + th_p1) + th_a2 * sinf(th_f2 * x + th_p2);
-    h += 0.20f * sinf(z * 0.6f + x * 0.18f);          /* gentle cross-slope for a 3D look */
+    float h = th_base
+        + th_a1 * sinf(th_f1 * x + th_p1)
+        + th_a2 * sinf(th_f2 * x + th_p2)
+        + th_a3 * sinf(th_f3 * z + th_p3);            /* rolling in depth too */
+    /* a big slow swell that grows toward the back, so the distance reads as real hills */
+    float depth_amp = 0.5f + 0.12f * (z > 0 ? z : 0);
+    h += depth_amp * sinf(x * 0.11f + th_p1) * cosf(z * 0.085f + th_p2);
     return h;
 }
-/* The fort needs LEVEL ground or it topples unshot, but flat-everywhere is dull — so the
- * play area rolls, with a flat plateau under the fort, smoothly ramped in on both sides. */
+/* weight 1 on the flat building pad (around the fort, near the play plane), 0 in the open */
+static float pad_w(float x, float z){
+    float wx;
+    if (x < PAD_X0)      wx = smooth01((x - (PAD_X0 - PAD_BAND)) / PAD_BAND);
+    else if (x > PAD_X1) wx = smooth01(((PAD_X1 + PAD_BAND) - x) / PAD_BAND);
+    else                 wx = 1.0f;
+    float az = z < 0 ? -z : z;
+    float wz = (az <= PAD_Z) ? 1.0f : smooth01(((PAD_Z + PAD_ZBAND) - az) / PAD_ZBAND);
+    return wx * wz;
+}
+/* The fort needs LEVEL ground or it topples unshot, but flat-everywhere is dull — so a
+ * flat lozenge is carved around the fort and the rest rolls away into big background hills. */
 static float terrain_h(float x, float z){
-    if (x >= PAD_X0 && x <= PAD_X1) return th_pad_y;                       /* flat building pad */
-    float r = rolling(x, z);
-    if (x > PAD_X0 - PAD_BAND && x < PAD_X0){ float t = (x - (PAD_X0 - PAD_BAND)) / PAD_BAND; t = t*t*(3-2*t); return r*(1-t) + th_pad_y*t; }
-    if (x > PAD_X1 && x < PAD_X1 + PAD_BAND){ float t = 1 - (x - PAD_X1) / PAD_BAND; t = t*t*(3-2*t); return r*(1-t) + th_pad_y*t; }
-    return r;
+    float w = pad_w(x, z);
+    if (w >= 0.999f) return th_pad_y;
+    return rolling(x, z) * (1 - w) + th_pad_y * w;
 }
 static uint16_t terrain_color(float x, float z, float ny){
     float n = sinf(x * 1.1f) * sinf(z * 0.8f) * 0.5f + 0.5f;
@@ -94,8 +117,9 @@ static void build_terrain(int lvl){
     mote_rand_seed((uint32_t)lvl * 2654435761u + 12345u);
     th_pal  = lvl % 4;
     th_base = mote_randf(-0.3f, 0.3f);
-    th_a1 = mote_randf(0.45f, 0.95f); th_f1 = mote_randf(0.18f, 0.34f); th_p1 = mote_randf(0, 6.2831853f);
-    th_a2 = mote_randf(0.18f, 0.42f); th_f2 = mote_randf(0.45f, 0.80f); th_p2 = mote_randf(0, 6.2831853f);
+    th_a1 = mote_randf(0.45f, 0.95f); th_f1 = mote_randf(0.16f, 0.30f); th_p1 = mote_randf(0, 6.2831853f);
+    th_a2 = mote_randf(0.20f, 0.45f); th_f2 = mote_randf(0.40f, 0.75f); th_p2 = mote_randf(0, 6.2831853f);
+    th_a3 = mote_randf(0.35f, 0.70f); th_f3 = mote_randf(0.12f, 0.26f); th_p3 = mote_randf(0, 6.2831853f);
     th_pad_y = rolling((PAD_X0 + PAD_X1) * 0.5f, 0);  /* flat pad sits at the natural terrain level under the fort */
     sling_y = terrain_h(SLING_X, 0);
 
@@ -110,28 +134,41 @@ static void build_terrain(int lvl){
             ter_v[i].y = (int8_t)mote_clampi((int)lrintf((ter_w[i].y - ter_center.y) / ter_scale * 127), -127, 127);
             ter_v[i].z = (int8_t)mote_clampi((int)lrintf((z - ter_center.z) / ter_scale * 127), -127, 127);
         }
+    /* Faces are emitted chunk-by-chunk (Z-bands) so ter_f is grouped per chunk with
+     * vertex indices LOCAL to the chunk; the collider tris stay global (uint16). */
     int ti = 0, fi = 0;
-    for (int gz = 0; gz < TNZ - 1; gz++)
-        for (int gx = 0; gx < TNX - 1; gx++){
-            int a = gz * TNX + gx, b = a + 1, c = a + TNX, d = c + 1;
-            int q[2][3] = { {a, c, b}, {b, c, d} };
-            for (int t = 0; t < 2; t++){
-                int i0 = q[t][0], i1 = q[t][1], i2 = q[t][2];
-                Vec3 p0 = ter_w[i0], p1 = ter_w[i1], p2 = ter_w[i2];
-                Vec3 nf = v3_norm(v3_cross(v3_sub(p1, p0), v3_sub(p2, p0)));
-                if (nf.y < 0){ int s = i1; i1 = i2; i2 = s; nf = v3_scale(nf, -1); }   /* front-face up */
-                ter_tri[ti++] = i0; ter_tri[ti++] = i1; ter_tri[ti++] = i2;
-                ter_f[fi] = (MeshFace){ (uint8_t)i0, (uint8_t)i1, (uint8_t)i2,
-                    (int8_t)(nf.x * 127), (int8_t)(nf.y * 127), (int8_t)(nf.z * 127) };
-                ter_fcol[fi] = terrain_color((p0.x + p1.x + p2.x) / 3, (p0.z + p1.z + p2.z) / 3, nf.y);
-                fi++;
+    ter_nchunk = 0;
+    for (int c = 0; c < NCHUNK; c++){
+        int zr0 = c * ROWS_PC;
+        int zr1 = zr0 + ROWS_PC; if (zr1 > TNZ - 1) zr1 = TNZ - 1;
+        if (zr0 >= zr1) break;
+        int base = zr0 * TNX;                          /* first vertex index of this chunk */
+        int nv   = (zr1 - zr0 + 1) * TNX;              /* verts in this chunk (<= 256) */
+        int f0   = fi;
+        for (int gz = zr0; gz < zr1; gz++)
+            for (int gx = 0; gx < TNX - 1; gx++){
+                int a = gz * TNX + gx, b = a + 1, cc = a + TNX, d = cc + 1;
+                int q[2][3] = { {a, cc, b}, {b, cc, d} };
+                for (int t = 0; t < 2; t++){
+                    int i0 = q[t][0], i1 = q[t][1], i2 = q[t][2];
+                    Vec3 p0 = ter_w[i0], p1 = ter_w[i1], p2 = ter_w[i2];
+                    Vec3 nf = v3_norm(v3_cross(v3_sub(p1, p0), v3_sub(p2, p0)));
+                    if (nf.y < 0){ int s = i1; i1 = i2; i2 = s; nf = v3_scale(nf, -1); }   /* front-face up */
+                    ter_tri[ti++] = i0; ter_tri[ti++] = i1; ter_tri[ti++] = i2;            /* collider: global */
+                    ter_f[fi] = (MeshFace){ (uint8_t)(i0 - base), (uint8_t)(i1 - base), (uint8_t)(i2 - base),
+                        (int8_t)(nf.x * 127), (int8_t)(nf.y * 127), (int8_t)(nf.z * 127) }; /* render: local */
+                    ter_fcol[fi] = terrain_color((p0.x + p1.x + p2.x) / 3, (p0.z + p1.z + p2.z) / 3, nf.y);
+                    fi++;
+                }
             }
-        }
+        ter_mesh[c] = (Mesh){ ter_v + base, ter_f + f0, ter_fcol + f0, (uint16_t)nv,
+                              (uint16_t)(fi - f0), 0, ter_scale, ter_scale * 1.6f, 0 };
+        ter_nchunk++;
+    }
     ter_collider.verts = ter_w; ter_collider.nverts = TNV;
-    ter_collider.tris = ter_tri; ter_collider.ntris = fi;
-    ter_collider.bound_r = ter_scale * 1.5f;
-    mote_phys_mesh_build_grid(&ter_collider, 16, ter_gstart, ter_gtri, TNF);
-    ter_mesh = (Mesh){ ter_v, ter_f, ter_fcol, TNV, (uint16_t)fi, 0, ter_scale, ter_scale * 1.5f, 0 };
+    ter_collider.tris = ter_tri; ter_collider.ntris = ti / 3;
+    ter_collider.bound_r = ter_scale * 1.6f;
+    mote_phys_mesh_build_grid(&ter_collider, 24, ter_gstart, ter_gtri, TNF);
 }
 static float gy(float x){ return terrain_h(x, 0); }   /* ground height in the play plane */
 
@@ -445,7 +482,8 @@ static void g_update(float dt){
 
     mote->scene_camera(&basis, cam, 56.0f);
 
-    mote_draw(mote, &ter_mesh, ter_center);                   /* the per-level rolling terrain */
+    for (int c = 0; c < ter_nchunk; c++)                      /* the big per-level terrain, chunk by chunk */
+        mote_draw(mote, &ter_mesh[c], ter_center);
 
     /* slingshot Y-frame, sitting on the ground at the launch point */
     mote_draw(mote, mesh_post, v3(SLING_X, sling_y + 0.62f, 0));
@@ -497,6 +535,6 @@ static void g_overlay(uint16_t *fb){
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 2400, .max_spheres = 120, .max_bodies = MAX_BODIES, .max_contacts = 560, .depth = 1 },
+    .config = { .max_tris = 3000, .max_spheres = 120, .max_bodies = MAX_BODIES, .max_contacts = 560, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
