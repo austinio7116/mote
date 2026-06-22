@@ -1665,20 +1665,24 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows; g_tl_tplr=(SDL_Rect){0,0,0,0};
     g_tl_nlv=tl_scan("levels",".level",g_tl_lvn,12); g_tl_nts=tl_scan("tilesets",".tileset",g_tl_tsn,12);
     int y=oy;
-    /* ---- OPEN card ---- */
-    { int cy=ui_card(R,ox,y,w,74,"OPEN"); int ax=ox+12;
+    /* ---- OPEN card (grows to fit the wrapped level/tileset chips) ---- */
+    int ax=ox+12, right=ox+w-12;
+    int lvrows=0; { int cx=ax+textw(R,"levels",1)+8; for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+12; if(cx+bw>right){lvrows++;cx=ax;} cx+=bw+4; } }
+    int tsrows=0; { int cx=ax+textw(R,"tilesets",1)+8; for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+12; if(cx+bw>right){tsrows++;cx=ax;} cx+=bw+4; } }
+    int openH = 30 + lvrows*18 + 22 + tsrows*18 + 22;
+    { int cy=ui_card(R,ox,y,w,openH,"OPEN");
       text(R,"levels",ax,cy+2,1,C_DIM,C_PANEL); int cx=ax+textw(R,"levels",1)+8;
-      for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+12; if(cx+bw>ox+w-12){cx=ax;cy+=18;} int on=!strcmp(g_tl_lvn[i],g_tl_name);
+      for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+12; if(cx+bw>right){cx=ax;cy+=18;} int on=!strcmp(g_tl_lvn[i],g_tl_name);
           g_tl_openlv[i]=(SDL_Rect){cx,cy,bw,16}; rrect(R,cx,cy,bw,16,4,on?C_SEL:(hit(mx,my,cx,cy,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_lvn[i],cx+6,cy+2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); cx+=bw+4; }
       if(!g_tl_nlv)text(R,"(none yet)",cx,cy+2,1,C_DIM,C_PANEL); cy+=20;
       text(R,"tilesets",ax,cy+2,1,C_DIM,C_PANEL); cx=ax+textw(R,"tilesets",1)+8;
-      for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+12; if(cx+bw>ox+w-12){cx=ax;cy+=18;} int on=!strcmp(g_tl_tsn[i],ct->name);
+      for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+12; if(cx+bw>right){cx=ax;cy+=18;} int on=!strcmp(g_tl_tsn[i],ct->name);
           g_tl_opents[i]=(SDL_Rect){cx,cy,bw,16}; rrect(R,cx,cy,bw,16,4,on?C_SEL:(hit(mx,my,cx,cy,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_tsn[i],cx+6,cy+2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); cx+=bw+4; }
       if(!g_tl_nts)text(R,"(none yet)",cx,cy+2,1,C_DIM,C_PANEL); }
-    y+=74+8;
+    y+=openH+8;
 
     /* ---- TILESET card (the rule-tile's art + config) ---- */
-    int th2=ct->nvar>1?168:148; int cy=ui_card(R,ox,y,w,th2,ct->name); int ax=ox+12;
+    int th2=ct->nvar>1?168:148; int cy=ui_card(R,ox,y,w,th2,ct->name);
     g_tl_edger=(SDL_Rect){ax,cy,90,20}; rrect(R,ax,cy,90,20,4,ct->edge?C_SEL:C_BTN); text(R,ct->edge?"edge solid":"edge open",ax+8,cy+5,1,ct->edge?C_HDR:C_DIM,ct->edge?C_SEL:C_BTN);
     { char b[6]; snprintf(b,sizeof b,"%d",ts); ui_stepper(R,ax+100,cy,"tile",b,&g_tl_tsm,&g_tl_tsp,mx,my); } cy+=26;
     { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); ui_stepper(R,ax,cy,"variants",b,&g_tl_varm,&g_tl_varp,mx,my); } cy+=26;
@@ -1729,7 +1733,7 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         rrect(R,btx,ry,bwk-3,19,4,on?C_SEL:C_BTN); text(R,TT[k],btx+6,ry+5,1,on?C_HDR:C_DIM,on?C_SEL:C_BTN); btx+=bwk; } }
     { int rx=ox+12, bw=46, per=(rw-24)/bw; if(per<1)per=1; int rdz=bw-8;
       for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=ry+26+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
-          rrect(R,gx-1,gyy-1,bw,bw+6,3, ci==g_rulesel?C_ACC:C_LINE); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
+          rrect(R,gx-1,gyy-1,bw,bw+6,3, ci==g_rulesel?C_SEL:C_LINE); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
           uint8_t m=ct->rep[ci]; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int on=(dx==0&&dy==0)?1:((m&nb_bit_for(dx,dy))!=0);
               plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } } }
 
@@ -2478,6 +2482,10 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
     if(getenv("MOTE_STUDIO_XF")){ tl_ensure(); terr_gen_starter(0); Terr*t=&g_terr[0]; uint8_t rr=t->rep[1]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)t->xform[m]=MOTE_SPR_ROT90; g_rulesel=1; g_tab=TAB_TILES; }   /* test: rotate rule#1 90 */
+    if(getenv("MOTE_STUDIO_TILEVIEW")){ tl_ensure();   /* capture hook: open a layer + select a rule in the Tiles tab */
+        if(getenv("MOTE_STUDIO_TERR")) g_curterr=atoi(getenv("MOTE_STUDIO_TERR"));
+        if(getenv("MOTE_STUDIO_RULE")) g_rulesel=atoi(getenv("MOTE_STUDIO_RULE"));
+        g_tab=TAB_TILES; }
     if(getenv("MOTE_STUDIO_TILES_SETUP")){ tl_ensure(); Terr*t=&g_terr[0]; snprintf(t->name,16,"rock"); snprintf(t->png,200,"assets/rock.png"); t->tpl=0; t->edge=1; t->nvar=1; terr_gen_starter(0); g_nterr=1; bake_all(); }   /* tiles example: one rock file tileset */
     if(getenv("MOTE_STUDIO_TILEDEMO")){ tl_ensure();   /* build tiledemo's 3 file tilesets + a level */
         const char*nm3[3]={"dirt","grass","water"}; int edge3[3]={1,1,0};
