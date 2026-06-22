@@ -2084,6 +2084,7 @@ static void draw_modal(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMO
     text(R,"CANCEL",g_mk_cancel.x+18,g_mk_cancel.y+8,2,C_TXT,C_BTN); text(R,"CREATE",g_mk_create.x+22,g_mk_create.y+8,2,C_TXT,C_BTNHI);
     text(R,"Enter = create   Esc = cancel",bx+18,by+bh-56,1,C_DIM,C_PANEL); }
 
+static SDL_Joystick *g_jpad;   /* raw-joystick fallback for pads SDL has no GameController mapping for */
 static void poll_input(MoteButtons*b,SDL_GameController*pad){ const Uint8*k=SDL_GetKeyboardState(NULL); memset(b,0,sizeof*b);
     b->up=k[SDL_SCANCODE_UP]||k[SDL_SCANCODE_W]; b->down=k[SDL_SCANCODE_DOWN]||k[SDL_SCANCODE_S];
     b->left=k[SDL_SCANCODE_LEFT]||k[SDL_SCANCODE_A]; b->right=k[SDL_SCANCODE_RIGHT]||k[SDL_SCANCODE_D];
@@ -2093,7 +2094,16 @@ static void poll_input(MoteButtons*b,SDL_GameController*pad){ const Uint8*k=SDL_
         b->left|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_DPAD_LEFT); b->right|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
         b->a|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_A); b->b|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_B);
         b->lb|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_LEFTSHOULDER); b->rb|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
-        b->menu|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_START); } }
+        b->menu|=SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_START)||SDL_GameControllerGetButton(pad,SDL_CONTROLLER_BUTTON_GUIDE);
+        int lx=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTX), ly=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTY);   /* left stick -> dpad */
+        if(lx<-12000)b->left=1; if(lx>12000)b->right=1; if(ly<-12000)b->up=1; if(ly>12000)b->down=1; }
+    else if(g_jpad){ SDL_JoystickUpdate();   /* generic joystick: axes 0/1 = dpad, buttons 0/1 = A/B, 4/5 = LB/RB, 7 = start */
+        int ax=SDL_JoystickNumAxes(g_jpad)>0?SDL_JoystickGetAxis(g_jpad,0):0, ay=SDL_JoystickNumAxes(g_jpad)>1?SDL_JoystickGetAxis(g_jpad,1):0;
+        if(ax<-12000)b->left=1; if(ax>12000)b->right=1; if(ay<-12000)b->up=1; if(ay>12000)b->down=1;
+        if(SDL_JoystickNumHats(g_jpad)>0){ Uint8 h=SDL_JoystickGetHat(g_jpad,0); if(h&SDL_HAT_UP)b->up=1; if(h&SDL_HAT_DOWN)b->down=1; if(h&SDL_HAT_LEFT)b->left=1; if(h&SDL_HAT_RIGHT)b->right=1; }
+        int nb=SDL_JoystickNumButtons(g_jpad);
+        if(nb>0)b->a|=SDL_JoystickGetButton(g_jpad,0); if(nb>1)b->b|=SDL_JoystickGetButton(g_jpad,1);
+        if(nb>5){ b->lb|=SDL_JoystickGetButton(g_jpad,4); b->rb|=SDL_JoystickGetButton(g_jpad,5); } if(nb>7)b->menu|=SDL_JoystickGetButton(g_jpad,7); } }
 
 /* ---- screen calibration rig: the user places the square LCD over the photo ---- */
 static void align_geom(int*px,int*py,int*pw,int*ph,float*sc){
@@ -2174,7 +2184,11 @@ int main(int argc,char**argv){
     g_cur_arrow=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
     g_cur_we=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
     g_cur_ns=SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENS);
-    SDL_GameController*pad=NULL; for(int i=0;i<SDL_NumJoysticks();i++)if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); break; }
+    SDL_GameController*pad=NULL; int njoy=SDL_NumJoysticks();
+    printf("studio: %d joystick(s) detected by SDL\n",njoy);
+    for(int i=0;i<njoy;i++){ if(SDL_IsGameController(i)){ pad=SDL_GameControllerOpen(i); printf("studio: gamepad: %s\n",SDL_GameControllerName(pad)); break; }
+        else { g_jpad=SDL_JoystickOpen(i); printf("studio: joystick (no GC mapping): %s\n",SDL_JoystickName(g_jpad)); break; } }
+    if(!njoy)printf("studio: no gamepad. On WSL2, attach it with usbipd (usbipd attach --wsl --busid <id>) and ensure /dev/input/event* exists; an Xbox pad needs the xpad kernel module.\n");
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
@@ -2228,8 +2242,10 @@ int main(int argc,char**argv){
     do { SDL_Event e;
         while(SDL_PollEvent(&e)){ if(e.type==SDL_QUIT){running=0;continue;}
             if(e.type==SDL_WINDOWEVENT&&e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED){ WIN_W=e.window.data1; WIN_H=e.window.data2; continue; }
-            if(e.type==SDL_CONTROLLERDEVICEADDED){ if(!pad){ pad=SDL_GameControllerOpen(e.cdevice.which); printf("studio: gamepad connected: %s\n",SDL_GameControllerName(pad)); } continue; }
+            if(e.type==SDL_CONTROLLERDEVICEADDED){ if(!pad){ pad=SDL_GameControllerOpen(e.cdevice.which); printf("studio: gamepad connected: %s\n",SDL_GameControllerName(pad)); if(g_jpad){ SDL_JoystickClose(g_jpad); g_jpad=NULL; } } continue; }
             if(e.type==SDL_CONTROLLERDEVICEREMOVED){ if(pad){ SDL_GameControllerClose(pad); pad=NULL; } continue; }
+            if(e.type==SDL_JOYDEVICEADDED&&!pad&&!g_jpad&&!SDL_IsGameController(e.jdevice.which)){ g_jpad=SDL_JoystickOpen(e.jdevice.which); printf("studio: joystick connected: %s\n",SDL_JoystickName(g_jpad)); continue; }
+            if(e.type==SDL_JOYDEVICEREMOVED&&g_jpad){ SDL_JoystickClose(g_jpad); g_jpad=NULL; continue; }
             if(g_modal){ if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;
                     if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'){ int l=(int)strlen(g_newname); if(l<40){ g_newname[l]=(c>='A'&&c<='Z')?c+32:c; g_newname[l+1]=0; } } } }
                 else if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_newname); if(l)g_newname[l-1]=0; }
