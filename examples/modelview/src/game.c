@@ -1,10 +1,11 @@
 /*
  * modelview — loads a real STL model (a fighter jet) converted by tools/stl2mesh
- * and shown through the Mote 3D pipeline. The STL's 6742 triangles were welded +
- * decimated to ~1500 and split into <=255-vertex chunks. The baker bundles those
- * chunks into one `MoteModel fighter` (fighter.h), so we draw the whole thing with
- * a single mote_model_draw_ex() — no chunk loop, no NCHUNKS, and the pool size is
- * just `fighter_TRIS`. Chunk management is entirely the baker's job.
+ * and shown through the Mote 3D pipeline. This build bakes the model at FULL detail
+ * (the STL's 6742 raw triangles, vertex-welded to 5759 tris) split across 19
+ * <=255-vertex chunks — a heavy 3D stress test. The baker bundles those chunks into
+ * one `MoteModel fighter` (fighter.h), so we draw the whole thing with a single
+ * mote_model_draw_ex() — no chunk loop, no NCHUNKS, and the pool size is just
+ * `fighter_TRIS` (5759, ~240 KB draw-list + depth, within the 280 KB arena).
  *
  * Controls: D-pad orbit the model · A toggle auto-spin · LB/RB zoom
  */
@@ -65,7 +66,7 @@ static void g_update(float dt){
 
 static void g_overlay(uint16_t *fb){
     mote_ui_panel(fb, 1, 1, 92, 11, MOTE_RGB565(16,22,40), MOTE_RGB565(80,100,150));
-    mote->text(fb, "STL MODEL: fighter", 4, 3, MOTE_RGB565(200,220,255));
+    mote_textf(mote, fb, 4, 3, MOTE_RGB565(200,220,255), "FIGHTER %d tris", fighter_TRIS);
     mote->text(fb, "DPAD ORBIT  A SPIN  LB/RB ZOOM", 3, 118, MOTE_RGB565(150,170,200));
 }
 
