@@ -1130,12 +1130,15 @@ static void terr_gen_sheet(int ti){ Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->n
     for(int v=0;v<t->nvar;v++)for(int ci=0;ci<t->ncell;ci++) sheet_cell_art(t,ti,v*t->scols+ci,t->rep[ci],v); }
 static void terr_init(int ti,const char*name,int tpl){ Terr*t=&g_terr[ti]; snprintf(t->name,16,"%s",name); t->tpl=tpl; t->edge=1; t->nvar=1;
     snprintf(t->png,200,"assets/%.40s_%.16s.png",g_tl_name[0]?g_tl_name:"level",name); terr_gen_sheet(ti); }
-static void terr_load_png(int ti,const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4); if(!d){ snprintf(g_status,sizeof g_status,"could not load %s",path); return; }
-    Terr*t=&g_terr[ti]; int ts=g_tl_ts,sc=w/ts,sr=h/ts; if(sc<1)sc=1; if(sr<1)sr=1; t->scols=sc; t->srows=sr; t->nvar=1;
+/* load a PNG's pixels into t->sheet + set scols/srows (does NOT touch the rules) */
+static int terr_load_sheet_pixels(Terr*t,const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4); if(!d){ snprintf(g_status,sizeof g_status,"could not load %s",path); return 0; }
+    int ts=g_tl_ts,sc=w/ts,sr=h/ts; if(sc<1)sc=1; if(sr<1)sr=1; t->scols=sc; t->srows=sr;
     t->sheet=realloc(t->sheet,(size_t)sc*ts*sr*ts*2); int W=sc*ts;
     for(int y=0;y<sr*ts&&y<h;y++)for(int x=0;x<sc*ts&&x<w;x++){ unsigned char*p=d+(y*w+x)*4; uint16_t c=p[3]<128?KEY565:TLRGB(p[0],p[1],p[2]); if(c==KEY565&&p[3]>=128)c=0xF81E; t->sheet[y*W+x]=c; }
-    stbi_image_free(d); terr_rebuild(t); for(int m=0;m<256;m++) if(t->lut[m]>=sc*sr)t->lut[m]=sc*sr-1;
-    snprintf(t->png,200,"%.198s",path); g_cellsel=0; snprintf(g_status,sizeof g_status,"loaded %dx%d sheet (%dx%d cells)",w,h,sc,sr); }
+    stbi_image_free(d); return 1; }
+static void terr_load_png(int ti,const char*path){ Terr*t=&g_terr[ti]; if(!terr_load_sheet_pixels(t,path))return; t->nvar=1;
+    terr_rebuild(t); for(int m=0;m<256;m++) if(t->lut[m]>=t->scols*t->srows)t->lut[m]=(uint8_t)(t->scols*t->srows-1);   /* fresh sheet -> reset rules (clamped) */
+    snprintf(t->png,200,"%.198s",path); g_cellsel=0; snprintf(g_status,sizeof g_status,"loaded sheet (%dx%d cells) \xb7 assign cells to rules",t->scols,t->srows); }
 static void terr_save_png(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*ts,H=t->srows*ts; static unsigned char rgba[256*256*4]; if(W*H>256*256)return;
     for(int i=0;i<W*H;i++){ uint16_t c=t->sheet[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
@@ -1160,7 +1163,53 @@ static void tiles_import_png(const char*path){ if(g_sel<0){ snprintf(g_status,si
 static void lv_alloc(int c,int r){ g_lv_cols=c; g_lv_rows=r; g_lv_terrain=realloc(g_lv_terrain,(size_t)c*r);
     for(int i=0;i<c*r;i++)g_lv_terrain[i]=1; for(int y=2;y<r-2;y++)for(int x=2;x<c-2;x++)g_lv_terrain[y*c+x]=0; g_lv_panx=g_lv_pany=0; }
 static void lv_fill(int set){ uint8_t b=(uint8_t)(1u<<g_curterr); for(int i=0;i<g_lv_cols*g_lv_rows;i++){ if(set)g_lv_terrain[i]|=b; else g_lv_terrain[i]&=(uint8_t)~b; } }
-static void tl_ensure(void){ if(g_tl_init)return; g_tl_init=1; terr_init(0,"dirt",0); lv_alloc(48,32); }
+/* ---- persistence: rule-tiles in tilesets/, levels in levels/ ---- */
+static void terr_save_def(int ti){ if(g_sel<0)return; Terr*t=&g_terr[ti]; const char*dir=g_games[g_sel].dir;
+    terr_save_png(ti);                                                  /* the sheet art -> assets/ */
+    char d[400]; snprintf(d,sizeof d,"%.330s/tilesets",dir); mkdir_portable(d);
+    char p[460]; snprintf(p,sizeof p,"%.330s/tilesets/%.40s.tileset",dir,t->name);
+    FILE*f=fopen(p,"w"); if(!f)return;
+    fprintf(f,"sheet %s\ntile %d\ntype %d\nedge %d\nnvar %d\ncols %d\nrows %d\nlut",t->png,g_tl_ts,t->tpl,t->edge,t->nvar,t->scols,t->srows);
+    for(int i=0;i<256;i++)fprintf(f," %d",t->lut[i]); fputc('\n',f); fclose(f); }
+static void terr_load_def(int ti,const char*path){ FILE*f=fopen(path,"r"); if(!f)return; Terr*t=&g_terr[ti];
+    char png[200]="",key[40]; int tile=g_tl_ts,type=0,edge=1,nvar=1; uint8_t lut[256]; int haslut=0;
+    while(fscanf(f,"%39s",key)==1){
+        if(!strcmp(key,"sheet"))fscanf(f,"%199s",png); else if(!strcmp(key,"tile"))fscanf(f,"%d",&tile);
+        else if(!strcmp(key,"type"))fscanf(f,"%d",&type); else if(!strcmp(key,"edge"))fscanf(f,"%d",&edge);
+        else if(!strcmp(key,"nvar"))fscanf(f,"%d",&nvar); else if(!strcmp(key,"cols")){int x;fscanf(f,"%d",&x);} else if(!strcmp(key,"rows")){int x;fscanf(f,"%d",&x);}
+        else if(!strcmp(key,"lut")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); lut[i]=(uint8_t)v; } haslut=1; } }
+    fclose(f);
+    g_tl_ts=tile; t->tpl=type&3; t->edge=edge; t->nvar=nvar<1?1:nvar;
+    { const char*b=strrchr(path,'/'); b=b?b+1:path; snprintf(t->name,16,"%.15s",b); char*dt=strrchr(t->name,'.'); if(dt)*dt=0; }
+    MoteAutotile at; mote_autotile_template(&at,t->tpl); t->ncell=mote_autotile_cell_count(t->tpl);
+    int got[256]; for(int i=0;i<256;i++)got[i]=0; for(int m=0;m<256;m++){ int ci=at.lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } }
+    for(int i=0;i<256;i++)t->lut[i]=haslut?lut[i]:at.lut[i];
+    char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,png);
+    if(!terr_load_sheet_pixels(t,sp))terr_gen_sheet(ti);                 /* sheet missing -> regenerate */
+    snprintf(t->png,200,"%.198s",png); }
+static void lv_save_def(void){ if(g_sel<0)return; const char*dir=g_games[g_sel].dir; const char*nm=g_tl_name[0]?g_tl_name:"level";
+    char d[400]; snprintf(d,sizeof d,"%.330s/levels",dir); mkdir_portable(d);
+    char p[460]; snprintf(p,sizeof p,"%.330s/levels/%.40s.level",dir,nm);
+    FILE*f=fopen(p,"w"); if(!f)return;
+    fprintf(f,"size %d %d\nlayers %d\n",g_lv_cols,g_lv_rows,g_nterr);
+    for(int i=0;i<g_nterr;i++)fprintf(f,"layer %s\n",g_terr[i].name);
+    fprintf(f,"map"); for(int i=0;i<g_lv_cols*g_lv_rows;i++)fprintf(f," %d",g_lv_terrain[i]); fputc('\n',f); fclose(f); }
+static int lv_load_def(const char*path){ if(g_sel<0)return 0; FILE*f=fopen(path,"r"); if(!f)return 0;
+    int cols=48,rows=32,ni=0; char nm2[MAXTERR][24],key[40];
+    while(fscanf(f,"%39s",key)==1){
+        if(!strcmp(key,"size")){ if(fscanf(f,"%d %d",&cols,&rows)!=2)break; }
+        else if(!strcmp(key,"layers")){ int x; fscanf(f,"%d",&x); }
+        else if(!strcmp(key,"layer")){ if(ni<MAXTERR)fscanf(f,"%23s",nm2[ni++]); else { char tmp[24]; fscanf(f,"%23s",tmp); } }
+        else if(!strcmp(key,"map")) break; }
+    if(ni<1){ fclose(f); return 0; }
+    for(int i=0;i<ni;i++){ char tp[470]; snprintf(tp,sizeof tp,"%.330s/tilesets/%.20s.tileset",g_games[g_sel].dir,nm2[i]); terr_load_def(i,tp); }
+    g_nterr=ni; g_curterr=0; g_rulesel=g_cellsel=0;
+    g_lv_cols=cols; g_lv_rows=rows; g_lv_terrain=realloc(g_lv_terrain,(size_t)cols*rows);
+    for(int i=0;i<cols*rows;i++){ int v=0; if(fscanf(f,"%d",&v)!=1)v=0; g_lv_terrain[i]=(uint8_t)v; }
+    fclose(f); g_lv_panx=g_lv_pany=0; snprintf(g_status,sizeof g_status,"loaded level %s (%dx%d, %d layers)",path,cols,rows,ni); return 1; }
+static void tl_ensure(void){ if(g_tl_init)return; g_tl_init=1;
+    char p[470]; if(g_sel>=0){ snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,g_tl_name[0]?g_tl_name:"level"); if(lv_load_def(p))return; }
+    terr_init(0,"dirt",0); lv_alloc(48,32); }
 static uint16_t dimc(uint16_t c){ return (uint16_t)((((c>>11)&31)/2<<11)|(((c>>5)&63)/2<<5)|((c&31)/2)); }
 static int nb_bit_for(int dx,int dy){ if(dx==0&&dy==-1)return MOTE_NB_N; if(dx==1&&dy==-1)return MOTE_NB_NE; if(dx==1&&dy==0)return MOTE_NB_E; if(dx==1&&dy==1)return MOTE_NB_SE;
     if(dx==0&&dy==1)return MOTE_NB_S; if(dx==-1&&dy==1)return MOTE_NB_SW; if(dx==-1&&dy==0)return MOTE_NB_W; return MOTE_NB_NW; }
@@ -1173,7 +1222,8 @@ static int recon_nbcell(Terr*t,uint8_t m,int dx,int dy){ uint8_t patch[25]; for(
 
 static void bake_all(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     const char*dir=g_games[g_sel].dir; const char*nm=g_tl_name[0]?g_tl_name:"level"; int ts=g_tl_ts;
-    for(int ti=0;ti<g_nterr;ti++) terr_save_png(ti);
+    for(int ti=0;ti<g_nterr;ti++) terr_save_def(ti);   /* save sheets -> assets/ + rule-tiles -> tilesets/ */
+    lv_save_def();                                     /* save the level -> levels/ */
     for(int ti=0;ti<g_nterr;ti++){ Terr*t=&g_terr[ti]; int W=t->scols*ts,H=t->srows*ts,N=W*H;
         char hp[460]; snprintf(hp,sizeof hp,"%.300s/src/%.40s_%.16s.tiles.h",dir,nm,t->name); FILE*f=fopen(hp,"w"); if(!f)continue;
         fprintf(f,"/* GENERATED by Mote Studio — %s autotile (%s). */\n#ifndef MOTE_T_%s_%s_H\n#define MOTE_T_%s_%s_H\n#include \"mote_tile.h\"\n\n",t->name,TL_TPL_L[t->tpl],nm,t->name,nm,t->name);
@@ -1675,6 +1725,9 @@ static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_asy
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
     if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; }
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
+    else if(ci_ends(r->name,".level")){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path; snprintf(g_tl_name,sizeof g_tl_name,"%.50s",b); char*dt=strrchr(g_tl_name,'.'); if(dt)*dt=0;
+        g_tl_init=1; lv_load_def(r->path); g_tab=TAB_TILES; }                                      /* open a level in the Tiles tab */
+    else if(ci_ends(r->name,".tileset")){ tl_ensure(); terr_load_def(g_curterr,r->path); g_tab=TAB_TILES; }   /* open a rule-tile */
     else if(r->kind==1||r->kind==2)code_open(r->path);   /* .toml / .c / .h -> code editor */
     else if(r->kind==5&&(ci_ends(r->name,".txt")||ci_ends(r->name,".md")||ci_ends(r->name,".ld")||ci_ends(r->name,".cfg")||ci_ends(r->name,".toml")))code_open(r->path); }
 
@@ -1712,6 +1765,8 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_PIXEL; }
+    if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
+    if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 

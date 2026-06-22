@@ -115,6 +115,7 @@ static void draw_tilemap(uint16_t *fb, int y0, int y1) {
 
 /* Render-time autotiling: per visible cell, build the neighbour mask from the
  * logical terrain map and pick the atlas cell via the ruleset LUT. */
+__attribute__((noinline))
 static void draw_autotile(uint16_t *fb, int y0, int y1) {
     if (!s_terrain || s_at_n <= 0 || s_at_tw <= 0 || s_at_th <= 0) return;
     const int tw = s_at_tw, th = s_at_th;
@@ -141,7 +142,9 @@ static void draw_autotile(uint16_t *fb, int y0, int y1) {
 }
 
 /* Layered autotiling: bit-packed map, each layer (bit) drawn bottom-up, autotiled
- * against its own bit, so layers overlap and composite. */
+ * against its own bit, so layers overlap and composite. noinline keeps this in flash
+ * (the hot inner loop is mote_blit, which stays RAM-resident). */
+__attribute__((noinline))
 static void draw_autotile_layers(uint16_t *fb, int y0, int y1) {
     if (!s_lay_map || s_lay_n <= 0 || s_lay_tw <= 0 || s_lay_th <= 0) return;
     const int tw = s_lay_tw, th = s_lay_th;
