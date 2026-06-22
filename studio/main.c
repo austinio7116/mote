@@ -283,7 +283,10 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
 /* ================= pixel-art studio (bottom dock tab) ================= */
 #define CMAX 128
 #define KEY565 0xF81F
-static uint16_t g_canvas[CMAX*CMAX]; static int g_csize=32; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
+/* two independent documents: 0 = PIXEL ART sprite, 1 = TEXTURE. g_canvas points at the
+ * active one; switching tabs swaps it so the texture generators never touch the sprite. */
+static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
+static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
 static char g_px_name[64]="sprite"; static int g_px_namefocus; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
@@ -308,7 +311,13 @@ static void rgb2hsv(int R,int G,int B,float*h,float*s,float*v){ float r=R/255.0f
 static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)<<2,(c&31)<<3,&g_hue,&g_sat,&g_val); }
 static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; }
+static int g_doc_ready[2];
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; }
+/* make document d (0=sprite,1=texture) active; lazily blanks a fresh doc; undo is per-doc */
+static void set_doc(int d){ d=d?1:0; if(d==g_doc)return;
+    g_csize_doc[g_doc]=g_csize; g_doc=d; g_canvas=g_docbuf[d]; g_csize=g_csize_doc[d];
+    if(!g_doc_ready[d]){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_doc_ready[d]=1; }
+    g_undo_cnt=0; g_redo_cnt=0; }
 /* snapshot the canvas before an edit; a new edit invalidates the redo stack */
 static void undo_push(void){ int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize;
     g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; g_redo_cnt=0; }
@@ -343,7 +352,7 @@ static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"o
         if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
         else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
     char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",dir); mkdir_portable(ad);
-    char p[420]; snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:"sprite");   /* edit the name field to save a new file */
+    char p[420]; snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"));   /* edit the name field to save a new file */
     if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
     snprintf(g_status,sizeof g_status,"saved %s + baking",p); njob(2,dir); }
 /* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
@@ -816,7 +825,7 @@ static int texgen_click(int mx,int my){
     if(hit(mx,my,g_textile_r.x,g_textile_r.y,62,22)){ g_textile=!g_textile; tex_generate(); return 1; }
     return 0; }
 
-static void draw_pixel(SDL_Renderer*R,int texmode){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
+static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
     struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
         {-1,-1},{IC_UNDO2,6},{IC_REDO2,14},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
@@ -2021,7 +2030,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
-static void pixel_down(int mx,int my){
+static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; SDL_StartTextInput(); return; }
     g_px_namefocus=0;
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
@@ -2041,13 +2050,13 @@ static void pixel_down(int mx,int my){
     if(g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy;
         if(g_ptool<=3){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1)px_recent(g_pcol); } } }
-static void pixel_drag(int mx,int my){
+static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(g_texdrag>=0){ texgen_drag(mx); return; }
     if(g_hsvdrag){ g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_huedrag){ g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_dx0<0||g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; } }
-static void pixel_up(int mx,int my){ g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
+static void pixel_up(int mx,int my){ set_doc(g_tab==TAB_TEXTURE); g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
     if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_csize-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_csize-1);
         if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
     if(g_dx0>=0&&(g_ptool==0||g_ptool==1))px_recent(g_pcol);
@@ -2259,7 +2268,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
-    if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_TEXTURE; }
+    if(getenv("MOTE_STUDIO_TEX")){ g_tab=TAB_TEXTURE; set_doc(1); g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); }
     if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
