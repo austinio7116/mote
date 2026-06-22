@@ -1746,9 +1746,12 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     for(int i=0;i<g_nterr;i++){ int tw=textw(R,g_terr[i].name,1),bw3=tw+26; g_lv_palr[i]=(SDL_Rect){bx,ly2,bw3,UI_H}; int sel=i==g_curterr;
         rrect(R,bx,ly2,bw3,UI_H,3,sel?C_SEL:(hit(mx,my,bx,ly2,bw3,UI_H)?C_BTNHI:C_BTN)); plain(R,bx+8,ly2+(UI_H-7)/2,7,7,(Col){TERR_TINT[i][0],TERR_TINT[i][1],TERR_TINT[i][2]}); text(R,g_terr[i].name,bx+18,ly2+(UI_H-7)/2,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); bx+=bw3+5; }
     int cvy=ly2+UI_H+8, cvw=lw-24, cvh=ph-(cvy-gy)-14;     /* the level ALWAYS fits the card, whole map shown */
-    { int zx=cvw/(g_lv_cols*ts), zy=cvh/(g_lv_rows*ts); g_lv_zoom=zx<zy?zx:zy; if(g_lv_zoom<1)g_lv_zoom=1; } g_lv_panx=g_lv_pany=0;
-    int dz=ts*g_lv_zoom, vc=g_lv_cols, vr=g_lv_rows;
-    g_lv_canvas=(SDL_Rect){lpad,cvy,vc*dz,vr*dz}; int cw=vc*ts,ch=vr*ts; g_tl_cv=realloc(g_tl_cv,(size_t)cw*ch*2);
+    int vc=g_lv_cols, vr=g_lv_rows, cw=vc*ts, ch=vr*ts;
+    /* fractional fit: integer cell-zoom floored at 1, so any level bigger than the card
+     * overflowed. Render the native-res texture scaled to the available rect instead. */
+    float fs=(float)cvw/cw; { float fy=(float)cvh/ch; if(fy<fs)fs=fy; } if(fs<0.01f)fs=0.01f;
+    int dw=(int)(cw*fs), dh=(int)(ch*fs); if(dw<1)dw=1; if(dh<1)dh=1; g_lv_panx=g_lv_pany=0;
+    g_lv_canvas=(SDL_Rect){lpad,cvy,dw,dh}; g_tl_cv=realloc(g_tl_cv,(size_t)cw*ch*2);
     for(int i=0;i<cw*ch;i++)g_tl_cv[i]=TLRGB(18,16,26);
     for(int L=0;L<g_nterr;L++){ Terr*tt=&g_terr[L]; int Wt=tt->scols*ts;                 /* draw each layer bottom-up, against its own bit */
         for(int r=0;r<vr;r++)for(int c=0;c<vc;c++){ int lc=g_lv_panx+c,lr=g_lv_pany+r; if(!((g_lv_terrain[lr*g_lv_cols+lc]>>L)&1))continue;
@@ -1760,8 +1763,8 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
                 if(xf&1)tx=ts-1-tx; if(xf&2)tyy=ts-1-tyy;
                 uint16_t p=tt->sheet[(sy+tyy)*Wt+sx+tx]; if(p==KEY565)continue; g_tl_cv[(r*ts+y)*cw+(c*ts+x)]=p; } } }
     if(!g_tl_tex||g_tl_texw!=cw||g_tl_texh!=ch){ if(g_tl_tex)SDL_DestroyTexture(g_tl_tex); g_tl_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,cw,ch); SDL_SetTextureScaleMode(g_tl_tex,SDL_ScaleModeNearest); g_tl_texw=cw; g_tl_texh=ch; }
-    SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); rect_outline(R,lpad-1,cvy-1,vc*dz+2,vr*dz+2,C_LINE,1); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
-    char info[96]; snprintf(info,sizeof info,"paint: LB '%s'  \xb7  erase: RB",ct->name); text(R,info,lpad,cvy+vr*dz+5,1,C_DIM,C_PANEL);
+    SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); rect_outline(R,lpad-1,cvy-1,dw+2,dh+2,C_LINE,1); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
+    char info[96]; snprintf(info,sizeof info,"paint: LB '%s'  \xb7  erase: RB",ct->name); text(R,info,lpad,cvy+dh+5,1,C_DIM,C_PANEL);
     if(g_bake_confirm){   /* overwrite-a-different-level confirm */
         int bw=520,bh=92,bx=ox+(w-bw)/2,by=oy+40; plain(R,bx-2,by-2,bw+4,bh+4,(Col){10,10,14}); rrect(R,bx,by,bw,bh,6,(Col){46,34,20}); rrect(R,bx,by,bw,22,6,(Col){120,80,30});
         text(R,"OVERWRITE A DIFFERENT LEVEL?",bx+10,by+7,1,C_HDR,(Col){120,80,30});
@@ -1777,7 +1780,7 @@ static void dr_paint_at(int mx,int my,int phase){ if(!hit(mx,my,g_dr_tile.x,g_dr
     uint8_t xf=ct->xform[ct->rep[g_rulesel]]; if(xf&&x>=0&&x<ts&&y>=0&&y<ts){ int sx,sy; xform_src(x,y,ts,xf,&sx,&sy); x=sx; y=sy; }   /* edit the rotated view -> write the un-transformed source */
     cell_op(ct->sheet,W,cx,cyy,ts,ts,x,y,phase); }
 static void lv_paint_at(int mx,int my,int set){ if(!hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h))return;
-    int dz=g_tl_ts*g_lv_zoom; int c=g_lv_panx+(mx-g_lv_canvas.x)/dz,r=g_lv_pany+(my-g_lv_canvas.y)/dz;
+    int c=(mx-g_lv_canvas.x)*g_lv_cols/(g_lv_canvas.w?g_lv_canvas.w:1), r=(my-g_lv_canvas.y)*g_lv_rows/(g_lv_canvas.h?g_lv_canvas.h:1);
     if(c>=0&&c<g_lv_cols&&r>=0&&r<g_lv_rows){ uint8_t b=(uint8_t)(1u<<g_curterr); if(set)g_lv_terrain[r*g_lv_cols+c]|=b; else g_lv_terrain[r*g_lv_cols+c]&=(uint8_t)~b; } }   /* set/clear THIS layer's bit only */
 
 /* clicks in the INSPECTOR's SHEET area */
