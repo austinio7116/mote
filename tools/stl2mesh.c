@@ -12,7 +12,8 @@
  *
  * A game renders the model by drawing every chunk at one transform.
  *
- * Usage: stl2mesh <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB]
+ * Usage: stl2mesh <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB] [up=y|z]
+ *   up=z converts a Z-up source model to the engine's Y-up (x,z,-y).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,11 +104,13 @@ static int cluster(int G){
 }
 
 int main(int argc,char**argv){
-    if(argc<4){ fprintf(stderr,"usage: %s <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB]\n",argv[0]); return 1; }
+    if(argc<4){ fprintf(stderr,"usage: %s <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB] [up=y|z]\n",argv[0]); return 1; }
     const char *name=argv[1], *in=argv[2], *out=argv[3];
     int budget = argc>4 ? atoi(argv[4]) : 1500;
     long rgb = argc>5 ? strtol(argv[5],0,16) : 0xA8AEB8;   /* default steel grey */
+    int zup = argc>6 && (argv[6][0]=='z'||argv[6][0]=='Z');  /* `z` = source is Z-up: convert to the engine's Y-up */
     if(!load_stl(in)) return 1;
+    if(zup) for(int i=0;i<NRT*3;i++){ V3 v=RV[i]; RV[i]=(V3){v.x, v.z, -v.y}; }
 
     bbmin=(V3){1e30f,1e30f,1e30f}; bbmax=(V3){-1e30f,-1e30f,-1e30f};
     V3 centre={0,0,0};

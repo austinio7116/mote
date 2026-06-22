@@ -1,11 +1,12 @@
 /*
  * modelview — loads a real STL model (a fighter jet) converted by tools/stl2mesh
- * and shown through the Mote 3D pipeline. This build bakes the model at FULL detail
- * (the STL's 6742 raw triangles, vertex-welded to 5759 tris) split across 19
- * <=255-vertex chunks — a heavy 3D stress test. The baker bundles those chunks into
- * one `MoteModel fighter` (fighter.h), so we draw the whole thing with a single
- * mote_model_draw_ex() — no chunk loop, no NCHUNKS, and the pool size is just
- * `fighter_TRIS` (5759, ~240 KB draw-list + depth, within the 280 KB arena).
+ * and shown through the Mote 3D pipeline. This build bakes the model at FULL detail,
+ * Z-up→Y-up corrected (the STL is authored Z-up), so the STL's 6742 raw triangles
+ * vertex-weld to 5741 tris split across 19 <=255-vertex chunks — a heavy 3D stress
+ * test. The baker bundles those chunks into one `MoteModel fighter` (fighter.h), so
+ * we draw the whole thing with a single mote_model_draw_ex() — no chunk loop, no
+ * NCHUNKS, and the pool size is just `fighter_TRIS` (5741, ~240 KB draw-list + depth,
+ * within the 280 KB arena).
  *
  * Controls: D-pad orbit the model · A toggle auto-spin · LB/RB zoom
  */
