@@ -1,7 +1,7 @@
-sheet assets/water.png
+sheet assets/sand.png
 tile 16
 type 3
-edge 0
+edge 1
 nvar 1
 cols 3
 rows 6

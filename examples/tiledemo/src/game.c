@@ -1,12 +1,17 @@
 /*
- * tiledemo — a 2D autotiled world built from FILE tilesheets plus a walking sprite.
+ * tiledemo — a 6-LAYER autotiled world that leans on transparency, plus a walking sprite.
  *
- * The three terrain layers (dirt / grass / water) and the level map are authored in
- * Mote Studio's Tiles tab: each tileset's art is a real PNG in assets/, baked to
- * src/<name>.tiles.h, and the level is a bit-packed map in src/world.level.h. The
- * engine pulls the right atlas cell per the ruleset AT RENDER TIME — there is no
- * resolved per-level image, and the map is const (flash, zero SRAM). Only the player
- * sprite is still generated in code, to show sprites compositing over the tiles.
+ * Six WANG16 tilesets (sand · water · dirt · grass · green · rough) are stacked as
+ * layers: each cell of world_map is a bitmask of which layers occupy it, and the
+ * engine autotiles every layer independently and draws them bottom-to-top. Each
+ * tile is transparent except where its terrain sits, so a layer shows the one below
+ * through its edges — sand beaches under the water and grass, lighter "green" clumps
+ * blending over the grass, rocky/dirt patches over the sand. WANG16 keys each tile on
+ * its four CORNERS, which gives crisp straight edges, rounded outer + inner corners,
+ * isolated tufts, and smooth diagonal saddles all from one 3x6 sheet.
+ *
+ * It's all resolved AT RENDER TIME from the const bit-packed map (flash, zero SRAM);
+ * only the player sprite is generated in code, to show sprites compositing on top.
  */
 #include "mote_api.h"
 #include "mote_build.h"
@@ -18,51 +23,24 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#include "world.level.h"        /* world_map / world_COLS / world_ROWS / world_draw + the 3 tilesets */
+#include "world.level.h"        /* world_map / world_COLS / world_ROWS / world_draw + the 6 tilesets */
+#include "hero.h"               /* top-down hero sheet: 6 frames of 16x16 (down/up/side) */
 
 #define TILE 16                 /* world tile size (matches the baked sheets) */
-#define PT   8                  /* player sprite cell */
-#define PLAYER_FRAMES 4         /* idle + 2 walk + bob */
+#define HT   16                 /* hero sprite cell */
 
-static uint16_t player_px[PLAYER_FRAMES * PT * PT];
-static MoteImage player = { player_px, PLAYER_FRAMES * PT, PT, MOTE_KEY_MAGENTA, 0 };
+enum { FACE_DOWN, FACE_UP, FACE_LEFT, FACE_RIGHT };
+/* first sheet frame for each facing; LEFT/RIGHT share the SIDE frames (RIGHT flips) */
+static const int FACE_BASE[4] = { 0, 2, 4, 4 };
 
-static int   px, py;             /* player world pixel position */
-static int   facing = 1;         /* -1 left, +1 right */
+static int   px, py;             /* hero world pixel position (top-left) */
+static int   facing = FACE_DOWN;
 static int   moving;             /* moved this frame? */
 static float walk_t;             /* animation phase */
 static int   steps;              /* HUD: tiles walked */
 
-/* Build the player frames: a round body with a darker outline and a small "eye";
- * walk frames bob the legs for motion. */
-static void build_player(void) {
-    const uint16_t body    = MOTE_RGB565(245, 220, 50);
-    const uint16_t shade   = MOTE_RGB565(200, 160, 30);
-    const uint16_t outline = MOTE_RGB565(60, 45, 10);
-
-    for (int f = 0; f < PLAYER_FRAMES; f++) {
-        int legbob = (f == 1) ? -1 : (f == 2) ? 1 : 0;   /* frames 1/2 walk */
-
-        for (int y = 0; y < PT; y++)
-            for (int x = 0; x < PT; x++) {
-                int dx = x - 4, dy = y - 4;
-                int r2 = dx * dx + dy * dy;
-
-                uint16_t c = MOTE_KEY_MAGENTA;
-                if (r2 <= 9)        c = body;
-                if (r2 == 9)        c = outline;          /* rim */
-                if (dy >= 2 && (x == 3 + legbob || x == 5 - legbob))
-                    c = shade;                            /* legs */
-                if (x == 4 && y == 3) c = outline;        /* eye */
-
-                player_px[y * (PLAYER_FRAMES * PT) + f * PT + x] = c;
-            }
-    }
-}
-
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(8, 10, 20));
-    build_player();
     px = (world_COLS * TILE) / 2;
     py = (world_ROWS * TILE) / 2;
 }
@@ -70,42 +48,44 @@ static void g_init(void) {
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
 
-    int sp = (int)(70.0f * dt) + 1;
+    int sp = (int)(60.0f * dt) + 1;
     int ox = px, oy = py;
 
     moving = 0;
-    if (mote_pressed(in, MOTE_BTN_LEFT))  { px -= sp; facing = -1; moving = 1; }
-    if (mote_pressed(in, MOTE_BTN_RIGHT)) { px += sp; facing =  1; moving = 1; }
-    if (mote_pressed(in, MOTE_BTN_UP))    { py -= sp; moving = 1; }
-    if (mote_pressed(in, MOTE_BTN_DOWN))  { py += sp; moving = 1; }
+    if (mote_pressed(in, MOTE_BTN_LEFT))  { px -= sp; facing = FACE_LEFT;  moving = 1; }
+    if (mote_pressed(in, MOTE_BTN_RIGHT)) { px += sp; facing = FACE_RIGHT; moving = 1; }
+    if (mote_pressed(in, MOTE_BTN_UP))    { py -= sp; facing = FACE_UP;    moving = 1; }
+    if (mote_pressed(in, MOTE_BTN_DOWN))  { py += sp; facing = FACE_DOWN;  moving = 1; }
 
-    px = mote_clampi(px, 0, world_COLS * TILE - PT);
-    py = mote_clampi(py, 0, world_ROWS * TILE - PT);
+    px = mote_clampi(px, 0, world_COLS * TILE - HT);
+    py = mote_clampi(py, 0, world_ROWS * TILE - HT);
 
     /* accumulate the Manhattan distance moved, for the tile-walk counter */
     int dpx = px - ox, dpy = py - oy;
     steps += (dpx < 0 ? -dpx : dpx) + (dpy < 0 ? -dpy : dpy);
 
+    /* animate: step between the two walk frames while moving, stand on frame 0 idle */
     if (moving) walk_t += dt * 8.0f; else walk_t = 0.0f;
-    int frame = moving ? (1 + ((int)walk_t & 1)) : 0;
+    int sub   = moving ? ((int)walk_t & 1) : 0;
+    int frame = FACE_BASE[facing] + sub;
 
-    /* Camera centres on the player, clamped to the world. */
-    int cam_x = mote_clampi(px - MOTE_FB_W / 2, 0, world_COLS * TILE - MOTE_FB_W);
-    int cam_y = mote_clampi(py - MOTE_FB_H / 2, 0, world_ROWS * TILE - MOTE_FB_H);
+    /* Camera centres on the hero, clamped to the world. */
+    int cam_x = mote_clampi(px + HT / 2 - MOTE_FB_W / 2, 0, world_COLS * TILE - MOTE_FB_W);
+    int cam_y = mote_clampi(py + HT / 2 - MOTE_FB_H / 2, 0, world_ROWS * TILE - MOTE_FB_H);
 
     mote->scene2d_begin(cam_x, cam_y);
-    world_draw(mote);                                    /* the autotiled file tilesets */
+    world_draw(mote);                                    /* the 6 autotiled layers */
 
     MoteSprite s = {
-        .img   = &player,
+        .img   = &hero_img,
         .x     = (int16_t)px,
         .y     = (int16_t)py,
-        .fx    = (uint16_t)(frame * PT),
+        .fx    = (uint16_t)(frame * HT),
         .fy    = 0,
-        .fw    = PT,
-        .fh    = PT,
+        .fw    = HT,
+        .fh    = HT,
         .layer = 10,
-        .flags = (facing < 0) ? MOTE_SPR_HFLIP : 0,
+        .flags = (facing == FACE_RIGHT) ? MOTE_SPR_HFLIP : 0,
     };
     mote->scene2d_add(&s);
 }
