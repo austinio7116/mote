@@ -923,6 +923,10 @@ static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static lo
 static SDL_Rect g_au_import,g_au_play,g_au_save; static int g_au_x,g_au_w,g_au_y,g_au_h; static char g_au_name[64]="sfx";
 static long g_view0,g_viewn; static int g_view_for=-1;            /* Audacity-style visible sample window */
 static SDL_Rect g_au_sb,g_au_fit; static int g_au_sbdrag; static double g_au_sbgrab;
+static int g_has_sfx=0;                 /* 1 = the current sound has an editable SFX recipe (a .sfx sidecar) */
+static int  sfx_read(const char*path);  /* fwd */
+static void sfx_write(const char*path); /* fwd */
+static void sfx_apply(int play);        /* fwd */
 static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,"%s/mote_audio.raw",tmpdir());
     char cmd[800]; snprintf(cmd,sizeof cmd,"ffmpeg -y -i \"%.300s\" -ac 1 -ar 22050 -f s16le \"%.200s\" 2>%s",path,raw,NULDEV); if(system(cmd)){}
     FILE*f=fopen(raw,"rb"); if(!f){ snprintf(g_status,sizeof g_status,"could not decode audio (is ffmpeg on PATH?)"); return; }
@@ -934,7 +938,10 @@ static void load_audio(const char*path){ char raw[400]; snprintf(raw,sizeof raw,
 #endif
     snprintf(g_wav_name,sizeof g_wav_name,"%.120s",b?b+1:path);
     snprintf(g_au_name,sizeof g_au_name,"%.60s",b?b+1:path); char*dt=strrchr(g_au_name,'.'); if(dt)*dt=0;   /* save-name field */
-    snprintf(g_status,sizeof g_status,"loaded %s  (%.2fs)",g_wav_name,g_wavn/22050.0f); }
+    /* an editable SFX recipe sidecar next to the .wav? load it so the sliders/wave reflect the sound */
+    { char sp[420]; const char*e=strrchr(path,'.'); int pl=e?(int)(e-path):(int)strlen(path); snprintf(sp,sizeof sp,"%.*s.sfx",pl,path);
+      if(sfx_read(sp)){ g_has_sfx=1; sfx_apply(0); } else g_has_sfx=0; }
+    snprintf(g_status,sizeof g_status,"loaded %s  (%.2fs)%s",g_wav_name,g_wavn/22050.0f,g_has_sfx?"  \xb7 editable SFX":""); }
 static void import_audio(void){ fp_open(0); }
 static void crop_raw(const char*out){ if(!g_wav||g_crop_a<0)return; long a=g_crop_a<g_crop_b?g_crop_a:g_crop_b,b=g_crop_a<g_crop_b?g_crop_b:g_crop_a;
     if(a<0)a=0; if(b>g_wavn)b=g_wavn; FILE*f=fopen(out,"wb"); if(f){ fwrite(g_wav+a,2,(size_t)(b-a),f); fclose(f); } }
@@ -955,6 +962,7 @@ static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
     char base[80]; snprintf(base,sizeof base,"%.60s",g_au_name[0]?g_au_name:"sfx"); char*d=strrchr(base,'.'); if(d)*d=0;
     char ad[320]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
     char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,base); write_wav(wp,g_wav+a,n);
+    if(g_has_sfx){ char sp[420]; snprintf(sp,sizeof sp,"%.300s/assets/%.60s.sfx",g_games[g_sel].dir,base); sfx_write(sp); }   /* recipe sidecar -> re-editable */
     njob(2,g_games[g_sel].dir);                                      /* bake -> assets header (wav2snd) */
     snprintf(g_status,sizeof g_status,"saved + baked %s.wav  ->  mote->audio_play(&%s_snd, 1.0f)",base,base); }
 /* ===== SFX generator (sfxr-style procedural synthesis) ===== */
@@ -1009,6 +1017,24 @@ static void sfx_render(Sfx*p){ static float buf[88200]; if(p->lpf_freq<=0)p->lpf
     g_crop_a=0; g_crop_b=g_wavn; }
 /* ===== SFX editor: a SEED preset fills g_sfx, sliders tweak every parameter live ===== */
 static Sfx g_sfx; static int g_au_namefocus, g_sfx_drag=-1;
+/* SFX recipe sidecar (text) — lets a generated sound be re-opened and edited, not just its samples */
+static void sfx_write(const char*path){ FILE*f=fopen(path,"w"); if(!f)return; Sfx*p=&g_sfx;
+    fprintf(f,"# Mote SFX recipe\nwave %d\nfreq %g %g %g %g\nduty %g %g\nvib %g %g\nenv %g %g %g %g\nlpf %g %g %g\nhpf %g %g\npha %g %g\narp %g %g\n",
+        p->wave, p->base_freq,p->freq_limit,p->freq_ramp,p->freq_dramp, p->duty,p->duty_ramp, p->vib_strength,p->vib_speed,
+        p->env_attack,p->env_sustain,p->env_punch,p->env_decay, p->lpf_freq,p->lpf_ramp,p->lpf_resonance, p->hpf_freq,p->hpf_ramp,
+        p->pha_offset,p->pha_ramp, p->arp_speed,p->arp_mod); fclose(f); }
+static int sfx_read(const char*path){ FILE*f=fopen(path,"r"); if(!f)return 0; Sfx*p=&g_sfx; memset(p,0,sizeof*p); p->lpf_freq=1.0f; char k[16];
+    while(fscanf(f,"%15s",k)==1){ if(k[0]=='#'){ int ch; while((ch=fgetc(f))!=EOF&&ch!='\n'){} continue; }
+        if(!strcmp(k,"wave"))fscanf(f,"%d",&p->wave);
+        else if(!strcmp(k,"freq"))fscanf(f,"%f %f %f %f",&p->base_freq,&p->freq_limit,&p->freq_ramp,&p->freq_dramp);
+        else if(!strcmp(k,"duty"))fscanf(f,"%f %f",&p->duty,&p->duty_ramp);
+        else if(!strcmp(k,"vib"))fscanf(f,"%f %f",&p->vib_strength,&p->vib_speed);
+        else if(!strcmp(k,"env"))fscanf(f,"%f %f %f %f",&p->env_attack,&p->env_sustain,&p->env_punch,&p->env_decay);
+        else if(!strcmp(k,"lpf"))fscanf(f,"%f %f %f",&p->lpf_freq,&p->lpf_ramp,&p->lpf_resonance);
+        else if(!strcmp(k,"hpf"))fscanf(f,"%f %f",&p->hpf_freq,&p->hpf_ramp);
+        else if(!strcmp(k,"pha"))fscanf(f,"%f %f",&p->pha_offset,&p->pha_ramp);
+        else if(!strcmp(k,"arp"))fscanf(f,"%f %f",&p->arp_speed,&p->arp_mod); }
+    fclose(f); return 1; }
 static const char *SFX_NAME[8]={ "coin","laser","explosion","powerup","hit","jump","blip","random" };
 static const char *SFX_LABEL[8]={ "Coin","Laser","Boom","Power","Hit","Jump","Blip","Random" };
 static const char *WAVE_L[4]={ "Square","Saw","Sine","Noise" };
@@ -1040,8 +1066,8 @@ static void sfx_preset(int k){ Sfx*P=&g_sfx; memset(P,0,sizeof *P); P->env_susta
       default: P->wave=(int)frnd(4); P->base_freq=frnd(1); P->freq_ramp=frnd(0.8f)-0.4f; P->duty=frnd(1); P->duty_ramp=frnd(0.4f)-0.2f; P->env_attack=frnd(0.2f); P->env_sustain=0.1f+frnd(0.4f); P->env_decay=0.1f+frnd(0.5f);
               P->env_punch=frnd(0.5f); P->vib_strength=frnd(0.5f); P->vib_speed=frnd(0.6f); P->arp_speed=frnd(0.7f); P->arp_mod=frnd(1.2f)-0.5f; P->lpf_freq=0.2f+frnd(0.8f); P->lpf_resonance=frnd(1); break;
     }
-    snprintf(g_au_name,sizeof g_au_name,"%s",SFX_NAME[k]); sfx_apply(1); }
-static void sfx_mutate(void){ for(int i=0;i<NSPAR;i++)if(frnd(1)<0.4f){ float nv=*SPAR[i].v+(frnd(2)-1)*0.08f*(SPAR[i].hi-SPAR[i].lo);
+    snprintf(g_au_name,sizeof g_au_name,"%s",SFX_NAME[k]); g_has_sfx=1; sfx_apply(1); }
+static void sfx_mutate(void){ g_has_sfx=1; for(int i=0;i<NSPAR;i++)if(frnd(1)<0.4f){ float nv=*SPAR[i].v+(frnd(2)-1)*0.08f*(SPAR[i].hi-SPAR[i].lo);
         if(nv<SPAR[i].lo)nv=SPAR[i].lo; if(nv>SPAR[i].hi)nv=SPAR[i].hi; *SPAR[i].v=nv; } sfx_apply(1); }
 static void draw_slider(SDL_Renderer*R,int i,int x,int y,int w){ SParam*sp=&SPAR[i]; g_sparr[i]=(SDL_Rect){x,y,w,18};
     float v=*sp->v, t=(v-sp->lo)/(sp->hi-sp->lo); if(t<0)t=0; if(t>1)t=1;
@@ -1104,9 +1130,11 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         g_au_fit=(SDL_Rect){wx+ww-40,wy+1,38,13}; rrect(R,g_au_fit.x,g_au_fit.y,38,13,3,hit(mx,my,g_au_fit.x,g_au_fit.y,38,13)?C_BTNHI:C_BTN); text(R,"Fit",g_au_fit.x+13,wy+2,1,C_TXT,C_BTN);
         { char zb[56]; snprintf(zb,sizeof zb,"view %.3fs / %.3fs  (wheel=zoom, drag bar=pan)",vn/sr,g_wavn/sr); text(R,zb,wx+4,wy+wh-sbh-13,1,C_DIM,(Col){12,14,20}); }
     } else { g_au_sb=(SDL_Rect){0,0,0,0}; g_au_fit=(SDL_Rect){0,0,0,0}; text(R,"pick a SEED / WAVE preset, Randomize, or Load a .wav/.mp3 to see its waveform",wx+10,gwy+12,1,C_DIM,(Col){12,14,20}); } }
-static void slider_set(int i,int mx){ SParam*sp=&SPAR[i]; SDL_Rect*r=&g_sparr[i]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *sp->v=sp->lo+t*(sp->hi-sp->lo); sfx_apply(0); }
+static void slider_set(int i,int mx){ SParam*sp=&SPAR[i]; SDL_Rect*r=&g_sparr[i]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *sp->v=sp->lo+t*(sp->hi-sp->lo); g_has_sfx=1; sfx_apply(0); }
 static void audio_down(int mx,int my){
-    for(int i=0;i<4;i++)if(hit(mx,my,g_waveb[i].x,g_waveb[i].y,g_waveb[i].w,g_waveb[i].h)){ g_sfx.wave=i; sfx_apply(1); return; }
+    for(int i=0;i<4;i++)if(hit(mx,my,g_waveb[i].x,g_waveb[i].y,g_waveb[i].w,g_waveb[i].h)){
+        if(!g_has_sfx){ memset(&g_sfx,0,sizeof g_sfx); g_sfx.base_freq=0.3f; g_sfx.env_sustain=0.3f; g_sfx.env_decay=0.4f; g_sfx.duty=0.5f; g_sfx.lpf_freq=1.0f; g_has_sfx=1; }   /* no recipe yet: seed an audible tone so the waveform isn't rendered into silence */
+        g_sfx.wave=i; sfx_apply(1); return; }
     for(int i=0;i<8;i++)if(hit(mx,my,g_sfxb[i].x,g_sfxb[i].y,g_sfxb[i].w,g_sfxb[i].h)){ sfx_preset(i); return; }
     if(hit(mx,my,g_au_play.x,g_au_play.y,g_au_play.w,g_au_play.h)){ if(!g_wav)sfx_apply(0); audio_play(); return; }
     if(hit(mx,my,g_au_rnd.x,g_au_rnd.y,g_au_rnd.w,g_au_rnd.h)){ sfx_preset(7); return; }
@@ -2260,8 +2288,9 @@ int main(int argc,char**argv){
         for(int i=0;i<n;i++){ memset(&g_sfx,0,sizeof g_sfx); g_sfx.lpf_freq=1.0f; g_sfx.duty=0.5f;
             g_sfx.wave=S[i].wv; g_sfx.base_freq=S[i].bf; g_sfx.freq_ramp=S[i].fr; g_sfx.env_sustain=S[i].sus; g_sfx.env_punch=S[i].pun; g_sfx.env_decay=S[i].dec;
             g_sfx.arp_speed=S[i].arps; g_sfx.arp_mod=S[i].arpm; g_sfx.vib_strength=S[i].vibs; g_sfx.vib_speed=S[i].vibsp;
-            sfx_apply(0); snprintf(g_au_name,sizeof g_au_name,"%s",S[i].nm);
-            char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,S[i].nm); write_wav(wp,g_wav,g_wavn); }
+            g_has_sfx=1; sfx_apply(0); snprintf(g_au_name,sizeof g_au_name,"%s",S[i].nm);
+            char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,S[i].nm); write_wav(wp,g_wav,g_wavn);
+            char sp[420]; snprintf(sp,sizeof sp,"%.300s/assets/%.60s.sfx",g_games[g_sel].dir,S[i].nm); sfx_write(sp); }   /* recipe sidecar -> editable */
         mc_bake(g_games[g_sel].dir,log_add); printf("studio: generated %d SFX for %s\n",n,gn); }
     if(getenv("MOTE_STUDIO_ANIM")){ an_ensure(); an_import(getenv("MOTE_STUDIO_ANIM")); snprintf(g_an_clip[0].name,16,"bounce"); g_an_clip[0].fps=8; g_an_clip[0].loop=MOTE_ANIM_PINGPONG; for(int i=0;i<4;i++)an_addframe(i); g_an_clip[0].fr[2].ev[0]='h';g_an_clip[0].fr[2].ev[1]='i';g_an_clip[0].fr[2].ev[2]='t';g_an_clip[0].fr[2].ev[3]=0; g_an_clip[0].pvx=8; g_an_clip[0].pvy=14; g_tab=TAB_ANIM; if(getenv("MOTE_STUDIO_ANIMBAKE"))an_bake(); }
     if(getenv("MOTE_STUDIO_ANIMLOAD")){ an_ensure(); an_load_def(getenv("MOTE_STUDIO_ANIMLOAD")); g_tab=TAB_ANIM; }
