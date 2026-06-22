@@ -1122,7 +1122,8 @@ static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
 static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
-static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[6],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
 static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
 
@@ -1320,10 +1321,11 @@ static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ blit
  * both the Tiles cell editor and the Anim frame editor. Lays out a column at (rxx,ry) down
  * to `bottom`; sets the global g_dr_* rects so px_panel_down/drag can hit-test them. */
 static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
-    const char*TL[4]={"pen","era","fill","pik"};
-    for(int i=0;i<4;i++){ int bw2=30; g_dr_tool[i]=(SDL_Rect){rxx+i*(bw2+3),ry,bw2,18}; int sel=g_ptool==i;
-        rrect(R,rxx+i*(bw2+3),ry,bw2,18,4,sel?C_ACC:C_BTN); text(R,TL[i],rxx+i*(bw2+3)+5,ry+3,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); }
-    int hy=ry+24, sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
+    static const int TIC[6]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH};
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    for(int i=0;i<6;i++){ int bx=rxx+i*28; g_dr_tool[i]=(SDL_Rect){bx,ry,26,22}; int act=g_ptool==i,hov=hit(mx,my,bx,ry,26,22);
+        rrect(R,bx,ry,26,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,TIC[i],bx+6,ry+4,14,act?C_HDR:C_TXT); }
+    int hy=ry+28, sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_dr_hsv=(SDL_Rect){rxx,hy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_dr_hsv); rect_outline(R,rxx,hy,sq,sq,C_LINE,1);
     { int cxp=rxx+(int)(g_sat*sq),cyp=hy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
     g_dr_hue=(SDL_Rect){rxx+sq+6,hy,14,sq}; for(int yy=0;yy<sq;yy++){ Col c=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,g_dr_hue.x,hy+yy,g_dr_hue.x+14,hy+yy); }
@@ -1332,7 +1334,7 @@ static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
     int py2=swy+18; for(int i=0;i<G_NPAL;i++){ int sx=rxx+(i%11)*15,sy=py2+(i/11)*15; g_dr_pal[i]=(SDL_Rect){sx,sy,13,13}; plain(R,sx,sy,13,13,c565(pal565(i))); if(pal565(i)==g_pcol){ SDL_SetRenderDrawColor(R,255,255,255,255); SDL_Rect s={sx-1,sy-1,15,15}; SDL_RenderDrawRect(R,&s); } }
 }
 static int px_panel_down(int mx,int my){
-    for(int i=0;i<4;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return 1; }
+    for(int i=0;i<6;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return 1; }
     for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,g_dr_rec[i].x,g_dr_rec[i].y,13,13)){ px_setcol(g_recent[i]); return 1; }
     for(int i=0;i<G_NPAL;i++)if(hit(mx,my,g_dr_pal[i].x,g_dr_pal[i].y,13,13)){ px_setcol(pal565(i)); return 1; }
     if(hit(mx,my,g_dr_hsv.x,g_dr_hsv.y,g_dr_hsv.w,g_dr_hsv.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_dr_hsv.x)/(float)g_dr_hsv.w,0,1); g_val=clampf(1-(my-g_dr_hsv.y)/(float)g_dr_hsv.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return 1; }
@@ -1344,6 +1346,25 @@ static int px_panel_drag(int mx,int my){
     if(g_huedrag){ g_hue=clampf((my-g_dr_hue.y)/(float)(g_dr_hue.h?g_dr_hue.h:1),0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return 1; }
     return 0;
 }
+/* Shared painting into a cw*ch cell at (cx,cy) of a sheet of width W — the full pixel
+ * toolset. pencil/erase/fill/pick act on down+drag; line/rect commit on mouse-up. */
+static void cell_set(uint16_t*sh,int W,int cx,int cy,int x,int y,uint16_t col){ sh[(cy+y)*W+cx+x]=col; }
+static void cell_line(uint16_t*sh,int W,int cx,int cy,int x0,int y0,int x1,int y1,uint16_t col){
+    int dx=x1>x0?x1-x0:x0-x1, sx=x0<x1?1:-1, dy=-(y1>y0?y1-y0:y0-y1), sy=y0<y1?1:-1, err=dx+dy;
+    for(;;){ cell_set(sh,W,cx,cy,x0,y0,col); if(x0==x1&&y0==y1)break; int e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } }
+static void cell_rectout(uint16_t*sh,int W,int cx,int cy,int x0,int y0,int x1,int y1,uint16_t col){
+    if(x0>x1){int t=x0;x0=x1;x1=t;} if(y0>y1){int t=y0;y0=y1;y1=t;}
+    for(int x=x0;x<=x1;x++){ cell_set(sh,W,cx,cy,x,y0,col); cell_set(sh,W,cx,cy,x,y1,col); }
+    for(int y=y0;y<=y1;y++){ cell_set(sh,W,cx,cy,x0,y,col); cell_set(sh,W,cx,cy,x1,y,col); } }
+static void cell_flood(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,uint16_t col){ uint16_t old=sh[(cy+y)*W+cx+x]; if(old==col)return; int st[4096],sp=0; st[sp++]=y*cw+x;
+    while(sp){ int q=st[--sp],qx=q%cw,qy=q/cw; uint16_t*c=&sh[(cy+qy)*W+cx+qx]; if(*c!=old)continue; *c=col; if(qx>0)st[sp++]=qy*cw+qx-1; if(qx<cw-1)st[sp++]=qy*cw+qx+1; if(qy>0)st[sp++]=(qy-1)*cw+qx; if(qy<ch-1)st[sp++]=(qy+1)*cw+qx; if(sp>4000)break; } }
+static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,int phase){   /* phase: 0 down · 1 drag · 2 up */
+    if(x<0)x=0; if(x>=cw)x=cw-1; if(y<0)y=0; if(y>=ch)y=ch-1;
+    if(g_ptool==4||g_ptool==5){ if(phase==0){ g_cdx=x; g_cdy=y; } else if(phase==2&&g_cdx>=0){ if(g_ptool==4)cell_line(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); else cell_rectout(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); px_recent(g_pcol); g_cdx=g_cdy=-1; } return; }
+    if(phase==2)return;
+    uint16_t*pp=&sh[(cy+y)*W+cx+x];
+    if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
+    else if(g_ptool==2)cell_flood(sh,W,cx,cy,cw,ch,x,y,g_pcol); }
 static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure(); (void)h;
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows;
     int tx=ox,ty=oy;
@@ -1470,12 +1491,8 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     }
 }
 
-static void dr_paint_at(int mx,int my){ if(!hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h))return; Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts,W=ct->scols*ts,sc=g_dr_tile.w/ts; if(sc<1)sc=1;
-    int x=(mx-g_dr_tile.x)/sc,y=(my-g_dr_tile.y)/sc; if(x<0||x>=ts||y<0||y>=ts)return; int cx=(g_cellsel%ct->scols)*ts,cyy=(g_cellsel/ct->scols)*ts; uint16_t*pp=&ct->sheet[(cyy+y)*W+cx+x];
-    if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
-    else if(g_ptool==2){ uint16_t old=*pp; if(old==g_pcol)return; int st[1024],sp=0; st[sp++]=y*ts+x;
-        while(sp){ int q=st[--sp],qx=q%ts,qy=q/ts; uint16_t*c=&ct->sheet[(cyy+qy)*W+cx+qx]; if(*c!=old)continue; *c=g_pcol;
-            if(qx>0)st[sp++]=qy*ts+qx-1; if(qx<ts-1)st[sp++]=qy*ts+qx+1; if(qy>0)st[sp++]=(qy-1)*ts+qx; if(qy<ts-1)st[sp++]=(qy+1)*ts+qx; if(sp>1000)break; } } }
+static void dr_paint_at(int mx,int my,int phase){ if(!hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)&&phase!=2)return; Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts,W=ct->scols*ts,sc=g_dr_tile.w/ts; if(sc<1)sc=1;
+    int x=(mx-g_dr_tile.x)/sc,y=(my-g_dr_tile.y)/sc; int cx=(g_cellsel%ct->scols)*ts,cyy=(g_cellsel/ct->scols)*ts; cell_op(ct->sheet,W,cx,cyy,ts,ts,x,y,phase); }
 static void lv_paint_at(int mx,int my,int set){ if(!hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h))return;
     int dz=g_tl_ts*g_lv_zoom; int c=g_lv_panx+(mx-g_lv_canvas.x)/dz,r=g_lv_pany+(my-g_lv_canvas.y)/dz;
     if(c>=0&&c<g_lv_cols&&r>=0&&r<g_lv_rows){ uint8_t b=(uint8_t)(1u<<g_curterr); if(set)g_lv_terrain[r*g_lv_cols+c]|=b; else g_lv_terrain[r*g_lv_cols+c]&=(uint8_t)~b; } }   /* set/clear THIS layer's bit only */
@@ -1518,7 +1535,7 @@ static void tiles_down(int mx,int my){
         for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->xform[m]=cur; return; }
     for(int ci=0;ci<ct->ncell&&ci<64;ci++)if(hit(mx,my,g_rulecell[ci].x,g_rulecell[ci].y,g_rulecell[ci].w,g_rulecell[ci].h)){ g_rulesel=ci; g_cellsel=ct->lut[ct->rep[ci]]; return; }
     if(px_panel_down(mx,my))return;
-    if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=1; dr_paint_at(mx,my); return; }
+    if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=1; dr_paint_at(mx,my,0); return; }
     for(int i=0;i<4;i++)if(hit(mx,my,g_lv_szr[i].x,g_lv_szr[i].y,g_lv_szr[i].w,g_lv_szr[i].h)){ lv_alloc(LV_SIZES[i].c,LV_SIZES[i].r); g_lv_fit=1; return; }
     if(hit(mx,my,g_lv_fitb.x,g_lv_fitb.y,34,18)){ g_lv_fit=!g_lv_fit; return; }
     if(hit(mx,my,g_lv_zm.x,g_lv_zm.y,14,18)){ g_lv_fit=0; if(g_lv_zoom>1)g_lv_zoom--; return; }
@@ -1530,12 +1547,12 @@ static void tiles_down(int mx,int my){
         if(SDL_GetModState()&KMOD_SHIFT){ g_lv_pandrag=1; g_lv_fit=0; g_lv_grabx=mx; g_lv_graby=my; g_lv_px0=g_lv_panx; g_lv_py0=g_lv_pany; }
         else { g_lv_pdrag=1; lv_paint_at(mx,my,1); } return; } }
 static void tiles_rdown(int mx,int my){ if(hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h)){ g_lv_pdrag=2; lv_paint_at(mx,my,0); }
-    else if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=2; int t=g_ptool; g_ptool=1; dr_paint_at(mx,my); g_ptool=t; } }
+    else if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=2; int t=g_ptool; g_ptool=1; dr_paint_at(mx,my,0); g_ptool=t; } }
 static void tiles_mdown(int mx,int my){ if(hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h)){ g_lv_pandrag=1; g_lv_fit=0; g_lv_grabx=mx; g_lv_graby=my; g_lv_px0=g_lv_panx; g_lv_py0=g_lv_pany; } }
 static void tiles_drag(int mx,int my){ int dz=g_tl_ts*g_lv_zoom;
     if(px_panel_drag(mx,my))return;
     if(g_lv_pandrag){ g_lv_panx=g_lv_px0-(mx-g_lv_grabx)/dz; g_lv_pany=g_lv_py0-(my-g_lv_graby)/dz; return; }
-    if(g_dr_paint){ int t=g_ptool; if(g_dr_paint==2)g_ptool=1; dr_paint_at(mx,my); g_ptool=t; return; }
+    if(g_dr_paint){ int t=g_ptool; if(g_dr_paint==2)g_ptool=1; dr_paint_at(mx,my,1); g_ptool=t; return; }
     if(g_lv_pdrag)lv_paint_at(mx,my,g_lv_pdrag==1?1:0); }
 
 /* ===================== sprite-animation editor (ANIM tab) ===================== */
@@ -1586,14 +1603,10 @@ static int an_new_cell(void){
         for(int y=0;y<g_an_h;y++)for(int x=0;x<g_an_w;x++)ns[y*neww+x]=g_an_sheet[y*g_an_w+x]; free(g_an_sheet); g_an_sheet=ns; g_an_h=newh; }
     return g_an_used++; }
 /* paint into the SELECTED frame's cell of the sheet, with the shared pixel tools */
-static void an_dr_paint_at(int mx,int my){ if(!g_an_sheet)return; AClip*c=&g_an_clip[g_an_cur]; if(c->nfr<1)return;
-    if(!hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h))return; int sc=g_an_dr.w/(g_an_tw?g_an_tw:1); if(sc<1)sc=1;
-    int x=(mx-g_an_dr.x)/sc,y=(my-g_an_dr.y)/sc; if(x<0||x>=g_an_tw||y<0||y>=g_an_th)return;
-    int cell=c->fr[g_an_fsel].cell, cols=an_cols(), cx=(cell%cols)*g_an_tw, cy=(cell/cols)*g_an_th; uint16_t*pp=&g_an_sheet[(cy+y)*g_an_w+cx+x];
-    if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
-    else if(g_ptool==2){ uint16_t old=*pp; if(old==g_pcol)return; int st[1024],sp=0; st[sp++]=y*g_an_tw+x;   /* flood within the cell */
-        while(sp){ int q=st[--sp],qx=q%g_an_tw,qy=q/g_an_tw; uint16_t*cc=&g_an_sheet[(cy+qy)*g_an_w+cx+qx]; if(*cc!=old)continue; *cc=g_pcol;
-            if(qx>0)st[sp++]=qy*g_an_tw+qx-1; if(qx<g_an_tw-1)st[sp++]=qy*g_an_tw+qx+1; if(qy>0)st[sp++]=(qy-1)*g_an_tw+qx; if(qy<g_an_th-1)st[sp++]=(qy+1)*g_an_tw+qx; if(sp>1000)break; } } }
+static void an_dr_paint_at(int mx,int my,int phase){ if(!g_an_sheet)return; AClip*c=&g_an_clip[g_an_cur]; if(c->nfr<1)return;
+    if(!hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h)&&phase!=2)return; int sc=g_an_dr.w/(g_an_tw?g_an_tw:1); if(sc<1)sc=1;
+    int x=(mx-g_an_dr.x)/sc,y=(my-g_an_dr.y)/sc; int cell=c->fr[g_an_fsel].cell, cols=an_cols(), cx=(cell%cols)*g_an_tw, cy=(cell/cols)*g_an_th;
+    cell_op(g_an_sheet,g_an_w,cx,cy,g_an_tw,g_an_th,x,y,phase); }
 /* write the (edited) sheet back to its PNG so the asset stays the source of truth */
 static void an_save_png(void){ if(g_sel<0||!g_an_sheet||!g_an_png[0])return; int W=g_an_w,H=g_an_h; if((long)W*H>1024*1024)return;
     unsigned char*rgba=malloc((size_t)W*H*4); for(int i=0;i<W*H;i++){ uint16_t c=g_an_sheet[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
@@ -1690,9 +1703,9 @@ static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_
 
     /* selected-frame editor */
     int ey=ty+fz+8; tx=ox;
-    if(c->nfr>0){ text(R,"frame",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"frame",1)+5;
-        g_an_frl=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"\xab",tx+4,ey+3,1,C_TXT,C_BTN); tx+=18;
-        g_an_frr=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"\xbb",tx+4,ey+3,1,C_TXT,C_BTN); tx+=22;
+    if(c->nfr>0){ text(R,"reorder",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"reorder",1)+5;
+        g_an_frl=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,hit(mx,my,tx,ey,16,18)?C_BTNHI:C_BTN); text(R,"\xab",tx+4,ey+3,1,C_TXT,C_BTN); tx+=18;
+        g_an_frr=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,hit(mx,my,tx,ey,16,18)?C_BTNHI:C_BTN); text(R,"\xbb",tx+4,ey+3,1,C_TXT,C_BTN); tx+=22;
         text(R,"ms",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"ms",1)+4; g_an_durm=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"-",tx+5,ey+3,1,C_TXT,C_BTN); tx+=17; { char b[8]; snprintf(b,sizeof b,"%d",an_fdur(c,g_an_fsel)); text(R,b,tx,ey+3,1,C_TXT,C_DOCK); } tx+=textw(R,"000",1)+3;
         g_an_durp=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"+",tx+4,ey+3,1,C_TXT,C_BTN); tx+=22;
         text(R,"event",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"event",1)+4;
@@ -1703,26 +1716,31 @@ static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_
 
     /* ---- EDIT FRAME (paint the selected frame's cell) | palette | PREVIEW ---- */
     int ly=ey+26; text(R,"EDIT FRAME",ox,ly,1,(Col){170,200,140},C_DOCK);
+    g_an_onionb=(SDL_Rect){ox+86,ly-3,58,16}; rrect(R,ox+86,ly-3,58,16,4,g_an_onion?C_ACC:C_BTN); text(R,"onion",ox+96,ly,1,g_an_onion?C_HDR:C_DIM,g_an_onion?C_ACC:C_BTN);
     int avail=h-(ly+14-oy)-8, dsc=g_an_th?avail/g_an_th:6; if(dsc<3)dsc=3; if(dsc>12)dsc=12;
     int dpx=ox,dpy=ly+14,dw=g_an_tw*dsc,dh=g_an_th*dsc; g_an_dr=(SDL_Rect){dpx,dpy,dw,dh};
     plain(R,dpx-1,dpy-1,dw+2,dh+2,(Col){40,42,52});
     { AClip*c2=&g_an_clip[g_an_cur]; int cols=an_cols();
-      for(int y=0;y<dh;y++)for(int x=0;x<dw;x++){ uint16_t p=KEY565; if(c2->nfr>0&&g_an_sheet){ int cell=c2->fr[g_an_fsel].cell; int sx=(cell%cols)*g_an_tw+x/dsc,sy=(cell/cols)*g_an_th+y/dsc; if(sx<g_an_w&&sy<g_an_h)p=g_an_sheet[sy*g_an_w+sx]; }
-          plain(R,dpx+x,dpy+y,1,1,p==KEY565?((((x/dsc)+(y/dsc))&1)?(Col){30,30,38}:(Col){24,24,30}):c565(p)); } }   /* checker = transparent */
+      int oc=(g_an_onion&&c2->nfr>1)?c2->fr[(g_an_fsel+c2->nfr-1)%c2->nfr].cell:-1;   /* onion: the previous frame */
+      int cell=(c2->nfr>0)?c2->fr[g_an_fsel].cell:-1, ccx=cell>=0?(cell%cols)*g_an_tw:0, ccy=cell>=0?(cell/cols)*g_an_th:0;
+      int ocx=oc>=0?(oc%cols)*g_an_tw:0, ocy=oc>=0?(oc/cols)*g_an_th:0;
+      for(int y=0;y<dh;y++)for(int x=0;x<dw;x++){ int lx=x/dsc,lyy=y/dsc; uint16_t p=KEY565;
+          if(cell>=0&&g_an_sheet){ int sx=ccx+lx,sy=ccy+lyy; if(sx<g_an_w&&sy<g_an_h)p=g_an_sheet[sy*g_an_w+sx]; }
+          if(p!=KEY565){ plain(R,dpx+x,dpy+y,1,1,c565(p)); continue; }
+          uint16_t op=KEY565; if(oc>=0){ int sx=ocx+lx,sy=ocy+lyy; if(sx<g_an_w&&sy<g_an_h)op=g_an_sheet[sy*g_an_w+sx]; }
+          if(op!=KEY565){ Col cc=c565(op); plain(R,dpx+x,dpy+y,1,1,(Col){(uint8_t)(cc.r/3+16),(uint8_t)(cc.g/3+16),(uint8_t)(cc.b/3+20)}); }   /* faint onion */
+          else plain(R,dpx+x,dpy+y,1,1,((lx+lyy)&1)?(Col){30,30,38}:(Col){24,24,30}); } }   /* checker = transparent */
 
     int rxx=dpx+dw+12; px_panel_draw(R,rxx,dpy,oy+h-4);
 
-    int ppx=rxx+178, py=ly; text(R,"PREVIEW",ppx,py,1,(Col){170,200,140},C_DOCK);
-    g_an_playb=(SDL_Rect){ppx+70,py-3,52,18}; rrect(R,ppx+70,py-3,52,18,4,g_an_play?C_ACC:C_BTN); text(R,g_an_play?"pause":"play",ppx+78,py,1,g_an_play?C_HDR:C_TXT,g_an_play?C_ACC:C_BTN);
-    g_an_onionb=(SDL_Rect){ppx+126,py-3,56,18}; rrect(R,ppx+126,py-3,56,18,4,g_an_onion?C_ACC:C_BTN); text(R,"onion",ppx+134,py,1,g_an_onion?C_HDR:C_TXT,g_an_onion?C_ACC:C_BTN);
-    g_an_spm=(SDL_Rect){ppx+188,py-3,16,18}; rrect(R,ppx+188,py-3,16,18,4,C_BTN); text(R,"-",ppx+193,py,1,C_TXT,C_BTN); { char b[8]; snprintf(b,sizeof b,"%.2fx",g_an_speed); text(R,b,ppx+206,py,1,C_TXT,C_DOCK); }
-    g_an_spp=(SDL_Rect){ppx+244,py-3,16,18}; rrect(R,ppx+244,py-3,16,18,4,C_BTN); text(R,"+",ppx+248,py,1,C_TXT,C_BTN);
+    int ppx=rxx+176, py=ly; text(R,"PREVIEW",ppx,py,1,(Col){170,200,140},C_DOCK);
+    g_an_playb=(SDL_Rect){ppx+70,py-3,52,16}; rrect(R,ppx+70,py-3,52,16,4,g_an_play?C_ACC:C_BTN); text(R,g_an_play?"pause":"play",ppx+78,py,1,g_an_play?C_HDR:C_TXT,g_an_play?C_ACC:C_BTN);
+    g_an_spm=(SDL_Rect){ppx+128,py-3,16,16}; rrect(R,ppx+128,py-3,16,16,4,C_BTN); text(R,"-",ppx+133,py,1,C_TXT,C_BTN); { char b[8]; snprintf(b,sizeof b,"%.2fx",g_an_speed); text(R,b,ppx+146,py,1,C_TXT,C_DOCK); }
+    g_an_spp=(SDL_Rect){ppx+184,py-3,16,16}; rrect(R,ppx+184,py-3,16,16,4,C_BTN); text(R,"+",ppx+188,py,1,C_TXT,C_BTN);
     an_sync(); uint32_t now=SDL_GetTicks(); float dt=g_an_lastms?(now-g_an_lastms)/1000.0f:0; g_an_lastms=now; if(dt>0.25f)dt=0.25f;
     if(g_an_play&&c->nfr>0)mote_anim_tick(&g_an_pl,dt*g_an_speed);
     int pvz=dsc; int pw=g_an_tw*pvz,ph2=g_an_th*pvz, pbx=ppx,pby=py+20; plain(R,pbx-1,pby-1,pw+2,ph2+2,(Col){40,42,52}); plain(R,pbx,pby,pw,ph2,(Col){22,22,30});
     if(c->nfr>0&&g_an_sheet){ int cols=an_cols();
-        if(g_an_onion){ int prev=g_an_pl.i>0?g_an_pl.i-1:c->nfr-1; int oc=c->fr[prev].cell,ox2=(oc%cols)*g_an_tw,oy2=(oc/cols)*g_an_th;
-            for(int y=0;y<ph2;y++)for(int x=0;x<pw;x++){ int sx=ox2+x/pvz,sy=oy2+y/pvz; uint16_t p=(sx<g_an_w&&sy<g_an_h)?g_an_sheet[sy*g_an_w+sx]:KEY565; if(p!=KEY565){ Col cc=c565(p); plain(R,pbx+x,pby+y,1,1,(Col){cc.r/3,cc.g/3,cc.b/3}); } } }
         int cell=mote_anim_cell(&g_an_pl),cx=(cell%cols)*g_an_tw,cy=(cell/cols)*g_an_th;
         for(int y=0;y<ph2;y++)for(int x=0;x<pw;x++){ int sx=cx+x/pvz,sy=cy+y/pvz; uint16_t p=(sx<g_an_w&&sy<g_an_h)?g_an_sheet[sy*g_an_w+sx]:KEY565; if(p!=KEY565)plain(R,pbx+x,pby+y,1,1,c565(p)); }
         plain(R,pbx+c->pvx*pvz-1,pby+c->pvy*pvz-1,3,3,(Col){255,80,80}); }
@@ -1756,11 +1774,11 @@ static void anim_down(int mx,int my){ an_ensure(); AClip*c=&g_an_clip[g_an_cur];
     }
     if(hit(mx,my,g_an_addfr.x,g_an_addfr.y,72,18)){ int nc=an_new_cell(); an_addframe(nc); return; }   /* new blank frame to draw */
     if(px_panel_down(mx,my))return;                                                                    /* shared pixel tools/HSV/swatches */
-    if(hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h)){ g_an_drag=1; an_dr_paint_at(mx,my); return; }  /* paint the frame */
-    if(hit(mx,my,g_an_playb.x,g_an_playb.y,52,18)){ g_an_play=!g_an_play; return; }
-    if(hit(mx,my,g_an_onionb.x,g_an_onionb.y,56,18)){ g_an_onion=!g_an_onion; return; }
-    if(hit(mx,my,g_an_spm.x,g_an_spm.y,16,18)){ g_an_speed-=0.25f; if(g_an_speed<0.25f)g_an_speed=0.25f; return; }
-    if(hit(mx,my,g_an_spp.x,g_an_spp.y,16,18)){ g_an_speed+=0.25f; if(g_an_speed>4)g_an_speed=4; return; } }
+    if(hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h)){ g_an_drag=1; an_dr_paint_at(mx,my,0); return; }  /* paint the frame */
+    if(hit(mx,my,g_an_onionb.x,g_an_onionb.y,58,16)){ g_an_onion=!g_an_onion; return; }
+    if(hit(mx,my,g_an_playb.x,g_an_playb.y,52,16)){ g_an_play=!g_an_play; return; }
+    if(hit(mx,my,g_an_spm.x,g_an_spm.y,16,16)){ g_an_speed-=0.25f; if(g_an_speed<0.25f)g_an_speed=0.25f; return; }
+    if(hit(mx,my,g_an_spp.x,g_an_spp.y,16,16)){ g_an_speed+=0.25f; if(g_an_speed>4)g_an_speed=4; return; } }
 
 /* ================= device / USB panel ================= */
 static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Push","Push & Launch","Stream Logs","Wipe Store" };
@@ -2269,7 +2287,10 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my); continue; } }
-            else if(e.type==SDL_MOUSEBUTTONUP){ g_split=0; g_mdrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+            else if(e.type==SDL_MOUSEBUTTONUP){
+                if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
+                else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
+                g_split=0; g_mdrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
@@ -2283,7 +2304,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
-                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y); }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y,1); }
                 else if((e.motion.state&SDL_BUTTON_MMASK)&&g_tab==TAB_PIXEL){ g_panx+=e.motion.xrel; g_pany+=e.motion.yrel; }
             }
         }
