@@ -1112,6 +1112,9 @@ static uint16_t *g_tl_cv, *g_dr_cv; static SDL_Texture *g_tl_tex, *g_dr_tex; sta
 static int g_lv_cols=48,g_lv_rows=32,g_lv_panx,g_lv_pany,g_lv_zoom=2,g_lv_fit=1,g_lv_pdrag,g_lv_pandrag,g_lv_grabx,g_lv_graby,g_lv_px0,g_lv_py0;
 static uint8_t *g_lv_terrain;
 static char g_tl_name[64]="level"; static int g_tl_namefocus, g_ln_focus;
+static char g_loaded_level[64]="";   /* the level name we last opened/baked — to detect rename-clobbers */
+static int g_bake_confirm;           /* 1 = showing the "overwrite a different level?" prompt */
+static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
@@ -1237,7 +1240,13 @@ static int lv_load_def(const char*path){ if(g_sel<0)return 0; FILE*f=fopen(path,
     g_nterr=ni; g_curterr=0; g_rulesel=g_cellsel=0;
     g_lv_cols=cols; g_lv_rows=rows; g_lv_terrain=realloc(g_lv_terrain,(size_t)cols*rows);
     for(int i=0;i<cols*rows;i++){ int v=0; if(fscanf(f,"%d",&v)!=1)v=0; g_lv_terrain[i]=(uint8_t)v; }
-    fclose(f); g_lv_panx=g_lv_pany=0; snprintf(g_status,sizeof g_status,"loaded level %s (%dx%d, %d layers)",path,cols,rows,ni); return 1; }
+    fclose(f); g_lv_panx=g_lv_pany=0; snprintf(g_loaded_level,sizeof g_loaded_level,"%s",g_tl_name);
+    snprintf(g_status,sizeof g_status,"loaded level %s (%dx%d, %d layers)",path,cols,rows,ni); return 1; }
+/* would Bake overwrite a DIFFERENT existing level than the one we have open? */
+static int bake_would_clobber(void){ if(g_sel<0)return 0; const char*nm=g_tl_name[0]?g_tl_name:"level";
+    if(!strcmp(nm,g_loaded_level))return 0;                       /* saving back to the open level — fine */
+    char p[470]; snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,nm);
+    FILE*f=fopen(p,"rb"); if(f){ fclose(f); return 1; } return 0; }
 static void tl_ensure(void){ if(g_tl_init)return; g_tl_init=1;
     char p[470]; if(g_sel>=0){ snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,g_tl_name[0]?g_tl_name:"level"); if(lv_load_def(p))return; }
     terr_init(0,"layer1",0); lv_alloc(48,32); }
@@ -1332,7 +1341,9 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     g_tl_name_r=(SDL_Rect){tx,ty,84,22}; rrect(R,tx,ty,84,22,4,g_tl_namefocus?(Col){12,14,20}:C_DOCK);
     { char nm[80]; snprintf(nm,sizeof nm,"%s%s",g_tl_name,g_tl_namefocus?"_":""); text(R,nm,tx+6,ty+6,1,C_TXT,g_tl_namefocus?(Col){12,14,20}:C_DOCK); } tx+=92;
     g_tl_bakeall=(SDL_Rect){tx,ty,86,22}; rrect(R,tx,ty,86,22,4,hit(mx,my,tx,ty,86,22)?C_BTNHI:C_BTN); text(R,"Bake all",tx+14,ty+5,1,(Col){170,200,140},C_BTN);
-    text(R,"SHEET + tile controls are in the Inspector",tx+96,ty+6,1,C_DIM,C_DOCK);
+    { char eb[160]; const char*nm=g_tl_name[0]?g_tl_name:"level";
+      snprintf(eb,sizeof eb,"editing level '%s'  \xb7  Bake \xbb levels/%s.level + %d tileset%s + src/  (open others from the file tree)",nm,nm,g_nterr,g_nterr==1?"":"s");
+      text(R,eb,tx+96,ty+6,1,strcmp(nm,g_loaded_level)&&g_loaded_level[0]?(Col){230,180,90}:C_DIM,C_DOCK); }
 
     int gy=oy+30, ph=h-(gy-oy)-6;
     int rw=w*33/100, ew=w*30/100, lw=w-rw-ew-16;
@@ -1404,6 +1415,14 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     if(!g_tl_tex||g_tl_texw!=cw||g_tl_texh!=ch){ if(g_tl_tex)SDL_DestroyTexture(g_tl_tex); g_tl_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,cw,ch); SDL_SetTextureScaleMode(g_tl_tex,SDL_ScaleModeNearest); g_tl_texw=cw; g_tl_texh=ch; }
     SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); plain(R,lx-1,cvy-1,vc*dz+2,vr*dz+2,(Col){30,32,40}); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
     char info[120]; snprintf(info,sizeof info,"%dx%d  %dx  LB '%s'  RB erase  MMB/shift pan",g_lv_cols,g_lv_rows,g_lv_zoom,ct->name); text(R,info,lx,cvy+vr*dz+3,1,C_DIM,C_DOCK);
+    if(g_bake_confirm){   /* overwrite-a-different-level confirm */
+        int bw=520,bh=92,bx=ox+(w-bw)/2,by=oy+40; plain(R,bx-2,by-2,bw+4,bh+4,(Col){10,10,14}); rrect(R,bx,by,bw,bh,6,(Col){46,34,20}); rrect(R,bx,by,bw,22,6,(Col){120,80,30});
+        text(R,"OVERWRITE A DIFFERENT LEVEL?",bx+10,by+7,1,C_HDR,(Col){120,80,30});
+        char m[140]; snprintf(m,sizeof m,"levels/%s.level already exists and is not the one you opened.",g_tl_name); text(R,m,bx+10,by+30,1,C_TXT,(Col){46,34,20});
+        text(R,"Baking will replace it (and its tilesets).",bx+10,by+44,1,(Col){230,200,150},(Col){46,34,20});
+        g_bake_yes=(SDL_Rect){bx+bw-180,by+62,82,22}; rrect(R,g_bake_yes.x,g_bake_yes.y,82,22,4,hit(mx,my,g_bake_yes.x,g_bake_yes.y,82,22)?(Col){180,80,60}:(Col){120,60,44}); text(R,"Overwrite",g_bake_yes.x+9,g_bake_yes.y+5,1,C_HDR,(Col){120,60,44});
+        g_bake_no=(SDL_Rect){bx+bw-92,by+62,82,22}; rrect(R,g_bake_no.x,g_bake_no.y,82,22,4,hit(mx,my,g_bake_no.x,g_bake_no.y,82,22)?C_BTNHI:C_BTN); text(R,"Cancel",g_bake_no.x+18,g_bake_no.y+5,1,C_TXT,C_BTN);
+    }
 }
 
 static void dr_paint_at(int mx,int my){ if(!hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h))return; Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts,W=ct->scols*ts,sc=g_dr_tile.w/ts; if(sc<1)sc=1;
@@ -1438,7 +1457,11 @@ static void tiles_down(int mx,int my){
     if(g_terradd.w&&hit(mx,my,g_terradd.x,g_terradd.y,22,22)){ char ln[16]; snprintf(ln,sizeof ln,"layer%d",g_nterr+1); terr_init(g_nterr,ln,0); g_curterr=g_nterr++; g_rulesel=g_cellsel=0; return; }
     if(hit(mx,my,g_ln_r.x,g_ln_r.y,84,22)){ g_ln_focus=1; g_tl_namefocus=0; SDL_StartTextInput(); return; } g_ln_focus=0;
     if(hit(mx,my,g_tl_name_r.x,g_tl_name_r.y,84,22)){ g_tl_namefocus=1; SDL_StartTextInput(); return; } g_tl_namefocus=0;
-    if(hit(mx,my,g_tl_bakeall.x,g_tl_bakeall.y,86,22)){ bake_all(); return; }
+    if(g_bake_confirm){   /* the overwrite prompt is up — only Yes/No are live */
+        if(hit(mx,my,g_bake_yes.x,g_bake_yes.y,g_bake_yes.w,g_bake_yes.h)){ bake_all(); snprintf(g_loaded_level,sizeof g_loaded_level,"%s",g_tl_name[0]?g_tl_name:"level"); g_bake_confirm=0; return; }
+        if(hit(mx,my,g_bake_no.x,g_bake_no.y,g_bake_no.w,g_bake_no.h)){ g_bake_confirm=0; return; }
+        return; }
+    if(hit(mx,my,g_tl_bakeall.x,g_tl_bakeall.y,86,22)){ if(bake_would_clobber())g_bake_confirm=1; else { bake_all(); snprintf(g_loaded_level,sizeof g_loaded_level,"%s",g_tl_name[0]?g_tl_name:"level"); } return; }
     Terr*ct=&g_terr[g_curterr];
     for(int k=0;k<4;k++)if(hit(mx,my,g_tl_type[k].x,g_tl_type[k].y,g_tl_type[k].w,15)){ ct->tpl=k; terr_rebuild(ct); int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); g_rulesel=g_cellsel=0; return; }
     for(int k=0;k<3;k++)if(hit(mx,my,g_tl_xf[k].x,g_tl_xf[k].y,g_tl_xf[k].w,g_tl_xf[k].h)){   /* per-rule transform: rot / H / V */
