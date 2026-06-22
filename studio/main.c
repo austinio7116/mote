@@ -1141,6 +1141,10 @@ static void terr_save_png(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
     for(int i=0;i<W*H;i++){ uint16_t c=t->sheet[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
     char p[420]; snprintf(p,sizeof p,"%.300s/%.110s",g_games[g_sel].dir,t->png); { char d2[440]; snprintf(d2,sizeof d2,"%.300s/assets",g_games[g_sel].dir); mkdir_portable(d2); }
     if(stbi_write_png(p,W,H,4,rgba,W*4)) snprintf(g_status,sizeof g_status,"saved sheet %s",p); else snprintf(g_status,sizeof g_status,"save FAILED %s",p); }
+/* extend a sheet with a fresh blank row of cells (the PNG grows on Save) */
+static void terr_add_row(int ti){ Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*ts; int oldpix=W*t->srows*ts; t->srows++;
+    t->sheet=realloc(t->sheet,(size_t)W*t->srows*ts*2); for(int i=oldpix;i<W*t->srows*ts;i++)t->sheet[i]=KEY565;
+    snprintf(g_status,sizeof g_status,"added a row \xb7 %dx%d cells (Save sheet to write the PNG)",t->scols,t->srows); }
 /* import a chosen PNG into THIS project's assets/ (copy if external), then load it as the sheet */
 static void tiles_import_png(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     const char*base=strrchr(path,'/');
@@ -1206,8 +1210,9 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
     text(R,"variants",tx,ty+3,1,C_DIM,C_DOCK); tx2=tx+textw(R,"variants",1)+6; g_tl_varm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
     { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); text(R,b,tx2+4,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_varp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=24;
-    g_tl_load=(SDL_Rect){tx,ty,90,20}; rrect(R,tx,ty,90,20,4,hit(mx,my,tx,ty,90,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+13,ty+4,1,(Col){170,200,140},C_BTN);
-    g_tl_savep=(SDL_Rect){tx+96,ty,96,20}; rrect(R,tx+96,ty,96,20,4,hit(mx,my,tx+96,ty,96,20)?C_BTNHI:C_BTN); text(R,"Save sheet",tx+103,ty+4,1,C_TXT,C_BTN); ty+=26;
+    g_tl_load=(SDL_Rect){tx,ty,74,20}; rrect(R,tx,ty,74,20,4,hit(mx,my,tx,ty,74,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+7,ty+4,1,(Col){170,200,140},C_BTN);
+    g_tl_addrow=(SDL_Rect){tx+78,ty,52,20}; rrect(R,tx+78,ty,52,20,4,hit(mx,my,tx+78,ty,52,20)?C_BTNHI:C_BTN); text(R,"+ Row",tx+85,ty+4,1,C_TXT,C_BTN);
+    g_tl_savep=(SDL_Rect){tx+134,ty,58,20}; rrect(R,tx+134,ty,58,20,4,hit(mx,my,tx+134,ty,58,20)?C_BTNHI:C_BTN); text(R,"Save",tx+148,ty+4,1,C_TXT,C_BTN); ty+=26;
     char sl[40]; snprintf(sl,sizeof sl,"SHEET  %dx%d cells",ct->scols,ct->srows); text(R,sl,tx,ty,1,(Col){170,200,140},C_DOCK); ty+=14;
     int dz=24, per=w/(dz+2); if(per<1)per=1;   /* WRAP regardless of the sheet's own row layout */
     for(int ci=0;ci<sn&&ci<64;ci++){ int gx=tx+(ci%per)*(dz+2), gyy=ty+(ci/per)*(dz+2); g_sheetcell[ci]=(SDL_Rect){gx,gyy,dz,dz};
@@ -1309,8 +1314,9 @@ static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
     if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_gen_sheet(i); } return 1; }
     if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,18)){ if(ct->nvar>1){ ct->nvar--; terr_gen_sheet(g_curterr); } return 1; }
     if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,18)){ if(ct->nvar<4){ ct->nvar++; terr_gen_sheet(g_curterr); } return 1; }
-    if(hit(mx,my,g_tl_load.x,g_tl_load.y,90,20)){ fp_open(2); return 1; }
-    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,96,20)){ terr_save_png(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_load.x,g_tl_load.y,74,20)){ fp_open(2); return 1; }
+    if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,52,20)){ terr_add_row(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,58,20)){ terr_save_png(g_curterr); return 1; }
     int sn=ct->scols*ct->srows; for(int ci=0;ci<sn&&ci<64;ci++)if(hit(mx,my,g_sheetcell[ci].x,g_sheetcell[ci].y,g_sheetcell[ci].w,g_sheetcell[ci].h)){ g_cellsel=ci;
         uint8_t rr=ct->rep[g_rulesel]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->lut[m]=(uint8_t)ci; return 1; }
     return 0; }
