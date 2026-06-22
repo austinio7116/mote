@@ -46,7 +46,7 @@ static const MoteAnimClip *cur;  /* current clip — only re-play on change */
 static void set_clip(const MoteAnimClip *c) { if (cur != c) { cur = c; mote_anim_play(&anim, c); } }
 
 static void g_init(void) {
-    mote->scene_set_background(MOTE_RGB565(40, 96, 168));    /* sky */
+    mote->scene_set_background(MOTE_RGB565(135, 190, 235));  /* light sky — clear of the blue overalls */
     hx = 40; hy = 116;
     set_clip(&hero_idle);
 }

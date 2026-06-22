@@ -1543,7 +1543,11 @@ static const char *AN_LOOP_L[3]={ "once","loop","ping-pong" };
 static int an_cols(void){ int c=g_an_w/(g_an_tw?g_an_tw:1); return c<1?1:c; }
 static int an_ncell(void){ if(!g_an_sheet)return 0; return an_cols()*(g_an_h/(g_an_th?g_an_th:1)); }
 static int an_fdur(AClip*c,int i){ if(c->fr[i].dur)return c->fr[i].dur; return c->fps>0?1000/c->fps:125; }
-static void an_ensure(void){ if(g_an_init)return; g_an_init=1; if(!g_an_clip[0].name[0]){ snprintf(g_an_clip[0].name,16,"clip1"); g_an_clip[0].fps=8; g_an_clip[0].loop=MOTE_ANIM_LOOP; } }
+static int an_list(char names[][24],int max);     /* fwd */
+static void an_load_def(const char*path);          /* fwd */
+static void an_ensure(void){ if(g_an_init)return; g_an_init=1;
+    if(g_sel>=0){ char names[1][24]; if(an_list(names,1)>0){ char p[480]; snprintf(p,sizeof p,"%.330s/anims/%.20s.anims",g_games[g_sel].dir,names[0]); an_load_def(p); return; } }   /* open the project's first animation set */
+    if(!g_an_clip[0].name[0]){ snprintf(g_an_clip[0].name,16,"clip1"); g_an_clip[0].fps=8; g_an_clip[0].loop=MOTE_ANIM_LOOP; } }
 static int an_load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4); if(!d){ snprintf(g_status,sizeof g_status,"could not load %s",path); return 0; }
     g_an_w=w; g_an_h=h; g_an_sheet=realloc(g_an_sheet,(size_t)w*h*2);
     for(int i=0;i<w*h;i++){ unsigned char*p=d+i*4; g_an_sheet[i]=p[3]<128?KEY565:TLRGB(p[0],p[1],p[2]); }   /* magenta / alpha=0 -> transparent key (sprite convention) */
