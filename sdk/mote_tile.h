@@ -39,6 +39,9 @@ typedef struct MoteAutotile {
     uint8_t  edge_is_solid;     /* 1 = off-map neighbours count as the same terrain (seamless edges) */
     uint8_t  nvar;              /* random variants per config (atlas rows); 0/1 = none. The engine
                                  * picks a row per cell from its position, so big areas don't repeat. */
+    uint8_t  xform[256];        /* per-config D4 transform applied to the chosen cell: bit0 = HFLIP,
+                                 * bit1 = VFLIP, bits2-3 = rotation (0/90/180/270 CW). 0 = none. Lets
+                                 * one source cell serve many configs, cutting the sheet ~3x. */
 } MoteAutotile;
 
 /* deterministic per-cell hash, for picking a random variant by position. */
@@ -71,6 +74,7 @@ static inline int mote_autotile_cell_count(int kind) {
 /* Fill at->lut from a template. Set sheet / tile_w / tile_h / edge_is_solid yourself. */
 static inline void mote_autotile_template(MoteAutotile *at, int kind) {
     int m;
+    for (m = 0; m < 256; m++) at->xform[m] = 0;   /* identity by default; the editor sets transforms */
     if (kind == MOTE_AT_EDGE16) {
         for (m = 0; m < 256; m++) { uint8_t c = 0;
             if (m & MOTE_NB_N) c |= 1; if (m & MOTE_NB_E) c |= 2;

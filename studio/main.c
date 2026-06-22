@@ -1097,20 +1097,21 @@ static const char *TL_TPL_DESC[4]={
 static const struct { int c,r; } LV_SIZES[4]={ {32,24},{48,32},{64,48},{96,72} };
 static const uint8_t TERR_TINT[MAXTERR][3]={ {124,92,58},{70,150,72},{60,120,200},{176,128,72},{150,150,158},{150,80,160} };
 /* a terrain = a PNG sheet asset (scols x srows cells) + a config->cell rule LUT */
-typedef struct { char name[16], png[200]; int tpl, edge, ncell, scols, srows, nvar; uint16_t *sheet; uint8_t lut[256], rep[256]; } Terr;
+typedef struct { char name[16], png[200]; int tpl, edge, ncell, scols, srows, nvar; uint16_t *sheet; uint8_t lut[256], rep[256], xform[256]; } Terr;
 static Terr g_terr[MAXTERR];
 static int g_nterr=1, g_curterr=0, g_rulesel=0, g_cellsel=0, g_dr_var=0, g_tl_ts=16, g_tl_init, g_tl_mode=0, g_dr_paint;
 static uint16_t *g_tl_cv, *g_dr_cv; static SDL_Texture *g_tl_tex, *g_dr_tex; static int g_tl_texw,g_tl_texh,g_dr_texw,g_dr_texh;
 static int g_lv_cols=48,g_lv_rows=32,g_lv_panx,g_lv_pany,g_lv_zoom=2,g_lv_fit=1,g_lv_pdrag,g_lv_pandrag,g_lv_grabx,g_lv_graby,g_lv_px0,g_lv_py0;
 static uint8_t *g_lv_terrain;
-static char g_tl_name[64]="level"; static int g_tl_namefocus;
-static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall;
+static char g_tl_name[64]="level"; static int g_tl_namefocus, g_ln_focus;
+static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static SDL_Rect g_tl_type[4],g_tl_xf[6];   /* RULES rule-type buttons; per-rule transform buttons */
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
 
 static void terr_rebuild(Terr*t){ MoteAutotile at; mote_autotile_template(&at,t->tpl);
-    for(int i=0;i<256;i++)t->lut[i]=at.lut[i];
+    for(int i=0;i<256;i++){ t->lut[i]=at.lut[i]; t->xform[i]=0; }
     t->ncell=mote_autotile_cell_count(t->tpl);
     int got[256]; for(int i=0;i<256;i++)got[i]=0;
     for(int m=0;m<256;m++){ int ci=t->lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } } }
@@ -1184,20 +1185,22 @@ static void terr_save_def(int ti){ if(g_sel<0)return; Terr*t=&g_terr[ti]; const 
     char p[460]; snprintf(p,sizeof p,"%.330s/tilesets/%.40s.tileset",dir,t->name);
     FILE*f=fopen(p,"w"); if(!f)return;
     fprintf(f,"sheet %s\ntile %d\ntype %d\nedge %d\nnvar %d\ncols %d\nrows %d\nlut",t->png,g_tl_ts,t->tpl,t->edge,t->nvar,t->scols,t->srows);
-    for(int i=0;i<256;i++)fprintf(f," %d",t->lut[i]); fputc('\n',f); fclose(f); }
+    for(int i=0;i<256;i++)fprintf(f," %d",t->lut[i]); fprintf(f,"\nxform");
+    for(int i=0;i<256;i++)fprintf(f," %d",t->xform[i]); fputc('\n',f); fclose(f); }
 static void terr_load_def(int ti,const char*path){ FILE*f=fopen(path,"r"); if(!f)return; Terr*t=&g_terr[ti];
-    char png[200]="",key[40]; int tile=g_tl_ts,type=0,edge=1,nvar=1; uint8_t lut[256]; int haslut=0;
+    char png[200]="",key[40]; int tile=g_tl_ts,type=0,edge=1,nvar=1; uint8_t lut[256],xf[256]; int haslut=0,hasxf=0;
     while(fscanf(f,"%39s",key)==1){
         if(!strcmp(key,"sheet"))fscanf(f,"%199s",png); else if(!strcmp(key,"tile"))fscanf(f,"%d",&tile);
         else if(!strcmp(key,"type"))fscanf(f,"%d",&type); else if(!strcmp(key,"edge"))fscanf(f,"%d",&edge);
         else if(!strcmp(key,"nvar"))fscanf(f,"%d",&nvar); else if(!strcmp(key,"cols")){int x;fscanf(f,"%d",&x);} else if(!strcmp(key,"rows")){int x;fscanf(f,"%d",&x);}
-        else if(!strcmp(key,"lut")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); lut[i]=(uint8_t)v; } haslut=1; } }
+        else if(!strcmp(key,"lut")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); lut[i]=(uint8_t)v; } haslut=1; }
+        else if(!strcmp(key,"xform")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); xf[i]=(uint8_t)v; } hasxf=1; } }
     fclose(f);
     g_tl_ts=tile; t->tpl=type&3; t->edge=edge; t->nvar=nvar<1?1:nvar;
     { const char*b=strrchr(path,'/'); b=b?b+1:path; snprintf(t->name,16,"%.15s",b); char*dt=strrchr(t->name,'.'); if(dt)*dt=0; }
     MoteAutotile at; mote_autotile_template(&at,t->tpl); t->ncell=mote_autotile_cell_count(t->tpl);
     int got[256]; for(int i=0;i<256;i++)got[i]=0; for(int m=0;m<256;m++){ int ci=at.lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } }
-    for(int i=0;i<256;i++)t->lut[i]=haslut?lut[i]:at.lut[i];
+    for(int i=0;i<256;i++){ t->lut[i]=haslut?lut[i]:at.lut[i]; t->xform[i]=hasxf?xf[i]:0; }
     char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,png);
     if(!terr_load_sheet_pixels(t,sp)){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }   /* sheet PNG missing -> blank */
     snprintf(t->png,200,"%.198s",png); }
@@ -1249,7 +1252,9 @@ static void bake_all(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open
         fprintf(f,"\n};\nstatic const MoteImage %s_img = { %s_px, %d, %d, 0xF81F, 0 };\n",t->name,t->name,W,H);
         fprintf(f,"static const MoteAutotile %s_at = { &%s_img, %d, %d, {\n",t->name,t->name,ts,ts);
         for(int i=0;i<256;i++){ fprintf(f,"%d,",t->lut[i]); if((i&15)==15)fputc('\n',f); }
-        fprintf(f,"}, %d, %d };\n\n#endif\n",t->edge,t->nvar<1?1:t->nvar); fclose(f); }
+        fprintf(f,"}, %d, %d, {\n",t->edge,t->nvar<1?1:t->nvar);
+        for(int i=0;i<256;i++){ fprintf(f,"%d,",t->xform[i]); if((i&15)==15)fputc('\n',f); }
+        fprintf(f,"} };\n\n#endif\n"); fclose(f); }
     char hp[460]; snprintf(hp,sizeof hp,"%.320s/src/%.50s.level.h",dir,nm); FILE*f=fopen(hp,"w"); if(f){
         fprintf(f,"/* GENERATED by Mote Studio — %dx%d level, %d layers. The map is one byte\n * per cell, each bit a layer; it is const (lives in flash, zero SRAM). */\n#ifndef MOTE_LEVEL_%s_H\n#define MOTE_LEVEL_%s_H\n#include \"mote_api.h\"\n",g_lv_cols,g_lv_rows,g_nterr,nm,nm);
         for(int ti=0;ti<g_nterr;ti++) fprintf(f,"#include \"%s.tiles.h\"\n",g_terr[ti].name);
@@ -1261,9 +1266,13 @@ static void bake_all(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open
     snprintf(g_status,sizeof g_status,"baked %d sheet PNG(s) + tiles.h + %s.level.h",g_nterr,nm); }
 
 /* blit a sheet cell (scaled) at screen (gx,gy,dz) */
-static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ int ts=g_tl_ts,W=t->scols*ts,n=t->scols*t->srows; if(cell<0||cell>=n)return;
-    int cx=(cell%t->scols)*ts,cy=(cell/t->scols)*ts;
-    for(int y=0;y<dz;y++)for(int x=0;x<dz;x++){ uint16_t p=t->sheet[(cy+y*ts/dz)*W+cx+x*ts/dz]; plain(R,gx+x,gy+y,1,1,p==KEY565?(Col){26,20,30}:c565(p)); } }
+static void blit_cell_x(SDL_Renderer*R,Terr*t,int cell,uint8_t xf,int gx,int gy,int dz){ int ts=g_tl_ts,W=t->scols*ts,n=t->scols*t->srows; if(cell<0||cell>=n)return;
+    int cx=(cell%t->scols)*ts,cy=(cell/t->scols)*ts,rot=(xf>>2)&3;
+    for(int y=0;y<dz;y++)for(int x=0;x<dz;x++){ int sx=x*ts/dz,sy=y*ts/dz,tx,tyy;
+        switch(rot){ case 1: tx=sy; tyy=ts-1-sx; break; case 2: tx=ts-1-sx; tyy=ts-1-sy; break; case 3: tx=ts-1-sy; tyy=sx; break; default: tx=sx; tyy=sy; }
+        if(xf&1)tx=ts-1-tx; if(xf&2)tyy=ts-1-tyy;
+        uint16_t p=t->sheet[(cy+tyy)*W+cx+tx]; plain(R,gx+x,gy+y,1,1,p==KEY565?(Col){26,20,30}:c565(p)); } }
+static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ blit_cell_x(R,t,cell,0,gx,gy,dz); }
 
 /* SHEET panel — lives in the INSPECTOR (right dock) when the Tiles tab is active */
 static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure(); (void)h;
@@ -1297,23 +1306,33 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hit(mx,my,tx,ty,bw,22)?C_BTNHI:C_BTN)); plain(R,tx+6,ty+7,8,8,(Col){TERR_TINT[i][0],TERR_TINT[i][1],TERR_TINT[i][2]});
         text(R,g_terr[i].name,tx+17,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+4; }
     if(g_nterr<MAXTERR){ g_terradd=(SDL_Rect){tx,ty,22,22}; rrect(R,tx,ty,22,22,4,hit(mx,my,tx,ty,22,22)?C_BTNHI:C_BTN); text(R,"+",tx+8,ty+5,1,C_TXT,C_BTN); tx+=28; } else g_terradd=(SDL_Rect){0,0,0,0};
-    tx+=8; text(R,"name",tx,ty+6,1,C_DIM,C_DOCK); tx+=textw(R,"name",1)+5;
-    g_tl_name_r=(SDL_Rect){tx,ty,100,22}; rrect(R,tx,ty,100,22,4,g_tl_namefocus?(Col){12,14,20}:C_DOCK);
-    { char nm[80]; snprintf(nm,sizeof nm,"%s%s",g_tl_name,g_tl_namefocus?"_":""); text(R,nm,tx+6,ty+6,1,C_TXT,g_tl_namefocus?(Col){12,14,20}:C_DOCK); } tx+=108;
+    tx+=8; text(R,"layer",tx,ty+6,1,C_DIM,C_DOCK); tx+=textw(R,"layer",1)+5;
+    g_ln_r=(SDL_Rect){tx,ty,84,22}; rrect(R,tx,ty,84,22,4,g_ln_focus?(Col){12,14,20}:C_DOCK);
+    { char nm[40]; snprintf(nm,sizeof nm,"%s%s",g_terr[g_curterr].name,g_ln_focus?"_":""); text(R,nm,tx+6,ty+6,1,C_TXT,g_ln_focus?(Col){12,14,20}:C_DOCK); } tx+=90;
+    text(R,"level",tx,ty+6,1,C_DIM,C_DOCK); tx+=textw(R,"level",1)+5;
+    g_tl_name_r=(SDL_Rect){tx,ty,84,22}; rrect(R,tx,ty,84,22,4,g_tl_namefocus?(Col){12,14,20}:C_DOCK);
+    { char nm[80]; snprintf(nm,sizeof nm,"%s%s",g_tl_name,g_tl_namefocus?"_":""); text(R,nm,tx+6,ty+6,1,C_TXT,g_tl_namefocus?(Col){12,14,20}:C_DOCK); } tx+=92;
     g_tl_bakeall=(SDL_Rect){tx,ty,86,22}; rrect(R,tx,ty,86,22,4,hit(mx,my,tx,ty,86,22)?C_BTNHI:C_BTN); text(R,"Bake all",tx+14,ty+5,1,(Col){170,200,140},C_BTN);
     text(R,"SHEET + tile controls are in the Inspector",tx+96,ty+6,1,C_DIM,C_DOCK);
 
     int gy=oy+30, ph=h-(gy-oy)-6;
     int rw=w*33/100, ew=w*30/100, lw=w-rw-ew-16;
     /* ---- RULES (big) ---- */
-    text(R,"RULES  click a rule, then a SHEET cell (Inspector)",ox,gy,1,(Col){170,200,140},C_DOCK);
+    text(R,"RULES",ox,gy,1,(Col){170,200,140},C_DOCK);
+    { static const char*TT[4]={"Blob47","Edge16","9-slice","Wang16"}; int btx=ox+42; int bwk=(rw-46)/4; if(bwk>62)bwk=62; if(bwk<40)bwk=40;
+      for(int k=0;k<4;k++){ int on=ct->tpl==k; g_tl_type[k]=(SDL_Rect){btx,gy-2,bwk-2,15};
+        rrect(R,btx,gy-2,bwk-2,15,3,on?(Col){88,120,172}:C_BTN); text(R,TT[k],btx+4,gy+1,1,on?C_TXT:C_DIM,on?(Col){88,120,172}:C_BTN); btx+=bwk; } }
     int rx=ox, bw=46, per=rw/bw; if(per<1)per=1; int rdz=bw-8;
-    for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=gy+16+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
-        plain(R,gx,gyy,bw-2,bw+4, ci==g_rulesel?(Col){240,200,90}:(Col){34,36,46}); blit_cell(R,ct,ct->lut[ct->rep[ci]],gx+3,gyy+2,rdz);
+    for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=gy+18+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
+        plain(R,gx,gyy,bw-2,bw+4, ci==g_rulesel?(Col){240,200,90}:(Col){34,36,46}); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
         uint8_t m=ct->rep[ci]; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int on=(dx==0&&dy==0)?1:((m&nb_bit_for(dx,dy))!=0);
             plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } }
     /* ---- EDIT (inline cell editor + HSV) ---- */
-    int ex=ox+rw+8; text(R,"EDIT cell  (neighbours = current rules)",ex,gy,1,(Col){170,200,140},C_DOCK);
+    int ex=ox+rw+8; text(R,"EDIT cell",ex,gy,1,(Col){170,200,140},C_DOCK);
+    { uint8_t xf=ct->xform[ct->rep[g_rulesel]]; int rot=((xf>>2)&3)*90; const char*RL[4]={"0\xb0","90\xb0","180\xb0","270\xb0"};
+      int bx=ex+62; g_tl_xf[0]=(SDL_Rect){bx,gy-2,44,15}; rrect(R,bx,gy-2,44,15,3,C_BTN); { char rb[16]; snprintf(rb,sizeof rb,"Rot %s",RL[(xf>>2)&3]); text(R,rb,bx+3,gy+1,1,rot?(Col){240,200,90}:C_DIM,C_BTN); } bx+=48;
+      g_tl_xf[1]=(SDL_Rect){bx,gy-2,18,15}; rrect(R,bx,gy-2,18,15,3,(xf&1)?(Col){88,120,172}:C_BTN); text(R,"H",bx+5,gy+1,1,(xf&1)?C_TXT:C_DIM,(xf&1)?(Col){88,120,172}:C_BTN); bx+=22;
+      g_tl_xf[2]=(SDL_Rect){bx,gy-2,18,15}; rrect(R,bx,gy-2,18,15,3,(xf&2)?(Col){88,120,172}:C_BTN); text(R,"V",bx+5,gy+1,1,(xf&2)?C_TXT:C_DIM,(xf&2)?(Col){88,120,172}:C_BTN); }
     int DW=3*ts; g_dr_cv=realloc(g_dr_cv,(size_t)DW*DW*2); for(int i=0;i<DW*DW;i++)g_dr_cv[i]=TLRGB(20,18,28);
     uint8_t rm=ct->rep[g_rulesel]; int W2=ct->scols*ts;
     for(int py=0;py<3;py++)for(int px=0;px<3;px++){ int cell=-1,dim=0;
@@ -1358,8 +1377,11 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         for(int r=0;r<vr;r++)for(int c=0;c<vc;c++){ int lc=g_lv_panx+c,lr=g_lv_pany+r; if(!((g_lv_terrain[lr*g_lv_cols+lc]>>L)&1))continue;
             int mask=mote_autotile_mask_layer(g_lv_terrain,g_lv_cols,g_lv_rows,lc,lr,L,tt->edge); int cell=tt->lut[mask];
             int vv=tt->nvar>1?(int)(mote__at_hash(lc,lr)%tt->nvar):0; cell+=vv*tt->scols; if(cell>=tt->scols*tt->srows)cell-=vv*tt->scols;
-            int sx=(cell%tt->scols)*ts,sy=(cell/tt->scols)*ts;
-            for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ uint16_t p=tt->sheet[(sy+y)*Wt+sx+x]; if(p==KEY565)continue; g_tl_cv[(r*ts+y)*cw+(c*ts+x)]=p; } } }
+            int sx=(cell%tt->scols)*ts,sy=(cell/tt->scols)*ts; uint8_t xf=tt->xform[mask]; int rot=(xf>>2)&3;
+            for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ int tx,tyy;
+                switch(rot){ case 1: tx=y; tyy=ts-1-x; break; case 2: tx=ts-1-x; tyy=ts-1-y; break; case 3: tx=ts-1-y; tyy=x; break; default: tx=x; tyy=y; }
+                if(xf&1)tx=ts-1-tx; if(xf&2)tyy=ts-1-tyy;
+                uint16_t p=tt->sheet[(sy+tyy)*Wt+sx+tx]; if(p==KEY565)continue; g_tl_cv[(r*ts+y)*cw+(c*ts+x)]=p; } } }
     if(!g_tl_tex||g_tl_texw!=cw||g_tl_texh!=ch){ if(g_tl_tex)SDL_DestroyTexture(g_tl_tex); g_tl_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,cw,ch); SDL_SetTextureScaleMode(g_tl_tex,SDL_ScaleModeNearest); g_tl_texw=cw; g_tl_texh=ch; }
     SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); plain(R,lx-1,cvy-1,vc*dz+2,vr*dz+2,(Col){30,32,40}); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
     char info[120]; snprintf(info,sizeof info,"%dx%d  %dx  LB '%s'  RB erase  MMB/shift pan",g_lv_cols,g_lv_rows,g_lv_zoom,ct->name); text(R,info,lx,cvy+vr*dz+3,1,C_DIM,C_DOCK);
@@ -1394,9 +1416,15 @@ static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
 static void tiles_down(int mx,int my){
     for(int i=0;i<g_nterr;i++)if(hit(mx,my,g_terrtab[i].x,g_terrtab[i].y,g_terrtab[i].w,g_terrtab[i].h)){ g_curterr=i; g_rulesel=0; g_cellsel=0; return; }
     if(g_terradd.w&&hit(mx,my,g_terradd.x,g_terradd.y,22,22)){ char ln[16]; snprintf(ln,sizeof ln,"layer%d",g_nterr+1); terr_init(g_nterr,ln,0); g_curterr=g_nterr++; g_rulesel=g_cellsel=0; return; }
-    if(hit(mx,my,g_tl_name_r.x,g_tl_name_r.y,100,22)){ g_tl_namefocus=1; SDL_StartTextInput(); return; } g_tl_namefocus=0;
+    if(hit(mx,my,g_ln_r.x,g_ln_r.y,84,22)){ g_ln_focus=1; g_tl_namefocus=0; SDL_StartTextInput(); return; } g_ln_focus=0;
+    if(hit(mx,my,g_tl_name_r.x,g_tl_name_r.y,84,22)){ g_tl_namefocus=1; SDL_StartTextInput(); return; } g_tl_namefocus=0;
     if(hit(mx,my,g_tl_bakeall.x,g_tl_bakeall.y,86,22)){ bake_all(); return; }
     Terr*ct=&g_terr[g_curterr];
+    for(int k=0;k<4;k++)if(hit(mx,my,g_tl_type[k].x,g_tl_type[k].y,g_tl_type[k].w,15)){ ct->tpl=k; terr_rebuild(ct); int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); g_rulesel=g_cellsel=0; return; }
+    for(int k=0;k<3;k++)if(hit(mx,my,g_tl_xf[k].x,g_tl_xf[k].y,g_tl_xf[k].w,g_tl_xf[k].h)){   /* per-rule transform: rot / H / V */
+        uint8_t rr=ct->rep[g_rulesel], cur=0; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr){ cur=ct->xform[m]; break; }
+        if(k==0)cur=(uint8_t)((cur&~0x0C)|(((((cur>>2)&3)+1)&3)<<2)); else if(k==1)cur^=0x01; else cur^=0x02;
+        for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->xform[m]=cur; return; }
     for(int ci=0;ci<ct->ncell&&ci<64;ci++)if(hit(mx,my,g_rulecell[ci].x,g_rulecell[ci].y,g_rulecell[ci].w,g_rulecell[ci].h)){ g_rulesel=ci; g_cellsel=ct->lut[ct->rep[ci]]; return; }
     for(int i=0;i<4;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return; }
     for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,g_dr_rec[i].x,g_dr_rec[i].y,13,13)){ px_setcol(g_recent[i]); return; }
@@ -1790,6 +1818,16 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
+    if(getenv("MOTE_STUDIO_XF")){ tl_ensure(); terr_gen_starter(0); Terr*t=&g_terr[0]; uint8_t rr=t->rep[1]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)t->xform[m]=MOTE_SPR_ROT90; g_rulesel=1; g_tab=TAB_TILES; }   /* test: rotate rule#1 90 */
+    if(getenv("MOTE_STUDIO_TILEDEMO")){ tl_ensure();   /* build tiledemo's 3 file tilesets + a level */
+        const char*nm3[3]={"dirt","grass","water"}; int edge3[3]={1,1,0};
+        for(int i=0;i<3;i++){ Terr*t=&g_terr[i]; snprintf(t->name,16,"%s",nm3[i]); snprintf(t->png,200,"assets/%s.png",nm3[i]); t->tpl=0; t->edge=edge3[i]; t->nvar=1; terr_gen_starter(i); }
+        g_nterr=3; lv_alloc(28,20);
+        for(int i=0;i<28*20;i++) g_lv_terrain[i]=1|2;                                  /* dirt + grass everywhere */
+        for(int r=0;r<20;r++) g_lv_terrain[r*28+13]&=(uint8_t)~2;                        /* a dirt path (no grass) */
+        for(int c=0;c<28;c++) g_lv_terrain[9*28+c]&=(uint8_t)~2;
+        for(int r=3;r<7;r++)for(int c=4;c<10;c++){ g_lv_terrain[r*28+c]|=4; g_lv_terrain[r*28+c]&=(uint8_t)~2; }  /* water pond */
+        snprintf(g_tl_name,sizeof g_tl_name,"world"); bake_all(); }
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
@@ -1824,7 +1862,11 @@ int main(int argc,char**argv){
             if(g_tab==TAB_PIXEL&&g_px_namefocus){   /* editing the sprite save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_px_name); if(l<50){ g_px_name[l]=c; g_px_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_px_namefocus=0; continue; } }
-            if(g_tab==TAB_TILES&&g_tl_namefocus){   /* editing the tileset save-name field */
+            if(g_tab==TAB_TILES&&g_ln_focus){   /* renaming the current layer (tileset) */
+                char*ln=g_terr[g_curterr].name;
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(ln); if(l<14){ ln[l]=c; ln[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(ln); if(l)ln[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_ln_focus=0; continue; } }
+            if(g_tab==TAB_TILES&&g_tl_namefocus){   /* editing the level save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(g_tl_name); if(l<50){ g_tl_name[l]=c; g_tl_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_tl_name); if(l)g_tl_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_tl_namefocus=0; continue; } }
             if(g_tab==TAB_AUDIO&&g_au_namefocus){   /* editing the SFX save-name field */

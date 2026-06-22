@@ -67,10 +67,40 @@ int mote_scene2d_sprite_count(void) { return s_nspr; }
 
 /* Blit a source rect of `img` to screen (x,y), clipped to band [y0,y1) and
  * the 128-wide screen, skipping colour-key pixels. */
+/* Rotation path (square cell: fw == fh == n). Kept OUT of the RAM-resident fast blit —
+ * rotated tiles are uncommon, and a flash call here keeps mote_blit small. */
+__attribute__((noinline))
+static void mote_blit_rot(uint16_t *fb, const MoteImage *img,
+                          int x, int y, int fx, int fy, int fw, int fh,
+                          uint8_t flags, int y0, int y1, int rot) {
+    const uint16_t key = img->key;
+    const int opaque = img->opaque, iw = img->w, n = fw;
+    for (int row = 0; row < fh; row++) {
+        int sy = y + row;
+        if (sy < y0 || sy >= y1 || sy >= MOTE_FB_H || sy < 0) continue;
+        uint16_t *drow = fb + sy * MOTE_FB_W;
+        for (int col = 0; col < fw; col++) {
+            int sx = x + col;
+            if ((unsigned)sx >= MOTE_FB_W) continue;
+            int sc, sr;
+            switch (rot) {
+                case 1:  sc = row;         sr = n - 1 - col; break;   /* 90 CW  */
+                case 2:  sc = n - 1 - col; sr = n - 1 - row; break;   /* 180    */
+                default: sc = n - 1 - row; sr = col;         break;   /* 270 CW */
+            }
+            if (flags & MOTE_SPR_HFLIP) sc = n - 1 - sc;
+            if (flags & MOTE_SPR_VFLIP) sr = n - 1 - sr;
+            uint16_t px = img->pixels[(fy + sr) * iw + fx + sc];
+            if (opaque || px != key) drow[sx] = px;
+        }
+    }
+}
+
 MOTE_HOT
 void mote_blit(uint16_t *fb, const MoteImage *img,
                int x, int y, int fx, int fy, int fw, int fh,
                uint8_t flags, int y0, int y1) {
+    if (flags & MOTE_SPR_ROT_MASK) { mote_blit_rot(fb, img, x, y, fx, fy, fw, fh, flags, y0, y1, (flags & MOTE_SPR_ROT_MASK) >> 2); return; }
     const uint16_t key = img->key;
     const int opaque = img->opaque;
     const int iw = img->w;
@@ -136,7 +166,7 @@ static void draw_autotile(uint16_t *fb, int y0, int y1) {
             int tpr = at->sheet->w / (at->tile_w ? at->tile_w : 1);
             int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
             if (at->nvar > 1) fy += (int)(mote__at_hash(c, r) % at->nvar) * at->tile_h;   /* pick a random variant row */
-            mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, 0, y0, y1);
+            mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
         }
     }
 }
@@ -165,7 +195,7 @@ static void draw_autotile_layers(uint16_t *fb, int y0, int y1) {
                 uint8_t cell = at->lut[mask];
                 int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
                 if (at->nvar > 1) fy += (int)(mote__at_hash(c, r) % at->nvar) * at->tile_h;
-                mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, 0, y0, y1);
+                mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
             }
         }
     }

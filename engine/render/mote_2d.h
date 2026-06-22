@@ -40,9 +40,14 @@ typedef struct {
     uint16_t cols, rows;
 } MoteTilemap;
 
-/* Sprite flags. */
-#define MOTE_SPR_HFLIP 0x01
-#define MOTE_SPR_VFLIP 0x02
+/* Sprite flags. Bits 2-3 hold a clockwise rotation (square tiles only); rotation is
+ * applied before the flips. */
+#define MOTE_SPR_HFLIP  0x01
+#define MOTE_SPR_VFLIP  0x02
+#define MOTE_SPR_ROT90  0x04
+#define MOTE_SPR_ROT180 0x08
+#define MOTE_SPR_ROT270 0x0C
+#define MOTE_SPR_ROT_MASK 0x0C
 
 /* A sprite instance: a frame of an image at a screen position. The sprite's
  * frame rect (fx,fy,fw,fh) selects a cell from `img` (sheet); for a single
