@@ -1117,6 +1117,7 @@ static int g_bake_confirm;           /* 1 = showing the "overwrite a different l
 static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
+static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
 static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
@@ -1247,8 +1248,20 @@ static int bake_would_clobber(void){ if(g_sel<0)return 0; const char*nm=g_tl_nam
     if(!strcmp(nm,g_loaded_level))return 0;                       /* saving back to the open level — fine */
     char p[470]; snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,nm);
     FILE*f=fopen(p,"rb"); if(f){ fclose(f); return 1; } return 0; }
+/* list names (sans extension) of files matching ext in <project>/<sub> */
+static int tl_scan(const char*sub,const char*ext,char names[][24],int max){ if(g_sel<0)return 0;
+    char d[400]; snprintf(d,sizeof d,"%.330s/%.20s",g_games[g_sel].dir,sub); DIR*dp=opendir(d); if(!dp)return 0;
+    struct dirent*e; int n=0,el=(int)strlen(ext);
+    while((e=readdir(dp))&&n<max){ int L=(int)strlen(e->d_name); if(L>el&&!strcmp(e->d_name+L-el,ext)){ snprintf(names[n],24,"%.*s",L-el,e->d_name); n++; } }
+    closedir(dp); return n; }
 static void tl_ensure(void){ if(g_tl_init)return; g_tl_init=1;
-    char p[470]; if(g_sel>=0){ snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,g_tl_name[0]?g_tl_name:"level"); if(lv_load_def(p))return; }
+    if(g_sel>=0){ char p[470]; char names[MAXTERR][24];
+        snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,g_tl_name[0]?g_tl_name:"level"); if(lv_load_def(p))return;   /* the named level */
+        int nl=tl_scan("levels",".level",names,1);                                                  /* else: first level on disk */
+        if(nl>0){ snprintf(g_tl_name,sizeof g_tl_name,"%s",names[0]); snprintf(p,sizeof p,"%.330s/levels/%.40s.level",g_games[g_sel].dir,names[0]); if(lv_load_def(p))return; }
+        int nt=tl_scan("tilesets",".tileset",names,MAXTERR);                                         /* else: load the project's tilesets as layers */
+        if(nt>0){ for(int i=0;i<nt;i++){ char tp[480]; snprintf(tp,sizeof tp,"%.330s/tilesets/%.20s.tileset",g_games[g_sel].dir,names[i]); terr_load_def(i,tp); }
+            g_nterr=nt; g_curterr=g_rulesel=g_cellsel=0; lv_alloc(48,32); snprintf(g_tl_name,sizeof g_tl_name,"level"); g_loaded_level[0]=0; return; } }
     terr_init(0,"layer1",0); lv_alloc(48,32); }
 static uint16_t dimc(uint16_t c){ return (uint16_t)((((c>>11)&31)/2<<11)|(((c>>5)&63)/2<<5)|((c&31)/2)); }
 static int nb_bit_for(int dx,int dy){ if(dx==0&&dy==-1)return MOTE_NB_N; if(dx==1&&dy==-1)return MOTE_NB_NE; if(dx==1&&dy==0)return MOTE_NB_E; if(dx==1&&dy==1)return MOTE_NB_SE;
@@ -1302,9 +1315,18 @@ static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ blit
 static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure(); (void)h;
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows;
     int tx=ox,ty=oy;
-    text(R,"RULE TYPE (click to cycle)",tx,ty,1,C_DIM,C_DOCK); ty+=13;
-    g_tl_tplr=(SDL_Rect){tx,ty,w-2,18}; rrect(R,tx,ty,w-2,18,4,hit(mx,my,tx,ty,w-2,18)?C_BTNHI:C_BTN); text(R,TL_TPL_L[ct->tpl],tx+7,ty+3,1,C_HDR,C_BTN); text(R,"\xbb",tx+w-16,ty+3,1,C_DIM,C_BTN); ty+=20;
-    text(R,TL_TPL_DESC[ct->tpl],tx,ty,1,C_DIM,C_DOCK); ty+=15;
+    /* OPEN picker — the project's existing levels & tilesets, click to open (no accidental edits of the wrong thing) */
+    g_tl_nlv=tl_scan("levels",".level",g_tl_lvn,12); g_tl_nts=tl_scan("tilesets",".tileset",g_tl_tsn,12);
+    text(R,"OPEN  levels",tx,ty,1,(Col){150,170,210},C_DOCK); ty+=13; { int cx=tx;
+        for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+10; if(cx+bw>tx+w-2){cx=tx;ty+=18;} int on=!strcmp(g_tl_lvn[i],g_tl_name);
+            g_tl_openlv[i]=(SDL_Rect){cx,ty,bw,16}; rrect(R,cx,ty,bw,16,3,on?C_ACC:(hit(mx,my,cx,ty,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_lvn[i],cx+5,ty+2,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); cx+=bw+3; }
+        if(!g_tl_nlv){ text(R,"(none — paint a level, then Bake)",cx,ty+2,1,C_DIM,C_DOCK); } } ty+=20;
+    text(R,"      tilesets",tx,ty,1,(Col){150,170,210},C_DOCK); ty+=13; { int cx=tx;
+        for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+10; if(cx+bw>tx+w-2){cx=tx;ty+=18;} int on=!strcmp(g_tl_tsn[i],ct->name);
+            g_tl_opents[i]=(SDL_Rect){cx,ty,bw,16}; rrect(R,cx,ty,bw,16,3,on?C_ACC:(hit(mx,my,cx,ty,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_tsn[i],cx+5,ty+2,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); cx+=bw+3; }
+        if(!g_tl_nts){ text(R,"(none yet)",cx,ty+2,1,C_DIM,C_DOCK); } } ty+=22;
+    g_tl_tplr=(SDL_Rect){0,0,0,0};   /* rule TYPE lives in the RULES bar, not here — this panel is just the sheet art */
+    { char hdr[64]; snprintf(hdr,sizeof hdr,"%s art  (%s rules \xb7 set in RULES)",ct->name,TL_TPL_L[ct->tpl]); text(R,hdr,tx,ty,1,C_DIM,C_DOCK); ty+=14; }
     g_tl_edger=(SDL_Rect){tx,ty,86,18}; rrect(R,tx,ty,86,18,4,ct->edge?C_ACC:C_BTN); text(R,ct->edge?"edge=solid":"edge=open",tx+6,ty+3,1,ct->edge?C_HDR:C_DIM,ct->edge?C_ACC:C_BTN);
     int tx2=tx+92; text(R,"tile",tx2,ty+3,1,C_DIM,C_DOCK); tx2+=textw(R,"tile",1)+4; g_tl_tsm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
     { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
@@ -1437,7 +1459,10 @@ static void lv_paint_at(int mx,int my,int set){ if(!hit(mx,my,g_lv_canvas.x,g_lv
 
 /* clicks in the INSPECTOR's SHEET area */
 static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
-    if(hit(mx,my,g_tl_tplr.x,g_tl_tplr.y,g_tl_tplr.w,18)){ ct->tpl=(ct->tpl+1)%4; terr_rebuild(ct); { int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); } g_rulesel=0; return 1; }   /* new rule type, same sheet */
+    for(int i=0;i<g_tl_nlv;i++)if(hit(mx,my,g_tl_openlv[i].x,g_tl_openlv[i].y,g_tl_openlv[i].w,g_tl_openlv[i].h)){   /* open a level (loads its tilesets as layers) */
+        snprintf(g_tl_name,sizeof g_tl_name,"%s",g_tl_lvn[i]); char p[480]; snprintf(p,sizeof p,"%.330s/levels/%.20s.level",g_games[g_sel].dir,g_tl_lvn[i]); lv_load_def(p); return 1; }
+    for(int i=0;i<g_tl_nts;i++)if(hit(mx,my,g_tl_opents[i].x,g_tl_opents[i].y,g_tl_opents[i].w,g_tl_opents[i].h)){   /* open a tileset into the current layer */
+        char p[480]; snprintf(p,sizeof p,"%.330s/tilesets/%.20s.tileset",g_games[g_sel].dir,g_tl_tsn[i]); terr_load_def(g_curterr,p); g_rulesel=g_cellsel=0; return 1; }
     if(hit(mx,my,g_tl_edger.x,g_tl_edger.y,86,18)){ ct->edge=!ct->edge; return 1; }
     if(hit(mx,my,g_tl_tsm.x,g_tl_tsm.y,16,18)){ if(g_tl_ts>8){ g_tl_ts-=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
     if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
