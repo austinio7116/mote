@@ -104,11 +104,15 @@ static int cluster(int G){
 }
 
 int main(int argc,char**argv){
-    if(argc<4){ fprintf(stderr,"usage: %s <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB] [up=y|z]\n",argv[0]); return 1; }
+    if(argc<4){ fprintf(stderr,"usage: %s <name> <in.stl> <out.h> [tri_budget] [0xRRGGBB] [flags: z|y noc]\n"
+                                "  z=source is Z-up (convert to Y-up); noc=keep the model's origin (don't recentre)\n",argv[0]); return 1; }
     const char *name=argv[1], *in=argv[2], *out=argv[3];
     int budget = argc>4 ? atoi(argv[4]) : 1500;
     long rgb = argc>5 ? strtol(argv[5],0,16) : 0xA8AEB8;   /* default steel grey */
-    int zup = argc>6 && (argv[6][0]=='z'||argv[6][0]=='Z');  /* `z` = source is Z-up: convert to the engine's Y-up */
+    int zup = 0, recenter = 1;                            /* trailing flags, order-independent */
+    for(int ai=6; ai<argc; ai++){ const char *a=argv[ai];
+        if(a[0]=='z'||a[0]=='Z') zup=1; else if(a[0]=='y'||a[0]=='Y') zup=0;
+        else if(!strcmp(a,"noc")||!strcmp(a,"floor")||!strcmp(a,"keep")) recenter=0; }
     if(!load_stl(in)) return 1;
     if(zup) for(int i=0;i<NRT*3;i++){ V3 v=RV[i]; RV[i]=(V3){v.x, v.z, -v.y}; }
 
@@ -131,7 +135,10 @@ int main(int argc,char**argv){
     cluster(bestG);
     fprintf(stderr,"[stl2mesh] %s: %d raw tris -> grid %d -> %d verts %d tris\n", name, NRT, bestG, ONV, ONF);
 
-    /* re-centre on the model centroid, quantise by the max extent from centre */
+    /* re-centre on the model centroid (unless `noc`), quantise by the max extent from the origin.
+     * `noc` keeps the source origin — e.g. chess pieces whose base sits at y=0, and matched parts
+     * (king body + cross) that must overlay at the same world position. */
+    if(!recenter) centre=(V3){0,0,0};
     float maxc=0, bound_r=0;
     for(int i=0;i<ONV;i++){ OV[i].x-=centre.x; OV[i].y-=centre.y; OV[i].z-=centre.z;
         float ax=fabsf(OV[i].x),ay=fabsf(OV[i].y),az=fabsf(OV[i].z);
