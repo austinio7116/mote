@@ -487,21 +487,35 @@ mote->scene2d_set_tilemap(&tilemap, &tileset);
 #### Rule tiles / autotiling — `scene2d_set_autotile_layers(...)`
 
 A plain tilemap stores the *final* tile index in every cell — you place each edge and
-corner by hand. **Rule tiles** instead store a *logical* map ("is this cell terrain?")
-and let the engine pick the right edge/corner tile from each cell's 8 neighbours, every
-frame, with **no resolved buffer**. You author the rules in **Mote Studio's Tiles tab**;
-the engine renders them.
+corner by hand. A **rule tile** (autotile) instead stores a *logical* map ("is this cell
+terrain?") and lets the engine pick the right edge/corner tile from each cell's neighbours,
+every frame, with **no resolved buffer**. Digging a tunnel or growing grass at runtime
+re-tiles instantly because the only stored data is the logical map you already keep.
 
-Three concepts, kept separate (and in separate folders):
+##### The three concepts (and three folders)
 
-- **Sprite sheet** (`assets/foo.png`) — just art: a grid of tile images.
-- **Rule-tile** (`MoteAutotile`, baked to `src/foo.tiles.h`) — a sheet + tile size + a
-  256-entry LUT mapping each neighbour configuration to an atlas cell. *Many rule-tiles
-  can share a sheet.*
-- **Level** (`src/foo.level.h`) — a **bit-packed layer map**: one byte per cell where
-  each bit is a layer, drawn bottom-up, each layer autotiled against its own bit. Layers
-  overlap (dirt **and** grass **and** a torch in one cell). It's `const`, so it lives in
-  flash and costs **zero SRAM**.
+```
+  assets/grass.png          tilesets/grass.tileset        levels/cave.level
+  ┌───────────────┐         ┌──────────────────────┐      ┌──────────────────┐
+  │ raw tile art   │  ──►   │ sheet + tile size +    │ ──► │ bit-packed map:   │
+  │ (a PNG grid)   │        │ rule type + the LUT    │     │ which layers are  │
+  │                │        │ (config → cell)        │     │ set per cell      │
+  └───────────────┘         └──────────────────────┘      └──────────────────┘
+        art                      RULE TILE  (a layer)            LEVEL
+   (many tilesets                 baked → src/grass.tiles.h    baked → src/cave.level.h
+    may share art)                = MoteImage + MoteAutotile   = const map + draw helper
+```
+
+- **Sprite sheet** (`assets/foo.png`) — just art: a grid of tile images. Edited in the
+  pixel tools or imported. *Several rule tiles may slice the same sheet.*
+- **Rule tile** (`MoteAutotile`, baked to `src/foo.tiles.h`) — a sheet + tile size + a
+  256-entry LUT mapping every neighbour configuration to an atlas cell (+ a per-config
+  transform and per-variant weights, below). One rule tile = **one level layer**.
+- **Level** (`src/foo.level.h`) — a **bit-packed layer map**: one byte per cell, bit *L*
+  set = layer *L* present. Layers are drawn bottom-up and each autotiles against *its own
+  bit*, so they overlap (dirt **and** grass **and** a path in one cell). The map is
+  `const` → it lives in **flash**, costing **zero SRAM**, and a new level adds only its
+  map (~1 byte/cell), never new images.
 
 ```c
 #include "cave.level.h"
@@ -509,20 +523,127 @@ Three concepts, kept separate (and in separate folders):
 cave_draw(mote);   // = mote->scene2d_set_autotile_layers(cave_map, cave_COLS, cave_ROWS, cave_tiles, n)
 ```
 
-**The four rule types** (pick per rule-tile in the Studio — the choice is the sheet
-layout the rules expect):
+##### How a tile is chosen (per cell, every frame)
 
-| Type | Tiles | Considers | Best for |
-|------|-------|-----------|----------|
-| **Blob 47** | 47 | all 8 neighbours, corner-aware (incl. *concave* inner corners) | organic terrain — caves, water, cliffs, grass/sand patches |
-| **Edge 16** | 16 | 4 cardinal neighbours only | blocky platforms, pipes, walls (Mario-style) |
-| **Nine-slice** | 9 | which sides are open (a 3×3 frame) | rectangular regions only — panels, ledges, HUD frames |
-| **Wang 16** | 16 | the 4 corners | corner-matched paths, beaches, organic blends |
+```
+  look at the 8 neighbours        build an 8-bit mask         the rule type's LUT
+                                  (1 = same layer)            maps mask → atlas cell
+     NW  N  NE                       NW N NE  E SE              ┌────────────────────┐
+      W  ▣  E      ───►   bits:   [ NW N NE E SE S SW W ]  ──►  │ lut[mask] = cell #  │ ──► blit cell
+     SW  S  SE                       (off-map → edge_is_solid)  └────────────────────┘
+```
 
-Blob 47 is the most capable (and the reason a terrain has so many tiles — most differ
-only at one corner); Edge 16 / Nine-slice are far easier to hand-draw. Add **variants**
-(N) to a rule-tile to break up large areas: the engine picks one of N art rows per cell
-from a position hash, so a field of grass doesn't visibly repeat.
+`edge_is_solid` decides whether off-map neighbours count as "same" (seamless map borders)
+or "different" (a visible rim around the whole map).
+
+##### The four rule types — and the limits of each
+
+The rule type is the **sheet layout the LUT expects**; pick it per rule tile in the Studio
+(the RULES bar). It sets how many tiles you must draw and which neighbours are consulted.
+
+**Blob 47** — 8-neighbour, fully corner-aware (47 tiles)
+
+```
+  Considers all 8 neighbours, but a CORNER only matters when both its cardinals
+  are present, which collapses 256 raw configs → 47 distinct tiles:
+
+   ▣ alone   ▣ in a    ▣ on an    ▣ inner (concave) corner — the case the
+   (island)  vertical  outer      simpler types CANNOT express:
+             strip     corner        ███          the NE neighbour is empty
+    ░░░       ░▓░       ░░░          ██▝          while N and E are filled, so
+    ░▣░       ░▣░       ░▣▓          ███          this tile needs a notched corner
+    ░░░       ░▓░       ░▓▓
+  Sheet: 47 cells in one row (add rows for variants). Studio bakes them in this order.
+```
+  *Best for:* organic terrain — caves, water, cliffs, grass/sand blobs.
+  *Limitation:* you must supply 47 tiles (largest sheet); the art has to be drawn for both
+  outer **and** inner corners or boundaries look wrong. Use **rotation/flip** (below) to
+  draw ~12 unique tiles and let the engine generate the rest.
+
+**Edge 16** — 4 cardinal neighbours only (16 tiles), a 4×4 sheet
+
+```
+  mask = N | E<<1 | S<<2 | W<<3   →   cell 0..15
+        ┌──┬──┬──┬──┐   row/col is just the 4-bit value; e.g. N+S (a vertical
+        │ 0│ 1│ 2│ 3│   pipe middle) = 0101 = cell 5.
+        ├──┼──┼──┼──┤
+        │ 4│ 5│ 6│ 7│
+        ├──┼──┼──┼──┤   Only N/E/S/W are read — diagonals are ignored.
+        │ 8│ 9│10│11│
+        ├──┼──┼──┼──┤
+        │12│13│14│15│
+        └──┴──┴──┴──┘
+```
+  *Best for:* blocky platforms, pipes, ledges, Mario-style walls.
+  *Limitation:* **no corner awareness** — it can't tell a filled-in inner corner from a
+  flat edge, so concave corners look square/wrong. Fine for chunky/retro art, not organic
+  terrain.
+
+**Nine-slice** — a 3×3 frame for rectangular regions (9 tiles)
+
+```
+  column = which of W/E is open, row = which of N/S is open:
+        ┌──┬──┬──┐   TL  T  TR     A filled RECTANGLE is drawn as its 9 parts:
+        │TL│ T│TR│    L  C  R      4 corners, 4 edges, 1 centre. Great for panels,
+        ├──┼──┼──┤   BL  B  BR     ledges, windows, HUD frames.
+        │ L│ C│ R│
+        ├──┼──┼──┤
+        │BL│ B│BR│
+        └──┴──┴──┘
+```
+  *Best for:* anything rectangular — UI panels, solid platforms, building walls.
+  *Limitation:* it **assumes the region is a rectangle**. An isolated cell, a 1-wide line,
+  an L-bend or a diagonal will pick the wrong slice (there is no "island", "cross" or
+  "diagonal" tile). Not for blobby/organic shapes.
+
+**Wang 16** — corner-matched (16 tiles), a 4×4 sheet
+
+```
+  A CORNER bit is set when its three surrounding cells all agree; the 4 corner
+  bits (TL,TR,BL,BR) index 16 tiles. Art must line up at corners so any two
+  tiles meet seamlessly — ideal for winding paths/roads and beach/shore blends.
+```
+  *Best for:* paths, roads, rivers, coastline blends between two materials.
+  *Limitation:* it reasons about **corners, not edges**, so straight cardinal edges are
+  less crisp than Edge 16, and the art must be authored as a matched corner set (harder to
+  draw freehand).
+
+**Rule of thumb:** organic fill → **Blob 47**; blocky/retro → **Edge 16**; boxes/UI →
+**Nine-slice**; paths & blends → **Wang 16**.
+
+##### Variants + weights (anti-repetition)
+
+Add **variants** (N) to a rule tile: extra art rows beneath row 0. The engine picks a row
+per cell from a position hash, so a big grass field doesn't visibly tile. Each variant has
+a **weight** (set in the Studio) so picks can be biased — e.g. plain grass `8` : flowered
+`1` : cracked `1` makes decorated tiles rare. (Weight 0 is treated as 1.)
+
+##### Rotation / flip transforms (shrink the sheet)
+
+Each LUT entry also carries a **D4 transform** (H-flip, V-flip, 90/180/270° rotation). In
+the Studio you can point several rules at **one** source cell with different transforms —
+e.g. draw a single outer corner and rotate it for the other three. A Blob-47 set can drop
+from 47 hand-drawn tiles to ~12 + transforms, roughly **3× less flash**. (Rotation needs
+square tiles; it runs in a separate flash code path so the hot blit stays small.)
+
+##### Memory
+
+Only the **sheet PNGs** take meaningful space, and they are `static const` → flash/XIP,
+**0 SRAM**. A 47-tile 16×16 RGB565 sheet is ~24 KB of flash; halve the tile size or use a
+simpler rule type (Edge 16 = 16 tiles, Nine-slice = 9) or transforms to cut it. The level
+map is ~1 byte/cell of flash. Nothing about a level is generated as an image at runtime —
+the renderer samples the sheet live.
+
+##### Studio workflow (Tiles tab)
+
+1. Pick or import a **sheet** (Load PNG), or **Gen** a starter sheet to a file.
+2. Choose the **rule type** in the RULES bar; click a rule, then a sheet cell to assign it
+   (set rotation/flip and variant weights as needed).
+3. Add more **layers** (each its own rule tile), name them, and **paint** the level — layers
+   are independent and overlap.
+4. **Bake all** → `assets/*.png` + `tilesets/*.tileset` + `levels/*.level` + the
+   `src/*.tiles.h` / `src/<level>.level.h` headers. In the game, `#include` the level header
+   and call `<level>_draw(mote)`.
 
 #### `int scene2d_add(const MoteSprite *spr)`
 Adds one sprite to the 2D scene. `MoteSprite`:
