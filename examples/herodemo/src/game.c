@@ -45,9 +45,14 @@ static int   on_ground, facing = 1;
 static MoteAnimPlayer anim;
 static const MoteAnimClip *cur;
 
-static void set_clip(const MoteAnimClip *c) { if (cur != c) { cur = c; mote_anim_play(&anim, c); } }
+static void set_clip(const MoteAnimClip *c) {
+    if (cur != c) {
+        cur = c;
+        mote_anim_play(&anim, c);
+    }
+}
 
-/* is the tile at world pixel (px,py) solid (ground layer = bit 0)? */
+/* is the tile at world pixel (wx,wy) solid (ground layer = bit 0)? */
 static int solid(float wx, float wy) {
     const Level *L = &LV[lvl];
     int c = (int)(wx / TILE), r = (int)(wy / TILE);
@@ -57,8 +62,11 @@ static int solid(float wx, float wy) {
 
 static void load_level(int n) {
     lvl = (n % NLV + NLV) % NLV;
-    hx = 24; hy = (LV[lvl].rows - 1) * TILE;   /* on the floor near the left */
-    vx = vy = 0; on_ground = 1; facing = 1;
+    hx = 24;
+    hy = (LV[lvl].rows - 1) * TILE;   /* on the floor near the left */
+    vx = vy = 0;
+    on_ground = 1;
+    facing = 1;
     set_clip(&hero_idle);
 }
 
@@ -76,24 +84,35 @@ static void g_update(float dt) {
     vx = 0;
     if (mote_pressed(in, MOTE_BTN_LEFT))  { vx = -MOVE; facing = -1; }
     if (mote_pressed(in, MOTE_BTN_RIGHT)) { vx =  MOVE; facing =  1; }
+
     float nx = hx + vx * dt;
-    if (!solid(nx + (vx > 0 ? 5 : -5), hy - 8) && !solid(nx + (vx > 0 ? 5 : -5), hy - 1)) hx = nx;
+    float probe_x = nx + (vx > 0 ? 5 : -5);
+    if (!solid(probe_x, hy - 8) && !solid(probe_x, hy - 1)) hx = nx;
 
     /* advance to the next level off the right edge */
     if (hx > L->cols * TILE - 4) { load_level(lvl + 1); return; }
     if (hx < 2) hx = 2;
 
     /* jump */
-    if (on_ground && (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)))
-        { vy = JUMP_V; on_ground = 0; }
+    if (on_ground && (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B))) {
+        vy = JUMP_V;
+        on_ground = 0;
+    }
 
     /* gravity + vertical resolve against the tile under the feet / over the head */
     vy += GRAV * dt;
     float ny = hy + vy * dt;
     on_ground = 0;
     if (vy >= 0) {                                  /* falling: land on a tile top */
-        if (solid(hx, ny)) { ny = (float)((int)(ny / TILE) * TILE); vy = 0; on_ground = 1; }
-    } else if (solid(hx, ny - 16)) { ny = (float)(((int)((ny - 16) / TILE) + 1) * TILE + 16); vy = 0; }  /* bonk head */
+        if (solid(hx, ny)) {
+            ny = (float)((int)(ny / TILE) * TILE);
+            vy = 0;
+            on_ground = 1;
+        }
+    } else if (solid(hx, ny - 16)) {                /* rising: bonk head */
+        ny = (float)(((int)((ny - 16) / TILE) + 1) * TILE + 16);
+        vy = 0;
+    }
     hy = ny;
     if (hy > L->rows * TILE + 24) load_level(lvl);  /* fell out — restart level */
 
@@ -103,27 +122,27 @@ static void g_update(float dt) {
     else              set_clip(&hero_idle);
     mote_anim_tick(&anim, dt);
 
-    int cam_x = (int)hx - MOTE_FB_W / 2;
-    if (cam_x < 0) cam_x = 0;
-    if (cam_x > L->cols * TILE - MOTE_FB_W) cam_x = L->cols * TILE - MOTE_FB_W;
+    int cam_x = mote_clampi((int)hx - MOTE_FB_W / 2, 0, L->cols * TILE - MOTE_FB_W);
     mote->scene2d_begin(cam_x, 0);
     L->draw(mote);                                   /* the autotiled ground */
 
-    uint8_t flags = facing < 0 ? MOTE_SPR_HFLIP : 0;
-    MoteSprite s = { hero_sheet.image,
-                     (int16_t)(hx - cur->pivot_x), (int16_t)(hy - cur->pivot_y),
-                     (uint16_t)mote_anim_fx(&anim, &hero_sheet),
-                     (uint16_t)mote_anim_fy(&anim, &hero_sheet),
-                     hero_sheet.tile_w, hero_sheet.tile_h, 5, flags };
+    MoteSprite s = {
+        .img   = hero_sheet.image,
+        .x     = (int16_t)(hx - cur->pivot_x),
+        .y     = (int16_t)(hy - cur->pivot_y),
+        .fx    = (uint16_t)mote_anim_fx(&anim, &hero_sheet),
+        .fy    = (uint16_t)mote_anim_fy(&anim, &hero_sheet),
+        .fw    = hero_sheet.tile_w,
+        .fh    = hero_sheet.tile_h,
+        .layer = 5,
+        .flags = facing < 0 ? MOTE_SPR_HFLIP : 0,
+    };
     mote->scene2d_add(&s);
 }
 
 static void g_overlay(uint16_t *fb) {
     mote_ui_panel(fb, 0, 0, MOTE_FB_W, 12, MOTE_RGB565(18, 22, 36), MOTE_RGB565(70, 90, 130));
-    char line[24]; int q = 0;
-    line[q++] = 'L'; line[q++] = 'V'; line[q++] = ' '; q += mote_itoa(lvl + 1, line + q);
-    line[q++] = ' '; line[q++] = ' '; line[q++] = '>'; line[q++] = '>'; line[q] = 0;
-    mote->text(fb, line, 3, 2, MOTE_RGB565(235, 235, 245));
+    mote_textf(mote, fb, 3, 2, MOTE_RGB565(235, 235, 245), "LV %d  >>", lvl + 1);
     mote->text(fb, "dpad  A/B jump", 60, 2, MOTE_RGB565(150, 170, 200));
 }
 

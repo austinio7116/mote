@@ -10,6 +10,8 @@
  * Controls: D-pad rolls the player · B restarts the round
  *
  * Built with the mote_build.h helpers (mesh builders, camera, immediate UI).
+ * Rendering uses scene_camera(): we pass the camera position once per frame and
+ * add every object at WORLD coordinates (no hand-rolled v3_sub).
  */
 #include "mote_api.h"
 #include "mote_build.h"
@@ -51,7 +53,6 @@ static int       s_score;
 static int       s_best;
 static float     s_time_left;
 static bool      s_over;
-static uint32_t  rng = 1u;
 
 /* collect-pop effects: a brief expanding ring of light at a grabbed gem */
 #define NPOP 6
@@ -72,11 +73,6 @@ static const uint16_t k_gem_col[NGEM_KIND] = {
 static const Mesh *mesh_floor;
 static const Mesh *mesh_gem[NGEM_KIND];   /* a faceted diamond per colour */
 
-static float frand01(void) {     /* xorshift -> [0,1) */
-    rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5;
-    return (float)(rng & 0xFFFFFF) / 16777216.0f;
-}
-
 /* place gem g at a fresh scattered spot, away from the player's current pos */
 static void place_gem(int g) {
     MoteBody *b = &body[IGEM0 + g];
@@ -87,12 +83,16 @@ static void place_gem(int g) {
     b->vel      = v3(0, 0, 0);
     b->w        = v3(0, 0, 0);
     b->_reserved[0] = 0;
-    gem_kind[g]  = (int)(frand01() * NGEM_KIND) % NGEM_KIND;
-    gem_phase[g] = frand01() * 6.2831853f;
-    float x, z, px = body[IPLAYER].pos.x, pz = body[IPLAYER].pos.z;
+
+    gem_kind[g]  = (int)(mote_frand() * NGEM_KIND) % NGEM_KIND;
+    gem_phase[g] = mote_frand() * 6.2831853f;
+
+    float px = body[IPLAYER].pos.x;
+    float pz = body[IPLAYER].pos.z;
+    float x, z;
     do {
-        x = (frand01() * 2.0f - 1.0f) * ARENA;
-        z = (frand01() * 2.0f - 1.0f) * ARENA;
+        x = (mote_frand() * 2.0f - 1.0f) * ARENA;
+        z = (mote_frand() * 2.0f - 1.0f) * ARENA;
     } while ((x - px) * (x - px) + (z - pz) * (z - pz) < 2.0f);
     b->pos = v3(x, GEM_Y, z);
 }
@@ -151,7 +151,7 @@ static void g_init(void) {
     body[GROUND].pos      = v3(0, 0, 0);
     body[GROUND].radius   = 0.0f;
 
-    rng = (uint32_t)mote->micros() | 1u;
+    mote_rand_seed((uint32_t)mote->micros() | 1u);
     s_best = 0;
     start_round();
 }
@@ -168,8 +168,12 @@ static void g_update(float dt) {
     if (mote_just_pressed(in, MOTE_BTN_B)) start_round();
 
     /* fade the collect-pops regardless of state */
-    for (int i = 0; i < NPOP; i++)
-        if (pop[i].t > 0.0f) { pop[i].t -= dt * 2.2f; if (pop[i].t < 0) pop[i].t = 0; }
+    for (int i = 0; i < NPOP; i++) {
+        if (pop[i].t > 0.0f) {
+            pop[i].t -= dt * 2.2f;
+            if (pop[i].t < 0) pop[i].t = 0;
+        }
+    }
 
     MoteBody *pl = &body[IPLAYER];
 
@@ -233,39 +237,38 @@ static void g_update(float dt) {
     cam_pos = v3(pl->pos.x, pl->pos.y + 6.0f, pl->pos.z - 3.6f);
     Mat3 basis = mote_camera_look(cam_pos, v3(pl->pos.x, 0.0f, pl->pos.z));
 
-    mote->scene_begin(&basis, 55.0f);
+    /* render at WORLD coordinates; scene_camera subtracts the camera for us */
+    mote->scene_camera(&basis, cam_pos, 55.0f);
 
     /* floor slab (sits with its top face at y=0) */
-    {
-        MoteObject fl = { .pos = v3_sub(v3(0, -0.12f, 0), cam_pos),
-                          .basis = m3_identity(), .mesh = mesh_floor };
-        mote->scene_add_object(&fl);
-    }
+    mote_draw(mote, mesh_floor, v3(0, -0.12f, 0));
 
     /* player ball */
-    mote->scene_add_sphere(v3_sub(pl->pos, cam_pos), PLAYER_R,
-                           MOTE_RGB565(245, 245, 245));
+    mote->scene_add_sphere(pl->pos, PLAYER_R, MOTE_RGB565(245, 245, 245));
 
     /* gems — spin about Y and bob up/down; render as diamonds */
     float t = (float)mote->micros() * 1e-6f;
     for (int g = 0; g < NGEM; g++) {
-        float ph  = gem_phase[g];
+        float ph   = gem_phase[g];
         float spin = t * 2.2f + ph;
         float bob  = sinf(t * 2.6f + ph) * 0.12f;
+
         Vec3 gp = body[IGEM0 + g].pos;
         gp.y += bob;
+
         float c = cosf(spin), s = sinf(spin);
-        Mat3 o; o.r[0] = v3(c, 0, s); o.r[1] = v3(0, 1, 0); o.r[2] = v3(-s, 0, c);
-        MoteObject go = { .pos = v3_sub(gp, cam_pos), .basis = o,
-                          .mesh = mesh_gem[gem_kind[g]] };
-        mote->scene_add_object(&go);
+        Mat3 o;
+        o.r[0] = v3(c, 0, s);
+        o.r[1] = v3(0, 1, 0);
+        o.r[2] = v3(-s, 0, c);
+        mote_draw_ex(mote, mesh_gem[gem_kind[g]], gp, o, 1.0f);
     }
 
     /* collect-pops: an expanding faint sphere of the gem's colour */
     for (int i = 0; i < NPOP; i++) {
         if (pop[i].t <= 0.0f) continue;
         float r = 0.3f + (1.0f - pop[i].t) * 0.9f;
-        mote->scene_add_sphere(v3_sub(pop[i].pos, cam_pos), r, pop[i].col);
+        mote->scene_add_sphere(pop[i].pos, r, pop[i].col);
     }
 }
 

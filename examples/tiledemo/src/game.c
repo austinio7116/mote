@@ -39,18 +39,22 @@ static void build_player(void) {
     const uint16_t body    = MOTE_RGB565(245, 220, 50);
     const uint16_t shade   = MOTE_RGB565(200, 160, 30);
     const uint16_t outline = MOTE_RGB565(60, 45, 10);
+
     for (int f = 0; f < PLAYER_FRAMES; f++) {
         int legbob = (f == 1) ? -1 : (f == 2) ? 1 : 0;   /* frames 1/2 walk */
+
         for (int y = 0; y < PT; y++)
             for (int x = 0; x < PT; x++) {
                 int dx = x - 4, dy = y - 4;
                 int r2 = dx * dx + dy * dy;
+
                 uint16_t c = MOTE_KEY_MAGENTA;
                 if (r2 <= 9)        c = body;
                 if (r2 == 9)        c = outline;          /* rim */
                 if (dy >= 2 && (x == 3 + legbob || x == 5 - legbob))
                     c = shade;                            /* legs */
                 if (x == 4 && y == 3) c = outline;        /* eye */
+
                 player_px[y * (PLAYER_FRAMES * PT) + f * PT + x] = c;
             }
     }
@@ -68,15 +72,17 @@ static void g_update(float dt) {
 
     int sp = (int)(70.0f * dt) + 1;
     int ox = px, oy = py;
+
     moving = 0;
     if (mote_pressed(in, MOTE_BTN_LEFT))  { px -= sp; facing = -1; moving = 1; }
     if (mote_pressed(in, MOTE_BTN_RIGHT)) { px += sp; facing =  1; moving = 1; }
     if (mote_pressed(in, MOTE_BTN_UP))    { py -= sp; moving = 1; }
     if (mote_pressed(in, MOTE_BTN_DOWN))  { py += sp; moving = 1; }
-    if (px < 0) px = 0; if (py < 0) py = 0;
-    int maxx = world_COLS * TILE - PT, maxy = world_ROWS * TILE - PT;
-    if (px > maxx) px = maxx; if (py > maxy) py = maxy;
 
+    px = mote_clampi(px, 0, world_COLS * TILE - PT);
+    py = mote_clampi(py, 0, world_ROWS * TILE - PT);
+
+    /* accumulate the Manhattan distance moved, for the tile-walk counter */
     int dpx = px - ox, dpy = py - oy;
     steps += (dpx < 0 ? -dpx : dpx) + (dpy < 0 ? -dpy : dpy);
 
@@ -84,16 +90,23 @@ static void g_update(float dt) {
     int frame = moving ? (1 + ((int)walk_t & 1)) : 0;
 
     /* Camera centres on the player, clamped to the world. */
-    int cam_x = px - MOTE_FB_W / 2, cam_y = py - MOTE_FB_H / 2;
-    if (cam_x < 0) cam_x = 0; if (cam_y < 0) cam_y = 0;
-    int cmaxx = world_COLS * TILE - MOTE_FB_W, cmaxy = world_ROWS * TILE - MOTE_FB_H;
-    if (cam_x > cmaxx) cam_x = cmaxx; if (cam_y > cmaxy) cam_y = cmaxy;
+    int cam_x = mote_clampi(px - MOTE_FB_W / 2, 0, world_COLS * TILE - MOTE_FB_W);
+    int cam_y = mote_clampi(py - MOTE_FB_H / 2, 0, world_ROWS * TILE - MOTE_FB_H);
 
     mote->scene2d_begin(cam_x, cam_y);
     world_draw(mote);                                    /* the autotiled file tilesets */
-    uint8_t flags = (facing < 0) ? MOTE_SPR_HFLIP : 0;
-    MoteSprite s = { &player, (int16_t)px, (int16_t)py,
-                     (int16_t)(frame * PT), 0, PT, PT, 10, flags };
+
+    MoteSprite s = {
+        .img   = &player,
+        .x     = (int16_t)px,
+        .y     = (int16_t)py,
+        .fx    = (uint16_t)(frame * PT),
+        .fy    = 0,
+        .fw    = PT,
+        .fh    = PT,
+        .layer = 10,
+        .flags = (facing < 0) ? MOTE_SPR_HFLIP : 0,
+    };
     mote->scene2d_add(&s);
 }
 
@@ -101,12 +114,7 @@ static void g_update(float dt) {
 static void g_overlay(uint16_t *fb) {
     mote_ui_panel(fb, 0, 0, MOTE_FB_W, 12,
                   MOTE_RGB565(18, 22, 36), MOTE_RGB565(70, 90, 130));
-    char line[24]; int q = 0;
-    line[q++] = 'T'; line[q++] = 'I'; line[q++] = 'L'; line[q++] = 'E';
-    line[q++] = 'S'; line[q++] = ' ';
-    q += mote_itoa(steps / TILE, line + q);
-    line[q] = 0;
-    mote->text(fb, line, 3, 2, MOTE_RGB565(235, 235, 245));
+    mote_textf(mote, fb, 3, 2, MOTE_RGB565(235, 235, 245), "TILES %d", steps / TILE);
 }
 
 static const MoteGameVtbl k_vtbl = {

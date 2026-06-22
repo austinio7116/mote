@@ -17,23 +17,23 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-static const Mesh *s_box;
-static const Mesh *s_orb;
-static Mat3  s_m;
+static const Mesh *box_mesh;
+static const Mesh *orb_mesh;
+static Mat3  box_rot;
 static Vec3  cam_pos;
 static Mat3  cam_basis;
-static float s_t;
+static float elapsed;          /* seconds since start, drives the orbit */
 
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(8, 30, 34));
     mote->scene_set_sun(v3_norm(v3(-0.3f, 0.7f, -0.6f)));
 
     /* a chunky box (neon magenta) + a small teal sphere that orbits it */
-    s_box = mote_mesh_box(mote, 0.95f, 0.95f, 0.95f, MOTE_RGB565(245, 70, 165));
-    s_orb = mote_mesh_sphere(mote, 0.32f, 12, MOTE_RGB565(80, 240, 210));
+    box_mesh = mote_mesh_box(mote, 0.95f, 0.95f, 0.95f, MOTE_RGB565(245, 70, 165));
+    orb_mesh = mote_mesh_sphere(mote, 0.32f, 12, MOTE_RGB565(80, 240, 210));
 
-    s_m = m3_identity();
-    s_t = 0.0f;
+    box_rot = m3_identity();
+    elapsed = 0.0f;
 
     /* look slightly down at the origin from a pulled-back eye */
     cam_pos   = v3(0.0f, 1.1f, -4.6f);
@@ -42,24 +42,23 @@ static void g_init(void) {
 
 static void g_update(float dt) {
     (void)mote->input();
-    s_t += dt;
+    elapsed += dt;
 
     /* tumble on all three local axes */
-    m3_rotate_local(&s_m, 0, 0.7f * dt);
-    m3_rotate_local(&s_m, 1, 1.1f * dt);
-    m3_rotate_local(&s_m, 2, 0.5f * dt);
-    m3_orthonormalize(&s_m);
+    m3_rotate_local(&box_rot, 0, 0.7f * dt);
+    m3_rotate_local(&box_rot, 1, 1.1f * dt);
+    m3_rotate_local(&box_rot, 2, 0.5f * dt);
+    m3_orthonormalize(&box_rot);
 
-    mote->scene_begin(&cam_basis, 55.0f);
+    /* render in world coordinates; scene_camera subtracts the camera for us */
+    mote->scene_camera(&cam_basis, cam_pos, 55.0f);
 
-    MoteObject box = { .pos = v3_sub(v3(0, 0, 0), cam_pos), .basis = s_m, .mesh = s_box };
-    mote->scene_add_object(&box);
+    mote_draw_ex(mote, box_mesh, v3(0, 0, 0), box_rot, 1.0f);
 
     /* small sphere orbiting in the XZ plane, bobbing slightly in Y */
-    float a = s_t * 1.6f;
-    Vec3 orb = v3(cosf(a) * 1.9f, sinf(s_t * 2.1f) * 0.4f, sinf(a) * 1.9f);
-    MoteObject ball = { .pos = v3_sub(orb, cam_pos), .basis = m3_identity(), .mesh = s_orb };
-    mote->scene_add_object(&ball);
+    float angle = elapsed * 1.6f;
+    Vec3 orb_pos = v3(cosf(angle) * 1.9f, sinf(elapsed * 2.1f) * 0.4f, sinf(angle) * 1.9f);
+    mote_draw(mote, orb_mesh, orb_pos);
 }
 
 static const MoteGameVtbl k_vtbl = {

@@ -352,10 +352,14 @@ Vec3 cue_table_clamp_placement(const CueTable *t, Vec3 p) {
 }
 
 /* Per-rack RNG (render-only ball orientation; advances each ball + each rack so
- * the balls don't all face the same way and racks differ between frames). */
+ * the balls don't all face the same way and racks differ between frames). This
+ * is a local xorshift on purpose: it is independent of any shared game RNG and
+ * affects only the cosmetic ball facing, returning a value in [0, 1). */
 static uint32_t s_orient_rng = 0x2545F491u;
 static float orient_rand(void) {
-    s_orient_rng ^= s_orient_rng << 13; s_orient_rng ^= s_orient_rng >> 17; s_orient_rng ^= s_orient_rng << 5;
+    s_orient_rng ^= s_orient_rng << 13;
+    s_orient_rng ^= s_orient_rng >> 17;
+    s_orient_rng ^= s_orient_rng << 5;
     return (float)(s_orient_rng & 0xFFFFu) * (1.0f / 65536.0f);
 }
 static Mat3 rand_orient(void) {

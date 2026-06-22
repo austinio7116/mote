@@ -19,66 +19,100 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#define FW 24
-#define MAXB 24
-static struct { float x, y, vx, vy, ph; } b[MAXB];
-static int s_n, s_armed;
-static float s_t;
-static uint32_t rng = 1u;
+#define FRAME_W   24          /* one animation frame of the sprite sheet */
+#define MAX_BUGS  24          /* sprite pool size (matches max_sprites) */
 
-static float frand(void){ rng ^= rng<<13; rng ^= rng>>17; rng ^= rng<<5; return (float)(rng & 0xFFFF)/65536.0f; }
+/* one bouncing sprite: position, velocity, and an animation phase offset */
+typedef struct {
+    float x, y;
+    float vx, vy;
+    float phase;
+} Bug;
 
-static void add_sprite(void){
-    if(s_n>=MAXB) return;
-    b[s_n].x = 8 + frand()*(128-FW-16);
-    b[s_n].y = 24 + frand()*(128-FW-32);
-    float a = frand()*6.28f, sp = 28 + frand()*34;
-    b[s_n].vx = cosf(a)*sp; b[s_n].vy = sinf(a)*sp; b[s_n].ph = frand()*6.28f;
-    s_n++;
+static Bug   bugs[MAX_BUGS];
+static int   bug_count;
+static int   add_armed;       /* debounce: re-arm A between presses */
+static float anim_time;
+
+/* Spawn one bug at a random on-screen spot, heading in a random direction. */
+static void add_bug(void) {
+    if (bug_count >= MAX_BUGS) return;
+
+    Bug *b = &bugs[bug_count];
+    b->x = mote_randf(8, 8 + (128 - FRAME_W - 16));
+    b->y = mote_randf(24, 24 + (128 - FRAME_W - 32));
+
+    float angle = mote_randf(0, 6.28f);
+    float speed = mote_randf(28, 28 + 34);
+    b->vx = cosf(angle) * speed;
+    b->vy = sinf(angle) * speed;
+    b->phase = mote_randf(0, 6.28f);
+
+    bug_count++;
 }
-static void reset(void){ s_n=0; for(int i=0;i<6;i++) add_sprite(); }
 
-static void g_init(void){
+/* Clear the swarm and seed it with a starting handful. */
+static void reset(void) {
+    bug_count = 0;
+    for (int i = 0; i < 6; i++) add_bug();
+}
+
+static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(60, 90, 150));
-    rng = (uint32_t)mote->micros() | 1u;
+    mote_rand_seed((uint32_t)mote->micros() | 1u);
     reset();
 }
 
-static void g_update(float dt){
+static void g_update(float dt) {
     const MoteInput *in = mote->input();
-    if(!mote_pressed(in, MOTE_BTN_A)) s_armed = 1;
-    if(s_armed && mote_just_pressed(in, MOTE_BTN_A)) add_sprite();
-    if(mote_just_pressed(in, MOTE_BTN_B)) reset();
-    s_t += dt;
 
-    for(int i=0;i<s_n;i++){
-        b[i].x += b[i].vx*dt; b[i].y += b[i].vy*dt;
-        if(b[i].x < 2){ b[i].x = 2; b[i].vx = -b[i].vx; }
-        if(b[i].x > 128-FW-2){ b[i].x = 128-FW-2; b[i].vx = -b[i].vx; }
-        if(b[i].y < 16){ b[i].y = 16; b[i].vy = -b[i].vy; }
-        if(b[i].y > 128-FW-2){ b[i].y = 128-FW-2; b[i].vy = -b[i].vy; }
+    if (!mote_pressed(in, MOTE_BTN_A)) add_armed = 1;
+    if (add_armed && mote_just_pressed(in, MOTE_BTN_A)) add_bug();
+    if (mote_just_pressed(in, MOTE_BTN_B)) reset();
+
+    anim_time += dt;
+
+    /* move each bug and bounce it off the play-area edges */
+    for (int i = 0; i < bug_count; i++) {
+        Bug *b = &bugs[i];
+        b->x += b->vx * dt;
+        b->y += b->vy * dt;
+
+        if (b->x < 2)              { b->x = 2;              b->vx = -b->vx; }
+        if (b->x > 128 - FRAME_W - 2) { b->x = 128 - FRAME_W - 2; b->vx = -b->vx; }
+        if (b->y < 16)             { b->y = 16;             b->vy = -b->vy; }
+        if (b->y > 128 - FRAME_W - 2) { b->y = 128 - FRAME_W - 2; b->vy = -b->vy; }
     }
 
     mote->scene2d_begin(0, 0);
-    for(int i=0;i<s_n;i++){
-        int frame = ((int)(s_t*4.0f + b[i].ph)) & 1;       /* animate the 2 frames */
-        MoteSprite s = { &sprite_img, (int16_t)b[i].x, (int16_t)b[i].y,
-                         (uint16_t)(frame*FW), 0, FW, FW, 1,
-                         (uint8_t)(b[i].vx < 0 ? MOTE_SPR_HFLIP : 0) };
+    for (int i = 0; i < bug_count; i++) {
+        Bug *b = &bugs[i];
+        int frame = ((int)(anim_time * 4.0f + b->phase)) & 1;   /* animate the 2 frames */
+
+        MoteSprite s = {
+            .img   = &sprite_img,
+            .x     = (int16_t)b->x,
+            .y     = (int16_t)b->y,
+            .fx    = (uint16_t)(frame * FRAME_W),
+            .fy    = 0,
+            .fw    = FRAME_W,
+            .fh    = FRAME_W,
+            .layer = 1,
+            .flags = (uint8_t)(b->vx < 0 ? MOTE_SPR_HFLIP : 0),
+        };
         mote->scene2d_add(&s);
     }
 }
 
-static void g_overlay(uint16_t *fb){
-    mote->blit(fb, &logo_img, (128-logo_W)/2, 2, 0, 0, logo_W, logo_H, 0, 0, 128);
-    char s[20]; int q = mote_itoa(s_n, s);
-    s[q++]=' ';s[q++]='P';s[q++]='N';s[q++]='G'; s[q]=0;
-    mote->text(fb, s, 4, 118, MOTE_RGB565(235,240,250));
-    mote->text(fb, "A ADD  B RESET", 46, 118, MOTE_RGB565(150,170,210));
+static void g_overlay(uint16_t *fb) {
+    mote->blit(fb, &logo_img, (128 - logo_W) / 2, 2, 0, 0, logo_W, logo_H, 0, 0, 128);
+
+    mote_textf(mote, fb, 4, 118, MOTE_RGB565(235, 240, 250), "%d PNG", bug_count);
+    mote->text(fb, "A ADD  B RESET", 46, 118, MOTE_RGB565(150, 170, 210));
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_sprites = MAXB },
+    .config = { .max_sprites = MAX_BUGS },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
