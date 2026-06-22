@@ -484,6 +484,46 @@ static MoteTilemap tilemap = { map_cells, 24, 18 };
 mote->scene2d_set_tilemap(&tilemap, &tileset);
 ```
 
+#### Rule tiles / autotiling — `scene2d_set_autotile_layers(...)`
+
+A plain tilemap stores the *final* tile index in every cell — you place each edge and
+corner by hand. **Rule tiles** instead store a *logical* map ("is this cell terrain?")
+and let the engine pick the right edge/corner tile from each cell's 8 neighbours, every
+frame, with **no resolved buffer**. You author the rules in **Mote Studio's Tiles tab**;
+the engine renders them.
+
+Three concepts, kept separate (and in separate folders):
+
+- **Sprite sheet** (`assets/foo.png`) — just art: a grid of tile images.
+- **Rule-tile** (`MoteAutotile`, baked to `src/foo.tiles.h`) — a sheet + tile size + a
+  256-entry LUT mapping each neighbour configuration to an atlas cell. *Many rule-tiles
+  can share a sheet.*
+- **Level** (`src/foo.level.h`) — a **bit-packed layer map**: one byte per cell where
+  each bit is a layer, drawn bottom-up, each layer autotiled against its own bit. Layers
+  overlap (dirt **and** grass **and** a torch in one cell). It's `const`, so it lives in
+  flash and costs **zero SRAM**.
+
+```c
+#include "cave.level.h"
+// each frame, after scene2d_begin():
+cave_draw(mote);   // = mote->scene2d_set_autotile_layers(cave_map, cave_COLS, cave_ROWS, cave_tiles, n)
+```
+
+**The four rule types** (pick per rule-tile in the Studio — the choice is the sheet
+layout the rules expect):
+
+| Type | Tiles | Considers | Best for |
+|------|-------|-----------|----------|
+| **Blob 47** | 47 | all 8 neighbours, corner-aware (incl. *concave* inner corners) | organic terrain — caves, water, cliffs, grass/sand patches |
+| **Edge 16** | 16 | 4 cardinal neighbours only | blocky platforms, pipes, walls (Mario-style) |
+| **Nine-slice** | 9 | which sides are open (a 3×3 frame) | rectangular regions only — panels, ledges, HUD frames |
+| **Wang 16** | 16 | the 4 corners | corner-matched paths, beaches, organic blends |
+
+Blob 47 is the most capable (and the reason a terrain has so many tiles — most differ
+only at one corner); Edge 16 / Nine-slice are far easier to hand-draw. Add **variants**
+(N) to a rule-tile to break up large areas: the engine picks one of N art rows per cell
+from a position hash, so a field of grass doesn't visibly repeat.
+
 #### `int scene2d_add(const MoteSprite *spr)`
 Adds one sprite to the 2D scene. `MoteSprite`:
 - `const MoteImage *img` — the source image/sheet.

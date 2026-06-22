@@ -1089,6 +1089,11 @@ static void audio_drag(int mx){ if(g_sfx_drag>=0){ slider_set(g_sfx_drag,mx); re
 #define TLRGB(r,g,b) (uint16_t)((((r)>>3)<<11)|(((g)>>2)<<5)|((b)>>3))
 #define MAXTERR 6
 static const char *TL_TPL_L[4]={ "Blob 47","Edge 16","Nine-slice","Wang 16" };
+static const char *TL_TPL_DESC[4]={
+    "47 tiles \xb7 full corner-aware terrain (caves, water, cliffs)",
+    "16 tiles \xb7 4 edges only, blocky (platforms, pipes, walls)",
+    "9 tiles \xb7 a 3x3 frame for rectangular regions (panels, ledges)",
+    "16 tiles \xb7 corner-matched, organic blends (paths, beaches)" };
 static const struct { int c,r; } LV_SIZES[4]={ {32,24},{48,32},{64,48},{96,72} };
 static const uint8_t TERR_TINT[MAXTERR][3]={ {124,92,58},{70,150,72},{60,120,200},{176,128,72},{150,150,158},{150,80,160} };
 /* a terrain = a PNG sheet asset (scols x srows cells) + a config->cell rule LUT */
@@ -1193,7 +1198,9 @@ static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ int 
 static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure(); (void)h;
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows;
     int tx=ox,ty=oy;
-    g_tl_tplr=(SDL_Rect){tx,ty,w-2,18}; rrect(R,tx,ty,w-2,18,4,hit(mx,my,tx,ty,w-2,18)?C_BTNHI:C_BTN); text(R,TL_TPL_L[ct->tpl],tx+7,ty+3,1,C_HDR,C_BTN); ty+=22;
+    text(R,"RULE TYPE (click to cycle)",tx,ty,1,C_DIM,C_DOCK); ty+=13;
+    g_tl_tplr=(SDL_Rect){tx,ty,w-2,18}; rrect(R,tx,ty,w-2,18,4,hit(mx,my,tx,ty,w-2,18)?C_BTNHI:C_BTN); text(R,TL_TPL_L[ct->tpl],tx+7,ty+3,1,C_HDR,C_BTN); text(R,"\xbb",tx+w-16,ty+3,1,C_DIM,C_BTN); ty+=20;
+    text(R,TL_TPL_DESC[ct->tpl],tx,ty,1,C_DIM,C_DOCK); ty+=15;
     g_tl_edger=(SDL_Rect){tx,ty,86,18}; rrect(R,tx,ty,86,18,4,ct->edge?C_ACC:C_BTN); text(R,ct->edge?"edge=solid":"edge=open",tx+6,ty+3,1,ct->edge?C_HDR:C_DIM,ct->edge?C_ACC:C_BTN);
     int tx2=tx+92; text(R,"tile",tx2,ty+3,1,C_DIM,C_DOCK); tx2+=textw(R,"tile",1)+4; g_tl_tsm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
     { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
