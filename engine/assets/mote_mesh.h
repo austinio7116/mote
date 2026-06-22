@@ -20,16 +20,22 @@ typedef struct { int8_t x, y, z; } MeshVert;
 typedef struct {
     uint8_t a, b, c;        /* vertex indices */
     int8_t  nx, ny, nz;     /* model-space face normal, quantised (unit*127) */
-    uint16_t color;         /* RGB565 base albedo */
-} MeshFace;
+} MeshFace;                 /* 6 bytes — colour lives on the Mesh (see below) */
 
 typedef struct Mesh {
     const MeshVert *verts;
     const MeshFace *faces;
+    /* Colour: most meshes are one flat albedo, so it lives here (1x per mesh) rather
+     * than 2 bytes on every face. A mesh that needs per-face colour (multi-material
+     * models, height-tinted terrain) sets face_colors to an nfaces-long RGB565 array
+     * and leaves `color` unused; otherwise face_colors is NULL and `color` applies to
+     * every face. A per-draw MoteObject.color override beats both. */
+    const uint16_t *face_colors;
     uint16_t nverts;
     uint16_t nfaces;
-    float scale;            /* model half-extent in meters */
-    float bound_r;          /* bounding-sphere radius in meters */
+    uint16_t color;             /* base albedo (RGB565) when face_colors == NULL */
+    float scale;                /* model half-extent in meters */
+    float bound_r;              /* bounding-sphere radius in meters */
     const struct Mesh *lod_lo;  /* optional lower-detail swap, NULL if none */
 } Mesh;
 

@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 17u  /* v17: weighted autotile variants (MoteAutotile.var_weight) */
+#define MOTE_ABI_VERSION 18u  /* v18: mesh colour moved off MeshFace (6-byte faces) onto Mesh.color/face_colors; MoteObject.color override */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 

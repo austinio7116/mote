@@ -954,9 +954,9 @@ static void mesh_emit(FILE*h,const char*name){
             fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
             for(int i=0;i<cf;i++){ V3 a=g_dv[cv[cface[i][0]]],b=g_dv[cv[cface[i][1]]],c=g_dv[cv[cface[i][2]]];
                 V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
-                fprintf(h,"  {%d,%d,%d, %d,%d,%d, 0x%04X},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127),col); }
+                fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
             fprintf(h,"};\n");
-            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,%d,%d,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,g_mesh_size,g_mesh_bound*(g_mesh_size/(g_mesh_qmax>1e-6f?g_mesh_qmax:1))); }
+            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,col,g_mesh_size,g_mesh_bound*(g_mesh_size/(g_mesh_qmax>1e-6f?g_mesh_qmax:1))); }
         total_v+=nv; total_f+=cf; chunk++;
     }
     g_mesh_outv=total_v; g_mesh_outf=total_f; g_mesh_nchunk=chunk;

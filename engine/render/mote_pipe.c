@@ -99,6 +99,10 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
 
     int drawn = 0;
     const float nscale = 1.0f / 127.0f;
+    /* Resolve colour source once: a per-draw override wins; else the mesh's optional
+     * per-face array; else its single base colour. */
+    const uint16_t *fcols = obj->color ? 0 : mesh->face_colors;
+    uint16_t mcol = obj->color ? obj->color : mesh->color;
     for (int f = 0; f < mesh->nfaces; f++) {
         const MeshFace *face = &mesh->faces[f];
         int a = face->a, b = face->b, c = face->c;
@@ -111,7 +115,7 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
 
         float ndotl = v3_dot(nv, s_sun_view);
         float shade = 0.25f + (ndotl > 0.0f ? 0.75f * ndotl : 0.0f);
-        uint16_t col = shade565(face->color, shade);
+        uint16_t col = shade565(fcols ? fcols[f] : mcol, shade);
 
         int in_a = s_front[a], in_b = s_front[b], in_c = s_front[c];
         int in_count = in_a + in_b + in_c;

@@ -31,13 +31,14 @@ static inline Mat3 mote_camera_look(Vec3 eye, Vec3 target) {
 /* Add a triangle from CCW-from-outside indices; the outward normal is computed
  * from the (quantised) vertices, so you never set normals by hand. */
 static inline void mote__face(MeshVert *v, MeshFace *f, int *nf, int a, int b, int c, uint16_t col) {
+    (void)col;   /* colour now lives on the Mesh (these builders are single-colour; set m->color) */
     Vec3 pa = v3((float)v[a].x, (float)v[a].y, (float)v[a].z);
     Vec3 pb = v3((float)v[b].x, (float)v[b].y, (float)v[b].z);
     Vec3 pc = v3((float)v[c].x, (float)v[c].y, (float)v[c].z);
     Vec3 n = v3_norm(v3_cross(v3_sub(pb, pa), v3_sub(pc, pa)));
     MeshFace *o = &f[(*nf)++];
     o->a = (uint8_t)a; o->b = (uint8_t)b; o->c = (uint8_t)c;
-    o->nx = (int8_t)(n.x * 127); o->ny = (int8_t)(n.y * 127); o->nz = (int8_t)(n.z * 127); o->color = col;
+    o->nx = (int8_t)(n.x * 127); o->ny = (int8_t)(n.y * 127); o->nz = (int8_t)(n.z * 127);
 }
 static inline void mote__qv(MeshVert *v, int i, float x, float y, float z, float sc) {
     v[i].x = (int8_t)(x / sc * 127); v[i].y = (int8_t)(y / sc * 127); v[i].z = (int8_t)(z / sc * 127);
@@ -58,7 +59,7 @@ static inline const Mesh *mote_mesh_box(const MoteApi *api, float hx, float hy, 
     int nf = 0;
     for (int s = 0; s < 6; s++) { mote__face(v, f, &nf, q[s][0], q[s][2], q[s][1], col);
                                   mote__face(v, f, &nf, q[s][0], q[s][3], q[s][2], col); }
-    *m = (Mesh){v, f, 8, 12, sc, sc * 1.8f, 0};
+    *m = (Mesh){v, f, 0, 8, 12, col, sc, sc * 1.8f, 0};
     return m;
 }
 
@@ -93,7 +94,7 @@ static inline const Mesh *mote_mesh_revolve(const MoteApi *api, const float *pro
         for (int s = 0; s < segs; s++) { int s2 = (s+1)%segs; mote__face(v, f, &nf, bi, s, s2, col); } }
     else { int ci = nv; mote__qv(v, nv++, 0, prof[r0*2+1], 0, sc);
         for (int s = 0; s < segs; s++) { int s2 = (s+1)%segs; mote__face(v, f, &nf, ci, s, s2, col); } }
-    *m = (Mesh){v, f, (uint16_t)nv, (uint16_t)nf, sc, sc * 1.6f, 0};
+    *m = (Mesh){v, f, 0, (uint16_t)nv, (uint16_t)nf, col, sc, sc * 1.6f, 0};
     return m;
 }
 static inline const Mesh *mote_mesh_cylinder(const MoteApi *api, float r, float halfh, int segs, uint16_t col) {
@@ -128,8 +129,9 @@ static inline int mote_mesh_grid(const MoteApi *api, int nx, int nz,
         int nr = z1i - z0i + 1, nv = nr * nx, nf = (nr - 1) * (nx - 1) * 2;
         MeshVert *v = (MeshVert *)api->alloc(nv * sizeof(MeshVert));
         MeshFace *f = (MeshFace *)api->alloc(nf * sizeof(MeshFace));
+        uint16_t *fc = (uint16_t *)api->alloc(nf * sizeof(uint16_t));   /* per-face terrain colour */
         Mesh *m = (Mesh *)api->alloc(sizeof(Mesh));
-        if (!v || !f || !m) break;
+        if (!v || !f || !fc || !m) break;
         for (int r = 0; r < nr; r++) for (int gx = 0; gx < nx; gx++) {
             float wx = x0 + spanx * gx / (nx - 1), wz = z0 + spanz * (z0i + r) / (nz - 1), wy = hf(wx, wz, user);
             mote__qv(v, r * nx + gx, wx - cx, wy - cy, wz - cz, sc);
@@ -143,11 +145,12 @@ static inline int mote_mesh_grid(const MoteApi *api, int nx, int nz,
                 Vec3 p0=v3(v[i0].x,v[i0].y,v[i0].z),p1=v3(v[i1].x,v[i1].y,v[i1].z),p2=v3(v[i2].x,v[i2].y,v[i2].z);
                 Vec3 n=v3_norm(v3_cross(v3_sub(p1,p0),v3_sub(p2,p0)));
                 float mx=x0+spanx*(gx+0.5f)/(nx-1), mz=z0+spanz*(z0i+r+0.5f)/(nz-1);
-                uint16_t col = cf ? cf(mx,mz,n.y,user) : MOTE_RGB565(96,150,86);
-                f[nff++]=(MeshFace){(uint8_t)i0,(uint8_t)i1,(uint8_t)i2,(int8_t)(n.x*127),(int8_t)(n.y*127),(int8_t)(n.z*127),col};
+                fc[nff] = cf ? cf(mx,mz,n.y,user) : MOTE_RGB565(96,150,86);
+                f[nff]=(MeshFace){(uint8_t)i0,(uint8_t)i1,(uint8_t)i2,(int8_t)(n.x*127),(int8_t)(n.y*127),(int8_t)(n.z*127)};
+                nff++;
             }
         }
-        *m = (Mesh){v, f, (uint16_t)nv, (uint16_t)nf, sc, sc * 1.2f, 0};
+        *m = (Mesh){v, f, fc, (uint16_t)nv, (uint16_t)nf, 0, sc, sc * 1.2f, 0};
         out[produced++] = m;
     }
     return produced;
@@ -271,6 +274,17 @@ static inline void mote_model_draw_ex(const MoteApi *m, const MoteModel *model, 
         MoteObject o = { .pos = pos, .basis = basis, .mesh = &model->chunks[i] };
         if (scale == 1.0f) m->scene_add_object(&o); else m->scene_add_object_scaled(&o, scale);
     }
+}
+/* As mote_model_draw_ex, but TINT every chunk with `color` (RGB565), ignoring the baked
+ * colour — handy for team colours, damage flashes, selection highlights, palette swaps.
+ * Pass a single mesh via mote_draw_tint. (color must be non-zero; 0 means "no override".) */
+static inline void mote_draw_tint(const MoteApi *m, const Mesh *mesh, Vec3 pos, Mat3 basis, float scale, uint16_t color) {
+    MoteObject o = { .pos = pos, .basis = basis, .mesh = mesh, .color = color };
+    if (scale == 1.0f) m->scene_add_object(&o); else m->scene_add_object_scaled(&o, scale);
+}
+static inline void mote_model_draw_tint(const MoteApi *m, const MoteModel *model, Vec3 pos, Mat3 basis, float scale, uint16_t color) {
+    for (uint16_t i = 0; i < model->count; i++)
+        mote_draw_tint(m, &model->chunks[i], pos, basis, scale, color);
 }
 
 /* ---- one shared RNG, so games stop hand-rolling xorshift. Seed once (e.g. from

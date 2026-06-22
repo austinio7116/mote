@@ -45,6 +45,7 @@ static uint16_t grid_start[16 * 16 + 1], grid_tri[NF];
 
 static MeshVert chunk_verts[NCHUNK][CVN]; /* render chunk verts (local, quantised) */
 static MeshFace chunk_faces[NCHUNK][CFN];
+static uint16_t chunk_fcol[NCHUNK][CFN];  /* per-face terrain colour (lie/slope) */
 static Mesh     chunk_mesh[NCHUNK];
 static float    terrain_cx, terrain_cy, terrain_cz, terrain_scale;
 
@@ -59,6 +60,7 @@ static float    terrain_cx, terrain_cy, terrain_cz, terrain_scale;
 typedef struct {
     MeshVert v[TVV];
     MeshFace f[TFF];
+    uint16_t fc[TFF];      /* per-face colour (bark / leaves) */
     Mesh     mesh;
     int      nv, nf;
     Vec3     base;
@@ -145,7 +147,7 @@ static void add_tri_t(TreeMesh *tm, int i0, int i1, int i2,
     f->nx = (int8_t)(nn.x * 127);
     f->ny = (int8_t)(nn.y * 127);
     f->nz = (int8_t)(nn.z * 127);
-    f->color = col;
+    tm->fc[tm->nf - 1] = col;
 }
 
 /* A tapered 4-sided prism from a (radius ra) to b (radius rb). */
@@ -334,13 +336,14 @@ static void gen_terrain(void) {
                     f->nx = (int8_t)(fn.x * 127);
                     f->ny = (int8_t)(fn.y * 127);
                     f->nz = (int8_t)(fn.z * 127);
-                    f->color = lie_color(golf_lie(&hole, mx, mz), fn.y);
+                    chunk_fcol[ch][nf - 1] = lie_color(golf_lie(&hole, mx, mz), fn.y);
                 }
             }
         }
 
         chunk_mesh[ch].verts = chunk_verts[ch];
         chunk_mesh[ch].faces = chunk_faces[ch];
+        chunk_mesh[ch].face_colors = chunk_fcol[ch];
         chunk_mesh[ch].nverts = nrows * NX;
         chunk_mesh[ch].nfaces = nf;
         chunk_mesh[ch].scale = terrain_scale;
@@ -353,6 +356,7 @@ static void gen_terrain(void) {
  * ============================================================ */
 static MeshVert flag_v[13];
 static MeshFace flag_f[12];
+static uint16_t flag_fcol[12];       /* per-face colour (pole white / cup dark) */
 static Mesh     flag_mesh;
 
 static void gen_flag(void) {
@@ -364,10 +368,11 @@ static void gen_flag(void) {
     flag_v[1] = (MeshVert){2, 1, 0};
     flag_v[2] = (MeshVert){2, 127, 0};
     flag_v[3] = (MeshVert){-2, 127, 0};
-    flag_f[0] = (MeshFace){0, 1, 2, 0, 0, 127, white};
-    flag_f[1] = (MeshFace){0, 2, 3, 0, 0, 127, white};
-    flag_f[2] = (MeshFace){0, 2, 1, 0, 0, -127, white};
-    flag_f[3] = (MeshFace){0, 3, 2, 0, 0, -127, white};
+    flag_f[0] = (MeshFace){0, 1, 2, 0, 0, 127};
+    flag_f[1] = (MeshFace){0, 2, 3, 0, 0, 127};
+    flag_f[2] = (MeshFace){0, 2, 1, 0, 0, -127};
+    flag_f[3] = (MeshFace){0, 3, 2, 0, 0, -127};
+    flag_fcol[0] = flag_fcol[1] = flag_fcol[2] = flag_fcol[3] = white;
 
     flag_v[4] = (MeshVert){0, 1, 0};                                  /* hole disc centre */
     for (int i = 0; i < 8; i++) {
@@ -376,11 +381,13 @@ static void gen_flag(void) {
     }
     for (int i = 0; i < 8; i++) {
         int n = (i + 1) & 7;
-        flag_f[4 + i] = (MeshFace){4, (uint8_t)(5 + i), (uint8_t)(5 + n), 0, 127, 0, dark};
+        flag_f[4 + i] = (MeshFace){4, (uint8_t)(5 + i), (uint8_t)(5 + n), 0, 127, 0};
+        flag_fcol[4 + i] = dark;
     }
 
     flag_mesh.verts = flag_v;
     flag_mesh.faces = flag_f;
+    flag_mesh.face_colors = flag_fcol;
     flag_mesh.nverts = 13;
     flag_mesh.nfaces = 12;
     flag_mesh.scale = 2.0f;
@@ -526,6 +533,7 @@ static void build_hole(uint32_t seed) {
         grow(tm, v3(0, 0, 0), v3(0, 1, 0), 3.8f + 1.4f * mote_frand(), 0.28f, 1);   /* ~5-7m tree */
         tm->mesh.verts = tm->v;
         tm->mesh.faces = tm->f;
+        tm->mesh.face_colors = tm->fc;
         tm->mesh.nverts = tm->nv;
         tm->mesh.nfaces = tm->nf;
         tm->mesh.scale = TREE_S;

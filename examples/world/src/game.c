@@ -28,6 +28,7 @@ static float terrain_h(float x, float z) {
 
 static MeshVert  terrain_verts[GRID*GRID];
 static MeshFace  terrain_faces[(GRID-1)*(GRID-1)*2];
+static uint16_t  terrain_fcol[(GRID-1)*(GRID-1)*2];   /* per-face terrain colour (height-tinted) */
 static Mesh      terrain_mesh;
 
 static Vec3      collider_verts[GRID*GRID];
@@ -41,7 +42,7 @@ static uint16_t  grid_start[16*16+1], grid_tri[(GRID-1)*(GRID-1)*2];   /* mesh b
 #define TF_MAX 320
 #define TREE_SCALE 2.0f
 
-typedef struct { MeshVert v[TV_MAX]; MeshFace f[TF_MAX]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
+typedef struct { MeshVert v[TV_MAX]; MeshFace f[TF_MAX]; uint16_t fc[TF_MAX]; Mesh mesh; int nv, nf; Vec3 base; } TreeMesh;
 static TreeMesh trees[NTREE];
 
 #define MAXSPLAT 1600
@@ -111,7 +112,8 @@ static void add_tri(TreeMesh *tm, int i0, int i1, int i2, Vec3 p0, Vec3 p1, Vec3
 
     MeshFace *f = &tm->f[tm->nf++];
     f->a = (uint8_t)i0; f->b = (uint8_t)i1; f->c = (uint8_t)i2;
-    f->nx = (int8_t)(nn.x*127); f->ny = (int8_t)(nn.y*127); f->nz = (int8_t)(nn.z*127); f->color = col;
+    f->nx = (int8_t)(nn.x*127); f->ny = (int8_t)(nn.y*127); f->nz = (int8_t)(nn.z*127);
+    tm->fc[tm->nf - 1] = col;
 }
 
 /* add a tapered 4-side prism (a branch segment) to a tree mesh, local coords */
@@ -187,7 +189,7 @@ static void add_face_t(int *fi, int ia, int ib, int ic) {
     MeshFace *f = &terrain_faces[*fi];
     f->a = ia; f->b = ib; f->c = ic;
     f->nx = (int8_t)(nf.x*127); f->ny = (int8_t)(nf.y*127); f->nz = (int8_t)(nf.z*127);
-    f->color = col_of(0.26f*lit*tone, (0.42f+0.15f*tone)*lit, 0.22f*lit*tone);
+    terrain_fcol[*fi] = col_of(0.26f*lit*tone, (0.42f+0.15f*tone)*lit, 0.22f*lit*tone);
     (*fi)++;
 }
 
@@ -213,7 +215,7 @@ static void gen_terrain(void) {
         collider_tris[ti++] = b; collider_tris[ti++] = c; collider_tris[ti++] = d;
     }
 
-    terrain_mesh.verts = terrain_verts; terrain_mesh.faces = terrain_faces; terrain_mesh.nverts = GRID*GRID;
+    terrain_mesh.verts = terrain_verts; terrain_mesh.faces = terrain_faces; terrain_mesh.face_colors = terrain_fcol; terrain_mesh.nverts = GRID*GRID;
     terrain_mesh.nfaces = fi; terrain_mesh.scale = TSCALE; terrain_mesh.bound_r = EXT*1.5f;
 
     terrain_col.verts = collider_verts; terrain_col.nverts = GRID*GRID;
@@ -255,7 +257,7 @@ static void g_init(void) {
         float tx = tpos[k][0], tz = tpos[k][1];
         trees[k].base = v3(tx, terrain_h(tx, tz)-0.1f, tz);
         grow(&trees[k], v3(0,0,0), v3(0,1,0), 0.62f+0.18f*mote_frand(), 0.085f, 3);
-        trees[k].mesh.verts = trees[k].v; trees[k].mesh.faces = trees[k].f;
+        trees[k].mesh.verts = trees[k].v; trees[k].mesh.faces = trees[k].f; trees[k].mesh.face_colors = trees[k].fc;
         trees[k].mesh.nverts = trees[k].nv; trees[k].mesh.nfaces = trees[k].nf;
         trees[k].mesh.scale = TREE_SCALE; trees[k].mesh.bound_r = TREE_SCALE*1.5f;
     }

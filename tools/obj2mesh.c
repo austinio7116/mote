@@ -150,6 +150,11 @@ int main(int argc, char **argv) {
                 (int)lrintf(verts[i].z*q), (i % 4 == 3 || i == nv-1) ? "\n" : "");
     fprintf(h, "};\n");
 
+    /* Colour: if every face shares one material colour, store it once on the Mesh
+     * (6-byte faces, face_colors = NULL). Otherwise emit a per-face colour array. */
+    uint16_t c0 = nf ? kd565(faces[0].mtl) : 0; int uniform = 1;
+    for (int i = 1; i < nf; i++) if (kd565(faces[i].mtl) != c0) { uniform = 0; break; }
+
     fprintf(h, "static const MeshFace %s_faces[%d] = {\n", name, nf);
     int warned = 0;
     for (int i = 0; i < nf; i++) {
@@ -162,15 +167,25 @@ int main(int argc, char **argv) {
         if (v3dot(n, v3sub(fc, centre)) < -1e-4f && warned < 8) {
             fprintf(stderr, "warn: %s face %d may be inward-wound\n", name, i); warned++;
         }
-        fprintf(h, "    {%3d,%3d,%3d, %4d,%4d,%4d, 0x%04X},\n",
+        fprintf(h, "    {%3d,%3d,%3d, %4d,%4d,%4d},\n",
                 faces[i].a, faces[i].b, faces[i].c,
-                (int)lrintf(n.x*127), (int)lrintf(n.y*127), (int)lrintf(n.z*127),
-                kd565(faces[i].mtl));
+                (int)lrintf(n.x*127), (int)lrintf(n.y*127), (int)lrintf(n.z*127));
     }
     fprintf(h, "};\n");
-    fprintf(h, "static const Mesh %s_mesh = { %s_verts, %s_faces, %d, %d, "
-               "%.6ff, %.6ff, 0 };\n\n#endif\n",
-            name, name, name, nv, nf, maxc, bound_r);
+    if (!uniform) {
+        fprintf(h, "static const uint16_t %s_fcol[%d] = {\n", name, nf);
+        for (int i = 0; i < nf; i++)
+            fprintf(h, "0x%04X,%s", kd565(faces[i].mtl), (i % 8 == 7 || i == nf-1) ? "\n" : "");
+        fprintf(h, "};\n");
+    }
+    if (uniform)
+        fprintf(h, "static const Mesh %s_mesh = { %s_verts, %s_faces, 0, %d, %d, 0x%04X, "
+                   "%.6ff, %.6ff, 0 };\n\n#endif\n",
+                name, name, name, nv, nf, c0, maxc, bound_r);
+    else
+        fprintf(h, "static const Mesh %s_mesh = { %s_verts, %s_faces, %s_fcol, %d, %d, 0, "
+                   "%.6ff, %.6ff, 0 };\n\n#endif\n",
+                name, name, name, name, nv, nf, maxc, bound_r);
     fclose(h);
     printf("[obj2mesh] %s: %d verts %d tris scale=%.2fm r=%.2fm -> %s\n",
            name, nv, nf, maxc, bound_r, out);

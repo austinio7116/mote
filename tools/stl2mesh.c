@@ -175,13 +175,14 @@ int main(int argc,char**argv){
             V3 a=OV[cv[cface[i][0]]], b=OV[cv[cface[i][1]]], c=OV[cv[cface[i][2]]];
             V3 n=v3cross(v3sub(b,a),v3sub(c,a)); float l=v3len(n);
             if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l; n.y/=l; n.z/=l;
-            fprintf(h,"  {%d,%d,%d, %d,%d,%d, 0x%04X},\n",
+            fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",
                 cface[i][0],cface[i][1],cface[i][2],
-                (int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127), col);
+                (int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127));
         }
         fprintf(h,"};\n");
+        /* uniform colour -> on the Mesh (face_colors = NULL), 6-byte faces */
         cl+=snprintf(chunklist+cl,sizeof(chunklist)-cl,
-            "  {%s_v%d,%s_f%d,%d,%d,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,maxc,bound_r);
+            "  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,col,maxc,bound_r);
         total_v+=nv; total_f+=cf; chunk++;
     }
     fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n",name,chunk,chunklist);

@@ -15,6 +15,7 @@ typedef struct {
     Vec3 pos;          /* camera-relative world position */
     Mat3 basis;        /* object orientation (rows: right/up/forward) */
     const Mesh *mesh;
+    uint16_t color;    /* optional per-draw colour override (RGB565); 0 = use the mesh's own colour(s) */
 } MoteObject;
 
 #endif /* MOTE_OBJECT_H */

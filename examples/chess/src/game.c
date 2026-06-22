@@ -51,6 +51,7 @@ static PieceMesh piece_mesh[6][2];   /* [type - 1][color] */
 
 static MeshVert board_verts[81];
 static MeshFace board_faces[128];
+static uint16_t board_fcol[128];     /* per-face colour (alternating squares) */
 static Mesh     board_mesh;
 
 /* Decode a quantised piece vertex back to world units. */
@@ -85,7 +86,7 @@ static void piece_add_face(PieceMesh *m, int a, int b, int c, uint16_t col) {
     f->nx = (int8_t)(n.x * 127);
     f->ny = (int8_t)(n.y * 127);
     f->nz = (int8_t)(n.z * 127);
-    f->color = col;
+    m->mesh.color = col;   /* pieces are single-colour: colour lives on the Mesh now */
 }
 
 /* Axis-aligned box (12 faces) — finials (king cross, queen coronet spikes). */
@@ -284,13 +285,14 @@ static void build_board(void) {
             int a = r * 9 + f, b = a + 1, c = a + 9, d = c + 1;
             uint16_t col = ((r + f) & 1) ? shade(0.20f, 0.42f, 0.28f)
                                          : shade(0.74f, 0.78f, 0.66f);
-            board_faces[nf++] = (MeshFace){(uint8_t)a, (uint8_t)c, (uint8_t)b, 0, 127, 0, col};
-            board_faces[nf++] = (MeshFace){(uint8_t)b, (uint8_t)c, (uint8_t)d, 0, 127, 0, col};
+            board_fcol[nf] = col; board_faces[nf++] = (MeshFace){(uint8_t)a, (uint8_t)c, (uint8_t)b, 0, 127, 0};
+            board_fcol[nf] = col; board_faces[nf++] = (MeshFace){(uint8_t)b, (uint8_t)c, (uint8_t)d, 0, 127, 0};
         }
     }
 
     board_mesh.verts = board_verts;
     board_mesh.faces = board_faces;
+    board_mesh.face_colors = board_fcol;
     board_mesh.nverts = 81;
     board_mesh.nfaces = nf;
     board_mesh.scale = 4.0f;
@@ -320,14 +322,15 @@ static void build_frame(MeshVert *v, MeshFace *f, Mesh *m, uint16_t col) {
     for (int i = 0; i < 4; i++) {
         int j = (i + 1) & 3;
         int o0 = i, o1 = j, i0 = 4 + i, i1 = 4 + j;
-        f[nf++] = (MeshFace){(uint8_t)o0, (uint8_t)i1, (uint8_t)o1, 0, 127, 0, col};
-        f[nf++] = (MeshFace){(uint8_t)o0, (uint8_t)i0, (uint8_t)i1, 0, 127, 0, col};
+        f[nf++] = (MeshFace){(uint8_t)o0, (uint8_t)i1, (uint8_t)o1, 0, 127, 0};
+        f[nf++] = (MeshFace){(uint8_t)o0, (uint8_t)i0, (uint8_t)i1, 0, 127, 0};
     }
 
     m->verts = v;
     m->faces = f;
     m->nverts = 8;
     m->nfaces = 8;
+    m->color = col;
     m->scale = 1.0f;
     m->bound_r = 0.9f;
 }

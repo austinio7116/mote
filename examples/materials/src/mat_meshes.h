@@ -11,8 +11,8 @@ static const MeshVert k_floor_v[4] = {
 };
 #define MAT_FLOOR MOTE_RGB565(54, 60, 78)
 static const MeshFace k_floor_f[2] = {
-    {0, 3, 2,  0, 127, 0, MAT_FLOOR}, {0, 2, 1,  0, 127, 0, MAT_FLOOR},
+    {0, 3, 2,  0, 127, 0}, {0, 2, 1,  0, 127, 0},
 };
-static const Mesh k_floor_mesh = { k_floor_v, k_floor_f, 4, 2, 1.0f, 1.5f, 0 };
+static const Mesh k_floor_mesh = { k_floor_v, k_floor_f, 0, 4, 2, MAT_FLOOR, 1.0f, 1.5f, 0 };
 
 #endif

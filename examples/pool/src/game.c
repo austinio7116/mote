@@ -53,6 +53,7 @@ static Mat3 cam_basis;
 /* --- table mesh (procedural, scale = half_len): bed + rails + pocket holes - */
 static MeshVert table_verts[256];
 static MeshFace table_faces[200];
+static uint16_t table_fcol[200];     /* per-face colour (cloth / rail / pocket) */
 static int      table_nv, table_nf;
 static Mesh     table_mesh;
 static float    table_scale;        /* int8 quantisation scale = half_len */
@@ -73,8 +74,8 @@ static void add_quad(float ax, float ay, float az, float bx, float by, float bz,
     add_vert(bx, by, bz);
     add_vert(cx, cy, cz);
     add_vert(dx, dy, dz);
-    table_faces[table_nf++] = (MeshFace){ i, i + 1, i + 2, nx, ny, nz, col };
-    table_faces[table_nf++] = (MeshFace){ i, i + 2, i + 3, nx, ny, nz, col };
+    table_fcol[table_nf] = col; table_faces[table_nf++] = (MeshFace){ i, i + 1, i + 2, nx, ny, nz };
+    table_fcol[table_nf] = col; table_faces[table_nf++] = (MeshFace){ i, i + 2, i + 3, nx, ny, nz };
 }
 /* dark pocket disc (octagon fan) on the cloth at (px,pz), radius r */
 static void add_pocket_disc(float px, float pz, float r, uint16_t col){
@@ -85,7 +86,7 @@ static void add_pocket_disc(float px, float pz, float r, uint16_t col){
         add_vert(px + r * cosf(a), 0.001f, pz + r * sinf(a));
     }
     for (int k = 0; k < 8; k++)
-        table_faces[table_nf++] = (MeshFace){ center, center + 1 + k, center + 1 + ((k + 1) % 8), 0, 127, 0, col };
+        { table_fcol[table_nf] = col; table_faces[table_nf++] = (MeshFace){ center, center + 1 + k, center + 1 + ((k + 1) % 8), 0, 127, 0 }; }
 }
 
 static void build_table(void){
@@ -116,6 +117,7 @@ static void build_table(void){
 
     table_mesh.verts = table_verts;
     table_mesh.faces = table_faces;
+    table_mesh.face_colors = table_fcol;
     table_mesh.nverts = (uint16_t)table_nv;
     table_mesh.nfaces = (uint16_t)table_nf;
     table_mesh.scale = table_scale;
