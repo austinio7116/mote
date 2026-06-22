@@ -1102,6 +1102,10 @@ typedef struct { char name[16], png[200]; int tpl, edge, ncell, scols, srows, nv
 static int terr_variant(Terr*t,int c,int r){ if(t->nvar<=1)return 0; int n=t->nvar>8?8:t->nvar,total=0;
     for(int v=0;v<n;v++)total+=t->var_weight[v]?t->var_weight[v]:1; int pick=(int)(mote__at_hash(c,r)%(unsigned)total);
     for(int v=0;v<n-1;v++){ int w=t->var_weight[v]?t->var_weight[v]:1; if(pick<w)return v; pick-=w; } return n-1; }
+/* Sheets are square-ish grids ~128px wide (nicer to edit than a 47x1 strip): the grid
+ * column count, and the base rows one variant occupies. */
+static int terr_grid_cols(int ncell,int ts){ int c=128/ts; if(c<1)c=1; if(c>ncell)c=ncell; return c; }
+static int terr_base_rows(Terr*t){ int nv=t->nvar<1?1:t->nvar; int br=t->srows/nv; return br>0?br:1; }
 static Terr g_terr[MAXTERR];
 static int g_nterr=1, g_curterr=0, g_rulesel=0, g_cellsel=0, g_dr_var=0, g_tl_ts=16, g_tl_init, g_tl_mode=0, g_dr_paint;
 static uint16_t *g_tl_cv, *g_dr_cv; static SDL_Texture *g_tl_tex, *g_dr_tex; static int g_tl_texw,g_tl_texh,g_dr_texw,g_dr_texh;
@@ -1127,7 +1131,7 @@ static void terr_blank(Terr*t){ int ts=g_tl_ts; if(t->scols<1)t->scols=t->ncell>
 /* (re)load a rule-tile: rebuild its LUT from the template type, (re)load its sheet PNG */
 static void terr_refresh(int ti){ Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1;
     int ok=0; if(g_sel>=0&&t->png[0]){ char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,t->png); ok=terr_load_sheet_pixels(t,sp); }
-    if(!ok){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }
+    if(!ok){ { int gc=terr_grid_cols(t->ncell,g_tl_ts); t->scols=gc; t->srows=((t->ncell+gc-1)/gc)*(t->nvar<1?1:t->nvar); } terr_blank(t); }
     for(int m=0;m<256;m++) if(t->lut[m]>=t->scols*t->srows)t->lut[m]=(uint8_t)(t->scols*t->srows-1); }
 static void terr_init(int ti,const char*name,int tpl){ Terr*t=&g_terr[ti]; snprintf(t->name,16,"%s",name); t->tpl=tpl; t->edge=1; t->nvar=1;
     snprintf(t->png,200,"assets/%.40s.png",name); terr_refresh(ti); }   /* loads assets/<name>.png if present, else a blank sheet */
@@ -1164,10 +1168,12 @@ static void terr_add_row(int ti){ Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*
 /* generate a proc-gen starter sheet for the rule type, WRITE it to assets/<name>.png, then load it as a file */
 static void terr_gen_starter(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1; int ts=g_tl_ts;
-    t->scols=t->ncell; t->srows=t->nvar; t->sheet=realloc(t->sheet,(size_t)t->scols*ts*t->srows*ts*2);
-    for(int v=0;v<t->srows;v++)for(int ci=0;ci<t->scols;ci++) sheet_cell_art(t,ti,v*t->scols+ci,t->rep[ci],v);
+    int cols=terr_grid_cols(t->ncell,ts), base_rows=(t->ncell+cols-1)/cols;     /* square-ish ~128px grid */
+    t->scols=cols; t->srows=base_rows*t->nvar; int N=t->scols*ts*t->srows*ts;
+    t->sheet=realloc(t->sheet,(size_t)N*2); for(int i=0;i<N;i++)t->sheet[i]=KEY565;  /* magenta padding for partial last row */
+    for(int v=0;v<t->nvar;v++)for(int ci=0;ci<t->ncell;ci++) sheet_cell_art(t,ti,v*base_rows*cols+ci,t->rep[ci],v);
     terr_save_png(ti);   /* the generated art becomes a real PNG file in assets/ */
-    snprintf(g_status,sizeof g_status,"generated starter -> %s (now a file; edit or replace via Load PNG)",t->png); }
+    snprintf(g_status,sizeof g_status,"generated %dx%d starter -> %s (now a file; edit or replace via Load PNG)",t->scols,t->srows,t->png); }
 /* import a chosen PNG into THIS project's assets/ (copy if external), then load it as the sheet */
 static void tiles_import_png(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     const char*base=strrchr(path,'/');
@@ -1210,7 +1216,7 @@ static void terr_load_def(int ti,const char*path){ FILE*f=fopen(path,"r"); if(!f
     for(int i=0;i<256;i++){ t->lut[i]=haslut?lut[i]:at.lut[i]; t->xform[i]=hasxf?xf[i]:0; }
     for(int i=0;i<8;i++)t->var_weight[i]=hasvw?vw[i]:1;
     char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,png);
-    if(!terr_load_sheet_pixels(t,sp)){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }   /* sheet PNG missing -> blank */
+    if(!terr_load_sheet_pixels(t,sp)){ { int gc=terr_grid_cols(t->ncell,g_tl_ts); t->scols=gc; t->srows=((t->ncell+gc-1)/gc)*(t->nvar<1?1:t->nvar); } terr_blank(t); }   /* sheet PNG missing -> blank */
     snprintf(t->png,200,"%.198s",png); }
 static void lv_save_def(void){ if(g_sel<0)return; const char*dir=g_games[g_sel].dir; const char*nm=g_tl_name[0]?g_tl_name:"level";
     char d[400]; snprintf(d,sizeof d,"%.330s/levels",dir); mkdir_portable(d);
@@ -1389,7 +1395,7 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     for(int L=0;L<g_nterr;L++){ Terr*tt=&g_terr[L]; int Wt=tt->scols*ts;                 /* draw each layer bottom-up, against its own bit */
         for(int r=0;r<vr;r++)for(int c=0;c<vc;c++){ int lc=g_lv_panx+c,lr=g_lv_pany+r; if(!((g_lv_terrain[lr*g_lv_cols+lc]>>L)&1))continue;
             int mask=mote_autotile_mask_layer(g_lv_terrain,g_lv_cols,g_lv_rows,lc,lr,L,tt->edge); int cell=tt->lut[mask];
-            int vv=terr_variant(tt,lc,lr); cell+=vv*tt->scols; if(cell>=tt->scols*tt->srows)cell-=vv*tt->scols;
+            int vv=terr_variant(tt,lc,lr); cell+=vv*terr_base_rows(tt)*tt->scols; if(cell>=tt->scols*tt->srows)cell-=vv*terr_base_rows(tt)*tt->scols;
             int sx=(cell%tt->scols)*ts,sy=(cell/tt->scols)*ts; uint8_t xf=tt->xform[mask]; int rot=(xf>>2)&3;
             for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ int tx,tyy;
                 switch(rot){ case 1: tx=y; tyy=ts-1-x; break; case 2: tx=ts-1-x; tyy=ts-1-y; break; case 3: tx=ts-1-y; tyy=x; break; default: tx=x; tyy=y; }

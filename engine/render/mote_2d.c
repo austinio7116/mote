@@ -165,7 +165,10 @@ static void draw_autotile(uint16_t *fb, int y0, int y1) {
             uint8_t cell = at->lut[mask];
             int tpr = at->sheet->w / (at->tile_w ? at->tile_w : 1);
             int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
-            fy += mote__at_variant(at, c, r) * at->tile_h;   /* weighted random variant row */
+            /* variant rows: the sheet is base_rows tall per variant (grid layout), so a
+             * variant steps a whole base block, not one row. base_rows=1 for 47x1 sheets. */
+            int nv = at->nvar < 1 ? 1 : at->nvar, base_rows = (at->sheet->h / at->tile_h) / nv;
+            fy += mote__at_variant(at, c, r) * base_rows * at->tile_h;
             mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
         }
     }
@@ -186,6 +189,7 @@ static void draw_autotile_layers(uint16_t *fb, int y0, int y1) {
         const MoteAutotile *at = s_lay_tiles[L];
         if (!at || !at->sheet) continue;
         int tpr = at->sheet->w / (at->tile_w ? at->tile_w : 1);
+        int nv = at->nvar < 1 ? 1 : at->nvar, base_rows = (at->sheet->h / at->tile_h) / nv;
         for (int r = first_row; r <= last_row; r++) {
             for (int c = 0; c < s_lay_cols; c++) {
                 if (!((s_lay_map[r * s_lay_cols + c] >> L) & 1u)) continue;
@@ -194,7 +198,7 @@ static void draw_autotile_layers(uint16_t *fb, int y0, int y1) {
                 int mask = mote_autotile_mask_layer(s_lay_map, s_lay_cols, s_lay_rows, c, r, L, at->edge_is_solid);
                 uint8_t cell = at->lut[mask];
                 int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
-                fy += mote__at_variant(at, c, r) * at->tile_h;
+                fy += mote__at_variant(at, c, r) * base_rows * at->tile_h;
                 mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
             }
         }
