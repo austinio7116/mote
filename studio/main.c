@@ -50,6 +50,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
+#define MOTE_STUDIO_VERSION "0.2-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -466,7 +467,7 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
         else snprintf(c,sizeof c,"code -r %.250s >/dev/null 2>&1 &",dir);
         run_job(c,"VS Code"); break;
     case A_ALIGN: g_align=1; break;
-    case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio - native C/SDL2 IDE for Thumby Color"); break;
+    case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio %s - native C/SDL2 IDE for Thumby Color",MOTE_STUDIO_VERSION); break;
     } }
 
 /* ================= panels ================= */
