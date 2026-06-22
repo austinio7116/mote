@@ -194,7 +194,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
   | **Pixel Art** | HSV+hex colour picker, pencil/eraser/fill/eyedropper/line/rect, undo, grid, sizes 8–128, zoom+pan, PNG/BMP/JPG import. **Save** writes `assets/sprite.png` *and auto-bakes* the `MoteImage` header (§4). |
   | **Assets** | Browse the project's baked assets. |
   | **Mesh** | Software-rendered 3D preview of `.stl`/`.obj` (drag to rotate). |
-  | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono), see the waveform, drag-crop, play, "Save Crop" into `assets/`; plus an **SFX generator** (Random / presets). See §9 — note these are `.wav` *files*, not the runtime synth. |
+  | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono), see the waveform, drag-crop, play, plus an **SFX generator** (Random / presets). **Save** writes the `.wav` to `assets/` **and** bakes `src/<name>.h` (a `MoteSound`) to play with `audio_play` (§9). |
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
 
@@ -372,15 +372,23 @@ prefer (the `mote new` template's `SHAPE_H` and `tiledemo`'s procedural art do
 exactly this). Bake is a convenience for going from real PNG/OBJ/STL files to
 embeddable constants.
 
-### Audio is **not** baked — read this carefully
+### Audio: two paths — synth notes and baked samples
 
-There is **no `.wav` → header baker** and the runtime has **no WAV/sample
-playback**. The engine's audio API is a small **procedural synth**: you call
-`mote->audio_note(freq, amp)` to strike a one-shot piano-ish note (§9). The Studio
-Audio tab's WAV/MP3 loading, cropping, and SFX generator save `.wav` *files* into
-`assets/` for your own reference/preview — they are **not** loaded by a game at
-runtime. If you want sound in a game today, you synthesise it with `audio_note`.
-(This is a known rough edge — see §11.)
+The engine gives you **both** a procedural synth and PCM sample playback:
+
+- **Synth** — `mote->audio_note(freq, amp)` strikes a one-shot piano-ish note (§9); no
+  asset needed. Good for blips, beeps, music.
+- **Samples** — bake a 22050 Hz mono WAV to a header and play it: the Studio **Audio tab**
+  loads WAV/MP3, crops, and its SFX generator creates effects; **Save** writes the `.wav`
+  into `assets/` **and bakes** `src/<name>.h` (a `MoteSound`), so a game can play it with
+  `mote->audio_play(&<name>_snd, gain)` (ABI v12). `mote bake` also bakes any `.wav` in
+  `assets/`. The engine mixes up to 8 one-shot samples on top of the synth (oldest stolen).
+
+```c
+#include "hit.h"                       // baked: MoteSound hit_snd = { hit_pcm, N };
+mote->audio_play(&hit_snd, 1.0f);      // fire-and-forget; gain 0..1
+mote->audio_note(440.0f, 0.85f);       // or a synth note — they sum
+```
 
 ---
 
@@ -781,11 +789,20 @@ busy. Master volume follows the engine menu's VOLUME.
 mote->audio_note(440.0f, 0.85f);   // a strike
 ```
 
+#### `void audio_play(const MoteSound *snd, float gain)`
+Fires a one-shot **PCM sample** (22050 Hz mono int16). `MoteSound = { const int16_t *pcm;
+int count; }` — bake one from a WAV in the Studio Audio tab (Save) or via `mote bake`. Up to
+8 samples mix at once on top of the synth notes; the oldest is stolen when full. `gain` 0..1.
+```c
+#include "hit.h"                    // baked: static const MoteSound hit_snd = { hit_pcm, N };
+mote->audio_play(&hit_snd, 1.0f);
+```
+
 #### `void audio_off(void)`
 Silences every voice immediately. The OS already calls this on game exit so notes
 don't ring into the launcher.
 
-> See §9 for the full audio story (and why there's no sample playback). Demo: `examples/piano3d`.
+> See §9 for synth-vs-sample guidance. Demos: `examples/piano3d` (synth keyboard).
 
 ### 5.7 — Text, telemetry, memory, control
 
@@ -1048,11 +1065,11 @@ frame. Build melodies/SFX by striking a sequence of notes over time. Master volu
 follows the engine menu's VOLUME slider. See `examples/piano3d` (a playable 3D
 keyboard).
 
-**There is no sample/WAV playback at runtime, and no WAV-to-header baker.** The
-Studio **Audio tab** (load WAV/MP3, crop, the SFX generator, "Save Crop") produces
-`.wav` *files* in your `assets/` for preview/reference only — a game cannot load
-them. To put sound in a game today, synthesise it with `audio_note`. (Tracked as a
-rough edge — §11.)
+**Samples play too** (ABI v12). `audio_play(const MoteSound *snd, float gain)` fires a
+one-shot 22050 Hz mono PCM sample; up to 8 mix at once on top of the synth (oldest stolen).
+Bake one in the Studio **Audio tab** — load/crop a WAV/MP3 or generate an SFX, then **Save**
+writes `assets/<name>.wav` *and* `src/<name>.h` (a `MoteSound`); `#include` it and call
+`mote->audio_play(&<name>_snd, 1.0f)`. (`mote bake` also bakes any `.wav` in `assets/`.)
 
 ---
 
