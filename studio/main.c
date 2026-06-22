@@ -1819,6 +1819,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
     if(getenv("MOTE_STUDIO_XF")){ tl_ensure(); terr_gen_starter(0); Terr*t=&g_terr[0]; uint8_t rr=t->rep[1]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)t->xform[m]=MOTE_SPR_ROT90; g_rulesel=1; g_tab=TAB_TILES; }   /* test: rotate rule#1 90 */
+    if(getenv("MOTE_STUDIO_TILES_SETUP")){ tl_ensure(); Terr*t=&g_terr[0]; snprintf(t->name,16,"rock"); snprintf(t->png,200,"assets/rock.png"); t->tpl=0; t->edge=1; t->nvar=1; terr_gen_starter(0); g_nterr=1; bake_all(); }   /* tiles example: one rock file tileset */
     if(getenv("MOTE_STUDIO_TILEDEMO")){ tl_ensure();   /* build tiledemo's 3 file tilesets + a level */
         const char*nm3[3]={"dirt","grass","water"}; int edge3[3]={1,1,0};
         for(int i=0;i<3;i++){ Terr*t=&g_terr[i]; snprintf(t->name,16,"%s",nm3[i]); snprintf(t->png,200,"assets/%s.png",nm3[i]); t->tpl=0; t->edge=edge3[i]; t->nvar=1; terr_gen_starter(i); }
