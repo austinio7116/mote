@@ -290,6 +290,7 @@ static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
 #define UNDON 12
 static uint16_t g_undo[UNDON][CMAX*CMAX]; static int g_undo_sz[UNDON], g_undo_head, g_undo_cnt;
+static uint16_t g_redo[UNDON][CMAX*CMAX]; static int g_redo_sz[UNDON], g_redo_head, g_redo_cnt;
 static const uint8_t PAL[][3]={ {0,0,0},{64,64,76},{128,132,148},{205,210,220},{255,255,255},
     {130,40,44},{214,66,66},{244,104,92},{255,150,92},{255,206,92},{250,240,150},{156,212,96},{74,176,84},
     {42,116,74},{40,150,162},{84,206,224},{72,132,224},{52,72,164},{122,92,206},{182,112,212},{232,122,182},
@@ -307,11 +308,16 @@ static void rgb2hsv(int R,int G,int B,float*h,float*s,float*v){ float r=R/255.0f
 static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)<<2,(c&31)<<3,&g_hue,&g_sat,&g_val); }
 static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_px_path[0]=0; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; }
+/* snapshot the canvas before an edit; a new edit invalidates the redo stack */
 static void undo_push(void){ int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize;
-    g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; }
-static void undo_pop(void){ if(g_undo_cnt<=0)return; g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--;
-    g_csize=g_undo_sz[g_undo_head]; memcpy(g_canvas,g_undo[g_undo_head],g_csize*g_csize*2); }
+    g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; g_redo_cnt=0; }
+static void undo_pop(void){ if(g_undo_cnt<=0)return;
+    int sz=g_csize*g_csize; memcpy(g_redo[g_redo_head],g_canvas,sz*2); g_redo_sz[g_redo_head]=g_csize; g_redo_head=(g_redo_head+1)%UNDON; if(g_redo_cnt<UNDON)g_redo_cnt++;   /* current -> redo */
+    g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--; g_csize=g_undo_sz[g_undo_head]; memcpy(g_canvas,g_undo[g_undo_head],g_csize*g_csize*2); }
+static void redo_pop(void){ if(g_redo_cnt<=0)return;
+    int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize; g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++;   /* current -> undo */
+    g_redo_head=(g_redo_head-1+UNDON)%UNDON; g_redo_cnt--; g_csize=g_redo_sz[g_redo_head]; memcpy(g_canvas,g_redo[g_redo_head],g_csize*g_csize*2); }
 static void flood(int x,int y,uint16_t from,uint16_t to){ if(from==to)return; static int sx[CMAX*CMAX],sy[CMAX*CMAX]; int sp=0;
     sx[sp]=x;sy[sp]=y;sp++; while(sp){ sp--; int cx=sx[sp],cy=sy[sp]; if(cx<0||cy<0||cx>=g_csize||cy>=g_csize)continue;
         if(g_canvas[cy*g_csize+cx]!=from)continue; g_canvas[cy*g_csize+cx]=to;
@@ -388,8 +394,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_ASSETS, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","CODE","TILES","ANIM","ASSETS","MESH","AUDIO","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_ASSETS, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","ASSETS","MESH","AUDIO","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 
 /* ================= menu bar ================= */
@@ -810,10 +816,10 @@ static int texgen_click(int mx,int my){
     if(hit(mx,my,g_textile_r.x,g_textile_r.y,62,22)){ g_textile=!g_textile; tex_generate(); return 1; }
     return 0; }
 
-static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
+static void draw_pixel(SDL_Renderer*R,int texmode){ int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
     struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
-        {-1,-1},{IC_UNDO2,6},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
+        {-1,-1},{IC_UNDO2,6},{IC_REDO2,14},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
     for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic<0){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }
         int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid); int hov=hit(mx,my,tx,ty,27,24);
         rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
@@ -823,10 +829,10 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
         rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+7,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+4; }
     tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
     g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
-    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",g_px_name[0]?g_px_name:"sprite",g_px_namefocus?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,g_px_namefocus?(Col){12,14,20}:C_DOCK); }
-    draw_texgen(R,10,cy+27);
+    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",g_px_name[0]?g_px_name:(texmode?"texture":"sprite"),g_px_namefocus?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,g_px_namefocus?(Col){12,14,20}:C_DOCK); }
+    if(texmode)draw_texgen(R,10,cy+27);   /* procedural texture generators live only in the TEXTURE tab */
     /* HSV colour picker */
-    int px0=12, py0=cy+58, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
+    int px0=12, py0=texmode?cy+58:cy+30, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_hsv_r=(SDL_Rect){px0,py0,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_hsv_r); rect_outline(R,px0,py0,sq,sq,C_LINE,1);
     int cxp=px0+(int)(g_sat*sq), cyp=py0+(int)((1-g_val)*sq); ring(R,cxp,cyp,5,(Col){0,0,0},1); ring(R,cxp,cyp,4,(Col){255,255,255},2);
     g_hue_r=(SDL_Rect){px0+sq+8,py0,18,sq};
@@ -838,7 +844,7 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
     text(R,"PALETTE",px0,swy+32,1,C_DIM,C_DOCK);
     for(int i=0;i<G_NPAL;i++)px_swatch(R,px0+(i%11)*15,swy+44+(i/11)*15,13,pal565(i));
     /* canvas (zoom + pan, clipped to its viewport) */
-    int cax=px0+sq+18+26, cay=cy+58, vw=WIN_W-cax-150, vh=WIN_H-cay-12;
+    int cax=px0+sq+18+26, cay=py0, vw=WIN_W-cax-150, vh=WIN_H-cay-12;
     int fit; { int fh=vh/g_csize, fwd=vw/g_csize; fit=fh<fwd?fh:fwd; if(fit<1)fit=1; }
     int cell=g_pzoom?g_pzoom:fit; if(cell<1)cell=1; int cw=cell*g_csize;
     if(cw<=vw)g_panx=0; else g_panx=clampi(g_panx,vw-cw,0);
@@ -860,13 +866,13 @@ static void draw_pixel(SDL_Renderer*R){ int cy=BOT_Y+30, mx,my; SDL_GetMouseStat
         plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
         for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
         char info[40]; snprintf(info,sizeof info,"%dx%d",g_csize,g_csize); text(R,info,prx+g_csize*s+8,cay+5,1,C_DIM,C_DOCK);
-        /* TILED 3x3 — does the texture tessellate? seams show as a grid. */
-        int typ=cay+22+g_csize*s; text(R,"TILED 3x3",prx,typ,1,(Col){170,200,140},C_DOCK);
-        if(!g_texprev){ g_texprev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,128,128); SDL_SetTextureScaleMode(g_texprev,SDL_ScaleModeNearest); }
-        { SDL_Rect ur={0,0,g_csize,g_csize}; SDL_UpdateTexture(g_texprev,&ur,g_canvas,g_csize*2); }
-        int tile=40; plain(R,prx-1,typ+12,tile*3+2,tile*3+2,(Col){20,22,28});
-        for(int ty=0;ty<3;ty++)for(int tx=0;tx<3;tx++){ SDL_Rect src={0,0,g_csize,g_csize},dst={prx+tx*tile,typ+13+ty*tile,tile,tile}; SDL_RenderCopy(R,g_texprev,&src,&dst); }
-        text(R,"middle-drag to pan",prx,typ+13+tile*3+6,1,C_DIM,C_DOCK); } }
+        /* TILED 3x3 — does the texture tessellate? seams show as a grid. (texture tab only) */
+        if(texmode){ int typ=cay+22+g_csize*s; text(R,"TILED 3x3",prx,typ,1,(Col){170,200,140},C_DOCK);
+            if(!g_texprev){ g_texprev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,128,128); SDL_SetTextureScaleMode(g_texprev,SDL_ScaleModeNearest); }
+            { SDL_Rect ur={0,0,g_csize,g_csize}; SDL_UpdateTexture(g_texprev,&ur,g_canvas,g_csize*2); }
+            int tile=40; plain(R,prx-1,typ+12,tile*3+2,tile*3+2,(Col){20,22,28});
+            for(int ty=0;ty<3;ty++)for(int tx=0;tx<3;tx++){ SDL_Rect src={0,0,g_csize,g_csize},dst={prx+tx*tile,typ+13+ty*tile,tile,tile}; SDL_RenderCopy(R,g_texprev,&src,&dst); }
+            text(R,"middle-drag to pan",prx,typ+13+tile*3+6,1,C_DIM,C_DOCK); } } }
 
 /* ================= mesh preview (software 3D) ================= */
 typedef struct { float x,y,z; } V3;
@@ -2010,7 +2016,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_ANIM){ draw_anim(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
-    draw_pixel(R); }
+    draw_pixel(R, g_tab==TAB_TEXTURE); }
 
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
@@ -2018,9 +2024,9 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)ret
 static void pixel_down(int mx,int my){
     if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; SDL_StartTextInput(); return; }
     g_px_namefocus=0;
-    if(texgen_click(mx,my))return;   /* procedural texture controls */
+    if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
-        if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==7)g_grid=!g_grid;
+        if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
         else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
         else if(id==11){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c>2?c-2:1; } else if(id==12){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c+2; } else if(id==13){ g_pzoom=0; g_panx=g_pany=0; }
         else if(id==9)fp_open(1);
@@ -2253,7 +2259,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
-    if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_PIXEL; }
+    if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_TEXTURE; }
     if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
@@ -2345,7 +2351,7 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
-            if(g_tab==TAB_PIXEL&&g_px_namefocus){   /* editing the sprite save-name field */
+            if((g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&g_px_namefocus){   /* editing the sprite save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_px_name); if(l<50){ g_px_name[l]=c; g_px_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_px_namefocus=0; continue; } }
             if(g_tab==TAB_TILES&&g_ln_focus){   /* renaming the current layer (tileset) */
@@ -2415,7 +2421,7 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
                 if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; } }
-                    else if(g_tab==TAB_PIXEL)pixel_down(mx,my);
+                    else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
                     else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
@@ -2426,7 +2432,7 @@ int main(int argc,char**argv){
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 g_split=0; g_mdrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
-                if(g_tab==TAB_PIXEL)pixel_up(e.button.x,e.button.y); }
+                if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
@@ -2434,12 +2440,12 @@ int main(int argc,char**argv){
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);
                 else if(g_split==2) RIGHT_W=clampi(WIN_W-e.motion.x,200,WIN_W-LEFT_W-360);
                 else if(g_split==3) BOTTOM_H=clampi(WIN_H-e.motion.y,140,WIN_H-TOPH-220);
-                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_PIXEL&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y,1); }
-                else if((e.motion.state&SDL_BUTTON_MMASK)&&g_tab==TAB_PIXEL){ g_panx+=e.motion.xrel; g_pany+=e.motion.yrel; }
+                else if((e.motion.state&SDL_BUTTON_MMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)){ g_panx+=e.motion.xrel; g_pany+=e.motion.yrel; }
             }
         }
         if(g_quitreq)running=0;
