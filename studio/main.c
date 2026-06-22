@@ -1097,7 +1097,11 @@ static const char *TL_TPL_DESC[4]={
 static const struct { int c,r; } LV_SIZES[4]={ {32,24},{48,32},{64,48},{96,72} };
 static const uint8_t TERR_TINT[MAXTERR][3]={ {124,92,58},{70,150,72},{60,120,200},{176,128,72},{150,150,158},{150,80,160} };
 /* a terrain = a PNG sheet asset (scols x srows cells) + a config->cell rule LUT */
-typedef struct { char name[16], png[200]; int tpl, edge, ncell, scols, srows, nvar; uint16_t *sheet; uint8_t lut[256], rep[256], xform[256]; } Terr;
+typedef struct { char name[16], png[200]; int tpl, edge, ncell, scols, srows, nvar; uint16_t *sheet; uint8_t lut[256], rep[256], xform[256], var_weight[8]; } Terr;
+/* weighted variant-row pick (mirrors mote__at_variant for the editor preview) */
+static int terr_variant(Terr*t,int c,int r){ if(t->nvar<=1)return 0; int n=t->nvar>8?8:t->nvar,total=0;
+    for(int v=0;v<n;v++)total+=t->var_weight[v]?t->var_weight[v]:1; int pick=(int)(mote__at_hash(c,r)%(unsigned)total);
+    for(int v=0;v<n-1;v++){ int w=t->var_weight[v]?t->var_weight[v]:1; if(pick<w)return v; pick-=w; } return n-1; }
 static Terr g_terr[MAXTERR];
 static int g_nterr=1, g_curterr=0, g_rulesel=0, g_cellsel=0, g_dr_var=0, g_tl_ts=16, g_tl_init, g_tl_mode=0, g_dr_paint;
 static uint16_t *g_tl_cv, *g_dr_cv; static SDL_Texture *g_tl_tex, *g_dr_tex; static int g_tl_texw,g_tl_texh,g_dr_texw,g_dr_texh;
@@ -1107,11 +1111,12 @@ static char g_tl_name[64]="level"; static int g_tl_namefocus, g_ln_focus;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
-static SDL_Rect g_tl_type[4],g_tl_xf[6];   /* RULES rule-type buttons; per-rule transform buttons */
+static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
 
 static void terr_rebuild(Terr*t){ MoteAutotile at; mote_autotile_template(&at,t->tpl);
     for(int i=0;i<256;i++){ t->lut[i]=at.lut[i]; t->xform[i]=0; }
+    for(int i=0;i<8;i++)t->var_weight[i]=1;
     t->ncell=mote_autotile_cell_count(t->tpl);
     int got[256]; for(int i=0;i<256;i++)got[i]=0;
     for(int m=0;m<256;m++){ int ci=t->lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } } }
@@ -1186,21 +1191,24 @@ static void terr_save_def(int ti){ if(g_sel<0)return; Terr*t=&g_terr[ti]; const 
     FILE*f=fopen(p,"w"); if(!f)return;
     fprintf(f,"sheet %s\ntile %d\ntype %d\nedge %d\nnvar %d\ncols %d\nrows %d\nlut",t->png,g_tl_ts,t->tpl,t->edge,t->nvar,t->scols,t->srows);
     for(int i=0;i<256;i++)fprintf(f," %d",t->lut[i]); fprintf(f,"\nxform");
-    for(int i=0;i<256;i++)fprintf(f," %d",t->xform[i]); fputc('\n',f); fclose(f); }
+    for(int i=0;i<256;i++)fprintf(f," %d",t->xform[i]); fprintf(f,"\nvweight");
+    for(int i=0;i<8;i++)fprintf(f," %d",t->var_weight[i]); fputc('\n',f); fclose(f); }
 static void terr_load_def(int ti,const char*path){ FILE*f=fopen(path,"r"); if(!f)return; Terr*t=&g_terr[ti];
-    char png[200]="",key[40]; int tile=g_tl_ts,type=0,edge=1,nvar=1; uint8_t lut[256],xf[256]; int haslut=0,hasxf=0;
+    char png[200]="",key[40]; int tile=g_tl_ts,type=0,edge=1,nvar=1; uint8_t lut[256],xf[256],vw[8]; int haslut=0,hasxf=0,hasvw=0;
     while(fscanf(f,"%39s",key)==1){
         if(!strcmp(key,"sheet"))fscanf(f,"%199s",png); else if(!strcmp(key,"tile"))fscanf(f,"%d",&tile);
         else if(!strcmp(key,"type"))fscanf(f,"%d",&type); else if(!strcmp(key,"edge"))fscanf(f,"%d",&edge);
         else if(!strcmp(key,"nvar"))fscanf(f,"%d",&nvar); else if(!strcmp(key,"cols")){int x;fscanf(f,"%d",&x);} else if(!strcmp(key,"rows")){int x;fscanf(f,"%d",&x);}
         else if(!strcmp(key,"lut")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); lut[i]=(uint8_t)v; } haslut=1; }
-        else if(!strcmp(key,"xform")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); xf[i]=(uint8_t)v; } hasxf=1; } }
+        else if(!strcmp(key,"xform")){ for(int i=0;i<256;i++){ int v=0; fscanf(f,"%d",&v); xf[i]=(uint8_t)v; } hasxf=1; }
+        else if(!strcmp(key,"vweight")){ for(int i=0;i<8;i++){ int v=1; fscanf(f,"%d",&v); vw[i]=(uint8_t)v; } hasvw=1; } }
     fclose(f);
     g_tl_ts=tile; t->tpl=type&3; t->edge=edge; t->nvar=nvar<1?1:nvar;
     { const char*b=strrchr(path,'/'); b=b?b+1:path; snprintf(t->name,16,"%.15s",b); char*dt=strrchr(t->name,'.'); if(dt)*dt=0; }
     MoteAutotile at; mote_autotile_template(&at,t->tpl); t->ncell=mote_autotile_cell_count(t->tpl);
     int got[256]; for(int i=0;i<256;i++)got[i]=0; for(int m=0;m<256;m++){ int ci=at.lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } }
     for(int i=0;i<256;i++){ t->lut[i]=haslut?lut[i]:at.lut[i]; t->xform[i]=hasxf?xf[i]:0; }
+    for(int i=0;i<8;i++)t->var_weight[i]=hasvw?vw[i]:1;
     char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,png);
     if(!terr_load_sheet_pixels(t,sp)){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }   /* sheet PNG missing -> blank */
     snprintf(t->png,200,"%.198s",png); }
@@ -1254,6 +1262,7 @@ static void bake_all(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open
         for(int i=0;i<256;i++){ fprintf(f,"%d,",t->lut[i]); if((i&15)==15)fputc('\n',f); }
         fprintf(f,"}, %d, %d, {\n",t->edge,t->nvar<1?1:t->nvar);
         for(int i=0;i<256;i++){ fprintf(f,"%d,",t->xform[i]); if((i&15)==15)fputc('\n',f); }
+        fprintf(f,"}, {"); for(int i=0;i<8;i++)fprintf(f,"%d,",t->var_weight[i]);
         fprintf(f,"} };\n\n#endif\n"); fclose(f); }
     char hp[460]; snprintf(hp,sizeof hp,"%.320s/src/%.50s.level.h",dir,nm); FILE*f=fopen(hp,"w"); if(f){
         fprintf(f,"/* GENERATED by Mote Studio — %dx%d level, %d layers. The map is one byte\n * per cell, each bit a layer; it is const (lives in flash, zero SRAM). */\n#ifndef MOTE_LEVEL_%s_H\n#define MOTE_LEVEL_%s_H\n#include \"mote_api.h\"\n",g_lv_cols,g_lv_rows,g_nterr,nm,nm);
@@ -1286,6 +1295,10 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
     text(R,"variants",tx,ty+3,1,C_DIM,C_DOCK); tx2=tx+textw(R,"variants",1)+6; g_tl_varm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
     { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); text(R,b,tx2+4,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_varp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=24;
+    for(int v=0;v<8;v++)g_tl_vw[v]=(SDL_Rect){0,0,0,0};
+    if(ct->nvar>1){ text(R,"weights",tx,ty+3,1,C_DIM,C_DOCK); int wx=tx+textw(R,"weights",1)+6;
+        for(int v=0;v<ct->nvar&&v<8;v++){ int wv=ct->var_weight[v]?ct->var_weight[v]:1; g_tl_vw[v]=(SDL_Rect){wx,ty,18,18}; rrect(R,wx,ty,18,18,4,hit(mx,my,wx,ty,18,18)?C_BTNHI:C_BTN); char b[6]; snprintf(b,sizeof b,"%d",wv); text(R,b,wx+6,ty+3,1,(Col){240,200,90},C_BTN); wx+=20; }
+        ty+=22; text(R,"click a weight to raise it (variant row 0 = top of sheet)",tx,ty,1,C_DIM,C_DOCK); ty+=13; }
     g_tl_load=(SDL_Rect){tx,ty,66,20}; rrect(R,tx,ty,66,20,4,hit(mx,my,tx,ty,66,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+5,ty+4,1,(Col){170,200,140},C_BTN);
     g_tl_gen=(SDL_Rect){tx+70,ty,40,20}; rrect(R,tx+70,ty,40,20,4,hit(mx,my,tx+70,ty,40,20)?C_BTNHI:C_BTN); text(R,"Gen",tx+78,ty+4,1,C_TXT,C_BTN);
     g_tl_addrow=(SDL_Rect){tx+114,ty,44,20}; rrect(R,tx+114,ty,44,20,4,hit(mx,my,tx+114,ty,44,20)?C_BTNHI:C_BTN); text(R,"+Row",tx+119,ty+4,1,C_TXT,C_BTN);
@@ -1376,7 +1389,7 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     for(int L=0;L<g_nterr;L++){ Terr*tt=&g_terr[L]; int Wt=tt->scols*ts;                 /* draw each layer bottom-up, against its own bit */
         for(int r=0;r<vr;r++)for(int c=0;c<vc;c++){ int lc=g_lv_panx+c,lr=g_lv_pany+r; if(!((g_lv_terrain[lr*g_lv_cols+lc]>>L)&1))continue;
             int mask=mote_autotile_mask_layer(g_lv_terrain,g_lv_cols,g_lv_rows,lc,lr,L,tt->edge); int cell=tt->lut[mask];
-            int vv=tt->nvar>1?(int)(mote__at_hash(lc,lr)%tt->nvar):0; cell+=vv*tt->scols; if(cell>=tt->scols*tt->srows)cell-=vv*tt->scols;
+            int vv=terr_variant(tt,lc,lr); cell+=vv*tt->scols; if(cell>=tt->scols*tt->srows)cell-=vv*tt->scols;
             int sx=(cell%tt->scols)*ts,sy=(cell/tt->scols)*ts; uint8_t xf=tt->xform[mask]; int rot=(xf>>2)&3;
             for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ int tx,tyy;
                 switch(rot){ case 1: tx=y; tyy=ts-1-x; break; case 2: tx=ts-1-x; tyy=ts-1-y; break; case 3: tx=ts-1-y; tyy=x; break; default: tx=x; tyy=y; }
@@ -1405,6 +1418,7 @@ static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
     if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
     if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,18)){ if(ct->nvar>1)ct->nvar--; return 1; }            /* nvar = how many sheet rows are variants */
     if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,18)){ if(ct->nvar<ct->srows&&ct->nvar<8)ct->nvar++; return 1; }
+    for(int v=0;v<8;v++)if(g_tl_vw[v].w&&hit(mx,my,g_tl_vw[v].x,g_tl_vw[v].y,18,18)){ int w=ct->var_weight[v]?ct->var_weight[v]:1; ct->var_weight[v]=(uint8_t)(w>=9?1:w+1); return 1; }
     if(hit(mx,my,g_tl_load.x,g_tl_load.y,66,20)){ fp_open(2); return 1; }
     if(hit(mx,my,g_tl_gen.x,g_tl_gen.y,40,20)){ terr_gen_starter(g_curterr); return 1; }
     if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,44,20)){ terr_add_row(g_curterr); return 1; }

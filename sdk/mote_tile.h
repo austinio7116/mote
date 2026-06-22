@@ -42,12 +42,24 @@ typedef struct MoteAutotile {
     uint8_t  xform[256];        /* per-config D4 transform applied to the chosen cell: bit0 = HFLIP,
                                  * bit1 = VFLIP, bits2-3 = rotation (0/90/180/270 CW). 0 = none. Lets
                                  * one source cell serve many configs, cutting the sheet ~3x. */
+    uint8_t  var_weight[8];     /* relative weight of each variant row (0 = treated as 1). The engine
+                                 * picks a row by weighted hash, so rare variants can be rare. */
 } MoteAutotile;
 
 /* deterministic per-cell hash, for picking a random variant by position. */
 static inline unsigned mote__at_hash(int x, int y) {
     unsigned h = (unsigned)x * 73856093u ^ (unsigned)y * 19349663u;
     h ^= h >> 13; return h * 1274126177u;
+}
+
+/* Pick a variant row [0,nvar) for the cell at (c,r), weighted by var_weight (0 -> 1). */
+static inline int mote__at_variant(const MoteAutotile *at, int c, int r) {
+    if (at->nvar <= 1) return 0;
+    int n = at->nvar > 8 ? 8 : at->nvar, total = 0;
+    for (int v = 0; v < n; v++) total += at->var_weight[v] ? at->var_weight[v] : 1;
+    int pick = (int)(mote__at_hash(c, r) % (unsigned)total);
+    for (int v = 0; v < n - 1; v++) { int w = at->var_weight[v] ? at->var_weight[v] : 1; if (pick < w) return v; pick -= w; }
+    return n - 1;
 }
 
 /* Drop a corner bit unless BOTH its adjacent cardinals are set — the reduction

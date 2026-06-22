@@ -165,7 +165,7 @@ static void draw_autotile(uint16_t *fb, int y0, int y1) {
             uint8_t cell = at->lut[mask];
             int tpr = at->sheet->w / (at->tile_w ? at->tile_w : 1);
             int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
-            if (at->nvar > 1) fy += (int)(mote__at_hash(c, r) % at->nvar) * at->tile_h;   /* pick a random variant row */
+            fy += mote__at_variant(at, c, r) * at->tile_h;   /* weighted random variant row */
             mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
         }
     }
@@ -194,7 +194,7 @@ static void draw_autotile_layers(uint16_t *fb, int y0, int y1) {
                 int mask = mote_autotile_mask_layer(s_lay_map, s_lay_cols, s_lay_rows, c, r, L, at->edge_is_solid);
                 uint8_t cell = at->lut[mask];
                 int fx = (cell % tpr) * at->tile_w, fy = (cell / tpr) * at->tile_h;
-                if (at->nvar > 1) fy += (int)(mote__at_hash(c, r) % at->nvar) * at->tile_h;
+                fy += mote__at_variant(at, c, r) * at->tile_h;
                 mote_blit(fb, at->sheet, sx, r * th - s_cam_y, fx, fy, at->tile_w, at->tile_h, at->xform[mask], y0, y1);
             }
         }
