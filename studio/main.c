@@ -889,31 +889,147 @@ static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_me
 static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
 static void mtri(V3 a,V3 b,V3 c){ if(g_ntri>=g_tricap){ g_tricap=g_tricap?g_tricap*2:8192; g_tri=realloc(g_tri,g_tricap*sizeof*g_tri); }
     g_tri[g_ntri].a=a; g_tri[g_ntri].b=b; g_tri[g_ntri].c=c; g_ntri++; }
-static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_ntri)return; g_ntri=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
+
+/* ===== STL/OBJ processing: vertex-cluster decimate to a tri budget, then chunk to <=255
+ * verts. The raw soup is loaded once into g_raw; mesh_reprocess() re-runs with the live
+ * parameters (budget / up-axis / recenter), filling g_tri (the decimated preview) + per-tri
+ * chunk ids, and mesh_bake() emits the same result as a header. One code path = preview
+ * matches what gets baked. */
+static V3 mv3sub(V3 a,V3 b){ V3 r={a.x-b.x,a.y-b.y,a.z-b.z}; return r; }
+static V3 mv3cross(V3 a,V3 b){ V3 r={a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x}; return r; }
+static float mv3len(V3 a){ return sqrtf(a.x*a.x+a.y*a.y+a.z*a.z); }
+static struct { V3 a,b,c; } *g_raw; static int g_nraw,g_rawcap;
+static void rawtri(V3 a,V3 b,V3 c){ if(g_nraw>=g_rawcap){ g_rawcap=g_rawcap?g_rawcap*2:8192; g_raw=realloc(g_raw,g_rawcap*sizeof*g_raw); }
+    g_raw[g_nraw].a=a; g_raw[g_nraw].b=b; g_raw[g_nraw].c=c; g_nraw++; }
+
+/* parameters (live) */
+static int   g_mesh_budget=1500, g_mesh_up=0, g_mesh_recenter=1, g_mesh_chunkview=0, g_mesh_dirty=1;
+static float g_mesh_size=1.0f;          /* baked Mesh.scale = world half-extent (meters) */
+static long  g_mesh_rgb=0xA8AEB8;       /* base colour */
+/* decimation working set + stats */
+static V3 *g_dv; static int g_dnv; static int *g_dt; static int g_dnf;   /* welded decimated verts + tri indices */
+static int *g_tri_chunk;                /* per decimated tri -> chunk id (for the chunk-view colouring) */
+static int  g_mesh_outv, g_mesh_outf, g_mesh_nchunk, g_mesh_bestG; static float g_mesh_qmax, g_mesh_bound;
+
+#define MESH_HSZ (1<<21)
+static int *g_Hidx; static int64_t *g_Hkey; static V3 *g_Hsum; static int *g_Hcnt;
+/* one clustering pass at grid resolution G over the transformed soup tv[NRT*3]. */
+static int mesh_cluster(const V3 *tv, int NRT, V3 mn, V3 mx, int G){
+    float ext=mx.x-mn.x; if(mx.y-mn.y>ext)ext=mx.y-mn.y; if(mx.z-mn.z>ext)ext=mx.z-mn.z; if(ext<1e-9f)ext=1;
+    float cs=ext/(float)G; memset(g_Hidx,0xFF,MESH_HSZ*sizeof(int)); g_dnv=0;
+    int *map=malloc((size_t)NRT*3*sizeof(int));
+    for(int i=0;i<NRT*3;i++){ V3 v=tv[i];
+        long ix=(long)floorf((v.x-mn.x)/cs),iy=(long)floorf((v.y-mn.y)/cs),iz=(long)floorf((v.z-mn.z)/cs);
+        int64_t key=((int64_t)ix*73856093)^((int64_t)iy*19349663)^((int64_t)iz*83492791);
+        uint32_t h=(uint32_t)(key*2654435761u)&(MESH_HSZ-1); int idx=-1;
+        while(g_Hidx[h]!=-1){ if(g_Hkey[h]==key){ idx=g_Hidx[h]; break; } h=(h+1)&(MESH_HSZ-1); }
+        if(idx<0){ idx=g_dnv++; g_Hidx[h]=idx; g_Hkey[h]=key; g_Hsum[idx]=(V3){0,0,0}; g_Hcnt[idx]=0; }
+        g_Hsum[idx].x+=v.x; g_Hsum[idx].y+=v.y; g_Hsum[idx].z+=v.z; g_Hcnt[idx]++; map[i]=idx; }
+    for(int i=0;i<g_dnv;i++)g_dv[i]=(V3){g_Hsum[i].x/g_Hcnt[i],g_Hsum[i].y/g_Hcnt[i],g_Hsum[i].z/g_Hcnt[i]};
+    g_dnf=0;
+    for(int t=0;t<NRT;t++){ int a=map[t*3],b=map[t*3+1],c=map[t*3+2]; if(a==b||b==c||a==c)continue;
+        g_dt[g_dnf*3]=a; g_dt[g_dnf*3+1]=b; g_dt[g_dnf*3+2]=c; g_dnf++; }
+    free(map); return g_dnf;
+}
+/* greedy chunking; if h!=NULL, EMIT the header. Always fills g_tri (preview) + g_tri_chunk + stats. */
+static void mesh_emit(FILE*h,const char*name){
+    float q=g_mesh_qmax>1e-6f?127.0f/g_mesh_qmax:1.0f;
+    uint16_t col=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
+    g_ntri=0; g_tri_chunk=realloc(g_tri_chunk,(size_t)(g_dnf+1)*sizeof(int));
+    int *local=malloc(g_dnv*sizeof(int)), *stamp=malloc(g_dnv*sizeof(int)); for(int i=0;i<g_dnv;i++)stamp[i]=-1;
+    int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)g_dnf*3*sizeof(int));
+    char chunklist[16384]=""; int cl=0; int chunk=0,ti=0,total_v=0,total_f=0;
+    while(ti<g_dnf){ int nv=0,cf=0,start=ti;
+        for(; ti<g_dnf; ti++){ int g[3]={g_dt[ti*3],g_dt[ti*3+1],g_dt[ti*3+2]}; int need=0;
+            for(int k=0;k<3;k++) if(stamp[g[k]]!=chunk)need++;
+            if(nv+need>255)break;
+            int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
+            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++;
+            /* preview: append the decimated tri + record its chunk */
+            mtri(g_dv[g[0]],g_dv[g[1]],g_dv[g[2]]); g_tri_chunk[g_ntri-1]=chunk;
+        }
+        if(ti==start){ ti++; continue; }
+        if(h){ fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
+            for(int i=0;i<nv;i++){ V3 v=g_dv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
+            fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
+            for(int i=0;i<cf;i++){ V3 a=g_dv[cv[cface[i][0]]],b=g_dv[cv[cface[i][1]]],c=g_dv[cv[cface[i][2]]];
+                V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
+                fprintf(h,"  {%d,%d,%d, %d,%d,%d, 0x%04X},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127),col); }
+            fprintf(h,"};\n");
+            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,%d,%d,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,g_mesh_size,g_mesh_bound*(g_mesh_size/(g_mesh_qmax>1e-6f?g_mesh_qmax:1))); }
+        total_v+=nv; total_f+=cf; chunk++;
+    }
+    g_mesh_outv=total_v; g_mesh_outf=total_f; g_mesh_nchunk=chunk;
+    if(h){ fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n\n#endif\n",name,chunk,chunklist,name,chunk); }
+    free(local); free(stamp); free(cv); free(cface);
+}
+static void mesh_reprocess(void){
+    g_mesh_dirty=0; g_ntri=0;
+    if(g_nraw<1){ g_mesh_outv=g_mesh_outf=g_mesh_nchunk=0; return; }
+    int N3=g_nraw*3; V3 *tv=malloc((size_t)N3*sizeof(V3)); const V3 *src=(const V3*)g_raw;
+    for(int i=0;i<N3;i++){ V3 v=src[i]; if(g_mesh_up){ V3 r={v.x,v.z,-v.y}; v=r; } tv[i]=v; }   /* optional Z-up -> Y-up */
+    V3 mn={1e30f,1e30f,1e30f},mx={-1e30f,-1e30f,-1e30f},ctr={0,0,0};
+    for(int i=0;i<N3;i++){ V3 v=tv[i]; if(v.x<mn.x)mn.x=v.x; if(v.y<mn.y)mn.y=v.y; if(v.z<mn.z)mn.z=v.z;
+        if(v.x>mx.x)mx.x=v.x; if(v.y>mx.y)mx.y=v.y; if(v.z>mx.z)mx.z=v.z; ctr.x+=v.x; ctr.y+=v.y; ctr.z+=v.z; }
+    ctr.x/=N3; ctr.y/=N3; ctr.z/=N3;
+    g_dv=realloc(g_dv,(size_t)N3*sizeof(V3)); g_dt=realloc(g_dt,(size_t)N3*sizeof(int));
+    g_Hidx=realloc(g_Hidx,MESH_HSZ*sizeof(int)); g_Hkey=realloc(g_Hkey,MESH_HSZ*sizeof(int64_t));
+    g_Hsum=realloc(g_Hsum,(size_t)N3*sizeof(V3)); g_Hcnt=realloc(g_Hcnt,(size_t)N3*sizeof(int));
+    int lo=4,hi=512,best=lo; while(lo<=hi){ int G=(lo+hi)/2; int t=mesh_cluster(tv,g_nraw,mn,mx,G); if(t<=g_mesh_budget){ best=G; lo=G+1; } else hi=G-1; }
+    mesh_cluster(tv,g_nraw,mn,mx,best); g_mesh_bestG=best;
+    g_mesh_qmax=0; g_mesh_bound=0;
+    for(int i=0;i<g_dnv;i++){ if(g_mesh_recenter){ g_dv[i].x-=ctr.x; g_dv[i].y-=ctr.y; g_dv[i].z-=ctr.z; }
+        float ax=fabsf(g_dv[i].x),ay=fabsf(g_dv[i].y),az=fabsf(g_dv[i].z);
+        if(ax>g_mesh_qmax)g_mesh_qmax=ax; if(ay>g_mesh_qmax)g_mesh_qmax=ay; if(az>g_mesh_qmax)g_mesh_qmax=az;
+        float l=mv3len(g_dv[i]); if(l>g_mesh_bound)g_mesh_bound=l; }
+    if(g_mesh_qmax<1e-6f)g_mesh_qmax=1;
+    mesh_emit(NULL,"");                                  /* fills g_tri + g_tri_chunk + stats */
+    free(tv);
+    g_mcen=(V3){0,0,0}; g_mscale=1.0f/g_mesh_qmax;       /* fit the preview to [-1,1] */
+}
+static void mesh_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(!g_nraw){ snprintf(g_status,sizeof g_status,"no mesh loaded"); return; }
+    if(g_mesh_dirty)mesh_reprocess();
+    const char*b=strrchr(g_mesh_path,'/'); b=b?b+1:g_mesh_path; char name[64]; snprintf(name,sizeof name,"%.40s",b); char*dt=strrchr(name,'.'); if(dt)*dt=0;
+    char hp[460]; snprintf(hp,sizeof hp,"%.330s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w"); if(!h){ snprintf(g_status,sizeof g_status,"cannot write %s",hp); return; }
+    fprintf(h,"/* GENERATED by Mote Studio (mesh) from %s. budget=%d up=%s recenter=%d scale=%.3f */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",b,g_mesh_budget,g_mesh_up?"Z":"Y",g_mesh_recenter,g_mesh_size,name,name);
+    mesh_emit(h,name); fclose(h);
+    snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks  (%s_chunks[])",name,g_mesh_outf,g_mesh_nchunk,name); }
+static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)return; g_nraw=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
     size_t l=strlen(path); FILE*f=fopen(path,"rb"); if(!f)return;
     if(l>4&&!strcasecmp(path+l-4,".obj")){ static V3 vs[300000]; int nv=0; char ln[256];
         while(fgets(ln,sizeof ln,f)){ if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<300000)vs[nv++]=v; }
             else if(ln[0]=='f'&&ln[1]==' '){ int idx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break; int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n++]=vi; while(*p&&*p!=' '&&*p!='\t')p++; }
-                for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) mtri(vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } } }
+                for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) rawtri(vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } } }
     else { unsigned char hdr[84]; if(fread(hdr,1,84,f)==84){ unsigned n=hdr[80]|hdr[81]<<8|hdr[82]<<16|((unsigned)hdr[83]<<24);
             fseek(f,0,SEEK_END); long sz=ftell(f);
             if(sz==84+(long)n*50){ fseek(f,84,SEEK_SET); for(unsigned i=0;i<n;i++){ float t[9]; fseek(f,12,SEEK_CUR); if(fread(t,4,9,f)!=9)break; fseek(f,2,SEEK_CUR);
-                    mtri((V3){t[0],t[1],t[2]},(V3){t[3],t[4],t[5]},(V3){t[6],t[7],t[8]}); } }
-            else { fseek(f,0,SEEK_SET); char ln[256]; V3 v[3]; int vi=0; while(fgets(ln,sizeof ln,f)){ char*p=strstr(ln,"vertex"); if(p&&sscanf(p+6,"%f %f %f",&v[vi].x,&v[vi].y,&v[vi].z)==3){ if(++vi==3){ mtri(v[0],v[1],v[2]); vi=0; } } } } } }
+                    rawtri((V3){t[0],t[1],t[2]},(V3){t[3],t[4],t[5]},(V3){t[6],t[7],t[8]}); } }
+            else { fseek(f,0,SEEK_SET); char ln[256]; V3 v[3]; int vi=0; while(fgets(ln,sizeof ln,f)){ char*p=strstr(ln,"vertex"); if(p&&sscanf(p+6,"%f %f %f",&v[vi].x,&v[vi].y,&v[vi].z)==3){ if(++vi==3){ rawtri(v[0],v[1],v[2]); vi=0; } } } } } }
     fclose(f);
-    if(g_ntri){ V3 mn=g_tri[0].a,mx=g_tri[0].a; for(int i=0;i<g_ntri;i++){ V3*vv[3]={&g_tri[i].a,&g_tri[i].b,&g_tri[i].c};
-        for(int k=0;k<3;k++){ V3 p=*vv[k]; mn.x=fminf(mn.x,p.x);mn.y=fminf(mn.y,p.y);mn.z=fminf(mn.z,p.z); mx.x=fmaxf(mx.x,p.x);mx.y=fmaxf(mx.y,p.y);mx.z=fmaxf(mx.z,p.z); } }
-        g_mcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2}; float d=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_mscale=d>0?2.0f/d:1; }
-    snprintf(g_status,sizeof g_status,"mesh: %d triangles",g_ntri); }
+    g_mesh_dirty=1; mesh_reprocess();
+    g_mesh_size=g_mesh_qmax;          /* default to the model's natural half-extent (matches the CLI baker) */
+    snprintf(g_status,sizeof g_status,"mesh: %d raw tris -> %d (budget %d), %d chunks",g_nraw,g_mesh_outf,g_mesh_budget,g_mesh_nchunk); }
 static float *g_mdepth;
 /* painter's: draw farthest first. larger z = nearer (projection divides by dist-z),
  * so sort ASCENDING by z (smallest/farthest first). */
 static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?-1:(d>0?1:0); }
+/* mesh parameter-card hit rects (immediate-mode; tested in mesh_down) */
+static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_col,g_me_bake,g_me_view;
+static const long MESH_COLPRE[]={0xA8AEB8,0xC85050,0x58B868,0x5888E0,0xE0B048,0xB070D8,0xE6E6EC};
+static int g_mesh_colidx=0;
+#define MESH_CARDW 232
+
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
-    if(!g_ntri){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
+    if(!g_nraw){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
+    if(g_mesh_dirty) mesh_reprocess();
+
+    /* ---- processed-mesh 3D preview (left) ---- */
     if(!g_mdrag) g_myaw+=0.008f;
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
-    int cx=ox+w/2, cyy=oy+h/2; float persp=(h<w?h:w)*0.62f, dist=2.7f;
+    int cx=ox+vw/2, cyy=oy+h/2; float persp=(h<vw?h:vw)*0.62f, dist=2.7f;
     static int *order; static float *depth; static int cap; static V3 *sa,*sb,*sc;
     if(g_ntri>cap){ cap=g_ntri; order=realloc(order,cap*sizeof(int)); depth=realloc(depth,cap*sizeof(float));
         sa=realloc(sa,cap*sizeof(V3)); sb=realloc(sb,cap*sizeof(V3)); sc=realloc(sc,cap*sizeof(V3)); }
@@ -922,16 +1038,57 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
             float x=p.x*cyw-p.z*syw, z=p.x*syw+p.z*cyw, y=p.y*cp-z*sp, z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
         sa[i]=rr[0]; sb[i]=rr[1]; sc[i]=rr[2]; order[i]=i; depth[i]=(rr[0].z+rr[1].z+rr[2].z)/3; }
     g_mdepth=depth; qsort(order,g_ntri,sizeof(int),cmp_depth);
+    uint8_t br=(uint8_t)(g_mesh_rgb>>16&0xFF),bg=(uint8_t)(g_mesh_rgb>>8&0xFF),bb=(uint8_t)(g_mesh_rgb&0xFF);
     for(int o=0;o<g_ntri;o++){ int i=order[o]; V3 a=sa[i],b=sb[i],c=sc[i];
         float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
         float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl; ny/=nl; nz/=nl;
         if(nz<0)continue;
         float sh=0.28f+0.72f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
-        Col col={(Uint8)(118*sh),(Uint8)(150*sh),(Uint8)(220*sh)};
+        Col col;
+        if(g_mesh_chunkview){ unsigned hh=(unsigned)g_tri_chunk[i]*2654435761u; col=(Col){(Uint8)((70+(hh&140))*sh),(Uint8)((70+((hh>>8)&140))*sh),(Uint8)((70+((hh>>16)&140))*sh)}; }
+        else col=(Col){(Uint8)(br*sh),(Uint8)(bg*sh),(Uint8)(bb*sh)};
         int xs[3]={cx+(int)(a.x*persp/(dist-a.z)),cx+(int)(b.x*persp/(dist-b.z)),cx+(int)(c.x*persp/(dist-c.z))};
         int ys[3]={cyy-(int)(a.y*persp/(dist-a.z)),cyy-(int)(b.y*persp/(dist-b.z)),cyy-(int)(c.y*persp/(dist-c.z))};
         fill_poly(R,xs,ys,3,col); }
-    char info[60]; snprintf(info,sizeof info,"%d triangles  -  drag to rotate",g_ntri); text(R,info,ox+12,oy+h-20,1,C_DIM,(Col){16,18,26}); }
+    text(R,"drag to rotate",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+
+    /* ---- parameter card (right) ---- */
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MESH BAKE"); int lx=cardx+12; char vb[40];
+    snprintf(vb,sizeof vb,"%d",g_mesh_budget); ui_stepper(R,lx,cy,"tris",vb,&g_me_bmin,&g_me_bpls,mx,my); cy+=UI_H+8;
+    snprintf(vb,sizeof vb,"%.2fm",g_mesh_size); ui_stepper(R,lx,cy,"size",vb,&g_me_smin,&g_me_spls,mx,my); cy+=UI_H+10;
+    int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
+    ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
+    px=ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my);
+    { char cb[16]; snprintf(cb,sizeof cb,"#%06lX",g_mesh_rgb&0xFFFFFF); ui_pill(R,px,cy,NULL,cb,0,&g_me_col,mx,my); } cy+=UI_H+12;
+
+    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
+    Col bgp=C_PANEL; char s[64];
+    snprintf(s,sizeof s,"raw      %d tris",g_nraw); text(R,s,lx,cy,1,C_DIM,bgp); cy+=14;
+    snprintf(s,sizeof s,"decimated %d tris",g_mesh_outf); text(R,s,lx,cy,1,C_TXT,bgp); cy+=14;
+    snprintf(s,sizeof s,"verts    %d",g_mesh_outv); text(R,s,lx,cy,1,C_TXT,bgp); cy+=14;
+    snprintf(s,sizeof s,"chunks   %d  (<=255 v)",g_mesh_nchunk); text(R,s,lx,cy,1,C_TXT,bgp); cy+=14;
+    snprintf(s,sizeof s,"grid     %d^3",g_mesh_bestG); text(R,s,lx,cy,1,C_DIM,bgp); cy+=14;
+    long bytes=(long)g_mesh_outv*3+(long)g_mesh_outf*8+(long)g_mesh_nchunk*24;
+    snprintf(s,sizeof s,"flash    ~%ld B",bytes); text(R,s,lx,cy,1,C_ACC,bgp); cy+=20;
+
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_bake,mx,my); }
+
+static int mesh_down(int mx,int my){
+    #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    int ch=0;
+    if(HITR(g_me_bmin)){ g_mesh_budget-= g_mesh_budget>800?200:100; if(g_mesh_budget<100)g_mesh_budget=100; ch=1; }
+    else if(HITR(g_me_bpls)){ g_mesh_budget+= g_mesh_budget>=800?200:100; if(g_mesh_budget>8000)g_mesh_budget=8000; ch=1; }
+    else if(HITR(g_me_smin)){ g_mesh_size-=0.25f; if(g_mesh_size<0.25f)g_mesh_size=0.25f; return 1; }  /* bake-only; preview unchanged */
+    else if(HITR(g_me_spls)){ g_mesh_size+=0.25f; if(g_mesh_size>50)g_mesh_size=50; return 1; }
+    else if(HITR(g_me_up)){ g_mesh_up=!g_mesh_up; ch=1; }
+    else if(HITR(g_me_rc)){ g_mesh_recenter=!g_mesh_recenter; ch=1; }
+    else if(HITR(g_me_cv)){ g_mesh_chunkview=!g_mesh_chunkview; return 1; }   /* view-only, no reprocess */
+    else if(HITR(g_me_col)){ g_mesh_colidx=(g_mesh_colidx+1)%(int)(sizeof MESH_COLPRE/sizeof*MESH_COLPRE); g_mesh_rgb=MESH_COLPRE[g_mesh_colidx]; return 1; }
+    else if(HITR(g_me_bake)){ mesh_bake(); return 1; }
+    if(ch){ g_mesh_dirty=1; mesh_reprocess(); return 1; }
+    return 0;
+    #undef HITR
+}
 
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
@@ -2265,7 +2422,10 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
-    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }
+    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH;
+        if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
+        if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
+        if(getenv("MOTE_STUDIO_MESHBAKE")){ mesh_bake(); printf("studio: %s\n",g_status); } }
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_TEX")){ g_tab=TAB_TEXTURE; set_doc(1); g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); }
@@ -2433,7 +2593,7 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ g_mdrag=1; g_lx=mx; g_ly=my; } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my); continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
