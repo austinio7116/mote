@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 14u  /* v14: render-time autotiling (scene2d_set_autotiles) */
+#define MOTE_ABI_VERSION 15u  /* v15: layered autotiling (scene2d_set_autotile_layers) */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
@@ -179,6 +179,14 @@ typedef struct MoteApi {
      * or bake them in Mote Studio's Tiles tab. */
     void (*scene2d_set_autotiles)(const uint8_t *terrain, int cols, int rows,
                                   const struct MoteAutotile *const *tiles, int n);
+
+    /* --- ABI v15: layered autotiling. `map` is ONE byte per cell where each bit
+     * is a layer (bit L occupied -> tiles[L] drawn there); up to 8 independent,
+     * overlapping layers, each autotiled against its own bit and drawn in order
+     * (0 = bottom). The map is typically a `const` baked level, so it lives in
+     * flash and costs no SRAM. Replaces the need for one terrain map per layer. */
+    void (*scene2d_set_autotile_layers)(const uint8_t *map, int cols, int rows,
+                                        const struct MoteAutotile *const *tiles, int n);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

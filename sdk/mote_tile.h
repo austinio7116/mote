@@ -115,6 +115,24 @@ static inline int mote_autotile_mask(const uint8_t *terrain, int cols, int rows,
     return m;
 }
 
+/* The 8-neighbour mask for a LAYERED level map, where map[cell] is a bitmask of
+ * which layers occupy that cell (bit L). A neighbour counts for layer `bit` if
+ * its bit is set (so each layer autotiles independently, even where layers
+ * overlap). Off-map neighbours use edge_is_solid. */
+static inline int mote_autotile_mask_layer(const uint8_t *map, int cols, int rows,
+                                           int c, int r, int bit, int edge_is_solid) {
+    int m = 0;
+    #define MOTE__LB(dx, dy, b) do { int cc = c + (dx), rr = r + (dy); int same;       \
+        if (cc < 0 || cc >= cols || rr < 0 || rr >= rows) same = edge_is_solid;         \
+        else same = (int)((map[rr * cols + cc] >> bit) & 1u);                           \
+        if (same) m |= (b); } while (0)
+    MOTE__LB( 0, -1, MOTE_NB_N);  MOTE__LB( 1, -1, MOTE_NB_NE); MOTE__LB( 1, 0, MOTE_NB_E);
+    MOTE__LB( 1,  1, MOTE_NB_SE); MOTE__LB( 0,  1, MOTE_NB_S);  MOTE__LB(-1, 1, MOTE_NB_SW);
+    MOTE__LB(-1,  0, MOTE_NB_W);  MOTE__LB(-1, -1, MOTE_NB_NW);
+    #undef MOTE__LB
+    return m;
+}
+
 /* Optional: pre-resolve a whole logical map into concrete atlas indices (a
  * MoteTilemap `cells[]`), for games that prefer a static baked tilemap over the
  * engine's render-time path. Cells not equal to `match` are left untouched. */

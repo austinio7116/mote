@@ -65,6 +65,8 @@ void mote_scene2d_set_tilemap(const MoteTilemap *map, const MoteTileset *tiles);
 struct MoteAutotile;
 void mote_scene2d_set_autotiles(const uint8_t *terrain, int cols, int rows,
                                 const struct MoteAutotile *const *tiles, int n);
+void mote_scene2d_set_autotile_layers(const uint8_t *map, int cols, int rows,
+                                      const struct MoteAutotile *const *tiles, int n);   /* bit-packed layers */
 int  mote_scene2d_add(const MoteSprite *spr);     /* returns 0 if full */
 void mote_scene2d_raster(uint16_t *fb, int y0, int y1);
 int  mote_scene2d_sprite_count(void);
