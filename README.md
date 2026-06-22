@@ -217,6 +217,22 @@ compiler (`gcc`, `arm-none-eabi-gcc`) and, for the Audio tab, `ffmpeg`.
 single self-contained `dist-windows/mote_studio.exe` (SDL2 + MinGW runtime statically
 linked, no DLL dependencies). Drop it in the repo root and run it there.
 
+### 2.6 Build games fast: Studio for assets, Claude Code for code
+
+The quickest way to make a Mote game is to split the work along its natural seam:
+
+- **Mote Studio authors the assets** — paint sprites, generate textures, draw
+  rule-tiles and levels, animate, decimate STL models, design SFX — and bakes each to
+  a header your game `#include`s. This is the visual, iterative part a person does best.
+- **[Claude Code](https://claude.com/claude-code) writes and edits `src/game.c`** — the
+  game logic, drawing, and wiring those baked assets. Save in Studio and it hot-reloads.
+
+This repo ships a **Claude Code skill** (`.claude/skills/mote-game-dev/`) so Claude
+already knows the engine API, the asset pipeline, the build/push workflow, and the
+gotchas the moment you open the project — just clone the repo, run `claude` in it, and
+ask it to build or change a game. Author the art in Studio, describe the gameplay to
+Claude, and iterate.
+
 ---
 
 ## 3. Anatomy of a game
