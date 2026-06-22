@@ -51,7 +51,7 @@
 
 /* layout is RUNTIME — window resizable, separators draggable */
 static int WIN_W=1380, WIN_H=920;
-static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=540;   /* dock tall; emulator sits at 1x up top */
+static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
 #define TOOL_H  44
 #define TOPH    (MENU_H + TOOL_H)
@@ -2484,7 +2484,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_XF")){ tl_ensure(); terr_gen_starter(0); Terr*t=&g_terr[0]; uint8_t rr=t->rep[1]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)t->xform[m]=MOTE_SPR_ROT90; g_rulesel=1; g_tab=TAB_TILES; }   /* test: rotate rule#1 90 */
     if(getenv("MOTE_STUDIO_TILEVIEW")){ tl_ensure();   /* capture hook: open a layer + select a rule in the Tiles tab */
         if(getenv("MOTE_STUDIO_TERR")) g_curterr=atoi(getenv("MOTE_STUDIO_TERR"));
-        if(getenv("MOTE_STUDIO_RULE")) g_rulesel=atoi(getenv("MOTE_STUDIO_RULE"));
+        if(getenv("MOTE_STUDIO_RULE")){ g_rulesel=atoi(getenv("MOTE_STUDIO_RULE")); Terr*ct=&g_terr[g_curterr]; g_cellsel=ct->lut[ct->rep[g_rulesel]]; }  /* match a rule click */
         g_tab=TAB_TILES; }
     if(getenv("MOTE_STUDIO_TILES_SETUP")){ tl_ensure(); Terr*t=&g_terr[0]; snprintf(t->name,16,"rock"); snprintf(t->png,200,"assets/rock.png"); t->tpl=0; t->edge=1; t->nvar=1; terr_gen_starter(0); g_nterr=1; bake_all(); }   /* tiles example: one rock file tileset */
     if(getenv("MOTE_STUDIO_TILEDEMO")){ tl_ensure();   /* build tiledemo's 3 file tilesets + a level */
