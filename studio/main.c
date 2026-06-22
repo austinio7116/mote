@@ -401,7 +401,7 @@ static Menu MENUS[]={
 static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
 static int g_menu_open=-1;
 
-static int g_picker, g_modal; static char g_newname[48];
+static int g_picker, g_modal, g_pscroll; static char g_newname[48];
 static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_al_done;
 static SDL_Rect g_mk_create,g_mk_cancel;
 static void open_new_game(void){ g_modal=1; g_newname[0]=0; SDL_StartTextInput(); }
@@ -1105,7 +1105,7 @@ static int g_lv_cols=48,g_lv_rows=32,g_lv_panx,g_lv_pany,g_lv_zoom=2,g_lv_fit=1,
 static uint8_t *g_lv_terrain;
 static char g_tl_name[64]="level"; static int g_tl_namefocus;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall;
-static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow;
+static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
 
@@ -1114,7 +1114,19 @@ static void terr_rebuild(Terr*t){ MoteAutotile at; mote_autotile_template(&at,t-
     t->ncell=mote_autotile_cell_count(t->tpl);
     int got[256]; for(int i=0;i<256;i++)got[i]=0;
     for(int m=0;m<256;m++){ int ci=t->lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } } }
-static void sheet_cell_art(Terr*t,int ti,int ci,uint8_t mask,int var){ int ts=g_tl_ts,W=t->scols*ts; int col=ci%t->scols,cx=col*ts,cy=(ci/t->scols)*ts;
+static int terr_load_sheet_pixels(Terr*t,const char*path);   /* fwd (defined below) */
+/* a blank placeholder sheet — tile art only ever comes from a PNG file, never generated */
+static void terr_blank(Terr*t){ int ts=g_tl_ts; if(t->scols<1)t->scols=t->ncell>0?t->ncell:1; if(t->srows<1)t->srows=t->nvar<1?1:t->nvar;
+    t->sheet=realloc(t->sheet,(size_t)t->scols*ts*t->srows*ts*2); int n=t->scols*ts*t->srows*ts; for(int i=0;i<n;i++)t->sheet[i]=KEY565; }
+/* (re)load a rule-tile: rebuild its LUT from the template type, (re)load its sheet PNG */
+static void terr_refresh(int ti){ Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1;
+    int ok=0; if(g_sel>=0&&t->png[0]){ char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,t->png); ok=terr_load_sheet_pixels(t,sp); }
+    if(!ok){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }
+    for(int m=0;m<256;m++) if(t->lut[m]>=t->scols*t->srows)t->lut[m]=(uint8_t)(t->scols*t->srows-1); }
+static void terr_init(int ti,const char*name,int tpl){ Terr*t=&g_terr[ti]; snprintf(t->name,16,"%s",name); t->tpl=tpl; t->edge=1; t->nvar=1;
+    snprintf(t->png,200,"assets/%.40s.png",name); terr_refresh(ti); }   /* loads assets/<name>.png if present, else a blank sheet */
+/* proc-gen starter art for one cell — only ever used to WRITE a starter PNG (terr_gen_starter), never live in the editor */
+static void sheet_cell_art(Terr*t,int ti,int ci,uint8_t mask,int var){ int ts=g_tl_ts,W=t->scols*ts; int cx=(ci%t->scols)*ts,cy=(ci/t->scols)*ts;
     const uint8_t*T=TERR_TINT[ti]; uint16_t base=TLRGB(T[0],T[1],T[2]),dk=TLRGB(T[0]*7/10,T[1]*7/10,T[2]*7/10),sh=TLRGB(T[0]*5/10,T[1]*5/10,T[2]*5/10);
     int rr=T[0]+54>255?255:T[0]+54,rg=T[1]+54>255?255:T[1]+54,rb=T[2]+54>255?255:T[2]+54; uint16_t rim=TLRGB(rr,rg,rb);
     int oN=!(mask&MOTE_NB_N),oS=!(mask&MOTE_NB_S),oW=!(mask&MOTE_NB_W),oE=!(mask&MOTE_NB_E),e=ts-1;
@@ -1125,11 +1137,6 @@ static void sheet_cell_art(Terr*t,int ti,int ci,uint8_t mask,int var){ int ts=g_
         if(iNE&&x>=e-1&&y<=1)c=sh; if(iNW&&x<=1&&y<=1)c=sh; if(iSE&&x>=e-1&&y>=e-1)c=sh; if(iSW&&x<=1&&y>=e-1)c=sh;
         if(oN&&oW&&!x&&!y)c=KEY565; if(oN&&oE&&x==e&&!y)c=KEY565; if(oS&&oW&&!x&&y==e)c=KEY565; if(oS&&oE&&x==e&&y==e)c=KEY565;
         t->sheet[(cy+y)*W+cx+x]=c; } }
-static void terr_gen_sheet(int ti){ Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1;
-    t->scols=t->ncell; t->srows=t->nvar; t->sheet=realloc(t->sheet,(size_t)t->scols*g_tl_ts*t->srows*g_tl_ts*2);
-    for(int v=0;v<t->nvar;v++)for(int ci=0;ci<t->ncell;ci++) sheet_cell_art(t,ti,v*t->scols+ci,t->rep[ci],v); }
-static void terr_init(int ti,const char*name,int tpl){ Terr*t=&g_terr[ti]; snprintf(t->name,16,"%s",name); t->tpl=tpl; t->edge=1; t->nvar=1;
-    snprintf(t->png,200,"assets/%.40s_%.16s.png",g_tl_name[0]?g_tl_name:"level",name); terr_gen_sheet(ti); }
 /* load a PNG's pixels into t->sheet + set scols/srows (does NOT touch the rules) */
 static int terr_load_sheet_pixels(Terr*t,const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4); if(!d){ snprintf(g_status,sizeof g_status,"could not load %s",path); return 0; }
     int ts=g_tl_ts,sc=w/ts,sr=h/ts; if(sc<1)sc=1; if(sr<1)sr=1; t->scols=sc; t->srows=sr;
@@ -1148,6 +1155,13 @@ static void terr_save_png(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
 static void terr_add_row(int ti){ Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*ts; int oldpix=W*t->srows*ts; t->srows++;
     t->sheet=realloc(t->sheet,(size_t)W*t->srows*ts*2); for(int i=oldpix;i<W*t->srows*ts;i++)t->sheet[i]=KEY565;
     snprintf(g_status,sizeof g_status,"added a row \xb7 %dx%d cells (Save sheet to write the PNG)",t->scols,t->srows); }
+/* generate a proc-gen starter sheet for the rule type, WRITE it to assets/<name>.png, then load it as a file */
+static void terr_gen_starter(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1; int ts=g_tl_ts;
+    t->scols=t->ncell; t->srows=t->nvar; t->sheet=realloc(t->sheet,(size_t)t->scols*ts*t->srows*ts*2);
+    for(int v=0;v<t->srows;v++)for(int ci=0;ci<t->scols;ci++) sheet_cell_art(t,ti,v*t->scols+ci,t->rep[ci],v);
+    terr_save_png(ti);   /* the generated art becomes a real PNG file in assets/ */
+    snprintf(g_status,sizeof g_status,"generated starter -> %s (now a file; edit or replace via Load PNG)",t->png); }
 /* import a chosen PNG into THIS project's assets/ (copy if external), then load it as the sheet */
 static void tiles_import_png(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     const char*base=strrchr(path,'/');
@@ -1185,7 +1199,7 @@ static void terr_load_def(int ti,const char*path){ FILE*f=fopen(path,"r"); if(!f
     int got[256]; for(int i=0;i<256;i++)got[i]=0; for(int m=0;m<256;m++){ int ci=at.lut[m]; if(!got[ci]){ t->rep[ci]=mote__at_reduce((uint8_t)m); got[ci]=1; } }
     for(int i=0;i<256;i++)t->lut[i]=haslut?lut[i]:at.lut[i];
     char sp[470]; snprintf(sp,sizeof sp,"%.330s/%.120s",g_games[g_sel].dir,png);
-    if(!terr_load_sheet_pixels(t,sp))terr_gen_sheet(ti);                 /* sheet missing -> regenerate */
+    if(!terr_load_sheet_pixels(t,sp)){ t->scols=t->ncell; t->srows=t->nvar; terr_blank(t); }   /* sheet PNG missing -> blank */
     snprintf(t->png,200,"%.198s",png); }
 static void lv_save_def(void){ if(g_sel<0)return; const char*dir=g_games[g_sel].dir; const char*nm=g_tl_name[0]?g_tl_name:"level";
     char d[400]; snprintf(d,sizeof d,"%.330s/levels",dir); mkdir_portable(d);
@@ -1260,9 +1274,11 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
     text(R,"variants",tx,ty+3,1,C_DIM,C_DOCK); tx2=tx+textw(R,"variants",1)+6; g_tl_varm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
     { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); text(R,b,tx2+4,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_varp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=24;
-    g_tl_load=(SDL_Rect){tx,ty,74,20}; rrect(R,tx,ty,74,20,4,hit(mx,my,tx,ty,74,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+7,ty+4,1,(Col){170,200,140},C_BTN);
-    g_tl_addrow=(SDL_Rect){tx+78,ty,52,20}; rrect(R,tx+78,ty,52,20,4,hit(mx,my,tx+78,ty,52,20)?C_BTNHI:C_BTN); text(R,"+ Row",tx+85,ty+4,1,C_TXT,C_BTN);
-    g_tl_savep=(SDL_Rect){tx+134,ty,58,20}; rrect(R,tx+134,ty,58,20,4,hit(mx,my,tx+134,ty,58,20)?C_BTNHI:C_BTN); text(R,"Save",tx+148,ty+4,1,C_TXT,C_BTN); ty+=26;
+    g_tl_load=(SDL_Rect){tx,ty,66,20}; rrect(R,tx,ty,66,20,4,hit(mx,my,tx,ty,66,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+5,ty+4,1,(Col){170,200,140},C_BTN);
+    g_tl_gen=(SDL_Rect){tx+70,ty,40,20}; rrect(R,tx+70,ty,40,20,4,hit(mx,my,tx+70,ty,40,20)?C_BTNHI:C_BTN); text(R,"Gen",tx+78,ty+4,1,C_TXT,C_BTN);
+    g_tl_addrow=(SDL_Rect){tx+114,ty,44,20}; rrect(R,tx+114,ty,44,20,4,hit(mx,my,tx+114,ty,44,20)?C_BTNHI:C_BTN); text(R,"+Row",tx+119,ty+4,1,C_TXT,C_BTN);
+    g_tl_savep=(SDL_Rect){tx+162,ty,46,20}; rrect(R,tx+162,ty,46,20,4,hit(mx,my,tx+162,ty,46,20)?C_BTNHI:C_BTN); text(R,"Save",tx+170,ty+4,1,C_TXT,C_BTN); ty+=24;
+    text(R,"Gen = write a starter sheet PNG you can then edit",tx,ty,1,C_DIM,C_DOCK); ty+=14;
     char sl[40]; snprintf(sl,sizeof sl,"SHEET  %dx%d cells",ct->scols,ct->srows); text(R,sl,tx,ty,1,(Col){170,200,140},C_DOCK); ty+=14;
     int dz=24, per=w/(dz+2); if(per<1)per=1;   /* WRAP regardless of the sheet's own row layout */
     for(int ci=0;ci<sn&&ci<64;ci++){ int gx=tx+(ci%per)*(dz+2), gyy=ty+(ci/per)*(dz+2); g_sheetcell[ci]=(SDL_Rect){gx,gyy,dz,dz};
@@ -1358,15 +1374,16 @@ static void lv_paint_at(int mx,int my,int set){ if(!hit(mx,my,g_lv_canvas.x,g_lv
 
 /* clicks in the INSPECTOR's SHEET area */
 static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
-    if(hit(mx,my,g_tl_tplr.x,g_tl_tplr.y,g_tl_tplr.w,18)){ ct->tpl=(ct->tpl+1)%4; terr_gen_sheet(g_curterr); g_rulesel=0; return 1; }
+    if(hit(mx,my,g_tl_tplr.x,g_tl_tplr.y,g_tl_tplr.w,18)){ ct->tpl=(ct->tpl+1)%4; terr_rebuild(ct); { int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); } g_rulesel=0; return 1; }   /* new rule type, same sheet */
     if(hit(mx,my,g_tl_edger.x,g_tl_edger.y,86,18)){ ct->edge=!ct->edge; return 1; }
-    if(hit(mx,my,g_tl_tsm.x,g_tl_tsm.y,16,18)){ if(g_tl_ts>8){ g_tl_ts-=8; for(int i=0;i<g_nterr;i++)terr_gen_sheet(i); } return 1; }
-    if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_gen_sheet(i); } return 1; }
-    if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,18)){ if(ct->nvar>1){ ct->nvar--; terr_gen_sheet(g_curterr); } return 1; }
-    if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,18)){ if(ct->nvar<4){ ct->nvar++; terr_gen_sheet(g_curterr); } return 1; }
-    if(hit(mx,my,g_tl_load.x,g_tl_load.y,74,20)){ fp_open(2); return 1; }
-    if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,52,20)){ terr_add_row(g_curterr); return 1; }
-    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,58,20)){ terr_save_png(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_tsm.x,g_tl_tsm.y,16,18)){ if(g_tl_ts>8){ g_tl_ts-=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
+    if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
+    if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,18)){ if(ct->nvar>1)ct->nvar--; return 1; }            /* nvar = how many sheet rows are variants */
+    if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,18)){ if(ct->nvar<ct->srows&&ct->nvar<8)ct->nvar++; return 1; }
+    if(hit(mx,my,g_tl_load.x,g_tl_load.y,66,20)){ fp_open(2); return 1; }
+    if(hit(mx,my,g_tl_gen.x,g_tl_gen.y,40,20)){ terr_gen_starter(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,44,20)){ terr_add_row(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,46,20)){ terr_save_png(g_curterr); return 1; }
     int sn=ct->scols*ct->srows; for(int ci=0;ci<sn&&ci<64;ci++)if(hit(mx,my,g_sheetcell[ci].x,g_sheetcell[ci].y,g_sheetcell[ci].w,g_sheetcell[ci].h)){ g_cellsel=ci;
         uint8_t rr=ct->rep[g_rulesel]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->lut[m]=(uint8_t)ci; return 1; }
     return 0; }
@@ -1650,11 +1667,13 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
     int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<g_ngame;i++){ int y=by+40+i*22; if(y>by+bh-26)break; int hov=hit(mx,my,bx+6,y,bw-12,20);
+    int rows=(bh-66)/22; if(g_pscroll>g_ngame-rows)g_pscroll=g_ngame-rows; if(g_pscroll<0)g_pscroll=0;
+    for(int k=0;k<rows&&g_pscroll+k<g_ngame;k++){ int i=g_pscroll+k; int y=by+40+k*22; int hov=hit(mx,my,bx+6,y,bw-12,20);
         if(hov)plain(R,bx+6,y,bw-12,20,C_SEL); else if(i==g_sel)plain(R,bx+6,y,bw-12,20,(Col){36,40,54});
         icon(R,IC_FOLDER,bx+14,y+3,14,hov?(Col){230,210,140}:(Col){150,150,170});
         text(R,g_games[i].name,bx+36,y+5,1,(hov||i==g_sel)?C_TXT:(Col){175,182,200},hov?C_SEL:C_PANEL); }
-    text(R,"click a project   (Esc to close)",bx+14,by+bh-20,1,C_DIM,C_PANEL); }
+    if(g_ngame>rows){ char sc[40]; snprintf(sc,sizeof sc,"%d-%d of %d  (scroll)",g_pscroll+1,(g_pscroll+rows<g_ngame?g_pscroll+rows:g_ngame),g_ngame); text(R,sc,bx+bw-150,by+bh-20,1,C_DIM,C_PANEL); }
+    text(R,"click a project   (scroll \xb7 Esc to close)",bx+14,by+bh-20,1,C_DIM,C_PANEL); }
 static void draw_modal(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=420,bh=190,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,"NEW GAME",bx+14,by+8,2,C_TITLE,C_HDR); text(R,"NAME (created under examples/)",bx+18,by+44,1,C_DIM,C_PANEL);
@@ -1767,6 +1786,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_TEX")){ g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); g_tab=TAB_PIXEL; }
     if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
+    if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
@@ -1785,8 +1805,9 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); } }
                 continue; }
             if(g_picker){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
+                else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; if(g_pscroll<0)g_pscroll=0; }
                 else if(e.type==SDL_MOUSEBUTTONDOWN){ int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2,mx=e.button.x,my=e.button.y;
-                    if(mx>=bx&&mx<bx+bw&&my>=by+40&&my<by+bh-24){ int i=(my-(by+40))/22; if(i>=0&&i<g_ngame)open_project(i); } else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
+                    if(mx>=bx&&mx<bx+bw&&my>=by+40&&my<by+bh-24){ int i=g_pscroll+(my-(by+40))/22; if(i>=0&&i<g_ngame)open_project(i); } else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
                 continue; }
             if(g_align){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_align=0;
                 else if(e.type==SDL_MOUSEBUTTONDOWN)align_press(e.button.x,e.button.y);
