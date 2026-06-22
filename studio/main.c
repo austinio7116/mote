@@ -2241,6 +2241,28 @@ int main(int argc,char**argv){
         for(int r=3;r<7;r++)for(int c=4;c<10;c++){ g_lv_terrain[r*28+c]|=4; g_lv_terrain[r*28+c]&=(uint8_t)~2; }  /* water pond */
         snprintf(g_tl_name,sizeof g_tl_name,"world"); bake_all(); }
     if(getenv("MOTE_STUDIO_AUDIO")){ load_audio(getenv("MOTE_STUDIO_AUDIO")); g_tab=TAB_AUDIO; }
+    if(getenv("MOTE_STUDIO_GAMESFX")&&g_sel>=0){   /* render a set of SFX through the synth, save assets/*.wav + bake src/*.h */
+        struct SD { const char*nm; int wv; float bf,fr,sus,pun,dec,arps,arpm,vibs,vibsp; };
+        struct SD pong[]={
+            {"paddle",0,0.42f,-0.25f,0.01f,0.40f,0.10f,0,0,0,0},
+            {"wall",  0,0.28f,-0.18f,0.01f,0.30f,0.09f,0,0,0,0},
+            {"score", 0,0.52f, 0.00f,0.07f,0.40f,0.28f,0.55f,0.45f,0,0},
+            {"miss",  3,0.28f,-0.12f,0.10f,0.30f,0.38f,0,0,0,0} };
+        struct SD ark[]={
+            {"paddle", 0,0.44f,-0.22f,0.01f,0.40f,0.10f,0,0,0,0},
+            {"wall",   0,0.30f,-0.16f,0.01f,0.30f,0.09f,0,0,0,0},
+            {"brick",  3,0.46f,-0.30f,0.01f,0.30f,0.13f,0,0,0,0},
+            {"powerup",1,0.30f, 0.22f,0.12f,0.20f,0.22f,0,0,0.22f,0.4f},
+            {"lose",   3,0.22f,-0.15f,0.12f,0.30f,0.45f,0,0,0,0} };
+        struct SD*S; int n; const char*gn=g_games[g_sel].name;
+        if(!strcmp(gn,"arkanoid3d")){ S=ark; n=(int)(sizeof ark/sizeof*ark); } else { S=pong; n=(int)(sizeof pong/sizeof*pong); }
+        char ad[320]; snprintf(ad,sizeof ad,"%.250s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+        for(int i=0;i<n;i++){ memset(&g_sfx,0,sizeof g_sfx); g_sfx.lpf_freq=1.0f; g_sfx.duty=0.5f;
+            g_sfx.wave=S[i].wv; g_sfx.base_freq=S[i].bf; g_sfx.freq_ramp=S[i].fr; g_sfx.env_sustain=S[i].sus; g_sfx.env_punch=S[i].pun; g_sfx.env_decay=S[i].dec;
+            g_sfx.arp_speed=S[i].arps; g_sfx.arp_mod=S[i].arpm; g_sfx.vib_strength=S[i].vibs; g_sfx.vib_speed=S[i].vibsp;
+            sfx_apply(0); snprintf(g_au_name,sizeof g_au_name,"%s",S[i].nm);
+            char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,S[i].nm); write_wav(wp,g_wav,g_wavn); }
+        mc_bake(g_games[g_sel].dir,log_add); printf("studio: generated %d SFX for %s\n",n,gn); }
     if(getenv("MOTE_STUDIO_ANIM")){ an_ensure(); an_import(getenv("MOTE_STUDIO_ANIM")); snprintf(g_an_clip[0].name,16,"bounce"); g_an_clip[0].fps=8; g_an_clip[0].loop=MOTE_ANIM_PINGPONG; for(int i=0;i<4;i++)an_addframe(i); g_an_clip[0].fr[2].ev[0]='h';g_an_clip[0].fr[2].ev[1]='i';g_an_clip[0].fr[2].ev[2]='t';g_an_clip[0].fr[2].ev[3]=0; g_an_clip[0].pvx=8; g_an_clip[0].pvy=14; g_tab=TAB_ANIM; if(getenv("MOTE_STUDIO_ANIMBAKE"))an_bake(); }
     if(getenv("MOTE_STUDIO_ANIMLOAD")){ an_ensure(); an_load_def(getenv("MOTE_STUDIO_ANIMLOAD")); g_tab=TAB_ANIM; }
     if(getenv("MOTE_STUDIO_HERO")){ an_ensure(); an_import("examples/herodemo/assets/hero.png"); snprintf(g_an_name,sizeof g_an_name,"hero");

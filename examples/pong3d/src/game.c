@@ -9,6 +9,10 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include <math.h>
+#include "paddle.h"   /* SFX baked in the Studio Audio tab — edit by opening assets/*.wav there */
+#include "wall.h"
+#include "score.h"
+#include "miss.h"
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -80,18 +84,18 @@ static void g_update(float dt){
         if(s_serving){ if(mote_just_pressed(in,MOTE_BTN_A)) s_serving=0; }
         else {
             bx+=vx*dt; by+=vy*dt;
-            if(by> WALL_Y-BALL_R){ by=WALL_Y-BALL_R; vy=-vy; burst(bx,by,MOTE_RGB565(120,235,245),4); }
-            if(by<-(WALL_Y-BALL_R)){ by=-(WALL_Y-BALL_R); vy=-vy; burst(bx,by,MOTE_RGB565(120,235,245),4); }
+            if(by> WALL_Y-BALL_R){ by=WALL_Y-BALL_R; vy=-vy; burst(bx,by,MOTE_RGB565(120,235,245),4); mote->audio_play(&wall_snd,0.7f); }
+            if(by<-(WALL_Y-BALL_R)){ by=-(WALL_Y-BALL_R); vy=-vy; burst(bx,by,MOTE_RGB565(120,235,245),4); mote->audio_play(&wall_snd,0.7f); }
             /* player paddle */
             if(vx<0 && bx<-PADX+0.34f+BALL_R && bx>-PADX-0.5f && fabsf(by-py)<PHALF+BALL_R){
                 bx=-PADX+0.34f+BALL_R; vx=-vx*1.06f; vy += (by-py)*3.2f;
-                s_flashp=6; s_shake=0.6f; burst(bx,by,MOTE_RGB565(120,180,255),8); }
+                s_flashp=6; s_shake=0.6f; burst(bx,by,MOTE_RGB565(120,180,255),8); mote->audio_play(&paddle_snd,1.0f); }
             if(vx>0 && bx> PADX-0.34f-BALL_R && bx<PADX+0.5f && fabsf(by-ay)<PHALF+BALL_R){
                 bx= PADX-0.34f-BALL_R; vx=-vx*1.06f; vy += (by-ay)*3.2f;
-                s_flasha=6; s_shake=0.6f; burst(bx,by,MOTE_RGB565(255,140,140),8); }
+                s_flasha=6; s_shake=0.6f; burst(bx,by,MOTE_RGB565(255,140,140),8); mote->audio_play(&paddle_snd,1.0f); }
             float sp2=sqrtf(vx*vx+vy*vy); if(sp2>17.0f){ vx*=17.0f/sp2; vy*=17.0f/sp2; }
-            if(bx<-10.5f){ sa++; if(sa>=WIN)s_over=1; else serve(1); }
-            if(bx> 10.5f){ sp++; if(sp>=WIN)s_over=1; else serve(-1); }
+            if(bx<-10.5f){ sa++; mote->audio_play(&miss_snd,1.0f); if(sa>=WIN)s_over=1; else serve(1); }
+            if(bx> 10.5f){ sp++; mote->audio_play(&score_snd,1.0f); if(sp>=WIN)s_over=1; else serve(-1); }
         }
         trail[trail_h]=v3(bx,by,0); trail_h=(trail_h+1)%NTRAIL;
     }

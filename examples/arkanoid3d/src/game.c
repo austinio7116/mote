@@ -9,6 +9,11 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include <math.h>
+#include "paddle.h"   /* SFX baked in the Studio Audio tab — edit by opening assets/*.wav there */
+#include "wall.h"
+#include "brick.h"
+#include "powerup.h"
+#include "lose.h"
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -123,12 +128,12 @@ static void g_update(float dt){
         else {
             float vn=sqrtf(vx*vx+vz*vz); if(vn>1e-3f){ vx=vx/vn*spd; vz=vz/vn*spd; }
             bx+=vx*dt; bz+=vz*dt;
-            if(bx> AX-R){ bx=AX-R; vx=-vx; } if(bx<-(AX-R)){ bx=-(AX-R); vx=-vx; }
-            if(bz> ZFAR-R){ bz=ZFAR-R; vz=-vz; }
+            if(bx> AX-R){ bx=AX-R; vx=-vx; mote->audio_play(&wall_snd,0.7f); } if(bx<-(AX-R)){ bx=-(AX-R); vx=-vx; mote->audio_play(&wall_snd,0.7f); }
+            if(bz> ZFAR-R){ bz=ZFAR-R; vz=-vz; mote->audio_play(&wall_snd,0.7f); }
             /* paddle */
             if(vz<0 && bz<ZPAD+0.5f && bz>ZPAD-0.6f && fabsf(bx-px)<phalf+R){
-                bz=ZPAD+0.5f; vz=-vz; vx += (bx-px)*4.0f; burst(v3(bx,R,bz),MOTE_RGB565(140,200,255),5); }
-            if(bz<ZLOSE){ s_lives--; if(s_lives<=0) s_over=1; else reset_ball(); }
+                bz=ZPAD+0.5f; vz=-vz; vx += (bx-px)*4.0f; burst(v3(bx,R,bz),MOTE_RGB565(140,200,255),5); mote->audio_play(&paddle_snd,1.0f); }
+            if(bz<ZLOSE){ s_lives--; mote->audio_play(&lose_snd,1.0f); if(s_lives<=0) s_over=1; else reset_ball(); }
             /* bricks */
             for(int r=0;r<ROWS && !s_launch;r++){ for(int c=0;c<COLS;c++) if(dur[r][c]){
                 Vec3 bp=brick_pos(r,c); float dx=bx-bp.x, dz=bz-bp.z;
@@ -136,7 +141,7 @@ static void g_update(float dt){
                     float ox=(BHX+R)-fabsf(dx), oz=(BHZ+R)-fabsf(dz);
                     if(ox<oz) vx=-vx; else vz=-vz;
                     dur[r][c]--; fl_r=r; fl_c=c; fl_t=0.18f;
-                    s_score += 10*(s_level+1);
+                    s_score += 10*(s_level+1); mote->audio_play(&brick_snd,1.0f);
                     burst(bp, dur[r][c]?MOTE_RGB565(230,230,180):MOTE_RGB565(255,220,120), dur[r][c]?4:9);
                     if(dur[r][c]==0){ bricks_left--; spawn_pw(bp); }
                     r=ROWS; break;                       /* one brick per frame */
@@ -150,7 +155,7 @@ static void g_update(float dt){
         /* power-ups fall toward the paddle */
         for(int i=0;i<NPW;i++) if(pw[i].on){ pw[i].p.z -= 5.0f*dt;
             if(pw[i].p.z<ZPAD+0.6f && fabsf(pw[i].p.x-px)<phalf+0.4f){
-                pw[i].on=0; burst(pw[i].p,MOTE_RGB565(255,255,200),8);
+                pw[i].on=0; burst(pw[i].p,MOTE_RGB565(255,255,200),8); mote->audio_play(&powerup_snd,1.0f);
                 if(pw[i].type==0) s_wide=11.0f; else if(pw[i].type==1) s_slow=9.0f; else s_lives++; s_score+=50; }
             else if(pw[i].p.z<ZLOSE) pw[i].on=0; }
     }
