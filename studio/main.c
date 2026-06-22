@@ -1386,40 +1386,41 @@ static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,in
     uint16_t*pp=&sh[(cy+y)*W+cx+x];
     if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
     else if(g_ptool==2)cell_flood(sh,W,cx,cy,cw,ch,x,y,g_pcol); }
-static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure(); (void)h;
-    Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows;
-    int tx=ox,ty=oy;
-    /* OPEN picker — the project's existing levels & tilesets, click to open (no accidental edits of the wrong thing) */
+static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure();
+    Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows; g_tl_tplr=(SDL_Rect){0,0,0,0};
     g_tl_nlv=tl_scan("levels",".level",g_tl_lvn,12); g_tl_nts=tl_scan("tilesets",".tileset",g_tl_tsn,12);
-    text(R,"OPEN  levels",tx,ty,1,(Col){150,170,210},C_DOCK); ty+=13; { int cx=tx;
-        for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+10; if(cx+bw>tx+w-2){cx=tx;ty+=18;} int on=!strcmp(g_tl_lvn[i],g_tl_name);
-            g_tl_openlv[i]=(SDL_Rect){cx,ty,bw,16}; rrect(R,cx,ty,bw,16,3,on?C_ACC:(hit(mx,my,cx,ty,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_lvn[i],cx+5,ty+2,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); cx+=bw+3; }
-        if(!g_tl_nlv){ text(R,"(none — paint a level, then Bake)",cx,ty+2,1,C_DIM,C_DOCK); } } ty+=20;
-    text(R,"      tilesets",tx,ty,1,(Col){150,170,210},C_DOCK); ty+=13; { int cx=tx;
-        for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+10; if(cx+bw>tx+w-2){cx=tx;ty+=18;} int on=!strcmp(g_tl_tsn[i],ct->name);
-            g_tl_opents[i]=(SDL_Rect){cx,ty,bw,16}; rrect(R,cx,ty,bw,16,3,on?C_ACC:(hit(mx,my,cx,ty,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_tsn[i],cx+5,ty+2,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); cx+=bw+3; }
-        if(!g_tl_nts){ text(R,"(none yet)",cx,ty+2,1,C_DIM,C_DOCK); } } ty+=22;
-    g_tl_tplr=(SDL_Rect){0,0,0,0};   /* rule TYPE lives in the RULES bar, not here — this panel is just the sheet art */
-    { char hdr[64]; snprintf(hdr,sizeof hdr,"%s art  (%s rules \xb7 set in RULES)",ct->name,TL_TPL_L[ct->tpl]); text(R,hdr,tx,ty,1,C_DIM,C_DOCK); ty+=14; }
-    g_tl_edger=(SDL_Rect){tx,ty,86,18}; rrect(R,tx,ty,86,18,4,ct->edge?C_ACC:C_BTN); text(R,ct->edge?"edge=solid":"edge=open",tx+6,ty+3,1,ct->edge?C_HDR:C_DIM,ct->edge?C_ACC:C_BTN);
-    int tx2=tx+92; text(R,"tile",tx2,ty+3,1,C_DIM,C_DOCK); tx2+=textw(R,"tile",1)+4; g_tl_tsm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
-    { char b[6]; snprintf(b,sizeof b,"%d",ts); text(R,b,tx2+3,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_tsp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=22;
-    text(R,"variants",tx,ty+3,1,C_DIM,C_DOCK); tx2=tx+textw(R,"variants",1)+6; g_tl_varm=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"-",tx2+5,ty+3,1,C_TXT,C_BTN); tx2+=16;
-    { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); text(R,b,tx2+4,ty+3,1,C_TXT,C_DOCK); } tx2+=18; g_tl_varp=(SDL_Rect){tx2,ty,16,18}; rrect(R,tx2,ty,16,18,4,C_BTN); text(R,"+",tx2+4,ty+3,1,C_TXT,C_BTN); ty+=24;
+    int y=oy;
+    /* ---- OPEN card ---- */
+    { int cy=ui_card(R,ox,y,w,74,"OPEN"); int ax=ox+12;
+      text(R,"levels",ax,cy+2,1,C_DIM,C_PANEL); int cx=ax+textw(R,"levels",1)+8;
+      for(int i=0;i<g_tl_nlv;i++){ int bw=textw(R,g_tl_lvn[i],1)+12; if(cx+bw>ox+w-12){cx=ax;cy+=18;} int on=!strcmp(g_tl_lvn[i],g_tl_name);
+          g_tl_openlv[i]=(SDL_Rect){cx,cy,bw,16}; rrect(R,cx,cy,bw,16,4,on?C_SEL:(hit(mx,my,cx,cy,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_lvn[i],cx+6,cy+2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); cx+=bw+4; }
+      if(!g_tl_nlv)text(R,"(none yet)",cx,cy+2,1,C_DIM,C_PANEL); cy+=20;
+      text(R,"tilesets",ax,cy+2,1,C_DIM,C_PANEL); cx=ax+textw(R,"tilesets",1)+8;
+      for(int i=0;i<g_tl_nts;i++){ int bw=textw(R,g_tl_tsn[i],1)+12; if(cx+bw>ox+w-12){cx=ax;cy+=18;} int on=!strcmp(g_tl_tsn[i],ct->name);
+          g_tl_opents[i]=(SDL_Rect){cx,cy,bw,16}; rrect(R,cx,cy,bw,16,4,on?C_SEL:(hit(mx,my,cx,cy,bw,16)?C_BTNHI:C_BTN)); text(R,g_tl_tsn[i],cx+6,cy+2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); cx+=bw+4; }
+      if(!g_tl_nts)text(R,"(none yet)",cx,cy+2,1,C_DIM,C_PANEL); }
+    y+=74+8;
+
+    /* ---- TILESET card (the rule-tile's art + config) ---- */
+    int th2=ct->nvar>1?168:148; int cy=ui_card(R,ox,y,w,th2,ct->name); int ax=ox+12;
+    g_tl_edger=(SDL_Rect){ax,cy,90,20}; rrect(R,ax,cy,90,20,4,ct->edge?C_SEL:C_BTN); text(R,ct->edge?"edge solid":"edge open",ax+8,cy+5,1,ct->edge?C_HDR:C_DIM,ct->edge?C_SEL:C_BTN);
+    { char b[6]; snprintf(b,sizeof b,"%d",ts); ui_stepper(R,ax+100,cy,"tile",b,&g_tl_tsm,&g_tl_tsp,mx,my); } cy+=26;
+    { char b[6]; snprintf(b,sizeof b,"%d",ct->nvar); ui_stepper(R,ax,cy,"variants",b,&g_tl_varm,&g_tl_varp,mx,my); } cy+=26;
     for(int v=0;v<8;v++)g_tl_vw[v]=(SDL_Rect){0,0,0,0};
-    if(ct->nvar>1){ text(R,"weights",tx,ty+3,1,C_DIM,C_DOCK); int wx=tx+textw(R,"weights",1)+6;
-        for(int v=0;v<ct->nvar&&v<8;v++){ int wv=ct->var_weight[v]?ct->var_weight[v]:1; g_tl_vw[v]=(SDL_Rect){wx,ty,18,18}; rrect(R,wx,ty,18,18,4,hit(mx,my,wx,ty,18,18)?C_BTNHI:C_BTN); char b[6]; snprintf(b,sizeof b,"%d",wv); text(R,b,wx+6,ty+3,1,(Col){240,200,90},C_BTN); wx+=20; }
-        ty+=22; text(R,"click a weight to raise it (variant row 0 = top of sheet)",tx,ty,1,C_DIM,C_DOCK); ty+=13; }
-    g_tl_load=(SDL_Rect){tx,ty,66,20}; rrect(R,tx,ty,66,20,4,hit(mx,my,tx,ty,66,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+5,ty+4,1,(Col){170,200,140},C_BTN);
-    g_tl_gen=(SDL_Rect){tx+70,ty,40,20}; rrect(R,tx+70,ty,40,20,4,hit(mx,my,tx+70,ty,40,20)?C_BTNHI:C_BTN); text(R,"Gen",tx+78,ty+4,1,C_TXT,C_BTN);
-    g_tl_addrow=(SDL_Rect){tx+114,ty,44,20}; rrect(R,tx+114,ty,44,20,4,hit(mx,my,tx+114,ty,44,20)?C_BTNHI:C_BTN); text(R,"+Row",tx+119,ty+4,1,C_TXT,C_BTN);
-    g_tl_savep=(SDL_Rect){tx+162,ty,46,20}; rrect(R,tx+162,ty,46,20,4,hit(mx,my,tx+162,ty,46,20)?C_BTNHI:C_BTN); text(R,"Save",tx+170,ty+4,1,C_TXT,C_BTN); ty+=24;
-    text(R,"Gen = write a starter sheet PNG you can then edit",tx,ty,1,C_DIM,C_DOCK); ty+=14;
-    char sl[40]; snprintf(sl,sizeof sl,"SHEET  %dx%d cells",ct->scols,ct->srows); text(R,sl,tx,ty,1,(Col){170,200,140},C_DOCK); ty+=14;
-    int dz=24, per=w/(dz+2); if(per<1)per=1;   /* WRAP regardless of the sheet's own row layout */
-    for(int ci=0;ci<sn&&ci<64;ci++){ int gx=tx+(ci%per)*(dz+2), gyy=ty+(ci/per)*(dz+2); g_sheetcell[ci]=(SDL_Rect){gx,gyy,dz,dz};
-        plain(R,gx-1,gyy-1,dz+2,dz+2, ci==g_cellsel?(Col){240,200,90}:(Col){34,36,46}); blit_cell(R,ct,ci,gx,gyy,dz); }
-    text(R,"click a rule (below), then a cell here to assign",tx,ty+((sn+per-1)/per)*(dz+2)+4,1,C_DIM,C_DOCK); }
+    if(ct->nvar>1){ text(R,"weights",ax,cy+4,1,C_DIM,C_PANEL); int wx=ax+textw(R,"weights",1)+6;
+        for(int v=0;v<ct->nvar&&v<8;v++){ int wv=ct->var_weight[v]?ct->var_weight[v]:1; g_tl_vw[v]=(SDL_Rect){wx,cy,18,20}; rrect(R,wx,cy,18,20,4,hit(mx,my,wx,cy,18,20)?C_BTNHI:C_BTN); char b[6]; snprintf(b,sizeof b,"%d",wv); text(R,b,wx+6,cy+5,1,C_TITLE,C_BTN); wx+=20; } cy+=26; }
+    { SDL_Rect r; int bx=ui_btn(R,ax,cy,84,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_tl_load,mx,my);
+      bx=ui_btn(R,bx,cy,52,"Gen",IC_HAMMER,(Col){0,0,0},&g_tl_gen,mx,my);
+      ui_btn(R,bx,cy,58,"+ Row",IC_PLUS,(Col){0,0,0},&g_tl_addrow,mx,my); (void)r; } cy+=26;
+    ui_btn(R,ax,cy,w-24,"Save sheet \xbb assets/",IC_SAVE,(Col){0,0,0},&g_tl_savep,mx,my);
+    y+=th2+8;
+
+    /* ---- SHEET card (the cells; click a cell to assign to the selected rule) ---- */
+    int scy=ui_card(R,ox,y,w,h-(y-oy)-4,"SHEET \xb7 assign a cell to the selected rule"); int sx0=ox+12;
+    int dz=26, per=(w-24)/(dz+3); if(per<1)per=1;
+    for(int ci=0;ci<sn&&ci<64;ci++){ int gx=sx0+(ci%per)*(dz+3), gyy=scy+(ci/per)*(dz+3); g_sheetcell[ci]=(SDL_Rect){gx,gyy,dz,dz};
+        rrect(R,gx-1,gyy-1,dz+2,dz+2,3, ci==g_cellsel?C_TITLE:C_LINE); blit_cell(R,ct,ci,gx,gyy,dz); } }
 
 static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure();
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; if(ct->nvar<1)ct->nvar=1; if(g_dr_var>=ct->nvar)g_dr_var=0;
@@ -1442,23 +1443,26 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
       text(R,eb,tx+96,ty+6,1,strcmp(nm,g_loaded_level)&&g_loaded_level[0]?(Col){230,180,90}:C_DIM,C_DOCK); }
 
     int gy=oy+30, ph=h-(gy-oy)-6;
-    int rw=w*33/100, ew=w*30/100, lw=w-rw-ew-16;
-    /* ---- RULES (big) ---- */
-    text(R,"RULES",ox,gy,1,(Col){170,200,140},C_DOCK);
-    { static const char*TT[4]={"Blob47","Edge16","9-slice","Wang16"}; int btx=ox+42; int bwk=(rw-46)/4; if(bwk>62)bwk=62; if(bwk<40)bwk=40;
-      for(int k=0;k<4;k++){ int on=ct->tpl==k; g_tl_type[k]=(SDL_Rect){btx,gy-2,bwk-2,15};
-        rrect(R,btx,gy-2,bwk-2,15,3,on?(Col){88,120,172}:C_BTN); text(R,TT[k],btx+4,gy+1,1,on?C_TXT:C_DIM,on?(Col){88,120,172}:C_BTN); btx+=bwk; } }
-    int rx=ox, bw=46, per=rw/bw; if(per<1)per=1; int rdz=bw-8;
-    for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=gy+18+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
-        plain(R,gx,gyy,bw-2,bw+4, ci==g_rulesel?(Col){240,200,90}:(Col){34,36,46}); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
-        uint8_t m=ct->rep[ci]; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int on=(dx==0&&dy==0)?1:((m&nb_bit_for(dx,dy))!=0);
-            plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } }
-    /* ---- EDIT (inline cell editor + HSV) ---- */
-    int ex=ox+rw+8; text(R,"EDIT cell",ex,gy,1,(Col){170,200,140},C_DOCK);
-    { uint8_t xf=ct->xform[ct->rep[g_rulesel]]; int rot=((xf>>2)&3)*90; const char*RL[4]={"0\xb0","90\xb0","180\xb0","270\xb0"};
-      int bx=ex+62; g_tl_xf[0]=(SDL_Rect){bx,gy-2,44,15}; rrect(R,bx,gy-2,44,15,3,C_BTN); { char rb[16]; snprintf(rb,sizeof rb,"Rot %s",RL[(xf>>2)&3]); text(R,rb,bx+3,gy+1,1,rot?(Col){240,200,90}:C_DIM,C_BTN); } bx+=48;
-      g_tl_xf[1]=(SDL_Rect){bx,gy-2,18,15}; rrect(R,bx,gy-2,18,15,3,(xf&1)?(Col){88,120,172}:C_BTN); text(R,"H",bx+5,gy+1,1,(xf&1)?C_TXT:C_DIM,(xf&1)?(Col){88,120,172}:C_BTN); bx+=22;
-      g_tl_xf[2]=(SDL_Rect){bx,gy-2,18,15}; rrect(R,bx,gy-2,18,15,3,(xf&2)?(Col){88,120,172}:C_BTN); text(R,"V",bx+5,gy+1,1,(xf&2)?C_TXT:C_DIM,(xf&2)?(Col){88,120,172}:C_BTN); }
+    int rw=w*30/100, ew=w*32/100, lw=w-rw-ew-16;
+    int ex=ox+rw+8, lx=ox+rw+ew+16;
+
+    /* ---- RULES card ---- */
+    int ry=ui_card(R,ox,gy,rw,ph,"RULES");
+    { static const char*TT[4]={"Blob 47","Edge 16","9-slice","Wang 16"}; int btx=ox+12, bwk=(rw-24)/4;
+      for(int k=0;k<4;k++){ int on=ct->tpl==k; g_tl_type[k]=(SDL_Rect){btx,ry,bwk-3,19};
+        rrect(R,btx,ry,bwk-3,19,4,on?C_SEL:C_BTN); text(R,TT[k],btx+6,ry+5,1,on?C_HDR:C_DIM,on?C_SEL:C_BTN); btx+=bwk; } }
+    { int rx=ox+12, bw=46, per=(rw-24)/bw; if(per<1)per=1; int rdz=bw-8;
+      for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=ry+26+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
+          rrect(R,gx-1,gyy-1,bw,bw+6,3, ci==g_rulesel?C_TITLE:C_LINE); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
+          uint8_t m=ct->rep[ci]; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int on=(dx==0&&dy==0)?1:((m&nb_bit_for(dx,dy))!=0);
+              plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } } }
+
+    /* ---- EDIT CELL card ---- */
+    int ey2=ui_card(R,ex,gy,ew,ph,"EDIT CELL");
+    { uint8_t xf=ct->xform[ct->rep[g_rulesel]]; const char*RL[4]={"0\xb0","90\xb0","180\xb0","270\xb0"}; int bx=ex+12;
+      char rb[16]; snprintf(rb,sizeof rb,"rot %s",RL[(xf>>2)&3]); int rbw=textw(R,rb,1)+12; g_tl_xf[0]=(SDL_Rect){bx,ey2,rbw,19}; rrect(R,bx,ey2,rbw,19,4,((xf>>2)&3)?C_SEL:C_BTN); text(R,rb,bx+6,ey2+5,1,((xf>>2)&3)?C_HDR:C_TXT,((xf>>2)&3)?C_SEL:C_BTN); bx+=rbw+5;
+      g_tl_xf[1]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&1)?C_SEL:C_BTN); text(R,"H",bx+7,ey2+5,1,(xf&1)?C_HDR:C_TXT,(xf&1)?C_SEL:C_BTN); bx+=26;
+      g_tl_xf[2]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&2)?C_SEL:C_BTN); text(R,"V",bx+7,ey2+5,1,(xf&2)?C_HDR:C_TXT,(xf&2)?C_SEL:C_BTN); }
     int DW=3*ts; g_dr_cv=realloc(g_dr_cv,(size_t)DW*DW*2); for(int i=0;i<DW*DW;i++)g_dr_cv[i]=TLRGB(20,18,28);
     uint8_t rm=ct->rep[g_rulesel]; int W2=ct->scols*ts;
     for(int py=0;py<3;py++)for(int px=0;px<3;px++){ int cell=-1,dim=0;
@@ -1467,28 +1471,29 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ uint16_t p=ct->sheet[(cyy+y)*W2+cx+x]; if(p==KEY565)continue; if(dim)p=dimc(p); g_dr_cv[(py*ts+y)*DW+(px*ts+x)]=p; } }
     if(!g_dr_tex||g_dr_texw!=DW){ if(g_dr_tex)SDL_DestroyTexture(g_dr_tex); g_dr_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,DW,DW); SDL_SetTextureScaleMode(g_dr_tex,SDL_ScaleModeNearest); g_dr_texw=DW; g_dr_texh=DW; }
     SDL_UpdateTexture(g_dr_tex,NULL,g_dr_cv,DW*2);
-    int dsc=(ew*52/100)/DW; if(dsc<1)dsc=1; { int hcap=(ph-20)/DW; if(hcap<dsc)dsc=hcap; if(dsc<1)dsc=1; }
-    int dpx=ex,dpy=gy+16; SDL_Rect drr={dpx,dpy,DW*dsc,DW*dsc}; plain(R,dpx-1,dpy-1,DW*dsc+2,DW*dsc+2,(Col){30,32,40}); SDL_RenderCopy(R,g_dr_tex,NULL,&drr);
+    int dpx=ex+12,dpy=ey2+26; int dsc=((ew-24)*54/100)/DW; if(dsc<1)dsc=1; { int hcap=(gy+ph-dpy-8)/DW; if(hcap<dsc)dsc=hcap; if(dsc<1)dsc=1; }
+    SDL_Rect drr={dpx,dpy,DW*dsc,DW*dsc}; rect_outline(R,dpx-1,dpy-1,DW*dsc+2,DW*dsc+2,C_LINE,1); SDL_RenderCopy(R,g_dr_tex,NULL,&drr);
     g_dr_tile=(SDL_Rect){dpx+ts*dsc,dpy+ts*dsc,ts*dsc,ts*dsc};
     SDL_SetRenderDrawColor(R,250,210,90,255); SDL_Rect ob={g_dr_tile.x-1,g_dr_tile.y-1,g_dr_tile.w+2,g_dr_tile.h+2}; SDL_RenderDrawRect(R,&ob);
-    int rxx=dpx+DW*dsc+10, ry=gy+16; px_panel_draw(R,rxx,ry,gy+ph);
-    /* ---- LEVEL (in the same panel) ---- */
-    int lx=ox+rw+ew+16; text(R,"LEVEL",lx,gy,1,(Col){170,200,140},C_DOCK);
-    int ly=gy+14, lxx=lx;
-    for(int i=0;i<4;i++){ char s2[14]; snprintf(s2,sizeof s2,"%dx%d",LV_SIZES[i].c,LV_SIZES[i].r); int bw3=textw(R,s2,1)+8; g_lv_szr[i]=(SDL_Rect){lxx,ly,bw3,18};
-        int sel=g_lv_cols==LV_SIZES[i].c&&g_lv_rows==LV_SIZES[i].r; rrect(R,lxx,ly,bw3,18,3,sel?C_ACC:C_BTN); text(R,s2,lxx+4,ly+3,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); lxx+=bw3+3; }
-    g_lv_fitb=(SDL_Rect){lxx,ly,34,18}; rrect(R,lxx,ly,34,18,3,g_lv_fit?C_ACC:C_BTN); text(R,"Fit",lxx+8,ly+3,1,g_lv_fit?C_HDR:C_TXT,g_lv_fit?C_ACC:C_BTN); lxx+=37;
-    g_lv_zm=(SDL_Rect){lxx,ly,14,18}; rrect(R,lxx,ly,14,18,3,C_BTN); text(R,"-",lxx+4,ly+3,1,C_TXT,C_BTN); lxx+=16; g_lv_zp=(SDL_Rect){lxx,ly,14,18}; rrect(R,lxx,ly,14,18,3,C_BTN); text(R,"+",lxx+3,ly+3,1,C_TXT,C_BTN);
-    int ly2=gy+34; lxx=lx; g_lv_clr=(SDL_Rect){lxx,ly2,44,18}; rrect(R,lxx,ly2,44,18,3,hit(mx,my,lxx,ly2,44,18)?C_BTNHI:C_BTN); text(R,"Clear",lxx+7,ly2+3,1,C_TXT,C_BTN); lxx+=48;
-    g_lv_fillr=(SDL_Rect){lxx,ly2,38,18}; rrect(R,lxx,ly2,38,18,3,hit(mx,my,lxx,ly2,38,18)?C_BTNHI:C_BTN); text(R,"Fill",lxx+9,ly2+3,1,C_TXT,C_BTN); lxx+=44;
-    text(R,"paint:",lxx,ly2+3,1,C_DIM,C_DOCK); lxx+=textw(R,"paint:",1)+4;
-    for(int i=0;i<g_nterr;i++){ int bw3=textw(R,g_terr[i].name,1)+20; g_lv_palr[i]=(SDL_Rect){lxx,ly2,bw3,18}; int sel=i==g_curterr;
-        rrect(R,lxx,ly2,bw3,18,3,sel?C_ACC:C_BTN); plain(R,lxx+5,ly2+5,7,7,(Col){TERR_TINT[i][0],TERR_TINT[i][1],TERR_TINT[i][2]}); text(R,g_terr[i].name,lxx+14,ly2+3,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); lxx+=bw3+3; }
-    int cvy=gy+56, cvw=lw, cvh=ph-(cvy-gy)-12;
+    px_panel_draw(R,dpx+DW*dsc+12,dpy,gy+ph-6);
+
+    /* ---- LEVEL card ---- */
+    int ly0=ui_card(R,lx,gy,lw,ph,"LEVEL"); int lpad=lx+12;
+    int ly=ly0, lxx=lpad;
+    for(int i=0;i<4;i++){ char s2[14]; snprintf(s2,sizeof s2,"%dx%d",LV_SIZES[i].c,LV_SIZES[i].r); int bw3=textw(R,s2,1)+10; g_lv_szr[i]=(SDL_Rect){lxx,ly,bw3,19};
+        int sel=g_lv_cols==LV_SIZES[i].c&&g_lv_rows==LV_SIZES[i].r; rrect(R,lxx,ly,bw3,19,4,sel?C_SEL:C_BTN); text(R,s2,lxx+5,ly+5,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); lxx+=bw3+4; }
+    g_lv_fitb=(SDL_Rect){lxx,ly,32,19}; rrect(R,lxx,ly,32,19,4,g_lv_fit?C_SEL:C_BTN); text(R,"fit",lxx+9,ly+5,1,g_lv_fit?C_HDR:C_TXT,g_lv_fit?C_SEL:C_BTN); lxx+=36;
+    g_lv_zm=(SDL_Rect){lxx,ly,18,19}; rrect(R,lxx,ly,18,19,4,C_BTN); text(R,"-",lxx+6,ly+5,1,C_TXT,C_BTN); lxx+=20; g_lv_zp=(SDL_Rect){lxx,ly,18,19}; rrect(R,lxx,ly,18,19,4,C_BTN); text(R,"+",lxx+5,ly+5,1,C_TXT,C_BTN);
+    int ly2=ly0+25; lxx=lpad; g_lv_clr=(SDL_Rect){lxx,ly2,46,19}; rrect(R,lxx,ly2,46,19,4,hit(mx,my,lxx,ly2,46,19)?C_BTNHI:C_BTN); text(R,"clear",lxx+9,ly2+5,1,C_TXT,C_BTN); lxx+=50;
+    g_lv_fillr=(SDL_Rect){lxx,ly2,40,19}; rrect(R,lxx,ly2,40,19,4,hit(mx,my,lxx,ly2,40,19)?C_BTNHI:C_BTN); text(R,"fill",lxx+11,ly2+5,1,C_TXT,C_BTN); lxx+=46;
+    text(R,"paint",lxx,ly2+5,1,C_DIM,C_PANEL); lxx+=textw(R,"paint",1)+5;
+    for(int i=0;i<g_nterr;i++){ int bw3=textw(R,g_terr[i].name,1)+22; g_lv_palr[i]=(SDL_Rect){lxx,ly2,bw3,19}; int sel=i==g_curterr;
+        rrect(R,lxx,ly2,bw3,19,4,sel?C_SEL:C_BTN); plain(R,lxx+6,ly2+6,7,7,(Col){TERR_TINT[i][0],TERR_TINT[i][1],TERR_TINT[i][2]}); text(R,g_terr[i].name,lxx+16,ly2+5,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); lxx+=bw3+4; }
+    int cvy=ly0+50, cvw=lw-24, cvh=ph-(cvy-gy)-12;
     if(g_lv_fit){ int zx=cvw/(g_lv_cols*ts), zy=cvh/(g_lv_rows*ts); g_lv_zoom=zx<zy?zx:zy; if(g_lv_zoom<1)g_lv_zoom=1; g_lv_panx=g_lv_pany=0; }
     int dz=ts*g_lv_zoom; int vc=cvw/dz,vr=cvh/dz; if(vc>g_lv_cols)vc=g_lv_cols; if(vr>g_lv_rows)vr=g_lv_rows; if(vc<1)vc=1; if(vr<1)vr=1;
     if(g_lv_panx>g_lv_cols-vc)g_lv_panx=g_lv_cols-vc; if(g_lv_panx<0)g_lv_panx=0; if(g_lv_pany>g_lv_rows-vr)g_lv_pany=g_lv_rows-vr; if(g_lv_pany<0)g_lv_pany=0;
-    g_lv_canvas=(SDL_Rect){lx,cvy,vc*dz,vr*dz}; int cw=vc*ts,ch=vr*ts; g_tl_cv=realloc(g_tl_cv,(size_t)cw*ch*2);
+    g_lv_canvas=(SDL_Rect){lpad,cvy,vc*dz,vr*dz}; int cw=vc*ts,ch=vr*ts; g_tl_cv=realloc(g_tl_cv,(size_t)cw*ch*2);
     for(int i=0;i<cw*ch;i++)g_tl_cv[i]=TLRGB(18,16,26);
     for(int L=0;L<g_nterr;L++){ Terr*tt=&g_terr[L]; int Wt=tt->scols*ts;                 /* draw each layer bottom-up, against its own bit */
         for(int r=0;r<vr;r++)for(int c=0;c<vc;c++){ int lc=g_lv_panx+c,lr=g_lv_pany+r; if(!((g_lv_terrain[lr*g_lv_cols+lc]>>L)&1))continue;
@@ -1500,8 +1505,8 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
                 if(xf&1)tx=ts-1-tx; if(xf&2)tyy=ts-1-tyy;
                 uint16_t p=tt->sheet[(sy+tyy)*Wt+sx+tx]; if(p==KEY565)continue; g_tl_cv[(r*ts+y)*cw+(c*ts+x)]=p; } } }
     if(!g_tl_tex||g_tl_texw!=cw||g_tl_texh!=ch){ if(g_tl_tex)SDL_DestroyTexture(g_tl_tex); g_tl_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,cw,ch); SDL_SetTextureScaleMode(g_tl_tex,SDL_ScaleModeNearest); g_tl_texw=cw; g_tl_texh=ch; }
-    SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); plain(R,lx-1,cvy-1,vc*dz+2,vr*dz+2,(Col){30,32,40}); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
-    char info[120]; snprintf(info,sizeof info,"%dx%d  %dx  LB '%s'  RB erase  MMB/shift pan",g_lv_cols,g_lv_rows,g_lv_zoom,ct->name); text(R,info,lx,cvy+vr*dz+3,1,C_DIM,C_DOCK);
+    SDL_UpdateTexture(g_tl_tex,NULL,g_tl_cv,cw*2); rect_outline(R,lpad-1,cvy-1,vc*dz+2,vr*dz+2,C_LINE,1); SDL_RenderCopy(R,g_tl_tex,NULL,&g_lv_canvas);
+    char info[120]; snprintf(info,sizeof info,"%dx%d  %dx  LB '%s'  RB erase  MMB/shift pan",g_lv_cols,g_lv_rows,g_lv_zoom,ct->name); text(R,info,lpad,cvy+vr*dz+4,1,C_DIM,C_PANEL);
     if(g_bake_confirm){   /* overwrite-a-different-level confirm */
         int bw=520,bh=92,bx=ox+(w-bw)/2,by=oy+40; plain(R,bx-2,by-2,bw+4,bh+4,(Col){10,10,14}); rrect(R,bx,by,bw,bh,6,(Col){46,34,20}); rrect(R,bx,by,bw,22,6,(Col){120,80,30});
         text(R,"OVERWRITE A DIFFERENT LEVEL?",bx+10,by+7,1,C_HDR,(Col){120,80,30});
@@ -1524,16 +1529,16 @@ static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
         snprintf(g_tl_name,sizeof g_tl_name,"%s",g_tl_lvn[i]); char p[480]; snprintf(p,sizeof p,"%.330s/levels/%.20s.level",g_games[g_sel].dir,g_tl_lvn[i]); lv_load_def(p); return 1; }
     for(int i=0;i<g_tl_nts;i++)if(hit(mx,my,g_tl_opents[i].x,g_tl_opents[i].y,g_tl_opents[i].w,g_tl_opents[i].h)){   /* open a tileset into the current layer */
         char p[480]; snprintf(p,sizeof p,"%.330s/tilesets/%.20s.tileset",g_games[g_sel].dir,g_tl_tsn[i]); terr_load_def(g_curterr,p); g_rulesel=g_cellsel=0; return 1; }
-    if(hit(mx,my,g_tl_edger.x,g_tl_edger.y,86,18)){ ct->edge=!ct->edge; return 1; }
-    if(hit(mx,my,g_tl_tsm.x,g_tl_tsm.y,16,18)){ if(g_tl_ts>8){ g_tl_ts-=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
-    if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,18)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
-    if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,18)){ if(ct->nvar>1)ct->nvar--; return 1; }            /* nvar = how many sheet rows are variants */
-    if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,18)){ if(ct->nvar<ct->srows&&ct->nvar<8)ct->nvar++; return 1; }
-    for(int v=0;v<8;v++)if(g_tl_vw[v].w&&hit(mx,my,g_tl_vw[v].x,g_tl_vw[v].y,18,18)){ int w=ct->var_weight[v]?ct->var_weight[v]:1; ct->var_weight[v]=(uint8_t)(w>=9?1:w+1); return 1; }
-    if(hit(mx,my,g_tl_load.x,g_tl_load.y,66,20)){ fp_open(2); return 1; }
-    if(hit(mx,my,g_tl_gen.x,g_tl_gen.y,40,20)){ terr_gen_starter(g_curterr); return 1; }
-    if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,44,20)){ terr_add_row(g_curterr); return 1; }
-    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,46,20)){ terr_save_png(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_edger.x,g_tl_edger.y,g_tl_edger.w,g_tl_edger.h)){ ct->edge=!ct->edge; return 1; }
+    if(hit(mx,my,g_tl_tsm.x,g_tl_tsm.y,g_tl_tsm.w,g_tl_tsm.h)){ if(g_tl_ts>8){ g_tl_ts-=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
+    if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,g_tl_tsp.w,g_tl_tsp.h)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_refresh(i); } return 1; }
+    if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,g_tl_varm.w,g_tl_varm.h)){ if(ct->nvar>1)ct->nvar--; return 1; }            /* nvar = how many sheet rows are variants */
+    if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,g_tl_varp.w,g_tl_varp.h)){ if(ct->nvar<ct->srows&&ct->nvar<8)ct->nvar++; return 1; }
+    for(int v=0;v<8;v++)if(g_tl_vw[v].w&&hit(mx,my,g_tl_vw[v].x,g_tl_vw[v].y,g_tl_vw[v].w,g_tl_vw[v].h)){ int w=ct->var_weight[v]?ct->var_weight[v]:1; ct->var_weight[v]=(uint8_t)(w>=9?1:w+1); return 1; }
+    if(hit(mx,my,g_tl_load.x,g_tl_load.y,g_tl_load.w,g_tl_load.h)){ fp_open(2); return 1; }
+    if(hit(mx,my,g_tl_gen.x,g_tl_gen.y,g_tl_gen.w,g_tl_gen.h)){ terr_gen_starter(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,g_tl_addrow.w,g_tl_addrow.h)){ terr_add_row(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,g_tl_savep.w,g_tl_savep.h)){ terr_save_png(g_curterr); return 1; }
     int sn=ct->scols*ct->srows; for(int ci=0;ci<sn&&ci<64;ci++)if(hit(mx,my,g_sheetcell[ci].x,g_sheetcell[ci].y,g_sheetcell[ci].w,g_sheetcell[ci].h)){ g_cellsel=ci;
         uint8_t rr=ct->rep[g_rulesel]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->lut[m]=(uint8_t)ci; return 1; }
     return 0; }
@@ -1549,7 +1554,7 @@ static void tiles_down(int mx,int my){
         return; }
     if(hit(mx,my,g_tl_bakeall.x,g_tl_bakeall.y,86,22)){ if(bake_would_clobber())g_bake_confirm=1; else { bake_all(); snprintf(g_loaded_level,sizeof g_loaded_level,"%s",g_tl_name[0]?g_tl_name:"level"); } return; }
     Terr*ct=&g_terr[g_curterr];
-    for(int k=0;k<4;k++)if(hit(mx,my,g_tl_type[k].x,g_tl_type[k].y,g_tl_type[k].w,15)){ ct->tpl=k; terr_rebuild(ct); int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); g_rulesel=g_cellsel=0; return; }
+    for(int k=0;k<4;k++)if(hit(mx,my,g_tl_type[k].x,g_tl_type[k].y,g_tl_type[k].w,g_tl_type[k].h)){ ct->tpl=k; terr_rebuild(ct); int n=ct->scols*ct->srows; for(int m=0;m<256;m++)if(ct->lut[m]>=n)ct->lut[m]=(uint8_t)(n-1); g_rulesel=g_cellsel=0; return; }
     for(int k=0;k<3;k++)if(hit(mx,my,g_tl_xf[k].x,g_tl_xf[k].y,g_tl_xf[k].w,g_tl_xf[k].h)){   /* per-rule transform: rot / H / V */
         uint8_t rr=ct->rep[g_rulesel], cur=0; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr){ cur=ct->xform[m]; break; }
         if(k==0)cur=(uint8_t)((cur&~0x0C)|(((((cur>>2)&3)+1)&3)<<2)); else if(k==1)cur^=0x01; else cur^=0x02;
@@ -1558,11 +1563,11 @@ static void tiles_down(int mx,int my){
     if(px_panel_down(mx,my))return;
     if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=1; dr_paint_at(mx,my,0); return; }
     for(int i=0;i<4;i++)if(hit(mx,my,g_lv_szr[i].x,g_lv_szr[i].y,g_lv_szr[i].w,g_lv_szr[i].h)){ lv_alloc(LV_SIZES[i].c,LV_SIZES[i].r); g_lv_fit=1; return; }
-    if(hit(mx,my,g_lv_fitb.x,g_lv_fitb.y,34,18)){ g_lv_fit=!g_lv_fit; return; }
-    if(hit(mx,my,g_lv_zm.x,g_lv_zm.y,14,18)){ g_lv_fit=0; if(g_lv_zoom>1)g_lv_zoom--; return; }
-    if(hit(mx,my,g_lv_zp.x,g_lv_zp.y,14,18)){ g_lv_fit=0; if(g_lv_zoom<8)g_lv_zoom++; return; }
-    if(hit(mx,my,g_lv_clr.x,g_lv_clr.y,44,18)){ lv_fill(0); return; }
-    if(hit(mx,my,g_lv_fillr.x,g_lv_fillr.y,38,18)){ lv_fill((uint8_t)(g_curterr+1)); return; }
+    if(hit(mx,my,g_lv_fitb.x,g_lv_fitb.y,g_lv_fitb.w,g_lv_fitb.h)){ g_lv_fit=!g_lv_fit; return; }
+    if(hit(mx,my,g_lv_zm.x,g_lv_zm.y,g_lv_zm.w,g_lv_zm.h)){ g_lv_fit=0; if(g_lv_zoom>1)g_lv_zoom--; return; }
+    if(hit(mx,my,g_lv_zp.x,g_lv_zp.y,g_lv_zp.w,g_lv_zp.h)){ g_lv_fit=0; if(g_lv_zoom<8)g_lv_zoom++; return; }
+    if(hit(mx,my,g_lv_clr.x,g_lv_clr.y,g_lv_clr.w,g_lv_clr.h)){ lv_fill(0); return; }
+    if(hit(mx,my,g_lv_fillr.x,g_lv_fillr.y,g_lv_fillr.w,g_lv_fillr.h)){ lv_fill((uint8_t)(g_curterr+1)); return; }
     for(int i=0;i<g_nterr;i++)if(hit(mx,my,g_lv_palr[i].x,g_lv_palr[i].y,g_lv_palr[i].w,g_lv_palr[i].h)){ g_curterr=i; return; }
     if(hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h)){
         if(SDL_GetModState()&KMOD_SHIFT){ g_lv_pandrag=1; g_lv_fit=0; g_lv_grabx=mx; g_lv_graby=my; g_lv_px0=g_lv_panx; g_lv_py0=g_lv_pany; }
@@ -1671,23 +1676,25 @@ static void an_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open 
     fprintf(f,"#endif\n"); fclose(f); snprintf(g_an_loaded,sizeof g_an_loaded,"%s",nm); snprintf(g_status,sizeof g_status,"baked src/%s.anim.h (%d clips)",nm,g_an_nclip); }
 
 /* ---- inspector panel: sheet + cell grid + OPEN picker ---- */
-static void draw_anim_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); an_ensure(); (void)h; int tx=ox,ty=oy;
+static void draw_anim_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); an_ensure(); int y=oy;
     g_an_ndefs=an_list(g_an_defs,12);
-    text(R,"OPEN  animation sets",tx,ty,1,(Col){150,170,210},C_DOCK); ty+=13; { int cx=tx;
-        for(int i=0;i<g_an_ndefs;i++){ int bw=textw(R,g_an_defs[i],1)+10; if(cx+bw>tx+w-2){cx=tx;ty+=18;} int on=!strcmp(g_an_defs[i],g_an_name);
-            g_an_openc[i]=(SDL_Rect){cx,ty,bw,16}; rrect(R,cx,ty,bw,16,3,on?C_ACC:(hit(mx,my,cx,ty,bw,16)?C_BTNHI:C_BTN)); text(R,g_an_defs[i],cx+5,ty+2,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); cx+=bw+3; }
-        if(!g_an_ndefs)text(R,"(none — Bake to create one)",cx,ty+2,1,C_DIM,C_DOCK); } ty+=22;
-    g_an_load=(SDL_Rect){tx,ty,72,20}; rrect(R,tx,ty,72,20,4,hit(mx,my,tx,ty,72,20)?C_BTNHI:C_BTN); text(R,"Load PNG",tx+6,ty+4,1,(Col){170,200,140},C_BTN);
-    int bx=tx+80; text(R,"cell",bx,ty+4,1,C_DIM,C_DOCK); bx+=textw(R,"cell",1)+4;
-    g_an_twm=(SDL_Rect){bx,ty,15,18}; rrect(R,bx,ty,15,18,4,C_BTN); text(R,"-",bx+5,ty+3,1,C_TXT,C_BTN); bx+=16; { char b[6]; snprintf(b,sizeof b,"%d",g_an_tw); text(R,b,bx,ty+3,1,C_TXT,C_DOCK); } bx+=textw(R,"00",1)+2;
-    g_an_twp=(SDL_Rect){bx,ty,15,18}; rrect(R,bx,ty,15,18,4,C_BTN); text(R,"+",bx+4,ty+3,1,C_TXT,C_BTN); bx+=18; text(R,"x",bx,ty+3,1,C_DIM,C_DOCK); bx+=8;
-    g_an_thm=(SDL_Rect){bx,ty,15,18}; rrect(R,bx,ty,15,18,4,C_BTN); text(R,"-",bx+5,ty+3,1,C_TXT,C_BTN); bx+=16; { char b[6]; snprintf(b,sizeof b,"%d",g_an_th); text(R,b,bx,ty+3,1,C_TXT,C_DOCK); } bx+=textw(R,"00",1)+2;
-    g_an_thp=(SDL_Rect){bx,ty,15,18}; rrect(R,bx,ty,15,18,4,C_BTN); text(R,"+",bx+4,ty+3,1,C_TXT,C_BTN); ty+=26;
-    text(R,"SHEET  click a cell to append it to the clip",tx,ty,1,(Col){170,200,140},C_DOCK); ty+=14;
-    int nc=an_ncell(); int dz=22,per=w/(dz+2); if(per<1)per=1;
-    for(int i=0;i<nc&&i<256;i++){ int gx=tx+(i%per)*(dz+2),gy=ty+(i/per)*(dz+2); g_an_cell[i]=(SDL_Rect){gx,gy,dz,dz};
-        plain(R,gx-1,gy-1,dz+2,dz+2,(Col){34,36,46}); an_blit_cell(R,i,gx,gy,dz); }
-    if(!nc)text(R,"(load a PNG sheet first)",tx,ty+2,1,C_DIM,C_DOCK); }
+    /* ---- OPEN card ---- */
+    { int cy=ui_card(R,ox,y,w,52,"OPEN"); int ax=ox+12; int cx=ax;
+      for(int i=0;i<g_an_ndefs;i++){ int bw=textw(R,g_an_defs[i],1)+12; if(cx+bw>ox+w-12){cx=ax;cy+=18;} int on=!strcmp(g_an_defs[i],g_an_name);
+          g_an_openc[i]=(SDL_Rect){cx,cy,bw,16}; rrect(R,cx,cy,bw,16,4,on?C_SEL:(hit(mx,my,cx,cy,bw,16)?C_BTNHI:C_BTN)); text(R,g_an_defs[i],cx+6,cy+2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); cx+=bw+4; }
+      if(!g_an_ndefs)text(R,"(none — Bake to create one)",ax,cy+2,1,C_DIM,C_PANEL); }
+    y+=52+8;
+    /* ---- SHEET card (load + cell size + the cells) ---- */
+    int cy=ui_card(R,ox,y,w,h-(y-oy)-4,"SPRITE SHEET"); int ax=ox+12;
+    int bx=ui_btn(R,ax,cy,84,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_an_load,mx,my);
+    text(R,"cell",bx,cy+5,1,C_DIM,C_PANEL); bx+=textw(R,"cell",1)+6;
+    { char b[6]; snprintf(b,sizeof b,"%d",g_an_tw); int xx=ui_stepper(R,bx,cy,"",b,&g_an_twm,&g_an_twp,mx,my);
+      text(R,"x",xx,cy+5,1,C_DIM,C_PANEL); char b2[6]; snprintf(b2,sizeof b2,"%d",g_an_th); ui_stepper(R,xx+10,cy,"",b2,&g_an_thm,&g_an_thp,mx,my); } cy+=28;
+    text(R,"click a cell to append it to the clip",ax,cy,1,C_DIM,C_PANEL); cy+=16;
+    int nc=an_ncell(); int dz=24,per=(w-24)/(dz+3); if(per<1)per=1;
+    for(int i=0;i<nc&&i<256;i++){ int gx=ax+(i%per)*(dz+3),gy=cy+(i/per)*(dz+3); g_an_cell[i]=(SDL_Rect){gx,gy,dz,dz};
+        rrect(R,gx-1,gy-1,dz+2,dz+2,3,C_LINE); an_blit_cell(R,i,gx,gy,dz); }
+    if(!nc)text(R,"(load a PNG sheet first)",ax,cy+2,1,C_DIM,C_PANEL); }
 
 /* ---- dock: clips, frame strip, preview ---- */
 static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); an_ensure();
@@ -1768,9 +1775,9 @@ static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_
 
 static void anim_inspector_down(int mx,int my){ an_ensure();
     for(int i=0;i<g_an_ndefs;i++)if(hit(mx,my,g_an_openc[i].x,g_an_openc[i].y,g_an_openc[i].w,g_an_openc[i].h)){ char p[480]; snprintf(p,sizeof p,"%.330s/anims/%.20s.anims",g_games[g_sel].dir,g_an_defs[i]); an_load_def(p); return; }
-    if(hit(mx,my,g_an_load.x,g_an_load.y,72,20)){ fp_open(3); return; }
-    if(hit(mx,my,g_an_twm.x,g_an_twm.y,15,18)){ if(g_an_tw>4)g_an_tw-=4; return; } if(hit(mx,my,g_an_twp.x,g_an_twp.y,15,18)){ g_an_tw+=4; return; }
-    if(hit(mx,my,g_an_thm.x,g_an_thm.y,15,18)){ if(g_an_th>4)g_an_th-=4; return; } if(hit(mx,my,g_an_thp.x,g_an_thp.y,15,18)){ g_an_th+=4; return; }
+    if(hit(mx,my,g_an_load.x,g_an_load.y,g_an_load.w,g_an_load.h)){ fp_open(3); return; }
+    if(hit(mx,my,g_an_twm.x,g_an_twm.y,g_an_twm.w,g_an_twm.h)){ if(g_an_tw>4)g_an_tw-=4; return; } if(hit(mx,my,g_an_twp.x,g_an_twp.y,g_an_twp.w,g_an_twp.h)){ g_an_tw+=4; return; }
+    if(hit(mx,my,g_an_thm.x,g_an_thm.y,g_an_thm.w,g_an_thm.h)){ if(g_an_th>4)g_an_th-=4; return; } if(hit(mx,my,g_an_thp.x,g_an_thp.y,g_an_thp.w,g_an_thp.h)){ g_an_th+=4; return; }
     int nc=an_ncell(); for(int i=0;i<nc&&i<256;i++)if(hit(mx,my,g_an_cell[i].x,g_an_cell[i].y,g_an_cell[i].w,g_an_cell[i].h)){ an_addframe(i); return; } }
 #define ANHIT(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
 static void anim_down(int mx,int my){ an_ensure(); AClip*c=&g_an_clip[g_an_cur];
