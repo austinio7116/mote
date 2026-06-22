@@ -2425,6 +2425,7 @@ static int build_worker(void*a){ int i=(int)(intptr_t)a; int rc=mc_build(g_games
 /* build off the UI thread (keeps the Studio responsive); the main loop swaps the
  * engine in finish_load() once the build signals via g_builddone. */
 static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel=idx; build_tree(g_games[idx].dir); g_treewatch=tree_mtime(g_games[idx].dir);
+    g_tl_init=0; g_an_init=0; g_mesh_path[0]=0;   /* re-run the Tiles/Anim/Mesh lazy-load for the NEW project */
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
