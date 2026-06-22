@@ -26,8 +26,8 @@ Studio tab and `#include` the baked header. Spend your effort on `game.c`.
 When in doubt, **read `README.md`** (the full engine API + asset pipeline reference)
 and **copy the closest `examples/<game>`** — every example is a self-contained,
 readable reference (`tetris3d`/`hello-mesh` minimal; `pong3d`/`arkanoid3d` polished
-arcade; `chess`/`golf`/`pool` full games; `tiledemo` layered tiles; `herodemo` sprite
-animation; `modelview` STL models).
+arcade; `chess`/`golf`/`pool` full games; `fling` procedural levels + big terrain +
+physics; `tiledemo` layered tiles; `herodemo` sprite animation; `modelview` STL models).
 
 ## Game skeleton
 
@@ -136,6 +136,14 @@ Enter = MENU. Headless capture: `MOTE_SHOT=1 MOTE_SHOT_FRAME=20` dumps a frame.
   asset first (Studio Save auto-bakes; `mote bake` for the CLI). The `.h` is committed.
 - **Transparency** is the magenta key `0xF81F` (`MOTE_KEY_MAGENTA`); alpha<128 in source
   art bakes to it.
+- **256 verts per render mesh**: `MeshFace` indices are `uint8`, so one `Mesh` caps at 256
+  verts. For bigger geometry (e.g. terrain) split it into chunks that share one center +
+  scale — shared-edge verts then quantise identically, so they stitch with no cracks. A
+  **physics collider** has no such cap: a single `MOTE_SHAPE_MESH` `MoteMesh` uses `uint16`
+  indices, so one mesh can both *be* the ground collider and feed the render chunks (`fling`/`golf`).
+- **Generate geometry into game-owned static buffers, not the arena**: the arena is
+  bump-only (no per-alloc free), so calling `mote_mesh_*` every frame/level leaks it. For
+  geometry you rebuild (per-level terrain, etc.) keep static arrays and refill them in place.
 - **Don't fight the engine**: prefer the `mote_build.h` helpers (mesh builders, particles,
   RNG, clamps) over hand-rolling. Match the surrounding example's style.
 
