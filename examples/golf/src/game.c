@@ -727,7 +727,7 @@ static void g_update(float dt) {
          * none (a rolling ball never slips, so Coulomb friction can't slow it) —
          * green rolls far, fairway medium, rough/sand grabs. */
         float rd = (lie == GOLF_GREEN) ? 0.7f
-                 : (lie == GOLF_FAIRWAY ? 2.0f : (lie == GOLF_BUNKER ? 9.0f : 5.0f));
+                 : (lie == GOLF_FAIRWAY ? 4.0f : (lie == GOLF_BUNKER ? 9.0f : 9.0f));   /* fairway/rough grab harder — less run-out */
         float f = 1.0f - rd * dt;
         if (f < 0.0f) f = 0.0f;
         float bx = 0, bz = 0;
