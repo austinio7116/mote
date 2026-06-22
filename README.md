@@ -580,6 +580,43 @@ the renderer samples the sheet live.
    `src/*.tiles.h` / `src/<level>.level.h` headers. In the game, `#include` the level header
    and call `<level>_draw(mote)`.
 
+#### Sprite animation — `sdk/mote_anim.h`
+
+For animated sprites (a walking character, a spinning coin) Mote has a small **header-only**
+animation runtime — no engine ABI, so it works on any firmware and the clip data is `const`
+(flash, 0 SRAM). You author clips in **Mote Studio's Anim tab** and bake them; the game keeps
+a tiny player per sprite and reads the current frame.
+
+![Sprite animation: a sheet (assets/hero.png) is sliced into cells; clips are ordered frames each with a per-frame duration, a loop mode (once / loop / ping-pong), a pivot/origin and optional per-frame event tags (e.g. frame 5 of an attack fires \"hit\"); at runtime the game calls mote_anim_play then, each frame, mote_anim_tick(dt) and reads mote_anim_fx/fy into a MoteSprite — checking p.event for tagged frames. Authored in the Studio Anim tab with live preview and onion-skin, baked to src/<set>.anim.h. See examples/herodemo](docs/img/sprite-anim.png)
+
+**Data** (all baked `const`): a `MoteAnimSheet` (the atlas + tile size); `MoteAnimClip`
+(name, an ordered `MoteAnimFrame[]`, loop mode, pivot); each `MoteAnimFrame` is a cell
+index + duration-ms + an optional event string.
+
+**Runtime** (one `MoteAnimPlayer` per sprite):
+```c
+#include "hero.anim.h"           // hero_sheet + hero_idle / hero_walk / hero_jump / ...
+static MoteAnimPlayer p;
+mote_anim_play(&p, &hero_walk);  // on state change
+// each frame:
+mote_anim_tick(&p, dt);          // dt seconds; advances frames, fires events
+MoteSprite s = { hero_sheet.image, x - hero_walk.pivot_x, y - hero_walk.pivot_y,
+                 mote_anim_fx(&p,&hero_sheet), mote_anim_fy(&p,&hero_sheet),
+                 hero_sheet.tile_w, hero_sheet.tile_h, layer, facing<0?MOTE_SPR_HFLIP:0 };
+mote->scene2d_add(&s);
+if (p.event) { /* "footstep", "hit", … fired this frame */ }
+```
+- `mote_anim_done(&p)` → a non-looping clip has finished.
+- The **pivot** is the clip's origin (e.g. the feet); subtract it from the world position so
+  frames of any size line up. **Events** fire once when their frame becomes current.
+
+**Studio workflow (Anim tab):** Load a sprite **PNG** (magenta = transparent) and set the
+cell size → click sheet cells to append them to the current clip → set the clip's **loop
+mode**, **fps** (or per-frame **ms**), **pivot**, and per-frame **event** strings →
+**preview** live with play/pause, speed and **onion-skin** → add more named **clips** →
+**Bake** to `src/<set>.anim.h` (+ an editable `anims/<set>.anims`). `examples/herodemo` is a
+small platformer that switches idle/walk/jump/fall from its physics state.
+
 #### `int scene2d_add(const MoteSprite *spr)`
 Adds one sprite to the 2D scene. `MoteSprite`:
 - `const MoteImage *img` — the source image/sheet.
@@ -1158,7 +1195,9 @@ docs/img/   studio-ide.png
 | `cluster`, `zelda`, `splats` | Gaussian-splat scenes |
 | `modelview` | loading a real baked STL model in chunks |
 | `piano3d` | the audio synth — a playable 3D keyboard |
-| `tiledemo` | the 2D scene + tilemap + animated sprite |
+| `tiledemo` | the 2D scene + autotiled file tilesets (dirt/grass/water layers) |
+| `tiles` | the render-time autotiler — a procedural Blob-47 cave you can dig live |
+| `herodemo` | the sprite-animation runtime — a platformer with idle/walk/jump/fall clips |
 | `imgdemo` | baked PNG/BMP images (sprite sheet + overlay blit) |
 
 ### Key reference files to read when in doubt

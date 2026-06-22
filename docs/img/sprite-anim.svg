@@ -1,0 +1,61 @@
+<svg width="1000" height="330" viewBox="0 0 1000 330" xmlns="http://www.w3.org/2000/svg" font-family="'DejaVu Sans','Segoe UI',sans-serif">
+  <rect width="1000" height="330" rx="14" fill="#0e1018"/>
+  <text x="40" y="40" fill="#ebd28c" font-size="22" font-weight="700">Sprite animation</text>
+  <text x="40" y="64" fill="#9aa3b6" font-size="14">clips are const data (flash, 0 SRAM); a tiny header-only player advances frames — no engine ABI, works on any firmware</text>
+
+  <!-- helper: a mini hero cell -->
+  <defs>
+    <g id="hero">
+      <rect x="2" y="1" width="10" height="4" fill="#d23228"/>            <!-- cap -->
+      <rect x="2" y="5" width="10" height="4" fill="#f5c896"/>            <!-- face -->
+      <rect x="3" y="9" width="8" height="3" fill="#d23228"/>             <!-- shirt -->
+      <rect x="3" y="12" width="8" height="3" fill="#375fcd"/>            <!-- overalls -->
+    </g>
+  </defs>
+
+  <!-- Panel 1: sheet -->
+  <rect x="40" y="86" width="250" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="56" y="110" fill="#bcd3f3" font-size="15" font-weight="700">1 · sheet</text>
+  <text x="56" y="128" fill="#7e93b4" font-size="12">assets/hero.png, sliced to cells</text>
+  <g>
+    <g transform="translate(56,140) scale(1.6)"><rect x="-1" y="-1" width="16" height="16" fill="#171b24"/><use href="#hero"/></g>
+    <g transform="translate(86,140) scale(1.6)"><rect x="-1" y="-1" width="16" height="16" fill="#171b24"/><use href="#hero"/></g>
+    <g transform="translate(116,140) scale(1.6)"><rect x="-1" y="-1" width="16" height="16" fill="#171b24"/><use href="#hero"/></g>
+    <g transform="translate(146,140) scale(1.6)"><rect x="-1" y="-1" width="16" height="16" fill="#171b24"/><use href="#hero"/></g>
+  </g>
+  <text x="56" y="180" fill="#7e93b4" font-size="11">cells 0..N, row-major</text>
+  <text x="56" y="210" fill="#79b196" font-size="12">idle · walk · jump · fall …</text>
+
+  <path d="M298 161 l22 0 m-8 -7 l8 7 -8 7" fill="none" stroke="#5a6678" stroke-width="2"/>
+
+  <!-- Panel 2: clips -->
+  <rect x="330" y="86" width="300" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="346" y="110" fill="#bcd3f3" font-size="15" font-weight="700">2 · clips</text>
+  <text x="346" y="128" fill="#7e93b4" font-size="12">ordered frames + per-frame ms</text>
+  <g font-family="monospace" font-size="12.5">
+    <text x="346" y="150" fill="#cdd6e6">walk  [1][2]  loop   125ms</text>
+    <text x="346" y="170" fill="#cdd6e6">jump  [3]     once</text>
+    <text x="346" y="190" fill="#cdd6e6">attack[4][5]  once   f5 -&gt;</text>
+    <text x="560" y="190" fill="#e6a050">"hit"</text>
+  </g>
+  <text x="346" y="212" fill="#79b196" font-size="11.5">+ loop: once / loop / ping-pong</text>
+  <text x="346" y="227" fill="#79b196" font-size="11.5">+ pivot (origin) · per-frame event tags</text>
+
+  <path d="M638 161 l22 0 m-8 -7 l8 7 -8 7" fill="none" stroke="#5a6678" stroke-width="2"/>
+
+  <!-- Panel 3: runtime -->
+  <rect x="670" y="86" width="290" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="686" y="110" fill="#bcd3f3" font-size="15" font-weight="700">3 · runtime (the game)</text>
+  <g font-family="monospace" font-size="12">
+    <text x="686" y="132" fill="#9fb0cc">mote_anim_play(&amp;p, &amp;walk);</text>
+    <text x="686" y="152" fill="#7e93b4">each frame:</text>
+    <text x="686" y="170" fill="#a9e0c2">mote_anim_tick(&amp;p, dt);</text>
+    <text x="686" y="188" fill="#a9e0c2">s.fx = mote_anim_fx(&amp;p,&amp;sheet);</text>
+    <text x="686" y="206" fill="#a9e0c2">mote-&gt;scene2d_add(&amp;s);</text>
+    <text x="686" y="224" fill="#e6a050">if (p.event) { ... }</text>
+  </g>
+
+  <text x="40" y="270" fill="#7e93b4" font-size="12.5">Authored in Mote Studio's Anim tab (load PNG · pick frames · set ms/loop/pivot/events · live preview with onion-skin) and baked to</text>
+  <text x="40" y="288" fill="#7e93b4" font-size="12.5">src/&lt;set&gt;.anim.h. The player holds only a small cursor; the clips themselves are const, so they cost no SRAM and need no reflash.</text>
+  <text x="40" y="312" fill="#79b196" font-size="12.5">See examples/herodemo — a platformer that switches idle/walk/jump/fall from its physics state, pivot-anchored to the ground.</text>
+</svg>
