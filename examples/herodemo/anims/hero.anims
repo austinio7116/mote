@@ -1,0 +1,12 @@
+sheet assets/hero.png
+tile 16 16
+clips 4
+clip idle 1 4 8 15 1
+f 0 0 -
+clip walk 1 8 8 15 2
+f 1 0 -
+f 2 0 -
+clip jump 0 8 8 15 1
+f 3 0 -
+clip fall 0 8 8 15 1
+f 4 0 -
