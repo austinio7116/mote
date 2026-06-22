@@ -14,6 +14,7 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include <math.h>
+#include <stdlib.h>
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -21,7 +22,7 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-#define MAX_BODIES 40
+#define MAX_BODIES 64
 static MoteWorld world;
 static MoteBody  body[MAX_BODIES];
 static int       n_body;
@@ -29,6 +30,7 @@ static int       n_body;
 #define SLING_X (-6.6f)
 
 static const Mesh *mesh_plank, *mesh_beam, *mesh_cube, *mesh_post, *mesh_beak;
+static const Mesh *mesh_pillar, *mesh_floor, *mesh_block;
 
 /* ---- terrain: a per-level heightfield, rebuilt in place each level (no arena).
  * Serves as BOTH the rendered ground and the static MoteMesh collider. ---- */
@@ -56,11 +58,24 @@ static float    sling_y;                    /* ground height at the slingshot */
 /* per-level heightfield params (set in build_terrain) */
 static float th_base, th_a1, th_f1, th_p1, th_a2, th_f2, th_p2;
 static int   th_pal;
+static float th_pad_y;                                /* flat building-pad height */
+#define PAD_X0 1.2f
+#define PAD_X1 9.2f
+#define PAD_BAND 1.6f                                 /* smooth ramp from hills onto the pad */
 
-static float terrain_h(float x, float z){
+static float rolling(float x, float z){
     float h = th_base + th_a1 * sinf(th_f1 * x + th_p1) + th_a2 * sinf(th_f2 * x + th_p2);
     h += 0.20f * sinf(z * 0.6f + x * 0.18f);          /* gentle cross-slope for a 3D look */
     return h;
+}
+/* The fort needs LEVEL ground or it topples unshot, but flat-everywhere is dull — so the
+ * play area rolls, with a flat plateau under the fort, smoothly ramped in on both sides. */
+static float terrain_h(float x, float z){
+    if (x >= PAD_X0 && x <= PAD_X1) return th_pad_y;                       /* flat building pad */
+    float r = rolling(x, z);
+    if (x > PAD_X0 - PAD_BAND && x < PAD_X0){ float t = (x - (PAD_X0 - PAD_BAND)) / PAD_BAND; t = t*t*(3-2*t); return r*(1-t) + th_pad_y*t; }
+    if (x > PAD_X1 && x < PAD_X1 + PAD_BAND){ float t = 1 - (x - PAD_X1) / PAD_BAND; t = t*t*(3-2*t); return r*(1-t) + th_pad_y*t; }
+    return r;
 }
 static uint16_t terrain_color(float x, float z, float ny){
     float n = sinf(x * 1.1f) * sinf(z * 0.8f) * 0.5f + 0.5f;
@@ -81,6 +96,7 @@ static void build_terrain(int lvl){
     th_base = mote_randf(-0.3f, 0.3f);
     th_a1 = mote_randf(0.45f, 0.95f); th_f1 = mote_randf(0.18f, 0.34f); th_p1 = mote_randf(0, 6.2831853f);
     th_a2 = mote_randf(0.18f, 0.42f); th_f2 = mote_randf(0.45f, 0.80f); th_p2 = mote_randf(0, 6.2831853f);
+    th_pad_y = rolling((PAD_X0 + PAD_X1) * 0.5f, 0);  /* flat pad sits at the natural terrain level under the fort */
     sling_y = terrain_h(SLING_X, 0);
 
     ter_center = v3((TX0 + TX1) * 0.5f, 0, (TZ0 + TZ1) * 0.5f);
@@ -177,82 +193,107 @@ static uint16_t pig_col(void){ return (mote_rand() & 1) ? MOTE_RGB565(96, 202, 8
 /* pending pig spots, placed contiguously after the structure so [pig0,pig1) is tidy */
 static float pend_x[10], pend_y[10]; static int pend_n;
 static void want_pig(float x, float y){ if (pend_n < 10){ pend_x[pend_n] = x; pend_y[pend_n] = y; pend_n++; } }
-static void box(const Mesh *m, float hx, float hy, float hz, float x, float y){ if (n_body < MAX_BODIES - 1) set_box(n_body++, m, hx, hy, hz, x, y, 1.0f); }
-static void cube(float x, float y){ box(mesh_cube, 0.30f, 0.30f, 0.30f, x, y); }
+static float fort_top;     /* tallest point of the current fort, for camera framing */
+static void box(const Mesh *m, float hx, float hy, float hz, float x, float y){
+    if (n_body < MAX_BODIES - 1) set_box(n_body++, m, hx, hy, hz, x, y, 1.0f);
+    if (y > fort_top) fort_top = y;
+}
+static void cube(float x, float y)  { box(mesh_cube,  0.30f, 0.30f, 0.30f, x, y); }
+static void block(float x, float y) { box(mesh_block, 0.42f, 0.42f, 0.42f, x, y); }
 
-/* ---- fort archetypes (each builds boxes + queues pigs; placed on the terrain) ---- */
+/* One storey: two columns at cx +/- span carrying a floor slab on top. Returns the
+ * y of the floor's TOP surface (where the next storey or pigs stand). */
+static float storey(float cx, float base, float span){
+    box(mesh_pillar, 0.16f, 0.80f, 0.22f, cx - span, base + 0.80f);
+    box(mesh_pillar, 0.16f, 0.80f, 0.22f, cx + span, base + 0.80f);
+    float fy = base + 1.60f + 0.13f;                                 /* floor slab centre */
+    box(mesh_floor, 1.05f, 0.13f, 0.55f, cx, fy);
+    return fy + 0.13f;
+}
+static void battlements(float cx, float top, int n){
+    for (int i = 0; i < n; i++) cube(cx + (i - (n - 1) * 0.5f) * 0.62f, top + 0.30f);
+}
+
+/* ---- fort archetypes (each builds boxes + queues pigs; placed on the terrain) ----
+ * They scale with the level and lean on the flat building pad so tall stacks stay put. */
+
+/* multi-storey keep: a pig garrisoned on every floor, battlements + a pig on the roof */
+static void arch_castle(int lvl, float cx){
+    int storeys = 3 + lvl / 2; if (storeys > 5) storeys = 5;         /* 3..5 storeys -> always tall */
+    float base = gy(cx), top = base;
+    for (int s = 0; s < storeys; s++){
+        want_pig(cx, top + 0.38f);                                   /* stands on the floor below, inside the columns */
+        top = storey(cx, top, 0.72f);
+    }
+    battlements(cx, top, 3);
+    want_pig(cx, top + 0.30f + 0.38f);
+}
+/* a row of towers of varied height, a lookout pig atop each */
 static void arch_tower_row(int lvl, float cx){
-    int nt = 2 + (lvl >= 3) + (lvl >= 6);                  /* 2..4 towers */
-    if (nt > 4) nt = 4;
+    int nt = 4 + lvl / 4; if (nt > 5) nt = 5;                        /* 4..5 towers */
+    float span = 1.32f;
     for (int t = 0; t < nt; t++){
-        float x = cx + (t - (nt - 1) * 0.5f) * 1.5f;
-        float base = gy(x);
-        int h = 2 + (int)(mote_rand() % 3);                /* 2..4 cubes */
+        float x = cx + (t - (nt - 1) * 0.5f) * span, base = gy(x);
+        int h = 4 + (int)(mote_rand() % 3);                          /* 4..6 cubes each */
         float top = base;
         for (int k = 0; k < h; k++){ top = base + 0.30f + k * 0.60f; cube(x, top); }
         want_pig(x, top + 0.30f + 0.38f);
     }
 }
+/* a fat pyramid with pigs nested along the base and on the apex */
 static void arch_pyramid(int lvl, float cx){
-    int w = 3 + (lvl >= 5 ? 1 : 0);                        /* base width 3 or 4 */
+    int w = 4 + lvl / 2; if (w > 6) w = 6;                           /* base 4..6 wide */
+    float sp = 0.62f;
     for (int row = 0; row < w; row++){
         int n = w - row;
-        for (int i = 0; i < n; i++){
-            float x = cx + (i - (n - 1) * 0.5f) * 0.64f;
-            cube(x, gy(x) + 0.30f + row * 0.62f);
-        }
+        for (int i = 0; i < n; i++)
+            cube(cx + (i - (n - 1) * 0.5f) * sp, gy(cx) + 0.30f + row * 0.62f);
     }
-    want_pig(cx, gy(cx) + 0.30f + w * 0.62f + 0.38f);      /* apex */
-    want_pig(cx - (w - 1) * 0.32f, gy(cx) + 0.30f + 0.38f);
-    if (lvl >= 4) want_pig(cx + (w - 1) * 0.32f, gy(cx) + 0.30f + 0.38f);
+    want_pig(cx, gy(cx) + 0.30f + w * 0.62f + 0.38f);                /* apex */
+    want_pig(cx - (w - 1) * 0.31f, gy(cx) + 0.30f + 0.38f);
+    want_pig(cx + (w - 1) * 0.31f, gy(cx) + 0.30f + 0.38f);
 }
-static void arch_gate(int lvl, float cx){
-    /* two pillar+beam towers 2.0 apart so the 2.0-wide span rests on both tops */
-    float x1 = cx - 1.0f, x2 = cx + 1.0f;
+/* a fortress: two corner towers flanking a multi-storey gatehouse */
+static void arch_fortress(int lvl, float cx){
+    float span = 1.95f;
     for (int s = 0; s < 2; s++){
-        float x = s ? x2 : x1, base = gy(x);
-        box(mesh_plank, 0.12f, 0.7f, 0.26f, x - 0.42f, base + 0.7f);
-        box(mesh_plank, 0.12f, 0.7f, 0.26f, x + 0.42f, base + 0.7f);
-        box(mesh_beam,  1.0f, 0.12f, 0.28f, x, base + 1.52f);
-        want_pig(x, base + 1.52f + 0.12f + 0.38f);
+        float x = cx + (s ? span : -span), base = gy(x);
+        int h = 3 + lvl / 3; if (h > 5) h = 5;
+        float top = base;
+        for (int k = 0; k < h; k++){ top = base + 0.42f + k * 0.84f; block(x, top); }
+        want_pig(x, top + 0.42f + 0.38f);
     }
-    box(mesh_beam, 1.0f, 0.12f, 0.28f, cx, gy(cx) + 1.52f + 0.24f);   /* span resting on both towers */
-    want_pig(cx, gy(cx) + 0.42f);                                    /* sheltered under the span */
+    int storeys = 1 + lvl / 3; if (storeys > 3) storeys = 3;
+    float base = gy(cx), top = base;
+    for (int s = 0; s < storeys; s++){ want_pig(cx, top + 0.38f); top = storey(cx, top, 0.7f); }
+    battlements(cx, top, 3);
+    want_pig(cx, top + 0.30f + 0.38f);
 }
-static void arch_wall(int lvl, float cx){
-    /* a beam is 2.0 wide, so a wall is beams STACKED (same x), not side by side */
-    int hi = 2 + (lvl >= 3) + (lvl >= 6);                            /* 2..4 courses */
-    float base = gy(cx);
-    float topy = base;
-    for (int row = 0; row < hi; row++){ topy = base + 0.12f + row * 0.26f; box(mesh_beam, 1.0f, 0.12f, 0.28f, cx, topy); }
-    topy += 0.12f;
-    want_pig(cx - 0.7f, topy + 0.38f);
-    want_pig(cx + 0.7f, topy + 0.38f);
-    if (lvl >= 4){ cube(cx, topy + 0.30f); want_pig(cx, topy + 0.60f + 0.38f); }
-}
-static void arch_stilts(int lvl, float cx){
-    int nh = 2 + (lvl >= 4);                                         /* 2..3 huts, 2.2 apart (beams don't overlap) */
+/* a village: several 1-2 storey huts spread across the pad */
+static void arch_village(int lvl, float cx){
+    int nh = 2 + lvl / 3; if (nh > 4) nh = 4;
+    float span = 2.45f;                                              /* wide enough that slabs don't overlap */
     for (int t = 0; t < nh; t++){
-        float x = cx + (t - (nh - 1) * 0.5f) * 2.2f, base = gy(x);
-        box(mesh_plank, 0.12f, 0.7f, 0.26f, x - 0.4f, base + 0.7f);
-        box(mesh_plank, 0.12f, 0.7f, 0.26f, x + 0.4f, base + 0.7f);
-        box(mesh_beam,  1.0f, 0.12f, 0.28f, x, base + 1.52f);
-        if (lvl >= 5) cube(x, base + 1.52f + 0.12f + 0.30f);         /* roof cube ON the platform */
-        want_pig(x, base + 1.52f + 0.12f + 0.38f);
+        float x = cx + (t - (nh - 1) * 0.5f) * span, base = gy(x);
+        want_pig(x, base + 0.38f);                                   /* inside on the ground floor */
+        float top = storey(x, base, 0.5f);
+        if (lvl >= 4){ want_pig(x, top + 0.38f); top = storey(x, top, 0.5f); }
+        battlements(x, top, 1);
+        want_pig(x, top + 0.30f + 0.38f);
     }
 }
 
 static void build_fort(int lvl){
-    pend_n = 0;
-    float cx = 5.0f;
+    pend_n = 0; fort_top = gy(5.2f);
+    float cx = 5.2f;
     int arch = (lvl - 1) % 5;                                /* cycle archetypes; terrain seed adds variety */
     if (lvl > 5) arch = (int)(mote_rand() % 5);              /* shuffle once past the intro tour */
     switch (arch){
-        case 0:  arch_tower_row(lvl, cx); break;
-        case 1:  arch_pyramid(lvl, cx);   break;
-        case 2:  arch_gate(lvl, cx);      break;
-        case 3:  arch_wall(lvl, cx);      break;
-        default: arch_stilts(lvl, cx);    break;
+        case 0:  arch_castle(lvl, cx);    break;
+        case 1:  arch_tower_row(lvl, cx); break;
+        case 2:  arch_pyramid(lvl, cx);   break;
+        case 3:  arch_fortress(lvl, cx);  break;
+        default: arch_village(lvl, cx);   break;
     }
     pig0 = n_body;
     for (int i = 0; i < pend_n && n_body < MAX_BODIES - 1; i++)
@@ -327,11 +368,14 @@ static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(120, 170, 225));
     mote->scene_set_sun(v3_norm(v3(-0.3f, 1.0f, 0.4f)));
 
-    mesh_plank = mote_mesh_box(mote, 0.12f, 0.7f, 0.26f, MOTE_RGB565(180, 132, 76));
-    mesh_beam  = mote_mesh_box(mote, 1.0f, 0.12f, 0.28f, MOTE_RGB565(152, 110, 62));
-    mesh_cube  = mote_mesh_box(mote, 0.30f, 0.30f, 0.30f, MOTE_RGB565(200, 154, 90));
-    mesh_post  = mote_mesh_box(mote, 0.08f, 0.62f, 0.08f, MOTE_RGB565(120, 86, 52));
-    mesh_beak  = mote_mesh_box(mote, 0.18f, 0.06f, 0.07f, MOTE_RGB565(240, 160, 40));
+    mesh_plank  = mote_mesh_box(mote, 0.12f, 0.7f, 0.26f,  MOTE_RGB565(180, 132, 76));
+    mesh_beam   = mote_mesh_box(mote, 1.0f, 0.12f, 0.28f,  MOTE_RGB565(152, 110, 62));
+    mesh_cube   = mote_mesh_box(mote, 0.30f, 0.30f, 0.30f, MOTE_RGB565(200, 154, 90));
+    mesh_post   = mote_mesh_box(mote, 0.08f, 0.62f, 0.08f, MOTE_RGB565(120, 86, 52));
+    mesh_beak   = mote_mesh_box(mote, 0.18f, 0.06f, 0.07f, MOTE_RGB565(240, 160, 40));
+    mesh_pillar = mote_mesh_box(mote, 0.16f, 0.80f, 0.22f, MOTE_RGB565(170, 124, 70));  /* storey column */
+    mesh_floor  = mote_mesh_box(mote, 1.05f, 0.13f, 0.55f, MOTE_RGB565(140, 100, 58));  /* storey/roof slab */
+    mesh_block  = mote_mesh_box(mote, 0.42f, 0.42f, 0.42f, MOTE_RGB565(206, 162, 96));  /* heavy block */
 
     mote->phys_world_defaults(&world);
     world.walls = 0;
@@ -342,6 +386,9 @@ static void g_init(void){
     world.max_substeps = 8;
 
     birds_left = 4;
+#ifndef MOTE_MODULE_BUILD
+    { const char *lv = getenv("FLING_LEVEL"); if (lv) level = atoi(lv); }   /* host testing only */
+#endif
     build_level();
 }
 
@@ -389,10 +436,11 @@ static void g_update(float dt){
     mote->phys_step(&world, body, n_body, dt);
 
     /* ---- side camera: track the action ---- */
+    float framh = fort_top > 4.0f ? fort_top : 4.0f;          /* zoom out for tall forts */
     float follow_x = (state == ST_FLY) ? body[bird].pos.x : -1.5f;
     follow_x = mote_clampf(follow_x, -1.5f, 6);
-    Vec3 target = v3(follow_x + 1.5f, 2.6f, 0);
-    cam = v3(target.x, target.y + 0.4f, -16.5f);
+    Vec3 target = v3(follow_x + 1.5f, framh * 0.45f, 0);
+    cam = v3(target.x, target.y + 0.4f, -(13.5f + framh * 1.35f));
     Mat3 basis = mote_camera_look(cam, target);
 
     mote->scene_camera(&basis, cam, 56.0f);
@@ -449,6 +497,6 @@ static void g_overlay(uint16_t *fb){
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 1600, .max_spheres = 120, .max_bodies = MAX_BODIES, .max_contacts = 320, .depth = 1 },
+    .config = { .max_tris = 2400, .max_spheres = 120, .max_bodies = MAX_BODIES, .max_contacts = 560, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
