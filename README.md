@@ -201,7 +201,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
 
-The richer editing panels:
+The bottom-dock panels:
 
 | Pixel Art | Tiles |
 |---|---|
@@ -210,6 +210,8 @@ The richer editing panels:
 | ![Anim tab](docs/img/studio-anim.png) | ![Mesh tab](docs/img/studio-mesh.png) |
 | **Audio** | **Texture** |
 | ![Audio tab](docs/img/studio-audio.png) | ![Texture tab](docs/img/studio-texture.png) |
+| **Code** | **Console** |
+| ![Code tab](docs/img/studio-code.png) | ![Console tab](docs/img/studio-console.png) |
 
 **Native + Python-free.** Studio reimplements the CLI's build/scaffold/bake in C
 (`studio/motecore.c`) and talks to the board over USB-CDC directly (`studio/usb.c`;
