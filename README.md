@@ -158,7 +158,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
 
 ![Mote Studio — project tree, the live emulator running the model viewer in a photo-accurate Thumby Color shell, and the Mesh tab previewing the baked STL with its parameters](docs/img/studio-mesh.png)
 
-**The everyday loop — open Studio, pick a game, edit, watch it hot-reload:**
+**The development loop — open Studio, pick a game, edit, watch it hot-reload:**
 
 ```
  1. Launch Studio.                A project picker (Project ▸ Open) lists
@@ -176,7 +176,9 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
                                    live build output and any device logs.
 ```
 
-**The layout — Unity/Godot-style docks, resizable with draggable separators:**
+![The built-in C code editor — syntax highlighting and inline build errors, with the live emulator above and the project tree alongside; or jump to VS Code](docs/img/studio-code.png)
+
+**The layout — resizable docks with draggable separators:**
 
 - **Menu bar + toolbar** — Project / Assets / Build / Help, plus Run · Stop ·
   Build · Push · "Edit in VS Code".
@@ -201,17 +203,8 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
 
-The other bottom-dock panels (Mesh is shown above):
-
-| Pixel Art | Tiles |
-|---|---|
-| ![Pixel Art tab](docs/img/studio-pixel.png) | ![Tiles tab](docs/img/studio-tiles.png) |
-| **Anim** | **Audio** |
-| ![Anim tab](docs/img/studio-anim.png) | ![Audio tab](docs/img/studio-audio.png) |
-| **Texture** | **Code** |
-| ![Texture tab](docs/img/studio-texture.png) | ![Code tab](docs/img/studio-code.png) |
-| **Console** | |
-| ![Console tab](docs/img/studio-console.png) | |
+Several of these tabs are shown in context through §4 (asset pipeline) and §5
+(the engine API), next to the features they author.
 
 **Native + Python-free.** Studio reimplements the CLI's build/scaffold/bake in C
 (`studio/motecore.c`) and talks to the board over USB-CDC directly (`studio/usb.c`;
@@ -351,6 +344,14 @@ isn't treated as transparent.)
 pick a frame with the sprite's source rect `fx,fy,fw,fh`. e.g. a 48×24 PNG holding
 two 24×24 frames → frame *i* is `fx = i*24, fy = 0, fw = 24, fh = 24`. See
 `examples/imgdemo` (a baked logo + an animated 2-frame sprite).
+
+![The Studio Pixel Art tab — paint a sprite with the HSV/hex picker, pencil/fill/line/rect tools, grid and transparency; Save writes assets/sprite.png and auto-bakes its MoteImage header in one click](docs/img/studio-pixel.png)
+
+The separate **Texture** tab generates procedural fills (wood, marble, brick, stone,
+cloud, plasma …) with contrast/warp — it bakes to a `MoteImage` the same way, and is
+kept apart from Pixel Art so generating never overwrites hand-drawn art.
+
+![The Studio Texture tab — procedural texture generators with a live preview, baked to a MoteImage like any other sprite](docs/img/studio-texture.png)
 
 **Big meshes (STL):** `stl2mesh` (and the Studio **Mesh** tab) welds duplicate
 vertices, **decimates by vertex clustering** (binary-searched down to a triangle
@@ -581,6 +582,8 @@ terrain?") and lets the engine pick the right edge/corner tile from each cell's 
 every frame, with **no resolved buffer**. Digging a tunnel or growing grass at runtime
 re-tiles instantly because the only stored data is the logical map you already keep.
 
+![The Studio Tiles tab editing examples/tiledemo: the green tileset open with a diagonal-saddle rule selected, the per-rule cell editor, and the full six-layer level (sand · water · dirt · grass · green · rough) scaled to fit in the LEVEL panel — every layer autotiled and composited through transparency](docs/img/studio-tiles.png)
+
 ##### The three concepts (and three folders)
 
 ![The tilesheet pipeline: a sprite sheet (assets/grass.png, raw tile art that several tilesets may share) becomes a rule tile (tilesets/grass.tileset → src/grass.tiles.h: sheet + tile size + rule type + the 256-entry config→cell LUT + transforms and variant weights = a MoteImage + MoteAutotile, and one rule tile is one level layer) becomes a level (levels/cave.level → src/cave.level.h: one byte per cell where each bit is a layer; const, so flash and 0 SRAM). Layers draw bottom-up, each autotiled against its own bit, so dirt, grass and a path can share a cell](docs/img/tile-pipeline.png)
@@ -694,6 +697,8 @@ animation runtime — no engine ABI, so it works on any firmware and the clip da
 a tiny player per sprite and reads the current frame.
 
 ![Sprite animation: a sheet (assets/hero.png) is sliced into cells; clips are ordered frames each with a per-frame duration, a loop mode (once / loop / ping-pong), a pivot/origin and optional per-frame event tags (e.g. frame 5 of an attack fires \"hit\"); at runtime the game calls mote_anim_play then, each frame, mote_anim_tick(dt) and reads mote_anim_fx/fy into a MoteSprite — checking p.event for tagged frames. Authored in the Studio Anim tab with live preview and onion-skin, baked to src/<set>.anim.h. See examples/herodemo](docs/img/sprite-anim.png)
+
+![The Studio Anim tab — clips (idle/walk/jump/fall) with per-frame durations, onion-skin, a pivot and frame-event tags, plus the pixel editor for each frame; Bake writes the MoteAnimClip set used by examples/herodemo](docs/img/studio-anim.png)
 
 **Data** (all baked `const`): a `MoteAnimSheet` (the atlas + tile size); `MoteAnimClip`
 (name, an ordered `MoteAnimFrame[]`, loop mode, pivot); each `MoteAnimFrame` is a cell
@@ -877,6 +882,8 @@ if (mote_just_pressed(in, MOTE_BTN_A))     fire();             // one-shot
 **MENU is yours** — see §8 for the only thing the OS reserves (a 3-second solo hold).
 
 ### 5.6 — Audio
+
+![The Studio Audio tab — design an effect with the SFXR synth + presets or load a WAV/MP3, see the waveform and crop; Save writes the .wav, the editable .sfx recipe, a MoteSound header and a MoteSfx recipe header](docs/img/studio-audio.png)
 
 #### `void audio_note(float freq, float amp)`
 Strikes one note on the polyphonic synth: instant attack, piano-ish exponential
@@ -1233,7 +1240,10 @@ Games deploy with **`mote push`** — no firmware reflash. The flow:
 | `mote wipe` | Erase all games from the device store |
 
 In **Studio**, the **Device** dock does all of this with buttons (Ping / List /
-Push / Push & Launch / Stream Logs / Wipe).
+Push / Push & Launch / Stream Logs / Wipe), and the **Console** dock streams the live
+build + device output:
+
+![The Studio Console dock — live build output and streamed device logs under the running emulator](docs/img/studio-console.png)
 
 **How a `.mote` runs in place (no copy, no relocation):** the module is linked
 against a fixed *virtual* flash window (`MOTE_MODULE_VADDR = 0x10800000`, ATRANS
