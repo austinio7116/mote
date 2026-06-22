@@ -2145,13 +2145,24 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ANIM")){ an_ensure(); an_import(getenv("MOTE_STUDIO_ANIM")); snprintf(g_an_clip[0].name,16,"bounce"); g_an_clip[0].fps=8; g_an_clip[0].loop=MOTE_ANIM_PINGPONG; for(int i=0;i<4;i++)an_addframe(i); g_an_clip[0].fr[2].ev[0]='h';g_an_clip[0].fr[2].ev[1]='i';g_an_clip[0].fr[2].ev[2]='t';g_an_clip[0].fr[2].ev[3]=0; g_an_clip[0].pvx=8; g_an_clip[0].pvy=14; g_tab=TAB_ANIM; if(getenv("MOTE_STUDIO_ANIMBAKE"))an_bake(); }
     if(getenv("MOTE_STUDIO_ANIMLOAD")){ an_ensure(); an_load_def(getenv("MOTE_STUDIO_ANIMLOAD")); g_tab=TAB_ANIM; }
     if(getenv("MOTE_STUDIO_HERO")){ an_ensure(); an_import("examples/herodemo/assets/hero.png"); snprintf(g_an_name,sizeof g_an_name,"hero");
-        /* 4 clips from the 6-cell sheet (cell 5 = ground block, used directly by the game) */
+        /* 8-cell sheet: idle 0,1 · walk 2,3,4,5 · jump 6 · fall 7 (pivot = feet) */
         AClip*c; g_an_nclip=4;
-        c=&g_an_clip[0]; memset(c,0,sizeof*c); snprintf(c->name,16,"idle"); c->loop=MOTE_ANIM_LOOP; c->fps=4; c->pvx=8; c->pvy=15; c->nfr=1; c->fr[0].cell=0;
-        c=&g_an_clip[1]; memset(c,0,sizeof*c); snprintf(c->name,16,"walk"); c->loop=MOTE_ANIM_LOOP; c->fps=8; c->pvx=8; c->pvy=15; c->nfr=2; c->fr[0].cell=1; c->fr[1].cell=2;
-        c=&g_an_clip[2]; memset(c,0,sizeof*c); snprintf(c->name,16,"jump"); c->loop=MOTE_ANIM_ONCE; c->fps=8; c->pvx=8; c->pvy=15; c->nfr=1; c->fr[0].cell=3;
-        c=&g_an_clip[3]; memset(c,0,sizeof*c); snprintf(c->name,16,"fall"); c->loop=MOTE_ANIM_ONCE; c->fps=8; c->pvx=8; c->pvy=15; c->nfr=1; c->fr[0].cell=4;
+        c=&g_an_clip[0]; memset(c,0,sizeof*c); snprintf(c->name,16,"idle"); c->loop=MOTE_ANIM_LOOP; c->fps=3; c->pvx=8; c->pvy=15; c->nfr=2; c->fr[0].cell=0; c->fr[1].cell=1;
+        c=&g_an_clip[1]; memset(c,0,sizeof*c); snprintf(c->name,16,"walk"); c->loop=MOTE_ANIM_LOOP; c->fps=10; c->pvx=8; c->pvy=15; c->nfr=4; c->fr[0].cell=2; c->fr[1].cell=3; c->fr[2].cell=4; c->fr[3].cell=5;
+        c=&g_an_clip[2]; memset(c,0,sizeof*c); snprintf(c->name,16,"jump"); c->loop=MOTE_ANIM_ONCE; c->fps=8; c->pvx=8; c->pvy=15; c->nfr=1; c->fr[0].cell=6;
+        c=&g_an_clip[3]; memset(c,0,sizeof*c); snprintf(c->name,16,"fall"); c->loop=MOTE_ANIM_ONCE; c->fps=8; c->pvx=8; c->pvy=15; c->nfr=1; c->fr[0].cell=7;
         g_an_cur=0; an_bake(); g_tab=TAB_ANIM; }
+    if(getenv("MOTE_STUDIO_HEROLEVELS")){ if(g_sel>=0){ tl_ensure();
+        /* a 'ground' Blob-47 tileset + three bit-packed levels (layer 0 = solid ground) */
+        Terr*t=&g_terr[0]; snprintf(t->name,16,"ground"); snprintf(t->png,200,"assets/ground.png"); t->tpl=0; t->edge=1; t->nvar=1; terr_gen_starter(0); g_nterr=1;
+        int COLS=20,ROWS=8;
+        for(int L=1;L<=3;L++){ lv_alloc(COLS,ROWS); for(int i=0;i<COLS*ROWS;i++)g_lv_terrain[i]=0;
+            for(int c2=0;c2<COLS;c2++)g_lv_terrain[(ROWS-1)*COLS+c2]=1;                 /* floor */
+            if(L==1){ for(int c2=5;c2<9;c2++)g_lv_terrain[5*COLS+c2]=1; for(int c2=12;c2<16;c2++)g_lv_terrain[4*COLS+c2]=1; }
+            else if(L==2){ for(int c2=3;c2<6;c2++)g_lv_terrain[5*COLS+c2]=1; for(int c2=9;c2<12;c2++)g_lv_terrain[4*COLS+c2]=1; for(int c2=14;c2<18;c2++)g_lv_terrain[3*COLS+c2]=1; g_lv_terrain[6*COLS+10]=1; }
+            else { for(int r2=4;r2<7;r2++)g_lv_terrain[r2*COLS+7]=1; for(int c2=10;c2<14;c2++)g_lv_terrain[5*COLS+c2]=1; for(int c2=15;c2<19;c2++)g_lv_terrain[3*COLS+c2]=1; }
+            char nm[16]; snprintf(nm,sizeof nm,"level%d",L); snprintf(g_tl_name,sizeof g_tl_name,"%s",nm); g_loaded_level[0]=0; bake_all(); }
+        snprintf(g_status,sizeof g_status,"baked ground.tiles.h + level1..3.level.h"); } }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
 
     int running=1,watch=0;
