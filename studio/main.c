@@ -1154,7 +1154,7 @@ static char g_loaded_level[64]="";   /* the level name we last opened/baked — 
 static int g_bake_confirm;           /* 1 = showing the "overwrite a different level?" prompt */
 static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
-static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen;
+static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen,g_tl_dup;
 static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[6],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
 static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
@@ -1208,6 +1208,11 @@ static void terr_save_png(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
 static void terr_add_row(int ti){ Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*ts; int oldpix=W*t->srows*ts; t->srows++;
     t->sheet=realloc(t->sheet,(size_t)W*t->srows*ts*2); for(int i=oldpix;i<W*t->srows*ts;i++)t->sheet[i]=KEY565;
     snprintf(g_status,sizeof g_status,"added a row \xb7 %dx%d cells (Save sheet to write the PNG)",t->scols,t->srows); }
+/* duplicate the selected sheet cell into a fresh cell (extends the sheet by a row) */
+static void terr_dup_cell(int ti){ Terr*t=&g_terr[ti]; int ts=g_tl_ts,W=t->scols*ts; int src=g_cellsel, nc=t->scols*t->srows; terr_add_row(ti);
+    int scx=(src%t->scols)*ts,scy=(src/t->scols)*ts,dcx=(nc%t->scols)*ts,dcy=(nc/t->scols)*ts;
+    for(int y=0;y<ts;y++)for(int x=0;x<ts;x++)t->sheet[(dcy+y)*W+dcx+x]=t->sheet[(scy+y)*W+scx+x];
+    g_cellsel=nc; snprintf(g_status,sizeof g_status,"duplicated cell %d \xbb %d (Save sheet to write the PNG)",src,nc); }
 /* generate a proc-gen starter sheet for the rule type, WRITE it to assets/<name>.png, then load it as a file */
 static void terr_gen_starter(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     Terr*t=&g_terr[ti]; terr_rebuild(t); if(t->nvar<1)t->nvar=1; int ts=g_tl_ts;
@@ -1347,6 +1352,11 @@ static void bake_all(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open
     snprintf(g_status,sizeof g_status,"baked %d sheet PNG(s) + tiles.h + %s.level.h",g_nterr,nm); }
 
 /* blit a sheet cell (scaled) at screen (gx,gy,dz) */
+/* map a display pixel (x,y) of a transformed cell back to its SOURCE pixel (so the editor
+ * can show the rotated/flipped view AND write edits back to the un-transformed sheet). */
+static void xform_src(int x,int y,int ts,uint8_t xf,int*sx,int*sy){ int rot=(xf>>2)&3,tx,ty;
+    switch(rot){ case 1: tx=y; ty=ts-1-x; break; case 2: tx=ts-1-x; ty=ts-1-y; break; case 3: tx=ts-1-y; ty=x; break; default: tx=x; ty=y; }
+    if(xf&1)tx=ts-1-tx; if(xf&2)ty=ts-1-ty; *sx=tx; *sy=ty; }
 static void blit_cell_x(SDL_Renderer*R,Terr*t,int cell,uint8_t xf,int gx,int gy,int dz){ int ts=g_tl_ts,W=t->scols*ts,n=t->scols*t->srows; if(cell<0||cell>=n)return;
     int cx=(cell%t->scols)*ts,cy=(cell/t->scols)*ts,rot=(xf>>2)&3;
     for(int y=0;y<dz;y++)for(int x=0;x<dz;x++){ int sx=x*ts/dz,sy=y*ts/dz,tx,tyy;
@@ -1428,9 +1438,10 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     for(int v=0;v<8;v++)g_tl_vw[v]=(SDL_Rect){0,0,0,0};
     if(ct->nvar>1){ text(R,"weights",ax,cy+4,1,C_DIM,C_PANEL); int wx=ax+textw(R,"weights",1)+6;
         for(int v=0;v<ct->nvar&&v<8;v++){ int wv=ct->var_weight[v]?ct->var_weight[v]:1; g_tl_vw[v]=(SDL_Rect){wx,cy,18,20}; rrect(R,wx,cy,18,20,4,hit(mx,my,wx,cy,18,20)?C_BTNHI:C_BTN); char b[6]; snprintf(b,sizeof b,"%d",wv); text(R,b,wx+6,cy+5,1,C_TITLE,C_BTN); wx+=20; } cy+=26; }
-    { SDL_Rect r; int bx=ui_btn(R,ax,cy,84,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_tl_load,mx,my);
-      bx=ui_btn(R,bx,cy,52,"Gen",IC_HAMMER,(Col){0,0,0},&g_tl_gen,mx,my);
-      ui_btn(R,bx,cy,58,"+ Row",IC_PLUS,(Col){0,0,0},&g_tl_addrow,mx,my); (void)r; } cy+=26;
+    { int bx=ui_btn(R,ax,cy,0,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_tl_load,mx,my);
+      bx=ui_btn(R,bx,cy,0,"Gen",IC_HAMMER,(Col){0,0,0},&g_tl_gen,mx,my);
+      bx=ui_btn(R,bx,cy,0,"+ Row",IC_PLUS,(Col){0,0,0},&g_tl_addrow,mx,my);
+      ui_btn(R,bx,cy,0,"Dup",IC_IMAGE,(Col){0,0,0},&g_tl_dup,mx,my); } cy+=26;
     ui_btn(R,ax,cy,w-24,"Save sheet \xbb assets/",IC_SAVE,(Col){0,0,0},&g_tl_savep,mx,my);
     y+=th2+8;
 
@@ -1482,11 +1493,11 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
       g_tl_xf[1]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&1)?C_SEL:C_BTN); text(R,"H",bx+7,ey2+5,1,(xf&1)?C_HDR:C_TXT,(xf&1)?C_SEL:C_BTN); bx+=26;
       g_tl_xf[2]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&2)?C_SEL:C_BTN); text(R,"V",bx+7,ey2+5,1,(xf&2)?C_HDR:C_TXT,(xf&2)?C_SEL:C_BTN); }
     int DW=3*ts; g_dr_cv=realloc(g_dr_cv,(size_t)DW*DW*2); for(int i=0;i<DW*DW;i++)g_dr_cv[i]=TLRGB(20,18,28);
-    uint8_t rm=ct->rep[g_rulesel]; int W2=ct->scols*ts;
-    for(int py=0;py<3;py++)for(int px=0;px<3;px++){ int cell=-1,dim=0;
-        if(px==1&&py==1)cell=g_cellsel; else if(rm&nb_bit_for(px-1,py-1)){ cell=recon_nbcell(ct,rm,px-1,py-1); dim=1; }
+    uint8_t rm=ct->rep[g_rulesel]; int W2=ct->scols*ts; uint8_t cxf=ct->xform[rm];   /* the selected rule's transform — shown on the centre cell */
+    for(int py=0;py<3;py++)for(int px=0;px<3;px++){ int cell=-1,dim=0; uint8_t xf=0;
+        if(px==1&&py==1){ cell=g_cellsel; xf=cxf; } else if(rm&nb_bit_for(px-1,py-1)){ cell=recon_nbcell(ct,rm,px-1,py-1); dim=1; }
         if(cell<0||cell>=sn)continue; int cx=(cell%ct->scols)*ts,cyy=(cell/ct->scols)*ts;
-        for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ uint16_t p=ct->sheet[(cyy+y)*W2+cx+x]; if(p==KEY565)continue; if(dim)p=dimc(p); g_dr_cv[(py*ts+y)*DW+(px*ts+x)]=p; } }
+        for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ int sx,sy; xform_src(x,y,ts,xf,&sx,&sy); uint16_t p=ct->sheet[(cyy+sy)*W2+cx+sx]; if(p==KEY565)continue; if(dim)p=dimc(p); g_dr_cv[(py*ts+y)*DW+(px*ts+x)]=p; } }
     if(!g_dr_tex||g_dr_texw!=DW){ if(g_dr_tex)SDL_DestroyTexture(g_dr_tex); g_dr_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,DW,DW); SDL_SetTextureScaleMode(g_dr_tex,SDL_ScaleModeNearest); g_dr_texw=DW; g_dr_texh=DW; }
     SDL_UpdateTexture(g_dr_tex,NULL,g_dr_cv,DW*2);
     int dpx=ex+12,dpy=ey2+26; int dsc=((ew-24)*54/100)/DW; if(dsc<1)dsc=1; { int hcap=(gy+ph-dpy-8)/DW; if(hcap<dsc)dsc=hcap; if(dsc<1)dsc=1; }
@@ -1533,7 +1544,9 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
 }
 
 static void dr_paint_at(int mx,int my,int phase){ if(!hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)&&phase!=2)return; Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts,W=ct->scols*ts,sc=g_dr_tile.w/ts; if(sc<1)sc=1;
-    int x=(mx-g_dr_tile.x)/sc,y=(my-g_dr_tile.y)/sc; int cx=(g_cellsel%ct->scols)*ts,cyy=(g_cellsel/ct->scols)*ts; cell_op(ct->sheet,W,cx,cyy,ts,ts,x,y,phase); }
+    int x=(mx-g_dr_tile.x)/sc,y=(my-g_dr_tile.y)/sc; int cx=(g_cellsel%ct->scols)*ts,cyy=(g_cellsel/ct->scols)*ts;
+    uint8_t xf=ct->xform[ct->rep[g_rulesel]]; if(xf&&x>=0&&x<ts&&y>=0&&y<ts){ int sx,sy; xform_src(x,y,ts,xf,&sx,&sy); x=sx; y=sy; }   /* edit the rotated view -> write the un-transformed source */
+    cell_op(ct->sheet,W,cx,cyy,ts,ts,x,y,phase); }
 static void lv_paint_at(int mx,int my,int set){ if(!hit(mx,my,g_lv_canvas.x,g_lv_canvas.y,g_lv_canvas.w,g_lv_canvas.h))return;
     int dz=g_tl_ts*g_lv_zoom; int c=g_lv_panx+(mx-g_lv_canvas.x)/dz,r=g_lv_pany+(my-g_lv_canvas.y)/dz;
     if(c>=0&&c<g_lv_cols&&r>=0&&r<g_lv_rows){ uint8_t b=(uint8_t)(1u<<g_curterr); if(set)g_lv_terrain[r*g_lv_cols+c]|=b; else g_lv_terrain[r*g_lv_cols+c]&=(uint8_t)~b; } }   /* set/clear THIS layer's bit only */
@@ -1553,6 +1566,7 @@ static int tiles_inspector_down(int mx,int my){ Terr*ct=&g_terr[g_curterr];
     if(hit(mx,my,g_tl_load.x,g_tl_load.y,g_tl_load.w,g_tl_load.h)){ fp_open(2); return 1; }
     if(hit(mx,my,g_tl_gen.x,g_tl_gen.y,g_tl_gen.w,g_tl_gen.h)){ terr_gen_starter(g_curterr); return 1; }
     if(hit(mx,my,g_tl_addrow.x,g_tl_addrow.y,g_tl_addrow.w,g_tl_addrow.h)){ terr_add_row(g_curterr); return 1; }
+    if(hit(mx,my,g_tl_dup.x,g_tl_dup.y,g_tl_dup.w,g_tl_dup.h)){ terr_dup_cell(g_curterr); return 1; }
     if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,g_tl_savep.w,g_tl_savep.h)){ terr_save_png(g_curterr); return 1; }
     int sn=ct->scols*ct->srows; for(int ci=0;ci<sn&&ci<64;ci++)if(hit(mx,my,g_sheetcell[ci].x,g_sheetcell[ci].y,g_sheetcell[ci].w,g_sheetcell[ci].h)){ g_cellsel=ci;
         uint8_t rr=ct->rep[g_rulesel]; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->lut[m]=(uint8_t)ci; return 1; }
@@ -1608,7 +1622,7 @@ static int g_an_play=1,g_an_onion=0,g_an_evfocus=-1,g_an_namefocus,g_an_cnamefoc
 static MoteAnimPlayer g_an_pl; static MoteAnimFrame g_an_tf[AN_MAXFR]; static MoteAnimClip g_an_tc; static uint32_t g_an_lastms;
 static SDL_Rect g_an_load,g_an_twm,g_an_twp,g_an_thm,g_an_thp,g_an_bake,g_an_addc,g_an_playb,g_an_onionb,g_an_namer,g_an_cnamer;
 static SDL_Rect g_an_cliptab[AN_MAXCLIP],g_an_loopb,g_an_fpsm,g_an_fpsp,g_an_pvxm,g_an_pvxp,g_an_pvym,g_an_pvyp,g_an_spm,g_an_spp;
-static SDL_Rect g_an_cell[256],g_an_fr[AN_MAXFR],g_an_frdel,g_an_frl,g_an_frr,g_an_durm,g_an_durp,g_an_evb,g_an_openc[12],g_an_dr,g_an_addfr;
+static SDL_Rect g_an_cell[256],g_an_fr[AN_MAXFR],g_an_frdel,g_an_frl,g_an_frr,g_an_durm,g_an_durp,g_an_evb,g_an_openc[12],g_an_dr,g_an_addfr,g_an_dupfr;
 static char g_an_defs[12][24]; static int g_an_ndefs;
 static const char *AN_LOOP_L[3]={ "once","loop","ping-pong" };
 
@@ -1636,6 +1650,13 @@ static void an_sync(void){ AClip*c=&g_an_clip[g_an_cur]; for(int i=0;i<c->nfr&&i
     g_an_tc.name=c->name; g_an_tc.frames=g_an_tf; g_an_tc.count=(uint16_t)c->nfr; g_an_tc.loop=c->loop; g_an_tc.pivot_x=c->pvx; g_an_tc.pivot_y=c->pvy;
     if(g_an_pl.clip!=&g_an_tc){ mote_anim_play(&g_an_pl,&g_an_tc); } }
 static void an_addframe(int cell){ AClip*c=&g_an_clip[g_an_cur]; if(c->nfr>=AN_MAXFR)return; c->fr[c->nfr].cell=(uint16_t)cell; c->fr[c->nfr].dur=0; c->fr[c->nfr].ev[0]=0; g_an_fsel=c->nfr; c->nfr++; mote_anim_play(&g_an_pl,&g_an_tc); }
+static int an_new_cell(void);   /* fwd */
+/* add a new frame that is a copy of the current frame's pixels (a fresh editable cell) */
+static void an_dup_frame(void){ AClip*c=&g_an_clip[g_an_cur]; if(c->nfr<1){ an_addframe(an_new_cell()); return; }
+    int src=c->fr[g_an_fsel].cell, nc=an_new_cell(), cols=an_cols();   /* an_new_cell keeps width/cols, so src coords stay valid */
+    int scx=(src%cols)*g_an_tw,scy=(src/cols)*g_an_th,dcx=(nc%cols)*g_an_tw,dcy=(nc/cols)*g_an_th;
+    for(int y=0;y<g_an_th;y++)for(int x=0;x<g_an_tw;x++)g_an_sheet[(dcy+y)*g_an_w+dcx+x]=g_an_sheet[(scy+y)*g_an_w+scx+x];
+    an_addframe(nc); }
 /* allocate a fresh blank cell to draw on, growing the sheet by a row when the grid is full */
 static int an_new_cell(void){
     if(!g_an_sheet||g_an_w<g_an_tw||g_an_h<g_an_th){ g_an_w=g_an_tw*4; g_an_h=g_an_th; int N=g_an_w*g_an_h; g_an_sheet=realloc(g_an_sheet,(size_t)N*2); for(int i=0;i<N;i++)g_an_sheet[i]=KEY565; g_an_used=0; }
@@ -1647,6 +1668,9 @@ static int an_new_cell(void){
 static void an_dr_paint_at(int mx,int my,int phase){ if(!g_an_sheet)return; AClip*c=&g_an_clip[g_an_cur]; if(c->nfr<1)return;
     if(!hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h)&&phase!=2)return; int sc=g_an_dr.w/(g_an_tw?g_an_tw:1); if(sc<1)sc=1;
     int x=(mx-g_an_dr.x)/sc,y=(my-g_an_dr.y)/sc; int cell=c->fr[g_an_fsel].cell, cols=an_cols(), cx=(cell%cols)*g_an_tw, cy=(cell/cols)*g_an_th;
+    if(g_ptool==3&&phase!=2&&x>=0&&x<g_an_tw&&y>=0&&y<g_an_th){   /* pipette: if this pixel is blank, pick from the onion (previous) frame */
+        uint16_t p=g_an_sheet[(cy+y)*g_an_w+cx+x];
+        if(p==KEY565&&g_an_onion&&c->nfr>1){ int oc=c->fr[(g_an_fsel+c->nfr-1)%c->nfr].cell,ox2=(oc%cols)*g_an_tw,oy2=(oc/cols)*g_an_th; uint16_t op=g_an_sheet[(oy2+y)*g_an_w+ox2+x]; if(op!=KEY565){ px_setcol(op); return; } } }
     cell_op(g_an_sheet,g_an_w,cx,cy,g_an_tw,g_an_th,x,y,phase); }
 /* write the (edited) sheet back to its PNG so the asset stays the source of truth */
 static void an_save_png(void){ if(g_sel<0||!g_an_sheet||!g_an_png[0])return; int W=g_an_w,H=g_an_h; if((long)W*H>1024*1024)return;
@@ -1734,6 +1758,7 @@ static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_
           char d[8]; snprintf(d,sizeof d,"%d",an_fdur(c,i)); text(R,d,gx+1,fy+fz-9,1,(Col){210,220,170},(Col){18,18,26});
           if(c->fr[i].ev[0])plain(R,gx+fz-5,fy+1,4,4,(Col){245,170,70}); }
       int abx=fx+c->nfr*(fz+5); g_an_addfr=(SDL_Rect){abx,fy,fz,fz}; rrect(R,abx,fy,fz,fz,4,hit(mx,my,abx,fy,fz,fz)?C_BTNHI:C_BTN); icon(R,IC_PLUS,abx+13,fy+11,14,(Col){170,200,140}); text(R,"blank",abx+6,fy+fz-10,1,C_DIM,C_BTN);
+      int dbx=abx+fz+5; g_an_dupfr=(SDL_Rect){dbx,fy,fz,fz}; rrect(R,dbx,fy,fz,fz,4,hit(mx,my,dbx,fy,fz,fz)?C_BTNHI:C_BTN); icon(R,IC_IMAGE,dbx+13,fy+10,14,(Col){170,200,140}); text(R,"copy",dbx+9,fy+fz-10,1,C_DIM,C_BTN);
       if(!c->nfr)text(R,"add cells from the SPRITE SHEET (right) \xbb",abx+fz+10,fy+16,1,C_DIM,C_PANEL); }
 
     /* ===== bottom row: CLIP&FRAME card · EDIT FRAME card · PREVIEW card ===== */
@@ -1805,6 +1830,7 @@ static void anim_down(int mx,int my){ an_ensure(); AClip*c=&g_an_clip[g_an_cur];
     if(ANHIT(g_an_pvxm)){ c->pvx--; return; } if(ANHIT(g_an_pvxp)){ c->pvx++; return; }
     if(ANHIT(g_an_pvym)){ c->pvy--; return; } if(ANHIT(g_an_pvyp)){ c->pvy++; return; }
     if(g_an_addfr.w&&ANHIT(g_an_addfr)){ int nc=an_new_cell(); an_addframe(nc); return; }   /* new blank frame to draw */
+    if(g_an_dupfr.w&&ANHIT(g_an_dupfr)){ an_dup_frame(); return; }                            /* new frame copied from the current */
     for(int i=0;i<c->nfr;i++)if(ANHIT(g_an_fr[i])){ g_an_fsel=i; return; }
     if(c->nfr>0){
         if(ANHIT(g_an_frl)){ if(g_an_fsel>0){ AFrame t=c->fr[g_an_fsel]; c->fr[g_an_fsel]=c->fr[g_an_fsel-1]; c->fr[g_an_fsel-1]=t; g_an_fsel--; } return; }
