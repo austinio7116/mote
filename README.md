@@ -191,12 +191,25 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
 
   | Tab | What it does |
   |---|---|
-  | **Pixel Art** | HSV+hex colour picker, pencil/eraser/fill/eyedropper/line/rect, undo, grid, sizes 8–128, zoom+pan, PNG/BMP/JPG import. **Save** writes `assets/sprite.png` *and auto-bakes* the `MoteImage` header (§4). |
-  | **Assets** | Browse the project's baked assets. |
-  | **Mesh** | Software-rendered 3D preview of `.stl`/`.obj` (drag to rotate). |
-  | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono), see the waveform, drag-crop, play, plus an **SFX generator** (Random / presets). **Save** writes the `.wav` to `assets/` **and** bakes `src/<name>.h` (a `MoteSound`) to play with `audio_play` (§9). |
+  | **Pixel Art** | HSV+hex colour picker, pencil/eraser/fill/eyedropper/line/rect, undo, grid, sizes 8–128, zoom+pan, transparency, PNG/BMP/JPG import. **Save** writes `assets/sprite.png` *and auto-bakes* the `MoteImage` header (§4). |
+  | **Texture** | Procedural texture generators (wood / marble / brick / check / cloud / stone / plasma …) with contrast/warp — kept separate from Pixel Art so generating never clobbers hand-drawn art. |
+  | **Code** | Built-in C editor with syntax highlighting + inline build errors, or jump to VS Code. |
+  | **Tiles** | Rule-tile (autotile) authoring: Blob-47 / edge / Wang templates, per-rule cell editing, weighted variants, rotation/flip, and a **LEVEL** painter (always scaled to fit). **Bake** writes the tileset(s) + a bit-packed `.level.h`. |
+  | **Anim** | Sprite-animation editor: clips with per-frame durations, onion-skin, frame events, pivots, and the pixel editor for each frame. **Bake** writes a `MoteAnimClip` set. |
+  | **Mesh** | Live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). |
+  | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono) or design an SFX with the SFXR synth + presets; see the waveform, crop, play. **Save** writes the `.wav`, the editable `.sfx` recipe, a `MoteSound` header *and* a `MoteSfx` recipe header (play via `audio_play` or `mote_sfx_bake`, §9). |
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
+
+The richer editing panels:
+
+| Pixel Art | Tiles |
+|---|---|
+| ![Pixel Art tab](docs/img/studio-pixel.png) | ![Tiles tab](docs/img/studio-tiles.png) |
+| **Anim** | **Mesh** |
+| ![Anim tab](docs/img/studio-anim.png) | ![Mesh tab](docs/img/studio-mesh.png) |
+| **Audio** | **Texture** |
+| ![Audio tab](docs/img/studio-audio.png) | ![Texture tab](docs/img/studio-texture.png) |
 
 **Native + Python-free.** Studio reimplements the CLI's build/scaffold/bake in C
 (`studio/motecore.c`) and talks to the board over USB-CDC directly (`studio/usb.c`;
@@ -324,6 +337,8 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | `*.png`, `*.bmp` | **img2tex** (needs ImageMagick) | `<name>_px[]` (RGB565), `<name>_img` (a `MoteImage`), `<name>_W` / `<name>_H` | `#include "<name>.h"` then a sprite via `mote->scene2d_add` or an immediate blit via `mote->blit` |
 | `*.obj` | **obj2mesh** | one `<name>_mesh` (a `Mesh`) | small models that fit ≤255 verts |
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
+| `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`) | recorded/sampled audio; play with `audio_play` |
+| `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
 
 **Image transparency:** any source pixel with alpha < 128 becomes the magenta
 colour-key `0xF81F` (`MOTE_KEY_MAGENTA`); the engine's 2D rasteriser and `blit`
@@ -377,21 +392,26 @@ prefer (the `mote new` template's `SHAPE_H` and `tiledemo`'s procedural art do
 exactly this). Bake is a convenience for going from real PNG/OBJ/STL files to
 embeddable constants.
 
-### Audio: two paths — synth notes and baked samples
-
-The engine gives you **both** a procedural synth and PCM sample playback:
+### Audio: three paths — synth notes, SFX recipes, baked samples
 
 - **Synth** — `mote->audio_note(freq, amp)` strikes a one-shot piano-ish note (§9); no
-  asset needed. Good for blips, beeps, music.
-- **Samples** — bake a 22050 Hz mono WAV to a header and play it: the Studio **Audio tab**
-  loads WAV/MP3, crops, and its SFX generator creates effects; **Save** writes the `.wav`
-  into `assets/` **and bakes** `src/<name>.h` (a `MoteSound`), so a game can play it with
-  `mote->audio_play(&<name>_snd, gain)` (ABI v12). `mote bake` also bakes any `.wav` in
-  `assets/`. The engine mixes up to 8 one-shot samples on top of the synth (oldest stolen).
+  asset needed. Good for tones, beeps, melodies.
+- **SFX recipes** — design an effect with the Studio **Audio tab**'s SFXR synth; **Save**
+  also writes `src/<name>.sfx.h` (a `static const MoteSfx`, ~88 bytes). `mote_sfx_bake(mote,
+  &<name>_sfx)` has the engine synthesise it to a `MoteSound` at load — tiny in flash,
+  editable, great for blips/zaps/pickups (ABI v19).
+- **Samples** — for recorded/sampled audio, bake a 22050 Hz mono WAV: the Audio tab loads
+  WAV/MP3 and crops; **Save** writes the `.wav` and bakes `src/<name>.h` (a `MoteSound`).
+  `mote bake` also bakes any `.wav` in `assets/`.
+
+All three end at the mixer — up to 8 one-shot samples mix on top of the synth notes.
 
 ```c
-#include "hit.h"                       // baked: MoteSound hit_snd = { hit_pcm, N };
-mote->audio_play(&hit_snd, 1.0f);      // fire-and-forget; gain 0..1
+#include "coin.sfx.h"                  // recipe: static const MoteSfx coin_sfx = {...};
+static MoteSound coin;
+void g_init(void){ coin = mote_sfx_bake(mote, &coin_sfx); }   // synth once at load
+...
+mote->audio_play(&coin, 1.0f);         // fire-and-forget; gain 0..1
 mote->audio_note(440.0f, 0.85f);       // or a synth note — they sum
 ```
 
@@ -412,8 +432,25 @@ it, and a snippet.
 
 ### 5.1 — 3D scene (the triangle pipeline)
 
-You build a draw-list each frame in `update()`; the OS rasterises it across both
-cores. The flow is always: `scene_begin` → add objects/spheres → (done; OS rasters).
+The scene is **immediate-mode**: each frame, in `update()`, you start the scene and
+then draw everything you want visible — one `mote_draw`/`scene_add_*` call per object.
+The draw-list is emptied for you at the start of every frame, so you always describe
+the *current* frame from scratch. There are no scene objects to create, keep, or
+delete, and no handles to track.
+
+Keep your game state however suits you — a `ball_pos`, a `player_y`, an array of
+enemies — and each frame just draw from it:
+```c
+mote->scene_camera(&cam_basis, cam_pos, 60.0f);    // once per frame
+for (int i = 0; i < n_enemies; i++)
+    mote_draw(mote, enemy_mesh, enemies[i].pos);    // re-issued every frame
+```
+To move something, change your own variable; to hide it, don't call `mote_draw` for
+it this frame. There's nothing to sync — the next frame's draw calls *are* the scene.
+
+The flow is always: `scene_camera` → add your objects/spheres → done (the OS
+rasterises across both cores). It draws thousands of triangles at 60 fps, so
+re-submitting your whole scene every frame is exactly what you're meant to do.
 
 #### `void scene_set_background(uint16_t rgb565)`
 The clear colour the raster fills behind everything, each frame. Call in `init()`
@@ -442,18 +479,33 @@ Mat3 cam = mote_camera_look(eye, target);   // eye, target in world space
 mote->scene_begin(&cam, 60.0f);
 ```
 
+#### `void scene_camera(const Mat3 *cam_basis, Vec3 cam_pos, float fov_deg)` — *recommended*
+Like `scene_begin`, but you also give the camera **position**, and the engine
+subtracts it for you — so you add objects at **world** coordinates instead of doing
+`world − cam_pos` by hand everywhere. This is the camera the examples and the
+`mote_draw*` helpers use; prefer it. (`scene_begin` is just `scene_camera` with the
+camera pinned at the origin.)
+```c
+Mat3 basis = mote_camera_look(cam_pos, target);
+mote->scene_camera(&basis, cam_pos, 60.0f);
+mote_draw(mote, mesh, world_pos);            // world coords — no subtraction
+```
+
 #### `int scene_add_object(const MoteObject *obj)`
-Queues one mesh for rendering. `MoteObject = { Vec3 pos; Mat3 basis; const Mesh *mesh; }`:
-- `pos` — **camera-relative** world position of the mesh's origin (`world − cam_pos`).
+Queues one mesh for rendering. `MoteObject = { Vec3 pos; Mat3 basis; const Mesh *mesh; uint16_t color; }`:
+- `pos` — the mesh origin. With `scene_camera` this is a **world** position; with the
+  legacy `scene_begin` it's **camera-relative** (`world − cam_pos`).
 - `basis` — the object's orientation (rows right/up/forward; `m3_identity()` = unrotated).
 - `mesh` — a `const Mesh *` (from a `mote_mesh_*` helper or a baked header).
+- `color` — optional RGB565 **tint override**; `0` (default) uses the mesh's own colour(s).
 
 Returns the number of triangles actually emitted (0 if the object was frustum-culled
-or the draw-list pool is full). Call as many times as you have objects.
+or the draw-list pool is full). In practice you rarely fill this struct by hand —
+`mote_draw(mote, mesh, world_pos)` and friends (§5.8) do it for you:
 ```c
-MoteObject o = { .pos = v3_sub(world_pos, cam_pos),
-                 .basis = s_rot, .mesh = s_cube };
-mote->scene_add_object(&o);
+mote_draw(mote, s_cube, world_pos);                       // identity basis, scale 1
+mote_draw_ex(mote, s_cube, world_pos, s_rot, 1.0f);       // + orientation + scale
+mote_draw_tint(mote, s_cube, world_pos, s_rot, 1.0f, MOTE_RGB565(255,80,80));  // + tint
 ```
 
 #### `int scene_add_object_scaled(const MoteObject *obj, float scale)`
@@ -473,6 +525,28 @@ mote->scene_add_sphere(v3_sub(ball.pos, cam_pos), 0.12f, MOTE_RGB565(248,248,248
 #### `int scene_tri_count(void)`
 Triangles emitted into the draw-list so far this frame. Use it for HUD/profiling or
 to back off detail when you're near the `max_tris` budget.
+
+#### Big STL models — `MoteModel` + one-call draw
+A baked STL (§4) is split into ≤255-vertex chunks (the `uint8` face-index cap), but
+you never touch the chunks: the baker bundles them into one `MoteModel` and a
+`<name>_TRIS` count, and you draw the whole thing in one call. Size the `max_tris`
+pool to the model so nothing clips:
+```c
+#include "fighter.h"                          // a MoteModel `fighter` + fighter_TRIS
+.config = { .max_tris = fighter_TRIS, .depth = 1 },
+mote_model_draw(mote, &fighter, world_pos);                       // or _ex(pos,basis,scale)
+mote_model_draw_tint(mote, &fighter, pos, basis, 1.0f, team_col); // tint every chunk
+```
+See `examples/modelview` (a 6,742-tri fighter) and `examples/chess` (pieces are STL
+models, tinted white/black per side; king & queen are two parts for two colours).
+
+#### Mesh colour
+Colour lives on the **mesh**, not on every triangle (a `MeshFace` is 6 bytes —
+indices + a quantised normal). A `Mesh` carries one flat `color`, *or* an optional
+per-face `face_colors[]` array for multi-coloured models (multi-material OBJ,
+height-tinted terrain). A per-draw `MoteObject.color` (via `mote_draw_tint` /
+`mote_model_draw_tint`) overrides both — for team colours, damage flashes, selection
+highlights. The bakers emit flat or per-face automatically.
 
 ### 5.2 — 2D scene (sprites + tilemap)
 
@@ -803,6 +877,21 @@ int count; }` — bake one from a WAV in the Studio Audio tab (Save) or via `mot
 mote->audio_play(&hit_snd, 1.0f);
 ```
 
+#### `MoteSound mote_sfx_bake(mote, const MoteSfx *recipe)` — recipes instead of WAVs
+For short procedural SFX you can ship a tiny **`MoteSfx` recipe** (~88 bytes, authored
+in the Studio Audio tab and baked to a `<name>.sfx.h`) instead of a WAV. The engine
+synthesises it to PCM at load — bake it once in `init()`, then `audio_play` it like
+any sample. The recipe is ~1000× smaller in flash than the equivalent PCM, and stays
+editable (re-open it in the Studio). Use WAV baking for sampled/recorded audio;
+recipes for blips, zaps, pickups.
+```c
+#include "coin.sfx.h"               // baked: static const MoteSfx coin_sfx = { ... };
+static MoteSound coin;
+void g_init(void){ coin = mote_sfx_bake(mote, &coin_sfx); }   // synth once, into the arena
+... mote->audio_play(&coin, 1.0f);                            // play like any sample
+```
+`examples/pong3d` uses this for all four of its sounds.
+
 #### `void audio_off(void)`
 Silences every voice immediately. The OS already calls this on game exit so notes
 don't ring into the launcher.
@@ -888,15 +977,25 @@ const float pawn[] = { 0.0f,0.0f,  0.18f,0.05f,  0.10f,0.25f,  0.14f,0.40f,  0.0
 const Mesh *pawnm = mote_mesh_revolve(mote, pawn, 5, 10, MOTE_RGB565(230,230,230));
 ```
 
+**Drawing, models & SFX:**
+
+| Helper | What it does |
+|---|---|
+| `mote_draw(mote, mesh, pos)` | Draw a mesh at a **world** position (pair with `scene_camera`). Identity orientation, scale 1. |
+| `mote_draw_ex(mote, mesh, pos, basis, scale)` | …plus orientation + uniform scale. |
+| `mote_draw_tint(mote, mesh, pos, basis, scale, col)` | …plus a colour override (team colours, damage flashes, selection). |
+| `mote_model_draw(mote, &model, pos)` · `_ex` · `_tint` | Draw a whole baked **`MoteModel`** (all its STL chunks) in one call; `_tint` recolours every chunk. |
+| `MoteSound mote_sfx_bake(mote, &recipe)` | Synthesise a `MoteSfx` recipe to a playable `MoteSound` at load (§9). |
+
 **Camera:**
 #### `Mat3 mote_camera_look(Vec3 eye, Vec3 target)`
 Builds the view basis (rows right/up/forward) looking from `eye` toward `target`
-(world space, up = +Y). Pass the result to `scene_begin`. Remember the camera
-*position* is implicit, so object positions are `world − eye` (§6).
+(world space, up = +Y). Pass it to **`scene_camera`** (with the camera position) and
+then add objects in world coordinates — `mote_draw` does the rest:
 ```c
 Mat3 cam = mote_camera_look(cam_pos, v3(0,0,0));
-mote->scene_begin(&cam, 60.0f);
-MoteObject o = { .pos = v3_sub(world_pos, cam_pos), .basis = s_rot, .mesh = m };
+mote->scene_camera(&cam, cam_pos, 60.0f);
+mote_draw_ex(mote, m, world_pos, s_rot, 1.0f);   // world coords, no subtraction
 ```
 
 **Tiny immediate-mode UI** (pure framebuffer ops; pair with `mote->text`):
@@ -1076,6 +1175,17 @@ Bake one in the Studio **Audio tab** — load/crop a WAV/MP3 or generate an SFX,
 writes `assets/<name>.wav` *and* `src/<name>.h` (a `MoteSound`); `#include` it and call
 `mote->audio_play(&<name>_snd, 1.0f)`. (`mote bake` also bakes any `.wav` in `assets/`.)
 
+**Recipes, not WAVs, for procedural SFX** (ABI v19). The Audio-tab Save *also* writes
+`src/<name>.sfx.h` — a `static const MoteSfx` recipe (~88 bytes). `mote_sfx_bake(mote,
+&<name>_sfx)` has the engine synthesise it to a `MoteSound` at load, so the game ships
+the recipe instead of bulky PCM (~1000× smaller in flash) and the sound stays editable.
+Best for blips/zaps/pickups; keep WAV baking for sampled or recorded audio. Choose
+per sound — both paths end at `audio_play`. `examples/pong3d` uses recipes for all four
+of its sounds.
+
+**Which to use:** synth `audio_note` for tones/melodies; **`MoteSfx` recipes** for short
+procedural effects (tiny, editable); **WAV → `MoteSound`** for recorded/sampled audio.
+
 ---
 
 ## 10. Device workflow
@@ -1199,8 +1309,8 @@ sdk/        mote_api.h (THE ABI) · mote_build.h (helpers) · mote_module.h + ga
 studio/     Mote Studio IDE — main.c (UI), motecore.c (native build/bake), usb.c (device link)
 tools/      mote (CLI) · obj2mesh.c · stl2mesh.c · ply2splat.py
 scripts/    build-windows.sh + mingw-toolchain.cmake (Windows cross-build)
-examples/   25 sample games (see below)
-docs/img/   studio-ide.png
+examples/   sample games (see below)
+docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipeline diagrams
 ```
 
 ### Example games — what each one teaches
@@ -1212,10 +1322,11 @@ docs/img/   studio-ide.png
 | `pong3d`, `arkanoid3d` | polished arcade: trails, particles, power-ups, levels, `menu` for game-over |
 | `physics`, `materials`, `playground`, `dominoes`, `hulls` | the rigid-body solver (boxes/spheres/hulls/materials/stacking) |
 | `pickups`, `shooter` | `phys_overlap` / `phys_raycast` as game mechanics |
-| `golf`, `chess`, `pool`, `fling`, `world` | full games (terrain, AI, splats, mesh colliders) |
+| `golf`, `pool`, `fling`, `world` | full games (terrain, AI, splats, mesh colliders) |
+| `chess` | full game + STL piece models tinted per side (king/queen are two parts for two colours) |
 | `terrain` | `mote_mesh_grid` auto-chunked heightfield |
 | `cluster`, `zelda`, `splats` | Gaussian-splat scenes |
-| `modelview` | loading a real baked STL model in chunks |
+| `modelview` | a full-detail baked STL `MoteModel` (5,759 tris / 19 chunks) drawn in one call — a heavy 3D stress test |
 | `piano3d` | the audio synth — a playable 3D keyboard |
 | `tiledemo` | the 2D scene + autotiled file tilesets (dirt/grass/water layers) |
 | `tiles` | the render-time autotiler — a procedural Blob-47 cave you can dig live |
