@@ -565,6 +565,27 @@ static void ring(SDL_Renderer*R,int cx,int cy,int rad,Col c,int th){ SDL_SetRend
         SDL_RenderDrawLine(R,cx-o,cy+dy,cx-in,cy+dy); SDL_RenderDrawLine(R,cx+in,cy+dy,cx+o,cy+dy); } }
 static void rect_outline(SDL_Renderer*R,int x,int y,int w,int h,Col c,int th){ SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255);
     for(int t=0;t<th;t++){ SDL_Rect r={x+t,y+t,w-2*t,h-2*t}; SDL_RenderDrawRect(R,&r); } }
+
+/* ===== consistent UI kit (cards, section labels, steppers, pills, buttons) =====
+ * Cards are C_PANEL on the C_DOCK background with a hairline; controls share one look so
+ * every bottom/right panel reads the same. Layout helpers return the next x or content y. */
+static int ui_card(SDL_Renderer*R,int x,int y,int w,int h,const char*title){
+    rrect(R,x,y,w,h,7,C_PANEL); rect_outline(R,x,y,w,h,C_LINE,1);
+    if(title&&title[0]){ text(R,title,x+11,y+8,1,C_TITLE,C_PANEL); plain(R,x+11,y+21,w-22,1,C_LINE); return y+30; }
+    return y+10; }
+static void ui_label(SDL_Renderer*R,const char*s,int x,int y){ text(R,s,x,y,1,C_DIM,C_PANEL); }
+static int ui_stepper(SDL_Renderer*R,int x,int y,const char*label,const char*val,SDL_Rect*rm,SDL_Rect*rp,int mx,int my){
+    if(label&&label[0]){ text(R,label,x,y+5,1,C_DIM,C_PANEL); x+=textw(R,label,1)+6; }
+    *rm=(SDL_Rect){x,y,18,20}; rrect(R,x,y,18,20,4,hit(mx,my,x,y,18,20)?C_BTNHI:C_BTN); text(R,"-",x+6,y+5,1,C_TXT,C_BTN); x+=20;
+    int vw=textw(R,val,1),bw=vw>16?vw:16; text(R,val,x+(bw-vw)/2,y+5,1,C_TXT,C_PANEL); x+=bw+5;
+    *rp=(SDL_Rect){x,y,18,20}; rrect(R,x,y,18,20,4,hit(mx,my,x,y,18,20)?C_BTNHI:C_BTN); text(R,"+",x+5,y+5,1,C_TXT,C_BTN); return x+20; }
+static int ui_pill(SDL_Renderer*R,int x,int y,const char*label,const char*val,int on,SDL_Rect*r,int mx,int my){
+    if(label&&label[0]){ text(R,label,x,y+5,1,C_DIM,C_PANEL); x+=textw(R,label,1)+6; }
+    int bw=textw(R,val,1)+16; *r=(SDL_Rect){x,y,bw,20}; rrect(R,x,y,bw,20,4,on?C_ACC:(hit(mx,my,x,y,bw,20)?C_BTNHI:C_BTN)); text(R,val,x+8,y+5,1,on?C_HDR:C_TXT,on?C_ACC:C_BTN); return x+bw+8; }
+static int ui_btn(SDL_Renderer*R,int x,int y,int w,const char*label,int icid,Col accent,SDL_Rect*r,int mx,int my){
+    int hov=hit(mx,my,x,y,w,22); *r=(SDL_Rect){x,y,w,22}; rrect(R,x,y,w,22,4,hov?C_BTNHI:C_BTN);
+    int hasacc=accent.r||accent.g||accent.b; int tx=x+10; if(icid>=0){ icon(R,icid,x+8,y+5,13,hasacc?accent:C_TXT); tx=x+26; }
+    int tw=textw(R,label,1); if(icid<0)tx=x+(w-tw)/2; text(R,label,tx,y+5,1,hasacc?accent:C_TXT,hov?C_BTNHI:C_BTN); return x+w+6; }
 /* map a mouse pos to an emulator button (optionally pressing it on *s) */
 enum { EB_A,EB_B,EB_UP,EB_DOWN,EB_LEFT,EB_RIGHT,EB_LB,EB_RB,EB_MENU };
 static int emu_hit(int mx,int my,MoteButtons*s){ if(!g_emu_w)return -1; int w=g_emu_w;
@@ -1671,80 +1692,78 @@ static void draw_anim_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my
 /* ---- dock: clips, frame strip, preview ---- */
 static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); an_ensure();
     if(g_an_cur>=g_an_nclip)g_an_cur=0; AClip*c=&g_an_clip[g_an_cur]; if(g_an_fsel>=c->nfr)g_an_fsel=c->nfr>0?c->nfr-1:0;
-    int tx=ox,ty=oy+2;
-    /* clip tabs */
-    for(int i=0;i<g_an_nclip;i++){ int bw=textw(R,g_an_clip[i].name,1)+16; g_an_cliptab[i]=(SDL_Rect){tx,ty,bw,22}; int sel=i==g_an_cur;
-        rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hit(mx,my,tx,ty,bw,22)?C_BTNHI:C_BTN)); text(R,g_an_clip[i].name,tx+8,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+4; }
-    if(g_an_nclip<AN_MAXCLIP){ g_an_addc=(SDL_Rect){tx,ty,22,22}; rrect(R,tx,ty,22,22,4,hit(mx,my,tx,ty,22,22)?C_BTNHI:C_BTN); text(R,"+",tx+8,ty+5,1,C_TXT,C_BTN); tx+=28; } else g_an_addc=(SDL_Rect){0,0,0,0};
-    tx+=6; text(R,"clip",tx,ty+6,1,C_DIM,C_DOCK); tx+=textw(R,"clip",1)+4;
-    g_an_cnamer=(SDL_Rect){tx,ty,76,22}; rrect(R,tx,ty,76,22,4,g_an_cnamefocus?(Col){12,14,20}:C_DOCK); { char nm[24]; snprintf(nm,sizeof nm,"%s%s",c->name,g_an_cnamefocus?"_":""); text(R,nm,tx+5,ty+6,1,C_TXT,g_an_cnamefocus?(Col){12,14,20}:C_DOCK); } tx+=82;
-    text(R,"set",tx,ty+6,1,C_DIM,C_DOCK); tx+=textw(R,"set",1)+4;
-    g_an_namer=(SDL_Rect){tx,ty,76,22}; rrect(R,tx,ty,76,22,4,g_an_namefocus?(Col){12,14,20}:C_DOCK); { char nm[40]; snprintf(nm,sizeof nm,"%s%s",g_an_name,g_an_namefocus?"_":""); text(R,nm,tx+5,ty+6,1,C_TXT,g_an_namefocus?(Col){12,14,20}:C_DOCK); } tx+=82;
-    g_an_bake=(SDL_Rect){tx,ty,72,22}; rrect(R,tx,ty,72,22,4,hit(mx,my,tx,ty,72,22)?C_BTNHI:C_BTN); text(R,"Bake",tx+22,ty+5,1,(Col){170,200,140},C_BTN);
 
-    /* clip props row */
-    ty+=28; tx=ox; text(R,"loop",tx,ty+3,1,C_DIM,C_DOCK); tx+=textw(R,"loop",1)+5;
-    g_an_loopb=(SDL_Rect){tx,ty,76,18}; rrect(R,tx,ty,76,18,4,C_BTN); text(R,AN_LOOP_L[c->loop%3],tx+8,ty+3,1,(Col){240,200,90},C_BTN); tx+=84;
-    text(R,"fps",tx,ty+3,1,C_DIM,C_DOCK); tx+=textw(R,"fps",1)+4; g_an_fpsm=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"-",tx+5,ty+3,1,C_TXT,C_BTN); tx+=16; { char b[8]; snprintf(b,sizeof b,"%d",c->fps); text(R,b,tx,ty+3,1,C_TXT,C_DOCK); } tx+=textw(R,"00",1)+3;
-    g_an_fpsp=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"+",tx+4,ty+3,1,C_TXT,C_BTN); tx+=22;
-    text(R,"pivot",tx,ty+3,1,C_DIM,C_DOCK); tx+=textw(R,"pivot",1)+4;
-    g_an_pvxm=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"-",tx+5,ty+3,1,C_TXT,C_BTN); tx+=16; { char b[8]; snprintf(b,sizeof b,"%d",c->pvx); text(R,b,tx,ty+3,1,C_TXT,C_DOCK); } tx+=textw(R,"00",1)+3;
-    g_an_pvxp=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"+",tx+4,ty+3,1,C_TXT,C_BTN); tx+=18; text(R,",",tx,ty+3,1,C_DIM,C_DOCK); tx+=6;
-    g_an_pvym=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"-",tx+5,ty+3,1,C_TXT,C_BTN); tx+=16; { char b[8]; snprintf(b,sizeof b,"%d",c->pvy); text(R,b,tx,ty+3,1,C_TXT,C_DOCK); } tx+=textw(R,"00",1)+3;
-    g_an_pvyp=(SDL_Rect){tx,ty,15,18}; rrect(R,tx,ty,15,18,4,C_BTN); text(R,"+",tx+4,ty+3,1,C_TXT,C_BTN);
+    /* ===== toolbar: clip tabs (left)  ·  clip/set names + Bake (right) ===== */
+    int tx=ox,ty=oy+4;
+    for(int i=0;i<g_an_nclip;i++){ int bw=textw(R,g_an_clip[i].name,1)+18; g_an_cliptab[i]=(SDL_Rect){tx,ty,bw,24}; int sel=i==g_an_cur;
+        rrect(R,tx,ty,bw,24,5,sel?C_SEL:(hit(mx,my,tx,ty,bw,24)?C_BTNHI:C_BTN)); text(R,g_an_clip[i].name,tx+9,ty+6,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); tx+=bw+4; }
+    if(g_an_nclip<AN_MAXCLIP){ g_an_addc=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,5,hit(mx,my,tx,ty,24,24)?C_BTNHI:C_BTN); icon(R,IC_PLUS,tx+6,ty+6,12,C_TXT); } else g_an_addc=(SDL_Rect){0,0,0,0};
+    int rx=ox+w-84; g_an_bake=(SDL_Rect){rx,ty,84,24}; rrect(R,rx,ty,84,24,5,hit(mx,my,rx,ty,84,24)?C_BTNHI:C_BTN); icon(R,IC_HAMMER,rx+11,ty+6,13,(Col){170,200,140}); text(R,"Bake",rx+30,ty+6,1,(Col){170,200,140},C_BTN);
+    rx-=8+90; g_an_namer=(SDL_Rect){rx,ty,90,24}; rrect(R,rx,ty,90,24,5,g_an_namefocus?(Col){12,14,20}:C_DOCK); { char nm[40]; snprintf(nm,sizeof nm,"%s%s",g_an_name,g_an_namefocus?"_":""); text(R,nm,rx+8,ty+6,1,C_TXT,C_DOCK); }
+    rx-=4+textw(R,"set",1); text(R,"set",rx,ty+6,1,C_DIM,C_DOCK);
+    rx-=8+84; g_an_cnamer=(SDL_Rect){rx,ty,84,24}; rrect(R,rx,ty,84,24,5,g_an_cnamefocus?(Col){12,14,20}:C_DOCK); { char nm[24]; snprintf(nm,sizeof nm,"%s%s",c->name,g_an_cnamefocus?"_":""); text(R,nm,rx+8,ty+6,1,C_TXT,C_DOCK); }
+    rx-=4+textw(R,"clip",1); text(R,"clip",rx,ty+6,1,C_DIM,C_DOCK);
 
-    /* frame strip */
-    ty+=26; tx=ox; text(R,"FRAMES  (cells in the inspector \xbb add \xb7 click a frame to select)",tx,ty,1,(Col){170,200,140},C_DOCK); ty+=15;
-    int fz=40; for(int i=0;i<c->nfr&&i<AN_MAXFR;i++){ int gx=tx+i*(fz+4),gy=ty; if(gx+fz>ox+w-4){ /* wrap */ } g_an_fr[i]=(SDL_Rect){gx,gy,fz,fz};
-        plain(R,gx-1,gy-1,fz+2,fz+2, i==g_an_fsel?(Col){240,200,90}:(Col){34,36,46}); an_blit_cell(R,c->fr[i].cell,gx,gy,fz);
-        char d[8]; snprintf(d,sizeof d,"%d",an_fdur(c,i)); text(R,d,gx+1,gy+fz-9,1,(Col){200,210,160},(Col){20,20,28});
-        if(c->fr[i].ev[0])plain(R,gx+fz-5,gy+1,4,4,(Col){240,160,80}); }
-    if(!c->nfr)text(R,"(no frames — click sheet cells in the inspector)",tx,ty+14,1,C_DIM,C_DOCK);
+    /* ===== TIMELINE card (filmstrip) ===== */
+    int tly=oy+34, tlh=72; ui_card(R,ox,tly,w,tlh,"FRAMES");
+    { int fz=40, fx=ox+14, fy=tly+26;
+      for(int i=0;i<c->nfr&&i<AN_MAXFR;i++){ int gx=fx+i*(fz+5); g_an_fr[i]=(SDL_Rect){gx,fy,fz,fz};
+          rrect(R,gx-2,fy-2,fz+4,fz+4,3, i==g_an_fsel?C_TITLE:C_LINE); an_blit_cell(R,c->fr[i].cell,gx,fy,fz);
+          char d[8]; snprintf(d,sizeof d,"%d",an_fdur(c,i)); text(R,d,gx+1,fy+fz-9,1,(Col){210,220,170},(Col){18,18,26});
+          if(c->fr[i].ev[0])plain(R,gx+fz-5,fy+1,4,4,(Col){245,170,70}); }
+      int abx=fx+c->nfr*(fz+5); g_an_addfr=(SDL_Rect){abx,fy,fz,fz}; rrect(R,abx,fy,fz,fz,4,hit(mx,my,abx,fy,fz,fz)?C_BTNHI:C_BTN); icon(R,IC_PLUS,abx+13,fy+11,14,(Col){170,200,140}); text(R,"blank",abx+6,fy+fz-10,1,C_DIM,C_BTN);
+      if(!c->nfr)text(R,"add cells from the SPRITE SHEET (right) \xbb",abx+fz+10,fy+16,1,C_DIM,C_PANEL); }
 
-    /* selected-frame editor */
-    int ey=ty+fz+8; tx=ox;
-    if(c->nfr>0){ text(R,"reorder",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"reorder",1)+5;
-        g_an_frl=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,hit(mx,my,tx,ey,16,18)?C_BTNHI:C_BTN); text(R,"\xab",tx+4,ey+3,1,C_TXT,C_BTN); tx+=18;
-        g_an_frr=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,hit(mx,my,tx,ey,16,18)?C_BTNHI:C_BTN); text(R,"\xbb",tx+4,ey+3,1,C_TXT,C_BTN); tx+=22;
-        text(R,"ms",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"ms",1)+4; g_an_durm=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"-",tx+5,ey+3,1,C_TXT,C_BTN); tx+=17; { char b[8]; snprintf(b,sizeof b,"%d",an_fdur(c,g_an_fsel)); text(R,b,tx,ey+3,1,C_TXT,C_DOCK); } tx+=textw(R,"000",1)+3;
-        g_an_durp=(SDL_Rect){tx,ey,16,18}; rrect(R,tx,ey,16,18,4,C_BTN); text(R,"+",tx+4,ey+3,1,C_TXT,C_BTN); tx+=22;
-        text(R,"event",tx,ey+3,1,C_DIM,C_DOCK); tx+=textw(R,"event",1)+4;
-        g_an_evb=(SDL_Rect){tx,ey,96,18}; rrect(R,tx,ey,96,18,4,g_an_evfocus==g_an_fsel?(Col){12,14,20}:C_DOCK); { char e[20]; snprintf(e,sizeof e,"%s%s",c->fr[g_an_fsel].ev,g_an_evfocus==g_an_fsel?"_":""); text(R,e[0]?e:"(none)",tx+5,ey+3,1,e[0]?C_TXT:C_DIM,g_an_evfocus==g_an_fsel?(Col){12,14,20}:C_DOCK); } tx+=102;
-        g_an_frdel=(SDL_Rect){tx,ey,52,18}; rrect(R,tx,ey,52,18,4,hit(mx,my,tx,ey,52,18)?(Col){150,70,60}:C_BTN); text(R,"delete",tx+7,ey+3,1,C_TXT,hit(mx,my,tx,ey,52,18)?(Col){150,70,60}:C_BTN); tx+=58; }
-    else tx=ox;
-    g_an_addfr=(SDL_Rect){tx,ey,72,18}; rrect(R,tx,ey,72,18,4,hit(mx,my,tx,ey,72,18)?C_BTNHI:C_BTN); text(R,"+ blank",tx+8,ey+3,1,(Col){170,200,140},C_BTN);
+    /* ===== bottom row: CLIP&FRAME card · EDIT FRAME card · PREVIEW card ===== */
+    int by=oy+34+tlh+6, bh=h-(by-oy)-6;
+    int wA=240, wB=470, bx=ox+wA+8, cx0=bx+wB+8, wC=ox+w-cx0;
 
-    /* ---- EDIT FRAME (paint the selected frame's cell) | palette | PREVIEW ---- */
-    int ly=ey+26; text(R,"EDIT FRAME",ox,ly,1,(Col){170,200,140},C_DOCK);
-    g_an_onionb=(SDL_Rect){ox+86,ly-3,58,16}; rrect(R,ox+86,ly-3,58,16,4,g_an_onion?C_ACC:C_BTN); text(R,"onion",ox+96,ly,1,g_an_onion?C_HDR:C_DIM,g_an_onion?C_ACC:C_BTN);
-    int avail=h-(ly+14-oy)-8, dsc=g_an_th?avail/g_an_th:6; if(dsc<3)dsc=3; if(dsc>12)dsc=12;
-    int dpx=ox,dpy=ly+14,dw=g_an_tw*dsc,dh=g_an_th*dsc; g_an_dr=(SDL_Rect){dpx,dpy,dw,dh};
-    plain(R,dpx-1,dpy-1,dw+2,dh+2,(Col){40,42,52});
-    { AClip*c2=&g_an_clip[g_an_cur]; int cols=an_cols();
-      int oc=(g_an_onion&&c2->nfr>1)?c2->fr[(g_an_fsel+c2->nfr-1)%c2->nfr].cell:-1;   /* onion: the previous frame */
-      int cell=(c2->nfr>0)?c2->fr[g_an_fsel].cell:-1, ccx=cell>=0?(cell%cols)*g_an_tw:0, ccy=cell>=0?(cell/cols)*g_an_th:0;
-      int ocx=oc>=0?(oc%cols)*g_an_tw:0, ocy=oc>=0?(oc/cols)*g_an_th:0;
+    /* --- Card A: clip + selected-frame properties (compact) --- */
+    int ay=ui_card(R,ox,by,wA,bh,"CLIP \xb7 FRAME"); int ax=ox+12;
+    { int xx=ui_pill(R,ax,ay,"loop",AN_LOOP_L[c->loop%3],0,&g_an_loopb,mx,my);
+      char b[8]; snprintf(b,sizeof b,"%d",c->fps); ui_stepper(R,xx+2,ay,"fps",b,&g_an_fpsm,&g_an_fpsp,mx,my); ay+=26; }
+    { char b[8]; snprintf(b,sizeof b,"%d",c->pvx); int xx=ui_stepper(R,ax,ay,"pivot",b,&g_an_pvxm,&g_an_pvxp,mx,my);
+      char b2[8]; snprintf(b2,sizeof b2,"%d",c->pvy); ui_stepper(R,xx+4,ay,",",b2,&g_an_pvym,&g_an_pvyp,mx,my); ay+=26; }
+    plain(R,ax,ay,wA-24,1,C_LINE); ay+=8;
+    if(c->nfr>0){ char hd[24]; snprintf(hd,sizeof hd,"frame %d/%d",g_an_fsel+1,c->nfr); text(R,hd,ax,ay+5,1,C_TXT,C_PANEL);
+        { char b[8]; snprintf(b,sizeof b,"%d",an_fdur(c,g_an_fsel)); ui_stepper(R,ax+textw(R,hd,1)+12,ay,"ms",b,&g_an_durm,&g_an_durp,mx,my); ay+=26; }
+        text(R,"event",ax,ay+4,1,C_DIM,C_PANEL); int evx=ax+textw(R,"event",1)+6; g_an_evb=(SDL_Rect){evx,ay,wA-24-(evx-ax),20}; rrect(R,evx,ay,g_an_evb.w,20,4,g_an_evfocus==g_an_fsel?(Col){12,14,20}:C_DOCK);
+        { char e[20]; snprintf(e,sizeof e,"%s%s",c->fr[g_an_fsel].ev,g_an_evfocus==g_an_fsel?"_":""); text(R,e[0]?e:"(none)",evx+6,ay+5,1,e[0]?C_TXT:C_DIM,C_DOCK); } ay+=26;
+        text(R,"reorder",ax,ay+4,1,C_DIM,C_PANEL); int orx=ax+textw(R,"reorder",1)+6;
+        g_an_frl=(SDL_Rect){orx,ay,20,20}; rrect(R,orx,ay,20,20,4,hit(mx,my,orx,ay,20,20)?C_BTNHI:C_BTN); text(R,"\xab",orx+6,ay+5,1,C_TXT,C_BTN);
+        g_an_frr=(SDL_Rect){orx+24,ay,20,20}; rrect(R,orx+24,ay,20,20,4,hit(mx,my,orx+24,ay,20,20)?C_BTNHI:C_BTN); text(R,"\xbb",orx+30,ay+5,1,C_TXT,C_BTN);
+        int dx=orx+52; g_an_frdel=(SDL_Rect){dx,ay,wA-24-(dx-ax),20}; int dh2=hit(mx,my,dx,ay,g_an_frdel.w,20); rrect(R,dx,ay,g_an_frdel.w,20,4,dh2?(Col){150,70,60}:C_BTN); icon(R,IC_ERASER,dx+6,ay+4,12,C_TXT); text(R,"delete",dx+22,ay+5,1,C_TXT,dh2?(Col){150,70,60}:C_BTN); }
+    else { text(R,"no frames yet",ax,ay,1,C_DIM,C_PANEL); g_an_durm=g_an_durp=g_an_evb=g_an_frl=g_an_frr=g_an_frdel=(SDL_Rect){0,0,0,0}; }
+
+    /* --- Card B: EDIT FRAME (zoomed canvas + pixel palette) --- */
+    int eby=ui_card(R,bx,by,wB,bh,"EDIT FRAME");
+    { int obx=bx+wB-64; g_an_onionb=(SDL_Rect){obx,by+7,54,16}; rrect(R,obx,by+7,54,16,4,g_an_onion?C_ACC:C_BTN); text(R,"onion",obx+9,by+10,1,g_an_onion?C_HDR:C_DIM,g_an_onion?C_ACC:C_BTN); }
+    int cavail=(by+bh-6)-eby, wavail=wB-24-186, dsc=g_an_th?cavail/g_an_th:8; { int dw2=wavail/(g_an_tw?g_an_tw:1); if(dw2<dsc)dsc=dw2; } if(dsc<3)dsc=3; if(dsc>16)dsc=16;
+    int dpx=bx+12,dpy=eby,dw=g_an_tw*dsc,dh=g_an_th*dsc; g_an_dr=(SDL_Rect){dpx,dpy,dw,dh};
+    rect_outline(R,dpx-1,dpy-1,dw+2,dh+2,C_LINE,1);
+    { int cols=an_cols(); int oc=(g_an_onion&&c->nfr>1)?c->fr[(g_an_fsel+c->nfr-1)%c->nfr].cell:-1;
+      int cell=(c->nfr>0)?c->fr[g_an_fsel].cell:-1, ccx=cell>=0?(cell%cols)*g_an_tw:0, ccy=cell>=0?(cell/cols)*g_an_th:0, ocx=oc>=0?(oc%cols)*g_an_tw:0, ocy=oc>=0?(oc/cols)*g_an_th:0;
       for(int y=0;y<dh;y++)for(int x=0;x<dw;x++){ int lx=x/dsc,lyy=y/dsc; uint16_t p=KEY565;
           if(cell>=0&&g_an_sheet){ int sx=ccx+lx,sy=ccy+lyy; if(sx<g_an_w&&sy<g_an_h)p=g_an_sheet[sy*g_an_w+sx]; }
           if(p!=KEY565){ plain(R,dpx+x,dpy+y,1,1,c565(p)); continue; }
           uint16_t op=KEY565; if(oc>=0){ int sx=ocx+lx,sy=ocy+lyy; if(sx<g_an_w&&sy<g_an_h)op=g_an_sheet[sy*g_an_w+sx]; }
-          if(op!=KEY565){ Col cc=c565(op); plain(R,dpx+x,dpy+y,1,1,(Col){(uint8_t)(cc.r/3+16),(uint8_t)(cc.g/3+16),(uint8_t)(cc.b/3+20)}); }   /* faint onion */
-          else plain(R,dpx+x,dpy+y,1,1,((lx+lyy)&1)?(Col){30,30,38}:(Col){24,24,30}); } }   /* checker = transparent */
+          if(op!=KEY565){ Col cc=c565(op); plain(R,dpx+x,dpy+y,1,1,(Col){(uint8_t)(cc.r/3+16),(uint8_t)(cc.g/3+16),(uint8_t)(cc.b/3+20)}); }
+          else plain(R,dpx+x,dpy+y,1,1,((lx+lyy)&1)?(Col){34,34,44}:(Col){26,26,34}); } }
+    px_panel_draw(R,dpx+dw+14,dpy,by+bh-8);
 
-    int rxx=dpx+dw+12; px_panel_draw(R,rxx,dpy,oy+h-4);
-
-    int ppx=rxx+176, py=ly; text(R,"PREVIEW",ppx,py,1,(Col){170,200,140},C_DOCK);
-    g_an_playb=(SDL_Rect){ppx+70,py-3,52,16}; rrect(R,ppx+70,py-3,52,16,4,g_an_play?C_ACC:C_BTN); text(R,g_an_play?"pause":"play",ppx+78,py,1,g_an_play?C_HDR:C_TXT,g_an_play?C_ACC:C_BTN);
-    g_an_spm=(SDL_Rect){ppx+128,py-3,16,16}; rrect(R,ppx+128,py-3,16,16,4,C_BTN); text(R,"-",ppx+133,py,1,C_TXT,C_BTN); { char b[8]; snprintf(b,sizeof b,"%.2fx",g_an_speed); text(R,b,ppx+146,py,1,C_TXT,C_DOCK); }
-    g_an_spp=(SDL_Rect){ppx+184,py-3,16,16}; rrect(R,ppx+184,py-3,16,16,4,C_BTN); text(R,"+",ppx+188,py,1,C_TXT,C_BTN);
+    /* --- Card C: PREVIEW (live playback) --- */
+    int cy0=ui_card(R,cx0,by,wC,bh,"PREVIEW"); int cpad=cx0+14;
+    g_an_playb=(SDL_Rect){cpad,cy0,52,18}; rrect(R,cpad,cy0,52,18,4,g_an_play?C_ACC:C_BTN); icon(R,g_an_play?IC_SQUARE:IC_PLAY,cpad+7,cy0+3,11,g_an_play?C_HDR:C_TXT); text(R,g_an_play?"stop":"play",cpad+23,cy0+4,1,g_an_play?C_HDR:C_TXT,g_an_play?C_ACC:C_BTN);
+    { char b[10]; snprintf(b,sizeof b,"%.2fx",g_an_speed); g_an_spm=(SDL_Rect){cpad+62,cy0,18,18}; rrect(R,cpad+62,cy0,18,18,4,C_BTN); text(R,"-",cpad+68,cy0+4,1,C_TXT,C_BTN);
+      text(R,b,cpad+84,cy0+4,1,C_TXT,C_PANEL); g_an_spp=(SDL_Rect){cpad+120,cy0,18,18}; rrect(R,cpad+120,cy0,18,18,4,C_BTN); text(R,"+",cpad+125,cy0+4,1,C_TXT,C_BTN); }
     an_sync(); uint32_t now=SDL_GetTicks(); float dt=g_an_lastms?(now-g_an_lastms)/1000.0f:0; g_an_lastms=now; if(dt>0.25f)dt=0.25f;
     if(g_an_play&&c->nfr>0)mote_anim_tick(&g_an_pl,dt*g_an_speed);
-    int pvz=dsc; int pw=g_an_tw*pvz,ph2=g_an_th*pvz, pbx=ppx,pby=py+20; plain(R,pbx-1,pby-1,pw+2,ph2+2,(Col){40,42,52}); plain(R,pbx,pby,pw,ph2,(Col){22,22,30});
-    if(c->nfr>0&&g_an_sheet){ int cols=an_cols();
-        int cell=mote_anim_cell(&g_an_pl),cx=(cell%cols)*g_an_tw,cy=(cell/cols)*g_an_th;
+    int pvy0=cy0+26; int pvz=g_an_th?((by+bh-22)-pvy0)/g_an_th:6; { int wmax=(wC-28)/(g_an_tw?g_an_tw:1); if(wmax<pvz)pvz=wmax; } if(pvz<2)pvz=2;
+    int pw=g_an_tw*pvz,ph2=g_an_th*pvz, pbx=cx0+(wC-pw)/2,pby=pvy0; rect_outline(R,pbx-1,pby-1,pw+2,ph2+2,C_LINE,1); plain(R,pbx,pby,pw,ph2,(Col){20,20,28});
+    if(c->nfr>0&&g_an_sheet){ int cols=an_cols(); int cell=mote_anim_cell(&g_an_pl),cx=(cell%cols)*g_an_tw,cy=(cell/cols)*g_an_th;
         for(int y=0;y<ph2;y++)for(int x=0;x<pw;x++){ int sx=cx+x/pvz,sy=cy+y/pvz; uint16_t p=(sx<g_an_w&&sy<g_an_h)?g_an_sheet[sy*g_an_w+sx]:KEY565; if(p!=KEY565)plain(R,pbx+x,pby+y,1,1,c565(p)); }
         plain(R,pbx+c->pvx*pvz-1,pby+c->pvy*pvz-1,3,3,(Col){255,80,80}); }
-    { char inf[64]; snprintf(inf,sizeof inf,"%s \xb7 %d fr \xb7 %s",c->name,c->nfr,AN_LOOP_L[c->loop%3]); text(R,inf,pbx,pby+ph2+4,1,C_DIM,C_DOCK); }
+    { char inf[48]; snprintf(inf,sizeof inf,"%d frames \xb7 %s",c->nfr,AN_LOOP_L[c->loop%3]); text(R,inf,cx0+(wC-textw(R,inf,1))/2,pby+ph2+6,1,C_DIM,C_PANEL); }
 }
 
 static void anim_inspector_down(int mx,int my){ an_ensure();
@@ -1753,32 +1772,33 @@ static void anim_inspector_down(int mx,int my){ an_ensure();
     if(hit(mx,my,g_an_twm.x,g_an_twm.y,15,18)){ if(g_an_tw>4)g_an_tw-=4; return; } if(hit(mx,my,g_an_twp.x,g_an_twp.y,15,18)){ g_an_tw+=4; return; }
     if(hit(mx,my,g_an_thm.x,g_an_thm.y,15,18)){ if(g_an_th>4)g_an_th-=4; return; } if(hit(mx,my,g_an_thp.x,g_an_thp.y,15,18)){ g_an_th+=4; return; }
     int nc=an_ncell(); for(int i=0;i<nc&&i<256;i++)if(hit(mx,my,g_an_cell[i].x,g_an_cell[i].y,g_an_cell[i].w,g_an_cell[i].h)){ an_addframe(i); return; } }
+#define ANHIT(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
 static void anim_down(int mx,int my){ an_ensure(); AClip*c=&g_an_clip[g_an_cur];
-    for(int i=0;i<g_an_nclip;i++)if(hit(mx,my,g_an_cliptab[i].x,g_an_cliptab[i].y,g_an_cliptab[i].w,g_an_cliptab[i].h)){ g_an_cur=i; g_an_fsel=0; mote_anim_play(&g_an_pl,&g_an_tc); return; }
-    if(g_an_addc.w&&hit(mx,my,g_an_addc.x,g_an_addc.y,22,22)){ if(g_an_nclip<AN_MAXCLIP){ AClip*n=&g_an_clip[g_an_nclip]; memset(n,0,sizeof *n); snprintf(n->name,16,"clip%d",g_an_nclip+1); n->fps=8; n->loop=MOTE_ANIM_LOOP; g_an_cur=g_an_nclip++; g_an_fsel=0; } return; }
-    if(hit(mx,my,g_an_cnamer.x,g_an_cnamer.y,76,22)){ g_an_cnamefocus=1; g_an_namefocus=0; g_an_evfocus=-1; SDL_StartTextInput(); return; } g_an_cnamefocus=0;
-    if(hit(mx,my,g_an_namer.x,g_an_namer.y,76,22)){ g_an_namefocus=1; g_an_evfocus=-1; SDL_StartTextInput(); return; } g_an_namefocus=0;
-    if(hit(mx,my,g_an_bake.x,g_an_bake.y,72,22)){ an_bake(); return; }
-    if(hit(mx,my,g_an_loopb.x,g_an_loopb.y,76,18)){ c->loop=(uint8_t)((c->loop+1)%3); mote_anim_play(&g_an_pl,&g_an_tc); return; }
-    if(hit(mx,my,g_an_fpsm.x,g_an_fpsm.y,15,18)){ if(c->fps>1)c->fps--; return; } if(hit(mx,my,g_an_fpsp.x,g_an_fpsp.y,15,18)){ if(c->fps<60)c->fps++; return; }
-    if(hit(mx,my,g_an_pvxm.x,g_an_pvxm.y,15,18)){ c->pvx--; return; } if(hit(mx,my,g_an_pvxp.x,g_an_pvxp.y,15,18)){ c->pvx++; return; }
-    if(hit(mx,my,g_an_pvym.x,g_an_pvym.y,15,18)){ c->pvy--; return; } if(hit(mx,my,g_an_pvyp.x,g_an_pvyp.y,15,18)){ c->pvy++; return; }
-    for(int i=0;i<c->nfr;i++)if(hit(mx,my,g_an_fr[i].x,g_an_fr[i].y,g_an_fr[i].w,g_an_fr[i].h)){ g_an_fsel=i; return; }
+    for(int i=0;i<g_an_nclip;i++)if(ANHIT(g_an_cliptab[i])){ g_an_cur=i; g_an_fsel=0; g_an_evfocus=-1; mote_anim_play(&g_an_pl,&g_an_tc); return; }
+    if(g_an_addc.w&&ANHIT(g_an_addc)){ if(g_an_nclip<AN_MAXCLIP){ AClip*n=&g_an_clip[g_an_nclip]; memset(n,0,sizeof *n); snprintf(n->name,16,"clip%d",g_an_nclip+1); n->fps=8; n->loop=MOTE_ANIM_LOOP; g_an_cur=g_an_nclip++; g_an_fsel=0; } return; }
+    if(ANHIT(g_an_cnamer)){ g_an_cnamefocus=1; g_an_namefocus=0; g_an_evfocus=-1; SDL_StartTextInput(); return; } g_an_cnamefocus=0;
+    if(ANHIT(g_an_namer)){ g_an_namefocus=1; g_an_evfocus=-1; SDL_StartTextInput(); return; } g_an_namefocus=0;
+    if(ANHIT(g_an_bake)){ an_bake(); return; }
+    if(ANHIT(g_an_loopb)){ c->loop=(uint8_t)((c->loop+1)%3); mote_anim_play(&g_an_pl,&g_an_tc); return; }
+    if(ANHIT(g_an_fpsm)){ if(c->fps>1)c->fps--; return; } if(ANHIT(g_an_fpsp)){ if(c->fps<60)c->fps++; return; }
+    if(ANHIT(g_an_pvxm)){ c->pvx--; return; } if(ANHIT(g_an_pvxp)){ c->pvx++; return; }
+    if(ANHIT(g_an_pvym)){ c->pvy--; return; } if(ANHIT(g_an_pvyp)){ c->pvy++; return; }
+    if(g_an_addfr.w&&ANHIT(g_an_addfr)){ int nc=an_new_cell(); an_addframe(nc); return; }   /* new blank frame to draw */
+    for(int i=0;i<c->nfr;i++)if(ANHIT(g_an_fr[i])){ g_an_fsel=i; return; }
     if(c->nfr>0){
-        if(hit(mx,my,g_an_frl.x,g_an_frl.y,16,18)){ if(g_an_fsel>0){ AFrame t=c->fr[g_an_fsel]; c->fr[g_an_fsel]=c->fr[g_an_fsel-1]; c->fr[g_an_fsel-1]=t; g_an_fsel--; } return; }
-        if(hit(mx,my,g_an_frr.x,g_an_frr.y,16,18)){ if(g_an_fsel<c->nfr-1){ AFrame t=c->fr[g_an_fsel]; c->fr[g_an_fsel]=c->fr[g_an_fsel+1]; c->fr[g_an_fsel+1]=t; g_an_fsel++; } return; }
-        if(hit(mx,my,g_an_durm.x,g_an_durm.y,16,18)){ int d=an_fdur(c,g_an_fsel); d-=25; if(d<25)d=25; c->fr[g_an_fsel].dur=(uint16_t)d; return; }
-        if(hit(mx,my,g_an_durp.x,g_an_durp.y,16,18)){ int d=an_fdur(c,g_an_fsel); d+=25; if(d>4000)d=4000; c->fr[g_an_fsel].dur=(uint16_t)d; return; }
-        if(hit(mx,my,g_an_evb.x,g_an_evb.y,96,18)){ g_an_evfocus=g_an_fsel; g_an_namefocus=g_an_cnamefocus=0; SDL_StartTextInput(); return; } if(g_an_evfocus>=0&&g_an_evfocus!=g_an_fsel)g_an_evfocus=-1;
-        if(hit(mx,my,g_an_frdel.x,g_an_frdel.y,52,18)){ for(int j=g_an_fsel;j<c->nfr-1;j++)c->fr[j]=c->fr[j+1]; c->nfr--; if(g_an_fsel>=c->nfr)g_an_fsel=c->nfr>0?c->nfr-1:0; mote_anim_play(&g_an_pl,&g_an_tc); return; }
+        if(ANHIT(g_an_frl)){ if(g_an_fsel>0){ AFrame t=c->fr[g_an_fsel]; c->fr[g_an_fsel]=c->fr[g_an_fsel-1]; c->fr[g_an_fsel-1]=t; g_an_fsel--; } return; }
+        if(ANHIT(g_an_frr)){ if(g_an_fsel<c->nfr-1){ AFrame t=c->fr[g_an_fsel]; c->fr[g_an_fsel]=c->fr[g_an_fsel+1]; c->fr[g_an_fsel+1]=t; g_an_fsel++; } return; }
+        if(ANHIT(g_an_durm)){ int d=an_fdur(c,g_an_fsel); d-=25; if(d<25)d=25; c->fr[g_an_fsel].dur=(uint16_t)d; return; }
+        if(ANHIT(g_an_durp)){ int d=an_fdur(c,g_an_fsel); d+=25; if(d>4000)d=4000; c->fr[g_an_fsel].dur=(uint16_t)d; return; }
+        if(ANHIT(g_an_evb)){ g_an_evfocus=g_an_fsel; g_an_namefocus=g_an_cnamefocus=0; SDL_StartTextInput(); return; } if(g_an_evfocus>=0&&g_an_evfocus!=g_an_fsel)g_an_evfocus=-1;
+        if(ANHIT(g_an_frdel)){ for(int j=g_an_fsel;j<c->nfr-1;j++)c->fr[j]=c->fr[j+1]; c->nfr--; if(g_an_fsel>=c->nfr)g_an_fsel=c->nfr>0?c->nfr-1:0; mote_anim_play(&g_an_pl,&g_an_tc); return; }
     }
-    if(hit(mx,my,g_an_addfr.x,g_an_addfr.y,72,18)){ int nc=an_new_cell(); an_addframe(nc); return; }   /* new blank frame to draw */
+    if(ANHIT(g_an_onionb)){ g_an_onion=!g_an_onion; return; }
     if(px_panel_down(mx,my))return;                                                                    /* shared pixel tools/HSV/swatches */
-    if(hit(mx,my,g_an_dr.x,g_an_dr.y,g_an_dr.w,g_an_dr.h)){ g_an_drag=1; an_dr_paint_at(mx,my,0); return; }  /* paint the frame */
-    if(hit(mx,my,g_an_onionb.x,g_an_onionb.y,58,16)){ g_an_onion=!g_an_onion; return; }
-    if(hit(mx,my,g_an_playb.x,g_an_playb.y,52,16)){ g_an_play=!g_an_play; return; }
-    if(hit(mx,my,g_an_spm.x,g_an_spm.y,16,16)){ g_an_speed-=0.25f; if(g_an_speed<0.25f)g_an_speed=0.25f; return; }
-    if(hit(mx,my,g_an_spp.x,g_an_spp.y,16,16)){ g_an_speed+=0.25f; if(g_an_speed>4)g_an_speed=4; return; } }
+    if(ANHIT(g_an_dr)){ g_an_drag=1; an_dr_paint_at(mx,my,0); return; }                                 /* paint the frame */
+    if(ANHIT(g_an_playb)){ g_an_play=!g_an_play; return; }
+    if(ANHIT(g_an_spm)){ g_an_speed-=0.25f; if(g_an_speed<0.25f)g_an_speed=0.25f; return; }
+    if(ANHIT(g_an_spp)){ g_an_speed+=0.25f; if(g_an_speed>4)g_an_speed=4; return; } }
 
 /* ================= device / USB panel ================= */
 static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Push","Push & Launch","Stream Logs","Wipe Store" };
