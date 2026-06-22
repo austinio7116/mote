@@ -614,23 +614,35 @@ or "different" (a visible rim around the whole map).
 The rule type is the **sheet layout the LUT expects**; pick it per rule tile in the Studio
 (the RULES bar). It sets how many tiles you must draw and which neighbours are consulted.
 
-![The four rule types compared. Blob 47 (47 tiles, all 8 neighbours): corner-aware — it notices a single empty diagonal and draws a notched concave corner; best for organic terrain (caves, water, cliffs, grass/sand blobs); limitation: 47 tiles to draw, though transforms cut that. Edge 16 (16 tiles, only N/E/S/W, mask = N|E<<1|S<<2|W<<3): best for blocky/retro platforms, pipes, Mario-style walls; limitation: no corner sense, so concave corners look square. Nine-slice (9 tiles, a 3×3 TL/T/TR/L/C/R/BL/B/BR frame): best for rectangles — UI panels, ledges, building walls; limitation: rectangles only, no islands/bends/diagonals. Wang 16 (16 tiles, the 4 corner bits): best for paths and blends — roads, rivers, coastlines; limitation: corner-matched art, cardinal edges less crisp](docs/img/tile-ruletypes.png)
+![The four rule types compared. Blob 47 (47 tiles, all 8 neighbours): corner-aware — it notices a single empty diagonal and draws a notched concave corner; best for organic terrain (caves, water, cliffs, grass/sand blobs); limitation: 47 tiles to draw, though transforms cut that. Edge 16 (16 tiles, only N/E/S/W, mask = N|E<<1|S<<2|W<<3): best for blocky/retro platforms, pipes, Mario-style walls; limitation: no corner sense, so concave corners look square. Nine-slice (9 tiles, a 3×3 TL/T/TR/L/C/R/BL/B/BR frame): best for rectangles — UI panels, ledges, building walls; limitation: rectangles only, no islands/bends/diagonals. Wang 16 (16 tiles, defined by the 4 corners rather than the cells): best for smooth blends and flowing edges — roads, rivers, coastlines, grass-meeting-sand; limitation: only looks at corners, so it has no dedicated straight-wall tile and dead-straight edges come out slightly soft — use Edge 16 for crisp blocky shapes](docs/img/tile-ruletypes.png)
 
 In more detail, with each type's hard limit:
 
-- **Blob 47** — all 8 neighbours, but a corner only matters when both its cardinals are
-  present, collapsing 256 raw configs to 47 tiles. *Limit:* you draw 47 tiles (the largest
-  sheet) and must cover both outer **and** inner corners, or boundaries look wrong — use
-  **rotation/flip** (below) to draw ~12 uniques and generate the rest.
-- **Edge 16** — reads only the 4 cardinals (`mask = N | E<<1 | S<<2 | W<<3`), a 4×4 sheet.
-  *Limit:* **no corner awareness** — it can't tell a filled inner corner from a flat edge,
-  so concave corners look square. Great for chunky/retro art, wrong for organic terrain.
+("Edges" = the four side neighbours N/E/S/W; "corners" = the four diagonal ones.)
+
+- **Blob 47** — looks at all 8 neighbours, but a diagonal corner only matters when the
+  two side neighbours beside it are both filled, which collapses 256 raw configs to 47
+  tiles. *Limit:* you draw 47 tiles (the largest sheet) and must cover both outer **and**
+  inner corners, or boundaries look wrong — use **rotation/flip** (below) to draw ~12
+  uniques and generate the rest.
+- **Edge 16** — looks only at the 4 side neighbours (`mask = N | E<<1 | S<<2 | W<<3`), a
+  4×4 sheet. *Limit:* it ignores diagonals, so it can't tell a filled inner corner from a
+  flat edge and concave corners come out square. Great for chunky/retro art (blocky
+  platforms, pipes, Mario-style walls), wrong for organic terrain.
 - **Nine-slice** — a 3×3 frame (corners, edges, centre) keyed by which sides are open.
   *Limit:* it **assumes the region is a rectangle** — an island, a 1-wide line, an L-bend
   or diagonal pick the wrong slice (there's no island/cross/diagonal tile).
-- **Wang 16** — keyed by the 4 corner bits (a corner is set when its three cells agree).
-  *Limit:* it reasons about **corners, not edges**, so cardinal edges are less crisp than
-  Edge 16, and the art must be authored as a matched corner set.
+- **Wang 16** — a different idea: instead of a *cell* being on/off, each tile is defined
+  by its **four corners**, each either inside or outside the region (16 combinations).
+  Neighbouring tiles fit because their shared corners match. Corners give *diagonal*
+  transitions, so this is the one for **blending two materials or flowing edges** —
+  coastlines, rivers, roads, grass-meeting-sand. *Limit:* because it only ever looks at
+  corners, there's no dedicated "straight wall" tile like Edge 16 has — a long horizontal
+  or vertical boundary is built from corner-blend pieces, so dead-straight edges come out
+  slightly soft/wavy instead of razor-sharp, and the art must be drawn as a matched set
+  (every tile's corners line up with its neighbours'). **It is not the tool for crisp
+  blocky shapes — use Edge 16 for those;** reach for Wang when you want smooth blends, not
+  hard rectilinear walls.
 
 **Rule of thumb:** organic fill → **Blob 47**; blocky/retro → **Edge 16**; boxes/UI →
 **Nine-slice**; paths & blends → **Wang 16**.
