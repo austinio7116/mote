@@ -156,7 +156,7 @@ abi = 1
 mote studio              # or: ./build_host/mote_studio   (run from the repo root)
 ```
 
-![Mote Studio — project tree, the live emulator in a photo-accurate Thumby Color shell, the inspector, and the Pixel-Art dock](docs/img/studio-ide.png)
+![Mote Studio — project tree, the live emulator running the model viewer in a photo-accurate Thumby Color shell, and the Mesh tab previewing the baked STL with its parameters](docs/img/studio-mesh.png)
 
 **The everyday loop — open Studio, pick a game, edit, watch it hot-reload:**
 
@@ -201,17 +201,17 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
 
-The bottom-dock panels:
+The other bottom-dock panels (Mesh is shown above):
 
 | Pixel Art | Tiles |
 |---|---|
 | ![Pixel Art tab](docs/img/studio-pixel.png) | ![Tiles tab](docs/img/studio-tiles.png) |
-| **Anim** | **Mesh** |
-| ![Anim tab](docs/img/studio-anim.png) | ![Mesh tab](docs/img/studio-mesh.png) |
-| **Audio** | **Texture** |
-| ![Audio tab](docs/img/studio-audio.png) | ![Texture tab](docs/img/studio-texture.png) |
-| **Code** | **Console** |
-| ![Code tab](docs/img/studio-code.png) | ![Console tab](docs/img/studio-console.png) |
+| **Anim** | **Audio** |
+| ![Anim tab](docs/img/studio-anim.png) | ![Audio tab](docs/img/studio-audio.png) |
+| **Texture** | **Code** |
+| ![Texture tab](docs/img/studio-texture.png) | ![Code tab](docs/img/studio-code.png) |
+| **Console** | |
+| ![Console tab](docs/img/studio-console.png) | |
 
 **Native + Python-free.** Studio reimplements the CLI's build/scaffold/bake in C
 (`studio/motecore.c`) and talks to the board over USB-CDC directly (`studio/usb.c`;
