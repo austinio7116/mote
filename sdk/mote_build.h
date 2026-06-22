@@ -245,4 +245,60 @@ typedef struct { float acc; } MoteFixed;
 static inline void mote_fixed_feed(MoteFixed *f, float dt) { f->acc += dt; if (f->acc > 0.25f) f->acc = 0.25f; }
 static inline int  mote_fixed_step(MoteFixed *f, float step) { if (f->acc >= step) { f->acc -= step; return 1; } return 0; }
 
+/* ---- draw a mesh at a WORLD position. Use with scene_camera() (pass the camera position
+ * once per frame) so you never hand-subtract the camera. mote_draw_ex adds orientation +
+ * uniform scale. These replace the `MoteObject o={...}; scene_add_object(&o);` boilerplate. */
+static inline int mote_draw(const MoteApi *m, const Mesh *mesh, Vec3 pos) {
+    MoteObject o = { .pos = pos, .basis = m3_identity(), .mesh = mesh };
+    return m->scene_add_object(&o);
+}
+static inline int mote_draw_ex(const MoteApi *m, const Mesh *mesh, Vec3 pos, Mat3 basis, float scale) {
+    MoteObject o = { .pos = pos, .basis = basis, .mesh = mesh };
+    return scale == 1.0f ? m->scene_add_object(&o) : m->scene_add_object_scaled(&o, scale);
+}
+
+/* ---- one shared RNG, so games stop hand-rolling xorshift. Seed once (e.g. from
+ * mote->micros()); mote_frand() is [0,1), mote_randf(lo,hi) a range, mote_rand() raw bits. */
+static uint32_t mote__rng = 0x2545F491u;
+static inline void     mote_rand_seed(uint32_t s) { mote__rng = s ? s : 1u; }
+static inline uint32_t mote_rand(void) { mote__rng ^= mote__rng << 13; mote__rng ^= mote__rng >> 17; mote__rng ^= mote__rng << 5; return mote__rng; }
+static inline float    mote_frand(void) { return (float)(mote_rand() & 0xFFFFFF) / (float)0x1000000; }
+static inline float    mote_randf(float lo, float hi) { return lo + (hi - lo) * mote_frand(); }
+static inline float    mote_clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static inline int      mote_clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* ---- reusable particle pool (drawn as impostor spheres). World positions, so it pairs
+ * with scene_camera(). Set .gravity / .drag (0 -> default 0.92 per tick) before use, or
+ * leave zeroed for drifting sparks. */
+#ifndef MOTE_PARTICLES_MAX
+#define MOTE_PARTICLES_MAX 48
+#endif
+typedef struct { Vec3 pos, vel; float life, life0; uint16_t col; } MoteParticle;
+typedef struct { MoteParticle p[MOTE_PARTICLES_MAX]; Vec3 gravity; float drag; } MoteParticles;
+static inline void mote_particles_burst(MoteParticles *s, Vec3 pos, uint16_t col, int count, float speed, float life) {
+    for (int n = 0; n < count; n++)
+        for (int i = 0; i < MOTE_PARTICLES_MAX; i++)
+            if (s->p[i].life <= 0) {
+                s->p[i].pos = pos;
+                s->p[i].vel = v3(mote_randf(-speed, speed), mote_randf(-speed, speed), mote_randf(-speed, speed));
+                s->p[i].life = s->p[i].life0 = life; s->p[i].col = col; break;
+            }
+}
+static inline void mote_particles_tick(MoteParticles *s, float dt) {
+    float drag = s->drag > 0 ? s->drag : 0.92f;
+    for (int i = 0; i < MOTE_PARTICLES_MAX; i++)
+        if (s->p[i].life > 0) {
+            s->p[i].life -= dt;
+            s->p[i].vel = v3_scale(v3_add(s->p[i].vel, v3_scale(s->gravity, dt)), drag);
+            s->p[i].pos = v3_add(s->p[i].pos, v3_scale(s->p[i].vel, dt));
+        }
+}
+static inline void mote_particles_draw(const MoteApi *m, const MoteParticles *s, float radius) {
+    for (int i = 0; i < MOTE_PARTICLES_MAX; i++)
+        if (s->p[i].life > 0) {
+            float f = s->p[i].life0 > 0 ? s->p[i].life / s->p[i].life0 : 1.0f;
+            m->scene_add_sphere(s->p[i].pos, radius * (0.35f + 0.65f * f), s->p[i].col);
+        }
+}
+
 #endif /* MOTE_BUILD_H */
