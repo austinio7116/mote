@@ -420,11 +420,11 @@ static Menu MENUS[]={
 static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
 static int g_menu_open=-1;
 
-static int g_picker, g_modal, g_pscroll; static char g_newname[48];
+static int g_picker, g_modal, g_pscroll; static char g_newname[48]; static int g_newkind;
 static int g_align, g_aldrag, g_lastmx, g_lastmy; static SDL_Rect g_al_save, g_al_done;
-static SDL_Rect g_mk_create,g_mk_cancel;
-static void open_new_game(void){ g_modal=1; g_newname[0]=0; SDL_StartTextInput(); }
-static void create_game(void){ if(!g_newname[0])return; mc_new(g_newname,log_add);
+static SDL_Rect g_mk_create,g_mk_cancel,g_mk_kind[3];
+static void open_new_game(void){ g_modal=1; g_newname[0]=0; g_newkind=MC_TMPL_3D; SDL_StartTextInput(); }
+static void create_game(void){ if(!g_newname[0])return; mc_new(g_newname,g_newkind,log_add);
     scan_games(); for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g_newname)){ load_game(i,1); build_tree(g_games[i].dir); break; }
     g_modal=0; SDL_StopTextInput(); }
 
@@ -2351,14 +2351,31 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
         text(R,g_games[i].name,bx+36,y+5,1,(hov||i==g_sel)?C_TXT:(Col){175,182,200},hov?C_SEL:C_PANEL); }
     if(g_ngame>rows){ char sc[40]; snprintf(sc,sizeof sc,"%d-%d of %d  (scroll)",g_pscroll+1,(g_pscroll+rows<g_ngame?g_pscroll+rows:g_ngame),g_ngame); text(R,sc,bx+bw-150,by+bh-20,1,C_DIM,C_PANEL); }
     text(R,"click a project   (scroll \xb7 Esc to close)",bx+14,by+bh-20,1,C_DIM,C_PANEL); }
+/* New-game templates shown in the wizard. Keep each MCfg in step with the matching
+ * TMPL_* .config in motecore.c so the previewed arena estimate is accurate. */
+static const struct { const char*title; const char*desc; MCfg cfg; } g_tmpls[3] = {
+    { "3D scene",   "a lit spinning mesh — camera + meshes",      { 256,0,0,0,0,0,0,1,1 } },
+    { "3D physics", "boxes tumbling in a pit — rigid bodies",     { 400,0,0,0,16,192,0,1,1 } },
+    { "2D sprite",  "a top-down token you move (no depth buffer)",{ 0,0,0,16,0,0,0,0,1 } },
+};
+static int mx_(void){ int x; SDL_GetMouseState(&x,NULL); return x; }
+static int my_(void){ int y; SDL_GetMouseState(NULL,&y); return y; }
 static void draw_modal(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
-    int bw=420,bh=190,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
+    int mx=mx_(),my=my_();
+    int bw=480,bh=330,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,"NEW GAME",bx+14,by+8,2,C_TITLE,C_HDR); text(R,"NAME (created under examples/)",bx+18,by+44,1,C_DIM,C_PANEL);
     rrect(R,bx+18,by+58,bw-36,32,6,(Col){12,14,20}); char sh[64]; snprintf(sh,sizeof sh,"%s_",g_newname); text(R,sh,bx+26,by+66,2,C_TXT,(Col){12,14,20});
+    text(R,"TEMPLATE  (sets a starter game.c + arena claims)",bx+18,by+98,1,C_DIM,C_PANEL);
+    for(int i=0;i<3;i++){ int ry=by+114+i*46; g_mk_kind[i]=(SDL_Rect){bx+18,ry,bw-36,40}; int on=g_newkind==i;
+        rrect(R,g_mk_kind[i].x,ry,g_mk_kind[i].w,40,7, on?C_SEL:(hit(mx,my,g_mk_kind[i].x,ry,g_mk_kind[i].w,40)?C_BTNHI:C_BTN));
+        text(R,g_tmpls[i].title,bx+30,ry+6,1,on?C_HDR:C_TITLE,on?C_SEL:C_BTN);
+        text(R,g_tmpls[i].desc,bx+30,ry+22,1,C_DIM,on?C_SEL:C_BTN);
+        char kb[24]; long b=arena_bytes(&g_tmpls[i].cfg); snprintf(kb,sizeof kb,"~%ld KB arena",b/1024);
+        text(R,kb,bx+bw-30-textw(R,kb,1),ry+14,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); }
     g_mk_cancel=(SDL_Rect){bx+18,by+bh-44,104,32}; g_mk_create=(SDL_Rect){bx+bw-134,by+bh-44,116,32};
     rrect(R,g_mk_cancel.x,g_mk_cancel.y,104,32,7,C_BTN); rrect(R,g_mk_create.x,g_mk_create.y,116,32,7,C_BTNHI);
     text(R,"CANCEL",g_mk_cancel.x+18,g_mk_cancel.y+8,2,C_TXT,C_BTN); text(R,"CREATE",g_mk_create.x+22,g_mk_create.y+8,2,C_TXT,C_BTNHI);
-    text(R,"Enter = create   Esc = cancel",bx+18,by+bh-56,1,C_DIM,C_PANEL); }
+    text(R,"Enter = create   Esc = cancel",bx+130,by+bh-36,1,C_DIM,C_PANEL); }
 
 static SDL_Joystick *g_jpad;   /* raw-joystick fallback for pads SDL has no GameController mapping for */
 static void poll_input(MoteButtons*b,SDL_GameController*pad){ const Uint8*k=SDL_GetKeyboardState(NULL); memset(b,0,sizeof*b);
@@ -2477,6 +2494,7 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
         if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
         if(getenv("MOTE_STUDIO_MESHBAKE")){ mesh_bake(); printf("studio: %s\n",g_status); } }
+    if(getenv("MOTE_STUDIO_NEWGAME")){ open_new_game(); g_picker=0; g_newkind=atoi(getenv("MOTE_STUDIO_NEWGAME")); snprintf(g_newname,sizeof g_newname,"mygame"); }   /* capture hook: open the new-game wizard */
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
     if(getenv("MOTE_STUDIO_TEX")){ g_tab=TAB_TEXTURE; set_doc(1); g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); }
@@ -2561,7 +2579,8 @@ int main(int argc,char**argv){
                     else if(k==SDLK_RETURN)create_game(); else if(k==SDLK_ESCAPE){ g_modal=0; SDL_StopTextInput(); } }
                 else if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
                     if(hit(mx,my,g_mk_create.x,g_mk_create.y,g_mk_create.w,g_mk_create.h))create_game();
-                    else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); } }
+                    else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); }
+                    else for(int i=0;i<3;i++) if(hit(mx,my,g_mk_kind[i].x,g_mk_kind[i].y,g_mk_kind[i].w,g_mk_kind[i].h)){ g_newkind=i; break; } }
                 continue; }
             if(g_picker){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; if(g_pscroll<0)g_pscroll=0; }

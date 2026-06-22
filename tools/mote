@@ -288,6 +288,116 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 '''
 
+TEMPLATE_PHYS = '''/*
+ * %s — a 3D physics Mote game: a pile of boxes tumbling in a walled pit.
+ * A re-tosses them. The pools below cover the bodies + their contacts.
+ */
+#include "mote_api.h"
+#include "mote_build.h"
+#include "mote_phys.h"
+
+MOTE_GAME_MODULE();
+
+#ifdef MOTE_MODULE_BUILD
+#include "mote_module.h"
+MOTE_MODULE_HEADER();
+#endif
+
+#define NB 16
+static MoteWorld world;
+static MoteBody  body[NB];
+static const Mesh *s_box, *s_floor;
+static float s_t;
+
+static void toss(void) {
+    for (int i = 0; i < NB; i++) {
+        MoteBody *b = &body[i]; *b = (MoteBody){0};
+        b->shape = MOTE_SHAPE_BOX; b->half = v3(0.4f, 0.4f, 0.4f); b->radius = v3_len(b->half);
+        b->pos = v3(mote_randf(-1.0f, 1.0f), 1.5f + i * 0.7f, mote_randf(-1.0f, 1.0f));
+        b->orient = m3_identity(); b->inv_mass = 1.0f / 0.6f; b->friction = 0.6f; b->restitution = 0.1f;
+    }
+}
+
+static void g_init(void) {
+    mote->scene_set_background(MOTE_RGB565(12, 14, 28));
+    mote->scene_set_sun(v3_norm(v3(0.4f, 0.8f, -0.5f)));
+    s_box   = mote_mesh_box(mote, 0.4f, 0.4f, 0.4f, MOTE_RGB565(210, 150, 90));
+    s_floor = mote_mesh_box(mote, 1.7f, 0.1f, 1.7f, MOTE_RGB565(60, 72, 92));
+    mote->phys_world_defaults(&world);
+    world.gravity = v3(0, -9.8f, 0); world.walls = 1;
+    world.bmin = v3(-1.6f, 0, -1.6f); world.bmax = v3(1.6f, 6, 1.6f);
+    toss();
+}
+
+static void g_update(float dt) {
+    if (mote_just_pressed(mote->input(), MOTE_BTN_A)) toss();
+    mote->phys_step(&world, body, NB, dt);
+    s_t += dt;
+    Vec3 eye = v3(4.0f * cosf(s_t * 0.3f), 2.6f, 4.0f * sinf(s_t * 0.3f));
+    Mat3 cam = mote_camera_look(eye, v3(0, 0.8f, 0));
+    mote->scene_camera(&cam, eye, 60.0f);   /* world-space camera: mote_draw takes world positions */
+    mote_draw(mote, s_floor, v3(0, -0.1f, 0));
+    for (int i = 0; i < NB; i++) mote_draw_ex(mote, s_box, body[i].pos, body[i].orient, 1.0f);
+}
+
+static void g_overlay(uint16_t *fb) { mote->text(fb, "A  RE-TOSS", 4, 4, MOTE_RGB565(220, 228, 240)); }
+
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update, .overlay = g_overlay,
+    .config = { .max_tris = 400, .max_bodies = NB, .max_contacts = 192, .depth = 1 },
+};
+static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
+'''
+
+TEMPLATE_2D = '''/*
+ * %s — a 2D Mote game: a top-down token you move with the D-pad. No depth
+ * buffer (2D only). Drop a PNG in assets/, Bake, and draw it as a sprite; or
+ * use the Studio Tiles tab for an autotiled level (mote->scene2d_set_autotiles).
+ */
+#include "mote_api.h"
+#include "mote_build.h"
+
+MOTE_GAME_MODULE();
+
+#ifdef MOTE_MODULE_BUILD
+#include "mote_module.h"
+MOTE_MODULE_HEADER();
+#endif
+
+static uint16_t s_px[12 * 12];
+static MoteImage s_img = { s_px, 12, 12, 0xF81F, 0 };   /* magenta = transparent */
+static float s_x = 58, s_y = 58;
+
+static void g_init(void) {
+    mote->scene_set_background(MOTE_RGB565(24, 28, 40));
+    for (int y = 0; y < 12; y++) for (int x = 0; x < 12; x++) {
+        int dx = x - 6, dy = y - 6;
+        s_px[y * 12 + x] = (dx*dx + dy*dy <= 30) ? MOTE_RGB565(90, 200, 120) : 0xF81F;
+    }
+    s_px[4 * 12 + 4] = s_px[4 * 12 + 7] = MOTE_RGB565(20, 30, 20);   /* eyes */
+}
+
+static void g_update(float dt) {
+    const MoteInput *in = mote->input(); float sp = 70.0f * dt;
+    if (mote_pressed(in, MOTE_BTN_LEFT))  s_x -= sp;
+    if (mote_pressed(in, MOTE_BTN_RIGHT)) s_x += sp;
+    if (mote_pressed(in, MOTE_BTN_UP))    s_y -= sp;
+    if (mote_pressed(in, MOTE_BTN_DOWN))  s_y += sp;
+    s_x = mote_clampf(s_x, 0, 116); s_y = mote_clampf(s_y, 0, 116);
+    mote->scene2d_begin(0, 0);
+    MoteSprite s = { .img = &s_img, .x = (int)s_x, .y = (int)s_y, .fw = 12, .fh = 12, .layer = 10 };
+    mote->scene2d_add(&s);
+}
+
+static const MoteGameVtbl k_vtbl = {
+    .init = g_init, .update = g_update,
+    .config = { .max_sprites = 16 },   /* 2D only — no depth buffer */
+};
+static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
+'''
+
+TEMPLATES = { "3d": TEMPLATE_GAME, "physics": TEMPLATE_PHYS, "2d": TEMPLATE_2D }
+
 TEMPLATE_SHAPE = '''/* A starter mesh (cube). Replace with a baked .obj via `mote bake`. */
 #ifndef SHAPE_H
 #define SHAPE_H
@@ -317,10 +427,12 @@ def cmd_new(args):
         sys.exit("mote: %s already exists" % d)
     os.makedirs(os.path.join(d, "src"))
     os.makedirs(os.path.join(d, "assets"), exist_ok=True)
+    tmpl = TEMPLATES.get(getattr(args, "template", "3d") or "3d", TEMPLATE_GAME)
     open(os.path.join(d, "game.toml"), "w").write(TEMPLATE_TOML % name)
-    open(os.path.join(d, "src", "game.c"), "w").write(TEMPLATE_GAME % name)
+    open(os.path.join(d, "src", "game.c"), "w").write(tmpl % name)
     open(os.path.join(d, ".gitignore"), "w").write("build/\n")
-    print("created %s/\n  edit src/game.c, then:  mote run %s" % (name, name))
+    print("created %s/ (%s template)\n  edit src/game.c, then:  mote run %s"
+          % (name, getattr(args, "template", "3d") or "3d", name))
 
 
 # ---------------------------------------------------------------- device
@@ -446,6 +558,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("new", help="scaffold a new game"); p.add_argument("name")
+    p.add_argument("-t", "--template", choices=["3d", "physics", "2d"], default="3d",
+                   help="starter template + arena claims (default: 3d)")
     p = sub.add_parser("bake", help="bake assets/*.obj -> src headers"); p.add_argument("dir")
     p = sub.add_parser("build", help="compile a game"); p.add_argument("dir")
     p.add_argument("--device", action="store_true", help="also build the .mote")

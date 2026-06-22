@@ -77,9 +77,13 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     return 0; }
 
 static const char *TMPL_TOML = "[game]\nname = \"%s\"\nauthor = \"you\"\n";
-static const char *TMPL_GAME =
-"/* %s — a Mote game module. Reach the engine through `mote->...`; mote_build.h\n"
-" * gives safe mesh primitives, a camera helper, and a tiny UI. */\n"
+
+/* Starter templates, one per archetype (see MC_TMPL_* in motecore.h). Each is
+ * self-contained — compiles and runs with no baked assets — and its .config is
+ * pre-sized to what it draws, so a new game starts with sensible arena claims. */
+static const char *TMPL_3D =
+"/* %s — a 3D Mote game. Reach the engine through `mote->...`; mote_build.h gives\n"
+" * safe mesh primitives, a camera helper, and a tiny UI. */\n"
 "#include \"mote_api.h\"\n#include \"mote_build.h\"\n\nMOTE_GAME_MODULE();\n\n"
 "#ifdef MOTE_MODULE_BUILD\n#include \"mote_module.h\"\nMOTE_MODULE_HEADER();\n#endif\n\n"
 "static const Mesh *s_cube;\nstatic Mat3 s_m;\n\n"
@@ -100,13 +104,85 @@ static const char *TMPL_GAME =
 "    .config = { .max_tris = 256, .depth = 1 },\n};\n"
 "static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }\n";
 
-int mc_new(const char *name, mote_log_fn log){
+static const char *TMPL_PHYS =
+"/* %s — a 3D physics Mote game: a pile of boxes tumbling in a walled pit.\n"
+" * A re-tosses them. The pools below cover the bodies + their contacts. */\n"
+"#include \"mote_api.h\"\n#include \"mote_build.h\"\n#include \"mote_phys.h\"\n\nMOTE_GAME_MODULE();\n\n"
+"#ifdef MOTE_MODULE_BUILD\n#include \"mote_module.h\"\nMOTE_MODULE_HEADER();\n#endif\n\n"
+"#define NB 16\n"
+"static MoteWorld world;\nstatic MoteBody body[NB];\nstatic const Mesh *s_box, *s_floor;\nstatic float s_t;\n\n"
+"static void toss(void) {\n"
+"    for (int i = 0; i < NB; i++) {\n"
+"        MoteBody *b = &body[i]; *b = (MoteBody){0};\n"
+"        b->shape = MOTE_SHAPE_BOX; b->half = v3(0.4f, 0.4f, 0.4f); b->radius = v3_len(b->half);\n"
+"        b->pos = v3(mote_randf(-1.0f, 1.0f), 1.5f + i * 0.7f, mote_randf(-1.0f, 1.0f));\n"
+"        b->orient = m3_identity(); b->inv_mass = 1.0f / 0.6f; b->friction = 0.6f; b->restitution = 0.1f;\n"
+"    }\n}\n\n"
+"static void g_init(void) {\n"
+"    mote->scene_set_background(MOTE_RGB565(12, 14, 28));\n"
+"    mote->scene_set_sun(v3_norm(v3(0.4f, 0.8f, -0.5f)));\n"
+"    s_box   = mote_mesh_box(mote, 0.4f, 0.4f, 0.4f, MOTE_RGB565(210, 150, 90));\n"
+"    s_floor = mote_mesh_box(mote, 1.7f, 0.1f, 1.7f, MOTE_RGB565(60, 72, 92));\n"
+"    mote->phys_world_defaults(&world);\n"
+"    world.gravity = v3(0, -9.8f, 0); world.walls = 1;\n"
+"    world.bmin = v3(-1.6f, 0, -1.6f); world.bmax = v3(1.6f, 6, 1.6f);\n"
+"    toss();\n}\n\n"
+"static void g_update(float dt) {\n"
+"    if (mote_just_pressed(mote->input(), MOTE_BTN_A)) toss();\n"
+"    mote->phys_step(&world, body, NB, dt);\n"
+"    s_t += dt;\n"
+"    Vec3 eye = v3(4.0f * cosf(s_t * 0.3f), 2.6f, 4.0f * sinf(s_t * 0.3f));\n"
+"    Mat3 cam = mote_camera_look(eye, v3(0, 0.8f, 0));\n"
+"    mote->scene_camera(&cam, eye, 60.0f);   /* world-space camera: mote_draw takes world positions */\n"
+"    mote_draw(mote, s_floor, v3(0, -0.1f, 0));\n"
+"    for (int i = 0; i < NB; i++) mote_draw_ex(mote, s_box, body[i].pos, body[i].orient, 1.0f);\n}\n\n"
+"static void g_overlay(uint16_t *fb) { mote->text(fb, \"A  RE-TOSS\", 4, 4, MOTE_RGB565(220, 228, 240)); }\n\n"
+"static const MoteGameVtbl k_vtbl = {\n"
+"    .init = g_init, .update = g_update, .overlay = g_overlay,\n"
+"    .config = { .max_tris = 400, .max_bodies = NB, .max_contacts = 192, .depth = 1 },\n};\n"
+"static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }\n";
+
+static const char *TMPL_2D =
+"/* %s — a 2D Mote game: a top-down token you move with the D-pad. No depth\n"
+" * buffer (2D only). Drop a PNG in assets/, Bake, and draw it as a sprite; or\n"
+" * use the Studio Tiles tab for an autotiled level (mote->scene2d_set_autotiles). */\n"
+"#include \"mote_api.h\"\n#include \"mote_build.h\"\n\nMOTE_GAME_MODULE();\n\n"
+"#ifdef MOTE_MODULE_BUILD\n#include \"mote_module.h\"\nMOTE_MODULE_HEADER();\n#endif\n\n"
+"static uint16_t s_px[12 * 12];\n"
+"static MoteImage s_img = { s_px, 12, 12, 0xF81F, 0 };   /* magenta = transparent */\n"
+"static float s_x = 58, s_y = 58;\n\n"
+"static void g_init(void) {\n"
+"    mote->scene_set_background(MOTE_RGB565(24, 28, 40));\n"
+"    for (int y = 0; y < 12; y++) for (int x = 0; x < 12; x++) {\n"
+"        int dx = x - 6, dy = y - 6;\n"
+"        s_px[y * 12 + x] = (dx*dx + dy*dy <= 30) ? MOTE_RGB565(90, 200, 120) : 0xF81F;\n"
+"    }\n"
+"    s_px[4 * 12 + 4] = s_px[4 * 12 + 7] = MOTE_RGB565(20, 30, 20);   /* eyes */\n}\n\n"
+"static void g_update(float dt) {\n"
+"    const MoteInput *in = mote->input(); float sp = 70.0f * dt;\n"
+"    if (mote_pressed(in, MOTE_BTN_LEFT))  s_x -= sp;\n"
+"    if (mote_pressed(in, MOTE_BTN_RIGHT)) s_x += sp;\n"
+"    if (mote_pressed(in, MOTE_BTN_UP))    s_y -= sp;\n"
+"    if (mote_pressed(in, MOTE_BTN_DOWN))  s_y += sp;\n"
+"    s_x = mote_clampf(s_x, 0, 116); s_y = mote_clampf(s_y, 0, 116);\n"
+"    mote->scene2d_begin(0, 0);\n"
+"    MoteSprite s = { .img = &s_img, .x = (int)s_x, .y = (int)s_y, .fw = 12, .fh = 12, .layer = 10 };\n"
+"    mote->scene2d_add(&s);\n}\n\n"
+"static const MoteGameVtbl k_vtbl = {\n"
+"    .init = g_init, .update = g_update,\n"
+"    .config = { .max_sprites = 16 },   /* 2D only — no depth buffer */\n};\n"
+"static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }\n";
+
+static const char *tmpl_for(int kind){
+    switch(kind){ case MC_TMPL_PHYS: return TMPL_PHYS; case MC_TMPL_2D: return TMPL_2D; default: return TMPL_3D; } }
+
+int mc_new(const char *name, int kind, mote_log_fn log){
     char dir[200]; snprintf(dir,sizeof dir,"examples/%.180s",name);
     struct stat st; if(stat(dir,&st)==0){ log("a project with that name already exists"); return -1; }
     char p[260]; MKDIR("examples"); MKDIR(dir);
     snprintf(p,sizeof p,"%.200s/src",dir); MKDIR(p); snprintf(p,sizeof p,"%.200s/assets",dir); MKDIR(p);
     snprintf(p,sizeof p,"%.200s/game.toml",dir); FILE *f=fopen(p,"w"); if(f){ fprintf(f,TMPL_TOML,name); fclose(f); }
-    snprintf(p,sizeof p,"%.200s/src/game.c",dir); f=fopen(p,"w"); if(f){ fprintf(f,TMPL_GAME,name); fclose(f); }
+    snprintf(p,sizeof p,"%.200s/src/game.c",dir); f=fopen(p,"w"); if(f){ fprintf(f,tmpl_for(kind),name); fclose(f); }
     snprintf(p,sizeof p,"%.200s/.gitignore",dir); f=fopen(p,"w"); if(f){ fprintf(f,"build/\n"); fclose(f); }
     { char m[120]; snprintf(m,sizeof m,"created examples/%s",name); log(m); } return 0; }
 

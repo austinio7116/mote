@@ -100,13 +100,19 @@ This produces:
 `./tools/mote`.
 
 ```bash
-mote new mygame      # scaffold mygame/ with a spinning-cube src/game.c + game.toml
-mote run mygame      # compile mygame → host .so, launch the emulator
+mote new mygame                  # scaffold mygame/ — a runnable 3D starter + game.toml
+mote new mygame -t physics       # or pick a template: 3d (default) · physics · 2d
+mote run mygame                  # compile mygame → host .so, launch the emulator
 ```
+
+`mote new` (and Studio's **New Game** wizard) scaffolds a *runnable* starter for the
+template you pick — **3d** (spinning mesh), **physics** (boxes tumbling in a pit), or
+**2d** (a top-down sprite) — each with its `.config` arena pools already sized to what
+it draws, so a new game starts with sensible claims rather than zero or guesswork.
 
 | Command | What it does |
 |---|---|
-| `mote new <dir>` | Scaffold a game: `game.toml`, `src/game.c` (a spinning cube), `assets/` |
+| `mote new <dir> [-t 3d\|physics\|2d]` | Scaffold a game: `game.toml`, a runnable `src/game.c` for the chosen template, `assets/` |
 | `mote build <dir>` | Compile → host `.so` in `<dir>/build/`. Add `--device` for the RP2350 `.mote` |
 | `mote run <dir>` | Build for host **and** launch the SDL emulator on it |
 | `mote bake <dir>` | Convert `assets/*.png`, `*.obj`, `*.stl` → C headers in `src/` (see §4) |
