@@ -1,0 +1,46 @@
+<svg width="1000" height="300" viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg" font-family="'DejaVu Sans','Segoe UI',sans-serif">
+  <rect width="1000" height="300" rx="14" fill="#0e1018"/>
+  <text x="40" y="42" fill="#ebd28c" font-size="22" font-weight="700">The three concepts (three folders)</text>
+  <text x="40" y="66" fill="#9aa3b6" font-size="14">art becomes a rule tile (one layer) becomes a level — only the art takes real space, and it lives in flash</text>
+
+  <!-- Panel A: sprite sheet -->
+  <rect x="40" y="92" width="270" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="56" y="116" fill="#bcd3f3" font-size="15" font-weight="700">Sprite sheet</text>
+  <text x="56" y="134" fill="#7e93b4" font-size="12">assets/grass.png — raw tile art</text>
+  <g>
+    <rect x="56" y="146" width="34" height="34" rx="3" fill="#2f6f4e"/><rect x="92" y="146" width="34" height="34" rx="3" fill="#367a57"/>
+    <rect x="128" y="146" width="34" height="34" rx="3" fill="#2f6f4e"/><rect x="164" y="146" width="34" height="34" rx="3" fill="#3a8460"/>
+    <rect x="56" y="182" width="34" height="34" rx="3" fill="#367a57"/><rect x="92" y="182" width="34" height="34" rx="3" fill="#2f6f4e"/>
+    <rect x="128" y="182" width="34" height="34" rx="3" fill="#3a8460"/><rect x="164" y="182" width="34" height="34" rx="3" fill="#2f6f4e"/>
+  </g>
+  <text x="56" y="232" fill="#79b196" font-size="11.5">several tilesets may share one sheet</text>
+
+  <!-- arrow -->
+  <path d="M318 167 l24 0 m-8 -7 l8 7 -8 7" fill="none" stroke="#5a6678" stroke-width="2"/>
+
+  <!-- Panel B: rule tile -->
+  <rect x="352" y="92" width="296" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="368" y="116" fill="#bcd3f3" font-size="15" font-weight="700">Rule tile  (a layer)</text>
+  <text x="368" y="134" fill="#7e93b4" font-size="12">tilesets/grass.tileset → src/grass.tiles.h</text>
+  <text x="368" y="158" fill="#cdd6e6" font-size="12.5">• sheet + tile size</text>
+  <text x="368" y="176" fill="#cdd6e6" font-size="12.5">• rule type (Blob47 / Edge16 / …)</text>
+  <text x="368" y="194" fill="#cdd6e6" font-size="12.5">• LUT: 256 neighbour configs → cell</text>
+  <text x="368" y="212" fill="#cdd6e6" font-size="12.5">• transforms + variant weights</text>
+  <text x="368" y="232" fill="#79b196" font-size="11.5">= MoteImage + MoteAutotile</text>
+
+  <!-- arrow -->
+  <path d="M656 167 l24 0 m-8 -7 l8 7 -8 7" fill="none" stroke="#5a6678" stroke-width="2"/>
+
+  <!-- Panel C: level -->
+  <rect x="690" y="92" width="270" height="150" rx="8" fill="#11151d" stroke="#2a3240"/>
+  <text x="706" y="116" fill="#bcd3f3" font-size="15" font-weight="700">Level</text>
+  <text x="706" y="134" fill="#7e93b4" font-size="12">levels/cave.level → src/cave.level.h</text>
+  <text x="706" y="158" fill="#cdd6e6" font-size="12.5">one byte / cell — each BIT a layer</text>
+  <g font-family="monospace" font-size="12">
+    <text x="706" y="182" fill="#9fb0cc">cell = 0b0000 0101</text>
+    <text x="706" y="200" fill="#79b196">         ↑     ↑  layers 0 &amp; 2 present</text>
+  </g>
+  <text x="706" y="226" fill="#e6c87a" font-size="12">const → flash, 0 SRAM</text>
+
+  <text x="40" y="280" fill="#7e93b4" font-size="12">Layers draw bottom-up, each autotiled against its own bit — dirt, grass and a path can share a cell. A new level adds only its map.</text>
+</svg>

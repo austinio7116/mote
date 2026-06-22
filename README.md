@@ -494,17 +494,7 @@ re-tiles instantly because the only stored data is the logical map you already k
 
 ##### The three concepts (and three folders)
 
-```
-  assets/grass.png          tilesets/grass.tileset        levels/cave.level
-  ┌───────────────┐         ┌──────────────────────┐      ┌──────────────────┐
-  │ raw tile art   │  ──►   │ sheet + tile size +    │ ──► │ bit-packed map:   │
-  │ (a PNG grid)   │        │ rule type + the LUT    │     │ which layers are  │
-  │                │        │ (config → cell)        │     │ set per cell      │
-  └───────────────┘         └──────────────────────┘      └──────────────────┘
-        art                      RULE TILE  (a layer)            LEVEL
-   (many tilesets                 baked → src/grass.tiles.h    baked → src/cave.level.h
-    may share art)                = MoteImage + MoteAutotile   = const map + draw helper
-```
+![The tilesheet pipeline: a sprite sheet (assets/grass.png, raw tile art that several tilesets may share) becomes a rule tile (tilesets/grass.tileset → src/grass.tiles.h: sheet + tile size + rule type + the 256-entry config→cell LUT + transforms and variant weights = a MoteImage + MoteAutotile, and one rule tile is one level layer) becomes a level (levels/cave.level → src/cave.level.h: one byte per cell where each bit is a layer; const, so flash and 0 SRAM). Layers draw bottom-up, each autotiled against its own bit, so dirt, grass and a path can share a cell](docs/img/tile-pipeline.png)
 
 - **Sprite sheet** (`assets/foo.png`) — just art: a grid of tile images. Edited in the
   pixel tools or imported. *Several rule tiles may slice the same sheet.*
@@ -525,13 +515,7 @@ cave_draw(mote);   // = mote->scene2d_set_autotile_layers(cave_map, cave_COLS, c
 
 ##### How a tile is chosen (per cell, every frame)
 
-```
-  look at the 8 neighbours        build an 8-bit mask         the rule type's LUT
-                                  (1 = same layer)            maps mask → atlas cell
-     NW  N  NE                       NW N NE  E SE              ┌────────────────────┐
-      W  ▣  E      ───►   bits:   [ NW N NE E SE S SW W ]  ──►  │ lut[mask] = cell #  │ ──► blit cell
-     SW  S  SE                       (off-map → edge_is_solid)  └────────────────────┘
-```
+![Per-cell autotiling each frame: (1) look at the 8 neighbours (green = same layer, grey = empty), (2) build an 8-bit mask from them (off-map neighbours use edge_is_solid), (3) the rule type's LUT maps that mask to an atlas cell — plus the variant and transform — (4) and the engine blits that cell. No resolved buffer, so runtime digging or growth re-tiles instantly](docs/img/tile-autotile-flow.png)
 
 `edge_is_solid` decides whether off-map neighbours count as "same" (seamless map borders)
 or "different" (a visible rim around the whole map).
@@ -541,72 +525,23 @@ or "different" (a visible rim around the whole map).
 The rule type is the **sheet layout the LUT expects**; pick it per rule tile in the Studio
 (the RULES bar). It sets how many tiles you must draw and which neighbours are consulted.
 
-**Blob 47** — 8-neighbour, fully corner-aware (47 tiles)
+![The four rule types compared. Blob 47 (47 tiles, all 8 neighbours): corner-aware — it notices a single empty diagonal and draws a notched concave corner; best for organic terrain (caves, water, cliffs, grass/sand blobs); limitation: 47 tiles to draw, though transforms cut that. Edge 16 (16 tiles, only N/E/S/W, mask = N|E<<1|S<<2|W<<3): best for blocky/retro platforms, pipes, Mario-style walls; limitation: no corner sense, so concave corners look square. Nine-slice (9 tiles, a 3×3 TL/T/TR/L/C/R/BL/B/BR frame): best for rectangles — UI panels, ledges, building walls; limitation: rectangles only, no islands/bends/diagonals. Wang 16 (16 tiles, the 4 corner bits): best for paths and blends — roads, rivers, coastlines; limitation: corner-matched art, cardinal edges less crisp](docs/img/tile-ruletypes.png)
 
-```
-  Considers all 8 neighbours, but a CORNER only matters when both its cardinals
-  are present, which collapses 256 raw configs → 47 distinct tiles:
+In more detail, with each type's hard limit:
 
-   ▣ alone   ▣ in a    ▣ on an    ▣ inner (concave) corner — the case the
-   (island)  vertical  outer      simpler types CANNOT express:
-             strip     corner        ███          the NE neighbour is empty
-    ░░░       ░▓░       ░░░          ██▝          while N and E are filled, so
-    ░▣░       ░▣░       ░▣▓          ███          this tile needs a notched corner
-    ░░░       ░▓░       ░▓▓
-  Sheet: 47 cells in one row (add rows for variants). Studio bakes them in this order.
-```
-  *Best for:* organic terrain — caves, water, cliffs, grass/sand blobs.
-  *Limitation:* you must supply 47 tiles (largest sheet); the art has to be drawn for both
-  outer **and** inner corners or boundaries look wrong. Use **rotation/flip** (below) to
-  draw ~12 unique tiles and let the engine generate the rest.
-
-**Edge 16** — 4 cardinal neighbours only (16 tiles), a 4×4 sheet
-
-```
-  mask = N | E<<1 | S<<2 | W<<3   →   cell 0..15
-        ┌──┬──┬──┬──┐   row/col is just the 4-bit value; e.g. N+S (a vertical
-        │ 0│ 1│ 2│ 3│   pipe middle) = 0101 = cell 5.
-        ├──┼──┼──┼──┤
-        │ 4│ 5│ 6│ 7│
-        ├──┼──┼──┼──┤   Only N/E/S/W are read — diagonals are ignored.
-        │ 8│ 9│10│11│
-        ├──┼──┼──┼──┤
-        │12│13│14│15│
-        └──┴──┴──┴──┘
-```
-  *Best for:* blocky platforms, pipes, ledges, Mario-style walls.
-  *Limitation:* **no corner awareness** — it can't tell a filled-in inner corner from a
-  flat edge, so concave corners look square/wrong. Fine for chunky/retro art, not organic
-  terrain.
-
-**Nine-slice** — a 3×3 frame for rectangular regions (9 tiles)
-
-```
-  column = which of W/E is open, row = which of N/S is open:
-        ┌──┬──┬──┐   TL  T  TR     A filled RECTANGLE is drawn as its 9 parts:
-        │TL│ T│TR│    L  C  R      4 corners, 4 edges, 1 centre. Great for panels,
-        ├──┼──┼──┤   BL  B  BR     ledges, windows, HUD frames.
-        │ L│ C│ R│
-        ├──┼──┼──┤
-        │BL│ B│BR│
-        └──┴──┴──┘
-```
-  *Best for:* anything rectangular — UI panels, solid platforms, building walls.
-  *Limitation:* it **assumes the region is a rectangle**. An isolated cell, a 1-wide line,
-  an L-bend or a diagonal will pick the wrong slice (there is no "island", "cross" or
-  "diagonal" tile). Not for blobby/organic shapes.
-
-**Wang 16** — corner-matched (16 tiles), a 4×4 sheet
-
-```
-  A CORNER bit is set when its three surrounding cells all agree; the 4 corner
-  bits (TL,TR,BL,BR) index 16 tiles. Art must line up at corners so any two
-  tiles meet seamlessly — ideal for winding paths/roads and beach/shore blends.
-```
-  *Best for:* paths, roads, rivers, coastline blends between two materials.
-  *Limitation:* it reasons about **corners, not edges**, so straight cardinal edges are
-  less crisp than Edge 16, and the art must be authored as a matched corner set (harder to
-  draw freehand).
+- **Blob 47** — all 8 neighbours, but a corner only matters when both its cardinals are
+  present, collapsing 256 raw configs to 47 tiles. *Limit:* you draw 47 tiles (the largest
+  sheet) and must cover both outer **and** inner corners, or boundaries look wrong — use
+  **rotation/flip** (below) to draw ~12 uniques and generate the rest.
+- **Edge 16** — reads only the 4 cardinals (`mask = N | E<<1 | S<<2 | W<<3`), a 4×4 sheet.
+  *Limit:* **no corner awareness** — it can't tell a filled inner corner from a flat edge,
+  so concave corners look square. Great for chunky/retro art, wrong for organic terrain.
+- **Nine-slice** — a 3×3 frame (corners, edges, centre) keyed by which sides are open.
+  *Limit:* it **assumes the region is a rectangle** — an island, a 1-wide line, an L-bend
+  or diagonal pick the wrong slice (there's no island/cross/diagonal tile).
+- **Wang 16** — keyed by the 4 corner bits (a corner is set when its three cells agree).
+  *Limit:* it reasons about **corners, not edges**, so cardinal edges are less crisp than
+  Edge 16, and the art must be authored as a matched corner set.
 
 **Rule of thumb:** organic fill → **Blob 47**; blocky/retro → **Edge 16**; boxes/UI →
 **Nine-slice**; paths & blends → **Wang 16**.
