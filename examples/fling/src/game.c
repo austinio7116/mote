@@ -61,6 +61,7 @@ static uint16_t    body_col[MAX_BODIES];
 static int pig0, pig1;     /* pig body index range [pig0, pig1) */
 static int bird;           /* bird body index */
 static int birds_left, pigs_out;
+static int level = 1;      /* 1 = hand-built fort; 2+ = procedurally generated */
 
 static void set_box(int i, const Mesh *m, float hx, float hy, float hz, float x, float y, float mass){
     MoteBody *b = &body[i];
@@ -90,10 +91,7 @@ static void set_sphere(int i, float r, float x, float y, float mass, uint16_t co
     body_col[i] = col;
 }
 
-static void build_level(void){
-    n_body = 0;
-
-    /* ground plane */
+static void add_ground(void){
     MoteBody *g = &body[n_body];
     *g = (MoteBody){0};
     g->shape = MOTE_SHAPE_PLANE;
@@ -104,11 +102,19 @@ static void build_level(void){
     body_mesh[n_body] = 0;
     body_col[n_body] = 0;
     n_body++;
+}
+static void add_bird(void){
+    bird = n_body;
+    set_sphere(n_body++, 0.38f, SLING_X, 2.4f, 1.4f, MOTE_RGB565(228, 72, 60));
+    body[bird].inv_mass = 0;
+    pigs_out = 0;
+}
+static uint16_t pig_col(void){ return (mote_rand() & 1) ? MOTE_RGB565(96, 202, 86) : MOTE_RGB565(124, 216, 112); }
 
-    /* a slim two-storey timber fort (render boxes match collision boxes) */
+/* Level 1: the hand-built two-storey timber fort. */
+static void build_level_1(void){
     float base_pillar_x[4] = { 3.0f, 4.6f, 6.2f, 7.8f };
     for (int i = 0; i < 4; i++) set_box(n_body++, mesh_plank, 0.12f, 0.7f, 0.26f, base_pillar_x[i], 0.7f, 1.2f);
-
     set_box(n_body++, mesh_beam,  1.0f, 0.12f, 0.28f, 3.8f, 1.52f, 1.7f);   /* left platform */
     set_box(n_body++, mesh_beam,  1.0f, 0.12f, 0.28f, 7.0f, 1.52f, 1.7f);   /* right platform */
     set_box(n_body++, mesh_plank, 0.12f, 0.7f, 0.26f, 3.3f, 2.34f, 0.9f);   /* second storey (left) */
@@ -117,21 +123,49 @@ static void build_level(void){
     set_box(n_body++, mesh_cube,  0.30f, 0.30f, 0.30f, 5.4f, 0.30f, 0.9f);  /* centre cube tower */
     set_box(n_body++, mesh_cube,  0.30f, 0.30f, 0.30f, 5.4f, 0.90f, 0.9f);
     set_box(n_body++, mesh_cube,  0.30f, 0.30f, 0.30f, 5.4f, 1.50f, 0.9f);
-
-    /* pigs */
     pig0 = n_body;
-    set_sphere(n_body++, 0.40f, 3.8f, 2.04f, 0.7f, MOTE_RGB565(96, 202, 86));   /* left platform */
-    set_sphere(n_body++, 0.40f, 7.0f, 2.04f, 0.7f, MOTE_RGB565(96, 202, 86));   /* right platform */
-    set_sphere(n_body++, 0.38f, 3.8f, 3.66f, 0.7f, MOTE_RGB565(124, 216, 112)); /* roof top */
-    set_sphere(n_body++, 0.38f, 5.4f, 2.18f, 0.7f, MOTE_RGB565(124, 216, 112)); /* cube tower */
+    set_sphere(n_body++, 0.40f, 3.8f, 2.04f, 0.7f, MOTE_RGB565(96, 202, 86));
+    set_sphere(n_body++, 0.40f, 7.0f, 2.04f, 0.7f, MOTE_RGB565(96, 202, 86));
+    set_sphere(n_body++, 0.38f, 3.8f, 3.66f, 0.7f, MOTE_RGB565(124, 216, 112));
+    set_sphere(n_body++, 0.38f, 5.4f, 2.18f, 0.7f, MOTE_RGB565(124, 216, 112));
     pig1 = n_body;
+}
 
-    /* bird, held static until flung */
-    bird = n_body;
-    set_sphere(n_body++, 0.38f, SLING_X, 2.4f, 1.4f, MOTE_RGB565(228, 72, 60));
-    body[bird].inv_mass = 0;
+/* Levels 2+: a procedurally generated fort — a row of towers (cube stacks or
+ * plank+beam platforms), each topped with a pig. Seeded by the level number, so a
+ * given level is always the same. Stays within MAX_BODIES (ground + bird reserved). */
+static void build_level_proc(int lvl){
+    mote_rand_seed((uint32_t)lvl * 2654435761u + 12345u);
+    int nt = 2 + (int)(mote_rand() % 3);                 /* 2..4 towers */
+    float tx[4], pig_y[4];
+    for (int t = 0; t < nt; t++) tx[t] = 3.0f + (nt > 1 ? 5.2f * t / (nt - 1) : 0.0f);
 
-    pigs_out = 0;
+    for (int t = 0; t < nt && n_body < MAX_BODIES - 6; t++){
+        float x = tx[t];
+        if (mote_rand() & 1){                            /* cube stack (2..4 high) */
+            int h = 2 + (int)(mote_rand() % 3);
+            float cy = 0.30f;
+            for (int k = 0; k < h && n_body < MAX_BODIES - 6; k++){ cy = 0.30f + k * 0.60f; set_box(n_body++, mesh_cube, 0.30f, 0.30f, 0.30f, x, cy, 0.9f); }
+            pig_y[t] = cy + 0.30f + 0.38f;               /* on top of the stack */
+        } else {                                         /* plank pair + beam platform */
+            set_box(n_body++, mesh_plank, 0.12f, 0.7f, 0.26f, x - 0.5f, 0.7f, 1.2f);
+            set_box(n_body++, mesh_plank, 0.12f, 0.7f, 0.26f, x + 0.5f, 0.7f, 1.2f);
+            set_box(n_body++, mesh_beam,  1.0f, 0.12f, 0.28f, x, 1.52f, 1.7f);
+            pig_y[t] = 1.52f + 0.12f + 0.38f;            /* on the platform */
+        }
+    }
+    pig0 = n_body;
+    for (int t = 0; t < nt && n_body < MAX_BODIES - 1; t++)
+        set_sphere(n_body++, 0.38f, tx[t], pig_y[t], 0.7f, pig_col());
+    pig1 = n_body;
+}
+
+static void build_level(void){
+    n_body = 0;
+    add_ground();
+    if (level <= 1) build_level_1();
+    else            build_level_proc(level);
+    add_bird();
 }
 
 /* ---- aim / fling state ---- */
@@ -226,7 +260,10 @@ static int pigs_left(void){
 static void g_update(float dt){
     const MoteInput *in = mote->input();
 
-    if (mote_just_pressed(in, MOTE_BTN_B)){ birds_left = 4; build_level(); reset_bird(); }
+    if (mote_just_pressed(in, MOTE_BTN_B)){
+        if (state == ST_DONE && pigs_left() == 0) level++;   /* cleared -> advance to the next (procedural) level */
+        birds_left = 4; build_level(); reset_bird();
+    }
     if (!mote_pressed(in, MOTE_BTN_A)) a_armed = 1;   /* require A release (held from launcher) before flinging */
 
     if (state == ST_AIM){
@@ -299,15 +336,8 @@ static void g_update(float dt){
 }
 
 static void g_overlay(uint16_t *fb){
-    char b[20];
-    int q = 0;
-
-    b[q++] = 'B'; b[q++] = 'I'; b[q++] = 'R'; b[q++] = 'D'; b[q++] = 'S'; b[q++] = ' ';
-    q += mote_itoa(birds_left < 0 ? 0 : birds_left, b + q);
-    b[q++] = ' '; b[q++] = 'P'; b[q++] = 'I'; b[q++] = 'G'; b[q++] = 'S'; b[q++] = ' ';
-    q += mote_itoa(pigs_left(), b + q);
-    b[q] = 0;
-    mote->text(fb, b, 4, 4, MOTE_RGB565(20, 30, 20));
+    mote_textf(mote, fb, 4, 4, MOTE_RGB565(20, 30, 20), "L%d  BIRDS %d  PIGS %d",
+               level, birds_left < 0 ? 0 : birds_left, pigs_left());
 
     /* angle/power bars (left) via the UI helper */
     mote_ui_bar(fb, 4, 118, 40, 4, aim_angle / 1.45f, MOTE_RGB565(120, 200, 255), MOTE_RGB565(25, 25, 25));
@@ -320,7 +350,7 @@ static void g_overlay(uint16_t *fb){
         int win = pigs_left() == 0;
         mote->text_2x(fb, win ? "CLEARED!" : "OUT OF BIRDS", win ? 40 : 18, 54,
                       win ? MOTE_RGB565(120, 235, 120) : MOTE_RGB565(245, 160, 120));
-        mote->text(fb, "B  PLAY AGAIN", 36, 80, MOTE_RGB565(210, 220, 235));
+        mote->text(fb, win ? "B  NEXT LEVEL" : "B  RETRY", win ? 36 : 48, 80, MOTE_RGB565(210, 220, 235));
     }
 }
 
