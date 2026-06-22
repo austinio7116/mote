@@ -324,6 +324,7 @@ static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b
 static void njob(int kind,const char*dir);   /* fwd: native build/bake worker */
 static void fp_open(int cb);                 /* fwd: built-in file browser */
 static int native_pick(int cb,char*out,int n);   /* fwd: native OS file dialog */
+static void rect_outline(SDL_Renderer*R,int x,int y,int w,int h,Col c,int th);   /* fwd */
 static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first (Project > Open) to save into its assets/"); return; }
     const char*dir=g_games[g_sel].dir;
     static unsigned char rgba[CMAX*CMAX*4];
@@ -416,18 +417,21 @@ static int job_native(void*a){ (void)a; int k=g_jkind;
     snprintf(g_status,sizeof g_status,"done"); return 0; }
 static void njob(int kind,const char*dir){ g_jkind=kind; snprintf(g_jdir,sizeof g_jdir,"%.290s",dir); g_tab=TAB_CONSOLE; SDL_CreateThread(job_native,"njob",NULL); }
 
+/* Open a folder in the system file manager. On WSL2 xdg-open is usually mapped to a
+ * browser, so prefer explorer.exe with a wslpath-converted path; plain Linux uses xdg-open. */
+static void open_folder(const char*path){ char c[700];
+#ifdef _WIN32
+    snprintf(c,sizeof c,"explorer \"%.300s\"",path);
+#else
+    snprintf(c,sizeof c,"if command -v wslpath >/dev/null 2>&1; then explorer.exe \"$(wslpath -w \"%.230s\")\"; else xdg-open \"%.230s\"; fi >/dev/null 2>&1 &",path,path);
+#endif
+    if(system(c)){} }
 static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600];
     switch(a){
     case A_NEW: open_new_game(); break;
     case A_OPEN: g_picker=1; break;
     case A_QUIT: g_quitreq=1; break;
-    case A_REVEAL:
-#ifdef _WIN32
-        snprintf(c,sizeof c,"explorer \"%.250s\"",dir);
-#else
-        snprintf(c,sizeof c,"xdg-open %.250s",dir);
-#endif
-        run_job(c,"reveal"); break;
+    case A_REVEAL: open_folder(dir); break;
     case A_RELOAD: if(g_sel>=0)load_async(g_sel); break;
     case A_STOP: stop_engine(); snprintf(g_status,sizeof g_status,"stopped"); break;
     case A_BUILD: njob(0,dir); break;
@@ -471,6 +475,21 @@ static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=
 /* mouse is currently inside an open dropdown (so panels below shouldn't hover). */
 static int menu_blocks(int mx,int my){ if(g_menu_open<0)return 0; Menu*m=&MENUS[g_menu_open];
     return hit(mx,my,m->mx,MENU_H,150,m->n*22+6) || my<MENU_H; }
+/* explorer right-click context menu */
+static int g_ctx; static int g_ctxx,g_ctxy; static char g_ctxdir[340],g_ctxpath[340];
+static const char *CTX_L[2]={ "Open Folder", "Open in VS Code" };
+static void draw_ctxmenu(SDL_Renderer*R){ if(!g_ctx)return; int mx,my; SDL_GetMouseState(&mx,&my); int w=150,h=2*22+6;
+    if(g_ctxx+w>WIN_W)g_ctxx=WIN_W-w; if(g_ctxy+h>WIN_H)g_ctxy=WIN_H-h; int x=g_ctxx,y=g_ctxy;
+    plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC); rect_outline(R,x,y,w,h,C_LINE,1);
+    for(int i=0;i<2;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22); if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
+static void ctx_click(int mx,int my){ int w=150; for(int i=0;i<2;i++){ int iy=g_ctxy+4+i*22; if(hit(mx,my,g_ctxx,iy,w,22)){
+    if(i==0)open_folder(g_ctxdir[0]?g_ctxdir:"."); else { const char*p=g_ctxpath[0]?g_ctxpath:g_ctxdir; char c[700];
+#ifdef _WIN32
+        snprintf(c,sizeof c,"code \"%.300s\"",p);
+#else
+        snprintf(c,sizeof c,"code \"%.300s\" >/dev/null 2>&1 &",p);
+#endif
+        if(system(c)){} } return; } } }
 
 typedef struct { int x,y,w,h; const char*l; int a; } Tbtn;
 static Tbtn g_tb[8]; static int g_ntb;
@@ -1113,6 +1132,18 @@ static void terr_save_png(int ti){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
     for(int i=0;i<W*H;i++){ uint16_t c=t->sheet[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
     char p[420]; snprintf(p,sizeof p,"%.300s/%.110s",g_games[g_sel].dir,t->png); { char d2[440]; snprintf(d2,sizeof d2,"%.300s/assets",g_games[g_sel].dir); mkdir_portable(d2); }
     if(stbi_write_png(p,W,H,4,rgba,W*4)) snprintf(g_status,sizeof g_status,"saved sheet %s",p); else snprintf(g_status,sizeof g_status,"save FAILED %s",p); }
+/* import a chosen PNG into THIS project's assets/ (copy if external), then load it as the sheet */
+static void tiles_import_png(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    const char*base=strrchr(path,'/');
+#ifdef _WIN32
+    const char*b2=strrchr(path,'\\'); if(b2>base)base=b2;
+#endif
+    base=base?base+1:path;
+    char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char dest[460]; snprintf(dest,sizeof dest,"%.330s/assets/%.100s",g_games[g_sel].dir,base);
+    if(strcmp(path,dest)!=0){ FILE*in=fopen(path,"rb"),*out=fopen(dest,"wb"); if(in&&out){ char buf[8192]; size_t k; while((k=fread(buf,1,sizeof buf,in))>0)fwrite(buf,1,k,out); } if(in)fclose(in); if(out)fclose(out); }
+    terr_load_png(g_curterr,dest);
+    snprintf(g_terr[g_curterr].png,200,"assets/%.100s",base); }
 static void lv_alloc(int c,int r){ g_lv_cols=c; g_lv_rows=r; g_lv_terrain=realloc(g_lv_terrain,(size_t)c*r);
     for(int i=0;i<c*r;i++)g_lv_terrain[i]=1; for(int y=2;y<r-2;y++)for(int x=2;x<c-2;x++)g_lv_terrain[y*c+x]=0; g_lv_panx=g_lv_pany=0; }
 static void lv_fill(int v){ for(int i=0;i<g_lv_cols*g_lv_rows;i++)g_lv_terrain[i]=(uint8_t)v; }
@@ -1269,7 +1300,7 @@ static void tiles_down(int mx,int my){
         if(hit(mx,my,g_tl_tsp.x,g_tl_tsp.y,16,20)){ if(g_tl_ts<24){ g_tl_ts+=8; for(int i=0;i<g_nterr;i++)terr_gen_sheet(i); } return; }
         if(hit(mx,my,g_tl_varm.x,g_tl_varm.y,16,20)){ Terr*c=&g_terr[g_curterr]; if(c->nvar>1){ c->nvar--; terr_gen_sheet(g_curterr); } return; }
         if(hit(mx,my,g_tl_varp.x,g_tl_varp.y,16,20)){ Terr*c=&g_terr[g_curterr]; if(c->nvar<4){ c->nvar++; terr_gen_sheet(g_curterr); } return; }
-        if(hit(mx,my,g_tl_load.x,g_tl_load.y,80,20)){ char p[600]; if(native_pick(1,p,sizeof p))terr_load_png(g_curterr,p); return; }
+        if(hit(mx,my,g_tl_load.x,g_tl_load.y,80,20)){ fp_open(2); return; }   /* native dialog, falls back to the in-app browser */
         if(hit(mx,my,g_tl_savep.x,g_tl_savep.y,84,20)){ terr_save_png(g_curterr); return; }
         Terr*ct=&g_terr[g_curterr]; int sn=ct->scols*ct->srows;
         for(int ci=0;ci<sn&&ci<64;ci++)if(hit(mx,my,g_sheetcell[ci].x,g_sheetcell[ci].y,g_sheetcell[ci].w,g_sheetcell[ci].h)){ g_cellsel=ci;   /* assign this sheet cell to the selected rule (many-to-one) */
@@ -1514,7 +1545,7 @@ static int native_pick(int cb,char*out,int n){
 #endif
 }
 static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
-    if(r==1){ if(cb==0)load_audio(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
     if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
@@ -1538,7 +1569,7 @@ static void fp_pick(int idx){ if(idx<0||idx>=g_fpn)return; char path[840];
         else { snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); snprintf(g_fpdir,sizeof g_fpdir,"%s",path); }
         fp_scan(); return; }
     snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); g_fpick=0;
-    if(g_fpick_cb==0)load_audio(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
+    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
 static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2;
     if(hit(mx,my,g_fp_cancel.x,g_fp_cancel.y,86,26)){ g_fpick=0; return; }
     int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
@@ -1725,6 +1756,13 @@ int main(int argc,char**argv){
                     else if(k==SDLK_ESCAPE){ if(g_csel>=0)g_csel=-1; else g_codefocus=0; }
                     continue; } }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y; g_codefocus=0;   /* refocus editor only on an editor click */
+                if(g_ctx){ ctx_click(mx,my); g_ctx=0; continue; }                              /* a click closes the context menu */
+                if(e.button.button==SDL_BUTTON_RIGHT && mx<LEFT_W && my>=TOPH && my<BOT_Y){     /* right-click the file tree */
+                    int i=(my-(TOPH+28))/ROW_H; g_ctxpath[0]=g_ctxdir[0]=0;
+                    if(i>=0&&i<g_ntree){ TRow*r=&g_tree[i]; if(r->kind==0)snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",r->path);
+                        else { snprintf(g_ctxpath,sizeof g_ctxpath,"%.330s",r->path); snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",r->path); char*s=strrchr(g_ctxdir,'/'); if(s)*s=0; } }
+                    else if(g_sel>=0)snprintf(g_ctxdir,sizeof g_ctxdir,"%.330s",g_games[g_sel].dir);
+                    g_ctx=1; g_ctxx=mx; g_ctxy=my; continue; }
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-LEFT_W)<=4){ g_split=1; continue; }       /* grab separators */
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-INSP_X)<=4){ g_split=2; continue; }
                 if(my>=BOT_Y-4&&my<=BOT_Y+1){ g_split=3; continue; }
@@ -1786,7 +1824,7 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
         SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
-        draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren);
+        draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren); draw_ctxmenu(ren);
         if(g_align)draw_align(ren);
         if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren);
         SDL_RenderPresent(ren);
