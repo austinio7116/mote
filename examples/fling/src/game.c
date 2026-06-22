@@ -507,10 +507,10 @@ static void g_update(float dt){
         float v = 8.0f + 16.0f * power;
         Vec3 p = body[bird].pos;
         float vx = cosf(aim_angle) * v, vy = sinf(aim_angle) * v, ds = 0.05f;
-        for (int k = 0; k < 18; k++){
-            for (int s = 0; s < 3; s++){ vy -= 9.8f * ds; p.x += vx * ds; p.y += vy * ds; }
+        for (int k = 0; k < 22; k++){
+            for (int s = 0; s < 4; s++){ vy -= 9.8f * ds; p.x += vx * ds; p.y += vy * ds; }
             if (p.y < gy(p.x)) break;
-            mote->scene_add_sphere(p, 0.07f, MOTE_RGB565(255, 245, 120));
+            mote->scene_add_sphere(p, 0.16f, MOTE_RGB565(225, 40, 50));   /* crimson: pops against the blue sky */
         }
     }
 }
