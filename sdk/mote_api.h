@@ -31,13 +31,25 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 18u  /* v18: mesh colour moved off MeshFace (6-byte faces) onto Mesh.color/face_colors; MoteObject.color override */
+#define MOTE_ABI_VERSION 19u  /* v19: audio_render_sfx — engine synthesises MoteSfx recipes (mote_sfx_bake), no WAV needed */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
 /* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
  * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
 typedef struct { const int16_t *pcm; int count; } MoteSound;
+
+/* An SFXR-style sound RECIPE (~88 bytes) — the editable source behind a SFX. The
+ * Studio Audio tab authors these; baked to a `static const MoteSfx` header it is
+ * ~1000x smaller than the equivalent PCM and the engine synthesises it on load
+ * (mote_sfx_bake in mote_build.h) instead of shipping a .wav. Fields/units match
+ * the Studio's synth exactly. */
+typedef struct MoteSfx {
+    int   wave;                 /* 0 square · 1 saw · 2 sine · 3 noise */
+    float base_freq, freq_limit, freq_ramp, freq_dramp, duty, duty_ramp;
+    float vib_strength, vib_speed, env_attack, env_sustain, env_punch, env_decay;
+    float lpf_freq, lpf_ramp, lpf_resonance, hpf_freq, hpf_ramp, pha_offset, pha_ramp, arp_speed, arp_mod;
+} MoteSfx;
 
 /* ---------------------------------------------------------------------------
  * MoteConfig — the game declares the resource pools it needs. The OS sizes the
@@ -187,6 +199,13 @@ typedef struct MoteApi {
      * flash and costs no SRAM. Replaces the need for one terrain map per layer. */
     void (*scene2d_set_autotile_layers)(const uint8_t *map, int cols, int rows,
                                         const struct MoteAutotile *const *tiles, int n);
+
+    /* --- ABI v19: synthesise a MoteSfx recipe to 22050 Hz mono PCM. Returns the
+     * sample count; writes into `out` only when out != NULL and bounded by `max`.
+     * Call it twice (measure, then render into an arena buffer) — that's what the
+     * mote_sfx_bake() helper does — so a game can ship tiny recipes instead of WAVs
+     * and have the engine generate the audio at load. */
+    int (*audio_render_sfx)(const MoteSfx *recipe, int16_t *out, int max);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

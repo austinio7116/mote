@@ -2,7 +2,9 @@
  * Mote — audio synth. See mote_audio.h.
  */
 #include "mote_audio.h"
+#include "mote_api.h"      /* full MoteSfx definition */
 #include <math.h>
+#include <stdlib.h>        /* abs */
 
 #define NVOICE 8
 #define LUT    512
@@ -95,4 +97,58 @@ void mote_audio_render(int16_t *out, int n){
         if(a > k){ float x = (a - k) / (1.0f - k); a = k + (1.0f - k) * (x / (1.0f + x)); }
         out[s] = (int16_t)((m < 0.0f ? -a : a) * 32200.0f);
     }
+}
+
+/* ---- SFXR-style recipe synth (mirrors the Studio Audio tab). Generates at the
+ * internal ~44 kHz rate, downsamples 2:1 to 22050 Hz online (no big buffer), and
+ * either measures (out==NULL) or writes the PCM (bounded by max). ---- */
+static unsigned s_sfxrng;
+static float sfx_frnd(float r){ s_sfxrng = s_sfxrng*1103515245u + 12345u; return (float)((s_sfxrng>>16)&0x7fff)/32768.0f*r; }
+int mote_audio_render_sfx(const struct MoteSfx *p, int16_t *out, int max){
+    if(!p) return 0;
+    double base=p->base_freq, lim=p->freq_limit;
+    double fperiod=100.0/(base*base+0.001), fmaxperiod=100.0/(lim*lim+0.001);
+    double fslide=1.0-pow((double)p->freq_ramp,3.0)*0.01, fdslide=-pow((double)p->freq_dramp,3.0)*0.000001;
+    float sq_duty=0.5f-p->duty*0.5f, sq_slide=-p->duty_ramp*0.00005f;
+    double arp_mod = p->arp_mod>=0 ? 1.0-pow((double)p->arp_mod,2.0)*0.9 : 1.0+pow((double)p->arp_mod,2.0)*10.0;
+    int arp_time=0, arp_limit=(int)(powf(1.0f-p->arp_speed,2.0f)*20000+32); if(p->arp_speed==1.0f)arp_limit=0;
+    float lpf = p->lpf_freq<=0 ? 1.0f : p->lpf_freq;
+    float fltp=0,fltdp=0,fltw=powf(lpf,3.0f)*0.1f, fltw_d=1.0f+p->lpf_ramp*0.0001f;
+    float fltdmp=5.0f/(1.0f+powf(p->lpf_resonance,2.0f)*20.0f)*(0.01f+fltw); if(fltdmp>0.8f)fltdmp=0.8f;
+    float fltphp=0, flthp=powf(p->hpf_freq,2.0f)*0.1f, flthp_d=1.0f+p->hpf_ramp*0.0003f;
+    float vib_phase=0, vib_speed=powf(p->vib_speed,2.0f)*0.01f, vib_amp=p->vib_strength*0.5f;
+    int env_stage=0, env_time=0; float env_vol=0;
+    int env_len[3]={ (int)(p->env_attack*p->env_attack*100000.0f),(int)(p->env_sustain*p->env_sustain*100000.0f),(int)(p->env_decay*p->env_decay*100000.0f) };
+    float fphase=powf(p->pha_offset,2.0f)*1020.0f; if(p->pha_offset<0)fphase=-fphase;
+    float fdphase=powf(p->pha_ramp,2.0f); if(p->pha_ramp<0)fdphase=-fdphase;
+    int iphase=abs((int)fphase), ipp=0; float phaser[1024]; for(int i=0;i<1024;i++)phaser[i]=0;
+    s_sfxrng=0x1234567u; float noise[32]; for(int i=0;i<32;i++)noise[i]=sfx_frnd(2.0f)-1.0f;
+    int phase=0, period=(int)fperiod, count=0, have=0; float prev=0;
+    for(int n=0;n<MOTE_SFX_MAX*2;n++){
+        arp_time++; if(arp_limit!=0&&arp_time>=arp_limit){ arp_limit=0; fperiod*=arp_mod; }
+        fslide+=fdslide; fperiod*=fslide; if(fperiod>fmaxperiod){ fperiod=fmaxperiod; if(lim>0)break; }
+        float rfp=(float)fperiod; if(vib_amp>0){ vib_phase+=vib_speed; rfp=(float)(fperiod*(1.0+sin(vib_phase)*vib_amp)); }
+        period=(int)rfp; if(period<8)period=8;
+        sq_duty+=sq_slide; if(sq_duty<0)sq_duty=0; if(sq_duty>0.5f)sq_duty=0.5f;
+        env_time++; if(env_time>env_len[env_stage]){ env_time=0; if(++env_stage==3)break; }
+        if(env_stage==0)env_vol=env_len[0]?(float)env_time/env_len[0]:1.0f;
+        else if(env_stage==1)env_vol=1.0f+(1.0f-(env_len[1]?(float)env_time/env_len[1]:1.0f))*2.0f*p->env_punch;
+        else env_vol=1.0f-(env_len[2]?(float)env_time/env_len[2]:1.0f);
+        fphase+=fdphase; iphase=abs((int)fphase); if(iphase>1023)iphase=1023;
+        float ss=0;
+        for(int si=0;si<8;si++){ phase++; if(phase>=period){ phase%=period; if(p->wave==3)for(int i=0;i<32;i++)noise[i]=sfx_frnd(2.0f)-1.0f; }
+            float fp=(float)phase/period, sample;
+            switch(p->wave){ case 0: sample=fp<sq_duty?0.5f:-0.5f; break; case 1: sample=1.0f-fp*2; break;
+                case 2: sample=sinf(fp*6.2831853f); break; default: sample=noise[phase*32/period]; break; }
+            float pp=fltp; fltw*=fltw_d; if(fltw<0)fltw=0; if(fltw>0.1f)fltw=0.1f;
+            if(lpf!=1.0f){ fltdp+=(sample-fltp)*fltw; fltdp-=fltdp*fltdmp; } else { fltp=sample; fltdp=0; }
+            fltp+=fltdp; fltphp+=fltp-pp; flthp*=flthp_d; fltphp-=fltphp*flthp; sample=fltphp;
+            phaser[ipp&1023]=sample; sample+=phaser[(ipp-iphase+1024)&1023]; ipp=(ipp+1)&1023;
+            ss+=sample*env_vol; }
+        ss=ss/8*2.0f; if(ss>1)ss=1; if(ss<-1)ss=-1;
+        if(!have){ prev=ss; have=1; }                                  /* 2:1 downsample */
+        else { have=0; float v=(prev+ss)*0.5f; int s=(int)(v*16000); if(s>32767)s=32767; if(s<-32768)s=-32768;
+            if(out && count<max) out[count]=(int16_t)s; count++; if(count>=MOTE_SFX_MAX)break; }
+    }
+    return count;
 }

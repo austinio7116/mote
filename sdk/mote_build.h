@@ -287,6 +287,19 @@ static inline void mote_model_draw_tint(const MoteApi *m, const MoteModel *model
         mote_draw_tint(m, &model->chunks[i], pos, basis, scale, color);
 }
 
+/* ---- bake a MoteSfx recipe into a playable MoteSound at load: the engine synthesises
+ * the PCM into an arena buffer (measure, then render). Ship ~88-byte recipes instead of
+ * WAVs; call once in init(), then mote->audio_play(&snd, gain). Returns {0,0} on failure. */
+static inline MoteSound mote_sfx_bake(const MoteApi *m, const MoteSfx *recipe) {
+    MoteSound s = { 0, 0 };
+    int n = m->audio_render_sfx(recipe, 0, 0);
+    if (n <= 0) return s;
+    int16_t *pcm = (int16_t *)m->alloc((uint32_t)n * sizeof(int16_t));
+    if (!pcm) return s;
+    m->audio_render_sfx(recipe, pcm, n);
+    s.pcm = pcm; s.count = n; return s;
+}
+
 /* ---- one shared RNG, so games stop hand-rolling xorshift. Seed once (e.g. from
  * mote->micros()); mote_frand() is [0,1), mote_randf(lo,hi) a range, mote_rand() raw bits. */
 static uint32_t mote__rng = 0x2545F491u;

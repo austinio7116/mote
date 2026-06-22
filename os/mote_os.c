@@ -122,6 +122,8 @@ void mote_api_fill(MoteApi *a) {
     a->scene2d_set_autotiles = mote_scene2d_set_autotiles;
     /* ABI v15: layered autotiling. */
     a->scene2d_set_autotile_layers = mote_scene2d_set_autotile_layers;
+    /* ABI v19: synthesise SFX recipes at load. */
+    a->audio_render_sfx      = mote_audio_render_sfx;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the

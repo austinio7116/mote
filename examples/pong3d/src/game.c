@@ -16,10 +16,14 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include <math.h>
-#include "paddle.h"          /* SFX baked in the Studio Audio tab (edit the assets/*.wav there) */
-#include "wall.h"
-#include "score.h"
-#include "miss.h"
+/* SFX as RECIPES (authored in the Studio Audio tab): the engine synthesises them at
+ * load via mote_sfx_bake — ~88 bytes each in flash instead of a baked WAV. Edit the
+ * recipe in the Studio and re-save to regenerate these headers. */
+#include "paddle.sfx.h"
+#include "wall.sfx.h"
+#include "score.sfx.h"
+#include "miss.sfx.h"
+static MoteSound paddle_snd, wall_snd, score_snd, miss_snd;
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -70,6 +74,10 @@ static void new_game(void){
 static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(8, 10, 24));
     mote->scene_set_sun(v3_norm(v3(0.2f, 0.7f, -0.7f)));
+    paddle_snd = mote_sfx_bake(mote, &paddle_sfx);   /* synth the recipes once, into the arena */
+    wall_snd   = mote_sfx_bake(mote, &wall_sfx);
+    score_snd  = mote_sfx_bake(mote, &score_sfx);
+    miss_snd   = mote_sfx_bake(mote, &miss_sfx);
     mesh_player = mote_mesh_box(mote, 0.34f, PADDLE_HALF, 0.7f, MOTE_RGB565(90, 170, 255));
     mesh_cpu    = mote_mesh_box(mote, 0.34f, PADDLE_HALF, 0.7f, MOTE_RGB565(255, 110, 110));
     mesh_wall   = mote_mesh_box(mote, 9.6f, 0.22f, 0.7f, MOTE_RGB565(70, 230, 240));
