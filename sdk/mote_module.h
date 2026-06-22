@@ -36,14 +36,27 @@ typedef struct {
     uint32_t data_end;         /* RAM dest end */
     uint32_t bss_start;        /* RAM zero start */
     uint32_t bss_end;          /* RAM zero end */
+    /* Per-game launcher icon: the linked (VADDR-relative) address of a 60x60
+     * RGB565 `mote_game_icon_data[]`, or 0 if the game ships no icon. The
+     * launcher reads it straight from flash — image_offset + (icon_vaddr -
+     * MOTE_MODULE_VADDR) — without loading the game. */
+    uint32_t icon_vaddr;
 } MoteModuleHeader;
 
-/* A device game module emits this once (after MOTE_GAME_MODULE). The linker
+/* A game supplies a 60x60 RGB565 launcher icon by `#include "icon.h"` (baked by
+ * `mote bake` from icon.png), which defines `mote_game_icon_data[3600]`.
+ *
+ * A device game module emits this once (after MOTE_GAME_MODULE). The linker
  * symbols come from sdk/game.ld; it is device-only, so guard with the build
- * define MOTE_MODULE_BUILD (the host .so build omits it). */
+ * define MOTE_MODULE_BUILD (the host .so build omits it).
+ *
+ * `mote_game_icon_data` is a WEAK reference: if the game `#include "icon.h"`,
+ * the symbol is defined and icon_vaddr is its address; otherwise it resolves to
+ * 0 and the launcher draws the name-accent fallback. No macro change per game. */
 #define MOTE_MODULE_HEADER()                                                       \
     extern char __mote_data_load[], __mote_data_start[], __mote_data_end[],      \
                 __mote_bss_start[], __mote_bss_end[];                           \
+    extern const uint16_t mote_game_icon_data[] __attribute__((weak));         \
     __attribute__((section(".mote_header"), used))                            \
     const MoteModuleHeader mote_module_header = {                                         \
         .magic = MOTE_MODULE_MAGIC,                                                \
@@ -54,6 +67,7 @@ typedef struct {
         .data_end   = (uint32_t)(uintptr_t)__mote_data_end,                   \
         .bss_start  = (uint32_t)(uintptr_t)__mote_bss_start,                  \
         .bss_end    = (uint32_t)(uintptr_t)__mote_bss_end,                    \
+        .icon_vaddr = (uint32_t)(uintptr_t)mote_game_icon_data,               \
     }
 
 #endif /* MOTE_MODULE_H */

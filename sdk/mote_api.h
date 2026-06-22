@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 19u  /* v19: audio_render_sfx — engine synthesises MoteSfx recipes (mote_sfx_bake), no WAV needed */
+#define MOTE_ABI_VERSION 20u  /* v20: per-game icons travel in the module (MoteModuleHeader.icon_vaddr) — no firmware icon table */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 

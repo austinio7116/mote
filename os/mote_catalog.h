@@ -14,10 +14,17 @@
 #define MOTE_CATALOG_MAX 24
 #define MOTE_NAME_MAX    20
 
+/* Launcher icon dimensions (RGB565). Games bake `mote_game_icon_data[]` to match. */
+#define MOTE_ICON_W 60
+#define MOTE_ICON_H 60
+
 typedef struct {
     char     name[MOTE_NAME_MAX];
     uint32_t offset;   /* device: physical flash offset of the module image */
     uint32_t size;     /* device: image size in bytes */
+    const uint16_t *icon;  /* 60x60 RGB565 launcher icon, or NULL (name-accent fallback).
+                            * Device: a flash XIP pointer into the stored image; host: into
+                            * the loaded .so. The launcher only reads it. */
 } MoteGameEntry;
 
 typedef struct {

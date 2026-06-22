@@ -58,10 +58,24 @@ static int run_game(const char *path) {
 static char **g_paths;
 static int    g_npaths;
 
+/* Icon cache: the device reads each game's icon from its stored flash image; the
+ * host analogue is to dlopen the .so once and dlsym the game's `mote_game_icon_data`
+ * (a 60x60 RGB565 array, exported when the game `#include`s its baked icon.h). */
+static const uint16_t *g_icon[MOTE_CATALOG_MAX];
+static char            g_icon_done[MOTE_CATALOG_MAX];
+
 static void host_fill(MoteCatalog *c) {
     c->count = 0;
-    for (int i = 0; i < g_npaths && i < MOTE_CATALOG_MAX; i++)
-        nice_name(g_paths[i], c->e[c->count++].name, MOTE_NAME_MAX);
+    for (int i = 0; i < g_npaths && i < MOTE_CATALOG_MAX; i++) {
+        nice_name(g_paths[i], c->e[c->count].name, MOTE_NAME_MAX);
+        if (!g_icon_done[i]) {
+            g_icon_done[i] = 1;
+            void *mod = dlopen(g_paths[i], RTLD_NOW | RTLD_LOCAL);   /* kept open; refcounted */
+            if (mod) g_icon[i] = (const uint16_t *)dlsym(mod, "mote_game_icon_data");
+        }
+        c->e[c->count].icon = g_icon[i];
+        c->count++;
+    }
 }
 
 int main(int argc, char **argv) {

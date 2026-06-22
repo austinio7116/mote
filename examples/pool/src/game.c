@@ -27,6 +27,7 @@
 #include "cue_table.h"      /* -> cue_physics.h -> mote_vec.h (vendored) */
 #include <math.h>
 
+#include "icon.h"
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"

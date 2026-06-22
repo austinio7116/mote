@@ -149,15 +149,39 @@ def bake_image(name, path, out):
     open(out, "w").write('\n'.join(L))
     print("[img2tex] %s: %dx%d -> %s" % (name, w, h, out))
 
+def bake_icon(path, out):
+    """icon.png/.bmp -> src/icon.h : a 60x60 RGB565 `mote_game_icon_data[3600]`,
+    the launcher icon that travels in the game module (no firmware icon table)."""
+    import subprocess
+    conv, _ = _magick()
+    raw = subprocess.check_output(conv + [path, "-resize", "60x60!", "-depth", "8", "RGBA:-"])
+    px = []
+    for i in range(60 * 60):
+        r, g, b = raw[i*4], raw[i*4+1], raw[i*4+2]
+        px.append(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3))
+    L = ['/* GENERATED launcher icon — 60x60 RGB565. Regenerate with `mote bake` (icon.png). */',
+         '#ifndef MOTE_GAME_ICON_H', '#define MOTE_GAME_ICON_H', '#include <stdint.h>', '',
+         'const uint16_t mote_game_icon_data[3600] = {']
+    for i in range(0, len(px), 16):
+        L.append('  ' + ','.join('0x%04x' % v for v in px[i:i+16]) + ',')
+    L += ['};', '', '#endif']
+    open(out, "w").write('\n'.join(L) + '\n')
+    print("[icon] %s -> %s (60x60)" % (os.path.basename(path), out))
+
 def cmd_bake(args):
     """Bake assets/* into src/<name>.h headers to #include.
 
     OBJ -> one <name>_mesh. STL -> welded/decimated/chunked <name>_chunks[] +
-    <name>_NCHUNKS. PNG/BMP -> a <name>_img MoteImage (RGB565 + magenta key)."""
+    <name>_NCHUNKS. PNG/BMP -> a <name>_img MoteImage (RGB565 + magenta key).
+    A game-root icon.png/.bmp -> src/icon.h (the launcher icon)."""
     import tempfile
     d = args.dir
     assets = os.path.join(d, "assets")
     files = sorted(os.listdir(assets)) if os.path.isdir(assets) else []
+    for ic in ("icon.png", "icon.bmp"):                      # launcher icon (game root)
+        p = os.path.join(d, ic)
+        if os.path.isfile(p):
+            bake_icon(p, os.path.join(d, "src", "icon.h")); break
     objs = [f for f in files if f.endswith(".obj")]
     stls = [f for f in files if f.lower().endswith(".stl")]
     imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))]

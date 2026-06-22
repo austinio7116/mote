@@ -350,6 +350,13 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
 | `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`) | recorded/sampled audio; play with `audio_play` |
 | `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
+| `icon.png` / `icon.bmp` (game root) | **icon baker** | `mote_game_icon_data[3600]` (60×60 RGB565) in `src/icon.h` | `#include "icon.h"` once; the OS launcher shows it. The icon travels inside the game module — no firmware change to add a game |
+
+**Launcher icons live with the game.** A game's 60×60 icon is baked into
+`src/icon.h` and compiled into the module; the launcher reads it straight from the
+stored image (the module header records where), so installing a game over USB is all
+it takes for its icon to appear. Without an `icon.png` the launcher draws a
+name-coloured tile with the initial.
 
 **Image transparency:** any source pixel with alpha < 128 becomes the magenta
 colour-key `0xF81F` (`MOTE_KEY_MAGENTA`); the engine's 2D rasteriser and `blit`

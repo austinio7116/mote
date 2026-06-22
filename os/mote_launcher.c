@@ -6,7 +6,6 @@
 #include "mote_font.h"
 #include "mote_config.h"
 #include "mote_input.h"
-#include "mote_icons.h"
 #include "mote_ui.h"
 #include <string.h>
 
@@ -73,7 +72,7 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     int ix = 5, iy = 24;
     fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));      /* shadow */
     fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));  /* frame */
-    const uint16_t *ic = mote_icon_for(nm);
+    const uint16_t *ic = cat->e[sel].icon;
     if (ic) blit_icon(ic, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
