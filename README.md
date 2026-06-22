@@ -323,7 +323,7 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 |---|---|---|---|
 | `*.png`, `*.bmp` | **img2tex** (needs ImageMagick) | `<name>_px[]` (RGB565), `<name>_img` (a `MoteImage`), `<name>_W` / `<name>_H` | `#include "<name>.h"` then a sprite via `mote->scene2d_add` or an immediate blit via `mote->blit` |
 | `*.obj` | **obj2mesh** | one `<name>_mesh` (a `Mesh`) | small models that fit ≤255 verts |
-| `*.stl` (binary or ASCII) | **stl2mesh** | `<name>_chunks[]` (array of `Mesh`) + `<name>_NCHUNKS` | big models, auto-decimated + split into ≤255-vert chunks; draw every chunk at one transform |
+| `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
 
 **Image transparency:** any source pixel with alpha < 128 becomes the magenta
 colour-key `0xF81F` (`MOTE_KEY_MAGENTA`); the engine's 2D rasteriser and `blit`
@@ -335,21 +335,26 @@ pick a frame with the sprite's source rect `fx,fy,fw,fh`. e.g. a 48×24 PNG hold
 two 24×24 frames → frame *i* is `fx = i*24, fy = 0, fw = 24, fh = 24`. See
 `examples/imgdemo` (a baked logo + an animated 2-frame sprite).
 
-**Big meshes (STL):** `stl2mesh` welds duplicate vertices, **decimates by vertex
-clustering** (binary-searched down to a triangle budget, default ~1500), and
-**chunks** the result into ≤255-vertex sub-meshes (the uint8 index cap, §6). Render
-it by drawing every chunk at the same transform:
+**Big meshes (STL):** `stl2mesh` (and the Studio **Mesh** tab) welds duplicate
+vertices, **decimates by vertex clustering** (binary-searched down to a triangle
+budget, default ~1500), and **chunks** the result into ≤255-vertex sub-meshes (the
+uint8 index cap, §6). You never touch the chunks: the baker bundles them into one
+`MoteModel <name>` and a `<name>_TRIS` count, and you draw the whole thing in one
+call:
 
 ```c
-#include "fighter.h"   // baked from assets/fighter.stl: fighter_chunks[], fighter_NCHUNKS
-for (int i = 0; i < fighter_NCHUNKS; i++) {
-    MoteObject o = { .pos = v3_sub(world_pos, cam_pos),
-                     .basis = s_rot, .mesh = &fighter_chunks[i] };
-    mote->scene_add_object(&o);
-}
+#include "fighter.h"   // baked from assets/fighter.stl: a MoteModel `fighter` + fighter_TRIS
+
+// in your config: size the 3D pool to the model so nothing is clipped
+.config = { .max_tris = fighter_TRIS, .depth = 1 },
+
+// in update(): one call draws every chunk — no loop, no chunk array, no count
+mote_model_draw_ex(mote, &fighter, world_pos, s_rot, 1.0f);   // or mote_model_draw(mote, &fighter, pos)
 ```
 
-See `examples/modelview` (a 6,742-tri fighter → 1,494 tris in 4 chunks).
+`mote_model_draw` / `mote_model_draw_ex` (in `mote_build.h`) loop the chunks for you
+and pair with `scene_camera()` so positions stay in world space. See
+`examples/modelview` (a 6,742-tri fighter → 1,494 tris in 4 chunks, drawn in one line).
 
 ### When does baking happen? Do I *have* to bake?
 

@@ -257,6 +257,22 @@ static inline int mote_draw_ex(const MoteApi *m, const Mesh *mesh, Vec3 pos, Mat
     return scale == 1.0f ? m->scene_add_object(&o) : m->scene_add_object_scaled(&o, scale);
 }
 
+/* ---- draw a whole baked MODEL (all its chunks) in one call. The baker splits an STL
+ * into <=255-vert chunks; these loop over them so the game never sees the chunk array
+ * or the count. Pair with `.max_tris = <name>_TRIS` so the draw-list pool fits exactly. */
+static inline void mote_model_draw(const MoteApi *m, const MoteModel *model, Vec3 pos) {
+    for (uint16_t i = 0; i < model->count; i++) {
+        MoteObject o = { .pos = pos, .basis = m3_identity(), .mesh = &model->chunks[i] };
+        m->scene_add_object(&o);
+    }
+}
+static inline void mote_model_draw_ex(const MoteApi *m, const MoteModel *model, Vec3 pos, Mat3 basis, float scale) {
+    for (uint16_t i = 0; i < model->count; i++) {
+        MoteObject o = { .pos = pos, .basis = basis, .mesh = &model->chunks[i] };
+        if (scale == 1.0f) m->scene_add_object(&o); else m->scene_add_object_scaled(&o, scale);
+    }
+}
+
 /* ---- one shared RNG, so games stop hand-rolling xorshift. Seed once (e.g. from
  * mote->micros()); mote_frand() is [0,1), mote_randf(lo,hi) a range, mote_rand() raw bits. */
 static uint32_t mote__rng = 0x2545F491u;

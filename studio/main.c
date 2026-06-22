@@ -960,7 +960,9 @@ static void mesh_emit(FILE*h,const char*name){
         total_v+=nv; total_f+=cf; chunk++;
     }
     g_mesh_outv=total_v; g_mesh_outf=total_f; g_mesh_nchunk=chunk;
-    if(h){ fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n\n#endif\n",name,chunk,chunklist,name,chunk); }
+    if(h){ fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n#define %s_TRIS %d\n"
+                     "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* draw with mote_model_draw(mote, &%s, pos) */\n\n#endif\n",
+                   name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name); }
     free(local); free(stamp); free(cv); free(cface);
 }
 static void mesh_reprocess(void){

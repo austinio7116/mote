@@ -1,8 +1,10 @@
 /*
  * modelview — loads a real STL model (a fighter jet) converted by tools/stl2mesh
  * and shown through the Mote 3D pipeline. The STL's 6742 triangles were welded +
- * decimated to ~1500 and split into <=255-vertex chunks (fighter.h); here we just
- * draw every chunk at one spinning transform.
+ * decimated to ~1500 and split into <=255-vertex chunks. The baker bundles those
+ * chunks into one `MoteModel fighter` (fighter.h), so we draw the whole thing with
+ * a single mote_model_draw_ex() — no chunk loop, no NCHUNKS, and the pool size is
+ * just `fighter_TRIS`. Chunk management is entirely the baker's job.
  *
  * Controls: D-pad orbit the model · A toggle auto-spin · LB/RB zoom
  */
@@ -58,9 +60,7 @@ static void g_update(float dt){
     Mat3 cam_basis = mote_camera_look(cam_pos, v3(0, 0, 0));
     mote->scene_camera(&cam_basis, cam_pos, 50.0f);
 
-    for(int i = 0; i < fighter_NCHUNKS; i++){
-        mote_draw_ex(mote, &fighter_chunks[i], v3(0, 0, 0), model_rot, 1.0f);
-    }
+    mote_model_draw_ex(mote, &fighter, v3(0, 0, 0), model_rot, 1.0f);
 }
 
 static void g_overlay(uint16_t *fb){
@@ -71,6 +71,6 @@ static void g_overlay(uint16_t *fb){
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 1600, .depth = 1 },
+    .config = { .max_tris = fighter_TRIS, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }

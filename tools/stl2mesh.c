@@ -182,7 +182,9 @@ int main(int argc,char**argv){
         total_v+=nv; total_f+=cf; chunk++;
     }
     fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n",name,chunk,chunklist);
-    fprintf(h,"#define %s_NCHUNKS %d\n\n#endif\n",name,chunk);
+    fprintf(h,"#define %s_NCHUNKS %d\n#define %s_TRIS %d\n",name,chunk,name,total_f);
+    fprintf(h,"static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* draw with mote_model_draw(mote, &%s, pos) */\n\n#endif\n",
+            name,name,name,name,name);
     fclose(h);
     printf("[stl2mesh] %s: %d verts %d tris in %d chunks scale=%.3f r=%.3f -> %s\n",
            name,total_v,total_f,chunk,maxc,bound_r,out);

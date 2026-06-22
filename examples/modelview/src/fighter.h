@@ -1516,5 +1516,7 @@ static const Mesh fighter_chunks[4]={
   {fighter_v3,fighter_f3,134,251,4.194940f,5.537364f,0},
 };
 #define fighter_NCHUNKS 4
+#define fighter_TRIS 1494
+static const MoteModel fighter = { fighter_chunks, fighter_NCHUNKS, fighter_TRIS };  /* draw with mote_model_draw(mote, &fighter, pos) */
 
 #endif

@@ -33,4 +33,15 @@ typedef struct Mesh {
     const struct Mesh *lod_lo;  /* optional lower-detail swap, NULL if none */
 } Mesh;
 
+/* A bakeable MODEL is just its chunk list. A single STL is split into <=255-vert
+ * Mesh chunks (the uint8 face-index cap); MoteModel groups them so a game draws the
+ * whole thing in one call (mote_model_draw) and never touches the chunk array or the
+ * count. The Studio/CLI baker emits a `static const MoteModel <name>` next to the
+ * chunks, plus `<name>_TRIS` (total faces) to use as the .max_tris pool size. */
+typedef struct MoteModel {
+    const Mesh *chunks;
+    uint16_t    count;
+    uint16_t    tris;       /* total faces across all chunks (== <name>_TRIS) */
+} MoteModel;
+
 #endif /* MOTE_MESH_H */
