@@ -653,9 +653,10 @@ static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*
 
 static SDL_Rect g_insp_edit, g_insp_bake, g_insp_open;
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
-    plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR); text(R,"INSPECTOR",INSP_X+8,TOPH+6,1,C_DIM,C_HDR);
+    plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR);
+    if(g_tab==TAB_TILES){ text(R,"TILE SHEET",INSP_X+8,TOPH+6,1,C_TITLE,C_HDR); draw_tiles_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
+    text(R,"INSPECTOR",INSP_X+8,TOPH+6,1,C_DIM,C_HDR);
     int x=INSP_X+14,y=TOPH+34; g_insp_edit=(SDL_Rect){0,0,0,0}; g_insp_bake=(SDL_Rect){0,0,0,0}; g_insp_open=(SDL_Rect){0,0,0,0};
-    if(g_tab==TAB_TILES){ text(R,"TILE SHEET",INSP_X+8,TOPH+6,1,C_DIM,C_HDR); draw_tiles_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
     if(g_tsel<0||g_sel<0){ text(R,g_sel<0?"no project open":"select a file",x,y,1,C_DIM,C_DOCK); return; }
     TRow*r=&g_tree[g_tsel]; text(R,r->name,x,y,2,C_TXT,C_DOCK); y+=24;
     const char*tn=r->kind==1?"project manifest":r->kind==2?"C source":r->kind==3?"image asset":r->kind==4?"3D mesh":r->kind==6?"audio asset":r->kind==0?"folder":"file";
@@ -1099,7 +1100,7 @@ static int g_lv_cols=48,g_lv_rows=32,g_lv_panx,g_lv_pany,g_lv_zoom=2,g_lv_fit=1,
 static uint8_t *g_lv_terrain;
 static char g_tl_name[64]="level"; static int g_tl_namefocus;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall;
-static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep;
+static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow;
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[4],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
 static SDL_Rect g_lv_szr[4],g_lv_fitb,g_lv_zm,g_lv_zp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
 
