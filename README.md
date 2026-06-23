@@ -21,6 +21,9 @@ ABI, all under ~300 lines each.
 > **New here? Read in this order:** §1 Quick start → §2 Mote Studio (the IDE) →
 > §3 Anatomy of a game → §5 The engine API. The rest is reference.
 
+📖 **API / ABI reference:** [austinio7116.github.io/mote](https://austinio7116.github.io/mote/) —
+the full engine API, data types, math + SDK helpers, enums, and the ABI version history.
+
 ---
 
 ## Table of contents
@@ -1393,6 +1396,7 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 
 ### Key reference files to read when in doubt
 
+- **[austinio7116.github.io/mote](https://austinio7116.github.io/mote/)** — the rendered HTML API/ABI reference (source: [`docs/index.html`](docs/index.html)).
 - **`sdk/mote_api.h`** — the canonical ABI (every `mote->` call, with comments).
 - **`sdk/mote_build.h`** — every helper, fully inline (read the source, it's short).
 - **`engine/*/mote_*.h`** — the real type definitions (`MoteBody`, `MoteSprite`,
