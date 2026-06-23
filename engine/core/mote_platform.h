@@ -45,6 +45,11 @@ void mote_plat_buttons(MoteButtons *out);
 /* Monotonic microsecond clock. */
 uint64_t mote_plat_micros(void);
 
+/* Block for ~us microseconds (frame-rate pacing). Coarse is fine; the OS loop
+ * only calls it to burn the slack between a finished frame and the next frame
+ * deadline when an fps cap is set. A no-op/spin is acceptable on device. */
+void mote_plat_sleep_us(uint32_t us);
+
 /* True once the user has asked to quit (host window close / device power).
  * Always false on device in normal operation; the host sets it on SDL_QUIT. */
 bool mote_plat_should_quit(void);

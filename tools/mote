@@ -176,43 +176,50 @@ def cmd_bake(args):
     A game-root icon.png/.bmp -> src/icon.h (the launcher icon)."""
     import tempfile
     d = args.dir
+    src = os.path.join(d, "src")
     assets = os.path.join(d, "assets")
-    files = sorted(os.listdir(assets)) if os.path.isdir(assets) else []
+    # Recurse into asset subfolders; header names stay flat (src/<base>.h), so
+    # keep asset filenames unique across subfolders.
+    files = []
+    for root, dirs, fs in os.walk(assets):
+        dirs[:] = [x for x in dirs if x != "build" and not x.startswith(".")]
+        for f in sorted(fs):
+            if not f.startswith("."):
+                files.append(os.path.join(root, f))
     for ic in ("icon.png", "icon.bmp"):                      # launcher icon (game root)
         p = os.path.join(d, ic)
         if os.path.isfile(p):
-            bake_icon(p, os.path.join(d, "src", "icon.h")); break
+            bake_icon(p, os.path.join(src, "icon.h")); break
     objs = [f for f in files if f.endswith(".obj")]
     stls = [f for f in files if f.lower().endswith(".stl")]
     imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))]
     if not objs and not stls and not imgs:
         print("mote: no .obj/.stl/.png/.bmp assets in %s/assets" % d); return
 
-    def tool_for(src, exe):
+    def tool_for(s, exe):
         t = os.path.join(tempfile.gettempdir(), exe)
         if not os.path.isfile(t):
-            run(["gcc", "-O2", os.path.join(ROOT, "tools", src), "-lm", "-o", t])
+            run(["gcc", "-O2", os.path.join(ROOT, "tools", s), "-lm", "-o", t])
         return t
 
-    if objs:
-        for o in objs:
-            name = os.path.splitext(o)[0]
-            rig = os.path.join(assets, name + ".rig")
-            if os.path.isfile(rig):          # multi-object OBJ + .rig sidecar -> a MoteRig
-                rt = tool_for("obj2rig.c", "mote_obj2rig")
-                run([rt, name, os.path.join(assets, o), os.path.join(d, "src", name + ".rig.h"), rig])
-            else:                            # plain OBJ -> a single Mesh
-                ot = tool_for("obj2mesh.c", "mote_obj2mesh")
-                run([ot, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
+    for o in objs:
+        name = os.path.splitext(os.path.basename(o))[0]
+        rig = os.path.join(os.path.dirname(o), name + ".rig")
+        if os.path.isfile(rig):              # multi-object OBJ + .rig sidecar -> a MoteRig
+            rt = tool_for("obj2rig.c", "mote_obj2rig")
+            run([rt, name, o, os.path.join(src, name + ".rig.h"), rig])
+        else:                                # plain OBJ -> a single Mesh
+            ot = tool_for("obj2mesh.c", "mote_obj2mesh")
+            run([ot, name, o, os.path.join(src, name + ".h")])
     if stls:
         st = tool_for("stl2mesh.c", "mote_stl2mesh")
         budget = str(getattr(args, "budget", None) or 1500)
         for s in stls:
-            name = os.path.splitext(s)[0]
-            run([st, name, os.path.join(assets, s), os.path.join(d, "src", name + ".h"), budget])
+            name = os.path.splitext(os.path.basename(s))[0]
+            run([st, name, s, os.path.join(src, name + ".h"), budget])
     for im in imgs:
-        name = os.path.splitext(im)[0]
-        bake_image(name, os.path.join(assets, im), os.path.join(d, "src", name + ".h"))
+        name = os.path.splitext(os.path.basename(im))[0]
+        bake_image(name, im, os.path.join(src, name + ".h"))
 
 
 def cmd_studio(args):

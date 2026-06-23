@@ -75,6 +75,8 @@ uint64_t mote_plat_micros(void) {
     return (uint64_t)t.tv_sec * 1000000ull + (uint64_t)t.tv_nsec / 1000;
 }
 
+void mote_plat_sleep_us(uint32_t us) { if (us >= 1000) SDL_Delay(us / 1000); }
+
 bool mote_plat_should_quit(void)     { return s_quit != 0; }
 int  mote_plat_pending_launch(void)  { return -1; }
 void mote_plat_log(const char *s)    { printf("[game] %s\n", s); fflush(stdout); }

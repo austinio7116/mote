@@ -144,6 +144,8 @@ uint64_t mote_plat_micros(void) {
     return to_us_since_boot(get_absolute_time());
 }
 
+void mote_plat_sleep_us(uint32_t us) { if (us) busy_wait_us(us); }
+
 bool mote_plat_should_quit(void) { return false; }
 
 int mote_plat_pending_launch(void) { return mote_usb_take_launch(); }

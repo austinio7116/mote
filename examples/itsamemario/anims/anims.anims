@@ -1,0 +1,42 @@
+sheet assets/spelunk.png
+tile 40 40
+clips 4
+clip walk 1 8 0 0 9
+f 0 0 -
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -
+f 5 0 -
+f 6 0 -
+f 7 0 -
+f 8 0 -
+clip teeter 1 8 0 0 7
+f 36 0 -
+f 37 0 -
+f 38 0 -
+f 39 0 -
+f 40 0 -
+f 41 0 -
+f 42 0 -
+clip lookup 1 8 0 0 7
+f 96 0 -
+f 97 0 -
+f 98 0 -
+f 99 0 -
+f 100 0 -
+f 101 0 -
+f 102 0 -
+clip jump 1 8 0 0 12
+f 108 0 -
+f 109 0 -
+f 110 0 -
+f 111 0 -
+f 112 0 -
+f 113 0 -
+f 114 0 -
+f 115 0 -
+f 116 0 -
+f 117 0 -
+f 118 0 -
+f 119 0 -

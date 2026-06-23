@@ -219,18 +219,31 @@ static int bake_wav(const char *path, const char *header, const char *name, mote
     fprintf(o,"\n};\nstatic const MoteSound %s_snd = { %s_pcm, %d };\n\n#endif\n",name,name,N>0?N:1);
     fclose(o); free(b); { char m[180]; snprintf(m,sizeof m,"baked %s: %d samples (%.2fs) -> %s",name,N,N/22050.0f,header); log(m); } return 0; }
 
+/* Bake every asset under `adir` (recursing into subfolders) into src/<base>.h.
+ * Header names are flat (basename only) — matching how games #include "name.h" —
+ * so keep asset filenames unique across subfolders. */
+static void bake_dir(const char *adir, const char *srcdir,
+                     const char *objtool, const char *stltool, const char *rigtool,
+                     mote_log_fn log, int *did){
+    DIR *d=opendir(adir); if(!d)return; struct dirent *e;
+    while((e=readdir(d))){ const char *n=e->d_name; if(n[0]=='.'||!strcmp(n,"build"))continue;
+        char path[600]; snprintf(path,sizeof path,"%.500s/%.80s",adir,n);
+        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,log,did); continue; }
+        int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
+        char header[600]; snprintf(header,sizeof header,"%.400s/%.80s.h",srcdir,base);
+        if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){ if(bake_image(path,header,base,log)==0)(*did)++; }
+        else if(!strcasecmp(n+l-4,".obj")){ char rigp[600]; snprintf(rigp,sizeof rigp,"%.500s/%.60s.rig",adir,base); struct stat rs;
+            if(stat(rigp,&rs)==0){ ensure_tool("obj2rig.c",rigtool,log); char rh[700]; snprintf(rh,sizeof rh,"%.400s/%.60s.rig.h",srcdir,base);
+                char c[1500]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)(*did)++; }   /* OBJ + .rig -> MoteRig */
+            else { ensure_tool("obj2mesh.c",objtool,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)(*did)++; } }
+        else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)(*did)++; }
+        else if(!strcasecmp(n+l-4,".wav")){ if(bake_wav(path,header,base,log)==0)(*did)++; } }
+    closedir(d); }
+
 int mc_bake(const char *dir, mote_log_fn log){
-    char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad); if(!d){ log("no assets/ directory"); return -1; }
-    struct dirent *e; int did=0;
+    char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad); if(!d){ log("no assets/ directory"); return -1; } closedir(d);
+    char sd[360]; snprintf(sd,sizeof sd,"%.320s/src",dir);
     char objtool[64],stltool[64],rigtool[64];
     snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT);
-    while((e=readdir(d))){ const char *n=e->d_name; int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
-        char path[600],header[600]; snprintf(path,sizeof path,"%.320s/assets/%s",dir,n); snprintf(header,sizeof header,"%.320s/src/%s.h",dir,base);
-        if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){ if(bake_image(path,header,base,log)==0)did++; }
-        else if(!strcasecmp(n+l-4,".obj")){ char rigp[600]; snprintf(rigp,sizeof rigp,"%.320s/assets/%.60s.rig",dir,base); struct stat rs;
-            if(stat(rigp,&rs)==0){ ensure_tool("obj2rig.c",rigtool,log); char rh[640]; snprintf(rh,sizeof rh,"%.320s/src/%.60s.rig.h",dir,base);
-                char c[1400]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)did++; }   /* OBJ + .rig -> MoteRig */
-            else { ensure_tool("obj2mesh.c",objtool,log); char c[1000]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)did++; } }
-        else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); char c[1000]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)did++; }
-        else if(!strcasecmp(n+l-4,".wav")){ if(bake_wav(path,header,base,log)==0)did++; } }
-    closedir(d); if(!did)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }
+    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,log,&did);
+    if(!did)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }

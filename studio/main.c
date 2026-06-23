@@ -383,18 +383,27 @@ static int kind_of(const char*n){ size_t l=strlen(n);
     return 5; }
 static void tadd(const char*name,const char*path,int depth,int kind){ if(g_ntree>=300)return;
     TRow*r=&g_tree[g_ntree++]; snprintf(r->name,80,"%s",name); snprintf(r->path,320,"%s",path); r->depth=depth; r->kind=kind; }
-static void scan_into(const char*dir,int depth){ DIR*d=opendir(dir); if(!d)return; struct dirent*e; char nm[128][80]; int nn=0;
-    while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.')continue; snprintf(nm[nn++],80,"%.78s",e->d_name); } closedir(d);
-    for(int i=0;i<nn;i++)for(int j=i+1;j<nn;j++)if(strcmp(nm[j],nm[i])<0){ char t[80]; memcpy(t,nm[i],80); memcpy(nm[i],nm[j],80); memcpy(nm[j],t,80); }
-    for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]); tadd(nm[i],p,depth,kind_of(nm[i])); } }
+/* Recursive: lists files AND subfolders (subfolders render nested, then their
+ * contents). Directories sort first, then alphabetical; skips dotfiles + build/. */
+static void scan_into(const char*dir,int depth){ if(depth>6)return; DIR*d=opendir(dir); if(!d)return; struct dirent*e;
+    char nm[128][80]; int isd[128]; int nn=0;
+    while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.'||!strcmp(e->d_name,"build"))continue;
+        char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,e->d_name);
+        struct stat st; isd[nn]=(stat(p,&st)==0&&S_ISDIR(st.st_mode))?1:0;
+        snprintf(nm[nn],80,"%.78s",e->d_name); nn++; } closedir(d);
+    for(int i=0;i<nn;i++)for(int j=i+1;j<nn;j++)
+        if((isd[j]&&!isd[i])||(isd[j]==isd[i]&&strcmp(nm[j],nm[i])<0)){
+            char t[80]; memcpy(t,nm[i],80); memcpy(nm[i],nm[j],80); memcpy(nm[j],t,80);
+            int ti=isd[i]; isd[i]=isd[j]; isd[j]=ti; }
+    for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]);
+        if(isd[i]){ tadd(nm[i],p,depth,0); scan_into(p,depth+1); }
+        else tadd(nm[i],p,depth,kind_of(nm[i])); } }
 static time_t g_treewatch;
 static void build_tree(const char*dir){
     char keep[320]=""; if(g_tsel>=0&&g_tsel<g_ntree) snprintf(keep,sizeof keep,"%s",g_tree[g_tsel].path);  /* preserve selection */
-    g_ntree=0; g_tsel=-1; char p[320];
+    g_ntree=0; g_tsel=-1;
     tadd(g_sel>=0?g_games[g_sel].name:"project",dir,0,0);
-    snprintf(p,sizeof p,"%.250s/game.toml",dir); tadd("game.toml",p,1,1);
-    snprintf(p,sizeof p,"%.250s/src",dir); tadd("src",p,1,0); scan_into(p,2);
-    snprintf(p,sizeof p,"%.250s/assets",dir); tadd("assets",p,1,0); scan_into(p,2);
+    scan_into(dir,1);   /* recurse the whole project: game.toml, src/, assets/ + any subfolders */
     if(keep[0]) for(int i=0;i<g_ntree;i++) if(!strcmp(g_tree[i].path,keep)){ g_tsel=i; break; } }
 /* dir mtimes change when files are added/removed -> drives auto-refresh */
 static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320];
@@ -461,11 +470,19 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_PUSHLAUNCH: njob(4,dir); break;
     case A_BAKEALL: njob(2,dir); break;
     case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_CONSOLE; break;
-    case A_VSCODE:
-        if(g_tsel>=0 && g_tree[g_tsel].kind!=0)   /* a file selected -> open it, reuse the window */
-            snprintf(c,sizeof c,"code -r %.250s; code -r -g %.300s >/dev/null 2>&1 &",dir,g_tree[g_tsel].path);
-        else snprintf(c,sizeof c,"code -r %.250s >/dev/null 2>&1 &",dir);
-        run_job(c,"VS Code"); break;
+    case A_VSCODE: {
+        int havef = (g_tsel>=0 && g_tree[g_tsel].kind!=0);   /* a file selected -> open it too */
+        const char *fp = havef ? g_tree[g_tsel].path : "";
+#ifdef _WIN32
+        /* `code` is code.cmd on PATH; cmd.exe runs it and it returns promptly.
+         * Unix redirection (>/dev/null 2>&1 &) is invalid here, so omit it. */
+        if(havef) snprintf(c,sizeof c,"code -r \"%.250s\" -g \"%.300s\"",dir,fp);
+        else      snprintf(c,sizeof c,"code -r \"%.250s\"",dir);
+#else
+        if(havef) snprintf(c,sizeof c,"code -r \"%.250s\" -g \"%.300s\" >/dev/null 2>&1 &",dir,fp);
+        else      snprintf(c,sizeof c,"code -r \"%.250s\" >/dev/null 2>&1 &",dir);
+#endif
+        run_job(c,"VS Code"); break; }
     case A_ALIGN: g_align=1; break;
     case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio %s - native C/SDL2 IDE for Thumby Color",MOTE_STUDIO_VERSION); break;
     } }

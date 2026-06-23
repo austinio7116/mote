@@ -64,6 +64,8 @@ static int os_menu(const char *title, const char *const *items, int n) {
 static const MoteInput *os_input(void)  { return s_cur_input; }
 static uint64_t       os_micros(void) { return mote_plat_micros(); }
 static void           os_exit(void)   { s_exit_req = true; }
+static int            s_fps_limit = 0;   /* 0 = uncapped (default) */
+static void           os_set_fps_limit(int fps) { s_fps_limit = fps > 0 ? fps : 0; }
 static void          *os_alloc(uint32_t n) { return mote_arena_alloc(&s_arena, n); }
 static uint32_t       os_arena_free(void)  { return (uint32_t)mote_arena_free(&s_arena); }
 static void           os_audio_play(const MoteSound *s, float g) { if (s) mote_audio_play(s->pcm, s->count, g); }
@@ -124,6 +126,7 @@ void mote_api_fill(MoteApi *a) {
     a->scene2d_set_autotile_layers = mote_scene2d_set_autotile_layers;
     /* ABI v19: synthesise SFX recipes at load. */
     a->audio_render_sfx      = mote_audio_render_sfx;
+    a->set_fps_limit         = os_set_fps_limit;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -205,6 +208,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     { MoteButtons raw0; mote_plat_buttons(&raw0); mote_input_arm(&in, &raw0); }
     uint64_t last = mote_plat_micros();
     uint32_t menu_hold_ms = 0;
+    s_fps_limit = 0;          /* each game starts uncapped; it opts in via set_fps_limit */
 
     while (!mote_plat_should_quit() && !s_exit_req) {
         uint64_t now = mote_plat_micros();
@@ -274,6 +278,15 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_plat_present_async(fb);           /* kick flush; overlaps next update */
 
         mote_perf_record(update_us, c0_us, c1_us, flush_us, frame_us);
+
+        /* Optional frame-rate cap (set_fps_limit). Pace start-to-start off `last`
+         * so the sleep folds into next frame's dt. The async flush completes
+         * during the sleep, so capping costs no extra latency. */
+        if (s_fps_limit > 0) {
+            uint64_t period = 1000000ull / (uint32_t)s_fps_limit;
+            uint64_t want = last + period, t = mote_plat_micros();
+            if (want > t) mote_plat_sleep_us((uint32_t)(want - t));
+        }
     }
     mote_audio_off();         /* don't let notes ring into the launcher */
     mote_plat_wait_flush();   /* let the launcher safely reclaim the shared fb */

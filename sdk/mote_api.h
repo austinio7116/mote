@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 20u  /* v20: per-game icons travel in the module (MoteModuleHeader.icon_vaddr) — no firmware icon table */
+#define MOTE_ABI_VERSION 21u  /* v21: set_fps_limit — games can cap the frame rate (0 = uncapped); host emulator honours it */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
@@ -206,6 +206,14 @@ typedef struct MoteApi {
      * mote_sfx_bake() helper does — so a game can ship tiny recipes instead of WAVs
      * and have the engine generate the audio at load. */
     int (*audio_render_sfx)(const MoteSfx *recipe, int16_t *out, int max);
+
+    /* --- ABI v21: cap the frame rate. fps <= 0 runs uncapped (the default —
+     * the device free-runs, the host emulator runs as fast as the machine
+     * allows). A positive value paces the main loop to that many frames per
+     * second on BOTH the device and the host emulator, so a game can lock 30/60
+     * fps for steady timing. Call it once from update() on the first frame, or
+     * whenever you want to change the cap. */
+    void (*set_fps_limit)(int fps);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

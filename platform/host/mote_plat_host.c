@@ -135,6 +135,11 @@ uint64_t mote_plat_micros(void) {
     return (uint64_t)((SDL_GetPerformanceCounter() * 1000000ull) / s_freq);
 }
 
+void mote_plat_sleep_us(uint32_t us) {
+    if (s_dt_us) return;              /* fixed-timestep capture: never wall-clock sleep */
+    if (us >= 1000) SDL_Delay(us / 1000);
+}
+
 bool mote_plat_should_quit(void) { return s_quit; }
 
 int mote_plat_pending_launch(void) { return -1; }
