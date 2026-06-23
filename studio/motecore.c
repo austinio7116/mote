@@ -199,6 +199,27 @@ static int bake_image(const char *path, const char *header, const char *name, mo
     fprintf(f,"\n};\nstatic const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };\n#define %s_W %d\n#define %s_H %d\n\n#endif\n",name,name,w,h,0xF81F,keyed?0:1,name,w,name,h);
     fclose(f); stbi_image_free(d); { char m[170]; snprintf(m,sizeof m,"baked %s: %dx%d %s -> %s",name,w,h,keyed?"keyed":"opaque",header); log(m); } return 0; }
 
+/* Launcher icon: <root>/icon.png|bmp -> src/icon.h (mote_game_icon_data[3600],
+ * 60x60 RGB565). Box-resamples any source size; transparent pixels -> black.
+ * Done natively (stb) so the Studio bakes it with no CLI/imagemagick. */
+static int bake_icon(const char *dir, mote_log_fn log){
+    char src[420]; unsigned char *d=NULL; int w=0,h=0,n=0;
+    snprintf(src,sizeof src,"%.380s/icon.png",dir); d=stbi_load(src,&w,&h,&n,4);
+    if(!d){ snprintf(src,sizeof src,"%.380s/icon.bmp",dir); d=stbi_load(src,&w,&h,&n,4); }
+    if(!d) return -1;                 /* no icon -> silently skip (not an error) */
+    char header[420]; snprintf(header,sizeof header,"%.380s/src/icon.h",dir);
+    FILE *f=fopen(header,"w"); if(!f){ stbi_image_free(d); return -1; }
+    fprintf(f,"/* GENERATED launcher icon by Mote Studio from %s (60x60 RGB565). */\n"
+              "#ifndef MOTE_GAME_ICON_H\n#define MOTE_GAME_ICON_H\n#include <stdint.h>\n\n"
+              "const uint16_t mote_game_icon_data[3600] = {\n",src);
+    for(int i=0;i<3600;i++){ int iy=i/60, ix=i%60; int sx=ix*w/60, sy=iy*h/60;
+        const unsigned char *p=&d[(sy*w+sx)*4]; int r=p[0],g=p[1],b=p[2],a=p[3];
+        if(a<128){ r=g=b=0; }                      /* transparent -> black */
+        unsigned v=((r>>3)<<11)|((g>>2)<<5)|(b>>3);
+        fprintf(f,"0x%04x,",v); if((i&15)==15)fputc('\n',f); }
+    fprintf(f,"\n};\n\n#endif\n"); fclose(f); stbi_image_free(d);
+    { char m[200]; snprintf(m,sizeof m,"baked icon: %dx%d -> %s (60x60)",w,h,header); log(m); } return 0; }
+
 static void ensure_tool(const char *src, const char *bin, mote_log_fn log){ struct stat st; if(stat(bin,&st)==0)return;
     char cmd[600]; snprintf(cmd,sizeof cmd,"gcc -O2 tools/%s -lm -o %s 2>&1",src,bin); run_logged(cmd,log); }
 
@@ -241,9 +262,11 @@ static void bake_dir(const char *adir, const char *srcdir,
     closedir(d); }
 
 int mc_bake(const char *dir, mote_log_fn log){
-    char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad); if(!d){ log("no assets/ directory"); return -1; } closedir(d);
+    int didicon = (bake_icon(dir,log)==0);   /* <root>/icon.* -> src/icon.h (if present) */
+    char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad);
+    if(!d){ if(!didicon)log("no assets/ directory"); return didicon?0:-1; } closedir(d);
     char sd[360]; snprintf(sd,sizeof sd,"%.320s/src",dir);
     char objtool[64],stltool[64],rigtool[64];
     snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT);
     int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,log,&did);
-    if(!did)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }
+    if(!did&&!didicon)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }

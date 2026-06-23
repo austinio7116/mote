@@ -289,6 +289,7 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
 static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
 static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
 static char g_px_name[64]="sprite"; static int g_px_namefocus; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
+static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
@@ -313,7 +314,7 @@ static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)
 static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
 static int g_doc_ready[2];
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
 /* make document d (0=sprite,1=texture) active; lazily blanks a fresh doc; undo is per-doc */
 static void set_doc(int d){ d=d?1:0; if(d==g_doc)return;
     g_csize_doc[g_doc]=g_csize; g_doc=d; g_canvas=g_docbuf[d]; g_csize=g_csize_doc[d];
@@ -352,8 +353,13 @@ static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"o
     for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
         if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
         else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
+    char p[420];
+    if(g_icon_edit){                                  /* launcher icon -> <root>/icon.png (baked to src/icon.h) */
+        snprintf(p,sizeof p,"%.380s/icon.png",dir);
+        if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"icon save FAILED (%s)",p); return; }
+        snprintf(g_status,sizeof g_status,"saved game icon + baking"); njob(2,dir); return; }
     char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",dir); mkdir_portable(ad);
-    char p[420]; snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"));   /* edit the name field to save a new file */
+    snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"));   /* edit the name field to save a new file */
     if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
     snprintf(g_status,sizeof g_status,"saved %s + baking",p); njob(2,dir); }
 /* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
@@ -416,13 +422,23 @@ static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir
 enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
 static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","RIG","AUDIO","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
+/* Open the launcher icon in the Pixel Art editor (create a blank 60x60 if none).
+ * Save then writes <root>/icon.png + bakes src/icon.h — no raw header, no CLI.
+ * To import: Edit Icon, then use Import to drop a PNG onto the canvas, then Save. */
+static void icon_edit(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first (Project > Open)"); return; }
+    const char*dir=g_games[g_sel].dir; char p[420]; struct stat st;
+    snprintf(p,sizeof p,"%.380s/icon.png",dir); if(stat(p,&st)!=0){ snprintf(p,sizeof p,"%.380s/icon.bmp",dir); if(stat(p,&st)!=0)p[0]=0; }
+    if(p[0]){ load_png(p); }                          /* existing icon -> canvas */
+    else { g_csize=60; canvas_new(); }                /* none yet -> blank 60x60 */
+    g_icon_edit=1; snprintf(g_px_name,sizeof g_px_name,"icon"); g_tab=TAB_PIXEL;
+    snprintf(g_status,sizeof g_status,"editing game icon (60x60) — draw or Import, then Save"); }
 
 /* ================= menu bar ================= */
-enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_VSCODE, A_ALIGN, A_ABOUT };
+enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_ICON, A_VSCODE, A_ALIGN, A_ABOUT };
 typedef struct { const char*title; struct { const char*l; int a; } it[8]; int n; int mx,mw; } Menu;
 static Menu MENUS[]={
     {"Project",{{"New Game...",A_NEW},{"Open...",A_OPEN},{"Reveal in Files",A_REVEAL},{"Quit",A_QUIT}},4},
-    {"Assets",{{"Import...",A_IMPORT},{"Bake All",A_BAKEALL}},2},
+    {"Assets",{{"Import...",A_IMPORT},{"Edit Icon",A_ICON},{"Bake All",A_BAKEALL}},3},
     {"Build",{{"Build",A_BUILD},{"Build + Device",A_BUILDDEV},{"Run / Reload",A_RELOAD},{"Stop",A_STOP},{"Push",A_PUSH},{"Push & Launch",A_PUSHLAUNCH}},6},
     {"Help",{{"About Mote Studio",A_ABOUT}},1},
 };
@@ -469,6 +485,7 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_PUSH: njob(3,dir); break;
     case A_PUSHLAUNCH: njob(4,dir); break;
     case A_BAKEALL: njob(2,dir); break;
+    case A_ICON: icon_edit(); break;
     case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_CONSOLE; break;
     case A_VSCODE: {
         int havef = (g_tsel>=0 && g_tree[g_tsel].kind!=0);   /* a file selected -> open it too */
@@ -2718,7 +2735,9 @@ static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
-    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; }
+    if(r->kind==3){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path;   /* root icon.png/.bmp -> icon editor */
+        if((!strcasecmp(b,"icon.png")||!strcasecmp(b,"icon.bmp"))&&g_sel>=0&&r->depth<=1){ icon_edit(); }
+        else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
     else if(r->kind==4){ size_t pl=strlen(r->path); int isobj=pl>4&&!strcasecmp(r->path+pl-4,".obj"); struct stat rst; char rg[330];
         if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
         if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
@@ -2763,6 +2782,8 @@ int main(int argc,char**argv){
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
+    if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
+    if(getenv("MOTE_STUDIO_ICON")){ icon_edit(); }   /* capture hook: open the icon editor */
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
