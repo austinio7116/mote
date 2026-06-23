@@ -1080,7 +1080,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     if(!g_mdrag) g_myaw+=0.008f;
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
     int rw=vw, rh=h;   /* render at the view's native resolution -> 1:1 copy, sharp pixels, correct aspect */
-    if(rw>1280)rw=1280; if(rh>1280)rh=1280;
+    { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } }   /* clamp PROPORTIONALLY so aspect is preserved (no squash) */
     if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
@@ -1261,7 +1261,7 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     else { if(g_scrub_t<0)g_scrub_t=0; if(g_scrub_t>g_clip_ms)g_scrub_t=g_clip_ms; t_ms=g_scrub_t; }
     V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
     int rw=vw, rh=h;   /* render at the view's native resolution -> 1:1 copy, sharp pixels, correct aspect */
-    if(rw>1280)rw=1280; if(rh>1280)rh=1280;
+    { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } }   /* clamp PROPORTIONALLY so aspect is preserved (no squash) */
     if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
@@ -2781,6 +2781,7 @@ int main(int argc,char**argv){
      * default SDL declares awareness and the whole UI renders tiny on hi-DPI displays. */
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS,"unaware");
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_AUDIO); mote_plat_init("Mote Studio"); audio_init(); scan_games(); canvas_new();
+    if(getenv("MOTE_STUDIO_WH")){ int ww,wh; if(sscanf(getenv("MOTE_STUDIO_WH"),"%dx%d",&ww,&wh)==2&&ww>=400&&wh>=300){ WIN_W=ww; WIN_H=wh; } }
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
     else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
