@@ -88,6 +88,10 @@ int main(int argc, char **argv) {
 
     if (mote_plat_init("Mote OS (host)") != 0) return 1;
 
+    /* MOTE_AUTORUN: skip the launcher and boot straight into the first game
+     * (handy for screenshots / CI). */
+    if (getenv("MOTE_AUTORUN")) { run_game(g_paths[0]); mote_plat_shutdown(); return 0; }
+
     for (;;) {
         int idx = mote_launcher_run(host_fill);
         if (idx < 0) break;                 /* window closed */
