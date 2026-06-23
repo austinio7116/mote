@@ -13,7 +13,7 @@
 
 #define STORE_OFF    0x80000u           /* 512 KB into flash */
 #define STORE_MAGIC  0x3153544Du        /* 'MST1' */
-#define STORE_MAX    32
+#define STORE_MAX    56             /* g_cat lives in the near-full OS BSS (~60 is the ceiling); also 16 + MAX*28 must fit one 4 KB block */
 #define BLOCK        4096u
 #define FLASH_TOTAL  (16u * 1024 * 1024)
 #define GAME_MAX     0x100000u          /* 1 MB per game cap */

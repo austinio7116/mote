@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#define MOTE_CATALOG_MAX 24
+#define MOTE_CATALOG_MAX 56
 #define MOTE_NAME_MAX    20
 
 /* Launcher icon dimensions (RGB565). Games bake `mote_game_icon_data[]` to match. */

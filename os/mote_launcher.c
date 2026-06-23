@@ -97,7 +97,7 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
 
 int mote_launcher_run(MoteCatalogFn rebuild) {
     int sel = 0, top = 0;
-    MoteCatalog cat;
+    MoteCatalog cat;   /* on the stack (SCRATCH), not BSS — OS BSS budget is ~full */
     MoteInput in;
     memset(&in, 0, sizeof in);
     /* Returning from a game, the MENU/A used to exit it may still be held — arm the

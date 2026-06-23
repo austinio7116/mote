@@ -517,7 +517,7 @@ def _command(ser, line, multi=False):
     import time
     ser.reset_input_buffer()
     ser.write((line + "\n").encode()); ser.flush()
-    out, deadline = [], time.time() + 2.0
+    out, deadline = [], time.time() + (12.0 if multi else 2.0)   # multi (LIST) can be long
     while time.time() < deadline:
         raw = ser.readline()
         if not raw:
