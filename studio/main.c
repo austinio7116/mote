@@ -1140,7 +1140,9 @@ typedef struct { char name[28]; V3 *t; int nt,cap; int parent; V3 pivot; } RigPa
 static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[320];
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
 static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_cen, g_rg_save, g_rg_view;
+static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
 static void rig_save(void);   /* fwd */
+static void rig_anim_bake(void);   /* fwd */
 
 static void rp_tri(int p,V3 a,V3 b,V3 c){ RigPart*r=&g_rp[p]; if(r->nt>=r->cap){ r->cap=r->cap?r->cap*2:128; r->t=realloc(r->t,(size_t)r->cap*3*sizeof(V3)); }
     V3*d=&r->t[r->nt*3]; d[0]=a; d[1]=b; d[2]=c; r->nt++; }
@@ -1172,12 +1174,42 @@ static void rig_load(const char*objpath){
     snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
 }
 
+/* ---- clip authoring: keyframes of per-part Euler rotation (evenly spaced; pos kept 0 in v1) ---- */
+#define RIG_MAXK 24
+typedef struct { int t_ms; V3 erot[RIG_MAXP]; } RigKey;
+static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
+static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
+typedef struct { float a,b,c,d,e,f,g,h,i; } M3;
+static V3 m3a(M3 m,V3 v){ return (V3){m.a*v.x+m.b*v.y+m.c*v.z,m.d*v.x+m.e*v.y+m.f*v.z,m.g*v.x+m.h*v.y+m.i*v.z}; }
+static M3 m3mm(M3 A,M3 B){ return (M3){
+  A.a*B.a+A.b*B.d+A.c*B.g,A.a*B.b+A.b*B.e+A.c*B.h,A.a*B.c+A.b*B.f+A.c*B.i,
+  A.d*B.a+A.e*B.d+A.f*B.g,A.d*B.b+A.e*B.e+A.f*B.h,A.d*B.c+A.e*B.f+A.f*B.i,
+  A.g*B.a+A.h*B.d+A.i*B.g,A.g*B.b+A.h*B.e+A.i*B.h,A.g*B.c+A.h*B.f+A.i*B.i}; }
+static M3 m3eul(float rx,float ry,float rz){ float cx=cosf(rx),sx=sinf(rx),cy=cosf(ry),sy=sinf(ry),cz=cosf(rz),sz=sinf(rz);
+  M3 X={1,0,0,0,cx,-sx,0,sx,cx},Y={cy,0,sy,0,1,0,-sy,0,cy},Z={cz,-sz,0,sz,cz,0,0,0,1}; return m3mm(Z,m3mm(Y,X)); }
+static void rig_respace(void){ for(int i=0;i<g_nrk;i++) g_rk[i].t_ms = (g_nrk>1)? i*g_clip_ms/(g_nrk-1) : 0; }
+static void rig_pose_at(float t,V3 out[RIG_MAXP]){ for(int p=0;p<g_nrp;p++)out[p]=(V3){0,0,0}; if(!g_nrk)return; int last=g_nrk-1;
+  if(t<=g_rk[0].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[0].erot[p]; return; }
+  if(t>=g_rk[last].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[last].erot[p]; return; }
+  int i=0; while(i+1<g_nrk&&g_rk[i+1].t_ms<=t)i++; float f=(t-g_rk[i].t_ms)/(float)(g_rk[i+1].t_ms-g_rk[i].t_ms);
+  for(int p=0;p<g_nrp;p++){ V3 a=g_rk[i].erot[p],b=g_rk[i+1].erot[p]; out[p]=(V3){a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f}; } }
+static void rig_world(V3 pose[RIG_MAXP],M3 Rm[RIG_MAXP],V3 Om[RIG_MAXP]){ for(int p=0;p<g_nrp;p++){ M3 r=m3eul(pose[p].x,pose[p].y,pose[p].z);
+  V3 piv=g_rp[p].pivot, rp=m3a(r,piv); V3 lo={piv.x-rp.x,piv.y-rp.y,piv.z-rp.z}; int par=g_rp[p].parent;
+  if(par<0||par>=p){ Rm[p]=r; Om[p]=lo; } else { Rm[p]=m3mm(Rm[par],r); V3 t=m3a(Rm[par],lo); Om[p]=(V3){t.x+Om[par].x,t.y+Om[par].y,t.z+Om[par].z}; } } }
+
 static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_rg_view=(SDL_Rect){ox,oy,vw,h};
     if(!g_nrp){ text(R,"Select a multi-object .obj in the tree to edit its rig (a .rig sidecar holds parents + pivots).",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
     if(!g_rdrag) g_ryaw+=0.006f;
     float cyw=cosf(g_ryaw),syw=sinf(g_ryaw),cp=cosf(g_rpitch),sp=sinf(g_rpitch);
+    /* current clip time: playhead when playing, else the selected key's time */
+    float t_ms;
+    if(g_playing){ uint32_t now=SDL_GetTicks(); g_play_t+=(float)(now-g_play_last); g_play_last=now; float dur=g_clip_ms>0?g_clip_ms:1;
+        if(g_clip_loop==2){ float m=fmodf(g_play_t,dur*2); t_ms=m>dur?dur*2-m:m; } else if(g_clip_loop==1){ g_play_t=fmodf(g_play_t,dur); t_ms=g_play_t; }
+        else { if(g_play_t>=dur){ g_play_t=dur; g_playing=0; } t_ms=g_play_t; } }
+    else t_ms = g_nrk? (float)g_rk[g_ksel].t_ms : 0;
+    V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
     int rw=vw>0?vw:1; if(rw>512)rw=512; int rh=h>0?h:1; if(rh>512)rh=512;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
@@ -1188,7 +1220,8 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     #define RVIEW(P) do{ (P).x=((P).x-g_rcen.x)*g_rscale; (P).y=((P).y-g_rcen.y)*g_rscale; (P).z=((P).z-g_rcen.z)*g_rscale; \
         float _x=(P).x*cyw-(P).z*syw,_z=(P).x*syw+(P).z*cyw,_y=(P).y*cp-_z*sp,_z2=(P).y*sp+_z*cp; (P)=(V3){_x,_y,_z2}; }while(0)
     for(int p=0;p<g_nrp;p++){ unsigned hh=(unsigned)(p+1)*2654435761u; int sel=(p==g_rsel);
-        for(int ti=0;ti<g_rp[p].nt;ti++){ V3 rr[3]={g_rp[p].t[ti*3],g_rp[p].t[ti*3+1],g_rp[p].t[ti*3+2]}; for(int k=0;k<3;k++)RVIEW(rr[k]);
+        for(int ti=0;ti<g_rp[p].nt;ti++){ V3 rr[3];
+            for(int k=0;k<3;k++){ V3 vm=g_rp[p].t[ti*3+k]; V3 wv=m3a(RW[p],vm); vm=(V3){wv.x+OW[p].x,wv.y+OW[p].y,wv.z+OW[p].z}; rr[k]=vm; RVIEW(rr[k]); }
             float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z, vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
             float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl; if(nz<0)continue;
             float sh=0.30f+0.70f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
@@ -1205,38 +1238,77 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
                 if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue; float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
                 if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_rg_view);
-    /* selected part's pivot marker (project through the same transform) */
-    { V3 pv=g_rp[g_rsel].pivot; RVIEW(pv); float iz=persp/(dist-pv.z); int sxp=cx+(int)(pv.x*iz), syp=cyy-(int)(pv.y*iz);
+    /* selected part's pivot marker (its posed joint location) */
+    { V3 piv=m3a(RW[g_rsel],g_rp[g_rsel].pivot); V3 pv={piv.x+OW[g_rsel].x,piv.y+OW[g_rsel].y,piv.z+OW[g_rsel].z}; RVIEW(pv);
+      float iz=persp/(dist-pv.z); int sxp=cx+(int)(pv.x*iz), syp=cyy-(int)(pv.y*iz);
       int vx2=ox+sxp*vw/rw, vy2=oy+syp*h/rh; ring(R,vx2,vy2,5,(Col){0,0,0},1); ring(R,vx2,vy2,4,(Col){255,90,90},1); }
-    text(R,"drag to rotate \xb7 red ring = selected part's pivot",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
     #undef RVIEW
+
+    /* ---- timeline strip (bottom of the view) ---- */
+    int by=oy+h-66, bx=ox+10;
+    #define TBTN(rc,bw,lbl,on) do{ (rc)=(SDL_Rect){bx,by,bw,22}; int hv=hit(mx,my,bx,by,bw,22); rrect(R,bx,by,bw,22,4,(on)?C_ACC:(hv?C_BTNHI:C_BTN)); text(R,lbl,bx+8,by+6,1,(on)?C_TXT:C_TXT,(on)?C_ACC:(hv?C_BTNHI:C_BTN)); bx+=bw+5; }while(0)
+    TBTN(g_rg_play,52,g_playing?"Stop":"Play",g_playing);
+    { const char*lm=g_clip_loop==0?"once":g_clip_loop==1?"loop":"ping"; TBTN(g_rg_loop,56,lm,0); }
+    TBTN(g_rg_addk,52,"+Key",0); TBTN(g_rg_delk,46,"Del",0);
+    g_rg_durm=(SDL_Rect){bx,by,20,22}; rrect(R,bx,by,20,22,4,hit(mx,my,bx,by,20,22)?C_BTNHI:C_BTN); text(R,"-",bx+7,by+6,1,C_TXT,C_BTN); bx+=22;
+    { char db[16]; snprintf(db,sizeof db,"%dms",g_clip_ms); text(R,db,bx,by+6,1,C_DIM,(Col){16,18,26}); bx+=textw(R,db,1)+6; }
+    g_rg_durp=(SDL_Rect){bx,by,20,22}; rrect(R,bx,by,20,22,4,hit(mx,my,bx,by,20,22)?C_BTNHI:C_BTN); text(R,"+",bx+6,by+6,1,C_TXT,C_BTN); bx+=24;
+    TBTN(g_rg_bake,92,"Bake anim3d",0);
+    #undef TBTN
+    int ty=oy+h-36, tw=vw-20, tx=ox+10; plain(R,tx,ty+6,tw,3,(Col){50,54,68}); g_rg_track=(SDL_Rect){tx,ty,tw,18};
+    for(int i=0;i<g_nrk;i++){ int kxp=tx+(g_clip_ms>0? g_rk[i].t_ms*tw/g_clip_ms : 0); g_rg_keytk[i]=(SDL_Rect){kxp-4,ty,9,18};
+        Col kc = (i==g_ksel)?(Col){255,205,80}:(Col){150,160,190}; plain(R,kxp-3,ty+1,6,16,kc); }
+    { float dur=g_clip_ms>0?g_clip_ms:1; int php=tx+(int)(t_ms/dur*tw); plain(R,php-1,ty-2,2,22,(Col){255,90,90}); }
+    text(R,g_nrk?"drag rotates \xb7 keys evenly spaced \xb7 +Key captures the pose":"drag rotates \xb7 +Key to start a clip",ox+12,oy+h-16,1,C_DIM,(Col){16,18,26});
 
     /* ---- inspector card ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"RIG"); int lx=cardx+12;
-    text(R,"PARTS",lx,cy,1,C_DIM,C_PANEL); cy+=16;
-    for(int p=0;p<g_nrp;p++){ int sel=(p==g_rsel); g_rg_part[p]=(SDL_Rect){lx,cy,MESH_CARDW-24,18};
-        rrect(R,lx,cy,MESH_CARDW-24,18,4,sel?C_SEL:(hit(mx,my,lx,cy,MESH_CARDW-24,18)?C_BTNHI:C_BTN));
-        char lbl[48]; snprintf(lbl,sizeof lbl,"%-10s %s%s",g_rp[p].name, g_rp[p].parent<0?"(root)":"\xbb ", g_rp[p].parent<0?"":g_rp[g_rp[p].parent].name);
-        text(R,lbl,lx+6,cy+3,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); cy+=20; }
-    cy+=6; RigPart*s=&g_rp[g_rsel];
-    text(R,"PARENT",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-    g_rg_par=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN);
-    { char pb[40]; snprintf(pb,sizeof pb,"< %s >", s->parent<0?"root (-1)":g_rp[s->parent].name); text(R,pb,lx+8,cy+5,1,C_TXT,C_BTN); } cy+=26;
-    text(R,"PIVOT  (joint)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-    const char*ax[3]={"x","y","z"}; float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
-    for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*pv[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+6; }
-    g_rg_cen=(SDL_Rect){lx,cy,MESH_CARDW-24,22}; rrect(R,lx,cy,MESH_CARDW-24,22,4,hit(mx,my,lx,cy,MESH_CARDW-24,22)?C_BTNHI:C_BTN); text(R,"pivot = part centroid",lx+8,cy+6,1,C_TXT,C_BTN); cy+=28;
-    g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,26}; rrect(R,lx,cy,MESH_CARDW-24,26,5,hit(mx,my,lx,cy,MESH_CARDW-24,26)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+7,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,26)?C_BTNHI:C_ACC);
+    text(R,"PARTS",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    for(int p=0;p<g_nrp;p++){ int sel=(p==g_rsel); g_rg_part[p]=(SDL_Rect){lx,cy,MESH_CARDW-24,17};
+        rrect(R,lx,cy,MESH_CARDW-24,17,4,sel?C_SEL:(hit(mx,my,lx,cy,MESH_CARDW-24,17)?C_BTNHI:C_BTN));
+        char lbl[48]; snprintf(lbl,sizeof lbl,"%-9s %s%s",g_rp[p].name, g_rp[p].parent<0?"(root)":"\xbb ", g_rp[p].parent<0?"":g_rp[g_rp[p].parent].name);
+        text(R,lbl,lx+6,cy+3,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); cy+=19; }
+    cy+=4; RigPart*s=&g_rp[g_rsel];
+    g_rg_par=(SDL_Rect){lx,cy,MESH_CARDW-24,19}; rrect(R,lx,cy,MESH_CARDW-24,19,4,hit(mx,my,lx,cy,MESH_CARDW-24,19)?C_BTNHI:C_BTN);
+    { char pb[44]; snprintf(pb,sizeof pb,"parent < %s >", s->parent<0?"root":g_rp[s->parent].name); text(R,pb,lx+8,cy+4,1,C_TXT,C_BTN); } cy+=24;
+    ui_pill(R,lx,cy,NULL,g_pose_mode?"edit: pose":"edit: pivot",g_pose_mode,&g_rg_pose,mx,my); cy+=UI_H+6;
+    if(!g_pose_mode){
+        const char*ax[3]={"x","y","z"}; float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
+        text(R,"PIVOT (joint)",lx,cy,1,C_DIM,C_PANEL); cy+=14;
+        for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*pv[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+5; }
+        g_rg_cen=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); text(R,"pivot = centroid",lx+8,cy+5,1,C_TXT,C_BTN); cy+=26;
+    } else {
+        g_rg_cen=(SDL_Rect){0,0,0,0};
+        if(!g_nrk){ text(R,"no keys — +Key below",lx,cy,1,C_DIM,C_PANEL); cy+=18; for(int a=0;a<3;a++)g_rg_px[a*2]=g_rg_px[a*2+1]=(SDL_Rect){0,0,0,0}; }
+        else { char kb[28]; snprintf(kb,sizeof kb,"ROT key %d/%d (deg)",g_ksel+1,g_nrk); text(R,kb,lx,cy,1,C_DIM,C_PANEL); cy+=14;
+            const char*ax[3]={"x","y","z"}; float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
+            for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%d",(int)lrintf(*er[a]*57.29578f)); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+5; } }
+    }
+    g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,24}; rrect(R,lx,cy,MESH_CARDW-24,24,5,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+6,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC);
 }
 static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(!g_nrp) return 0;
     for(int p=0;p<g_nrp;p++) if(HITR(g_rg_part[p])){ g_rsel=p; return 1; }
+    for(int i=0;i<g_nrk;i++) if(HITR(g_rg_keytk[i])){ g_ksel=i; g_playing=0; return 1; }
+    if(HITR(g_rg_play)){ g_playing=!g_playing; g_play_t=0; g_play_last=SDL_GetTicks(); return 1; }
+    if(HITR(g_rg_loop)){ g_clip_loop=(g_clip_loop+1)%3; return 1; }
+    if(HITR(g_rg_addk)){ if(g_nrk<RIG_MAXK){ int n=g_nrk; if(n>0)memcpy(g_rk[n].erot,g_rk[n-1].erot,sizeof(V3)*RIG_MAXP); else for(int p=0;p<RIG_MAXP;p++)g_rk[n].erot[p]=(V3){0,0,0}; g_nrk++; rig_respace(); g_ksel=g_nrk-1; } return 1; }
+    if(HITR(g_rg_delk)){ if(g_nrk>0){ for(int i=g_ksel;i<g_nrk-1;i++)g_rk[i]=g_rk[i+1]; g_nrk--; if(g_ksel>=g_nrk)g_ksel=g_nrk?g_nrk-1:0; rig_respace(); } return 1; }
+    if(HITR(g_rg_durm)){ g_clip_ms-=100; if(g_clip_ms<100)g_clip_ms=100; rig_respace(); return 1; }
+    if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_respace(); return 1; }
+    if(HITR(g_rg_bake)){ rig_anim_bake(); return 1; }
+    if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; return 1; }
     RigPart*s=&g_rp[g_rsel];
-    if(HITR(g_rg_par)){ int n=g_rsel; do{ n--; if(n<-1)n=g_nrp-1; }while(n==g_rsel); s->parent=n; return 1; }   /* cycle -1,0..n-1 skipping self */
-    for(int a=0;a<3;a++){ float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
-        if(HITR(g_rg_px[a*2])){ *pv[a]-=0.02f; return 1; } if(HITR(g_rg_px[a*2+1])){ *pv[a]+=0.02f; return 1; } }
-    if(HITR(g_rg_cen)){ s->pivot=rig_centroid(g_rsel); return 1; }
+    if(HITR(g_rg_par)){ int n=g_rsel; do{ n--; if(n<-1)n=g_nrp-1; }while(n==g_rsel); s->parent=n; return 1; }
+    if(!g_pose_mode){
+        for(int a=0;a<3;a++){ float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
+            if(HITR(g_rg_px[a*2])){ *pv[a]-=0.02f; return 1; } if(HITR(g_rg_px[a*2+1])){ *pv[a]+=0.02f; return 1; } }
+        if(HITR(g_rg_cen)){ s->pivot=rig_centroid(g_rsel); return 1; }
+    } else if(g_nrk){
+        float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
+        for(int a=0;a<3;a++){ if(HITR(g_rg_px[a*2])){ *er[a]-=0.0872665f; return 1; } if(HITR(g_rg_px[a*2+1])){ *er[a]+=0.0872665f; return 1; } }   /* +-5 deg */
+    }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
     return 0;
     #undef HITR
@@ -1249,6 +1321,33 @@ static void rig_save(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_stat
             fprintf(f,"part %s parent %s pivot %g %g %g\n",g_rp[p].name,par,g_rp[p].pivot.x,g_rp[p].pivot.y,g_rp[p].pivot.z); } fclose(f); }
     njob(2,g_games[g_sel].dir);   /* bake: obj + .rig -> src/<base>.rig.h */
     snprintf(g_status,sizeof g_status,"saved %s.rig + baking %s.rig.h",base,base);
+}
+/* ---- bake the keyframes to <base>.anim3d.h (a MoteModelClip the game plays) ---- */
+typedef struct { float x,y,z,w; } RQ;
+static RQ rq_axis(float ax,float ay,float az,float a){ float hh=a*0.5f,s=sinf(hh); return (RQ){ax*s,ay*s,az*s,cosf(hh)}; }
+static RQ rq_mul(RQ a,RQ b){ return (RQ){a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y, a.w*b.y-a.x*b.z+a.y*b.w+a.z*b.x, a.w*b.z+a.x*b.y-a.y*b.x+a.z*b.w, a.w*b.w-a.x*b.x-a.y*b.y-a.z*b.z}; }
+static RQ rq_eul(float rx,float ry,float rz){ return rq_mul(rq_mul(rq_axis(0,0,1,rz),rq_axis(0,1,0,ry)),rq_axis(1,0,0,rx)); }   /* matches mote_quat_euler */
+static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
+    if(g_nrk<1){ snprintf(g_status,sizeof g_status,"add keyframes (+Key) before baking a clip"); return; }
+    const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; char base[40]; snprintf(base,sizeof base,"%.30s",b); char*d=strrchr(base,'.'); if(d)*d=0;
+    for(char*c=base;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+    char hp[440]; snprintf(hp,sizeof hp,"%.330s/src/%.30s.anim3d.h",g_games[g_sel].dir,base); FILE*f=fopen(hp,"w"); if(!f){ snprintf(g_status,sizeof g_status,"could not write %s.anim3d.h",base); return; }
+    fprintf(f,"/* GENERATED by Mote Studio — 3D animation clip. Play with mote_anim3d.h:\n"
+              " *   mote_rig_play(&player, &%s_clip); mote_rig_tick(&player, dt); mote_rig_draw(mote,&%s_rig,&player,pos); */\n"
+              "#ifndef MOTE_A3_%s_H\n#define MOTE_A3_%s_H\n#include \"mote_anim3d.h\"\n\n",base,base,base,base);
+    int anim[RIG_MAXP], ntr=0;
+    for(int p=0;p<g_nrp;p++){ anim[p]=0; for(int k=0;k<g_nrk;k++){ V3 e=g_rk[k].erot[p]; if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)>1e-4f){ anim[p]=1; break; } } if(anim[p])ntr++; }
+    if(ntr==0){ anim[0]=1; ntr=1; }   /* always emit at least one track so the clip is valid */
+    for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+        fprintf(f,"static const MoteModelKey %s_%s_k[%d] = {\n",base,pn,g_nrk);
+        for(int k=0;k<g_nrk;k++){ RQ q=rq_eul(g_rk[k].erot[p].x,g_rk[k].erot[p].y,g_rk[k].erot[p].z);
+            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {0,0,0} },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w); }
+        fprintf(f,"};\n"); }
+    fprintf(f,"static const MoteModelTrack %s_clip_tr[%d] = {\n",base,ntr);
+    for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+        fprintf(f,"    { %d, %s_%s_k, %d },\n",p,base,pn,g_nrk); }
+    fprintf(f,"};\nstatic const MoteModelClip %s_clip = { \"%s\", %s_clip_tr, %d, %d, %d };\n\n#endif\n",base,base,base,ntr,g_clip_ms,g_clip_loop);
+    fclose(f); snprintf(g_status,sizeof g_status,"baked src/%s.anim3d.h (%d keys, %d tracks) \xb7 play &%s_clip",base,g_nrk,ntr,base);
 }
 
 /* ================= audio waveform viewer ================= */
@@ -2646,6 +2745,10 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
+    if(getenv("MOTE_STUDIO_RIGANIM")&&g_nrp){ int tp=g_nrp>1?1:0; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,"turret"))tp=i;   /* test clip: yaw the turret */
+        g_clip_ms=1000; g_clip_loop=2; g_nrk=3; for(int k=0;k<3;k++)for(int p=0;p<g_nrp;p++)g_rk[k].erot[p]=(V3){0,0,0};
+        g_rk[1].erot[tp]=(V3){0,1.2f,0}; g_rk[2].erot[tp]=(V3){0,-1.2f,0}; rig_respace(); g_rsel=tp; g_ksel=1; g_pose_mode=1;
+        if(getenv("MOTE_STUDIO_RIGBAKE"))rig_anim_bake(); }
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH;
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
         if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
