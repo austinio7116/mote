@@ -404,8 +404,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","AUDIO","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","RIG","AUDIO","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 
 /* ================= menu bar ================= */
@@ -1132,6 +1132,123 @@ static int mesh_down(int mx,int my){
     if(ch){ g_mesh_dirty=1; mesh_reprocess(); return 1; }
     return 0;
     #undef HITR
+}
+
+/* ================= rig tab: model parts + pivots/hierarchy -> MoteRig ================= */
+#define RIG_MAXP 16
+typedef struct { char name[28]; V3 *t; int nt,cap; int parent; V3 pivot; } RigPart;
+static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[320];
+static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
+static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_cen, g_rg_save, g_rg_view;
+static void rig_save(void);   /* fwd */
+
+static void rp_tri(int p,V3 a,V3 b,V3 c){ RigPart*r=&g_rp[p]; if(r->nt>=r->cap){ r->cap=r->cap?r->cap*2:128; r->t=realloc(r->t,(size_t)r->cap*3*sizeof(V3)); }
+    V3*d=&r->t[r->nt*3]; d[0]=a; d[1]=b; d[2]=c; r->nt++; }
+static V3 rig_centroid(int p){ V3 c={0,0,0}; int n=0; for(int i=0;i<g_rp[p].nt*3;i++){ c.x+=g_rp[p].t[i].x; c.y+=g_rp[p].t[i].y; c.z+=g_rp[p].t[i].z; n++; }
+    return n? (V3){c.x/n,c.y/n,c.z/n} : (V3){0,0,0}; }
+static void rig_load(const char*objpath){
+    for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; g_rp[p].nt=g_rp[p].cap=0; }
+    g_nrp=0; g_rsel=0; snprintf(g_rig_obj,sizeof g_rig_obj,"%s",objpath);
+    FILE*f=fopen(objpath,"rb"); if(!f)return; static V3 vs[200000]; int nv=0,cur=-1; char ln[256];
+    while(fgets(ln,sizeof ln,f)){
+        if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' '){ char nm[28]; if(sscanf(ln+2,"%27s",nm)==1){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm))p=i;
+            if(p<0&&g_nrp<RIG_MAXP){ p=g_nrp++; snprintf(g_rp[p].name,28,"%s",nm); g_rp[p].t=0; g_rp[p].nt=g_rp[p].cap=0; } cur=p; } }
+        else if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<200000)vs[nv++]=v; }
+        else if(ln[0]=='f'&&ln[1]==' '){ if(cur<0&&g_nrp<RIG_MAXP){ cur=g_nrp++; snprintf(g_rp[cur].name,28,"part0"); g_rp[cur].t=0; g_rp[cur].nt=g_rp[cur].cap=0; }
+            int idx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break; int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n++]=vi; while(*p&&*p!=' '&&*p!='\t')p++; }
+            for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) rp_tri(cur,vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } }
+    fclose(f);
+    for(int p=0;p<g_nrp;p++){ g_rp[p].parent = p?0:-1; g_rp[p].pivot = rig_centroid(p); }   /* defaults */
+    char rp[330]; size_t l=strlen(objpath); snprintf(rp,sizeof rp,"%.*s.rig",(int)(l-4),objpath);
+    FILE*rf=fopen(rp,"r"); if(rf){ char li[256];
+        while(fgets(li,sizeof li,rf)){ char nm[28],par[28]; V3 pv; if(li[0]=='#')continue;
+            if(sscanf(li,"part %27s parent %27s pivot %f %f %f",nm,par,&pv.x,&pv.y,&pv.z)==5){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm))p=i; if(p<0)continue;
+                g_rp[p].pivot=pv; g_rp[p].parent=-1; if(strcmp(par,"-1")){ for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,par)){ g_rp[p].parent=i; break; } } } } fclose(rf); }
+    V3 mn={1e30f,1e30f,1e30f},mx={-1e30f,-1e30f,-1e30f};
+    for(int p=0;p<g_nrp;p++)for(int i=0;i<g_rp[p].nt*3;i++){ V3 v=g_rp[p].t[i];
+        if(v.x<mn.x)mn.x=v.x; if(v.y<mn.y)mn.y=v.y; if(v.z<mn.z)mn.z=v.z; if(v.x>mx.x)mx.x=v.x; if(v.y>mx.y)mx.y=v.y; if(v.z>mx.z)mx.z=v.z; }
+    g_rcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2};
+    float ex=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_rscale = ex>1e-4f? 2.0f/ex : 1;
+    snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
+}
+
+static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_rg_view=(SDL_Rect){ox,oy,vw,h};
+    if(!g_nrp){ text(R,"Select a multi-object .obj in the tree to edit its rig (a .rig sidecar holds parents + pivots).",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
+    if(!g_rdrag) g_ryaw+=0.006f;
+    float cyw=cosf(g_ryaw),syw=sinf(g_ryaw),cp=cosf(g_rpitch),sp=sinf(g_rpitch);
+    int rw=vw>0?vw:1; if(rw>512)rw=512; int rh=h>0?h:1; if(rh>512)rh=512;
+    if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
+        g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
+    uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
+    for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
+    int cx=rw/2, cyy=rh/2; float persp=(rh<rw?rh:rw)*0.55f, dist=2.7f;
+    #define RVIEW(P) do{ (P).x=((P).x-g_rcen.x)*g_rscale; (P).y=((P).y-g_rcen.y)*g_rscale; (P).z=((P).z-g_rcen.z)*g_rscale; \
+        float _x=(P).x*cyw-(P).z*syw,_z=(P).x*syw+(P).z*cyw,_y=(P).y*cp-_z*sp,_z2=(P).y*sp+_z*cp; (P)=(V3){_x,_y,_z2}; }while(0)
+    for(int p=0;p<g_nrp;p++){ unsigned hh=(unsigned)(p+1)*2654435761u; int sel=(p==g_rsel);
+        for(int ti=0;ti<g_rp[p].nt;ti++){ V3 rr[3]={g_rp[p].t[ti*3],g_rp[p].t[ti*3+1],g_rp[p].t[ti*3+2]}; for(int k=0;k<3;k++)RVIEW(rr[k]);
+            float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z, vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl; if(nz<0)continue;
+            float sh=0.30f+0.70f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
+            uint8_t cr,cg,cb; if(sel){ cr=(uint8_t)(255*sh); cg=(uint8_t)(205*sh); cb=(uint8_t)(80*sh); }
+            else { cr=(uint8_t)((95+(hh&110))*sh); cg=(uint8_t)((95+((hh>>8)&110))*sh); cb=(uint8_t)((95+((hh>>16)&110))*sh); }
+            uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+            float sx[3],sy[3],sz[3]; for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
+            float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
+            int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])),maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
+            int miny=(int)floorf(fminf(fminf(sy[0],sy[1]),sy[2])),maxy=(int)ceilf(fmaxf(fmaxf(sy[0],sy[1]),sy[2]));
+            if(minx<0)minx=0; if(miny<0)miny=0; if(maxx>rw-1)maxx=rw-1; if(maxy>rh-1)maxy=rh-1;
+            for(int y=miny;y<=maxy;y++)for(int x=minx;x<=maxx;x++){ float fx=x+0.5f,fy=y+0.5f;
+                float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]), e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]), e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
+                if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue; float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
+                if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } }
+    SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_rg_view);
+    /* selected part's pivot marker (project through the same transform) */
+    { V3 pv=g_rp[g_rsel].pivot; RVIEW(pv); float iz=persp/(dist-pv.z); int sxp=cx+(int)(pv.x*iz), syp=cyy-(int)(pv.y*iz);
+      int vx2=ox+sxp*vw/rw, vy2=oy+syp*h/rh; ring(R,vx2,vy2,5,(Col){0,0,0},1); ring(R,vx2,vy2,4,(Col){255,90,90},1); }
+    text(R,"drag to rotate \xb7 red ring = selected part's pivot",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+    #undef RVIEW
+
+    /* ---- inspector card ---- */
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"RIG"); int lx=cardx+12;
+    text(R,"PARTS",lx,cy,1,C_DIM,C_PANEL); cy+=16;
+    for(int p=0;p<g_nrp;p++){ int sel=(p==g_rsel); g_rg_part[p]=(SDL_Rect){lx,cy,MESH_CARDW-24,18};
+        rrect(R,lx,cy,MESH_CARDW-24,18,4,sel?C_SEL:(hit(mx,my,lx,cy,MESH_CARDW-24,18)?C_BTNHI:C_BTN));
+        char lbl[48]; snprintf(lbl,sizeof lbl,"%-10s %s%s",g_rp[p].name, g_rp[p].parent<0?"(root)":"\xbb ", g_rp[p].parent<0?"":g_rp[g_rp[p].parent].name);
+        text(R,lbl,lx+6,cy+3,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); cy+=20; }
+    cy+=6; RigPart*s=&g_rp[g_rsel];
+    text(R,"PARENT",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    g_rg_par=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN);
+    { char pb[40]; snprintf(pb,sizeof pb,"< %s >", s->parent<0?"root (-1)":g_rp[s->parent].name); text(R,pb,lx+8,cy+5,1,C_TXT,C_BTN); } cy+=26;
+    text(R,"PIVOT  (joint)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    const char*ax[3]={"x","y","z"}; float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
+    for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*pv[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+6; }
+    g_rg_cen=(SDL_Rect){lx,cy,MESH_CARDW-24,22}; rrect(R,lx,cy,MESH_CARDW-24,22,4,hit(mx,my,lx,cy,MESH_CARDW-24,22)?C_BTNHI:C_BTN); text(R,"pivot = part centroid",lx+8,cy+6,1,C_TXT,C_BTN); cy+=28;
+    g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,26}; rrect(R,lx,cy,MESH_CARDW-24,26,5,hit(mx,my,lx,cy,MESH_CARDW-24,26)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+7,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,26)?C_BTNHI:C_ACC);
+}
+static int rig_down(int mx,int my){
+    #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(!g_nrp) return 0;
+    for(int p=0;p<g_nrp;p++) if(HITR(g_rg_part[p])){ g_rsel=p; return 1; }
+    RigPart*s=&g_rp[g_rsel];
+    if(HITR(g_rg_par)){ int n=g_rsel; do{ n--; if(n<-1)n=g_nrp-1; }while(n==g_rsel); s->parent=n; return 1; }   /* cycle -1,0..n-1 skipping self */
+    for(int a=0;a<3;a++){ float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
+        if(HITR(g_rg_px[a*2])){ *pv[a]-=0.02f; return 1; } if(HITR(g_rg_px[a*2+1])){ *pv[a]+=0.02f; return 1; } }
+    if(HITR(g_rg_cen)){ s->pivot=rig_centroid(g_rsel); return 1; }
+    if(HITR(g_rg_save)){ rig_save(); return 1; }
+    return 0;
+    #undef HITR
+}
+static void rig_save(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
+    const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; char base[64]; snprintf(base,sizeof base,"%.40s",b); char*d=strrchr(base,'.'); if(d)*d=0;
+    char rp[420]; snprintf(rp,sizeof rp,"%.330s/assets/%.40s.rig",g_games[g_sel].dir,base); FILE*f=fopen(rp,"w");
+    if(f){ fprintf(f,"# Mote rig (Studio) — parts root-first; pivots in model metres\n");
+        for(int p=0;p<g_nrp;p++){ const char*par=g_rp[p].parent<0?"-1":g_rp[g_rp[p].parent].name;
+            fprintf(f,"part %s parent %s pivot %g %g %g\n",g_rp[p].name,par,g_rp[p].pivot.x,g_rp[p].pivot.y,g_rp[p].pivot.z); } fclose(f); }
+    njob(2,g_games[g_sel].dir);   /* bake: obj + .rig -> src/<base>.rig.h */
+    snprintf(g_status,sizeof g_status,"saved %s.rig + baking %s.rig.h",base,base);
 }
 
 /* ================= audio waveform viewer ================= */
@@ -2261,6 +2378,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
         for(int i=start;i<g_logn;i++){ const char*s=g_log[i%80]; Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
             text(R,s,12,cy+(i-start)*13,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx); return; }
     if(g_tab==TAB_MESH){ draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
+    if(g_tab==TAB_RIG){ draw_rig(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
@@ -2480,7 +2598,11 @@ static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
-    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; } else if(r->kind==4){ load_mesh(r->path); g_tab=TAB_MESH; }
+    if(r->kind==3){ load_png(r->path); g_tab=TAB_PIXEL; }
+    else if(r->kind==4){ size_t pl=strlen(r->path); int isobj=pl>4&&!strcasecmp(r->path+pl-4,".obj"); struct stat rst; char rg[330];
+        if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
+        if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
+        else { load_mesh(r->path); g_tab=TAB_MESH; } }
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
     else if(ci_ends(r->name,".level")){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path; snprintf(g_tl_name,sizeof g_tl_name,"%.50s",b); char*dt=strrchr(g_tl_name,'.'); if(dt)*dt=0;
         g_tl_init=1; lv_load_def(r->path); g_tab=TAB_TILES; }                                      /* open a level in the Tiles tab */
@@ -2523,6 +2645,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
+    if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH;
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
         if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
@@ -2707,13 +2830,13 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my); continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
-                g_split=0; g_mdrag=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
@@ -2729,6 +2852,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw+=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y,1); }
