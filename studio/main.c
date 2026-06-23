@@ -1215,6 +1215,8 @@ static void rig_load(const char*objpath){
 typedef struct { int t_ms; V3 erot[RIG_MAXP]; } RigKey;
 static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
 static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
+static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
+static int g_kdrag=-1, g_scrub; /* dragging a keyframe (index) / dragging the playhead */
 typedef struct { float a,b,c,d,e,f,g,h,i; } M3;
 static V3 m3a(M3 m,V3 v){ return (V3){m.a*v.x+m.b*v.y+m.c*v.z,m.d*v.x+m.e*v.y+m.f*v.z,m.g*v.x+m.h*v.y+m.i*v.z}; }
 static M3 m3mm(M3 A,M3 B){ return (M3){
@@ -1223,7 +1225,18 @@ static M3 m3mm(M3 A,M3 B){ return (M3){
   A.g*B.a+A.h*B.d+A.i*B.g,A.g*B.b+A.h*B.e+A.i*B.h,A.g*B.c+A.h*B.f+A.i*B.i}; }
 static M3 m3eul(float rx,float ry,float rz){ float cx=cosf(rx),sx=sinf(rx),cy=cosf(ry),sy=sinf(ry),cz=cosf(rz),sz=sinf(rz);
   M3 X={1,0,0,0,cx,-sx,0,sx,cx},Y={cy,0,sy,0,1,0,-sy,0,cy},Z={cz,-sz,0,sz,cz,0,0,0,1}; return m3mm(Z,m3mm(Y,X)); }
-static void rig_respace(void){ for(int i=0;i<g_nrk;i++) g_rk[i].t_ms = (g_nrk>1)? i*g_clip_ms/(g_nrk-1) : 0; }
+static void rig_pose_at(float t,V3 out[RIG_MAXP]);   /* fwd */
+static void rig_key_clamp(void){ for(int i=0;i<g_nrk;i++){ if(g_rk[i].t_ms<0)g_rk[i].t_ms=0; if(g_rk[i].t_ms>g_clip_ms)g_rk[i].t_ms=g_clip_ms; } }
+/* keep g_rk sorted by t_ms after one key's time changes; follow that key's index */
+static void rig_key_bubble(int *i){ while(*i>0 && g_rk[*i].t_ms<g_rk[*i-1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i-1]; g_rk[*i-1]=t; (*i)--; }
+    while(*i<g_nrk-1 && g_rk[*i].t_ms>g_rk[*i+1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i+1]; g_rk[*i+1]=t; (*i)++; } }
+/* insert a key at time t_ms capturing the current (interpolated) pose; returns its index */
+static int rig_key_insert(int t_ms){ if(g_nrk>=RIG_MAXK)return g_ksel; if(t_ms<0)t_ms=0; if(t_ms>g_clip_ms)t_ms=g_clip_ms;
+    V3 pose[RIG_MAXP]; rig_pose_at((float)t_ms,pose);
+    int at=0; while(at<g_nrk && g_rk[at].t_ms<t_ms) at++;
+    if(at<g_nrk && g_rk[at].t_ms==t_ms){ for(int p=0;p<g_nrp;p++)g_rk[at].erot[p]=pose[p]; return at; }  /* replace exact */
+    for(int i=g_nrk;i>at;i--) g_rk[i]=g_rk[i-1];
+    g_rk[at].t_ms=t_ms; for(int p=0;p<RIG_MAXP;p++)g_rk[at].erot[p]=pose[p]; g_nrk++; return at; }
 static void rig_pose_at(float t,V3 out[RIG_MAXP]){ for(int p=0;p<g_nrp;p++)out[p]=(V3){0,0,0}; if(!g_nrk)return; int last=g_nrk-1;
   if(t<=g_rk[0].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[0].erot[p]; return; }
   if(t>=g_rk[last].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[last].erot[p]; return; }
@@ -1239,12 +1252,13 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     if(!g_nrp){ text(R,"Select a multi-object .obj in the tree to edit its rig (a .rig sidecar holds parents + pivots).",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
     /* no auto-rotate — this is an editor; drag to orbit, the view stays put otherwise */
     float cyw=cosf(g_ryaw),syw=sinf(g_ryaw),cp=cosf(g_rpitch),sp=sinf(g_rpitch);
-    /* current clip time: playhead when playing, else the selected key's time */
+    /* current clip time: animated playhead when playing, else the draggable scrub playhead */
     float t_ms;
     if(g_playing){ uint32_t now=SDL_GetTicks(); float d=(float)(now-g_play_last); if(d>100)d=100; g_play_t+=d; g_play_last=now; float dur=g_clip_ms>0?g_clip_ms:1;
         if(g_clip_loop==2){ float m=fmodf(g_play_t,dur*2); t_ms=m>dur?dur*2-m:m; } else if(g_clip_loop==1){ g_play_t=fmodf(g_play_t,dur); t_ms=g_play_t; }
-        else { if(g_play_t>=dur){ g_play_t=dur; g_playing=0; } t_ms=g_play_t; } }
-    else t_ms = g_nrk? (float)g_rk[g_ksel].t_ms : 0;
+        else { if(g_play_t>=dur){ g_play_t=dur; g_playing=0; } t_ms=g_play_t; }
+        g_scrub_t=t_ms; }   /* leave the playhead where playback stopped */
+    else { if(g_scrub_t<0)g_scrub_t=0; if(g_scrub_t>g_clip_ms)g_scrub_t=g_clip_ms; t_ms=g_scrub_t; }
     V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
     int rw,rh;   /* match the view's aspect so the model isn't stretched */
     if(vw>=h){ rw=vw>512?512:vw; rh=(int)((long)rw*h/(vw>0?vw:1)); } else { rh=h>512?512:h; rw=(int)((long)rh*vw/(h>0?h:1)); }
@@ -1293,11 +1307,18 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     g_rg_durp=(SDL_Rect){bx,by,20,22}; rrect(R,bx,by,20,22,4,hit(mx,my,bx,by,20,22)?C_BTNHI:C_BTN); text(R,"+",bx+6,by+6,1,C_TXT,C_BTN); bx+=24;
     TBTN(g_rg_bake,92,"Bake anim3d",0);
     #undef TBTN
-    int ty=oy+h-36, tw=vw-20, tx=ox+10; plain(R,tx,ty+6,tw,3,(Col){50,54,68}); g_rg_track=(SDL_Rect){tx,ty,tw,18};
-    for(int i=0;i<g_nrk;i++){ int kxp=tx+(g_clip_ms>0? g_rk[i].t_ms*tw/g_clip_ms : 0); g_rg_keytk[i]=(SDL_Rect){kxp-4,ty,9,18};
-        Col kc = (i==g_ksel)?(Col){255,205,80}:(Col){150,160,190}; plain(R,kxp-3,ty+1,6,16,kc); }
-    { float dur=g_clip_ms>0?g_clip_ms:1; int php=tx+(int)(t_ms/dur*tw); plain(R,php-1,ty-2,2,22,(Col){255,90,90}); }
-    text(R,g_nrk?"drag rotates \xb7 keys evenly spaced \xb7 +Key captures the pose":"drag rotates \xb7 +Key to start a clip",ox+12,oy+h-16,1,C_DIM,(Col){16,18,26});
+    int ty=oy+h-40, tw=vw-20, tx=ox+10; float dur=g_clip_ms>0?g_clip_ms:1;
+    g_rg_track=(SDL_Rect){tx,ty-2,tw,26};                               /* generous hit area for scrubbing */
+    plain(R,tx,ty-2,tw,26,(Col){22,25,34}); rect_outline(R,tx,ty-2,tw,26,(Col){46,50,64},1);
+    for(int g=0;g<=4;g++){ int gx=tx+g*tw/4; plain(R,gx,ty-2,1,26,(Col){38,42,54});          /* time gridlines + labels */
+        char tl[12]; snprintf(tl,sizeof tl,"%d",g_clip_ms*g/4); text(R,tl,gx+2,ty+15,1,(Col){90,96,116},(Col){22,25,34}); }
+    for(int i=0;i<g_nrk;i++){ int kxp=tx+(int)(g_rk[i].t_ms/dur*tw); g_rg_keytk[i]=(SDL_Rect){kxp-6,ty-2,13,16};   /* draggable diamonds */
+        Col kc=(i==g_ksel)?(Col){255,205,80}:(Col){150,160,190};
+        for(int dy=-5;dy<=5;dy++){ int wdt=5-(dy<0?-dy:dy); plain(R,kxp-wdt,ty+5+dy,wdt*2+1,1,kc); } }
+    { int php=tx+(int)(t_ms/dur*tw); plain(R,php-1,ty-4,2,28,(Col){255,90,90});            /* red playhead */
+      for(int dy=0;dy<5;dy++) plain(R,php-4+dy,ty-6+dy,2*(4-dy)+2,1,(Col){255,90,90}); }   /* triangle handle */
+    { char tb[40]; snprintf(tb,sizeof tb,"t = %d ms%s",(int)(t_ms+0.5f),g_playing?"  (playing)":""); text(R,tb,tx,oy+h-16,1,C_DIM,(Col){16,18,26}); }
+    text(R,g_nrk?"drag the playhead to scrub \xb7 drag a key to retime \xb7 +Key adds at the playhead":"+Key adds a keyframe at the playhead \xb7 then pose & +Key again",ox+150,oy+h-16,1,C_DIM,(Col){16,18,26});
 
     /* ---- inspector card ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"RIG"); int lx=cardx+12;
@@ -1318,7 +1339,7 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     } else {
         g_rg_cen=(SDL_Rect){0,0,0,0};
         if(!g_nrk){ text(R,"no keys — +Key below",lx,cy,1,C_DIM,C_PANEL); cy+=18; for(int a=0;a<3;a++)g_rg_px[a*2]=g_rg_px[a*2+1]=(SDL_Rect){0,0,0,0}; }
-        else { char kb[28]; snprintf(kb,sizeof kb,"ROT key %d/%d (deg)",g_ksel+1,g_nrk); text(R,kb,lx,cy,1,C_DIM,C_PANEL); cy+=14;
+        else { char kb[40]; snprintf(kb,sizeof kb,"ROT key %d/%d @ %dms (deg)",g_ksel+1,g_nrk,g_rk[g_ksel].t_ms); text(R,kb,lx,cy,1,C_DIM,C_PANEL); cy+=14;
             const char*ax[3]={"x","y","z"}; float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
             for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%d",(int)lrintf(*er[a]*57.29578f)); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+5; } }
     }
@@ -1328,13 +1349,15 @@ static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(!g_nrp) return 0;
     for(int p=0;p<g_nrp;p++) if(HITR(g_rg_part[p])){ g_rsel=p; return 1; }
-    for(int i=0;i<g_nrk;i++) if(HITR(g_rg_keytk[i])){ g_ksel=i; g_playing=0; return 1; }
-    if(HITR(g_rg_play)){ g_playing=!g_playing; g_play_t=0; g_play_last=SDL_GetTicks(); return 1; }
+    for(int i=0;i<g_nrk;i++) if(HITR(g_rg_keytk[i])){ g_ksel=i; g_kdrag=i; g_playing=0; g_scrub_t=(float)g_rk[i].t_ms; return 1; }   /* select + start retime drag */
+    if(HITR(g_rg_track)){ g_scrub=1; g_playing=0;                                          /* scrub the playhead */
+        g_scrub_t=(float)(mx-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1); if(g_scrub_t<0)g_scrub_t=0; if(g_scrub_t>g_clip_ms)g_scrub_t=g_clip_ms; return 1; }
+    if(HITR(g_rg_play)){ g_playing=!g_playing; if(g_playing){ g_play_t=g_scrub_t; g_play_last=SDL_GetTicks(); } return 1; }   /* play from the playhead */
     if(HITR(g_rg_loop)){ g_clip_loop=(g_clip_loop+1)%3; return 1; }
-    if(HITR(g_rg_addk)){ if(g_nrk<RIG_MAXK){ int n=g_nrk; if(n>0)memcpy(g_rk[n].erot,g_rk[n-1].erot,sizeof(V3)*RIG_MAXP); else for(int p=0;p<RIG_MAXP;p++)g_rk[n].erot[p]=(V3){0,0,0}; g_nrk++; rig_respace(); g_ksel=g_nrk-1; } return 1; }
-    if(HITR(g_rg_delk)){ if(g_nrk>0){ for(int i=g_ksel;i<g_nrk-1;i++)g_rk[i]=g_rk[i+1]; g_nrk--; if(g_ksel>=g_nrk)g_ksel=g_nrk?g_nrk-1:0; rig_respace(); } return 1; }
-    if(HITR(g_rg_durm)){ g_clip_ms-=100; if(g_clip_ms<100)g_clip_ms=100; rig_respace(); return 1; }
-    if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_respace(); return 1; }
+    if(HITR(g_rg_addk)){ g_ksel=rig_key_insert((int)(g_scrub_t+0.5f)); g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; }   /* key at the playhead */
+    if(HITR(g_rg_delk)){ if(g_nrk>0){ for(int i=g_ksel;i<g_nrk-1;i++)g_rk[i]=g_rk[i+1]; g_nrk--; if(g_ksel>=g_nrk)g_ksel=g_nrk?g_nrk-1:0; if(g_nrk)g_scrub_t=(float)g_rk[g_ksel].t_ms; } return 1; }
+    if(HITR(g_rg_durm)){ g_clip_ms-=100; if(g_clip_ms<100)g_clip_ms=100; rig_key_clamp(); return 1; }
+    if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_key_clamp(); return 1; }
     if(HITR(g_rg_bake)){ rig_anim_bake(); return 1; }
     if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; return 1; }
     RigPart*s=&g_rp[g_rsel];
@@ -1345,7 +1368,7 @@ static int rig_down(int mx,int my){
         if(HITR(g_rg_cen)){ s->pivot=rig_centroid(g_rsel); return 1; }
     } else if(g_nrk){
         float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
-        for(int a=0;a<3;a++){ if(HITR(g_rg_px[a*2])){ *er[a]-=0.0872665f; return 1; } if(HITR(g_rg_px[a*2+1])){ *er[a]+=0.0872665f; return 1; } }   /* +-5 deg */
+        for(int a=0;a<3;a++){ if(HITR(g_rg_px[a*2])){ *er[a]-=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_px[a*2+1])){ *er[a]+=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }   /* +-5 deg, snap preview to the key */
     }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
     return 0;
@@ -2789,7 +2812,8 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_RIGANIM")&&g_nrp){ int tp=g_nrp>1?1:0; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,"turret"))tp=i;   /* test clip: yaw the turret */
         g_clip_ms=1000; g_clip_loop=2; g_nrk=3; for(int k=0;k<3;k++)for(int p=0;p<g_nrp;p++)g_rk[k].erot[p]=(V3){0,0,0};
-        g_rk[1].erot[tp]=(V3){0,1.2f,0}; g_rk[2].erot[tp]=(V3){0,-1.2f,0}; rig_respace(); g_rsel=tp; g_ksel=1; g_pose_mode=1;
+        g_rk[0].t_ms=0; g_rk[1].t_ms=500; g_rk[2].t_ms=1000;
+        g_rk[1].erot[tp]=(V3){0,1.2f,0}; g_rk[2].erot[tp]=(V3){0,-1.2f,0}; g_rsel=tp; g_ksel=1; g_pose_mode=1; g_scrub_t=500;
         if(getenv("MOTE_STUDIO_RIGBAKE"))rig_anim_bake(); }
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH;
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
@@ -2981,7 +3005,7 @@ int main(int argc,char**argv){
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
-                g_split=0; g_mdrag=0; g_rdrag=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
@@ -2997,6 +3021,11 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw+=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_kdrag>=0){   /* retime the dragged key */
+                    int t=(int)((float)(e.motion.x-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1)); if(t<0)t=0; if(t>g_clip_ms)t=g_clip_ms;
+                    g_rk[g_kdrag].t_ms=t; rig_key_bubble(&g_kdrag); g_ksel=g_kdrag; g_scrub_t=(float)t; }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_scrub){          /* scrub the playhead */
+                    float t=(float)(e.motion.x-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1); if(t<0)t=0; if(t>g_clip_ms)t=g_clip_ms; g_scrub_t=t; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw+=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
