@@ -1024,10 +1024,10 @@ static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)ret
     g_mesh_size=g_mesh_qmax;          /* default to the model's natural half-extent (matches the CLI baker) */
     rgb2hsv((g_mesh_rgb>>16)&0xFF,(g_mesh_rgb>>8)&0xFF,g_mesh_rgb&0xFF,&g_hue,&g_sat,&g_val);  /* seed the colour picker */
     snprintf(g_status,sizeof g_status,"mesh: %d raw tris -> %d (budget %d), %d chunks",g_nraw,g_mesh_outf,g_mesh_budget,g_mesh_nchunk); }
-static float *g_mdepth;
-/* painter's: draw farthest first. larger z = nearer (projection divides by dist-z),
- * so sort ASCENDING by z (smallest/farthest first). */
-static int cmp_depth(const void*a,const void*b){ float d=g_mdepth[*(const int*)a]-g_mdepth[*(const int*)b]; return d<0?-1:(d>0?1:0); }
+/* mesh preview: a z-buffered software rasteriser (per-pixel depth test, like the
+ * engine's mote_raster), blitted through a streaming RGB565 texture. Painter's
+ * centroid-sort mis-ordered overlapping front faces as the model rotated. */
+static SDL_Texture *g_mztex; static uint16_t *g_mzpx; static float *g_mzd; static int g_mzw, g_mzh;
 /* mesh parameter-card hit rects (immediate-mode; tested in mesh_down) */
 static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_hsv,g_me_hue,g_me_bake,g_me_view;
 static int g_me_hsvdrag,g_me_huedrag;
@@ -1045,27 +1045,41 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     /* ---- processed-mesh 3D preview (left) ---- */
     if(!g_mdrag) g_myaw+=0.008f;
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
-    int cx=ox+vw/2, cyy=oy+h/2; float persp=(h<vw?h:vw)*0.62f, dist=2.7f;
-    static int *order; static float *depth; static int cap; static V3 *sa,*sb,*sc;
-    if(g_ntri>cap){ cap=g_ntri; order=realloc(order,cap*sizeof(int)); depth=realloc(depth,cap*sizeof(float));
-        sa=realloc(sa,cap*sizeof(V3)); sb=realloc(sb,cap*sizeof(V3)); sc=realloc(sc,cap*sizeof(V3)); }
+    int rw=vw>0?vw:1; if(rw>512)rw=512; int rh=h>0?h:1; if(rh>512)rh=512;
+    if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
+        g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
+    uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
+    for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
+    int cx=rw/2, cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f, dist=2.7f;
+    uint8_t br=(uint8_t)(g_mesh_rgb>>16&0xFF),bg=(uint8_t)(g_mesh_rgb>>8&0xFF),bb=(uint8_t)(g_mesh_rgb&0xFF);
     for(int i=0;i<g_ntri;i++){ V3 vv[3]={g_tri[i].a,g_tri[i].b,g_tri[i].c},rr[3];
         for(int k=0;k<3;k++){ V3 p=vv[k]; p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
             float x=p.x*cyw-p.z*syw, z=p.x*syw+p.z*cyw, y=p.y*cp-z*sp, z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
-        sa[i]=rr[0]; sb[i]=rr[1]; sc[i]=rr[2]; order[i]=i; depth[i]=(rr[0].z+rr[1].z+rr[2].z)/3; }
-    g_mdepth=depth; qsort(order,g_ntri,sizeof(int),cmp_depth);
-    uint8_t br=(uint8_t)(g_mesh_rgb>>16&0xFF),bg=(uint8_t)(g_mesh_rgb>>8&0xFF),bb=(uint8_t)(g_mesh_rgb&0xFF);
-    for(int o=0;o<g_ntri;o++){ int i=order[o]; V3 a=sa[i],b=sb[i],c=sc[i];
-        float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
-        float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl; ny/=nl; nz/=nl;
-        if(nz<0)continue;
+        float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z, vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
+        float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
+        if(nz<0)continue;                                            /* backface */
         float sh=0.28f+0.72f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
-        Col col;
-        if(g_mesh_chunkview){ unsigned hh=(unsigned)g_tri_chunk[i]*2654435761u; col=(Col){(Uint8)((70+(hh&140))*sh),(Uint8)((70+((hh>>8)&140))*sh),(Uint8)((70+((hh>>16)&140))*sh)}; }
-        else col=(Col){(Uint8)(br*sh),(Uint8)(bg*sh),(Uint8)(bb*sh)};
-        int xs[3]={cx+(int)(a.x*persp/(dist-a.z)),cx+(int)(b.x*persp/(dist-b.z)),cx+(int)(c.x*persp/(dist-c.z))};
-        int ys[3]={cyy-(int)(a.y*persp/(dist-a.z)),cyy-(int)(b.y*persp/(dist-b.z)),cyy-(int)(c.y*persp/(dist-c.z))};
-        fill_poly(R,xs,ys,3,col); }
+        uint8_t cr,cg,cb;
+        if(g_mesh_chunkview){ unsigned hh=(unsigned)g_tri_chunk[i]*2654435761u; cr=(uint8_t)((70+(hh&140))*sh); cg=(uint8_t)((70+((hh>>8)&140))*sh); cb=(uint8_t)((70+((hh>>16)&140))*sh); }
+        else { cr=(uint8_t)(br*sh); cg=(uint8_t)(bg*sh); cb=(uint8_t)(bb*sh); }
+        uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+        float sx[3],sy[3],sz[3];
+        for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
+        float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
+        int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])), maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
+        int miny=(int)floorf(fminf(fminf(sy[0],sy[1]),sy[2])), maxy=(int)ceilf(fmaxf(fmaxf(sy[0],sy[1]),sy[2]));
+        if(minx<0)minx=0; if(miny<0)miny=0; if(maxx>rw-1)maxx=rw-1; if(maxy>rh-1)maxy=rh-1;
+        for(int y=miny;y<=maxy;y++) for(int x=minx;x<=maxx;x++){
+            float fx=x+0.5f,fy=y+0.5f;
+            float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]);
+            float e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]);
+            float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
+            if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
+            float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
+            if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } }
+    SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2);
+    SDL_RenderCopy(R,g_mztex,NULL,&g_me_view);
     text(R,"drag to rotate",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
     /* ---- parameter card (right) ---- */
