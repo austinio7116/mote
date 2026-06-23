@@ -195,10 +195,15 @@ def cmd_bake(args):
         return t
 
     if objs:
-        ot = tool_for("obj2mesh.c", "mote_obj2mesh")
         for o in objs:
             name = os.path.splitext(o)[0]
-            run([ot, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
+            rig = os.path.join(assets, name + ".rig")
+            if os.path.isfile(rig):          # multi-object OBJ + .rig sidecar -> a MoteRig
+                rt = tool_for("obj2rig.c", "mote_obj2rig")
+                run([rt, name, os.path.join(assets, o), os.path.join(d, "src", name + ".rig.h"), rig])
+            else:                            # plain OBJ -> a single Mesh
+                ot = tool_for("obj2mesh.c", "mote_obj2mesh")
+                run([ot, name, os.path.join(assets, o), os.path.join(d, "src", name + ".h")])
     if stls:
         st = tool_for("stl2mesh.c", "mote_stl2mesh")
         budget = str(getattr(args, "budget", None) or 1500)

@@ -222,11 +222,15 @@ static int bake_wav(const char *path, const char *header, const char *name, mote
 int mc_bake(const char *dir, mote_log_fn log){
     char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad); if(!d){ log("no assets/ directory"); return -1; }
     struct dirent *e; int did=0;
-    char objtool[64],stltool[64]; snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT);
+    char objtool[64],stltool[64],rigtool[64];
+    snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT);
     while((e=readdir(d))){ const char *n=e->d_name; int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
         char path[600],header[600]; snprintf(path,sizeof path,"%.320s/assets/%s",dir,n); snprintf(header,sizeof header,"%.320s/src/%s.h",dir,base);
         if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){ if(bake_image(path,header,base,log)==0)did++; }
-        else if(!strcasecmp(n+l-4,".obj")){ ensure_tool("obj2mesh.c",objtool,log); char c[1000]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)did++; }
+        else if(!strcasecmp(n+l-4,".obj")){ char rigp[600]; snprintf(rigp,sizeof rigp,"%.320s/assets/%.60s.rig",dir,base); struct stat rs;
+            if(stat(rigp,&rs)==0){ ensure_tool("obj2rig.c",rigtool,log); char rh[640]; snprintf(rh,sizeof rh,"%.320s/src/%.60s.rig.h",dir,base);
+                char c[1400]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)did++; }   /* OBJ + .rig -> MoteRig */
+            else { ensure_tool("obj2mesh.c",objtool,log); char c[1000]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)did++; } }
         else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); char c[1000]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)did++; }
         else if(!strcasecmp(n+l-4,".wav")){ if(bake_wav(path,header,base,log)==0)did++; } }
     closedir(d); if(!did)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }

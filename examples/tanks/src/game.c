@@ -19,6 +19,9 @@
 #include "fire.sfx.h"
 #include "boom.sfx.h"
 #include "ping.sfx.h"
+/* tank geometry + rig — baked from assets/tank.obj + tank.rig by obj2rig.
+ * (Loads in the Studio Mesh tab; the rig editor edits the pivots/hierarchy.) */
+#include "tank.rig.h"
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -41,22 +44,11 @@ static const Mesh *box_at(const MoteApi *api, float hx, float hy, float hz, Vec3
     if (!v||!f||!m) return 0; mk_box(v,f,m,hx,hy,hz,c,col); return m;
 }
 
-/* ---- tank rig: body / turret / barrel ---- */
+/* ---- tank rig parts (order matches assets/tank.rig: body / turret / barrel) ---- */
 enum { P_BODY, P_TURRET, P_BARREL, P_COUNT };
-static MoteRigPart s_tp[P_COUNT];
-static MoteRig     s_tank;
 #define TURRET_Y 0.30f
 #define BARREL_LEN 0.62f
 #define TANK_R 0.34f
-static void build_tank(void) {
-    const Mesh *hull   = box_at(mote, 0.30f, 0.11f, 0.40f, v3(0, 0.13f, 0),         MOTE_RGB565(225,225,225));
-    const Mesh *turret = box_at(mote, 0.19f, 0.10f, 0.21f, v3(0, TURRET_Y, 0.02f),  MOTE_RGB565(245,245,245));
-    const Mesh *barrel = box_at(mote, 0.045f,0.045f,0.30f, v3(0, TURRET_Y, 0.32f),  MOTE_RGB565(120,120,130));
-    s_tp[P_BODY]   = (MoteRigPart){ hull,   1, -1,       v3(0,0,0) };
-    s_tp[P_TURRET] = (MoteRigPart){ turret, 1, P_BODY,   v3(0, TURRET_Y, 0.02f) };
-    s_tp[P_BARREL] = (MoteRigPart){ barrel, 1, P_TURRET, v3(0, TURRET_Y, 0.10f) };
-    s_tank = (MoteRig){ s_tp, P_COUNT, P_COUNT*12 };
-}
 
 /* ---- arena ---- */
 #define AX 6.2f
@@ -192,7 +184,7 @@ static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(26,32,50));
     mote->scene_set_sun(v3_norm(v3(-0.35f,0.9f,0.4f)));
     mote_rand_seed(0x7A4E12u);
-    build_tank(); build_arena_static();
+    build_arena_static();
     s_fire = mote_sfx_bake(mote,&fire_sfx);
     s_boom = mote_sfx_bake(mote,&boom_sfx);
     s_ping = mote_sfx_bake(mote,&ping_sfx);
@@ -277,10 +269,10 @@ static void g_update(float dt) {
     for (int i=0;i<s_nblocks;i++) mote_draw(mote,&s_bm[i],v3(s_blocks[i].cx,0,s_blocks[i].cz));
     for (int i=0;i<s_nt;i++){ Tank *t=&s_t[i]; if (!t->alive) continue;
         Mat3 body=m3_identity(); m3_rotate_local(&body,1,t->yaw);
-        MoteRigLocal loc[P_COUNT]; mote_rig_eval(&s_tank,0,loc);
+        MoteRigLocal loc[P_COUNT]; mote_rig_eval(&tank_rig,0,loc);
         loc[P_TURRET].rot=mote_quat_axis(v3(0,1,0), t->aim-t->yaw);
         loc[P_BARREL].pos=v3(0,0,-t->recoil*0.16f);
-        mote_rig_draw_locals_tint(mote,&s_tank,loc,v3(t->x,0,t->z),body,1.0f,t->color);
+        mote_rig_draw_locals_tint(mote,&tank_rig,loc,v3(t->x,0,t->z),body,1.0f,t->color);
     }
     for (int i=0;i<MAXS;i++) if (s_s[i].alive){
         if (s_s[i].rocket) mote->scene_add_sphere(v3(s_s[i].x,0.32f,s_s[i].z), ROCKET_R, MOTE_RGB565(250,150,60));
