@@ -1079,11 +1079,11 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     /* ---- processed-mesh 3D preview (left) ---- */
     if(!g_mdrag) g_myaw+=0.008f;
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
-    int rw,rh;   /* match the view's aspect so the model isn't stretched */
-    if(vw>=h){ rw=vw>512?512:vw; rh=(int)((long)rw*h/(vw>0?vw:1)); } else { rh=h>512?512:h; rw=(int)((long)rh*vw/(h>0?h:1)); }
+    int rw=vw, rh=h;   /* render at the view's native resolution -> 1:1 copy, sharp pixels, correct aspect */
+    if(rw>1280)rw=1280; if(rh>1280)rh=1280;
     if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
-        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
         g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
     uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
     for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
@@ -1260,11 +1260,11 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
         g_scrub_t=t_ms; }   /* leave the playhead where playback stopped */
     else { if(g_scrub_t<0)g_scrub_t=0; if(g_scrub_t>g_clip_ms)g_scrub_t=g_clip_ms; t_ms=g_scrub_t; }
     V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
-    int rw,rh;   /* match the view's aspect so the model isn't stretched */
-    if(vw>=h){ rw=vw>512?512:vw; rh=(int)((long)rw*h/(vw>0?vw:1)); } else { rh=h>512?512:h; rw=(int)((long)rh*vw/(h>0?h:1)); }
+    int rw=vw, rh=h;   /* render at the view's native resolution -> 1:1 copy, sharp pixels, correct aspect */
+    if(rw>1280)rw=1280; if(rh>1280)rh=1280;
     if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
-        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
         g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
     uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
     for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
