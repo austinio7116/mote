@@ -58,7 +58,7 @@ void mote_scene2d_set_autotile_layers(const uint8_t *map, int cols, int rows,
 }
 
 int mote_scene2d_add(const MoteSprite *spr) {
-    if (s_nspr >= MOTE_SCENE2D_MAX_SPRITES) return 0;
+    if (!spr || !spr->img || s_nspr >= MOTE_SCENE2D_MAX_SPRITES) return 0;   /* fail soft on a bad sprite */
     s_spr[s_nspr++] = *spr;
     return 1;
 }
