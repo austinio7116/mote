@@ -1045,7 +1045,9 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     /* ---- processed-mesh 3D preview (left) ---- */
     if(!g_mdrag) g_myaw+=0.008f;
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
-    int rw=vw>0?vw:1; if(rw>512)rw=512; int rh=h>0?h:1; if(rh>512)rh=512;
+    int rw,rh;   /* match the view's aspect so the model isn't stretched */
+    if(vw>=h){ rw=vw>512?512:vw; rh=(int)((long)rw*h/(vw>0?vw:1)); } else { rh=h>512?512:h; rw=(int)((long)rh*vw/(h>0?h:1)); }
+    if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
         g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
@@ -1201,16 +1203,18 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_rg_view=(SDL_Rect){ox,oy,vw,h};
     if(!g_nrp){ text(R,"Select a multi-object .obj in the tree to edit its rig (a .rig sidecar holds parents + pivots).",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
-    if(!g_rdrag) g_ryaw+=0.006f;
+    /* no auto-rotate — this is an editor; drag to orbit, the view stays put otherwise */
     float cyw=cosf(g_ryaw),syw=sinf(g_ryaw),cp=cosf(g_rpitch),sp=sinf(g_rpitch);
     /* current clip time: playhead when playing, else the selected key's time */
     float t_ms;
-    if(g_playing){ uint32_t now=SDL_GetTicks(); g_play_t+=(float)(now-g_play_last); g_play_last=now; float dur=g_clip_ms>0?g_clip_ms:1;
+    if(g_playing){ uint32_t now=SDL_GetTicks(); float d=(float)(now-g_play_last); if(d>100)d=100; g_play_t+=d; g_play_last=now; float dur=g_clip_ms>0?g_clip_ms:1;
         if(g_clip_loop==2){ float m=fmodf(g_play_t,dur*2); t_ms=m>dur?dur*2-m:m; } else if(g_clip_loop==1){ g_play_t=fmodf(g_play_t,dur); t_ms=g_play_t; }
         else { if(g_play_t>=dur){ g_play_t=dur; g_playing=0; } t_ms=g_play_t; } }
     else t_ms = g_nrk? (float)g_rk[g_ksel].t_ms : 0;
     V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
-    int rw=vw>0?vw:1; if(rw>512)rw=512; int rh=h>0?h:1; if(rh>512)rh=512;
+    int rw,rh;   /* match the view's aspect so the model isn't stretched */
+    if(vw>=h){ rw=vw>512?512:vw; rh=(int)((long)rw*h/(vw>0?vw:1)); } else { rh=h>512?512:h; rw=(int)((long)rh*vw/(h>0?h:1)); }
+    if(rw<1)rw=1; if(rh<1)rh=1;
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeLinear);
         g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
@@ -2988,6 +2992,9 @@ int main(int argc,char**argv){
         if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren);
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
+        /* cap to ~60fps — vsync is ignored under WSL/software GL, so without this the
+         * loop free-runs (fast frame-based animation + needless CPU). */
+        { static uint32_t s_last; uint32_t now=SDL_GetTicks(), dtf=now-s_last; if(dtf<16)SDL_Delay(16-dtf); s_last=SDL_GetTicks(); }
     } while(running);
 
     stop_engine(); SDL_DestroyTexture(tex); if(ren)SDL_DestroyRenderer(ren); if(win)SDL_DestroyWindow(win); if(surf)SDL_FreeSurface(surf); SDL_Quit(); return 0; }
