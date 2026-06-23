@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mote Engine — API / ABI Reference</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1c2128; --muted:#57606a; --faint:#8b949e;
+    --line:#d8dee4; --soft:#f4f6f8; --code:#eef1f4;
+    --accent:#2f6feb; --accent2:#0969da; --green:#1a7f37; --purple:#8250df; --amber:#9a6700;
+    --sidebar:#161b22; --sidebar-fg:#c9d1d9; --sidebar-muted:#768390; --sidebar-active:#2f6feb;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Code",Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);color:var(--fg);background:var(--bg);font-size:15px;line-height:1.6}
+
+  /* ---- layout ---- */
+  #sidebar{position:fixed;top:0;left:0;width:288px;height:100vh;overflow-y:auto;
+    background:var(--sidebar);color:var(--sidebar-fg);padding:0 0 40px;border-right:1px solid #0d1117}
+  #sidebar .brand{padding:20px 22px 14px;position:sticky;top:0;background:var(--sidebar);z-index:2;border-bottom:1px solid #21262d}
+  #sidebar .brand h1{font-size:18px;margin:0;letter-spacing:.3px}
+  #sidebar .brand .sub{color:var(--sidebar-muted);font-size:12px;margin-top:3px}
+  #sidebar .brand .abi{display:inline-block;margin-top:9px;background:#1f6feb22;color:#79c0ff;border:1px solid #1f6feb55;
+    border-radius:20px;padding:2px 10px;font-size:11px;font-family:var(--mono)}
+  #filter{width:calc(100% - 28px);margin:12px 14px 6px;padding:7px 10px;border-radius:6px;border:1px solid #30363d;
+    background:#0d1117;color:#c9d1d9;font-size:13px;font-family:var(--mono)}
+  #filter::placeholder{color:#586069}
+  nav{padding:6px 0}
+  nav .grp{color:var(--sidebar-muted);text-transform:uppercase;font-size:10.5px;letter-spacing:.8px;
+    padding:14px 22px 4px;font-weight:700}
+  nav a{display:block;color:var(--sidebar-fg);text-decoration:none;padding:3px 22px 3px 22px;font-size:13px;border-left:2px solid transparent}
+  nav a:hover{background:#1f2630;color:#fff}
+  nav a.sub{padding-left:34px;font-size:12.5px;color:#9aa5b1;font-family:var(--mono)}
+  nav a.active{border-left-color:var(--sidebar-active);background:#1f2630;color:#fff}
+  nav a.hidden{display:none}
+
+  main{margin-left:288px;max-width:920px;padding:46px 56px 140px}
+  @media(max-width:980px){#sidebar{position:static;width:100%;height:auto;border-right:none}main{margin-left:0;padding:28px 20px 80px}}
+
+  /* ---- content ---- */
+  h2{font-size:26px;margin:54px 0 6px;padding-top:10px;border-bottom:1px solid var(--line);padding-bottom:8px;font-weight:650}
+  h2:first-of-type{margin-top:0}
+  h3{font-size:18px;margin:34px 0 4px;font-family:var(--mono);font-weight:600}
+  h4{font-size:14px;margin:22px 0 4px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  p{margin:10px 0}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.88em;background:var(--code);padding:1.5px 5px;border-radius:4px}
+  .lead{font-size:16.5px;color:var(--muted);line-height:1.7}
+  .anchor{scroll-margin-top:24px}
+  hr{border:0;border-top:1px solid var(--line);margin:30px 0}
+
+  pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.55;margin:14px 0}
+  pre.sig{border-left:3px solid var(--accent);background:#fbfcfd}
+  .kw{color:var(--purple)} .ty{color:var(--accent2)} .fn{color:var(--green);font-weight:600} .cm{color:var(--faint);font-style:italic} .num{color:var(--amber)}
+
+  .badge{display:inline-block;font-family:var(--mono);font-size:10.5px;border-radius:20px;padding:1px 8px;
+    border:1px solid var(--line);color:var(--muted);background:#fff;vertical-align:middle;margin-left:8px}
+  .badge.abi{color:#0969da;border-color:#0969da55;background:#0969da11}
+  .badge.hdr{color:var(--green);border-color:#1a7f3755;background:#1a7f3711}
+  .badge.sdk{color:var(--purple);border-color:#8250df55;background:#8250df11}
+
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px;background:var(--soft)}
+  td:first-child{font-family:var(--mono);white-space:nowrap;color:#0550ae}
+  td.ty{font-family:var(--mono);color:var(--purple);white-space:nowrap}
+  tr:last-child td{border-bottom:none}
+  table.compact td:first-child{color:#1c2128}
+
+  .note{border-left:3px solid var(--amber);background:#fff8e6;padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0;font-size:14px}
+  .note.info{border-left-color:var(--accent);background:#eaf2fd}
+  .note.warn{border-left-color:#cf222e;background:#fff0f0}
+  .note strong{color:var(--fg)}
+
+  .pill-row{margin:6px 0 2px}
+  .ret{color:var(--green);font-weight:600}
+  footer{margin-left:288px;max-width:920px;padding:24px 56px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
+  @media(max-width:980px){footer{margin-left:0;padding:24px 20px}}
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div class="brand">
+    <h1>Mote Engine</h1>
+    <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
+    <span class="abi">ABI v20</span>
+  </div>
+  <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
+  <nav id="nav">
+    <div class="grp">Guide</div>
+    <a href="#overview">Overview</a>
+    <a href="#model">Programming model</a>
+    <a href="#skeleton">Game skeleton</a>
+    <a href="#lifecycle">Lifecycle &amp; vtable</a>
+    <a href="#memory">Memory &amp; MoteConfig</a>
+
+    <div class="grp">Engine API (MoteApi)</div>
+    <a href="#api-input">Input</a>
+    <a href="#api-3d">3D scene</a>
+    <a href="#api-2d">2D scene &amp; tiles</a>
+    <a href="#api-physics">Physics</a>
+    <a href="#api-splat">Gaussian splats</a>
+    <a href="#api-audio">Audio</a>
+    <a href="#api-text">Text &amp; overlay</a>
+    <a href="#api-control">Control, arena &amp; telemetry</a>
+
+    <div class="grp">Data types</div>
+    <a href="#t-render">Rendering</a>
+    <a href="#t-mesh">Meshes</a>
+    <a href="#t-2d">Images, sprites, tiles</a>
+    <a href="#t-physics">Physics bodies</a>
+    <a href="#t-splat">Splats</a>
+    <a href="#t-input">Input state</a>
+    <a href="#t-audio">Audio</a>
+    <a href="#t-config">Config &amp; vtable</a>
+
+    <div class="grp">Math</div>
+    <a href="#math-types">Vec3 &amp; Mat3</a>
+    <a href="#math-fn">Vector / matrix functions</a>
+
+    <div class="grp">SDK helpers (header-only)</div>
+    <a href="#sdk-mesh">Mesh builders</a>
+    <a href="#sdk-draw">Draw helpers</a>
+    <a href="#sdk-camera">Camera</a>
+    <a href="#sdk-audio">Audio baking</a>
+    <a href="#sdk-rng">RNG, clamps, timestep</a>
+    <a href="#sdk-particles">Particles</a>
+    <a href="#sdk-ui">UI &amp; text helpers</a>
+    <a href="#sdk-autotile">Autotile</a>
+    <a href="#sdk-anim">Animation runtime</a>
+
+    <div class="grp">Reference</div>
+    <a href="#enums">Enums &amp; constants</a>
+    <a href="#module">Module format &amp; ABI</a>
+    <a href="#history">ABI version history</a>
+  </nav>
+</aside>
+
+<main>
+
+<!-- ============================ OVERVIEW ============================ -->
+<h2 id="overview" class="anchor">Overview</h2>
+<p class="lead">Mote is a native&nbsp;C game engine, console OS, and IDE for the <strong>Thumby&nbsp;Color</strong>
+— a dual-core RP2350 handheld with a 128×128 RGB565 screen. Games are plain&nbsp;C modules that link
+<em>no engine code</em>: the resident OS hands each game a jump table of engine functions and drives its
+frame loop.</p>
+
+<p>This page documents the complete developer-facing surface:</p>
+<ul>
+  <li>The <a href="#api-input"><strong>engine API</strong></a> (<code>MoteApi</code>) — the stable ABI of function pointers a game calls through.</li>
+  <li>The <a href="#t-render"><strong>data types</strong></a> games construct and pass (meshes, sprites, bodies, splats…).</li>
+  <li>The header-only <a href="#math-types"><strong>math</strong></a> and <a href="#sdk-mesh"><strong>SDK helpers</strong></a> compiled directly into the game (no ABI cost).</li>
+  <li>The <a href="#module"><strong>module / ABI format</strong></a> and <a href="#history">version history</a>.</li>
+</ul>
+
+<div class="note info"><strong>Hardware target.</strong> 128×128 RGB565 display · dual Cortex-M33 @ ~150&nbsp;MHz ·
+~280&nbsp;KB game arena · 9 buttons (D-pad, A, B, LB, RB, MENU) · 22050&nbsp;Hz audio. The host build (Linux/Windows
+SDL2 emulator) mirrors the same ABI exactly.</div>
+
+<!-- ============================ MODEL ============================ -->
+<h2 id="model" class="anchor">Programming model</h2>
+<p>A game is loaded by the OS (on the host via <code>dlopen</code> of a <code>.so</code>; on the device by mapping a
+<code>.mote</code> image and jumping to it). The contract is small and forever-stable:</p>
+<ol>
+  <li>The OS reads the game's exported ABI version and refuses a mismatch (a game built against a version <em>newer</em> than the engine is rejected).</li>
+  <li>The OS calls <code>mote_game_register(api)</code>; the game stashes the <code>const&nbsp;MoteApi*</code> and returns its <a href="#t-config"><code>MoteGameVtbl</code></a>.</li>
+  <li>The OS owns the frame loop and drives the vtable callbacks (<code>init</code>, then <code>update</code>/<code>render_band</code>/<code>overlay</code> each frame).</li>
+</ol>
+<p>Everything stateful goes through <code>MoteApi</code>; math and data formats are header-only and compiled into the game directly.</p>
+
+<div class="note"><strong>Immediate mode.</strong> There is no retained scene graph. Each frame, <code>update()</code> starts the
+scene and re-submits everything to draw; the draw lists are cleared for you next frame. Keep your own state and draw from it.
+It holds 60&nbsp;fps at thousands of triangles, so re-submitting the whole scene every frame is the intended pattern.</div>
+
+<div class="note info"><strong>ABI rule.</strong> <code>MoteApi</code> and <code>MoteGameVtbl</code> are only ever
+<em>appended</em> to — never reordered or removed — and <code>MOTE_ABI_VERSION</code> is bumped on any change. A game built
+against an older version runs unchanged on a newer engine; new fields it never calls stay harmless.</div>
+
+<!-- ============================ SKELETON ============================ -->
+<h2 id="skeleton" class="anchor">Game skeleton</h2>
+<pre class="sig"><span class="cm">/* mygame/src/game.c */</span>
+<span class="kw">#include</span> <span class="ty">"mote_api.h"</span>
+<span class="kw">#include</span> <span class="ty">"mote_build.h"</span>      <span class="cm">// header-only helpers (no ABI cost)</span>
+<span class="kw">#include</span> <span class="ty">"icon.h"</span>           <span class="cm">// optional 60×60 launcher icon (baked from icon.png)</span>
+
+<span class="fn">MOTE_GAME_MODULE</span>();             <span class="cm">// stashes `mote`, exports the abi-version symbol</span>
+
+<span class="kw">#ifdef</span> MOTE_MODULE_BUILD       <span class="cm">// device build only</span>
+<span class="kw">#include</span> <span class="ty">"mote_module.h"</span>
+<span class="fn">MOTE_MODULE_HEADER</span>();
+<span class="kw">#endif</span>
+
+<span class="kw">static const</span> <span class="ty">Mesh</span> *cube;
+
+<span class="kw">static void</span> <span class="fn">g_init</span>(<span class="kw">void</span>) {
+    mote-&gt;<span class="fn">scene_set_background</span>(<span class="fn">MOTE_RGB565</span>(<span class="num">10</span>,<span class="num">12</span>,<span class="num">26</span>));
+    mote-&gt;<span class="fn">scene_set_sun</span>(<span class="fn">v3_norm</span>(<span class="fn">v3</span>(<span class="num">0.4f</span>,<span class="num">0.7f</span>,-<span class="num">0.6f</span>)));
+    cube = <span class="fn">mote_mesh_box</span>(mote, <span class="num">1</span>,<span class="num">1</span>,<span class="num">1</span>, <span class="fn">MOTE_RGB565</span>(<span class="num">120</span>,<span class="num">180</span>,<span class="num">230</span>));
+}
+
+<span class="kw">static void</span> <span class="fn">g_update</span>(<span class="kw">float</span> dt) {
+    <span class="kw">const</span> <span class="ty">MoteInput</span> *in = mote-&gt;<span class="fn">input</span>();
+    <span class="ty">Mat3</span> cam = <span class="fn">mote_camera_look</span>(<span class="fn">v3</span>(<span class="num">0</span>,<span class="num">0</span>,<span class="num">0</span>), <span class="fn">v3</span>(<span class="num">0</span>,<span class="num">0</span>,<span class="num">1</span>));
+    mote-&gt;<span class="fn">scene_camera</span>(&amp;cam, <span class="fn">v3</span>(<span class="num">0</span>,<span class="num">0</span>,-<span class="num">5</span>), <span class="num">60.0f</span>);
+    <span class="fn">mote_draw</span>(mote, cube, <span class="fn">v3</span>(<span class="num">0</span>,<span class="num">0</span>,<span class="num">0</span>));
+}
+
+<span class="kw">static const</span> <span class="ty">MoteGameVtbl</span> k_vtbl = {
+    .init = g_init, .update = g_update,
+    .config = { .max_tris = <span class="num">256</span>, .depth = <span class="num">1</span> },
+};
+<span class="kw">static const</span> <span class="ty">MoteGameVtbl</span> *<span class="fn">mote_game_vtbl</span>(<span class="kw">void</span>) { <span class="kw">return</span> &amp;k_vtbl; }</pre>
+
+<h4>Build / run / push</h4>
+<pre><span class="fn">mote</span> new mygame <span class="cm"># scaffold (use -t 3d|physics|2d for a starter template)</span>
+<span class="fn">mote</span> run mygame <span class="cm"># build host .so + launch the SDL emulator</span>
+<span class="fn">mote</span> push mygame --launch <span class="cm"># cross-build the .mote, upload over USB, run it</span>
+<span class="fn">mote</span> studio <span class="cm"># the IDE (asset authoring + live emulator)</span></pre>
+
+<!-- ============================ LIFECYCLE ============================ -->
+<h2 id="lifecycle" class="anchor">Lifecycle &amp; the vtable</h2>
+<p>The game returns a <a href="#t-config"><code>MoteGameVtbl</code></a> of callbacks the OS drives.</p>
+<table>
+<tr><th>Callback</th><th>When</th><th>Notes</th></tr>
+<tr><td>init</td><td>once, after register</td><td>Build/load meshes, sounds, terrain; allocate from the arena.</td></tr>
+<tr><td>update(dt)</td><td>every frame (core&nbsp;0)</td><td>Read input, step state, submit the scene. <code>dt</code> in seconds.</td></tr>
+<tr><td>render_band(fb,&nbsp;y0,&nbsp;y1)</td><td>every frame, <em>both cores</em></td><td>Optional custom raster (raycaster games). <code>NULL</code> ⇒ the built-in 3D scene rasteriser. Disjoint row bands.</td></tr>
+<tr><td>overlay(fb)</td><td>every frame (core&nbsp;0)</td><td>Optional HUD drawn straight into the framebuffer after raster.</td></tr>
+<tr><td>config</td><td>read before init</td><td>Resource pools (see below). Read by the OS to size the arena.</td></tr>
+</table>
+<p>The MENU button's 3-second solo long-hold is reserved by the OS (opens the engine menu / “return to lobby”); all other input is the game's.</p>
+
+<!-- ============================ MEMORY ============================ -->
+<h2 id="memory" class="anchor">Memory model &amp; MoteConfig</h2>
+<p>The game declares the resource pools it needs in <code>config</code>. At load the OS sizes the engine's buffers to
+exactly that (not a fixed worst case), allocates them from one shared SRAM arena, and hands the remainder to the game
+through <a href="#fn-alloc"><code>alloc()</code></a>. A pool left <code>0</code> costs nothing and opts that subsystem out
+entirely. If the declared pools plus the game's allocations don't fit, the loader refuses to launch (a clear failure, not a crash).</p>
+
+<table>
+<tr><th>Field</th><th class="ty">Type</th><th>Meaning</th></tr>
+<tr><td>max_tris</td><td class="ty">uint16</td><td>3D triangle draw-list capacity. <code>0</code> = no 3D raster. Use a baked model's <code>&lt;name&gt;_TRIS</code>.</td></tr>
+<tr><td>max_spheres</td><td class="ty">uint16</td><td>Sphere impostors in the 3D pass.</td></tr>
+<tr><td>max_splats</td><td class="ty">uint16</td><td>Gaussian splats. <code>0</code> = none.</td></tr>
+<tr><td>max_sprites</td><td class="ty">uint16</td><td>2D sprites per frame. <code>0</code> = no 2D scene.</td></tr>
+<tr><td>max_bodies</td><td class="ty">uint16</td><td>Physics bodies. <code>0</code> = no physics engine.</td></tr>
+<tr><td>max_contacts</td><td class="ty">uint16</td><td>Physics contact manifolds.</td></tr>
+<tr><td>max_mesh_tris</td><td class="ty">uint16</td><td>Largest mesh collider's triangle count. <code>0</code> = none.</td></tr>
+<tr><td>depth</td><td class="ty">uint8</td><td><code>1</code> allocates the 32&nbsp;KB depth buffer (needed for 3D / splats).</td></tr>
+</table>
+<div class="note"><strong>Sizing.</strong> A <code>depth=1</code> game has ~248&nbsp;KB of arena for the draw-list → roughly
+<strong>7,000 triangles</strong> maximum; framerate gives out before memory does for most games, so size the pool to what you
+actually draw. The new-game wizard (Studio / <code>mote new -t</code>) fills these in for you.</div>
+
+<!-- ======================================================================
+                              ENGINE API
+======================================================================= -->
+<h2 id="api-input" class="anchor">Engine API — Input <span class="badge abi">v1</span></h2>
+<p>All <code>MoteApi</code> calls are made through the <code>mote</code> pointer (e.g. <code>mote-&gt;input()</code>).</p>
+
+<h3 id="fn-input">input</h3>
+<pre class="sig"><span class="kw">const</span> <span class="ty">MoteInput</span> *(*<span class="fn">input</span>)(<span class="kw">void</span>);</pre>
+<p>Returns the current frame's derived button state (edges, held timers). Valid during <code>update()</code>. Read it with the
+helpers <a href="#fn-mote_pressed"><code>mote_pressed</code></a> / <code>mote_just_pressed</code> / <code>mote_just_released</code>
+rather than poking the struct. See <a href="#t-input">Input state</a>.</p>
+
+<!-- ============================ 3D ============================ -->
+<h2 id="api-3d" class="anchor">Engine API — 3D scene</h2>
+<p>Build the frame in <code>update()</code>; the OS rasterises the triangle scene across both cores. Submit world-space
+geometry once per frame.</p>
+
+<h3 id="fn-scene_set_background">scene_set_background <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_set_background</span>)(<span class="ty">uint16_t</span> rgb565);</pre>
+<p>Set the clear colour for the frame.</p>
+
+<h3 id="fn-scene_set_sun">scene_set_sun <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_set_sun</span>)(<span class="ty">Vec3</span> dir_toward_light_world);</pre>
+<p>Set the directional light (a world-space unit vector pointing <em>toward</em> the light). Usually set once in <code>init()</code>.</p>
+
+<h3 id="fn-scene_camera">scene_camera <span class="badge abi">v13</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_camera</span>)(<span class="kw">const</span> <span class="ty">Mat3</span> *cam_basis, <span class="ty">Vec3</span> cam_pos, <span class="kw">float</span> fov_deg);</pre>
+<p>Begin the 3D scene with a world-space camera. You then add objects at <strong>absolute world positions</strong>; the engine
+subtracts <code>cam_pos</code> for you. This is the preferred entry point — pair it with the <a href="#sdk-draw"><code>mote_draw</code></a>
+helpers and pass the same <code>cam_pos</code> to <code>scene_set_splats</code> for a consistent scene.</p>
+<table class="compact"><tr><th>Parameter</th><th>Description</th></tr>
+<tr><td>cam_basis</td><td>Orientation basis (rows = right / up / forward). Build with <a href="#fn-mote_camera_look"><code>mote_camera_look</code></a>.</td></tr>
+<tr><td>cam_pos</td><td>Camera world position.</td></tr>
+<tr><td>fov_deg</td><td>Vertical field of view in degrees (≈60 typical).</td></tr></table>
+
+<h3 id="fn-scene_begin">scene_begin <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_begin</span>)(<span class="kw">const</span> <span class="ty">Mat3</span> *cam_basis, <span class="kw">float</span> fov_deg);</pre>
+<p>Legacy camera entry: the camera sits at the origin and you add objects with <strong>camera-relative</strong> positions
+(subtract the eye yourself). Equivalent to <code>scene_camera</code> with <code>cam_pos = 0</code>.</p>
+
+<h3 id="fn-scene_add_object">scene_add_object / scene_add_object_scaled <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_object</span>)(<span class="kw">const</span> <span class="ty">MoteObject</span> *obj);
+<span class="kw">int</span> (*<span class="fn">scene_add_object_scaled</span>)(<span class="kw">const</span> <span class="ty">MoteObject</span> *obj, <span class="kw">float</span> scale);</pre>
+<p>Submit one <a href="#t-render"><code>MoteObject</code></a> (a mesh + position + orientation, with an optional per-draw colour
+override) to the 3D draw list. The scaled form applies a uniform scale. Most games use the <a href="#sdk-draw"><code>mote_draw</code></a>
+helpers instead of building <code>MoteObject</code>s by hand. Returns the new draw-list count (or unchanged when full).</p>
+
+<h3 id="fn-scene_add_sphere">scene_add_sphere <span class="badge abi">v4</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_sphere</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="kw">float</span> radius, <span class="ty">uint16_t</span> color);</pre>
+<p>Add a cheap per-pixel-shaded sphere impostor, depth-tested with the meshes. Position is camera-relative. Great for
+balls, particles, projectiles. Counts against <code>max_spheres</code>.</p>
+
+<h3 id="fn-scene_tri_count">scene_tri_count <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_tri_count</span>)(<span class="kw">void</span>);</pre>
+<p>Triangles submitted so far this frame (for budgeting against <code>max_tris</code>).</p>
+
+<!-- ============================ 2D ============================ -->
+<h2 id="api-2d" class="anchor">Engine API — 2D scene &amp; tiles <span class="badge abi">v2</span></h2>
+<p>A screen-space 2D scene the OS rasters <em>after</em> the 3D scene (both banded across cores). A game can be pure-2D,
+pure-3D, or hybrid (3D world + 2D HUD). Build it in <code>update()</code>.</p>
+
+<h3 id="fn-scene2d_begin">scene2d_begin <span class="badge abi">v2</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene2d_begin</span>)(<span class="kw">int</span> cam_x, <span class="kw">int</span> cam_y);</pre>
+<p>Begin the 2D scene; <code>(cam_x,cam_y)</code> is the camera offset applied to all sprite/tile positions at raster time.</p>
+
+<h3 id="fn-scene2d_add">scene2d_add <span class="badge abi">v2</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene2d_add</span>)(<span class="kw">const</span> <span class="ty">MoteSprite</span> *spr);</pre>
+<p>Add a <a href="#t-2d"><code>MoteSprite</code></a> (a frame of an image at a screen position, with layer + flip/rotate flags).
+Returns 0 if the sprite pool is full. Counts against <code>max_sprites</code>.</p>
+
+<h3 id="fn-scene2d_set_tilemap">scene2d_set_tilemap <span class="badge abi">v2</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene2d_set_tilemap</span>)(<span class="kw">const</span> <span class="ty">MoteTilemap</span> *map, <span class="kw">const</span> <span class="ty">MoteTileset</span> *tiles);</pre>
+<p>Draw a plain index tilemap: a <code>cols×rows</code> grid of byte indices into a tileset atlas (<code>0xFF</code> = empty).</p>
+
+<h3 id="fn-scene2d_set_autotiles">scene2d_set_autotiles <span class="badge abi">v14</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene2d_set_autotiles</span>)(<span class="kw">const</span> <span class="ty">uint8_t</span> *terrain, <span class="kw">int</span> cols, <span class="kw">int</span> rows,
+                              <span class="kw">const struct</span> <span class="ty">MoteAutotile</span> *<span class="kw">const</span> *tiles, <span class="kw">int</span> n);</pre>
+<p>Render-time autotiling. Hand the engine a <strong>logical</strong> terrain map (one byte per cell: <code>0</code> = empty,
+<code>1..n</code> index <code>tiles</code>) plus a <a href="#t-2d"><code>MoteAutotile</code></a> ruleset per terrain; the raster picks each
+cell's atlas tile from its 8 neighbours. There is no resolved buffer — re-call it for free when the map changes (procgen,
+destructible terrain). Build rulesets with <a href="#fn-mote_autotile_template"><code>mote_autotile_template()</code></a>.</p>
+
+<h3 id="fn-scene2d_set_autotile_layers">scene2d_set_autotile_layers <span class="badge abi">v15</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene2d_set_autotile_layers</span>)(<span class="kw">const</span> <span class="ty">uint8_t</span> *map, <span class="kw">int</span> cols, <span class="kw">int</span> rows,
+                                    <span class="kw">const struct</span> <span class="ty">MoteAutotile</span> *<span class="kw">const</span> *tiles, <span class="kw">int</span> n);</pre>
+<p>Layered autotiling. <code>map</code> is one byte per cell where each <em>bit</em> is a layer (bit&nbsp;L set ⇒ <code>tiles[L]</code>
+drawn there); up to 8 independent, overlapping layers, each autotiled against its own bit and drawn bottom-up. The map is
+typically a <code>const</code> baked level (lives in flash, zero SRAM).</p>
+
+<h3 id="fn-blit">blit <span class="badge abi">v2</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">blit</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const</span> <span class="ty">MoteImage</span> *img, <span class="kw">int</span> x, <span class="kw">int</span> y,
+             <span class="kw">int</span> fx, <span class="kw">int</span> fy, <span class="kw">int</span> fw, <span class="kw">int</span> fh, <span class="ty">uint8_t</span> flags, <span class="kw">int</span> y0, <span class="kw">int</span> y1);</pre>
+<p>Immediate-mode sprite blit straight into the framebuffer (HUD/UI), band-clipped to rows <code>[y0,y1)</code> and colour-keyed.
+<code>flags</code> are <code>MOTE_SPR_*</code>. Use from <code>overlay()</code>.</p>
+
+<!-- ============================ PHYSICS ============================ -->
+<h2 id="api-physics" class="anchor">Engine API — Physics <span class="badge abi">v3</span></h2>
+<p>Impulse-based 3D rigid bodies (spheres, boxes, planes, capsules, convex hulls, static triangle meshes) under gravity,
+with friction, restitution, rotational inertia, sleeping, and a uniform-grid broad phase. <strong>The game owns the body
+array</strong>; the engine runs the solver on it. SI units (metres, kg, seconds). See <a href="#t-physics">Physics bodies</a>.</p>
+
+<h3 id="fn-phys_world_defaults">phys_world_defaults <span class="badge abi">v3</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">phys_world_defaults</span>)(<span class="ty">MoteWorld</span> *w);</pre>
+<p>Fill a <a href="#t-physics"><code>MoteWorld</code></a> with sensible defaults (earth gravity, ~unit walled box, lively bounce).
+Then override fields (<code>gravity</code>, <code>walls</code>, <code>bmin/bmax</code>, <code>substep</code>…) before stepping.</p>
+
+<h3 id="fn-phys_step">phys_step <span class="badge abi">v3</span></h3>
+<pre class="sig"><span class="ty">uint32_t</span> (*<span class="fn">phys_step</span>)(<span class="ty">MoteWorld</span> *w, <span class="ty">MoteBody</span> *bodies, <span class="kw">int</span> n, <span class="kw">float</span> dt);</pre>
+<p>Advance the simulation by <code>dt</code> seconds over the game's <code>bodies[0..n)</code>. Uses a fixed-substep accumulator,
+so it is frame-rate independent. Returns an event bitmask — <code>MOTE_PHYS_HIT</code> when an impact occurred this step (for
+sound/feedback).</p>
+
+<h3 id="fn-phys_raycast">phys_raycast <span class="badge abi">v7</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">phys_raycast</span>)(<span class="kw">const</span> <span class="ty">MoteWorld</span> *w, <span class="kw">const</span> <span class="ty">MoteBody</span> *bodies, <span class="kw">int</span> n,
+                    <span class="ty">Vec3</span> origin, <span class="ty">Vec3</span> dir, <span class="kw">float</span> max_dist, <span class="kw">int</span> skip, <span class="ty">MoteRayHit</span> *hit);</pre>
+<p>Cast a ray (unit <code>dir</code>) up to <code>max_dist</code> against every body; returns <code>1</code> and fills the nearest
+<a href="#t-physics"><code>MoteRayHit</code></a>, or <code>0</code>. Pass <code>skip</code> = a body index to ignore (e.g. the shooter),
+or <code>&lt;0</code> to test all. For aiming, ground checks, picking, AI.</p>
+
+<h3 id="fn-phys_overlap">phys_overlap <span class="badge abi">v7</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">phys_overlap</span>)(<span class="kw">const</span> <span class="ty">MoteWorld</span> *w, <span class="kw">const</span> <span class="ty">MoteBody</span> *bodies, <span class="kw">int</span> n,
+                    <span class="ty">Vec3</span> center, <span class="kw">float</span> radius, <span class="kw">int</span> *out, <span class="kw">int</span> max);</pre>
+<p>Fill <code>out[]</code> with up to <code>max</code> indices of bodies overlapping the test sphere; returns the count.</p>
+
+<div class="note info">Static colliders, per-body materials, and walls are plain <a href="#t-physics"><code>MoteBody</code></a>/<code>MoteWorld</code>
+fields — set them directly. The mesh-collider broad-phase grid is built once with the header-only
+<a href="#fn-mote_phys_mesh_build_grid"><code>mote_phys_mesh_build_grid()</code></a>.</div>
+
+<!-- ============================ SPLATS ============================ -->
+<h2 id="api-splat" class="anchor">Engine API — Gaussian splats <span class="badge abi">v8</span></h2>
+<p>A 3D Gaussian-splat renderer (a fourth render path beside raster / raycast / 2D). Each <a href="#t-splat"><code>MoteSplat</code></a>
+is an anisotropic 3D Gaussian; rendering projects, depth-sorts, and alpha-blends soft ellipses into the framebuffer.</p>
+
+<h3 id="fn-scene_set_splats">scene_set_splats <span class="badge abi">v8</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_set_splats</span>)(<span class="kw">const</span> <span class="ty">MoteSplat</span> *splats, <span class="kw">int</span> n, <span class="kw">int</span> *order,
+                         <span class="kw">const</span> <span class="ty">Mat3</span> *cam_basis, <span class="ty">Vec3</span> cam_pos, <span class="kw">float</span> fov_deg,
+                         <span class="kw">const</span> <span class="ty">uint16_t</span> *depth);</pre>
+<p>Register a splat cloud to render <strong>this frame</strong> as a measured, dual-core banded pass after the 3D scene
+(composites with depth; its cost shows in the perf graph). Call from <code>update()</code>. <code>order</code> is your scratch of
+≥&nbsp;<code>n</code> ints; <code>depth</code> is <a href="#fn-depth_buffer"><code>depth_buffer()</code></a> (so rastered geometry occludes
+splats behind it) or <code>NULL</code>. Preferred over <code>splat_render</code> for anything heavy.</p>
+
+<h3 id="fn-splat_render">splat_render <span class="badge abi">v8</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">splat_render</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const</span> <span class="ty">MoteSplat</span> *splats, <span class="kw">int</span> n,
+                    <span class="kw">const</span> <span class="ty">Mat3</span> *cam_basis, <span class="ty">Vec3</span> cam_pos, <span class="kw">float</span> fov_deg,
+                    <span class="kw">int</span> *order, <span class="kw">const</span> <span class="ty">uint16_t</span> *depth);</pre>
+<p>Immediate splat render from <code>overlay()</code> (blends over the rastered scene). Returns the number drawn.</p>
+
+<h3 id="fn-depth_buffer">depth_buffer <span class="badge abi">v8</span></h3>
+<pre class="sig"><span class="kw">const</span> <span class="ty">uint16_t</span> *(*<span class="fn">depth_buffer</span>)(<span class="kw">void</span>);</pre>
+<p>The scene depth buffer (<code>K/z</code>, larger = nearer). Pass to the splat calls for correct occlusion.</p>
+
+<!-- ============================ AUDIO ============================ -->
+<h2 id="api-audio" class="anchor">Engine API — Audio <span class="badge abi">v10</span></h2>
+<p>A small polyphonic synth mixed to 22050&nbsp;Hz (SDL on host, 12-bit PWM on device). Master volume follows the engine menu.</p>
+
+<h3 id="fn-audio_note">audio_note / audio_off <span class="badge abi">v10</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">audio_note</span>)(<span class="kw">float</span> freq, <span class="kw">float</span> amp);
+<span class="kw">void</span> (*<span class="fn">audio_off</span>)(<span class="kw">void</span>);</pre>
+<p>Strike a one-shot note with a piano-ish decay (<code>freq</code> Hz, <code>amp</code> 0..1) — fire one per key press; voices are
+stolen when all 8 are busy. <code>audio_off()</code> silences everything.</p>
+
+<h3 id="fn-audio_play">audio_play <span class="badge abi">v12</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">audio_play</span>)(<span class="kw">const</span> <span class="ty">MoteSound</span> *snd, <span class="kw">float</span> gain);</pre>
+<p>Fire a one-shot 22050&nbsp;Hz mono PCM <a href="#t-audio"><code>MoteSound</code></a> (a baked WAV, or a recipe baked with
+<a href="#fn-mote_sfx_bake"><code>mote_sfx_bake</code></a>). <code>gain</code> 0..1+. Up to 4 samples mix at once (oldest stolen); they
+sum on top of the synth.</p>
+
+<h3 id="fn-audio_render_sfx">audio_render_sfx <span class="badge abi">v19</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">audio_render_sfx</span>)(<span class="kw">const</span> <span class="ty">MoteSfx</span> *recipe, <span class="ty">int16_t</span> *out, <span class="kw">int</span> max);</pre>
+<p>Synthesise a <a href="#t-audio"><code>MoteSfx</code></a> recipe to 22050&nbsp;Hz mono PCM. Returns the sample count; writes into
+<code>out</code> only when <code>out != NULL</code> and bounded by <code>max</code>. Call twice (measure, then render into an arena
+buffer) — exactly what <a href="#fn-mote_sfx_bake"><code>mote_sfx_bake()</code></a> does — so a game ships tiny recipes instead of WAVs.</p>
+
+<!-- ============================ TEXT ============================ -->
+<h2 id="api-text" class="anchor">Engine API — Text &amp; overlay <span class="badge abi">v5</span></h2>
+<h3 id="fn-text">text / text_2x <span class="badge abi">v5</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">text</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);
+<span class="kw">int</span> (*<span class="fn">text_2x</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);</pre>
+<p>Draw bitmap text into the framebuffer (1× and 2× scale); returns the advanced x. Draw from <code>overlay()</code>. For
+printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf</code></a>.</p>
+
+<!-- ============================ CONTROL ============================ -->
+<h2 id="api-control" class="anchor">Engine API — Control, arena &amp; telemetry</h2>
+
+<h3 id="fn-micros">micros <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="ty">uint64_t</span> (*<span class="fn">micros</span>)(<span class="kw">void</span>);</pre>
+<p>Monotonic microsecond clock (good RNG seed; manual timing).</p>
+
+<h3 id="fn-exit_to_launcher">exit_to_launcher <span class="badge abi">v1</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">exit_to_launcher</span>)(<span class="kw">void</span>);</pre>
+<p>Return to the OS launcher (ends the game's frame loop).</p>
+
+<h3 id="fn-menu">menu <span class="badge abi">v11</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">menu</span>)(<span class="kw">const char</span> *title, <span class="kw">const char</span> *<span class="kw">const</span> *items, <span class="kw">int</span> n);</pre>
+<p>A styled modal menu in the system look. Lists <code>n</code> labels, UP/DOWN to move; returns the chosen index (A) or
+<code>-1</code> (B / quit). <strong>Blocking</strong> — call from <code>update()</code> for pause / game-over / level menus.</p>
+
+<h3 id="fn-alloc">alloc / arena_free <span class="badge abi">v9</span></h3>
+<pre class="sig"><span class="kw">void</span>   *(*<span class="fn">alloc</span>)(<span class="ty">uint32_t</span> bytes);
+<span class="ty">uint32_t</span> (*<span class="fn">arena_free</span>)(<span class="kw">void</span>);</pre>
+<p>Carve the game's own buffers out of the same arena the engine pools came from. 8-byte aligned and zeroed; returns
+<code>NULL</code> if exhausted. Valid from <code>init()</code> onward; freed wholesale on exit. <code>arena_free()</code> reports
+the bytes left for the game. There is no per-allocation free — regenerate game-owned buffers in place rather than re-allocating.</p>
+
+<h3 id="fn-log">log / perf <span class="badge abi">v6</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">log</span>)(<span class="kw">const char</span> *s);
+<span class="kw">void</span> (*<span class="fn">perf</span>)(<span class="ty">uint32_t</span> out[<span class="num">6</span>]);</pre>
+<p><code>log()</code> streams a line to the host (<code>mote logs</code>). <code>perf()</code> fills
+<code>[fps, update_us, raster_us, flush_us, core0_pct, core1_pct]</code> for the latest frame.</p>
+
+<!-- ======================================================================
+                              DATA TYPES
+======================================================================= -->
+<h2 id="t-render" class="anchor">Data types — Rendering</h2>
+<h3 id="ty-moteobject">MoteObject <span class="badge hdr">mote_object.h</span></h3>
+<p>A mesh placed in the world with an orientation basis.</p>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>pos</td><td class="ty">Vec3</td><td>World position (camera-relative with <code>scene_begin</code>; absolute with <code>scene_camera</code>).</td></tr>
+<tr><td>basis</td><td class="ty">Mat3</td><td>Orientation (rows: right / up / forward).</td></tr>
+<tr><td>mesh</td><td class="ty">const Mesh*</td><td>The mesh to draw.</td></tr>
+<tr><td>color</td><td class="ty">uint16_t</td><td>Optional per-draw RGB565 colour override; <code>0</code> = use the mesh's own colour(s).</td></tr>
+</table>
+
+<h2 id="t-mesh" class="anchor">Data types — Meshes <span class="badge hdr">mote_mesh.h</span></h2>
+<p>Meshes live in flash as quantised <code>int8</code> vertices + 6-byte faces. <strong>Winding:</strong> counter-clockwise viewed
+from outside. <code>world_pos = vert × (scale / 127)</code>, so an int8 of ±127 spans ±<code>scale</code>.</p>
+
+<h3 id="ty-meshvert">MeshVert</h3>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="ty">int8_t</span> x, y, z; } <span class="ty">MeshVert</span>;</pre>
+
+<h3 id="ty-meshface">MeshFace</h3>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="ty">uint8_t</span> a, b, c; <span class="ty">int8_t</span> nx, ny, nz; } <span class="ty">MeshFace</span>;  <span class="cm">/* 6 bytes */</span></pre>
+<p><code>a,b,c</code> are vertex indices (<code>uint8</code> ⇒ a single mesh caps at <strong>256 vertices</strong>); <code>nx,ny,nz</code>
+are the quantised model-space face normal (unit×127). Colour is <em>not</em> per-face — it lives on the <code>Mesh</code>.</p>
+
+<h3 id="ty-mesh">Mesh</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>verts</td><td class="ty">const MeshVert*</td><td>Vertex array.</td></tr>
+<tr><td>faces</td><td class="ty">const MeshFace*</td><td>Face array.</td></tr>
+<tr><td>face_colors</td><td class="ty">const uint16_t*</td><td>Optional <code>nfaces</code>-long RGB565 array for multi-material / tinted meshes; <code>NULL</code> ⇒ use <code>color</code>.</td></tr>
+<tr><td>nverts</td><td class="ty">uint16_t</td><td>Vertex count (≤ 256).</td></tr>
+<tr><td>nfaces</td><td class="ty">uint16_t</td><td>Face count.</td></tr>
+<tr><td>color</td><td class="ty">uint16_t</td><td>Base albedo (RGB565) when <code>face_colors == NULL</code>.</td></tr>
+<tr><td>scale</td><td class="ty">float</td><td>Model half-extent in metres.</td></tr>
+<tr><td>bound_r</td><td class="ty">float</td><td>Bounding-sphere radius (metres) for culling.</td></tr>
+<tr><td>lod_lo</td><td class="ty">const Mesh*</td><td>Optional lower-detail swap, or <code>NULL</code>.</td></tr>
+</table>
+
+<h3 id="ty-motemodel">MoteModel</h3>
+<p>A bakeable model is its chunk list — an STL is split into ≤255-vertex <code>Mesh</code> chunks (the uint8 index cap) and grouped
+so a game draws the whole thing in one call (<a href="#fn-mote_model_draw"><code>mote_model_draw</code></a>).</p>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>chunks</td><td class="ty">const Mesh*</td><td>Chunk array.</td></tr>
+<tr><td>count</td><td class="ty">uint16_t</td><td>Number of chunks.</td></tr>
+<tr><td>tris</td><td class="ty">uint16_t</td><td>Total faces across all chunks (the baker emits this as <code>&lt;name&gt;_TRIS</code> — use it for <code>max_tris</code>).</td></tr>
+</table>
+
+<h2 id="t-2d" class="anchor">Data types — Images, sprites, tiles <span class="badge hdr">mote_2d.h</span></h2>
+<p>Images are RGB565 in flash. Transparency is a colour key (default magenta <code>0xF81F</code>, <code>MOTE_KEY_MAGENTA</code>).</p>
+
+<h3 id="ty-moteimage">MoteImage</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>pixels</td><td class="ty">const uint16_t*</td><td><code>w*h</code> RGB565, row-major.</td></tr>
+<tr><td>w, h</td><td class="ty">uint16_t</td><td>Dimensions.</td></tr>
+<tr><td>key</td><td class="ty">uint16_t</td><td>Transparent colour key (ignored when opaque).</td></tr>
+<tr><td>opaque</td><td class="ty">uint8_t</td><td><code>1</code> = draw every pixel, ignore key.</td></tr>
+</table>
+
+<h3 id="ty-motetileset">MoteTileset</h3>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const</span> <span class="ty">MoteImage</span> *sheet; <span class="ty">uint16_t</span> tile_w, tile_h; } <span class="ty">MoteTileset</span>;</pre>
+<p>An atlas divided into <code>tile_w × tile_h</code> cells, indexed left-to-right, top-to-bottom.</p>
+
+<h3 id="ty-motetilemap">MoteTilemap</h3>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const</span> <span class="ty">uint8_t</span> *cells; <span class="ty">uint16_t</span> cols, rows; } <span class="ty">MoteTilemap</span>;</pre>
+<p><code>cols*rows</code> byte indices into a tileset (<code>0xFF</code> = empty).</p>
+
+<h3 id="ty-motesprite">MoteSprite</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>img</td><td class="ty">const MoteImage*</td><td>Source image / sheet.</td></tr>
+<tr><td>x, y</td><td class="ty">int16_t</td><td>World position (camera offset applied at raster).</td></tr>
+<tr><td>fx, fy, fw, fh</td><td class="ty">uint16_t</td><td>Source frame rect (a cell of the sheet). For a whole image: <code>fx=fy=0, fw=img-&gt;w, fh=img-&gt;h</code>.</td></tr>
+<tr><td>layer</td><td class="ty">uint8_t</td><td>Draw order (lower first).</td></tr>
+<tr><td>flags</td><td class="ty">uint8_t</td><td><code>MOTE_SPR_*</code> (flip / rotate).</td></tr>
+</table>
+
+<h3 id="ty-moteautotile">MoteAutotile <span class="badge hdr">mote_tile.h</span></h3>
+<p>One terrain's rule-tile ruleset: a tileset atlas + a 256-entry LUT mapping the 8-neighbour mask to an atlas cell.</p>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>sheet</td><td class="ty">const MoteImage*</td><td>Atlas (ncell wide × nvar tall).</td></tr>
+<tr><td>tile_w, tile_h</td><td class="ty">uint16_t</td><td>Cell size in the atlas.</td></tr>
+<tr><td>lut[256]</td><td class="ty">uint8_t</td><td>Neighbour-mask → atlas cell index (row 0).</td></tr>
+<tr><td>edge_is_solid</td><td class="ty">uint8_t</td><td><code>1</code> = off-map neighbours count as the same terrain (seamless edges).</td></tr>
+<tr><td>nvar</td><td class="ty">uint8_t</td><td>Random variant rows (atlas rows); <code>0/1</code> = none. Picked per cell from position so big areas don't repeat.</td></tr>
+<tr><td>xform[256]</td><td class="ty">uint8_t</td><td>Per-config D4 transform on the chosen cell: bit0 HFLIP, bit1 VFLIP, bits2-3 rotation. Lets one source cell serve many configs.</td></tr>
+<tr><td>var_weight[8]</td><td class="ty">uint8_t</td><td>Relative weight of each variant row (<code>0</code> ⇒ 1).</td></tr>
+</table>
+
+<h2 id="t-physics" class="anchor">Data types — Physics bodies <span class="badge hdr">mote_phys.h</span></h2>
+
+<h3 id="ty-motebody">MoteBody</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>pos</td><td class="ty">Vec3</td><td>Centre, world metres (plane: a point on the surface).</td></tr>
+<tr><td>vel</td><td class="ty">Vec3</td><td>Linear velocity (m/s).</td></tr>
+<tr><td>w</td><td class="ty">Vec3</td><td>Angular velocity (rad/s, world).</td></tr>
+<tr><td>orient</td><td class="ty">Mat3</td><td>Orientation (plane: <code>r[1]</code> = normal; capsule: <code>r[1]</code> = axis).</td></tr>
+<tr><td>radius</td><td class="ty">float</td><td>Sphere/capsule radius; box: bounding radius (set it — forgetting disables box collisions).</td></tr>
+<tr><td>inv_mass</td><td class="ty">float</td><td>1/kg; <code>0</code> = immovable / static collider.</td></tr>
+<tr><td>shape</td><td class="ty">uint32_t</td><td>One of <code>MOTE_SHAPE_*</code>.</td></tr>
+<tr><td>half</td><td class="ty">Vec3</td><td>Box half-extents; capsule: <code>half.y</code> = segment half-length.</td></tr>
+<tr><td>friction</td><td class="ty">float</td><td>Per-body Coulomb coefficient; <code>0</code> ⇒ use <code>world.friction</code>.</td></tr>
+<tr><td>restitution</td><td class="ty">float</td><td>Per-body bounce 0..1; <code>0</code> ⇒ use <code>world.restitution</code>.</td></tr>
+<tr><td>shape_data</td><td class="ty">const void*</td><td><code>MOTE_SHAPE_HULL</code> ⇒ <code>const MoteHull*</code>; <code>MOTE_SHAPE_MESH</code> ⇒ <code>const MoteMesh*</code>; else <code>NULL</code>.</td></tr>
+<tr><td>_reserved[4]</td><td class="ty">uint32_t</td><td>Sleep state (counter + anchor). Do not repurpose if you use the solver.</td></tr>
+</table>
+
+<h3 id="ty-moteworld">MoteWorld</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>gravity</td><td class="ty">Vec3</td><td>e.g. <code>(0,-9.8,0)</code>.</td></tr>
+<tr><td>bmin, bmax</td><td class="ty">Vec3</td><td>Bounding box (6 walls), used only when <code>walls != 0</code>.</td></tr>
+<tr><td>walls</td><td class="ty">int</td><td><code>1</code> = auto bounding-box walls; <code>0</code> = none (build your own from static PLANE/BOX bodies).</td></tr>
+<tr><td>restitution</td><td class="ty">float</td><td>Default bounce 0..1.</td></tr>
+<tr><td>friction</td><td class="ty">float</td><td>Coulomb coefficient.</td></tr>
+<tr><td>linear_damp / angular_damp</td><td class="ty">float</td><td>Per-second velocity damping (drag).</td></tr>
+<tr><td>substep</td><td class="ty">float</td><td>Fixed substep seconds (<code>0</code> ⇒ ~1/240). Raise the rate for few/fast bodies, lower for many slow ones.</td></tr>
+<tr><td>max_substeps</td><td class="ty">int</td><td>Cap substeps/frame (<code>0</code> ⇒ default). Raise for high-rate games (e.g. pool).</td></tr>
+</table>
+
+<h3 id="ty-motehull">MoteHull</h3>
+<p>A convex hull in local space for <code>MOTE_SHAPE_HULL</code>: <code>verts</code> drive the support function; <code>fnorm</code> +
+<code>faceoff</code>/<code>facev</code> + <code>edges</code> give SAT axes and face clipping for stable multi-point manifolds. Build with
+the <code>obj2hull</code> baker or by hand.</p>
+
+<h3 id="ty-motemesh">MoteMesh</h3>
+<p>A static concave triangle-mesh collider for <code>MOTE_SHAPE_MESH</code> (<code>verts</code> + <code>uint16</code> <code>tris</code>,
+no vertex cap). Add an optional XZ broad-phase grid with the header-only builder so a body tests only nearby triangles.</p>
+<h3 id="fn-mote_phys_mesh_build_grid">mote_phys_mesh_build_grid <span class="badge hdr">header-only</span></h3>
+<pre class="sig"><span class="kw">int</span> <span class="fn">mote_phys_mesh_build_grid</span>(<span class="ty">MoteMesh</span> *m, <span class="kw">int</span> grid_n, <span class="ty">uint16_t</span> *start, <span class="ty">uint16_t</span> *tri, <span class="kw">int</span> tri_cap);</pre>
+<p>Call once after filling <code>verts</code>/<code>tris</code>. Caller owns the scratch (<code>start</code> = <code>grid_n*grid_n+1</code>
+uint16, <code>tri</code> ≥ <code>ntris</code> uint16). Returns 0, or −1 on bad args. Pick <code>grid_n</code> so a cell is ~one triangle wide.</p>
+
+<h3 id="ty-moterayhit">MoteRayHit</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>body</td><td class="ty">int</td><td>Index of the hit body, <code>-1</code> if none.</td></tr>
+<tr><td>t</td><td class="ty">float</td><td>Distance along the ray.</td></tr>
+<tr><td>point</td><td class="ty">Vec3</td><td>World-space hit point.</td></tr>
+<tr><td>normal</td><td class="ty">Vec3</td><td>Surface normal (points back toward the ray origin).</td></tr>
+</table>
+
+<h2 id="t-splat" class="anchor">Data types — Splats <span class="badge hdr">mote_splat.h</span></h2>
+<h3 id="ty-motesplat">MoteSplat</h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>pos</td><td class="ty">Vec3</td><td>World-space centre.</td></tr>
+<tr><td>cov[6]</td><td class="ty">float</td><td>Symmetric 3D covariance: <code>xx,xy,xz,yy,yz,zz</code>.</td></tr>
+<tr><td>color</td><td class="ty">uint16_t</td><td>RGB565.</td></tr>
+<tr><td>opacity</td><td class="ty">float</td><td>0..1 peak alpha.</td></tr>
+</table>
+<h3 id="fn-mote_splat_make">mote_splat_make <span class="badge hdr">header-only</span></h3>
+<pre class="sig"><span class="ty">MoteSplat</span> <span class="fn">mote_splat_make</span>(<span class="ty">Vec3</span> pos, <span class="ty">Vec3</span> scale, <span class="ty">Mat3</span> rot, <span class="ty">uint16_t</span> color, <span class="kw">float</span> opacity);</pre>
+<p>Build a splat from anisotropic scale (3 std-devs) + an orthonormal basis <code>rot</code>. Flatten one axis for disc-like surface splats.</p>
+
+<h2 id="t-input" class="anchor">Data types — Input state <span class="badge hdr">mote_input.h</span></h2>
+<h3 id="ty-moteinput">MoteInput</h3>
+<p>Derived per-frame button state, returned by <a href="#fn-input"><code>input()</code></a>. Read with the helpers below.</p>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>held[9]</td><td class="ty">bool</td><td>Currently down.</td></tr>
+<tr><td>just_pressed[9]</td><td class="ty">bool</td><td>Went down this frame.</td></tr>
+<tr><td>just_released[9]</td><td class="ty">bool</td><td>Went up this frame.</td></tr>
+<tr><td>hold_ms[9]</td><td class="ty">uint32_t</td><td>Milliseconds held (0 if up).</td></tr>
+<tr><td>ignore[9]</td><td class="ty">bool</td><td>Suppress-until-release mask.</td></tr>
+</table>
+<p>Indexed by <a href="#enum-btn"><code>MoteBtnId</code></a>. <code>MoteButtons</code> is the raw 9-boolean poll the platform fills.</p>
+<h3 id="fn-mote_pressed">mote_pressed / mote_just_pressed / mote_just_released <span class="badge hdr">header-only</span></h3>
+<pre class="sig"><span class="kw">bool</span> <span class="fn">mote_pressed</span>(<span class="kw">const</span> <span class="ty">MoteInput</span> *in, <span class="ty">MoteBtnId</span> b);
+<span class="kw">bool</span> <span class="fn">mote_just_pressed</span>(<span class="kw">const</span> <span class="ty">MoteInput</span> *in, <span class="ty">MoteBtnId</span> b);
+<span class="kw">bool</span> <span class="fn">mote_just_released</span>(<span class="kw">const</span> <span class="ty">MoteInput</span> *in, <span class="ty">MoteBtnId</span> b);</pre>
+
+<h2 id="t-audio" class="anchor">Data types — Audio</h2>
+<h3 id="ty-motesound">MoteSound <span class="badge hdr">mote_api.h</span></h3>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const</span> <span class="ty">int16_t</span> *pcm; <span class="kw">int</span> count; } <span class="ty">MoteSound</span>;</pre>
+<p>A one-shot 22050&nbsp;Hz mono signed-16-bit sample. Play with <a href="#fn-audio_play"><code>audio_play</code></a>.</p>
+<h3 id="ty-motesfx">MoteSfx <span class="badge hdr">mote_api.h</span></h3>
+<p>An SFXR-style sound recipe (~88 bytes) — the editable source behind a SFX, authored in the Studio Audio tab. Baked to a
+<code>static const MoteSfx</code> it is ~1000× smaller than the equivalent PCM, and the engine synthesises it on load.</p>
+<table class="compact"><tr><th>Field</th><th>Description</th></tr>
+<tr><td>wave</td><td>0 square · 1 saw · 2 sine · 3 noise.</td></tr>
+<tr><td>base_freq … arp_mod</td><td>Frequency (base/limit/ramp/dramp), duty + ramp, vibrato (strength/speed), envelope (attack/sustain/punch/decay), low/high-pass filters (freq/ramp/resonance), phaser (offset/ramp), arpeggio (speed/mod) — units match the Studio synth exactly.</td></tr>
+</table>
+
+<h2 id="t-config" class="anchor">Data types — Config &amp; vtable <span class="badge hdr">mote_api.h</span></h2>
+<p><a href="#memory"><code>MoteConfig</code></a> is documented under the memory model. <code>MoteGameVtbl</code> is the callback set the
+game returns from <code>mote_game_register</code> — see <a href="#lifecycle">Lifecycle</a>.</p>
+
+<!-- ======================================================================
+                              MATH
+======================================================================= -->
+<h2 id="math-types" class="anchor">Math — Vec3 &amp; Mat3 <span class="badge hdr">mote_vec.h</span></h2>
+<p>Header-only float math. World is right-handed; <code>Mat3</code> rows are basis axes: <code>r[0]</code> right, <code>r[1]</code>
+up, <code>r[2]</code> forward.</p>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">float</span> x, y, z; } <span class="ty">Vec3</span>;
+<span class="kw">typedef struct</span> { <span class="ty">Vec3</span> r[<span class="num">3</span>]; } <span class="ty">Mat3</span>;   <span class="cm">/* r[0]=right, r[1]=up, r[2]=forward */</span></pre>
+
+<h2 id="math-fn" class="anchor">Math — functions</h2>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td>v3(x,y,z)</td><td>Construct a Vec3.</td></tr>
+<tr><td>v3_add / v3_sub</td><td>Component add / subtract.</td></tr>
+<tr><td>v3_scale(a,s)</td><td>Scalar multiply.</td></tr>
+<tr><td>v3_dot / v3_cross</td><td>Dot / cross product.</td></tr>
+<tr><td>v3_len / v3_len2</td><td>Length / squared length.</td></tr>
+<tr><td>v3_norm(a)</td><td>Normalise (returns <code>(0,0,1)</code> for a zero vector).</td></tr>
+<tr><td>v3_lerp(a,b,t)</td><td>Linear interpolate.</td></tr>
+<tr><td>m3_identity()</td><td>Identity basis.</td></tr>
+<tr><td>m3_mul_v3(m,v)</td><td>Transform local→world (row-vector).</td></tr>
+<tr><td>m3_mul_v3_t(m,v)</td><td>Transpose-transform world→view (inverse for orthonormal m).</td></tr>
+<tr><td>m3_rotate_local(m,axis,a)</td><td>Rotate the basis about one of its own axes (<code>axis</code> 0/1/2).</td></tr>
+<tr><td>m3_rotate_world(m,k,a)</td><td>Rotate about an arbitrary world unit axis (Rodrigues).</td></tr>
+<tr><td>m3_orthonormalize(m)</td><td>Re-orthonormalise (drift control after many incremental rotations).</td></tr>
+</table>
+
+<!-- ======================================================================
+                              SDK HELPERS
+======================================================================= -->
+<h2 id="sdk-mesh" class="anchor">SDK — Mesh builders <span class="badge sdk">mote_build.h</span></h2>
+<p>Build meshes the safe way: give world-unit dimensions and a colour; these pick the quantisation scale, wind faces
+CCW-from-outside, and compute normals. They allocate from the load-time arena — call in <code>init()</code> and keep the pointer.</p>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td>mote_mesh_box(api, hx,hy,hz, col)</td><td>Axis-aligned box from half-extents.</td></tr>
+<tr><td>mote_mesh_sphere(api, r, segs, col)</td><td>UV sphere.</td></tr>
+<tr><td>mote_mesh_cylinder(api, r, halfh, segs, col)</td><td>Cylinder.</td></tr>
+<tr><td>mote_mesh_revolve(api, prof, n, segs, col)</td><td>Lathe a <code>{radius,height}</code> profile around Y (a radius &lt;&nbsp;0.03 at an end = apex).</td></tr>
+<tr><td>mote_mesh_grid(api, nx,nz, x0,z0,x1,z1, hf, cf, user, out, max_out, &amp;center)</td><td>Sample an <code>nx×nz</code> heightfield into one or more arena meshes (auto-chunked past 255 verts); <code>hf</code> gives height, <code>cf</code> the per-face RGB565 colour. Writes the grid centre to <code>*center</code>.</td></tr>
+</table>
+
+<h2 id="sdk-draw" class="anchor">SDK — Draw helpers <span class="badge sdk">mote_build.h</span></h2>
+<p>Replace the <code>MoteObject o={…}; scene_add_object(&amp;o)</code> boilerplate. Use with <a href="#fn-scene_camera"><code>scene_camera()</code></a>
+(world positions).</p>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td id="fn-mote_draw">mote_draw(m, mesh, pos)</td><td>Draw a mesh at a world position (identity orientation).</td></tr>
+<tr><td>mote_draw_ex(m, mesh, pos, basis, scale)</td><td>…with orientation + uniform scale.</td></tr>
+<tr><td>mote_draw_tint(m, mesh, pos, basis, scale, color)</td><td>…tinted with an RGB565 override (team colours, damage flash).</td></tr>
+<tr><td id="fn-mote_model_draw">mote_model_draw(m, model, pos)</td><td>Draw a whole baked <code>MoteModel</code> (all chunks) in one call.</td></tr>
+<tr><td>mote_model_draw_ex(m, model, pos, basis, scale)</td><td>…with orientation + scale.</td></tr>
+<tr><td>mote_model_draw_tint(m, model, pos, basis, scale, color)</td><td>…tinted.</td></tr>
+</table>
+
+<h2 id="sdk-camera" class="anchor">SDK — Camera <span class="badge sdk">mote_build.h</span></h2>
+<h3 id="fn-mote_camera_look">mote_camera_look</h3>
+<pre class="sig"><span class="ty">Mat3</span> <span class="fn">mote_camera_look</span>(<span class="ty">Vec3</span> eye, <span class="ty">Vec3</span> target);</pre>
+<p>Build a view basis pointing from <code>eye</code> toward <code>target</code> (Y-up). Pass it and <code>eye</code> to <code>scene_camera</code>.</p>
+
+<h2 id="sdk-audio" class="anchor">SDK — Audio baking <span class="badge sdk">mote_build.h</span></h2>
+<h3 id="fn-mote_sfx_bake">mote_sfx_bake</h3>
+<pre class="sig"><span class="ty">MoteSound</span> <span class="fn">mote_sfx_bake</span>(<span class="kw">const</span> <span class="ty">MoteApi</span> *m, <span class="kw">const</span> <span class="ty">MoteSfx</span> *recipe);</pre>
+<p>Synthesise a recipe into a playable <code>MoteSound</code> at load (measures, allocates from the arena, renders). Call once in
+<code>init()</code>, then <code>mote-&gt;audio_play(&amp;snd, gain)</code>. Returns <code>{0,0}</code> on failure.</p>
+
+<h2 id="sdk-rng" class="anchor">SDK — RNG, clamps, timestep <span class="badge sdk">mote_build.h</span></h2>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td>mote_rand_seed(s) / mote_rand()</td><td>Seed / raw 32-bit xorshift.</td></tr>
+<tr><td>mote_frand()</td><td>Float in [0,1).</td></tr>
+<tr><td>mote_randf(lo,hi)</td><td>Float in a range.</td></tr>
+<tr><td>mote_clampf / mote_clampi</td><td>Clamp float / int to [lo,hi].</td></tr>
+<tr><td>mote_itoa(n, out)</td><td>Int → string, returns length.</td></tr>
+<tr><td>MoteFixed + mote_fixed_feed / mote_fixed_step</td><td>Fixed-timestep accumulator: run game logic at a steady rate regardless of frame dt.</td></tr>
+<tr><td>mote_body_sphere / mote_body_box</td><td>Build a <code>MoteBody</code> with shape set + box bounding radius auto-computed (mass ≤ 0 ⇒ static).</td></tr>
+</table>
+
+<h2 id="sdk-particles" class="anchor">SDK — Particles <span class="badge sdk">mote_build.h</span></h2>
+<p>A reusable pool drawn as impostor spheres (world positions; pairs with <code>scene_camera</code>). Set <code>.gravity</code> /
+<code>.drag</code> before use.</p>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td>mote_particles_burst(s, pos, col, count, speed, life)</td><td>Spawn a burst.</td></tr>
+<tr><td>mote_particles_tick(s, dt)</td><td>Integrate (gravity + drag).</td></tr>
+<tr><td>mote_particles_draw(m, s, radius)</td><td>Submit live particles as spheres (size fades with life).</td></tr>
+</table>
+
+<h2 id="sdk-ui" class="anchor">SDK — UI &amp; text helpers <span class="badge sdk">mote_build.h</span></h2>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td id="fn-mote_textf">mote_textf(m, fb, x, y, col, fmt, …)</td><td>printf-style HUD text (<code>%d %i %u %x %c %s %f %%</code>; <code>%f</code> = 2 decimals).</td></tr>
+<tr><td>mote_ui_rect / mote_ui_panel</td><td>Filled rect / bordered panel.</td></tr>
+<tr><td>mote_ui_bar(fb, x,y,w,h, frac, fg, bg)</td><td>Progress / health bar.</td></tr>
+<tr><td>mote_sprite / mote_sprite_cell</td><td>Build a <code>MoteSprite</code> (whole image / a sheet cell) without hand-ordering fields.</td></tr>
+<tr><td>mote_sprite_add(m, img, x, y)</td><td>Build + submit a sprite in one call.</td></tr>
+</table>
+
+<h2 id="sdk-autotile" class="anchor">SDK — Autotile <span class="badge sdk">mote_tile.h</span></h2>
+<table><tr><th>Function</th><th>Description</th></tr>
+<tr><td id="fn-mote_autotile_template">mote_autotile_template(at, kind)</td><td>Fill <code>at-&gt;lut</code> from a template (<a href="#enum-at"><code>MOTE_AT_*</code></a>). Set <code>sheet</code>/<code>tile_w</code>/<code>tile_h</code>/<code>edge_is_solid</code> yourself.</td></tr>
+<tr><td>mote_autotile_cell_count(kind)</td><td>Distinct cells a template's sheet needs (47/16/9/16).</td></tr>
+<tr><td>mote_autotile_mask(...) / _mask_layer(...)</td><td>The 8-neighbour "same terrain" mask for a cell (single map / bit-packed layered map).</td></tr>
+<tr><td>mote_autotile_resolve(at, terrain, out, cols, rows, match)</td><td>Pre-resolve a logical map into a concrete <code>MoteTilemap</code> <code>cells[]</code>.</td></tr>
+</table>
+
+<h2 id="sdk-anim" class="anchor">SDK — Animation runtime <span class="badge sdk">mote_anim.h</span></h2>
+<p>Author clips in the Studio Anim tab; it bakes <code>MoteAnimSheet</code> + <code>MoteAnimClip</code>s to a header. Keep a tiny
+<code>MoteAnimPlayer</code> per animated sprite. The atlas holds only the cells the clips reference.</p>
+<table><tr><th>Type / function</th><th>Description</th></tr>
+<tr><td>MoteAnimFrame</td><td><code>{ cell, dur_ms, event }</code> — a cell index, display time, and an optional event tag fired on entry.</td></tr>
+<tr><td>MoteAnimClip</td><td><code>{ name, frames, count, loop, pivot_x/y }</code>. <code>loop</code> ∈ <a href="#enum-anim"><code>MOTE_ANIM_*</code></a>.</td></tr>
+<tr><td>MoteAnimSheet</td><td><code>{ image, tile_w, tile_h }</code> — the atlas the cells index.</td></tr>
+<tr><td>MoteAnimPlayer</td><td>Per-sprite cursor (<code>clip, i, dir, done, t_ms, event</code>).</td></tr>
+<tr><td>mote_anim_play(p, clip)</td><td>Start a clip.</td></tr>
+<tr><td>mote_anim_tick(p, dt)</td><td>Advance by <code>dt</code> seconds; honours per-frame durations + loop mode; sets <code>p-&gt;event</code>.</td></tr>
+<tr><td>mote_anim_fx(p, sheet) / mote_anim_fy(p, sheet)</td><td>Current frame's source rect origin — feed a <code>MoteSprite</code>.</td></tr>
+<tr><td>mote_anim_cell(p) / mote_anim_done(p)</td><td>Current cell index / finished flag.</td></tr>
+</table>
+
+<!-- ======================================================================
+                              REFERENCE
+======================================================================= -->
+<h2 id="enums" class="anchor">Enums &amp; constants</h2>
+
+<h3 id="enum-btn">Buttons — MoteBtnId <span class="badge hdr">mote_input.h</span></h3>
+<p><code>MOTE_BTN_UP, _DOWN, _LEFT, _RIGHT, _A, _B, _LB, _RB, _MENU</code> (0..8), then <code>MOTE_BTN_COUNT</code>.</p>
+
+<h3 id="enum-shape">Physics shapes <span class="badge hdr">mote_phys.h</span></h3>
+<table><tr><th>Constant</th><th>Description</th></tr>
+<tr><td>MOTE_SHAPE_SPHERE</td><td>Sphere (radius).</td></tr>
+<tr><td>MOTE_SHAPE_BOX</td><td>Oriented box (half-extents).</td></tr>
+<tr><td>MOTE_SHAPE_PLANE</td><td>Infinite static half-space; normal = <code>orient.r[1]</code>, solid below. Always static.</td></tr>
+<tr><td>MOTE_SHAPE_CAPSULE</td><td>Swept sphere along local +Y of half-length <code>half.y</code>, radius <code>radius</code>.</td></tr>
+<tr><td>MOTE_SHAPE_HULL</td><td>Arbitrary convex hull (<code>shape_data</code> → <code>MoteHull</code>).</td></tr>
+<tr><td>MOTE_SHAPE_MESH</td><td>Static concave triangle mesh (<code>shape_data</code> → <code>MoteMesh</code>); <code>inv_mass 0</code>.</td></tr>
+</table>
+<p>Step events: <code>MOTE_PHYS_HIT</code> (bit 0).</p>
+
+<h3 id="enum-spr">Sprite flags <span class="badge hdr">mote_2d.h</span></h3>
+<p><code>MOTE_SPR_HFLIP (0x01)</code>, <code>MOTE_SPR_VFLIP (0x02)</code>, <code>MOTE_SPR_ROT90 / _ROT180 / _ROT270</code> (bits 2-3,
+square tiles; rotation applied before flips). Transparency key <code>MOTE_KEY_MAGENTA (0xF81F)</code>.</p>
+
+<h3 id="enum-anim">Animation loop modes <span class="badge hdr">mote_anim.h</span></h3>
+<p><code>MOTE_ANIM_ONCE (0)</code>, <code>MOTE_ANIM_LOOP (1)</code>, <code>MOTE_ANIM_PINGPONG (2)</code>.</p>
+
+<h3 id="enum-at">Autotile templates &amp; neighbours <span class="badge hdr">mote_tile.h</span></h3>
+<p>Templates: <code>MOTE_AT_BLOB47 (0)</code> — 47-tile corner-aware terrain; <code>MOTE_AT_EDGE16 (1)</code> — 4-cardinal blocky
+(Mario pipes); <code>MOTE_AT_NINESLICE (2)</code> — 3×3 rectangular regions; <code>MOTE_AT_WANG16 (3)</code> — 2-corner Wang
+(complete 4×4 corner set: straight edges, corners, isolated, saddles).</p>
+<p>Neighbour bits (clockwise from North): <code>MOTE_NB_N, _NE, _E, _SE, _S, _SW, _W, _NW</code>.</p>
+
+<h3 id="enum-misc">Display &amp; colour <span class="badge hdr">mote_config.h</span></h3>
+<table><tr><th>Constant</th><th>Value / meaning</th></tr>
+<tr><td>MOTE_FB_W / MOTE_FB_H</td><td>128 × 128 (logical framebuffer).</td></tr>
+<tr><td>MOTE_RGB565(r,g,b)</td><td>Pack 8-bit RGB into RGB565 (also <code>mote_rgb565()</code>).</td></tr>
+<tr><td>MOTE_AUDIO_RATE</td><td>22050 Hz.</td></tr>
+<tr><td>MOTE_NEAR / MOTE_DEPTH_K</td><td>Near plane (0.5 m); depth <code>d = K/z</code>.</td></tr>
+<tr><td>MOTE_HOT</td><td>Place a hot function in device SRAM (no-op on host).</td></tr>
+</table>
+
+<!-- ============================ MODULE ============================ -->
+<h2 id="module" class="anchor">Module format &amp; ABI <span class="badge hdr">mote_module.h</span></h2>
+<p>A built device game is a flat image: a <code>MoteModuleHeader</code> first, then <code>.text</code>/<code>.rodata</code>, then the
+<code>.data</code> init image. It is linked at a fixed virtual window (<code>MOTE_MODULE_VADDR = 0x10800000</code>); the loader points
+an RP2350 ATRANS window at wherever it lives in flash, so it executes in place (XIP) with no copy and no relocation. Mutable state
+lives at the reserved RAM region (<code>MOTE_MODULE_RAM = 0x20060000</code>, 128&nbsp;KB).</p>
+<table><tr><th>Header field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>magic</td><td class="ty">uint32_t</td><td><code>MOTE_MODULE_MAGIC</code> ('MOTE').</td></tr>
+<tr><td>abi_version</td><td class="ty">uint32_t</td><td><code>MOTE_ABI_VERSION</code> the module was built for.</td></tr>
+<tr><td>reg</td><td class="ty">fn ptr</td><td>Entry: <code>mote_game_register</code>.</td></tr>
+<tr><td>data_load / data_start / data_end / bss_start / bss_end</td><td class="ty">uint32_t</td><td>Mini-crt ranges (copy <code>.data</code>, zero <code>.bss</code>).</td></tr>
+<tr><td>icon_vaddr</td><td class="ty">uint32_t</td><td><span class="badge abi">v20</span> Linked address of a 60×60 RGB565 <code>mote_game_icon_data[]</code>, or <code>0</code> for none. The launcher reads the icon straight from flash without loading the game.</td></tr>
+</table>
+<p>A game emits it with <code>MOTE_MODULE_HEADER()</code> (device build only, guarded by <code>MOTE_MODULE_BUILD</code>). The icon is
+picked up via a weak symbol — a game opts in simply by <code>#include "icon.h"</code> (baked from <code>icon.png</code>).</p>
+
+<!-- ============================ HISTORY ============================ -->
+<h2 id="history" class="anchor">ABI version history</h2>
+<p>Each bump appends to <code>MoteApi</code>/<code>MoteGameVtbl</code> or extends a shared data struct. A game runs on any engine
+whose version is ≥ the one it was built against. Changing the engine's shared structs needs a reflashed OS firmware;
+header-only/SDK changes do not.</p>
+<table>
+<tr><th>Version</th><th>Added</th></tr>
+<tr><td>v1</td><td>Core: 3D scene (background/sun/begin/add_object/add_object_scaled/tri_count), input, micros, exit_to_launcher.</td></tr>
+<tr><td>v2</td><td>2D scene: scene2d_begin / set_tilemap / add; immediate <code>blit</code>.</td></tr>
+<tr><td>v3</td><td>Rigid-body physics: phys_world_defaults, phys_step.</td></tr>
+<tr><td>v4</td><td>scene_add_sphere (shaded sphere impostor).</td></tr>
+<tr><td>v5</td><td>text, text_2x.</td></tr>
+<tr><td>v6</td><td>log, perf (telemetry).</td></tr>
+<tr><td>v7</td><td>phys_raycast, phys_overlap.</td></tr>
+<tr><td>v8</td><td>Gaussian splats: splat_render, depth_buffer, scene_set_splats.</td></tr>
+<tr><td>v9</td><td>Load-time arena: alloc, arena_free; <code>MoteGameVtbl.config</code> (pools).</td></tr>
+<tr><td>v10</td><td>Audio synth: audio_note, audio_off.</td></tr>
+<tr><td>v11</td><td>menu (modal).</td></tr>
+<tr><td>v12</td><td>audio_play (PCM samples).</td></tr>
+<tr><td>v13</td><td>scene_camera (world-space camera).</td></tr>
+<tr><td>v14</td><td>scene2d_set_autotiles (render-time autotiling).</td></tr>
+<tr><td>v15</td><td>scene2d_set_autotile_layers (bit-packed layers).</td></tr>
+<tr><td>v16–v18</td><td>Data-format changes: per-draw <code>MoteObject.color</code> override; 6-byte <code>MeshFace</code> + optional <code>Mesh.face_colors</code> (colour moved off every face); the <code>MoteSfx</code> recipe.</td></tr>
+<tr><td>v19</td><td>audio_render_sfx (synthesise recipes; <code>mote_sfx_bake</code>).</td></tr>
+<tr><td>v20</td><td>Per-game icons in the module header (<code>icon_vaddr</code>); no more firmware icon table.</td></tr>
+</table>
+
+</main>
+
+<footer>
+  Mote Engine API/ABI reference · ABI v20 · generated from the engine headers
+  (<code>sdk/mote_api.h</code>, <code>mote_build.h</code>, <code>mote_tile.h</code>, <code>mote_anim.h</code>,
+  <code>mote_vec.h</code>, <code>mote_mesh.h</code>, <code>mote_2d.h</code>, <code>mote_phys.h</code>,
+  <code>mote_splat.h</code>, <code>mote_input.h</code>, <code>mote_module.h</code>).
+</footer>
+
+<script>
+  // ---- sidebar: scrollspy + live filter ----
+  const links = Array.from(document.querySelectorAll('#nav a'));
+  const byId = {};
+  links.forEach(a => { const id = a.getAttribute('href').slice(1); byId[id] = a; });
+  const targets = links.map(a => document.getElementById(a.getAttribute('href').slice(1))).filter(Boolean);
+
+  const spy = () => {
+    let cur = null;
+    const top = window.scrollY + 90;
+    for (const t of targets) { if (t.offsetTop <= top) cur = t.id; }
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+  };
+  document.addEventListener('scroll', spy, { passive: true });
+  window.addEventListener('load', spy);
+
+  const filter = document.getElementById('filter');
+  filter.addEventListener('input', () => {
+    const q = filter.value.trim().toLowerCase();
+    let lastGrp = null, grpHasMatch = false;
+    const groups = [];
+    Array.from(document.querySelector('#nav').children).forEach(el => {
+      if (el.classList.contains('grp')) { lastGrp = el; grpHasMatch = false; groups.push([el, () => grpHasMatch]); el._kids = []; }
+      else if (el.tagName === 'A') {
+        const hit = !q || el.textContent.toLowerCase().includes(q);
+        el.classList.toggle('hidden', !hit);
+        if (lastGrp) { if (hit) grpHasMatch = true; lastGrp._any = (lastGrp._any || false) || hit; }
+      }
+    });
+    // hide group headers with no visible children
+    let header = null, any = false;
+    const kids = [];
+    Array.from(document.querySelector('#nav').children).forEach(el => {
+      if (el.classList.contains('grp')) { if (header) header.classList.toggle('hidden', !any); header = el; any = false; kids.length = 0; }
+      else if (el.tagName === 'A') { if (!el.classList.contains('hidden')) any = true; }
+    });
+    if (header) header.classList.toggle('hidden', !any);
+  });
+</script>
+</body>
+</html>
