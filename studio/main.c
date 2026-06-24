@@ -1191,6 +1191,14 @@ static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm
 #define GZ_RING 20
 static SDL_Point g_gz_o, g_gz_ax[3], g_gz_ring[3][GZ_RING]; static float g_gz_alen[3];
 static int g_gz_drag=-1; static float g_gz_ang, g_gz_L;   /* drag: 0..2 translate X/Y/Z, 3..5 rotate X/Y/Z */
+/* ---- clip authoring: keyframes of per-part Euler rotation + translation ---- */
+#define RIG_MAXK 24
+typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; } RigKey;   /* per-part rotation (rad) + translation */
+static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
+static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
+static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
+static int g_kdrag=-1, g_scrub; /* dragging a keyframe (index) / dragging the playhead */
+static int rig_key_insert(int t_ms);   /* fwd */
 static void rig_save(void);   /* fwd */
 static void rig_anim_bake(void);   /* fwd */
 
@@ -1221,16 +1229,14 @@ static void rig_load(const char*objpath){
         if(v.x<mn.x)mn.x=v.x; if(v.y<mn.y)mn.y=v.y; if(v.z<mn.z)mn.z=v.z; if(v.x>mx.x)mx.x=v.x; if(v.y>mx.y)mx.y=v.y; if(v.z>mx.z)mx.z=v.z; }
     g_rcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2};
     float ex=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_rscale = ex>1e-4f? 2.0f/ex : 1;
+    /* seed a single rest keyframe so pose mode is editable immediately (and reset any
+     * stale keys from a previously loaded rig). The Save/Bake of a one-key clip is a
+     * harmless static pose; add more keys to animate. */
+    g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0;
+    for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
     snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
 }
 
-/* ---- clip authoring: keyframes of per-part Euler rotation (evenly spaced; pos kept 0 in v1) ---- */
-#define RIG_MAXK 24
-typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; } RigKey;   /* per-part rotation (rad) + translation */
-static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
-static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
-static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
-static int g_kdrag=-1, g_scrub; /* dragging a keyframe (index) / dragging the playhead */
 typedef struct { float a,b,c,d,e,f,g,h,i; } M3;
 static V3 m3a(M3 m,V3 v){ return (V3){m.a*v.x+m.b*v.y+m.c*v.z,m.d*v.x+m.e*v.y+m.f*v.z,m.g*v.x+m.h*v.y+m.i*v.z}; }
 static M3 m3mm(M3 A,M3 B){ return (M3){
@@ -1396,7 +1402,7 @@ static int rig_down(int mx,int my){
     if(HITR(g_rg_durm)){ g_clip_ms-=100; if(g_clip_ms<100)g_clip_ms=100; rig_key_clamp(); return 1; }
     if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_key_clamp(); return 1; }
     if(HITR(g_rg_bake)){ rig_anim_bake(); return 1; }
-    if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; return 1; }
+    if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; if(g_pose_mode&&!g_nrk){ g_ksel=rig_key_insert(0); g_scrub_t=0; } return 1; }
     /* manipulator: grab a translate handle, or (pose mode) a rotate ring */
     for(int a=0;a<3;a++){ int dx=mx-g_gz_ax[a].x,dy=my-g_gz_ax[a].y; if(dx*dx+dy*dy<=49){ g_gz_drag=a; g_lx=mx; g_ly=my; return 1; } }
     if(g_pose_mode&&g_nrk) for(int a=0;a<3;a++) for(int sg=0;sg<GZ_RING;sg++){ int dx=mx-g_gz_ring[a][sg].x,dy=my-g_gz_ring[a][sg].y;
@@ -2910,6 +2916,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
+    if(getenv("MOTE_STUDIO_RIGPOSE")){ g_pose_mode=1; if(!g_nrk)g_ksel=rig_key_insert(0); }   /* capture hook: pose mode */
     if(getenv("MOTE_STUDIO_RIGANIM")&&g_nrp){ int tp=g_nrp>1?1:0; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,"turret"))tp=i;   /* test clip: yaw the turret */
         g_clip_ms=1000; g_clip_loop=2; g_nrk=3; for(int k=0;k<3;k++)for(int p=0;p<g_nrp;p++)g_rk[k].erot[p]=(V3){0,0,0};
         g_rk[0].t_ms=0; g_rk[1].t_ms=500; g_rk[2].t_ms=1000;
