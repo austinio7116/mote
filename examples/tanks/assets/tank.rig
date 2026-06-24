@@ -1,4 +1,5 @@
 # tank rig — parts root-first; pivots in model metres
 part body   parent -1     pivot 0 0 0
+part tracks parent body   pivot 0 0 0
 part turret parent body   pivot 0 0.30 0.02
-part barrel parent turret pivot 0 0.30 0.10
+part barrel parent turret pivot 0 0.355 0.10

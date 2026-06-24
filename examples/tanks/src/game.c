@@ -44,11 +44,18 @@ static const Mesh *box_at(const MoteApi *api, float hx, float hy, float hz, Vec3
     if (!v||!f||!m) return 0; mk_box(v,f,m,hx,hy,hz,c,col); return m;
 }
 
-/* ---- tank rig parts (order matches assets/tank.rig: body / turret / barrel) ---- */
-enum { P_BODY, P_TURRET, P_BARREL, P_COUNT };
+/* ---- tank rig parts (order matches assets/tank.rig: body/tracks/turret/barrel) ---- */
+enum { P_BODY, P_TRACKS, P_TURRET, P_BARREL, P_COUNT };
 #define TURRET_Y 0.30f
 #define BARREL_LEN 0.62f
-#define TANK_R 0.34f
+#define TANK_SCALE 1.3f    /* model is ~unit-metre; scale up so tanks read larger */
+#define TANK_R 0.44f       /* collision radius ~ the scaled model's footprint */
+
+/* scale an RGB565 colour by num/den (per-part shading: dark tracks / steel gun) */
+static inline uint16_t shade565(uint16_t c, int num, int den) {
+    int r=(c>>11)&31, g=(c>>5)&63, b=c&31;
+    return (uint16_t)(((r*num/den)<<11) | ((g*num/den)<<5) | (b*num/den));
+}
 
 /* ---- arena ---- */
 #define AX 6.2f
@@ -272,7 +279,10 @@ static void g_update(float dt) {
         MoteRigLocal loc[P_COUNT]; mote_rig_eval(&tank_rig,0,loc);
         loc[P_TURRET].rot=mote_quat_axis(v3(0,1,0), t->aim-t->yaw);
         loc[P_BARREL].pos=v3(0,0,-t->recoil*0.16f);
-        mote_rig_draw_locals_tint(mote,&tank_rig,loc,v3(t->x,0,t->z),body,1.0f,t->color);
+        uint16_t pc[P_COUNT];                          /* team hull + dark tracks/gun */
+        pc[P_BODY]=t->color; pc[P_TURRET]=t->color;
+        pc[P_TRACKS]=shade565(t->color,38,100); pc[P_BARREL]=shade565(t->color,55,100);
+        mote_rig_draw_locals_palette(mote,&tank_rig,loc,v3(t->x,0,t->z),body,TANK_SCALE,pc);
     }
     for (int i=0;i<MAXS;i++) if (s_s[i].alive){
         if (s_s[i].rocket) mote->scene_add_sphere(v3(s_s[i].x,0.32f,s_s[i].z), ROCKET_R, MOTE_RGB565(250,150,60));
@@ -291,6 +301,6 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 600, .max_spheres = 96, .depth = 1 },
+    .config = { .max_tris = 2600, .max_spheres = 96, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

@@ -229,6 +229,26 @@ static inline void mote_rig_draw_locals(const MoteApi *m, const MoteRig *rig, co
     mote_rig_draw_locals_tint(m, rig, locals, pos, basis, scale, 0);
 }
 
+/* Like _tint, but each part gets its own flat colour from part_colors[part] (a 0
+ * entry falls back to that part's baked mesh colours). Lets one rig render in
+ * several tones — e.g. a team-coloured hull with dark tracks and a steel gun. */
+static inline void mote_rig_draw_locals_palette(const MoteApi *m, const MoteRig *rig, const MoteRigLocal *locals,
+                                                Vec3 pos, Mat3 basis, float scale, const uint16_t *part_colors) {
+    MoteXform world[MOTE_RIG_MAX_PARTS];
+    uint16_t n = rig->count < MOTE_RIG_MAX_PARTS ? rig->count : MOTE_RIG_MAX_PARTS;
+    mote_rig_compose(rig, locals, world);
+    for (uint16_t i = 0; i < n; i++) {
+        const MoteRigPart *part = &rig->parts[i];
+        Mat3 fb = mote__m3_mul(&basis, &world[i].b);
+        Vec3 fp = v3_add(pos, m3_mul_v3(&basis, v3_scale(world[i].o, scale)));
+        uint16_t col = part_colors ? part_colors[i] : 0;
+        for (uint16_t c = 0; c < part->nchunks; c++) {
+            MoteObject o = { .pos = fp, .basis = fb, .mesh = &part->chunks[c], .color = col };
+            if (scale == 1.0f) m->scene_add_object(&o); else m->scene_add_object_scaled(&o, scale);
+        }
+    }
+}
+
 /* Compute every part's world transform for the current clip pose (convenience). */
 static inline void mote_rig_pose(const MoteRig *rig, const MoteModelPlayer *pl, MoteXform *out) {
     MoteRigLocal loc[MOTE_RIG_MAX_PARTS];
