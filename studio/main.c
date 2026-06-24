@@ -315,6 +315,12 @@ static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
 static int g_doc_ready[2];
 static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
+static void undo_push(void);   /* fwd */
+/* resize the canvas to an arbitrary size (1..CMAX), keeping the existing art (top-left) */
+static void canvas_resize(int ns){ if(ns<1)ns=1; if(ns>CMAX)ns=CMAX; if(ns==g_csize)return; undo_push();
+    static uint16_t tmp[CMAX*CMAX]; int os=g_csize; memcpy(tmp,g_canvas,(size_t)os*os*2);
+    for(int i=0;i<ns*ns;i++)g_canvas[i]=KEY565; int cs=os<ns?os:ns;
+    for(int y=0;y<cs;y++)for(int x=0;x<cs;x++)g_canvas[y*ns+x]=tmp[y*os+x]; g_csize=ns; }
 /* make document d (0=sprite,1=texture) active; lazily blanks a fresh doc; undo is per-doc */
 static void set_doc(int d){ d=d?1:0; if(d==g_doc)return;
     g_csize_doc[g_doc]=g_csize; g_doc=d; g_canvas=g_docbuf[d]; g_csize=g_csize_doc[d];
@@ -789,7 +795,7 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
 static SDL_Rect g_tabr[TAB_N];
 /* pixel editor geometry (set by draw_pixel, read by the input handlers) */
 static SDL_Rect g_pxb[16]; static int g_pxb_id[16], g_npxb;
-static SDL_Rect g_pxsize[5], g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
+static SDL_Rect g_pxsize[8], g_pxszdn, g_pxszup, g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
 static int g_hsvdrag,g_huedrag,g_lx,g_ly,g_panx,g_pany;
 static SDL_Texture *g_hsv_tex; static float g_hsv_baked=-1;
 static float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
@@ -878,9 +884,13 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
         int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid); int hov=hit(mx,my,tx,ty,27,24);
         rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
         g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tx+=30; }
-    tx+=10; int sizes[5]={8,16,32,64,128};
-    for(int i=0;i<5;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+14, act=g_csize==sizes[i];
-        rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+7,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+4; }
+    tx+=10; int sizes[8]={8,16,32,48,60,64,96,128};
+    for(int i=0;i<8;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+12, act=g_csize==sizes[i];
+        rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+6,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+3; }
+    /* arbitrary size: -/+ resize (keeps the art) with the current size shown */
+    g_pxszdn=(SDL_Rect){tx,ty,20,24}; rrect(R,tx,ty,20,24,4,hit(mx,my,tx,ty,20,24)?C_BTNHI:C_BTN); text(R,"-",tx+7,ty+6,1,C_TXT,C_BTN); tx+=21;
+    { char cs[8]; snprintf(cs,sizeof cs,"%d",g_csize); int w=textw(R,cs,1); text(R,cs,tx+(28-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=30; }
+    g_pxszup=(SDL_Rect){tx,ty,20,24}; rrect(R,tx,ty,20,24,4,hit(mx,my,tx,ty,20,24)?C_BTNHI:C_BTN); text(R,"+",tx+6,ty+6,1,C_TXT,C_BTN); tx+=24;
     tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
     g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
     { char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",g_px_name[0]?g_px_name:(texmode?"texture":"sprite"),g_px_namefocus?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,g_px_namefocus?(Col){12,14,20}:C_DOCK); }
@@ -2558,8 +2568,10 @@ static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
         else if(id==11){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c>2?c-2:1; } else if(id==12){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c+2; } else if(id==13){ g_pzoom=0; g_panx=g_pany=0; }
         else if(id==9)fp_open(1);
         return; }
-    int sizes[5]={8,16,32,64,128};
-    for(int i=0;i<5;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
+    int sizes[8]={8,16,32,48,60,64,96,128};
+    for(int i=0;i<8;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
+    if(hit(mx,my,g_pxszdn.x,g_pxszdn.y,g_pxszdn.w,g_pxszdn.h)){ canvas_resize(g_csize-1); return; }
+    if(hit(mx,my,g_pxszup.x,g_pxszup.y,g_pxszup.w,g_pxszup.h)){ canvas_resize(g_csize+1); return; }
     if(hit(mx,my,g_hsv_r.x,g_hsv_r.y,g_hsv_r.w,g_hsv_r.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(hit(mx,my,g_hue_r.x,g_hue_r.y,g_hue_r.w,g_hue_r.h)){ g_huedrag=1; g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     int cy=BOT_Y+30, px0=12, py0=cy+58, sq=126, yy=py0+sq+8, swy=yy+36;
