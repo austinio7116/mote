@@ -13,7 +13,6 @@
 #include "logo.h"             /* baked: logo_img (104x30) */
 #include <math.h>
 
-#include "icon.h"
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"

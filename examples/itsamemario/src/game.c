@@ -18,7 +18,6 @@
 #include "mote_anim.h"
 #include "mote_tile.h"
 
-#include "icon.h"
 MOTE_GAME_MODULE();
 
 #ifdef MOTE_MODULE_BUILD

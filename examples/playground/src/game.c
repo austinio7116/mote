@@ -22,7 +22,6 @@
 #include "mote_build.h"
 #include <math.h>
 
-#include "icon.h"
 MOTE_GAME_MODULE();
 
 #ifdef MOTE_MODULE_BUILD

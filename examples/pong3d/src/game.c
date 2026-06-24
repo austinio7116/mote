@@ -25,7 +25,6 @@
 #include "miss.sfx.h"
 static MoteSound paddle_snd, wall_snd, score_snd, miss_snd;
 
-#include "icon.h"
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"

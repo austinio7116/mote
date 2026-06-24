@@ -16,7 +16,6 @@
 #include <math.h>
 #include <stdlib.h>
 
-#include "icon.h"
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"

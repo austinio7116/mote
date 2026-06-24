@@ -12,7 +12,6 @@
 #include "mote_api.h"
 #include "mote_build.h"
 
-#include "icon.h"
 MOTE_GAME_MODULE();   /* exports mote_game_abi_version + mote_game_register, sets `mote` */
 
 #ifdef MOTE_MODULE_BUILD

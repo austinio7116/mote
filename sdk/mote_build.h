@@ -344,4 +344,14 @@ static inline void mote_particles_draw(const MoteApi *m, const MoteParticles *s,
         }
 }
 
+/* Launcher icon, handled by the build — not the game. If `mote bake` produced a
+ * src/icon.h (from the game's icon.png), pull it in automatically so the icon travels
+ * in the module; the game never #includes it. The baked symbol is weak, so this is
+ * harmless even across a game's multiple .c files. No icon.h -> name-accent fallback. */
+#if defined(__has_include)
+#  if __has_include("icon.h")
+#    include "icon.h"
+#  endif
+#endif
+
 #endif /* MOTE_BUILD_H */

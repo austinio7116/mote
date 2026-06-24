@@ -220,7 +220,7 @@ static int bake_icon(const char *dir, mote_log_fn log){
     fprintf(f,"/* GENERATED launcher icon by Mote Studio from %s. Compact paletted blob\n"
               " * (sdk/mote_icon.h); the launcher decodes it. %d bytes vs 7200 raw. */\n"
               "#ifndef MOTE_GAME_ICON_H\n#define MOTE_GAME_ICON_H\n#include <stdint.h>\n\n"
-              "const uint8_t mote_game_icon_data[%d] = {\n",src,len,len);
+              "const uint8_t mote_game_icon_data[%d] __attribute__((weak)) = {\n",src,len,len);
     for(int i=0;i<len;i++){ fprintf(f,"0x%02x,",blob[i]); if((i&15)==15)fputc('\n',f); }
     fprintf(f,"\n};\n\n#endif\n"); fclose(f);
     { char m[200]; snprintf(m,sizeof m,"baked icon: %dx%d -> %s (%d bytes, was 7200)",w,h,header,len); log(m); } return 0; }
