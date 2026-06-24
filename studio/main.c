@@ -539,36 +539,67 @@ static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=
 static int menu_blocks(int mx,int my){ if(g_menu_open<0)return 0; Menu*m=&MENUS[g_menu_open];
     return hit(mx,my,m->mx,MENU_H,150,m->n*22+6) || my<MENU_H; }
 /* explorer right-click context menu */
-static int g_ctx; static int g_ctxx,g_ctxy; static char g_ctxdir[340],g_ctxpath[340];
-static const char *CTX_L[4]={ "New File", "New Folder", "Open Folder", "Open in VS Code" };
-#define CTX_N 4
-/* name prompt (new file / new folder) */
-static int g_prompt, g_promptkind; static char g_promptbuf[80], g_promptdir[340];
+static int g_ctx; static int g_ctxx,g_ctxy; static char g_ctxdir[340],g_ctxpath[340]; static int g_ctxisdir;
+static const char *CTX_L[6]={ "New File", "New Folder", "Rename", "Delete", "Open Folder", "Open in VS Code" };
+#define CTX_N 6
 static void draw_ctxmenu(SDL_Renderer*R){ if(!g_ctx)return; int mx,my; SDL_GetMouseState(&mx,&my); int w=160,h=CTX_N*22+6;
     if(g_ctxx+w>WIN_W)g_ctxx=WIN_W-w; if(g_ctxy+h>WIN_H)g_ctxy=WIN_H-h; int x=g_ctxx,y=g_ctxy;
     plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC); rect_outline(R,x,y,w,h,C_LINE,1);
-    for(int i=0;i<CTX_N;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22); if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
+    for(int i=0;i<CTX_N;i++){ int iy=y+4+i*22; int dis=((i==2||i==3)&&!g_ctxpath[0]); int hov=!dis&&hit(mx,my,x,iy,w,22);
+        if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,dis?C_DIM:(hov?C_HDR:C_TXT),hov?C_BTNHI:C_PANEL); } }
+
+/* ---- one reusable dialog: text entry (new/rename/save-as) or confirm (delete) ---- */
+enum { PR_NEWFILE=1, PR_NEWFOLDER, PR_RENAME, PR_SAVEAS, PR_DELETE };
+static int g_prompt; static char g_promptbuf[96], g_promptdir[340], g_promptpath[340], g_prompttitle[48], g_prompthint[80];
+static int g_promptseled; static SDL_Rect g_prompt_ok, g_prompt_cancel;
+static void canvas_save(void);   /* fwd */
+static void tree_refresh(void);  /* fwd */
+static int rmtree(const char*path){ struct stat st; if(stat(path,&st)!=0)return -1;
+    if(S_ISDIR(st.st_mode)){ DIR*d=opendir(path); if(d){ struct dirent*e; while((e=readdir(d))){ if(e->d_name[0]=='.'&&(!e->d_name[1]||(e->d_name[1]=='.'&&!e->d_name[2])))continue;
+            char c[700]; snprintf(c,sizeof c,"%.330s/%.200s",path,e->d_name); rmtree(c); } closedir(d); } return rmdir(path); }
+    return remove(path); }
+static void prompt_open(int action,const char*title,const char*prefill,const char*hint,const char*path,const char*dir){
+    g_prompt=action; snprintf(g_promptbuf,sizeof g_promptbuf,"%s",prefill?prefill:""); g_promptseled=prefill&&prefill[0];
+    snprintf(g_prompttitle,sizeof g_prompttitle,"%s",title); snprintf(g_prompthint,sizeof g_prompthint,"%s",hint?hint:"");
+    snprintf(g_promptpath,sizeof g_promptpath,"%s",path?path:""); snprintf(g_promptdir,sizeof g_promptdir,"%s",dir?dir:"");
+    if(action!=PR_DELETE)SDL_StartTextInput(); }
+static void prompt_confirm(void){
+    if(g_prompt==PR_SAVEAS){ snprintf(g_px_name,sizeof g_px_name,"%.50s",g_promptbuf); char*d=strrchr(g_px_name,'.'); if(d)*d=0;
+        g_prompt=0; SDL_StopTextInput(); canvas_save(); return; }
+    if((g_prompt==PR_NEWFILE||g_prompt==PR_NEWFOLDER)&&g_promptbuf[0]&&g_promptdir[0]){ char p[460]; snprintf(p,sizeof p,"%.330s/%.90s",g_promptdir,g_promptbuf);
+        if(g_prompt==PR_NEWFOLDER){ mkdir_portable(p); snprintf(g_status,sizeof g_status,"created folder %s",g_promptbuf); }
+        else { FILE*f=fopen(p,"w"); if(f)fclose(f); snprintf(g_status,sizeof g_status,"created %s",g_promptbuf); } tree_refresh(); }
+    else if(g_prompt==PR_RENAME&&g_promptbuf[0]&&g_promptpath[0]){ char d[340]; snprintf(d,sizeof d,"%s",g_promptpath); char*s=strrchr(d,'/'); if(s)*s=0; else d[0]=0;
+        char np[460]; snprintf(np,sizeof np,"%.330s/%.90s",d,g_promptbuf); if(rename(g_promptpath,np)==0)snprintf(g_status,sizeof g_status,"renamed to %s",g_promptbuf); else snprintf(g_status,sizeof g_status,"rename failed"); tree_refresh(); }
+    else if(g_prompt==PR_DELETE&&g_promptpath[0]){ if(rmtree(g_promptpath)==0)snprintf(g_status,sizeof g_status,"deleted %s",g_promptpath); else snprintf(g_status,sizeof g_status,"delete failed"); tree_refresh(); }
+    g_prompt=0; SDL_StopTextInput(); }
 static void ctx_click(int mx,int my){ int w=160; for(int i=0;i<CTX_N;i++){ int iy=g_ctxy+4+i*22; if(hit(mx,my,g_ctxx,iy,w,22)){
-    if(i==0||i==1){ g_prompt=1; g_promptkind=i; g_promptbuf[0]=0; snprintf(g_promptdir,sizeof g_promptdir,"%.330s",g_ctxdir[0]?g_ctxdir:"."); SDL_StartTextInput(); }
-    else if(i==2)open_folder(g_ctxdir[0]?g_ctxdir:"."); else { const char*p=g_ctxpath[0]?g_ctxpath:g_ctxdir; char c[700];
+    const char*dir=g_ctxdir[0]?g_ctxdir:"."; const char*base=g_ctxpath[0]?(strrchr(g_ctxpath,'/')?strrchr(g_ctxpath,'/')+1:g_ctxpath):0;
+    if(i==0)prompt_open(PR_NEWFILE,"New File","","include the extension (e.g. enemy.c)",0,dir);
+    else if(i==1)prompt_open(PR_NEWFOLDER,"New Folder","","Enter to create \xb7 Esc to cancel",0,dir);
+    else if(i==2){ if(base)prompt_open(PR_RENAME,"Rename",base,"Enter to rename \xb7 Esc to cancel",g_ctxpath,0); }
+    else if(i==3){ if(base)prompt_open(PR_DELETE,"Delete",0,"",g_ctxpath,0); }
+    else if(i==4)open_folder(dir);
+    else { const char*p=g_ctxpath[0]?g_ctxpath:g_ctxdir; char c[700];
 #ifdef _WIN32
         snprintf(c,sizeof c,"code \"%.300s\"",p);
 #else
         snprintf(c,sizeof c,"code \"%.300s\" >/dev/null 2>&1 &",p);
 #endif
         if(system(c)){} } return; } } }
-static void tree_refresh(void);   /* fwd */
-static void prompt_create(void){ if(g_promptbuf[0]&&g_promptdir[0]){ char p[440]; snprintf(p,sizeof p,"%.330s/%.80s",g_promptdir,g_promptbuf);
-        if(g_promptkind==1){ mkdir_portable(p); snprintf(g_status,sizeof g_status,"created folder %s",g_promptbuf); }
-        else { FILE*f=fopen(p,"w"); if(f)fclose(f); snprintf(g_status,sizeof g_status,"created %s",g_promptbuf); }
-        tree_refresh(); }
-    g_prompt=0; SDL_StopTextInput(); }
-static void draw_prompt(SDL_Renderer*R){ if(!g_prompt)return; SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,150); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
-    int w=440,h=120,x=(WIN_W-w)/2,y=(WIN_H-h)/2; rrect(R,x,y,w,h,10,C_PANEL); rrect(R,x,y,w,28,10,C_HDR);
-    char t[64]; snprintf(t,sizeof t,g_promptkind?"NEW FOLDER":"NEW FILE"); text(R,t,x+14,y+8,1,C_TITLE,C_HDR);
-    text(R,"in:",x+14,y+38,1,C_DIM,C_PANEL); { const char*d=strrchr(g_promptdir,'/'); text(R,d?d+1:g_promptdir,x+38,y+38,1,C_TXT,C_PANEL); }
-    rrect(R,x+14,y+58,w-28,26,4,(Col){12,14,20}); char nm[96]; snprintf(nm,sizeof nm,"%s_",g_promptbuf); text(R,nm,x+22,y+64,1,C_TXT,(Col){12,14,20});
-    text(R,g_promptkind?"Enter to create  \xb7  Esc to cancel":"include the extension (e.g. enemy.c)  \xb7  Enter \xb7 Esc",x+16,y+92,1,C_DIM,C_PANEL); }
+static void draw_prompt(SDL_Renderer*R){ if(!g_prompt)return; int mx,my; SDL_GetMouseState(&mx,&my);
+    SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,150); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
+    int w=460,del=(g_prompt==PR_DELETE),h=del?132:120,x=(WIN_W-w)/2,y=(WIN_H-h)/2;
+    rrect(R,x,y,w,h,10,C_PANEL); rrect(R,x,y,w,28,10,C_HDR); text(R,g_prompttitle,x+14,y+8,1,C_TITLE,C_HDR);
+    if(del){ const char*b=strrchr(g_promptpath,'/'); text(R,"Delete:",x+14,y+40,1,C_DIM,C_PANEL); text(R,b?b+1:g_promptpath,x+72,y+40,1,(Col){240,150,150},C_PANEL);
+        text(R,"This cannot be undone.",x+14,y+62,1,C_DIM,C_PANEL); }
+    else { rrect(R,x+14,y+50,w-28,26,4,(Col){12,14,20});
+        if(g_promptseled&&g_promptbuf[0])plain(R,x+20,y+54,textw(R,g_promptbuf,1)+2,18,(Col){40,70,130});
+        char nm[120]; snprintf(nm,sizeof nm,"%s%s",g_promptbuf,g_promptseled?"":"_"); text(R,nm,x+22,y+56,1,C_TXT,(Col){12,14,20});
+        if(g_prompthint[0])text(R,g_prompthint,x+16,y+84,1,C_DIM,C_PANEL); }
+    int bw=80,bh=24,by=y+h-bh-10; g_prompt_cancel=(SDL_Rect){x+w-bw*2-22,by,bw,bh}; g_prompt_ok=(SDL_Rect){x+w-bw-12,by,bw,bh};
+    rrect(R,g_prompt_cancel.x,g_prompt_cancel.y,bw,bh,5,hit(mx,my,g_prompt_cancel.x,g_prompt_cancel.y,bw,bh)?C_BTNHI:C_BTN); text(R,"Cancel",g_prompt_cancel.x+18,by+6,1,C_TXT,C_BTN);
+    Col okc=del?(Col){200,80,80}:C_ACC; rrect(R,g_prompt_ok.x,g_prompt_ok.y,bw,bh,5,hit(mx,my,g_prompt_ok.x,g_prompt_ok.y,bw,bh)?C_BTNHI:okc); text(R,del?"Delete":"OK",g_prompt_ok.x+(del?20:30),by+6,1,C_TXT,hit(mx,my,g_prompt_ok.x,g_prompt_ok.y,bw,bh)?C_BTNHI:okc); }
 
 typedef struct { int x,y,w,h; const char*l; int a; } Tbtn;
 static Tbtn g_tb[8]; static int g_ntb;
@@ -2618,8 +2649,8 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)ret
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
 static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
-    if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; g_px_nameseled=1; SDL_StartTextInput(); return; }   /* focus selects all -> typing replaces */
-    g_px_namefocus=0;
+    if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){   /* save-as -> dialog (Save As <name>.png) */
+        prompt_open(PR_SAVEAS,"Save As",g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"),"saved to assets/<name>.png (name it \"icon\" for the launcher icon)",0,0); return; }
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
         if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
@@ -2935,7 +2966,8 @@ int main(int argc,char**argv){
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_RIGPOSE")){ g_pose_mode=1; if(!g_nrk)g_ksel=rig_key_insert(0); }   /* capture hook: pose mode */
-    if(getenv("MOTE_STUDIO_PROMPT")){ g_prompt=1; g_promptkind=atoi(getenv("MOTE_STUDIO_PROMPT")); snprintf(g_promptbuf,sizeof g_promptbuf,"enemy.c"); if(g_sel>=0)snprintf(g_promptdir,sizeof g_promptdir,"%.330s/src",g_games[g_sel].dir); }   /* capture hook */
+    if(getenv("MOTE_STUDIO_PROMPT")){ char sd[340]="."; if(g_sel>=0)snprintf(sd,sizeof sd,"%.330s/src",g_games[g_sel].dir);
+        int k=atoi(getenv("MOTE_STUDIO_PROMPT")); prompt_open(k==2?PR_DELETE:k==1?PR_NEWFOLDER:PR_NEWFILE,k==2?"Delete":k==1?"New Folder":"New File",k?0:"enemy.c","include the extension (e.g. enemy.c)",k==2?"examples/tanks/src/game.c":0,sd); }   /* capture hook */
     if(getenv("MOTE_STUDIO_RIGANIM")&&g_nrp){ int tp=g_nrp>1?1:0; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,"turret"))tp=i;   /* test clip: yaw the turret */
         g_clip_ms=1000; g_clip_loop=2; g_nrk=3; for(int k=0;k<3;k++)for(int p=0;p<g_nrp;p++)g_rk[k].erot[p]=(V3){0,0,0};
         g_rk[0].t_ms=0; g_rk[1].t_ms=500; g_rk[2].t_ms=1000;
@@ -3034,10 +3066,17 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); }
                     else for(int i=0;i<3;i++) if(hit(mx,my,g_mk_kind[i].x,g_mk_kind[i].y,g_mk_kind[i].w,g_mk_kind[i].h)){ g_newkind=i; break; } }
                 continue; }
-            if(g_prompt){ if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;   /* new file/folder name */
-                    if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'){ int l=(int)strlen(g_promptbuf); if(l<70){ g_promptbuf[l]=c; g_promptbuf[l+1]=0; } } } }
-                else if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_promptbuf); if(l)g_promptbuf[l-1]=0; }
-                    else if(k==SDLK_RETURN)prompt_create(); else if(k==SDLK_ESCAPE){ g_prompt=0; SDL_StopTextInput(); } }
+            if(g_prompt){ int del=(g_prompt==PR_DELETE);
+                if(!del&&e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;
+                    if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'){
+                        if(g_promptseled){ g_promptbuf[0]=0; g_promptseled=0; } int l=(int)strlen(g_promptbuf); if(l<90){ g_promptbuf[l]=c; g_promptbuf[l+1]=0; } } } }
+                else if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym;
+                    if(!del&&k==SDLK_BACKSPACE){ if(g_promptseled){ g_promptbuf[0]=0; g_promptseled=0; } else { int l=(int)strlen(g_promptbuf); if(l)g_promptbuf[l-1]=0; } }
+                    else if(!del&&k==SDLK_a&&(SDL_GetModState()&KMOD_CTRL))g_promptseled=1;
+                    else if(k==SDLK_RETURN)prompt_confirm(); else if(k==SDLK_ESCAPE){ g_prompt=0; SDL_StopTextInput(); } }
+                else if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
+                    if(hit(mx,my,g_prompt_ok.x,g_prompt_ok.y,g_prompt_ok.w,g_prompt_ok.h))prompt_confirm();
+                    else if(hit(mx,my,g_prompt_cancel.x,g_prompt_cancel.y,g_prompt_cancel.w,g_prompt_cancel.h)){ g_prompt=0; SDL_StopTextInput(); } }
                 continue; }
             if(g_picker){ int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
                 if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
