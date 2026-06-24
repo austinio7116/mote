@@ -1475,6 +1475,7 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `hello-mesh`, `tumbler` | minimal mesh + camera (**start here**) |
 | `tetris3d` | grid logic + engine-rendered cubes (~190 lines) |
 | `pong3d`, `arkanoid3d` | polished arcade: trails, particles, power-ups, levels, `menu` for game-over |
+| `tanks` | **3D rigid-part animation** (the showcase) — a rigged tank (body/tracks/turret/barrel), a baked recoil clip triggered on fire, procedural turret aim mixed with the clip, per-part team tinting |
 | `physics`, `materials`, `playground`, `dominoes`, `hulls` | the rigid-body solver (boxes/spheres/hulls/materials/stacking) |
 | `pickups`, `shooter` | `phys_overlap` / `phys_raycast` as game mechanics |
 | `golf`, `pool`, `fling`, `world` | full games (terrain, AI, splats, mesh colliders) |
