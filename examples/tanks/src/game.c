@@ -22,6 +22,7 @@
 /* tank geometry + rig — baked from assets/tank.obj + tank.rig by obj2rig.
  * (Loads in the Studio Mesh tab; the rig editor edits the pivots/hierarchy.) */
 #include "tank.rig.h"
+#include "recoil.anim3d.h"   /* baked barrel-recoil clip, triggered on fire */
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -102,13 +103,14 @@ static const LevelDef LV[5] = {
 
 /* ---- tanks ---- */
 typedef struct {
-    float x, z, yaw, aim, recoil, fire_cd, think_cd, wander;
+    float x, z, yaw, aim, fire_cd, think_cd, wander;
     float move, frate, pspeed; int bounce, rocket;
     int   alive, is_player, mobile; uint16_t color;
 } Tank;
 #define MAXT 6
 static Tank s_t[MAXT];
 static int  s_nt;
+static MoteModelPlayer s_barrel[MAXT];   /* per-tank recoil-clip player (started on fire) */
 
 /* ---- projectiles ---- */
 typedef struct { float x, z, vx, vz, life; int bounces, owner, alive, armed, rocket; } Shell;
@@ -162,7 +164,8 @@ static void fire(Tank *t) {
         s_s[i].vx=dx*t->pspeed; s_s[i].vz=dz*t->pspeed;
         s_s[i].rocket=t->rocket; s_s[i].bounces=t->rocket?0:t->bounce;
         s_s[i].owner=idx; s_s[i].armed=0; s_s[i].life=7.0f; s_s[i].alive=1;
-        t->recoil=1.0f; t->fire_cd=t->frate;
+        t->fire_cd=t->frate;
+        mote_rig_play(&s_barrel[idx], &recoil_clip);   /* game event -> baked clip */
         mote->audio_play(&s_fire, t->is_player?0.85f:0.6f);
         break;
     }
@@ -261,7 +264,7 @@ static void g_update(float dt) {
             }
             if (p->alive && los(t->x,t->z,p->x,p->z)) fire(t);    /* only shoot with a clear line */
         }
-        for (int i=0;i<s_nt;i++){ if (s_t[i].fire_cd>0) s_t[i].fire_cd-=dt; if (s_t[i].recoil>0) s_t[i].recoil-=dt*4.0f; }
+        for (int i=0;i<s_nt;i++) if (s_t[i].fire_cd>0) s_t[i].fire_cd-=dt;
         step_shells(dt);
         int enemies=0; for (int i=1;i<s_nt;i++) if (s_t[i].alive) enemies++;
         if (!s_t[0].alive){ s_lives--; s_state=(s_lives>0)?ST_LOSE:ST_OVER; }
@@ -276,9 +279,9 @@ static void g_update(float dt) {
     for (int i=0;i<s_nblocks;i++) mote_draw(mote,&s_bm[i],v3(s_blocks[i].cx,0,s_blocks[i].cz));
     for (int i=0;i<s_nt;i++){ Tank *t=&s_t[i]; if (!t->alive) continue;
         Mat3 body=m3_identity(); m3_rotate_local(&body,1,t->yaw);
-        MoteRigLocal loc[P_COUNT]; mote_rig_eval(&tank_rig,0,loc);
-        loc[P_TURRET].rot=mote_quat_axis(v3(0,1,0), t->aim-t->yaw);
-        loc[P_BARREL].pos=v3(0,0,-t->recoil*0.16f);
+        mote_rig_tick(&s_barrel[i], dt);               /* advance the recoil clip (if playing) */
+        MoteRigLocal loc[P_COUNT]; mote_rig_eval(&tank_rig,&s_barrel[i],loc);   /* clip -> barrel recoil pos */
+        loc[P_TURRET].rot=mote_quat_axis(v3(0,1,0), t->aim-t->yaw);   /* override turret rot procedurally */
         uint16_t pc[P_COUNT];                          /* team hull + dark tracks/gun */
         pc[P_BODY]=t->color; pc[P_TURRET]=t->color;
         pc[P_TRACKS]=shade565(t->color,38,100); pc[P_BARREL]=shade565(t->color,55,100);
