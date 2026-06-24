@@ -1185,7 +1185,7 @@ static int mesh_down(int mx,int my){
 typedef struct { char name[28]; V3 *t; int nt,cap; int parent; V3 pivot; } RigPart;
 static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[320];
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
-static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_view;
+static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_mesh, g_rg_view;
 static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
 /* 3-axis manipulator gizmo (rig view): translate handles + rotate rings */
 #define GZ_RING 20
@@ -1379,7 +1379,8 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
             float*po[3]={&g_rk[g_ksel].pos[g_rsel].x,&g_rk[g_ksel].pos[g_rsel].y,&g_rk[g_ksel].pos[g_rsel].z};
             for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*po[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_pz[a*2],&g_rg_pz[a*2+1],mx,my); cy+=UI_H+5; } }
     }
-    g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,24}; rrect(R,lx,cy,MESH_CARDW-24,24,5,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+6,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC);
+    g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,24}; rrect(R,lx,cy,MESH_CARDW-24,24,5,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+6,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); cy+=30;
+    g_rg_mesh=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); text(R,"view as mesh \xbb",lx+8,cy+5,1,C_DIM,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN);
 }
 static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
@@ -1413,6 +1414,7 @@ static int rig_down(int mx,int my){
             if(HITR(g_rg_pz[a*2])){ *po[a]-=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_pz[a*2+1])){ *po[a]+=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }
     }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
+    if(HITR(g_rg_mesh)&&g_rig_obj[0]){ load_mesh(g_rig_obj); g_tab=TAB_MESH; return 1; }   /* inspect the rigged OBJ as a plain mesh */
     return 0;
     #undef HITR
 }
