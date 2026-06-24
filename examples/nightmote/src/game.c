@@ -12,6 +12,8 @@
  *                 scattered procedurally and drawn via scene2d_set_autotile_layers.
  *   · overlay() — the HUD (HP/XP bars, timer, level, kills) + the level-up cards.
  *   · audio     — baked SFX recipes (mote_sfx_bake + audio_play) for shots/hits/pickups/level-up/hurt.
+ *   · animation — the sprite-animation runtime (mote_anim.h): player idle/walk + a walk
+ *                 clip per enemy type, authored in the Studio Anim tab (anims/chars.anims).
  *   · SDK       — mote_sprite_cell, mote_randf / mote_clampf, mote_itoa.
  */
 #include "mote_api.h"
@@ -22,6 +24,7 @@
 #include "grasscool.tiles.h"    /* alt grass — cool blue-green (recoloured sheet) */
 #include "grasswarm.tiles.h"    /* alt grass — warm dry-gold (recoloured sheet) */
 #include "dirt.tiles.h"         /* mud patches */
+#include "chars.anim.h"         /* sprite animations (Anim tab: anims/chars.anims) */
 /* SFX recipes (editable in the Audio tab: assets/*.sfx, baked to src/*.sfx.h). */
 #include "shoot.sfx.h"
 #include "hit.sfx.h"
@@ -105,6 +108,15 @@ static const EType ET[] = {
     { C_BOSS,  R_CHAR1, 18.f,260.f, 26.f,30, 1 },   /* 6 boss                   */
 };
 #define NTYPE_BASIC 6   /* indices 0..5 spawn normally; 6 is the boss */
+#define NTYPE 7
+
+/* Sprite animation (engine runtime, mote_anim.h): one walk clip per enemy type +
+ * idle/walk for the player. All enemies of a type share one player (advanced once a
+ * frame) — the clip data is baked in chars.anim.h, editable in the Studio Anim tab. */
+static const MoteAnimClip *const ECLIP[NTYPE] = {
+    &bat_walk, &zombie_walk, &skel_walk, &ghost_walk, &imp_walk, &slime_walk, &boss_idle };
+static MoteAnimPlayer s_eanim[NTYPE];   /* per-type enemy walk cursor */
+static MoteAnimPlayer s_panim;          /* the player's cursor (idle/walk) */
 
 /* ---- weapons & passives ---- */
 enum { W_BOLT, W_WHIP, W_ORBIT, W_NWEAP };
@@ -161,6 +173,8 @@ static void new_run(void){
     for(int i=0;i<W_NWEAP;i++){ s_w[i]=0; s_wt[i]=0; }
     s_w[W_BOLT]=1;                                       /* start with the bolt */
     s_might=s_haste=s_swift=s_armor=s_magnet=s_growth=0;
+    mote_anim_play(&s_panim, &player_idle);
+    for(int t=0;t<NTYPE;t++) mote_anim_play(&s_eanim[t], ECLIP[t]);
 }
 
 static float xp_need(int lv){ return 4.f + (lv-1)*3.f; }
@@ -318,6 +332,13 @@ static void play_tick(float dt){
     if(mx||my){ float l=sqrtf(mx*mx+my*my); float sp=speed_px()*dt; s_px+=mx/l*sp; s_py+=my/l*sp; if(mx) s_face=mx>0?1.f:-1.f; }
     s_px=mote_clampf(s_px,8,ARENA_PX-8); s_py=mote_clampf(s_py,8,ARENA_PX-8);
 
+    /* drive the sprite animations: player walks when moving, idles when still;
+     * each enemy type's shared walk cursor advances once per frame */
+    const MoteAnimClip *want = (mx||my) ? &player_walk : &player_idle;
+    if(s_panim.clip != want) mote_anim_play(&s_panim, want);
+    mote_anim_tick(&s_panim, dt);
+    for(int t=0;t<NTYPE;t++) mote_anim_tick(&s_eanim[t], dt);
+
     /* spawn — rate climbs with time, with the odd tougher type mixed in */
     s_spawnt-=dt;
     float interval = mote_clampf(0.62f - s_time*0.010f, 0.11f, 0.62f);
@@ -411,23 +432,26 @@ static void g_update(float dt){
      * so cull to the view and add the player first. */
     #define ONSCR(wx,wy) ((int)(wx)-camx > -CELL && (int)(wx)-camx < MOTE_FB_W && \
                           (int)(wy)-camy > -CELL && (int)(wy)-camy < MOTE_FB_H)
-    int af=((int)(s_anim*6))&1;
-
-    /* player FIRST (blink while invulnerable) — guaranteed a slot */
+    /* player FIRST (blink while invulnerable) — guaranteed a slot. The source cell comes
+     * from the animation runtime (mote_anim_fx/fy), not a hand-rolled frame counter. */
     if(!(s_iframe>0 && ((int)(s_iframe*16)&1))){
-        MoteSprite sp=mote_sprite_cell(&atlas_img,(int)s_px-6,(int)s_py-6,CELL,CELL,C_PLAYER+af,R_CHAR0);
-        sp.layer=7; if(s_face<0) sp.flags|=MOTE_SPR_HFLIP; mote->scene2d_add(&sp);
+        MoteSprite sp = { chars_sheet.image, (int16_t)(s_px-6), (int16_t)(s_py-6),
+            (uint16_t)mote_anim_fx(&s_panim,&chars_sheet), (uint16_t)mote_anim_fy(&s_panim,&chars_sheet),
+            CELL, CELL, 7, (uint8_t)(s_face<0 ? MOTE_SPR_HFLIP : 0) };
+        mote->scene2d_add(&sp);
     }
     /* gems (low layer) */
     for(int i=0;i<MAXG;i++) if(s_g[i].on && ONSCR(s_g[i].x,s_g[i].y)){
         MoteSprite sp=mote_sprite_cell(&atlas_img,(int)s_g[i].x-6,(int)s_g[i].y-6,CELL,CELL,
                                        s_g[i].big?C_GEMB:C_GEMS,R_ITEM); sp.layer=1; mote->scene2d_add(&sp);
     }
-    /* enemies */
+    /* enemies — each type's shared animation cursor drives the cell */
     for(int i=0;i<MAXE;i++) if(s_e[i].on && ONSCR(s_e[i].x,s_e[i].y)){
-        int col=ET[s_e[i].type].col + (s_e[i].type==6?0:af);
-        MoteSprite sp=mote_sprite_cell(&atlas_img,(int)s_e[i].x-6,(int)s_e[i].y-6,CELL,CELL,col,ET[s_e[i].type].row);
-        sp.layer=3; if(s_e[i].x<s_px) sp.flags|=MOTE_SPR_HFLIP; mote->scene2d_add(&sp);
+        MoteAnimPlayer *ap=&s_eanim[s_e[i].type];
+        MoteSprite sp = { chars_sheet.image, (int16_t)(s_e[i].x-6), (int16_t)(s_e[i].y-6),
+            (uint16_t)mote_anim_fx(ap,&chars_sheet), (uint16_t)mote_anim_fy(ap,&chars_sheet),
+            CELL, CELL, 3, (uint8_t)(s_e[i].x<s_px ? MOTE_SPR_HFLIP : 0) };
+        mote->scene2d_add(&sp);
     }
     /* orbit orbs */
     if(s_w[W_ORBIT]){ int n=s_w[W_ORBIT]+1;
