@@ -210,3 +210,26 @@ void mote_plat_set_brightness(int pct) { (void)pct; }   /* host: no backlight */
 void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
 void mote_plat_audio_pump(void) { }                      /* host: SDL pulls via callback */
 void mote_plat_audio_start(void) { mote_audio_off(); }   /* host: SDL persists; just clear voices */
+
+/* ---- ABI v23: rumble (no motor on the PC) + per-slot save (files in the cwd) ---- */
+void mote_plat_rumble(float intensity, int ms) { (void)intensity; (void)ms; }
+
+#define HOST_SAVE_SLOTS 8
+int mote_plat_save_slots(void) { return HOST_SAVE_SLOTS; }
+static void host_save_path(int slot, char *p, int n) { snprintf(p, n, "mote_save%d.bin", slot); }
+int mote_plat_save(int slot, const void *data, int len) {
+    if (slot < 0 || slot >= HOST_SAVE_SLOTS) return 0;
+    char p[64]; host_save_path(slot, p, sizeof p);
+    if (len <= 0) { remove(p); return 0; }
+    FILE *f = fopen(p, "wb"); if (!f) return 0;
+    uint32_t L = (uint32_t)len; fwrite(&L, 4, 1, f); fwrite(data, 1, (size_t)len, f); fclose(f); return len;
+}
+int mote_plat_load(int slot, void *data, int max_len) {
+    if (slot < 0 || slot >= HOST_SAVE_SLOTS) return 0;
+    char p[64]; host_save_path(slot, p, sizeof p);
+    FILE *f = fopen(p, "rb"); if (!f) return 0;
+    uint32_t L = 0; if (fread(&L, 4, 1, f) != 1) { fclose(f); return 0; }
+    if (data && max_len > 0) { int c = (int)L < max_len ? (int)L : max_len;
+        if (fread(data, 1, (size_t)c, f) != (size_t)c) {} }
+    fclose(f); return (int)L;
+}

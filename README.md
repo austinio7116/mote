@@ -197,7 +197,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
 - **Emulator (centre)** — the real engine running your game inside a
   photo-accurate, calibrated, crisp integer-scaled Thumby Color shell.
 - **Inspector (right)** — properties of the selected file. For `game.toml` it
-  parses your `MoteConfig` pools out of the C source and shows a **~280 KB arena
+  parses your `MoteConfig` pools out of the C source and shows a **~276 KB arena
   budget meter** so you can see your memory headroom (§7).
 - **Bottom dock — tabbed tools:**
 
@@ -452,14 +452,21 @@ embeddable constants.
 - **Synth** — `mote->audio_note(freq, amp)` strikes a one-shot piano-ish note (§9); no
   asset needed. Good for tones, beeps, melodies.
 - **SFX recipes** — design an effect with the Studio **Audio tab**'s SFXR synth; **Save**
-  also writes `src/<name>.sfx.h` (a `static const MoteSfx`, ~88 bytes). `mote_sfx_bake(mote,
-  &<name>_sfx)` has the engine synthesise it to a `MoteSound` at load — tiny in flash,
-  editable, great for blips/zaps/pickups (ABI v19).
-- **Samples** — for recorded/sampled audio, bake a 22050 Hz mono WAV: the Audio tab loads
-  WAV/MP3 and crops; **Save** writes the `.wav` and bakes `src/<name>.h` (a `MoteSound`).
-  `mote bake` also bakes any `.wav` in `assets/`.
+  writes `src/<name>.sfx.h` (a `static const MoteSfx`, ~88 bytes) **and** bakes a PCM clip
+  `src/<name>.h` (`<name>_snd`). `mote_sfx_bake(mote, &<name>_sfx)` synthesises the recipe
+  to a `MoteSound` at load — but ⚠️ **that costs arena RAM = samples × 2 bytes, per sound**
+  (~13 KB for a 0.3 s clip). Fine for a few; for many sounds, play the **baked clip**
+  instead (next bullet) — it's free.
+- **Samples / baked clips** — `<name>_snd` is a `const MoteSound` baked into **flash** by
+  wav2snd (Studio **Save**, or `mote bake` on any `assets/*.wav`). `mote->audio_play(&<name>_snd, gain)`
+  plays it at **zero arena cost**. This is the right path for a whole game's SFX set —
+  tune the recipe in the Audio tab, re-Save to re-bake `<name>_snd`.
 
-All three end at the mixer — up to 8 one-shot samples mix on top of the synth notes.
+All paths end at the mixer — up to 8 one-shot samples mix on top of the synth notes.
+
+> **Rule of thumb:** play **`&<name>_snd`** (baked, flash, 0 RAM) for your game's sounds.
+> Reserve **`mote_sfx_bake`** for a handful of sounds, or ones you synthesise/vary at
+> runtime — every bake eats arena RAM, and 30+ of them will overflow it.
 
 ```c
 #include "coin.sfx.h"                  // recipe: static const MoteSfx coin_sfx = {...};
@@ -1219,11 +1226,11 @@ cap**), and an RGB565 albedo + quantised normal per face.
 
 ## 7. Memory model
 
-There is **one shared 280 KB SRAM arena** per game. At load, the OS sizes the
+There is **one shared 276 KB SRAM arena** per game. At load, the OS sizes the
 engine's pools to *your* declared `MoteConfig`; whatever's left, your game claims
 via `mote->alloc()`. A lean game keeps the slack.
 
-### Why 280 KB and not the chip's full 520 KB?
+### Why 276 KB and not the chip's full 520 KB?
 
 The RP2350's 520 KB SRAM is **one 512 KB contiguous bank + two 4 KB scratch banks**
 (measured from the firmware's linker map: `RAM 0x20000000 len 0x80000`, plus
@@ -1235,20 +1242,20 @@ the budget breaks down like this:
 
 | Region | Size | Notes |
 |--------|------|-------|
-| **Game arena** | **280 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
+| **Game arena** | **276 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
 | Framebuffer | 32 KB | 128×128 RGB565. A second 32 KB buffer is used when the async-overlap present is on (render frame N+1 while N streams to the LCD over SPI DMA). |
 | Pipeline vertex scratch | ~7 KB | `s_view`/`s_sx`/`s_sy`/`s_sd`/`s_front` (320-vertex working set). |
 | Core0 + Core1 stacks | 8 KB | both cores rasterise; `PICO_STACK_SIZE` + `PICO_CORE1_STACK_SIZE`, 4 KB each. |
 | SDK malloc heap | 16 KB | `PICO_HEAP_SIZE` (engine/SDK use, separate from the game arena). |
 | Vector table + SDK/libc/clocks BSS + code statics | ~9 KB | `ram_vector_table`, audio mixer, USB-CDC, launcher/menu, C runtime. |
 
-That's **280 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
-of headroom.** So 280 KB isn't "whatever's left" — it's a deliberate, round budget set
+That's **276 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
+of headroom.** So 276 KB isn't "whatever's left" — it's a deliberate, round budget set
 *below* the true ceiling. That margin is the guarantee: if your `MoteConfig` + `alloc()`s
-fit in 280 KB, the game is *certain* to load and run alongside the framebuffers, both
+fit in 276 KB, the game is *certain* to load and run alongside the framebuffers, both
 stacks, the SDK heap, USB and audio — with no per-game tuning of the system.
 
-![The 280 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
+![The 276 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
 Declare your pools in the vtable `config`:
 
@@ -1273,7 +1280,7 @@ Declare your pools in the vtable `config`:
   hold MENU 3 s → the menu) shows **ARENA used/total**, and Studio's Inspector shows
   the budget meter for `game.toml`.
 - **Sizing tip:** roughly `max_tris × 36 B + (depth ? 32 KB : 0) + physics pools +
-  your alloc()s` must fit 280 KB.
+  your alloc()s` must fit 276 KB.
 
 > A game with **no** `config` at all falls back to a generous static worst-case so
 > legacy games still run — but always declare your pools so you get the slack.
@@ -1486,6 +1493,7 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `pong3d`, `arkanoid3d` | polished arcade: trails, particles, power-ups, levels, `menu` for game-over |
 | `nightmote` | **2D horde survivor** — the 2D sprite scene drawing a culled swarm, a WANG16 autotiled procedural ground (grass + alt-grass + mud), baked SFX recipes, XP/level-up build, overlay HUD |
 | `thumbycue` | **full game port** — 3D snooker & pool on the dual-core full-screen `render_band` hook (custom rasteriser, textured ball impostors, physics/rules/AI, sampled SFX) |
+| `indemnity` | **full game port** (~20k lines) — Elite-style space sim (flight/combat/trade/galaxy) on `render_band`; arena-resident render buffers, baked per-weapon SFX, uses the **save + rumble** APIs |
 | `tanks` | **3D rigid-part animation** (the showcase) — a rigged tank (body/tracks/turret/barrel), a baked recoil clip triggered on fire, procedural turret aim mixed with the clip, per-part team tinting |
 | `physics`, `materials`, `playground`, `dominoes`, `hulls` | the rigid-body solver (boxes/spheres/hulls/materials/stacking) |
 | `pickups`, `shooter` | `phys_overlap` / `phys_raycast` as game mechanics |
@@ -1513,6 +1521,18 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.5-alpha
+
+Saves, rumble, and a third big game port. Reflash `firmware_mote_os.uf2` (ABI → 23).
+
+- **Indemnity Run** — full Elite-style space sim port (~20k lines) on `render_band`.
+- **Persistent save** (`save`/`load`/`save_slots` — flash slots on device, files on host)
+  and **rumble** (`rumble(intensity, ms)`) added to the ABI (v23).
+- **Audio**: play baked `<name>_snd` clips (flash, 0 RAM) for a game's sounds; the docs,
+  the Studio save hint, and the OOM screen now steer you off the RAM-hungry
+  `mote_sfx_bake`-everything path. Audio-tab seed/Randomize no longer renames your sound.
+- Load arena trimmed 280 → 276 KB to fit the new OS state; cleaner build consoles.
 
 ### 0.4-alpha
 

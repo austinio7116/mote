@@ -85,3 +85,24 @@ void mote_plat_set_brightness(int p) { (void)p; }
 void mote_plat_set_volume(int p)     { mote_audio_set_volume(p / 100.0f); }
 void mote_plat_audio_pump(void)      { }
 void mote_plat_audio_start(void)     { mote_audio_off(); }
+
+/* ---- ABI v23: rumble (no motor in the emulator) + per-slot save (files) ---- */
+void mote_plat_rumble(float intensity, int ms) { (void)intensity; (void)ms; }
+#define STUDIO_SAVE_SLOTS 8
+int mote_plat_save_slots(void) { return STUDIO_SAVE_SLOTS; }
+int mote_plat_save(int slot, const void *data, int len) {
+    if (slot < 0 || slot >= STUDIO_SAVE_SLOTS) return 0;
+    char p[64]; snprintf(p, sizeof p, "mote_save%d.bin", slot);
+    if (len <= 0) { remove(p); return 0; }
+    FILE *f = fopen(p, "wb"); if (!f) return 0;
+    uint32_t L = (uint32_t)len; fwrite(&L, 4, 1, f); fwrite(data, 1, (size_t)len, f); fclose(f); return len;
+}
+int mote_plat_load(int slot, void *data, int max_len) {
+    if (slot < 0 || slot >= STUDIO_SAVE_SLOTS) return 0;
+    char p[64]; snprintf(p, sizeof p, "mote_save%d.bin", slot);
+    FILE *f = fopen(p, "rb"); if (!f) return 0;
+    uint32_t L = 0; if (fread(&L, 4, 1, f) != 1) { fclose(f); return 0; }
+    if (data && max_len > 0) { int c = (int)L < max_len ? (int)L : max_len;
+        if (fread(data, 1, (size_t)c, f) != (size_t)c) {} }
+    fclose(f); return (int)L;
+}

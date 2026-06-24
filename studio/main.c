@@ -50,7 +50,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.4-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.5-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -809,9 +809,10 @@ static int eval_expr(const char*s){ int total=0,term=1,n=0,innum=0,mul=0;
         else { if(innum){ if(mul)term*=n; else term=n; innum=0; n=0; }
             if(c=='*')mul=1; else if(c=='+'){ total+=term; term=1; mul=0; } else if(c==0||c=='}'||c==','||c=='\n'){ total+=term; break; } } }
     return total; }
-typedef struct { int tris,spheres,splats,sprites,bodies,contacts,mesh_tris,depth,found; } MCfg;
-static MCfg parse_config(const char*dir){ MCfg c={0,0,0,0,0,0,0,0,0}; char p[320]; snprintf(p,sizeof p,"%.250s/src/game.c",dir);
+typedef struct { int tris,spheres,splats,sprites,bodies,contacts,mesh_tris,depth,found,custom_render; } MCfg;
+static MCfg parse_config(const char*dir){ MCfg c={0}; char p[320]; snprintf(p,sizeof p,"%.250s/src/game.c",dir);
     FILE*f=fopen(p,"r"); if(!f)return c; static char buf[400000]; size_t n=fread(buf,1,sizeof buf-1,f); buf[n]=0; fclose(f);
+    c.custom_render = strstr(buf,"render_band")!=NULL;   /* game provides its own full-screen rasteriser */
     char*cf=strstr(buf,".config"); if(!cf)return c; char*op=strchr(cf,'{'); if(!op)return c; c.found=1; char*cl=strchr(op,'}');
     struct { const char*k; int*v; } fl[]={ {"max_tris",&c.tris},{"max_spheres",&c.spheres},{"max_splats",&c.splats},{"max_sprites",&c.sprites},
         {"max_bodies",&c.bodies},{"max_contacts",&c.contacts},{"max_mesh_tris",&c.mesh_tris},{"depth",&c.depth} };
@@ -822,7 +823,7 @@ static MCfg parse_config(const char*dir){ MCfg c={0,0,0,0,0,0,0,0,0}; char p[320
  * fall back to parsing src/game.c when the game isn't loaded. */
 static MCfg get_config(int gi,const char*dir){
     if(gi>=0&&gi==g_loaded_cfg_for){ MoteConfig*m=&g_loaded_cfg; MCfg c={ m->max_tris,m->max_spheres,m->max_splats,m->max_sprites,
-        m->max_bodies,m->max_contacts,m->max_mesh_tris,m->depth,1 }; return c; }
+        m->max_bodies,m->max_contacts,m->max_mesh_tris,m->depth,1, parse_config(dir).custom_render }; return c; }
     return parse_config(dir); }
 static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*20+(long)c->splats*24+(long)c->sprites*16
     +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0); }
@@ -848,10 +849,13 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
             for(int i=0;i<7;i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
                 int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
             text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
-            long used=arena_bytes(&c); float frac=used/286720.0f; if(frac>1)frac=1;          /* 280 KB load arena */
-            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>286720?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
+            long used=arena_bytes(&c); float frac=used/282624.0f; if(frac>1)frac=1;          /* 276 KB load arena */
+            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>282624?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
             plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
-            plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24; } }
+            plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24;
+            if(c.custom_render){ text(R,"custom renderer (render_band):",x,y,1,C_ACC,C_DOCK); y+=14;
+                text(R,"draws the frame itself; its own",x,y,1,C_DIM,C_DOCK); y+=12;
+                text(R,"mote->alloc() use isn't counted",x,y,1,C_DIM,C_DOCK); y+=20; } } }
     if(r->kind==3) text(R,"transparent key = magenta",x,y,1,C_DIM,C_DOCK),y+=22;
     int mx,my; SDL_GetMouseState(&mx,&my); int bw=RIGHT_W-28;
     /* primary action: open this asset in its dedicated tool (image->Pixel Art, etc.) */
@@ -1586,7 +1590,7 @@ static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
         char sd[440]; snprintf(sd,sizeof sd,"%.300s/src",g_games[g_sel].dir); mkdir_portable(sd);
         char hp[470]; snprintf(hp,sizeof hp,"%.300s/src/%.60s.sfx.h",g_games[g_sel].dir,base); sfx_emit_header(hp,base); }   /* recipe header -> mote_sfx_bake */
     njob(2,g_games[g_sel].dir);                                      /* bake -> assets header (wav2snd) */
-    snprintf(g_status,sizeof g_status,"saved %s  -  audio_play(&%s_snd) or mote_sfx_bake(&%s_sfx)",base,base,base); }
+    snprintf(g_status,sizeof g_status,"saved %s - play with audio_play(&%s_snd) (flash, 0 RAM); mote_sfx_bake costs arena RAM/sound",base,base); }
 /* ===== SFX generator (sfxr-style procedural synthesis) ===== */
 typedef struct { int wave; float base_freq,freq_limit,freq_ramp,freq_dramp,duty,duty_ramp,
     vib_strength,vib_speed,env_attack,env_sustain,env_punch,env_decay,
@@ -1703,7 +1707,10 @@ static void sfx_preset(int k){ Sfx*P=&g_sfx; memset(P,0,sizeof *P); P->env_susta
       default: P->wave=(int)frnd(4); P->base_freq=frnd(1); P->freq_ramp=frnd(0.8f)-0.4f; P->duty=frnd(1); P->duty_ramp=frnd(0.4f)-0.2f; P->env_attack=frnd(0.2f); P->env_sustain=0.1f+frnd(0.4f); P->env_decay=0.1f+frnd(0.5f);
               P->env_punch=frnd(0.5f); P->vib_strength=frnd(0.5f); P->vib_speed=frnd(0.6f); P->arp_speed=frnd(0.7f); P->arp_mod=frnd(1.2f)-0.5f; P->lpf_freq=0.2f+frnd(0.8f); P->lpf_resonance=frnd(1); break;
     }
-    snprintf(g_au_name,sizeof g_au_name,"%s",SFX_NAME[k]); g_has_sfx=1; sfx_apply(1); }
+    /* A seed preset replaces the SOUND, not the name — keep the loaded file's name so
+     * Save writes back to it. Only name it after the preset when starting fresh. */
+    if(!g_au_name[0] || !strcmp(g_au_name,"sfx")) snprintf(g_au_name,sizeof g_au_name,"%s",SFX_NAME[k]);
+    g_has_sfx=1; sfx_apply(1); }
 static void sfx_mutate(void){ g_has_sfx=1; for(int i=0;i<NSPAR;i++)if(frnd(1)<0.4f){ float nv=*SPAR[i].v+(frnd(2)-1)*0.08f*(SPAR[i].hi-SPAR[i].lo);
         if(nv<SPAR[i].lo)nv=SPAR[i].lo; if(nv>SPAR[i].hi)nv=SPAR[i].hi; *SPAR[i].v=nv; } sfx_apply(1); }
 static void draw_slider(SDL_Renderer*R,int i,int x,int y,int w){ SParam*sp=&SPAR[i]; g_sparr[i]=(SDL_Rect){x,y,w,18};
@@ -2828,12 +2835,12 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
         else { rrect(R,dst.x,dst.y,dst.w,dst.h,6,(Col){44,48,62}); icon(R,IC_FOLDER,dst.x+13,dst.y+14,18,(Col){150,150,170}); }
         text(R,g_games[i].name,bx+70,y+8,2,(hov||i==g_sel)?C_TXT:(Col){190,196,212},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
         /* arena/memory estimate from the game's MoteConfig pools */
-        MCfg*c=picker_cfg(i); long used=arena_bytes(c); float frac=used/286720.0f; if(frac>1)frac=1;
+        MCfg*c=picker_cfg(i); long used=arena_bytes(c); float frac=used/282624.0f; if(frac>1)frac=1;
         int barx=bx+70, bary=y+34, barw=rw-70-78, barh=9; Col bg={26,28,38};
-        Col bc = used>286720?(Col){235,110,110}:(frac>0.8f?(Col){235,200,90}:(Col){110,200,130});
+        Col bc = used>282624?(Col){235,110,110}:(frac>0.8f?(Col){235,200,90}:(Col){110,200,130});
         plain(R,barx,bary,barw,barh,bg); plain(R,barx,bary,(int)(barw*frac),barh,bc); rect_outline(R,barx,bary,barw,barh,(Col){60,64,80},1);
         char mb[40]; snprintf(mb,sizeof mb,"~%ld KB",used/1024);
-        text(R,mb,barx+barw+8,bary-1,1,used>286720?(Col){240,130,130}:C_DIM,hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
+        text(R,mb,barx+barw+8,bary-1,1,used>282624?(Col){240,130,130}:C_DIM,hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
         char det[64]; snprintf(det,sizeof det,"%dtri %dspr%s",c->tris,c->sprites,c->depth?" \xb7 depth":"");
         text(R,det,bx+70+textw(R,g_games[i].name,2)+10,y+10,1,(Col){120,126,144},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44})); }
     /* scrollbar */

@@ -95,7 +95,7 @@ if(MOTE_TARGET STREQUAL "host")
         platform/studio/mote_plat_studio.c)
     target_include_directories(mote_studio PRIVATE ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_studio PRIVATE MOTE_HOST=1)
-    target_compile_options(mote_studio PRIVATE -O2 -ffast-math -Wno-format-truncation)
+    target_compile_options(mote_studio PRIVATE -O2 -ffast-math -Wno-format-truncation -Wno-unused-result)
     target_link_libraries(mote_studio PRIVATE mote_engine ${CMAKE_DL_LIBS})
     if(WIN32)
         # embed the Mote app icon into the .exe

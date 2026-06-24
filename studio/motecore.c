@@ -50,7 +50,7 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     closedir(d); if(!ns){ log("no .c sources in src/"); return -1; }
     char inc[1024]; int ip=0; for(int i=0;i<NINC;i++)ip+=snprintf(inc+ip,sizeof inc-ip," -I%s",INCS[i]); ip+=snprintf(inc+ip,sizeof inc-ip," -I%.320s/src",dir);
     /* host module (.so / .dll) */
-    char cmd[12000]; int p=snprintf(cmd,sizeof cmd,"gcc -shared %s -O2 -ffast-math -DMOTE_HOST=1%s",HOST_PIC,inc);
+    char cmd[12000]; int p=snprintf(cmd,sizeof cmd,"gcc -shared %s -O2 -ffast-math -Wno-format-truncation -DMOTE_HOST=1%s",HOST_PIC,inc);
     for(int i=0;i<ns;i++)p+=snprintf(cmd+p,sizeof cmd-p," %.320s/src/%s",dir,nm[i]);
     p+=snprintf(cmd+p,sizeof cmd-p," -lm -o %.320s/build/%s.%s 2>&1",dir,name,HOST_EXT);
     { char m[120]; snprintf(m,sizeof m,"$ build %s (host)",name); log(m); }
@@ -63,7 +63,7 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     if(!device)return 0;
     /* device module (.mote): per-source -c, link with game.ld, objcopy */
     char arch[120]; snprintf(arch,sizeof arch,"-mcpu=cortex-m33 -mthumb -mfloat-abi=softfp -mfpu=fpv5-sp-d16");
-    char base[200]; snprintf(base,sizeof base,"-O2 -ffast-math -ffreestanding -fno-common -ffunction-sections -fdata-sections -DMOTE_DEVICE=1 -DMOTE_MODULE_BUILD=1");
+    char base[200]; snprintf(base,sizeof base,"-O2 -ffast-math -ffreestanding -fno-common -ffunction-sections -fdata-sections -Wno-format-truncation -DMOTE_DEVICE=1 -DMOTE_MODULE_BUILD=1");
     char objs[4000]=""; { char m[80]; snprintf(m,sizeof m,"$ build %s (device)",name); log(m); }
     for(int i=0;i<ns;i++){ char obj[600]; snprintf(obj,sizeof obj,"%.320s/build/%s.o",dir,nm[i]);
         snprintf(cmd,sizeof cmd,"%sgcc %s %s%s -c %.320s/src/%s -o %s 2>&1",ARM,arch,base,inc,dir,nm[i],obj);

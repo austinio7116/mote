@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v22</span>
+    <span class="abi">ABI v23</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -866,6 +866,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v20</td><td>Per-game icons in the module header (<code>icon_vaddr</code>); no more firmware icon table.</td></tr>
 <tr><td>v21</td><td>set_fps_limit (optional frame-rate cap, honoured by device + host).</td></tr>
 <tr><td>v22</td><td>Compact paletted launcher icons (<code>sdk/mote_icon.h</code>); the launcher decodes the blob inline. ~2–4× smaller in flash.</td></tr>
+<tr><td>v23</td><td><code>rumble(intensity, ms)</code> (motor pulse) + persistent per-slot save (<code>save</code>/<code>load</code>/<code>save_slots</code>; device = flash sectors, host = files). The load arena trims 280→276&nbsp;KB to make OS room.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine
@@ -874,7 +875,7 @@ change. See the <a href="https://github.com/austinio7116/mote/blob/main/docs/ani
 </main>
 
 <footer>
-  Mote Engine API/ABI reference · ABI v22 · generated from the engine headers
+  Mote Engine API/ABI reference · ABI v23 · generated from the engine headers
   (<code>sdk/mote_api.h</code>, <code>mote_build.h</code>, <code>mote_tile.h</code>, <code>mote_anim.h</code>,
   <code>mote_vec.h</code>, <code>mote_mesh.h</code>, <code>mote_2d.h</code>, <code>mote_phys.h</code>,
   <code>mote_splat.h</code>, <code>mote_input.h</code>, <code>mote_module.h</code>).

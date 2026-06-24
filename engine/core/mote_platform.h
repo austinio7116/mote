@@ -77,4 +77,15 @@ void mote_plat_audio_pump(void);
  * ring so sound survives game switches; host: no-op). Called per game launch. */
 void mote_plat_audio_start(void);
 
+/* Rumble: buzz at intensity 0..1 for ms milliseconds (device: PWM the motor, eases
+ * out; host/Studio: no-op). intensity<=0 or ms<=0 stops. */
+void mote_plat_rumble(float intensity, int ms);
+
+/* Persistent per-slot save (device: a flash sector per slot; host/Studio: a file).
+ * save() writes len bytes (len==0 clears) and returns len, <=0 on failure. load()
+ * copies up to max_len bytes and returns the saved length (0 if empty). */
+int  mote_plat_save(int slot, const void *data, int len);
+int  mote_plat_load(int slot, void *data, int max_len);
+int  mote_plat_save_slots(void);
+
 #endif /* MOTE_PLATFORM_H */

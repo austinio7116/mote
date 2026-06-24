@@ -21,6 +21,11 @@
 #include "pico/multicore.h"
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
+#include "hardware/pwm.h"      /* rumble motor (GP5 PWM) */
+#include "hardware/gpio.h"
+#include "hardware/flash.h"    /* per-slot save in flash */
+#include "hardware/regs/addressmap.h"  /* XIP_BASE */
+#include <string.h>
 
 /* USB-CDC control/debug channel (os/device/mote_usb.c). Declared here rather
  * than #included so the platform layer doesn't pull in OS headers. */
@@ -30,6 +35,8 @@ extern int  mote_usb_take_launch(void);
 extern void mote_usb_log(const char *s);
 
 void mote_plat_log(const char *s) { mote_usb_log(s); }
+
+static void rumble_init(void);   /* defined below; called from mote_plat_init */
 
 /* --- dual-core work-stealing banded raster ------------------------------ *
  * The frame is cut into NSTRIPS horizontal strips; both cores pull the next
@@ -65,6 +72,7 @@ static void work_strips(uint16_t *fb, MoteBandFn band) {
 }
 
 static void core1_entry(void) {
+    multicore_lockout_victim_init();   /* let core0 park us during flash saves */
     for (;;) {
         while (!s_core1_go) tight_loop_contents();
         s_core1_go = 0;
@@ -103,6 +111,7 @@ int mote_plat_init(const char *title) {
                     280 * 1000 * 1000, 280 * 1000 * 1000);
     mote_lcd_init();
     mote_buttons_init();
+    rumble_init();
     mote_audio_init();
     mote_audio_pwm_init();
     s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
@@ -155,9 +164,82 @@ void mote_plat_shutdown(void) { mote_lcd_backlight(0); }
 void mote_plat_set_brightness(int pct) { mote_lcd_brightness(pct); }
 void mote_plat_set_volume(int pct) { mote_audio_set_volume(pct / 100.0f); }
 
+/* ---- ABI v23: rumble motor on GP5 (PWM 2B), eased-out pulse ---- */
+#define RUMBLE_PIN  5
+#define RUMBLE_WRAP 1023
+static uint     s_rum_slice;
+static float    s_rum_lvl;
+static uint64_t s_rum_start, s_rum_end;   /* 0 = idle */
+static void rumble_init(void) {
+    gpio_set_function(RUMBLE_PIN, GPIO_FUNC_PWM);
+    s_rum_slice = pwm_gpio_to_slice_num(RUMBLE_PIN);
+    pwm_set_wrap(s_rum_slice, RUMBLE_WRAP);
+    pwm_set_gpio_level(RUMBLE_PIN, 0);
+    pwm_set_enabled(s_rum_slice, true);
+}
+void mote_plat_rumble(float intensity, int ms) {
+    if (intensity <= 0.0f || ms <= 0) { s_rum_end = 0; pwm_set_gpio_level(RUMBLE_PIN, 0); return; }
+    if (intensity > 1.0f) intensity = 1.0f;
+    uint64_t now = time_us_64();
+    s_rum_lvl = intensity; s_rum_start = now; s_rum_end = now + (uint64_t)ms * 1000u;
+}
+static void rumble_tick(void) {        /* called once per frame from audio_pump */
+    if (!s_rum_end) return;
+    uint64_t now = time_us_64();
+    if (now >= s_rum_end) { s_rum_end = 0; pwm_set_gpio_level(RUMBLE_PIN, 0); return; }
+    float k = (float)(s_rum_end - now) / (float)(s_rum_end - s_rum_start);   /* 1 -> 0 */
+    float duty = s_rum_lvl * (0.35f + 0.65f * k);
+    pwm_set_gpio_level(RUMBLE_PIN, (uint16_t)(duty * RUMBLE_WRAP));
+}
+
+/* ---- ABI v23: per-slot save in the top flash sectors (survive power-off AND OS
+ * reflash — the OS image sits far below). Per slot: [u32 magic][u32 len][data];
+ * an erased sector reads magic 0xFFFFFFFF -> treated as empty. ---- */
+#define SAVE_SLOTS  8
+#define SAVE_SEC    FLASH_SECTOR_SIZE          /* 4096 */
+#define SAVE_MAGIC  0x4D534156u                /* 'MSAV' */
+#define SAVE_OFF(s) (PICO_FLASH_SIZE_BYTES - (uint32_t)((s) + 1) * SAVE_SEC)
+int mote_plat_save_slots(void) { return SAVE_SLOTS; }
+int mote_plat_save(int slot, const void *data, int len) {
+    if (slot < 0 || slot >= SAVE_SLOTS) return 0;
+    if (len > (int)(SAVE_SEC - 8)) len = SAVE_SEC - 8;
+    uint32_t off = SAVE_OFF(slot);
+    uint32_t hdr[2] = { SAVE_MAGIC, (uint32_t)len };
+    int total = len > 0 ? 8 + len : 0;
+    multicore_lockout_start_blocking();          /* park core1 (it spins in XIP) */
+    uint32_t irq = save_and_disable_interrupts();
+    flash_range_erase(off, SAVE_SEC);
+    if (total > 0) {
+        /* program [magic][len][data] one 256-byte flash page at a time, so we need
+         * only a tiny staging buffer (a full 4 KB sector buffer won't fit OS RAM). */
+        static uint8_t pg[FLASH_PAGE_SIZE];
+        for (int done = 0; done < total; done += FLASH_PAGE_SIZE) {
+            memset(pg, 0xFF, sizeof pg);
+            int n = total - done; if (n > (int)FLASH_PAGE_SIZE) n = FLASH_PAGE_SIZE;
+            for (int i = 0; i < n; i++) { int g = done + i;
+                pg[i] = (g < 8) ? ((const uint8_t *)hdr)[g] : ((const uint8_t *)data)[g - 8]; }
+            flash_range_program(off + done, pg, FLASH_PAGE_SIZE);
+        }
+    }
+    restore_interrupts(irq);
+    multicore_lockout_end_blocking();
+    return len;
+}
+int mote_plat_load(int slot, void *data, int max_len) {
+    if (slot < 0 || slot >= SAVE_SLOTS) return 0;
+    const uint8_t *src = (const uint8_t *)(XIP_BASE + SAVE_OFF(slot));
+    const uint32_t *h = (const uint32_t *)src;
+    if (h[0] != SAVE_MAGIC) return 0;
+    int len = (int)h[1];
+    if (len < 0 || len > (int)(SAVE_SEC - 8)) return 0;
+    if (data && max_len > 0) { int c = len < max_len ? len : max_len; memcpy(data, src + 8, (size_t)c); }
+    return len;
+}
+
 void mote_plat_audio_pump(void) {
     int room = mote_audio_pwm_room();
     while (room >= 128) { int16_t buf[128]; mote_audio_render(buf, 128); mote_audio_pwm_push(buf, 128); room -= 128; }
+    rumble_tick();   /* time out / fade the rumble pulse */
 }
 
 void mote_plat_audio_start(void) { mote_audio_off(); mote_audio_pwm_init(); }   /* re-arm per game */

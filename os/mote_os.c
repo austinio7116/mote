@@ -23,8 +23,10 @@ static const MoteInput *s_cur_input;
 static bool           s_exit_req;
 
 /* One SRAM arena: the engine's per-game pools (sized by MoteConfig) and the
- * game's own alloc()s come out of this. Reset between games. */
-#define MOTE_ARENA_SIZE (280 * 1024)
+ * game's own alloc()s come out of this. Reset between games. (276 KB: a few KB
+ * trimmed from a round 280 to leave the OS room for the v23 rumble/save state +
+ * headroom — games use well under this; ThumbyCue's worst case is ~254 KB.) */
+#define MOTE_ARENA_SIZE (276 * 1024)
 static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
 static MoteArena s_arena;
 
@@ -127,6 +129,11 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v19: synthesise SFX recipes at load. */
     a->audio_render_sfx      = mote_audio_render_sfx;
     a->set_fps_limit         = os_set_fps_limit;
+    /* ABI v23: rumble + persistent save (straight through to the platform). */
+    a->rumble                = mote_plat_rumble;
+    a->save                  = mote_plat_save;
+    a->load                  = mote_plat_load;
+    a->save_slots            = mote_plat_save_slots;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -194,10 +201,11 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     if (s_arena.overflow) {
         uint16_t *fb = mote_launcher_fb();
         for (int i = 0; i < MOTE_FB_PW * MOTE_FB_PH; i++) fb[i] = MOTE_RGB565(60, 10, 14);
-        mote_font_draw(fb, "OUT OF MEMORY", 18, 44, MOTE_RGB565(255, 220, 220));
-        mote_font_draw(fb, "lower max_tris / pools", 8, 58, MOTE_RGB565(230, 180, 180));
-        mote_font_draw(fb, "in this game's config", 10, 68, MOTE_RGB565(230, 180, 180));
-        mote_font_draw(fb, "MENU to go back", 22, 86, MOTE_RGB565(200, 160, 160));
+        mote_font_draw(fb, "OUT OF MEMORY", 18, 42, MOTE_RGB565(255, 220, 220));
+        mote_font_draw(fb, "shrink config pools, or", 6, 56, MOTE_RGB565(230, 180, 180));
+        mote_font_draw(fb, "fewer alloc()/sfx_bake", 6, 66, MOTE_RGB565(230, 180, 180));
+        mote_font_draw(fb, "(baked _snd = 0 RAM)", 8, 76, MOTE_RGB565(200, 175, 175));
+        mote_font_draw(fb, "MENU to go back", 22, 92, MOTE_RGB565(200, 160, 160));
         mote_plat_present(fb);
         for (int g = 0; g < 600; g++) { MoteButtons r; mote_plat_buttons(&r);
             if (r.menu || mote_plat_should_quit()) break; mote_plat_present(fb); }

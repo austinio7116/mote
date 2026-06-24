@@ -68,7 +68,7 @@ def build_host(d, name, srcs, gamesrc, outdir):
     """A game module is a .so that links NO engine code — it reaches the
     engine only through the ABI it is handed (device analogue: a .mote)."""
     out = os.path.join(outdir, name + ".so")
-    cmd = ["gcc", "-shared", "-fPIC", "-O2", "-ffast-math", "-DMOTE_HOST=1"]
+    cmd = ["gcc", "-shared", "-fPIC", "-O2", "-ffast-math", "-Wno-format-truncation", "-DMOTE_HOST=1"]
     cmd += incs_flags(gamesrc) + srcs + ["-lm", "-o", out]
     run(cmd)
     return out
@@ -81,7 +81,7 @@ def build_device(d, name, srcs, gamesrc, outdir):
         sys.exit("mote: %sgcc not found (install gcc-arm-none-eabi)" % ARM)
     objs = []
     base = ["-O2", "-ffast-math", "-ffreestanding", "-fno-common",
-            "-ffunction-sections", "-fdata-sections",
+            "-ffunction-sections", "-fdata-sections", "-Wno-format-truncation",
             "-DMOTE_DEVICE=1", "-DMOTE_MODULE_BUILD=1"]
     for c in srcs:
         o = os.path.join(outdir, os.path.basename(c) + ".o")

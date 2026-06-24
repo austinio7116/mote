@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5-alpha
+
+A big engine-API release: persistent saves and rumble, plus a third large game port.
+**Reflash `firmware_mote_os.uf2`** — the ABI bumps to 23 and games built against it are
+refused by older firmware.
+
+### New game
+
+- **Indemnity Run** — a full port of the bare-metal Elite-style space sim (~20k lines):
+  flight, combat, trading, galaxy, the lot, on the dual-core `render_band` rasteriser.
+  Its big render buffers live in the arena; every weapon and sound is an editable, baked
+  SFX clip; uses the new save + rumble APIs.
+
+### Engine / ABI (v23)
+
+- **Persistent save.** `save(slot, data, len)` / `load(slot, data, max)` / `save_slots()`
+  — per-slot blobs that survive power-off (device: flash sectors that even outlast an OS
+  reflash; host/Studio: files).
+- **Rumble.** `rumble(intensity, ms)` pulses the motor (device: GP5 PWM, eased-out;
+  host/Studio: no-op).
+- The load arena is **276 KB** (trimmed from 280) to make room for the new OS state —
+  immaterial to games (the heaviest example uses ~254 KB).
+
+### Audio: prefer baked clips (and a footgun fixed)
+
+- **Guidance + guard rails** so a game's SFX don't silently eat arena RAM: `mote_sfx_bake`
+  is documented as costing RAM per sound; the right path for a sound *set* is the baked
+  `<name>_snd` clip (flash, 0 RAM) played with `audio_play`. The Studio save hint, the
+  README audio section, and the OUT-OF-MEMORY screen all now steer you there.
+- **Studio Audio tab**: applying a seed preset or **Randomize** no longer renames the
+  sound you loaded — Save writes back to the same `.sfx`/`.sfx.h`.
+
+### Fixed
+
+- Clean build console — suppressed the noisy `format-truncation` / `unused-result`
+  warnings in game builds and in Studio itself (both build paths).
+
 ## 0.4-alpha
 
 Two new example games and a batch of Studio/tooling improvements. The device firmware is

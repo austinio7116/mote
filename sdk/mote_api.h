@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 22u  /* v22: launcher icons are a compact paletted blob (mote_icon.h), not raw RGB565 */
+#define MOTE_ABI_VERSION 23u  /* v23: rumble + persistent per-slot save (rumble/save/load/save_slots) */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
@@ -214,6 +214,24 @@ typedef struct MoteApi {
      * fps for steady timing. Call it once from update() on the first frame, or
      * whenever you want to change the cap. */
     void (*set_fps_limit)(int fps);
+
+    /* --- ABI v23: rumble + persistent per-slot save.
+     *
+     * rumble(intensity, ms): buzz the motor at intensity 0..1 for ms milliseconds
+     * (it eases out, then stops itself). intensity<=0 or ms<=0 stops immediately.
+     * No-op on the host emulator and Studio. */
+    void (*rumble)(float intensity, int ms);
+
+    /* Persistent storage: a handful of fixed-size save SLOTS (see save_slots()).
+     * On device each slot is a flash sector that survives power-off and OS reflash;
+     * on host/Studio it's a file. save() writes `len` bytes (len==0 clears the slot)
+     * and returns len on success, <=0 on failure. load() copies up to max_len bytes
+     * into `data` and returns the saved length (0 if the slot is empty) — so you can
+     * call load(slot, NULL, 0) to test for a save. Keep your own magic/version inside
+     * the blob. */
+    int  (*save)(int slot, const void *data, int len);
+    int  (*load)(int slot, void *data, int max_len);
+    int  (*save_slots)(void);     /* number of slots available */
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

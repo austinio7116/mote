@@ -289,7 +289,13 @@ static inline void mote_model_draw_tint(const MoteApi *m, const MoteModel *model
 
 /* ---- bake a MoteSfx recipe into a playable MoteSound at load: the engine synthesises
  * the PCM into an arena buffer (measure, then render). Ship ~88-byte recipes instead of
- * WAVs; call once in init(), then mote->audio_play(&snd, gain). Returns {0,0} on failure. */
+ * WAVs; call once in init(), then mote->audio_play(&snd, gain). Returns {0,0} on failure.
+ *
+ * COST: this allocates arena RAM = (sample count × 2 bytes) PER sound — a ~0.3 s clip is
+ * ~13 KB. Fine for a handful of sounds. For MANY sounds (a weapon set, a whole game's SFX)
+ * prefer the BAKED clips instead: Studio's "Save to assets" emits a const <name>_snd PCM
+ * header (wav2snd) that lives in FLASH at zero arena cost — `mote->audio_play(&name_snd)`.
+ * Reach for mote_sfx_bake only when a sound must be synthesised/varied at runtime. */
 static inline MoteSound mote_sfx_bake(const MoteApi *m, const MoteSfx *recipe) {
     MoteSound s = { 0, 0 };
     int n = m->audio_render_sfx(recipe, 0, 0);
