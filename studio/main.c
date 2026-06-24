@@ -3133,6 +3133,9 @@ int main(int argc,char**argv){
             /* wheel scrolls the Explorer tree when the pointer is over it */
             if(e.type==SDL_MOUSEWHEEL){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(wx<LEFT_W&&wy>=TOPH&&wy<BOT_Y){ g_treescroll-=e.wheel.y*ROW_H*2; if(g_treescroll<0)g_treescroll=0; continue; } }
+            if(e.type==SDL_MOUSEWHEEL&&(g_tab==TAB_MESH||g_tab==TAB_RIG)){ int wx,wy; SDL_GetMouseState(&wx,&wy);   /* zoom the 3D preview */
+                if(wy>BOT_Y){ float f=e.wheel.y>0?1.12f:1.0f/1.12f; float*s=(g_tab==TAB_MESH)?&g_mscale:&g_rscale; *s*=f;
+                    if(*s<1e-3f)*s=1e-3f; if(*s>1e4f)*s=1e4f; continue; } }
             /* wheel scrolls the editor whenever the pointer is over it (no click needed) */
             if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_CODE&&g_code){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(hit(wx,wy,g_code_area.x,g_code_area.y,g_code_area.w,g_code_area.h)){
