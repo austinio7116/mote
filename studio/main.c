@@ -477,7 +477,12 @@ static void njob(int kind,const char*dir){ g_jkind=kind; snprintf(g_jdir,sizeof 
  * browser, so prefer explorer.exe with a wslpath-converted path; plain Linux uses xdg-open. */
 static void open_folder(const char*path){ char c[700];
 #ifdef _WIN32
-    snprintf(c,sizeof c,"explorer \"%.300s\"",path);
+    /* explorer.exe needs backslashes and won't reliably take a relative path, so
+     * convert / -> \ and make it absolute via cmd's %CD% (the bundle root) unless it
+     * already has a drive letter. */
+    char wp[340]; int j=0; for(int i=0;path[i]&&j<338;i++) wp[j++]=(path[i]=='/')?'\\':path[i]; wp[j]=0;
+    if(wp[0]&&wp[1]==':') snprintf(c,sizeof c,"explorer \"%.320s\"",wp);
+    else                  snprintf(c,sizeof c,"explorer \"%%CD%%\\%.320s\"",wp);
 #else
     snprintf(c,sizeof c,"if command -v wslpath >/dev/null 2>&1; then explorer.exe \"$(wslpath -w \"%.230s\")\"; else xdg-open \"%.230s\"; fi >/dev/null 2>&1 &",path,path);
 #endif
