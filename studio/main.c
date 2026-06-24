@@ -386,6 +386,10 @@ static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
 static TRow g_tree[300]; static int g_ntree, g_tsel=-1;
+static char g_collapsed[64][320]; static int g_ncollapsed;   /* folders the user collapsed (double-click) */
+static int tree_is_collapsed(const char*p){ for(int i=0;i<g_ncollapsed;i++) if(!strcmp(g_collapsed[i],p))return 1; return 0; }
+static void tree_toggle_collapsed(const char*p){ for(int i=0;i<g_ncollapsed;i++) if(!strcmp(g_collapsed[i],p)){ g_collapsed[i][0]=0; for(int j=i;j<g_ncollapsed-1;j++)memcpy(g_collapsed[j],g_collapsed[j+1],320); g_ncollapsed--; return; }
+    if(g_ncollapsed<64)snprintf(g_collapsed[g_ncollapsed++],320,"%s",p); }
 static int kind_of(const char*n){ size_t l=strlen(n);
     if(l>5&&!strcmp(n+l-5,".toml"))return 1;
     if(l>2&&(!strcmp(n+l-2,".c")||!strcmp(n+l-2,".h")))return 2;
@@ -408,7 +412,7 @@ static void scan_into(const char*dir,int depth){ if(depth>6)return; DIR*d=opendi
             char t[80]; memcpy(t,nm[i],80); memcpy(nm[i],nm[j],80); memcpy(nm[j],t,80);
             int ti=isd[i]; isd[i]=isd[j]; isd[j]=ti; }
     for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]);
-        if(isd[i]){ tadd(nm[i],p,depth,0); scan_into(p,depth+1); }
+        if(isd[i]){ tadd(nm[i],p,depth,0); if(!tree_is_collapsed(p))scan_into(p,depth+1); }   /* recurse only into expanded folders */
         else tadd(nm[i],p,depth,kind_of(nm[i])); } }
 static time_t g_treewatch;
 static void build_tree(const char*dir){
@@ -637,7 +641,7 @@ static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK);
         for(int a=1;a<d;a++) if(tree_continues(i,a)) plain(R,6+a*16,y,1,ROW_H,lc);   /* ancestor verticals */
         if(d>0){ int vx=6+d*16, midy=y+ROW_H/2;                                       /* this item's ├─ / └─ */
             plain(R,vx,y,1,tree_continues(i,d)?ROW_H:(ROW_H/2),lc); plain(R,vx,midy,8,1,lc); }
-        int icid = r->kind==0?IC_FOLDER_O : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : r->kind==6?IC_PLAY : IC_FILE;
+        int icid = r->kind==0?(tree_is_collapsed(r->path)?IC_FOLDER:IC_FOLDER_O) : r->kind==1?IC_SETTINGS : r->kind==2?IC_FILE_CODE : r->kind==3?IC_IMAGE : r->kind==4?IC_BOX : r->kind==6?IC_PLAY : IC_FILE;
         Col icc = r->kind==0?(Col){222,200,120} : r->kind==2?(Col){122,182,240} : r->kind==3?(Col){130,206,150} : r->kind==4?(Col){200,150,230} : r->kind==6?(Col){235,180,90} : C_DIM;
         icon(R,icid,ix,y+(ROW_H-15)/2,15,icc);
         text(R,r->name,ix+20,y+(ROW_H-14)/2+1,1,sel?C_TXT:(r->kind==0?C_TXT:(Col){186,194,214}),bg); }
@@ -3167,7 +3171,8 @@ int main(int argc,char**argv){
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }
                 if(mx<LEFT_W&&my<BOT_Y){ if(hit(mx,my,g_tree_refresh.x,g_tree_refresh.y,18,18)){ tree_refresh(); continue; }
                     if(g_tree_sb.w&&hit(mx,my,g_tree_sb.x,g_tree_sb.y,g_tree_sb.w,g_tree_sb.h)){ g_tree_sbdrag=1; continue; }
-                    int i=(my-(TOPH+28)+g_treescroll)/ROW_H; if(i>=0&&i<g_ntree)tree_select(i); continue; }
+                    int i=(my-(TOPH+28)+g_treescroll)/ROW_H;
+                    if(i>=0&&i<g_ntree){ if(e.button.clicks==2&&g_tree[i].kind==0){ tree_toggle_collapsed(g_tree[i].path); tree_refresh(); } else tree_select(i); } continue; }
                 if(mx>=INSP_X&&my<BOT_Y){ if(g_tab==TAB_TILES){ tiles_inspector_down(mx,my); continue; } if(g_tab==TAB_ANIM){ anim_inspector_down(mx,my); continue; }
                     if(g_insp_open.w&&hit(mx,my,g_insp_open.x,g_insp_open.y,g_insp_open.w,g_insp_open.h))tree_select(g_tsel);
                     else if(hit(mx,my,g_insp_edit.x,g_insp_edit.y,g_insp_edit.w,g_insp_edit.h))dispatch(A_VSCODE);
