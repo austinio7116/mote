@@ -2654,17 +2654,53 @@ static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H
     int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
     if(!hit(mx,my,bx,by,bw,bh))g_fpick=0; }
 
+/* ---- project picker: icon thumbnail + arena/memory estimate + scrollbar ---- */
+static SDL_Texture *g_picon[256]; static signed char g_picon_tried[256];   /* lazy icon textures */
+static MCfg g_pcfg[256]; static char g_pcfg_done[256];                      /* cached pool configs */
+static int g_pdrag; static SDL_Rect g_psb;                                 /* scrollbar thumb */
+#define PK_ROWH 58
+static SDL_Texture *picker_icon(SDL_Renderer*R,int i){
+    if(g_picon_tried[i]) return g_picon[i];
+    g_picon_tried[i]=1; g_picon[i]=NULL; char p[400]; struct stat st;
+    snprintf(p,sizeof p,"%.250s/icon.png",g_games[i].dir);
+    if(stat(p,&st)!=0){ snprintf(p,sizeof p,"%.250s/icon.bmp",g_games[i].dir); if(stat(p,&st)!=0)return NULL; }
+    int w,h,n; unsigned char*d=stbi_load(p,&w,&h,&n,4); if(!d)return NULL;
+    SDL_Texture*t=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
+    if(t){ SDL_SetTextureScaleMode(t,SDL_ScaleModeLinear); SDL_UpdateTexture(t,NULL,d,w*4); }
+    stbi_image_free(d); g_picon[i]=t; return t; }
+static MCfg *picker_cfg(int i){ if(!g_pcfg_done[i]){ g_pcfg[i]=parse_config(g_games[i].dir); g_pcfg_done[i]=1; } return &g_pcfg[i]; }
+static void picker_geom(int*bx,int*by,int*bw,int*bh,int*listy,int*listh,int*rows){
+    int w=620, h=636; if(h>WIN_H-40)h=WIN_H-40;
+    *bw=w; *bh=h; *bx=(WIN_W-w)/2; *by=(WIN_H-h)/2; *listy=*by+40; *listh=h-40-26; *rows=*listh/PK_ROWH; }
 static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,170); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
-    int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
-    text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
+    int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
+    rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR); text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
     int mx,my; SDL_GetMouseState(&mx,&my);
-    int rows=(bh-66)/22; if(g_pscroll>g_ngame-rows)g_pscroll=g_ngame-rows; if(g_pscroll<0)g_pscroll=0;
-    for(int k=0;k<rows&&g_pscroll+k<g_ngame;k++){ int i=g_pscroll+k; int y=by+40+k*22; int hov=hit(mx,my,bx+6,y,bw-12,20);
-        if(hov)plain(R,bx+6,y,bw-12,20,C_SEL); else if(i==g_sel)plain(R,bx+6,y,bw-12,20,(Col){36,40,54});
-        icon(R,IC_FOLDER,bx+14,y+3,14,hov?(Col){230,210,140}:(Col){150,150,170});
-        text(R,g_games[i].name,bx+36,y+5,1,(hov||i==g_sel)?C_TXT:(Col){175,182,200},hov?C_SEL:C_PANEL); }
-    if(g_ngame>rows){ char sc[40]; snprintf(sc,sizeof sc,"%d-%d of %d  (scroll)",g_pscroll+1,(g_pscroll+rows<g_ngame?g_pscroll+rows:g_ngame),g_ngame); text(R,sc,bx+bw-150,by+bh-20,1,C_DIM,C_PANEL); }
-    text(R,"click a project   (scroll \xb7 Esc to close)",bx+14,by+bh-20,1,C_DIM,C_PANEL); }
+    int maxs=g_ngame-rows; if(maxs<0)maxs=0; if(g_pscroll>maxs)g_pscroll=maxs; if(g_pscroll<0)g_pscroll=0;
+    int sbw = g_ngame>rows ? 12 : 0;                                        /* room for the scrollbar */
+    for(int k=0;k<rows&&g_pscroll+k<g_ngame;k++){ int i=g_pscroll+k; int y=listy+k*PK_ROWH; int rw=bw-16-sbw;
+        int hov=hit(mx,my,bx+8,y,rw,PK_ROWH-4);
+        rrect(R,bx+8,y,rw,PK_ROWH-4,7, hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
+        SDL_Texture*ic=picker_icon(R,i); SDL_Rect dst={bx+14,y+5,46,46};
+        if(ic){ SDL_RenderCopy(R,ic,NULL,&dst); rect_outline(R,dst.x,dst.y,dst.w,dst.h,(Col){0,0,0},1); }
+        else { rrect(R,dst.x,dst.y,dst.w,dst.h,6,(Col){44,48,62}); icon(R,IC_FOLDER,dst.x+13,dst.y+14,18,(Col){150,150,170}); }
+        text(R,g_games[i].name,bx+70,y+8,2,(hov||i==g_sel)?C_TXT:(Col){190,196,212},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
+        /* arena/memory estimate from the game's MoteConfig pools */
+        MCfg*c=picker_cfg(i); long used=arena_bytes(c); float frac=used/286720.0f; if(frac>1)frac=1;
+        int barx=bx+70, bary=y+34, barw=rw-70-78, barh=9; Col bg={26,28,38};
+        Col bc = used>286720?(Col){235,110,110}:(frac>0.8f?(Col){235,200,90}:(Col){110,200,130});
+        plain(R,barx,bary,barw,barh,bg); plain(R,barx,bary,(int)(barw*frac),barh,bc); rect_outline(R,barx,bary,barw,barh,(Col){60,64,80},1);
+        char mb[40]; snprintf(mb,sizeof mb,"~%ld KB",used/1024);
+        text(R,mb,barx+barw+8,bary-1,1,used>286720?(Col){240,130,130}:C_DIM,hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
+        char det[64]; snprintf(det,sizeof det,"%dtri %dspr%s",c->tris,c->sprites,c->depth?" \xb7 depth":"");
+        text(R,det,bx+70+textw(R,g_games[i].name,2)+10,y+10,1,(Col){120,126,144},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44})); }
+    /* scrollbar */
+    g_psb=(SDL_Rect){0,0,0,0};
+    if(g_ngame>rows){ int tx=bx+bw-14, tw=8; plain(R,tx,listy,tw,listh,(Col){24,26,34});
+        int thh=listh*rows/g_ngame; if(thh<28)thh=28; int thy=listy+(listh-thh)*g_pscroll/(maxs?maxs:1);
+        g_psb=(SDL_Rect){tx,thy,tw,thh}; int sh=hit(mx,my,tx-2,listy,tw+4,listh)||g_pdrag;
+        rrect(R,tx,thy,tw,thh,4,sh?(Col){130,140,170}:(Col){80,86,108}); }
+    text(R,"click a project to open  \xb7  drag the bar / wheel to scroll  \xb7  Esc",bx+14,by+bh-19,1,C_DIM,C_PANEL); }
 /* New-game templates shown in the wizard. Keep each MCfg in step with the matching
  * TMPL_* .config in motecore.c so the previewed arena estimate is accurate. */
 static const struct { const char*title; const char*desc; MCfg cfg; } g_tmpls[3] = {
@@ -2925,10 +2961,16 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); }
                     else for(int i=0;i<3;i++) if(hit(mx,my,g_mk_kind[i].x,g_mk_kind[i].y,g_mk_kind[i].w,g_mk_kind[i].h)){ g_newkind=i; break; } }
                 continue; }
-            if(g_picker){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
-                else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; if(g_pscroll<0)g_pscroll=0; }
-                else if(e.type==SDL_MOUSEBUTTONDOWN){ int bw=520,bh=560,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2,mx=e.button.x,my=e.button.y;
-                    if(mx>=bx&&mx<bx+bw&&my>=by+40&&my<by+bh-24){ int i=g_pscroll+(my-(by+40))/22; if(i>=0&&i<g_ngame)open_project(i); } else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
+            if(g_picker){ int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
+                if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
+                else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; }
+                else if(e.type==SDL_MOUSEBUTTONUP)g_pdrag=0;
+                else if(e.type==SDL_MOUSEMOTION&&g_pdrag){ int maxs=g_ngame-rows; if(maxs<1)maxs=1;   /* drag the scrollbar */
+                    g_pscroll=(e.motion.y-listy)*maxs/(listh>1?listh:1); if(g_pscroll<0)g_pscroll=0; if(g_pscroll>maxs)g_pscroll=maxs; }
+                else if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
+                    if(g_psb.w&&hit(mx,my,g_psb.x-3,listy,g_psb.w+6,listh)){ g_pdrag=1; }   /* grab scrollbar */
+                    else if(mx>=bx+8&&mx<bx+bw-16&&my>=listy&&my<listy+rows*PK_ROWH){ int i=g_pscroll+(my-listy)/PK_ROWH; if(i>=0&&i<g_ngame)open_project(i); }
+                    else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
                 continue; }
             if(g_align){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_align=0;
                 else if(e.type==SDL_MOUSEBUTTONDOWN)align_press(e.button.x,e.button.y);
