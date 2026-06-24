@@ -30,6 +30,7 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 
 1. [What Mote is — the architecture](#1-what-mote-is)
 2. [Quick start (CLI) + Mote Studio (the IDE)](#2-quick-start)
+   - [2.7 Creating rigs and 3D animations](#27-creating-rigs-and-3d-animations)
 3. [Anatomy of a game, line by line](#3-anatomy-of-a-game)
 4. [The asset pipeline (baking)](#4-the-asset-pipeline)
 5. [The engine API, fully documented](#5-the-engine-api)
@@ -241,6 +242,79 @@ already knows the engine API, the asset pipeline, the build/push workflow, and t
 gotchas the moment you open the project — just clone the repo, run `claude` in it, and
 ask it to build or change a game. Author the art in Studio, describe the gameplay to
 Claude, and iterate.
+
+### 2.7 Creating rigs and 3D animations
+
+Mote does **rigid-part (hierarchical) animation** — a model is split into named parts
+that rotate/translate about pivots, and animation **clips** are baked to a header your
+game plays. It's all authored in the Studio **Rig tab** (below: the `tanks` example —
+the turret/barrel rig, the on-model 3-axis manipulator, and the keyframe timeline):
+
+![Mote Studio Rig tab — editing the tanks turret/barrel rig: the 3-axis translate/rotate manipulator on the selected part, the parts/pivot inspector, and the keyframe timeline with a scrubbable playhead](docs/img/rig-tanks.png)
+
+**1 — Model in parts.** Make a multi-object OBJ, one object per moving part, e.g.:
+
+```
+o body      # … verts/faces …
+o turret
+o barrel
+```
+
+Add a `<name>.rig` sidecar next to it giving each part a parent and a pivot (the joint
+it rotates about), root first:
+
+```
+part body   parent -1     pivot 0 0 0
+part turret parent body   pivot 0 0.30 0.02
+part barrel parent turret pivot 0 0.30 0.10
+```
+
+Drop both in `assets/`. `mote bake` (or Studio's Bake) runs `obj2rig` → `src/<name>.rig.h`
+defining a `MoteRig`. (No `.rig`? A plain OBJ bakes to a single static mesh instead.)
+
+**2 — Set pivots + hierarchy (Rig tab).** Click a `.rig`/`.obj` in the tree to open the
+Rig tab. Pick a part in the inspector, set its **parent**, and place its **pivot** —
+either with the steppers or by dragging the on-model **3-axis manipulator** (red/green/blue
+handles). "pivot = centroid" snaps the pivot to the part's centre. **Save .rig + Bake**
+writes it back.
+
+**3 — Animate on the timeline.** Toggle the inspector to **edit: pose**. Scrub the
+**playhead** along the timeline, pose the selected part — drag the manipulator's
+translate **handles** (MOVE) or rotate **rings** (ROTATE), or type values — and press
+**+Key** to drop a keyframe at the playhead. Drag key diamonds to retime them; Play/loop
+to preview. **Bake anim3d** writes `src/<name>.anim3d.h` — a `const MoteModelClip`
+(per-part rotation + translation tracks) that lives in flash.
+
+**4 — Play it, and trigger from game events.** Include the baked header and drive a
+player (this is the whole API for the common case):
+
+```c
+#include "tank.rig.h"        // MoteRig tank_rig
+#include "recoil.anim3d.h"   // MoteModelClip recoil_clip
+
+static MoteModelPlayer barrel;          // one cursor per instance
+// on a game event (e.g. the gun fires):
+mote_rig_play(&barrel, &recoil_clip);   // MOTE_ANIM_ONCE clip; sets .done when finished
+// each frame, after scene_camera():
+mote_rig_tick(&barrel, dt);
+mote_rig_draw(mote, &tank_rig, &barrel, world_pos);
+```
+
+**Mixing baked + procedural** (e.g. a turret you aim by input while a recoil clip plays
+on the barrel): evaluate the clip into per-part locals, override the parts you drive from
+code, then compose — a clip only "owns" the parts it has tracks for:
+
+```c
+MoteRigLocal loc[P_COUNT];
+mote_rig_eval(&tank_rig, &barrel, loc);                  // clip -> per-part locals
+loc[P_TURRET].rot = mote_quat_axis(v3(0,1,0), aim);      // override turret from input
+mote_rig_draw_locals(mote, &tank_rig, loc, pos, body, scale);
+```
+
+It's **header-only** (no engine/ABI dependency, no firmware reflash) — clips are const
+flash data and the runtime is matrix math over the normal draw path. See
+[`docs/animation.md`](docs/animation.md) for the full how-and-why and
+[`examples/tanks`](examples/tanks) for a working rig + event-triggered recoil clip.
 
 ---
 
@@ -1407,6 +1481,21 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.3-alpha
+
+Updates the device firmware — reflash `firmware_mote_os.uf2` and rebuild your games for
+the smaller launcher icons.
+
+- **3D model animation** — rig models into moving parts, animate on a keyframe timeline,
+  bake clips, and trigger them from game events. Authored in the Studio Rig tab (3-axis
+  manipulator + timeline); see [§2.7](#27-creating-rigs-and-3d-animations) and [`docs/animation.md`](docs/animation.md).
+- **Tanks example** rebuilt with detailed rigged 3D tanks and a baked recoil clip on fire.
+- **Smaller launcher icons** — compressed in flash (~half the space).
+- **Open Project** screen shows each game's icon, a memory-usage bar, and a scrollbar.
+- **Edit the launcher icon** in the Pixel Art editor; more canvas sizes (incl. 60) + a −/+ for any size.
+- **Optional frame-rate cap**; file tree shows subfolders and routes `.sfx`/`.rig` to the right tab.
+- Fixed: sharp + un-squashed Mesh/Rig preview, non-inverted orbit drag, Windows "VS Code" button, asset subfolders now build.
 
 ### 0.2-alpha
 

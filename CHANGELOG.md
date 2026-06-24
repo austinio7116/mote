@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3-alpha
+
+This release updates the device firmware — reflash `firmware_mote_os.uf2`, and rebuild
+your games so they pick up the smaller launcher icons.
+
+### New and improved
+
+- **3D model animation.** Models can now be rigged into moving parts and animated: build
+  a rig, pose it on a keyframe timeline, bake a clip, and trigger it from game events
+  (e.g. a gun firing) — all authored in the Studio Rig tab. See the new "Creating rigs
+  and animations" guide.
+- **Rig editor.** A 3-axis on-model manipulator to move/rotate parts and place pivots, a
+  scrubbable keyframe timeline with draggable keys, and ROTATE/MOVE inputs. "View as mesh"
+  opens a rigged model in the Mesh tab.
+- **Tanks example.** Rebuilt with detailed 3D tanks (tracks + road wheels, sloped hull,
+  rounded turret, muzzle), team colours with dark tracks/gun, and a barrel that recoils
+  via a baked animation clip on every shot.
+- **Smaller launcher icons.** Icons are compressed in flash — roughly half the space
+  (much less for simple ones), with no visible change.
+- **Better Open Project screen.** Each game shows its icon, an estimated memory bar, and
+  a proper scrollbar.
+- **Edit the game icon in the IDE.** Draw or import the launcher icon right in the Pixel
+  Art editor (Assets ▸ Edit Icon) — it bakes automatically.
+- **Pixel/Texture sizes.** More canvas sizes (including 60 for icons) plus a −/+ for any
+  size, keeping your art when you resize.
+- **Optional frame-rate cap** a game can set, honoured by both the device and the emulator.
+- **File tree** now shows subfolders; clicking a `.sfx` opens the Audio tab and a `.rig`
+  the Rig tab. The file picker opens in the current project's folder.
+
+### Fixed
+
+- The Mesh/Rig 3D preview is sharp again, no longer squashes on wide windows, and the
+  left/right orbit drag is no longer inverted; the rig view no longer auto-spins.
+- The "VS Code" button now works on Windows.
+- Assets placed in subfolders are now built too.
+
 ## 0.2-alpha
 
 This release updates the device firmware — reflash `firmware_mote_os.uf2`, and
