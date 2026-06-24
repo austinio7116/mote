@@ -1094,7 +1094,7 @@ if (pick == 2) mote->exit_to_launcher();
 Ends the game and returns to the hero-menu launcher. (Players also get there via the
 engine menu's "Return to lobby" — §8.)
 
-#### `void set_fps_limit(int fps)`  *(ABI v22)*
+#### `void set_fps_limit(int fps)`  *(ABI v21)*
 Cap the frame rate. `0` (the default) runs uncapped — the device free-runs, the host
 emulator runs as fast as the machine allows. A positive value paces the main loop to
 that many frames per second on **both** the device and the host, so a game can lock

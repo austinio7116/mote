@@ -450,7 +450,7 @@ printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">exit_to_launcher</span>)(<span class="kw">void</span>);</pre>
 <p>Return to the OS launcher (ends the game's frame loop).</p>
 
-<h3 id="fn-set_fps_limit">set_fps_limit <span class="badge abi">v22</span></h3>
+<h3 id="fn-set_fps_limit">set_fps_limit <span class="badge abi">v21</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">set_fps_limit</span>)(<span class="kw">int</span> fps);</pre>
 <p>Cap the frame rate. <code>0</code> (default) runs uncapped — the device free-runs, the host emulator runs as fast as the
 machine allows. A positive value paces the main loop to that many fps on <strong>both</strong> device and host, so a game can
