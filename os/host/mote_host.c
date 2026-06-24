@@ -59,10 +59,12 @@ static char **g_paths;
 static int    g_npaths;
 
 /* Icon cache: the device reads each game's icon from its stored flash image; the
- * host analogue is to dlopen the .so once and dlsym the game's `mote_game_icon_data`
- * (a 60x60 RGB565 array, exported when the game `#include`s its baked icon.h). */
-static const uint16_t *g_icon[MOTE_CATALOG_MAX];
-static char            g_icon_done[MOTE_CATALOG_MAX];
+ * host analogue is to dlopen the .so once and dlsym `mote_game_icon_data`. Up to ABI
+ * v21 that's a raw 60x60 RGB565 array (->icon); from v22 it's a compact paletted blob
+ * (sdk/mote_icon.h) the launcher decodes (->icon_blob). */
+static const void *g_icon[MOTE_CATALOG_MAX];
+static char        g_icon_done[MOTE_CATALOG_MAX];
+static uint32_t    g_icon_abi[MOTE_CATALOG_MAX];
 
 static void host_fill(MoteCatalog *c) {
     c->count = 0;
@@ -71,9 +73,13 @@ static void host_fill(MoteCatalog *c) {
         if (!g_icon_done[i]) {
             g_icon_done[i] = 1;
             void *mod = dlopen(g_paths[i], RTLD_NOW | RTLD_LOCAL);   /* kept open; refcounted */
-            if (mod) g_icon[i] = (const uint16_t *)dlsym(mod, "mote_game_icon_data");
+            if (mod) { g_icon[i] = (const void *)dlsym(mod, "mote_game_icon_data");
+                const uint32_t *ab = (const uint32_t *)dlsym(mod, "mote_game_abi_version");
+                g_icon_abi[i] = ab ? *ab : 0; }
         }
-        c->e[c->count].icon = g_icon[i];
+        c->e[c->count].icon = 0; c->e[c->count].icon_blob = 0;
+        if (g_icon[i]) { if (g_icon_abi[i] >= 22u) c->e[c->count].icon_blob = g_icon[i];
+                         else c->e[c->count].icon = (const uint16_t *)g_icon[i]; }
         c->count++;
     }
 }

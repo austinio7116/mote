@@ -36,10 +36,11 @@ typedef struct {
     uint32_t data_end;         /* RAM dest end */
     uint32_t bss_start;        /* RAM zero start */
     uint32_t bss_end;          /* RAM zero end */
-    /* Per-game launcher icon: the linked (VADDR-relative) address of a 60x60
-     * RGB565 `mote_game_icon_data[]`, or 0 if the game ships no icon. The
-     * launcher reads it straight from flash — image_offset + (icon_vaddr -
-     * MOTE_MODULE_VADDR) — without loading the game. */
+    /* Per-game launcher icon: the linked (VADDR-relative) address of
+     * `mote_game_icon_data[]`, or 0 if the game ships no icon. The launcher reads
+     * it straight from flash — image_offset + (icon_vaddr - MOTE_MODULE_VADDR).
+     * Format follows abi_version: a raw 60x60 RGB565 array up to v21, a compact
+     * paletted blob (sdk/mote_icon.h) from v22 — no struct change either way. */
     uint32_t icon_vaddr;
 } MoteModuleHeader;
 
@@ -56,7 +57,7 @@ typedef struct {
 #define MOTE_MODULE_HEADER()                                                       \
     extern char __mote_data_load[], __mote_data_start[], __mote_data_end[],      \
                 __mote_bss_start[], __mote_bss_end[];                           \
-    extern const uint16_t mote_game_icon_data[] __attribute__((weak));         \
+    extern const uint8_t mote_game_icon_data[] __attribute__((weak));          \
     __attribute__((section(".mote_header"), used))                            \
     const MoteModuleHeader mote_module_header = {                                         \
         .magic = MOTE_MODULE_MAGIC,                                                \

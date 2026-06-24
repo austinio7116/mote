@@ -149,24 +149,63 @@ def bake_image(name, path, out):
     open(out, "w").write('\n'.join(L))
     print("[img2tex] %s: %dx%d -> %s" % (name, w, h, out))
 
+def _icon_encode(px):
+    """RGB565 pixels -> a compact paletted blob (matches sdk/mote_icon.h):
+    [u8 bpp][u8 0][u16 npal][u16 pal[npal]][packed indices, MSB-first].
+    Lossless when <=256 colours, else an RGB332 256-colour quantise."""
+    pal, idx = [], []
+    seen = {}
+    over = False
+    for c in px:
+        j = seen.get(c)
+        if j is None:
+            if len(pal) < 256:
+                j = len(pal); seen[c] = j; pal.append(c)
+            else:
+                over = True; break
+        idx.append(j)
+    if over:
+        pal = []
+        for q in range(256):
+            r3, g3, b2 = (q >> 5) & 7, (q >> 2) & 7, q & 3
+            r5 = (r3 << 2) | (r3 >> 1); g6 = (g3 << 3); b5 = (b2 << 3) | (b2 << 1)
+            pal.append((r5 << 11) | ((g6 & 63) << 5) | b5)
+        idx = []
+        for c in px:
+            r5, g6, b5 = (c >> 11) & 31, (c >> 5) & 63, c & 31
+            idx.append(((r5 >> 2) << 5) | ((g6 >> 3) << 2) | (b5 >> 3))
+    npal = len(pal)
+    bpp = 1 if npal <= 2 else 2 if npal <= 4 else 4 if npal <= 16 else 8
+    out = bytearray([bpp, 0, npal & 0xFF, npal >> 8])
+    for c in pal:
+        out += bytes([c & 0xFF, c >> 8])
+    if bpp == 8:
+        out += bytes(idx)
+    else:
+        per = 8 // bpp; acc = 0; filled = 0
+        for v in idx:
+            acc = (acc << bpp) | (v & ((1 << bpp) - 1)); filled += 1
+            if filled == per: out.append(acc & 0xFF); acc = 0; filled = 0
+        if filled: out.append((acc << ((per - filled) * bpp)) & 0xFF)
+    return out
+
 def bake_icon(path, out):
-    """icon.png/.bmp -> src/icon.h : a 60x60 RGB565 `mote_game_icon_data[3600]`,
-    the launcher icon that travels in the game module (no firmware icon table)."""
+    """icon.png/.bmp -> src/icon.h : a compact paletted `mote_game_icon_data[]` blob
+    (sdk/mote_icon.h), the launcher icon that travels in the game module."""
     import subprocess
     conv, _ = _magick()
     raw = subprocess.check_output(conv + [path, "-resize", "60x60!", "-depth", "8", "RGBA:-"])
-    px = []
-    for i in range(60 * 60):
-        r, g, b = raw[i*4], raw[i*4+1], raw[i*4+2]
-        px.append(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3))
-    L = ['/* GENERATED launcher icon — 60x60 RGB565. Regenerate with `mote bake` (icon.png). */',
+    px = [((raw[i*4] >> 3) << 11) | ((raw[i*4+1] >> 2) << 5) | (raw[i*4+2] >> 3) for i in range(60*60)]
+    blob = _icon_encode(px)
+    L = ['/* GENERATED launcher icon — compact paletted blob (sdk/mote_icon.h),',
+         ' * %d bytes vs 7200 raw. Regenerate with `mote bake` (icon.png). */' % len(blob),
          '#ifndef MOTE_GAME_ICON_H', '#define MOTE_GAME_ICON_H', '#include <stdint.h>', '',
-         'const uint16_t mote_game_icon_data[3600] = {']
-    for i in range(0, len(px), 16):
-        L.append('  ' + ','.join('0x%04x' % v for v in px[i:i+16]) + ',')
+         'const uint8_t mote_game_icon_data[%d] = {' % len(blob)]
+    for i in range(0, len(blob), 16):
+        L.append('  ' + ','.join('0x%02x' % v for v in blob[i:i+16]) + ',')
     L += ['};', '', '#endif']
     open(out, "w").write('\n'.join(L) + '\n')
-    print("[icon] %s -> %s (60x60)" % (os.path.basename(path), out))
+    print("[icon] %s -> %s (%d bytes, was 7200)" % (os.path.basename(path), out, len(blob)))
 
 def cmd_bake(args):
     """Bake assets/* into src/<name>.h headers to #include.

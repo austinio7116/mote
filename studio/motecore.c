@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "mote_icon.h"   /* compact paletted icon codec (mote_icon_encode) */
 
 #ifdef _WIN32
   #include <direct.h>
@@ -207,18 +208,22 @@ static int bake_icon(const char *dir, mote_log_fn log){
     snprintf(src,sizeof src,"%.380s/icon.png",dir); d=stbi_load(src,&w,&h,&n,4);
     if(!d){ snprintf(src,sizeof src,"%.380s/icon.bmp",dir); d=stbi_load(src,&w,&h,&n,4); }
     if(!d) return -1;                 /* no icon -> silently skip (not an error) */
-    char header[420]; snprintf(header,sizeof header,"%.380s/src/icon.h",dir);
-    FILE *f=fopen(header,"w"); if(!f){ stbi_image_free(d); return -1; }
-    fprintf(f,"/* GENERATED launcher icon by Mote Studio from %s (60x60 RGB565). */\n"
-              "#ifndef MOTE_GAME_ICON_H\n#define MOTE_GAME_ICON_H\n#include <stdint.h>\n\n"
-              "const uint16_t mote_game_icon_data[3600] = {\n",src);
+    static uint16_t px[60*60];                      /* box-sample to 60x60 RGB565 */
     for(int i=0;i<3600;i++){ int iy=i/60, ix=i%60; int sx=ix*w/60, sy=iy*h/60;
         const unsigned char *p=&d[(sy*w+sx)*4]; int r=p[0],g=p[1],b=p[2],a=p[3];
-        if(a<128){ r=g=b=0; }                      /* transparent -> black */
-        unsigned v=((r>>3)<<11)|((g>>2)<<5)|(b>>3);
-        fprintf(f,"0x%04x,",v); if((i&15)==15)fputc('\n',f); }
-    fprintf(f,"\n};\n\n#endif\n"); fclose(f); stbi_image_free(d);
-    { char m[200]; snprintf(m,sizeof m,"baked icon: %dx%d -> %s (60x60)",w,h,header); log(m); } return 0; }
+        if(a<128){ r=g=b=0; }                       /* transparent -> black */
+        px[i]=(uint16_t)(((r>>3)<<11)|((g>>2)<<5)|(b>>3)); }
+    stbi_image_free(d);
+    static uint8_t blob[60*60*2+520]; int len=mote_icon_encode(px,3600,blob);   /* compact paletted blob */
+    char header[420]; snprintf(header,sizeof header,"%.380s/src/icon.h",dir);
+    FILE *f=fopen(header,"w"); if(!f) return -1;
+    fprintf(f,"/* GENERATED launcher icon by Mote Studio from %s. Compact paletted blob\n"
+              " * (sdk/mote_icon.h); the launcher decodes it. %d bytes vs 7200 raw. */\n"
+              "#ifndef MOTE_GAME_ICON_H\n#define MOTE_GAME_ICON_H\n#include <stdint.h>\n\n"
+              "const uint8_t mote_game_icon_data[%d] = {\n",src,len,len);
+    for(int i=0;i<len;i++){ fprintf(f,"0x%02x,",blob[i]); if((i&15)==15)fputc('\n',f); }
+    fprintf(f,"\n};\n\n#endif\n"); fclose(f);
+    { char m[200]; snprintf(m,sizeof m,"baked icon: %dx%d -> %s (%d bytes, was 7200)",w,h,header,len); log(m); } return 0; }
 
 static void ensure_tool(const char *src, const char *bin, mote_log_fn log){ struct stat st; if(stat(bin,&st)==0)return;
     char cmd[600]; snprintf(cmd,sizeof cmd,"gcc -O2 tools/%s -lm -o %s 2>&1",src,bin); run_logged(cmd,log); }

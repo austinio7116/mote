@@ -22,9 +22,10 @@ typedef struct {
     char     name[MOTE_NAME_MAX];
     uint32_t offset;   /* device: physical flash offset of the module image */
     uint32_t size;     /* device: image size in bytes */
-    const uint16_t *icon;  /* 60x60 RGB565 launcher icon, or NULL (name-accent fallback).
-                            * Device: a flash XIP pointer into the stored image; host: into
-                            * the loaded .so. The launcher only reads it. */
+    const uint16_t *icon;  /* 60x60 RGB565 launcher icon, or NULL. Set for raw (<=v21)
+                            * icons (a flash XIP / .so pointer the launcher blits directly). */
+    const void *icon_blob; /* v22+ compact paletted icon blob (sdk/mote_icon.h), or NULL.
+                            * When set, the launcher decodes it to a scratch buffer to blit. */
 } MoteGameEntry;
 
 typedef struct {

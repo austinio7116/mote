@@ -18,18 +18,18 @@
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
 
-/* Read a stored game's icon straight from flash (no load): the module header is
- * at the start of the image; icon_vaddr is the icon's link address, so its byte
- * offset within the image is icon_vaddr - MOTE_MODULE_VADDR. */
-static const uint16_t *store_icon(uint32_t image_off) {
+/* Point a catalog entry at a stored game's icon straight from flash (no load): the
+ * module header is at the image start; icon_vaddr is the icon's link address, so its
+ * byte offset within the image is icon_vaddr - MOTE_MODULE_VADDR. icon_vaddr only
+ * exists from ABI v20. v20/v21 icons are a raw 60x60 RGB565 array (->icon); from v22
+ * they're a compact paletted blob the launcher decodes (->icon_blob). */
+static void store_icon(MoteGameEntry *e, uint32_t image_off) {
+    e->icon = 0; e->icon_blob = 0;
     const MoteModuleHeader *h =
         (const MoteModuleHeader *)(uintptr_t)(XIP_BASE + image_off);
-    /* icon_vaddr only exists from ABI v20 — older stored images don't have the
-     * field, so reading it would be garbage; fall back to the name accent. */
-    if (h->magic != MOTE_MODULE_MAGIC || h->abi_version < 20u || h->icon_vaddr == 0)
-        return 0;
-    uint32_t icon_off = h->icon_vaddr - MOTE_MODULE_VADDR;
-    return (const uint16_t *)(uintptr_t)(XIP_BASE + image_off + icon_off);
+    if (h->magic != MOTE_MODULE_MAGIC || h->abi_version < 20u || h->icon_vaddr == 0) return;
+    const void *p = (const void *)(uintptr_t)(XIP_BASE + image_off + (h->icon_vaddr - MOTE_MODULE_VADDR));
+    if (h->abi_version >= 22u) e->icon_blob = p; else e->icon = (const uint16_t *)p;
 }
 
 static void show_solid(uint16_t color) {
@@ -49,7 +49,7 @@ static void fill_catalog(MoteCatalog *c) {
         c->e[i].name[MOTE_NAME_MAX - 1] = 0;
         c->e[i].offset = e->offset;
         c->e[i].size   = e->size;
-        c->e[i].icon   = store_icon(e->offset);
+        store_icon(&c->e[i], e->offset);
         c->count++;
     }
 }

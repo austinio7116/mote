@@ -7,6 +7,8 @@
 #include "mote_config.h"
 #include "mote_input.h"
 #include "mote_ui.h"
+#define MOTE_ICON_NO_ENCODE   /* launcher only decodes icons */
+#include "mote_icon.h"
 #include <string.h>
 
 #ifdef MOTE_HOST
@@ -26,6 +28,7 @@
 #define VISIBLE  5
 
 static uint16_t s_fb[MOTE_FB_W * MOTE_FB_H];
+static uint16_t s_icon_dec[MOTE_ICON_W * MOTE_ICON_H];   /* decoded hero icon (v22 paletted blob) */
 
 uint16_t *mote_launcher_fb(void) { return s_fb; }
 
@@ -73,6 +76,7 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));      /* shadow */
     fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));  /* frame */
     const uint16_t *ic = cat->e[sel].icon;
+    if (!ic && cat->e[sel].icon_blob) { mote_icon_decode(cat->e[sel].icon_blob, s_icon_dec, MOTE_ICON_W * MOTE_ICON_H); ic = s_icon_dec; }
     if (ic) blit_icon(ic, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }

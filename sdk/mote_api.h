@@ -31,7 +31,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 21u  /* v21: set_fps_limit — games can cap the frame rate (0 = uncapped); host emulator honours it */
+#define MOTE_ABI_VERSION 22u  /* v22: launcher icons are a compact paletted blob (mote_icon.h), not raw RGB565 */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 
