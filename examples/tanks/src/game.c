@@ -23,6 +23,7 @@
  * (Loads in the Studio Mesh tab; the rig editor edits the pivots/hierarchy.) */
 #include "tank.rig.h"
 #include "recoil.anim3d.h"   /* baked barrel-recoil clip, triggered on fire */
+#include "icon.h"            /* launcher icon (mote_game_icon_data) — travels in the module */
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
