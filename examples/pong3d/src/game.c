@@ -185,10 +185,10 @@ static void g_update(float dt){
         int idx = (trail_head + k) % TRAIL_LEN;
         float f = (float)k / TRAIL_LEN;
         mote->scene_add_sphere(trail[idx], BALL_R * (0.3f + 0.5f * f),
-            MOTE_RGB565((int)(60 + 120 * f), (int)(120 + 120 * f), (int)(160 + 90 * f)));
+            MOTE_RGB565((int)(150 + 105 * f), (int)(70 + 135 * f), (int)(20 + 70 * f)));      /* ember → gold */
     }
-    mote->scene_add_sphere(v3(ball_x, ball_y, 0), BALL_R * 1.7f, MOTE_RGB565(40, 90, 120));   /* halo */
-    mote->scene_add_sphere(v3(ball_x, ball_y, 0), BALL_R, MOTE_RGB565(235, 250, 255));        /* core */
+    mote->scene_add_sphere(v3(ball_x, ball_y, 0), BALL_R * 1.7f, MOTE_RGB565(235, 120, 30));  /* warm glow */
+    mote->scene_add_sphere(v3(ball_x, ball_y, 0), BALL_R, MOTE_RGB565(255, 244, 200));        /* hot core */
     mote_particles_draw(mote, &fx, 0.26f);
 }
 

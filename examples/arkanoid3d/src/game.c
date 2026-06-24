@@ -433,10 +433,10 @@ static void g_update(float dt){
             int idx = (b->thead + k) % TRAIL_LEN;
             float f = (float)k / TRAIL_LEN;
             mote->scene_add_sphere(b->trail[idx], BALL_R * (0.3f + 0.5f * f),
-                MOTE_RGB565((int)(120 + 100 * f), (int)(160 + 90 * f), (int)(200 + 50 * f)));
+                MOTE_RGB565((int)(150 + 105 * f), (int)(70 + 135 * f), (int)(20 + 70 * f)));   /* ember → gold */
         }
-        mote->scene_add_sphere(v3(b->x, BALL_R, b->z), BALL_R * 1.6f, MOTE_RGB565(50, 80, 120));
-        mote->scene_add_sphere(v3(b->x, BALL_R, b->z), BALL_R, MOTE_RGB565(240, 250, 255));
+        mote->scene_add_sphere(v3(b->x, BALL_R, b->z), BALL_R * 1.7f, MOTE_RGB565(235, 120, 30));   /* warm glow */
+        mote->scene_add_sphere(v3(b->x, BALL_R, b->z), BALL_R, MOTE_RGB565(255, 244, 200));         /* hot core */
     }
 
     for (int i = 0; i < NPART; i++)
