@@ -1185,8 +1185,12 @@ static int mesh_down(int mx,int my){
 typedef struct { char name[28]; V3 *t; int nt,cap; int parent; V3 pivot; } RigPart;
 static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[320];
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
-static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_cen, g_rg_save, g_rg_view;
+static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_view;
 static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
+/* 3-axis manipulator gizmo (rig view): translate handles + rotate rings */
+#define GZ_RING 20
+static SDL_Point g_gz_o, g_gz_ax[3], g_gz_ring[3][GZ_RING]; static float g_gz_alen[3];
+static int g_gz_drag=-1; static float g_gz_ang, g_gz_L;   /* drag: 0..2 translate X/Y/Z, 3..5 rotate X/Y/Z */
 static void rig_save(void);   /* fwd */
 static void rig_anim_bake(void);   /* fwd */
 
@@ -1222,7 +1226,7 @@ static void rig_load(const char*objpath){
 
 /* ---- clip authoring: keyframes of per-part Euler rotation (evenly spaced; pos kept 0 in v1) ---- */
 #define RIG_MAXK 24
-typedef struct { int t_ms; V3 erot[RIG_MAXP]; } RigKey;
+typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; } RigKey;   /* per-part rotation (rad) + translation */
 static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
 static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
 static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
@@ -1235,25 +1239,28 @@ static M3 m3mm(M3 A,M3 B){ return (M3){
   A.g*B.a+A.h*B.d+A.i*B.g,A.g*B.b+A.h*B.e+A.i*B.h,A.g*B.c+A.h*B.f+A.i*B.i}; }
 static M3 m3eul(float rx,float ry,float rz){ float cx=cosf(rx),sx=sinf(rx),cy=cosf(ry),sy=sinf(ry),cz=cosf(rz),sz=sinf(rz);
   M3 X={1,0,0,0,cx,-sx,0,sx,cx},Y={cy,0,sy,0,1,0,-sy,0,cy},Z={cz,-sz,0,sz,cz,0,0,0,1}; return m3mm(Z,m3mm(Y,X)); }
-static void rig_pose_at(float t,V3 out[RIG_MAXP]);   /* fwd */
+static void rig_pose_at(float t,V3 erot[RIG_MAXP],V3 pos[RIG_MAXP]);   /* fwd */
 static void rig_key_clamp(void){ for(int i=0;i<g_nrk;i++){ if(g_rk[i].t_ms<0)g_rk[i].t_ms=0; if(g_rk[i].t_ms>g_clip_ms)g_rk[i].t_ms=g_clip_ms; } }
 /* keep g_rk sorted by t_ms after one key's time changes; follow that key's index */
 static void rig_key_bubble(int *i){ while(*i>0 && g_rk[*i].t_ms<g_rk[*i-1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i-1]; g_rk[*i-1]=t; (*i)--; }
     while(*i<g_nrk-1 && g_rk[*i].t_ms>g_rk[*i+1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i+1]; g_rk[*i+1]=t; (*i)++; } }
 /* insert a key at time t_ms capturing the current (interpolated) pose; returns its index */
 static int rig_key_insert(int t_ms){ if(g_nrk>=RIG_MAXK)return g_ksel; if(t_ms<0)t_ms=0; if(t_ms>g_clip_ms)t_ms=g_clip_ms;
-    V3 pose[RIG_MAXP]; rig_pose_at((float)t_ms,pose);
+    V3 er[RIG_MAXP],po[RIG_MAXP]; rig_pose_at((float)t_ms,er,po);
     int at=0; while(at<g_nrk && g_rk[at].t_ms<t_ms) at++;
-    if(at<g_nrk && g_rk[at].t_ms==t_ms){ for(int p=0;p<g_nrp;p++)g_rk[at].erot[p]=pose[p]; return at; }  /* replace exact */
+    if(at<g_nrk && g_rk[at].t_ms==t_ms){ for(int p=0;p<g_nrp;p++){ g_rk[at].erot[p]=er[p]; g_rk[at].pos[p]=po[p]; } return at; }  /* replace exact */
     for(int i=g_nrk;i>at;i--) g_rk[i]=g_rk[i-1];
-    g_rk[at].t_ms=t_ms; for(int p=0;p<RIG_MAXP;p++)g_rk[at].erot[p]=pose[p]; g_nrk++; return at; }
-static void rig_pose_at(float t,V3 out[RIG_MAXP]){ for(int p=0;p<g_nrp;p++)out[p]=(V3){0,0,0}; if(!g_nrk)return; int last=g_nrk-1;
-  if(t<=g_rk[0].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[0].erot[p]; return; }
-  if(t>=g_rk[last].t_ms){ for(int p=0;p<g_nrp;p++)out[p]=g_rk[last].erot[p]; return; }
+    g_rk[at].t_ms=t_ms; for(int p=0;p<RIG_MAXP;p++){ g_rk[at].erot[p]=er[p]; g_rk[at].pos[p]=po[p]; } g_nrk++; return at; }
+static void rig_pose_at(float t,V3 erot[RIG_MAXP],V3 pos[RIG_MAXP]){
+  for(int p=0;p<g_nrp;p++){ erot[p]=(V3){0,0,0}; pos[p]=(V3){0,0,0}; } if(!g_nrk)return; int last=g_nrk-1;
+  if(t<=g_rk[0].t_ms){ for(int p=0;p<g_nrp;p++){ erot[p]=g_rk[0].erot[p]; pos[p]=g_rk[0].pos[p]; } return; }
+  if(t>=g_rk[last].t_ms){ for(int p=0;p<g_nrp;p++){ erot[p]=g_rk[last].erot[p]; pos[p]=g_rk[last].pos[p]; } return; }
   int i=0; while(i+1<g_nrk&&g_rk[i+1].t_ms<=t)i++; float f=(t-g_rk[i].t_ms)/(float)(g_rk[i+1].t_ms-g_rk[i].t_ms);
-  for(int p=0;p<g_nrp;p++){ V3 a=g_rk[i].erot[p],b=g_rk[i+1].erot[p]; out[p]=(V3){a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f}; } }
-static void rig_world(V3 pose[RIG_MAXP],M3 Rm[RIG_MAXP],V3 Om[RIG_MAXP]){ for(int p=0;p<g_nrp;p++){ M3 r=m3eul(pose[p].x,pose[p].y,pose[p].z);
-  V3 piv=g_rp[p].pivot, rp=m3a(r,piv); V3 lo={piv.x-rp.x,piv.y-rp.y,piv.z-rp.z}; int par=g_rp[p].parent;
+  for(int p=0;p<g_nrp;p++){ V3 a=g_rk[i].erot[p],b=g_rk[i+1].erot[p]; erot[p]=(V3){a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f};
+    V3 c=g_rk[i].pos[p],d=g_rk[i+1].pos[p]; pos[p]=(V3){c.x+(d.x-c.x)*f,c.y+(d.y-c.y)*f,c.z+(d.z-c.z)*f}; } }
+/* local transform = rotate about pivot, then translate by the part's pose pos (parent frame) */
+static void rig_world(V3 erot[RIG_MAXP],V3 pos[RIG_MAXP],M3 Rm[RIG_MAXP],V3 Om[RIG_MAXP]){ for(int p=0;p<g_nrp;p++){ M3 r=m3eul(erot[p].x,erot[p].y,erot[p].z);
+  V3 piv=g_rp[p].pivot, rp=m3a(r,piv); V3 lo={piv.x-rp.x+pos[p].x,piv.y-rp.y+pos[p].y,piv.z-rp.z+pos[p].z}; int par=g_rp[p].parent;
   if(par<0||par>=p){ Rm[p]=r; Om[p]=lo; } else { Rm[p]=m3mm(Rm[par],r); V3 t=m3a(Rm[par],lo); Om[p]=(V3){t.x+Om[par].x,t.y+Om[par].y,t.z+Om[par].z}; } } }
 
 static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
@@ -1269,7 +1276,7 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
         else { if(g_play_t>=dur){ g_play_t=dur; g_playing=0; } t_ms=g_play_t; }
         g_scrub_t=t_ms; }   /* leave the playhead where playback stopped */
     else { if(g_scrub_t<0)g_scrub_t=0; if(g_scrub_t>g_clip_ms)g_scrub_t=g_clip_ms; t_ms=g_scrub_t; }
-    V3 pose[RIG_MAXP]; rig_pose_at(t_ms,pose); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(pose,RW,OW);
+    V3 erotp[RIG_MAXP],posp[RIG_MAXP]; rig_pose_at(t_ms,erotp,posp); static M3 RW[RIG_MAXP]; static V3 OW[RIG_MAXP]; rig_world(erotp,posp,RW,OW);
     int rw=vw, rh=h;   /* render at the view's native resolution -> 1:1 copy, sharp pixels, correct aspect */
     { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } }   /* clamp PROPORTIONALLY so aspect is preserved (no squash) */
     if(rw<1)rw=1; if(rh<1)rh=1;
@@ -1300,10 +1307,25 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
                 if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue; float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
                 if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_rg_view);
-    /* selected part's pivot marker (its posed joint location) */
-    { V3 piv=m3a(RW[g_rsel],g_rp[g_rsel].pivot); V3 pv={piv.x+OW[g_rsel].x,piv.y+OW[g_rsel].y,piv.z+OW[g_rsel].z}; RVIEW(pv);
-      float iz=persp/(dist-pv.z); int sxp=cx+(int)(pv.x*iz), syp=cyy-(int)(pv.y*iz);
-      int vx2=ox+sxp*vw/rw, vy2=oy+syp*h/rh; ring(R,vx2,vy2,5,(Col){0,0,0},1); ring(R,vx2,vy2,4,(Col){255,90,90},1); }
+    /* ---- 3-axis manipulator at the selected part's posed pivot ---- */
+    #define PROJV(W,VX,VY) do{ V3 _q=(W); RVIEW(_q); float _iz=persp/(dist-_q.z); \
+        int _sx=cx+(int)(_q.x*_iz), _sy=cyy-(int)(_q.y*_iz); (VX)=ox+_sx*vw/rw; (VY)=oy+_sy*h/rh; }while(0)
+    { V3 pr=m3a(RW[g_rsel],g_rp[g_rsel].pivot); V3 O={pr.x+OW[g_rsel].x,pr.y+OW[g_rsel].y,pr.z+OW[g_rsel].z};
+      float L=0.45f/(g_rscale>1e-4f?g_rscale:1.0f); g_gz_L=L;        /* world axis length -> ~constant on screen */
+      PROJV(O,g_gz_o.x,g_gz_o.y);
+      Col axc[3]={{235,90,90},{110,215,110},{96,150,255}};          /* X red, Y green, Z blue */
+      for(int a=0;a<3;a++){ V3 e=O; ((float*)&e)[a]+=L; PROJV(e,g_gz_ax[a].x,g_gz_ax[a].y);
+          int hot=(g_gz_drag==a);
+          SDL_SetRenderDrawColor(R,axc[a].r,axc[a].g,axc[a].b,255); SDL_RenderDrawLine(R,g_gz_o.x,g_gz_o.y,g_gz_ax[a].x,g_gz_ax[a].y);
+          float dx=(float)(g_gz_ax[a].x-g_gz_o.x),dy=(float)(g_gz_ax[a].y-g_gz_o.y); g_gz_alen[a]=sqrtf(dx*dx+dy*dy);
+          int s=hot?5:4; plain(R,g_gz_ax[a].x-s,g_gz_ax[a].y-s,2*s+1,2*s+1,axc[a]); rect_outline(R,g_gz_ax[a].x-s,g_gz_ax[a].y-s,2*s+1,2*s+1,(Col){0,0,0},1); }
+      if(g_pose_mode) for(int a=0;a<3;a++){ Col rc={(Uint8)(axc[a].r*3/4),(Uint8)(axc[a].g*3/4),(Uint8)(axc[a].b*3/4)}; int hot=(g_gz_drag==3+a);
+          int px=0,py=0; for(int s=0;s<GZ_RING;s++){ float th=6.2831853f*s/GZ_RING; V3 e=O;   /* circle in the plane perpendicular to axis a */
+              float c0=L*cosf(th),s0=L*sinf(th); if(a==0){ e.y+=c0; e.z+=s0; } else if(a==1){ e.x+=c0; e.z+=s0; } else { e.x+=c0; e.y+=s0; }
+              PROJV(e,g_gz_ring[a][s].x,g_gz_ring[a][s].y); if(s){ SDL_SetRenderDrawColor(R,hot?255:rc.r,hot?255:rc.g,hot?255:rc.b,255); SDL_RenderDrawLine(R,px,py,g_gz_ring[a][s].x,g_gz_ring[a][s].y); } px=g_gz_ring[a][s].x; py=g_gz_ring[a][s].y; }
+          SDL_SetRenderDrawColor(R,hot?255:rc.r,hot?255:rc.g,hot?255:rc.b,255); SDL_RenderDrawLine(R,px,py,g_gz_ring[a][0].x,g_gz_ring[a][0].y); }
+      ring(R,g_gz_o.x,g_gz_o.y,4,(Col){0,0,0},1); ring(R,g_gz_o.x,g_gz_o.y,3,(Col){255,235,120},1); }
+    #undef PROJV
     #undef RVIEW
 
     /* ---- timeline strip (bottom of the view) ---- */
@@ -1348,10 +1370,14 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
         g_rg_cen=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); text(R,"pivot = centroid",lx+8,cy+5,1,C_TXT,C_BTN); cy+=26;
     } else {
         g_rg_cen=(SDL_Rect){0,0,0,0};
-        if(!g_nrk){ text(R,"no keys — +Key below",lx,cy,1,C_DIM,C_PANEL); cy+=18; for(int a=0;a<3;a++)g_rg_px[a*2]=g_rg_px[a*2+1]=(SDL_Rect){0,0,0,0}; }
-        else { char kb[40]; snprintf(kb,sizeof kb,"ROT key %d/%d @ %dms (deg)",g_ksel+1,g_nrk,g_rk[g_ksel].t_ms); text(R,kb,lx,cy,1,C_DIM,C_PANEL); cy+=14;
-            const char*ax[3]={"x","y","z"}; float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
-            for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%d",(int)lrintf(*er[a]*57.29578f)); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+5; } }
+        if(!g_nrk){ text(R,"no keys — +Key below",lx,cy,1,C_DIM,C_PANEL); cy+=18; for(int a=0;a<3;a++){ g_rg_px[a*2]=g_rg_px[a*2+1]=(SDL_Rect){0,0,0,0}; g_rg_pz[a*2]=g_rg_pz[a*2+1]=(SDL_Rect){0,0,0,0}; } }
+        else { const char*ax[3]={"x","y","z"};
+            char kb[40]; snprintf(kb,sizeof kb,"ROTATE key %d/%d @ %dms (deg)",g_ksel+1,g_nrk,g_rk[g_ksel].t_ms); text(R,kb,lx,cy,1,C_DIM,C_PANEL); cy+=14;
+            float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
+            for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%d",(int)lrintf(*er[a]*57.29578f)); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_px[a*2],&g_rg_px[a*2+1],mx,my); cy+=UI_H+5; }
+            text(R,"MOVE (model units)",lx,cy,1,C_DIM,C_PANEL); cy+=14;
+            float*po[3]={&g_rk[g_ksel].pos[g_rsel].x,&g_rk[g_ksel].pos[g_rsel].y,&g_rk[g_ksel].pos[g_rsel].z};
+            for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*po[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_pz[a*2],&g_rg_pz[a*2+1],mx,my); cy+=UI_H+5; } }
     }
     g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,24}; rrect(R,lx,cy,MESH_CARDW-24,24,5,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+6,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC);
 }
@@ -1370,6 +1396,10 @@ static int rig_down(int mx,int my){
     if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_key_clamp(); return 1; }
     if(HITR(g_rg_bake)){ rig_anim_bake(); return 1; }
     if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; return 1; }
+    /* manipulator: grab a translate handle, or (pose mode) a rotate ring */
+    for(int a=0;a<3;a++){ int dx=mx-g_gz_ax[a].x,dy=my-g_gz_ax[a].y; if(dx*dx+dy*dy<=49){ g_gz_drag=a; g_lx=mx; g_ly=my; return 1; } }
+    if(g_pose_mode&&g_nrk) for(int a=0;a<3;a++) for(int sg=0;sg<GZ_RING;sg++){ int dx=mx-g_gz_ring[a][sg].x,dy=my-g_gz_ring[a][sg].y;
+        if(dx*dx+dy*dy<=36){ g_gz_drag=3+a; g_gz_ang=atan2f((float)(my-g_gz_o.y),(float)(mx-g_gz_o.x)); return 1; } }
     RigPart*s=&g_rp[g_rsel];
     if(HITR(g_rg_par)){ int n=g_rsel; do{ n--; if(n<-1)n=g_nrp-1; }while(n==g_rsel); s->parent=n; return 1; }
     if(!g_pose_mode){
@@ -1378,7 +1408,9 @@ static int rig_down(int mx,int my){
         if(HITR(g_rg_cen)){ s->pivot=rig_centroid(g_rsel); return 1; }
     } else if(g_nrk){
         float*er[3]={&g_rk[g_ksel].erot[g_rsel].x,&g_rk[g_ksel].erot[g_rsel].y,&g_rk[g_ksel].erot[g_rsel].z};
-        for(int a=0;a<3;a++){ if(HITR(g_rg_px[a*2])){ *er[a]-=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_px[a*2+1])){ *er[a]+=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }   /* +-5 deg, snap preview to the key */
+        float*po[3]={&g_rk[g_ksel].pos[g_rsel].x,&g_rk[g_ksel].pos[g_rsel].y,&g_rk[g_ksel].pos[g_rsel].z};
+        for(int a=0;a<3;a++){ if(HITR(g_rg_px[a*2])){ *er[a]-=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_px[a*2+1])){ *er[a]+=0.0872665f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; }   /* +-5 deg */
+            if(HITR(g_rg_pz[a*2])){ *po[a]-=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_pz[a*2+1])){ *po[a]+=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }
     }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
     return 0;
@@ -1407,12 +1439,13 @@ static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g
               " *   mote_rig_play(&player, &%s_clip); mote_rig_tick(&player, dt); mote_rig_draw(mote,&%s_rig,&player,pos); */\n"
               "#ifndef MOTE_A3_%s_H\n#define MOTE_A3_%s_H\n#include \"mote_anim3d.h\"\n\n",base,base,base,base);
     int anim[RIG_MAXP], ntr=0;
-    for(int p=0;p<g_nrp;p++){ anim[p]=0; for(int k=0;k<g_nrk;k++){ V3 e=g_rk[k].erot[p]; if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)>1e-4f){ anim[p]=1; break; } } if(anim[p])ntr++; }
+    for(int p=0;p<g_nrp;p++){ anim[p]=0; for(int k=0;k<g_nrk;k++){ V3 e=g_rk[k].erot[p],t=g_rk[k].pos[p];
+        if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)>1e-4f){ anim[p]=1; break; } } if(anim[p])ntr++; }
     if(ntr==0){ anim[0]=1; ntr=1; }   /* always emit at least one track so the clip is valid */
     for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
         fprintf(f,"static const MoteModelKey %s_%s_k[%d] = {\n",base,pn,g_nrk);
-        for(int k=0;k<g_nrk;k++){ RQ q=rq_eul(g_rk[k].erot[p].x,g_rk[k].erot[p].y,g_rk[k].erot[p].z);
-            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {0,0,0} },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w); }
+        for(int k=0;k<g_nrk;k++){ RQ q=rq_eul(g_rk[k].erot[p].x,g_rk[k].erot[p].y,g_rk[k].erot[p].z); V3 t=g_rk[k].pos[p];
+            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {%.5ff,%.5ff,%.5ff} },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w,t.x,t.y,t.z); }
         fprintf(f,"};\n"); }
     fprintf(f,"static const MoteModelTrack %s_clip_tr[%d] = {\n",base,ntr);
     for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
@@ -3076,7 +3109,7 @@ int main(int argc,char**argv){
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
-                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
@@ -3097,6 +3130,13 @@ int main(int argc,char**argv){
                     g_rk[g_kdrag].t_ms=t; rig_key_bubble(&g_kdrag); g_ksel=g_kdrag; g_scrub_t=(float)t; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_scrub){          /* scrub the playhead */
                     float t=(float)(e.motion.x-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1); if(t<0)t=0; if(t>g_clip_ms)t=g_clip_ms; g_scrub_t=t; }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_gz_drag>=0){   /* manipulator drag */
+                    if(g_gz_drag<3){ int a=g_gz_drag; float Sx=(float)(g_gz_ax[a].x-g_gz_o.x),Sy=(float)(g_gz_ax[a].y-g_gz_o.y), len2=Sx*Sx+Sy*Sy;
+                        if(len2>=1.0f){ float dmx=(float)(e.motion.x-g_lx),dmy=(float)(e.motion.y-g_ly), dalong=(dmx*Sx+dmy*Sy)*g_gz_L/len2;
+                            if(!g_pose_mode) ((float*)&g_rp[g_rsel].pivot)[a]+=dalong; else if(g_nrk) ((float*)&g_rk[g_ksel].pos[g_rsel])[a]+=dalong; }
+                        g_lx=e.motion.x; g_ly=e.motion.y; }
+                    else if(g_pose_mode&&g_nrk){ int a=g_gz_drag-3; float ang=atan2f((float)(e.motion.y-g_gz_o.y),(float)(e.motion.x-g_gz_o.x)), d=ang-g_gz_ang;
+                        while(d>3.14159265f)d-=6.2831853f; while(d<-3.14159265f)d+=6.2831853f; ((float*)&g_rk[g_ksel].erot[g_rsel])[a]+=d; g_gz_ang=ang; } }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw-=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
