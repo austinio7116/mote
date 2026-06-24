@@ -135,15 +135,17 @@ static void g_update(float dt){
             mote_draw(mote, key[i].black ? m_black : m_white, p);
 
             if(key[i].press > 0){
-                Vec3 glow = v3(keyx(i), 0.2f, key[i].black ? -0.8f : 0.7f);
+                /* glow sits just above the FRONT edge of the key (toward the camera,
+                 * -z) so it isn't buried behind the long key tops */
+                Vec3 glow = v3(keyx(i), key[i].black ? 0.58f : 0.24f, key[i].black ? -1.25f : -1.45f);
                 mote->scene_add_sphere(glow, 0.18f + key[i].press*0.18f, MOTE_RGB565(120,220,255));
             }
         }
     }
 
-    /* cursor marker hovering over the selected key */
+    /* cursor marker hovering over the FRONT of the selected key (visible to the player) */
     if(!playing){
-        mote->scene_add_sphere(v3(keyx(cursor), 0.7f, 0.5f), 0.16f, MOTE_RGB565(255,210,80));
+        mote->scene_add_sphere(v3(keyx(cursor), 0.7f, -1.45f), 0.16f, MOTE_RGB565(255,210,80));
     }
 }
 

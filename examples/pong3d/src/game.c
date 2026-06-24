@@ -84,8 +84,12 @@ static void g_init(void){
     mesh_dash   = mote_mesh_box(mote, 0.10f, 0.42f, 0.12f, MOTE_RGB565(60, 90, 150));
     mesh_back   = mote_mesh_box(mote, 9.6f, WALL_Y + 0.3f, 0.2f, MOTE_RGB565(14, 18, 40));
     mote_rand_seed((uint32_t)mote->micros());
-    cam_home  = v3(0, 2.6f, -18.0f);
-    cam_basis = mote_camera_look(cam_home, v3(0, -0.6f, 0));
+    /* Level (head-on) look so the top and bottom walls render the SAME width/thickness
+     * (a downward tilt makes the near wall look fatter). Aim slightly ABOVE the court
+     * centre so the whole court sits low in the frame, leaving the top edge clear for
+     * the score readout. */
+    cam_home  = v3(0, 0.7f, -18.4f);
+    cam_basis = mote_camera_look(cam_home, v3(0, 0.7f, 0));
     new_game();
 }
 
@@ -175,10 +179,12 @@ static void g_update(float dt){
     mote_draw(mote, mesh_wall, v3(0, -WALL_Y, 0));
     for (int i = -5; i <= 5; i++) mote_draw(mote, mesh_dash, v3(0, i * 1.15f, 0));
 
-    mote_draw(mote, mesh_player, v3(-PADDLE_X, player_y, 0));
-    if (flash_player > 0) mote->scene_add_sphere(v3(-PADDLE_X, player_y, 0), PADDLE_HALF + 0.5f, MOTE_RGB565(160, 200, 255));
-    mote_draw(mote, mesh_cpu, v3(PADDLE_X, cpu_y, 0));
-    if (flash_cpu > 0) mote->scene_add_sphere(v3(PADDLE_X, cpu_y, 0), PADDLE_HALF + 0.5f, MOTE_RGB565(255, 170, 170));
+    /* paddles flash brighter on contact (no shape change — a sphere overlay looked off) */
+    Mat3 I = m3_identity();
+    mote_draw_tint(mote, mesh_player, v3(-PADDLE_X, player_y, 0), I, 1.0f,
+                   flash_player > 0 ? MOTE_RGB565(190, 220, 255) : MOTE_RGB565(90, 170, 255));
+    mote_draw_tint(mote, mesh_cpu, v3(PADDLE_X, cpu_y, 0), I, 1.0f,
+                   flash_cpu > 0 ? MOTE_RGB565(255, 200, 200) : MOTE_RGB565(255, 110, 110));
 
     /* ball comet trail: older samples are smaller + dimmer */
     for (int k = 0; k < TRAIL_LEN; k++) {

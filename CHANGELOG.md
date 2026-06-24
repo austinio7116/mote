@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.4-alpha
+
+Two new example games and a batch of Studio/tooling improvements. The device firmware is
+updated (reflash `firmware_mote_os.uf2`), but the ABI is unchanged (22) — existing games
+keep running without a rebuild.
+
+### New games
+
+- **ThumbyCue** — a full, faithful port of the 3D snooker & pool game, running on the
+  engine's dual-core full-screen rasteriser (`render_band`): table, spinning textured
+  ball impostors, physics, rules, AI and HUD all intact, with sampled hit/pot SFX.
+- **Nightmote** — a real-time horde survivor (auto-attacking weapons, XP gems, a
+  level-up build with weapons + passives, scaling difficulty and a boss). A compact
+  showcase of the 2D sprite scene, WANG16 autotiled ground, baked SFX recipes and the
+  overlay HUD — all native Mote.
+
+### New and improved
+
+- **Use the C standard library in games.** `snprintf` / the `printf` family (for
+  formatting HUD strings), plus the usual string/math, now link on device — the build
+  supplies the libc syscall stubs. (Use `mote->alloc` for memory, not `malloc`.) See the
+  new note in §3 / the API reference.
+- **Toggle Chassis** (Studio ▸ View) — switch the emulator between the solid and a new
+  clear/translucent Thumby Color shell.
+- **Import assets** (Studio ▸ Assets ▸ Import) — pick a file and it's copied straight
+  into the project's `assets/` (and shown in the tree), instead of an info message.
+- **Panel separator highlight** — dragging the IDE's panel splitters now lights up on
+  hover, so the affordance is visible even where the OS resize cursor isn't (e.g. WSLg).
+- **Higher-resolution Studio chassis** photo (4×).
+
+### Fixed
+
+- **pong3d** — paddles flash brighter on contact instead of morphing into a sphere.
+- **piano3d** — the press-glow and cursor-marker spheres sit at the front of the keys
+  (toward the camera) instead of being hidden behind the long key tops.
+- **Device builds** now link the libc syscall stubs in *both* build paths (the `mote`
+  CLI and the Studio's own builder), so a game using `snprintf` builds either way.
+- `mote bake` no longer emits a redundant plain-image header for a tileset's sheet PNG.
+
 ## 0.3-alpha
 
 This release updates the device firmware — reflash `firmware_mote_os.uf2`, and rebuild

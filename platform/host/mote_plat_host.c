@@ -117,6 +117,38 @@ void mote_plat_present(const uint16_t *fb565) {
     SDL_RenderPresent(s_ren);
 }
 
+/* Headless scripted input: MOTE_KEYS="a:5-15 lb:60-70 up:100-200" presses the
+ * named button on input frames [start,end] inclusive (one frame == one buttons
+ * read). Lets ported games be driven through their states with no display. */
+static struct { uint8_t btn; int from, to; } s_keys[32];
+static int  s_nkeys = -1;       /* -1 = not yet parsed */
+static int  s_btn_frame;        /* incremented per buttons read */
+static int  key_name(const char *s, int n) {
+    struct { const char *n; uint8_t b; } map[] = {
+        {"up",0},{"down",1},{"left",2},{"right",3},{"a",4},{"b",5},
+        {"lb",6},{"rb",7},{"menu",8} };
+    for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++)
+        if ((int)strlen(map[i].n) == n && !strncmp(map[i].n, s, n)) return map[i].b;
+    return -1;
+}
+static void parse_keys(void) {
+    s_nkeys = 0; s_btn_frame = 0;
+    const char *e = getenv("MOTE_KEYS");
+    if (!e) return;
+    while (*e && s_nkeys < 32) {
+        while (*e == ' ' || *e == ',') e++;
+        const char *name = e;
+        while (*e && *e != ':') e++;
+        if (*e != ':') break;
+        int b = key_name(name, (int)(e - name)); e++;
+        int from = atoi(e); while (*e && *e != '-') e++;
+        int to = (*e == '-') ? atoi(e + 1) : from;
+        while (*e && *e != ' ' && *e != ',') e++;
+        if (b >= 0) { s_keys[s_nkeys].btn = (uint8_t)b;
+                      s_keys[s_nkeys].from = from; s_keys[s_nkeys].to = to; s_nkeys++; }
+    }
+}
+
 void mote_plat_buttons(MoteButtons *out) {
     const Uint8 *k = SDL_GetKeyboardState(NULL);
     out->up    = k[SDL_SCANCODE_UP]    || k[SDL_SCANCODE_W];
@@ -128,6 +160,15 @@ void mote_plat_buttons(MoteButtons *out) {
     out->lb    = k[SDL_SCANCODE_LSHIFT];
     out->rb    = k[SDL_SCANCODE_SPACE];
     out->menu  = k[SDL_SCANCODE_RETURN];
+
+    if (s_nkeys < 0) parse_keys();
+    if (s_nkeys > 0) {
+        bool *b = &out->up;   /* MoteButtons is 9 contiguous bools in btn order */
+        for (int i = 0; i < s_nkeys; i++)
+            if (s_btn_frame >= s_keys[i].from && s_btn_frame <= s_keys[i].to)
+                b[s_keys[i].btn] = true;
+    }
+    s_btn_frame++;
 }
 
 uint64_t mote_plat_micros(void) {

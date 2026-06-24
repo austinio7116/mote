@@ -182,6 +182,14 @@ It holds 60&nbsp;fps at thousands of triangles, so re-submitting the whole scene
 <em>appended</em> to — never reordered or removed — and <code>MOTE_ABI_VERSION</code> is bumped on any change. A game built
 against an older version runs unchanged on a newer engine; new fields it never calls stay harmless.</div>
 
+<div class="note"><strong>C standard library.</strong> Game code may use the standard C library: string/memory
+(<code>memcpy</code>, <code>memmove</code>, <code>strcmp</code>…), math (<code>sinf</code>, <code>sqrtf</code>… — <code>-lm</code> is linked),
+and the <code>printf</code> family for <em>formatting</em> (<code>snprintf</code> into your own buffer, then draw it with
+<a href="#api-text"><code>text()</code></a>). The device build links tiny libc syscall stubs (<code>sdk/mote_syscalls.c</code>) so
+stdio's formatting code resolves; a game does no real file I/O, so the stubs are never called. <strong>Do not use
+<code>malloc</code>/<code>free</code></strong> — the libc heap isn't wired up; use <a href="#memory"><code>mote-&gt;alloc()</code></a>
+(load-time) and file-scope statics instead.</div>
+
 <!-- ============================ SKELETON ============================ -->
 <h2 id="skeleton" class="anchor">Game skeleton</h2>
 <pre class="sig"><span class="cm">/* mygame/src/game.c */</span>

@@ -69,6 +69,13 @@ int mc_build(const char *dir, int device, mote_log_fn log){
         snprintf(cmd,sizeof cmd,"%sgcc %s %s%s -c %.320s/src/%s -o %s 2>&1",ARM,arch,base,inc,dir,nm[i],obj);
         if(run_logged(cmd,log)!=0){ log("device compile FAILED (is arm-none-eabi-gcc installed?)"); return -1; }
         strncat(objs,obj,sizeof objs-strlen(objs)-2); strncat(objs," ",sizeof objs-strlen(objs)-1); }
+    /* libc syscall stubs (_read/_write/_sbrk/…) that newlib's snprintf/printf
+     * reference through its FILE machinery; never called at runtime. Keep this in
+     * step with tools/mote build_device. */
+    { char so[600]; snprintf(so,sizeof so,"%.320s/build/mote_syscalls.o",dir);
+      snprintf(cmd,sizeof cmd,"%sgcc %s %s -c sdk/mote_syscalls.c -o %s 2>&1",ARM,arch,base,so);
+      if(run_logged(cmd,log)!=0){ log("syscall-stub compile FAILED"); return -1; }
+      strncat(objs,so,sizeof objs-strlen(objs)-2); strncat(objs," ",sizeof objs-strlen(objs)-1); }
     char elf[600]; snprintf(elf,sizeof elf,"%.320s/build/%s.elf",dir,name);
     snprintf(cmd,sizeof cmd,"%sgcc %s -nostartfiles -T sdk/game.ld -Wl,--gc-sections %s -lm -lgcc -o %s 2>&1",ARM,arch,objs,elf);
     if(run_logged(cmd,log)!=0){ log("device link FAILED"); return -1; }

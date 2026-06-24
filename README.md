@@ -337,6 +337,15 @@ this whole block disappears.
 You never write this loop. You only fill the draw-list in `update()` and (maybe)
 draw a HUD in `overlay()`.
 
+**Using the C standard library.** Game code can freely use the standard C library:
+string/memory (`memcpy`, `memmove`, `strcmp`, …), math (`sinf`, `sqrtf`, … — `-lm` is
+linked), and the `printf` family for *formatting* (e.g. `snprintf(buf, n, "BREAK %d", x)`
+into your own buffer, then draw it with `text()`). The device build links a tiny set of
+libc syscall stubs (`sdk/mote_syscalls.c`) so stdio's formatting code resolves — a game
+performs no real file I/O, so the stubs are never actually called. **Don't use
+`malloc`/`free`**: the libc heap isn't wired up. Use `mote->alloc()` for load-time
+buffers (§7) and file-scope statics for game state.
+
 ---
 
 ## 4. The asset pipeline
@@ -1475,6 +1484,8 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `hello-mesh`, `tumbler` | minimal mesh + camera (**start here**) |
 | `tetris3d` | grid logic + engine-rendered cubes (~190 lines) |
 | `pong3d`, `arkanoid3d` | polished arcade: trails, particles, power-ups, levels, `menu` for game-over |
+| `nightmote` | **2D horde survivor** — the 2D sprite scene drawing a culled swarm, a WANG16 autotiled procedural ground (grass + alt-grass + mud), baked SFX recipes, XP/level-up build, overlay HUD |
+| `thumbycue` | **full game port** — 3D snooker & pool on the dual-core full-screen `render_band` hook (custom rasteriser, textured ball impostors, physics/rules/AI, sampled SFX) |
 | `tanks` | **3D rigid-part animation** (the showcase) — a rigged tank (body/tracks/turret/barrel), a baked recoil clip triggered on fire, procedural turret aim mixed with the clip, per-part team tinting |
 | `physics`, `materials`, `playground`, `dominoes`, `hulls` | the rigid-body solver (boxes/spheres/hulls/materials/stacking) |
 | `pickups`, `shooter` | `phys_overlap` / `phys_raycast` as game mechanics |
@@ -1502,6 +1513,21 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.4-alpha
+
+Two new example games and Studio/tooling polish. Updates the device firmware (reflash
+`firmware_mote_os.uf2`); ABI unchanged (22), so existing games keep running.
+
+- **ThumbyCue** — full 3D snooker & pool port on the dual-core `render_band` hook.
+- **Nightmote** — a 2D horde survivor (sprite swarm, WANG16 procedural ground, baked
+  SFX, level-up build) — all native Mote.
+- **C standard library in games** — `snprintf` / `printf`-family link on device now (the
+  build supplies libc syscall stubs); use `mote->alloc`, not `malloc`.
+- Studio: **Toggle Chassis** (solid/clear shell), **Assets ▸ Import** (copy a file into
+  `assets/`), and a panel-separator hover highlight.
+- Fixes: pong paddle flash (no more sphere), piano front-of-key glow, device `snprintf`
+  links in both build paths, `mote bake` skips tileset sheet PNGs.
 
 ### 0.3-alpha
 

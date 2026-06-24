@@ -88,9 +88,15 @@ def build_device(d, name, srcs, gamesrc, outdir):
         run([ARM + "gcc"] + ARM_ARCH + base + incs_flags(gamesrc) + ["-c", c, "-o", o])
         objs.append(o)
     elf = os.path.join(outdir, name + ".elf")
+    # mote_syscalls.c supplies the libc syscall stubs (_read/_write/_close/_fstat/
+    # _sbrk/…) that newlib's snprintf/printf family reference through its FILE
+    # machinery. The game never does real I/O, so the stubs just fail — they exist
+    # only to satisfy the linker so games can use snprintf for HUD text.
+    sysobj = os.path.join(outdir, "mote_syscalls.c.o")
+    run([ARM + "gcc"] + ARM_ARCH + base + ["-c", os.path.join(SDK, "mote_syscalls.c"), "-o", sysobj])
     run([ARM + "gcc"] + ARM_ARCH + ["-nostartfiles",
         "-T", os.path.join(SDK, "game.ld"), "-Wl,--gc-sections"]
-        + objs + ["-lm", "-lgcc", "-o", elf])
+        + objs + [sysobj, "-lm", "-lgcc", "-o", elf])
     mote = os.path.join(outdir, name + ".mote")
     run([ARM + "objcopy", "-O", "binary", "-j", ".mote", "-j", ".data", elf, mote])
     return mote
@@ -231,7 +237,15 @@ def cmd_bake(args):
             bake_icon(p, os.path.join(src, "icon.h")); break
     objs = [f for f in files if f.endswith(".obj")]
     stls = [f for f in files if f.lower().endswith(".stl")]
-    imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))]
+    # A PNG that backs a WANG16/auto-tileset (tilesets/<name>.tileset) is baked as a
+    # <name>.tiles.h by the Studio Tiles tab, not as a plain <name>_img — so skip it here.
+    tiled = set()
+    tdir = os.path.join(d, "tilesets")
+    if os.path.isdir(tdir):
+        for t in os.listdir(tdir):
+            if t.endswith(".tileset"): tiled.add(os.path.splitext(t)[0])
+    imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))
+            and os.path.splitext(os.path.basename(f))[0] not in tiled]
     if not objs and not stls and not imgs:
         print("mote: no .obj/.stl/.png/.bmp assets in %s/assets" % d); return
 

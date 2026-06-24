@@ -172,9 +172,13 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     /* Size the engine's pools to THIS game's declared config, from the shared
      * arena; whatever's left the game claims via alloc(). Reset per game. */
     MoteConfig c = vt->config;
-    if (!c.max_tris && !c.max_spheres && !c.max_bodies && !c.max_splats && !c.max_sprites) {
+    if (!vt->render_band &&
+        !c.max_tris && !c.max_spheres && !c.max_bodies && !c.max_splats && !c.max_sprites) {
         /* No config declared: fall back to the old static worst case so legacy
-         * games run unchanged. Declared games get exactly what they ask for. */
+         * games run unchanged. Declared games get exactly what they ask for.
+         * A game with a render_band hook owns the whole frame and uses none of
+         * the engine 3D pools, so it never inherits the legacy worst case — the
+         * full arena stays free for its own alloc()s. */
         c.max_tris = 3328; c.max_spheres = 256;
         c.max_bodies = 256; c.max_contacts = 512; c.depth = 1;
     }

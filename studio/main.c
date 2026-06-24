@@ -50,7 +50,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.3-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.4-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -444,12 +444,14 @@ static void icon_edit(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     snprintf(g_status,sizeof g_status,"editing game icon (60x60) — draw or Import, then Save"); }
 
 /* ================= menu bar ================= */
-enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_ICON, A_VSCODE, A_ALIGN, A_ABOUT };
+static SDL_Texture *g_dev_clear; static int g_chassis_clear;   /* chassis toggle; defined with load_device below */
+enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_ICON, A_VSCODE, A_ALIGN, A_CHASSIS, A_ABOUT };
 typedef struct { const char*title; struct { const char*l; int a; } it[8]; int n; int mx,mw; } Menu;
 static Menu MENUS[]={
     {"Project",{{"New Game...",A_NEW},{"Open...",A_OPEN},{"Reveal in Files",A_REVEAL},{"Quit",A_QUIT}},4},
     {"Assets",{{"Import...",A_IMPORT},{"Edit Icon",A_ICON},{"Bake All",A_BAKEALL}},3},
     {"Build",{{"Build",A_BUILD},{"Build + Device",A_BUILDDEV},{"Run / Reload",A_RELOAD},{"Stop",A_STOP},{"Push",A_PUSH},{"Push & Launch",A_PUSHLAUNCH}},6},
+    {"View",{{"Toggle Chassis",A_CHASSIS}},1},
     {"Help",{{"About Mote Studio",A_ABOUT}},1},
 };
 static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
@@ -501,7 +503,9 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
     case A_PUSHLAUNCH: njob(4,dir); break;
     case A_BAKEALL: njob(2,dir); break;
     case A_ICON: icon_edit(); break;
-    case A_IMPORT: snprintf(g_status,sizeof g_status,"drop PNG/OBJ/STL into the game's assets/ then Bake"); g_tab=TAB_CONSOLE; break;
+    case A_IMPORT:
+        if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first, then Import"); break; }
+        fp_open(4); break;   /* pick a file -> copy into the project's assets/ */
     case A_VSCODE: {
         int havef = (g_tsel>=0 && g_tree[g_tsel].kind!=0);   /* a file selected -> open it too */
         const char *fp = havef ? g_tree[g_tsel].path : "";
@@ -516,6 +520,10 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
 #endif
         run_job(c,"VS Code"); break; }
     case A_ALIGN: g_align=1; break;
+    case A_CHASSIS:
+        if(!g_dev_clear){ snprintf(g_status,sizeof g_status,"no clear chassis image (studio/assets/thumby_color_clear.png)"); break; }
+        g_chassis_clear=!g_chassis_clear;
+        snprintf(g_status,sizeof g_status,"chassis: %s",g_chassis_clear?"clear":"solid"); break;
     case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio %s - native C/SDL2 IDE for Thumby Color",MOTE_STUDIO_VERSION); break;
     } }
 
@@ -671,11 +679,20 @@ static void ab_btn(SDL_Renderer*R,int cx,int cy,int rad,const char*l,int lit){ C
  * We overlay the live screen on the LCD rect and glow the buttons when pressed.
  * Rects/points are normalized to the device image (tuned against the photo). */
 static SDL_Texture *g_dev; static int g_devw=718, g_devh=417;
+/* g_dev_clear / g_chassis_clear forward-declared up by the menu bar (dispatch uses them).
+ * 0 = solid product photo, 1 = clear/transparent shell (View > Toggle Chassis). */
 /* screen is a SQUARE in device-image pixels — calibrated via `mote studio calibrate` */
 static float g_spx=252.8f, g_spy=79.9f, g_sps=222.2f;
-static void load_device(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/thumby_color.png",&w,&h,&n,4);
-    if(!d)return; g_dev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
-    SDL_UpdateTexture(g_dev,NULL,d,w*4); SDL_SetTextureBlendMode(g_dev,SDL_BLENDMODE_BLEND); g_devw=w; g_devh=h; stbi_image_free(d); }
+/* Both chassis photos are the same dimensions, so the screen-overlay calibration
+ * (g_spx/g_spy/g_sps) and button rects apply to either. */
+static SDL_Texture *load_tex(SDL_Renderer*R,const char*path,int*w,int*h){ int n; unsigned char*d=stbi_load(path,w,h,&n,4);
+    if(!d)return NULL; SDL_Texture*t=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,*w,*h);
+    SDL_UpdateTexture(t,NULL,d,*w*4); SDL_SetTextureBlendMode(t,SDL_BLENDMODE_BLEND); stbi_image_free(d); return t; }
+static void load_device(SDL_Renderer*R){ int w=0,h=0,cw,ch;
+    g_dev=load_tex(R,"studio/assets/thumby_color.png",&w,&h); if(g_dev){ g_devw=w; g_devh=h; }
+    g_dev_clear=load_tex(R,"studio/assets/thumby_color_clear.png",&cw,&ch); }
+/* the chassis texture currently selected (falls back to solid if clear is missing) */
+static SDL_Texture *dev_tex(void){ return (g_chassis_clear && g_dev_clear) ? g_dev_clear : g_dev; }
 static void load_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","r"); if(!f)return;
     float a,b,c; if(fscanf(f,"%f %f %f",&a,&b,&c)==3){ g_spx=a; g_spy=b; g_sps=c; } fclose(f); }
 static void save_scr_cfg(void){ FILE*f=fopen("studio/assets/screen.cfg","w"); if(!f)return;
@@ -766,7 +783,7 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     float scale=(float)(N*MOTE_FB_W)/g_sps;
     int dw=(int)(g_devw*scale), dh=(int)(g_devh*scale);
     int dx=CENTER_X+(CENTER_W-dw)/2, dy=TOPH+((BOT_Y-TOPH)-dh)/2;
-    SDL_Rect dd={dx,dy,dw,dh}; SDL_RenderCopy(R,g_dev,NULL,&dd);
+    SDL_Rect dd={dx,dy,dw,dh}; SDL_RenderCopy(R,dev_tex(),NULL,&dd);
     int sps=N*MOTE_FB_W, ssx=dx+(int)(g_spx*scale), ssy=dy+(int)(g_spy*scale);
     if(g_sel>=0&&g_eng){ SDL_Rect sc={ssx,ssy,sps,sps}; SDL_RenderCopy(R,tex,NULL,&sc); }
     g_emu_x=dx; g_emu_y=dy; g_emu_w=dw; g_emu_h=dh;
@@ -2698,7 +2715,19 @@ static char g_fpitem[400][160]; static unsigned char g_fpisdir[400]; static int 
 static SDL_Rect g_fp_cancel;
 static int ci_ends(const char*s,const char*suf){ int ls=(int)strlen(s),lf=(int)strlen(suf); return ls>=lf&&!strcasecmp(s+ls-lf,suf); }
 static int fp_match(const char*n,int cb){ if(cb==0)return ci_ends(n,".wav")||ci_ends(n,".mp3")||ci_ends(n,".ogg")||ci_ends(n,".flac")||ci_ends(n,".m4a")||ci_ends(n,".aac");
+    if(cb==4)return ci_ends(n,".png")||ci_ends(n,".bmp")||ci_ends(n,".jpg")||ci_ends(n,".jpeg")||ci_ends(n,".gif")||ci_ends(n,".tga")    /* import: any bakeable asset */
+                  ||ci_ends(n,".wav")||ci_ends(n,".mp3")||ci_ends(n,".ogg")||ci_ends(n,".flac")||ci_ends(n,".obj")||ci_ends(n,".stl");
     return ci_ends(n,".png")||ci_ends(n,".bmp")||ci_ends(n,".jpg")||ci_ends(n,".jpeg")||ci_ends(n,".gif")||ci_ends(n,".tga"); }
+/* Copy a chosen file into the open project's assets/ folder (Assets > Import). */
+static void import_to_assets(const char*src){
+    if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first, then Import"); return; }
+    const char*b=src; for(const char*p=src;*p;p++) if(*p=='/'||*p=='\\') b=p+1;   /* basename */
+    char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char dst[800]; snprintf(dst,sizeof dst,"%.560s/%.180s",ad,b);
+    copy_file(src,dst);
+    struct stat st; if(stat(dst,&st)!=0){ snprintf(g_status,sizeof g_status,"import FAILED: %.100s",b); return; }
+    build_tree(g_games[g_sel].dir);                       /* show it in the explorer immediately */
+    snprintf(g_status,sizeof g_status,"imported %s -> assets/  (select it / Bake to generate a header)",b); }
 static int fpcmp(const void*a,const void*b){ return strcasecmp((const char*)a,(const char*)b); }
 static void fp_scan(void){ g_fpn=0; g_fpscroll=0;
     snprintf(g_fpitem[g_fpn],160,".."); g_fpisdir[g_fpn]=1; g_fpn++;
@@ -2716,12 +2745,14 @@ static int native_pick(int cb,char*out,int n){
 #ifdef _WIN32
     char buf[1040]=""; OPENFILENAMEA o; memset(&o,0,sizeof o); o.lStructSize=sizeof o; o.lpstrFile=buf; o.nMaxFile=sizeof buf;
     o.lpstrFilter = cb==0 ? "Audio (wav/mp3/ogg/flac)\0*.wav;*.mp3;*.ogg;*.flac;*.m4a;*.aac\0All files\0*.*\0"
+                  : cb==4 ? "Assets (images/audio/meshes)\0*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga;*.wav;*.mp3;*.ogg;*.flac;*.obj;*.stl\0All files\0*.*\0"
                           : "Images (png/bmp/jpg)\0*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga\0All files\0*.*\0";
-    o.lpstrTitle = cb==0 ? "Open audio" : "Open image";
+    o.lpstrTitle = cb==0 ? "Open audio" : cb==4 ? "Import asset" : "Open image";
     o.Flags = OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;   /* keep our cwd intact */
     if(GetOpenFileNameA(&o)){ snprintf(out,n,"%s",buf); return 1; } return 0;
 #else
     const char *f = cb==0 ? "--file-filter=Audio | *.wav *.mp3 *.ogg *.flac *.m4a *.aac"
+                  : cb==4 ? "--file-filter=Assets | *.png *.bmp *.jpg *.jpeg *.gif *.tga *.wav *.mp3 *.ogg *.flac *.obj *.stl"
                           : "--file-filter=Images | *.png *.bmp *.jpg *.jpeg *.gif *.tga";
     char cmd[400];
     if(system("which zenity >/dev/null 2>&1")==0){ snprintf(cmd,sizeof cmd,"zenity --file-selection %s 2>/dev/null",f);
@@ -2732,7 +2763,7 @@ static int native_pick(int cb,char*out,int n){
 #endif
 }
 static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
-    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
     if(g_sel>=0){ char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); struct stat st;   /* default to the open project */
@@ -2741,7 +2772,7 @@ static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof 
     else if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
 static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
-    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
+    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":g_fpick_cb==4?"IMPORT ASSET  (image / audio / mesh \xe2\x86\x92 assets/)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
     text(R,g_fpdir,bx+14,by+38,1,C_DIM,C_PANEL);
     int mx,my; SDL_GetMouseState(&mx,&my); int ly=by+58, rows=(bh-96)/20;
     for(int i=0;i<rows&&g_fpscroll+i<g_fpn;i++){ int idx=g_fpscroll+i,y=ly+i*20,hov=hit(mx,my,bx+8,y,bw-16,20);
@@ -2759,7 +2790,7 @@ static void fp_pick(int idx){ if(idx<0||idx>=g_fpn)return; char path[840];
         else { snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); snprintf(g_fpdir,sizeof g_fpdir,"%s",path); }
         fp_scan(); return; }
     snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); g_fpick=0;
-    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
+    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else if(g_fpick_cb==4)import_to_assets(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
 static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2;
     if(hit(mx,my,g_fp_cancel.x,g_fp_cancel.y,86,26)){ g_fpick=0; return; }
     int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
@@ -2870,7 +2901,7 @@ static void draw_align(SDL_Renderer*R){
     text(R,"Drag the square onto the LCD (it stays a perfect square). Drag a corner to resize.",24,46,1,C_DIM,(Col){22,24,32});
     if(!g_dev) return;
     int px,py,pw,ph; float sc; align_geom(&px,&py,&pw,&ph,&sc);
-    SDL_Rect dd={px,py,pw,ph}; SDL_RenderCopy(R,g_dev,NULL,&dd);
+    SDL_Rect dd={px,py,pw,ph}; SDL_RenderCopy(R,dev_tex(),NULL,&dd);
     int sx=px+(int)(g_spx*sc), sy=py+(int)(g_spy*sc), ss=(int)(g_sps*sc);
     SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(R,90,230,255,55); SDL_Rect fr={sx,sy,ss,ss}; SDL_RenderFillRect(R,&fr);
@@ -2936,6 +2967,18 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
     else if(r->kind==1||r->kind==2)code_open(r->path);   /* .toml / .c / .h -> code editor */
     else if(r->kind==5&&(ci_ends(r->name,".txt")||ci_ends(r->name,".md")||ci_ends(r->name,".ld")||ci_ends(r->name,".cfg")||ci_ends(r->name,".toml")))code_open(r->path); }
 
+/* Highlight a panel separator when hovered or dragged. The OS resize cursor
+ * (SDL SIZEWE/SIZENS) is unavailable on some setups (e.g. WSLg cursor themes),
+ * so this gives the drag affordance regardless of whether that cursor renders. */
+static void draw_splitters(SDL_Renderer*R){
+    if(g_modal||g_picker||g_align||g_fpick) return;
+    int mx,my; SDL_GetMouseState(&mx,&my); Col hi=C_ACC;
+    int in_v = my>=TOPH && my<BOT_Y;
+    if(g_split==1 || (in_v && abs(mx-LEFT_W)<=4)) plain(R,LEFT_W-1,TOPH,2,BOT_Y-TOPH,hi);
+    if(g_split==2 || (in_v && abs(mx-INSP_X)<=4)) plain(R,INSP_X,TOPH,2,BOT_Y-TOPH,hi);
+    if(g_split==3 || (my>=BOT_Y-4 && my<=BOT_Y+1)) plain(R,0,BOT_Y-1,WIN_W,2,hi);
+}
+
 int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
     ensure_cwd();              /* resolve relative asset paths regardless of launch dir */
@@ -2968,6 +3011,7 @@ int main(int argc,char**argv){
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_ICON")){ icon_edit(); }   /* capture hook: open the icon editor */
@@ -3255,6 +3299,7 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
         SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
+        draw_splitters(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren); draw_ctxmenu(ren);
         if(g_align)draw_align(ren);
         if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren); if(g_prompt)draw_prompt(ren);
