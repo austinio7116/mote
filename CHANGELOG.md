@@ -26,14 +26,24 @@ your games so they pick up the smaller launcher icons.
 - **Pixel/Texture sizes.** More canvas sizes (including 60 for icons) plus a −/+ for any
   size, keeping your art when you resize.
 - **Optional frame-rate cap** a game can set, honoured by both the device and the emulator.
-- **File tree** now shows subfolders; clicking a `.sfx` opens the Audio tab and a `.rig`
-  the Rig tab. The file picker opens in the current project's folder.
+- **File manager in the tree.** Right-click to New File / New Folder / Rename / Delete
+  (with a confirm), and double-click a folder to collapse/expand it. The tree shows
+  subfolders; clicking a `.sfx` opens the Audio tab and a `.rig` the Rig tab.
+- **Mousewheel zoom** in the Mesh and Rig 3D previews.
+- **Consistent naming dialog** for New/Rename/Save As (click-to-select-all), and the file
+  picker opens in the current project's folder.
+- **Windows fast-update** dev workflow (`scripts/sync-windows.sh`) — update an unzipped
+  bundle in place instead of re-unzipping.
 
 ### Fixed
 
 - The Mesh/Rig 3D preview is sharp again, no longer squashes on wide windows, and the
   left/right orbit drag is no longer inverted; the rig view no longer auto-spins.
-- The "VS Code" button now works on Windows.
+- The rig editor is editable the moment a model loads (a rest keyframe is seeded), so
+  pose values and the manipulator work right away.
+- "VS Code", and "Reveal in Files" / "Open Folder", now work on Windows.
+- Launcher icons are handled by the build — a game no longer needs to include anything,
+  so they can't go missing (the tanks icon was hitting this).
 - Assets placed in subfolders are now built too.
 
 ## 0.2-alpha

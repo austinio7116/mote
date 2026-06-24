@@ -433,13 +433,23 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
 | `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`) | recorded/sampled audio; play with `audio_play` |
 | `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
-| `icon.png` / `icon.bmp` (game root) | **icon baker** | `mote_game_icon_data[3600]` (60×60 RGB565) in `src/icon.h` | `#include "icon.h"` once; the OS launcher shows it. The icon travels inside the game module — no firmware change to add a game |
+| `icon.png` / `icon.bmp` (game root) | **icon baker** | a compact paletted blob `mote_game_icon_data[]` in `src/icon.h` | nothing — the build auto-includes it; the OS launcher shows it. The icon travels inside the module, so installing a game over USB is all it takes (no firmware change) |
 
-**Launcher icons live with the game.** A game's 60×60 icon is baked into
-`src/icon.h` and compiled into the module; the launcher reads it straight from the
-stored image (the module header records where), so installing a game over USB is all
-it takes for its icon to appear. Without an `icon.png` the launcher draws a
-name-coloured tile with the initial.
+**Launcher icons (§4.1).** A game's 60×60 icon is baked from `icon.png` to `src/icon.h`
+and compiled into the module — the launcher reads it straight from the stored image, so
+pushing a game is all it takes for its icon to appear.
+
+- **You don't include it.** `mote_build.h` (which every game includes) auto-pulls
+  `src/icon.h` via `__has_include`, and the baked symbol is `weak`, so it travels in the
+  module with **no `#include` and no boilerplate** in your game. No `icon.png` → the
+  launcher draws a name-coloured tile with the initial.
+- **Make it in the IDE.** Draw or import it in the Pixel Art editor — **Assets ▸ Edit
+  Icon**, or just save a 60×60 sprite named **`icon`**, or drop an `icon.png` in the game
+  root. Save bakes it automatically.
+- **Compact in flash.** Since ABI v22 the icon is a **paletted, adaptive-bit-depth blob**
+  (`sdk/mote_icon.h`), not a raw 7,200-byte RGB565 array — typically **~1.8–4 KB** (a
+  ~2–4× saving), losslessly for ≤256-colour icons. The launcher decodes it inline (no
+  RAM scratch) when drawing the selection.
 
 **Image transparency:** any source pixel with alpha < 128 becomes the magenta
 colour-key `0xF81F` (`MOTE_KEY_MAGENTA`); the engine's 2D rasteriser and `blit`
@@ -1084,6 +1094,16 @@ if (pick == 2) mote->exit_to_launcher();
 Ends the game and returns to the hero-menu launcher. (Players also get there via the
 engine menu's "Return to lobby" — §8.)
 
+#### `void set_fps_limit(int fps)`  *(ABI v22)*
+Cap the frame rate. `0` (the default) runs uncapped — the device free-runs, the host
+emulator runs as fast as the machine allows. A positive value paces the main loop to
+that many frames per second on **both** the device and the host, so a game can lock
+30/60 fps for steady timing. Call it once from `update()` on the first frame (or change
+it whenever). The async LCD flush overlaps the wait, so capping costs no extra latency.
+```c
+static int armed; if (!armed) { armed = 1; mote->set_fps_limit(30); }
+```
+
 ### 5.8 — The helper layer (`mote_build.h`, header-only)
 
 These have **no ABI cost** (they compile into your module). The mesh builders take
@@ -1491,11 +1511,12 @@ the smaller launcher icons.
   bake clips, and trigger them from game events. Authored in the Studio Rig tab (3-axis
   manipulator + timeline); see [§2.7](#27-creating-rigs-and-3d-animations) and [`docs/animation.md`](docs/animation.md).
 - **Tanks example** rebuilt with detailed rigged 3D tanks and a baked recoil clip on fire.
-- **Smaller launcher icons** — compressed in flash (~half the space).
+- **Smaller launcher icons** ([§4.1](#4-the-asset-pipeline)) — a compact paletted blob in flash (~2–4× smaller), now handled by the build (games don't `#include` anything).
 - **Open Project** screen shows each game's icon, a memory-usage bar, and a scrollbar.
 - **Edit the launcher icon** in the Pixel Art editor; more canvas sizes (incl. 60) + a −/+ for any size.
-- **Optional frame-rate cap**; file tree shows subfolders and routes `.sfx`/`.rig` to the right tab.
-- Fixed: sharp + un-squashed Mesh/Rig preview, non-inverted orbit drag, Windows "VS Code" button, asset subfolders now build.
+- **File manager in the tree** — right-click New File/Folder, Rename, Delete; double-click a folder to collapse; `.sfx`→Audio, `.rig`→Rig; mousewheel-zoom the 3D previews.
+- **Optional frame-rate cap** ([§5.7](#57--text-telemetry-memory-control)) games can set, honoured by device + emulator.
+- Fixed: sharp + un-squashed Mesh/Rig preview, non-inverted orbit drag, rig editable on load, Windows "VS Code" + "Reveal in Files", asset subfolders now build.
 
 ### 0.2-alpha
 
