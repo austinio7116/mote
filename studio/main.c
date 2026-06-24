@@ -2624,7 +2624,10 @@ static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof 
     if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
-    if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
+    if(g_sel>=0){ char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); struct stat st;   /* default to the open project */
+        if(stat(ad,&st)==0&&S_ISDIR(st.st_mode)) snprintf(g_fpdir,sizeof g_fpdir,"%s",ad);
+        else snprintf(g_fpdir,sizeof g_fpdir,"%.560s",g_games[g_sel].dir); }
+    else if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
 static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
     text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
@@ -2757,7 +2760,20 @@ static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel
     g_tl_init=0; g_an_init=0; g_mesh_path[0]=0;   /* re-run the Tiles/Anim/Mesh lazy-load for the NEW project */
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
-static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i];
+static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i]; const char*nm=r->name;
+    /* SFX recipe (.sfx) or its baked header (.sfx.h) -> load into the Audio tab */
+    if(ci_ends(nm,".sfx")||ci_ends(nm,".sfx.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".sfx"); if(d)*d=0;
+        char sp[440]; if(ci_ends(nm,".sfx")) snprintf(sp,sizeof sp,"%.300s",r->path);
+        else if(g_sel>=0) snprintf(sp,sizeof sp,"%.250s/assets/%.60s.sfx",g_games[g_sel].dir,base); else sp[0]=0;
+        if(sp[0]&&sfx_read(sp)){ g_has_sfx=1; snprintf(g_au_name,sizeof g_au_name,"%.60s",base); sfx_apply(0); g_tab=TAB_AUDIO;
+            snprintf(g_status,sizeof g_status,"loaded SFX recipe %s — tweak & Save",base); }
+        else snprintf(g_status,sizeof g_status,"no .sfx recipe found for %s",base); return; }
+    /* rig sidecar (.rig) or its baked header (.rig.h) -> load the model in the Rig tab */
+    if(ci_ends(nm,".rig")||ci_ends(nm,".rig.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".rig"); if(d)*d=0;
+        char obj[440]; if(ci_ends(nm,".rig")){ size_t pl=strlen(r->path); snprintf(obj,sizeof obj,"%.*s.obj",(int)(pl-4),r->path); }
+        else if(g_sel>=0) snprintf(obj,sizeof obj,"%.250s/assets/%.60s.obj",g_games[g_sel].dir,base); else obj[0]=0;
+        struct stat st; if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
+        else snprintf(g_status,sizeof g_status,"no .obj found for rig %s",base); return; }
     if(r->kind==3){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path;   /* root icon.png/.bmp -> icon editor */
         if((!strcasecmp(b,"icon.png")||!strcasecmp(b,"icon.bmp"))&&g_sel>=0&&r->depth<=1){ icon_edit(); }
         else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
