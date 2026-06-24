@@ -28,7 +28,6 @@
 #define VISIBLE  5
 
 static uint16_t s_fb[MOTE_FB_W * MOTE_FB_H];
-static uint16_t s_icon_dec[MOTE_ICON_W * MOTE_ICON_H];   /* decoded hero icon (v22 paletted blob) */
 
 uint16_t *mote_launcher_fb(void) { return s_fb; }
 
@@ -50,6 +49,18 @@ static void blit_icon(const uint16_t *ic, int dx, int dy) {
     for (int y = 0; y < MOTE_ICON_H; y++) { int ry = dy + y; if ((unsigned)ry >= MOTE_FB_H) continue;
         for (int x = 0; x < MOTE_ICON_W; x++) { int rx = dx + x; if ((unsigned)rx >= MOTE_FB_W) continue;
             s_fb[ry * MOTE_FB_W + rx] = ic[y * MOTE_ICON_W + x]; } }
+}
+/* Blit a v22 paletted icon blob (mote_icon.h) decoding each pixel inline — avoids a
+ * 7 KB decode scratch in the OS's RAM region. */
+static void blit_icon_blob(const void *blob, int dx, int dy) {
+    const uint8_t *b = (const uint8_t *)blob; int bpp = b[0], npal = b[2] | (b[3] << 8);
+    const uint8_t *pal = b + 4, *idx = pal + npal * 2;
+    int per = bpp < 8 ? 8 / bpp : 1, mask = (1 << bpp) - 1;
+    for (int y = 0; y < MOTE_ICON_H; y++) { int ry = dy + y; if ((unsigned)ry >= MOTE_FB_H) continue;
+        for (int x = 0; x < MOTE_ICON_W; x++) { int rx = dx + x; if ((unsigned)rx >= MOTE_FB_W) continue;
+            int i = y * MOTE_ICON_W + x, v;
+            if (bpp == 8) v = idx[i]; else { int byte = idx[i / per]; v = (byte >> ((per - 1 - (i % per)) * bpp)) & mask; }
+            s_fb[ry * MOTE_FB_W + rx] = (uint16_t)(pal[v*2] | (pal[v*2+1] << 8)); } }
 }
 /* a stable accent colour from the name (for games with no baked icon) */
 static uint16_t accent(const char *n) {
@@ -76,8 +87,8 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));      /* shadow */
     fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));  /* frame */
     const uint16_t *ic = cat->e[sel].icon;
-    if (!ic && cat->e[sel].icon_blob) { mote_icon_decode(cat->e[sel].icon_blob, s_icon_dec, MOTE_ICON_W * MOTE_ICON_H); ic = s_icon_dec; }
     if (ic) blit_icon(ic, ix, iy);
+    else if (cat->e[sel].icon_blob) blit_icon_blob(cat->e[sel].icon_blob, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
 
