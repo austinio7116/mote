@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v20</span>
+    <span class="abi">ABI v22</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -186,8 +186,7 @@ against an older version runs unchanged on a newer engine; new fields it never c
 <h2 id="skeleton" class="anchor">Game skeleton</h2>
 <pre class="sig"><span class="cm">/* mygame/src/game.c */</span>
 <span class="kw">#include</span> <span class="ty">"mote_api.h"</span>
-<span class="kw">#include</span> <span class="ty">"mote_build.h"</span>      <span class="cm">// header-only helpers (no ABI cost)</span>
-<span class="kw">#include</span> <span class="ty">"icon.h"</span>           <span class="cm">// optional 60×60 launcher icon (baked from icon.png)</span>
+<span class="kw">#include</span> <span class="ty">"mote_build.h"</span>      <span class="cm">// header-only helpers + auto-includes your baked launcher icon</span>
 
 <span class="fn">MOTE_GAME_MODULE</span>();             <span class="cm">// stashes `mote`, exports the abi-version symbol</span>
 
@@ -450,6 +449,13 @@ printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf
 <h3 id="fn-exit_to_launcher">exit_to_launcher <span class="badge abi">v1</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">exit_to_launcher</span>)(<span class="kw">void</span>);</pre>
 <p>Return to the OS launcher (ends the game's frame loop).</p>
+
+<h3 id="fn-set_fps_limit">set_fps_limit <span class="badge abi">v22</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">set_fps_limit</span>)(<span class="kw">int</span> fps);</pre>
+<p>Cap the frame rate. <code>0</code> (default) runs uncapped — the device free-runs, the host emulator runs as fast as the
+machine allows. A positive value paces the main loop to that many fps on <strong>both</strong> device and host, so a game can
+lock 30/60 fps for steady timing. Call once from <code>update()</code> on the first frame (or change it any time); the async LCD
+flush overlaps the wait, so capping adds no latency.</p>
 
 <h3 id="fn-menu">menu <span class="badge abi">v11</span></h3>
 <pre class="sig"><span class="kw">int</span> (*<span class="fn">menu</span>)(<span class="kw">const char</span> *title, <span class="kw">const char</span> *<span class="kw">const</span> *items, <span class="kw">int</span> n);</pre>
@@ -817,10 +823,13 @@ lives at the reserved RAM region (<code>MOTE_MODULE_RAM = 0x20060000</code>, 128
 <tr><td>abi_version</td><td class="ty">uint32_t</td><td><code>MOTE_ABI_VERSION</code> the module was built for.</td></tr>
 <tr><td>reg</td><td class="ty">fn ptr</td><td>Entry: <code>mote_game_register</code>.</td></tr>
 <tr><td>data_load / data_start / data_end / bss_start / bss_end</td><td class="ty">uint32_t</td><td>Mini-crt ranges (copy <code>.data</code>, zero <code>.bss</code>).</td></tr>
-<tr><td>icon_vaddr</td><td class="ty">uint32_t</td><td><span class="badge abi">v20</span> Linked address of a 60×60 RGB565 <code>mote_game_icon_data[]</code>, or <code>0</code> for none. The launcher reads the icon straight from flash without loading the game.</td></tr>
+<tr><td>icon_vaddr</td><td class="ty">uint32_t</td><td><span class="badge abi">v20</span> Linked address of <code>mote_game_icon_data[]</code>, or <code>0</code> for none. The launcher reads it straight from flash without loading the game. Format follows the module's ABI: a raw 60×60 RGB565 array up to v21, a compact paletted blob (<code>sdk/mote_icon.h</code>) from <span class="badge abi">v22</span>.</td></tr>
 </table>
 <p>A game emits it with <code>MOTE_MODULE_HEADER()</code> (device build only, guarded by <code>MOTE_MODULE_BUILD</code>). The icon is
-picked up via a weak symbol — a game opts in simply by <code>#include "icon.h"</code> (baked from <code>icon.png</code>).</p>
+picked up via a <strong>weak</strong> symbol that the build auto-includes — <code>mote_build.h</code> pulls in the baked
+<code>src/icon.h</code> via <code>__has_include</code>, so a game with an <code>icon.png</code> carries its icon with <em>no
+<code>#include</code> and no boilerplate</em>. From v22 the baked data is a paletted, adaptive-bit-depth blob (~2–4× smaller
+than raw RGB565); the launcher decodes it inline when drawing the selection.</p>
 
 <!-- ============================ HISTORY ============================ -->
 <h2 id="history" class="anchor">ABI version history</h2>
@@ -847,12 +856,17 @@ header-only/SDK changes do not.</p>
 <tr><td>v16–v18</td><td>Data-format changes: per-draw <code>MoteObject.color</code> override; 6-byte <code>MeshFace</code> + optional <code>Mesh.face_colors</code> (colour moved off every face); the <code>MoteSfx</code> recipe.</td></tr>
 <tr><td>v19</td><td>audio_render_sfx (synthesise recipes; <code>mote_sfx_bake</code>).</td></tr>
 <tr><td>v20</td><td>Per-game icons in the module header (<code>icon_vaddr</code>); no more firmware icon table.</td></tr>
+<tr><td>v21</td><td>set_fps_limit (optional frame-rate cap, honoured by device + host).</td></tr>
+<tr><td>v22</td><td>Compact paletted launcher icons (<code>sdk/mote_icon.h</code>); the launcher decodes the blob inline. ~2–4× smaller in flash.</td></tr>
 </table>
+<p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
+(<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine
+change. See the <a href="https://github.com/austinio7116/mote/blob/main/docs/animation.md">animation guide</a>.</p>
 
 </main>
 
 <footer>
-  Mote Engine API/ABI reference · ABI v20 · generated from the engine headers
+  Mote Engine API/ABI reference · ABI v22 · generated from the engine headers
   (<code>sdk/mote_api.h</code>, <code>mote_build.h</code>, <code>mote_tile.h</code>, <code>mote_anim.h</code>,
   <code>mote_vec.h</code>, <code>mote_mesh.h</code>, <code>mote_2d.h</code>, <code>mote_phys.h</code>,
   <code>mote_splat.h</code>, <code>mote_input.h</code>, <code>mote_module.h</code>).
