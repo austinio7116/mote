@@ -288,7 +288,7 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel
  * active one; switching tabs swaps it so the texture generators never touch the sprite. */
 static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
 static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
-static char g_px_name[64]="sprite"; static int g_px_namefocus; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
+static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
@@ -360,10 +360,10 @@ static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"o
         if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
         else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
     char p[420];
-    if(g_icon_edit){                                  /* launcher icon -> <root>/icon.png (baked to src/icon.h) */
+    if(g_icon_edit||!strcasecmp(g_px_name,"icon")){   /* launcher icon -> <root>/icon.png (baked to src/icon.h) */
         snprintf(p,sizeof p,"%.380s/icon.png",dir);
         if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"icon save FAILED (%s)",p); return; }
-        snprintf(g_status,sizeof g_status,"saved game icon + baking"); njob(2,dir); return; }
+        snprintf(g_status,sizeof g_status,"saved game icon (icon.png) + baking"); njob(2,dir); return; }
     char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",dir); mkdir_portable(ad);
     snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"));   /* edit the name field to save a new file */
     if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
@@ -540,19 +540,35 @@ static int menu_blocks(int mx,int my){ if(g_menu_open<0)return 0; Menu*m=&MENUS[
     return hit(mx,my,m->mx,MENU_H,150,m->n*22+6) || my<MENU_H; }
 /* explorer right-click context menu */
 static int g_ctx; static int g_ctxx,g_ctxy; static char g_ctxdir[340],g_ctxpath[340];
-static const char *CTX_L[2]={ "Open Folder", "Open in VS Code" };
-static void draw_ctxmenu(SDL_Renderer*R){ if(!g_ctx)return; int mx,my; SDL_GetMouseState(&mx,&my); int w=150,h=2*22+6;
+static const char *CTX_L[4]={ "New File", "New Folder", "Open Folder", "Open in VS Code" };
+#define CTX_N 4
+/* name prompt (new file / new folder) */
+static int g_prompt, g_promptkind; static char g_promptbuf[80], g_promptdir[340];
+static void draw_ctxmenu(SDL_Renderer*R){ if(!g_ctx)return; int mx,my; SDL_GetMouseState(&mx,&my); int w=160,h=CTX_N*22+6;
     if(g_ctxx+w>WIN_W)g_ctxx=WIN_W-w; if(g_ctxy+h>WIN_H)g_ctxy=WIN_H-h; int x=g_ctxx,y=g_ctxy;
     plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC); rect_outline(R,x,y,w,h,C_LINE,1);
-    for(int i=0;i<2;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22); if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
-static void ctx_click(int mx,int my){ int w=150; for(int i=0;i<2;i++){ int iy=g_ctxy+4+i*22; if(hit(mx,my,g_ctxx,iy,w,22)){
-    if(i==0)open_folder(g_ctxdir[0]?g_ctxdir:"."); else { const char*p=g_ctxpath[0]?g_ctxpath:g_ctxdir; char c[700];
+    for(int i=0;i<CTX_N;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22); if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
+static void ctx_click(int mx,int my){ int w=160; for(int i=0;i<CTX_N;i++){ int iy=g_ctxy+4+i*22; if(hit(mx,my,g_ctxx,iy,w,22)){
+    if(i==0||i==1){ g_prompt=1; g_promptkind=i; g_promptbuf[0]=0; snprintf(g_promptdir,sizeof g_promptdir,"%.330s",g_ctxdir[0]?g_ctxdir:"."); SDL_StartTextInput(); }
+    else if(i==2)open_folder(g_ctxdir[0]?g_ctxdir:"."); else { const char*p=g_ctxpath[0]?g_ctxpath:g_ctxdir; char c[700];
 #ifdef _WIN32
         snprintf(c,sizeof c,"code \"%.300s\"",p);
 #else
         snprintf(c,sizeof c,"code \"%.300s\" >/dev/null 2>&1 &",p);
 #endif
         if(system(c)){} } return; } } }
+static void tree_refresh(void);   /* fwd */
+static void prompt_create(void){ if(g_promptbuf[0]&&g_promptdir[0]){ char p[440]; snprintf(p,sizeof p,"%.330s/%.80s",g_promptdir,g_promptbuf);
+        if(g_promptkind==1){ mkdir_portable(p); snprintf(g_status,sizeof g_status,"created folder %s",g_promptbuf); }
+        else { FILE*f=fopen(p,"w"); if(f)fclose(f); snprintf(g_status,sizeof g_status,"created %s",g_promptbuf); }
+        tree_refresh(); }
+    g_prompt=0; SDL_StopTextInput(); }
+static void draw_prompt(SDL_Renderer*R){ if(!g_prompt)return; SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,150); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
+    int w=440,h=120,x=(WIN_W-w)/2,y=(WIN_H-h)/2; rrect(R,x,y,w,h,10,C_PANEL); rrect(R,x,y,w,28,10,C_HDR);
+    char t[64]; snprintf(t,sizeof t,g_promptkind?"NEW FOLDER":"NEW FILE"); text(R,t,x+14,y+8,1,C_TITLE,C_HDR);
+    text(R,"in:",x+14,y+38,1,C_DIM,C_PANEL); { const char*d=strrchr(g_promptdir,'/'); text(R,d?d+1:g_promptdir,x+38,y+38,1,C_TXT,C_PANEL); }
+    rrect(R,x+14,y+58,w-28,26,4,(Col){12,14,20}); char nm[96]; snprintf(nm,sizeof nm,"%s_",g_promptbuf); text(R,nm,x+22,y+64,1,C_TXT,(Col){12,14,20});
+    text(R,g_promptkind?"Enter to create  \xb7  Esc to cancel":"include the extension (e.g. enemy.c)  \xb7  Enter \xb7 Esc",x+16,y+92,1,C_DIM,C_PANEL); }
 
 typedef struct { int x,y,w,h; const char*l; int a; } Tbtn;
 static Tbtn g_tb[8]; static int g_ntb;
@@ -893,7 +909,9 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
     g_pxszup=(SDL_Rect){tx,ty,20,24}; rrect(R,tx,ty,20,24,4,hit(mx,my,tx,ty,20,24)?C_BTNHI:C_BTN); text(R,"+",tx+6,ty+6,1,C_TXT,C_BTN); tx+=24;
     tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
     g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
-    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",g_px_name[0]?g_px_name:(texmode?"texture":"sprite"),g_px_namefocus?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,g_px_namefocus?(Col){12,14,20}:C_DOCK); }
+    { const char*base=g_px_name[0]?g_px_name:(texmode?"texture":"sprite"); Col fbg=g_px_namefocus?(Col){12,14,20}:C_DOCK;
+      if(g_px_namefocus&&g_px_nameseled&&g_px_name[0]) plain(R,tx+6,ty+4,textw(R,base,1)+2,17,(Col){40,70,130});   /* select-all highlight */
+      char nm[80]; snprintf(nm,sizeof nm,"%s%s.png",base,(g_px_namefocus&&!g_px_nameseled)?"_":""); text(R,nm,tx+8,ty+7,1,C_TXT,fbg); }
     if(texmode)draw_texgen(R,10,cy+27);   /* procedural texture generators live only in the TEXTURE tab */
     /* HSV colour picker */
     int px0=12, py0=texmode?cy+58:cy+30, sq=126; if(g_hsv_baked!=g_hue)bake_hsv(R);
@@ -2600,7 +2618,7 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)ret
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
 static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
-    if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; SDL_StartTextInput(); return; }
+    if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){ g_px_namefocus=1; g_px_nameseled=1; SDL_StartTextInput(); return; }   /* focus selects all -> typing replaces */
     g_px_namefocus=0;
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
@@ -2917,6 +2935,7 @@ int main(int argc,char**argv){
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_RIGPOSE")){ g_pose_mode=1; if(!g_nrk)g_ksel=rig_key_insert(0); }   /* capture hook: pose mode */
+    if(getenv("MOTE_STUDIO_PROMPT")){ g_prompt=1; g_promptkind=atoi(getenv("MOTE_STUDIO_PROMPT")); snprintf(g_promptbuf,sizeof g_promptbuf,"enemy.c"); if(g_sel>=0)snprintf(g_promptdir,sizeof g_promptdir,"%.330s/src",g_games[g_sel].dir); }   /* capture hook */
     if(getenv("MOTE_STUDIO_RIGANIM")&&g_nrp){ int tp=g_nrp>1?1:0; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,"turret"))tp=i;   /* test clip: yaw the turret */
         g_clip_ms=1000; g_clip_loop=2; g_nrk=3; for(int k=0;k<3;k++)for(int p=0;p<g_nrp;p++)g_rk[k].erot[p]=(V3){0,0,0};
         g_rk[0].t_ms=0; g_rk[1].t_ms=500; g_rk[2].t_ms=1000;
@@ -3015,6 +3034,11 @@ int main(int argc,char**argv){
                     else if(hit(mx,my,g_mk_cancel.x,g_mk_cancel.y,g_mk_cancel.w,g_mk_cancel.h)){ g_modal=0; SDL_StopTextInput(); }
                     else for(int i=0;i<3;i++) if(hit(mx,my,g_mk_kind[i].x,g_mk_kind[i].y,g_mk_kind[i].w,g_mk_kind[i].h)){ g_newkind=i; break; } }
                 continue; }
+            if(g_prompt){ if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;   /* new file/folder name */
+                    if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'||c=='.'){ int l=(int)strlen(g_promptbuf); if(l<70){ g_promptbuf[l]=c; g_promptbuf[l+1]=0; } } } }
+                else if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_promptbuf); if(l)g_promptbuf[l-1]=0; }
+                    else if(k==SDLK_RETURN)prompt_create(); else if(k==SDLK_ESCAPE){ g_prompt=0; SDL_StopTextInput(); } }
+                continue; }
             if(g_picker){ int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
                 if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; }
@@ -3036,8 +3060,13 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
             if((g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&g_px_namefocus){   /* editing the sprite save-name field */
-                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_px_name); if(l<50){ g_px_name[l]=c; g_px_name[l+1]=0; } } } continue; }
-                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_px_namefocus=0; continue; } }
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){
+                    if(g_px_nameseled){ g_px_name[0]=0; g_px_nameseled=0; }    /* first key replaces the selection */
+                    int l=(int)strlen(g_px_name); if(l<50){ g_px_name[l]=c; g_px_name[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym;
+                    if(k==SDLK_BACKSPACE){ if(g_px_nameseled){ g_px_name[0]=0; g_px_nameseled=0; } else { int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } }   /* backspace clears the selection, else deletes one */
+                    else if((k==SDLK_a)&&(SDL_GetModState()&KMOD_CTRL))g_px_nameseled=1;   /* Ctrl+A select all */
+                    else if(k==SDLK_RETURN||k==SDLK_ESCAPE){ g_px_namefocus=0; g_px_nameseled=0; } continue; } }
             if(g_tab==TAB_TILES&&g_ln_focus){   /* renaming the current layer (tileset) */
                 char*ln=g_terr[g_curterr].name;
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(ln); if(l<14){ ln[l]=c; ln[l+1]=0; } } } continue; }
@@ -3176,7 +3205,7 @@ int main(int argc,char**argv){
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren); draw_ctxmenu(ren);
         if(g_align)draw_align(ren);
-        if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren);
+        if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren); if(g_prompt)draw_prompt(ren);
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
         /* cap to ~60fps — vsync is ignored under WSL/software GL, so without this the
