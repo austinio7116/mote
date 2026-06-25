@@ -25,8 +25,8 @@ const Mesh *ship_gen_mesh_class(uint32_t seed, int class_hint);
 
 /* Copy the last generated mesh into caller-owned buffers (the catalogue
  * cache). Returns faces written. */
-int ship_gen_copy(MeshVert *verts, int max_v, MeshFace *faces, int max_f,
-                  Mesh *out);
+int ship_gen_copy(MeshVert *verts, int max_v, MeshFace *faces, uint16_t *colors,
+                  int max_f, Mesh *out);
 
 /* Proposal-look switch (contact sheets only; style-1 bodies exist under
  * ELITE_STYLE_LAB). 0 = live look, the default. */

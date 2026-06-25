@@ -26,7 +26,7 @@ static bool           s_exit_req;
  * game's own alloc()s come out of this. Reset between games. (276 KB: a few KB
  * trimmed from a round 280 to leave the OS room for the v23 rumble/save state +
  * headroom — games use well under this; ThumbyCue's worst case is ~254 KB.) */
-#define MOTE_ARENA_SIZE (276 * 1024)
+#define MOTE_ARENA_SIZE (272 * 1024)
 static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
 static MoteArena s_arena;
 
@@ -134,6 +134,36 @@ void mote_api_fill(MoteApi *a) {
     a->save                  = mote_plat_save;
     a->load                  = mote_plat_load;
     a->save_slots            = mote_plat_save_slots;
+    /* ABI v24: depth-tested 3D scene FX primitives + per-object draw flags. */
+    a->scene_add_point       = mote_scene_add_point;
+    a->scene_add_line        = mote_scene_add_line;
+    a->scene_add_disc        = mote_scene_add_disc;
+    a->scene_add_object_ex   = mote_scene_add_object_ex;
+    /* ABI v25: textured/oriented sphere impostor. */
+    a->scene_add_sphere_tex  = mote_scene_add_sphere_tex;
+    /* ABI v26: per-band background callback. */
+    a->set_background_cb     = mote_scene_set_background_cb;
+    /* ABI v27: immediate-mode world-space triangle. */
+    a->scene_add_tri         = mote_scene_add_tri;
+    /* ABI v28: soft ground-shadow decal + runtime near plane. */
+    a->scene_add_shadow      = mote_scene_add_shadow;
+    a->scene_set_near        = mote_pipe_set_near;
+    /* ABI v29: engine-owned master volume (shared with the engine menu). */
+    a->audio_set_master      = mote_audio_set_volume;
+    a->audio_get_master      = mote_audio_get_volume;
+    /* ABI v30: 2D framebuffer drawing primitives. */
+    a->draw_pixel            = mote_draw_pixel;
+    a->draw_line             = mote_draw_line;
+    a->draw_rect             = mote_draw_rect;
+    /* ABI v31: camera-facing ring + 2D circle. */
+    a->scene_add_ring        = mote_scene_add_ring;
+    a->draw_circle           = mote_draw_circle;
+    /* ABI v32: oriented elliptical ground shadow. */
+    a->scene_add_shadow_ex   = mote_scene_add_shadow_ex;
+    /* ABI v33: camera-facing textured quad (3D sprite). */
+    a->scene_add_billboard   = mote_scene_add_billboard;
+    /* ABI v34: free rotate/scale 2D blit. */
+    a->blit_ex               = mote_blit_ex;
 }
 
 /* The per-band render, run on BOTH cores (disjoint row bands). Reads the
@@ -180,7 +210,10 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
      * arena; whatever's left the game claims via alloc(). Reset per game. */
     MoteConfig c = vt->config;
     if (!vt->render_band &&
-        !c.max_tris && !c.max_spheres && !c.max_bodies && !c.max_splats && !c.max_sprites) {
+        !c.max_tris && !c.max_spheres && !c.max_bodies && !c.max_splats && !c.max_sprites &&
+        !c.max_points && !c.max_lines && !c.max_discs && !c.max_tex_spheres &&
+        !c.max_shadows && !c.max_rings && !c.max_billboards && !c.max_tex_tris &&
+        !c.max_contacts && !c.max_mesh_tris && !c.depth) {
         /* No config declared: fall back to the old static worst case so legacy
          * games run unchanged. Declared games get exactly what they ask for.
          * A game with a render_band hook owns the whole frame and uses none of
@@ -190,8 +223,14 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         c.max_bodies = 256; c.max_contacts = 512; c.depth = 1;
     }
     mote_arena_init(&s_arena, s_arena_mem, MOTE_ARENA_SIZE);
-    mote_scene_configure(&s_arena, c.max_tris, c.max_spheres);
-    mote_raster_configure(&s_arena, c.depth || c.max_tris > 0 || c.max_splats > 0);
+    mote_scene_configure(&s_arena, c.max_tris, c.max_spheres,
+                         c.max_points, c.max_lines, c.max_discs, c.max_tex_spheres,
+                         c.max_shadows, c.max_rings, c.max_billboards,
+                         c.max_tex_tris);
+    mote_raster_configure(&s_arena, c.depth || c.max_tris > 0 || c.max_splats > 0
+                          || c.max_points > 0 || c.max_lines > 0 || c.max_discs > 0
+                          || c.max_tex_spheres > 0 || c.max_rings > 0
+                          || c.max_billboards > 0 || c.max_tex_tris > 0);
     mote_phys_configure(&s_arena, c.max_bodies, c.max_contacts);
 
     if (vt->init) vt->init();
@@ -248,7 +287,12 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
 #endif
         if (menu_hold_ms >= 3000) {
             menu_hold_ms = 0;
-            if (mote_engine_menu(fb)) s_exit_req = true;   /* "Return to lobby" */
+            int to_lobby = mote_engine_menu(fb);
+            if (to_lobby) s_exit_req = true;               /* "Return to lobby" */
+            else mote_plat_audio_start();                  /* re-arm audio: the menu's blocking
+                                                            * loop doesn't pump the PWM ring, which
+                                                            * leaves the device audio dead until
+                                                            * the timer/IRQ/ring are re-established */
             last = mote_plat_micros();                     /* drop the paused interval */
             continue;
         }

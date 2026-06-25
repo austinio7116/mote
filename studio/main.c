@@ -50,7 +50,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.5-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.6-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -849,8 +849,8 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
             for(int i=0;i<7;i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
                 int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
             text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
-            long used=arena_bytes(&c); float frac=used/282624.0f; if(frac>1)frac=1;          /* 276 KB load arena */
-            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>282624?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
+            long used=arena_bytes(&c); float frac=used/278528.0f; if(frac>1)frac=1;          /* 272 KB load arena */
+            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>278528?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
             plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
             plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24;
             if(c.custom_render){ text(R,"custom renderer (render_band):",x,y,1,C_ACC,C_DOCK); y+=14;
@@ -2835,12 +2835,12 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
         else { rrect(R,dst.x,dst.y,dst.w,dst.h,6,(Col){44,48,62}); icon(R,IC_FOLDER,dst.x+13,dst.y+14,18,(Col){150,150,170}); }
         text(R,g_games[i].name,bx+70,y+8,2,(hov||i==g_sel)?C_TXT:(Col){190,196,212},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
         /* arena/memory estimate from the game's MoteConfig pools */
-        MCfg*c=picker_cfg(i); long used=arena_bytes(c); float frac=used/282624.0f; if(frac>1)frac=1;
+        MCfg*c=picker_cfg(i); long used=arena_bytes(c); float frac=used/278528.0f; if(frac>1)frac=1;
         int barx=bx+70, bary=y+34, barw=rw-70-78, barh=9; Col bg={26,28,38};
-        Col bc = used>282624?(Col){235,110,110}:(frac>0.8f?(Col){235,200,90}:(Col){110,200,130});
+        Col bc = used>278528?(Col){235,110,110}:(frac>0.8f?(Col){235,200,90}:(Col){110,200,130});
         plain(R,barx,bary,barw,barh,bg); plain(R,barx,bary,(int)(barw*frac),barh,bc); rect_outline(R,barx,bary,barw,barh,(Col){60,64,80},1);
         char mb[40]; snprintf(mb,sizeof mb,"~%ld KB",used/1024);
-        text(R,mb,barx+barw+8,bary-1,1,used>282624?(Col){240,130,130}:C_DIM,hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
+        text(R,mb,barx+barw+8,bary-1,1,used>278528?(Col){240,130,130}:C_DIM,hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
         char det[64]; snprintf(det,sizeof det,"%dtri %dspr%s",c->tris,c->sprites,c->depth?" \xb7 depth":"");
         text(R,det,bx+70+textw(R,g_games[i].name,2)+10,y+10,1,(Col){120,126,144},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44})); }
     /* scrollbar */

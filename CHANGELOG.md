@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.6-alpha
+
+**The big games now draw through the built-in engine.** ThumbyCue and Indemnity Run
+used to carry their own custom rendering code; now they draw the same way any small
+game does — by calling the engine. To make that work, the engine gained the drawing
+features those games needed (textured/numbered balls, lit planets, shadows, particle
+and beam effects, circles, sky backgrounds), so every game can use them too.
+**Reflash `firmware_mote_os.uf2`** — the engine interface version goes 23 → **35**, so
+games built against it need the new firmware; games already on the device keep working.
+
+### Engine / ABI
+
+New, reusable rendering primitives (each opt-in and metered via `MoteConfig` pools, so
+they cost nothing unless declared — static OS-BSS growth stayed ≈ 0):
+
+- **3D scene FX** (depth-tested, dual-core): `scene_add_point`, `scene_add_line`,
+  `scene_add_disc` (v24); `scene_add_ring` — a camera-facing circle outline for ghost
+  balls/reticles (v31).
+- **`scene_add_tri`** (v27) — a double-sided immediate-mode world triangle for dynamic /
+  procedural geometry that isn't a baked `Mesh`.
+- **`scene_add_sphere_tex`** (v25) — a textured *or* per-pixel-callback-shaded, oriented
+  sphere impostor (numbered/striped balls, lit textured planets), with FLAT/LIT/SMOOTH/
+  TOON/GLOSS/CUSTOM shade modes (`mote_sphere.h`).
+- **`scene_add_shadow`** / **`scene_add_shadow_ex`** (v28/v32) — soft ground-shadow
+  decals, round or oriented-oval (object-shaped), depth-tested.
+- **`set_background_cb`** (v26) — a per-band background pass (starfield/nebula/gradient)
+  run before the scene; **`scene_set_near`** (v28) — runtime near plane for small scenes.
+- **`scene_add_object_ex`** + `MOTE_DRAW_NO_DEPTH_WRITE` (v24) — coplanar overlays.
+- **2D framebuffer drawing**: `draw_pixel`, `draw_line`, `draw_rect` (v30), `draw_circle`
+  (v31) — for HUDs/overlays/backgrounds, alongside `text`/`blit`.
+- **Engine master volume**: `audio_set_master` / `audio_get_master` (v29) — one knob the
+  engine menu and every game share, so in-game volume and the system menu stay in sync.
+- **3D sprites (billboards)**: `scene_add_billboard` (v33) — a camera-facing textured
+  quad sized in world units, depth-tested, for trees, pickups, enemies, smoke and
+  explosions.
+- **Textured meshes** (v35) — a `Mesh` can now carry a `texture` + per-corner `face_uvs`
+  and is drawn UV-mapped (still sun-lit) through the normal `scene_add_object`.
+- **Rotated/scaled 2D sprites**: `blit_ex` (v34) — draw a sprite at any angle and zoom
+  (spinning pickups, HUD dials), not just axis-aligned like `blit`.
+- **Blend modes** (v33): `MOTE_BLEND_ALPHA` (~50%) and `MOTE_BLEND_ADD` (additive) for
+  billboards, `blit_ex`, and whole meshes via `MOTE_DRAW_BLEND()` — glows, lasers, water,
+  glass, force-fields.
+
+### Games
+
+- **Indemnity Run** and **ThumbyCue** render through the engine directly (no
+  `render_band`): ships/stations/table → `scene_add_object`/`scene_add_tri`, planets/balls
+  → `scene_add_sphere_tex`, FX → point/line/disc, sky → `set_background_cb`. They share
+  the engine's `mote_vec.h`/`mote_mesh.h`; the private `r3d_*` renderers were deleted.
+- **pool** — textured/numbered balls + soft shadows, and a fixed table (real cushions,
+  no z-fight flicker; the table now draws double-sided so the cushions show).
+- **Soft shadows** added to `tanks` (oriented oval), `chess`, `dominoes`, `golf`.
+- New **`fxdemo`** example showcasing the FX, impostor, shadow, ring and background
+  primitives, plus the new 3D-sprite billboards, a textured mesh, a rotating additive
+  `blit_ex` HUD sparkle, and additive/alpha blending.
+- New **`wolfmote`** example — a Wolfenstein-3D-style FPS built entirely on the engine:
+  textured wall + door cubes (textured meshes), billboard enemies (two types, with
+  aim/fire/hit/dead frames), billboard pickups + scenery (barrels, lamps, pillars,
+  plants), a 2D `blit_ex` gun viewmodel with an additive muzzle flash, two weapons
+  (pistol + chaingun), doors you open with B, three hand-authored text-map levels with
+  an exit + level progression, and `MoteSfx` sound effects.
+- Both new examples (**`fxdemo`**, **`wolfmote`**) now ship launcher **icons**.
+
+### Fixed
+
+- **Audio after the engine menu** — the menu's blocking loop left the device audio dead;
+  it now re-arms on close, and in-game volume + the menu drive the one engine master.
+- **Perspective-correct textured triangles** — textured meshes (and the wolfmote walls)
+  no longer skew/swim up close; the raster now interpolates `u/z`, `v/z`, `1/z`.
+- **Config-pool detection** — a game declaring *only* the newer pools (`max_tex_tris`,
+  `max_billboards`, etc.) was misread as an undeclared legacy game and piled the static
+  worst-case (3328 tris + physics) on top, overflowing the arena. The loader now treats
+  any declared pool as an explicit config.
+- The load arena is **272 KB** (was 276) to fit the new OS state.
+
 ## 0.5-alpha
 
 A big engine-API release: persistent saves and rumble, plus a third large game port.

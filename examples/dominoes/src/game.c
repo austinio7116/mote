@@ -220,11 +220,15 @@ static void g_update(float dt) {
     /* Floor slab. */
     mote_draw(mote, floor_mesh, v3(0, -0.05f, 0));
 
-    /* Dominoes: each rendered with its live physics orientation. */
-    for (int i = 0; i < DOMINO_COUNT; i++)
+    /* Dominoes: each with its live physics orientation + a soft floor shadow. */
+    for (int i = 0; i < DOMINO_COUNT; i++) {
+        mote->scene_add_shadow(v3(bodies[i].pos.x, 0.0f, bodies[i].pos.z), 0.09f, 0.5f);
         mote_draw_ex(mote, domino_mesh[i], bodies[i].pos, bodies[i].orient, 1.0f);
+    }
 
-    /* The launch ball as a shaded impostor (steel grey). */
+    /* The launch ball as a shaded impostor (steel grey) + its shadow. */
+    mote->scene_add_shadow(v3(bodies[BALL_INDEX].pos.x, 0.0f, bodies[BALL_INDEX].pos.z),
+                           BALL_RADIUS * 1.6f, 0.5f);
     mote->scene_add_sphere(bodies[BALL_INDEX].pos, BALL_RADIUS, MOTE_RGB565(210, 215, 225));
 }
 
@@ -262,7 +266,7 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 16 * 12 + 12 + 8, .max_spheres = 4,
+    .config = { .max_tris = 16 * 12 + 12 + 8, .max_spheres = 4, .max_shadows = DOMINO_COUNT + 1,
                 .max_bodies = BODY_COUNT, .max_contacts = 96, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

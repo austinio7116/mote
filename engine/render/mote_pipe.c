@@ -17,6 +17,18 @@ static Vec3  s_cam_pos;        /* camera world position; {0,0,0} -> positions ar
 static float s_focal;          /* pixels: 64 / tan(fov/2) */
 static Vec3  s_sun_view;       /* sun dir rotated into view space */
 static Vec3  s_sun_world = {0.577f, 0.577f, -0.577f};
+/* Near plane + depth scale, runtime-settable per game (small scenes like a
+ * snooker table need a much nearer plane than the 0.5 m space-sim default). */
+static float s_near    = MOTE_NEAR;
+static float s_depth_k = MOTE_DEPTH_K;
+
+void mote_pipe_set_near(float near_m) {
+    if (near_m < 0.001f) near_m = 0.001f;
+    s_near = near_m;
+    s_depth_k = 65535.0f * near_m;
+}
+float mote_pipe_near(void)    { return s_near; }
+float mote_pipe_depth_k(void) { return s_depth_k; }
 
 static Vec3    s_view[MOTE_MAX_VERTS];
 static float   s_sx[MOTE_MAX_VERTS], s_sy[MOTE_MAX_VERTS];
@@ -42,7 +54,7 @@ static inline void project(Vec3 v, float *sx, float *sy, uint16_t *sd) {
     float inv_z = 1.0f / v.z;
     *sx = (MOTE_FB_W * 0.5f) + s_focal * v.x * inv_z;
     *sy = (MOTE_FB_H * 0.5f) - s_focal * v.y * inv_z;
-    float d = MOTE_DEPTH_K * inv_z;
+    float d = s_depth_k * inv_z;
     *sd = (d >= 65535.0f) ? 65535u : (uint16_t)d;
 }
 
@@ -57,6 +69,7 @@ static inline uint16_t shade565(uint16_t c, float shade) {
 const Mat3 *mote_pipe_camera(void) { return &s_cam; }
 float mote_pipe_focal(void) { return s_focal; }
 Vec3 mote_pipe_sun_view(void) { return s_sun_view; }
+Vec3 mote_pipe_sun_world(void) { return s_sun_world; }
 
 int mote_pipe_draw_object(const MoteObject *obj) {
     return mote_pipe_draw_object_scaled(obj, 1.0f);
@@ -69,7 +82,7 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
 
     /* Whole-object cull: bounding sphere behind near plane or outside cone. */
     Vec3 c_view = m3_mul_v3_t(&s_cam, v3_sub(obj->pos, s_cam_pos));
-    if (c_view.z + br < MOTE_NEAR) return 0;
+    if (c_view.z + br < s_near) return 0;
     float lim = c_view.z + br * 2.0f;
     if (c_view.x - br > lim || -c_view.x - br > lim ||
         c_view.y - br > lim || -c_view.y - br > lim)
@@ -89,7 +102,7 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
                      mesh->verts[i].z * vscale);
         Vec3 vv = v3_add(m3_mul_v3(&M, mv), t);
         s_view[i] = vv;
-        if (vv.z > MOTE_NEAR) {
+        if (vv.z > s_near) {
             s_front[i] = 1;
             project(vv, &s_sx[i], &s_sy[i], &s_sd[i]);
         } else {
@@ -103,6 +116,10 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
      * per-face array; else its single base colour. */
     const uint16_t *fcols = obj->color ? 0 : mesh->face_colors;
     uint16_t mcol = obj->color ? obj->color : mesh->color;
+    /* Textured (UV-mapped) mesh: per-corner UVs scaled from 0..255 to texels. */
+    const int textured = (mesh->texture && mesh->face_uvs) ? 1 : 0;
+    const float uvsw = textured ? mesh->texture->w * (1.0f / 255.0f) : 0.0f;
+    const float uvsh = textured ? mesh->texture->h * (1.0f / 255.0f) : 0.0f;
     for (int f = 0; f < mesh->nfaces; f++) {
         const MeshFace *face = &mesh->faces[f];
         int a = face->a, b = face->b, c = face->c;
@@ -115,6 +132,58 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
 
         float ndotl = v3_dot(nv, s_sun_view);
         float shade = 0.25f + (ndotl > 0.0f ? 0.75f * ndotl : 0.0f);
+
+        if (textured) {
+            uint8_t sh8 = (uint8_t)(shade >= 1.0f ? 255 : (int)(shade * 255.0f));
+            const uint8_t *fu = &mesh->face_uvs[f * 6];
+            float uv[3][2] = { {fu[0] * uvsw, fu[1] * uvsh},
+                               {fu[2] * uvsw, fu[3] * uvsh},
+                               {fu[4] * uvsw, fu[5] * uvsh} };
+            int ic = s_front[a] + s_front[b] + s_front[c];
+            if (ic == 3) {
+                mote_emit_textri(s_sx[a], s_sy[a], s_sd[a], uv[0][0], uv[0][1],
+                                 s_sx[b], s_sy[b], s_sd[b], uv[1][0], uv[1][1],
+                                 s_sx[c], s_sy[c], s_sd[c], uv[2][0], uv[2][1],
+                                 mesh->texture, sh8);
+                drawn++;
+                continue;
+            }
+            if (ic == 0) continue;
+            /* Near-clip carrying UVs alongside positions. */
+            int idx3[3] = { a, b, c };
+            Vec3 out[4]; float ou[4], ov[4]; int n_out = 0;
+            for (int i = 0; i < 3; i++) {
+                Vec3 p = s_view[idx3[i]], q = s_view[idx3[(i + 1) % 3]];
+                int p_in = p.z > s_near, q_in = q.z > s_near;
+                if (p_in) { out[n_out] = p; ou[n_out] = uv[i][0]; ov[n_out] = uv[i][1]; n_out++; }
+                if (p_in != q_in) {
+                    float tt = (s_near - p.z) / (q.z - p.z);
+                    out[n_out] = v3_lerp(p, q, tt);
+                    ou[n_out] = uv[i][0] + (uv[(i + 1) % 3][0] - uv[i][0]) * tt;
+                    ov[n_out] = uv[i][1] + (uv[(i + 1) % 3][1] - uv[i][1]) * tt;
+                    n_out++;
+                }
+            }
+            if (n_out < 3) continue;
+            float ox[4], oy[4]; uint16_t od[4];
+            for (int i = 0; i < n_out; i++) {
+                Vec3 v = out[i];
+                if (v.z < s_near * 1.0001f) v.z = s_near * 1.0001f;
+                project(v, &ox[i], &oy[i], &od[i]);
+            }
+            mote_emit_textri(ox[0], oy[0], od[0], ou[0], ov[0],
+                             ox[1], oy[1], od[1], ou[1], ov[1],
+                             ox[2], oy[2], od[2], ou[2], ov[2], mesh->texture, sh8);
+            drawn++;
+            if (n_out == 4) {
+                mote_emit_textri(ox[0], oy[0], od[0], ou[0], ov[0],
+                                 ox[2], oy[2], od[2], ou[2], ov[2],
+                                 ox[3], oy[3], od[3], ou[3], ov[3], mesh->texture, sh8);
+                drawn++;
+            }
+            continue;
+        }
+
         uint16_t col = shade565(fcols ? fcols[f] : mcol, shade);
 
         int in_a = s_front[a], in_b = s_front[b], in_c = s_front[c];
@@ -134,10 +203,10 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
         int n_out = 0;
         for (int i = 0; i < 3; i++) {
             Vec3 p = poly[i], q = poly[(i + 1) % 3];
-            int p_in = p.z > MOTE_NEAR, q_in = q.z > MOTE_NEAR;
+            int p_in = p.z > s_near, q_in = q.z > s_near;
             if (p_in) out[n_out++] = p;
             if (p_in != q_in) {
-                float tt = (MOTE_NEAR - p.z) / (q.z - p.z);
+                float tt = (s_near - p.z) / (q.z - p.z);
                 out[n_out++] = v3_lerp(p, q, tt);
             }
         }
@@ -147,7 +216,7 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
         uint16_t od[4];
         for (int i = 0; i < n_out; i++) {
             Vec3 v = out[i];
-            if (v.z < MOTE_NEAR * 1.0001f) v.z = MOTE_NEAR * 1.0001f;
+            if (v.z < s_near * 1.0001f) v.z = s_near * 1.0001f;
             project(v, &ox[i], &oy[i], &od[i]);
         }
         mote_emit_tri(ox[0], oy[0], od[0], ox[1], oy[1], od[1],

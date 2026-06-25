@@ -1,0 +1,14 @@
+/* GENERATED — SFX recipe (edit in the Studio Audio tab). Play:
+ *   MoteSound hit = mote_sfx_bake(mote, &hit_sfx); mote->audio_play(&hit,g); */
+#ifndef MOTE_SFX_hit_H
+#define MOTE_SFX_hit_H
+#include "mote_api.h"
+
+static const MoteSfx hit_sfx = {
+    3,  /* wave */
+    0.46,0,-0.38,0, 0.5,0,
+    0,0, 0,0.03,0.25,0.1,
+    1,0,0, 0,0, 0,0, 0,0,
+};
+
+#endif

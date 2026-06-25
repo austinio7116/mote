@@ -30,6 +30,7 @@ static Rock s_rocks[MAX_ROCKS];
 #define ROCK_F 48
 static MeshVert s_rv[2][ROCK_V];
 static MeshFace s_rf[2][ROCK_F];
+static uint16_t s_rc[2][ROCK_F];     /* engine per-face colours */
 static Mesh     s_rm[2];
 static int      s_meshes_ready;
 
@@ -46,6 +47,7 @@ static void rock_mesh_build(int variant) {
     /* Three jittered octagonal rings + poles — a lumpy potato. */
     MeshVert *v = s_rv[variant];
     MeshFace *f = s_rf[variant];
+    uint16_t *fc = s_rc[variant];
     int nv = 0, nf = 0;
     int rings[3][8];
     float zs[3] = { -0.55f, 0.0f, 0.55f };
@@ -69,7 +71,7 @@ static void rock_mesh_build(int variant) {
     uint16_t c0 = RGB565C(120, 108, 96), c1 = RGB565C(88, 80, 72);
     #define RF(a2, b2, c2, col) do { \
         f[nf].a = (uint8_t)(a2); f[nf].b = (uint8_t)(b2); \
-        f[nf].c = (uint8_t)(c2); f[nf].color = (col); \
+        f[nf].c = (uint8_t)(c2); fc[nf] = (col); \
         /* normal from the verts */ \
         float ux = v[f[nf].b].x - v[f[nf].a].x, \
               uy = v[f[nf].b].y - v[f[nf].a].y, \
@@ -101,6 +103,8 @@ static void rock_mesh_build(int variant) {
     #undef RF
     s_rm[variant].verts = v;
     s_rm[variant].faces = f;
+    s_rm[variant].face_colors = fc;
+    s_rm[variant].color = 0;
     s_rm[variant].nverts = (uint16_t)nv;
     s_rm[variant].nfaces = (uint16_t)nf;
     s_rm[variant].scale = 1.27f;       /* pipe: scale = metres at vert 127;
@@ -159,13 +163,13 @@ void rocks_render(Vec3 cam_pos, float t) {
     for (int i = 0; i < MAX_ROCKS; i++) {
         Rock *r = &s_rocks[i];
         if (!r->alive) continue;
-        R3DObject obj;
+        MoteObject obj; obj.color = 0;
         obj.mesh = &s_rm[r->variant];
         obj.basis = m3_identity();
         m3_rotate_local(&obj.basis, 1, t * r->spin);
         m3_rotate_local(&obj.basis, 0, t * r->spin * 0.6f + (float)i);
         obj.pos = v3_sub(r->pos, cam_pos);
-        r3d_scene_add_object_scaled(&obj, r->radius);
+        g_em->scene_add_object_scaled(&obj, r->radius);
     }
 }
 

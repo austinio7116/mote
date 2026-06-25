@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v23</span>
+    <span class="abi">ABI v35</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -253,7 +253,13 @@ entirely. If the declared pools plus the game's allocations don't fit, the loade
 <table>
 <tr><th>Field</th><th class="ty">Type</th><th>Meaning</th></tr>
 <tr><td>max_tris</td><td class="ty">uint16</td><td>3D triangle draw-list capacity. <code>0</code> = no 3D raster. Use a baked model's <code>&lt;name&gt;_TRIS</code>.</td></tr>
-<tr><td>max_spheres</td><td class="ty">uint16</td><td>Sphere impostors in the 3D pass.</td></tr>
+<tr><td>max_spheres</td><td class="ty">uint16</td><td>Flat-shaded sphere impostors (<code>scene_add_sphere</code>).</td></tr>
+<tr><td>max_tex_spheres</td><td class="ty">uint16</td><td>Textured/oriented impostors (<code>scene_add_sphere_tex</code>). <span class="badge abi">v25</span></td></tr>
+<tr><td>max_points / max_lines / max_discs</td><td class="ty">uint16</td><td>Depth-tested FX: points, lines, discs. <span class="badge abi">v24</span></td></tr>
+<tr><td>max_rings</td><td class="ty">uint16</td><td>Camera-facing ring outlines (<code>scene_add_ring</code>). <span class="badge abi">v31</span></td></tr>
+<tr><td>max_shadows</td><td class="ty">uint16</td><td>Soft ground-shadow decals (<code>scene_add_shadow</code> / <code>_ex</code>). <span class="badge abi">v28</span></td></tr>
+<tr><td>max_billboards</td><td class="ty">uint16</td><td>Camera-facing textured quads / 3D sprites (<code>scene_add_billboard</code>). <span class="badge abi">v33</span></td></tr>
+<tr><td>max_tex_tris</td><td class="ty">uint16</td><td>Textured (UV-mapped) mesh triangles per frame. <span class="badge abi">v35</span></td></tr>
 <tr><td>max_splats</td><td class="ty">uint16</td><td>Gaussian splats. <code>0</code> = none.</td></tr>
 <tr><td>max_sprites</td><td class="ty">uint16</td><td>2D sprites per frame. <code>0</code> = no 2D scene.</td></tr>
 <tr><td>max_bodies</td><td class="ty">uint16</td><td>Physics bodies. <code>0</code> = no physics engine.</td></tr>
@@ -317,6 +323,88 @@ helpers instead of building <code>MoteObject</code>s by hand. Returns the new dr
 <p>Add a cheap per-pixel-shaded sphere impostor, depth-tested with the meshes. Position is camera-relative. Great for
 balls, particles, projectiles. Counts against <code>max_spheres</code>.</p>
 
+<h3 id="fn-scene_add_object_ex">scene_add_object_ex <span class="badge abi">v24</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_object_ex</span>)(<span class="kw">const</span> <span class="ty">MoteObject</span> *obj, <span class="ty">uint32_t</span> flags);</pre>
+<p><code>scene_add_object</code> with per-object draw flags. The one flag so far is
+<code>MOTE_DRAW_NO_DEPTH_WRITE</code> — depth-test but don't write, for coplanar overlays (e.g. pocket lips, decals)
+that later geometry must paint over.</p>
+
+<h3 id="fn-scene_add_sphere_tex">scene_add_sphere_tex <span class="badge abi">v25</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_sphere_tex</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="kw">float</span> radius, <span class="kw">const</span> <span class="ty">Mat3</span> *orient, <span class="kw">const</span> <span class="ty">MoteSphereTex</span> *tex);</pre>
+<p>A <b>textured / oriented</b> sphere impostor. The engine owns the geometry (disc, per-pixel normal, depth) and
+rotates the normal into the sphere's local frame by <code>orient</code> (rows right/up/forward; <code>NULL</code> =
+identity), so the surface turns as it spins. <code>tex</code> (a <code>MoteSphereTex</code>) supplies the surface: an
+equirectangular texture (RGB565 <code>texels</code>, or <code>indices</code>+<code>palette</code>) or a per-pixel
+<code>albedo()</code> callback, with a <code>shade_mode</code> (FLAT/LIT/SMOOTH/TOON/GLOSS, or CUSTOM via a
+<code>shade()</code> callback). Numbered/striped balls, lit planets. Counts against <code>max_tex_spheres</code>.</p>
+
+<h3 id="fn-scene_add_point">scene_add_point / scene_add_line / scene_add_disc <span class="badge abi">v24</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_point</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="ty">uint16_t</span> color, <span class="kw">int</span> size);
+<span class="kw">int</span> (*<span class="fn">scene_add_line</span>)(<span class="ty">Vec3</span> a_cam_rel, <span class="ty">Vec3</span> b_cam_rel, <span class="ty">uint16_t</span> color);
+<span class="kw">int</span> (*<span class="fn">scene_add_disc</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="kw">float</span> radius, <span class="ty">uint16_t</span> color);</pre>
+<p>Depth-tested FX primitives, drawn in the 3D pass (tested against meshes but not depth-writing, so they layer like
+sparks). A size-px <b>point</b> (debris, dust, stars), a 3D <b>line</b> segment (lasers/beams; near-clipped), and a
+screen-facing filled <b>disc</b> of world radius (fireballs/glows). Sized by <code>max_points</code> /
+<code>max_lines</code> / <code>max_discs</code>.</p>
+
+<h3 id="fn-scene_add_ring">scene_add_ring <span class="badge abi">v31</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_ring</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="kw">float</span> radius, <span class="ty">uint16_t</span> color);</pre>
+<p>A camera-facing <b>circle outline</b> of world radius — depth-tested, always facing the camera, so it reads as an
+object's circular silhouette (ghost ball at the contact point, target reticle, selection ring). Sized by
+<code>max_rings</code>.</p>
+
+<h3 id="fn-scene_add_tri">scene_add_tri <span class="badge abi">v27</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_tri</span>)(<span class="ty">Vec3</span> a, <span class="ty">Vec3</span> b, <span class="ty">Vec3</span> c, <span class="ty">uint16_t</span> color, <span class="ty">uint32_t</span> flags);</pre>
+<p>An immediate-mode world triangle with a caller-supplied flat colour (the engine projects, near-clips, depth-tests
+and fills it but does <i>not</i> light it). For dynamic / procedural geometry that isn't a baked <code>Mesh</code> —
+generated tables, voxel faces, debug shapes. <b>Double-sided</b> (drawn regardless of winding, unlike
+<code>scene_add_object</code>). Emits into the <code>max_tris</code> pool; <code>flags</code> are <code>MOTE_DRAW_*</code>.</p>
+
+<h3 id="fn-scene_add_shadow">scene_add_shadow / scene_add_shadow_ex <span class="badge abi">v28 / v32</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_shadow</span>)(<span class="ty">Vec3</span> ground_pos, <span class="kw">float</span> radius, <span class="kw">float</span> strength);
+<span class="kw">int</span> (*<span class="fn">scene_add_shadow_ex</span>)(<span class="ty">Vec3</span> ground_pos, <span class="ty">Vec3</span> semi_a, <span class="ty">Vec3</span> semi_b, <span class="kw">float</span> strength);</pre>
+<p>A soft ground-shadow decal — a darkening ellipse on the ground plane under an object, foreshortened with the view
+and faded from the centre out (<code>strength</code> 0..1, 0 → default). Depth-tested so raised geometry occludes it.
+The <code>_ex</code> form takes two <b>world</b> ground-plane semi-axes, so the footprint matches the object's shape and
+heading (a tank passes <code>right*halfW</code> and <code>forward*halfL</code> for a long oval); <code>scene_add_shadow</code>
+is the round special case. Sized by <code>max_shadows</code>.</p>
+
+<h3 id="fn-scene_add_billboard">scene_add_billboard <span class="badge abi">v33</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_add_billboard</span>)(<span class="ty">Vec3</span> cam_rel_pos, <span class="kw">const</span> <span class="ty">MoteImage</span> *img,
+                            <span class="kw">int</span> fx, <span class="kw">int</span> fy, <span class="kw">int</span> fw, <span class="kw">int</span> fh,
+                            <span class="kw">float</span> world_h, <span class="ty">uint8_t</span> blend);</pre>
+<p>A camera-facing <b>textured quad</b> — a "3D sprite" — at a world position. It always stays upright and square to the
+screen, sized by <code>world_h</code> (its full height in world units), so it shrinks with distance and keeps the
+image's aspect. <code>fx/fy/fw/fh</code> pick a sub-rect of the image for sprite sheets (pass <span class="num">0</span>
+sizes for the whole image). Depth-tested against the scene: opaque (<code>MOTE_BLEND_NONE</code>) sprites also write
+depth, while blended ones (<code>MOTE_BLEND_ALPHA</code> / <code>_ADD</code>) layer on top. Colour-keyed by the image's
+transparent colour. Use for trees, pickups, enemies, smoke, muzzle flashes, explosions. Sized by
+<code>max_billboards</code>.</p>
+
+<h3 id="fn-textured-mesh">Textured meshes <span class="badge abi">v35</span></h3>
+<pre class="sig"><span class="cm">/* on the Mesh: */</span>
+<span class="kw">const</span> <span class="ty">MoteImage</span> *texture;   <span class="cm">// non-NULL = draw this mesh textured</span>
+<span class="kw">const</span> <span class="ty">uint8_t</span>   *face_uvs;  <span class="cm">// nfaces*6: per-corner u0,v0,u1,v1,u2,v2 (0..255)</span></pre>
+<p>A <code>Mesh</code> with a non-NULL <code>texture</code> and a <code>face_uvs</code> array is drawn <b>UV-mapped</b>
+instead of flat-coloured, through the ordinary <a href="#fn-scene_add_object"><code>scene_add_object</code></a> path
+(no new call). Each face's three corners get texture coordinates in <span class="num">0..255</span> spanning the
+texture; the texel is still lit by the sun (sampled colour × face shade). Set <code>max_tex_tris</code> to the number
+of textured faces visible at once. Translucent meshes (water, glass): pass
+<code>MOTE_DRAW_BLEND(MOTE_BLEND_ALPHA)</code> (or <code>_ADD</code>) to
+<a href="#fn-scene_add_object"><code>scene_add_object_ex</code></a> — works on flat-coloured and textured meshes
+alike.</p>
+
+<h3 id="fn-set_background_cb">set_background_cb <span class="badge abi">v26</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">set_background_cb</span>)(<span class="kw">void</span> (*fn)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> y0, <span class="kw">int</span> y1));</pre>
+<p>Registers a per-band background pass run <i>before</i> the 3D scene (depth already cleared), on both cores with
+disjoint row bands <code>[y0,y1)</code> — so you can paint a gradient / starfield / nebula that the scene draws over
+without owning the whole frame. <code>NULL</code> restores the solid <code>scene_set_background</code> colour.</p>
+
+<h3 id="fn-scene_set_near">scene_set_near <span class="badge abi">v28</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">scene_set_near</span>)(<span class="kw">float</span> near_m);</pre>
+<p>Moves the near clip plane (metres). The 0.5 m default suits a space sim; small scenes (a snooker table) need
+~0.05 m or close geometry clips. Also rescales the depth buffer. Set once in <code>init()</code>.</p>
+
 <h3 id="fn-scene_tri_count">scene_tri_count <span class="badge abi">v1</span></h3>
 <pre class="sig"><span class="kw">int</span> (*<span class="fn">scene_tri_count</span>)(<span class="kw">void</span>);</pre>
 <p>Triangles submitted so far this frame (for budgeting against <code>max_tris</code>).</p>
@@ -359,6 +447,17 @@ typically a <code>const</code> baked level (lives in flash, zero SRAM).</p>
              <span class="kw">int</span> fx, <span class="kw">int</span> fy, <span class="kw">int</span> fw, <span class="kw">int</span> fh, <span class="ty">uint8_t</span> flags, <span class="kw">int</span> y0, <span class="kw">int</span> y1);</pre>
 <p>Immediate-mode sprite blit straight into the framebuffer (HUD/UI), band-clipped to rows <code>[y0,y1)</code> and colour-keyed.
 <code>flags</code> are <code>MOTE_SPR_*</code>. Use from <code>overlay()</code>.</p>
+
+<h3 id="fn-blit_ex">blit_ex <span class="badge abi">v34</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">blit_ex</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const</span> <span class="ty">MoteImage</span> *img, <span class="kw">float</span> cx, <span class="kw">float</span> cy,
+                <span class="kw">int</span> fx, <span class="kw">int</span> fy, <span class="kw">int</span> fw, <span class="kw">int</span> fh,
+                <span class="kw">float</span> angle, <span class="kw">float</span> scale, <span class="ty">uint8_t</span> blend, <span class="kw">int</span> yc0, <span class="kw">int</span> yc1);</pre>
+<p>A <b>freely rotated and scaled</b> sprite blit, centred at <code>(cx,cy)</code> in framebuffer pixels —
+<code>angle</code> in radians, <code>scale</code> 1.0 = original size. Where <code>blit</code> only does axis-aligned
+copies (and 90° steps), this handles any angle/zoom (twin-stick sprites, spinning pickups, HUD dials). <code>fw/fh</code>
+of <span class="num">0</span> mean the whole image. Colour-keyed, with <code>blend</code> = <code>MOTE_BLEND_*</code>
+(<code>NONE</code> / <code>ALPHA</code> / <code>ADD</code>). Immediate-mode — call from <code>overlay()</code> with
+<code>0..128</code>, or a render/background callback with its band.</p>
 
 <!-- ============================ PHYSICS ============================ -->
 <h2 id="api-physics" class="anchor">Engine API — Physics <span class="badge abi">v3</span></h2>
@@ -439,6 +538,13 @@ sum on top of the synth.</p>
 <code>out</code> only when <code>out != NULL</code> and bounded by <code>max</code>. Call twice (measure, then render into an arena
 buffer) — exactly what <a href="#fn-mote_sfx_bake"><code>mote_sfx_bake()</code></a> does — so a game ships tiny recipes instead of WAVs.</p>
 
+<h3 id="fn-audio_set_master">audio_set_master / audio_get_master <span class="badge abi">v29</span></h3>
+<pre class="sig"><span class="kw">void</span>  (*<span class="fn">audio_set_master</span>)(<span class="kw">float</span> v);
+<span class="kw">float</span> (*<span class="fn">audio_get_master</span>)(<span class="kw">void</span>);</pre>
+<p>The engine-owned <b>master volume</b> (0..1), applied to all audio (synth + samples) in the mixer — the same knob the
+engine menu's VOLUME drives. Route a game's own volume option here instead of scaling each sound, so the in-game setting
+and the system menu stay in sync. Persists across the session.</p>
+
 <!-- ============================ TEXT ============================ -->
 <h2 id="api-text" class="anchor">Engine API — Text &amp; overlay <span class="badge abi">v5</span></h2>
 <h3 id="fn-text">text / text_2x <span class="badge abi">v5</span></h3>
@@ -446,6 +552,17 @@ buffer) — exactly what <a href="#fn-mote_sfx_bake"><code>mote_sfx_bake()</code
 <span class="kw">int</span> (*<span class="fn">text_2x</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);</pre>
 <p>Draw bitmap text into the framebuffer (1× and 2× scale); returns the advanced x. Draw from <code>overlay()</code>. For
 printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf</code></a>.</p>
+
+<h3 id="fn-draw_2d">draw_pixel / draw_line / draw_rect / draw_circle <span class="badge abi">v30 / v31</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">draw_pixel</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);
+<span class="kw">void</span> (*<span class="fn">draw_line</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x0, <span class="kw">int</span> y0, <span class="kw">int</span> x1, <span class="kw">int</span> y1, <span class="ty">uint16_t</span> color, <span class="kw">int</span> yc0, <span class="kw">int</span> yc1);
+<span class="kw">void</span> (*<span class="fn">draw_rect</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="kw">int</span> w, <span class="kw">int</span> h, <span class="ty">uint16_t</span> color, <span class="kw">int</span> fill, <span class="kw">int</span> yc0, <span class="kw">int</span> yc1);
+<span class="kw">void</span> (*<span class="fn">draw_circle</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> cx, <span class="kw">int</span> cy, <span class="kw">int</span> r, <span class="ty">uint16_t</span> color, <span class="kw">int</span> fill, <span class="kw">int</span> yc0, <span class="kw">int</span> yc1);</pre>
+<p>Immediate-mode 2D framebuffer primitives (screen space, RGB565, no depth) for HUDs, overlays and custom
+backgrounds — companions to <code>text</code>/<code>blit</code>. <code>yc0</code>/<code>yc1</code> bound the rows written:
+pass <code>0,128</code> from <code>overlay()</code>, or the band <code>[y0,y1)</code> from a <code>set_background_cb</code>.
+<code>draw_rect</code>/<code>draw_circle</code> take a <code>fill</code> flag (non-zero = solid, else outline).
+(In the 3D scene, <a href="#fn-scene_add_ring"><code>scene_add_ring</code></a> is the depth-tested camera-facing circle.)</p>
 
 <!-- ============================ CONTROL ============================ -->
 <h2 id="api-control" class="anchor">Engine API — Control, arena &amp; telemetry</h2>
@@ -482,6 +599,21 @@ the bytes left for the game. There is no per-allocation free — regenerate game
 <span class="kw">void</span> (*<span class="fn">perf</span>)(<span class="ty">uint32_t</span> out[<span class="num">6</span>]);</pre>
 <p><code>log()</code> streams a line to the host (<code>mote logs</code>). <code>perf()</code> fills
 <code>[fps, update_us, raster_us, flush_us, core0_pct, core1_pct]</code> for the latest frame.</p>
+
+<h3 id="fn-rumble">rumble <span class="badge abi">v23</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">rumble</span>)(<span class="kw">float</span> intensity, <span class="kw">int</span> ms);</pre>
+<p>Buzz the motor at <code>intensity</code> 0..1 for <code>ms</code> milliseconds (it eases out, then stops itself).
+<code>intensity&lt;=0</code> or <code>ms&lt;=0</code> stops immediately. No-op on the host emulator and Studio.</p>
+
+<h3 id="fn-save">save / load / save_slots <span class="badge abi">v23</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">save</span>)(<span class="kw">int</span> slot, <span class="kw">const void</span> *data, <span class="kw">int</span> len);
+<span class="kw">int</span> (*<span class="fn">load</span>)(<span class="kw">int</span> slot, <span class="kw">void</span> *data, <span class="kw">int</span> max_len);
+<span class="kw">int</span> (*<span class="fn">save_slots</span>)(<span class="kw">void</span>);</pre>
+<p>Persistent fixed-size save slots. On device each slot is a flash sector that survives power-off <em>and</em> an OS
+reflash; on host/Studio it's a file. <code>save()</code> writes <code>len</code> bytes (<code>len==0</code> clears the slot),
+returns <code>len</code> on success. <code>load()</code> copies up to <code>max_len</code> bytes and returns the saved length
+(<code>0</code> if empty — so <code>load(slot, NULL, 0)</code> tests for a save). <code>save_slots()</code> = the number of
+slots. Keep your own magic/version inside the blob.</p>
 
 <!-- ======================================================================
                               DATA TYPES
@@ -867,6 +999,18 @@ header-only/SDK changes do not.</p>
 <tr><td>v21</td><td>set_fps_limit (optional frame-rate cap, honoured by device + host).</td></tr>
 <tr><td>v22</td><td>Compact paletted launcher icons (<code>sdk/mote_icon.h</code>); the launcher decodes the blob inline. ~2–4× smaller in flash.</td></tr>
 <tr><td>v23</td><td><code>rumble(intensity, ms)</code> (motor pulse) + persistent per-slot save (<code>save</code>/<code>load</code>/<code>save_slots</code>; device = flash sectors, host = files). The load arena trims 280→276&nbsp;KB to make OS room.</td></tr>
+<tr><td>v24</td><td>Depth-tested 3D FX: scene_add_point / scene_add_line / scene_add_disc; scene_add_object_ex + <code>MOTE_DRAW_NO_DEPTH_WRITE</code>.</td></tr>
+<tr><td>v25</td><td>scene_add_sphere_tex — textured/oriented sphere impostor (<code>MoteSphereTex</code>, <code>mote_sphere.h</code>).</td></tr>
+<tr><td>v26</td><td>set_background_cb — per-band background (sky) pass.</td></tr>
+<tr><td>v27</td><td>scene_add_tri — double-sided immediate-mode world triangle.</td></tr>
+<tr><td>v28</td><td>scene_add_shadow (soft ground shadow) + scene_set_near (runtime near plane).</td></tr>
+<tr><td>v29</td><td>audio_set_master / audio_get_master — engine-owned master volume (shared with the engine menu).</td></tr>
+<tr><td>v30</td><td>2D framebuffer drawing: draw_pixel / draw_line / draw_rect.</td></tr>
+<tr><td>v31</td><td>scene_add_ring (camera-facing circle outline) + draw_circle (2D).</td></tr>
+<tr><td>v32</td><td>scene_add_shadow_ex — oriented elliptical (object-shaped) ground shadow. The load arena trims 276→272&nbsp;KB.</td></tr>
+<tr><td>v33</td><td>scene_add_billboard — camera-facing textured quad (3D sprite) + the <code>MOTE_BLEND_NONE/ALPHA/ADD</code> modes.</td></tr>
+<tr><td>v34</td><td>blit_ex — freely rotated &amp; scaled 2D sprite blit (any angle/zoom, with blend).</td></tr>
+<tr><td>v35</td><td>Textured (UV-mapped) meshes: <code>Mesh.texture</code> + <code>Mesh.face_uvs</code>, drawn through <code>scene_add_object</code>; per-mesh translucency via <code>MOTE_DRAW_BLEND()</code>.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine
@@ -875,7 +1019,7 @@ change. See the <a href="https://github.com/austinio7116/mote/blob/main/docs/ani
 </main>
 
 <footer>
-  Mote Engine API/ABI reference · ABI v23 · generated from the engine headers
+  Mote Engine API/ABI reference · ABI v35 · generated from the engine headers
   (<code>sdk/mote_api.h</code>, <code>mote_build.h</code>, <code>mote_tile.h</code>, <code>mote_anim.h</code>,
   <code>mote_vec.h</code>, <code>mote_mesh.h</code>, <code>mote_2d.h</code>, <code>mote_phys.h</code>,
   <code>mote_splat.h</code>, <code>mote_input.h</code>, <code>mote_module.h</code>).

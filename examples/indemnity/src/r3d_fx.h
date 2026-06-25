@@ -42,6 +42,8 @@ void fx_emit_all(Vec3 cam_pos, Vec3 cam_vel);
  * whose streak length follows the cruise velocity — warp lines at full
  * tilt, drifting sparks near drop speed. */
 void fx_sc_dust_emit(Vec3 cam_pos_mm, Vec3 vel_mms);
+void fx_sc_dust_off(void);   /* call each frame before building the scene */
+void fx_sc_dust_draw(uint16_t *fb, int y0, int y1);   /* drawn by the background pass */
 
 int fx_alive_count(void);
 

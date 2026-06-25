@@ -33,6 +33,13 @@ void mote_tri(float ax, float ay, uint16_t az,
             float cx, float cy, uint16_t cz,
             uint16_t color, int y_min, int y_max);
 
+/* Like mote_tri but depth-TESTED only — never writes depth. For coplanar
+ * overlays (pocket lips, decals) that must not occlude geometry drawn after. */
+void mote_tri_nowrite(float ax, float ay, uint16_t az,
+            float bx, float by, uint16_t bz,
+            float cx, float cy, uint16_t cz,
+            uint16_t color, int y_min, int y_max);
+
 /* Depth-TESTED (but not depth-writing) primitives for particles/beams. */
 void mote_point(int x, int y, uint16_t d, uint16_t color, int size,
               int y_min, int y_max);

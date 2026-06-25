@@ -6,6 +6,8 @@
  * live in the left panel, shield/hull/heat in the right. Canopy pillars
  * frame the view. Centre: crosshair, target brackets, hit/kill markers.
  */
+#include "r3d_pipe.h"
+#include "elite_engine.h"
 #include "ui_hud.h"
 #include "elite_player.h"
 #include "elite_types.h"
@@ -224,7 +226,7 @@ static void target_box(uint16_t *fb, int target) {
                                  : COL_TARGET;
     float sx, sy;
     uint16_t d;
-    if (r3d_scene_project(v3_sub(t->pos, p->pos), &sx, &sy, &d) &&
+    if (r3d_pipe_project(v3_sub(t->pos, p->pos), &sx, &sy, &d) &&
         sx > -20 && sx < 148 && sy > -20 && sy < 148) {
         /* TARGETCOMP: lead pip for the active ballistic weapon — put
          * the cross on the pip and the rounds arrive on target. */
@@ -236,7 +238,7 @@ static void target_box(uint16_t *fb, int target) {
                                    v3_scale(v3_sub(t->vel, p->vel), tt));
                 float lx, ly;
                 uint16_t ld;
-                if (r3d_scene_project(v3_sub(lead, p->pos), &lx, &ly, &ld)) {
+                if (r3d_pipe_project(v3_sub(lead, p->pos), &lx, &ly, &ld)) {
                     uint16_t lc = RGB565C(140, 255, 160);
                     px(fb, (int)lx, (int)ly - 2, lc);
                     px(fb, (int)lx, (int)ly + 2, lc);
@@ -426,7 +428,7 @@ void ui_hud_draw(uint16_t *fb, const HudInfo *info) {
         float sx, sy;
         uint16_t d;
         uint16_t sc2 = RGB565C(90, 210, 255);
-        if (r3d_scene_project(rel, &sx, &sy, &d)) {
+        if (r3d_pipe_project(rel, &sx, &sy, &d)) {
             int bx = (int)sx, by = (int)sy;
             px(fb, bx - 6, by, sc2); px(fb, bx + 6, by, sc2);
             px(fb, bx, by - 6, sc2); px(fb, bx, by + 6, sc2);
@@ -455,7 +457,7 @@ void ui_hud_draw(uint16_t *fb, const HudInfo *info) {
         float sx, sy;
         uint16_t d;
         Vec3 rel = v3_sub(info->loot_pos, p->pos);
-        if (r3d_scene_project(rel, &sx, &sy, &d) &&
+        if (r3d_pipe_project(rel, &sx, &sy, &d) &&
             sx >= 6.0f && sx < 122.0f && sy >= 6.0f && sy < 116.0f) {
             int bx = (int)sx, by = (int)sy;
             uint16_t gc = RGB565C(255, 210, 70);
@@ -493,7 +495,7 @@ void ui_hud_draw(uint16_t *fb, const HudInfo *info) {
         uint16_t rc = RGB565C(220, 165, 90);
         /* project() is true for anything in FRONT — guard the frame
          * bounds or the brackets draw off-screen and clip silently. */
-        if (r3d_scene_project(rel, &sx, &sy, &d) &&
+        if (r3d_pipe_project(rel, &sx, &sy, &d) &&
             sx >= 6.0f && sx < 122.0f && sy >= 6.0f && sy < 116.0f) {
             int bx = (int)sx, by = (int)sy;
             /* corner ticks only (visually distinct from salvage) */
@@ -525,7 +527,7 @@ void ui_hud_draw(uint16_t *fb, const HudInfo *info) {
         snprintf(buf, sizeof buf, "%d.%dMS %dT",
                  (int)info->render_ms,
                  ((int)(info->render_ms * 10.0f)) % 10,
-                 r3d_scene_tri_count());
+                 g_em->scene_tri_count());
         craft_font_draw(fb, buf, 40, 2, COL_TEXT);
     }
 }
@@ -549,7 +551,7 @@ void ui_hud_draw_sc(uint16_t *fb, const HudScInfo *info) {
         Vec3 rel_m = v3_scale(info->dest_rel_mm, 1.0e6f);
         float sx, sy;
         uint16_t d;
-        if (r3d_scene_project(rel_m, &sx, &sy, &d) &&
+        if (r3d_pipe_project(rel_m, &sx, &sy, &d) &&
             sx >= 4 && sx < 124 && sy >= 12 && sy < 92) {
             int x = (int)sx, y = (int)sy;
             /* Diamond reticle. */
@@ -612,7 +614,7 @@ void ui_hud_draw_sc(uint16_t *fb, const HudScInfo *info) {
         snprintf(buf, sizeof buf, "%d.%dMS %dT",
                  (int)info->render_ms,
                  ((int)(info->render_ms * 10.0f)) % 10,
-                 r3d_scene_tri_count());
+                 g_em->scene_tri_count());
         craft_font_draw(fb, buf, 40, 2, COL_TEXT);
     }
 }

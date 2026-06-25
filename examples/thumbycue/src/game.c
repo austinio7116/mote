@@ -51,7 +51,9 @@ static const MoteSound s_hardpot = { cue_hardpot_pcm,  CUE_HARDPOT_LEN };
 static int s_snooker_audio;
 
 void cue_audio_init(void) {}
-void cue_audio_set_volume(int v) { (void)v; }            /* master-volume control is a gap */
+void cue_audio_set_volume(int v) {                       /* 0..20 -> engine master 0..1 */
+    if (mote->audio_set_master) mote->audio_set_master((float)v / 20.0f);
+}
 void cue_audio_set_snooker(int on) { s_snooker_audio = on; }
 void cue_audio_tick(float dt) { (void)dt; }
 void cue_audio_render(int16_t *out, int n) { for (int i = 0; i < n; i++) out[i] = 0; }  /* unused */
@@ -82,13 +84,15 @@ static void map_buttons(const MoteInput *in, CraftRawButtons *b) {
 
 /* ---- Mote vtable ---- */
 static void g_init(void) {
-    /* Big render buffers go in the 280 KB arena, not the 128 KB module RAM. Must be set
-     * before cue_game_init (it builds the table mesh into s_tab). */
-    void *tab   = mote->alloc(cue_render_tab_bytes());
-    void *stri  = mote->alloc(cue_render_stri_bytes());
-    void *depth = mote->alloc(r3d_depth_bytes());
-    cue_render_set_buffers(tab, stri);
-    r3d_set_depth((uint16_t *)depth);
+    /* The table mesh (geometry SOURCE) lives in the arena; the engine now owns the
+     * depth buffer and the screen-tri list, so we no longer allocate those here.
+     * Must run before cue_game_init (it builds the table into s_tab). */
+    void *tab = mote->alloc(cue_render_tab_bytes());
+    cue_render_set_buffers(tab, NULL);
+    cue_render_set_api(mote);                  /* renderer emits via the engine ABI */
+    mote->set_background_cb(cue_render_bg);     /* table backdrop gradient */
+    mote->scene_set_near(0.05f);                /* small table — near plane in close */
+    mote->audio_set_master(0.7f);               /* match cue_game's default VOLUME (14/20) */
 
     cue_audio_init();
     cue_game_init((uint32_t)mote->micros() | 1u);
@@ -98,20 +102,19 @@ static void g_update(float dt) {
     CraftRawButtons b;
     map_buttons(mote->input(), &b);
     cue_game_tick(&b, dt);
-    cue_game_render_begin();          /* build the projected draw list on core0 */
+    cue_game_render_begin();          /* build the engine scene on core0 */
 }
 
-static void g_render_band(uint16_t *fb, int y0, int y1) { cue_game_render(fb, y0, y1); }
 static void g_overlay(uint16_t *fb) { cue_game_draw_overlay(fb); }
 
 static const MoteGameVtbl k_vtbl = {
-    .init = g_init, .update = g_update, .render_band = g_render_band, .overlay = g_overlay,
-    /* render_band owns the whole frame, so we want NONE of the engine's 3D pools —
-     * the full arena is ours (table mesh + screen-tri lists + depth, see g_init).
-     * max_sprites=1 is a sentinel: the OS's "all-zero config == legacy game, give it
-     * the worst-case pools" heuristic is bypassed by any non-zero field, and sprites
-     * are never actually allocated, so this costs 0 bytes and runs on stock firmware
-     * (no reflash). The os/mote_os.c fix makes this unnecessary going forward. */
-    .config = { .max_tris = 0, .max_spheres = 0, .depth = 0, .max_sprites = 1 },
+    .init = g_init, .update = g_update, .render_band = 0, .overlay = g_overlay,
+    /* Ported onto the built-in engine: table -> scene_add_tri, balls ->
+     * scene_add_sphere_tex, aim/cue -> point/line, backdrop -> background_cb.
+     * Pools: table tris (+ near-clip splits, cue, shadows), 22 ball impostors,
+     * aim/ghost points + lines, and the depth buffer. */
+    .config = { .max_tris = 2600, .max_tex_spheres = CUE_MAX_BALLS,
+                .max_points = 2 * 48, .max_lines = 2, .max_rings = 2,
+                .max_shadows = CUE_MAX_BALLS, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

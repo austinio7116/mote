@@ -332,35 +332,25 @@ void proj_emit(Vec3 cam_pos) {
         const Proj *p = &s_proj[i];
         if (!p->alive) continue;
         const WeaponDef *w = &k_weapons[p->type];
-        float sx, sy;
-        uint16_t d;
-        if (!r3d_scene_project(v3_sub(p->pos, cam_pos), &sx, &sy, &d))
-            continue;
-        if (sx < -6 || sx > 134 || sy < -6 || sy > 134) continue;
+        Vec3 rel = v3_sub(p->pos, cam_pos);
+        float dist = v3_len(rel);
 
         if (p->type == WPN_MINE) {
             /* Armed mine: dark body + blinking red light. */
             static uint8_t blink;
             blink++;
-            r3d_scene_add_point(sx, sy, d, RGB565C(70, 70, 80), 2);
+            g_em->scene_add_point(rel, RGB565C(70, 70, 80), 2);
             if (blink & 8)
-                r3d_scene_add_point(sx, sy, d, RGB565C(255, 60, 40), 1);
+                g_em->scene_add_point(rel, RGB565C(255, 60, 40), 1);
         } else if (p->type == WPN_GAUSS || p->type == WPN_AUTOCANNON) {
             /* Tracer: short line back along the velocity. */
-            Vec3 tail = v3_sub(p->pos, v3_scale(p->vel, 0.02f));
-            float tx, ty;
-            uint16_t td;
-            if (r3d_scene_project(v3_sub(tail, cam_pos), &tx, &ty, &td))
-                r3d_scene_add_line(sx, sy, d, tx, ty, td, w->color);
-            else
-                r3d_scene_add_point(sx, sy, d, w->color, 1);
-
-            /* Gauss wake handled by fx_gauss_helix in proj_tick — the
-             * corkscrew persists behind the slug and fades. */
+            Vec3 tail = v3_sub(v3_sub(p->pos, v3_scale(p->vel, 0.02f)), cam_pos);
+            g_em->scene_add_line(rel, tail, w->color);
+            /* Gauss wake handled by fx_gauss_helix in proj_tick. */
         } else {
             /* Bolt: chunky glowing point (nearer = bigger). */
-            uint8_t size = (d > 1500) ? 3 : (d > 400) ? 2 : 1;
-            r3d_scene_add_point(sx, sy, d, w->color, size);
+            uint8_t size = dist < 12.0f ? 3 : dist < 90.0f ? 2 : 1;
+            g_em->scene_add_point(rel, w->color, size);
         }
     }
 }

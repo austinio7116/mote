@@ -30,10 +30,11 @@ void elite_game_render_begin(void);
 void elite_game_render(uint16_t *fb, int y0, int y1);
 void elite_game_draw_overlay(uint16_t *fb);
 void elite_game_set_frame_ms(float ms);
-/* big render buffers relocated from module .bss to the arena (see r3d_raster/r3d_fx) */
+/* FX particle pool relocated from module .bss to the arena (depth buffer is the
+ * engine's now). */
 #include <stddef.h>
-size_t r3d_depth_bytes(void);     void r3d_set_depth(uint16_t *d);
 size_t r3d_fx_parts_bytes(void);  void r3d_fx_set_parts(void *p);
+#include "r3d_scene.h"            /* r3d_background (sky) — registered as the bg cb */
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -41,18 +42,23 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
+/* The engine jump table, shared with every Indemnity render file (elite_engine.h).
+ * Set once at init so ships/planets/FX/sky all call the engine directly. */
+const MoteApi *g_em;
+
 /* ===================== audio: elite_audio API over BAKED SFX (flash, 0 arena) =====================
  * Every weapon + sound is an editable .sfx recipe (assets/*.sfx, Audio tab) baked to a
  * const PCM clip (<name>_snd, in flash) via wav2snd. We just play those — no per-sound
  * arena allocation. Tune a recipe in Studio and re-Save (which re-bakes its <name>_snd). */
 #include "elite_snd_all.h"
-static float s_master = 0.7f;
-static void play(const MoteSound *s, float gain){ if(mote->audio_play && s && s->pcm) mote->audio_play(s, gain*s_master); }
+/* Volume is the ENGINE master now (shared with the engine menu), not a private
+ * per-SFX multiply — play() passes raw gain; master routes through the ABI. */
+static void play(const MoteSound *s, float gain){ if(mote->audio_play && s && s->pcm) mote->audio_play(s, gain); }
 
 void audio_init(void) {}
 int  audio_render(int16_t *out, int n) { for (int i=0;i<n;i++) out[i]=0; return n; }   /* unused on Mote */
-void  audio_set_master(float v){ s_master = v<0?0:v>1?1:v; }
-float audio_get_master(void){ return s_master; }
+void  audio_set_master(float v){ if(mote->audio_set_master) mote->audio_set_master(v); }
+float audio_get_master(void){ return mote->audio_get_master ? mote->audio_get_master() : 1.0f; }
 void audio_engine_set(float throttle01, float speed01){ (void)throttle01; (void)speed01; }  /* continuous hum dropped */
 
 void sfx_weapon(int wpn_type, float amp){ if(wpn_type>=0 && wpn_type<18) play(ELITE_WPN_SND[wpn_type], amp); }
@@ -122,25 +128,26 @@ static void map_buttons(const MoteInput *in, CraftRawButtons *b){
 }
 
 static void g_init(void){
-    /* hand the relocated render buffers their arena storage BEFORE the game inits
-     * (elite_game_init builds the scene / clears fx, which touch them). */
-    r3d_set_depth((uint16_t *)mote->alloc(r3d_depth_bytes()));
-    r3d_fx_set_parts(mote->alloc(r3d_fx_parts_bytes()));
+    g_em = mote;                                      /* share the engine with all render files */
+    r3d_fx_set_parts(mote->alloc(r3d_fx_parts_bytes()));   /* particle pool in the arena */
+    if (mote->audio_set_master) mote->audio_set_master(0.7f);   /* default volume (engine master) */
+    mote->set_background_cb(r3d_background);           /* starfield/nebula/galaxies/dust */
     elite_game_init((uint32_t)mote->micros() | 1u);   /* SFX are baked flash clips — no arena */
 }
 static void g_update(float dt){
     CraftRawButtons b; map_buttons(mote->input(), &b);
     elite_game_tick(&b, dt);
-    elite_game_render_begin();              /* core0 builds the draw list */
+    elite_game_render_begin();              /* core0 submits the scene to the engine */
     elite_game_set_frame_ms(dt*1000.f);
 }
-static void g_render_band(uint16_t *fb, int y0, int y1){ elite_game_render(fb, y0, y1); }
 static void g_overlay(uint16_t *fb){ elite_game_draw_overlay(fb); }
 
 static const MoteGameVtbl k_vtbl = {
-    .init=g_init, .update=g_update, .render_band=g_render_band, .overlay=g_overlay,
-    /* render_band owns the frame -> no engine 3D pools; max_sprites=1 dodges the
-     * legacy "all-zero config" fallback so the full arena is ours. */
-    .config={ .max_tris=0, .max_spheres=0, .depth=0, .max_sprites=1 },
+    .init=g_init, .update=g_update, .render_band=0, .overlay=g_overlay,
+    /* Renders through the built-in engine: ships/stations -> scene_add_object,
+     * planets/suns -> scene_add_sphere_tex, FX -> point/line/disc, sky -> the
+     * background callback. Pools sized for the busiest combat scene. */
+    .config={ .max_tris=1500, .max_tex_spheres=8, .max_points=256,
+              .max_lines=48, .max_discs=16, .depth=1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }

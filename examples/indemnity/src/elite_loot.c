@@ -191,13 +191,13 @@ void loot_render(Vec3 cam_pos) {
     for (int i = 0; i < MAX_CANS; i++) {
         const Canister *c = &s_cans[i];
         if (!c->alive) continue;
-        R3DObject obj;
+        MoteObject obj; obj.color = 0;
         obj.mesh = &mesh_canister;
         obj.basis = m3_identity();
         m3_rotate_local(&obj.basis, 1, t * c->spin);
         m3_rotate_local(&obj.basis, 0, t * c->spin * 0.7f);
         obj.pos = v3_sub(c->pos, cam_pos);
-        r3d_scene_add_object(&obj);
+        g_em->scene_add_object(&obj);
 
         /* Pulsing beacon so drops read at combat ranges: bright core
          * point + a short light-mast above, gold for cargo, cyan for
@@ -207,17 +207,9 @@ void loot_render(Vec3 cam_pos) {
                           ? RGB565C(120, 230, 255)
                           : RGB565C(255, 210, 70);
         if (!s_loot_beacons) continue;     /* title: bare cubes, no markers */
-        float sx, sy;
-        uint16_t d;
         Vec3 rel = v3_sub(c->pos, cam_pos);
-        if (r3d_scene_project(rel, &sx, &sy, &d)) {
-            r3d_scene_add_point(sx, sy, d, bc, pulse > 0.5f ? 2 : 1);
-            float mx, my;
-            uint16_t md;
-            Vec3 mast = v3_add(rel, v3(0, 6.0f + 3.0f * pulse, 0));
-            if (r3d_scene_project(mast, &mx, &my, &md))
-                r3d_scene_add_line(sx, sy, d, mx, my, md, bc);
-        }
+        g_em->scene_add_point(rel, bc, pulse > 0.5f ? 2 : 1);
+        g_em->scene_add_line(rel, v3_add(rel, v3(0, 6.0f + 3.0f * pulse, 0)), bc);
     }
 }
 

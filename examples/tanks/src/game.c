@@ -279,6 +279,11 @@ static void g_update(float dt) {
     for (int i=0;i<s_nblocks;i++) mote_draw(mote,&s_bm[i],v3(s_blocks[i].cx,0,s_blocks[i].cz));
     for (int i=0;i<s_nt;i++){ Tank *t=&s_t[i]; if (!t->alive) continue;
         Mat3 body=m3_identity(); m3_rotate_local(&body,1,t->yaw);
+        /* oriented oval shadow matching the hull footprint (longer than wide,
+         * aligned to the tank's heading) — a round blob looked wrong */
+        mote->scene_add_shadow_ex(v3(t->x,0.0f,t->z),
+                                  v3_scale(body.r[0], TANK_SCALE*0.50f),
+                                  v3_scale(body.r[2], TANK_SCALE*0.78f), 0.55f);
         mote_rig_tick(&s_barrel[i], dt);               /* advance the recoil clip (if playing) */
         MoteRigLocal loc[P_COUNT]; mote_rig_eval(&tank_rig,&s_barrel[i],loc);   /* clip -> barrel recoil pos */
         loc[P_TURRET].rot=mote_quat_axis(v3(0,1,0), t->aim-t->yaw);   /* override turret rot procedurally */
@@ -304,6 +309,6 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 2600, .max_spheres = 96, .depth = 1 },
+    .config = { .max_tris = 2600, .max_spheres = 96, .max_shadows = 16, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

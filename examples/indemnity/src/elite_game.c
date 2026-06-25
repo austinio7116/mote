@@ -11,6 +11,8 @@
  * stay tiny no matter where in the system you are. Planet impostors are
  * fed the camera's absolute Mm position and handle their own scaling.
  */
+#include "elite_engine.h"
+#include "r3d_pipe.h"
 #include "elite_game.h"
 #include "elite_types.h"
 #include "r3d_scene.h"
@@ -2662,6 +2664,7 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
 /* --- rendering -----------------------------------------------------------*/
 void elite_game_render_begin(void) {
     Ship *p = &g_ships[PLAYER];
+    fx_sc_dust_off();   /* supercruise dust shows only on frames that re-emit it */
 
     switch (s_state) {
 
@@ -2672,11 +2675,11 @@ void elite_game_render_begin(void) {
          * starline tunnel takes over. */
         Mat3 cam = p->basis;
         m3_rotate_local(&cam, 2, s_hyper_t * 0.4f);
-        r3d_scene_begin(&cam, 60.0f);
+        g_em->scene_begin(&cam, 60.0f); r3d_pipe_set_camera(&cam, 60.0f);
         float d_mm = 60.0f * (expf(s_hyper_t * 3.4f) - 1.0f);
         Vec3 vcam = v3_add(s_hyper_from_mm,
                            v3_scale(p->basis.r[2], d_mm));
-        r3d_pipe_set_sun(v3_norm(v3_scale(vcam, -1.0f)));
+        g_em->scene_set_sun(v3_norm(v3_scale(vcam, -1.0f)));
         r3d_planet_emit(vcam);
         break;
     }
@@ -2684,58 +2687,52 @@ void elite_game_render_begin(void) {
     case ST_SYSTEM_MAP:
     case ST_EVENT:
         /* Fullscreen UI: minimal empty scene (UI fills the band). */
-        r3d_scene_begin(&p->basis, 60.0f);
+        g_em->scene_begin(&p->basis, 60.0f); r3d_pipe_set_camera(&p->basis, 60.0f);
         break;
 
     case ST_DOCKED: {
         /* Starfield backdrop + rotating preview (station or shipyard
          * hull) in the right-hand pane the UI leaves open. */
         Mat3 cam = m3_identity();
-        r3d_scene_begin(&cam, 60.0f);
-        r3d_pipe_set_sun(v3(0.35f, 0.45f, -0.82f));   /* showroom light */
+        g_em->scene_begin(&cam, 60.0f); r3d_pipe_set_camera(&cam, 60.0f);
+        g_em->scene_set_sun(v3(0.35f, 0.45f, -0.82f));   /* showroom light */
         uint32_t pv_seed;
         int pv_cls;
         int pv = station_preview2(&pv_seed, &pv_cls);
         if (pv == 3) {
             /* Hangar bay: your ship parked over a deck grid, dimmed by
              * the status sheet into a backdrop (user req). */
-            R3DObject obj;
+            MoteObject obj; obj.color = 0;
             obj.mesh = hull_mesh(g_player.hull_seed, g_player.hull_id);
             obj.basis = m3_identity();
             m3_rotate_local(&obj.basis, 1, s_time * 0.25f);
             m3_rotate_local(&obj.basis, 0, 0.22f);
             float dist = obj.mesh->bound_r * 2.4f;
             obj.pos = v3(0, 0, dist);
-            r3d_scene_add_object(&obj);
+            g_em->scene_add_object(&obj);
             /* Deck grid under the ship. */
             float fy = -obj.mesh->bound_r * 1.05f;
             uint16_t gc = RGB565C(50, 70, 100);
             for (int k = -2; k <= 2; k++) {
-                float sx0, sy0, sx1, sy1;
-                uint16_t d0, d1;
                 Vec3 a = v3(k * dist * 0.30f, fy, dist * 0.45f);
                 Vec3 b = v3(k * dist * 0.30f, fy, dist * 1.8f);
-                if (r3d_scene_project(a, &sx0, &sy0, &d0) &&
-                    r3d_scene_project(b, &sx1, &sy1, &d1))
-                    r3d_scene_add_line(sx0, sy0, 1, sx1, sy1, 1, gc);
+                g_em->scene_add_line(a, b, gc);
                 Vec3 c2 = v3(-dist * 0.62f, fy, dist * (0.6f + 0.3f * (k + 2)));
                 Vec3 e2 = v3(dist * 0.62f, fy, dist * (0.6f + 0.3f * (k + 2)));
-                if (r3d_scene_project(c2, &sx0, &sy0, &d0) &&
-                    r3d_scene_project(e2, &sx1, &sy1, &d1))
-                    r3d_scene_add_line(sx0, sy0, 1, sx1, sy1, 1, gc);
+                g_em->scene_add_line(c2, e2, gc);
             }
         } else if (pv != 0) {
             const Mesh *m = (pv == 1)
                 ? (s_station_mesh ? s_station_mesh : &mesh_station)
                 : hull_mesh(pv_seed, pv_cls);
-            R3DObject obj;
+            MoteObject obj; obj.color = 0;
             obj.mesh = m;
             obj.basis = m3_identity();
             m3_rotate_local(&obj.basis, 1, s_time * 0.5f);
             m3_rotate_local(&obj.basis, 0, 0.30f);
             float dist = m->bound_r * 2.5f;
             obj.pos = v3(dist * 0.29f, 0, dist);
-            r3d_scene_add_object(&obj);
+            g_em->scene_add_object(&obj);
         }
         break;
     }
@@ -2743,17 +2740,17 @@ void elite_game_render_begin(void) {
     case ST_STATUS: {
         /* Your ship turning gently in the sheet's top-right window. */
         Mat3 cam = m3_identity();
-        r3d_scene_begin(&cam, 60.0f);
-        r3d_pipe_set_sun(v3(0.35f, 0.45f, -0.82f));   /* showroom light */
+        g_em->scene_begin(&cam, 60.0f); r3d_pipe_set_camera(&cam, 60.0f);
+        g_em->scene_set_sun(v3(0.35f, 0.45f, -0.82f));   /* showroom light */
         /* Centred backdrop, pulled back so the whole hull fits. */
-        R3DObject obj;
+        MoteObject obj; obj.color = 0;
         obj.mesh = hull_mesh(g_player.hull_seed, g_player.hull_id);
         obj.basis = m3_identity();
         m3_rotate_local(&obj.basis, 1, s_time * 0.5f);
         m3_rotate_local(&obj.basis, 0, 0.30f);
         float dist = obj.mesh->bound_r * 2.4f;
         obj.pos = v3(0, 0, dist);
-        r3d_scene_add_object(&obj);
+        g_em->scene_add_object(&obj);
         break;
     }
 
@@ -2761,57 +2758,57 @@ void elite_game_render_begin(void) {
         /* The highlighted save's ship, turning in the upper pane (its
          * "icon"); the stats list draws over the lower half. */
         Mat3 cam = m3_identity();
-        r3d_scene_begin(&cam, 60.0f);
-        r3d_pipe_set_sun(v3(0.35f, 0.45f, -0.82f));
+        g_em->scene_begin(&cam, 60.0f); r3d_pipe_set_camera(&cam, 60.0f);
+        g_em->scene_set_sun(v3(0.35f, 0.45f, -0.82f));
         if (s_savelist_n > 0 && s_sel_cursor < s_savelist_n) {
             SavePeek *pk = &s_savelist[s_sel_cursor].pk;
-            R3DObject obj;
+            MoteObject obj; obj.color = 0;
             obj.mesh = hull_mesh(pk->hull_seed, pk->hull_id);
             obj.basis = m3_identity();
             m3_rotate_local(&obj.basis, 1, s_time * 0.6f);
             m3_rotate_local(&obj.basis, 0, 0.32f);
             float dist = obj.mesh->bound_r * 3.4f;     /* smaller -> sits in the pane */
             obj.pos = v3(0, obj.mesh->bound_r * 1.1f, dist);  /* lifted up */
-            r3d_scene_add_object(&obj);
+            g_em->scene_add_object(&obj);
         }
         break;
     }
 
     case ST_SUPERCRUISE:
-        r3d_scene_begin(&p->basis, 60.0f);
+        g_em->scene_begin(&p->basis, 60.0f); r3d_pipe_set_camera(&p->basis, 60.0f);
         r3d_planet_emit(cam_pos_mm());
         fx_sc_dust_emit(s_sc_pos_mm,
                         v3_scale(p->basis.r[2], s_sc_speed));
         break;
 
     default: {   /* FLIGHT + PAUSE render the world */
-        r3d_scene_begin(&p->basis, 60.0f);
+        g_em->scene_begin(&p->basis, 60.0f); r3d_pipe_set_camera(&p->basis, 60.0f);
         /* Sunlight from the system star (camera-relative direction). */
         {
             Vec3 cm = cam_pos_mm();
-            r3d_pipe_set_sun(v3_norm(v3_scale(cm, -1.0f)));
+            g_em->scene_set_sun(v3_norm(v3_scale(cm, -1.0f)));
         }
         r3d_planet_emit(cam_pos_mm());
 
         /* Anchored POI structure (station / beacon). */
         if (s_anchor_has_poi && s_anchor_poi.kind != POI_PLANET) {
-            R3DObject obj;
+            MoteObject obj; obj.color = 0;
             obj.mesh = (s_anchor_poi.kind == POI_STATION && s_station_mesh)
                            ? s_station_mesh : &mesh_beacon;
             obj.basis = m3_identity();
             /* Slow majestic spin. */
             m3_rotate_local(&obj.basis, 1, s_time * 0.05f);
             obj.pos = v3_sub(v3(0, 0, 0), p->pos);
-            r3d_scene_add_object(&obj);
+            g_em->scene_add_object(&obj);
         }
 
         for (int i = 1; i < MAX_SHIPS; i++) {
             if (!g_ships[i].alive) continue;
-            R3DObject obj;
+            MoteObject obj; obj.color = 0;
             obj.mesh = g_ships[i].mesh;
             obj.basis = g_ships[i].basis;
             obj.pos = v3_sub(g_ships[i].pos, p->pos);
-            r3d_scene_add_object(&obj);
+            g_em->scene_add_object(&obj);
         }
         loot_render(p->pos);
         rocks_render(p->pos, s_time);
@@ -2822,8 +2819,10 @@ void elite_game_render_begin(void) {
     }
 }
 
+/* The engine now rasterises the scene (built in elite_game_render_begin) across
+ * both cores — no game render_band. This stays only for link compatibility. */
 void elite_game_render(uint16_t *fb, int y_min, int y_max) {
-    r3d_scene_raster(fb, y_min, y_max);
+    (void)fb; (void)y_min; (void)y_max;
 }
 
 /* --- overlays ------------------------------------------------------------*/

@@ -18,6 +18,7 @@
 
 static MeshVert s_verts[MAX_SV];
 static MeshFace s_faces[MAX_SF];
+static uint16_t s_facecolors[MAX_SF];   /* engine per-face colours (parallel to s_faces) */
 static Mesh     s_mesh;
 static float    s_fx[MAX_SV], s_fy[MAX_SV], s_fz[MAX_SV];
 static int      s_nv, s_nf;
@@ -58,9 +59,10 @@ static int vtx(float x, float y, float z) {
 
 static void face(int a, int b, int c, uint16_t color) {
     if (s_nf >= MAX_SF) return;
+    int idx = s_nf;
     MeshFace *f = &s_faces[s_nf++];
     f->a = (uint8_t)a; f->b = (uint8_t)b; f->c = (uint8_t)c;
-    f->color = color;
+    s_facecolors[idx] = color;          /* engine: per-face colour in a parallel array */
     float ux = s_fx[b] - s_fx[a], uy = s_fy[b] - s_fy[a], uz = s_fz[b] - s_fz[a];
     float vx = s_fx[c] - s_fx[a], vy = s_fy[c] - s_fy[a], vz = s_fz[c] - s_fz[a];
     float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
@@ -1340,6 +1342,8 @@ finish:;
     }
     s_mesh.verts = s_verts;
     s_mesh.faces = s_faces;
+    s_mesh.face_colors = s_facecolors;
+    s_mesh.color = 0;
     s_mesh.nverts = (uint16_t)s_nv;
     s_mesh.nfaces = (uint16_t)s_nf;
     s_mesh.scale = maxc;
@@ -1353,15 +1357,16 @@ const Mesh *ship_gen_mesh_class(uint32_t seed, int class_hint) {
     return ship_gen_mesh(seed);
 }
 
-int ship_gen_copy(MeshVert *verts, int max_v, MeshFace *faces, int max_f,
-                  Mesh *out) {
+int ship_gen_copy(MeshVert *verts, int max_v, MeshFace *faces, uint16_t *colors,
+                  int max_f, Mesh *out) {
     int nv = s_mesh.nverts < max_v ? s_mesh.nverts : max_v;
     int nf = s_mesh.nfaces < max_f ? s_mesh.nfaces : max_f;
     for (int i = 0; i < nv; i++) verts[i] = s_verts[i];
-    for (int i = 0; i < nf; i++) faces[i] = s_faces[i];
+    for (int i = 0; i < nf; i++) { faces[i] = s_faces[i]; colors[i] = s_facecolors[i]; }
     *out = s_mesh;
     out->verts = verts;
     out->faces = faces;
+    out->face_colors = colors;
     out->nverts = (uint16_t)nv;
     out->nfaces = (uint16_t)nf;
     return nf;

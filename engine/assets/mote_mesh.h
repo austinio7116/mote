@@ -14,6 +14,7 @@
 #define MOTE_MESH_H
 
 #include <stdint.h>
+#include "mote_2d.h"   /* MoteImage (optional texture mapping, ABI v35) */
 
 typedef struct { int8_t x, y, z; } MeshVert;
 
@@ -37,6 +38,13 @@ typedef struct Mesh {
     float scale;                /* model half-extent in meters */
     float bound_r;              /* bounding-sphere radius in meters */
     const struct Mesh *lod_lo;  /* optional lower-detail swap, NULL if none */
+    /* --- ABI v35: optional texture mapping. When `texture` is non-NULL, faces
+     * are drawn TEXTURED (UV-mapped) instead of flat-coloured, still lit by the
+     * sun (sampled texel x face shade). `face_uvs` is an nfaces*6 array of
+     * per-corner texture coords (u0,v0,u1,v1,u2,v2), each 0..255 spanning the
+     * texture's width/height. Both NULL on a flat-coloured mesh. */
+    const MoteImage *texture;
+    const uint8_t   *face_uvs;
 } Mesh;
 
 /* A bakeable MODEL is just its chunk list. A single STL is split into <=255-vert

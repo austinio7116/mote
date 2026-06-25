@@ -366,28 +366,13 @@ static void dust_emit(Vec3 cam_pos, Vec3 cam_vel) {
     for (int i = 0; i < DUST_NEAR_N; i++) {
         dust_wrap(&s_dust_near[i], cam_pos, DUST_NEAR_R);
         Vec3 rel = v3_sub(s_dust_near[i], cam_pos);
-        float sx, sy;
-        uint16_t d;
-        if (!r3d_scene_project(rel, &sx, &sy, &d)) continue;
-        if (sx < -4 || sx > 132 || sy < -4 || sy > 132) continue;
-        if (do_streaks) {
-            float ex, ey;
-            uint16_t ed;
-            if (r3d_scene_project(v3_add(rel, streak), &ex, &ey, &ed))
-                r3d_scene_add_line(sx, sy, d, ex, ey, ed, cn);
-        } else {
-            r3d_scene_add_point(sx, sy, d, cn, 1);
-        }
+        if (do_streaks) g_em->scene_add_line(rel, v3_add(rel, streak), cn);
+        else            g_em->scene_add_point(rel, cn, 1);
     }
     uint16_t cf = RGB565C(90, 95, 110);
     for (int i = 0; i < DUST_FAR_N; i++) {
         dust_wrap(&s_dust_far[i], cam_pos, DUST_FAR_R);
-        float sx, sy;
-        uint16_t d;
-        if (!r3d_scene_project(v3_sub(s_dust_far[i], cam_pos), &sx, &sy, &d))
-            continue;
-        if (sx < 0 || sx > 127 || sy < 0 || sy > 127) continue;
-        r3d_scene_add_point(sx, sy, d, cf, 1);
+        g_em->scene_add_point(v3_sub(s_dust_far[i], cam_pos), cf, 1);
     }
 }
 
@@ -405,7 +390,6 @@ static uint16_t fireball_color(float t01, uint8_t kind) {
 }
 
 static void fireballs_emit(Vec3 cam_pos) {
-    float focal = r3d_pipe_focal();
     for (int i = 0; i < MAX_FIREBALLS; i++) {
         const Fireball *f = &s_fire[i];
         if (f->t >= f->dur) continue;
@@ -413,15 +397,9 @@ static void fireballs_emit(Vec3 cam_pos) {
         /* Fast expansion, brief hold, slight shrink as it gutters out. */
         float grow = t01 < 0.35f ? (t01 / 0.35f)
                                  : 1.0f - 0.35f * ((t01 - 0.35f) / 0.65f);
-        float r_world = f->r_max * grow;
-        float sx, sy;
-        uint16_t d;
-        if (!r3d_scene_project(v3_sub(f->pos, cam_pos), &sx, &sy, &d)) continue;
-        if (sx < -40 || sx > 168 || sy < -40 || sy > 168) continue;
-        float z = R3D_DEPTH_K / (float)(d > 0 ? d : 1);
-        int r_px = (int)(focal * r_world / z);
-        if (r_px < 1) r_px = 1;
-        r3d_scene_add_disc(sx, sy, d, r_px, fireball_color(t01, f->kind));
+        /* World-radius disc — the engine projects it to a screen circle. */
+        g_em->scene_add_disc(v3_sub(f->pos, cam_pos), f->r_max * grow,
+                             fireball_color(t01, f->kind));
     }
 }
 
@@ -434,8 +412,15 @@ float g_dbg_dustf[4];
 #define SC_DUST_N 48
 static Vec3 s_sc_dust[SC_DUST_N];
 static int  s_sc_seeded;
+static float s_scd_flow, s_scd_speed;
+static int   s_scd_on;   /* drawn only on frames the game actually emits (supercruise) */
+
+/* Cleared by the game each frame before building the scene; fx_sc_dust_emit
+ * re-arms it. So normal flight (no emit) shows no dust instead of frozen motes. */
+void fx_sc_dust_off(void) { s_scd_on = 0; }
 
 void fx_sc_dust_emit(Vec3 cam_pos_mm, Vec3 vel_mms) {
+    s_scd_on = 1;
     /* Screen-space starline flow (same z-cycling technique as the
      * hyperspace tunnel, throttled by real speed). The old free-space
      * motes crossed their wrap box in ~3 frames at cruise speed and
@@ -443,16 +428,22 @@ void fx_sc_dust_emit(Vec3 cam_pos_mm, Vec3 vel_mms) {
      * Travel direction is always the nose in SC, so the vanishing
      * point is screen centre. */
     (void)cam_pos_mm;
-    float speed = v3_len(vel_mms);
-    static float s_flow;
-    s_flow += speed * (1.0f / 30.0f) * 0.0035f;   /* tunnel units/frame */
+    /* Screen-space tunnel streaks: state updated here each frame, DRAWN in the
+     * background pass (fx_sc_dust_draw) since they have no world position. */
+    s_scd_flow += v3_len(vel_mms) * (1.0f / 30.0f) * 0.0035f;
+    s_scd_speed = v3_len(vel_mms);
+}
+
+/* Plot screen-space dust streaks into the framebuffer band [yb0,yb1). Called
+ * from the background pass (before geometry; these are distant motes). */
+void fx_sc_dust_draw(uint16_t *fb, int yb0, int yb1) {
+    if (!s_scd_on) return;          /* only when the game emitted dust this frame */
+    float speed = s_scd_speed;
     float k = speed * (1.0f / 2200.0f);
     if (k > 1.0f) k = 1.0f;
-    /* Density + length follow speed with NO floor: braking on arrival
-     * thins the field out smoothly until the normal near-space dust is
-     * all that's left — no hard cut at the drop (user feedback). */
     int count = (int)(44.0f * sqrtf(k));
     if (count < 1) return;
+    float s_flow = s_scd_flow;
     for (int i = 0; i < count; i++) {
         uint32_t h = 0x5CD0u ^ (uint32_t)(i * 2654435761u);
         h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
@@ -473,7 +464,7 @@ void fx_sc_dust_emit(Vec3 cam_pos_mm, Vec3 vel_mms) {
         uint16_t c = (zz < 0.5f) ? RGB565C(170, 185, 215)
                    : (zz < 1.2f) ? RGB565C(110, 125, 160)
                                  : RGB565C(60, 72, 100);
-        r3d_scene_add_line(x0, y0, 1, x1, y1, 1, c);
+        g_em->draw_line(fb, (int)x0, (int)y0, (int)x1, (int)y1, c, yb0, yb1);
     }
 }
 
@@ -483,22 +474,15 @@ void fx_emit_all(Vec3 cam_pos, Vec3 cam_vel) {
     for (int i = 0; i < MAX_PARTICLES; i++) {
         const Particle *p = &s_parts[i];
         if (p->life <= 0) continue;
-        float sx, sy;
-        uint16_t d;
-        if (!r3d_scene_project(v3_sub(p->pos, cam_pos), &sx, &sy, &d)) continue;
-        if (sx < -2 || sx > 130 || sy < -2 || sy > 130) continue;
         float t = 1.0f - p->life / p->max_life;
-        /* Near particles get a 2x2 block (d ~ K/z: bigger = nearer). */
-        uint8_t size = (d > 800) ? 2 : 1;
-        r3d_scene_add_point(sx, sy, d, lerp565(p->color0, p->color1, t), size);
+        Vec3 rel = v3_sub(p->pos, cam_pos);
+        /* Near particles get a 2x2 block (closer than ~40 m). */
+        uint8_t size = v3_len(rel) < 40.0f ? 2 : 1;
+        g_em->scene_add_point(rel, lerp565(p->color0, p->color1, t), size);
     }
     for (int i = 0; i < MAX_BEAMS; i++) {
         const Beam *bm = &s_beams[i];
         if (bm->life <= 0) continue;
-        float x0, y0, x1, y1;
-        uint16_t d0, d1;
-        if (!r3d_scene_project(v3_sub(bm->a, cam_pos), &x0, &y0, &d0)) continue;
-        if (!r3d_scene_project(v3_sub(bm->b, cam_pos), &x1, &y1, &d1)) continue;
-        r3d_scene_add_line(x0, y0, d0, x1, y1, d1, bm->color);
+        g_em->scene_add_line(v3_sub(bm->a, cam_pos), v3_sub(bm->b, cam_pos), bm->color);
     }
 }

@@ -27,6 +27,7 @@ void mote_audio_init(void){
     s_ready = 1;
 }
 void mote_audio_set_volume(float v){ if(v<0)v=0; if(v>1)v=1; s_vol = v; }
+float mote_audio_get_volume(void){ return s_vol; }
 void mote_audio_off(void){
     for(int i=0;i<NVOICE;i++) s_v[i].on = 0;
     for(int i=0;i<NSAMP;i++)  s_s[i].on = 0;

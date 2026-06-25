@@ -27,13 +27,15 @@
 #include "mote_mesh.h"     /* Mesh / MeshVert / MeshFace — data only */
 #include "mote_input.h"    /* MoteInput, MoteButtons, MoteBtnId */
 #include "mote_object.h"   /* MoteObject — header-only */
+#include "mote_sphere.h"   /* MoteSphereTex — textured/oriented impostor */
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 23u  /* v23: rumble + persistent per-slot save (rumble/save/load/save_slots) */
+#define MOTE_ABI_VERSION 35u  /* v35: textured (UV-mapped) meshes + per-mesh blend (MOTE_DRAW_BLEND) */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
+/* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
 
 /* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
  * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
@@ -68,6 +70,22 @@ typedef struct MoteConfig {
     uint16_t max_contacts;    /* physics contact manifolds */
     uint16_t max_mesh_tris;   /* largest mesh collider's triangle count (0 = none) */
     uint8_t  depth;           /* 1 = allocate the 32KB depth buffer (3D / splats) */
+    /* --- ABI v24: depth-tested 3D FX primitive pools (0 = none). These draw in
+     * the 3D pass, depth-TESTED against meshes/spheres but not depth-writing. */
+    uint16_t max_points;      /* point/particle draws per frame — 16 B/entry */
+    uint16_t max_lines;       /* line/beam draws per frame      — 24 B/entry */
+    uint16_t max_discs;       /* disc/fireball draws per frame   — 16 B/entry */
+    /* --- ABI v25: textured/oriented sphere impostors (balls, planets). */
+    uint16_t max_tex_spheres; /* scene_add_sphere_tex draws per frame — ~64 B/entry */
+    /* --- ABI v28: soft ground-shadow decals. */
+    uint16_t max_shadows;     /* scene_add_shadow draws per frame — ~32 B/entry */
+    /* --- ABI v31: camera-facing ring outlines (ghost balls, reticles). */
+    uint16_t max_rings;       /* scene_add_ring draws per frame — ~16 B/entry */
+    /* --- ABI v33: camera-facing textured quads (3D sprites). */
+    uint16_t max_billboards;  /* scene_add_billboard draws per frame — ~32 B/entry */
+    /* --- ABI v35: textured (UV-mapped) mesh triangles per frame. Size to the
+     * total textured faces visible at once (a textured mesh's nfaces). 0 = none. */
+    uint16_t max_tex_tris;    /* textured-triangle draws per frame — ~56 B/entry */
 } MoteConfig;
 
 /* ---------------------------------------------------------------------------
@@ -232,6 +250,133 @@ typedef struct MoteApi {
     int  (*save)(int slot, const void *data, int len);
     int  (*load)(int slot, void *data, int max_len);
     int  (*save_slots)(void);     /* number of slots available */
+
+    /* --- ABI v24: depth-tested 3D scene primitives (particles, beams, glows).
+     * Build them in update() alongside scene_add_object/sphere; the OS rasters
+     * them in the same dual-core banded 3D pass. All take CAMERA-RELATIVE world
+     * positions (like scene_add_sphere) — or absolute, if you used scene_camera.
+     * Depth-TESTED against meshes/spheres but NOT depth-writing, so they layer
+     * like additive FX. Sized by MoteConfig.max_points/lines/discs (0 = unused).
+     *  - scene_add_point: a `size`x`size` screen dot (1 = single pixel).
+     *  - scene_add_line:  a 3D segment a->b (lasers/beams); near-plane clipped.
+     *  - scene_add_disc:  a screen-facing filled circle of world `radius`
+     *                     (fireballs/explosion glows), size scaling with depth.
+     * Each returns 1 if added, 0 if culled (behind near) or the pool is full. */
+    int  (*scene_add_point)(Vec3 cam_rel_pos, uint16_t color, int size);
+    int  (*scene_add_line)(Vec3 a_cam_rel, Vec3 b_cam_rel, uint16_t color);
+    int  (*scene_add_disc)(Vec3 cam_rel_pos, float radius, uint16_t color);
+
+    /* Draw a mesh with per-object flags (MOTE_DRAW_* above). flags==0 is exactly
+     * scene_add_object(). MOTE_DRAW_NO_DEPTH_WRITE depth-tests but doesn't write,
+     * for coplanar overlays (e.g. pocket lips) that later geometry must cover. */
+    int  (*scene_add_object_ex)(const MoteObject *obj, uint32_t flags);
+
+    /* --- ABI v25: a textured / oriented sphere impostor. The engine rasterises
+     * the disc, reconstructs the per-pixel sphere normal, writes depth, and
+     * rotates the normal into the sphere's LOCAL frame by `orient` (rows
+     * right/up/forward; NULL = identity). The surface colour + shading come from
+     * `tex` (a const MoteSphereTex): an equirectangular texture or a per-pixel
+     * callback, with built-in or custom shading. Covers spinning textured balls,
+     * lit planets, and procedural surfaces. cam_rel_pos like scene_add_sphere. */
+    int  (*scene_add_sphere_tex)(Vec3 cam_rel_pos, float radius,
+                                 const Mat3 *orient, const MoteSphereTex *tex);
+
+    /* --- ABI v26: a per-band background pass. `fn` is called for each core's
+     * logical row band [y0,y1) BEFORE any 3D geometry (depth already cleared),
+     * so you can paint a gradient / starfield / nebula that the scene draws over
+     * — the generic alternative to owning the whole frame with render_band. It
+     * runs on BOTH cores (disjoint bands), like render_band. NULL restores the
+     * solid scene_set_background colour. Set it once from init()/update(). */
+    void (*set_background_cb)(void (*fn)(uint16_t *fb, int y0, int y1));
+
+    /* --- ABI v27: an immediate-mode world-space triangle with a caller-supplied
+     * flat colour (the engine projects, near-clips, depth-tests and fills it but
+     * does NOT light it — you pass the final shaded colour). For dynamic or
+     * procedural geometry that isn't a baked int8 Mesh: generated tables, voxel
+     * faces, debug shapes. cam_rel_pos convention like scene_add_object. `flags`
+     * are MOTE_DRAW_* (e.g. NO_DEPTH_WRITE). DOUBLE-SIDED — drawn regardless of
+     * winding (unlike scene_add_object, which backface-culls). Returns tris
+     * emitted after clip. */
+    int  (*scene_add_tri)(Vec3 a, Vec3 b, Vec3 c, uint16_t color, uint32_t flags);
+
+    /* --- ABI v28: a soft ground-shadow decal + a runtime near plane.
+     *
+     * scene_add_shadow: a darkening ellipse on the ground plane at `ground_pos`
+     * (radius in world metres), foreshortened with the view and faded from the
+     * centre out (strength 0..1; 0 -> default). Drawn after the scene tris but
+     * before impostor balls, so an object paints over its own shadow. Sized by
+     * MoteConfig.max_shadows.
+     *
+     * scene_set_near: move the near clip plane (metres). The 0.5 m default suits
+     * a space sim; small scenes (a snooker table) need ~0.05 m or the close
+     * geometry clips. Also rescales the depth buffer. Set once in init(). */
+    int  (*scene_add_shadow)(Vec3 ground_pos, float radius, float strength);
+    void (*scene_set_near)(float near_m);
+
+    /* --- ABI v29: the engine-owned MASTER VOLUME (0..1), applied to all audio
+     * (synth notes + PCM samples) in the mixer. This is the SAME knob the engine
+     * menu's VOLUME row drives, so a game's own volume setting and the system
+     * menu stay in sync — a game should route its volume option here instead of
+     * scaling each sound itself. Persists across the session. */
+    void  (*audio_set_master)(float v);
+    float (*audio_get_master)(void);
+
+    /* --- ABI v30: immediate-mode 2D framebuffer drawing (screen space, RGB565,
+     * no depth) — for HUDs/overlays (call from overlay() with yc0=0,yc1=128) and
+     * background passes (call from a set_background_cb with the band [y0,y1)).
+     * Rounds out the 2D kit alongside blit()/text(). draw_rect: fill!=0 solid,
+     * else outline. */
+    void (*draw_pixel)(uint16_t *fb, int x, int y, uint16_t color);
+    void (*draw_line)(uint16_t *fb, int x0, int y0, int x1, int y1,
+                      uint16_t color, int yc0, int yc1);
+    void (*draw_rect)(uint16_t *fb, int x, int y, int w, int h,
+                      uint16_t color, int fill, int yc0, int yc1);
+
+    /* --- ABI v31: a camera-facing CIRCLE OUTLINE in the 3D scene + a 2D circle.
+     *
+     * scene_add_ring: a billboard ring of world `radius` at a camera-relative
+     * world position — depth-tested, drawn in the 3D pass. It always faces the
+     * camera, so it reads as an object's circular silhouette (ghost ball at the
+     * contact point, target reticle, selection ring). Sized by config.max_rings.
+     *
+     * draw_circle: a 2D framebuffer circle (fill!=0 solid, else outline) — the
+     * circle companion to draw_line/rect for HUDs/overlays. */
+    int  (*scene_add_ring)(Vec3 cam_rel_pos, float radius, uint16_t color);
+    void (*draw_circle)(uint16_t *fb, int cx, int cy, int r,
+                        uint16_t color, int fill, int yc0, int yc1);
+
+    /* --- ABI v32: an ORIENTED elliptical ground shadow. `semi_a` and `semi_b`
+     * are the footprint's two semi-axis vectors in WORLD space on the ground
+     * plane — so the shadow matches the object's shape and heading (a tank gets
+     * a long oval along its hull; a thin object a thin oval) instead of a fixed
+     * circle. scene_add_shadow(radius) is just this with axial radii. */
+    int  (*scene_add_shadow_ex)(Vec3 ground_pos, Vec3 semi_a, Vec3 semi_b, float strength);
+
+    /* --- ABI v33: a camera-facing TEXTURED QUAD in the 3D scene (a "3D sprite").
+     *
+     * scene_add_billboard: draws `img` (or the fx/fy/fw/fh sub-rect of it, for
+     * sprite sheets — pass 0 sizes for the whole image) as an upright quad at a
+     * camera-relative world position. `world_h` is its full height in world
+     * units, so it shrinks with distance and keeps the image's aspect ratio. It
+     * is depth-tested against the scene; opaque (MOTE_BLEND_NONE) sprites also
+     * write depth, while blended ones (MOTE_BLEND_ALPHA / _ADD) layer on top.
+     * Colour-keyed by the image's transparent key. Sized by config.max_billboards.
+     * Use for trees, pickups, enemies, smoke, muzzle flashes, explosions. */
+    int  (*scene_add_billboard)(Vec3 cam_rel_pos, const MoteImage *img,
+                                int fx, int fy, int fw, int fh,
+                                float world_h, uint8_t blend);
+
+    /* --- ABI v34: free rotate + scale 2D blit (HUDs, twin-stick sprites, FX).
+     *
+     * blit_ex: draws `img` (or its fx/fy/fw/fh sub-rect) centred at (cx,cy) in
+     * framebuffer pixels, rotated `angle` radians and uniformly scaled (1.0 =
+     * original size). Colour-keyed; blend = MOTE_BLEND_* for alpha/additive.
+     * Unlike `blit` (axis-aligned + 90° steps only), this is any angle/scale.
+     * Immediate-mode: call it from a render/background callback with the band
+     * [y0,y1), or from overlay() with 0..128. */
+    void (*blit_ex)(uint16_t *fb, const MoteImage *img,
+                    float cx, float cy, int fx, int fy, int fw, int fh,
+                    float angle, float scale, uint8_t blend, int yc0, int yc1);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

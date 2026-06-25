@@ -50,20 +50,22 @@ static float s_power;               /* 0..1 */
 static Vec3 cam_pos;
 static Mat3 cam_basis;
 
-/* --- table mesh (procedural, scale = half_len): bed + rails + pocket holes - */
-static MeshVert table_verts[256];
-static MeshFace table_faces[200];
+/* --- table geometry (procedural): bed + rails + pocket holes. Emitted each
+ * frame via the engine's DOUBLE-SIDED scene_add_tri, so the cushion inner walls
+ * always show regardless of winding (single-sided scene_add_object culled them
+ * — that was the "no cushion"). World-space float verts; shaded by the sun here. */
+static Vec3     table_wv[256];       /* world-space vertices */
+static MeshFace table_faces[200];    /* a,b,c indices + quantised normal */
 static uint16_t table_fcol[200];     /* per-face colour (cloth / rail / pocket) */
 static int      table_nv, table_nf;
-static Mesh     table_mesh;
-static float    table_scale;        /* int8 quantisation scale = half_len */
 
-/* push one quantised vertex */
-static void add_vert(float x, float y, float z){
-    table_verts[table_nv].x = (int8_t)(x / table_scale * 127.0f);
-    table_verts[table_nv].y = (int8_t)(y / table_scale * 127.0f);
-    table_verts[table_nv].z = (int8_t)(z / table_scale * 127.0f);
-    table_nv++;
+static void add_vert(float x, float y, float z){ table_wv[table_nv++] = v3(x, y, z); }
+
+static inline uint16_t shade565(uint16_t c, float s){
+    int r = (int)(((c >> 11) & 0x1F) * s); if (r > 31) r = 31;
+    int g = (int)(((c >> 5) & 0x3F) * s);  if (g > 63) g = 63;
+    int b = (int)((c & 0x1F) * s);         if (b > 31) b = 31;
+    return (uint16_t)((r << 11) | (g << 5) | b);
 }
 /* a flat quad (two triangles) with a shared face normal */
 static void add_quad(float ax, float ay, float az, float bx, float by, float bz,
@@ -79,11 +81,14 @@ static void add_quad(float ax, float ay, float az, float bx, float by, float bz,
 }
 /* dark pocket disc (octagon fan) on the cloth at (px,pz), radius r */
 static void add_pocket_disc(float px, float pz, float r, uint16_t col){
+    /* Sit the disc a few mm ABOVE the cloth so it wins the depth test cleanly
+     * instead of z-fighting the coplanar bed (that fight was the flicker). */
+    const float PY = 0.006f;
     int center = table_nv;
-    add_vert(px, 0.001f, pz);
+    add_vert(px, PY, pz);
     for (int k = 0; k < 8; k++){
         float a = k * 0.7853982f;
-        add_vert(px + r * cosf(a), 0.001f, pz + r * sinf(a));
+        add_vert(px + r * cosf(a), PY, pz + r * sinf(a));
     }
     for (int k = 0; k < 8; k++)
         { table_fcol[table_nf] = col; table_faces[table_nf++] = (MeshFace){ center, center + 1 + k, center + 1 + ((k + 1) % 8), 0, 127, 0 }; }
@@ -91,11 +96,14 @@ static void add_pocket_disc(float px, float pz, float r, uint16_t col){
 
 static void build_table(void){
     const float hl = s_table.half_len, hw = s_table.half_wid;
-    const float rw = s_table.rail_w, ch = s_table.cushion_h;
-    const uint16_t cloth = s_table.cloth, rail = s_table.rail_top, rails = s_table.rail;
+    /* Render the cushions taller than the physics nose so they read as raised
+     * walls from the low aim camera (physics still uses the real cushion_h). */
+    const float rw = s_table.rail_w, ch = s_table.cushion_h * 1.7f;
+    const uint16_t cloth = s_table.cloth;
+    const uint16_t rail  = MOTE_RGB565(120, 86, 48);   /* wood rail top (clear contrast) */
+    const uint16_t rails = MOTE_RGB565(34, 104, 58);   /* cushion nose: lit cloth, reads raised */
     const uint16_t hole = MOTE_RGB565(10, 12, 14);
 
-    table_scale = hl;
     table_nv = table_nf = 0;
 
     add_quad(-hl, 0, -hw,  -hl, 0, hw,  hl, 0, hw,  hl, 0, -hw,  0, 127, 0, cloth);   /* bed */
@@ -114,15 +122,19 @@ static void build_table(void){
 
     for (int p = 0; p < s_world.npocket; p++)
         add_pocket_disc(s_world.pocket[p].x, s_world.pocket[p].z, s_world.pocket_r[p] * 1.25f, hole);
+}
 
-    table_mesh.verts = table_verts;
-    table_mesh.faces = table_faces;
-    table_mesh.face_colors = table_fcol;
-    table_mesh.nverts = (uint16_t)table_nv;
-    table_mesh.nfaces = (uint16_t)table_nf;
-    table_mesh.scale = table_scale;
-    table_mesh.bound_r = table_scale * 1.7f;
-    table_mesh.lod_lo = 0;
+/* Emit the table as double-sided, sun-shaded world triangles. */
+static void draw_table(void){
+    const Vec3 sun = v3(0.25f, 0.92f, 0.3f);
+    for (int f = 0; f < table_nf; f++){
+        const MeshFace *fa = &table_faces[f];
+        float ndl = ((float)fa->nx * sun.x + (float)fa->ny * sun.y + (float)fa->nz * sun.z) / 127.0f;
+        if (ndl < 0) ndl = -ndl;                 /* double-sided: light either face */
+        float sh = 0.42f + 0.58f * ndl;
+        mote->scene_add_tri(table_wv[fa->a], table_wv[fa->b], table_wv[fa->c],
+                            shade565(table_fcol[f], sh), 0);
+    }
 }
 
 static uint16_t ball_color(int id){
@@ -146,6 +158,20 @@ static uint16_t ball_color(int id){
         }
     }
 }
+
+/* Per-pixel ball surface from the ball-LOCAL normal (the engine reconstructs it
+ * and rotates by the ball's spin orientation, so the pattern turns as it rolls):
+ * solids show a white number-spot at the poles; stripes (9..15) show a coloured
+ * equatorial band with white poles. The engine's SMOOTH mode lights it. */
+static uint16_t pool_ball_albedo(Vec3 n, void *ud){
+    int id = (int)(intptr_t)ud;
+    uint16_t base = ball_color(id);
+    if (id == 0) return base;                                  /* cue: plain white */
+    if (id >= 9 && fabsf(n.y) > 0.42f) return MOTE_RGB565(238, 238, 228); /* stripe poles */
+    if (fabsf(n.x) > 0.92f) return MOTE_RGB565(245, 245, 245);  /* number-spot caps */
+    return base;
+}
+static MoteSphereTex s_balltex[CUE_MAX_BALLS];
 
 static void g_init(void){
     mote->scene_set_background(MOTE_RGB565(12, 18, 28));
@@ -226,11 +252,19 @@ static void g_update(float dt){
 
     /* render (world coordinates; scene_camera subtracts the camera for us) */
     mote->scene_camera(&cam_basis, cam_pos, 52.0f);
-    mote_draw(mote, &table_mesh, v3(0, 0, 0));
+    draw_table();
 
     for (int i = 0; i < s_n; i++)
-        if (s_balls[i].on)
-            mote->scene_add_sphere(s_balls[i].pos, s_table.R, ball_color(s_balls[i].id));
+        if (s_balls[i].on){
+            s_balltex[i] = (MoteSphereTex){ .albedo = pool_ball_albedo,
+                                            .ud = (void *)(intptr_t)s_balls[i].id,
+                                            .shade_mode = MOTE_SHADE_SMOOTH };
+            mote->scene_add_sphere_tex(s_balls[i].pos, s_table.R,
+                                       &s_balls[i].orient, &s_balltex[i]);
+            if (s_balls[i].drop <= 0.0f)         /* soft shadow on the cloth */
+                mote->scene_add_shadow(v3(s_balls[i].pos.x, 0.0f, s_balls[i].pos.z),
+                                       s_table.R * 1.6f, 0.5f);
+        }
 
     if (s_state != SHOOT && s_balls[0].on){     /* aim guideline */
         Vec3 dir = v3(cosf(s_aim), 0.0f, sinf(s_aim));
@@ -266,6 +300,7 @@ static void g_overlay(uint16_t *fb){
  * balls (<=16) and the 8 aim-guideline dots; depth buffer for the 3D pass. */
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 220, .max_spheres = 32, .depth = 1 },
+    .config = { .max_tris = 220, .max_spheres = 16, .max_tex_spheres = CUE_MAX_BALLS,
+                .max_shadows = CUE_MAX_BALLS, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }

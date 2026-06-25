@@ -3,7 +3,24 @@
  */
 #include "mote_2d.h"
 #include "mote_tile.h"
+#include "mote_object.h"   /* MOTE_BLEND_* */
 #include <string.h>
+#include <math.h>
+
+/* Per-pixel source/destination combine (shared by the rotate/scale blit). */
+static inline uint16_t blit_blend565(uint16_t dst, uint16_t src, uint8_t mode) {
+    if (mode == MOTE_BLEND_ALPHA) {            /* 50/50 mix, RGB565 */
+        return (uint16_t)(((dst & 0xF7DE) >> 1) + ((src & 0xF7DE) >> 1));
+    }
+    if (mode == MOTE_BLEND_ADD) {              /* saturating per-channel add */
+        int r = ((dst >> 11) & 0x1F) + ((src >> 11) & 0x1F);
+        int g = ((dst >> 5) & 0x3F) + ((src >> 5) & 0x3F);
+        int b = (dst & 0x1F) + (src & 0x1F);
+        if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+        return (uint16_t)((r << 11) | (g << 5) | b);
+    }
+    return src;
+}
 
 static const MoteTilemap *s_map;
 static const MoteTileset *s_tiles;
@@ -121,6 +138,51 @@ void mote_blit(uint16_t *fb, const MoteImage *img,
     }
 }
 
+/* Free rotate + uniform-scale blit, centred at (cx,cy) in framebuffer pixels.
+ * Inverse-transform sampling (nearest neighbour): walk the destination AABB and
+ * map each pixel back into the source rect, so there are no gaps. Colour-keyed,
+ * with optional alpha/additive blend. Immediate-mode — no scene state. */
+__attribute__((noinline))
+void mote_blit_ex(uint16_t *fb, const MoteImage *img,
+                  float cx, float cy, int fx, int fy, int fw, int fh,
+                  float angle, float scale, uint8_t blend, int y0, int y1) {
+    if (!img || scale <= 0.0f) return;
+    if (fw <= 0) fw = img->w;
+    if (fh <= 0) fh = img->h;
+    const uint16_t key = img->key;
+    const int opaque = img->opaque, iw = img->w;
+    float s = sinf(angle), c = cosf(angle);
+    /* Destination AABB half-extents of the rotated, scaled source rect. */
+    float hw = fw * 0.5f, hh = fh * 0.5f;
+    float ahw = (fabsf(c) * hw + fabsf(s) * hh) * scale;
+    float ahh = (fabsf(s) * hw + fabsf(c) * hh) * scale;
+    int x0 = (int)floorf(cx - ahw), x1 = (int)ceilf(cx + ahw);
+    int yb0 = (int)floorf(cy - ahh), yb1 = (int)ceilf(cy + ahh);
+    if (x0 < 0) x0 = 0;
+    if (x1 > MOTE_FB_W) x1 = MOTE_FB_W;
+    if (yb0 < y0) yb0 = y0;
+    if (yb0 < 0) yb0 = 0;
+    if (yb1 > y1) yb1 = y1;
+    if (yb1 > MOTE_FB_H) yb1 = MOTE_FB_H;
+    float inv = 1.0f / scale;
+    for (int py = yb0; py < yb1; py++) {
+        float dy = py - cy;
+        uint16_t *drow = fb + py * MOTE_FB_W;
+        for (int px = x0; px < x1; px++) {
+            float dx = px - cx;
+            /* inverse-rotate then unscale, into source-rect coords */
+            float u = (c * dx + s * dy) * inv + hw;
+            float v = (-s * dx + c * dy) * inv + hh;
+            if (u < 0.0f || v < 0.0f) continue;
+            int su = (int)u, sv = (int)v;
+            if (su >= fw || sv >= fh) continue;
+            uint16_t sp = img->pixels[(fy + sv) * iw + fx + su];
+            if (!opaque && sp == key) continue;
+            drow[px] = blend ? blit_blend565(drow[px], sp, blend) : sp;
+        }
+    }
+}
+
 static void draw_tilemap(uint16_t *fb, int y0, int y1) {
     if (!s_map || !s_tiles || !s_tiles->sheet) return;
     const int tw = s_tiles->tile_w, th = s_tiles->tile_h;
@@ -223,4 +285,74 @@ void mote_scene2d_raster(uint16_t *fb, int y0, int y1) {
                       s->fx, s->fy, s->fw, s->fh, s->flags, y0, y1);
         }
     }
+}
+
+/* ---- immediate-mode 2D framebuffer drawing (see mote_2d.h) -------------- */
+void mote_draw_pixel(uint16_t *fb, int x, int y, uint16_t color) {
+    if ((unsigned)x < MOTE_FB_W && (unsigned)y < MOTE_FB_H) fb[y * MOTE_FB_W + x] = color;
+}
+
+void mote_draw_line(uint16_t *fb, int x0, int y0, int x1, int y1,
+                    uint16_t color, int yc0, int yc1) {
+    if (yc0 < 0) yc0 = 0;
+    if (yc1 > MOTE_FB_H) yc1 = MOTE_FB_H;
+    int dx = x1 - x0, dy = y1 - y0;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int steps = (adx > ady ? adx : ady);
+    if (steps < 1) steps = 1;
+    float inv = 1.0f / (float)steps;
+    float px = (float)x0, py = (float)y0, sx = dx * inv, sy = dy * inv;
+    for (int i = 0; i <= steps; i++, px += sx, py += sy) {
+        int ix = (int)px, iy = (int)py;
+        if (iy >= yc0 && iy < yc1 && (unsigned)ix < MOTE_FB_W) fb[iy * MOTE_FB_W + ix] = color;
+    }
+}
+
+void mote_draw_rect(uint16_t *fb, int x, int y, int w, int h,
+                    uint16_t color, int fill, int yc0, int yc1) {
+    if (yc0 < 0) yc0 = 0;
+    if (yc1 > MOTE_FB_H) yc1 = MOTE_FB_H;
+    int x1 = x + w, y1 = y + h;
+    if (fill) {
+        int xa = x < 0 ? 0 : x, xb = x1 > MOTE_FB_W ? MOTE_FB_W : x1;
+        int ya = y < yc0 ? yc0 : y, yb = y1 > yc1 ? yc1 : y1;
+        for (int j = ya; j < yb; j++) {
+            uint16_t *row = fb + j * MOTE_FB_W;
+            for (int i = xa; i < xb; i++) row[i] = color;
+        }
+    } else {
+        mote_draw_line(fb, x, y, x1 - 1, y, color, yc0, yc1);
+        mote_draw_line(fb, x, y1 - 1, x1 - 1, y1 - 1, color, yc0, yc1);
+        mote_draw_line(fb, x, y, x, y1 - 1, color, yc0, yc1);
+        mote_draw_line(fb, x1 - 1, y, x1 - 1, y1 - 1, color, yc0, yc1);
+    }
+}
+
+void mote_draw_circle(uint16_t *fb, int cx, int cy, int r,
+                      uint16_t color, int fill, int yc0, int yc1){
+    if (r < 1) r = 1;
+    if (yc0 < 0) yc0 = 0;
+    if (yc1 > MOTE_FB_H) yc1 = MOTE_FB_H;
+    if (fill){
+        for (int dy = -r; dy <= r; dy++){
+            int py = cy + dy;
+            if (py < yc0 || py >= yc1) continue;
+            int half = (int)(sqrtf((float)(r * r - dy * dy)) + 0.5f);
+            int x0 = cx - half, x1 = cx + half;
+            if (x0 < 0) x0 = 0;
+            if (x1 > MOTE_FB_W - 1) x1 = MOTE_FB_W - 1;
+            uint16_t *row = fb + py * MOTE_FB_W;
+            for (int px = x0; px <= x1; px++) row[px] = color;
+        }
+        return;
+    }
+    int x = r, y = 0, err = 1 - r;
+    #define MOTE_CPLOT(PX,PY) do { int _x=(PX),_y=(PY); \
+        if (_y>=yc0 && _y<yc1 && (unsigned)_x<(unsigned)MOTE_FB_W) fb[_y*MOTE_FB_W+_x]=color; } while(0)
+    while (x >= y){
+        MOTE_CPLOT(cx+x,cy+y); MOTE_CPLOT(cx+y,cy+x); MOTE_CPLOT(cx-y,cy+x); MOTE_CPLOT(cx-x,cy+y);
+        MOTE_CPLOT(cx-x,cy-y); MOTE_CPLOT(cx-y,cy-x); MOTE_CPLOT(cx+y,cy-x); MOTE_CPLOT(cx+x,cy-y);
+        y++; if (err < 0) err += 2*y+1; else { x--; err += 2*(y-x)+1; }
+    }
+    #undef MOTE_CPLOT
 }

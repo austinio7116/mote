@@ -23,7 +23,8 @@ void mote_audio_play(const int16_t *pcm, int count, float gain);  /* one-shot 22
  * (bounded by max) only when out != NULL. See the ABI note on audio_render_sfx. */
 int  mote_audio_render_sfx(const struct MoteSfx *p, int16_t *out, int max);
 void mote_audio_off(void);                        /* silence every voice */
-void mote_audio_set_volume(float v);              /* 0..1 master (engine menu) */
+void mote_audio_set_volume(float v);              /* 0..1 master (engine menu + games) */
+float mote_audio_get_volume(void);                /* current 0..1 master */
 void mote_audio_render(int16_t *out, int n);      /* mix n mono samples */
 
 #endif /* MOTE_AUDIO_H */

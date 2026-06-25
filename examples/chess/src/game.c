@@ -391,7 +391,9 @@ static void g_update(float dt) {
             if (anim_active && r == anim_to_rank && f == anim_to_file) continue;
             int type, color;
             if (!piece_at(r, f, &type, &color)) continue;
-            draw_piece(type, color, square_world(r, f), piece_basis(type, color));
+            Vec3 pw = square_world(r, f);
+            mote->scene_add_shadow(pw, 0.42f, 0.4f);     /* soft shadow on the board */
+            draw_piece(type, color, pw, piece_basis(type, color));
         }
     }
 
@@ -402,6 +404,7 @@ static void g_update(float dt) {
         Vec3 pos = v3(anim_from.x + (anim_to.x - anim_from.x) * t,
                       anim_from.y + lift,
                       anim_from.z + (anim_to.z - anim_from.z) * t);
+        mote->scene_add_shadow(v3(pos.x, 0.0f, pos.z), 0.42f, 0.4f);  /* shadow stays on the board */
         draw_piece(anim_type, anim_color, pos, piece_basis(anim_type, anim_color));
     }
 
@@ -435,6 +438,6 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 5100, .max_spheres = 8, .depth = 1 },   /* no physics, no splats */
+    .config = { .max_tris = 5100, .max_spheres = 8, .max_shadows = 32, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

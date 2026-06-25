@@ -86,6 +86,7 @@ typedef struct {
     int8_t   hint;
     MeshVert verts[HC_MAX_V];
     MeshFace faces[HC_MAX_F];
+    uint16_t colors[HC_MAX_F];        /* engine per-face colours */
     Mesh     mesh;
 } HullCacheEntry;
 
@@ -103,7 +104,7 @@ const Mesh *hull_mesh(uint32_t mesh_seed, int class_hint) {
         s_hc_next = (s_hc_next + 1) % HULL_CACHE_N;
         if (e->used == 2) continue;            /* pinned (player) */
         ship_gen_mesh_class(mesh_seed, class_hint);
-        ship_gen_copy(e->verts, HC_MAX_V, e->faces, HC_MAX_F, &e->mesh);
+        ship_gen_copy(e->verts, HC_MAX_V, e->faces, e->colors, HC_MAX_F, &e->mesh);
         e->used = 1;
         e->seed = mesh_seed;
         e->hint = (int8_t)class_hint;

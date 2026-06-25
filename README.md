@@ -197,7 +197,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
 - **Emulator (centre)** — the real engine running your game inside a
   photo-accurate, calibrated, crisp integer-scaled Thumby Color shell.
 - **Inspector (right)** — properties of the selected file. For `game.toml` it
-  parses your `MoteConfig` pools out of the C source and shows a **~276 KB arena
+  parses your `MoteConfig` pools out of the C source and shows a **~272 KB arena
   budget meter** so you can see your memory headroom (§7).
 - **Bottom dock — tabbed tools:**
 
@@ -657,6 +657,89 @@ planets, glows, target rings. `cam_rel_pos` is camera-relative (`world − cam`)
 mote->scene_add_sphere(v3_sub(ball.pos, cam_pos), 0.12f, MOTE_RGB565(248,248,248));
 ```
 
+#### `int scene_add_sphere_tex(Vec3 pos, float radius, const Mat3 *orient, const MoteSphereTex *tex)`
+A **textured / oriented** sphere impostor. The engine still owns the geometry —
+disc raster, per-pixel normal, depth — and rotates the normal into the sphere's
+**local** frame by `orient` (rows right/up/forward; `NULL` = identity), so the
+surface turns as the object spins. `tex` (a `const MoteSphereTex`) says where the
+colour comes from and how it's lit:
+- an **equirectangular texture** — raw `texels` (RGB565) *or* `indices` + `palette`
+  (compact; planets), or
+- a per-pixel **`albedo(Vec3 n_local, void *ud)`** callback (procedural patterns —
+  stripes, numbers), and
+- a `shade_mode`: `FLAT` / `LIT` / `SMOOTH` / `TOON` / `GLOSS`, or `CUSTOM` with a
+  `shade(...)` callback that returns the final colour (e.g. multi-lamp speculars).
+
+Sized by `max_tex_spheres`. Powers ThumbyCue's numbered/striped balls and
+Indemnity's lit planets. See `mote_sphere.h`.
+```c
+static MoteSphereTex ball = { .albedo = ball_pattern, .shade_mode = MOTE_SHADE_SMOOTH };
+mote->scene_add_sphere_tex(ball_pos, R, &ball_orient, &ball);
+```
+
+#### Particle / beam FX — `scene_add_point` / `scene_add_line` / `scene_add_disc`
+Depth-tested 3D primitives for effects (drawn in the scene pass, tested against
+meshes but not depth-writing, so they layer like sparks). All take **camera-relative
+world** positions (or absolute, with `scene_camera`). Sized by `max_points` /
+`max_lines` / `max_discs`.
+```c
+mote->scene_add_point(p, color, 2);            // a size-px dot (debris, dust, stars)
+mote->scene_add_line(a, b, color);             // a 3D segment (lasers, beams) — near-clipped
+mote->scene_add_disc(p, radius, color);        // a screen-facing filled disc (fireballs/glows)
+```
+
+#### `int scene_add_ring(Vec3 pos, float radius, uint16_t color)`
+A **camera-facing circle outline** of world `radius` — depth-tested, always facing
+the camera, so it reads as an object's circular silhouette (ghost ball at the
+contact point, target reticle, selection ring). Sized by `max_rings`.
+
+#### `int scene_add_billboard(Vec3 pos, const MoteImage *img, int fx, int fy, int fw, int fh, float world_h, uint8_t blend)`
+A **camera-facing textured quad** — a "3D sprite" — at a world position. It stays
+upright and square to the screen, sized by `world_h` (full height in world units),
+so it shrinks with distance and keeps the image's aspect. `fx/fy/fw/fh` pick a
+sub-rect for sprite sheets (0 sizes = whole image). Depth-tested: opaque
+(`MOTE_BLEND_NONE`) sprites also write depth, blended ones (`MOTE_BLEND_ALPHA`/`_ADD`)
+layer on top. Colour-keyed. For trees, pickups, enemies, smoke, muzzle flashes,
+explosions. Sized by `max_billboards`.
+
+#### `int scene_add_tri(Vec3 a, Vec3 b, Vec3 c, uint16_t color, uint32_t flags)`
+An **immediate-mode world triangle** with a caller-supplied flat colour (the engine
+projects, near-clips, depth-tests and fills it but does *not* light it). For dynamic
+/ procedural geometry that isn't a baked `Mesh` — generated tables, voxel faces,
+debug shapes. **Double-sided** (drawn regardless of winding, unlike
+`scene_add_object`). Emits into the `max_tris` pool. `flags` are `MOTE_DRAW_*`.
+
+#### `int scene_add_shadow(Vec3 ground_pos, float radius, float strength)`
+A **soft ground-shadow decal** — a darkening ellipse on the ground plane under an
+object, foreshortened with the view and faded from the centre out (`strength` 0..1,
+0 → default). Depth-tested so raised geometry occludes it; drawn before impostor
+balls so an object paints over its own shadow. Sized by `max_shadows`. Used by
+ThumbyCue/pool balls, tanks, chess pieces, the golf ball, etc. For non-round
+objects use **`scene_add_shadow_ex(ground_pos, semi_a, semi_b, strength)`** — the
+footprint is the ellipse spanned by two **world** ground-plane semi-axis vectors,
+so it matches the object's shape and heading (a tank passes `right*halfW` and
+`forward*halfL` for a long oval along its hull). `scene_add_shadow(radius)` is the
+round special case.
+
+#### `int scene_add_object_ex(const MoteObject *obj, uint32_t flags)`
+`scene_add_object` with per-object draw flags. `MOTE_DRAW_NO_DEPTH_WRITE` —
+depth-test but don't write, for coplanar overlays (e.g. pocket lips, decals) that
+later geometry must paint over. `MOTE_DRAW_BLEND(mode)` — draw the whole mesh
+**translucent** (`MOTE_BLEND_ALPHA` ~50%, or `MOTE_BLEND_ADD` additive) for water,
+glass, force-fields, glows; works on flat-coloured and textured meshes alike.
+
+#### `void set_background_cb(void (*fn)(uint16_t *fb, int y0, int y1))`
+Registers a **per-band background pass** run *before* the 3D scene (depth already
+cleared), on both cores with disjoint row bands `[y0,y1)` — so you can paint a
+gradient / starfield / nebula that the scene then draws over, without owning the
+whole frame. `NULL` restores the solid `scene_set_background` colour. Indemnity's sky
+is drawn this way.
+
+#### `void scene_set_near(float near_m)`
+Moves the near clip plane (metres). The 0.5 m default suits a space sim; small scenes
+(a snooker table) need ~0.05 m or close geometry clips. Also rescales the depth
+buffer. Set once in `init()`.
+
 #### `int scene_tri_count(void)`
 Triangles emitted into the draw-list so far this frame. Use it for HUD/profiling or
 to back off detail when you're near the `max_tris` budget.
@@ -682,6 +765,14 @@ per-face `face_colors[]` array for multi-coloured models (multi-material OBJ,
 height-tinted terrain). A per-draw `MoteObject.color` (via `mote_draw_tint` /
 `mote_model_draw_tint`) overrides both — for team colours, damage flashes, selection
 highlights. The bakers emit flat or per-face automatically.
+
+#### Textured (UV-mapped) meshes
+A `Mesh` with a non-NULL `texture` (a `MoteImage`) and a `face_uvs` array is drawn
+**textured** instead of flat-coloured — through the ordinary `scene_add_object` path,
+no new call. `face_uvs` is `nfaces*6` bytes: per-corner `u0,v0,u1,v1,u2,v2`, each
+`0..255` spanning the texture. The texel is still lit by the sun (sampled colour ×
+face shade). Size `max_tex_tris` to the textured faces visible at once. Combine with
+`MOTE_DRAW_BLEND()` (above) for translucent textured surfaces like water.
 
 ### 5.2 — 2D scene (sprites + tilemap)
 
@@ -889,6 +980,18 @@ source rect, `flags` the `MOTE_SPR_*` flips, and `(y0,y1)` the row clip band —
 mote->blit(fb, &logo_img, (128-logo_W)/2, 2, 0, 0, logo_W, logo_H, 0, 0, 128);
 ```
 
+#### `void blit_ex(uint16_t *fb, const MoteImage *img, float cx, float cy, int fx, int fy, int fw, int fh, float angle, float scale, uint8_t blend, int yc0, int yc1)`
+A **freely rotated and scaled** sprite blit, centred at `(cx,cy)` in framebuffer
+pixels — `angle` in radians, `scale` 1.0 = original size. Where `blit` only does
+axis-aligned copies (plus 90° steps), this handles any angle/zoom: spinning pickups,
+twin-stick sprites, HUD dials, screen-shake. `fw/fh` of 0 mean the whole image.
+Colour-keyed, with `blend` = `MOTE_BLEND_*` (`NONE`/`ALPHA`/`ADD`). Immediate-mode —
+call from `overlay()` with `0, 128`, or a render/background callback with its band.
+```c
+// in overlay(fb): a spinning, pulsing additive sparkle at the top-left
+mote->blit_ex(fb, &spark_img, 18, 18, 0, 0, 0, 0, t*2.5f, 2.0f, MOTE_BLEND_ADD, 0, 128);
+```
+
 ### 5.3 — Physics (rigid bodies)
 
 A full-3D impulse rigid-body solver (spheres, OBB boxes, planes, capsules, convex
@@ -1054,6 +1157,16 @@ void g_init(void){ coin = mote_sfx_bake(mote, &coin_sfx); }   // synth once, int
 Silences every voice immediately. The OS already calls this on game exit so notes
 don't ring into the launcher.
 
+#### `void audio_set_master(float v)` / `float audio_get_master(void)`
+The engine-owned **master volume** (0..1), applied to all audio (synth + samples) in
+the mixer. This is the *same* knob the engine menu's VOLUME row drives — so a game's
+own volume setting and the system menu stay in sync. Route your in-game volume option
+here instead of scaling each sound yourself; persists across the session.
+```c
+mote->audio_set_master(0.7f);                         // default-ish
+int pct = (int)(mote->audio_get_master() * 100.0f);   // for a settings UI
+```
+
 > See §9 for synth-vs-sample guidance. Demos: `examples/piano3d` (synth keyboard).
 
 ### 5.7 — Text, telemetry, memory, control
@@ -1067,6 +1180,19 @@ char buf[16]; int q = 0; buf[q++]='H'; buf[q++]='P'; buf[q++]=' ';
 q += mote_itoa(hp, buf+q); buf[q]=0;
 mote->text(fb, buf, 4, 3, MOTE_RGB565(250,230,90));
 ```
+
+#### 2D drawing — `draw_pixel` / `draw_line` / `draw_rect` / `draw_circle`
+Immediate-mode 2D framebuffer primitives (screen space, RGB565, no depth) for HUDs,
+overlays and custom backgrounds — the companions to `text`/`blit`. From `overlay()`
+pass `yc0=0, yc1=128`; from a `set_background_cb` pass the band `[y0,y1)` (they're
+row-clipped so both cores can draw concurrently). `draw_rect`/`draw_circle` take a
+`fill` flag (non-zero = solid, else outline).
+```c
+mote->draw_line(fb, x0, y0, x1, y1, color, 0, 128);   // bar, beam, debug line
+mote->draw_rect(fb, x, y, w, h, color, 1, 0, 128);     // filled HUD panel
+mote->draw_circle(fb, cx, cy, r, color, 0, 0, 128);    // outline (gauge, marker)
+```
+(In the 3D scene, `scene_add_ring` is the depth-tested camera-facing circle — §5.1.)
 
 #### `uint64_t micros(void)`
 Monotonic microsecond clock. Use it for timing, seeding RNGs, etc.
@@ -1226,11 +1352,11 @@ cap**), and an RGB565 albedo + quantised normal per face.
 
 ## 7. Memory model
 
-There is **one shared 276 KB SRAM arena** per game. At load, the OS sizes the
+There is **one shared 272 KB SRAM arena** per game. At load, the OS sizes the
 engine's pools to *your* declared `MoteConfig`; whatever's left, your game claims
 via `mote->alloc()`. A lean game keeps the slack.
 
-### Why 276 KB and not the chip's full 520 KB?
+### Why 272 KB and not the chip's full 520 KB?
 
 The RP2350's 520 KB SRAM is **one 512 KB contiguous bank + two 4 KB scratch banks**
 (measured from the firmware's linker map: `RAM 0x20000000 len 0x80000`, plus
@@ -1242,20 +1368,20 @@ the budget breaks down like this:
 
 | Region | Size | Notes |
 |--------|------|-------|
-| **Game arena** | **276 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
+| **Game arena** | **272 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
 | Framebuffer | 32 KB | 128×128 RGB565. A second 32 KB buffer is used when the async-overlap present is on (render frame N+1 while N streams to the LCD over SPI DMA). |
 | Pipeline vertex scratch | ~7 KB | `s_view`/`s_sx`/`s_sy`/`s_sd`/`s_front` (320-vertex working set). |
 | Core0 + Core1 stacks | 8 KB | both cores rasterise; `PICO_STACK_SIZE` + `PICO_CORE1_STACK_SIZE`, 4 KB each. |
 | SDK malloc heap | 16 KB | `PICO_HEAP_SIZE` (engine/SDK use, separate from the game arena). |
 | Vector table + SDK/libc/clocks BSS + code statics | ~9 KB | `ram_vector_table`, audio mixer, USB-CDC, launcher/menu, C runtime. |
 
-That's **276 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
-of headroom.** So 276 KB isn't "whatever's left" — it's a deliberate, round budget set
+That's **272 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
+of headroom.** So 272 KB isn't "whatever's left" — it's a deliberate, round budget set
 *below* the true ceiling. That margin is the guarantee: if your `MoteConfig` + `alloc()`s
-fit in 276 KB, the game is *certain* to load and run alongside the framebuffers, both
+fit in 272 KB, the game is *certain* to load and run alongside the framebuffers, both
 stacks, the SDK heap, USB and audio — with no per-game tuning of the system.
 
-![The 276 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
+![The 272 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
 Declare your pools in the vtable `config`:
 
@@ -1280,7 +1406,7 @@ Declare your pools in the vtable `config`:
   hold MENU 3 s → the menu) shows **ARENA used/total**, and Studio's Inspector shows
   the budget meter for `game.toml`.
 - **Sizing tip:** roughly `max_tris × 36 B + (depth ? 32 KB : 0) + physics pools +
-  your alloc()s` must fit 276 KB.
+  your alloc()s` must fit 272 KB.
 
 > A game with **no** `config` at all falls back to a generous static worst-case so
 > legacy games still run — but always declare your pools so you get the slack.
@@ -1492,8 +1618,8 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `tetris3d` | grid logic + engine-rendered cubes (~190 lines) |
 | `pong3d`, `arkanoid3d` | polished arcade: trails, particles, power-ups, levels, `menu` for game-over |
 | `nightmote` | **2D horde survivor** — the 2D sprite scene drawing a culled swarm, a WANG16 autotiled procedural ground (grass + alt-grass + mud), baked SFX recipes, XP/level-up build, overlay HUD |
-| `thumbycue` | **full game port** — 3D snooker & pool on the dual-core full-screen `render_band` hook (custom rasteriser, textured ball impostors, physics/rules/AI, sampled SFX) |
-| `indemnity` | **full game port** (~20k lines) — Elite-style space sim (flight/combat/trade/galaxy) on `render_band`; arena-resident render buffers, baked per-weapon SFX, uses the **save + rumble** APIs |
+| `thumbycue` | **full game port** — 3D snooker & pool rendered through the **built-in engine**: `scene_add_tri` table, `scene_add_sphere_tex` numbered/striped balls, soft ball shadows, ghost-ball `scene_add_ring`, physics/rules/AI, sampled SFX |
+| `indemnity` | **full game port** (~20k lines) — Elite-style space sim (flight/combat/trade/galaxy) on the **built-in engine**: `scene_add_object` ships/stations, textured-impostor planets, point/line/disc FX, `set_background_cb` starfield; baked per-weapon SFX; **save + rumble** APIs |
 | `tanks` | **3D rigid-part animation** (the showcase) — a rigged tank (body/tracks/turret/barrel), a baked recoil clip triggered on fire, procedural turret aim mixed with the clip, per-part team tinting |
 | `physics`, `materials`, `playground`, `dominoes`, `hulls` | the rigid-body solver (boxes/spheres/hulls/materials/stacking) |
 | `pickups`, `shooter` | `phys_overlap` / `phys_raycast` as game mechanics |
@@ -1507,6 +1633,8 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `tiles` | the render-time autotiler — a procedural Blob-47 cave you can dig live |
 | `herodemo` | the sprite-animation runtime — a platformer with idle/walk/jump/fall clips |
 | `imgdemo` | baked PNG/BMP images (sprite sheet + overlay blit) |
+| `fxdemo` | the FX toolkit — depth-tested points/lines/discs/ring, textured + procedural sphere impostors, soft shadow, `set_background_cb` gradient, a 3D-sprite billboard, a textured mesh, and an additive `blit_ex` HUD sparkle |
+| `wolfmote` | **Wolfenstein-3D-style FPS** — textured wall/door cube meshes, billboard enemies (guard + brute, aim/fire/hit/dead) + scenery, a `blit_ex` gun with additive muzzle flash, two weapons, doors (B), hand-authored text-map levels, and `MoteSfx` sound |
 
 ### Key reference files to read when in doubt
 
@@ -1521,6 +1649,44 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.6-alpha
+
+**The big games now draw through the built-in engine.** ThumbyCue and Indemnity Run
+used to carry their own custom rendering code; now they draw the same way any small game
+does — by calling the engine. To make that work, the engine gained the drawing features
+they needed (textured/numbered balls, lit planets, shadows, particle/beam effects,
+circles, sky backgrounds), plus 3D sprite billboards, textured meshes, rotated/scaled 2D
+sprites and alpha/additive blending — usable by every game (engine interface version
+23 → **35**; reflash `firmware_mote_os.uf2`).
+
+- **Indemnity Run** and **ThumbyCue** rewritten to render *through the engine* directly
+  (shared `mote_vec.h`/`mote_mesh.h`, `scene_add_*`); their `r3d_*` renderers are gone.
+- **New 3D scene primitives**: `scene_add_point` / `scene_add_line` / `scene_add_disc`
+  (depth-tested FX), `scene_add_tri` (double-sided immediate-mode world triangle),
+  `scene_add_sphere_tex` (textured *or* callback-shaded oriented sphere impostor —
+  numbered balls, lit planets), `scene_add_shadow` / `scene_add_shadow_ex` (soft round
+  or oriented-oval ground shadows), `scene_add_ring` (camera-facing circle outline),
+  plus `MOTE_DRAW_NO_DEPTH_WRITE` and `scene_add_object_ex`.
+- **Background + camera**: `set_background_cb` (per-band sky pass), `scene_set_near`.
+- **3D sprites + texturing + blend**: `scene_add_billboard` (camera-facing textured
+  quads — trees/pickups/enemies/smoke), textured meshes (`Mesh.texture` + per-corner
+  `face_uvs`, drawn through `scene_add_object`), `blit_ex` (rotate/scale any 2D sprite),
+  and `MOTE_BLEND_ALPHA` / `_ADD` on billboards, `blit_ex` and whole meshes
+  (`MOTE_DRAW_BLEND`) — glows, lasers, water, glass.
+- **2D framebuffer drawing** for HUDs: `draw_pixel` / `draw_line` / `draw_rect` /
+  `draw_circle` (companions to `text`/`blit`).
+- **Engine master volume**: `audio_set_master` / `audio_get_master` — one knob shared by
+  every game and the engine menu (games route their volume option here).
+- **pool** upgraded: textured/numbered balls + soft shadows, and a fixed table (real
+  cushions + no z-fight flicker). **Soft shadows** added to `tanks`, `chess`, `dominoes`,
+  `golf`. New **`fxdemo`** (FX/impostor/shadow/ring/billboard/blend showcase) and
+  **`wolfmote`** (a full Wolfenstein-3D-style FPS — textured walls/doors, billboard
+  enemies + scenery, two weapons, sound, hand-authored levels). Both ship icons.
+- Fixes: in-game volume and the engine menu now share one master and re-arm audio on
+  close (no more dead sound after the menu); textured triangles are now
+  perspective-correct (no skew up close); a game declaring only the newer pools is no
+  longer misread as legacy (it was overflowing the arena); the load arena is **272 KB**.
 
 ### 0.5-alpha
 

@@ -106,11 +106,13 @@ void mote_line(float x0, float y0, uint16_t d0,
     }
 }
 
-MOTE_HOT
-void mote_tri(float ax, float ay, uint16_t az,
+/* Shared core; write_depth is a literal at both call sites so -O2 folds the
+ * inner branch away — mote_tri and mote_tri_nowrite each get a clean hot loop. */
+static inline __attribute__((always_inline))
+void tri_core(float ax, float ay, uint16_t az,
             float bx, float by, uint16_t bz,
             float cx, float cy, uint16_t cz,
-            uint16_t color, int y_min, int y_max) {
+            uint16_t color, int y_min, int y_max, int write_depth) {
     /* Signed area*2. Screen-clockwise => positive. <=0 is backfacing or
      * degenerate — cull. */
     float area2 = edge(ax, ay, bx, by, cx, cy);
@@ -149,7 +151,7 @@ void mote_tri(float ax, float ay, uint16_t az,
             if (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f) {
                 uint16_t d = (uint16_t)z;
                 if (d > dp_row[px]) {
-                    dp_row[px] = d;
+                    if (write_depth) dp_row[px] = d;
                     fb_row[px] = color;
                 }
             }
@@ -157,4 +159,20 @@ void mote_tri(float ax, float ay, uint16_t az,
         }
         w0_row += w0_dy; w1_row += w1_dy; w2_row += w2_dy; z_row += z_dy;
     }
+}
+
+MOTE_HOT
+void mote_tri(float ax, float ay, uint16_t az,
+            float bx, float by, uint16_t bz,
+            float cx, float cy, uint16_t cz,
+            uint16_t color, int y_min, int y_max) {
+    tri_core(ax, ay, az, bx, by, bz, cx, cy, cz, color, y_min, y_max, 1);
+}
+
+MOTE_HOT
+void mote_tri_nowrite(float ax, float ay, uint16_t az,
+            float bx, float by, uint16_t bz,
+            float cx, float cy, uint16_t cz,
+            uint16_t color, int y_min, int y_max) {
+    tri_core(ax, ay, az, bx, by, bz, cx, cy, cz, color, y_min, y_max, 0);
 }

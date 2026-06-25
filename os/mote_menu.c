@@ -7,6 +7,7 @@
 #include "mote_font.h"
 #include "mote_perf.h"
 #include "mote_config.h"
+#include "mote_audio.h"
 #include <string.h>
 
 /* Sticky across opens so the player's choices persist within a session. */
@@ -76,8 +77,10 @@ int mote_engine_menu(uint16_t *fb) {
     int sel = 0, armed = 0;            /* armed once MENU is released (it's held on open) */
     uint64_t last = mote_plat_micros();
 
+    /* Sync the slider to the live engine master so a game's own volume option and
+     * this menu show the same value (and opening the menu never resets it). */
+    s_vol = (int)(mote_audio_get_volume() * 100.0f + 0.5f);
     mote_plat_set_brightness(s_bright);
-    mote_plat_set_volume(s_vol);
     dim(fb);                           /* darken the frozen frame once */
 
     while (!mote_plat_should_quit()) {

@@ -23,6 +23,7 @@
 
 static MeshVert s_verts[MAX_SV];
 static MeshFace s_faces[MAX_SF];
+static uint16_t s_facecolors[MAX_SF];   /* engine per-face colours (parallel to s_faces) */
 static Mesh     s_mesh;
 
 /* Proposal-look switch (style lab — sheets only). */
@@ -57,9 +58,10 @@ static int add_vert(float x, float y, float z) {
 
 static void add_face(int a, int b, int c, uint16_t color) {
     if (s_nf >= MAX_SF) return;
+    int idx = s_nf;
     MeshFace *f = &s_faces[s_nf++];
     f->a = (uint8_t)a; f->b = (uint8_t)b; f->c = (uint8_t)c;
-    f->color = color;
+    s_facecolors[idx] = color;          /* engine: per-face colour in a parallel array */
     /* Normal from the float verts (quantised later with everything). */
     float ux = s_fx[b] - s_fx[a], uy = s_fy[b] - s_fy[a], uz = s_fz[b] - s_fz[a];
     float vx = s_fx[c] - s_fx[a], vy = s_fy[c] - s_fy[a], vz = s_fz[c] - s_fz[a];
@@ -359,6 +361,8 @@ const Mesh *station_gen_mesh_old(uint32_t seed) {
 
     s_mesh.verts = s_verts;
     s_mesh.faces = s_faces;
+    s_mesh.face_colors = s_facecolors;
+    s_mesh.color = 0;
     s_mesh.nverts = (uint16_t)s_nv;
     s_mesh.nfaces = (uint16_t)s_nf;
     s_mesh.scale = maxc;
@@ -1188,6 +1192,8 @@ static const Mesh *station_gen_style1(uint32_t seed) {
     }
     s_mesh.verts = s_verts;
     s_mesh.faces = s_faces;
+    s_mesh.face_colors = s_facecolors;
+    s_mesh.color = 0;
     s_mesh.nverts = (uint16_t)s_nv;
     s_mesh.nfaces = (uint16_t)s_nf;
     s_mesh.scale = maxc;

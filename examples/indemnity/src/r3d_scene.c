@@ -8,97 +8,16 @@
  * occlusion is free.
  */
 #include "r3d_scene.h"
-#include "r3d_raster.h"
-#include "r3d_planet.h"
+#include "r3d_pipe.h"
 #include "elite_types.h"
 #include <string.h>
 
-typedef struct {
-    float    x0, y0, x1, y1, x2, y2;
-    uint16_t d0, d1, d2;
-    uint16_t color;
-} SceneTri;                       /* 32 bytes */
-
-static SceneTri s_tris[R3D_SCENE_MAX_TRIS];
-static int      s_ntris;
-
-typedef struct { float x, y; uint16_t d, color; uint8_t size; } ScenePoint;
-typedef struct {
-    float x0, y0, x1, y1;
-    uint16_t d0, d1, color;
-} SceneLine;
-typedef struct { float x, y; uint16_t d, color; int16_t r; } SceneDisc;
-static ScenePoint s_points[R3D_SCENE_MAX_POINTS];
-static SceneLine  s_lines[R3D_SCENE_MAX_LINES];
-static SceneDisc  s_discs[R3D_SCENE_MAX_DISCS];
-static int        s_npoints, s_nlines, s_ndiscs;
-
-void r3d_scene_begin(const Mat3 *cam_basis, float fov_deg) {
-    r3d_pipe_set_camera(cam_basis, fov_deg);
-    s_ntris = 0;
-    s_npoints = 0;
-    s_nlines = 0;
-    s_ndiscs = 0;
-}
-
-void r3d_scene_add_disc(float sx, float sy, uint16_t d, int r_px,
-                        uint16_t color) {
-    if (s_ndiscs >= R3D_SCENE_MAX_DISCS) return;
-    SceneDisc *p = &s_discs[s_ndiscs++];
-    p->x = sx; p->y = sy; p->d = d; p->color = color;
-    p->r = (int16_t)(r_px > 64 ? 64 : r_px);
-}
-
-void r3d_scene_add_point(float sx, float sy, uint16_t d, uint16_t color,
-                         uint8_t size) {
-    if (s_npoints >= R3D_SCENE_MAX_POINTS) return;
-    ScenePoint *p = &s_points[s_npoints++];
-    p->x = sx; p->y = sy; p->d = d; p->color = color; p->size = size;
-}
-
-void r3d_scene_add_line(float x0, float y0, uint16_t d0,
-                        float x1, float y1, uint16_t d1, uint16_t color) {
-    if (s_nlines >= R3D_SCENE_MAX_LINES) return;
-    SceneLine *l = &s_lines[s_nlines++];
-    l->x0 = x0; l->y0 = y0; l->d0 = d0;
-    l->x1 = x1; l->y1 = y1; l->d1 = d1;
-    l->color = color;
-}
-
-int r3d_scene_project(Vec3 cam_rel, float *sx, float *sy, uint16_t *d) {
-    Vec3 v = m3_mul_v3_t(r3d_pipe_camera(), cam_rel);
-    if (v.z <= R3D_NEAR) return 0;
-    float inv_z = 1.0f / v.z;
-    float focal = r3d_pipe_focal();
-    *sx = 64.0f + focal * v.x * inv_z;
-    *sy = 64.0f - focal * v.y * inv_z;
-    float dd = R3D_DEPTH_K * inv_z;
-    /* Floor at 1: Mm-scale points quantise to 0 = the sky-clear value
-     * and silently lose every depth test (SC dust was invisible). */
-    *d = (dd >= 65535.0f) ? 65535u : (dd < 1.0f ? 1u : (uint16_t)dd);
-    return 1;
-}
-
-int r3d_scene_add_object(const R3DObject *obj) {
-    return r3d_pipe_draw_object(obj);
-}
-
-int r3d_scene_add_object_scaled(const R3DObject *obj, float scale) {
-    return r3d_pipe_draw_object_scaled(obj, scale);
-}
-
-int r3d_scene_tri_count(void) { return s_ntris; }
-
-void r3d_emit_tri(float ax, float ay, uint16_t az,
-                  float bx, float by, uint16_t bz,
-                  float cx, float cy, uint16_t cz, uint16_t color) {
-    if (s_ntris >= R3D_SCENE_MAX_TRIS) return;
-    SceneTri *t = &s_tris[s_ntris++];
-    t->x0 = ax; t->y0 = ay; t->d0 = az;
-    t->x1 = bx; t->y1 = by; t->d1 = bz;
-    t->x2 = cx; t->y2 = cy; t->d2 = cz;
-    t->color = color;
-}
+/* The scene draw-list, projection, pipe and triangle/FX raster are GONE — the
+ * Mote engine owns all of that now (the game calls scene_add_object / _sphere_tex
+ * / _point / _line / _disc directly). This file is just the SKY: a per-band
+ * background painter (starfield + nebula + distant galaxies + supercruise dust)
+ * registered via set_background_cb. */
+void fx_sc_dust_draw(uint16_t *fb, int y0, int y1);   /* supercruise streaks (r3d_fx.c) */
 
 /* --- Starfield ---------------------------------------------------------
  * Fixed unit directions at infinity: rotate by the camera transpose,
@@ -549,55 +468,21 @@ static void nebula_fill(uint16_t *fb, int y0p, int y1p) {
     }
 }
 
-void r3d_scene_raster(uint16_t *fb, int y0, int y1) {
-    if (y0 < 0) y0 = 0;
-    if (y1 > ELITE_FB_H) y1 = ELITE_FB_H;
-    if (y0 >= y1) return;
-    /* Callers pass logical rows; everything below runs physical. */
-    int y0p = y0 * R3D_SS, y1p = y1 * R3D_SS;
-
+/* Per-band SKY painter — registered with the engine via set_background_cb. Runs
+ * BEFORE the 3D scene (the engine has already cleared depth), so meshes, planets
+ * and FX draw over it. Logical rows == physical on device (MOTE_SS == 1). */
+void r3d_background(uint16_t *fb, int y0, int y1) {
     if (s_icon_bg) {                     /* icon render: flat key colour, no sky */
-        for (int y = y0p; y < y1p; y++) {
+        for (int y = y0; y < y1; y++) {
             uint16_t *row = fb + y * R3D_FB_W;
             for (int x = 0; x < R3D_FB_W; x++) row[x] = s_icon_bg;
         }
-        r3d_raster_set_fb(fb);
-        r3d_depth_clear(y0p, y1p);
-    } else {
-        if (s_style == 1) nebula_fill(fb, y0p, y1p);   /* band always on */
-        else if (s_nebula && s_neb_str > 0.01f) nebula_fill(fb, y0p, y1p);
-        else memset(fb + y0p * R3D_FB_W, 0,
-                    (size_t)(y1p - y0p) * R3D_FB_W * sizeof(uint16_t));
-        r3d_raster_set_fb(fb);
-        r3d_depth_clear(y0p, y1p);
-        galaxies_raster(fb, y0p, y1p);
-        starfield_raster(fb, y0p, y1p);
-        r3d_planet_raster(fb, y0p, y1p); /* writes depth: ships pass behind */
+        return;
     }
-
-    const float SS = (float)R3D_SS;
-    int n = s_ntris;
-    for (int i = 0; i < n; i++) {
-        const SceneTri *t = &s_tris[i];
-        r3d_tri(t->x0 * SS, t->y0 * SS, t->d0, t->x1 * SS, t->y1 * SS, t->d1,
-                t->x2 * SS, t->y2 * SS, t->d2, t->color, y0p, y1p);
-    }
-
-    /* FX pass: depth-tested, no depth write — ships occlude them.
-     * Discs first (fireballs), so sparks/debris draw over them. */
-    for (int i = 0; i < s_ndiscs; i++) {
-        const SceneDisc *p = &s_discs[i];
-        r3d_disc((int)(p->x * SS), (int)(p->y * SS), p->d,
-                 p->r * R3D_SS, p->color, y0p, y1p);
-    }
-    for (int i = 0; i < s_npoints; i++) {
-        const ScenePoint *p = &s_points[i];
-        r3d_point((int)(p->x * SS), (int)(p->y * SS), p->d, p->color,
-                  p->size * R3D_SS, y0p, y1p);
-    }
-    for (int i = 0; i < s_nlines; i++) {
-        const SceneLine *l = &s_lines[i];
-        r3d_line(l->x0 * SS, l->y0 * SS, l->d0,
-                 l->x1 * SS, l->y1 * SS, l->d1, l->color, y0p, y1p);
-    }
+    if (s_style == 1) nebula_fill(fb, y0, y1);                 /* galactic band */
+    else if (s_nebula && s_neb_str > 0.01f) nebula_fill(fb, y0, y1);
+    else memset(fb + y0 * R3D_FB_W, 0, (size_t)(y1 - y0) * R3D_FB_W * sizeof(uint16_t));
+    galaxies_raster(fb, y0, y1);
+    starfield_raster(fb, y0, y1);
+    fx_sc_dust_draw(fb, y0, y1);          /* supercruise streaks */
 }

@@ -799,6 +799,9 @@ static void g_update(float dt) {
         mote_draw(mote, &trees[k].mesh, trees[k].base);
     mote_draw(mote, &flag_mesh, v3(hole.cup_x, hole.cup_h, hole.cup_z));
 
+    /* soft shadow on the green, at the terrain height under the ball */
+    mote->scene_add_shadow(v3(BALL.pos.x, golf_height(&hole, BALL.pos.x, BALL.pos.z), BALL.pos.z),
+                           0.34f, 0.45f);
     mote->scene_add_sphere(BALL.pos, 0.12f, MOTE_RGB565(248, 248, 248));
 
     if (!s_holed && !s_sink && s_swing == 0 && resting && !s_fly) {
@@ -1038,7 +1041,7 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tris = 3328, .max_spheres = 64, .max_splats = 800,
+    .config = { .max_tris = 3328, .max_spheres = 64, .max_splats = 800, .max_shadows = 4,
                 .max_bodies = 2, .max_contacts = 64, .max_mesh_tris = 3266, .depth = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

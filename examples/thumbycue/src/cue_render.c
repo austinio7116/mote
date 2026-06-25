@@ -4,8 +4,10 @@
 #include "cue_render.h"
 #include "cue_types.h"
 #include "r3d_raster.h"
+#include "mote_api.h"      /* MoteApi / MoteSphereTex / scene_add_* (engine port) */
 #include <math.h>
 #include <string.h>
+#include <stdint.h>
 
 #define CUE_NEAR    0.05f
 #define CUE_DEPTH_K (65535.0f * CUE_NEAR)
@@ -659,69 +661,136 @@ static void add_stri(Vec3 a, Vec3 b, Vec3 c, Vec3 nrm, uint16_t base) {
         push_stri(ox[0], oy[0], od[0], ox[2], oy[2], od[2], ox[3], oy[3], od[3], col);
 }
 
+/* ===== Mote engine port: emit the scene through the engine ABI instead of
+ * the in-game r3d rasteriser. cue_render_build now feeds scene_add_tri (table),
+ * scene_add_sphere_tex (balls), scene_add_point/line (aim/cue) and a background
+ * callback; the engine owns projection, depth, dual-core raster and present. */
+static const MoteApi *s_api;
+void cue_render_set_api(const MoteApi *api) { s_api = api; }
+
+static uint16_t ball_base(uint8_t id);                       /* defined below */
+static uint16_t ball_sample(uint8_t id, Vec3 nb, uint16_t base);
+
+/* per-frame ball specular half-vectors (overhead 4-lamp cluster + single H) */
+static Vec3 s_ballH, s_ballHl[4];
+/* one MoteSphereTex per ball this frame (ud carries the ball id). */
+static MoteSphereTex s_balltex[CUE_MAX_BALLS];
+
+/* Per-pixel ball shading — ported verbatim from the old draw_ball inner loop.
+ * The engine reconstructs the normal/depth and rotates it into ball space; we
+ * return the final colour from the ball-local (nb) + world (nw) normals. */
+static uint16_t cue_ball_shade(Vec3 nb, Vec3 nw, float de, float se, float nz, void *ud) {
+    (void)de; (void)se;
+    uint8_t id = (uint8_t)(uintptr_t)ud;
+    uint16_t base = ball_base(id);
+    float diff = v3_dot(nw, s_light); if (diff < 0) diff = 0;
+    float s = v3_dot(nw, s_ballH);    if (s < 0) s = 0;
+    float down = -nw.y;               if (down < 0) down = 0;
+    uint16_t bc = ball_sample(id, nb, base);
+    uint16_t col;
+    switch (s_light_mode) {
+    case 0:
+        col = shade565(bc, (0.30f + 0.70f*diff) * (0.78f + 0.22f*nz));
+        { float ss = s; ss*=ss; ss*=ss; ss*=ss; int hi=(int)(ss*26.0f);
+          if (hi>0) col = add565(col, hi, hi*2, hi); }
+        break;
+    case 2:
+        col = shade565(bc, diff>0.62f?1.0f : diff>0.30f?0.74f : 0.52f);
+        col = mix565(col, s_cloth_shadow, (1.0f-diff)*0.40f + down*0.22f);
+        if (s > 0.82f) col = RGB565C(250,250,250);
+        break;
+    case 3:
+        col = shade565(bc, 0.30f + 0.70f*diff);
+        col = mix565(col, s_cloth_shadow, (1.0f-diff)*0.50f + down*0.40f);
+        if (s > 0.60f) { float h=(s-0.60f)*2.5f; h*=h*h; int hi=(int)(h*30.0f);
+          if (hi>0) col = add565(col, hi, hi, hi); }
+        break;
+    case 4: case 5: default: {
+        float thr = (s_light_mode==5) ? 0.93f : (s_light_mode==4) ? 0.955f : 0.975f;
+        float gain = (s_light_mode==5) ? 0.85f : 1.0f;
+        col = shade565(bc, 0.46f + 0.54f*diff);
+        col = mix565(col, s_cloth_shadow, (1.0f-diff)*0.40f + down*0.42f);
+        float refl = 0.0f;
+        for (int li = 0; li < 4; li++) {
+            float si = v3_dot(nw, s_ballHl[li]);
+            if (si > thr) { float h = (si - thr) / (1.0f - thr); refl += h*h; }
+        }
+        if (refl > 1.0f) refl = 1.0f;
+        if (refl > 0.0f) col = mix565(col, RGB565C(255,255,255), refl * gain);
+        break;
+    }
+    }
+    return col;
+}
+
+/* Background vertical gradient — registered with the engine; runs per band. */
+void cue_render_bg(uint16_t *fb, int y0, int y1) {
+    for (int y = y0; y < y1; y++) {
+        float t = (float)y / 128.0f;
+        int r = (int)(((s_bg_top >> 11) & 31) * (1 - t) + ((s_bg_bot >> 11) & 31) * t);
+        int g = (int)(((s_bg_top >> 5) & 63) * (1 - t) + ((s_bg_bot >> 5) & 63) * t);
+        int b = (int)(((s_bg_top) & 31) * (1 - t) + ((s_bg_bot) & 31) * t);
+        uint16_t c = (uint16_t)((r << 11) | (g << 5) | b);
+        uint16_t *row = fb + y * 128;
+        for (int x = 0; x < 128; x++) row[x] = c;
+    }
+}
+
 void cue_render_build(const CueView *v, const CueBall *balls, int n,
                       int aim_active, int aim_ball, Vec3 aim_dir,
                       float power, int aim_level) {
     s_view = *v;
     s_focal = 64.0f / tanf(v->fov_deg * (3.14159265f / 180.0f) * 0.5f);
+    if (!s_api) return;
+    s_api->scene_camera(&v->basis, v->pos, v->fov_deg);   /* resets the draw list */
 
-    s_nstri = 0;
-    s_lip_nstri = -1;
+    /* ball specular half-vectors for cue_ball_shade (4 overhead lamps + one H) */
+    Vec3 vcam = v3_scale(v->basis.r[2], -1.0f);
+    s_ballH = v3_norm(v3_add(s_light, vcam));
+    const float lx = 0.42f, lz = 0.28f;
+    s_ballHl[0] = v3_norm(v3_add(v3_norm(v3(s_light.x+lx, s_light.y, s_light.z+lz)), vcam));
+    s_ballHl[1] = v3_norm(v3_add(v3_norm(v3(s_light.x-lx, s_light.y, s_light.z+lz)), vcam));
+    s_ballHl[2] = v3_norm(v3_add(v3_norm(v3(s_light.x+lx, s_light.y, s_light.z-lz)), vcam));
+    s_ballHl[3] = v3_norm(v3_add(v3_norm(v3(s_light.x-lx, s_light.y, s_light.z-lz)), vcam));
+
+    /* Table: shade per tri (light is static), emit as world tris. Pocket-lip
+     * tris (>= s_lip_ntab) are depth-tested but not depth-writing so the balls
+     * paint over them. scene_add_tri is double-sided, matching the old build. */
     for (int i = 0; i < s_ntab; i++) {
-        if (i == s_bed_ntab) s_bed_nstri = s_nstri;   /* bed→raised boundary */
-        if (i == s_lip_ntab) s_lip_nstri = s_nstri;   /* raised→lip boundary */
-        add_stri(s_tab[i].v[0], s_tab[i].v[1], s_tab[i].v[2],
-                 s_tab[i].nrm, s_tab[i].color);
+        const CueTri *t = &s_tab[i];
+        float ndl = v3_dot(t->nrm, s_light); if (ndl < 0) ndl = -ndl;
+        uint16_t col = shade565(t->color, 0.32f + 0.68f * ndl);
+        uint32_t fl = (i >= s_lip_ntab) ? MOTE_DRAW_NO_DEPTH_WRITE : 0;
+        s_api->scene_add_tri(t->v[0], t->v[1], t->v[2], col, fl);
     }
-    if (s_lip_nstri < 0) s_lip_nstri = s_nstri;
 
-    /* Balls → impostor sprites (+ shadow discs). */
-    s_nspr = 0; s_nshadow = 0;
+    /* Ball shadows: soft ground-shadow decals on the cloth under each ball
+     * (the engine darkens the felt with a radial falloff, like the original). */
     for (int i = 0; i < n; i++) {
         const CueBall *b = &balls[i];
+        if (!b->on || b->drop > 0.0f) continue;
+        s_api->scene_add_shadow(v3(b->pos.x, 0.0f, b->pos.z), s_ballR * 1.55f, 0.5f);
+    }
+
+    /* Balls → textured/oriented sphere impostors (the engine shades per pixel
+     * via cue_ball_shade, rotated by the ball's spin orientation). */
+    for (int i = 0; i < n && i < CUE_MAX_BALLS; i++) {
+        const CueBall *b = &balls[i];
         if (!b->on) continue;
-        float sx, sy, vz;
-        if (!project_z(b->pos, &sx, &sy, &vz)) continue;
-        float rad = s_focal * s_ballR / vz;
-        if (rad < 0.7f) rad = 0.7f;
-        if (s_nspr < CUE_MAX_BALLS) {
-            Sprite *sp = &s_spr[s_nspr++];
-            sp->cx = sx; sp->cy = sy; sp->rad = rad; sp->viewz = vz;
-            sp->orient = b->orient; sp->id = b->id;
-        }
-        /* shadow: a soft disc lying flat ON the cloth, directly under the ball
-         * (lamps are overhead → no side cast). Built as a ground-plane decal so
-         * it foreshortens with the table and spreads toward the camera, staying
-         * visible at the low aim-cam angle. */
-        float gcx, gcy, axx, axy, azx, azy; uint16_t shd;
-        const float sr = s_ballR * 1.55f;      /* shadow radius in world metres */
-        if (b->drop <= 0.0f &&                  /* no shadow once it's dropping in */
-            cue_render_project(v3(b->pos.x,      0.0f, b->pos.z),      &gcx, &gcy, &shd) &&
-            cue_render_project(v3(b->pos.x + sr, 0.0f, b->pos.z),      &axx, &axy, NULL) &&
-            cue_render_project(v3(b->pos.x,      0.0f, b->pos.z + sr), &azx, &azy, NULL)) {
-            if (s_nshadow < CUE_MAX_BALLS) {
-                s_shadow[s_nshadow].cx = gcx; s_shadow[s_nshadow].cy = gcy;
-                s_shadow[s_nshadow].ux = axx - gcx; s_shadow[s_nshadow].uy = axy - gcy;
-                s_shadow[s_nshadow].vx = azx - gcx; s_shadow[s_nshadow].vy = azy - gcy;
-                s_nshadow++;
-            }
-        }
+        s_balltex[i] = (MoteSphereTex){ .shade_mode = MOTE_SHADE_CUSTOM,
+                                        .shade = cue_ball_shade,
+                                        .ud = (void *)(uintptr_t)b->id };
+        s_api->scene_add_sphere_tex(b->pos, s_ballR, &b->orient, &s_balltex[i]);
     }
 
     /* Aim line, ghost ball, object-ball line, cue stick. */
-    s_ndot = 0; s_nodot = 0; s_cue.on = 0; s_ghost.on = 0;
     if (aim_active && aim_ball >= 0 && aim_ball < n && balls[aim_ball].on) {
         Vec3 cuepos = balls[aim_ball].pos;
         Vec3 dir = v3_norm(v3(aim_dir.x, 0, aim_dir.z));
         const float twoR = 2.0f * s_ballR;
         const float step = s_ballR * 2.2f;
         int hit = -1;
-        /* Aiming assist by difficulty level:
-         *   1 = aim line, 2 = + ghost ball, 3 = + object-ball line.
-         * Level 0 shows only the cue stick (drawn below, always). */
         if (aim_level >= 1) {
-            /* nearest ball the cue ball actually contacts along the ray: solve
-             * for the travel distance s where centre separation = 2R. */
             float bests = 1e9f;
             for (int i = 0; i < n; i++) {
                 if (i == aim_ball || !balls[i].on) continue;
@@ -737,71 +806,44 @@ void cue_render_build(const CueView *v, const CueBall *balls, int n,
             float linelen = (hit >= 0) ? bests : 1.4f;
             int ndots = (int)(linelen / step);
             if (ndots > MAX_DOTS) ndots = MAX_DOTS;
-            for (int k = 1; k <= ndots; k++) {
-                Vec3 wp = v3(cuepos.x + dir.x * (k * step), s_ballR,
-                             cuepos.z + dir.z * (k * step));
-                float dx, dy; uint16_t dd;
-                if (cue_render_project(wp, &dx, &dy, &dd) && s_ndot < MAX_DOTS) {
-                    s_dot[s_ndot].x = dx; s_dot[s_ndot].y = dy; s_dot[s_ndot].d = dd;
-                    s_ndot++;
-                }
-            }
+            for (int k = 1; k <= ndots; k++)
+                s_api->scene_add_point(v3(cuepos.x + dir.x*(k*step), s_ballR,
+                                          cuepos.z + dir.z*(k*step)),
+                                       RGB565C(240,240,160), 1);
             if (hit >= 0) {
-                /* ghost-ball: cue centre at contact = cuepos + dir*bests. */
-                Vec3 ghost = v3(cuepos.x + dir.x * bests, s_ballR, cuepos.z + dir.z * bests);
+                Vec3 ghost = v3(cuepos.x + dir.x*bests, s_ballR, cuepos.z + dir.z*bests);
                 if (aim_level >= 3) {
-                    /* object ball departs along the line of centres ghost→object. */
                     Vec3 odir = v3_norm(v3(balls[hit].pos.x - ghost.x, 0,
                                            balls[hit].pos.z - ghost.z));
-                    for (int k = 1; k <= 10; k++) {
-                        Vec3 wp = v3(balls[hit].pos.x + odir.x * (k * step), s_ballR,
-                                     balls[hit].pos.z + odir.z * (k * step));
-                        float dx, dy; uint16_t dd;
-                        if (cue_render_project(wp, &dx, &dy, &dd) && s_nodot < MAX_DOTS) {
-                            s_odot[s_nodot].x = dx; s_odot[s_nodot].y = dy;
-                            s_odot[s_nodot].d = dd; s_nodot++;
-                        }
-                    }
+                    for (int k = 1; k <= 10; k++)
+                        s_api->scene_add_point(v3(balls[hit].pos.x + odir.x*(k*step), s_ballR,
+                                                  balls[hit].pos.z + odir.z*(k*step)),
+                                               RGB565C(120,230,235), 1);
                 }
-                if (aim_level >= 2) {
-                    float gx, gy, gvz;
-                    if (project_z(ghost, &gx, &gy, &gvz)) {
-                        s_ghost.cx = gx; s_ghost.cy = gy;
-                        s_ghost.rad = s_focal * s_ballR / gvz;
-                        uint16_t dd; float t1, t2;
-                        cue_render_project(ghost, &t1, &t2, &dd);
-                        s_ghost.d = dd; s_ghost.on = 1;
-                    }
-                }
+                if (aim_level >= 2)   /* ghost ball: camera-facing ring at the contact point */
+                    s_api->scene_add_ring(ghost, s_ballR, RGB565C(230, 230, 230));
             }
         }
-        /* Cue stick: rests at the tip-contact point on the ball (so it shifts
-         * with the chosen english) and runs back along the ELEVATED cue axis
-         * (butt raised by s_cue_elev → the swerve/masse address). */
+        /* Cue stick: a tapered quad resting at the english-shifted contact point,
+         * running back along the elevated cue axis (two world tris, double-sided). */
         Vec3 up = v3(0,1,0);
         Vec3 rightv = v3_norm(v3_cross(up, dir));
         float ce = cosf(s_cue_elev), se = sinf(s_cue_elev);
-        Vec3 cdir = v3(dir.x*ce, -se, dir.z*ce);          /* into the ball: fwd + down */
+        Vec3 cdir = v3(dir.x*ce, -se, dir.z*ce);
         Vec3 contact = v3(cuepos.x + rightv.x*s_cue_side*s_ballR,
                           s_ballR     + s_cue_vert*s_ballR,
                           cuepos.z + rightv.z*s_cue_side*s_ballR);
-        float gap = 0.015f + power * 0.18f;               /* backswing pulls the tip away */
+        float gap = 0.015f + power * 0.18f;
         Vec3 tip  = v3(contact.x - cdir.x*gap, contact.y - cdir.y*gap, contact.z - cdir.z*gap);
         Vec3 butt = v3(tip.x - cdir.x*0.55f, tip.y - cdir.y*0.55f, tip.z - cdir.z*0.55f);
-        /* Project with NEAR-PLANE CLIPPING so the cue always renders even when the
-         * butt swings behind the camera (close zoom / steep elevation / angle). */
-        Vec3 vt = m3_mul_v3_t(&s_view.basis, v3_sub(tip,  s_view.pos));
-        Vec3 vb = m3_mul_v3_t(&s_view.basis, v3_sub(butt, s_view.pos));
-        if (vt.z > CUE_NEAR) {                            /* tip in front (it's at the ball) */
-            if (vb.z <= CUE_NEAR) {                       /* clip the butt to the near plane */
-                float t = (CUE_NEAR + 0.002f - vt.z) / (vb.z - vt.z);
-                vb = v3(vt.x + (vb.x-vt.x)*t, vt.y + (vb.y-vt.y)*t, CUE_NEAR + 0.002f);
-            }
-            float it = 1.0f/vt.z, ib = 1.0f/vb.z;
-            s_cue.tx = 64.0f + s_focal*vt.x*it; s_cue.ty = 64.0f - s_focal*vt.y*it;
-            s_cue.bx = 64.0f + s_focal*vb.x*ib; s_cue.by = 64.0f - s_focal*vb.y*ib;
-            s_cue.color = RGB565C(214, 176, 104); s_cue.on = 1;
-        }
+        const float wt = 0.004f, wb = 0.013f;   /* world half-widths: tip, butt */
+        Vec3 t0 = v3(tip.x + rightv.x*wt,  tip.y,  tip.z + rightv.z*wt);
+        Vec3 t1 = v3(tip.x - rightv.x*wt,  tip.y,  tip.z - rightv.z*wt);
+        Vec3 b0 = v3(butt.x + rightv.x*wb, butt.y, butt.z + rightv.z*wb);
+        Vec3 b1 = v3(butt.x - rightv.x*wb, butt.y, butt.z - rightv.z*wb);
+        uint16_t cue_col = RGB565C(214, 176, 104);
+        s_api->scene_add_tri(t0, t1, b1, cue_col, 0);
+        s_api->scene_add_tri(t0, b1, b0, cue_col, 0);
     }
 }
 

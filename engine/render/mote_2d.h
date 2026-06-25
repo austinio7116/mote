@@ -82,4 +82,24 @@ void mote_blit(uint16_t *fb, const MoteImage *img,
                int x, int y, int fx, int fy, int fw, int fh,
                uint8_t flags, int y0, int y1);
 
+/* Free rotate + uniform-scale blit, centred at (cx,cy) in framebuffer pixels.
+ * angle in radians, scale 1.0 = original size. fx/fy/fw/fh select a source
+ * sub-rect (0 width/height = the whole image). Colour-keyed; blend =
+ * MOTE_BLEND_* (NONE/ALPHA/ADD). Immediate-mode (no scene state). */
+void mote_blit_ex(uint16_t *fb, const MoteImage *img,
+                  float cx, float cy, int fx, int fy, int fw, int fh,
+                  float angle, float scale, uint8_t blend, int y0, int y1);
+
+/* Immediate-mode 2D framebuffer drawing (screen space, RGB565, no depth). For
+ * HUDs/overlays and background passes. yc0/yc1 bound the rows written: pass the
+ * band [y0,y1) inside a background/render callback (dual-core), or 0..MOTE_FB_H
+ * in overlay(). draw_pixel is bounds-checked to the screen. */
+void mote_draw_pixel(uint16_t *fb, int x, int y, uint16_t color);
+void mote_draw_line(uint16_t *fb, int x0, int y0, int x1, int y1,
+                    uint16_t color, int yc0, int yc1);
+void mote_draw_rect(uint16_t *fb, int x, int y, int w, int h,
+                    uint16_t color, int fill, int yc0, int yc1);
+void mote_draw_circle(uint16_t *fb, int cx, int cy, int r,
+                      uint16_t color, int fill, int yc0, int yc1);
+
 #endif /* MOTE_2D_H */

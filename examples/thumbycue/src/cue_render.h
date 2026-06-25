@@ -26,6 +26,12 @@ typedef struct { Vec3 pos; Mat3 basis; float fov_deg; } CueView;
  * (so render and physics share one geometry source). Call once per table. */
 void cue_render_build_table(const CueTable *t, const CueWorld *w);
 
+/* Mote engine port: hand the renderer the engine jump table (call once before
+ * cue_render_build), and the per-band background gradient the OS calls. */
+struct MoteApi;
+void cue_render_set_api(const struct MoteApi *api);
+void cue_render_bg(uint16_t *fb, int y0, int y1);
+
 /* Per-frame (core0): project everything for the given view. balls[0..n).
  * aim_active draws the cue stick from the cue ball along aim_dir (unit world
  * X–Z). aim_level selects the aiming assist: 0 = none (cue only), 1 = aim

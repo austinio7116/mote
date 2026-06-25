@@ -34,6 +34,5 @@ int r3d_planet_art_peek(int i, const uint8_t **tex, const uint16_t **pal);
 void r3d_planet_emit(Vec3 cam_pos_mm);
 
 /* Rasterise the impostor list into rows [y0,y1). Called by r3d_scene. */
-void r3d_planet_raster(uint16_t *fb, int y0, int y1);
 
 #endif
