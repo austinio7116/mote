@@ -32,7 +32,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 35u  /* v35: textured (UV-mapped) meshes + per-mesh blend (MOTE_DRAW_BLEND) */
+#define MOTE_ABI_VERSION 36u  /* v36: audio_set_stream — register a PCM source mixed on top of the synth */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -377,6 +377,15 @@ typedef struct MoteApi {
     void (*blit_ex)(uint16_t *fb, const MoteImage *img,
                     float cx, float cy, int fx, int fy, int fw, int fh,
                     float angle, float scale, uint8_t blend, int yc0, int yc1);
+
+    /* --- ABI v36: register a PCM source the audio mixer pulls each block.
+     * `fill(out, n)` writes up to n mono int16 samples at 22050 Hz and returns
+     * the count written; it is mixed (added, master-scaled, clamped) on top of
+     * the synth voices. Pass NULL to unregister. For games that run their own
+     * software synth (full music + SFX) instead of the note/play/sfx API —
+     * e.g. the ThumbyCraft port. The callback runs on the audio path, so keep
+     * it non-blocking and read-only w.r.t. heavy game state. */
+    void (*audio_set_stream)(int (*fill)(int16_t *out, int n));
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

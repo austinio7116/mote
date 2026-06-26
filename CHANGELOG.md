@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**A game can now feed its own audio stream into the engine.** Games that run their
+own software synth — like the new ThumbyCraft port, which has full procedural music
+plus its own sound effects — can hand the engine a stream of audio samples to play,
+instead of using the built-in note/sample API. The engine mixes it on top of its own
+voices. **Reflash `firmware_mote_os.uf2`** — the engine interface version goes
+35 → **36**; games built against it need the new firmware, and games already on the
+device keep working.
+
+- **`audio_set_stream(fill)`** (ABI v36): register a callback that fills mono 16-bit
+  samples at 22050 Hz; the engine pulls and mixes it (master-scaled, clamped) each
+  audio block. Pass `NULL` to stop. The engine clears it automatically when a game
+  exits to the launcher.
+- **Per-game `cflags`** — a game folder may include a `cflags` file (one flag per
+  line, `#` comments allowed) whose flags are added to both the host and device
+  compiles. Used by vendored ports that need build-time defines.
+- **New game: ThumbyCraft** — the full voxel sandbox (procedural worlds, biomes,
+  mobs, redstone, day/night, crafting) ported to run as a Mote game.
+
 ## 0.6-alpha
 
 **The big games now draw through the built-in engine.** ThumbyCue and Indemnity Run

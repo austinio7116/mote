@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v35</span>
+    <span class="abi">ABI v36</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -544,6 +544,14 @@ buffer) — exactly what <a href="#fn-mote_sfx_bake"><code>mote_sfx_bake()</code
 <p>The engine-owned <b>master volume</b> (0..1), applied to all audio (synth + samples) in the mixer — the same knob the
 engine menu's VOLUME drives. Route a game's own volume option here instead of scaling each sound, so the in-game setting
 and the system menu stay in sync. Persists across the session.</p>
+
+<h3 id="fn-audio_set_stream">audio_set_stream <span class="badge abi">v36</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">audio_set_stream</span>)(<span class="kw">int</span> (*fill)(<span class="ty">int16_t</span> *out, <span class="kw">int</span> n));</pre>
+<p>Register a <b>PCM stream source</b> the mixer pulls each audio block. <code>fill(out, n)</code> writes up to <code>n</code>
+mono 16-bit samples at 22050&nbsp;Hz and returns the count; the engine mixes them on top of its synth voices (master-scaled,
+clamped). Pass <code>NULL</code> to stop. For games that run their <b>own software synth</b> (full music + SFX) rather than
+the note/sample/sfx API — e.g. the ThumbyCraft port. The callback runs on the audio path, so keep it non-blocking and
+read-only w.r.t. heavy game state. The engine clears it automatically when the game exits to the launcher.</p>
 
 <!-- ============================ TEXT ============================ -->
 <h2 id="api-text" class="anchor">Engine API — Text &amp; overlay <span class="badge abi">v5</span></h2>
@@ -1011,6 +1019,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v33</td><td>scene_add_billboard — camera-facing textured quad (3D sprite) + the <code>MOTE_BLEND_NONE/ALPHA/ADD</code> modes.</td></tr>
 <tr><td>v34</td><td>blit_ex — freely rotated &amp; scaled 2D sprite blit (any angle/zoom, with blend).</td></tr>
 <tr><td>v35</td><td>Textured (UV-mapped) meshes: <code>Mesh.texture</code> + <code>Mesh.face_uvs</code>, drawn through <code>scene_add_object</code>; per-mesh translucency via <code>MOTE_DRAW_BLEND()</code>.</td></tr>
+<tr><td>v36</td><td>audio_set_stream — register a PCM source mixed on top of the synth voices (for games with their own software synth, e.g. ThumbyCraft).</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

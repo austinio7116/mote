@@ -1169,6 +1169,19 @@ int pct = (int)(mote->audio_get_master() * 100.0f);   // for a settings UI
 
 > See §9 for synth-vs-sample guidance. Demos: `examples/piano3d` (synth keyboard).
 
+#### `void audio_set_stream(int (*fill)(int16_t *out, int n))`  *(ABI v36)*
+Register a **PCM stream source** the mixer pulls each audio block. `fill(out, n)`
+writes up to `n` mono 16-bit samples at 22050 Hz and returns the count; the engine
+mixes them on top of its synth voices (master-scaled and clamped). Pass `NULL` to
+stop. For games that run their **own software synth** (full music + SFX) rather than
+the note/sample/sfx API — e.g. the ThumbyCraft port. The callback runs on the audio
+path: keep it non-blocking and read-only with respect to heavy game state. The engine
+clears the stream automatically when the game exits to the launcher.
+```c
+static int my_fill(int16_t *out, int n) { return my_synth_render(out, n); }
+mote->audio_set_stream(my_fill);   // in init(); NULL to stop
+```
+
 ### 5.7 — Text, telemetry, memory, control
 
 #### `int text(uint16_t *fb, const char *s, int x, int y, uint16_t color)` / `int text_2x(...)`

@@ -26,5 +26,6 @@ void mote_audio_off(void);                        /* silence every voice */
 void mote_audio_set_volume(float v);              /* 0..1 master (engine menu + games) */
 float mote_audio_get_volume(void);                /* current 0..1 master */
 void mote_audio_render(int16_t *out, int n);      /* mix n mono samples */
+void mote_audio_set_stream(int (*fill)(int16_t *out, int n));  /* ABI v36: PCM source mixed on top (NULL unregisters) */
 
 #endif /* MOTE_AUDIO_H */

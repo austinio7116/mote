@@ -1,0 +1,4 @@
+# ThumbyCraft port build flags (applied to host + device module builds).
+# Texture atlas lives in flash as const (craft_textures_baked.c); only the
+# small animated water/lava/portal frames stay in SRAM.
+-DCRAFT_TEXTURES_BAKED=1

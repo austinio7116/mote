@@ -68,6 +68,12 @@ static inline float wave(float ph){
 
 static float s_g = 1.45f;       /* smoothed polyphony make-up gain */
 
+/* ABI v36: an optional PCM source the game registers; mixed on top of the
+ * synth voices each block. Used by games with their own software synth (e.g.
+ * the ThumbyCraft port streams its music + SFX through here). */
+static int (*s_stream)(int16_t *out, int n);
+void mote_audio_set_stream(int (*fill)(int16_t *out, int n)){ s_stream = fill; }
+
 void mote_audio_render(int16_t *out, int n){
     if(!s_ready){ for(int i=0;i<n;i++) out[i]=0; return; }
     for(int s=0;s<n;s++){
@@ -97,6 +103,23 @@ void mote_audio_render(int16_t *out, int n){
         const float k = 0.85f;
         if(a > k){ float x = (a - k) / (1.0f - k); a = k + (1.0f - k) * (x / (1.0f + x)); }
         out[s] = (int16_t)((m < 0.0f ? -a : a) * 32200.0f);
+    }
+    /* Mix the registered PCM stream on top (master-scaled, clamped). Pulled in
+     * small chunks so any block size from the platform works. The stream's
+     * contract is to always fill n samples. */
+    if(s_stream){
+        int16_t tmp[256];
+        for(int off=0; off<n; ){
+            int c = n - off; if(c > 256) c = 256;
+            int got = s_stream(tmp, c);
+            for(int i=0;i<got;i++){
+                int v = out[off+i] + (int)((float)tmp[i] * s_vol);
+                if(v > 32767) v = 32767; else if(v < -32768) v = -32768;
+                out[off+i] = (int16_t)v;
+            }
+            off += c;
+            if(got < c) break;
+        }
     }
 }
 
