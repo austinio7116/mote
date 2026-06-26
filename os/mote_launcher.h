@@ -14,7 +14,13 @@
  * over USB while the launcher is up appear immediately. */
 typedef void (*MoteCatalogFn)(MoteCatalog *out);
 
-/* Returns the selected index, or -1 on quit (host window close). */
+/* Sentinel return: the user asked to leave the Mote launcher entirely. On a
+ * ThumbyOne slot build this is "Quit to ThumbyOne" (hold MENU); the OS turns it
+ * into a handoff back to the lobby. Standalone never returns it. */
+#define MOTE_LAUNCHER_QUIT (-2)
+
+/* Returns the selected index, -1 on quit (host window close), or
+ * MOTE_LAUNCHER_QUIT (slot build, hold MENU). */
 int mote_launcher_run(MoteCatalogFn rebuild);
 
 /* The launcher's 128x128 framebuffer — reusable by the OS for boot/panic

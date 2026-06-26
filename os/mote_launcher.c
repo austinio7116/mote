@@ -149,6 +149,12 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
         int pl = mote_plat_pending_launch();
         if (pl >= 0 && pl < cat.count) return pl;
 
+#ifdef THUMBYONE_SLOT_MODE
+        /* Hold MENU ~0.6 s to leave the Mote slot back to the ThumbyOne lobby. */
+        if (in.held[MOTE_BTN_MENU] && in.hold_ms[MOTE_BTN_MENU] >= 600)
+            return MOTE_LAUNCHER_QUIT;
+#endif
+
 #ifdef MOTE_HOST
         if (pick && ++frame > 12) return atoi(pick) % (cat.count > 0 ? cat.count : 1);
 #endif

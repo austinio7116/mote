@@ -18,6 +18,19 @@
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
 
+#ifdef THUMBYONE_SLOT_MODE
+/* Running as a ThumbyOne slot: ThumbyOne's priority-101 constructor sets up
+ * ATRANS + fast-XIP; we mount the shared FAT (the .mote library lives in
+ * /.mote/), adopt the lobby's brightness/volume, and offer "Quit to ThumbyOne"
+ * from the launcher. Mirrors ThumbyCraft's slot-mode boot. */
+#include "thumbyone_fs.h"
+#include "thumbyone_handoff.h"
+#include "thumbyone_led.h"
+#include "ff.h"
+static FATFS   g_fs;
+static uint8_t g_fs_work[FF_MAX_SS] __attribute__((aligned(4)));
+#endif
+
 /* Point a catalog entry at a stored game's icon straight from flash (no load): the
  * module header is at the image start; icon_vaddr is the icon's link address, so its
  * byte offset within the image is icon_vaddr - MOTE_MODULE_VADDR. icon_vaddr only
@@ -56,6 +69,13 @@ static void fill_catalog(MoteCatalog *c) {
 
 int main(void) {
     mote_plat_init("Mote OS");      /* 280 MHz clock + LCD + buttons + USB */
+#ifdef THUMBYONE_SLOT_MODE
+    /* Adopt the lobby's brightness + front-LED, then mount the shared FAT so the
+     * launcher can list /.mote/. (ATRANS + fast-XIP were set by ThumbyOne's
+     * slot_init constructor before main().) */
+    thumbyone_slot_init_brightness_and_led(true);
+    (void)thumbyone_fs_mount_or_format(&g_fs, g_fs_work, sizeof g_fs_work);
+#endif
     mote_store_init();
 
     MoteApi api;
@@ -63,6 +83,11 @@ int main(void) {
 
     for (;;) {
         int idx = mote_launcher_run(fill_catalog);
+#ifdef THUMBYONE_SLOT_MODE
+        if (idx == MOTE_LAUNCHER_QUIT) {
+            thumbyone_handoff_request_lobby();   /* reboots into the lobby; no return */
+        }
+#endif
         if (idx < 0) continue;
 
         const MoteStoreEntry *e = mote_store_get(idx);
