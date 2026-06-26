@@ -37,7 +37,13 @@
  * on device so XIP flash latency doesn't stall the inner loop. On
  * host it's a no-op. PICO_ON_DEVICE is defined by the Pico SDK when
  * the target is the RP2350. */
-#if defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
+#if defined(MOTE_MODULE_BUILD)
+/* Mote device module: place hot render code in .ramtext, which the loader
+ * copies from the flash image to SRAM at load — so the raycaster inner loop
+ * executes from RAM instead of XIP flash and stops contending with the texture
+ * atlas for the XIP cache. (Host .so build leaves it a no-op.) */
+#  define CRAFT_HOT  __attribute__((section(".ramtext.craft")))
+#elif defined(PICO_ON_DEVICE) && PICO_ON_DEVICE
 #  define CRAFT_HOT  __attribute__((section(".time_critical.craft")))
 #else
 #  define CRAFT_HOT

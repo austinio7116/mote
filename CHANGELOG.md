@@ -1,24 +1,53 @@
 # Changelog
 
-## Unreleased
+## 0.7-alpha
 
-**A game can now feed its own audio stream into the engine.** Games that run their
-own software synth — like the new ThumbyCraft port, which has full procedural music
-plus its own sound effects — can hand the engine a stream of audio samples to play,
-instead of using the built-in note/sample API. The engine mixes it on top of its own
-voices. **Reflash `firmware_mote_os.uf2`** — the engine interface version goes
-35 → **36**; games built against it need the new firmware, and games already on the
-device keep working.
+**ThumbyCraft — a full Minecraft-style voxel sandbox — now runs on Mote**, and getting
+it there pushed the engine in ways that help every game. ThumbyCraft is a big, demanding
+game (a 256 KB voxel world, its own raycaster, procedural worlds with eight biomes, mobs,
+redstone, day/night, crafting, its own music) — so it became the stress test that proved
+how far a Mote game can go, and drove three reusable engine additions. There's also a new
+paper.io-style game (papermote) and the command-line tool now bakes every asset type the
+Studio does. **Reflash `firmware_mote_os.uf2`** — the engine interface version goes
+35 → **36**; games built against it need the new firmware, and games already on the device
+keep working.
 
-- **`audio_set_stream(fill)`** (ABI v36): register a callback that fills mono 16-bit
-  samples at 22050 Hz; the engine pulls and mixes it (master-scaled, clamped) each
-  audio block. Pass `NULL` to stop. The engine clears it automatically when a game
-  exits to the launcher.
-- **Per-game `cflags`** — a game folder may include a `cflags` file (one flag per
-  line, `#` comments allowed) whose flags are added to both the host and device
-  compiles. Used by vendored ports that need build-time defines.
-- **New game: ThumbyCraft** — the full voxel sandbox (procedural worlds, biomes,
-  mobs, redstone, day/night, crafting) ported to run as a Mote game.
+### New games
+
+- **ThumbyCraft** — the full voxel sandbox: infinite procedural terrain, eight biomes,
+  mobs, redstone, torches and lighting, day/night, crafting and combat. It fills both of a
+  Mote game's memory budgets and runs at the same framerate as its original standalone
+  build. See the new memory section in the README for how it fits.
+- **papermote** — a paper.io-style territory game: claim ground by closing loops, steal
+  (and destroy) rivals by enclosing or cutting them, with ten pickable creature sprites,
+  AI opponents, three game modes, and a procedural music bed that builds as you dominate.
+
+### Engine / ABI
+
+- **A game can feed its own audio stream** (`audio_set_stream`, ABI v36): register a
+  callback that fills mono 16-bit samples at 22050 Hz; the engine mixes it on top of its
+  own synth voices. For games with their own software synth (full music + effects) instead
+  of the built-in note/sample API — like ThumbyCraft. Cleared automatically on exit.
+- **Run hot code from RAM** (`.ramtext`, ABI v36): a game can mark its hottest functions
+  (e.g. a raycaster inner loop) to run from SRAM instead of flash, so they don't lose the
+  cache to large texture reads. The loader copies them in at launch. This took
+  ThumbyCraft's raycaster from 8–12 fps to 12–20 fps; backward-compatible with older games.
+- **More room for big games:** a game's static RAM grew 128 → 134 KB (reclaimed from unused
+  OS heap), and audio now stays glitch-free even on heavy frames — the engine keeps the
+  sound buffer topped up *during* the frame's render, not just once per frame.
+
+### Tools & Studio
+
+- **`mote bake` now bakes every asset type the Studio does** — images, `.sfx` recipes,
+  `.wav`, tilesets, levels and animations — so the command line and the IDE produce
+  identical headers.
+- **Per-game `cflags`** — a game folder may include a `cflags` file (one flag per line,
+  `#` comments allowed) added to both the host and device compiles, for ports that need
+  build-time defines.
+- **Studio:** console text is now selectable for copy/paste, `.sfx`/`.sfx.h` files load
+  into the Audio panel, and the arena budget meter covers all resource pools.
+- **fling:** zoom the camera in/out with LB/RB. **Host:** a frame-sequence recorder
+  (`MOTE_REC`) for capturing gameplay.
 
 ## 0.6-alpha
 

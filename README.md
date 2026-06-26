@@ -1365,34 +1365,38 @@ cap**), and an RGB565 albedo + quantised normal per face.
 
 ## 7. Memory model
 
-There is **one shared 272 KB SRAM arena** per game. At load, the OS sizes the
-engine's pools to *your* declared `MoteConfig`; whatever's left, your game claims
-via `mote->alloc()`. A lean game keeps the slack.
+A game gets **two RAM budgets**, and it helps to keep them straight:
 
-### Why 272 KB and not the chip's full 520 KB?
+1. **Static module RAM — 134 KB.** Your module's own globals: every `static`/global
+   array and variable, fixed at link time. This is the `GAME_RAM` region the loader
+   reserves for the running game (`.data` + `.bss`, plus `.ramtext` — see below).
+2. **The arena — 272 KB.** A shared pool the OS hands out at load. The engine sizes
+   its pools (3D draw-list, depth buffer, physics, …) from *your* `MoteConfig`, and
+   whatever's left your game claims at runtime with `mote->alloc()`. Reset per game.
 
-The RP2350's 520 KB SRAM is **one 512 KB contiguous bank + two 4 KB scratch banks**
-(measured from the firmware's linker map: `RAM 0x20000000 len 0x80000`, plus
-`SCRATCH_X`/`SCRATCH_Y` 4 KB each). The arena and the resident OS+engine share that
-512 KB bank — the engine never unloads, so it has to coexist with your game.
+Code, textures, sounds and other `const` data don't count against either — they
+execute/read straight from flash (XIP), costing **zero SRAM**.
 
-Measured against the real RP2350 firmware (`arm-none-eabi-size` on the device build),
-the budget breaks down like this:
+### Where the 520 KB goes
+
+The RP2350's 520 KB SRAM is **one 512 KB contiguous bank + two 4 KB scratch banks**.
+The resident OS+engine never unloads, so it has to coexist with your game in that
+512 KB bank. Measured against the real device firmware (`arm-none-eabi-size`):
 
 | Region | Size | Notes |
 |--------|------|-------|
-| **Game arena** | **272 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (~18 KB) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
-| Framebuffer | 32 KB | 128×128 RGB565. A second 32 KB buffer is used when the async-overlap present is on (render frame N+1 while N streams to the LCD over SPI DMA). |
-| Pipeline vertex scratch | ~7 KB | `s_view`/`s_sx`/`s_sy`/`s_sd`/`s_front` (320-vertex working set). |
-| Core0 + Core1 stacks | 8 KB | both cores rasterise; `PICO_STACK_SIZE` + `PICO_CORE1_STACK_SIZE`, 4 KB each. |
-| SDK malloc heap | 16 KB | `PICO_HEAP_SIZE` (engine/SDK use, separate from the game arena). |
-| Vector table + SDK/libc/clocks BSS + code statics | ~9 KB | `ram_vector_table`, audio mixer, USB-CDC, launcher/menu, C runtime. |
+| **OS region** | **378 KB** | the firmware + everything below ↓ |
+| ├ **Game arena** | **272 KB** | `MOTE_ARENA_SIZE` — your `MoteConfig` pools + `alloc()`s. **The 3D draw-list (≈36 B/tri) and the 32 KB depth buffer live *in here*** (sized per game), which is why they show in the arena meter. |
+| ├ Framebuffer | 32 KB | 128×128 RGB565, shared with the launcher (one buffer; the game reuses the idle launcher frame). |
+| ├ OS `.data` + other `.bss` | ~57 KB | launcher, menu, font, USB-CDC, the audio ring, perf overlay, pipeline vertex scratch, splat scratch, C runtime. |
+| └ Heap | ~1.5 KB | effectively unused — the firmware has no `malloc` callers. |
+| **GAME_RAM (your module)** | **134 KB** | the loaded module's `.data` + `.ramtext` + `.bss`. |
+| SCRATCH_X / SCRATCH_Y | 8 KB | core-0 / core-1 stacks (both cores rasterise), 4 KB each. |
 
-That's **272 KB arena + ~70–100 KB resident ≈ 350–380 KB of the 512 KB bank → ~130 KB
-of headroom.** So 272 KB isn't "whatever's left" — it's a deliberate, round budget set
-*below* the true ceiling. That margin is the guarantee: if your `MoteConfig` + `alloc()`s
-fit in 272 KB, the game is *certain* to load and run alongside the framebuffers, both
-stacks, the SDK heap, USB and audio — with no per-game tuning of the system.
+So the arena isn't "whatever's left" — it's a deliberate, round budget set *below* the
+true ceiling. If your `MoteConfig` + `alloc()`s fit in 272 KB **and** your statics fit
+134 KB, the game is *certain* to load and run alongside the framebuffer, both stacks,
+USB and audio — with no per-game tuning of the system.
 
 ![The 272 KB load-time arena: engine pools sized to your MoteConfig (3D draw-list, sphere impostors, depth buffer, physics bodies, sprite pool), then your own mote->alloc()s (terrain meshes, splats, scratch), then slack](docs/img/arena.png)
 
@@ -1423,6 +1427,57 @@ Declare your pools in the vtable `config`:
 
 > A game with **no** `config` at all falls back to a generous static worst-case so
 > legacy games still run — but always declare your pools so you get the slack.
+
+### What real games actually use
+
+Static RAM is measured from each device `.elf`; arena is estimated from the
+config (depth buffer 32 KB when `depth=1`, draw-list ≈ 36 B/tri) plus the game's
+`alloc()`s. The spread shows how much headroom most games have — and how far
+ThumbyCraft pushes the platform.
+
+| Game | Render path | Static RAM | Arena (≈) | Notes |
+|------|-------------|-----------:|----------:|-------|
+| tetris3d | 3D scene | 1.3 KB | ~64 KB | depth + 900 tris |
+| pong3d | 3D scene | 3.0 KB | ~49 KB | depth + 400 tris + spheres |
+| papermote | `render_band` | 8.7 KB | ~78 KB | no engine pools; five 100×100 grids via `alloc` |
+| thumbycue | `render_band` + 3D | 35.5 KB | ~126 KB | depth + 2600 tris (3D snooker / pool) |
+| fling | 3D + physics | 43.9 KB | ~160 KB | depth + 3000 tris + bodies/contacts/mesh |
+| indemnity | `render_band` + 3D | 75.4 KB | ~86 KB | depth + 1500 tris (space sim) |
+| **thumbycraft** | `render_band` (SRAM raycaster) | **130.3 KB** | **272 KB (full)** | 256 KB voxel world + 16 KB z-buffer in the arena; 9 KB `.ramtext`; fills both budgets |
+
+Most games sit at a few KB of static RAM and 50–160 KB of arena — i.e. tens of KB of
+slack on both budgets. ThumbyCraft is the outlier that fills the arena exactly (world
++ z-buffer) and nearly fills static RAM; it's why the static budget grew to 134 KB and
+the `.ramtext` mechanism exists.
+
+### Running hot code from RAM — `.ramtext` (ABI v36)
+
+By default a module's code executes in place from flash (XIP) through a small CPU
+cache. That's fine until a tight inner loop and a large `const` data set (e.g. a
+texture atlas) compete for that cache: the data reads keep evicting the code, and the
+loop stalls re-fetching itself from flash every iteration. ThumbyCraft's voxel
+raycaster hit exactly this — its per-pixel loop and its 157 KB texture atlas thrashed
+the cache, holding the frame to 8–12 fps.
+
+`.ramtext` fixes it by running the hot code from **SRAM** instead of flash, so it never
+competes with data for the cache:
+
+1. **Mark the function.** Put it in a `.ramtext.*` section (e.g. via an attribute
+   macro). The linker places it at a `GAME_RAM` address but keeps its bytes in the
+   flash image (load address in flash, run address in RAM — the classic "ramfunc"
+   pattern). Calls from RAM code to functions still in flash get automatic linker
+   **veneers** (long-branch trampolines), so cross-region calls just work.
+2. **The loader copies it.** At launch, right after copying `.data` and zeroing
+   `.bss`, the loader memcpy's the `.ramtext` image from flash to its RAM address
+   (three header fields — `ramtext_load/start/end` — describe the range). From then on
+   the function executes from SRAM.
+3. **Backward compatible.** The loader only does this for modules built at ABI ≥ 36;
+   older modules (and any module that ships no `.ramtext`) are untouched.
+
+The cost is SRAM: the copied code lives in your 134 KB static budget (ThumbyCraft's
+raycaster is ~9 KB). Use it **only** for genuinely hot, cache-contended loops —
+per-pixel raster/raycast inner loops are the canonical case. For ThumbyCraft it took
+the framerate from 8–12 fps to 12–20 fps (matching the native, non-Mote build).
 
 ---
 
@@ -1528,9 +1583,9 @@ build + device output:
 
 **How a `.mote` runs in place (no copy, no relocation):** the module is linked
 against a fixed *virtual* flash window (`MOTE_MODULE_VADDR = 0x10800000`, ATRANS
-slot 2) and a fixed RAM region (`MOTE_MODULE_RAM = 0x20060000`, the top 128 KB). The
+slot 2) and a fixed RAM region (`MOTE_MODULE_RAM = 0x2005E800`, the top 134 KB). The
 loader points the ATRANS window at wherever the image physically sits in flash, so
-code/rodata execute via XIP. Only `.data`/`.bss` are copied/zeroed into the reserved
+code/rodata execute via XIP. Only `.data`/`.bss` (and `.ramtext`, ABI v36) are copied/zeroed into the reserved
 RAM. This is what `MOTE_MODULE_HEADER()` + `sdk/game.ld` set up.
 
 ### Flashing firmware (only when you change engine/OS C code)
@@ -1662,6 +1717,30 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.7-alpha
+
+**ThumbyCraft — a full Minecraft-style voxel sandbox — now runs on Mote**, and getting it
+there pushed the engine in reusable ways. It's a demanding game (256 KB voxel world, its own
+raycaster, eight-biome procedural worlds, mobs, redstone, day/night, crafting, its own music),
+so it became the stress test for how far a Mote game can go (engine interface version
+35 → **36**; reflash `firmware_mote_os.uf2`).
+
+- **New games:** **ThumbyCraft** (the voxel sandbox above — fills both memory budgets, runs
+  at its native framerate; see §7 for the memory story) and **papermote** (a paper.io-style
+  territory game with ten creature sprites, AI rivals, three modes, and a procedural music bed).
+- **A game can feed its own audio stream** — `audio_set_stream` (ABI v36) registers a callback
+  the engine mixes on top of its synth voices, for games with their own software synth (music +
+  effects) instead of the note/sample API.
+- **Run hot code from RAM** — `.ramtext` (ABI v36) lets a game mark its hottest loop (e.g. a
+  raycaster) to execute from SRAM instead of flash, so it doesn't lose the cache to texture
+  reads; the loader copies it in at launch. Took ThumbyCraft's raycaster from 8–12 → 12–20 fps.
+- **More room + steadier audio:** a game's static RAM grew 128 → 134 KB (from unused OS heap),
+  and the engine now keeps the sound buffer topped up *during* the frame's render, so audio
+  stays glitch-free even on heavy frames.
+- **Tooling:** `mote bake` now bakes every asset type the Studio does (images, `.sfx`, `.wav`,
+  tilesets, levels, animations); a per-game `cflags` file adds build-time defines; Studio gained
+  selectable console text, `.sfx` loading into the Audio panel, and a complete arena meter.
 
 ### 0.6-alpha
 

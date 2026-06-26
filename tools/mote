@@ -114,7 +114,7 @@ def build_device(d, name, srcs, gamesrc, outdir):
         "-T", os.path.join(SDK, "game.ld"), "-Wl,--gc-sections"]
         + objs + [sysobj, "-lm", "-lgcc", "-o", elf])
     mote = os.path.join(outdir, name + ".mote")
-    run([ARM + "objcopy", "-O", "binary", "-j", ".mote", "-j", ".data", elf, mote])
+    run([ARM + "objcopy", "-O", "binary", "-j", ".mote", "-j", ".data", "-j", ".ramtext", elf, mote])
     return mote
 
 

@@ -61,13 +61,17 @@ static int claim_strip(void) {
     return v;
 }
 
-static void work_strips(uint16_t *fb, MoteBandFn band) {
+/* `pump` (core 0 only): top up the audio ring after each strip so a long frame
+ * keeps the PWM ring fed mid-render. Safe here — render runs after update(), so
+ * the synth isn't being mutated, and only core 0 ever pumps (no inter-core race). */
+static void work_strips(uint16_t *fb, MoteBandFn band, int pump) {
     for (;;) {
         int s = claim_strip();
         if (s >= NSTRIPS) break;
         int y0 = s * STRIP_H, y1 = y0 + STRIP_H;
         if (y1 > MOTE_FB_H) y1 = MOTE_FB_H;
         band(fb, y0, y1);
+        if (pump) mote_plat_audio_topup();
     }
 }
 
@@ -77,7 +81,7 @@ static void core1_entry(void) {
         while (!s_core1_go) tight_loop_contents();
         s_core1_go = 0;
         uint64_t t0 = to_us_since_boot(get_absolute_time());
-        work_strips((uint16_t *)s_band_fb, s_band_fn);
+        work_strips((uint16_t *)s_band_fb, s_band_fn, 0);   /* core1: render only */
         s_core1_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
         s_core1_done = 1;
     }
@@ -93,7 +97,7 @@ void mote_plat_render2(uint16_t *fb, MoteBandFn band,
     s_core1_go = 1;                                  /* core1 joins the pool */
 
     uint64_t t0 = to_us_since_boot(get_absolute_time());
-    work_strips(fb, band);                           /* core0 works the pool */
+    work_strips(fb, band, 1);                        /* core0 works the pool + feeds audio */
     *out_c0_us = (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
 
     while (!s_core1_done) tight_loop_contents();
@@ -236,10 +240,20 @@ int mote_plat_load(int slot, void *data, int max_len) {
     return len;
 }
 
-void mote_plat_audio_pump(void) {
+/* Refill the PWM ring from the synth. MUST run in the main-loop (core 0)
+ * context, never an IRQ: the game's stream callback (mote_audio_render ->
+ * the game's synth) shares state with what update() touches each frame, so
+ * an IRQ firing mid-update tears that state and clicks. mote_plat_audio_topup
+ * is the bare refill (safe to call repeatedly within a frame); the frame
+ * version adds the frame-paced rumble fade. */
+void mote_plat_audio_topup(void) {
     int room = mote_audio_pwm_room();
     while (room >= 128) { int16_t buf[128]; mote_audio_render(buf, 128); mote_audio_pwm_push(buf, 128); room -= 128; }
-    rumble_tick();   /* time out / fade the rumble pulse */
 }
 
-void mote_plat_audio_start(void) { mote_audio_off(); mote_audio_pwm_init(); }   /* re-arm per game */
+void mote_plat_audio_pump(void) {
+    mote_plat_audio_topup();
+    rumble_tick();   /* time out / fade the rumble pulse (frame-paced) */
+}
+
+void mote_plat_audio_start(void) { mote_audio_off(); mote_audio_pwm_init(); }

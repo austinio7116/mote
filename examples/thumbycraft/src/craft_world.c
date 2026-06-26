@@ -40,7 +40,7 @@ uint8_t  craft_world_biome[CRAFT_WORLD_X * CRAFT_WORLD_Z];
 #define CRAFT_EDGE_MARGIN 16   /* shift triggers within this many cells of edge */
 
 /* --- Mod hash table ----------------------------------------------- */
-#define MOD_TABLE_SIZE 1024     /* power of 2 — open addressing (Mote: trimmed from 2048 to fit module RAM; >=1024 in-window edits) */
+#define MOD_TABLE_SIZE 512      /* power of 2 — open addressing (Mote: trimmed to fit module RAM alongside the SRAM-resident raycaster; in-window block edits) */
 #define MOD_TABLE_MASK (MOD_TABLE_SIZE - 1)
 #define MOD_FREE_KEY   INT32_MIN
 

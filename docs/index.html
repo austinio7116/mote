@@ -160,7 +160,7 @@ frame loop.</p>
 </ul>
 
 <div class="note info"><strong>Hardware target.</strong> 128×128 RGB565 display · dual Cortex-M33 @ ~150&nbsp;MHz ·
-~280&nbsp;KB game arena · 9 buttons (D-pad, A, B, LB, RB, MENU) · 22050&nbsp;Hz audio. The host build (Linux/Windows
+272&nbsp;KB game arena + 134&nbsp;KB module RAM · 9 buttons (D-pad, A, B, LB, RB, MENU) · 22050&nbsp;Hz audio. The host build (Linux/Windows
 SDL2 emulator) mirrors the same ABI exactly.</div>
 
 <!-- ============================ MODEL ============================ -->
@@ -965,12 +965,13 @@ square tiles; rotation applied before flips). Transparency key <code>MOTE_KEY_MA
 <p>A built device game is a flat image: a <code>MoteModuleHeader</code> first, then <code>.text</code>/<code>.rodata</code>, then the
 <code>.data</code> init image. It is linked at a fixed virtual window (<code>MOTE_MODULE_VADDR = 0x10800000</code>); the loader points
 an RP2350 ATRANS window at wherever it lives in flash, so it executes in place (XIP) with no copy and no relocation. Mutable state
-lives at the reserved RAM region (<code>MOTE_MODULE_RAM = 0x20060000</code>, 128&nbsp;KB).</p>
+lives at the reserved RAM region (<code>MOTE_MODULE_RAM = 0x2005E800</code>, 134&nbsp;KB).</p>
 <table><tr><th>Header field</th><th class="ty">Type</th><th>Description</th></tr>
 <tr><td>magic</td><td class="ty">uint32_t</td><td><code>MOTE_MODULE_MAGIC</code> ('MOTE').</td></tr>
 <tr><td>abi_version</td><td class="ty">uint32_t</td><td><code>MOTE_ABI_VERSION</code> the module was built for.</td></tr>
 <tr><td>reg</td><td class="ty">fn ptr</td><td>Entry: <code>mote_game_register</code>.</td></tr>
 <tr><td>data_load / data_start / data_end / bss_start / bss_end</td><td class="ty">uint32_t</td><td>Mini-crt ranges (copy <code>.data</code>, zero <code>.bss</code>).</td></tr>
+<tr><td>ramtext_load / ramtext_start / ramtext_end</td><td class="ty">uint32_t</td><td><span class="badge abi">v36</span> Range of the RAM-resident hot code (<code>.ramtext</code>): the loader copies it from flash to SRAM at load so it executes from RAM, not XIP. Zero-length when the game ships none; only read for modules at ABI&nbsp;≥&nbsp;36.</td></tr>
 <tr><td>icon_vaddr</td><td class="ty">uint32_t</td><td><span class="badge abi">v20</span> Linked address of <code>mote_game_icon_data[]</code>, or <code>0</code> for none. The launcher reads it straight from flash without loading the game. Format follows the module's ABI: a raw 60×60 RGB565 array up to v21, a compact paletted blob (<code>sdk/mote_icon.h</code>) from <span class="badge abi">v22</span>.</td></tr>
 </table>
 <p>A game emits it with <code>MOTE_MODULE_HEADER()</code> (device build only, guarded by <code>MOTE_MODULE_BUILD</code>). The icon is
@@ -978,6 +979,24 @@ picked up via a <strong>weak</strong> symbol that the build auto-includes — <c
 <code>src/icon.h</code> via <code>__has_include</code>, so a game with an <code>icon.png</code> carries its icon with <em>no
 <code>#include</code> and no boilerplate</em>. From v22 the baked data is a paletted, adaptive-bit-depth blob (~2–4× smaller
 than raw RGB565); the launcher decodes it inline when drawing the selection.</p>
+
+<h3 id="ramtext">RAM-resident hot code — <code>.ramtext</code> <span class="badge abi">v36</span></h3>
+<p>Module code normally executes in place from flash (XIP) through a small CPU cache. When a tight inner loop and a large
+<code>const</code> data set (e.g. a texture atlas) compete for that cache, the data reads evict the code and the loop stalls
+re-fetching itself — exactly what held ThumbyCraft's voxel raycaster to 8–12&nbsp;fps. Placing the loop in a
+<code>.ramtext.*</code> section runs it from <strong>SRAM</strong> instead, so it never competes with data for the cache.</p>
+<ul>
+  <li><strong>Link:</strong> the function is linked at a <code>GAME_RAM</code> address but its bytes ship in the flash image
+      (load address in flash, run address in RAM — the classic "ramfunc" pattern). Calls out to functions still in flash get
+      automatic linker <strong>veneers</strong>, so cross-region calls just work.</li>
+  <li><strong>Load:</strong> right after the <code>.data</code>/<code>.bss</code> crt step, the loader copies the
+      <code>.ramtext</code> image (described by the three header fields above) from flash to its RAM address.</li>
+  <li><strong>Cost:</strong> the copied code occupies the module's 134&nbsp;KB static budget — use it only for genuinely hot,
+      cache-contended loops (per-pixel raster/raycast). For ThumbyCraft (~9&nbsp;KB of raycaster) it lifted the framerate to
+      12–20&nbsp;fps, matching the native non-Mote build.</li>
+  <li><strong>Compatibility:</strong> backward-compatible — the loader only copies <code>.ramtext</code> for modules built at
+      ABI&nbsp;≥&nbsp;36; older modules (and any module shipping none) are untouched.</li>
+</ul>
 
 <!-- ============================ HISTORY ============================ -->
 <h2 id="history" class="anchor">ABI version history</h2>
@@ -1019,7 +1038,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v33</td><td>scene_add_billboard — camera-facing textured quad (3D sprite) + the <code>MOTE_BLEND_NONE/ALPHA/ADD</code> modes.</td></tr>
 <tr><td>v34</td><td>blit_ex — freely rotated &amp; scaled 2D sprite blit (any angle/zoom, with blend).</td></tr>
 <tr><td>v35</td><td>Textured (UV-mapped) meshes: <code>Mesh.texture</code> + <code>Mesh.face_uvs</code>, drawn through <code>scene_add_object</code>; per-mesh translucency via <code>MOTE_DRAW_BLEND()</code>.</td></tr>
-<tr><td>v36</td><td>audio_set_stream — register a PCM source mixed on top of the synth voices (for games with their own software synth, e.g. ThumbyCraft).</td></tr>
+<tr><td>v36</td><td>audio_set_stream — register a PCM source mixed on top of the synth voices (for games with their own software synth). Plus <code>.ramtext</code> RAM-resident hot code (loader copies it flash→SRAM at load) and the module static RAM grew 128→134&nbsp;KB. Both landed for the ThumbyCraft port.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

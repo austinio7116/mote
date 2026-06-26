@@ -24,7 +24,7 @@
 MEMORY
 {
     INCLUDE "pico_flash_region.ld"
-    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 384k  /* top 128k (0x20060000) reserved for the loaded game module */
+    RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 378k  /* top 134k (0x2005E800) reserved for the loaded game module — the 6k came from the OS heap remainder, which has no malloc users */
     SCRATCH_X(rwx) : ORIGIN = 0x20080000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20081000, LENGTH = 4k
 }

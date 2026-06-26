@@ -16,7 +16,7 @@
 MEMORY
 {
     FLASH_IMG (rx)  : ORIGIN = 0x10800000, LENGTH = 4M
-    GAME_RAM  (rwx) : ORIGIN = 0x20060000, LENGTH = 128K
+    GAME_RAM  (rwx) : ORIGIN = 0x2005E800, LENGTH = 134K
 }
 
 ENTRY(mote_game_register)
@@ -42,6 +42,20 @@ SECTIONS
         *(.sdata*)
         . = ALIGN(4);
         __mote_data_end = .;
+    } > GAME_RAM AT> FLASH_IMG
+
+    /* RAM-resident hot code (ABI v36+). Functions placed in .ramtext.* are
+     * linked at their GAME_RAM address but their bytes live in the flash image;
+     * the loader copies them to RAM at load (like .data), so they execute from
+     * SRAM instead of XIP flash. Used for raycaster/render inner loops whose
+     * XIP-cache contention with texture data otherwise dominates the frame. */
+    __mote_ramtext_load = LOADADDR(.ramtext);
+    .ramtext : {
+        . = ALIGN(4);
+        __mote_ramtext_start = .;
+        *(.ramtext*)
+        . = ALIGN(4);
+        __mote_ramtext_end = .;
     } > GAME_RAM AT> FLASH_IMG
 
     .bss (NOLOAD) : {

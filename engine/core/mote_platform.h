@@ -73,6 +73,13 @@ void mote_plat_set_volume(int pct);
  * refills the PWM ring from the synth; on the host SDL pulls, so it's a no-op. */
 void mote_plat_audio_pump(void);
 
+/* Bare ring refill (no rumble fade), safe to call repeatedly WITHIN a frame —
+ * the device render loop calls it between strips on core 0 so a long frame
+ * (e.g. ThumbyCraft's raycaster at ~12 fps) can't drain the PWM ring and click.
+ * Must stay on core 0 / main-loop context (the synth shares state with what
+ * update() touches); host = no-op. */
+void mote_plat_audio_topup(void);
+
 /* Re-arm audio for a fresh game (device: re-init the PWM timer/IRQ + flush the
  * ring so sound survives game switches; host: no-op). Called per game launch. */
 void mote_plat_audio_start(void);

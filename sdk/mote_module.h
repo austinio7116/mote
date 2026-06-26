@@ -21,10 +21,10 @@
 
 /* Fixed addresses the game module is linked against (see sdk/game.ld). The
  * virtual window is ATRANS slot 2's region (0x10800000..0x10C00000). The RAM
- * region is the top 128 KB the OS linker script reserves (below SCRATCH). */
+ * region is the top 134 KB the OS linker script reserves (below SCRATCH). */
 #define MOTE_MODULE_VADDR  0x10800000u
-#define MOTE_MODULE_RAM    0x20060000u
-#define MOTE_MODULE_RAM_SZ 0x00020000u          /* 128 KB */
+#define MOTE_MODULE_RAM    0x2005E800u
+#define MOTE_MODULE_RAM_SZ 0x00021800u          /* 134 KB (grew 6K from the OS heap remainder; ABI v36 .ramtext) */
 
 typedef struct {
     uint32_t magic;            /* MOTE_MODULE_MAGIC */
@@ -42,6 +42,13 @@ typedef struct {
      * Format follows abi_version: a raw 60x60 RGB565 array up to v21, a compact
      * paletted blob (sdk/mote_icon.h) from v22 — no struct change either way. */
     uint32_t icon_vaddr;
+    /* ABI v36: RAM-resident hot code. The loader copies [ramtext_load ..] from
+     * the flash image to [ramtext_start .. ramtext_end) at load (like .data), so
+     * functions in .ramtext.* execute from SRAM. Zero-length (start==end) when
+     * the game ships none. Only read by the loader when abi_version >= 36. */
+    uint32_t ramtext_load;     /* flash/XIP source of the .ramtext image */
+    uint32_t ramtext_start;    /* RAM dest start */
+    uint32_t ramtext_end;      /* RAM dest end */
 } MoteModuleHeader;
 
 /* A game supplies a 60x60 RGB565 launcher icon by `#include "icon.h"` (baked by
@@ -56,7 +63,8 @@ typedef struct {
  * 0 and the launcher draws the name-accent fallback. No macro change per game. */
 #define MOTE_MODULE_HEADER()                                                       \
     extern char __mote_data_load[], __mote_data_start[], __mote_data_end[],      \
-                __mote_bss_start[], __mote_bss_end[];                           \
+                __mote_bss_start[], __mote_bss_end[],                           \
+                __mote_ramtext_load[], __mote_ramtext_start[], __mote_ramtext_end[]; \
     extern const uint8_t mote_game_icon_data[] __attribute__((weak));          \
     __attribute__((section(".mote_header"), used))                            \
     const MoteModuleHeader mote_module_header = {                                         \
@@ -69,6 +77,9 @@ typedef struct {
         .bss_start  = (uint32_t)(uintptr_t)__mote_bss_start,                  \
         .bss_end    = (uint32_t)(uintptr_t)__mote_bss_end,                    \
         .icon_vaddr = (uint32_t)(uintptr_t)mote_game_icon_data,               \
+        .ramtext_load  = (uint32_t)(uintptr_t)__mote_ramtext_load,           \
+        .ramtext_start = (uint32_t)(uintptr_t)__mote_ramtext_start,          \
+        .ramtext_end   = (uint32_t)(uintptr_t)__mote_ramtext_end,            \
     }
 
 #endif /* MOTE_MODULE_H */

@@ -57,6 +57,15 @@ const MoteGameVtbl *mote_loader_map(uint32_t phys_off, const MoteApi *api,
     uint32_t bn = h->bss_end - h->bss_start;
     if (bn) memset((void *)(uintptr_t)h->bss_start, 0, bn);
 
+    /* ABI v36: copy RAM-resident hot code (.ramtext) from the flash image to
+     * SRAM so it executes without XIP-cache contention. The header fields only
+     * exist for v36+ modules; older modules have no .ramtext (skip). */
+    if (h->abi_version >= 36u) {
+        uint32_t rn = h->ramtext_end - h->ramtext_start;
+        if (rn) memcpy((void *)(uintptr_t)h->ramtext_start,
+                       (const void *)(uintptr_t)h->ramtext_load, rn);
+    }
+
     const MoteGameVtbl *vt = h->reg(api);
 
     if (out_map_us)
