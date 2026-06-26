@@ -248,6 +248,7 @@ static void scan_games(void){ g_ngame=0; DIR*d=opendir("examples"); if(!d)return
 
 /* ---- console log ring + async command runner ---- */
 static char g_log[80][150]; static int g_logn; static SDL_mutex *g_logmx;
+static int g_consel_a=-1, g_consel_b=-1, g_condrag=0;   /* console line selection (absolute log indices) */
 static void log_add(const char*s){ if(!g_logmx)g_logmx=SDL_CreateMutex(); SDL_LockMutex(g_logmx);
     snprintf(g_log[g_logn%80],150,"%s",s); g_logn++; SDL_UnlockMutex(g_logmx); }
 typedef struct { char cmd[700], label[40]; } Job;
@@ -392,6 +393,8 @@ static void tree_toggle_collapsed(const char*p){ for(int i=0;i<g_ncollapsed;i++)
     if(g_ncollapsed<64)snprintf(g_collapsed[g_ncollapsed++],320,"%s",p); }
 static int kind_of(const char*n){ size_t l=strlen(n);
     if(l>5&&!strcmp(n+l-5,".toml"))return 1;
+    if(l>6&&!strcasecmp(n+l-6,".sfx.h"))return 6;            /* baked SFX recipe -> Audio tab */
+    if(l>4&&!strcasecmp(n+l-4,".sfx"))return 6;              /* editable SFX recipe -> Audio tab */
     if(l>2&&(!strcmp(n+l-2,".c")||!strcmp(n+l-2,".h")))return 2;
     if(l>4&&(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")))return 3;
     if(l>4&&(!strcasecmp(n+l-4,".obj")||!strcasecmp(n+l-4,".stl")))return 4;
@@ -809,24 +812,33 @@ static int eval_expr(const char*s){ int total=0,term=1,n=0,innum=0,mul=0;
         else { if(innum){ if(mul)term*=n; else term=n; innum=0; n=0; }
             if(c=='*')mul=1; else if(c=='+'){ total+=term; term=1; mul=0; } else if(c==0||c=='}'||c==','||c=='\n'){ total+=term; break; } } }
     return total; }
-typedef struct { int tris,spheres,splats,sprites,bodies,contacts,mesh_tris,depth,found,custom_render; } MCfg;
+typedef struct { int tris,spheres,splats,sprites,bodies,contacts,mesh_tris,depth,
+    points,lines,discs,tex_spheres,shadows,rings,billboards,tex_tris,found,custom_render; } MCfg;
 static MCfg parse_config(const char*dir){ MCfg c={0}; char p[320]; snprintf(p,sizeof p,"%.250s/src/game.c",dir);
     FILE*f=fopen(p,"r"); if(!f)return c; static char buf[400000]; size_t n=fread(buf,1,sizeof buf-1,f); buf[n]=0; fclose(f);
     c.custom_render = strstr(buf,"render_band")!=NULL;   /* game provides its own full-screen rasteriser */
     char*cf=strstr(buf,".config"); if(!cf)return c; char*op=strchr(cf,'{'); if(!op)return c; c.found=1; char*cl=strchr(op,'}');
     struct { const char*k; int*v; } fl[]={ {"max_tris",&c.tris},{"max_spheres",&c.spheres},{"max_splats",&c.splats},{"max_sprites",&c.sprites},
-        {"max_bodies",&c.bodies},{"max_contacts",&c.contacts},{"max_mesh_tris",&c.mesh_tris},{"depth",&c.depth} };
-    for(int i=0;i<8;i++){ char key[24]; snprintf(key,sizeof key,".%s",fl[i].k); char*k=strstr(op,key);
+        {"max_bodies",&c.bodies},{"max_contacts",&c.contacts},{"max_mesh_tris",&c.mesh_tris},{"depth",&c.depth},
+        {"max_points",&c.points},{"max_lines",&c.lines},{"max_discs",&c.discs},{"max_tex_spheres",&c.tex_spheres},
+        {"max_shadows",&c.shadows},{"max_rings",&c.rings},{"max_billboards",&c.billboards},{"max_tex_tris",&c.tex_tris} };
+    int nfl=(int)(sizeof fl/sizeof fl[0]);
+    for(int i=0;i<nfl;i++){ char key[24]; snprintf(key,sizeof key,".%s",fl[i].k); char*k=strstr(op,key);
         if(k&&(!cl||k<cl)){ char*eq=strchr(k,'='); if(eq)*fl[i].v=eval_expr(eq+1); } }
     return c; }
 /* prefer the EXACT config from the running module (robust to any source formatting);
  * fall back to parsing src/game.c when the game isn't loaded. */
 static MCfg get_config(int gi,const char*dir){
     if(gi>=0&&gi==g_loaded_cfg_for){ MoteConfig*m=&g_loaded_cfg; MCfg c={ m->max_tris,m->max_spheres,m->max_splats,m->max_sprites,
-        m->max_bodies,m->max_contacts,m->max_mesh_tris,m->depth,1, parse_config(dir).custom_render }; return c; }
+        m->max_bodies,m->max_contacts,m->max_mesh_tris,m->depth,
+        m->max_points,m->max_lines,m->max_discs,m->max_tex_spheres,m->max_shadows,m->max_rings,m->max_billboards,m->max_tex_tris,
+        1, parse_config(dir).custom_render }; return c; }
     return parse_config(dir); }
+/* per-entry arena cost of each pool (bytes) — matches the engine's Screen* structs. */
 static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*20+(long)c->splats*24+(long)c->sprites*16
-    +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0); }
+    +(long)c->bodies*120+(long)c->contacts*64+(long)c->mesh_tris*12+(c->depth?32768:0)
+    +(long)c->points*16+(long)c->lines*24+(long)c->discs*16+(long)c->tex_spheres*64
+    +(long)c->shadows*32+(long)c->rings*16+(long)c->billboards*32+(long)c->tex_tris*56; }
 
 static SDL_Rect g_insp_edit, g_insp_bake, g_insp_open;
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
@@ -844,9 +856,11 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
     if(r->kind==1){ FILE*f=fopen(r->path,"r"); if(f){ char ln[120]; while(fgets(ln,sizeof ln,f)){ ln[strcspn(ln,"\n")]=0; if(ln[0])text(R,ln,x,y,1,C_TXT,C_DOCK),y+=16; } fclose(f); } y+=10;
         MCfg c=get_config(g_sel,g_games[g_sel].dir);            /* exact pools from the running module (else parse src) */
         if(c.found){ plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
-            struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"spheres",c.spheres},{"splats",c.splats},
-                {"2D sprites",c.sprites},{"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
-            for(int i=0;i<7;i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
+            struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"textured tris",c.tex_tris},{"spheres",c.spheres},
+                {"tex spheres",c.tex_spheres},{"billboards",c.billboards},{"splats",c.splats},{"2D sprites",c.sprites},
+                {"points",c.points},{"lines",c.lines},{"discs",c.discs},{"rings",c.rings},{"shadows",c.shadows},
+                {"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
+            for(int i=0;i<(int)(sizeof pp/sizeof pp[0]);i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
                 int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
             text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
             long used=arena_bytes(&c); float frac=used/278528.0f; if(frac>1)frac=1;          /* 272 KB load arena */
@@ -856,7 +870,7 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
             if(c.custom_render){ text(R,"custom renderer (render_band):",x,y,1,C_ACC,C_DOCK); y+=14;
                 text(R,"draws the frame itself; its own",x,y,1,C_DIM,C_DOCK); y+=12;
                 text(R,"mote->alloc() use isn't counted",x,y,1,C_DIM,C_DOCK); y+=20; } } }
-    if(r->kind==3) text(R,"transparent key = magenta",x,y,1,C_DIM,C_DOCK),y+=22;
+    if(r->kind==3) text(R,"transparency = alpha channel",x,y,1,C_DIM,C_DOCK),y+=22;
     int mx,my; SDL_GetMouseState(&mx,&my); int bw=RIGHT_W-28;
     /* primary action: open this asset in its dedicated tool (image->Pixel Art, etc.) */
     if(r->kind==3||r->kind==4||r->kind==6){ const char*ol=r->kind==3?"OPEN IN PIXEL ART":r->kind==4?"OPEN IN MESH VIEW":"OPEN IN AUDIO";
@@ -1691,6 +1705,34 @@ static SParam SPAR[]={
 static SDL_Rect g_sparr[NSPAR], g_waveb[4], g_sfxb[8], g_au_rnd, g_au_mut, g_au_name_r;
 static void sfx_apply(int play){ Sfx p=g_sfx; if(p.lpf_freq<=0)p.lpf_freq=1.0f; sfx_render(&p);
     snprintf(g_status,sizeof g_status,"%s.wav  (%.2fs)",g_au_name,g_wavn/22050.0f); if(play)audio_play(); }
+/* Parse a baked `static const MoteSfx <name>_sfx = { ... }` header back into g_sfx
+ * (numbers in MoteSfx field order), so a .sfx.h with no .sfx sidecar still opens. */
+static int sfx_read_header(const char*path){ FILE*f=fopen(path,"r"); if(!f)return 0;
+    static char buf[16384]; size_t n=fread(buf,1,sizeof buf-1,f); buf[n]=0; fclose(f);
+    char*s=strstr(buf,"_sfx"); s=strchr(s?s:buf,'{'); if(!s)return 0; s++;
+    float v[22]; int nv=0;
+    while(*s&&*s!='}'&&nv<22){
+        if(s[0]=='/'&&s[1]=='*'){ s+=2; while(*s&&!(s[0]=='*'&&s[1]=='/'))s++; if(*s)s+=2; continue; }
+        if(*s==','||*s<=' '){ s++; continue; }
+        char*e; double d=strtod(s,&e); if(e==s){ s++; continue; } v[nv++]=(float)d; s=e; }
+    if(nv<22)return 0; Sfx*p=&g_sfx; memset(p,0,sizeof*p);
+    p->wave=(int)v[0]; p->base_freq=v[1];p->freq_limit=v[2];p->freq_ramp=v[3];p->freq_dramp=v[4];
+    p->duty=v[5];p->duty_ramp=v[6]; p->vib_strength=v[7];p->vib_speed=v[8];
+    p->env_attack=v[9];p->env_sustain=v[10];p->env_punch=v[11];p->env_decay=v[12];
+    p->lpf_freq=v[13];p->lpf_ramp=v[14];p->lpf_resonance=v[15];p->hpf_freq=v[16];p->hpf_ramp=v[17];
+    p->pha_offset=v[18];p->pha_ramp=v[19];p->arp_speed=v[20];p->arp_mod=v[21]; return 1; }
+/* Open a .sfx (editable recipe) or .sfx.h (baked header — prefer its sibling .sfx in
+ * assets/, else parse the header) into the Audio editor so it can be tweaked + re-baked. */
+static void load_sfx_file(const char*path){
+    size_t l=strlen(path); const char*b=strrchr(path,'/'); b=b?b+1:path;
+    char base[80]; const char*dot=strstr(b,".sfx"); snprintf(base,sizeof base,"%.*s",(int)(dot?dot-b:(int)strlen(b)),b);
+    int ok=0;
+    if(l>4&&!strcasecmp(path+l-4,".sfx")) ok=sfx_read(path);
+    else { if(g_sel>=0){ char sp[480]; snprintf(sp,sizeof sp,"%.300s/assets/%.60s.sfx",g_games[g_sel].dir,base); ok=sfx_read(sp); }
+           if(!ok) ok=sfx_read_header(path); }
+    if(!ok){ snprintf(g_status,sizeof g_status,"could not read SFX %s",base); return; }
+    snprintf(g_au_name,sizeof g_au_name,"%.60s",base); g_has_sfx=1; sfx_apply(0);
+    snprintf(g_status,sizeof g_status,"loaded SFX %s  \xb7 edit + Save to re-bake",base); }
 static void sfx_preset(int k){ Sfx*P=&g_sfx; memset(P,0,sizeof *P); P->env_sustain=0.3f; P->env_decay=0.4f; P->base_freq=0.3f; P->duty=0.5f; P->lpf_freq=1.0f;
     switch(k){
       case 0: P->base_freq=0.4f+frnd(0.5f); P->env_sustain=frnd(0.1f); P->env_decay=0.1f+frnd(0.4f); P->env_punch=0.3f+frnd(0.3f);
@@ -2660,6 +2702,19 @@ static void draw_code(SDL_Renderer*R,int x,int y,int w,int h){ g_code_area=(SDL_
     snprintf(ft,sizeof ft,"%s%.220s   ·   Ctrl+S save   ·   %d issue%s",g_codedirty?"*":"",g_codepath,ne,ne==1?"":"s");
     text(R,ft,x+8,y+h-15,1,g_codedirty?(Col){230,200,120}:C_DIM,(Col){19,21,27}); }
 
+/* console selection: map a mouse-y to a log line index, and copy the selected
+ * lines to the clipboard (so you can grab error text). Line-granular. */
+static int con_line_at(int my){ int cy=BOT_Y+30, rows=(WIN_H-cy-8)/13, start=g_logn>rows?g_logn-rows:0;
+    int line=start+(my-cy)/13; if(line<start)line=start; if(line>=g_logn)line=g_logn-1; return line; }
+static void con_copy(void){
+    if(g_consel_a<0||g_logn<=0)return;
+    int sa=g_consel_a<g_consel_b?g_consel_a:g_consel_b, sb=g_consel_a<g_consel_b?g_consel_b:g_consel_a;
+    int lo=g_logn-80; if(lo<0)lo=0; if(sa<lo)sa=lo; if(sb>=g_logn)sb=g_logn-1; if(sa>sb)return;
+    char *t=malloc((size_t)(sb-sa+1)*151+1); size_t o=0;
+    SDL_LockMutex(g_logmx?g_logmx:(g_logmx=SDL_CreateMutex()));
+    for(int i=sa;i<=sb;i++){ const char*s=g_log[i%80]; size_t n=strlen(s); memcpy(t+o,s,n); o+=n; t[o++]='\n'; }
+    SDL_UnlockMutex(g_logmx); t[o]=0; SDL_SetClipboardText(t); free(t);
+    snprintf(g_status,sizeof g_status,"copied %d console line%s",sb-sa+1,sb>sa?"s":""); }
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
@@ -2668,8 +2723,12 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_CODE){ draw_code(R,0,BOT_Y+23,WIN_W,WIN_H-(BOT_Y+23)); return; }
     if(g_tab==TAB_CONSOLE){ SDL_LockMutex(g_logmx?g_logmx:(g_logmx=SDL_CreateMutex()));
         int rows=(WIN_H-cy-8)/13, start=g_logn>rows?g_logn-rows:0;
-        for(int i=start;i<g_logn;i++){ const char*s=g_log[i%80]; Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
-            text(R,s,12,cy+(i-start)*13,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx); return; }
+        int sa=g_consel_a<g_consel_b?g_consel_a:g_consel_b, sb=g_consel_a<g_consel_b?g_consel_b:g_consel_a;
+        for(int i=start;i<g_logn;i++){ const char*s=g_log[i%80]; int yy=cy+(i-start)*13;
+            if(g_consel_a>=0&&i>=sa&&i<=sb) plain(R,8,yy-1,WIN_W-16,13,(Col){44,56,84});   /* selection highlight */
+            Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
+            text(R,s,12,yy,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx);
+        text(R,"drag to select \xb7 Ctrl+C copy \xb7 Ctrl+A all",12,WIN_H-12,1,(Col){90,100,120},C_DOCK); return; }
     if(g_tab==TAB_MESH){ draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_RIG){ draw_rig(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
@@ -2966,6 +3025,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
         if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
         else { load_mesh(r->path); g_tab=TAB_MESH; } }
+    else if(ci_ends(r->name,".sfx")||ci_ends(r->name,".sfx.h")){ load_sfx_file(r->path); g_tab=TAB_AUDIO; }  /* SFX recipe -> Audio tab */
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
     else if(ci_ends(r->name,".level")){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path; snprintf(g_tl_name,sizeof g_tl_name,"%.50s",b); char*dt=strrchr(g_tl_name,'.'); if(dt)*dt=0;
         g_tl_init=1; lv_load_def(r->path); g_tab=TAB_TILES; }                                      /* open a level in the Tiles tab */
@@ -3212,6 +3272,10 @@ int main(int argc,char**argv){
                         else if(k==SDLK_PAGEUP){ for(int z=0;z<12;z++)cur_vert(-1); } else if(k==SDLK_PAGEDOWN){ for(int z=0;z<12;z++)cur_vert(1); } }
                     else if(k==SDLK_ESCAPE){ if(g_csel>=0)g_csel=-1; else g_codefocus=0; }
                     continue; } }
+            if(e.type==SDL_KEYDOWN&&g_tab==TAB_CONSOLE&&(SDL_GetModState()&(KMOD_CTRL|KMOD_GUI))){
+                SDL_Keycode k=e.key.keysym.sym;
+                if(k==SDLK_c){ con_copy(); continue; }
+                if(k==SDLK_a){ int lo=g_logn-80; if(lo<0)lo=0; g_consel_a=lo; g_consel_b=g_logn-1; continue; } }
             if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y; g_codefocus=0;   /* refocus editor only on an editor click */
                 if(g_ctx){ ctx_click(mx,my); g_ctx=0; continue; }                              /* a click closes the context menu */
                 if(e.button.button==SDL_BUTTON_RIGHT && mx<LEFT_W && my>=TOPH && my<BOT_Y){     /* right-click the file tree */
@@ -3246,17 +3310,19 @@ int main(int argc,char**argv){
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
                     else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
-                    else if(g_tab==TAB_ANIM)anim_down(mx,my); continue; } }
+                    else if(g_tab==TAB_ANIM)anim_down(mx,my);
+                    else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
-                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
                 if(g_codeseldrag){ code_click(e.motion.x,e.motion.y); continue; }   /* drag-select text */
+                if(g_condrag){ g_consel_b=con_line_at(e.motion.y); continue; }       /* drag-select console lines */
                 if(g_tree_sbdrag){ int top=TOPH+28,H=BOT_Y-top,total=g_ntree*ROW_H,maxs=total>H?total-H:0;
                     float f=(float)(e.motion.y-top)/(H>0?H:1); g_treescroll=(int)(f*maxs); if(g_treescroll<0)g_treescroll=0; if(g_treescroll>maxs)g_treescroll=maxs; continue; }
                 if(g_split==1) LEFT_W=clampi(e.motion.x,160,WIN_W-RIGHT_W-360);

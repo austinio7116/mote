@@ -351,6 +351,7 @@ enum { ST_AIM, ST_CHARGE, ST_FLY, ST_DONE };
 static int   state = ST_AIM, a_armed;
 static float aim_angle = 0.7f, charge_power, settle_t;
 static Vec3  cam = {0};
+static float cam_zoom = 1.0f;          /* LB = zoom out, RB = zoom in (camera dolly) */
 
 static void launch_bird(float power){
     MoteBody *b = &body[bird];
@@ -439,6 +440,11 @@ static int pigs_left(void){
 static void g_update(float dt){
     const MoteInput *in = mote->input();
 
+    /* LB/RB dolly the camera in and out (held) */
+    if (mote_pressed(in, MOTE_BTN_RB)) cam_zoom -= 1.2f * dt;   /* zoom in  */
+    if (mote_pressed(in, MOTE_BTN_LB)) cam_zoom += 1.2f * dt;   /* zoom out */
+    cam_zoom = mote_clampf(cam_zoom, 0.55f, 2.2f);
+
     if (mote_just_pressed(in, MOTE_BTN_B)){
         if (state == ST_DONE && pigs_left() == 0) level++;    /* cleared -> next level */
         birds_left = 4; build_level(); reset_bird();
@@ -477,7 +483,7 @@ static void g_update(float dt){
     float follow_x = (state == ST_FLY) ? body[bird].pos.x : -1.5f;
     follow_x = mote_clampf(follow_x, -1.5f, 6);
     Vec3 target = v3(follow_x + 1.5f, framh * 0.45f, 0);
-    cam = v3(target.x, target.y + 0.4f, -(13.5f + framh * 1.35f));
+    cam = v3(target.x, target.y + 0.4f, -(13.5f + framh * 1.35f) * cam_zoom);
     Mat3 basis = mote_camera_look(cam, target);
 
     mote->scene_camera(&basis, cam, 56.0f);

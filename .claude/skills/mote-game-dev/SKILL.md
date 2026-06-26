@@ -6,7 +6,8 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 # Building Mote games
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
-(RP2350, 128×128 RGB565, dual-core, ~280 KB game arena). Games are plain C modules.
+(RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
+Current engine ABI: **v35** (sprites/textures/blend, see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -23,11 +24,41 @@ The intended loop — and the one to recommend — splits cleanly:
 So: don't hand-roll pixel art or tile LUTs in C — tell the human to author it in the
 Studio tab and `#include` the baked header. Spend your effort on `game.c`.
 
+### Golden rule: author EDITABLE SOURCE assets + bake — never write headers directly
+
+Every asset must exist as an **editable source file under `assets/`** (or
+`tilesets/`, `levels/`) that the developer can open and tweak in the Studio, and be
+turned into its `src/<name>.h` by **`mote bake <dir>`** (or Studio Save). **NEVER
+hand-write the baked `src/*.h`** (`*_img`, `*.sfx.h`, `*.tiles.h`, `*.level.h`,
+mesh/rig headers) and **never procedurally generate assets in C at init** — a baked
+header / runtime-built pixels are invisible and uneditable in the IDE. The ONLY
+exception is when *procedurally generated content is itself the game's requirement*
+(e.g. a noise-driven world); even then, prefer real source assets for the fixed art.
+
+Editable source → baked header (`mote bake` handles all of these):
+
+| Source (`assets/` etc.) | Baked header | Edit in Studio |
+|---|---|---|
+| `*.png` / `*.bmp` | `<name>.h` (`MoteImage`) | Pixel Art / Texture tab |
+| `*.sfx` (SFXR recipe, text) | `<name>.sfx.h` (`MoteSfx`) | Audio tab |
+| `*.wav` | `<name>_snd.h` (`MoteSound` PCM) | Audio tab |
+| `tilesets/*.tileset` (+ sheet png) | `<name>.tiles.h` (`MoteAutotile`) | Tiles tab |
+| `levels/*.level` | `<name>.level.h` | Tiles tab |
+| `*.obj` / `*.stl` (+ `*.rig`) | `<name>.h` / `.rig.h` (`Mesh`/`MoteModel`/rig) | Mesh / Rig tab |
+| game-root `icon.png` | `src/icon.h` | Pixel Art tab (icon) |
+
+If you must generate art programmatically (PIL etc.) as the *authoring* step, write the
+result to the editable source file (the `.png`/`.sfx`), commit that, and bake it — the
+deliverable is the editable file, not a C array.
+
 When in doubt, **read `README.md`** (the full engine API + asset pipeline reference)
 and **copy the closest `examples/<game>`** — every example is a self-contained,
 readable reference (`tetris3d`/`hello-mesh` minimal; `pong3d`/`arkanoid3d` polished
 arcade; `chess`/`golf`/`pool` full games; `fling` procedural levels + big terrain +
-physics; `tiledemo` layered tiles; `herodemo` sprite animation; `modelview` STL models).
+physics; `tiledemo` layered tiles; `herodemo` sprite animation; `modelview` STL models;
+`fxdemo` the FX/billboard/blend toolkit; **`wolfmote` a full Wolf3D-style FPS** (textured
+wall/door cubes, billboard enemies + scenery, two weapons, doors, text-map levels, SFX);
+`thumbycue`/`indemnity` big games rendered entirely through the built-in engine).
 
 ## Game skeleton
 
@@ -51,10 +82,15 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 ```
 
-`config` declares the resource pools the OS allocates from the ~280 KB arena
-(`max_tris`/`max_spheres`/`max_splats`/`max_sprites`/`max_bodies`/`max_contacts`/
-`max_mesh_tris`, `depth=1` adds the 32 KB depth buffer for 3D). Size them to what you
-draw — too small clips, too big wastes arena.
+`config` declares the resource pools the OS allocates from the 272 KB arena. Classic
+pools: `max_tris`/`max_spheres`/`max_splats`/`max_sprites`/`max_bodies`/`max_contacts`/
+`max_mesh_tris`, plus `depth=1` (the 32 KB depth buffer for 3D). The newer per-frame
+draw pools (v24–v35): `max_points`/`max_lines`/`max_discs` (FX), `max_tex_spheres`
+(sphere impostors), `max_shadows`, `max_rings`, `max_billboards` (3D sprites),
+`max_tex_tris` (textured-mesh faces). Size each to what you draw — too small silently
+clips, too big wastes arena. **Declare every pool you use** (any non-zero field counts as
+"declared"; a fully-zero config is treated as a legacy game and gets a big static
+worst-case).
 
 ## The engine is immediate-mode
 
@@ -88,6 +124,40 @@ MoteSprite s = { .img=&img, .x=px,.y=py, .fx=frame*16,.fy=0,.fw=16,.fh=16, .laye
                  .flags = facing_left ? MOTE_SPR_HFLIP : 0 };
 mote->scene2d_add(&s);
 ```
+
+**Sprites, textures, FX & blend in 3D** (v24–v35 — all depth-tested, dual-core, metered
+by their `config` pool):
+```c
+// 3D sprite billboard — camera-facing textured quad, sized in world units (enemies,
+// pickups, scenery, particles). fx/fy/fw/fh pick a sprite-sheet cell (0 = whole image).
+mote->scene_add_billboard(world_pos, &img, fx,fy,fw,fh, world_h, MOTE_BLEND_NONE);
+// textured mesh: give a Mesh a `texture` (MoteImage*) + `face_uvs` (nfaces*6 bytes,
+// per-corner u,v 0..255) and draw it through scene_add_object — UV-mapped + sun-lit,
+// perspective-correct. (Winding is irrelevant to the textured raster; only the face
+// NORMAL drives backface cull + lighting — handy for hand-built textured cubes.)
+mote->scene_add_sphere_tex(world_pos, r, &orient, &tex);   // textured/shaded sphere (mote_sphere.h)
+mote->scene_add_point(p,col,size); mote->scene_add_line(a,b,col); mote->scene_add_disc(p,r,col);
+mote->scene_add_ring(p, r, col);                           // camera-facing circle outline
+mote->scene_add_tri(a,b,c, col, 0);                        // double-sided immediate world tri
+mote->scene_add_shadow(ground_pos, r, strength);          // soft ground shadow (_ex = oval)
+mote->set_background_cb(bg_fn);                            // per-band sky/floor/gradient drawn before the scene
+mote->scene_set_near(0.08f);                               // INDOOR/close scenes: shrink near plane or walls clip
+mote->scene_add_object_ex(&obj, MOTE_DRAW_BLEND(MOTE_BLEND_ALPHA)); // translucent mesh (water/glass); or MOTE_DRAW_NO_DEPTH_WRITE
+```
+Blend modes (`MOTE_BLEND_NONE/ALPHA/ADD`) apply to billboards, `blit_ex`, and meshes
+(`MOTE_DRAW_BLEND(mode)`). `MOTE_BLEND_ADD` = glows/lasers/muzzle flashes.
+
+**2D framebuffer drawing + rotated blit** (HUDs, overlays, sprites at any angle):
+```c
+mote->draw_pixel/draw_line/draw_rect/draw_circle(fb, ...);            // pass band 0,128 in overlay()
+mote->blit(fb,&img,x,y, fx,fy,fw,fh, MOTE_SPR_HFLIP, 0,128);          // axis-aligned
+mote->blit_ex(fb,&img, cx,cy, fx,fy,fw,fh, angle, scale, MOTE_BLEND_ADD, 0,128); // rotate+scale
+```
+
+**Save + rumble** (v23): `mote->save(slot,data,len)` / `load(slot,buf,max)` / `save_slots()`
+(survives power-off); `mote->rumble(intensity, ms)`. **Master volume** (v29):
+`audio_set_master(v)` / `audio_get_master()` — the one knob the engine menu + every game
+share (route a game's volume option here).
 
 **Input** (read via helpers, never poke the struct):
 ```c
@@ -130,12 +200,22 @@ Enter = MENU. Headless capture: `MOTE_SHOT=1 MOTE_SHOT_FRAME=20` dumps a frame.
 - **ABI version**: changing the engine's shared structs (`mote_api.h` `MOTE_ABI_VERSION`)
   means the device needs a **reflashed OS firmware**; header-only/SDK changes do not.
   Game code rarely touches this — just match the SDK you build against.
-- **`max_tris` is the limit, not framerate**: a `depth=1` game has ~248 KB of arena for
-  the draw-list → ~7,000 triangles max; framerate gives out before that. Size the pool.
+- **Memory is the ceiling, not framerate**: ~5,700 textured tris hold 60 fps on device;
+  the arena (272 KB) runs out around ~7,000 tris first. Size the pool to what you draw.
 - **Bake before build**: `mote build`/`run` compile whatever headers exist — bake the
-  asset first (Studio Save auto-bakes; `mote bake` for the CLI). The `.h` is committed.
-- **Transparency** is the magenta key `0xF81F` (`MOTE_KEY_MAGENTA`); alpha<128 in source
-  art bakes to it.
+  asset first (Studio Save auto-bakes; `mote bake <dir>` for the CLI). The `.h` is committed.
+- **Transparency is the PNG ALPHA channel.** The baker keys `alpha < 128` to the magenta
+  colour-key (`0xF81F`) and marks the image keyed; a fully-opaque image bakes `opaque=1`
+  (no key). **Author sprites with a transparent background — do NOT fill it with magenta
+  RGB** (that bakes as a solid colour + `opaque=1`, so nothing is transparent). Wall/floor
+  textures stay fully opaque on purpose.
+- **Examples ship REAL editable asset FILES** (PNGs, `*.sfx.h`, STL) for every
+  sprite/texture/sound — **never procedurally generate art in C at init**. The whole point
+  is the dev opens the example in the Studio and tweaks the assets visually; runtime-built
+  pixels are invisible/uneditable there. (Authoring a PNG with a script is fine — the
+  deliverable is the editable file under `assets/`.)
+- **Indoor / close-up scenes need a smaller near plane**: the 0.5 m default clips geometry
+  you stand next to (walls, a snooker table). Call `mote->scene_set_near(0.05..0.1)` in init.
 - **256 verts per render mesh**: `MeshFace` indices are `uint8`, so one `Mesh` caps at 256
   verts. For bigger geometry (e.g. terrain) split it into chunks that share one center +
   scale — shared-edge verts then quantise identically, so they stitch with no cracks. A
@@ -151,5 +231,12 @@ Enter = MENU. Headless capture: `MOTE_SHOT=1 MOTE_SHOT_FRAME=20` dumps a frame.
 
 `README.md` is the authoritative reference — §3 anatomy, §4 asset pipeline, §5 engine
 API (5.1 3D, 5.2 2D/tiles/anim, 5.3 physics, 5.5 input, 5.6 audio, 5.8 helpers),
-§7 memory, §11 gotchas. Headers: `sdk/mote_api.h` (the ABI), `sdk/mote_build.h`,
-`sdk/mote_tile.h`, `sdk/mote_anim.h`. When stuck, read the nearest `examples/` game.
+§7 memory, §11 gotchas. Headers: `sdk/mote_api.h` (the ABI — every `mote->` call +
+`MoteConfig`), `sdk/mote_build.h` (inline helpers), `engine/render/mote_sphere.h`
+(`MoteSphereTex` shade modes), `engine/render/mote_object.h` (`MOTE_BLEND_*` / draw
+flags), `engine/assets/mote_mesh.h` (`Mesh.texture`/`face_uvs`), `sdk/mote_tile.h`,
+`sdk/mote_anim.h`. The rendered API ref is [`docs/index.html`](../../docs/index.html)
+(austinio7116.github.io/mote). When stuck, read the nearest `examples/` game.
+
+> **Maintenance:** when the engine ABI/API changes, update this skill alongside
+> `docs/index.html` + `README.md` §5 + `CHANGELOG.md` (the version line at the top here too).

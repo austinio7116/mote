@@ -40,6 +40,12 @@ static int          s_shot_frame = 20;
 static int          s_frame;
 static uint64_t     s_dt_us;     /* fixed timestep (0 = real clock) */
 static uint64_t     s_vclock;    /* virtual clock for fixed-timestep mode */
+/* Frame-sequence recorder: MOTE_REC=/dir dumps every frame as /dir/NNNNN.ppm,
+ * up to MOTE_REC_N frames (default 180), then quits. With MOTE_DT_MS (fixed
+ * timestep) + MOTE_KEYS (scripted input) this records a deterministic gameplay
+ * clip headlessly — stitch the PPMs with ffmpeg. */
+static const char *s_rec_dir;
+static int          s_rec_n = 180;
 
 static void dump_ppm(const char *path, const uint16_t *fb) {
     FILE *f = fopen(path, "wb");
@@ -76,6 +82,8 @@ int mote_plat_init(const char *title) {
     s_vclock = 0;
     s_shot_path = getenv("MOTE_SHOT");
     if (getenv("MOTE_SHOT_FRAME")) s_shot_frame = atoi(getenv("MOTE_SHOT_FRAME"));
+    s_rec_dir = getenv("MOTE_REC");
+    if (getenv("MOTE_REC_N")) s_rec_n = atoi(getenv("MOTE_REC_N"));
     s_frame = 0;
 
     s_win = SDL_CreateWindow(title ? title : "Mote",
@@ -105,7 +113,13 @@ void mote_plat_present(const uint16_t *fb565) {
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) s_quit = true;
     }
     if (s_dt_us) s_vclock += s_dt_us;     /* advance the virtual clock per frame */
-    if (s_shot_path && ++s_frame == s_shot_frame) {
+    if (s_rec_dir) {
+        if (s_frame < s_rec_n) {
+            char p[1024]; snprintf(p, sizeof p, "%s/%05d.ppm", s_rec_dir, s_frame);
+            dump_ppm(p, fb565);
+        }
+        if (++s_frame >= s_rec_n) { SDL_Log("mote_plat: recorded %d frames to %s", s_rec_n, s_rec_dir); s_quit = true; }
+    } else if (s_shot_path && ++s_frame == s_shot_frame) {
         dump_ppm(s_shot_path, fb565);
         SDL_Log("mote_plat: wrote %s at frame %d", s_shot_path, s_frame);
         s_quit = true;
