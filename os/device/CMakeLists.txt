@@ -10,14 +10,19 @@
 #
 cmake_minimum_required(VERSION 3.16)
 
-set(PICO_BOARD tinycircuits_thumby_color_rp2350)
-set(PICO_PLATFORM rp2350)
-include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
+# Standalone: own pico SDK project. THUMBYONE_SLOT_MODE: ThumbyOne already
+# called project()/pico_sdk_init(), so we just add our target as a subproject
+# and the lobby combiner rebases our UF2 into the unified firmware.
+if (NOT THUMBYONE_SLOT_MODE)
+    set(PICO_BOARD tinycircuits_thumby_color_rp2350)
+    set(PICO_PLATFORM rp2350)
+    include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 
-project(mote_os_device C CXX ASM)
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 14)
-pico_sdk_init()
+    project(mote_os_device C CXX ASM)
+    set(CMAKE_C_STANDARD 11)
+    set(CMAKE_CXX_STANDARD 14)
+    pico_sdk_init()
+endif()
 
 set(ROOT    ${CMAKE_CURRENT_LIST_DIR}/../..)
 set(ENGINE  ${ROOT}/engine)
@@ -67,9 +72,34 @@ add_executable(mote_os
 # tusb_config.h must be found before TinyUSB's own headers.
 target_include_directories(mote_os BEFORE PRIVATE ${OSDIR}/device)
 target_include_directories(mote_os PRIVATE ${MOTE_INCS})
+# Slot mode: ThumbyOne lobby chained to us. Pull in its shared helpers (handoff
+# + xip_fast_setup, FatFs for the /.mote library, LED/backlight/settings so we
+# adopt the lobby's brightness/volume). Cut the heap — FatFs caches eat the SRAM
+# the standalone build gives the heap. THUMBYONE_COMMON_* are set by the lobby
+# CMake before add_subdirectory (same vars the game slots receive).
+if (THUMBYONE_SLOT_MODE)
+    target_sources(mote_os PRIVATE
+        ${THUMBYONE_COMMON_SRC}          # thumbyone_handoff.c (xip_fast_setup)
+        ${THUMBYONE_FATFS_SRC}
+        ${THUMBYONE_COMMON_FS_SRC}
+        ${THUMBYONE_COMMON_LED_SRC}
+        ${THUMBYONE_COMMON_BACKLIGHT_SRC}
+        ${THUMBYONE_COMMON_SETTINGS_SRC})
+    target_include_directories(mote_os PRIVATE
+        ${THUMBYONE_FATFS_INCLUDE}
+        ${THUMBYONE_COMMON_INCLUDE}
+        ${THUMBYONE_COMMON_LED_INCLUDE}
+        ${THUMBYONE_COMMON_BACKLIGHT_INCLUDE}
+        ${THUMBYONE_COMMON_SETTINGS_INCLUDE})
+    set(MOTE_OS_HEAP 0x2000)
+else()
+    set(MOTE_OS_HEAP 0x4000)
+endif()
+
 target_compile_definitions(mote_os PRIVATE
-    MOTE_DEVICE=1 PICO_HEAP_SIZE=0x4000
-    PICO_STACK_SIZE=0x1000 PICO_CORE1_STACK_SIZE=0x1000)
+    MOTE_DEVICE=1 PICO_HEAP_SIZE=${MOTE_OS_HEAP}
+    PICO_STACK_SIZE=0x1000 PICO_CORE1_STACK_SIZE=0x1000
+    $<$<BOOL:${THUMBYONE_SLOT_MODE}>:THUMBYONE_SLOT_MODE=1>)
 target_compile_options(mote_os PRIVATE
     -O3 -g -ffast-math -Wall -Wextra -Wno-unused-parameter ${MOTE_ARCH})
 
@@ -78,10 +108,21 @@ target_link_libraries(mote_os
     hardware_spi hardware_dma hardware_clocks hardware_gpio
     hardware_flash hardware_sync hardware_pwm hardware_irq
     tinyusb_device tinyusb_board)
+if (THUMBYONE_SLOT_MODE)
+    target_link_libraries(mote_os hardware_pio hardware_adc)
+endif()
 
 # Reserve the top 128 KB of SRAM for the loaded game module.
 pico_set_linker_script(mote_os ${CMAKE_CURRENT_LIST_DIR}/os_memmap.ld)
 
 pico_enable_stdio_usb(mote_os 0)
 pico_enable_stdio_uart(mote_os 0)
+
+# Slot mode: "absolute" UF2 family so the lobby's chain_image can load us
+# wherever the rebase placed us; fixed output name for the combiner to pick up.
+if (THUMBYONE_SLOT_MODE)
+    pico_set_uf2_family(mote_os "absolute")
+    set_target_properties(mote_os PROPERTIES OUTPUT_NAME "firmware_mote_slot")
+endif()
+
 pico_add_extra_outputs(mote_os)
