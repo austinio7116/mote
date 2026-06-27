@@ -32,7 +32,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 37u  /* v37: audio_play_sfx — stream a MoteSfx recipe (tiny flash, ~0 RAM) instead of baking PCM */
+#define MOTE_ABI_VERSION 38u  /* v38: kv_save/kv_load/kv_list — named-blob storage (e.g. voxel chunk persistence) */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -394,6 +394,21 @@ typedef struct MoteApi {
      * rack, UI blips) where the baked-PCM clips would bloat flash. `gain` is the
      * per-shot level; up to 4 recipe voices play at once (oldest is stolen). */
     void (*audio_play_sfx)(const MoteSfx *recipe, float gain);
+
+    /* --- ABI v38: key-value blob storage. Unlike save()/load() (a fixed set of
+     * numbered slots), this is arbitrary named blobs — for games that persist many
+     * pieces (e.g. a voxel world's per-chunk edits). Backed by real files under the
+     * game's save folder, so blobs are any size and survive reboots.
+     *   kv_save(key, data, len): write/overwrite a blob; len==0 deletes it. Returns
+     *                            bytes written (<=0 on failure).
+     *   kv_load(key, data, max):  read up to max bytes; returns the blob's size
+     *                            (0 if absent). Pass data=NULL to query size.
+     *   kv_list(prefix, cb, arg): call cb(key, arg) for every key starting with
+     *                            `prefix` (cb must not call kv_* re-entrantly).
+     * Keys are short ASCII (no '/'); treat as case-insensitive on FAT. */
+    int  (*kv_save)(const char *key, const void *data, int len);
+    int  (*kv_load)(const char *key, void *data, int max);
+    void (*kv_list)(const char *prefix, void (*cb)(const char *key, void *arg), void *arg);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

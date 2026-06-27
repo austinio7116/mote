@@ -91,6 +91,8 @@ static float getf(const uint8_t *p) {
 #define SAVE_RECORD_BYTES_V5  (HDR_OFF_CRC_V5 + 4)
 #define SAVE_RECORD_MIN_BYTES SAVE_RECORD_BYTES_V5
 #define SAVE_RECORD_MAX_BYTES (HDR_OFF_ORIENTS + CRAFT_ORIENTS_BLOB_MAX_BYTES + 4)
+_Static_assert(CRAFT_SAVE_SCRATCH_BYTES >= SAVE_RECORD_MAX_BYTES,
+               "craft_save_scratch too small for the save record");
 
 size_t craft_save_serialise(uint32_t seed, uint32_t chunks_nonce,
                             uint8_t autosave_level,

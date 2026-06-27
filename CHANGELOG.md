@@ -7,8 +7,9 @@ on ThumbyOne.** The headline change: a game's hand-tuned sound effects no longer
 be baked into big blocks of raw audio — the engine can now *play the recipe directly*,
 synthesising each sound on the fly. Indemnity Run's sound dropped from ~620 KB of baked
 audio to a few KB of recipes, shrinking the whole game from **958 KB to 328 KB** with no
-audible change. **Reflash the firmware** — the engine interface version goes 36 → **37**;
-games built against it need the new firmware, and games already on the device keep working.
+audible change. ThumbyCraft now **saves your world** on the device too. **Reflash the
+firmware** — the engine interface version goes 36 → **38**; games built against it need the
+new firmware, and games already on the device keep working.
 
 ### Audio
 
@@ -34,6 +35,18 @@ games built against it need the new firmware, and games already on the device ke
 - **Live logs to the IDE during a game** — turn on *USB LOGS* in the engine menu and a game's
   `mote->log()` lines stream to the IDE over USB. It's off by default so normal play has zero
   overhead. The launcher also accepts `mote push` over USB to drop a game straight into `/mote/`.
+
+### Saves
+
+- **Per-game saves on a real filesystem.** A game's `mote->save`/`load` slots are now files
+  under `/mote/saves/<game>/` — each game gets its own folder, so two games can't clash, and
+  saves survive reboots and firmware updates. (The old scheme wrote raw flash at a fixed
+  address that, in a ThumbyOne build, overlapped the shared drive.)
+- **Named-blob storage (`kv_save`/`kv_load`/`kv_list`, ABI v38).** For games that persist
+  *many* pieces rather than one record — arbitrary keyed blobs of any size, file-backed.
+- **ThumbyCraft now saves your world.** Built on the above: the player record rides a save
+  slot, and every edited voxel chunk is a blob — so your builds, chests and torches come back
+  exactly as you left them.
 
 ## 0.7-alpha
 

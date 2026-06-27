@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v37</span>
+    <span class="abi">ABI v38</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -633,6 +633,19 @@ returns <code>len</code> on success. <code>load()</code> copies up to <code>max_
 (<code>0</code> if empty — so <code>load(slot, NULL, 0)</code> tests for a save). <code>save_slots()</code> = the number of
 slots. Keep your own magic/version inside the blob.</p>
 
+<h3 id="fn-kv">kv_save / kv_load / kv_list <span class="badge abi">v38</span></h3>
+<pre class="sig"><span class="kw">int</span>  (*<span class="fn">kv_save</span>)(<span class="kw">const char</span> *key, <span class="kw">const void</span> *data, <span class="kw">int</span> len);
+<span class="kw">int</span>  (*<span class="fn">kv_load</span>)(<span class="kw">const char</span> *key, <span class="kw">void</span> *data, <span class="kw">int</span> max);
+<span class="kw">void</span> (*<span class="fn">kv_list</span>)(<span class="kw">const char</span> *prefix, <span class="kw">void</span> (*cb)(<span class="kw">const char</span> *key, <span class="kw">void</span> *arg), <span class="kw">void</span> *arg);</pre>
+<p>Key-value <b>blob storage</b> — unlike the fixed numbered <a href="#fn-save"><code>save</code></a> slots, this is
+arbitrary <em>named</em> blobs, for games that persist many pieces (e.g. a voxel world's per-chunk edits — it's how
+the ThumbyCraft port saves). Each key is backed by a real file under the game's save folder, so blobs are any size and
+survive reboots. <code>kv_save</code> writes/overwrites a blob (<code>len==0</code> deletes); <code>kv_load</code> reads up
+to <code>max</code> bytes and returns the blob's full size (<code>0</code> if absent — pass <code>data=NULL</code> to
+query size); <code>kv_list</code> calls <code>cb(key, arg)</code> for every key starting with <code>prefix</code> (the
+callback must not call <code>kv_*</code> re-entrantly on a list it's iterating). Keys are short ASCII, no <code>/</code>,
+case-insensitive on FAT.</p>
+
 <!-- ======================================================================
                               DATA TYPES
 ======================================================================= -->
@@ -1050,6 +1063,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v35</td><td>Textured (UV-mapped) meshes: <code>Mesh.texture</code> + <code>Mesh.face_uvs</code>, drawn through <code>scene_add_object</code>; per-mesh translucency via <code>MOTE_DRAW_BLEND()</code>.</td></tr>
 <tr><td>v36</td><td>audio_set_stream — register a PCM source mixed on top of the synth voices (for games with their own software synth). Plus <code>.ramtext</code> RAM-resident hot code (loader copies it flash→SRAM at load) and the module static RAM grew 128→134&nbsp;KB. Both landed for the ThumbyCraft port.</td></tr>
 <tr><td>v37</td><td>audio_play_sfx — stream a <code>MoteSfx</code> recipe (synthesised on the fly by a pool of 8 voices); the small-flash, ~0-RAM way to ship a whole game's SFX, vs baking each to a clip.</td></tr>
+<tr><td>v38</td><td>kv_save/kv_load/kv_list — named-blob storage (arbitrary keys, any size, FatFs-backed) for games that persist many pieces, e.g. ThumbyCraft's per-chunk voxel edits.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

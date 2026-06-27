@@ -1,14 +1,16 @@
 /*
- * ThumbyCraft — Mote save-slot backend (stub stage).
+ * ThumbyCraft — Mote save-slot backend.
  *
- * The slot picker (title + pause menu) queries these to show which save slots
- * are used and their thumbnails. Full persistence via mote->save is wired in a
- * later phase; for now both report "no saves", so the picker shows empty slots
- * and the game always starts a fresh world. The portable serialise/deserialise
- * logic lives in craft_save.c and is unaffected.
+ * The slot picker (title + pause menu) queries these to show which slots are
+ * used. "Used" = the engine has a save record for that slot (mote->save, via
+ * the craft_port_save_read shim in game.c). Thumbnails are unavailable on
+ * device — the world buffer fills the whole arena, so craft_main's thumbnail
+ * capture can't allocate; the picker shows used/empty without a preview.
  */
 #include "craft_save.h"
 
-bool craft_save_slot_used(int slot) { (void)slot; return false; }
+extern int craft_port_save_read(int slot, void *data, int max);   /* game.c: mote->load */
+
+bool craft_save_slot_used(int slot) { return craft_port_save_read(slot, 0, 0) > 0; }
 
 const uint16_t *craft_save_slot_thumb(int slot) { (void)slot; return 0; }

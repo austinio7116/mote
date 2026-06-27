@@ -116,3 +116,37 @@ int mote_plat_load(int slot, void *data, int max_len) {
         if (fread(data, 1, (size_t)c, f) != (size_t)c) {} }
     fclose(f); return (int)L;
 }
+
+/* --- v38 key-value blobs: files in ./mote_kv/<game>__<key> --- */
+#include <sys/stat.h>
+#include <dirent.h>
+#include <string.h>
+static void kv_spath(const char *key, char *p, int n) {
+    snprintf(p, n, "mote_kv/%s__%s", s_save_game[0] ? s_save_game : "game", key);
+}
+int mote_plat_kv_save(const char *key, const void *data, int len) {
+    mkdir("mote_kv", 0777);
+    char p[160]; kv_spath(key, p, sizeof p);
+    if (len <= 0) { remove(p); return 0; }
+    FILE *f = fopen(p, "wb"); if (!f) return 0;
+    size_t w = fwrite(data, 1, (size_t)len, f); fclose(f); return (int)w;
+}
+int mote_plat_kv_load(const char *key, void *data, int max) {
+    char p[160]; kv_spath(key, p, sizeof p);
+    FILE *f = fopen(p, "rb"); if (!f) return 0;
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    if (data && max > 0) { int c = (int)sz < max ? (int)sz : max; if (fread(data, 1, (size_t)c, f) != (size_t)c) {} }
+    fclose(f); return (int)sz;
+}
+void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), void *arg) {
+    DIR *d = opendir("mote_kv"); if (!d) return;
+    char gp[60]; snprintf(gp, sizeof gp, "%s__", s_save_game[0] ? s_save_game : "game");
+    size_t gpl = strlen(gp), pl = prefix ? strlen(prefix) : 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (strncmp(e->d_name, gp, gpl) != 0) continue;
+        const char *key = e->d_name + gpl;
+        if (pl == 0 || strncmp(key, prefix, pl) == 0) cb(key, arg);
+    }
+    closedir(d);
+}

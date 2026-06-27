@@ -248,6 +248,39 @@ int mote_plat_load(int slot, void *data, int max_len) {
     }
     f_close(&f); return sz;                                  /* size query */
 }
+
+/* --- v38 key-value blobs: files under /mote/saves/<game>/kv/<key> --- */
+static const char *kv_game(void) { return s_save_game[0] ? s_save_game : "game"; }
+static void kv_dir(char *p, int n)  { snprintf(p, n, "/mote/saves/%s/kv", kv_game()); }
+static void kv_path(const char *key, char *p, int n) { snprintf(p, n, "/mote/saves/%s/kv/%s", kv_game(), key); }
+int mote_plat_kv_save(const char *key, const void *data, int len) {
+    char p[96]; kv_path(key, p, sizeof p);
+    if (len <= 0) { f_unlink(p); return 0; }                 /* delete */
+    f_mkdir("/mote/saves");
+    char d[64]; snprintf(d, sizeof d, "/mote/saves/%s", kv_game()); f_mkdir(d);
+    char kd[80]; kv_dir(kd, sizeof kd); f_mkdir(kd);
+    FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
+    UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
+    return (int)bw;
+}
+int mote_plat_kv_load(const char *key, void *data, int max) {
+    char p[96]; kv_path(key, p, sizeof p);
+    FIL f; if (f_open(&f, p, FA_READ) != FR_OK) return 0;
+    int sz = (int)f_size(&f);
+    if (data && max > 0) { UINT br = 0; int c = sz < max ? sz : max; f_read(&f, data, (UINT)c, &br); }
+    f_close(&f); return sz;                                  /* full blob size */
+}
+void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), void *arg) {
+    char kd[80]; kv_dir(kd, sizeof kd);
+    DIR dir; FILINFO fi;
+    if (f_opendir(&dir, kd) != FR_OK) return;
+    size_t pl = prefix ? strlen(prefix) : 0;
+    while (f_readdir(&dir, &fi) == FR_OK && fi.fname[0]) {
+        if (fi.fattrib & AM_DIR) continue;
+        if (pl == 0 || strncmp(fi.fname, prefix, pl) == 0) cb(fi.fname, arg);
+    }
+    f_closedir(&dir);
+}
 #else
 /* ---- ABI v23: per-slot save in the top flash sectors (survive power-off AND OS
  * reflash — the OS image sits far below). Per slot: [u32 magic][u32 len][data];
@@ -293,6 +326,10 @@ int mote_plat_load(int slot, void *data, int max_len) {
     if (data && max_len > 0) { int c = len < max_len ? len : max_len; memcpy(data, src + 8, (size_t)c); }
     return len;
 }
+/* Standalone OS has no FAT, so no blob storage — games that need it run in the slot. */
+int  mote_plat_kv_save(const char *key, const void *data, int len) { (void)key; (void)data; (void)len; return 0; }
+int  mote_plat_kv_load(const char *key, void *data, int max) { (void)key; (void)data; (void)max; return 0; }
+void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), void *arg) { (void)prefix; (void)cb; (void)arg; }
 #endif /* THUMBYONE_SLOT_MODE save backend */
 
 /* Refill the PWM ring from the synth. MUST run in the main-loop (core 0)

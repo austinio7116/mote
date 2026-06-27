@@ -96,6 +96,14 @@
  * embedded world_load_around. */
 #define CRAFT_SAVE_OFF_CHUNKS_NONCE 12
 
+/* Shared scratch (defined in game.c) for the Mote port: holds the serialised
+ * save record AND doubles as the chunk-store blob buffer — GAME_RAM is maxed,
+ * and record-save vs chunk-ops never overlap (single core, sequential). Sized
+ * for the larger of the two; a _Static_assert in craft_save.c guards that it's
+ * >= the record max. */
+#define CRAFT_SAVE_SCRATCH_BYTES 3432
+extern uint8_t craft_save_scratch[CRAFT_SAVE_SCRATCH_BYTES];
+
 /* Returns bytes written into `out` (≤ out_cap), or 0 on error.
  * autosave_level is 1..4 — stored in the (previously zero-filled)
  * pad byte so it survives across loads without growing the record. */

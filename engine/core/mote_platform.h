@@ -99,4 +99,10 @@ int  mote_plat_save_slots(void);
  * The runner sets this from the launched .mote's name before the game runs. */
 void mote_plat_set_save_game(const char *stem);
 
+/* ABI v38 key-value blob storage (see MoteApi.kv_*). Blobs are files under the
+ * game's save folder. */
+int  mote_plat_kv_save(const char *key, const void *data, int len);
+int  mote_plat_kv_load(const char *key, void *data, int max);
+void mote_plat_kv_list(const char *prefix, void (*cb)(const char *key, void *arg), void *arg);
+
 #endif /* MOTE_PLATFORM_H */

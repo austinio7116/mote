@@ -155,6 +155,10 @@ void mote_api_fill(MoteApi *a) {
     a->audio_set_stream      = mote_audio_set_stream;
     /* ABI v37: stream a MoteSfx recipe on the fly (tiny flash, ~0 RAM). */
     a->audio_play_sfx        = mote_audio_play_sfx;
+    /* ABI v38: named-blob storage (voxel chunks etc.) — files under the save folder. */
+    a->kv_save               = mote_plat_kv_save;
+    a->kv_load               = mote_plat_kv_load;
+    a->kv_list               = mote_plat_kv_list;
     /* ABI v30: 2D framebuffer drawing primitives. */
     a->draw_pixel            = mote_draw_pixel;
     a->draw_line             = mote_draw_line;

@@ -1798,8 +1798,12 @@ sprites and alpha/additive blending — usable by every game (engine interface v
 Saves, rumble, and a third big game port. Reflash `firmware_mote_os.uf2` (ABI → 23).
 
 - **Indemnity Run** — full Elite-style space sim port (~20k lines) on `render_band`.
-- **Persistent save** (`save`/`load`/`save_slots` — flash slots on device, files on host)
-  and **rumble** (`rumble(intensity, ms)`) added to the ABI (v23).
+- **Persistent save** (`save`/`load`/`save_slots` — fixed numbered slots, files on device's
+  save folder / host) and **rumble** (`rumble(intensity, ms)`) added to the ABI (v23).
+- **Named-blob storage** (`kv_save`/`kv_load`/`kv_list` — ABI v38): arbitrary keyed blobs of
+  any size, file-backed, for games that persist *many* pieces — e.g. ThumbyCraft saves each
+  edited voxel chunk under its own key. The fixed `save` slots are for a game's single
+  record; `kv_*` is for open-ended collections.
 - **Audio**: play baked `<name>_snd` clips (flash, 0 RAM) for a game's sounds; the docs,
   the Studio save hint, and the OOM screen now steer you off the RAM-hungry
   `mote_sfx_bake`-everything path. Audio-tab seed/Randomize no longer renames your sound.

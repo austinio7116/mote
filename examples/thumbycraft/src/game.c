@@ -26,6 +26,7 @@ MOTE_MODULE_HEADER();
 #endif
 
 #include "craft_main.h"
+#include "craft_save.h"
 #include "craft_player.h"   /* CraftInput */
 #include "craft_world.h"    /* craft_world_set_buffer, CRAFT_WORLD_VOXELS */
 #include "craft_audio.h"    /* craft_audio_render (PCM stream) */
@@ -34,6 +35,21 @@ MOTE_MODULE_HEADER();
 /* Arena passthrough for the vendored code's lazy allocations (e.g. the save
  * thumbnail). Returns NULL when the arena is exhausted; callers must cope. */
 void *craft_port_alloc(uint32_t bytes) { return mote->alloc(bytes); }
+
+/* KV-blob passthrough (ABI v38) — the chunk store persists per-chunk edits here. */
+int  craft_port_kv_save(const char *key, const void *data, int len) { return mote->kv_save ? mote->kv_save(key, data, len) : 0; }
+int  craft_port_kv_load(const char *key, void *data, int max)       { return mote->kv_load ? mote->kv_load(key, data, max) : 0; }
+void craft_port_kv_list(const char *prefix, void (*cb)(const char *, void *), void *arg) { if (mote->kv_list) mote->kv_list(prefix, cb, arg); }
+
+/* The one big save buffer (see craft_save.h): the serialised world record, also
+ * reused as the chunk-store blob — they never run at the same time. */
+uint8_t craft_save_scratch[CRAFT_SAVE_SCRATCH_BYTES];
+
+/* The world RECORD (seed/player/inventory) rides the engine's per-game save
+ * slots (mote->save/load → /mote/saves/thumbycraft/<slot>.sav). The chunk store
+ * streams per-chunk edits separately through kv_* above. */
+static int craft_port_save_write(int slot, const void *data, int len) { return mote->save ? mote->save(slot, data, len) : 0; }
+int        craft_port_save_read (int slot, void *data, int max)        { return mote->load ? mote->load(slot, data, max) : 0; }
 
 /* ---- platform RNG hook the engine calls (was device get_rand_32) ---------- */
 static uint32_t s_rng = 0x12345678u;
@@ -86,6 +102,23 @@ static void g_update(float dt) {
     in.menu_long = m->hold_ms[MOTE_BTN_MENU] >= 400;
 
     craft_main_tick(&in, dt);
+
+    /* Drain the menu/title save-load requests (mirrors the standalone device's
+     * drain_requests): record -> mote->save slot; load -> mote->load + restore.
+     * craft_main_save force-persists dirty chunks (through kv_*) and stamps the
+     * nonce internally; craft_main_load pre-reads the nonce and binds the store. */
+    if (craft_main_take_save_request()) {
+        int slot = craft_main_save_slot();
+        size_t n = craft_main_save(craft_save_scratch, CRAFT_SAVE_SCRATCH_BYTES);
+        if (n > 0) craft_port_save_write(slot, craft_save_scratch, (int)n);
+    }
+    if (craft_main_take_load_request()) {
+        int slot = craft_main_save_slot();
+        int n = craft_port_save_read(slot, craft_save_scratch, CRAFT_SAVE_SCRATCH_BYTES);
+        if (n > 0) craft_main_load(craft_save_scratch, (size_t)n);
+    }
+    (void)craft_main_take_new_world_request();   /* the engine resets the world itself */
+
     craft_main_render_begin();
 }
 
