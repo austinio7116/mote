@@ -94,5 +94,9 @@ void mote_plat_rumble(float intensity, int ms);
 int  mote_plat_save(int slot, const void *data, int len);
 int  mote_plat_load(int slot, void *data, int max_len);
 int  mote_plat_save_slots(void);
+/* Name the game whose saves these are, so the backend keeps them separate (the
+ * ThumbyOne slot writes /mote/saves/<stem>/<slot>.sav; host uses per-game files).
+ * The runner sets this from the launched .mote's name before the game runs. */
+void mote_plat_set_save_game(const char *stem);
 
 #endif /* MOTE_PLATFORM_H */

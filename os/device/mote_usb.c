@@ -196,7 +196,11 @@ static void handle_line(const char *cmd) {
         }
         cdc_say("OK\n");
     } else if (sscanf(cmd, "PUT %39s %u", name, &size) == 2) {
-        char path[64]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, name);
+        /* the IDE sends the bare game name (no extension) — land it as <name>.mote
+         * so the launcher lists it and the runner can map it. */
+        size_t ln = strlen(name);
+        int has_ext = ln > 5 && strcmp(name + ln - 5, ".mote") == 0;
+        char path[80]; snprintf(path, sizeof path, "%s/%s%s", MOTE_DIR, name, has_ext ? "" : ".mote");
         f_mkdir(MOTE_DIR);   /* ok if it exists */
         if (f_open(&s_putf, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) { cdc_say("ERR open\n"); return; }
         /* 4 KB clusters (FAT12) → the file is born 4 KB-aligned for the runner's

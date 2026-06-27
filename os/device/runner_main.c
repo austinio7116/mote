@@ -98,6 +98,12 @@ int main(void) {
         back_to_lobby();
     }
 
+    /* Name this game's saves after its file (strip ".mote") so they land in
+     * /mote/saves/<stem>/ and don't clash with other games. */
+    { char stem[40]; int i = 0;
+      for (; name[i] && name[i] != '.' && i < (int)sizeof(stem) - 1; i++) stem[i] = name[i];
+      stem[i] = 0; mote_plat_set_save_game(stem); }
+
     mote_os_run(&api, vt);                            /* runs until the game exits */
     back_to_lobby();
     return 0;

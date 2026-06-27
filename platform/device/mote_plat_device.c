@@ -209,9 +209,50 @@ static void rumble_tick(void) {        /* called once per frame from audio_pump 
     pwm_set_gpio_level(RUMBLE_PIN, (uint16_t)(duty * RUMBLE_WRAP));
 }
 
+#if THUMBYONE_SLOT_MODE
+/* ---- ThumbyOne slot: saves are real files on the shared FAT, one folder per game,
+ * so they're FatFs-managed (no clobbering FAT data), survive reboots, and two games
+ * can't clash:  /mote/saves/<game>/<slot>.sav  . The runner names the game (from the
+ * launched .mote) via mote_plat_set_save_game before the game runs. ---- */
+#include "ff.h"
+#define SAVE_SLOTS 8
+static char s_save_game[40] = "game";
+void mote_plat_set_save_game(const char *stem) {
+    if (!stem || !*stem) { s_save_game[0] = 0; return; }
+    int i = 0; for (; stem[i] && i < (int)sizeof(s_save_game) - 1; i++) s_save_game[i] = stem[i];
+    s_save_game[i] = 0;
+}
+int mote_plat_save_slots(void) { return SAVE_SLOTS; }
+static void save_path(int slot, char *p, int n) {
+    snprintf(p, n, "/mote/saves/%s/%d.sav", s_save_game[0] ? s_save_game : "game", slot);
+}
+int mote_plat_save(int slot, const void *data, int len) {
+    if (slot < 0 || slot >= SAVE_SLOTS) return 0;
+    char p[80]; save_path(slot, p, sizeof p);
+    if (len <= 0) { f_unlink(p); return 0; }                 /* clear the slot */
+    f_mkdir("/mote/saves");                                  /* ok if they exist */
+    char dir[64]; snprintf(dir, sizeof dir, "/mote/saves/%s", s_save_game[0] ? s_save_game : "game");
+    f_mkdir(dir);
+    FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
+    UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
+    return (int)bw;
+}
+int mote_plat_load(int slot, void *data, int max_len) {
+    if (slot < 0 || slot >= SAVE_SLOTS) return 0;
+    char p[80]; save_path(slot, p, sizeof p);
+    FIL f; if (f_open(&f, p, FA_READ) != FR_OK) return 0;
+    int sz = (int)f_size(&f);
+    if (data && max_len > 0) {
+        UINT br = 0; int c = sz < max_len ? sz : max_len;
+        f_read(&f, data, (UINT)c, &br); f_close(&f); return (int)br;
+    }
+    f_close(&f); return sz;                                  /* size query */
+}
+#else
 /* ---- ABI v23: per-slot save in the top flash sectors (survive power-off AND OS
  * reflash — the OS image sits far below). Per slot: [u32 magic][u32 len][data];
  * an erased sector reads magic 0xFFFFFFFF -> treated as empty. ---- */
+void mote_plat_set_save_game(const char *stem) { (void)stem; }   /* standalone: shared slots */
 #define SAVE_SLOTS  8
 #define SAVE_SEC    FLASH_SECTOR_SIZE          /* 4096 */
 #define SAVE_MAGIC  0x4D534156u                /* 'MSAV' */
@@ -252,6 +293,7 @@ int mote_plat_load(int slot, void *data, int max_len) {
     if (data && max_len > 0) { int c = len < max_len ? len : max_len; memcpy(data, src + 8, (size_t)c); }
     return len;
 }
+#endif /* THUMBYONE_SLOT_MODE save backend */
 
 /* Refill the PWM ring from the synth. MUST run in the main-loop (core 0)
  * context, never an IRQ: the game's stream callback (mote_audio_render ->

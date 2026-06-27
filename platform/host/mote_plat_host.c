@@ -229,8 +229,17 @@ void mote_plat_audio_start(void) { mote_audio_off(); }   /* host: SDL persists; 
 void mote_plat_rumble(float intensity, int ms) { (void)intensity; (void)ms; }
 
 #define HOST_SAVE_SLOTS 8
+static char s_save_game[40] = "";
+void mote_plat_set_save_game(const char *stem) {
+    if (!stem) { s_save_game[0] = 0; return; }
+    int i = 0; for (; stem[i] && i < (int)sizeof(s_save_game) - 1; i++) s_save_game[i] = stem[i];
+    s_save_game[i] = 0;
+}
 int mote_plat_save_slots(void) { return HOST_SAVE_SLOTS; }
-static void host_save_path(int slot, char *p, int n) { snprintf(p, n, "mote_save%d.bin", slot); }
+static void host_save_path(int slot, char *p, int n) {
+    if (s_save_game[0]) snprintf(p, n, "mote_save_%s_%d.bin", s_save_game, slot);
+    else                snprintf(p, n, "mote_save%d.bin", slot);
+}
 int mote_plat_save(int slot, const void *data, int len) {
     if (slot < 0 || slot >= HOST_SAVE_SLOTS) return 0;
     char p[64]; host_save_path(slot, p, sizeof p);
