@@ -41,8 +41,20 @@ int mc_name(const char *dir, char *out, int n){
 static int run_logged(const char *cmd, mote_log_fn log){ FILE *p=PIPE(cmd); if(!p){ log("could not run compiler"); return -1; }
     char ln[400]; while(fgets(ln,sizeof ln,p)){ ln[strcspn(ln,"\n")]=0; if(ln[0])log(ln); } return PCLOSE(p); }
 
+/* Per-game extra compiler flags from <dir>/cflags (whitespace tokens, '#'
+ * comments) — mirrors tools/mote's game_cflags, applied to BOTH host and device
+ * so the two build paths stay in sync. Vendored ports rely on these (e.g.
+ * ThumbyCraft's -DCRAFT_TEXTURES_BAKED=1 keeps the 157 KB atlas in flash, not SRAM). */
+static void mc_read_cflags(const char *dir, char *out, int n){ out[0]=0;
+    char p[360]; snprintf(p,sizeof p,"%.320s/cflags",dir); FILE *f=fopen(p,"r"); if(!f)return;
+    char ln[400]; int o=0;
+    while(fgets(ln,sizeof ln,f)){ char *h=strchr(ln,'#'); if(h)*h=0;
+        char *t=strtok(ln," \t\r\n"); while(t&&o<n-2){ o+=snprintf(out+o,n-o," %s",t); t=strtok(NULL," \t\r\n"); } }
+    fclose(f); }
+
 int mc_build(const char *dir, int device, mote_log_fn log){
     char name[80]; mc_name(dir,name,sizeof name);
+    char cf[512]; mc_read_cflags(dir,cf,sizeof cf);   /* per-game -D flags (sync w/ tools/mote) */
     char bd[360]; snprintf(bd,sizeof bd,"%.320s/build",dir); MKDIR(bd);
     char srcdir[360]; snprintf(srcdir,sizeof srcdir,"%.320s/src",dir);
     char nm[48][96]; int ns=0; DIR *d=opendir(srcdir); if(!d){ log("no src/ directory"); return -1; }
@@ -50,7 +62,7 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     closedir(d); if(!ns){ log("no .c sources in src/"); return -1; }
     char inc[1024]; int ip=0; for(int i=0;i<NINC;i++)ip+=snprintf(inc+ip,sizeof inc-ip," -I%s",INCS[i]); ip+=snprintf(inc+ip,sizeof inc-ip," -I%.320s/src",dir);
     /* host module (.so / .dll) */
-    char cmd[12000]; int p=snprintf(cmd,sizeof cmd,"gcc -shared %s -O2 -ffast-math -Wno-format-truncation -DMOTE_HOST=1%s",HOST_PIC,inc);
+    char cmd[12000]; int p=snprintf(cmd,sizeof cmd,"gcc -shared %s -O2 -ffast-math -Wno-format-truncation -DMOTE_HOST=1%s%s",HOST_PIC,inc,cf);
     for(int i=0;i<ns;i++)p+=snprintf(cmd+p,sizeof cmd-p," %.320s/src/%s",dir,nm[i]);
     p+=snprintf(cmd+p,sizeof cmd-p," -lm -o %.320s/build/%s.%s 2>&1",dir,name,HOST_EXT);
     { char m[120]; snprintf(m,sizeof m,"$ build %s (host)",name); log(m); }
@@ -66,7 +78,7 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     char base[200]; snprintf(base,sizeof base,"-O2 -ffast-math -ffreestanding -fno-common -ffunction-sections -fdata-sections -Wno-format-truncation -DMOTE_DEVICE=1 -DMOTE_MODULE_BUILD=1");
     char objs[4000]=""; { char m[80]; snprintf(m,sizeof m,"$ build %s (device)",name); log(m); }
     for(int i=0;i<ns;i++){ char obj[600]; snprintf(obj,sizeof obj,"%.320s/build/%s.o",dir,nm[i]);
-        snprintf(cmd,sizeof cmd,"%sgcc %s %s%s -c %.320s/src/%s -o %s 2>&1",ARM,arch,base,inc,dir,nm[i],obj);
+        snprintf(cmd,sizeof cmd,"%sgcc %s %s%s%s -c %.320s/src/%s -o %s 2>&1",ARM,arch,base,cf,inc,dir,nm[i],obj);
         if(run_logged(cmd,log)!=0){ log("device compile FAILED (is arm-none-eabi-gcc installed?)"); return -1; }
         strncat(objs,obj,sizeof objs-strlen(objs)-2); strncat(objs," ",sizeof objs-strlen(objs)-1); }
     /* libc syscall stubs (_read/_write/_sbrk/…) that newlib's snprintf/printf
@@ -79,7 +91,7 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     char elf[600]; snprintf(elf,sizeof elf,"%.320s/build/%s.elf",dir,name);
     snprintf(cmd,sizeof cmd,"%sgcc %s -nostartfiles -T sdk/game.ld -Wl,--gc-sections %s -lm -lgcc -o %s 2>&1",ARM,arch,objs,elf);
     if(run_logged(cmd,log)!=0){ log("device link FAILED"); return -1; }
-    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data %s %.320s/build/%s.mote 2>&1",ARM,elf,dir,name);
+    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data -j .ramtext %s %.320s/build/%s.mote 2>&1",ARM,elf,dir,name);
     if(run_logged(cmd,log)!=0){ log("objcopy FAILED"); return -1; }
     { char m[120]; snprintf(m,sizeof m,"device module built: build/%s.mote",name); log(m); }
     return 0; }
