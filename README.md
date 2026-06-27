@@ -447,33 +447,34 @@ prefer (the `mote new` template's `SHAPE_H` and `tiledemo`'s procedural art do
 exactly this). Bake is a convenience for going from real PNG/OBJ/STL files to
 embeddable constants.
 
-### Audio: three paths — synth notes, SFX recipes, baked samples
+### Audio: synth notes, streamed SFX recipes, baked samples
 
 - **Synth** — `mote->audio_note(freq, amp)` strikes a one-shot piano-ish note (§9); no
   asset needed. Good for tones, beeps, melodies.
-- **SFX recipes** — design an effect with the Studio **Audio tab**'s SFXR synth; **Save**
-  writes `src/<name>.sfx.h` (a `static const MoteSfx`, ~88 bytes) **and** bakes a PCM clip
-  `src/<name>.h` (`<name>_snd`). `mote_sfx_bake(mote, &<name>_sfx)` synthesises the recipe
-  to a `MoteSound` at load — but ⚠️ **that costs arena RAM = samples × 2 bytes, per sound**
-  (~13 KB for a 0.3 s clip). Fine for a few; for many sounds, play the **baked clip**
-  instead (next bullet) — it's free.
-- **Samples / baked clips** — `<name>_snd` is a `const MoteSound` baked into **flash** by
-  wav2snd (Studio **Save**, or `mote bake` on any `assets/*.wav`). `mote->audio_play(&<name>_snd, gain)`
-  plays it at **zero arena cost**. This is the right path for a whole game's SFX set —
-  tune the recipe in the Audio tab, re-Save to re-bake `<name>_snd`.
+- **Streamed SFX recipes (recommended)** — design an effect with the Studio **Audio tab**'s
+  SFXR synth; **Save** writes `src/<name>.sfx.h` (a `static const MoteSfx`, ~88 bytes).
+  `mote->audio_play_sfx(&<name>_sfx, gain)` plays it by **generating the sound as it plays** —
+  ~88 bytes in flash, almost no RAM, any length, up to **8 at once**. This is the right path
+  for a whole game's SFX set: tune the recipe, re-Save, done. (ABI v37.)
+- **Baked clips** — **Save** also bakes a PCM clip `src/<name>.h` (`<name>_snd`) via wav2snd;
+  `mote->audio_play(&<name>_snd, gain)` plays it from **flash** with **no synthesis cost** at
+  play time. Bigger in flash than the recipe, but free of CPU — reach for it only if a game
+  fires so many sounds at once that the streamed synth becomes a bottleneck.
+- **`mote_sfx_bake`** — synthesises a recipe to a `MoteSound` **in the arena** at load. ⚠️
+  costs arena RAM = samples × 2 bytes, per sound (~13 KB for a 0.3 s clip), so it's only for
+  the few cases where you need the finished PCM to vary or resample it.
 
-All paths end at the mixer — up to 8 one-shot samples mix on top of the synth notes.
+All paths end at the mixer — the streamed recipe voices and one-shot samples mix on top of
+the synth notes.
 
-> **Rule of thumb:** play **`&<name>_snd`** (baked, flash, 0 RAM) for your game's sounds.
-> Reserve **`mote_sfx_bake`** for a handful of sounds, or ones you synthesise/vary at
-> runtime — every bake eats arena RAM, and 30+ of them will overflow it.
+> **Rule of thumb:** play **`&<name>_sfx`** with `audio_play_sfx` (streamed, tiny flash, ~0 RAM)
+> for your game's sounds. Use the baked **`&<name>_snd`** only for very heavy simultaneous
+> polyphony, and **`mote_sfx_bake`** only when you need to manipulate the rendered PCM.
 
 ```c
 #include "coin.sfx.h"                  // recipe: static const MoteSfx coin_sfx = {...};
-static MoteSound coin;
-void g_init(void){ coin = mote_sfx_bake(mote, &coin_sfx); }   // synth once at load
 ...
-mote->audio_play(&coin, 1.0f);         // fire-and-forget; gain 0..1
+mote->audio_play_sfx(&coin_sfx, 1.0f); // fire-and-forget; synthesised on the fly, gain 0..1
 mote->audio_note(440.0f, 0.85f);       // or a synth note — they sum
 ```
 
@@ -1136,6 +1137,18 @@ int count; }` — bake one from a WAV in the Studio Audio tab (Save) or via `mot
 ```c
 #include "hit.h"                    // baked: static const MoteSound hit_snd = { hit_pcm, N };
 mote->audio_play(&hit_snd, 1.0f);
+```
+
+#### `void audio_play_sfx(const MoteSfx *recipe, float gain)` — stream a recipe *(v37, recommended for SFX)*
+Plays an editable **`MoteSfx` recipe** (~88 bytes, authored in the Studio Audio tab, baked
+to `<name>.sfx.h`) by **synthesising it on the fly** — no PCM clip, so it costs only the
+recipe's ~88 bytes in flash and almost no RAM, for any length. A dedicated pool of up to
+**8** recipe voices mixes on top of the notes/samples; the oldest is stolen when full.
+This is the right path for a whole game's hand-tuned SFX set — far smaller in flash than
+baking each to a clip. `gain` 0..1.
+```c
+#include "coin.sfx.h"               // recipe: static const MoteSfx coin_sfx = { ... };
+mote->audio_play_sfx(&coin_sfx, 1.0f);   // fire-and-forget; generated as it plays
 ```
 
 #### `MoteSound mote_sfx_bake(mote, const MoteSfx *recipe)` — recipes instead of WAVs

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.8-alpha
+
+**Sound effects got much smaller, and the whole Mote console now runs as a single tile
+on ThumbyOne.** The headline change: a game's hand-tuned sound effects no longer have to
+be baked into big blocks of raw audio — the engine can now *play the recipe directly*,
+synthesising each sound on the fly. Indemnity Run's sound dropped from ~620 KB of baked
+audio to a few KB of recipes, shrinking the whole game from **958 KB to 328 KB** with no
+audible change. **Reflash the firmware** — the engine interface version goes 36 → **37**;
+games built against it need the new firmware, and games already on the device keep working.
+
+### Audio
+
+- **Streamed SFX recipes (`audio_play_sfx`).** `mote->audio_play_sfx(&recipe, gain)` plays
+  an editable ~88-byte SFX recipe by generating the sound as it plays — tiny in flash and
+  almost no memory, any length, up to **8 sounds at once**. This is now the recommended way
+  to ship a whole game's sound effects (a weapon rack, UI blips), instead of baking each one
+  to a raw clip. Baking to a raw clip is still available for the rare game that fires so many
+  sounds at once it needs zero synthesis cost.
+- The Studio Audio tab and `mote bake` now point you at the recipe path, and the Studio's
+  preview plays a sound exactly as the device will.
+
+### Mote as a ThumbyOne slot
+
+- The entire Mote console — engine, launcher and game library — now runs as **one slot** on
+  ThumbyOne, in place of three separate game slots. Games live as `.mote` files in a visible
+  **`/mote/`** folder on the shared drive; drag them on over USB and they appear in the Mote
+  launcher.
+- It runs as **two images** so a game gets the most memory: a small launcher picks a game,
+  and a separate engine image runs it with the launcher and USB out of the way.
+- A game runs **straight from the drive** with no copying, which needs its file laid out on a
+  4 KB boundary — so the shared drive now uses 4 KB clusters.
+- **Live logs to the IDE during a game** — turn on *USB LOGS* in the engine menu and a game's
+  `mote->log()` lines stream to the IDE over USB. It's off by default so normal play has zero
+  overhead. The launcher also accepts `mote push` over USB to drop a game straight into `/mote/`.
+
 ## 0.7-alpha
 
 **ThumbyCraft — a full Minecraft-style voxel sandbox — now runs on Mote**, and getting

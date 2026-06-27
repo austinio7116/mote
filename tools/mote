@@ -268,7 +268,9 @@ def bake_sfx(name, path, out):
 
 def bake_wav(name, path, out):
     """assets/<name>.wav -> src/<name>.h : a `<name>_snd` MoteSound (raw int16
-    PCM in flash). Matches Mote Studio's wav2snd. Play: mote->audio_play(&<name>_snd)."""
+    PCM in flash). Matches Mote Studio's wav2snd. Play: mote->audio_play(&<name>_snd).
+    For most SFX prefer the recipe path instead — assets/<name>.sfx -> <name>.sfx.h,
+    played via mote->audio_play_sfx(&<name>_sfx) (streamed: tiny flash, ~0 RAM)."""
     import array
     b = open(path, "rb").read()
     off, ln, i = -1, 0, 12                                   # find the "data" sub-chunk

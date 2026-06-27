@@ -104,58 +104,39 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     return _desc_str;
 }
 
-/* ---- protocol ------------------------------------------------------- */
+/* ---- protocol ------------------------------------------------------------
+ * Three build-selected backends share the descriptors/init above:
+ *   (default)         store-backed  — standalone Mote OS (mote_store)
+ *   MOTE_USB_FAT      FAT-backed    — ThumbyOne lobby: PUT/LIST over /mote/
+ *   MOTE_USB_LOGONLY  log channel   — ThumbyOne runner: enumerate + PING + logs
+ * MOTE_USB_GATED (the runner) keeps USB off until the engine menu enables it. */
 
-#include "mote_store.h"
-
-/* Pushed images stream straight to flash (mote_store_begin/write/end), so the
- * size is bounded by the store's per-game cap, not a RAM receive buffer. */
-static int  s_launch_req = -1;
-static int  s_rx_active;
-static uint32_t s_put_size, s_put_got;
-
+static int s_launch_req = -1;
 int mote_usb_take_launch(void) { int r = s_launch_req; s_launch_req = -1; return r; }
 
-static void cdc_say(const char *s) {
-    tud_cdc_write(s, strlen(s));
-    tud_cdc_write_flush();
-}
+static void cdc_say(const char *s) { tud_cdc_write(s, strlen(s)); tud_cdc_write_flush(); }
 
-static void handle(const char *cmd) {
-    char name[MOTE_STORE_NAME_MAX];
-    unsigned size;
-    if (strcmp(cmd, "PING") == 0) {
-        char b[24];
-        snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO);
-        cdc_say(b);
-    } else if (strcmp(cmd, "LIST") == 0) {
-        char b[48];
-        for (int i = 0; i < mote_store_count(); i++) {
-            snprintf(b, sizeof b, "%d %s\n", i, mote_store_get(i)->name);
-            cdc_say(b);
-        }
-        cdc_say("OK\n");
-    } else if (sscanf(cmd, "PUT %19s %u", name, &size) == 2) {
-        if (mote_store_begin(name, size) != 0) { cdc_say("ERR size\n"); return; }
-        s_put_size = size; s_put_got = 0; s_rx_active = 1;
-        cdc_say("READY\n");                              /* erase done; stream now */
-    } else if (sscanf(cmd, "LAUNCH %19s", name) == 1) {
-        int idx = mote_store_find(name);
-        if (idx >= 0) { s_launch_req = idx; cdc_say("OK\n"); }
-        else cdc_say("ERR notfound\n");
-    } else if (strcmp(cmd, "WIPE") == 0) {
-        mote_store_wipe();
-        cdc_say("OK\n");
-    } else if (cmd[0] == 0) {
-        /* ignore blank lines */
-    } else {
-        cdc_say("ERR unknown\n");
+#if MOTE_USB_GATED
+static int s_logs_on = 0, s_usb_inited = 0;
+int  mote_usb_logs_enabled(void) { return s_logs_on; }
+void mote_usb_logs_set(int on) {
+    if (on && !s_usb_inited) { tusb_init(); s_usb_inited = 1; }
+    if (on && !s_logs_on) {
+        /* Burst-service enumeration so the host handshake completes promptly
+         * (the per-frame pump alone is too slow for the initial descriptors). */
+        uint32_t t0 = to_ms_since_boot(get_absolute_time());
+        while (to_ms_since_boot(get_absolute_time()) - t0 < 400) tud_task();
     }
+    s_logs_on = on;
 }
+#endif
 
-/* Stream a log line to the host (mote logs). Non-blocking: if no host is
- * reading, the CDC FIFO fills and the write is dropped — never stalls the game. */
+/* Stream a log line to the host. Non-blocking: if no host is reading, the FIFO
+ * fills and the write is dropped — never stalls a frame. */
 void mote_usb_log(const char *s) {
+#if MOTE_USB_GATED
+    if (!s_logs_on) return;
+#endif
     if (!tud_cdc_connected()) return;
     tud_cdc_write(s, strlen(s));
     tud_cdc_write("\n", 1);
@@ -164,35 +145,131 @@ void mote_usb_log(const char *s) {
 
 void mote_usb_init(void) { tusb_init(); }
 
-void mote_usb_task(void) {
-    tud_task();
+static void handle_line(const char *cmd);   /* backend-specific (defined below) */
 
-    /* Binary receive mode (PUT payload). */
-    if (s_rx_active) {
-        while (s_put_got < s_put_size && tud_cdc_available()) {
-            uint8_t tmp[64];
-            uint32_t want = s_put_size - s_put_got;
-            if (want > sizeof tmp) want = sizeof tmp;
-            uint32_t n = tud_cdc_read(tmp, want);
-            mote_store_write(tmp, n);        /* straight to flash, page-buffered */
-            s_put_got += n;
-        }
-        if (s_put_got >= s_put_size) {
-            s_rx_active = 0;     /* clear before commit (no re-entry) */
-            int r = mote_store_end();
-            cdc_say(r == 0 ? "OK\n" : "ERR write\n");
-        }
-        return;
-    }
-
+/* Read CDC bytes into a line buffer and dispatch newline-terminated commands. */
+static void cdc_pump_lines(void) {
     static char line[128];
     static int  len = 0;
     while (tud_cdc_available()) {
         int c = tud_cdc_read_char();
         if (c < 0) break;
         if (c == '\r') continue;
-        if (c == '\n') { line[len] = 0; handle(line); len = 0; }
+        if (c == '\n') { line[len] = 0; handle_line(line); len = 0; }
         else if (len < (int)sizeof(line) - 1) line[len++] = (char)c;
         else len = 0;   /* overlong line: drop */
     }
 }
+
+/* ---------- backend: log-only (runner) ----------------------------------- */
+#if defined(MOTE_USB_LOGONLY)
+static void handle_line(const char *cmd) {
+    if (strcmp(cmd, "PING") == 0) { char b[24]; snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO); cdc_say(b); }
+    /* No game library in the runner — push/list/launch are lobby-only. */
+}
+void mote_usb_task(void) {
+#if MOTE_USB_GATED
+    if (!s_logs_on) return;          /* off → zero USB work during play */
+#endif
+    tud_task();
+    cdc_pump_lines();
+}
+
+/* ---------- backend: FAT-backed /mote/ (lobby) --------------------------- */
+#elif defined(MOTE_USB_FAT)
+#include "ff.h"
+#define MOTE_DIR "/mote"
+static FIL      s_putf; static int s_put_open, s_rx_active;
+static uint32_t s_put_size, s_put_got;
+static void handle_line(const char *cmd) {
+    char name[40]; unsigned size;
+    if (strcmp(cmd, "PING") == 0) {
+        char b[24]; snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO); cdc_say(b);
+    } else if (strcmp(cmd, "LIST") == 0) {
+        DIR d; FILINFO fi; int i = 0;
+        if (f_opendir(&d, MOTE_DIR) == FR_OK) {
+            while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
+                if (fi.fattrib & AM_DIR) continue;
+                char b[80]; snprintf(b, sizeof b, "%d %s\n", i++, fi.fname); cdc_say(b);
+            }
+            f_closedir(&d);
+        }
+        cdc_say("OK\n");
+    } else if (sscanf(cmd, "PUT %39s %u", name, &size) == 2) {
+        char path[64]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, name);
+        f_mkdir(MOTE_DIR);   /* ok if it exists */
+        if (f_open(&s_putf, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) { cdc_say("ERR open\n"); return; }
+        /* 4 KB clusters (FAT12) → the file is born 4 KB-aligned for the runner's
+         * ATRANS XIP map; no special placement needed. */
+        s_put_open = 1; s_put_size = size; s_put_got = 0; s_rx_active = 1;
+        cdc_say("READY\n");
+    } else if (cmd[0]) {
+        cdc_say("ERR unknown\n");
+    }
+}
+void mote_usb_task(void) {
+    tud_task();
+    if (s_rx_active) {
+        while (s_put_got < s_put_size && tud_cdc_available()) {
+            uint8_t tmp[64]; UINT bw = 0;
+            uint32_t want = s_put_size - s_put_got; if (want > sizeof tmp) want = sizeof tmp;
+            uint32_t n = tud_cdc_read(tmp, want);
+            if (n) { f_write(&s_putf, tmp, n, &bw); s_put_got += n; }
+        }
+        if (s_put_got >= s_put_size) {
+            s_rx_active = 0;
+            if (s_put_open) { f_close(&s_putf); s_put_open = 0; }
+            cdc_say("OK\n");
+        }
+        return;
+    }
+    cdc_pump_lines();
+}
+
+/* ---------- backend: store-backed (standalone) — original behavior ------- */
+#else
+#include "mote_store.h"
+static int  s_rx_active;
+static uint32_t s_put_size, s_put_got;
+static void handle_line(const char *cmd) {
+    char name[MOTE_STORE_NAME_MAX]; unsigned size;
+    if (strcmp(cmd, "PING") == 0) {
+        char b[24]; snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO); cdc_say(b);
+    } else if (strcmp(cmd, "LIST") == 0) {
+        char b[48];
+        for (int i = 0; i < mote_store_count(); i++) {
+            snprintf(b, sizeof b, "%d %s\n", i, mote_store_get(i)->name); cdc_say(b);
+        }
+        cdc_say("OK\n");
+    } else if (sscanf(cmd, "PUT %19s %u", name, &size) == 2) {
+        if (mote_store_begin(name, size) != 0) { cdc_say("ERR size\n"); return; }
+        s_put_size = size; s_put_got = 0; s_rx_active = 1;
+        cdc_say("READY\n");
+    } else if (sscanf(cmd, "LAUNCH %19s", name) == 1) {
+        int idx = mote_store_find(name);
+        if (idx >= 0) { s_launch_req = idx; cdc_say("OK\n"); } else cdc_say("ERR notfound\n");
+    } else if (strcmp(cmd, "WIPE") == 0) {
+        mote_store_wipe(); cdc_say("OK\n");
+    } else if (cmd[0]) {
+        cdc_say("ERR unknown\n");
+    }
+}
+void mote_usb_task(void) {
+    tud_task();
+    if (s_rx_active) {
+        while (s_put_got < s_put_size && tud_cdc_available()) {
+            uint8_t tmp[64];
+            uint32_t want = s_put_size - s_put_got; if (want > sizeof tmp) want = sizeof tmp;
+            uint32_t n = tud_cdc_read(tmp, want);
+            mote_store_write(tmp, n); s_put_got += n;
+        }
+        if (s_put_got >= s_put_size) {
+            s_rx_active = 0;
+            int r = mote_store_end();
+            cdc_say(r == 0 ? "OK\n" : "ERR write\n");
+        }
+        return;
+    }
+    cdc_pump_lines();
+}
+#endif

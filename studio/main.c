@@ -1602,9 +1602,9 @@ static void audio_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
     char wp[420]; snprintf(wp,sizeof wp,"%.300s/assets/%.60s.wav",g_games[g_sel].dir,base); write_wav(wp,g_wav+a,n);
     if(g_has_sfx){ char sp[420]; snprintf(sp,sizeof sp,"%.300s/assets/%.60s.sfx",g_games[g_sel].dir,base); sfx_write(sp);   /* recipe sidecar -> re-editable */
         char sd[440]; snprintf(sd,sizeof sd,"%.300s/src",g_games[g_sel].dir); mkdir_portable(sd);
-        char hp[470]; snprintf(hp,sizeof hp,"%.300s/src/%.60s.sfx.h",g_games[g_sel].dir,base); sfx_emit_header(hp,base); }   /* recipe header -> mote_sfx_bake */
-    njob(2,g_games[g_sel].dir);                                      /* bake -> assets header (wav2snd) */
-    snprintf(g_status,sizeof g_status,"saved %s - play with audio_play(&%s_snd) (flash, 0 RAM); mote_sfx_bake costs arena RAM/sound",base,base); }
+        char hp[470]; snprintf(hp,sizeof hp,"%.300s/src/%.60s.sfx.h",g_games[g_sel].dir,base); sfx_emit_header(hp,base); }   /* recipe header -> audio_play_sfx (streamed) */
+    njob(2,g_games[g_sel].dir);                                      /* also bake PCM (wav2snd) for the optional 0-CPU path */
+    snprintf(g_status,sizeof g_status,"saved %s - play the recipe: mote->audio_play_sfx(&%s_sfx) - tiny flash, ~0 RAM (streamed)",base,base); }
 /* ===== SFX generator (sfxr-style procedural synthesis) ===== */
 typedef struct { int wave; float base_freq,freq_limit,freq_ramp,freq_dramp,duty,duty_ramp,
     vib_strength,vib_speed,env_attack,env_sustain,env_punch,env_decay,
@@ -1639,7 +1639,9 @@ static void sfx_render(Sfx*p){ static float buf[88200]; if(p->lpf_freq<=0)p->lpf
         if(env_stage==0)env_vol=env_len[0]?(float)env_time/env_len[0]:1.0f;
         else if(env_stage==1)env_vol=1.0f+(1.0f-(env_len[1]?(float)env_time/env_len[1]:1.0f))*2.0f*p->env_punch;
         else env_vol=1.0f-(env_len[2]?(float)env_time/env_len[2]:1.0f);
-        fphase+=fdphase; iphase=abs((int)fphase); if(iphase>1023)iphase=1023;
+        /* Clamp to 511 to MATCH the engine's streamed-recipe phaser (SFX_PH=512 on
+         * host + the ThumbyOne runner): what you tune here is what the device plays. */
+        fphase+=fdphase; iphase=abs((int)fphase); if(iphase>511)iphase=511;
         float ss=0;
         for(int si=0;si<8;si++){ phase++; if(phase>=period){ phase%=period; if(p->wave==3)for(int i=0;i<32;i++)noise[i]=frnd(2.0f)-1.0f; }
             float fp=(float)phase/period, sample;

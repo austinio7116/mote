@@ -129,6 +129,7 @@ int mote_plat_init(const char *title) {
     mote_audio_pwm_init();
     s_strip_lock = spin_lock_init(spin_lock_claim_unused(true));
     multicore_launch_core1(core1_entry);
+#if !MOTE_USB_GATED
     mote_usb_init();
     /* Burst-service USB so enumeration completes promptly: the render loop
      * only pumps tud_task ~once per ~7 ms frame, which can be too slow for the
@@ -136,6 +137,9 @@ int mote_plat_init(const char *title) {
      * Failed"). Give it a tight ~400 ms window up front. */
     uint32_t t0 = to_ms_since_boot(get_absolute_time());
     while (to_ms_since_boot(get_absolute_time()) - t0 < 400) mote_usb_task();
+#endif
+    /* MOTE_USB_GATED (the runner): USB stays off until the engine menu turns
+     * "USB LOGS" on (mote_usb_logs_set), which inits + bursts enumeration then. */
     return 0;
 }
 

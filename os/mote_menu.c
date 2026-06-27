@@ -9,20 +9,32 @@
 #include "mote_config.h"
 #include "mote_audio.h"
 #include <string.h>
+#if MOTE_USB_GATED
+#include "mote_usb.h"        /* USB LOGS toggle (runner only) */
+#endif
 
 /* Sticky across opens so the player's choices persist within a session. */
 static int s_bright = 100;
 static int s_vol    = 100;
 
-enum { M_PERF, M_BRIGHT, M_VOL, M_LOBBY, M_RESUME, M_N };
+enum { M_PERF, M_BRIGHT, M_VOL,
+#if MOTE_USB_GATED
+       M_USBLOG,
+#endif
+       M_LOBBY, M_RESUME, M_N };
 static const char *PERF_NAME[MOTE_PERF_LEVELS] = { "OFF", "FPS", "MINI", "FULL" };
 
 #define PX 12
 #define PY 14
 #define PW 104
-#define PH 100
 #define ROW_Y (PY + 22)
+#if MOTE_USB_GATED
+#define PH 110            /* taller: room for the extra USB LOGS row */
+#define ROW_H 13
+#else
+#define PH 100
 #define ROW_H 15
+#endif
 
 static void fill(uint16_t *fb, int x, int y, int w, int h, uint16_t c) {
     for (int j = y; j < y + h; j++) { if ((unsigned)j >= MOTE_FB_H) continue;
@@ -64,6 +76,11 @@ static void draw_panel(uint16_t *fb, int sel) {
                            bar(fb, vx, y, 44, 7, s_bright, MOTE_RGB565(240, 210, 90)); break;
             case M_VOL:    mote_font_draw(fb, "VOLUME", PX + 8, y, tc);
                            bar(fb, vx, y, 44, 7, s_vol, MOTE_RGB565(120, 190, 255)); break;
+#if MOTE_USB_GATED
+            case M_USBLOG: mote_font_draw(fb, "USB LOGS", PX + 8, y, tc);
+                           mote_font_draw(fb, mote_usb_logs_enabled() ? "ON" : "OFF", vx, y,
+                                          mote_usb_logs_enabled() ? MOTE_RGB565(150, 230, 150) : MOTE_RGB565(150, 150, 160)); break;
+#endif
             case M_LOBBY:  mote_font_draw(fb, "RETURN TO LOBBY", PX + 8, y, tc); break;
             case M_RESUME: mote_font_draw(fb, "RESUME", PX + 8, y, tc); break;
         }
@@ -100,12 +117,18 @@ int mote_engine_menu(uint16_t *fb) {
                                         mote_plat_set_brightness(s_bright); }
             else if (sel == M_VOL)    { s_vol += d * 10; if (s_vol < 0) s_vol = 0; if (s_vol > 100) s_vol = 100;
                                         mote_plat_set_volume(s_vol); }
+#if MOTE_USB_GATED
+            else if (sel == M_USBLOG) mote_usb_logs_set(!mote_usb_logs_enabled());
+#endif
         }
         int ret = -1;
         if (mote_just_pressed(&in, MOTE_BTN_A)) {
             if (sel == M_LOBBY)  ret = 1;
             else if (sel == M_RESUME) ret = 0;
             else if (sel == M_PERF)   mote_perf_set_level((mote_perf_level() + 1) % MOTE_PERF_LEVELS);
+#if MOTE_USB_GATED
+            else if (sel == M_USBLOG) mote_usb_logs_set(!mote_usb_logs_enabled());
+#endif
         }
         if (armed && (mote_just_pressed(&in, MOTE_BTN_B) || mote_just_pressed(&in, MOTE_BTN_MENU)))
             ret = 0;

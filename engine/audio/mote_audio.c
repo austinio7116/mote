@@ -144,10 +144,13 @@ static float sfx_frnd(float r){ s_sfxrng = s_sfxrng*1103515245u + 12345u; return
 #  define SFX_PH 128
 #  define NSFX   2
 #else
-#  define SFX_PH 1024
-#  define NSFX   8          /* slot runner + host have the SRAM for 8 concurrent
-                            * recipe voices — busy combat (many weapons + impacts
-                            * at once) was stealing voices at 4. */
+#  define SFX_PH 512        /* 512 (not 1024) so the 8-voice pool fits alongside the
+                            * runner's CDC log channel (~12 KB tinyusb BSS). Clamps the
+                            * phaser delay to 511 samples — the longest phaser sweeps
+                            * (jump/dock/gauss) are slightly shallower; everything else
+                            * is unchanged. */
+#  define NSFX   8          /* slot runner + host: 8 concurrent recipe voices —
+                            * busy combat (many weapons + impacts) stole voices at 4. */
 #endif
 typedef struct {
     const MoteSfx *p; int done;

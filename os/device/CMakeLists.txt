@@ -3,12 +3,12 @@
 #
 # Three build shapes, selected by ThumbyOne:
 #   (standalone)            -> mote_os    : full OS (engine + launcher + USB store)
-#   THUMBYONE_SLOT_MODE +   -> mote_runner: the engine, NO USB. Runs ONE game handed
-#     MOTE_SLOT_ROLE=runner                 to it (flash offset via watchdog scratch[2]),
-#                                           returns to the lobby on exit. Max game SRAM.
+#   THUMBYONE_SLOT_MODE +   -> mote_runner: the engine. Runs ONE game from /mote/ with
+#     MOTE_SLOT_ROLE=runner                 max SRAM; CDC log channel (MOTE_USB_LOGONLY)
+#                                           GATED off until the engine menu enables it.
 #   THUMBYONE_SLOT_MODE +   -> mote_lobby : small launcher (font/2D only, NO 3D engine)
-#     MOTE_SLOT_ROLE=lobby                  over a FatFs /.mote/ catalog; resolves the
-#                                           picked game's flash offset and chains to runner.
+#     MOTE_SLOT_ROLE=lobby                  over a FatFs /mote/ catalog; CDC push to /mote/
+#                                           (MOTE_USB_FAT); chains to the runner to launch.
 #
 # Standalone build:
 #   cmake -S os/device -B build_os -DPICO_SDK_PATH=$HOME/mp-thumby/lib/pico-sdk
@@ -57,12 +57,14 @@ if (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "runner")
     set(MOTE_TGT mote_runner)
     set(MOTE_SRCS
         ${OSDIR}/device/runner_main.c ${OSDIR}/device/mote_loader.c ${OSDIR}/device/mote_xip.c
+        ${OSDIR}/device/mote_usb.c            # CDC log channel (gated by the engine menu)
         ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c
         ${MOTE_PLAT} ${MOTE_3D} ${MOTE_2D} ${MOTE_CORE})
 elseif (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby")
     set(MOTE_TGT mote_lobby)
     set(MOTE_SRCS
         ${OSDIR}/device/lobby_main.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c
+        ${OSDIR}/device/mote_usb.c                   # CDC push to /mote/ (MOTE_USB_FAT)
         ${ENGINE}/audio/mote_audio.c                 # plat_init calls mote_audio_init
         ${MOTE_PLAT} ${MOTE_2D} ${MOTE_CORE})
 else()
@@ -97,12 +99,19 @@ else()
     set(MOTE_HEAP 0x4000)
 endif()
 
-# The runner has no USB; so does the v1 lobby (games arrive via the ThumbyOne
-# lobby's MSC). MOTE_NO_USB drops the USB calls in mote_plat_device.c.
+# USB-CDC is in every shape now. The standalone uses the store-backed protocol;
+# the lobby uses a FAT-backed PUT to /mote/ (MOTE_USB_FAT, always live); the runner
+# is a log-only channel (MOTE_USB_LOGONLY) GATED off until the engine menu turns it
+# on (MOTE_USB_GATED) — so normal play pays no tud_task cost.
 set(MOTE_DEFS MOTE_DEVICE=1 PICO_HEAP_SIZE=${MOTE_HEAP}
     PICO_STACK_SIZE=0x1000 PICO_CORE1_STACK_SIZE=0x1000)
 if (THUMBYONE_SLOT_MODE)
-    list(APPEND MOTE_DEFS THUMBYONE_SLOT_MODE=1 MOTE_NO_USB=1)
+    list(APPEND MOTE_DEFS THUMBYONE_SLOT_MODE=1)
+    if (MOTE_SLOT_ROLE STREQUAL "runner")
+        list(APPEND MOTE_DEFS MOTE_USB_LOGONLY=1 MOTE_USB_GATED=1)
+    elseif (MOTE_SLOT_ROLE STREQUAL "lobby")
+        list(APPEND MOTE_DEFS MOTE_USB_FAT=1)
+    endif()
 endif()
 target_compile_definitions(${MOTE_TGT} PRIVATE ${MOTE_DEFS})
 target_compile_options(${MOTE_TGT} PRIVATE
@@ -110,13 +119,12 @@ target_compile_options(${MOTE_TGT} PRIVATE
 
 set(MOTE_LIBS pico_stdlib pico_multicore pico_unique_id
     hardware_spi hardware_dma hardware_clocks hardware_gpio
-    hardware_flash hardware_sync hardware_pwm hardware_irq)
+    hardware_flash hardware_sync hardware_pwm hardware_irq
+    tinyusb_device tinyusb_board)
 if (THUMBYONE_SLOT_MODE)
-    # no tinyusb in slot builds; pico_stdio_uart provides stdio_uart_deinit()
-    # which thumbyone_handoff.c calls before rom_reboot.
+    # pico_stdio_uart provides stdio_uart_deinit(), which thumbyone_handoff.c
+    # calls before rom_reboot.
     list(APPEND MOTE_LIBS hardware_pio hardware_adc pico_stdio_uart)
-else()
-    list(APPEND MOTE_LIBS tinyusb_device tinyusb_board)
 endif()
 target_link_libraries(${MOTE_TGT} ${MOTE_LIBS})
 

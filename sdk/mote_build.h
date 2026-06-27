@@ -291,11 +291,16 @@ static inline void mote_model_draw_tint(const MoteApi *m, const MoteModel *model
  * the PCM into an arena buffer (measure, then render). Ship ~88-byte recipes instead of
  * WAVs; call once in init(), then mote->audio_play(&snd, gain). Returns {0,0} on failure.
  *
- * COST: this allocates arena RAM = (sample count × 2 bytes) PER sound — a ~0.3 s clip is
- * ~13 KB. Fine for a handful of sounds. For MANY sounds (a weapon set, a whole game's SFX)
- * prefer the BAKED clips instead: Studio's "Save to assets" emits a const <name>_snd PCM
- * header (wav2snd) that lives in FLASH at zero arena cost — `mote->audio_play(&name_snd)`.
- * Reach for mote_sfx_bake only when a sound must be synthesised/varied at runtime. */
+ * PREFER mote->audio_play_sfx(&recipe, gain) (ABI v37) for most SFX: it STREAMS the recipe
+ * — synthesised on the fly by a dedicated voice pool — so it costs only the ~88-byte recipe
+ * in flash and ~0 RAM, any length, up to 8 concurrent voices. That is the tiny-flash path
+ * (a whole game's hand-tuned SFX set), and what Studio's "Save to assets" now recommends.
+ *
+ * mote_sfx_bake (this) renders the WHOLE clip into the arena up front: arena RAM = (sample
+ * count × 2 bytes) PER sound (~13 KB for ~0.3 s) — reach for it only when you need the
+ * finished PCM (e.g. to vary/resample it). The const <name>_snd PCM that Studio also bakes
+ * (wav2snd, `mote->audio_play(&name_snd)`) is the 0-CPU alternative — bigger flash, no synth
+ * cost at play time — for the rare game with very heavy simultaneous polyphony. */
 static inline MoteSound mote_sfx_bake(const MoteApi *m, const MoteSfx *recipe) {
     MoteSound s = { 0, 0 };
     int n = m->audio_render_sfx(recipe, 0, 0);
