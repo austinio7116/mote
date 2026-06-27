@@ -110,7 +110,16 @@ static void g_update(float dt) {
     if (craft_main_take_save_request()) {
         int slot = craft_main_save_slot();
         size_t n = craft_main_save(craft_save_scratch, CRAFT_SAVE_SCRATCH_BYTES);
-        if (n > 0) craft_port_save_write(slot, craft_save_scratch, (int)n);
+        if (n > 0) {
+            craft_port_save_write(slot, craft_save_scratch, (int)n);
+            /* Stash the slot's preview thumbnail as a blob (the picker loads it via
+             * craft_save_slot_thumb). Captured by craft_main on the autosave. */
+            const uint16_t *th = craft_main_thumb();
+            if (th && slot >= 0 && slot < 10) {
+                char k[4]; k[0]='t'; k[1]='h'; k[2]=(char)('0'+slot); k[3]=0;
+                craft_port_kv_save(k, th, CRAFT_SAVE_THUMB_DIM * CRAFT_SAVE_THUMB_DIM * 2);
+            }
+        }
     }
     if (craft_main_take_load_request()) {
         int slot = craft_main_save_slot();

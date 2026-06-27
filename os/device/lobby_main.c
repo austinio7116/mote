@@ -13,7 +13,9 @@
 #include "thumbyone_handoff.h"
 #include "thumbyone_fs.h"
 #include "ff.h"
-#include "slot_layout.h"     /* slot enums (THUMBYONE_COMMON_INCLUDE) */
+#include "slot_layout.h"     /* slot enums (THUMBYONE_COMMON_INCLUDE) + THUMBYONE_FAT_OFFSET */
+#include "mote_module.h"     /* MoteModuleHeader — read each .mote's embedded icon */
+#include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
 
 #define MOTE_DIR      "/mote"
@@ -25,11 +27,40 @@ static uint8_t g_fs_work[FF_MAX_SS] __attribute__((aligned(4)));
  * the picked file; the catalog shows the stem. */
 static char    g_file[MOTE_CATALOG_MAX][64];
 
+/* Per-entry icon cache, parallel to the catalog. rebuild() runs every frame; the
+ * icon resolution (f_open + header read) is cached by filename so it only re-runs
+ * when an entry's file changes (e.g. a fresh USB push). */
+static char            g_ic_name[MOTE_CATALOG_MAX][64];
+static const void     *g_ic_blob[MOTE_CATALOG_MAX];
+static const uint16_t *g_ic_raw [MOTE_CATALOG_MAX];
+
 static int ends_with_mote(const char *s) {
     size_t n = strlen(s);
     return n > 5 && (s[n-5]=='.') &&
            (s[n-4]=='m'||s[n-4]=='M') && (s[n-3]=='o'||s[n-3]=='O') &&
            (s[n-2]=='t'||s[n-2]=='T') && (s[n-1]=='e'||s[n-1]=='E');
+}
+
+/* Point at a /mote/ game's embedded launcher icon, straight from flash (no copy):
+ * resolve its first cluster's flash offset, read the module header through the
+ * identity-mapped XIP window, and hand back the icon pointer. v20/21 icons are a
+ * raw 60x60 RGB565 array (*raw); v22+ a compact paletted blob (*blob). Both NULL
+ * if the game ships none (or the file isn't a contiguous .mote). Mirrors the
+ * standalone OS's store_icon, resolving the FAT cluster instead of a store offset. */
+static void resolve_icon(const char *fname, const void **out_blob, const uint16_t **out_raw) {
+    *out_blob = 0; *out_raw = 0;
+    char path[80]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, fname);
+    FIL fp;
+    if (f_open(&fp, path, FA_READ) != FR_OK) return;
+    FATFS *fs = fp.obj.fs; DWORD sclust = fp.obj.sclust;
+    f_close(&fp);
+    if (!fs || sclust < 2) return;
+    DWORD    sect = fs->database + (DWORD)(sclust - 2) * fs->csize;
+    uint32_t off  = (uint32_t)THUMBYONE_FAT_OFFSET + sect * 512u;     /* flash byte offset */
+    const MoteModuleHeader *h = (const MoteModuleHeader *)(uintptr_t)(XIP_BASE + off);
+    if (h->magic != MOTE_MODULE_MAGIC || h->abi_version < 20u || h->icon_vaddr == 0) return;
+    const void *p = (const void *)(uintptr_t)(XIP_BASE + off + (h->icon_vaddr - MOTE_MODULE_VADDR));
+    if (h->abi_version >= 22u) *out_blob = p; else *out_raw = (const uint16_t *)p;
 }
 
 /* Rebuild the catalog from /mote/ every frame (so a freshly dropped file shows
@@ -50,7 +81,15 @@ static void rebuild(MoteCatalog *c) {
         c->e[c->count].name[n] = 0;
         c->e[c->count].offset = (uint32_t)c->count;
         c->e[c->count].size   = (uint32_t)fno.fsize;
-        c->e[c->count].icon = 0; c->e[c->count].icon_blob = 0;
+        /* Icon: cached by filename so the f_open + header read only happens when
+         * this slot's file changes (not every frame). */
+        if (strncmp(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0]) != 0) {
+            strncpy(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0] - 1);
+            g_ic_name[c->count][sizeof g_ic_name[0] - 1] = 0;
+            resolve_icon(fno.fname, &g_ic_blob[c->count], &g_ic_raw[c->count]);
+        }
+        c->e[c->count].icon      = g_ic_raw[c->count];
+        c->e[c->count].icon_blob = g_ic_blob[c->count];
         c->count++;
     }
     f_closedir(&dir);

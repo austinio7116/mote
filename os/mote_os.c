@@ -26,7 +26,15 @@ static bool           s_exit_req;
  * game's own alloc()s come out of this. Reset between games. (276 KB: a few KB
  * trimmed from a round 280 to leave the OS room for the v23 rumble/save state +
  * headroom — games use well under this; ThumbyCue's worst case is ~254 KB.) */
+/* 277 KB on the slot runner + host (the runner's OS region has the headroom, and
+ * the host is unconstrained) — gives ThumbyCraft the ~5 KB of arena spare its save
+ * thumbnail capture needs on top of the 272 KB world+zbuf. The SRAM-tight standalone
+ * OS keeps 272 KB. */
+#if defined(MOTE_DEVICE) && !defined(THUMBYONE_SLOT_MODE)
 #define MOTE_ARENA_SIZE (272 * 1024)
+#else
+#define MOTE_ARENA_SIZE (277 * 1024)
+#endif
 static uint8_t   s_arena_mem[MOTE_ARENA_SIZE];
 static MoteArena s_arena;
 
