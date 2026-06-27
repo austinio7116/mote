@@ -32,7 +32,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 36u  /* v36: audio_set_stream — register a PCM source mixed on top of the synth */
+#define MOTE_ABI_VERSION 37u  /* v37: audio_play_sfx — stream a MoteSfx recipe (tiny flash, ~0 RAM) instead of baking PCM */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -386,6 +386,14 @@ typedef struct MoteApi {
      * e.g. the ThumbyCraft port. The callback runs on the audio path, so keep
      * it non-blocking and read-only w.r.t. heavy game state. */
     void (*audio_set_stream)(int (*fill)(int16_t *out, int n));
+
+    /* --- ABI v37: play a MoteSfx recipe by STREAMING it — the mixer synthesises
+     * the recipe block-by-block on the fly (a dedicated voice pool), so a sound
+     * costs only its ~88-byte recipe in flash and ~no RAM, instead of baking the
+     * whole clip to PCM. Ideal for a whole game's hand-tuned SFX set (a weapon
+     * rack, UI blips) where the baked-PCM clips would bloat flash. `gain` is the
+     * per-shot level; up to 4 recipe voices play at once (oldest is stolen). */
+    void (*audio_play_sfx)(const MoteSfx *recipe, float gain);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

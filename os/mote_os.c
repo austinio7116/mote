@@ -153,6 +153,8 @@ void mote_api_fill(MoteApi *a) {
     a->audio_get_master      = mote_audio_get_volume;
     /* ABI v36: register a game PCM stream mixed on top of the synth voices. */
     a->audio_set_stream      = mote_audio_set_stream;
+    /* ABI v37: stream a MoteSfx recipe on the fly (tiny flash, ~0 RAM). */
+    a->audio_play_sfx        = mote_audio_play_sfx;
     /* ABI v30: 2D framebuffer drawing primitives. */
     a->draw_pixel            = mote_draw_pixel;
     a->draw_line             = mote_draw_line;
@@ -347,6 +349,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         }
     }
     mote_audio_set_stream(0);  /* drop the game's PCM stream — its code is about to be unloaded */
+    mote_audio_sfx_clear();    /* stop recipe voices — they point at the game's flash, about to unmap */
     mote_audio_off();         /* don't let notes ring into the launcher */
     mote_plat_wait_flush();   /* let the launcher safely reclaim the shared fb */
 }

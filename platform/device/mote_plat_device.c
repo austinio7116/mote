@@ -28,11 +28,20 @@
 #include <string.h>
 
 /* USB-CDC control/debug channel (os/device/mote_usb.c). Declared here rather
- * than #included so the platform layer doesn't pull in OS headers. */
+ * than #included so the platform layer doesn't pull in OS headers.
+ * MOTE_NO_USB (the ThumbyOne slot builds — runner + v1 lobby) links no USB and
+ * no mote_usb.c, so stub these to no-ops; every call site below stays unchanged. */
+#if MOTE_NO_USB
+static inline void mote_usb_init(void) {}
+static inline void mote_usb_task(void) {}
+static inline int  mote_usb_take_launch(void) { return -1; }
+static inline void mote_usb_log(const char *s) { (void)s; }
+#else
 extern void mote_usb_init(void);
 extern void mote_usb_task(void);
 extern int  mote_usb_take_launch(void);
 extern void mote_usb_log(const char *s);
+#endif
 
 void mote_plat_log(const char *s) { mote_usb_log(s); }
 

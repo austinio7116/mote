@@ -27,7 +27,7 @@ ThumbyOne lobby (slot 0)
    ▼
 Mote slot (ATRANS[0] = Mote partition)         ← the Mote OS + engine, linked at 0x10000000
    │  Mote launcher (its own lobby)             ← USB composite MSC+CDC live here
-   │     ├─ pick a .mote from /.mote/ on the shared FAT
+   │     ├─ pick a .mote from /mote/ on the shared FAT
    │     │     → point a spare ATRANS slot at the file's flash clusters → run in place
    │     └─ "Quit to ThumbyOne" → handoff_request_lobby() + reboot
    ▼
@@ -36,12 +36,12 @@ Mote game running (USB off / telemetry only — the game owns flash, like any TO
 
 ## The game library lives on the shared FAT (decided)
 
-`.mote` modules live in **`/.mote/`** on ThumbyOne's shared FAT16 volume. This makes one
+`.mote` modules live in **`/mote/`** on ThumbyOne's shared FAT16 volume. This makes one
 storage location reachable three ways:
 
 1. **ThumbyOne lobby USB-MSC** — drag a `.mote` onto the drive (existing TO workflow).
 2. **Mote-launcher USB-MSC** — same, without leaving the Mote slot (composite device, below).
-3. **Mote-launcher USB-CDC** — `mote push` from the Studio IDE writes straight to `/.mote/`.
+3. **Mote-launcher USB-CDC** — `mote push` from the Studio IDE writes straight to `/mote/`.
 
 ### Executing a `.mote` in place from the FAT — and the fragmentation warning
 
@@ -51,17 +51,16 @@ must be **4 KB-aligned and contiguous**. FAT16 clusters are 4 KB-aligned, so a
 and run straight from its cluster run — zero-copy, full XIP speed.
 
 > ⚠️ **Fragmentation warning.** A `.mote` whose FAT clusters are **not contiguous** cannot be
-> ATRANS-mapped as one window. The loader must detect this (walk the FAT chain; check every
-> cluster is consecutive) and handle it:
-> - **Refuse + warn:** show "Defragment needed — run Defrag in the ThumbyOne lobby" (TO
->   already has a defrag-FAT menu item) and skip the game.
-> - **Fallback copy:** copy the module into a small **contiguous scratch flash region** in
->   the Mote partition, then map *that*. Slower load, always works. (Bounded to one module's
->   size, so scratch ≈ largest `.mote`.)
-> v1 ships the **refuse + warn** path (cheap, honest); v2 adds the scratch fallback so a
-> fragmented library still runs. Writing via CDC `mote push` should **allocate contiguously**
-> (pre-size the file / pick a free contiguous run) to avoid creating fragmented modules in
-> the first place.
+> ATRANS-mapped as one window. The loader detects this (walk the FAT chain; verify every
+> cluster is consecutive) and handles it **without ever copying the module** (decided — no
+> copy-to-scratch model, so the slot reserves no scratch):
+> - **Force Defrag (primary):** show "Defragment needed — run Defrag in the ThumbyOne lobby"
+>   (TO already has a defrag-FAT menu item) and skip the game until it's contiguous.
+> - **Chained-XIP fallback (later):** map the module's contiguous cluster runs across the
+>   spare ATRANS windows to present one virtual image — no copy, bounded by the 4 ATRANS
+>   slots (works for lightly-fragmented files).
+> Writing via CDC `mote push` should **allocate contiguously** (pre-size the file / pick a
+> free contiguous run) so modules are born unfragmented in the first place.
 
 ## USB: composite MSC + CDC, live only in the Mote launcher
 
@@ -75,13 +74,13 @@ game owns flash, exactly the rule ThumbyOne already applies to slots.
 Both the host (MSC) and the device (CDC `mote push`, the launcher) can write the same FAT;
 concurrent writes corrupt it. Protocol (one writer at a time):
 
-- **CDC push:** before writing `/.mote/<name>.mote` via on-device FatFs, the device soft-
+- **CDC push:** before writing `/mote/<name>.mote` via on-device FatFs, the device soft-
   ejects MSC ("medium not present"), writes (contiguously — see above), then re-presents so
   the host re-reads. (CircuitPython's `storage.remount` does exactly this.)
 - **MSC write:** the device treats the FAT as host-owned while MSC is mounted and
   **re-mounts / invalidates its FatFs cache** after the host finishes.
 - **Alternative (simpler v1):** CDC push writes to a staging area; the launcher imports it
-  into `/.mote/` only when the host is quiet — no concurrent FAT access at all.
+  into `/mote/` only when the host is quiet — no concurrent FAT access at all.
 
 ## ATRANS budget — 4 slots, plan the juggling
 
@@ -122,8 +121,8 @@ One slot runs at a time with the full ~512 KB SRAM; Mote is built for exactly th
 - **Boot:** consume the watchdog handoff in `main()` before peripheral init; add a "Quit to
   ThumbyOne" exit in the Mote launcher (`handoff_request_lobby()` + reboot) alongside the
   existing per-game "return to Mote launcher".
-- **Loader:** add a FAT-backed path — enumerate `/.mote/`, validate cluster contiguity, map
-  via a spare ATRANS slot (or scratch-copy fallback), then the existing `.mote` load runs
+- **Loader:** add a FAT-backed path — enumerate `/mote/`, validate cluster contiguity, map
+  via a spare ATRANS slot (force-Defrag, no copy), then the existing `.mote` load runs
   unchanged. The store currently in Mote-flash becomes the FAT.
 - **USB:** composite MSC+CDC descriptor + the write-coordination protocol above (launcher
   only).
@@ -131,29 +130,31 @@ One slot runs at a time with the full ~512 KB SRAM; Mote is built for exactly th
 
 ## Flash budget
 
-Mote OS ≈ 300 KB. A Mote slot partition of **~512 KB–1 MB** (OS + loader + a small scratch
-region for the defrag fallback) is ample; the *games* live in the shared FAT, not the slot.
-Replacing the three game slots (Craft 512 + Rogue 512 + Elite 256 = **1.28 MB**) with one
-**~768 KB** Mote slot *frees* ~512 KB — give it back to the FAT.
+The slot holds **only** the OS+engine (~350 KB in slot mode: base ~291 KB + FatFs + the
+shared `common/` helpers + composite USB) plus a growth margin — **no per-game space, no
+copy-scratch**; games live on the shared FAT. Provisional partition: **448 KB** (tighten to
+the measured slot binary + ~25% once it builds). Replacing the three game slots
+(Craft 512 + Rogue 512 + Elite 256 = **1.28 MB**) with one 448 KB Mote slot **frees ~832 KB
+to the FAT**.
 
 ## Phased plan
 
 - **Phase 0 — Slot boots.** Mote slot linker variant + handoff consume/return; lobby tile;
   `slot_layout.h`/CMake/PT wiring. Boots from lobby into the Mote launcher and back. Games
   bundled in-partition (no FAT yet) to prove the path.
-- **Phase 1 — FAT-backed library.** Loader enumerates `/.mote/`, checks contiguity, maps from
+- **Phase 1 — FAT-backed library.** Loader enumerates `/mote/`, checks contiguity, maps from
   FAT clusters (refuse+warn on fragmentation). Drag-drop in the ThumbyOne lobby → appears in
   the Mote launcher.
 - **Phase 2 — Composite USB in the Mote launcher.** MSC+CDC live; `mote push`/`list`/`logs`
-  from the IDE write `/.mote/` with the one-writer coordination; MSC drag-drop without leaving
+  from the IDE write `/mote/` with the one-writer coordination; MSC drag-drop without leaving
   the slot.
-- **Phase 3 — Robustness.** Scratch-copy fallback for fragmented modules; contiguous-allocate
+- **Phase 3 — Robustness.** Chained-XIP fallback for lightly-fragmented modules; contiguous-allocate
   on CDC push; shared-settings bridge; polish the two-level navigation.
 
 ## Risks
 
 - **FAT-cluster XIP + fragmentation** (Phase 1) — the novel part; mitigated by refuse+warn
-  then scratch-copy.
+  then chained-XIP (no copy).
 - **MSC + CDC + on-device FatFs write races** (Phase 2) — solved class (CircuitPython), but
   fiddly; the staging-area variant is the safe fallback.
 - **ATRANS restore correctness** — every reprogram needs the reset-first fast-XIP dance.

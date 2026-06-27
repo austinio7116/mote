@@ -27,5 +27,7 @@ void mote_audio_set_volume(float v);              /* 0..1 master (engine menu + 
 float mote_audio_get_volume(void);                /* current 0..1 master */
 void mote_audio_render(int16_t *out, int n);      /* mix n mono samples */
 void mote_audio_set_stream(int (*fill)(int16_t *out, int n));  /* ABI v36: PCM source mixed on top (NULL unregisters) */
+void mote_audio_play_sfx(const struct MoteSfx *recipe, float gain);  /* ABI v37: stream a recipe (tiny flash, ~0 RAM) */
+void mote_audio_sfx_clear(void);                                     /* stop all streaming recipe voices */
 
 #endif /* MOTE_AUDIO_H */
