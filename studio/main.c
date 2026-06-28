@@ -1502,10 +1502,10 @@ static void eundo_pop(void){ if(!g_eundo_n){ snprintf(g_status,sizeof g_status,"
     free(u); g_hover_obj=g_hover_idx=-1; snprintf(g_status,sizeof g_status,"undo (%d left)",g_eundo_n); }
 
 /* affected-vertex set for the active op (selection expanded to verts), world positions snapshotted */
-typedef struct { int o, vi; V3 p0; } EAff;   /* p0 = WORLD position at op start */
+typedef struct { int o, vi; V3 p0; V3 piv; } EAff;   /* p0 = WORLD pos at op start; piv = per-vert pivot (inset: face centroid) */
 static EAff *g_aff=0; static int g_naff=0, g_affcap=0;
 static void aff_add(int o,int vi,V3 pw){ if(g_naff>=g_affcap){ g_affcap=g_affcap?g_affcap*2:64; g_aff=realloc(g_aff,g_affcap*sizeof*g_aff); }
-    g_aff[g_naff].o=o; g_aff[g_naff].vi=vi; g_aff[g_naff].p0=pw; g_naff++; }
+    g_aff[g_naff].o=o; g_aff[g_naff].vi=vi; g_aff[g_naff].p0=pw; g_aff[g_naff].piv=pw; g_naff++; }
 static void op_gather(void){ g_naff=0;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<1)continue; uint8_t*vs=calloc(ob->nv,1);
         if(g_sel_mode==0)for(int i=0;i<ob->nv;i++)vs[i]=ob->v[i].sel;
@@ -1527,33 +1527,104 @@ static float eobj_persp(void){ int vw=g_me_view.w,h=g_me_view.h,rw=vw,rh=h;
     int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } if(rw<1)rw=1; if(rh<1)rh=1;
     return (rh<rw?rh:rw)*0.62f; }
 
-enum { OP_NONE, OP_MOVE, OP_SCALE };
-static struct { int op, axis, drag, hasnum; int ax, ay; float aval, val; char num[16]; V3 center; } g_op = { OP_NONE };
+enum { OP_NONE, OP_MOVE, OP_SCALE, OP_INSET };
+/* axis: 0=free, 1/2/3 = world X/Y/Z, 4 = face normal (extrude default) */
+static struct { int op, axis, drag, hasnum; int ax, ay; float aval, val; char num[16]; V3 center, normal; } g_op = { OP_NONE };
+static V3 op_axis_vec(void){ switch(g_op.axis){ case 1:return (V3){1,0,0}; case 2:return (V3){0,1,0}; case 3:return (V3){0,0,1}; case 4:return g_op.normal; } return (V3){0,0,0}; }
 static void op_apply(int mx,int my){ if(g_op.op==OP_NONE||g_naff<1)return;
-    if(g_op.op==OP_MOVE){ V3 mv={0,0,0};
-        if(g_op.hasnum){ float val=(float)atof(g_op.num); int ax=g_op.axis?g_op.axis-1:0; ((float*)&mv)[ax]=val; g_op.val=val; }
+    if(g_op.op==OP_MOVE){ V3 mv={0,0,0}; V3 A=op_axis_vec(); int constrained=(g_op.axis!=0);
+        if(g_op.hasnum){ float val=(float)atof(g_op.num); if(constrained){ mv=(V3){A.x*val,A.y*val,A.z*val}; } else mv=(V3){val,0,0}; g_op.val=val; }
         else { V3 cr,cu; eobj_cam_basis(&cr,&cu); float dmx=(float)(mx-g_op.ax),dmy=(float)(my-g_op.ay);
             float sx,sy,z2; float wpp = eobj_project(g_op.center,&sx,&sy,&z2) ? (EOBJ_DIST-z2)/(eobj_persp()*(g_mscale>1e-6f?g_mscale:1)) : 0;
-            mv.x=(cr.x*dmx - cu.x*dmy)*wpp; mv.y=(cr.y*dmx - cu.y*dmy)*wpp; mv.z=(cr.z*dmx - cu.z*dmy)*wpp;
-            if(g_op.axis){ int ax=g_op.axis-1; float comp=((float*)&mv)[ax]; mv=(V3){0,0,0}; ((float*)&mv)[ax]=comp; g_op.val=comp; }
-            else g_op.val=sqrtf(mv.x*mv.x+mv.y*mv.y+mv.z*mv.z); }
+            V3 fm={(cr.x*dmx - cu.x*dmy)*wpp,(cr.y*dmx - cu.y*dmy)*wpp,(cr.z*dmx - cu.z*dmy)*wpp};
+            if(constrained){ float comp=fm.x*A.x+fm.y*A.y+fm.z*A.z; mv=(V3){A.x*comp,A.y*comp,A.z*comp}; g_op.val=comp; }
+            else { mv=fm; g_op.val=sqrtf(fm.x*fm.x+fm.y*fm.y+fm.z*fm.z); } }
         for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 w={g_aff[i].p0.x+mv.x,g_aff[i].p0.y+mv.y,g_aff[i].p0.z+mv.z};
             ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; }
-    } else { float f;
+    } else if(g_op.op==OP_SCALE){ float f;
         if(g_op.hasnum)f=(float)atof(g_op.num); else { float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2);
             float d=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); f=g_op.aval>1e-3f?d/g_op.aval:1; }
-        g_op.val=f; V3 fv={f,f,f}; if(g_op.axis){ fv=(V3){1,1,1}; ((float*)&fv)[g_op.axis-1]=f; }
+        g_op.val=f; V3 fv={f,f,f}; if(g_op.axis>=1&&g_op.axis<=3){ fv=(V3){1,1,1}; ((float*)&fv)[g_op.axis-1]=f; }
         for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p=g_aff[i].p0;
             V3 w={g_op.center.x+(p.x-g_op.center.x)*fv.x, g_op.center.y+(p.y-g_op.center.y)*fv.y, g_op.center.z+(p.z-g_op.center.z)*fv.z};
+            ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; }
+    } else { /* OP_INSET: each inner vert slides toward its face centroid by t (0..0.95) */
+        float t; if(g_op.hasnum)t=(float)atof(g_op.num); else t=(float)(mx-g_op.ax)*0.004f;
+        if(t<0)t=0; if(t>0.95f)t=0.95f; g_op.val=t;
+        for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p=g_aff[i].p0,pv=g_aff[i].piv;
+            V3 w={p.x+(pv.x-p.x)*t,p.y+(pv.y-p.y)*t,p.z+(pv.z-p.z)*t};
             ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; } } }
 static void op_apply_cur(void){ int mx,my; SDL_GetMouseState(&mx,&my); op_apply(mx,my); }
-static int op_start(int op,int axis,int drag){ op_gather(); if(g_naff<1){ snprintf(g_status,sizeof g_status,"select something first"); return 0; }
-    eundo_push();
-    if(!eobj_sel_centroid(&g_op.center))g_op.center=(V3){0,0,0};
+/* set up op state from the already-gathered g_aff (no push, no gather) */
+static void op_setup(int op,int axis,int drag){
+    V3 c={0,0,0}; for(int i=0;i<g_naff;i++){ c.x+=g_aff[i].p0.x; c.y+=g_aff[i].p0.y; c.z+=g_aff[i].p0.z; }
+    if(g_naff){ c.x/=g_naff; c.y/=g_naff; c.z/=g_naff; } g_op.center=c;
     int mx,my; SDL_GetMouseState(&mx,&my);
     g_op.op=op; g_op.axis=axis; g_op.drag=drag; g_op.hasnum=0; g_op.num[0]=0; g_op.val=op==OP_SCALE?1:0; g_op.ax=mx; g_op.ay=my;
-    if(op==OP_SCALE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); if(g_op.aval<1)g_op.aval=1; }
-    return 1; }
+    if(op==OP_SCALE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); if(g_op.aval<1)g_op.aval=1; } }
+static int op_start(int op,int axis,int drag){ op_gather(); if(g_naff<1){ snprintf(g_status,sizeof g_status,"select something first"); return 0; }
+    eundo_push(); op_setup(op,axis,drag); return 1; }
+
+/* how many SELECTED faces of ob use the undirected edge (a,b) — 1 = region boundary, 2 = interior */
+static int sel_edge_count(EObject*ob,int a,int b,int nf0){ int lo=a<b?a:b,hi=a<b?b:a,c=0;
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ EFace*f=&ob->f[fi];
+        for(int k=0;k<f->nv;k++){ int x=f->v[k],y=f->v[(k+1)%f->nv]; int l=x<y?x:y,h=x<y?y:x; if(l==lo&&h==hi){ c++; break; } } }
+    return c; }
+/* Extrude the selected faces of one object: duplicate their verts, bridge boundary
+ * edges with side quads, re-point the selected faces onto the duplicates (the lid).
+ * The lid stays selected; returns the count of lid faces, and accumulates the lid's
+ * averaged model-space normal into *navg. */
+static int eobj_extrude_obj(EObject*ob,V3*navg){
+    int nf0=ob->nf, nv0=ob->nv, any=0;
+    int *nv=malloc((size_t)nv0*sizeof(int)); for(int i=0;i<nv0;i++)nv[i]=-1;
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ EFace*f=&ob->f[fi];
+        for(int k=0;k<f->nv;k++){ int v=f->v[k]; if(nv[v]<0){ V3 p=ob->v[v].p; nv[v]=ev_add(ob,p); } } any=1; }
+    if(!any){ free(nv); return 0; }
+    /* side walls for boundary edges (uses only original faces, nf0) */
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ int outer[4],n=ob->f[fi].nv; uint16_t col=ob->f[fi].color; for(int k=0;k<n;k++)outer[k]=ob->f[fi].v[k];
+        /* lid normal (model space) for the default extrude axis */
+        V3 a=ob->v[outer[0]].p,b=ob->v[outer[1]].p,c=ob->v[outer[2]].p;
+        V3 nrm=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(nrm); if(l>1e-9f){ navg->x+=nrm.x/l; navg->y+=nrm.y/l; navg->z+=nrm.z/l; }
+        for(int k=0;k<n;k++){ int va=outer[k],vb=outer[(k+1)%n];
+            if(sel_edge_count(ob,va,vb,nf0)==1){ int q[4]={va,vb,nv[vb],nv[va]}; ef_add(ob,4,q,col); } } }
+    int lid=0;
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ EFace*f=&ob->f[fi]; for(int k=0;k<f->nv;k++)f->v[k]=nv[f->v[k]]; lid++; }
+    free(nv); return lid; }
+/* Inset the selected faces of one object: per face, an inner shrunk copy + a ring of
+ * bridging quads. Re-points the selected face onto the inner copy and pushes the inner
+ * verts into g_aff (with their face centroid as pivot) so the modal op drives the amount. */
+static int eobj_inset_obj(EObject*ob,int oi){
+    int nf0=ob->nf, built=0;
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ int outer[4],n=ob->f[fi].nv; uint16_t col=ob->f[fi].color; for(int k=0;k<n;k++)outer[k]=ob->f[fi].v[k];
+        V3 c={0,0,0}; for(int k=0;k<n;k++){ V3 p=ob->v[outer[k]].p; c.x+=p.x; c.y+=p.y; c.z+=p.z; } c.x/=n; c.y/=n; c.z/=n;
+        int inner[4]; for(int k=0;k<n;k++){ V3 p=ob->v[outer[k]].p; inner[k]=ev_add(ob,p); }   /* start coincident */
+        for(int k=0;k<n;k++){ int a=outer[k],b=outer[(k+1)%n],ib=inner[(k+1)%n],ia=inner[k]; int q[4]={a,b,ib,ia}; ef_add(ob,4,q,col); }
+        EFace*f=&ob->f[fi]; for(int k=0;k<n;k++)f->v[k]=inner[k];   /* re-point to the inner face */
+        V3 cw={c.x+ob->origin.x,c.y+ob->origin.y,c.z+ob->origin.z};
+        for(int k=0;k<n;k++){ aff_add(oi,inner[k],eobj_wv(ob,inner[k])); g_aff[g_naff-1].piv=cw; }
+        built++; }
+    return built; }
+/* E: extrude selected faces across all objects, then start a normal-constrained move */
+static void op_extrude(void){
+    int total=0; for(int o=0;o<g_nobj;o++){ int has=0; for(int fi=0;fi<g_obj[o].nf;fi++)if(g_obj[o].f[fi].sel){ has=1; break; } if(has)total++; }
+    if(!total){ snprintf(g_status,sizeof g_status,"select faces to extrude (Face mode)"); return; }
+    eundo_push(); V3 navg={0,0,0};
+    for(int o=0;o<g_nobj;o++)eobj_extrude_obj(&g_obj[o],&navg);
+    for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]);
+    float l=mv3len(navg); if(l>1e-6f){ navg.x/=l; navg.y/=l; navg.z/=l; } else navg=(V3){0,1,0};
+    op_gather();                                  /* lid verts = verts of the (still-selected) faces */
+    op_setup(OP_MOVE,4,0); g_op.normal=navg;       /* default-constrain to the averaged normal */
+    snprintf(g_status,sizeof g_status,"extrude — move along normal (X/Y/Z to free, Enter/LMB to set)"); }
+/* I: inset selected faces across all objects, then drive the amount */
+static void op_inset(void){
+    int total=0; for(int o=0;o<g_nobj;o++)for(int fi=0;fi<g_obj[o].nf;fi++)if(g_obj[o].f[fi].sel){ total=1; break; }
+    if(!total){ snprintf(g_status,sizeof g_status,"select faces to inset (Face mode)"); return; }
+    eundo_push(); g_naff=0;
+    for(int o=0;o<g_nobj;o++)eobj_inset_obj(&g_obj[o],o);
+    for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]);
+    op_setup(OP_INSET,0,0);
+    snprintf(g_status,sizeof g_status,"inset — drag to set amount (Enter/LMB to confirm)"); }
+
 static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
 static void op_cancel(void){ g_op.op=OP_NONE; eundo_pop(); }            /* revert via the snapshot we pushed at start */
 static void op_set_axis(int a){ g_op.axis=(g_op.axis==a)?0:a; op_apply_cur(); }
@@ -1567,7 +1638,7 @@ static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
 static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
-static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit;
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1640,13 +1711,14 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
             int s=hot?5:4; plain(R,g_mgz_ax[a].x-s,g_mgz_ax[a].y-s,2*s+1,2*s+1,c); rect_outline(R,g_mgz_ax[a].x-s,g_mgz_ax[a].y-s,2*s+1,2*s+1,(Col){0,0,0},1); }
           ring(R,g_mgz_o.x,g_mgz_o.y,4,(Col){0,0,0},1); ring(R,g_mgz_o.x,g_mgz_o.y,3,(Col){255,235,120},1); } } }
     /* ---- modal header readout (Blender-style) ---- */
-    if(g_op.op!=OP_NONE){ const char*an=g_op.axis==1?" X":g_op.axis==2?" Y":g_op.axis==3?" Z":"";
-        char hb[64]; const char*nm=g_op.op==OP_MOVE?"Move":"Scale";
-        if(g_op.hasnum)snprintf(hb,sizeof hb,"%s%s: %s",nm,an,g_op.num); else snprintf(hb,sizeof hb,"%s%s: %.3f",nm,an,g_op.val);
+    if(g_op.op!=OP_NONE){ const char*an=g_op.axis==1?" X":g_op.axis==2?" Y":g_op.axis==3?" Z":g_op.axis==4?" N":"";
+        char hb[64]; const char*nm=g_op.op==OP_MOVE?"Move":g_op.op==OP_SCALE?"Scale":"Inset";
+        if(g_op.op==OP_INSET)snprintf(hb,sizeof hb,"Inset: %.3f",g_op.val);
+        else if(g_op.hasnum)snprintf(hb,sizeof hb,"%s%s: %s",nm,an,g_op.num); else snprintf(hb,sizeof hb,"%s%s: %.3f",nm,an,g_op.val);
         plain(R,ox+8,oy+8,textw(R,hb,1)+12,18,(Col){40,44,58}); text(R,hb,ox+14,oy+12,1,(Col){255,235,120},(Col){40,44,58}); }
     if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
     if(g_op.op!=OP_NONE)text(R,"X/Y/Z axis  type number  Enter/LMB confirm  Esc/RMB cancel",ox+12,oy+h-20,1,(Col){200,200,150},(Col){16,18,26});
-    else text(R,"G move  S scale  click select  B box  A/Alt+A all  Ctrl+Z undo  -  MMB/empty-drag orbit, Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+    else text(R,"G move  S scale  E extrude  I inset  click select  B box  Ctrl+Z undo  -  MMB/empty-drag orbit, Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
     /* ---- edit card ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px;
@@ -1657,6 +1729,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     text(R,"Add primitive",lx,cy,1,C_DIM,C_PANEL); cy+=15;
     px=ui_btn(R,lx,cy,0,"Cube",IC_BOX,(Col){170,200,140},&g_me_ecube,mx,my);
     ui_btn(R,px,cy,0,"Plane",IC_SQUARE,(Col){170,200,140},&g_me_eplane,mx,my); cy+=UI_H+12;
+    text(R,"Edit (Face mode)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    px=ui_btn(R,lx,cy,0,"Extrude",IC_MOVE,(Col){210,180,120},&g_me_eextr,mx,my);
+    ui_btn(R,px,cy,0,"Inset",IC_SQDASH,(Col){210,180,120},&g_me_einset,mx,my); cy+=UI_H+12;
     char ob[48]; snprintf(ob,sizeof ob,"Objects: %d",g_nobj); text(R,ob,lx,cy,1,C_TXT,C_PANEL); cy+=15;
     if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.16s:  %dv  %df  %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=16; }
     plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=10;
@@ -1673,6 +1748,8 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eface)){ set_sel_mode(2); return 1; }
     if(HITR(g_me_ecube)){ prim_cube(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
+    if(HITR(g_me_eextr)){ if(g_sel_mode!=2)set_sel_mode(2); op_extrude(); return 1; }
+    if(HITR(g_me_einset)){ if(g_sel_mode!=2)set_sel_mode(2); op_inset(); return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
@@ -1705,6 +1782,8 @@ static int mesh_edit_key(SDL_Keycode k){
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
     if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
+    if(k==SDLK_e){ op_extrude(); return 1; }
+    if(k==SDLK_i){ op_inset(); return 1; }
     if(k==SDLK_1){ set_sel_mode(0); return 1; }
     if(k==SDLK_2){ set_sel_mode(1); return 1; }
     if(k==SDLK_3){ set_sel_mode(2); return 1; }
@@ -4195,7 +4274,12 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_MESHSEL")){ g_sel_mode=atoi(getenv("MOTE_STUDIO_MESHSEL")); if(g_nobj){ EObject*o=&g_obj[0];
             if(g_sel_mode==0&&o->nv>2){ o->v[2].sel=o->v[6].sel=1; } else if(g_sel_mode==1&&o->ne>3){ o->e[0].sel=o->e[3].sel=1; } else if(o->nf>1){ o->f[0].sel=o->f[4].sel=1; } } }
         if(getenv("MOTE_STUDIO_MESHOP")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[4].sel=1; }   /* select +Y face, modal-move it up by num */
-            op_start(OP_MOVE,2,0); snprintf(g_op.num,sizeof g_op.num,"%s",getenv("MOTE_STUDIO_MESHOP")); g_op.hasnum=1; op_apply(0,0); } }
+            op_start(OP_MOVE,2,0); snprintf(g_op.num,sizeof g_op.num,"%s",getenv("MOTE_STUDIO_MESHOP")); g_op.hasnum=1; op_apply(0,0); }
+        if(getenv("MOTE_STUDIO_MESHTOPO")){ g_sel_mode=2; if(g_nobj)g_obj[0].f[4].sel=1;   /* extrude or inset the +Y face, confirm, then bake */
+            const char*w=getenv("MOTE_STUDIO_MESHTOPO");
+            if(!strcmp(w,"inset")){ op_inset(); snprintf(g_op.num,sizeof g_op.num,"0.3"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
+            else { op_extrude(); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
+            if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
         if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */

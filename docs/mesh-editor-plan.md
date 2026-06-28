@@ -19,7 +19,17 @@
 >   centroid (per the artist's pick — both keyboard *and* handles). Snapshot
 >   **undo** stack (whole-scene deep copy, **Ctrl+Z**).
 >
-> Phases 4–6 below remain (topology ops E/I, multi-object/rig-join, polish).
+> - **Phase 4 (Topology ops):** Extrude (**E**) and Inset (**I**) on selected faces
+>   (Face mode), across all objects. Extrude duplicates the region's verts, bridges
+>   boundary edges (used by exactly one selected face) with side quads, re-points the
+>   selected faces onto the lid, and starts a move default-constrained to the averaged
+>   face normal (press X/Y/Z to free it). Inset builds a shrunk inner copy per face +
+>   a ring of bridging quads, amount driven by the mouse. Both rebuild edges; the
+>   baker recomputes normals from winding so no explicit recalc is needed. Card
+>   buttons + keys; verified bake-compiles after extrude (8v6f → 12v10f).
+>
+> Phases 5–6 below remain (multi-object/rig-join, polish — more primitives,
+> duplicate/delete/merge, per-face colour paint).
 
 ## Goal
 Add vertex/edge/face select modes and modal operators — **G**rab, **S**cale,
