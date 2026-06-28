@@ -1289,6 +1289,7 @@ typedef struct {
     EEdge *e; int ne,ecap;
     V3    origin;                /* object position in the scene */
     int   parent;  V3 pivot;     /* rig fields (consumed by the RIG tab in a later phase) */
+    uint8_t mirror;              /* live mirror modifier: bit0=X bit1=Y bit2=Z (reflect across the local axis plane at vert-origin; welded at bake) */
 } EObject;
 #define EMESH_MAXOBJ 32
 static EObject g_obj[EMESH_MAXOBJ]; static int g_nobj=0, g_objsel=0;
@@ -1335,7 +1336,7 @@ static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
     if(!f){ snprintf(g_status,sizeof g_status,"cannot write scene.mmesh"); return; }
     fprintf(f,"mmesh 1\n");
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
-        fprintf(f,"object %s\norigin %g %g %g\nparent %d\npivot %g %g %g\n",ob->name,ob->origin.x,ob->origin.y,ob->origin.z,ob->parent,ob->pivot.x,ob->pivot.y,ob->pivot.z);
+        fprintf(f,"object %s\norigin %g %g %g\nparent %d\npivot %g %g %g\nmirror %u\n",ob->name,ob->origin.x,ob->origin.y,ob->origin.z,ob->parent,ob->pivot.x,ob->pivot.y,ob->pivot.z,ob->mirror);
         for(int i=0;i<ob->nv;i++)fprintf(f,"v %g %g %g\n",ob->v[i].p.x,ob->v[i].p.y,ob->v[i].p.z);
         for(int i=0;i<ob->nf;i++){ EFace*fc=&ob->f[i]; fprintf(f,"f %d",fc->nv); for(int k=0;k<fc->nv;k++)fprintf(f," %d",fc->v[k]); fprintf(f," %u\n",fc->color); }
         fprintf(f,"end\n"); }
@@ -1349,6 +1350,7 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
         else if(cur&&!strncmp(ln,"origin ",7))sscanf(ln+7,"%f %f %f",&cur->origin.x,&cur->origin.y,&cur->origin.z);
         else if(cur&&!strncmp(ln,"parent ",7))sscanf(ln+7,"%d",&cur->parent);
         else if(cur&&!strncmp(ln,"pivot ",6))sscanf(ln+6,"%f %f %f",&cur->pivot.x,&cur->pivot.y,&cur->pivot.z);
+        else if(cur&&!strncmp(ln,"mirror ",7)){ unsigned m=0; sscanf(ln+7,"%u",&m); cur->mirror=(uint8_t)m; }
         else if(cur&&ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3)ev_add(cur,v); }
         else if(cur&&ln[0]=='f'&&ln[1]==' '){ int vals[6],n=0; for(char*tok=strtok(ln+2," \t\r\n"); tok&&n<6; tok=strtok(NULL," \t\r\n"))vals[n++]=atoi(tok);
             if(n>=4){ int cnt=vals[0]; if(cnt<3)cnt=3; if(cnt>4)cnt=4; int idx[4]={0}; for(int k=0;k<cnt&&k+1<n;k++)idx[k]=vals[k+1];
@@ -1359,21 +1361,41 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
 /* Exact bake: emit the selected object's topology DIRECTLY to MeshVert/MeshFace
  * (triangulating quads, chunked to <=255 verts), bypassing the decimator so the
  * artist's exact low-poly mesh survives. Same chunk format as mesh_emit(). */
+/* Build the object's bakeable geometry in LOCAL space: real verts + triangulated faces,
+ * then (if mirror is on) the reflected copies — verts on a mirror seam (coord ~0 on every
+ * negated axis) are welded to the original, and reflected triangles get reversed winding so
+ * normals stay outward. Returns malloc'd vert + tri arrays (caller frees). */
+static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt){
+    int rtri=0; for(int fi=0;fi<o->nf;fi++)rtri+=o->f[fi].nv-2;
+    int capv=o->nv*8+8, capt=rtri*8+8;
+    V3 *vv=malloc((size_t)capv*sizeof(V3)); int nvv=0;
+    int (*tt)[3]=malloc((size_t)capt*sizeof(*tt)); int ntt=0;
+    for(int i=0;i<o->nv;i++)vv[nvv++]=o->v[i].p;
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tt[ntt][0]=f->v[0]; tt[ntt][1]=f->v[k-1]; tt[ntt][2]=f->v[k]; ntt++; } }
+    if(o->mirror){ int *map=malloc((size_t)o->nv*sizeof(int));
+        for(int combo=1;combo<8;combo++){ if(combo & ~o->mirror)continue;   /* only negate axes in the mirror set */
+            int sx=(combo&1)?-1:1,sy=(combo&2)?-1:1,sz=(combo&4)?-1:1, parity=__builtin_popcount((unsigned)combo)&1;
+            for(int i=0;i<o->nv;i++){ V3 p=o->v[i].p; int seam=1;
+                if((combo&1)&&fabsf(p.x)>1e-4f)seam=0; if((combo&2)&&fabsf(p.y)>1e-4f)seam=0; if((combo&4)&&fabsf(p.z)>1e-4f)seam=0;
+                if(seam)map[i]=i; else { map[i]=nvv; vv[nvv++]=(V3){p.x*sx,p.y*sy,p.z*sz}; } }
+            for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ int a=map[f->v[0]],b=map[f->v[k-1]],c=map[f->v[k]];
+                if(parity){ tt[ntt][0]=a; tt[ntt][1]=c; tt[ntt][2]=b; } else { tt[ntt][0]=a; tt[ntt][1]=b; tt[ntt][2]=c; } ntt++; } } }
+        free(map); }
+    *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; }
 static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
     EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
-    int tcap=0; for(int fi=0;fi<o->nf;fi++)tcap+=o->f[fi].nv-2; if(tcap<1){ snprintf(g_status,sizeof g_status,"no faces"); return; }
-    int (*tri)[3]=malloc((size_t)tcap*sizeof*tri); int nt=0;
-    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tri[nt][0]=f->v[0]; tri[nt][1]=f->v[k-1]; tri[nt][2]=f->v[k]; nt++; } }
-    float qmax=1e-6f,bound=0; for(int i=0;i<o->nv;i++){ V3 p=o->v[i].p; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
+    V3 *vv; int nvv; int (*tri)[3]; int nt; emesh_build_geom(o,&vv,&nvv,&tri,&nt);
+    if(nt<1){ free(vv); free(tri); snprintf(g_status,sizeof g_status,"no faces"); return; }
+    float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ V3 p=vv[i]; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
         if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(p); if(l>bound)bound=l; }
     float q=127.0f/qmax; uint16_t col=o->f[0].color; float size=g_mesh_size>0?g_mesh_size:qmax;
     char name[64]; snprintf(name,sizeof name,"%.40s",o->name[0]?o->name:"model");
     for(char*c=name;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')||*c=='_'))*c='_';
     char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w");
-    if(!h){ free(tri); snprintf(g_status,sizeof g_status,"cannot write src/%s.h",name); return; }
-    fprintf(h,"/* GENERATED by Mote Studio (model editor) - %d verts, %d faces, scale=%.3f */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",o->nv,nt,size,name,name);
-    int *stamp=malloc(o->nv*sizeof(int)),*local=malloc(o->nv*sizeof(int)); for(int i=0;i<o->nv;i++)stamp[i]=-1;
+    if(!h){ free(tri); free(vv); snprintf(g_status,sizeof g_status,"cannot write src/%s.h",name); return; }
+    fprintf(h,"/* GENERATED by Mote Studio (model editor) - %d verts, %d faces, scale=%.3f%s */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",nvv,nt,size,o->mirror?", mirrored":"",name,name);
+    int *stamp=malloc((size_t)nvv*sizeof(int)),*local=malloc((size_t)nvv*sizeof(int)); for(int i=0;i<nvv;i++)stamp[i]=-1;
     int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface);
     char chunklist[16384]=""; int cl=0,chunk=0,ti=0,total_v=0,total_f=0;
     while(ti<nt){ int nv=0,cf=0,start=ti;
@@ -1382,9 +1404,9 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
             cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++; }
         if(ti==start){ ti++; continue; }
         fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
-        for(int i=0;i<nv;i++){ V3 v=o->v[cv[i]].p; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
+        for(int i=0;i<nv;i++){ V3 v=vv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
         fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
-        for(int i=0;i<cf;i++){ V3 a=o->v[cv[cface[i][0]]].p,b=o->v[cv[cface[i][1]]].p,c=o->v[cv[cface[i][2]]].p;
+        for(int i=0;i<cf;i++){ V3 a=vv[cv[cface[i][0]]],b=vv[cv[cface[i][1]]],c=vv[cv[cface[i][2]]];
             V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
             fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
         fprintf(h,"};\n");
@@ -1393,8 +1415,8 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n#define %s_TRIS %d\n"
               "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* mote_model_draw(mote,&%s,pos) */\n\n#endif\n",
             name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name);
-    fclose(h); free(tri); free(stamp); free(local); free(cv); free(cface);
-    snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact)",name,total_f,chunk); }
+    fclose(h); free(tri); free(vv); free(stamp); free(local); free(cv); free(cface);
+    snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact%s)",name,total_f,chunk,o->mirror?", mirrored":""); }
 
 /* ---- Phase 2: selection (pick / box / all, mode conversion, hover) ---- */
 static int g_hover_obj=-1, g_hover_idx=-1;      /* element under the cursor (kind == g_sel_mode), for highlight */
@@ -1638,7 +1660,7 @@ static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
 static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
-static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset;
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1655,15 +1677,20 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
     #define EVIEW(P,OUT) do{ V3 _p=(P); _p.x=(_p.x-g_mcen.x)*g_mscale; _p.y=(_p.y-g_mcen.y)*g_mscale; _p.z=(_p.z-g_mcen.z)*g_mscale; \
         float _x=_p.x*cyw-_p.z*syw,_z=_p.x*syw+_p.z*cyw,_y=_p.y*cp-_z*sp,_z2=_p.y*sp+_z*cp; (OUT)=(V3){_x,_y,_z2}; }while(0)
-    /* filled faces (double-sided, z-buffered) */
+    /* filled faces (double-sided, z-buffered). Each object draws its real geometry, plus a
+     * solid reflected copy for every active mirror axis (the rasterizer is double-sided, so
+     * a reflection just negates the mirrored coords — no winding flip needed for the preview). */
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);
+        int ps[8][3],np=0; ps[np][0]=ps[np][1]=ps[np][2]=1; np++;
+        if(ob->mirror)for(int combo=1;combo<8;combo++){ if(combo & ~ob->mirror)continue; ps[np][0]=(combo&1)?-1:1; ps[np][1]=(combo&2)?-1:1; ps[np][2]=(combo&4)?-1:1; np++; }
+        for(int pi=0;pi<np;pi++){ int msx=ps[pi][0],msy=ps[pi][1],msz=ps[pi][2],real=(pi==0);
         for(int fi=0;fi<ob->nf;fi++){ EFace*f=&ob->f[fi];
             for(int k=2;k<f->nv;k++){ int id[3]={f->v[0],f->v[k-1],f->v[k]}; V3 rr[3];
-                for(int j=0;j<3;j++){ V3 p=ob->v[id[j]].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z; EVIEW(p,rr[j]); }
+                for(int j=0;j<3;j++){ V3 p=ob->v[id[j]].p; p.x*=msx; p.y*=msy; p.z*=msz; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z; EVIEW(p,rr[j]); }
                 float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z,vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
                 float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
                 float sh=0.30f+0.70f*fabsf(nx*0.4f+ny*0.5f+nz*0.75f);
-                int sel=(f->sel&&g_sel_mode==2), hov=(g_sel_mode==2&&o==g_hover_obj&&fi==g_hover_idx);
+                int sel=(real&&f->sel&&g_sel_mode==2), hov=(real&&g_sel_mode==2&&o==g_hover_obj&&fi==g_hover_idx);
                 uint8_t br=((f->color>>11)&31)<<3,bg=((f->color>>5)&63)<<2,bb=(f->color&31)<<3;
                 if(sel){ br=255; bg=150; bb=60; } else if(hov){ br=(uint8_t)(br*0.6f+110); bg=(uint8_t)(bg*0.6f+90); bb=(uint8_t)(bb*0.6f+40); }
                 else if(!act){ br=(uint8_t)(br*0.5f); bg=(uint8_t)(bg*0.5f); bb=(uint8_t)(bb*0.5f); }
@@ -1678,7 +1705,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
                     float e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]);
                     float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
                     if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
-                    float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } } }
+                    float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_me_view);
     /* overlay: edges + verts in window space */
     float kx=vw/(float)rw, ky=h/(float)rh;
@@ -1693,7 +1720,21 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
         if(g_sel_mode==0)for(int i=0;i<ob->nv;i++){ V3 p=ob->v[i].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
             float sx,sy; int vis; ESCR(p,sx,sy,vis); if(!vis)continue;
             int hov=(o==g_hover_obj&&i==g_hover_idx); int r=hov?3:2;
-            Col c=ob->v[i].sel?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-r,(int)sy-r,r*2,r*2,c); } }
+            Col c=ob->v[i].sel?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-r,(int)sy-r,r*2,r*2,c); }
+        /* mirror half: wireframe (neutral, no selection/verts) + a subtle seam line at each mirror plane */
+        if(ob->mirror){
+            for(int combo=1;combo<8;combo++){ if(combo & ~ob->mirror)continue; int msx=(combo&1)?-1:1,msy=(combo&2)?-1:1,msz=(combo&4)?-1:1;
+                for(int ei=0;ei<ob->ne;ei++){ EEdge*ed=&ob->e[ei]; V3 pa=ob->v[ed->a].p,pb=ob->v[ed->b].p;
+                    pa.x*=msx;pa.y*=msy;pa.z*=msz; pb.x*=msx;pb.y*=msy;pb.z*=msz;
+                    pa.x+=ob->origin.x;pa.y+=ob->origin.y;pa.z+=ob->origin.z; pb.x+=ob->origin.x;pb.y+=ob->origin.y;pb.z+=ob->origin.z;
+                    float ax,ay,bx,by; int va,vb; ESCR(pa,ax,ay,va); ESCR(pb,bx,by,vb); if(!va||!vb)continue;
+                    Col c=act?(Col){150,160,180}:(Col){80,88,108}; SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); } }
+            float ext=0.05f; for(int i=0;i<ob->nv;i++){ float a=fabsf(ob->v[i].p.x),b=fabsf(ob->v[i].p.y),cc=fabsf(ob->v[i].p.z); if(a>ext)ext=a; if(b>ext)ext=b; if(cc>ext)ext=cc; }
+            ext*=1.15f; V3 og=ob->origin;
+            for(int ax3=0;ax3<3;ax3++) if(ob->mirror&(1<<ax3)){   /* draw the mirror plane as a faint cross in that plane */
+                for(int u=0;u<3;u++){ if(u==ax3)continue; V3 p0=og,p1=og; ((float*)&p0)[u]-=ext; ((float*)&p1)[u]+=ext;
+                    float x0s,y0s,x1s,y1s; int v0,v1; ESCR(p0,x0s,y0s,v0); ESCR(p1,x1s,y1s,v1); if(!v0||!v1)continue;
+                    SDL_SetRenderDrawColor(R,90,150,170,255); SDL_RenderDrawLine(R,(int)x0s,(int)y0s,(int)x1s,(int)y1s); } } } }
     if(g_box_active){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x1,x1=g_box_x0<g_box_x1?g_box_x1:g_box_x0,y0=g_box_y0<g_box_y1?g_box_y0:g_box_y1,y1=g_box_y0<g_box_y1?g_box_y1:g_box_y0;
         rect_outline(R,x0,y0,x1-x0,y1-y0,(Col){250,230,140},1); }
     #undef EVIEW
@@ -1732,6 +1773,11 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     text(R,"Edit (Face mode)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
     px=ui_btn(R,lx,cy,0,"Extrude",IC_MOVE,(Col){210,180,120},&g_me_eextr,mx,my);
     ui_btn(R,px,cy,0,"Inset",IC_SQDASH,(Col){210,180,120},&g_me_einset,mx,my); cy+=UI_H+12;
+    { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0;
+      text(R,"Mirror (live, welds at bake)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+      px=ui_pill(R,lx,cy,NULL,"X",mir&1,&g_me_mirx,mx,my);
+      px=ui_pill(R,px,cy,NULL,"Y",mir&2,&g_me_miry,mx,my);
+      ui_pill(R,px,cy,NULL,"Z",mir&4,&g_me_mirz,mx,my); cy+=UI_H+12; }
     char ob[48]; snprintf(ob,sizeof ob,"Objects: %d",g_nobj); text(R,ob,lx,cy,1,C_TXT,C_PANEL); cy+=15;
     if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.16s:  %dv  %df  %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=16; }
     plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=10;
@@ -1750,6 +1796,9 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_eextr)){ if(g_sel_mode!=2)set_sel_mode(2); op_extrude(); return 1; }
     if(HITR(g_me_einset)){ if(g_sel_mode!=2)set_sel_mode(2); op_inset(); return 1; }
+    if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; return 1; }
+    if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; return 1; }
+    if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
@@ -2263,7 +2312,7 @@ static int rig_down(int mx,int my){
             if(HITR(g_rg_pz[a*2])){ *po[a]-=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_pz[a*2+1])){ *po[a]+=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }
     }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
-    if(HITR(g_rg_mesh)&&g_rig_obj[0]){ load_mesh(g_rig_obj); g_tab=TAB_MESH; return 1; }   /* inspect the rigged OBJ as a plain mesh */
+    if(HITR(g_rg_mesh)&&g_rig_obj[0]){ load_mesh(g_rig_obj); g_edit_mode=0; g_tab=TAB_MESH; return 1; }   /* inspect the rigged OBJ as a plain mesh */
     return 0;
     #undef HITR
 }
@@ -4207,7 +4256,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
     else if(r->kind==4){ size_t pl=strlen(r->path); int isobj=pl>4&&!strcasecmp(r->path+pl-4,".obj"); struct stat rst; char rg[330];
         if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
         if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
-        else { load_mesh(r->path); g_tab=TAB_MESH; } }
+        else { load_mesh(r->path); g_edit_mode=0; g_tab=TAB_MESH; } }   /* show the importer preview (not the model editor) */
     else if(ci_ends(r->name,".sfx")||ci_ends(r->name,".sfx.h")){ load_sfx_file(r->path); g_tab=TAB_AUDIO; }  /* SFX recipe -> Audio tab */
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
     else if(ci_ends(r->name,".level")){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path; snprintf(g_tl_name,sizeof g_tl_name,"%.50s",b); char*dt=strrchr(g_tl_name,'.'); if(dt)*dt=0;
@@ -4279,6 +4328,10 @@ int main(int argc,char**argv){
             const char*w=getenv("MOTE_STUDIO_MESHTOPO");
             if(!strcmp(w,"inset")){ op_inset(); snprintf(g_op.num,sizeof g_op.num,"0.3"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
             else { op_extrude(); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
+            if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
+        if(getenv("MOTE_STUDIO_MESHMIRROR")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[2].sel=1;   /* push the +X face out, then mirror X */
+            op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.5"); g_op.hasnum=1; op_apply(0,0); op_confirm();
+            g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRROR")); g_obj[0].f[2].sel=0; }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();

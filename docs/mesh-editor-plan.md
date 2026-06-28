@@ -28,6 +28,14 @@
 >   baker recomputes normals from winding so no explicit recalc is needed. Card
 >   buttons + keys; verified bake-compiles after extrude (8v6f → 12v10f).
 >
+> - **Mirror modifier (live):** per-object Mirror X/Y/Z toggle — you model one
+>   half and the editor draws the whole thing live (reflected half solid, not
+>   selectable, with a subtle cyan seam marker at the axis plane through the
+>   object's vert-origin). Non-destructive; at bake the reflected geometry is
+>   generated with seam verts welded and winding flipped (normals stay outward).
+>   Persisted in `.mmesh`. Because the mirror is recomputed from the edited half
+>   every frame, all G/S/E/I actions are mirrored for free.
+>
 > Phases 5–6 below remain (multi-object/rig-join, polish — more primitives,
 > duplicate/delete/merge, per-face colour paint).
 
@@ -35,7 +43,9 @@
 Add vertex/edge/face select modes and modal operators — **G**rab, **S**cale,
 **E**xtrude, **I**nset — with **X/Y/Z** axis constraints and numeric entry,
 working identically in the MESH (and RIG) tabs, plus the ability to create
-separate objects and join them into a rig.
+separate objects and join them into a rig. Includes a **live Mirror modifier**
+(model one half, see/bake the whole). The MESH tab keeps its existing STL/OBJ
+**importer** — the model editor is a non-destructive toggle alongside it.
 
 ## Key findings from the codebase
 - **Studio is pure C + SDL2** with a hand-rolled software rasterizer
