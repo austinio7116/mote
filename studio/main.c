@@ -1329,6 +1329,28 @@ static void prim_cube(float s){ EObject*o=eobj_new("Cube"); if(!o)return; float 
 static void prim_plane(float s){ EObject*o=eobj_new("Plane"); if(!o)return; float h=s*0.5f;
     ev_add(o,(V3){-h,0,-h}); ev_add(o,(V3){h,0,-h}); ev_add(o,(V3){h,0,h}); ev_add(o,(V3){-h,0,h});
     int q[4]={0,3,2,1}; ef_add(o,4,q,EMESH_DEFCOL); edges_rebuild(o); }
+static void prim_cylinder(float r,float hh,int n){ EObject*o=eobj_new("Cylinder"); if(!o)return; if(n<3)n=3; if(n>48)n=48; float h=hh*0.5f;
+    int bot[48],top[48]; for(int i=0;i<n;i++){ float a=(float)i/n*6.2831853f,x=cosf(a)*r,z=sinf(a)*r; bot[i]=ev_add(o,(V3){x,-h,z}); top[i]=ev_add(o,(V3){x,h,z}); }
+    int bc=ev_add(o,(V3){0,-h,0}),tc=ev_add(o,(V3){0,h,0});
+    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[4]={bot[i],bot[j],top[j],top[i]}; ef_add(o,4,side,EMESH_DEFCOL);
+        int tcap[3]={tc,top[i],top[j]}; ef_add(o,3,tcap,EMESH_DEFCOL); int bcap[3]={bc,bot[j],bot[i]}; ef_add(o,3,bcap,EMESH_DEFCOL); }
+    edges_rebuild(o); }
+static void prim_cone(float r,float hh,int n){ EObject*o=eobj_new("Cone"); if(!o)return; if(n<3)n=3; if(n>48)n=48; float h=hh*0.5f;
+    int bot[48]; for(int i=0;i<n;i++){ float a=(float)i/n*6.2831853f; bot[i]=ev_add(o,(V3){cosf(a)*r,-h,sinf(a)*r}); }
+    int ap=ev_add(o,(V3){0,h,0}),bc=ev_add(o,(V3){0,-h,0});
+    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[3]={bot[i],bot[j],ap}; ef_add(o,3,side,EMESH_DEFCOL); int bcap[3]={bc,bot[j],bot[i]}; ef_add(o,3,bcap,EMESH_DEFCOL); }
+    edges_rebuild(o); }
+static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sphere"); if(!o)return;
+    if(stacks<2)stacks=2; if(stacks>16)stacks=16; if(slices<3)slices=3; if(slices>24)slices=24;
+    int top=ev_add(o,(V3){0,r,0}),bot=ev_add(o,(V3){0,-r,0});
+    int ring[15][24];   /* interior rings (stacks-1 of them) */
+    for(int st=1;st<stacks;st++){ float phi=3.14159265f*st/stacks,y=cosf(phi)*r,rr=sinf(phi)*r;
+        for(int sl=0;sl<slices;sl++){ float th=6.2831853f*sl/slices; ring[st-1][sl]=ev_add(o,(V3){cosf(th)*rr,y,sinf(th)*rr}); } }
+    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int t[3]={top,ring[0][sl],ring[0][j]}; ef_add(o,3,t,EMESH_DEFCOL); }   /* top cap */
+    for(int st=0;st<stacks-2;st++)for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices;
+        int q[4]={ring[st][sl],ring[st][j],ring[st+1][j],ring[st+1][sl]}; ef_add(o,4,q,EMESH_DEFCOL); }   /* mid quads */
+    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int b[3]={bot,ring[stacks-2][j],ring[stacks-2][sl]}; ef_add(o,3,b,EMESH_DEFCOL); }   /* bottom cap */
+    edges_rebuild(o); }
 /* Convert the loaded STL/OBJ import into editable topology: the decimator already produces
  * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
  * the editable mesh we want. Brings it in as a new object and switches to the model editor.
@@ -1383,13 +1405,14 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
  * then (if mirror is on) the reflected copies — verts on a mirror seam (coord ~0 on every
  * negated axis) are welded to the original, and reflected triangles get reversed winding so
  * normals stay outward. Returns malloc'd vert + tri arrays (caller frees). */
-static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt){
+static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt, uint16_t**pcol){
     int rtri=0; for(int fi=0;fi<o->nf;fi++)rtri+=o->f[fi].nv-2;
     int capv=o->nv*8+8, capt=rtri*8+8;
     V3 *vv=malloc((size_t)capv*sizeof(V3)); int nvv=0;
     int (*tt)[3]=malloc((size_t)capt*sizeof(*tt)); int ntt=0;
+    uint16_t *tc=malloc((size_t)capt*sizeof(uint16_t));   /* per-triangle colour */
     for(int i=0;i<o->nv;i++)vv[nvv++]=o->v[i].p;
-    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tt[ntt][0]=f->v[0]; tt[ntt][1]=f->v[k-1]; tt[ntt][2]=f->v[k]; ntt++; } }
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tt[ntt][0]=f->v[0]; tt[ntt][1]=f->v[k-1]; tt[ntt][2]=f->v[k]; tc[ntt]=f->color; ntt++; } }
     if(o->mirror){ int *map=malloc((size_t)o->nv*sizeof(int));
         for(int combo=1;combo<8;combo++){ if(combo & ~o->mirror)continue;   /* only negate axes in the mirror set */
             int sx=(combo&1)?-1:1,sy=(combo&2)?-1:1,sz=(combo&4)?-1:1, parity=__builtin_popcount((unsigned)combo)&1;
@@ -1397,30 +1420,31 @@ static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt){
                 if((combo&1)&&fabsf(p.x)>1e-4f)seam=0; if((combo&2)&&fabsf(p.y)>1e-4f)seam=0; if((combo&4)&&fabsf(p.z)>1e-4f)seam=0;
                 if(seam)map[i]=i; else { map[i]=nvv; vv[nvv++]=(V3){p.x*sx,p.y*sy,p.z*sz}; } }
             for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ int a=map[f->v[0]],b=map[f->v[k-1]],c=map[f->v[k]];
-                if(parity){ tt[ntt][0]=a; tt[ntt][1]=c; tt[ntt][2]=b; } else { tt[ntt][0]=a; tt[ntt][1]=b; tt[ntt][2]=c; } ntt++; } } }
+                if(parity){ tt[ntt][0]=a; tt[ntt][1]=c; tt[ntt][2]=b; } else { tt[ntt][0]=a; tt[ntt][1]=b; tt[ntt][2]=c; } tc[ntt]=f->color; ntt++; } } }
         free(map); }
-    *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; }
+    *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; *pcol=tc; }
 static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
     EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
-    V3 *vv; int nvv; int (*tri)[3]; int nt; emesh_build_geom(o,&vv,&nvv,&tri,&nt);
-    if(nt<1){ free(vv); free(tri); snprintf(g_status,sizeof g_status,"no faces"); return; }
+    V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tcol; emesh_build_geom(o,&vv,&nvv,&tri,&nt,&tcol);
+    if(nt<1){ free(vv); free(tri); free(tcol); snprintf(g_status,sizeof g_status,"no faces"); return; }
     float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ V3 p=vv[i]; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
         if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(p); if(l>bound)bound=l; }
-    float q=127.0f/qmax; uint16_t col=o->f[0].color; float size=g_mesh_size>0?g_mesh_size:qmax;
+    float q=127.0f/qmax; float size=g_mesh_size>0?g_mesh_size:qmax;
     char name[64]; snprintf(name,sizeof name,"%.40s",o->name[0]?o->name:"model");
     for(char*c=name;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')||*c=='_'))*c='_';
     char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w");
     if(!h){ free(tri); free(vv); snprintf(g_status,sizeof g_status,"cannot write src/%s.h",name); return; }
     fprintf(h,"/* GENERATED by Mote Studio (model editor) - %d verts, %d faces, scale=%.3f%s */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",nvv,nt,size,o->mirror?", mirrored":"",name,name);
     int *stamp=malloc((size_t)nvv*sizeof(int)),*local=malloc((size_t)nvv*sizeof(int)); for(int i=0;i<nvv;i++)stamp[i]=-1;
-    int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface);
+    int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface); uint16_t *ccol=malloc((size_t)nt*sizeof(uint16_t));
     char chunklist[16384]=""; int cl=0,chunk=0,ti=0,total_v=0,total_f=0;
     while(ti<nt){ int nv=0,cf=0,start=ti;
         for(; ti<nt; ti++){ int g[3]={tri[ti][0],tri[ti][1],tri[ti][2]}; int need=0; for(int k=0;k<3;k++)if(stamp[g[k]]!=chunk)need++; if(nv+need>255)break;
             int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
-            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++; }
+            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; ccol[cf]=tcol[ti]; cf++; }
         if(ti==start){ ti++; continue; }
+        int varies=0; for(int i=1;i<cf;i++)if(ccol[i]!=ccol[0]){ varies=1; break; }   /* per-face colour needed? */
         fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
         for(int i=0;i<nv;i++){ V3 v=vv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
         fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
@@ -1428,13 +1452,85 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
             V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
             fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
         fprintf(h,"};\n");
-        cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,col,size,bound*(size/qmax));
+        if(varies){ fprintf(h,"static const uint16_t %s_fc%d[%d]={",name,chunk,cf); for(int i=0;i<cf;i++)fprintf(h,"0x%04X,",ccol[i]); fprintf(h,"};\n");
+            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,%s_fc%d,%d,%d,0,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,name,chunk,nv,cf,size,bound*(size/qmax)); }
+        else cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,ccol[0],size,bound*(size/qmax));
         total_v+=nv; total_f+=cf; chunk++; }
     fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n#define %s_TRIS %d\n"
               "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* mote_model_draw(mote,&%s,pos) */\n\n#endif\n",
             name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name);
-    fclose(h); free(tri); free(vv); free(stamp); free(local); free(cv); free(cface);
+    fclose(h); free(tri); free(vv); free(tcol); free(stamp); free(local); free(cv); free(cface); free(ccol);
     snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact%s)",name,total_f,chunk,o->mirror?", mirrored":""); }
+
+/* ---- Phase 5: multi-object → rig (bake a MoteRig; export OBJ+.rig for the RIG tab) ---- */
+static void emesh_sanitize(const char*in,char*out,int n){ int j=0; for(int i=0;in[i]&&j<n-1;i++){ char c=in[i];
+    out[j++]=((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9'))?c:'_'; } out[j]=0; if(!out[0])snprintf(out,n,"part"); }
+/* Emit <pfx>_v/f/fc chunk arrays for one part's geometry; append Mesh initialisers to cl. Returns nchunks. */
+static int emesh_emit_chunks(FILE*h,const char*pfx,V3*vv,int nvv,int(*tri)[3],int nt,uint16_t*tcol,float q,float size,float qmax,float bound,char*cl,size_t clsz,int*pclen,int*ptotf){
+    int *stamp=malloc((size_t)nvv*sizeof(int)),*local=malloc((size_t)nvv*sizeof(int)); for(int i=0;i<nvv;i++)stamp[i]=-1;
+    int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface); uint16_t *ccol=malloc((size_t)nt*sizeof(uint16_t));
+    int chunk=0,ti=0;
+    while(ti<nt){ int nv=0,cf=0,start=ti;
+        for(; ti<nt; ti++){ int g[3]={tri[ti][0],tri[ti][1],tri[ti][2]}; int need=0; for(int k=0;k<3;k++)if(stamp[g[k]]!=chunk)need++; if(nv+need>255)break;
+            int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
+            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; ccol[cf]=tcol[ti]; cf++; }
+        if(ti==start){ ti++; continue; }
+        int varies=0; for(int i=1;i<cf;i++)if(ccol[i]!=ccol[0]){ varies=1; break; }
+        fprintf(h,"static const MeshVert %s_v%d[%d]={",pfx,chunk,nv);
+        for(int i=0;i<nv;i++){ V3 v=vv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
+        fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",pfx,chunk,cf);
+        for(int i=0;i<cf;i++){ V3 a=vv[cv[cface[i][0]]],b=vv[cv[cface[i][1]]],c=vv[cv[cface[i][2]]];
+            V3 nn=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(nn); if(l<1e-9f){ nn=(V3){0,0,1}; l=1; } nn.x/=l;nn.y/=l;nn.z/=l;
+            fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(nn.x*127),(int)lrintf(nn.y*127),(int)lrintf(nn.z*127)); }
+        fprintf(h,"};\n");
+        if(varies){ fprintf(h,"static const uint16_t %s_fc%d[%d]={",pfx,chunk,cf); for(int i=0;i<cf;i++)fprintf(h,"0x%04X,",ccol[i]); fprintf(h,"};\n");
+            *pclen+=snprintf(cl+*pclen,clsz-*pclen,"  {%s_v%d,%s_f%d,%s_fc%d,%d,%d,0,%.6ff,%.6ff,0},\n",pfx,chunk,pfx,chunk,pfx,chunk,nv,cf,size,bound*(size/qmax)); }
+        else *pclen+=snprintf(cl+*pclen,clsz-*pclen,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",pfx,chunk,pfx,chunk,nv,cf,ccol[0],size,bound*(size/qmax));
+        *ptotf+=cf; chunk++; }
+    free(stamp); free(local); free(cv); free(cface); free(ccol); return chunk; }
+/* part i's parent index, with root-first guarantee (clamp forward refs to -1) */
+static int eobj_rig_parent(int i){ int p=g_obj[i].parent; if(i==0)return -1; if(p<0||p>=i)return (i>0)?0:-1; return p; }
+static void eobj_bake_rig(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(g_nobj<1){ snprintf(g_status,sizeof g_status,"no objects to rig"); return; }
+    char rname[48]; snprintf(rname,sizeof rname,"scene"); char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.40s_rig.h",g_games[g_sel].dir,rname);
+    FILE*h=fopen(hp,"w"); if(!h){ snprintf(g_status,sizeof g_status,"cannot write src/%s_rig.h",rname); return; }
+    fprintf(h,"/* GENERATED by Mote Studio (model editor) — %d-part rig. Draw with mote_anim3d.h. */\n#ifndef MOTE_RIG_%s_H\n#define MOTE_RIG_%s_H\n#include \"mote_mesh.h\"\n#include \"mote_anim3d.h\"\n\n",g_nobj,rname,rname);
+    char parts[8192]=""; int pl=0,totf=0;
+    /* common model space: each part's verts are local + origin */
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<3||ob->nf<1)continue;
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        for(int i=0;i<nvv;i++){ vv[i].x+=ob->origin.x; vv[i].y+=ob->origin.y; vv[i].z+=ob->origin.z; }
+        float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ float ax=fabsf(vv[i].x),ay=fabsf(vv[i].y),az=fabsf(vv[i].z); if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(vv[i]); if(l>bound)bound=l; }
+        float q=127.0f/qmax, size=g_mesh_size>0?g_mesh_size:qmax;
+        char pn[28]; emesh_sanitize(ob->name,pn,sizeof pn); char pfx[64]; snprintf(pfx,sizeof pfx,"%s_%s%d",rname,pn,o);   /* unique per part (avoid name clashes) */
+        char cl[8192]=""; int cclen=0,pf=0;
+        int nch=emesh_emit_chunks(h,pfx,vv,nvv,tri,nt,tc,q,size,qmax,bound,cl,sizeof cl,&cclen,&pf);
+        fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n\n",pfx,nch,cl);
+        V3 piv=ob->pivot; if(piv.x==0&&piv.y==0&&piv.z==0){ V3 c={0,0,0}; for(int i=0;i<nvv;i++){ c.x+=vv[i].x; c.y+=vv[i].y; c.z+=vv[i].z; } if(nvv){ c.x/=nvv; c.y/=nvv; c.z/=nvv; } piv=c; }
+        pl+=snprintf(parts+pl,sizeof parts-pl,"  { %s_chunks, %d, %d, {%.4ff,%.4ff,%.4ff} },  /* %s */\n",pfx,nch,eobj_rig_parent(o),piv.x,piv.y,piv.z,pn);
+        totf+=pf; free(vv); free(tri); free(tc); }
+    fprintf(h,"static const MoteRigPart %s_parts[%d]={\n%s};\nstatic const MoteRig %s_rig = { %s_parts, %d, %d };\n\n#endif\n",rname,g_nobj,parts,rname,rname,g_nobj,totf);
+    fclose(h); snprintf(g_status,sizeof g_status,"baked src/%s_rig.h — %d parts, %d tris (&%s_rig)",rname,g_nobj,totf,rname); }
+static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(g_nobj<1){ snprintf(g_status,sizeof g_status,"no objects to export"); return; }
+    char ad[640]; snprintf(ad,sizeof ad,"%.600s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char op[700]; snprintf(op,sizeof op,"%.600s/assets/scene.obj",g_games[g_sel].dir);
+    char rp[700]; snprintf(rp,sizeof rp,"%.600s/assets/scene.rig",g_games[g_sel].dir);
+    FILE*f=fopen(op,"w"); if(!f){ snprintf(g_status,sizeof g_status,"cannot write assets/scene.obj"); return; }
+    FILE*rf=fopen(rp,"w");
+    int base=1;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<3||ob->nf<1)continue;
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        char pn[28]; emesh_sanitize(ob->name,pn,sizeof pn); fprintf(f,"o %s\n",pn);
+        V3 c={0,0,0};
+        for(int i=0;i<nvv;i++){ float x=vv[i].x+ob->origin.x,y=vv[i].y+ob->origin.y,z=vv[i].z+ob->origin.z; fprintf(f,"v %g %g %g\n",x,y,z); c.x+=x; c.y+=y; c.z+=z; }
+        for(int t=0;t<nt;t++)fprintf(f,"f %d %d %d\n",base+tri[t][0],base+tri[t][1],base+tri[t][2]);
+        base+=nvv;
+        if(rf){ if(nvv){ c.x/=nvv; c.y/=nvv; c.z/=nvv; } char par[28]; if(o==0)snprintf(par,sizeof par,"-1"); else emesh_sanitize(g_obj[0].name,par,sizeof par);
+            V3 piv=ob->pivot; if(piv.x==0&&piv.y==0&&piv.z==0)piv=c; fprintf(rf,"part %s parent %s pivot %g %g %g\n",pn,par,piv.x,piv.y,piv.z); }
+        free(vv); free(tri); free(tc); }
+    fclose(f); if(rf)fclose(rf);
+    snprintf(g_status,sizeof g_status,"exported assets/scene.obj + .rig — open it in the RIG tab to animate"); }
 
 /* ---- Phase 2: selection (pick / box / all, mode conversion, hover) ---- */
 static int g_hover_obj=-1, g_hover_idx=-1;      /* element under the cursor (kind == g_sel_mode), for highlight */
@@ -1665,6 +1761,50 @@ static void op_inset(void){
     op_setup(OP_INSET,0,0);
     snprintf(g_status,sizeof g_status,"inset — drag to set amount (Enter/LMB to confirm)"); }
 
+/* ---- Phase 6: edit ops (duplicate / delete / merge / flip / paint) ---- */
+static long mesh_hsv_rgb(void);   /* fwd: current colour picker -> 0xRRGGBB */
+static uint16_t emesh_curcol(void){ long rgb=mesh_hsv_rgb(); return (uint16_t)((((rgb>>16&0xFF)&0xF8)<<8)|(((rgb>>8&0xFF)&0xFC)<<3)|((rgb&0xFF)>>3)); }
+/* drop verts no face references, reindexing faces (caller rebuilds edges) */
+static void eobj_compact(EObject*o){ if(o->nv<1)return; uint8_t*used=calloc(o->nv,1);
+    for(int fi=0;fi<o->nf;fi++)for(int k=0;k<o->f[fi].nv;k++)used[o->f[fi].v[k]]=1;
+    int*remap=malloc((size_t)o->nv*sizeof(int)),nn=0;
+    for(int i=0;i<o->nv;i++){ if(used[i]){ remap[i]=nn; if(nn!=i)o->v[nn]=o->v[i]; nn++; } else remap[i]=-1; }
+    o->nv=nn; for(int fi=0;fi<o->nf;fi++)for(int k=0;k<o->f[fi].nv;k++)o->f[fi].v[k]=remap[o->f[fi].v[k]];
+    free(used); free(remap); }
+static void eobj_remove_object(int oi){ free(g_obj[oi].v); free(g_obj[oi].f); free(g_obj[oi].e);
+    for(int i=oi+1;i<g_nobj;i++)g_obj[i-1]=g_obj[i]; g_nobj--; if(g_objsel>=g_nobj)g_objsel=g_nobj>0?g_nobj-1:0; }
+static void eobj_dup_object(void){ if(!g_nobj)return; if(g_nobj>=EMESH_MAXOBJ){ snprintf(g_status,sizeof g_status,"too many objects (max %d)",EMESH_MAXOBJ); return; }
+    eundo_push(); EObject*s=&g_obj[g_objsel]; eobj_copy(&g_obj[g_nobj],s); g_obj[g_nobj].origin.x+=0.2f;
+    char nm[28]; snprintf(nm,sizeof nm,"%.21s.copy",s->name); snprintf(g_obj[g_nobj].name,sizeof g_obj[g_nobj].name,"%s",nm);
+    g_objsel=g_nobj; g_nobj++; snprintf(g_status,sizeof g_status,"duplicated object"); }
+static void eobj_delete_sel(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
+    if(g_sel_mode==2){ int nf=0; for(int fi=0;fi<o->nf;fi++)if(!o->f[fi].sel)o->f[nf++]=o->f[fi]; o->nf=nf; }
+    else { uint8_t*del=calloc(o->nv,1);
+        if(g_sel_mode==0)for(int i=0;i<o->nv;i++)del[i]=o->v[i].sel; else for(int i=0;i<o->ne;i++)if(o->e[i].sel){ del[o->e[i].a]=1; del[o->e[i].b]=1; }
+        int nf=0; for(int fi=0;fi<o->nf;fi++){ int keep=1; for(int k=0;k<o->f[fi].nv;k++)if(del[o->f[fi].v[k]]){ keep=0; break; } if(keep)o->f[nf++]=o->f[fi]; } o->nf=nf; free(del); }
+    eobj_compact(o); edges_rebuild(o);
+    if(o->nv==0||o->nf==0){ eobj_remove_object(g_objsel); snprintf(g_status,sizeof g_status,"deleted object"); }
+    else snprintf(g_status,sizeof g_status,"deleted selection"); }
+static void eobj_merge_sel(void){ if(!g_nobj){ return; } if(g_sel_mode!=0){ snprintf(g_status,sizeof g_status,"merge: switch to Vert mode (1)"); return; }
+    EObject*o=&g_obj[g_objsel]; int cnt=0,keep=-1; V3 c={0,0,0};
+    for(int i=0;i<o->nv;i++)if(o->v[i].sel){ c.x+=o->v[i].p.x; c.y+=o->v[i].p.y; c.z+=o->v[i].p.z; if(keep<0)keep=i; cnt++; }
+    if(cnt<2){ snprintf(g_status,sizeof g_status,"merge needs 2+ selected verts"); return; }
+    eundo_push(); c.x/=cnt; c.y/=cnt; c.z/=cnt; o->v[keep].p=c;
+    int*remap=malloc((size_t)o->nv*sizeof(int)); for(int i=0;i<o->nv;i++)remap[i]=(o->v[i].sel&&i!=keep)?keep:i;
+    for(int fi=0;fi<o->nf;fi++)for(int k=0;k<o->f[fi].nv;k++)o->f[fi].v[k]=remap[o->f[fi].v[k]];
+    int nf=0; for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; int uniq[4],un=0;
+        for(int k=0;k<f->nv;k++){ int v=f->v[k],dup=0; for(int m=0;m<un;m++)if(uniq[m]==v){ dup=1; break; } if(!dup)uniq[un++]=v; }
+        if(un>=3){ f->nv=un; for(int k=0;k<un;k++)f->v[k]=uniq[k]; o->f[nf++]=*f; } } o->nf=nf;
+    free(remap); eobj_compact(o); edges_rebuild(o); snprintf(g_status,sizeof g_status,"merged %d verts",cnt); }
+static void eobj_flip_normals(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
+    int any=0,n=0; for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ any=1; break; }
+    for(int fi=0;fi<o->nf;fi++){ if(any&&!o->f[fi].sel)continue; EFace*f=&o->f[fi]; for(int a=1,b=f->nv-1;a<b;a++,b--){ int t=f->v[a]; f->v[a]=f->v[b]; f->v[b]=t; } n++; }
+    snprintf(g_status,sizeof g_status,"flipped %d face%s",n,n==1?"":"s"); }
+static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ snprintf(g_status,sizeof g_status,"paint: switch to Face mode (3)"); return; }
+    EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
+    for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
+    if(!n)snprintf(g_status,sizeof g_status,"select faces to paint"); else snprintf(g_status,sizeof g_status,"painted %d face%s",n,n==1?"":"s"); }
+
 static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
 static void op_cancel(void){ g_op.op=OP_NONE; eundo_pop(); }            /* revert via the snapshot we pushed at start */
 static void op_set_axis(int a){ g_op.axis=(g_op.axis==a)?0:a; op_apply_cur(); }
@@ -1679,6 +1819,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
+static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1779,30 +1920,34 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     if(g_op.op!=OP_NONE)text(R,"X/Y/Z axis  type number  Enter/LMB confirm  Esc/RMB cancel",ox+12,oy+h-20,1,(Col){200,200,150},(Col){16,18,26});
     else text(R,"G move  S scale  E extrude  I inset  click select  B box  Ctrl+Z undo  -  MMB/empty-drag orbit, Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
-    /* ---- edit card ---- */
-    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px;
-    text(R,"Select mode (1/2/3)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-    px=ui_pill(R,lx,cy,NULL,"Vert",g_sel_mode==0,&g_me_evert,mx,my);
+    /* ---- edit card (compact) ---- */
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
+    px=ui_pill(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my);
     px=ui_pill(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my);
-    ui_pill(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my); cy+=UI_H+10;
-    text(R,"Add primitive",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-    px=ui_btn(R,lx,cy,0,"Cube",IC_BOX,(Col){170,200,140},&g_me_ecube,mx,my);
-    ui_btn(R,px,cy,0,"Plane",IC_SQUARE,(Col){170,200,140},&g_me_eplane,mx,my); cy+=UI_H+12;
-    text(R,"Edit (Face mode)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-    px=ui_btn(R,lx,cy,0,"Extrude",IC_MOVE,(Col){210,180,120},&g_me_eextr,mx,my);
-    ui_btn(R,px,cy,0,"Inset",IC_SQDASH,(Col){210,180,120},&g_me_einset,mx,my); cy+=UI_H+12;
+    ui_pill(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my); cy+=UI_H+5;
+    px=ui_btn(R,lx,cy,0,"Cube",-1,pc,&g_me_ecube,mx,my); px=ui_btn(R,px,cy,0,"Plane",-1,pc,&g_me_eplane,mx,my);
+    ui_btn(R,px,cy,0,"Cyl",-1,pc,&g_me_ecyl,mx,my); cy+=UI_H+4;
+    px=ui_btn(R,lx,cy,0,"Cone",-1,pc,&g_me_econe,mx,my); ui_btn(R,px,cy,0,"Sphere",-1,pc,&g_me_esph,mx,my); cy+=UI_H+6;
+    px=ui_btn(R,lx,cy,0,"Extrude",-1,ec,&g_me_eextr,mx,my); px=ui_btn(R,px,cy,0,"Inset",-1,ec,&g_me_einset,mx,my);
+    ui_btn(R,px,cy,0,"Paint",-1,ec,&g_me_epaint,mx,my); cy+=UI_H+5;
+    px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
+    px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+6;
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0;
-      text(R,"Mirror (live, welds at bake)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
-      px=ui_pill(R,lx,cy,NULL,"X",mir&1,&g_me_mirx,mx,my);
-      px=ui_pill(R,px,cy,NULL,"Y",mir&2,&g_me_miry,mx,my);
-      ui_pill(R,px,cy,NULL,"Z",mir&4,&g_me_mirz,mx,my); cy+=UI_H+12; }
-    char ob[48]; snprintf(ob,sizeof ob,"Objects: %d",g_nobj); text(R,ob,lx,cy,1,C_TXT,C_PANEL); cy+=15;
-    if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.16s:  %dv  %df  %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=16; }
-    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=10;
+      px=ui_pill(R,lx,cy,"Mirror","X",mir&1,&g_me_mirx,mx,my); px=ui_pill(R,px,cy,NULL,"Y",mir&2,&g_me_miry,mx,my);
+      ui_pill(R,px,cy,NULL,"Z",mir&4,&g_me_mirz,mx,my); cy+=UI_H+6; }
+    /* object cycle + per-object stats */
+    { char ob[40]; snprintf(ob,sizeof ob,"Obj %d/%d",g_nobj?g_objsel+1:0,g_nobj); text(R,ob,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
+      int bx=lx+textw(R,ob,1)+6; bx=ui_btn(R,bx,cy,0,"<",-1,C_TXT,&g_me_objprev,mx,my); bx=ui_btn(R,bx,cy,0,">",-1,C_TXT,&g_me_objnext,mx,my);
+      ui_btn(R,bx,cy,0,"Del obj",-1,(Col){220,140,120},&g_me_objdel,mx,my); cy+=UI_H+4; }
+    if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.14s  %dv %df %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14; }
+    else { text(R,"empty — add a primitive or import",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
+    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
     px=ui_btn(R,lx,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my);
-    ui_btn(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my); cy+=UI_H+8;
-    ui_btn(R,lx,cy,MESH_CARDW-24,"Bake .h (exact)",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my); cy+=UI_H+10;
-    ui_btn(R,lx,cy,MESH_CARDW-24,"Exit edit mode",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my); }
+    ui_btn(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my); cy+=UI_H+5;
+    px=ui_btn(R,lx,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my);
+    ui_btn(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my); cy+=UI_H+5;
+    px=ui_btn(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my);
+    ui_btn(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my); }
 
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
@@ -1812,8 +1957,21 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eface)){ set_sel_mode(2); return 1; }
     if(HITR(g_me_ecube)){ prim_cube(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
+    if(HITR(g_me_ecyl)){ prim_cylinder(0.5f,1.0f,16); eobj_fit(); return 1; }
+    if(HITR(g_me_econe)){ prim_cone(0.5f,1.0f,16); eobj_fit(); return 1; }
+    if(HITR(g_me_esph)){ prim_uvsphere(0.5f,8,12); eobj_fit(); return 1; }
     if(HITR(g_me_eextr)){ if(g_sel_mode!=2)set_sel_mode(2); op_extrude(); return 1; }
     if(HITR(g_me_einset)){ if(g_sel_mode!=2)set_sel_mode(2); op_inset(); return 1; }
+    if(HITR(g_me_epaint)){ if(g_sel_mode!=2)set_sel_mode(2); eobj_paint_faces(); return 1; }
+    if(HITR(g_me_edup)){ eobj_dup_object(); eobj_fit(); return 1; }
+    if(HITR(g_me_edel)){ eobj_delete_sel(); return 1; }
+    if(HITR(g_me_emerge)){ eobj_merge_sel(); return 1; }
+    if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
+    if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
+    if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
+    if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
+    if(HITR(g_me_bakerig)){ eobj_bake_rig(); return 1; }
+    if(HITR(g_me_exportobj)){ eobj_export_obj(); return 1; }
     if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; return 1; }
     if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; return 1; }
     if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; return 1; }
@@ -1851,6 +2009,11 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_e){ op_extrude(); return 1; }
     if(k==SDLK_i){ op_inset(); return 1; }
+    if(k==SDLK_d&&(md&KMOD_SHIFT)){ eobj_dup_object(); eobj_fit(); return 1; }   /* Shift+D duplicate object */
+    if(k==SDLK_x){ eobj_delete_sel(); return 1; }                                /* X delete selection/object */
+    if(k==SDLK_m){ eobj_merge_sel(); return 1; }                                 /* M merge selected verts */
+    if(k==SDLK_n&&(md&KMOD_SHIFT)){ eobj_flip_normals(); return 1; }             /* Shift+N flip normals */
+    if(k==SDLK_p&&!(md&KMOD_SHIFT)){ eobj_paint_faces(); return 1; }             /* P paint faces with picker colour */
     if(k==SDLK_1){ set_sel_mode(0); return 1; }
     if(k==SDLK_2){ set_sel_mode(1); return 1; }
     if(k==SDLK_3){ set_sel_mode(2); return 1; }
@@ -4347,6 +4510,12 @@ int main(int argc,char**argv){
             if(!strcmp(w,"inset")){ op_inset(); snprintf(g_op.num,sizeof g_op.num,"0.3"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
             else { op_extrude(); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
+        if(getenv("MOTE_STUDIO_MESHPRIMS")){ eobj_free_all(); prim_cylinder(0.4f,1.0f,16); g_obj[g_objsel].origin.x=-1.4f;
+            prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit(); }   /* cyl/cone/sphere row */
+        if(getenv("MOTE_STUDIO_MESHPAINT")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[0].sel=g_obj[0].f[2].sel=g_obj[0].f[4].sel=1;
+            g_hue=0; g_sat=g_val=1; g_mesh_rgb=mesh_hsv_rgb(); eobj_paint_faces(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }   /* paint 3 faces red, bake face_colors */
+        if(getenv("MOTE_STUDIO_MESHRIG")){ eobj_free_all(); prim_cube(0.6f); prim_cylinder(0.25f,1.2f,12); g_obj[g_objsel].origin.y=0.9f; g_obj[g_objsel].parent=0; eobj_fit();
+            eobj_bake_rig(); eobj_export_obj(); }   /* 2-part rig: body + arm; bake .h + export obj */
         if(getenv("MOTE_STUDIO_MESHMIRROR")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[2].sel=1;   /* push the +X face out, then mirror X */
             op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.5"); g_op.hasnum=1; op_apply(0,0); op_confirm();
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRROR")); g_obj[0].f[2].sel=0; }

@@ -43,8 +43,24 @@
 >   load a model, edit it with all the tools, and bake. Verified on
 >   modelview/fighter.stl (budget 250 → 81v 204f, edits + bake compile).
 >
-> Phases 5–6 below remain (multi-object/rig-join, polish — more primitives,
-> duplicate/delete/merge, per-face colour paint).
+> - **Phase 6 (polish):** cylinder / cone / UV-sphere primitives; duplicate object
+>   (Shift+D), delete selection/object (X), merge selected verts (M), flip normals
+>   (Shift+N); per-face colour **paint** (P) — the bake emits a `face_colors[]`
+>   array per chunk when colours vary, else the single `color`. Compact card with
+>   all tools as buttons + keyboard shortcuts.
+> - **Phase 5 (multi-object + rig):** object cycling / delete, and two outputs from
+>   the multi-object scene — **Bake rig** emits a `MoteRig` header (one part per
+>   object, parent + pivot, root-first clamped, name-prefixed chunk arrays) drawable
+>   with `mote_anim3d.h`; **Export OBJ** writes `assets/scene.obj` + `.rig` so the
+>   scene opens in the existing **RIG tab** to set pivots/parents and animate.
+>   *Deliberately did NOT rewrite the RIG tab onto `EObject` (the plan's risky
+>   "unify" step) — the OBJ+.rig export bridges them, keeping the animation editor
+>   intact.* Verified: rig header + face_colors bake both compile; OBJ+.rig export
+>   round-trips parent/pivot.
+>
+> **All six phases complete** (plus the live Mirror modifier and STL/OBJ-edit
+> bridge). The model editor is a full modelling loop: primitive/import → select →
+> G/S/E/I → mirror → paint → bake `.h` / rig / OBJ.
 
 ## Goal
 Add vertex/edge/face select modes and modal operators — **G**rab, **S**cale,
