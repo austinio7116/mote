@@ -12,6 +12,7 @@
 #include "mote_catalog.h"
 #include "thumbyone_handoff.h"
 #include "thumbyone_fs.h"
+#include "thumbyone_disk.h"   /* thumbyone_disk_read — for the FAT-chain contiguity walk */
 #include "ff.h"
 #include "slot_layout.h"     /* slot enums (THUMBYONE_COMMON_INCLUDE) + THUMBYONE_FAT_OFFSET */
 #include "mote_module.h"     /* MoteModuleHeader — read each .mote's embedded icon */
@@ -36,17 +37,42 @@ static const void     *g_ic_blob[MOTE_CATALOG_MAX];
 static const uint16_t *g_ic_raw [MOTE_CATALOG_MAX];
 static uint8_t         g_ic_frag[MOTE_CATALOG_MAX];   /* 1 = fragmented (can't run/icon in place) */
 
+/* Read one FAT12/16 entry straight off the disk (1-sector cache). f_lseek/fp->clust
+ * lags at cluster boundaries — every multi-cluster file looked fragmented — so walk
+ * the FAT directly instead, mirroring the lobby defragmenter's fat_get (ground truth). */
+static uint8_t s_fatsec[512];
+static int32_t s_fatlba = -1;
+static DWORD mote_fat_get(DWORD clst) {
+    int is12 = (g_fs.fs_type == FS_FAT12);
+    DWORD bo = is12 ? (clst + (clst >> 1)) : (clst * 2u);    /* entry byte offset in the FAT */
+    DWORD bv[2];
+    for (int k = 0; k < 2; k++) {                            /* two bytes; FAT12 may straddle a sector */
+        DWORD bb = bo + (DWORD)k;
+        int32_t l = (int32_t)g_fs.fatbase + (int32_t)(bb / 512u);
+        if (l != s_fatlba) { if (thumbyone_disk_read(s_fatsec, (uint32_t)l, 1) != 0) return 0xFFFFFFFFu; s_fatlba = l; }
+        bv[k] = s_fatsec[bb % 512u];
+    }
+    DWORD v = bv[0] | (bv[1] << 8);
+    if (is12) v = (clst & 1) ? (v >> 4) : (v & 0x0FFFu);     /* odd: high 12 bits; even: low 12 */
+    return v;
+}
 /* A .mote is executed + its icon read IN PLACE from the XIP-mapped FAT, so it must be
- * physically contiguous. Walk the open file's clusters: contiguous iff the i-th cluster
- * is sclust+i. Returns 1 if contiguous, 0 if fragmented. */
+ * physically contiguous: every link in its cluster chain is prev+1. Returns 1 if so. */
 static int mote_file_contiguous(FIL *fp) {
-    FATFS *fs = fp->obj.fs; DWORD sclust = fp->obj.sclust; FSIZE_t sz = f_size(fp);
-    if (!fs || sclust < 2) return 0;
-    DWORD cb = (DWORD)fs->csize * 512u; if (cb == 0) return 1;
+    DWORD sclust = fp->obj.sclust; FSIZE_t sz = f_size(fp);
+    if (sclust < 2) return 0;
+    DWORD cb = (DWORD)g_fs.csize * 512u; if (cb == 0) return 1;
     DWORD nclust = (DWORD)((sz + cb - 1) / cb);
+    if (nclust <= 1) return 1;
+    s_fatlba = -1;                                           /* fresh cache (FAT may have changed) */
+    DWORD eoc = (g_fs.fs_type == FS_FAT12) ? 0x0FF8u : 0xFFF8u;
+    DWORD prev = sclust;
     for (DWORD i = 1; i < nclust; i++) {
-        if (f_lseek(fp, (FSIZE_t)i * cb) != FR_OK) return 0;
-        if (fp->clust != sclust + i) return 0;       /* a jump in the cluster chain = fragmented */
+        DWORD next = mote_fat_get(prev);
+        if (next == 0xFFFFFFFFu) return 1;                   /* read error: don't false-flag */
+        if (next >= eoc) return (i == nclust - 1);           /* chain ends exactly where expected */
+        if (next != prev + 1) return 0;                      /* a jump = fragmented */
+        prev = next;
     }
     return 1;
 }
