@@ -216,6 +216,56 @@ static void rumble_tick(void) {        /* called once per frame from audio_pump 
  * launched .mote) via mote_plat_set_save_game before the game runs. ---- */
 #include "ff.h"
 #define SAVE_SLOTS 8
+
+/* --- FAT access guard (runner only) ---------------------------------------
+ * The runner runs the active game IN PLACE by pointing QMI ATRANS slot 2
+ * (virtual 8-12 MB) at the game's flash and leaving it there while the game
+ * runs (os/device/mote_loader.c). The shared FAT physically spans that window,
+ * so a FatFs access while a game is running would read the GAME'S bytes as if
+ * they were the FAT — and a save would then write over whatever file actually
+ * owns those clusters (this is what clobbered installed SCUMM data). So bracket
+ * every FAT op: park core 1 (it executes/reads from the game's XIP window),
+ * point the FAT windows (ATRANS[1..3]) back at identity + flush the XIP cache so
+ * the diskio sees the real FAT, do the op, then restore the game's mapping. The
+ * cost is dominated by the flash erase/program already in a save, plus a core-1
+ * lockout handshake. ATRANS[0] (the slot's own partition, used by the diskio for
+ * slot-relative FAT reads) is deliberately left untouched.
+ *
+ * Only the runner remaps ATRANS for a game; the lobby never does, so there the
+ * guard is a no-op (and the lobby image doesn't even link mote_xip). */
+#if defined(MOTE_RUNNER)
+#include "pico/bootrom.h"               /* rom_flash_flush_cache */
+#include "hardware/structs/qmi.h"
+void mote_xip_save_atrans(uint32_t saved[4]);
+void mote_xip_restore_atrans(const uint32_t saved[4]);
+/* Saves run from the game's update() — at which point core 1 has finished the
+ * previous frame and is idle, spinning in core1_entry (OS-partition / ATRANS[0]
+ * code, which we never touch) waiting for the next render kick. So core 1 is not
+ * reading the game window (ATRANS[2]) during a save, and during the diskio's flash
+ * op it simply stalls on its instruction fetch until XIP returns — harmless. So we
+ * do NOT need multicore_lockout (which was freezing on resume); we just flip the
+ * FAT windows to identity + flush the XIP cache and restore afterwards — exactly
+ * the proven mote_loader.c ATRANS sequence. ATRANS[0] (slot-relative FAT reads) is
+ * left untouched. */
+static void fat_enter(uint32_t sa[4]) {
+    mote_xip_save_atrans(sa);
+    qmi_hw->atrans[1] = (0x400u << 16) | 0x400u;   /* identity: phys 4-8 MB   */
+    qmi_hw->atrans[2] = (0x400u << 16) | 0x800u;   /* identity: phys 8-12 MB  (the hijacked one) */
+    qmi_hw->atrans[3] = (0x400u << 16) | 0xC00u;   /* identity: phys 12-16 MB */
+    __asm__ volatile("dsb" ::: "memory");
+    rom_flash_flush_cache();                       /* drop stale game lines so FAT reads hit real flash */
+    __asm__ volatile("dsb" ::: "memory");
+}
+static void fat_exit(const uint32_t sa[4]) {
+    mote_xip_restore_atrans(sa);                   /* put the game's mapping back (ends with dsb) */
+    rom_flash_flush_cache();                       /* drop FAT lines so the game reads its own flash */
+    __asm__ volatile("dsb" ::: "memory");
+}
+#else
+static inline void fat_enter(uint32_t sa[4]) { (void)sa; }
+static inline void fat_exit(const uint32_t sa[4]) { (void)sa; }
+#endif
+
 static char s_save_game[40] = "game";
 static char s_dirs_ready[40] = "";   /* game whose save-dir tree was already mkdir'd */
 void mote_plat_set_save_game(const char *stem) {
@@ -243,22 +293,34 @@ static void save_path(int slot, char *p, int n) {
 int mote_plat_save(int slot, const void *data, int len) {
     if (slot < 0 || slot >= SAVE_SLOTS) return 0;
     char p[80]; save_path(slot, p, sizeof p);
-    if (len <= 0) { f_unlink(p); return 0; }                 /* clear the slot */
-    save_ensure_dirs();
-    FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
-    UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
-    return (int)bw;
+    uint32_t sa[4]; fat_enter(sa);
+    int ret = 0;
+    if (len <= 0) { f_unlink(p); }                           /* clear the slot */
+    else {
+        save_ensure_dirs();
+        FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+            UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f); ret = (int)bw;
+        }
+    }
+    fat_exit(sa);
+    return ret;
 }
 int mote_plat_load(int slot, void *data, int max_len) {
     if (slot < 0 || slot >= SAVE_SLOTS) return 0;
     char p[80]; save_path(slot, p, sizeof p);
-    FIL f; if (f_open(&f, p, FA_READ) != FR_OK) return 0;
-    int sz = (int)f_size(&f);
-    if (data && max_len > 0) {
-        UINT br = 0; int c = sz < max_len ? sz : max_len;
-        f_read(&f, data, (UINT)c, &br); f_close(&f); return (int)br;
+    uint32_t sa[4]; fat_enter(sa);
+    int ret = 0;
+    FIL f;
+    if (f_open(&f, p, FA_READ) == FR_OK) {
+        int sz = (int)f_size(&f);
+        if (data && max_len > 0) {
+            UINT br = 0; int c = sz < max_len ? sz : max_len;
+            f_read(&f, data, (UINT)c, &br); ret = (int)br;
+        } else ret = sz;                                     /* size query */
+        f_close(&f);
     }
-    f_close(&f); return sz;                                  /* size query */
+    fat_exit(sa);
+    return ret;
 }
 
 /* --- v38 key-value blobs: files under /mote/saves/<game>/kv/<key> --- */
@@ -267,29 +329,49 @@ static void kv_dir(char *p, int n)  { snprintf(p, n, "/mote/saves/%s/kv", kv_gam
 static void kv_path(const char *key, char *p, int n) { snprintf(p, n, "/mote/saves/%s/kv/%s", kv_game(), key); }
 int mote_plat_kv_save(const char *key, const void *data, int len) {
     char p[96]; kv_path(key, p, sizeof p);
-    if (len <= 0) { f_unlink(p); return 0; }                 /* delete */
-    save_ensure_dirs();
-    FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
-    UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
-    return (int)bw;
+    uint32_t sa[4]; fat_enter(sa);
+    int ret = 0;
+    if (len <= 0) { f_unlink(p); }                           /* delete */
+    else {
+        save_ensure_dirs();
+        FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+            UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f); ret = (int)bw;
+        }
+    }
+    fat_exit(sa);
+    return ret;
 }
 int mote_plat_kv_load(const char *key, void *data, int max) {
     char p[96]; kv_path(key, p, sizeof p);
-    FIL f; if (f_open(&f, p, FA_READ) != FR_OK) return 0;
-    int sz = (int)f_size(&f);
-    if (data && max > 0) { UINT br = 0; int c = sz < max ? sz : max; f_read(&f, data, (UINT)c, &br); }
-    f_close(&f); return sz;                                  /* full blob size */
+    uint32_t sa[4]; fat_enter(sa);
+    int ret = 0;
+    FIL f;
+    if (f_open(&f, p, FA_READ) == FR_OK) {
+        int sz = (int)f_size(&f);
+        if (data && max > 0) { UINT br = 0; int c = sz < max ? sz : max; f_read(&f, data, (UINT)c, &br); }
+        f_close(&f); ret = sz;                               /* full blob size */
+    }
+    fat_exit(sa);
+    return ret;
 }
+/* The cb is the GAME'S code, which executes from the game's XIP window — so it
+ * must run with the game's ATRANS in place, NOT while we've forced identity.
+ * Hence guard each FatFs call individually and invoke cb between them (game
+ * mapping restored). Names come from the SRAM FILINFO, so they're safe to pass. */
 void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), void *arg) {
     char kd[80]; kv_dir(kd, sizeof kd);
     DIR dir; FILINFO fi;
-    if (f_opendir(&dir, kd) != FR_OK) return;
+    uint32_t sa[4];
+    fat_enter(sa); int ok = (f_opendir(&dir, kd) == FR_OK); fat_exit(sa);
+    if (!ok) return;
     size_t pl = prefix ? strlen(prefix) : 0;
-    while (f_readdir(&dir, &fi) == FR_OK && fi.fname[0]) {
+    for (;;) {
+        fat_enter(sa); int more = (f_readdir(&dir, &fi) == FR_OK && fi.fname[0]); fat_exit(sa);
+        if (!more) break;
         if (fi.fattrib & AM_DIR) continue;
         if (pl == 0 || strncmp(fi.fname, prefix, pl) == 0) cb(fi.fname, arg);
     }
-    f_closedir(&dir);
+    fat_enter(sa); f_closedir(&dir); fat_exit(sa);
 }
 #else
 /* ---- ABI v23: per-slot save in the top flash sectors (survive power-off AND OS

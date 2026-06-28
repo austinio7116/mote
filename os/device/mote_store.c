@@ -1,6 +1,15 @@
 /*
  * Mote OS device — runtime game store (flash).
+ *
+ * STANDALONE ONLY. This store writes pushed games as raw flash blocks from a
+ * hardcoded base (STORE_OFF, 0x80000) growing up to 16 MB — valid only when Mote
+ * owns all of flash. In a ThumbyOne build that base sits inside other slots'
+ * partitions and the shared FAT, so this MUST NOT build into a slot (the slot
+ * lobby pushes into the FAT via FatFs instead). Hard-fail if it ever does:
  */
+#if defined(THUMBYONE_SLOT_MODE)
+#error "mote_store.c uses a hardcoded flash base (0x80000) and must never build into a ThumbyOne slot — the lobby's FAT-backed /mote store is used there."
+#endif
 #include "mote_store.h"
 #include "mote_xip.h"
 

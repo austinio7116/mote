@@ -108,7 +108,9 @@ set(MOTE_DEFS MOTE_DEVICE=1 PICO_HEAP_SIZE=${MOTE_HEAP}
 if (THUMBYONE_SLOT_MODE)
     list(APPEND MOTE_DEFS THUMBYONE_SLOT_MODE=1)
     if (MOTE_SLOT_ROLE STREQUAL "runner")
-        list(APPEND MOTE_DEFS MOTE_USB_LOGONLY=1 MOTE_USB_GATED=1)
+        # MOTE_RUNNER: this image runs a game in place via ATRANS slot 2, so its
+        # FAT saves must restore the FAT windows to identity (see mote_plat_device.c).
+        list(APPEND MOTE_DEFS MOTE_USB_LOGONLY=1 MOTE_USB_GATED=1 MOTE_RUNNER=1)
     elseif (MOTE_SLOT_ROLE STREQUAL "lobby")
         list(APPEND MOTE_DEFS MOTE_USB_FAT=1)
     endif()
