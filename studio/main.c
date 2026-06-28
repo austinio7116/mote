@@ -3570,7 +3570,7 @@ int main(int argc,char**argv){
         if(g_builddone){ int v=g_builddone; g_builddone=0; g_loading=0;   /* async build finished -> swap engine on the main thread */
             if(v>0){ int i=v-1; finish_load(i); snprintf(g_status,sizeof g_status,"running %s",g_games[i].name); }
             else { snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[(-v)-1].name); } }
-        if(++watch>=30&&g_sel>=0&&!g_loading){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_async(g_sel); }
+        if(++watch>=30&&g_sel>=0&&!g_loading){ watch=0; time_t m=src_mtime(g_games[g_sel].dir); if(m>g_watch){ g_watch=m; snprintf(g_status,sizeof g_status,"source changed, reloading..."); load_async(g_sel); }   /* advance the watermark on the EDIT, not just on a successful build — else a file that fails to compile rebuilds in a loop forever */
             time_t tm=tree_mtime(g_games[g_sel].dir); if(tm!=g_treewatch){ g_treewatch=tm; build_tree(g_games[g_sel].dir); } }
 
         { int cmx,cmy; SDL_GetMouseState(&cmx,&cmy); SDL_Cursor*want=g_cur_arrow;   /* resize cursor over separators */
