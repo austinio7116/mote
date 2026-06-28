@@ -14,6 +14,7 @@
 #include "mote_loader.h"
 #include "mote_module.h"
 #include "mote_font.h"
+#include "mote_xip.h"        /* mote_xip_fast_setup — re-establish fast QPI XIP after the lobby's flash writes */
 #include "thumbyone_handoff.h"
 #include "thumbyone_fs.h"
 #include "ff.h"
@@ -69,6 +70,15 @@ static uint32_t resolve_offset(const char *name) {
 }
 
 int main(void) {
+    /* Re-establish fast QPI XIP before we read or map anything from flash. The lobby
+     * just finished a USB session (MSC drag-drop or CDC PUT) that programmed flash and
+     * can leave the chip out of continuous-read mode — which makes the runner's in-place,
+     * ATRANS-mapped module reads return garbage (the largest module, ThumbyCraft, trips
+     * it hardest). The standalone Mote OS does this after every store write (mote_store.c);
+     * the slot path never did, so a game dropped over the drive crashed on launch while an
+     * IDE/CDC push happened to leave the chip clean. Runs from RAM (W25Q 66h/99h reset
+     * first), so it's safe to call while executing from XIP. */
+    mote_xip_fast_setup();
     mote_plat_init("Mote");                          /* LCD + buttons + audio (no USB) */
     thumbyone_slot_init_brightness_and_led(true);
     (void)thumbyone_fs_mount_or_format(&g_fs, g_fs_work, sizeof g_fs_work);
