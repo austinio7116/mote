@@ -46,6 +46,10 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 
 ## 1. What Mote is
 
+*Games built with Mote — voxel survival, 3D snooker, an Elite-style space sim, kart racing, a raycaster FPS, top-down action, 3D Tetris and golf — all native, all running on the one resident engine:*
+
+![A gallery of Mote games: ThumbyCraft, ThumbyCue, Indemnity Run, MotoKart, Wolfmote, Nightmote, Tetris 3D, Golf](docs/img/games-gallery.png)
+
 A Mote game is **not** an app that owns `main()` and a loop. It is a *module* —
 a small chunk of compiled code (a `.so` on your PC, a `.mote` file on the device)
 that the OS loads, hands a table of engine function pointers, and then drives. You
@@ -171,11 +175,17 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
 
 ![Mote Studio — project tree, the live emulator running the model viewer in a photo-accurate Thumby Color shell, and the Mesh tab previewing the baked STL with its parameters](docs/img/studio-mesh.png)
 
+**The project picker (Project ▸ Open)** lists your library in two sections —
+**Games** and **Examples** — each project shown with its icon, triangle/sprite budget,
+a live arena-memory meter and its flash size:
+
+![Mote Studio project picker — the Games / Examples split, each project with its icon, memory budget meter and flash size](docs/img/studio-games.png)
+
 **The development loop — open Studio, pick a game, edit, watch it hot-reload:**
 
 ```
- 1. Launch Studio.                A project picker (Project ▸ Open) lists
-                                   examples/ and any folder with a game.toml.
+ 1. Launch Studio.                The project picker lists Games and Examples
+                                   (each folder with a game.c that declares a game).
  2. Click a game.                 Studio builds it and runs the REAL engine
                                    inside the on-screen Thumby Color shell.
  3. Play it.                       The shell buttons are clickable; keyboard +
@@ -372,6 +382,8 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
 | `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`) | recorded/sampled audio; play with `audio_play` |
 | `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
+| `*.ttf` (+ `.size`) | **ttf2font** (Studio **Font** tab) | `<name>` (a `MoteFont`) | anti-aliased proportional font; draw with `mote->text_font` (§5.7) |
+| `<font>_glyphs.png` (+ `.gsheet`) | **glyphs2font** (Studio **Font** tab ▸ Edit glyphs) | `<font>` (a `MoteFont`) | hand-drawn / edited font — one PNG sheet; same `text_font` call |
 | `icon.png` / `icon.bmp` (game root) | **icon baker** | a compact paletted blob `mote_game_icon_data[]` in `src/icon.h` | nothing — the build auto-includes it; the OS launcher shows it. The icon travels inside the module, so installing a game over USB is all it takes (no firmware change) |
 
 **Launcher icons (§4.1).** A game's 60×60 icon is baked from `icon.png` to `src/icon.h`
@@ -480,6 +492,24 @@ the synth notes.
 mote->audio_play_sfx(&coin_sfx, 1.0f); // fire-and-forget; synthesised on the fly, gain 0..1
 mote->audio_note(440.0f, 0.85f);       // or a synth note — they sum
 ```
+
+### Fonts: anti-aliased proportional text *(ABI v39)*
+
+Beyond the built-in 3×5 `mote->text`, you can draw **designed, anti-aliased, proportional**
+fonts at any size with `mote->text_font` (§5.7). The Studio **Font tab** bakes them two ways:
+
+- **Import a `.ttf`** (or pick a bundled starter font), set the pixel size, see a live
+  preview, and bake → `src/<name>.font.h` (a `MoteFont`).
+- **Edit glyphs** opens an in-place editor — every glyph in a grid (like the tileset
+  editor) with a pixel editor beside it; paint each glyph's coverage on a grayscale ramp
+  (white = solid, grey = a soft edge), with baseline / pen-origin / advance guides. One PNG
+  sheet saves and bakes; hand-drawn fonts keep full parity with TrueType (even cursive
+  joins). The built-in 3×5 font is itself editable this way.
+
+Glyph coverage is packed at 1/2/4 bits per pixel (smallest lossless depth auto-picked), so
+a font is a few KB. See the `fontdemo` example (a font gallery — A/B to switch).
+
+![Mote Studio Font tab — the glyph grid with a glyph open in the in-place pixel editor, grayscale coverage ramp and baseline/origin/advance guides](docs/img/studio-font.png)
 
 ### Creating rigs and 3D animations
 
