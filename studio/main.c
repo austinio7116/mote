@@ -289,7 +289,10 @@ static void finish_load(int idx){ stop_engine();                 /* unload (and 
     snprintf(g_so,sizeof g_so,"%.180s/build/.run%d.%s",g_games[idx].dir,++g_runver,mc_host_ext());
     copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
     g_watch=src_mtime(g_games[idx].dir); start_engine(); }
-static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return; g_sel=idx;
+static void mesh_editor_reset(void);   /* fwd: clear the model-editor scene + importer (on project switch) */
+static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
+    if(idx!=g_sel)mesh_editor_reset();   /* switching projects: drop the old scene (but keep it across a hot-reload of the same game) */
+    g_sel=idx;
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
         int rc=mc_build(g_games[idx].dir,0,log_add);
         if(rc){ snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[idx].name); return; }   /* keep the running build on failure */
@@ -1315,6 +1318,9 @@ static EObject* eobj_new(const char*name){ if(g_nobj>=EMESH_MAXOBJ)return NULL; 
     memset(o,0,sizeof*o); snprintf(o->name,sizeof o->name,"%s",name); o->parent=g_nobj?0:-1; g_objsel=g_nobj; return &g_obj[g_nobj++]; }
 static void eobj_free_all(void){ for(int i=0;i<g_nobj;i++){ free(g_obj[i].v); free(g_obj[i].f); free(g_obj[i].e); }
     memset(g_obj,0,sizeof g_obj); g_nobj=0; g_objsel=0; }
+static void eundo_push(void);   /* fwd */
+/* New empty scene — clears all objects so you can model from scratch (Ctrl+N / "New"). */
+static void eobj_new_scene(void){ eundo_push(); eobj_free_all(); g_sel_mode=0; snprintf(g_status,sizeof g_status,"new scene — add a primitive or import a model"); }
 /* Fit the whole scene into the preview's [-1,1] cube (reuses the importer's g_mcen/g_mscale). */
 static void eobj_fit(void){ float q=1e-6f;
     for(int o=0;o<g_nobj;o++)for(int i=0;i<g_obj[o].nv;i++){ V3 p=g_obj[o].v[i].p; p.x+=g_obj[o].origin.x; p.y+=g_obj[o].origin.y; p.z+=g_obj[o].origin.z;
@@ -1804,6 +1810,11 @@ static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ sn
     EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
     for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
     if(!n)snprintf(g_status,sizeof g_status,"select faces to paint"); else snprintf(g_status,sizeof g_status,"painted %d face%s",n,n==1?"":"s"); }
+/* full reset of the model editor + importer — called when switching projects so a new game starts blank */
+static void mesh_editor_reset(void){ eobj_free_all();
+    for(int i=0;i<g_eundo_n;i++){ EUndo*u=g_eundo[i]; for(int j=0;j<u->n;j++){ free(u->o[j].v); free(u->o[j].f); free(u->o[j].e); } free(u); } g_eundo_n=0;
+    g_edit_mode=0; g_op.op=OP_NONE; g_naff=0; g_box_arm=g_box_active=0; g_hover_obj=g_hover_idx=-1;
+    g_nraw=0; g_mesh_path[0]=0; g_mesh_dirty=1; }   /* drop the importer's loaded STL too */
 
 static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
 static void op_cancel(void){ g_op.op=OP_NONE; eundo_pop(); }            /* revert via the snapshot we pushed at start */
@@ -1819,7 +1830,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
-static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj;
+static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1930,6 +1941,17 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     px=ui_btn(R,lx,cy,0,"Cone",-1,pc,&g_me_econe,mx,my); ui_btn(R,px,cy,0,"Sphere",-1,pc,&g_me_esph,mx,my); cy+=UI_H+6;
     px=ui_btn(R,lx,cy,0,"Extrude",-1,ec,&g_me_eextr,mx,my); px=ui_btn(R,px,cy,0,"Inset",-1,ec,&g_me_einset,mx,my);
     ui_btn(R,px,cy,0,"Paint",-1,ec,&g_me_epaint,mx,my); cy+=UI_H+5;
+    if(g_sel_mode==2){   /* compact colour picker — drives Paint (Face mode) */
+        if(g_hsv_baked!=g_hue)bake_hsv(R);
+        int sq=50; g_me_hsv=(SDL_Rect){lx,cy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_me_hsv); rect_outline(R,lx,cy,sq,sq,C_LINE,1);
+        { int cxp=lx+(int)(g_sat*sq),cyp=cy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
+        g_me_hue=(SDL_Rect){lx+sq+6,cy,12,sq};
+        for(int yy=0;yy<sq;yy++){ Col hc=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,hc.r,hc.g,hc.b,255); SDL_RenderDrawLine(R,g_me_hue.x,cy+yy,g_me_hue.x+12,cy+yy); }
+        { int hyy=cy+(int)(g_hue/360*sq); rect_outline(R,g_me_hue.x-2,hyy-1,16,3,(Col){255,255,255},1); }
+        { uint16_t cc=emesh_curcol(); int sw=lx+sq+24; plain(R,sw,cy,24,24,c565(cc)); rect_outline(R,sw,cy,24,24,C_LINE,1);
+          text(R,"paint",sw,cy+28,1,C_DIM,C_PANEL); text(R,"colour",sw,cy+40,1,C_DIM,C_PANEL); }
+        cy+=sq+8;
+    } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
     px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
     px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+6;
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0;
@@ -1942,7 +1964,8 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.14s  %dv %df %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14; }
     else { text(R,"empty — add a primitive or import",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
     plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
-    px=ui_btn(R,lx,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my);
+    px=ui_btn(R,lx,cy,0,"New",IC_FILE,(Col){205,200,160},&g_me_enew,mx,my);
+    px=ui_btn(R,px,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my);
     ui_btn(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my); cy+=UI_H+5;
     px=ui_btn(R,lx,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my);
     ui_btn(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my); cy+=UI_H+5;
@@ -1962,6 +1985,8 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_esph)){ prim_uvsphere(0.5f,8,12); eobj_fit(); return 1; }
     if(HITR(g_me_eextr)){ if(g_sel_mode!=2)set_sel_mode(2); op_extrude(); return 1; }
     if(HITR(g_me_einset)){ if(g_sel_mode!=2)set_sel_mode(2); op_inset(); return 1; }
+    if(g_sel_mode==2&&g_me_hsv.w&&HITR(g_me_hsv)){ g_me_hsvdrag=1; g_sat=clampf((mx-g_me_hsv.x)/(float)g_me_hsv.w,0,1); g_val=clampf(1-(my-g_me_hsv.y)/(float)g_me_hsv.h,0,1); g_mesh_rgb=mesh_hsv_rgb(); return 1; }
+    if(g_sel_mode==2&&g_me_hue.w&&HITR(g_me_hue)){ g_me_huedrag=1; g_hue=clampf((my-g_me_hue.y)/(float)g_me_hue.h,0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); return 1; }
     if(HITR(g_me_epaint)){ if(g_sel_mode!=2)set_sel_mode(2); eobj_paint_faces(); return 1; }
     if(HITR(g_me_edup)){ eobj_dup_object(); eobj_fit(); return 1; }
     if(HITR(g_me_edel)){ eobj_delete_sel(); return 1; }
@@ -1970,6 +1995,7 @@ static int mesh_edit_down(int mx,int my){
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
+    if(HITR(g_me_enew)){ eobj_new_scene(); return 1; }
     if(HITR(g_me_bakerig)){ eobj_bake_rig(); return 1; }
     if(HITR(g_me_exportobj)){ eobj_export_obj(); return 1; }
     if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; return 1; }
@@ -2005,6 +2031,7 @@ static int mesh_edit_key(SDL_Keycode k){
         return 1;                                          /* swallow everything else while modal */
     }
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
+    if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_n){ eobj_new_scene(); return 1; }   /* new empty scene */
     if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_e){ op_extrude(); return 1; }
