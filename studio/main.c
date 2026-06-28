@@ -1329,6 +1329,24 @@ static void prim_cube(float s){ EObject*o=eobj_new("Cube"); if(!o)return; float 
 static void prim_plane(float s){ EObject*o=eobj_new("Plane"); if(!o)return; float h=s*0.5f;
     ev_add(o,(V3){-h,0,-h}); ev_add(o,(V3){h,0,-h}); ev_add(o,(V3){h,0,h}); ev_add(o,(V3){-h,0,h});
     int q[4]={0,3,2,1}; ef_add(o,4,q,EMESH_DEFCOL); edges_rebuild(o); }
+/* Convert the loaded STL/OBJ import into editable topology: the decimator already produces
+ * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
+ * the editable mesh we want. Brings it in as a new object and switches to the model editor.
+ * Lower the importer's 'tris' budget first for a more editable low-poly result. */
+static void eobj_from_import(void){
+    if(g_nraw<1){ snprintf(g_status,sizeof g_status,"load a .stl/.obj first"); return; }
+    if(g_mesh_dirty)mesh_reprocess();
+    if(g_dnv<1||g_dnf<1){ snprintf(g_status,sizeof g_status,"nothing to import"); return; }
+    const char*b=strrchr(g_mesh_path,'/'); b=b?b+1:g_mesh_path; char nm[28]; snprintf(nm,sizeof nm,"%.27s",b);
+    char*dot=strrchr(nm,'.'); if(dot)*dot=0; if(!nm[0])snprintf(nm,sizeof nm,"import");
+    EObject*o=eobj_new(nm); if(!o){ snprintf(g_status,sizeof g_status,"too many objects (max %d)",EMESH_MAXOBJ); return; }
+    uint16_t col=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
+    for(int i=0;i<g_dnv;i++)ev_add(o,g_dv[i]);                                    /* welded decimated verts (recentred model space) */
+    for(int t=0;t<g_dnf;t++){ int q[3]={g_dt[t*3],g_dt[t*3+1],g_dt[t*3+2]}; ef_add(o,3,q,col); }   /* triangle faces */
+    edges_rebuild(o);
+    g_mesh_size=g_mesh_qmax;                  /* keep the model's real-world half-extent for the bake */
+    g_edit_mode=1; eobj_fit();
+    snprintf(g_status,sizeof g_status,"editing %s — %d verts, %d faces (lower 'tris' budget for simpler topology)",nm,o->nv,o->nf); }
 
 static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.600s/scene.mmesh",g_sel>=0?g_games[g_sel].dir:"."); }
 static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
@@ -1917,7 +1935,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
     ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
     ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+10;
-    ui_btn(R,lx,cy,MESH_CARDW-24,"Model editor (Tab)",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
 
     /* ---- texture (ABI v35): assign a PNG -> persisted as a sidecar next to the model ---- */
     { char sc[400]; int has=0; if(mesh_tex_sidecar(sc,sizeof sc)){ struct stat tst; has=(stat(sc,&tst)==0); }
@@ -1962,7 +1980,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(g_edit_mode) return mesh_edit_down(mx,my);
-    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ g_edit_mode=1; eobj_fit(); return 1; }
+    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }   /* loaded mesh -> editable; else empty editor */
     int ch=0;
     if(HITR(g_me_bmin)){ g_mesh_budget-= g_mesh_budget>800?200:100; if(g_mesh_budget<100)g_mesh_budget=100; ch=1; }
     else if(HITR(g_me_bpls)){ g_mesh_budget+= g_mesh_budget>=800?200:100; if(g_mesh_budget>8000)g_mesh_budget=8000; ch=1; }
@@ -4344,7 +4362,8 @@ int main(int argc,char**argv){
         g_rk[0].t_ms=0; g_rk[1].t_ms=500; g_rk[2].t_ms=1000;
         g_rk[1].erot[tp]=(V3){0,1.2f,0}; g_rk[2].erot[tp]=(V3){0,-1.2f,0}; g_rsel=tp; g_ksel=1; g_pose_mode=1; g_scrub_t=500;
         if(getenv("MOTE_STUDIO_RIGBAKE"))rig_anim_bake(); }
-    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH;
+    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_edit_mode=0; g_tab=TAB_MESH;
+        if(getenv("MOTE_STUDIO_MESHTOEDIT")){ if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); } eobj_from_import(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
         if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
         if(getenv("MOTE_STUDIO_MESHBAKE")){ mesh_bake(); printf("studio: %s\n",g_status); } }

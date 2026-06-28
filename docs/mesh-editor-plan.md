@@ -36,6 +36,13 @@
 >   Persisted in `.mmesh`. Because the mirror is recomputed from the edited half
 >   every frame, all G/S/E/I actions are mirrored for free.
 >
+> - **Edit imported STL/OBJ:** an "Edit this mesh" button in the importer card
+>   converts the loaded import into editable topology — the decimator already
+>   produces welded verts + triangle indices at the current 'tris' budget, which
+>   become an `EObject` (lower the budget first for simpler topology). So you can
+>   load a model, edit it with all the tools, and bake. Verified on
+>   modelview/fighter.stl (budget 250 → 81v 204f, edits + bake compile).
+>
 > Phases 5–6 below remain (multi-object/rig-join, polish — more primitives,
 > duplicate/delete/merge, per-face colour paint).
 
