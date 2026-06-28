@@ -109,6 +109,15 @@ static const Map MAPS[] = {
 static const Map *g_map = &MAPS[0];
 static int g_map_sel = 0;
 
+/* difficulty: 0 = EASY (the original feel), 1 = MEDIUM, 2 = HARD */
+static int g_difficulty = 0;
+static const char *DIFF_NAME[3]  = { "EASY", "MEDIUM", "HARD" };
+/* AI top speed vs the player's 15.5 m/s base (boost = 23). Medium already exceeds
+ * the base so you must drift/boost; Hard sustains ~21 m/s — near your boost. */
+static const float DIFF_AISPD[3] = { 1.02f, 1.20f, 1.38f };  /* -> ~15.8 / 18.6 / 21.4 m/s */
+static const float DIFF_CORNER[3]= { 0.55f, 0.44f, 0.34f };  /* corner speed cut (less = faster) */
+static const float DIFF_RUBBER[3]= { 0.16f, 0.10f, 0.05f };  /* catch-up help for trailing AI */
+
 /* ===================================================================== */
 /*  Track                                                                */
 /* ===================================================================== */
@@ -678,10 +687,10 @@ static void kart_sim(Kart *k, float dt, int locked) {
         /* read the corner ahead and choose a target speed for it */
         Vec3 fa = t_fwd[k->seg], fb = t_fwd[(k->seg + look) % NSEG];
         float curve = 1.0f - mote_clampf(v3_dot(fa, fb), 0.0f, 1.0f);   /* 0 straight .. ~1 hairpin */
-        float tgt_speed = KMAX_ROAD * (1.0f - 0.62f * curve);
-        /* rubber-band: stragglers get a small bump, leaders ease off a touch */
+        float tgt_speed = KMAX_ROAD * DIFF_AISPD[g_difficulty] * (1.0f - DIFF_CORNER[g_difficulty] * curve);
+        /* rubber-band: trailing AI get a catch-up bump (bigger on easy), leaders ease off */
         float lead = (kart[0].lap + kart[0].prog) - (k->lap + k->prog);
-        tgt_speed *= 1.0f + mote_clampf(lead * 0.09f, -0.05f, 0.13f);
+        tgt_speed *= 1.0f + mote_clampf(lead * 0.09f, -0.05f, DIFF_RUBBER[g_difficulty]);
         throttle = (k->speed < tgt_speed) ? 1.0f : -0.15f;
         /* drift the sharp ones for a mini-turbo */
         want_drift = (curve > 0.42f && k->speed > 9.0f) ? 1.0f : 0.0f;
@@ -694,7 +703,7 @@ static void kart_sim(Kart *k, float dt, int locked) {
         /* use a held item at a relaxed pace (not instant spam) */
         if (k->item != ITEM_NONE && k->item_cooldown <= 0 && frand() < dt * 0.7f) use_item(k);
         /* drift the racing line slowly (and toward item boxes implicitly) */
-        if (frand() < dt * 0.4f) k->ai_offset = mote_clampf((frand() - 0.5f) * 4.4f, -2.2f, 2.2f);
+        if (frand() < dt * 0.4f) k->ai_offset = mote_clampf((frand() - 0.5f) * 2.8f, -1.4f, 1.4f);
     }
 
     if (k->spin > 0) {
@@ -717,6 +726,7 @@ static void kart_sim(Kart *k, float dt, int locked) {
 
     /* ---- longitudinal ---- */
     float vmax = on_road ? KMAX_ROAD : KMAX_GRASS;
+    if (!k->is_player) vmax *= DIFF_AISPD[g_difficulty];   /* AI top speed by difficulty */
     if (k->mega > 0)   vmax *= 1.12f;            /* mega rolls a little faster   */
     if (k->shrunk > 0) vmax *= 0.55f;            /* zapped: slow + small         */
     if (k->boost > 0) { k->boost -= dt; vmax = BOOST_SPD * (k->mega > 0 ? 1.1f : 1.0f); throttle = 1.0f; }
@@ -1187,6 +1197,8 @@ static void g_update(float dt) {
         g_title_spin += dt;
         if (mote_just_pressed(in, MOTE_BTN_LEFT))  load_map(g_map_sel - 1);
         if (mote_just_pressed(in, MOTE_BTN_RIGHT)) load_map(g_map_sel + 1);
+        if (mote_just_pressed(in, MOTE_BTN_UP))    g_difficulty = (g_difficulty + 2) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))  g_difficulty = (g_difficulty + 1) % 3;
         /* idle-animate the showcased karts so the rig (spin + steering) is visible */
         for (int i = 0; i < NKART; i++) {
             kart[i].vis_steer = sinf(g_title_spin * 1.6f + i * 0.9f) * 0.42f;
@@ -1280,17 +1292,25 @@ static void g_overlay(uint16_t *fb) {
     if (g_state == ST_TITLE) {
         mote->draw_rect(fb, 0, 30, 128, 22, MOTE_RGB565(15, 18, 32), 1, 0, 128);
         mote->text_2x(fb, "MOTOKART", 16, 34, MOTE_RGB565(255, 90, 70));
-        /* map selector */
+        /* map selector (LEFT/RIGHT) */
         int nx = (int)((128 - (int)strlen(g_map->name) * 6) / 2);
-        mote->draw_rect(fb, 0, 70, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
-        mote->text(fb, "<", 10, 72, amber);
-        mote->text(fb, g_map->name, nx, 72, white);
-        mote->text(fb, ">", 114, 72, amber);
-        mote->text(fb, "A: START   < > MAP", 16, 90, MOTE_RGB565(190, 200, 220));
+        mote->draw_rect(fb, 0, 66, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
+        mote->text(fb, "<", 10, 68, amber);
+        mote->text(fb, g_map->name, nx, 68, white);
+        mote->text(fb, ">", 114, 68, amber);
+        /* difficulty selector (UP/DOWN) */
+        const char *dn = DIFF_NAME[g_difficulty];
+        uint16_t dc = g_difficulty == 0 ? MOTE_RGB565(120, 220, 120)
+                    : g_difficulty == 1 ? MOTE_RGB565(245, 210, 80)
+                                        : MOTE_RGB565(245, 110, 90);
+        int dx = (int)((128 - (int)strlen(dn) * 6) / 2);
+        mote->draw_rect(fb, 0, 80, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
+        mote->text(fb, dn, dx, 82, dc);
+        mote->text(fb, "A START  <>MAP  ^vDIFF", 8, 96, MOTE_RGB565(180, 190, 210));
         if (g_best_lap > 0) { fmt_time(tb, g_best_lap);
-            mote_textf(mote, fb, 24, 102, amber, "BEST LAP %s", tb); }
-        mote->text(fb, "A accel B brake RB drift", 4, 114, MOTE_RGB565(160, 170, 195));
-        mote->text(fb, "LB item", 46, 121, MOTE_RGB565(160, 170, 195));
+            mote_textf(mote, fb, 24, 107, amber, "BEST LAP %s", tb); }
+        mote->text(fb, "A accel B brake RB drift", 4, 116, MOTE_RGB565(160, 170, 195));
+        mote->text(fb, "LB item", 46, 123, MOTE_RGB565(160, 170, 195));
         return;
     }
 

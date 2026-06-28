@@ -23,8 +23,10 @@ A Mario-Kart-style 3D racer for the Thumby Color, built on the Mote engine.
 
 On the title screen press **LEFT/RIGHT** to pick one of three circuits —
 **Forest Hills**, **Dust Valley**, **Frost Peak** — each with its own track
-shape, colour theme and roadside scenery. Then race 3 laps against 5 colour-coded
-AI racers (corner-aware: they brake for bends, drift the hairpins, and grab items).
+shape, colour theme and roadside scenery, and **UP/DOWN** to choose a difficulty
+(**Easy / Medium / Hard** — the AI go faster, corner harder, and get less catch-up
+help as it rises). Then race 3 laps against 5 colour-coded AI racers (corner-aware:
+they brake for bends, drift the hairpins, and grab items).
 Drift corners to charge a mini-turbo, and beat your best lap (saved across power-offs).
 
 **Power-ups** — drive through the rows of item boxes (4 across the road, at 5
