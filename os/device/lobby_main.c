@@ -31,6 +31,7 @@ static char    g_file[MOTE_CATALOG_MAX][64];
  * icon resolution (f_open + header read) is cached by filename so it only re-runs
  * when an entry's file changes (e.g. a fresh USB push). */
 static char            g_ic_name[MOTE_CATALOG_MAX][64];
+static uint32_t        g_ic_size[MOTE_CATALOG_MAX];   /* file size at last resolve — see rebuild() */
 static const void     *g_ic_blob[MOTE_CATALOG_MAX];
 static const uint16_t *g_ic_raw [MOTE_CATALOG_MAX];
 
@@ -81,11 +82,16 @@ static void rebuild(MoteCatalog *c) {
         c->e[c->count].name[n] = 0;
         c->e[c->count].offset = (uint32_t)c->count;
         c->e[c->count].size   = (uint32_t)fno.fsize;
-        /* Icon: cached by filename so the f_open + header read only happens when
-         * this slot's file changes (not every frame). */
-        if (strncmp(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0]) != 0) {
+        /* Icon: cached by (filename, size) so the f_open + header read only happens
+         * when this slot's file changes. Keying on size too matters for live USB
+         * pushes: a freshly-dropped/updated .mote grows as it's written, so a stale
+         * or empty resolve done mid-write is automatically re-tried (and a re-pushed
+         * same-named file re-resolved) the moment the size settles — no reload. */
+        if (strncmp(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0]) != 0
+            || g_ic_size[c->count] != (uint32_t)fno.fsize) {
             strncpy(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0] - 1);
             g_ic_name[c->count][sizeof g_ic_name[0] - 1] = 0;
+            g_ic_size[c->count] = (uint32_t)fno.fsize;
             resolve_icon(fno.fname, &g_ic_blob[c->count], &g_ic_raw[c->count]);
         }
         c->e[c->count].icon      = g_ic_raw[c->count];

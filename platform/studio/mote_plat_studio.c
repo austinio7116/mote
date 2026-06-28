@@ -79,7 +79,14 @@ void mote_plat_sleep_us(uint32_t us) { if (us >= 1000) SDL_Delay(us / 1000); }
 
 bool mote_plat_should_quit(void)     { return s_quit != 0; }
 int  mote_plat_pending_launch(void)  { return -1; }
-void mote_plat_log(const char *s)    { printf("[game] %s\n", s); fflush(stdout); }
+/* Optional sink so the Studio routes game/engine log lines into its Console
+ * instead of the terminal. main.c sets this to its log ring at startup; when
+ * NULL (headless/CLI) we fall back to stdout. */
+void (*mote_studio_log_sink)(const char *) = 0;
+void mote_plat_log(const char *s) {
+    if (mote_studio_log_sink) { char b[256]; snprintf(b, sizeof b, "[game] %s", s); mote_studio_log_sink(b); }
+    else { printf("[game] %s\n", s); fflush(stdout); }
+}
 void mote_plat_shutdown(void)        { }
 void mote_plat_set_brightness(int p) { (void)p; }
 void mote_plat_set_volume(int p)     { mote_audio_set_volume(p / 100.0f); }
@@ -121,11 +128,17 @@ int mote_plat_load(int slot, void *data, int max_len) {
 #include <sys/stat.h>
 #include <dirent.h>
 #include <string.h>
+#ifdef _WIN32                       /* Windows/mingw mkdir() takes a single arg */
+#include <direct.h>
+#define KV_MKDIR(p) _mkdir(p)
+#else
+#define KV_MKDIR(p) mkdir((p), 0777)
+#endif
 static void kv_spath(const char *key, char *p, int n) {
     snprintf(p, n, "mote_kv/%s__%s", s_save_game[0] ? s_save_game : "game", key);
 }
 int mote_plat_kv_save(const char *key, const void *data, int len) {
-    mkdir("mote_kv", 0777);
+    KV_MKDIR("mote_kv");
     char p[160]; kv_spath(key, p, sizeof p);
     if (len <= 0) { remove(p); return 0; }
     FILE *f = fopen(p, "wb"); if (!f) return 0;

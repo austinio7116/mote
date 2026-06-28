@@ -99,6 +99,12 @@ static void g_init(void) {
 }
 
 static void g_update(float dt) {
+    /* Clamp dt before the physics tick, exactly as the standalone ThumbyCue does
+     * (device main capped at 0.1s). cue_phys_step runs dt*2000 fixed 2 kHz substeps;
+     * without this cap a heavy break frame feeds a bigger dt -> more substeps ->
+     * heavier frame -> spiral down to ~30fps. The cap bounds the substep pile-up
+     * (brief physics slow-mo on a monster break instead of a framerate collapse). */
+    if (dt > 0.1f) dt = 0.1f;
     CraftRawButtons b;
     map_buttons(mote->input(), &b);
     cue_game_tick(&b, dt);

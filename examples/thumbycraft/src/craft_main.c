@@ -341,7 +341,14 @@ static float s_held_swing_t = 0.0f;
  * still force-flushes the oldest if you go without saving forever,
  * so progress can't be lost — and force_persist_window on save
  * still drains everything synchronously. */
-#ifdef THUMBYONE_SLOT_MODE
+/* Capture the native ThumbyOne-slot persistence optimization for the Mote device
+ * module too: disable the periodic 2 s drip so per-chunk flash writes (~70 ms each)
+ * never hitch the frame mid-play — chunks persist on save / 32-entry dirty-overflow
+ * only (force_persist_window drains synchronously on save; the overflow guards
+ * against losing progress). The Mote runner is the same slot-like sandbox, so it
+ * gets the same treatment. Host/emulator keeps the 2 s drip — its KV writes are
+ * cheap local files, and periodic persistence is convenient there. */
+#if defined(THUMBYONE_SLOT_MODE) || defined(MOTE_MODULE_BUILD)
 #define PERSIST_PERIOD  (1.0e9f)   /* effectively disabled */
 #else
 #define PERSIST_PERIOD  2.0f

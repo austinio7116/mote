@@ -222,11 +222,12 @@ static char g_status[160]="open a project to begin";
 static SDL_Thread *g_eng;
 
 static MoteConfig g_loaded_cfg; static volatile int g_loaded_cfg_for=-1;   /* real config read from the running module */
+static void log_add(const char*s);   /* fwd: Console log ring (defined below) */
 static int engine_thread(void*arg){ (void)arg;
-    void*mod=DLOPEN(g_so); if(!mod){ fprintf(stderr,"studio: load: %s\n",DLERR()); return 1; }
+    void*mod=DLOPEN(g_so); if(!mod){ char m[256]; snprintf(m,sizeof m,"load failed: %s",DLERR()); log_add(m); return 1; }
     MoteGameRegisterFn reg=(MoteGameRegisterFn)DLSYM(mod,"mote_game_register");
     const uint32_t*abi=(const uint32_t*)DLSYM(mod,"mote_game_abi_version");
-    if(!reg||!abi){ DLCLOSE(mod); return 1; }
+    if(!reg||!abi){ log_add("load failed: not a Mote game module (missing mote_game_register / abi)"); DLCLOSE(mod); return 1; }
     MoteApi api; mote_api_fill(&api); const MoteGameVtbl*vt=reg(&api);
     if(vt){ g_loaded_cfg=vt->config; g_loaded_cfg_for=g_sel; mote_os_run(&api,vt); }   /* exact pools from the compiled game */
     DLCLOSE(mod); return 0; }
@@ -841,6 +842,29 @@ static long arena_bytes(const MCfg*c){ return (long)c->tris*28+(long)c->spheres*
     +(long)c->shadows*32+(long)c->rings*16+(long)c->billboards*32+(long)c->tex_tris*56; }
 
 static SDL_Rect g_insp_edit, g_insp_bake, g_insp_open;
+/* Engine-pool + arena summary for the open game's MoteConfig (the exact loaded
+ * module, else parsed from src/game.c). Shown for the manifest AND for game.c,
+ * since most games declare .config inline in game.c and have no game.toml. */
+static void draw_engine_pools(SDL_Renderer*R,int x,int*yp){
+    int y=*yp; MCfg c=get_config(g_sel,g_games[g_sel].dir);
+    if(!c.found){ *yp=y; return; }
+    plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
+    struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"textured tris",c.tex_tris},{"spheres",c.spheres},
+        {"tex spheres",c.tex_spheres},{"billboards",c.billboards},{"splats",c.splats},{"2D sprites",c.sprites},
+        {"points",c.points},{"lines",c.lines},{"discs",c.discs},{"rings",c.rings},{"shadows",c.shadows},
+        {"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
+    for(int i=0;i<(int)(sizeof pp/sizeof pp[0]);i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
+        int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
+    text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
+    long used=arena_bytes(&c); float frac=used/278528.0f; if(frac>1)frac=1;          /* 272 KB load arena */
+    text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>278528?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
+    plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
+    plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24;
+    if(c.custom_render){ text(R,"custom renderer (render_band):",x,y,1,C_ACC,C_DOCK); y+=14;
+        text(R,"draws the frame itself; its own",x,y,1,C_DIM,C_DOCK); y+=12;
+        text(R,"mote->alloc() use isn't counted",x,y,1,C_DIM,C_DOCK); y+=20; }
+    *yp=y;
+}
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR);
     if(g_tab==TAB_TILES){ text(R,"TILE SHEET",INSP_X+8,TOPH+6,1,C_TITLE,C_HDR); draw_tiles_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
@@ -854,22 +878,10 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
     struct stat st; if(stat(r->path,&st)==0){ char sz[48]; snprintf(sz,sizeof sz,"%ld bytes",(long)st.st_size); text(R,sz,x,y,1,C_DIM,C_DOCK); y+=18; }
     text(R,r->path,x,y,1,C_DIM,C_DOCK); y+=24;
     if(r->kind==1){ FILE*f=fopen(r->path,"r"); if(f){ char ln[120]; while(fgets(ln,sizeof ln,f)){ ln[strcspn(ln,"\n")]=0; if(ln[0])text(R,ln,x,y,1,C_TXT,C_DOCK),y+=16; } fclose(f); } y+=10;
-        MCfg c=get_config(g_sel,g_games[g_sel].dir);            /* exact pools from the running module (else parse src) */
-        if(c.found){ plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
-            struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"textured tris",c.tex_tris},{"spheres",c.spheres},
-                {"tex spheres",c.tex_spheres},{"billboards",c.billboards},{"splats",c.splats},{"2D sprites",c.sprites},
-                {"points",c.points},{"lines",c.lines},{"discs",c.discs},{"rings",c.rings},{"shadows",c.shadows},
-                {"physics bodies",c.bodies},{"contacts",c.contacts},{"mesh collider tris",c.mesh_tris} };
-            for(int i=0;i<(int)(sizeof pp/sizeof pp[0]);i++){ if(!pp[i].v)continue; text(R,pp[i].k,x,y,1,C_DIM,C_DOCK); char v[16]; snprintf(v,sizeof v,"%d",pp[i].v);
-                int vw=textw(R,v,1); text(R,v,INSP_X+RIGHT_W-14-vw,y,1,C_TXT,C_DOCK); y+=16; }
-            text(R,c.depth?"depth buffer  ON (32 KB)":"depth buffer  off",x,y,1,c.depth?C_ACC:C_DIM,C_DOCK); y+=22;
-            long used=arena_bytes(&c); float frac=used/278528.0f; if(frac>1)frac=1;          /* 272 KB load arena */
-            text(R,"ARENA  (est.)",x,y,1,C_DIM,C_DOCK); { char u[40]; snprintf(u,sizeof u,"%ld KB",used/1024); int uw=textw(R,u,1); text(R,u,INSP_X+RIGHT_W-14-uw,y,1,used>278528?(Col){240,120,120}:C_TXT,C_DOCK); } y+=16;
-            plain(R,x,y,RIGHT_W-28,10,(Col){12,14,20}); Col bar=frac>0.9f?(Col){230,110,110}:frac>0.7f?(Col){235,190,90}:(Col){110,200,140};
-            plain(R,x,y,(int)((RIGHT_W-28)*frac),10,bar); y+=24;
-            if(c.custom_render){ text(R,"custom renderer (render_band):",x,y,1,C_ACC,C_DOCK); y+=14;
-                text(R,"draws the frame itself; its own",x,y,1,C_DIM,C_DOCK); y+=12;
-                text(R,"mote->alloc() use isn't counted",x,y,1,C_DIM,C_DOCK); y+=20; } } }
+        draw_engine_pools(R,x,&y); }
+    /* game.c declares the engine pools inline (.config = {...}); most games have no
+     * manifest, so show the same pool/arena summary when game.c is selected. */
+    if(r->kind==2 && !strcmp(r->name,"game.c")){ y+=4; draw_engine_pools(R,x,&y); }
     if(r->kind==3) text(R,"transparency = alpha channel",x,y,1,C_DIM,C_DOCK),y+=22;
     int mx,my; SDL_GetMouseState(&mx,&my); int bw=RIGHT_W-28;
     /* primary action: open this asset in its dedicated tool (image->Pixel Art, etc.) */
@@ -1035,6 +1047,35 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
 typedef struct { float x,y,z; } V3;
 static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_mesh_path[320];
 static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
+/* mesh-preview texture (ABI v35): RGB565 box-sampled (cap 64), used for a textured
+ * preview that matches the baker's triplanar mapping. NULL pixels => flat-shaded. */
+static uint16_t *g_mtex_px; static int g_mtex_w, g_mtex_h;
+/* Identity of the texture currently loaded into the active model view, so
+ * mesh_tex_sync() can re-read it the instant the file on disk changes (an
+ * assign, an edit-and-save, an external paint, a clear) — no reselect needed. */
+static char   g_texsync_src[700];   /* resolved texture path in the preview; "" = none */
+static time_t g_texsync_mtime;
+#define MESH_TEX_CAP 64
+/* load `pngpath` into g_mtex_px (box-averaged to <=MESH_TEX_CAP). Returns 1 on success. */
+static int mesh_load_tex(const char*pngpath){
+    free(g_mtex_px); g_mtex_px=0; g_mtex_w=g_mtex_h=0;
+    int w,h,n; unsigned char*d=stbi_load(pngpath,&w,&h,&n,4); if(!d)return 0;
+    int tw=w,th=h;
+    if(tw>MESH_TEX_CAP||th>MESH_TEX_CAP){ if(tw>=th){ th=(int)((long)th*MESH_TEX_CAP/tw); tw=MESH_TEX_CAP; } else { tw=(int)((long)tw*MESH_TEX_CAP/th); th=MESH_TEX_CAP; } if(tw<1)tw=1; if(th<1)th=1; }
+    g_mtex_px=malloc((size_t)tw*th*2);
+    for(int y=0;y<th;y++){ int sy0=(int)((long)y*h/th),sy1=(int)((long)(y+1)*h/th); if(sy1<=sy0)sy1=sy0+1;
+        for(int x=0;x<tw;x++){ int sx0=(int)((long)x*w/tw),sx1=(int)((long)(x+1)*w/tw); if(sx1<=sx0)sx1=sx0+1;
+            long r=0,g=0,b=0,c=0; for(int sy=sy0;sy<sy1;sy++)for(int sx=sx0;sx<sx1;sx++){ const unsigned char*p=&d[((size_t)sy*w+sx)*4]; r+=p[0]; g+=p[1]; b+=p[2]; c++; }
+            if(c<1)c=1; int rr=(int)(r/c),gg=(int)(g/c),bb=(int)(b/c);
+            g_mtex_px[y*tw+x]=(uint16_t)(((rr&0xF8)<<8)|((gg&0xFC)<<3)|(bb>>3)); } }
+    stbi_image_free(d); g_mtex_w=tw; g_mtex_h=th; return 1;
+}
+/* Triplanar UV (0..1) for vert v given face normal n + recentred extent ext.
+ * v flipped to match the engine's top-left tpix[v*w+u] sampling. */
+static void mesh_triuv(V3 v,float nx,float ny,float nz,float ext,float*u,float*vv){
+    float ax=fabsf(nx),ay=fabsf(ny),az=fabsf(nz); float fu,fv;
+    if(ax>=ay&&ax>=az){ fu=v.z; fv=v.y; } else if(ay>=ax&&ay>=az){ fu=v.x; fv=v.z; } else { fu=v.x; fv=v.y; }
+    if(ext<1e-6f)ext=1; *u=(fu/ext)+0.5f; *vv=1.0f-((fv/ext)+0.5f); }
 static void mtri(V3 a,V3 b,V3 c){ if(g_ntri>=g_tricap){ g_tricap=g_tricap?g_tricap*2:8192; g_tri=realloc(g_tri,g_tricap*sizeof*g_tri); }
     g_tri[g_ntri].a=a; g_tri[g_ntri].b=b; g_tri[g_ntri].c=c; g_ntri++; }
 
@@ -1145,6 +1186,26 @@ static void mesh_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     fprintf(h,"/* GENERATED by Mote Studio (mesh) from %s. budget=%d up=%s recenter=%d scale=%.3f */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",b,g_mesh_budget,g_mesh_up?"Z":"Y",g_mesh_recenter,g_mesh_size,name,name);
     mesh_emit(h,name); fclose(h);
     snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks  (%s_chunks[])",name,g_mesh_outf,g_mesh_nchunk,name); }
+/* Resolve the texture file for model `path`: the sidecar <base>.png (the IDE
+ * Assign target) wins; else, for an OBJ, the first map_Kd in its .mtl. Returns 1
+ * and fills out[] when a texture file exists. Shared by load_mesh, rig_load and
+ * the live mesh_tex_sync so all three agree on which file is "the texture". */
+static int mesh_tex_resolve(const char*path,char*out,int n){
+    size_t l=strlen(path);
+    char dir[320]; snprintf(dir,sizeof dir,"%s",path); char*sl=strrchr(dir,'/'); if(sl)*sl=0; else dir[0]=0;
+    const char*dot=strrchr(path,'.'); size_t base=dot?(size_t)(dot-path):l;
+    char png[600]; snprintf(png,sizeof png,"%.*s.png",(int)base,path);
+    struct stat st;
+    if(stat(png,&st)==0){ snprintf(out,n,"%s",png); return 1; }
+    if(l>4&&!strcasecmp(path+l-4,".obj")){
+        FILE*mf=fopen(path,"rb"); char mtlname[256]={0};
+        if(mf){ char ln[512]; while(fgets(ln,sizeof ln,mf)) if(sscanf(ln,"mtllib %255s",mtlname)==1)break; fclose(mf); }
+        if(mtlname[0]){ char mp[600]; if(dir[0])snprintf(mp,sizeof mp,"%s/%s",dir,mtlname); else snprintf(mp,sizeof mp,"%s",mtlname);
+            FILE*mt=fopen(mp,"rb"); char tex[256]={0};
+            if(mt){ char ln[512]; while(fgets(ln,sizeof ln,mt)){ char t[256]; if(sscanf(ln,"map_Kd %255[^\r\n]",t)==1){ char*s=t; while(*s==' '||*s=='\t')s++; snprintf(tex,sizeof tex,"%s",s); break; } } fclose(mt); }
+            if(tex[0]){ if(tex[0]=='/'||!dir[0])snprintf(out,n,"%s",tex); else snprintf(out,n,"%s/%s",dir,tex); return 1; } } }
+    return 0;
+}
 static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)return; g_nraw=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
     size_t l=strlen(path); FILE*f=fopen(path,"rb"); if(!f)return;
     if(l>4&&!strcasecmp(path+l-4,".obj")){ static V3 vs[300000]; int nv=0; char ln[256];
@@ -1157,21 +1218,31 @@ static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)ret
                     rawtri((V3){t[0],t[1],t[2]},(V3){t[3],t[4],t[5]},(V3){t[6],t[7],t[8]}); } }
             else { fseek(f,0,SEEK_SET); char ln[256]; V3 v[3]; int vi=0; while(fgets(ln,sizeof ln,f)){ char*p=strstr(ln,"vertex"); if(p&&sscanf(p+6,"%f %f %f",&v[vi].x,&v[vi].y,&v[vi].z)==3){ if(++vi==3){ rawtri(v[0],v[1],v[2]); vi=0; } } } } } }
     fclose(f);
+    /* texture (ABI v35): resolve the sidecar/.mtl file and load it; mesh_tex_sync()
+     * re-reads it live thereafter whenever that file changes (assign/edit/paint). */
+    free(g_mtex_px); g_mtex_px=0; g_mtex_w=g_mtex_h=0; g_texsync_src[0]=0; g_texsync_mtime=0;
+    { char tp[700]; struct stat st;
+      if(mesh_tex_resolve(path,tp,sizeof tp)&&stat(tp,&st)==0&&mesh_load_tex(tp)){
+          snprintf(g_texsync_src,sizeof g_texsync_src,"%s",tp); g_texsync_mtime=st.st_mtime; } }
     g_mesh_dirty=1; mesh_reprocess();
     g_mesh_size=g_mesh_qmax;          /* default to the model's natural half-extent (matches the CLI baker) */
     rgb2hsv((g_mesh_rgb>>16)&0xFF,(g_mesh_rgb>>8)&0xFF,g_mesh_rgb&0xFF,&g_hue,&g_sat,&g_val);  /* seed the colour picker */
-    snprintf(g_status,sizeof g_status,"mesh: %d raw tris -> %d (budget %d), %d chunks",g_nraw,g_mesh_outf,g_mesh_budget,g_mesh_nchunk); }
+    snprintf(g_status,sizeof g_status,"mesh: %d raw tris -> %d (budget %d), %d chunks%s",g_nraw,g_mesh_outf,g_mesh_budget,g_mesh_nchunk,g_mtex_px?"  [textured]":""); }
 /* mesh preview: a z-buffered software rasteriser (per-pixel depth test, like the
  * engine's mote_raster), blitted through a streaming RGB565 texture. Painter's
  * centroid-sort mis-ordered overlapping front faces as the model rotated. */
 static SDL_Texture *g_mztex; static uint16_t *g_mzpx; static float *g_mzd; static int g_mzw, g_mzh;
 /* mesh parameter-card hit rects (immediate-mode; tested in mesh_down) */
-static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_hsv,g_me_hue,g_me_bake,g_me_view;
+static SDL_Rect g_me_bmin,g_me_bpls,g_me_smin,g_me_spls,g_me_up,g_me_rc,g_me_cv,g_me_hsv,g_me_hue,g_me_bake,g_me_view,g_me_texassign,g_me_texclear;
 static int g_me_hsvdrag,g_me_huedrag;
 /* current HSV (g_hue/g_sat/g_val, shared) -> the baked 0xRRGGBB base colour */
 static long mesh_hsv_rgb(void){ uint16_t c=hsv565(g_hue,g_sat,g_val);
     int r=((c>>11)&31)<<3,g=((c>>5)&63)<<2,b=(c&31)<<3; return ((long)r<<16)|((long)g<<8)|b; }
 #define MESH_CARDW 232
+/* GUI texture assignment (defined after rig_load; used by the MESH/RIG cards) */
+static int  mesh_tex_sidecar(char*out,size_t n);
+static void mesh_tex_assign(const char*src);
+static void mesh_tex_clear(void);
 
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1192,6 +1263,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
     int cx=rw/2, cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f, dist=2.7f;
     uint8_t br=(uint8_t)(g_mesh_rgb>>16&0xFF),bg=(uint8_t)(g_mesh_rgb>>8&0xFF),bb=(uint8_t)(g_mesh_rgb&0xFF);
+    int tex_on=(g_mtex_px&&!g_mesh_chunkview); float tp_ext=2.0f*g_mesh_qmax;   /* triplanar extent (matches stl baker) */
     for(int i=0;i<g_ntri;i++){ V3 vv[3]={g_tri[i].a,g_tri[i].b,g_tri[i].c},rr[3];
         for(int k=0;k<3;k++){ V3 p=vv[k]; p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
             float x=p.x*cyw-p.z*syw, z=p.x*syw+p.z*cyw, y=p.y*cp-z*sp, z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
@@ -1199,6 +1271,11 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
         float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
         if(nz<0)continue;                                            /* backface */
         float sh=0.28f+0.72f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
+        /* per-corner triplanar UVs (texels), from the MODEL-space normal + verts */
+        float uu[3],uv[3];
+        if(tex_on){ float mux=vv[1].x-vv[0].x,muy=vv[1].y-vv[0].y,muz=vv[1].z-vv[0].z, mvx=vv[2].x-vv[0].x,mvy=vv[2].y-vv[0].y,mvz=vv[2].z-vv[0].z;
+            float mnx=muy*mvz-muz*mvy,mny=muz*mvx-mux*mvz,mnz=mux*mvy-muy*mvx;
+            for(int k=0;k<3;k++){ float fu,fv; mesh_triuv(vv[k],mnx,mny,mnz,tp_ext,&fu,&fv); uu[k]=fu*(g_mtex_w-1); uv[k]=fv*(g_mtex_h-1); } }
         uint8_t cr,cg,cb;
         if(g_mesh_chunkview){ unsigned hh=(unsigned)g_tri_chunk[i]*2654435761u; cr=(uint8_t)((70+(hh&140))*sh); cg=(uint8_t)((70+((hh>>8)&140))*sh); cb=(uint8_t)((70+((hh>>16)&140))*sh); }
         else { cr=(uint8_t)(br*sh); cg=(uint8_t)(bg*sh); cb=(uint8_t)(bb*sh); }
@@ -1216,7 +1293,15 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
             float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
             if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
             float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
-            if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } }
+            if(z>g_mzd[idx]){ g_mzd[idx]=z;
+                if(tex_on){ float w0=e0/area,w1=e1/area,w2=e2/area;   /* affine UV (preview only) */
+                    int tu=(int)(w0*uu[0]+w1*uu[1]+w2*uu[2]+0.5f), tv=(int)(w0*uv[0]+w1*uv[1]+w2*uv[2]+0.5f);
+                    if(tu<0)tu=0; if(tu>=g_mtex_w)tu=g_mtex_w-1; if(tv<0)tv=0; if(tv>=g_mtex_h)tv=g_mtex_h-1;
+                    uint16_t t=g_mtex_px[tv*g_mtex_w+tu];
+                    int tr=((t>>11)&31)<<3,tg=((t>>5)&63)<<2,tb=(t&31)<<3;   /* modulate by sun shade */
+                    tr=(int)(tr*sh); tg=(int)(tg*sh); tb=(int)(tb*sh);
+                    g_mzpx[idx]=(uint16_t)(((tr>>3)<<11)|((tg>>2)<<5)|(tb>>3)); }
+                else g_mzpx[idx]=col; } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2);
     SDL_RenderCopy(R,g_mztex,NULL,&g_me_view);
     text(R,"drag to rotate",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
@@ -1228,6 +1313,20 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
     ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
     ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+12;
+
+    /* ---- texture (ABI v35): assign a PNG -> persisted as a sidecar next to the model ---- */
+    { char sc[400]; int has=0; if(mesh_tex_sidecar(sc,sizeof sc)){ struct stat tst; has=(stat(sc,&tst)==0); }
+      char lbl[80]; if(has&&g_mtex_px){ const char*b=strrchr(sc,'/'); snprintf(lbl,sizeof lbl,"Texture: %.40s",b?b+1:sc); }
+      else snprintf(lbl,sizeof lbl,"Texture: none");
+      text(R,lbl,lx,cy,1,g_mtex_px?C_TXT:C_DIM,C_PANEL); cy+=16;
+      if(has){ MCfg gc=get_config(g_sel,g_games[g_sel].dir);   /* IDE help: a textured model needs a tex-tri budget or it draws FLAT in-game */
+        if(gc.found&&gc.tex_tris==0){ Col warn=(Col){240,150,90};
+          text(R,"! max_tex_tris is 0:",lx,cy,1,warn,C_PANEL); cy+=14;
+          char w2[64]; snprintf(w2,sizeof w2,"set >=%d or it draws flat",g_mesh_outf>0?g_mesh_outf:1);
+          text(R,w2,lx,cy,1,warn,C_PANEL); cy+=16; } }
+      int bx2=ui_btn(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_me_texassign,mx,my);
+      if(has)ui_btn(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_me_texclear,mx,my); else g_me_texclear=(SDL_Rect){0,0,0,0};
+      cy+=UI_H+12; }
 
     /* colour picker (HSV square + hue strip + swatch), like the Pixel Art tab */
     text(R,"COLOUR",lx,cy,1,C_DIM,C_PANEL); cy+=14;
@@ -1265,6 +1364,8 @@ static int mesh_down(int mx,int my){
     else if(HITR(g_me_up)){ g_mesh_up=!g_mesh_up; ch=1; }
     else if(HITR(g_me_rc)){ g_mesh_recenter=!g_mesh_recenter; ch=1; }
     else if(HITR(g_me_cv)){ g_mesh_chunkview=!g_mesh_chunkview; return 1; }   /* view-only, no reprocess */
+    else if(HITR(g_me_texassign)){ fp_open(5); return 1; }                    /* pick/import a PNG -> sidecar */
+    else if(g_me_texclear.w&&HITR(g_me_texclear)){ mesh_tex_clear(); return 1; }
     else if(HITR(g_me_hsv)){ g_me_hsvdrag=1; g_sat=clampf((mx-g_me_hsv.x)/(float)g_me_hsv.w,0,1); g_val=clampf(1-(my-g_me_hsv.y)/(float)g_me_hsv.h,0,1); g_mesh_rgb=mesh_hsv_rgb(); return 1; }
     else if(HITR(g_me_hue)){ g_me_huedrag=1; g_hue=clampf((my-g_me_hue.y)/(float)g_me_hue.h,0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); return 1; }
     else if(HITR(g_me_bake)){ mesh_bake(); return 1; }
@@ -1275,10 +1376,13 @@ static int mesh_down(int mx,int my){
 
 /* ================= rig tab: model parts + pivots/hierarchy -> MoteRig ================= */
 #define RIG_MAXP 16
-typedef struct { char name[28]; V3 *t; int nt,cap; int parent; V3 pivot; } RigPart;
+/* `uv`: 6 floats per tri (u0,v0,u1,v1,u2,v2 in 0..1, already v-flipped to the
+ * engine's top-left convention). NULL/g_rig_tex==0 => flat-shaded part. */
+typedef struct { char name[28]; V3 *t; float *uv; int nt,cap; int parent; V3 pivot; } RigPart;
 static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[320];
+static uint16_t *g_rig_tex_px; static int g_rig_tex_w, g_rig_tex_h;   /* shared rig texture (ABI v35) */
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
-static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_mesh, g_rg_view;
+static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_mesh, g_rg_view, g_rg_texassign, g_rg_texclear;
 static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
 /* 3-axis manipulator gizmo (rig view): translate handles + rotate rings */
 #define GZ_RING 20
@@ -1295,22 +1399,42 @@ static int rig_key_insert(int t_ms);   /* fwd */
 static void rig_save(void);   /* fwd */
 static void rig_anim_bake(void);   /* fwd */
 
-static void rp_tri(int p,V3 a,V3 b,V3 c){ RigPart*r=&g_rp[p]; if(r->nt>=r->cap){ r->cap=r->cap?r->cap*2:128; r->t=realloc(r->t,(size_t)r->cap*3*sizeof(V3)); }
-    V3*d=&r->t[r->nt*3]; d[0]=a; d[1]=b; d[2]=c; r->nt++; }
+/* uvN: 6 floats per tri (u0,v0,u1,v1,u2,v2 in 0..1, v already flipped), or NULL. */
+static void rp_tri(int p,V3 a,V3 b,V3 c,const float*uvN){ RigPart*r=&g_rp[p];
+    if(r->nt>=r->cap){ r->cap=r->cap?r->cap*2:128; r->t=realloc(r->t,(size_t)r->cap*3*sizeof(V3)); r->uv=realloc(r->uv,(size_t)r->cap*6*sizeof(float)); }
+    V3*d=&r->t[r->nt*3]; d[0]=a; d[1]=b; d[2]=c;
+    float*u=&r->uv[r->nt*6]; if(uvN) for(int i=0;i<6;i++)u[i]=uvN[i]; else for(int i=0;i<6;i++)u[i]=0;
+    r->nt++; }
 static V3 rig_centroid(int p){ V3 c={0,0,0}; int n=0; for(int i=0;i<g_rp[p].nt*3;i++){ c.x+=g_rp[p].t[i].x; c.y+=g_rp[p].t[i].y; c.z+=g_rp[p].t[i].z; n++; }
     return n? (V3){c.x/n,c.y/n,c.z/n} : (V3){0,0,0}; }
 static void rig_load(const char*objpath){
-    for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; g_rp[p].nt=g_rp[p].cap=0; }
+    for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; free(g_rp[p].uv); g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0; }
     g_nrp=0; g_rsel=0; snprintf(g_rig_obj,sizeof g_rig_obj,"%s",objpath);
-    FILE*f=fopen(objpath,"rb"); if(!f)return; static V3 vs[200000]; int nv=0,cur=-1; char ln[256];
+    free(g_rig_tex_px); g_rig_tex_px=0; g_rig_tex_w=g_rig_tex_h=0;
+    FILE*f=fopen(objpath,"rb"); if(!f)return; static V3 vs[200000]; static struct{float u,v;} ts[200000]; int nv=0,nvt=0,cur=-1; char ln[256];
+    char dir[320]; snprintf(dir,sizeof dir,"%s",objpath); { char*sl=strrchr(dir,'/'); if(sl)*sl=0; else dir[0]=0; }
+    char mtlname[256]={0};
     while(fgets(ln,sizeof ln,f)){
-        if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' '){ char nm[28]; if(sscanf(ln+2,"%27s",nm)==1){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm))p=i;
-            if(p<0&&g_nrp<RIG_MAXP){ p=g_nrp++; snprintf(g_rp[p].name,28,"%s",nm); g_rp[p].t=0; g_rp[p].nt=g_rp[p].cap=0; } cur=p; } }
+        if(!strncmp(ln,"mtllib ",7)){ sscanf(ln,"mtllib %255s",mtlname); }
+        else if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' '){ char nm[28]; if(sscanf(ln+2,"%27s",nm)==1){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm))p=i;
+            if(p<0&&g_nrp<RIG_MAXP){ p=g_nrp++; snprintf(g_rp[p].name,28,"%s",nm); g_rp[p].t=0; g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0; } cur=p; } }
+        else if(ln[0]=='v'&&ln[1]=='t'){ float u,v; if(sscanf(ln+3,"%f %f",&u,&v)==2&&nvt<200000){ ts[nvt].u=u; ts[nvt].v=v; nvt++; } }
         else if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<200000)vs[nv++]=v; }
-        else if(ln[0]=='f'&&ln[1]==' '){ if(cur<0&&g_nrp<RIG_MAXP){ cur=g_nrp++; snprintf(g_rp[cur].name,28,"part0"); g_rp[cur].t=0; g_rp[cur].nt=g_rp[cur].cap=0; }
-            int idx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break; int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n++]=vi; while(*p&&*p!=' '&&*p!='\t')p++; }
-            for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) rp_tri(cur,vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } }
+        else if(ln[0]=='f'&&ln[1]==' '){ if(cur<0&&g_nrp<RIG_MAXP){ cur=g_nrp++; snprintf(g_rp[cur].name,28,"part0"); g_rp[cur].t=0; g_rp[cur].uv=0; g_rp[cur].nt=g_rp[cur].cap=0; }
+            int idx[16],tdx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break;
+                int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n]=vi; tdx[n]=-1; char*sl=strchr(p,'/'); if(sl&&sl[1]&&sl[1]!='/'){ int ti=atoi(sl+1); if(ti<0)ti=nvt+ti+1; tdx[n]=ti; } n++; while(*p&&*p!=' '&&*p!='\t')p++; }
+            for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv){
+                int tt[3]={tdx[0],tdx[k-1],tdx[k]}; float uvN[6]; int have=0;
+                for(int j=0;j<3;j++){ if(tt[j]>0&&tt[j]<=nvt){ float u=ts[tt[j]-1].u,v=ts[tt[j]-1].v; if(u<0.0f||u>1.0f)u-=floorf(u); if(v<0.0f||v>1.0f)v-=floorf(v); uvN[j*2]=u; uvN[j*2+1]=1.0f-v; have=1; } else { uvN[j*2]=0; uvN[j*2+1]=0; } }
+                rp_tri(cur,vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1], have?uvN:0); } } }
     fclose(f);
+    /* texture (ABI v35): same resolution as the mesh view (sidecar wins over the
+     * .mtl map_Kd); held in g_rig_tex_px. mesh_tex_sync() re-reads it live. */
+    { char tp[700]; struct stat st;
+      if(mesh_tex_resolve(objpath,tp,sizeof tp)&&stat(tp,&st)==0&&mesh_load_tex(tp)){
+          g_rig_tex_px=g_mtex_px; g_rig_tex_w=g_mtex_w; g_rig_tex_h=g_mtex_h; g_mtex_px=0; g_mtex_w=g_mtex_h=0;
+          snprintf(g_texsync_src,sizeof g_texsync_src,"%s",tp); g_texsync_mtime=st.st_mtime; }
+      else { g_texsync_src[0]=0; g_texsync_mtime=0; } }
     for(int p=0;p<g_nrp;p++){ g_rp[p].parent = p?0:-1; g_rp[p].pivot = rig_centroid(p); }   /* defaults */
     char rp[330]; size_t l=strlen(objpath); snprintf(rp,sizeof rp,"%.*s.rig",(int)(l-4),objpath);
     FILE*rf=fopen(rp,"r"); if(rf){ char li[256];
@@ -1329,6 +1453,49 @@ static void rig_load(const char*objpath){
     for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
     snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
 }
+
+/* ===== GUI texture assignment (MESH + RIG views) =====
+ * Texturing is a real UI workflow, not a naming convention: the user assigns a
+ * PNG and we PERSIST it as a sidecar `<modelbasename>.png` next to the .obj/.stl.
+ * The bakers honour that sidecar (stl2mesh natively; obj2mesh prefers it over
+ * .mtl map_Kd). Clear deletes the sidecar. After either, the preview reloads. */
+/* The current model's sidecar path (<base>.png) for whichever model-view is active. */
+static int mesh_tex_sidecar(char*out,size_t n){
+    const char*mp = g_tab==TAB_RIG ? g_rig_obj : g_mesh_path;
+    if(!mp[0])return 0; const char*dot=strrchr(mp,'.'); size_t base=dot?(size_t)(dot-mp):strlen(mp);
+    snprintf(out,n,"%.*s.png",(int)base,mp); return 1; }
+/* Reload the active model-view so an assigned/cleared texture shows immediately. */
+static void mesh_tex_reload(void){
+    if(g_tab==TAB_RIG){ if(g_rig_obj[0]){ char p[320]; snprintf(p,sizeof p,"%s",g_rig_obj); rig_load(p); } }
+    else if(g_mesh_path[0]){ char p[320]; snprintf(p,sizeof p,"%s",g_mesh_path); g_mesh_path[0]=0; load_mesh(p); } }   /* clear cache so it re-reads */
+/* Live texture refresh for the active model view: if the resolved texture file
+ * changed on disk (assigned, edited+saved, painted, cleared) since it was loaded,
+ * re-read it — so the preview always matches the file, no reselect needed. Cheap:
+ * one stat() per frame; it reloads pixels only on an actual change. Called each
+ * frame the MESH/RIG tab is drawn. */
+static void mesh_tex_sync(void){
+    const char*mp = g_tab==TAB_RIG ? g_rig_obj : g_mesh_path;
+    char tp[700]; struct stat st;
+    int have = mp[0] && mesh_tex_resolve(mp,tp,sizeof tp) && stat(tp,&st)==0;
+    uint16_t *cur = g_tab==TAB_RIG ? g_rig_tex_px : g_mtex_px;
+    if(!have){   /* texture gone (cleared/deleted) — drop the preview's copy */
+        if(cur){ if(g_tab==TAB_RIG){ free(g_rig_tex_px); g_rig_tex_px=0; g_rig_tex_w=g_rig_tex_h=0; }
+                 else { free(g_mtex_px); g_mtex_px=0; g_mtex_w=g_mtex_h=0; } }
+        g_texsync_src[0]=0; g_texsync_mtime=0; return; }
+    if(cur && !strcmp(tp,g_texsync_src) && st.st_mtime==g_texsync_mtime) return;   /* unchanged */
+    if(mesh_load_tex(tp)){                       /* loads into g_mtex_px */
+        if(g_tab==TAB_RIG){ free(g_rig_tex_px); g_rig_tex_px=g_mtex_px; g_rig_tex_w=g_mtex_w; g_rig_tex_h=g_mtex_h; g_mtex_px=0; g_mtex_w=g_mtex_h=0; }
+        snprintf(g_texsync_src,sizeof g_texsync_src,"%s",tp); g_texsync_mtime=st.st_mtime; } }
+/* Copy a chosen image into the model's sidecar, then reload the preview. */
+static void mesh_tex_assign(const char*src){
+    char dst[400]; if(!mesh_tex_sidecar(dst,sizeof dst)){ snprintf(g_status,sizeof g_status,"open a model first"); return; }
+    if(strcmp(src,dst)!=0)copy_file(src,dst);
+    struct stat st; if(stat(dst,&st)!=0){ snprintf(g_status,sizeof g_status,"assign FAILED (could not copy texture)"); return; }
+    mesh_tex_reload(); if(g_sel>=0)build_tree(g_games[g_sel].dir);
+    const char*b=strrchr(dst,'/'); snprintf(g_status,sizeof g_status,"texture assigned: %s",b?b+1:dst); }
+static void mesh_tex_clear(void){
+    char p[400]; if(!mesh_tex_sidecar(p,sizeof p))return; remove(p); mesh_tex_reload();
+    if(g_sel>=0)build_tree(g_games[g_sel].dir); snprintf(g_status,sizeof g_status,"texture cleared"); }
 
 typedef struct { float a,b,c,d,e,f,g,h,i; } M3;
 static V3 m3a(M3 m,V3 v){ return (V3){m.a*v.x+m.b*v.y+m.c*v.z,m.d*v.x+m.e*v.y+m.f*v.z,m.g*v.x+m.h*v.y+m.i*v.z}; }
@@ -1396,6 +1563,9 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
             uint8_t cr,cg,cb; if(sel){ cr=(uint8_t)(255*sh); cg=(uint8_t)(205*sh); cb=(uint8_t)(80*sh); }
             else { cr=(uint8_t)((95+(hh&110))*sh); cg=(uint8_t)((95+((hh>>8)&110))*sh); cb=(uint8_t)((95+((hh>>16)&110))*sh); }
             uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+            /* textured (non-selected parts show the texture; selected stays tinted yellow for the editor) */
+            int rtex=(g_rig_tex_px&&!sel); float ru[3],rv[3];
+            if(rtex){ const float*uvp=&g_rp[p].uv[ti*6]; for(int k=0;k<3;k++){ ru[k]=uvp[k*2]*(g_rig_tex_w-1); rv[k]=uvp[k*2+1]*(g_rig_tex_h-1); } }
             float sx[3],sy[3],sz[3]; for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
             float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
             int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])),maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
@@ -1404,7 +1574,14 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
             for(int y=miny;y<=maxy;y++)for(int x=minx;x<=maxx;x++){ float fx=x+0.5f,fy=y+0.5f;
                 float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]), e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]), e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
                 if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue; float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x;
-                if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } }
+                if(z>g_mzd[idx]){ g_mzd[idx]=z;
+                    if(rtex){ float w0=e0/area,w1=e1/area,w2=e2/area;
+                        int tu=(int)(w0*ru[0]+w1*ru[1]+w2*ru[2]+0.5f), tv=(int)(w0*rv[0]+w1*rv[1]+w2*rv[2]+0.5f);
+                        if(tu<0)tu=0; if(tu>=g_rig_tex_w)tu=g_rig_tex_w-1; if(tv<0)tv=0; if(tv>=g_rig_tex_h)tv=g_rig_tex_h-1;
+                        uint16_t t=g_rig_tex_px[tv*g_rig_tex_w+tu]; int tr=((t>>11)&31)<<3,tg=((t>>5)&63)<<2,tb=(t&31)<<3;
+                        tr=(int)(tr*sh); tg=(int)(tg*sh); tb=(int)(tb*sh);
+                        g_mzpx[idx]=(uint16_t)(((tr>>3)<<11)|((tg>>2)<<5)|(tb>>3)); }
+                    else g_mzpx[idx]=col; } } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_rg_view);
     /* ---- 3-axis manipulator at the selected part's posed pivot ---- */
     #define PROJV(W,VX,VY) do{ V3 _q=(W); RVIEW(_q); float _iz=persp/(dist-_q.z); \
@@ -1479,7 +1656,20 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
             for(int a=0;a<3;a++){ char vb[24]; snprintf(vb,sizeof vb,"%.3f",*po[a]); ui_stepper(R,lx,cy,ax[a],vb,&g_rg_pz[a*2],&g_rg_pz[a*2+1],mx,my); cy+=UI_H+5; } }
     }
     g_rg_save=(SDL_Rect){lx,cy,MESH_CARDW-24,24}; rrect(R,lx,cy,MESH_CARDW-24,24,5,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); text(R,"Save .rig + Bake",lx+8,cy+6,1,C_TXT,hit(mx,my,lx,cy,MESH_CARDW-24,24)?C_BTNHI:C_ACC); cy+=30;
-    g_rg_mesh=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); text(R,"view as mesh \xbb",lx+8,cy+5,1,C_DIM,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN);
+    g_rg_mesh=(SDL_Rect){lx,cy,MESH_CARDW-24,20}; rrect(R,lx,cy,MESH_CARDW-24,20,4,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); text(R,"view as mesh \xbb",lx+8,cy+5,1,C_DIM,hit(mx,my,lx,cy,MESH_CARDW-24,20)?C_BTNHI:C_BTN); cy+=26;
+
+    /* ---- texture (ABI v35): assign a PNG -> sidecar next to the .obj; baked into every part ---- */
+    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
+    { char scp[400]; int has=0; if(mesh_tex_sidecar(scp,sizeof scp)){ struct stat tst; has=(stat(scp,&tst)==0); }
+      char lbl[80]; if(has&&g_rig_tex_px){ const char*b=strrchr(scp,'/'); snprintf(lbl,sizeof lbl,"Texture: %.40s",b?b+1:scp); }
+      else snprintf(lbl,sizeof lbl,"Texture: none");
+      text(R,lbl,lx,cy,1,g_rig_tex_px?C_TXT:C_DIM,C_PANEL); cy+=16;
+      if(has){ MCfg gc=get_config(g_sel,g_games[g_sel].dir);   /* IDE help: textured model needs a tex-tri budget or it draws FLAT in-game */
+        if(gc.found&&gc.tex_tris==0){ Col warn=(Col){240,150,90};
+          text(R,"! max_tex_tris is 0:",lx,cy,1,warn,C_PANEL); cy+=14;
+          text(R,"set >0 or it draws flat",lx,cy,1,warn,C_PANEL); cy+=16; } }
+      int bx2=ui_btn(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_rg_texassign,mx,my);
+      if(has)ui_btn(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_rg_texclear,mx,my); else g_rg_texclear=(SDL_Rect){0,0,0,0}; }
 }
 static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
@@ -1495,6 +1685,8 @@ static int rig_down(int mx,int my){
     if(HITR(g_rg_durm)){ g_clip_ms-=100; if(g_clip_ms<100)g_clip_ms=100; rig_key_clamp(); return 1; }
     if(HITR(g_rg_durp)){ g_clip_ms+=100; if(g_clip_ms>10000)g_clip_ms=10000; rig_key_clamp(); return 1; }
     if(HITR(g_rg_bake)){ rig_anim_bake(); return 1; }
+    if(HITR(g_rg_texassign)){ fp_open(5); return 1; }                         /* pick/import a PNG -> sidecar */
+    if(g_rg_texclear.w&&HITR(g_rg_texclear)){ mesh_tex_clear(); return 1; }
     if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; if(g_pose_mode&&!g_nrk){ g_ksel=rig_key_insert(0); g_scrub_t=0; } return 1; }
     /* manipulator: grab a translate handle, or (pose mode) a rotate ring */
     for(int a=0;a<3;a++){ int dx=mx-g_gz_ax[a].x,dy=my-g_gz_ax[a].y; if(dx*dx+dy*dy<=49){ g_gz_drag=a; g_lx=mx; g_ly=my; return 1; } }
@@ -2731,8 +2923,8 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
             Col fg=strstr(s,"$ ")==s?C_ACC:(strstr(s,"rror")||strstr(s,"FAIL"))?(Col){240,120,120}:C_DIM;
             text(R,s,12,yy,1,fg,C_DOCK); } SDL_UnlockMutex(g_logmx);
         text(R,"drag to select \xb7 Ctrl+C copy \xb7 Ctrl+A all",12,WIN_H-12,1,(Col){90,100,120},C_DOCK); return; }
-    if(g_tab==TAB_MESH){ draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
-    if(g_tab==TAB_RIG){ draw_rig(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
+    if(g_tab==TAB_MESH){ mesh_tex_sync(); draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
+    if(g_tab==TAB_RIG){ mesh_tex_sync(); draw_rig(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
@@ -2815,7 +3007,7 @@ static int native_pick(int cb,char*out,int n){
     o.lpstrFilter = cb==0 ? "Audio (wav/mp3/ogg/flac)\0*.wav;*.mp3;*.ogg;*.flac;*.m4a;*.aac\0All files\0*.*\0"
                   : cb==4 ? "Assets (images/audio/meshes)\0*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga;*.wav;*.mp3;*.ogg;*.flac;*.obj;*.stl\0All files\0*.*\0"
                           : "Images (png/bmp/jpg)\0*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga\0All files\0*.*\0";
-    o.lpstrTitle = cb==0 ? "Open audio" : cb==4 ? "Import asset" : "Open image";
+    o.lpstrTitle = cb==0 ? "Open audio" : cb==4 ? "Import asset" : cb==5 ? "Assign texture" : "Open image";
     o.Flags = OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;   /* keep our cwd intact */
     if(GetOpenFileNameA(&o)){ snprintf(out,n,"%s",buf); return 1; } return 0;
 #else
@@ -2831,7 +3023,7 @@ static int native_pick(int cb,char*out,int n){
 #endif
 }
 static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
-    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else if(cb==5)mesh_tex_assign(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
     if(g_sel>=0){ char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); struct stat st;   /* default to the open project */
@@ -2840,7 +3032,7 @@ static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof 
     else if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
 static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
-    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":g_fpick_cb==4?"IMPORT ASSET  (image / audio / mesh \xe2\x86\x92 assets/)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
+    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":g_fpick_cb==4?"IMPORT ASSET  (image / audio / mesh \xe2\x86\x92 assets/)":g_fpick_cb==5?"ASSIGN TEXTURE  (png/bmp/jpg \xe2\x86\x92 model sidecar)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
     text(R,g_fpdir,bx+14,by+38,1,C_DIM,C_PANEL);
     int mx,my; SDL_GetMouseState(&mx,&my); int ly=by+58, rows=(bh-96)/20;
     for(int i=0;i<rows&&g_fpscroll+i<g_fpn;i++){ int idx=g_fpscroll+i,y=ly+i*20,hov=hit(mx,my,bx+8,y,bw-16,20);
@@ -2858,7 +3050,7 @@ static void fp_pick(int idx){ if(idx<0||idx>=g_fpn)return; char path[840];
         else { snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); snprintf(g_fpdir,sizeof g_fpdir,"%s",path); }
         fp_scan(); return; }
     snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); g_fpick=0;
-    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else if(g_fpick_cb==4)import_to_assets(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
+    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else if(g_fpick_cb==4)import_to_assets(path); else if(g_fpick_cb==5)mesh_tex_assign(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
 static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2;
     if(hit(mx,my,g_fp_cancel.x,g_fp_cancel.y,86,26)){ g_fpick=0; return; }
     int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
@@ -3048,8 +3240,10 @@ static void draw_splitters(SDL_Renderer*R){
     if(g_split==3 || (my>=BOT_Y-4 && my<=BOT_Y+1)) plain(R,0,BOT_Y-1,WIN_W,2,hi);
 }
 
+extern void (*mote_studio_log_sink)(const char *);   /* platform log -> Console */
 int main(int argc,char**argv){
     int want_align=0; for(int i=1;i<argc;i++) if(strstr(argv[i],"calibrat")) want_align=1;
+    mote_studio_log_sink=log_add;   /* route a running game's mote->log() + engine warnings into the Console */
     ensure_cwd();              /* resolve relative asset paths regardless of launch dir */
     add_bundled_toolchain();   /* put a bundled gcc/ffmpeg (if shipped) onto PATH */
     /* Be DPI-unaware so Windows scales the window to the expected physical size — by

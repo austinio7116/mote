@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.9-alpha
+
+**Smoother sound, and you can now texture a 3D model right in the Studio.** The on-the-fly
+sound-effect synth now does its maths in single precision (with a small lookup table for
+sine and vibrato) instead of double precision — which is what the device's chip is fast at —
+so the framerate no longer drops when a lot of sounds play at once. In the IDE you can now
+pick a PNG and apply it to a model from the Mesh and Rig views and see it textured live.
+**Reflash the firmware** to get the sound change on the device; games already on the device
+keep working.
+
+### Audio
+
+- **Sound-effect synth is now single precision.** The synth that generates sound effects
+  as they play was doing double-precision maths on every sample, which is slow on the
+  device's single-precision chip. It now uses single precision throughout, with a lookup
+  table for sine and vibrato. This fixes the framerate dropping when many sounds play at
+  once.
+- **Indemnity Run uses its own original sound engine again.** It went back to the cheap
+  fixed-point synth it shipped with, instead of the streamed recipe synth — its original
+  sounds, very low CPU cost, and tiny in flash. No size regression.
+
+### Engine
+
+- **A textured model can no longer silently vanish.** If a game declares no textured-triangle
+  budget (`MoteConfig.max_tex_tris = 0`) but a model is textured, the engine now draws it flat
+  (in the texture's average colour, baked in for it) and logs a one-time hint — instead of
+  dropping every textured triangle, which left the model invisible with no feedback.
+
+### Studio (the IDE)
+
+- **Assign a texture to a 3D model, in the GUI.** The Mesh and Rig views now have an
+  **Assign…** button (and **Clear**): pick a PNG, and it's applied to the model and shown
+  textured live in the preview. The bake embeds it for you automatically. Works for OBJ and
+  STL models. Under the hood, the image you pick is saved as a `<model>.png` file next to the
+  model; the baker embeds that and it takes priority over an OBJ's own `.mtl` texture
+  reference. OBJ models use the texture coordinates from the model; STL and decimated models
+  get a triplanar projection so they texture cleanly without any.
+- **The texture preview is live.** The Mesh/Rig preview re-reads a model's texture the instant
+  the file changes — assign, edit-and-save, repaint, clear — so there's no stale "Texture:
+  none" and no need to reselect the model.
+- **It warns before a texture goes missing in-game.** If you texture a model whose game has no
+  textured-triangle budget, the texture row says so and suggests a value, so you know to raise
+  `max_tex_tris` (and the Inspector now shows a game's pool/arena summary for `game.c`, not just
+  a manifest).
+- **The Console catches everything.** A running game's `log()` output, engine warnings, and
+  game-load failures now stream into the Console instead of the terminal.
+- **Push shows live progress.** Uploading a game over USB now streams a percentage in the
+  Console as it goes, instead of looking frozen on a big upload.
+- **Mesh bakers rebuild when edited.** A baker is recompiled when its source (or the shared
+  texture embedder) changes, so editing one doesn't silently re-bake with a stale tool.
+- **Windows build fixed.** A build error that broke the Windows Studio build is resolved.
+
+### Projects
+
+- **`MOTE_GAME_META` replaces `game.toml`.** A game's name and author now live in `game.c`
+  — `MOTE_GAME_META("My Game", "me");` — the single source of truth, right next to the code.
+  New projects no longer create a `game.toml`; existing projects keep working (the tools fall
+  back to a `game.toml` name, then to the folder name).
+
+### Examples
+
+- **ThumbyCue: breaking no longer tanks the framerate.** The opening break used to drag the
+  framerate down; the physics step is now capped per frame and the hot physics code runs from
+  fast SRAM, so the break stays smooth.
+- **ThumbyCraft: world saves no longer cause periodic stutters on the device.** It now writes
+  the world only when you save (or once enough edits have built up), instead of on a repeating
+  timer — so there's no regular hitch while you play.
+
 ## 0.8-alpha
 
 **Sound effects got much smaller, and the whole Mote console now runs as a single tile

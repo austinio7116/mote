@@ -7,7 +7,8 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
 (RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
-Current engine ABI: **v35** (sprites/textures/blend, see below).
+Current engine ABI: **v38** (textured meshes v35, streamed SFX recipes v37, key-value
+blob storage v38 — see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -51,6 +52,13 @@ If you must generate art programmatically (PIL etc.) as the *authoring* step, wr
 result to the editable source file (the `.png`/`.sfx`), commit that, and bake it — the
 deliverable is the editable file, not a C array.
 
+**Texturing a 3D model (v35 textured faces) — from the Studio:** open the OBJ/STL in the
+**Mesh** (or **Rig**) view and click **Assign…** → pick a PNG. It's saved as a `<model>.png`
+**sidecar** that `mote bake`/`obj2mesh`/`stl2mesh` embeds as the mesh's `texture`, filling
+`face_uvs` from the OBJ's `vt` coords (else a triplanar projection); **Clear** removes it.
+The sidecar **wins over** an OBJ `.mtl map_Kd`, and the preview shows it live. (No hand-editing
+`.mtl` files or typing magic filenames — Assign does the import + the assignment in one step.)
+
 When in doubt, **read `README.md`** (the full engine API + asset pipeline reference)
 and **copy the closest `examples/<game>`** — every example is a self-contained,
 readable reference (`tetris3d`/`hello-mesh` minimal; `pong3d`/`arkanoid3d` polished
@@ -80,7 +88,14 @@ static const MoteGameVtbl k_vtbl = {
     .config = { .max_tris = 400, .max_spheres = 32, .depth = 1 },   // size the pools you use
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
+
+MOTE_GAME_META("My Game", "me");   // name (shown in the launcher / .mote filename) + author
 ```
+
+`MOTE_GAME_META` is the source of truth for a game's name — there is **no `game.toml`**
+anymore (the tools fall back to a legacy `game.toml`, then the folder name, only if the macro
+is absent). If a model is textured, size `.config.max_tex_tris` (≥ the model's triangle count)
+or the engine draws it flat — the Studio warns you when you assign a texture without a budget.
 
 `config` declares the resource pools the OS allocates from the 272 KB arena. Classic
 pools: `max_tris`/`max_spheres`/`max_splats`/`max_sprites`/`max_bodies`/`max_contacts`/
@@ -157,7 +172,10 @@ mote->blit_ex(fb,&img, cx,cy, fx,fy,fw,fh, angle, scale, MOTE_BLEND_ADD, 0,128);
 **Save + rumble** (v23): `mote->save(slot,data,len)` / `load(slot,buf,max)` / `save_slots()`
 (survives power-off); `mote->rumble(intensity, ms)`. **Master volume** (v29):
 `audio_set_master(v)` / `audio_get_master()` — the one knob the engine menu + every game
-share (route a game's volume option here).
+share (route a game's volume option here). **Key-value blobs** (v38):
+`mote->kv_save(key,data,len)` / `kv_load(key,buf,max)` / `kv_list(prefix,cb,arg)` — named
+persistent blobs beyond the fixed save slots, for variable/large data keyed by name (e.g.
+per-chunk world edits, ThumbyCraft's chunk store). On ThumbyOne these land on the shared FAT.
 
 **Input** (read via helpers, never poke the struct):
 ```c
@@ -167,12 +185,19 @@ if (mote_just_pressed(in, MOTE_BTN_A)) ...       // edge this frame
 // buttons: A B UP DOWN LEFT RIGHT LB RB MENU  (MENU long-hold is reserved by the OS)
 ```
 
-**Audio** — three paths, all end at the mixer:
+**Audio** — paths, all end at the mixer:
 ```c
+mote->audio_play_sfx(&coin_sfx, 1.0f);           // v37 RECOMMENDED: STREAM a MoteSfx recipe — synthesised
+                                                 //   on the fly, ~88 B flash, ~0 RAM, up to 8 at once.
+                                                 //   Ship a game's whole SFX set this way.
 mote->audio_note(440.0f, 0.85f);                 // synth tone, one per event
-MoteSound coin = mote_sfx_bake(mote, &coin_sfx); // bake a MoteSfx recipe at load (tiny flash)
-mote->audio_play(&coin, 1.0f);                   // or a baked WAV MoteSound
+MoteSound coin = mote_sfx_bake(mote, &coin_sfx); // bake a recipe to PCM at load (zero per-sample synth
+mote->audio_play(&coin, 1.0f);                   //   cost — only for games firing SO many SFX it matters)
+mote->audio_set_stream(fill_fn);                 // v36: register your own PCM source the mixer pulls each block
 ```
+The synth is single-precision (fixed in 0.8); the recipe path is cheap, but a game with
+*dense* simultaneous polyphony (a bullet-hell, a fast break) can still saturate it — bake
+to PCM (or use a cheap fixed-point synth via `audio_set_stream`) in that case.
 
 **Text / control** (overlay + engine):
 ```c

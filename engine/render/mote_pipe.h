@@ -47,4 +47,11 @@ float mote_pipe_focal(void);
 Vec3 mote_pipe_sun_view(void);
 Vec3 mote_pipe_sun_world(void);
 
+/* Textured-tri pool capacity (implemented by mote_scene3d.c). When 0, the pipe
+ * renders textured meshes flat (in their baked average colour) instead of
+ * dropping them — and latches a "starved" flag so the OS can warn the dev. */
+int  mote_scene_textri_cap(void);
+int  mote_pipe_textri_starved(void);   /* a textured mesh was drawn flat for want of a pool */
+void mote_pipe_clear_textri_starved(void);
+
 #endif /* MOTE_PIPE_H */

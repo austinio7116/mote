@@ -394,6 +394,17 @@ of textured faces visible at once. Translucent meshes (water, glass): pass
 <a href="#fn-scene_add_object"><code>scene_add_object_ex</code></a> — works on flat-coloured and textured meshes
 alike.</p>
 
+<h3 id="t-texturing-a-model">Texturing a model in the Studio</h3>
+<p>You don't have to fill in <code>texture</code> and <code>face_uvs</code> by hand. In the Studio's
+<b>Mesh</b> and <b>Rig</b> views there's an <b>Assign…</b> button (and a <b>Clear</b> to remove it):
+pick a PNG and it's applied to the model and shown <b>textured live</b> in the preview, and the bake
+embeds it automatically. Works for OBJ and STL models.</p>
+<p>The image you pick is saved as a <code>&lt;model&gt;.png</code> file next to the model, and the baker
+embeds that. If the model is an OBJ that already names a texture through its <code>.mtl</code>
+<code>map_Kd</code>, the assigned <code>&lt;model&gt;.png</code> <b>takes priority</b>. The Studio also fills
+in the texture coordinates for you: an OBJ uses the texture coordinates already in the model, while an STL
+or a decimated mesh (which has none) gets a triplanar projection so it textures cleanly without any.</p>
+
 <h3 id="fn-set_background_cb">set_background_cb <span class="badge abi">v26</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">set_background_cb</span>)(<span class="kw">void</span> (*fn)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> y0, <span class="kw">int</span> y1));</pre>
 <p>Registers a per-band background pass run <i>before</i> the 3D scene (depth already cleared), on both cores with

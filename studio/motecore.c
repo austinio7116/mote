@@ -33,7 +33,14 @@ static const char *ARM = "arm-none-eabi-";
 const char *mc_host_ext(void){ return HOST_EXT; }
 
 int mc_name(const char *dir, char *out, int n){
-    char p[340]; snprintf(p,sizeof p,"%.320s/game.toml",dir); FILE *f=fopen(p,"r");
+    char p[340];
+    /* Source of truth: MOTE_GAME_META("name", ...) at file scope in src/game.c. */
+    snprintf(p,sizeof p,"%.320s/src/game.c",dir); FILE *f=fopen(p,"r");
+    if(f){ static char buf[400000]; size_t got=fread(buf,1,sizeof buf-1,f); buf[got]=0; fclose(f);
+        char *m=strstr(buf,"MOTE_GAME_META");
+        if(m){ char *q=strchr(m,'"'); if(q){ char *e=strchr(q+1,'"'); if(e){ int l=(int)(e-q-1); if(l>=n)l=n-1; if(l<0)l=0; memcpy(out,q+1,l); out[l]=0; return 1; } } } }
+    /* Legacy fallback: a game.toml [game] name (older projects). */
+    snprintf(p,sizeof p,"%.320s/game.toml",dir); f=fopen(p,"r");
     if(f){ char ln[200]; while(fgets(ln,sizeof ln,f)){ if(strstr(ln,"name")){ char *q=strchr(ln,'"');
         if(q){ char *e=strchr(q+1,'"'); if(e){ int l=(int)(e-q-1); if(l>=n)l=n-1; memcpy(out,q+1,l); out[l]=0; fclose(f); return 1; } } } } fclose(f); }
     const char *b=strrchr(dir,'/'); snprintf(out,n,"%s",b?b+1:dir); return 1; }
@@ -201,8 +208,9 @@ int mc_new(const char *name, int kind, mote_log_fn log){
     struct stat st; if(stat(dir,&st)==0){ log("a project with that name already exists"); return -1; }
     char p[260]; MKDIR("examples"); MKDIR(dir);
     snprintf(p,sizeof p,"%.200s/src",dir); MKDIR(p); snprintf(p,sizeof p,"%.200s/assets",dir); MKDIR(p);
-    snprintf(p,sizeof p,"%.200s/game.toml",dir); FILE *f=fopen(p,"w"); if(f){ fprintf(f,TMPL_TOML,name); fclose(f); }
-    snprintf(p,sizeof p,"%.200s/src/game.c",dir); f=fopen(p,"w"); if(f){ fprintf(f,tmpl_for(kind),name); fclose(f); }
+    /* Name/author live in game.c (MOTE_GAME_META) now — no game.toml is written. */
+    snprintf(p,sizeof p,"%.200s/src/game.c",dir); FILE *f=fopen(p,"w");
+    if(f){ fprintf(f,tmpl_for(kind),name); fprintf(f,"\nMOTE_GAME_META(\"%s\", \"you\");\n",name); fclose(f); }
     snprintf(p,sizeof p,"%.200s/.gitignore",dir); f=fopen(p,"w"); if(f){ fprintf(f,"build/\n"); fclose(f); }
     { char m[120]; snprintf(m,sizeof m,"created examples/%s",name); log(m); } return 0; }
 
@@ -219,9 +227,11 @@ static int bake_image(const char *path, const char *header, const char *name, mo
     fprintf(f,"\n};\nstatic const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };\n#define %s_W %d\n#define %s_H %d\n\n#endif\n",name,name,w,h,0xF81F,keyed?0:1,name,w,name,h);
     fclose(f); stbi_image_free(d); { char m[170]; snprintf(m,sizeof m,"baked %s: %dx%d %s -> %s",name,w,h,keyed?"keyed":"opaque",header); log(m); } return 0; }
 
-/* Launcher icon: <root>/icon.png|bmp -> src/icon.h (mote_game_icon_data[3600],
- * 60x60 RGB565). Box-resamples any source size; transparent pixels -> black.
- * Done natively (stb) so the Studio bakes it with no CLI/imagemagick. */
+/* Launcher icon: <root>/icon.png|bmp -> src/icon.h (mote_game_icon_data[],
+ * 60x60 RGB565 compact paletted blob). Box-resamples any source size; transparent
+ * pixels -> black. Done natively (stb) so the Studio bakes it with no CLI/imagemagick.
+ * The game never #includes it: sdk/mote_build.h auto-pulls icon.h via __has_include,
+ * so the baked symbol travels in the module with zero dev action. */
 static int bake_icon(const char *dir, mote_log_fn log){
     char src[420]; unsigned char *d=NULL; int w=0,h=0,n=0;
     snprintf(src,sizeof src,"%.380s/icon.png",dir); d=stbi_load(src,&w,&h,&n,4);
@@ -244,8 +254,16 @@ static int bake_icon(const char *dir, mote_log_fn log){
     fprintf(f,"\n};\n\n#endif\n"); fclose(f);
     { char m[200]; snprintf(m,sizeof m,"baked icon: %dx%d -> %s (%d bytes, was 7200)",w,h,header,len); log(m); } return 0; }
 
-static void ensure_tool(const char *src, const char *bin, mote_log_fn log){ struct stat st; if(stat(bin,&st)==0)return;
-    char cmd[600]; snprintf(cmd,sizeof cmd,"gcc -O2 tools/%s -lm -o %s 2>&1",src,bin); run_logged(cmd,log); }
+/* Build the baker tool if its binary is missing OR older than its source or the
+ * shared tex_embed.h — so editing a baker doesn't silently re-bake with a stale
+ * tool (the binaries live in /tmp and outlive a source edit otherwise). */
+static void ensure_tool(const char *src, const char *bin, mote_log_fn log){
+    struct stat sb, ss, sh; char sp[600]; snprintf(sp,sizeof sp,"tools/%s",src);
+    time_t newest = 0;
+    if(stat(sp,&ss)==0 && ss.st_mtime>newest) newest=ss.st_mtime;
+    if(stat("tools/tex_embed.h",&sh)==0 && sh.st_mtime>newest) newest=sh.st_mtime;
+    if(stat(bin,&sb)==0 && sb.st_mtime>=newest) return;     /* up to date */
+    char cmd[600]; snprintf(cmd,sizeof cmd,"gcc -O2 -I studio/third_party tools/%s -lm -o %s 2>&1",src,bin); run_logged(cmd,log); }
 
 /* wav2snd — a 22050 Hz mono s16 WAV -> a MoteSound header (PCM int16 array). */
 static int bake_wav(const char *path, const char *header, const char *name, mote_log_fn log){
@@ -276,7 +294,13 @@ static void bake_dir(const char *adir, const char *srcdir,
         struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,log,did); continue; }
         int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
         char header[600]; snprintf(header,sizeof header,"%.400s/%.80s.h",srcdir,base);
-        if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){ if(bake_image(path,header,base,log)==0)(*did)++; }
+        if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){
+            /* A PNG next to a model with the same basename is that model's TEXTURE
+             * SIDECAR (assigned in the MESH/RIG view) — baked into the mesh header by
+             * obj2mesh/stl2mesh, never as a standalone image (same .h would collide). */
+            char mo[600],ms[600]; struct stat mst; snprintf(mo,sizeof mo,"%.500s/%.70s.obj",adir,base); snprintf(ms,sizeof ms,"%.500s/%.70s.stl",adir,base);
+            if(stat(mo,&mst)==0||stat(ms,&mst)==0) continue;
+            if(bake_image(path,header,base,log)==0)(*did)++; }
         else if(!strcasecmp(n+l-4,".obj")){ char rigp[600]; snprintf(rigp,sizeof rigp,"%.500s/%.60s.rig",adir,base); struct stat rs;
             if(stat(rigp,&rs)==0){ ensure_tool("obj2rig.c",rigtool,log); char rh[700]; snprintf(rh,sizeof rh,"%.400s/%.60s.rig.h",srcdir,base);
                 char c[1500]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)(*did)++; }   /* OBJ + .rig -> MoteRig */

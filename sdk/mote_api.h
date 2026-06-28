@@ -451,4 +451,14 @@ const MoteGameVtbl *mote_game_register(const MoteApi *api);
         return mote_game_vtbl();                                             \
     }
 
+/* Game metadata. NAME is shown in the launcher and used for the .mote filename;
+ * AUTHOR credits you. Put it at file scope in game.c (anywhere after this header):
+ *     MOTE_GAME_META("My Game", "me");
+ * This is the source of truth for a game's name. Tools that need the name without
+ * compiling text-scan game.c for MOTE_GAME_META; if absent they fall back to a
+ * legacy game.toml [game] name, then to the folder name. */
+#define MOTE_GAME_META(NAME, AUTHOR)                                          \
+    const char *const mote_game_name   = NAME;                                \
+    const char *const mote_game_author = AUTHOR
+
 #endif /* MOTE_API_H */

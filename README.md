@@ -104,7 +104,7 @@ This produces:
 `./tools/mote`.
 
 ```bash
-mote new mygame                  # scaffold mygame/ — a runnable 3D starter + game.toml
+mote new mygame                  # scaffold mygame/ — a runnable 3D starter (name in game.c)
 mote new mygame -t physics       # or pick a template: 3d (default) · physics · 2d
 mote run mygame                  # compile mygame → host .so, launch the emulator
 ```
@@ -116,7 +116,7 @@ it draws, so a new game starts with sensible claims rather than zero or guesswor
 
 | Command | What it does |
 |---|---|
-| `mote new <dir> [-t 3d\|physics\|2d]` | Scaffold a game: `game.toml`, a runnable `src/game.c` for the chosen template, `assets/` |
+| `mote new <dir> [-t 3d\|physics\|2d]` | Scaffold a game: a runnable `src/game.c` (with `MOTE_GAME_META` name/author) for the chosen template, `assets/` |
 | `mote build <dir>` | Compile → host `.so` in `<dir>/build/`. Add `--device` for the RP2350 `.mote` |
 | `mote run <dir>` | Build for host **and** launch the SDL emulator on it |
 | `mote bake <dir>` | Convert `assets/*.png`, `*.obj`, `*.stl` → C headers in `src/` (see §4) |
@@ -146,19 +146,22 @@ SDL_VIDEODRIVER=dummy MOTE_SHOT=/tmp/shot.ppm MOTE_SHOT_FRAME=60 \
   ./build_host/mote_host examples/mygame/build/mygame.so
 ```
 
-### 2.4 The `game.toml` manifest
+### 2.4 Game name & author — `MOTE_GAME_META`
 
-`mote new` writes a tiny manifest. It only carries metadata; the *engine* config
-(memory pools) lives in your C code (§7), not here.
+A game's name and author live in `game.c`, right next to the code — the single
+source of truth. `mote new` writes it for you:
 
-```toml
-[game]
-name = "mygame"      # the module's name (used for the built .so/.mote filenames,
-                     # the device catalog, and the launcher list). Defaults to the
-                     # folder name if omitted.
-author = "you"
-abi = 1
+```c
+MOTE_GAME_META("My Game", "me");   // name + author, at file scope
 ```
+
+The **name** is used for the built `.so`/`.mote` filenames, the device catalog, and
+the launcher list. The *engine* config (memory pools) is separate — it's the `.config`
+in your vtbl (§7).
+
+> Legacy: older projects carried this in a `game.toml` `[game]` table. That still works
+> as a fallback (then the folder name) if `MOTE_GAME_META` is absent, but new projects
+> don't create a `game.toml`.
 
 ### 2.5 Mote Studio — the IDE (recommended workflow)
 
@@ -208,7 +211,7 @@ mote studio              # or: ./build_host/mote_studio   (run from the repo roo
   | **Code** | Built-in C editor with syntax highlighting + inline build errors, or jump to VS Code. |
   | **Tiles** | Rule-tile (autotile) authoring: Blob-47 / edge / Wang templates, per-rule cell editing, weighted variants, rotation/flip, and a **LEVEL** painter (always scaled to fit). **Bake** writes the tileset(s) + a bit-packed `.level.h`. |
   | **Anim** | Sprite-animation editor: clips with per-frame durations, onion-skin, frame events, pivots, and the pixel editor for each frame. **Bake** writes a `MoteAnimClip` set. |
-  | **Mesh** | Live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). |
+  | **Mesh** | Live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). **Assign…** picks a PNG to texture the model (shown live in the preview, embedded automatically on bake; **Clear** removes it). |
   | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono) or design an SFX with the SFXR synth + presets; see the waveform, crop, play. **Save** writes the `.wav`, the editable `.sfx` recipe, a `MoteSound` header *and* a `MoteSfx` recipe header (play via `audio_play` or `mote_sfx_bake`, §9). |
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |

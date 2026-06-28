@@ -89,7 +89,15 @@ int mote_dev_push(const char *path,const char *name,int launch,mote_log_fn log){
     shandle h=ser_open(); if(h==SBAD){ log("no Mote device found"); free(data); return -1; }
     char cmd[160],r[80]; snprintf(cmd,sizeof cmd,"PUT %s %ld\n",name,sz); ser_write(h,cmd,(int)strlen(cmd));
     ser_readline(h,r,sizeof r,3000); if(strcmp(r,"READY")){ log("device did not accept PUT"); ser_close(h); free(data); return -1; }
-    long off=0; while(off<sz){ int ch=sz-off>4096?4096:(int)(sz-off); int w=ser_write(h,data+off,ch); if(w<=0)break; off+=w; }
+    { char m[112]; snprintf(m,sizeof m,"pushing %s (%ld KB) — throttled by the device as it writes flash...",name,(sz+1023)/1024); log(m); }
+    /* Stream a percentage line every ~10% so a long push visibly progresses and
+     * the user doesn't think the IDE hung. The device flow-controls these writes
+     * while it commits to flash, so `off` advancing is real progress. */
+    long off=0; int last_step=-1;
+    while(off<sz){ int ch=sz-off>4096?4096:(int)(sz-off); int w=ser_write(h,data+off,ch); if(w<=0)break; off+=w;
+        int step=(int)(off*10/sz);
+        if(step!=last_step){ last_step=step; char m[80]; snprintf(m,sizeof m,"  ... %d%%  (%ld/%ld KB)",step*10,off/1024,(sz+1023)/1024); log(m); } }
+    log("  transfer sent — waiting for the device to finish writing flash...");
     int tmo=20000; if(sz/8>tmo)tmo=(int)(sz/8); ser_readline(h,r,sizeof r,tmo);
     if(strcmp(r,"OK")){ char m[96]; snprintf(m,sizeof m,"push failed: %s",r); log(m); ser_close(h); free(data); return -1; }
     { char m[96]; snprintf(m,sizeof m,"pushed %s  (%ld bytes)",name,sz); log(m); }

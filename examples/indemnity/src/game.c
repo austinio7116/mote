@@ -46,38 +46,14 @@ MOTE_MODULE_HEADER();
  * Set once at init so ships/planets/FX/sky all call the engine directly. */
 const MoteApi *g_em;
 
-/* ===================== audio: elite_audio API over STREAMED SFX RECIPES (ABI v37) =====================
- * Every weapon + sound is an editable .sfx recipe (assets/*.sfx, Audio tab). We play the
- * recipe DIRECTLY via mote->audio_play_sfx — the engine synthesises it on the fly. The
- * recipe is ~88 bytes in flash (vs the multi-KB baked PCM clip), 0 arena. This is the
- * whole point of recipes: tiny on disk. Tune in Studio and re-Save the .sfx. */
-#include "elite_sfx_all.h"
-/* Volume is the ENGINE master (shared with the engine menu); play() passes raw gain. */
-static void play(const MoteSfx *s, float gain){ if(mote->audio_play_sfx && s) mote->audio_play_sfx(s, gain); }
-
-void audio_init(void) {}
-int  audio_render(int16_t *out, int n) { for (int i=0;i<n;i++) out[i]=0; return n; }   /* unused on Mote */
-void  audio_set_master(float v){ if(mote->audio_set_master) mote->audio_set_master(v); }
-float audio_get_master(void){ return mote->audio_get_master ? mote->audio_get_master() : 1.0f; }
-void audio_engine_set(float throttle01, float speed01){ (void)throttle01; (void)speed01; }  /* continuous hum dropped */
-
-void sfx_weapon(int wpn_type, float amp){ if(wpn_type>=0 && wpn_type<18) play(ELITE_WPN_SFX[wpn_type], amp); }
-void sfx_explosion(float amp, float big01){ (void)big01; play(&sfx_explosion_sfx, amp); }
-void sfx_hit_shield(void){ play(&sfx_hit_shield_sfx, 0.8f); }
-void sfx_enemy_shield_hit(void){ play(&sfx_enemy_shield_hit_sfx, 0.6f); }
-void sfx_lock_acquire(void){ play(&sfx_lock_acquire_sfx, 0.7f); }
-void sfx_lock_warn(void){ play(&sfx_lock_warn_sfx, 0.8f); }
-void sfx_hit_hull(void){ play(&sfx_hit_hull_sfx, 0.9f); }
-void sfx_ui_move(void){ play(&sfx_ui_move_sfx, 0.5f); }
-void sfx_ui_select(void){ play(&sfx_ui_select_sfx, 0.6f); }
-void sfx_ui_deny(void){ play(&sfx_ui_deny_sfx, 0.6f); }
-void sfx_scoop(void){ play(&sfx_scoop_sfx, 0.6f); }
-void sfx_jump(void){ play(&sfx_jump_sfx, 0.9f); }
-void sfx_sc_engage(void){ play(&sfx_sc_engage_sfx, 0.8f); }
-void sfx_charge_step(int step){ (void)step; play(&sfx_charge_step_sfx, 0.5f); }
-void sfx_chaff(void){ play(&sfx_chaff_sfx, 0.7f); }
-void sfx_dock(void){ play(&sfx_dock_sfx, 0.8f); }
-void sfx_klaxon(void){ play(&sfx_klaxon_sfx, 0.7f); }
+/* ===================== audio: native ThumbyElite synth via the engine stream ==========
+ * The full standalone synth (elite_audio.c) is vendored verbatim — a cheap fixed-point
+ * voice pool (Q16 phase, LFSR noise, square/saw/sine/noise; no sinf/double/oversampling),
+ * which is why it held framerate where the streamed SFXR recipes did not. The engine
+ * pulls audio_render() each block via mote->audio_set_stream() (wired in g_init), exactly
+ * like ThumbyCraft's synth. elite_audio.c supplies audio_init/render/set_master/get_master/
+ * engine_set + every sfx_* the game calls — the original sounds, tiny flash, ~0 arena. */
+#include "elite_audio.h"
 
 /* ===================== platform hooks: stubbed (accepted gaps) ===================== */
 static void put_dash(char *out, int cap){ if(cap>0){ out[0]='-'; if(cap>1) out[1]=0; } }
@@ -130,9 +106,14 @@ static void map_buttons(const MoteInput *in, CraftRawButtons *b){
 static void g_init(void){
     g_em = mote;                                      /* share the engine with all render files */
     r3d_fx_set_parts(mote->alloc(r3d_fx_parts_bytes()));   /* particle pool in the arena */
-    if (mote->audio_set_master) mote->audio_set_master(0.7f);   /* default volume (engine master) */
+    /* Native synth: engine master pass-through (1.0); elite_audio's own master is the
+     * game's volume control. Route audio_render into the engine mixer. */
+    if (mote->audio_set_master) mote->audio_set_master(1.0f);
+    audio_init();
+    audio_set_master(0.7f);                            /* elite synth default level */
+    if (mote->audio_set_stream) mote->audio_set_stream(audio_render);
     mote->set_background_cb(r3d_background);           /* starfield/nebula/galaxies/dust */
-    elite_game_init((uint32_t)mote->micros() | 1u);   /* SFX are baked flash clips — no arena */
+    elite_game_init((uint32_t)mote->micros() | 1u);
 }
 static void g_update(float dt){
     CraftRawButtons b; map_buttons(mote->input(), &b);

@@ -154,7 +154,11 @@ static float sfx_frnd(float r){ s_sfxrng = s_sfxrng*1103515245u + 12345u; return
 #endif
 typedef struct {
     const MoteSfx *p; int done;
-    double fperiod, fmaxperiod, fslide, fdslide, arp_mod;
+    /* float, not double: the RP2350 M33 FPU is single-precision only, so double
+     * math is software-emulated — and these run on EVERY sample of EVERY voice
+     * (the per-sample freq sweep), which dominated 8-voice combat. Init still
+     * computes them in double for setup precision, then stores to float. */
+    float fperiod, fmaxperiod, fslide, fdslide, arp_mod;
     float sq_duty, sq_slide;
     int arp_time, arp_limit;
     float lpf, fltp, fltdp, fltw, fltw_d, fltdmp, fltphp, flthp, flthp_d;
@@ -168,11 +172,11 @@ typedef struct {
 
 static void sfx_gen_init(SfxGen *g, const MoteSfx *p){
     g->p=p; g->done=0;
-    double base=p->base_freq, lim=p->freq_limit;
-    g->fperiod=100.0/(base*base+0.001); g->fmaxperiod=100.0/(lim*lim+0.001);
-    g->fslide=1.0-pow((double)p->freq_ramp,3.0)*0.01; g->fdslide=-pow((double)p->freq_dramp,3.0)*0.000001;
+    float base=p->base_freq, lim=p->freq_limit;
+    g->fperiod=100.0f/(base*base+0.001f); g->fmaxperiod=100.0f/(lim*lim+0.001f);
+    g->fslide=1.0f-powf(p->freq_ramp,3.0f)*0.01f; g->fdslide=-powf(p->freq_dramp,3.0f)*0.000001f;
     g->sq_duty=0.5f-p->duty*0.5f; g->sq_slide=-p->duty_ramp*0.00005f;
-    g->arp_mod = p->arp_mod>=0 ? 1.0-pow((double)p->arp_mod,2.0)*0.9 : 1.0+pow((double)p->arp_mod,2.0)*10.0;
+    g->arp_mod = p->arp_mod>=0 ? 1.0f-powf(p->arp_mod,2.0f)*0.9f : 1.0f+powf(p->arp_mod,2.0f)*10.0f;
     g->arp_time=0; g->arp_limit=(int)(powf(1.0f-p->arp_speed,2.0f)*20000+32); if(p->arp_speed==1.0f)g->arp_limit=0;
     g->lpf = p->lpf_freq<=0 ? 1.0f : p->lpf_freq;
     g->fltp=0; g->fltdp=0; g->fltw=powf(g->lpf,3.0f)*0.1f; g->fltw_d=1.0f+p->lpf_ramp*0.0001f;
@@ -199,7 +203,7 @@ static int sfx_gen_block(SfxGen *g, int16_t *out, int max){
         g->arp_time++; if(g->arp_limit!=0&&g->arp_time>=g->arp_limit){ g->arp_limit=0; g->fperiod*=g->arp_mod; }
         g->fslide+=g->fdslide; g->fperiod*=g->fslide;
         if(g->fperiod>g->fmaxperiod){ g->fperiod=g->fmaxperiod; if(p->freq_limit>0){ g->done=1; break; } }
-        float rfp=(float)g->fperiod; if(g->vib_amp>0){ g->vib_phase+=g->vib_speed; rfp=(float)(g->fperiod*(1.0+sin(g->vib_phase)*g->vib_amp)); }
+        float rfp=g->fperiod; if(g->vib_amp>0){ g->vib_phase+=g->vib_speed; rfp=g->fperiod*(1.0f+s_sin[(int)(g->vib_phase*((float)LUT*0.1591549431f))&(LUT-1)]*g->vib_amp); }
         g->period=(int)rfp; if(g->period<8)g->period=8;
         g->sq_duty+=g->sq_slide; if(g->sq_duty<0)g->sq_duty=0; if(g->sq_duty>0.5f)g->sq_duty=0.5f;
         g->env_time++; if(g->env_time>g->env_len[g->env_stage]){ g->env_time=0; if(++g->env_stage==3){ g->done=1; break; } }
@@ -211,7 +215,7 @@ static int sfx_gen_block(SfxGen *g, int16_t *out, int max){
         for(int si=0;si<8;si++){ g->phase++; if(g->phase>=g->period){ g->phase%=g->period; if(p->wave==3){ s_sfxrng=g->rng; for(int i=0;i<32;i++)g->noise[i]=sfx_frnd(2.0f)-1.0f; g->rng=s_sfxrng; } }
             float fp=(float)g->phase/g->period, sample;
             switch(p->wave){ case 0: sample=fp<g->sq_duty?0.5f:-0.5f; break; case 1: sample=1.0f-fp*2; break;
-                case 2: sample=sinf(fp*6.2831853f); break; default: sample=g->noise[g->phase*32/g->period]; break; }
+                case 2: sample=s_sin[(int)(fp*(float)LUT)&(LUT-1)]; break; default: sample=g->noise[g->phase*32/g->period]; break; }
             float pp=g->fltp; g->fltw*=g->fltw_d; if(g->fltw<0)g->fltw=0; if(g->fltw>0.1f)g->fltw=0.1f;
             if(g->lpf!=1.0f){ g->fltdp+=(sample-g->fltp)*g->fltw; g->fltdp-=g->fltdp*g->fltdmp; } else { g->fltp=sample; g->fltdp=0; }
             g->fltp+=g->fltdp; g->fltphp+=g->fltp-pp; g->flthp*=g->flthp_d; g->fltphp-=g->fltphp*g->flthp; sample=g->fltphp;

@@ -276,6 +276,8 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
     uint64_t last = mote_plat_micros();
     uint32_t menu_hold_ms = 0;
     s_fps_limit = 0;          /* each game starts uncapped; it opts in via set_fps_limit */
+    mote_pipe_clear_textri_starved();  /* per-game; warn at most once if it trips */
+    int warned_textri = 0;
 
     while (!mote_plat_should_quit() && !s_exit_req) {
         uint64_t now = mote_plat_micros();
@@ -325,6 +327,16 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         uint64_t tu = mote_plat_micros();
         if (vt->update) vt->update(dt);
         uint32_t update_us = (uint32_t)(mote_plat_micros() - tu);
+
+        /* Footgun guard: a model became textured (e.g. a texture was assigned in
+         * the Studio) but this game's MoteConfig.max_tex_tris is 0, so the engine
+         * drew it flat. Tell the dev once how to make the texture actually show. */
+        if (!warned_textri && mote_pipe_textri_starved()) {
+            warned_textri = 1;
+            mote_plat_log("[mote] a textured model has no textured-triangle budget — "
+                          "drawing it flat. Set MoteConfig.max_tex_tris (>= the model's "
+                          "triangle count) to render the texture.");
+        }
 
         /* Now wait for that flush to finish before we touch the framebuffer.
          * If update took longer than the flush, this is ~0 (flush fully hidden). */

@@ -13,6 +13,17 @@
 #define CUE_H        (1.0f / 2000.0f)
 #define CUE_MAX_SUB  400      /* cap iterations per call (anti death-spiral) */
 
+/* Hot physics tree -> SRAM on the Mote device module (like ThumbyCraft's CRAFT_HOT).
+ * substep() + its callees run dt*2000 times/frame; on a break that's the framerate.
+ * The Mote module's code executes from XIP flash by default, which is markedly slower
+ * than the native build's hot path — moving this tree to .ramtext (copied to SRAM at
+ * load, ABI v36) is the lever that recovers it. No-op on the host build. */
+#if defined(MOTE_MODULE_BUILD)
+#  define CUE_HOT __attribute__((section(".ramtext.cue")))
+#else
+#  define CUE_HOT
+#endif
+
 /* Below these the corresponding motion is treated as stopped. */
 #define V_STOP   0.005f       /* m/s linear */
 #define U_ROLL   0.01f        /* m/s contact-point slip => rolling */
@@ -79,7 +90,7 @@ void cue_phys_strike(const CueWorld *w, CueBall *b, Vec3 dir, float speed,
 static float s_cush_vn;
 
 /* ---- per-ball cloth-contact evolution for one substep ------------------ */
-static void ball_cloth(const CueWorld *w, CueBall *b, float h) {
+static CUE_HOT void ball_cloth(const CueWorld *w, CueBall *b, float h) {
     const float R = w->R, g = w->g;
     Vec3 rc = v3(0, -R, 0);                    /* centre -> contact point */
     /* Contact-point velocity (slip of the ball on the cloth). */
@@ -134,7 +145,7 @@ static void ball_cloth(const CueWorld *w, CueBall *b, float h) {
 }
 
 /* Integrate the render orientation from the angular velocity. */
-static void ball_spin_orient(CueBall *b, float h) {
+static CUE_HOT void ball_spin_orient(CueBall *b, float h) {
     float wl = v3_len(b->w);
     if (wl > 1e-5f) {
         Vec3 axis = v3_scale(b->w, 1.0f / wl);
@@ -143,7 +154,7 @@ static void ball_spin_orient(CueBall *b, float h) {
 }
 
 /* ---- ball–ball impulse (restitution + Coulomb throw) ------------------- */
-static int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj) {
+static CUE_HOT int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj) {
     Vec3 d = v3_sub(bj->pos, bi->pos);
     d.y = 0.0f;
     float dist = sqrtf(d.x * d.x + d.z * d.z);
@@ -199,7 +210,7 @@ static int collide_ball_ball(const CueWorld *w, CueBall *bi, CueBall *bj) {
 /* ---- ball vs an immovable surface with contact normal N (unit, into ball)
  * raised by an optional tilt. Used for cushions (tilted) and jaw circles
  * (horizontal). Returns 1 if a collision was resolved. ------------------- */
-static int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
+static CUE_HOT int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
                            float e, float mu) {
     /* Contact point on the ball is opposite N: r = −R N. The normal impulse
      * is therefore central (no torque); english/throw come from friction. */
@@ -244,7 +255,7 @@ static int collide_surface(const CueWorld *w, CueBall *b, Vec3 N,
 }
 
 /* Closest point on segment [a,b] to point p (X–Z plane). */
-static Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
+static CUE_HOT Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
     Vec3 ab = v3_sub(b, a); ab.y = 0;
     Vec3 ap = v3_sub(p, a); ap.y = 0;
     float L2 = ab.x * ab.x + ab.z * ab.z;
@@ -253,7 +264,7 @@ static Vec3 seg_closest(Vec3 a, Vec3 b, Vec3 p) {
     return v3(a.x + ab.x * t, p.y, a.z + ab.z * t);
 }
 
-static int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
+static CUE_HOT int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
     int hit = 0;
     /* Tilt the rail normal up by cush_tilt so top/back spin couples into the
      * rebound; then re-normalise. */
@@ -309,7 +320,7 @@ static int collide_cushions(const CueWorld *w, CueBall *b, uint32_t *ev) {
     return hit;
 }
 
-static int check_pockets(const CueWorld *w, CueBall *b) {
+static CUE_HOT int check_pockets(const CueWorld *w, CueBall *b) {
     for (int p = 0; p < w->npocket; p++) {
         Vec3 d = v3_sub(b->pos, w->pocket[p]); d.y = 0.0f;
         float dist = sqrtf(d.x * d.x + d.z * d.z);
@@ -326,7 +337,7 @@ static int check_pockets(const CueWorld *w, CueBall *b) {
     return 0;
 }
 
-static void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_t *ev) {
+static CUE_HOT void substep(CueWorld *w, CueBall *balls, int n, float h, uint32_t *ev) {
     /* 1. cloth friction + integrate. Balls mid-drop instead fall into the
      * pocket (pulled to the centre + accelerating downward) and are removed
      * when they sink below the recess. */
@@ -422,7 +433,7 @@ void cue_phys_set_substep(float h) { g_sub_h = (h > 0.0f) ? h : CUE_H; }
 
 float cue_phys_cushion_impact(void) { return s_cush_vn; }
 
-int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
+CUE_HOT int cue_phys_step(CueWorld *w, CueBall *balls, int n, float dt, uint32_t *events) {
     if (events) *events = 0;
     s_cush_vn = 0.0f;                  /* reset the cushion-impact meter for this step */
     float h = g_sub_h;

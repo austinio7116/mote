@@ -23,21 +23,26 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include "tex_embed.h"      /* PNG -> RGB565 MoteImage (ABI v35 textured meshes) */
 
 #define MAX_V 8192
+#define MAX_VT 16384
 #define MAX_F 16384
 #define MAX_MTL 64
 #define MAX_PART 32
 
 typedef struct { float x, y, z; } V3;
-typedef struct { int a, b, c, mtl, part; } Face;
-typedef struct { char name[64]; float r, g, b; } Mtl;
+typedef struct { float u, v; } V2;
+typedef struct { int a, b, c, mtl, part; int ta, tb, tc; } Face;
+typedef struct { char name[64]; float r, g, b; char map_Kd[256]; } Mtl;
 
 static V3   verts[MAX_V];
+static V2   texc[MAX_VT];
 static Face faces[MAX_F];
 static Mtl  mtls[MAX_MTL];
 static char partname[MAX_PART][64];
-static int  nv, nf, nmtl, npart;
+static int  nv, nvt, nf, nmtl, npart;
+static char g_objdir[400];
 
 /* .rig sidecar: parent name + pivot per part */
 static char rig_parent[MAX_PART][64];
@@ -52,15 +57,23 @@ static void load_mtl(const char *objpath, const char *mtlname){
     char path[512]; const char *sl=strrchr(objpath,'/');
     if(sl) snprintf(path,sizeof path,"%.*s/%s",(int)(sl-objpath),objpath,mtlname); else snprintf(path,sizeof path,"%s",mtlname);
     FILE *f=fopen(path,"r"); if(!f) return; char line[256]; Mtl *cur=NULL;
-    while(fgets(line,sizeof line,f)){ char name[64]; float r,g,b;
-        if(sscanf(line,"newmtl %63s",name)==1){ if(nmtl<MAX_MTL){ cur=&mtls[nmtl++]; snprintf(cur->name,sizeof cur->name,"%s",name); cur->r=cur->g=cur->b=0.6f; } }
-        else if(cur && sscanf(line,"Kd %f %f %f",&r,&g,&b)==3){ cur->r=r; cur->g=g; cur->b=b; } }
+    while(fgets(line,sizeof line,f)){ char name[64],tex[256]; float r,g,b;
+        if(sscanf(line,"newmtl %63s",name)==1){ if(nmtl<MAX_MTL){ cur=&mtls[nmtl++]; snprintf(cur->name,sizeof cur->name,"%s",name); cur->r=cur->g=cur->b=0.6f; cur->map_Kd[0]=0; } }
+        else if(cur && sscanf(line,"Kd %f %f %f",&r,&g,&b)==3){ cur->r=r; cur->g=g; cur->b=b; }
+        else if(cur && sscanf(line,"map_Kd %255[^\r\n]",tex)==1){ char *t=tex; while(*t==' '||*t=='\t')t++; snprintf(cur->map_Kd,sizeof cur->map_Kd,"%s",t); } }
     fclose(f);
 }
-static int parse_index(const char *t){ int i=atoi(t); if(i<0) i=nv+1+i; return i-1; }
+static void resolve_tex(const char *rel,char *out,size_t outsz){
+    if(rel[0]=='/'||g_objdir[0]==0) snprintf(out,outsz,"%s",rel); else snprintf(out,outsz,"%s/%s",g_objdir,rel);
+}
+/* parse "a","a/t","a//n","a/t/n" -> vertex index in *vi, texcoord in *ti (-1 if none). */
+static void parse_ref(const char *t,int *vi,int *ti){ int a=atoi(t); if(a<0)a=nv+1+a; *vi=a-1; *ti=-1;
+    const char *s=strchr(t,'/'); if(s&&s[1]&&s[1]!='/'){ int x=atoi(s+1); if(x<0)x=nvt+1+x; *ti=x-1; } }
 
 static int load_obj(const char *path){
-    nv=nf=nmtl=npart=0; FILE *f=fopen(path,"r"); if(!f){ fprintf(stderr,"error: cannot open %s\n",path); return 0; }
+    nv=nvt=nf=nmtl=npart=0;
+    const char *sl0=strrchr(path,'/'); if(sl0) snprintf(g_objdir,sizeof g_objdir,"%.*s",(int)(sl0-path),path); else g_objdir[0]=0;
+    FILE *f=fopen(path,"r"); if(!f){ fprintf(stderr,"error: cannot open %s\n",path); return 0; }
     char line[512]; int cur_mtl=-1, cur_part=-1;
     while(fgets(line,sizeof line,f)){
         if(!strncmp(line,"mtllib ",7)){ char name[256]; if(sscanf(line,"mtllib %255s",name)==1) load_mtl(path,name); }
@@ -68,12 +81,15 @@ static int load_obj(const char *path){
         else if((line[0]=='o'||line[0]=='g') && line[1]==' '){
             char name[64]; if(sscanf(line+2,"%63s",name)==1){ int p=part_find(name);
                 if(p<0 && npart<MAX_PART){ p=npart; snprintf(partname[npart++],64,"%s",name); } cur_part=p; } }
+        else if(line[0]=='v' && line[1]=='t'){ if(nvt<MAX_VT){ sscanf(line+3,"%f %f",&texc[nvt].u,&texc[nvt].v); nvt++; } }
         else if(line[0]=='v' && line[1]==' '){ if(nv<MAX_V){ sscanf(line+2,"%f %f %f",&verts[nv].x,&verts[nv].y,&verts[nv].z); nv++; } }
         else if(line[0]=='f' && line[1]==' '){
             if(cur_part<0 && npart<MAX_PART){ cur_part=npart; snprintf(partname[npart++],64,"part0"); }   /* faces before any o/g */
-            int idx[16],n=0; char *tok=strtok(line+2," \t\r\n");
-            while(tok && n<16){ idx[n++]=parse_index(tok); tok=strtok(NULL," \t\r\n"); }
-            for(int i=2;i<n;i++){ if(nf<MAX_F){ faces[nf].a=idx[0]; faces[nf].b=idx[i-1]; faces[nf].c=idx[i]; faces[nf].mtl=cur_mtl; faces[nf].part=cur_part; nf++; } } }
+            int idx[16],tdx[16],n=0; char *tok=strtok(line+2," \t\r\n");
+            while(tok && n<16){ parse_ref(tok,&idx[n],&tdx[n]); n++; tok=strtok(NULL," \t\r\n"); }
+            for(int i=2;i<n;i++){ if(nf<MAX_F){ faces[nf].a=idx[0]; faces[nf].b=idx[i-1]; faces[nf].c=idx[i];
+                faces[nf].ta=tdx[0]; faces[nf].tb=tdx[i-1]; faces[nf].tc=tdx[i];
+                faces[nf].mtl=cur_mtl; faces[nf].part=cur_part; nf++; } } }
     }
     fclose(f); return 1;
 }
@@ -104,6 +120,14 @@ int main(int argc, char **argv){
     FILE *h=fopen(out,"w"); if(!h){ perror("output"); return 1; }
     fprintf(h,"/* GENERATED by obj2rig from %s — do not edit. */\n",in);
     fprintf(h,"#ifndef MOTE_RIG_%s_H\n#define MOTE_RIG_%s_H\n#include \"mote_anim3d.h\"\n\n",name,name);
+
+    /* Textured? If ANY material names a map_Kd, embed the FIRST one once and give
+     * every part .texture + per-corner UVs (faces without a vt get 0,0). */
+    int tex_mtl=-1; for(int i=0;i<nmtl;i++) if(mtls[i].map_Kd[0]){ tex_mtl=i; break; }
+    int textured=0, tex_avg=0;
+    if(tex_mtl>=0){ char texpath[600]; resolve_tex(mtls[tex_mtl].map_Kd,texpath,sizeof texpath);
+        int tw,th; if(tex_embed(h,name,texpath,&tw,&th,&tex_avg)){ textured=1; fprintf(h,"\n"); }
+        else fprintf(stderr,"warn: %s map_Kd '%s' failed to load; emitting flat colour\n",name,texpath); }
 
     int total_tris=0;
     int loc[MAX_V];                       /* global vert -> local index, per part */
@@ -137,7 +161,16 @@ int main(int argc, char **argv){
         fprintf(h,"};\n");
         if(!uniform){ fprintf(h,"static const uint16_t %s_fc[%d] = {\n",pn,pf);
             for(int i=0;i<nf;i++) if(faces[i].part==p) fprintf(h,"0x%04X,",kd565(faces[i].mtl)); fprintf(h,"\n};\n"); }
-        if(uniform) fprintf(h,"static const Mesh %s_m = { %s_v, %s_f, 0, %d, %d, 0x%04X, %.6ff, %.6ff, 0 };\n\n",pn,pn,pn,nlv,pf,c0,maxc,bound_r);
+        if(textured){   /* per-corner UVs (u0,v0,..), OBJ bottom-left -> engine top-left (v flipped) */
+            fprintf(h,"static const uint8_t %s_uv[%d] = {\n",pn,pf*6);
+            for(int i=0;i<nf;i++) if(faces[i].part==p){ int ti[3]={faces[i].ta,faces[i].tb,faces[i].tc};
+                for(int k=0;k<3;k++){ int ub=0,vb=0; if(ti[k]>=0&&ti[k]<nvt){ float u=texc[ti[k]].u,v=texc[ti[k]].v;
+                    if(u<0.0f||u>1.0f)u-=floorf(u); if(v<0.0f||v>1.0f)v-=floorf(v); ub=(int)lrintf(u*255.0f); if(ub<0)ub=0; if(ub>255)ub=255;
+                    vb=255-(int)lrintf(v*255.0f); if(vb<0)vb=0; if(vb>255)vb=255; }
+                    fprintf(h,"%d,%d,%s",ub,vb,k==2?"\n":""); } }
+            fprintf(h,"};\n"); }
+        if(textured)    fprintf(h,"static const Mesh %s_m = { %s_v, %s_f, 0, %d, %d, 0x%04X, %.6ff, %.6ff, 0, &%s_tex, %s_uv };\n\n",pn,pn,pn,nlv,pf,tex_avg,maxc,bound_r,name,pn);
+        else if(uniform) fprintf(h,"static const Mesh %s_m = { %s_v, %s_f, 0, %d, %d, 0x%04X, %.6ff, %.6ff, 0 };\n\n",pn,pn,pn,nlv,pf,c0,maxc,bound_r);
         else        fprintf(h,"static const Mesh %s_m = { %s_v, %s_f, %s_fc, %d, %d, 0, %.6ff, %.6ff, 0 };\n\n",pn,pn,pn,pn,nlv,pf,maxc,bound_r);
         total_tris += pf;
     }

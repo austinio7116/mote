@@ -121,6 +121,11 @@ int mote_scene_configure(MoteArena *arena, int max_tris, int max_spheres,
         && (max_tex_tris    == 0 || s_textris);
 }
 
+/* Capacity of the textured-triangle pool (0 if the game didn't budget any).
+ * The pipeline queries this so a textured mesh with no pool falls back to flat
+ * shading instead of silently emitting nothing. */
+int mote_scene_textri_cap(void) { return s_textris ? s_max_textris : 0; }
+
 static inline uint16_t shade565(uint16_t c, float sh) {
     int r = (int)(((c >> 11) & 0x1F) * sh);
     int g = (int)(((c >> 5) & 0x3F) * sh);

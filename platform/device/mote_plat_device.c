@@ -217,10 +217,24 @@ static void rumble_tick(void) {        /* called once per frame from audio_pump 
 #include "ff.h"
 #define SAVE_SLOTS 8
 static char s_save_game[40] = "game";
+static char s_dirs_ready[40] = "";   /* game whose save-dir tree was already mkdir'd */
 void mote_plat_set_save_game(const char *stem) {
+    s_dirs_ready[0] = 0;                                     /* re-make the tree for the new game */
     if (!stem || !*stem) { s_save_game[0] = 0; return; }
     int i = 0; for (; stem[i] && i < (int)sizeof(s_save_game) - 1; i++) s_save_game[i] = stem[i];
     s_save_game[i] = 0;
+}
+/* mkdir-once, mirroring the native chunk store's mkdir_once: build the save-dir tree
+ * on the first write per game, not on every save. Re-walking + f_mkdir'ing the tree on
+ * each ~per-tick chunk persist was pure overhead the standalone build never paid. */
+static void save_ensure_dirs(void) {
+    const char *g = s_save_game[0] ? s_save_game : "game";
+    if (!strcmp(s_dirs_ready, g)) return;
+    char d[80];
+    f_mkdir("/mote/saves");
+    snprintf(d, sizeof d, "/mote/saves/%s", g);    f_mkdir(d);
+    snprintf(d, sizeof d, "/mote/saves/%s/kv", g); f_mkdir(d);
+    snprintf(s_dirs_ready, sizeof s_dirs_ready, "%s", g);
 }
 int mote_plat_save_slots(void) { return SAVE_SLOTS; }
 static void save_path(int slot, char *p, int n) {
@@ -230,9 +244,7 @@ int mote_plat_save(int slot, const void *data, int len) {
     if (slot < 0 || slot >= SAVE_SLOTS) return 0;
     char p[80]; save_path(slot, p, sizeof p);
     if (len <= 0) { f_unlink(p); return 0; }                 /* clear the slot */
-    f_mkdir("/mote/saves");                                  /* ok if they exist */
-    char dir[64]; snprintf(dir, sizeof dir, "/mote/saves/%s", s_save_game[0] ? s_save_game : "game");
-    f_mkdir(dir);
+    save_ensure_dirs();
     FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
     UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
     return (int)bw;
@@ -256,9 +268,7 @@ static void kv_path(const char *key, char *p, int n) { snprintf(p, n, "/mote/sav
 int mote_plat_kv_save(const char *key, const void *data, int len) {
     char p[96]; kv_path(key, p, sizeof p);
     if (len <= 0) { f_unlink(p); return 0; }                 /* delete */
-    f_mkdir("/mote/saves");
-    char d[64]; snprintf(d, sizeof d, "/mote/saves/%s", kv_game()); f_mkdir(d);
-    char kd[80]; kv_dir(kd, sizeof kd); f_mkdir(kd);
+    save_ensure_dirs();
     FIL f; if (f_open(&f, p, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return 0;
     UINT bw = 0; f_write(&f, data, (UINT)len, &bw); f_close(&f);
     return (int)bw;

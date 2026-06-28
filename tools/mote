@@ -40,6 +40,14 @@ def run(cmd):
 
 
 def game_name(d):
+    # Source of truth: MOTE_GAME_META("name", ...) in src/game.c.
+    gc = os.path.join(d, "src", "game.c")
+    if os.path.isfile(gc):
+        import re
+        m = re.search(r'MOTE_GAME_META\s*\(\s*"([^"]*)"', open(gc, errors="replace").read())
+        if m:
+            return m.group(1)
+    # Legacy fallback: a game.toml [game] name (older projects).
     toml = os.path.join(d, "game.toml")
     if os.path.isfile(toml):
         for line in open(toml):
@@ -453,8 +461,14 @@ def cmd_bake(args):
     if os.path.isdir(tdir):
         for t in os.listdir(tdir):
             if t.endswith(".tileset"): tiled.add(os.path.splitext(t)[0])
+    # A PNG that sits next to a model with the same basename (model.obj/model.stl)
+    # is that model's TEXTURE SIDECAR (assigned in the Studio MESH/RIG view), baked
+    # INTO the mesh header by obj2mesh/stl2mesh — never as a standalone image.
+    models = set(os.path.splitext(os.path.join(os.path.dirname(f),
+                 os.path.basename(f)))[0] for f in objs + stls)
     imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))
-            and os.path.splitext(os.path.basename(f))[0] not in tiled]
+            and os.path.splitext(os.path.basename(f))[0] not in tiled
+            and os.path.splitext(f)[0] not in models]
     sfxs = [f for f in files if f.lower().endswith(".sfx")]
     wavs = [f for f in files if f.lower().endswith(".wav")]
     tsets = sorted(os.path.join(tdir, t) for t in os.listdir(tdir)) if os.path.isdir(tdir) else []
@@ -470,8 +484,14 @@ def cmd_bake(args):
 
     def tool_for(s, exe):
         t = os.path.join(tempfile.gettempdir(), exe)
-        if not os.path.isfile(t):
-            run(["gcc", "-O2", os.path.join(ROOT, "tools", s), "-lm", "-o", t])
+        src = os.path.join(ROOT, "tools", s)
+        dep = os.path.join(ROOT, "tools", "tex_embed.h")   # shared header of the mesh bakers
+        newest = max(os.path.getmtime(p) for p in (src, dep) if os.path.isfile(p))
+        # Rebuild when the binary is missing OR older than the source/shared header,
+        # so editing a baker (or tex_embed.h) doesn't silently re-bake with a stale tool.
+        if not os.path.isfile(t) or os.path.getmtime(t) < newest:
+            run(["gcc", "-O2", "-I", os.path.join(ROOT, "studio", "third_party"),
+                 src, "-lm", "-o", t])
         return t
 
     for o in objs:
@@ -727,8 +747,8 @@ def cmd_new(args):
     os.makedirs(os.path.join(d, "src"))
     os.makedirs(os.path.join(d, "assets"), exist_ok=True)
     tmpl = TEMPLATES.get(getattr(args, "template", "3d") or "3d", TEMPLATE_GAME)
-    open(os.path.join(d, "game.toml"), "w").write(TEMPLATE_TOML % name)
-    open(os.path.join(d, "src", "game.c"), "w").write(tmpl % name)
+    # Name/author live in game.c (MOTE_GAME_META) now — no game.toml is written.
+    open(os.path.join(d, "src", "game.c"), "w").write(tmpl % name + '\nMOTE_GAME_META("%s", "you");\n' % name)
     open(os.path.join(d, ".gitignore"), "w").write("build/\n")
     print("created %s/ (%s template)\n  edit src/game.c, then:  mote run %s"
           % (name, getattr(args, "template", "3d") or "3d", name))

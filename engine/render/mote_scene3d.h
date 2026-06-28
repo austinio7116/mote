@@ -86,6 +86,11 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1);
 
 int mote_scene_tri_count(void);
 
+/* Capacity of the textured-triangle pool (MoteConfig.max_tex_tris); 0 if none.
+ * The geometry pipeline checks this and renders textured meshes flat when 0,
+ * rather than dropping them silently. */
+int mote_scene_textri_cap(void);
+
 /* Allocate the draw-list + sphere-impostor pools from the load-time arena,
  * sized to the game's MoteConfig. 0 = that pool is unused (costs nothing). */
 struct MoteArena;

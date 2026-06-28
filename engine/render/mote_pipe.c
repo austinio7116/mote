@@ -30,6 +30,13 @@ void mote_pipe_set_near(float near_m) {
 float mote_pipe_near(void)    { return s_near; }
 float mote_pipe_depth_k(void) { return s_depth_k; }
 
+/* Latched when a textured mesh is drawn but the game declared no textured-tri
+ * pool (MoteConfig.max_tex_tris == 0): we render it flat rather than dropping
+ * it, and the OS surfaces a one-time warning so the dev knows to budget for it. */
+static int s_textri_starved;
+int  mote_pipe_textri_starved(void)       { return s_textri_starved; }
+void mote_pipe_clear_textri_starved(void) { s_textri_starved = 0; }
+
 static Vec3    s_view[MOTE_MAX_VERTS];
 static float   s_sx[MOTE_MAX_VERTS], s_sy[MOTE_MAX_VERTS];
 static uint16_t s_sd[MOTE_MAX_VERTS];
@@ -116,8 +123,13 @@ int mote_pipe_draw_object_scaled(const MoteObject *obj, float os) {
      * per-face array; else its single base colour. */
     const uint16_t *fcols = obj->color ? 0 : mesh->face_colors;
     uint16_t mcol = obj->color ? obj->color : mesh->color;
-    /* Textured (UV-mapped) mesh: per-corner UVs scaled from 0..255 to texels. */
-    const int textured = (mesh->texture && mesh->face_uvs) ? 1 : 0;
+    /* Textured (UV-mapped) mesh: per-corner UVs scaled from 0..255 to texels.
+     * A textured mesh needs a textured-tri pool (MoteConfig.max_tex_tris); with
+     * none, fall back to flat shading in the mesh's baked average colour instead
+     * of silently emitting nothing, and latch a warning for the OS to surface. */
+    const int want_tex = (mesh->texture && mesh->face_uvs) ? 1 : 0;
+    const int textured = want_tex && mote_scene_textri_cap() > 0;
+    if (want_tex && !textured) s_textri_starved = 1;
     const float uvsw = textured ? mesh->texture->w * (1.0f / 255.0f) : 0.0f;
     const float uvsh = textured ? mesh->texture->h * (1.0f / 255.0f) : 0.0f;
     for (int f = 0; f < mesh->nfaces; f++) {
