@@ -2929,6 +2929,16 @@ static int  g_font_zoom = 3;   /* preview magnification (NEAREST), user-controll
 static unsigned char *g_ftbuf; static long g_ftlen; static char g_ftpath[400];
 static SDL_Texture *g_font_prev; static int g_font_prev_px=-1, g_font_pw, g_font_ph, g_font_dirty=1;
 static SDL_Rect g_fn_imp, g_fn_szmin, g_fn_szpls, g_fn_zmin, g_fn_zpls, g_fn_bake;
+/* bundled starter fonts shipped in studio/assets/gamefonts/ (one-click import) */
+static char g_bfont[8][64]; static int g_nbfont=-1; static SDL_Rect g_fn_bundled[8];
+#define BFONT_DIR "studio/assets/gamefonts"
+static void font_scan_bundled(void){
+    if(g_nbfont>=0) return; g_nbfont=0;
+    DIR*d=opendir(BFONT_DIR); if(!d) return; struct dirent*e;
+    while((e=readdir(d)) && g_nbfont<8){ int l=(int)strlen(e->d_name);
+        if(l>4 && !strcasecmp(e->d_name+l-4,".ttf")) snprintf(g_bfont[g_nbfont++],64,"%s",e->d_name); }
+    closedir(d);
+}
 
 static void font_load_ttf(const char*path){
     if(g_ftbuf && !strcmp(g_ftpath,path)) return;
@@ -3011,8 +3021,12 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     if(!g_font_ttf[0]){
         text(R,"Import a .ttf (or pick one in the Explorer) to bake an",x,y,1,C_DIM,(Col){16,18,26}); y+=14;
         text(R,"anti-aliased font. Draw it in-game with mote->text_font().",x,y,1,C_DIM,(Col){16,18,26}); y+=22;
-        ui_btn(R,x,y,0,"Import .ttf\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_fn_imp,mx,my);
-        g_fn_szmin=g_fn_szpls=g_fn_bake=(SDL_Rect){0,0,0,0}; return; }
+        ui_btn(R,x,y,0,"Import .ttf\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_fn_imp,mx,my); y+=UI_H+16;
+        font_scan_bundled();
+        if(g_nbfont>0){ text(R,"or start from a bundled font:",x,y,1,C_DIM,(Col){16,18,26}); y+=18;
+            int bx=x; for(int i=0;i<g_nbfont;i++){ char lbl[80]; snprintf(lbl,sizeof lbl,"%.40s",g_bfont[i]); char*dt=strrchr(lbl,'.'); if(dt)*dt=0;
+                bx=ui_btn(R,bx,y,0,lbl,IC_FILE,(Col){150,180,220},&g_fn_bundled[i],mx,my); } }
+        g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=g_fn_bake=(SDL_Rect){0,0,0,0}; return; }
     font_load_ttf(g_font_ttf); font_render_preview(R);
     char nm[120]; snprintf(nm,sizeof nm,"%.60s.ttf",g_font_name); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
     int bx=ui_btn(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my);
@@ -3037,6 +3051,7 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 static void font_down(int mx,int my){
     #define HF(r) ((r).w && hit(mx,my,(r).x,(r).y,(r).w,(r).h))
     if(HF(g_fn_imp)){ fp_open(6); return; }
+    for(int i=0;i<g_nbfont;i++) if(HF(g_fn_bundled[i])){ char p[160]; snprintf(p,sizeof p,"%s/%s",BFONT_DIR,g_bfont[i]); font_import(p); return; }
     if(HF(g_fn_szmin)){ if(g_font_px>4){ g_font_px--; g_font_dirty=1; } return; }
     if(HF(g_fn_szpls)){ if(g_font_px<96){ g_font_px++; g_font_dirty=1; } return; }
     if(HF(g_fn_zmin)){ if(g_font_zoom>1)g_font_zoom--; return; }
