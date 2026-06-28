@@ -482,6 +482,21 @@ def cmd_bake(args):
     if not (objs or stls or imgs or sfxs or wavs or tsets or lvls or anims):
         print("mote: no bakeable assets in %s" % d); return
 
+    # Warn on base-name collisions: assets of different types that bake to the same
+    # src/<base>.h (e.g. shell.obj and shell.wav) — last one wins and silently clobbers
+    # the other. (Rigged OBJs emit <base>.rig.h, so they don't collide on <base>.h.)
+    rigged = set(os.path.splitext(o)[0] for o in objs
+                 if os.path.isfile(os.path.splitext(o)[0] + ".rig"))
+    _hdr_src = {}
+    for f in [o for o in objs if os.path.splitext(o)[0] not in rigged] + stls + imgs + wavs:
+        b = os.path.splitext(os.path.basename(f))[0]
+        if b in _hdr_src and _hdr_src[b] != f:
+            print("WARNING: %s and %s both bake to src/%s.h - rename one "
+                  "(asset base names must be unique across types)"
+                  % (os.path.basename(_hdr_src[b]), os.path.basename(f), b))
+        else:
+            _hdr_src.setdefault(b, f)
+
     def tool_for(s, exe):
         t = os.path.join(tempfile.gettempdir(), exe)
         src = os.path.join(ROOT, "tools", s)

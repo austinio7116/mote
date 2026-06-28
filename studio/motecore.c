@@ -282,16 +282,27 @@ static int bake_wav(const char *path, const char *header, const char *name, mote
     fprintf(o,"\n};\nstatic const MoteSound %s_snd = { %s_pcm, %d };\n\n#endif\n",name,name,N>0?N:1);
     fclose(o); free(b); { char m[180]; snprintf(m,sizeof m,"baked %s: %d samples (%.2fs) -> %s",name,N,N/22050.0f,header); log(m); } return 0; }
 
+/* Tracks which `<base>.h` headers have been written this bake, so two assets that
+ * would clobber each other (e.g. shell.obj and shell.wav both -> src/shell.h) get a
+ * loud warning instead of a silent last-one-wins. Keyed by base name. */
+typedef struct { char base[128][80]; char src[128][96]; int n; } BakeSeen;
+static void seen_claim(BakeSeen *s, const char *base, const char *src, mote_log_fn log){
+    if(!s) return;
+    for(int i=0;i<s->n;i++) if(!strcmp(s->base[i],base)){
+        char m[300]; snprintf(m,sizeof m,"WARNING: %s and %s both bake to src/%s.h - rename one (asset base names must be unique across types)",s->src[i],src,base);
+        log(m); return; }
+    if(s->n<128){ snprintf(s->base[s->n],80,"%s",base); snprintf(s->src[s->n],96,"%s",src); s->n++; } }
+
 /* Bake every asset under `adir` (recursing into subfolders) into src/<base>.h.
  * Header names are flat (basename only) — matching how games #include "name.h" —
  * so keep asset filenames unique across subfolders. */
 static void bake_dir(const char *adir, const char *srcdir,
                      const char *objtool, const char *stltool, const char *rigtool,
-                     mote_log_fn log, int *did){
+                     mote_log_fn log, int *did, BakeSeen *seen){
     DIR *d=opendir(adir); if(!d)return; struct dirent *e;
     while((e=readdir(d))){ const char *n=e->d_name; if(n[0]=='.'||!strcmp(n,"build"))continue;
         char path[600]; snprintf(path,sizeof path,"%.500s/%.80s",adir,n);
-        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,log,did); continue; }
+        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,log,did,seen); continue; }
         int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
         char header[600]; snprintf(header,sizeof header,"%.400s/%.80s.h",srcdir,base);
         if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){
@@ -300,13 +311,14 @@ static void bake_dir(const char *adir, const char *srcdir,
              * obj2mesh/stl2mesh, never as a standalone image (same .h would collide). */
             char mo[600],ms[600]; struct stat mst; snprintf(mo,sizeof mo,"%.500s/%.70s.obj",adir,base); snprintf(ms,sizeof ms,"%.500s/%.70s.stl",adir,base);
             if(stat(mo,&mst)==0||stat(ms,&mst)==0) continue;
+            seen_claim(seen,base,n,log);
             if(bake_image(path,header,base,log)==0)(*did)++; }
         else if(!strcasecmp(n+l-4,".obj")){ char rigp[600]; snprintf(rigp,sizeof rigp,"%.500s/%.60s.rig",adir,base); struct stat rs;
             if(stat(rigp,&rs)==0){ ensure_tool("obj2rig.c",rigtool,log); char rh[700]; snprintf(rh,sizeof rh,"%.400s/%.60s.rig.h",srcdir,base);
                 char c[1500]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)(*did)++; }   /* OBJ + .rig -> MoteRig */
-            else { ensure_tool("obj2mesh.c",objtool,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)(*did)++; } }
-        else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)(*did)++; }
-        else if(!strcasecmp(n+l-4,".wav")){ if(bake_wav(path,header,base,log)==0)(*did)++; } }
+            else { ensure_tool("obj2mesh.c",objtool,log); seen_claim(seen,base,n,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)(*did)++; } }
+        else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); seen_claim(seen,base,n,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)(*did)++; }
+        else if(!strcasecmp(n+l-4,".wav")){ seen_claim(seen,base,n,log); if(bake_wav(path,header,base,log)==0)(*did)++; } }
     closedir(d); }
 
 int mc_bake(const char *dir, mote_log_fn log){
@@ -316,5 +328,6 @@ int mc_bake(const char *dir, mote_log_fn log){
     char sd[360]; snprintf(sd,sizeof sd,"%.320s/src",dir);
     char objtool[64],stltool[64],rigtool[64];
     snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT);
-    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,log,&did);
+    static BakeSeen seen; seen.n=0;   /* warn on base-name collisions (two assets -> one .h) */
+    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,log,&did,&seen);
     if(!did&&!didicon)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }
