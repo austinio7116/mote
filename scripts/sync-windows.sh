@@ -28,11 +28,11 @@ rm -f "$DEST/mote_studio.exe.old" 2>/dev/null || true
 mv "$DEST/mote_studio.exe" "$DEST/mote_studio.exe.old" 2>/dev/null || true
 cp build_win/mote_studio.exe "$DEST/mote_studio.exe"
 if command -v rsync >/dev/null 2>&1; then
-  for d in engine sdk os platform studio examples tools; do
+  for d in engine sdk os platform studio examples games tools; do
     rsync -a --delete --exclude build/ --exclude '*.stale' --exclude '*.o' "$ROOT/$d/" "$DEST/$d/"
   done
 else
-  for d in engine sdk os platform studio examples tools; do
+  for d in engine sdk os platform studio examples games tools; do
     rm -rf "$DEST/$d"; cp -r "$ROOT/$d" "$DEST/$d"
     find "$DEST/$d" -type d -name build -prune -exec rm -rf {} + 2>/dev/null || true
   done
