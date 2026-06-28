@@ -19,6 +19,8 @@ build/
 *.ppm
 build_os/
 build_*/
+# host runtime save files (mote->save / kv_save)
+mote_kv/
 
 # windows cross-build artifacts
 .winbuild/
