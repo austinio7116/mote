@@ -241,10 +241,11 @@ static void terrain_build(void) {
         float corridor = edge, band = 13.0f;
         float w = mote_clampf((corridor + band - d) / band, 0, 1);   /* 1 to the skirt .. 0 far */
         w = w * w * (3 - 2 * w);
-        /* sink the terrain DEEP under the road, tapering to 0 exactly at the skirt
-         * edge — hidden under the tarmac (no poke-through) yet flush with the grass */
-        float la = fabsf(lat) / (edge > 1 ? edge : 1);
-        float drop = 0.45f * (1.0f - mote_clampf(la * la * (3 - 2 * la), 0, 1));
+        /* sink the terrain a full 0.8 m under the ENTIRE road+grass corridor (so the
+         * coarse terrain quads can't poke up through the curved road), then ramp it
+         * back to 0 only in the last 4 m before the skirt edge — that ramp is hidden
+         * under the outer grass, and the terrain still meets the skirt flush. */
+        float drop = 0.8f * mote_clampf((edge - fabsf(lat)) / 4.0f, 0, 1);
         terr_y[gz * TG + gx] = (plane * w + hill * (1 - w)) - drop;
     }
 }
@@ -1130,8 +1131,8 @@ static void draw_world(void) {
     }
     for (int i = 0; i < NSHELL; i++) if (shell[i].active && in_view(shell[i].pos)) {
         Mat3 sb = m3_identity(); m3_rotate_local(&sb, 1, g_racetime * 7.0f + i);
-        if (shell[i].homing) mote_draw_tint(mote, &shell_mesh, shell[i].pos, sb, 1.15f, MOTE_RGB565(225, 45, 45));
-        else                 mote_draw_ex(mote, &shell_mesh, shell[i].pos, sb, 1.15f);
+        if (shell[i].homing) mote_draw_tint(mote, &kshell_mesh, shell[i].pos, sb, 1.15f, MOTE_RGB565(225, 45, 45));
+        else                 mote_draw_ex(mote, &kshell_mesh, shell[i].pos, sb, 1.15f);
     }
 
     /* finish banner + posts */
