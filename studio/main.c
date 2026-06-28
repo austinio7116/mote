@@ -2925,9 +2925,10 @@ static void con_copy(void){
 /* ================= FONT tab (TTF -> anti-aliased MoteFont, ABI v39) ========= */
 static char g_font_ttf[400], g_font_name[64];
 static int  g_font_px = 16;
+static int  g_font_zoom = 3;   /* preview magnification (NEAREST), user-controlled +/- */
 static unsigned char *g_ftbuf; static long g_ftlen; static char g_ftpath[400];
 static SDL_Texture *g_font_prev; static int g_font_prev_px=-1, g_font_pw, g_font_ph, g_font_dirty=1;
-static SDL_Rect g_fn_imp, g_fn_szmin, g_fn_szpls, g_fn_bake;
+static SDL_Rect g_fn_imp, g_fn_szmin, g_fn_szpls, g_fn_zmin, g_fn_zpls, g_fn_bake;
 
 static void font_load_ttf(const char*path){
     if(g_ftbuf && !strcmp(g_ftpath,path)) return;
@@ -2951,7 +2952,12 @@ static void font_render_preview(SDL_Renderer*R){
     float sc=stbtt_ScaleForPixelHeight(&fi,(float)g_font_px);
     int asc,desc,gap; stbtt_GetFontVMetrics(&fi,&asc,&desc,&gap);
     int ascent=(int)(asc*sc+0.5f), lh=(int)((asc-desc+gap)*sc+0.5f); if(lh<1)lh=g_font_px;
-    int nlines=3, pw=560, ph=lh*nlines+8; if(ph<1)ph=1;
+    int nlines=3, ph=lh*nlines+8; if(ph<1)ph=1;
+    /* size the buffer to the actual widest line (not a fixed width) so the tab can
+     * scale the preview up to fill the panel — a tiny font then shows large. */
+    int pw=4; for(int li=0;li<nlines;li++){ const char*s=FONT_SAMPLE[li]; int pen=2;
+        for(;*s;s++){ int aw,lsb; stbtt_GetCodepointHMetrics(&fi,(unsigned char)*s,&aw,&lsb); pen+=(int)(aw*sc+0.5f); }
+        if(pen+2>pw)pw=pen+2; }
     unsigned char*px=(unsigned char*)calloc(1,(size_t)pw*ph*4); if(!px) return;
     for(int li=0;li<nlines;li++){ const char*s=FONT_SAMPLE[li]; int penx=2, peny=2+li*lh;
         for(;*s;s++){ int cp=(unsigned char)*s, gw,gh,xo,yo;
@@ -3011,10 +3017,21 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     char nm[120]; snprintf(nm,sizeof nm,"%.60s.ttf",g_font_name); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
     int bx=ui_btn(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my);
     char szb[16]; snprintf(szb,sizeof szb,"%dpx",g_font_px); bx=ui_stepper(R,bx,y,"size",szb,&g_fn_szmin,&g_fn_szpls,mx,my);
+    char zb[16]; snprintf(zb,sizeof zb,"%dx",g_font_zoom); bx=ui_stepper(R,bx,y,"zoom",zb,&g_fn_zmin,&g_fn_zpls,mx,my);
     ui_btn(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my); y+=UI_H+14;
     if(g_font_prev){
-        int availw=w-32, dw=g_font_pw, dh=g_font_ph; if(dw>availw){ dh=dh*availw/dw; dw=availw; }
-        plain(R,x,y,dw,dh,(Col){8,9,14}); SDL_Rect dr={x,y,dw,dh}; SDL_RenderCopy(R,g_font_prev,NULL,&dr); y+=dh+12; }
+        /* magnify the (tight) preview by the user's zoom, NEAREST for a crisp
+         * pixel-accurate view of the real AA; clip to the panel so a big zoom
+         * shows the top-left rather than overdrawing the rest of the UI. */
+        int availw=w-32, availh=(oy+h)-y-26; if(availh<40)availh=40;
+        int z=g_font_zoom<1?1:g_font_zoom;
+        int vw=g_font_pw, vh=g_font_ph;
+        if(vw*z>availw) vw=availw/z; if(vh*z>availh) vh=availh/z;
+        if(vw<1)vw=1; if(vh<1)vh=1;
+        int dw=vw*z, dh=vh*z;
+        plain(R,x,y,dw,dh,(Col){8,9,14});
+        SDL_SetTextureScaleMode(g_font_prev,SDL_ScaleModeNearest);
+        SDL_Rect sr={0,0,vw,vh}, dr={x,y,dw,dh}; SDL_RenderCopy(R,g_font_prev,&sr,&dr); y+=dh+12; }
     char info[160]; snprintf(info,sizeof info,"-> src/%s.font.h   ASCII 32..126, alpha-blended; mote->text_font(fb, &%s, ...)",g_font_name,g_font_name);
     text(R,info,x,y,1,C_DIM,(Col){16,18,26}); }
 static void font_down(int mx,int my){
@@ -3022,6 +3039,8 @@ static void font_down(int mx,int my){
     if(HF(g_fn_imp)){ fp_open(6); return; }
     if(HF(g_fn_szmin)){ if(g_font_px>4){ g_font_px--; g_font_dirty=1; } return; }
     if(HF(g_fn_szpls)){ if(g_font_px<96){ g_font_px++; g_font_dirty=1; } return; }
+    if(HF(g_fn_zmin)){ if(g_font_zoom>1)g_font_zoom--; return; }
+    if(HF(g_fn_zpls)){ if(g_font_zoom<8)g_font_zoom++; return; }
     if(HF(g_fn_bake)) font_bake();
     #undef HF
 }
