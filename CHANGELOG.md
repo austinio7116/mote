@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+**A model editor in the Mesh tab.** The Studio Mesh tab now has a built-in
+Blender-style low-poly modeller alongside the STL/OBJ importer — press **Tab** to
+switch. Build a model from primitives (cube / plane / cylinder / cone / sphere) or
+turn an imported STL/OBJ into editable topology, then select vertices / edges /
+faces and shape it with familiar modal tools. Bake the exact result to a
+`MoteModel` header, a multi-part `MoteRig`, or export an OBJ + `.rig` for the Rig
+tab. Studio-only — no firmware reflash needed. Full guide in the README
+(§4 *Modelling in the Mesh tab*).
+
+- **Select + transform.** Vertex / edge / face modes (1 / 2 / 3), click / shift-add
+  / box-select (B) / select-all (A). **G**rab, **S**cale, **E**xtrude, **I**nset —
+  with **X/Y/Z** axis locks, exact numeric entry, and a drag-able 3-axis gizmo.
+  **Ctrl+Z** undo throughout.
+- **Build it out.** Duplicate (Shift+D), delete (X), merge verts (M), flip normals
+  (Shift+N), and per-face colour **Paint** (P) with an in-editor HSV picker —
+  per-face colours bake into a `face_colors[]` array.
+- **Live Mirror (X/Y/Z).** Model one half and see/bake the whole; the reflected
+  half is welded watertight at bake time. Great for symmetric ships and characters.
+- **Edit imported models.** Load an `.stl`/`.obj`, pick a triangle budget, and
+  **Edit this mesh** converts it to editable verts + faces.
+- **Multi-object → rig.** **Bake rig** emits a `MoteRig` (one part per object,
+  parent + pivot); **Export OBJ** writes `scene.obj` + `.rig` to animate in the Rig
+  tab. **New** / Ctrl+N starts a fresh scene, and switching projects resets the
+  editor automatically.
+
 ## 0.10-alpha
 
 **Proper fonts.** You can now draw crisp, anti-aliased, proportional text at any size —

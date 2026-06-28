@@ -32,6 +32,7 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 2. [Quick start (CLI) + Mote Studio (the IDE)](#2-quick-start)
 3. [Anatomy of a game, line by line](#3-anatomy-of-a-game)
 4. [The asset pipeline (baking)](#4-the-asset-pipeline)
+   - [Modelling in the Mesh tab (the model editor)](#modelling-in-the-mesh-tab--the-built-in-model-editor)
    - [Creating rigs and 3D animations](#creating-rigs-and-3d-animations)
 5. [The engine API, fully documented](#5-the-engine-api)
 6. [Coordinate systems + math types](#6-coordinate-systems--math-types)
@@ -221,7 +222,7 @@ a live arena-memory meter and its flash size:
   | **Code** | Built-in C editor with syntax highlighting + inline build errors, or jump to VS Code. |
   | **Tiles** | Rule-tile (autotile) authoring: Blob-47 / edge / Wang templates, per-rule cell editing, weighted variants, rotation/flip, and a **LEVEL** painter (always scaled to fit). **Bake** writes the tileset(s) + a bit-packed `.level.h`. |
   | **Anim** | Sprite-animation editor: clips with per-frame durations, onion-skin, frame events, pivots, and the pixel editor for each frame. **Bake** writes a `MoteAnimClip` set. |
-  | **Mesh** | Live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). **Assign…** picks a PNG to texture the model (shown live in the preview, embedded automatically on bake; **Clear** removes it). |
+  | **Mesh** | Two modes. **Importer:** live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). **Assign…** picks a PNG to texture the model. **Model editor** (a built-in Blender-style modeller — **Tab** or the **Model editor** button) lets you build/edit low-poly meshes directly: select verts/edges/faces, grab/scale/extrude/inset, mirror, paint per-face colours, and bake. See **§4.x Modelling in the Mesh tab**. |
   | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono) or design an SFX with the SFXR synth + presets; see the waveform, crop, play. **Save** writes the `.wav`, the editable `.sfx` recipe, a `MoteSound` header *and* a `MoteSfx` recipe header (play via `audio_play` or `mote_sfx_bake`, §9). |
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
@@ -440,6 +441,75 @@ mote_model_draw_ex(mote, &fighter, world_pos, s_rot, 1.0f);   // or mote_model_d
 `mote_model_draw` / `mote_model_draw_ex` (in `mote_build.h`) loop the chunks for you
 and pair with `scene_camera()` so positions stay in world space. See
 `examples/modelview` (a 6,742-tri fighter → 1,494 tris in 4 chunks, drawn in one line).
+
+### Modelling in the Mesh tab — the built-in model editor
+
+The Mesh tab isn't only an importer. Press **Tab** (or the **Model editor**
+button) to switch into a **Blender-style low-poly modeller** that builds and edits
+real mesh topology — vertices, edges, and faces you can select and operate on — and
+bakes the exact result (no decimation) straight to a `MoteModel` header. It's
+non-destructive: the importer is untouched, and **Tab** flips back to it.
+
+There are three ways to get geometry into the editor:
+
+- **Add a primitive** — Cube, Plane, Cylinder, Cone, or Sphere (`Shift+A` adds a
+  cube). Each appears as a new object you can edit.
+- **Edit an imported model** — load an `.stl`/`.obj`, set the **tris** budget for the
+  topology density you want, then click **Edit this mesh**. The decimated result
+  becomes editable verts + faces (e.g. `fighter.stl` at budget 250 → 81 verts / 204
+  faces, fully editable).
+- **New / open a project** — **New** (or `Ctrl+N`) clears the scene to start fresh.
+  Switching projects also resets the editor automatically.
+
+**Select** what you want to work on with the mode buttons or keys **1 / 2 / 3**
+(vertex / edge / face). Click an element to select it, **Shift+click** to add,
+**B** then drag for a box-select, **A** / **Alt+A** to select all / none. Selected
+elements highlight orange; hovering previews what you'd pick.
+
+**Transform** the selection with modal operators — exactly like Blender:
+
+| Key | Operator | What it does |
+|---|---|---|
+| **G** | Grab (move) | Move the selection; the readout shows the distance |
+| **S** | Scale | Scale about the selection centroid |
+| **E** | Extrude | (Face mode) pull selected faces out — new side walls are bridged in, then it moves along the face normal |
+| **I** | Inset | (Face mode) shrink an inner copy of each face inward, with a ring of new faces |
+
+While a modal op is live: press **X / Y / Z** to constrain to an axis, **type a
+number** for an exact value, **Enter** or **left-click** to confirm, **Esc** or
+**right-click** to cancel. Or skip the keys and **drag the 3-axis gizmo** at the
+selection centre. **Ctrl+Z** undoes.
+
+**Build out the mesh** with the edit tools (buttons, or the keys in brackets):
+**Duplicate** object (`Shift+D`), **Delete** selection / object (**X**), **Merge**
+selected vertices to their centre (**M**), **Flip** normals (`Shift+N`), and
+**Paint** (**P**) — assign the picker colour to the selected faces. The colour
+picker (HSV square + hue strip + swatch) appears in **Face mode**, right where you
+paint; per-face colours bake into a `face_colors[]` array so one model can be
+multi-coloured.
+
+**Mirror** (live): toggle **Mirror X / Y / Z** on an object and you model one half
+while the editor shows the whole thing — the reflected half is solid (with a subtle
+seam marker), every edit is mirrored instantly, and the bake welds the two halves
+into one watertight mesh. Ideal for symmetric assets (ships, characters).
+
+**Camera:** left-drag empty space **or** middle-drag to orbit, wheel to zoom. The
+model holds still otherwise (no auto-spin while you work).
+
+**Save / bake / export:**
+
+- **Save** / **Load** keep an editable `scene.mmesh` in the project (your working
+  copy — objects, topology, colours, mirror, origins).
+- **Bake .h** writes the exact `MoteModel` header (`src/<object>.h`) — draw it with
+  `mote_model_draw` exactly like an STL bake.
+- **Bake rig** turns a multi-object scene into a `MoteRig` header (one part per
+  object, with parent + pivot) you draw/animate with `mote_anim3d.h` (§4 rigs).
+- **Export OBJ** writes `assets/scene.obj` + a `.rig` sidecar so the scene opens in
+  the **Rig tab** to set joints and author animation clips.
+
+> **Heads-up:** Bake .h writes `src/<object-name>.h`, so naming an object the same as
+> an existing CLI-baked model (e.g. `fighter`) will overwrite that file. Rename the
+> object or keep editor bakes to their own names.
 
 ### When does baking happen? Do I *have* to bake?
 
