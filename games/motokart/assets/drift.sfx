@@ -1,0 +1,6 @@
+# drift skid burst
+wave 3
+freq 0.50 0 0 0
+env 0.02 0.10 0.0 0.12
+lpf 0.4 0 0.3
+hpf 0.15 0

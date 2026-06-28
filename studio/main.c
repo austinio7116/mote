@@ -215,8 +215,10 @@ static int g_split;   /* 0 none, 1 left sep, 2 right sep, 3 bottom sep */
 static SDL_Cursor *g_cur_arrow,*g_cur_we,*g_cur_ns;
 
 /* ================= project + engine ================= */
-typedef struct { char dir[256], name[64]; } Game;
+typedef struct { char dir[256], name[64]; int cat; } Game;   /* cat: 0 = games/, 1 = examples/ */
 static Game g_games[256]; static int g_ngame, g_sel=-1;
+static const char *const CAT_DIR[2]   = { "games", "examples" };
+static const char *const CAT_LABEL[2] = { "GAMES", "EXAMPLES" };
 static char g_so[1024]; static time_t g_watch;
 static char g_status[160]="open a project to begin";
 static SDL_Thread *g_eng;
@@ -240,12 +242,23 @@ static time_t src_mtime(const char*dir){ char src[300]; snprintf(src,sizeof src,
         char p[600]; snprintf(p,sizeof p,"%.300s/%.250s",src,e->d_name); struct stat st; if(stat(p,&st)==0&&st.st_mtime>m)m=st.st_mtime; } }
     closedir(d); return m; }
 
-static int cmp_game(const void*a,const void*b){ return strcmp(((const Game*)a)->name,((const Game*)b)->name); }
-static void scan_games(void){ g_ngame=0; DIR*d=opendir("examples"); if(!d)return; struct dirent*e;
-    while((e=readdir(d))&&g_ngame<256){ if(e->d_name[0]=='.')continue; char p[400]; snprintf(p,sizeof p,"examples/%.200s/src/game.c",e->d_name);
+/* Sort games first (cat 0), then examples (cat 1); alphabetical within each. */
+static int cmp_game(const void*a,const void*b){ const Game*x=a,*y=b; if(x->cat!=y->cat)return x->cat-y->cat; return strcmp(x->name,y->name); }
+static void scan_dir(const char*folder,int cat){ DIR*d=opendir(folder); if(!d)return; struct dirent*e;
+    while((e=readdir(d))&&g_ngame<256){ if(e->d_name[0]=='.')continue; char p[400]; snprintf(p,sizeof p,"%.120s/%.200s/src/game.c",folder,e->d_name);
         struct stat st; if(stat(p,&st)!=0)continue; Game*g=&g_games[g_ngame++];
-        snprintf(g->dir,sizeof g->dir,"examples/%.240s",e->d_name); snprintf(g->name,sizeof g->name,"%.60s",e->d_name); }
-    closedir(d); qsort(g_games,g_ngame,sizeof g_games[0],cmp_game); }
+        snprintf(g->dir,sizeof g->dir,"%.120s/%.130s",folder,e->d_name); snprintf(g->name,sizeof g->name,"%.60s",e->d_name); g->cat=cat; }
+    closedir(d); }
+/* Picker display rows: a section header before each category, then its games
+ * (games section first). Built after every scan so the picker, its hit-test and
+ * its scrollbar all agree on row layout. */
+typedef struct { uint8_t hdr; int gi; } PRow;   /* hdr=1: header (gi=cat); hdr=0: game index gi */
+static PRow g_prow[260]; static int g_nprow;
+static void picker_rows(void){ g_nprow=0; int last=-1;
+    for(int i=0;i<g_ngame && g_nprow<258;i++){
+        if(g_games[i].cat!=last){ last=g_games[i].cat; g_prow[g_nprow].hdr=1; g_prow[g_nprow].gi=last; g_nprow++; }
+        g_prow[g_nprow].hdr=0; g_prow[g_nprow].gi=i; g_nprow++; } }
+static void scan_games(void){ g_ngame=0; scan_dir("games",0); scan_dir("examples",1); qsort(g_games,g_ngame,sizeof g_games[0],cmp_game); picker_rows(); }
 
 /* ---- console log ring + async command runner ---- */
 static char g_log[80][150]; static int g_logn; static SDL_mutex *g_logmx;
@@ -3078,9 +3091,15 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
     int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
     rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR); text(R,"OPEN PROJECT",bx+14,by+8,2,C_TITLE,C_HDR);
     int mx,my; SDL_GetMouseState(&mx,&my);
-    int maxs=g_ngame-rows; if(maxs<0)maxs=0; if(g_pscroll>maxs)g_pscroll=maxs; if(g_pscroll<0)g_pscroll=0;
-    int sbw = g_ngame>rows ? 12 : 0;                                        /* room for the scrollbar */
-    for(int k=0;k<rows&&g_pscroll+k<g_ngame;k++){ int i=g_pscroll+k; int y=listy+k*PK_ROWH; int rw=bw-16-sbw;
+    picker_rows();
+    int maxs=g_nprow-rows; if(maxs<0)maxs=0; if(g_pscroll>maxs)g_pscroll=maxs; if(g_pscroll<0)g_pscroll=0;
+    int sbw = g_nprow>rows ? 12 : 0;                                        /* room for the scrollbar */
+    for(int k=0;k<rows&&g_pscroll+k<g_nprow;k++){ int r=g_pscroll+k; int y=listy+k*PK_ROWH; int rw=bw-16-sbw;
+        if(g_prow[r].hdr){   /* section header (GAMES / EXAMPLES) — not clickable */
+            const char*lbl=CAT_LABEL[g_prow[r].gi]; int lw=textw(R,lbl,2);
+            text(R,lbl,bx+14,y+PK_ROWH/2-9,2,C_TITLE,C_PANEL);
+            plain(R,bx+22+lw,y+PK_ROWH/2-1,rw-lw-30,1,C_LINE); continue; }
+        int i=g_prow[r].gi;
         int hov=hit(mx,my,bx+8,y,rw,PK_ROWH-4);
         rrect(R,bx+8,y,rw,PK_ROWH-4,7, hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44}));
         SDL_Texture*ic=picker_icon(R,i); SDL_Rect dst={bx+14,y+5,46,46};
@@ -3098,8 +3117,8 @@ static void draw_picker(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDM
         text(R,det,bx+70+textw(R,g_games[i].name,2)+10,y+10,1,(Col){120,126,144},hov?C_SEL:(i==g_sel?(Col){38,44,60}:(Col){30,33,44})); }
     /* scrollbar */
     g_psb=(SDL_Rect){0,0,0,0};
-    if(g_ngame>rows){ int tx=bx+bw-14, tw=8; plain(R,tx,listy,tw,listh,(Col){24,26,34});
-        int thh=listh*rows/g_ngame; if(thh<28)thh=28; int thy=listy+(listh-thh)*g_pscroll/(maxs?maxs:1);
+    if(g_nprow>rows){ int tx=bx+bw-14, tw=8; plain(R,tx,listy,tw,listh,(Col){24,26,34});
+        int thh=listh*rows/g_nprow; if(thh<28)thh=28; int thy=listy+(listh-thh)*g_pscroll/(maxs?maxs:1);
         g_psb=(SDL_Rect){tx,thy,tw,thh}; int sh=hit(mx,my,tx-2,listy,tw+4,listh)||g_pdrag;
         rrect(R,tx,thy,tw,thh,4,sh?(Col){130,140,170}:(Col){80,86,108}); }
     text(R,"click a project to open  \xb7  drag the bar / wheel to scroll  \xb7  Esc",bx+14,by+bh-19,1,C_DIM,C_PANEL); }
@@ -3398,11 +3417,11 @@ int main(int argc,char**argv){
                 if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; }
                 else if(e.type==SDL_MOUSEBUTTONUP)g_pdrag=0;
-                else if(e.type==SDL_MOUSEMOTION&&g_pdrag){ int maxs=g_ngame-rows; if(maxs<1)maxs=1;   /* drag the scrollbar */
+                else if(e.type==SDL_MOUSEMOTION&&g_pdrag){ int maxs=g_nprow-rows; if(maxs<1)maxs=1;   /* drag the scrollbar */
                     g_pscroll=(e.motion.y-listy)*maxs/(listh>1?listh:1); if(g_pscroll<0)g_pscroll=0; if(g_pscroll>maxs)g_pscroll=maxs; }
                 else if(e.type==SDL_MOUSEBUTTONDOWN){ int mx=e.button.x,my=e.button.y;
                     if(g_psb.w&&hit(mx,my,g_psb.x-3,listy,g_psb.w+6,listh)){ g_pdrag=1; }   /* grab scrollbar */
-                    else if(mx>=bx+8&&mx<bx+bw-16&&my>=listy&&my<listy+rows*PK_ROWH){ int i=g_pscroll+(my-listy)/PK_ROWH; if(i>=0&&i<g_ngame)open_project(i); }
+                    else if(mx>=bx+8&&mx<bx+bw-16&&my>=listy&&my<listy+rows*PK_ROWH){ int r=g_pscroll+(my-listy)/PK_ROWH; if(r>=0&&r<g_nprow&&!g_prow[r].hdr)open_project(g_prow[r].gi); }
                     else if(!hit(mx,my,bx,by,bw,bh))g_picker=0; }
                 continue; }
             if(g_align){ if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_align=0;

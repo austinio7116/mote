@@ -11,7 +11,7 @@ The king and queen are split into TWO parts each — a body STL and a topper STL
 Winding is CCW-from-outside, matching the engine; stl2mesh recomputes normals
 from the winding, so the STL normal field is advisory only.
 
-Usage: python3 tools/gen_chess_stl.py [out_dir=examples/chess/assets]
+Usage: python3 tools/gen_chess_stl.py [out_dir=games/chess/assets]
 """
 import math, struct, sys, os
 
@@ -117,7 +117,7 @@ QUEEN  = [(0.29,0),(0.38,0.05),(0.31,0.12),(0.17,0.22),(0.15,0.64),(0.23,0.78),(
 KING   = [(0.30,0),(0.39,0.05),(0.32,0.12),(0.18,0.22),(0.16,0.70),(0.24,0.84),(0.18,0.92),(0.29,1.04),(0.225,1.10),(0.17,1.20),(0.13,1.28),(0.10,1.34)]
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else "examples/chess/assets"
+    out = sys.argv[1] if len(sys.argv) > 1 else "games/chess/assets"
     os.makedirs(out, exist_ok=True)
     pieces = {
         "pawn":        revolve(PAWN, 6),

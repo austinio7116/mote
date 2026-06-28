@@ -1,0 +1,7 @@
+# MotoKart rig — hull root, wheels parented to it, pivot at each axle
+part hull parent -1 pivot 0 0 0
+part trim parent hull pivot 0 0 0
+part wheel_fl parent hull pivot -0.245 0.070 0.300
+part wheel_fr parent hull pivot 0.245 0.070 0.300
+part wheel_rl parent hull pivot -0.260 0.080 -0.260
+part wheel_rr parent hull pivot 0.260 0.080 -0.260

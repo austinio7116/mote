@@ -1,0 +1,7 @@
+# item materials
+newmtl banana
+Kd 0.950 0.820 0.120
+
+newmtl btip
+Kd 0.350 0.220 0.080
+

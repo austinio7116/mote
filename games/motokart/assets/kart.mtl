@@ -1,0 +1,22 @@
+# MotoKart kart materials
+newmtl hull
+Kd 0.800 0.800 0.840
+
+newmtl trim
+Kd 0.960 0.820 0.100
+
+newmtl dark
+Kd 0.110 0.110 0.140
+
+newmtl seat
+Kd 0.180 0.180 0.220
+
+newmtl metal
+Kd 0.620 0.640 0.700
+
+newmtl tire
+Kd 0.060 0.060 0.070
+
+newmtl hub
+Kd 0.800 0.810 0.850
+

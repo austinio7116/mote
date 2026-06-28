@@ -204,9 +204,9 @@ static const char *tmpl_for(int kind){
     switch(kind){ case MC_TMPL_PHYS: return TMPL_PHYS; case MC_TMPL_2D: return TMPL_2D; default: return TMPL_3D; } }
 
 int mc_new(const char *name, int kind, mote_log_fn log){
-    char dir[200]; snprintf(dir,sizeof dir,"examples/%.180s",name);
+    char dir[200]; snprintf(dir,sizeof dir,"games/%.180s",name);   /* a user's new project is a game, not a demo */
     struct stat st; if(stat(dir,&st)==0){ log("a project with that name already exists"); return -1; }
-    char p[260]; MKDIR("examples"); MKDIR(dir);
+    char p[260]; MKDIR("games"); MKDIR(dir);
     snprintf(p,sizeof p,"%.200s/src",dir); MKDIR(p); snprintf(p,sizeof p,"%.200s/assets",dir); MKDIR(p);
     /* Name/author live in game.c (MOTE_GAME_META) now — no game.toml is written. */
     snprintf(p,sizeof p,"%.200s/src/game.c",dir); FILE *f=fopen(p,"w");

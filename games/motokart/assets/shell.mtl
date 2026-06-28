@@ -1,0 +1,7 @@
+# item materials
+newmtl shell
+Kd 0.300 0.780 0.320
+
+newmtl rim
+Kd 0.940 0.920 0.800
+
