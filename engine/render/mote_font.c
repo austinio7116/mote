@@ -100,3 +100,49 @@ int mote_font_width(const char *text) {
 }
 
 int mote_font_width_2x(const char *text) { return mote_font_width(text) * 2; }
+
+/* --- ABI v39: anti-aliased proportional font ------------------------------- */
+int mote_font_draw_aa(uint16_t *fb, const MoteFont *f, const char *s, int x, int y, uint16_t color) {
+    if (!f || !f->glyphs || !f->cov) return x;
+    const int cr = (color >> 11) & 0x1F, cg = (color >> 5) & 0x3F, cb = color & 0x1F;
+    int pen = x, line = y;
+    for (; s && *s; ++s) {
+        unsigned char ch = (unsigned char)*s;
+        if (ch == '\n') { pen = x; line += f->line_h ? f->line_h : 1; continue; }
+        if (ch < f->first || ch >= f->first + f->count) continue;
+        const MoteGlyph *g = &f->glyphs[ch - f->first];
+        const uint8_t *cov = f->cov + g->off;
+        for (int gy = 0; gy < g->h; ++gy) {
+            int py = line + g->yoff + gy;
+            if (py < 0 || py >= TH) continue;
+            uint16_t *row = fb + py * TW;
+            const uint8_t *crow = cov + gy * g->w;
+            for (int gx = 0; gx < g->w; ++gx) {
+                uint8_t a = crow[gx];
+                if (!a) continue;
+                int px = pen + g->xoff + gx;
+                if (px < 0 || px >= TW) continue;
+                if (a >= 0xFC) { row[px] = color; continue; }   /* ~opaque: skip the blend */
+                uint16_t d = row[px];
+                int dr = (d >> 11) & 0x1F, dg = (d >> 5) & 0x3F, db = d & 0x1F;
+                dr += ((cr - dr) * a) >> 8;
+                dg += ((cg - dg) * a) >> 8;
+                db += ((cb - db) * a) >> 8;
+                row[px] = (uint16_t)((dr << 11) | (dg << 5) | db);
+            }
+        }
+        pen += g->adv;
+    }
+    return pen;
+}
+int mote_font_aa_width(const MoteFont *f, const char *s) {
+    if (!f || !f->glyphs) return 0;
+    int run = 0, w = 0;
+    for (; s && *s; ++s) {
+        unsigned char ch = (unsigned char)*s;
+        if (ch == '\n') { if (run > w) w = run; run = 0; continue; }
+        if (ch < f->first || ch >= f->first + f->count) continue;
+        run += f->glyphs[ch - f->first].adv;
+    }
+    return run > w ? run : w;
+}

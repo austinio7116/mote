@@ -32,7 +32,7 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 38u  /* v38: kv_save/kv_load/kv_list — named-blob storage (e.g. voxel chunk persistence) */
+#define MOTE_ABI_VERSION 39u  /* v39: text_font — anti-aliased proportional fonts (TTF-baked or hand-drawn) */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -409,6 +409,13 @@ typedef struct MoteApi {
     int  (*kv_save)(const char *key, const void *data, int len);
     int  (*kv_load)(const char *key, void *data, int max);
     void (*kv_list)(const char *prefix, void (*cb)(const char *key, void *arg), void *arg);
+
+    /* --- ABI v39: anti-aliased proportional text. Draws `s` with `font` (baked
+     * from a TTF, or hand-drawn in the Studio's Font tab) at top-left (x,y),
+     * alpha-blending each glyph's coverage over the framebuffer. '\n' wraps to x
+     * and down font->line_h. Returns the advanced x. The built-in mote->text()
+     * 3x5 font stays available for tiny fixed HUD text. */
+    int (*text_font)(uint16_t *fb, const MoteFont *font, const char *s, int x, int y, uint16_t color);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

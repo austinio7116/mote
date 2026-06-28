@@ -61,6 +61,10 @@ static void mc_read_cflags(const char *dir, char *out, int n){ out[0]=0;
 
 int mc_build(const char *dir, int device, mote_log_fn log){
     char name[80]; mc_name(dir,name,sizeof name);
+    /* The HOST .so is an internal artifact the Studio loads by FOLDER name, so
+     * name it after the folder — not MOTE_GAME_META (which can differ from the
+     * folder, and may contain spaces). The device .mote keeps the display name. */
+    const char *dn = strrchr(dir,'/'); dn = dn ? dn + 1 : dir;
     char cf[512]; mc_read_cflags(dir,cf,sizeof cf);   /* per-game -D flags (sync w/ tools/mote) */
     char bd[360]; snprintf(bd,sizeof bd,"%.320s/build",dir); MKDIR(bd);
     char srcdir[360]; snprintf(srcdir,sizeof srcdir,"%.320s/src",dir);
@@ -71,11 +75,11 @@ int mc_build(const char *dir, int device, mote_log_fn log){
     /* host module (.so / .dll) */
     char cmd[12000]; int p=snprintf(cmd,sizeof cmd,"gcc -shared %s -O2 -ffast-math -Wno-format-truncation -DMOTE_HOST=1%s%s",HOST_PIC,inc,cf);
     for(int i=0;i<ns;i++)p+=snprintf(cmd+p,sizeof cmd-p," %.320s/src/%s",dir,nm[i]);
-    p+=snprintf(cmd+p,sizeof cmd-p," -lm -o %.320s/build/%s.%s 2>&1",dir,name,HOST_EXT);
-    { char m[120]; snprintf(m,sizeof m,"$ build %s (host)",name); log(m); }
+    p+=snprintf(cmd+p,sizeof cmd-p," -lm -o \"%.320s/build/%s.%s\" 2>&1",dir,dn,HOST_EXT);
+    { char m[120]; snprintf(m,sizeof m,"$ build %s (host)",dn); log(m); }
     /* Free the output path even if a stale copy is still loaded somewhere: deleting a
      * loaded DLL fails on Windows, but RENAMING it aside succeeds, so ld can write fresh. */
-    { char out[420]; snprintf(out,sizeof out,"%.320s/build/%s.%s",dir,name,HOST_EXT);
+    { char out[420]; snprintf(out,sizeof out,"%.320s/build/%s.%s",dir,dn,HOST_EXT);
       if(remove(out)!=0){ char aside[470]; snprintf(aside,sizeof aside,"%.400s.stale",out); remove(aside); rename(out,aside); } }
     if(run_logged(cmd,log)!=0){ log("host build FAILED"); return -1; }
     log("host module built");
@@ -298,11 +302,12 @@ static void seen_claim(BakeSeen *s, const char *base, const char *src, mote_log_
  * so keep asset filenames unique across subfolders. */
 static void bake_dir(const char *adir, const char *srcdir,
                      const char *objtool, const char *stltool, const char *rigtool,
+                     const char *ttftool,
                      mote_log_fn log, int *did, BakeSeen *seen){
     DIR *d=opendir(adir); if(!d)return; struct dirent *e;
     while((e=readdir(d))){ const char *n=e->d_name; if(n[0]=='.'||!strcmp(n,"build"))continue;
         char path[600]; snprintf(path,sizeof path,"%.500s/%.80s",adir,n);
-        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,log,did,seen); continue; }
+        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,ttftool,log,did,seen); continue; }
         int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
         char header[600]; snprintf(header,sizeof header,"%.400s/%.80s.h",srcdir,base);
         if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){
@@ -318,7 +323,15 @@ static void bake_dir(const char *adir, const char *srcdir,
                 char c[1500]; snprintf(c,sizeof c,"%s %s %s %s %s 2>&1",rigtool,base,path,rh,rigp); if(run_logged(c,log)==0)(*did)++; }   /* OBJ + .rig -> MoteRig */
             else { ensure_tool("obj2mesh.c",objtool,log); seen_claim(seen,base,n,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 2>&1",objtool,base,path,header); if(run_logged(c,log)==0)(*did)++; } }
         else if(!strcasecmp(n+l-4,".stl")){ ensure_tool("stl2mesh.c",stltool,log); seen_claim(seen,base,n,log); char c[1100]; snprintf(c,sizeof c,"%s %s %s %s 1500 2>&1",stltool,base,path,header); if(run_logged(c,log)==0)(*did)++; }
-        else if(!strcasecmp(n+l-4,".wav")){ seen_claim(seen,base,n,log); if(bake_wav(path,header,base,log)==0)(*did)++; } }
+        else if(!strcasecmp(n+l-4,".wav")){ seen_claim(seen,base,n,log); if(bake_wav(path,header,base,log)==0)(*did)++; }
+        /* TTF -> <base>.font.h (MoteFont). Pixel size from an optional <base>.size
+         * sidecar (the Font tab writes it), default 16. Distinct .font.h header, so
+         * no base-name collision with meshes/images/wavs. */
+        else if(!strcasecmp(n+l-4,".ttf")){ ensure_tool("ttf2font.c",ttftool,log);
+            int pxs=16; char szf[600]; snprintf(szf,sizeof szf,"%.500s/%.70s.size",adir,base);
+            FILE *sf=fopen(szf,"r"); if(sf){ if(fscanf(sf,"%d",&pxs)!=1)pxs=16; fclose(sf); }
+            char fh[600]; snprintf(fh,sizeof fh,"%.400s/%.70s.font.h",srcdir,base);
+            char c[1200]; snprintf(c,sizeof c,"%s %s %s %s %d 2>&1",ttftool,base,path,fh,pxs); if(run_logged(c,log)==0)(*did)++; } }
     closedir(d); }
 
 int mc_bake(const char *dir, mote_log_fn log){
@@ -326,8 +339,8 @@ int mc_bake(const char *dir, mote_log_fn log){
     char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad);
     if(!d){ if(!didicon)log("no assets/ directory"); return didicon?0:-1; } closedir(d);
     char sd[360]; snprintf(sd,sizeof sd,"%.320s/src",dir);
-    char objtool[64],stltool[64],rigtool[64];
-    snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT);
+    char objtool[64],stltool[64],rigtool[64],ttftool[64];
+    snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT); snprintf(ttftool,sizeof ttftool,"/tmp/mote_ttf2font%s",TOOL_EXT);
     static BakeSeen seen; seen.n=0;   /* warn on base-name collisions (two assets -> one .h) */
-    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,log,&did,&seen);
+    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,ttftool,log,&did,&seen);
     if(!did&&!didicon)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }

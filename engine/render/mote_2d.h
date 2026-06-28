@@ -27,6 +27,25 @@ typedef struct {
                                * Defaults to 0 for older {px,w,h,key} initialisers. */
 } MoteImage;
 
+/* --- ABI v39: anti-aliased proportional bitmap font ---------------------------
+ * A glyph's coverage is 8-bit alpha (0 = transparent .. 255 = solid) so sub-pixel
+ * TTF edges blend cleanly at any size; a hand-drawn glyph just paints 0/255 (or
+ * any level). Baked by the ttf2font tool / the Studio Font tab. Draw via
+ * mote->text_font(). Codepoints are `first` .. `first + count - 1` (ASCII range). */
+typedef struct {
+    uint8_t  adv;        /* pen advance after this glyph, in pixels */
+    uint8_t  w, h;       /* coverage bitmap size (0x0 for blank glyphs like space) */
+    int8_t   xoff, yoff; /* bitmap top-left relative to the pen x / text-box top y */
+    uint32_t off;        /* byte offset of this glyph's w*h coverage in MoteFont.cov */
+} MoteGlyph;
+typedef struct {
+    const uint8_t   *cov;     /* 8-bit AA coverage for every glyph, packed back-to-back */
+    const MoteGlyph *glyphs;  /* `count` entries */
+    uint16_t count;           /* number of glyphs */
+    uint8_t  first;           /* first codepoint (usually 32 = space) */
+    uint8_t  line_h;          /* line advance for '\n' / multi-line layout, in pixels */
+} MoteFont;
+
 /* A tileset: an atlas image divided into tile_w x tile_h cells, indexed
  * left-to-right, top-to-bottom. */
 typedef struct {

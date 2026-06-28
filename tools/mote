@@ -471,6 +471,7 @@ def cmd_bake(args):
             and os.path.splitext(f)[0] not in models]
     sfxs = [f for f in files if f.lower().endswith(".sfx")]
     wavs = [f for f in files if f.lower().endswith(".wav")]
+    ttfs = [f for f in files if f.lower().endswith(".ttf")]   # -> <base>.font.h (MoteFont)
     tsets = sorted(os.path.join(tdir, t) for t in os.listdir(tdir)) if os.path.isdir(tdir) else []
     tsets = [t for t in tsets if t.endswith(".tileset")]
     ldir = os.path.join(d, "levels")
@@ -479,7 +480,7 @@ def cmd_bake(args):
     adir = os.path.join(d, "anims")
     anims = sorted(os.path.join(adir, t) for t in os.listdir(adir)) if os.path.isdir(adir) else []
     anims = [t for t in anims if t.endswith(".anims")]
-    if not (objs or stls or imgs or sfxs or wavs or tsets or lvls or anims):
+    if not (objs or stls or imgs or sfxs or wavs or ttfs or tsets or lvls or anims):
         print("mote: no bakeable assets in %s" % d); return
 
     # Warn on base-name collisions: assets of different types that bake to the same
@@ -527,6 +528,18 @@ def cmd_bake(args):
     for im in imgs:
         name = os.path.splitext(os.path.basename(im))[0]
         bake_image(name, im, os.path.join(src, name + ".h"))
+    if ttfs:
+        tt = tool_for("ttf2font.c", "mote_ttf2font")
+        for t in ttfs:
+            name = os.path.splitext(os.path.basename(t))[0]
+            # pixel size from an optional <base>.size sidecar (the Studio Font tab
+            # writes it); default 16. -> src/<base>.font.h (a MoteFont).
+            size = "16"
+            szf = os.path.splitext(t)[0] + ".size"
+            if os.path.isfile(szf):
+                try: size = str(int(open(szf).read().strip()))
+                except Exception: pass
+            run([tt, name, t, os.path.join(src, name + ".font.h"), size])
     for sx in sfxs:
         name = os.path.splitext(os.path.basename(sx))[0]
         bake_sfx(name, sx, os.path.join(src, name + ".sfx.h"))

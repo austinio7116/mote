@@ -108,6 +108,7 @@ void mote_api_fill(MoteApi *a) {
     /* ABI v5: text. */
     a->text                  = mote_font_draw;
     a->text_2x               = mote_font_draw_2x;
+    a->text_font             = mote_font_draw_aa;   /* ABI v39: AA proportional fonts */
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
