@@ -1271,10 +1271,241 @@ static int  mesh_tex_sidecar(char*out,size_t n);
 static void mesh_tex_assign(const char*src);
 static void mesh_tex_clear(void);
 
-static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
+/* ===================== editable mesh scene (Blender-style modeling) =====================
+ * Phase 1: an in-memory scene of editable objects (persistent verts / faces / derived
+ * edges) the MESH tab can model directly — separate from the import/decimate path above.
+ * Toggle with the "Model editor" button or Tab. Add cube/plane primitives, see the
+ * wireframe + vertex overlay, save/load a .mmesh sidecar, and bake the EXACT topology
+ * (no decimation) to a MoteModel header. Selection + modal G/S/E/I ops land in later
+ * phases; the data model + edge adjacency here are built to receive them. */
+#define EMESH_DEFCOL 0xA534          /* default new-face albedo (RGB565, mid grey) */
+typedef struct { V3 p; uint8_t sel; } EVert;
+typedef struct { int v[4]; int nv; uint8_t sel; uint16_t color; } EFace;   /* tri or quad */
+typedef struct { int a,b; uint8_t sel; int f0,f1; } EEdge;                  /* derived; f0/f1 = adjacent faces (-1 none) */
+typedef struct {
+    char  name[28];
+    EVert *v; int nv,vcap;
+    EFace *f; int nf,fcap;
+    EEdge *e; int ne,ecap;
+    V3    origin;                /* object position in the scene */
+    int   parent;  V3 pivot;     /* rig fields (consumed by the RIG tab in a later phase) */
+} EObject;
+#define EMESH_MAXOBJ 32
+static EObject g_obj[EMESH_MAXOBJ]; static int g_nobj=0, g_objsel=0;
+static int g_edit_mode=0;            /* MESH tab: 0 = importer preview, 1 = editable scene */
+static int g_sel_mode=0;             /* 0 = vert, 1 = edge, 2 = face */
+static char g_mmesh_path[640];
+
+static int ev_add(EObject*o,V3 p){ if(o->nv>=o->vcap){ o->vcap=o->vcap?o->vcap*2:16; o->v=realloc(o->v,o->vcap*sizeof*o->v); }
+    o->v[o->nv].p=p; o->v[o->nv].sel=0; return o->nv++; }
+static void ef_add(EObject*o,int nv,const int*idx,uint16_t col){ if(nv<3)return; if(nv>4)nv=4;
+    if(o->nf>=o->fcap){ o->fcap=o->fcap?o->fcap*2:16; o->f=realloc(o->f,o->fcap*sizeof*o->f); }
+    EFace*f=&o->f[o->nf++]; f->nv=nv; f->sel=0; f->color=col; for(int i=0;i<nv;i++)f->v[i]=idx[i]; for(int i=nv;i<4;i++)f->v[i]=0; }
+/* Derive the edge list (with face adjacency) from the faces. O(F*E*E) — fine for the
+ * small hand-modeled meshes this targets. Re-run after every topology change. */
+static void edges_rebuild(EObject*o){ o->ne=0;
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi];
+        for(int k=0;k<f->nv;k++){ int a=f->v[k],b=f->v[(k+1)%f->nv]; if(a==b)continue; int lo=a<b?a:b,hi=a<b?b:a;
+            int found=-1; for(int ei=0;ei<o->ne;ei++) if(o->e[ei].a==lo&&o->e[ei].b==hi){ found=ei; break; }
+            if(found<0){ if(o->ne>=o->ecap){ o->ecap=o->ecap?o->ecap*2:32; o->e=realloc(o->e,o->ecap*sizeof*o->e); }
+                EEdge*ed=&o->e[o->ne++]; ed->a=lo; ed->b=hi; ed->sel=0; ed->f0=fi; ed->f1=-1; }
+            else if(o->e[found].f1<0&&o->e[found].f0!=fi)o->e[found].f1=fi; } } }
+static EObject* eobj_new(const char*name){ if(g_nobj>=EMESH_MAXOBJ)return NULL; EObject*o=&g_obj[g_nobj];
+    memset(o,0,sizeof*o); snprintf(o->name,sizeof o->name,"%s",name); o->parent=g_nobj?0:-1; g_objsel=g_nobj; return &g_obj[g_nobj++]; }
+static void eobj_free_all(void){ for(int i=0;i<g_nobj;i++){ free(g_obj[i].v); free(g_obj[i].f); free(g_obj[i].e); }
+    memset(g_obj,0,sizeof g_obj); g_nobj=0; g_objsel=0; }
+/* Fit the whole scene into the preview's [-1,1] cube (reuses the importer's g_mcen/g_mscale). */
+static void eobj_fit(void){ float q=1e-6f;
+    for(int o=0;o<g_nobj;o++)for(int i=0;i<g_obj[o].nv;i++){ V3 p=g_obj[o].v[i].p; p.x+=g_obj[o].origin.x; p.y+=g_obj[o].origin.y; p.z+=g_obj[o].origin.z;
+        float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z); if(ax>q)q=ax; if(ay>q)q=ay; if(az>q)q=az; }
+    g_mcen=(V3){0,0,0}; g_mscale=1.0f/q; }
+/* primitives (CCW from outside so baked normals point outward) */
+static void prim_cube(float s){ EObject*o=eobj_new("Cube"); if(!o)return; float h=s*0.5f;
+    V3 c[8]={{-h,-h,-h},{h,-h,-h},{h,h,-h},{-h,h,-h},{-h,-h,h},{h,-h,h},{h,h,h},{-h,h,h}};
+    for(int i=0;i<8;i++)ev_add(o,c[i]);
+    int fq[6][4]={{4,5,6,7},{0,3,2,1},{1,2,6,5},{0,4,7,3},{3,7,6,2},{0,1,5,4}};
+    for(int i=0;i<6;i++)ef_add(o,4,fq[i],EMESH_DEFCOL); edges_rebuild(o); }
+static void prim_plane(float s){ EObject*o=eobj_new("Plane"); if(!o)return; float h=s*0.5f;
+    ev_add(o,(V3){-h,0,-h}); ev_add(o,(V3){h,0,-h}); ev_add(o,(V3){h,0,h}); ev_add(o,(V3){-h,0,h});
+    int q[4]={0,3,2,1}; ef_add(o,4,q,EMESH_DEFCOL); edges_rebuild(o); }
+
+static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.600s/scene.mmesh",g_sel>=0?g_games[g_sel].dir:"."); }
+static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    mmesh_pathfor(g_mmesh_path,sizeof g_mmesh_path); FILE*f=fopen(g_mmesh_path,"w");
+    if(!f){ snprintf(g_status,sizeof g_status,"cannot write scene.mmesh"); return; }
+    fprintf(f,"mmesh 1\n");
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        fprintf(f,"object %s\norigin %g %g %g\nparent %d\npivot %g %g %g\n",ob->name,ob->origin.x,ob->origin.y,ob->origin.z,ob->parent,ob->pivot.x,ob->pivot.y,ob->pivot.z);
+        for(int i=0;i<ob->nv;i++)fprintf(f,"v %g %g %g\n",ob->v[i].p.x,ob->v[i].p.y,ob->v[i].p.z);
+        for(int i=0;i<ob->nf;i++){ EFace*fc=&ob->f[i]; fprintf(f,"f %d",fc->nv); for(int k=0;k<fc->nv;k++)fprintf(f," %d",fc->v[k]); fprintf(f," %u\n",fc->color); }
+        fprintf(f,"end\n"); }
+    fclose(f); snprintf(g_status,sizeof g_status,"saved scene.mmesh (%d objects)",g_nobj); }
+static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    mmesh_pathfor(g_mmesh_path,sizeof g_mmesh_path); FILE*f=fopen(g_mmesh_path,"r");
+    if(!f){ snprintf(g_status,sizeof g_status,"no scene.mmesh in project"); return; }
+    eobj_free_all(); char ln[256]; EObject*cur=NULL;
+    while(fgets(ln,sizeof ln,f)){
+        if(!strncmp(ln,"object ",7)){ char nm[28]={0}; if(sscanf(ln+7,"%27s",nm)==1)cur=eobj_new(nm); }
+        else if(cur&&!strncmp(ln,"origin ",7))sscanf(ln+7,"%f %f %f",&cur->origin.x,&cur->origin.y,&cur->origin.z);
+        else if(cur&&!strncmp(ln,"parent ",7))sscanf(ln+7,"%d",&cur->parent);
+        else if(cur&&!strncmp(ln,"pivot ",6))sscanf(ln+6,"%f %f %f",&cur->pivot.x,&cur->pivot.y,&cur->pivot.z);
+        else if(cur&&ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3)ev_add(cur,v); }
+        else if(cur&&ln[0]=='f'&&ln[1]==' '){ int vals[6],n=0; for(char*tok=strtok(ln+2," \t\r\n"); tok&&n<6; tok=strtok(NULL," \t\r\n"))vals[n++]=atoi(tok);
+            if(n>=4){ int cnt=vals[0]; if(cnt<3)cnt=3; if(cnt>4)cnt=4; int idx[4]={0}; for(int k=0;k<cnt&&k+1<n;k++)idx[k]=vals[k+1];
+                int col=(n>=cnt+2)?vals[cnt+1]:EMESH_DEFCOL; ef_add(cur,cnt,idx,(uint16_t)col); } } }
+    for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]); fclose(f); eobj_fit();
+    snprintf(g_status,sizeof g_status,"loaded scene.mmesh (%d objects)",g_nobj); }
+
+/* Exact bake: emit the selected object's topology DIRECTLY to MeshVert/MeshFace
+ * (triangulating quads, chunked to <=255 verts), bypassing the decimator so the
+ * artist's exact low-poly mesh survives. Same chunk format as mesh_emit(). */
+static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
+    EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
+    int tcap=0; for(int fi=0;fi<o->nf;fi++)tcap+=o->f[fi].nv-2; if(tcap<1){ snprintf(g_status,sizeof g_status,"no faces"); return; }
+    int (*tri)[3]=malloc((size_t)tcap*sizeof*tri); int nt=0;
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tri[nt][0]=f->v[0]; tri[nt][1]=f->v[k-1]; tri[nt][2]=f->v[k]; nt++; } }
+    float qmax=1e-6f,bound=0; for(int i=0;i<o->nv;i++){ V3 p=o->v[i].p; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
+        if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(p); if(l>bound)bound=l; }
+    float q=127.0f/qmax; uint16_t col=o->f[0].color; float size=g_mesh_size>0?g_mesh_size:qmax;
+    char name[64]; snprintf(name,sizeof name,"%.40s",o->name[0]?o->name:"model");
+    for(char*c=name;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')||*c=='_'))*c='_';
+    char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w");
+    if(!h){ free(tri); snprintf(g_status,sizeof g_status,"cannot write src/%s.h",name); return; }
+    fprintf(h,"/* GENERATED by Mote Studio (model editor) - %d verts, %d faces, scale=%.3f */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",o->nv,nt,size,name,name);
+    int *stamp=malloc(o->nv*sizeof(int)),*local=malloc(o->nv*sizeof(int)); for(int i=0;i<o->nv;i++)stamp[i]=-1;
+    int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface);
+    char chunklist[16384]=""; int cl=0,chunk=0,ti=0,total_v=0,total_f=0;
+    while(ti<nt){ int nv=0,cf=0,start=ti;
+        for(; ti<nt; ti++){ int g[3]={tri[ti][0],tri[ti][1],tri[ti][2]}; int need=0; for(int k=0;k<3;k++)if(stamp[g[k]]!=chunk)need++; if(nv+need>255)break;
+            int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
+            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++; }
+        if(ti==start){ ti++; continue; }
+        fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
+        for(int i=0;i<nv;i++){ V3 v=o->v[cv[i]].p; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
+        fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
+        for(int i=0;i<cf;i++){ V3 a=o->v[cv[cface[i][0]]].p,b=o->v[cv[cface[i][1]]].p,c=o->v[cv[cface[i][2]]].p;
+            V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
+            fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
+        fprintf(h,"};\n");
+        cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,col,size,bound*(size/qmax));
+        total_v+=nv; total_f+=cf; chunk++; }
+    fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n#define %s_TRIS %d\n"
+              "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* mote_model_draw(mote,&%s,pos) */\n\n#endif\n",
+            name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name);
+    fclose(h); free(tri); free(stamp); free(local); free(cv); free(cface);
+    snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact)",name,total_f,chunk); }
+
+/* edit-mode card hit rects */
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit;
+
+static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
-    if(!g_nraw){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26}); return; }
+    if(!g_mdrag) g_myaw+=0.006f;
+    float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    int rw=vw,rh=h; { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } } if(rw<1)rw=1; if(rh<1)rh=1;
+    if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
+        g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
+    uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
+    for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
+    int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
+    #define EVIEW(P,OUT) do{ V3 _p=(P); _p.x=(_p.x-g_mcen.x)*g_mscale; _p.y=(_p.y-g_mcen.y)*g_mscale; _p.z=(_p.z-g_mcen.z)*g_mscale; \
+        float _x=_p.x*cyw-_p.z*syw,_z=_p.x*syw+_p.z*cyw,_y=_p.y*cp-_z*sp,_z2=_p.y*sp+_z*cp; (OUT)=(V3){_x,_y,_z2}; }while(0)
+    /* filled faces (double-sided, z-buffered) */
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);
+        for(int fi=0;fi<ob->nf;fi++){ EFace*f=&ob->f[fi];
+            for(int k=2;k<f->nv;k++){ int id[3]={f->v[0],f->v[k-1],f->v[k]}; V3 rr[3];
+                for(int j=0;j<3;j++){ V3 p=ob->v[id[j]].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z; EVIEW(p,rr[j]); }
+                float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z,vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
+                float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
+                float sh=0.30f+0.70f*fabsf(nx*0.4f+ny*0.5f+nz*0.75f);
+                int sel=(f->sel&&g_sel_mode==2);
+                uint8_t br=((f->color>>11)&31)<<3,bg=((f->color>>5)&63)<<2,bb=(f->color&31)<<3;
+                if(sel){ br=255; bg=150; bb=60; } else if(!act){ br=(uint8_t)(br*0.5f); bg=(uint8_t)(bg*0.5f); bb=(uint8_t)(bb*0.5f); }
+                uint8_t cr=(uint8_t)(br*sh),cg=(uint8_t)(bg*sh),cb=(uint8_t)(bb*sh); uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+                float sx[3],sy[3],sz[3]; for(int j=0;j<3;j++){ float iz=persp/(dist-rr[j].z); sx[j]=cx+rr[j].x*iz; sy[j]=cyy-rr[j].y*iz; sz[j]=rr[j].z; }
+                float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
+                int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])),maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
+                int miny=(int)floorf(fminf(fminf(sy[0],sy[1]),sy[2])),maxy=(int)ceilf(fmaxf(fmaxf(sy[0],sy[1]),sy[2]));
+                if(minx<0)minx=0; if(miny<0)miny=0; if(maxx>rw-1)maxx=rw-1; if(maxy>rh-1)maxy=rh-1;
+                for(int y=miny;y<=maxy;y++)for(int x=minx;x<=maxx;x++){ float fx=x+0.5f,fy=y+0.5f;
+                    float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]);
+                    float e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]);
+                    float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
+                    if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
+                    float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } } }
+    SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_me_view);
+    /* overlay: edges + verts in window space */
+    float kx=vw/(float)rw, ky=h/(float)rh;
+    #define ESCR(P,SXX,SYY,VIS) do{ V3 _r; EVIEW(P,_r); float _iz=persp/(dist-_r.z); (SXX)=ox+(cx+_r.x*_iz)*kx; (SYY)=oy+(cyy-_r.y*_iz)*ky; (VIS)=(dist-_r.z)>0.05f; }while(0)
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);
+        for(int ei=0;ei<ob->ne;ei++){ EEdge*ed=&ob->e[ei]; V3 pa=ob->v[ed->a].p,pb=ob->v[ed->b].p;
+            pa.x+=ob->origin.x; pa.y+=ob->origin.y; pa.z+=ob->origin.z; pb.x+=ob->origin.x; pb.y+=ob->origin.y; pb.z+=ob->origin.z;
+            float ax,ay,bx,by; int va,vb; ESCR(pa,ax,ay,va); ESCR(pb,bx,by,vb); if(!va||!vb)continue;
+            Col c = (ed->sel&&g_sel_mode==1)?(Col){255,150,60}:(act?(Col){180,190,210}:(Col){90,98,120});
+            SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); }
+        if(g_sel_mode==0)for(int i=0;i<ob->nv;i++){ V3 p=ob->v[i].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
+            float sx,sy; int vis; ESCR(p,sx,sy,vis); if(!vis)continue;
+            Col c=ob->v[i].sel?(Col){255,150,60}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-2,(int)sy-2,4,4,c); } }
+    #undef EVIEW
+    #undef ESCR
+    if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
+    text(R,"EDIT MODE  -  drag: orbit, wheel: zoom, Tab: exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+
+    /* ---- edit card ---- */
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px;
+    text(R,"Select mode (1/2/3)",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    px=ui_pill(R,lx,cy,NULL,"Vert",g_sel_mode==0,&g_me_evert,mx,my);
+    px=ui_pill(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my);
+    ui_pill(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my); cy+=UI_H+10;
+    text(R,"Add primitive",lx,cy,1,C_DIM,C_PANEL); cy+=15;
+    px=ui_btn(R,lx,cy,0,"Cube",IC_BOX,(Col){170,200,140},&g_me_ecube,mx,my);
+    ui_btn(R,px,cy,0,"Plane",IC_SQUARE,(Col){170,200,140},&g_me_eplane,mx,my); cy+=UI_H+12;
+    char ob[48]; snprintf(ob,sizeof ob,"Objects: %d",g_nobj); text(R,ob,lx,cy,1,C_TXT,C_PANEL); cy+=15;
+    if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.16s:  %dv  %df  %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=16; }
+    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=10;
+    px=ui_btn(R,lx,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my);
+    ui_btn(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my); cy+=UI_H+8;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Bake .h (exact)",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my); cy+=UI_H+10;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Exit edit mode",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my); }
+
+/* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
+static int mesh_edit_down(int mx,int my){
+    #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(HITR(g_me_evert)){ g_sel_mode=0; return 1; }
+    if(HITR(g_me_eedge)){ g_sel_mode=1; return 1; }
+    if(HITR(g_me_eface)){ g_sel_mode=2; return 1; }
+    if(HITR(g_me_ecube)){ prim_cube(1.0f); eobj_fit(); return 1; }
+    if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
+    if(HITR(g_me_esave)){ mmesh_save(); return 1; }
+    if(HITR(g_me_eload)){ mmesh_load(); return 1; }
+    if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
+    if(HITR(g_me_eexit)){ g_edit_mode=0; return 1; }
+    return 0;
+    #undef HITR
+}
+/* keyboard for the MESH tab edit mode (routed from the main event loop); 1 if consumed */
+static int mesh_edit_key(SDL_Keycode k){
+    if(k==SDLK_TAB){ g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }
+    if(!g_edit_mode)return 0;
+    SDL_Keymod md=SDL_GetModState();
+    if(k==SDLK_1){ g_sel_mode=0; return 1; }
+    if(k==SDLK_2){ g_sel_mode=1; return 1; }
+    if(k==SDLK_3){ g_sel_mode=2; return 1; }
+    if(k==SDLK_a&&(md&KMOD_SHIFT)){ prim_cube(1.0f); eobj_fit(); return 1; }
+    if(k==SDLK_p&&(md&KMOD_SHIFT)){ prim_plane(1.0f); eobj_fit(); return 1; }
+    return 0;
+}
+
+static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
+    if(g_edit_mode){ draw_mesh_edit(R,ox,oy,w,h); return; }
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
+    if(!g_nraw){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
+        text(R,"- or model from scratch -",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
+        ui_btn(R,ox+14,oy+52,0,"Open model editor",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); return; }
     if(g_mesh_dirty) mesh_reprocess();
 
     /* ---- processed-mesh 3D preview (left) ---- */
@@ -1339,7 +1570,8 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     snprintf(vb,sizeof vb,"%.2fm",g_mesh_size); ui_stepper(R,lx,cy,"size",vb,&g_me_smin,&g_me_spls,mx,my); cy+=UI_H+10;
     int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
     ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
-    ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+12;
+    ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+10;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Model editor (Tab)",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
 
     /* ---- texture (ABI v35): assign a PNG -> persisted as a sidecar next to the model ---- */
     { char sc[400]; int has=0; if(mesh_tex_sidecar(sc,sizeof sc)){ struct stat tst; has=(stat(sc,&tst)==0); }
@@ -1383,6 +1615,8 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 
 static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(g_edit_mode) return mesh_edit_down(mx,my);
+    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ g_edit_mode=1; eobj_fit(); return 1; }
     int ch=0;
     if(HITR(g_me_bmin)){ g_mesh_budget-= g_mesh_budget>800?200:100; if(g_mesh_budget<100)g_mesh_budget=100; ch=1; }
     else if(HITR(g_me_bpls)){ g_mesh_budget+= g_mesh_budget>=800?200:100; if(g_mesh_budget>8000)g_mesh_budget=8000; ch=1; }
@@ -3739,6 +3973,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
+    if(getenv("MOTE_STUDIO_MESHEDIT")){ g_edit_mode=1; prim_cube(1.0f); eobj_fit(); g_tab=TAB_MESH; }   /* capture hook: model editor with a cube */
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
         if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */
@@ -3875,6 +4110,7 @@ int main(int argc,char**argv){
                 else if(e.type==SDL_MOUSEBUTTONDOWN)fp_click(e.button.x,e.button.y);
                 else if(e.type==SDL_MOUSEWHEEL){ g_fpscroll-=e.wheel.y*3; if(g_fpscroll<0)g_fpscroll=0; if(g_fpscroll>=g_fpn)g_fpscroll=g_fpn>0?g_fpn-1:0; }
                 continue; }
+            if(e.type==SDL_KEYDOWN&&g_tab==TAB_MESH&&!g_codefocus){ if(mesh_edit_key(e.key.keysym.sym))continue; }   /* MESH tab: Tab toggles edit mode, 1/2/3 + Shift+A/P */
             if((g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&g_px_namefocus){   /* editing the sprite save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){
                     if(g_px_nameseled){ g_px_name[0]=0; g_px_nameseled=0; }    /* first key replaces the selection */
