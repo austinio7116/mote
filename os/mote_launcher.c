@@ -91,6 +91,11 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     else if (cat->e[sel].icon_blob) blit_icon_blob(cat->e[sel].icon_blob, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
+    /* fragmented .mote: can't run/icon in place — flag it over the icon */
+    if (cat->e[sel].frag) {
+        fill(ix, iy + MOTE_ICON_H - 13, MOTE_ICON_W, 13, MOTE_RGB565(150, 28, 28));
+        mote_font_draw(s_fb, "DEFRAG", ix + MOTE_ICON_W/2 - 17, iy + MOTE_ICON_H - 10, MOTE_RGB565(255, 232, 210));
+    }
 
     /* browse list (right): a window of names centred on the selection */
     int lx = 70, ly = 23, rh = 13, rows = 6;
@@ -107,7 +112,7 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
             mote_font_draw(s_fb, cat->e[i].name, lx + 3, y + 2, MOTE_RGB565(122, 136, 164));
         }
     }
-    mote_ui_footer(s_fb, "A PLAY   UP/DN BROWSE");
+    mote_ui_footer(s_fb, cat->e[sel].frag ? "FRAGMENTED - RUN DEFRAG IN LOBBY" : "A PLAY   UP/DN BROWSE");
 }
 
 int mote_launcher_run(MoteCatalogFn rebuild) {
@@ -142,12 +147,12 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
             if (mote_just_pressed(&in, MOTE_BTN_DOWN) || mote_just_pressed(&in, MOTE_BTN_RIGHT)) sel = (sel + 1) % cat.count;
             if (mote_just_pressed(&in, MOTE_BTN_UP)   || mote_just_pressed(&in, MOTE_BTN_LEFT))  sel = (sel - 1 + cat.count) % cat.count;
             (void)top;
-            if (mote_just_pressed(&in, MOTE_BTN_A)) return sel;
+            if (mote_just_pressed(&in, MOTE_BTN_A) && !cat.e[sel].frag) return sel;   /* fragmented can't run in place */
         }
 
         /* A LAUNCH command pushed over USB (mote push --launch). */
         int pl = mote_plat_pending_launch();
-        if (pl >= 0 && pl < cat.count) return pl;
+        if (pl >= 0 && pl < cat.count && !cat.e[pl].frag) return pl;
 
 #ifdef THUMBYONE_SLOT_MODE
         /* Hold MENU ~0.6 s to leave the Mote slot back to the ThumbyOne lobby. */

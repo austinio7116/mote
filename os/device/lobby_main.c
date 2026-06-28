@@ -34,6 +34,22 @@ static char            g_ic_name[MOTE_CATALOG_MAX][64];
 static uint32_t        g_ic_size[MOTE_CATALOG_MAX];   /* file size at last resolve — see rebuild() */
 static const void     *g_ic_blob[MOTE_CATALOG_MAX];
 static const uint16_t *g_ic_raw [MOTE_CATALOG_MAX];
+static uint8_t         g_ic_frag[MOTE_CATALOG_MAX];   /* 1 = fragmented (can't run/icon in place) */
+
+/* A .mote is executed + its icon read IN PLACE from the XIP-mapped FAT, so it must be
+ * physically contiguous. Walk the open file's clusters: contiguous iff the i-th cluster
+ * is sclust+i. Returns 1 if contiguous, 0 if fragmented. */
+static int mote_file_contiguous(FIL *fp) {
+    FATFS *fs = fp->obj.fs; DWORD sclust = fp->obj.sclust; FSIZE_t sz = f_size(fp);
+    if (!fs || sclust < 2) return 0;
+    DWORD cb = (DWORD)fs->csize * 512u; if (cb == 0) return 1;
+    DWORD nclust = (DWORD)((sz + cb - 1) / cb);
+    for (DWORD i = 1; i < nclust; i++) {
+        if (f_lseek(fp, (FSIZE_t)i * cb) != FR_OK) return 0;
+        if (fp->clust != sclust + i) return 0;       /* a jump in the cluster chain = fragmented */
+    }
+    return 1;
+}
 
 static int ends_with_mote(const char *s) {
     size_t n = strlen(s);
@@ -48,14 +64,18 @@ static int ends_with_mote(const char *s) {
  * raw 60x60 RGB565 array (*raw); v22+ a compact paletted blob (*blob). Both NULL
  * if the game ships none (or the file isn't a contiguous .mote). Mirrors the
  * standalone OS's store_icon, resolving the FAT cluster instead of a store offset. */
-static void resolve_icon(const char *fname, const void **out_blob, const uint16_t **out_raw) {
-    *out_blob = 0; *out_raw = 0;
+static void resolve_icon(const char *fname, const void **out_blob, const uint16_t **out_raw, uint8_t *out_frag) {
+    *out_blob = 0; *out_raw = 0; *out_frag = 0;
     char path[80]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, fname);
     FIL fp;
     if (f_open(&fp, path, FA_READ) != FR_OK) return;
     FATFS *fs = fp.obj.fs; DWORD sclust = fp.obj.sclust;
+    int contig = mote_file_contiguous(&fp);
     f_close(&fp);
     if (!fs || sclust < 2) return;
+    if (!contig) { *out_frag = 1; return; }   /* fragmented: reading the icon in place would
+                                               * walk into unrelated flash (noise), and the game
+                                               * can't run either — flag it, show no icon. */
     DWORD    sect = fs->database + (DWORD)(sclust - 2) * fs->csize;
     uint32_t off  = (uint32_t)THUMBYONE_FAT_OFFSET + sect * 512u;     /* flash byte offset */
     const MoteModuleHeader *h = (const MoteModuleHeader *)(uintptr_t)(XIP_BASE + off);
@@ -92,10 +112,11 @@ static void rebuild(MoteCatalog *c) {
             strncpy(g_ic_name[c->count], fno.fname, sizeof g_ic_name[0] - 1);
             g_ic_name[c->count][sizeof g_ic_name[0] - 1] = 0;
             g_ic_size[c->count] = (uint32_t)fno.fsize;
-            resolve_icon(fno.fname, &g_ic_blob[c->count], &g_ic_raw[c->count]);
+            resolve_icon(fno.fname, &g_ic_blob[c->count], &g_ic_raw[c->count], &g_ic_frag[c->count]);
         }
         c->e[c->count].icon      = g_ic_raw[c->count];
         c->e[c->count].icon_blob = g_ic_blob[c->count];
+        c->e[c->count].frag      = g_ic_frag[c->count];
         c->count++;
     }
     f_closedir(&dir);

@@ -26,6 +26,10 @@ typedef struct {
                             * icons (a flash XIP / .so pointer the launcher blits directly). */
     const void *icon_blob; /* v22+ compact paletted icon blob (sdk/mote_icon.h), or NULL.
                             * When set, the launcher decodes it to a scratch buffer to blit. */
+    uint8_t  frag;         /* device: 1 if the .mote is NOT physically contiguous on the FAT.
+                            * Mote runs/reads modules in place from XIP, so a fragmented file
+                            * can't run (or show its icon) — the launcher flags it + blocks
+                            * launch until the user defragments. */
 } MoteGameEntry;
 
 typedef struct {
