@@ -28,3 +28,4 @@ build_win/
 dist-windows/
 
 # personal-license font — testing only, never commit/ship
+dist/
