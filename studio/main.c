@@ -1396,15 +1396,94 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     fclose(h); free(tri); free(stamp); free(local); free(cv); free(cface);
     snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact)",name,total_f,chunk); }
 
+/* ---- Phase 2: selection (pick / box / all, mode conversion, hover) ---- */
+static int g_hover_obj=-1, g_hover_idx=-1;      /* element under the cursor (kind == g_sel_mode), for highlight */
+static int g_box_arm=0, g_box_active=0; static int g_box_x0,g_box_y0,g_box_x1,g_box_y1;   /* B then drag = box-select */
+
+static V3 eobj_wv(EObject*o,int vi){ V3 p=o->v[vi].p; p.x+=o->origin.x; p.y+=o->origin.y; p.z+=o->origin.z; return p; }
+/* Project a scene point to window coords + view-space depth, matching draw_mesh_edit's
+ * camera exactly (reads g_me_view, set each frame by the renderer). Returns 0 if behind. */
+static int eobj_project(V3 wp,float*osx,float*osy,float*odepth){
+    if(g_me_view.w<=0||g_me_view.h<=0)return 0;
+    int ox=g_me_view.x,oy=g_me_view.y,vw=g_me_view.w,h=g_me_view.h;
+    int rw=vw,rh=h; { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } } if(rw<1)rw=1; if(rh<1)rh=1;
+    float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
+    V3 p=wp; p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
+    float x=p.x*cyw-p.z*syw,z=p.x*syw+p.z*cyw,y=p.y*cp-z*sp,z2=p.y*sp+z*cp;
+    if(dist-z2<0.05f)return 0; float iz=persp/(dist-z2),kx=vw/(float)rw,ky=h/(float)rh;
+    *osx=ox+(cx+x*iz)*kx; *osy=oy+(cyy-y*iz)*ky; *odepth=z2; return 1; }
+/* Nearest element of the current select mode to (mx,my); -1 if none within threshold.
+ * Frontmost (largest view z) wins ties. Fills *po (object) + *pe (element). */
+static int eobj_pick(int mx,int my,int*po,int*pe){
+    float best=1e9f,bestdepth=-1e30f; int bo=-1,be=-1; const float R=9.0f;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        if(g_sel_mode==0){ for(int i=0;i<ob->nv;i++){ float sx,sy,d; if(!eobj_project(eobj_wv(ob,i),&sx,&sy,&d))continue;
+            float dx=sx-mx,dy=sy-my,dd=dx*dx+dy*dy;
+            if(dd<=R*R&&(dd<best-0.5f||(fabsf(dd-best)<=0.5f&&d>bestdepth))){ best=dd; bestdepth=d; bo=o; be=i; } } }
+        else if(g_sel_mode==1){ for(int i=0;i<ob->ne;i++){ EEdge*ed=&ob->e[i]; float ax,ay,da,bx,by,db;
+            if(!eobj_project(eobj_wv(ob,ed->a),&ax,&ay,&da))continue; if(!eobj_project(eobj_wv(ob,ed->b),&bx,&by,&db))continue;
+            float vx=bx-ax,vy=by-ay,wx=mx-ax,wy=my-ay,L=vx*vx+vy*vy,t=L>1e-6f?(wx*vx+wy*vy)/L:0; if(t<0)t=0; if(t>1)t=1;
+            float px=ax+t*vx,py=ay+t*vy,dx=mx-px,dy=my-py,dd=dx*dx+dy*dy,d=da+(db-da)*t;
+            if(dd<=R*R&&(dd<best-0.5f||(fabsf(dd-best)<=0.5f&&d>bestdepth))){ best=dd; bestdepth=d; bo=o; be=i; } } }
+        else { for(int i=0;i<ob->nf;i++){ EFace*f=&ob->f[i];
+            for(int k=2;k<f->nv;k++){ int id[3]={f->v[0],f->v[k-1],f->v[k]}; float sx[3],sy[3],dz[3]; int ok=1;
+                for(int j=0;j<3;j++)if(!eobj_project(eobj_wv(ob,id[j]),&sx[j],&sy[j],&dz[j])){ ok=0; break; } if(!ok)continue;
+                float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-3f)continue;
+                float e0=(sx[2]-sx[1])*(my-sy[1])-(sy[2]-sy[1])*(mx-sx[1]);
+                float e1=(sx[0]-sx[2])*(my-sy[2])-(sy[0]-sy[2])*(mx-sx[2]);
+                float e2=(sx[1]-sx[0])*(my-sy[0])-(sy[1]-sy[0])*(mx-sx[0]);
+                if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
+                float w0=e0/area,w1=e1/area,w2=e2/area,d=w0*dz[0]+w1*dz[1]+w2*dz[2];
+                if(d>bestdepth){ bestdepth=d; best=0; bo=o; be=i; } } } } }
+    if(bo<0)return -1; *po=bo; *pe=be; return g_sel_mode; }
+static uint8_t* eobj_selptr(EObject*ob,int kind,int e){ return kind==0?&ob->v[e].sel:kind==1?&ob->e[e].sel:&ob->f[e].sel; }
+static void eobj_select_clear(int kind){ for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+    int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=0; } }
+static void eobj_select_all(int kind,int val){ for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+    int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=(uint8_t)val; } }
+/* LMB in the viewport: select the picked element (shift = toggle, else replace).
+ * Returns 1 if something was hit (caller suppresses orbit); 0 on empty bg (caller orbits). */
+static int eobj_click(int mx,int my,int shift){
+    int o,e,kind=eobj_pick(mx,my,&o,&e); if(kind<0)return 0;
+    g_objsel=o; uint8_t*s=eobj_selptr(&g_obj[o],kind,e);
+    if(shift)*s=!*s; else { eobj_select_clear(kind); *s=1; } return 1; }
+/* Blender-style mode conversion: route the old selection through vertices into the new mode. */
+static void eobj_convert_mode(int from,int to){ if(from==to)return;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<1)continue;
+        uint8_t*vs=calloc(ob->nv,1);
+        if(from==0)for(int i=0;i<ob->nv;i++)vs[i]=ob->v[i].sel;
+        else if(from==1){ for(int i=0;i<ob->ne;i++)if(ob->e[i].sel){ vs[ob->e[i].a]=1; vs[ob->e[i].b]=1; } }
+        else for(int i=0;i<ob->nf;i++)if(ob->f[i].sel)for(int k=0;k<ob->f[i].nv;k++)vs[ob->f[i].v[k]]=1;
+        if(to==0)for(int i=0;i<ob->nv;i++)ob->v[i].sel=vs[i];
+        else if(to==1)for(int i=0;i<ob->ne;i++)ob->e[i].sel=(vs[ob->e[i].a]&&vs[ob->e[i].b]);
+        else for(int i=0;i<ob->nf;i++){ int all=ob->f[i].nv>0; for(int k=0;k<ob->f[i].nv;k++)if(!vs[ob->f[i].v[k]])all=0; ob->f[i].sel=(uint8_t)all; }
+        free(vs); } }
+static void set_sel_mode(int m){ if(m==g_sel_mode)return; eobj_convert_mode(g_sel_mode,m); g_sel_mode=m; g_hover_obj=g_hover_idx=-1; }
+/* commit a box-select rectangle (window coords): elements whose screen point falls inside. */
+static void eobj_box_apply(int shift){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x1, x1=g_box_x0<g_box_x1?g_box_x1:g_box_x0;
+    int y0=g_box_y0<g_box_y1?g_box_y0:g_box_y1, y1=g_box_y0<g_box_y1?g_box_y1:g_box_y0;
+    if(!shift)eobj_select_clear(g_sel_mode);
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        if(g_sel_mode==0){ for(int i=0;i<ob->nv;i++){ float sx,sy,d; if(!eobj_project(eobj_wv(ob,i),&sx,&sy,&d))continue;
+            if(sx>=x0&&sx<=x1&&sy>=y0&&sy<=y1){ ob->v[i].sel=1; g_objsel=o; } } }
+        else if(g_sel_mode==1){ for(int i=0;i<ob->ne;i++){ float ax,ay,da,bx,by,db; EEdge*ed=&ob->e[i];
+            if(!eobj_project(eobj_wv(ob,ed->a),&ax,&ay,&da))continue; if(!eobj_project(eobj_wv(ob,ed->b),&bx,&by,&db))continue;
+            float cxp=(ax+bx)*0.5f,cyp=(ay+by)*0.5f; if(cxp>=x0&&cxp<=x1&&cyp>=y0&&cyp<=y1){ ed->sel=1; g_objsel=o; } } }
+        else { for(int i=0;i<ob->nf;i++){ EFace*f=&ob->f[i]; float mxs=0,mys=0; int n=0,ok=1;
+            for(int k=0;k<f->nv;k++){ float sx,sy,d; if(!eobj_project(eobj_wv(ob,f->v[k]),&sx,&sy,&d)){ ok=0; break; } mxs+=sx; mys+=sy; n++; }
+            if(ok&&n){ mxs/=n; mys/=n; if(mxs>=x0&&mxs<=x1&&mys>=y0&&mys<=y1){ f->sel=1; g_objsel=o; } } } } } }
+
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
-    if(!g_mdrag) g_myaw+=0.006f;
+    /* no auto-rotate in the model editor — the model stays still unless the artist orbits */
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
     int rw=vw,rh=h; { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } } if(rw<1)rw=1; if(rh<1)rh=1;
+    if(!g_mdrag&&!g_box_active){ int o,e; if(eobj_pick(mx,my,&o,&e)>=0){ g_hover_obj=o; g_hover_idx=e; } else g_hover_obj=g_hover_idx=-1; }   /* hover under cursor */
     if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
         g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
         g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
@@ -1421,9 +1500,10 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
                 float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z,vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
                 float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
                 float sh=0.30f+0.70f*fabsf(nx*0.4f+ny*0.5f+nz*0.75f);
-                int sel=(f->sel&&g_sel_mode==2);
+                int sel=(f->sel&&g_sel_mode==2), hov=(g_sel_mode==2&&o==g_hover_obj&&fi==g_hover_idx);
                 uint8_t br=((f->color>>11)&31)<<3,bg=((f->color>>5)&63)<<2,bb=(f->color&31)<<3;
-                if(sel){ br=255; bg=150; bb=60; } else if(!act){ br=(uint8_t)(br*0.5f); bg=(uint8_t)(bg*0.5f); bb=(uint8_t)(bb*0.5f); }
+                if(sel){ br=255; bg=150; bb=60; } else if(hov){ br=(uint8_t)(br*0.6f+110); bg=(uint8_t)(bg*0.6f+90); bb=(uint8_t)(bb*0.6f+40); }
+                else if(!act){ br=(uint8_t)(br*0.5f); bg=(uint8_t)(bg*0.5f); bb=(uint8_t)(bb*0.5f); }
                 uint8_t cr=(uint8_t)(br*sh),cg=(uint8_t)(bg*sh),cb=(uint8_t)(bb*sh); uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
                 float sx[3],sy[3],sz[3]; for(int j=0;j<3;j++){ float iz=persp/(dist-rr[j].z); sx[j]=cx+rr[j].x*iz; sy[j]=cyy-rr[j].y*iz; sz[j]=rr[j].z; }
                 float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
@@ -1444,15 +1524,19 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
         for(int ei=0;ei<ob->ne;ei++){ EEdge*ed=&ob->e[ei]; V3 pa=ob->v[ed->a].p,pb=ob->v[ed->b].p;
             pa.x+=ob->origin.x; pa.y+=ob->origin.y; pa.z+=ob->origin.z; pb.x+=ob->origin.x; pb.y+=ob->origin.y; pb.z+=ob->origin.z;
             float ax,ay,bx,by; int va,vb; ESCR(pa,ax,ay,va); ESCR(pb,bx,by,vb); if(!va||!vb)continue;
-            Col c = (ed->sel&&g_sel_mode==1)?(Col){255,150,60}:(act?(Col){180,190,210}:(Col){90,98,120});
+            int hov=(g_sel_mode==1&&o==g_hover_obj&&ei==g_hover_idx);
+            Col c = (ed->sel&&g_sel_mode==1)?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){180,190,210}:(Col){90,98,120});
             SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); }
         if(g_sel_mode==0)for(int i=0;i<ob->nv;i++){ V3 p=ob->v[i].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
             float sx,sy; int vis; ESCR(p,sx,sy,vis); if(!vis)continue;
-            Col c=ob->v[i].sel?(Col){255,150,60}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-2,(int)sy-2,4,4,c); } }
+            int hov=(o==g_hover_obj&&i==g_hover_idx); int r=hov?3:2;
+            Col c=ob->v[i].sel?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-r,(int)sy-r,r*2,r*2,c); } }
+    if(g_box_active){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x1,x1=g_box_x0<g_box_x1?g_box_x1:g_box_x0,y0=g_box_y0<g_box_y1?g_box_y0:g_box_y1,y1=g_box_y0<g_box_y1?g_box_y1:g_box_y0;
+        rect_outline(R,x0,y0,x1-x0,y1-y0,(Col){250,230,140},1); }
     #undef EVIEW
     #undef ESCR
     if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
-    text(R,"EDIT MODE  -  drag: orbit, wheel: zoom, Tab: exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+    text(R,"click: select  shift: add  B: box  A/Alt+A: all/none  -  empty-drag or MMB: orbit, wheel: zoom, Tab: exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
     /* ---- edit card ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px;
@@ -1474,15 +1558,20 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
-    if(HITR(g_me_evert)){ g_sel_mode=0; return 1; }
-    if(HITR(g_me_eedge)){ g_sel_mode=1; return 1; }
-    if(HITR(g_me_eface)){ g_sel_mode=2; return 1; }
+    if(HITR(g_me_evert)){ set_sel_mode(0); return 1; }
+    if(HITR(g_me_eedge)){ set_sel_mode(1); return 1; }
+    if(HITR(g_me_eface)){ set_sel_mode(2); return 1; }
     if(HITR(g_me_ecube)){ prim_cube(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
     if(HITR(g_me_eexit)){ g_edit_mode=0; return 1; }
+    if(HITR(g_me_view)){                                   /* viewport: box-select (armed with B) or pick */
+        int shift=(SDL_GetModState()&KMOD_SHIFT)!=0;
+        if(g_box_arm){ g_box_arm=0; g_box_active=1; g_box_x0=g_box_x1=mx; g_box_y0=g_box_y1=my; return 1; }
+        return eobj_click(mx,my,shift);                    /* 1 = hit (no orbit); 0 = empty bg (orbit) */
+    }
     return 0;
     #undef HITR
 }
@@ -1491,11 +1580,15 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_TAB){ g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }
     if(!g_edit_mode)return 0;
     SDL_Keymod md=SDL_GetModState();
-    if(k==SDLK_1){ g_sel_mode=0; return 1; }
-    if(k==SDLK_2){ g_sel_mode=1; return 1; }
-    if(k==SDLK_3){ g_sel_mode=2; return 1; }
+    if(k==SDLK_1){ set_sel_mode(0); return 1; }
+    if(k==SDLK_2){ set_sel_mode(1); return 1; }
+    if(k==SDLK_3){ set_sel_mode(2); return 1; }
     if(k==SDLK_a&&(md&KMOD_SHIFT)){ prim_cube(1.0f); eobj_fit(); return 1; }
     if(k==SDLK_p&&(md&KMOD_SHIFT)){ prim_plane(1.0f); eobj_fit(); return 1; }
+    if(k==SDLK_a&&(md&KMOD_ALT)){ eobj_select_all(g_sel_mode,0); return 1; }   /* Alt+A: deselect all */
+    if(k==SDLK_a){ eobj_select_all(g_sel_mode,1); return 1; }                   /* A: select all */
+    if(k==SDLK_b){ g_box_arm=1; return 1; }                                     /* B: arm box-select (next drag) */
+    if(k==SDLK_ESCAPE){ g_box_arm=0; g_box_active=0; return 1; }
     return 0;
 }
 
@@ -3973,7 +4066,9 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
-    if(getenv("MOTE_STUDIO_MESHEDIT")){ g_edit_mode=1; prim_cube(1.0f); eobj_fit(); g_tab=TAB_MESH; }   /* capture hook: model editor with a cube */
+    if(getenv("MOTE_STUDIO_MESHEDIT")){ g_edit_mode=1; prim_cube(1.0f); eobj_fit(); g_tab=TAB_MESH;   /* capture hook: model editor with a cube */
+        if(getenv("MOTE_STUDIO_MESHSEL")){ g_sel_mode=atoi(getenv("MOTE_STUDIO_MESHSEL")); if(g_nobj){ EObject*o=&g_obj[0];
+            if(g_sel_mode==0&&o->nv>2){ o->v[2].sel=o->v[6].sel=1; } else if(g_sel_mode==1&&o->ne>3){ o->e[0].sel=o->e[3].sel=1; } else if(o->nf>1){ o->f[0].sel=o->f[4].sel=1; } } } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
         if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */
@@ -4201,11 +4296,14 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                    else if(g_tab==TAB_MESH){ if(e.button.button==SDL_BUTTON_MIDDLE){ g_mdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
+                            else if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
+                if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.button.x; g_box_y1=e.button.y;
+                    eobj_box_apply((SDL_GetModState()&KMOD_SHIFT)!=0); g_box_active=0; }   /* commit box-select */
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
@@ -4225,7 +4323,8 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
-                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_mdrag){ g_myaw-=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.motion.x; g_box_y1=e.motion.y; }   /* drag the box-select rect */
+                else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_MESH&&g_mdrag){ g_myaw-=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_kdrag>=0){   /* retime the dragged key */
                     int t=(int)((float)(e.motion.x-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1)); if(t<0)t=0; if(t>g_clip_ms)t=g_clip_ms;
                     g_rk[g_kdrag].t_ms=t; rig_key_bubble(&g_kdrag); g_ksel=g_kdrag; g_scrub_t=(float)t; }

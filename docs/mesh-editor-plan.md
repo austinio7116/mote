@@ -1,10 +1,18 @@
 # Plan: Blender-style mesh modeling in Mote Studio
 
-> **Status (2026-06-28):** Phase 1 (Foundations) **done** — `EObject` editable scene,
-> edge derivation with face adjacency, cube/plane primitives, edit-mode toggle
-> (Tab / "Model editor" button), filled-face + wireframe + vertex rendering, `.mmesh`
-> save/load, and the exact (non-decimated) single-object bake. Added alongside the
-> importer behind a non-destructive toggle. Phases 2–6 below remain.
+> **Status (2026-06-28):** Phases 1–2 **done**.
+> - **Phase 1 (Foundations):** `EObject` editable scene, edge derivation with face
+>   adjacency, cube/plane primitives, edit-mode toggle (Tab / "Model editor" button),
+>   filled-face + wireframe + vertex rendering, `.mmesh` save/load, exact
+>   (non-decimated) single-object bake. Added alongside the importer behind a
+>   non-destructive toggle.
+> - **Phase 2 (Selection):** VERT/EDGE/FACE modes (keys 1/2/3, pills) with Blender
+>   mode-conversion; click-pick (frontmost wins), Shift-toggle, box-select (B then
+>   drag), select-all / deselect-all (A / Alt+A), hover highlight. Mouse scheme:
+>   LMB-on-geometry selects, LMB-on-empty-bg **or** MMB orbits, wheel zooms. Auto-
+>   rotate removed in edit mode (model holds still unless orbiting).
+>
+> Phases 3–6 below remain (modal G/S/E/I + undo, topology ops, multi-object/rig, polish).
 
 ## Goal
 Add vertex/edge/face select modes and modal operators — **G**rab, **S**cale,
