@@ -27,6 +27,7 @@
 #include "driver.h"      /* driver_img (8 colour-coded racers, back view) */
 #include "tree.h"        /* tree_img   (pine + round, 2 frames) */
 #include "itembox.h"     /* itembox_img */
+#include "items.h"       /* items_img — 10 HUD power-up icons (16x16, by ITEM id-1) */
 #include "banner.h"      /* banner_img (checkered finish) */
 #include "sign.h"        /* sign_img   (arrow, 2 frames) */
 #include "boost.sfx.h"
@@ -324,10 +325,7 @@ enum {
     ITEM_MEGA,         /* mega mushroom — grow huge, squash + immune      */
     ITEM_TYPES
 };
-static const char *ITEM_NAME[] = {
-    "", "MUSHROOM", "x3 MUSH", "BANANA", "x3 BANANA", "G.SHELL",
-    "R.SHELL", "STAR", "BULLET", "LIGHTNING", "MEGA"
-};
+/* HUD shows the items.png icon strip (frame = ITEM id-1), not text names. */
 
 #define NBOX_PTS 5            /* item-box rows around the lap          */
 #define NBOX (NBOX_PTS * 4)   /* 4 boxes across the road at each point  */
@@ -488,15 +486,24 @@ static void items_reset(void) {
 }
 
 static void karts_reset(void) {
+    /* shuffle the grid SLOTS so the player (kart[0]) doesn't always start at the
+     * front — Fisher-Yates over [0..NKART). slot decides the grid position; the
+     * kart's identity (driver / is_player) stays tied to its index. */
+    int slot[NKART]; for (int i = 0; i < NKART; i++) slot[i] = i;
+    for (int i = NKART - 1; i > 0; i--) {
+        int j = (int)(frand() * (i + 1)); if (j > i) j = i;
+        int t = slot[i]; slot[i] = slot[j]; slot[j] = t;
+    }
     for (int i = 0; i < NKART; i++) {
         Kart *k = &kart[i];
-        int gseg = ((NSEG - 6 - (i / 2) * 3) % NSEG + NSEG) % NSEG;   /* staggered grid */
-        float lat = (i % 2 ? 1.0f : -1.0f) * 2.0f;
+        int s = slot[i];
+        int gseg = ((NSEG - 6 - (s / 2) * 3) % NSEG + NSEG) % NSEG;   /* staggered grid */
+        float lat = (s % 2 ? 1.0f : -1.0f) * 2.0f;
         k->pos = track_point(gseg, lat);   /* y already on the banked road plane */
         k->pos.y += RIDE_H;
         k->yaw = atan2f(t_fwd[gseg].x, t_fwd[gseg].z);
         k->speed = 0; k->vlat = 0; k->pitch = 0; k->lean = 0;
-        k->seg = gseg; k->prog = (float)gseg / NSEG; k->lap = 0; k->place = i + 1;
+        k->seg = gseg; k->prog = (float)gseg / NSEG; k->lap = 0; k->place = s + 1;
         k->driver = DRIVER_ID[i]; k->is_player = (i == 0);
         k->half = 0; k->laptime = 0;
         k->drifting = 0; k->drift_dir = 0; k->drift_charge = 0; k->boost = 0;
@@ -1337,14 +1344,14 @@ static void g_overlay(uint16_t *fb) {
     fmt_time(tb, k->laptime);
     mote_textf(mote, fb, 50, 2, white, "%s", tb);
 
-    /* held item — compact label at the bottom edge, only shown when you have one */
+    /* held item — icon in a panel at the bottom-right, only when you have one */
     if (k->item != ITEM_NONE) {
-        const char *nm = ITEM_NAME[k->item];
-        int tw = (int)strlen(nm) * 6 + (k->item_count > 1 ? 18 : 0);
-        int x = 124 - tw;
-        mote->draw_rect(fb, x - 2, 118, tw + 4, 9, MOTE_RGB565(18, 20, 28), 1, 0, 128);
-        if (k->item_count > 1) mote_textf(mote, fb, x, 120, amber, "%s x%d", nm, k->item_count);
-        else                   mote->text(fb, nm, x, 120, amber);
+        int cx = 113, cy = 111;
+        mote->draw_rect(fb, cx - 13, cy - 13, 26, 26, MOTE_RGB565(18, 20, 28), 1, 0, 128);
+        mote->draw_rect(fb, cx - 13, cy - 13, 26, 1, MOTE_RGB565(120, 130, 150), 1, 0, 128);
+        mote->blit_ex(fb, &items_img, (float)cx, (float)cy, (k->item - 1) * 16, 0, 16, 16,
+                      0.0f, 1.35f, MOTE_BLEND_NONE, 0, 128);
+        if (k->item_count > 1) mote_textf(mote, fb, cx + 4, cy + 6, white, "x%d", k->item_count);
     }
 
     minimap(fb);

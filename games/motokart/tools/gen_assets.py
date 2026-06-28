@@ -246,6 +246,49 @@ def tree_sheet():
     pine(4*W,(30,96,52),(60,140,80),snow=True)
     save_png(img,"tree.png")
 
+def build_items():
+    """HUD power-up icon strip: 10 frames of 16x16, indexed by ITEM id-1
+       (mushroom, x3, banana, x3, green shell, red shell, star, bullet, lightning, mega)."""
+    N=10; W=16
+    img=Image.new("RGBA",(W*N,W),(0,0,0,0)); d=ImageDraw.Draw(img)
+    def mush(ox,cx,cy,rad,cap,spots=True):
+        d.pieslice([ox+cx-rad,cy-rad,ox+cx+rad,cy+rad],180,360,fill=cap+(255,))
+        d.rectangle([ox+cx-rad,cy-1,ox+cx+rad,cy+1],fill=cap+(255,))
+        sw=max(2,rad//2)
+        d.rounded_rectangle([ox+cx-sw,cy,ox+cx+sw,cy+rad+1],2,fill=(248,242,228,255))
+        if spots:
+            d.ellipse([ox+cx-1,cy-rad+2,ox+cx+1,cy-rad+4],fill=(255,255,255,255))   # small centre spot
+            if rad>=5:                                                              # two tiny side spots
+                d.ellipse([ox+cx-rad+2,cy-2,ox+cx-rad+3,cy-1],fill=(255,255,255,255))
+                d.ellipse([ox+cx+rad-3,cy-2,ox+cx+rad-2,cy-1],fill=(255,255,255,255))
+    def banana(ox,cx,cy,s,col=(245,215,40)):
+        d.arc([ox+cx-s,cy-s,ox+cx+s,cy+s],35,205,fill=col+(255,),width=max(2,int(s*0.7)))
+    def shell(ox,cx,cy,r,col):
+        d.pieslice([ox+cx-r,cy-r,ox+cx+r,cy+r],180,360,fill=col+(255,),outline=(15,30,15,255))
+        d.rectangle([ox+cx-r,cy,ox+cx+r,cy+2],fill=(238,232,205,255))
+        d.line([ox+cx,cy-r+2,ox+cx,cy-1],fill=(20,50,20,200))
+    def star(ox,cx,cy,ro,ri):
+        pts=[]
+        for k in range(10):
+            a=-math.pi/2+k*math.pi/5; r=ro if k%2==0 else ri
+            pts.append((ox+cx+r*math.cos(a),cy+r*math.sin(a)))
+        d.polygon(pts,fill=(255,225,60,255),outline=(150,110,0,255))
+    mush(0*W,8,9,6,(225,55,55))                                             # 1 mushroom
+    ox=1*W; mush(ox-3,5,11,3,(225,55,55)); mush(ox+3,11,11,3,(225,55,55)); mush(ox,8,7,4,(225,55,55))  # 2 x3
+    banana(2*W,8,8,6)                                                       # 3 banana
+    ox=3*W; banana(ox,5,6,4); banana(ox,11,7,4); banana(ox,8,12,4)          # 4 x3 banana
+    shell(4*W,8,10,6,(60,190,70))                                           # 5 green shell
+    shell(5*W,8,10,6,(220,60,55))                                           # 6 red shell
+    star(6*W,8,8,7,3)                                                       # 7 star
+    ox=7*W                                                                  # 8 bullet bill
+    d.rounded_rectangle([ox+2,5,ox+11,12],3,fill=(45,48,56,255),outline=(12,12,16,255))
+    d.pieslice([ox+8,5,ox+15,12],270,90,fill=(45,48,56,255),outline=(12,12,16,255))
+    d.ellipse([ox+4,6,ox+7,10],fill=(255,255,255,255)); d.ellipse([ox+5,7,ox+6,9],fill=(0,0,0,255))
+    ox=8*W                                                                  # 9 lightning
+    d.polygon([(ox+9,1),(ox+4,9),(ox+7,9),(ox+6,15),(ox+12,6),(ox+8,6)],fill=(255,225,60,255),outline=(190,150,0,255))
+    mush(9*W,8,10,7,(245,170,40))                                           # 10 mega mushroom
+    save_png(img,"items.png")
+
 def itembox_sheet():
     W=20; img=Image.new("RGBA",(W,W),(0,0,0,0)); d=ImageDraw.Draw(img)
     d.rounded_rectangle([2,2,17,17],4,fill=(40,180,230,235),outline=(240,250,255,255))
@@ -289,6 +332,6 @@ def icon_png():
 
 if __name__=="__main__":
     build_kart(); build_banana(); build_shell()
-    driver_sheet(); tree_sheet(); itembox_sheet(); banner_sheet(); sign_sheet()
+    driver_sheet(); tree_sheet(); itembox_sheet(); banner_sheet(); sign_sheet(); build_items()
     icon_png()
     print("done ->",ASSETS)
