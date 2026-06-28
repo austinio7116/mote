@@ -12,7 +12,14 @@
 >   LMB-on-geometry selects, LMB-on-empty-bg **or** MMB orbits, wheel zooms. Auto-
 >   rotate removed in edit mode (model holds still unless orbiting).
 >
-> Phases 3–6 below remain (modal G/S/E/I + undo, topology ops, multi-object/rig, polish).
+> - **Phase 3 (Modal core):** Grab (**G**) + Scale (**S**) modal operators — move
+>   the mouse to transform live, **X/Y/Z** axis constraints, type a number for an
+>   exact value, **Enter/LMB** confirm, **Esc/RMB** cancel, Blender-style header
+>   readout (`Move Y: 0.70`). Plus a click-drag **3-axis gizmo** at the selection
+>   centroid (per the artist's pick — both keyboard *and* handles). Snapshot
+>   **undo** stack (whole-scene deep copy, **Ctrl+Z**).
+>
+> Phases 4–6 below remain (topology ops E/I, multi-object/rig-join, polish).
 
 ## Goal
 Add vertex/edge/face select modes and modal operators — **G**rab, **S**cale,

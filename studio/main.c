@@ -1474,6 +1474,98 @@ static void eobj_box_apply(int shift){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x
             for(int k=0;k<f->nv;k++){ float sx,sy,d; if(!eobj_project(eobj_wv(ob,f->v[k]),&sx,&sy,&d)){ ok=0; break; } mxs+=sx; mys+=sy; n++; }
             if(ok&&n){ mxs/=n; mys/=n; if(mxs>=x0&&mxs<=x1&&mys>=y0&&mys<=y1){ f->sel=1; g_objsel=o; } } } } } }
 
+/* ---- Phase 3: modal operators (Grab/Scale) + click-drag gizmo + undo ----
+ * Blender-style modal transform: press G/S (selection required) -> move the mouse to
+ * transform live -> X/Y/Z constrain to an axis -> type a number for an exact value ->
+ * LMB/Enter confirm, RMB/Esc cancel. ALSO a 3-axis gizmo at the selection centroid you
+ * can click-drag (reuses the RIG manipulator idea). Undo is snapshot-based (whole scene
+ * deep-copied before each mutation; Ctrl+Z reverts). */
+#define EOBJ_DIST 2.7f
+/* deep-copy undo stack */
+typedef struct { EObject o[EMESH_MAXOBJ]; int n, sel, mode; } EUndo;
+#define EUNDO_MAX 32
+static EUndo *g_eundo[EUNDO_MAX]; static int g_eundo_n=0;
+static void eobj_copy(EObject*d,const EObject*s){ *d=*s;
+    d->v=malloc((size_t)(s->nv>0?s->nv:1)*sizeof(EVert)); memcpy(d->v,s->v,(size_t)s->nv*sizeof(EVert)); d->vcap=s->nv;
+    d->f=malloc((size_t)(s->nf>0?s->nf:1)*sizeof(EFace)); memcpy(d->f,s->f,(size_t)s->nf*sizeof(EFace)); d->fcap=s->nf;
+    d->e=malloc((size_t)(s->ne>0?s->ne:1)*sizeof(EEdge)); memcpy(d->e,s->e,(size_t)s->ne*sizeof(EEdge)); d->ecap=s->ne; }
+static void eundo_push(void){
+    if(g_eundo_n>=EUNDO_MAX){ EUndo*u0=g_eundo[0]; for(int i=0;i<u0->n;i++){ free(u0->o[i].v); free(u0->o[i].f); free(u0->o[i].e); } free(u0);
+        for(int i=1;i<g_eundo_n;i++)g_eundo[i-1]=g_eundo[i]; g_eundo_n--; }
+    EUndo*u=malloc(sizeof*u); u->n=g_nobj; u->sel=g_objsel; u->mode=g_sel_mode;
+    for(int i=0;i<g_nobj;i++)eobj_copy(&u->o[i],&g_obj[i]); g_eundo[g_eundo_n++]=u; }
+static void eundo_pop(void){ if(!g_eundo_n){ snprintf(g_status,sizeof g_status,"nothing to undo"); return; }
+    EUndo*u=g_eundo[--g_eundo_n];
+    for(int i=0;i<g_nobj;i++){ free(g_obj[i].v); free(g_obj[i].f); free(g_obj[i].e); }
+    memset(g_obj,0,sizeof g_obj); g_nobj=u->n; g_objsel=u->sel; g_sel_mode=u->mode;
+    for(int i=0;i<u->n;i++)g_obj[i]=u->o[i];   /* transfer ownership of the snapshot's arrays */
+    free(u); g_hover_obj=g_hover_idx=-1; snprintf(g_status,sizeof g_status,"undo (%d left)",g_eundo_n); }
+
+/* affected-vertex set for the active op (selection expanded to verts), world positions snapshotted */
+typedef struct { int o, vi; V3 p0; } EAff;   /* p0 = WORLD position at op start */
+static EAff *g_aff=0; static int g_naff=0, g_affcap=0;
+static void aff_add(int o,int vi,V3 pw){ if(g_naff>=g_affcap){ g_affcap=g_affcap?g_affcap*2:64; g_aff=realloc(g_aff,g_affcap*sizeof*g_aff); }
+    g_aff[g_naff].o=o; g_aff[g_naff].vi=vi; g_aff[g_naff].p0=pw; g_naff++; }
+static void op_gather(void){ g_naff=0;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<1)continue; uint8_t*vs=calloc(ob->nv,1);
+        if(g_sel_mode==0)for(int i=0;i<ob->nv;i++)vs[i]=ob->v[i].sel;
+        else if(g_sel_mode==1){ for(int i=0;i<ob->ne;i++)if(ob->e[i].sel){ vs[ob->e[i].a]=1; vs[ob->e[i].b]=1; } }
+        else for(int i=0;i<ob->nf;i++)if(ob->f[i].sel)for(int k=0;k<ob->f[i].nv;k++)vs[ob->f[i].v[k]]=1;
+        for(int i=0;i<ob->nv;i++)if(vs[i])aff_add(o,i,eobj_wv(ob,i));
+        free(vs); } }
+/* true + centroid of the current selection (world space); used for the gizmo + scale pivot */
+static int eobj_sel_centroid(V3*out){ V3 c={0,0,0}; int n=0;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        if(g_sel_mode==0){ for(int i=0;i<ob->nv;i++)if(ob->v[i].sel){ V3 w=eobj_wv(ob,i); c.x+=w.x; c.y+=w.y; c.z+=w.z; n++; } }
+        else if(g_sel_mode==1){ for(int i=0;i<ob->ne;i++)if(ob->e[i].sel){ V3 a=eobj_wv(ob,ob->e[i].a),b=eobj_wv(ob,ob->e[i].b); c.x+=(a.x+b.x)*0.5f; c.y+=(a.y+b.y)*0.5f; c.z+=(a.z+b.z)*0.5f; n++; } }
+        else { for(int i=0;i<ob->nf;i++)if(ob->f[i].sel){ V3 fc={0,0,0}; for(int k=0;k<ob->f[i].nv;k++){ V3 w=eobj_wv(ob,ob->f[i].v[k]); fc.x+=w.x; fc.y+=w.y; fc.z+=w.z; } fc.x/=ob->f[i].nv; fc.y/=ob->f[i].nv; fc.z/=ob->f[i].nv; c.x+=fc.x; c.y+=fc.y; c.z+=fc.z; n++; } } }
+    if(!n)return 0; out->x=c.x/n; out->y=c.y/n; out->z=c.z/n; return 1; }
+
+static void eobj_cam_basis(V3*cr,V3*cu){ float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    *cr=(V3){cyw,0,-syw}; *cu=(V3){-sp*syw,cp,-sp*cyw}; }   /* world dirs that map to screen +x / +y */
+static float eobj_persp(void){ int vw=g_me_view.w,h=g_me_view.h,rw=vw,rh=h;
+    int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } if(rw<1)rw=1; if(rh<1)rh=1;
+    return (rh<rw?rh:rw)*0.62f; }
+
+enum { OP_NONE, OP_MOVE, OP_SCALE };
+static struct { int op, axis, drag, hasnum; int ax, ay; float aval, val; char num[16]; V3 center; } g_op = { OP_NONE };
+static void op_apply(int mx,int my){ if(g_op.op==OP_NONE||g_naff<1)return;
+    if(g_op.op==OP_MOVE){ V3 mv={0,0,0};
+        if(g_op.hasnum){ float val=(float)atof(g_op.num); int ax=g_op.axis?g_op.axis-1:0; ((float*)&mv)[ax]=val; g_op.val=val; }
+        else { V3 cr,cu; eobj_cam_basis(&cr,&cu); float dmx=(float)(mx-g_op.ax),dmy=(float)(my-g_op.ay);
+            float sx,sy,z2; float wpp = eobj_project(g_op.center,&sx,&sy,&z2) ? (EOBJ_DIST-z2)/(eobj_persp()*(g_mscale>1e-6f?g_mscale:1)) : 0;
+            mv.x=(cr.x*dmx - cu.x*dmy)*wpp; mv.y=(cr.y*dmx - cu.y*dmy)*wpp; mv.z=(cr.z*dmx - cu.z*dmy)*wpp;
+            if(g_op.axis){ int ax=g_op.axis-1; float comp=((float*)&mv)[ax]; mv=(V3){0,0,0}; ((float*)&mv)[ax]=comp; g_op.val=comp; }
+            else g_op.val=sqrtf(mv.x*mv.x+mv.y*mv.y+mv.z*mv.z); }
+        for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 w={g_aff[i].p0.x+mv.x,g_aff[i].p0.y+mv.y,g_aff[i].p0.z+mv.z};
+            ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; }
+    } else { float f;
+        if(g_op.hasnum)f=(float)atof(g_op.num); else { float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2);
+            float d=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); f=g_op.aval>1e-3f?d/g_op.aval:1; }
+        g_op.val=f; V3 fv={f,f,f}; if(g_op.axis){ fv=(V3){1,1,1}; ((float*)&fv)[g_op.axis-1]=f; }
+        for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p=g_aff[i].p0;
+            V3 w={g_op.center.x+(p.x-g_op.center.x)*fv.x, g_op.center.y+(p.y-g_op.center.y)*fv.y, g_op.center.z+(p.z-g_op.center.z)*fv.z};
+            ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; } } }
+static void op_apply_cur(void){ int mx,my; SDL_GetMouseState(&mx,&my); op_apply(mx,my); }
+static int op_start(int op,int axis,int drag){ op_gather(); if(g_naff<1){ snprintf(g_status,sizeof g_status,"select something first"); return 0; }
+    eundo_push();
+    if(!eobj_sel_centroid(&g_op.center))g_op.center=(V3){0,0,0};
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    g_op.op=op; g_op.axis=axis; g_op.drag=drag; g_op.hasnum=0; g_op.num[0]=0; g_op.val=op==OP_SCALE?1:0; g_op.ax=mx; g_op.ay=my;
+    if(op==OP_SCALE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); if(g_op.aval<1)g_op.aval=1; }
+    return 1; }
+static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
+static void op_cancel(void){ g_op.op=OP_NONE; eundo_pop(); }            /* revert via the snapshot we pushed at start */
+static void op_set_axis(int a){ g_op.axis=(g_op.axis==a)?0:a; op_apply_cur(); }
+static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
+    if(k==SDLK_BACKSPACE){ if(n)g_op.num[--n]=0; g_op.hasnum=(n>0); op_apply_cur(); return 1; }
+    char c=0; if(k>=SDLK_0&&k<=SDLK_9)c='0'+(k-SDLK_0); else if(k==SDLK_PERIOD||k==SDLK_KP_PERIOD)c='.'; else if(k==SDLK_MINUS||k==SDLK_KP_MINUS)c='-';
+    if(c&&n<15){ g_op.num[n]=c; g_op.num[n+1]=0; g_op.hasnum=1; op_apply_cur(); return 1; }
+    return 0; }
+
+/* gizmo screen geometry (filled by draw_mesh_edit, hit-tested in mesh_edit_down) */
+static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
+
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit;
 
@@ -1535,8 +1627,26 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
         rect_outline(R,x0,y0,x1-x0,y1-y0,(Col){250,230,140},1); }
     #undef EVIEW
     #undef ESCR
-    if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
-    text(R,"click: select  shift: add  B: box  A/Alt+A: all/none  -  empty-drag or MMB: orbit, wheel: zoom, Tab: exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+    /* ---- 3-axis gizmo at the selection centroid (click-drag a handle to move on that axis) ---- */
+    g_mgz_on=0;
+    { V3 gc; int have = (g_op.op!=OP_NONE) ? 1 : eobj_sel_centroid(&gc);
+      V3 O = (g_op.op!=OP_NONE)?g_op.center:gc;
+      if(have){ const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};
+        float sx,sy,z2; if(eobj_project(O,&sx,&sy,&z2)){ g_mgz_on=1; g_mgz_o=(SDL_Point){(int)sx,(int)sy};
+          float L=0.5f/(g_mscale>1e-4f?g_mscale:1.0f);
+          for(int a=0;a<3;a++){ V3 e=O; ((float*)&e)[a]+=L; float ex,ey,ez; eobj_project(e,&ex,&ey,&ez); g_mgz_ax[a]=(SDL_Point){(int)ex,(int)ey};
+            int hot=(g_op.op!=OP_NONE&&g_op.axis==a+1);
+            Col c=hot?(Col){255,235,120}:axc[a]; SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,g_mgz_o.x,g_mgz_o.y,g_mgz_ax[a].x,g_mgz_ax[a].y);
+            int s=hot?5:4; plain(R,g_mgz_ax[a].x-s,g_mgz_ax[a].y-s,2*s+1,2*s+1,c); rect_outline(R,g_mgz_ax[a].x-s,g_mgz_ax[a].y-s,2*s+1,2*s+1,(Col){0,0,0},1); }
+          ring(R,g_mgz_o.x,g_mgz_o.y,4,(Col){0,0,0},1); ring(R,g_mgz_o.x,g_mgz_o.y,3,(Col){255,235,120},1); } } }
+    /* ---- modal header readout (Blender-style) ---- */
+    if(g_op.op!=OP_NONE){ const char*an=g_op.axis==1?" X":g_op.axis==2?" Y":g_op.axis==3?" Z":"";
+        char hb[64]; const char*nm=g_op.op==OP_MOVE?"Move":"Scale";
+        if(g_op.hasnum)snprintf(hb,sizeof hb,"%s%s: %s",nm,an,g_op.num); else snprintf(hb,sizeof hb,"%s%s: %.3f",nm,an,g_op.val);
+        plain(R,ox+8,oy+8,textw(R,hb,1)+12,18,(Col){40,44,58}); text(R,hb,ox+14,oy+12,1,(Col){255,235,120},(Col){40,44,58}); }
+    if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
+    if(g_op.op!=OP_NONE)text(R,"X/Y/Z axis  type number  Enter/LMB confirm  Esc/RMB cancel",ox+12,oy+h-20,1,(Col){200,200,150},(Col){16,18,26});
+    else text(R,"G move  S scale  click select  B box  A/Alt+A all  Ctrl+Z undo  -  MMB/empty-drag orbit, Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
     /* ---- edit card ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px;
@@ -1567,8 +1677,11 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
     if(HITR(g_me_eexit)){ g_edit_mode=0; return 1; }
-    if(HITR(g_me_view)){                                   /* viewport: box-select (armed with B) or pick */
+    if(HITR(g_me_view)){                                   /* viewport */
         int shift=(SDL_GetModState()&KMOD_SHIFT)!=0;
+        if(g_op.op!=OP_NONE){ if(!g_op.drag)op_confirm(); return 1; }   /* LMB confirms an active modal op */
+        if(g_mgz_on)for(int a=0;a<3;a++){ int dx=mx-g_mgz_ax[a].x,dy=my-g_mgz_ax[a].y;   /* grab a gizmo handle -> drag-move on that axis */
+            if(dx*dx+dy*dy<=49){ if(op_start(OP_MOVE,a+1,1)){ g_op.ax=mx; g_op.ay=my; } return 1; } }
         if(g_box_arm){ g_box_arm=0; g_box_active=1; g_box_x0=g_box_x1=mx; g_box_y0=g_box_y1=my; return 1; }
         return eobj_click(mx,my,shift);                    /* 1 = hit (no orbit); 0 = empty bg (orbit) */
     }
@@ -1577,9 +1690,21 @@ static int mesh_edit_down(int mx,int my){
 }
 /* keyboard for the MESH tab edit mode (routed from the main event loop); 1 if consumed */
 static int mesh_edit_key(SDL_Keycode k){
-    if(k==SDLK_TAB){ g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }
+    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }
     if(!g_edit_mode)return 0;
     SDL_Keymod md=SDL_GetModState();
+    if(g_op.op!=OP_NONE){                                   /* a modal op is live — route keys to it */
+        if(k==SDLK_ESCAPE){ op_cancel(); return 1; }
+        if(k==SDLK_RETURN||k==SDLK_KP_ENTER){ op_confirm(); return 1; }
+        if(k==SDLK_x){ op_set_axis(1); return 1; }
+        if(k==SDLK_y){ op_set_axis(2); return 1; }
+        if(k==SDLK_z&&!(md&(KMOD_CTRL|KMOD_GUI))){ op_set_axis(3); return 1; }
+        if(op_numkey(k))return 1;
+        return 1;                                          /* swallow everything else while modal */
+    }
+    if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
+    if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
+    if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_1){ set_sel_mode(0); return 1; }
     if(k==SDLK_2){ set_sel_mode(1); return 1; }
     if(k==SDLK_3){ set_sel_mode(2); return 1; }
@@ -4068,7 +4193,9 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_MESHEDIT")){ g_edit_mode=1; prim_cube(1.0f); eobj_fit(); g_tab=TAB_MESH;   /* capture hook: model editor with a cube */
         if(getenv("MOTE_STUDIO_MESHSEL")){ g_sel_mode=atoi(getenv("MOTE_STUDIO_MESHSEL")); if(g_nobj){ EObject*o=&g_obj[0];
-            if(g_sel_mode==0&&o->nv>2){ o->v[2].sel=o->v[6].sel=1; } else if(g_sel_mode==1&&o->ne>3){ o->e[0].sel=o->e[3].sel=1; } else if(o->nf>1){ o->f[0].sel=o->f[4].sel=1; } } } }
+            if(g_sel_mode==0&&o->nv>2){ o->v[2].sel=o->v[6].sel=1; } else if(g_sel_mode==1&&o->ne>3){ o->e[0].sel=o->e[3].sel=1; } else if(o->nf>1){ o->f[0].sel=o->f[4].sel=1; } } }
+        if(getenv("MOTE_STUDIO_MESHOP")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[4].sel=1; }   /* select +Y face, modal-move it up by num */
+            op_start(OP_MOVE,2,0); snprintf(g_op.num,sizeof g_op.num,"%s",getenv("MOTE_STUDIO_MESHOP")); g_op.hasnum=1; op_apply(0,0); } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
         if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */
@@ -4296,12 +4423,14 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ if(e.button.button==SDL_BUTTON_MIDDLE){ g_mdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
+                    else if(g_tab==TAB_MESH){ if(g_edit_mode&&g_op.op!=OP_NONE&&e.button.button==SDL_BUTTON_RIGHT)op_cancel();   /* RMB cancels a modal op */
+                            else if(e.button.button==SDL_BUTTON_MIDDLE){ g_mdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
                             else if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
+                if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE&&g_op.drag&&e.button.button==SDL_BUTTON_LEFT)op_confirm();   /* release a gizmo-drag */
                 if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.button.x; g_box_y1=e.button.y;
                     eobj_box_apply((SDL_GetModState()&KMOD_SHIFT)!=0); g_box_active=0; }   /* commit box-select */
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
@@ -4323,6 +4452,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&e.motion.y>=BOT_Y+22)pixel_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE){ if(!g_op.drag||(e.motion.state&SDL_BUTTON_LMASK))op_apply(e.motion.x,e.motion.y); }   /* live transform follows the mouse */
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.motion.x; g_box_y1=e.motion.y; }   /* drag the box-select rect */
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_MESH&&g_mdrag){ g_myaw-=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_kdrag>=0){   /* retime the dragged key */
