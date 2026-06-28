@@ -105,24 +105,29 @@ int mote_font_width_2x(const char *text) { return mote_font_width(text) * 2; }
 int mote_font_draw_aa(uint16_t *fb, const MoteFont *f, const char *s, int x, int y, uint16_t color) {
     if (!f || !f->glyphs || !f->cov) return x;
     const int cr = (color >> 11) & 0x1F, cg = (color >> 5) & 0x3F, cb = color & 0x1F;
+    const int bpp = f->bpp ? f->bpp : 4, maxv = (1 << bpp) - 1;   /* 1/2/4-bit coverage */
     int pen = x, line = y;
     for (; s && *s; ++s) {
         unsigned char ch = (unsigned char)*s;
         if (ch == '\n') { pen = x; line += f->line_h ? f->line_h : 1; continue; }
         if (ch < f->first || ch >= f->first + f->count) continue;
         const MoteGlyph *g = &f->glyphs[ch - f->first];
+        /* coverage is packed MSB-first at `bpp` bits/pixel (row-major, byte-aligned
+         * per glyph): 1-bit binary, 2-bit (4 levels) or 4-bit (16 levels). */
         const uint8_t *cov = f->cov + g->off;
         for (int gy = 0; gy < g->h; ++gy) {
             int py = line + g->yoff + gy;
             if (py < 0 || py >= TH) continue;
             uint16_t *row = fb + py * TW;
-            const uint8_t *crow = cov + gy * g->w;
+            int base = gy * g->w;
             for (int gx = 0; gx < g->w; ++gx) {
-                uint8_t a = crow[gx];
-                if (!a) continue;
+                int bitpos = (base + gx) * bpp;
+                int v = (cov[bitpos >> 3] >> (8 - bpp - (bitpos & 7))) & maxv;
+                if (!v) continue;
                 int px = pen + g->xoff + gx;
                 if (px < 0 || px >= TW) continue;
-                if (a >= 0xFC) { row[px] = color; continue; }   /* ~opaque: skip the blend */
+                if (v >= maxv) { row[px] = color; continue; }     /* opaque: skip the blend */
+                int a = v * 255 / maxv;                           /* coverage -> 0..255 */
                 uint16_t d = row[px];
                 int dr = (d >> 11) & 0x1F, dg = (d >> 5) & 0x3F, db = d & 0x1F;
                 dr += ((cr - dr) * a) >> 8;

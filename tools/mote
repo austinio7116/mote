@@ -466,12 +466,21 @@ def cmd_bake(args):
     # INTO the mesh header by obj2mesh/stl2mesh — never as a standalone image.
     models = set(os.path.splitext(os.path.join(os.path.dirname(f),
                  os.path.basename(f)))[0] for f in objs + stls)
+    # A glyph-SHEET PNG (<base>_glyphs.png + a <base>_glyphs.gsheet sidecar from the
+    # Studio Font tab) is a hand-drawn MoteFont, baked by glyphs2font -> <base>.font.h.
+    gsheets = [f for f in files if f.lower().endswith(".png")
+               and os.path.isfile(os.path.splitext(f)[0] + ".gsheet")]
+    gsheet_set = set(gsheets)
     imgs = [f for f in files if f.lower().endswith((".png", ".bmp"))
             and os.path.splitext(os.path.basename(f))[0] not in tiled
-            and os.path.splitext(f)[0] not in models]
+            and os.path.splitext(f)[0] not in models
+            and f not in gsheet_set]
     sfxs = [f for f in files if f.lower().endswith(".sfx")]
     wavs = [f for f in files if f.lower().endswith(".wav")]
-    ttfs = [f for f in files if f.lower().endswith(".ttf")]   # -> <base>.font.h (MoteFont)
+    # TTF -> <base>.font.h, BUT skip a TTF whose hand-drawn <base>_glyphs sheet exists —
+    # that sheet is the authoritative source for <base>.font.h then (edits take effect).
+    ttfs = [f for f in files if f.lower().endswith(".ttf")
+            and not os.path.isfile(os.path.splitext(f)[0] + "_glyphs.gsheet")]
     tsets = sorted(os.path.join(tdir, t) for t in os.listdir(tdir)) if os.path.isdir(tdir) else []
     tsets = [t for t in tsets if t.endswith(".tileset")]
     ldir = os.path.join(d, "levels")
@@ -480,7 +489,7 @@ def cmd_bake(args):
     adir = os.path.join(d, "anims")
     anims = sorted(os.path.join(adir, t) for t in os.listdir(adir)) if os.path.isdir(adir) else []
     anims = [t for t in anims if t.endswith(".anims")]
-    if not (objs or stls or imgs or sfxs or wavs or ttfs or tsets or lvls or anims):
+    if not (objs or stls or imgs or sfxs or wavs or ttfs or gsheets or tsets or lvls or anims):
         print("mote: no bakeable assets in %s" % d); return
 
     # Warn on base-name collisions: assets of different types that bake to the same
@@ -540,6 +549,21 @@ def cmd_bake(args):
                 try: size = str(int(open(szf).read().strip()))
                 except Exception: pass
             run([tt, name, t, os.path.join(src, name + ".font.h"), size])
+    if gsheets:
+        gt = tool_for("glyphs2font.c", "mote_glyphs2font")
+        for g in gsheets:
+            # <font>_glyphs.png bakes to <font>.font.h with symbol <font> (same as the TTF
+            # it replaces), so the game's &<font> picks up hand-drawn edits on re-bake.
+            sym = os.path.splitext(os.path.basename(g))[0]
+            if sym.endswith("_glyphs"): sym = sym[:-len("_glyphs")]
+            cols, cell, lh, first, count = 16, 24, 20, 32, 95   # cell geometry from the .gsheet sidecar
+            try:
+                parts = open(os.path.splitext(g)[0] + ".gsheet").read().split()
+                cols, cell, lh, first, count = (int(parts[i]) for i in range(5))
+            except Exception: pass
+            run([gt, sym, g, os.path.join(src, sym + ".font.h"),
+                 str(cols), str(cell), str(cell), str(lh), str(first), str(count),
+                 os.path.splitext(g)[0] + ".gsheet"])   # sidecar -> origin + advances (ttf2font parity)
     for sx in sfxs:
         name = os.path.splitext(os.path.basename(sx))[0]
         bake_sfx(name, sx, os.path.join(src, name + ".sfx.h"))

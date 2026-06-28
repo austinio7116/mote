@@ -1210,6 +1210,21 @@ q += mote_itoa(hp, buf+q); buf[q]=0;
 mote->text(fb, buf, 4, 3, MOTE_RGB565(250,230,90));
 ```
 
+#### `int text_font(uint16_t *fb, const MoteFont *f, const char *s, int x, int y, uint16_t color)` *(ABI v39)*
+Draws an **anti-aliased, proportional** font — each glyph keeps its own width and
+bearing, so it reads like real type at any size. `\n` starts a new line; returns the
+advanced x. A `MoteFont` comes from the asset pipeline: bake a TrueType `.ttf`, or
+hand-draw a glyph sheet in the Studio's **Font tab** — either way you get a
+`static const MoteFont <name>` in `src/<name>.font.h`. Coverage is packed at 1/2/4 bits
+per pixel (the baker picks the smallest lossless depth), so a font is a few KB.
+```c
+#include "bigfont.font.h"          // baked from assets/bigfont.ttf (+ a .size sidecar)
+...
+mote->text_font(fb, &bigfont, "Hello, Mote!", 4, 4, MOTE_RGB565(245,245,255));
+```
+Use `text()` (the built-in 3×5) for tiny fixed labels; `text_font` for headings, body
+text, and anything that should look designed.
+
 #### 2D drawing — `draw_pixel` / `draw_line` / `draw_rect` / `draw_circle`
 Immediate-mode 2D framebuffer primitives (screen space, RGB565, no depth) for HUDs,
 overlays and custom backgrounds — the companions to `text`/`blit`. From `overlay()`

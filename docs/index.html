@@ -580,7 +580,20 @@ makes the synthesis cost matter.</p>
 <pre class="sig"><span class="kw">int</span> (*<span class="fn">text</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);
 <span class="kw">int</span> (*<span class="fn">text_2x</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);</pre>
 <p>Draw bitmap text into the framebuffer (1× and 2× scale); returns the advanced x. Draw from <code>overlay()</code>. For
-printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf</code></a>.</p>
+printf-style formatting use the helper <a href="#fn-mote_textf"><code>mote_textf</code></a>. This is the tiny built-in
+font for fixed labels; for designed text use <a href="#fn-text_font"><code>text_font</code></a>.</p>
+
+<h3 id="fn-text_font">text_font — anti-aliased proportional font <span class="badge abi">v39</span></h3>
+<pre class="sig"><span class="kw">int</span> (*<span class="fn">text_font</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">const</span> <span class="ty">MoteFont</span> *f, <span class="kw">const char</span> *s, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);</pre>
+<p>Draws an anti-aliased, proportional font — each glyph keeps its own width and bearing, so text reads like real
+type at any size (<code>\n</code> starts a new line; returns the advanced x). A <code>MoteFont</code> comes from the
+asset pipeline: bake a TrueType <code>.ttf</code>, or hand-draw/edit a glyph sheet in the Studio's <strong>Font
+tab</strong> — either way you get a <code>static const MoteFont &lt;name&gt;</code> in <code>src/&lt;name&gt;.font.h</code>.
+Glyph coverage is packed at 1/2/4 bits per pixel (the baker picks the smallest lossless depth), so a font is a few KB.
+A glyph sheet stores a pen origin + per-glyph advances, so hand-drawn fonts match baked TrueType fonts exactly —
+even cursive scripts keep their letter joins.</p>
+<pre class="sig"><span class="cm">#include "bigfont.font.h"</span>   <span class="cm">// baked from assets/bigfont.ttf</span>
+mote-&gt;<span class="fn">text_font</span>(fb, &amp;bigfont, <span class="st">"Hello, Mote!"</span>, <span class="num">4</span>, <span class="num">4</span>, <span class="fn">MOTE_RGB565</span>(<span class="num">245</span>,<span class="num">245</span>,<span class="num">255</span>));</pre>
 
 <h3 id="fn-draw_2d">draw_pixel / draw_line / draw_rect / draw_circle <span class="badge abi">v30 / v31</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">draw_pixel</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);

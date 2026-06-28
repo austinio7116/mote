@@ -302,15 +302,27 @@ static void seen_claim(BakeSeen *s, const char *base, const char *src, mote_log_
  * so keep asset filenames unique across subfolders. */
 static void bake_dir(const char *adir, const char *srcdir,
                      const char *objtool, const char *stltool, const char *rigtool,
-                     const char *ttftool,
+                     const char *ttftool, const char *gstool,
                      mote_log_fn log, int *did, BakeSeen *seen){
     DIR *d=opendir(adir); if(!d)return; struct dirent *e;
     while((e=readdir(d))){ const char *n=e->d_name; if(n[0]=='.'||!strcmp(n,"build"))continue;
         char path[600]; snprintf(path,sizeof path,"%.500s/%.80s",adir,n);
-        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,ttftool,log,did,seen); continue; }
+        struct stat st; if(stat(path,&st)==0&&S_ISDIR(st.st_mode)){ bake_dir(path,srcdir,objtool,stltool,rigtool,ttftool,gstool,log,did,seen); continue; }
         int l=(int)strlen(n); if(l<5)continue; char base[80]; snprintf(base,sizeof base,"%.*s",l-4,n);
         char header[600]; snprintf(header,sizeof header,"%.400s/%.80s.h",srcdir,base);
         if(!strcasecmp(n+l-4,".png")||!strcasecmp(n+l-4,".bmp")||!strcasecmp(n+l-4,".jpg")){
+            /* A glyph-SHEET PNG (<font>_glyphs.png + <font>_glyphs.gsheet sidecar from
+             * the Font tab) is a hand-drawn MoteFont. It bakes to <font>.font.h with the
+             * SAME symbol the game uses (<font>) — and the matching <font>.ttf is skipped
+             * below — so editing glyphs and re-baking updates the very font in play. */
+            char gsf[600]; struct stat gss; snprintf(gsf,sizeof gsf,"%.500s/%.70s.gsheet",adir,base);
+            if(stat(gsf,&gss)==0){ ensure_tool("glyphs2font.c",gstool,log);
+                char sym[80]; snprintf(sym,sizeof sym,"%.78s",base); char*gp=strstr(sym,"_glyphs"); if(gp)*gp=0;   /* <font>_glyphs -> <font> */
+                int cols=16,cell=24,lh=20,first=32,count=95; FILE*sf=fopen(gsf,"r");
+                if(sf){ if(fscanf(sf,"%d %d %d %d %d",&cols,&cell,&lh,&first,&count)!=5){} fclose(sf); }
+                char fh[600]; snprintf(fh,sizeof fh,"%.400s/%.70s.font.h",srcdir,sym);
+                char c[1400]; snprintf(c,sizeof c,"%s %s %s %s %d %d %d %d %d %d %s 2>&1",gstool,sym,path,fh,cols,cell,cell,lh,first,count,gsf);   /* pass the sidecar so glyphs2font gets origin + advances (ttf2font parity) */
+                if(run_logged(c,log)==0)(*did)++; continue; }
             /* A PNG next to a model with the same basename is that model's TEXTURE
              * SIDECAR (assigned in the MESH/RIG view) — baked into the mesh header by
              * obj2mesh/stl2mesh, never as a standalone image (same .h would collide). */
@@ -326,8 +338,12 @@ static void bake_dir(const char *adir, const char *srcdir,
         else if(!strcasecmp(n+l-4,".wav")){ seen_claim(seen,base,n,log); if(bake_wav(path,header,base,log)==0)(*did)++; }
         /* TTF -> <base>.font.h (MoteFont). Pixel size from an optional <base>.size
          * sidecar (the Font tab writes it), default 16. Distinct .font.h header, so
-         * no base-name collision with meshes/images/wavs. */
-        else if(!strcasecmp(n+l-4,".ttf")){ ensure_tool("ttf2font.c",ttftool,log);
+         * no base-name collision with meshes/images/wavs. SKIPPED if a hand-drawn
+         * <base>_glyphs sheet exists — that sheet is the authoritative source then. */
+        else if(!strcasecmp(n+l-4,".ttf")){
+            char gpng[600]; struct stat gst; snprintf(gpng,sizeof gpng,"%.500s/%.66s_glyphs.gsheet",adir,base);
+            if(stat(gpng,&gst)==0){ char m[200]; snprintf(m,sizeof m,"%s.ttf: editing via %s_glyphs sheet — TTF bake skipped",base,base); log(m); continue; }
+            ensure_tool("ttf2font.c",ttftool,log);
             int pxs=16; char szf[600]; snprintf(szf,sizeof szf,"%.500s/%.70s.size",adir,base);
             FILE *sf=fopen(szf,"r"); if(sf){ if(fscanf(sf,"%d",&pxs)!=1)pxs=16; fclose(sf); }
             char fh[600]; snprintf(fh,sizeof fh,"%.400s/%.70s.font.h",srcdir,base);
@@ -339,8 +355,8 @@ int mc_bake(const char *dir, mote_log_fn log){
     char ad[360]; snprintf(ad,sizeof ad,"%.320s/assets",dir); DIR *d=opendir(ad);
     if(!d){ if(!didicon)log("no assets/ directory"); return didicon?0:-1; } closedir(d);
     char sd[360]; snprintf(sd,sizeof sd,"%.320s/src",dir);
-    char objtool[64],stltool[64],rigtool[64],ttftool[64];
-    snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT); snprintf(ttftool,sizeof ttftool,"/tmp/mote_ttf2font%s",TOOL_EXT);
+    char objtool[64],stltool[64],rigtool[64],ttftool[64],gstool[64];
+    snprintf(objtool,sizeof objtool,"/tmp/mote_obj2mesh%s",TOOL_EXT); snprintf(stltool,sizeof stltool,"/tmp/mote_stl2mesh%s",TOOL_EXT); snprintf(rigtool,sizeof rigtool,"/tmp/mote_obj2rig%s",TOOL_EXT); snprintf(ttftool,sizeof ttftool,"/tmp/mote_ttf2font%s",TOOL_EXT); snprintf(gstool,sizeof gstool,"/tmp/mote_glyphs2font%s",TOOL_EXT);
     static BakeSeen seen; seen.n=0;   /* warn on base-name collisions (two assets -> one .h) */
-    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,ttftool,log,&did,&seen);
+    int did=0; bake_dir(ad,sd,objtool,stltool,rigtool,ttftool,gstool,log,&did,&seen);
     if(!did&&!didicon)log("no .png/.bmp/.obj/.stl assets to bake"); return 0; }

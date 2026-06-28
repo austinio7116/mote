@@ -91,8 +91,10 @@ static inline int mote_phys_mesh_build_grid(MoteMesh *m, int grid_n,
     float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
     for (int i = 0; i < m->nverts; i++) {
         Vec3 v = m->verts[i];
-        if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
-        if (v.z < z0) z0 = v.z; if (v.z > z1) z1 = v.z;
+        if (v.x < x0) x0 = v.x;
+        if (v.x > x1) x1 = v.x;
+        if (v.z < z0) z0 = v.z;
+        if (v.z > z1) z1 = v.z;
     }
     x0 -= 1e-3f; z0 -= 1e-3f; x1 += 1e-3f; z1 += 1e-3f;
     float cx = (x1 - x0) / grid_n, cz = (z1 - z0) / grid_n;

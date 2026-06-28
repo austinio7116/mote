@@ -50,7 +50,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.7-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.10-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -329,6 +329,20 @@ static void px_setcol(uint16_t c){ g_pcol=c; rgb2hsv(((c>>11)&31)<<3,((c>>5)&63)
 static void px_recent(uint16_t c){ if(c==KEY565)return; for(int i=0;i<g_recent_n;i++)if(g_recent[i]==c){ return; }
     for(int i=23;i>0;i--)g_recent[i]=g_recent[i-1]; g_recent[0]=c; if(g_recent_n<24)g_recent_n++; }
 static int g_doc_ready[2];
+/* glyph-sheet (hand-drawn font) editing state — the Font tab edits glyphs IN PLACE
+ * (like the Tiles tab): the whole sheet lives in g_gsbuf, the grid selects a cell, and
+ * the selected cell is painted in a zoomed editor beside it. It NEVER touches g_canvas. */
+static char g_gsheet[440], g_gsheet_meta[460];   /* assets/<name>_glyphs.png + .gsheet sidecar */
+static int  g_gs_cols=16, g_gs_cell=24, g_gs_lineh=20, g_gs_first=32, g_gs_count=95, g_gs_ascent=16;
+static int  g_gs_edited=0;   /* set when a glyph is painted; gates the recreate-at-new-size warning */
+/* Parity with ttf2font: the sheet carries a pen-ORIGIN column (so xoff can be negative,
+ * letting cursive glyphs overhang/connect) and a per-glyph ADVANCE list (real font
+ * advances, often < ink width for scripts). origin=0 + no advances = legacy behaviour. */
+static int  g_gs_origin=0, g_gs_has_adv=0; static uint8_t g_gs_adv[128];
+static SDL_Texture *g_gs_tex; static int g_gs_dirty=1, g_glyph_browse=0;
+static uint16_t *g_gsbuf; static int g_gsbuf_w, g_gsbuf_h, g_gs_sel=0, g_gs_paint=0;   /* live sheet pixels + selected cell */
+static SDL_Rect g_fn_edit, g_gs_cellr[128], g_gs_edit;
+static void font_gs_loadbuf(void);   /* fwd: load the sheet PNG into g_gsbuf */
 static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
 static void undo_push(void);   /* fwd */
 /* resize the canvas to an arbitrary size (1..CMAX), keeping the existing art (top-left) */
@@ -2929,8 +2943,15 @@ static int  g_font_zoom = 3;   /* preview magnification (NEAREST), user-controll
 static unsigned char *g_ftbuf; static long g_ftlen; static char g_ftpath[400];
 static SDL_Texture *g_font_prev; static int g_font_prev_px=-1, g_font_pw, g_font_ph, g_font_dirty=1;
 static SDL_Rect g_fn_imp, g_fn_szmin, g_fn_szpls, g_fn_zmin, g_fn_zpls, g_fn_bake;
+/* gate for changing the size of a font that already has a hand-drawn glyph sheet:
+ * accepting RE-RENDERS the glyphs from the TTF at the new size (discards edits). */
+static int g_fn_resize_confirm=0, g_fn_pending_px=0;
+static SDL_Rect g_fn_rz_yes, g_fn_rz_no, g_fn_rz_m, g_fn_rz_p;
 /* bundled starter fonts shipped in studio/assets/gamefonts/ (one-click import) */
 static char g_bfont[8][64]; static int g_nbfont=-1; static SDL_Rect g_fn_bundled[8];
+/* --- glyph-sheet editor (hand-drawn font): ONE PNG sheet, tileset-style grid;
+ * edit the selected cell in the Pixel-Art editor; the whole sheet saves + bakes. */
+   /* fwd (pixel editor) */
 #define BFONT_DIR "studio/assets/gamefonts"
 static void font_scan_bundled(void){
     if(g_nbfont>=0) return; g_nbfont=0;
@@ -2974,8 +2995,9 @@ static void font_render_preview(SDL_Renderer*R){
             unsigned char*bm=stbtt_GetCodepointBitmap(&fi,sc,sc,cp,&gw,&gh,&xo,&yo);
             int aw,lsb; stbtt_GetCodepointHMetrics(&fi,cp,&aw,&lsb);
             if(bm){ for(int gy=0;gy<gh;gy++)for(int gx=0;gx<gw;gx++){
+                unsigned char a=bm[gy*gw+gx]; if(!a)continue;   /* skip transparent so an overlapping script glyph (e.g. r->t) can't erase its neighbour */
                 int X=penx+xo+gx, Y=peny+ascent+yo+gy; if(X<0||Y<0||X>=pw||Y>=ph)continue;
-                unsigned char*d=&px[((size_t)Y*pw+X)*4]; d[0]=d[1]=d[2]=255; d[3]=bm[gy*gw+gx]; }
+                unsigned char*d=&px[((size_t)Y*pw+X)*4]; d[0]=d[1]=d[2]=255; if(a>d[3])d[3]=a; }   /* max-composite the coverage */
                 stbtt_FreeBitmap(bm,0); }
             penx += (int)(aw*sc+0.5f); } }
     if(g_font_prev)SDL_DestroyTexture(g_font_prev);
@@ -3007,17 +3029,231 @@ static void font_import(const char*src){
     if(g_sel>=0) build_tree(g_games[g_sel].dir);
     snprintf(g_status,sizeof g_status,"imported font %s — set size, then Bake",g_font_name);
 }
+static void font_recreate_at(int px);   /* fwd */
+static int  font_has_sheet(void);        /* fwd */
 static void font_bake(void){
-    if(g_sel<0||!g_font_ttf[0]){ snprintf(g_status,sizeof g_status,"import a .ttf first"); return; }
+    if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(!g_font_ttf[0]){   /* hand-drawn glyph font: re-bake the project (glyphs2font picks up the sheet) */
+        snprintf(g_status,sizeof g_status,"baking glyph font %s_glyphs...",g_font_name); njob(2,g_games[g_sel].dir); return; }
+    /* If a sheet exists and the size was changed in the preview, the sheet must be
+     * re-rendered from the TTF at the new size (it's the authoritative source). Warn
+     * first if it has hand edits; otherwise recreate. This is the ONLY place a size
+     * change is applied — stepping +/- alone never bakes. */
+    if(font_has_sheet() && g_gs_lineh != g_font_px){
+        if(g_gs_edited){ g_fn_pending_px=g_font_px; g_fn_resize_confirm=1; return; }
+        font_recreate_at(g_font_px); return;
+    }
     size_t l=strlen(g_font_ttf); char szf[460]; snprintf(szf,sizeof szf,"%.*s.size",(int)(l-4),g_font_ttf);
     FILE*sf=fopen(szf,"w"); if(sf){ fprintf(sf,"%d\n",g_font_px); fclose(sf); }
     if(g_sel>=0)build_tree(g_games[g_sel].dir);
     snprintf(g_status,sizeof g_status,"baking %s @%dpx...",g_font_name,g_font_px);
     njob(2,g_games[g_sel].dir);   /* mc_bake: .ttf -> src/<name>.font.h (a MoteFont) */
 }
+/* --- glyph-sheet (hand-drawn font) ---------------------------------------- */
+static void font_gsheet_paths(void){
+    if(g_sel<0){ g_gsheet[0]=0; return; }
+    snprintf(g_gsheet,sizeof g_gsheet,"%.330s/assets/%.48s_glyphs.png",g_games[g_sel].dir,g_font_name);
+    snprintf(g_gsheet_meta,sizeof g_gsheet_meta,"%.330s/assets/%.48s_glyphs.gsheet",g_games[g_sel].dir,g_font_name);
+}
+/* render the loaded TTF's glyphs into a grid sheet PNG (grey = coverage, alpha=255
+ * on ink, transparent elsewhere) + a sidecar with the cell geometry. The sheet is
+ * the hand-drawn source from here on. */
+static void font_export_sheet(void){
+    font_load_ttf(g_font_ttf); if(!g_ftbuf) return;
+    stbtt_fontinfo fi; if(!stbtt_InitFont(&fi,g_ftbuf,stbtt_GetFontOffsetForIndex(g_ftbuf,0))) return;
+    float sc=stbtt_ScaleForPixelHeight(&fi,(float)g_font_px);
+    int asc,desc,gap; stbtt_GetFontVMetrics(&fi,&asc,&desc,&gap);
+    int ascent=(int)(asc*sc+0.5f), lh=(int)((asc-desc+gap)*sc+0.5f); if(lh<1)lh=g_font_px;
+    int cols=16, first=32, count=95;
+    /* Pass 1 metrics: per-glyph advance (real font advance) + the deepest left overhang.
+     * The pen ORIGIN sits at column `origin` so even the most-left-bearing glyph's ink
+     * lands at column >= 0; xoff is then (ink_left - origin), which can be negative. */
+    int adv[128]; int minxo=0, maxxr=1, maxb=lh;
+    for(int i=0;i<count;i++){ int gw,gh,xo,yo; unsigned char*bm=stbtt_GetCodepointBitmap(&fi,sc,sc,first+i,&gw,&gh,&xo,&yo);
+        int aw,lsb; stbtt_GetCodepointHMetrics(&fi,first+i,&aw,&lsb); adv[i]=(int)(aw*sc+0.5f); if(adv[i]>255)adv[i]=255; if(adv[i]<0)adv[i]=0;
+        if(bm){ if(xo<minxo)minxo=xo; if(xo+gw>maxxr)maxxr=xo+gw; if(ascent+yo+gh>maxb)maxb=ascent+yo+gh; stbtt_FreeBitmap(bm,0); } }
+    int origin=(minxo<0)?-minxo:0;                       /* pen column = depth of the deepest left overhang */
+    int maxr=origin+maxxr;                               /* rightmost ink in cell coords */
+    int cell=(maxr>maxb?maxr:maxb)+1; if(cell<lh)cell=lh; if(cell>CMAX){ cell=CMAX; }
+    int rows=(count+cols-1)/cols, W=cols*cell, Hh=rows*cell;
+    unsigned char*px=(unsigned char*)calloc(1,(size_t)W*Hh*4); if(!px) return;
+    for(int i=0;i<count;i++){ int cp=first+i, c0=(i%cols)*cell, r0=(i/cols)*cell, gw,gh,xo,yo;
+        unsigned char*bm=stbtt_GetCodepointBitmap(&fi,sc,sc,cp,&gw,&gh,&xo,&yo);
+        if(!bm) continue;
+        for(int y=0;y<gh;y++)for(int x=0;x<gw;x++){ int X=c0+origin+xo+x, Y=r0+ascent+yo+y;   /* ink at pen origin + the glyph's real bearing */
+            if(X<c0||X>=c0+cell||Y<r0||Y>=r0+cell)continue; unsigned char a=bm[y*gw+x]; if(!a)continue;
+            unsigned char*d=&px[((size_t)Y*W+X)*4]; d[0]=d[1]=d[2]=a; d[3]=255; }
+        stbtt_FreeBitmap(bm,0); }
+    char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    stbi_write_png(g_gsheet,W,Hh,4,px,W*4); free(px);
+    /* sidecar v2: line 1 "cols cell line_h first count ascent edited origin"; line 2 =
+     * the per-glyph advances. glyphs2font reads origin + advances for ttf2font parity. */
+    FILE*m=fopen(g_gsheet_meta,"w");
+    if(m){ fprintf(m,"%d %d %d %d %d %d 0 %d\n",cols,cell,lh,first,count,ascent,origin);
+           for(int i=0;i<count;i++)fprintf(m,"%d ",adv[i]); fputc('\n',m); fclose(m); }
+    g_gs_cols=cols; g_gs_cell=cell; g_gs_lineh=lh; g_gs_first=first; g_gs_count=count; g_gs_ascent=ascent;
+    g_gs_origin=origin; g_gs_has_adv=1; for(int i=0;i<count&&i<128;i++)g_gs_adv[i]=(uint8_t)adv[i];
+    g_gs_edited=0; g_gs_dirty=1;
+}
+/* read the v2 sidecar (line 1 geometry + origin, line 2 advances) into the globals */
+static void font_gs_read_meta(void){
+    g_gs_origin=0; g_gs_has_adv=0;
+    FILE*m=fopen(g_gsheet_meta,"r"); if(!m) return;
+    int a,b,c,d2,e2,as=-1,ed=0,org=0;
+    int got=fscanf(m,"%d %d %d %d %d %d %d %d",&a,&b,&c,&d2,&e2,&as,&ed,&org);
+    if(got>=5){ g_gs_cols=a; g_gs_cell=b; g_gs_lineh=c; g_gs_first=d2; g_gs_count=e2;
+        g_gs_ascent=(got>=6&&as>0)?as:c*4/5; g_gs_edited=(got>=7)?ed:0; g_gs_origin=(got>=8)?org:0; }
+    if(got>=8){ int n=g_gs_count>128?128:g_gs_count, ok=1;
+        for(int i=0;i<n;i++){ int v; if(fscanf(m,"%d",&v)!=1){ ok=0; break; } g_gs_adv[i]=(uint8_t)(v<0?0:v>255?255:v); }
+        g_gs_has_adv=ok; }
+    fclose(m);
+}
+static void font_gsheet_open(void){
+    if(g_sel<0||!g_font_ttf[0]){ snprintf(g_status,sizeof g_status,"open a font first"); return; }
+    font_gsheet_paths(); struct stat st;
+    if(stat(g_gsheet,&st)!=0) font_export_sheet();                 /* first time: seed from the TTF */
+    else font_gs_read_meta();
+    g_gs_dirty=1; g_glyph_browse=1; g_gs_sel=0; g_ptool=0; g_pcol=(uint16_t)MOTE_RGB565(255,255,255); font_gs_loadbuf();
+    if(g_sel>=0)build_tree(g_games[g_sel].dir);
+    snprintf(g_status,sizeof g_status,"glyph sheet for %s — click a glyph, paint it in place",g_font_name);
+}
+/* Open a glyph SHEET selected in the Explorer (assets/<name>_glyphs.png, or its baked
+ * src/<name>_glyphs.font.h) directly in the Font tab's grid — no TTF needed. If a
+ * matching assets/<base>.ttf exists, adopt it as the AA source too. */
+static void font_open_sheet(const char*path){
+    const char*b=strrchr(path,'/'); b=b?b+1:path;
+    char base[80]; snprintf(base,sizeof base,"%.78s",b); char*d;
+    if((d=strstr(base,".font.h"))) *d=0;                 /* baked header <font>.font.h */
+    else if((d=strrchr(base,'.'))) *d=0;                 /* drop .png/.bmp */
+    if((d=strstr(base,"_glyphs"))) *d=0;                 /* sheet suffix -> font name */
+    snprintf(g_font_name,sizeof g_font_name,"%.60s",base);
+    g_font_ttf[0]=0;
+    if(g_sel>=0){ char tp[460]; struct stat st; snprintf(tp,sizeof tp,"%.330s/assets/%.60s.ttf",g_games[g_sel].dir,base);
+        if(stat(tp,&st)==0) snprintf(g_font_ttf,sizeof g_font_ttf,"%s",tp); }
+    font_gsheet_paths(); struct stat ss;
+    if(stat(g_gsheet,&ss)!=0){ snprintf(g_status,sizeof g_status,"no %s_glyphs.png sheet found",g_font_name); return; }
+    font_gs_read_meta();
+    g_gs_dirty=1; g_glyph_browse=1; g_gs_sel=0; g_tab=TAB_FONT; g_ptool=0; g_pcol=(uint16_t)MOTE_RGB565(255,255,255); g_font_px=g_gs_lineh; font_gs_loadbuf();
+    snprintf(g_status,sizeof g_status,"glyph sheet %s — click a glyph, paint it in place",g_font_name);
+}
+/* load the whole sheet PNG into the live g_gsbuf (KEY565 = transparent/no ink) */
+static void font_gs_loadbuf(void){
+    int w,h,n; unsigned char*d=stbi_load(g_gsheet,&w,&h,&n,4); if(!d){ g_gsbuf_w=g_gsbuf_h=0; return; }
+    g_gsbuf=realloc(g_gsbuf,(size_t)w*h*2); g_gsbuf_w=w; g_gsbuf_h=h;
+    for(int i=0;i<w*h;i++){ unsigned char*p=&d[(size_t)i*4]; g_gsbuf[i]=(p[3]<128)?KEY565:(uint16_t)MOTE_RGB565(p[0],p[1],p[2]); }
+    stbi_image_free(d); g_gs_dirty=1;
+}
+/* write the live g_gsbuf back to the single sheet PNG + its .gsheet geometry + the
+ * <font>.size (so the TTF/main view and the editor agree), then re-bake the font */
+static void font_gs_savebuf(void){
+    if(g_sel<0||!g_gsbuf||g_gsbuf_w<1){ snprintf(g_status,sizeof g_status,"nothing to save"); return; }
+    int W=g_gsbuf_w,H=g_gsbuf_h; unsigned char*rgba=malloc((size_t)W*H*4); if(!rgba)return;
+    for(int i=0;i<W*H;i++){ uint16_t c=g_gsbuf[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; }
+        else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
+    char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    int ok=stbi_write_png(g_gsheet,W,H,4,rgba,W*4); free(rgba);
+    if(!ok){ snprintf(g_status,sizeof g_status,"sheet save FAILED (%s)",g_gsheet); return; }
+    FILE*m=fopen(g_gsheet_meta,"w");
+    if(m){ fprintf(m,"%d %d %d %d %d %d %d %d\n",g_gs_cols,g_gs_cell,g_gs_lineh,g_gs_first,g_gs_count,g_gs_ascent,g_gs_edited,g_gs_origin);
+           if(g_gs_has_adv){ for(int i=0;i<g_gs_count&&i<128;i++)fprintf(m,"%d ",g_gs_adv[i]); fputc('\n',m); }   /* preserve advances so edits keep ttf2font parity */
+           fclose(m); }
+    char szp[470]; snprintf(szp,sizeof szp,"%.330s/assets/%.60s.size",g_games[g_sel].dir,g_font_name);   /* keep .size == the sheet's line height */
+    FILE*sf=fopen(szp,"w"); if(sf){ fprintf(sf,"%d\n",g_gs_lineh); fclose(sf); } g_font_px=g_gs_lineh;
+    snprintf(g_status,sizeof g_status,"saved %s_glyphs.png (%dpx) + baking the font",g_font_name,g_gs_lineh); njob(2,g_games[g_sel].dir);
+}
+/* Does this font have a hand-drawn glyph sheet? (assets/<font>_glyphs.png) */
+static int font_has_sheet(void){
+    if(g_sel<0||!g_font_name[0])return 0;
+    char p[470]; snprintf(p,sizeof p,"%.330s/assets/%.60s_glyphs.png",g_games[g_sel].dir,g_font_name); struct stat st; return stat(p,&st)==0; }
+/* paint into the selected cell of the live sheet via the shared cell toolset */
+static void glyph_paint_at(int mx,int my,int phase){
+    if(!g_gsbuf||g_gsbuf_w<1)return; if(!hit(mx,my,g_gs_edit.x,g_gs_edit.y,g_gs_edit.w,g_gs_edit.h)&&phase!=2)return;
+    int cell=g_gs_cell, sc=g_gs_edit.w/cell; if(sc<1)sc=1;
+    int x=(mx-g_gs_edit.x)/sc, y=(my-g_gs_edit.y)/sc;
+    int cx=(g_gs_sel%g_gs_cols)*cell, cy=(g_gs_sel/g_gs_cols)*cell;
+    cell_op(g_gsbuf,g_gsbuf_w,cx,cy,cell,cell,x,y,phase);
+    if(g_ptool!=3) g_gs_edited=1;   /* anything but the eyedropper is a real edit */
+}
+/* tileset-style grid of every glyph, rendered live from g_gsbuf; click selects a cell */
+static uint16_t *g_gs_view;
+static int draw_glyph_grid(SDL_Renderer*R,int x,int y,int w,int mx,int my){
+    if(g_gsbuf&&g_gsbuf_w>0){   /* upload the live sheet (KEY565 -> dark) to a streaming texture */
+        int W=g_gsbuf_w,H=g_gsbuf_h; if(!g_gs_tex||g_gs_dirty){ if(g_gs_tex)SDL_DestroyTexture(g_gs_tex);
+            g_gs_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,W,H); SDL_SetTextureScaleMode(g_gs_tex,SDL_ScaleModeNearest); }
+        g_gs_view=realloc(g_gs_view,(size_t)W*H*2);
+        for(int i=0;i<W*H;i++){ uint16_t c=g_gsbuf[i]; g_gs_view[i]=(c==KEY565)?(uint16_t)MOTE_RGB565(14,15,22):c; }
+        SDL_UpdateTexture(g_gs_tex,NULL,g_gs_view,W*2); g_gs_dirty=0; }
+    /* Pixel-perfect where it fits: each cell at an integer multiple of g_gs_cell
+     * (NEAREST). wbudget caps the grid so it never bleeds under the edit canvas; a
+     * very large font falls back to a sub-integer dz so all columns still fit.
+     * Returns the actual drawn width so the caller can place the editor after it. */
+    int per=g_gs_cols, cell=g_gs_cell<1?1:g_gs_cell, scale=1;
+    while(scale<4 && (cell*(scale+1)+3)*per<=w) scale++;
+    int dz=cell*scale;
+    if((dz+3)*per>w){ dz=w/per-3; if(dz<6)dz=6; }
+    for(int i=0;i<g_gs_count && i<128;i++){ int gx=x+(i%per)*(dz+3), gy=y+(i/per)*(dz+3); g_gs_cellr[i]=(SDL_Rect){gx,gy,dz,dz};
+        int hov=hit(mx,my,gx,gy,dz,dz);
+        plain(R,gx,gy,dz,dz,(Col){10,11,16});
+        if(g_gs_tex){ SDL_Rect sr={(i%g_gs_cols)*g_gs_cell,(i/g_gs_cols)*g_gs_cell,g_gs_cell,g_gs_cell}, dr={gx,gy,dz,dz}; SDL_RenderCopy(R,g_gs_tex,&sr,&dr); }
+        rect_outline(R,gx,gy,dz,dz,i==g_gs_sel?C_ACC:(hov?C_BTNHI:(Col){40,44,58}),i==g_gs_sel?2:1); }
+    return per*(dz+3);
+}
+/* grayscale-only palette for the glyph editor: a glyph stores COVERAGE (luminance),
+ * so colour is meaningless — the ramp goes transparent/none -> grey AA -> solid white. */
+static SDL_Rect g_gs_tool[6], g_gs_ramp[16];
+static void draw_glyph_palette(SDL_Renderer*R,int px,int py){
+    static const int TIC[6]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH};
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    for(int i=0;i<6;i++){ int bx=px+i*24; g_gs_tool[i]=(SDL_Rect){bx,py,22,22}; int act=g_ptool==i,hov=hit(mx,my,bx,py,22,22);
+        rrect(R,bx,py,22,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,TIC[i],bx+4,py+4,14,act?C_HDR:C_TXT); }
+    int ry=py+30; text(R,"coverage  (white = solid, grey = AA edge)",px,ry,1,C_DIM,(Col){16,18,26}); ry+=15;
+    int n=16, sw=20, sh=22;
+    for(int i=0;i<n;i++){ int v=i*255/(n-1); int gx=px+(i%8)*(sw+2), gy=ry+(i/8)*(sh+4);
+        g_gs_ramp[i]=(SDL_Rect){gx,gy,sw,sh}; uint16_t c=(uint16_t)MOTE_RGB565(v,v,v);
+        plain(R,gx,gy,sw,sh,c565(c)); if(c==g_pcol)rect_outline(R,gx-1,gy-1,sw+2,sh+2,C_ACC,2); }
+}
+static void draw_glyph_editcell(SDL_Renderer*R,int x,int y,int w,int h,int mx,int my){
+    int cp=g_gs_first+g_gs_sel; char hd[64]; snprintf(hd,sizeof hd,"GLYPH  '%c'  (cell %d)",(cp>=32&&cp<127)?(char)cp:'?',g_gs_sel);
+    text(R,hd,x,y,1,C_TITLE,(Col){16,18,26}); y+=16;
+    int cell=g_gs_cell; g_dr_cv=realloc(g_dr_cv,(size_t)cell*cell*2);
+    int cx=(g_gs_sel%g_gs_cols)*cell, cy=(g_gs_sel/g_gs_cols)*cell;
+    /* transparent (no-ink) pixels render as a checkerboard so they're unmistakably
+     * "empty" vs a painted dark-grey (low coverage) pixel. */
+    for(int yy=0;yy<cell;yy++)for(int xx=0;xx<cell;xx++){ uint16_t p=(g_gsbuf&&cx+xx<g_gsbuf_w&&cy+yy<g_gsbuf_h)?g_gsbuf[(cy+yy)*g_gsbuf_w+cx+xx]:KEY565;
+        g_dr_cv[yy*cell+xx]=(p==KEY565)?(uint16_t)(((xx^yy)&1)?MOTE_RGB565(58,44,70):MOTE_RGB565(40,30,50)):p; }
+    if(!g_dr_tex||g_dr_texw!=cell||g_dr_texh!=cell){ if(g_dr_tex)SDL_DestroyTexture(g_dr_tex); g_dr_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,cell,cell); SDL_SetTextureScaleMode(g_dr_tex,SDL_ScaleModeNearest); g_dr_texw=g_dr_texh=cell; }
+    SDL_UpdateTexture(g_dr_tex,NULL,g_dr_cv,cell*2);
+    int panelw=150, edw=w-panelw-12, sc=edw/cell; if(sc<1)sc=1; { int hcap=(h-22)/cell; if(hcap<sc)sc=hcap; if(sc<1)sc=1; if(sc>14)sc=14; }
+    g_gs_edit=(SDL_Rect){x,y,cell*sc,cell*sc};
+    rect_outline(R,x-1,y-1,cell*sc+2,cell*sc+2,C_LINE,1); SDL_RenderCopy(R,g_dr_tex,NULL,&g_gs_edit);
+    /* metric guides: the pen ORIGIN column (where the cursor sits — paint left of it for
+     * a connecting overhang), the BASELINE row, and the ADVANCE (where the next glyph's
+     * pen lands = origin + advance). Advance comes from the font when known. */
+    int adv;
+    if(g_gs_has_adv){ adv=g_gs_origin+g_gs_adv[g_gs_sel]; }
+    else { adv=0; for(int xx=0;xx<cell;xx++){ int ink=0; for(int yy=0;yy<cell;yy++)
+            if(g_gsbuf&&cx+xx<g_gsbuf_w&&cy+yy<g_gsbuf_h&&g_gsbuf[(cy+yy)*g_gsbuf_w+cx+xx]!=KEY565){ ink=1; break; } if(ink)adv=xx+2; }
+        if(adv<2)adv=g_gs_lineh/3>2?g_gs_lineh/3:2; }
+    int byb=y+(g_gs_ascent<cell?g_gs_ascent:cell-1)*sc;          /* baseline row */
+    SDL_SetRenderDrawColor(R,90,200,160,150); SDL_RenderDrawLine(R,x,byb,x+cell*sc-1,byb);
+    if(g_gs_origin>0&&g_gs_origin<cell){ int ox2=x+g_gs_origin*sc; SDL_SetRenderDrawColor(R,120,170,255,150); SDL_RenderDrawLine(R,ox2,y,ox2,y+cell*sc-1); }   /* pen origin */
+    if(adv<=cell){ int ax=x+adv*sc; SDL_SetRenderDrawColor(R,240,180,80,150); SDL_RenderDrawLine(R,ax,y,ax,y+cell*sc-1); }
+    draw_glyph_palette(R,x+cell*sc+14,y);
+    char mm[150]; snprintf(mm,sizeof mm,"cell %dx%d \xc2\xb7 baseline y=%d \xc2\xb7 origin x=%d \xc2\xb7 advance=%d",cell,cell,g_gs_ascent,g_gs_origin,g_gs_has_adv?g_gs_adv[g_gs_sel]:adv);
+    text(R,mm,x,y+cell*sc+6,1,C_DIM,(Col){16,18,26});
+    text(R,"green=baseline  blue=pen origin (paint left to connect)  amber=advance",x,y+cell*sc+18,1,(Col){110,120,140},(Col){16,18,26});
+}
 static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
     int mx,my; SDL_GetMouseState(&mx,&my); int x=ox+16, y=oy+14;
     text(R,"FONT",x,y,2,C_TITLE,(Col){16,18,26}); y+=26;
+    if(g_glyph_browse){   /* in-place glyph editor: grid (left) + zoomed cell paint (right) */
+        char nm[160]; snprintf(nm,sizeof nm,"%.60s_glyphs.png \xc2\xb7 %dpx \xc2\xb7 edit each glyph in place \xc2\xb7 one sheet saves",g_font_name,g_gs_lineh); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
+        int bx=ui_btn(R,x,y,0,"Save + Bake",IC_SAVE,(Col){170,200,140},&g_fn_bake,mx,my);
+        ui_btn(R,bx,y,0,"Close glyphs",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my); y+=UI_H+12;   /* size is FIXED here — change it in the font view */
+        g_fn_imp=g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=(SDL_Rect){0,0,0,0};
+        int gw=draw_glyph_grid(R,x,y,(w-34)*52/100,mx,my);   /* returns its real width so the editor never overlaps it */
+        draw_glyph_editcell(R,x+gw+18,y,w-gw-34,(oy+h)-y,mx,my);
+        return; }
     if(!g_font_ttf[0]){
         text(R,"Import a .ttf (or pick one in the Explorer) to bake an",x,y,1,C_DIM,(Col){16,18,26}); y+=14;
         text(R,"anti-aliased font. Draw it in-game with mote->text_font().",x,y,1,C_DIM,(Col){16,18,26}); y+=22;
@@ -3026,13 +3262,14 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
         if(g_nbfont>0){ text(R,"or start from a bundled font:",x,y,1,C_DIM,(Col){16,18,26}); y+=18;
             int bx=x; for(int i=0;i<g_nbfont;i++){ char lbl[80]; snprintf(lbl,sizeof lbl,"%.40s",g_bfont[i]); char*dt=strrchr(lbl,'.'); if(dt)*dt=0;
                 bx=ui_btn(R,bx,y,0,lbl,IC_FILE,(Col){150,180,220},&g_fn_bundled[i],mx,my); } }
-        g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=g_fn_bake=(SDL_Rect){0,0,0,0}; return; }
+        g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=g_fn_bake=g_fn_edit=(SDL_Rect){0,0,0,0}; return; }
     font_load_ttf(g_font_ttf); font_render_preview(R);
     char nm[120]; snprintf(nm,sizeof nm,"%.60s.ttf",g_font_name); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
     int bx=ui_btn(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my);
     char szb[16]; snprintf(szb,sizeof szb,"%dpx",g_font_px); bx=ui_stepper(R,bx,y,"size",szb,&g_fn_szmin,&g_fn_szpls,mx,my);
     char zb[16]; snprintf(zb,sizeof zb,"%dx",g_font_zoom); bx=ui_stepper(R,bx,y,"zoom",zb,&g_fn_zmin,&g_fn_zpls,mx,my);
-    ui_btn(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my); y+=UI_H+14;
+    bx=ui_btn(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my);
+    ui_btn(R,bx,y,0,"Edit glyphs\xe2\x80\xa6",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my); y+=UI_H+14;
     if(g_font_prev){
         /* magnify the (tight) preview by the user's zoom, NEAREST for a crisp
          * pixel-accurate view of the real AA; clip to the panel so a big zoom
@@ -3047,18 +3284,70 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
         SDL_SetTextureScaleMode(g_font_prev,SDL_ScaleModeNearest);
         SDL_Rect sr={0,0,vw,vh}, dr={x,y,dw,dh}; SDL_RenderCopy(R,g_font_prev,&sr,&dr); y+=dh+12; }
     char info[160]; snprintf(info,sizeof info,"-> src/%s.font.h   ASCII 32..126, alpha-blended; mote->text_font(fb, &%s, ...)",g_font_name,g_font_name);
-    text(R,info,x,y,1,C_DIM,(Col){16,18,26}); }
+    text(R,info,x,y,1,C_DIM,(Col){16,18,26});
+    if(g_fn_resize_confirm){   /* you edited glyphs, then changed the size: recreating discards the hand edits */
+        int bw=520,bh=110,bx=ox+(w-bw)/2,by=oy+44; plain(R,bx-2,by-2,bw+4,bh+4,(Col){10,10,14}); rrect(R,bx,by,bw,bh,6,(Col){46,34,20}); rrect(R,bx,by,bw,22,6,(Col){120,80,30});
+        text(R,"RECREATE GLYPHS AT A NEW SIZE?",bx+10,by+7,1,C_HDR,(Col){120,80,30});
+        text(R,"This font has a hand-drawn glyph sheet. Changing the size re-renders",bx+10,by+30,1,C_TXT,(Col){46,34,20});
+        text(R,"every glyph from the TTF at the new size — your edits are replaced.",bx+10,by+42,1,(Col){230,200,150},(Col){46,34,20});
+        char sb[16]; snprintf(sb,sizeof sb,"%dpx",g_fn_pending_px); int sx=ui_stepper(R,bx+10,by+60,"size",sb,&g_fn_rz_m,&g_fn_rz_p,mx,my); (void)sx;
+        g_fn_rz_yes=(SDL_Rect){bx+bw-200,by+62,120,22}; rrect(R,g_fn_rz_yes.x,g_fn_rz_yes.y,120,22,4,hit(mx,my,g_fn_rz_yes.x,g_fn_rz_yes.y,120,22)?(Col){180,120,60}:(Col){120,80,44}); text(R,"Recreate",g_fn_rz_yes.x+30,g_fn_rz_yes.y+5,1,C_HDR,(Col){120,80,44});
+        g_fn_rz_no=(SDL_Rect){bx+bw-72,by+62,62,22}; rrect(R,g_fn_rz_no.x,g_fn_rz_no.y,62,22,4,hit(mx,my,g_fn_rz_no.x,g_fn_rz_no.y,62,22)?C_BTNHI:C_BTN); text(R,"Cancel",g_fn_rz_no.x+9,g_fn_rz_no.y+5,1,C_TXT,C_BTN);
+    } }
+/* re-render the glyph sheet from the TTF at `px` (discards hand edits — clears the
+ * edited flag), keep .size in sync, and re-bake the font. */
+static void font_recreate_at(int px){
+    if(g_sel<0||!g_font_ttf[0])return;
+    g_font_px=px; font_export_sheet();                 /* writes sheet + sidecar(edited=0) */
+    char szp[470]; snprintf(szp,sizeof szp,"%.330s/assets/%.60s.size",g_games[g_sel].dir,g_font_name);
+    FILE*sf=fopen(szp,"w"); if(sf){ fprintf(sf,"%d\n",px); fclose(sf); }
+    g_font_dirty=1; njob(2,g_games[g_sel].dir);
+}
+/* Size +/- is PREVIEW-ONLY (live TTF preview); the new size is applied at Bake time,
+ * so stepping the size doesn't bake/jump-to-console on every press. */
+static void font_size_change(int np){
+    if(np<5)np=5; if(np>96)np=96;
+    g_font_px=np; g_font_dirty=1;
+}
 static void font_down(int mx,int my){
     #define HF(r) ((r).w && hit(mx,my,(r).x,(r).y,(r).w,(r).h))
+    if(g_glyph_browse){                                   /* in-place glyph editor (FIXED size) */
+        if(HF(g_fn_bake)){ font_gs_savebuf(); return; }   /* Save+Bake writes the SHEET, not the TTF */
+        if(HF(g_fn_edit)){ g_glyph_browse=0; return; }    /* Close glyphs -> font view (size lives there) */
+        for(int i=0;i<g_gs_count&&i<128;i++) if(HF(g_gs_cellr[i])){ g_gs_sel=i; return; }
+        for(int i=0;i<6;i++) if(HF(g_gs_tool[i])){ g_ptool=i; return; }                      /* pencil/erase/fill/pick/line/rect */
+        for(int i=0;i<16;i++) if(HF(g_gs_ramp[i])){ int v=i*255/15; g_pcol=(uint16_t)MOTE_RGB565(v,v,v); return; }   /* grayscale coverage */
+        if(hit(mx,my,g_gs_edit.x,g_gs_edit.y,g_gs_edit.w,g_gs_edit.h)){ g_gs_paint=1; glyph_paint_at(mx,my,0); g_gs_dirty=1; }
+        return; }
+    if(g_fn_resize_confirm){                              /* modal: recreate-glyphs-at-new-size gate */
+        if(HF(g_fn_rz_m)){ if(g_fn_pending_px>5)g_fn_pending_px--; return; }
+        if(HF(g_fn_rz_p)){ if(g_fn_pending_px<96)g_fn_pending_px++; return; }
+        if(HF(g_fn_rz_yes)){ font_recreate_at(g_fn_pending_px); g_fn_resize_confirm=0;
+            snprintf(g_status,sizeof g_status,"recreated %s glyphs at %dpx — reopen Edit glyphs to draw them",g_font_name,g_font_px); return; }
+        if(HF(g_fn_rz_no)){ g_fn_resize_confirm=0; return; }
+        return; }                                          /* swallow clicks behind the modal */
     if(HF(g_fn_imp)){ fp_open(6); return; }
     for(int i=0;i<g_nbfont;i++) if(HF(g_fn_bundled[i])){ char p[160]; snprintf(p,sizeof p,"%s/%s",BFONT_DIR,g_bfont[i]); font_import(p); return; }
-    if(HF(g_fn_szmin)){ if(g_font_px>4){ g_font_px--; g_font_dirty=1; } return; }
-    if(HF(g_fn_szpls)){ if(g_font_px<96){ g_font_px++; g_font_dirty=1; } return; }
+    /* Changing the size: with a sheet that has EDITS, gate (recreating discards them);
+     * with an unedited sheet, recreate silently (nothing to lose); with no sheet, the
+     * TTF just re-bakes at the new size. */
+    if(HF(g_fn_szmin)){ int np=g_font_px>5?g_font_px-1:5; font_size_change(np); return; }
+    if(HF(g_fn_szpls)){ int np=g_font_px<96?g_font_px+1:96; font_size_change(np); return; }
     if(HF(g_fn_zmin)){ if(g_font_zoom>1)g_font_zoom--; return; }
     if(HF(g_fn_zpls)){ if(g_font_zoom<8)g_font_zoom++; return; }
-    if(HF(g_fn_bake)) font_bake();
+    if(HF(g_fn_bake)){ font_bake(); return; }
+    if(HF(g_fn_edit)){ font_gsheet_open(); return; }
     #undef HF
 }
+static void font_rdown(int mx,int my){   /* right-drag = erase in the glyph editor */
+    if(!g_glyph_browse)return;
+    if(hit(mx,my,g_gs_edit.x,g_gs_edit.y,g_gs_edit.w,g_gs_edit.h)){ g_gs_paint=2; int t=g_ptool; g_ptool=1; glyph_paint_at(mx,my,0); g_ptool=t; g_gs_dirty=1; } }
+static void font_drag(int mx,int my){
+    if(!g_glyph_browse)return;
+    if(g_gs_paint){ int t=g_ptool; if(g_gs_paint==2)g_ptool=1; glyph_paint_at(mx,my,1); g_ptool=t; g_gs_dirty=1; } }
+static void font_up(int mx,int my){   /* commit line/rect tools */
+    if(g_glyph_browse&&g_gs_paint){ int t=g_ptool; if(g_gs_paint==2)g_ptool=1; glyph_paint_at(mx,my,2); g_ptool=t; g_gs_dirty=1; }
+    g_gs_paint=0; }
 
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
@@ -3357,7 +3646,17 @@ static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i]; const char*nm=r->name;
-    if(ci_ends(nm,".ttf")){ font_open(r->path); return; }   /* TTF -> Font tab */
+    /* a hand-drawn glyph SHEET (assets/<font>_glyphs.png) -> in-place glyph editor.
+     * Also a TTF or baked <font>.font.h whose _glyphs sheet exists routes to the editor
+     * (the sheet is the live source); a TTF with no sheet opens the TTF Font tab. */
+    if(ci_ends(nm,"_glyphs.png")){ font_open_sheet(r->path); return; }
+    if(ci_ends(nm,".ttf")||ci_ends(nm,".font.h")){
+        char sbase[80]; snprintf(sbase,sizeof sbase,"%.78s",nm); char*d;
+        if((d=strstr(sbase,".font.h")))*d=0; else if((d=strrchr(sbase,'.')))*d=0;
+        char sp[480]; struct stat ss; if(g_sel>=0){ snprintf(sp,sizeof sp,"%.330s/assets/%.60s_glyphs.gsheet",g_games[g_sel].dir,sbase);
+            if(stat(sp,&ss)==0){ font_open_sheet(r->path); return; } }
+        if(ci_ends(nm,".ttf")){ font_open(r->path); return; }
+        return; }
     /* SFX recipe (.sfx) or its baked header (.sfx.h) -> load into the Audio tab */
     if(ci_ends(nm,".sfx")||ci_ends(nm,".sfx.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".sfx"); if(d)*d=0;
         char sp[440]; if(ci_ends(nm,".sfx")) snprintf(sp,sizeof sp,"%.300s",r->path);
@@ -3441,6 +3740,8 @@ int main(int argc,char**argv){
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
+    if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
+        if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */
     if(getenv("MOTE_STUDIO_RIGPOSE")){ g_pose_mode=1; if(!g_nrk)g_ksel=rig_key_insert(0); }   /* capture hook: pose mode */
     if(getenv("MOTE_STUDIO_PROMPT")){ char sd[340]="."; if(g_sel>=0)snprintf(sd,sizeof sd,"%.330s/src",g_games[g_sel].dir);
         int k=atoi(getenv("MOTE_STUDIO_PROMPT")); prompt_open(k==2?PR_DELETE:k==1?PR_NEWFOLDER:PR_NEWFILE,k==2?"Delete":k==1?"New Folder":"New File",k?0:"enemy.c","include the extension (e.g. enemy.c)",k==2?"examples/tanks/src/game.c":0,sd); }   /* capture hook */
@@ -3664,7 +3965,7 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT)font_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
@@ -3673,7 +3974,8 @@ int main(int argc,char**argv){
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
-                if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y); }
+                if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y);
+                else if(g_tab==TAB_FONT)font_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){
                 if(g_codesbdrag&&g_code_track.h){ float f=(float)(e.motion.y-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2;
                     int ms=g_code_total>g_code_vis?g_code_total-g_code_vis:0; if(g_codescroll<0)g_codescroll=0; if(g_codescroll>ms)g_codescroll=ms; continue; }
@@ -3703,6 +4005,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw-=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
+                else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_FONT)font_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y,1); }
                 else if((e.motion.state&SDL_BUTTON_MMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)){ g_panx+=e.motion.xrel; g_pany+=e.motion.yrel; }
             }

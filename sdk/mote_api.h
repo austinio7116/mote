@@ -32,7 +32,9 @@
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 39u  /* v39: text_font — anti-aliased proportional fonts (TTF-baked or hand-drawn) */
+#define MOTE_ABI_VERSION 39u  /* v39: text_font — proportional fonts (TTF-baked or hand-drawn),
+                               * 1/2/4-bit packed coverage auto-picked by the baker. No API-table
+                               * change vs the format finalisation, so the version stays 39. */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */

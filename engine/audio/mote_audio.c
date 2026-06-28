@@ -226,7 +226,8 @@ static int sfx_gen_block(SfxGen *g, int16_t *out, int max){
         ss=ss/8*2.0f; if(ss>1)ss=1; if(ss<-1)ss=-1;
         if(!g->have){ g->prev=ss; g->have=1; }                          /* 2:1 downsample */
         else { g->have=0; float v=(g->prev+ss)*0.5f; int s=(int)(v*16000); if(s>32767)s=32767; if(s<-32768)s=-32768;
-            if(out) out[count]=(int16_t)s; count++; }
+            if(out) out[count]=(int16_t)s;
+            count++; }
     }
     return count;
 }
@@ -239,7 +240,8 @@ int mote_audio_render_sfx(const struct MoteSfx *p, int16_t *out, int max){
     int total=0;
     while(!g.done && total<cap){
         int n=sfx_gen_block(&g, out?out+total:0, cap-total);
-        if(n<=0) break; total+=n;
+        if(n<=0) break;
+        total+=n;
     }
     return total;
 }
@@ -250,7 +252,8 @@ static int    s_sfxv_on[NSFX];
 static float  s_sfxv_gain[NSFX];
 
 void mote_audio_play_sfx(const struct MoteSfx *recipe, float gain){
-    if(!recipe) return; if(!s_ready) mote_audio_init();
+    if(!recipe) return;
+    if(!s_ready) mote_audio_init();
     int best=-1; for(int i=0;i<NSFX;i++){ if(!s_sfxv_on[i]){ best=i; break; } }
     if(best<0) best=0;                        /* all busy → steal voice 0 */
     sfx_gen_init(&s_sfxv[best], recipe);

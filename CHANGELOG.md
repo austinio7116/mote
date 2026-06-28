@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.10-alpha
+
+**Proper fonts.** You can now draw crisp, anti-aliased, proportional text at any size —
+bake a TrueType font, or hand-draw and edit one glyph by glyph right in the Studio, and
+draw it in your game with one call. The new `fontdemo` example is a gallery you can flip
+through with A / B. **Reflash the firmware** to use the new text in games on the device;
+games already on the device keep working, and games that don't use the new text are
+unaffected.
+
+### Fonts
+
+- **`mote->text_font()` draws an anti-aliased proportional font.** Each glyph keeps its
+  own width and position, so text looks like real type instead of a fixed grid. The
+  built-in 3×5 `mote->text()` is still there for tiny UI labels.
+- **Two ways to make a font, one way to draw it.** Bake a TrueType `.ttf` (the Studio
+  rasterises it), *or* hand-draw a font as a pixel sheet — either way you get a `MoteFont`
+  you draw with `text_font`.
+- **Fonts are small.** Glyph coverage is packed at the smallest depth that's lossless —
+  1-bit for a plain on/off font, 2-bit, or 4-bit (16 levels) for anti-aliased — picked
+  automatically by the baker. A typical font is a few kilobytes.
+
+### Studio (the IDE)
+
+- **A Font tab.** Import a `.ttf` (or pick a bundled starter font), set the pixel size,
+  see a live preview, and bake it to a header your game includes. Six redistributable
+  starter fonts ship in the picker (sans, serif, mono, Ubuntu, a calligraphic Chancery).
+- **Edit glyphs in place.** "Edit glyphs" shows every glyph in a grid (like the tileset
+  editor) with a pixel editor beside it — paint the selected glyph in its cell with a
+  grayscale coverage ramp (white = solid, grey = a soft anti-aliased edge), transparency
+  shown as a checkerboard. Guides mark the **baseline**, the **pen origin** (paint left of
+  it to make letters connect) and the **advance**. The whole font is one PNG that saves
+  and bakes in place — it never touches your Pixel-Art canvas.
+- **Resize is safe.** Changing a font's size is preview-only and applies when you Bake;
+  if you've hand-edited a glyph sheet it warns before re-rendering from the source.
+- **The built-in font is editable too.** The 3×5 system font is available as an editable
+  glyph sheet so you can fork and tweak it.
+
+### Engine
+
+- **Hand-drawn fonts match baked TrueType fonts exactly.** A glyph sheet now records the
+  pen origin and each glyph's real advance, so cursive/connected scripts keep their
+  letter joins through the editor — editing or resizing a font no longer flattens it.
+
 ## 0.9-alpha
 
 **Smoother sound, and you can now texture a 3D model right in the Studio.** The on-the-fly
