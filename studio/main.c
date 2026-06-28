@@ -446,8 +446,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","RIG","AUDIO","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_FONT, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","RIG","AUDIO","FONT","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 /* Open the launcher icon in the Pixel Art editor (create a blank 60x60 if none).
  * Save then writes <root>/icon.png + bakes src/icon.h — no raw header, no CLI.
@@ -2922,6 +2922,110 @@ static void con_copy(void){
     for(int i=sa;i<=sb;i++){ const char*s=g_log[i%80]; size_t n=strlen(s); memcpy(t+o,s,n); o+=n; t[o++]='\n'; }
     SDL_UnlockMutex(g_logmx); t[o]=0; SDL_SetClipboardText(t); free(t);
     snprintf(g_status,sizeof g_status,"copied %d console line%s",sb-sa+1,sb>sa?"s":""); }
+/* ================= FONT tab (TTF -> anti-aliased MoteFont, ABI v39) ========= */
+static char g_font_ttf[400], g_font_name[64];
+static int  g_font_px = 16;
+static unsigned char *g_ftbuf; static long g_ftlen; static char g_ftpath[400];
+static SDL_Texture *g_font_prev; static int g_font_prev_px=-1, g_font_pw, g_font_ph, g_font_dirty=1;
+static SDL_Rect g_fn_imp, g_fn_szmin, g_fn_szpls, g_fn_bake;
+
+static void font_load_ttf(const char*path){
+    if(g_ftbuf && !strcmp(g_ftpath,path)) return;
+    free(g_ftbuf); g_ftbuf=0; g_ftlen=0; g_ftpath[0]=0; g_font_dirty=1;
+    FILE*f=fopen(path,"rb"); if(!f) return;
+    fseek(f,0,SEEK_END); g_ftlen=ftell(f); fseek(f,0,SEEK_SET);
+    g_ftbuf=(unsigned char*)malloc((size_t)g_ftlen);
+    if(g_ftbuf && fread(g_ftbuf,1,(size_t)g_ftlen,f)==(size_t)g_ftlen) snprintf(g_ftpath,sizeof g_ftpath,"%s",path);
+    else { free(g_ftbuf); g_ftbuf=0; }
+    fclose(f);
+}
+static const char *FONT_SAMPLE[]={ "Sphinx of black quartz,", "judge my vow!  0123456789", "AaBbCc .,?@#$%&* MoteFont" };
+/* Rasterise the sample text with stb_truetype at the chosen size into an RGBA
+ * texture — a live, bake-free preview of exactly what the baked MoteFont looks
+ * like (8-bit coverage -> alpha). Re-rendered only when the font or size changes. */
+static void font_render_preview(SDL_Renderer*R){
+    if(!g_ftbuf){ if(g_font_prev){ SDL_DestroyTexture(g_font_prev); g_font_prev=0; } return; }
+    if(g_font_prev && g_font_prev_px==g_font_px && !g_font_dirty) return;
+    g_font_dirty=0; g_font_prev_px=g_font_px;
+    stbtt_fontinfo fi; if(!stbtt_InitFont(&fi,g_ftbuf,stbtt_GetFontOffsetForIndex(g_ftbuf,0))) return;
+    float sc=stbtt_ScaleForPixelHeight(&fi,(float)g_font_px);
+    int asc,desc,gap; stbtt_GetFontVMetrics(&fi,&asc,&desc,&gap);
+    int ascent=(int)(asc*sc+0.5f), lh=(int)((asc-desc+gap)*sc+0.5f); if(lh<1)lh=g_font_px;
+    int nlines=3, pw=560, ph=lh*nlines+8; if(ph<1)ph=1;
+    unsigned char*px=(unsigned char*)calloc(1,(size_t)pw*ph*4); if(!px) return;
+    for(int li=0;li<nlines;li++){ const char*s=FONT_SAMPLE[li]; int penx=2, peny=2+li*lh;
+        for(;*s;s++){ int cp=(unsigned char)*s, gw,gh,xo,yo;
+            unsigned char*bm=stbtt_GetCodepointBitmap(&fi,sc,sc,cp,&gw,&gh,&xo,&yo);
+            int aw,lsb; stbtt_GetCodepointHMetrics(&fi,cp,&aw,&lsb);
+            if(bm){ for(int gy=0;gy<gh;gy++)for(int gx=0;gx<gw;gx++){
+                int X=penx+xo+gx, Y=peny+ascent+yo+gy; if(X<0||Y<0||X>=pw||Y>=ph)continue;
+                unsigned char*d=&px[((size_t)Y*pw+X)*4]; d[0]=d[1]=d[2]=255; d[3]=bm[gy*gw+gx]; }
+                stbtt_FreeBitmap(bm,0); }
+            penx += (int)(aw*sc+0.5f); } }
+    if(g_font_prev)SDL_DestroyTexture(g_font_prev);
+    g_font_prev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,pw,ph);
+    SDL_SetTextureBlendMode(g_font_prev,SDL_BLENDMODE_BLEND); SDL_UpdateTexture(g_font_prev,NULL,px,pw*4);
+    g_font_pw=pw; g_font_ph=ph; free(px);
+}
+/* Open a .ttf selected in the Explorer: pick up its <base>.size sidecar if any. */
+static void font_open(const char*ttfpath){
+    snprintf(g_font_ttf,sizeof g_font_ttf,"%s",ttfpath);
+    const char*b=strrchr(ttfpath,'/'); b=b?b+1:ttfpath;
+    snprintf(g_font_name,sizeof g_font_name,"%.60s",b); char*dt=strrchr(g_font_name,'.'); if(dt)*dt=0;
+    size_t l=strlen(ttfpath); char szf[460]; snprintf(szf,sizeof szf,"%.*s.size",(int)(l-4),ttfpath);
+    FILE*sf=fopen(szf,"r"); if(sf){ int v; if(fscanf(sf,"%d",&v)==1&&v>=4&&v<=96)g_font_px=v; fclose(sf); }
+    g_ftpath[0]=0; g_font_dirty=1; g_tab=TAB_FONT;
+}
+/* Copy a chosen .ttf into the project's assets/, then open it in the Font tab. */
+static void font_import(const char*src){
+    if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    const char*b=strrchr(src,'/');
+#ifdef _WIN32
+    { const char*b2=strrchr(src,'\\'); if(b2>b)b=b2; }
+#endif
+    b=b?b+1:src;
+    char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char dst[460]; snprintf(dst,sizeof dst,"%s/%.80s",ad,b);
+    if(strcmp(src,dst)) copy_file(src,dst);
+    font_open(dst);
+    if(g_sel>=0) build_tree(g_games[g_sel].dir);
+    snprintf(g_status,sizeof g_status,"imported font %s — set size, then Bake",g_font_name);
+}
+static void font_bake(void){
+    if(g_sel<0||!g_font_ttf[0]){ snprintf(g_status,sizeof g_status,"import a .ttf first"); return; }
+    size_t l=strlen(g_font_ttf); char szf[460]; snprintf(szf,sizeof szf,"%.*s.size",(int)(l-4),g_font_ttf);
+    FILE*sf=fopen(szf,"w"); if(sf){ fprintf(sf,"%d\n",g_font_px); fclose(sf); }
+    if(g_sel>=0)build_tree(g_games[g_sel].dir);
+    snprintf(g_status,sizeof g_status,"baking %s @%dpx...",g_font_name,g_font_px);
+    njob(2,g_games[g_sel].dir);   /* mc_bake: .ttf -> src/<name>.font.h (a MoteFont) */
+}
+static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
+    int mx,my; SDL_GetMouseState(&mx,&my); int x=ox+16, y=oy+14;
+    text(R,"FONT",x,y,2,C_TITLE,(Col){16,18,26}); y+=26;
+    if(!g_font_ttf[0]){
+        text(R,"Import a .ttf (or pick one in the Explorer) to bake an",x,y,1,C_DIM,(Col){16,18,26}); y+=14;
+        text(R,"anti-aliased font. Draw it in-game with mote->text_font().",x,y,1,C_DIM,(Col){16,18,26}); y+=22;
+        ui_btn(R,x,y,0,"Import .ttf\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_fn_imp,mx,my);
+        g_fn_szmin=g_fn_szpls=g_fn_bake=(SDL_Rect){0,0,0,0}; return; }
+    font_load_ttf(g_font_ttf); font_render_preview(R);
+    char nm[120]; snprintf(nm,sizeof nm,"%.60s.ttf",g_font_name); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
+    int bx=ui_btn(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my);
+    char szb[16]; snprintf(szb,sizeof szb,"%dpx",g_font_px); bx=ui_stepper(R,bx,y,"size",szb,&g_fn_szmin,&g_fn_szpls,mx,my);
+    ui_btn(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my); y+=UI_H+14;
+    if(g_font_prev){
+        int availw=w-32, dw=g_font_pw, dh=g_font_ph; if(dw>availw){ dh=dh*availw/dw; dw=availw; }
+        plain(R,x,y,dw,dh,(Col){8,9,14}); SDL_Rect dr={x,y,dw,dh}; SDL_RenderCopy(R,g_font_prev,NULL,&dr); y+=dh+12; }
+    char info[160]; snprintf(info,sizeof info,"-> src/%s.font.h   ASCII 32..126, alpha-blended; mote->text_font(fb, &%s, ...)",g_font_name,g_font_name);
+    text(R,info,x,y,1,C_DIM,(Col){16,18,26}); }
+static void font_down(int mx,int my){
+    #define HF(r) ((r).w && hit(mx,my,(r).x,(r).y,(r).w,(r).h))
+    if(HF(g_fn_imp)){ fp_open(6); return; }
+    if(HF(g_fn_szmin)){ if(g_font_px>4){ g_font_px--; g_font_dirty=1; } return; }
+    if(HF(g_fn_szpls)){ if(g_font_px<96){ g_font_px++; g_font_dirty=1; } return; }
+    if(HF(g_fn_bake)) font_bake();
+    #undef HF
+}
+
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
@@ -2939,6 +3043,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_MESH){ mesh_tex_sync(); draw_mesh(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_RIG){ mesh_tex_sync(); draw_rig(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
+    if(g_tab==TAB_FONT){ draw_font(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_ANIM){ draw_anim(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
@@ -3036,7 +3141,7 @@ static int native_pick(int cb,char*out,int n){
 #endif
 }
 static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
-    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else if(cb==5)mesh_tex_assign(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else if(cb==5)mesh_tex_assign(out); else if(cb==6)font_import(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
     if(g_sel>=0){ char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); struct stat st;   /* default to the open project */
@@ -3045,7 +3150,7 @@ static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof 
     else if(!g_fpdir[0]&&!GETCWD(g_fpdir,sizeof g_fpdir))snprintf(g_fpdir,sizeof g_fpdir,"."); fp_scan(); }
 static void draw_filepick(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,180); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2; rrect(R,bx,by,bw,bh,12,C_PANEL); rrect(R,bx,by,bw,30,12,C_HDR);
-    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":g_fpick_cb==4?"IMPORT ASSET  (image / audio / mesh \xe2\x86\x92 assets/)":g_fpick_cb==5?"ASSIGN TEXTURE  (png/bmp/jpg \xe2\x86\x92 model sidecar)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
+    text(R,g_fpick_cb==0?"OPEN AUDIO  (wav/mp3/ogg/flac)":g_fpick_cb==4?"IMPORT ASSET  (image / audio / mesh \xe2\x86\x92 assets/)":g_fpick_cb==5?"ASSIGN TEXTURE  (png/bmp/jpg \xe2\x86\x92 model sidecar)":g_fpick_cb==6?"IMPORT FONT  (.ttf \xe2\x86\x92 assets/)":"OPEN IMAGE  (png/bmp/jpg)",bx+14,by+8,2,C_TITLE,C_HDR);
     text(R,g_fpdir,bx+14,by+38,1,C_DIM,C_PANEL);
     int mx,my; SDL_GetMouseState(&mx,&my); int ly=by+58, rows=(bh-96)/20;
     for(int i=0;i<rows&&g_fpscroll+i<g_fpn;i++){ int idx=g_fpscroll+i,y=ly+i*20,hov=hit(mx,my,bx+8,y,bw-16,20);
@@ -3218,6 +3323,7 @@ static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i]; const char*nm=r->name;
+    if(ci_ends(nm,".ttf")){ font_open(r->path); return; }   /* TTF -> Font tab */
     /* SFX recipe (.sfx) or its baked header (.sfx.h) -> load into the Audio tab */
     if(ci_ends(nm,".sfx")||ci_ends(nm,".sfx.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".sfx"); if(d)*d=0;
         char sp[440]; if(ci_ends(nm,".sfx")) snprintf(sp,sizeof sp,"%.300s",r->path);
@@ -3300,6 +3406,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
+    if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_RIGPOSE")){ g_pose_mode=1; if(!g_nrk)g_ksel=rig_key_insert(0); }   /* capture hook: pose mode */
     if(getenv("MOTE_STUDIO_PROMPT")){ char sd[340]="."; if(g_sel>=0)snprintf(sd,sizeof sd,"%.330s/src",g_games[g_sel].dir);
         int k=atoi(getenv("MOTE_STUDIO_PROMPT")); prompt_open(k==2?PR_DELETE:k==1?PR_NEWFOLDER:PR_NEWFILE,k==2?"Delete":k==1?"New Folder":"New File",k?0:"enemy.c","include the extension (e.g. enemy.c)",k==2?"examples/tanks/src/game.c":0,sd); }   /* capture hook */
@@ -3523,7 +3630,7 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
-                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                    else if(g_tab==TAB_MESH){ if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT)font_down(mx,my); else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
