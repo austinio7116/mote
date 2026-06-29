@@ -36,7 +36,9 @@
 #define MOTE_RENDER_RASTER 1      /* triangle rasterizer + 3D pipeline (Elite) */
 #endif
 #ifndef MOTE_RENDER_RAYCAST
-#define MOTE_RENDER_RAYCAST 0     /* DDA voxel raycaster (Craft) — Phase 3 */
+#define MOTE_RENDER_RAYCAST 0     /* DDA voxel raycaster — DESCOPED (2026-06-29):
+                                   * stays a game-side render_band renderer, not an
+                                   * engine path. See docs/PLAN.md "Renderer scope". */
 #endif
 #ifndef MOTE_RENDER_SPRITE
 #define MOTE_RENDER_SPRITE 0      /* 2D blit / framebuffer ops — Phase 3 */

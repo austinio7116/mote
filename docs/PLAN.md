@@ -57,7 +57,7 @@ This is **packaging + de-vendoring**, not a rewrite. Preserve the zero-`#ifdef` 
 | `render/mote_raster.c` | half-space edge-function filled triangles + uint16 depth (LARGER=NEARER) | Elite `r3d_raster.c` |
 | `render/mote_pipe.c` | transform → near-clip → project → flat-shade | Elite `r3d_pipe.c` |
 | `render/mote_scene3d.c` | draw-list + **dual-core band split** + volatile go/done handshake | Elite `r3d_scene.c` |
-| `render/mote_raycast.c` | DDA voxel raycaster path (`MOTE_RENDER_RAYCAST` flag) | Craft `craft_render.c` |
+| ~~`render/mote_raycast.c`~~ | ~~DDA voxel raycaster path (`MOTE_RENDER_RAYCAST` flag)~~ — **DESCOPED** (see "Renderer scope", 2026-06-29): the voxel raycaster stays a game-side `render_band` renderer, not an engine module | Craft `craft_render.c` |
 | `render/mote_impostor.c` | per-pixel sphere impostors (planets/balls) | Elite/Cue |
 | `render/mote_sprite.c` | 2D blit, RGB565 fb ops, uint8 z-occlusion | Craft |
 | `render/mote_fx.c` | particle/beam FX pool | Elite `r3d_fx.c` |
@@ -65,7 +65,7 @@ This is **packaging + de-vendoring**, not a rewrite. Preserve the zero-`#ifdef` 
 | `physics/mote_phys3d.c` | generalized impulse rigid body: pos/vel/avel/orient, ~2kHz substep accumulator, friction phases, CCD, pluggable contact model (billiard cushion/pocket plugs back in) | Cue `cue_physics.c` |
 | `audio/mote_audio.c` | 22050Hz PWM procedural synth voice-pool + instrument-param table | Elite/Craft |
 | `assets/mote_mesh.h` | int8 quant verts, 8-byte faces (idx+int8 normal+RGB565), LOD | Elite `r3d_mesh.h` |
-| `assets/mote_voxel.c` | 64³ sliding window + `mote_gen_column`/`mote_gen_stamp` hooks | Craft worldgen |
+| ~~`assets/mote_voxel.c`~~ | ~~64³ sliding window + `mote_gen_column`/`mote_gen_stamp` hooks~~ — **DESCOPED** with the raycaster (voxel games own their world buffer via the per-game arena) | Craft worldgen |
 | `assets/mote_font.c` | 8×8 bitmap font | Craft `craft_font.c` |
 | `assets/mote_image.c` | RGB565 texture/atlas decode | new (small) |
 | `input/mote_input.h` | `MoteButtons` (9 bools) + edge/held bookkeeping, platform-independent | Craft `CraftRawButtons` |
@@ -189,7 +189,7 @@ This validates: engine-as-resident-library, stable native ABI, native module loa
 Multi-game catalog with icons, settings page, contiguous game store with add/replace/delete, full `thumby new/build/run/push/logs`, profiler line streamed back. A developer can now author → push → play many games with no reflash.
 
 **Phase 3 — Engine breadth.**
-Wire the rest of the ABI: `mote_audio`, `mote_phys3d`, `mote_fx`, `mote_impostor`, `mote_sprite`, and the **raycast** path + `mote_voxel`. Ship one real sample per renderer: a polygon shooter (raster), a voxel sandbox (raycast), a physics toy (reuse Cue's solver). These double as ABI stress tests + docs.
+Wire the rest of the ABI: `mote_audio`, `mote_phys3d`, `mote_fx`, `mote_impostor`, `mote_sprite`. Ship a real sample per renderer: a polygon shooter (raster), a physics toy (reuse Cue's solver). These double as ABI stress tests + docs. **The raycast path + `mote_voxel` are DESCOPED** — see "Renderer scope" (2026-06-29): the engine's baselines are the high-performance 2D and 3D-rasteriser paths; the voxel raycaster stays a game-side `render_band` renderer.
 
 **Phase 4 — Polish & SDK docs.**
 Error/crash overlay on device, host hot-rebuild watch, `mote_api.h` reference docs, sample-driven "Getting Started," ABI-version compatibility checks in launcher + CLI.
@@ -290,3 +290,40 @@ the abi-1 3D games still load.
 - **Multiple tile layers** + per-layer parallax scroll.
 - **Tilemap collision** helpers (point/AABB vs tile flags) for platformers.
 - **Text as sprites** / bitmap-font atlas option beyond the built-in 3x5 font.
+
+---
+
+## Renderer scope — voxel raycaster stays game-side (decided 2026-06-29)
+
+**Decision.** The engine's first-class renderers are the **3D triangle rasteriser**
+(`mote_scene3d`/`mote_raster`/`mote_pipe`) and the **2D sprite/tile** path. Both are
+high-performance baselines (60 fps at thousands of triangles) and are the recommended
+foundation for new games. The **DDA voxel raycaster is NOT promoted into the engine**:
+the planned `render/mote_raycast.c` + `assets/mote_voxel.c` (§2) and the raycast half of
+Phase 3 (§7) are **descoped** — a deliberate "won't do now", not a deferral with intent.
+
+**Why.** A per-pixel software raycaster fills all 128×128 = 16,384 pixels every frame and
+lands at ~15 fps on device with both cores maxed — and that's a *property of the algorithm*,
+not a tuning gap: `.ramtext`/IRAM placement of the hot loop barely moved it (measured on
+ThumbyRogue), because it's bound by per-pixel work, not flash latency. That's acceptable for
+a dedicated voxel game, but a poor *baseline* for the engine — promoting it would normalise a
+slow renderer as a starting point. The budget math reinforces it: per
+[`render-parity-design.md`](render-parity-design.md) there is only ~19 KB of static OS-BSS
+headroom, so any resident renderer's per-frame scratch is a standing tax on **every** game
+unless held to ~0 — cost the 2D/3D paths don't impose and the raycaster shouldn't either.
+
+**How voxel games are served instead.** The existing `render_band` hook (a game supplies a
+banded `f(fb,y0,y1)` pass; the engine still does dual-core dispatch, overlay, audio, timing).
+ThumbyCraft and ThumbyRogue carry their own `craft_render.c` and fill that slot, owning their
+world buffer + z-buffer from the **per-game arena**. This costs games that don't use it
+**nothing**: no resident raycaster code beyond the hook, no OS-BSS, no arena reservation.
+
+**If revisited later (not now).** Two phases, in order of cost:
+- **Phase A (cheap, ~tens of bytes OS-BSS):** let a `render_band` pass *share* the engine
+  z-buffer so engine primitives (billboards/particles/meshes) composite into a voxel frame
+  with correct depth. The raycaster stays game-side; it just becomes depth-aware.
+- **Phase B (the full original plan):** ship `mote_raycast.c` + `mote_voxel.c` + a voxel ABI.
+  Reconsider only with ≥2 voxel games or a public voxel ABI, and only under the strict rule
+  "no new static arrays — per-frame scratch goes to the arena behind a `MoteConfig` knob."
+
+`MOTE_RENDER_RAYCAST` stays `0` in the resident OS build.

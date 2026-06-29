@@ -14,6 +14,10 @@ Flagship games this must serve, and *why they break the naive plan*:
 - **ThumbyCraft** — a **voxel raycaster**. *Not triangles at all.* This is the
   proof that "add more triangle features" is the wrong target: the engine has to
   host fundamentally different renderers, not just a fatter triangle path.
+  > **Update (2026-06-29):** ThumbyCraft's raycaster is *not* being folded into the
+  > engine — it stays a game-side `render_band` renderer (see "Renderer scope" in
+  > [`PLAN.md`](PLAN.md)). The Layer-2 design below stands as the cheap path *if*
+  > that's ever revisited, but the engine's supported renderers are 2D + 3D raster.
 
 ## Architecture: three layers, by how custom the dev must get
 
@@ -284,6 +288,13 @@ rasterisation) is the engine.
 1. **First-pass scope** — narrow ("ThumbyCue on the built-in engine": materials +
    textured impostors) vs. broad (Layer-2 composable passes first, so ThumbyCraft's
    paradigm is proven early).
+   **Resolved (2026-06-29): narrow.** The render-parity work shipped for the raster +
+   2D paths (ABI v24–v31). **Layer 2 is NOT pursued for the voxel raycaster** — see the
+   "Renderer scope" decision in [`PLAN.md`](PLAN.md): the engine's baselines are the
+   high-performance 2D and 3D-rasteriser paths, and the slow per-pixel voxel raycaster
+   stays a game-side `render_band` renderer (ThumbyCraft/ThumbyRogue own it). The Layer-2
+   "share the engine z-buffer with a custom pass" idea below remains the cheap *first*
+   step **if** voxel-in-engine is ever revisited, but is not planned now.
 2. **Material model** — material-on-mesh (baked, simplest) vs. material-on-object
    (per-draw override). Lean: object override on top of a mesh default, mirroring
    the existing `color` override.
