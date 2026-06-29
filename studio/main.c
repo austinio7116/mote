@@ -765,6 +765,14 @@ static int ui_stepper(SDL_Renderer*R,int x,int y,const char*label,const char*val
 static int ui_pill(SDL_Renderer*R,int x,int y,const char*label,const char*val,int on,SDL_Rect*r,int mx,int my){
     if(label&&label[0]){ text(R,label,x,y+(UI_H-7)/2,1,C_DIM,C_PANEL); x+=textw(R,label,1)+6; }
     int tw=textw(R,val,1),bw=tw+18; *r=(SDL_Rect){x,y,bw,UI_H}; rrect(R,x,y,bw,UI_H,3,on?C_SEL:(hit(mx,my,x,y,bw,UI_H)?C_BTNHI:C_BTN)); text(R,val,x+(bw-tw)/2,y+(UI_H-7)/2,1,on?C_HDR:C_TXT,on?C_SEL:C_BTN); return x+bw+8; }
+/* colour-accented pill (mirror axes): ON fills with the axis colour + dark text; OFF tints the label
+ * with the axis colour so X/Y/Z read as red/green/blue, matching the gizmo + mirror plane. */
+static int ui_pill_c(SDL_Renderer*R,int x,int y,const char*label,const char*val,int on,Col acc,SDL_Rect*r,int mx,int my){
+    if(label&&label[0]){ text(R,label,x,y+(UI_H-7)/2,1,C_DIM,C_PANEL); x+=textw(R,label,1)+6; }
+    int tw=textw(R,val,1),bw=tw+18; *r=(SDL_Rect){x,y,bw,UI_H};
+    Col fill=on?acc:(hit(mx,my,x,y,bw,UI_H)?C_BTNHI:C_BTN);
+    rrect(R,x,y,bw,UI_H,3,fill);
+    text(R,val,x+(bw-tw)/2,y+(UI_H-7)/2,1,on?(Col){18,20,26}:acc,fill); return x+bw+8; }
 /* flat action button: Lucide icon + centered label, width auto-fits when w<=0 (never overflows). */
 static int ui_btn(SDL_Renderer*R,int x,int y,int w,const char*label,int icid,Col accent,SDL_Rect*r,int mx,int my){
     int tw=textw(R,label,1), need=tw+(icid>=0?34:20); if(w<need)w=need;
@@ -1338,13 +1346,16 @@ static void prim_plane(float s){ EObject*o=eobj_new("Plane"); if(!o)return; floa
 static void prim_cylinder(float r,float hh,int n){ EObject*o=eobj_new("Cylinder"); if(!o)return; if(n<3)n=3; if(n>48)n=48; float h=hh*0.5f;
     int bot[48],top[48]; for(int i=0;i<n;i++){ float a=(float)i/n*6.2831853f,x=cosf(a)*r,z=sinf(a)*r; bot[i]=ev_add(o,(V3){x,-h,z}); top[i]=ev_add(o,(V3){x,h,z}); }
     int bc=ev_add(o,(V3){0,-h,0}),tc=ev_add(o,(V3){0,h,0});
-    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[4]={bot[i],bot[j],top[j],top[i]}; ef_add(o,4,side,EMESH_DEFCOL);
-        int tcap[3]={tc,top[i],top[j]}; ef_add(o,3,tcap,EMESH_DEFCOL); int bcap[3]={bc,bot[j],bot[i]}; ef_add(o,3,bcap,EMESH_DEFCOL); }
+    /* Outward winding (CCW seen from outside), matching the cube. The old order wound every
+     * face inward, so the baked game (which back-face culls, unlike the double-sided editor
+     * preview) dropped the cylinder's outer surface. */
+    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[4]={bot[i],top[i],top[j],bot[j]}; ef_add(o,4,side,EMESH_DEFCOL);
+        int tcap[3]={tc,top[j],top[i]}; ef_add(o,3,tcap,EMESH_DEFCOL); int bcap[3]={bc,bot[i],bot[j]}; ef_add(o,3,bcap,EMESH_DEFCOL); }
     edges_rebuild(o); }
 static void prim_cone(float r,float hh,int n){ EObject*o=eobj_new("Cone"); if(!o)return; if(n<3)n=3; if(n>48)n=48; float h=hh*0.5f;
     int bot[48]; for(int i=0;i<n;i++){ float a=(float)i/n*6.2831853f; bot[i]=ev_add(o,(V3){cosf(a)*r,-h,sinf(a)*r}); }
     int ap=ev_add(o,(V3){0,h,0}),bc=ev_add(o,(V3){0,-h,0});
-    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[3]={bot[i],bot[j],ap}; ef_add(o,3,side,EMESH_DEFCOL); int bcap[3]={bc,bot[j],bot[i]}; ef_add(o,3,bcap,EMESH_DEFCOL); }
+    for(int i=0;i<n;i++){ int j=(i+1)%n; int side[3]={bot[i],ap,bot[j]}; ef_add(o,3,side,EMESH_DEFCOL); int bcap[3]={bc,bot[i],bot[j]}; ef_add(o,3,bcap,EMESH_DEFCOL); }   /* outward winding */
     edges_rebuild(o); }
 static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sphere"); if(!o)return;
     if(stacks<2)stacks=2; if(stacks>16)stacks=16; if(slices<3)slices=3; if(slices>24)slices=24;
@@ -1352,10 +1363,10 @@ static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sp
     int ring[15][24];   /* interior rings (stacks-1 of them) */
     for(int st=1;st<stacks;st++){ float phi=3.14159265f*st/stacks,y=cosf(phi)*r,rr=sinf(phi)*r;
         for(int sl=0;sl<slices;sl++){ float th=6.2831853f*sl/slices; ring[st-1][sl]=ev_add(o,(V3){cosf(th)*rr,y,sinf(th)*rr}); } }
-    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int t[3]={top,ring[0][sl],ring[0][j]}; ef_add(o,3,t,EMESH_DEFCOL); }   /* top cap */
+    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int t[3]={top,ring[0][j],ring[0][sl]}; ef_add(o,3,t,EMESH_DEFCOL); }   /* top cap (outward) */
     for(int st=0;st<stacks-2;st++)for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices;
-        int q[4]={ring[st][sl],ring[st][j],ring[st+1][j],ring[st+1][sl]}; ef_add(o,4,q,EMESH_DEFCOL); }   /* mid quads */
-    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int b[3]={bot,ring[stacks-2][j],ring[stacks-2][sl]}; ef_add(o,3,b,EMESH_DEFCOL); }   /* bottom cap */
+        int q[4]={ring[st][sl],ring[st][j],ring[st+1][j],ring[st+1][sl]}; ef_add(o,4,q,EMESH_DEFCOL); }   /* mid quads (already outward) */
+    for(int sl=0;sl<slices;sl++){ int j=(sl+1)%slices; int b[3]={bot,ring[stacks-2][sl],ring[stacks-2][j]}; ef_add(o,3,b,EMESH_DEFCOL); }   /* bottom cap (outward) */
     edges_rebuild(o); }
 /* Convert the loaded STL/OBJ import into editable topology: the decimator already produces
  * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
@@ -1367,6 +1378,7 @@ static void eobj_from_import(void){
     if(g_dnv<1||g_dnf<1){ snprintf(g_status,sizeof g_status,"nothing to import"); return; }
     const char*b=strrchr(g_mesh_path,'/'); b=b?b+1:g_mesh_path; char nm[28]; snprintf(nm,sizeof nm,"%.27s",b);
     char*dot=strrchr(nm,'.'); if(dot)*dot=0; if(!nm[0])snprintf(nm,sizeof nm,"import");
+    eobj_free_all();   /* importing a tree model REPLACES the editor scene — otherwise the previously-edited object lingers as a ghost when you open another */
     EObject*o=eobj_new(nm); if(!o){ snprintf(g_status,sizeof g_status,"too many objects (max %d)",EMESH_MAXOBJ); return; }
     uint16_t col=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
     for(int i=0;i<g_dnv;i++)ev_add(o,g_dv[i]);                                    /* welded decimated verts (recentred model space) */
@@ -1540,7 +1552,7 @@ static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
 
 /* ---- Phase 2: selection (pick / box / all, mode conversion, hover) ---- */
 static int g_hover_obj=-1, g_hover_idx=-1;      /* element under the cursor (kind == g_sel_mode), for highlight */
-static int g_box_arm=0, g_box_active=0; static int g_box_x0,g_box_y0,g_box_x1,g_box_y1;   /* B then drag = box-select */
+static int g_box_active=0; static int g_box_x0,g_box_y0,g_box_x1,g_box_y1;   /* LMB drag = box-select, LMB click = pick (resolved on mouse-up); MMB = orbit */
 
 static V3 eobj_wv(EObject*o,int vi){ V3 p=o->v[vi].p; p.x+=o->origin.x; p.y+=o->origin.y; p.z+=o->origin.z; return p; }
 /* Project a scene point to window coords + view-space depth, matching draw_mesh_edit's
@@ -1813,7 +1825,7 @@ static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ sn
 /* full reset of the model editor + importer — called when switching projects so a new game starts blank */
 static void mesh_editor_reset(void){ eobj_free_all();
     for(int i=0;i<g_eundo_n;i++){ EUndo*u=g_eundo[i]; for(int j=0;j<u->n;j++){ free(u->o[j].v); free(u->o[j].f); free(u->o[j].e); } free(u); } g_eundo_n=0;
-    g_edit_mode=0; g_op.op=OP_NONE; g_naff=0; g_box_arm=g_box_active=0; g_hover_obj=g_hover_idx=-1;
+    g_edit_mode=0; g_op.op=OP_NONE; g_naff=0; g_box_active=0; g_hover_obj=g_hover_idx=-1;
     g_nraw=0; g_mesh_path[0]=0; g_mesh_dirty=1; }   /* drop the importer's loaded STL too */
 
 static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
@@ -1904,7 +1916,8 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
             for(int ax3=0;ax3<3;ax3++) if(ob->mirror&(1<<ax3)){   /* draw the mirror plane as a faint cross in that plane */
                 for(int u=0;u<3;u++){ if(u==ax3)continue; V3 p0=og,p1=og; ((float*)&p0)[u]-=ext; ((float*)&p1)[u]+=ext;
                     float x0s,y0s,x1s,y1s; int v0,v1; ESCR(p0,x0s,y0s,v0); ESCR(p1,x1s,y1s,v1); if(!v0||!v1)continue;
-                    SDL_SetRenderDrawColor(R,90,150,170,255); SDL_RenderDrawLine(R,(int)x0s,(int)y0s,(int)x1s,(int)y1s); } } } }
+                    const Col mpc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* plane tint matches the X/Y/Z mirror buttons */
+                    SDL_SetRenderDrawColor(R,mpc[ax3].r,mpc[ax3].g,mpc[ax3].b,255); SDL_RenderDrawLine(R,(int)x0s,(int)y0s,(int)x1s,(int)y1s); } } } }
     if(g_box_active){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x1,x1=g_box_x0<g_box_x1?g_box_x1:g_box_x0,y0=g_box_y0<g_box_y1?g_box_y0:g_box_y1,y1=g_box_y0<g_box_y1?g_box_y1:g_box_y0;
         rect_outline(R,x0,y0,x1-x0,y1-y0,(Col){250,230,140},1); }
     #undef EVIEW
@@ -1929,7 +1942,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
         plain(R,ox+8,oy+8,textw(R,hb,1)+12,18,(Col){40,44,58}); text(R,hb,ox+14,oy+12,1,(Col){255,235,120},(Col){40,44,58}); }
     if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
     if(g_op.op!=OP_NONE)text(R,"X/Y/Z axis  type number  Enter/LMB confirm  Esc/RMB cancel",ox+12,oy+h-20,1,(Col){200,200,150},(Col){16,18,26});
-    else text(R,"G move  S scale  E extrude  I inset  click select  B box  Ctrl+Z undo  -  MMB/empty-drag orbit, Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+    else text(R,"LMB click/drag select  -  MMB orbit  -  G move  S scale  E extrude  I inset  Ctrl+Z undo  Tab exit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
 
     /* ---- edit card (compact) ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
@@ -1954,9 +1967,10 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
     px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
     px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+6;
-    { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0;
-      px=ui_pill(R,lx,cy,"Mirror","X",mir&1,&g_me_mirx,mx,my); px=ui_pill(R,px,cy,NULL,"Y",mir&2,&g_me_miry,mx,my);
-      ui_pill(R,px,cy,NULL,"Z",mir&4,&g_me_mirz,mx,my); cy+=UI_H+6; }
+    { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue — match the gizmo + plane */
+      px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my);
+      ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); cy+=UI_H+4;
+      text(R,mir?"live-reflects this object across the lit plane":"model one half, mirror completes it",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
     /* object cycle + per-object stats */
     { char ob[40]; snprintf(ob,sizeof ob,"Obj %d/%d",g_nobj?g_objsel+1:0,g_nobj); text(R,ob,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
       int bx=lx+textw(R,ob,1)+6; bx=ui_btn(R,bx,cy,0,"<",-1,C_TXT,&g_me_objprev,mx,my); bx=ui_btn(R,bx,cy,0,">",-1,C_TXT,&g_me_objnext,mx,my);
@@ -1972,6 +1986,14 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     px=ui_btn(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my);
     ui_btn(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my); }
 
+/* Explain the mirror modifier when toggled. It is a LIVE modifier: the whole object is
+ * reflected across the coloured plane(s) through its origin every frame (you model one half
+ * and the other appears), and the reflection is welded into the geometry only at bake/export.
+ * It reflects ALL of the object, not just new edits. */
+static void mirror_status(void){ uint8_t m=g_nobj?g_obj[g_objsel].mirror:0;
+    if(!m){ snprintf(g_status,sizeof g_status,"mirror off"); return; }
+    char ax[8]={0}; int n=0; if(m&1)ax[n++]='X'; if(m&2)ax[n++]='Y'; if(m&4)ax[n++]='Z';
+    snprintf(g_status,sizeof g_status,"mirror %s on: live-reflects the whole object across the %s plane(s) thru origin — model one half",ax,ax); }
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
@@ -1998,20 +2020,20 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_enew)){ eobj_new_scene(); return 1; }
     if(HITR(g_me_bakerig)){ eobj_bake_rig(); return 1; }
     if(HITR(g_me_exportobj)){ eobj_export_obj(); return 1; }
-    if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; return 1; }
-    if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; return 1; }
-    if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; return 1; }
+    if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; mirror_status(); return 1; }
+    if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; mirror_status(); return 1; }
+    if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; mirror_status(); return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
     if(HITR(g_me_eexit)){ g_edit_mode=0; return 1; }
     if(HITR(g_me_view)){                                   /* viewport */
-        int shift=(SDL_GetModState()&KMOD_SHIFT)!=0;
         if(g_op.op!=OP_NONE){ if(!g_op.drag)op_confirm(); return 1; }   /* LMB confirms an active modal op */
         if(g_mgz_on)for(int a=0;a<3;a++){ int dx=mx-g_mgz_ax[a].x,dy=my-g_mgz_ax[a].y;   /* grab a gizmo handle -> drag-move on that axis */
             if(dx*dx+dy*dy<=49){ if(op_start(OP_MOVE,a+1,1)){ g_op.ax=mx; g_op.ay=my; } return 1; } }
-        if(g_box_arm){ g_box_arm=0; g_box_active=1; g_box_x0=g_box_x1=mx; g_box_y0=g_box_y1=my; return 1; }
-        return eobj_click(mx,my,shift);                    /* 1 = hit (no orbit); 0 = empty bg (orbit) */
+        /* Default LMB: begin a select. On mouse-up a tiny move = click-pick, a drag = box-select.
+         * No modifier key needed; orbiting is MMB only. Always consume so LMB never orbits. */
+        g_box_active=1; g_box_x0=g_box_x1=mx; g_box_y0=g_box_y1=my; return 1;
     }
     return 0;
     #undef HITR
@@ -2048,8 +2070,7 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_p&&(md&KMOD_SHIFT)){ prim_plane(1.0f); eobj_fit(); return 1; }
     if(k==SDLK_a&&(md&KMOD_ALT)){ eobj_select_all(g_sel_mode,0); return 1; }   /* Alt+A: deselect all */
     if(k==SDLK_a){ eobj_select_all(g_sel_mode,1); return 1; }                   /* A: select all */
-    if(k==SDLK_b){ g_box_arm=1; return 1; }                                     /* B: arm box-select (next drag) */
-    if(k==SDLK_ESCAPE){ g_box_arm=0; g_box_active=0; return 1; }
+    if(k==SDLK_ESCAPE){ g_box_active=0; return 1; }
     return 0;
 }
 
@@ -4783,8 +4804,11 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE&&g_op.drag&&e.button.button==SDL_BUTTON_LEFT)op_confirm();   /* release a gizmo-drag */
-                if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.button.x; g_box_y1=e.button.y;
-                    eobj_box_apply((SDL_GetModState()&KMOD_SHIFT)!=0); g_box_active=0; }   /* commit box-select */
+                if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active&&e.button.button==SDL_BUTTON_LEFT){ g_box_x1=e.button.x; g_box_y1=e.button.y;
+                    int ddx=g_box_x1-g_box_x0,ddy=g_box_y1-g_box_y0,shift=(SDL_GetModState()&KMOD_SHIFT)!=0;
+                    if(ddx*ddx+ddy*ddy<=16){ if(!eobj_click(g_box_x0,g_box_y0,shift)&&!shift)eobj_select_clear(g_sel_mode); }   /* tiny move = click-pick (empty = deselect) */
+                    else eobj_box_apply(shift);                                                                                   /* drag = box-select */
+                    g_box_active=0; }
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
