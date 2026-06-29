@@ -1344,14 +1344,15 @@ static void g_overlay(uint16_t *fb) {
     fmt_time(tb, k->laptime);
     mote_textf(mote, fb, 50, 2, white, "%s", tb);
 
-    /* held item — icon in a panel at the bottom-right, only when you have one */
+    /* held item — icon in a panel at the bottom-right, only when you have one.
+     * Plain axis-aligned blit (well-trodden sub-rect path) instead of a scaled
+     * blit_ex sub-rect, which faulted on the device. */
     if (k->item != ITEM_NONE) {
-        int cx = 113, cy = 111;
-        mote->draw_rect(fb, cx - 13, cy - 13, 26, 26, MOTE_RGB565(18, 20, 28), 1, 0, 128);
-        mote->draw_rect(fb, cx - 13, cy - 13, 26, 1, MOTE_RGB565(120, 130, 150), 1, 0, 128);
-        mote->blit_ex(fb, &items_img, (float)cx, (float)cy, (k->item - 1) * 16, 0, 16, 16,
-                      0.0f, 1.35f, MOTE_BLEND_NONE, 0, 128);
-        if (k->item_count > 1) mote_textf(mote, fb, cx + 4, cy + 6, white, "x%d", k->item_count);
+        int px = 104, py = 102;                 /* 16x16 icon in a 24x24 panel */
+        mote->draw_rect(fb, px - 4, py - 4, 24, 24, MOTE_RGB565(18, 20, 28), 1, 0, 128);
+        mote->draw_rect(fb, px - 4, py - 4, 24, 1, MOTE_RGB565(120, 130, 150), 1, 0, 128);
+        mote->blit(fb, &items_img, px, py, (k->item - 1) * 16, 0, 16, 16, 0, 0, 128);
+        if (k->item_count > 1) mote_textf(mote, fb, px + 6, py + 14, white, "x%d", k->item_count);
     }
 
     minimap(fb);
