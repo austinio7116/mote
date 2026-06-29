@@ -248,7 +248,6 @@ static void evaluate_hand(void){
     for(int i=0;i<g.nhand&&ns<5;i++) if(g.hand[i].selected) sel[ns++]=&g.hand[i];
     if(!ns) return;
     int base,mult; int idx=score_hand(sel,ns,&base,&mult);
-    pop_add("base",54,0,51,26,0x04FF,0,1);          /* (the box labels animate in original) */
     for(int i=0;i<ns;i++) if(has_mod(sel[i],M_COIN)) g.extra_booster++;
 
     char buf[12];
@@ -256,21 +255,21 @@ static void evaluate_hand(void){
     for(int i=0;i<g.nhand;i++){
         Card *c=&g.hand[i]; if(!c->selected) continue;
         int b,m; card_bonus(c,sel,ns,1,1,&b,&m); b += rankval(c);
-        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,c->x,c->y-10,51,26,0x04FF,0,1); }
-        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,c->x,c->y+10,85,26,0xFAEA,0,1); }
+        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,c->x,c->y-10,51,24,0x04FF,0,1); }
+        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,c->x,c->y+10,85,24,0xFAEA,0,1); }
     }
     /* non-selected cards left in hand (steel etc.) */
     for(int i=0;i<g.nhand;i++){
         Card *c=&g.hand[i]; if(c->selected) continue;
         int b,m; card_bonus(c,sel,ns,0,1,&b,&m);
-        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,c->x,c->y-10,51,26,0x04FF,0,1); }
-        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,c->x,c->y+10,85,26,0xFAEA,0,1); }
+        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,c->x,c->y-10,51,24,0x04FF,0,1); }
+        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,c->x,c->y+10,85,24,0xFAEA,0,1); }
     }
     /* jokers */
     for(int i=0;i<g.njok;i++){
         Card *j=&g.jokers[i]; int b,m; card_bonus(j,sel,ns,0,0,&b,&m);
-        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,j->x,j->y-8,51,26,0x04FF,0,1); }
-        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,j->x,j->y+8,85,26,0xFAEA,0,1); }
+        if(b>0){ base+=b; snprintf(buf,sizeof buf,"+%d",b); pop_add(buf,j->x,j->y-8,51,24,0x04FF,0,1); }
+        if(m>0){ mult+=m; snprintf(buf,sizeof buf,"x%d",m); pop_add(buf,j->x,j->y+8,85,24,0xFAEA,0,1); }
     }
     int final = base*mult;
     if(final>g.best_hand) g.best_hand=final;
@@ -527,13 +526,14 @@ static void render(uint16_t *fb){
 
     /* HUD text (positions mirror the original layout over the baked background) */
     uint16_t cyan=0x04FF, pink=0xFAEA, white=0xFFFF;
-    { char b[24]; snprintf(b,sizeof b,"%d/%d",g.score,g.target); text_c(fb,b,67,12,white); }  /* top box */
-    num_c(fb,51,26,cyan,g.disp_base);      /* base-score box */
-    num_c(fb,85,26,pink,g.disp_mult);      /* mult box */
-    text_c(fb,g.msg,77,39,white);          /* wide hand-type / prompt box */
-    num_c(fb,102,59,white,4-g.hands_played);/* hands remaining */
-    num_c(fb,114,59,white,g.discard_limit); /* discards left */
-    num_c(fb,108,76,white,g.round);         /* round box */
+    /* centres measured from the baked background's value boxes (ink centre = cy) */
+    { char b[24]; snprintf(b,sizeof b,"%d/%d",g.score,g.target); text_c(fb,b,68,11,white); }  /* top box */
+    num_c(fb,51,24,cyan,g.disp_base);       /* base-score box */
+    num_c(fb,85,24,pink,g.disp_mult);       /* mult box */
+    text_c(fb,g.msg,80,38,white);           /* wide hand-type / prompt box */
+    num_c(fb,103,59,white,4-g.hands_played);/* hands remaining */
+    num_c(fb,117,59,white,g.discard_limit); /* discards left */
+    num_c(fb,110,75,white,g.round);         /* round box */
     if(g.state==ST_OVER){ char b[24]; snprintf(b,sizeof b,"Best %d",g.best_hand); text_c(fb,b,64,52,white); }
 
     /* popups */

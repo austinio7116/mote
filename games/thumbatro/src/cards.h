@@ -2290,5 +2290,11 @@ static const uint16_t cards_px[36504] = {
 static const MoteImage cards_img = { cards_px, 234, 156, 0xF81F, 0 };
 #define cards_W 234
 #define cards_H 156
+#define cards_CELLW 18
+#define cards_CELLH 26
+#define cards_COLS 13
+#define cards_ROWS 6
+#define cards_MARGIN 0
+#define cards_SPACING 0
 
 #endif
