@@ -1,3 +1,4 @@
+#include "mote_tween.h"   /* first: defines Vec3/MOTE_VEC_H so craft_types.h yields to it */
 #include "rogue_camera.h"
 #include <math.h>
 
@@ -21,13 +22,7 @@ static bool  s_follow;         /* craft-controls: track the hero's facing */
 static float s_follow_yaw;     /* continuous target yaw (hero facing) */
 static float s_pitch = CAM_PITCH;
 
-static float lerp_angle(float a, float target, float k) {
-    /* shortest-arc lerp */
-    float d = target - a;
-    while (d >  M_PI) d -= 2.0f * M_PI;
-    while (d < -M_PI) d += 2.0f * M_PI;
-    return a + d * k;
-}
+#define lerp_angle(a, target, k) mote_lerp_angle((a), (target), (k))
 
 void rogue_camera_init(Vec3 target) {
     s_focus = target;
