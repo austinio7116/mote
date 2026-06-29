@@ -1,5 +1,5 @@
 /* GENERATED launcher icon — compact paletted blob (sdk/mote_icon.h),
- * 3908 bytes vs 7200 raw. Auto-included by mote_build.h; weak so it merges. */
+ * 3908 bytes vs 7200 raw. Regenerate with `mote bake` (icon.png). */
 #ifndef MOTE_GAME_ICON_H
 #define MOTE_GAME_ICON_H
 #include <stdint.h>
