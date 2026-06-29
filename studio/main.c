@@ -2099,10 +2099,61 @@ static int mesh_edit_key(SDL_Keycode k){
     return 0;
 }
 
+/* Shared solid preview of the editable model g_obj: back-face-culled (exactly what the
+ * game engine does), flat-shaded with per-face colours, into the g_mz* target via the
+ * turntable camera (g_mcen/g_mscale/g_myaw/g_mpitch set by eobj_fit). Used by BOTH the
+ * non-edit Mesh preview and the Rig tab, so every view reflects the LIVE model instead of
+ * a stale imported mesh / on-disk .obj. */
+static void draw_eobj_solid(SDL_Renderer*R, SDL_Rect view){
+    int vw=view.w,h=view.h, rw=vw,rh=h;
+    { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } } if(rw<1)rw=1; if(rh<1)rh=1;
+    if(rw!=g_mzw||rh!=g_mzh||!g_mztex){ if(g_mztex)SDL_DestroyTexture(g_mztex);
+        g_mztex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,rw,rh); SDL_SetTextureScaleMode(g_mztex,SDL_ScaleModeNearest);
+        g_mzpx=realloc(g_mzpx,(size_t)rw*rh*2); g_mzd=realloc(g_mzd,(size_t)rw*rh*sizeof(float)); g_mzw=rw; g_mzh=rh; }
+    uint16_t bgc=(uint16_t)(((16>>3)<<11)|((18>>2)<<5)|(26>>3));
+    for(int i=0;i<rw*rh;i++){ g_mzpx[i]=bgc; g_mzd[i]=-1e30f; }
+    float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        for(int t=0;t<nt;t++){ V3 rr[3];
+            for(int k=0;k<3;k++){ V3 p=vv[tri[t][k]]; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
+                p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
+                float x=p.x*cyw-p.z*syw,z=p.x*syw+p.z*cyw,y=p.y*cp-z*sp,z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
+            float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z,vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
+            float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,nl=sqrtf(nx*nx+ny*ny+nz*nz); if(nl<1e-6f)continue; nx/=nl;ny/=nl;nz/=nl;
+            if(nz<0)continue;                                       /* game-accurate back-face cull */
+            float sh=0.30f+0.70f*fmaxf(0,nx*0.4f+ny*0.5f+nz*0.75f);
+            uint16_t fc=tc[t]; uint8_t cr=(uint8_t)((float)(((fc>>11)&31)<<3)*sh),cg=(uint8_t)((float)(((fc>>5)&63)<<2)*sh),cb=(uint8_t)((float)((fc&31)<<3)*sh);
+            uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+            float sx[3],sy[3],sz[3]; for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
+            float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
+            int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])),maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
+            int miny=(int)floorf(fminf(fminf(sy[0],sy[1]),sy[2])),maxy=(int)ceilf(fmaxf(fmaxf(sy[0],sy[1]),sy[2]));
+            if(minx<0)minx=0; if(miny<0)miny=0; if(maxx>rw-1)maxx=rw-1; if(maxy>rh-1)maxy=rh-1;
+            for(int y=miny;y<=maxy;y++)for(int x=minx;x<=maxx;x++){ float fx=x+0.5f,fy=y+0.5f;
+                float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]);
+                float e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]);
+                float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
+                if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
+                float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } }
+        free(vv); free(tri); free(tc); }
+    SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&view); }
+
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
     if(g_edit_mode){ draw_mesh_edit(R,ox,oy,w,h); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
+    if(g_nobj>0){   /* an editable model exists — preview the LIVE model (game-accurate cull), not the stale import */
+        if(!g_mdrag) g_myaw+=0.008f;
+        draw_eobj_solid(R,g_me_view);
+        text(R,"live model — drag to rotate (back-faces culled, as in-game)",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+        int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12;
+        ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
+        { char st[80]; snprintf(st,sizeof st,"%d object%s",g_nobj,g_nobj==1?"":"s"); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14;
+          EObject*s=&g_obj[g_objsel]; snprintf(st,sizeof st,"%.14s  %dv %df",s->name,s->nv,s->nf); text(R,st,lx,cy,1,C_DIM,C_PANEL); }
+        return;
+    }
     if(!g_nraw){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
         text(R,"- or model from scratch -",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
         ui_btn(R,ox+14,oy+52,0,"Open model editor",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); return; }
@@ -2216,7 +2267,8 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(g_edit_mode) return mesh_edit_down(mx,my);
-    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }   /* loaded mesh -> editable; else empty editor */
+    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nobj>0){ g_edit_mode=1; eobj_fit(); }   /* a model exists -> just re-enter the editor (don't re-import + wipe edits) */
+        else if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }
     int ch=0;
     if(HITR(g_me_bmin)){ g_mesh_budget-= g_mesh_budget>800?200:100; if(g_mesh_budget<100)g_mesh_budget=100; ch=1; }
     else if(HITR(g_me_bpls)){ g_mesh_budget+= g_mesh_budget>=800?200:100; if(g_mesh_budget>8000)g_mesh_budget=8000; ch=1; }
@@ -4584,7 +4636,8 @@ int main(int argc,char**argv){
             else { op_extrude(); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
         if(getenv("MOTE_STUDIO_MESHPRIMS")){ eobj_free_all(); prim_cylinder(0.4f,1.0f,16); g_obj[g_objsel].origin.x=-1.4f;
-            prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit(); }   /* cyl/cone/sphere row */
+            prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit();
+            if(getenv("MOTE_STUDIO_MESHSOLID"))g_edit_mode=0; }   /* cyl/cone/sphere row; MESHSOLID -> non-edit live preview */
         if(getenv("MOTE_STUDIO_MESHPAINT")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[0].sel=g_obj[0].f[2].sel=g_obj[0].f[4].sel=1;
             g_hue=0; g_sat=g_val=1; g_mesh_rgb=mesh_hsv_rgb(); eobj_paint_faces(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }   /* paint 3 faces red, bake face_colors */
         if(getenv("MOTE_STUDIO_MESHRIG")){ eobj_free_all(); prim_cube(0.6f); prim_cylinder(0.25f,1.2f,12); g_obj[g_objsel].origin.y=0.9f; g_obj[g_objsel].parent=0; eobj_fit();
