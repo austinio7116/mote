@@ -1703,7 +1703,7 @@ static void op_apply(int mx,int my){ if(g_op.op==OP_NONE||g_naff<1)return;
             V3 w={g_op.center.x+(p.x-g_op.center.x)*fv.x, g_op.center.y+(p.y-g_op.center.y)*fv.y, g_op.center.z+(p.z-g_op.center.z)*fv.z};
             ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; }
     } else { /* OP_INSET: each inner vert slides toward its face centroid by t (0..0.95) */
-        float t; if(g_op.hasnum)t=(float)atof(g_op.num); else t=(float)(mx-g_op.ax)*0.004f;
+        float t; if(g_op.hasnum)t=(float)atof(g_op.num); else t=(float)(g_op.ay-my)*0.004f;   /* drag UP to grow the inset (vertical reads better than horizontal here) */
         if(t<0)t=0; if(t>0.95f)t=0.95f; g_op.val=t;
         for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p=g_aff[i].p0,pv=g_aff[i].piv;
             V3 w={p.x+(pv.x-p.x)*t,p.y+(pv.y-p.y)*t,p.z+(pv.z-p.z)*t};
@@ -1777,7 +1777,7 @@ static void op_inset(void){
     for(int o=0;o<g_nobj;o++)eobj_inset_obj(&g_obj[o],o);
     for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]);
     op_setup(OP_INSET,0,0);
-    snprintf(g_status,sizeof g_status,"inset — drag to set amount (Enter/LMB to confirm)"); }
+    snprintf(g_status,sizeof g_status,"inset — drag up/down to set amount (Enter/LMB to confirm)"); }
 
 /* ---- Phase 6: edit ops (duplicate / delete / merge / flip / paint) ---- */
 static long mesh_hsv_rgb(void);   /* fwd: current colour picker -> 0xRRGGBB */
