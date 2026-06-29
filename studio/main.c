@@ -1453,7 +1453,7 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     if(nt<1){ free(vv); free(tri); free(tcol); snprintf(g_status,sizeof g_status,"no faces"); return; }
     float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ V3 p=vv[i]; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
         if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(p); if(l>bound)bound=l; }
-    float q=127.0f/qmax; float size=g_mesh_size>0?g_mesh_size:qmax;
+    float q=127.0f/qmax; float size=qmax;   /* render at the model's own extent — g_mesh_size is only valid right after an import, not for a loaded .mmesh */
     char name[64]; snprintf(name,sizeof name,"%.40s",o->name[0]?o->name:"model");
     for(char*c=name;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')||*c=='_'))*c='_';
     char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w");
@@ -4718,6 +4718,7 @@ int main(int argc,char**argv){
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_CLEANTEST")){ int b=g_nobj?g_obj[0].nf:0; eobj_clean(); printf("CLEANTEST: objs=%d obj0_faces %d->%d  status=%s\n",g_nobj,b,(g_nobj?g_obj[0].nf:0),g_status);
+        if(getenv("MOTE_STUDIO_BAKEAFTER")){ mmesh_save(); eobj_export_obj(); eobj_bake(); eobj_bake_rig(); printf("BAKEAFTER: persisted scene.mmesh + scene.obj/.rig + baked scene.h + scene_rig.h\n"); }
         if(getenv("MOTE_STUDIO_RIGAFTER")){ rig_build_from_eobj(); g_tab=TAB_RIG; printf("RIGAFTER: %d rig parts, part0 %d tris\n",g_nrp,g_nrp?g_rp[0].nt:0); } fflush(stdout); }
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
