@@ -1818,20 +1818,28 @@ static void eobj_flip_normals(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objse
     int any=0,n=0; for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ any=1; break; }
     for(int fi=0;fi<o->nf;fi++){ if(any&&!o->f[fi].sel)continue; EFace*f=&o->f[fi]; for(int a=1,b=f->nv-1;a<b;a++,b--){ int t=f->v[a]; f->v[a]=f->v[b]; f->v[b]=t; } n++; }
     snprintf(g_status,sizeof g_status,"flipped %d face%s",n,n==1?"":"s"); }
-/* Recalculate outward: orient every face of the active object to face away from the object's
- * centroid (Blender's Shift+N). Fixes inward-wound geometry — an old cylinder, or an imported
- * mesh with inconsistent winding — so it survives the engine's back-face cull. The centroid
- * heuristic is exact for convex/star-shaped shapes (all primitives) and good for most models;
- * use Flip for manual per-face control on tricky concavities. */
-static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(o->nv<1)return; eundo_push();
-    V3 c={0,0,0}; for(int i=0;i<o->nv;i++){ c.x+=o->v[i].p.x; c.y+=o->v[i].p.y; c.z+=o->v[i].p.z; } c.x/=o->nv; c.y/=o->nv; c.z/=o->nv;
-    int n=0; for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; if(f->nv<3)continue;
-        V3 a=o->v[f->v[0]].p,b=o->v[f->v[1]].p,d=o->v[f->v[2]].p;
-        V3 e1={b.x-a.x,b.y-a.y,b.z-a.z},e2={d.x-a.x,d.y-a.y,d.z-a.z};
-        V3 nrm={e1.y*e2.z-e1.z*e2.y,e1.z*e2.x-e1.x*e2.z,e1.x*e2.y-e1.y*e2.x};
-        V3 fc={0,0,0}; for(int k=0;k<f->nv;k++){ fc.x+=o->v[f->v[k]].p.x; fc.y+=o->v[f->v[k]].p.y; fc.z+=o->v[f->v[k]].p.z; } fc.x/=f->nv; fc.y/=f->nv; fc.z/=f->nv;
-        if(nrm.x*(fc.x-c.x)+nrm.y*(fc.y-c.y)+nrm.z*(fc.z-c.z)<0){ for(int p=1,q=f->nv-1;p<q;p++,q--){ int t=f->v[p]; f->v[p]=f->v[q]; f->v[q]=t; } n++; } }
-    snprintf(g_status,sizeof g_status,"recalc outward: fixed %d inward face%s",n,n==1?"":"s"); }
+static void eface_reverse(EFace*f){ for(int p=1,q=f->nv-1;p<q;p++,q--){ int t=f->v[p]; f->v[p]=f->v[q]; f->v[q]=t; } }
+/* Recalculate outward (Blender's Shift+N), robustly: first flood-fill across shared edges to make
+ * the winding CONSISTENT within each connected surface — a manifold edge must be traversed in
+ * opposite directions by its two faces (else flip one). Then orient each component as a whole by
+ * its signed volume (negative ⇒ inward ⇒ flip the component). A plain centroid test fails on
+ * concave shapes (tunnels/holes) and mixed-winding imports; this doesn't. */
+static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; int nf=o->nf; if(nf<1)return; eundo_push();
+    int *comp=malloc((size_t)nf*sizeof(int)),*q=malloc((size_t)nf*sizeof(int)); for(int i=0;i<nf;i++)comp[i]=-1;
+    int ncomp=0,flipped=0;
+    for(int seed=0;seed<nf;seed++){ if(comp[seed]>=0)continue; int cid=ncomp++,qh=0,qt=0; q[qt++]=seed; comp[seed]=cid;
+        while(qh<qt){ EFace*ff=&o->f[q[qh++]];
+            for(int k=0;k<ff->nv;k++){ int a=ff->v[k],b=ff->v[(k+1)%ff->nv];
+                for(int g=0;g<nf;g++){ if(comp[g]>=0)continue; EFace*gg=&o->f[g];
+                    for(int j=0;j<gg->nv;j++){ int c=gg->v[j],d=gg->v[(j+1)%gg->nv];
+                        if(a==c&&b==d){ eface_reverse(gg); flipped++; comp[g]=cid; q[qt++]=g; break; }   /* same dir on shared edge ⇒ flip */
+                        if(a==d&&b==c){ comp[g]=cid; q[qt++]=g; break; } } } } } }   /* opposite ⇒ already consistent */
+    for(int cid=0;cid<ncomp;cid++){ double vol=0;
+        for(int f=0;f<nf;f++)if(comp[f]==cid){ EFace*ff=&o->f[f]; for(int k=2;k<ff->nv;k++){ V3 A=o->v[ff->v[0]].p,B=o->v[ff->v[k-1]].p,C=o->v[ff->v[k]].p;
+            vol+=A.x*(B.y*C.z-B.z*C.y)-A.y*(B.x*C.z-B.z*C.x)+A.z*(B.x*C.y-B.y*C.x); } }
+        if(vol<0)for(int f=0;f<nf;f++)if(comp[f]==cid){ eface_reverse(&o->f[f]); flipped++; } }
+    free(comp); free(q);
+    snprintf(g_status,sizeof g_status,"recalc outward: %d component%s, %d face%s reoriented",ncomp,ncomp==1?"":"s",flipped,flipped==1?"":"s"); }
 static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ snprintf(g_status,sizeof g_status,"paint: switch to Face mode (3)"); return; }
     EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
     for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
