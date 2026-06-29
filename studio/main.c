@@ -1839,7 +1839,7 @@ static void eface_reverse(EFace*f){ for(int p=1,q=f->nv-1;p<q;p++,q--){ int t=f-
  * opposite directions by its two faces (else flip one). Then orient each component as a whole by
  * its signed volume (negative ⇒ inward ⇒ flip the component). A plain centroid test fails on
  * concave shapes (tunnels/holes) and mixed-winding imports; this doesn't. */
-static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; int nf=o->nf; if(nf<1)return; eundo_push();
+static int eobj_orient_outward(EObject*o){ int nf=o->nf; if(nf<1)return 0;
     int *comp=malloc((size_t)nf*sizeof(int)),*q=malloc((size_t)nf*sizeof(int)); for(int i=0;i<nf;i++)comp[i]=-1;
     int ncomp=0,flipped=0;
     for(int seed=0;seed<nf;seed++){ if(comp[seed]>=0)continue; int cid=ncomp++,qh=0,qt=0; q[qt++]=seed; comp[seed]=cid;
@@ -1865,8 +1865,42 @@ static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_obj
             V3 fc={0,0,0}; for(int k=0;k<ff->nv;k++){ fc.x+=o->v[ff->v[k]].p.x; fc.y+=o->v[ff->v[k]].p.y; fc.z+=o->v[ff->v[k]].p.z; } fc.x/=ff->nv; fc.y/=ff->nv; fc.z/=ff->nv;
             vote += n.x*(fc.x-cc.x)+n.y*(fc.y-cc.y)+n.z*(fc.z-cc.z); }
         if(vote<0)for(int f=0;f<nf;f++)if(comp[f]==cid){ eface_reverse(&o->f[f]); flipped++; } }
-    free(comp); free(q);
-    snprintf(g_status,sizeof g_status,"recalc outward: %d component%s, %d face%s reoriented",ncomp,ncomp==1?"":"s",flipped,flipped==1?"":"s"); }
+    free(comp); free(q); return flipped; }
+static void eobj_recalc_outward(void){ if(!g_nobj)return; eundo_push(); int f=eobj_orient_outward(&g_obj[g_objsel]);
+    snprintf(g_status,sizeof g_status,"recalc outward: %d face%s reoriented",f,f==1?"":"s"); }
+
+/* Weld vertices that share a position (epsilon), remap faces, and drop faces that collapse to a
+ * degenerate (repeated index). Returns the number of verts merged. */
+static int eobj_weld_verts(EObject*o){ const float EPS=1e-5f; if(o->nv<1)return 0;
+    int *map=malloc((size_t)o->nv*sizeof(int)); int nn=0;
+    for(int i=0;i<o->nv;i++){ int found=-1;
+        for(int j=0;j<nn;j++){ V3 a=o->v[j].p,b=o->v[i].p; if(fabsf(a.x-b.x)<EPS&&fabsf(a.y-b.y)<EPS&&fabsf(a.z-b.z)<EPS){ found=j; break; } }
+        if(found<0){ found=nn; o->v[nn]=o->v[i]; nn++; } map[i]=found; }
+    int merged=o->nv-nn; o->nv=nn;
+    for(int fi=0;fi<o->nf;fi++){ EFace*ff=&o->f[fi]; for(int k=0;k<ff->nv;k++)ff->v[k]=map[ff->v[k]]; }
+    int j=0; for(int fi=0;fi<o->nf;fi++){ EFace*ff=&o->f[fi]; int deg=0;
+        for(int a=0;a<ff->nv&&!deg;a++)for(int b=a+1;b<ff->nv;b++)if(ff->v[a]==ff->v[b]){ deg=1; break; }
+        if(!deg)o->f[j++]=*ff; } o->nf=j; free(map); return merged; }
+/* Greedily delete the faces responsible for non-manifold edges (an edge shared by >2 faces):
+ * repeatedly drop the face touching the MOST non-manifold edges — interior "walls" (e.g. a
+ * mirror-bake seam cap) touch many, so they go first — until every edge is shared by ≤2 faces.
+ * Leaves a clean orientable shell. Returns the number of faces removed. */
+static int eobj_remove_nonmanifold(EObject*o){ if(o->nf<1)return 0; uint8_t*rm=calloc((size_t)o->nf,1); int removed=0;
+    for(int guard=0;guard<o->nf;guard++){ int bestf=-1,bestc=0;
+        for(int f=0;f<o->nf;f++){ if(rm[f])continue; EFace*ff=&o->f[f]; int nmc=0;
+            for(int k=0;k<ff->nv;k++){ int a=ff->v[k],b=ff->v[(k+1)%ff->nv]; if(a>b){int t=a;a=b;b=t;}
+                int cnt=0; for(int g=0;g<o->nf;g++){ if(rm[g])continue; EFace*gg=&o->f[g];
+                    for(int j=0;j<gg->nv;j++){ int c=gg->v[j],d=gg->v[(j+1)%gg->nv]; if(c>d){int t=c;c=d;d=t;} if(c==a&&d==b){ cnt++; break; } } }
+                if(cnt>2)nmc++; }
+            if(nmc>bestc){ bestc=nmc; bestf=f; } }
+        if(bestf<0)break; rm[bestf]=1; removed++; }
+    int j=0; for(int f=0;f<o->nf;f++)if(!rm[f])o->f[j++]=o->f[f]; o->nf=j; free(rm); return removed; }
+/* Clean a baked/imported mesh into a manifold, outward-facing shell: weld coincident verts,
+ * delete non-manifold interior walls, then orient outward. Undoable (Ctrl+Z). */
+static void eobj_clean(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(o->nf<1)return; eundo_push();
+    int w=eobj_weld_verts(o); int r=eobj_remove_nonmanifold(o); int f=eobj_orient_outward(o); edges_rebuild(o);
+    g_hover_obj=g_hover_idx=-1;
+    snprintf(g_status,sizeof g_status,"clean: welded %d vert%s, removed %d interior face%s, %d reoriented",w,w==1?"":"s",r,r==1?"":"s",f); }
 static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ snprintf(g_status,sizeof g_status,"paint: switch to Face mode (3)"); return; }
     EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
     for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
@@ -1891,7 +1925,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
-static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
+static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -2016,7 +2050,8 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
     px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
     px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+4;
-    text(R,"Normals",lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL); ui_btn(R,lx+textw(R,"Normals",1)+6,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my); cy+=UI_H+6;
+    { int nx=ui_btn(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my);
+      ui_btn(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my); cy+=UI_H+6; }
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue — match the gizmo + plane */
       px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my);
       ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); cy+=UI_H+4;
@@ -2065,6 +2100,7 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_emerge)){ eobj_merge_sel(); return 1; }
     if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
     if(HITR(g_me_erecalc)){ eobj_recalc_outward(); return 1; }
+    if(HITR(g_me_eclean)){ eobj_clean(); return 1; }
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
@@ -2113,6 +2149,7 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_x){ eobj_delete_sel(); return 1; }                                /* X delete selection/object */
     if(k==SDLK_m){ eobj_merge_sel(); return 1; }                                 /* M merge selected verts */
     if(k==SDLK_n&&(md&KMOD_SHIFT)&&(md&KMOD_CTRL)){ eobj_recalc_outward(); return 1; }   /* Ctrl+Shift+N recalc outward */
+    if(k==SDLK_k&&(md&(KMOD_CTRL|KMOD_GUI))){ eobj_clean(); return 1; }                   /* Ctrl+K clean (weld + de-non-manifold + recalc) */
     if(k==SDLK_n&&(md&KMOD_SHIFT)){ eobj_flip_normals(); return 1; }             /* Shift+N flip normals */
     if(k==SDLK_p&&!(md&KMOD_SHIFT)){ eobj_paint_faces(); return 1; }             /* P paint faces with picker colour */
     if(k==SDLK_1){ set_sel_mode(0); return 1; }
