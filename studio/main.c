@@ -315,7 +315,8 @@ static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
 static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
 static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
-static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect */
+static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect 6 sq-brush 7 round-brush */
+static int g_brush_size=3, g_brush_hard=100;                  /* brush diameter (px) + hardness % (100=hard, <100 dithers a soft edge) */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
 #define UNDON 12
@@ -945,6 +946,7 @@ static SDL_Rect g_tabr[TAB_N];
 /* pixel editor geometry (set by draw_pixel, read by the input handlers) */
 static SDL_Rect g_pxb[16]; static int g_pxb_id[16], g_npxb;
 static SDL_Rect g_pxsize[8], g_pxszdn, g_pxszup, g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
+static SDL_Rect g_pxbsz_m,g_pxbsz_p,g_pxbhd_m,g_pxbhd_p;   /* brush size / hardness steppers */
 static int g_hsvdrag,g_huedrag,g_lx,g_ly,g_panx,g_pany;
 static SDL_Texture *g_hsv_tex; static float g_hsv_baked=-1;
 static float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
@@ -1027,12 +1029,17 @@ static int texgen_click(int mx,int my){
 
 static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
-    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
+    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},{IC_SQUARE,15},{-2,16},
         {-1,-1},{IC_UNDO2,6},{IC_REDO2,14},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
-    for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic<0){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }
-        int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid); int hov=hit(mx,my,tx,ty,27,24);
-        rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
+    for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic==-1){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }   /* -1 separator · -2 round-brush disc */
+        int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid)||(tb[i].id==15&&g_ptool==6)||(tb[i].id==16&&g_ptool==7); int hov=hit(mx,my,tx,ty,27,24);
+        rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
+        if(tb[i].ic==-2) disc(R,tx+13,ty+12,6,C_TXT); else icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
         g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tx+=30; }
+    /* brush size + hardness — shown only while a brush tool is active */
+    if(g_ptool==6||g_ptool==7){ tx+=8; char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); tx=ui_stepper(R,tx,ty,"size",b,&g_pxbsz_m,&g_pxbsz_p,mx,my)+6;
+        snprintf(b,sizeof b,"%d%%",g_brush_hard); tx=ui_stepper(R,tx,ty,"hard",b,&g_pxbhd_m,&g_pxbhd_p,mx,my); }
+    else { g_pxbsz_m=g_pxbsz_p=g_pxbhd_m=g_pxbhd_p=(SDL_Rect){0,0,0,0}; }
     tx+=10; int sizes[8]={8,16,32,48,60,64,96,128};
     for(int i=0;i<8;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+12, act=g_csize==sizes[i];
         rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+6,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+3; }
@@ -1074,9 +1081,11 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
         for(int i=0;i<=g_csize;i++){ SDL_RenderDrawLine(R,cox+i*cell,coy,cox+i*cell,coy+cw); SDL_RenderDrawLine(R,cox,coy+i*cell,cox+cw,coy+i*cell); } SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
     int gx=(mx-cox)/cell, gy=(my-coy)/cell, over=(mx>=cax&&mx<cax+vw&&my>=cay&&my<cay+vh&&gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize);
     if(over){ rect_outline(R,cox+gx*cell,coy+gy*cell,cell,cell,(Col){255,255,255},1);
+        if((g_ptool==6||g_ptool==7)&&g_brush_size>1){ int half=g_brush_size*cell/2,ccx=cox+gx*cell+cell/2,ccy=coy+gy*cell+cell/2;   /* brush footprint */
+            if(g_ptool==7)ring(R,ccx,ccy,half,(Col){255,255,255},1); else rect_outline(R,ccx-half,ccy-half,half*2,half*2,(Col){255,255,255},1); }
         if((g_ptool==4||g_ptool==5)&&g_dx0>=0) rect_outline(R,cox+(g_dx0<gx?g_dx0:gx)*cell,coy+(g_dy0<gy?g_dy0:gy)*cell,(abs(gx-g_dx0)+1)*cell,(abs(gy-g_dy0)+1)*cell,(Col){255,255,255},1); }
     SDL_RenderSetClipRect(R,NULL);
-    if(over){ int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH; icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
+    if(over&&g_ptool<6){ int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH; icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
     int prx=cax+vw+18; if(prx<WIN_W-120){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=g_csize<=32?2:1;
         plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
         for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
@@ -4676,15 +4685,33 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_SHEET){ draw_sheet(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     draw_pixel(R, g_tab==TAB_TEXTURE); }
 
+/* Stamp a brush (square or round) of g_brush_size px at (cx,cy). The canvas is
+ * RGB565 + colour-key (no per-pixel alpha), so "hardness" feathers the edge by
+ * ORDERED DITHER: pixels inside hardness*radius are solid, the rim is stippled by
+ * a 4x4 Bayer threshold against the coverage. Hardness 100 = a crisp hard edge. */
+static const uint8_t BAYER4[16]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};
+static void px_brush(int cx,int cy,int round){
+    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f);
+    float h=g_brush_hard*0.01f, fall=1.0f-h; if(fall<0.001f)fall=0.001f;
+    for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int x=cx+dx,y=cy+dy; if(x<0||y<0||x>=g_csize||y>=g_csize)continue;
+        float d = round ? sqrtf((float)(dx*dx+dy*dy))/rad : (float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
+        if(d>1.0f)continue;
+        float cov = h>=1.0f ? 1.0f : (1.0f-d)/fall; if(cov>1.0f)cov=1.0f; if(cov<=0.0f)continue;
+        if(cov>=1.0f || (BAYER4[(y&3)*4+(x&3)]+0.5f)/16.0f < cov) g_canvas[y*g_csize+x]=g_pcol; } }
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
-    else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); } }
+    else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); }
+    else if(g_ptool==6){ px_brush(gx,gy,0); } else if(g_ptool==7){ px_brush(gx,gy,1); } }
 static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){   /* save-as -> dialog (Save As <name>.png) */
         prompt_open(PR_SAVEAS,"Save As",g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"),"saved to assets/<name>.png (name it \"icon\" for the launcher icon)",0,0); return; }
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
+    if(hit(mx,my,g_pxbsz_m.x,g_pxbsz_m.y,g_pxbsz_m.w,g_pxbsz_m.h)){ if(g_brush_size>1)g_brush_size--; return; }
+    if(hit(mx,my,g_pxbsz_p.x,g_pxbsz_p.y,g_pxbsz_p.w,g_pxbsz_p.h)){ if(g_brush_size<32)g_brush_size++; return; }
+    if(hit(mx,my,g_pxbhd_m.x,g_pxbhd_m.y,g_pxbhd_m.w,g_pxbhd_m.h)){ if(g_brush_hard>0)g_brush_hard-=10; return; }
+    if(hit(mx,my,g_pxbhd_p.x,g_pxbhd_p.y,g_pxbhd_p.w,g_pxbhd_p.h)){ if(g_brush_hard<100)g_brush_hard+=10; return; }
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
-        if(id<6)g_ptool=id; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
+        if(id<6)g_ptool=id; else if(id==15)g_ptool=6; else if(id==16)g_ptool=7; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
         else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
         else if(id==11){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c>2?c-2:1; } else if(id==12){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c+2; } else if(id==13){ g_pzoom=0; g_panx=g_pany=0; }
         else if(id==9)fp_open(1);
@@ -4700,13 +4727,15 @@ static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     for(int i=0;i<G_NPAL;i++)if(hit(mx,my,px0+(i%11)*15,swy+44+(i/11)*15,13,13)){ px_setcol(pal565(i)); return; }
     if(g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy;
-        if(g_ptool<=3){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1)px_recent(g_pcol); } } }
+        if(g_ptool<=3||g_ptool>=6){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1||g_ptool>=6)px_recent(g_pcol); } } }
 static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(g_texdrag>=0){ texgen_drag(mx); return; }
     if(g_hsvdrag){ g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_huedrag){ g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_dx0<0||g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
-    if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; } }
+    if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; }
+    else if(g_ptool>=6){ int x0=g_lx,y0=g_ly,x1=gx,y1=gy,dx=abs(x1-x0),dy=-abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx+dy;   /* stamp the brush along the drag */
+        for(;;){ px_brush(x0,y0,g_ptool==7); if(x0==x1&&y0==y1)break; int e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } g_lx=gx; g_ly=gy; } }
 static void pixel_up(int mx,int my){ set_doc(g_tab==TAB_TEXTURE); g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
     if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_csize-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_csize-1);
         if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
@@ -5042,6 +5071,9 @@ int main(int argc,char**argv){
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
+    if(getenv("MOTE_STUDIO_BRUSHDAB")){ g_csize=48; canvas_new(); g_tab=TAB_PIXEL; g_pcol=(uint16_t)MOTE_RGB565(90,200,120);   /* capture hook: brush dabs */
+        g_ptool=7; g_brush_size=15; g_brush_hard=100; px_brush(12,12,1); g_brush_hard=40; px_brush(35,12,1);
+        g_ptool=6; g_brush_hard=100; px_brush(12,35,0); g_brush_hard=40; px_brush(35,35,0); g_brush_size=10; }
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
