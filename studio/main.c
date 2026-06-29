@@ -2366,6 +2366,32 @@ static void rig_load(const char*objpath){
     for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
     snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
 }
+/* Build the rig parts from the LIVE editable model (g_obj) instead of a disk .obj — each
+ * object becomes a part (geometry via emesh_build_geom, so it matches the Mesh preview and
+ * the game exactly), taking its parent/pivot from the object. Called when entering the Rig
+ * tab while a model is loaded, so the Rig view always reflects current edits. Seeds one rest
+ * keyframe (like rig_load); re-enter the tab after editing to re-rig. */
+static void rig_build_from_eobj(void){
+    for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; free(g_rp[p].uv); g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0; }
+    g_nrp=0; g_rsel=0; g_rig_obj[0]=0;                       /* live model: no on-disk source */
+    free(g_rig_tex_px); g_rig_tex_px=0; g_rig_tex_w=g_rig_tex_h=0; g_texsync_src[0]=0; g_texsync_mtime=0;
+    int n=g_nobj<RIG_MAXP?g_nobj:RIG_MAXP;
+    for(int o=0;o<n;o++){ EObject*ob=&g_obj[o]; int p=g_nrp++;
+        snprintf(g_rp[p].name,28,"%.27s",ob->name); g_rp[p].t=0; g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0;
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        for(int t=0;t<nt;t++){ V3 a=vv[tri[t][0]],b=vv[tri[t][1]],c=vv[tri[t][2]];
+            a.x+=ob->origin.x;a.y+=ob->origin.y;a.z+=ob->origin.z; b.x+=ob->origin.x;b.y+=ob->origin.y;b.z+=ob->origin.z; c.x+=ob->origin.x;c.y+=ob->origin.y;c.z+=ob->origin.z;
+            rp_tri(p,a,b,c,0); }
+        free(vv); free(tri); free(tc);
+        g_rp[p].parent=ob->parent; g_rp[p].pivot=(ob->pivot.x||ob->pivot.y||ob->pivot.z)?ob->pivot:rig_centroid(p); }
+    V3 mn={1e30f,1e30f,1e30f},mx={-1e30f,-1e30f,-1e30f};
+    for(int p=0;p<g_nrp;p++)for(int i=0;i<g_rp[p].nt*3;i++){ V3 v=g_rp[p].t[i];
+        if(v.x<mn.x)mn.x=v.x;if(v.y<mn.y)mn.y=v.y;if(v.z<mn.z)mn.z=v.z;if(v.x>mx.x)mx.x=v.x;if(v.y>mx.y)mx.y=v.y;if(v.z>mx.z)mx.z=v.z; }
+    g_rcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2};
+    float ex=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_rscale=ex>1e-4f?2.0f/ex:1;
+    g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0;
+    for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
+    snprintf(g_status,sizeof g_status,"rig: %d parts from the live model",g_nrp); }
 
 /* ===== GUI texture assignment (MESH + RIG views) =====
  * Texturing is a real UI workflow, not a naming convention: the user assigns a
@@ -4637,7 +4663,8 @@ int main(int argc,char**argv){
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
         if(getenv("MOTE_STUDIO_MESHPRIMS")){ eobj_free_all(); prim_cylinder(0.4f,1.0f,16); g_obj[g_objsel].origin.x=-1.4f;
             prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit();
-            if(getenv("MOTE_STUDIO_MESHSOLID"))g_edit_mode=0; }   /* cyl/cone/sphere row; MESHSOLID -> non-edit live preview */
+            if(getenv("MOTE_STUDIO_MESHSOLID"))g_edit_mode=0;      /* cyl/cone/sphere row; MESHSOLID -> non-edit live preview */
+            if(getenv("MOTE_STUDIO_RIGLIVE")){ rig_build_from_eobj(); g_tab=TAB_RIG; g_edit_mode=0; } }   /* RIGLIVE -> rig the live model */
         if(getenv("MOTE_STUDIO_MESHPAINT")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[0].sel=g_obj[0].f[2].sel=g_obj[0].f[4].sel=1;
             g_hue=0; g_sat=g_val=1; g_mesh_rgb=mesh_hsv_rgb(); eobj_paint_faces(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }   /* paint 3 faces red, bake face_colors */
         if(getenv("MOTE_STUDIO_MESHRIG")){ eobj_free_all(); prim_cube(0.6f); prim_cylinder(0.25f,1.2f,12); g_obj[g_objsel].origin.y=0.9f; g_obj[g_objsel].parent=0; eobj_fit();
@@ -4870,7 +4897,7 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
