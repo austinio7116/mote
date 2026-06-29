@@ -224,5 +224,11 @@ static const uint16_t atlas_px[3456] = {
 static const MoteImage atlas_img = { atlas_px, 96, 36, 0xF81F, 0 };
 #define atlas_W 96
 #define atlas_H 36
+#define atlas_CELLW 12
+#define atlas_CELLH 12
+#define atlas_COLS 8
+#define atlas_ROWS 3
+#define atlas_MARGIN 0
+#define atlas_SPACING 0
 
 #endif

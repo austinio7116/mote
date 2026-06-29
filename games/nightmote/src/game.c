@@ -39,8 +39,10 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
-/* ---- atlas cells (12x12) — (col,row) ---- */
-#define CELL 12
+/* ---- atlas cells — (col,row). atlas.png is a SHEET (assets/atlas.sheet): an
+ *      8x3 grid of 12x12 cells, editable in the Studio SHEET tab; CELL comes
+ *      from the baked sheet metadata so it tracks the sidecar. ---- */
+#define CELL atlas_CELLW
 enum { /* characters: frame0 col, frame1 = col+1 */
     C_PLAYER=0, C_BAT=2, C_ZOMBIE=4, C_SKEL=6 };           /* row 0 */
 #define R_CHAR0 0
