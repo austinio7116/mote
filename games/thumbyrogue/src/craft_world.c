@@ -389,18 +389,30 @@ static inline int light_level_for_dist(int dist) {
  * marked with the *maximum* level it has seen so overlapping torches
  * compose by max(). Cells are re-enqueued only when a brighter level
  * arrives via a different path. */
-#define LIGHT_BFS_MAX 1024
+/* CRAFT_LIGHT_MAX=3 → light reaches only ~6 cells (frontier <150), so 256 is
+ * ample. The original 1024-node queue was a ~7 KB STACK frame that overflowed
+ * the Mote slot runner's 4 KB stack during the world-load relight (a
+ * deterministic launch hang; host never saw it). It now comes from the engine
+ * arena (allocated once). Same fix as ThumbyCraft's Mote port. */
+#define LIGHT_BFS_MAX 256
 typedef struct __attribute__((packed)) {
     int16_t x, y, z;
     uint8_t dist;
 } LightQNode;
+
+extern void *craft_port_alloc(uint32_t bytes);   /* Mote shim → engine arena */
+static LightQNode *s_light_q;                     /* arena-backed BFS queue (was a 7 KB stack local) */
 
 static void light_flood_from(int sx, int sy, int sz) {
     if ((unsigned)sx >= CRAFT_WORLD_X) return;
     if ((unsigned)sy >= CRAFT_WORLD_Y) return;
     if ((unsigned)sz >= CRAFT_WORLD_Z) return;
 
-    LightQNode q[LIGHT_BFS_MAX];
+    if (!s_light_q) {
+        s_light_q = (LightQNode *)craft_port_alloc(LIGHT_BFS_MAX * sizeof(LightQNode));
+        if (!s_light_q) return;                   /* no arena room — skip relight rather than crash */
+    }
+    LightQNode *q = s_light_q;
     int qh = 0, qt = 0;
 
     int s_idx = local_idx(sx, sy, sz);

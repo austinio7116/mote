@@ -42,6 +42,10 @@ MOTE_MODULE_HEADER();
 #include "craft_audio.h"        /* craft_audio_render (PCM stream) */
 #include "craft_types.h"
 
+/* Arena passthrough for the vendored craft code's allocations (e.g. the light
+ * BFS queue — kept off the 4 KB runner stack). NULL when the arena is full. */
+void *craft_port_alloc(uint32_t bytes) { return mote->alloc(bytes); }
+
 /* ---- platform RNG hook the engine calls (was device get_rand_32) ---------- */
 static uint32_t s_rng = 0x12345678u;
 uint32_t craft_platform_rand32(void) {
