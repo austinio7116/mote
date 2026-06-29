@@ -316,8 +316,7 @@ static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[40
 static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect 6 sq-brush 7 round-brush */
-static int g_brush_size=3, g_brush_hard=100;                  /* brush diameter (px) + hardness % (100=hard, <100 dithers a soft edge) */
-static const uint8_t BAYER4[16]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};   /* ordered-dither threshold for soft brush edges */
+static int g_brush_size=3, g_brush_hard=100;                  /* brush diameter (px) + hardness % (100=hard edge, <100 = soft opacity falloff) */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
 #define UNDON 12
@@ -3555,16 +3554,25 @@ static void cell_rectout(uint16_t*sh,int W,int cx,int cy,int x0,int y0,int x1,in
     for(int y=y0;y<=y1;y++){ cell_set(sh,W,cx,cy,x0,y,col); cell_set(sh,W,cx,cy,x1,y,col); } }
 static void cell_flood(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,uint16_t col){ uint16_t old=sh[(cy+y)*W+cx+x]; if(old==col)return; int st[4096],sp=0; st[sp++]=y*cw+x;
     while(sp){ int q=st[--sp],qx=q%cw,qy=q/cw; uint16_t*c=&sh[(cy+qy)*W+cx+qx]; if(*c!=old)continue; *c=col; if(qx>0)st[sp++]=qy*cw+qx-1; if(qx<cw-1)st[sp++]=qy*cw+qx+1; if(qy>0)st[sp++]=(qy-1)*cw+qx; if(qy<ch-1)st[sp++]=(qy+1)*cw+qx; if(sp>4000)break; } }
+/* RGB565 lerp dst->src by t (never lands on the transparent key). */
+static uint16_t lerp565(uint16_t a,uint16_t b,float t){ if(t<=0)return a; if(t>=1)return b;
+    int ar=(a>>11)&31,ag=(a>>5)&63,ab=a&31,br=(b>>11)&31,bg=(b>>5)&63,bb=b&31;
+    int r=ar+(int)((br-ar)*t+0.5f),g=ag+(int)((bg-ag)*t+0.5f),bl=ab+(int)((bb-ab)*t+0.5f);
+    uint16_t v=(uint16_t)((r<<11)|(g<<5)|bl); return v==KEY565?(uint16_t)(v^1):v; }
+/* Brush coverage at normalised distance d (0 centre .. 1 edge): solid out to
+ * hardness, then a smooth (smoothstep) ramp to 0 at the rim. */
+static float brush_cov(float d,float h){ if(h>=1.0f)return d<=1.0f?1.0f:0.0f; if(d<=h)return 1.0f; if(d>=1.0f)return 0.0f;
+    float t=1.0f-(d-h)/(1.0f-h); return t*t*(3.0f-2.0f*t); }
 /* Stamp a brush (square=6 / round=7) of g_brush_size into a cw*ch cell at (cx,cy)
- * of a sheet of stride W. Hardness feathers the edge with the shared Bayer dither
- * (the same model as the main canvas px_brush). */
+ * of a sheet of stride W — solid core, AA-blend over existing ink, stipple onto
+ * empty (same soft model as the main canvas px_brush). */
 static void cell_brush(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y){
-    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f);
-    float h=g_brush_hard*0.01f,fall=1.0f-h; if(fall<0.001f)fall=0.001f; int rnd=(g_ptool==7);
+    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f); float h=g_brush_hard*0.01f; int rnd=(g_ptool==7);
     for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int px=x+dx,py=y+dy; if(px<0||py<0||px>=cw||py>=ch)continue;
-        float d=rnd?sqrtf((float)(dx*dx+dy*dy))/rad:(float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad; if(d>1.0f)continue;
-        float cov=h>=1.0f?1.0f:(1.0f-d)/fall; if(cov>1.0f)cov=1.0f; if(cov<=0.0f)continue;
-        if(cov>=1.0f||(BAYER4[(py&3)*4+(px&3)]+0.5f)/16.0f<cov) sh[(cy+py)*W+cx+px]=g_pcol; } }
+        float d=rnd?sqrtf((float)(dx*dx+dy*dy))/rad:(float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
+        float cov=brush_cov(d,h); if(cov<=0.0f)continue; int o=(cy+py)*W+cx+px; uint16_t dst=sh[o];
+        if(cov>=0.999f) sh[o]=g_pcol; else if(dst!=KEY565) sh[o]=lerp565(dst,g_pcol,cov);   /* soft opacity over ink */
+        else if(cov>=0.5f) sh[o]=g_pcol; } }                                                /* clean edge over empty */
 static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,int phase){   /* phase: 0 down · 1 drag · 2 up */
     if(x<0)x=0; if(x>=cw)x=cw-1; if(y<0)y=0; if(y>=ch)y=ch-1;
     if(g_ptool==4||g_ptool==5){ if(phase==0){ g_cdx=x; g_cdy=y; } else if(phase==2&&g_cdx>=0){ if(g_ptool==4)cell_line(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); else cell_rectout(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); px_recent(g_pcol); g_cdx=g_cdy=-1; } return; }
@@ -4717,14 +4725,14 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
  * RGB565 + colour-key (no per-pixel alpha), so "hardness" feathers the edge by
  * ORDERED DITHER: pixels inside hardness*radius are solid, the rim is stippled by
  * a 4x4 Bayer threshold against the coverage. Hardness 100 = a crisp hard edge. */
-static void px_brush(int cx,int cy,int round){
-    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f);
-    float h=g_brush_hard*0.01f, fall=1.0f-h; if(fall<0.001f)fall=0.001f;
+static void px_brush(int cx,int cy,int round){   /* lerp565 + brush_cov are defined above (shared with cell_brush) */
+    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f); float h=g_brush_hard*0.01f;
     for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int x=cx+dx,y=cy+dy; if(x<0||y<0||x>=g_csize||y>=g_csize)continue;
-        float d = round ? sqrtf((float)(dx*dx+dy*dy))/rad : (float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
-        if(d>1.0f)continue;
-        float cov = h>=1.0f ? 1.0f : (1.0f-d)/fall; if(cov>1.0f)cov=1.0f; if(cov<=0.0f)continue;
-        if(cov>=1.0f || (BAYER4[(y&3)*4+(x&3)]+0.5f)/16.0f < cov) g_canvas[y*g_csize+x]=g_pcol; } }
+        float d=round ? sqrtf((float)(dx*dx+dy*dy))/rad : (float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
+        float cov=brush_cov(d,h); if(cov<=0.0f)continue; int idx=y*g_csize+x; uint16_t dst=g_canvas[idx];
+        if(cov>=0.999f) g_canvas[idx]=g_pcol;                                          /* solid core */
+        else if(dst!=KEY565) g_canvas[idx]=lerp565(dst,g_pcol,cov);                    /* soft opacity: blend over existing ink */
+        else if(cov>=0.5f) g_canvas[idx]=g_pcol; } }                                   /* over empty (no alpha): clean coverage edge */
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
     if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); }
