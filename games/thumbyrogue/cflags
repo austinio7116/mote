@@ -1,0 +1,16 @@
+# ThumbyRogue port build flags (applied to host + device module builds).
+# CRAFT_TEXTURES_BAKED: the block-texture atlas lives in flash as const
+#   (craft_textures_baked.c); only the small animated water/lava/portal
+#   frames stay in SRAM.
+# ROGUE_FULLFRAME_RENDER: no craft hotbar plate — the iso camera renders
+#   edge-to-edge and traces rays from outside the world AABB so the hero
+#   stays centred (required by rogue_camera + craft_render).
+-DCRAFT_TEXTURES_BAKED=1
+-DROGUE_FULLFRAME_RENDER=1
+# CRAFT_WORLD_Y: ThumbyRogue is a thin single-floor dungeon — the hero stands at
+# Y=8 and the tallest features (barrier lids over walls/hills) reach ~Y16, while
+# stairs carve down to ~Y3. The inherited 64^3 ThumbyCraft sandbox wastes 48
+# empty vertical layers. Cutting the world to 64x32x64 halves both the
+# arena-backed world buffer (256->128 KB) and the static voxel lightmap
+# (64->32 KB), which buys back the GAME_RAM to run the raycaster from .ramtext.
+-DCRAFT_WORLD_Y=32

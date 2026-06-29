@@ -1,0 +1,57 @@
+/*
+ * ThumbyCraft — redstone power propagation.
+ *
+ * Tiny 5 Hz sim that walks the resident world window once per tick to
+ * propagate power from BLK_LEVER_ON cells through BLK_REDSTONE_WIRE
+ * cells (in either powered/unpowered state), 6-direction adjacency.
+ *
+ * Side effects:
+ *   - Wire cells transition between WIRE / WIRE_ON based on whether
+ *     they were reached by the BFS.
+ *   - When a BLK_DIAMOND_BLOCK ends up adjacent to a powered cell
+ *     (lever_on or wire_on), it activates ONCE — the redstone module
+ *     calls craft_mobs_spawn_boss_at() at the block + (0,1,0) and
+ *     records the activation in s_activated[] so re-energising the
+ *     same block doesn't spawn another boss.
+ */
+#ifndef CRAFT_REDSTONE_H
+#define CRAFT_REDSTONE_H
+
+#include "craft_blocks.h"
+
+void craft_redstone_init(void);
+void craft_redstone_tick(float dt);
+
+/* Full-window recount of active sources (LEVER_ON + WIRE_ON). Cheap
+ * — direct byte scan — but only worth doing on window load / new
+ * world; per-block edits use note_change below. */
+void craft_redstone_rescan(void);
+
+/* Defer the registry rescan to the next tick (streaming shift uses
+ * this to avoid a per-frame full-window scan). */
+void craft_redstone_mark_dirty(void);
+
+/* Incremental update for a single block transition. Called from
+ * craft_world_set so the tick can short-circuit when nothing is
+ * powered. Pass the previous block id and the new one. */
+void craft_redstone_note_change(BlockId prev_blk, BlockId new_blk);
+
+/* Every frame, each entity standing on a pressure pad (the player AND
+ * any mob) reports its pad cell. The redstone tick treats every
+ * reported pad as a power source (like a held-down lever): it seeds
+ * adjacent wires and powers directly-adjacent driven blocks. Negative
+ * wy is ignored (legacy "not on a pad"). The set is rebuilt each frame
+ * after craft_redstone_pads_clear(), so it always reflects who is
+ * currently standing on pads. */
+void craft_redstone_note_pressure(int wx, int wy, int wz);
+
+/* Clear the pressed-pad set. Call once per frame, before the player
+ * and mob ticks re-report their pads. */
+void craft_redstone_pads_clear(void);
+
+/* Tick the TNT fuse timers — separate from the 5 Hz propagation
+ * tick because the fuse counts in real seconds. Call every frame
+ * with dt; this scans the small s_fuses[] list. */
+void craft_redstone_tick_fuses(float dt);
+
+#endif
