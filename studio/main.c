@@ -1849,10 +1849,22 @@ static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_obj
                     for(int j=0;j<gg->nv;j++){ int c=gg->v[j],d=gg->v[(j+1)%gg->nv];
                         if(a==c&&b==d){ eface_reverse(gg); flipped++; comp[g]=cid; q[qt++]=g; break; }   /* same dir on shared edge ⇒ flip */
                         if(a==d&&b==c){ comp[g]=cid; q[qt++]=g; break; } } } } } }   /* opposite ⇒ already consistent */
-    for(int cid=0;cid<ncomp;cid++){ double vol=0;
-        for(int f=0;f<nf;f++)if(comp[f]==cid){ EFace*ff=&o->f[f]; for(int k=2;k<ff->nv;k++){ V3 A=o->v[ff->v[0]].p,B=o->v[ff->v[k-1]].p,C=o->v[ff->v[k]].p;
-            vol+=A.x*(B.y*C.z-B.z*C.y)-A.y*(B.x*C.z-B.z*C.x)+A.z*(B.x*C.y-B.y*C.x); } }
-        if(vol<0)for(int f=0;f<nf;f++)if(comp[f]==cid){ eface_reverse(&o->f[f]); flipped++; } }
+    /* Orient each (now-consistent) component outward by a distance-weighted vote against the
+     * component's OWN centroid: each face contributes dot(faceNormal, faceCentroid-centroid),
+     * so the outer faces (farthest, largest term) dominate. Negative total ⇒ the surface faces
+     * inward ⇒ flip the whole component. Robust for concave, thin, and off-origin parts (a
+     * mirrored wing) where a signed-volume-about-the-origin test picks the wrong sign. */
+    for(int cid=0;cid<ncomp;cid++){ V3 cc={0,0,0}; int fcnt=0;
+        for(int f=0;f<nf;f++)if(comp[f]==cid){ EFace*ff=&o->f[f]; V3 fc={0,0,0}; for(int k=0;k<ff->nv;k++){ fc.x+=o->v[ff->v[k]].p.x; fc.y+=o->v[ff->v[k]].p.y; fc.z+=o->v[ff->v[k]].p.z; } cc.x+=fc.x/ff->nv; cc.y+=fc.y/ff->nv; cc.z+=fc.z/ff->nv; fcnt++; }
+        if(fcnt){ cc.x/=fcnt; cc.y/=fcnt; cc.z/=fcnt; }
+        double vote=0;
+        for(int f=0;f<nf;f++)if(comp[f]==cid){ EFace*ff=&o->f[f]; if(ff->nv<3)continue;
+            V3 a=o->v[ff->v[0]].p,b=o->v[ff->v[1]].p,d=o->v[ff->v[2]].p;
+            V3 e1={b.x-a.x,b.y-a.y,b.z-a.z},e2={d.x-a.x,d.y-a.y,d.z-a.z};
+            V3 n={e1.y*e2.z-e1.z*e2.y,e1.z*e2.x-e1.x*e2.z,e1.x*e2.y-e1.y*e2.x};
+            V3 fc={0,0,0}; for(int k=0;k<ff->nv;k++){ fc.x+=o->v[ff->v[k]].p.x; fc.y+=o->v[ff->v[k]].p.y; fc.z+=o->v[ff->v[k]].p.z; } fc.x/=ff->nv; fc.y/=ff->nv; fc.z/=ff->nv;
+            vote += n.x*(fc.x-cc.x)+n.y*(fc.y-cc.y)+n.z*(fc.z-cc.z); }
+        if(vote<0)for(int f=0;f<nf;f++)if(comp[f]==cid){ eface_reverse(&o->f[f]); flipped++; } }
     free(comp); free(q);
     snprintf(g_status,sizeof g_status,"recalc outward: %d component%s, %d face%s reoriented",ncomp,ncomp==1?"":"s",flipped,flipped==1?"":"s"); }
 static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ snprintf(g_status,sizeof g_status,"paint: switch to Face mode (3)"); return; }
