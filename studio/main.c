@@ -293,11 +293,13 @@ static void mesh_editor_reset(void);   /* fwd: clear the model-editor scene + im
 static void mmesh_load(void);          /* fwd: load <project>/scene.mmesh into g_obj */
 static void mmesh_save(void);          /* fwd: persist g_obj to <project>/scene.mmesh */
 static void eobj_fit(void);            /* fwd: frame the model in the turntable camera */
+static void eobj_apply_newmodel(const char*name);   /* fwd: start a fresh named model */
+static void model_discover(void);      /* fwd: pick this project's model file on open */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     int switching=(idx!=g_sel);
     if(switching)mesh_editor_reset();    /* switching projects: drop the old scene (but keep it across a hot-reload of the same game) */
     g_sel=idx;
-    if(switching)mmesh_load();   /* restore this project's saved model (mmesh_load fits the camera) so the Mesh/Rig tabs reflect it on open */
+    if(switching){ model_discover(); mmesh_load(); }   /* pick this project's model + restore it (mmesh_load fits the camera) so the Mesh/Rig tabs reflect it on open */
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
         int rc=mc_build(g_games[idx].dir,0,log_add);
         if(rc){ snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[idx].name); return; }   /* keep the running build on failure */
@@ -605,7 +607,7 @@ static void draw_ctxmenu(SDL_Renderer*R){ if(!g_ctx)return; int mx,my; SDL_GetMo
         if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,CTX_L[i],x+12,iy+4,1,dis?C_DIM:(hov?C_HDR:C_TXT),hov?C_BTNHI:C_PANEL); } }
 
 /* ---- one reusable dialog: text entry (new/rename/save-as) or confirm (delete) ---- */
-enum { PR_NEWFILE=1, PR_NEWFOLDER, PR_RENAME, PR_SAVEAS, PR_DELETE };
+enum { PR_NEWFILE=1, PR_NEWFOLDER, PR_RENAME, PR_SAVEAS, PR_DELETE, PR_NEWMODEL };
 static int g_prompt; static char g_promptbuf[96], g_promptdir[340], g_promptpath[340], g_prompttitle[48], g_prompthint[80];
 static int g_promptseled; static SDL_Rect g_prompt_ok, g_prompt_cancel;
 static void canvas_save(void);   /* fwd */
@@ -628,6 +630,7 @@ static void prompt_confirm(void){
     else if(g_prompt==PR_RENAME&&g_promptbuf[0]&&g_promptpath[0]){ char d[340]; snprintf(d,sizeof d,"%s",g_promptpath); char*s=strrchr(d,'/'); if(s)*s=0; else d[0]=0;
         char np[460]; snprintf(np,sizeof np,"%.330s/%.90s",d,g_promptbuf); if(rename(g_promptpath,np)==0)snprintf(g_status,sizeof g_status,"renamed to %s",g_promptbuf); else snprintf(g_status,sizeof g_status,"rename failed"); tree_refresh(); }
     else if(g_prompt==PR_DELETE&&g_promptpath[0]){ if(rmtree(g_promptpath)==0)snprintf(g_status,sizeof g_status,"deleted %s",g_promptpath); else snprintf(g_status,sizeof g_status,"delete failed"); tree_refresh(); }
+    else if(g_prompt==PR_NEWMODEL&&g_promptbuf[0]){ eobj_apply_newmodel(g_promptbuf); tree_refresh(); }
     g_prompt=0; SDL_StopTextInput(); }
 static void ctx_click(int mx,int my){ int w=160; for(int i=0;i<CTX_N;i++){ int iy=g_ctxy+4+i*22; if(hit(mx,my,g_ctxx,iy,w,22)){
     const char*dir=g_ctxdir[0]?g_ctxdir:"."; const char*base=g_ctxpath[0]?(strrchr(g_ctxpath,'/')?strrchr(g_ctxpath,'/')+1:g_ctxpath):0;
@@ -1309,6 +1312,7 @@ typedef struct {
 } EObject;
 #define EMESH_MAXOBJ 32
 static EObject g_obj[EMESH_MAXOBJ]; static int g_nobj=0, g_objsel=0;
+static char g_model_name[40]="scene";   /* current model's base name: <project>/<name>.mmesh + src/<name>.h etc. (multiple models per project) */
 static int g_edit_mode=0;            /* MESH tab: 0 = importer preview, 1 = editable scene */
 static int g_sel_mode=0;             /* 0 = vert, 1 = edge, 2 = face */
 static char g_mmesh_path[640];
@@ -1334,6 +1338,19 @@ static void eobj_free_all(void){ for(int i=0;i<g_nobj;i++){ free(g_obj[i].v); fr
 static void eundo_push(void);   /* fwd */
 /* New empty scene — clears all objects so you can model from scratch (Ctrl+N / "New"). */
 static void eobj_new_scene(void){ eundo_push(); eobj_free_all(); g_sel_mode=0; snprintf(g_status,sizeof g_status,"new scene — add a primitive or import a model"); }
+/* Start a fresh model under a new name: <project>/<name>.mmesh (+ <name>.h/.rig on bake). */
+static void eobj_apply_newmodel(const char*name){ int j=0; for(int i=0;name[i]&&j<(int)sizeof(g_model_name)-1;i++){ char c=name[i];
+        if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-')g_model_name[j++]=c; }
+    g_model_name[j]=0; if(!g_model_name[0])snprintf(g_model_name,sizeof g_model_name,"model");
+    eobj_free_all(); g_sel_mode=0; g_edit_mode=1; g_tab=TAB_MESH; mmesh_save();   /* write the (empty) model so it appears in the tree */
+    snprintf(g_status,sizeof g_status,"new model '%s' — add primitives or import",g_model_name); }
+/* On project open, pick which model to load: prefer scene.mmesh (back-compat) else the first *.mmesh. */
+static void model_discover(void){ snprintf(g_model_name,sizeof g_model_name,"scene"); if(g_sel<0)return;
+    char p[700]; struct stat st; snprintf(p,sizeof p,"%.600s/scene.mmesh",g_games[g_sel].dir); if(stat(p,&st)==0)return;
+    DIR*d=opendir(g_games[g_sel].dir); if(!d)return; struct dirent*e;
+    while((e=readdir(d))){ const char*n=e->d_name; size_t l=strlen(n); if(l>6&&!strcasecmp(n+l-6,".mmesh")){
+        char mb[40]; snprintf(mb,sizeof mb,"%.36s",n); char*dot=strrchr(mb,'.'); if(dot)*dot=0; if(mb[0])snprintf(g_model_name,sizeof g_model_name,"%s",mb); break; } }
+    closedir(d); }
 /* Fit the whole scene into the preview's [-1,1] cube (reuses the importer's g_mcen/g_mscale). */
 static void eobj_fit(void){ float q=1e-6f;
     for(int o=0;o<g_nobj;o++)for(int i=0;i<g_obj[o].nv;i++){ V3 p=g_obj[o].v[i].p; p.x+=g_obj[o].origin.x; p.y+=g_obj[o].origin.y; p.z+=g_obj[o].origin.z;
@@ -1377,7 +1394,48 @@ static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sp
  * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
  * the editable mesh we want. Brings it in as a new object and switches to the model editor.
  * Lower the importer's 'tris' budget first for a more editable low-poly result. */
+/* Count o/g groups in an OBJ (so we know whether to preserve them as separate objects). */
+static int eobj_obj_group_count(const char*path){ FILE*f=fopen(path,"r"); if(!f)return 0; char ln[512]; int n=0;
+    while(fgets(ln,sizeof ln,f))if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' ')n++; fclose(f); return n; }
+/* Import an OBJ preserving its o/g groups: ONE editable object per group, exact geometry (no
+ * decimation), recentred about the whole model — so a multi-part model stays riggable. */
+static int eobj_import_obj_groups(const char*path){
+    FILE*f=fopen(path,"r"); if(!f)return 0;
+    V3 *VS=malloc(sizeof(V3)*200000); int nvs=0;
+    int *TG=malloc(sizeof(int)*200000),*TA=malloc(sizeof(int)*200000),*TB=malloc(sizeof(int)*200000),*TC=malloc(sizeof(int)*200000); int nt=0;
+    char gname[EMESH_MAXOBJ][28]; int ng=0,cur=-1; char ln[512];
+    while(fgets(ln,sizeof ln,f)){
+        if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nvs<200000)VS[nvs++]=v; }
+        else if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' '){ char nm[28]={0}; sscanf(ln+2,"%27s",nm); if(ng<EMESH_MAXOBJ){ snprintf(gname[ng],28,"%.27s",nm[0]?nm:"part"); cur=ng++; } }
+        else if(ln[0]=='f'&&ln[1]==' '){ if(cur<0&&ng<EMESH_MAXOBJ){ snprintf(gname[ng],28,"part0"); cur=ng++; }
+            int idx[64],n=0; char*p=ln+2; while(*p&&n<64){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n'||*p=='\r')break;
+                int vi=atoi(p); if(vi<0)vi=nvs+vi+1; idx[n++]=vi-1; while(*p&&*p!=' '&&*p!='\t')p++; }
+            for(int k=2;k<n;k++)if(nt<200000&&cur>=0){ TG[nt]=cur; TA[nt]=idx[0]; TB[nt]=idx[k-1]; TC[nt]=idx[k]; nt++; } } }
+    fclose(f);
+    if(ng<1||nt<1){ free(VS);free(TG);free(TA);free(TB);free(TC); return 0; }
+    V3 mn={1e30f,1e30f,1e30f},mx={-1e30f,-1e30f,-1e30f};
+    for(int t=0;t<nt;t++){ int v[3]={TA[t],TB[t],TC[t]}; for(int k=0;k<3;k++){ if((unsigned)v[k]>=(unsigned)nvs)continue; V3 p=VS[v[k]];
+        if(p.x<mn.x)mn.x=p.x;if(p.y<mn.y)mn.y=p.y;if(p.z<mn.z)mn.z=p.z;if(p.x>mx.x)mx.x=p.x;if(p.y>mx.y)mx.y=p.y;if(p.z>mx.z)mx.z=p.z; } }
+    V3 c={(mn.x+mx.x)*0.5f,(mn.y+mx.y)*0.5f,(mn.z+mx.z)*0.5f};
+    for(int i=0;i<nvs;i++){ VS[i].x-=c.x; VS[i].y-=c.y; VS[i].z-=c.z; }   /* recentre about the whole model */
+    eobj_free_all();
+    uint16_t col=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
+    int *remap=malloc(sizeof(int)*(nvs>0?nvs:1));
+    for(int g=0;g<ng;g++){ int has=0; for(int t=0;t<nt;t++)if(TG[t]==g){ has=1; break; } if(!has)continue;
+        EObject*o=eobj_new(gname[g]); if(!o)break;
+        for(int i=0;i<nvs;i++)remap[i]=-1;
+        for(int t=0;t<nt;t++)if(TG[t]==g){ int v[3]={TA[t],TB[t],TC[t]}; int ok=1;
+            for(int k=0;k<3;k++){ if((unsigned)v[k]>=(unsigned)nvs){ ok=0; break; } if(remap[v[k]]<0){ remap[v[k]]=o->nv; ev_add(o,VS[v[k]]); } }
+            if(ok){ int q[3]={remap[v[0]],remap[v[1]],remap[v[2]]}; ef_add(o,3,q,col); } }
+        edges_rebuild(o); }
+    free(remap); free(VS); free(TG); free(TA); free(TB); free(TC);
+    return g_nobj; }
 static void eobj_from_import(void){
+    /* OBJ with multiple o/g groups -> import each group as its own object (riggable, exact). */
+    { size_t pl=strlen(g_mesh_path); if(pl>4&&!strcasecmp(g_mesh_path+pl-4,".obj")&&eobj_obj_group_count(g_mesh_path)>1){
+        int n=eobj_import_obj_groups(g_mesh_path);
+        if(n>0){ g_mesh_size=g_mesh_qmax; g_edit_mode=1; eobj_fit();
+            snprintf(g_status,sizeof g_status,"editing %d objects from %s (groups preserved)",n,g_mesh_path); return; } } }
     if(g_nraw<1){ snprintf(g_status,sizeof g_status,"load a .stl/.obj first"); return; }
     if(g_mesh_dirty)mesh_reprocess();
     if(g_dnv<1||g_dnf<1){ snprintf(g_status,sizeof g_status,"nothing to import"); return; }
@@ -1393,7 +1451,7 @@ static void eobj_from_import(void){
     g_edit_mode=1; eobj_fit();
     snprintf(g_status,sizeof g_status,"editing %s — %d verts, %d faces (lower 'tris' budget for simpler topology)",nm,o->nv,o->nf); }
 
-static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.600s/scene.mmesh",g_sel>=0?g_games[g_sel].dir:"."); }
+static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.500s/%.36s.mmesh",g_sel>=0?g_games[g_sel].dir:".",g_model_name); }
 static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     mmesh_pathfor(g_mmesh_path,sizeof g_mmesh_path); FILE*f=fopen(g_mmesh_path,"w");
     if(!f){ snprintf(g_status,sizeof g_status,"cannot write scene.mmesh"); return; }
@@ -1519,7 +1577,7 @@ static int emesh_emit_chunks(FILE*h,const char*pfx,V3*vv,int nvv,int(*tri)[3],in
 static int eobj_rig_parent(int i){ int p=g_obj[i].parent; if(i==0)return -1; if(p<0||p>=i)return (i>0)?0:-1; return p; }
 static void eobj_bake_rig(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(g_nobj<1){ snprintf(g_status,sizeof g_status,"no objects to rig"); return; }
-    char rname[48]; snprintf(rname,sizeof rname,"scene"); char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.40s_rig.h",g_games[g_sel].dir,rname);
+    char rname[48]; snprintf(rname,sizeof rname,"%.36s",g_model_name); char hp[700]; snprintf(hp,sizeof hp,"%.500s/src/%.36s_rig.h",g_games[g_sel].dir,rname);
     FILE*h=fopen(hp,"w"); if(!h){ snprintf(g_status,sizeof g_status,"cannot write src/%s_rig.h",rname); return; }
     fprintf(h,"/* GENERATED by Mote Studio (model editor) — %d-part rig. Draw with mote_anim3d.h. */\n#ifndef MOTE_RIG_%s_H\n#define MOTE_RIG_%s_H\n#include \"mote_mesh.h\"\n#include \"mote_anim3d.h\"\n\n",g_nobj,rname,rname);
     char parts[8192]=""; int pl=0,totf=0;
@@ -1541,9 +1599,9 @@ static void eobj_bake_rig(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,
 static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(g_nobj<1){ snprintf(g_status,sizeof g_status,"no objects to export"); return; }
     char ad[640]; snprintf(ad,sizeof ad,"%.600s/assets",g_games[g_sel].dir); mkdir_portable(ad);
-    char op[700]; snprintf(op,sizeof op,"%.600s/assets/scene.obj",g_games[g_sel].dir);
-    char rp[700]; snprintf(rp,sizeof rp,"%.600s/assets/scene.rig",g_games[g_sel].dir);
-    FILE*f=fopen(op,"w"); if(!f){ snprintf(g_status,sizeof g_status,"cannot write assets/scene.obj"); return; }
+    char op[700]; snprintf(op,sizeof op,"%.500s/assets/%.36s.obj",g_games[g_sel].dir,g_model_name);
+    char rp[700]; snprintf(rp,sizeof rp,"%.500s/assets/%.36s.rig",g_games[g_sel].dir,g_model_name);
+    FILE*f=fopen(op,"w"); if(!f){ snprintf(g_status,sizeof g_status,"cannot write assets/%s.obj",g_model_name); return; }
     FILE*rf=fopen(rp,"w");
     int base=1;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<3||ob->nf<1)continue;
@@ -1557,7 +1615,7 @@ static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
             V3 piv=ob->pivot; if(piv.x==0&&piv.y==0&&piv.z==0)piv=c; fprintf(rf,"part %s parent %s pivot %g %g %g\n",pn,par,piv.x,piv.y,piv.z); }
         free(vv); free(tri); free(tc); }
     fclose(f); if(rf)fclose(rf);
-    snprintf(g_status,sizeof g_status,"exported assets/scene.obj + .rig — open it in the RIG tab to animate"); }
+    snprintf(g_status,sizeof g_status,"exported assets/%s.obj + .rig — open it in the RIG tab to animate",g_model_name); }
 
 /* Persist the live model to ALL its on-disk forms so re-opening any of them from the tree
  * shows the CURRENT model, never a stale pre-edit copy: the editor source (scene.mmesh) AND
@@ -2029,6 +2087,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
 
     /* ---- edit card (compact) ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
+    { char mn[56]; snprintf(mn,sizeof mn,"model: %.40s.mmesh",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15; }
     px=ui_pill(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my);
     px=ui_pill(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my);
     ui_pill(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my); cy+=UI_H+5;
@@ -2104,7 +2163,7 @@ static int mesh_edit_down(int mx,int my){
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
-    if(HITR(g_me_enew)){ eobj_new_scene(); return 1; }
+    if(HITR(g_me_enew)){ prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }
     if(HITR(g_me_bakerig)){ eobj_bake_rig(); return 1; }
     if(HITR(g_me_exportobj)){ eobj_export_obj(); return 1; }
     if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; mirror_status(); return 1; }
@@ -2140,7 +2199,7 @@ static int mesh_edit_key(SDL_Keycode k){
         return 1;                                          /* swallow everything else while modal */
     }
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
-    if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_n){ eobj_new_scene(); return 1; }   /* new empty scene */
+    if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_n){ prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }   /* Ctrl+N: new named model */
     if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_e){ op_extrude(); return 1; }
@@ -2717,7 +2776,7 @@ static void rig_save(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_stat
         int n=g_nrp<g_nobj?g_nrp:g_nobj;
         for(int p=0;p<n;p++){ g_obj[p].parent=g_rp[p].parent; g_obj[p].pivot=g_rp[p].pivot; }
         eobj_export_obj(); eobj_bake_rig(); mmesh_save();
-        snprintf(g_status,sizeof g_status,"saved rig -> assets/scene.obj + scene.rig + src/scene_rig.h"); return; }
+        snprintf(g_status,sizeof g_status,"saved rig -> %s.obj + .rig + src/%s_rig.h",g_model_name,g_model_name); return; }
     const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; char base[64]; snprintf(base,sizeof base,"%.40s",b); char*d=strrchr(base,'.'); if(d)*d=0;
     char rp[420]; snprintf(rp,sizeof rp,"%.330s/assets/%.40s.rig",g_games[g_sel].dir,base); FILE*f=fopen(rp,"w");
     if(f){ fprintf(f,"# Mote rig (Studio) — parts root-first; pivots in model metres\n");
@@ -2733,7 +2792,7 @@ static RQ rq_mul(RQ a,RQ b){ return (RQ){a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y, a.w*b.
 static RQ rq_eul(float rx,float ry,float rz){ return rq_mul(rq_mul(rq_axis(0,0,1,rz),rq_axis(0,1,0,ry)),rq_axis(1,0,0,rx)); }   /* matches mote_quat_euler */
 static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
     if(g_nrk<1){ snprintf(g_status,sizeof g_status,"add keyframes (+Key) before baking a clip"); return; }
-    char base[40]; if(!g_rig_obj[0])snprintf(base,sizeof base,"scene");   /* live model -> match scene_rig.h */
+    char base[40]; if(!g_rig_obj[0])snprintf(base,sizeof base,"%.36s",g_model_name);   /* live model -> match <name>_rig.h */
     else { const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; snprintf(base,sizeof base,"%.30s",b); char*d=strrchr(base,'.'); if(d)*d=0; }
     { char san[40]; emesh_sanitize(base,san,sizeof san); snprintf(base,sizeof base,"%s",san); }
     char hp[440]; snprintf(hp,sizeof hp,"%.330s/src/%.30s.anim3d.h",g_games[g_sel].dir,base); FILE*f=fopen(hp,"w"); if(!f){ snprintf(g_status,sizeof g_status,"could not write %s.anim3d.h",base); return; }
@@ -4653,7 +4712,8 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         struct stat st; if(g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* a live model is loaded -> rig THAT, not a (possibly stale) disk copy */
         else if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
         else snprintf(g_status,sizeof g_status,"no .obj found for rig %s",base); return; }
-    if(ci_ends(nm,".mmesh")){ mmesh_load(); if(g_nobj>0){ g_edit_mode=1; eobj_fit(); } g_tab=TAB_MESH; return; }   /* native model scene -> open in the editor */
+    if(ci_ends(nm,".mmesh")){ char mb[40]; snprintf(mb,sizeof mb,"%.36s",nm); char*d=strrchr(mb,'.'); if(d)*d=0; if(mb[0])snprintf(g_model_name,sizeof g_model_name,"%s",mb);
+        mmesh_load(); if(g_nobj>0){ g_edit_mode=1; eobj_fit(); } g_tab=TAB_MESH; return; }   /* native model scene -> switch to that model + open in the editor */
     if(r->kind==3){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path;   /* root icon.png/.bmp -> icon editor */
         if((!strcasecmp(b,"icon.png")||!strcasecmp(b,"icon.bmp"))&&g_sel>=0&&r->depth<=1){ icon_edit(); }
         else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
@@ -4717,6 +4777,7 @@ int main(int argc,char**argv){
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_IMPORTGROUPS")){ int n=eobj_import_obj_groups(getenv("MOTE_STUDIO_IMPORTGROUPS")); printf("IMPORTGROUPS: %d objects\n",n); for(int i=0;i<g_nobj;i++)printf("  obj %d: %s (%dv %df)\n",i,g_obj[i].name,g_obj[i].nv,g_obj[i].nf); fflush(stdout); }
     if(getenv("MOTE_STUDIO_CLEANTEST")){ int b=g_nobj?g_obj[0].nf:0; eobj_clean(); printf("CLEANTEST: objs=%d obj0_faces %d->%d  status=%s\n",g_nobj,b,(g_nobj?g_obj[0].nf:0),g_status);
         if(getenv("MOTE_STUDIO_BAKEAFTER")){ mmesh_save(); eobj_export_obj(); eobj_bake(); eobj_bake_rig(); printf("BAKEAFTER: persisted scene.mmesh + scene.obj/.rig + baked scene.h + scene_rig.h\n"); }
         if(getenv("MOTE_STUDIO_RIGAFTER")){ rig_build_from_eobj(); g_tab=TAB_RIG; printf("RIGAFTER: %d rig parts, part0 %d tris\n",g_nrp,g_nrp?g_rp[0].nt:0); } fflush(stdout); }
