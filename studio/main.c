@@ -4650,7 +4650,8 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
     if(ci_ends(nm,".rig")||ci_ends(nm,".rig.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".rig"); if(d)*d=0;
         char obj[440]; if(ci_ends(nm,".rig")){ size_t pl=strlen(r->path); snprintf(obj,sizeof obj,"%.*s.obj",(int)(pl-4),r->path); }
         else if(g_sel>=0) snprintf(obj,sizeof obj,"%.250s/assets/%.60s.obj",g_games[g_sel].dir,base); else obj[0]=0;
-        struct stat st; if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
+        struct stat st; if(g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* a live model is loaded -> rig THAT, not a (possibly stale) disk copy */
+        else if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
         else snprintf(g_status,sizeof g_status,"no .obj found for rig %s",base); return; }
     if(ci_ends(nm,".mmesh")){ mmesh_load(); if(g_nobj>0){ g_edit_mode=1; eobj_fit(); } g_tab=TAB_MESH; return; }   /* native model scene -> open in the editor */
     if(r->kind==3){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path;   /* root icon.png/.bmp -> icon editor */
@@ -4658,7 +4659,8 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
     else if(r->kind==4){ size_t pl=strlen(r->path); int isobj=pl>4&&!strcasecmp(r->path+pl-4,".obj"); struct stat rst; char rg[330];
         if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
-        if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
+        if(isobj&&g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }          /* live model loaded -> rig THAT */
+        else if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
         else { load_mesh(r->path); g_edit_mode=0; g_tab=TAB_MESH; } }   /* show the importer preview (not the model editor) */
     else if(ci_ends(r->name,".sfx")||ci_ends(r->name,".sfx.h")){ load_sfx_file(r->path); g_tab=TAB_AUDIO; }  /* SFX recipe -> Audio tab */
     else if(r->kind==6){ load_audio(r->path); g_tab=TAB_AUDIO; }   /* .wav/.mp3/.ogg -> audio tool */
@@ -4715,6 +4717,8 @@ int main(int argc,char**argv){
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_CLEANTEST")){ int b=g_nobj?g_obj[0].nf:0; eobj_clean(); printf("CLEANTEST: objs=%d obj0_faces %d->%d  status=%s\n",g_nobj,b,(g_nobj?g_obj[0].nf:0),g_status);
+        if(getenv("MOTE_STUDIO_RIGAFTER")){ rig_build_from_eobj(); g_tab=TAB_RIG; printf("RIGAFTER: %d rig parts, part0 %d tris\n",g_nrp,g_nrp?g_rp[0].nt:0); } fflush(stdout); }
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
