@@ -4577,8 +4577,8 @@ static void sh_import(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_
     char ap[490]; if(strstr(path,g_games[g_sel].dir)==NULL){ copy_file(path,dst); snprintf(ap,sizeof ap,"%s",dst); } else snprintf(ap,sizeof ap,"%s",path);
     if(sh_load_png(ap)){ snprintf(g_sh_png,sizeof g_sh_png,"assets/%.80s",b); snprintf(g_sh_name,sizeof g_sh_name,"%.50s",b); char*e=strrchr(g_sh_name,'.'); if(e)*e=0;
         snprintf(g_status,sizeof g_status,"loaded sheet %dx%d (%d cells)",g_sh_w,g_sh_h,sh_ncell()); } }
-static void sh_blit_cell(SDL_Renderer*R,int cell,int gx,int gy,int dz){ int cx,cy; sh_cellxy(cell,&cx,&cy);
-    for(int y=0;y<dz;y++)for(int x=0;x<dz;x++){ int sx=cx+x*g_sh_cw/dz,sy=cy+y*g_sh_ch/dz; uint16_t p=(g_sh_buf&&sx<g_sh_w&&sy<g_sh_h)?g_sh_buf[sy*g_sh_w+sx]:KEY565; plain(R,gx+x,gy+y,1,1,p==KEY565?(Col){26,20,30}:c565(p)); } }
+static void sh_blit_cell(SDL_Renderer*R,int cell,int gx,int gy,int dzw,int dzh){ int cx,cy; sh_cellxy(cell,&cx,&cy);
+    for(int y=0;y<dzh;y++)for(int x=0;x<dzw;x++){ int sx=cx+x*g_sh_cw/(dzw?dzw:1),sy=cy+y*g_sh_ch/(dzh?dzh:1); uint16_t p=(g_sh_buf&&sx<g_sh_w&&sy<g_sh_h)?g_sh_buf[sy*g_sh_w+sx]:KEY565; plain(R,gx+x,gy+y,1,1,p==KEY565?(Col){26,20,30}:c565(p)); } }
 static void sh_save_png(void){ if(g_sel<0||!g_sh_buf||!g_sh_png[0])return; int W=g_sh_w,H=g_sh_h; if((long)W*H>1024*1024)return;
     unsigned char*rgba=malloc((size_t)W*H*4); for(int i=0;i<W*H;i++){ uint16_t c=g_sh_buf[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
     char p[500]; snprintf(p,sizeof p,"%.330s/%.150s",g_games[g_sel].dir,g_sh_png); stbi_write_png(p,W,H,4,rgba,W*4); free(rgba); }
@@ -4608,9 +4608,12 @@ static void draw_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     int cyy=ui_card(R,ox,gy,gwid,gh,"CELLS"); int ax=ox+12;
     int cols=sh_cols(),rows=sh_rows(),nc=sh_ncell();
     if(!g_sh_buf){ text(R,"Load a PNG, then set cell size \xb7 click a cell to edit it",ax,cyy+2,1,C_DIM,C_PANEL); }
-    else { int availw=gwid-24, availh=gy+gh-cyy-6; int dz=availw/(cols?cols:1); { int dzh=availh/(rows?rows:1); if(dzh<dz)dz=dzh; } if(dz<5)dz=5; if(dz>28)dz=28;
-        for(int i=0;i<nc&&i<512;i++){ int gx=ax+(i%cols)*(dz+1),gyy=cyy+(i/cols)*(dz+1); if(gyy+dz>gy+gh-4)break; g_sh_cell[i]=(SDL_Rect){gx,gyy,dz,dz};
-            sh_blit_cell(R,i,gx,gyy,dz); rect_outline(R,gx,gyy,dz,dz,i==g_sh_sel?C_ACC:C_LINE,1); } }
+    else { int availw=gwid-24, availh=gy+gh-cyy-6;   /* size cells at the cellw:cellh aspect, fit cols x rows */
+        float sw=(float)(availw-cols)/(float)(cols*(g_sh_cw>0?g_sh_cw:1)), sh=(float)(availh-rows)/(float)(rows*(g_sh_ch>0?g_sh_ch:1));
+        float s=sw<sh?sw:sh; { float cap=28.0f/(float)(g_sh_cw>g_sh_ch?g_sh_cw:g_sh_ch); if(s>cap)s=cap; } if(s<=0)s=0.1f;
+        int dzw=(int)(g_sh_cw*s),dzh=(int)(g_sh_ch*s); if(dzw<4)dzw=4; if(dzh<4)dzh=4;
+        for(int i=0;i<nc&&i<512;i++){ int gx=ax+(i%cols)*(dzw+1),gyy=cyy+(i/cols)*(dzh+1); if(gyy+dzh>gy+gh-4)break; g_sh_cell[i]=(SDL_Rect){gx,gyy,dzw,dzh};
+            sh_blit_cell(R,i,gx,gyy,dzw,dzh); rect_outline(R,gx,gyy,dzw,dzh,i==g_sh_sel?C_ACC:C_LINE,1); } }
 
     /* ===== right: EDIT cell + palette + the draw-it-in-code readout ===== */
     int bx=ox+gwid+8, bw=w-gwid-8;
