@@ -317,6 +317,7 @@ static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; s
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect 6 sq-brush 7 round-brush */
 static int g_brush_size=3, g_brush_hard=100;                  /* brush diameter (px) + hardness % (100=hard, <100 dithers a soft edge) */
+static const uint8_t BAYER4[16]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};   /* ordered-dither threshold for soft brush edges */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
 #define UNDON 12
@@ -3293,7 +3294,8 @@ static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen,g_tl_dup;
 static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
-static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[6],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[8],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static SDL_Rect g_dr_bsz_m,g_dr_bsz_p,g_dr_bhd_m,g_dr_bhd_p;   /* brush size/hardness steppers in the cell-editor panel */
 static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
 static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
 static SDL_Rect g_lv_cm,g_lv_cp,g_lv_rm,g_lv_rp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
@@ -3507,11 +3509,16 @@ static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ blit
  * both the Tiles cell editor and the Anim frame editor. Lays out a column at (rxx,ry) down
  * to `bottom`; sets the global g_dr_* rects so px_panel_down/drag can hit-test them. */
 static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
-    static const int TIC[6]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH};
+    static const int TIC[8]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH,IC_SQUARE,-2};   /* +sq/round brush */
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<6;i++){ int bx=rxx+i*28; g_dr_tool[i]=(SDL_Rect){bx,ry,26,22}; int act=g_ptool==i,hov=hit(mx,my,bx,ry,26,22);
-        rrect(R,bx,ry,26,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,TIC[i],bx+6,ry+4,14,act?C_HDR:C_TXT); }
-    int hy=ry+28, sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
+    for(int i=0;i<8;i++){ int bx=rxx+(i%4)*28, by=ry+(i/4)*24; g_dr_tool[i]=(SDL_Rect){bx,by,26,22}; int act=g_ptool==i,hov=hit(mx,my,bx,by,26,22);   /* 2 rows of 4 */
+        rrect(R,bx,by,26,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
+        if(TIC[i]==-2) disc(R,bx+13,by+11,5,act?C_HDR:C_TXT); else icon(R,TIC[i],bx+6,by+4,14,act?C_HDR:C_TXT); }
+    int hy=ry+52;   /* below the two tool rows */
+    if(g_ptool==6||g_ptool==7){ char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); ui_stepper(R,rxx,hy,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my); hy+=22;
+        snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,rxx,hy,"hd",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my); hy+=24; }
+    else g_dr_bsz_m=g_dr_bsz_p=g_dr_bhd_m=g_dr_bhd_p=(SDL_Rect){0,0,0,0};
+    int sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_dr_hsv=(SDL_Rect){rxx,hy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_dr_hsv); rect_outline(R,rxx,hy,sq,sq,C_LINE,1);
     { int cxp=rxx+(int)(g_sat*sq),cyp=hy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
     g_dr_hue=(SDL_Rect){rxx+sq+6,hy,14,sq}; for(int yy=0;yy<sq;yy++){ Col c=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,g_dr_hue.x,hy+yy,g_dr_hue.x+14,hy+yy); }
@@ -3520,7 +3527,11 @@ static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
     int py2=swy+18; for(int i=0;i<G_NPAL;i++){ int sx=rxx+(i%11)*15,sy=py2+(i/11)*15; g_dr_pal[i]=(SDL_Rect){sx,sy,13,13}; plain(R,sx,sy,13,13,c565(pal565(i))); if(pal565(i)==g_pcol){ SDL_SetRenderDrawColor(R,255,255,255,255); SDL_Rect s={sx-1,sy-1,15,15}; SDL_RenderDrawRect(R,&s); } }
 }
 static int px_panel_down(int mx,int my){
-    for(int i=0;i<6;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return 1; }
+    for(int i=0;i<8;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return 1; }
+    if(hit(mx,my,g_dr_bsz_m.x,g_dr_bsz_m.y,g_dr_bsz_m.w,g_dr_bsz_m.h)){ if(g_brush_size>1)g_brush_size--; return 1; }
+    if(hit(mx,my,g_dr_bsz_p.x,g_dr_bsz_p.y,g_dr_bsz_p.w,g_dr_bsz_p.h)){ if(g_brush_size<32)g_brush_size++; return 1; }
+    if(hit(mx,my,g_dr_bhd_m.x,g_dr_bhd_m.y,g_dr_bhd_m.w,g_dr_bhd_m.h)){ if(g_brush_hard>0)g_brush_hard-=10; return 1; }
+    if(hit(mx,my,g_dr_bhd_p.x,g_dr_bhd_p.y,g_dr_bhd_p.w,g_dr_bhd_p.h)){ if(g_brush_hard<100)g_brush_hard+=10; return 1; }
     for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,g_dr_rec[i].x,g_dr_rec[i].y,13,13)){ px_setcol(g_recent[i]); return 1; }
     for(int i=0;i<G_NPAL;i++)if(hit(mx,my,g_dr_pal[i].x,g_dr_pal[i].y,13,13)){ px_setcol(pal565(i)); return 1; }
     if(hit(mx,my,g_dr_hsv.x,g_dr_hsv.y,g_dr_hsv.w,g_dr_hsv.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_dr_hsv.x)/(float)g_dr_hsv.w,0,1); g_val=clampf(1-(my-g_dr_hsv.y)/(float)g_dr_hsv.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return 1; }
@@ -3544,9 +3555,20 @@ static void cell_rectout(uint16_t*sh,int W,int cx,int cy,int x0,int y0,int x1,in
     for(int y=y0;y<=y1;y++){ cell_set(sh,W,cx,cy,x0,y,col); cell_set(sh,W,cx,cy,x1,y,col); } }
 static void cell_flood(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,uint16_t col){ uint16_t old=sh[(cy+y)*W+cx+x]; if(old==col)return; int st[4096],sp=0; st[sp++]=y*cw+x;
     while(sp){ int q=st[--sp],qx=q%cw,qy=q/cw; uint16_t*c=&sh[(cy+qy)*W+cx+qx]; if(*c!=old)continue; *c=col; if(qx>0)st[sp++]=qy*cw+qx-1; if(qx<cw-1)st[sp++]=qy*cw+qx+1; if(qy>0)st[sp++]=(qy-1)*cw+qx; if(qy<ch-1)st[sp++]=(qy+1)*cw+qx; if(sp>4000)break; } }
+/* Stamp a brush (square=6 / round=7) of g_brush_size into a cw*ch cell at (cx,cy)
+ * of a sheet of stride W. Hardness feathers the edge with the shared Bayer dither
+ * (the same model as the main canvas px_brush). */
+static void cell_brush(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y){
+    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f);
+    float h=g_brush_hard*0.01f,fall=1.0f-h; if(fall<0.001f)fall=0.001f; int rnd=(g_ptool==7);
+    for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int px=x+dx,py=y+dy; if(px<0||py<0||px>=cw||py>=ch)continue;
+        float d=rnd?sqrtf((float)(dx*dx+dy*dy))/rad:(float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad; if(d>1.0f)continue;
+        float cov=h>=1.0f?1.0f:(1.0f-d)/fall; if(cov>1.0f)cov=1.0f; if(cov<=0.0f)continue;
+        if(cov>=1.0f||(BAYER4[(py&3)*4+(px&3)]+0.5f)/16.0f<cov) sh[(cy+py)*W+cx+px]=g_pcol; } }
 static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,int phase){   /* phase: 0 down · 1 drag · 2 up */
     if(x<0)x=0; if(x>=cw)x=cw-1; if(y<0)y=0; if(y>=ch)y=ch-1;
     if(g_ptool==4||g_ptool==5){ if(phase==0){ g_cdx=x; g_cdy=y; } else if(phase==2&&g_cdx>=0){ if(g_ptool==4)cell_line(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); else cell_rectout(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); px_recent(g_pcol); g_cdx=g_cdy=-1; } return; }
+    if(g_ptool==6||g_ptool==7){ if(phase!=2){ cell_brush(sh,W,cx,cy,cw,ch,x,y); px_recent(g_pcol); } return; }
     if(phase==2)return;
     uint16_t*pp=&sh[(cy+y)*W+cx+x];
     if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
@@ -4402,13 +4424,17 @@ static int draw_glyph_grid(SDL_Renderer*R,int x,int y,int w,int mx,int my){
 }
 /* grayscale-only palette for the glyph editor: a glyph stores COVERAGE (luminance),
  * so colour is meaningless — the ramp goes transparent/none -> grey AA -> solid white. */
-static SDL_Rect g_gs_tool[6], g_gs_ramp[16];
+static SDL_Rect g_gs_tool[8], g_gs_ramp[16];
 static void draw_glyph_palette(SDL_Renderer*R,int px,int py){
-    static const int TIC[6]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH};
+    static const int TIC[8]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH,IC_SQUARE,-2};   /* +sq/round brush */
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<6;i++){ int bx=px+i*24; g_gs_tool[i]=(SDL_Rect){bx,py,22,22}; int act=g_ptool==i,hov=hit(mx,my,bx,py,22,22);
-        rrect(R,bx,py,22,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN)); icon(R,TIC[i],bx+4,py+4,14,act?C_HDR:C_TXT); }
-    int ry=py+30; text(R,"coverage  (white = solid, grey = AA edge)",px,ry,1,C_DIM,(Col){16,18,26}); ry+=15;
+    for(int i=0;i<8;i++){ int bx=px+i*24; g_gs_tool[i]=(SDL_Rect){bx,py,22,22}; int act=g_ptool==i,hov=hit(mx,my,bx,py,22,22);
+        rrect(R,bx,py,22,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
+        if(TIC[i]==-2) disc(R,bx+11,py+11,5,act?C_HDR:C_TXT); else icon(R,TIC[i],bx+4,py+4,14,act?C_HDR:C_TXT); }
+    int ry=py+30;
+    if(g_ptool==6||g_ptool==7){ char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); int xx=ui_stepper(R,px,ry,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my);
+        snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,xx+6,ry,"",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my); ry+=24; }
+    text(R,"coverage  (white = solid, grey = AA edge)",px,ry,1,C_DIM,(Col){16,18,26}); ry+=15;
     int n=16, sw=20, sh=22;
     for(int i=0;i<n;i++){ int v=i*255/(n-1); int gx=px+(i%8)*(sw+2), gy=ry+(i/8)*(sh+4);
         g_gs_ramp[i]=(SDL_Rect){gx,gy,sw,sh}; uint16_t c=(uint16_t)MOTE_RGB565(v,v,v);
@@ -4517,7 +4543,9 @@ static void font_down(int mx,int my){
         if(HF(g_fn_bake)){ font_gs_savebuf(); return; }   /* Save+Bake writes the SHEET, not the TTF */
         if(HF(g_fn_edit)){ g_glyph_browse=0; return; }    /* Close glyphs -> font view (size lives there) */
         for(int i=0;i<g_gs_count&&i<128;i++) if(HF(g_gs_cellr[i])){ g_gs_sel=i; return; }
-        for(int i=0;i<6;i++) if(HF(g_gs_tool[i])){ g_ptool=i; return; }                      /* pencil/erase/fill/pick/line/rect */
+        for(int i=0;i<8;i++) if(HF(g_gs_tool[i])){ g_ptool=i; return; }                      /* pencil/erase/fill/pick/line/rect/sq-brush/round-brush */
+        if(HF(g_dr_bsz_m)){ if(g_brush_size>1)g_brush_size--; return; } if(HF(g_dr_bsz_p)){ if(g_brush_size<32)g_brush_size++; return; }
+        if(HF(g_dr_bhd_m)){ if(g_brush_hard>0)g_brush_hard-=10; return; } if(HF(g_dr_bhd_p)){ if(g_brush_hard<100)g_brush_hard+=10; return; }
         for(int i=0;i<16;i++) if(HF(g_gs_ramp[i])){ int v=i*255/15; g_pcol=(uint16_t)MOTE_RGB565(v,v,v); return; }   /* grayscale coverage */
         if(hit(mx,my,g_gs_edit.x,g_gs_edit.y,g_gs_edit.w,g_gs_edit.h)){ g_gs_paint=1; glyph_paint_at(mx,my,0); g_gs_dirty=1; }
         return; }
@@ -4689,7 +4717,6 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
  * RGB565 + colour-key (no per-pixel alpha), so "hardness" feathers the edge by
  * ORDERED DITHER: pixels inside hardness*radius are solid, the rim is stippled by
  * a 4x4 Bayer threshold against the coverage. Hardness 100 = a crisp hard edge. */
-static const uint8_t BAYER4[16]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};
 static void px_brush(int cx,int cy,int round){
     float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f);
     float h=g_brush_hard*0.01f, fall=1.0f-h; if(fall<0.001f)fall=0.001f;
@@ -5071,6 +5098,7 @@ int main(int argc,char**argv){
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
+    if(getenv("MOTE_STUDIO_TOOL")) g_ptool=atoi(getenv("MOTE_STUDIO_TOOL"));   /* capture hook: preselect a pixel tool */
     if(getenv("MOTE_STUDIO_BRUSHDAB")){ g_csize=48; canvas_new(); g_tab=TAB_PIXEL; g_pcol=(uint16_t)MOTE_RGB565(90,200,120);   /* capture hook: brush dabs */
         g_ptool=7; g_brush_size=15; g_brush_hard=100; px_brush(12,12,1); g_brush_hard=40; px_brush(35,12,1);
         g_ptool=6; g_brush_hard=100; px_brush(12,35,0); g_brush_hard=40; px_brush(35,35,0); g_brush_size=10; }
