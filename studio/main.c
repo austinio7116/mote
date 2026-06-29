@@ -4777,10 +4777,6 @@ int main(int argc,char**argv){
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
-    if(getenv("MOTE_STUDIO_IMPORTGROUPS")){ int n=eobj_import_obj_groups(getenv("MOTE_STUDIO_IMPORTGROUPS")); printf("IMPORTGROUPS: %d objects\n",n); for(int i=0;i<g_nobj;i++)printf("  obj %d: %s (%dv %df)\n",i,g_obj[i].name,g_obj[i].nv,g_obj[i].nf); fflush(stdout); }
-    if(getenv("MOTE_STUDIO_CLEANTEST")){ int b=g_nobj?g_obj[0].nf:0; eobj_clean(); printf("CLEANTEST: objs=%d obj0_faces %d->%d  status=%s\n",g_nobj,b,(g_nobj?g_obj[0].nf:0),g_status);
-        if(getenv("MOTE_STUDIO_BAKEAFTER")){ mmesh_save(); eobj_export_obj(); eobj_bake(); eobj_bake_rig(); printf("BAKEAFTER: persisted scene.mmesh + scene.obj/.rig + baked scene.h + scene_rig.h\n"); }
-        if(getenv("MOTE_STUDIO_RIGAFTER")){ rig_build_from_eobj(); g_tab=TAB_RIG; printf("RIGAFTER: %d rig parts, part0 %d tris\n",g_nrp,g_nrp?g_rp[0].nt:0); } fflush(stdout); }
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
@@ -4799,9 +4795,7 @@ int main(int argc,char**argv){
             else { op_extrude(); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
         if(getenv("MOTE_STUDIO_MESHPRIMS")){ eobj_free_all(); prim_cylinder(0.4f,1.0f,16); g_obj[g_objsel].origin.x=-1.4f;
-            prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit();
-            if(getenv("MOTE_STUDIO_MESHSOLID"))g_edit_mode=0;      /* cyl/cone/sphere row; MESHSOLID -> non-edit live preview */
-            if(getenv("MOTE_STUDIO_RIGLIVE")){ rig_build_from_eobj(); g_tab=TAB_RIG; g_edit_mode=0; } }   /* RIGLIVE -> rig the live model */
+            prim_cone(0.4f,1.0f,16); g_obj[g_objsel].origin.x=0; prim_uvsphere(0.5f,8,12); g_obj[g_objsel].origin.x=1.4f; eobj_fit(); }
         if(getenv("MOTE_STUDIO_MESHPAINT")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[0].sel=g_obj[0].f[2].sel=g_obj[0].f[4].sel=1;
             g_hue=0; g_sat=g_val=1; g_mesh_rgb=mesh_hsv_rgb(); eobj_paint_faces(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }   /* paint 3 faces red, bake face_colors */
         if(getenv("MOTE_STUDIO_MESHRIG")){ eobj_free_all(); prim_cube(0.6f); prim_cylinder(0.25f,1.2f,12); g_obj[g_objsel].origin.y=0.9f; g_obj[g_objsel].parent=0; eobj_fit();
