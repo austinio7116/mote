@@ -122,11 +122,19 @@ if(MOTE_TARGET STREQUAL "host")
         string(REPLACE ":" ";" parts ${g})
         list(GET parts 0 gname)
         list(GET parts 1 gdir)
-        add_library(${gname} MODULE examples/${gdir}/src/game.c)
+        # The games/examples split (commit d4aaa9b) moved some games to games/;
+        # resolve each from wherever its source actually lives so the host build
+        # never silently freezes on a dead examples/ path.
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/games/${gdir}/src/game.c)
+            set(gbase games/${gdir})
+        else()
+            set(gbase examples/${gdir})
+        endif()
+        add_library(${gname} MODULE ${gbase}/src/game.c)
         set_target_properties(${gname} PROPERTIES PREFIX "" SUFFIX ".so")
         target_include_directories(${gname} PRIVATE
             ${MOTE_INCLUDE_DIRS}
-            examples/${gdir}/src)
+            ${gbase}/src)
         target_compile_options(${gname} PRIVATE -O2 -ffast-math -fPIC)
     endforeach()
     endif()  # NOT WIN32 (game modules)
