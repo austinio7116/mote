@@ -4974,7 +4974,8 @@ int main(int argc,char**argv){
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
                     else if(g_tab==TAB_MESH){ if(g_edit_mode&&g_op.op!=OP_NONE&&e.button.button==SDL_BUTTON_RIGHT)op_cancel();   /* RMB cancels a modal op */
                             else if(e.button.button==SDL_BUTTON_MIDDLE){ g_mdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
-                            else if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                            else if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(e.button.button==SDL_BUTTON_MIDDLE){ g_rdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
+                                else if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
@@ -5019,7 +5020,7 @@ int main(int argc,char**argv){
                         g_lx=e.motion.x; g_ly=e.motion.y; }
                     else if(g_pose_mode&&g_nrk){ int a=g_gz_drag-3; float ang=atan2f((float)(e.motion.y-g_gz_o.y),(float)(e.motion.x-g_gz_o.x)), d=ang-g_gz_ang;
                         while(d>3.14159265f)d-=6.2831853f; while(d<-3.14159265f)d+=6.2831853f; ((float*)&g_rk[g_ksel].erot[g_rsel])[a]+=d; g_gz_ang=ang; } }
-                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw-=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
+                else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw-=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_FONT)font_drag(e.motion.x,e.motion.y);
