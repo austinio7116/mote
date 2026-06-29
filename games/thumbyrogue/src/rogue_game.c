@@ -192,7 +192,8 @@ static void save_fill_common(RogueSave *s, int run_active) {
 
 /* Between-floor checkpoint: regenerates the floor at its entrance on resume. */
 void rogue_game_save(int run_active) {
-    RogueSave s;
+    static RogueSave s;   /* ~4.2 KB — MUST stay off the device's 4 KB/core stack
+                           * (save/load run on core0 only, never re-entrant) */
     save_fill_common(&s, run_active);
     s.suspended = 0;
     rogue_plat_save((const uint8_t *)&s, (int)sizeof s);
@@ -202,7 +203,8 @@ void rogue_game_save(int run_active) {
  * drops you back on the same spot with the same enemies / loot / chests. */
 void rogue_game_save_full(void) {
     if (s_title || !s_player.alive || s_depth <= 0) { rogue_game_save(1); return; }
-    RogueSave s;
+    static RogueSave s;   /* ~4.2 KB — MUST stay off the device's 4 KB/core stack
+                           * (save/load run on core0 only, never re-entrant) */
     save_fill_common(&s, 1);
     s.suspended = 1;
     s.px = s_player.pos.x; s.py = s_player.pos.y; s.pz = s_player.pos.z;
@@ -216,7 +218,8 @@ void rogue_game_save_full(void) {
 static void load_level(void);
 /* Try to resume a saved run. Returns true if a live run was restored. */
 static bool try_resume(void) {
-    RogueSave s;
+    static RogueSave s;   /* ~4.2 KB — MUST stay off the device's 4 KB/core stack
+                           * (save/load run on core0 only, never re-entrant) */
     int n = rogue_plat_load((uint8_t *)&s, (int)sizeof s);
     if (n < (int)sizeof s || s.magic != ROGUE_SAVE_MAGIC) return false;
     if (s.best > s_best_depth) s_best_depth = s.best;

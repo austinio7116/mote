@@ -104,8 +104,14 @@ def build_device(d, name, srcs, gamesrc, outdir):
     if not shutil.which(ARM + "gcc"):
         sys.exit("mote: %sgcc not found (install gcc-arm-none-eabi)" % ARM)
     objs = []
+    # The device runs game code on the runner's 4 KB/core stack (SCRATCH_X/Y),
+    # with NO overflow guard — a too-big stack frame silently corrupts adjacent
+    # RAM (a device-only hang the big-stack host never reproduces). -Wstack-usage
+    # flags any single function frame over half the stack at COMPILE time, so the
+    # whole class is caught pre-flight. (Warning only — never fails the build.)
     base = ["-O2", "-ffast-math", "-ffreestanding", "-fno-common",
             "-ffunction-sections", "-fdata-sections", "-Wno-format-truncation",
+            "-Wstack-usage=2048",
             "-DMOTE_DEVICE=1", "-DMOTE_MODULE_BUILD=1"] + game_cflags(d)
     for c in srcs:
         o = os.path.join(outdir, os.path.basename(c) + ".o")

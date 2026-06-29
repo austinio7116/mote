@@ -56,7 +56,14 @@ uint32_t craft_platform_rand32(void) {
 }
 
 /* ---- save storage: a single run blob on the engine's per-game save slot 0
- *      (mote->save/load -> /mote/saves/thumbyrogue/0.sav). --------------- */
+ *      (mote->save/load -> /mote/saves/thumbyrogue/0.sav).
+ *
+ * The blob is the whole RogueSave (~4.2 KB: equip/bag/enemies/ground for a full
+ * mid-level suspend). That fits the FAT-backed slot store used by the ThumbyOne
+ * slot runner and the host — the intended deployment. NOTE: the *bare* standalone
+ * Mote OS backs each slot with a single 4 KB flash sector (4088 B usable), so a
+ * RogueSave would be truncated there and fail the load size-check — saves only
+ * round-trip on the FAT/slot-runner (or host) builds. ----------------------- */
 int rogue_plat_save(const uint8_t *data, int len) {
     return (mote->save && mote->save(0, data, len) > 0) ? 1 : 0;
 }
