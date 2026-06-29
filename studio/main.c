@@ -1818,6 +1818,20 @@ static void eobj_flip_normals(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objse
     int any=0,n=0; for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ any=1; break; }
     for(int fi=0;fi<o->nf;fi++){ if(any&&!o->f[fi].sel)continue; EFace*f=&o->f[fi]; for(int a=1,b=f->nv-1;a<b;a++,b--){ int t=f->v[a]; f->v[a]=f->v[b]; f->v[b]=t; } n++; }
     snprintf(g_status,sizeof g_status,"flipped %d face%s",n,n==1?"":"s"); }
+/* Recalculate outward: orient every face of the active object to face away from the object's
+ * centroid (Blender's Shift+N). Fixes inward-wound geometry — an old cylinder, or an imported
+ * mesh with inconsistent winding — so it survives the engine's back-face cull. The centroid
+ * heuristic is exact for convex/star-shaped shapes (all primitives) and good for most models;
+ * use Flip for manual per-face control on tricky concavities. */
+static void eobj_recalc_outward(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(o->nv<1)return; eundo_push();
+    V3 c={0,0,0}; for(int i=0;i<o->nv;i++){ c.x+=o->v[i].p.x; c.y+=o->v[i].p.y; c.z+=o->v[i].p.z; } c.x/=o->nv; c.y/=o->nv; c.z/=o->nv;
+    int n=0; for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; if(f->nv<3)continue;
+        V3 a=o->v[f->v[0]].p,b=o->v[f->v[1]].p,d=o->v[f->v[2]].p;
+        V3 e1={b.x-a.x,b.y-a.y,b.z-a.z},e2={d.x-a.x,d.y-a.y,d.z-a.z};
+        V3 nrm={e1.y*e2.z-e1.z*e2.y,e1.z*e2.x-e1.x*e2.z,e1.x*e2.y-e1.y*e2.x};
+        V3 fc={0,0,0}; for(int k=0;k<f->nv;k++){ fc.x+=o->v[f->v[k]].p.x; fc.y+=o->v[f->v[k]].p.y; fc.z+=o->v[f->v[k]].p.z; } fc.x/=f->nv; fc.y/=f->nv; fc.z/=f->nv;
+        if(nrm.x*(fc.x-c.x)+nrm.y*(fc.y-c.y)+nrm.z*(fc.z-c.z)<0){ for(int p=1,q=f->nv-1;p<q;p++,q--){ int t=f->v[p]; f->v[p]=f->v[q]; f->v[q]=t; } n++; } }
+    snprintf(g_status,sizeof g_status,"recalc outward: fixed %d inward face%s",n,n==1?"":"s"); }
 static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ snprintf(g_status,sizeof g_status,"paint: switch to Face mode (3)"); return; }
     EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
     for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
@@ -1842,7 +1856,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
-static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
+static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -1966,7 +1980,8 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
         cy+=sq+8;
     } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
     px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
-    px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+6;
+    px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+4;
+    text(R,"Normals",lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL); ui_btn(R,lx+textw(R,"Normals",1)+6,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my); cy+=UI_H+6;
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue — match the gizmo + plane */
       px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my);
       ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); cy+=UI_H+4;
@@ -2014,6 +2029,7 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_edel)){ eobj_delete_sel(); return 1; }
     if(HITR(g_me_emerge)){ eobj_merge_sel(); return 1; }
     if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
+    if(HITR(g_me_erecalc)){ eobj_recalc_outward(); return 1; }
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
@@ -2061,6 +2077,7 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_d&&(md&KMOD_SHIFT)){ eobj_dup_object(); eobj_fit(); return 1; }   /* Shift+D duplicate object */
     if(k==SDLK_x){ eobj_delete_sel(); return 1; }                                /* X delete selection/object */
     if(k==SDLK_m){ eobj_merge_sel(); return 1; }                                 /* M merge selected verts */
+    if(k==SDLK_n&&(md&KMOD_SHIFT)&&(md&KMOD_CTRL)){ eobj_recalc_outward(); return 1; }   /* Ctrl+Shift+N recalc outward */
     if(k==SDLK_n&&(md&KMOD_SHIFT)){ eobj_flip_normals(); return 1; }             /* Shift+N flip normals */
     if(k==SDLK_p&&!(md&KMOD_SHIFT)){ eobj_paint_faces(); return 1; }             /* P paint faces with picker colour */
     if(k==SDLK_1){ set_sel_mode(0); return 1; }
