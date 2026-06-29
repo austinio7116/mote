@@ -1559,6 +1559,12 @@ static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
     fclose(f); if(rf)fclose(rf);
     snprintf(g_status,sizeof g_status,"exported assets/scene.obj + .rig — open it in the RIG tab to animate"); }
 
+/* Persist the live model to ALL its on-disk forms so re-opening any of them from the tree
+ * shows the CURRENT model, never a stale pre-edit copy: the editor source (scene.mmesh) AND
+ * the exported scene.obj + scene.rig that the Mesh/Rig tabs re-load. Called automatically on
+ * leaving the editor / Mesh tab. */
+static void eobj_persist(void){ if(g_sel<0||g_nobj<1)return; mmesh_save(); eobj_export_obj(); }
+
 /* ---- Phase 2: selection (pick / box / all, mode conversion, hover) ---- */
 static int g_hover_obj=-1, g_hover_idx=-1;      /* element under the cursor (kind == g_sel_mode), for highlight */
 static int g_box_active=0; static int g_box_x0,g_box_y0,g_box_x1,g_box_y1;   /* LMB drag = box-select, LMB click = pick (resolved on mouse-up); MMB = orbit */
@@ -2059,7 +2065,7 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
-    if(HITR(g_me_eexit)){ if(g_nobj>0)mmesh_save(); g_edit_mode=0; return 1; }   /* persist the model on leaving the editor */
+    if(HITR(g_me_eexit)){ eobj_persist(); g_edit_mode=0; return 1; }   /* persist model + scene.obj/.rig on leaving the editor */
     if(HITR(g_me_view)){                                   /* viewport */
         if(g_op.op!=OP_NONE){ if(!g_op.drag)op_confirm(); return 1; }   /* LMB confirms an active modal op */
         if(g_mgz_on)for(int a=0;a<3;a++){ int dx=mx-g_mgz_ax[a].x,dy=my-g_mgz_ax[a].y;   /* grab a gizmo handle -> drag-move on that axis */
@@ -2073,7 +2079,7 @@ static int mesh_edit_down(int mx,int my){
 }
 /* keyboard for the MESH tab edit mode (routed from the main event loop); 1 if consumed */
 static int mesh_edit_key(SDL_Keycode k){
-    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); if(g_edit_mode&&g_nobj>0)mmesh_save(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }   /* persist on leaving the editor */
+    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); if(g_edit_mode)eobj_persist(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }   /* persist on leaving the editor */
     if(!g_edit_mode)return 0;
     SDL_Keymod md=SDL_GetModState();
     if(g_op.op!=OP_NONE){                                   /* a modal op is live — route keys to it */
@@ -4913,7 +4919,7 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH&&g_nobj>0)mmesh_save(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH)eobj_persist(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
