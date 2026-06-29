@@ -470,8 +470,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_FONT, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","MESH","RIG","AUDIO","FONT","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_SHEET, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_FONT, TAB_DEVICE, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","SHEET","MESH","RIG","AUDIO","FONT","DEVICE","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 /* Open the launcher icon in the Pixel Art editor (create a blank 60x60 if none).
  * Save then writes <root>/icon.png + bakes src/icon.h — no raw header, no CLI.
@@ -1963,6 +1963,134 @@ static void eobj_paint_faces(void){ if(!g_nobj){ return; } if(g_sel_mode!=2){ sn
     EObject*o=&g_obj[g_objsel]; uint16_t col=emesh_curcol(); int n=0; eundo_push();
     for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ o->f[fi].color=col; n++; }
     if(!n)snprintf(g_status,sizeof g_status,"select faces to paint"); else snprintf(g_status,sizeof g_status,"painted %d face%s",n,n==1?"":"s"); }
+
+/* ---- Phase 7: more modeling tools + selection helpers + set-origin ----------------- */
+
+/* F — make a face from 3 or 4 selected verts (quad ordered CCW around its plane to avoid a bowtie). */
+static void eobj_make_face(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel];
+    int idx[8],n=0; for(int i=0;i<o->nv;i++)if(o->v[i].sel){ if(n<8)idx[n]=i; n++; }
+    if(n<3||n>4){ snprintf(g_status,sizeof g_status,"make face: select 3 or 4 verts (have %d)",n); return; }
+    if(n==4){   /* order CCW around the centroid in the face's best-fit plane */
+        V3 c={0,0,0}; for(int k=0;k<4;k++){ c.x+=o->v[idx[k]].p.x; c.y+=o->v[idx[k]].p.y; c.z+=o->v[idx[k]].p.z; } c.x/=4;c.y/=4;c.z/=4;
+        V3 a={o->v[idx[1]].p.x-o->v[idx[0]].p.x,o->v[idx[1]].p.y-o->v[idx[0]].p.y,o->v[idx[1]].p.z-o->v[idx[0]].p.z};
+        V3 b={o->v[idx[2]].p.x-o->v[idx[0]].p.x,o->v[idx[2]].p.y-o->v[idx[0]].p.y,o->v[idx[2]].p.z-o->v[idx[0]].p.z};
+        V3 nr={a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
+        float al=sqrtf(a.x*a.x+a.y*a.y+a.z*a.z); if(al<1e-6f)al=1; a.x/=al;a.y/=al;a.z/=al;
+        V3 by={nr.y*a.z-nr.z*a.y,nr.z*a.x-nr.x*a.z,nr.x*a.y-nr.y*a.x};
+        float bl=sqrtf(by.x*by.x+by.y*by.y+by.z*by.z); if(bl<1e-6f)bl=1; by.x/=bl;by.y/=bl;by.z/=bl;
+        float ang[4]; for(int k=0;k<4;k++){ V3 d={o->v[idx[k]].p.x-c.x,o->v[idx[k]].p.y-c.y,o->v[idx[k]].p.z-c.z}; ang[k]=atan2f(d.x*by.x+d.y*by.y+d.z*by.z, d.x*a.x+d.y*a.y+d.z*a.z); }
+        for(int p=0;p<3;p++)for(int q=p+1;q<4;q++)if(ang[q]<ang[p]){ float t=ang[p];ang[p]=ang[q];ang[q]=t; int ti=idx[p];idx[p]=idx[q];idx[q]=ti; } }
+    eundo_push(); ef_add(o,n,idx,emesh_curcol()); edges_rebuild(o);
+    snprintf(g_status,sizeof g_status,"made a %d-gon (Recalc if it faces inward)",n); }
+
+/* P — separate the selected faces (or fully-selected faces in vert/edge mode) into a new object. */
+static void eobj_separate_sel(void){ if(!g_nobj)return; if(g_nobj>=EMESH_MAXOBJ){ snprintf(g_status,sizeof g_status,"too many objects (max %d)",EMESH_MAXOBJ); return; }
+    int src=g_objsel; EObject*o=&g_obj[src];
+    uint8_t*take=calloc(o->nf>0?o->nf:1,1); int nsel=0;
+    for(int fi=0;fi<o->nf;fi++){ int t=o->f[fi].sel; if(!t&&g_sel_mode!=2){ t=o->f[fi].nv>0; for(int k=0;k<o->f[fi].nv;k++)if(!o->v[o->f[fi].v[k]].sel){ t=0; break; } } if(t){ take[fi]=1; nsel++; } }
+    if(nsel<1){ free(take); snprintf(g_status,sizeof g_status,"separate: select face(s) first"); return; }
+    if(nsel>=o->nf){ free(take); snprintf(g_status,sizeof g_status,"separate: leave at least one face behind"); return; }
+    eundo_push();
+    char nm[28]; snprintf(nm,sizeof nm,"%.21s.part",o->name); EObject*d=eobj_new(nm); if(!d){ free(take); return; }
+    o=&g_obj[src];   /* eobj_new appended (g_obj is a fixed array) — re-grab the source */
+    d->origin=o->origin;
+    int*remap=malloc((size_t)(o->nv>0?o->nv:1)*sizeof(int)); for(int i=0;i<o->nv;i++)remap[i]=-1;
+    int kept=0;
+    for(int fi=0;fi<o->nf;fi++){ if(take[fi]){ EFace*f=&o->f[fi]; int q[4]; for(int k=0;k<f->nv;k++){ int v=f->v[k]; if(remap[v]<0)remap[v]=ev_add(d,o->v[v].p); q[k]=remap[v]; } ef_add(d,f->nv,q,f->color); }
+        else o->f[kept++]=o->f[fi]; }
+    o->nf=kept; free(remap); free(take);
+    eobj_compact(o); edges_rebuild(o); edges_rebuild(d); g_objsel=src;
+    snprintf(g_status,sizeof g_status,"separated %d face%s into '%s'",nsel,nsel==1?"":"s",d->name); }
+
+/* Subdivide selected faces (or all if none selected): face centre + shared edge midpoints -> quads. */
+static void eobj_subdivide_sel(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(o->nf<1)return;
+    int any=0; for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ any=1; break; }
+    eundo_push();
+    int mcap=o->nf*4+8,mn=0; int*mk=malloc((size_t)mcap*2*sizeof(int)); int*mv=malloc((size_t)mcap*sizeof(int));
+    EFace*oldf=o->f; int oldnf=o->nf; o->f=NULL; o->nf=0; o->fcap=0;
+    for(int fi=0;fi<oldnf;fi++){ EFace*f=&oldf[fi];
+        if(any&&!f->sel){ ef_add(o,f->nv,f->v,f->color); continue; }
+        V3 c={0,0,0}; for(int k=0;k<f->nv;k++){ c.x+=o->v[f->v[k]].p.x; c.y+=o->v[f->v[k]].p.y; c.z+=o->v[f->v[k]].p.z; } c.x/=f->nv;c.y/=f->nv;c.z/=f->nv;
+        int ci=ev_add(o,c),mid[4];
+        for(int k=0;k<f->nv;k++){ int a=f->v[k],b=f->v[(k+1)%f->nv],lo=a<b?a:b,hi=a<b?b:a,fnd=-1;
+            for(int m=0;m<mn;m++)if(mk[m*2]==lo&&mk[m*2+1]==hi){ fnd=mv[m]; break; }
+            if(fnd<0){ V3 mp={(o->v[a].p.x+o->v[b].p.x)*0.5f,(o->v[a].p.y+o->v[b].p.y)*0.5f,(o->v[a].p.z+o->v[b].p.z)*0.5f}; fnd=ev_add(o,mp); if(mn<mcap){ mk[mn*2]=lo; mk[mn*2+1]=hi; mv[mn]=fnd; mn++; } }
+            mid[k]=fnd; }
+        for(int k=0;k<f->nv;k++){ int pk=(k+f->nv-1)%f->nv; int q[4]={f->v[k],mid[k],ci,mid[pk]}; ef_add(o,4,q,f->color); } }
+    free(oldf); free(mk); free(mv); edges_rebuild(o);
+    snprintf(g_status,sizeof g_status,"subdivided -> %d faces",o->nf); }
+
+/* J — split a face by joining two selected verts that share it. */
+static void eobj_connect_verts(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel];
+    int sv[2],ns=0; for(int i=0;i<o->nv;i++)if(o->v[i].sel){ if(ns<2)sv[ns]=i; ns++; }
+    if(ns!=2){ snprintf(g_status,sizeof g_status,"connect: select exactly 2 verts (have %d)",ns); return; }
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; int pa=-1,pb=-1; for(int k=0;k<f->nv;k++){ if(f->v[k]==sv[0])pa=k; if(f->v[k]==sv[1])pb=k; }
+        if(pa<0||pb<0)continue; int d=(pb-pa+f->nv)%f->nv; if(d==1||d==f->nv-1)continue;   /* already an edge */
+        int q1[4],n1=0,q2[4],n2=0; uint16_t col=f->color;
+        for(int k=pa;;k=(k+1)%f->nv){ if(n1<4)q1[n1++]=f->v[k]; if(k==pb)break; }
+        for(int k=pb;;k=(k+1)%f->nv){ if(n2<4)q2[n2++]=f->v[k]; if(k==pa)break; }
+        eundo_push();
+        for(int j=fi+1;j<o->nf;j++)o->f[j-1]=o->f[j]; o->nf--;
+        if(n1>=3)ef_add(o,n1,q1,col); if(n2>=3)ef_add(o,n2,q2,col); edges_rebuild(o);
+        snprintf(g_status,sizeof g_status,"connected verts (split face)"); return; }
+    snprintf(g_status,sizeof g_status,"connect: the 2 verts don't share a splittable face"); }
+
+/* Bridge two selected faces of equal vert-count with a band of quads (caps removed). */
+static void eobj_bridge_sel(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel];
+    int fa=-1,fb=-1,extra=0; for(int fi=0;fi<o->nf;fi++)if(o->f[fi].sel){ if(fa<0)fa=fi; else if(fb<0)fb=fi; else extra=1; }
+    if(fa<0||fb<0||extra){ snprintf(g_status,sizeof g_status,"bridge: select exactly 2 faces"); return; }
+    int n=o->f[fa].nv; if(o->f[fb].nv!=n){ snprintf(g_status,sizeof g_status,"bridge: faces need equal vert count (%d vs %d)",n,o->f[fb].nv); return; }
+    int av[4],bv[4]; uint16_t col=o->f[fa].color; for(int k=0;k<n;k++){ av[k]=o->f[fa].v[k]; bv[k]=o->f[fb].v[k]; }
+    int best=0,brev=0; float bestd=1e30f;   /* align B's start + direction to A (min total distance) */
+    for(int rev=0;rev<2;rev++)for(int s=0;s<n;s++){ float d=0; for(int k=0;k<n;k++){ int bi=rev?((s-k)%n+n)%n:(s+k)%n; V3 pa=o->v[av[k]].p,pb=o->v[bv[bi]].p; d+=(pa.x-pb.x)*(pa.x-pb.x)+(pa.y-pb.y)*(pa.y-pb.y)+(pa.z-pb.z)*(pa.z-pb.z); } if(d<bestd){ bestd=d; best=s; brev=rev; } }
+    eundo_push();
+    for(int k=0;k<n;k++){ int k2=(k+1)%n; int b0=brev?((best-k)%n+n)%n:(best+k)%n, b1=brev?((best-k2)%n+n)%n:(best+k2)%n;
+        int q[4]={av[k],av[k2],bv[b1],bv[b0]}; ef_add(o,4,q,col); }
+    int hi=fa>fb?fa:fb,lo=fa<fb?fa:fb;
+    for(int j=hi+1;j<o->nf;j++)o->f[j-1]=o->f[j]; o->nf--;
+    for(int j=lo+1;j<o->nf;j++)o->f[j-1]=o->f[j]; o->nf--;
+    edges_rebuild(o); snprintf(g_status,sizeof g_status,"bridged two %d-gons (Recalc if needed)",n); }
+
+/* ---- selection helpers (operate on the active object) ---- */
+static int uf_find(int*par,int x){ while(par[x]!=x){ par[x]=par[par[x]]; x=par[x]; } return x; }
+static void eobj_select_invert(int kind){ if(!g_nobj)return; EObject*ob=&g_obj[g_objsel]; int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf;
+    for(int i=0;i<n;i++){ uint8_t*s=eobj_selptr(ob,kind,i); *s=!*s; } snprintf(g_status,sizeof g_status,"inverted selection"); }
+static void eobj_select_linked(int kind){ if(!g_nobj)return; EObject*ob=&g_obj[g_objsel]; if(ob->nv<1)return;
+    int*par=malloc((size_t)ob->nv*sizeof(int)); for(int i=0;i<ob->nv;i++)par[i]=i;
+    for(int ei=0;ei<ob->ne;ei++){ int ra=uf_find(par,ob->e[ei].a),rb=uf_find(par,ob->e[ei].b); if(ra!=rb)par[ra]=rb; }
+    uint8_t*hit=calloc(ob->nv,1);
+    if(kind==0){ for(int i=0;i<ob->nv;i++)if(ob->v[i].sel)hit[uf_find(par,i)]=1; }
+    else if(kind==1){ for(int ei=0;ei<ob->ne;ei++)if(ob->e[ei].sel)hit[uf_find(par,ob->e[ei].a)]=1; }
+    else { for(int fi=0;fi<ob->nf;fi++)if(ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++)hit[uf_find(par,ob->f[fi].v[k])]=1; }
+    if(kind==0){ for(int i=0;i<ob->nv;i++)if(hit[uf_find(par,i)])ob->v[i].sel=1; }
+    else if(kind==1){ for(int ei=0;ei<ob->ne;ei++)if(hit[uf_find(par,ob->e[ei].a)])ob->e[ei].sel=1; }
+    else { for(int fi=0;fi<ob->nf;fi++){ for(int k=0;k<ob->f[fi].nv;k++)if(hit[uf_find(par,ob->f[fi].v[k])]){ ob->f[fi].sel=1; break; } } }
+    free(par); free(hit); snprintf(g_status,sizeof g_status,"selected linked"); }
+static void eobj_select_grow(int kind){ if(!g_nobj)return; EObject*ob=&g_obj[g_objsel];
+    if(kind==0){ uint8_t*add=calloc(ob->nv>0?ob->nv:1,1); for(int ei=0;ei<ob->ne;ei++){ if(ob->v[ob->e[ei].a].sel)add[ob->e[ei].b]=1; if(ob->v[ob->e[ei].b].sel)add[ob->e[ei].a]=1; } for(int i=0;i<ob->nv;i++)if(add[i])ob->v[i].sel=1; free(add); }
+    else if(kind==2){ uint8_t*vs=calloc(ob->nv>0?ob->nv:1,1); for(int fi=0;fi<ob->nf;fi++)if(ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++)vs[ob->f[fi].v[k]]=1; for(int fi=0;fi<ob->nf;fi++)if(!ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++)if(vs[ob->f[fi].v[k]]){ ob->f[fi].sel=1; break; } free(vs); }
+    else { uint8_t*vs=calloc(ob->nv>0?ob->nv:1,1); for(int ei=0;ei<ob->ne;ei++)if(ob->e[ei].sel){ vs[ob->e[ei].a]=1; vs[ob->e[ei].b]=1; } for(int ei=0;ei<ob->ne;ei++)if(vs[ob->e[ei].a]||vs[ob->e[ei].b])ob->e[ei].sel=1; free(vs); }
+    snprintf(g_status,sizeof g_status,"grew selection"); }
+static void eobj_select_shrink(int kind){ if(!g_nobj)return; EObject*ob=&g_obj[g_objsel];
+    if(kind==0){ uint8_t*rem=calloc(ob->nv>0?ob->nv:1,1); for(int ei=0;ei<ob->ne;ei++){ if(!ob->v[ob->e[ei].a].sel)rem[ob->e[ei].b]=1; if(!ob->v[ob->e[ei].b].sel)rem[ob->e[ei].a]=1; } for(int i=0;i<ob->nv;i++)if(rem[i])ob->v[i].sel=0; free(rem); }
+    else if(kind==2){ uint8_t*vs=calloc(ob->nv>0?ob->nv:1,1); for(int fi=0;fi<ob->nf;fi++)if(!ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++)vs[ob->f[fi].v[k]]=1; for(int fi=0;fi<ob->nf;fi++)if(ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++)if(vs[ob->f[fi].v[k]]){ ob->f[fi].sel=0; break; } free(vs); }
+    else { uint8_t*vs=calloc(ob->nv>0?ob->nv:1,1); for(int ei=0;ei<ob->ne;ei++)if(!ob->e[ei].sel){ vs[ob->e[ei].a]=1; vs[ob->e[ei].b]=1; } for(int ei=0;ei<ob->ne;ei++)if(vs[ob->e[ei].a]||vs[ob->e[ei].b])ob->e[ei].sel=0; free(vs); }
+    snprintf(g_status,sizeof g_status,"shrank selection"); }
+
+/* Set the object origin to the selection centroid (sel=1) or the bbox centre (sel=0),
+ * shifting verts + pivot so the geometry stays put in the scene. */
+static void eobj_origin_to(int sel){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(o->nv<1)return;
+    V3 T={0,0,0}; int n=0;
+    if(sel){ for(int i=0;i<o->nv;i++)if(o->v[i].sel){ T.x+=o->v[i].p.x; T.y+=o->v[i].p.y; T.z+=o->v[i].p.z; n++; } }
+    if(n<1){ V3 mn=o->v[0].p,mx=o->v[0].p; for(int i=1;i<o->nv;i++){ V3 p=o->v[i].p; if(p.x<mn.x)mn.x=p.x; if(p.y<mn.y)mn.y=p.y; if(p.z<mn.z)mn.z=p.z; if(p.x>mx.x)mx.x=p.x; if(p.y>mx.y)mx.y=p.y; if(p.z>mx.z)mx.z=p.z; }
+        T.x=(mn.x+mx.x)*0.5f; T.y=(mn.y+mx.y)*0.5f; T.z=(mn.z+mx.z)*0.5f; }
+    else { T.x/=n; T.y/=n; T.z/=n; }
+    eundo_push();
+    for(int i=0;i<o->nv;i++){ o->v[i].p.x-=T.x; o->v[i].p.y-=T.y; o->v[i].p.z-=T.z; }
+    o->origin.x+=T.x; o->origin.y+=T.y; o->origin.z+=T.z;
+    o->pivot.x-=T.x; o->pivot.y-=T.y; o->pivot.z-=T.z;
+    snprintf(g_status,sizeof g_status,(sel&&n>0)?"origin -> selection":"origin -> centre"); }
+
 /* full reset of the model editor + importer — called when switching projects so a new game starts blank */
 static void mesh_editor_reset(void){ eobj_free_all();
     for(int i=0;i<g_eundo_n;i++){ EUndo*u=g_eundo[i]; for(int j=0;j<u->n;j++){ free(u->o[j].v); free(u->o[j].f); free(u->o[j].e); } free(u); } g_eundo_n=0;
@@ -1984,6 +2112,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
+static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -2111,6 +2240,12 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+4;
     { int nx=ui_btn(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my);
       ui_btn(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my); cy+=UI_H+6; }
+    { Col gc={140,205,195}; px=ui_btn(R,lx,cy,0,"+Face",-1,gc,&g_me_emkface,mx,my); px=ui_btn(R,px,cy,0,"Sep",-1,gc,&g_me_esep,mx,my);
+      ui_btn(R,px,cy,0,"Subdiv",-1,gc,&g_me_esubdiv,mx,my); cy+=UI_H+4;
+      px=ui_btn(R,lx,cy,0,"Connect",-1,gc,&g_me_econn,mx,my); ui_btn(R,px,cy,0,"Bridge",-1,gc,&g_me_ebridge,mx,my); cy+=UI_H+5; }
+    { Col sc={175,185,205}; px=ui_btn(R,lx,cy,0,"Inv",-1,sc,&g_me_einv,mx,my); px=ui_btn(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my);
+      px=ui_btn(R,px,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my); ui_btn(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my); cy+=UI_H+4; }
+    { Col oc={205,185,150}; px=ui_btn(R,lx,cy,0,"Origin>Sel",-1,oc,&g_me_osel,mx,my); ui_btn(R,px,cy,0,"Origin>Ctr",-1,oc,&g_me_octr,mx,my); cy+=UI_H+6; }
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue — match the gizmo + plane */
       px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my);
       ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); cy+=UI_H+4;
@@ -2160,6 +2295,17 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
     if(HITR(g_me_erecalc)){ eobj_recalc_outward(); return 1; }
     if(HITR(g_me_eclean)){ eobj_clean(); return 1; }
+    if(HITR(g_me_emkface)){ eobj_make_face(); return 1; }
+    if(HITR(g_me_esep)){ eobj_separate_sel(); eobj_fit(); return 1; }
+    if(HITR(g_me_esubdiv)){ eobj_subdivide_sel(); return 1; }
+    if(HITR(g_me_econn)){ eobj_connect_verts(); return 1; }
+    if(HITR(g_me_ebridge)){ eobj_bridge_sel(); return 1; }
+    if(HITR(g_me_einv)){ eobj_select_invert(g_sel_mode); return 1; }
+    if(HITR(g_me_elink)){ eobj_select_linked(g_sel_mode); return 1; }
+    if(HITR(g_me_egrow)){ eobj_select_grow(g_sel_mode); return 1; }
+    if(HITR(g_me_eshrink)){ eobj_select_shrink(g_sel_mode); return 1; }
+    if(HITR(g_me_osel)){ eobj_origin_to(1); return 1; }
+    if(HITR(g_me_octr)){ eobj_origin_to(0); return 1; }
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
@@ -2200,6 +2346,9 @@ static int mesh_edit_key(SDL_Keycode k){
     }
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_n){ prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }   /* Ctrl+N: new named model */
+    if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_i){ eobj_select_invert(g_sel_mode); return 1; }                                  /* Ctrl+I invert selection */
+    if((md&(KMOD_CTRL|KMOD_GUI))&&(k==SDLK_EQUALS||k==SDLK_KP_PLUS)){ eobj_select_grow(g_sel_mode); return 1; }             /* Ctrl++ grow */
+    if((md&(KMOD_CTRL|KMOD_GUI))&&(k==SDLK_MINUS||k==SDLK_KP_MINUS)){ eobj_select_shrink(g_sel_mode); return 1; }           /* Ctrl+- shrink */
     if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_e){ op_extrude(); return 1; }
@@ -2218,6 +2367,9 @@ static int mesh_edit_key(SDL_Keycode k){
     if(k==SDLK_p&&(md&KMOD_SHIFT)){ prim_plane(1.0f); eobj_fit(); return 1; }
     if(k==SDLK_a&&(md&KMOD_ALT)){ eobj_select_all(g_sel_mode,0); return 1; }   /* Alt+A: deselect all */
     if(k==SDLK_a){ eobj_select_all(g_sel_mode,1); return 1; }                   /* A: select all */
+    if(k==SDLK_f){ eobj_make_face(); return 1; }                                /* F: make face from selected verts */
+    if(k==SDLK_j){ eobj_connect_verts(); return 1; }                            /* J: connect two selected verts */
+    if(k==SDLK_l){ eobj_select_linked(g_sel_mode); return 1; }                  /* L: select linked island */
     if(k==SDLK_ESCAPE){ g_box_active=0; return 1; }
     return 0;
 }
@@ -4390,6 +4542,113 @@ static void font_up(int mx,int my){   /* commit line/rect tools */
     if(g_glyph_browse&&g_gs_paint){ int t=g_ptool; if(g_gs_paint==2)g_ptool=1; glyph_paint_at(mx,my,2); g_ptool=t; g_gs_dirty=1; }
     g_gs_paint=0; }
 
+/* ============================ SPRITE SHEET tab =================================
+ * A generic sprite-atlas cell editor — NOT a tileset (no autotiling) and NOT an
+ * animation (no clips/timeline). Load any PNG, overlay a cellw x cellh grid (with
+ * optional margin + spacing, as Aseprite/Tiled exports use), click a cell to edit
+ * it in the shared pixel editor, save back to the PNG. The <name>.sheet sidecar is
+ * editor metadata; the PNG bakes to a normal MoteImage and the game draws cells via
+ * fx/fy — mote_sprite_cell() for tightly-packed sheets, or the baked
+ * <name>_CELLW/_CELLH/_COLS/_ROWS/_MARGIN/_SPACING defines (margin/spacing-aware). */
+static char g_sh_png[200]="", g_sh_name[64]="sheet";
+static uint16_t *g_sh_buf; static int g_sh_w,g_sh_h,g_sh_cw=16,g_sh_ch=16,g_sh_mg=0,g_sh_sp=0,g_sh_sel,g_sh_paint,g_sh_namefocus;
+static SDL_Rect g_sh_load,g_sh_bake,g_sh_namer,g_sh_cwm,g_sh_cwp,g_sh_chm,g_sh_chp,g_sh_mgm,g_sh_mgp,g_sh_spm,g_sh_spp,g_sh_dr,g_sh_cell[512];
+
+static int sh_cols(void){ int adv=g_sh_cw+g_sh_sp; if(adv<1)adv=1; int c=(g_sh_w-2*g_sh_mg+g_sh_sp)/adv; return c<1?1:c; }
+static int sh_rows(void){ int adv=g_sh_ch+g_sh_sp; if(adv<1)adv=1; int r=(g_sh_h-2*g_sh_mg+g_sh_sp)/adv; return r<1?1:r; }
+static int sh_ncell(void){ if(!g_sh_buf)return 0; return sh_cols()*sh_rows(); }
+static void sh_cellxy(int cell,int*ox,int*oy){ int cols=sh_cols(); *ox=g_sh_mg+(cell%cols)*(g_sh_cw+g_sh_sp); *oy=g_sh_mg+(cell/cols)*(g_sh_ch+g_sh_sp); }
+static int sh_load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4); if(!d){ snprintf(g_status,sizeof g_status,"could not load %s",path); return 0; }
+    g_sh_w=w; g_sh_h=h; g_sh_buf=realloc(g_sh_buf,(size_t)w*h*2);
+    for(int i=0;i<w*h;i++){ unsigned char*p=d+i*4; g_sh_buf[i]=p[3]<128?KEY565:TLRGB(p[0],p[1],p[2]); }
+    stbi_image_free(d); g_sh_sel=0; return 1; }
+static void sh_save_def(void){ if(g_sel<0)return; char d[400]; snprintf(d,sizeof d,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(d);
+    char p[470]; snprintf(p,sizeof p,"%.330s/assets/%.50s.sheet",g_games[g_sel].dir,g_sh_name); FILE*f=fopen(p,"w"); if(!f)return;
+    fprintf(f,"sheet %s\ncell %d %d\nmargin %d\nspacing %d\n",g_sh_png,g_sh_cw,g_sh_ch,g_sh_mg,g_sh_sp); fclose(f); }
+static void sh_load_def(const char*path){ FILE*f=fopen(path,"r"); if(!f)return; char key[32];
+    while(fscanf(f,"%31s",key)==1){ if(!strcmp(key,"sheet"))fscanf(f,"%199s",g_sh_png);
+        else if(!strcmp(key,"cell"))fscanf(f,"%d %d",&g_sh_cw,&g_sh_ch);
+        else if(!strcmp(key,"margin"))fscanf(f,"%d",&g_sh_mg); else if(!strcmp(key,"spacing"))fscanf(f,"%d",&g_sh_sp); }
+    fclose(f); { const char*b=strrchr(path,'/'); b=b?b+1:path; snprintf(g_sh_name,sizeof g_sh_name,"%.50s",b); char*e=strrchr(g_sh_name,'.'); if(e)*e=0; }
+    if(g_sel>=0&&g_sh_png[0]){ char sp[500]; snprintf(sp,sizeof sp,"%.330s/%.150s",g_games[g_sel].dir,g_sh_png); sh_load_png(sp); } }
+static void sh_import(const char*path){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    const char*b=strrchr(path,'/'); b=b?b+1:path; char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",g_games[g_sel].dir); mkdir_portable(ad);
+    char dst[480]; snprintf(dst,sizeof dst,"%.330s/assets/%.80s",g_games[g_sel].dir,b);
+    char ap[490]; if(strstr(path,g_games[g_sel].dir)==NULL){ copy_file(path,dst); snprintf(ap,sizeof ap,"%s",dst); } else snprintf(ap,sizeof ap,"%s",path);
+    if(sh_load_png(ap)){ snprintf(g_sh_png,sizeof g_sh_png,"assets/%.80s",b); snprintf(g_sh_name,sizeof g_sh_name,"%.50s",b); char*e=strrchr(g_sh_name,'.'); if(e)*e=0;
+        snprintf(g_status,sizeof g_status,"loaded sheet %dx%d (%d cells)",g_sh_w,g_sh_h,sh_ncell()); } }
+static void sh_blit_cell(SDL_Renderer*R,int cell,int gx,int gy,int dz){ int cx,cy; sh_cellxy(cell,&cx,&cy);
+    for(int y=0;y<dz;y++)for(int x=0;x<dz;x++){ int sx=cx+x*g_sh_cw/dz,sy=cy+y*g_sh_ch/dz; uint16_t p=(g_sh_buf&&sx<g_sh_w&&sy<g_sh_h)?g_sh_buf[sy*g_sh_w+sx]:KEY565; plain(R,gx+x,gy+y,1,1,p==KEY565?(Col){26,20,30}:c565(p)); } }
+static void sh_save_png(void){ if(g_sel<0||!g_sh_buf||!g_sh_png[0])return; int W=g_sh_w,H=g_sh_h; if((long)W*H>1024*1024)return;
+    unsigned char*rgba=malloc((size_t)W*H*4); for(int i=0;i<W*H;i++){ uint16_t c=g_sh_buf[i]; if(c==KEY565){ rgba[i*4]=255;rgba[i*4+1]=0;rgba[i*4+2]=255;rgba[i*4+3]=0; } else { rgba[i*4]=((c>>11)&31)<<3;rgba[i*4+1]=((c>>5)&63)<<2;rgba[i*4+2]=(c&31)<<3;rgba[i*4+3]=255; } }
+    char p[500]; snprintf(p,sizeof p,"%.330s/%.150s",g_games[g_sel].dir,g_sh_png); stbi_write_png(p,W,H,4,rgba,W*4); free(rgba); }
+static void sh_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; } if(!g_sh_buf){ snprintf(g_status,sizeof g_status,"load a PNG first"); return; }
+    sh_save_png(); sh_save_def(); njob(2,g_games[g_sel].dir); }   /* write PNG + .sheet sidecar, then bake the project */
+/* paint into the selected cell of the sheet with the shared pixel tools */
+static void sh_paint_at(int mx,int my,int phase){ if(!g_sh_buf)return;
+    if(!hit(mx,my,g_sh_dr.x,g_sh_dr.y,g_sh_dr.w,g_sh_dr.h)&&phase!=2)return; int sc=g_sh_dr.w/(g_sh_cw?g_sh_cw:1); if(sc<1)sc=1;
+    int x=(mx-g_sh_dr.x)/sc,y=(my-g_sh_dr.y)/sc; int cx,cy; sh_cellxy(g_sh_sel,&cx,&cy);
+    cell_op(g_sh_buf,g_sh_w,cx,cy,g_sh_cw,g_sh_ch,x,y,phase); }
+
+static void draw_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my);
+    /* ===== toolbar: name + Load + Bake (left) · cell/margin/spacing steppers (wrap) ===== */
+    int ty=oy+4, tx=ox;
+    g_sh_namer=(SDL_Rect){tx,ty,110,24}; rrect(R,tx,ty,110,24,5,g_sh_namefocus?(Col){12,14,20}:C_DOCK);
+    { char nm[60]; snprintf(nm,sizeof nm,"%s%s",g_sh_name,g_sh_namefocus?"_":""); text(R,nm,tx+8,ty+6,1,C_TXT,C_DOCK); } tx+=118;
+    g_sh_load=(SDL_Rect){tx,ty,92,24}; rrect(R,tx,ty,92,24,5,hit(mx,my,tx,ty,92,24)?C_BTNHI:C_BTN); icon(R,IC_IMAGE,tx+9,ty+6,13,(Col){170,200,140}); text(R,"Load PNG",tx+26,ty+6,1,(Col){170,200,140},C_BTN); tx+=100;
+    g_sh_bake=(SDL_Rect){tx,ty,84,24}; rrect(R,tx,ty,84,24,5,hit(mx,my,tx,ty,84,24)?C_BTNHI:C_BTN); icon(R,IC_HAMMER,tx+11,ty+6,13,(Col){170,200,140}); text(R,"Bake",tx+30,ty+6,1,(Col){170,200,140},C_BTN); tx+=96;
+    { char b[6]; text(R,"cell",tx,ty+6,1,C_DIM,C_DOCK); tx+=4+textw(R,"cell",1);
+      snprintf(b,sizeof b,"%d",g_sh_cw); int xx=ui_stepper(R,tx,ty,"",b,&g_sh_cwm,&g_sh_cwp,mx,my); text(R,"x",xx,ty+6,1,C_DIM,C_DOCK);
+      char b2[6]; snprintf(b2,sizeof b2,"%d",g_sh_ch); tx=ui_stepper(R,xx+10,ty,"",b2,&g_sh_chm,&g_sh_chp,mx,my)+8;
+      char b3[6]; snprintf(b3,sizeof b3,"%d",g_sh_mg); tx=ui_stepper(R,tx,ty,"margin",b3,&g_sh_mgm,&g_sh_mgp,mx,my)+8;
+      char b4[6]; snprintf(b4,sizeof b4,"%d",g_sh_sp); ui_stepper(R,tx,ty,"gap",b4,&g_sh_spm,&g_sh_spp,mx,my); }
+
+    /* ===== left: GRID card (the cells, in sheet layout) ===== */
+    int gy=oy+34, gh=h-(gy-oy)-4, gwid=(w-12)*54/100;
+    int cyy=ui_card(R,ox,gy,gwid,gh,"CELLS"); int ax=ox+12;
+    int cols=sh_cols(),rows=sh_rows(),nc=sh_ncell();
+    if(!g_sh_buf){ text(R,"Load a PNG, then set cell size \xb7 click a cell to edit it",ax,cyy+2,1,C_DIM,C_PANEL); }
+    else { int availw=gwid-24, availh=gy+gh-cyy-6; int dz=availw/(cols?cols:1); { int dzh=availh/(rows?rows:1); if(dzh<dz)dz=dzh; } if(dz<5)dz=5; if(dz>28)dz=28;
+        for(int i=0;i<nc&&i<512;i++){ int gx=ax+(i%cols)*(dz+1),gyy=cyy+(i/cols)*(dz+1); if(gyy+dz>gy+gh-4)break; g_sh_cell[i]=(SDL_Rect){gx,gyy,dz,dz};
+            sh_blit_cell(R,i,gx,gyy,dz); rect_outline(R,gx,gyy,dz,dz,i==g_sh_sel?C_ACC:C_LINE,1); } }
+
+    /* ===== right: EDIT cell + palette + the draw-it-in-code readout ===== */
+    int bx=ox+gwid+8, bw=w-gwid-8;
+    int ey=ui_card(R,bx,gy,bw,gh,"EDIT CELL"); int eax=bx+12;
+    int cavail=(gy+gh-8)-ey-86, dsc=g_sh_ch?cavail/g_sh_ch:8; { int dw2=(bw-24-150)/(g_sh_cw?g_sh_cw:1); if(dw2<dsc)dsc=dw2; } if(dsc<3)dsc=3; if(dsc>14)dsc=14;
+    int dw=g_sh_cw*dsc,dhp=g_sh_ch*dsc; g_sh_dr=(SDL_Rect){eax,ey,dw,dhp}; rect_outline(R,eax-1,ey-1,dw+2,dhp+2,C_LINE,1);
+    if(g_sh_buf){ int cx,cy; sh_cellxy(g_sh_sel,&cx,&cy);
+        for(int y=0;y<dhp;y++)for(int x=0;x<dw;x++){ int lx=x/dsc,ly=y/dsc,sx=cx+lx,sy=cy+ly; uint16_t p=(sx<g_sh_w&&sy<g_sh_h)?g_sh_buf[sy*g_sh_w+sx]:KEY565;
+            if(p!=KEY565)plain(R,eax+x,ey+y,1,1,c565(p)); else plain(R,eax+x,ey+y,1,1,((lx+ly)&1)?(Col){34,34,44}:(Col){26,26,34}); }
+        px_panel_draw(R,eax+dw+14,ey,gy+gh-8); }
+    else text(R,"(no sheet loaded)",eax,ey+2,1,C_DIM,C_PANEL);
+    /* code readout: how to draw the selected cell in the game */
+    { int iy=gy+gh-78, cols2=sh_cols(),col=g_sh_sel%cols2,row=g_sh_sel/cols2; int fx,fy; sh_cellxy(g_sh_sel,&fx,&fy);
+      plain(R,bx+8,iy-6,bw-16,1,C_LINE);
+      char l1[64]; snprintf(l1,sizeof l1,"cell %d  (col %d, row %d)  fx=%d fy=%d",g_sh_sel,col,row,fx,fy); text(R,l1,bx+12,iy,1,C_TXT,C_PANEL); iy+=16;
+      char snip[120];
+      if(g_sh_mg==0&&g_sh_sp==0) snprintf(snip,sizeof snip,"mote_sprite_cell(&%s_img, x,y, %d,%d, %d,%d)",g_sh_name,g_sh_cw,g_sh_ch,col,row);
+      else snprintf(snip,sizeof snip,"blit: fx=%d fy=%d fw=%d fh=%d  (use %s_CELLW/_MARGIN/_SPACING)",fx,fy,g_sh_cw,g_sh_ch,g_sh_name);
+      text(R,snip,bx+12,iy,1,(Col){170,200,140},C_PANEL); iy+=16;
+      char l3[64]; snprintf(l3,sizeof l3,"%d cells  \xb7  %d x %d grid  \xb7  Bake -> %s_img",sh_ncell(),cols2,sh_rows(),g_sh_name); text(R,l3,bx+12,iy,1,C_DIM,C_PANEL); }
+}
+
+#define SHHIT(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+static void sheet_down(int mx,int my){
+    if(SHHIT(g_sh_namer)){ g_sh_namefocus=1; SDL_StartTextInput(); return; } g_sh_namefocus=0;
+    if(SHHIT(g_sh_load)){ fp_open(7); return; }
+    if(SHHIT(g_sh_bake)){ sh_bake(); return; }
+    if(SHHIT(g_sh_cwm)){ if(g_sh_cw>1)g_sh_cw--; return; } if(SHHIT(g_sh_cwp)){ g_sh_cw++; return; }
+    if(SHHIT(g_sh_chm)){ if(g_sh_ch>1)g_sh_ch--; return; } if(SHHIT(g_sh_chp)){ g_sh_ch++; return; }
+    if(SHHIT(g_sh_mgm)){ if(g_sh_mg>0)g_sh_mg--; return; } if(SHHIT(g_sh_mgp)){ g_sh_mg++; return; }
+    if(SHHIT(g_sh_spm)){ if(g_sh_sp>0)g_sh_sp--; return; } if(SHHIT(g_sh_spp)){ g_sh_sp++; return; }
+    if(px_panel_down(mx,my))return;
+    int nc=sh_ncell(); for(int i=0;i<nc&&i<512;i++)if(SHHIT(g_sh_cell[i])){ g_sh_sel=i; return; }
+    if(SHHIT(g_sh_dr)){ g_sh_paint=1; sh_paint_at(mx,my,0); return; }
+}
+static void sheet_drag(int mx,int my){ if(px_panel_drag(mx,my))return; if(g_sh_paint)sh_paint_at(mx,my,1); }
+static void sheet_up(int mx,int my){ if(g_sh_paint)sh_paint_at(mx,my,2); g_sh_paint=0; }
+
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
     int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
@@ -4411,6 +4670,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_ANIM){ draw_anim(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
+    if(g_tab==TAB_SHEET){ draw_sheet(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     draw_pixel(R, g_tab==TAB_TEXTURE); }
 
 static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
@@ -4505,7 +4765,7 @@ static int native_pick(int cb,char*out,int n){
 #endif
 }
 static void fp_open(int cb){ char out[700]={0}; int r=native_pick(cb,out,sizeof out);
-    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else if(cb==5)mesh_tex_assign(out); else if(cb==6)font_import(out); else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
+    if(r==1){ if(cb==0)load_audio(out); else if(cb==2)tiles_import_png(out); else if(cb==3)an_import(out); else if(cb==4)import_to_assets(out); else if(cb==5)mesh_tex_assign(out); else if(cb==6)font_import(out); else if(cb==7){ sh_import(out); g_tab=TAB_SHEET; } else { undo_push(); load_png(out); g_tab=TAB_PIXEL; } return; }
     if(r==0)return;                                   /* native dialog cancelled */
     g_fpick=1; g_fpick_cb=cb;                          /* no native dialog -> in-app browser */
     if(g_sel>=0){ char ad[600]; snprintf(ad,sizeof ad,"%.560s/assets",g_games[g_sel].dir); struct stat st;   /* default to the open project */
@@ -4532,7 +4792,7 @@ static void fp_pick(int idx){ if(idx<0||idx>=g_fpn)return; char path[840];
         else { snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); snprintf(g_fpdir,sizeof g_fpdir,"%s",path); }
         fp_scan(); return; }
     snprintf(path,sizeof path,"%.560s/%.200s",g_fpdir,g_fpitem[idx]); g_fpick=0;
-    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else if(g_fpick_cb==4)import_to_assets(path); else if(g_fpick_cb==5)mesh_tex_assign(path); else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
+    if(g_fpick_cb==0)load_audio(path); else if(g_fpick_cb==2)tiles_import_png(path); else if(g_fpick_cb==3)an_import(path); else if(g_fpick_cb==4)import_to_assets(path); else if(g_fpick_cb==5)mesh_tex_assign(path); else if(g_fpick_cb==6)font_import(path); else if(g_fpick_cb==7){ sh_import(path); g_tab=TAB_SHEET; } else { undo_push(); load_png(path); g_tab=TAB_PIXEL; } }
 static void fp_click(int mx,int my){ int bw=640,bh=540,bx=(WIN_W-bw)/2,by=(WIN_H-bh)/2;
     if(hit(mx,my,g_fp_cancel.x,g_fp_cancel.y,86,26)){ g_fpick=0; return; }
     int ly=by+58, rows=(bh-96)/20; for(int i=0;i<rows;i++)if(hit(mx,my,bx+8,ly+i*20,bw-16,20)){ fp_pick(g_fpscroll+i); return; }
@@ -4728,6 +4988,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         g_tl_init=1; lv_load_def(r->path); g_tab=TAB_TILES; }                                      /* open a level in the Tiles tab */
     else if(ci_ends(r->name,".tileset")){ tl_ensure(); terr_load_def(g_curterr,r->path); g_tab=TAB_TILES; }   /* open a rule-tile */
     else if(ci_ends(r->name,".anims")){ an_ensure(); an_load_def(r->path); g_tab=TAB_ANIM; }                  /* open an animation set */
+    else if(ci_ends(r->name,".sheet")){ sh_load_def(r->path); g_tab=TAB_SHEET; }                              /* open a sprite sheet */
     else if(r->kind==1||r->kind==2)code_open(r->path);   /* .toml / .c / .h -> code editor */
     else if(r->kind==5&&(ci_ends(r->name,".txt")||ci_ends(r->name,".md")||ci_ends(r->name,".ld")||ci_ends(r->name,".cfg")||ci_ends(r->name,".toml")))code_open(r->path); }
 
@@ -4962,6 +5223,9 @@ int main(int argc,char**argv){
                 int cap = g_an_namefocus ? 50 : 14;
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(dst); if(l<cap){ dst[l]=c; dst[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(dst); if(l)dst[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE){ g_an_cnamefocus=g_an_namefocus=0; g_an_evfocus=-1; } continue; } }
+            if(g_tab==TAB_SHEET&&g_sh_namefocus){   /* editing the sprite-sheet save-name field */
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_sh_name); if(l<50){ g_sh_name[l]=c; g_sh_name[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_sh_name); if(l)g_sh_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_sh_namefocus=0; continue; } }
             if(g_tab==TAB_AUDIO&&g_au_namefocus){   /* editing the SFX save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_au_name); if(l<60){ g_au_name[l]=c; g_au_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_au_name); if(l)g_au_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_au_namefocus=0; continue; } }
@@ -5038,6 +5302,7 @@ int main(int argc,char**argv){
                                 else if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
+                    else if(g_tab==TAB_SHEET)sheet_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
                 if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE&&g_op.drag&&e.button.button==SDL_BUTTON_LEFT)op_confirm();   /* release a gizmo-drag */
@@ -5048,6 +5313,7 @@ int main(int argc,char**argv){
                     g_box_active=0; }
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
+                else if(g_tab==TAB_SHEET)sheet_up(e.button.x,e.button.y);
                 g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y);
@@ -5085,6 +5351,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_FONT)font_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_ANIM){ if(px_panel_drag(e.motion.x,e.motion.y)){} else if(g_an_drag)an_dr_paint_at(e.motion.x,e.motion.y,1); }
+                else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_SHEET)sheet_drag(e.motion.x,e.motion.y);
                 else if((e.motion.state&SDL_BUTTON_MMASK)&&(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)){ g_panx+=e.motion.xrel; g_pany+=e.motion.yrel; }
             }
         }
