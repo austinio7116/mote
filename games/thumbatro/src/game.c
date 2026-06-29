@@ -22,7 +22,8 @@ MOTE_MODULE_HEADER();
 #include "cards.h"        /* cards_img  (234x156, 13x6 grid) */
 #include "background.h"   /* background_img (128x128) */
 #include "title.h"        /* title_img (128x128) */
-#include "hud.font.h"     /* `hud` — DejaVuSans baked at 9px (mote->text_font) */
+#include "munro.font.h"   /* `munro` — the original Munro Narrow pixel font, baked
+                           * from munro-narrow_10.bmp via glyphs2font (mote->text_font) */
 #include "select.h"       /* select_snd */
 #include "play.h"         /* play_snd   */
 #include "money.h"        /* money_snd  */
@@ -499,12 +500,12 @@ static void draw_card(uint16_t *fb,const Card *c){
     int ofx,ofy,al; if(overlay_cell(c,&ofx,&ofy,&al))
         mote->blit_ex(fb,&cards_img,c->x,cy, ofx*CW,ofy*CH,CW,CH,0.0f,1.0f, al?MOTE_BLEND_ALPHA:MOTE_BLEND_NONE,0,128);
 }
-/* HUD text uses the baked 9px proportional `hud` font (mote->text_font), which
+/* HUD text uses the baked 9px proportional `munro` font (mote->text_font), which
  * fills the background's value boxes far better than the tiny built-in 3x5.
  * Centre on (cx,cy) the way the original Thumby Text2DNode did. */
 static int fw(const char *s){ int w=0; for(;*s;s++){ unsigned c=(unsigned char)*s;
-    if(c<hud.first||c>=(unsigned)(hud.first+hud.count)) c=hud.first; w+=hud.glyphs[c-hud.first].adv; } return w; }
-static void text_l(uint16_t *fb,const char *s,int x,int cy,uint16_t col){ mote->text_font(fb,&hud,s,x,cy-hud.line_h/2,col); }
+    if(c<munro.first||c>=(unsigned)(munro.first+munro.count)) c=munro.first; w+=munro.glyphs[c-munro.first].adv; } return w; }
+static void text_l(uint16_t *fb,const char *s,int x,int cy,uint16_t col){ mote->text_font(fb,&munro,s,x,cy-munro.line_h/2,col); }
 static void text_c(uint16_t *fb,const char *s,int cx,int cy,uint16_t col){ text_l(fb,s,cx-fw(s)/2,cy,col); }
 static void num_c(uint16_t *fb,int cx,int cy,uint16_t col,int v){ char b[16]; snprintf(b,sizeof b,"%d",v); text_c(fb,b,cx,cy,col); }
 
