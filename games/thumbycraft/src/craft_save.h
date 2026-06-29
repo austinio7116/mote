@@ -124,7 +124,7 @@ bool   craft_save_deserialise(const uint8_t *in, size_t n,
  * Actual read/write goes via the platform's craft_main request flags.
  */
 #define CRAFT_SAVE_SLOT_COUNT_PUBLIC 4
-#define CRAFT_SAVE_THUMB_DIM         32
+#define CRAFT_SAVE_THUMB_DIM         16   /* Mote port: 16x16 preview (was 32) — arena is too tight for 2 KB at save; must match CRAFT_THUMB_W/H */
 
 /* True if slot has a valid saved world. */
 bool craft_save_slot_used(int slot);

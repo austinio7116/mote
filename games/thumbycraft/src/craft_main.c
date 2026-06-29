@@ -62,8 +62,12 @@ static float       s_world_time = 60.0f;   /* start at "morning" */
  * save layer reads from here when the player commits a slot save.
  * Captured eagerly on menu-open so the snapshot reflects the last
  * in-game frame, not the menu overlay. */
-#define CRAFT_THUMB_W 32
-#define CRAFT_THUMB_H 32
+/* Mote port: 16x16 (was 32x32). The 256 KB world + 16 KB z-buffer + the light
+ * BFS queue leave only ~1.2 KB of arena at save time; a 32x32 thumbnail (2 KB)
+ * no longer fits, so the preview is 16x16 (512 B). 128/16 = 8 keeps the
+ * averaging block-size integer. */
+#define CRAFT_THUMB_W 16
+#define CRAFT_THUMB_H 16
 /* Mote port: deferred out of static BSS to keep the module within its 128 KB
  * region. Allocated lazily from the arena the first time a thumbnail is
  * captured (only when the save layer is active); NULL until then, which
