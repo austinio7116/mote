@@ -290,9 +290,14 @@ static void finish_load(int idx){ stop_engine();                 /* unload (and 
     copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
     g_watch=src_mtime(g_games[idx].dir); start_engine(); }
 static void mesh_editor_reset(void);   /* fwd: clear the model-editor scene + importer (on project switch) */
+static void mmesh_load(void);          /* fwd: load <project>/scene.mmesh into g_obj */
+static void mmesh_save(void);          /* fwd: persist g_obj to <project>/scene.mmesh */
+static void eobj_fit(void);            /* fwd: frame the model in the turntable camera */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
-    if(idx!=g_sel)mesh_editor_reset();   /* switching projects: drop the old scene (but keep it across a hot-reload of the same game) */
+    int switching=(idx!=g_sel);
+    if(switching)mesh_editor_reset();    /* switching projects: drop the old scene (but keep it across a hot-reload of the same game) */
     g_sel=idx;
+    if(switching)mmesh_load();   /* restore this project's saved model (mmesh_load fits the camera) so the Mesh/Rig tabs reflect it on open */
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
         int rc=mc_build(g_games[idx].dir,0,log_add);
         if(rc){ snprintf(g_status,sizeof g_status,"BUILD FAILED: %s",g_games[idx].name); return; }   /* keep the running build on failure */
@@ -2050,7 +2055,7 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
-    if(HITR(g_me_eexit)){ g_edit_mode=0; return 1; }
+    if(HITR(g_me_eexit)){ if(g_nobj>0)mmesh_save(); g_edit_mode=0; return 1; }   /* persist the model on leaving the editor */
     if(HITR(g_me_view)){                                   /* viewport */
         if(g_op.op!=OP_NONE){ if(!g_op.drag)op_confirm(); return 1; }   /* LMB confirms an active modal op */
         if(g_mgz_on)for(int a=0;a<3;a++){ int dx=mx-g_mgz_ax[a].x,dy=my-g_mgz_ax[a].y;   /* grab a gizmo handle -> drag-move on that axis */
@@ -2064,7 +2069,7 @@ static int mesh_edit_down(int mx,int my){
 }
 /* keyboard for the MESH tab edit mode (routed from the main event loop); 1 if consumed */
 static int mesh_edit_key(SDL_Keycode k){
-    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }
+    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); if(g_edit_mode&&g_nobj>0)mmesh_save(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }   /* persist on leaving the editor */
     if(!g_edit_mode)return 0;
     SDL_Keymod md=SDL_GetModState();
     if(g_op.op!=OP_NONE){                                   /* a modal op is live — route keys to it */
@@ -4582,6 +4587,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         else if(g_sel>=0) snprintf(obj,sizeof obj,"%.250s/assets/%.60s.obj",g_games[g_sel].dir,base); else obj[0]=0;
         struct stat st; if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
         else snprintf(g_status,sizeof g_status,"no .obj found for rig %s",base); return; }
+    if(ci_ends(nm,".mmesh")){ mmesh_load(); if(g_nobj>0){ g_edit_mode=1; eobj_fit(); } g_tab=TAB_MESH; return; }   /* native model scene -> open in the editor */
     if(r->kind==3){ const char*b=strrchr(r->path,'/'); b=b?b+1:r->path;   /* root icon.png/.bmp -> icon editor */
         if((!strcasecmp(b,"icon.png")||!strcasecmp(b,"icon.bmp"))&&g_sel>=0&&r->depth<=1){ icon_edit(); }
         else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
@@ -4897,7 +4903,7 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH&&g_nobj>0)mmesh_save(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
