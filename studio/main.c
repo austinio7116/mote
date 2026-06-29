@@ -5038,6 +5038,7 @@ int main(int argc,char**argv){
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }

@@ -181,9 +181,27 @@ def bake_image(name, path, out):
         L.append('  ' + ','.join('0x%04x' % v for v in px[i:i+16]) + ',')
     L += ['};',
           'static const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };' % (name, name, w, h, KEY, 0 if keyed else 1),
-          '#define %s_W %d' % (name, w), '#define %s_H %d' % (name, h), '', '#endif']
+          '#define %s_W %d' % (name, w), '#define %s_H %d' % (name, h)]
+    # A sibling <base>.sheet (Studio SHEET tab) makes this a sprite atlas: emit the
+    # cell geometry so the game can address cells (margin/spacing-aware). The image
+    # itself is unchanged. Mirrors studio/motecore.c bake_image.
+    sheetf = os.path.splitext(path)[0] + ".sheet"
+    if os.path.isfile(sheetf):
+        cw = ch = mg = gp = 0
+        for ln in open(sheetf):
+            t = ln.split()
+            if len(t) >= 3 and t[0] == "cell": cw, ch = int(t[1]), int(t[2])
+            elif len(t) >= 2 and t[0] == "margin": mg = int(t[1])
+            elif len(t) >= 2 and t[0] == "spacing": gp = int(t[1])
+        if cw > 0 and ch > 0:
+            cols = max(1, (w - 2*mg + gp) // (cw + gp)) if cw + gp > 0 else 1
+            rows = max(1, (h - 2*mg + gp) // (ch + gp)) if ch + gp > 0 else 1
+            L += ['#define %s_CELLW %d' % (name, cw), '#define %s_CELLH %d' % (name, ch),
+                  '#define %s_COLS %d' % (name, cols), '#define %s_ROWS %d' % (name, rows),
+                  '#define %s_MARGIN %d' % (name, mg), '#define %s_SPACING %d' % (name, gp)]
+    L += ['', '#endif']
     open(out, "w").write('\n'.join(L))
-    print("[img2tex] %s: %dx%d -> %s" % (name, w, h, out))
+    print("[img2tex] %s: %dx%d -> %s%s" % (name, w, h, out, " (+cells)" if os.path.isfile(sheetf) else ""))
 
 def _icon_encode(px):
     """RGB565 pixels -> a compact paletted blob (matches sdk/mote_icon.h):

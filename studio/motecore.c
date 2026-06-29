@@ -228,7 +228,18 @@ static int bake_image(const char *path, const char *header, const char *name, mo
     for(int i=0;i<w*h;i++){ int r=d[i*4],g=d[i*4+1],b=d[i*4+2],a=d[i*4+3]; unsigned v;
         if(a<128){ v=0xF81F; keyed=1; } else { v=((r>>3)<<11)|((g>>2)<<5)|(b>>3); if(v==0xF81F)v=0xF81E; }
         fprintf(f,"0x%04x,",v); if((i&15)==15)fputc('\n',f); }
-    fprintf(f,"\n};\nstatic const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };\n#define %s_W %d\n#define %s_H %d\n\n#endif\n",name,name,w,h,0xF81F,keyed?0:1,name,w,name,h);
+    fprintf(f,"\n};\nstatic const MoteImage %s_img = { %s_px, %d, %d, 0x%04X, %d };\n#define %s_W %d\n#define %s_H %d\n",name,name,w,h,0xF81F,keyed?0:1,name,w,name,h);
+    /* A sibling <base>.sheet (Studio SHEET tab) makes this a sprite atlas: emit the
+     * cell geometry so the game can address cells (margin/spacing-aware) without
+     * recomputing the packing. The image itself is unchanged — a whole MoteImage. */
+    { char sp[600]; size_t pl=strlen(path); snprintf(sp,sizeof sp,"%.*s.sheet",(int)(pl>4?pl-4:pl),path);
+      FILE *sf=fopen(sp,"r"); if(sf){ int cw=0,ch=0,mg=0,gp=0; char k[32];
+        while(fscanf(sf,"%31s",k)==1){ if(!strcmp(k,"cell"))fscanf(sf,"%d %d",&cw,&ch); else if(!strcmp(k,"margin"))fscanf(sf,"%d",&mg); else if(!strcmp(k,"spacing"))fscanf(sf,"%d",&gp); else { char skip[200]; fscanf(sf,"%199s",skip); } }
+        fclose(sf);
+        if(cw>0&&ch>0){ int adv_w=cw+gp,adv_h=ch+gp; int cols=adv_w>0?(w-2*mg+gp)/adv_w:1, rows=adv_h>0?(h-2*mg+gp)/adv_h:1; if(cols<1)cols=1; if(rows<1)rows=1;
+            fprintf(f,"#define %s_CELLW %d\n#define %s_CELLH %d\n#define %s_COLS %d\n#define %s_ROWS %d\n#define %s_MARGIN %d\n#define %s_SPACING %d\n",name,cw,name,ch,name,cols,name,rows,name,mg,name,gp);
+            log("  + sprite-sheet cell defines"); } } }
+    fprintf(f,"\n#endif\n");
     fclose(f); stbi_image_free(d); { char m[170]; snprintf(m,sizeof m,"baked %s: %dx%d %s -> %s",name,w,h,keyed?"keyed":"opaque",header); log(m); } return 0; }
 
 /* Launcher icon: <root>/icon.png|bmp -> src/icon.h (mote_game_icon_data[],
