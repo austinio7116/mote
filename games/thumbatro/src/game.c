@@ -483,7 +483,10 @@ static void draw_cell(uint16_t *fb,float cx,float cy,int fx,int fy){
 static int overlay_cell(const Card *c,int *ofx,int *ofy,int *alpha){
     *alpha=0;
     for(int i=0;i<c->nmods;i++){ ModType t=c->mods[i].type;
-        if(t==M_RARE){*ofx=9;*ofy=9+randint(0,1);*alpha=1;return 1;}
+        /* rare = a shiny holographic tile (cols 9-10, rows 4-5). Pick the variant
+         * DETERMINISTICALLY from the card so it stays put — the old per-frame
+         * randint() (and rows 9-10, off the 6-row sheet) drew twitching garbage. */
+        if(t==M_RARE){ int hsh=c->fx*7+c->fy*5+c->rank_x*3+c->suit_y; *ofx=9+(hsh&1); *ofy=4+((hsh>>1)&1); *alpha=1; return 1; }
         if(t==M_BASE){*ofx=7;*ofy=4;return 1;}
         if(t==M_MULT){*ofx=8;*ofy=4;return 1;}
         if(t==M_WILD){*ofx=6;*ofy=5;return 1;}
