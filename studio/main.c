@@ -296,6 +296,7 @@ static void mmesh_save(void);          /* fwd: persist g_obj to <project>/scene.
 static void eobj_fit(void);            /* fwd: frame the model in the turntable camera */
 static void eobj_apply_newmodel(const char*name);   /* fwd: start a fresh named model */
 static void model_discover(void);      /* fwd: pick this project's model file on open */
+static void eobj_make_atlas(int size); /* fwd: ensure + load the model's texture atlas */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     int switching=(idx!=g_sel);
     if(switching)project_reset();    /* switching projects: drop the old game's art/objects/tilesets/anims/sfx/rig (kept across a hot-reload of the same game) */
@@ -1166,6 +1167,21 @@ static int mesh_load_tex(const char*pngpath){
             g_mtex_px[y*tw+x]=(uint16_t)(((rr&0xF8)<<8)|((gg&0xFC)<<3)|(bb>>3)); } }
     stbi_image_free(d); g_mtex_w=tw; g_mtex_h=th; return 1;
 }
+
+/* The editable model's texture atlas — independent of the importer's g_mtex_px (which
+ * mesh_tex_sync owns + clears). Box-averaged to <=128. */
+#define EATLAS_CAP 128
+static uint16_t *g_eatlas_px; static int g_eatlas_w,g_eatlas_h;
+static int eobj_atlas_load(const char*pngpath){
+    free(g_eatlas_px); g_eatlas_px=0; g_eatlas_w=g_eatlas_h=0;
+    int w,h,n; unsigned char*d=stbi_load(pngpath,&w,&h,&n,4); if(!d)return 0;
+    int tw=w,th=h; if(tw>EATLAS_CAP||th>EATLAS_CAP){ if(tw>=th){ th=(int)((long)th*EATLAS_CAP/tw); tw=EATLAS_CAP; } else { tw=(int)((long)tw*EATLAS_CAP/th); th=EATLAS_CAP; } if(tw<1)tw=1; if(th<1)th=1; }
+    g_eatlas_px=malloc((size_t)tw*th*2);
+    for(int y=0;y<th;y++){ int sy0=(int)((long)y*h/th),sy1=(int)((long)(y+1)*h/th); if(sy1<=sy0)sy1=sy0+1;
+        for(int x=0;x<tw;x++){ int sx0=(int)((long)x*w/tw),sx1=(int)((long)(x+1)*w/tw); if(sx1<=sx0)sx1=sx0+1;
+            long r=0,g=0,b=0,c=0; for(int sy=sy0;sy<sy1;sy++)for(int sx=sx0;sx<sx1;sx++){ const unsigned char*p=&d[((size_t)sy*w+sx)*4]; r+=p[0]; g+=p[1]; b+=p[2]; c++; }
+            if(c<1)c=1; int rr=(int)(r/c),gg=(int)(g/c),bb=(int)(b/c); g_eatlas_px[y*tw+x]=(uint16_t)(((rr&0xF8)<<8)|((gg&0xFC)<<3)|(bb>>3)); } }
+    stbi_image_free(d); g_eatlas_w=tw; g_eatlas_h=th; return 1; }
 /* Triplanar UV (0..1) for vert v given face normal n + recentred extent ext.
  * v flipped to match the engine's top-left tpix[v*w+u] sampling. */
 static void mesh_triuv(V3 v,float nx,float ny,float nz,float ext,float*u,float*vv){
@@ -1359,6 +1375,7 @@ typedef struct {
     V3    origin;                /* object position in the scene */
     int   parent;  V3 pivot;     /* rig fields (consumed by the RIG tab in a later phase) */
     uint8_t mirror;              /* live mirror modifier: bit0=X bit1=Y bit2=Z (reflect across the local axis plane at vert-origin; welded at bake) */
+    uint8_t textured;            /* set by Unwrap: has UVs + a texture atlas */
 } EObject;
 #define EMESH_MAXOBJ 32
 static EObject g_obj[EMESH_MAXOBJ]; static int g_nobj=0, g_objsel=0;
@@ -1531,7 +1548,9 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
         else if(cur&&!strncmp(ln,"fuv ",4)&&cur->nf>0){ EFace*fc=&cur->f[cur->nf-1]; float u[8]={0}; int n=0;
             for(char*tok=strtok(ln+4," \t\r\n"); tok&&n<8; tok=strtok(NULL," \t\r\n"))u[n++]=(float)atof(tok);
             for(int k=0;k<fc->nv&&k*2+1<n;k++){ fc->uv[k][0]=u[k*2]; fc->uv[k][1]=u[k*2+1]; } } }
-    for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]); fclose(f); eobj_fit();
+    int anytex=0; for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; ob->textured=0;
+        for(int i=0;i<ob->nf&&!ob->textured;i++)for(int k=0;k<ob->f[i].nv;k++)if(ob->f[i].uv[k][0]||ob->f[i].uv[k][1]){ ob->textured=1; anytex=1; break; } }
+    for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]); if(anytex)eobj_make_atlas(128); fclose(f); eobj_fit();
     snprintf(g_status,sizeof g_status,"loaded scene.mmesh (%d objects)",g_nobj); }
 
 /* Exact bake: emit the selected object's topology DIRECTLY to MeshVert/MeshFace
@@ -1541,14 +1560,18 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
  * then (if mirror is on) the reflected copies — verts on a mirror seam (coord ~0 on every
  * negated axis) are welded to the original, and reflected triangles get reversed winding so
  * normals stay outward. Returns malloc'd vert + tri arrays (caller frees). */
-static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt, uint16_t**pcol){
+/* Triangulate (+ mirror) to verts/tris/colours; if puv != NULL also emit per-triangle UVs
+ * (6 floats: u0,v0,u1,v1,u2,v2) carried from the face-corner EFace.uv. */
+static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt, uint16_t**pcol, float**puv){
     int rtri=0; for(int fi=0;fi<o->nf;fi++)rtri+=o->f[fi].nv-2;
     int capv=o->nv*8+8, capt=rtri*8+8;
     V3 *vv=malloc((size_t)capv*sizeof(V3)); int nvv=0;
     int (*tt)[3]=malloc((size_t)capt*sizeof(*tt)); int ntt=0;
     uint16_t *tc=malloc((size_t)capt*sizeof(uint16_t));   /* per-triangle colour */
+    float *tuv=puv?malloc((size_t)capt*6*sizeof(float)):NULL;
+    #define EM_TUV(d0,d1,d2) do{ if(tuv){ float*U=&tuv[ntt*6]; float*A=f->uv[0],*B=f->uv[d1],*C=f->uv[d2]; (void)d0; U[0]=A[0];U[1]=A[1];U[2]=B[0];U[3]=B[1];U[4]=C[0];U[5]=C[1]; } }while(0)
     for(int i=0;i<o->nv;i++)vv[nvv++]=o->v[i].p;
-    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tt[ntt][0]=f->v[0]; tt[ntt][1]=f->v[k-1]; tt[ntt][2]=f->v[k]; tc[ntt]=f->color; ntt++; } }
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ tt[ntt][0]=f->v[0]; tt[ntt][1]=f->v[k-1]; tt[ntt][2]=f->v[k]; tc[ntt]=f->color; EM_TUV(0,k-1,k); ntt++; } }
     if(o->mirror){ int *map=malloc((size_t)o->nv*sizeof(int));
         for(int combo=1;combo<8;combo++){ if(combo & ~o->mirror)continue;   /* only negate axes in the mirror set */
             int sx=(combo&1)?-1:1,sy=(combo&2)?-1:1,sz=(combo&4)?-1:1, parity=__builtin_popcount((unsigned)combo)&1;
@@ -1556,13 +1579,14 @@ static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt, ui
                 if((combo&1)&&fabsf(p.x)>1e-4f)seam=0; if((combo&2)&&fabsf(p.y)>1e-4f)seam=0; if((combo&4)&&fabsf(p.z)>1e-4f)seam=0;
                 if(seam)map[i]=i; else { map[i]=nvv; vv[nvv++]=(V3){p.x*sx,p.y*sy,p.z*sz}; } }
             for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ int a=map[f->v[0]],b=map[f->v[k-1]],c=map[f->v[k]];
-                if(parity){ tt[ntt][0]=a; tt[ntt][1]=c; tt[ntt][2]=b; } else { tt[ntt][0]=a; tt[ntt][1]=b; tt[ntt][2]=c; } tc[ntt]=f->color; ntt++; } } }
+                if(parity){ tt[ntt][0]=a; tt[ntt][1]=c; tt[ntt][2]=b; EM_TUV(0,k,k-1); } else { tt[ntt][0]=a; tt[ntt][1]=b; tt[ntt][2]=c; EM_TUV(0,k-1,k); } tc[ntt]=f->color; ntt++; } } }
         free(map); }
-    *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; *pcol=tc; }
+    #undef EM_TUV
+    *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; *pcol=tc; if(puv)*puv=tuv; }
 static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
     EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
-    V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tcol; emesh_build_geom(o,&vv,&nvv,&tri,&nt,&tcol);
+    V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tcol; emesh_build_geom(o,&vv,&nvv,&tri,&nt,&tcol,NULL);
     if(nt<1){ free(vv); free(tri); free(tcol); snprintf(g_status,sizeof g_status,"no faces"); return; }
     float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ V3 p=vv[i]; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
         if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(p); if(l>bound)bound=l; }
@@ -1638,7 +1662,7 @@ static void eobj_bake_rig(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,
     char parts[8192]=""; int pl=0,totf=0;
     /* common model space: each part's verts are local + origin */
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<3||ob->nf<1)continue;
-        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,NULL);
         for(int i=0;i<nvv;i++){ vv[i].x+=ob->origin.x; vv[i].y+=ob->origin.y; vv[i].z+=ob->origin.z; }
         float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ float ax=fabsf(vv[i].x),ay=fabsf(vv[i].y),az=fabsf(vv[i].z); if(ax>qmax)qmax=ax; if(ay>qmax)qmax=ay; if(az>qmax)qmax=az; float l=mv3len(vv[i]); if(l>bound)bound=l; }
         float q=127.0f/qmax, size=g_mesh_size>0?g_mesh_size:qmax;
@@ -1660,7 +1684,7 @@ static void eobj_export_obj(void){ if(g_sel<0){ snprintf(g_status,sizeof g_statu
     FILE*rf=fopen(rp,"w");
     int base=1;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(ob->nv<3||ob->nf<1)continue;
-        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,NULL);
         char pn[28]; emesh_sanitize(ob->name,pn,sizeof pn); fprintf(f,"o %s\n",pn);
         V3 c={0,0,0};
         for(int i=0;i<nvv;i++){ float x=vv[i].x+ob->origin.x,y=vv[i].y+ob->origin.y,z=vv[i].z+ob->origin.z; fprintf(f,"v %g %g %g\n",x,y,z); c.x+=x; c.y+=y; c.z+=z; }
@@ -2190,10 +2214,10 @@ static void eobj_make_atlas(int size){ char p[700]; if(!eobj_atlas_path(p,sizeof
     if(stat(p,&st)!=0){ char d[700]; snprintf(d,sizeof d,"%.600s/assets",g_games[g_sel].dir); mkdir_portable(d);
         uint8_t*rgba=malloc((size_t)size*size*4); for(int y=0;y<size;y++)for(int x=0;x<size;x++){ int c=(((x>>3)+(y>>3))&1)?70:54; int i=(y*size+x)*4; rgba[i]=rgba[i+1]=rgba[i+2]=(uint8_t)c; rgba[i+3]=255; }
         stbi_write_png(p,size,size,4,rgba,size*4); free(rgba); }
-    mesh_load_tex(p); snprintf(g_texsync_src,sizeof g_texsync_src,"%s",p); g_texsync_mtime=0; }
+    eobj_atlas_load(p); }
 /* Unwrap the active object: mode 0 = box/planar, 1 = per-face grid. */
 static void eobj_unwrap(int mode){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
-    if(mode==0)eobj_unwrap_box(o); else eobj_unwrap_grid(o); eobj_make_atlas(128);
+    if(mode==0)eobj_unwrap_box(o); else eobj_unwrap_grid(o); o->textured=1; eobj_make_atlas(128);
     snprintf(g_status,sizeof g_status,"unwrapped (%s) -> assets/%.28s_tex.png — paint it in Pixel Art",mode==0?"box":"grid",g_model_name); }
 
 /* full reset of the model editor + importer — called when switching projects so a new game starts blank */
@@ -2548,7 +2572,8 @@ static void draw_eobj_solid(SDL_Renderer*R, SDL_Rect view){
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
     int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
-        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; float *tuv; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,&tuv);
+        int tex_on = ob->textured && g_eatlas_px && g_eatlas_w>0;
         for(int t=0;t<nt;t++){ V3 rr[3];
             for(int k=0;k<3;k++){ V3 p=vv[tri[t][k]]; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
                 p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
@@ -2569,8 +2594,13 @@ static void draw_eobj_solid(SDL_Renderer*R, SDL_Rect view){
                 float e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]);
                 float e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
                 if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
-                float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } }
-        free(vv); free(tri); free(tc); }
+                float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z;
+                    if(tex_on){ float*U=&tuv[t*6]; float uu=(e0*U[0]+e1*U[2]+e2*U[4])/area, vv2=(e0*U[1]+e1*U[3]+e2*U[5])/area;
+                        int tx=(int)(uu*g_eatlas_w),ty=(int)(vv2*g_eatlas_h); if(tx<0)tx=0; if(tx>=g_eatlas_w)tx=g_eatlas_w-1; if(ty<0)ty=0; if(ty>=g_eatlas_h)ty=g_eatlas_h-1;
+                        uint16_t tp=g_eatlas_px[ty*g_eatlas_w+tx]; uint8_t tr=(uint8_t)((float)(((tp>>11)&31)<<3)*sh),tg=(uint8_t)((float)(((tp>>5)&63)<<2)*sh),tb=(uint8_t)((float)((tp&31)<<3)*sh);
+                        g_mzpx[idx]=(uint16_t)(((tr>>3)<<11)|((tg>>2)<<5)|(tb>>3)); }
+                    else g_mzpx[idx]=col; } } }
+        free(vv); free(tri); free(tc); free(tuv); }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&view); }
 
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26});
@@ -2811,7 +2841,7 @@ static void rig_build_from_eobj(void){
     int n=g_nobj<RIG_MAXP?g_nobj:RIG_MAXP;
     for(int o=0;o<n;o++){ EObject*ob=&g_obj[o]; int p=g_nrp++;
         snprintf(g_rp[p].name,28,"%.27s",ob->name); g_rp[p].t=0; g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0;
-        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc);
+        V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,NULL);
         for(int t=0;t<nt;t++){ V3 a=vv[tri[t][0]],b=vv[tri[t][1]],c=vv[tri[t][2]];
             a.x+=ob->origin.x;a.y+=ob->origin.y;a.z+=ob->origin.z; b.x+=ob->origin.x;b.y+=ob->origin.y;b.z+=ob->origin.z; c.x+=ob->origin.x;c.y+=ob->origin.y;c.z+=ob->origin.z;
             rp_tri(p,a,b,c,0); }
