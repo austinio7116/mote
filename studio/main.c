@@ -1142,6 +1142,7 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
 typedef struct { float x,y,z; } V3;
 static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_mesh_path[320];
 static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
+static int g_me_scroll, g_me_cardtop, g_me_cardbot, g_me_cardx, g_me_maxs; static SDL_Rect g_me_sb; static int g_me_sbdrag;   /* model-editor sidebar scroll */
 /* mesh-preview texture (ABI v35): RGB565 box-sampled (cap 64), used for a textured
  * preview that matches the baker's triplanar mapping. NULL pixels => flat-shaded. */
 static uint16_t *g_mtex_px; static int g_mtex_w, g_mtex_h;
@@ -2277,6 +2278,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
 
     /* ---- edit card (compact) ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
+    int me_ctop=cy, me_cbot=oy+h-6; g_me_cardx=cardx; g_me_cardtop=me_ctop; g_me_cardbot=me_cbot;   /* scrollable content region */
+    { SDL_Rect mclip={cardx+1,me_ctop,MESH_CARDW-2,me_cbot-me_ctop}; SDL_RenderSetClipRect(R,&mclip); }
+    cy-=g_me_scroll;                                                                                  /* apply scroll offset to every control below */
     { char mn[56]; snprintf(mn,sizeof mn,"model: %.40s.mmesh",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15; }
     #define ME_SEP() do{ plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=7; }while(0)
     /* --- SELECT --- */
@@ -2285,8 +2289,8 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     ui_pill_t(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my,"Select faces (3)"); cy+=UI_H+4;
     { Col sc={175,185,205}; px=ui_btn_t(R,lx,cy,0,"All",-1,sc,&g_me_eall,mx,my,"Select all (A) / Alt+A deselect");
       px=ui_btn_t(R,px,cy,0,"Inv",-1,sc,&g_me_einv,mx,my,"Invert selection (Ctrl+I)");
-      px=ui_btn_t(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my,"Select linked island (L)");
-      px=ui_btn_t(R,px,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my,"Grow selection (Ctrl++)");
+      ui_btn_t(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my,"Select linked island (L)"); cy+=UI_H+4;
+      px=ui_btn_t(R,lx,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my,"Grow selection (Ctrl++)");
       ui_btn_t(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my,"Shrink selection (Ctrl+-)"); cy+=UI_H+5; }
     ME_SEP();
     /* --- ADD --- */
@@ -2350,8 +2354,15 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     px=ui_btn_t(R,lx,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my,"Bake to src/<name>.h (MoteModel)");
     ui_btn_t(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my,"Bake rig to src/<name>_rig.h"); cy+=UI_H+5;
     px=ui_btn_t(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my,"Export assets/<name>.obj + .rig");
-    ui_btn_t(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my,"Leave the editor (Tab)");
+    ui_btn_t(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my,"Leave the editor (Tab)"); cy+=UI_H+2;
     #undef ME_SEP
+    SDL_RenderSetClipRect(R,NULL);
+    int me_conth=cy+g_me_scroll-me_ctop, me_vis=me_cbot-me_ctop, me_maxs=me_conth-me_vis; if(me_maxs<0)me_maxs=0; g_me_maxs=me_maxs;
+    if(g_me_scroll>me_maxs)g_me_scroll=me_maxs; if(g_me_scroll<0)g_me_scroll=0;
+    if(me_maxs>0){ int sbx=cardx+MESH_CARDW-5; plain(R,sbx,me_ctop,4,me_vis,(Col){30,33,42});
+        int th=me_vis*me_vis/me_conth; if(th<20)th=20; int ty=me_ctop+(me_maxs?(me_vis-th)*g_me_scroll/me_maxs:0);
+        g_me_sb=(SDL_Rect){sbx,ty,4,th}; plain(R,sbx,ty,4,th,g_me_sbdrag?(Col){150,165,195}:(Col){110,120,140}); }
+    else { g_me_sb=(SDL_Rect){0,0,0,0}; g_me_scroll=0; }
     }
 
 /* Explain the mirror modifier when toggled. It is a LIVE modifier: the whole object is
@@ -2365,6 +2376,8 @@ static void mirror_status(void){ uint8_t m=g_nobj?g_obj[g_objsel].mirror:0;
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(g_me_sb.w&&hit(mx,my,g_me_sb.x-4,g_me_cardtop,12,g_me_cardbot-g_me_cardtop)){ g_me_sbdrag=1; return 1; }   /* grab the sidebar scrollbar */
+    if(mx>=g_me_cardx&&(my<g_me_cardtop||my>g_me_cardbot))return 1;   /* click in the card column but outside the scroll region — consume, don't orbit */
     if(HITR(g_me_evert)){ set_sel_mode(0); return 1; }
     if(HITR(g_me_eedge)){ set_sel_mode(1); return 1; }
     if(HITR(g_me_eface)){ set_sel_mode(2); return 1; }
@@ -5440,6 +5453,8 @@ int main(int argc,char**argv){
             /* wheel scrolls the Explorer tree when the pointer is over it */
             if(e.type==SDL_MOUSEWHEEL){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(wx<LEFT_W&&wy>=TOPH&&wy<BOT_Y){ g_treescroll-=e.wheel.y*ROW_H*2; if(g_treescroll<0)g_treescroll=0; continue; } }
+            if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_MESH&&g_edit_mode){ int wx,wy; SDL_GetMouseState(&wx,&wy);   /* scroll the model-editor sidebar when over it */
+                if(wx>=g_me_cardx&&wy>=g_me_cardtop&&wy<=g_me_cardbot){ g_me_scroll-=e.wheel.y*40; if(g_me_scroll<0)g_me_scroll=0; if(g_me_scroll>g_me_maxs)g_me_scroll=g_me_maxs; continue; } }
             if(e.type==SDL_MOUSEWHEEL&&(g_tab==TAB_MESH||g_tab==TAB_RIG)){ int wx,wy; SDL_GetMouseState(&wx,&wy);   /* zoom the 3D preview */
                 if(wy>BOT_Y){ float f=e.wheel.y>0?1.12f:1.0f/1.12f; float*s=(g_tab==TAB_MESH)?&g_mscale:&g_rscale; *s*=f;
                     if(*s<1e-3f)*s=1e-3f; if(*s>1e4f)*s=1e4f; continue; } }
@@ -5522,7 +5537,7 @@ int main(int argc,char**argv){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 else if(g_tab==TAB_SHEET)sheet_up(e.button.x,e.button.y);
-                g_split=0; g_mdrag=0; g_rdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_me_sbdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y);
                 else if(g_tab==TAB_FONT)font_up(e.button.x,e.button.y); }
@@ -5541,6 +5556,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE){ if(!g_op.drag||(e.motion.state&SDL_BUTTON_LMASK))op_apply(e.motion.x,e.motion.y); }   /* live transform follows the mouse */
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.motion.x; g_box_y1=e.motion.y; }   /* drag the box-select rect */
+                else if(e.type==SDL_MOUSEMOTION&&g_me_sbdrag&&g_tab==TAB_MESH){ int vis=g_me_cardbot-g_me_cardtop,th=g_me_sb.h>0?g_me_sb.h:20,trk=vis-th; g_me_scroll = trk>0 ? (e.motion.y-g_me_cardtop-th/2)*g_me_maxs/trk : 0; if(g_me_scroll<0)g_me_scroll=0; if(g_me_scroll>g_me_maxs)g_me_scroll=g_me_maxs; }
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_MESH&&g_mdrag){ g_myaw-=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_kdrag>=0){   /* retime the dragged key */
                     int t=(int)((float)(e.motion.x-g_rg_track.x)*g_clip_ms/(g_rg_track.w>0?g_rg_track.w:1)); if(t<0)t=0; if(t>g_clip_ms)t=g_clip_ms;
