@@ -67,7 +67,7 @@ static const MoteGameVtbl k_vtbl = {
     .update = g_update,
     .render_band = 0,    /* use the built-in 3D scene rasteriser */
     .overlay = 0,
-    .config = { .max_tris = scene_TRIS, .depth = 1 },   /* exactly the baked model's tri count */
+    .config = { .max_tris = scene_TRIS, .max_tex_tris = scene_TRIS, .depth = 1 },   /* tex-tri pool so a textured scene renders (not flat) */
 };
 
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }

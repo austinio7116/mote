@@ -1611,11 +1611,26 @@ static void emesh_build_geom(EObject*o, V3**pv,int*pnv, int(**pt)[3],int*pnt, ui
         free(map); }
     #undef EM_TUV
     *pv=vv; *pnv=nvv; *pt=tt; *pnt=ntt; *pcol=tc; if(puv)*puv=tuv; }
+/* A textured model needs a tex-tri pool or it draws flat. Auto-inject .max_tex_tris into the
+ * game's .config initializer (src/game.c) when it's missing, so a textured bake just works.
+ * Returns: 1 = patched, 0 = already had it / not found. Conservative: never overrides a value
+ * the dev set themselves; uses <model>_TRIS so it self-tracks the baked model. */
+static int ensure_tex_budget(const char*mdl){ if(g_sel<0)return 0;
+    char p[400]; snprintf(p,sizeof p,"%.300s/src/game.c",g_games[g_sel].dir);
+    FILE*f=fopen(p,"r"); if(!f)return 0; static char buf[400000]; size_t n=fread(buf,1,sizeof buf-1,f); buf[n]=0; fclose(f);
+    char*cf=strstr(buf,".config"); if(!cf)return 0; char*op=strchr(cf,'{'); if(!op)return 0; char*cl=strchr(op,'}'); if(!cl)return 0;
+    char*ex=strstr(op,"max_tex_tris"); if(ex&&ex<cl)return 0;   /* dev already set it — leave their value */
+    char ins[96]; int il=snprintf(ins,sizeof ins," .max_tex_tris = %.40s_TRIS,",mdl);
+    if(n+(size_t)il>=sizeof buf-1)return 0;
+    size_t pos=(size_t)(op+1-buf); memmove(buf+pos+il,buf+pos,n-pos+1); memcpy(buf+pos,ins,(size_t)il);
+    FILE*w=fopen(p,"w"); if(!w)return 0; fwrite(buf,1,n+(size_t)il,w); fclose(w); return 1; }
 static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
     EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
     int textured=o->textured;   /* bake the LIVE atlas (incl. any in-paint resize); only (re)load from disk if it's missing or for another model */
     if(textured){ char ap[700]; if(eobj_atlas_path(ap,sizeof ap)&&(!g_eatlas_px||strcmp(g_eatlas_src,ap)!=0))eobj_make_atlas(128); if(!g_eatlas_px||g_eatlas_w<1)textured=0; }
+    uint16_t avgcol=EMESH_DEFCOL;   /* flat fallback colour when the game has no max_tex_tris pool (avoids a black model) */
+    if(textured){ long r=0,g=0,b=0; int n=g_eatlas_w*g_eatlas_h,cnt=0; for(int i=0;i<n;i++){ uint16_t p=g_eatlas_px[i]; if(p==0xF81F)continue; r+=(p>>11)&31; g+=(p>>5)&63; b+=p&31; cnt++; } if(cnt){ r/=cnt; g/=cnt; b/=cnt; avgcol=(uint16_t)((r<<11)|(g<<5)|b); } }
     V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tcol; float *tuv=NULL; emesh_build_geom(o,&vv,&nvv,&tri,&nt,&tcol,textured?&tuv:NULL);
     if(nt<1){ free(vv); free(tri); free(tcol); free(tuv); snprintf(g_status,sizeof g_status,"no faces"); return; }
     float qmax=1e-6f,bound=0; for(int i=0;i<nvv;i++){ V3 p=vv[i]; float ax=fabsf(p.x),ay=fabsf(p.y),az=fabsf(p.z);
@@ -1650,7 +1665,7 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
             fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
         fprintf(h,"};\n");
         if(textured){ fprintf(h,"static const uint8_t %s_uv%d[%d]={",name,chunk,cf*6); for(int i=0;i<cf;i++)for(int k=0;k<6;k++)fprintf(h,"%d,",cuv[i][k]); fprintf(h,"};\n");
-            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0,%.6ff,%.6ff,0,&%s_tex_img,%s_uv%d},\n",name,chunk,name,chunk,nv,cf,size,bound*(size/qmax),name,name,chunk); }
+            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0,&%s_tex_img,%s_uv%d},\n",name,chunk,name,chunk,nv,cf,avgcol,size,bound*(size/qmax),name,name,chunk); }
         else if(varies){ fprintf(h,"static const uint16_t %s_fc%d[%d]={",name,chunk,cf); for(int i=0;i<cf;i++)fprintf(h,"0x%04X,",ccol[i]); fprintf(h,"};\n");
             cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,%s_fc%d,%d,%d,0,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,name,chunk,nv,cf,size,bound*(size/qmax)); }
         else cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,ccol[0],size,bound*(size/qmax));
@@ -1659,7 +1674,9 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
               "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* mote_model_draw(mote,&%s,pos) */\n\n#endif\n",
             name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name);
     fclose(h); free(tri); free(vv); free(tcol); free(tuv); free(stamp); free(local); free(cv); free(cface); free(ccol); free(cuv);
-    snprintf(g_status,sizeof g_status,"baked src/%s.h  -  %d tris, %d chunks (exact%s%s)",name,total_f,chunk,o->mirror?", mirrored":"",textured?", textured":""); }
+    int patched=textured?ensure_tex_budget(name):0;   /* make a textured bake "just work": auto-budget the tex-tri pool */
+    snprintf(g_status,sizeof g_status,"baked src/%s.h — %d tris, %d chunks%s%s%s",name,total_f,chunk,o->mirror?", mirrored":"",textured?", textured":"",
+        patched?" · added .max_tex_tris to game.c":textured?" · check game.c .max_tex_tris":""); }
 
 /* ---- Phase 5: multi-object → rig (bake a MoteRig; export OBJ+.rig for the RIG tab) ---- */
 static void emesh_sanitize(const char*in,char*out,int n){ int j=0; for(int i=0;in[i]&&j<n-1;i++){ char c=in[i];
@@ -2064,6 +2081,24 @@ static int eobj_orient_outward(EObject*o){ int nf=o->nf; if(nf<1)return 0;
 static void eobj_recalc_outward(void){ if(!g_nobj)return; eundo_push(); int f=eobj_orient_outward(&g_obj[g_objsel]);
     snprintf(g_status,sizeof g_status,"recalc outward: %d face%s reoriented",f,f==1?"":"s"); }
 
+/* Apply Mirror: weld the live-mirrored geometry into real verts/faces (seam verts on the
+ * mirror plane are shared, not duplicated; reflected faces flip winding for odd reflections),
+ * then turn the modifier off. Matches emesh_build_geom's bake-time mirror exactly. */
+static void eobj_apply_mirror(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; if(!o->mirror){ snprintf(g_status,sizeof g_status,"no mirror modifier on this object"); return; }
+    eundo_push(); uint8_t m=o->mirror; int base_nv=o->nv,base_nf=o->nf;
+    int *map=malloc((size_t)base_nv*sizeof(int)); if(!map)return;
+    for(int combo=1;combo<8;combo++){ if(combo & ~m)continue;   /* one reflected copy per non-empty subset of the mirror axes */
+        int sx=(combo&1)?-1:1,sy=(combo&2)?-1:1,sz=(combo&4)?-1:1, parity=__builtin_popcount((unsigned)combo)&1;
+        for(int i=0;i<base_nv;i++){ V3 p=o->v[i].p; int seam=1;
+            if((combo&1)&&fabsf(p.x)>1e-4f)seam=0; if((combo&2)&&fabsf(p.y)>1e-4f)seam=0; if((combo&4)&&fabsf(p.z)>1e-4f)seam=0;
+            map[i]= seam ? i : ev_add(o,(V3){p.x*sx,p.y*sy,p.z*sz}); }
+        for(int fi=0;fi<base_nf;fi++){ EFace sf=o->f[fi];   /* copy first — ef_add may realloc o->f */
+            int idx[4]; float uvs[4][2]; int nv=sf.nv;
+            for(int k=0;k<nv;k++){ int s=parity?(nv-1-k):k; idx[k]=map[sf.v[s]]; uvs[k][0]=sf.uv[s][0]; uvs[k][1]=sf.uv[s][1]; }
+            ef_add(o,nv,idx,sf.color); EFace*nf=&o->f[o->nf-1]; for(int k=0;k<nv;k++){ nf->uv[k][0]=uvs[k][0]; nf->uv[k][1]=uvs[k][1]; } } }
+    free(map); o->mirror=0; edges_rebuild(o);
+    snprintf(g_status,sizeof g_status,"applied mirror -> %d verts, %d faces (modifier off)",o->nv,o->nf); }
+
 /* Weld vertices that share a position (epsilon), remap faces, and drop faces that collapse to a
  * degenerate (repeated index). Returns the number of verts merged. */
 static int eobj_weld_verts(EObject*o){ const float EPS=1e-5f; if(o->nv<1)return 0;
@@ -2325,7 +2360,7 @@ static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
 static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
-static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
 static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint;
@@ -2500,7 +2535,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue */
       px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); tip(g_me_mirx,mx,my,"Live-mirror across X (red plane)");
       px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my); tip(g_me_miry,mx,my,"Live-mirror across Y (green plane)");
-      ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); tip(g_me_mirz,mx,my,"Live-mirror across Z (blue plane)"); cy+=UI_H+4; }
+      px=ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); tip(g_me_mirz,mx,my,"Live-mirror across Z (blue plane)");
+      if(mir)ui_btn_t(R,px+8,cy,0,"Apply",-1,(Col){205,175,140},&g_me_mirapply,mx,my,"Bake the mirrored geometry into real faces and turn the modifier off");
+      else g_me_mirapply=(SDL_Rect){0,0,0,0}; cy+=UI_H+4; }
     { char ob[40]; snprintf(ob,sizeof ob,"Obj %d/%d",g_nobj?g_objsel+1:0,g_nobj); text(R,ob,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
       int bx=lx+textw(R,ob,1)+6; bx=ui_btn_t(R,bx,cy,0,"<",-1,C_TXT,&g_me_objprev,mx,my,"Previous object"); bx=ui_btn_t(R,bx,cy,0,">",-1,C_TXT,&g_me_objnext,mx,my,"Next object");
       ui_btn_t(R,bx,cy,0,"Del obj",-1,(Col){220,140,120},&g_me_objdel,mx,my,"Delete this object"); cy+=UI_H+4; }
@@ -2595,6 +2632,7 @@ static int mesh_edit_down(int mx,int my){
     if(g_nobj&&HITR(g_me_mirx)){ g_obj[g_objsel].mirror^=1; mirror_status(); return 1; }
     if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; mirror_status(); return 1; }
     if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; mirror_status(); return 1; }
+    if(g_me_mirapply.w&&HITR(g_me_mirapply)){ eobj_apply_mirror(); return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
@@ -5514,6 +5552,10 @@ int main(int argc,char**argv){
             op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.5"); g_op.hasnum=1; op_apply(0,0); op_confirm();
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRROR")); g_obj[0].f[2].sel=0; }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
+        if(getenv("MOTE_STUDIO_MESHMIRRORAPPLY")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); g_objsel=0; g_sel_mode=2;   /* self-contained apply-mirror test */
+            g_obj[0].f[2].sel=1; op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); g_obj[0].f[2].sel=0;   /* push +X face out (asymmetric) */
+            g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRRORAPPLY"));
+            if(!getenv("MOTE_STUDIO_NOAPPLY")){ eobj_apply_mirror(); fprintf(stderr,"APPLYMIRROR nv=%d nf=%d mirror=%d\n",g_obj[0].nv,g_obj[0].nf,g_obj[0].mirror); } eobj_fit(); }
         if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
             if(getenv("MOTE_STUDIO_MESHTEXRES"))atlas_resize(atoi(getenv("MOTE_STUDIO_MESHTEXRES")));
             if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); }
