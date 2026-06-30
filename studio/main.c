@@ -1349,7 +1349,7 @@ static void mesh_tex_clear(void);
  * phases; the data model + edge adjacency here are built to receive them. */
 #define EMESH_DEFCOL 0xA534          /* default new-face albedo (RGB565, mid grey) */
 typedef struct { V3 p; uint8_t sel; } EVert;
-typedef struct { int v[4]; int nv; uint8_t sel; uint16_t color; } EFace;   /* tri or quad */
+typedef struct { int v[4]; int nv; uint8_t sel; uint16_t color; float uv[4][2]; } EFace;   /* tri or quad; uv = per-corner texture coords (0..1), filled by Unwrap */
 typedef struct { int a,b; uint8_t sel; int f0,f1; } EEdge;                  /* derived; f0/f1 = adjacent faces (-1 none) */
 typedef struct {
     char  name[28];
@@ -1371,7 +1371,7 @@ static int ev_add(EObject*o,V3 p){ if(o->nv>=o->vcap){ o->vcap=o->vcap?o->vcap*2
     o->v[o->nv].p=p; o->v[o->nv].sel=0; return o->nv++; }
 static void ef_add(EObject*o,int nv,const int*idx,uint16_t col){ if(nv<3)return; if(nv>4)nv=4;
     if(o->nf>=o->fcap){ o->fcap=o->fcap?o->fcap*2:16; o->f=realloc(o->f,o->fcap*sizeof*o->f); }
-    EFace*f=&o->f[o->nf++]; f->nv=nv; f->sel=0; f->color=col; for(int i=0;i<nv;i++)f->v[i]=idx[i]; for(int i=nv;i<4;i++)f->v[i]=0; }
+    EFace*f=&o->f[o->nf++]; f->nv=nv; f->sel=0; f->color=col; for(int i=0;i<nv;i++)f->v[i]=idx[i]; for(int i=nv;i<4;i++)f->v[i]=0; for(int i=0;i<4;i++)f->uv[i][0]=f->uv[i][1]=0; }
 /* Derive the edge list (with face adjacency) from the faces. O(F*E*E) — fine for the
  * small hand-modeled meshes this targets. Re-run after every topology change. */
 static void edges_rebuild(EObject*o){ o->ne=0;
@@ -1509,7 +1509,9 @@ static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
         fprintf(f,"object %s\norigin %g %g %g\nparent %d\npivot %g %g %g\nmirror %u\n",ob->name,ob->origin.x,ob->origin.y,ob->origin.z,ob->parent,ob->pivot.x,ob->pivot.y,ob->pivot.z,ob->mirror);
         for(int i=0;i<ob->nv;i++)fprintf(f,"v %g %g %g\n",ob->v[i].p.x,ob->v[i].p.y,ob->v[i].p.z);
-        for(int i=0;i<ob->nf;i++){ EFace*fc=&ob->f[i]; fprintf(f,"f %d",fc->nv); for(int k=0;k<fc->nv;k++)fprintf(f," %d",fc->v[k]); fprintf(f," %u\n",fc->color); }
+        for(int i=0;i<ob->nf;i++){ EFace*fc=&ob->f[i]; fprintf(f,"f %d",fc->nv); for(int k=0;k<fc->nv;k++)fprintf(f," %d",fc->v[k]); fprintf(f," %u\n",fc->color);
+            int hasuv=0; for(int k=0;k<fc->nv;k++)if(fc->uv[k][0]||fc->uv[k][1])hasuv=1;
+            if(hasuv){ fprintf(f,"fuv"); for(int k=0;k<fc->nv;k++)fprintf(f," %.5f %.5f",fc->uv[k][0],fc->uv[k][1]); fprintf(f,"\n"); } }
         fprintf(f,"end\n"); }
     fclose(f); snprintf(g_status,sizeof g_status,"saved scene.mmesh (%d objects)",g_nobj); }
 static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
@@ -1525,7 +1527,10 @@ static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
         else if(cur&&ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3)ev_add(cur,v); }
         else if(cur&&ln[0]=='f'&&ln[1]==' '){ int vals[6],n=0; for(char*tok=strtok(ln+2," \t\r\n"); tok&&n<6; tok=strtok(NULL," \t\r\n"))vals[n++]=atoi(tok);
             if(n>=4){ int cnt=vals[0]; if(cnt<3)cnt=3; if(cnt>4)cnt=4; int idx[4]={0}; for(int k=0;k<cnt&&k+1<n;k++)idx[k]=vals[k+1];
-                int col=(n>=cnt+2)?vals[cnt+1]:EMESH_DEFCOL; ef_add(cur,cnt,idx,(uint16_t)col); } } }
+                int col=(n>=cnt+2)?vals[cnt+1]:EMESH_DEFCOL; ef_add(cur,cnt,idx,(uint16_t)col); } }
+        else if(cur&&!strncmp(ln,"fuv ",4)&&cur->nf>0){ EFace*fc=&cur->f[cur->nf-1]; float u[8]={0}; int n=0;
+            for(char*tok=strtok(ln+4," \t\r\n"); tok&&n<8; tok=strtok(NULL," \t\r\n"))u[n++]=(float)atof(tok);
+            for(int k=0;k<fc->nv&&k*2+1<n;k++){ fc->uv[k][0]=u[k*2]; fc->uv[k][1]=u[k*2+1]; } } }
     for(int o=0;o<g_nobj;o++)edges_rebuild(&g_obj[o]); fclose(f); eobj_fit();
     snprintf(g_status,sizeof g_status,"loaded scene.mmesh (%d objects)",g_nobj); }
 
