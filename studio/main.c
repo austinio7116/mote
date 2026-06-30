@@ -1792,14 +1792,15 @@ static int eobj_project(V3 wp,float*osx,float*osy,float*odepth){
 static int eobj_pick(int mx,int my,int*po,int*pe){
     float best=1e9f,bestdepth=-1e30f; int bo=-1,be=-1; const float R=9.0f;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
+        float abias=(o==g_objsel)?30.0f:0.0f;   /* gentle preference for the active object in overlaps (~5px) */
         if(g_sel_mode==0){ for(int i=0;i<ob->nv;i++){ float sx,sy,d; if(!eobj_project(eobj_wv(ob,i),&sx,&sy,&d))continue;
-            float dx=sx-mx,dy=sy-my,dd=dx*dx+dy*dy;
-            if(dd<=R*R&&(dd<best-0.5f||(fabsf(dd-best)<=0.5f&&d>bestdepth))){ best=dd; bestdepth=d; bo=o; be=i; } } }
+            float dx=sx-mx,dy=sy-my,dd=dx*dx+dy*dy,adj=dd-abias;
+            if(dd<=R*R&&(adj<best-0.5f||(fabsf(adj-best)<=0.5f&&d>bestdepth))){ best=adj; bestdepth=d; bo=o; be=i; } } }
         else if(g_sel_mode==1){ for(int i=0;i<ob->ne;i++){ EEdge*ed=&ob->e[i]; float ax,ay,da,bx,by,db;
             if(!eobj_project(eobj_wv(ob,ed->a),&ax,&ay,&da))continue; if(!eobj_project(eobj_wv(ob,ed->b),&bx,&by,&db))continue;
             float vx=bx-ax,vy=by-ay,wx=mx-ax,wy=my-ay,L=vx*vx+vy*vy,t=L>1e-6f?(wx*vx+wy*vy)/L:0; if(t<0)t=0; if(t>1)t=1;
-            float px=ax+t*vx,py=ay+t*vy,dx=mx-px,dy=my-py,dd=dx*dx+dy*dy,d=da+(db-da)*t;
-            if(dd<=R*R&&(dd<best-0.5f||(fabsf(dd-best)<=0.5f&&d>bestdepth))){ best=dd; bestdepth=d; bo=o; be=i; } } }
+            float px=ax+t*vx,py=ay+t*vy,dx=mx-px,dy=my-py,dd=dx*dx+dy*dy,d=da+(db-da)*t,adj=dd-abias;
+            if(dd<=R*R&&(adj<best-0.5f||(fabsf(adj-best)<=0.5f&&d>bestdepth))){ best=adj; bestdepth=d; bo=o; be=i; } } }
         else { for(int i=0;i<ob->nf;i++){ EFace*f=&ob->f[i];
             for(int k=2;k<f->nv;k++){ int id[3]={f->v[0],f->v[k-1],f->v[k]}; float sx[3],sy[3],dz[3]; int ok=1;
                 for(int j=0;j<3;j++)if(!eobj_project(eobj_wv(ob,id[j]),&sx[j],&sy[j],&dz[j])){ ok=0; break; } if(!ok)continue;
@@ -1814,8 +1815,11 @@ static int eobj_pick(int mx,int my,int*po,int*pe){
 static uint8_t* eobj_selptr(EObject*ob,int kind,int e){ return kind==0?&ob->v[e].sel:kind==1?&ob->e[e].sel:&ob->f[e].sel; }
 static void eobj_select_clear(int kind){ for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
     int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=0; } }
-static void eobj_select_all(int kind,int val){ for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
-    int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=(uint8_t)val; } }
+static void eobj_select_all(int kind,int val){
+    if(val){ if(!g_nobj)return; EObject*ob=&g_obj[g_objsel];   /* select all of the ACTIVE object only — so a new/overlapping object can be grabbed + moved on its own */
+        int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=1; }
+    else for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];   /* deselect clears every object */
+        int n=kind==0?ob->nv:kind==1?ob->ne:ob->nf; for(int i=0;i<n;i++)*eobj_selptr(ob,kind,i)=0; } }
 /* LMB in the viewport: select the picked element (shift = toggle, else replace).
  * Returns 1 if something was hit (caller suppresses orbit); 0 on empty bg (caller orbits). */
 static int eobj_click(int mx,int my,int shift){
