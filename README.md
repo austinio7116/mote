@@ -29,13 +29,14 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 ## Table of contents
 
 1. [What Mote is — the architecture](#1-what-mote-is)
-2. [Quick start (CLI) + Mote Studio (the IDE)](#2-quick-start)
-   - [Install dependencies (host)](#21-install-dependencies-host)
-   - [Build the engine + emulator + Studio (once)](#22-build-the-engine--emulator--studio-once)
-   - [Make and run a game (CLI)](#23-make-and-run-a-game-cli)
-   - [Game name & author — `MOTE_GAME_META`](#24-game-name--author--mote_game_meta)
-   - [Mote Studio — the IDE (recommended workflow)](#25-mote-studio--the-ide-recommended-workflow)
-   - [Build games fast: Studio for assets, Claude Code for code](#26-build-games-fast-studio-for-assets-claude-code-for-code)
+2. [Quick start — Windows Studio (recommended), or build from source](#2-quick-start)
+   - [Option A — Windows + Mote Studio + ThumbyOne (recommended)](#21-option-a--windows--mote-studio--thumbyone-recommended)
+   - [Option B — build from source (Linux / WSL): dependencies](#22-option-b--build-from-source-linux--wsl-dependencies)
+   - [Build the engine + emulator + Studio (once)](#23-build-the-engine--emulator--studio-once)
+   - [Make and run a game (CLI)](#24-make-and-run-a-game-cli)
+   - [Game name & author — `MOTE_GAME_META`](#25-game-name--author--mote_game_meta)
+   - [Mote Studio — the IDE (recommended workflow)](#26-mote-studio--the-ide-recommended-workflow)
+   - [Build games fast: Studio for assets, Claude Code for code](#27-build-games-fast-studio-for-assets-claude-code-for-code)
 3. [Anatomy of a game, line by line](#3-anatomy-of-a-game)
 4. [The asset pipeline (baking)](#4-the-asset-pipeline)
    - [What bakes, and how you use it](#what-bakes-and-how-you-use-it)
@@ -108,7 +109,66 @@ recommended way to develop; the `mote` CLI is the same thing without the GUI.
 
 ## 2. Quick start
 
-### 2.1 Install dependencies (host)
+Two ways in:
+
+- **Option A — Windows + Mote Studio + ThumbyOne.** Download a self-contained Studio
+  bundle, double-click, and you're authoring games in minutes — no compiler setup, no
+  build step. Then run them on a real Thumby Color via ThumbyOne. **Start here if you
+  just want to make games.**
+- **Option B — build from source (Linux / WSL).** Compile the engine, emulator, Studio
+  and the `mote` CLI yourself. Best for hacking on the engine itself, CI, or headless use.
+
+### 2.1 Option A — Windows + Mote Studio + ThumbyOne (recommended)
+
+No toolchain to install and nothing to compile first — the Windows bundle ships its
+own portable MinGW gcc, `arm-none-eabi-gcc` (device builds) and ffmpeg (the Audio tab),
+so Run / Build / Bake / Push all work out of the box.
+
+**1 · Get Studio.** Download the latest self-contained
+**`MoteStudio-<ver>-win64.zip`** from the
+[Releases page](https://github.com/austinio7116/mote/releases) and unzip it anywhere
+on a *local* drive (e.g. `C:\MoteStudio`).
+
+**2 · Run it.** Double-click `mote_studio.exe` from inside that folder (it reads its
+bundled `studio/assets`, `examples/`, `engine/`, so run it in place).
+
+**3 · Develop in the emulator — no hardware needed.**
+
+```
+ Project ▸ Open ─→ pick a game (Games / Examples)
+        │ Studio builds it and runs the REAL engine inside an on-screen,
+        │ photo-accurate Thumby Color shell — clickable buttons, zoom, gamepad.
+        ▼
+ edit src/game.c (Code tab, or "Edit in VS Code") ─→ Save
+        │ Studio watches the file and HOT-RELOADS the running game. No restart.
+        ▼
+ author art/audio/levels in the bottom-dock tools (Pixel Art, Tiles, Mesh, Audio…)
+        │ each tool bakes a header your game #includes (§4).
+        ▼
+ tight loop: play → edit → Save → it reloads.
+```
+
+**4 · Run on a real Thumby Color (ThumbyOne).** The device runs Mote via the
+[**ThumbyOne**](https://github.com/austinio7116/ThumbyOne) multi-boot firmware, which
+bundles the Mote engine as a slot. Flash ThumbyOne once (see that repo), then:
+
+- Connect the board over USB and use Studio's **Device** dock → **Push & Launch**:
+  Studio cross-builds the `.mote` module, uploads it over USB-CDC, and runs it. It
+  appears under the device's **MOTE** tile launcher.
+- Or copy `.mote` files into the device's `/mote/` folder by hand — no firmware reflash
+  to add or update a game.
+
+That's the whole workflow: **edit → Save (hot-reload in the emulator) → Push & Launch
+(to the device).** The rest of §2 (the [full Studio tour](#26-mote-studio--the-ide-recommended-workflow),
+[asset pipeline](#4-the-asset-pipeline) and [engine API](#5-the-engine-api)) applies
+identically — Studio is the same program on Windows and Linux.
+
+> Studio's Pixel Art / Mesh / Audio tabs need a C compiler and ffmpeg on `PATH` for
+> *Build* and *audio Load*; the self-contained zip bundles all of them. If you instead
+> drop the bare `mote_studio.exe` into a source checkout, install MinGW-w64,
+> arm-none-eabi-gcc and ffmpeg yourself (see `scripts/WINDOWS-README.txt`).
+
+### 2.2 Option B — build from source (Linux / WSL): dependencies
 
 ```bash
 # Debian/Ubuntu/WSL:
@@ -122,7 +182,7 @@ sudo apt install gcc-arm-none-eabi   # cross-compiler for the .mote module
 pip install pyserial                 # for `mote push` / `mote logs` over USB
 ```
 
-### 2.2 Build the engine + emulator + Studio (once)
+### 2.3 Build the engine + emulator + Studio (once)
 
 ```bash
 cmake -B build_host -S . && cmake --build build_host -j8
@@ -132,7 +192,7 @@ This produces:
 - `build_host/mote_host` — the SDL emulator (runs one game `.so`)
 - `build_host/mote_studio` — the IDE
 
-### 2.3 Make and run a game (CLI)
+### 2.4 Make and run a game (CLI)
 
 `tools/mote` is the command-line driver. Put it on your `PATH` or call
 `./tools/mote`.
@@ -156,7 +216,7 @@ it draws, so a new game starts with sensible claims rather than zero or guesswor
 | `mote bake <dir>` | Convert `assets/*.png`, `*.obj`, `*.stl` → C headers in `src/` (see §4) |
 | `mote push <dir>` | Cross-build the `.mote` and upload it over USB (`--launch` runs it now) |
 | `mote ping` / `mote list` / `mote logs` / `mote wipe` | Talk to a connected device |
-| `mote studio` | Build + open the IDE (see §2.5) |
+| `mote studio` | Build + open the IDE (see §2.6) |
 
 **Emulator keyboard map:**
 
@@ -180,7 +240,7 @@ SDL_VIDEODRIVER=dummy MOTE_SHOT=/tmp/shot.ppm MOTE_SHOT_FRAME=60 \
   ./build_host/mote_host examples/mygame/build/mygame.so
 ```
 
-### 2.4 Game name & author — `MOTE_GAME_META`
+### 2.5 Game name & author — `MOTE_GAME_META`
 
 A game's name and author live in `game.c`, right next to the code — the single
 source of truth. `mote new` writes it for you:
@@ -197,7 +257,7 @@ in your vtbl (§7).
 > as a fallback (then the folder name) if `MOTE_GAME_META` is absent, but new projects
 > don't create a `game.toml`.
 
-### 2.5 Mote Studio — the IDE (recommended workflow)
+### 2.6 Mote Studio — the IDE (recommended workflow)
 
 ```bash
 mote studio              # or: ./build_host/mote_studio   (run from the repo root)
@@ -270,7 +330,7 @@ compiler (`gcc`, `arm-none-eabi-gcc`) and, for the Audio tab, `ffmpeg`.
 single self-contained `dist-windows/mote_studio.exe` (SDL2 + MinGW runtime statically
 linked, no DLL dependencies). Drop it in the repo root and run it there.
 
-### 2.6 Build games fast: Studio for assets, Claude Code for code
+### 2.7 Build games fast: Studio for assets, Claude Code for code
 
 The quickest way to make a Mote game is to split the work along its natural seam:
 
@@ -442,7 +502,7 @@ pick a frame with the sprite's source rect `fx,fy,fw,fh`. e.g. a 48×24 PNG hold
 two 24×24 frames → frame *i* is `fx = i*24, fy = 0, fw = 24, fh = 24`. See
 `examples/imgdemo` (a baked logo + an animated 2-frame sprite).
 
-![The Studio Pixel Art tab — paint a sprite with the HSV/hex picker, pencil/fill/line/rect tools, grid and transparency; Save writes assets/sprite.png and auto-bakes its MoteImage header in one click](docs/img/studio-pixel.png)
+![The Studio Pixel Art tab — nightmote's 96×36 sprite atlas open in the editor: HSV/hex colour picker, pencil / soft brush / eraser / fill / eyedropper / line / rect, grid, checkerboard transparency, independent W×H (non-square) sizing and a live preview. Save writes the PNG and auto-bakes its MoteImage header in one click](docs/img/studio-pixel.png)
 
 ![The soft brush — a hard green dab vs a soft feathered one, and a soft blue stroke compositing over a red strip; note the square/round shape toggle, the hardness stepper, and the independent W and H size steppers (48×48) for non-square canvases](docs/img/studio-pixel-brush.png)
 
