@@ -1150,6 +1150,8 @@ typedef struct { float x,y,z; } V3;
 static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_mesh_path[320];
 static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
 static int g_me_shade=0, g_me_xray=0;   /* model-editor view: shade 0=solid 1=wireframe · xray = see/select through faces */
+static int g_mesh_autorot=1, g_mesh_showtex=1;   /* non-edit MODEL preview: auto-spin · show the texture (vs flat colours) */
+static SDL_Rect g_me_vrot,g_me_vtex,g_me_vreset,g_me_vbake;   /* MODEL preview card controls */
 static int g_me_scroll, g_me_cardtop, g_me_cardbot, g_me_cardx, g_me_maxs; static SDL_Rect g_me_sb; static int g_me_sbdrag;   /* model-editor sidebar scroll */
 /* mesh-preview texture (ABI v35): RGB565 box-sampled (cap 64), used for a textured
  * preview that matches the baker's triplanar mapping. NULL pixels => flat-shaded. */
@@ -2895,7 +2897,7 @@ static void draw_eobj_solid(SDL_Renderer*R, SDL_Rect view){
     int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f;
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o];
         V3 *vv; int nvv; int (*tri)[3]; int nt; uint16_t *tc; float *tuv; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,&tuv);
-        int tex_on = ob->textured && g_eatlas_px && g_eatlas_w>0;
+        int tex_on = g_mesh_showtex && ob->textured && g_eatlas_px && g_eatlas_w>0;
         for(int t=0;t<nt;t++){ V3 rr[3];
             for(int k=0;k<3;k++){ V3 p=vv[tri[t][k]]; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
                 p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
@@ -2977,11 +2979,15 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
     if(g_nobj>0){   /* an editable model exists — preview the LIVE model (game-accurate cull), not the stale import */
-        if(!g_mdrag) g_myaw+=0.008f;
+        if(g_mesh_autorot&&!g_mdrag) g_myaw+=0.008f;
         draw_eobj_solid(R,g_me_view);
-        text(R,"live model — drag to rotate (back-faces culled, as in-game)",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
-        int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12;
-        ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
+        text(R,g_mesh_autorot?"live model — auto-spin (drag to orbit, as in-game)":"live model — drag to orbit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
+        int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12,px;
+        ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+8;
+        { Col vc={170,200,200}; px=ui_pill_t(R,lx,cy,"View","Spin",g_mesh_autorot,&g_me_vrot,mx,my,"Toggle the auto-rotate preview");
+          ui_pill_t(R,px,cy,NULL,"Texture",g_mesh_showtex,&g_me_vtex,mx,my,"Show the texture (off = flat face colours)"); cy+=UI_H+5; (void)vc; }
+        px=ui_btn_t(R,lx,cy,0,"Reset view",-1,(Col){180,190,210},&g_me_vreset,mx,my,"Recentre + reset the view angle");
+        ui_btn_t(R,px,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_vbake,mx,my,"Bake to src/<name>.h (MoteModel)"); cy+=UI_H+12;
         { char st[80]; snprintf(st,sizeof st,"%d object%s",g_nobj,g_nobj==1?"":"s"); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14;
           EObject*s=&g_obj[g_objsel]; snprintf(st,sizeof st,"%.14s  %dv %df",s->name,s->nv,s->nf); text(R,st,lx,cy,1,C_DIM,C_PANEL); }
         return;
@@ -3101,6 +3107,10 @@ static int mesh_down(int mx,int my){
     if(g_edit_mode) return mesh_edit_down(mx,my);
     if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nobj>0){ g_edit_mode=1; eobj_fit(); }   /* a model exists -> just re-enter the editor (don't re-import + wipe edits) */
         else if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }
+    if(g_me_vrot.w&&HITR(g_me_vrot)){ g_mesh_autorot=!g_mesh_autorot; return 1; }                       /* MODEL preview: toggle auto-spin */
+    if(g_me_vtex.w&&HITR(g_me_vtex)){ g_mesh_showtex=!g_mesh_showtex; return 1; }                        /* toggle textured / flat */
+    if(g_me_vreset.w&&HITR(g_me_vreset)){ g_myaw=0.6f; g_mpitch=0.35f; eobj_fit(); return 1; }           /* recentre + default angle */
+    if(g_me_vbake.w&&HITR(g_me_vbake)){ eobj_bake(); return 1; }                                         /* quick bake .h */
     int ch=0;
     if(HITR(g_me_bmin)){ g_mesh_budget-= g_mesh_budget>800?200:100; if(g_mesh_budget<100)g_mesh_budget=100; ch=1; }
     else if(HITR(g_me_bpls)){ g_mesh_budget+= g_mesh_budget>=800?200:100; if(g_mesh_budget>8000)g_mesh_budget=8000; ch=1; }
