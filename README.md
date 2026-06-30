@@ -417,6 +417,8 @@ two 24×24 frames → frame *i* is `fx = i*24, fy = 0, fw = 24, fh = 24`. See
 
 ![The soft brush — a hard green dab vs a soft feathered one, and a soft blue stroke compositing over a red strip; note the square/round shape toggle, the hardness stepper, and the independent W and H size steppers (48×48) for non-square canvases](docs/img/studio-pixel-brush.png)
 
+![The SHEET tab's cell editor (thumbatro's card sheet) — the cell grid on the left, one cell open in the in-place pixel editor on the right with the brush shape toggle, size and hardness; the Tiles, Anim and Font tabs share the same cell editor](docs/img/studio-sheet-cell.png)
+
 The separate **Texture** tab generates procedural fills (wood, marble, brick, stone,
 cloud, plasma …) with contrast/warp — it bakes to a `MoteImage` the same way, and is
 kept apart from Pixel Art so generating never overwrites hand-drawn art.
@@ -517,6 +519,8 @@ out, and **Clean** (**Ctrl+K**) welds doubled verts, removes non-manifold faces 
 reorients in one pass. **Origin ▸ Sel / Centre** moves the object's origin to your
 selection or its bounding-box centre *without* moving the geometry — a sane pivot for
 the Rig tab.
+
+![Editing an imported chess bishop STL in the model editor — a face selected (orange) is being extruded along its normal (the readout shows Move N: 0.095), with the full grouped sidebar and the Rotate hover tooltip](docs/img/studio-mesh-edit.png)
 
 **Mirror** (live): toggle **Mirror X / Y / Z** on an object and you model one half
 while the editor shows the whole thing — the reflected half is solid (with a subtle
