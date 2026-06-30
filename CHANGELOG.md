@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.11-alpha
+
+**A full 3D model editor, and a much better Pixel Art tab.** This is a Studio (dev-tools)
+release — **no firmware reflash needed**; the engine and its ABI (v39) are unchanged, so
+games already on the device keep working.
+
 **A model editor in the Mesh tab.** The Studio Mesh tab now has a built-in
 Blender-style low-poly modeller alongside the STL/OBJ importer — press **Tab** to
 switch. Build a model from primitives (cube / plane / cylinder / cone / sphere) or

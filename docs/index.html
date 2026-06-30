@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v38</span>
+    <span class="abi">ABI v39</span>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
   <nav id="nav">
@@ -1088,6 +1088,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v36</td><td>audio_set_stream — register a PCM source mixed on top of the synth voices (for games with their own software synth). Plus <code>.ramtext</code> RAM-resident hot code (loader copies it flash→SRAM at load) and the module static RAM grew 128→134&nbsp;KB. Both landed for the ThumbyCraft port.</td></tr>
 <tr><td>v37</td><td>audio_play_sfx — stream a <code>MoteSfx</code> recipe (synthesised on the fly by a pool of 8 voices); the small-flash, ~0-RAM way to ship a whole game's SFX, vs baking each to a clip.</td></tr>
 <tr><td>v38</td><td>kv_save/kv_load/kv_list — named-blob storage (arbitrary keys, any size, FatFs-backed) for games that persist many pieces, e.g. ThumbyCraft's per-chunk voxel edits.</td></tr>
+<tr><td>v39</td><td>text_font — anti-aliased proportional fonts (TTF-baked or hand-drawn): each glyph keeps its own width/bearing, packed at the smallest lossless depth (1/2/4-bit). Authored in the Studio Font tab.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine
