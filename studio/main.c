@@ -1149,6 +1149,7 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
 typedef struct { float x,y,z; } V3;
 static struct { V3 a,b,c; } *g_tri; static int g_ntri,g_tricap; static char g_mesh_path[320];
 static float g_myaw=0.6f,g_mpitch=0.35f; static int g_mdrag; static V3 g_mcen; static float g_mscale=1;
+static int g_me_shade=0, g_me_xray=0;   /* model-editor view: shade 0=solid 1=wireframe · xray = see/select through faces */
 static int g_me_scroll, g_me_cardtop, g_me_cardbot, g_me_cardx, g_me_maxs; static SDL_Rect g_me_sb; static int g_me_sbdrag;   /* model-editor sidebar scroll */
 /* mesh-preview texture (ABI v35): RGB565 box-sampled (cap 64), used for a textured
  * preview that matches the baker's triplanar mapping. NULL pixels => flat-shaded. */
@@ -2453,7 +2454,19 @@ static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_ep
 static SDL_Rect g_me_btgt_m,g_me_btgt_p,g_me_bunion,g_me_bsub,g_me_bint; static int g_bool_target=1;   /* boolean: target object index B */
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
-static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint;
+static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint,g_me_vsolid,g_me_vwire,g_me_vxray;
+
+/* Is window-space point (sx,sy) at camera-z behind the filled depth buffer? (solid hidden-line) */
+static int me_occluded(float sx,float sy,float z,int ox,int oy,float kx,float ky,int rw,int rh){
+    if(kx<=0||ky<=0)return 0; int rx=(int)((sx-ox)/kx),ry=(int)((sy-oy)/ky);
+    if(rx<0||ry<0||rx>=rw||ry>=rh)return 0; return z < g_mzd[ry*rw+rx]-3e-3f; }
+/* Draw a window-space line, optionally per-pixel depth-tested against the filled faces. */
+static void me_line(SDL_Renderer*R,float ax,float ay,float za,float bx,float by,float zb,Col c,int dtest,int ox,int oy,float kx,float ky,int rw,int rh){
+    SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255);
+    if(!dtest){ SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); return; }
+    int n=(int)(fabsf(bx-ax)+fabsf(by-ay)); if(n<1)n=1; if(n>8192)n=8192;
+    for(int i=0;i<=n;i++){ float t=(float)i/n,x=ax+(bx-ax)*t,y=ay+(by-ay)*t,z=za+(zb-za)*t;
+        if(!me_occluded(x,y,z,ox,oy,kx,ky,rw,rh))SDL_RenderDrawPoint(R,(int)x,(int)y); } }
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -2474,7 +2487,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     /* filled faces (double-sided, z-buffered). Each object draws its real geometry, plus a
      * solid reflected copy for every active mirror axis (the rasterizer is double-sided, so
      * a reflection just negates the mirrored coords — no winding flip needed for the preview). */
-    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);
+    if(g_me_shade==0)for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);   /* fill pass — skipped in wireframe mode */
         int ps[8][3],np=0; ps[np][0]=ps[np][1]=ps[np][2]=1; np++;
         if(ob->mirror)for(int combo=1;combo<8;combo++){ if(combo & ~ob->mirror)continue; ps[np][0]=(combo&1)?-1:1; ps[np][1]=(combo&2)?-1:1; ps[np][2]=(combo&4)?-1:1; np++; }
         for(int pi=0;pi<np;pi++){ int msx=ps[pi][0],msy=ps[pi][1],msz=ps[pi][2],real=(pi==0);
@@ -2489,6 +2502,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
                 if(sel){ br=255; bg=150; bb=60; } else if(hov){ br=(uint8_t)(br*0.6f+110); bg=(uint8_t)(bg*0.6f+90); bb=(uint8_t)(bb*0.6f+40); }
                 else if(!act){ br=(uint8_t)(br*0.5f); bg=(uint8_t)(bg*0.5f); bb=(uint8_t)(bb*0.5f); }
                 uint8_t cr=(uint8_t)(br*sh),cg=(uint8_t)(bg*sh),cb=(uint8_t)(bb*sh); uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
+                if(g_me_xray){ int xr=(((col>>11)&31)+((bgc>>11)&31))>>1,xg=(((col>>5)&63)+((bgc>>5)&63))>>1,xb=((col&31)+(bgc&31))>>1; col=(uint16_t)((xr<<11)|(xg<<5)|xb); }   /* see-through: 50% toward bg */
                 float sx[3],sy[3],sz[3]; for(int j=0;j<3;j++){ float iz=persp/(dist-rr[j].z); sx[j]=cx+rr[j].x*iz; sy[j]=cyy-rr[j].y*iz; sz[j]=rr[j].z; }
                 float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
                 int minx=(int)floorf(fminf(fminf(sx[0],sx[1]),sx[2])),maxx=(int)ceilf(fmaxf(fmaxf(sx[0],sx[1]),sx[2]));
@@ -2502,18 +2516,19 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
                     float z=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area; int idx=y*rw+x; if(z>g_mzd[idx]){ g_mzd[idx]=z; g_mzpx[idx]=col; } } } } } }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&g_me_view);
     /* overlay: edges + verts in window space */
-    float kx=vw/(float)rw, ky=h/(float)rh;
-    #define ESCR(P,SXX,SYY,VIS) do{ V3 _r; EVIEW(P,_r); float _iz=persp/(dist-_r.z); (SXX)=ox+(cx+_r.x*_iz)*kx; (SYY)=oy+(cyy-_r.y*_iz)*ky; (VIS)=(dist-_r.z)>0.05f; }while(0)
+    float kx=vw/(float)rw, ky=h/(float)rh; int dtest=(g_me_shade==0&&!g_me_xray);   /* hide occluded edges/verts only in opaque solid */
+    #define ESCR(P,SXX,SYY,ZZ,VIS) do{ V3 _r; EVIEW(P,_r); float _iz=persp/(dist-_r.z); (SXX)=ox+(cx+_r.x*_iz)*kx; (SYY)=oy+(cyy-_r.y*_iz)*ky; (ZZ)=_r.z; (VIS)=(dist-_r.z)>0.05f; }while(0)
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; int act=(o==g_objsel);
         for(int ei=0;ei<ob->ne;ei++){ EEdge*ed=&ob->e[ei]; V3 pa=ob->v[ed->a].p,pb=ob->v[ed->b].p;
             pa.x+=ob->origin.x; pa.y+=ob->origin.y; pa.z+=ob->origin.z; pb.x+=ob->origin.x; pb.y+=ob->origin.y; pb.z+=ob->origin.z;
-            float ax,ay,bx,by; int va,vb; ESCR(pa,ax,ay,va); ESCR(pb,bx,by,vb); if(!va||!vb)continue;
+            float ax,ay,bx,by,za,zb; int va,vb; ESCR(pa,ax,ay,za,va); ESCR(pb,bx,by,zb,vb); if(!va||!vb)continue;
             int hov=(g_sel_mode==1&&o==g_hover_obj&&ei==g_hover_idx);
             Col c = (ed->sel&&g_sel_mode==1)?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){180,190,210}:(Col){90,98,120});
-            SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); }
+            me_line(R,ax,ay,za,bx,by,zb,c,dtest&&!(ed->sel&&g_sel_mode==1)&&!hov,ox,oy,kx,ky,rw,rh); }   /* always show selected/hovered edges */
         if(g_sel_mode==0)for(int i=0;i<ob->nv;i++){ V3 p=ob->v[i].p; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
-            float sx,sy; int vis; ESCR(p,sx,sy,vis); if(!vis)continue;
-            int hov=(o==g_hover_obj&&i==g_hover_idx); int r=hov?3:2;
+            float sx,sy,sz; int vis; ESCR(p,sx,sy,sz,vis); if(!vis)continue;
+            int hov=(o==g_hover_obj&&i==g_hover_idx); if(dtest&&!ob->v[i].sel&&!hov&&me_occluded(sx,sy,sz,ox,oy,kx,ky,rw,rh))continue;
+            int r=hov?3:2;
             Col c=ob->v[i].sel?(Col){255,150,60}:hov?(Col){250,230,140}:(act?(Col){230,232,242}:(Col){120,128,150}); plain(R,(int)sx-r,(int)sy-r,r*2,r*2,c); }
         /* mirror half: wireframe (neutral, no selection/verts) + a subtle seam line at each mirror plane */
         if(ob->mirror){
@@ -2521,13 +2536,13 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
                 for(int ei=0;ei<ob->ne;ei++){ EEdge*ed=&ob->e[ei]; V3 pa=ob->v[ed->a].p,pb=ob->v[ed->b].p;
                     pa.x*=msx;pa.y*=msy;pa.z*=msz; pb.x*=msx;pb.y*=msy;pb.z*=msz;
                     pa.x+=ob->origin.x;pa.y+=ob->origin.y;pa.z+=ob->origin.z; pb.x+=ob->origin.x;pb.y+=ob->origin.y;pb.z+=ob->origin.z;
-                    float ax,ay,bx,by; int va,vb; ESCR(pa,ax,ay,va); ESCR(pb,bx,by,vb); if(!va||!vb)continue;
-                    Col c=act?(Col){150,160,180}:(Col){80,88,108}; SDL_SetRenderDrawColor(R,c.r,c.g,c.b,255); SDL_RenderDrawLine(R,(int)ax,(int)ay,(int)bx,(int)by); } }
+                    float ax,ay,bx,by,za,zb; int va,vb; ESCR(pa,ax,ay,za,va); ESCR(pb,bx,by,zb,vb); if(!va||!vb)continue;
+                    Col c=act?(Col){150,160,180}:(Col){80,88,108}; me_line(R,ax,ay,za,bx,by,zb,c,dtest,ox,oy,kx,ky,rw,rh); } }
             float ext=0.05f; for(int i=0;i<ob->nv;i++){ float a=fabsf(ob->v[i].p.x),b=fabsf(ob->v[i].p.y),cc=fabsf(ob->v[i].p.z); if(a>ext)ext=a; if(b>ext)ext=b; if(cc>ext)ext=cc; }
             ext*=1.15f; V3 og=ob->origin;
             for(int ax3=0;ax3<3;ax3++) if(ob->mirror&(1<<ax3)){   /* draw the mirror plane as a faint cross in that plane */
                 for(int u=0;u<3;u++){ if(u==ax3)continue; V3 p0=og,p1=og; ((float*)&p0)[u]-=ext; ((float*)&p1)[u]+=ext;
-                    float x0s,y0s,x1s,y1s; int v0,v1; ESCR(p0,x0s,y0s,v0); ESCR(p1,x1s,y1s,v1); if(!v0||!v1)continue;
+                    float x0s,y0s,x1s,y1s,z0s,z1s; int v0,v1; ESCR(p0,x0s,y0s,z0s,v0); ESCR(p1,x1s,y1s,z1s,v1); if(!v0||!v1)continue; (void)z0s;(void)z1s;
                     const Col mpc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* plane tint matches the X/Y/Z mirror buttons */
                     SDL_SetRenderDrawColor(R,mpc[ax3].r,mpc[ax3].g,mpc[ax3].b,255); SDL_RenderDrawLine(R,(int)x0s,(int)y0s,(int)x1s,(int)y1s); } } } }
     if(g_box_active){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x1,x1=g_box_x0<g_box_x1?g_box_x1:g_box_x0,y0=g_box_y0<g_box_y1?g_box_y0:g_box_y1,y1=g_box_y0<g_box_y1?g_box_y1:g_box_y0;
@@ -2575,6 +2590,10 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
       ui_btn_t(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my,"Select linked island (L)"); cy+=UI_H+4;
       px=ui_btn_t(R,lx,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my,"Grow selection (Ctrl++)");
       ui_btn_t(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my,"Shrink selection (Ctrl+-)"); cy+=UI_H+5; }
+    { Col vc={180,200,180}; text(R,"View",lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL); int vx=lx+textw(R,"View",1)+8;   /* shading mode + x-ray (Z) */
+      vx=ui_pill_t(R,vx,cy,NULL,"Solid",g_me_shade==0,&g_me_vsolid,mx,my,"Shaded solid with hidden-line removal");
+      vx=ui_pill_t(R,vx,cy,NULL,"Wire",g_me_shade==1,&g_me_vwire,mx,my,"Wireframe only (no filled faces)");
+      ui_pill_c(R,vx+6,cy,NULL,"X-ray",g_me_xray,vc,&g_me_vxray,mx,my); tip(g_me_vxray,mx,my,"See & select through faces (Z)"); cy+=UI_H+5; }
     ME_SEP();
     /* --- ADD --- */
     px=ui_btn_t(R,lx,cy,0,"Cube",-1,pc,&g_me_ecube,mx,my,"Add a cube");
@@ -2693,6 +2712,9 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_evert)){ set_sel_mode(0); return 1; }
     if(HITR(g_me_eedge)){ set_sel_mode(1); return 1; }
     if(HITR(g_me_eface)){ set_sel_mode(2); return 1; }
+    if(HITR(g_me_vsolid)){ g_me_shade=0; return 1; }
+    if(HITR(g_me_vwire)){ g_me_shade=1; return 1; }
+    if(HITR(g_me_vxray)){ g_me_xray=!g_me_xray; return 1; }
     if(HITR(g_me_ecube)){ prim_cube(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_eplane)){ prim_plane(1.0f); eobj_fit(); return 1; }
     if(HITR(g_me_ecyl)){ prim_cylinder(0.5f,1.0f,16); eobj_fit(); return 1; }
@@ -2781,6 +2803,8 @@ static int mesh_edit_key(SDL_Keycode k){
         return 1;                                          /* swallow everything else while modal */
     }
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ eundo_pop(); return 1; }   /* undo */
+    if(k==SDLK_z&&(md&KMOD_SHIFT)){ g_me_shade=!g_me_shade; return 1; }   /* Shift+Z: solid <-> wireframe */
+    if(k==SDLK_z&&!(md&(KMOD_CTRL|KMOD_GUI))){ g_me_xray=!g_me_xray; return 1; }   /* Z: x-ray toggle */
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_n){ prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }   /* Ctrl+N: new named model */
     if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_i){ eobj_select_invert(g_sel_mode); return 1; }                                  /* Ctrl+I invert selection */
     if((md&(KMOD_CTRL|KMOD_GUI))&&(k==SDLK_EQUALS||k==SDLK_KP_PLUS)){ eobj_select_grow(g_sel_mode); return 1; }             /* Ctrl++ grow */
@@ -5642,6 +5666,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ALIGN")) g_align=1;
     if(want_align){ g_align=1; g_picker=0; }   /* `mote studio calibrate` opens straight to the rig */
     if(getenv("MOTE_STUDIO_RIG")){ rig_load(getenv("MOTE_STUDIO_RIG")); g_tab=TAB_RIG; }   /* capture hook: rig editor */
+    if(getenv("MOTE_STUDIO_MESHVIEW")){ const char*v=getenv("MOTE_STUDIO_MESHVIEW"); g_me_shade=strstr(v,"wire")?1:0; g_me_xray=strstr(v,"xray")?1:0; }   /* capture hook: shading mode */
     if(getenv("MOTE_STUDIO_MESHEDIT")){ g_edit_mode=1; prim_cube(1.0f); eobj_fit(); g_tab=TAB_MESH;   /* capture hook: model editor with a cube */
         if(getenv("MOTE_STUDIO_MESHSEL")){ g_sel_mode=atoi(getenv("MOTE_STUDIO_MESHSEL")); if(g_nobj){ EObject*o=&g_obj[0];
             if(g_sel_mode==0&&o->nv>2){ o->v[2].sel=o->v[6].sel=1; } else if(g_sel_mode==1&&o->ne>3){ o->e[0].sel=o->e[3].sel=1; } else if(o->nf>1){ o->f[0].sel=o->f[4].sel=1; } } }
