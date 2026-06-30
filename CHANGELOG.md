@@ -13,6 +13,13 @@
   16-bit/22050. *(Previously `wav2snd` assumed 16-bit/22050 and baked 8-bit or
   odd-rate WAVs to noise.)*
 
+## 0.12-alpha
+
+**Texture-paint your models, plus booleans and view modes.** A Studio (dev-tools)
+release — **no firmware reflash needed**; the engine and its ABI (v39) are unchanged, so
+games already on the device keep working. Full guide in the README (§4 *Texturing a
+model* and the *Walkthrough*).
+
 ### Studio
 - **Region inset.** Insetting a selection of faces now insets the whole region's outer
   boundary as one (sharing the interior), so a quad made of two triangles insets within

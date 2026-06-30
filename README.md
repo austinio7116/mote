@@ -2106,7 +2106,7 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
-### Unreleased
+### 0.12-alpha
 
 **Texture-paint your models, plus booleans and view modes.** A Studio-only update — no firmware reflash; the engine and ABI (v39) are unchanged.
 
