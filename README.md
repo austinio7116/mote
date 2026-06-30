@@ -32,8 +32,6 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 2. [Quick start (CLI) + Mote Studio (the IDE)](#2-quick-start)
 3. [Anatomy of a game, line by line](#3-anatomy-of-a-game)
 4. [The asset pipeline (baking)](#4-the-asset-pipeline)
-   - [Modelling in the Mesh tab (the model editor)](#modelling-in-the-mesh-tab--the-built-in-model-editor)
-   - [Creating rigs and 3D animations](#creating-rigs-and-3d-animations)
 5. [The engine API, fully documented](#5-the-engine-api)
 6. [Coordinate systems + math types](#6-coordinate-systems--math-types)
 7. [Memory model — the arena + MoteConfig](#7-memory-model)
@@ -42,6 +40,7 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 10. [Device workflow — build, push, flash](#10-device-workflow)
 11. [Gotchas + rough edges](#11-gotchas--rough-edges)
 12. [Project layout + reference](#12-project-layout--reference)
+13. [Changelog](#13-changelog)
 
 ---
 
@@ -1882,6 +1881,25 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.11-alpha
+
+**A full 3D model editor, and a much better Pixel Art tab.** A Studio-only release — no firmware reflash; the engine and ABI (v39) are unchanged.
+
+- **Model editor (Mesh tab):** select verts/edges/faces (+ invert / linked / grow / shrink); move / rotate / scale / extrude / inset; make-face / connect / subdivide / bridge / separate; recalc + clean topology; set-origin; per-face paint; live mirror. Multiple **named models per project**, **multi-object `.obj` import**, and a grouped, **scrollable sidebar with hover tooltips**.
+- **Pixel Art:** non-square canvases up to **256×256**, a **real soft-opacity brush** with a square/round shape toggle, and **Ctrl-Z** undo.
+
+### 0.10-alpha
+
+**Proper fonts.** Crisp, anti-aliased, **proportional** text at any size (`text_font`, ABI v39) — bake a TrueType or hand-draw glyphs in the Studio's Font tab. *(Reflash to use new text in device games.)*
+
+### 0.9-alpha
+
+**Smoother sound, and texture a 3D model in the Studio.** Assign a PNG to a mesh and the Studio fills the UVs for you; plus lower-latency, glitch-free audio.
+
+### 0.8-alpha
+
+**Smaller sound effects, and the Mote library as one lobby tile.** Stream `MoteSfx` recipes synthesised on the fly (tiny flash, ~0 RAM), and run the whole Mote game library from a single tile.
 
 ### 0.7-alpha
 
