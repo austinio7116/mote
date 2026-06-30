@@ -5667,8 +5667,8 @@ int main(int argc,char**argv){
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRRORAPPLY"));
             if(!getenv("MOTE_STUDIO_NOAPPLY")){ eobj_apply_mirror(); fprintf(stderr,"APPLYMIRROR nv=%d nf=%d mirror=%d\n",g_obj[0].nv,g_obj[0].nf,g_obj[0].mirror); } eobj_fit(); }
         if(getenv("MOTE_STUDIO_MESHBOOL")){ eobj_free_all(); prim_cube(1.0f); prim_cube(1.0f); g_obj[1].origin=(V3){0.7f,0.7f,0.7f}; g_objsel=0; eobj_fit();   /* two overlapping cubes */
-            int op=atoi(getenv("MOTE_STUDIO_MESHBOOL")); eobj_boolean(op,1);
-            fprintf(stderr,"MESHBOOL op=%d -> nobj=%d objsel=%d nv=%d nf=%d\n",op,g_nobj,g_objsel,g_obj[g_objsel].nv,g_obj[g_objsel].nf); }
+            int op=atoi(getenv("MOTE_STUDIO_MESHBOOL")); if(op>=0&&op<=2){ eobj_boolean(op,1);
+            fprintf(stderr,"MESHBOOL op=%d -> nobj=%d objsel=%d nv=%d nf=%d\n",op,g_nobj,g_objsel,g_obj[g_objsel].nv,g_obj[g_objsel].nf); } }
         if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
             if(getenv("MOTE_STUDIO_MESHTEXRES"))atlas_resize(atoi(getenv("MOTE_STUDIO_MESHTEXRES")));
             if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); }
