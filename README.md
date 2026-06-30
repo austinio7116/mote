@@ -78,6 +78,8 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 
 ![A gallery of Mote games: ThumbyCraft, ThumbyCue, Indemnity Run, MotoKart, Wolfmote, Nightmote, Tetris 3D, Golf](docs/img/games-gallery.png)
 
+> **Mote ships on real hardware as part of [ThumbyOne](https://github.com/austinio7116/ThumbyOne).** The ThumbyOne multi-boot firmware bundles the Mote engine as a slot, so the `.mote` games you build here run on an actual **Thumby Color** — not just the desktop emulator. Flash ThumbyOne, drop `.mote` files into the device's `/mote/` folder over USB, and they appear in the **MOTE** tile's launcher. (You can develop entirely in the Studio emulator without a device — the firmware is only needed to run on hardware.)
+
 A Mote game is **not** an app that owns `main()` and a loop. It is a *module* —
 a small chunk of compiled code (a `.so` on your PC, a `.mote` file on the device)
 that the OS loads, hands a table of engine function pointers, and then drives. You
