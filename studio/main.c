@@ -2109,6 +2109,85 @@ static void eobj_apply_mirror(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objse
     free(map); o->mirror=0; edges_rebuild(o);
     snprintf(g_status,sizeof g_status,"applied mirror -> %d verts, %d faces (modifier off)",o->nv,o->nf); }
 
+/* ===================== Boolean / CSG (BSP tree, after Evan Wallace's csg.js) =====================
+ * Operates on closed meshes (all primitives qualify). Each operand is triangulated to world-space
+ * polygons (mirror reflections included), the two BSP trees are clipped per the op, and the result
+ * is welded back into the active object as triangles. UVs are dropped (re-unwrap after). */
+#define CSG_EPS 1e-5f
+typedef struct { V3 *v; int nv; V3 n; float w; uint16_t col; } BPoly;
+typedef struct { BPoly *p; int n,cap; } BList;
+typedef struct BNode { int has; V3 n; float w; struct BNode *front,*back; BList cop; } BNode;
+static float bdot(V3 a,V3 b){ return a.x*b.x+a.y*b.y+a.z*b.z; }
+static V3 blerp(V3 a,V3 b,float t){ return (V3){a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,a.z+(b.z-a.z)*t}; }
+static void bl_init(BList*l){ l->p=0; l->n=0; l->cap=0; }
+static void bl_push(BList*l,BPoly q){ if(l->n>=l->cap){ l->cap=l->cap?l->cap*2:32; l->p=realloc(l->p,(size_t)l->cap*sizeof*l->p); } l->p[l->n++]=q; }
+static void bl_free_deep(BList*l){ for(int i=0;i<l->n;i++)free(l->p[i].v); free(l->p); l->p=0; l->n=l->cap=0; }
+static BPoly bpoly_mk(const V3*vs,int nv,uint16_t col){ BPoly q; q.v=malloc((size_t)nv*sizeof(V3)); memcpy(q.v,vs,(size_t)nv*sizeof(V3)); q.nv=nv; q.col=col;
+    V3 nn=mv3cross(mv3sub(vs[1],vs[0]),mv3sub(vs[2],vs[0])); float l=mv3len(nn); if(l<1e-12f)l=1; nn.x/=l;nn.y/=l;nn.z/=l; q.n=nn; q.w=bdot(nn,vs[0]); return q; }
+static BPoly bpoly_dup(BPoly s){ BPoly q=s; q.v=malloc((size_t)s.nv*sizeof(V3)); memcpy(q.v,s.v,(size_t)s.nv*sizeof(V3)); return q; }
+static void bpoly_flip(BPoly*q){ q->n.x=-q->n.x;q->n.y=-q->n.y;q->n.z=-q->n.z; q->w=-q->w; for(int i=0,j=q->nv-1;i<j;i++,j--){ V3 t=q->v[i]; q->v[i]=q->v[j]; q->v[j]=t; } }
+/* split poly by plane(pn,pw) -> coplanar-front, coplanar-back, front, back (all receive fresh polys) */
+static void bpoly_split(V3 pn,float pw,BPoly poly,BList*cf,BList*cb,BList*fr,BList*bk){
+    int ptype=0,n=poly.nv; int ty[64]; if(n>64){ bl_push(fr,bpoly_dup(poly)); return; }
+    for(int i=0;i<n;i++){ float t=bdot(pn,poly.v[i])-pw; int tt=t<-CSG_EPS?2:(t>CSG_EPS?1:0); ty[i]=tt; ptype|=tt; }
+    if(ptype==0){ bl_push(bdot(pn,poly.n)>0?cf:cb,bpoly_dup(poly)); return; }
+    if(ptype==1){ bl_push(fr,bpoly_dup(poly)); return; }
+    if(ptype==2){ bl_push(bk,bpoly_dup(poly)); return; }
+    V3 fb[64],bb[64]; int fn=0,bn=0;   /* spanning: clip both ways */
+    for(int i=0;i<n;i++){ int j=(i+1)%n,ti=ty[i],tj=ty[j]; V3 vi=poly.v[i],vj=poly.v[j];
+        if(ti!=2)fb[fn++]=vi; if(ti!=1)bb[bn++]=vi;
+        if((ti|tj)==3){ float t=(pw-bdot(pn,vi))/bdot(pn,mv3sub(vj,vi)); V3 vx=blerp(vi,vj,t); fb[fn++]=vx; bb[bn++]=vx; } }
+    if(fn>=3)bl_push(fr,bpoly_mk(fb,fn,poly.col)); if(bn>=3)bl_push(bk,bpoly_mk(bb,bn,poly.col)); }
+static BNode* bnode_new(void){ BNode*b=calloc(1,sizeof(BNode)); bl_init(&b->cop); return b; }
+static void bnode_build(BNode*node,BPoly*polys,int np){ if(np<=0)return;
+    if(!node->has){ node->has=1; node->n=polys[0].n; node->w=polys[0].w; }
+    BList fr,bk; bl_init(&fr); bl_init(&bk);
+    for(int i=0;i<np;i++)bpoly_split(node->n,node->w,polys[i],&node->cop,&node->cop,&fr,&bk);
+    if(fr.n){ if(!node->front)node->front=bnode_new(); bnode_build(node->front,fr.p,fr.n); }
+    if(bk.n){ if(!node->back)node->back=bnode_new(); bnode_build(node->back,bk.p,bk.n); }
+    bl_free_deep(&fr); bl_free_deep(&bk); }
+static void bnode_clip(BNode*node,BPoly*polys,int np,BList*out){
+    if(!node->has){ for(int i=0;i<np;i++)bl_push(out,bpoly_dup(polys[i])); return; }
+    BList fr,bk; bl_init(&fr); bl_init(&bk);
+    for(int i=0;i<np;i++)bpoly_split(node->n,node->w,polys[i],&fr,&bk,&fr,&bk);
+    if(node->front){ BList fo; bl_init(&fo); bnode_clip(node->front,fr.p,fr.n,&fo); for(int i=0;i<fo.n;i++)bl_push(out,fo.p[i]); free(fo.p); }
+    else for(int i=0;i<fr.n;i++)bl_push(out,bpoly_dup(fr.p[i]));
+    if(node->back){ BList bo; bl_init(&bo); bnode_clip(node->back,bk.p,bk.n,&bo); for(int i=0;i<bo.n;i++)bl_push(out,bo.p[i]); free(bo.p); }   /* no back child -> drop (inside) */
+    bl_free_deep(&fr); bl_free_deep(&bk); }
+static void bnode_clipto(BNode*a,BNode*b){ BList nc; bl_init(&nc); bnode_clip(b,a->cop.p,a->cop.n,&nc); bl_free_deep(&a->cop); a->cop=nc;
+    if(a->front)bnode_clipto(a->front,b); if(a->back)bnode_clipto(a->back,b); }
+static void bnode_invert(BNode*node){ for(int i=0;i<node->cop.n;i++)bpoly_flip(&node->cop.p[i]); node->n.x=-node->n.x;node->n.y=-node->n.y;node->n.z=-node->n.z; node->w=-node->w;
+    if(node->front)bnode_invert(node->front); if(node->back)bnode_invert(node->back); BNode*t=node->front; node->front=node->back; node->back=t; }
+static void bnode_all(BNode*node,BList*out){ for(int i=0;i<node->cop.n;i++)bl_push(out,bpoly_dup(node->cop.p[i])); if(node->front)bnode_all(node->front,out); if(node->back)bnode_all(node->back,out); }
+static void bnode_free(BNode*node){ if(!node)return; bnode_free(node->front); bnode_free(node->back); bl_free_deep(&node->cop); free(node); }
+/* a.build(b.allPolygons()) helper */
+static void bnode_merge(BNode*a,BNode*b){ BList t; bl_init(&t); bnode_all(b,&t); bnode_build(a,t.p,t.n); bl_free_deep(&t); }
+/* triangulate object o to world-space polys (mirror reflections folded in, winding-correct) */
+static void obj_to_polys(EObject*o,BList*out){ int cb[8],nc=0; cb[nc++]=0;
+    if(o->mirror)for(int c=1;c<8;c++)if(!(c&~o->mirror))cb[nc++]=c;
+    for(int ci=0;ci<nc;ci++){ int c=cb[ci],sx=(c&1)?-1:1,sy=(c&2)?-1:1,sz=(c&4)?-1:1,par=__builtin_popcount((unsigned)c)&1;
+        for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; for(int k=2;k<f->nv;k++){ int i0=f->v[0],i1=f->v[k-1],i2=f->v[k]; if(par){ int t=i1;i1=i2;i2=t; }
+            V3 tv[3]; int ix[3]={i0,i1,i2}; for(int j=0;j<3;j++){ V3 p=o->v[ix[j]].p; tv[j]=(V3){p.x*sx+o->origin.x,p.y*sy+o->origin.y,p.z*sz+o->origin.z}; }
+            bl_push(out,bpoly_mk(tv,3,f->color)); } } } }
+static int weld_vert(EObject*o,V3 p){ for(int i=0;i<o->nv;i++){ V3 d=mv3sub(o->v[i].p,p); if(fabsf(d.x)<1e-4f&&fabsf(d.y)<1e-4f&&fabsf(d.z)<1e-4f)return i; } return ev_add(o,p); }
+/* op: 0 union · 1 subtract (A-B) · 2 intersect. A = active object, B = g_obj[bi]. */
+static void eobj_boolean(int op,int bi){ if(g_nobj<2){ snprintf(g_status,sizeof g_status,"boolean needs 2 objects"); return; }
+    int ai=g_objsel; if(bi<0||bi>=g_nobj||bi==ai){ snprintf(g_status,sizeof g_status,"pick a different target object"); return; }
+    BList la,lb; bl_init(&la); bl_init(&lb); obj_to_polys(&g_obj[ai],&la); obj_to_polys(&g_obj[bi],&lb);
+    if(la.n<1||lb.n<1){ bl_free_deep(&la); bl_free_deep(&lb); snprintf(g_status,sizeof g_status,"an object has no faces"); return; }
+    BNode*a=bnode_new(),*b=bnode_new(); bnode_build(a,la.p,la.n); bnode_build(b,lb.p,lb.n); bl_free_deep(&la); bl_free_deep(&lb);
+    if(op==0){ bnode_clipto(a,b); bnode_clipto(b,a); bnode_invert(b); bnode_clipto(b,a); bnode_invert(b); bnode_merge(a,b); }
+    else if(op==1){ bnode_invert(a); bnode_clipto(a,b); bnode_clipto(b,a); bnode_invert(b); bnode_clipto(b,a); bnode_invert(b); bnode_merge(a,b); bnode_invert(a); }
+    else { bnode_invert(a); bnode_clipto(b,a); bnode_invert(b); bnode_clipto(a,b); bnode_clipto(b,a); bnode_merge(a,b); bnode_invert(a); }
+    BList res; bl_init(&res); bnode_all(a,&res); bnode_free(a); bnode_free(b);
+    eundo_push(); EObject*A=&g_obj[ai]; A->nv=0; A->nf=0; A->ne=0; A->origin=(V3){0,0,0}; A->mirror=0; A->textured=0;
+    int tris=0; for(int i=0;i<res.n;i++){ BPoly*q=&res.p[i]; for(int k=2;k<q->nv;k++){ int idx[3]={weld_vert(A,q->v[0]),weld_vert(A,q->v[k-1]),weld_vert(A,q->v[k])};
+        if(idx[0]!=idx[1]&&idx[1]!=idx[2]&&idx[0]!=idx[2]){ ef_add(A,3,idx,q->col); tris++; } } }
+    bl_free_deep(&res); edges_rebuild(A);
+    int nv=A->nv; eobj_remove_object(bi); g_objsel=(bi<ai)?ai-1:ai; if(g_objsel>=g_nobj)g_objsel=g_nobj>0?g_nobj-1:0; if(g_objsel<0)g_objsel=0;
+    eobj_fit();
+    snprintf(g_status,sizeof g_status,"%s -> %d verts, %d tris (re-unwrap to texture)",op==0?"union":op==1?"subtract":"intersect",nv,tris); }
+
 /* Weld vertices that share a position (epsilon), remap faces, and drop faces that collapse to a
  * degenerate (repeated index). Returns the number of verts merged. */
 static int eobj_weld_verts(EObject*o){ const float EPS=1e-5f; if(o->nv<1)return 0;
@@ -2371,6 +2450,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply,g_me_newtop,g_me_loadtop;
+static SDL_Rect g_me_btgt_m,g_me_btgt_p,g_me_bunion,g_me_bsub,g_me_bint; static int g_bool_target=1;   /* boolean: target object index B */
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
 static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint;
@@ -2538,6 +2618,17 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     { Col txc={205,170,210}; px=ui_btn_t(R,lx,cy,0,"Unwrap",-1,txc,&g_me_unwrap,mx,my,"Box-project the model into a paintable atlas (assets/<model>_tex.png)");
       ui_btn_t(R,px,cy,0,"Paint",IC_BRUSH,(Col){210,160,210},&g_me_paint,mx,my,"Paint the texture live beside the 3D model — strokes update the model instantly"); cy+=UI_H+5; }
     ME_SEP();
+    /* --- BOOLEAN (CSG: active object vs a target) --- */
+    if(g_nobj>=2){ Col bc={150,195,210};
+        if(g_bool_target>=g_nobj)g_bool_target=g_nobj-1; if(g_bool_target==g_objsel)g_bool_target=(g_objsel+1)%g_nobj;
+        char tb[40]; snprintf(tb,sizeof tb,"Boolean vs obj %d",g_bool_target+1); text(R,tb,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
+        int bx=lx+textw(R,tb,1)+6; bx=ui_btn_t(R,bx,cy,0,"<",-1,C_TXT,&g_me_btgt_m,mx,my,"Previous target object");
+        ui_btn_t(R,bx,cy,0,">",-1,C_TXT,&g_me_btgt_p,mx,my,"Next target object"); cy+=UI_H+4;
+        px=ui_btn_t(R,lx,cy,0,"Union",-1,bc,&g_me_bunion,mx,my,"Merge active + target into one solid");
+        px=ui_btn_t(R,px,cy,0,"Subtract",-1,bc,&g_me_bsub,mx,my,"Cut the target out of the active object (A - B)");
+        ui_btn_t(R,px,cy,0,"Intersect",-1,bc,&g_me_bint,mx,my,"Keep only where active + target overlap"); cy+=UI_H+5;
+        ME_SEP(); }
+    else { g_me_btgt_m=g_me_btgt_p=g_me_bunion=g_me_bsub=g_me_bint=(SDL_Rect){0,0,0,0}; }
     /* --- OBJECT --- */
     px=ui_btn_t(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my,"Duplicate this object (Shift+D)");
     px=ui_btn_t(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my,"Delete selection / object (X)");
@@ -2647,6 +2738,11 @@ static int mesh_edit_down(int mx,int my){
     if(g_me_mirapply.w&&HITR(g_me_mirapply)){ eobj_apply_mirror(); return 1; }
     if(HITR(g_me_newtop)){ if(g_nobj)mmesh_save(); prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }   /* create another model */
     if(HITR(g_me_loadtop)){ model_cycle(); return 1; }                                                                                                            /* switch to the next model */
+    if(g_me_btgt_m.w&&HITR(g_me_btgt_m)){ do{ g_bool_target=(g_bool_target+g_nobj-1)%g_nobj; }while(g_bool_target==g_objsel); return 1; }   /* boolean target picker */
+    if(g_me_btgt_p.w&&HITR(g_me_btgt_p)){ do{ g_bool_target=(g_bool_target+1)%g_nobj; }while(g_bool_target==g_objsel); return 1; }
+    if(g_me_bunion.w&&HITR(g_me_bunion)){ eobj_boolean(0,g_bool_target); return 1; }
+    if(g_me_bsub.w&&HITR(g_me_bsub)){ eobj_boolean(1,g_bool_target); return 1; }
+    if(g_me_bint.w&&HITR(g_me_bint)){ eobj_boolean(2,g_bool_target); return 1; }
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
@@ -5570,6 +5666,9 @@ int main(int argc,char**argv){
             g_obj[0].f[2].sel=1; op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); g_obj[0].f[2].sel=0;   /* push +X face out (asymmetric) */
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRRORAPPLY"));
             if(!getenv("MOTE_STUDIO_NOAPPLY")){ eobj_apply_mirror(); fprintf(stderr,"APPLYMIRROR nv=%d nf=%d mirror=%d\n",g_obj[0].nv,g_obj[0].nf,g_obj[0].mirror); } eobj_fit(); }
+        if(getenv("MOTE_STUDIO_MESHBOOL")){ eobj_free_all(); prim_cube(1.0f); prim_cube(1.0f); g_obj[1].origin=(V3){0.7f,0.7f,0.7f}; g_objsel=0; eobj_fit();   /* two overlapping cubes */
+            int op=atoi(getenv("MOTE_STUDIO_MESHBOOL")); eobj_boolean(op,1);
+            fprintf(stderr,"MESHBOOL op=%d -> nobj=%d objsel=%d nv=%d nf=%d\n",op,g_nobj,g_objsel,g_obj[g_objsel].nv,g_obj[g_objsel].nf); }
         if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
             if(getenv("MOTE_STUDIO_MESHTEXRES"))atlas_resize(atoi(getenv("MOTE_STUDIO_MESHTEXRES")));
             if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); }
