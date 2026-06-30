@@ -1446,6 +1446,16 @@ static void model_discover(void){ snprintf(g_model_name,sizeof g_model_name,"sce
     while((e=readdir(d))){ const char*n=e->d_name; size_t l=strlen(n); if(l>6&&!strcasecmp(n+l-6,".mmesh")){
         char mb[40]; snprintf(mb,sizeof mb,"%.36s",n); char*dot=strrchr(mb,'.'); if(dot)*dot=0; if(mb[0])snprintf(g_model_name,sizeof g_model_name,"%s",mb); break; } }
     closedir(d); }
+/* Switch to the next .mmesh model in the project (saving the current one first). */
+static void model_cycle(void){ if(g_sel<0)return; DIR*d=opendir(g_games[g_sel].dir); if(!d)return; struct dirent*e;
+    char names[32][40]; int n=0;
+    while((e=readdir(d))&&n<32){ const char*nm=e->d_name; size_t l=strlen(nm); if(l>6&&!strcasecmp(nm+l-6,".mmesh")){
+        int b=(int)(l-6); if(b>39)b=39; memcpy(names[n],nm,b); names[n][b]=0; n++; } }
+    closedir(d); if(n<1){ snprintf(g_status,sizeof g_status,"no .mmesh models in this project"); return; }
+    for(int i=0;i<n;i++)for(int j=i+1;j<n;j++)if(strcmp(names[i],names[j])>0){ char t[40]; memcpy(t,names[i],40); memcpy(names[i],names[j],40); memcpy(names[j],t,40); }
+    int cur=-1; for(int i=0;i<n;i++)if(!strcmp(names[i],g_model_name))cur=i;
+    int nx=(cur+1)%n; if(g_nobj)mmesh_save(); snprintf(g_model_name,sizeof g_model_name,"%.36s",names[nx]); mmesh_load(); if(g_nobj){ g_edit_mode=1; eobj_fit(); }
+    snprintf(g_status,sizeof g_status,"model %d/%d: %s",nx+1,n,g_model_name); }
 /* Fit the whole scene into the preview's [-1,1] cube (reuses the importer's g_mcen/g_mscale). */
 static void eobj_fit(void){ float q=1e-6f;
     for(int o=0;o<g_nobj;o++)for(int i=0;i<g_obj[o].nv;i++){ V3 p=g_obj[o].v[i].p; p.x+=g_obj[o].origin.x; p.y+=g_obj[o].origin.y; p.z+=g_obj[o].origin.z;
@@ -2360,7 +2370,7 @@ static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
 static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
-static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply;
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply,g_me_newtop,g_me_loadtop;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
 static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint;
@@ -2472,7 +2482,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int me_ctop=cy, me_cbot=oy+h-6; g_me_cardx=cardx; g_me_cardtop=me_ctop; g_me_cardbot=me_cbot;   /* scrollable content region */
     { SDL_Rect mclip={cardx+1,me_ctop,MESH_CARDW-2,me_cbot-me_ctop}; SDL_RenderSetClipRect(R,&mclip); }
     cy-=g_me_scroll;                                                                                  /* apply scroll offset to every control below */
-    { char mn[56]; snprintf(mn,sizeof mn,"model: %.40s.mmesh",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15; }
+    { char mn[56]; snprintf(mn,sizeof mn,"Model: %.40s",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15;   /* model header: name + create/switch */
+      px=ui_btn_t(R,lx,cy,0,"+ New model",-1,(Col){205,200,160},&g_me_newtop,mx,my,"Start another model in this project (Ctrl+N) — the current one is saved");
+      ui_btn_t(R,px,cy,0,"Open\xe2\x80\xa6",-1,(Col){150,200,255},&g_me_loadtop,mx,my,"Open another .mmesh model in this project"); cy+=UI_H+6; }
     #define ME_SEP() do{ plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=7; }while(0)
     /* --- SELECT --- */
     px=ui_pill_t(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my,"Select vertices (1)");
@@ -2633,6 +2645,8 @@ static int mesh_edit_down(int mx,int my){
     if(g_nobj&&HITR(g_me_miry)){ g_obj[g_objsel].mirror^=2; mirror_status(); return 1; }
     if(g_nobj&&HITR(g_me_mirz)){ g_obj[g_objsel].mirror^=4; mirror_status(); return 1; }
     if(g_me_mirapply.w&&HITR(g_me_mirapply)){ eobj_apply_mirror(); return 1; }
+    if(HITR(g_me_newtop)){ if(g_nobj)mmesh_save(); prompt_open(PR_NEWMODEL,"New Model","","name the model (e.g. enemy) · Enter to create",0,0); return 1; }   /* create another model */
+    if(HITR(g_me_loadtop)){ model_cycle(); return 1; }                                                                                                            /* switch to the next model */
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
