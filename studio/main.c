@@ -2923,8 +2923,9 @@ static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int m
     g_me_view=(SDL_Rect){ox,oy,avail-csz-16,h};   /* no auto-rotate — it's a paint surface; orbit with MMB / empty-drag */
     draw_eobj_solid(R,g_me_view);
     text(R,"live model — LMB paint on it · MMB / empty-drag orbit",ox+12,oy+h-20,1,C_DIM,bg);
-    if(hit(mx,my,g_me_view.x,g_me_view.y,g_me_view.w,g_me_view.h)){ int tx,ty; if(tex_model_uv(mx,my,&tx,&ty)){   /* brush cursor where it would land on the model */
-        int pr=((g_ptool==6)?g_brush_size:1)*2+3; ring(R,mx,my,pr+1,(Col){0,0,0},1); ring(R,mx,my,pr,(Col){255,230,120},1); } }
+    int mhit=0,mtx=0,mty=0;   /* cursor over the model -> mirror the brush onto the atlas too */
+    if(hit(mx,my,g_me_view.x,g_me_view.y,g_me_view.w,g_me_view.h)&&tex_model_uv(mx,my,&mtx,&mty)){ mhit=1;   /* brush cursor where it would land on the model */
+        int pr=((g_ptool==6)?g_brush_size:1)*2+3; ring(R,mx,my,pr+1,(Col){0,0,0},1); ring(R,mx,my,pr,(Col){255,230,120},1); }
     /* ---- atlas paint canvas (right) ---- */
     SDL_Rect cv={ox+avail-csz,oy+34,csz,csz}; g_pt_canvas=cv;
     if(g_eatlas_px&&g_eatlas_w>0){
@@ -2939,6 +2940,8 @@ static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int m
         float texel=cv.w/(float)g_eatlas_w; int sz=(g_ptool==6)?g_brush_size:1; int pr=(int)(sz*0.5f*texel); if(pr<2)pr=2;
         if(g_brush_round||g_ptool!=6){ ring(R,mx,my,pr+1,(Col){0,0,0},1); ring(R,mx,my,pr,(Col){255,255,255},1); }
         else { rect_outline(R,mx-pr,my-pr,pr*2,pr*2,(Col){0,0,0},1); rect_outline(R,mx-pr+1,my-pr+1,pr*2-2,pr*2-2,(Col){255,255,255},1); } }
+    if(mhit){ int ax=cv.x+(int)((mtx+0.5f)/g_eatlas_w*cv.w), ay=cv.y+(int)((mty+0.5f)/g_eatlas_h*cv.h);   /* mirror the model brush onto the UV map */
+        int pr=(int)(((g_ptool==6)?g_brush_size:1)*0.5f*cv.w/g_eatlas_w); if(pr<2)pr=2; ring(R,ax,ay,pr+1,(Col){0,0,0},1); ring(R,ax,ay,pr,(Col){255,230,120},1); }
     /* ---- sidebar: full pixel toolset + undo/redo + save/done ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"PAINT TEXTURE"); int lx=cardx+12;
     text(R,"Full pixel tools — the model",lx,cy,1,C_DIM,C_PANEL); cy+=12;
