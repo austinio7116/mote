@@ -2374,10 +2374,10 @@ static void eobj_unwrap_box(EObject*o){ if(o->nf<1||o->nv<1)return;
 /* Per-face grid: each face -> its own square cell (no distortion, robust on any mesh). */
 /* The editor model's atlas path: <project>/assets/<model>_tex.png */
 static int eobj_atlas_path(char*out,int n){ if(g_sel<0)return 0; snprintf(out,n,"%.500s/assets/%.36s_tex.png",g_games[g_sel].dir,g_model_name); return 1; }
-/* Create a faint-checker blank atlas if none exists, and load it for the preview. */
+/* Create a solid-grey blank atlas if none exists, and load it for the preview. */
 static void eobj_make_atlas(int size){ char p[700]; if(!eobj_atlas_path(p,sizeof p))return; struct stat st;
     if(stat(p,&st)!=0){ char d[700]; snprintf(d,sizeof d,"%.600s/assets",g_games[g_sel].dir); mkdir_portable(d);
-        uint8_t*rgba=malloc((size_t)size*size*4); for(int y=0;y<size;y++)for(int x=0;x<size;x++){ int c=(((x>>3)+(y>>3))&1)?70:54; int i=(y*size+x)*4; rgba[i]=rgba[i+1]=rgba[i+2]=(uint8_t)c; rgba[i+3]=255; }
+        uint8_t*rgba=malloc((size_t)size*size*4); for(int i=0;i<size*size;i++){ rgba[i*4]=128; rgba[i*4+1]=128; rgba[i*4+2]=132; rgba[i*4+3]=255; }   /* solid neutral grey */
         stbi_write_png(p,size,size,4,rgba,size*4); free(rgba); }
     eobj_atlas_load(p); snprintf(g_eatlas_src,sizeof g_eatlas_src,"%s",p); struct stat ms; g_eatlas_mtime=stat(p,&ms)==0?(long)ms.st_mtime:0; }
 /* Box-unwrap the active object into a paintable atlas. */
@@ -2443,6 +2443,7 @@ static void atlas_resize(int ns){ if(!g_eatlas_px||ns<8||ns>EATLAS_CAP)return; i
  * triangle filled with its paint colour. Lets per-face paint become the texture starting point
  * (after this the texture is what bakes — texture always wins once an object is unwrapped). */
 static void atlas_fill_from_faces(void){ if(!g_eatlas_px)return; atlas_undo_push(); int W=g_eatlas_w,H=g_eatlas_h;
+    uint8_t*cov=calloc((size_t)W*H,1); if(!cov)return;   /* coverage mask -> lets us bleed colours past the island edges */
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(!ob->textured)continue;
         for(int fi=0;fi<ob->nf;fi++){ EFace*f=&ob->f[fi]; uint16_t col=f->color;
             for(int k=2;k<f->nv;k++){
@@ -2453,8 +2454,16 @@ static void atlas_fill_from_faces(void){ if(!g_eatlas_px)return; atlas_undo_push
                 if(minx<0)minx=0; if(miny<0)miny=0; if(maxx>W-1)maxx=W-1; if(maxy>H-1)maxy=H-1;
                 for(int y=miny;y<=maxy;y++)for(int x=minx;x<=maxx;x++){ float fx=x+0.5f,fy=y+0.5f;
                     float e0=(cx-bx)*(fy-by)-(cy-by)*(fx-bx),e1=(ax-cx)*(fy-cy)-(ay-cy)*(fx-cx),e2=(bx-ax)*(fy-ay)-(by-ay)*(fx-ax);
-                    if((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0))g_eatlas_px[y*W+x]=col; } } } }
-    g_tpaint_dirty=1; snprintf(g_status,sizeof g_status,"filled atlas from face colours — refine + Save"); }
+                    if((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)){ g_eatlas_px[y*W+x]=col; cov[y*W+x]=1; } } } } }
+    for(int pass=0;pass<3;pass++){   /* dilate filled colours into the seam gaps (UV-island padding) */
+        uint8_t*nc=malloc((size_t)W*H); if(!nc)break; memcpy(nc,cov,(size_t)W*H);
+        for(int y=0;y<H;y++)for(int x=0;x<W;x++){ if(cov[y*W+x])continue;
+            uint16_t c=0; int found=0;
+            for(int dy=-1;dy<=1&&!found;dy++)for(int dx=-1;dx<=1;dx++){ int nx=x+dx,ny=y+dy; if(nx<0||ny<0||nx>=W||ny>=H)continue; if(cov[ny*W+nx]){ c=g_eatlas_px[ny*W+nx]; found=1; break; } }
+            if(found){ g_eatlas_px[y*W+x]=c; nc[y*W+x]=1; } }
+        memcpy(cov,nc,(size_t)W*H); free(nc); }
+    free(cov);
+    g_tpaint_dirty=1; snprintf(g_status,sizeof g_status,"filled atlas from face colours (+edge bleed) — refine + Save"); }
 /* Draw the model's UV layout (face edges) over the atlas canvas rect cv (u,v 0..1 -> rect). */
 static void draw_uv_overlay(SDL_Renderer*R,SDL_Rect cv){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,120,210,255,130);
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(!ob->textured)continue;
@@ -5732,6 +5741,9 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_MESHBOOL")){ eobj_free_all(); prim_cube(1.0f); prim_cube(1.0f); g_obj[1].origin=(V3){0.7f,0.7f,0.7f}; g_objsel=0; eobj_fit();   /* two overlapping cubes */
             int op=atoi(getenv("MOTE_STUDIO_MESHBOOL")); if(op>=0&&op<=2){ eobj_boolean(op,1);
             fprintf(stderr,"MESHBOOL op=%d -> nobj=%d objsel=%d nv=%d nf=%d\n",op,g_nobj,g_objsel,g_obj[g_objsel].nv,g_obj[g_objsel].nf); } }
+        if(getenv("MOTE_STUDIO_MESHFILLFACES")){ eobj_free_all(); prim_cube(1.0f); eobj_fit();   /* fill-from-faces test: 6 distinct face colours -> atlas, check no seam gaps */
+            const uint16_t fcol[6]={0xF800,0x07E0,0x001F,0xFFE0,0x07FF,0xF81F^1}; for(int i=0;i<g_obj[0].nf&&i<6;i++)g_obj[0].f[i].color=fcol[i];
+            eobj_paint_enter(); atlas_fill_from_faces(); }
         if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
             if(getenv("MOTE_STUDIO_MESHTEXRES"))atlas_resize(atoi(getenv("MOTE_STUDIO_MESHTEXRES")));
             if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); }
