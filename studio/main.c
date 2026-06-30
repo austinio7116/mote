@@ -1193,7 +1193,8 @@ static char g_eatlas_src[700]; static long g_eatlas_mtime;
 static void eobj_atlas_sync(void){ if(!g_eatlas_src[0])return; struct stat st; if(stat(g_eatlas_src,&st)!=0)return; if((long)st.st_mtime==g_eatlas_mtime)return; g_eatlas_mtime=(long)st.st_mtime; eobj_atlas_load(g_eatlas_src); }
 /* --- in-editor live texture paint (atlas beside the 3D model) --- */
 static int g_tex_paint;          /* model editor is in texture-paint mode */
-static int g_tpaint_drag;        /* LMB held over the atlas canvas */
+static int g_tpaint_drag;        /* LMB held: 1 = over the atlas canvas, 2 = over the 3D model */
+static int g_pt_lastx=-1,g_pt_lasty=-1;   /* last texel painted via the model (for line/rect commit) */
 static int g_tpaint_dirty;       /* unsaved strokes since last Save */
 static SDL_Rect g_pt_canvas,g_pt_save,g_pt_exit,g_pt_undo,g_pt_redo,g_pt_fill,g_pt_res[3];
 static const int PT_RES[3]={64,128,256};   /* selectable atlas resolutions */
@@ -2400,6 +2401,33 @@ static void eobj_paint_save(void){ if(!g_eatlas_px||!g_eatlas_src[0]){ snprintf(
 static void tex_paint_at(int mx,int my,int phase){ if(!g_eatlas_px||g_eatlas_w<1||g_pt_canvas.w<1)return;
     int tx=(int)((mx-g_pt_canvas.x)/(float)g_pt_canvas.w*g_eatlas_w), ty=(int)((my-g_pt_canvas.y)/(float)g_pt_canvas.h*g_eatlas_h);
     cell_op(g_eatlas_px,g_eatlas_w,0,0,g_eatlas_w,g_eatlas_h,tx,ty,phase); g_tpaint_dirty=1; }
+/* Raycast the cursor (mx,my) onto the live 3D model (g_me_view) and return the atlas texel under
+ * it — projecting triangles exactly as draw_eobj_solid does (front faces only, nearest wins) so
+ * what you paint lands where you point. Returns 1 + texel on a hit, 0 if the cursor missed. */
+static int tex_model_uv(int mx,int my,int*ptx,int*pty){ if(!g_eatlas_px||g_eatlas_w<1)return 0;
+    SDL_Rect view=g_me_view; if(view.w<1||view.h<1||!hit(mx,my,view.x,view.y,view.w,view.h))return 0;
+    int rw=view.w,rh=view.h; { int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } } if(rw<1)rw=1; if(rh<1)rh=1;
+    float fx=(mx-view.x)*(float)rw/view.w, fy=(my-view.y)*(float)rh/view.h;
+    float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
+    int cx=rw/2,cyy=rh/2; float persp=(rh<rw?rh:rw)*0.62f,dist=2.7f, bestz=-1e30f,bu=0,bv=0; int got=0;
+    for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(!ob->textured)continue;
+        V3*vv;int nvv;int(*tri)[3];int nt;uint16_t*tc;float*tuv; emesh_build_geom(ob,&vv,&nvv,&tri,&nt,&tc,&tuv);
+        for(int t=0;t<nt;t++){ V3 rr[3];
+            for(int k=0;k<3;k++){ V3 p=vv[tri[t][k]]; p.x+=ob->origin.x; p.y+=ob->origin.y; p.z+=ob->origin.z;
+                p.x=(p.x-g_mcen.x)*g_mscale; p.y=(p.y-g_mcen.y)*g_mscale; p.z=(p.z-g_mcen.z)*g_mscale;
+                float x=p.x*cyw-p.z*syw,z=p.x*syw+p.z*cyw,y=p.y*cp-z*sp,z2=p.y*sp+z*cp; rr[k]=(V3){x,y,z2}; }
+            float ux=rr[1].x-rr[0].x,uy=rr[1].y-rr[0].y,uz=rr[1].z-rr[0].z,vx=rr[2].x-rr[0].x,vy=rr[2].y-rr[0].y,vz=rr[2].z-rr[0].z;
+            float nz=ux*vy-uy*vx; if(nz<0)continue;   /* front faces only, matching the preview */
+            float sx[3],sy[3],sz[3]; for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
+            float area=(sx[1]-sx[0])*(sy[2]-sy[0])-(sy[1]-sy[0])*(sx[2]-sx[0]); if(fabsf(area)<1e-4f)continue;
+            float e0=(sx[2]-sx[1])*(fy-sy[1])-(sy[2]-sy[1])*(fx-sx[1]),e1=(sx[0]-sx[2])*(fy-sy[2])-(sy[0]-sy[2])*(fx-sx[2]),e2=(sx[1]-sx[0])*(fy-sy[0])-(sy[1]-sy[0])*(fx-sx[0]);
+            if(!((e0>=0&&e1>=0&&e2>=0)||(e0<=0&&e1<=0&&e2<=0)))continue;
+            float zz=(e0*sz[0]+e1*sz[1]+e2*sz[2])/area;
+            if(zz>bestz){ bestz=zz; float*U=&tuv[t*6]; bu=(e0*U[0]+e1*U[2]+e2*U[4])/area; bv=(e0*U[1]+e1*U[3]+e2*U[5])/area; got=1; } }
+        free(vv); free(tri); free(tc); free(tuv); }
+    if(!got)return 0;
+    int tx=(int)(bu*g_eatlas_w),ty=(int)(bv*g_eatlas_h); if(tx<0)tx=0; if(tx>=g_eatlas_w)tx=g_eatlas_w-1; if(ty<0)ty=0; if(ty>=g_eatlas_h)ty=g_eatlas_h-1;
+    *ptx=tx; *pty=ty; return 1; }
 /* Resample the atlas to ns x ns (nearest). UVs are normalised, so resolution changes need
  * NO re-unwrap — only the texel density (and flash cost) changes. */
 static void atlas_resize(int ns){ if(!g_eatlas_px||ns<8||ns>EATLAS_CAP)return; if(ns==g_eatlas_w&&ns==g_eatlas_h)return;
@@ -2704,8 +2732,10 @@ static int mesh_edit_down(int mx,int my){
         if(HITR(g_pt_fill)){ atlas_fill_from_faces(); return 1; }
         for(int i=0;i<3;i++)if(HITR(g_pt_res[i])){ atlas_resize(PT_RES[i]); return 1; }
         if(px_panel_down(mx,my))return 1;                   /* tool / brush / palette / HSV */
+        { int tx,ty; if(hit(mx,my,g_me_view.x,g_me_view.y,g_me_view.w,g_me_view.h)&&tex_model_uv(mx,my,&tx,&ty)){   /* paint directly on the 3D model */
+            atlas_undo_push(); cell_op(g_eatlas_px,g_eatlas_w,0,0,g_eatlas_w,g_eatlas_h,tx,ty,0); g_pt_lastx=tx; g_pt_lasty=ty; g_tpaint_dirty=1; g_tpaint_drag=2; return 1; } }
         if(mx>=g_me_cardx)return 1;                         /* sidebar empty area — consume, don't orbit */
-        return 0;                                           /* 3D area — let LMB/MMB orbit the model */
+        return 0;                                           /* off-model / empty space — LMB & MMB orbit */
     }
     if(g_me_sb.w&&hit(mx,my,g_me_sb.x-4,g_me_cardtop,12,g_me_cardbot-g_me_cardtop)){ g_me_sbdrag=1; return 1; }   /* grab the sidebar scrollbar */
     if(mx>=g_me_cardx&&(my<g_me_cardtop||my>g_me_cardbot))return 1;   /* click in the card column but outside the scroll region — consume, don't orbit */
@@ -2890,10 +2920,11 @@ static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int m
     int cardx=ox+w-MESH_CARDW, avail=cardx-ox-8; g_me_cardx=cardx; g_me_sb=(SDL_Rect){0,0,0,0};
     int csz=h-56; { int amax=avail*46/100; if(csz>amax)csz=amax; } if(csz>460)csz=460; if(csz<140)csz=140;
     /* ---- 3D preview (left), sampling the live atlas ---- */
-    g_me_view=(SDL_Rect){ox,oy,avail-csz-16,h};
-    if(!g_mdrag)g_myaw+=0.005f;
+    g_me_view=(SDL_Rect){ox,oy,avail-csz-16,h};   /* no auto-rotate — it's a paint surface; orbit with MMB / empty-drag */
     draw_eobj_solid(R,g_me_view);
-    text(R,"live model — drag / MMB to orbit",ox+12,oy+h-20,1,C_DIM,bg);
+    text(R,"live model — LMB paint on it · MMB / empty-drag orbit",ox+12,oy+h-20,1,C_DIM,bg);
+    if(hit(mx,my,g_me_view.x,g_me_view.y,g_me_view.w,g_me_view.h)){ int tx,ty; if(tex_model_uv(mx,my,&tx,&ty)){   /* brush cursor where it would land on the model */
+        int pr=((g_ptool==6)?g_brush_size:1)*2+3; ring(R,mx,my,pr+1,(Col){0,0,0},1); ring(R,mx,my,pr,(Col){255,230,120},1); } }
     /* ---- atlas paint canvas (right) ---- */
     SDL_Rect cv={ox+avail-csz,oy+34,csz,csz}; g_pt_canvas=cv;
     if(g_eatlas_px&&g_eatlas_w>0){
@@ -5697,6 +5728,10 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
             if(getenv("MOTE_STUDIO_MESHTEXRES"))atlas_resize(atoi(getenv("MOTE_STUDIO_MESHTEXRES")));
             if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); }
+            if(getenv("MOTE_STUDIO_MESHPAINTMODEL")){ g_myaw=0.6f; g_mpitch=0.35f; g_me_view=(SDL_Rect){0,440,560,360};   /* paint-on-model test: stamp a green patch onto the cube's front face */
+                g_ptool=6; g_brush_size=22; g_brush_round=1; g_brush_hard=100; g_pcol=(uint16_t)MOTE_RGB565(60,230,90);
+                int cxp=g_me_view.x+g_me_view.w/2,cyp=g_me_view.y+g_me_view.h/2,tx,ty;
+                for(int dy=-24;dy<=24;dy+=8)for(int dx=-24;dx<=24;dx+=8)if(tex_model_uv(cxp+dx,cyp+dy,&tx,&ty))cell_op(g_eatlas_px,g_eatlas_w,0,0,g_eatlas_w,g_eatlas_h,tx,ty,1); }
             if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
@@ -5944,7 +5979,8 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_SHEET)sheet_down(mx,my);
                     else if(g_tab==TAB_CONSOLE){ g_consel_a=g_consel_b=con_line_at(my); g_condrag=1; } continue; } }
             else if(e.type==SDL_MOUSEBUTTONUP){
-                if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag&&e.button.button==SDL_BUTTON_LEFT)tex_paint_at(e.button.x,e.button.y,2);   /* commit line/rect */
+                if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag==1&&e.button.button==SDL_BUTTON_LEFT)tex_paint_at(e.button.x,e.button.y,2);   /* commit line/rect on the canvas */
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag==2&&e.button.button==SDL_BUTTON_LEFT&&g_pt_lastx>=0)cell_op(g_eatlas_px,g_eatlas_w,0,0,g_eatlas_w,g_eatlas_h,g_pt_lastx,g_pt_lasty,2);   /* commit on the model */
                 if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE&&g_op.drag&&e.button.button==SDL_BUTTON_LEFT)op_confirm();   /* release a gizmo-drag */
                 if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active&&e.button.button==SDL_BUTTON_LEFT){ g_box_x1=e.button.x; g_box_y1=e.button.y;
                     int ddx=g_box_x1-g_box_x0,ddy=g_box_y1-g_box_y0,shift=(SDL_GetModState()&KMOD_SHIFT)!=0;
@@ -5972,7 +6008,8 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE){ if(!g_op.drag||(e.motion.state&SDL_BUTTON_LMASK))op_apply(e.motion.x,e.motion.y); }   /* live transform follows the mouse */
-                else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag&&(e.motion.state&SDL_BUTTON_LMASK)){ tex_paint_at(e.motion.x,e.motion.y,1); }   /* drag = continuous paint */
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag==1&&(e.motion.state&SDL_BUTTON_LMASK)){ tex_paint_at(e.motion.x,e.motion.y,1); }   /* drag the atlas canvas */
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag==2&&(e.motion.state&SDL_BUTTON_LMASK)){ int tx,ty; if(tex_model_uv(e.motion.x,e.motion.y,&tx,&ty)){ cell_op(g_eatlas_px,g_eatlas_w,0,0,g_eatlas_w,g_eatlas_h,tx,ty,1); g_pt_lastx=tx; g_pt_lasty=ty; g_tpaint_dirty=1; } }   /* drag on the model */
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&(g_hsvdrag||g_huedrag)){ px_panel_drag(e.motion.x,e.motion.y); }   /* drag the colour picker */
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.motion.x; g_box_y1=e.motion.y; }   /* drag the box-select rect */
                 else if(e.type==SDL_MOUSEMOTION&&g_me_sbdrag&&g_tab==TAB_MESH){ int vis=g_me_cardbot-g_me_cardtop,th=g_me_sb.h>0?g_me_sb.h:20,trk=vis-th; g_me_scroll = trk>0 ? (e.motion.y-g_me_cardtop-th/2)*g_me_maxs/trk : 0; if(g_me_scroll<0)g_me_scroll=0; if(g_me_scroll>g_me_maxs)g_me_scroll=g_me_maxs; }
