@@ -297,7 +297,7 @@ static void eobj_fit(void);            /* fwd: frame the model in the turntable 
 static void eobj_apply_newmodel(const char*name);   /* fwd: start a fresh named model */
 static void model_discover(void);      /* fwd: pick this project's model file on open */
 static void eobj_make_atlas(int size); /* fwd: ensure + load the model's texture atlas */
-static void draw_uv_guide(SDL_Renderer*R,int cox,int coy,int cell);   /* fwd: UV layout overlay on the atlas canvas */
+static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int my);   /* fwd: in-editor live texture-paint surface */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     int switching=(idx!=g_sel);
     if(switching)project_reset();    /* switching projects: drop the old game's art/objects/tilesets/anims/sfx/rig (kept across a hot-reload of the same game) */
@@ -318,7 +318,6 @@ static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
 static int g_cw=32, g_ch=32, g_doc=0, g_cw_doc[2]={32,64}, g_ch_doc[2]={32,64}; static char g_px_path[400];   /* canvas WIDTH(stride) x HEIGHT; file the canvas was loaded from (save target) */
 static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
-static int g_tex_edit;    /* pixel editor is editing the model's texture atlas -> UV layout overlaid, Save refreshes the 3D preview */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect 6 sq-brush 7 round-brush */
 static int g_brush_size=3, g_brush_hard=100, g_brush_round=1; /* brush diameter (px) + hardness % (100=hard, <100=soft) + shape (1=round,0=square) */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
@@ -366,7 +365,7 @@ static SDL_Texture *g_gs_tex; static int g_gs_dirty=1, g_glyph_browse=0;
 static uint16_t *g_gsbuf; static int g_gsbuf_w, g_gsbuf_h, g_gs_sel=0, g_gs_paint=0;   /* live sheet pixels + selected cell */
 static SDL_Rect g_fn_edit, g_gs_cellr[128], g_gs_edit;
 static void font_gs_loadbuf(void);   /* fwd: load the sheet PNG into g_gsbuf */
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; memset(g_alpha,0,CMAX*CMAX); g_stroking=0; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; g_tex_edit=0; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; memset(g_alpha,0,CMAX*CMAX); g_stroking=0; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
 static void undo_push(void);   /* fwd */
 /* resize the canvas to an arbitrary size (1..CMAX), keeping the existing art (top-left) */
 static void canvas_resize(int nw,int nh){ if(nw<1)nw=1; if(nw>CMAX)nw=CMAX; if(nh<1)nh=1; if(nh>CMAX)nh=CMAX; if(nw==g_cw&&nh==g_ch)return; undo_push();
@@ -1121,7 +1120,6 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
     if(g_grid&&cell>=6){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,55);
         for(int i=0;i<=g_cw;i++)SDL_RenderDrawLine(R,cox+i*cell,coy,cox+i*cell,coy+chh);
         for(int i=0;i<=g_ch;i++)SDL_RenderDrawLine(R,cox,coy+i*cell,cox+cw,coy+i*cell); SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
-    if(g_tex_edit)draw_uv_guide(R,cox,coy,cell);   /* overlay the UV layout (defined after the EObject model) */
     int gx=(mx-cox)/cell, gy=(my-coy)/cell, over=(mx>=cax&&mx<cax+vw&&my>=cay&&my<cay+vh&&gx>=0&&gy>=0&&gx<g_cw&&gy<g_ch);
     if(over){ rect_outline(R,cox+gx*cell,coy+gy*cell,cell,cell,(Col){255,255,255},1);
         if(g_ptool==6&&g_brush_size>1){ int half=g_brush_size*cell/2,ccx=cox+gx*cell+cell/2,ccy=coy+gy*cell+cell/2;   /* brush footprint */
@@ -1187,6 +1185,13 @@ static int eobj_atlas_load(const char*pngpath){
     stbi_image_free(d); g_eatlas_w=tw; g_eatlas_h=th; return 1; }
 static char g_eatlas_src[700]; static long g_eatlas_mtime;
 static void eobj_atlas_sync(void){ if(!g_eatlas_src[0])return; struct stat st; if(stat(g_eatlas_src,&st)!=0)return; if((long)st.st_mtime==g_eatlas_mtime)return; g_eatlas_mtime=(long)st.st_mtime; eobj_atlas_load(g_eatlas_src); }
+/* --- in-editor live texture paint (atlas beside the 3D model) --- */
+static int g_tex_paint;          /* model editor is in texture-paint mode */
+static int g_tpaint_drag;        /* LMB held over the atlas canvas */
+static int g_tpaint_dirty;       /* unsaved strokes since last Save */
+static int g_tpaint_size=2;      /* brush radius in texels */
+static SDL_Rect g_pt_canvas,g_pt_save,g_pt_exit,g_pt_bminus,g_pt_bplus;
+static SDL_Texture *g_pttex; static int g_pttw,g_ptth;   /* atlas display texture (streams g_eatlas_px) */
 /* Triplanar UV (0..1) for vert v given face normal n + recentred extent ext.
  * v flipped to match the engine's top-left tpix[v*w+u] sampling. */
 static void mesh_triuv(V3 v,float nx,float ny,float nz,float ext,float*u,float*vv){
@@ -2208,10 +2213,6 @@ static void eobj_unwrap_box(EObject*o){ if(o->nf<1||o->nv<1)return;
             if(dom==0){ pu=(p.z-mn.z)/ez; pv=(p.y-mn.y)/ey; } else if(dom==1){ pu=(p.x-mn.x)/ex; pv=(p.z-mn.z)/ez; } else { pu=(p.x-mn.x)/ex; pv=(p.y-mn.y)/ey; }
             f->uv[k][0]=(col+pu)/3.0f; f->uv[k][1]=(row+pv)/2.0f; } } }
 /* Per-face grid: each face -> its own square cell (no distortion, robust on any mesh). */
-static void eobj_unwrap_grid(EObject*o){ if(o->nf<1)return; int G=1; while(G*G<o->nf)G++; float ins=0.04f;
-    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; int col=fi%G,row=fi/G;
-        float u0=(col+ins)/G,u1=(col+1-ins)/G,v0=(row+ins)/G,v1=(row+1-ins)/G; float cu[4]={u0,u1,u1,u0},cv[4]={v0,v0,v1,v1};
-        for(int k=0;k<f->nv;k++){ f->uv[k][0]=cu[k]; f->uv[k][1]=cv[k]; } } }
 /* The editor model's atlas path: <project>/assets/<model>_tex.png */
 static int eobj_atlas_path(char*out,int n){ if(g_sel<0)return 0; snprintf(out,n,"%.500s/assets/%.36s_tex.png",g_games[g_sel].dir,g_model_name); return 1; }
 /* Create a faint-checker blank atlas if none exists, and load it for the preview. */
@@ -2220,29 +2221,46 @@ static void eobj_make_atlas(int size){ char p[700]; if(!eobj_atlas_path(p,sizeof
         uint8_t*rgba=malloc((size_t)size*size*4); for(int y=0;y<size;y++)for(int x=0;x<size;x++){ int c=(((x>>3)+(y>>3))&1)?70:54; int i=(y*size+x)*4; rgba[i]=rgba[i+1]=rgba[i+2]=(uint8_t)c; rgba[i+3]=255; }
         stbi_write_png(p,size,size,4,rgba,size*4); free(rgba); }
     eobj_atlas_load(p); snprintf(g_eatlas_src,sizeof g_eatlas_src,"%s",p); struct stat ms; g_eatlas_mtime=stat(p,&ms)==0?(long)ms.st_mtime:0; }
-/* Unwrap the active object: mode 0 = box/planar, 1 = per-face grid. */
-static void eobj_unwrap(int mode){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
-    if(mode==0)eobj_unwrap_box(o); else eobj_unwrap_grid(o); o->textured=1; eobj_make_atlas(128);
-    snprintf(g_status,sizeof g_status,"unwrapped (%s) -> assets/%.28s_tex.png — Edit Tex to paint it",mode==0?"box":"grid",g_model_name); }
-/* Open the model's atlas in the Pixel Art tab with the UV layout overlaid as a paint guide. */
-static void eobj_edit_texture(void){ char p[700]; if(!eobj_atlas_path(p,sizeof p)){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+/* Box-unwrap the active object into a paintable atlas. */
+static void eobj_unwrap(void){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
+    eobj_unwrap_box(o); o->textured=1; eobj_make_atlas(128);
+    snprintf(g_status,sizeof g_status,"box-unwrapped -> assets/%.28s_tex.png — hit Paint to texture it",g_model_name); }
+/* Enter live texture-paint: ensure the active object is unwrapped + the atlas is loaded, then
+ * split the viewport (3D | atlas) so strokes on the atlas update the model in real time. */
+static void eobj_paint_enter(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    if(!g_nobj){ snprintf(g_status,sizeof g_status,"nothing to paint — add a primitive first"); return; }
     int any=0; for(int o=0;o<g_nobj;o++)if(g_obj[o].textured)any=1;
-    if(!any){ snprintf(g_status,sizeof g_status,"Unwrap the model first (Texture > Unwrap)"); return; }
-    struct stat st; if(stat(p,&st)!=0)eobj_make_atlas(128);
-    set_doc(1); load_png(p); snprintf(g_px_name,sizeof g_px_name,"%.50s_tex",g_model_name); g_tex_edit=1; g_tab=TAB_PIXEL;
-    snprintf(g_status,sizeof g_status,"editing %.28s_tex.png — UV layout overlaid; Save updates the 3D model",g_model_name); }
-/* Draw the model's UV layout (face edges) over the atlas canvas at (cox,coy), cell px each. */
-static void draw_uv_guide(SDL_Renderer*R,int cox,int coy,int cell){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,120,210,255,150);
+    if(!any)eobj_unwrap(); else eobj_make_atlas(128);
+    if(!g_eatlas_px){ snprintf(g_status,sizeof g_status,"atlas load failed"); return; }
+    g_tex_paint=1; g_tpaint_drag=0; g_tpaint_dirty=0;
+    snprintf(g_status,sizeof g_status,"paint mode — paint the atlas, the model updates live · Save writes the PNG"); }
+/* Write the painted atlas (g_eatlas_px, RGB565) back to its PNG so the bake/preview pick it up. */
+static void eobj_paint_save(void){ if(!g_eatlas_px||!g_eatlas_src[0]){ snprintf(g_status,sizeof g_status,"nothing to save"); return; }
+    int w=g_eatlas_w,h=g_eatlas_h; uint8_t*rgba=malloc((size_t)w*h*4); if(!rgba)return;
+    for(int i=0;i<w*h;i++){ uint16_t p=g_eatlas_px[i]; rgba[i*4]=(uint8_t)(((p>>11)&31)<<3); rgba[i*4+1]=(uint8_t)(((p>>5)&63)<<2); rgba[i*4+2]=(uint8_t)((p&31)<<3); rgba[i*4+3]=255; }
+    int ok=stbi_write_png(g_eatlas_src,w,h,4,rgba,w*4); free(rgba);
+    if(ok){ struct stat ms; g_eatlas_mtime=stat(g_eatlas_src,&ms)==0?(long)ms.st_mtime:0; g_tpaint_dirty=0;   /* keep our pixels — don't let atlas_sync reload over them */
+        snprintf(g_status,sizeof g_status,"saved %.40s_tex.png",g_model_name); }
+    else snprintf(g_status,sizeof g_status,"save FAILED %s",g_eatlas_src); }
+/* Paint a round brush dab into the atlas at canvas pixel (mx,my). */
+static void tex_paint_dab(int mx,int my){ if(!g_eatlas_px||g_eatlas_w<1||g_pt_canvas.w<1)return;
+    int tx=(int)((mx-g_pt_canvas.x)/(float)g_pt_canvas.w*g_eatlas_w), ty=(int)((my-g_pt_canvas.y)/(float)g_pt_canvas.h*g_eatlas_h);
+    uint16_t col=emesh_curcol(); int rad=g_tpaint_size;
+    for(int dy=-rad;dy<=rad;dy++)for(int dx=-rad;dx<=rad;dx++){ if(dx*dx+dy*dy>rad*rad)continue;
+        int x=tx+dx,y=ty+dy; if(x<0||y<0||x>=g_eatlas_w||y>=g_eatlas_h)continue; g_eatlas_px[y*g_eatlas_w+x]=col; }
+    g_tpaint_dirty=1; }
+/* Draw the model's UV layout (face edges) over the atlas canvas rect cv (u,v 0..1 -> rect). */
+static void draw_uv_overlay(SDL_Renderer*R,SDL_Rect cv){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,120,210,255,130);
     for(int o=0;o<g_nobj;o++){ EObject*ob=&g_obj[o]; if(!ob->textured)continue;
         for(int fi=0;fi<ob->nf;fi++){ EFace*f=&ob->f[fi]; for(int k=0;k<f->nv;k++){ int k2=(k+1)%f->nv;
-            int x0=cox+(int)(f->uv[k][0]*g_cw*cell),y0=coy+(int)(f->uv[k][1]*g_ch*cell),x1=cox+(int)(f->uv[k2][0]*g_cw*cell),y1=coy+(int)(f->uv[k2][1]*g_ch*cell);
+            int x0=cv.x+(int)(f->uv[k][0]*cv.w),y0=cv.y+(int)(f->uv[k][1]*cv.h),x1=cv.x+(int)(f->uv[k2][0]*cv.w),y1=cv.y+(int)(f->uv[k2][1]*cv.h);
             SDL_RenderDrawLine(R,x0,y0,x1,y1); } } }
     SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
 
 /* full reset of the model editor + importer — called when switching projects so a new game starts blank */
 static void mesh_editor_reset(void){ eobj_free_all();
     for(int i=0;i<g_eundo_n;i++){ EUndo*u=g_eundo[i]; for(int j=0;j<u->n;j++){ free(u->o[j].v); free(u->o[j].f); free(u->o[j].e); } free(u); } g_eundo_n=0;
-    g_edit_mode=0; g_op.op=OP_NONE; g_naff=0; g_box_active=0; g_hover_obj=g_hover_idx=-1;
+    g_edit_mode=0; g_tex_paint=0; g_op.op=OP_NONE; g_naff=0; g_box_active=0; g_hover_obj=g_hover_idx=-1;
     g_nraw=0; g_mesh_path[0]=0; g_mesh_dirty=1; }   /* drop the importer's loaded STL too */
 
 static void op_confirm(void){ g_op.op=OP_NONE; }                       /* keep the edit; undo snapshot stays for Ctrl+Z */
@@ -2261,10 +2279,11 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
-static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_uvgrid,g_me_edittex;
+static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_paint;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
+    if(g_tex_paint){ draw_tex_paint(R,ox,oy,w,h,mx,my); return; }   /* live texture-paint split view */
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
     /* no auto-rotate in the model editor — the model stays still unless the artist orbits */
     float cyw=cosf(g_myaw),syw=sinf(g_myaw),cp=cosf(g_mpitch),sp=sinf(g_mpitch);
@@ -2421,8 +2440,7 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     ME_SEP();
     /* --- TEXTURE (UV unwrap -> paintable atlas) --- */
     { Col txc={205,170,210}; px=ui_btn_t(R,lx,cy,0,"Unwrap",-1,txc,&g_me_unwrap,mx,my,"Box-project the model into a paintable atlas (assets/<model>_tex.png)");
-      px=ui_btn_t(R,px,cy,0,"Grid",-1,txc,&g_me_uvgrid,mx,my,"Per-face grid unwrap — one square cell per face");
-      ui_btn_t(R,px,cy,0,"Edit Tex",-1,txc,&g_me_edittex,mx,my,"Paint the atlas in Pixel Art with the UV layout overlaid; Save updates the model"); cy+=UI_H+5; }
+      ui_btn_t(R,px,cy,0,"Paint",IC_BRUSH,(Col){210,160,210},&g_me_paint,mx,my,"Paint the texture live beside the 3D model — strokes update the model instantly"); cy+=UI_H+5; }
     ME_SEP();
     /* --- OBJECT --- */
     px=ui_btn_t(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my,"Duplicate this object (Shift+D)");
@@ -2469,6 +2487,17 @@ static void mirror_status(void){ uint8_t m=g_nobj?g_obj[g_objsel].mirror:0;
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(g_tex_paint){                                       /* texture-paint mode: atlas canvas + paint controls */
+        if(HITR(g_pt_canvas)){ tex_paint_dab(mx,my); g_tpaint_drag=1; return 1; }
+        if(HITR(g_pt_save)){ eobj_paint_save(); return 1; }
+        if(HITR(g_pt_exit)){ eobj_paint_save(); g_tex_paint=0; return 1; }
+        if(HITR(g_pt_bminus)){ if(g_tpaint_size>0)g_tpaint_size--; return 1; }
+        if(HITR(g_pt_bplus)){ if(g_tpaint_size<16)g_tpaint_size++; return 1; }
+        if(g_me_hsv.w&&HITR(g_me_hsv)){ g_me_hsvdrag=1; g_sat=clampf((mx-g_me_hsv.x)/(float)g_me_hsv.w,0,1); g_val=clampf(1-(my-g_me_hsv.y)/(float)g_me_hsv.h,0,1); g_mesh_rgb=mesh_hsv_rgb(); return 1; }
+        if(g_me_hue.w&&HITR(g_me_hue)){ g_me_huedrag=1; g_hue=clampf((my-g_me_hue.y)/(float)g_me_hue.h,0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); return 1; }
+        if(mx>=g_me_cardx)return 1;                         /* sidebar empty area — consume, don't orbit */
+        return 0;                                           /* 3D area — let LMB/MMB orbit the model */
+    }
     if(g_me_sb.w&&hit(mx,my,g_me_sb.x-4,g_me_cardtop,12,g_me_cardbot-g_me_cardtop)){ g_me_sbdrag=1; return 1; }   /* grab the sidebar scrollbar */
     if(mx>=g_me_cardx&&(my<g_me_cardtop||my>g_me_cardbot))return 1;   /* click in the card column but outside the scroll region — consume, don't orbit */
     if(HITR(g_me_evert)){ set_sel_mode(0); return 1; }
@@ -2490,9 +2519,8 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
     if(HITR(g_me_erecalc)){ eobj_recalc_outward(); return 1; }
     if(HITR(g_me_eclean)){ eobj_clean(); return 1; }
-    if(HITR(g_me_unwrap)){ eobj_unwrap(0); return 1; }
-    if(HITR(g_me_uvgrid)){ eobj_unwrap(1); return 1; }
-    if(HITR(g_me_edittex)){ eobj_edit_texture(); return 1; }
+    if(HITR(g_me_unwrap)){ eobj_unwrap(); return 1; }
+    if(HITR(g_me_paint)){ eobj_paint_enter(); return 1; }
     if(HITR(g_me_emkface)){ eobj_make_face(); return 1; }
     if(HITR(g_me_esep)){ eobj_separate_sel(); eobj_fit(); return 1; }
     if(HITR(g_me_esubdiv)){ eobj_subdivide_sel(); return 1; }
@@ -2520,7 +2548,7 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_esave)){ mmesh_save(); return 1; }
     if(HITR(g_me_eload)){ mmesh_load(); return 1; }
     if(HITR(g_me_ebakex)){ eobj_bake(); return 1; }
-    if(HITR(g_me_eexit)){ eobj_persist(); g_edit_mode=0; return 1; }   /* persist model + scene.obj/.rig on leaving the editor */
+    if(HITR(g_me_eexit)){ eobj_persist(); g_edit_mode=0; g_tex_paint=0; return 1; }   /* persist model + scene.obj/.rig on leaving the editor */
     if(HITR(g_me_view)){                                   /* viewport */
         if(g_op.op!=OP_NONE){ if(!g_op.drag)op_confirm(); return 1; }   /* LMB confirms an active modal op */
         if(g_mgz_on)for(int a=0;a<3;a++){ int dx=mx-g_mgz_ax[a].x,dy=my-g_mgz_ax[a].y;   /* grab a gizmo handle -> drag-move on that axis */
@@ -2534,7 +2562,7 @@ static int mesh_edit_down(int mx,int my){
 }
 /* keyboard for the MESH tab edit mode (routed from the main event loop); 1 if consumed */
 static int mesh_edit_key(SDL_Keycode k){
-    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); if(g_edit_mode)eobj_persist(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); return 1; }   /* persist on leaving the editor */
+    if(k==SDLK_TAB){ if(g_op.op!=OP_NONE)op_cancel(); if(g_edit_mode)eobj_persist(); g_edit_mode=!g_edit_mode; if(g_edit_mode)eobj_fit(); else g_tex_paint=0; return 1; }   /* persist on leaving the editor */
     if(!g_edit_mode)return 0;
     SDL_Keymod md=SDL_GetModState();
     if(g_op.op!=OP_NONE){                                   /* a modal op is live — route keys to it */
@@ -2623,6 +2651,51 @@ static void draw_eobj_solid(SDL_Renderer*R, SDL_Rect view){
                     else g_mzpx[idx]=col; } } }
         free(vv); free(tri); free(tc); free(tuv); }
     SDL_UpdateTexture(g_mztex,NULL,g_mzpx,rw*2); SDL_RenderCopy(R,g_mztex,NULL,&view); }
+
+/* Live texture-paint view: the 3D model (left, live-textured) beside the atlas paint canvas
+ * (right). Painting on the canvas writes straight into g_eatlas_px, which the preview samples,
+ * so the model updates every stroke. The sidebar carries the colour/brush controls + Save/Done. */
+static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int my){
+    Col bg={16,18,26}; plain(R,ox,oy,w,h,bg);
+    int cardx=ox+w-MESH_CARDW, avail=cardx-ox-8; g_me_cardx=cardx; g_me_sb=(SDL_Rect){0,0,0,0};
+    int csz=h-56; { int amax=avail*46/100; if(csz>amax)csz=amax; } if(csz>460)csz=460; if(csz<140)csz=140;
+    /* ---- 3D preview (left), sampling the live atlas ---- */
+    g_me_view=(SDL_Rect){ox,oy,avail-csz-16,h};
+    if(!g_mdrag)g_myaw+=0.005f;
+    draw_eobj_solid(R,g_me_view);
+    text(R,"live model — drag / MMB to orbit",ox+12,oy+h-20,1,C_DIM,bg);
+    /* ---- atlas paint canvas (right) ---- */
+    SDL_Rect cv={ox+avail-csz,oy+34,csz,csz}; g_pt_canvas=cv;
+    if(g_eatlas_px&&g_eatlas_w>0){
+        if(!g_pttex||g_pttw!=g_eatlas_w||g_ptth!=g_eatlas_h){ if(g_pttex)SDL_DestroyTexture(g_pttex);
+            g_pttex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,g_eatlas_w,g_eatlas_h); SDL_SetTextureScaleMode(g_pttex,SDL_ScaleModeNearest); g_pttw=g_eatlas_w; g_ptth=g_eatlas_h; }
+        SDL_UpdateTexture(g_pttex,NULL,g_eatlas_px,g_eatlas_w*2); SDL_RenderCopy(R,g_pttex,NULL,&cv);
+    } else plain(R,cv.x,cv.y,cv.w,cv.h,(Col){40,40,48});
+    rect_outline(R,cv.x,cv.y,cv.w,cv.h,C_LINE,1);
+    text(R,"TEXTURE ATLAS",cv.x,cv.y-16,1,(Col){205,170,210},bg);
+    draw_uv_overlay(R,cv);
+    if(hit(mx,my,cv.x,cv.y,cv.w,cv.h)){ int pr=(int)((g_tpaint_size+0.5f)*cv.w/(float)g_eatlas_w); if(pr<2)pr=2; ring(R,mx,my,pr+1,(Col){0,0,0},1); ring(R,mx,my,pr,(Col){255,255,255},1); }
+    /* ---- sidebar: colour + brush + save/done ---- */
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"PAINT TEXTURE"); int lx=cardx+12,px;
+    text(R,"Paint the atlas — the model",lx,cy,1,C_DIM,C_PANEL); cy+=12;
+    text(R,"updates live as you paint.",lx,cy,1,C_DIM,C_PANEL); cy+=18;
+    if(g_hsv_baked!=g_hue)bake_hsv(R);
+    int sq=64; g_me_hsv=(SDL_Rect){lx,cy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_me_hsv); rect_outline(R,lx,cy,sq,sq,C_LINE,1);
+    { int cxp=lx+(int)(g_sat*sq),cyp=cy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
+    g_me_hue=(SDL_Rect){lx+sq+6,cy,14,sq};
+    for(int yy=0;yy<sq;yy++){ Col hc=c565(hsv565(yy/(float)sq*360,1,1)); SDL_SetRenderDrawColor(R,hc.r,hc.g,hc.b,255); SDL_RenderDrawLine(R,g_me_hue.x,cy+yy,g_me_hue.x+14,cy+yy); }
+    { int hyy=cy+(int)(g_hue/360*sq); rect_outline(R,g_me_hue.x-2,hyy-1,18,3,(Col){255,255,255},1); }
+    { uint16_t cc=emesh_curcol(); int sw=lx+sq+28; plain(R,sw,cy,30,30,c565(cc)); rect_outline(R,sw,cy,30,30,C_LINE,1); text(R,"brush",sw,cy+34,1,C_DIM,C_PANEL); }
+    cy+=sq+14;
+    { char bs[24]; snprintf(bs,sizeof bs,"Brush %d",g_tpaint_size*2+1); text(R,bs,lx,cy+5,1,C_TXT,C_PANEL);
+      int bx=lx+textw(R,bs,1)+12; bx=ui_btn_t(R,bx,cy,0,"-",-1,C_TXT,&g_pt_bminus,mx,my,"Smaller brush");
+      ui_btn_t(R,bx,cy,0,"+",-1,C_TXT,&g_pt_bplus,mx,my,"Larger brush"); cy+=UI_H+10; }
+    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=10;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Save atlas",IC_SAVE,(Col){150,200,255},&g_pt_save,mx,my); cy+=UI_H+6;
+    ui_btn(R,lx,cy,MESH_CARDW-24,"Done painting",IC_CHEV_D,(Col){200,160,120},&g_pt_exit,mx,my); cy+=UI_H+8;
+    text(R,g_tpaint_dirty?"unsaved changes":"saved",lx,cy,1,C_DIM,C_PANEL);
+    (void)px;
+}
 
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26}); eobj_atlas_sync();
     if(g_edit_mode){ draw_mesh_edit(R,ox,oy,w,h); return; }
@@ -3128,7 +3201,7 @@ static int rig_down(int mx,int my){
             if(HITR(g_rg_pz[a*2])){ *po[a]-=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } if(HITR(g_rg_pz[a*2+1])){ *po[a]+=0.02f; g_scrub_t=(float)g_rk[g_ksel].t_ms; return 1; } }
     }
     if(HITR(g_rg_save)){ rig_save(); return 1; }
-    if(HITR(g_rg_mesh)&&g_rig_obj[0]){ load_mesh(g_rig_obj); g_edit_mode=0; g_tab=TAB_MESH; return 1; }   /* inspect the rigged OBJ as a plain mesh */
+    if(HITR(g_rg_mesh)){ if(g_rig_obj[0])load_mesh(g_rig_obj); g_edit_mode=0; g_tab=TAB_MESH; return 1; }   /* inspect as a plain mesh: disk OBJ if any, else the live model */
     return 0;
     #undef HITR
 }
@@ -5279,6 +5352,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         else snprintf(g_status,sizeof g_status,"no .sfx recipe found for %s",base); return; }
     /* rig sidecar (.rig) or its baked header (.rig.h) -> load the model in the Rig tab */
     if(ci_ends(nm,".rig")||ci_ends(nm,".rig.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".rig"); if(d)*d=0;
+        if(base[0])snprintf(g_model_name,sizeof g_model_name,"%.36s",base);   /* the rig's model name drives the atlas/exports (tank.rig -> tank_tex.png) */
         char obj[440]; if(ci_ends(nm,".rig")){ size_t pl=strlen(r->path); snprintf(obj,sizeof obj,"%.*s.obj",(int)(pl-4),r->path); }
         else if(g_sel>=0) snprintf(obj,sizeof obj,"%.250s/assets/%.60s.obj",g_games[g_sel].dir,base); else obj[0]=0;
         struct stat st; if(g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* a live model is loaded -> rig THAT, not a (possibly stale) disk copy */
@@ -5383,7 +5457,9 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_MESHMIRROR")){ g_sel_mode=2; if(g_nobj){ g_obj[0].f[2].sel=1;   /* push the +X face out, then mirror X */
             op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.5"); g_op.hasnum=1; op_apply(0,0); op_confirm();
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRROR")); g_obj[0].f[2].sel=0; }
-            if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); } }
+            if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
+        if(getenv("MOTE_STUDIO_MESHTEXPAINT")){ eobj_free_all(); prim_cube(1.0f); eobj_fit(); eobj_paint_enter();   /* capture hook: live texture-paint split view (red/blue test fill) */
+            if(g_eatlas_px)for(int y=0;y<g_eatlas_h;y++)for(int x=0;x<g_eatlas_w;x++){ g_eatlas_px[y*g_eatlas_w+x]=((x/16+y/16)&1)?(uint16_t)MOTE_RGB565(220,90,70):(uint16_t)MOTE_RGB565(70,120,210); } } }
     if(getenv("MOTE_STUDIO_FONT")){ font_open(getenv("MOTE_STUDIO_FONT")); }                 /* capture hook: font tab */
     if(getenv("MOTE_STUDIO_GLYPHS")){ font_open(getenv("MOTE_STUDIO_GLYPHS")); font_gsheet_open();
         if(getenv("MOTE_STUDIO_GLYPHEDIT")) g_gs_sel=atoi(getenv("MOTE_STUDIO_GLYPHEDIT")); }   /* capture hook: select a glyph cell */
@@ -5639,7 +5715,7 @@ int main(int argc,char**argv){
                 if(g_tab==TAB_TILES&&g_dr_paint)dr_paint_at(e.button.x,e.button.y,2);          /* commit line/rect */
                 else if(g_tab==TAB_ANIM&&g_an_drag)an_dr_paint_at(e.button.x,e.button.y,2);
                 else if(g_tab==TAB_SHEET)sheet_up(e.button.x,e.button.y);
-                g_split=0; g_mdrag=0; g_rdrag=0; g_me_sbdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
+                g_split=0; g_mdrag=0; g_rdrag=0; g_me_sbdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_tpaint_drag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y);
                 else if(g_tab==TAB_FONT)font_up(e.button.x,e.button.y); }
@@ -5657,6 +5733,7 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_hsvdrag){ g_sat=clampf((e.motion.x-g_me_hsv.x)/(float)(g_me_hsv.w?g_me_hsv.w:1),0,1); g_val=clampf(1-(e.motion.y-g_me_hsv.y)/(float)(g_me_hsv.h?g_me_hsv.h:1),0,1); g_mesh_rgb=mesh_hsv_rgb(); }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_MESH&&g_me_huedrag){ g_hue=clampf((e.motion.y-g_me_hue.y)/(float)(g_me_hue.h?g_me_hue.h:1),0,1)*360; g_mesh_rgb=mesh_hsv_rgb(); }
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_op.op!=OP_NONE){ if(!g_op.drag||(e.motion.state&SDL_BUTTON_LMASK))op_apply(e.motion.x,e.motion.y); }   /* live transform follows the mouse */
+                else if(g_tab==TAB_MESH&&g_edit_mode&&g_tex_paint&&g_tpaint_drag&&(e.motion.state&SDL_BUTTON_LMASK)){ tex_paint_dab(e.motion.x,e.motion.y); }   /* drag = continuous paint */
                 else if(g_tab==TAB_MESH&&g_edit_mode&&g_box_active){ g_box_x1=e.motion.x; g_box_y1=e.motion.y; }   /* drag the box-select rect */
                 else if(e.type==SDL_MOUSEMOTION&&g_me_sbdrag&&g_tab==TAB_MESH){ int vis=g_me_cardbot-g_me_cardtop,th=g_me_sb.h>0?g_me_sb.h:20,trk=vis-th; g_me_scroll = trk>0 ? (e.motion.y-g_me_cardtop-th/2)*g_me_maxs/trk : 0; if(g_me_scroll<0)g_me_scroll=0; if(g_me_scroll>g_me_maxs)g_me_scroll=g_me_maxs; }
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_MESH&&g_mdrag){ g_myaw-=(e.motion.x-g_lx)*0.01f; g_mpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
