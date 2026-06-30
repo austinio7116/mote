@@ -290,6 +290,7 @@ static void finish_load(int idx){ stop_engine();                 /* unload (and 
     copy_file(built,g_so); snprintf(g_runprev,sizeof g_runprev,"%.319s",g_so);   /* load the copy; 'built' stays writable for rebuilds */
     g_watch=src_mtime(g_games[idx].dir); start_engine(); }
 static void mesh_editor_reset(void);   /* fwd: clear the model-editor scene + importer (on project switch) */
+static void project_reset(void);       /* fwd: clear EVERY tab's loaded state on project switch */
 static void mmesh_load(void);          /* fwd: load <project>/scene.mmesh into g_obj */
 static void mmesh_save(void);          /* fwd: persist g_obj to <project>/scene.mmesh */
 static void eobj_fit(void);            /* fwd: frame the model in the turntable camera */
@@ -297,7 +298,7 @@ static void eobj_apply_newmodel(const char*name);   /* fwd: start a fresh named 
 static void model_discover(void);      /* fwd: pick this project's model file on open */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     int switching=(idx!=g_sel);
-    if(switching)mesh_editor_reset();    /* switching projects: drop the old scene (but keep it across a hot-reload of the same game) */
+    if(switching)project_reset();    /* switching projects: drop the old game's art/objects/tilesets/anims/sfx/rig (kept across a hot-reload of the same game) */
     g_sel=idx;
     if(switching){ model_discover(); mmesh_load(); }   /* pick this project's model + restore it (mmesh_load fits the camera) so the Mesh/Rig tabs reflect it on open */
     if(rebuild){ snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name);
@@ -307,21 +308,29 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     finish_load(idx); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
-#define CMAX 128
+#define CMAX 256
 #define KEY565 0xF81F
 /* two independent documents: 0 = PIXEL ART sprite, 1 = TEXTURE. g_canvas points at the
  * active one; switching tabs swaps it so the texture generators never touch the sprite. */
 static uint16_t g_docbuf[2][CMAX*CMAX]; static uint16_t *g_canvas=g_docbuf[0];
-static int g_csize=32, g_doc=0, g_csize_doc[2]={32,64}; static char g_px_path[400];   /* file the canvas was loaded from (save target) */
+static int g_cw=32, g_ch=32, g_doc=0, g_cw_doc[2]={32,64}, g_ch_doc[2]={32,64}; static char g_px_path[400];   /* canvas WIDTH(stride) x HEIGHT; file the canvas was loaded from (save target) */
 static char g_px_name[64]="sprite"; static int g_px_namefocus, g_px_nameseled; static SDL_Rect g_px_name_r;   /* save-as name for a new sprite */
 static int g_icon_edit;   /* pixel editor is editing the launcher icon -> Save writes <root>/icon.png + bakes */
 static uint16_t g_pcol=0xF800; static int g_ptool=0;          /* 0 pencil 1 erase 2 fill 3 pick 4 line 5 rect 6 sq-brush 7 round-brush */
-static int g_brush_size=3, g_brush_hard=100;                  /* brush diameter (px) + hardness % (100=hard edge, <100 = soft opacity falloff) */
+static int g_brush_size=3, g_brush_hard=100, g_brush_round=1; /* brush diameter (px) + hardness % (100=hard, <100=soft) + shape (1=round,0=square) */
 static float g_hue=0,g_sat=1,g_val=1; static int g_grid=1, g_pzoom=0;
 static uint16_t g_recent[24]; static int g_recent_n; static int g_dx0=-1,g_dy0=-1;
 #define UNDON 12
-static uint16_t g_undo[UNDON][CMAX*CMAX]; static int g_undo_sz[UNDON], g_undo_head, g_undo_cnt;
-static uint16_t g_redo[UNDON][CMAX*CMAX]; static int g_redo_sz[UNDON], g_redo_head, g_redo_cnt;
+static uint16_t g_undo[UNDON][CMAX*CMAX]; static int g_undo_sz[UNDON], g_undo_h[UNDON], g_undo_head, g_undo_cnt;   /* _sz=width _h=height */
+static uint16_t g_redo[UNDON][CMAX*CMAX]; static int g_redo_sz[UNDON], g_redo_h[UNDON], g_redo_head, g_redo_cnt;
+/* Opacity plane (Aseprite/Photoshop-style soft brushes): the canvas format is RGB565 +
+ * 1-bit colour-key, so there is nowhere to store partial alpha. The EDITOR keeps a parallel
+ * 0..255 opacity plane; soft edges composite over the checker for display and are thresholded
+ * back to the colour-key only on save (canvas_save writes RGBA, load_png reads alpha). */
+static uint8_t  g_alfbuf[2][CMAX*CMAX]; static uint8_t *g_alpha=g_alfbuf[0];   /* 0 == transparent (KEY565) */
+static uint8_t  g_undo_a[UNDON][CMAX*CMAX], g_redo_a[UNDON][CMAX*CMAX];         /* alpha snapshots, parallel to g_undo/g_redo */
+static uint16_t g_sbaseC[CMAX*CMAX]; static uint8_t g_sbaseA[CMAX*CMAX], g_scov[CMAX*CMAX]; static int g_stroking; /* per-stroke base + MAX coverage (so overlapping dabs don't saturate) */
+#define PXSET(idx,col) do{ uint16_t _c=(col); g_canvas[idx]=_c; g_alpha[idx]=(_c==KEY565)?0:255; }while(0)   /* solid write keeps the plane in sync */
 static const uint8_t PAL[][3]={ {0,0,0},{64,64,76},{128,132,148},{205,210,220},{255,255,255},
     {130,40,44},{214,66,66},{244,104,92},{255,150,92},{255,206,92},{250,240,150},{156,212,96},{74,176,84},
     {42,116,74},{40,150,162},{84,206,224},{72,132,224},{52,72,164},{122,92,206},{182,112,212},{232,122,182},
@@ -354,37 +363,38 @@ static SDL_Texture *g_gs_tex; static int g_gs_dirty=1, g_glyph_browse=0;
 static uint16_t *g_gsbuf; static int g_gsbuf_w, g_gsbuf_h, g_gs_sel=0, g_gs_paint=0;   /* live sheet pixels + selected cell */
 static SDL_Rect g_fn_edit, g_gs_cellr[128], g_gs_edit;
 static void font_gs_loadbuf(void);   /* fwd: load the sheet PNG into g_gsbuf */
-static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
+static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; memset(g_alpha,0,CMAX*CMAX); g_stroking=0; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
 static void undo_push(void);   /* fwd */
 /* resize the canvas to an arbitrary size (1..CMAX), keeping the existing art (top-left) */
-static void canvas_resize(int ns){ if(ns<1)ns=1; if(ns>CMAX)ns=CMAX; if(ns==g_csize)return; undo_push();
-    static uint16_t tmp[CMAX*CMAX]; int os=g_csize; memcpy(tmp,g_canvas,(size_t)os*os*2);
-    for(int i=0;i<ns*ns;i++)g_canvas[i]=KEY565; int cs=os<ns?os:ns;
-    for(int y=0;y<cs;y++)for(int x=0;x<cs;x++)g_canvas[y*ns+x]=tmp[y*os+x]; g_csize=ns; }
+static void canvas_resize(int nw,int nh){ if(nw<1)nw=1; if(nw>CMAX)nw=CMAX; if(nh<1)nh=1; if(nh>CMAX)nh=CMAX; if(nw==g_cw&&nh==g_ch)return; undo_push();
+    static uint16_t tmp[CMAX*CMAX]; static uint8_t tmpa[CMAX*CMAX]; int ow=g_cw,oh=g_ch;
+    memcpy(tmp,g_canvas,(size_t)ow*oh*2); memcpy(tmpa,g_alpha,(size_t)ow*oh);
+    for(int i=0;i<nw*nh;i++){ g_canvas[i]=KEY565; g_alpha[i]=0; } int cw=ow<nw?ow:nw, chh=oh<nh?oh:nh;
+    for(int y=0;y<chh;y++)for(int x=0;x<cw;x++){ g_canvas[y*nw+x]=tmp[y*ow+x]; g_alpha[y*nw+x]=tmpa[y*ow+x]; } g_cw=nw; g_ch=nh; }
 /* make document d (0=sprite,1=texture) active; lazily blanks a fresh doc; undo is per-doc */
 static void set_doc(int d){ d=d?1:0; if(d==g_doc)return;
-    g_csize_doc[g_doc]=g_csize; g_doc=d; g_canvas=g_docbuf[d]; g_csize=g_csize_doc[d];
-    if(!g_doc_ready[d]){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; g_doc_ready[d]=1; }
-    g_undo_cnt=0; g_redo_cnt=0; }
+    g_cw_doc[g_doc]=g_cw; g_ch_doc[g_doc]=g_ch; g_doc=d; g_canvas=g_docbuf[d]; g_alpha=g_alfbuf[d]; g_cw=g_cw_doc[d]; g_ch=g_ch_doc[d];
+    if(!g_doc_ready[d]){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; memset(g_alpha,0,CMAX*CMAX); g_doc_ready[d]=1; }
+    g_stroking=0; g_undo_cnt=0; g_redo_cnt=0; }
 /* snapshot the canvas before an edit; a new edit invalidates the redo stack */
-static void undo_push(void){ int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize;
+static void undo_push(void){ memcpy(g_undo[g_undo_head],g_canvas,(size_t)g_cw*g_ch*2); memcpy(g_undo_a[g_undo_head],g_alpha,(size_t)g_cw*g_ch); g_undo_sz[g_undo_head]=g_cw; g_undo_h[g_undo_head]=g_ch;
     g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++; g_redo_cnt=0; }
 static void undo_pop(void){ if(g_undo_cnt<=0)return;
-    int sz=g_csize*g_csize; memcpy(g_redo[g_redo_head],g_canvas,sz*2); g_redo_sz[g_redo_head]=g_csize; g_redo_head=(g_redo_head+1)%UNDON; if(g_redo_cnt<UNDON)g_redo_cnt++;   /* current -> redo */
-    g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--; g_csize=g_undo_sz[g_undo_head]; memcpy(g_canvas,g_undo[g_undo_head],g_csize*g_csize*2); }
+    memcpy(g_redo[g_redo_head],g_canvas,(size_t)g_cw*g_ch*2); memcpy(g_redo_a[g_redo_head],g_alpha,(size_t)g_cw*g_ch); g_redo_sz[g_redo_head]=g_cw; g_redo_h[g_redo_head]=g_ch; g_redo_head=(g_redo_head+1)%UNDON; if(g_redo_cnt<UNDON)g_redo_cnt++;   /* current -> redo */
+    g_undo_head=(g_undo_head-1+UNDON)%UNDON; g_undo_cnt--; g_cw=g_undo_sz[g_undo_head]; g_ch=g_undo_h[g_undo_head]; memcpy(g_canvas,g_undo[g_undo_head],(size_t)g_cw*g_ch*2); memcpy(g_alpha,g_undo_a[g_undo_head],(size_t)g_cw*g_ch); }
 static void redo_pop(void){ if(g_redo_cnt<=0)return;
-    int sz=g_csize*g_csize; memcpy(g_undo[g_undo_head],g_canvas,sz*2); g_undo_sz[g_undo_head]=g_csize; g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++;   /* current -> undo */
-    g_redo_head=(g_redo_head-1+UNDON)%UNDON; g_redo_cnt--; g_csize=g_redo_sz[g_redo_head]; memcpy(g_canvas,g_redo[g_redo_head],g_csize*g_csize*2); }
+    memcpy(g_undo[g_undo_head],g_canvas,(size_t)g_cw*g_ch*2); memcpy(g_undo_a[g_undo_head],g_alpha,(size_t)g_cw*g_ch); g_undo_sz[g_undo_head]=g_cw; g_undo_h[g_undo_head]=g_ch; g_undo_head=(g_undo_head+1)%UNDON; if(g_undo_cnt<UNDON)g_undo_cnt++;   /* current -> undo */
+    g_redo_head=(g_redo_head-1+UNDON)%UNDON; g_redo_cnt--; g_cw=g_redo_sz[g_redo_head]; g_ch=g_redo_h[g_redo_head]; memcpy(g_canvas,g_redo[g_redo_head],(size_t)g_cw*g_ch*2); memcpy(g_alpha,g_redo_a[g_redo_head],(size_t)g_cw*g_ch); }
 static void flood(int x,int y,uint16_t from,uint16_t to){ if(from==to)return; static int sx[CMAX*CMAX],sy[CMAX*CMAX]; int sp=0;
-    sx[sp]=x;sy[sp]=y;sp++; while(sp){ sp--; int cx=sx[sp],cy=sy[sp]; if(cx<0||cy<0||cx>=g_csize||cy>=g_csize)continue;
-        if(g_canvas[cy*g_csize+cx]!=from)continue; g_canvas[cy*g_csize+cx]=to;
+    sx[sp]=x;sy[sp]=y;sp++; while(sp){ sp--; int cx=sx[sp],cy=sy[sp]; if(cx<0||cy<0||cx>=g_cw||cy>=g_ch)continue;
+        if(g_canvas[cy*g_cw+cx]!=from)continue; PXSET(cy*g_cw+cx,to);
         if(sp<CMAX*CMAX-4){ sx[sp]=cx+1;sy[sp]=cy;sp++; sx[sp]=cx-1;sy[sp]=cy;sp++; sx[sp]=cx;sy[sp]=cy+1;sp++; sx[sp]=cx;sy[sp]=cy-1;sp++; } } }
 static void px_line(int x0,int y0,int x1,int y1,uint16_t c){ int dx=abs(x1-x0),dy=-abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx+dy;
-    for(;;){ if(x0>=0&&y0>=0&&x0<g_csize&&y0<g_csize)g_canvas[y0*g_csize+x0]=c; if(x0==x1&&y0==y1)break; int e2=2*err;
+    for(;;){ if(x0>=0&&y0>=0&&x0<g_cw&&y0<g_ch)PXSET(y0*g_cw+x0,c); if(x0==x1&&y0==y1)break; int e2=2*err;
         if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } }
 static void px_rect(int x0,int y0,int x1,int y1,uint16_t c){ int a=x0<x1?x0:x1,b=x0<x1?x1:x0,d=y0<y1?y0:y1,e=y0<y1?y1:y0;
-    for(int x=a;x<=b;x++){ if(d>=0&&d<g_csize)g_canvas[d*g_csize+x]=c; if(e>=0&&e<g_csize)g_canvas[e*g_csize+x]=c; }
-    for(int y=d;y<=e;y++){ if(a>=0&&a<g_csize)g_canvas[y*g_csize+a]=c; if(b>=0&&b<g_csize)g_canvas[y*g_csize+b]=c; } }
+    for(int x=a;x<=b;x++){ if(x<0||x>=g_cw)continue; if(d>=0&&d<g_ch)PXSET(d*g_cw+x,c); if(e>=0&&e<g_ch)PXSET(e*g_cw+x,c); }
+    for(int y=d;y<=e;y++){ if(y<0||y>=g_ch)continue; if(a>=0&&a<g_cw)PXSET(y*g_cw+a,c); if(b>=0&&b<g_cw)PXSET(y*g_cw+b,c); } }
 static void njob(int kind,const char*dir);   /* fwd: native build/bake worker */
 static void fp_open(int cb);                 /* fwd: built-in file browser */
 static int native_pick(int cb,char*out,int n);   /* fwd: native OS file dialog */
@@ -396,25 +406,29 @@ static void anim_inspector_down(int mx,int my);                           /* fwd
 static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first (Project > Open) to save into its assets/"); return; }
     const char*dir=g_games[g_sel].dir;
     static unsigned char rgba[CMAX*CMAX*4];
-    for(int i=0;i<g_csize*g_csize;i++){ uint16_t c=g_canvas[i];
-        if(c==KEY565){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }     /* magenta key -> transparent */
-        else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=255; } }
+    for(int i=0;i<g_cw*g_ch;i++){ uint16_t c=g_canvas[i]; uint8_t a=g_alpha[i];
+        if(c==KEY565||a==0){ rgba[i*4]=255; rgba[i*4+1]=0; rgba[i*4+2]=255; rgba[i*4+3]=0; }   /* magenta key -> transparent */
+        else { rgba[i*4]=((c>>11)&31)<<3; rgba[i*4+1]=((c>>5)&63)<<2; rgba[i*4+2]=(c&31)<<3; rgba[i*4+3]=a; } }   /* soft edge -> real alpha (baker thresholds at <128) */
     char p[420];
     if(g_icon_edit||!strcasecmp(g_px_name,"icon")){   /* launcher icon -> <root>/icon.png (baked to src/icon.h) */
         snprintf(p,sizeof p,"%.380s/icon.png",dir);
-        if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"icon save FAILED (%s)",p); return; }
+        if(!stbi_write_png(p,g_cw,g_ch,4,rgba,g_cw*4)){ snprintf(g_status,sizeof g_status,"icon save FAILED (%s)",p); return; }
         snprintf(g_status,sizeof g_status,"saved game icon (icon.png) + baking"); njob(2,dir); return; }
     char ad[360]; snprintf(ad,sizeof ad,"%.330s/assets",dir); mkdir_portable(ad);
     snprintf(p,sizeof p,"%.330s/assets/%.50s.png",dir,g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"));   /* edit the name field to save a new file */
-    if(!stbi_write_png(p,g_csize,g_csize,4,rgba,g_csize*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
+    if(!stbi_write_png(p,g_cw,g_ch,4,rgba,g_cw*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
     snprintf(g_status,sizeof g_status,"saved %s + baking",p); njob(2,dir); }
-/* import any image natively (stb_image) onto a square canvas, magenta-keying alpha */
+/* import any image at its NATIVE size + aspect (non-square OK), magenta-keying
+ * alpha. Only downscale if a dimension exceeds CMAX (keeps aspect). */
 static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4);
     if(!d){ snprintf(g_status,sizeof g_status,"could not read image"); return; }
-    int dim=w>h?w:h, cs=dim>128?128:dim; if(cs<1)cs=1; g_csize=cs; canvas_new();
-    for(int y=0;y<cs;y++)for(int x=0;x<cs;x++){ int sx=x*dim/cs, sy=y*dim/cs;
+    int cw=w, chh=h;
+    if(cw>CMAX||chh>CMAX){ float s=(float)CMAX/(cw>chh?cw:chh); cw=(int)(cw*s); chh=(int)(chh*s); }
+    if(cw<1)cw=1; if(chh<1)chh=1; g_cw=cw; g_ch=chh; canvas_new();
+    for(int y=0;y<chh;y++)for(int x=0;x<cw;x++){ int sx=x*w/cw, sy=y*h/chh;
         if(sx<w&&sy<h){ int i=(sy*w+sx)*4, r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
-            g_canvas[y*cs+x]= (a<128||(r>200&&g<60&&b>200)) ? KEY565 : (uint16_t)MOTE_RGB565(r,g,b); } }
+            int o=y*cw+x; if(r>200&&g<60&&b>200){ g_canvas[o]=KEY565; g_alpha[o]=0; }              /* magenta key */
+            else if(a==0){ g_canvas[o]=KEY565; g_alpha[o]=0; } else { g_canvas[o]=(uint16_t)MOTE_RGB565(r,g,b); g_alpha[o]=(uint8_t)a; } } }
     stbi_image_free(d); snprintf(g_px_path,sizeof g_px_path,"%.398s",path);
     { const char*b=strrchr(path,'/');
 #ifdef _WIN32
@@ -481,7 +495,7 @@ static void icon_edit(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     const char*dir=g_games[g_sel].dir; char p[420]; struct stat st;
     snprintf(p,sizeof p,"%.380s/icon.png",dir); if(stat(p,&st)!=0){ snprintf(p,sizeof p,"%.380s/icon.bmp",dir); if(stat(p,&st)!=0)p[0]=0; }
     if(p[0]){ load_png(p); }                          /* existing icon -> canvas */
-    else { g_csize=60; canvas_new(); }                /* none yet -> blank 60x60 */
+    else { g_cw=60; canvas_new(); }                /* none yet -> blank 60x60 */
     g_icon_edit=1; snprintf(g_px_name,sizeof g_px_name,"icon"); g_tab=TAB_PIXEL;
     snprintf(g_status,sizeof g_status,"editing game icon (60x60) — draw or Import, then Save"); }
 
@@ -575,7 +589,7 @@ static SDL_Texture *g_icons;
 enum { IC_CHEV_R,IC_CHEV_D,IC_FOLDER,IC_FOLDER_O,IC_FILE,IC_FILE_CODE,IC_SETTINGS,IC_IMAGE,IC_BOX,
        IC_PLAY,IC_SQUARE,IC_HAMMER,IC_UPLOAD,IC_CODE,IC_PLUS,IC_SAVE,IC_PENCIL,IC_ERASER,IC_BUCKET,
        IC_PIPETTE,IC_GRID,IC_ZOOM,IC_UNDO,IC_TREE,IC_MINUS,IC_DOWNLOAD,IC_PALETTE,IC_MOVE,IC_SLASH,
-       IC_SQDASH,IC_UNDO2,IC_REDO2 };
+       IC_SQDASH,IC_UNDO2,IC_REDO2,IC_BRUSH };   /* IC_BRUSH (32) = Lucide "brush" paintbrush */
 static void load_icons(SDL_Renderer*R){ int w,h,n; unsigned char*d=stbi_load("studio/assets/icons.png",&w,&h,&n,4);
     if(!d)return; g_icons=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,w,h);
     SDL_SetTextureScaleMode(g_icons,SDL_ScaleModeLinear); SDL_UpdateTexture(g_icons,NULL,d,w*4);
@@ -789,6 +803,19 @@ static int ui_btn(SDL_Renderer*R,int x,int y,int w,const char*label,int icid,Col
     int hasacc=accent.r||accent.g||accent.b; Col fg=hasacc?accent:C_TXT;
     int content=tw+(icid>=0?18:0), sx=x+(w-content)/2; if(icid>=0){ icon(R,icid,sx,y+(UI_H-13)/2,13,fg); sx+=18; }
     text(R,label,sx,y+(UI_H-7)/2,1,fg,hov?C_BTNHI:C_BTN); return x+w+6; }
+/* ---- hover tooltips: register while drawing (tip / ui_*_t), render last on top ---- */
+static char g_tip_hot[160]; static SDL_Rect g_tip_hotr,g_tip_r={-1,-1,0,0}; static Uint32 g_tip_t0;
+static void tip(SDL_Rect r,int mx,int my,const char*t){ if(t&&t[0]&&hit(mx,my,r.x,r.y,r.w,r.h)){ snprintf(g_tip_hot,sizeof g_tip_hot,"%s",t); g_tip_hotr=r; } }
+static int ui_btn_t(SDL_Renderer*R,int x,int y,int w,const char*label,int icid,Col accent,SDL_Rect*r,int mx,int my,const char*tp){ int nx=ui_btn(R,x,y,w,label,icid,accent,r,mx,my); tip(*r,mx,my,tp); return nx; }
+static int ui_pill_t(SDL_Renderer*R,int x,int y,const char*label,const char*val,int on,SDL_Rect*r,int mx,int my,const char*tp){ int nx=ui_pill(R,x,y,label,val,on,r,mx,my); tip(*r,mx,my,tp); return nx; }
+static void tip_render(SDL_Renderer*R,int mx,int my){
+    if(!g_tip_hot[0]){ g_tip_r=(SDL_Rect){-1,-1,0,0}; return; }
+    if(g_tip_hotr.x!=g_tip_r.x||g_tip_hotr.y!=g_tip_r.y||g_tip_hotr.w!=g_tip_r.w){ g_tip_r=g_tip_hotr; g_tip_t0=SDL_GetTicks(); }
+    if(SDL_GetTicks()-g_tip_t0<350)return;   /* small hover delay */
+    int tw=textw(R,g_tip_hot,1)+14,th=UI_H,tx=mx+14,ty=my+20;
+    if(tx+tw>WIN_W)tx=WIN_W-tw-3; if(tx<2)tx=2; if(ty+th>WIN_H)ty=my-th-6;
+    plain(R,tx,ty,tw,th,(Col){24,26,34}); rect_outline(R,tx,ty,tw,th,(Col){95,105,125},1);
+    text(R,g_tip_hot,tx+7,ty+(UI_H-7)/2,1,(Col){225,230,240},(Col){24,26,34}); }
 /* map a mouse pos to an emulator button (optionally pressing it on *s) */
 enum { EB_A,EB_B,EB_UP,EB_DOWN,EB_LEFT,EB_RIGHT,EB_LB,EB_RB,EB_MENU };
 static int emu_hit(int mx,int my,MoteButtons*s){ if(!g_emu_w)return -1; int w=g_emu_w;
@@ -945,8 +972,8 @@ static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TO
 static SDL_Rect g_tabr[TAB_N];
 /* pixel editor geometry (set by draw_pixel, read by the input handlers) */
 static SDL_Rect g_pxb[16]; static int g_pxb_id[16], g_npxb;
-static SDL_Rect g_pxsize[8], g_pxszdn, g_pxszup, g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
-static SDL_Rect g_pxbsz_m,g_pxbsz_p,g_pxbhd_m,g_pxbhd_p;   /* brush size / hardness steppers */
+static SDL_Rect g_pxsize[8], g_pxszdn, g_pxszup, g_pxszhdn, g_pxszhup, g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
+static SDL_Rect g_pxbsz_m,g_pxbsz_p,g_pxbhd_m,g_pxbhd_p,g_pxsq,g_pxrd;   /* brush size / hardness steppers + square/round shape toggle */
 static int g_hsvdrag,g_huedrag,g_lx,g_ly,g_panx,g_pany;
 static SDL_Texture *g_hsv_tex; static float g_hsv_baked=-1;
 static float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
@@ -996,12 +1023,12 @@ static float texval(int k,float nx,float ny){ int tile=g_textile; float sc=g_tex
     }
     #undef FB
 }
-static void tex_generate(void){ undo_push(); int n=g_csize;
+static void tex_generate(void){ undo_push(); int n=g_cw;
     int ar=((g_texa>>11)&31)<<3,ag=((g_texa>>5)&63)<<2,ab=(g_texa&31)<<3, br=((g_texb>>11)&31)<<3,bg=((g_texb>>5)&63)<<2,bb=(g_texb&31)<<3;
     for(int y=0;y<n;y++)for(int x=0;x<n;x++){ float v=texval(g_texkind,(x+0.5f)/n,(y+0.5f)/n);
         float k=0.5f+g_texcontrast*5; v=0.5f+(v-0.5f)*k; if(v<0)v=0; if(v>1)v=1;
         int r=ar+(int)((br-ar)*v),g=ag+(int)((bg-ag)*v),b=ab+(int)((bb-ab)*v);
-        g_canvas[y*n+x]=(uint16_t)MOTE_RGB565(r,g,b); }
+        PXSET(y*n+x,(uint16_t)MOTE_RGB565(r,g,b)); }
     snprintf(g_status,sizeof g_status,"generated %s texture",TEX_L[g_texkind]); }
 static void draw_texgen(SDL_Renderer*R,int ox,int oy){ int mx,my; SDL_GetMouseState(&mx,&my); int x=ox;
     text(R,"TEXTURE",x,oy+5,1,(Col){170,200,140},C_DOCK); x+=textw(R,"TEXTURE",1)+8;
@@ -1029,24 +1056,32 @@ static int texgen_click(int mx,int my){
 
 static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
-    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},{IC_SQUARE,15},{-2,16},
+    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_BRUSH,16},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
         {-1,-1},{IC_UNDO2,6},{IC_REDO2,14},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
-    for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic==-1){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }   /* -1 separator · -2 round-brush disc */
-        int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid)||(tb[i].id==15&&g_ptool==6)||(tb[i].id==16&&g_ptool==7); int hov=hit(mx,my,tx,ty,27,24);
+    for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic==-1){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }   /* -1 separator */
+        int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid)||(tb[i].id==16&&g_ptool==6); int hov=hit(mx,my,tx,ty,27,24);
         rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
-        if(tb[i].ic==-2) disc(R,tx+13,ty+12,6,C_TXT); else icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
+        icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
         g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tx+=30; }
-    /* brush size + hardness — shown only while a brush tool is active */
-    if(g_ptool==6||g_ptool==7){ tx+=8; char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); tx=ui_stepper(R,tx,ty,"size",b,&g_pxbsz_m,&g_pxbsz_p,mx,my)+6;
+    /* brush shape (square/round) + size + hardness — shown only while the brush is active */
+    if(g_ptool==6){ tx+=8;
+        g_pxsq=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4,!g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); rect_outline(R,tx+6,ty+6,12,12,C_TXT,2); tx+=26;
+        g_pxrd=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4, g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); disc(R,tx+12,ty+12,7,C_TXT); tx+=30;
+        char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); tx=ui_stepper(R,tx,ty,"size",b,&g_pxbsz_m,&g_pxbsz_p,mx,my)+6;
         snprintf(b,sizeof b,"%d%%",g_brush_hard); tx=ui_stepper(R,tx,ty,"hard",b,&g_pxbhd_m,&g_pxbhd_p,mx,my); }
-    else { g_pxbsz_m=g_pxbsz_p=g_pxbhd_m=g_pxbhd_p=(SDL_Rect){0,0,0,0}; }
-    tx+=10; int sizes[8]={8,16,32,48,60,64,96,128};
-    for(int i=0;i<8;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+12, act=g_csize==sizes[i];
+    else { g_pxbsz_m=g_pxbsz_p=g_pxbhd_m=g_pxbhd_p=g_pxsq=g_pxrd=(SDL_Rect){0,0,0,0}; }
+    tx+=10; int sizes[8]={8,16,32,48,60,64,96,128};   /* square presets (set W=H) */
+    for(int i=0;i<8;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+12, act=(g_cw==sizes[i]&&g_ch==sizes[i]);
         rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+6,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+3; }
-    /* arbitrary size: -/+ resize (keeps the art) with the current size shown */
-    g_pxszdn=(SDL_Rect){tx,ty,20,24}; rrect(R,tx,ty,20,24,4,hit(mx,my,tx,ty,20,24)?C_BTNHI:C_BTN); text(R,"-",tx+7,ty+6,1,C_TXT,C_BTN); tx+=21;
-    { char cs[8]; snprintf(cs,sizeof cs,"%d",g_csize); int w=textw(R,cs,1); text(R,cs,tx+(28-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=30; }
-    g_pxszup=(SDL_Rect){tx,ty,20,24}; rrect(R,tx,ty,20,24,4,hit(mx,my,tx,ty,20,24)?C_BTNHI:C_BTN); text(R,"+",tx+6,ty+6,1,C_TXT,C_BTN); tx+=24;
+    /* arbitrary non-square size: independent W and H -/+ (keeps the art, top-left) */
+    tx+=8; text(R,"W",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"W",1)+4;
+    g_pxszdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tx+=19;
+    { char cs[8]; snprintf(cs,sizeof cs,"%d",g_cw); int w=textw(R,cs,1); text(R,cs,tx+(26-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=28; }
+    g_pxszup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tx+=22;
+    text(R,"H",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"H",1)+4;
+    g_pxszhdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tx+=19;
+    { char cs[8]; snprintf(cs,sizeof cs,"%d",g_ch); int w=textw(R,cs,1); text(R,cs,tx+(26-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=28; }
+    g_pxszhup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tx+=22;
     tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
     g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
     { const char*base=g_px_name[0]?g_px_name:(texmode?"texture":"sprite"); Col fbg=g_px_namefocus?(Col){12,14,20}:C_DOCK;
@@ -1067,35 +1102,40 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
     for(int i=0;i<G_NPAL;i++)px_swatch(R,px0+(i%11)*15,swy+44+(i/11)*15,13,pal565(i));
     /* canvas (zoom + pan, clipped to its viewport) */
     int cax=px0+sq+18+26, cay=py0, vw=WIN_W-cax-150, vh=WIN_H-cay-12;
-    int fit; { int fh=vh/g_csize, fwd=vw/g_csize; fit=fh<fwd?fh:fwd; if(fit<1)fit=1; }
-    int cell=g_pzoom?g_pzoom:fit; if(cell<1)cell=1; int cw=cell*g_csize;
+    int fit; { int fh=vh/g_ch, fwd=vw/g_cw; fit=fh<fwd?fh:fwd; if(fit<1)fit=1; }
+    int cell=g_pzoom?g_pzoom:fit; if(cell<1)cell=1; int cw=cell*g_cw, chh=cell*g_ch;
     if(cw<=vw)g_panx=0; else g_panx=clampi(g_panx,vw-cw,0);
-    if(cw<=vh)g_pany=0; else g_pany=clampi(g_pany,vh-cw,0);
-    int cox=cax+(cw<vw?(vw-cw)/2:g_panx), coy=cay+(cw<vh?(vh-cw)/2:g_pany);
+    if(chh<=vh)g_pany=0; else g_pany=clampi(g_pany,vh-chh,0);
+    int cox=cax+(cw<vw?(vw-cw)/2:g_panx), coy=cay+(chh<vh?(vh-chh)/2:g_pany);
     g_canv_x=cox; g_canv_y=coy; g_canv_cell=cell;
     plain(R,cax-2,cay-2,vw+4,vh+4,(Col){8,8,12});
     SDL_Rect clip={cax,cay,vw,vh}; SDL_RenderSetClipRect(R,&clip);
-    for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; int X=cox+xx*cell,Y=coy+y*cell;
-        if(pc==KEY565){ Col a=((xx^y)&1)?(Col){58,60,70}:(Col){44,46,54}; plain(R,X,Y,cell,cell,a); } else plain(R,X,Y,cell,cell,c565(pc)); }
+    for(int y=0;y<g_ch;y++)for(int xx=0;xx<g_cw;xx++){ int o=y*g_cw+xx; uint16_t pc=g_canvas[o]; uint8_t pa=g_alpha[o]; int X=cox+xx*cell,Y=coy+y*cell;
+        Col chk=((xx^y)&1)?(Col){58,60,70}:(Col){44,46,54};
+        if(pc==KEY565||pa==0) plain(R,X,Y,cell,cell,chk);                              /* transparent -> checker */
+        else if(pa>=255) plain(R,X,Y,cell,cell,c565(pc));
+        else { Col c=c565(pc); float t=pa/255.0f; Col b={(Uint8)(c.r*t+chk.r*(1-t)),(Uint8)(c.g*t+chk.g*(1-t)),(Uint8)(c.b*t+chk.b*(1-t))}; plain(R,X,Y,cell,cell,b); } }   /* soft edge over checker */
     if(g_grid&&cell>=6){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,55);
-        for(int i=0;i<=g_csize;i++){ SDL_RenderDrawLine(R,cox+i*cell,coy,cox+i*cell,coy+cw); SDL_RenderDrawLine(R,cox,coy+i*cell,cox+cw,coy+i*cell); } SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
-    int gx=(mx-cox)/cell, gy=(my-coy)/cell, over=(mx>=cax&&mx<cax+vw&&my>=cay&&my<cay+vh&&gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize);
+        for(int i=0;i<=g_cw;i++)SDL_RenderDrawLine(R,cox+i*cell,coy,cox+i*cell,coy+chh);
+        for(int i=0;i<=g_ch;i++)SDL_RenderDrawLine(R,cox,coy+i*cell,cox+cw,coy+i*cell); SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_NONE); }
+    int gx=(mx-cox)/cell, gy=(my-coy)/cell, over=(mx>=cax&&mx<cax+vw&&my>=cay&&my<cay+vh&&gx>=0&&gy>=0&&gx<g_cw&&gy<g_ch);
     if(over){ rect_outline(R,cox+gx*cell,coy+gy*cell,cell,cell,(Col){255,255,255},1);
-        if((g_ptool==6||g_ptool==7)&&g_brush_size>1){ int half=g_brush_size*cell/2,ccx=cox+gx*cell+cell/2,ccy=coy+gy*cell+cell/2;   /* brush footprint */
-            if(g_ptool==7)ring(R,ccx,ccy,half,(Col){255,255,255},1); else rect_outline(R,ccx-half,ccy-half,half*2,half*2,(Col){255,255,255},1); }
+        if(g_ptool==6&&g_brush_size>1){ int half=g_brush_size*cell/2,ccx=cox+gx*cell+cell/2,ccy=coy+gy*cell+cell/2;   /* brush footprint */
+            if(g_brush_round)ring(R,ccx,ccy,half,(Col){255,255,255},1); else rect_outline(R,ccx-half,ccy-half,half*2,half*2,(Col){255,255,255},1); }
         if((g_ptool==4||g_ptool==5)&&g_dx0>=0) rect_outline(R,cox+(g_dx0<gx?g_dx0:gx)*cell,coy+(g_dy0<gy?g_dy0:gy)*cell,(abs(gx-g_dx0)+1)*cell,(abs(gy-g_dy0)+1)*cell,(Col){255,255,255},1); }
     SDL_RenderSetClipRect(R,NULL);
     if(over&&g_ptool<6){ int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH; icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
-    int prx=cax+vw+18; if(prx<WIN_W-120){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=g_csize<=32?2:1;
-        plain(R,prx-1,cay+13,g_csize*s+2,g_csize*s+2,(Col){20,22,28});
-        for(int y=0;y<g_csize;y++)for(int xx=0;xx<g_csize;xx++){ uint16_t pc=g_canvas[y*g_csize+xx]; if(pc!=KEY565)plain(R,prx+xx*s,cay+14+y*s,s,s,c565(pc)); }
-        char info[40]; snprintf(info,sizeof info,"%dx%d",g_csize,g_csize); text(R,info,prx+g_csize*s+8,cay+5,1,C_DIM,C_DOCK);
-        /* TILED 3x3 — does the texture tessellate? seams show as a grid. (texture tab only) */
-        if(texmode){ int typ=cay+22+g_csize*s; text(R,"TILED 3x3",prx,typ,1,(Col){170,200,140},C_DOCK);
+    int prx=cax+vw+18; if(prx<WIN_W-120){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=(g_cw>g_ch?g_cw:g_ch)<=32?2:1;
+        plain(R,prx-1,cay+13,g_cw*s+2,g_ch*s+2,(Col){20,22,28});
+        for(int y=0;y<g_ch;y++)for(int xx=0;xx<g_cw;xx++){ int o=y*g_cw+xx; uint16_t pc=g_canvas[o]; uint8_t pa=g_alpha[o]; if(pc==KEY565||pa==0)continue;
+            Col c=c565(pc); if(pa<255){ float t=pa/255.0f; c=(Col){(Uint8)(c.r*t+20*(1-t)),(Uint8)(c.g*t+22*(1-t)),(Uint8)(c.b*t+28*(1-t))}; } plain(R,prx+xx*s,cay+14+y*s,s,s,c); }
+        char info[40]; snprintf(info,sizeof info,"%dx%d",g_cw,g_ch); text(R,info,prx+g_cw*s+8,cay+5,1,C_DIM,C_DOCK);
+        /* TILED 3x3 — does the texture tessellate? seams show as a grid. (texture tab, <=128) */
+        if(texmode&&g_cw<=128&&g_ch<=128){ int typ=cay+22+g_ch*s; text(R,"TILED 3x3",prx,typ,1,(Col){170,200,140},C_DOCK);
             if(!g_texprev){ g_texprev=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,128,128); SDL_SetTextureScaleMode(g_texprev,SDL_ScaleModeNearest); }
-            { SDL_Rect ur={0,0,g_csize,g_csize}; SDL_UpdateTexture(g_texprev,&ur,g_canvas,g_csize*2); }
+            { SDL_Rect ur={0,0,g_cw,g_ch}; SDL_UpdateTexture(g_texprev,&ur,g_canvas,g_cw*2); }
             int tile=40; plain(R,prx-1,typ+12,tile*3+2,tile*3+2,(Col){20,22,28});
-            for(int ty=0;ty<3;ty++)for(int tx=0;tx<3;tx++){ SDL_Rect src={0,0,g_csize,g_csize},dst={prx+tx*tile,typ+13+ty*tile,tile,tile}; SDL_RenderCopy(R,g_texprev,&src,&dst); }
+            for(int ty=0;ty<3;ty++)for(int tx=0;tx<3;tx++){ SDL_Rect src={0,0,g_cw,g_ch},dst={prx+tx*tile,typ+13+ty*tile,tile,tile}; SDL_RenderCopy(R,g_texprev,&src,&dst); }
             text(R,"middle-drag to pan",prx,typ+13+tile*3+6,1,C_DIM,C_DOCK); } } }
 
 /* ================= mesh preview (software 3D) ================= */
@@ -1763,7 +1803,7 @@ static float eobj_persp(void){ int vw=g_me_view.w,h=g_me_view.h,rw=vw,rh=h;
     int mxd=rw>rh?rw:rh; if(mxd>2048){ rw=(int)((long)rw*2048/mxd); rh=(int)((long)rh*2048/mxd); } if(rw<1)rw=1; if(rh<1)rh=1;
     return (rh<rw?rh:rw)*0.62f; }
 
-enum { OP_NONE, OP_MOVE, OP_SCALE, OP_INSET };
+enum { OP_NONE, OP_MOVE, OP_SCALE, OP_INSET, OP_ROTATE };
 /* axis: 0=free, 1/2/3 = world X/Y/Z, 4 = face normal (extrude default) */
 static struct { int op, axis, drag, hasnum; int ax, ay; float aval, val; char num[16]; V3 center, normal; } g_op = { OP_NONE };
 static V3 op_axis_vec(void){ switch(g_op.axis){ case 1:return (V3){1,0,0}; case 2:return (V3){0,1,0}; case 3:return (V3){0,0,1}; case 4:return g_op.normal; } return (V3){0,0,0}; }
@@ -1784,6 +1824,15 @@ static void op_apply(int mx,int my){ if(g_op.op==OP_NONE||g_naff<1)return;
         for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p=g_aff[i].p0;
             V3 w={g_op.center.x+(p.x-g_op.center.x)*fv.x, g_op.center.y+(p.y-g_op.center.y)*fv.y, g_op.center.z+(p.z-g_op.center.z)*fv.z};
             ob->v[g_aff[i].vi].p=(V3){w.x-ob->origin.x,w.y-ob->origin.y,w.z-ob->origin.z}; }
+    } else if(g_op.op==OP_ROTATE){ V3 axis; int con=(g_op.axis>=1&&g_op.axis<=3);
+        if(con)axis=op_axis_vec(); else { V3 cr,cu; eobj_cam_basis(&cr,&cu); axis=mv3cross(cu,cr); float l=mv3len(axis); if(l>1e-6f){ axis.x/=l; axis.y/=l; axis.z/=l; } }   /* free = around the view axis */
+        float ang; if(g_op.hasnum)ang=(float)atof(g_op.num)*0.01745329f;
+        else { float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); ang=atan2f((float)(my-sy),(float)(mx-sx))-g_op.aval; }
+        g_op.val=ang*57.29578f; float ca=cosf(ang),sa=sinf(ang);
+        for(int i=0;i<g_naff;i++){ EObject*ob=&g_obj[g_aff[i].o]; V3 p={g_aff[i].p0.x-g_op.center.x,g_aff[i].p0.y-g_op.center.y,g_aff[i].p0.z-g_op.center.z};
+            V3 cx=mv3cross(axis,p); float dot=axis.x*p.x+axis.y*p.y+axis.z*p.z;   /* Rodrigues */
+            V3 r={ p.x*ca+cx.x*sa+axis.x*dot*(1-ca), p.y*ca+cx.y*sa+axis.y*dot*(1-ca), p.z*ca+cx.z*sa+axis.z*dot*(1-ca) };
+            ob->v[g_aff[i].vi].p=(V3){ g_op.center.x+r.x-ob->origin.x, g_op.center.y+r.y-ob->origin.y, g_op.center.z+r.z-ob->origin.z }; }
     } else { /* OP_INSET: each inner vert slides toward its face centroid by t (0..0.95) */
         float t; if(g_op.hasnum)t=(float)atof(g_op.num); else t=(float)(g_op.ay-my)*0.004f;   /* drag UP to grow the inset (vertical reads better than horizontal here) */
         if(t<0)t=0; if(t>0.95f)t=0.95f; g_op.val=t;
@@ -1797,7 +1846,8 @@ static void op_setup(int op,int axis,int drag){
     if(g_naff){ c.x/=g_naff; c.y/=g_naff; c.z/=g_naff; } g_op.center=c;
     int mx,my; SDL_GetMouseState(&mx,&my);
     g_op.op=op; g_op.axis=axis; g_op.drag=drag; g_op.hasnum=0; g_op.num[0]=0; g_op.val=op==OP_SCALE?1:0; g_op.ax=mx; g_op.ay=my;
-    if(op==OP_SCALE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); if(g_op.aval<1)g_op.aval=1; } }
+    if(op==OP_SCALE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=sqrtf((mx-sx)*(mx-sx)+(my-sy)*(my-sy)); if(g_op.aval<1)g_op.aval=1; }
+    if(op==OP_ROTATE){ float sx,sy,z2; eobj_project(g_op.center,&sx,&sy,&z2); g_op.aval=atan2f((float)(my-sy),(float)(mx-sx)); } }
 static int op_start(int op,int axis,int drag){ op_gather(); if(g_naff<1){ snprintf(g_status,sizeof g_status,"select something first"); return 0; }
     eundo_push(); op_setup(op,axis,drag); return 1; }
 
@@ -2122,6 +2172,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
+static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -2215,8 +2266,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
           ring(R,g_mgz_o.x,g_mgz_o.y,4,(Col){0,0,0},1); ring(R,g_mgz_o.x,g_mgz_o.y,3,(Col){255,235,120},1); } } }
     /* ---- modal header readout (Blender-style) ---- */
     if(g_op.op!=OP_NONE){ const char*an=g_op.axis==1?" X":g_op.axis==2?" Y":g_op.axis==3?" Z":g_op.axis==4?" N":"";
-        char hb[64]; const char*nm=g_op.op==OP_MOVE?"Move":g_op.op==OP_SCALE?"Scale":"Inset";
+        char hb[64]; const char*nm=g_op.op==OP_MOVE?"Move":g_op.op==OP_SCALE?"Scale":g_op.op==OP_ROTATE?"Rotate":"Inset";
         if(g_op.op==OP_INSET)snprintf(hb,sizeof hb,"Inset: %.3f",g_op.val);
+        else if(g_op.op==OP_ROTATE)snprintf(hb,sizeof hb,"Rotate%s: %.1f\xb0",an,g_op.val);
         else if(g_op.hasnum)snprintf(hb,sizeof hb,"%s%s: %s",nm,an,g_op.num); else snprintf(hb,sizeof hb,"%s%s: %.3f",nm,an,g_op.val);
         plain(R,ox+8,oy+8,textw(R,hb,1)+12,18,(Col){40,44,58}); text(R,hb,ox+14,oy+12,1,(Col){255,235,120},(Col){40,44,58}); }
     if(!g_nobj)text(R,"Add a primitive (Shift+A cube, Shift+P plane) >",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
@@ -2226,14 +2278,41 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     /* ---- edit card (compact) ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
     { char mn[56]; snprintf(mn,sizeof mn,"model: %.40s.mmesh",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15; }
-    px=ui_pill(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my);
-    px=ui_pill(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my);
-    ui_pill(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my); cy+=UI_H+5;
-    px=ui_btn(R,lx,cy,0,"Cube",-1,pc,&g_me_ecube,mx,my); px=ui_btn(R,px,cy,0,"Plane",-1,pc,&g_me_eplane,mx,my);
-    ui_btn(R,px,cy,0,"Cyl",-1,pc,&g_me_ecyl,mx,my); cy+=UI_H+4;
-    px=ui_btn(R,lx,cy,0,"Cone",-1,pc,&g_me_econe,mx,my); ui_btn(R,px,cy,0,"Sphere",-1,pc,&g_me_esph,mx,my); cy+=UI_H+6;
-    px=ui_btn(R,lx,cy,0,"Extrude",-1,ec,&g_me_eextr,mx,my); px=ui_btn(R,px,cy,0,"Inset",-1,ec,&g_me_einset,mx,my);
-    ui_btn(R,px,cy,0,"Paint",-1,ec,&g_me_epaint,mx,my); cy+=UI_H+5;
+    #define ME_SEP() do{ plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=7; }while(0)
+    /* --- SELECT --- */
+    px=ui_pill_t(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my,"Select vertices (1)");
+    px=ui_pill_t(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my,"Select edges (2)");
+    ui_pill_t(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my,"Select faces (3)"); cy+=UI_H+4;
+    { Col sc={175,185,205}; px=ui_btn_t(R,lx,cy,0,"All",-1,sc,&g_me_eall,mx,my,"Select all (A) / Alt+A deselect");
+      px=ui_btn_t(R,px,cy,0,"Inv",-1,sc,&g_me_einv,mx,my,"Invert selection (Ctrl+I)");
+      px=ui_btn_t(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my,"Select linked island (L)");
+      px=ui_btn_t(R,px,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my,"Grow selection (Ctrl++)");
+      ui_btn_t(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my,"Shrink selection (Ctrl+-)"); cy+=UI_H+5; }
+    ME_SEP();
+    /* --- ADD --- */
+    px=ui_btn_t(R,lx,cy,0,"Cube",-1,pc,&g_me_ecube,mx,my,"Add a cube");
+    px=ui_btn_t(R,px,cy,0,"Plane",-1,pc,&g_me_eplane,mx,my,"Add a plane");
+    ui_btn_t(R,px,cy,0,"Cyl",-1,pc,&g_me_ecyl,mx,my,"Add a cylinder"); cy+=UI_H+4;
+    px=ui_btn_t(R,lx,cy,0,"Cone",-1,pc,&g_me_econe,mx,my,"Add a cone");
+    ui_btn_t(R,px,cy,0,"Sphere",-1,pc,&g_me_esph,mx,my,"Add a UV sphere"); cy+=UI_H+5;
+    ME_SEP();
+    /* --- TRANSFORM (modal: drag or type a value; X/Y/Z constrain; Enter/Esc) --- */
+    { Col tcc={150,200,255}; px=ui_btn_t(R,lx,cy,0,"Move",-1,tcc,&g_me_emove,mx,my,"Move selection (G): drag or type; X/Y/Z to constrain");
+      px=ui_btn_t(R,px,cy,0,"Rotate",-1,tcc,&g_me_erotate,mx,my,"Rotate selection (R): drag or type degrees; X/Y/Z axis");
+      ui_btn_t(R,px,cy,0,"Scale",-1,tcc,&g_me_escale,mx,my,"Scale selection (S): drag or type; X/Y/Z to constrain"); cy+=UI_H+5; }
+    ME_SEP();
+    /* --- EDIT geometry --- */
+    px=ui_btn_t(R,lx,cy,0,"Extrude",-1,ec,&g_me_eextr,mx,my,"Extrude selected faces (E)");
+    px=ui_btn_t(R,px,cy,0,"Inset",-1,ec,&g_me_einset,mx,my,"Inset selected faces (I)");
+    ui_btn_t(R,px,cy,0,"+Face",-1,ec,&g_me_emkface,mx,my,"Make a face from 3-4 selected verts (F)"); cy+=UI_H+4;
+    { Col gc={140,205,195}; px=ui_btn_t(R,lx,cy,0,"Connect",-1,gc,&g_me_econn,mx,my,"Split a face by joining 2 verts (J)");
+      px=ui_btn_t(R,px,cy,0,"Subdiv",-1,gc,&g_me_esubdiv,mx,my,"Subdivide selected faces (or all)");
+      ui_btn_t(R,px,cy,0,"Bridge",-1,gc,&g_me_ebridge,mx,my,"Bridge two equal-vertex faces"); cy+=UI_H+4;
+      ui_btn_t(R,lx,cy,0,"Separate",-1,gc,&g_me_esep,mx,my,"Split selected faces into a new object"); cy+=UI_H+5; }
+    ME_SEP();
+    /* --- FACES: paint + normals --- */
+    px=ui_btn_t(R,lx,cy,0,"Paint",-1,ec,&g_me_epaint,mx,my,"Paint selected faces with the picker colour (P)");
+    ui_btn_t(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my,"Flip normals of selected faces (Shift+N)"); cy+=UI_H+4;
     if(g_sel_mode==2){   /* compact colour picker — drives Paint (Face mode) */
         if(g_hsv_baked!=g_hue)bake_hsv(R);
         int sq=50; g_me_hsv=(SDL_Rect){lx,cy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_me_hsv); rect_outline(R,lx,cy,sq,sq,C_LINE,1);
@@ -2245,34 +2324,35 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
           text(R,"paint",sw,cy+28,1,C_DIM,C_PANEL); text(R,"colour",sw,cy+40,1,C_DIM,C_PANEL); }
         cy+=sq+8;
     } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
-    px=ui_btn(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my); px=ui_btn(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my);
-    px=ui_btn(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my); ui_btn(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my); cy+=UI_H+4;
-    { int nx=ui_btn(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my);
-      ui_btn(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my); cy+=UI_H+6; }
-    { Col gc={140,205,195}; px=ui_btn(R,lx,cy,0,"+Face",-1,gc,&g_me_emkface,mx,my); px=ui_btn(R,px,cy,0,"Sep",-1,gc,&g_me_esep,mx,my);
-      ui_btn(R,px,cy,0,"Subdiv",-1,gc,&g_me_esubdiv,mx,my); cy+=UI_H+4;
-      px=ui_btn(R,lx,cy,0,"Connect",-1,gc,&g_me_econn,mx,my); ui_btn(R,px,cy,0,"Bridge",-1,gc,&g_me_ebridge,mx,my); cy+=UI_H+5; }
-    { Col sc={175,185,205}; px=ui_btn(R,lx,cy,0,"Inv",-1,sc,&g_me_einv,mx,my); px=ui_btn(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my);
-      px=ui_btn(R,px,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my); ui_btn(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my); cy+=UI_H+4; }
-    { Col oc={205,185,150}; px=ui_btn(R,lx,cy,0,"Origin>Sel",-1,oc,&g_me_osel,mx,my); ui_btn(R,px,cy,0,"Origin>Ctr",-1,oc,&g_me_octr,mx,my); cy+=UI_H+6; }
-    { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue — match the gizmo + plane */
-      px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my);
-      ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); cy+=UI_H+4;
-      text(R,mir?"live-reflects this object across the lit plane":"model one half, mirror completes it",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
-    /* object cycle + per-object stats */
+    { int nx=ui_btn_t(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my,"Recalculate normals to face outward (Ctrl+Shift+N)");
+      ui_btn_t(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my,"Weld + remove non-manifold faces + recalc (Ctrl+K)"); cy+=UI_H+5; }
+    ME_SEP();
+    /* --- OBJECT --- */
+    px=ui_btn_t(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my,"Duplicate this object (Shift+D)");
+    px=ui_btn_t(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my,"Delete selection / object (X)");
+    ui_btn_t(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my,"Merge selected verts to centre (M)"); cy+=UI_H+4;
+    { Col oc={205,185,150}; px=ui_btn_t(R,lx,cy,0,"Origin>Sel",-1,oc,&g_me_osel,mx,my,"Set object origin to the selection");
+      ui_btn_t(R,px,cy,0,"Origin>Ctr",-1,oc,&g_me_octr,mx,my,"Set object origin to the bbox centre"); cy+=UI_H+4; }
+    { uint8_t mir=g_nobj?g_obj[g_objsel].mirror:0; const Col axc[3]={{230,80,80},{90,210,90},{90,150,240}};   /* X red, Y green, Z blue */
+      px=ui_pill_c(R,lx,cy,"Mirror","X",mir&1,axc[0],&g_me_mirx,mx,my); tip(g_me_mirx,mx,my,"Live-mirror across X (red plane)");
+      px=ui_pill_c(R,px,cy,NULL,"Y",mir&2,axc[1],&g_me_miry,mx,my); tip(g_me_miry,mx,my,"Live-mirror across Y (green plane)");
+      ui_pill_c(R,px,cy,NULL,"Z",mir&4,axc[2],&g_me_mirz,mx,my); tip(g_me_mirz,mx,my,"Live-mirror across Z (blue plane)"); cy+=UI_H+4; }
     { char ob[40]; snprintf(ob,sizeof ob,"Obj %d/%d",g_nobj?g_objsel+1:0,g_nobj); text(R,ob,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
-      int bx=lx+textw(R,ob,1)+6; bx=ui_btn(R,bx,cy,0,"<",-1,C_TXT,&g_me_objprev,mx,my); bx=ui_btn(R,bx,cy,0,">",-1,C_TXT,&g_me_objnext,mx,my);
-      ui_btn(R,bx,cy,0,"Del obj",-1,(Col){220,140,120},&g_me_objdel,mx,my); cy+=UI_H+4; }
+      int bx=lx+textw(R,ob,1)+6; bx=ui_btn_t(R,bx,cy,0,"<",-1,C_TXT,&g_me_objprev,mx,my,"Previous object"); bx=ui_btn_t(R,bx,cy,0,">",-1,C_TXT,&g_me_objnext,mx,my,"Next object");
+      ui_btn_t(R,bx,cy,0,"Del obj",-1,(Col){220,140,120},&g_me_objdel,mx,my,"Delete this object"); cy+=UI_H+4; }
     if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.14s  %dv %df %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14; }
     else { text(R,"empty — add a primitive or import",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
-    plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=8;
-    px=ui_btn(R,lx,cy,0,"New",IC_FILE,(Col){205,200,160},&g_me_enew,mx,my);
-    px=ui_btn(R,px,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my);
-    ui_btn(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my); cy+=UI_H+5;
-    px=ui_btn(R,lx,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my);
-    ui_btn(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my); cy+=UI_H+5;
-    px=ui_btn(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my);
-    ui_btn(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my); }
+    ME_SEP();
+    /* --- FILE --- */
+    px=ui_btn_t(R,lx,cy,0,"New",IC_FILE,(Col){205,200,160},&g_me_enew,mx,my,"New named model (Ctrl+N)");
+    px=ui_btn_t(R,px,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my,"Save .mmesh");
+    ui_btn_t(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my,"Load .mmesh"); cy+=UI_H+5;
+    px=ui_btn_t(R,lx,cy,0,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_ebakex,mx,my,"Bake to src/<name>.h (MoteModel)");
+    ui_btn_t(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my,"Bake rig to src/<name>_rig.h"); cy+=UI_H+5;
+    px=ui_btn_t(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my,"Export assets/<name>.obj + .rig");
+    ui_btn_t(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my,"Leave the editor (Tab)");
+    #undef ME_SEP
+    }
 
 /* Explain the mirror modifier when toggled. It is a LIVE modifier: the whole object is
  * reflected across the coloured plane(s) through its origin every frame (you model one half
@@ -2315,6 +2395,10 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eshrink)){ eobj_select_shrink(g_sel_mode); return 1; }
     if(HITR(g_me_osel)){ eobj_origin_to(1); return 1; }
     if(HITR(g_me_octr)){ eobj_origin_to(0); return 1; }
+    if(HITR(g_me_emove)){ op_start(OP_MOVE,0,0); return 1; }
+    if(HITR(g_me_erotate)){ op_start(OP_ROTATE,0,0); return 1; }
+    if(HITR(g_me_escale)){ op_start(OP_SCALE,0,0); return 1; }
+    if(HITR(g_me_eall)){ eobj_select_all(g_sel_mode,1); return 1; }
     if(g_nobj&&HITR(g_me_objprev)){ g_objsel=(g_objsel+g_nobj-1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objnext)){ g_objsel=(g_objsel+1)%g_nobj; return 1; }
     if(g_nobj&&HITR(g_me_objdel)){ eundo_push(); eobj_remove_object(g_objsel); return 1; }
@@ -2359,6 +2443,7 @@ static int mesh_edit_key(SDL_Keycode k){
     if((md&(KMOD_CTRL|KMOD_GUI))&&(k==SDLK_EQUALS||k==SDLK_KP_PLUS)){ eobj_select_grow(g_sel_mode); return 1; }             /* Ctrl++ grow */
     if((md&(KMOD_CTRL|KMOD_GUI))&&(k==SDLK_MINUS||k==SDLK_KP_MINUS)){ eobj_select_shrink(g_sel_mode); return 1; }           /* Ctrl+- shrink */
     if(k==SDLK_g){ op_start(OP_MOVE,0,0); return 1; }
+    if(k==SDLK_r){ op_start(OP_ROTATE,0,0); return 1; }
     if(k==SDLK_s){ op_start(OP_SCALE,0,0); return 1; }
     if(k==SDLK_e){ op_extrude(); return 1; }
     if(k==SDLK_i){ op_inset(); return 1; }
@@ -3294,7 +3379,7 @@ static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen,g_tl_dup;
 static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[8],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
-static SDL_Rect g_dr_bsz_m,g_dr_bsz_p,g_dr_bhd_m,g_dr_bhd_p;   /* brush size/hardness steppers in the cell-editor panel */
+static SDL_Rect g_dr_bsz_m,g_dr_bsz_p,g_dr_bhd_m,g_dr_bhd_p,g_dr_sq,g_dr_rd;   /* brush size/hardness steppers + square/round shape toggle (cell-editor panel) */
 static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
 static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
 static SDL_Rect g_lv_cm,g_lv_cp,g_lv_rm,g_lv_rp,g_lv_clr,g_lv_fillr,g_lv_canvas,g_lv_palr[MAXTERR];
@@ -3507,16 +3592,24 @@ static void blit_cell(SDL_Renderer*R,Terr*t,int cell,int gx,int gy,int dz){ blit
 /* Shared pixel-edit palette (tools / HSV square / hue strip / recents / swatches), used by
  * both the Tiles cell editor and the Anim frame editor. Lays out a column at (rxx,ry) down
  * to `bottom`; sets the global g_dr_* rects so px_panel_down/drag can hit-test them. */
+/* Shared cell-editor tool order: pencil, square-brush, round-brush, eraser, fill,
+ * pick, line, rect. PXTOOLIC = button icon (-3 = paintbrush glyph), PXTOOLID = the
+ * g_ptool value that slot selects (so display order != tool number). */
+#define PXNTOOL 7
+static const int PXTOOLIC[PXNTOOL]={IC_PENCIL,IC_BRUSH,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH};
+static const int PXTOOLID[PXNTOOL]={0,6,1,2,3,4,5};
 static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
-    static const int TIC[8]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH,IC_SQUARE,-2};   /* +sq/round brush */
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<8;i++){ int bx=rxx+(i%4)*28, by=ry+(i/4)*24; g_dr_tool[i]=(SDL_Rect){bx,by,26,22}; int act=g_ptool==i,hov=hit(mx,my,bx,by,26,22);   /* 2 rows of 4 */
+    for(int i=0;i<PXNTOOL;i++){ int bx=rxx+(i%4)*28, by=ry+(i/4)*24; g_dr_tool[i]=(SDL_Rect){bx,by,26,22}; int act=g_ptool==PXTOOLID[i],hov=hit(mx,my,bx,by,26,22);   /* 2 rows; brush after pencil */
         rrect(R,bx,by,26,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
-        if(TIC[i]==-2) disc(R,bx+13,by+11,5,act?C_HDR:C_TXT); else icon(R,TIC[i],bx+6,by+4,14,act?C_HDR:C_TXT); }
+        icon(R,PXTOOLIC[i],bx+6,by+4,14,act?C_HDR:C_TXT); }
     int hy=ry+52;   /* below the two tool rows */
-    if(g_ptool==6||g_ptool==7){ char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); ui_stepper(R,rxx,hy,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my); hy+=22;
+    if(g_ptool==6){ char b[8];
+        g_dr_sq=(SDL_Rect){rxx,hy,24,20}; rrect(R,rxx,hy,24,20,4,!g_brush_round?C_BTNHI:C_BTN); rect_outline(R,rxx+6,hy+5,12,10,C_TXT,2);   /* shape: square */
+        g_dr_rd=(SDL_Rect){rxx+26,hy,24,20}; rrect(R,rxx+26,hy,24,20,4,g_brush_round?C_BTNHI:C_BTN); disc(R,rxx+26+12,hy+10,6,C_TXT); hy+=24; /* round */
+        snprintf(b,sizeof b,"%d",g_brush_size); ui_stepper(R,rxx,hy,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my); hy+=22;
         snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,rxx,hy,"hd",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my); hy+=24; }
-    else g_dr_bsz_m=g_dr_bsz_p=g_dr_bhd_m=g_dr_bhd_p=(SDL_Rect){0,0,0,0};
+    else g_dr_bsz_m=g_dr_bsz_p=g_dr_bhd_m=g_dr_bhd_p=g_dr_sq=g_dr_rd=(SDL_Rect){0,0,0,0};
     int sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_dr_hsv=(SDL_Rect){rxx,hy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_dr_hsv); rect_outline(R,rxx,hy,sq,sq,C_LINE,1);
     { int cxp=rxx+(int)(g_sat*sq),cyp=hy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
@@ -3526,7 +3619,9 @@ static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
     int py2=swy+18; for(int i=0;i<G_NPAL;i++){ int sx=rxx+(i%11)*15,sy=py2+(i/11)*15; g_dr_pal[i]=(SDL_Rect){sx,sy,13,13}; plain(R,sx,sy,13,13,c565(pal565(i))); if(pal565(i)==g_pcol){ SDL_SetRenderDrawColor(R,255,255,255,255); SDL_Rect s={sx-1,sy-1,15,15}; SDL_RenderDrawRect(R,&s); } }
 }
 static int px_panel_down(int mx,int my){
-    for(int i=0;i<8;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=i; return 1; }
+    for(int i=0;i<PXNTOOL;i++)if(hit(mx,my,g_dr_tool[i].x,g_dr_tool[i].y,g_dr_tool[i].w,g_dr_tool[i].h)){ g_ptool=PXTOOLID[i]; return 1; }
+    if(hit(mx,my,g_dr_sq.x,g_dr_sq.y,g_dr_sq.w,g_dr_sq.h)){ g_brush_round=0; return 1; }   /* brush shape toggle */
+    if(hit(mx,my,g_dr_rd.x,g_dr_rd.y,g_dr_rd.w,g_dr_rd.h)){ g_brush_round=1; return 1; }
     if(hit(mx,my,g_dr_bsz_m.x,g_dr_bsz_m.y,g_dr_bsz_m.w,g_dr_bsz_m.h)){ if(g_brush_size>1)g_brush_size--; return 1; }
     if(hit(mx,my,g_dr_bsz_p.x,g_dr_bsz_p.y,g_dr_bsz_p.w,g_dr_bsz_p.h)){ if(g_brush_size<32)g_brush_size++; return 1; }
     if(hit(mx,my,g_dr_bhd_m.x,g_dr_bhd_m.y,g_dr_bhd_m.w,g_dr_bhd_m.h)){ if(g_brush_hard>0)g_brush_hard-=10; return 1; }
@@ -3563,11 +3658,11 @@ static uint16_t lerp565(uint16_t a,uint16_t b,float t){ if(t<=0)return a; if(t>=
  * hardness, then a smooth (smoothstep) ramp to 0 at the rim. */
 static float brush_cov(float d,float h){ if(h>=1.0f)return d<=1.0f?1.0f:0.0f; if(d<=h)return 1.0f; if(d>=1.0f)return 0.0f;
     float t=1.0f-(d-h)/(1.0f-h); return t*t*(3.0f-2.0f*t); }
-/* Stamp a brush (square=6 / round=7) of g_brush_size into a cw*ch cell at (cx,cy)
- * of a sheet of stride W — solid core, AA-blend over existing ink, stipple onto
- * empty (same soft model as the main canvas px_brush). */
+/* Stamp the brush (g_brush_round: 1=round, 0=square) of g_brush_size into a cw*ch
+ * cell at (cx,cy) of a sheet of stride W — solid core, AA-blend over existing ink,
+ * clean edge onto empty (the sheet buffers carry no alpha plane, unlike the main canvas). */
 static void cell_brush(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y){
-    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f); float h=g_brush_hard*0.01f; int rnd=(g_ptool==7);
+    float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f); float h=g_brush_hard*0.01f; int rnd=g_brush_round;
     for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int px=x+dx,py=y+dy; if(px<0||py<0||px>=cw||py>=ch)continue;
         float d=rnd?sqrtf((float)(dx*dx+dy*dy))/rad:(float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
         float cov=brush_cov(d,h); if(cov<=0.0f)continue; int o=(cy+py)*W+cx+px; uint16_t dst=sh[o];
@@ -3576,7 +3671,7 @@ static void cell_brush(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y
 static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,int phase){   /* phase: 0 down · 1 drag · 2 up */
     if(x<0)x=0; if(x>=cw)x=cw-1; if(y<0)y=0; if(y>=ch)y=ch-1;
     if(g_ptool==4||g_ptool==5){ if(phase==0){ g_cdx=x; g_cdy=y; } else if(phase==2&&g_cdx>=0){ if(g_ptool==4)cell_line(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); else cell_rectout(sh,W,cx,cy,g_cdx,g_cdy,x,y,g_pcol); px_recent(g_pcol); g_cdx=g_cdy=-1; } return; }
-    if(g_ptool==6||g_ptool==7){ if(phase!=2){ cell_brush(sh,W,cx,cy,cw,ch,x,y); px_recent(g_pcol); } return; }
+    if(g_ptool==6){ if(phase!=2){ cell_brush(sh,W,cx,cy,cw,ch,x,y); px_recent(g_pcol); } return; }
     if(phase==2)return;
     uint16_t*pp=&sh[(cy+y)*W+cx+x];
     if(g_ptool==0){ *pp=g_pcol; px_recent(g_pcol); } else if(g_ptool==1)*pp=KEY565; else if(g_ptool==3){ if(*pp!=KEY565)px_setcol(*pp); }
@@ -4434,13 +4529,15 @@ static int draw_glyph_grid(SDL_Renderer*R,int x,int y,int w,int mx,int my){
  * so colour is meaningless — the ramp goes transparent/none -> grey AA -> solid white. */
 static SDL_Rect g_gs_tool[8], g_gs_ramp[16];
 static void draw_glyph_palette(SDL_Renderer*R,int px,int py){
-    static const int TIC[8]={IC_PENCIL,IC_ERASER,IC_BUCKET,IC_PIPETTE,IC_SLASH,IC_SQDASH,IC_SQUARE,-2};   /* +sq/round brush */
     int mx,my; SDL_GetMouseState(&mx,&my);
-    for(int i=0;i<8;i++){ int bx=px+i*24; g_gs_tool[i]=(SDL_Rect){bx,py,22,22}; int act=g_ptool==i,hov=hit(mx,my,bx,py,22,22);
+    for(int i=0;i<PXNTOOL;i++){ int bx=px+i*24; g_gs_tool[i]=(SDL_Rect){bx,py,22,22}; int act=g_ptool==PXTOOLID[i],hov=hit(mx,my,bx,py,22,22);
         rrect(R,bx,py,22,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
-        if(TIC[i]==-2) disc(R,bx+11,py+11,5,act?C_HDR:C_TXT); else icon(R,TIC[i],bx+4,py+4,14,act?C_HDR:C_TXT); }
+        icon(R,PXTOOLIC[i],bx+4,py+4,14,act?C_HDR:C_TXT); }
     int ry=py+30;
-    if(g_ptool==6||g_ptool==7){ char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); int xx=ui_stepper(R,px,ry,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my);
+    if(g_ptool==6){ char b[8];
+        g_dr_sq=(SDL_Rect){px,ry,24,20}; rrect(R,px,ry,24,20,4,!g_brush_round?C_BTNHI:C_BTN); rect_outline(R,px+6,ry+5,12,10,C_TXT,2);   /* shape: square */
+        g_dr_rd=(SDL_Rect){px+26,ry,24,20}; rrect(R,px+26,ry,24,20,4,g_brush_round?C_BTNHI:C_BTN); disc(R,px+26+12,ry+10,6,C_TXT); ry+=24;     /* round */
+        snprintf(b,sizeof b,"%d",g_brush_size); int xx=ui_stepper(R,px,ry,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my);
         snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,xx+6,ry,"",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my); ry+=24; }
     text(R,"coverage  (white = solid, grey = AA edge)",px,ry,1,C_DIM,(Col){16,18,26}); ry+=15;
     int n=16, sw=20, sh=22;
@@ -4551,7 +4648,8 @@ static void font_down(int mx,int my){
         if(HF(g_fn_bake)){ font_gs_savebuf(); return; }   /* Save+Bake writes the SHEET, not the TTF */
         if(HF(g_fn_edit)){ g_glyph_browse=0; return; }    /* Close glyphs -> font view (size lives there) */
         for(int i=0;i<g_gs_count&&i<128;i++) if(HF(g_gs_cellr[i])){ g_gs_sel=i; return; }
-        for(int i=0;i<8;i++) if(HF(g_gs_tool[i])){ g_ptool=i; return; }                      /* pencil/erase/fill/pick/line/rect/sq-brush/round-brush */
+        for(int i=0;i<PXNTOOL;i++) if(HF(g_gs_tool[i])){ g_ptool=PXTOOLID[i]; return; }          /* pencil/brush/erase/fill/pick/line/rect */
+        if(HF(g_dr_sq)){ g_brush_round=0; return; } if(HF(g_dr_rd)){ g_brush_round=1; return; }   /* brush shape toggle */
         if(HF(g_dr_bsz_m)){ if(g_brush_size>1)g_brush_size--; return; } if(HF(g_dr_bsz_p)){ if(g_brush_size<32)g_brush_size++; return; }
         if(HF(g_dr_bhd_m)){ if(g_brush_hard>0)g_brush_hard-=10; return; } if(HF(g_dr_bhd_p)){ if(g_brush_hard<100)g_brush_hard+=10; return; }
         for(int i=0;i<16;i++) if(HF(g_gs_ramp[i])){ int v=i*255/15; g_pcol=(uint16_t)MOTE_RGB565(v,v,v); return; }   /* grayscale coverage */
@@ -4723,45 +4821,57 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
 
 /* Stamp a brush (square or round) of g_brush_size px at (cx,cy). The canvas is
  * RGB565 + colour-key (no per-pixel alpha), so "hardness" feathers the edge by
- * ORDERED DITHER: pixels inside hardness*radius are solid, the rim is stippled by
- * a 4x4 Bayer threshold against the coverage. Hardness 100 = a crisp hard edge. */
-static void px_brush(int cx,int cy,int round){   /* lerp565 + brush_cov are defined above (shared with cell_brush) */
+ * the opacity plane (g_alpha). Hardness 100 = a crisp hard edge; <100 feathers.
+ * Within ONE stroke the coverage is accumulated as MAX from a frozen snapshot
+ * (g_sbase*), so overlapping dabs along a drag don't re-blend and saturate. */
+static void brush_begin(void){ memcpy(g_sbaseC,g_canvas,(size_t)g_cw*g_ch*2); memcpy(g_sbaseA,g_alpha,(size_t)g_cw*g_ch); memset(g_scov,0,(size_t)g_cw*g_ch); g_stroking=1; }
+static void px_brush(int cx,int cy,int round){
+    if(!g_stroking)brush_begin();                                                  /* a lone dab (e.g. capture hook) is its own stroke */
     float rad=g_brush_size*0.5f; if(rad<0.5f)rad=0.5f; int ir=(int)(rad+0.999f); float h=g_brush_hard*0.01f;
-    for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int x=cx+dx,y=cy+dy; if(x<0||y<0||x>=g_csize||y>=g_csize)continue;
+    float pr=((g_pcol>>11)&31)<<3, pg=((g_pcol>>5)&63)<<2, pb=(g_pcol&31)<<3;       /* brush colour (the "source") */
+    for(int dy=-ir;dy<=ir;dy++)for(int dx=-ir;dx<=ir;dx++){ int x=cx+dx,y=cy+dy; if(x<0||y<0||x>=g_cw||y>=g_ch)continue;
         float d=round ? sqrtf((float)(dx*dx+dy*dy))/rad : (float)(abs(dx)>abs(dy)?abs(dx):abs(dy))/rad;
-        float cov=brush_cov(d,h); if(cov<=0.0f)continue; int idx=y*g_csize+x; uint16_t dst=g_canvas[idx];
-        if(cov>=0.999f) g_canvas[idx]=g_pcol;                                          /* solid core */
-        else if(dst!=KEY565) g_canvas[idx]=lerp565(dst,g_pcol,cov);                    /* soft opacity: blend over existing ink */
-        else if(cov>=0.5f) g_canvas[idx]=g_pcol; } }                                   /* over empty (no alpha): clean coverage edge */
-static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_csize||gy>=g_csize)return; int idx=gy*g_csize+gx;
-    if(g_ptool==0){ g_canvas[idx]=g_pcol; } else if(g_ptool==1){ g_canvas[idx]=KEY565; }
+        float cov=brush_cov(d,h); if(cov<=0.0f)continue; int idx=y*g_cw+x;
+        if(cov*255.0f<=g_scov[idx])continue; g_scov[idx]=(uint8_t)(cov*255.0f+0.5f); /* MAX coverage this stroke -> no saturation */
+        float bA=g_sbaseA[idx]/255.0f; uint16_t bc=g_sbaseC[idx];                    /* composite source-over the FROZEN base */
+        float br=(bA>0?(((bc>>11)&31)<<3):0), bg=(bA>0?(((bc>>5)&63)<<2):0), bb=(bA>0?((bc&31)<<3):0);
+        float oA=cov+bA*(1.0f-cov); if(oA<=0.004f){ g_canvas[idx]=KEY565; g_alpha[idx]=0; continue; }
+        int orr=(int)((pr*cov+br*bA*(1.0f-cov))/oA+0.5f), og=(int)((pg*cov+bg*bA*(1.0f-cov))/oA+0.5f), ob=(int)((pb*cov+bb*bA*(1.0f-cov))/oA+0.5f);
+        uint16_t oc=(uint16_t)MOTE_RGB565(orr,og,ob); if(oc==KEY565)oc^=1;
+        g_canvas[idx]=oc; g_alpha[idx]=(uint8_t)(oA*255.0f+0.5f); } }
+static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_cw||gy>=g_ch)return; int idx=gy*g_cw+gx;
+    if(g_ptool==0){ PXSET(idx,g_pcol); } else if(g_ptool==1){ PXSET(idx,KEY565); }
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); }
-    else if(g_ptool==6){ px_brush(gx,gy,0); } else if(g_ptool==7){ px_brush(gx,gy,1); } }
+    else if(g_ptool==6){ px_brush(gx,gy,g_brush_round); } }
 static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){   /* save-as -> dialog (Save As <name>.png) */
         prompt_open(PR_SAVEAS,"Save As",g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"),"saved to assets/<name>.png (name it \"icon\" for the launcher icon)",0,0); return; }
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
+    if(hit(mx,my,g_pxsq.x,g_pxsq.y,g_pxsq.w,g_pxsq.h)){ g_brush_round=0; return; }   /* brush shape toggle */
+    if(hit(mx,my,g_pxrd.x,g_pxrd.y,g_pxrd.w,g_pxrd.h)){ g_brush_round=1; return; }
     if(hit(mx,my,g_pxbsz_m.x,g_pxbsz_m.y,g_pxbsz_m.w,g_pxbsz_m.h)){ if(g_brush_size>1)g_brush_size--; return; }
     if(hit(mx,my,g_pxbsz_p.x,g_pxbsz_p.y,g_pxbsz_p.w,g_pxbsz_p.h)){ if(g_brush_size<32)g_brush_size++; return; }
     if(hit(mx,my,g_pxbhd_m.x,g_pxbhd_m.y,g_pxbhd_m.w,g_pxbhd_m.h)){ if(g_brush_hard>0)g_brush_hard-=10; return; }
     if(hit(mx,my,g_pxbhd_p.x,g_pxbhd_p.y,g_pxbhd_p.w,g_pxbhd_p.h)){ if(g_brush_hard<100)g_brush_hard+=10; return; }
     for(int i=0;i<g_npxb;i++)if(hit(mx,my,g_pxb[i].x,g_pxb[i].y,g_pxb[i].w,g_pxb[i].h)){ int id=g_pxb_id[i];
-        if(id<6)g_ptool=id; else if(id==15)g_ptool=6; else if(id==16)g_ptool=7; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
+        if(id<6)g_ptool=id; else if(id==16)g_ptool=6; else if(id==6)undo_pop(); else if(id==14)redo_pop(); else if(id==7)g_grid=!g_grid;
         else if(id==8){ undo_push(); canvas_new(); } else if(id==10)canvas_save();
         else if(id==11){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c>2?c-2:1; } else if(id==12){ int c=g_pzoom?g_pzoom:g_canv_cell; g_pzoom=c+2; } else if(id==13){ g_pzoom=0; g_panx=g_pany=0; }
         else if(id==9)fp_open(1);
         return; }
     int sizes[8]={8,16,32,48,60,64,96,128};
-    for(int i=0;i<8;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_csize=sizes[i]; canvas_new(); return; }
-    if(hit(mx,my,g_pxszdn.x,g_pxszdn.y,g_pxszdn.w,g_pxszdn.h)){ canvas_resize(g_csize-1); return; }
-    if(hit(mx,my,g_pxszup.x,g_pxszup.y,g_pxszup.w,g_pxszup.h)){ canvas_resize(g_csize+1); return; }
+    for(int i=0;i<8;i++)if(hit(mx,my,g_pxsize[i].x,g_pxsize[i].y,g_pxsize[i].w,g_pxsize[i].h)){ undo_push(); g_cw=g_ch=sizes[i]; canvas_new(); return; }
+    if(hit(mx,my,g_pxszdn.x,g_pxszdn.y,g_pxszdn.w,g_pxszdn.h)){ canvas_resize(g_cw-1,g_ch); return; }
+    if(hit(mx,my,g_pxszup.x,g_pxszup.y,g_pxszup.w,g_pxszup.h)){ canvas_resize(g_cw+1,g_ch); return; }
+    if(hit(mx,my,g_pxszhdn.x,g_pxszhdn.y,g_pxszhdn.w,g_pxszhdn.h)){ canvas_resize(g_cw,g_ch-1); return; }
+    if(hit(mx,my,g_pxszhup.x,g_pxszhup.y,g_pxszhup.w,g_pxszhup.h)){ canvas_resize(g_cw,g_ch+1); return; }
     if(hit(mx,my,g_hsv_r.x,g_hsv_r.y,g_hsv_r.w,g_hsv_r.h)){ g_hsvdrag=1; g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(hit(mx,my,g_hue_r.x,g_hue_r.y,g_hue_r.w,g_hue_r.h)){ g_huedrag=1; g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     int cy=BOT_Y+30, px0=12, py0=cy+58, sq=126, yy=py0+sq+8, swy=yy+36;
     for(int i=0;i<g_recent_n&&i<11;i++)if(hit(mx,my,px0+i*15,swy+12,13,13)){ px_setcol(g_recent[i]); return; }
     for(int i=0;i<G_NPAL;i++)if(hit(mx,my,px0+(i%11)*15,swy+44+(i/11)*15,13,13)){ px_setcol(pal565(i)); return; }
     if(g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
-    if(gx>=0&&gy>=0&&gx<g_csize&&gy<g_csize){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy;
+    if(gx>=0&&gy>=0&&gx<g_cw&&gy<g_ch){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy; g_stroking=0;   /* fresh stroke: brush re-snapshots its base */
         if(g_ptool<=3||g_ptool>=6){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1||g_ptool>=6)px_recent(g_pcol); } } }
 static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(g_texdrag>=0){ texgen_drag(mx); return; }
@@ -4770,12 +4880,12 @@ static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(g_dx0<0||g_canv_cell<1)return; int gx=(mx-g_canv_x)/g_canv_cell, gy=(my-g_canv_y)/g_canv_cell;
     if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; }
     else if(g_ptool>=6){ int x0=g_lx,y0=g_ly,x1=gx,y1=gy,dx=abs(x1-x0),dy=-abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx+dy;   /* stamp the brush along the drag */
-        for(;;){ px_brush(x0,y0,g_ptool==7); if(x0==x1&&y0==y1)break; int e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } g_lx=gx; g_ly=gy; } }
+        for(;;){ px_brush(x0,y0,g_brush_round); if(x0==x1&&y0==y1)break; int e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } g_lx=gx; g_ly=gy; } }
 static void pixel_up(int mx,int my){ set_doc(g_tab==TAB_TEXTURE); g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
-    if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_csize-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_csize-1);
+    if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_cw-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_ch-1);
         if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
     if(g_dx0>=0&&(g_ptool==0||g_ptool==1))px_recent(g_pcol);
-    g_dx0=-1; }
+    g_dx0=-1; g_stroking=0; }
 
 /* project picker + new-game modals */
 /* ===== built-in file browser (replaces zenity; cross-platform) ===== */
@@ -5006,11 +5116,31 @@ static void align_drag(int mx,int my){ if(!g_aldrag)return; int px,py,pw,ph; flo
         g_sps=2*half; g_spx=cx-half; g_spy=cy-half; }
     g_lastmx=mx; g_lastmy=my; }
 
+/* Clear EVERY editor tab's loaded state so changing project never leaves the previous
+ * game's art / objects / tilesets / anims / sfx / rig behind. Lazy tabs (Tiles/Anim) just
+ * drop their init flag and re-load for the new project when next opened. */
+static void project_reset(void){
+    mesh_editor_reset();                                       /* model editor scene + importer + undo */
+    /* pixel-art + texture documents -> blank */
+    g_doc=0; g_canvas=g_docbuf[0]; g_doc_ready[0]=g_doc_ready[1]=0;
+    g_cw=g_cw_doc[0]=32; g_ch=g_ch_doc[0]=32; g_cw_doc[1]=g_ch_doc[1]=64;
+    for(int i=0;i<CMAX*CMAX;i++){ g_docbuf[0][i]=KEY565; g_docbuf[1][i]=KEY565; }
+    memset(g_alpha,0,CMAX*CMAX); g_undo_cnt=g_redo_cnt=0; g_stroking=0;
+    g_px_path[0]=0; snprintf(g_px_name,sizeof g_px_name,"sprite"); g_icon_edit=0;
+    /* tiles + anim -> lazy re-init */
+    g_tl_init=0; g_nterr=1; g_curterr=0; g_rulesel=0; g_cellsel=0;
+    g_an_init=0; g_an_nclip=1; g_an_cur=0; g_an_fsel=0; g_an_loaded[0]=0; g_an_png[0]=0;
+    free(g_an_sheet); g_an_sheet=NULL;
+    /* rig parts */
+    for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; free(g_rp[p].uv); g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0; }
+    g_nrp=0; g_rsel=0; g_rig_obj[0]=0;
+    /* sfx editor -> blank preset; font glyph sheet -> redraw; importer path cleared */
+    memset(&g_sfx,0,sizeof g_sfx); g_sfx.lpf_freq=1.0f; g_gs_dirty=1; g_mesh_path[0]=0; }
 static int build_worker(void*a){ int i=(int)(intptr_t)a; int rc=mc_build(g_games[i].dir,0,log_add); g_builddone= rc==0?(i+1):-(i+1); return 0; }
 /* build off the UI thread (keeps the Studio responsive); the main loop swaps the
  * engine in finish_load() once the build signals via g_builddone. */
 static void load_async(int idx){ if(idx<0||idx>=g_ngame||g_loading)return; g_sel=idx; build_tree(g_games[idx].dir); g_treewatch=tree_mtime(g_games[idx].dir);
-    g_tl_init=0; g_an_init=0; g_mesh_path[0]=0;   /* re-run the Tiles/Anim/Mesh lazy-load for the NEW project */
+    project_reset(); model_discover(); mmesh_load();   /* wipe every tab's state, then load THIS project's model */
     g_loading=1; g_builddone=0; snprintf(g_status,sizeof g_status,"building %s...",g_games[idx].name); SDL_CreateThread(build_worker,"bld",(void*)(intptr_t)idx); }
 static void open_project(int i){ if(i<0||i>=g_ngame)return; g_picker=0; load_async(i); }
 static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_tree[i]; const char*nm=r->name;
@@ -5107,9 +5237,11 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
     if(getenv("MOTE_STUDIO_TOOL")) g_ptool=atoi(getenv("MOTE_STUDIO_TOOL"));   /* capture hook: preselect a pixel tool */
-    if(getenv("MOTE_STUDIO_BRUSHDAB")){ g_csize=48; canvas_new(); g_tab=TAB_PIXEL; g_pcol=(uint16_t)MOTE_RGB565(90,200,120);   /* capture hook: brush dabs */
-        g_ptool=7; g_brush_size=15; g_brush_hard=100; px_brush(12,12,1); g_brush_hard=40; px_brush(35,12,1);
-        g_ptool=6; g_brush_hard=100; px_brush(12,35,0); g_brush_hard=40; px_brush(35,35,0); g_brush_size=10; }
+    if(getenv("MOTE_STUDIO_BRUSHDAB")){ g_cw=g_ch=48; canvas_new(); g_tab=TAB_PIXEL; g_picker=0; g_pcol=(uint16_t)MOTE_RGB565(90,200,120);   /* capture hook: brush dabs */
+        g_ptool=6; g_brush_round=1; g_brush_size=15; g_brush_hard=100; g_stroking=0; px_brush(11,11,1); g_brush_hard=40; g_stroking=0; px_brush(34,11,1);   /* hard vs soft (round) over transparent */
+        for(int y=28;y<44;y++)for(int x=3;x<45;x++)PXSET(y*g_cw+x,(uint16_t)MOTE_RGB565(200,50,50));   /* red bg strip */
+        g_pcol=(uint16_t)MOTE_RGB565(60,90,235); g_brush_size=9; g_brush_hard=30; g_stroking=0;
+        for(int x=7;x<=41;x+=2)px_brush(x,36,1); g_brush_size=10; }                                  /* soft blue DRAG over ink: must stay soft, not saturate */
     if(getenv("MOTE_STUDIO_CHASSIS")) g_chassis_clear=atoi(getenv("MOTE_STUDIO_CHASSIS"));   /* test/capture hook: 1 = clear shell */
     if(getenv("MOTE_STUDIO_BUILD")){ dispatch(A_BUILD); if(shot)SDL_Delay(2500); }
     if(getenv("MOTE_STUDIO_BAKE")){ dispatch(A_BAKEALL); if(shot)SDL_Delay(2500); }
@@ -5157,7 +5289,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_ANIMREBAKE")){ an_ensure(); an_bake(); printf("studio: %s\n",g_status); }   /* re-bake the project's anims (repacked atlas) */
     if(getenv("MOTE_STUDIO_FPICK"))fp_open(atoi(getenv("MOTE_STUDIO_FPICK"))-1);
     if(getenv("MOTE_STUDIO_SFX")){ sfx_preset(atoi(getenv("MOTE_STUDIO_SFX"))); g_tab=TAB_AUDIO; }
-    if(getenv("MOTE_STUDIO_TEX")){ g_tab=TAB_TEXTURE; set_doc(1); g_csize=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); }
+    if(getenv("MOTE_STUDIO_TEX")){ g_tab=TAB_TEXTURE; set_doc(1); g_cw=g_ch=64; canvas_new(); g_texkind=atoi(getenv("MOTE_STUDIO_TEX")); tex_generate(); }
     if(getenv("MOTE_STUDIO_LOADSHEET")){ tl_ensure(); tiles_import_png(getenv("MOTE_STUDIO_LOADSHEET")); g_tab=TAB_TILES; }   /* test hook */
     if(getenv("MOTE_STUDIO_BAKE")){ tl_ensure(); bake_all(); }   /* test hook: save defs + bake headers */
     if(getenv("MOTE_STUDIO_GEN")){ tl_ensure(); terr_gen_starter(0); }   /* test hook: write a proc-gen starter sheet to a file */
@@ -5283,6 +5415,10 @@ int main(int argc,char**argv){
                     if(k==SDLK_BACKSPACE){ if(g_px_nameseled){ g_px_name[0]=0; g_px_nameseled=0; } else { int l=(int)strlen(g_px_name); if(l)g_px_name[l-1]=0; } }   /* backspace clears the selection, else deletes one */
                     else if((k==SDLK_a)&&(SDL_GetModState()&KMOD_CTRL))g_px_nameseled=1;   /* Ctrl+A select all */
                     else if(k==SDLK_RETURN||k==SDLK_ESCAPE){ g_px_namefocus=0; g_px_nameseled=0; } continue; } }
+            if((g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)&&e.type==SDL_KEYDOWN){   /* canvas undo/redo */
+                SDL_Keycode k=e.key.keysym.sym; SDL_Keymod md=SDL_GetModState();
+                if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ set_doc(g_tab==TAB_TEXTURE); if(md&KMOD_SHIFT)redo_pop(); else undo_pop(); continue; }   /* Ctrl+Z undo · Ctrl+Shift+Z redo */
+                if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_y){ set_doc(g_tab==TAB_TEXTURE); redo_pop(); continue; } }                                  /* Ctrl+Y redo */
             if(g_tab==TAB_TILES&&g_ln_focus){   /* renaming the current layer (tileset) */
                 char*ln=g_terr[g_curterr].name;
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(ln); if(l<14){ ln[l]=c; ln[l+1]=0; } } } continue; }
@@ -5446,12 +5582,13 @@ int main(int argc,char**argv){
             if((ms&SDL_BUTTON_LMASK)&&!g_split&&mmx>=CENTER_X&&mmx<INSP_X&&mmy>=TOPH&&mmy<BOT_Y) emu_hit(mmx,mmy,&b);
             mote_studio_set_buttons(&b); }
         if(getenv("MOTE_STUDIO_BTN")) b.a=b.up=b.lb=b.menu=1;   /* capture-only: show highlights */
-        SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren);
+        SDL_SetRenderDrawColor(ren,C_BG.r,C_BG.g,C_BG.b,255); SDL_RenderClear(ren); g_tip_hot[0]=0;
         draw_emulator(ren,tex,&b); draw_tree(ren); draw_inspector(ren); draw_bottom(ren);
         draw_splitters(ren);
         draw_menubar(ren); draw_toolbar(ren); draw_menu_dropdown(ren); draw_ctxmenu(ren);
         if(g_align)draw_align(ren);
         if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren); if(g_prompt)draw_prompt(ren);
+        { int tmx,tmy; SDL_GetMouseState(&tmx,&tmy); tip_render(ren,tmx,tmy); }
         SDL_RenderPresent(ren);
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
         /* cap to ~60fps — vsync is ignored under WSL/software GL, so without this the
