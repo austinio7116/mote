@@ -41,6 +41,8 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 4. [The asset pipeline (baking)](#4-the-asset-pipeline)
    - [What bakes, and how you use it](#what-bakes-and-how-you-use-it)
    - [Modelling in the Mesh tab — the built-in model editor](#modelling-in-the-mesh-tab--the-built-in-model-editor)
+   - [Texturing a model — UV unwrap and paint](#texturing-a-model--uv-unwrap-and-paint)
+   - [Walkthrough — model, texture, and bake into a game](#walkthrough--model-texture-and-bake-into-a-game)
    - [When does baking happen? Do I *have* to bake?](#when-does-baking-happen-do-i-have-to-bake)
    - [Audio: synth notes, streamed SFX recipes, baked samples](#audio-synth-notes-streamed-sfx-recipes-baked-samples)
    - [Fonts: anti-aliased proportional text *(ABI v39)*](#fonts-anti-aliased-proportional-text-abi-v39)
@@ -470,7 +472,7 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | `*.png`, `*.bmp` | **img2tex** (needs ImageMagick) | `<name>_px[]` (RGB565), `<name>_img` (a `MoteImage`), `<name>_W` / `<name>_H` | `#include "<name>.h"` then a sprite via `mote->scene2d_add` or an immediate blit via `mote->blit` |
 | `*.obj` | **obj2mesh** | one `<name>_mesh` (a `Mesh`) | small models that fit ≤255 verts |
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
-| `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`) | recorded/sampled audio; play with `audio_play` |
+| `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`, kept at native 8/16-bit + source rate) | recorded/sampled audio; play with `audio_play` |
 | `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
 | `*.ttf` (+ `.size`) | **ttf2font** (Studio **Font** tab) | `<name>` (a `MoteFont`) | anti-aliased proportional font; draw with `mote->text_font` (§5.7) |
 | `<font>_glyphs.png` (+ `.gsheet`) | **glyphs2font** (Studio **Font** tab ▸ Edit glyphs) | `<font>` (a `MoteFont`) | hand-drawn / edited font — one PNG sheet; same `text_font` call |
@@ -614,10 +616,35 @@ the Rig tab.
 **Mirror** (live): toggle **Mirror X / Y / Z** on an object and you model one half
 while the editor shows the whole thing — the reflected half is solid (with a subtle
 seam marker), every edit is mirrored instantly, and the bake welds the two halves
-into one watertight mesh. Ideal for symmetric assets (ships, characters).
+into one watertight mesh. Ideal for symmetric assets (ships, characters). **Apply**
+(next to the Mirror buttons) bakes the mirrored half into real geometry and turns the
+modifier off — use it when you want to edit both halves independently, or before a
+boolean.
+
+**Booleans (CSG)** combine whole objects. Once a project has two or more objects a
+**Boolean** group appears: pick the second operand with the **Boolean vs obj N**
+stepper, then **Union** (merge into one solid), **Subtract** (cut the target out of the
+active object, A − B), or **Intersect** (keep only the overlapping volume). The result
+replaces the active object, the target is removed, and it's triangulated — re-unwrap if
+you want to texture it. Booleans are real BSP CSG, so they work on any closed mesh (all
+the primitives qualify).
+
+![A boolean Subtract result in the model editor — a cube with a cubic notch cleanly cut out of one corner, the interior faces of the notch visible, shown solid with hidden-line removal](docs/img/studio-model-boolean.png)
+
+> **Positioning the second object first:** add the primitive, make it the **active**
+> object (the *Obj N/N* stepper, or `< >`), then press **A** to select all of *that
+> object* and **G** to move it into place. Select All and click-select are scoped to the
+> active object, so an overlapping object never steals your selection.
 
 **Camera:** left-drag empty space **or** middle-drag to orbit, wheel to zoom. The
 model holds still otherwise (no auto-spin while you work).
+
+**View modes** (the *View* row): **Solid** shades the faces with hidden-line removal
+(occluded edges and verts are hidden, for a clean read), **Wire** drops the fill for a
+pure wireframe, and **X-ray** makes the faces see-through so you can see — and select —
+geometry behind the surface. **Z** toggles X-ray, **Shift+Z** toggles wireframe.
+
+![The three model-editor view modes side by side — Solid with hidden-line removal, Wireframe showing every edge, and X-ray with see-through faces revealing geometry behind the surface](docs/img/studio-view-modes.png)
 
 **Save / bake / export:**
 
@@ -633,6 +660,107 @@ model holds still otherwise (no auto-spin while you work).
 > **Heads-up:** Bake .h writes `src/<object-name>.h`, so naming an object the same as
 > an existing CLI-baked model (e.g. `fighter`) will overwrite that file. Rename the
 > object or keep editor bakes to their own names.
+
+**Outside the editor**, the Mesh tab shows the live model with a few preview controls:
+**Spin** (auto-rotate on/off), **Texture** (show the painted texture vs flat face
+colours), **Reset view**, and a **Bake .h** shortcut so you can re-bake without
+re-entering the editor.
+
+### Texturing a model — UV unwrap and paint
+
+A low-poly model can carry a **painted texture** — an RGB565 atlas the device samples
+UV-mapped onto the faces (still sun-lit). The whole flow lives in the model editor's
+**Texture** group, and you paint with the same tools as the Pixel Art tab.
+
+![Texturing the spaceship in the model editor — the live textured ship on the left, the texture atlas on the right with the UV layout overlaid and the painted hull, and the PAINT TEXTURE sidebar with the full pixel toolset, palette, atlas-resolution buttons, Fill-from-faces, and Undo/Redo/Save/Done](docs/img/studio-model-paint.png)
+
+1. **Unwrap** — select the object and click **Unwrap**. It box-projects the model into
+   a paintable atlas saved as `assets/<model>_tex.png` (solid grey to start) and stores
+   the UVs on the model. (UVs are normalised, so the *resolution* is independent of the
+   unwrap — see below.)
+2. **Paint** — click **Paint** to split the viewport: the **live textured model** on the
+   left, the **texture atlas** (with the UV layout drawn over it) on the right. You get
+   the **full pixel toolset** — pencil, brush (round/square, size, hardness), eraser,
+   fill, pick, line, rect, the 25-colour palette and the HSV picker — plus **Undo/Redo**
+   (`Ctrl+Z` / `Ctrl+Y`). It edits a **dedicated atlas buffer**, so your sprite documents
+   are never touched.
+   - **Paint on the atlas, or straight on the 3D model.** When you paint on the model the
+     cursor is raycast onto the surface, so the stroke lands exactly where you point — and
+     it shows on *both* the model and the atlas at once, with the brush cursor mirrored
+     onto the UV map. **LMB** paints; **MMB** or an empty-space drag orbits.
+3. **Resolution** — the **64 / 128 / 256** buttons resample the atlas in place. Because
+   UVs are normalised this needs **no re-unwrap**; only texel density (and flash cost:
+   **8 / 32 / 128 KB**) changes. 128 is the sane default.
+4. **Fill from face colours** — if you painted per-face colours in the editor first, this
+   seeds the atlas from them (it rasterises each face's UV triangle in its colour, with a
+   few pixels of edge bleed so the islands meet cleanly). A fast way to a base coat.
+5. **Save** writes the PNG; **Done** leaves paint mode.
+
+**Baking a textured model:** **Bake .h** writes the atlas into the header as a `MoteImage`
+plus per-face UVs (the 11-field textured `Mesh`). A textured mesh only draws textured if
+the game budgets a textured-triangle pool, so the Studio **auto-adds `.max_tex_tris =
+<model>_TRIS` to your `game.c`** on a textured bake (it never overrides a value you set).
+Without that pool a textured mesh falls back to a flat shade in the atlas's average
+colour — never a black model. See [Textured meshes](#textured-uv-mapped-meshes) for the
+runtime side.
+
+### Walkthrough — model, texture, and bake into a game
+
+End to end, here's how a textured 3D prop (say a spaceship) goes from nothing to drawn
+in your game. Everything is in the **Mesh** tab; press **Tab** to flip between the
+preview and the editor.
+
+1. **Start a model.** Open your project, go to the Mesh tab, click **Edit this mesh**,
+   then **+ New model** and name it (e.g. `ship`). Each model is its own `<name>.mmesh`.
+2. **Block out the shape.** Add primitives (**Shift+A** cube, or the Cube/Cylinder/Cone/
+   Sphere buttons). Position each one: make it the active object (`< >`), **A** to select
+   all of it, **G** to move (type a distance or drag the gizmo). Combine them with
+   **Booleans** — e.g. *Union* the hull and the wings into one solid, or *Subtract* a
+   cockpit cut-out.
+3. **Use Mirror for symmetry.** Toggle **Mirror X**, model one wing, and the other appears
+   live; click **Apply** to weld it into real geometry when you're happy.
+4. **Refine the surface.** In face mode, **Extrude** (E) / **Inset** (I) / **Subdiv** to
+   add detail, **Merge** (M) / **Clean** (Ctrl+K) to tidy topology, **Recalc outward** so
+   normals face out.
+5. **Unwrap and paint.** Select the object, **Unwrap**, then **Paint** — block in colours
+   on the model or the atlas, pick a **Resolution**, and **Save**. (Tip: hit **Fill from
+   face colours** first for an instant base coat.)
+6. **Bake.** Click **Bake .h**. You get `src/ship.h` with `static const MoteModel ship`,
+   `ship_TRIS`, the embedded texture, and the per-face UVs — and the Studio adds
+   `.max_tex_tris = ship_TRIS` to your `game.c` config.
+
+   ![The baked, textured spaceship in the Mesh preview — the painted ship rendered as in-game, with the MODEL card showing the Spin/Texture toggles, Reset view, Bake .h, and "ship 310v 495f", and the status bar reading "baked src/ship.h 608 tris, 2 chunks, textured"](docs/img/studio-model-preview.png)
+
+7. **Draw it in your game.** Include the header and draw the whole model (all its chunks)
+   with one call:
+
+   ```c
+   #include "mote_api.h"
+   #include "mote_build.h"
+   #include "ship.h"          /* baked: `static const MoteModel ship`; ship_TRIS */
+
+   static Mat3 s_m;
+
+   static void g_init(void) {
+       mote->scene_set_background(MOTE_RGB565(10, 12, 26));
+       mote->scene_set_sun(v3(0.4f, 0.7f, -0.6f));
+       s_m = m3_identity();
+   }
+   static void g_update(float dt) {
+       m3_rotate_local(&s_m, 1, 0.9f * dt); m3_orthonormalize(&s_m);
+       Mat3 cam = mote_camera_look(v3(0, 0, 0), v3(0, 0, 1));
+       mote->scene_begin(&cam, 60.0f);
+       mote_model_draw_ex(mote, &ship, v3(0, 0, 4.5f), s_m, 1.0f);   /* the textured ship */
+   }
+   static const MoteGameVtbl k_vtbl = {
+       .init = g_init, .update = g_update,
+       .config = { .max_tex_tris = ship_TRIS, .max_tris = ship_TRIS, .depth = 1 },
+   };
+   ```
+
+8. **Run it.** `mote build <game> && mote run <game>` (or **Run** in the Studio). Change
+   the model later? Re-open it, edit, **Bake .h** again — your `game.c` already points at
+   `ship`, so you just rebuild.
 
 ### When does baking happen? Do I *have* to bake?
 
@@ -998,8 +1126,11 @@ A `Mesh` with a non-NULL `texture` (a `MoteImage`) and a `face_uvs` array is dra
 **textured** instead of flat-coloured — through the ordinary `scene_add_object` path,
 no new call. `face_uvs` is `nfaces*6` bytes: per-corner `u0,v0,u1,v1,u2,v2`, each
 `0..255` spanning the texture. The texel is still lit by the sun (sampled colour ×
-face shade). Size `max_tex_tris` to the textured faces visible at once. Combine with
-`MOTE_DRAW_BLEND()` (above) for translucent textured surfaces like water.
+face shade). Size `max_tex_tris` to the textured faces visible at once — without the
+pool a textured mesh falls back to a flat shade in its average colour (never black).
+Combine with `MOTE_DRAW_BLEND()` (above) for translucent textured surfaces like water.
+The Studio model editor paints and bakes these for you, and adds `.max_tex_tris` to
+your config automatically — see [Texturing a model](#texturing-a-model--uv-unwrap-and-paint).
 
 ### 5.2 — 2D scene (sprites + tilemap)
 
@@ -1357,12 +1488,15 @@ mote->audio_note(440.0f, 0.85f);   // a strike
 ```
 
 #### `void audio_play(const MoteSound *snd, float gain)`
-Fires a one-shot **PCM sample** (22050 Hz mono int16). `MoteSound = { const int16_t *pcm;
-int count; }` — bake one from a WAV in the Studio Audio tab (Save) or via `mote bake`. Up to
-8 samples mix at once on top of the synth notes; the oldest is stolen when full. `gain` 0..1.
+Fires a one-shot **PCM sample**, mixed to 22050 Hz mono. `MoteSound = { const void *pcm;
+int count; uint16_t rate; uint8_t bits; ... }` — bake one from a WAV in the Studio Audio tab
+(Save) or via `mote bake`. The clip is kept at the WAV's **native quality**: `bits` 8 or 16,
+`rate` the source Hz (0 = 22050); the mixer resamples + expands 8-bit on playback, so an
+8-bit/11025 clip costs ~1/4 the flash of 16-bit/22050. Up to 8 samples mix at once on top of
+the synth notes; the oldest is stolen when full. `gain` 0..1.
 ```c
-#include "hit.h"                    // baked: static const MoteSound hit_snd = { hit_pcm, N };
-mote->audio_play(&hit_snd, 1.0f);
+#include "hit.h"                    // baked: static const MoteSound hit_snd = { hit_pcm, N, 11025, 8, 0 };
+mote->audio_play(&hit_snd, 1.0f);   // legacy { pcm, N } headers read as 16-bit/22050 (unchanged)
 ```
 
 #### `void audio_play_sfx(const MoteSfx *recipe, float gain)` — stream a recipe *(v37, recommended for SFX)*
@@ -1971,6 +2105,15 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 ## 13. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### Unreleased
+
+**Texture-paint your models, plus booleans and view modes.** A Studio-only update — no firmware reflash; the engine and ABI (v39) are unchanged.
+
+- **UV texture paint (Mesh tab):** **Unwrap** a model into a paintable atlas, then **Paint** it in a split view — the live textured model beside the atlas — with the **full pixel toolset** (brush / fill / line / rect / pick, palette, HSV) and **Undo/Redo**. Paint on the atlas **or directly on the 3D model** (strokes land on both at once, cursor mirrored). Pick the atlas **resolution** (64 / 128 / 256, no re-unwrap), or **Fill from face colours** for an instant base coat. A textured **Bake .h** embeds the atlas + per-face UVs and **auto-adds `.max_tex_tris`** to your `game.c` so it renders (never a black model).
+- **Booleans (CSG):** **Union / Subtract / Intersect** two objects — real BSP CSG, works on any closed mesh. **Apply Mirror** bakes the mirrored half into real geometry.
+- **View modes:** **Solid** (with hidden-line removal) / **Wireframe** / **X-ray** (`Z` / `Shift+Z`).
+- **Quality of life:** Select-All and click-select are scoped to the **active object** so overlapping parts don't fight for the click; a discoverable **New model / switch** header; and **Spin / Texture / Reset view / Bake .h** controls on the model preview card.
 
 ### 0.11-alpha
 

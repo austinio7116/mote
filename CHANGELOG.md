@@ -2,10 +2,44 @@
 
 ## Unreleased
 
+### Engine (ABI v40 — firmware reflash required)
+- **Low-fi sounds.** `MoteSound` now carries a sample **rate** and **bit depth**, so a
+  clip is stored at its native quality — 8-bit and/or sub-22050 Hz — and the mixer
+  resamples + expands it on playback. An 8-bit/11025 Hz SFX costs ~1/4 the flash of the
+  old 16-bit/22050 form. `wav2snd` (`mote bake` + the Studio Audio tab) now reads the
+  WAV's `fmt` chunk and bakes at the source quality (8/16-bit, source rate; only
+  downsampled if it exceeds 22050; any bit depth / stereo accepted). The API is
+  unchanged — `audio_play(&snd, gain)` still works; legacy `{pcm,count}` headers read as
+  16-bit/22050. *(Previously `wav2snd` assumed 16-bit/22050 and baked 8-bit or
+  odd-rate WAVs to noise.)*
+
 ### Studio
 - **Region inset.** Insetting a selection of faces now insets the whole region's outer
   boundary as one (sharing the interior), so a quad made of two triangles insets within
   the quad instead of each triangle being inset separately. A single face is unchanged.
+- **UV texture painting.** Unwrap a model (box-projection) into a paintable atlas, then
+  paint it in a split view — the live textured 3D model beside the atlas — with the full
+  pixel toolset (pencil / brush / eraser / fill / pick / line / rect, sizes, palette, HSV)
+  and Undo/Redo. Paint on the atlas **or directly on the 3D model** (the cursor raycasts to
+  the surface; strokes land on both at once, with the brush cursor mirrored onto the UV
+  map). Choose the atlas resolution (64 / 128 / 256) without re-unwrapping, or **Fill from
+  face colours** to seed the atlas from per-face paint (with a few pixels of edge bleed so
+  islands meet cleanly). A freshly-created atlas is solid grey.
+- **Textured bake.** Bake .h now emits a textured `MoteModel` — the atlas as a `MoteImage`
+  plus per-face UVs (0–255) — and a flat fallback colour (the atlas average) so a textured
+  model never renders black when a game lacks the textured-tri pool. On a textured bake the
+  Studio auto-adds `.max_tex_tris = <model>_TRIS` to the game's `game.c` config (never
+  overriding a value you set yourself).
+- **Booleans (CSG).** Union / Subtract / Intersect two objects via BSP CSG (robust on any
+  closed mesh); the active object is `A`, a stepper picks the target `B`.
+- **Apply Mirror.** Bake the live-mirrored half into real geometry and turn the modifier
+  off — for editing both halves independently, or before a boolean.
+- **View modes.** Solid (with per-pixel hidden-line removal) / Wireframe / X-ray, toggled
+  in the editor's *View* row or with `Z` / `Shift+Z`.
+- **Multi-object editing.** Select-All and click-select are scoped to the active object, so
+  an overlapping object can be selected and moved on its own; a discoverable model header
+  with **+ New model** and a model switcher; and **Spin / Texture / Reset view / Bake .h**
+  controls on the non-edit model preview card.
 
 ## 0.11-alpha
 
