@@ -5698,6 +5698,8 @@ int main(int argc,char**argv){
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
+    if(getenv("MOTE_STUDIO_MMESHBAKE")){ snprintf(g_model_name,sizeof g_model_name,"%.36s",getenv("MOTE_STUDIO_MMESHBAKE"));   /* headless: load <model>.mmesh + bake src/<model>.h */
+        mmesh_load(); if(g_nobj){ eobj_fit(); eobj_bake(); } fprintf(stderr,"MMESHBAKE %s -> %s\n",g_model_name,g_status); }
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
     if(getenv("MOTE_STUDIO_TOOL")) g_ptool=atoi(getenv("MOTE_STUDIO_TOOL"));   /* capture hook: preselect a pixel tool */
