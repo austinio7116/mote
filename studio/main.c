@@ -1880,17 +1880,26 @@ static int eobj_extrude_obj(EObject*ob,V3*navg){
 /* Inset the selected faces of one object: per face, an inner shrunk copy + a ring of
  * bridging quads. Re-points the selected face onto the inner copy and pushes the inner
  * verts into g_aff (with their face centroid as pivot) so the modal op drives the amount. */
+/* REGION inset: inset the selected faces as ONE region — only the outer boundary (edges
+ * used by exactly one selected face) is inset, the interior is shared. So a quad made of
+ * two triangles insets within the whole quad, not each triangle separately. (For a single
+ * face the boundary is its own edges, so it behaves like a normal per-face inset.) */
 static int eobj_inset_obj(EObject*ob,int oi){
-    int nf0=ob->nf, built=0;
-    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ int outer[4],n=ob->f[fi].nv; uint16_t col=ob->f[fi].color; for(int k=0;k<n;k++)outer[k]=ob->f[fi].v[k];
-        V3 c={0,0,0}; for(int k=0;k<n;k++){ V3 p=ob->v[outer[k]].p; c.x+=p.x; c.y+=p.y; c.z+=p.z; } c.x/=n; c.y/=n; c.z/=n;
-        int inner[4]; for(int k=0;k<n;k++){ V3 p=ob->v[outer[k]].p; inner[k]=ev_add(ob,p); }   /* start coincident */
-        for(int k=0;k<n;k++){ int a=outer[k],b=outer[(k+1)%n],ib=inner[(k+1)%n],ia=inner[k]; int q[4]={a,b,ib,ia}; ef_add(ob,4,q,col); }
-        EFace*f=&ob->f[fi]; for(int k=0;k<n;k++)f->v[k]=inner[k];   /* re-point to the inner face */
-        V3 cw={c.x+ob->origin.x,c.y+ob->origin.y,c.z+ob->origin.z};
-        for(int k=0;k<n;k++){ aff_add(oi,inner[k],eobj_wv(ob,inner[k])); g_aff[g_naff-1].piv=cw; }
-        built++; }
-    return built; }
+    int nf0=ob->nf, nv0=ob->nv, any=0;
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ any=1; break; } if(!any)return 0;
+    V3 c={0,0,0}; int cn=0;                                                   /* region centroid (world) */
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel)for(int k=0;k<ob->f[fi].nv;k++){ V3 w=eobj_wv(ob,ob->f[fi].v[k]); c.x+=w.x; c.y+=w.y; c.z+=w.z; cn++; }
+    c.x/=cn; c.y/=cn; c.z/=cn;
+    uint8_t*bnd=calloc(nv0>0?nv0:1,1);                                        /* boundary verts */
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ int n=ob->f[fi].nv; for(int k=0;k<n;k++){ int a=ob->f[fi].v[k],b=ob->f[fi].v[(k+1)%n];
+        if(sel_edge_count(ob,a,b,nf0)==1){ bnd[a]=1; bnd[b]=1; } } }
+    int*remap=malloc((size_t)(nv0>0?nv0:1)*sizeof(int)); for(int i=0;i<nv0;i++)remap[i]=i;
+    for(int i=0;i<nv0;i++)if(bnd[i])remap[i]=ev_add(ob,ob->v[i].p);           /* one shared inset copy per boundary vert (coincident) */
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ int n=ob->f[fi].nv; uint16_t col=ob->f[fi].color; int fv[4]; for(int k=0;k<n;k++)fv[k]=ob->f[fi].v[k];
+        for(int k=0;k<n;k++){ int a=fv[k],b=fv[(k+1)%n]; if(sel_edge_count(ob,a,b,nf0)==1){ int q[4]={a,b,remap[b],remap[a]}; ef_add(ob,4,q,col); } } }   /* ring quads on the boundary */
+    for(int fi=0;fi<nf0;fi++)if(ob->f[fi].sel){ EFace*f=&ob->f[fi]; for(int k=0;k<f->nv;k++)f->v[k]=remap[f->v[k]]; }   /* re-point region onto the inset copies */
+    for(int i=0;i<nv0;i++)if(bnd[i]){ aff_add(oi,remap[i],eobj_wv(ob,remap[i])); g_aff[g_naff-1].piv=c; }   /* copies slide toward the region centre */
+    free(bnd); free(remap); return 1; }
 /* E: extrude selected faces across all objects, then start a normal-constrained move */
 static void op_extrude(void){
     int total=0; for(int o=0;o<g_nobj;o++){ int has=0; for(int fi=0;fi<g_obj[o].nf;fi++)if(g_obj[o].f[fi].sel){ has=1; break; } if(has)total++; }

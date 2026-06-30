@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Studio
+- **Region inset.** Insetting a selection of faces now insets the whole region's outer
+  boundary as one (sharing the interior), so a quad made of two triangles insets within
+  the quad instead of each triangle being inset separately. A single face is unchanged.
+
 ## 0.11-alpha
 
 **A full 3D model editor, and a much better Pixel Art tab.** This is a Studio (dev-tools)
