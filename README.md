@@ -415,6 +415,8 @@ two 24×24 frames → frame *i* is `fx = i*24, fy = 0, fw = 24, fh = 24`. See
 
 ![The Studio Pixel Art tab — paint a sprite with the HSV/hex picker, pencil/fill/line/rect tools, grid and transparency; Save writes assets/sprite.png and auto-bakes its MoteImage header in one click](docs/img/studio-pixel.png)
 
+![The soft brush — a hard green dab vs a soft feathered one, and a soft blue stroke compositing over a red strip; note the square/round shape toggle, the hardness stepper, and the independent W and H size steppers (48×48) for non-square canvases](docs/img/studio-pixel-brush.png)
+
 The separate **Texture** tab generates procedural fills (wood, marble, brick, stone,
 cloud, plasma …) with contrast/warp — it bakes to a `MoteImage` the same way, and is
 kept apart from Pixel Art so generating never overwrites hand-drawn art.
@@ -455,6 +457,8 @@ non-destructive: the importer is untouched, and **Tab** flips back to it.
 The **MODEL EDITOR** sidebar is organised into labelled groups — **Select**, **Add**,
 **Transform**, **Edit**, **Faces**, **Object**, **File** — it scrolls when it's taller
 than the dock, and every button shows a hover tooltip with its keyboard shortcut.
+
+![A hover tooltip in the model editor — "Rotate selection (R): drag or type degrees; X/Y/Z axis" shown under the Rotate button](docs/img/studio-tooltip.png)
 
 There are three ways to get geometry into the editor:
 
