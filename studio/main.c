@@ -2165,6 +2165,37 @@ static void eobj_origin_to(int sel){ if(!g_nobj)return; EObject*o=&g_obj[g_objse
     o->pivot.x-=T.x; o->pivot.y-=T.y; o->pivot.z-=T.z;
     snprintf(g_status,sizeof g_status,(sel&&n>0)?"origin -> selection":"origin -> centre"); }
 
+/* ---- UV unwrap (texture wrapping) — fills EFace.uv (0..1) + makes a paintable atlas ---- */
+/* Box/planar unwrap: each face -> one of 6 axis planes by its normal, projected into that
+ * plane's cell of a 3x2 atlas. The intuitive "papercraft / skin" wrap. */
+static void eobj_unwrap_box(EObject*o){ if(o->nf<1||o->nv<1)return;
+    V3 mn=o->v[0].p,mx=o->v[0].p; for(int i=1;i<o->nv;i++){ V3 p=o->v[i].p; if(p.x<mn.x)mn.x=p.x; if(p.y<mn.y)mn.y=p.y; if(p.z<mn.z)mn.z=p.z; if(p.x>mx.x)mx.x=p.x; if(p.y>mx.y)mx.y=p.y; if(p.z>mx.z)mx.z=p.z; }
+    float ex=mx.x-mn.x,ey=mx.y-mn.y,ez=mx.z-mn.z; if(ex<1e-6f)ex=1; if(ey<1e-6f)ey=1; if(ez<1e-6f)ez=1;
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi];
+        V3 a=o->v[f->v[0]].p,b=o->v[f->v[1]].p,c=o->v[f->v[2]].p; V3 nr=mv3cross(mv3sub(b,a),mv3sub(c,a));
+        float ax=fabsf(nr.x),ay=fabsf(nr.y),az=fabsf(nr.z); int dom=(ax>=ay&&ax>=az)?0:(ay>=az?1:2);
+        int neg=((dom==0?nr.x:dom==1?nr.y:nr.z)<0); int plane=dom*2+neg, col=plane%3, row=plane/3;
+        for(int k=0;k<f->nv;k++){ V3 p=o->v[f->v[k]].p; float pu,pv;
+            if(dom==0){ pu=(p.z-mn.z)/ez; pv=(p.y-mn.y)/ey; } else if(dom==1){ pu=(p.x-mn.x)/ex; pv=(p.z-mn.z)/ez; } else { pu=(p.x-mn.x)/ex; pv=(p.y-mn.y)/ey; }
+            f->uv[k][0]=(col+pu)/3.0f; f->uv[k][1]=(row+pv)/2.0f; } } }
+/* Per-face grid: each face -> its own square cell (no distortion, robust on any mesh). */
+static void eobj_unwrap_grid(EObject*o){ if(o->nf<1)return; int G=1; while(G*G<o->nf)G++; float ins=0.04f;
+    for(int fi=0;fi<o->nf;fi++){ EFace*f=&o->f[fi]; int col=fi%G,row=fi/G;
+        float u0=(col+ins)/G,u1=(col+1-ins)/G,v0=(row+ins)/G,v1=(row+1-ins)/G; float cu[4]={u0,u1,u1,u0},cv[4]={v0,v0,v1,v1};
+        for(int k=0;k<f->nv;k++){ f->uv[k][0]=cu[k]; f->uv[k][1]=cv[k]; } } }
+/* The editor model's atlas path: <project>/assets/<model>_tex.png */
+static int eobj_atlas_path(char*out,int n){ if(g_sel<0)return 0; snprintf(out,n,"%.500s/assets/%.36s_tex.png",g_games[g_sel].dir,g_model_name); return 1; }
+/* Create a faint-checker blank atlas if none exists, and load it for the preview. */
+static void eobj_make_atlas(int size){ char p[700]; if(!eobj_atlas_path(p,sizeof p))return; struct stat st;
+    if(stat(p,&st)!=0){ char d[700]; snprintf(d,sizeof d,"%.600s/assets",g_games[g_sel].dir); mkdir_portable(d);
+        uint8_t*rgba=malloc((size_t)size*size*4); for(int y=0;y<size;y++)for(int x=0;x<size;x++){ int c=(((x>>3)+(y>>3))&1)?70:54; int i=(y*size+x)*4; rgba[i]=rgba[i+1]=rgba[i+2]=(uint8_t)c; rgba[i+3]=255; }
+        stbi_write_png(p,size,size,4,rgba,size*4); free(rgba); }
+    mesh_load_tex(p); snprintf(g_texsync_src,sizeof g_texsync_src,"%s",p); g_texsync_mtime=0; }
+/* Unwrap the active object: mode 0 = box/planar, 1 = per-face grid. */
+static void eobj_unwrap(int mode){ if(!g_nobj)return; EObject*o=&g_obj[g_objsel]; eundo_push();
+    if(mode==0)eobj_unwrap_box(o); else eobj_unwrap_grid(o); eobj_make_atlas(128);
+    snprintf(g_status,sizeof g_status,"unwrapped (%s) -> assets/%.28s_tex.png — paint it in Pixel Art",mode==0?"box":"grid",g_model_name); }
+
 /* full reset of the model editor + importer — called when switching projects so a new game starts blank */
 static void mesh_editor_reset(void){ eobj_free_all();
     for(int i=0;i<g_eundo_n;i++){ EUndo*u=g_eundo[i]; for(int j=0;j<u->n;j++){ free(u->o[j].v); free(u->o[j].f); free(u->o[j].e); } free(u); } g_eundo_n=0;
@@ -2187,7 +2218,7 @@ static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz;
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
-static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall;
+static SDL_Rect g_me_emove,g_me_erotate,g_me_escale,g_me_eall,g_me_unwrap,g_me_uvgrid;
 
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
@@ -2345,6 +2376,10 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     { int nx=ui_btn_t(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my,"Recalculate normals to face outward (Ctrl+Shift+N)");
       ui_btn_t(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my,"Weld + remove non-manifold faces + recalc (Ctrl+K)"); cy+=UI_H+5; }
     ME_SEP();
+    /* --- TEXTURE (UV unwrap -> paintable atlas) --- */
+    { Col txc={205,170,210}; px=ui_btn_t(R,lx,cy,0,"Unwrap",-1,txc,&g_me_unwrap,mx,my,"Box-project the model into a paintable atlas (assets/<model>_tex.png), then edit it in Pixel Art");
+      ui_btn_t(R,px,cy,0,"UV grid",-1,txc,&g_me_uvgrid,mx,my,"Per-face grid unwrap — one square cell per face"); cy+=UI_H+5; }
+    ME_SEP();
     /* --- OBJECT --- */
     px=ui_btn_t(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my,"Duplicate this object (Shift+D)");
     px=ui_btn_t(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my,"Delete selection / object (X)");
@@ -2411,6 +2446,8 @@ static int mesh_edit_down(int mx,int my){
     if(HITR(g_me_eflip)){ eobj_flip_normals(); return 1; }
     if(HITR(g_me_erecalc)){ eobj_recalc_outward(); return 1; }
     if(HITR(g_me_eclean)){ eobj_clean(); return 1; }
+    if(HITR(g_me_unwrap)){ eobj_unwrap(0); return 1; }
+    if(HITR(g_me_uvgrid)){ eobj_unwrap(1); return 1; }
     if(HITR(g_me_emkface)){ eobj_make_face(); return 1; }
     if(HITR(g_me_esep)){ eobj_separate_sel(); eobj_fit(); return 1; }
     if(HITR(g_me_esubdiv)){ eobj_subdivide_sel(); return 1; }
