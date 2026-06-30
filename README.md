@@ -217,12 +217,12 @@ a live arena-memory meter and its flash size:
 
   | Tab | What it does |
   |---|---|
-  | **Pixel Art** | HSV+hex colour picker, pencil/eraser/fill/eyedropper/line/rect, undo, grid, sizes 8–128, zoom+pan, transparency, PNG/BMP/JPG import. **Save** writes `assets/sprite.png` *and auto-bakes* the `MoteImage` header (§4). |
+  | **Pixel Art** | HSV+hex colour picker; pencil / **soft brush** (square or round, real soft opacity) / eraser / fill / eyedropper / line / rect; **Ctrl+Z** undo, grid, zoom+pan, transparency, sizes up to **256×256 (non-square)**, PNG/BMP/JPG import. **Save** writes `assets/sprite.png` *and auto-bakes* the `MoteImage` header (§4). |
   | **Texture** | Procedural texture generators (wood / marble / brick / check / cloud / stone / plasma …) with contrast/warp — kept separate from Pixel Art so generating never clobbers hand-drawn art. |
   | **Code** | Built-in C editor with syntax highlighting + inline build errors, or jump to VS Code. |
   | **Tiles** | Rule-tile (autotile) authoring: Blob-47 / edge / Wang templates, per-rule cell editing, weighted variants, rotation/flip, and a **LEVEL** painter (always scaled to fit). **Bake** writes the tileset(s) + a bit-packed `.level.h`. |
   | **Anim** | Sprite-animation editor: clips with per-frame durations, onion-skin, frame events, pivots, and the pixel editor for each frame. **Bake** writes a `MoteAnimClip` set. |
-  | **Mesh** | Two modes. **Importer:** live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). **Assign…** picks a PNG to texture the model. **Model editor** (a built-in Blender-style modeller — **Tab** or the **Model editor** button) lets you build/edit low-poly meshes directly: select verts/edges/faces, grab/scale/extrude/inset, mirror, paint per-face colours, and bake. See **§4.x Modelling in the Mesh tab**. |
+  | **Mesh** | Two modes. **Importer:** live preview of an `.stl`/`.obj` *processed* (decimated + chunked) with parameters — triangle budget, target size, up-axis, recenter, chunk-view colouring, an HSV colour picker — a stats readout, and **Bake** to a `MoteModel` header (§4). **Assign…** picks a PNG to texture the model. **Model editor** (a built-in Blender-style modeller — **Tab** or the **Model editor** button) lets you build/edit low-poly meshes directly: select verts/edges/faces (+ invert / linked / grow / shrink), move / rotate / scale / extrude / inset, make-face / connect / subdivide / bridge / separate, clean topology, mirror, paint per-face colours, and bake. Multiple named models per project; multi-object `.obj` import. See **§4.x Modelling in the Mesh tab**. |
   | **Audio** | Load a WAV/MP3 (→ 22050 Hz mono) or design an SFX with the SFXR synth + presets; see the waveform, crop, play. **Save** writes the `.wav`, the editable `.sfx` recipe, a `MoteSound` header *and* a `MoteSfx` recipe header (play via `audio_play` or `mote_sfx_bake`, §9). |
   | **Device** | Ping / List / Push / Push & Launch / Stream Logs / Wipe over USB. |
   | **Console** | Live build + device output. |
@@ -450,6 +450,12 @@ real mesh topology — vertices, edges, and faces you can select and operate on 
 bakes the exact result (no decimation) straight to a `MoteModel` header. It's
 non-destructive: the importer is untouched, and **Tab** flips back to it.
 
+![The Studio model editor — the 3D viewport with a model in wireframe on the left, and the MODEL EDITOR sidebar on the right grouped into Select / Add / Transform / Edit / Faces / Object / File sections with a scrollbar](docs/img/studio-model-editor.png)
+
+The **MODEL EDITOR** sidebar is organised into labelled groups — **Select**, **Add**,
+**Transform**, **Edit**, **Faces**, **Object**, **File** — it scrolls when it's taller
+than the dock, and every button shows a hover tooltip with its keyboard shortcut.
+
 There are three ways to get geometry into the editor:
 
 - **Add a primitive** — Cube, Plane, Cylinder, Cone, or Sphere (`Shift+A` adds a
@@ -457,23 +463,31 @@ There are three ways to get geometry into the editor:
 - **Edit an imported model** — load an `.stl`/`.obj`, set the **tris** budget for the
   topology density you want, then click **Edit this mesh**. The decimated result
   becomes editable verts + faces (e.g. `fighter.stl` at budget 250 → 81 verts / 204
-  faces, fully editable).
-- **New / open a project** — **New** (or `Ctrl+N`) clears the scene to start fresh.
-  Switching projects also resets the editor automatically.
+  faces, fully editable). An `.obj` with several `o`/`g` **groups comes in as separate
+  objects**, so a multi-part model stays riggable.
+- **New / open a project** — **New** (or `Ctrl+N`) starts a fresh **named** model. A
+  project can hold several models — each is a `<name>.mmesh`, listed in the file tree,
+  and every bake/export follows its name. Switching projects resets *every* tab and
+  loads that project's model.
 
 **Select** what you want to work on with the mode buttons or keys **1 / 2 / 3**
-(vertex / edge / face). Click an element to select it, **Shift+click** to add,
-**B** then drag for a box-select, **A** / **Alt+A** to select all / none. Selected
-elements highlight orange; hovering previews what you'd pick.
+(vertex / edge / face). Click an element to select it, **Shift+click** to add, or
+**drag a box** over empty space. Then refine with the selection helpers (buttons, or
+the keys): **All** (A) / deselect (Alt+A), **Invert** (Ctrl+I), **Linked** — the whole
+connected island (L), and **Grow** / **Shrink** (Ctrl + / Ctrl −). Selected elements
+highlight orange; hovering previews what you'd pick.
 
 **Transform** the selection with modal operators — exactly like Blender:
 
 | Key | Operator | What it does |
 |---|---|---|
 | **G** | Grab (move) | Move the selection; the readout shows the distance |
+| **R** | Rotate | Rotate about the selection centre — by default around the view axis; type degrees, or **X/Y/Z** for a world axis |
 | **S** | Scale | Scale about the selection centroid |
 | **E** | Extrude | (Face mode) pull selected faces out — new side walls are bridged in, then it moves along the face normal |
 | **I** | Inset | (Face mode) shrink an inner copy of each face inward, with a ring of new faces |
+
+There are buttons for **Move / Rotate / Scale** too if you prefer clicking to keys.
 
 While a modal op is live: press **X / Y / Z** to constrain to an axis, **type a
 number** for an exact value, **Enter** or **left-click** to confirm, **Esc** or
@@ -487,6 +501,18 @@ selected vertices to their centre (**M**), **Flip** normals (`Shift+N`), and
 picker (HSV square + hue strip + swatch) appears in **Face mode**, right where you
 paint; per-face colours bake into a `face_colors[]` array so one model can be
 multi-coloured.
+
+**Add and cut geometry** with the EDIT tools: **+Face** (**F**) makes a face from 3–4
+selected verts (caps a hole), **Connect** (**J**) splits a face by joining two verts,
+**Subdiv** subdivides the selected faces, **Bridge** joins two equal-sided faces with a
+band of quads, and **Separate** splits the selected faces off into a **new object** —
+exactly what you want before rigging a model into parts.
+
+**Clean up** imported or hand-edited topology: **Recalc outward** flips normals to face
+out, and **Clean** (**Ctrl+K**) welds doubled verts, removes non-manifold faces and
+reorients in one pass. **Origin ▸ Sel / Centre** moves the object's origin to your
+selection or its bounding-box centre *without* moving the geometry — a sane pivot for
+the Rig tab.
 
 **Mirror** (live): toggle **Mirror X / Y / Z** on an object and you model one half
 while the editor shows the whole thing — the reflected half is solid (with a subtle

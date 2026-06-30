@@ -11,21 +11,50 @@ faces and shape it with familiar modal tools. Bake the exact result to a
 tab. Studio-only — no firmware reflash needed. Full guide in the README
 (§4 *Modelling in the Mesh tab*).
 
-- **Select + transform.** Vertex / edge / face modes (1 / 2 / 3), click / shift-add
-  / box-select (B) / select-all (A). **G**rab, **S**cale, **E**xtrude, **I**nset —
-  with **X/Y/Z** axis locks, exact numeric entry, and a drag-able 3-axis gizmo.
+- **Select.** Vertex / edge / face modes (1 / 2 / 3); click / Shift-add / drag a box /
+  **A** all / **Alt+A** none, plus **Invert** (Ctrl+I), **Linked** island (L), and
+  **Grow** / **Shrink** (Ctrl +/−).
+- **Transform.** **G** move, **R** rotate, **S** scale, **E** extrude, **I** inset —
+  each with **X/Y/Z** axis locks, exact numeric entry, and a drag-able 3-axis gizmo.
   **Ctrl+Z** undo throughout.
-- **Build it out.** Duplicate (Shift+D), delete (X), merge verts (M), flip normals
-  (Shift+N), and per-face colour **Paint** (P) with an in-editor HSV picker —
-  per-face colours bake into a `face_colors[]` array.
-- **Live Mirror (X/Y/Z).** Model one half and see/bake the whole; the reflected
-  half is welded watertight at bake time. Great for symmetric ships and characters.
-- **Edit imported models.** Load an `.stl`/`.obj`, pick a triangle budget, and
-  **Edit this mesh** converts it to editable verts + faces.
-- **Multi-object → rig.** **Bake rig** emits a `MoteRig` (one part per object,
-  parent + pivot); **Export OBJ** writes `scene.obj` + `.rig` to animate in the Rig
-  tab. **New** / Ctrl+N starts a fresh scene, and switching projects resets the
-  editor automatically.
+- **Build geometry.** **+Face** (F) makes a face from 3–4 selected verts, **Connect**
+  (J) splits a face between two verts, **Subdivide** selected faces, **Bridge** two
+  faces with a band of quads, **Separate** selected faces into a new object — plus
+  Duplicate (Shift+D), Delete (X), Merge verts (M) and Flip normals (Shift+N).
+- **Repair topology.** **Recalc outward** orients normals to face out; **Clean**
+  (Ctrl+K) welds doubles, removes non-manifold faces and reorients — for cleaning up
+  imported or hand-edited meshes.
+- **Set origin.** Move an object's origin to the selection or its bounding-box centre
+  (the geometry stays put) — handy for sane rig pivots.
+- **Per-face Paint** (P) with an in-editor HSV picker (colours bake into a
+  `face_colors[]` array), and **Live Mirror (X/Y/Z)** — model one half, the whole
+  bakes watertight. Great for symmetric ships and characters.
+- **Multiple named models per project.** Each model is a named `<name>.mmesh`; **New**
+  (Ctrl+N) names a fresh one, the file tree lists them, and every bake/export follows
+  the name (`src/<name>.h`, `<name>_rig.h`, `assets/<name>.obj`).
+- **Multi-object import.** Importing an `.obj` with several `o`/`g` groups brings each
+  group in as its own editable object, so a multi-part model stays riggable.
+- **Edit imported models / bake / export.** Load an `.stl`/`.obj`, pick a triangle
+  budget, **Edit this mesh**; **Bake .h** (a `MoteModel`), **Bake rig** (a `MoteRig`,
+  one part per object), or **Export OBJ** + `.rig` to animate in the Rig tab.
+- **A tidier, scrollable sidebar.** The MODEL EDITOR panel is organised into labelled
+  groups (Select / Add / Transform / Edit / Faces / Object / File), scrolls when it
+  overflows the dock, and every button shows a hover tooltip.
+- **Switching projects now resets every tab** — model objects, the pixel-art and
+  texture canvases, tilesets, animations, rig, SFX and font — and loads the new
+  project's model, so you never see the previous game's assets.
+
+### Pixel Art
+
+- **Bigger, non-square canvases.** Up to 256×256 with independent width and height
+  (the square presets still set W = H, and there are separate W and H − / + steppers).
+  Imports keep their real size instead of being forced to a 128×128 square.
+- **A real soft brush.** Soft edges now use a proper opacity layer, so a low-hardness
+  brush feathers smoothly and overlapping strokes in one drag don't darken or
+  saturate. Soft pixels show over a checker and **save as real PNG transparency**.
+  There's one brush tool with a **square / round** shape toggle (the separate square
+  tool is gone) and a proper brush icon.
+- **Undo on the Pixel Art tab.** **Ctrl+Z** undo, **Ctrl+Shift+Z** / **Ctrl+Y** redo.
 
 ## 0.10-alpha
 
