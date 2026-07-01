@@ -61,6 +61,10 @@ cp build_win/mote_studio.exe "$STAGE/"
 for d in engine sdk os platform studio examples games tools; do cp -r "$d" "$STAGE/$d"; done
 cp CMakeLists.txt README.md "$STAGE/" 2>/dev/null || true
 find "$STAGE" -type d -name build -prune -exec rm -rf {} + 2>/dev/null || true
+# Release hygiene: drop anything git doesn't track (in-progress games/tools
+# in the working tree must never leak into the public bundle).
+git ls-files --others --directory --exclude-standard -z -- engine sdk os platform studio examples games tools \
+  | while IFS= read -r -d '' f; do rm -rf "$STAGE/$f"; done
 # portable toolchain (rename w64devkit -> toolchain so add_bundled_toolchain finds toolchain/bin)
 cp -r "$WB/w64devkit" "$STAGE/toolchain"
 cp -r "$WB/arm" "$STAGE/arm"          # arm-none-eabi-gcc for device .mote builds (Push & Launch)
