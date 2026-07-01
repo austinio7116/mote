@@ -18,7 +18,9 @@ struct MoteSfx;   /* full definition in the ABI header (mote_api.h) */
 
 void mote_audio_init(void);
 void mote_audio_note(float freq, float amp);     /* strike a note (auto-allocates a voice) */
-void mote_audio_play(const int16_t *pcm, int count, float gain);  /* one-shot 22050 Hz mono PCM sample */
+/* one-shot mono PCM sample. `rate` Hz (0 = 22050), `bits` 8 or 16 (0 = 16); the
+ * mixer resamples to 22050 and expands 8-bit (signed int8) on the fly. */
+void mote_audio_play(const void *pcm, int count, int rate, int bits, float gain);
 /* Synthesise a recipe to 22050 Hz mono PCM. Returns sample count; writes into out
  * (bounded by max) only when out != NULL. See the ABI note on audio_render_sfx. */
 int  mote_audio_render_sfx(const struct MoteSfx *p, int16_t *out, int max);

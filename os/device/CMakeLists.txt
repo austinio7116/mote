@@ -50,7 +50,7 @@ set(MOTE_CORE
 set(MOTE_3D                                  # the full 3D engine (runner only)
     ${ENGINE}/render/mote_raster.c ${ENGINE}/render/mote_pipe.c
     ${ENGINE}/render/mote_scene3d.c ${ENGINE}/render/mote_splat.c
-    ${ENGINE}/physics/mote_phys.c ${ENGINE}/audio/mote_audio.c)
+    ${ENGINE}/physics/mote_phys.c ${ENGINE}/physics/mote_phys2d.c ${ENGINE}/audio/mote_audio.c)
 
 # Which target + sources for this shape.
 if (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "runner")

@@ -286,6 +286,17 @@ static inline void mote_model_draw_tint(const MoteApi *m, const MoteModel *model
     for (uint16_t i = 0; i < model->count; i++)
         mote_draw_tint(m, &model->chunks[i], pos, basis, scale, color);
 }
+/* Draw a multi-part MODEL, recolouring each PART with parts[i] (RGB565; 0 = keep the part's
+ * baked colour). A multi-material OBJ bakes to one chunk per material (obj2mesh), in the
+ * OBJ's material order — so a two-material piece (body, topper) takes a 2-entry palette,
+ * and the SAME model recolours per draw for team colours / chess sides with no extra assets.
+ * `n` is the palette length; parts beyond it keep their baked colour. */
+static inline void mote_model_draw_palette(const MoteApi *m, const MoteModel *model, Vec3 pos,
+                                           Mat3 basis, float scale, const uint16_t *parts, int n) {
+    for (uint16_t i = 0; i < model->count; i++)
+        mote_draw_tint(m, &model->chunks[i], pos, basis, scale,
+                       (parts && i < (uint16_t)n) ? parts[i] : 0);   /* 0 -> keep baked colour */
+}
 
 /* ---- bake a MoteSfx recipe into a playable MoteSound at load: the engine synthesises
  * the PCM into an arena buffer (measure, then render). Ship ~88-byte recipes instead of

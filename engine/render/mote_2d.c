@@ -107,7 +107,7 @@ static void mote_blit_rot(uint16_t *fb, const MoteImage *img,
             }
             if (flags & MOTE_SPR_HFLIP) sc = n - 1 - sc;
             if (flags & MOTE_SPR_VFLIP) sr = n - 1 - sr;
-            uint16_t px = img->pixels[(fy + sr) * iw + fx + sc];
+            uint16_t px = img->format ? mote_img_texel(img, fx + sc, fy + sr) : img->pixels[(fy + sr) * iw + fx + sc];
             if (opaque || px != key) drow[sx] = px;
         }
     }
@@ -132,7 +132,7 @@ void mote_blit(uint16_t *fb, const MoteImage *img,
             int sx = x + col;
             if ((unsigned)sx >= MOTE_FB_W) continue;
             int src_col = (flags & MOTE_SPR_HFLIP) ? (fw - 1 - col) : col;
-            uint16_t px = srow[src_col];
+            uint16_t px = img->format ? mote_img_texel(img, fx + src_col, fy + src_row) : srow[src_col];
             if (opaque || px != key) drow[sx] = px;
         }
     }
@@ -176,7 +176,7 @@ void mote_blit_ex(uint16_t *fb, const MoteImage *img,
             if (u < 0.0f || v < 0.0f) continue;
             int su = (int)u, sv = (int)v;
             if (su >= fw || sv >= fh) continue;
-            uint16_t sp = img->pixels[(fy + sv) * iw + fx + su];
+            uint16_t sp = img->format ? mote_img_texel(img, fx + su, fy + sv) : img->pixels[(fy + sv) * iw + fx + su];
             if (!opaque && sp == key) continue;
             drow[px] = blend ? blit_blend565(drow[px], sp, blend) : sp;
         }

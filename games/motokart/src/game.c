@@ -21,8 +21,8 @@
 #include <string.h>
 
 #include "kart.rig.h"    /* kart_rig: multi-part model (hull/trim/4 wheels)*/
-#include "banana.h"      /* banana_mesh — curved 3D banana   */
-#include "kshell.h"      /* kshell_mesh — domed turtle shell (named kshell so it can't
+#include "banana.h"      /* banana — multi-part banana model   */
+#include "kshell.h"      /* kshell — multi-part turtle shell (named kshell so it can't
                             collide with the shell SOUND's src/shell.h header) */
 #include "driver.h"      /* driver_img (8 colour-coded racers, back view) */
 #include "tree.h"        /* tree_img   (pine + round, 2 frames) */
@@ -334,7 +334,7 @@ static ItemBox box[NBOX];
 
 #define NBANANA 16
 typedef struct { Vec3 pos; int active; int owner; float grace; } Banana;
-static Banana banana[NBANANA];
+static Banana bananas[NBANANA];
 
 #define NSHELL 8
 typedef struct { Vec3 pos; int seg; int owner; int active; int homing; float ttl; } Shell;
@@ -481,7 +481,7 @@ static void items_reset(void) {
             b->active = 1; b->respawn = 0;
         }
     }
-    for (int i = 0; i < NBANANA; i++) banana[i].active = 0;
+    for (int i = 0; i < NBANANA; i++) bananas[i].active = 0;
     for (int i = 0; i < NSHELL; i++)  shell[i].active = 0;
 }
 
@@ -583,11 +583,11 @@ static void spin_out(Kart *k) {
 }
 
 static void drop_banana(Kart *k) {
-    for (int i = 0; i < NBANANA; i++) if (!banana[i].active) {
+    for (int i = 0; i < NBANANA; i++) if (!bananas[i].active) {
         Vec3 back = v3(sinf(k->yaw), 0, cosf(k->yaw));
-        banana[i].pos = v3_sub(k->pos, v3_scale(back, 1.4f));
-        banana[i].pos.y = k->pos.y - RIDE_H + 0.08f;   /* banana model half-height */
-        banana[i].active = 1; banana[i].owner = (int)(k - kart); banana[i].grace = 0.4f;
+        bananas[i].pos = v3_sub(k->pos, v3_scale(back, 1.4f));
+        bananas[i].pos.y = k->pos.y - RIDE_H + 0.08f;   /* banana model half-height */
+        bananas[i].active = 1; bananas[i].owner = (int)(k - kart); bananas[i].grace = 0.4f;
         return;
     }
 }
@@ -703,8 +703,8 @@ static void kart_sim(Kart *k, float dt, int locked) {
         want_drift = (curve > 0.42f && k->speed > 9.0f) ? 1.0f : 0.0f;
 
         /* dodge a banana right in the path */
-        for (int b = 0; b < NBANANA; b++) if (banana[b].active) {
-            float dx = banana[b].pos.x - k->pos.x, dz = banana[b].pos.z - k->pos.z;
+        for (int b = 0; b < NBANANA; b++) if (bananas[b].active) {
+            float dx = bananas[b].pos.x - k->pos.x, dz = bananas[b].pos.z - k->pos.z;
             if (dx * dx + dz * dz < 12.0f) steer = mote_clampf(steer + (k->ai_offset > 0 ? -0.7f : 0.7f), -1, 1);
         }
         /* use a held item at a relaxed pace (not instant spam) */
@@ -870,12 +870,12 @@ static void items_sim(float dt) {
             }
         }
     }
-    for (int i = 0; i < NBANANA; i++) if (banana[i].active) {
-        if (banana[i].grace > 0) banana[i].grace -= dt;
+    for (int i = 0; i < NBANANA; i++) if (bananas[i].active) {
+        if (bananas[i].grace > 0) bananas[i].grace -= dt;
         for (int kk = 0; kk < NKART; kk++) {
-            if (banana[i].grace > 0 && kk == banana[i].owner) continue;
-            float dx = kart[kk].pos.x - banana[i].pos.x, dz = kart[kk].pos.z - banana[i].pos.z;
-            if (dx * dx + dz * dz < 0.8f * 0.8f) { spin_out(&kart[kk]); banana[i].active = 0; break; }
+            if (bananas[i].grace > 0 && kk == bananas[i].owner) continue;
+            float dx = kart[kk].pos.x - bananas[i].pos.x, dz = kart[kk].pos.z - bananas[i].pos.z;
+            if (dx * dx + dz * dz < 0.8f * 0.8f) { spin_out(&kart[kk]); bananas[i].active = 0; break; }
         }
     }
     for (int i = 0; i < NSHELL; i++) if (shell[i].active) {
@@ -1142,14 +1142,14 @@ static void draw_world(void) {
         if (in_view(bp))
             mote->scene_add_billboard(bp, &itembox_img, 0, 0, 0, 0, 0.7f, MOTE_BLEND_NONE);
     }
-    for (int i = 0; i < NBANANA; i++) if (banana[i].active && in_view(banana[i].pos)) {
+    for (int i = 0; i < NBANANA; i++) if (bananas[i].active && in_view(bananas[i].pos)) {
         Mat3 bb = m3_identity(); m3_rotate_local(&bb, 1, g_racetime * 1.4f + i);
-        mote_draw_ex(mote, &banana_mesh, banana[i].pos, bb, 1.5f);   /* bigger so it's visible on the road */
+        mote_model_draw_ex(mote, &banana, bananas[i].pos, bb, 1.5f);   /* bigger so it's visible on the road */
     }
     for (int i = 0; i < NSHELL; i++) if (shell[i].active && in_view(shell[i].pos)) {
         Mat3 sb = m3_identity(); m3_rotate_local(&sb, 1, g_racetime * 7.0f + i);
-        if (shell[i].homing) mote_draw_tint(mote, &kshell_mesh, shell[i].pos, sb, 1.15f, MOTE_RGB565(225, 45, 45));
-        else                 mote_draw_ex(mote, &kshell_mesh, shell[i].pos, sb, 1.15f);
+        if (shell[i].homing) mote_model_draw_tint(mote, &kshell, shell[i].pos, sb, 1.15f, MOTE_RGB565(225, 45, 45));
+        else                 mote_model_draw_ex(mote, &kshell, shell[i].pos, sb, 1.15f);
     }
 
     /* finish banner + posts */

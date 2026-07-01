@@ -20,12 +20,29 @@
 
 /* A pixel rectangle in flash (sprite sheet / tileset atlas / single image). */
 typedef struct {
-    const uint16_t *pixels;   /* w*h RGB565, row-major */
+    const uint16_t *pixels;   /* format 0: w*h RGB565, row-major. NULL when indexed. */
     uint16_t w, h;
     uint16_t key;             /* transparent colour key (ignored when opaque) */
     uint8_t  opaque;          /* 1 = no transparency: draw every pixel, ignore key.
                                * Defaults to 0 for older {px,w,h,key} initialisers. */
+    /* --- ABI v41: optional palette-indexed pixels — a hand-painted texture with few
+     * colours costs 1/4 (4bpp) or 1/2 (8bpp) the flash of RGB565, decoded to RGB565 by a
+     * palette lookup at sample time. Both NULL / format 0 on a plain RGB565 image, so
+     * older {px,w,h,key[,opaque]} initialisers keep working unchanged. */
+    uint8_t  format;          /* 0 = RGB565 (pixels) · 1 = 4bpp indexed · 2 = 8bpp indexed */
+    const uint8_t  *indices;  /* packed palette indices — format 1: 2 per byte, high nibble first; format 2: 1 per byte */
+    const uint16_t *palette;  /* RGB565 palette — 16 entries (format 1) or up to 256 (format 2) */
 } MoteImage;
+
+/* Fetch one texel as RGB565, transparently handling RGB565 or palette-indexed images.
+ * Hot raster loops branch on `format` once (it's the same for the whole primitive) so the
+ * predictor hides the cost; the palette lookup is one extra read for indexed textures. */
+static inline uint16_t mote_img_texel(const MoteImage *img, int u, int v) {
+    unsigned i = (unsigned)v * img->w + (unsigned)u;
+    if (!img->format) return img->pixels[i];
+    if (img->format == 1) { uint8_t b = img->indices[i >> 1]; return img->palette[(i & 1u) ? (b & 0x0Fu) : (unsigned)(b >> 4)]; }
+    return img->palette[img->indices[i]];
+}
 
 /* --- ABI v39: anti-aliased proportional bitmap font ---------------------------
  * Coverage is packed at `bpp` bits/pixel (MSB-first, row-major, byte-aligned per

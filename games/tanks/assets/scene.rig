@@ -1,0 +1,4 @@
+part body parent -1 pivot 0 -0.02222 -0.11472
+part tracks parent body pivot -2.66092e-08 -0.162834 -0.1225
+part turret parent body pivot -0.00470588 0.147794 -0.0730882
+part barrel parent body pivot 2.86561e-10 0.1175 0.376731

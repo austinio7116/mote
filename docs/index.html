@@ -503,6 +503,18 @@ or <code>&lt;0</code> to test all. For aiming, ground checks, picking, AI.</p>
 fields — set them directly. The mesh-collider broad-phase grid is built once with the header-only
 <a href="#fn-mote_phys_mesh_build_grid"><code>mote_phys_mesh_build_grid()</code></a>.</div>
 
+<h3 id="fn-phys2d_step">phys2d_step <span class="badge abi">v42</span></h3>
+<pre class="sig"><span class="kw">uint32_t</span> (*<span class="fn">phys2d_step</span>)(<span class="ty">MoteWorld2D</span> *w, <span class="ty">MoteBody2D</span> *b, <span class="kw">int</span> n, <span class="kw">float</span> dt);</pre>
+<p>Advance the <strong>2D (top-down) rigid-body world</strong> by <code>dt</code> — a planar sibling of <a href="#fn-phys_step"><code>phys_step</code></a>
+for driving games, air hockey, top-down brawlers. Circles + oriented boxes, impulse collisions with restitution and
+Coulomb friction, and a single rotational DOF so bodies pick up <em>spin from off-centre impacts</em>. Sequential-impulse
+solver, AABB broad phase, sleeping, collision-group masks, <code>MOTE_B2D_SENSOR</code> overlap-only bodies, and per-body
+<code>lat_damp</code> — anisotropic lateral friction that behaves like tyre grip (slides are removed at a fixed rate, so fast
+sideways motion <em>drifts</em>). The game owns the body array (<a href="#ty-motebody2d"><code>MoteBody2D</code></a> /
+<a href="#ty-moteworld2d"><code>MoteWorld2D</code></a>; header-only constructors <code>mote_body2d_circle()</code> /
+<code>mote_body2d_box()</code>); the solver runs fixed internal substeps and returns the contacts resolved on the last one.
+Pools come from <code>MoteConfig.max_bodies / max_contacts</code>, same as 3D. Map a top-down world's <code>(x,z)</code> to body <code>(x,y)</code>.</p>
+
 <!-- ============================ SPLATS ============================ -->
 <h2 id="api-splat" class="anchor">Engine API — Gaussian splats <span class="badge abi">v8</span></h2>
 <p>A 3D Gaussian-splat renderer (a fourth render path beside raster / raycast / 2D). Each <a href="#t-splat"><code>MoteSplat</code></a>
@@ -539,8 +551,10 @@ stolen when all 8 are busy. <code>audio_off()</code> silences everything.</p>
 
 <h3 id="fn-audio_play">audio_play <span class="badge abi">v12</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">audio_play</span>)(<span class="kw">const</span> <span class="ty">MoteSound</span> *snd, <span class="kw">float</span> gain);</pre>
-<p>Fire a one-shot 22050&nbsp;Hz mono PCM <a href="#t-audio"><code>MoteSound</code></a> (a baked WAV, or a recipe baked with
-<a href="#fn-mote_sfx_bake"><code>mote_sfx_bake</code></a>). <code>gain</code> 0..1+. Up to 4 samples mix at once (oldest stolen); they
+<p>Fire a one-shot mono PCM <a href="#t-audio"><code>MoteSound</code></a> (a baked WAV, or a recipe baked with
+<a href="#fn-mote_sfx_bake"><code>mote_sfx_bake</code></a>). <span class="badge abi">v40</span> The clip plays at its stored
+quality — <code>bits</code> 8/16, <code>rate</code> up to 22050&nbsp;Hz (<code>0</code> = 22050) — resampled + expanded by the
+mixer, so effects can ship at ~1/4 the flash. <code>gain</code> 0..1+. Up to 4 samples mix at once (oldest stolen); they
 sum on top of the synth.</p>
 
 <h3 id="fn-audio_render_sfx">audio_render_sfx <span class="badge abi">v19</span></h3>
@@ -722,11 +736,15 @@ so a game draws the whole thing in one call (<a href="#fn-mote_model_draw"><code
 
 <h3 id="ty-moteimage">MoteImage</h3>
 <table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
-<tr><td>pixels</td><td class="ty">const uint16_t*</td><td><code>w*h</code> RGB565, row-major.</td></tr>
+<tr><td>pixels</td><td class="ty">const uint16_t*</td><td><code>w*h</code> RGB565, row-major (<code>format 0</code>; NULL when indexed).</td></tr>
 <tr><td>w, h</td><td class="ty">uint16_t</td><td>Dimensions.</td></tr>
 <tr><td>key</td><td class="ty">uint16_t</td><td>Transparent colour key (ignored when opaque).</td></tr>
 <tr><td>opaque</td><td class="ty">uint8_t</td><td><code>1</code> = draw every pixel, ignore key.</td></tr>
+<tr><td>format</td><td class="ty">uint8_t</td><td><span class="badge abi">v41</span> <code>0</code> = RGB565 (<code>pixels</code>) · <code>1</code> = 4-bit indexed · <code>2</code> = 8-bit indexed. Indexed art costs 1/4 (≤16 colours) or 1/2 (≤256) the flash, decoded by a palette lookup at sample time — works on every texture path (meshes, sprites, blits, billboards). The bakers emit it automatically and losslessly when an image has ≤256 colours.</td></tr>
+<tr><td>indices</td><td class="ty">const uint8_t*</td><td>Packed palette indices — format 1: two per byte, high nibble first; format 2: one per byte.</td></tr>
+<tr><td>palette</td><td class="ty">const uint16_t*</td><td>RGB565 palette — 16 entries (format 1) or up to 256 (format 2).</td></tr>
 </table>
+<p>Old <code>{pixels, w, h, key[, opaque]}</code> initialisers zero the new fields = format 0, unchanged.</p>
 
 <h3 id="ty-motetileset">MoteTileset</h3>
 <pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const</span> <span class="ty">MoteImage</span> *sheet; <span class="ty">uint16_t</span> tile_w, tile_h; } <span class="ty">MoteTileset</span>;</pre>
@@ -808,6 +826,36 @@ uint16, <code>tri</code> ≥ <code>ntris</code> uint16). Returns 0, or −1 on b
 <tr><td>normal</td><td class="ty">Vec3</td><td>Surface normal (points back toward the ray origin).</td></tr>
 </table>
 
+<h3 id="ty-motebody2d">MoteBody2D <span class="badge hdr">mote_phys2d.h</span> <span class="badge abi">v42</span></h3>
+<p>A planar rigid body for <a href="#fn-phys2d_step"><code>phys2d_step</code></a> — top-down games map world <code>(x,z)</code> to body <code>(x,y)</code>.</p>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>x, y</td><td class="ty">float</td><td>Position on the plane (metres).</td></tr>
+<tr><td>vx, vy</td><td class="ty">float</td><td>Linear velocity (m/s).</td></tr>
+<tr><td>angle</td><td class="ty">float</td><td>Orientation, radians.</td></tr>
+<tr><td>avel</td><td class="ty">float</td><td>Angular velocity, rad/s.</td></tr>
+<tr><td>inv_mass</td><td class="ty">float</td><td><code>0</code> = static/immovable (walls, kerbs).</td></tr>
+<tr><td>inv_inertia</td><td class="ty">float</td><td><code>0</code> = rotation locked (bollards, pedestrians).</td></tr>
+<tr><td>restitution</td><td class="ty">float</td><td>Bounciness 0..1.</td></tr>
+<tr><td>friction</td><td class="ty">float</td><td>Coulomb coefficient (pair-combined as sqrt).</td></tr>
+<tr><td>lin_damp, ang_damp</td><td class="ty">float</td><td>Exponential damping per second.</td></tr>
+<tr><td>shape</td><td class="ty">uint8_t</td><td><code>MOTE_C2D_CIRCLE</code> or <code>MOTE_C2D_BOX</code> (oriented).</td></tr>
+<tr><td>flags</td><td class="ty">uint8_t</td><td><code>MOTE_B2D_SENSOR</code> (overlap only, no impulse); <code>MOTE_B2D_ASLEEP</code> is engine-managed.</td></tr>
+<tr><td>mask</td><td class="ty">uint16_t</td><td>Collision groups: a pair collides if <code>mask_a &amp; mask_b</code> ≠ 0 (<code>0</code> = collide with everything).</td></tr>
+<tr><td>radius</td><td class="ty">float</td><td>Circle radius.</td></tr>
+<tr><td>hx, hy</td><td class="ty">float</td><td>Box half-extents (local +x / +y).</td></tr>
+<tr><td>user</td><td class="ty">void*</td><td>Game back-reference (entity pointer).</td></tr>
+<tr><td>lat_damp</td><td class="ty">float</td><td>Anisotropic lateral friction, m/s² (<code>0</code> = off): each substep removes up to <code>lat_damp·dt</code> of the velocity <em>perpendicular</em> to <code>angle</code> — tyre grip that lets fast slides <em>drift</em>. Air hockey / curling leave it 0.</td></tr>
+</table>
+<p>Header-only constructors fill sane mass + inertia: <code>mote_body2d_circle(x, y, r, mass)</code>,
+<code>mote_body2d_box(x, y, hx, hy, angle, mass)</code> (<code>mass 0</code> = static).</p>
+
+<h3 id="ty-moteworld2d">MoteWorld2D <span class="badge hdr">mote_phys2d.h</span> <span class="badge abi">v42</span></h3>
+<table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
+<tr><td>gx, gy</td><td class="ty">float</td><td>Gravity — <code>(0,0)</code> for top-down.</td></tr>
+<tr><td>iterations</td><td class="ty">int</td><td>Velocity-solver iterations (<code>0</code> = 8).</td></tr>
+<tr><td>min_x, min_y, max_x, max_y</td><td class="ty">float</td><td>Optional static bounds; all <code>0</code> = none.</td></tr>
+</table>
+
 <h2 id="t-splat" class="anchor">Data types — Splats <span class="badge hdr">mote_splat.h</span></h2>
 <h3 id="ty-motesplat">MoteSplat</h3>
 <table><tr><th>Field</th><th class="ty">Type</th><th>Description</th></tr>
@@ -838,8 +886,13 @@ uint16, <code>tri</code> ≥ <code>ntris</code> uint16). Returns 0, or −1 on b
 
 <h2 id="t-audio" class="anchor">Data types — Audio</h2>
 <h3 id="ty-motesound">MoteSound <span class="badge hdr">mote_api.h</span></h3>
-<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const</span> <span class="ty">int16_t</span> *pcm; <span class="kw">int</span> count; } <span class="ty">MoteSound</span>;</pre>
-<p>A one-shot 22050&nbsp;Hz mono signed-16-bit sample. Play with <a href="#fn-audio_play"><code>audio_play</code></a>.</p>
+<pre class="sig"><span class="kw">typedef struct</span> { <span class="kw">const void</span> *pcm; <span class="kw">int</span> count; <span class="ty">uint16_t</span> rate; <span class="ty">uint8_t</span> bits; } <span class="ty">MoteSound</span>;</pre>
+<p>A one-shot mono PCM sample, played with <a href="#fn-audio_play"><code>audio_play</code></a>. <span class="badge abi">v40</span>
+The clip is stored at its <em>native</em> quality — <code>bits</code> 8 or 16, <code>rate</code> the source Hz (<code>0</code> = 22050) —
+and the mixer resamples + expands on playback, so an 8-bit/11025&nbsp;Hz effect costs ~1/4 the flash of 16-bit/22050.
+The bakers (Studio Audio tab, <code>mote bake</code>) keep the WAV's own quality; force a target with
+<code>MOTE_SFX_RATE</code> / <code>MOTE_SFX_BITS</code> to shrink a whole game without editing its WAVs. Legacy
+<code>{pcm, count}</code> initialisers read as 16-bit/22050, unchanged.</p>
 <h3 id="ty-motesfx">MoteSfx <span class="badge hdr">mote_api.h</span></h3>
 <p>An SFXR-style sound recipe (~88 bytes) — the editable source behind a SFX, authored in the Studio Audio tab. Baked to a
 <code>static const MoteSfx</code> it is ~1000× smaller than the equivalent PCM, and the engine synthesises it on load.</p>
@@ -914,6 +967,17 @@ CCW-from-outside, and compute normals. They allocate from the load-time arena �
 <pre class="sig"><span class="ty">MoteSound</span> <span class="fn">mote_sfx_bake</span>(<span class="kw">const</span> <span class="ty">MoteApi</span> *m, <span class="kw">const</span> <span class="ty">MoteSfx</span> *recipe);</pre>
 <p>Synthesise a recipe into a playable <code>MoteSound</code> at load (measures, allocates from the arena, renders). Call once in
 <code>init()</code>, then <code>mote-&gt;audio_play(&amp;snd, gain)</code>. Returns <code>{0,0}</code> on failure.</p>
+
+<h3 id="fn-mote_synth">mote_synth.h — layered tone SFX <span class="badge sdk">mote_synth.h</span></h3>
+<pre class="sig"><span class="kw">#define</span> MOTE_SYNTH_IMPL   <span class="cm">/* once, before including */</span>
+<span class="kw">void</span> <span class="fn">mote_synth_tone</span>(<span class="kw">const</span> <span class="ty">MoteTone</span> *layers, <span class="kw">int</span> n);</pre>
+<p>A header-only layered synth — the light middle ground between baked PCM (large flash) and streamed
+<code>MoteSfx</code> recipes (heavy DSP). A sound is a stack of cheap voices (<code>MoteTone</code>: Square / Saw / Sine /
+Noise, a linear frequency sweep <code>f0→f1</code>, amplitude, attack, length), authored live in the Studio Audio tab's
+<strong>Tone</strong> view and exported as a <code>MoteTone[]</code> header. Wire it once with
+<code>mote-&gt;audio_set_stream(mote_synth_render)</code> in <code>init()</code>, then fire sounds with
+<code>mote_synth_tone(laser, laser_N)</code>. ~0 flash, ~0 RAM, negligible CPU — the same approach Indemnity Run's
+audio is built on.</p>
 
 <h2 id="sdk-rng" class="anchor">SDK — RNG, clamps, timestep <span class="badge sdk">mote_build.h</span></h2>
 <table><tr><th>Function</th><th>Description</th></tr>
@@ -1089,6 +1153,9 @@ header-only/SDK changes do not.</p>
 <tr><td>v37</td><td>audio_play_sfx — stream a <code>MoteSfx</code> recipe (synthesised on the fly by a pool of 8 voices); the small-flash, ~0-RAM way to ship a whole game's SFX, vs baking each to a clip.</td></tr>
 <tr><td>v38</td><td>kv_save/kv_load/kv_list — named-blob storage (arbitrary keys, any size, FatFs-backed) for games that persist many pieces, e.g. ThumbyCraft's per-chunk voxel edits.</td></tr>
 <tr><td>v39</td><td>text_font — anti-aliased proportional fonts (TTF-baked or hand-drawn): each glyph keeps its own width/bearing, packed at the smallest lossless depth (1/2/4-bit). Authored in the Studio Font tab.</td></tr>
+<tr><td>v40</td><td><a href="#ty-motesound"><code>MoteSound</code></a> carries a sample rate + bit depth — clips stored at native (lower) quality, resampled at playback; an 8-bit/11025&nbsp;Hz SFX costs ~1/4 the flash. Struct-extend only; legacy <code>{pcm,count}</code> headers unchanged.</td></tr>
+<tr><td>v41</td><td><a href="#ty-moteimage"><code>MoteImage</code></a> gains 4-/8-bit palette-indexed formats — low-colour textures at 1/4 or 1/2 the flash on every texture path; bakers emit indexed automatically + losslessly (≤256 colours). Struct-extend only.</td></tr>
+<tr><td>v42</td><td><a href="#fn-phys2d_step"><code>phys2d_step</code></a> — 2D top-down rigid-body solver (<a href="#ty-motebody2d"><code>MoteBody2D</code></a>/<a href="#ty-moteworld2d"><code>MoteWorld2D</code></a>): circles + oriented boxes, spin from off-centre impacts, collision masks, sensors, tyre-grip lateral friction.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

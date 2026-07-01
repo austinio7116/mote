@@ -12,7 +12,10 @@
 typedef struct { float phase, inc, amp, decay; int on; } Voice;
 
 #define NSAMP 4
-typedef struct { const int16_t *pcm; int n, pos; float gain; int on; } SampV;   /* one-shot PCM */
+/* one-shot PCM voice. `pcm` is int16 (bits==16) or signed int8 (bits==8); `pos`
+ * and `step` walk it in source samples per 22050 Hz output sample (step<1 = the
+ * source rate is below 22050, so it's upsampled by repeating/interpolating). */
+typedef struct { const void *pcm; int n; float pos, step, gain; int bits, on; } SampV;
 
 static Voice s_v[NVOICE];
 static SampV s_s[NSAMP];
@@ -37,14 +40,18 @@ void mote_audio_off(void){
     mote_audio_sfx_clear();
 }
 
-/* one-shot PCM sample — fire and forget; oldest-progress voice is stolen when full */
-void mote_audio_play(const int16_t *pcm, int count, float gain){
+/* one-shot PCM sample — fire and forget; oldest-progress voice is stolen when full.
+ * Accepts native low-fi clips: `rate` Hz (0 = 22050) and `bits` 8/16 (0 = 16). */
+void mote_audio_play(const void *pcm, int count, int rate, int bits, float gain){
     if(!pcm || count <= 0) return;
     if(!s_ready) mote_audio_init();
     int best = -1;
     for(int i=0;i<NSAMP;i++){ if(!s_s[i].on){ best = i; break; } }
     if(best < 0){ best = 0; for(int i=1;i<NSAMP;i++){ if(s_s[i].pos > s_s[best].pos) best = i; } }
-    s_s[best].pcm = pcm; s_s[best].n = count; s_s[best].pos = 0; s_s[best].gain = gain; s_s[best].on = 1;
+    s_s[best].pcm = pcm; s_s[best].n = count; s_s[best].pos = 0.0f; s_s[best].gain = gain;
+    s_s[best].step = (rate > 0 ? (float)rate : (float)MOTE_AUDIO_RATE) / (float)MOTE_AUDIO_RATE;
+    s_s[best].bits = (bits == 8) ? 8 : 16;
+    s_s[best].on = 1;
 }
 
 void mote_audio_note(float freq, float amp){
@@ -99,8 +106,15 @@ void mote_audio_render(int16_t *out, int n){
         s_g += (target - s_g) * (target < s_g ? 0.02f : 0.0008f);   /* fast duck, slow release */
         float smix = 0.0f;                          /* one-shot PCM samples, summed on top */
         for(int i=0;i<NSAMP;i++){ SampV *sv=&s_s[i]; if(!sv->on) continue;
-            smix += (float)sv->pcm[sv->pos] * (1.0f/32768.0f) * sv->gain;
-            if(++sv->pos >= sv->n) sv->on = 0; }
+            int idx = (int)sv->pos; if(idx >= sv->n){ sv->on = 0; continue; }
+            int i1 = (idx+1 < sv->n) ? idx+1 : idx; float frac = sv->pos - (float)idx;
+            float v;                                  /* linear interp + 8/16-bit read */
+            if(sv->bits == 8){ const int8_t *p = (const int8_t*)sv->pcm;
+                v = ((float)p[idx]*(1.0f-frac) + (float)p[i1]*frac) * (1.0f/128.0f); }
+            else { const int16_t *p = (const int16_t*)sv->pcm;
+                v = ((float)p[idx]*(1.0f-frac) + (float)p[i1]*frac) * (1.0f/32768.0f); }
+            smix += v * sv->gain;
+            sv->pos += sv->step; if(sv->pos >= (float)sv->n) sv->on = 0; }
         float m = (mix * s_g + smix) * s_vol;
         /* gentle soft backstop only for the rare in-phase peak */
         float a = m < 0.0f ? -m : m;

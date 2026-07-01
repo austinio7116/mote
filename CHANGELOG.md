@@ -1,8 +1,46 @@
 # Changelog
 
-## Unreleased
+## 0.13-alpha
 
-### Engine (ABI v40 — firmware reflash required)
+**Smaller games, richer physics.** Indexed textures and native-quality sounds cut a
+typical game's flash by half or more; a new 2D rigid-body solver joins the 3D one; and
+the Audio tab gains a Tone view for layered synth SFX. The engine ABI moves **v39 →
+v42** — **ships in ThumbyOne firmware 1.30** (flash that to run games built with this
+SDK).
+
+### Engine (ABI v42 — firmware reflash required)
+- **2D rigid-body physics** (`mote_phys2d`): a top-down planar solver alongside the 3D
+  one — circles + oriented boxes, impulse collisions with restitution and Coulomb
+  friction, one rotational DOF (bodies pick up spin from off-centre hits), sequential
+  impulses, AABB broad phase, sleeping, collision-group masks, sensors, and an
+  **anisotropic lateral friction** term (`lat_damp`) that gives cars tyre grip and
+  drift for free. Engine-run via one new ABI call (`phys2d_step`); bodies are plain
+  game-owned structs (`MoteBody2D` / `MoteWorld2D`) with header-only constructors.
+
+### Tools / SDK (no ABI change)
+- **Multi-part OBJ models with per-part colour.** An `.obj` with several materials now
+  bakes (obj2mesh, via `mote bake` + Studio Save) to a single `MoteModel` with **one
+  chunk per material**, each part coloured from its `.mtl` `Kd` — so a piece modelled as
+  one file with `body` + `topper` materials is one clean model in the tree, not two.
+  obj2mesh never recentres, so the parts stay aligned on the OBJ's shared origin (base at
+  `y=0` just works — no flag/sidecar). New header helper `mote_model_draw_palette(model,
+  pos, basis, scale, parts, n)` **recolours each part at draw time** (`0` = keep baked),
+  so one model serves both teams / chess sides with no extra assets. Single-material OBJs
+  are unchanged (`<name>_mesh`). *(Migrated `games/motokart`'s banana/kshell to the model
+  form; `games/deepthumb` king/queen are now single OBJs.)*
+
+### Engine (ABI v40–v41 — firmware reflash required)
+- **Indexed (palette) textures.** `MoteImage` gains an optional **4-bit or 8-bit
+  palette-indexed** format: a texture with few colours costs **1/4** (≤16 colours) or
+  **1/2** (≤256) the flash of RGB565, decoded to RGB565 by a palette lookup at sample
+  time. It works for **every** texture path — meshes, sprites, blits, billboards. Old
+  `{px,w,h,key[,opaque]}` images are unchanged (format 0 = RGB565). The bakers now do it
+  **automatically and losslessly**: `mote bake` / the Studio image bake emit indexed when
+  an image has ≤256 colours (else RGB565), and the model editor's textured **Bake .h**
+  emits a 4bpp palette (median-cut to 16 colours). E.g. Thumbalaga's enemy sheet went
+  **45 KB → 11 KB**, the spaceship texture **32 KB → 8 KB** — no visible change. Detailed
+  / gradient art (>256 colours) stays RGB565. *(Re-bake a game with `mote bake <dir>` to
+  shrink its low-colour art.)*
 - **Low-fi sounds.** `MoteSound` now carries a sample **rate** and **bit depth**, so a
   clip is stored at its native quality — 8-bit and/or sub-22050 Hz — and the mixer
   resamples + expands it on playback. An 8-bit/11025 Hz SFX costs ~1/4 the flash of the
@@ -12,6 +50,20 @@
   unchanged — `audio_play(&snd, gain)` still works; legacy `{pcm,count}` headers read as
   16-bit/22050. *(Previously `wav2snd` assumed 16-bit/22050 and baked 8-bit or
   odd-rate WAVs to noise.)*
+
+### Studio + SDK (no reflash)
+- **Tone SFX — layered synth sounds you author in the IDE.** A new **Full / Tone**
+  toggle in the Audio tab. The **Tone** view builds a sound the way Indemnity Run does:
+  a stack of cheap synth voices (Square / Saw / Sine / Noise, a frequency sweep, amp,
+  attack, length) with a **live preview**, exported as a `MoteTone[]` the game plays with
+  one call. This is the light middle ground between baked WAVs (large flash) and the full
+  recipe synth (heavy DSP — what slowed games down). Powered by a new header-only
+  **`sdk/mote_synth.h`**: `#define MOTE_SYNTH_IMPL`, wire `audio_set_stream(mote_synth_render)`,
+  and `mote_synth_tone(snd, snd_N)`. Costs ~0 flash and ~0 RAM.
+- **SFX quality override.** `MOTE_SFX_RATE` / `MOTE_SFX_BITS` force `mote bake` (and the
+  Studio's WAV baker) to a target quality — e.g. `MOTE_SFX_RATE=11025 MOTE_SFX_BITS=8
+  mote bake <game>` bakes a game's SFX at 1/4 the flash **without editing the source WAVs**.
+  Applied across thumbatro / deepthumb / arkanoid3d / fling (~120 KB reclaimed).
 
 ## 0.12-alpha
 

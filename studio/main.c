@@ -17,6 +17,8 @@
 #include "mote_api.h"
 #include "mote_tile.h"
 #include "mote_anim.h"
+#define MOTE_SYNTH_IMPL
+#include "mote_synth.h"   /* the tiny layered synth — powers the Audio tab's Tone view + previews */
 #include "../platform/studio/mote_plat_studio.h"
 
 #include <SDL2/SDL.h>
@@ -1232,8 +1234,16 @@ static V3 mv3sub(V3 a,V3 b){ V3 r={a.x-b.x,a.y-b.y,a.z-b.z}; return r; }
 static V3 mv3cross(V3 a,V3 b){ V3 r={a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x}; return r; }
 static float mv3len(V3 a){ return sqrtf(a.x*a.x+a.y*a.y+a.z*a.z); }
 static struct { V3 a,b,c; } *g_raw; static int g_nraw,g_rawcap;
-static void rawtri(V3 a,V3 b,V3 c){ if(g_nraw>=g_rawcap){ g_rawcap=g_rawcap?g_rawcap*2:8192; g_raw=realloc(g_raw,g_rawcap*sizeof*g_raw); }
-    g_raw[g_nraw].a=a; g_raw[g_nraw].b=b; g_raw[g_nraw].c=c; g_nraw++; }
+/* Material-aware import: a per-raw-tri material id + the OBJ's .mtl palette, so the
+ * importer preview + Bake are MATERIAL-AWARE — a multi-material OBJ shows each part in
+ * its own colour and bakes to a MoteModel with one chunk per material (matches obj2mesh,
+ * so the Mesh tab and the CLI/Save path agree). Single-material / STL keep the picker. */
+#define MESH_MAXMAT 64
+static uint16_t g_matcol[MESH_MAXMAT]; static char g_matname[MESH_MAXMAT][64];
+static int g_nmat, g_cur_mtl = -1, g_multi;
+static int *g_rawmtl;                    /* material id per raw tri (parallel to g_raw) */
+static void rawtri(V3 a,V3 b,V3 c){ if(g_nraw>=g_rawcap){ g_rawcap=g_rawcap?g_rawcap*2:8192; g_raw=realloc(g_raw,g_rawcap*sizeof*g_raw); g_rawmtl=realloc(g_rawmtl,(size_t)g_rawcap*sizeof(int)); }
+    g_raw[g_nraw].a=a; g_raw[g_nraw].b=b; g_raw[g_nraw].c=c; g_rawmtl[g_nraw]=g_cur_mtl<0?0:g_cur_mtl; g_nraw++; }
 
 /* parameters (live) */
 static int   g_mesh_budget=1500, g_mesh_up=0, g_mesh_recenter=1, g_mesh_chunkview=0, g_mesh_dirty=1;
@@ -1241,7 +1251,9 @@ static float g_mesh_size=1.0f;          /* baked Mesh.scale = world half-extent 
 static long  g_mesh_rgb=0xA8AEB8;       /* base colour */
 /* decimation working set + stats */
 static V3 *g_dv; static int g_dnv; static int *g_dt; static int g_dnf;   /* welded decimated verts + tri indices */
+static int *g_dt_mtl;                   /* material id per decimated tri (from its source raw tri) */
 static int *g_tri_chunk;                /* per decimated tri -> chunk id (for the chunk-view colouring) */
+static int *g_tri_col;                  /* per preview tri -> RGB565 material colour (material-aware view) */
 static int  g_mesh_outv, g_mesh_outf, g_mesh_nchunk, g_mesh_bestG; static float g_mesh_qmax, g_mesh_bound;
 
 #define MESH_HSZ (1<<21)
@@ -1261,41 +1273,55 @@ static int mesh_cluster(const V3 *tv, int NRT, V3 mn, V3 mx, int G){
     for(int i=0;i<g_dnv;i++)g_dv[i]=(V3){g_Hsum[i].x/g_Hcnt[i],g_Hsum[i].y/g_Hcnt[i],g_Hsum[i].z/g_Hcnt[i]};
     g_dnf=0;
     for(int t=0;t<NRT;t++){ int a=map[t*3],b=map[t*3+1],c=map[t*3+2]; if(a==b||b==c||a==c)continue;
-        g_dt[g_dnf*3]=a; g_dt[g_dnf*3+1]=b; g_dt[g_dnf*3+2]=c; g_dnf++; }
+        g_dt[g_dnf*3]=a; g_dt[g_dnf*3+1]=b; g_dt[g_dnf*3+2]=c; g_dt_mtl[g_dnf]=g_rawmtl?g_rawmtl[t]:0; g_dnf++; }
     free(map); return g_dnf;
 }
 /* greedy chunking; if h!=NULL, EMIT the header. Always fills g_tri (preview) + g_tri_chunk + stats. */
 static void mesh_emit(FILE*h,const char*name){
     float q=g_mesh_qmax>1e-6f?127.0f/g_mesh_qmax:1.0f;
-    uint16_t col=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
-    g_ntri=0; g_tri_chunk=realloc(g_tri_chunk,(size_t)(g_dnf+1)*sizeof(int));
+    uint16_t base=(uint16_t)((((g_mesh_rgb>>16&0xFF)&0xF8)<<8)|(((g_mesh_rgb>>8&0xFF)&0xFC)<<3)|((g_mesh_rgb&0xFF)>>3));
+    g_ntri=0; g_tri_chunk=realloc(g_tri_chunk,(size_t)(g_dnf+1)*sizeof(int)); g_tri_col=realloc(g_tri_col,(size_t)(g_dnf+1)*sizeof(int));
     int *local=malloc(g_dnv*sizeof(int)), *stamp=malloc(g_dnv*sizeof(int)); for(int i=0;i<g_dnv;i++)stamp[i]=-1;
     int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)g_dnf*3*sizeof(int));
-    char chunklist[16384]=""; int cl=0; int chunk=0,ti=0,total_v=0,total_f=0;
-    while(ti<g_dnf){ int nv=0,cf=0,start=ti;
-        for(; ti<g_dnf; ti++){ int g[3]={g_dt[ti*3],g_dt[ti*3+1],g_dt[ti*3+2]}; int need=0;
-            for(int k=0;k<3;k++) if(stamp[g[k]]!=chunk)need++;
-            if(nv+need>255)break;
-            int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
-            cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++;
-            /* preview: append the decimated tri + record its chunk */
-            mtri(g_dv[g[0]],g_dv[g[1]],g_dv[g[2]]); g_tri_chunk[g_ntri-1]=chunk;
+    char chunklist[16384]=""; int cl=0; int chunk=0,total_v=0,total_f=0;
+    /* One set of chunks per MATERIAL group (a multi-material OBJ), each in its own .mtl
+     * colour; a single-material / STL mesh is one group in the picker colour. Within a
+     * group, greedily pack to the 255-vert chunk cap. */
+    int ng = g_multi ? g_nmat : 1;
+    for(int m=0; m<ng; m++){
+        uint16_t ccol = g_multi ? g_matcol[m] : base;
+        int ti=0;
+        while(ti<g_dnf){
+            while(ti<g_dnf && g_multi && g_dt_mtl[ti]!=m) ti++;   /* skip other materials */
+            if(ti>=g_dnf) break;
+            int nv=0,cf=0;
+            for(; ti<g_dnf; ti++){
+                if(g_multi && g_dt_mtl[ti]!=m) continue;          /* not this part */
+                int g[3]={g_dt[ti*3],g_dt[ti*3+1],g_dt[ti*3+2]}; int need=0;
+                for(int k=0;k<3;k++) if(stamp[g[k]]!=chunk)need++;
+                if(nv+need>255)break;
+                int li[3]; for(int k=0;k<3;k++){ if(stamp[g[k]]!=chunk){ stamp[g[k]]=chunk; local[g[k]]=nv; cv[nv++]=g[k]; } li[k]=local[g[k]]; }
+                cface[cf][0]=li[0]; cface[cf][1]=li[1]; cface[cf][2]=li[2]; cf++;
+                /* preview: append the decimated tri + record its chunk + material colour */
+                mtri(g_dv[g[0]],g_dv[g[1]],g_dv[g[2]]); g_tri_chunk[g_ntri-1]=chunk; g_tri_col[g_ntri-1]=ccol;
+            }
+            if(cf==0) continue;
+            if(h){ fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
+                for(int i=0;i<nv;i++){ V3 v=g_dv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
+                fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
+                for(int i=0;i<cf;i++){ V3 a=g_dv[cv[cface[i][0]]],b=g_dv[cv[cface[i][1]]],c=g_dv[cv[cface[i][2]]];
+                    V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
+                    fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
+                fprintf(h,"};\n");
+                cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,ccol,g_mesh_size,g_mesh_bound*(g_mesh_size/(g_mesh_qmax>1e-6f?g_mesh_qmax:1))); }
+            total_v+=nv; total_f+=cf; chunk++;
         }
-        if(ti==start){ ti++; continue; }
-        if(h){ fprintf(h,"static const MeshVert %s_v%d[%d]={",name,chunk,nv);
-            for(int i=0;i<nv;i++){ V3 v=g_dv[cv[i]]; fprintf(h,"{%d,%d,%d},",(int)lrintf(v.x*q),(int)lrintf(v.y*q),(int)lrintf(v.z*q)); }
-            fprintf(h,"};\nstatic const MeshFace %s_f%d[%d]={\n",name,chunk,cf);
-            for(int i=0;i<cf;i++){ V3 a=g_dv[cv[cface[i][0]]],b=g_dv[cv[cface[i][1]]],c=g_dv[cv[cface[i][2]]];
-                V3 n=mv3cross(mv3sub(b,a),mv3sub(c,a)); float l=mv3len(n); if(l<1e-9f){ n=(V3){0,0,1}; l=1; } n.x/=l;n.y/=l;n.z/=l;
-                fprintf(h,"  {%d,%d,%d, %d,%d,%d},\n",cface[i][0],cface[i][1],cface[i][2],(int)lrintf(n.x*127),(int)lrintf(n.y*127),(int)lrintf(n.z*127)); }
-            fprintf(h,"};\n");
-            cl+=snprintf(chunklist+cl,sizeof chunklist-cl,"  {%s_v%d,%s_f%d,0,%d,%d,0x%04X,%.6ff,%.6ff,0},\n",name,chunk,name,chunk,nv,cf,col,g_mesh_size,g_mesh_bound*(g_mesh_size/(g_mesh_qmax>1e-6f?g_mesh_qmax:1))); }
-        total_v+=nv; total_f+=cf; chunk++;
     }
     g_mesh_outv=total_v; g_mesh_outf=total_f; g_mesh_nchunk=chunk;
     if(h){ fprintf(h,"static const Mesh %s_chunks[%d]={\n%s};\n#define %s_NCHUNKS %d\n#define %s_TRIS %d\n"
-                     "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* draw with mote_model_draw(mote, &%s, pos) */\n\n#endif\n",
-                   name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name); }
+                     "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };  /* draw with mote_model_draw(mote, &%s, pos)%s */\n\n#endif\n",
+                   name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name,
+                   g_multi?" — multi-part: mote_model_draw_palette(...,parts) recolours parts":""); }
     free(local); free(stamp); free(cv); free(cface);
 }
 static void mesh_reprocess(void){
@@ -1307,7 +1333,7 @@ static void mesh_reprocess(void){
     for(int i=0;i<N3;i++){ V3 v=tv[i]; if(v.x<mn.x)mn.x=v.x; if(v.y<mn.y)mn.y=v.y; if(v.z<mn.z)mn.z=v.z;
         if(v.x>mx.x)mx.x=v.x; if(v.y>mx.y)mx.y=v.y; if(v.z>mx.z)mx.z=v.z; ctr.x+=v.x; ctr.y+=v.y; ctr.z+=v.z; }
     ctr.x/=N3; ctr.y/=N3; ctr.z/=N3;
-    g_dv=realloc(g_dv,(size_t)N3*sizeof(V3)); g_dt=realloc(g_dt,(size_t)N3*sizeof(int));
+    g_dv=realloc(g_dv,(size_t)N3*sizeof(V3)); g_dt=realloc(g_dt,(size_t)N3*sizeof(int)); g_dt_mtl=realloc(g_dt_mtl,(size_t)N3*sizeof(int));
     g_Hidx=realloc(g_Hidx,MESH_HSZ*sizeof(int)); g_Hkey=realloc(g_Hkey,MESH_HSZ*sizeof(int64_t));
     g_Hsum=realloc(g_Hsum,(size_t)N3*sizeof(V3)); g_Hcnt=realloc(g_Hcnt,(size_t)N3*sizeof(int));
     int lo=4,hi=512,best=lo; while(lo<=hi){ int G=(lo+hi)/2; int t=mesh_cluster(tv,g_nraw,mn,mx,G); if(t<=g_mesh_budget){ best=G; lo=G+1; } else hi=G-1; }
@@ -1350,12 +1376,28 @@ static int mesh_tex_resolve(const char*path,char*out,int n){
             if(tex[0]){ if(tex[0]=='/'||!dir[0])snprintf(out,n,"%s",tex); else snprintf(out,n,"%s/%s",dir,tex); return 1; } } }
     return 0;
 }
-static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)return; g_nraw=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
+/* Load the OBJ's .mtl into g_matname/g_matcol (Kd -> RGB565). Feeds material-aware import. */
+static void mesh_load_mtl(const char*objpath,const char*mtlname){
+    char dir[320]; snprintf(dir,sizeof dir,"%s",objpath); char*sl=strrchr(dir,'/'); if(sl)*sl=0; else dir[0]=0;
+    char mp[600]; if(dir[0])snprintf(mp,sizeof mp,"%s/%s",dir,mtlname); else snprintf(mp,sizeof mp,"%s",mtlname);
+    FILE*mf=fopen(mp,"r"); if(!mf)return; char ln[512]; int cur=-1;
+    while(fgets(ln,sizeof ln,mf)){ char nm[64]; float r,g,b;
+        if(sscanf(ln,"newmtl %63s",nm)==1){ if(g_nmat<MESH_MAXMAT){ cur=g_nmat++; snprintf(g_matname[cur],64,"%s",nm); g_matcol[cur]=0xA555; } }
+        else if(cur>=0&&sscanf(ln,"Kd %f %f %f",&r,&g,&b)==3){
+            int R=(int)(r*255),G=(int)(g*255),B=(int)(b*255); if(R>255)R=255; if(G>255)G=255; if(B>255)B=255;
+            g_matcol[cur]=(uint16_t)(((R>>3)<<11)|((G>>2)<<5)|(B>>3)); } }
+    fclose(mf); }
+static void load_mesh(const char*path){ if(!strcmp(g_mesh_path,path)&&g_nraw)return; g_nraw=0; g_nmat=0; g_cur_mtl=-1; g_multi=0; snprintf(g_mesh_path,sizeof g_mesh_path,"%s",path);
     size_t l=strlen(path); FILE*f=fopen(path,"rb"); if(!f)return;
     if(l>4&&!strcasecmp(path+l-4,".obj")){ static V3 vs[300000]; int nv=0; char ln[256];
-        while(fgets(ln,sizeof ln,f)){ if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<300000)vs[nv++]=v; }
+        while(fgets(ln,sizeof ln,f)){
+            if(!strncmp(ln,"mtllib ",7)){ char mn[256]; if(sscanf(ln,"mtllib %255s",mn)==1) mesh_load_mtl(path,mn); }
+            else if(!strncmp(ln,"usemtl ",7)){ char mn[64]; if(sscanf(ln,"usemtl %63s",mn)==1){ g_cur_mtl=-1; for(int i=0;i<g_nmat;i++) if(!strcmp(g_matname[i],mn)){ g_cur_mtl=i; break; } } }
+            else if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nv<300000)vs[nv++]=v; }
             else if(ln[0]=='f'&&ln[1]==' '){ int idx[16],n=0; char*p=ln+2; while(*p&&n<16){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n')break; int vi=atoi(p); if(vi<0)vi=nv+vi+1; idx[n++]=vi; while(*p&&*p!=' '&&*p!='\t')p++; }
-                for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) rawtri(vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } } }
+                for(int k=2;k<n;k++) if(idx[0]>0&&idx[k-1]>0&&idx[k]>0&&idx[0]<=nv&&idx[k]<=nv) rawtri(vs[idx[0]-1],vs[idx[k-1]-1],vs[idx[k]-1]); } }
+        /* multi-part only if >=2 materials are actually used across the faces */
+        if(g_nmat>=2){ int first=g_nraw?g_rawmtl[0]:0; for(int i=1;i<g_nraw;i++) if(g_rawmtl[i]!=first){ g_multi=1; break; } } }
     else { unsigned char hdr[84]; if(fread(hdr,1,84,f)==84){ unsigned n=hdr[80]|hdr[81]<<8|hdr[82]<<16|((unsigned)hdr[83]<<24);
             fseek(f,0,SEEK_END); long sz=ftell(f);
             if(sz==84+(long)n*50){ fseek(f,84,SEEK_SET); for(unsigned i=0;i<n;i++){ float t[9]; fseek(f,12,SEEK_CUR); if(fread(t,4,9,f)!=9)break; fseek(f,2,SEEK_CUR);
@@ -1638,6 +1680,36 @@ static int ensure_tex_budget(const char*mdl){ if(g_sel<0)return 0;
     if(n+(size_t)il>=sizeof buf-1)return 0;
     size_t pos=(size_t)(op+1-buf); memmove(buf+pos+il,buf+pos,n-pos+1); memcpy(buf+pos,ins,(size_t)il);
     FILE*w=fopen(p,"w"); if(!w)return 0; fwrite(buf,1,n+(size_t)il,w); fclose(w); return 1; }
+/* Median-cut a texture to a <=16-colour palette for a 4bpp indexed bake. Fills pal[] (npal
+ * entries returned) + a per-texel index map idx[W*H]. Exact when the image has <=16 colours,
+ * else splits the colour set along its widest RGB axis until 16 boxes and averages each. */
+typedef struct { uint16_t c; uint32_t n; } QCol;
+static int g_qaxis;
+static int qcol_cmp(const void*a,const void*b){ uint16_t ca=((const QCol*)a)->c,cb=((const QCol*)b)->c;
+    int va=g_qaxis==0?((ca>>11)&31):g_qaxis==1?((ca>>5)&63):(ca&31), vb=g_qaxis==0?((cb>>11)&31):g_qaxis==1?((cb>>5)&63):(cb&31);
+    return va-vb; }
+static int atlas_quantize4(const uint16_t*px,int npx,uint16_t pal[16],uint8_t*idx){
+    static uint32_t cnt[65536]; memset(cnt,0,sizeof cnt); for(int i=0;i<npx;i++)cnt[px[i]]++;
+    static QCol q[65536]; int nq=0; for(int c=0;c<65536;c++)if(cnt[c])q[nq++]=(QCol){(uint16_t)c,cnt[c]};
+    int npal;
+    if(nq<=16){ for(int i=0;i<nq;i++)pal[i]=q[i].c; npal=nq; }
+    else { int bs[16],bc[16],nb=1; bs[0]=0; bc[0]=nq;   /* median cut */
+        while(nb<16){ int best=-1,baxis=0; long bestr=-1;
+            for(int b=0;b<nb;b++){ if(bc[b]<2)continue; int rmn=99,rmx=-1,gmn=99,gmx=-1,bmn=99,bmx=-1;
+                for(int i=bs[b];i<bs[b]+bc[b];i++){ uint16_t c=q[i].c; int r=(c>>11)&31,g=(c>>5)&63,bl=c&31;
+                    if(r<rmn)rmn=r; if(r>rmx)rmx=r; if(g<gmn)gmn=g; if(g>gmx)gmx=g; if(bl<bmn)bmn=bl; if(bl>bmx)bmx=bl; }
+                int rr=(rmx-rmn)*2,gg=(gmx-gmn),bb=(bmx-bmn)*2,mx=rr,ax=0; if(gg>mx){mx=gg;ax=1;} if(bb>mx){mx=bb;ax=2;}
+                if(mx>bestr){ bestr=mx; best=b; baxis=ax; } }
+            if(best<0)break; g_qaxis=baxis; qsort(q+bs[best],bc[best],sizeof(QCol),qcol_cmp);
+            int half=bc[best]/2; bs[nb]=bs[best]+half; bc[nb]=bc[best]-half; bc[best]=half; nb++; }
+        for(int b=0;b<nb;b++){ long r=0,g=0,bl=0,tot=0;
+            for(int i=bs[b];i<bs[b]+bc[b];i++){ uint16_t c=q[i].c; long w=q[i].n; r+=((c>>11)&31)*w; g+=((c>>5)&63)*w; bl+=(c&31)*w; tot+=w; }
+            if(!tot)tot=1; pal[b]=(uint16_t)(((r/tot)<<11)|((g/tot)<<5)|(bl/tot)); }
+        npal=nb; }
+    static uint8_t lut[65536]; for(int c=0;c<65536;c++){ if(!cnt[c])continue; int cr=(c>>11)&31,cg=(c>>5)&63,cb=c&31,best=0; long bd=1<<30;
+        for(int p=0;p<npal;p++){ int dr=cr-((pal[p]>>11)&31),dg=cg-((pal[p]>>5)&63),db=cb-(pal[p]&31); long d=(long)dr*dr*2+(long)dg*dg+(long)db*db*2; if(d<bd){ bd=d; best=p; } } lut[c]=(uint8_t)best; }
+    for(int i=0;i<npx;i++)idx[i]=lut[px[i]]; return npal; }
+static int g_tex_indexed=1;   /* bake textures as 4bpp indexed (1/4 the flash) when possible */
 static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     if(!g_nobj){ snprintf(g_status,sizeof g_status,"no model — add a primitive (Shift+A)"); return; }
     EObject*o=&g_obj[g_objsel]; if(o->nv<3||o->nf<1){ snprintf(g_status,sizeof g_status,"empty object"); return; }
@@ -1655,10 +1727,20 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
     char hp[700]; snprintf(hp,sizeof hp,"%.600s/src/%.50s.h",g_games[g_sel].dir,name); FILE*h=fopen(hp,"w");
     if(!h){ free(tri); free(vv); free(tcol); free(tuv); snprintf(g_status,sizeof g_status,"cannot write src/%s.h",name); return; }
     fprintf(h,"/* GENERATED by Mote Studio (model editor) - %d verts, %d faces, scale=%.3f%s%s */\n#ifndef MOTE_MESH_%s_H\n#define MOTE_MESH_%s_H\n#include \"mote_mesh.h\"\n\n",nvv,nt,size,o->mirror?", mirrored":"",textured?", textured":"",name,name);
+    char texinfo[48]="";
     if(textured){ int W=g_eatlas_w,H=g_eatlas_h;   /* the painted atlas as a MoteImage the faces sample */
-        fprintf(h,"static const uint16_t %s_tex_px[%d]={",name,W*H);
-        for(int i=0;i<W*H;i++){ fprintf(h,"0x%04X,",g_eatlas_px[i]); if((i&15)==15)fputc('\n',h); }
-        fprintf(h,"};\nstatic const MoteImage %s_tex_img={%s_tex_px,%d,%d,0xF81F,0};\n\n",name,name,W,H); }
+        uint8_t*imap= g_tex_indexed ? malloc((size_t)W*H) : NULL; uint16_t pal[16]; int npal=0;
+        if(imap)npal=atlas_quantize4(g_eatlas_px,W*H,pal,imap);
+        if(imap){   /* 4bpp palette-indexed: 1/4 the flash of RGB565 */
+            fprintf(h,"static const uint16_t %s_pal[%d]={",name,npal); for(int i=0;i<npal;i++)fprintf(h,"0x%04X,",pal[i]); fprintf(h,"};\n");
+            int nby=(W*H+1)/2; fprintf(h,"static const uint8_t %s_idx[%d]={",name,nby);
+            for(int b=0;b<nby;b++){ int i0=b*2,i1=i0+1; uint8_t hi=imap[i0]&0xF,lo=(i1<W*H)?(imap[i1]&0xF):0; fprintf(h,"%d,",(hi<<4)|lo); if((b&31)==31)fputc('\n',h); }
+            fprintf(h,"};\nstatic const MoteImage %s_tex_img={0,%d,%d,0xF81F,0,1,%s_idx,%s_pal};   /* 4bpp indexed, %d colours, %d bytes */\n\n",name,W,H,name,name,npal,nby);
+            free(imap); snprintf(texinfo,sizeof texinfo,", 4bpp/%dcol %dKB",npal,(nby+npal*2+512)/1024); }
+        else {   /* RGB565 */
+            fprintf(h,"static const uint16_t %s_tex_px[%d]={",name,W*H);
+            for(int i=0;i<W*H;i++){ fprintf(h,"0x%04X,",g_eatlas_px[i]); if((i&15)==15)fputc('\n',h); }
+            fprintf(h,"};\nstatic const MoteImage %s_tex_img={%s_tex_px,%d,%d,0xF81F,0};\n\n",name,name,W,H); snprintf(texinfo,sizeof texinfo,", RGB565 %dKB",W*H*2/1024); } }
     int *stamp=malloc((size_t)nvv*sizeof(int)),*local=malloc((size_t)nvv*sizeof(int)); for(int i=0;i<nvv;i++)stamp[i]=-1;
     int *cv=malloc(256*sizeof(int)); int (*cface)[3]=malloc((size_t)nt*sizeof*cface); uint16_t *ccol=malloc((size_t)nt*sizeof(uint16_t));
     uint8_t (*cuv)[6]=textured?malloc((size_t)nt*sizeof*cuv):NULL;   /* per-chunk-face corner UVs (0..255) */
@@ -1689,7 +1771,7 @@ static void eobj_bake(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
             name,chunk,chunklist,name,chunk,name,total_f,name,name,name,name,name);
     fclose(h); free(tri); free(vv); free(tcol); free(tuv); free(stamp); free(local); free(cv); free(cface); free(ccol); free(cuv);
     int patched=textured?ensure_tex_budget(name):0;   /* make a textured bake "just work": auto-budget the tex-tri pool */
-    snprintf(g_status,sizeof g_status,"baked src/%s.h — %d tris, %d chunks%s%s%s",name,total_f,chunk,o->mirror?", mirrored":"",textured?", textured":"",
+    snprintf(g_status,sizeof g_status,"baked src/%s.h — %d tris, %d chunks%s%s%s%s",name,total_f,chunk,o->mirror?", mirrored":"",textured?", textured":"",texinfo,
         patched?" · added .max_tex_tris to game.c":textured?" · check game.c .max_tex_tris":""); }
 
 /* ---- Phase 5: multi-object → rig (bake a MoteRig; export OBJ+.rig for the RIG tab) ---- */
@@ -1865,10 +1947,10 @@ static void eobj_box_apply(int shift){ int x0=g_box_x0<g_box_x1?g_box_x0:g_box_x
 typedef struct { EObject o[EMESH_MAXOBJ]; int n, sel, mode; } EUndo;
 #define EUNDO_MAX 32
 static EUndo *g_eundo[EUNDO_MAX]; static int g_eundo_n=0;
-static void eobj_copy(EObject*d,const EObject*s){ *d=*s;
-    d->v=malloc((size_t)(s->nv>0?s->nv:1)*sizeof(EVert)); memcpy(d->v,s->v,(size_t)s->nv*sizeof(EVert)); d->vcap=s->nv;
-    d->f=malloc((size_t)(s->nf>0?s->nf:1)*sizeof(EFace)); memcpy(d->f,s->f,(size_t)s->nf*sizeof(EFace)); d->fcap=s->nf;
-    d->e=malloc((size_t)(s->ne>0?s->ne:1)*sizeof(EEdge)); memcpy(d->e,s->e,(size_t)s->ne*sizeof(EEdge)); d->ecap=s->ne; }
+static void eobj_copy(EObject*d,const EObject*s){ *d=*s;   /* deep copy; guard each memcpy so a corrupt source (count>0 but NULL/failed alloc) can't segfault */
+    d->v=malloc((size_t)(s->nv>0?s->nv:1)*sizeof(EVert)); if(d->v&&s->v&&s->nv>0)memcpy(d->v,s->v,(size_t)s->nv*sizeof(EVert)); else d->nv=0; d->vcap=d->nv;
+    d->f=malloc((size_t)(s->nf>0?s->nf:1)*sizeof(EFace)); if(d->f&&s->f&&s->nf>0)memcpy(d->f,s->f,(size_t)s->nf*sizeof(EFace)); else d->nf=0; d->fcap=d->nf;
+    d->e=malloc((size_t)(s->ne>0?s->ne:1)*sizeof(EEdge)); if(d->e&&s->e&&s->ne>0)memcpy(d->e,s->e,(size_t)s->ne*sizeof(EEdge)); else d->ne=0; d->ecap=d->ne; }
 static void eundo_push(void){
     if(g_eundo_n>=EUNDO_MAX){ EUndo*u0=g_eundo[0]; for(int i=0;i<u0->n;i++){ free(u0->o[i].v); free(u0->o[i].f); free(u0->o[i].e); } free(u0);
         for(int i=1;i<g_eundo_n;i++)g_eundo[i-1]=g_eundo[i]; g_eundo_n--; }
@@ -3025,7 +3107,9 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
             for(int k=0;k<3;k++){ float fu,fv; mesh_triuv(vv[k],mnx,mny,mnz,tp_ext,&fu,&fv); uu[k]=fu*(g_mtex_w-1); uv[k]=fv*(g_mtex_h-1); } }
         uint8_t cr,cg,cb;
         if(g_mesh_chunkview){ unsigned hh=(unsigned)g_tri_chunk[i]*2654435761u; cr=(uint8_t)((70+(hh&140))*sh); cg=(uint8_t)((70+((hh>>8)&140))*sh); cb=(uint8_t)((70+((hh>>16)&140))*sh); }
-        else { cr=(uint8_t)(br*sh); cg=(uint8_t)(bg*sh); cb=(uint8_t)(bb*sh); }
+        else { uint8_t rr8=br,gg8=bg,bb8=bb;                     /* material-aware: colour each part by its .mtl Kd */
+               if(g_multi&&g_tri_col){ uint16_t mc=(uint16_t)g_tri_col[i]; rr8=(uint8_t)((mc>>11&0x1F)<<3); gg8=(uint8_t)((mc>>5&0x3F)<<2); bb8=(uint8_t)((mc&0x1F)<<3); }
+               cr=(uint8_t)(rr8*sh); cg=(uint8_t)(gg8*sh); cb=(uint8_t)(bb8*sh); }
         uint16_t col=(uint16_t)(((cr>>3)<<11)|((cg>>2)<<5)|(cb>>3));
         float sx[3],sy[3],sz[3];
         for(int k=0;k<3;k++){ float iz=persp/(dist-rr[k].z); sx[k]=cx+rr[k].x*iz; sy[k]=cyy-rr[k].y*iz; sz[k]=rr[k].z; }
@@ -3742,24 +3826,99 @@ static void draw_slider(SDL_Renderer*R,int i,int x,int y,int w){ SParam*sp=&SPAR
     int ty2=y+13; plain(R,x,ty2,w,4,(Col){27,30,40}); if(sp->lo<0)plain(R,x+w/2,ty2-2,1,8,(Col){68,74,96});
     plain(R,x,ty2,(int)(w*t),4,(Col){110,160,225}); int hx=x+(int)(w*t); plain(R,hx-2,ty2-3,4,10,(Col){206,215,236}); }
 
+/* ==================== Tone view — a sound as layered MoteTone voices ====================
+ * The Studio side of mote_synth.h: author a sound as a stack of cheap voices (wave, freq
+ * sweep, amp, attack, length), preview it live, and export a MoteTone[] the game plays with
+ * mote_synth_tone(). The lightweight alternative to WAV bake / the heavy recipe synth. */
+static MoteTone g_tone[8]; static int g_tone_n=1, g_tone_sel=0, g_audio_view=0, g_tone_slid=-1;   /* view: 0=full 1=tone */
+static const int TONE_LOGF[5]={1,1,0,0,0}; static const float TONE_LO[5]={80,80,0,0.001f,0.02f}, TONE_HI[5]={6000,6000,1,0.5f,2.0f};
+static SDL_Rect g_au_viewtog, g_tone_chip[8], g_tone_add, g_tone_del, g_tonew[4], g_tsl[5];
+static const char*TONE_WAVE[4]={"Square","Saw","Sine","Noise"};
+static void tone_default(void){ g_tone_n=1; g_tone_sel=0; g_tone[0]=(MoteTone){MOTE_SYNTH_SQUARE,440.0f,300.0f,0.30f,0.004f,0.15f}; }
+static void tone_render(int play){ mote_synth_reset(); float maxd=0.05f;
+    for(int i=0;i<g_tone_n;i++){ mote_synth_play(g_tone[i].wave,g_tone[i].f0,g_tone[i].f1,g_tone[i].amp,g_tone[i].attack,g_tone[i].dur); if(g_tone[i].dur>maxd)maxd=g_tone[i].dur; }
+    int n=(int)(maxd*22050.0f)+512; if(n>22050*3)n=22050*3; if(n<1)n=1;
+    g_wavn=n; g_wav=realloc(g_wav,(size_t)n*2); mote_synth_render(g_wav,n); g_view_for=-1; g_has_sfx=0;
+    if(play)audio_play(); }
+static void tone_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+    char base[80]; snprintf(base,sizeof base,"%.60s",g_au_name[0]?g_au_name:"tone"); char*d=strrchr(base,'.'); if(d)*d=0;
+    char dir[400]; snprintf(dir,sizeof dir,"%.360s/assets",g_games[g_sel].dir); mkdir_portable(dir);
+    char sp[440]; snprintf(sp,sizeof sp,"%.360s/%.60s.tone",dir,base); FILE*sf=fopen(sp,"w");   /* re-editable sidecar */
+    if(sf){ fprintf(sf,"# Mote tone (layered synth)\n"); for(int i=0;i<g_tone_n;i++)fprintf(sf,"voice %d %.4f %.4f %.4f %.4f %.4f\n",g_tone[i].wave,g_tone[i].f0,g_tone[i].f1,g_tone[i].amp,g_tone[i].attack,g_tone[i].dur); fclose(sf); }
+    char hp[440]; snprintf(hp,sizeof hp,"%.360s/src/%.60s.tone.h",g_games[g_sel].dir,base); FILE*hf=fopen(hp,"w");   /* MoteTone[] header */
+    if(hf){ const char*W[4]={"MOTE_SYNTH_SQUARE","MOTE_SYNTH_SAW","MOTE_SYNTH_SINE","MOTE_SYNTH_NOISE"};
+        fprintf(hf,"/* GENERATED by Mote Studio (Tone). Play: mote_synth_tone(%s, %s_N); */\n#ifndef MOTE_TONE_%s_H\n#define MOTE_TONE_%s_H\n#include \"mote_synth.h\"\n\nstatic const MoteTone %s[%d] = {\n",base,base,base,base,base,g_tone_n);
+        for(int i=0;i<g_tone_n;i++)fprintf(hf,"  { %s, %.1ff, %.1ff, %.3ff, %.4ff, %.3ff },\n",W[g_tone[i].wave&3],g_tone[i].f0,g_tone[i].f1,g_tone[i].amp,g_tone[i].attack,g_tone[i].dur);
+        fprintf(hf,"};\n#define %s_N %d\n\n#endif\n",base,g_tone_n); fclose(hf); tree_refresh();
+        snprintf(g_status,sizeof g_status,"saved %s.tone + src/%s.tone.h  (mote_synth_tone(%s,%s_N))",base,base,base,base); }
+    else snprintf(g_status,sizeof g_status,"cannot write src/%s.tone.h",base); }
+static void tone_load(const char*path){ FILE*f=fopen(path,"r"); if(!f){ snprintf(g_status,sizeof g_status,"cannot open tone"); return; }
+    char ln[200]; g_tone_n=0;
+    while(fgets(ln,sizeof ln,f)&&g_tone_n<8){ int w; float f0,f1,a,at,du; if(sscanf(ln,"voice %d %f %f %f %f %f",&w,&f0,&f1,&a,&at,&du)==6){ g_tone[g_tone_n]=(MoteTone){(uint8_t)(w&3),f0,f1,a,at,du}; g_tone_n++; } }
+    fclose(f); if(g_tone_n<1)tone_default(); g_tone_sel=0; g_audio_view=1; g_tab=TAB_AUDIO;
+    const char*b=strrchr(path,'/'); snprintf(g_au_name,sizeof g_au_name,"%.60s",b?b+1:path); char*dt=strstr(g_au_name,".tone"); if(dt)*dt=0;
+    tone_render(0); snprintf(g_status,sizeof g_status,"loaded tone %s (%d layers)",g_au_name,g_tone_n); }
+/* one labelled slider for a MoteTone field; log scale for frequencies. returns 1 if grabbed */
+static int tone_slider(SDL_Renderer*R,SDL_Rect*rr,int x,int y,int w,const char*lab,float*val,float lo,float hi,int logf,int mx,int my,int grab){
+    *rr=(SDL_Rect){x,y,w,18}; float v=*val;
+    float t = logf ? (v>lo ? (float)((log(v)-log(lo))/(log(hi)-log(lo))) : 0.0f) : (v-lo)/(hi-lo);
+    if(t<0)t=0; if(t>1)t=1;
+    char lb[48]; if(hi>=100)snprintf(lb,sizeof lb,"%s %.0f",lab,v); else snprintf(lb,sizeof lb,"%s %.3f",lab,v);
+    text(R,lb,x,y-9,1,C_DIM,C_DOCK); int ty2=y+8; plain(R,x,ty2,w,4,(Col){27,30,40});
+    plain(R,x,ty2,(int)(w*t),4,(Col){150,200,140}); int hx=x+(int)(w*t); plain(R,hx-2,ty2-3,4,10,(Col){206,236,215});
+    if(grab&&hit(mx,my,x,y-2,w,20)){ float nt=(float)(mx-x)/(w?w:1); if(nt<0)nt=0; if(nt>1)nt=1;
+        *val = logf ? (float)exp(log(lo)+nt*(log(hi)-log(lo))) : lo+nt*(hi-lo); return 1; }
+    return 0; }
+/* set tone-layer slider i (0=freq 1=sweep 2=amp 3=attack 4=length) from mouse x, then re-preview */
+static void tone_slider_set(int i,int mx){ if(g_tone_sel<0||g_tone_sel>=g_tone_n||i<0||i>4)return; MoteTone*L=&g_tone[g_tone_sel];
+    float*V[5]={&L->f0,&L->f1,&L->amp,&L->attack,&L->dur}; SDL_Rect*r=&g_tsl[i];
+    float nt=(float)(mx-r->x)/(r->w?r->w:1); if(nt<0)nt=0; if(nt>1)nt=1;
+    *V[i] = TONE_LOGF[i] ? (float)exp(log(TONE_LO[i])+nt*(log(TONE_HI[i])-log(TONE_LO[i]))) : TONE_LO[i]+nt*(TONE_HI[i]-TONE_LO[i]); tone_render(0); }
+
 static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); int tx=ox,ty=oy;
+    { const char*vl[2]={"Full","Tone"}; text(R,"VIEW",tx,ty+5,1,C_DIM,C_DOCK); tx+=textw(R,"VIEW",1)+8;   /* Full = WAV/recipe · Tone = layered synth */
+      int seg=tx; for(int i=0;i<2;i++){ int bw=textw(R,vl[i],1)+16; int sel=g_audio_view==i,hov=hit(mx,my,tx,ty,bw,22);
+        rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,vl[i],tx+8,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+2; }
+      g_au_viewtog=(SDL_Rect){seg,ty,tx-seg,22}; tx+=16; }
+    if(!g_audio_view){
     text(R,"WAVE",tx,ty+5,1,C_DIM,C_DOCK); tx+=textw(R,"WAVE",1)+8;
     for(int i=0;i<4;i++){ int bw=textw(R,WAVE_L[i],1)+14; g_waveb[i]=(SDL_Rect){tx,ty,bw,22}; int sel=g_sfx.wave==i,hov=hit(mx,my,tx,ty,bw,22);
         rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,WAVE_L[i],tx+7,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+4; }
     tx+=14; text(R,"SEED",tx,ty+5,1,(Col){235,180,90},C_DOCK); tx+=textw(R,"SEED",1)+8;
     for(int i=0;i<8;i++){ int bw=textw(R,SFX_LABEL[i],1)+12; g_sfxb[i]=(SDL_Rect){tx,ty,bw,22}; int hov=hit(mx,my,tx,ty,bw,22);
         rrect(R,tx,ty,bw,22,4,hov?C_BTNHI:C_BTN); text(R,SFX_LABEL[i],tx+6,ty+5,1,C_TXT,hov?C_BTNHI:C_BTN); tx+=bw+3; }
+    } else text(R,"layered synth — export a MoteTone[] the game plays with mote_synth_tone() (see sdk/mote_synth.h)",tx,ty+5,1,C_DIM,C_DOCK);
     int ty1=oy+30; tx=ox;
     g_au_play=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty1+5,14,(Col){150,230,160}); text(R,"Play",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=80;
-    g_au_rnd=(SDL_Rect){tx,ty1,98,24}; rrect(R,tx,ty1,98,24,4,hit(mx,my,tx,ty1,98,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Randomize",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=106;
-    g_au_mut=(SDL_Rect){tx,ty1,78,24}; rrect(R,tx,ty1,78,24,4,hit(mx,my,tx,ty1,78,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Mutate",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=86;
-    g_au_import=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty1+5,14,C_TXT); text(R,"Load",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=84;
+    if(!g_audio_view){
+      g_au_rnd=(SDL_Rect){tx,ty1,98,24}; rrect(R,tx,ty1,98,24,4,hit(mx,my,tx,ty1,98,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Randomize",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=106;
+      g_au_mut=(SDL_Rect){tx,ty1,78,24}; rrect(R,tx,ty1,78,24,4,hit(mx,my,tx,ty1,78,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Mutate",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=86;
+      g_au_import=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty1+5,14,C_TXT); text(R,"Load",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=84;
+    } else { g_au_rnd=g_au_mut=g_au_import=(SDL_Rect){0,0,0,0}; }
     text(R,"name",tx,ty1+6,1,C_DIM,C_DOCK); tx+=textw(R,"name",1)+6;
     g_au_name_r=(SDL_Rect){tx,ty1,148,24}; rrect(R,tx,ty1,148,24,4,g_au_namefocus?(Col){12,14,20}:C_DOCK);
-    { char nm[80]; snprintf(nm,sizeof nm,"%s%s.wav",g_au_name,g_au_namefocus?"_":""); text(R,nm,tx+8,ty1+6,1,C_TXT,g_au_namefocus?(Col){12,14,20}:C_DOCK); } tx+=156;
-    g_au_save=(SDL_Rect){tx,ty1,134,24}; rrect(R,tx,ty1,134,24,4,hit(mx,my,tx,ty1,134,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty1+5,14,C_TXT); text(R,"Save to assets",tx+27,ty1+6,1,C_TXT,C_BTN);
+    { char nm[80]; snprintf(nm,sizeof nm,"%s%s%s",g_au_name,g_au_namefocus?"_":"",g_audio_view?".tone":".wav"); text(R,nm,tx+8,ty1+6,1,C_TXT,g_au_namefocus?(Col){12,14,20}:C_DOCK); } tx+=156;
+    g_au_save=(SDL_Rect){tx,ty1,134,24}; rrect(R,tx,ty1,134,24,4,hit(mx,my,tx,ty1,134,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty1+5,14,C_TXT); text(R,g_audio_view?"Save tone .h":"Save to assets",tx+27,ty1+6,1,C_TXT,C_BTN);
     int sy0=oy+62, colw=(w*52/100)/3; if(colw<118)colw=118;
+    if(!g_audio_view){
     for(int i=0;i<NSPAR;i++){ int c=i/7,r=i%7; draw_slider(R,i,ox+c*colw,sy0+r*24,colw-14); }
+    } else {   /* ---- Tone editor: layer chips + selected-layer wave picker + sliders ---- */
+        int lx=ox,ly=sy0;
+        for(int i=0;i<g_tone_n;i++){ char c[8]; snprintf(c,sizeof c,"L%d",i+1); g_tone_chip[i]=(SDL_Rect){lx,ly,28,20}; int sel=i==g_tone_sel;
+            rrect(R,lx,ly,28,20,4,sel?C_ACC:C_BTN); text(R,c,lx+6,ly+4,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); lx+=31; }
+        g_tone_add=(g_tone_n<8)?(SDL_Rect){lx,ly,26,20}:(SDL_Rect){0,0,0,0}; if(g_tone_n<8){ rrect(R,lx,ly,26,20,4,hit(mx,my,lx,ly,26,20)?C_BTNHI:C_BTN); text(R,"+",lx+9,ly+4,1,(Col){150,220,150},C_BTN); lx+=30; }
+        g_tone_del=(g_tone_n>1)?(SDL_Rect){lx,ly,34,20}:(SDL_Rect){0,0,0,0}; if(g_tone_n>1){ rrect(R,lx,ly,34,20,4,hit(mx,my,lx,ly,34,20)?C_BTNHI:C_BTN); text(R,"del",lx+7,ly+4,1,(Col){220,150,120},C_BTN); }
+        MoteTone*L=&g_tone[g_tone_sel]; int wy2=ly+30;
+        text(R,"wave",ox,wy2+4,1,C_DIM,C_DOCK); int wxx=ox+textw(R,"wave",1)+8;
+        for(int i=0;i<4;i++){ int bw=textw(R,TONE_WAVE[i],1)+12; g_tonew[i]=(SDL_Rect){wxx,wy2,bw,20}; int sel=L->wave==i,hov=hit(mx,my,wxx,wy2,bw,20);
+            rrect(R,wxx,wy2,bw,20,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,TONE_WAVE[i],wxx+6,wy2+4,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); wxx+=bw+3; }
+        int slw=colw*3-24; if(slw<200)slw=200; int sly=wy2+40;
+        tone_slider(R,&g_tsl[0],ox,sly,    slw,"freq",  &L->f0,80,6000,1,mx,my,0);
+        tone_slider(R,&g_tsl[1],ox,sly+32, slw,"sweep to",&L->f1,80,6000,1,mx,my,0);
+        tone_slider(R,&g_tsl[2],ox,sly+64, slw,"amp",   &L->amp,0,1,0,mx,my,0);
+        tone_slider(R,&g_tsl[3],ox,sly+96, slw,"attack",&L->attack,0.001f,0.5f,0,mx,my,0);
+        tone_slider(R,&g_tsl[4],ox,sly+128,slw,"length",&L->dur,0.02f,2.0f,0,mx,my,0);
+    }
     int wx=ox+3*colw+10, ww=w-(3*colw+10); if(ww<120)ww=120;
     int wy=sy0, wh=h-(sy0-oy)-6; int rulerh=15, sbh=13; int gwy=wy+rulerh, gwh=wh-rulerh-sbh; if(gwh<20)gwh=20; int cyl=gwy+gwh/2;
     g_au_x=wx; g_au_w=ww; g_au_y=gwy; g_au_h=gwh; plain(R,wx,wy,ww,wh,(Col){12,14,20});
@@ -3799,6 +3958,23 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     } else { g_au_sb=(SDL_Rect){0,0,0,0}; g_au_fit=(SDL_Rect){0,0,0,0}; text(R,"pick a SEED / WAVE preset, Randomize, or Load a .wav/.mp3 to see its waveform",wx+10,gwy+12,1,C_DIM,(Col){12,14,20}); } }
 static void slider_set(int i,int mx){ SParam*sp=&SPAR[i]; SDL_Rect*r=&g_sparr[i]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *sp->v=sp->lo+t*(sp->hi-sp->lo); g_has_sfx=1; sfx_apply(0); }
 static void audio_down(int mx,int my){
+    if(hit(mx,my,g_au_viewtog.x,g_au_viewtog.y,g_au_viewtog.w,g_au_viewtog.h)){   /* Full <-> Tone */
+        int nv = (mx < g_au_viewtog.x + g_au_viewtog.w/2) ? 0 : 1;
+        if(nv!=g_audio_view){ g_audio_view=nv; if(nv){ if(g_tone_n<1)tone_default(); tone_render(0); } } return; }
+    if(g_audio_view){   /* ---- Tone view ---- */
+        for(int i=0;i<g_tone_n;i++)if(hit(mx,my,g_tone_chip[i].x,g_tone_chip[i].y,g_tone_chip[i].w,g_tone_chip[i].h)){ g_tone_sel=i; return; }
+        if(g_tone_add.w&&hit(mx,my,g_tone_add.x,g_tone_add.y,g_tone_add.w,g_tone_add.h)){ if(g_tone_n<8){ g_tone[g_tone_n]=g_tone[g_tone_sel]; g_tone_sel=g_tone_n; g_tone_n++; tone_render(1); } return; }
+        if(g_tone_del.w&&hit(mx,my,g_tone_del.x,g_tone_del.y,g_tone_del.w,g_tone_del.h)){ if(g_tone_n>1){ for(int i=g_tone_sel;i<g_tone_n-1;i++)g_tone[i]=g_tone[i+1]; g_tone_n--; if(g_tone_sel>=g_tone_n)g_tone_sel=g_tone_n-1; tone_render(1); } return; }
+        for(int i=0;i<4;i++)if(hit(mx,my,g_tonew[i].x,g_tonew[i].y,g_tonew[i].w,g_tonew[i].h)){ g_tone[g_tone_sel].wave=(uint8_t)i; tone_render(1); return; }
+        for(int i=0;i<5;i++)if(hit(mx,my,g_tsl[i].x,g_tsl[i].y-2,g_tsl[i].w,g_tsl[i].h+4)){ g_tone_slid=i; tone_slider_set(i,mx); return; }
+        if(hit(mx,my,g_au_play.x,g_au_play.y,g_au_play.w,g_au_play.h)){ tone_render(1); return; }
+        if(hit(mx,my,g_au_name_r.x,g_au_name_r.y,g_au_name_r.w,g_au_name_r.h)){ g_au_namefocus=1; SDL_StartTextInput(); return; }
+        g_au_namefocus=0;
+        if(hit(mx,my,g_au_save.x,g_au_save.y,g_au_save.w,g_au_save.h)){ tone_save(); return; }
+        if(g_wav&&hit(mx,my,g_au_fit.x,g_au_fit.y,g_au_fit.w,g_au_fit.h)){ g_view0=0; g_viewn=g_wavn; return; }
+        if(g_wav&&hit(mx,my,g_au_sb.x,g_au_sb.y,g_au_sb.w,g_au_sb.h)){ g_au_sbdrag=1; g_au_sbgrab=(double)(mx-g_au_sb.x); return; }
+        return;
+    }
     for(int i=0;i<4;i++)if(hit(mx,my,g_waveb[i].x,g_waveb[i].y,g_waveb[i].w,g_waveb[i].h)){
         if(!g_has_sfx){ memset(&g_sfx,0,sizeof g_sfx); g_sfx.base_freq=0.3f; g_sfx.env_sustain=0.3f; g_sfx.env_decay=0.4f; g_sfx.duty=0.5f; g_sfx.lpf_freq=1.0f; g_has_sfx=1; }   /* no recipe yet: seed an audible tone so the waveform isn't rendered into silence */
         g_sfx.wave=i; sfx_apply(1); return; }
@@ -3814,7 +3990,8 @@ static void audio_down(int mx,int my){
     if(g_wav&&hit(mx,my,g_au_fit.x,g_au_fit.y,g_au_fit.w,g_au_fit.h)){ g_view0=0; g_viewn=g_wavn; return; }   /* fit-to-window */
     if(g_wav&&hit(mx,my,g_au_sb.x,g_au_sb.y,g_au_sb.w,g_au_sb.h)){ g_au_sbdrag=1; g_au_sbgrab=(double)(mx-g_au_sb.x); return; }
     if(g_wav&&g_au_w>0&&mx>=g_au_x&&mx<g_au_x+g_au_w&&my>=g_au_y&&my<g_au_y+g_au_h){ long s=g_view0+(long)(mx-g_au_x)*g_viewn/g_au_w; g_crop_a=s; g_crop_b=s; g_wavdrag=1; } }   /* crop select (view-mapped) */
-static void audio_drag(int mx){ if(g_sfx_drag>=0){ slider_set(g_sfx_drag,mx); return; }
+static void audio_drag(int mx){ if(g_tone_slid>=0){ tone_slider_set(g_tone_slid,mx); return; }
+    if(g_sfx_drag>=0){ slider_set(g_sfx_drag,mx); return; }
     if(g_au_sbdrag&&g_au_w>0){ double frac=(mx-g_au_sbgrab-g_au_x)/g_au_w; if(frac<0)frac=0; long nv0=(long)(frac*g_wavn); if(nv0+g_viewn>g_wavn)nv0=g_wavn-g_viewn; if(nv0<0)nv0=0; g_view0=nv0; return; }   /* pan */
     if(g_wavdrag&&g_au_w>0){ long s=g_view0+(long)(mx-g_au_x)*g_viewn/g_au_w; if(s<0)s=0; if(s>g_wavn)s=g_wavn; g_crop_b=s; } }
 
@@ -5629,6 +5806,10 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         if(ci_ends(nm,".ttf")){ font_open(r->path); return; }
         return; }
     /* SFX recipe (.sfx) or its baked header (.sfx.h) -> load into the Audio tab */
+    if(ci_ends(nm,".tone")||ci_ends(nm,".tone.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".tone"); if(d)*d=0;   /* layered-synth tone -> Audio ▸ Tone view */
+        char tp[440]; if(ci_ends(nm,".tone")) snprintf(tp,sizeof tp,"%.300s",r->path);
+        else if(g_sel>=0) snprintf(tp,sizeof tp,"%.250s/assets/%.60s.tone",g_games[g_sel].dir,base); else tp[0]=0;
+        if(tp[0]) tone_load(tp); else snprintf(g_status,sizeof g_status,"no .tone sidecar for %s",base); return; }
     if(ci_ends(nm,".sfx")||ci_ends(nm,".sfx.h")){ char base[80]; snprintf(base,sizeof base,"%.78s",nm); char*d=strstr(base,".sfx"); if(d)*d=0;
         char sp[440]; if(ci_ends(nm,".sfx")) snprintf(sp,sizeof sp,"%.300s",r->path);
         else if(g_sel>=0) snprintf(sp,sizeof sp,"%.250s/assets/%.60s.sfx",g_games[g_sel].dir,base); else sp[0]=0;
@@ -5708,11 +5889,16 @@ int main(int argc,char**argv){
 
     const char*g0=getenv("MOTE_STUDIO_GAME");
     if(g0){ for(int i=0;i<g_ngame;i++)if(!strcmp(g_games[i].name,g0)){ load_game(i,1); build_tree(g_games[i].dir); g_treewatch=tree_mtime(g_games[i].dir); if(shot)SDL_Delay(700); break; } } else g_picker=1;
+    if(getenv("MOTE_STUDIO_NOINDEX"))g_tex_indexed=0;   /* bake RGB565 textures (for A/B compare) */
     if(getenv("MOTE_STUDIO_MMESHBAKE")){ snprintf(g_model_name,sizeof g_model_name,"%.36s",getenv("MOTE_STUDIO_MMESHBAKE"));   /* headless: load <model>.mmesh + bake src/<model>.h */
         mmesh_load(); if(g_nobj){ eobj_fit(); eobj_bake(); } fprintf(stderr,"MMESHBAKE %s -> %s\n",g_model_name,g_status); }
     if(getenv("MOTE_STUDIO_PAINT")){ snprintf(g_model_name,sizeof g_model_name,"%.36s",getenv("MOTE_STUDIO_PAINT"));   /* open <model>.mmesh in texture-paint mode */
         mmesh_load(); if(g_nobj){ g_edit_mode=1; eobj_fit(); eobj_paint_enter(); g_tab=TAB_MESH; } }
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }   /* capture/test: preview an .obj/.stl in the Mesh importer */
+    if(getenv("MOTE_STUDIO_TONE")){ g_tab=TAB_AUDIO; g_audio_view=1;   /* capture hook: Audio ▸ Tone view with a layered laser */
+        g_tone[0]=(MoteTone){MOTE_SYNTH_SQUARE,560,270,0.30f,0.003f,0.24f}; g_tone[1]=(MoteTone){MOTE_SYNTH_NOISE,2000,660,0.15f,0.001f,0.05f}; g_tone[2]=(MoteTone){MOTE_SYNTH_SINE,320,260,0.19f,0.004f,0.20f};
+        g_tone_n=3; g_tone_sel=0; snprintf(g_au_name,sizeof g_au_name,"laser"); tone_render(0); if(getenv("MOTE_STUDIO_TONESAVE"))tone_save(); }
     if(getenv("MOTE_STUDIO_SHEET")){ sh_load_def(getenv("MOTE_STUDIO_SHEET")); g_tab=TAB_SHEET; }   /* capture hook: open a sprite sheet */
     if(getenv("MOTE_STUDIO_TOOL")) g_ptool=atoi(getenv("MOTE_STUDIO_TOOL"));   /* capture hook: preselect a pixel tool */
     if(getenv("MOTE_STUDIO_BRUSHDAB")){ g_cw=g_ch=48; canvas_new(); g_tab=TAB_PIXEL; g_picker=0; g_pcol=(uint16_t)MOTE_RGB565(90,200,120);   /* capture hook: brush dabs */
@@ -5752,6 +5938,14 @@ int main(int argc,char**argv){
             g_obj[0].f[2].sel=1; op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.6"); g_op.hasnum=1; op_apply(0,0); op_confirm(); g_obj[0].f[2].sel=0;   /* push +X face out (asymmetric) */
             g_obj[0].mirror=(uint8_t)atoi(getenv("MOTE_STUDIO_MESHMIRRORAPPLY"));
             if(!getenv("MOTE_STUDIO_NOAPPLY")){ eobj_apply_mirror(); fprintf(stderr,"APPLYMIRROR nv=%d nf=%d mirror=%d\n",g_obj[0].nv,g_obj[0].nf,g_obj[0].mirror); } eobj_fit(); }
+        if(getenv("MOTE_STUDIO_DUPTEST")){ if(getenv("MOTE_STUDIO_DUPMODEL")){ snprintf(g_model_name,sizeof g_model_name,"%.36s",getenv("MOTE_STUDIO_DUPMODEL")); mmesh_load(); } else { eobj_free_all(); prim_cube(1.0f); }
+            prim_cylinder(0.5f,1.0f,16); g_objsel=g_nobj-1; eobj_fit();   /* repro: add cylinder to the scene, scale, move, dup */
+            g_sel_mode=0; eobj_select_all(0,1);
+            op_start(OP_SCALE,0,0); snprintf(g_op.num,sizeof g_op.num,"1.5"); g_op.hasnum=1; op_apply(0,0); op_confirm();
+            op_start(OP_MOVE,1,0); snprintf(g_op.num,sizeof g_op.num,"0.7"); g_op.hasnum=1; op_apply(0,0);
+            if(!getenv("MOTE_STUDIO_DUP_OPLIVE"))op_confirm();   /* DUP_OPLIVE: dup while the move op is still live */
+            fprintf(stderr,"DUPTEST before dup: nobj=%d objsel=%d oplive=%d cyl nv=%d\n",g_nobj,g_objsel,g_op.op!=OP_NONE,g_obj[g_objsel].nv);
+            eobj_dup_object(); eobj_fit(); fprintf(stderr,"DUPTEST after dup: nobj=%d objsel=%d\n",g_nobj,g_objsel); }
         if(getenv("MOTE_STUDIO_MESHBOOL")){ eobj_free_all(); prim_cube(1.0f); prim_cube(1.0f); g_obj[1].origin=(V3){0.7f,0.7f,0.7f}; g_objsel=0; eobj_fit();   /* two overlapping cubes */
             int op=atoi(getenv("MOTE_STUDIO_MESHBOOL")); if(op>=0&&op<=2){ eobj_boolean(op,1);
             fprintf(stderr,"MESHBOOL op=%d -> nobj=%d objsel=%d nv=%d nf=%d\n",op,g_nobj,g_objsel,g_obj[g_objsel].nv,g_obj[g_objsel].nf); } }
@@ -6025,6 +6219,7 @@ int main(int argc,char**argv){
                 else if(g_tab==TAB_SHEET)sheet_up(e.button.x,e.button.y);
                 g_split=0; g_mdrag=0; g_rdrag=0; g_me_sbdrag=0; g_kdrag=-1; g_scrub=0; g_gz_drag=-1; g_tree_sbdrag=0; g_me_hsvdrag=0; g_me_huedrag=0; g_tpaint_drag=0; g_wavdrag=0; g_au_sbdrag=0; g_lv_pdrag=0; g_lv_pandrag=0; g_hsvdrag=0; g_huedrag=0; g_dr_paint=0; g_an_drag=0; g_condrag=0; g_codesbdrag=0; if(g_codeseldrag){ g_codeseldrag=0; if(g_cur==g_csel)g_csel=-1; }
                 if(g_sfx_drag>=0){ g_sfx_drag=-1; sfx_apply(1); }   /* re-render + preview on slider release */
+                if(g_tone_slid>=0){ g_tone_slid=-1; tone_render(1); }   /* tone slider release: preview */
                 if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_up(e.button.x,e.button.y);
                 else if(g_tab==TAB_FONT)font_up(e.button.x,e.button.y); }
             else if(e.type==SDL_MOUSEMOTION){

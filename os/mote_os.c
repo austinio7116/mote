@@ -78,7 +78,7 @@ static int            s_fps_limit = 0;   /* 0 = uncapped (default) */
 static void           os_set_fps_limit(int fps) { s_fps_limit = fps > 0 ? fps : 0; }
 static void          *os_alloc(uint32_t n) { return mote_arena_alloc(&s_arena, n); }
 static uint32_t       os_arena_free(void)  { return (uint32_t)mote_arena_free(&s_arena); }
-static void           os_audio_play(const MoteSound *s, float g) { if (s) mote_audio_play(s->pcm, s->count, g); }
+static void           os_audio_play(const MoteSound *s, float g) { if (s) mote_audio_play(s->pcm, s->count, s->rate, s->bits, g); }
 
 static void mote_api_scene_set_splats(const MoteSplat *sp, int n, int *order,
         const Mat3 *cam, Vec3 cam_pos, float fov, const uint16_t *depth);
@@ -109,6 +109,7 @@ void mote_api_fill(MoteApi *a) {
     a->text                  = mote_font_draw;
     a->text_2x               = mote_font_draw_2x;
     a->text_font             = mote_font_draw_aa;   /* ABI v39: AA proportional fonts */
+    a->phys2d_step           = mote_phys2d_step;     /* ABI v42: 2D rigid-body solver */
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
@@ -249,6 +250,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
                           || c.max_tex_spheres > 0 || c.max_rings > 0
                           || c.max_billboards > 0 || c.max_tex_tris > 0);
     mote_phys_configure(&s_arena, c.max_bodies, c.max_contacts);
+    mote_phys2d_configure(&s_arena, c.max_bodies, c.max_contacts);   /* ABI v42: 2D solver pool */
 
     if (vt->init) vt->init();
 

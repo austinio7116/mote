@@ -14,7 +14,7 @@ static const MeshVert kshell_verts[34] = {
     { -54, 115,   0},    { -38, 115, -38},    {   0, 115, -54},    {  38, 115, -38},
     {   0, 127,   0},    {   0,   0,   0},
 };
-static const MeshFace kshell_faces[64] = {
+static const MeshFace kshell_f0[24] = {
     {  0,  9,  1,  116,  15,  48},
     {  0,  8,  9,  116,  15,  48},
     {  1, 10,  2,   48,  15, 116},
@@ -31,6 +31,16 @@ static const MeshFace kshell_faces[64] = {
     {  6, 14, 15,   48,  15,-116},
     {  7,  8,  0,  116,  15, -48},
     {  7, 15,  8,  116,  15, -48},
+    { 33,  0,  1,    0,-127,   0},
+    { 33,  1,  2,    0,-127,   0},
+    { 33,  2,  3,    0,-127,   0},
+    { 33,  3,  4,    0,-127,   0},
+    { 33,  4,  5,    0,-127,   0},
+    { 33,  5,  6,    0,-127,   0},
+    { 33,  6,  7,    0,-127,   0},
+    { 33,  7,  0,    0,-127,   0},
+};
+static const MeshFace kshell_f1[40] = {
     {  8, 17,  9,  106,  55,  44},
     {  8, 16, 17,  106,  55,  44},
     {  9, 18, 10,   44,  55, 106},
@@ -64,32 +74,20 @@ static const MeshFace kshell_faces[64] = {
     { 23, 24, 16,   75,  98, -31},
     { 23, 31, 24,   75,  98, -31},
     { 32, 25, 24,   27, 123,  11},
-    { 33,  0,  1,    0,-127,   0},
     { 32, 26, 25,   11, 123,  27},
-    { 33,  1,  2,    0,-127,   0},
     { 32, 27, 26,  -11, 123,  27},
-    { 33,  2,  3,    0,-127,   0},
     { 32, 28, 27,  -27, 123,  11},
-    { 33,  3,  4,    0,-127,   0},
     { 32, 29, 28,  -27, 123, -11},
-    { 33,  4,  5,    0,-127,   0},
     { 32, 30, 29,  -11, 123, -27},
-    { 33,  5,  6,    0,-127,   0},
     { 32, 31, 30,   11, 123, -27},
-    { 33,  6,  7,    0,-127,   0},
     { 32, 24, 31,   27, 123, -11},
-    { 33,  7,  0,    0,-127,   0},
 };
-static const uint16_t kshell_fcol[64] = {
-0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,
-0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,0xF759,
-0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,
-0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,
-0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,
-0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,0x4E2A,
-0x4E2A,0xF759,0x4E2A,0xF759,0x4E2A,0xF759,0x4E2A,0xF759,
-0x4E2A,0xF759,0x4E2A,0xF759,0x4E2A,0xF759,0x4E2A,0xF759,
+static const Mesh kshell_chunks[2] = {
+    { kshell_verts, kshell_f0, 0, 34, 24, 0xF759, 0.300000f, 0.300036f, 0 },
+    { kshell_verts, kshell_f1, 0, 34, 40, 0x4E2A, 0.300000f, 0.300036f, 0 },
 };
-static const Mesh kshell_mesh = { kshell_verts, kshell_faces, kshell_fcol, 34, 64, 0, 0.300000f, 0.300036f, 0 };
+#define kshell_NCHUNKS 2
+#define kshell_TRIS 64
+static const MoteModel kshell = { kshell_chunks, kshell_NCHUNKS, kshell_TRIS };  /* multi-part model — mote_model_draw(&kshell,pos) or _palette(...,parts) */
 
 #endif

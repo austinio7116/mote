@@ -495,7 +495,6 @@ static void raster_tex_tri(float ax, float ay, float ad,
     if (miny < py0) miny = py0;
     if (maxy > py1) maxy = py1;
     uint16_t *depth = mote_depth_buffer();
-    const uint16_t *tpix = tex ? tex->pixels : 0;
     int tw = tex ? tex->w : 0, th = tex ? tex->h : 0;
     uint16_t tkey = tex ? tex->key : 0;
     int tkeyed = tex && !tex->opaque;
@@ -527,7 +526,7 @@ static void raster_tex_tri(float ax, float ay, float ad,
                 int v = (int)((w0 * avd + w1 * bvd + w2 * cvd) * r);
                 if (u < 0) u = 0; else if (u >= tw) u = tw - 1;
                 if (v < 0) v = 0; else if (v >= th) v = th - 1;
-                src = tpix[v * tw + u];
+                src = mote_img_texel(tex, u, v);
                 if (tkeyed && src == tkey) continue;
                 if (shade < 255) src = shade565(src, shf);
             } else {
@@ -733,7 +732,8 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1) {
                 for (int px = cx0; px < cx1; px++) {
                     int idx = base + px;
                     if (depth && d <= depth[idx]) continue;     /* behind scene */
-                    uint16_t src = srow[(int)((px - x0) * du)];
+                    int su = (int)((px - x0) * du);
+                    uint16_t src = img->format ? mote_img_texel(img, q->fx + su, sv) : srow[su];
                     if (keyed && src == key) continue;
                     fb[idx] = writes ? src : blend565(fb[idx], src, bl);
                     if (writes && depth) depth[idx] = d;

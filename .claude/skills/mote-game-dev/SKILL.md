@@ -7,8 +7,8 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
 (RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
-Current engine ABI: **v38** (textured meshes v35, streamed SFX recipes v37, key-value
-blob storage v38 — see below).
+Current engine ABI: **v40** (textured meshes v35, streamed SFX recipes v37, key-value
+blob storage v38, proportional `text_font` v39, native low-fi `MoteSound` v40 — see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -96,6 +96,21 @@ MOTE_GAME_META("My Game", "me");   // name (shown in the launcher / .mote filena
 anymore (the tools fall back to a legacy `game.toml`, then the folder name, only if the macro
 is absent). If a model is textured, size `.config.max_tex_tris` (≥ the model's triangle count)
 or the engine draws it flat — the Studio warns you when you assign a texture without a budget.
+
+### ALWAYS ship an icon — every game needs `icon.png`
+
+**A game is not done until it has an icon.** Author a **60×60 `icon.png` in the game
+ROOT** (next to `src/`, NOT in `assets/`) as part of building any game — treat it as a
+required deliverable, same as `game.c`. `mote bake` (and Studio Save) turns it into
+`src/icon.h` (a weak `mote_game_icon_data` blob that `mote_build.h` auto-includes via
+`__has_include`, so it travels inside the `.mote` with zero boilerplate — do NOT `#include`
+it yourself). Without it the launcher just draws a plain name-coloured tile with the game's
+initial. Design it to read at launcher size: a bold, high-contrast emblem of the game (a key
+sprite/hero/vehicle on a simple background), not a busy screenshot. Author it like any other
+sprite — a PIL script writing the editable `icon.png`, then bake — and verify it renders by
+capturing the launcher (`./tools/mote run <dir>` with `MOTE_SHOT`, no `MOTE_AUTORUN`). Note:
+an `assets/icon.png` only bakes a plain `icon_img` texture — the launcher icon MUST be in the
+game root so the icon baker emits the `mote_game_icon_data` blob.
 
 `config` declares the resource pools the OS allocates from the 272 KB arena. Classic
 pools: `max_tris`/`max_spheres`/`max_splats`/`max_sprites`/`max_bodies`/`max_contacts`/
@@ -194,6 +209,9 @@ mote->audio_note(440.0f, 0.85f);                 // synth tone, one per event
 MoteSound coin = mote_sfx_bake(mote, &coin_sfx); // bake a recipe to PCM at load (zero per-sample synth
 mote->audio_play(&coin, 1.0f);                   //   cost — only for games firing SO many SFX it matters)
 mote->audio_set_stream(fill_fn);                 // v36: register your own PCM source the mixer pulls each block
+#include "hit.h"                                  // v40: a baked WAV (mote bake / Audio tab) -> a MoteSound kept
+mote->audio_play(&hit_snd, 1.0f);                //   at the WAV's NATIVE quality (8/16-bit, source rate); the
+                                                 //   mixer resamples+expands on playback. 8-bit/11025 = ~1/4 flash.
 ```
 The synth is single-precision (fixed in 0.8); the recipe path is cheap, but a game with
 *dense* simultaneous polyphony (a bullet-hell, a fast break) can still saturate it — bake

@@ -1,0 +1,5 @@
+DeepThumb
+
+Chess for Mote, powered by the Chal engine.
+5 difficulty levels from BEGINNER (~800 ELO) to EXPERT (~2200 ELO).
+Play as white or black. Sprite board, eval bar, save & resume.

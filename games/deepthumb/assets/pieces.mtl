@@ -1,0 +1,4 @@
+newmtl body
+Kd 0.88 0.86 0.76
+newmtl accent
+Kd 0.26 0.22 0.26

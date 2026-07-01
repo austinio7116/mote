@@ -470,7 +470,8 @@ Then `#include "logo.h"` in `game.c` and draw it: `mote->blit(fb, &logo_img, x, 
 | Source file(s) | Baker | Generated header contains | How you use it in C |
 |---|---|---|---|
 | `*.png`, `*.bmp` | **img2tex** (needs ImageMagick) | `<name>_px[]` (RGB565), `<name>_img` (a `MoteImage`), `<name>_W` / `<name>_H` | `#include "<name>.h"` then a sprite via `mote->scene2d_add` or an immediate blit via `mote->blit` |
-| `*.obj` | **obj2mesh** | one `<name>_mesh` (a `Mesh`) | small models that fit ≤255 verts |
+| `*.obj` (one material) | **obj2mesh** | one `<name>_mesh` (a `Mesh`) | small single-colour models that fit ≤255 verts |
+| `*.obj` (several materials) | **obj2mesh** | one `<name>` (a `MoteModel`, **one part per material** — colour from each `.mtl` `Kd`) + `<name>_TRIS` | multi-part models (e.g. a chess king = body + cross): draw whole with `mote_model_draw`, or **recolour parts per draw** with `mote_model_draw_palette` (team colours / chess sides) |
 | `*.stl` (binary or ASCII) | **stl2mesh** (or the Studio **Mesh** tab) | one `<name>` (a `MoteModel`) + `<name>_TRIS` | big models, auto-decimated + split into ≤255-vert chunks; draw the whole model in one call |
 | `*.wav`, `*.mp3` | **wav2snd** (Studio Audio tab / `mote bake`) | `<name>_snd` (a `MoteSound`, kept at native 8/16-bit + source rate) | recorded/sampled audio; play with `audio_play` |
 | `*.sfx` (recipe) | Studio **Audio** tab ▸ Save | `<name>_sfx` (a `MoteSfx`) | tiny procedural SFX; synth at load with `mote_sfx_bake` (§9) — ~1000× smaller than the WAV |
@@ -536,6 +537,20 @@ mote_model_draw_ex(mote, &fighter, world_pos, s_rot, 1.0f);   // or mote_model_d
 `mote_model_draw` / `mote_model_draw_ex` (in `mote_build.h`) loop the chunks for you
 and pair with `scene_camera()` so positions stay in world space. See
 `examples/modelview` (a 6,742-tri fighter → 1,494 tris in 4 chunks, drawn in one line).
+
+**Multi-part models + per-part colour (recolourable).** An `.obj` with several
+materials bakes to one `MoteModel` with **a chunk per material** (each part keeps its
+`.mtl` `Kd` colour); obj2mesh never recentres, so the parts stay aligned on the OBJ's
+shared origin — model a king as one file with `body` + `cross` materials, base at
+`y=0`, and it's one clean model in the tree. Draw the baked colours with
+`mote_model_draw`, or **recolour the parts at draw time** with `mote_model_draw_palette`
+— pass an RGB565 per part (`0` = keep baked). The same model then serves both chess
+sides with no extra assets (`games/deepthumb`):
+```c
+#include "king.h"   // baked from assets/king.obj (body + cross materials): a MoteModel `king`
+uint16_t pal[2] = { side_colour(side), accent_colour(side) };   // {body, topper}, swapped per side
+mote_model_draw_palette(mote, &king, pos, basis, 1.0f, pal, 2);
+```
 
 ### Modelling in the Mesh tab — the built-in model editor
 
@@ -1132,6 +1147,14 @@ Combine with `MOTE_DRAW_BLEND()` (above) for translucent textured surfaces like 
 The Studio model editor paints and bakes these for you, and adds `.max_tex_tris` to
 your config automatically — see [Texturing a model](#texturing-a-model--uv-unwrap-and-paint).
 
+**Indexed (palette) textures *(ABI v41)*.** A `MoteImage` may instead be **4-bit or 8-bit
+palette-indexed** (`format` 1/2, with `indices` + `palette`) — a low-colour texture then
+costs **1/4** (≤16 colours) or **1/2** (≤256) the flash of RGB565, decoded by a palette
+lookup at sample time. Every texture path handles it. You never write it by hand: `mote
+bake` and the Studio bake emit indexed **automatically and losslessly** when an image has
+≤256 colours (else RGB565); the model-editor texture bake uses a 4bpp palette. Re-bake a
+game (`mote bake <dir>`) to shrink its low-colour art.
+
 ### 5.2 — 2D scene (sprites + tilemap)
 
 A screen-space 2D layer the OS rasters **after** the 3D scene (both banded across
@@ -1422,6 +1445,36 @@ for (int i = 0; i < k; i++) collect_pickup(hits[i]);
 
 > See `examples/physics`, `materials`, `hulls`, `dominoes`, `pickups`, `shooter`.
 
+#### 2D rigid bodies — `phys2d_step` *(ABI v42)*
+
+A planar (top-down) sibling of the 3D solver, for driving games, air hockey, top-down
+brawlers — anything that lives on a flat plane. Circles and **oriented boxes**, impulse
+collisions with restitution + Coulomb friction, and a single rotational DOF, so bodies
+pick up **spin from off-centre impacts** (clip a car's rear corner and it spins out).
+Sequential-impulse solver, AABB broad phase, sleeping, collision-group masks
+(`mask_a & mask_b`, 0 = collide all), and `MOTE_B2D_SENSOR` bodies that detect overlap
+without pushing back. The game owns the body array; units are SI-ish on an X/Y plane
+(map your world `(x,z)` → body `(x,y)`).
+
+```c
+#include "mote_phys2d.h"
+static MoteWorld2D w2 = { .iterations = 8 };            /* gx/gy 0 for top-down    */
+static MoteBody2D  cars[8];
+cars[0] = mote_body2d_box(0, 0, 0.9f, 2.0f, 0, 1200);   /* x,y, half-extents, angle, mass */
+cars[0].lat_damp = 40.0f;                               /* tyre grip (see below)   */
+mote->phys2d_step(&w2, cars, 8, dt);                    /* engine runs the solver  */
+```
+
+`MoteBody2D` knobs: `inv_mass` 0 = immovable (walls/kerbs), `inv_inertia` 0 = rotation
+locked (bollards, pedestrians), `restitution`, `friction`, `lin_damp`/`ang_damp`
+(exponential damping), and **`lat_damp`** — anisotropic lateral friction in m/s²:
+each substep it removes up to `lat_damp*dt` of the velocity component *perpendicular*
+to the body's facing. That's tyre grip in one number: low speeds track like rails, a
+fast sideways slide isn't fully caught, so the body **drifts**. Leave it 0 for pucks
+and curling stones. Header-only constructors `mote_body2d_circle()` /
+`mote_body2d_box()` fill sane masses and inertias. Pool sizes come from your
+`MoteConfig` (`max_bodies` / `max_contacts`), same as the 3D solver.
+
 ### 5.4 — Gaussian splats
 
 A 4th render path: anisotropic 3D Gaussians, depth-sorted and alpha-blended. Each
@@ -1498,6 +1551,10 @@ the synth notes; the oldest is stolen when full. `gain` 0..1.
 #include "hit.h"                    // baked: static const MoteSound hit_snd = { hit_pcm, N, 11025, 8, 0 };
 mote->audio_play(&hit_snd, 1.0f);   // legacy { pcm, N } headers read as 16-bit/22050 (unchanged)
 ```
+To shrink a whole game's samples **without editing the WAVs**, force a bake quality:
+`MOTE_SFX_RATE=11025 MOTE_SFX_BITS=8 mote bake <game>` (the Studio's baker honours the
+same variables) — most retro SFX are indistinguishable at 8-bit/11 kHz and cost ~1/4
+the flash.
 
 #### `void audio_play_sfx(const MoteSfx *recipe, float gain)` — stream a recipe *(v37, recommended for SFX)*
 Plays an editable **`MoteSfx` recipe** (~88 bytes, authored in the Studio Audio tab, baked
@@ -1510,6 +1567,23 @@ baking each to a clip. `gain` 0..1.
 #include "coin.sfx.h"               // recipe: static const MoteSfx coin_sfx = { ... };
 mote->audio_play_sfx(&coin_sfx, 1.0f);   // fire-and-forget; generated as it plays
 ```
+
+#### Tone SFX — `mote_synth.h` (layered synth, the cheapest path)
+For a game that plays a **lot** of sounds every frame, the recipe synth above (per-voice
+filters / phaser / arp) can cost too much CPU. `sdk/mote_synth.h` is the lightweight
+alternative — the approach Indemnity Run uses: a small pool of cheap voices (Square / Saw
+/ Sine / Noise, a linear freq sweep, an attack/decay envelope), and a *sound* is a `MoteTone[]`
+you **layer** from a few of them. Author it in the Studio's **Audio ▸ Tone** view (live
+preview) and it exports the array; costs ~0 flash (just parameters) and ~0 RAM.
+```c
+#define MOTE_SYNTH_IMPL              // in ONE .c (usually game.c)
+#include "mote_synth.h"
+#include "laser.tone.h"              // static const MoteTone laser[3] = { ... }; laser_N
+// g_init:  if (mote->audio_set_stream) mote->audio_set_stream(mote_synth_render);
+// fire it: mote_synth_tone(laser, laser_N);      // or mote_synth_tone_amp(laser, laser_N, vol)
+```
+
+![The Studio Audio tab in Tone view — a Full/Tone toggle, layer chips (L1/L2/L3, +, del), a Square/Saw/Sine/Noise wave picker, freq / sweep / amp / attack / length sliders for the selected layer, and the live waveform of the synthesised layered sound on the right](docs/img/studio-tone.png)
 
 #### `MoteSound mote_sfx_bake(mote, const MoteSfx *recipe)` — recipes instead of WAVs
 For short procedural SFX you can ship a tiny **`MoteSfx` recipe** (~88 bytes, authored

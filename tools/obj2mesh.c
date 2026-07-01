@@ -194,27 +194,61 @@ int main(int argc, char **argv) {
                 (int)lrintf(verts[i].z*q), (i % 4 == 3 || i == nv-1) ? "\n" : "");
     fprintf(h, "};\n");
 
-    /* Colour: if every face shares one material colour, store it once on the Mesh
-     * (6-byte faces, face_colors = NULL). Otherwise emit a per-face colour array. */
+    /* Colour: if every face shares one material colour, store it once on the Mesh.
+     * A MULTI-MATERIAL (untextured) OBJ instead bakes to a MoteModel with one chunk
+     * per material — i.e. an OBJ authored with several named parts/materials becomes
+     * one multi-part model the game draws in a single call, and each part keeps its
+     * own colour. mote_model_draw_palette() can then recolour parts per draw (team
+     * colours, chess sides). obj2mesh never recentres, so the parts stay aligned on
+     * the OBJ's shared origin. Textured OBJs keep the single UV-mapped mesh form. */
     uint16_t c0 = nf ? kd565(faces[0].mtl) : 0; int uniform = 1;
     for (int i = 1; i < nf; i++) if (kd565(faces[i].mtl) != c0) { uniform = 0; break; }
+    int warned = 0;
+
+    /* one MeshFace {a,b,c,nx,ny,nz} row (shared vert indices), with a winding check */
+    #define EMIT_FACE(i) do { \
+        V3 a = verts[faces[i].a], b = verts[faces[i].b], cc = verts[faces[i].c]; \
+        V3 n = v3cross(v3sub(b, a), v3sub(cc, a)); float l = v3len(n); \
+        if (l < 1e-9f) { n.x = 0; n.y = 0; n.z = 1; l = 1; } \
+        n.x /= l; n.y /= l; n.z /= l; \
+        V3 fc = {(a.x+b.x+cc.x)/3, (a.y+b.y+cc.y)/3, (a.z+b.z+cc.z)/3}; \
+        if (v3dot(n, v3sub(fc, centre)) < -1e-4f && warned < 8) { \
+            fprintf(stderr, "warn: %s face %d may be inward-wound\n", name, i); warned++; } \
+        fprintf(h, "    {%3d,%3d,%3d, %4d,%4d,%4d},\n", faces[i].a, faces[i].b, faces[i].c, \
+                (int)lrintf(n.x*127), (int)lrintf(n.y*127), (int)lrintf(n.z*127)); \
+    } while (0)
+
+    if (!uniform && !textured) {
+        /* distinct material groups, in order of first appearance = part order */
+        int mtl_order[MAX_MTL], grpcnt[MAX_MTL], ngrp = 0;
+        for (int i = 0; i < nf; i++) {
+            int m = faces[i].mtl, g;
+            for (g = 0; g < ngrp; g++) if (mtl_order[g] == m) break;
+            if (g == ngrp) { mtl_order[ngrp] = m; grpcnt[ngrp] = 0; ngrp++; }
+            grpcnt[g]++;
+        }
+        for (int g = 0; g < ngrp; g++) {
+            fprintf(h, "static const MeshFace %s_f%d[%d] = {\n", name, g, grpcnt[g]);
+            for (int i = 0; i < nf; i++) if (faces[i].mtl == mtl_order[g]) EMIT_FACE(i);
+            fprintf(h, "};\n");
+        }
+        fprintf(h, "static const Mesh %s_chunks[%d] = {\n", name, ngrp);
+        for (int g = 0; g < ngrp; g++)
+            fprintf(h, "    { %s_verts, %s_f%d, 0, %d, %d, 0x%04X, %.6ff, %.6ff, 0 },\n",
+                    name, name, g, nv, grpcnt[g], kd565(mtl_order[g]), maxc, bound_r);
+        fprintf(h, "};\n");
+        fprintf(h, "#define %s_NCHUNKS %d\n#define %s_TRIS %d\n", name, ngrp, name, nf);
+        fprintf(h, "static const MoteModel %s = { %s_chunks, %s_NCHUNKS, %s_TRIS };"
+                   "  /* multi-part model — mote_model_draw(&%s,pos) or _palette(...,parts) */\n\n#endif\n",
+                name, name, name, name, name);
+        fclose(h);
+        printf("[obj2mesh] %s: %d verts %d tris in %d parts scale=%.2fm r=%.2fm -> %s\n",
+               name, nv, nf, ngrp, maxc, bound_r, out);
+        return 0;
+    }
 
     fprintf(h, "static const MeshFace %s_faces[%d] = {\n", name, nf);
-    int warned = 0;
-    for (int i = 0; i < nf; i++) {
-        V3 a = verts[faces[i].a], b = verts[faces[i].b], cc = verts[faces[i].c];
-        V3 n = v3cross(v3sub(b, a), v3sub(cc, a));
-        float l = v3len(n);
-        if (l < 1e-9f) { n.x = 0; n.y = 0; n.z = 1; l = 1; }
-        n.x /= l; n.y /= l; n.z /= l;
-        V3 fc = {(a.x+b.x+cc.x)/3, (a.y+b.y+cc.y)/3, (a.z+b.z+cc.z)/3};
-        if (v3dot(n, v3sub(fc, centre)) < -1e-4f && warned < 8) {
-            fprintf(stderr, "warn: %s face %d may be inward-wound\n", name, i); warned++;
-        }
-        fprintf(h, "    {%3d,%3d,%3d, %4d,%4d,%4d},\n",
-                faces[i].a, faces[i].b, faces[i].c,
-                (int)lrintf(n.x*127), (int)lrintf(n.y*127), (int)lrintf(n.z*127));
-    }
+    for (int i = 0; i < nf; i++) EMIT_FACE(i);
     fprintf(h, "};\n");
     if (!uniform) {
         fprintf(h, "static const uint16_t %s_fcol[%d] = {\n", name, nf);
@@ -222,6 +256,7 @@ int main(int argc, char **argv) {
             fprintf(h, "0x%04X,%s", kd565(faces[i].mtl), (i % 8 == 7 || i == nf-1) ? "\n" : "");
         fprintf(h, "};\n");
     }
+    #undef EMIT_FACE
 
     /* Per-face UVs (only when textured). OBJ uv origin is bottom-left; the engine
      * samples tpix[v*w+u] (top-left origin), so flip v: v_byte = 255 - v*255.

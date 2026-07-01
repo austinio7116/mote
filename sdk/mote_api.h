@@ -30,18 +30,32 @@
 #include "mote_sphere.h"   /* MoteSphereTex — textured/oriented impostor */
 #include "mote_2d.h"       /* MoteImage/Tileset/Tilemap/Sprite — header-only */
 #include "mote_phys.h"     /* MoteWorld/MoteBody — header-only */
+#include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 39u  /* v39: text_font — proportional fonts (TTF-baked or hand-drawn),
-                               * 1/2/4-bit packed coverage auto-picked by the baker. No API-table
-                               * change vs the format finalisation, so the version stays 39. */
+#define MOTE_ABI_VERSION 42u  /* v42: 2D rigid-body solver — phys2d_step + MoteBody2D/MoteWorld2D
+                               * (engine/physics/mote_phys2d). Appended one jump-table entry. */
+#define MOTE_ABI_V41_NOTE  /* v41: MoteImage gains an optional 4-/8-bit palette-indexed format
+                               * (texture flash 1/4 or 1/2 of RGB565, decoded by a palette lookup at
+                               * sample time). No jump-table change; the struct grew (old
+                               * {px,w,h,key[,opaque]} headers zero the new fields = RGB565, unchanged).
+                               * v40: MoteSound carries a sample RATE + BIT-DEPTH, so a clip can
+                               * be stored at its native (lower) quality — 8-bit and/or sub-22050 Hz
+                               * — and the mixer resamples/expands it at playback. Cuts flash ~4x for
+                               * 8-bit/11025 SFX. No jump-table change; the struct grew (old
+                               * {pcm,count} headers zero the new fields = 16-bit/22050, unchanged). */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
 
-/* A one-shot PCM sound effect: 22050 Hz, mono, signed 16-bit. Usually produced
- * by baking a .wav (Studio SFX editor ▸ Save, or `mote bake`) into a header. */
-typedef struct { const int16_t *pcm; int count; } MoteSound;
+/* A one-shot PCM sound effect, mono, produced by baking a .wav (Studio Audio tab
+ * ▸ Save, or `mote bake`) into a header. Stored at its NATIVE quality: `bits` is 8
+ * or 16 (0 = 16), `rate` is the source sample rate in Hz (0 = the 22050 mixer
+ * rate). The mixer resamples to 22050 and expands 8-bit on playback, so a low-fi
+ * clip (e.g. 8-bit/11025) costs ~1/4 the flash of a 16-bit/22050 one.
+ *   16-bit: `pcm` points at int16 samples · 8-bit: at signed int8 samples.
+ * Legacy {pcm,count} initialisers leave rate=bits=0 → 16-bit/22050 (unchanged). */
+typedef struct { const void *pcm; int count; uint16_t rate; uint8_t bits; uint8_t _reserved; } MoteSound;
 
 /* An SFXR-style sound RECIPE (~88 bytes) — the editable source behind a SFX. The
  * Studio Audio tab authors these; baked to a `static const MoteSfx` header it is
@@ -418,6 +432,12 @@ typedef struct MoteApi {
      * and down font->line_h. Returns the advanced x. The built-in mote->text()
      * 3x5 font stays available for tiny fixed HUD text. */
     int (*text_font)(uint16_t *fb, const MoteFont *font, const char *s, int x, int y, uint16_t color);
+
+    /* --- ABI v42: 2D rigid-body solver (top-down). The game owns the body array;
+     * the engine steps it (impulse resolution + friction + one rotational DOF). Its
+     * contact pool is arena-sized by config.max_bodies/max_contacts (like the 3D
+     * solver). See mote_phys2d.h. Returns contacts resolved on the last substep. */
+    uint32_t (*phys2d_step)(MoteWorld2D *w, MoteBody2D *b, int n, float dt);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------
