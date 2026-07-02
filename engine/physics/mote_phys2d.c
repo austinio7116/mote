@@ -165,12 +165,19 @@ static void resolve(MoteBody2D *A, MoteBody2D *B, MoteContact2 *c, float inv_dt)
         A->vx-=fx*imA; A->vy-=fy*imA; A->avel-=iiA*(rax*fy-ray*fx);
         B->vx+=fx*imB; B->vy+=fy*imB; B->avel+=iiB*(rbx*fy-rby*fx);
     }
-    /* positional correction (split by inverse mass) */
-    float slop=0.005f, perc=0.6f;
-    float corr=(c->depth-slop>0?c->depth-slop:0)*perc/sum;
-    A->x-=nx*corr*imA; A->y-=ny*corr*imA;
-    B->x+=nx*corr*imB; B->y+=ny*corr*imB;
     (void)inv_dt;
+}
+
+/* positional depenetration — applied ONCE per contact after the velocity iterations.
+ * (Running it inside the iteration loop multiplied the correction by iters x contacts,
+ * hurling deeply-penetrating bodies apart — crashes looked like teleports.) */
+static void depenetrate(MoteBody2D *A, MoteBody2D *B, MoteContact2 *c){
+    if ((A->flags&MOTE_B2D_SENSOR) || (B->flags&MOTE_B2D_SENSOR)) return;
+    float sum=A->inv_mass+B->inv_mass; if (sum<=0) return;
+    float slop=0.005f, perc=0.4f;   /* gentle: a 2-point manifold applies this twice */
+    float corr=(c->depth-slop>0?c->depth-slop:0)*perc/sum;
+    A->x-=c->nx*corr*A->inv_mass; A->y-=c->ny*corr*A->inv_mass;
+    B->x+=c->nx*corr*B->inv_mass; B->y+=c->ny*corr*B->inv_mass;
 }
 
 static void substep(MoteWorld2D *w, MoteBody2D *b, int n, float dt){
@@ -196,6 +203,7 @@ static void substep(MoteWorld2D *w, MoteBody2D *b, int n, float dt){
     }
     for (int it=0; it<iters; it++)
         for (int k=0;k<nc;k++) resolve(&b[ct[k].a], &b[ct[k].b], &ct[k], 1.0f/dt);
+    for (int k=0;k<nc;k++) depenetrate(&b[ct[k].a], &b[ct[k].b], &ct[k]);
     /* anisotropic (Coulomb-style) lateral friction: remove up to `lat_damp` m/s of the
      * velocity component perpendicular to the body's local axis, per second. A FIXED
      * rate (not a fraction) means a fast sideways slide isn't fully caught — it decays
