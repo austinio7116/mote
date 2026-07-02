@@ -1139,19 +1139,54 @@ static void place_markers(void) {
         if (nwant<24) want[nwant++]=(typeof(want[0])){bx,bz,kind};
     }
     nmark=0;
-    /* the SELL DOCK: a drivable spot right beside the water, 20-90 tiles out */
-    { int best=-1, bx=0, bz=0;
-      for (int z=2;z<MAPH-2;z+=2) for (int x=2;x<MAPW-2;x+=2){
-        if (!is_drivable(x,z)) continue;
-        int water=0;
-        for (int dz=-2;dz<=2 && !water;dz++) for (int dx=-2;dx<=2;dx++)
-            if (tile_at(x+dx,z+dz)=='~'){ water=1; break; }
-        if (!water) continue;
-        int d=(x-cx)*(x-cx)+(z-cz)*(z-cz);
-        if (d<20*20 || d>90*90) continue;
-        if (best<0 || d<best){ best=d; bx=x; bz=z; }
+    /* the SELL DOCK: a water-side drivable spot that is REACHABLE on the road network
+     * from the spawn (flood fill — the map has isolated road fragments that look like
+     * piers but connect to nothing). Prefers 20-90 tiles out, else nearest reachable. */
+    { static uint8_t rvis[(MAPW*MAPH+7)/8];               /* road-reachability bitmap */
+      static uint16_t q[4096];
+      for (unsigned i=0;i<sizeof rvis;i++) rvis[i]=0;
+      int sx0=-1, sz0=-1;                                 /* nearest road to the spawn */
+      for (int r=0;r<12 && sx0<0;r++)
+          for (int dz=-r;dz<=r && sx0<0;dz++) for (int dx=-r;dx<=r;dx++)
+              if (is_drivable(cx+dx,cz+dz)){ sx0=cx+dx; sz0=cz+dz; break; }
+      if (sx0>=0){
+          int head=0, tail=0;
+          #define RIDX(x,z) ((z)*MAPW+(x))
+          rvis[RIDX(sx0,sz0)>>3] |= 1<<(RIDX(sx0,sz0)&7);
+          q[tail++] = (uint16_t)((sz0<<8)|sx0);           /* packed: works while MAPW,MAPH<=256 */
+          while (head!=tail){
+              uint16_t pc=q[head++ & 4095]; if(head>65000) break;
+              int x=pc&0xFF, z=pc>>8;
+              static const int DX4[4]={1,-1,0,0}, DZ4[4]={0,0,1,-1};
+              for (int k=0;k<4;k++){
+                  int nx=x+DX4[k], nz=z+DZ4[k];
+                  if (nx<1||nz<1||nx>=MAPW-1||nz>=MAPH-1) continue;
+                  if (!is_drivable(nx,nz)) continue;
+                  int bi=RIDX(nx,nz);
+                  if (rvis[bi>>3] & (1<<(bi&7))) continue;
+                  if (((tail+1)&4095)==(head&4095)) continue;   /* ring full: skip (rare) */
+                  rvis[bi>>3] |= 1<<(bi&7);
+                  q[tail++ & 4095] = (uint16_t)((nz<<8)|nx);
+              }
+              if (tail>60000) break;
+          }
+          int best=-1, bx=0, bz=0, bestAny=-1, ax=0, az=0;
+          for (int z=2;z<MAPH-2;z++) for (int x=2;x<MAPW-2;x++){
+              int bi=RIDX(x,z);
+              if (!(rvis[bi>>3] & (1<<(bi&7)))) continue;   /* must be REACHABLE */
+              int water=0;
+              for (int dz=-2;dz<=2 && !water;dz++) for (int dx=-2;dx<=2;dx++)
+                  if (tile_at(x+dx,z+dz)=='~'){ water=1; break; }
+              if (!water) continue;
+              int d=(x-cx)*(x-cx)+(z-cz)*(z-cz);
+              if (bestAny<0 || d<bestAny){ bestAny=d; ax=x; az=z; }
+              if (d<20*20 || d>90*90) continue;
+              if (best<0 || d<best){ best=d; bx=x; bz=z; }
+          }
+          if (best<0 && bestAny>=0){ bx=ax; bz=az; best=bestAny; }   /* any reachable water-side spot */
+          if (best>=0) markers[nmark++]=(Marker){ bx*TILE+TILE*0.5f, bz*TILE+TILE*0.5f, MK_DOCK };
+          #undef RIDX
       }
-      if (best>=0) markers[nmark++]=(Marker){ bx*TILE+TILE*0.5f, bz*TILE+TILE*0.5f, MK_DOCK };
     }
     for (int m=0;m<nwant;m++){
         int bx=want[m].tx, bz=want[m].tz, fx=bx, fz=bz, found=0;
