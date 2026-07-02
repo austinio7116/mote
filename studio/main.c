@@ -1482,6 +1482,7 @@ static char g_model_name[40]="scene";   /* current model's base name: <project>/
 static int g_edit_mode=0;            /* MESH tab: 0 = importer preview, 1 = editable scene */
 static int g_sel_mode=0;             /* 0 = vert, 1 = edge, 2 = face */
 static char g_mmesh_path[640];
+static char g_escene_src[640];   /* which imported file the CURRENT editor scene came from ("" = primitives / .mmesh) */
 
 static int ev_add(EObject*o,V3 p){ if(o->nv>=o->vcap){ o->vcap=o->vcap?o->vcap*2:16; o->v=realloc(o->v,o->vcap*sizeof*o->v); }
     o->v[o->nv].p=p; o->v[o->nv].sel=0; return o->nv++; }
@@ -1630,6 +1631,7 @@ static void eobj_from_import(void){
     { size_t pl=strlen(g_mesh_path); if(pl>4&&!strcasecmp(g_mesh_path+pl-4,".obj")&&eobj_obj_group_count(g_mesh_path)>1){
         int n=eobj_import_obj_groups(g_mesh_path);
         if(n>0){ g_mesh_size=g_mesh_qmax; g_edit_mode=1; eobj_fit();
+            snprintf(g_escene_src,sizeof g_escene_src,"%s",g_mesh_path);
             snprintf(g_status,sizeof g_status,"editing %d parts from %s (see the Objects tab)",n,g_mesh_path); return; } } }
     if(g_nraw<1){ snprintf(g_status,sizeof g_status,"load a .stl/.obj first"); return; }
     if(g_mesh_dirty)mesh_reprocess();
@@ -1644,6 +1646,7 @@ static void eobj_from_import(void){
     edges_rebuild(o);
     g_mesh_size=g_mesh_qmax;                  /* keep the model's real-world half-extent for the bake */
     g_edit_mode=1; eobj_fit();
+    snprintf(g_escene_src,sizeof g_escene_src,"%s",g_mesh_path);
     snprintf(g_status,sizeof g_status,"editing %s — %d verts, %d faces (lower 'tris' budget for simpler topology)",nm,o->nv,o->nf); }
 
 static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.500s/%.36s.mmesh",g_sel>=0?g_games[g_sel].dir:".",g_model_name); }
@@ -1659,7 +1662,7 @@ static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"op
             if(hasuv){ fprintf(f,"fuv"); for(int k=0;k<fc->nv;k++)fprintf(f," %.5f %.5f",fc->uv[k][0],fc->uv[k][1]); fprintf(f,"\n"); } }
         fprintf(f,"end\n"); }
     fclose(f); snprintf(g_status,sizeof g_status,"saved scene.mmesh (%d objects)",g_nobj); }
-static void mmesh_load(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
+static void mmesh_load(void){ g_escene_src[0]=0; if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     mmesh_pathfor(g_mmesh_path,sizeof g_mmesh_path); FILE*f=fopen(g_mmesh_path,"r");
     if(!f){ snprintf(g_status,sizeof g_status,"no scene.mmesh in project"); return; }
     eobj_free_all(); char ln[256]; EObject*cur=NULL;
@@ -3302,7 +3305,14 @@ static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(g_edit_mode) return mesh_edit_down(mx,my);
     if(g_me_reimport.w&&HITR(g_me_reimport)){ eobj_from_import(); g_me_cardtab=1; return 1; }   /* replace the edited scene with a fresh (multi-part) import; land on the Objects list */
-    if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nobj>0){ g_edit_mode=1; eobj_fit(); }   /* a model exists -> just re-enter the editor (don't re-import + wipe edits) */
+    if(g_me_editbtn.w&&HITR(g_me_editbtn)){
+        /* "Edit THIS mesh": if the previewed file is not what the current scene was
+         * imported from, the user is asking to edit the new file -> import it (one
+         * object per part/material). Same file (or no preview) -> re-enter the scene
+         * so edits are never wiped. */
+        if(g_nraw>0&&g_mesh_path[0]&&strcmp(g_mesh_path,g_escene_src)!=0){
+            eobj_from_import(); if(g_nobj>1)g_me_cardtab=1; return 1; }
+        if(g_nobj>0){ g_edit_mode=1; eobj_fit(); }
         else if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }
     if(g_me_vrot.w&&HITR(g_me_vrot)){ g_mesh_autorot=!g_mesh_autorot; return 1; }                       /* MODEL preview: toggle auto-spin */
     if(g_me_vtex.w&&HITR(g_me_vtex)){ g_mesh_showtex=!g_mesh_showtex; return 1; }                        /* toggle textured / flat */
