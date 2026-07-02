@@ -55,63 +55,6 @@ MOTE_MODULE_HEADER();
 #endif
 
 /* ============================================================ text maps ==== */
-static const char *LV0[] = {
-    "##################",
-    "#P...l......%%%%%#",
-    "#....##.##..%....#",
-    "#.o..#...#..D....#",
-    "#....#.G.#..%..X.#",
-    "##D###...####.##.#",
-    "#....i.....h....l#",
-    "#.##.####D####.###",
-    "#.#....a....#....#",
-    "#.#.##.###.##.##.#",
-    "#...#y...G..#..oE#",
-    "#.#.#.####.####.##",
-    "#.#...w......i...#",
-    "##################", 0 };
-static const char *LV1[] = {
-    "######################",
-    "#P......#.....l#.....#",
-    "#..o....D......D.....#",
-    "#.......#..G...#..i..#",
-    "##D###.######.###....#",
-    "#....#.....h.#..####D#",
-    "#.G..#.###.#.#.....X.#",
-    "#....i.#.G.#.#.###.#.#",
-    "#.####.#...#.#...#.#.#",
-    "#....#.######.##.#.###",
-    "#.l..D....a....#....G#",
-    "#....#.##.####.####.##",
-    "#.####.#....X.....h..#",
-    "#......#.####.####.###",
-    "#.o..G.#....w#E.o....#",
-    "#.######.##.#.#.####.#",
-    "#..........#.....l...#",
-    "######################", 0 };
-static const char *LV2[] = {
-    "########################",
-    "#P....l#......#.....h..#",
-    "#......D......D....#####",
-    "#..o...#..G...#....#..X#",
-    "##D####.#####.####.D...#",
-    "#.....#....h.....#..#.##",
-    "#.G...#.###.####.#..#..#",
-    "#.....i.#.G..#.X.i..#.y#",
-    "#.####.#.####.#.###.#..#",
-    "#....#.#....#.#...#.####",
-    "#.l..#.#.##.#.###.....G#",
-    "#....D.#..#.#...#.######",
-    "#.####.###.#.#w.#.....i#",
-    "#....#.....#.#####.###.#",
-    "#.G..#.###.#.....#...#.#",
-    "#....i.#E#.#.###.###.#.#",
-    "#.##.#.#.#.....#...o.#.#",
-    "#..o.#.#.########.#.##.#",
-    "#....w.#........G.#....#",
-    "########################", 0 };
-static const char *const *const LEVELS[] = { LV0, LV1, LV2 };
-#define NUM_LEVELS 3
 
 /* ============================================================== world ====== */
 #define MAXW 24
@@ -125,7 +68,7 @@ static int     MW, MH;
 static MeshVert g_cv[8];
 static MeshFace g_cf[12];
 static uint8_t  g_cuv[72];
-static Mesh wall_brick, wall_stone, wall_door;
+static Mesh wall_brick, wall_stone, wall_door, wall_exit;
 static void build_wall_mesh(void) {
     static const int8_t C[8][3] = {
         {-127,-127,-127},{127,-127,-127},{127,127,-127},{-127,127,-127},
@@ -146,6 +89,7 @@ static void build_wall_mesh(void) {
     wall_brick=(Mesh){.verts=g_cv,.faces=g_cf,.nverts=8,.nfaces=12,.scale=0.5f,.bound_r=0.87f,.texture=&brick_img,.face_uvs=g_cuv};
     wall_stone=wall_brick; wall_stone.texture=&stone_img;
     wall_door =wall_brick; wall_door.texture =&door_img;
+    wall_exit =wall_brick; wall_exit.texture =&exit_img;
 }
 
 /* ============================================================ entities ===== */
@@ -160,13 +104,14 @@ enum { PK_AMMO, PK_HEALTH, PK_WEAPON };
 typedef struct { float x,z; int type, taken; } Pickup;
 enum { SC_BARREL, SC_LAMP, SC_PILLAR, SC_PLANT };
 typedef struct { float x,z; int type; } Scenery;
-typedef struct { int ix,iz; float open; int want; float closet; } Door;
+typedef struct { int ix,iz; float open; int want; float closet; int isexit; } Door;
 
 static Enemy   g_en[MAX_EN]; static int g_nen;
 static Pickup  g_pk[MAX_PK]; static int g_npk;
 static Scenery g_sc[MAX_SC]; static int g_nsc;
 static Door    g_dr[MAX_DR]; static int g_ndr;
 static float   g_ex, g_ez;   /* exit cell centre */
+static int     g_exi, g_ezi; /* exit door cell */
 
 /* ============================================================== player ===== */
 static float px, pz, yaw;
@@ -216,9 +161,113 @@ static float dist_gain(float d, float lo, float hi) {
     float g = 1.0f - d / 12.0f; if (g < lo) g = lo; if (g > hi) g = hi; return g;
 }
 
+/* ==================================================== procedural floors ==== */
+/* ThumbyRogue-style floors: chunky ROOMS packed on the grid, short connectors
+ * (some double-wide, so they read as halls, not mazes), doors at thresholds,
+ * the green EXIT DOOR set in the far room's wall. Deeper floors = more brutes. */
+#define NUM_FLOORS 8
+#define GENW 24
+#define GENH 20
+static char g_gen[GENH][GENW+1];
+static const char *g_genrows[GENH+1];
+static uint32_t g_seed = 0xC0FFEE21u;
+static float grnd(void){ g_seed=g_seed*1664525u+1013904223u; return (g_seed>>8)*(1.0f/16777216.0f); }
+static int   grndi(int n){ return (int)(grnd()*n); }
+typedef struct { int x,z,w,h; } Room;
+static int gopen(int x,int z){ char c=g_gen[z][x]; return c!='#' && c!='%'; }
+static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
+
+static void gen_level(int idx){
+    Room rooms[8]; int nr=0;
+    for (int z=0;z<GENH;z++){ for(int x=0;x<GENW;x++) g_gen[z][x]='#'; g_gen[z][GENW]=0; }
+    for (int t=0;t<80 && nr<7;t++){                       /* rooms, 1-cell margin apart */
+        Room r={ 1+grndi(GENW-11), 1+grndi(GENH-9), 4+grndi(5), 3+grndi(4) };
+        if (r.x+r.w>=GENW-1 || r.z+r.h>=GENH-1) continue;
+        int bad=0;
+        for (int i=0;i<nr;i++){ Room*o=&rooms[i];
+            if (r.x<o->x+o->w+1 && o->x<r.x+r.w+1 && r.z<o->z+o->h+1 && o->z<r.z+r.h+1){ bad=1; break; } }
+        if (bad) continue;
+        rooms[nr++]=r;
+        for (int z=r.z;z<r.z+r.h;z++) for (int x=r.x;x<r.x+r.w;x++) g_gen[z][x]='.';
+    }
+    if (nr<2){                                            /* pathological roll: one big hall */
+        rooms[0]=(Room){2,2,GENW-4,GENH-4}; nr=1;
+        for (int z=2;z<GENH-2;z++) for (int x=2;x<GENW-2;x++) g_gen[z][x]='.';
+    }
+    for (int i=0;i+1<nr;i++){                             /* short L connectors; 40% hall-wide */
+        int x=rooms[i].x+rooms[i].w/2,   z=rooms[i].z+rooms[i].h/2;
+        int x1=rooms[i+1].x+rooms[i+1].w/2, z1=rooms[i+1].z+rooms[i+1].h/2;
+        int wide = grnd()<0.4f;
+        while (x!=x1){ gcarve(x,z); if(wide) gcarve(x,z+1); x += x1>x?1:-1; }
+        while (z!=z1){ gcarve(x,z); if(wide) gcarve(x+1,z); z += z1>z?1:-1; }
+    }
+    for (int i=0;i<nr;i++) if (grnd()<0.5f){              /* stone dressing on some rooms */
+        Room*r=&rooms[i];
+        for (int z=r->z-1;z<=r->z+r->h;z++) for (int x=r->x-1;x<=r->x+r->w;x++){
+            if (x<0||z<0||x>=GENW||z>=GENH) continue;
+            if (g_gen[z][x]=='#') g_gen[z][x]='%';
+        }
+    }
+    int doors=0;                                          /* doors at 1-wide thresholds */
+    for (int z=1;z<GENH-1;z++) for (int x=1;x<GENW-1;x++){
+        if (g_gen[z][x]!='.') continue;
+        int wN=!gopen(x,z-1), wS=!gopen(x,z+1), wE=!gopen(x+1,z), wW=!gopen(x-1,z);
+        if (((wN&&wS&&!wE&&!wW)||(wE&&wW&&!wN&&!wS)) && doors<MAX_DR-1 && grnd()<0.45f){
+            g_gen[z][x]='D'; doors++; }
+    }
+    int sx=rooms[0].x+rooms[0].w/2, sz=rooms[0].z+rooms[0].h/2;
+    g_gen[sz][sx]='P';
+    int far=nr>1?1:0, fd=-1;                              /* exit door in the FARTHEST room's wall */
+    for (int i=1;i<nr;i++){ int cx=rooms[i].x+rooms[i].w/2, cz=rooms[i].z+rooms[i].h/2;
+        int d=(cx-sx)*(cx-sx)+(cz-sz)*(cz-sz); if(d>fd){ fd=d; far=i; } }
+    { Room*r=&rooms[far]; int ex=-1,ez=-1;
+      for (int t=0;t<60 && ex<0;t++){
+          int side=grndi(4), x,z;
+          if      (side==0){ x=r->x+grndi(r->w); z=r->z-1;    }
+          else if (side==1){ x=r->x+grndi(r->w); z=r->z+r->h; }
+          else if (side==2){ x=r->x-1;    z=r->z+grndi(r->h); }
+          else             { x=r->x+r->w; z=r->z+grndi(r->h); }
+          if (x<1||z<1||x>=GENW-1||z>=GENH-1) continue;
+          if (gopen(x,z)) continue;
+          int nopen = gopen(x+1,z)+gopen(x-1,z)+gopen(x,z+1)+gopen(x,z-1);
+          if (nopen==1){ ex=x; ez=z; }                    /* a doorway set INTO the wall */
+      }
+      if (ex<0){ ex=r->x+r->w/2; ez=r->z; }
+      g_gen[ez][ex]='E';
+    }
+    int nen=5+idx*2; if (nen>18) nen=18;                  /* deeper = meaner */
+    float bprob=0.12f+0.06f*idx; if (bprob>0.55f) bprob=0.55f;
+    for (int t=0;t<240 && nen>0;t++){
+        int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
+        if (g_gen[z][x]!='.') continue;
+        if ((x-sx)*(x-sx)+(z-sz)*(z-sz) < 49) continue;   /* not near the spawn */
+        g_gen[z][x] = grnd()<bprob ? 'X' : 'G'; nen--;
+    }
+    int drops = 4 + ((idx>=1 && !has_chain) ? 1 : 0);     /* ammo/health (+ the chaingun once) */
+    for (int t=0;t<240 && drops>0;t++){
+        int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
+        if (g_gen[z][x]!='.') continue;
+        g_gen[z][x] = (drops==5)?'w' : (drops&1)?'a':'h'; drops--;
+    }
+    for (int i=0;i<nr;i++) if (grnd()<0.7f){              /* a lamp per room */
+        int x=rooms[i].x+rooms[i].w/2, z=rooms[i].z+rooms[i].h/2;
+        if (g_gen[z][x]=='.') g_gen[z][x]='l';
+    }
+    int ns=5;                                             /* clutter that can't seal a passage */
+    for (int t=0;t<200 && ns>0;t++){
+        int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
+        if (g_gen[z][x]!='.') continue;
+        if (!gopen(x+1,z)||!gopen(x-1,z)||!gopen(x,z+1)||!gopen(x,z-1)) continue;
+        g_gen[z][x] = "oiy"[grndi(3)]; ns--;
+    }
+    for (int z=0;z<GENH;z++) g_genrows[z]=g_gen[z];
+    g_genrows[GENH]=0;
+}
+
 /* ============================================================ load level === */
 static void load_level(int idx) {
-    const char *const *rows = LEVELS[idx];
+    gen_level(idx);
+    const char *const *rows = g_genrows;
     MW = (int)strlen(rows[0]);
     MH = 0; while (rows[MH]) MH++;
     if (MW > MAXW) MW = MAXW;
@@ -227,7 +276,7 @@ static void load_level(int idx) {
     memset(g_block, 0, sizeof g_block);
     memset(g_doorid, -1, sizeof g_doorid);
     g_nen = g_npk = g_nsc = g_ndr = 0;
-    g_ex = g_ez = -1;
+    g_ex = g_ez = -1; g_exi = g_ezi = -1;
 
     for (int z = 0; z < MH; z++) {
         const char *row = rows[z];
@@ -239,12 +288,15 @@ static void load_level(int idx) {
                 case '%': g_wall[z][x]=2; g_block[z][x]=1; break;
                 case 'D':
                     g_wall[z][x]=3;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0}; g_ndr++; }
                     break;
                 case 'P': px=wx; pz=wz; break;
-                case 'E': g_ex=wx; g_ez=wz; break;
-                case 'G': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_GUARD,100,1,0,0,0}; break;
-                case 'X': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_BRUTE,220,1,0,0,0}; break;
+                case 'E':                                  /* the GREEN EXIT DOOR */
+                    g_wall[z][x]=3; g_ex=wx; g_ez=wz; g_exi=x; g_ezi=z;
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,1}; g_ndr++; }
+                    break;
+                case 'G': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_GUARD,100,1,0.8f+mote_frand()*0.9f,0,0}; break;
+                case 'X': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_BRUTE,220,1,0.8f+mote_frand()*0.9f,0,0}; break;
                 case 'a': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO,0}; break;
                 case 'h': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_HEALTH,0}; break;
                 case 'w': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_WEAPON,0}; break;
@@ -256,12 +308,35 @@ static void load_level(int idx) {
             }
         }
     }
-    yaw = 0.0f; gun_cd = muzzle = walk_t = hurt = 0.0f;
+#ifdef MOTE_HOST
+    /* test hook: spawn beside the exit door, facing it */
+    if (getenv("MOTE_WOLF_ATEXIT") && g_exi>=0){
+        static const int DX4[4]={0,1,0,-1}, DZ4[4]={-1,0,1,0};
+        for (int k=0;k<4;k++){ int nx=g_exi+DX4[k], nz=g_ezi+DZ4[k];
+            if (nx>0&&nz>0&&nx<MW&&nz<MH && !g_block[nz][nx] && g_wall[nz][nx]==0){
+                px=nx+0.5f; pz=nz+0.5f;
+                yaw = atan2f((g_exi+0.5f)-px, (g_ezi+0.5f)-pz);   /* fwd=(sin,cos) */
+                break; } }
+    }
+#endif
+    { int bx=(int)px, bz=(int)pz, bestk=0, bestrun=-1;    /* face open space at spawn */
+      static const int DX4[4]={0,1,0,-1}, DZ4[4]={-1,0,1,0};
+      static const float YAW4[4]={3.14159f,1.5708f,0.0f,-1.5708f};  /* fwd=(sin,cos): -z,+x,+z,-x */
+      for (int k=0;k<4;k++){ int run=0;
+          while (run<8 && !g_block[bz+DZ4[k]*(run+1)][bx+DX4[k]*(run+1)]) run++;
+          if (run>bestrun){ bestrun=run; bestk=k; } }
+#ifdef MOTE_HOST
+      if (!getenv("MOTE_WOLF_ATEXIT"))
+#endif
+      yaw = YAW4[bestk]; }
+    gun_cd = muzzle = walk_t = hurt = 0.0f;
+    msg_t = 1.6f;                                          /* "FLOOR n" toast */
     cur_w = has_chain ? 1 : 0;
     state = ST_PLAY;
 }
 
 static void start_game(void) {
+    g_seed ^= (uint32_t)mote->micros(); g_seed ^= g_seed<<13;   /* a new dungeon each run */
     level = 0; health = 100; ammo = 24; score = 0; has_chain = 0;
     load_level(0);
     msg_t = 0;
@@ -415,15 +490,11 @@ static void g_update(float dt) {
             }
         }
 
-        /* exit: reach the marker once everything's dead */
-        if (g_ex >= 0) {
-            float ddx=g_ex-px, ddz=g_ez-pz;
-            if (ddx*ddx+ddz*ddz < 0.40f) {
-                if (alive == 0) {
-                    if (level+1 < NUM_LEVELS) { level++; load_level(level); }
-                    else state = ST_WIN;
-                } else if (msg_t <= 0) msg_t = 1.5f;
-            }
+        /* stepping THROUGH the green exit door descends to the next floor */
+        if (g_exi >= 0 && (int)px == g_exi && (int)pz == g_ezi) {
+            score += 500 + alive*0;                       /* descent bonus */
+            if (level+1 < NUM_FLOORS) { level++; load_level(level); }
+            else state = ST_WIN;
         }
     }
 
@@ -436,16 +507,23 @@ static void g_update(float dt) {
     for (int z = 0; z < MH; z++)
         for (int x = 0; x < MW; x++) {
             uint8_t w = g_wall[z][x];
-            if (w == 1) mote_draw(mote, &wall_brick, v3(x+0.5f, 0.5f, z+0.5f));
-            else if (w == 2) mote_draw(mote, &wall_stone, v3(x+0.5f, 0.5f, z+0.5f));
+            if (w == 1 || w == 2) {
+                /* generated floors are carved from solid rock — only draw SHELL walls
+                 * (those touching an open cell); interior cubes can never be seen */
+                int shell = 0;
+                if (x>0    && !g_block[z][x-1]) shell=1;
+                if (x<MW-1 && !g_block[z][x+1]) shell=1;
+                if (z>0    && !g_block[z-1][x]) shell=1;
+                if (z<MH-1 && !g_block[z+1][x]) shell=1;
+                if (!shell) continue;
+                mote_draw(mote, w==1?&wall_brick:&wall_stone, v3(x+0.5f, 0.5f, z+0.5f));
+            }
             else if (w == 3) {
                 int id = g_doorid[z][x]; float op = id>=0 ? g_dr[id].open : 0;
-                if (op < 0.92f) mote_draw(mote, &wall_door, v3(x+0.5f, 0.5f + op*0.98f, z+0.5f));
+                const Mesh *dm = (id>=0 && g_dr[id].isexit) ? &wall_exit : &wall_door;
+                if (op < 0.92f) mote_draw(mote, dm, v3(x+0.5f, 0.5f + op*0.98f, z+0.5f));
             }
         }
-
-    if (g_ex >= 0)
-        mote->scene_add_billboard(v3(g_ex, 0.5f, g_ez), &exit_img, 0,0,0,0, 0.9f, MOTE_BLEND_NONE);
 
     for (int i = 0; i < g_nsc; i++) {
         Scenery *s = &g_sc[i];
@@ -521,7 +599,7 @@ static void g_overlay(uint16_t *fb) {
     mote_textf(mote, fb, 104,1, white, "L%d", level+1);
 
     if (msg_t > 0 && state == ST_PLAY)
-        mote_textf(mote, fb, 22,118, amber, "KILL ALL ENEMIES");
+        mote_textf(mote, fb, 44,118, amber, "FLOOR %d", level+1);
 
     if (state == ST_WIN) {
         mote->draw_rect(fb, 16,52,96,24, MOTE_RGB565(20,30,20),1,0,128);
@@ -539,6 +617,6 @@ static const MoteGameVtbl k_vtbl = {
     .update = g_update,
     .render_band = 0,
     .overlay = g_overlay,
-    .config = { .depth = 1, .max_tex_tris = 1200, .max_billboards = 64 },
+    .config = { .depth = 1, .max_tex_tris = 1700, .max_billboards = 64 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
