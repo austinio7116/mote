@@ -7,8 +7,9 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
 (RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
-Current engine ABI: **v40** (textured meshes v35, streamed SFX recipes v37, key-value
-blob storage v38, proportional `text_font` v39, native low-fi `MoteSound` v40 — see below).
+Current engine ABI: **v42** (textured meshes v35, streamed SFX recipes v37, key-value
+blob storage v38, proportional `text_font` v39, native low-fi `MoteSound` v40, indexed
+4/8-bit palette `MoteImage` v41, **2D rigid-body solver `phys2d_step` v42** — see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -46,11 +47,22 @@ Editable source → baked header (`mote bake` handles all of these):
 | `tilesets/*.tileset` (+ sheet png) | `<name>.tiles.h` (`MoteAutotile`) | Tiles tab |
 | `levels/*.level` | `<name>.level.h` | Tiles tab |
 | `*.obj` / `*.stl` (+ `*.rig`) | `<name>.h` / `.rig.h` (`Mesh`/`MoteModel`/rig) | Mesh / Rig tab |
+| `*.ttf` (+ optional `<base>.size` sidecar, default 16) | `<base>.font.h` (`MoteFont`) | Font tab |
 | game-root `icon.png` | `src/icon.h` | Pixel Art tab (icon) |
 
 If you must generate art programmatically (PIL etc.) as the *authoring* step, write the
 result to the editable source file (the `.png`/`.sfx`), commit that, and bake it — the
 deliverable is the editable file, not a C array.
+
+**Sourcing quality art:** procedural PIL drawing is fine for simple props/tiles but tends
+to disappoint for organic or detailed art (characters, vehicles, foliage). The proven
+high-quality path: the developer supplies an AI-generated or hand-made sheet (uniform
+light background), and you write an **extractor script under `assets/`** (background-key
+→ `scipy.ndimage` connected components → `binary_fill_holes` so pure-white regions inside
+sprites survive → one global scale to preserve relative sizes → grid sheet + a generated
+`_meta.h` with per-sprite opaque sizes for draw/collider sizing). The extractor + source
+PNGs are the editable assets; keep them in the repo. **Never replace or delete an asset
+the developer likes — only add**, and show a rendered preview before wiring things in.
 
 **Texturing a 3D model (v35 textured faces) — from the Studio:** open the OBJ/STL in the
 **Mesh** (or **Rig**) view and click **Assign…** → pick a PNG. It's saved as a `<model>.png`
@@ -155,6 +167,22 @@ MoteSprite s = { .img=&img, .x=px,.y=py, .fx=frame*16,.fy=0,.fw=16,.fh=16, .laye
 mote->scene2d_add(&s);
 ```
 
+**2D rigid-body physics** *(v42)* — impulse solver with boxes/circles, spin, Coulomb
+friction; the game owns the body array, the engine steps it. Pools: `.max_bodies` +
+`.max_contacts` in `config` (arena-backed — never static contact arrays):
+```c
+#include "mote_phys2d.h"                      /* via mote_api.h */
+static MoteBody2D bodies[N]; static MoteWorld2D w2;   /* gx/gy=0 for top-down */
+bodies[i] = mote_body2d_box(x, z, half_len, half_wid, yaw, mass_kg);   /* or _circle */
+bodies[i].lat_damp = 22.0f;   /* ANISOTROPIC lateral friction m/s^2: tyre grip — a body
+                                 resists sliding sideways but can break loose and DRIFT.
+                                 0 (default) = isotropic (pucks, crates). */
+mote->phys2d_step(&w2, bodies, N, dt);        /* fixed substeps internally */
+```
+Make colliders **art-exact**: derive `half_len/half_wid` from each sprite's measured
+opaque size (the extractor `_meta.h`), not from nominal constants — visible art and
+physics box must match or collisions read wrong.
+
 **Sprites, textures, FX & blend in 3D** (v24–v35 — all depth-tested, dual-core, metered
 by their `config` pool):
 ```c
@@ -237,6 +265,30 @@ mote->micros();  mote->log("...");  int i = mote->menu("Pause", items, n);
 ```
 Host emulator keys: W/A/S/D = d-pad, `.` = A, `,` = B, Shift = LB, Space = RB,
 Enter = MENU. Headless capture: `MOTE_SHOT=1 MOTE_SHOT_FRAME=20` dumps a frame.
+
+## Top-down (bird's-eye) games — hard-won patterns
+
+- **Billboards are UPRIGHT quads** — under a straight-down camera they render edge-on
+  (invisible). Draw top-down sprites as **flat ground quads**: one shared 2-tri Mesh in
+  the XZ plane whose `texture` + `face_uvs` you mutate per draw (UVs are uint8 0..255 —
+  keep sheets small or pad cells ~2 px against rounding bleed). Rotate about Y for
+  heading; opaque draws colour-key transparency.
+- **Draw order = height order** for `MOTE_DRAW_NO_DEPTH_WRITE` ground quads (still
+  depth-TESTED vs real 3D like buildings): submit low-to-high — shadows, people,
+  vehicles, tree canopies last so things pass *under* the foliage.
+- **Never teleport/respawn an entity the player can see** — despawn/recycle strictly
+  off-screen (compute the visible radius from camera height) and spawn back in
+  off-screen too. On-screen problems (jams, wrecks) must resolve *visibly* (reverse out,
+  push through), never by repositioning.
+- **Flash-resident world**: a big tile map belongs in a `static const` array in a
+  generated header (`.rodata` → flash), with autotile masks/corridor analysis computed
+  on the fly per visible tile — zero SRAM per tile scales to any map size. Validate
+  spatial placements (spawn points, objective sites) for **connectivity** with a flood
+  fill over the walkable/drivable network — imported maps contain isolated fragments.
+- **Deterministic playtesting**: `MOTE_AUTORUN=1 MOTE_DT_MS=33 MOTE_KEYS="a:5-9 rb:20-400"
+  MOTE_SHOT=/path.ppm MOTE_SHOT_FRAME=N` drives scripted headless runs. Build cheap
+  metrics behind an env flag (e.g. per-second AI health counters to stderr) and MEASURE
+  behaviour changes instead of eyeballing screenshots.
 
 ## Gotchas that will bite
 
