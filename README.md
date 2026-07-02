@@ -2193,6 +2193,25 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
+### 0.14-alpha
+
+**The model editor grows up.** Multi-part models are first-class; engine ABI unchanged (v42) — reflash only to pick up the physics fix on device.
+
+- **Objects tab (Mesh tab):** the MODEL EDITOR card gains **Tools | Objects** tabs — every part of the model listed as a tree (colour swatch, name, vert/face counts). Click to make a part active, click the **eye** to hide it while you edit another (still bakes/saves), **double-click to rename**.
+- **Multi-material OBJs import as separate parts** (one object per `usemtl`, coloured from the `.mtl`) — matching how the baker chunks them. **"Edit this mesh" imports the file you're previewing**; **Re-import parts** refreshes a scene from its own file; clicking a file in the Explorer reliably shows *that* file.
+- **A calmer sidebar:** collapsible sections, segmented Vert/Edge/Face + Solid/Wire pickers, Lucide icons on the busiest buttons — and **hover tooltips on every tool in the whole Studio**.
+- **Engine:** phys2d positional correction applied once per contact (was once per iteration) — fast, deep collisions no longer "teleport" bodies apart.
+
+### 0.13-alpha
+
+**Smaller games, richer physics.** Engine ABI **v39 → v42** — ships in ThumbyOne firmware 1.30+.
+
+- **Indexed (palette) textures** *(v41)*: ≤256-colour art at 1/4–1/2 the flash on every texture path; bakers apply it automatically and losslessly.
+- **Native-quality sounds** *(v40)*: clips keep their real rate/bit-depth (8-bit/11 kHz ≈ 1/4 flash); `MOTE_SFX_RATE`/`MOTE_SFX_BITS` shrink a whole game without touching the WAVs.
+- **2D rigid-body physics** *(v42)*: `phys2d_step` — circles + oriented boxes, spin from off-centre hits, masks, sensors, tyre-grip lateral friction.
+- **Tone SFX**: the Audio tab's **Full / Tone** toggle + header-only `mote_synth.h` — layered synth sounds authored live, ~0 flash/RAM.
+- **Multi-part OBJ models** with per-part colour + `mote_model_draw_palette()` draw-time recolouring.
+
 ### 0.12-alpha
 
 **Texture-paint your models, plus booleans and view modes.** A Studio-only update — no firmware reflash; the engine and ABI (v39) are unchanged.
