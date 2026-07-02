@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.14-alpha
+
+**The model editor grows up.** Multi-part models are first-class - a parts list with
+hide/rename, per-material import, and a calmer sidebar - plus tooltips across the whole
+Studio and a 2D-physics collision fix. **Engine ABI unchanged (v42)** - existing games
+and firmware still match; reflash only to pick up the physics fix on device.
+
+### Engine (no ABI change - reflash to get it on device)
+- **phys2d: collisions no longer "teleport".** Positional depenetration ran inside the
+  velocity-iteration loop, multiplying the push-apart by iterations x contacts - fast,
+  deep crashes hurled bodies apart. It's now one gentle pass per contact (sensors
+  excluded). Anything using `phys2d_step` (driving games!) feels dramatically better.
+
+### Studio
+- **Objects tab in the model editor.** The MODEL EDITOR card gains **Tools | Objects**
+  tabs. Objects lists every part of the model as a tree - colour swatch, name, vert/face
+  counts, `M` badge on mirrored parts. Click a row to make it the active part, click the
+  **eye** to hide a part while you edit another (hidden parts are skipped by picking and
+  the viewport but still bake/save/export), **double-click to rename** (names feed baked
+  headers + rigs).
+- **Multi-material OBJs import as separate parts.** An `.obj` whose parts are `usemtl`
+  materials (no `o`/`g` groups - e.g. a chess piece with `body` + `accent`) now imports
+  one object per material, named after it and coloured from the `.mtl` `Kd` - matching
+  how the baker chunks it. Group-split imports also take per-face material colours now.
+- **Clicking a file in the Explorer shows THAT file.** Two "prefer the live model"
+  guards fired for every `.obj` once any scene existed - clicking queen.obj showed the
+  live king (in the Rig tab AND the Mesh preview). They now apply only to the live
+  model's own file. **"Edit this mesh" imports the file you're previewing** when it
+  isn't the current scene's source, and a **"Re-import parts"** button refreshes a
+  scene from its own (multi-part) file.
+- **A calmer model-editor sidebar.** Collapsible sections (SELECT / ADD / EDIT / FACES /
+  TEXTURE / BOOLEAN / OBJECT / FILE - fully folded, the whole toolset is visible with no
+  scrolling), true segmented pickers for Vert/Edge/Face and Solid/Wire, and Lucide icons
+  on the buttons that were a wall of text (6 new glyphs: eye, eye-off, rotate-cw,
+  scaling, copy, trash-2).
+- **Hover tooltips everywhere.** The 3D editor's tooltip system now covers the whole
+  app: toolbar, Pixel/Texture strip, the shared pixel side-panel, Mesh/Rig cards,
+  Tiles, Anim, Font, Audio and the Device panel.
+- New capture/test hooks: `MOTE_STUDIO_OPEN` (drives the real Explorer routing),
+  `MOTE_STUDIO_MESHTAB`, `MOTE_STUDIO_MESHSEC`.
+
 ## 0.13-alpha
 
 **Smaller games, richer physics.** Indexed textures and native-quality sounds cut a

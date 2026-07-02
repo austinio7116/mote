@@ -560,11 +560,24 @@ real mesh topology — vertices, edges, and faces you can select and operate on 
 bakes the exact result (no decimation) straight to a `MoteModel` header. It's
 non-destructive: the importer is untouched, and **Tab** flips back to it.
 
-![The Studio model editor — the 3D viewport with a model in wireframe on the left, and the MODEL EDITOR sidebar on the right grouped into Select / Add / Transform / Edit / Faces / Object / File sections with a scrollbar](docs/img/studio-model-editor.png)
+![The Studio model editor — the 3D viewport with three primitives in wireframe on the left, and the MODEL EDITOR sidebar on the right: Tools/Objects tabs at the top, segmented Vert/Edge/Face and Solid/Wire pickers, and collapsible SELECT / ADD / EDIT sections with chevron headers](docs/img/studio-model-editor.png)
 
-The **MODEL EDITOR** sidebar is organised into labelled groups — **Select**, **Add**,
-**Transform**, **Edit**, **Faces**, **Object**, **File** — it scrolls when it's taller
-than the dock, and every button shows a hover tooltip with its keyboard shortcut.
+The **MODEL EDITOR** sidebar has two tabs. **Tools** holds the whole toolset in
+**collapsible sections** — **SELECT**, **ADD**, **EDIT**, **FACES**, **TEXTURE**,
+**BOOLEAN**, **OBJECT**, **FILE** — click a header to fold a group away (fully folded,
+every section fits on screen with no scrolling). True either-or choices (Vert/Edge/Face,
+Solid/Wire) are segmented pickers, and every control shows a hover tooltip with its
+keyboard shortcut.
+
+**Objects** lists **every part of the model** as a tree — colour swatch, name,
+vert/face counts, an `M` badge on mirrored parts. Click a row to make that part the
+active object (the tools act on it), click the **eye** to hide a part while you work
+on another (hidden parts still bake, save and export), and **double-click to rename**
+it — names feed the baked headers and rigs. A multi-material `.obj` (say a chess piece
+with `body` + `crown` materials) imports as one object per material, each coloured
+from its `.mtl`, so multi-part models arrive ready to rig.
+
+![The Objects tab — the king's two parts (body and accent) listed with colour swatches, vert/face counts and eye toggles; the accent part is active](docs/img/studio-model-objects.png)
 
 ![A hover tooltip in the model editor — "Rotate selection (R): drag or type degrees; X/Y/Z axis" shown under the Rotate button](docs/img/studio-tooltip.png)
 
@@ -626,7 +639,7 @@ reorients in one pass. **Origin ▸ Sel / Centre** moves the object's origin to 
 selection or its bounding-box centre *without* moving the geometry — a sane pivot for
 the Rig tab.
 
-![Editing an imported chess bishop STL in the model editor — a face selected (orange) is being extruded along its normal (the readout shows Move N: 0.095), with the full grouped sidebar and the Rotate hover tooltip](docs/img/studio-mesh-edit.png)
+![Editing deepthumb's chess bishop in the model editor — the game running in the emulator above, the bishop's exact topology in the editor below, with the sectioned sidebar alongside](docs/img/studio-mesh-edit.png)
 
 **Mirror** (live): toggle **Mirror X / Y / Z** on an object and you model one half
 while the editor shows the whole thing — the reflected half is solid (with a subtle
