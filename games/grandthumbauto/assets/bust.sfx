@@ -1,0 +1,10 @@
+# Mote SFX recipe — BUSTED sting
+wave 1
+freq 0.30 0.05 -0.14 0
+duty 0 0
+vib 0.12 0.14
+env 0 0.15 0.2 0.44
+lpf 0.6 -0.05 0.2
+hpf 0 0
+pha 0.1 0
+arp 0.35 -0.35

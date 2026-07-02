@@ -1,0 +1,10 @@
+# Mote SFX recipe — player hurt
+wave 0
+freq 0.31 0.1 -0.44 0
+duty 0.35 0
+vib 0 0
+env 0 0.03 0.32 0.14
+lpf 0.85 0 0.1
+hpf 0.05 0
+pha 0 0
+arp 0 0

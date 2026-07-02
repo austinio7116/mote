@@ -1,0 +1,10 @@
+# Mote SFX recipe — punch thud
+wave 3
+freq 0.17 0 -0.34 0
+duty 0 0
+vib 0 0
+env 0 0.02 0.5 0.11
+lpf 0.4 -0.1 0.2
+hpf 0 0
+pha 0 0
+arp 0 0
