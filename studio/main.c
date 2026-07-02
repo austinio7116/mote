@@ -1568,25 +1568,43 @@ static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sp
  * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
  * the editable mesh we want. Brings it in as a new object and switches to the model editor.
  * Lower the importer's 'tris' budget first for a more editable low-poly result. */
-/* Count o/g groups in an OBJ (so we know whether to preserve them as separate objects). */
-static int eobj_obj_group_count(const char*path){ FILE*f=fopen(path,"r"); if(!f)return 0; char ln[512]; int n=0;
-    while(fgets(ln,sizeof ln,f))if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' ')n++; fclose(f); return n; }
+/* Count the PARTS of an OBJ: o/g groups, or - when it has none/one - distinct usemtl
+ * materials (a multi-material single-group OBJ, e.g. a chess piece with body + crown
+ * materials, is a multi-part model too - same rule obj2mesh uses to chunk the bake). */
+static int eobj_obj_group_count(const char*path){ FILE*f=fopen(path,"r"); if(!f)return 0; char ln[512]; int n=0,nm=0;
+    char seen[EMESH_MAXOBJ][64]; while(fgets(ln,sizeof ln,f)){
+        if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' ')n++;
+        else if(!strncmp(ln,"usemtl ",7)){ char mn[64]={0}; if(sscanf(ln+7,"%63s",mn)==1){ int k=0; for(;k<nm;k++)if(!strcmp(seen[k],mn))break; if(k==nm&&nm<EMESH_MAXOBJ)snprintf(seen[nm++],64,"%s",mn); } } }
+    fclose(f); return n>1?n:(nm>1?nm:n); }
 /* Import an OBJ preserving its o/g groups: ONE editable object per group, exact geometry (no
  * decimation), recentred about the whole model — so a multi-part model stays riggable. */
 static int eobj_import_obj_groups(const char*path){
     FILE*f=fopen(path,"r"); if(!f)return 0;
     V3 *VS=malloc(sizeof(V3)*200000); int nvs=0;
     int *TG=malloc(sizeof(int)*200000),*TA=malloc(sizeof(int)*200000),*TB=malloc(sizeof(int)*200000),*TC=malloc(sizeof(int)*200000); int nt=0;
-    char gname[EMESH_MAXOBJ][28]; int ng=0,cur=-1; char ln[512];
+    int *TM=malloc(sizeof(int)*200000);   /* per-tri material (-1 none) */
+    char gname[EMESH_MAXOBJ][28]; int ng=0,cur=-1,curm=-1; char ln[512];
+    g_nmat=0;   /* (re)load the OBJ's .mtl palette: part colours come from Kd */
     while(fgets(ln,sizeof ln,f)){
         if(ln[0]=='v'&&ln[1]==' '){ V3 v; if(sscanf(ln+2,"%f %f %f",&v.x,&v.y,&v.z)==3&&nvs<200000)VS[nvs++]=v; }
+        else if(!strncmp(ln,"mtllib ",7)){ char mn[256]; if(sscanf(ln+7,"%255s",mn)==1)mesh_load_mtl(path,mn); }
+        else if(!strncmp(ln,"usemtl ",7)){ char mn[64]={0}; curm=-1; if(sscanf(ln+7,"%63s",mn)==1)for(int i=0;i<g_nmat;i++)if(!strcmp(g_matname[i],mn)){ curm=i; break; } }
         else if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' '){ char nm[28]={0}; sscanf(ln+2,"%27s",nm); if(ng<EMESH_MAXOBJ){ snprintf(gname[ng],28,"%.27s",nm[0]?nm:"part"); cur=ng++; } }
         else if(ln[0]=='f'&&ln[1]==' '){ if(cur<0&&ng<EMESH_MAXOBJ){ snprintf(gname[ng],28,"part0"); cur=ng++; }
             int idx[64],n=0; char*p=ln+2; while(*p&&n<64){ while(*p==' '||*p=='\t')p++; if(!*p||*p=='\n'||*p=='\r')break;
                 int vi=atoi(p); if(vi<0)vi=nvs+vi+1; idx[n++]=vi-1; while(*p&&*p!=' '&&*p!='\t')p++; }
-            for(int k=2;k<n;k++)if(nt<200000&&cur>=0){ TG[nt]=cur; TA[nt]=idx[0]; TB[nt]=idx[k-1]; TC[nt]=idx[k]; nt++; } } }
+            for(int k=2;k<n;k++)if(nt<200000&&cur>=0){ TG[nt]=cur; TM[nt]=curm; TA[nt]=idx[0]; TB[nt]=idx[k-1]; TC[nt]=idx[k]; nt++; } } }
     fclose(f);
-    if(ng<1||nt<1){ free(VS);free(TG);free(TA);free(TB);free(TC); return 0; }
+    /* One (or no) o/g group but several materials: the materials ARE the parts
+     * (body + crown in one group). Re-key the split on material and name the
+     * parts after the materials - matches how obj2mesh chunks the bake. */
+    if(ng<=1&&g_nmat>1){ int used[MESH_MAXMAT]={0}; for(int t=0;t<nt;t++)if(TM[t]>=0)used[TM[t]]=1;
+        int nu=0; for(int m=0;m<g_nmat;m++)nu+=used[m];
+        if(nu>1){ int map[MESH_MAXMAT]; ng=0;
+            for(int m=0;m<g_nmat&&ng<EMESH_MAXOBJ;m++){ map[m]=-1; if(used[m]){ snprintf(gname[ng],28,"%.27s",g_matname[m]); map[m]=ng++; } }
+            int other=-1; for(int t=0;t<nt;t++){ if(TM[t]>=0&&map[TM[t]]>=0)TG[t]=map[TM[t]];
+                else { if(other<0&&ng<EMESH_MAXOBJ){ snprintf(gname[ng],28,"other"); other=ng++; } TG[t]=other<0?0:other; } } } }
+    if(ng<1||nt<1){ free(VS);free(TG);free(TA);free(TB);free(TC);free(TM); return 0; }
     V3 mn={1e30f,1e30f,1e30f},mx={-1e30f,-1e30f,-1e30f};
     for(int t=0;t<nt;t++){ int v[3]={TA[t],TB[t],TC[t]}; for(int k=0;k<3;k++){ if((unsigned)v[k]>=(unsigned)nvs)continue; V3 p=VS[v[k]];
         if(p.x<mn.x)mn.x=p.x;if(p.y<mn.y)mn.y=p.y;if(p.z<mn.z)mn.z=p.z;if(p.x>mx.x)mx.x=p.x;if(p.y>mx.y)mx.y=p.y;if(p.z>mx.z)mx.z=p.z; } }
@@ -1600,16 +1618,17 @@ static int eobj_import_obj_groups(const char*path){
         for(int i=0;i<nvs;i++)remap[i]=-1;
         for(int t=0;t<nt;t++)if(TG[t]==g){ int v[3]={TA[t],TB[t],TC[t]}; int ok=1;
             for(int k=0;k<3;k++){ if((unsigned)v[k]>=(unsigned)nvs){ ok=0; break; } if(remap[v[k]]<0){ remap[v[k]]=o->nv; ev_add(o,VS[v[k]]); } }
-            if(ok){ int q[3]={remap[v[0]],remap[v[1]],remap[v[2]]}; ef_add(o,3,q,col); } }
+            if(ok){ int q[3]={remap[v[0]],remap[v[1]],remap[v[2]]};
+                ef_add(o,3,q,TM[t]>=0?g_matcol[TM[t]]:col); } }   /* face colour = the material's Kd */
         edges_rebuild(o); }
-    free(remap); free(VS); free(TG); free(TA); free(TB); free(TC);
+    free(remap); free(VS); free(TG); free(TA); free(TB); free(TC); free(TM);
     return g_nobj; }
 static void eobj_from_import(void){
     /* OBJ with multiple o/g groups -> import each group as its own object (riggable, exact). */
     { size_t pl=strlen(g_mesh_path); if(pl>4&&!strcasecmp(g_mesh_path+pl-4,".obj")&&eobj_obj_group_count(g_mesh_path)>1){
         int n=eobj_import_obj_groups(g_mesh_path);
         if(n>0){ g_mesh_size=g_mesh_qmax; g_edit_mode=1; eobj_fit();
-            snprintf(g_status,sizeof g_status,"editing %d objects from %s (groups preserved)",n,g_mesh_path); return; } } }
+            snprintf(g_status,sizeof g_status,"editing %d parts from %s (see the Objects tab)",n,g_mesh_path); return; } } }
     if(g_nraw<1){ snprintf(g_status,sizeof g_status,"load a .stl/.obj first"); return; }
     if(g_mesh_dirty)mesh_reprocess();
     if(g_dnv<1||g_dnf<1){ snprintf(g_status,sizeof g_status,"nothing to import"); return; }
@@ -2621,7 +2640,10 @@ static void me_line(SDL_Renderer*R,float ax,float ay,float za,float bx,float by,
  * controls' rects are zeroed so nothing invisible stays clickable. */
 enum { MSEC_SELECT,MSEC_ADD,MSEC_EDIT,MSEC_FACES,MSEC_TEXTURE,MSEC_BOOL,MSEC_OBJECT,MSEC_FILE,MSEC_N };
 static uint32_t g_me_closed; static SDL_Rect g_me_sech[MSEC_N];
+static int g_me_cardtab;   /* 0 = TOOLS - 1 = OBJECTS (part list/hierarchy) */
+static SDL_Rect g_me_tabr[2], g_me_objrow[EMESH_MAXOBJ];
 static int me_sec(SDL_Renderer*R,int lx,int*cy,int id,const char*name,int mx,int my){
+    if(g_me_cardtab){ g_me_sech[id]=(SDL_Rect){0,0,0,0}; return 0; }   /* OBJECTS tab: no tool sections */
     int open=!((g_me_closed>>id)&1);
     SDL_Rect r={lx-4,*cy,MESH_CARDW-20,16}; g_me_sech[id]=r;
     int hov=hit(mx,my,r.x,r.y,r.w,r.h); if(hov)rrect(R,r.x,r.y,r.w,r.h,3,(Col){32,36,47});
@@ -2735,6 +2757,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
 
     /* ---- edit card (compact) ---- */
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL EDITOR"); int lx=cardx+12,px; Col pc={170,200,140},ec={210,180,120},tc2={200,170,150};
+    { static const char*CL[2]={"Tools","Objects"};   /* card view: the toolset, or the part list */
+      static const char*CT[2]={"The editing toolset","Every part of this model - click to make one active"};
+      ui_seg(R,lx,cy,CL,2,g_me_cardtab,g_me_tabr,mx,my,CT); cy+=UI_H+6; }
     int me_ctop=cy, me_cbot=oy+h-6; g_me_cardx=cardx; g_me_cardtop=me_ctop; g_me_cardbot=me_cbot;   /* scrollable content region */
     { SDL_Rect mclip={cardx+1,me_ctop,MESH_CARDW-2,me_cbot-me_ctop}; SDL_RenderSetClipRect(R,&mclip); }
     cy-=g_me_scroll;                                                                                  /* apply scroll offset to every control below */
@@ -2841,6 +2866,27 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     px=ui_btn_t(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my,"Export assets/<name>.obj + .rig");
     ui_btn_t(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my,"Leave the editor (Tab)"); cy+=UI_H+2;
     } else g_me_enew=g_me_esave=g_me_eload=g_me_ebakex=g_me_bakerig=g_me_exportobj=g_me_eexit=(SDL_Rect){0,0,0,0};
+    /* ---- OBJECTS tab: the model's part list as a parent-indented tree ---- */
+    for(int i=0;i<EMESH_MAXOBJ;i++)g_me_objrow[i]=(SDL_Rect){0,0,0,0};
+    if(g_me_cardtab){
+        if(!g_nobj)text(R,"no parts yet - add a primitive in Tools",lx,cy+4,1,C_DIM,C_PANEL);
+        int order[EMESH_MAXOBJ],depth[EMESH_MAXOBJ],no=0,mark[EMESH_MAXOBJ]={0};
+        for(int r2=0;r2<g_nobj;r2++)if(g_obj[r2].parent<0||g_obj[r2].parent>=g_nobj){   /* roots, then children depth-first */
+            int st[EMESH_MAXOBJ],sd[EMESH_MAXOBJ],sp=0; st[sp]=r2; sd[sp++]=0;
+            while(sp){ int o2=st[--sp],d2=sd[sp]; if(mark[o2])continue; mark[o2]=1; order[no]=o2; depth[no++]=d2;
+                for(int c2=g_nobj-1;c2>=0;c2--)if(c2!=o2&&g_obj[c2].parent==o2){ st[sp]=c2; sd[sp++]=d2+1; } } }
+        for(int o2=0;o2<g_nobj;o2++)if(!mark[o2]){ order[no]=o2; depth[no++]=0; }   /* cycles/orphans: flat */
+        for(int r2=0;r2<no;r2++){ int oi=order[r2]; EObject*ob=&g_obj[oi]; int iy=cy,ind=depth[r2]*10;
+            int on=oi==g_objsel,hov=hit(mx,my,lx-4,iy,MESH_CARDW-24,17);
+            if(on)rrect(R,lx-4,iy,MESH_CARDW-24,17,3,C_SEL); else if(hov)rrect(R,lx-4,iy,MESH_CARDW-24,17,3,(Col){32,36,47});
+            if(depth[r2])plain(R,lx+ind-6,iy+8,4,1,C_LINE);   /* child tick */
+            { uint16_t fc=ob->nf?ob->f[0].color:EMESH_DEFCOL; Col sc2=c565(fc); plain(R,lx+ind,iy+4,9,9,sc2); rect_outline(R,lx+ind,iy+4,9,9,C_LINE,1); }
+            { char nm2[40]; snprintf(nm2,sizeof nm2,"%.20s",ob->name); text(R,nm2,lx+ind+14,iy+5,1,on?C_HDR:C_TXT,on?C_SEL:C_PANEL); }
+            { char st2[32]; snprintf(st2,sizeof st2,"%dv %df%s",ob->nv,ob->nf,ob->mirror?" M":""); int sw2=textw(R,st2,1);
+              text(R,st2,lx+MESH_CARDW-32-sw2,iy+5,1,(Col){120,128,148},C_PANEL); }
+            g_me_objrow[oi]=(SDL_Rect){lx-4,iy,MESH_CARDW-24,17}; tip(g_me_objrow[oi],mx,my,"Make this part the active object");
+            cy+=18; }
+        if(g_nobj){ cy+=4; text(R,"tools act on the active part",lx,cy,1,(Col){95,102,120},C_PANEL); cy+=14; } }
     SDL_RenderSetClipRect(R,NULL);
     int me_conth=cy+g_me_scroll-me_ctop, me_vis=me_cbot-me_ctop, me_maxs=me_conth-me_vis; if(me_maxs<0)me_maxs=0; g_me_maxs=me_maxs;
     if(g_me_scroll>me_maxs)g_me_scroll=me_maxs; if(g_me_scroll<0)g_me_scroll=0;
@@ -2862,6 +2908,8 @@ static void mirror_status(void){ uint8_t m=g_nobj?g_obj[g_objsel].mirror:0;
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(!g_tex_paint)for(int i=0;i<MSEC_N;i++)if(HITR(g_me_sech[i])){ g_me_closed^=1u<<i; return 1; }   /* fold/unfold a card section */
+    if(!g_tex_paint){ for(int i=0;i<2;i++)if(HITR(g_me_tabr[i])){ g_me_cardtab=i; return 1; }   /* Tools <-> Objects card tab */
+        for(int i=0;i<g_nobj&&i<EMESH_MAXOBJ;i++)if(HITR(g_me_objrow[i])){ g_objsel=i; return 1; } }   /* pick a part from the list */
     if(g_tex_paint){                                       /* texture-paint mode: full pixel toolset on the atlas */
         if(HITR(g_pt_canvas)){ atlas_undo_push(); tex_paint_at(mx,my,0); g_tpaint_drag=1; return 1; }
         if(HITR(g_pt_undo)){ atlas_undo(); return 1; }
@@ -5945,6 +5993,7 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }   /* capture/test: preview an .obj/.stl in the Mesh importer */
     if(getenv("MOTE_STUDIO_MESHSEC")) g_me_closed=(uint32_t)strtoul(getenv("MOTE_STUDIO_MESHSEC"),0,0);   /* capture/test: collapse MODEL EDITOR sections (bitmask) */
+    if(getenv("MOTE_STUDIO_MESHTAB")) g_me_cardtab=atoi(getenv("MOTE_STUDIO_MESHTAB"));   /* capture/test: 1 = the Objects part-list tab */
     if(getenv("MOTE_STUDIO_TONE")){ g_tab=TAB_AUDIO; g_audio_view=1;   /* capture hook: Audio ▸ Tone view with a layered laser */
         g_tone[0]=(MoteTone){MOTE_SYNTH_SQUARE,560,270,0.30f,0.003f,0.24f}; g_tone[1]=(MoteTone){MOTE_SYNTH_NOISE,2000,660,0.15f,0.001f,0.05f}; g_tone[2]=(MoteTone){MOTE_SYNTH_SINE,320,260,0.19f,0.004f,0.20f};
         g_tone_n=3; g_tone_sel=0; snprintf(g_au_name,sizeof g_au_name,"laser"); tone_render(0); if(getenv("MOTE_STUDIO_TONESAVE"))tone_save(); }
