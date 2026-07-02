@@ -824,6 +824,17 @@ static char g_tip_hot[160]; static SDL_Rect g_tip_hotr,g_tip_r={-1,-1,0,0}; stat
 static void tip(SDL_Rect r,int mx,int my,const char*t){ if(t&&t[0]&&hit(mx,my,r.x,r.y,r.w,r.h)){ snprintf(g_tip_hot,sizeof g_tip_hot,"%s",t); g_tip_hotr=r; } }
 static int ui_btn_t(SDL_Renderer*R,int x,int y,int w,const char*label,int icid,Col accent,SDL_Rect*r,int mx,int my,const char*tp){ int nx=ui_btn(R,x,y,w,label,icid,accent,r,mx,my); tip(*r,mx,my,tp); return nx; }
 static int ui_pill_t(SDL_Renderer*R,int x,int y,const char*label,const char*val,int on,SDL_Rect*r,int mx,int my,const char*tp){ int nx=ui_pill(R,x,y,label,val,on,r,mx,my); tip(*r,mx,my,tp); return nx; }
+/* Segmented control: one rounded container of n MUTUALLY-EXCLUSIVE segments (a mode
+ * picker, not an action row). Fills r[i] for hit-testing; returns the next x. */
+static int ui_seg(SDL_Renderer*R,int x,int y,const char**lab,int n,int active,SDL_Rect*r,int mx,int my,const char**tp){
+    int ws[8],tot=0; for(int i=0;i<n&&i<8;i++){ ws[i]=textw(R,lab[i],1)+16; tot+=ws[i]; }
+    rrect(R,x,y,tot,UI_H,5,(Col){24,27,36});
+    int cx=x; for(int i=0;i<n&&i<8;i++){ int on=i==active,hov=hit(mx,my,cx,y,ws[i],UI_H);
+        if(on)rrect(R,cx+1,y+1,ws[i]-2,UI_H-2,4,C_SEL); else if(hov)rrect(R,cx+1,y+1,ws[i]-2,UI_H-2,4,mul(C_BTN,1.25f));
+        text(R,lab[i],cx+8,y+(UI_H-7)/2,1,on?C_HDR:C_TXT,on?C_SEL:(Col){24,27,36});
+        r[i]=(SDL_Rect){cx,y,ws[i],UI_H}; if(tp&&tp[i])tip(r[i],mx,my,tp[i]);
+        if(i<n-1)plain(R,cx+ws[i]-1,y+4,1,UI_H-8,C_LINE); cx+=ws[i]; }
+    return x+tot+8; }
 static void tip_render(SDL_Renderer*R,int mx,int my){
     if(!g_tip_hot[0]){ g_tip_r=(SDL_Rect){-1,-1,0,0}; return; }
     if(g_tip_hotr.x!=g_tip_r.x||g_tip_hotr.y!=g_tip_r.y||g_tip_hotr.w!=g_tip_r.w){ g_tip_r=g_tip_hotr; g_tip_t0=SDL_GetTicks(); }
@@ -2605,6 +2616,19 @@ static void me_line(SDL_Renderer*R,float ax,float ay,float za,float bx,float by,
     for(int i=0;i<=n;i++){ float t=(float)i/n,x=ax+(bx-ax)*t,y=ay+(by-ay)*t,z=za+(zb-za)*t;
         if(!me_occluded(x,y,z,ox,oy,kx,ky,rw,rh))SDL_RenderDrawPoint(R,(int)x,(int)y); } }
 
+/* MODEL EDITOR collapsible sections. Session state: everything opens on launch
+ * (the discoverable default); a click on a header folds that group away and its
+ * controls' rects are zeroed so nothing invisible stays clickable. */
+enum { MSEC_SELECT,MSEC_ADD,MSEC_EDIT,MSEC_FACES,MSEC_TEXTURE,MSEC_BOOL,MSEC_OBJECT,MSEC_FILE,MSEC_N };
+static uint32_t g_me_closed; static SDL_Rect g_me_sech[MSEC_N];
+static int me_sec(SDL_Renderer*R,int lx,int*cy,int id,const char*name,int mx,int my){
+    int open=!((g_me_closed>>id)&1);
+    SDL_Rect r={lx-4,*cy,MESH_CARDW-20,16}; g_me_sech[id]=r;
+    int hov=hit(mx,my,r.x,r.y,r.w,r.h); if(hov)rrect(R,r.x,r.y,r.w,r.h,3,(Col){32,36,47});
+    icon(R,open?IC_CHEV_D:IC_CHEV_R,lx-2,*cy+3,11,hov?C_TXT:C_DIM);
+    text(R,name,lx+13,*cy+4,1,hov?C_TXT:C_DIM,C_PANEL);
+    tip(r,mx,my,open?"Collapse this section":"Expand this section");
+    *cy+=19; return open; }
 static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
     if(g_tex_paint){ draw_tex_paint(R,ox,oy,w,h,mx,my); return; }   /* live texture-paint split view */
@@ -2717,34 +2741,34 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     { char mn[56]; snprintf(mn,sizeof mn,"Model: %.40s",g_model_name); text(R,mn,lx,cy,1,(Col){150,205,175},C_PANEL); cy+=15;   /* model header: name + create/switch */
       px=ui_btn_t(R,lx,cy,0,"+ New model",-1,(Col){205,200,160},&g_me_newtop,mx,my,"Start another model in this project (Ctrl+N) — the current one is saved");
       ui_btn_t(R,px,cy,0,"Open\xe2\x80\xa6",-1,(Col){150,200,255},&g_me_loadtop,mx,my,"Open another .mmesh model in this project"); cy+=UI_H+6; }
-    #define ME_SEP() do{ plain(R,lx,cy,MESH_CARDW-24,1,C_LINE); cy+=7; }while(0)
+    /* View row - always visible (it changes the viewport, not the mesh) */
+    { Col vc={180,200,180}; text(R,"View",lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL); int vx=lx+textw(R,"View",1)+8;   /* shading mode + x-ray (Z) */
+      static const char*VL[2]={"Solid","Wire"}; static const char*VT[2]={"Shaded solid with hidden-line removal","Wireframe only (no filled faces)"};
+      SDL_Rect vr[2]; vx=ui_seg(R,vx,cy,VL,2,g_me_shade,vr,mx,my,VT); g_me_vsolid=vr[0]; g_me_vwire=vr[1];
+      ui_pill_c(R,vx,cy,NULL,"X-ray",g_me_xray,vc,&g_me_vxray,mx,my); tip(g_me_vxray,mx,my,"See & select through faces (Z)"); cy+=UI_H+6; }
     /* --- SELECT --- */
-    px=ui_pill_t(R,lx,cy,"Sel","Vert",g_sel_mode==0,&g_me_evert,mx,my,"Select vertices (1)");
-    px=ui_pill_t(R,px,cy,NULL,"Edge",g_sel_mode==1,&g_me_eedge,mx,my,"Select edges (2)");
-    ui_pill_t(R,px,cy,NULL,"Face",g_sel_mode==2,&g_me_eface,mx,my,"Select faces (3)"); cy+=UI_H+4;
+    if(me_sec(R,lx,&cy,MSEC_SELECT,"SELECT",mx,my)){
+    { static const char*SL[3]={"Vert","Edge","Face"}; static const char*ST[3]={"Select vertices (1)","Select edges (2)","Select faces (3)"};
+      SDL_Rect sr[3]; ui_seg(R,lx,cy,SL,3,g_sel_mode,sr,mx,my,ST); g_me_evert=sr[0]; g_me_eedge=sr[1]; g_me_eface=sr[2]; cy+=UI_H+4; }
     { Col sc={175,185,205}; px=ui_btn_t(R,lx,cy,0,"All",-1,sc,&g_me_eall,mx,my,"Select all (A) / Alt+A deselect");
       px=ui_btn_t(R,px,cy,0,"Inv",-1,sc,&g_me_einv,mx,my,"Invert selection (Ctrl+I)");
       ui_btn_t(R,px,cy,0,"Link",-1,sc,&g_me_elink,mx,my,"Select linked island (L)"); cy+=UI_H+4;
       px=ui_btn_t(R,lx,cy,0,"Grow",-1,sc,&g_me_egrow,mx,my,"Grow selection (Ctrl++)");
       ui_btn_t(R,px,cy,0,"Shrink",-1,sc,&g_me_eshrink,mx,my,"Shrink selection (Ctrl+-)"); cy+=UI_H+5; }
-    { Col vc={180,200,180}; text(R,"View",lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL); int vx=lx+textw(R,"View",1)+8;   /* shading mode + x-ray (Z) */
-      vx=ui_pill_t(R,vx,cy,NULL,"Solid",g_me_shade==0,&g_me_vsolid,mx,my,"Shaded solid with hidden-line removal");
-      vx=ui_pill_t(R,vx,cy,NULL,"Wire",g_me_shade==1,&g_me_vwire,mx,my,"Wireframe only (no filled faces)");
-      ui_pill_c(R,vx+6,cy,NULL,"X-ray",g_me_xray,vc,&g_me_vxray,mx,my); tip(g_me_vxray,mx,my,"See & select through faces (Z)"); cy+=UI_H+5; }
-    ME_SEP();
+    } else g_me_evert=g_me_eedge=g_me_eface=g_me_eall=g_me_einv=g_me_elink=g_me_egrow=g_me_eshrink=(SDL_Rect){0,0,0,0};
     /* --- ADD --- */
+    if(me_sec(R,lx,&cy,MSEC_ADD,"ADD",mx,my)){
     px=ui_btn_t(R,lx,cy,0,"Cube",-1,pc,&g_me_ecube,mx,my,"Add a cube");
     px=ui_btn_t(R,px,cy,0,"Plane",-1,pc,&g_me_eplane,mx,my,"Add a plane");
     ui_btn_t(R,px,cy,0,"Cyl",-1,pc,&g_me_ecyl,mx,my,"Add a cylinder"); cy+=UI_H+4;
     px=ui_btn_t(R,lx,cy,0,"Cone",-1,pc,&g_me_econe,mx,my,"Add a cone");
     ui_btn_t(R,px,cy,0,"Sphere",-1,pc,&g_me_esph,mx,my,"Add a UV sphere"); cy+=UI_H+5;
-    ME_SEP();
-    /* --- TRANSFORM (modal: drag or type a value; X/Y/Z constrain; Enter/Esc) --- */
+    } else g_me_ecube=g_me_eplane=g_me_ecyl=g_me_econe=g_me_esph=(SDL_Rect){0,0,0,0};
+    /* --- EDIT: modal transforms (drag or type; X/Y/Z constrain) + topology --- */
+    if(me_sec(R,lx,&cy,MSEC_EDIT,"EDIT",mx,my)){
     { Col tcc={150,200,255}; px=ui_btn_t(R,lx,cy,0,"Move",-1,tcc,&g_me_emove,mx,my,"Move selection (G): drag or type; X/Y/Z to constrain");
       px=ui_btn_t(R,px,cy,0,"Rotate",-1,tcc,&g_me_erotate,mx,my,"Rotate selection (R): drag or type degrees; X/Y/Z axis");
-      ui_btn_t(R,px,cy,0,"Scale",-1,tcc,&g_me_escale,mx,my,"Scale selection (S): drag or type; X/Y/Z to constrain"); cy+=UI_H+5; }
-    ME_SEP();
-    /* --- EDIT geometry --- */
+      ui_btn_t(R,px,cy,0,"Scale",-1,tcc,&g_me_escale,mx,my,"Scale selection (S): drag or type; X/Y/Z to constrain"); cy+=UI_H+4; }
     px=ui_btn_t(R,lx,cy,0,"Extrude",-1,ec,&g_me_eextr,mx,my,"Extrude selected faces (E)");
     px=ui_btn_t(R,px,cy,0,"Inset",-1,ec,&g_me_einset,mx,my,"Inset selected faces (I)");
     ui_btn_t(R,px,cy,0,"+Face",-1,ec,&g_me_emkface,mx,my,"Make a face from 3-4 selected verts (F)"); cy+=UI_H+4;
@@ -2752,11 +2776,13 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
       px=ui_btn_t(R,px,cy,0,"Subdiv",-1,gc,&g_me_esubdiv,mx,my,"Subdivide selected faces (or all)");
       ui_btn_t(R,px,cy,0,"Bridge",-1,gc,&g_me_ebridge,mx,my,"Bridge two equal-vertex faces"); cy+=UI_H+4;
       ui_btn_t(R,lx,cy,0,"Separate",-1,gc,&g_me_esep,mx,my,"Split selected faces into a new object"); cy+=UI_H+5; }
-    ME_SEP();
+    } else g_me_emove=g_me_erotate=g_me_escale=g_me_eextr=g_me_einset=g_me_emkface=g_me_econn=g_me_esubdiv=g_me_ebridge=g_me_esep=(SDL_Rect){0,0,0,0};
     /* --- FACES: paint + normals --- */
+    int sec_faces=me_sec(R,lx,&cy,MSEC_FACES,"FACES",mx,my);
+    if(sec_faces){
     px=ui_btn_t(R,lx,cy,0,"Paint",-1,ec,&g_me_epaint,mx,my,"Paint selected faces with the picker colour (P)");
     ui_btn_t(R,px,cy,0,"Flip",-1,tc2,&g_me_eflip,mx,my,"Flip normals of selected faces (Shift+N)"); cy+=UI_H+4;
-    if(g_sel_mode==2){   /* compact colour picker — drives Paint (Face mode) */
+    if(sec_faces&&g_sel_mode==2){   /* compact colour picker — drives Paint (Face mode) */
         if(g_hsv_baked!=g_hue)bake_hsv(R);
         int sq=50; g_me_hsv=(SDL_Rect){lx,cy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_me_hsv); rect_outline(R,lx,cy,sq,sq,C_LINE,1);
         { int cxp=lx+(int)(g_sat*sq),cyp=cy+(int)((1-g_val)*sq); ring(R,cxp,cyp,4,(Col){0,0,0},1); ring(R,cxp,cyp,3,(Col){255,255,255},1); }
@@ -2769,23 +2795,25 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     } else { g_me_hsv=(SDL_Rect){0,0,0,0}; g_me_hue=(SDL_Rect){0,0,0,0}; }
     { int nx=ui_btn_t(R,lx,cy,0,"Recalc outward",-1,(Col){150,200,170},&g_me_erecalc,mx,my,"Recalculate normals to face outward (Ctrl+Shift+N)");
       ui_btn_t(R,nx,cy,0,"Clean",-1,(Col){210,180,130},&g_me_eclean,mx,my,"Weld + remove non-manifold faces + recalc (Ctrl+K)"); cy+=UI_H+5; }
-    ME_SEP();
+    } else g_me_epaint=g_me_eflip=g_me_erecalc=g_me_eclean=(SDL_Rect){0,0,0,0};
     /* --- TEXTURE (UV unwrap -> paintable atlas) --- */
+    if(me_sec(R,lx,&cy,MSEC_TEXTURE,"TEXTURE",mx,my)){
     { Col txc={205,170,210}; px=ui_btn_t(R,lx,cy,0,"Unwrap",-1,txc,&g_me_unwrap,mx,my,"Box-project the model into a paintable atlas (assets/<model>_tex.png)");
       ui_btn_t(R,px,cy,0,"Paint",IC_BRUSH,(Col){210,160,210},&g_me_paint,mx,my,"Paint the texture live beside the 3D model — strokes update the model instantly"); cy+=UI_H+5; }
-    ME_SEP();
+    } else g_me_unwrap=g_me_paint=(SDL_Rect){0,0,0,0};
     /* --- BOOLEAN (CSG: active object vs a target) --- */
-    if(g_nobj>=2){ Col bc={150,195,210};
+    if(g_nobj>=2&&me_sec(R,lx,&cy,MSEC_BOOL,"BOOLEAN",mx,my)){ Col bc={150,195,210};
         if(g_bool_target>=g_nobj)g_bool_target=g_nobj-1; if(g_bool_target==g_objsel)g_bool_target=(g_objsel+1)%g_nobj;
         char tb[40]; snprintf(tb,sizeof tb,"Boolean vs obj %d",g_bool_target+1); text(R,tb,lx,cy+(UI_H-7)/2,1,C_DIM,C_PANEL);
         int bx=lx+textw(R,tb,1)+6; bx=ui_btn_t(R,bx,cy,0,"<",-1,C_TXT,&g_me_btgt_m,mx,my,"Previous target object");
         ui_btn_t(R,bx,cy,0,">",-1,C_TXT,&g_me_btgt_p,mx,my,"Next target object"); cy+=UI_H+4;
         px=ui_btn_t(R,lx,cy,0,"Union",-1,bc,&g_me_bunion,mx,my,"Merge active + target into one solid");
         px=ui_btn_t(R,px,cy,0,"Subtract",-1,bc,&g_me_bsub,mx,my,"Cut the target out of the active object (A - B)");
-        ui_btn_t(R,px,cy,0,"Intersect",-1,bc,&g_me_bint,mx,my,"Keep only where active + target overlap"); cy+=UI_H+5;
-        ME_SEP(); }
-    else { g_me_btgt_m=g_me_btgt_p=g_me_bunion=g_me_bsub=g_me_bint=(SDL_Rect){0,0,0,0}; }
+        ui_btn_t(R,px,cy,0,"Intersect",-1,bc,&g_me_bint,mx,my,"Keep only where active + target overlap"); cy+=UI_H+5; }
+    else { g_me_btgt_m=g_me_btgt_p=g_me_bunion=g_me_bsub=g_me_bint=(SDL_Rect){0,0,0,0}; if(g_nobj<2)g_me_sech[MSEC_BOOL]=(SDL_Rect){0,0,0,0}; }
     /* --- OBJECT --- */
+    int sec_obj=me_sec(R,lx,&cy,MSEC_OBJECT,"OBJECT",mx,my);
+    if(sec_obj){
     px=ui_btn_t(R,lx,cy,0,"Dup",-1,tc2,&g_me_edup,mx,my,"Duplicate this object (Shift+D)");
     px=ui_btn_t(R,px,cy,0,"Del",-1,tc2,&g_me_edel,mx,my,"Delete selection / object (X)");
     ui_btn_t(R,px,cy,0,"Merge",-1,tc2,&g_me_emerge,mx,my,"Merge selected verts to centre (M)"); cy+=UI_H+4;
@@ -2802,8 +2830,9 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
       ui_btn_t(R,bx,cy,0,"Del obj",-1,(Col){220,140,120},&g_me_objdel,mx,my,"Delete this object"); cy+=UI_H+4; }
     if(g_nobj){ EObject*s=&g_obj[g_objsel]; char st[72]; snprintf(st,sizeof st,"%.14s  %dv %df %de",s->name,s->nv,s->nf,s->ne); text(R,st,lx,cy,1,C_DIM,C_PANEL); cy+=14; }
     else { text(R,"empty — add a primitive or import",lx,cy,1,C_DIM,C_PANEL); cy+=14; }
-    ME_SEP();
+    } else { g_me_edup=g_me_edel=g_me_emerge=g_me_osel=g_me_octr=g_me_mirx=g_me_miry=g_me_mirz=g_me_mirapply=g_me_objprev=g_me_objnext=g_me_objdel=(SDL_Rect){0,0,0,0}; }
     /* --- FILE --- */
+    if(me_sec(R,lx,&cy,MSEC_FILE,"FILE",mx,my)){
     px=ui_btn_t(R,lx,cy,0,"New",IC_FILE,(Col){205,200,160},&g_me_enew,mx,my,"New named model (Ctrl+N)");
     px=ui_btn_t(R,px,cy,0,"Save",IC_SAVE,(Col){150,200,255},&g_me_esave,mx,my,"Save .mmesh");
     ui_btn_t(R,px,cy,0,"Load",IC_UPLOAD,(Col){150,200,255},&g_me_eload,mx,my,"Load .mmesh"); cy+=UI_H+5;
@@ -2811,13 +2840,13 @@ static void draw_mesh_edit(SDL_Renderer*R,int ox,int oy,int w,int h){
     ui_btn_t(R,px,cy,0,"Bake rig",IC_DOWNLOAD,(Col){150,220,150},&g_me_bakerig,mx,my,"Bake rig to src/<name>_rig.h"); cy+=UI_H+5;
     px=ui_btn_t(R,lx,cy,0,"Export OBJ",IC_UPLOAD,(Col){150,200,255},&g_me_exportobj,mx,my,"Export assets/<name>.obj + .rig");
     ui_btn_t(R,px,cy,0,"Exit",IC_CHEV_D,(Col){200,160,120},&g_me_eexit,mx,my,"Leave the editor (Tab)"); cy+=UI_H+2;
-    #undef ME_SEP
+    } else g_me_enew=g_me_esave=g_me_eload=g_me_ebakex=g_me_bakerig=g_me_exportobj=g_me_eexit=(SDL_Rect){0,0,0,0};
     SDL_RenderSetClipRect(R,NULL);
     int me_conth=cy+g_me_scroll-me_ctop, me_vis=me_cbot-me_ctop, me_maxs=me_conth-me_vis; if(me_maxs<0)me_maxs=0; g_me_maxs=me_maxs;
     if(g_me_scroll>me_maxs)g_me_scroll=me_maxs; if(g_me_scroll<0)g_me_scroll=0;
-    if(me_maxs>0){ int sbx=cardx+MESH_CARDW-5; plain(R,sbx,me_ctop,4,me_vis,(Col){30,33,42});
+    if(me_maxs>0){ int sbx=cardx+MESH_CARDW-7; plain(R,sbx,me_ctop,6,me_vis,(Col){30,33,42});
         int th=me_vis*me_vis/me_conth; if(th<20)th=20; int ty=me_ctop+(me_maxs?(me_vis-th)*g_me_scroll/me_maxs:0);
-        g_me_sb=(SDL_Rect){sbx,ty,4,th}; plain(R,sbx,ty,4,th,g_me_sbdrag?(Col){150,165,195}:(Col){110,120,140}); }
+        g_me_sb=(SDL_Rect){sbx,ty,6,th}; plain(R,sbx,ty,6,th,g_me_sbdrag?(Col){150,165,195}:(Col){110,120,140}); }
     else { g_me_sb=(SDL_Rect){0,0,0,0}; g_me_scroll=0; }
     }
 
@@ -2832,6 +2861,7 @@ static void mirror_status(void){ uint8_t m=g_nobj?g_obj[g_objsel].mirror:0;
 /* edit-mode mouse: card buttons first; returns 1 if a control was hit (so no orbit) */
 static int mesh_edit_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
+    if(!g_tex_paint)for(int i=0;i<MSEC_N;i++)if(HITR(g_me_sech[i])){ g_me_closed^=1u<<i; return 1; }   /* fold/unfold a card section */
     if(g_tex_paint){                                       /* texture-paint mode: full pixel toolset on the atlas */
         if(HITR(g_pt_canvas)){ atlas_undo_push(); tex_paint_at(mx,my,0); g_tpaint_drag=1; return 1; }
         if(HITR(g_pt_undo)){ atlas_undo(); return 1; }
@@ -5914,6 +5944,7 @@ int main(int argc,char**argv){
         mmesh_load(); if(g_nobj){ g_edit_mode=1; eobj_fit(); eobj_paint_enter(); g_tab=TAB_MESH; } }
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }   /* capture/test: preview an .obj/.stl in the Mesh importer */
+    if(getenv("MOTE_STUDIO_MESHSEC")) g_me_closed=(uint32_t)strtoul(getenv("MOTE_STUDIO_MESHSEC"),0,0);   /* capture/test: collapse MODEL EDITOR sections (bitmask) */
     if(getenv("MOTE_STUDIO_TONE")){ g_tab=TAB_AUDIO; g_audio_view=1;   /* capture hook: Audio ▸ Tone view with a layered laser */
         g_tone[0]=(MoteTone){MOTE_SYNTH_SQUARE,560,270,0.30f,0.003f,0.24f}; g_tone[1]=(MoteTone){MOTE_SYNTH_NOISE,2000,660,0.15f,0.001f,0.05f}; g_tone[2]=(MoteTone){MOTE_SYNTH_SINE,320,260,0.19f,0.004f,0.20f};
         g_tone_n=3; g_tone_sel=0; snprintf(g_au_name,sizeof g_au_name,"laser"); tone_render(0); if(getenv("MOTE_STUDIO_TONESAVE"))tone_save(); }
