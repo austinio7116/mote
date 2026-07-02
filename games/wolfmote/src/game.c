@@ -46,6 +46,9 @@
 #include "pickup.sfx.h"
 #include "hurt.sfx.h"
 #include <math.h>
+#ifdef MOTE_HOST
+#include <stdlib.h>     /* getenv: MOTE_WOLF_ATEXIT test hook */
+#endif
 #include <string.h>
 
 MOTE_GAME_MODULE();
@@ -172,7 +175,7 @@ static char g_gen[GENH][GENW+1];
 static const char *g_genrows[GENH+1];
 static uint32_t g_seed = 0xC0FFEE21u;
 static float grnd(void){ g_seed=g_seed*1664525u+1013904223u; return (g_seed>>8)*(1.0f/16777216.0f); }
-static int   grndi(int n){ return (int)(grnd()*n); }
+static int   grndi(int n){ int v=(int)(grnd()*n); if(v<0)v=0; if(v>=n)v=n-1; return v; }
 typedef struct { int x,z,w,h; } Room;
 static int gopen(int x,int z){ char c=g_gen[z][x]; return c!='#' && c!='%'; }
 static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
