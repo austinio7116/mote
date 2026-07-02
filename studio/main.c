@@ -305,6 +305,7 @@ static int eobj_atlas_path(char*out,int n);   /* fwd: <project>/assets/<model>_t
 static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom);   /* fwd: shared compact pixel tool panel */
 static int px_panel_down(int mx,int my);
 static int px_panel_drag(int mx,int my);
+static void tip(SDL_Rect r,int mx,int my,const char*t);   /* fwd: hover tooltip (defined with the ui_* widgets) */
 static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     int switching=(idx!=g_sel);
     if(switching)project_reset();    /* switching projects: drop the old game's art/objects/tilesets/anims/sfx/rig (kept across a hot-reload of the same game) */
@@ -692,12 +693,17 @@ static void draw_toolbar(SDL_Renderer*R){ plain(R,0,MENU_H,WIN_W,TOOL_H,C_PANEL)
     rrect(R,x,y,158,28,4,C_DOCK); icon(R,IC_FOLDER_O,x+9,y+7,15,g_sel>=0?(Col){220,200,120}:C_DIM);
     text(R,proj,x+30,y+8,1,g_sel>=0?C_TITLE:C_DIM,C_DOCK); x+=170;
     plain(R,x,y-2,1,32,C_LINE); x+=12;
-    struct { const char*l; int a,ic; } btns[]={ {"Run",A_RELOAD,IC_PLAY},{"Stop",A_STOP,IC_SQUARE},
-        {"Build",A_BUILD,IC_HAMMER},{"Push",A_PUSH,IC_UPLOAD},{"VS Code",A_VSCODE,IC_CODE} };
+    struct { const char*l; int a,ic; const char*tp; } btns[]={
+        {"Run",A_RELOAD,IC_PLAY,"Build + run in the emulator (also reloads a running game)"},
+        {"Stop",A_STOP,IC_SQUARE,"Stop the running game"},
+        {"Build",A_BUILD,IC_HAMMER,"Compile the game without running it"},
+        {"Push",A_PUSH,IC_UPLOAD,"Build the device .mote + copy it over USB"},
+        {"VS Code",A_VSCODE,IC_CODE,"Open the project folder in VS Code"} };
     for(int i=0;i<5;i++){ int w=textw(R,btns[i].l,1)+40; int hov=hit(mx,my,x,y,w,28);
         Col bg=hov?C_BTNHI:C_BTN; rrect(R,x,y,w,28,4,bg);
         icon(R,btns[i].ic,x+10,y+7,14,i==1?(Col){240,150,150}:i==0?(Col){150,230,160}:C_TXT);
-        text(R,btns[i].l,x+30,y+8,1,C_TXT,bg); g_tb[g_ntb++]=(Tbtn){x,y,w,28,btns[i].l,btns[i].a}; x+=w+7; }
+        text(R,btns[i].l,x+30,y+8,1,C_TXT,bg); g_tb[g_ntb++]=(Tbtn){x,y,w,28,btns[i].l,btns[i].a};
+        tip((SDL_Rect){x,y,w,28},mx,my,btns[i].tp); x+=w+7; }
     char st[200]; snprintf(st,sizeof st,"%.180s",g_status); int sw=textw(R,st,1); text(R,st,WIN_W-sw-16,y+8,1,C_DIM,C_PANEL); }
 
 /* does the ancestor at level `a` have a later sibling (so the vertical continues)? */
@@ -706,7 +712,8 @@ static SDL_Rect g_tree_refresh, g_tree_sb; static int g_treescroll, g_tree_sbdra
 static void draw_tree(SDL_Renderer*R){ plain(R,0,TOPH,LEFT_W,BOT_Y-TOPH,C_DOCK); plain(R,LEFT_W-1,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,0,TOPH,LEFT_W,24,C_HDR); icon(R,IC_TREE,9,TOPH+6,13,C_DIM); text(R,"EXPLORER",28,TOPH+7,1,C_DIM,C_HDR);
     { int mx,my; SDL_GetMouseState(&mx,&my); g_tree_refresh=(SDL_Rect){LEFT_W-26,TOPH+4,18,18};
-      int hv=hit(mx,my,LEFT_W-26,TOPH+4,18,18); icon(R,IC_UNDO,LEFT_W-24,TOPH+5,14,hv?C_ACC:C_DIM); }
+      int hv=hit(mx,my,LEFT_W-26,TOPH+4,18,18); icon(R,IC_UNDO,LEFT_W-24,TOPH+5,14,hv?C_ACC:C_DIM);
+      tip(g_tree_refresh,mx,my,"Rescan the project's files"); }
     if(g_sel<0){ text(R,"Project ‣ Open…",14,TOPH+40,1,C_DIM,C_DOCK); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
     int top=TOPH+28, H=BOT_Y-top, total=g_ntree*ROW_H, maxs=total>H?total-H:0;
@@ -1050,7 +1057,7 @@ static void draw_texgen(SDL_Renderer*R,int ox,int oy){ int mx,my; SDL_GetMouseSt
     g_texa_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texa); x+=26; g_texb_r=(SDL_Rect){x,oy,22,22}; px_swatch(R,x,oy,22,g_texb); x+=26;
     text(R,"A/B",x,oy+6,1,C_DIM,C_DOCK); x+=textw(R,"A/B",1)+8;
     g_texgen_r=(SDL_Rect){x,oy,76,22}; rrect(R,x,oy,76,22,4,hit(mx,my,x,oy,76,22)?C_BTNHI:C_ACC); text(R,"Generate",x+9,oy+5,1,C_HDR,C_ACC); x+=82;
-    g_texseed_r=(SDL_Rect){x,oy,60,22}; rrect(R,x,oy,60,22,4,hit(mx,my,x,oy,60,22)?C_BTNHI:C_BTN); icon(R,IC_UNDO,x+7,oy+4,13,C_TXT); text(R,"Seed",x+23,oy+5,1,C_TXT,C_BTN); x+=66;
+    g_texseed_r=(SDL_Rect){x,oy,60,22}; rrect(R,x,oy,60,22,4,hit(mx,my,x,oy,60,22)?C_BTNHI:C_BTN); icon(R,IC_UNDO,x+7,oy+4,13,C_TXT); text(R,"Seed",x+23,oy+5,1,C_TXT,C_BTN); tip(g_texseed_r,mx,my,"Re-roll the generator seed"); x+=66;
     g_textile_r=(SDL_Rect){x,oy,62,22}; rrect(R,x,oy,62,22,4,g_textile?C_ACC:C_BTN); text(R,g_textile?"Tile ON":"Tile off",x+8,oy+5,1,g_textile?C_HDR:C_DIM,g_textile?C_ACC:C_BTN); }
 static void texgen_drag(int mx){ if(g_texdrag<0)return; SDL_Rect*r=&g_texsl[g_texdrag]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *TEXSLV[g_texdrag]=TEXSLLO[g_texdrag]+t*(TEXSLHI[g_texdrag]-TEXSLLO[g_texdrag]); }
 static int texgen_click(int mx,int my){
@@ -1065,32 +1072,37 @@ static int texgen_click(int mx,int my){
 
 static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT_Y+30, mx,my; SDL_GetMouseState(&mx,&my);
     int tx=10,ty=cy-3; g_npxb=0;
-    struct { int ic,id; } tb[]={ {IC_PENCIL,0},{IC_BRUSH,16},{IC_ERASER,1},{IC_BUCKET,2},{IC_PIPETTE,3},{IC_SLASH,4},{IC_SQDASH,5},
-        {-1,-1},{IC_UNDO2,6},{IC_REDO2,14},{IC_GRID,7},{-1,-1},{IC_MINUS,11},{IC_ZOOM,12},{IC_MOVE,13},{-1,-1},{IC_PLUS,8},{IC_DOWNLOAD,9},{IC_SAVE,10} };
+    struct { int ic,id; const char*tp; } tb[]={
+        {IC_PENCIL,0,"Pencil - hard single pixels"},{IC_BRUSH,16,"Soft brush - shape/size/hardness appear to the right"},
+        {IC_ERASER,1,"Eraser - paints transparent"},{IC_BUCKET,2,"Flood fill"},{IC_PIPETTE,3,"Pick a colour from the art"},
+        {IC_SLASH,4,"Line - drag, commits on release"},{IC_SQDASH,5,"Rectangle outline - drag, commits on release"},
+        {-1,-1,0},{IC_UNDO2,6,"Undo"},{IC_REDO2,14,"Redo"},{IC_GRID,7,"Toggle the pixel grid"},
+        {-1,-1,0},{IC_MINUS,11,"Zoom out"},{IC_ZOOM,12,"Zoom in"},{IC_MOVE,13,"Reset zoom + pan"},
+        {-1,-1,0},{IC_PLUS,8,"New blank canvas (undoable)"},{IC_DOWNLOAD,9,"Open a PNG from assets/"},{IC_SAVE,10,"Save to assets/<name>.png (auto-bakes)"} };
     for(int i=0;i<(int)(sizeof tb/sizeof tb[0]);i++){ if(tb[i].ic==-1){ plain(R,tx+3,ty+2,1,22,C_LINE); tx+=11; continue; }   /* -1 separator */
         int act=(tb[i].id<6&&g_ptool==tb[i].id)||(tb[i].id==7&&g_grid)||(tb[i].id==16&&g_ptool==6); int hov=hit(mx,my,tx,ty,27,24);
         rrect(R,tx,ty,27,24,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
         icon(R,tb[i].ic,tx+6,ty+5,14,C_TXT);
-        g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tx+=30; }
+        g_pxb[g_npxb]=(SDL_Rect){tx,ty,27,24}; g_pxb_id[g_npxb++]=tb[i].id; tip((SDL_Rect){tx,ty,27,24},mx,my,tb[i].tp); tx+=30; }
     /* brush shape (square/round) + size + hardness — shown only while the brush is active */
     if(g_ptool==6){ tx+=8;
-        g_pxsq=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4,!g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); rect_outline(R,tx+6,ty+6,12,12,C_TXT,2); tx+=26;
-        g_pxrd=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4, g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); disc(R,tx+12,ty+12,7,C_TXT); tx+=30;
-        char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); tx=ui_stepper(R,tx,ty,"size",b,&g_pxbsz_m,&g_pxbsz_p,mx,my)+6;
-        snprintf(b,sizeof b,"%d%%",g_brush_hard); tx=ui_stepper(R,tx,ty,"hard",b,&g_pxbhd_m,&g_pxbhd_p,mx,my); }
+        g_pxsq=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4,!g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); rect_outline(R,tx+6,ty+6,12,12,C_TXT,2); tip(g_pxsq,mx,my,"Square brush tip"); tx+=26;
+        g_pxrd=(SDL_Rect){tx,ty,24,24}; rrect(R,tx,ty,24,24,4, g_brush_round?C_BTNHI:(hit(mx,my,tx,ty,24,24)?mul(C_BTN,1.3f):C_BTN)); disc(R,tx+12,ty+12,7,C_TXT); tip(g_pxrd,mx,my,"Round brush tip"); tx+=30;
+        char b[8]; snprintf(b,sizeof b,"%d",g_brush_size); tx=ui_stepper(R,tx,ty,"size",b,&g_pxbsz_m,&g_pxbsz_p,mx,my)+6; tip(g_pxbsz_m,mx,my,"Brush size down"); tip(g_pxbsz_p,mx,my,"Brush size up");
+        snprintf(b,sizeof b,"%d%%",g_brush_hard); tx=ui_stepper(R,tx,ty,"hard",b,&g_pxbhd_m,&g_pxbhd_p,mx,my); tip(g_pxbhd_m,mx,my,"Softer edge"); tip(g_pxbhd_p,mx,my,"Harder edge (100% = solid)"); }
     else { g_pxbsz_m=g_pxbsz_p=g_pxbhd_m=g_pxbhd_p=g_pxsq=g_pxrd=(SDL_Rect){0,0,0,0}; }
     tx+=10; int sizes[8]={8,16,32,48,60,64,96,128};   /* square presets (set W=H) */
     for(int i=0;i<8;i++){ char s[8]; snprintf(s,sizeof s,"%d",sizes[i]); int w=textw(R,s,1)+12, act=(g_cw==sizes[i]&&g_ch==sizes[i]);
-        rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+6,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tx+=w+3; }
+        rrect(R,tx,ty,w,24,4,act?C_BTNHI:C_BTN); text(R,s,tx+6,ty+6,1,act?C_TXT:C_DIM,act?C_BTNHI:C_BTN); g_pxsize[i]=(SDL_Rect){tx,ty,w,24}; tip(g_pxsize[i],mx,my,"New square canvas at this size"); tx+=w+3; }
     /* arbitrary non-square size: independent W and H -/+ (keeps the art, top-left) */
     tx+=8; text(R,"W",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"W",1)+4;
-    g_pxszdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tx+=19;
+    g_pxszdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tip(g_pxszdn,mx,my,"Shrink width (art keeps its top-left)"); tx+=19;
     { char cs[8]; snprintf(cs,sizeof cs,"%d",g_cw); int w=textw(R,cs,1); text(R,cs,tx+(26-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=28; }
-    g_pxszup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tx+=22;
+    g_pxszup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tip(g_pxszup,mx,my,"Grow width (art keeps its top-left)"); tx+=22;
     text(R,"H",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"H",1)+4;
-    g_pxszhdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tx+=19;
+    g_pxszhdn=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"-",tx+6,ty+6,1,C_TXT,C_BTN); tip(g_pxszhdn,mx,my,"Shrink height"); tx+=19;
     { char cs[8]; snprintf(cs,sizeof cs,"%d",g_ch); int w=textw(R,cs,1); text(R,cs,tx+(26-w)/2,ty+6,1,C_TXT,C_DOCK); tx+=28; }
-    g_pxszhup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tx+=22;
+    g_pxszhup=(SDL_Rect){tx,ty,18,24}; rrect(R,tx,ty,18,24,4,hit(mx,my,tx,ty,18,24)?C_BTNHI:C_BTN); text(R,"+",tx+5,ty+6,1,C_TXT,C_BTN); tip(g_pxszhup,mx,my,"Grow height"); tx+=22;
     tx+=14; text(R,"save as",tx,ty+7,1,C_DIM,C_DOCK); tx+=textw(R,"save as",1)+6;   /* the SAVE button writes assets/<name>.png */
     g_px_name_r=(SDL_Rect){tx,ty,150,24}; rrect(R,tx,ty,150,24,4,g_px_namefocus?(Col){12,14,20}:C_DOCK);
     { const char*base=g_px_name[0]?g_px_name:(texmode?"texture":"sprite"); Col fbg=g_px_namefocus?(Col){12,14,20}:C_DOCK;
@@ -3049,11 +3061,11 @@ static void draw_tex_paint(SDL_Renderer*R,int ox,int oy,int w,int h,int mx,int m
     { char rl[24]; snprintf(rl,sizeof rl,"Atlas %d",g_eatlas_w); text(R,rl,lx,cy2+5,1,C_DIM,C_PANEL);   /* resolution: UVs unchanged, no re-unwrap */
       int bx=lx+textw(R,rl,1)+8; for(int i=0;i<3;i++){ char rb[8]; snprintf(rb,sizeof rb,"%d",PT_RES[i]); int act=(g_eatlas_w==PT_RES[i]);
         bx=ui_btn_t(R,bx,cy2,0,rb,-1,act?(Col){120,210,160}:C_TXT,&g_pt_res[i],mx,my,"Set atlas resolution — UVs are normalised, so no re-unwrap"); } cy2+=UI_H+4; }
-    ui_btn(R,lx,cy2,MESH_CARDW-24,"Fill from face colours",IC_BUCKET,(Col){205,185,150},&g_pt_fill,mx,my); cy2+=UI_H+4;
-    ui_btn(R,lx,cy2,bw,"Undo",IC_UNDO2,(Col){200,200,210},&g_pt_undo,mx,my);
-    ui_btn(R,lx+bw+8,cy2,bw,"Redo",IC_REDO2,(Col){200,200,210},&g_pt_redo,mx,my); cy2+=UI_H+4;
-    ui_btn(R,lx,cy2,bw,"Save",IC_SAVE,(Col){150,200,255},&g_pt_save,mx,my);
-    ui_btn(R,lx+bw+8,cy2,bw,"Done",IC_CHEV_D,(Col){200,160,120},&g_pt_exit,mx,my);
+    ui_btn_t(R,lx,cy2,MESH_CARDW-24,"Fill from face colours",IC_BUCKET,(Col){205,185,150},&g_pt_fill,mx,my,"Flood the atlas from each face's painted colour - a base coat to detail over"); cy2+=UI_H+4;
+    ui_btn_t(R,lx,cy2,bw,"Undo",IC_UNDO2,(Col){200,200,210},&g_pt_undo,mx,my,"Undo the last paint stroke");
+    ui_btn_t(R,lx+bw+8,cy2,bw,"Redo",IC_REDO2,(Col){200,200,210},&g_pt_redo,mx,my,"Redo the undone stroke"); cy2+=UI_H+4;
+    ui_btn_t(R,lx,cy2,bw,"Save",IC_SAVE,(Col){150,200,255},&g_pt_save,mx,my,"Write the texture PNG to assets/");
+    ui_btn_t(R,lx+bw+8,cy2,bw,"Done",IC_CHEV_D,(Col){200,160,120},&g_pt_exit,mx,my,"Leave paint mode (keeps the texture)");
 }
 
 static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,h,(Col){16,18,26}); eobj_atlas_sync();
@@ -3065,7 +3077,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
         draw_eobj_solid(R,g_me_view);
         text(R,g_mesh_autorot?"live model — auto-spin (drag to orbit, as in-game)":"live model — drag to orbit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
         int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12,px;
-        ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+8;
+        ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+8;
         { Col vc={170,200,200}; px=ui_pill_t(R,lx,cy,"View","Spin",g_mesh_autorot,&g_me_vrot,mx,my,"Toggle the auto-rotate preview");
           ui_pill_t(R,px,cy,NULL,"Texture",g_mesh_showtex,&g_me_vtex,mx,my,"Show the texture (off = flat face colours)"); cy+=UI_H+5; (void)vc; }
         px=ui_btn_t(R,lx,cy,0,"Reset view",-1,(Col){180,190,210},&g_me_vreset,mx,my,"Recentre + reset the view angle");
@@ -3076,7 +3088,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     }
     if(!g_nraw){ text(R,"Select a .stl / .obj in the tree to preview it here.",ox+14,oy+14,1,C_DIM,(Col){16,18,26});
         text(R,"- or model from scratch -",ox+14,oy+34,1,C_DIM,(Col){16,18,26});
-        ui_btn(R,ox+14,oy+52,0,"Open model editor",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); return; }
+        ui_btn_t(R,ox+14,oy+52,0,"Open model editor",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Start a new mesh from a primitive"); return; }
     if(g_mesh_dirty) mesh_reprocess();
 
     /* ---- processed-mesh 3D preview (left) ---- */
@@ -3141,10 +3153,10 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MESH BAKE"); int lx=cardx+12; char vb[40];
     snprintf(vb,sizeof vb,"%d",g_mesh_budget); ui_stepper(R,lx,cy,"tris",vb,&g_me_bmin,&g_me_bpls,mx,my); cy+=UI_H+8;
     snprintf(vb,sizeof vb,"%.2fm",g_mesh_size); ui_stepper(R,lx,cy,"size",vb,&g_me_smin,&g_me_spls,mx,my); cy+=UI_H+10;
-    int px=ui_pill(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my);
-    ui_pill(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my); cy+=UI_H+8;
-    ui_pill(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my); cy+=UI_H+10;
-    ui_btn(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my); cy+=UI_H+12;
+    int px=ui_pill_t(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my,"Source up-axis - flip if the model imports lying down");
+    ui_pill_t(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my,"Recentre the model on the origin at import"); cy+=UI_H+8;
+    ui_pill_t(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my,"Colour-code the auto-split render chunks"); cy+=UI_H+10;
+    ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+12;
 
     /* ---- texture (ABI v35): assign a PNG -> persisted as a sidecar next to the model ---- */
     { char sc[400]; int has=0; if(mesh_tex_sidecar(sc,sizeof sc)){ struct stat tst; has=(stat(sc,&tst)==0); }
@@ -3156,8 +3168,8 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
           text(R,"! max_tex_tris is 0:",lx,cy,1,warn,C_PANEL); cy+=14;
           char w2[64]; snprintf(w2,sizeof w2,"set >=%d or it draws flat",g_mesh_outf>0?g_mesh_outf:1);
           text(R,w2,lx,cy,1,warn,C_PANEL); cy+=16; } }
-      int bx2=ui_btn(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_me_texassign,mx,my);
-      if(has)ui_btn(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_me_texclear,mx,my); else g_me_texclear=(SDL_Rect){0,0,0,0};
+      int bx2=ui_btn_t(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_me_texassign,mx,my,"Pick a PNG from assets/ as this model's texture");
+      if(has)ui_btn_t(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_me_texclear,mx,my,"Remove the texture (back to face colours)"); else g_me_texclear=(SDL_Rect){0,0,0,0};
       cy+=UI_H+12; }
 
     /* colour picker (HSV square + hue strip + swatch), like the Pixel Art tab */
@@ -3184,7 +3196,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     long bytes=(long)g_mesh_outv*3+(long)g_mesh_outf*8+(long)g_mesh_nchunk*24;
     snprintf(s,sizeof s,"flash    ~%ld B",bytes); text(R,s,lx,cy,1,C_ACC,bgp); cy+=20;
 
-    ui_btn(R,lx,cy,MESH_CARDW-24,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_bake,mx,my); }
+    ui_btn_t(R,lx,cy,MESH_CARDW-24,"Bake .h",IC_DOWNLOAD,(Col){150,220,150},&g_me_bake,mx,my,"Bake to a C header in src/ (textures auto-index when few colours)"); }
 
 static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
@@ -3503,7 +3515,7 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     cy+=4; RigPart*s=&g_rp[g_rsel];
     g_rg_par=(SDL_Rect){lx,cy,MESH_CARDW-24,19}; rrect(R,lx,cy,MESH_CARDW-24,19,4,hit(mx,my,lx,cy,MESH_CARDW-24,19)?C_BTNHI:C_BTN);
     { char pb[44]; snprintf(pb,sizeof pb,"parent < %s >", s->parent<0?"root":g_rp[s->parent].name); text(R,pb,lx+8,cy+4,1,C_TXT,C_BTN); } cy+=24;
-    ui_pill(R,lx,cy,NULL,g_pose_mode?"edit: pose":"edit: pivot",g_pose_mode,&g_rg_pose,mx,my); cy+=UI_H+6;
+    ui_pill_t(R,lx,cy,NULL,g_pose_mode?"edit: pose":"edit: pivot",g_pose_mode,&g_rg_pose,mx,my,"Toggle editing the keyframe pose vs the part's rest pivot"); cy+=UI_H+6;
     if(!g_pose_mode){
         const char*ax[3]={"x","y","z"}; float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
         text(R,"PIVOT (joint)",lx,cy,1,C_DIM,C_PANEL); cy+=14;
@@ -3533,8 +3545,8 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
         if(gc.found&&gc.tex_tris==0){ Col warn=(Col){240,150,90};
           text(R,"! max_tex_tris is 0:",lx,cy,1,warn,C_PANEL); cy+=14;
           text(R,"set >0 or it draws flat",lx,cy,1,warn,C_PANEL); cy+=16; } }
-      int bx2=ui_btn(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_rg_texassign,mx,my);
-      if(has)ui_btn(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_rg_texclear,mx,my); else g_rg_texclear=(SDL_Rect){0,0,0,0}; }
+      int bx2=ui_btn_t(R,lx,cy,0,"Assign\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_rg_texassign,mx,my,"Pick a PNG from assets/ as this rig's texture");
+      if(has)ui_btn_t(R,bx2,cy,0,"Clear",IC_ERASER,(Col){0,0,0},&g_rg_texclear,mx,my,"Remove the texture (back to part colours)"); else g_rg_texclear=(SDL_Rect){0,0,0,0}; }
 }
 static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
@@ -3879,7 +3891,7 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     { const char*vl[2]={"Full","Tone"}; text(R,"VIEW",tx,ty+5,1,C_DIM,C_DOCK); tx+=textw(R,"VIEW",1)+8;   /* Full = WAV/recipe · Tone = layered synth */
       int seg=tx; for(int i=0;i<2;i++){ int bw=textw(R,vl[i],1)+16; int sel=g_audio_view==i,hov=hit(mx,my,tx,ty,bw,22);
         rrect(R,tx,ty,bw,22,4,sel?C_ACC:(hov?C_BTNHI:C_BTN)); text(R,vl[i],tx+8,ty+5,1,sel?C_HDR:C_TXT,sel?C_ACC:C_BTN); tx+=bw+2; }
-      g_au_viewtog=(SDL_Rect){seg,ty,tx-seg,22}; tx+=16; }
+      g_au_viewtog=(SDL_Rect){seg,ty,tx-seg,22}; tip(g_au_viewtog,mx,my,"Switch view: Full = the SFX synth (recipes/WAVs) - Tone = layered synth tones (mote_synth.h)"); tx+=16; }
     if(!g_audio_view){
     text(R,"WAVE",tx,ty+5,1,C_DIM,C_DOCK); tx+=textw(R,"WAVE",1)+8;
     for(int i=0;i<4;i++){ int bw=textw(R,WAVE_L[i],1)+14; g_waveb[i]=(SDL_Rect){tx,ty,bw,22}; int sel=g_sfx.wave==i,hov=hit(mx,my,tx,ty,bw,22);
@@ -3889,16 +3901,16 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         rrect(R,tx,ty,bw,22,4,hov?C_BTNHI:C_BTN); text(R,SFX_LABEL[i],tx+6,ty+5,1,C_TXT,hov?C_BTNHI:C_BTN); tx+=bw+3; }
     } else text(R,"layered synth — export a MoteTone[] the game plays with mote_synth_tone() (see sdk/mote_synth.h)",tx,ty+5,1,C_DIM,C_DOCK);
     int ty1=oy+30; tx=ox;
-    g_au_play=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty1+5,14,(Col){150,230,160}); text(R,"Play",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=80;
+    g_au_play=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_PLAY,tx+8,ty1+5,14,(Col){150,230,160}); text(R,"Play",tx+27,ty1+6,1,C_TXT,C_BTN); tip(g_au_play,mx,my,"Preview the sound"); tx+=80;
     if(!g_audio_view){
-      g_au_rnd=(SDL_Rect){tx,ty1,98,24}; rrect(R,tx,ty1,98,24,4,hit(mx,my,tx,ty1,98,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Randomize",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=106;
-      g_au_mut=(SDL_Rect){tx,ty1,78,24}; rrect(R,tx,ty1,78,24,4,hit(mx,my,tx,ty1,78,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Mutate",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=86;
-      g_au_import=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty1+5,14,C_TXT); text(R,"Load",tx+27,ty1+6,1,C_TXT,C_BTN); tx+=84;
+      g_au_rnd=(SDL_Rect){tx,ty1,98,24}; rrect(R,tx,ty1,98,24,4,hit(mx,my,tx,ty1,98,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Randomize",tx+27,ty1+6,1,C_TXT,C_BTN); tip(g_au_rnd,mx,my,"Roll a completely new random effect"); tx+=106;
+      g_au_mut=(SDL_Rect){tx,ty1,78,24}; rrect(R,tx,ty1,78,24,4,hit(mx,my,tx,ty1,78,24)?C_BTNHI:C_BTN); icon(R,IC_UNDO,tx+8,ty1+5,14,C_TXT); text(R,"Mutate",tx+27,ty1+6,1,C_TXT,C_BTN); tip(g_au_mut,mx,my,"Nudge the current recipe - small random variation"); tx+=86;
+      g_au_import=(SDL_Rect){tx,ty1,72,24}; rrect(R,tx,ty1,72,24,4,hit(mx,my,tx,ty1,72,24)?C_BTNHI:C_BTN); icon(R,IC_DOWNLOAD,tx+8,ty1+5,14,C_TXT); text(R,"Load",tx+27,ty1+6,1,C_TXT,C_BTN); tip(g_au_import,mx,my,"Load a WAV/MP3 or an .sfx recipe from assets/"); tx+=84;
     } else { g_au_rnd=g_au_mut=g_au_import=(SDL_Rect){0,0,0,0}; }
     text(R,"name",tx,ty1+6,1,C_DIM,C_DOCK); tx+=textw(R,"name",1)+6;
     g_au_name_r=(SDL_Rect){tx,ty1,148,24}; rrect(R,tx,ty1,148,24,4,g_au_namefocus?(Col){12,14,20}:C_DOCK);
     { char nm[80]; snprintf(nm,sizeof nm,"%s%s%s",g_au_name,g_au_namefocus?"_":"",g_audio_view?".tone":".wav"); text(R,nm,tx+8,ty1+6,1,C_TXT,g_au_namefocus?(Col){12,14,20}:C_DOCK); } tx+=156;
-    g_au_save=(SDL_Rect){tx,ty1,134,24}; rrect(R,tx,ty1,134,24,4,hit(mx,my,tx,ty1,134,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty1+5,14,C_TXT); text(R,g_audio_view?"Save tone .h":"Save to assets",tx+27,ty1+6,1,C_TXT,C_BTN);
+    g_au_save=(SDL_Rect){tx,ty1,134,24}; rrect(R,tx,ty1,134,24,4,hit(mx,my,tx,ty1,134,24)?C_BTNHI:C_BTN); icon(R,IC_SAVE,tx+8,ty1+5,14,C_TXT); text(R,g_audio_view?"Save tone .h":"Save to assets",tx+27,ty1+6,1,C_TXT,C_BTN); tip(g_au_save,mx,my,g_audio_view?"Export the MoteTone[] header to src/":"Write the .wav + .sfx recipe + baked headers to assets/");
     int sy0=oy+62, colw=(w*52/100)/3; if(colw<118)colw=118;
     if(!g_audio_view){
     for(int i=0;i<NSPAR;i++){ int c=i/7,r=i%7; draw_slider(R,i,ox+c*colw,sy0+r*24,colw-14); }
@@ -3953,7 +3965,7 @@ static void draw_audio(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         int sby=wy+wh-sbh+1; plain(R,wx,sby,ww,sbh-2,(Col){20,22,30});                           /* pan scrollbar */
         int thx=wx+(int)((double)v0/g_wavn*ww), thw=(int)((double)vn/g_wavn*ww); if(thw<16)thw=16; if(thx+thw>wx+ww)thx=wx+ww-thw;
         g_au_sb=(SDL_Rect){thx,sby,thw,sbh-2}; rrect(R,thx,sby,thw,sbh-2,3,g_au_sbdrag?C_ACC:(hit(mx,my,thx,sby,thw,sbh-2)?C_BTNHI:C_BTN));
-        g_au_fit=(SDL_Rect){wx+ww-40,wy+1,38,13}; rrect(R,g_au_fit.x,g_au_fit.y,38,13,3,hit(mx,my,g_au_fit.x,g_au_fit.y,38,13)?C_BTNHI:C_BTN); text(R,"Fit",g_au_fit.x+13,wy+2,1,C_TXT,C_BTN);
+        g_au_fit=(SDL_Rect){wx+ww-40,wy+1,38,13}; rrect(R,g_au_fit.x,g_au_fit.y,38,13,3,hit(mx,my,g_au_fit.x,g_au_fit.y,38,13)?C_BTNHI:C_BTN); text(R,"Fit",g_au_fit.x+13,wy+2,1,C_TXT,C_BTN); tip(g_au_fit,mx,my,"Zoom the waveform back to full length");
         { char zb[56]; snprintf(zb,sizeof zb,"view %.3fs / %.3fs  (wheel=zoom, drag bar=pan)",vn/sr,g_wavn/sr); text(R,zb,wx+4,wy+wh-sbh-13,1,C_DIM,(Col){12,14,20}); }
     } else { g_au_sb=(SDL_Rect){0,0,0,0}; g_au_fit=(SDL_Rect){0,0,0,0}; text(R,"pick a SEED / WAVE preset, Randomize, or Load a .wav/.mp3 to see its waveform",wx+10,gwy+12,1,C_DIM,(Col){12,14,20}); } }
 static void slider_set(int i,int mx){ SParam*sp=&SPAR[i]; SDL_Rect*r=&g_sparr[i]; float t=(float)(mx-r->x)/(r->w?r->w:1); if(t<0)t=0; if(t>1)t=1; *sp->v=sp->lo+t*(sp->hi-sp->lo); g_has_sfx=1; sfx_apply(0); }
@@ -4250,15 +4262,18 @@ static const int PXTOOLIC[PXNTOOL]={IC_PENCIL,IC_BRUSH,IC_ERASER,IC_BUCKET,IC_PI
 static const int PXTOOLID[PXNTOOL]={0,6,1,2,3,4,5};
 static void px_panel_draw(SDL_Renderer*R,int rxx,int ry,int bottom){
     int mx,my; SDL_GetMouseState(&mx,&my);
+    static const char*PXTOOLTIP[PXNTOOL]={"Pencil - hard single pixels","Soft brush - size + hardness below","Eraser - paints transparent","Flood fill","Pick a colour from the art","Line - drag, commits on release","Rectangle outline - drag, commits on release"};
     for(int i=0;i<PXNTOOL;i++){ int bx=rxx+(i%4)*28, by=ry+(i/4)*24; g_dr_tool[i]=(SDL_Rect){bx,by,26,22}; int act=g_ptool==PXTOOLID[i],hov=hit(mx,my,bx,by,26,22);   /* 2 rows; brush after pencil */
         rrect(R,bx,by,26,22,4,act?C_BTNHI:(hov?mul(C_BTN,1.3f):C_BTN));
-        icon(R,PXTOOLIC[i],bx+6,by+4,14,act?C_HDR:C_TXT); }
+        icon(R,PXTOOLIC[i],bx+6,by+4,14,act?C_HDR:C_TXT); tip(g_dr_tool[i],mx,my,PXTOOLTIP[i]); }
     int hy=ry+52;   /* below the two tool rows */
     if(g_ptool==6){ char b[8];
-        g_dr_sq=(SDL_Rect){rxx,hy,24,20}; rrect(R,rxx,hy,24,20,4,!g_brush_round?C_BTNHI:C_BTN); rect_outline(R,rxx+6,hy+5,12,10,C_TXT,2);   /* shape: square */
-        g_dr_rd=(SDL_Rect){rxx+26,hy,24,20}; rrect(R,rxx+26,hy,24,20,4,g_brush_round?C_BTNHI:C_BTN); disc(R,rxx+26+12,hy+10,6,C_TXT); hy+=24; /* round */
-        snprintf(b,sizeof b,"%d",g_brush_size); ui_stepper(R,rxx,hy,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my); hy+=22;
-        snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,rxx,hy,"hd",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my); hy+=24; }
+        g_dr_sq=(SDL_Rect){rxx,hy,24,20}; rrect(R,rxx,hy,24,20,4,!g_brush_round?C_BTNHI:C_BTN); rect_outline(R,rxx+6,hy+5,12,10,C_TXT,2); tip(g_dr_sq,mx,my,"Square brush tip");   /* shape: square */
+        g_dr_rd=(SDL_Rect){rxx+26,hy,24,20}; rrect(R,rxx+26,hy,24,20,4,g_brush_round?C_BTNHI:C_BTN); disc(R,rxx+26+12,hy+10,6,C_TXT); tip(g_dr_rd,mx,my,"Round brush tip"); hy+=24; /* round */
+        snprintf(b,sizeof b,"%d",g_brush_size); ui_stepper(R,rxx,hy,"sz",b,&g_dr_bsz_m,&g_dr_bsz_p,mx,my);
+        tip(g_dr_bsz_m,mx,my,"Brush size down"); tip(g_dr_bsz_p,mx,my,"Brush size up"); hy+=22;
+        snprintf(b,sizeof b,"%d%%",g_brush_hard); ui_stepper(R,rxx,hy,"hd",b,&g_dr_bhd_m,&g_dr_bhd_p,mx,my);
+        tip(g_dr_bhd_m,mx,my,"Softer edge"); tip(g_dr_bhd_p,mx,my,"Harder edge (100% = solid)"); hy+=24; }
     else g_dr_bsz_m=g_dr_bsz_p=g_dr_bhd_m=g_dr_bhd_p=g_dr_sq=g_dr_rd=(SDL_Rect){0,0,0,0};
     int sq=bottom-hy-56; if(sq>92)sq=92; if(sq<36)sq=36; if(g_hsv_baked!=g_hue)bake_hsv(R);
     g_dr_hsv=(SDL_Rect){rxx,hy,sq,sq}; SDL_RenderCopy(R,g_hsv_tex,NULL,&g_dr_hsv); rect_outline(R,rxx,hy,sq,sq,C_LINE,1);
@@ -4354,11 +4369,11 @@ static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,m
     for(int v=0;v<8;v++)g_tl_vw[v]=(SDL_Rect){0,0,0,0};
     if(ct->nvar>1){ text(R,"weights",ax,cy+4,1,C_DIM,C_PANEL); int wx=ax+textw(R,"weights",1)+6;
         for(int v=0;v<ct->nvar&&v<8;v++){ int wv=ct->var_weight[v]?ct->var_weight[v]:1; g_tl_vw[v]=(SDL_Rect){wx,cy,18,20}; rrect(R,wx,cy,18,20,4,hit(mx,my,wx,cy,18,20)?C_BTNHI:C_BTN); char b[6]; snprintf(b,sizeof b,"%d",wv); text(R,b,wx+6,cy+5,1,C_TITLE,C_BTN); wx+=20; } cy+=26; }
-    { int bx=ui_btn(R,ax,cy,0,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_tl_load,mx,my);
-      bx=ui_btn(R,bx,cy,0,"Gen",IC_HAMMER,(Col){0,0,0},&g_tl_gen,mx,my);
-      bx=ui_btn(R,bx,cy,0,"+ Row",IC_PLUS,(Col){0,0,0},&g_tl_addrow,mx,my);
-      ui_btn(R,bx,cy,0,"Dup",IC_IMAGE,(Col){0,0,0},&g_tl_dup,mx,my); } cy+=26;
-    ui_btn(R,ax,cy,w-24,"Save sheet \xbb assets/",IC_SAVE,(Col){0,0,0},&g_tl_savep,mx,my);
+    { int bx=ui_btn_t(R,ax,cy,0,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_tl_load,mx,my,"Import a tile-sheet PNG for this rule tile");
+      bx=ui_btn_t(R,bx,cy,0,"Gen",IC_HAMMER,(Col){0,0,0},&g_tl_gen,mx,my,"Generate a proc-gen starter sheet into assets/ (editable)");
+      bx=ui_btn_t(R,bx,cy,0,"+ Row",IC_PLUS,(Col){0,0,0},&g_tl_addrow,mx,my,"Add a blank row of cells to the sheet");
+      ui_btn_t(R,bx,cy,0,"Dup",IC_IMAGE,(Col){0,0,0},&g_tl_dup,mx,my,"Duplicate the selected cell into a new row"); } cy+=26;
+    ui_btn_t(R,ax,cy,w-24,"Save sheet \xbb assets/",IC_SAVE,(Col){0,0,0},&g_tl_savep,mx,my,"Write the sheet PNG to assets/ and re-bake");
     y+=th2+8;
 
     /* ---- SHEET card (the cells; click a cell to assign to the selected rule) ---- */
@@ -4427,8 +4442,8 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     { char b[8]; snprintf(b,sizeof b,"%d",g_lv_cols); int xx=ui_stepper(R,lpad,ly0,"size",b,&g_lv_cm,&g_lv_cp,mx,my);
       text(R,"x",xx-2,ly0+(UI_H-7)/2,1,C_DIM,C_PANEL); char b2[8]; snprintf(b2,sizeof b2,"%d",g_lv_rows); ui_stepper(R,xx+8,ly0,"",b2,&g_lv_rm,&g_lv_rp,mx,my); }
     int ly2=ly0+UI_H+4, lxx=lpad;
-    int bx=ui_btn(R,lxx,ly2,0,"clear",IC_ERASER,(Col){0,0,0},&g_lv_clr,mx,my);
-    bx=ui_btn(R,bx,ly2,0,"fill",IC_BUCKET,(Col){0,0,0},&g_lv_fillr,mx,my);
+    int bx=ui_btn_t(R,lxx,ly2,0,"clear",IC_ERASER,(Col){0,0,0},&g_lv_clr,mx,my,"Clear the current layer to empty");
+    bx=ui_btn_t(R,bx,ly2,0,"fill",IC_BUCKET,(Col){0,0,0},&g_lv_fillr,mx,my,"Fill the current layer with the selected tile");
     text(R,"paint",bx+2,ly2+(UI_H-7)/2,1,C_DIM,C_PANEL); bx+=textw(R,"paint",1)+10;
     for(int i=0;i<g_nterr;i++){ int tw=textw(R,g_terr[i].name,1),bw3=tw+26; g_lv_palr[i]=(SDL_Rect){bx,ly2,bw3,UI_H}; int sel=i==g_curterr;
         rrect(R,bx,ly2,bw3,UI_H,3,sel?C_SEL:(hit(mx,my,bx,ly2,bw3,UI_H)?C_BTNHI:C_BTN)); plain(R,bx+8,ly2+(UI_H-7)/2,7,7,(Col){TERR_TINT[i][0],TERR_TINT[i][1],TERR_TINT[i][2]}); text(R,g_terr[i].name,bx+18,ly2+(UI_H-7)/2,1,sel?C_HDR:C_TXT,sel?C_SEL:C_BTN); bx+=bw3+5; }
@@ -4663,7 +4678,7 @@ static void draw_anim_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my
     y+=52+8;
     /* ---- SHEET card (load + cell size + the cells) ---- */
     int cy=ui_card(R,ox,y,w,h-(y-oy)-4,"SPRITE SHEET"); int ax=ox+12;
-    ui_btn(R,ax,cy,w-24,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_an_load,mx,my); cy+=UI_H+8;
+    ui_btn_t(R,ax,cy,w-24,"Load PNG",IC_IMAGE,(Col){170,200,140},&g_an_load,mx,my,"Import a sprite-sheet PNG"); cy+=UI_H+8;
     text(R,"cell",ax,cy+5,1,C_DIM,C_PANEL); int bx=ax+textw(R,"cell",1)+6;
     { char b[6]; snprintf(b,sizeof b,"%d",g_an_tw); int xx=ui_stepper(R,bx,cy,"",b,&g_an_twm,&g_an_twp,mx,my);
       text(R,"x",xx,cy+5,1,C_DIM,C_PANEL); char b2[6]; snprintf(b2,sizeof b2,"%d",g_an_th); ui_stepper(R,xx+12,cy,"",b2,&g_an_thm,&g_an_thp,mx,my); } cy+=28;
@@ -4705,7 +4720,7 @@ static void draw_anim(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_
 
     /* --- Card A: clip + selected-frame properties (compact) --- */
     int ay=ui_card(R,ox,by,wA,bh,"CLIP \xb7 FRAME"); int ax=ox+12;
-    { int xx=ui_pill(R,ax,ay,"loop",AN_LOOP_L[c->loop%3],0,&g_an_loopb,mx,my);
+    { int xx=ui_pill_t(R,ax,ay,"loop",AN_LOOP_L[c->loop%3],0,&g_an_loopb,mx,my,"Cycle the clip's loop mode");
       char b[8]; snprintf(b,sizeof b,"%d",c->fps); ui_stepper(R,xx+2,ay,"fps",b,&g_an_fpsm,&g_an_fpsp,mx,my); ay+=26; }
     { char b[8]; snprintf(b,sizeof b,"%d",c->pvx); int xx=ui_stepper(R,ax,ay,"pivot",b,&g_an_pvxm,&g_an_pvxp,mx,my);
       char b2[8]; snprintf(b2,sizeof b2,"%d",c->pvy); ui_stepper(R,xx+4,ay,",",b2,&g_an_pvym,&g_an_pvyp,mx,my); ay+=26; }
@@ -4790,9 +4805,12 @@ static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Pus
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
     text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
+    static const char*DVB_T[6]={ "Check the device answers over USB","List the games installed on the device",
+        "Build the device .mote + copy it over","Push, then boot straight into the game",
+        "Stream the device's logs into the Console for a few seconds","Erase every pushed game from the device store" };
     for(int i=0;i<6;i++){ int bw=textw(R,DVB_L[i],1)+46; g_dvb[i]=(SDL_Rect){x,y,bw,28};
         rrect(R,x,y,bw,28,4,hit(mx,my,x,y,bw,28)?C_BTNHI:C_BTN); icon(R,ic[i],x+10,y+7,14,C_TXT); text(R,DVB_L[i],x+30,y+8,1,C_TXT,C_BTN);
-        x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
+        tip(g_dvb[i],mx,my,DVB_T[i]); x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
     text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK); }
 /* native device ops (no Python) run on a worker thread, logging into the Console */
 static int g_devop; static volatile int g_devstop;
@@ -5231,8 +5249,8 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     text(R,"FONT",x,y,2,C_TITLE,(Col){16,18,26}); y+=26;
     if(g_glyph_browse){   /* in-place glyph editor: grid (left) + zoomed cell paint (right) */
         char nm[160]; snprintf(nm,sizeof nm,"%.60s_glyphs.png \xc2\xb7 %dpx \xc2\xb7 edit each glyph in place \xc2\xb7 one sheet saves",g_font_name,g_gs_lineh); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
-        int bx=ui_btn(R,x,y,0,"Save + Bake",IC_SAVE,(Col){170,200,140},&g_fn_bake,mx,my);
-        ui_btn(R,bx,y,0,"Close glyphs",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my); y+=UI_H+12;   /* size is FIXED here — change it in the font view */
+        int bx=ui_btn_t(R,x,y,0,"Save + Bake",IC_SAVE,(Col){170,200,140},&g_fn_bake,mx,my,"Save the glyph sheet and bake the .font.h header");
+        ui_btn_t(R,bx,y,0,"Close glyphs",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my,"Back to the font overview"); y+=UI_H+12;   /* size is FIXED here — change it in the font view */
         g_fn_imp=g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=(SDL_Rect){0,0,0,0};
         int gw=draw_glyph_grid(R,x,y,(w-34)*52/100,mx,my);   /* returns its real width so the editor never overlaps it */
         draw_glyph_editcell(R,x+gw+18,y,w-gw-34,(oy+h)-y,mx,my);
@@ -5240,19 +5258,19 @@ static void draw_font(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     if(!g_font_ttf[0]){
         text(R,"Import a .ttf (or pick one in the Explorer) to bake an",x,y,1,C_DIM,(Col){16,18,26}); y+=14;
         text(R,"anti-aliased font. Draw it in-game with mote->text_font().",x,y,1,C_DIM,(Col){16,18,26}); y+=22;
-        ui_btn(R,x,y,0,"Import .ttf\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_fn_imp,mx,my); y+=UI_H+16;
+        ui_btn_t(R,x,y,0,"Import .ttf\xe2\x80\xa6",IC_IMAGE,(Col){170,200,140},&g_fn_imp,mx,my,"Pick a TrueType file to bake at the chosen size"); y+=UI_H+16;
         font_scan_bundled();
         if(g_nbfont>0){ text(R,"or start from a bundled font:",x,y,1,C_DIM,(Col){16,18,26}); y+=18;
             int bx=x; for(int i=0;i<g_nbfont;i++){ char lbl[80]; snprintf(lbl,sizeof lbl,"%.40s",g_bfont[i]); char*dt=strrchr(lbl,'.'); if(dt)*dt=0;
-                bx=ui_btn(R,bx,y,0,lbl,IC_FILE,(Col){150,180,220},&g_fn_bundled[i],mx,my); } }
+                bx=ui_btn_t(R,bx,y,0,lbl,IC_FILE,(Col){150,180,220},&g_fn_bundled[i],mx,my,"Start from this bundled font"); } }
         g_fn_szmin=g_fn_szpls=g_fn_zmin=g_fn_zpls=g_fn_bake=g_fn_edit=(SDL_Rect){0,0,0,0}; return; }
     font_load_ttf(g_font_ttf); font_render_preview(R);
     char nm[120]; snprintf(nm,sizeof nm,"%.60s.ttf",g_font_name); text(R,nm,x,y,1,C_TXT,(Col){16,18,26}); y+=18;
-    int bx=ui_btn(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my);
+    int bx=ui_btn_t(R,x,y,0,"Import\xe2\x80\xa6",IC_IMAGE,(Col){120,150,200},&g_fn_imp,mx,my,"Import a .ttf to bake from");
     char szb[16]; snprintf(szb,sizeof szb,"%dpx",g_font_px); bx=ui_stepper(R,bx,y,"size",szb,&g_fn_szmin,&g_fn_szpls,mx,my);
     char zb[16]; snprintf(zb,sizeof zb,"%dx",g_font_zoom); bx=ui_stepper(R,bx,y,"zoom",zb,&g_fn_zmin,&g_fn_zpls,mx,my);
-    bx=ui_btn(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my);
-    ui_btn(R,bx,y,0,"Edit glyphs\xe2\x80\xa6",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my); y+=UI_H+14;
+    bx=ui_btn_t(R,bx,y,0,"Bake \xe2\x86\x92 .font.h",IC_FILE,(Col){170,200,140},&g_fn_bake,mx,my,"Bake the font to a C header in src/");
+    ui_btn_t(R,bx,y,0,"Edit glyphs\xe2\x80\xa6",IC_GRID,(Col){200,170,140},&g_fn_edit,mx,my,"Open the glyph editor - redraw any character by hand"); y+=UI_H+14;
     if(g_font_prev){
         /* magnify the (tight) preview by the user's zoom, NEAREST for a crisp
          * pixel-accurate view of the real AA; clip to the panel so a big zoom
