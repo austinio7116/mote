@@ -2175,7 +2175,6 @@ Every game in `games/` (all in the release bundle — drop the `.mote` files int
 </tr>
 <tr>
 <td align="center"><a href="games/pong3d"><img src="games/pong3d/icon.png" width="48" alt="pong3d"></a><br><sub><a href="games/pong3d">pong3d</a></sub></td>
-<td align="center"><sub><a href="games/spaceship">spaceship</a></sub></td>
 <td align="center"><a href="games/tanks"><img src="games/tanks/icon.png" width="48" alt="tanks"></a><br><sub><a href="games/tanks">tanks</a></sub></td>
 <td align="center"><a href="games/tetris3d"><img src="games/tetris3d/icon.png" width="48" alt="tetris3d"></a><br><sub><a href="games/tetris3d">tetris3d</a></sub></td>
 <td align="center"><a href="games/thumbalaga"><img src="games/thumbalaga/icon.png" width="48" alt="thumbalaga"></a><br><sub><a href="games/thumbalaga">thumbalaga</a></sub></td>
