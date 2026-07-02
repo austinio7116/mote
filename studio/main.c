@@ -2619,7 +2619,7 @@ static int op_numkey(SDL_Keycode k){ int n=(int)strlen(g_op.num);
 static int g_mgz_on; static SDL_Point g_mgz_o, g_mgz_ax[3];
 
 /* edit-mode card hit rects */
-static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply,g_me_newtop,g_me_loadtop;
+static SDL_Rect g_me_editbtn,g_me_evert,g_me_eedge,g_me_eface,g_me_ecube,g_me_eplane,g_me_esave,g_me_eload,g_me_ebakex,g_me_eexit,g_me_eextr,g_me_einset,g_me_mirx,g_me_miry,g_me_mirz,g_me_mirapply,g_me_newtop,g_me_loadtop; static SDL_Rect g_me_reimport;
 static SDL_Rect g_me_btgt_m,g_me_btgt_p,g_me_bunion,g_me_bsub,g_me_bint; static int g_bool_target=1;   /* boolean: target object index B */
 static SDL_Rect g_me_ecyl,g_me_econe,g_me_esph,g_me_epaint,g_me_edup,g_me_edel,g_me_emerge,g_me_eflip,g_me_erecalc,g_me_eclean,g_me_objprev,g_me_objnext,g_me_objdel,g_me_bakerig,g_me_exportobj,g_me_enew;
 static SDL_Rect g_me_emkface,g_me_esep,g_me_esubdiv,g_me_econn,g_me_ebridge,g_me_einv,g_me_elink,g_me_egrow,g_me_eshrink,g_me_osel,g_me_octr;
@@ -3171,7 +3171,10 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
         draw_eobj_solid(R,g_me_view);
         text(R,g_mesh_autorot?"live model — auto-spin (drag to orbit, as in-game)":"live model — drag to orbit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
         int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12,px;
-        ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+8;
+        ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+4;
+        if(g_nobj>0&&g_mesh_path[0]&&eobj_obj_group_count(g_mesh_path)>1){
+            ui_btn_t(R,lx,cy,MESH_CARDW-24,"Re-import parts",IC_UNDO,(Col){205,185,150},&g_me_reimport,mx,my,"Replace the edited scene with a fresh import - one object per part/material");
+            cy+=UI_H+4; } else g_me_reimport=(SDL_Rect){0,0,0,0}; cy+=4;
         { Col vc={170,200,200}; px=ui_pill_t(R,lx,cy,"View","Spin",g_mesh_autorot,&g_me_vrot,mx,my,"Toggle the auto-rotate preview");
           ui_pill_t(R,px,cy,NULL,"Texture",g_mesh_showtex,&g_me_vtex,mx,my,"Show the texture (off = flat face colours)"); cy+=UI_H+5; (void)vc; }
         px=ui_btn_t(R,lx,cy,0,"Reset view",-1,(Col){180,190,210},&g_me_vreset,mx,my,"Recentre + reset the view angle");
@@ -3250,7 +3253,10 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     int px=ui_pill_t(R,lx,cy,NULL,g_mesh_up?"Z-up":"Y-up",g_mesh_up,&g_me_up,mx,my,"Source up-axis - flip if the model imports lying down");
     ui_pill_t(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my,"Recentre the model on the origin at import"); cy+=UI_H+8;
     ui_pill_t(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my,"Colour-code the auto-split render chunks"); cy+=UI_H+10;
-    ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+12;
+    ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+4;
+    if(g_nobj>0&&g_mesh_path[0]&&eobj_obj_group_count(g_mesh_path)>1){
+        ui_btn_t(R,lx,cy,MESH_CARDW-24,"Re-import parts",IC_UNDO,(Col){205,185,150},&g_me_reimport,mx,my,"Replace the edited scene with a fresh import - one object per part/material");
+        cy+=UI_H+4; } else g_me_reimport=(SDL_Rect){0,0,0,0}; cy+=8;
 
     /* ---- texture (ABI v35): assign a PNG -> persisted as a sidecar next to the model ---- */
     { char sc[400]; int has=0; if(mesh_tex_sidecar(sc,sizeof sc)){ struct stat tst; has=(stat(sc,&tst)==0); }
@@ -3295,6 +3301,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
 static int mesh_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(g_edit_mode) return mesh_edit_down(mx,my);
+    if(g_me_reimport.w&&HITR(g_me_reimport)){ eobj_from_import(); g_me_cardtab=1; return 1; }   /* replace the edited scene with a fresh (multi-part) import; land on the Objects list */
     if(g_me_editbtn.w&&HITR(g_me_editbtn)){ if(g_nobj>0){ g_edit_mode=1; eobj_fit(); }   /* a model exists -> just re-enter the editor (don't re-import + wipe edits) */
         else if(g_nraw>0)eobj_from_import(); else { g_edit_mode=1; eobj_fit(); } return 1; }
     if(g_me_vrot.w&&HITR(g_me_vrot)){ g_mesh_autorot=!g_mesh_autorot; return 1; }                       /* MODEL preview: toggle auto-spin */
