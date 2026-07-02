@@ -2155,6 +2155,47 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 
 ### Example games — what each one teaches
 
+### The games — the shipped library
+
+Every game in `games/` (all in the release bundle — drop the `.mote` files into
+`/mote/` on a ThumbyOne device):
+
+<table>
+<tr>
+<td align="center"><a href="games/arkanoid3d"><img src="games/arkanoid3d/icon.png" width="48" alt="arkanoid3d"></a><br><sub><a href="games/arkanoid3d">arkanoid3d</a></sub></td>
+<td align="center"><a href="games/chess"><img src="games/chess/icon.png" width="48" alt="chess"></a><br><sub><a href="games/chess">chess</a></sub></td>
+<td align="center"><a href="games/deepthumb"><img src="games/deepthumb/icon.png" width="48" alt="deepthumb"></a><br><sub><a href="games/deepthumb">deepthumb</a></sub></td>
+<td align="center"><a href="games/fling"><img src="games/fling/icon.png" width="48" alt="fling"></a><br><sub><a href="games/fling">fling</a></sub></td>
+<td align="center"><a href="games/golf"><img src="games/golf/icon.png" width="48" alt="golf"></a><br><sub><a href="games/golf">golf</a></sub></td>
+<td align="center"><a href="https://github.com/austinio7116/ThumbyOne/releases/latest"><img src="docs/img/grandthumbauto-icon.png" width="48" alt="grandthumbauto"></a><br><sub><a href="https://github.com/austinio7116/ThumbyOne/releases/latest">grandthumbauto</a></sub></td>
+<td align="center"><a href="games/indemnity"><img src="games/indemnity/icon.png" width="48" alt="indemnity"></a><br><sub><a href="games/indemnity">indemnity</a></sub></td>
+<td align="center"><a href="games/motokart"><img src="games/motokart/icon.png" width="48" alt="motokart"></a><br><sub><a href="games/motokart">motokart</a></sub></td>
+<td align="center"><a href="games/nightmote"><img src="games/nightmote/icon.png" width="48" alt="nightmote"></a><br><sub><a href="games/nightmote">nightmote</a></sub></td>
+<td align="center"><a href="games/papermote"><img src="games/papermote/icon.png" width="48" alt="papermote"></a><br><sub><a href="games/papermote">papermote</a></sub></td>
+</tr>
+<tr>
+<td align="center"><a href="games/pong3d"><img src="games/pong3d/icon.png" width="48" alt="pong3d"></a><br><sub><a href="games/pong3d">pong3d</a></sub></td>
+<td align="center"><sub><a href="games/spaceship">spaceship</a></sub></td>
+<td align="center"><a href="games/tanks"><img src="games/tanks/icon.png" width="48" alt="tanks"></a><br><sub><a href="games/tanks">tanks</a></sub></td>
+<td align="center"><a href="games/tetris3d"><img src="games/tetris3d/icon.png" width="48" alt="tetris3d"></a><br><sub><a href="games/tetris3d">tetris3d</a></sub></td>
+<td align="center"><a href="games/thumbalaga"><img src="games/thumbalaga/icon.png" width="48" alt="thumbalaga"></a><br><sub><a href="games/thumbalaga">thumbalaga</a></sub></td>
+<td align="center"><a href="games/thumbatro"><img src="games/thumbatro/icon.png" width="48" alt="thumbatro"></a><br><sub><a href="games/thumbatro">thumbatro</a></sub></td>
+<td align="center"><a href="games/thumbycraft"><img src="games/thumbycraft/icon.png" width="48" alt="thumbycraft"></a><br><sub><a href="games/thumbycraft">thumbycraft</a></sub></td>
+<td align="center"><a href="games/thumbycue"><img src="games/thumbycue/icon.png" width="48" alt="thumbycue"></a><br><sub><a href="games/thumbycue">thumbycue</a></sub></td>
+<td align="center"><a href="games/thumbyrogue"><img src="games/thumbyrogue/icon.png" width="48" alt="thumbyrogue"></a><br><sub><a href="games/thumbyrogue">thumbyrogue</a></sub></td>
+<td align="center"><a href="games/wolfmote"><img src="games/wolfmote/icon.png" width="48" alt="wolfmote"></a><br><sub><a href="games/wolfmote">wolfmote</a></sub></td>
+</tr>
+</table>
+
+The newest: **Grand Thumb Auto** — a top-down open-city driving game built on the v42
+2D rigid-body solver (cars with tyre grip and spin-outs, on-foot sections, a wanted
+level). Its `.mote` ships in the games bundle attached to the
+[latest ThumbyOne release](https://github.com/austinio7116/ThumbyOne/releases/latest).
+
+![Grand Thumb Auto — on foot in the city: parked cars along a kerb, a police car, the cash counter and wanted stars in the HUD, and the A: ENTER / B: PUNCH prompts](docs/img/grandthumbauto.png)
+
+### What each example teaches
+
 | Game | Shows |
 |---|---|
 | `hello-mesh`, `tumbler` | minimal mesh + camera (**start here**) |
@@ -2178,6 +2219,7 @@ docs/img/   studio-*.png (IDE + per-panel screenshots), architecture/arena/pipel
 | `imgdemo` | baked PNG/BMP images (sprite sheet + overlay blit) |
 | `fxdemo` | the FX toolkit — depth-tested points/lines/discs/ring, textured + procedural sphere impostors, soft shadow, `set_background_cb` gradient, a 3D-sprite billboard, a textured mesh, and an additive `blit_ex` HUD sparkle |
 | `wolfmote` | **Wolfenstein-3D-style FPS** — textured wall/door cube meshes, billboard enemies (guard + brute, aim/fire/hit/dead) + scenery, a `blit_ex` gun with additive muzzle flash, two weapons, doors (B), hand-authored text-map levels, and `MoteSfx` sound |
+| `grandthumbauto` | **top-down open-city driving** — the `phys2d_step` 2D rigid-body solver as a game: cars with `lat_damp` tyre grip, on-foot + vehicle play, city streets, a wanted level *(binary in the games bundle; source lands with a future release)* |
 
 ### Key reference files to read when in doubt
 
