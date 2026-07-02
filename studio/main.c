@@ -1571,6 +1571,7 @@ static void prim_uvsphere(float r,int stacks,int slices){ EObject*o=eobj_new("Sp
  * welded verts (g_dv) + triangle indices (g_dt) at the current tri budget, which is exactly
  * the editable mesh we want. Brings it in as a new object and switches to the model editor.
  * Lower the importer's 'tris' budget first for a more editable low-poly result. */
+static const char*g_pcnt_path=0; static int g_pcnt_n;   /* 1-entry cache for the draw-time part count */
 /* Count the PARTS of an OBJ: o/g groups, or - when it has none/one - distinct usemtl
  * materials (a multi-material single-group OBJ, e.g. a chess piece with body + crown
  * materials, is a multi-part model too - same rule obj2mesh uses to chunk the bake). */
@@ -1579,6 +1580,9 @@ static int eobj_obj_group_count(const char*path){ FILE*f=fopen(path,"r"); if(!f)
         if((ln[0]=='o'||ln[0]=='g')&&ln[1]==' ')n++;
         else if(!strncmp(ln,"usemtl ",7)){ char mn[64]={0}; if(sscanf(ln+7,"%63s",mn)==1){ int k=0; for(;k<nm;k++)if(!strcmp(seen[k],mn))break; if(k==nm&&nm<EMESH_MAXOBJ)snprintf(seen[nm++],64,"%s",mn); } } }
     fclose(f); return n>1?n:(nm>1?nm:n); }
+static int eobj_part_count_cached(const char*path){ static char last[640]; if(!path||!path[0])return 0;
+    if(!g_pcnt_path||strcmp(last,path)){ snprintf(last,sizeof last,"%s",path); g_pcnt_path=last; g_pcnt_n=eobj_obj_group_count(path); }
+    return g_pcnt_n; }
 /* Import an OBJ preserving its o/g groups: ONE editable object per group, exact geometry (no
  * decimation), recentred about the whole model — so a multi-part model stays riggable. */
 static int eobj_import_obj_groups(const char*path){
@@ -1649,6 +1653,14 @@ static void eobj_from_import(void){
     snprintf(g_escene_src,sizeof g_escene_src,"%s",g_mesh_path);
     snprintf(g_status,sizeof g_status,"editing %s — %d verts, %d faces (lower 'tris' budget for simpler topology)",nm,o->nv,o->nf); }
 
+/* Is `path` the file the LIVE editor scene represents? (its import source, or the
+ * current model's assets/<name>.obj export.) Used by the tree routing: only then is
+ * "show the live model instead of the disk file" the right call. */
+static int escene_owns(const char*path){ if(!g_nobj||!path||!path[0])return 0;
+    if(g_escene_src[0]&&!strcmp(path,g_escene_src))return 1;
+    if(g_sel>=0){ char op[700]; snprintf(op,sizeof op,"%.500s/assets/%.36s.obj",g_games[g_sel].dir,g_model_name);
+        if(!strcmp(path,op))return 1; }
+    return 0; }
 static void mmesh_pathfor(char*out,int n){ snprintf(out,n,"%.500s/%.36s.mmesh",g_sel>=0?g_games[g_sel].dir:".",g_model_name); }
 static void mmesh_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"open a project first"); return; }
     mmesh_pathfor(g_mmesh_path,sizeof g_mmesh_path); FILE*f=fopen(g_mmesh_path,"w");
@@ -3169,13 +3181,13 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     if(g_edit_mode){ draw_mesh_edit(R,ox,oy,w,h); return; }
     int mx,my; SDL_GetMouseState(&mx,&my);
     int cardx=ox+w-MESH_CARDW, vw=cardx-ox-8; g_me_view=(SDL_Rect){ox,oy,vw,h};
-    if(g_nobj>0){   /* an editable model exists — preview the LIVE model (game-accurate cull), not the stale import */
+    if(g_nobj>0&&!(g_nraw>0&&g_mesh_path[0]&&!escene_owns(g_mesh_path))){   /* an editable model exists — preview the LIVE model (game-accurate cull), not the stale import. A freshly previewed DIFFERENT file falls through to the importer view instead. */
         if(g_mesh_autorot&&!g_mdrag) g_myaw+=0.008f;
         draw_eobj_solid(R,g_me_view);
         text(R,g_mesh_autorot?"live model — auto-spin (drag to orbit, as in-game)":"live model — drag to orbit",ox+12,oy+h-20,1,C_DIM,(Col){16,18,26});
         int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"MODEL"); int lx=cardx+12,px;
         ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+4;
-        if(g_nobj>0&&g_mesh_path[0]&&eobj_obj_group_count(g_mesh_path)>1){
+        if(g_nobj>0&&g_mesh_path[0]&&eobj_part_count_cached(g_mesh_path)>1){
             ui_btn_t(R,lx,cy,MESH_CARDW-24,"Re-import parts",IC_UNDO,(Col){205,185,150},&g_me_reimport,mx,my,"Replace the edited scene with a fresh import - one object per part/material");
             cy+=UI_H+4; } else g_me_reimport=(SDL_Rect){0,0,0,0}; cy+=4;
         { Col vc={170,200,200}; px=ui_pill_t(R,lx,cy,"View","Spin",g_mesh_autorot,&g_me_vrot,mx,my,"Toggle the auto-rotate preview");
@@ -3257,7 +3269,7 @@ static void draw_mesh(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w
     ui_pill_t(R,px,cy,NULL,"center",g_mesh_recenter,&g_me_rc,mx,my,"Recentre the model on the origin at import"); cy+=UI_H+8;
     ui_pill_t(R,lx,cy,NULL,"chunks",g_mesh_chunkview,&g_me_cv,mx,my,"Colour-code the auto-split render chunks"); cy+=UI_H+10;
     ui_btn_t(R,lx,cy,MESH_CARDW-24,"Edit this mesh",IC_BOX,(Col){170,200,140},&g_me_editbtn,mx,my,"Open the model editor (verts/faces/paint/booleans)"); cy+=UI_H+4;
-    if(g_nobj>0&&g_mesh_path[0]&&eobj_obj_group_count(g_mesh_path)>1){
+    if(g_nobj>0&&g_mesh_path[0]&&eobj_part_count_cached(g_mesh_path)>1){
         ui_btn_t(R,lx,cy,MESH_CARDW-24,"Re-import parts",IC_UNDO,(Col){205,185,150},&g_me_reimport,mx,my,"Replace the edited scene with a fresh import - one object per part/material");
         cy+=UI_H+4; } else g_me_reimport=(SDL_Rect){0,0,0,0}; cy+=8;
 
@@ -5950,7 +5962,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         if(base[0])snprintf(g_model_name,sizeof g_model_name,"%.36s",base);   /* the rig's model name drives the atlas/exports (tank.rig -> tank_tex.png) */
         char obj[440]; if(ci_ends(nm,".rig")){ size_t pl=strlen(r->path); snprintf(obj,sizeof obj,"%.*s.obj",(int)(pl-4),r->path); }
         else if(g_sel>=0) snprintf(obj,sizeof obj,"%.250s/assets/%.60s.obj",g_games[g_sel].dir,base); else obj[0]=0;
-        struct stat st; if(g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* a live model is loaded -> rig THAT, not a (possibly stale) disk copy */
+        struct stat st; if(escene_owns(obj)){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* the live model's own rig -> rig the live state, not a (possibly stale) disk copy */
         else if(obj[0]&&stat(obj,&st)==0){ rig_load(obj); g_tab=TAB_RIG; }
         else snprintf(g_status,sizeof g_status,"no .obj found for rig %s",base); return; }
     if(ci_ends(nm,".mmesh")){ char mb[40]; snprintf(mb,sizeof mb,"%.36s",nm); char*d=strrchr(mb,'.'); if(d)*d=0; if(mb[0])snprintf(g_model_name,sizeof g_model_name,"%s",mb);
@@ -5960,7 +5972,7 @@ static void tree_select(int i){ if(i<0||i>=g_ntree)return; g_tsel=i; TRow*r=&g_t
         else { g_icon_edit=0; load_png(r->path); g_tab=TAB_PIXEL; } }
     else if(r->kind==4){ size_t pl=strlen(r->path); int isobj=pl>4&&!strcasecmp(r->path+pl-4,".obj"); struct stat rst; char rg[330];
         if(isobj){ snprintf(rg,sizeof rg,"%.*s.rig",(int)(pl-4),r->path); }
-        if(isobj&&g_nobj>0){ rig_build_from_eobj(); g_tab=TAB_RIG; }          /* live model loaded -> rig THAT */
+        if(isobj&&escene_owns(r->path)){ rig_build_from_eobj(); g_tab=TAB_RIG; }   /* clicked the LIVE model's own obj -> rig the live state, not a stale disk copy */
         else if(isobj&&stat(rg,&rst)==0){ rig_load(r->path); g_tab=TAB_RIG; }   /* multi-object OBJ with a rig -> Rig tab */
         else { load_mesh(r->path); g_edit_mode=0; g_tab=TAB_MESH; } }   /* show the importer preview (not the model editor) */
     else if(ci_ends(r->name,".sfx")||ci_ends(r->name,".sfx.h")){ load_sfx_file(r->path); g_tab=TAB_AUDIO; }  /* SFX recipe -> Audio tab */
@@ -6104,6 +6116,8 @@ int main(int argc,char**argv){
         if(getenv("MOTE_STUDIO_RIGBAKE"))rig_anim_bake(); }
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_edit_mode=0; g_tab=TAB_MESH;
         if(getenv("MOTE_STUDIO_MESHTOEDIT")){ if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); } eobj_from_import(); if(getenv("MOTE_STUDIO_MESHBAKE2"))eobj_bake(); }
+        if(getenv("MOTE_STUDIO_OPEN")){ const char*want=getenv("MOTE_STUDIO_OPEN");   /* capture/test: click a file in the Explorer by name (real tree routing) - runs AFTER the scene hooks */
+            for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,want)){ tree_select(i); break; } }
         if(getenv("MOTE_STUDIO_MESHBUDGET")){ g_mesh_budget=atoi(getenv("MOTE_STUDIO_MESHBUDGET")); g_mesh_dirty=1; mesh_reprocess(); }
         if(getenv("MOTE_STUDIO_MESHCHUNKS")) g_mesh_chunkview=1;
         if(getenv("MOTE_STUDIO_MESHBAKE")){ mesh_bake(); printf("studio: %s\n",g_status); } }
