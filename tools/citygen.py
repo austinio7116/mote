@@ -152,14 +152,17 @@ def carve_rivers(m, rng):
             disc(m, cx+rng.integers(-4,5), cy+rng.integers(-4,5), rng.uniform(2,4.5), GRASS)
 
 def grass_banks(m, rng):
+    """CLUMPED bank grass — the original pours pavement right to the water and
+    greens only stretches of shore; a noise gate picks which stretches."""
     wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
     from scipy import ndimage
     d = ndimage.distance_transform_edt(~wm)
+    clump = fbm(W, H, rng, oct=3, base=7)
     for y in range(H):
         for x in range(W):
             if wm[y][x] or m[y][x] != PAVE: continue
-            if d[y][x] < 2.5 and rng.random()<0.95: m[y][x]=GRASS
-            elif d[y][x] < 4 and rng.random()<0.5: m[y][x]=GRASS
+            if d[y][x] < 2.5 and clump[y][x] > 0.52 and rng.random()<0.9: m[y][x]=GRASS
+            elif d[y][x] < 4 and clump[y][x] > 0.62 and rng.random()<0.55: m[y][x]=GRASS
 
 def esplanades(m, rng):
     """roads that trace the riverbanks — the original's grid meets the water
@@ -258,27 +261,81 @@ def local_streets(m, rng):
 
 # ---------------------------------------------------------------- blocks ---
 def fill_blocks(m, rng):
-    """the hand map fills blocks nearly SOLID with buildings, the type dithered
-    in diagonal stripes between a district's two dominant kinds, threaded with
-    pavement holes; suburbs thin out, downtown packs tight."""
+    """blocks packed with many SMALL individual buildings (1-4 x 1-3), abutting
+    each other with pavement seams where the packing misses; each building is a
+    single type, district noise setting the local red/grey/blue mix."""
     kind  = fbm(W, H, rng, oct=3, base=5)
     dense = fbm(W, H, rng, oct=3, base=4)
-    holes = fbm(W, H, rng, oct=4, base=10)
     rm = np.array([[m[y][x] in (ROAD,BRIDGE) for x in range(W)] for y in range(H)])
     from scipy import ndimage
     droad = ndimage.distance_transform_edt(~rm)
-    for y in range(H):
-        for x in range(W):
-            if m[y][x] != PAVE or droad[y][x] < 2: continue
-            d = dense[y][x]
-            hole = 0.30 - 0.22*d                              # downtown ~8% holes, suburbs ~30%
-            if holes[y][x] < hole or rng.random() < 0.06: continue
-            k = kind[y][x]
-            if   k > 0.58: pri,sec = BHI,BMID
-            elif k > 0.40: pri,sec = BMID,(BHI if k>0.5 else BLO)
-            else:          pri,sec = BLO,BMID
-            stripe = ((x + y) >> 1) % 3                       # diagonal dither, like the original
-            m[y][x] = pri if stripe else sec
+    anchors = [(x,y) for y in range(H) for x in range(W)]
+    rng.shuffle(anchors)
+    for x,y in anchors:
+        if m[y][x] != PAVE or droad[y][x] < 2: continue
+        d = dense[y][x]
+        if rng.random() > 0.60 + 0.35*d: continue
+        bw,bh = int(rng.integers(1,5)), int(rng.integers(1,4))
+        cand=[(x+i,y+j) for i in range(bw) for j in range(bh)]
+        ok=True
+        for cx,cy in cand:
+            if not (0<=cx<W and 0<=cy<H) or m[cy][cx]!=PAVE or droad[cy][cx]<2:
+                ok=False; break
+        if not ok: continue
+        k = kind[y][x] + rng.uniform(-0.18,0.18)
+        ch = BHI if k>0.60 else BMID if k>0.42 else BLO
+        for cx,cy in cand: m[cy][cx]=ch
+    # infill: the little 1-2 tile buildings that crowd the leftover gaps
+    for x,y in anchors:
+        if m[y][x] != PAVE or droad[y][x] < 2: continue
+        d = dense[y][x]
+        if rng.random() > 0.45 + 0.40*d: continue
+        k = kind[y][x] + rng.uniform(-0.22,0.22)
+        ch = BHI if k>0.60 else BMID if k>0.42 else BLO
+        m[y][x]=ch
+        if rng.random()<0.5:
+            nx,ny = x+int(rng.integers(0,2)), y+int(rng.integers(0,2))
+            if 0<=nx<W and 0<=ny<H and m[ny][nx]==PAVE and droad[ny][nx]>=2: m[ny][nx]=ch
+
+def micro_details(m, rng):
+    """the hand map's small-scale life: 1-wide grass VERGES along streets,
+    little GARDEN squares inside blocks, and tiny POOLS in the suburbs."""
+    rm = np.array([[m[y][x] in (ROAD,BRIDGE) for x in range(W)] for y in range(H)])
+    from scipy import ndimage
+    droad = ndimage.distance_transform_edt(~rm)
+    dense = fbm(W, H, rng, oct=3, base=4)
+    # verges: short grass strips hugging a street edge
+    placed=0
+    for _ in range(1600):
+        if placed >= int(rng.integers(55, 90)): break
+        x,y = int(rng.integers(2,W-2)), int(rng.integers(2,H-2))
+        if m[y][x]!=PAVE or not (1.0 <= droad[y][x] < 2.0): continue
+        horiz = rm[y-1][x] or rm[y+1][x]
+        ln = int(rng.integers(2,7))
+        for i in range(ln):
+            xx,yy = (x+i,y) if horiz else (x,y+i)
+            if 0<=xx<W and 0<=yy<H and m[yy][xx]==PAVE and droad[yy][xx]>=1.0:
+                m[yy][xx]=GRASS
+        placed+=1
+    # gardens: 2x2..3x3 grass squares in the block interior
+    for _ in range(int(rng.integers(18, 32))):
+        for _try in range(30):
+            x,y = int(rng.integers(2,W-5)), int(rng.integers(2,H-5))
+            gw,gh = int(rng.integers(2,4)), int(rng.integers(2,4))
+            cand=[(x+i,y+j) for i in range(gw) for j in range(gh)]
+            if all(m[cy][cx]==PAVE and droad[cy][cx]>=1.5 for cx,cy in cand):
+                for cx,cy in cand: m[cy][cx]=GRASS
+                break
+    # pools: 1x1..2x2 water dots, never adjacent to a road (keeps the dock off them)
+    for _ in range(int(rng.integers(10, 20))):
+        for _try in range(40):
+            x,y = int(rng.integers(3,W-4)), int(rng.integers(3,H-4))
+            if dense[y][x] > 0.5: continue                       # pools live in the suburbs
+            pw,ph = int(rng.integers(1,3)), int(rng.integers(1,3))
+            cand=[(x+i,y+j) for i in range(pw) for j in range(ph)]
+            if all(m[cy][cx]==PAVE and droad[cy][cx]>=2.5 for cx,cy in cand):
+                for cx,cy in cand: m[cy][cx]=WATER
+                break
 
 def parks(m, rng):
     cx,cy = W//2+int(rng.integers(-40,41)), H//2+int(rng.integers(-40,41))
@@ -354,6 +411,7 @@ def generate(seed):
     local_streets(m, rng)
     parks(m, rng)
     fill_blocks(m, rng)
+    micro_details(m, rng)
     connect_roads(m, rng)
     return m
 
