@@ -191,6 +191,7 @@ static int   g_showmap, g_pmoving;
 static float g_time;
 static float g_dmgdir, g_dmgt;    /* damage direction indicator */
 static uint8_t g_seen[MAXH][MAXW];
+static int8_t  g_pgrid[MAXH][MAXW];  /* prop index+1 per cell (0 = none): sight + bullet occlusion */
 static float gun_cd, muzzle, walk_t, hurt, msg_t;
 static int   cur_w;                       /* index into WPN[] */
 static int   state;                       /* 0 play · 1 win · 2 dead */
@@ -207,7 +208,7 @@ static const struct { int dmg; float cd; int autofire; int pellets; int pool; in
                       const char *nm; } WPN[9] = {
     { 45, 0.45f,  0, 1, -1, -1, "KNIFE" },   /* always carried */
     { 34, 0.30f,  0, 1,  0, -1, "PIST"  },
-    { 12, 0.10f,  1, 1,  0, -1, "SMG"   },
+    { 20, 0.12f,  1, 1,  0, -1, "SMG"   },
     { 23, 0.85f,  0, 5,  0, -1, "SHOT"  },
     { 23, 1.30f,  0, 8,  0, -1, "DBL"   },   /* both barrels */
     { 20, 0.085f, 1, 1,  0, -1, "CHAIN" },
@@ -280,11 +281,17 @@ static int can_stand(float x, float z) {
     return !is_blocked((int)(x-r),(int)(z-r)) && !is_blocked((int)(x+r),(int)(z-r))
         && !is_blocked((int)(x-r),(int)(z+r)) && !is_blocked((int)(x+r),(int)(z+r));
 }
+static int prop_tall(int type){
+    return type==SC_PILLAR||type==SC_PILLAR2||type==SC_CRATES||type==SC_KNIGHT;
+}
 static int los(float x0, float z0, float x1, float z1) {
     float dx=x1-x0, dz=z1-z0; float d=sqrtf(dx*dx+dz*dz); int n=(int)(d/0.2f)+1;
     for (int i = 1; i < n; i++) {
         float t=(float)i/n;
-        if (is_blocked((int)(x0+dx*t),(int)(z0+dz*t))) return 0;
+        int cx=(int)(x0+dx*t), cz=(int)(z0+dz*t);
+        if (is_blocked(cx,cz)) return 0;
+        int pi=g_pgrid[cz][cx];                     /* TALL props block sight too */
+        if (pi && prop_tall(g_sc[pi-1].type)) return 0;
     }
     return 1;
 }
@@ -731,6 +738,12 @@ static void load_level(int idx) {
     { int haskeypk=0; for (int i=0;i<g_npk;i++) if (g_pk[i].type==PK_KEY) haskeypk=1;
       if (!haskeypk && idx!=NUM_FLOORS-1) has_key=1; }    /* no key placed → unlocked */
     memset(g_seen, 0, sizeof g_seen);
+    memset(g_pgrid, 0, sizeof g_pgrid);
+    for (int i=0;i<g_nsc;i++){
+        int t2=g_sc[i].type;
+        if (t2==SC_BARREL||t2==SC_WBARREL||t2==SC_PLANT||t2==SC_SKULL||prop_tall(t2))
+            g_pgrid[(int)g_sc[i].z][(int)g_sc[i].x] = (int8_t)(i+1);
+    }
     /* deeper floors change their stonework: brick -> moss -> ruin -> machine */
     {   static const Mesh *const THEME[4][3] = {
             { &wall_brick, &wall_stone, &wall_doorw },   /* floors 1-2: barracks   */
@@ -771,6 +784,9 @@ static void start_game(void) {
     level = 0; health = 100; score = 0;
     memset(owned, 0, sizeof owned); owned[0]=1; owned[1]=1;   /* knife always, pistol start */
     memset(g_am, 0, sizeof g_am); g_am[0] = 24; cur_w = 1;
+    /* TEMP (user testing): full arsenal + deep ammo — REVERT before release */
+    for (int k=0;k<9;k++) owned[k]=1;
+    g_am[0]=400; g_am[1]=200; g_am[2]=100; g_am[3]=400;
 #ifdef MOTE_HOST
     { const char *fl = getenv("MOTE_WOLF_FLOOR"); if (fl) level = atoi(fl)-1; if (level<0) level=0; if (level>=NUM_FLOORS) level=NUM_FLOORS-1; }
     { const char *sd = getenv("MOTE_WOLF_SEED");  if (sd) g_seed = (uint32_t)strtoul(sd,0,10)*2654435761u + 1u; }
@@ -806,8 +822,13 @@ static void g_init(void) {
 static void kill_scenery(int i){
     Scenery *sc=&g_sc[i];
     int bx=(int)sc->x, bz=(int)sc->z;
-    if (bx>=0&&bz>=0&&bx<MW&&bz<MH) g_block[bz][bx]=0;   /* clears the way */
+    if (bx>=0&&bz>=0&&bx<MW&&bz<MH){ g_block[bz][bx]=0; g_pgrid[bz][bx]=0; }
     g_sc[i]=g_sc[--g_nsc];
+    if (i < g_nsc){                                      /* swapped one in: re-point its cell */
+        int sx2=(int)g_sc[i].x, sz2=(int)g_sc[i].z;
+        if (sx2>=0&&sz2>=0&&sx2<MW&&sz2<MH && g_pgrid[sz2][sx2]==(int8_t)(g_nsc+1))
+            g_pgrid[sz2][sx2]=(int8_t)(i+1);
+    }
 }
 static void explode_barrel(int idx){
     float bx=g_sc[idx].x, bz=g_sc[idx].z;
@@ -867,6 +888,9 @@ static void tick_projectiles(float dt) {
         float step = SPD[b->kind]*dt;
         b->x += b->dx*step; b->z += b->dz*step;
         int hit = b->life<=0 || is_blocked((int)b->x,(int)b->z);
+        if (!hit){ int pi=g_pgrid[(int)b->z][(int)b->x];
+            if (pi){ float dx=g_sc[pi-1].x-b->x, dz=g_sc[pi-1].z-b->z;
+                     if (dx*dx+dz*dz<0.34f*0.34f) hit=1; } }
         for (int e2=0;e2<g_nen && !hit;e2++){ Enemy*en=&g_en[e2];
             if (!en->alive) continue;
             float dx=en->x-b->x, dz=en->z-b->z;
@@ -930,7 +954,29 @@ static void fire_weapon(void) {
             if (d < best_d) { best_d = d; best = i; }
         }
         float gx = px + fx*0.35f, gz = pz + fz*0.35f;      /* your muzzle */
-        if (best >= 0) {
+        /* march the ray: whatever comes FIRST stops the bullet — a prop (via the
+         * grid + its circle), a wall/closed door (is_blocked), or the enemy */
+        float lim = best>=0 ? best_d : 14.0f;
+        float wx2=px, wz2=pz, trav=0; int prop=-1, wall=0;
+        while (trav < lim && prop<0 && !wall){
+            float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
+            int cx2=(int)nx2, cz2=(int)nz2;
+            int pi = (cx2>=0&&cz2>=0&&cx2<MW&&cz2<MH) ? g_pgrid[cz2][cx2] : 0;
+            if (pi){
+                float dx=g_sc[pi-1].x-nx2, dz=g_sc[pi-1].z-nz2;
+                if (dx*dx+dz*dz<0.34f*0.34f) prop=pi-1;
+            }
+            if (prop<0 && is_blocked(cx2,cz2)) wall=1;
+            if (!wall){ wx2=nx2; wz2=nz2; trav+=0.25f; }
+        }
+        if (prop>=0){                                      /* bullet stops IN the prop */
+            add_tracer(gx, 0.42f, gz, g_sc[prop].x, 0.35f, g_sc[prop].z, MOTE_RGB565(255,240,170));
+            int ty=g_sc[prop].type;
+            if (ty==SC_BARREL) explode_barrel(prop);
+            else if (ty==SC_WBARREL||ty==SC_PLANT||ty==SC_SKULL)
+                { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&hit_sfx,0.4f); }
+            else add_boom(wx2, wz2, 0);                    /* pillar/statue: just a spark */
+        } else if (best >= 0 && !wall) {
             Enemy *e = &g_en[best];
             add_tracer(gx, 0.42f, gz, e->x, 0.45f, e->z, MOTE_RGB565(255,240,170));
             e->hp -= WPN[cur_w].dmg; e->hitflash = 0.18f;
@@ -938,25 +984,8 @@ static void fire_weapon(void) {
             if (e->hp <= 0) kill_enemy(e);
             else if (pel==0) play(&hit_sfx, 0.5f);
         } else {
-            float wx2=px, wz2=pz; int prop=-1;             /* march downrange */
-            for (int st=0; st<56 && prop<0; st++){
-                float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
-                for (int s2=0;s2<g_nsc;s2++){              /* prop in the shot's path? */
-                    int ty=g_sc[s2].type;
-                    if (ty!=SC_BARREL&&ty!=SC_WBARREL&&ty!=SC_PLANT&&ty!=SC_SKULL) continue;
-                    float dx=g_sc[s2].x-nx2, dz=g_sc[s2].z-nz2;
-                    if (dx*dx+dz*dz<0.25f){ prop=s2; break; } }
-                if (prop<0 && g_block[(int)nz2][(int)nx2]) break;   /* a wall: stop here */
-                wx2=nx2; wz2=nz2;
-            }
-            if (prop>=0){
-                add_tracer(gx, 0.42f, gz, g_sc[prop].x, 0.35f, g_sc[prop].z, MOTE_RGB565(255,240,170));
-                if (g_sc[prop].type==SC_BARREL) explode_barrel(prop);
-                else { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&hit_sfx,0.4f); }
-            } else {
-                add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
-                add_boom(wx2, wz2, 0);                     /* spark where it lands */
-            }
+            add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
+            add_boom(wx2, wz2, 0);                         /* spark where it lands */
         }
     }
 }
@@ -1342,7 +1371,7 @@ static void g_overlay(uint16_t *fb) {
         float bx = sinf(walk_t)*3.0f, by = fabsf(sinf(walk_t))*2.5f;
         /* muzzle flash FIRST, so the gun draws over it (flash peeks from behind) */
         if (muzzle > 0)
-            mote->blit_ex(fb, &flash_img, 64+bx, 78+by, 0,0,0,0, walk_t, 1.5f, MOTE_BLEND_ADD, 0, 128);
+            mote->blit_ex(fb, &flash_img, 64+bx, 88+by, 0,0,0,0, walk_t, 0.65f, MOTE_BLEND_ADD, 0, 128);
         mote->blit_ex(fb, &weapons_img, 64+bx, 106+by, cur_w*72,0,72,56, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
     }
 
