@@ -172,13 +172,21 @@ const imgs=[1,2,3].map(()=>{const im=document.createElement('img');screen.insert
 function nshots(){ return cur && cur.n ? cur.n : 3; }
 function show(n){
   shot=n;
-  imgs.forEach((im,i)=>im.classList.toggle('on',i===n));
+  imgs.forEach((im,i)=>im.classList.toggle('on', i===n && im.complete && im.src));
   [...dots.children].forEach((d,i)=>d.classList.toggle('on',i===n));
 }
 function select(g,scroll){
   cur=g;
   const n=nshots();
-  imgs.forEach((im,i)=>{ if(i<n){ im.src=`img/gallery/${g.id}-${i+1}.png`; } else { im.removeAttribute('src'); } });
+  imgs.forEach(im=>im.classList.remove('on'));      /* blank the LCD while the new game loads */
+  imgs.forEach((im,i)=>{
+    if(i<n){
+      const src=`img/gallery/${g.id}-${i+1}.png`;
+      im.onload=()=>{ if(cur===g && i===shot) im.classList.add('on'); };
+      im.src=src;
+      if(im.complete && i===0) im.classList.add('on');   /* cached: show instantly */
+    } else { im.onload=null; im.removeAttribute('src'); }
+  });
   dots.innerHTML = n>1 ? '<i></i>'.repeat(n) : '';
   [...dots.children].forEach((d,i)=>d.onclick=()=>{show(i);restart();});
   document.getElementById('m-icon').src=`img/gallery/${g.id}-icon.png`;
@@ -201,6 +209,13 @@ GAMES.forEach(g=>{
   grid.appendChild(c);
 });
 select(GAMES[0],false);
+window.addEventListener('load',()=>{                 /* warm the cache: all shots, gently */
+  const q=[];
+  GAMES.forEach(g=>{ const n=g.n||3; for(let i=1;i<=n;i++) q.push(`img/gallery/${g.id}-${i}.png`); });
+  let k=0;
+  (function next(){ if(k>=q.length) return;
+    const im=new Image(); im.onload=im.onerror=()=>setTimeout(next,60); im.src=q[k++]; })();
+});
 </script>
 </body>
 </html>
