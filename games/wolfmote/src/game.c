@@ -285,56 +285,66 @@ static int gflood(int fx,int fz){        /* 4-connected count of reachable cells
     }
     return n;
 }
-static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
 
-static void glink(const Room*a, const Room*b){        /* L connector, always hall-wide —
-                                                         1-cell corridors read badly in 3D */
-    int x=a->x+a->w/2, z=a->z+a->h/2;
-    int x1=b->x+b->w/2, z1=b->z+b->h/2;
-    while (x!=x1){ gcarve(x,z); gcarve(x,z+1); x += x1>x?1:-1; }
-    while (z!=z1){ gcarve(x,z); gcarve(x+1,z); z += z1>z?1:-1; }
+static int gpunch(const Room*a, const Room*b){         /* punch ONE doorway through the
+                                                          shared wall of two abutting rooms */
+    if (b->x==a->x+a->w+1 || a->x==b->x+b->w+1) {         /* vertical shared wall */
+        int wx = (b->x>a->x) ? a->x+a->w : b->x+b->w;
+        int z0 = a->z>b->z ? a->z : b->z;
+        int z1 = (a->z+a->h<b->z+b->h ? a->z+a->h : b->z+b->h);
+        if (z1-z0 < 3) return 0;
+        int dz2 = z0+1 + grndi(z1-z0-2);
+        g_gen[dz2][wx] = grnd()<0.6f ? 'D' : '.';
+        return 1;
+    }
+    if (b->z==a->z+a->h+1 || a->z==b->z+b->h+1) {         /* horizontal shared wall */
+        int wz = (b->z>a->z) ? a->z+a->h : b->z+b->h;
+        int x0 = a->x>b->x ? a->x : b->x;
+        int x1 = (a->x+a->w<b->x+b->w ? a->x+a->w : b->x+b->w);
+        if (x1-x0 < 3) return 0;
+        int dx2 = x0+1 + grndi(x1-x0-2);
+        g_gen[wz][dx2] = grnd()<0.6f ? 'D' : '.';
+        return 1;
+    }
+    return 0;
 }
 
 static void gen_level(int idx){
     Room rooms[12]; int nr=0;
     for (int z=0;z<GENH;z++){ for(int x=0;x<GENW;x++) g_gen[z][x]='#'; g_gen[z][GENW]=0; }
-    for (int t=0;t<160 && nr<11;t++){                     /* rooms, 1-cell margin apart */
-        int rw=4+grndi(5), rh=3+grndi(4);                 /* size first, then place anywhere */
-        Room r={ 1+grndi(GENW-2-rw), 1+grndi(GENH-2-rh), rw, rh };
-        int bad=0;
-        for (int i=0;i<nr;i++){ Room*o=&rooms[i];
-            if (r.x<o->x+o->w+1 && o->x<r.x+r.w+1 && r.z<o->z+o->h+1 && o->z<r.z+r.h+1){ bad=1; break; } }
-        if (bad) continue;
-        rooms[nr++]=r;
-        for (int z=r.z;z<r.z+r.h;z++) for (int x=r.x;x<r.x+r.w;x++) g_gen[z][x]='.';
+    {   /* ACCRETION: seed one room, then grow — each new room abuts an existing
+         * one across a single shared wall, entered through a punched doorway.
+         * Rooms pack tight; there are NO corridors. */
+        Room r0={ GENW/2-4+grndi(4), GENH/2-3+grndi(4), 4+grndi(5), 3+grndi(4) };
+        rooms[nr++]=r0;
+        for (int z=r0.z;z<r0.z+r0.h;z++) for (int x=r0.x;x<r0.x+r0.w;x++) g_gen[z][x]='.';
+        for (int t=0;t<400 && nr<11;t++){
+            int rw=4+grndi(5), rh=3+grndi(4);
+            const Room *h=&rooms[grndi(nr)];
+            int side=grndi(4); Room r={0,0,rw,rh};
+            if (side==0){ r.x=h->x+h->w+1; r.z=h->z-rh+3+grndi(h->h+rh-5); }
+            else if (side==1){ r.x=h->x-rw-1; r.z=h->z-rh+3+grndi(h->h+rh-5); }
+            else if (side==2){ r.z=h->z+h->h+1; r.x=h->x-rw+3+grndi(h->w+rw-5); }
+            else             { r.z=h->z-rh-1;  r.x=h->x-rw+3+grndi(h->w+rw-5); }
+            if (r.x<1||r.z<1||r.x+r.w>=GENW-1||r.z+r.h>=GENH-1) continue;
+            int bad=0;
+            for (int i=0;i<nr;i++){ Room*o=&rooms[i];
+                if (r.x<o->x+o->w+1 && o->x<r.x+r.w+1 && r.z<o->z+o->h+1 && o->z<r.z+r.h+1){ bad=1; break; } }
+            if (bad) continue;
+            rooms[nr]=r;
+            for (int z=r.z;z<r.z+r.h;z++) for (int x=r.x;x<r.x+r.w;x++) g_gen[z][x]='.';
+            gpunch(h, &rooms[nr]);                        /* the way in */
+            nr++;
+        }
+        for (int i=0;i<nr;i++) for (int j=i+1;j<nr;j++)    /* extra doors between rooms
+                                                              that HAPPEN to abut -> loops */
+            if (grnd()<0.35f) gpunch(&rooms[i], &rooms[j]);
     }
     if (nr<2){                                            /* pathological roll: one big hall */
         rooms[0]=(Room){2,2,GENW-4,GENH-4}; nr=1;
         for (int z=2;z<GENH-2;z++) for (int x=2;x<GENW-2;x++) g_gen[z][x]='.';
     }
-    {   /* connect rooms via a minimum spanning tree — short LOCAL halls, no
-         * map-crossing corridors that smear rooms into one blob */
-        int intree[12]={0}; intree[0]=1;
-        for (int added=1; added<nr; added++){
-            int bi=0,bj=-1; long bd=1L<<30;
-            for (int i2=0;i2<nr;i2++) if (intree[i2])
-                for (int j2=0;j2<nr;j2++) if (!intree[j2]){
-                    long dx=(rooms[i2].x+rooms[i2].w/2)-(rooms[j2].x+rooms[j2].w/2);
-                    long dz=(rooms[i2].z+rooms[i2].h/2)-(rooms[j2].z+rooms[j2].h/2);
-                    long d2=dx*dx+dz*dz;
-                    if (d2<bd){ bd=d2; bi=i2; bj=j2; }
-                }
-            glink(&rooms[bi], &rooms[bj]); intree[bj]=1;
-        }
-        for (int e=0;e<nr/3;e++){                         /* a few NEARBY loops */
-            int a2=grndi(nr), b2=grndi(nr);
-            if (a2==b2) continue;
-            int dx=(rooms[a2].x+rooms[a2].w/2)-(rooms[b2].x+rooms[b2].w/2);
-            int dz=(rooms[a2].z+rooms[a2].h/2)-(rooms[b2].z+rooms[b2].h/2);
-            if (dx*dx+dz*dz > 14*14) continue;            /* keep loops local too */
-            glink(&rooms[a2], &rooms[b2]);
-        }
-    }
+
     { float stonep = idx<3 ? 0.35f : idx<6 ? 0.65f : 0.9f;   /* deeper = grimmer stone */
     for (int i=0;i<nr;i++) if (grnd()<stonep){
         Room*r=&rooms[i];
@@ -343,30 +353,6 @@ static void gen_level(int idx){
             if (g_gen[z][x]=='#') g_gen[z][x]='%';
         }
     } }
-    int doors=0;                       /* DOUBLE doors at corridor MOUTHS only — a door
-                                          pair where a hall meets a room, never a line of
-                                          doors along the corridor itself */
-    for (int z=1;z<GENH-2 && doors<MAX_DR-4;z++) for (int x=1;x<GENW-2;x++){
-        if (g_gen[z][x]!='.') continue;
-        /* N-S hall, 2 wide: pair (x,z)+(x+1,z), walls either side */
-        if (g_gen[z][x+1]=='.'
-            && !gopen(x-1,z)&&!gopen(x+2,z)
-            && gopen(x,z-1)&&gopen(x+1,z-1)&&gopen(x,z+1)&&gopen(x+1,z+1)
-            && g_gen[z-1][x]!='D'&&g_gen[z+1][x]!='D'&&g_gen[z-1][x+1]!='D'&&g_gen[z+1][x+1]!='D'){
-            int roomN = gopen(x-1,z-1)||gopen(x+2,z-1);   /* wider above = a room mouth */
-            int roomS = gopen(x-1,z+1)||gopen(x+2,z+1);
-            if (roomN!=roomS && grnd()<0.6f){ g_gen[z][x]='D'; g_gen[z][x+1]='D'; doors+=2; }
-        }
-        /* E-W hall, 2 tall: pair (x,z)+(x,z+1) */
-        else if (g_gen[z+1][x]=='.'
-            && !gopen(x,z-1)&&!gopen(x,z+2)
-            && gopen(x-1,z)&&gopen(x-1,z+1)&&gopen(x+1,z)&&gopen(x+1,z+1)
-            && g_gen[z][x-1]!='D'&&g_gen[z][x+1]!='D'&&g_gen[z+1][x-1]!='D'&&g_gen[z+1][x+1]!='D'){
-            int roomW = gopen(x-1,z-1)||gopen(x-1,z+2);
-            int roomE = gopen(x+1,z-1)||gopen(x+1,z+2);
-            if (roomW!=roomE && grnd()<0.6f){ g_gen[z][x]='D'; g_gen[z+1][x]='D'; doors+=2; }
-        }
-    }
     int sx=rooms[0].x+rooms[0].w/2, sz=rooms[0].z+rooms[0].h/2;
     g_gen[sz][sx]='P';
     int far=nr>1?1:0, fd=-1;                              /* exit door in the FARTHEST room's wall */
