@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wolfmote expansion assets (EDITABLE SOURCES; `mote bake` -> src/*.h).
   key.png       gold key pickup            treasure.png  cross/chalice/crown (3 cells)
-  blood.png     corpse pool decal          gun_shotgun.png double-barrel HUD gun
+  blood.png     corpse pool decal
 (enemy sheets + weapons + props are EXTRACTED from supplied art — see
 extract_enemies.py / extract_guns.py / extract_props.py)"""
 import numpy as np, colorsys

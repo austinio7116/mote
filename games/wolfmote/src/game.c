@@ -35,8 +35,12 @@
 #include "boom.sfx.h"
 #include "guard.h"
 #include "brute.h"
-#include "weapons.h"       /* weapons_img — pistol/shotgun/chaingun HUD, 72x56 cells */
-#include "wpickup.h"       /* wpickup_img — per-weapon pickup icons, 20x20 cells */
+#include "weapons.h"       /* weapons_img — 9 FP cells: knife pist smg shot dbl chain fire cann plas */
+#include "wpickup.h"       /* wpickup_img — 9 pickup icons, same order, 32x16 */
+#include "ammo3.h"         /* ammo3_img — fuel / cannonballs / energy cell, 20x20 */
+#include "fireball.h"
+#include "plasmab.h"
+#include "cannonb.h"
 #include "flash.h"
 #include "lampglow.h"
 #include "shoot.sfx.h"
@@ -122,7 +126,8 @@ static void build_wall_mesh(void) {
 
 enum { EN_GUARD, EN_BRUTE, EN_RUSH, EN_CMDO, EN_BOSS };
 typedef struct { float x,z; int type, hp, alive; float firecd, fireanim, hitflash; float stag; int alerted; float relot; } Enemy;
-enum { PK_AMMO, PK_HEALTH, PK_WEAPON, PK_KEY, PK_TREAS, PK_AMMO2, PK_HEALTH2, PK_KEY2 };
+enum { PK_AMMO, PK_HEALTH, PK_WEAPON, PK_KEY, PK_TREAS, PK_AMMO2, PK_HEALTH2, PK_KEY2,
+       PK_FUEL, PK_BALLS, PK_CELLS };
 typedef struct { float x,z; int type, taken, variant; } Pickup;
 enum { SC_BARREL, SC_LAMP, SC_PILLAR, SC_PLANT, SC_WBARREL, SC_PILLAR2, SC_CRATES,
        SC_HANGLAMP, SC_TORCH, SC_CANDLE, SC_SKULL, SC_KNIGHT, SC_BANNER };
@@ -162,7 +167,7 @@ static void add_tracer(float ax,float ay,float az,float bx,float by,float bz,uin
 static Corpse  g_co[24]; static int g_nco;
 typedef struct { int ix,iz,dx,dz,steps,active; float t; } PushWall;  /* one secret at a time */
 static PushWall g_pw;
-static int     has_key, has_silver, has_shot;
+static int     has_key, has_silver;
 static float   g_desct;
 static int     g_diff = 1;         /* 0 easy · 1 normal · 2 hard */
 static int     fl_kills, fl_kills_tot, fl_treas, fl_treas_tot, fl_secrets;
@@ -173,13 +178,15 @@ static int     g_exi, g_ezi; /* exit door cell */
 
 /* ============================================================== player ===== */
 static float px, pz, yaw;
-static int   health, ammo, score, has_chain, level;
+static int   health, score, level;
+static uint8_t owned[9];                  /* which weapons you carry */
+static int   g_am[4];                     /* bullets · fuel · cannonballs · cells */
 static int   g_showmap, g_pmoving;
 static float g_time;
 static float g_dmgdir, g_dmgt;    /* damage direction indicator */
 static uint8_t g_seen[MAXH][MAXW];
 static float gun_cd, muzzle, walk_t, hurt, msg_t;
-static int   cur_w;                       /* 0 pistol · 1 chaingun */
+static int   cur_w;                       /* index into WPN[] */
 static int   state;                       /* 0 play · 1 win · 2 dead */
 #define ST_PLAY    0
 #define ST_WIN     1
@@ -188,12 +195,32 @@ static int   state;                       /* 0 play · 1 win · 2 dead */
 #define ST_DESCEND 4
 #define ST_TITLE   5
 
-/* weapon table: dmg, cooldown, auto, pellets */
-static const struct { int dmg; float cd; int autofire; int pellets; } WPN[3] = {
-    { 34, 0.30f,  0, 1 },   /* pistol  */
-    { 13, 0.85f,  0, 5 },   /* shotgun */
-    { 20, 0.085f, 1, 1 },   /* chaingun*/
+/* weapon table — the ORIGINAL trio keeps its slots and art; the new arsenal joins it.
+ * pool: -1 melee, 0 bullets, 1 fuel, 2 cannonballs, 3 cells · proj -1 = hitscan */
+static const struct { int dmg; float cd; int autofire; int pellets; int pool; int proj;
+                      const char *nm; } WPN[9] = {
+    { 45, 0.45f,  0, 1, -1, -1, "KNIFE" },   /* always carried */
+    { 34, 0.30f,  0, 1,  0, -1, "PIST"  },
+    { 12, 0.10f,  1, 1,  0, -1, "SMG"   },
+    { 23, 0.85f,  0, 5,  0, -1, "SHOT"  },
+    { 23, 1.30f,  0, 8,  0, -1, "DBL"   },   /* both barrels */
+    { 20, 0.085f, 1, 1,  0, -1, "CHAIN" },
+    { 50, 0.60f,  0, 1,  1,  0, "FIRE"  },   /* lobs FIREBALLS */
+    {120, 1.15f,  0, 1,  2,  1, "CANN"  },
+    { 28, 0.14f,  1, 1,  3,  2, "PLAS"  },
 };
+static int next_weapon(void){                 /* what the next 'w' pickup grants */
+    static const int O[7]={3,5,2,4,6,7,8};    /* shot chain smg dbl flamer cannon plasma */
+    for (int k=0;k<7;k++) if (!owned[O[k]]) return O[k];
+    return -1;
+}
+/* live projectiles (fireballs / cannonballs / plasma bolts) */
+typedef struct { float x,z,dx,dz,life; int kind, live; } Proj;
+static Proj g_pr[12];
+static void add_proj(float x,float z,float dx,float dz,int kind){
+    for (int i=0;i<12;i++) if (!g_pr[i].live){
+        g_pr[i]=(Proj){x,z,dx,dz, 2.2f, kind, 1}; return; }
+}
 
 /* ---- baked sounds ---- */
 static MoteSound snd_shoot, snd_chain, snd_efire, snd_hit, snd_death, snd_door, snd_pickup, snd_hurt;
@@ -396,11 +423,18 @@ static void gen_level(int idx){
         int bx2=r->x+r->w/2, bz2=r->z+r->h/2;
         if (g_gen[bz2][bx2]!='P') g_gen[bz2][bx2]='Z';
     }
-    int drops = 6 + ((idx>=1 && !has_chain) ? 1 : 0);     /* ammo/health (+ the chaingun once) */
+    int drops = 6 + ((idx>=1 && next_weapon()>=0) ? 1 : 0);  /* ammo/health (+ next weapon) */
     for (int t=0;t<240 && drops>0;t++){
         int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
         if (g_gen[z][x]!='.') continue;
         g_gen[z][x] = (drops==7)?'w' : (drops&1)?(grnd()<0.3f?'A':'a'):(grnd()<0.3f?'H':'h'); drops--;
+    }
+    {   static const char AL[3]={'f','g','e'};            /* fuel / cannonballs / cells */
+        for (int k=0;k<3;k++){
+            if (!owned[6+k]) continue;
+            for (int t=0;t<40;t++){ int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
+                if (g_gen[z][x]=='.'){ g_gen[z][x]=AL[k]; break; } }
+        }
     }
     if (idx!=NUM_FLOORS-1){                               /* the GOLD KEY, hidden mid-dungeon */
         int kroom = nr>2 ? 1+grndi(nr-1) : 0;
@@ -611,6 +645,9 @@ static void load_level(int idx) {
                 case 'y': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PLANT}; break;
                 case 'H': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_HEALTH2,0,0}; break;
                 case 'A': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO2,0,0}; break;
+                case 'f': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_FUEL,0,0}; break;
+                case 'g': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_BALLS,0,0}; break;
+                case 'e': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_CELLS,0,0}; break;
                 default: break;
             }
         }
@@ -663,9 +700,14 @@ static void load_level(int idx) {
         int th = idx/2; if (th>3) th=3;
         g_wallA = THEME[th][0]; g_wallB = THEME[th][1]; g_walldoor = THEME[th][2];
     }
-    cur_w = has_chain ? 2 : has_shot ? 1 : 0;
+    if (cur_w<0 || cur_w>8 || !owned[cur_w]) cur_w = 1;
+    memset(g_pr, 0, sizeof g_pr);                             /* no projectiles carry over */
 #ifdef MOTE_HOST
     if (getenv("MOTE_WOLF_KEY")) has_key=1;
+    if (getenv("MOTE_WOLF_ARSENAL")) {                    /* test hook: everything, loaded */
+        for (int k=0;k<9;k++) owned[k]=1;
+        g_am[0]=200; g_am[1]=50; g_am[2]=50; g_am[3]=200;
+    }
     if (getenv("MOTE_WOLF_DEBUG")){
         { int tc[5]={0,0,0,0,0}; for (int i=0;i<g_nen;i++) tc[g_en[i].type]++;
           fprintf(stderr,"[MAP] P=(%.1f,%.1f) exit=(%d,%d) key=%d en: G%d X%d R%d C%d Z%d\n",
@@ -683,7 +725,9 @@ static void load_level(int idx) {
 
 static void start_game(void) {
     g_seed ^= (uint32_t)mote->micros(); g_seed ^= g_seed<<13;   /* a new dungeon each run */
-    level = 0; health = 100; ammo = 24; score = 0; has_chain = 0; has_shot = 0;
+    level = 0; health = 100; score = 0;
+    memset(owned, 0, sizeof owned); owned[0]=1; owned[1]=1;   /* knife always, pistol start */
+    memset(g_am, 0, sizeof g_am); g_am[0] = 24; cur_w = 1;
 #ifdef MOTE_HOST
     { const char *fl = getenv("MOTE_WOLF_FLOOR"); if (fl) level = atoi(fl)-1; if (level<0) level=0; if (level>=NUM_FLOORS) level=NUM_FLOORS-1; }
     { const char *sd = getenv("MOTE_WOLF_SEED");  if (sd) g_seed = (uint32_t)strtoul(sd,0,10)*2654435761u + 1u; }
@@ -766,14 +810,85 @@ static void kill_enemy(Enemy *e) {
         msg_t = 2.0f;
     }
 }
+static void splash(float x, float z, int dmg, float r) {   /* detonation: hurts all, pops barrels */
+    add_boom(x, z, 1); play(&snd_boom, 0.5f);
+    for (int i=0;i<g_nen;i++){ Enemy*en=&g_en[i];
+        if (!en->alive) continue;
+        float dx=en->x-x, dz=en->z-z;
+        if (dx*dx+dz*dz < r*r){ en->hp -= dmg; en->hitflash=0.2f; en->stag=0.4f;
+            if (en->hp<=0) kill_enemy(en); }
+    }
+    { float dx=px-x, dz=pz-z;
+      if (dx*dx+dz*dz < (r-0.3f)*(r-0.3f)){ health -= 18; hurt=0.22f;
+          g_dmgdir = atan2f(x-px, z-pz); g_dmgt=0.30f;
+          if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
+    for (int i=0;i<g_nsc;i++)
+        if (g_sc[i].type==SC_BARREL){
+            float dx=g_sc[i].x-x, dz=g_sc[i].z-z;
+            if (dx*dx+dz*dz < r*r){ explode_barrel(i); break; }
+        }
+}
+static void tick_projectiles(float dt) {
+    static const float SPD[3] = { 8.5f, 13.0f, 17.0f };  /* fireball / cannonball / plasma */
+    for (int i=0;i<12;i++){
+        Proj *b=&g_pr[i];
+        if (!b->live) continue;
+        b->life -= dt;
+        float step = SPD[b->kind]*dt;
+        b->x += b->dx*step; b->z += b->dz*step;
+        int hit = b->life<=0 || is_blocked((int)b->x,(int)b->z);
+        for (int e2=0;e2<g_nen && !hit;e2++){ Enemy*en=&g_en[e2];
+            if (!en->alive) continue;
+            float dx=en->x-b->x, dz=en->z-b->z;
+            if (dx*dx+dz*dz < 0.45f*0.45f) hit=1;
+        }
+        if (hit){
+            b->live=0;
+            if (b->kind==0)      splash(b->x, b->z, WPN[6].dmg, 1.3f);
+            else if (b->kind==1) splash(b->x, b->z, WPN[7].dmg, 1.8f);
+            else {                                        /* plasma: direct hit only */
+                add_boom(b->x, b->z, 0);
+                for (int e2=0;e2<g_nen;e2++){ Enemy*en=&g_en[e2];
+                    if (!en->alive) continue;
+                    float dx=en->x-b->x, dz=en->z-b->z;
+                    if (dx*dx+dz*dz < 0.6f*0.6f){ en->hp -= WPN[8].dmg; en->hitflash=0.18f;
+                        if (en->hp<=0) kill_enemy(en); else play(&snd_hit,0.4f); break; }
+                }
+            }
+        }
+    }
+}
 static void fire_weapon(void) {
-    if (ammo <= 0 || gun_cd > 0.0f) return;
-    ammo--; gun_cd = WPN[cur_w].cd; muzzle = 0.09f;
-    play(cur_w==2 ? &snd_chain : cur_w==1 ? &snd_shotgun : &snd_shoot, 0.6f);
+    if (gun_cd > 0.0f) return;
+    int pool = WPN[cur_w].pool;
+    if (pool >= 0 && g_am[pool] <= 0) return;
+    if (pool >= 0) g_am[pool]--;
+    gun_cd = WPN[cur_w].cd; muzzle = 0.09f;
+    if (cur_w == 0) {                                    /* the KNIFE: silent reach */
+        float fx=sinf(yaw), fz=cosf(yaw);
+        for (int i = 0; i < g_nen; i++) {
+            Enemy *e = &g_en[i];
+            if (!e->alive) continue;
+            float dx=e->x-px, dz=e->z-pz, d=sqrtf(dx*dx+dz*dz);
+            if (d > 1.3f || (dx*fx+dz*fz)/d < 0.75f) continue;
+            e->hp -= WPN[0].dmg; e->hitflash=0.18f; e->stag=0.35f;
+            if (e->hp <= 0) kill_enemy(e); else play(&snd_hit, 0.5f);
+            return;
+        }
+        play(&snd_step, 0.25f);                          /* a whiff */
+        return;
+    }
+    if (WPN[cur_w].proj >= 0) {                          /* flamer / cannon / plasma */
+        float fx=sinf(yaw), fz=cosf(yaw);
+        add_proj(px+fx*0.5f, pz+fz*0.5f, fx, fz, WPN[cur_w].proj);
+        play(cur_w==6 ? &snd_efire : cur_w==7 ? &snd_shotgun : &snd_chain, 0.6f);
+        return;
+    }
+    play(cur_w==5 ? &snd_chain : (cur_w==3||cur_w==4) ? &snd_shotgun : &snd_shoot, 0.6f);
     for (int pel = 0; pel < WPN[cur_w].pellets; pel++) {
         float jyaw = yaw + (WPN[cur_w].pellets>1 ? (mote_frand()-0.5f)*0.24f : 0.0f);
         float fx = sinf(jyaw), fz = cosf(jyaw);
-        float cone = cur_w==2 ? 0.975f : cur_w==1 ? 0.968f : 0.985f;
+        float cone = cur_w==5 ? 0.975f : (cur_w==3||cur_w==4) ? 0.968f : 0.985f;
         int best = -1; float best_d = 1e9f;
         for (int i = 0; i < g_nen; i++) {
             Enemy *e = &g_en[i];
@@ -789,7 +904,7 @@ static void fire_weapon(void) {
             Enemy *e = &g_en[best];
             add_tracer(gx, 0.42f, gz, e->x, 0.45f, e->z, MOTE_RGB565(255,240,170));
             e->hp -= WPN[cur_w].dmg; e->hitflash = 0.18f;
-            e->stag = (cur_w==1) ? 0.4f : 0.25f;           /* pain STAGGER (shotgun hits harder) */
+            e->stag = (cur_w==3||cur_w==4) ? 0.4f : 0.25f; /* pain STAGGER (shotguns hit harder) */
             if (e->hp <= 0) kill_enemy(e);
             else if (pel==0) play(&snd_hit, 0.5f);
         } else {
@@ -849,7 +964,16 @@ static void g_update(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_B)) { start_game(); state = ST_TITLE; }
     } else {
         if (mote_just_pressed(in, MOTE_BTN_MENU)) g_showmap = !g_showmap;
-        if (g_showmap) return;                             /* map open: hold the world still */
+        if (g_showmap) {                                   /* map open: world holds still;
+                                                              LEFT/RIGHT picks your weapon */
+            int dir = mote_just_pressed(in, MOTE_BTN_RIGHT) ?  1
+                    : mote_just_pressed(in, MOTE_BTN_LEFT)  ? -1 : 0;
+            if (dir) for (int k=1;k<=9;k++){
+                int w2=((cur_w+dir*k)%9+9)%9;
+                if (owned[w2]){ cur_w=w2; play(&snd_pickup,0.3f); break; }
+            }
+            return;
+        }
         /* explore: remember what you walk past */
         { int cx0=(int)px, cz0=(int)pz;
           for (int z2=cz0-3; z2<=cz0+3; z2++) for (int x2=cx0-3; x2<=cx0+3; x2++)
@@ -880,6 +1004,7 @@ static void g_update(float dt) {
         int want_fire = WPN[cur_w].autofire ? mote_pressed(in, MOTE_BTN_A)
                                              : mote_just_pressed(in, MOTE_BTN_A);
         if (want_fire) fire_weapon();
+        tick_projectiles(dt);
         if (gun_cd > 0) gun_cd -= dt;
         if (muzzle > 0) muzzle -= dt;
         if (hurt > 0)   hurt   -= dt;
@@ -947,8 +1072,11 @@ static void g_update(float dt) {
             float ddx=p->x-px, ddz=p->z-pz;
             if (ddx*ddx+ddz*ddz < 0.32f) {
                 p->taken = 1; play(&snd_pickup, 0.6f);
-                if (p->type==PK_AMMO) ammo += 15;
-                else if (p->type==PK_AMMO2) ammo += 35;
+                if (p->type==PK_AMMO) g_am[0] += 15;
+                else if (p->type==PK_AMMO2) g_am[0] += 35;
+                else if (p->type==PK_FUEL)  g_am[1] += 5;
+                else if (p->type==PK_BALLS) g_am[2] += 4;
+                else if (p->type==PK_CELLS) g_am[3] += 30;
                 else if (p->type==PK_HEALTH) { health += 25; if (health>100) health=100; }
                 else if (p->type==PK_HEALTH2){ health += 60; if (health>100) health=100; }
                 else if (p->type==PK_KEY) { has_key=1; msg_t=1.4f;
@@ -960,8 +1088,12 @@ static void g_update(float dt) {
                     score += TSCORE[p->variant]; fl_treas++;
                 }
                 else if (p->type==PK_WEAPON) {
-                    if (!has_shot) { has_shot=1; cur_w=1; ammo += 12; }
-                    else { has_chain=1; cur_w=2; ammo += 40; }
+                    int nw = next_weapon();
+                    if (nw >= 0) {
+                        static const int GIFT[9]={0,0,25,12,12,40,6,4,40};
+                        owned[nw]=1; cur_w=nw;
+                        int pl=WPN[nw].pool; if (pl>=0) g_am[pl]+=GIFT[nw];
+                    } else g_am[0] += 20;                 /* full arsenal: bullets instead */
                 }
             }
         }
@@ -1084,6 +1216,13 @@ static void g_update(float dt) {
             }
         }
 
+    for (int i = 0; i < 12; i++) if (g_pr[i].live) {
+        const MoteImage *pi = g_pr[i].kind==0 ? &fireball_img
+                            : g_pr[i].kind==1 ? &cannonb_img : &plasmab_img;
+        mote->scene_add_billboard(v3(g_pr[i].x, 0.45f, g_pr[i].z), pi, 0,0,0,0,
+                                  0.22f, g_pr[i].kind==1 ? MOTE_BLEND_NONE : MOTE_BLEND_ADD);
+    }
+
     for (int i = 0; i < g_nsc; i++) {
         Scenery *sc = &g_sc[i];
         const typeof(SCP[0]) *t = &SCP[sc->type];
@@ -1098,8 +1237,12 @@ static void g_update(float dt) {
     for (int i = 0; i < g_npk; i++) {
         Pickup *p = &g_pk[i];
         if (p->taken) continue;
-        if (p->type==PK_WEAPON)
-            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, (has_shot?2:1)*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
+        if (p->type==PK_WEAPON) {
+            int nw = next_weapon(); if (nw<0) nw=1;
+            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, nw*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
+        }
+        else if (p->type>=PK_FUEL && p->type<=PK_CELLS)
+            mote->scene_add_billboard(v3(p->x,0.16f,p->z), &ammo3_img, (p->type-PK_FUEL)*20,0,20,20, 0.24f, MOTE_BLEND_NONE);
         else {
             static const uint8_t TCELL[6]={2,3,4,5,6,9};    /* treasure variants */
             if (p->type==PK_KEY2){
@@ -1177,8 +1320,9 @@ static void g_overlay(uint16_t *fb) {
     mote->draw_rect(fb, 0,0,128,9, MOTE_RGB565(18,20,28),1,0,128);
     mote_textf(mote, fb, 2,1, white, "HP");
     mote_ui_bar(fb, 16,2,26,5, health/100.0f, MOTE_RGB565(60,210,90), MOTE_RGB565(50,20,20));
-    mote_textf(mote, fb, 46,1, amber, "%d", ammo);
-    mote->text(fb, cur_w==2 ? "CHAIN" : cur_w==1 ? "SHOT" : "PIST", 66,1, MOTE_RGB565(150,170,210));
+    if (WPN[cur_w].pool < 0) mote->text(fb, "--", 46,1, amber);
+    else mote_textf(mote, fb, 46,1, amber, "%d", g_am[WPN[cur_w].pool]);
+    mote->text(fb, WPN[cur_w].nm, 66,1, MOTE_RGB565(150,170,210));
     if (has_key){ mote->draw_rect(fb, 96,2,5,3, MOTE_RGB565(232,190,60),1,0,128);
                   mote->draw_rect(fb, 94,3,2,2, MOTE_RGB565(232,190,60),1,0,128); }
     if (has_silver){ mote->draw_rect(fb, 96,6,5,3, MOTE_RGB565(190,196,210),1,0,128);
@@ -1227,6 +1371,9 @@ static void g_overlay(uint16_t *fb) {
           mote->draw_rect(fb, mxx-1, mzz-1, 3,3, MOTE_RGB565(255,255,255),1,0,128);
           mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz+(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
         mote_textf(mote, fb, 4,2, amber, "FLOOR %d", level+1);
+        mote->blit_ex(fb, &wpickup_img, 4,112, cur_w*32,0,32,16, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
+        mote->text(fb, WPN[cur_w].nm, 38,116, amber);
+        mote->text(fb, "< >", 38,124, MOTE_RGB565(140,150,170));
         mote->text(fb, "MENU CLOSE", 78,120, MOTE_RGB565(140,150,170));
     }
 
