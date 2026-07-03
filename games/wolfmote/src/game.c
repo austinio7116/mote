@@ -784,9 +784,6 @@ static void start_game(void) {
     level = 0; health = 100; score = 0;
     memset(owned, 0, sizeof owned); owned[0]=1; owned[1]=1;   /* knife always, pistol start */
     memset(g_am, 0, sizeof g_am); g_am[0] = 24; cur_w = 1;
-    /* TEMP (user testing): full arsenal + deep ammo — REVERT before release */
-    for (int k=0;k<9;k++) owned[k]=1;
-    g_am[0]=400; g_am[1]=200; g_am[2]=100; g_am[3]=400;
 #ifdef MOTE_HOST
     { const char *fl = getenv("MOTE_WOLF_FLOOR"); if (fl) level = atoi(fl)-1; if (level<0) level=0; if (level>=NUM_FLOORS) level=NUM_FLOORS-1; }
     { const char *sd = getenv("MOTE_WOLF_SEED");  if (sd) g_seed = (uint32_t)strtoul(sd,0,10)*2654435761u + 1u; }
@@ -1483,3 +1480,4 @@ static const MoteGameVtbl k_vtbl = {
     .config = { .depth = 1, .max_tex_tris = 1700, .max_billboards = 64, .max_lines = 20 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
+MOTE_GAME_META("WolfMote", "austinio7116");
