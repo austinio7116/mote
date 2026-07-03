@@ -49,6 +49,8 @@
 #include "lampglow.h"
 #include "shoot.sfx.h"
 #include "chain.sfx.h"
+#include "autocannon.sfx.h"   /* from Indemnity Run */
+#include "plasmagun.sfx.h"
 #include "efire.sfx.h"
 #include "hit.sfx.h"
 #include "death.sfx.h"
@@ -228,6 +230,7 @@ static void add_proj(float x,float z,float dx,float dz,int kind){
 
 /* ---- baked sounds ---- */
 static MoteSound snd_shoot, snd_chain, snd_efire, snd_hit, snd_death, snd_door, snd_pickup, snd_hurt;
+static MoteSound snd_auto, snd_plasma;   /* Indemnity Run autocannon + plasma */
 static MoteSound snd_shotgun, snd_step, snd_alert, snd_secret, snd_boom;
 
 /* ============================================================ helpers ====== */
@@ -495,7 +498,7 @@ static void gen_level(int idx){
             for (int z=r->z-1; z<=r->z+r->h && ok; z++)
                 for (int x=r->x-1; x<=r->x+r->w && ok; x++){
                     char c=g_gen[z][x];
-                    if (c=='P'||c=='K'||c=='J'||c=='E'||c=='Z'||c=='V'||c=='S') ok=0;
+                    if (c=='P'||c=='K'||c=='J'||c=='E'||c=='Z'||c=='V'||c=='S'||c=='w') ok=0;
                 }
             if (!ok) continue;
             int dx3 = dwx[ri]<r->x ? 1 : dwx[ri]>=r->x+r->w ? -1 : 0;   /* into the room */
@@ -724,6 +727,8 @@ static void load_level(int idx) {
             for (int x=0;x<MW;x++){ char c = g_wall[z][x]==1?'#':g_wall[z][x]==2?'%':g_wall[z][x]==3?'D':g_wall[z][x]>=4?'S':'.';
                 if ((int)px==x&&(int)pz==z) c='P';
                 if (g_exi==x&&g_ezi==z) c='E';
+                for (int i2=0;i2<g_npk;i2++)
+                    if (g_pk[i2].type==PK_WEAPON && (int)g_pk[i2].x==x && (int)g_pk[i2].z==z) c='w';
                 row[x]=c; }
             row[MW]=0; fprintf(stderr,"[MAP] %s\n",row); }
     }
@@ -765,6 +770,8 @@ static void g_init(void) {
     mote->scene_set_near(0.08f);          /* so close walls don't clip away */
     snd_shoot  = mote_sfx_bake(mote, &shoot_sfx);
     snd_chain  = mote_sfx_bake(mote, &chain_sfx);
+    snd_auto   = mote_sfx_bake(mote, &autocannon_sfx);
+    snd_plasma = mote_sfx_bake(mote, &plasmagun_sfx);
     snd_efire  = mote_sfx_bake(mote, &efire_sfx);
     snd_shotgun= mote_sfx_bake(mote, &shotgun_sfx);
     snd_step   = mote_sfx_bake(mote, &step_sfx);
@@ -889,10 +896,10 @@ static void fire_weapon(void) {
     if (WPN[cur_w].proj >= 0) {                          /* flamer / cannon / plasma */
         float fx=sinf(yaw), fz=cosf(yaw);
         add_proj(px+fx*0.5f, pz+fz*0.5f, fx, fz, WPN[cur_w].proj);
-        play(cur_w==6 ? &snd_efire : cur_w==7 ? &snd_shotgun : &snd_chain, 0.6f);
+        play(cur_w==6 ? &snd_efire : cur_w==7 ? &snd_shotgun : &snd_plasma, 0.6f);
         return;
     }
-    play(cur_w==5 ? &snd_chain : (cur_w==3||cur_w==4) ? &snd_shotgun : &snd_shoot, 0.6f);
+    play((cur_w==2||cur_w==5) ? &snd_auto : (cur_w==3||cur_w==4) ? &snd_shotgun : &snd_shoot, 0.6f);
     for (int pel = 0; pel < WPN[cur_w].pellets; pel++) {
         float jyaw = yaw + (WPN[cur_w].pellets>1 ? (mote_frand()-0.5f)*0.24f : 0.0f);
         float fx = sinf(jyaw), fz = cosf(jyaw);
