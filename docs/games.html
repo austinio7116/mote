@@ -32,9 +32,9 @@ header nav a:hover{color:var(--text)}
 .device{position:relative;user-select:none}
 .device img.shell{width:100%;display:block;filter:drop-shadow(0 24px 44px rgba(0,0,0,.55))}
 .screen{position:absolute;left:35.21%;top:19.16%;width:30.95%;aspect-ratio:1;overflow:hidden;background:#000}
-.screen img{width:100%;height:100%;image-rendering:pixelated;display:block;opacity:0;transition:opacity .35s}
+.screen img{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;display:block;opacity:0;transition:opacity .35s}
 .screen img.on{opacity:1}
-.screen .scan{position:absolute;inset:0;pointer-events:none;
+.screen .scan{position:absolute;inset:0;pointer-events:none;z-index:2;
   background:repeating-linear-gradient(0deg, rgba(255,255,255,.028) 0 1px, transparent 1px 3px)}
 .dots{display:flex;gap:7px;justify-content:center;margin-top:14px}
 .dots i{width:8px;height:8px;border-radius:50%;background:#2c3245;cursor:pointer;transition:background .2s}
@@ -115,7 +115,7 @@ const GAMES = [
  {id:"thumbalaga", file:"Thumbalaga.mote", name:"Thumbalaga", by:"austinio7116", kb:434,
   tag:"Formation shoot-'em-up",
   desc:"A Galaga-inspired fixed shooter: waves swoop in formation, dive-bomb, and capture your fighter. Chain perfect stages, earn double ships, and chase the high score."},
- {id:"thumbatro", file:"ThumbAtro.mote", name:"ThumbAtro", by:"austinio7116", kb:191,
+ {id:"thumbatro", file:"ThumbAtro.mote", name:"ThumbAtro", by:"austinio7116", kb:191, n:2,
   tag:"Poker roguelike deckbuilder",
   desc:"A Balatro-style deckbuilder: play poker hands to hit rising blinds, then warp your deck with jokers, planet cards and tarot upgrades. One more ante is always a mistake — take it anyway."},
  {id:"thumbyrogue", file:"ThumbyRogue.mote", name:"ThumbyRogue", by:"austinio7116", kb:362,
@@ -127,10 +127,10 @@ const GAMES = [
  {id:"thumbycue", file:"thumbycue.mote", name:"ThumbyCue", by:"austinio7116", kb:329,
   tag:"3D snooker & pool",
   desc:"Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play against the AI or a friend."},
- {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320,
+ {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320, n:2,
   tag:"Elite-style space sim",
   desc:"A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it."},
- {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"TinyCircuits", kb:94,
+ {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"austinio7116", kb:94, n:1,
   tag:"Chess, 2D or full 3D",
   desc:"A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera."},
  {id:"motokart", file:"motokart.mote", name:"MotoKart", by:"austinio7116", kb:51,
@@ -142,28 +142,28 @@ const GAMES = [
  {id:"papermote", file:"papermote.mote", name:"PaperMote", by:"mote", kb:61,
   tag:"Territory battle",
   desc:"Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes."},
- {id:"itsamemario", file:"itsamemario.mote", name:"It's-a-me Mario", by:"mote", kb:147,
+ {id:"itsamemario", file:"itsamemario.mote", name:"It's-a-me Mario", by:"mote", kb:147, n:2,
   tag:"Classic platformer",
   desc:"A love-letter platformer: run, jump and stomp through coin-strewn levels with pixel-perfect ledges, secrets, and that one gap you'll miss twice."},
  {id:"golf", file:"golf.mote", name:"Golf", by:"mote", kb:30,
   tag:"3D golf",
   desc:"A full round over rolling 3D terrain: judge the wind, shape your power and putt out. Simple to swing, hard to par."},
- {id:"tanks", file:"tanks.mote", name:"Tanks", by:"mote", kb:25,
+ {id:"tanks", file:"tanks.mote", name:"Tanks", by:"mote", kb:25, n:1,
   tag:"Artillery duel",
   desc:"Turn-based tank battles with fully rigged 3D tanks — tracks, turret, recoil and all. Walk your shots in before the enemy walks in theirs."},
- {id:"chess", file:"chess.mote", name:"Chess", by:"mote", kb:49,
+ {id:"chess", file:"chess.mote", name:"Chess", by:"mote", kb:49, n:1,
   tag:"3D chess",
   desc:"Chess with baked STL Staunton pieces on a lit 3D board. A clean, complete game of the classic."},
- {id:"tetris3d", file:"tetris3d.mote", name:"Tetris3D", by:"mote", kb:10,
+ {id:"tetris3d", file:"tetris3d.mote", name:"Tetris3D", by:"mote", kb:10, n:1,
   tag:"Falling blocks",
   desc:"The falling-block classic rendered in crisp engine 3D. Ten kilobytes of pure compulsion."},
- {id:"arkanoid3d", file:"arkanoid3d.mote", name:"Arkanoid3D", by:"mote", kb:27,
+ {id:"arkanoid3d", file:"arkanoid3d.mote", name:"Arkanoid3D", by:"mote", kb:27, n:1,
   tag:"Brick breaker",
   desc:"A polished brick-breaker with power-ups, particles, ball trails and escalating levels — the paddle arcade staple with a 3D glow-up."},
- {id:"pong3d", file:"pong3d.mote", name:"Pong3D", by:"mote", kb:11,
+ {id:"pong3d", file:"pong3d.mote", name:"Pong3D", by:"mote", kb:11, n:1,
   tag:"Arcade classic",
   desc:"Pong, reborn with trails and spin. First to the score wins; the AI does not blink."},
- {id:"fling", file:"fling.mote", name:"Fling", by:"mote", kb:22,
+ {id:"fling", file:"fling.mote", name:"Fling", by:"mote", kb:22, n:1,
   tag:"Physics castle-smasher",
   desc:"Angry-Birds-style fort demolition in side-view 3D: charge the fling, arc your bird into the tower, and let real rigid-body physics topple the pigs. Every fort is freshly generated."},
 ];
@@ -172,6 +172,7 @@ const screen=document.getElementById('screen'), dots=document.getElementById('do
 let cur=null, shot=0, timer=null;
 const imgs=[1,2,3].map(()=>{const im=document.createElement('img');screen.insertBefore(im,screen.firstChild);return im;});
 
+function nshots(){ return cur && cur.n ? cur.n : 3; }
 function show(n){
   shot=n;
   imgs.forEach((im,i)=>im.classList.toggle('on',i===n));
@@ -179,8 +180,9 @@ function show(n){
 }
 function select(g,scroll){
   cur=g;
-  imgs.forEach((im,i)=>im.src=`img/gallery/${g.id}-${i+1}.png`);
-  dots.innerHTML=g.shotless?'' :'<i></i><i></i><i></i>';
+  const n=nshots();
+  imgs.forEach((im,i)=>{ if(i<n){ im.src=`img/gallery/${g.id}-${i+1}.png`; } else { im.removeAttribute('src'); } });
+  dots.innerHTML = n>1 ? '<i></i>'.repeat(n) : '';
   [...dots.children].forEach((d,i)=>d.onclick=()=>{show(i);restart();});
   document.getElementById('m-icon').src=`img/gallery/${g.id}-icon.png`;
   document.getElementById('m-name').textContent=g.name;
@@ -193,7 +195,7 @@ function select(g,scroll){
   show(0); restart();
   if(scroll) document.getElementById('hero').scrollIntoView({behavior:'smooth',block:'center'});
 }
-function restart(){ clearInterval(timer); timer=setInterval(()=>show((shot+1)%3), 2200); }
+function restart(){ clearInterval(timer); if(nshots()>1) timer=setInterval(()=>show((shot+1)%nshots()), 2200); }
 
 GAMES.forEach(g=>{
   const c=document.createElement('div'); c.className='card'; c.dataset.id=g.id;
