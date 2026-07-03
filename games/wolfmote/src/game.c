@@ -1362,18 +1362,12 @@ static void g_overlay(uint16_t *fb) {
         mote->draw_rect(fb, 126,0,2,128, red,1,0,128);
     }
 
-    uint16_t ch = MOTE_RGB565(230,230,235);
-    mote->draw_line(fb, 64,58,64,62, ch,0,128);
-    mote->draw_line(fb, 64,66,64,70, ch,0,128);
-    mote->draw_line(fb, 58,64,62,64, ch,0,128);
-    mote->draw_line(fb, 66,64,70,64, ch,0,128);
-
     if (state == ST_PLAY) {
         float bx = sinf(walk_t)*3.0f, by = fabsf(sinf(walk_t))*2.5f;
         /* muzzle flash FIRST, so the gun draws over it (flash peeks from behind) */
         if (muzzle > 0)
             mote->blit_ex(fb, &flash_img, 64+bx, 88+by, 0,0,0,0, walk_t, 0.65f, MOTE_BLEND_ADD, 0, 128);
-        static const int8_t WOFF[9]={-3,0,-3,0,0,0,-3,-2,0};   /* recentre a few cells */
+        static const int8_t WOFF[9]={-3,0,-3,0,0,0,-6,-2,0};   /* recentre a few cells */
         mote->blit_ex(fb, &weapons_img, 64+WOFF[cur_w]+bx, 106+by, cur_w*72,0,72,56, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
     }
 
@@ -1431,9 +1425,9 @@ static void g_overlay(uint16_t *fb) {
           mote->draw_rect(fb, mxx-1, mzz-1, 3,3, MOTE_RGB565(255,255,255),1,0,128);
           mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz-(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
         mote_textf(mote, fb, 4,2, amber, "FLOOR %d", level+1);
-        mote->blit_ex(fb, &wpickup_img, 20,116, WICON_X(cur_w),0,WICON_W,WICON_H, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
-        mote->text(fb, WPN[cur_w].nm, 38,116, amber);
-        mote->text(fb, "< >", 38,124, MOTE_RGB565(140,150,170));
+        mote->blit_ex(fb, &wpickup_img, 15,121, WICON_X(cur_w),0,WICON_W,WICON_H, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
+        mote->text(fb, WPN[cur_w].nm, 33,119, amber);
+        mote->text(fb, "< >", 33,126, MOTE_RGB565(140,150,170));
         mote->text(fb, "MENU CLOSE", 78,120, MOTE_RGB565(140,150,170));
     }
 
