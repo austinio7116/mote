@@ -135,6 +135,11 @@ static Scenery g_sc[MAX_SC]; static int g_nsc;
 static Door    g_dr[MAX_DR]; static int g_ndr;
 static float   g_ex, g_ez;   /* exit cell centre */
 typedef struct { float x,z; } Corpse;
+typedef struct { float ax,ay,az,bx,by,bz,t; uint16_t col; } Tracer;   /* one visible shot */
+static Tracer g_tr[16]; static int g_ntr;
+static void add_tracer(float ax,float ay,float az,float bx,float by,float bz,uint16_t col){
+    g_tr[g_ntr % 16] = (Tracer){ax,ay,az,bx,by,bz,0.09f,col}; g_ntr++;
+}
 static Corpse  g_co[24]; static int g_nco;
 typedef struct { int ix,iz,dx,dz,steps,active; float t; } PushWall;  /* one secret at a time */
 static PushWall g_pw;
@@ -545,7 +550,7 @@ static void kill_enemy(Enemy *e) {
 }
 static void fire_weapon(void) {
     if (ammo <= 0 || gun_cd > 0.0f) return;
-    ammo--; gun_cd = WPN[cur_w].cd; muzzle = 0.06f;
+    ammo--; gun_cd = WPN[cur_w].cd; muzzle = 0.09f;
     play(cur_w==2 ? &snd_chain : cur_w==1 ? &snd_shotgun : &snd_shoot, 0.6f);
     for (int pel = 0; pel < WPN[cur_w].pellets; pel++) {
         float jyaw = yaw + (WPN[cur_w].pellets>1 ? (mote_frand()-0.5f)*0.24f : 0.0f);
@@ -561,12 +566,19 @@ static void fire_weapon(void) {
             if (!los(px, pz, e->x, e->z)) continue;
             if (d < best_d) { best_d = d; best = i; }
         }
+        float gx = px + fx*0.35f, gz = pz + fz*0.35f;      /* your muzzle */
         if (best >= 0) {
             Enemy *e = &g_en[best];
+            add_tracer(gx, 0.42f, gz, e->x, 0.45f, e->z, MOTE_RGB565(255,240,170));
             e->hp -= WPN[cur_w].dmg; e->hitflash = 0.18f;
             e->stag = (cur_w==1) ? 0.4f : 0.25f;           /* pain STAGGER (shotgun hits harder) */
             if (e->hp <= 0) kill_enemy(e);
             else if (pel==0) play(&snd_hit, 0.5f);
+        } else {
+            float wx2=px, wz2=pz;                          /* march to the wall you hit */
+            for (int st=0; st<56; st++){ float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
+                if (g_block[(int)nz2][(int)nx2]) break; wx2=nx2; wz2=nz2; }
+            add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
         }
     }
 }
@@ -713,12 +725,8 @@ static void g_update(float dt) {
             float ddx=px-e->x, ddz=pz-e->z, d=sqrtf(ddx*ddx+ddz*ddz);
             int see = (d < rng) && los(e->x, e->z, px, pz);
             if (see && !e->alerted) { e->alerted=1; play(&snd_alert, dist_gain(d,0.15f,0.55f)); }
-            if (e->stag > 0) { e->stag -= dt; continue; }      /* staggered: no move, no fire */
-            if (see && d > (melee ? 0.75f : 1.1f)) {
-                float s = spd*dt/d, nx=e->x+ddx*s, nz=e->z+ddz*s;
-                if (can_stand(nx, e->z)) e->x = nx;
-                if (can_stand(e->x, nz)) e->z = nz;
-            }
+            if (e->stag > 0) { e->stag -= dt; continue; }      /* staggered: no fire */
+            (void)spd;   /* enemies are SENTRIES — the art has no walk frames, so no gliding */
             e->firecd -= dt;
             if (see && e->firecd <= 0) {
                 if (melee) {
@@ -735,7 +743,16 @@ static void g_update(float dt) {
                     float acc = 0.85f - d*0.055f - (g_pmoving ? 0.22f : 0.0f);
                     if (e->type==EN_CMDO || e->type==EN_BOSS) acc += 0.12f;   /* the elites aim */
                     if (acc < 0.18f) acc = 0.18f;
-                    if (d < rng && mote_frand() < acc) {
+                    int lands = (d < rng) && (mote_frand() < acc);
+                    {   /* TRACER from the gun: to your chest on a hit, whizzing PAST on a miss */
+                        float gy = e->type==EN_BOSS ? 0.52f : 0.45f;
+                        float tx2 = px, tz2 = pz;
+                        if (!lands){ float mo=(mote_frand()<0.5f?-1.0f:1.0f)*(0.5f+mote_frand()*0.7f);
+                            float pxn=-ddz/d, pzn=ddx/d;      /* perpendicular */
+                            tx2 = px + pxn*mo + ddx/d*1.5f; tz2 = pz + pzn*mo + ddz/d*1.5f; }
+                        add_tracer(e->x, gy, e->z, tx2, 0.45f, tz2, MOTE_RGB565(255,208,110));
+                    }
+                    if (lands) {
                         int dmg = e->type==EN_BOSS ? 16 + (int)(mote_frand()*13)
                                 : e->type==EN_BRUTE ? 12 + (int)(mote_frand()*11)
                                 : e->type==EN_CMDO  ? 10 + (int)(mote_frand()*9)
@@ -831,8 +848,12 @@ static void g_update(float dt) {
         }
         int frame = e->hitflash>0 ? 2 : (e->fireanim>0 ? 1 : 0);
         mote->scene_add_billboard(v3(e->x, e->type==EN_BOSS?0.62f:0.5f, e->z), img, frame*fw,0,fw,fh, wh, MOTE_BLEND_NONE);
-        if (e->fireanim > 0)
-            mote->scene_add_billboard(v3(e->x,0.55f,e->z), &flash_img,0,0,0,0, big?0.55f:0.45f, MOTE_BLEND_ADD);
+        if (e->fireanim > 0.18f)   /* brief ADD glow right at the gun (the art has its own flash) */
+            mote->scene_add_billboard(v3(e->x, big?0.5f:0.45f, e->z), &flash_img,0,0,0,0, 0.26f, MOTE_BLEND_ADD);
+    }
+    for (int i=0;i<16;i++){ Tracer*t=&g_tr[i];             /* the shots themselves */
+        if (t->t<=0) continue; t->t -= 0.033f;
+        mote->scene_add_line(v3(t->ax,t->ay,t->az), v3(t->bx,t->by,t->bz), t->col);
     }
 }
 
@@ -935,6 +956,6 @@ static const MoteGameVtbl k_vtbl = {
     .update = g_update,
     .render_band = 0,
     .overlay = g_overlay,
-    .config = { .depth = 1, .max_tex_tris = 1700, .max_billboards = 64 },
+    .config = { .depth = 1, .max_tex_tris = 1700, .max_billboards = 64, .max_lines = 20 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
