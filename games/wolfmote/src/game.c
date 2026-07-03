@@ -207,8 +207,23 @@ static inline int is_blocked(int ix, int iz) {
     }
     return 0;
 }
+static int prop_hits(float x, float z, float r) {   /* solid props are CIRCLES, not cells —
+                                                        you can slip past a statue in a doorway */
+    for (int i=0;i<g_nsc;i++){
+        int t=g_sc[i].type; float pr;
+        if      (t==SC_PILLAR||t==SC_PILLAR2) pr=0.30f;
+        else if (t==SC_CRATES)                pr=0.36f;
+        else if (t==SC_KNIGHT)                pr=0.26f;
+        else if (t==SC_BARREL||t==SC_WBARREL) pr=0.24f;
+        else continue;                                   /* dressing: walk-through */
+        float dx=g_sc[i].x-x, dz=g_sc[i].z-z;
+        if (dx*dx+dz*dz < (pr+r)*(pr+r)) return 1;
+    }
+    return 0;
+}
 static int can_stand(float x, float z) {
     const float r = 0.24f;
+    if (prop_hits(x, z, r)) return 0;
     return !is_blocked((int)(x-r),(int)(z-r)) && !is_blocked((int)(x+r),(int)(z-r))
         && !is_blocked((int)(x-r),(int)(z+r)) && !is_blocked((int)(x+r),(int)(z+r));
 }
@@ -239,6 +254,29 @@ static float grnd(void){ g_seed=g_seed*1664525u+1013904223u; return (g_seed>>8)*
 static int   grndi(int n){ int v=(int)(grnd()*n); if(v<0)v=0; if(v>=n)v=n-1; return v; }
 typedef struct { int x,z,w,h; } Room;
 static int gopen(int x,int z){ char c=g_gen[z][x]; return c!='#' && c!='%'; }
+/* cells the player can ultimately occupy (doors open; secrets/blockers don't) */
+static int gwalk(int x,int z){
+    char c=g_gen[z][x];
+    return !(c=='#'||c=='%'||c=='S'||c=='o'||c=='W'||c=='i'||c=='I'||c=='c'||c=='k');
+}
+static int gflood(int fx,int fz){        /* 4-connected count of reachable cells */
+    static uint8_t vis[GENH][GENW];
+    static short   qx[GENW*GENH], qz[GENW*GENH];
+    memset(vis, 0, sizeof vis);
+    int head=0, tail=0, n=0;
+    qx[0]=fx; qz[0]=fz; tail=1; vis[fz][fx]=1;
+    while (head<tail){
+        int x=qx[head], z=qz[head]; head++; n++;
+        static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+        for (int k=0;k<4;k++){
+            int nx=x+DX[k], nz=z+DZ[k];
+            if (nx<0||nz<0||nx>=GENW||nz>=GENH||vis[nz][nx]) continue;
+            if (!gwalk(nx,nz)) continue;
+            vis[nz][nx]=1; qx[tail]=nx; qz[tail]=nz; tail++;
+        }
+    }
+    return n;
+}
 static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
 
 static void gen_level(int idx){
@@ -401,12 +439,17 @@ static void gen_level(int idx){
         }
     }
     int ns=6;                                             /* BLOCKING clutter: all four neighbours
-                                                             must be PURE floor so no threshold seals */
+                                                             pure floor AND the placement must not cut
+                                                             the map — flood fill must lose exactly the
+                                                             clutter cell itself, nothing else */
+    int reach = gflood(sx,sz);
     for (int t=0;t<200 && ns>0;t++){
         int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
         if (g_gen[z][x]!='.') continue;
         if (g_gen[z][x+1]!='.'||g_gen[z][x-1]!='.'||g_gen[z+1][x]!='.'||g_gen[z-1][x]!='.') continue;
-        g_gen[z][x] = "oWiIck"[grndi(6)]; ns--;
+        g_gen[z][x] = "oWiIck"[grndi(6)];
+        if (gflood(sx,sz) != reach-1) { g_gen[z][x]='.'; continue; }   /* sealed a path — revert */
+        reach--; ns--;
     }
     int nd2=4;                                            /* walk-through dressing */
     for (int t=0;t<160 && nd2>0;t++){
@@ -468,12 +511,12 @@ static void load_level(int idx) {
                 case 'a': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO,0,0}; break;
                 case 'h': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_HEALTH,0,0}; break;
                 case 'w': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_WEAPON,0,0}; break;
-                case 'o': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_BARREL};  g_block[z][x]=1; break;
-                case 'W': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_WBARREL}; g_block[z][x]=1; break;
-                case 'i': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PILLAR};  g_block[z][x]=1; break;
-                case 'I': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PILLAR2}; g_block[z][x]=1; break;
-                case 'c': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_CRATES};  g_block[z][x]=1; break;
-                case 'k': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_KNIGHT};  g_block[z][x]=1; break;
+                case 'o': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_BARREL};  break;
+                case 'W': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_WBARREL}; break;
+                case 'i': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PILLAR};  break;
+                case 'I': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PILLAR2}; break;
+                case 'c': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_CRATES};  break;
+                case 'k': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_KNIGHT};  break;
                 case 'l': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_LAMP}; break;
                 case 'm': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_HANGLAMP}; break;
                 case 'T': case 'b': {                      /* WALL-mounted: hug the nearest wall */
@@ -671,14 +714,12 @@ static void fire_weapon(void) {
             float wx2=px, wz2=pz; int prop=-1;             /* march downrange */
             for (int st=0; st<56 && prop<0; st++){
                 float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
-                if (g_block[(int)nz2][(int)nx2]){
-                    for (int s2=0;s2<g_nsc;s2++){          /* did we hit a prop, not a wall? */
-                        int ty=g_sc[s2].type;
-                        if (ty!=SC_BARREL&&ty!=SC_WBARREL&&ty!=SC_PLANT&&ty!=SC_SKULL) continue;
-                        float dx=g_sc[s2].x-nx2, dz=g_sc[s2].z-nz2;
-                        if (dx*dx+dz*dz<0.45f){ prop=s2; break; } }
-                    if (prop<0) break;                     /* a wall: stop here */
-                }
+                for (int s2=0;s2<g_nsc;s2++){              /* prop in the shot's path? */
+                    int ty=g_sc[s2].type;
+                    if (ty!=SC_BARREL&&ty!=SC_WBARREL&&ty!=SC_PLANT&&ty!=SC_SKULL) continue;
+                    float dx=g_sc[s2].x-nx2, dz=g_sc[s2].z-nz2;
+                    if (dx*dx+dz*dz<0.25f){ prop=s2; break; } }
+                if (prop<0 && g_block[(int)nz2][(int)nx2]) break;   /* a wall: stop here */
                 wx2=nx2; wz2=nz2;
             }
             if (prop>=0){
@@ -863,7 +904,8 @@ static void g_update(float dt) {
                 int sxs = (px>e->x)?1:(px<e->x)?-1:0, szs=(pz>e->z)?1:(pz<e->z)?-1:0;
                 int tx = ex, tz = ez;
                 if (mote_frand()<0.5f && sxs) tx += sxs; else if (szs) tz += szs; else if (sxs) tx += sxs;
-                if (tx>0&&tz>0&&tx<MW-1&&tz<MH-1 && !g_block[tz][tx] && g_wall[tz][tx]==0){
+                if (tx>0&&tz>0&&tx<MW-1&&tz<MH-1 && !g_block[tz][tx] && g_wall[tz][tx]==0
+                    && !prop_hits(tx+0.5f, tz+0.5f, 0.30f)){
                     float nx2=tx+0.5f, nz2=tz+0.5f;
                     if (!los(nx2, nz2, px, pz) || (nx2-px)*(nx2-px)+(nz2-pz)*(nz2-pz) > 3.5f*3.5f)
                         { e->x=nx2; e->z=nz2; }            /* never pops into your face */
