@@ -18,8 +18,10 @@ def load_obj(path):
             idx = []
             for w in p[1:]:
                 sub = w.split('/')
-                vi = int(sub[0]) - 1
-                ti = int(sub[1]) - 1 if len(sub) > 1 and sub[1] else -1
+                vi = int(sub[0]); vi = vi - 1 if vi > 0 else len(vs) + vi
+                ti = -1
+                if len(sub) > 1 and sub[1]:
+                    ti = int(sub[1]); ti = ti - 1 if ti > 0 else len(vts) + ti
                 idx.append((vi, ti))
             for j in range(1, len(idx) - 1):
                 faces.append((idx[0], idx[j], idx[j+1]))
@@ -86,13 +88,13 @@ def render(vs, vts, faces, tex, yaw=0.6, pitch=0.45):
                 px[xx, yy] = (int(c[0]*lit), int(c[1]*lit), int(c[2]*lit))
     return img
 
-names = sorted(os.path.basename(f)[4:-4] for f in glob.glob(os.path.join(SP, 'obj', 'out_*.obj')))
+names = sorted(os.path.basename(f)[:-4] for f in glob.glob(os.path.join(ASSETS, '*.obj')))
 cols = 5
 rows = (len(names) + cols - 1) // cols
 sheet = Image.new('RGB', (cols*CELL, rows*(CELL+18)), (8, 8, 14))
 d = ImageDraw.Draw(sheet)
 for i, n in enumerate(names):
-    vs, vts, faces = load_obj(os.path.join(SP, 'obj', 'out_%s.obj' % n))
+    vs, vts, faces = load_obj(os.path.join(ASSETS, n + '.obj'))
     texp = os.path.join(ASSETS, n + '.png')
     tex = Image.open(texp).convert('RGB') if os.path.exists(texp) else None
     im = render(vs, vts, faces, tex)
