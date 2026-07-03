@@ -773,7 +773,7 @@ static void g_update(float dt) {
         Pickup *p = &g_pk[i];
         if (p->taken) continue;
         if (p->type==PK_WEAPON)
-            mote->scene_add_billboard(v3(p->x,0.26f,p->z), &wpickup_img, (has_shot?2:1)*20,0,20,20, 0.42f, MOTE_BLEND_NONE);
+            mote->scene_add_billboard(v3(p->x,0.22f,p->z), &wpickup_img, (has_shot?2:1)*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
         else {
             static const uint8_t TCELL[6]={2,3,4,5,6,9};    /* treasure variants */
             int cell = p->type==PK_KEY     ? 10

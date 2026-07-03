@@ -11,7 +11,7 @@ from PIL import Image
 from scipy import ndimage
 from collections import Counter
 
-SRC = "/tmp/ChatGPT Image Jul 3, 2026, 07_46_20 AM.png"
+SRC = "/tmp/ChatGPT Image Jul 3, 2026, 07_53_58 AM.png"
 OUT = "/home/maustin/thumby-color/mote/games/wolfmote/assets/props24.png"
 CS = 28
 
@@ -40,7 +40,8 @@ rows.append(cur)
 cells=[]
 for r in rows:
     r.sort(key=lambda t:t[1]); cells += [t[2] for t in r]
-assert len(cells)==24, f"expected 24 items, got {len(cells)}"
+assert len(cells)==27, f"expected 24 props + 3 guns, got {len(cells)}"
+guns, cells = cells[24:], cells[:24]
 
 sheet=Image.new("RGBA",(CS*6,CS*4),(0,0,0,0))
 for i,c in enumerate(cells):
@@ -52,3 +53,16 @@ for i,c in enumerate(cells):
     sheet.paste(r,((i%6)*CS+(CS-r.size[0])//2,(i//6)*CS+(CS-r.size[1])//2))
 sheet.save(OUT)
 print(f"wrote props24.png ({len(cells)} cells of {CS}x{CS})")
+
+# ---- bottom row: gun PICKUP profiles -> wpickup.png (3 cells of 32x16) ----
+GW, GH = 32, 16
+gs = Image.new("RGBA", (GW*3, GH), (0,0,0,0))
+for i, g in enumerate(guns):
+    sc = min((GW-2)/g.size[0], (GH-2)/g.size[1])
+    r = g.resize((max(1,round(g.size[0]*sc)), max(1,round(g.size[1]*sc))), Image.LANCZOS)
+    a = np.asarray(r).copy(); hard = a[:,:,3] > 110
+    a[:,:,3] = np.where(hard,255,0); a[~hard] = 0
+    r = Image.fromarray(a,"RGBA")
+    gs.paste(r, (i*GW+(GW-r.size[0])//2, (GH-r.size[1])//2))
+gs.save("/home/maustin/thumby-color/mote/games/wolfmote/assets/wpickup.png")
+print("wrote wpickup.png (pistol/shotgun/chaingun profiles, 32x16 cells)")
