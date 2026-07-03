@@ -1,0 +1,10 @@
+# Mote SFX recipe — barrel explosion
+wave 3
+freq 0.14 0 -0.09 0
+duty 0 0
+vib 0.15 0.2
+env 0 0.15 0.55 0.5
+lpf 0.34 -0.08 0.35
+hpf 0 0
+pha 0.22 -0.02
+arp 0 0

@@ -20,12 +20,17 @@
  */
 #include "mote_api.h"
 #include "mote_build.h"
-#include "brick.h"
-#include "stone.h"
-#include "door.h"
-#include "exit.h"
+#include "wallbrick.h"
+#include "wallstone.h"
+#include "walldoor.h"
+#include "walldoorw.h"
+#include "wallexit.h"
+#include "wallcrack.h"
+#include "wallmoss.h"
+#include "wallmetal.h"
 #include "blood.h"
 #include "props24.h"      /* props24_img — 24-cell pickup/scenery set, 28x28 cells */
+#include "silverkey.h"     /* silverkey_img — opens the treasure vault */
 #include "rusher.h"
 #include "commando.h"
 #include "boss.h"
@@ -33,6 +38,7 @@
 #include "step.sfx.h"
 #include "alert.sfx.h"
 #include "secret.sfx.h"
+#include "boom.sfx.h"
 #include "guard.h"
 #include "brute.h"
 #include "weapons.h"       /* weapons_img — pistol/shotgun/chaingun HUD, 72x56 cells */
@@ -74,7 +80,9 @@ static int     MW, MH;
 static MeshVert g_cv[8];
 static MeshFace g_cf[12];
 static uint8_t  g_cuv[72];
-static Mesh wall_brick, wall_stone, wall_door, wall_exit;
+static Mesh wall_brick, wall_stone, wall_door, wall_doorw, wall_exit,
+            wall_crack, wall_moss, wall_metal;
+static const Mesh *g_wallA, *g_wallB, *g_walldoor;   /* this floor's palette */
 static void build_wall_mesh(void) {
     static const int8_t C[8][3] = {
         {-127,-127,-127},{127,-127,-127},{127,127,-127},{-127,127,-127},
@@ -92,10 +100,14 @@ static void build_wall_mesh(void) {
         g_cf[fi]=(MeshFace){r[0],r[2],r[3],nx,ny,nz};
         g_cuv[fi*6+0]=0;g_cuv[fi*6+1]=255;g_cuv[fi*6+2]=255;g_cuv[fi*6+3]=0;g_cuv[fi*6+4]=0;g_cuv[fi*6+5]=0; fi++;
     }
-    wall_brick=(Mesh){.verts=g_cv,.faces=g_cf,.nverts=8,.nfaces=12,.scale=0.5f,.bound_r=0.87f,.texture=&brick_img,.face_uvs=g_cuv};
-    wall_stone=wall_brick; wall_stone.texture=&stone_img;
-    wall_door =wall_brick; wall_door.texture =&door_img;
-    wall_exit =wall_brick; wall_exit.texture =&exit_img;
+    wall_brick=(Mesh){.verts=g_cv,.faces=g_cf,.nverts=8,.nfaces=12,.scale=0.5f,.bound_r=0.87f,.texture=&wallbrick_img,.face_uvs=g_cuv};
+    wall_stone=wall_brick; wall_stone.texture=&wallstone_img;
+    wall_door =wall_brick; wall_door.texture =&walldoor_img;
+    wall_doorw=wall_brick; wall_doorw.texture=&walldoorw_img;
+    wall_exit =wall_brick; wall_exit.texture =&wallexit_img;
+    wall_crack=wall_brick; wall_crack.texture=&wallcrack_img;
+    wall_moss =wall_brick; wall_moss.texture =&wallmoss_img;
+    wall_metal=wall_brick; wall_metal.texture=&wallmetal_img;
 }
 
 /* ============================================================ entities ===== */
@@ -105,8 +117,8 @@ static void build_wall_mesh(void) {
 #define MAX_DR 16
 
 enum { EN_GUARD, EN_BRUTE, EN_RUSH, EN_CMDO, EN_BOSS };
-typedef struct { float x,z; int type, hp, alive; float firecd, fireanim, hitflash; float stag; int alerted; } Enemy;
-enum { PK_AMMO, PK_HEALTH, PK_WEAPON, PK_KEY, PK_TREAS, PK_AMMO2, PK_HEALTH2 };
+typedef struct { float x,z; int type, hp, alive; float firecd, fireanim, hitflash; float stag; int alerted; float relot; } Enemy;
+enum { PK_AMMO, PK_HEALTH, PK_WEAPON, PK_KEY, PK_TREAS, PK_AMMO2, PK_HEALTH2, PK_KEY2 };
 typedef struct { float x,z; int type, taken, variant; } Pickup;
 enum { SC_BARREL, SC_LAMP, SC_PILLAR, SC_PLANT, SC_WBARREL, SC_PILLAR2, SC_CRATES,
        SC_HANGLAMP, SC_TORCH, SC_CANDLE, SC_SKULL, SC_KNIGHT, SC_BANNER };
@@ -127,7 +139,7 @@ static const struct { uint8_t cell; float y, wh; uint8_t glow; } SCP[13] = {
     {23, 0.55f, 0.90f, 0},   /* war banner (WALL-mounted)       */
 };
 typedef struct { float x,z; int type; } Scenery;
-typedef struct { int ix,iz; float open; int want; float closet; int isexit; } Door;
+typedef struct { int ix,iz; float open; int want; float closet; int isexit, issilver; } Door;
 
 static Enemy   g_en[MAX_EN]; static int g_nen;
 static Pickup  g_pk[MAX_PK]; static int g_npk;
@@ -137,13 +149,18 @@ static float   g_ex, g_ez;   /* exit cell centre */
 typedef struct { float x,z; } Corpse;
 typedef struct { float ax,ay,az,bx,by,bz,t; uint16_t col; } Tracer;   /* one visible shot */
 static Tracer g_tr[16]; static int g_ntr;
+typedef struct { float x,z,t; uint8_t big; } Boom;      /* explosion flash / wall spark */
+static Boom g_bm[8]; static int g_nbm;
+static void add_boom(float x,float z,int big){ g_bm[g_nbm % 8]=(Boom){x,z,big?0.28f:0.10f,(uint8_t)big}; g_nbm++; }
 static void add_tracer(float ax,float ay,float az,float bx,float by,float bz,uint16_t col){
     g_tr[g_ntr % 16] = (Tracer){ax,ay,az,bx,by,bz,0.09f,col}; g_ntr++;
 }
 static Corpse  g_co[24]; static int g_nco;
 typedef struct { int ix,iz,dx,dz,steps,active; float t; } PushWall;  /* one secret at a time */
 static PushWall g_pw;
-static int     has_key, has_shot;
+static int     has_key, has_silver, has_shot;
+static float   g_desct;
+static int     g_diff = 1;         /* 0 easy · 1 normal · 2 hard */
 static int     fl_kills, fl_kills_tot, fl_treas, fl_treas_tot, fl_secrets;
 static float   fl_time;
 static char    g_msg[24];
@@ -154,6 +171,8 @@ static int     g_exi, g_ezi; /* exit door cell */
 static float px, pz, yaw;
 static int   health, ammo, score, has_chain, level;
 static int   g_showmap, g_pmoving;
+static float g_time;
+static float g_dmgdir, g_dmgt;    /* damage direction indicator */
 static uint8_t g_seen[MAXH][MAXW];
 static float gun_cd, muzzle, walk_t, hurt, msg_t;
 static int   cur_w;                       /* 0 pistol · 1 chaingun */
@@ -162,6 +181,8 @@ static int   state;                       /* 0 play · 1 win · 2 dead */
 #define ST_WIN     1
 #define ST_DEAD    2
 #define ST_DEBRIEF 3
+#define ST_DESCEND 4
+#define ST_TITLE   5
 
 /* weapon table: dmg, cooldown, auto, pellets */
 static const struct { int dmg; float cd; int autofire; int pellets; } WPN[3] = {
@@ -172,7 +193,7 @@ static const struct { int dmg; float cd; int autofire; int pellets; } WPN[3] = {
 
 /* ---- baked sounds ---- */
 static MoteSound snd_shoot, snd_chain, snd_efire, snd_hit, snd_death, snd_door, snd_pickup, snd_hurt;
-static MoteSound snd_shotgun, snd_step, snd_alert, snd_secret;
+static MoteSound snd_shotgun, snd_step, snd_alert, snd_secret, snd_boom;
 
 /* ============================================================ helpers ====== */
 static inline int is_blocked(int ix, int iz) {
@@ -279,6 +300,7 @@ static void gen_level(int idx){
       g_gen[ez][ex]='E';
     }
     int nen=6+idx*2; if (nen>20) nen=20;                  /* deeper = meaner */
+    nen = (nen * (g_diff==0 ? 3 : g_diff==2 ? 5 : 4)) / 4; if (nen<3) nen=3;
     float bprob=0.10f+0.06f*idx; if (bprob>0.5f) bprob=0.5f;   /* brutes */
     float rprob=idx>=1 ? 0.18f : 0.0f;                         /* rushers from floor 2 */
     float cprob=idx>=3 ? 0.15f : 0.0f;                         /* commandos from floor 4 */
@@ -313,6 +335,33 @@ static void gen_level(int idx){
         int ri=grndi(nr); Room*r=&rooms[ri];
         int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
         if (g_gen[z][x]=='.'){ g_gen[z][x]='t'; nt--; } } }
+    {   /* the SILVER VAULT: a silver-locked door in a wall, loot behind, key far away */
+        for (int t=0;t<120;t++){
+            int x=2+grndi(GENW-4), z=2+grndi(GENH-4);
+            if (gopen(x,z)) continue;
+            static const int DX4[4]={1,-1,0,0}, DZ4[4]={0,0,1,-1};
+            int done=0;
+            for (int k=0;k<4 && !done;k++){
+                int ax=x-DX4[k], az=z-DZ4[k];               /* open approach side */
+                int b1x=x+DX4[k], b1z=z+DZ4[k];             /* vault cells behind */
+                int b2x=x+DX4[k]*2, b2z=z+DZ4[k]*2;
+                if (ax<1||az<1||ax>=GENW-1||az>=GENH-1) continue;
+                if (b2x<1||b2z<1||b2x>=GENW-1||b2z>=GENH-1) continue;
+                if (g_gen[az][ax]!='.') continue;
+                if (gopen(b1x,b1z)||gopen(b2x,b2z)) continue;
+                int c1x=x+DX4[k]*3, c1z=z+DZ4[k]*3;
+                if (c1x<0||c1z<0||c1x>=GENW||c1z>=GENH||gopen(c1x,c1z)) continue;
+                g_gen[b1z][b1x]='t'; g_gen[b2z][b2x]='H';   /* riches + a big medkit */
+                g_gen[z][x]='V';                            /* the silver door */
+                done=1;
+            }
+            if (done){                                      /* hide the silver key on open floor */
+                for (int t2=0;t2<80;t2++){ int kx=1+grndi(GENW-2), kz=1+grndi(GENH-2);
+                    if (g_gen[kz][kx]=='.'){ g_gen[kz][kx]='J'; break; } }
+                break;
+            }
+        }
+    }
     { int nsec=1+(grnd()<0.5f?1:0);                       /* SECRET push-walls: pocket + loot */
       for (int t=0;t<120 && nsec>0;t++){
         int x=2+grndi(GENW-4), z=2+grndi(GENH-4);
@@ -395,12 +444,17 @@ static void load_level(int idx) {
                 case '%': g_wall[z][x]=2; g_block[z][x]=1; break;
                 case 'D':
                     g_wall[z][x]=3;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,0}; g_ndr++; }
                     break;
+                case 'V':
+                    g_wall[z][x]=3;
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,1}; g_ndr++; }
+                    break;
+                case 'J': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_KEY2,0,0}; break;
                 case 'P': px=wx; pz=wz; break;
                 case 'E':                                  /* the GREEN EXIT DOOR */
                     g_wall[z][x]=3; g_ex=wx; g_ez=wz; g_exi=x; g_ezi=z;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,1}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,1,0}; g_ndr++; }
                     break;
                 case 'G': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_GUARD,100,1,0.8f+mote_frand()*0.9f,0,0,0,0}; break;
                 case 'X': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_BRUTE,220,1,0.8f+mote_frand()*0.9f,0,0,0,0}; break;
@@ -467,13 +521,23 @@ static void load_level(int idx) {
     { int k=0; const char*t="FLOOR "; char*b=g_msg; while(*t)*b++=*t++;
       if (idx+1>9)*b++='0'+(idx+1)/10; *b++='0'+(idx+1)%10; *b=0; (void)k; }
     g_nco = 0; g_pw.active = 0; g_showmap = 0;
-    has_key = 0; fl_time = 0;
+    has_key = 0; has_silver = 0; fl_time = 0;
     fl_kills = 0; fl_kills_tot = g_nen;
     fl_treas = 0; fl_treas_tot = 0; fl_secrets = 0;
     for (int i=0;i<g_npk;i++) if (g_pk[i].type==PK_TREAS) fl_treas_tot++;
     { int haskeypk=0; for (int i=0;i<g_npk;i++) if (g_pk[i].type==PK_KEY) haskeypk=1;
       if (!haskeypk && idx!=NUM_FLOORS-1) has_key=1; }    /* no key placed → unlocked */
     memset(g_seen, 0, sizeof g_seen);
+    /* deeper floors change their stonework: brick -> moss -> ruin -> machine */
+    {   static const Mesh *const THEME[4][3] = {
+            { &wall_brick, &wall_stone, &wall_doorw },   /* floors 1-2: barracks   */
+            { &wall_stone, &wall_moss,  &wall_doorw },   /* floors 3-4: cistern    */
+            { &wall_crack, &wall_moss,  &wall_door  },   /* floors 5-6: ruins      */
+            { &wall_metal, &wall_crack, &wall_door  },   /* floors 7-8: the works  */
+        };
+        int th = idx/2; if (th>3) th=3;
+        g_wallA = THEME[th][0]; g_wallB = THEME[th][1]; g_walldoor = THEME[th][2];
+    }
     cur_w = has_chain ? 2 : has_shot ? 1 : 0;
 #ifdef MOTE_HOST
     if (getenv("MOTE_WOLF_KEY")) has_key=1;
@@ -528,20 +592,48 @@ static void g_init(void) {
     snd_step   = mote_sfx_bake(mote, &step_sfx);
     snd_alert  = mote_sfx_bake(mote, &alert_sfx);
     snd_secret = mote_sfx_bake(mote, &secret_sfx);
+    snd_boom   = mote_sfx_bake(mote, &boom_sfx);
     snd_hit    = mote_sfx_bake(mote, &hit_sfx);
     snd_death  = mote_sfx_bake(mote, &death_sfx);
     snd_door   = mote_sfx_bake(mote, &door_sfx);
     snd_pickup = mote_sfx_bake(mote, &pickup_sfx);
     snd_hurt   = mote_sfx_bake(mote, &hurt_sfx);
     start_game();
+    state = ST_TITLE;
 }
 
 /* ============================================================ shooting ===== */
+static void kill_scenery(int i){
+    Scenery *sc=&g_sc[i];
+    int bx=(int)sc->x, bz=(int)sc->z;
+    if (bx>=0&&bz>=0&&bx<MW&&bz<MH) g_block[bz][bx]=0;   /* clears the way */
+    g_sc[i]=g_sc[--g_nsc];
+}
+static void explode_barrel(int idx){
+    float bx=g_sc[idx].x, bz=g_sc[idx].z;
+    kill_scenery(idx);
+    add_boom(bx,bz,1); play(&snd_boom,0.8f);
+    for (int e2=0;e2<g_nen;e2++){ Enemy*en=&g_en[e2]; if(!en->alive) continue;
+        float dx=en->x-bx, dz=en->z-bz;
+        if (dx*dx+dz*dz<1.7f*1.7f){ en->hp-=95; en->hitflash=0.2f; en->stag=0.5f;
+            if (en->hp<=0){ en->alive=0; fl_kills++; score+=en->type==EN_BOSS?2000:150;
+                            if (g_nco<24) g_co[g_nco++]=(Corpse){en->x,en->z}; } } }
+    { float dx=px-bx, dz=pz-bz;
+      if (dx*dx+dz*dz<1.5f*1.5f){ health-=25; hurt=0.4f;
+          g_dmgdir=atan2f(bx-px,bz-pz); g_dmgt=0.55f;
+          if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
+    for (int s2=0;s2<g_nsc;s2++){                          /* CHAIN nearby steel barrels */
+        if (g_sc[s2].type!=SC_BARREL) continue;
+        float dx=g_sc[s2].x-bx, dz=g_sc[s2].z-bz;
+        if (dx*dx+dz*dz<1.8f*1.8f){ explode_barrel(s2); break; } }
+}
 static void kill_enemy(Enemy *e) {
     e->alive = 0; fl_kills++;
     score += e->type==EN_BOSS ? 2000 : e->type==EN_BRUTE ? 250 : e->type==EN_CMDO ? 200 : e->type==EN_RUSH ? 150 : 100;
     play(&snd_death, 0.6f);
     if (g_nco < 24) g_co[g_nco++] = (Corpse){e->x, e->z};
+    if (mote_frand() < 0.25f && g_npk < MAX_PK)
+        g_pk[g_npk++] = (Pickup){e->x, e->z, PK_AMMO, 0, 0};
     if (e->type==EN_BOSS && g_npk < MAX_PK) {              /* the boss carries the key */
         g_pk[g_npk++] = (Pickup){e->x, e->z, PK_KEY, 0, 0};
         { const char*t="IT DROPPED THE KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
@@ -575,10 +667,27 @@ static void fire_weapon(void) {
             if (e->hp <= 0) kill_enemy(e);
             else if (pel==0) play(&snd_hit, 0.5f);
         } else {
-            float wx2=px, wz2=pz;                          /* march to the wall you hit */
-            for (int st=0; st<56; st++){ float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
-                if (g_block[(int)nz2][(int)nx2]) break; wx2=nx2; wz2=nz2; }
-            add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
+            float wx2=px, wz2=pz; int prop=-1;             /* march downrange */
+            for (int st=0; st<56 && prop<0; st++){
+                float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
+                if (g_block[(int)nz2][(int)nx2]){
+                    for (int s2=0;s2<g_nsc;s2++){          /* did we hit a prop, not a wall? */
+                        int ty=g_sc[s2].type;
+                        if (ty!=SC_BARREL&&ty!=SC_WBARREL&&ty!=SC_PLANT&&ty!=SC_SKULL) continue;
+                        float dx=g_sc[s2].x-nx2, dz=g_sc[s2].z-nz2;
+                        if (dx*dx+dz*dz<0.45f){ prop=s2; break; } }
+                    if (prop<0) break;                     /* a wall: stop here */
+                }
+                wx2=nx2; wz2=nz2;
+            }
+            if (prop>=0){
+                add_tracer(gx, 0.42f, gz, g_sc[prop].x, 0.35f, g_sc[prop].z, MOTE_RGB565(255,240,170));
+                if (g_sc[prop].type==SC_BARREL) explode_barrel(prop);
+                else { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&snd_hit,0.4f); }
+            } else {
+                add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
+                add_boom(wx2, wz2, 0);                     /* spark where it lands */
+            }
         }
     }
 }
@@ -590,7 +699,7 @@ static void g_update(float dt) {
 
     if (state == ST_DEBRIEF) {
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A)) {
-            if (level+1 < NUM_FLOORS) { level++; load_level(level); }
+            if (level+1 < NUM_FLOORS) { state = ST_DESCEND; g_desct = 1.15f; play(&snd_step,0.4f); }
             else {
                 state = ST_WIN;
                 if (level+1 > best_floor || (level+1==best_floor && score>best_score)) {
@@ -599,12 +708,21 @@ static void g_update(float dt) {
                 }
             }
         }
+    } else if (state == ST_DESCEND) {
+        float prev = g_desct;
+        g_desct -= dt;
+        if ((int)(prev*3.0f) != (int)(g_desct*3.0f)) play(&snd_step, 0.3f);   /* footsteps down the stairs */
+        if (g_desct <= 0) { level++; load_level(level); }
+    } else if (state == ST_TITLE) {
+        if (mote_just_pressed(in, MOTE_BTN_UP)   && g_diff>0) g_diff--;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_diff<2) g_diff++;
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) start_game();
     } else if (state != ST_PLAY) {
         if (state==ST_DEAD && mote->save && level+1 > best_floor) {
             best_floor=level+1; if(score>best_score)best_score=score;
             int b[3]={0x574F4C46,best_floor,best_score}; mote->save(1,b,sizeof b);
         }
-        if (mote_just_pressed(in, MOTE_BTN_B)) start_game();
+        if (mote_just_pressed(in, MOTE_BTN_B)) { start_game(); state = ST_TITLE; }
     } else {
         if (mote_just_pressed(in, MOTE_BTN_MENU)) g_showmap = !g_showmap;
         if (g_showmap) return;                             /* map open: hold the world still */
@@ -625,6 +743,8 @@ static void g_update(float dt) {
         float dz = (fz*mv + rz*stf) * sp * dt;
         if (dx != 0 && can_stand(px+dx, pz)) { px += dx; moving = 1; }
         if (dz != 0 && can_stand(px, pz+dz)) { pz += dz; moving = 1; }
+        g_time += dt;
+        if (g_dmgt > 0) g_dmgt -= dt;
         g_pmoving = moving != 0;
         if (moving) {
             float prev = walk_t;
@@ -645,7 +765,10 @@ static void g_update(float dt) {
             int cx=(int)(px+fx*0.9f), cz=(int)(pz+fz*0.9f);
             if (cx>=0&&cz>=0&&cx<MW&&cz<MH&&g_wall[cz][cx]==3) {
                 int id=g_doorid[cz][cx];
-                if (id>=0 && g_dr[id].isexit && !has_key) {
+                if (id>=0 && g_dr[id].issilver && !has_silver) {
+                    { const char*t="NEED THE SILVER KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
+                    msg_t = 1.5f;
+                } else if (id>=0 && g_dr[id].isexit && !has_key) {
                     { const char*t="NEED THE GOLD KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
                     msg_t = 1.5f;
                 } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&snd_door,0.5f); }
@@ -697,6 +820,8 @@ static void g_update(float dt) {
                 else if (p->type==PK_HEALTH2){ health += 60; if (health>100) health=100; }
                 else if (p->type==PK_KEY) { has_key=1; msg_t=1.4f;
                     { const char*t="THE GOLD KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; } }
+                else if (p->type==PK_KEY2) { has_silver=1; msg_t=1.4f;
+                    { const char*t="THE SILVER KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; } }
                 else if (p->type==PK_TREAS) {
                     static const int TSCORE[6]={100,300,200,250,500,150};   /* chalice crown chest gold idol card */
                     score += TSCORE[p->variant]; fl_treas++;
@@ -726,13 +851,30 @@ static void g_update(float dt) {
             int see = (d < rng) && los(e->x, e->z, px, pz);
             if (see && !e->alerted) { e->alerted=1; play(&snd_alert, dist_gain(d,0.15f,0.55f)); }
             if (e->stag > 0) { e->stag -= dt; continue; }      /* staggered: no fire */
-            (void)spd;   /* enemies are SENTRIES — the art has no walk frames, so no gliding */
+            (void)spd;
+            /* SENTRIES with a twist: no visible gliding (no walk frames), but while you
+             * CAN'T see them, an alerted enemy stalks a cell closer every second or so —
+             * turn your back on a room and it isn't where you left it. */
+            e->relot -= dt;
+            if (e->alerted && !see && e->relot <= 0 && d > 2.6f) {
+                e->relot = 0.8f + mote_frand()*0.8f;
+                int ex=(int)e->x, ez=(int)e->z;
+                int sxs = (px>e->x)?1:(px<e->x)?-1:0, szs=(pz>e->z)?1:(pz<e->z)?-1:0;
+                int tx = ex, tz = ez;
+                if (mote_frand()<0.5f && sxs) tx += sxs; else if (szs) tz += szs; else if (sxs) tx += sxs;
+                if (tx>0&&tz>0&&tx<MW-1&&tz<MH-1 && !g_block[tz][tx] && g_wall[tz][tx]==0){
+                    float nx2=tx+0.5f, nz2=tz+0.5f;
+                    if (!los(nx2, nz2, px, pz) || (nx2-px)*(nx2-px)+(nz2-pz)*(nz2-pz) > 3.5f*3.5f)
+                        { e->x=nx2; e->z=nz2; }            /* never pops into your face */
+                }
+            }
             e->firecd -= dt;
             if (see && e->firecd <= 0) {
                 if (melee) {
                     if (d < 1.0f) {                            /* the rusher BITES */
                         e->firecd = fcd; e->fireanim = 0.22f;
                         health -= 7 + (int)(mote_frand()*7); hurt = 0.35f;
+                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.55f;
                         play(&snd_hit, 0.5f);
                         if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
                     }
@@ -740,7 +882,7 @@ static void g_update(float dt) {
                     e->firecd = fcd; e->fireanim = 0.28f;
                     play(&snd_efire, dist_gain(d, 0.12f, 0.6f));
                     /* they can MISS: harder at range, harder still if you keep moving */
-                    float acc = 0.85f - d*0.055f - (g_pmoving ? 0.22f : 0.0f);
+                    float acc = 0.85f - d*0.055f - (g_pmoving ? 0.22f : 0.0f) + (g_diff-1)*0.10f;
                     if (e->type==EN_CMDO || e->type==EN_BOSS) acc += 0.12f;   /* the elites aim */
                     if (acc < 0.18f) acc = 0.18f;
                     int lands = (d < rng) && (mote_frand() < acc);
@@ -757,7 +899,9 @@ static void g_update(float dt) {
                                 : e->type==EN_BRUTE ? 12 + (int)(mote_frand()*11)
                                 : e->type==EN_CMDO  ? 10 + (int)(mote_frand()*9)
                                 :  6 + (int)(mote_frand()*8);
+                        dmg = (dmg * (g_diff==0 ? 7 : g_diff==2 ? 12 : 10)) / 10;
                         health -= dmg; hurt = 0.35f;
+                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.55f;
                         if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
                     }
                 }
@@ -792,17 +936,17 @@ static void g_update(float dt) {
                 if (z>0    && !g_block[z-1][x]) shell=1;
                 if (z<MH-1 && !g_block[z+1][x]) shell=1;
                 if (!shell) continue;
-                mote_draw(mote, w==1?&wall_brick:&wall_stone, v3(x+0.5f, 0.5f, z+0.5f));
+                mote_draw(mote, w==1?g_wallA:g_wallB, v3(x+0.5f, 0.5f, z+0.5f));
             }
             else if (w == 3) {
                 int id = g_doorid[z][x]; float op = id>=0 ? g_dr[id].open : 0;
-                const Mesh *dm = (id>=0 && g_dr[id].isexit) ? &wall_exit : &wall_door;
+                const Mesh *dm = (id>=0 && g_dr[id].isexit) ? &wall_exit : g_walldoor;
                 if (op < 0.92f) mote_draw(mote, dm, v3(x+0.5f, 0.5f + op*0.98f, z+0.5f));
             }
             else if (w == 4) {
                 float ox=0, oz=0;                          /* secret wall mid-slide */
                 if (g_pw.active && g_pw.ix==x && g_pw.iz==z){ ox=g_pw.dx*g_pw.t; oz=g_pw.dz*g_pw.t; }
-                mote_draw(mote, &wall_brick, v3(x+0.5f+ox, 0.5f, z+0.5f+oz));
+                mote_draw(mote, g_wallA, v3(x+0.5f+ox, 0.5f, z+0.5f+oz));
             }
         }
 
@@ -811,8 +955,10 @@ static void g_update(float dt) {
         const typeof(SCP[0]) *t = &SCP[sc->type];
         mote->scene_add_billboard(v3(sc->x, t->y, sc->z), &props24_img,
                                   (t->cell%6)*28,(t->cell/6)*28,28,28, t->wh, MOTE_BLEND_NONE);
-        if (t->glow)
-            mote->scene_add_billboard(v3(sc->x, t->y+0.08f, sc->z), &lampglow_img,0,0,0,0, t->wh*1.25f, MOTE_BLEND_ADD);
+        if (t->glow){
+            float fl = 0.86f + 0.20f*sinf(g_time*11.0f + i*3.7f) + 0.10f*sinf(g_time*27.0f + i*1.3f);
+            mote->scene_add_billboard(v3(sc->x, t->y+0.08f, sc->z), &lampglow_img,0,0,0,0, t->wh*1.25f*fl, MOTE_BLEND_ADD);
+        }
     }
 
     for (int i = 0; i < g_npk; i++) {
@@ -822,6 +968,10 @@ static void g_update(float dt) {
             mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, (has_shot?2:1)*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
         else {
             static const uint8_t TCELL[6]={2,3,4,5,6,9};    /* treasure variants */
+            if (p->type==PK_KEY2){
+                mote->scene_add_billboard(v3(p->x,0.2f,p->z), &silverkey_img,0,0,0,0,0.34f, MOTE_BLEND_NONE);
+                continue;
+            }
             int cell = p->type==PK_KEY     ? 10
                      : p->type==PK_TREAS   ? TCELL[p->variant]
                      : p->type==PK_AMMO    ? 7
@@ -854,6 +1004,12 @@ static void g_update(float dt) {
     for (int i=0;i<16;i++){ Tracer*t=&g_tr[i];             /* the shots themselves */
         if (t->t<=0) continue; t->t -= 0.033f;
         mote->scene_add_line(v3(t->ax,t->ay,t->az), v3(t->bx,t->by,t->bz), t->col);
+    }
+    for (int i=0;i<8;i++){ Boom*b=&g_bm[i];                /* explosions + impact sparks */
+        if (b->t<=0) continue; b->t -= 0.033f;
+        float ph = b->big ? (0.28f-b->t)/0.28f : (0.10f-b->t)/0.10f;
+        float sz = b->big ? 0.5f+ph*1.1f : 0.12f+ph*0.12f;
+        mote->scene_add_billboard(v3(b->x, b->big?0.45f:0.42f, b->z), &flash_img,0,0,0,0, sz, MOTE_BLEND_ADD);
     }
 }
 
@@ -892,8 +1048,21 @@ static void g_overlay(uint16_t *fb) {
     mote->text(fb, cur_w==2 ? "CHAIN" : cur_w==1 ? "SHOT" : "PIST", 66,1, MOTE_RGB565(150,170,210));
     if (has_key){ mote->draw_rect(fb, 96,2,5,3, MOTE_RGB565(232,190,60),1,0,128);
                   mote->draw_rect(fb, 94,3,2,2, MOTE_RGB565(232,190,60),1,0,128); }
+    if (has_silver){ mote->draw_rect(fb, 96,6,5,3, MOTE_RGB565(190,196,210),1,0,128);
+                     mote->draw_rect(fb, 94,7,2,2, MOTE_RGB565(190,196,210),1,0,128); }
     mote_textf(mote, fb, 104,1, white, "L%d", level+1);
 
+    if (g_dmgt > 0 && state == ST_PLAY) {
+        /* red bar on the edge the shot came FROM (relative to where you face) */
+        float rel = g_dmgdir - yaw;
+        while (rel >  3.14159f) rel -= 6.28318f;
+        while (rel < -3.14159f) rel += 6.28318f;
+        uint16_t rc = MOTE_RGB565(200 + (int)(g_dmgt*100), 30, 30);
+        if      (fabsf(rel) < 0.79f)  mote->draw_rect(fb, 20,10,88,3,  rc,1,0,128);   /* ahead */
+        else if (fabsf(rel) > 2.35f)  mote->draw_rect(fb, 20,125,88,3, rc,1,0,128);   /* behind */
+        else if (rel > 0)             mote->draw_rect(fb, 0,30,3,68,   rc,1,0,128);   /* left */
+        else                          mote->draw_rect(fb, 125,30,3,68, rc,1,0,128);   /* right */
+    }
     if (msg_t > 0 && state == ST_PLAY)
         mote->text(fb, g_msg, 34,118, amber);
 
@@ -928,6 +1097,26 @@ static void g_overlay(uint16_t *fb) {
     }
 
     /* -------- FLOOR DEBRIEF -------- */
+    if (state == ST_DESCEND) {
+        mote->draw_rect(fb, 0,0,128,128, MOTE_RGB565(6,8,10),1,0,128);
+        mote_textf(mote, fb, 24,56, MOTE_RGB565(190,200,220), "DESCENDING...");
+        mote_textf(mote, fb, 44,70, amber, "FLOOR %d", level+2);
+    }
+    if (state == ST_TITLE) {
+        mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(10,12,16),1,0,128);
+        mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(120,40,36),0,0,128);
+        mote->text_2x(fb, "WOLFMOTE", 18,32, MOTE_RGB565(224,60,48));
+        mote->text(fb, "A ROGUE DUNGEON", 28,50, MOTE_RGB565(170,178,195));
+        static const char *DN[3]={"EASY","NORMAL","HARD"};
+        for (int i2=0;i2<3;i2++){
+            uint16_t c2 = i2==g_diff ? amber : MOTE_RGB565(120,126,140);
+            if (i2==g_diff) mote->text(fb, ">", 30, 62+i2*9, amber);
+            mote->text(fb, DN[i2], 40, 62+i2*9, c2);
+        }
+        mote_textf(mote, fb, 24,92, MOTE_RGB565(150,160,180), "BEST F%d $%d", best_floor, best_score);
+        mote->text(fb, "A  BEGIN", 44,110, MOTE_RGB565(140,220,150));
+        return;
+    }
     if (state == ST_DEBRIEF) {
         mote->draw_rect(fb, 12,30,104,70, MOTE_RGB565(16,20,26),1,0,128);
         mote->draw_rect(fb, 12,30,104,70, MOTE_RGB565(90,110,160),0,0,128);
