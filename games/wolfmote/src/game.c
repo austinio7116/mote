@@ -63,8 +63,8 @@ MOTE_MODULE_HEADER();
 /* ============================================================ text maps ==== */
 
 /* ============================================================== world ====== */
-#define MAXW 24
-#define MAXH 20
+#define MAXW 32
+#define MAXH 26
 static uint8_t g_wall[MAXH][MAXW];   /* 0 open · 1 brick · 2 stone · 3 door */
 static uint8_t g_block[MAXH][MAXW];  /* static blockers (walls + solid props) */
 static int8_t  g_doorid[MAXH][MAXW]; /* door index for a door cell, else -1 */
@@ -116,9 +116,9 @@ static void build_wall_mesh(void) {
 
 /* ============================================================ entities ===== */
 #define MAX_EN 24
-#define MAX_PK 16
+#define MAX_PK 24
 #define MAX_SC 48
-#define MAX_DR 16
+#define MAX_DR 20
 
 enum { EN_GUARD, EN_BRUTE, EN_RUSH, EN_CMDO, EN_BOSS };
 typedef struct { float x,z; int type, hp, alive; float firecd, fireanim, hitflash; float stag; int alerted; float relot; } Enemy;
@@ -253,8 +253,8 @@ static float dist_gain(float d, float lo, float hi) {
  * (some double-wide, so they read as halls, not mazes), doors at thresholds,
  * the green EXIT DOOR set in the far room's wall. Deeper floors = more brutes. */
 #define NUM_FLOORS 8
-#define GENW 24
-#define GENH 20
+#define GENW 32
+#define GENH 26
 static char g_gen[GENH][GENW+1];
 static const char *g_genrows[GENH+1];
 static uint32_t g_seed = 0xC0FFEE21u;
@@ -287,10 +287,18 @@ static int gflood(int fx,int fz){        /* 4-connected count of reachable cells
 }
 static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
 
+static void glink(const Room*a, const Room*b){        /* L connector; 40% hall-wide */
+    int x=a->x+a->w/2, z=a->z+a->h/2;
+    int x1=b->x+b->w/2, z1=b->z+b->h/2;
+    int wide = grnd()<0.4f;
+    while (x!=x1){ gcarve(x,z); if(wide) gcarve(x,z+1); x += x1>x?1:-1; }
+    while (z!=z1){ gcarve(x,z); if(wide) gcarve(x+1,z); z += z1>z?1:-1; }
+}
+
 static void gen_level(int idx){
-    Room rooms[8]; int nr=0;
+    Room rooms[12]; int nr=0;
     for (int z=0;z<GENH;z++){ for(int x=0;x<GENW;x++) g_gen[z][x]='#'; g_gen[z][GENW]=0; }
-    for (int t=0;t<80 && nr<7;t++){                       /* rooms, 1-cell margin apart */
+    for (int t=0;t<160 && nr<11;t++){                     /* rooms, 1-cell margin apart */
         Room r={ 1+grndi(GENW-11), 1+grndi(GENH-9), 4+grndi(5), 3+grndi(4) };
         if (r.x+r.w>=GENW-1 || r.z+r.h>=GENH-1) continue;
         int bad=0;
@@ -304,12 +312,11 @@ static void gen_level(int idx){
         rooms[0]=(Room){2,2,GENW-4,GENH-4}; nr=1;
         for (int z=2;z<GENH-2;z++) for (int x=2;x<GENW-2;x++) g_gen[z][x]='.';
     }
-    for (int i=0;i+1<nr;i++){                             /* short L connectors; 40% hall-wide */
-        int x=rooms[i].x+rooms[i].w/2,   z=rooms[i].z+rooms[i].h/2;
-        int x1=rooms[i+1].x+rooms[i+1].w/2, z1=rooms[i+1].z+rooms[i+1].h/2;
-        int wide = grnd()<0.4f;
-        while (x!=x1){ gcarve(x,z); if(wide) gcarve(x,z+1); x += x1>x?1:-1; }
-        while (z!=z1){ gcarve(x,z); if(wide) gcarve(x+1,z); z += z1>z?1:-1; }
+    for (int i=0;i+1<nr;i++) glink(&rooms[i], &rooms[i+1]);   /* the spine */
+    for (int e=0;e<nr/3;e++){                             /* extra cross-links -> LOOPS */
+        int a2=grndi(nr), b2=grndi(nr);
+        if (a2==b2 || a2+1==b2 || b2+1==a2) continue;     /* skip spine neighbours */
+        glink(&rooms[a2], &rooms[b2]);
     }
     { float stonep = idx<3 ? 0.35f : idx<6 ? 0.65f : 0.9f;   /* deeper = grimmer stone */
     for (int i=0;i<nr;i++) if (grnd()<stonep){
@@ -346,7 +353,7 @@ static void gen_level(int idx){
       if (ex<0){ ex=r->x+r->w/2; ez=r->z; }
       g_gen[ez][ex]='E';
     }
-    int nen=6+idx*2; if (nen>20) nen=20;                  /* deeper = meaner */
+    int nen=8+idx*2; if (nen>22) nen=22;                  /* deeper = meaner */
     nen = (nen * (g_diff==0 ? 3 : g_diff==2 ? 5 : 4)) / 4; if (nen<3) nen=3;
     float bprob=0.10f+0.06f*idx; if (bprob>0.5f) bprob=0.5f;   /* brutes */
     float rprob=idx>=1 ? 0.18f : 0.0f;                         /* rushers from floor 2 */
@@ -364,11 +371,11 @@ static void gen_level(int idx){
         int bx2=r->x+r->w/2, bz2=r->z+r->h/2;
         if (g_gen[bz2][bx2]!='P') g_gen[bz2][bx2]='Z';
     }
-    int drops = 4 + ((idx>=1 && !has_chain) ? 1 : 0);     /* ammo/health (+ the chaingun once) */
+    int drops = 6 + ((idx>=1 && !has_chain) ? 1 : 0);     /* ammo/health (+ the chaingun once) */
     for (int t=0;t<240 && drops>0;t++){
         int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
         if (g_gen[z][x]!='.') continue;
-        g_gen[z][x] = (drops==5)?'w' : (drops&1)?(grnd()<0.3f?'A':'a'):(grnd()<0.3f?'H':'h'); drops--;
+        g_gen[z][x] = (drops==7)?'w' : (drops&1)?(grnd()<0.3f?'A':'a'):(grnd()<0.3f?'H':'h'); drops--;
     }
     if (idx!=NUM_FLOORS-1){                               /* the GOLD KEY, hidden mid-dungeon */
         int kroom = nr>2 ? 1+grndi(nr-1) : 0;
@@ -377,7 +384,7 @@ static void gen_level(int idx){
         for (int t=0;t<30;t++){ int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
             if (g_gen[z][x]=='.'){ g_gen[z][x]='K'; break; } }
     }
-    { int nt=3+grndi(3);                                  /* treasure scattered in rooms */
+    { int nt=4+grndi(4);                                  /* treasure scattered in rooms */
       for (int t=0;t<160 && nt>0;t++){
         int ri=grndi(nr); Room*r=&rooms[ri];
         int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
@@ -449,7 +456,7 @@ static void gen_level(int idx){
             if (g_gen[z][x]=='.') g_gen[z][x]=lk;
         }
     }
-    int ns=6;                                             /* BLOCKING clutter: all four neighbours
+    int ns=9;                                             /* BLOCKING clutter: all four neighbours
                                                              pure floor AND the placement must not cut
                                                              the map — flood fill must lose exactly the
                                                              clutter cell itself, nothing else */
@@ -462,7 +469,7 @@ static void gen_level(int idx){
         if (gflood(sx,sz) != reach-1) { g_gen[z][x]='.'; continue; }   /* sealed a path — revert */
         reach--; ns--;
     }
-    int nd2=4;                                            /* walk-through dressing */
+    int nd2=6;                                            /* walk-through dressing */
     for (int t=0;t<160 && nd2>0;t++){
         int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
         if (g_gen[z][x]!='.') continue;
@@ -1129,7 +1136,7 @@ static void g_overlay(uint16_t *fb) {
 
     /* -------- AUTOMAP: explored cells only -------- */
     if (g_showmap && state == ST_PLAY) {
-        int cell=5, ox=(128-MW*cell)/2, oy=(128-MH*cell)/2;
+        int cell=4, ox=(128-MW*cell)/2, oy=(128-MH*cell)/2;
         mote->draw_rect(fb, 0,0,128,128, MOTE_RGB565(10,12,16),1,0,128);
         for (int z=0;z<MH;z++) for (int x=0;x<MW;x++){
             if (!g_seen[z][x]) continue;
