@@ -50,7 +50,9 @@ for i,c in enumerate(cells):
     a=np.asarray(r).copy(); hard=a[:,:,3]>110
     a[:,:,3]=np.where(hard,255,0); a[~hard]=0
     r=Image.fromarray(a,"RGBA")
-    sheet.paste(r,((i%6)*CS+(CS-r.size[0])//2,(i//6)*CS+(CS-r.size[1])//2))
+    HANG={16,23}                                       # hanging lamp + banner hang from the top
+    py = (i//6)*CS + (0 if i in HANG else (CS-r.size[1]))
+    sheet.paste(r,((i%6)*CS+(CS-r.size[0])//2, py))
 sheet.save(OUT)
 print(f"wrote props24.png ({len(cells)} cells of {CS}x{CS})")
 
@@ -63,6 +65,6 @@ for i, g in enumerate(guns):
     a = np.asarray(r).copy(); hard = a[:,:,3] > 110
     a[:,:,3] = np.where(hard,255,0); a[~hard] = 0
     r = Image.fromarray(a,"RGBA")
-    gs.paste(r, (i*GW+(GW-r.size[0])//2, (GH-r.size[1])//2))
+    gs.paste(r, (i*GW+(GW-r.size[0])//2, GH-r.size[1]))
 gs.save("/home/maustin/thumby-color/mote/games/wolfmote/assets/wpickup.png")
 print("wrote wpickup.png (pistol/shotgun/chaingun profiles, 32x16 cells)")

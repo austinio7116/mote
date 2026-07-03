@@ -119,12 +119,12 @@ static const struct { uint8_t cell; float y, wh; uint8_t glow; } SCP[13] = {
     {14, 0.30f, 0.60f, 0},   /* wooden barrel*/
     {12, 0.50f, 1.00f, 0},   /* cracked pillar */
     {15, 0.34f, 0.68f, 0},   /* crate stack  */
-    {16, 0.74f, 0.52f, 1},   /* hanging lamp */
-    {17, 0.62f, 0.60f, 1},   /* wall torch   */
+    {16, 0.72f, 0.56f, 1},   /* hanging lamp (from the ceiling) */
+    {17, 0.58f, 0.55f, 1},   /* wall torch (WALL-mounted)       */
     {19, 0.34f, 0.68f, 1},   /* candelabra   */
     {21, 0.18f, 0.36f, 0},   /* skull pile   */
     {22, 0.44f, 0.88f, 0},   /* knight statue*/
-    {23, 0.60f, 0.90f, 0},   /* war banner   */
+    {23, 0.55f, 0.90f, 0},   /* war banner (WALL-mounted)       */
 };
 typedef struct { float x,z; int type; } Scenery;
 typedef struct { int ix,iz; float open; int want; float closet; int isexit; } Door;
@@ -148,7 +148,7 @@ static int     g_exi, g_ezi; /* exit door cell */
 /* ============================================================== player ===== */
 static float px, pz, yaw;
 static int   health, ammo, score, has_chain, level;
-static int   g_showmap;
+static int   g_showmap, g_pmoving;
 static uint8_t g_seen[MAXH][MAXW];
 static float gun_cd, muzzle, walk_t, hurt, msg_t;
 static int   cur_w;                       /* 0 pistol · 1 chaingun */
@@ -329,8 +329,21 @@ static void gen_level(int idx){
             nsec--; break;
         } } }
     for (int i=0;i<nr;i++) if (grnd()<0.75f){             /* a light per room, varied */
-        int x=rooms[i].x+rooms[i].w/2, z=rooms[i].z+rooms[i].h/2;
-        if (g_gen[z][x]=='.') g_gen[z][x] = "lmnT"[grndi(4)];
+        char lk = "lmnT"[grndi(4)];
+        if (lk=='T'){                                     /* torches live on walls */
+            Room*r=&rooms[i]; int placed=0;
+            for (int t2=0;t2<12 && !placed;t2++){
+                int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
+                if (g_gen[z][x]!='.') continue;
+                if (!gopen(x,z-1)||!gopen(x,z+1)||!gopen(x-1,z)||!gopen(x+1,z))
+                    { g_gen[z][x]='T'; placed=1; }
+            }
+            if (!placed) lk='n';
+        }
+        if (lk!='T'){
+            int x=rooms[i].x+rooms[i].w/2, z=rooms[i].z+rooms[i].h/2;
+            if (g_gen[z][x]=='.') g_gen[z][x]=lk;
+        }
     }
     int ns=6;                                             /* BLOCKING clutter: all four neighbours
                                                              must be PURE floor so no threshold seals */
@@ -340,11 +353,13 @@ static void gen_level(int idx){
         if (g_gen[z][x+1]!='.'||g_gen[z][x-1]!='.'||g_gen[z+1][x]!='.'||g_gen[z-1][x]!='.') continue;
         g_gen[z][x] = "oWiIck"[grndi(6)]; ns--;
     }
-    int nd2=4;                                            /* walk-through dressing: skulls, banners, plants */
-    for (int t=0;t<120 && nd2>0;t++){
+    int nd2=4;                                            /* walk-through dressing */
+    for (int t=0;t<160 && nd2>0;t++){
         int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
         if (g_gen[z][x]!='.') continue;
-        g_gen[z][x] = "ysb"[grndi(3)]; nd2--;
+        char dk = "ysb"[grndi(3)];
+        if (dk=='b' && gopen(x,z-1)&&gopen(x,z+1)&&gopen(x-1,z)&&gopen(x+1,z)) continue;  /* banners need a wall */
+        g_gen[z][x] = dk; nd2--;
     }
     for (int z=0;z<GENH;z++) g_genrows[z]=g_gen[z];
     g_genrows[GENH]=0;
@@ -401,10 +416,19 @@ static void load_level(int idx) {
                 case 'k': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_KNIGHT};  g_block[z][x]=1; break;
                 case 'l': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_LAMP}; break;
                 case 'm': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_HANGLAMP}; break;
-                case 'T': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_TORCH}; break;
+                case 'T': case 'b': {                      /* WALL-mounted: hug the nearest wall */
+                    float ox2=wx, oz2=wz; int fnd=0;
+                    if (z>0 && (rows[z-1][x]=='#'||rows[z-1][x]=='%')){ oz2=z+0.12f; fnd=1; }
+                    else if (z<MH-1 && rows[z+1][x] && (rows[z+1][x]=='#'||rows[z+1][x]=='%')){ oz2=z+0.88f; fnd=1; }
+                    else if (x>0 && (row[x-1]=='#'||row[x-1]=='%')){ ox2=x+0.12f; fnd=1; }
+                    else if (row[x+1] && (row[x+1]=='#'||row[x+1]=='%')){ ox2=x+0.88f; fnd=1; }
+                    if (g_nsc<MAX_SC){
+                        if (fnd) g_sc[g_nsc++]=(Scenery){ox2,oz2, c=='T'?SC_TORCH:SC_BANNER};
+                        else     g_sc[g_nsc++]=(Scenery){wx,wz, c=='T'?SC_CANDLE:SC_SKULL};   /* no wall: swap */
+                    }
+                    break; }
                 case 'n': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_CANDLE}; break;
                 case 's': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_SKULL}; break;
-                case 'b': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_BANNER}; break;
                 case 'y': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PLANT}; break;
                 case 'H': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_HEALTH2,0,0}; break;
                 case 'A': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO2,0,0}; break;
@@ -589,6 +613,7 @@ static void g_update(float dt) {
         float dz = (fz*mv + rz*stf) * sp * dt;
         if (dx != 0 && can_stand(px+dx, pz)) { px += dx; moving = 1; }
         if (dz != 0 && can_stand(px, pz+dz)) { pz += dz; moving = 1; }
+        g_pmoving = moving != 0;
         if (moving) {
             float prev = walk_t;
             walk_t += dt * 9.0f;
@@ -706,7 +731,11 @@ static void g_update(float dt) {
                 } else {
                     e->firecd = fcd; e->fireanim = 0.28f;
                     play(&snd_efire, dist_gain(d, 0.12f, 0.6f));
-                    if (d < rng) {
+                    /* they can MISS: harder at range, harder still if you keep moving */
+                    float acc = 0.85f - d*0.055f - (g_pmoving ? 0.22f : 0.0f);
+                    if (e->type==EN_CMDO || e->type==EN_BOSS) acc += 0.12f;   /* the elites aim */
+                    if (acc < 0.18f) acc = 0.18f;
+                    if (d < rng && mote_frand() < acc) {
                         int dmg = e->type==EN_BOSS ? 16 + (int)(mote_frand()*13)
                                 : e->type==EN_BRUTE ? 12 + (int)(mote_frand()*11)
                                 : e->type==EN_CMDO  ? 10 + (int)(mote_frand()*9)
@@ -773,7 +802,7 @@ static void g_update(float dt) {
         Pickup *p = &g_pk[i];
         if (p->taken) continue;
         if (p->type==PK_WEAPON)
-            mote->scene_add_billboard(v3(p->x,0.22f,p->z), &wpickup_img, (has_shot?2:1)*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
+            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, (has_shot?2:1)*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
         else {
             static const uint8_t TCELL[6]={2,3,4,5,6,9};    /* treasure variants */
             int cell = p->type==PK_KEY     ? 10
@@ -782,7 +811,7 @@ static void g_update(float dt) {
                      : p->type==PK_AMMO2   ? 8
                      : p->type==PK_HEALTH2 ? 1 : 0;
             float wh = (p->type==PK_TREAS && (p->variant==4)) ? 0.5f : 0.4f;   /* the idol looms */
-            mote->scene_add_billboard(v3(p->x,0.26f,p->z), &props24_img, (cell%6)*28,(cell/6)*28,28,28, wh, MOTE_BLEND_NONE);
+            mote->scene_add_billboard(v3(p->x, wh*0.5f, p->z), &props24_img, (cell%6)*28,(cell/6)*28,28,28, wh, MOTE_BLEND_NONE);
         }
     }
 
