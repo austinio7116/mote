@@ -20,14 +20,7 @@
  */
 #include "mote_api.h"
 #include "mote_build.h"
-#include "wallbrick.h"
-#include "wallstone.h"
-#include "walldoor.h"
-#include "walldoorw.h"
-#include "wallexit.h"
-#include "wallcrack.h"
-#include "wallmoss.h"
-#include "wallmetal.h"
+#include "walls.h"        /* one 128x256 sheet: 2x4 cells of 64px, see assets/extract_walls.py */
 #include "title.font.h"   /* Pirata One @28px blackletter for the title */
 #include "blood.h"
 #include "props24.h"      /* props24_img — 24-cell pickup/scenery set, 28x28 cells */
@@ -80,7 +73,7 @@ static int     MW, MH;
 /* ---- wall cube mesh (one geometry, three textures) ---- */
 static MeshVert g_cv[8];
 static MeshFace g_cf[12];
-static uint8_t  g_cuv[72];
+static uint8_t  g_cuv[8][72];        /* per wall type: its cell in the walls sheet */
 static Mesh wall_brick, wall_stone, wall_door, wall_doorw, wall_exit,
             wall_crack, wall_moss, wall_metal;
 static const Mesh *g_wallA, *g_wallB, *g_walldoor;   /* this floor's palette */
@@ -96,19 +89,29 @@ static void build_wall_mesh(void) {
     for (int q = 0; q < 6; q++) {
         uint8_t r[4] = { Q[q].a,Q[q].b,Q[q].c,Q[q].d };
         int8_t nx=Q[q].nx, ny=Q[q].ny, nz=Q[q].nz;
-        g_cf[fi]=(MeshFace){r[0],r[1],r[2],nx,ny,nz};
-        g_cuv[fi*6+0]=0;g_cuv[fi*6+1]=255;g_cuv[fi*6+2]=255;g_cuv[fi*6+3]=255;g_cuv[fi*6+4]=255;g_cuv[fi*6+5]=0; fi++;
-        g_cf[fi]=(MeshFace){r[0],r[2],r[3],nx,ny,nz};
-        g_cuv[fi*6+0]=0;g_cuv[fi*6+1]=255;g_cuv[fi*6+2]=255;g_cuv[fi*6+3]=0;g_cuv[fi*6+4]=0;g_cuv[fi*6+5]=0; fi++;
+        g_cf[fi++]=(MeshFace){r[0],r[1],r[2],nx,ny,nz};
+        g_cf[fi++]=(MeshFace){r[0],r[2],r[3],nx,ny,nz};
     }
-    wall_brick=(Mesh){.verts=g_cv,.faces=g_cf,.nverts=8,.nfaces=12,.scale=0.5f,.bound_r=0.87f,.texture=&wallbrick_img,.face_uvs=g_cuv};
-    wall_stone=wall_brick; wall_stone.texture=&wallstone_img;
-    wall_door =wall_brick; wall_door.texture =&walldoor_img;
-    wall_doorw=wall_brick; wall_doorw.texture=&walldoorw_img;
-    wall_exit =wall_brick; wall_exit.texture =&wallexit_img;
-    wall_crack=wall_brick; wall_crack.texture=&wallcrack_img;
-    wall_moss =wall_brick; wall_moss.texture =&wallmoss_img;
-    wall_metal=wall_brick; wall_metal.texture=&wallmetal_img;
+    /* every wall type maps its 64px cell in the walls sheet (2 cols x 4 rows);
+     * these u8 breakpoints are texel-exact under the u*w/255 sampling */
+    for (int w = 0; w < 8; w++) {
+        uint8_t u0 = (w&1) ? 128 : 0,   u1 = (w&1) ? 255 : 127;
+        uint8_t v0 = (uint8_t)((w>>1)*64), v1 = (uint8_t)(v0 + 63 + ((w>>1)==3));
+        uint8_t *uv = g_cuv[w];
+        for (int q = 0; q < 6; q++) {
+            uint8_t *a = uv + q*12;
+            a[0]=u0;a[1]=v1; a[2]=u1;a[3]=v1; a[4]=u1;a[5]=v0;   /* tri 1 */
+            a[6]=u0;a[7]=v1; a[8]=u1;a[9]=v0; a[10]=u0;a[11]=v0; /* tri 2 */
+        }
+    }
+    wall_brick=(Mesh){.verts=g_cv,.faces=g_cf,.nverts=8,.nfaces=12,.scale=0.5f,.bound_r=0.87f,.texture=&walls_img,.face_uvs=g_cuv[0]};
+    wall_stone=wall_brick; wall_stone.face_uvs=g_cuv[1];
+    wall_crack=wall_brick; wall_crack.face_uvs=g_cuv[2];
+    wall_moss =wall_brick; wall_moss.face_uvs =g_cuv[3];
+    wall_metal=wall_brick; wall_metal.face_uvs=g_cuv[4];
+    wall_door =wall_brick; wall_door.face_uvs =g_cuv[5];
+    wall_doorw=wall_brick; wall_doorw.face_uvs=g_cuv[6];
+    wall_exit =wall_brick; wall_exit.face_uvs =g_cuv[7];
 }
 
 /* ============================================================ entities ===== */
@@ -205,6 +208,11 @@ static inline int is_blocked(int ix, int iz) {
         if (id >= 0 && g_dr[id].open > 0.5f) return 0;
         return 1;
     }
+    return 0;
+}
+static int pickup_at(int ix, int iz){
+    for (int i=0;i<g_npk;i++)
+        if (!g_pk[i].taken && (int)g_pk[i].x==ix && (int)g_pk[i].z==iz) return 1;
     return 0;
 }
 static int prop_hits(float x, float z, float r) {   /* solid props are CIRCLES, not cells —
@@ -417,7 +425,8 @@ static void gen_level(int idx){
             /* pocket must stay sealed at the far end + sides */
             int c1x=x+DX4[k]*3, c1z=z+DZ4[k]*3;
             if (c1x<0||c1z<0||c1x>=GENW||c1z>=GENH||gopen(c1x,c1z)) continue;
-            g_gen[b1z][b1x]='.'; g_gen[b2z][b2x]='t';     /* loot at the back */
+            g_gen[b1z][b1x]='t'; g_gen[b2z][b2x]='.';     /* loot in FRONT — the wall
+                                                             slides past it and berths at the back */
             g_gen[z][x]='S';                              /* the pushable wall */
             nsec--; break;
         } } }
@@ -663,8 +672,8 @@ static void explode_barrel(int idx){
             if (en->hp<=0){ en->alive=0; fl_kills++; score+=en->type==EN_BOSS?2000:150;
                             if (g_nco<24) g_co[g_nco++]=(Corpse){en->x,en->z}; } } }
     { float dx=px-bx, dz=pz-bz;
-      if (dx*dx+dz*dz<1.5f*1.5f){ health-=25; hurt=0.4f;
-          g_dmgdir=atan2f(bx-px,bz-pz); g_dmgt=0.55f;
+      if (dx*dx+dz*dz<1.5f*1.5f){ health-=25; hurt=0.22f;
+          g_dmgdir=atan2f(bx-px,bz-pz); g_dmgt=0.30f;
           if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
     for (int s2=0;s2<g_nsc;s2++){                          /* CHAIN nearby steel barrels */
         if (g_sc[s2].type!=SC_BARREL) continue;
@@ -833,7 +842,8 @@ static void g_update(float dt) {
                 g_pw.steps++;
                 int fx2=nx+g_pw.dx, fz2=nz+g_pw.dz;
                 int can_go = g_pw.steps<2 && fx2>0 && fz2>0 && fx2<MW-1 && fz2<MH-1 &&
-                             !g_block[nz][nx] && !g_block[fz2][fx2] && g_wall[fz2][fx2]==0;
+                             !g_block[nz][nx] && !g_block[fz2][fx2] && g_wall[fz2][fx2]==0 &&
+                             !pickup_at(fx2,fz2);                /* never berth ON loot */
                 g_wall[nz][nx]=4; g_block[nz][nx]=1;      /* settle into the next cell */
                 if (can_go) { g_pw.ix=nx; g_pw.iz=nz; g_pw.t=0; }
                 else g_pw.active=0;
@@ -916,8 +926,8 @@ static void g_update(float dt) {
                 if (melee) {
                     if (d < 1.0f) {                            /* the rusher BITES */
                         e->firecd = fcd; e->fireanim = 0.22f;
-                        health -= 7 + (int)(mote_frand()*7); hurt = 0.35f;
-                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.55f;
+                        health -= 7 + (int)(mote_frand()*7); hurt = 0.22f;
+                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
                         play(&snd_hit, 0.5f);
                         if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
                     }
@@ -943,8 +953,8 @@ static void g_update(float dt) {
                                 : e->type==EN_CMDO  ? 10 + (int)(mote_frand()*9)
                                 :  6 + (int)(mote_frand()*8);
                         dmg = (dmg * (g_diff==0 ? 7 : g_diff==2 ? 12 : 10)) / 10;
-                        health -= dmg; hurt = 0.35f;
-                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.55f;
+                        health -= dmg; hurt = 0.22f;
+                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
                         if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
                     }
                 }
@@ -1061,13 +1071,12 @@ static void g_overlay(uint16_t *fb) {
     const uint16_t white = MOTE_RGB565(240,244,250);
     const uint16_t amber = MOTE_RGB565(245,205,70);
 
-    if (hurt > 0) {
-        int t = (int)(hurt*24.0f); if (t>10) t=10;
+    if (hurt > 0) {                                  /* thin, quick edge flash */
         uint16_t red = MOTE_RGB565(200,30,30);
-        mote->draw_rect(fb, 0,0,128,t, red,1,0,128);
-        mote->draw_rect(fb, 0,128-t,128,t, red,1,0,128);
-        mote->draw_rect(fb, 0,0,t,128, red,1,0,128);
-        mote->draw_rect(fb, 128-t,0,t,128, red,1,0,128);
+        mote->draw_rect(fb, 0,0,128,2, red,1,0,128);
+        mote->draw_rect(fb, 0,126,128,2, red,1,0,128);
+        mote->draw_rect(fb, 0,0,2,128, red,1,0,128);
+        mote->draw_rect(fb, 126,0,2,128, red,1,0,128);
     }
 
     uint16_t ch = MOTE_RGB565(230,230,235);
@@ -1101,10 +1110,10 @@ static void g_overlay(uint16_t *fb) {
         while (rel >  3.14159f) rel -= 6.28318f;
         while (rel < -3.14159f) rel += 6.28318f;
         uint16_t rc = MOTE_RGB565(200 + (int)(g_dmgt*100), 30, 30);
-        if      (fabsf(rel) < 0.79f)  mote->draw_rect(fb, 20,10,88,3,  rc,1,0,128);   /* ahead */
-        else if (fabsf(rel) > 2.35f)  mote->draw_rect(fb, 20,125,88,3, rc,1,0,128);   /* behind */
-        else if (rel > 0)             mote->draw_rect(fb, 0,30,3,68,   rc,1,0,128);   /* left */
-        else                          mote->draw_rect(fb, 125,30,3,68, rc,1,0,128);   /* right */
+        if      (fabsf(rel) < 0.79f)  mote->draw_rect(fb, 20,10,88,2,  rc,1,0,128);   /* ahead */
+        else if (fabsf(rel) > 2.35f)  mote->draw_rect(fb, 20,126,88,2, rc,1,0,128);   /* behind */
+        else if (rel > 0)             mote->draw_rect(fb, 0,30,2,68,   rc,1,0,128);   /* left */
+        else                          mote->draw_rect(fb, 126,30,2,68, rc,1,0,128);   /* right */
     }
     if (msg_t > 0 && state == ST_PLAY)
         mote->text(fb, g_msg, 34,118, amber);
