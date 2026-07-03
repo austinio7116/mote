@@ -143,7 +143,7 @@ static const struct { uint8_t cell; float y, wh; uint8_t glow; } SCP[13] = {
     {23, 0.55f, 0.90f, 0},   /* war banner (WALL-mounted)       */
 };
 typedef struct { float x,z; int type; } Scenery;
-typedef struct { int ix,iz; float open; int want; float closet; int isexit, issilver; } Door;
+typedef struct { int ix,iz; float open; int want; float closet; int isexit, issilver, link; } Door;
 
 static Enemy   g_en[MAX_EN]; static int g_nen;
 static Pickup  g_pk[MAX_PK]; static int g_npk;
@@ -287,12 +287,12 @@ static int gflood(int fx,int fz){        /* 4-connected count of reachable cells
 }
 static void gcarve(int x,int z){ if(x>0&&z>0&&x<GENW-1&&z<GENH-1 && !gopen(x,z)) g_gen[z][x]='.'; }
 
-static void glink(const Room*a, const Room*b){        /* L connector; 40% hall-wide */
+static void glink(const Room*a, const Room*b){        /* L connector, always hall-wide —
+                                                         1-cell corridors read badly in 3D */
     int x=a->x+a->w/2, z=a->z+a->h/2;
     int x1=b->x+b->w/2, z1=b->z+b->h/2;
-    int wide = grnd()<0.4f;
-    while (x!=x1){ gcarve(x,z); if(wide) gcarve(x,z+1); x += x1>x?1:-1; }
-    while (z!=z1){ gcarve(x,z); if(wide) gcarve(x+1,z); z += z1>z?1:-1; }
+    while (x!=x1){ gcarve(x,z); gcarve(x,z+1); x += x1>x?1:-1; }
+    while (z!=z1){ gcarve(x,z); gcarve(x+1,z); z += z1>z?1:-1; }
 }
 
 static void gen_level(int idx){
@@ -312,11 +312,28 @@ static void gen_level(int idx){
         rooms[0]=(Room){2,2,GENW-4,GENH-4}; nr=1;
         for (int z=2;z<GENH-2;z++) for (int x=2;x<GENW-2;x++) g_gen[z][x]='.';
     }
-    for (int i=0;i+1<nr;i++) glink(&rooms[i], &rooms[i+1]);   /* the spine */
-    for (int e=0;e<nr/3;e++){                             /* extra cross-links -> LOOPS */
-        int a2=grndi(nr), b2=grndi(nr);
-        if (a2==b2 || a2+1==b2 || b2+1==a2) continue;     /* skip spine neighbours */
-        glink(&rooms[a2], &rooms[b2]);
+    {   /* connect rooms via a minimum spanning tree — short LOCAL halls, no
+         * map-crossing corridors that smear rooms into one blob */
+        int intree[12]={0}; intree[0]=1;
+        for (int added=1; added<nr; added++){
+            int bi=0,bj=-1; long bd=1L<<30;
+            for (int i2=0;i2<nr;i2++) if (intree[i2])
+                for (int j2=0;j2<nr;j2++) if (!intree[j2]){
+                    long dx=(rooms[i2].x+rooms[i2].w/2)-(rooms[j2].x+rooms[j2].w/2);
+                    long dz=(rooms[i2].z+rooms[i2].h/2)-(rooms[j2].z+rooms[j2].h/2);
+                    long d2=dx*dx+dz*dz;
+                    if (d2<bd){ bd=d2; bi=i2; bj=j2; }
+                }
+            glink(&rooms[bi], &rooms[bj]); intree[bj]=1;
+        }
+        for (int e=0;e<nr/3;e++){                         /* a few NEARBY loops */
+            int a2=grndi(nr), b2=grndi(nr);
+            if (a2==b2) continue;
+            int dx=(rooms[a2].x+rooms[a2].w/2)-(rooms[b2].x+rooms[b2].w/2);
+            int dz=(rooms[a2].z+rooms[a2].h/2)-(rooms[b2].z+rooms[b2].h/2);
+            if (dx*dx+dz*dz > 14*14) continue;            /* keep loops local too */
+            glink(&rooms[a2], &rooms[b2]);
+        }
     }
     { float stonep = idx<3 ? 0.35f : idx<6 ? 0.65f : 0.9f;   /* deeper = grimmer stone */
     for (int i=0;i<nr;i++) if (grnd()<stonep){
@@ -326,12 +343,29 @@ static void gen_level(int idx){
             if (g_gen[z][x]=='#') g_gen[z][x]='%';
         }
     } }
-    int doors=0;                                          /* doors at 1-wide thresholds */
-    for (int z=1;z<GENH-1;z++) for (int x=1;x<GENW-1;x++){
+    int doors=0;                       /* DOUBLE doors at corridor MOUTHS only — a door
+                                          pair where a hall meets a room, never a line of
+                                          doors along the corridor itself */
+    for (int z=1;z<GENH-2 && doors<MAX_DR-4;z++) for (int x=1;x<GENW-2;x++){
         if (g_gen[z][x]!='.') continue;
-        int wN=!gopen(x,z-1), wS=!gopen(x,z+1), wE=!gopen(x+1,z), wW=!gopen(x-1,z);
-        if (((wN&&wS&&!wE&&!wW)||(wE&&wW&&!wN&&!wS)) && doors<MAX_DR-1 && grnd()<0.45f){
-            g_gen[z][x]='D'; doors++; }
+        /* N-S hall, 2 wide: pair (x,z)+(x+1,z), walls either side */
+        if (g_gen[z][x+1]=='.'
+            && !gopen(x-1,z)&&!gopen(x+2,z)
+            && gopen(x,z-1)&&gopen(x+1,z-1)&&gopen(x,z+1)&&gopen(x+1,z+1)
+            && g_gen[z-1][x]!='D'&&g_gen[z+1][x]!='D'&&g_gen[z-1][x+1]!='D'&&g_gen[z+1][x+1]!='D'){
+            int roomN = gopen(x-1,z-1)||gopen(x+2,z-1);   /* wider above = a room mouth */
+            int roomS = gopen(x-1,z+1)||gopen(x+2,z+1);
+            if (roomN!=roomS && grnd()<0.6f){ g_gen[z][x]='D'; g_gen[z][x+1]='D'; doors+=2; }
+        }
+        /* E-W hall, 2 tall: pair (x,z)+(x,z+1) */
+        else if (g_gen[z+1][x]=='.'
+            && !gopen(x,z-1)&&!gopen(x,z+2)
+            && gopen(x-1,z)&&gopen(x-1,z+1)&&gopen(x+1,z)&&gopen(x+1,z+1)
+            && g_gen[z][x-1]!='D'&&g_gen[z][x+1]!='D'&&g_gen[z+1][x-1]!='D'&&g_gen[z+1][x+1]!='D'){
+            int roomW = gopen(x-1,z-1)||gopen(x-1,z+2);
+            int roomE = gopen(x+1,z-1)||gopen(x+1,z+2);
+            if (roomW!=roomE && grnd()<0.6f){ g_gen[z][x]='D'; g_gen[z+1][x]='D'; doors+=2; }
+        }
     }
     int sx=rooms[0].x+rooms[0].w/2, sz=rooms[0].z+rooms[0].h/2;
     g_gen[sz][sx]='P';
@@ -506,17 +540,17 @@ static void load_level(int idx) {
                 case '%': g_wall[z][x]=2; g_block[z][x]=1; break;
                 case 'D':
                     g_wall[z][x]=3;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,0}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,0,-1}; g_ndr++; }
                     break;
                 case 'V':
                     g_wall[z][x]=3;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,1}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,0,1,-1}; g_ndr++; }
                     break;
                 case 'J': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_KEY2,0,0}; break;
                 case 'P': px=wx; pz=wz; break;
                 case 'E':                                  /* the GREEN EXIT DOOR */
                     g_wall[z][x]=3; g_ex=wx; g_ez=wz; g_exi=x; g_ezi=z;
-                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,1,0}; g_ndr++; }
+                    if (g_ndr < MAX_DR) { g_doorid[z][x]=g_ndr; g_dr[g_ndr]=(Door){x,z,0,0,0,1,0,-1}; g_ndr++; }
                     break;
                 case 'G': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_GUARD,100,1,0.8f+mote_frand()*0.9f,0,0,0,0}; break;
                 case 'X': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_BRUTE,220,1,0.8f+mote_frand()*0.9f,0,0,0,0}; break;
@@ -587,6 +621,11 @@ static void load_level(int idx) {
     msg_t = 1.6f;                                          /* "FLOOR n" toast */
     { int k=0; const char*t="FLOOR "; char*b=g_msg; while(*t)*b++=*t++;
       if (idx+1>9)*b++='0'+(idx+1)/10; *b++='0'+(idx+1)%10; *b=0; (void)k; }
+    for (int i = 0; i < g_ndr; i++)              /* pair up double doors */
+        for (int j = i+1; j < g_ndr; j++)
+            if ((g_dr[i].ix==g_dr[j].ix && (g_dr[i].iz==g_dr[j].iz+1 || g_dr[i].iz+1==g_dr[j].iz)) ||
+                (g_dr[i].iz==g_dr[j].iz && (g_dr[i].ix==g_dr[j].ix+1 || g_dr[i].ix+1==g_dr[j].ix)))
+                { g_dr[i].link=j; g_dr[j].link=i; }
     g_nco = 0; g_pw.active = 0; g_showmap = 0;
     has_key = 0; has_silver = 0; fl_time = 0;
     fl_kills = 0; fl_kills_tot = g_nen;
@@ -867,11 +906,17 @@ static void g_update(float dt) {
         }
         for (int i = 0; i < g_ndr; i++) {
             Door *d = &g_dr[i];
-            int occupied = ((int)px==d->ix && (int)pz==d->iz);
+            Door *pr = d->link>=0 ? &g_dr[d->link] : 0;
+            if (pr && pr->want && !d->want) { d->want=1; d->closet=pr->closet; }   /* double doors open as one */
+            int occupied = ((int)px==d->ix && (int)pz==d->iz) ||
+                           (pr && (int)px==pr->ix && (int)pz==pr->iz);
             if (d->want) {
                 d->open += dt*2.5f; if (d->open>1) d->open=1;
-                if (d->open>=1 && !occupied) { d->closet -= dt; if (d->closet<=0) d->want=0; }
-                else if (occupied) d->closet = 1.0f;
+                if (d->open>=1 && !occupied) {
+                    d->closet -= dt;
+                    if (d->closet<=0) { d->want=0; if (pr) pr->want=0; }
+                }
+                else if (occupied) { d->closet = 1.0f; if (pr) pr->closet = 1.0f; }
             } else if (occupied) { d->want=1; d->closet=1.0f; }   /* never entomb the player */
             else { d->open -= dt*2.5f; if (d->open<0) d->open=0; }
         }
