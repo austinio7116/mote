@@ -391,7 +391,8 @@ static void car_body_init(int i) {
     /* every vehicle's collider is ART-EXACT: VSTAT len/wid are the true art sizes */
     float hl = v->len*0.5f, hw = v->wid*0.5f;
     bodies[i] = mote_body2d_box(c->x, c->z, hl, hw, c->yaw, v->mass*380.0f);
-    bodies[i].friction = 0.9f; bodies[i].restitution = 0.12f;
+    bodies[i].friction = 0.3f; bodies[i].restitution = 0.38f;  /* low grab + real bounce: cars GLANCE off
+                                                                   each other (walls stay dull - rest=min) */
     bodies[i].ang_damp = 3.0f; bodies[i].lin_damp = 0.35f;    /* light rolling resistance; low-ish so drifts hold */
     bodies[i].lat_damp = v->grip;                             /* per-car tyre grip (muscle slides, sports plant) */
     npc_target[i] = c->yaw; ai_state[i] = AIS_CRUISE; lane_pref[i] = (uint8_t)irand(3);
