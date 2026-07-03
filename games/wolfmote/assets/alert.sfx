@@ -1,0 +1,10 @@
+# Mote SFX recipe — enemy alert bark
+wave 1
+freq 0.26 0.08 -0.28 0
+duty 0 0
+vib 0.2 0.3
+env 0 0.05 0.4 0.14
+lpf 0.6 0 0.2
+hpf 0.04 0
+pha 0 0
+arp 0.3 -0.3

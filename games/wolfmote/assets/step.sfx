@@ -1,0 +1,10 @@
+# Mote SFX recipe — footstep tick
+wave 3
+freq 0.12 0 -0.3 0
+duty 0 0
+vib 0 0
+env 0 0.01 0.2 0.05
+lpf 0.3 0 0.1
+hpf 0 0
+pha 0 0
+arp 0 0
