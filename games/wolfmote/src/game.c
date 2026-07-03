@@ -36,7 +36,11 @@
 #include "guard.h"
 #include "brute.h"
 #include "weapons.h"       /* weapons_img — 9 FP cells: knife pist smg shot dbl chain fire cann plas */
-#include "wpickup.h"       /* wpickup_img — 9 pickup icons, same order, 32x16 */
+#include "wpickup.h"       /* wpickup_img — 9 pickup icons, same order; cell size is
+                            * DERIVED from the sheet (hand-edited saves may resize it) */
+#define WICON_X(i) ((i)*wpickup_img.w/9)
+#define WICON_W    (wpickup_img.w/9)
+#define WICON_H    (wpickup_img.h)
 #include "ammo3.h"         /* ammo3_img — fuel / cannonballs / energy cell, 20x20 */
 #include "fireball.h"
 #include "plasmab.h"
@@ -1244,7 +1248,7 @@ static void g_update(float dt) {
         if (p->taken) continue;
         if (p->type==PK_WEAPON) {
             int nw = next_weapon(); if (nw<0) nw=1;
-            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, nw*32,0,32,16, 0.30f, MOTE_BLEND_NONE);
+            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, WICON_X(nw),0,WICON_W,WICON_H, 0.30f, MOTE_BLEND_NONE);
         }
         else if (p->type>=PK_FUEL && p->type<=PK_CELLS)
             mote->scene_add_billboard(v3(p->x,0.16f,p->z), &ammo3_img, (p->type-PK_FUEL)*20,0,20,20, 0.24f, MOTE_BLEND_NONE);
@@ -1376,7 +1380,7 @@ static void g_overlay(uint16_t *fb) {
           mote->draw_rect(fb, mxx-1, mzz-1, 3,3, MOTE_RGB565(255,255,255),1,0,128);
           mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz-(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
         mote_textf(mote, fb, 4,2, amber, "FLOOR %d", level+1);
-        mote->blit_ex(fb, &wpickup_img, 20,116, cur_w*32,0,32,16, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
+        mote->blit_ex(fb, &wpickup_img, 20,116, WICON_X(cur_w),0,WICON_W,WICON_H, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
         mote->text(fb, WPN[cur_w].nm, 38,116, amber);
         mote->text(fb, "< >", 38,124, MOTE_RGB565(140,150,170));
         mote->text(fb, "MENU CLOSE", 78,120, MOTE_RGB565(140,150,170));
