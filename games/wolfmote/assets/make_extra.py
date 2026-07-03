@@ -62,7 +62,9 @@ d.rectangle([17.4*S,11*S,18.6*S,22*S], fill=GMD)                                
 down(im,36,40).save(f"{AD}/gun_shotgun.png")
 
 # ---- enemy recolours: hue-shifted derivatives of the existing art ----
-def hueshift(src, dst, dh, sat=1.0, val=1.0):
+def hueshift(src, dst, dh, sat=1.0, val=1.0, sel_h=None, sel_w=0.16):
+    """recolour; sel_h limits the shift to hues near sel_h (e.g. just the uniform),
+    leaving skin/blood/steel untouched"""
     im = Image.open(f"{AD}/{src}").convert("RGBA")
     a = np.asarray(im).astype(np.float32)/255.0
     out = a.copy()
@@ -71,10 +73,14 @@ def hueshift(src, dst, dh, sat=1.0, val=1.0):
             r,g,b,al = a[y,x]
             if al < 0.5: continue
             h,s,v = colorsys.rgb_to_hsv(r,g,b)
+            if sel_h is not None:
+                dd = abs(((h - sel_h + 0.5) % 1.0) - 0.5)
+                if dd > sel_w or s < 0.25: continue      # keep skin + greys
             r2,g2,b2 = colorsys.hsv_to_rgb((h+dh)%1.0, min(1,s*sat), min(1,v*val))
             out[y,x] = (r2,g2,b2,al)
     Image.fromarray((out*255).astype(np.uint8),"RGBA").save(f"{AD}/{dst}")
 
-hueshift("guard.png", "rusher.png", dh=-0.28, sat=1.25, val=1.05)   # blue->red: the rusher
-hueshift("brute.png", "boss.png",   dh=+0.18, sat=1.15, val=0.82)   # sickly dark: the boss
+hueshift("guard.png", "rusher.png",   dh=+0.40, sat=1.2, val=1.02, sel_h=0.62)  # uniform blue -> RED
+hueshift("guard.png", "commando.png", dh=-0.28, sat=1.1, val=0.95, sel_h=0.62)  # uniform blue -> GREEN
+hueshift("brute.png", "boss.png",     dh=+0.18, sat=1.15, val=0.82)             # sickly dark: the boss
 print("wrote key, treasure, blood, gun_shotgun, rusher, boss")
