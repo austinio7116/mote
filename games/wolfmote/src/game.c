@@ -96,7 +96,7 @@ static void build_wall_mesh(void) {
      * these u8 breakpoints are texel-exact under the u*w/255 sampling */
     for (int w = 0; w < 8; w++) {
         uint8_t u0 = (w&1) ? 128 : 0,   u1 = (w&1) ? 255 : 127;
-        uint8_t v0 = (uint8_t)((w>>1)*64), v1 = (uint8_t)(v0 + 63 + ((w>>1)==3));
+        uint8_t v0 = (uint8_t)((w>>1)*64), v1 = (uint8_t)(v0 + 63);   /* 255 hits the last texel via clamp */
         uint8_t *uv = g_cuv[w];
         for (int q = 0; q < 6; q++) {
             uint8_t *a = uv + q*12;
