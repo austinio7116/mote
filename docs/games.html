@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mote Games Gallery</title>
+<style>
+:root{
+  --bg:#0b0d12; --panel:#12151d; --panel2:#171b26; --line:#232837;
+  --text:#dfe4f0; --dim:#8b93a8; --accent:#7c5cff; --accent2:#37d67a; --gold:#f5cd46;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font:16px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(1100px 500px at 50% -10%, rgba(124,92,255,.14), transparent 60%),
+             radial-gradient(900px 500px at 85% 110%, rgba(55,214,122,.07), transparent 60%)}
+main{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:0 20px 90px}
+
+header{padding:34px 0 6px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+header h1{font-size:34px;letter-spacing:.5px}
+header h1 span{color:var(--accent)}
+header nav{margin-left:auto;font-size:14px}
+header nav a{color:var(--dim);text-decoration:none;margin-left:18px}
+header nav a:hover{color:var(--text)}
+.tagline{color:var(--dim);margin:2px 0 26px;font-size:15px}
+
+/* ---------- hero: the device ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(280px,1fr);gap:36px;align-items:center;
+  background:linear-gradient(180deg,var(--panel),transparent);border:1px solid var(--line);
+  border-radius:18px;padding:30px 34px;margin-bottom:34px}
+.device{position:relative;user-select:none}
+.device img.shell{width:100%;display:block;filter:drop-shadow(0 24px 44px rgba(0,0,0,.55))}
+.screen{position:absolute;left:35.21%;top:19.16%;width:30.95%;aspect-ratio:1;overflow:hidden;background:#000}
+.screen img{width:100%;height:100%;image-rendering:pixelated;display:block;opacity:0;transition:opacity .35s}
+.screen img.on{opacity:1}
+.screen .scan{position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(255,255,255,.028) 0 1px, transparent 1px 3px)}
+.dots{display:flex;gap:7px;justify-content:center;margin-top:14px}
+.dots i{width:8px;height:8px;border-radius:50%;background:#2c3245;cursor:pointer;transition:background .2s}
+.dots i.on{background:var(--accent)}
+
+.meta h2{font-size:30px;display:flex;align-items:center;gap:14px}
+.meta h2 img{width:44px;height:44px;image-rendering:pixelated;border-radius:8px}
+.meta .by{color:var(--dim);font-size:13px;margin:2px 0 14px}
+.meta p{color:#c7cddc;font-size:15.5px;margin-bottom:22px}
+.dl{display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:#fff;text-decoration:none;
+  font-weight:600;padding:12px 22px;border-radius:12px;transition:transform .12s, box-shadow .12s;
+  box-shadow:0 6px 22px rgba(124,92,255,.35)}
+.dl:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(124,92,255,.45)}
+.dl small{font-weight:400;opacity:.8}
+.hint{display:block;color:var(--dim);font-size:12.5px;margin-top:12px}
+.hint code{background:var(--panel2);border:1px solid var(--line);padding:1px 6px;border-radius:5px}
+
+/* ---------- grid of games ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;
+  display:flex;gap:12px;align-items:center;transition:border-color .15s, transform .12s, background .15s}
+.card:hover{transform:translateY(-2px);border-color:#39415a;background:var(--panel2)}
+.card.sel{border-color:var(--accent);background:var(--panel2);box-shadow:0 0 0 1px var(--accent) inset}
+.card img{width:48px;height:48px;image-rendering:pixelated;border-radius:9px;flex:none}
+.card b{font-size:15px;display:block}
+.card span{color:var(--dim);font-size:12px;line-height:1.35;display:block;margin-top:2px}
+
+h3.sect{margin:40px 0 16px;font-size:14px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase}
+footer{margin-top:60px;color:var(--dim);font-size:13px;border-top:1px solid var(--line);padding-top:18px}
+footer a{color:var(--accent)}
+
+@media (max-width:840px){
+  .hero{grid-template-columns:1fr;padding:22px}
+  .meta h2{font-size:24px}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Mote <span>Games</span></h1>
+  <nav><a href="index.html">Engine docs</a><a href="https://github.com/austinio7116/mote">GitHub</a><a href="https://github.com/austinio7116/ThumbyOne/releases/latest">Firmware</a></nav>
+</header>
+<p class="tagline">Twenty games for the Thumby Color, built on the Mote engine. Pick a game to see it on the device — then grab its <code>.mote</code> and drop it in <code>/mote/</code>.</p>
+
+<section class="hero" id="hero">
+  <div class="device">
+    <img class="shell" src="img/gallery/thumby_color.png" alt="Thumby Color handheld">
+    <div class="screen" id="screen"><span class="scan"></span></div>
+    <div class="dots" id="dots"></div>
+  </div>
+  <div class="meta">
+    <h2><img id="m-icon" src="" alt=""> <span id="m-name"></span></h2>
+    <div class="by" id="m-by"></div>
+    <p id="m-desc"></p>
+    <a class="dl" id="m-dl" href="#" download>&#8681; Download <small id="m-size"></small></a>
+    <span class="hint">Copy onto the device: drop the file into the <code>/mote/</code> folder on the ThumbyOne drive.</span>
+  </div>
+</section>
+
+<h3 class="sect">The library</h3>
+<div class="grid" id="grid"></div>
+
+<footer>
+  All games run on the <a href="index.html">Mote engine</a>. Want everything at once? The full bundle ships with each
+  <a href="https://github.com/austinio7116/ThumbyOne/releases/latest">ThumbyOne firmware release</a>.
+</footer>
+</main>
+
+<script>
+const GAMES = [
+ {id:"wolfmote", file:"WolfMote.mote", name:"WolfMote", by:"austinio7116", kb:277,
+  tag:"Rogue dungeon FPS",
+  desc:"A Wolfenstein-style FPS crossed with a roguelike: eight procedurally generated floors of packed rooms, push-wall secrets and locked vaults. Nine weapons from silent knife to plasma rifle — including a fireball-lobbing flamethrower — drop as weighted random loot. Pick your difficulty and descend."},
+ {id:"grandthumbauto", file:"GrandThumbAuto.mote", name:"Grand Thumb Auto", by:"mote", kb:417,
+  tag:"Open-city crime sandbox",
+  desc:"A GTA-1-style top-down city: steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank. Real 2D rigid-body driving with tyre grip, handbrake slides and traffic that fights back."},
+ {id:"thumbalaga", file:"Thumbalaga.mote", name:"Thumbalaga", by:"austinio7116", kb:434,
+  tag:"Formation shoot-'em-up",
+  desc:"A Galaga-inspired fixed shooter: waves swoop in formation, dive-bomb, and capture your fighter. Chain perfect stages, earn double ships, and chase the high score."},
+ {id:"thumbatro", file:"ThumbAtro.mote", name:"ThumbAtro", by:"austinio7116", kb:191,
+  tag:"Poker roguelike deckbuilder",
+  desc:"A Balatro-style deckbuilder: play poker hands to hit rising blinds, then warp your deck with jokers, planet cards and tarot upgrades. One more ante is always a mistake — take it anyway."},
+ {id:"thumbyrogue", file:"ThumbyRogue.mote", name:"ThumbyRogue", by:"austinio7116", kb:362,
+  tag:"First-person dungeon crawl",
+  desc:"Descend into The Crypt: a raycast first-person roguelike with procedural floors, monsters, loot and permadeath. Every run is a new dungeon."},
+ {id:"thumbycraft", file:"thumbycraft.mote", name:"ThumbyCraft", by:"austinio7116", kb:385,
+  tag:"Voxel mining & building",
+  desc:"A pocket voxel world: dig, gather, craft tools and build in a fully destructible landscape with caves, torches and chests — a complete survival loop on a 128-pixel screen."},
+ {id:"thumbycue", file:"thumbycue.mote", name:"ThumbyCue", by:"austinio7116", kb:329,
+  tag:"3D snooker & pool",
+  desc:"Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play against the AI or a friend."},
+ {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320,
+  tag:"Elite-style space sim",
+  desc:"A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it."},
+ {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"TinyCircuits", kb:94,
+  tag:"Chess, 2D or full 3D",
+  desc:"A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera."},
+ {id:"motokart", file:"motokart.mote", name:"MotoKart", by:"austinio7116", kb:51,
+  tag:"Kart racing",
+  desc:"Mode-7-style kart racing: three-lap circuits with kerbs, checkered gates and rival karts. Clean lines win races."},
+ {id:"nightmote", file:"nightmote.mote", name:"NightMote", by:"mote", kb:66,
+  tag:"Horde survivor",
+  desc:"A Vampire-Survivors-style horde game: mow down the swarm, hoover up XP, and build your weapon loadout level by level across a procedural overworld. One more run before bed."},
+ {id:"papermote", file:"papermote.mote", name:"PaperMote", by:"mote", kb:61,
+  tag:"Territory battle",
+  desc:"Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes."},
+ {id:"itsamemario", file:"itsamemario.mote", name:"It's-a-me Mario", by:"mote", kb:147,
+  tag:"Classic platformer",
+  desc:"A love-letter platformer: run, jump and stomp through coin-strewn levels with pixel-perfect ledges, secrets, and that one gap you'll miss twice."},
+ {id:"golf", file:"golf.mote", name:"Golf", by:"mote", kb:30,
+  tag:"3D golf",
+  desc:"A full round over rolling 3D terrain: judge the wind, shape your power and putt out. Simple to swing, hard to par."},
+ {id:"tanks", file:"tanks.mote", name:"Tanks", by:"mote", kb:25,
+  tag:"Artillery duel",
+  desc:"Turn-based tank battles with fully rigged 3D tanks — tracks, turret, recoil and all. Walk your shots in before the enemy walks in theirs."},
+ {id:"chess", file:"chess.mote", name:"Chess", by:"mote", kb:49,
+  tag:"3D chess",
+  desc:"Chess with baked STL Staunton pieces on a lit 3D board. A clean, complete game of the classic."},
+ {id:"tetris3d", file:"tetris3d.mote", name:"Tetris3D", by:"mote", kb:10,
+  tag:"Falling blocks",
+  desc:"The falling-block classic rendered in crisp engine 3D. Ten kilobytes of pure compulsion."},
+ {id:"arkanoid3d", file:"arkanoid3d.mote", name:"Arkanoid3D", by:"mote", kb:27,
+  tag:"Brick breaker",
+  desc:"A polished brick-breaker with power-ups, particles, ball trails and escalating levels — the paddle arcade staple with a 3D glow-up."},
+ {id:"pong3d", file:"pong3d.mote", name:"Pong3D", by:"mote", kb:11,
+  tag:"Arcade classic",
+  desc:"Pong, reborn with trails and spin. First to the score wins; the AI does not blink."},
+ {id:"fling", file:"fling.mote", name:"Fling", by:"mote", kb:22,
+  tag:"Physics castle-smasher",
+  desc:"Angry-Birds-style fort demolition in side-view 3D: charge the fling, arc your bird into the tower, and let real rigid-body physics topple the pigs. Every fort is freshly generated."},
+];
+
+const screen=document.getElementById('screen'), dots=document.getElementById('dots'), grid=document.getElementById('grid');
+let cur=null, shot=0, timer=null;
+const imgs=[1,2,3].map(()=>{const im=document.createElement('img');screen.insertBefore(im,screen.firstChild);return im;});
+
+function show(n){
+  shot=n;
+  imgs.forEach((im,i)=>im.classList.toggle('on',i===n));
+  [...dots.children].forEach((d,i)=>d.classList.toggle('on',i===n));
+}
+function select(g,scroll){
+  cur=g;
+  imgs.forEach((im,i)=>im.src=`img/gallery/${g.id}-${i+1}.png`);
+  dots.innerHTML=g.shotless?'' :'<i></i><i></i><i></i>';
+  [...dots.children].forEach((d,i)=>d.onclick=()=>{show(i);restart();});
+  document.getElementById('m-icon').src=`img/gallery/${g.id}-icon.png`;
+  document.getElementById('m-name').textContent=g.name;
+  document.getElementById('m-by').textContent=`by ${g.by} · ${g.tag}`;
+  document.getElementById('m-desc').textContent=g.desc;
+  const dl=document.getElementById('m-dl');
+  dl.href=`games/${g.file}`; dl.setAttribute('download',g.file);
+  document.getElementById('m-size').textContent=`${g.file} · ${g.kb} KB`;
+  [...grid.children].forEach(c=>c.classList.toggle('sel',c.dataset.id===g.id));
+  show(0); restart();
+  if(scroll) document.getElementById('hero').scrollIntoView({behavior:'smooth',block:'center'});
+}
+function restart(){ clearInterval(timer); timer=setInterval(()=>show((shot+1)%3), 2200); }
+
+GAMES.forEach(g=>{
+  const c=document.createElement('div'); c.className='card'; c.dataset.id=g.id;
+  c.innerHTML=`<img src="img/gallery/${g.id}-icon.png" alt=""><div><b>${g.name}</b><span>${g.tag}</span></div>`;
+  c.onclick=()=>select(g,true);
+  grid.appendChild(c);
+});
+select(GAMES[0],false);
+</script>
+</body>
+</html>
