@@ -1009,6 +1009,9 @@ static SDL_Rect g_pxb[16]; static int g_pxb_id[16], g_npxb;
 static SDL_Rect g_pxsize[8], g_pxszdn, g_pxszup, g_pxszhdn, g_pxszhup, g_hsv_r, g_hue_r; static int g_canv_x,g_canv_y,g_canv_cell;
 static SDL_Rect g_pxbsz_m,g_pxbsz_p,g_pxbhd_m,g_pxbhd_p,g_pxsq,g_pxrd;   /* brush size / hardness steppers + square/round shape toggle */
 static int g_hsvdrag,g_huedrag,g_lx,g_ly,g_panx,g_pany;
+/* pixel-editor scrollbars (shown when the zoomed canvas overflows its viewport) */
+static SDL_Rect g_sbh,g_sbv; static int g_sbh_on,g_sbv_on,g_sbh_th,g_sbv_th;
+static int g_sb_cw,g_sb_vw,g_sb_ch,g_sb_vh,g_sbdrag,g_sbgrab;
 static SDL_Texture *g_hsv_tex; static float g_hsv_baked=-1;
 static float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
 static void bake_hsv(SDL_Renderer*R){ if(!g_hsv_tex){ g_hsv_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,64,64); SDL_SetTextureScaleMode(g_hsv_tex,SDL_ScaleModeLinear); }
@@ -1163,6 +1166,18 @@ static void draw_pixel(SDL_Renderer*R,int texmode){ set_doc(texmode); int cy=BOT
             if(g_brush_round)ring(R,ccx,ccy,half,(Col){255,255,255},1); else rect_outline(R,ccx-half,ccy-half,half*2,half*2,(Col){255,255,255},1); }
         if((g_ptool==4||g_ptool==5)&&g_dx0>=0) rect_outline(R,cox+(g_dx0<gx?g_dx0:gx)*cell,coy+(g_dy0<gy?g_dy0:gy)*cell,(abs(gx-g_dx0)+1)*cell,(abs(gy-g_dy0)+1)*cell,(Col){255,255,255},1); }
     SDL_RenderSetClipRect(R,NULL);
+    g_sbh_on = cw>vw; g_sbv_on = chh>vh;
+    g_sb_cw=cw; g_sb_vw=vw; g_sb_ch=chh; g_sb_vh=vh;
+    if(g_sbh_on){ int thw=(int)((long)vw*vw/cw); if(thw<24)thw=24;
+        int tx=cax+(cw>vw?(int)((long)(-g_panx)*(vw-thw)/(cw-vw)):0);
+        g_sbh=(SDL_Rect){cax,cay+vh+3,vw,7}; g_sbh_th=thw;
+        plain(R,g_sbh.x,g_sbh.y,g_sbh.w,g_sbh.h,(Col){20,22,28});
+        plain(R,tx,g_sbh.y+1,thw,5,(Col){96,106,128}); }
+    if(g_sbv_on){ int thh=(int)((long)vh*vh/chh); if(thh<24)thh=24;
+        int ty=cay+(chh>vh?(int)((long)(-g_pany)*(vh-thh)/(chh-vh)):0);
+        g_sbv=(SDL_Rect){cax+vw+3,cay,7,vh}; g_sbv_th=thh;
+        plain(R,g_sbv.x,g_sbv.y,g_sbv.w,g_sbv.h,(Col){20,22,28});
+        plain(R,g_sbv.x+1,ty,5,thh,(Col){96,106,128}); }
     if(over&&g_ptool<6){ int ti=g_ptool==0?IC_PENCIL:g_ptool==1?IC_ERASER:g_ptool==2?IC_BUCKET:g_ptool==3?IC_PIPETTE:g_ptool==4?IC_SLASH:IC_SQDASH; icon(R,ti,mx+12,my+8,16,(Col){240,244,255}); }
     int prx=cax+vw+18; if(prx<WIN_W-120){ text(R,"PREVIEW",prx,cay,1,C_DIM,C_DOCK); int s=(g_cw>g_ch?g_cw:g_ch)<=32?2:1;
         plain(R,prx-1,cay+13,g_cw*s+2,g_ch*s+2,(Col){20,22,28});
@@ -5641,6 +5656,16 @@ static void px_paint(int gx,int gy){ if(gx<0||gy<0||gx>=g_cw||gy>=g_ch)return; i
     else if(g_ptool==2){ flood(gx,gy,g_canvas[idx],g_pcol); } else if(g_ptool==3){ if(g_canvas[idx]!=KEY565)px_setcol(g_canvas[idx]); }
     else if(g_ptool==6){ px_brush(gx,gy,g_brush_round); } }
 static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
+    if(g_sbh_on&&hit(mx,my,g_sbh.x,g_sbh.y-2,g_sbh.w,g_sbh.h+4)){   /* scrollbar grab/jump */
+        int tx=g_sbh.x+(int)((long)(-g_panx)*(g_sb_vw-g_sbh_th)/(g_sb_cw-g_sb_vw));
+        g_sbdrag=1; g_sbgrab=(mx>=tx&&mx<tx+g_sbh_th)?mx-tx:g_sbh_th/2;
+        g_panx=-(int)((long)(mx-g_sbgrab-g_sbh.x)*(g_sb_cw-g_sb_vw)/(g_sb_vw-g_sbh_th));
+        g_panx=clampi(g_panx,g_sb_vw-g_sb_cw,0); return; }
+    if(g_sbv_on&&hit(mx,my,g_sbv.x-2,g_sbv.y,g_sbv.w+4,g_sbv.h)){
+        int ty=g_sbv.y+(int)((long)(-g_pany)*(g_sb_vh-g_sbv_th)/(g_sb_ch-g_sb_vh));
+        g_sbdrag=2; g_sbgrab=(my>=ty&&my<ty+g_sbv_th)?my-ty:g_sbv_th/2;
+        g_pany=-(int)((long)(my-g_sbgrab-g_sbv.y)*(g_sb_ch-g_sb_vh)/(g_sb_vh-g_sbv_th));
+        g_pany=clampi(g_pany,g_sb_vh-g_sb_ch,0); return; }
     if(hit(mx,my,g_px_name_r.x,g_px_name_r.y,g_px_name_r.w,g_px_name_r.h)){   /* save-as -> dialog (Save As <name>.png) */
         prompt_open(PR_SAVEAS,"Save As",g_px_name[0]?g_px_name:(g_doc?"texture":"sprite"),"saved to assets/<name>.png (name it \"icon\" for the launcher icon)",0,0); return; }
     if(g_tab==TAB_TEXTURE&&texgen_click(mx,my))return;   /* procedural texture controls (texture tab only) */
@@ -5671,6 +5696,10 @@ static void pixel_down(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(gx>=0&&gy>=0&&gx<g_cw&&gy<g_ch){ undo_push(); g_dx0=gx; g_dy0=gy; g_lx=gx; g_ly=gy; g_stroking=0;   /* fresh stroke: brush re-snapshots its base */
         if(g_ptool<=3||g_ptool>=6){ px_paint(gx,gy); if(g_ptool==0||g_ptool==1||g_ptool>=6)px_recent(g_pcol); } } }
 static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
+    if(g_sbdrag==1){ g_panx=-(int)((long)(mx-g_sbgrab-g_sbh.x)*(g_sb_cw-g_sb_vw)/(g_sb_vw-g_sbh_th));
+        g_panx=clampi(g_panx,g_sb_vw-g_sb_cw,0); return; }
+    if(g_sbdrag==2){ g_pany=-(int)((long)(my-g_sbgrab-g_sbv.y)*(g_sb_ch-g_sb_vh)/(g_sb_vh-g_sbv_th));
+        g_pany=clampi(g_pany,g_sb_vh-g_sb_ch,0); return; }
     if(g_texdrag>=0){ texgen_drag(mx); return; }
     if(g_hsvdrag){ g_sat=clampf((mx-g_hsv_r.x)/(float)g_hsv_r.w,0,1); g_val=clampf(1-(my-g_hsv_r.y)/(float)g_hsv_r.h,0,1); g_pcol=hsv565(g_hue,g_sat,g_val); return; }
     if(g_huedrag){ g_hue=clampf((my-g_hue_r.y)/(float)g_hue_r.h,0,1)*360; g_pcol=hsv565(g_hue,g_sat,g_val); return; }
@@ -5678,7 +5707,7 @@ static void pixel_drag(int mx,int my){ set_doc(g_tab==TAB_TEXTURE);
     if(g_ptool==0||g_ptool==1){ uint16_t cc=g_ptool==1?KEY565:g_pcol; px_line(g_lx,g_ly,gx,gy,cc); g_lx=gx; g_ly=gy; }
     else if(g_ptool>=6){ int x0=g_lx,y0=g_ly,x1=gx,y1=gy,dx=abs(x1-x0),dy=-abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx+dy;   /* stamp the brush along the drag */
         for(;;){ px_brush(x0,y0,g_brush_round); if(x0==x1&&y0==y1)break; int e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;} } g_lx=gx; g_ly=gy; } }
-static void pixel_up(int mx,int my){ set_doc(g_tab==TAB_TEXTURE); g_hsvdrag=g_huedrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
+static void pixel_up(int mx,int my){ set_doc(g_tab==TAB_TEXTURE); g_hsvdrag=g_huedrag=0; g_sbdrag=0; if(g_texdrag>=0){ g_texdrag=-1; tex_generate(); }
     if(g_dx0>=0&&g_canv_cell>=1&&(g_ptool==4||g_ptool==5)){ int gx=clampi((mx-g_canv_x)/g_canv_cell,0,g_cw-1), gy=clampi((my-g_canv_y)/g_canv_cell,0,g_ch-1);
         if(g_ptool==4)px_line(g_dx0,g_dy0,gx,gy,g_pcol); else px_rect(g_dx0,g_dy0,gx,gy,g_pcol); px_recent(g_pcol); }
     if(g_dx0>=0&&(g_ptool==0||g_ptool==1))px_recent(g_pcol);
