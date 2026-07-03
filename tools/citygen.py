@@ -49,41 +49,80 @@ def disc(m, cx, cy, r, ch):
 
 # ---------------------------------------------------------------- water ----
 def carve_rivers(m, rng):
-    """1-2 bold diagonal waterways: smooth quadratic paths edge-to-edge with
-    width swells, occasional islands, plus a few lakes."""
+    """rivers like the hand map: mostly-straight diagonal walks with held KINKS,
+    forks that split into two channels and rejoin (forming real islands), side
+    branches that die into lakes — then a raggedness pass steps the shores."""
     import math
-    def path(p0, p1, ctrl, wmin, wmax):
-        steps = 260
-        for i in range(steps+1):
-            t = i/steps
-            x = (1-t)*(1-t)*p0[0] + 2*(1-t)*t*ctrl[0] + t*t*p1[0]
-            y = (1-t)*(1-t)*p0[1] + 2*(1-t)*t*ctrl[1] + t*t*p1[1]
-            w = wmin + (wmax-wmin)*0.5*(1+math.sin(t*math.pi*rng.uniform(1.5,3.0)+rng.random()))
-            disc(m, x, y, w, WATER)
-    corners = [((rng.integers(20,120),-6),(rng.integers(140,240),H+6)),
-               ((-6,rng.integers(20,120)),(W+6,rng.integers(140,240))),
-               ((rng.integers(140,240),-6),(rng.integers(20,120),H+6)),
-               ((W+6,rng.integers(20,120)),(-6,rng.integers(140,240)))]
-    a,b = corners[int(rng.integers(4))]
-    ctrl = (W/2+rng.integers(-60,61), H/2+rng.integers(-60,61))
-    path(a,b,ctrl, rng.uniform(5,7), rng.uniform(9,13))
-    if rng.random() < 0.7:                                   # a second, thinner branch
-        c,d = corners[int(rng.integers(4))]
-        ctrl2 = (ctrl[0]+rng.integers(-50,51), ctrl[1]+rng.integers(-50,51))
-        path(c,d,ctrl2, rng.uniform(4,5), rng.uniform(6,9))
-    for _ in range(int(rng.integers(1,4))):                  # lakes off the channel
+    def walk(x, y, ang, wid, steps, can_fork=True):
+        kink = 0.0; kink_left = 0
+        i = 0
+        while i < steps and -25 < x < W+25 and -25 < y < H+25:
+            disc(m, x, y, wid, WATER)
+            if kink_left > 0:
+                kink_left -= 1
+            else:
+                kink = 0.0
+                if rng.random() < 0.05:                       # hold a bend for a stretch
+                    kink = rng.choice([-1,1]) * rng.uniform(0.15, 0.4)
+                    kink_left = int(rng.integers(8, 26))
+            ang += kink*0.12 + rng.uniform(-0.03, 0.03)
+            wid = max(3.5, min(9.5, wid + rng.uniform(-0.25, 0.25)))
+            x += math.cos(ang)*2.0; y += math.sin(ang)*2.0
+            i += 1
+            if can_fork and rng.random() < 0.012 and i > 30 and i < steps-60:
+                # FORK: a second channel splits off and rejoins downstream -> island
+                sep  = rng.uniform(7, 16)
+                dur  = int(rng.integers(30, 80))
+                px2, py2 = -math.sin(ang), math.cos(ang)
+                bx, by = x + px2*sep, y + py2*sep
+                bang = ang
+                for j in range(dur):
+                    disc(m, bx, by, max(3.0, wid*0.65), WATER)
+                    # steer back toward the main channel toward the end
+                    tgt = math.atan2((y + math.sin(ang)*2.0*(j+6)) - by,
+                                     (x + math.cos(ang)*2.0*(j+6)) - bx)
+                    blend = 0.12 if j > dur*0.55 else 0.02
+                    d = (tgt - bang + math.pi) % (2*math.pi) - math.pi
+                    bang += d*blend + rng.uniform(-0.05, 0.05)
+                    bx += math.cos(bang)*2.0; by += math.sin(bang)*2.0
+            if can_fork and rng.random() < 0.006 and i > 40:  # dead-end side branch
+                bang = ang + rng.choice([-1,1])*rng.uniform(0.5, 1.0)
+                bx, by, bw = x, y, wid*0.6
+                for j in range(int(rng.integers(20, 70))):
+                    disc(m, bx, by, max(2.5, bw), WATER)
+                    bang += rng.uniform(-0.08, 0.08)
+                    bw *= 0.995
+                    bx += math.cos(bang)*2.0; by += math.sin(bang)*2.0
+    sides = [((rng.integers(20,120),-6), math.pi/2), ((-6,rng.integers(20,120)), 0.0),
+             ((rng.integers(140,240),-6), math.pi/2), ((W+6,rng.integers(140,240)), math.pi)]
+    (sx,sy),ang = sides[int(rng.integers(4))]
+    walk(sx, sy, ang + rng.uniform(-0.5,0.5), rng.uniform(5,7), 260)
+    if rng.random() < 0.65:
+        (sx,sy),ang = sides[int(rng.integers(4))]
+        walk(sx, sy, ang + rng.uniform(-0.5,0.5), rng.uniform(4,5.5), 200)
+    for _ in range(int(rng.integers(1,3))):                   # lakes
         lx,ly = rng.integers(30,W-30), rng.integers(30,H-30)
         for _ in range(int(rng.integers(3,6))):
-            disc(m, lx+rng.integers(-7,8), ly+rng.integers(-6,7), rng.uniform(4,8), WATER)
-    # islands: reclaim a few pockets inside wide water
+            disc(m, lx+rng.integers(-7,8), ly+rng.integers(-6,7), rng.uniform(4,7), WATER)
+    # RAGGED SHORES: two erosion/deposition passes step the smooth swept edges
+    for _ in range(2):
+        wm = [[m[y][x]==WATER for x in range(W)] for y in range(H)]
+        for y in range(1,H-1):
+            for x in range(1,W-1):
+                n = wm[y-1][x]+wm[y+1][x]+wm[y][x-1]+wm[y][x+1]
+                if not wm[y][x] and n>=2 and rng.random()<0.30: m[y][x]=WATER
+                elif wm[y][x] and n<=2 and rng.random()<0.22:  m[y][x]=PAVE
+    # islands: grassy blobs inside any wide-open water
     from scipy import ndimage
     wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
     dist = ndimage.distance_transform_edt(wm)
-    ys,xs = np.where(dist > 7)
-    for _ in range(int(rng.integers(1,4))):
+    ys,xs = np.where(dist > 6)
+    for _ in range(int(rng.integers(2,5))):
         if len(ys)==0: break
         k = int(rng.integers(0,len(ys)))
-        disc(m, xs[k], ys[k], rng.uniform(2.5,5), GRASS)
+        cx,cy = int(xs[k]), int(ys[k])
+        for _ in range(int(rng.integers(2,5))):               # lumpy island
+            disc(m, cx+rng.integers(-4,5), cy+rng.integers(-4,5), rng.uniform(2,4.5), GRASS)
 
 def grass_banks(m, rng):
     wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
@@ -101,7 +140,7 @@ def esplanades(m, rng):
     from scipy import ndimage
     wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
     d = ndimage.distance_transform_edt(~wm)
-    band = (d >= 4.0) & (d < 5.5)
+    band = (d >= 4.0) & (d < 6.2)
     for y in range(H):
         for x in range(W):
             if band[y][x] and m[y][x] in (PAVE,GRASS): m[y][x]=ROAD
@@ -158,10 +197,10 @@ def local_streets(m, rng):
     def split(cset, x0,y0,x1,y1, depth):
         w,h = x1-x0, y1-y0
         cx,cy = (x0+x1)//2, (y0+y1)//2
-        stop = 7 + int(10*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))   # 7..17
+        stop = 11 + int(12*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))  # 11..23
         if w < stop and h < stop: return
         horiz = h > w if abs(h-w) > 3 else rng.random()<0.5
-        wid = 2 if depth < 1 else 1
+        wid = 2
         if horiz and h < 8: horiz=False
         if not horiz and w < 8: return
         if horiz:
@@ -224,9 +263,16 @@ def parks(m, rng):
                 if (x-bx)**2+(y-by)**2<=r*r: blob.add((x,y))
     for x,y in blob:
         if m[y][x]==PAVE: m[y][x]=GRASS
-    for x,y in blob:                                   # path RING around the park edge
-        edge=any((nx,ny) not in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))
-        if edge and m[y][x]==GRASS: m[y][x]=ROAD
+    edge=set()
+    for x,y in blob:                                   # 2-wide path RING around the park
+        if any((nx,ny) not in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1))):
+            edge.add((x,y))
+    ring=set(edge)
+    for x,y in edge:
+        for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
+            if (nx,ny) in blob: ring.add((nx,ny))
+    for x,y in ring:
+        if m[y][x]==GRASS: m[y][x]=ROAD
     disc(m, cx+rng.integers(-3,4), cy+rng.integers(-3,4), rng.uniform(2.5,4.0), WATER)
     for _ in range(int(rng.integers(8,14))):
         px,py = rng.integers(12,W-12), rng.integers(12,H-12)
