@@ -917,7 +917,8 @@ static void fire_weapon(void) {
     int pool = WPN[cur_w].pool;
     if (pool >= 0 && g_am[pool] <= 0) return;
     if (pool >= 0) g_am[pool]--;
-    gun_cd = WPN[cur_w].cd; muzzle = 0.09f;
+    gun_cd = WPN[cur_w].cd;
+    if (cur_w!=0 && cur_w!=7 && cur_w!=8) muzzle = 0.09f;   /* knife/cannon/plasma: no flash */
     if (cur_w == 0) {                                    /* the KNIFE: silent reach */
         float fx=sinf(yaw), fz=cosf(yaw);
         for (int i = 0; i < g_nen; i++) {
@@ -1195,15 +1196,14 @@ static void g_update(float dt) {
             }
             e->firecd -= dt;
             if (see && e->firecd <= 0) {
-                if (melee) {
-                    if (d < 1.0f) {                            /* the rusher BITES */
-                        e->firecd = fcd; e->fireanim = 0.22f;
-                        health -= 7 + (int)(mote_frand()*7); hurt = 0.22f;
-                        g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
-                        play(&hit_sfx, 0.5f);
-                        if (health <= 0) { health = 0; state = ST_DEAD; play(&death_sfx,0.6f); }
-                    }
-                } else {
+                if (melee && d < 1.0f) {                       /* the rusher BITES up close */
+                    e->firecd = fcd; e->fireanim = 0.22f;
+                    health -= 7 + (int)(mote_frand()*7); hurt = 0.22f;
+                    g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
+                    play(&hit_sfx, 0.5f);
+                    if (health <= 0) { health = 0; state = ST_DEAD; play(&death_sfx,0.6f); }
+                } else {                                       /* everyone else — and the rusher
+                                                                  at range — SHOOTS */
                     e->firecd = fcd; e->fireanim = 0.28f;
                     play(&efire_sfx, dist_gain(d, 0.12f, 0.6f));
                     /* they can MISS: harder at range, harder still if you keep moving */
@@ -1223,6 +1223,7 @@ static void g_update(float dt) {
                         int dmg = e->type==EN_BOSS ? 16 + (int)(mote_frand()*13)
                                 : e->type==EN_BRUTE ? 12 + (int)(mote_frand()*11)
                                 : e->type==EN_CMDO  ? 10 + (int)(mote_frand()*9)
+                                : e->type==EN_RUSH  ?  4 + (int)(mote_frand()*5)
                                 :  6 + (int)(mote_frand()*8);
                         dmg = (dmg * (g_diff==0 ? 7 : g_diff==2 ? 12 : 10)) / 10;
                         health -= dmg; hurt = 0.22f;
@@ -1372,7 +1373,8 @@ static void g_overlay(uint16_t *fb) {
         /* muzzle flash FIRST, so the gun draws over it (flash peeks from behind) */
         if (muzzle > 0)
             mote->blit_ex(fb, &flash_img, 64+bx, 88+by, 0,0,0,0, walk_t, 0.65f, MOTE_BLEND_ADD, 0, 128);
-        mote->blit_ex(fb, &weapons_img, 64+bx, 106+by, cur_w*72,0,72,56, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
+        static const int8_t WOFF[9]={-3,0,-3,0,0,0,-3,-2,0};   /* recentre a few cells */
+        mote->blit_ex(fb, &weapons_img, 64+WOFF[cur_w]+bx, 106+by, cur_w*72,0,72,56, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
     }
 
     mote->draw_rect(fb, 0,0,128,9, MOTE_RGB565(18,20,28),1,0,128);

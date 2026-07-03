@@ -7,6 +7,9 @@ NEVER writes weapons.png / wpickup.png directly — those are the COMBINED 9-cel
 art. This script emits weapons2/wpickup2 STAGING sheets; merge cells in manually.
              -> ammo3.png   : 3 cells 20x20 (fuel can / cannonballs / energy cell)
 Also bakes the projectile orbs (fireball/cannonball/plasma bolt) as radial sprites."""
+import sys, os
+if os.environ.get("MOTE_REGEN")!="1":   # REGEN_GUARD
+    sys.exit("extract_arsenal: refusing to run — set MOTE_REGEN=1. Outputs may hold HAND-EDITED art.")
 import numpy as np
 from PIL import Image
 from scipy import ndimage
@@ -117,7 +120,28 @@ def orb(name, inner, outer, S=12):
     a=np.asarray(im).copy(); hard=a[:,:,3]>110
     a[:,:,3]=np.where(hard,255,0); a[~hard]=0
     Image.fromarray(a,"RGBA").save(f"{AD}/{name}.png")
-orb("fireball", (255,240,150), (200,60,10))
+def fire_orb(name, S=14):
+    """A proper fireball: white-hot core, orange flame body, deep red rim, with
+    radial flame licks (angular ripple) — reads as fire even at 12px."""
+    hi=S*8
+    px=np.zeros((hi,hi,4))
+    yy,xx=np.mgrid[0:hi,0:hi]
+    dx=(xx-hi/2)/(hi/2); dy=(yy-hi/2)/(hi/2)
+    d=np.sqrt(dx*dx+dy*dy)
+    ang=np.arctan2(dy,dx)
+    edge=1.0+0.10*np.sin(ang*7)+0.06*np.sin(ang*13+1.7)   # licked rim
+    t=np.clip(d/edge,0,1)
+    core=(t<0.30); body=(t>=0.30)&(t<0.70); rim=(t>=0.70)&(t<1.0)
+    px[core]=[255,250,205,255]
+    bb=(t[body]-0.30)/0.40
+    px[body,0]=255; px[body,1]=190-120*bb; px[body,2]=40-30*bb; px[body,3]=255
+    rr=(t[rim]-0.70)/0.30
+    px[rim,0]=225-90*rr; px[rim,1]=60-40*rr; px[rim,2]=8; px[rim,3]=255
+    im=Image.fromarray(px.astype(np.uint8),"RGBA").resize((S,S),Image.LANCZOS)
+    a=np.asarray(im).copy(); hard=a[:,:,3]>110
+    a[:,:,3]=np.where(hard,255,0); a[~hard]=0
+    Image.fromarray(a,"RGBA").save(f"{AD}/{name}.png")
+fire_orb("fireball")
 orb("plasmab",  (210,240,255), (30,80,220))
 orb("cannonb",  (210,210,225), (60,60,72))
 print("orbs baked")
