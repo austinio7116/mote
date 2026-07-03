@@ -516,7 +516,12 @@ static void load_level(int idx) {
                 case 'R': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_RUSH,60,1,0.5f,0,0,0,0}; break;
                 case 'C': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_CMDO,150,1,0.7f+mote_frand()*0.7f,0,0,0,0}; break;
                 case 'Z': if (g_nen<MAX_EN) g_en[g_nen++]=(Enemy){wx,wz,EN_BOSS,1400,1,1.5f,0,0,0,0}; break;
-                case 'S': g_wall[z][x]=4; g_block[z][x]=1; break;   /* secret push-wall */
+                case 'S': {                                        /* secret push-wall — match
+                                                                      the wall it hides in */
+                    int stone = (z>0    && rows[z-1][x]=='%') || (z<MH-1 && rows[z+1][x]=='%')
+                             || (x>0    && rows[z][x-1]=='%') || (rows[z][x+1]=='%');
+                    g_wall[z][x] = stone?5:4; g_block[z][x]=1;
+                } break;
                 case 'K': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_KEY,0,0}; break;
                 case 't': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_TREAS,0,(int)(mote_frand()*6)}; break;
                 case 'a': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO,0,0}; break;
@@ -601,7 +606,7 @@ static void load_level(int idx) {
           fprintf(stderr,"[MAP] P=(%.1f,%.1f) exit=(%d,%d) key=%d en: G%d X%d R%d C%d Z%d\n",
               px,pz,g_exi,g_ezi,has_key,tc[0],tc[1],tc[2],tc[3],tc[4]); }
         for (int z=0;z<MH;z++){ char row[MAXW+1];
-            for (int x=0;x<MW;x++){ char c = g_wall[z][x]==1?'#':g_wall[z][x]==2?'%':g_wall[z][x]==3?'D':g_wall[z][x]==4?'S':'.';
+            for (int x=0;x<MW;x++){ char c = g_wall[z][x]==1?'#':g_wall[z][x]==2?'%':g_wall[z][x]==3?'D':g_wall[z][x]>=4?'S':'.';
                 if ((int)px==x&&(int)pz==z) c='P';
                 if (g_exi==x&&g_ezi==z) c='E';
                 row[x]=c; }
@@ -826,7 +831,7 @@ static void g_update(float dt) {
                     msg_t = 1.5f;
                 } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&snd_door,0.5f); }
             }
-            else if (cx>=0&&cz>=0&&cx<MW&&cz<MH&&g_wall[cz][cx]==4 && !g_pw.active) {
+            else if (cx>=0&&cz>=0&&cx<MW&&cz<MH&&(g_wall[cz][cx]==4||g_wall[cz][cx]==5) && !g_pw.active) {
                 /* SECRET: push it away from you, two cells */
                 int dx = (fabsf(fx)>fabsf(fz)) ? (fx>0?1:-1) : 0;
                 int dz = dx ? 0 : (fz>0?1:-1);
@@ -840,13 +845,14 @@ static void g_update(float dt) {
             g_pw.t += dt * 1.3f;
             if (g_pw.t >= 1.0f) {
                 int nx=g_pw.ix+g_pw.dx, nz=g_pw.iz+g_pw.dz;
+                int kv=g_wall[g_pw.iz][g_pw.ix];              /* carry the flavour along */
                 g_wall[g_pw.iz][g_pw.ix]=0; g_block[g_pw.iz][g_pw.ix]=0;
                 g_pw.steps++;
                 int fx2=nx+g_pw.dx, fz2=nz+g_pw.dz;
                 int can_go = g_pw.steps<2 && fx2>0 && fz2>0 && fx2<MW-1 && fz2<MH-1 &&
                              !g_block[nz][nx] && !g_block[fz2][fx2] && g_wall[fz2][fx2]==0 &&
                              !pickup_at(fx2,fz2);                /* never berth ON loot */
-                g_wall[nz][nx]=4; g_block[nz][nx]=1;      /* settle into the next cell */
+                g_wall[nz][nx]=(uint8_t)kv; g_block[nz][nx]=1;   /* settle into the next cell */
                 if (can_go) { g_pw.ix=nx; g_pw.iz=nz; g_pw.t=0; }
                 else g_pw.active=0;
             }
@@ -858,7 +864,8 @@ static void g_update(float dt) {
                 d->open += dt*2.5f; if (d->open>1) d->open=1;
                 if (d->open>=1 && !occupied) { d->closet -= dt; if (d->closet<=0) d->want=0; }
                 else if (occupied) d->closet = 1.0f;
-            } else { d->open -= dt*2.5f; if (d->open<0) d->open=0; }
+            } else if (occupied) { d->want=1; d->closet=1.0f; }   /* never entomb the player */
+            else { d->open -= dt*2.5f; if (d->open<0) d->open=0; }
         }
 
         /* pickups */
@@ -998,10 +1005,10 @@ static void g_update(float dt) {
                 const Mesh *dm = (id>=0 && g_dr[id].isexit) ? &wall_exit : g_walldoor;
                 if (op < 0.92f) mote_draw(mote, dm, v3(x+0.5f, 0.5f + op*0.98f, z+0.5f));
             }
-            else if (w == 4) {
+            else if (w == 4 || w == 5) {
                 float ox=0, oz=0;                          /* secret wall mid-slide */
                 if (g_pw.active && g_pw.ix==x && g_pw.iz==z){ ox=g_pw.dx*g_pw.t; oz=g_pw.dz*g_pw.t; }
-                mote_draw(mote, g_wallA, v3(x+0.5f+ox, 0.5f, z+0.5f+oz));
+                mote_draw(mote, w==4?g_wallA:g_wallB, v3(x+0.5f+ox, 0.5f, z+0.5f+oz));
             }
         }
 
@@ -1132,6 +1139,7 @@ static void g_overlay(uint16_t *fb) {
             else if (w==2) c=MOTE_RGB565(96,100,110);
             else if (w==3){ int id=g_doorid[z][x]; c=(id>=0&&g_dr[id].isexit)?MOTE_RGB565(70,220,90):MOTE_RGB565(180,140,60); }
             else if (w==4) c=MOTE_RGB565(120,86,70);       /* secrets look like walls */
+            else if (w==5) c=MOTE_RGB565(96,100,110);
             else c=MOTE_RGB565(34,38,46);
             mote->draw_rect(fb, ox+x*cell, oy+z*cell, cell-1, cell-1, c, 1, 0,128);
         }
