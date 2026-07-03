@@ -28,6 +28,7 @@
 #include "wallcrack.h"
 #include "wallmoss.h"
 #include "wallmetal.h"
+#include "title.font.h"   /* Pirata One @28px blackletter for the title */
 #include "blood.h"
 #include "props24.h"      /* props24_img — 24-cell pickup/scenery set, 28x28 cells */
 #include "silverkey.h"     /* silverkey_img — opens the treasure vault */
@@ -1105,8 +1106,9 @@ static void g_overlay(uint16_t *fb) {
     if (state == ST_TITLE) {
         mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(10,12,16),1,0,128);
         mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(120,40,36),0,0,128);
-        mote->text_2x(fb, "WOLFMOTE", 18,32, MOTE_RGB565(224,60,48));
-        mote->text(fb, "A ROGUE DUNGEON", 28,50, MOTE_RGB565(170,178,195));
+        mote->text_font(fb, &title, "WOLFMOTE", 15+1, 24+1, MOTE_RGB565(30,8,8));
+        mote->text_font(fb, &title, "WOLFMOTE", 15,   24,   MOTE_RGB565(224,60,48));
+        mote->text(fb, "A ROGUE DUNGEON", 28,52, MOTE_RGB565(170,178,195));
         static const char *DN[3]={"EASY","NORMAL","HARD"};
         for (int i2=0;i2<3;i2++){
             uint16_t c2 = i2==g_diff ? amber : MOTE_RGB565(120,126,140);
