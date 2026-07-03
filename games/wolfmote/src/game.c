@@ -286,8 +286,8 @@ static int gflood(int fx,int fz){        /* 4-connected count of reachable cells
     return n;
 }
 
-static int gpunch(const Room*a, const Room*b){         /* punch ONE doorway through the
-                                                          shared wall of two abutting rooms */
+static int gpunch(const Room*a, const Room*b, int *ox, int *oz){
+    /* punch ONE doorway through the shared wall of two abutting rooms */
     if (b->x==a->x+a->w+1 || a->x==b->x+b->w+1) {         /* vertical shared wall */
         int wx = (b->x>a->x) ? a->x+a->w : b->x+b->w;
         int z0 = a->z>b->z ? a->z : b->z;
@@ -295,6 +295,7 @@ static int gpunch(const Room*a, const Room*b){         /* punch ONE doorway thro
         if (z1-z0 < 3) return 0;
         int dz2 = z0+1 + grndi(z1-z0-2);
         g_gen[dz2][wx] = grnd()<0.6f ? 'D' : '.';
+        if (ox){ *ox=wx; *oz=dz2; }
         return 1;
     }
     if (b->z==a->z+a->h+1 || a->z==b->z+b->h+1) {         /* horizontal shared wall */
@@ -304,6 +305,7 @@ static int gpunch(const Room*a, const Room*b){         /* punch ONE doorway thro
         if (x1-x0 < 3) return 0;
         int dx2 = x0+1 + grndi(x1-x0-2);
         g_gen[wz][dx2] = grnd()<0.6f ? 'D' : '.';
+        if (ox){ *ox=dx2; *oz=wz; }
         return 1;
     }
     return 0;
@@ -311,11 +313,13 @@ static int gpunch(const Room*a, const Room*b){         /* punch ONE doorway thro
 
 static void gen_level(int idx){
     Room rooms[12]; int nr=0;
+    int dwx[12], dwz[12], multi[12];     /* each room's entry doorway + extra-door flag */
     for (int z=0;z<GENH;z++){ for(int x=0;x<GENW;x++) g_gen[z][x]='#'; g_gen[z][GENW]=0; }
     {   /* ACCRETION: seed one room, then grow — each new room abuts an existing
          * one across a single shared wall, entered through a punched doorway.
          * Rooms pack tight; there are NO corridors. */
         Room r0={ GENW/2-4+grndi(4), GENH/2-3+grndi(4), 4+grndi(5), 3+grndi(4) };
+        dwx[0]=dwz[0]=-1; multi[0]=1;                     /* spawn room: never a secret */
         rooms[nr++]=r0;
         for (int z=r0.z;z<r0.z+r0.h;z++) for (int x=r0.x;x<r0.x+r0.w;x++) g_gen[z][x]='.';
         for (int t=0;t<400 && nr<11;t++){
@@ -333,12 +337,13 @@ static void gen_level(int idx){
             if (bad) continue;
             rooms[nr]=r;
             for (int z=r.z;z<r.z+r.h;z++) for (int x=r.x;x<r.x+r.w;x++) g_gen[z][x]='.';
-            gpunch(h, &rooms[nr]);                        /* the way in */
+            dwx[nr]=dwz[nr]=-1; multi[nr]=0;
+            gpunch(h, &rooms[nr], &dwx[nr], &dwz[nr]);    /* the way in */
             nr++;
         }
         for (int i=0;i<nr;i++) for (int j=i+1;j<nr;j++)    /* extra doors between rooms
                                                               that HAPPEN to abut -> loops */
-            if (grnd()<0.35f) gpunch(&rooms[i], &rooms[j]);
+            if (grnd()<0.35f && gpunch(&rooms[i], &rooms[j], 0, 0)) { multi[i]=1; multi[j]=1; }
     }
     if (nr<2){                                            /* pathological roll: one big hall */
         rooms[0]=(Room){2,2,GENW-4,GENH-4}; nr=1;
@@ -435,6 +440,34 @@ static void gen_level(int idx){
                     if (g_gen[kz][kx]=='.'){ g_gen[kz][kx]='J'; break; } }
                 break;
             }
+        }
+    }
+    {   /* sometimes a WHOLE leaf room is the secret: its only doorway becomes a
+         * push-wall and the room fills with riches. Never a room holding anything
+         * critical (spawn, keys, exit, boss, vault). */
+        if (grnd()<0.55f) for (int t=0;t<24;t++){
+            int ri=1+grndi(nr-1);
+            if (multi[ri] || dwx[ri]<0) continue;
+            Room *r=&rooms[ri];
+            int ok=1;
+            for (int z=r->z-1; z<=r->z+r->h && ok; z++)
+                for (int x=r->x-1; x<=r->x+r->w && ok; x++){
+                    char c=g_gen[z][x];
+                    if (c=='P'||c=='K'||c=='J'||c=='E'||c=='Z'||c=='V'||c=='S') ok=0;
+                }
+            if (!ok) continue;
+            int dx3 = dwx[ri]<r->x ? 1 : dwx[ri]>=r->x+r->w ? -1 : 0;   /* into the room */
+            int dz3 = dx3 ? 0 : (dwz[ri]<r->z ? 1 : -1);
+            if (g_gen[dwz[ri]+dz3][dwx[ri]+dx3]!='.' ||
+                g_gen[dwz[ri]+dz3*2][dwx[ri]+dx3*2]!='.') continue;     /* push berth blocked */
+            g_gen[dwz[ri]][dwx[ri]]='S';
+            int loot=3+grndi(3);                                        /* pack it with riches */
+            for (int t2=0;t2<40 && loot>0;t2++){
+                int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
+                if (g_gen[z][x]!='.') continue;
+                g_gen[z][x] = loot==1 ? 'H' : 't'; loot--;
+            }
+            break;
         }
     }
     { int nsec=1+(grnd()<0.5f?1:0);                       /* SECRET push-walls: pocket + loot */
