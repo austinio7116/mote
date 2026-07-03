@@ -55,49 +55,50 @@ def pistol():
 
 def shotgun():
     im=cell(); d=ImageDraw.Draw(im); cx=CW*S/2
-    # stock shoulder wedge
-    d.polygon([(cx-16*S,CH*S),(cx+16*S,CH*S),(cx+11*S,40*S),(cx-11*S,40*S)], fill=WOOD, outline=WOODD, width=S)
-    d.line([(cx-9*S),46*S,(cx+9*S),46*S], fill=WOODD, width=S//2)
-    d.line([(cx-10*S),50*S,(cx+10*S),50*S], fill=WOODD, width=S//2)
-    # receiver
-    d.polygon([(cx-11*S,42*S),(cx+11*S,42*S),(cx+9*S,26*S),(cx-9*S,26*S)], fill=ST, outline=OUT, width=S)
-    d.polygon([(cx-11*S,42*S),(cx-9*S,26*S),(cx-6.6*S,26*S),(cx-8*S,42*S)], fill=STH)
-    d.rectangle([cx-2.2*S,36*S,cx+2.2*S,40*S], fill=STD, outline=OUT, width=S//2)   # top lever
-    # twin barrels: big muzzles toward the eye-line top
-    for sx in (-5.4, 5.4):
-        bx=cx+sx*S
-        d.ellipse([bx-5.4*S,10*S,bx+5.4*S,26*S], fill=ST, outline=OUT, width=S)     # barrel shroud
-        d.ellipse([bx-4.4*S,12*S,bx+4.4*S,24*S], fill=STD)
-        d.ellipse([bx-3.2*S,14*S,bx+3.2*S,22*S], fill=BORE)
-        d.arc([bx-4.4*S,12*S,bx+4.4*S,24*S], 130, 230, fill=STH, width=S)           # rim glint
-    # forend hand on the pump
-    hand(d, cx, 33*S, 20*S, 11*S)
+    # two barrels running AWAY from the eye — foreshortened trapezoids, muzzles far/small
+    for side in (-1, 1):
+        nb, fb = 4.6, 2.6                     # near/far half-widths
+        noff, foff = 5.2, 3.4                 # near/far centre offsets (converge slightly)
+        x0=cx+side*noff*S; x1=cx+side*foff*S
+        d.polygon([(x0-nb*S,38*S),(x0+nb*S,38*S),(x1+fb*S,7*S),(x1-fb*S,7*S)], fill=ST, outline=OUT, width=S)
+        d.polygon([(x0-nb*S,38*S),(x1-fb*S,7*S),(x1-fb*S+1.6*S,7*S),(x0-nb*S+2.6*S,38*S)], fill=STH)  # top glint
+        d.ellipse([x1-fb*S+0.6*S,5.6*S,x1+fb*S-0.6*S,8.6*S], fill=BORE, outline=OUT, width=S//2)      # far muzzle
+    # mid barrel band
+    d.polygon([(cx-10.6*S,22*S),(cx+10.6*S,22*S),(cx+11.4*S,25.5*S),(cx-11.4*S,25.5*S)], fill=STD, outline=OUT, width=S//2)
+    # wood forend under the barrels + pump hand
+    d.polygon([(cx-11*S,46*S),(cx+11*S,46*S),(cx+9.4*S,36*S),(cx-9.4*S,36*S)], fill=WOOD, outline=WOODD, width=S)
+    d.line([cx-8.5*S,39*S,cx+8.5*S,39*S], fill=WOODH, width=S//2)
+    d.line([cx-9*S,42.5*S,cx+9*S,42.5*S], fill=WOODD, width=S//2)
+    hand(d, cx-2*S, 44*S, 15*S, 11*S)
+    # receiver + forearm at the bottom edge
+    d.polygon([(cx-8*S,CH*S),(cx+12*S,CH*S),(cx+10*S,47*S),(cx-6*S,47*S)], fill=SKIND)
     return down(im)
 
 def chaingun():
     im=cell(); d=ImageDraw.Draw(im); cx=CW*S/2
-    # housing
-    d.polygon([(cx-15*S,CH*S),(cx+15*S,CH*S),(cx+12*S,34*S),(cx-12*S,34*S)], fill=STD, outline=OUT, width=S)
-    d.polygon([(cx-15*S,CH*S),(cx-12*S,34*S),(cx-9*S,34*S),(cx-11.6*S,CH*S)], fill=ST)
-    # ammo feed to the right
-    d.rounded_rectangle([cx+11*S,40*S,cx+22*S,50*S], radius=2*S, fill=ST, outline=OUT, width=S)
-    for i in range(3):
-        d.line([cx+(13+i*3)*S,41*S,cx+(13+i*3)*S,49*S], fill=(220,180,70,255), width=S)
-    # rotary drum with six barrel bores
-    R=13.5
-    d.ellipse([cx-R*S,8*S,cx+R*S,(8+2*R)*S], fill=ST, outline=OUT, width=S)
-    d.arc([cx-R*S,8*S,cx+R*S,(8+2*R)*S], 120, 250, fill=STH, width=S+2)
     import math
-    ccy=(8+R)*S
-    for k in range(6):
-        a=k*math.pi/3 + 0.5
-        bx=cx+math.cos(a)*7.4*S; by=ccy+math.sin(a)*7.4*S
-        d.ellipse([bx-3.2*S,by-3.2*S,bx+3.2*S,by+3.2*S], fill=STD, outline=OUT, width=S//2)
-        d.ellipse([bx-2*S,by-2*S,bx+2*S,by+2*S], fill=BORE)
-    d.ellipse([cx-2.6*S,ccy-2.6*S,cx+2.6*S,ccy+2.6*S], fill=STD, outline=OUT, width=S//2)  # hub
-    # two supporting hands
-    hand(d, cx-11*S, 44*S, 14*S, 11*S)
-    hand(d, cx+11*S, 44*S, 14*S, 11*S)
+    # barrel BUNDLE running away: three visible tubes foreshortened into the screen
+    for off,nw,fw in ((-6.2,3.4,1.9),(6.2,3.4,1.9),(0,3.8,2.2)):
+        x0=cx+off*S; x1=cx+off*0.55*S
+        d.polygon([(x0-nw*S,34*S),(x0+nw*S,34*S),(x1+fw*S,7*S),(x1-fw*S,7*S)], fill=ST, outline=OUT, width=S)
+        d.polygon([(x0-nw*S,34*S),(x1-fw*S,7*S),(x1-fw*S+1.3*S,7*S),(x0-nw*S+2.1*S,34*S)], fill=STH)
+    # far muzzle cluster: small bores at the tip
+    for offx,offy in ((-3.4,0.2),(3.4,0.2),(0,-1.2),(0,1.8)):
+        bx=cx+offx*S; by=6.6*S+offy*S
+        d.ellipse([bx-1.9*S,by-1.7*S,bx+1.9*S,by+1.7*S], fill=BORE, outline=OUT, width=S//2)
+    # rotating collar mid-way
+    d.polygon([(cx-9.4*S,20*S),(cx+9.4*S,20*S),(cx+10.4*S,24*S),(cx-10.4*S,24*S)], fill=STD, outline=OUT, width=S//2)
+    # drum housing at the near end (seen from behind-top)
+    d.rounded_rectangle([cx-13*S,34*S,cx+13*S,50*S], radius=4*S, fill=STD, outline=OUT, width=S)
+    d.ellipse([cx-10*S,35.5*S,cx+10*S,42*S], fill=ST)                      # top face catches light
+    d.arc([cx-10*S,35.5*S,cx+10*S,42*S], 160, 380, fill=STH, width=S)
+    # ammo belt feeding the right side
+    d.rounded_rectangle([cx+12*S,38*S,cx+22*S,47*S], radius=2*S, fill=ST, outline=OUT, width=S)
+    for i in range(3):
+        d.line([cx+(14+i*2.8)*S,39.4*S,cx+(14+i*2.8)*S,45.6*S], fill=(224,186,80,255), width=S)
+    # both hands on the frame
+    hand(d, cx-11.5*S, 48*S, 13*S, 10*S)
+    hand(d, cx+9.5*S, 51*S, 13*S, 10*S)
     return down(im)
 
 sheet=Image.new("RGBA",(CW*3,CH),(0,0,0,0))
