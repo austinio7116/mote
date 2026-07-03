@@ -27,7 +27,6 @@
 #include "key.h"
 #include "treasure.h"
 #include "blood.h"
-#include "gun_shotgun.h"
 #include "rusher.h"
 #include "commando.h"
 #include "boss.h"
@@ -37,12 +36,11 @@
 #include "secret.sfx.h"
 #include "guard.h"
 #include "brute.h"
-#include "gun_pistol.h"
-#include "gun_chaingun.h"
+#include "weapons.h"       /* weapons_img — pistol/shotgun/chaingun HUD, 72x56 cells */
+#include "wpickup.h"       /* wpickup_img — per-weapon pickup icons, 20x20 cells */
 #include "flash.h"
 #include "ammo.h"
 #include "medkit.h"
-#include "wpn.h"
 #include "barrel.h"
 #include "lamp.h"
 #include "lampglow.h"
@@ -752,8 +750,10 @@ static void g_update(float dt) {
             mote->scene_add_billboard(v3(p->x,0.3f,p->z), &key_img,0,0,0,0,0.34f, MOTE_BLEND_NONE);
         else if (p->type==PK_TREAS)
             mote->scene_add_billboard(v3(p->x,0.26f,p->z), &treasure_img, p->variant*12,0,12,12, 0.34f, MOTE_BLEND_NONE);
+        else if (p->type==PK_WEAPON)
+            mote->scene_add_billboard(v3(p->x,0.26f,p->z), &wpickup_img, (has_shot?2:1)*20,0,20,20, 0.42f, MOTE_BLEND_NONE);
         else {
-            const MoteImage *img = p->type==PK_AMMO ? &ammo_img : p->type==PK_HEALTH ? &medkit_img : &wpn_img;
+            const MoteImage *img = p->type==PK_AMMO ? &ammo_img : &medkit_img;
             mote->scene_add_billboard(v3(p->x,0.26f,p->z), img,0,0,0,0,0.4f, MOTE_BLEND_NONE);
         }
     }
@@ -801,11 +801,10 @@ static void g_overlay(uint16_t *fb) {
 
     if (state == ST_PLAY) {
         float bx = sinf(walk_t)*3.0f, by = fabsf(sinf(walk_t))*2.5f;
-        const MoteImage *gimg = cur_w ? &gun_chaingun_img : &gun_pistol_img;
         /* muzzle flash FIRST, so the gun draws over it (flash peeks from behind) */
         if (muzzle > 0)
             mote->blit_ex(fb, &flash_img, 64+bx, 78+by, 0,0,0,0, walk_t, 1.5f, MOTE_BLEND_ADD, 0, 128);
-        mote->blit_ex(fb, gimg, 64+bx, 110+by, 0,0,0,0, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
+        mote->blit_ex(fb, &weapons_img, 64+bx, 106+by, cur_w*72,0,72,56, 0.0f, 1.0f, MOTE_BLEND_NONE, 0, 128);
     }
 
     mote->draw_rect(fb, 0,0,128,9, MOTE_RGB565(18,20,28),1,0,128);
