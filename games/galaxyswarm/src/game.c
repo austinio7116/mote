@@ -1100,4 +1100,4 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
-MOTE_GAME_META("Galaxy Swarm", "austinio7116");
+MOTE_GAME_META("GalaxySwarm", "austinio7116");
