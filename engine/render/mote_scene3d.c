@@ -711,8 +711,15 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1) {
      * (glows, soft sprites) test-only. Nearest-neighbour scaled blit. */
     if (s_nbbs > 0) {
         uint16_t *depth = mote_depth_buffer();
+        /* Two passes: OPAQUE billboards first (they depth-write), blended ones
+         * after (test-only). Makes mixed opaque+ADD rendering independent of
+         * submission order — a later-submitted opaque sprite can no longer
+         * paint over a nearer glow that couldn't write depth. ADD commutes,
+         * so blended-vs-blended order is free too. */
+        for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s_nbbs; i++) {
             const ScreenBillboard *q = &s_bbs[i];
+            if ((q->blend == MOTE_BLEND_NONE) != (pass == 0)) continue;
             const MoteImage *img = q->img;
             int x0 = (int)((q->cx - q->hw) * ss), x1 = (int)((q->cx + q->hw) * ss);
             int y0 = (int)((q->cy - q->hh) * ss), y1 = (int)((q->cy + q->hh) * ss);
