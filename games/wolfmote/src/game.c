@@ -299,8 +299,8 @@ static void gen_level(int idx){
     Room rooms[12]; int nr=0;
     for (int z=0;z<GENH;z++){ for(int x=0;x<GENW;x++) g_gen[z][x]='#'; g_gen[z][GENW]=0; }
     for (int t=0;t<160 && nr<11;t++){                     /* rooms, 1-cell margin apart */
-        Room r={ 1+grndi(GENW-11), 1+grndi(GENH-9), 4+grndi(5), 3+grndi(4) };
-        if (r.x+r.w>=GENW-1 || r.z+r.h>=GENH-1) continue;
+        int rw=4+grndi(5), rh=3+grndi(4);                 /* size first, then place anywhere */
+        Room r={ 1+grndi(GENW-2-rw), 1+grndi(GENH-2-rh), rw, rh };
         int bad=0;
         for (int i=0;i<nr;i++){ Room*o=&rooms[i];
             if (r.x<o->x+o->w+1 && o->x<r.x+r.w+1 && r.z<o->z+o->h+1 && o->z<r.z+r.h+1){ bad=1; break; } }
@@ -628,6 +628,7 @@ static void start_game(void) {
     level = 0; health = 100; ammo = 24; score = 0; has_chain = 0; has_shot = 0;
 #ifdef MOTE_HOST
     { const char *fl = getenv("MOTE_WOLF_FLOOR"); if (fl) level = atoi(fl)-1; if (level<0) level=0; if (level>=NUM_FLOORS) level=NUM_FLOORS-1; }
+    { const char *sd = getenv("MOTE_WOLF_SEED");  if (sd) g_seed = (uint32_t)strtoul(sd,0,10)*2654435761u + 1u; }
 #endif
     load_level(level);
     msg_t = 0;
