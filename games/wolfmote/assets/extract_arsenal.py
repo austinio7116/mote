@@ -39,6 +39,22 @@ def harden(img):
     a[:,:,3]=np.where(hard,255,0); a[~hard]=0
     return Image.fromarray(a,"RGBA")
 
+def strip_shadow(img):
+    """The icon sheet paints a soft drop shadow under every item; it is fused to
+    the art, so colour rules can't isolate it. It lives in the bottom ~9%% of the
+    item, and at 32x16 icon scale a straight crop there is invisible — cut it,
+    then trim any leftover pale neutral rows."""
+    a=np.asarray(img).astype(int)
+    a=a[:int(a.shape[0]*0.91)]
+    while a.shape[0]>2:
+        row=a[-1]; op=row[:,3]>0
+        if not op.any(): a=a[:-1]; continue
+        px=row[op]
+        neutral=((np.abs(px[:,0]-px[:,1])<=14)&(np.abs(px[:,1]-px[:,2])<=14)&(px[:,:3].max(axis=1)<215)).mean()
+        if neutral<0.8: break
+        a=a[:-1]
+    return Image.fromarray(a.astype(np.uint8),"RGBA")
+
 # ---- first-person sheet: 6 guns left-to-right ----
 cells = sorted(key_out(FP, 180), key=lambda t:t[1])
 assert len(cells)==6, f"FP sheet: got {len(cells)}"
@@ -70,6 +86,7 @@ ammo, guns = flat[:3], flat[3:]
 
 gs = Image.new("RGBA",(32*6,16),(0,0,0,0))
 for i,g in enumerate(guns):
+    g = strip_shadow(g)
     sc=min(30/g.size[0], 14/g.size[1])
     r=harden(g.resize((max(1,round(g.size[0]*sc)),max(1,round(g.size[1]*sc))),Image.LANCZOS))
     gs.paste(r,(i*32+(32-r.size[0])//2, 16-r.size[1]))
@@ -78,6 +95,7 @@ print("wpickup2.png: 6 pickup profiles")
 
 am = Image.new("RGBA",(20*3,20),(0,0,0,0))
 for i,g in enumerate(ammo):
+    g = strip_shadow(g)
     sc=18/max(g.size)
     r=harden(g.resize((max(1,round(g.size[0]*sc)),max(1,round(g.size[1]*sc))),Image.LANCZOS))
     am.paste(r,(i*20+(20-r.size[0])//2, 20-r.size[1]))

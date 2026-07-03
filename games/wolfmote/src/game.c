@@ -1362,21 +1362,21 @@ static void g_overlay(uint16_t *fb) {
             else if (w==4) c=MOTE_RGB565(120,86,70);       /* secrets look like walls */
             else if (w==5) c=MOTE_RGB565(96,100,110);
             else c=MOTE_RGB565(34,38,46);
-            mote->draw_rect(fb, ox+x*cell, oy+z*cell, cell-1, cell-1, c, 1, 0,128);
-        }
+            mote->draw_rect(fb, ox+x*cell, oy+(MH-1-z)*cell, cell-1, cell-1, c, 1, 0,128);
+        }                                                 /* +z is FORWARD: draw it upward */
         for (int i=0;i<g_npk;i++){ Pickup*pk=&g_pk[i];    /* seen loot glints */
             if (pk->taken) continue;
             int mxx=(int)pk->x, mzz=(int)pk->z;
             if (!g_seen[mzz][mxx]) continue;
             uint16_t c = pk->type==PK_KEY?MOTE_RGB565(250,210,60):
                          pk->type==PK_TREAS?MOTE_RGB565(240,230,120):MOTE_RGB565(120,190,230);
-            mote->draw_rect(fb, ox+mxx*cell+1, oy+mzz*cell+1, 2,2, c,1,0,128);
+            mote->draw_rect(fb, ox+mxx*cell+1, oy+(MH-1-mzz)*cell+1, 2,2, c,1,0,128);
         }
-        { int mxx=ox+(int)(px*cell), mzz=oy+(int)(pz*cell);   /* you + facing */
+        { int mxx=ox+(int)(px*cell), mzz=oy+(int)((MH-pz)*cell);   /* you + facing */
           mote->draw_rect(fb, mxx-1, mzz-1, 3,3, MOTE_RGB565(255,255,255),1,0,128);
-          mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz+(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
+          mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz-(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
         mote_textf(mote, fb, 4,2, amber, "FLOOR %d", level+1);
-        mote->blit_ex(fb, &wpickup_img, 4,112, cur_w*32,0,32,16, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
+        mote->blit_ex(fb, &wpickup_img, 20,116, cur_w*32,0,32,16, 0.0f,1.0f, MOTE_BLEND_NONE, 0,128);
         mote->text(fb, WPN[cur_w].nm, 38,116, amber);
         mote->text(fb, "< >", 38,124, MOTE_RGB565(140,150,170));
         mote->text(fb, "MENU CLOSE", 78,120, MOTE_RGB565(140,150,170));
