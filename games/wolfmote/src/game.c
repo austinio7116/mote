@@ -211,7 +211,7 @@ static const struct { int dmg; float cd; int autofire; int pellets; int pool; in
     { 23, 0.85f,  0, 5,  0, -1, "SHOT"  },
     { 23, 1.30f,  0, 8,  0, -1, "DBL"   },   /* both barrels */
     { 20, 0.085f, 1, 1,  0, -1, "CHAIN" },
-    { 50, 0.60f,  0, 1,  1,  0, "FIRE"  },   /* lobs FIREBALLS */
+    { 20, 0.20f,  1, 1,  1,  0, "FIRE"  },   /* rapid FIREBALLS + splash */
     {120, 1.15f,  0, 1,  2,  1, "CANN"  },
     { 28, 0.14f,  1, 1,  3,  2, "PLAS"  },
 };
@@ -825,7 +825,7 @@ static void kill_enemy(Enemy *e) {
         msg_t = 2.0f;
     }
 }
-static void splash(float x, float z, int dmg, float r) {   /* detonation: hurts all, pops barrels */
+static void splash(float x, float z, int dmg, float r, int pdmg) {   /* detonation: hurts all, pops barrels */
     add_boom(x, z, 1); play(&snd_boom, 0.5f);
     for (int i=0;i<g_nen;i++){ Enemy*en=&g_en[i];
         if (!en->alive) continue;
@@ -834,7 +834,7 @@ static void splash(float x, float z, int dmg, float r) {   /* detonation: hurts 
             if (en->hp<=0) kill_enemy(en); }
     }
     { float dx=px-x, dz=pz-z;
-      if (dx*dx+dz*dz < (r-0.3f)*(r-0.3f)){ health -= 18; hurt=0.22f;
+      if (dx*dx+dz*dz < (r-0.3f)*(r-0.3f)){ health -= pdmg; hurt=0.22f;
           g_dmgdir = atan2f(x-px, z-pz); g_dmgt=0.30f;
           if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
     for (int i=0;i<g_nsc;i++)
@@ -859,8 +859,8 @@ static void tick_projectiles(float dt) {
         }
         if (hit){
             b->live=0;
-            if (b->kind==0)      splash(b->x, b->z, WPN[6].dmg, 1.3f);
-            else if (b->kind==1) splash(b->x, b->z, WPN[7].dmg, 1.8f);
+            if (b->kind==0)      splash(b->x, b->z, WPN[6].dmg, 1.3f, 6);
+            else if (b->kind==1) splash(b->x, b->z, WPN[7].dmg, 1.8f, 18);
             else {                                        /* plasma: direct hit only */
                 add_boom(b->x, b->z, 0);
                 for (int e2=0;e2<g_nen;e2++){ Enemy*en=&g_en[e2];
@@ -1089,7 +1089,7 @@ static void g_update(float dt) {
                 p->taken = 1; play(&snd_pickup, 0.6f);
                 if (p->type==PK_AMMO) g_am[0] += 15;
                 else if (p->type==PK_AMMO2) g_am[0] += 35;
-                else if (p->type==PK_FUEL)  g_am[1] += 5;
+                else if (p->type==PK_FUEL)  g_am[1] += 25;
                 else if (p->type==PK_BALLS) g_am[2] += 4;
                 else if (p->type==PK_CELLS) g_am[3] += 30;
                 else if (p->type==PK_HEALTH) { health += 25; if (health>100) health=100; }
@@ -1105,7 +1105,7 @@ static void g_update(float dt) {
                 else if (p->type==PK_WEAPON) {
                     int nw = next_weapon();
                     if (nw >= 0) {
-                        static const int GIFT[9]={0,0,25,12,12,40,6,4,40};
+                        static const int GIFT[9]={0,0,25,12,12,40,30,4,40};
                         owned[nw]=1; cur_w=nw;
                         int pl=WPN[nw].pool; if (pl>=0) g_am[pl]+=GIFT[nw];
                     } else g_am[0] += 20;                 /* full arsenal: bullets instead */
