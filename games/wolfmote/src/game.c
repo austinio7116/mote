@@ -394,6 +394,7 @@ static void gen_level(int idx){
                 int b2x=x+DX4[k]*2, b2z=z+DZ4[k]*2;
                 if (ax<1||az<1||ax>=GENW-1||az>=GENH-1) continue;
                 if (b2x<1||b2z<1||b2x>=GENW-1||b2z>=GENH-1) continue;
+                if (b1x<1||b1z<1||b1x>=GENW-1||b1z>=GENH-1) continue;   /* provably in range (gcc) */
                 if (g_gen[az][ax]!='.') continue;
                 if (gopen(b1x,b1z)||gopen(b2x,b2z)) continue;
                 int c1x=x+DX4[k]*3, c1z=z+DZ4[k]*3;
@@ -420,6 +421,7 @@ static void gen_level(int idx){
             int b2x=x+DX4[k]*2, b2z=z+DZ4[k]*2;
             if (ax<1||az<1||ax>=GENW-1||az>=GENH-1) continue;
             if (b2x<1||b2z<1||b2x>=GENW-1||b2z>=GENH-1) continue;
+            if (b1x<1||b1z<1||b1x>=GENW-1||b1z>=GENH-1) continue;   /* provably in range (gcc) */
             if (g_gen[az][ax]!='.') continue;
             if (gopen(b1x,b1z)||gopen(b2x,b2z)) continue;
             /* pocket must stay sealed at the far end + sides */
