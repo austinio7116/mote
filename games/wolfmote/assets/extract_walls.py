@@ -61,6 +61,10 @@ sheet = np.zeros((256,128,3))
 for i,name in enumerate(SHEET):
     t = tex[name]
     if name in TILING: t = heal_wrap(t)
+    if name == "doorw":                                   # lighter wood: lift the midtones so
+        t = 255.0*np.power(np.clip(t,0,255)/255.0, 0.62)  # planks read clearly; iron bands stay dark
+        t[:,:,0] *= 1.06; t[:,:,1] *= 1.00; t[:,:,2] *= 0.90   # warm it up
+
     cy, cx = i//2, i%2
     sheet[cy*64:(cy+1)*64, cx*64:(cx+1)*64] = t
 Image.fromarray(np.clip(sheet,0,255).astype(np.uint8),"RGB").convert("RGBA").save(f"{AD}/walls.png")
