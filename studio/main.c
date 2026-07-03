@@ -318,7 +318,8 @@ static void load_game(int idx,int rebuild){ if(idx<0||idx>=g_ngame)return;
     finish_load(idx); }
 
 /* ================= pixel-art studio (bottom dock tab) ================= */
-#define CMAX 256
+#define CMAX 256          /* canvas AREA budget: buffers hold CMAX*CMAX cells (any shape) */
+#define CDIM 1024          /* max single dimension: wide sprite sheets load native */
 #define KEY565 0xF81F
 /* two independent documents: 0 = PIXEL ART sprite, 1 = TEXTURE. g_canvas points at the
  * active one; switching tabs swaps it so the texture generators never touch the sprite. */
@@ -375,8 +376,10 @@ static SDL_Rect g_fn_edit, g_gs_cellr[128], g_gs_edit;
 static void font_gs_loadbuf(void);   /* fwd: load the sheet PNG into g_gsbuf */
 static void canvas_new(void){ for(int i=0;i<CMAX*CMAX;i++)g_canvas[i]=KEY565; memset(g_alpha,0,CMAX*CMAX); g_stroking=0; g_undo_cnt=0; g_redo_cnt=0; g_px_path[0]=0; g_doc_ready[g_doc]=1; g_icon_edit=0; }
 static void undo_push(void);   /* fwd */
-/* resize the canvas to an arbitrary size (1..CMAX), keeping the existing art (top-left) */
-static void canvas_resize(int nw,int nh){ if(nw<1)nw=1; if(nw>CMAX)nw=CMAX; if(nh<1)nh=1; if(nh>CMAX)nh=CMAX; if(nw==g_cw&&nh==g_ch)return; undo_push();
+/* resize the canvas to an arbitrary shape (area <= CMAX*CMAX), keeping the art (top-left) */
+static void canvas_resize(int nw,int nh){ if(nw<1)nw=1; if(nw>CDIM)nw=CDIM; if(nh<1)nh=1; if(nh>CDIM)nh=CDIM;
+    while((long)nw*nh>CMAX*CMAX) { if(nh>1)nh--; else nw=CMAX*CMAX; }   /* shrink height into budget */
+    if(nw==g_cw&&nh==g_ch)return; undo_push();
     static uint16_t tmp[CMAX*CMAX]; static uint8_t tmpa[CMAX*CMAX]; int ow=g_cw,oh=g_ch;
     memcpy(tmp,g_canvas,(size_t)ow*oh*2); memcpy(tmpa,g_alpha,(size_t)ow*oh);
     for(int i=0;i<nw*nh;i++){ g_canvas[i]=KEY565; g_alpha[i]=0; } int cw=ow<nw?ow:nw, chh=oh<nh?oh:nh;
@@ -429,11 +432,14 @@ static void canvas_save(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"o
     if(!stbi_write_png(p,g_cw,g_ch,4,rgba,g_cw*4)){ snprintf(g_status,sizeof g_status,"save FAILED (could not write %s)",p); return; }
     snprintf(g_status,sizeof g_status,"saved %s + baking",p); njob(2,dir); }
 /* import any image at its NATIVE size + aspect (non-square OK), magenta-keying
- * alpha. Only downscale if a dimension exceeds CMAX (keeps aspect). */
+ * alpha. The canvas buffer is an AREA budget (CMAX*CMAX cells, any shape) so a wide
+ * sprite sheet like 648x56 loads at native resolution; only downscale when a
+ * dimension exceeds CDIM or the area exceeds the buffer. */
 static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path,&w,&h,&n,4);
     if(!d){ snprintf(g_status,sizeof g_status,"could not read image"); return; }
     int cw=w, chh=h;
-    if(cw>CMAX||chh>CMAX){ float s=(float)CMAX/(cw>chh?cw:chh); cw=(int)(cw*s); chh=(int)(chh*s); }
+    if(cw>CDIM||chh>CDIM){ float s=(float)CDIM/(cw>chh?cw:chh); cw=(int)(cw*s); chh=(int)(chh*s); }
+    if((long)cw*chh>CMAX*CMAX){ float s=sqrtf((float)(CMAX*CMAX)/((float)cw*chh)); cw=(int)(cw*s); chh=(int)(chh*s); }
     if(cw<1)cw=1; if(chh<1)chh=1; g_cw=cw; g_ch=chh; canvas_new();
     for(int y=0;y<chh;y++)for(int x=0;x<cw;x++){ int sx=x*w/cw, sy=y*h/chh;
         if(sx<w&&sy<h){ int i=(sy*w+sx)*4, r=d[i],g=d[i+1],b=d[i+2],a=d[i+3];
