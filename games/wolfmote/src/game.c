@@ -126,7 +126,7 @@ static void build_wall_mesh(void) {
 
 /* ============================================================ entities ===== */
 #define MAX_EN 24
-#define MAX_PK 24
+#define MAX_PK 32
 #define MAX_SC 48
 #define MAX_DR 20
 
@@ -215,11 +215,25 @@ static const struct { int dmg; float cd; int autofire; int pellets; int pool; in
     {120, 1.15f,  0, 1,  2,  1, "CANN"  },
     { 28, 0.14f,  1, 1,  3,  2, "PLAS"  },
 };
-static int next_weapon(void){                 /* what the next 'w' pickup grants */
-    static const int O[7]={3,5,2,4,6,7,8};    /* shot chain smg dbl flamer cannon plasma */
-    for (int k=0;k<7;k++) if (!owned[O[k]]) return O[k];
+static int grndi(int n);   /* level-gen RNG, defined below */
+/* WEIGHTED weapon drop: every unowned gun can appear on every floor. The ladder
+ * SMG<SHOT<DBL<CHAIN<FIRE<CANN<PLAS peaks near the current depth, with a floor of
+ * 4 so even a cannon can (rarely) drop on floor 1. Returns -1 when all owned. */
+static int pick_weapon(int fl){
+    int wt[7], wsum=0;
+    for (int k=0;k<7;k++){
+        if (owned[2+k]) { wt[k]=0; continue; }
+        float d = k - fl*0.9f;
+        int w = (int)(100.0f/(1.0f+d*d));
+        if (w<4) w=4;
+        wt[k]=w; wsum+=w;
+    }
+    if (!wsum) return -1;
+    int r=grndi(wsum);
+    for (int k=0;k<7;k++){ r-=wt[k]; if (r<0) return 2+k; }
     return -1;
 }
+static int guns_left(void){ for (int k=2;k<9;k++) if (!owned[k]) return 1; return 0; }
 /* live projectiles (fireballs / cannonballs / plasma bolts) */
 typedef struct { float x,z,dx,dz,life; int kind, live; } Proj;
 static Proj g_pr[12];
@@ -229,9 +243,6 @@ static void add_proj(float x,float z,float dx,float dz,int kind){
 }
 
 /* ---- baked sounds ---- */
-static MoteSound snd_shoot, snd_chain, snd_efire, snd_hit, snd_death, snd_door, snd_pickup, snd_hurt;
-static MoteSound snd_auto, snd_plasma;   /* Indemnity Run autocannon + plasma */
-static MoteSound snd_shotgun, snd_step, snd_alert, snd_secret, snd_boom;
 
 /* ============================================================ helpers ====== */
 static inline int is_blocked(int ix, int iz) {
@@ -277,7 +288,7 @@ static int los(float x0, float z0, float x1, float z1) {
     }
     return 1;
 }
-static void play(MoteSound *s, float gain) { if (s->pcm) mote->audio_play(s, gain); }
+static void play(const MoteSfx *r, float gain) { mote->audio_play_sfx(r, gain); }   /* streamed: 0 arena RAM */
 static float dist_gain(float d, float lo, float hi) {
     float g = 1.0f - d / 12.0f; if (g < lo) g = lo; if (g > hi) g = hi; return g;
 }
@@ -434,17 +445,24 @@ static void gen_level(int idx){
         int bx2=r->x+r->w/2, bz2=r->z+r->h/2;
         if (g_gen[bz2][bx2]!='P') g_gen[bz2][bx2]='Z';
     }
-    int drops = 6 + ((idx>=1 && next_weapon()>=0) ? 1 : 0);  /* ammo/health (+ next weapon) */
-    for (int t=0;t<240 && drops>0;t++){
-        int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
-        if (g_gen[z][x]!='.') continue;
-        g_gen[z][x] = (drops==7)?'w' : (drops&1)?(grnd()<0.3f?'A':'a'):(grnd()<0.3f?'H':'h'); drops--;
-    }
-    {   static const char AL[3]={'f','g','e'};            /* fuel / cannonballs / cells */
-        for (int k=0;k<3;k++){
-            if (!owned[6+k]) continue;
-            for (int t=0;t<40;t++){ int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
-                if (g_gen[z][x]=='.'){ g_gen[z][x]=AL[k]; break; } }
+    {   /* STOCK-AWARE supply: the ammo mix follows what you carry. Bullets are
+         * always in the pot (twice); each special pool joins once its gun is
+         * owned, and the drop count grows with the pools you're feeding. */
+        char pot[8]; int np=0;
+        pot[np++]='a'; pot[np++]='a';
+        if (owned[6]) pot[np++]='f';
+        if (owned[7]) pot[np++]='g';
+        if (owned[8]) pot[np++]='e';
+        int drops = 4 + 2*(np-1); if (drops>10) drops=10;
+        int wroll = guns_left() ? 1 : 0;
+        for (int t=0;t<300 && (drops+wroll)>0;t++){
+            int x=1+grndi(GENW-2), z=1+grndi(GENH-2);
+            if (g_gen[z][x]!='.') continue;
+            if (wroll){ g_gen[z][x]='w'; wroll=0; continue; }
+            if (drops&1) g_gen[z][x] = grnd()<0.3f?'H':'h';
+            else { char c2=pot[grndi(np)];
+                   g_gen[z][x] = (c2=='a' && grnd()<0.3f) ? 'A' : c2; }
+            drops--;
         }
     }
     if (idx!=NUM_FLOORS-1){                               /* the GOLD KEY, hidden mid-dungeon */
@@ -506,6 +524,12 @@ static void gen_level(int idx){
             if (g_gen[dwz[ri]+dz3][dwx[ri]+dx3]!='.' ||
                 g_gen[dwz[ri]+dz3*2][dwx[ri]+dx3*2]!='.') continue;     /* push berth blocked */
             g_gen[dwz[ri]][dwx[ri]]='S';
+            if (guns_left() && grnd()<0.6f)                             /* secret CACHE: a gun
+                                                                           rolled 2 floors deep */
+                for (int t2=0;t2<30;t2++){
+                    int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
+                    if (g_gen[z][x]=='.'){ g_gen[z][x]='u'; break; }
+                }
             int loot=3+grndi(3);                                        /* pack it with riches */
             for (int t2=0;t2<40 && loot>0;t2++){
                 int x=r->x+grndi(r->w), z=r->z+grndi(r->h);
@@ -631,7 +655,13 @@ static void load_level(int idx) {
                 case 't': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_TREAS,0,(int)(mote_frand()*6)}; break;
                 case 'a': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_AMMO,0,0}; break;
                 case 'h': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_HEALTH,0,0}; break;
-                case 'w': if (g_npk<MAX_PK) g_pk[g_npk++]=(Pickup){wx,wz,PK_WEAPON,0,0}; break;
+                case 'w': case 'u': {
+                    int fl2 = c=='u' ? (idx+2>7?7:idx+2) : idx;
+                    int wid = pick_weapon(fl2);
+                    if (g_npk<MAX_PK)
+                        g_pk[g_npk++] = wid>=0 ? (Pickup){wx,wz,PK_WEAPON,0,wid}
+                                               : (Pickup){wx,wz,PK_AMMO2,0,0};
+                } break;
                 case 'o': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_BARREL};  break;
                 case 'W': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_WBARREL}; break;
                 case 'i': if (g_nsc<MAX_SC) g_sc[g_nsc++]=(Scenery){wx,wz,SC_PILLAR};  break;
@@ -768,21 +798,6 @@ static void g_init(void) {
     mote->set_background_cb(bg_floor_ceiling);
     mote->scene_set_sun(v3_norm(v3(0.4f, 0.9f, 0.3f)));
     mote->scene_set_near(0.08f);          /* so close walls don't clip away */
-    snd_shoot  = mote_sfx_bake(mote, &shoot_sfx);
-    snd_chain  = mote_sfx_bake(mote, &chain_sfx);
-    snd_auto   = mote_sfx_bake(mote, &autocannon_sfx);
-    snd_plasma = mote_sfx_bake(mote, &plasmagun_sfx);
-    snd_efire  = mote_sfx_bake(mote, &efire_sfx);
-    snd_shotgun= mote_sfx_bake(mote, &shotgun_sfx);
-    snd_step   = mote_sfx_bake(mote, &step_sfx);
-    snd_alert  = mote_sfx_bake(mote, &alert_sfx);
-    snd_secret = mote_sfx_bake(mote, &secret_sfx);
-    snd_boom   = mote_sfx_bake(mote, &boom_sfx);
-    snd_hit    = mote_sfx_bake(mote, &hit_sfx);
-    snd_death  = mote_sfx_bake(mote, &death_sfx);
-    snd_door   = mote_sfx_bake(mote, &door_sfx);
-    snd_pickup = mote_sfx_bake(mote, &pickup_sfx);
-    snd_hurt   = mote_sfx_bake(mote, &hurt_sfx);
     start_game();
     state = ST_TITLE;
 }
@@ -797,7 +812,7 @@ static void kill_scenery(int i){
 static void explode_barrel(int idx){
     float bx=g_sc[idx].x, bz=g_sc[idx].z;
     kill_scenery(idx);
-    add_boom(bx,bz,1); play(&snd_boom,0.8f);
+    add_boom(bx,bz,1); play(&boom_sfx,0.8f);
     for (int e2=0;e2<g_nen;e2++){ Enemy*en=&g_en[e2]; if(!en->alive) continue;
         float dx=en->x-bx, dz=en->z-bz;
         if (dx*dx+dz*dz<1.7f*1.7f){ en->hp-=95; en->hitflash=0.2f; en->stag=0.5f;
@@ -806,7 +821,7 @@ static void explode_barrel(int idx){
     { float dx=px-bx, dz=pz-bz;
       if (dx*dx+dz*dz<1.5f*1.5f){ health-=25; hurt=0.22f;
           g_dmgdir=atan2f(bx-px,bz-pz); g_dmgt=0.30f;
-          if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
+          if (health<=0){ health=0; state=ST_DEAD; play(&death_sfx,0.6f); } } }
     for (int s2=0;s2<g_nsc;s2++){                          /* CHAIN nearby steel barrels */
         if (g_sc[s2].type!=SC_BARREL) continue;
         float dx=g_sc[s2].x-bx, dz=g_sc[s2].z-bz;
@@ -815,7 +830,7 @@ static void explode_barrel(int idx){
 static void kill_enemy(Enemy *e) {
     e->alive = 0; fl_kills++;
     score += e->type==EN_BOSS ? 2000 : e->type==EN_BRUTE ? 250 : e->type==EN_CMDO ? 200 : e->type==EN_RUSH ? 150 : 100;
-    play(&snd_death, 0.6f);
+    play(&death_sfx, 0.6f);
     if (g_nco < 24) g_co[g_nco++] = (Corpse){e->x, e->z};
     if (mote_frand() < 0.25f && g_npk < MAX_PK)
         g_pk[g_npk++] = (Pickup){e->x, e->z, PK_AMMO, 0, 0};
@@ -826,7 +841,7 @@ static void kill_enemy(Enemy *e) {
     }
 }
 static void splash(float x, float z, int dmg, float r, int pdmg) {   /* detonation: hurts all, pops barrels */
-    add_boom(x, z, 1); play(&snd_boom, 0.5f);
+    add_boom(x, z, 1); play(&boom_sfx, 0.5f);
     for (int i=0;i<g_nen;i++){ Enemy*en=&g_en[i];
         if (!en->alive) continue;
         float dx=en->x-x, dz=en->z-z;
@@ -836,7 +851,7 @@ static void splash(float x, float z, int dmg, float r, int pdmg) {   /* detonati
     { float dx=px-x, dz=pz-z;
       if (dx*dx+dz*dz < (r-0.3f)*(r-0.3f)){ health -= pdmg; hurt=0.22f;
           g_dmgdir = atan2f(x-px, z-pz); g_dmgt=0.30f;
-          if (health<=0){ health=0; state=ST_DEAD; play(&snd_death,0.6f); } } }
+          if (health<=0){ health=0; state=ST_DEAD; play(&death_sfx,0.6f); } } }
     for (int i=0;i<g_nsc;i++)
         if (g_sc[i].type==SC_BARREL){
             float dx=g_sc[i].x-x, dz=g_sc[i].z-z;
@@ -867,7 +882,7 @@ static void tick_projectiles(float dt) {
                     if (!en->alive) continue;
                     float dx=en->x-b->x, dz=en->z-b->z;
                     if (dx*dx+dz*dz < 0.6f*0.6f){ en->hp -= WPN[8].dmg; en->hitflash=0.18f;
-                        if (en->hp<=0) kill_enemy(en); else play(&snd_hit,0.4f); break; }
+                        if (en->hp<=0) kill_enemy(en); else play(&hit_sfx,0.4f); break; }
                 }
             }
         }
@@ -887,19 +902,19 @@ static void fire_weapon(void) {
             float dx=e->x-px, dz=e->z-pz, d=sqrtf(dx*dx+dz*dz);
             if (d > 1.3f || (dx*fx+dz*fz)/d < 0.75f) continue;
             e->hp -= WPN[0].dmg; e->hitflash=0.18f; e->stag=0.35f;
-            if (e->hp <= 0) kill_enemy(e); else play(&snd_hit, 0.5f);
+            if (e->hp <= 0) kill_enemy(e); else play(&hit_sfx, 0.5f);
             return;
         }
-        play(&snd_step, 0.25f);                          /* a whiff */
+        play(&step_sfx, 0.25f);                          /* a whiff */
         return;
     }
     if (WPN[cur_w].proj >= 0) {                          /* flamer / cannon / plasma */
         float fx=sinf(yaw), fz=cosf(yaw);
         add_proj(px+fx*0.5f, pz+fz*0.5f, fx, fz, WPN[cur_w].proj);
-        play(cur_w==6 ? &snd_efire : cur_w==7 ? &snd_shotgun : &snd_plasma, 0.6f);
+        play(cur_w==6 ? &efire_sfx : cur_w==7 ? &shotgun_sfx : &plasmagun_sfx, 0.6f);
         return;
     }
-    play((cur_w==2||cur_w==5) ? &snd_auto : (cur_w==3||cur_w==4) ? &snd_shotgun : &snd_shoot, 0.6f);
+    play((cur_w==2||cur_w==5) ? &autocannon_sfx : (cur_w==3||cur_w==4) ? &shotgun_sfx : &shoot_sfx, 0.6f);
     for (int pel = 0; pel < WPN[cur_w].pellets; pel++) {
         float jyaw = yaw + (WPN[cur_w].pellets>1 ? (mote_frand()-0.5f)*0.24f : 0.0f);
         float fx = sinf(jyaw), fz = cosf(jyaw);
@@ -921,7 +936,7 @@ static void fire_weapon(void) {
             e->hp -= WPN[cur_w].dmg; e->hitflash = 0.18f;
             e->stag = (cur_w==3||cur_w==4) ? 0.4f : 0.25f; /* pain STAGGER (shotguns hit harder) */
             if (e->hp <= 0) kill_enemy(e);
-            else if (pel==0) play(&snd_hit, 0.5f);
+            else if (pel==0) play(&hit_sfx, 0.5f);
         } else {
             float wx2=px, wz2=pz; int prop=-1;             /* march downrange */
             for (int st=0; st<56 && prop<0; st++){
@@ -937,7 +952,7 @@ static void fire_weapon(void) {
             if (prop>=0){
                 add_tracer(gx, 0.42f, gz, g_sc[prop].x, 0.35f, g_sc[prop].z, MOTE_RGB565(255,240,170));
                 if (g_sc[prop].type==SC_BARREL) explode_barrel(prop);
-                else { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&snd_hit,0.4f); }
+                else { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&hit_sfx,0.4f); }
             } else {
                 add_tracer(gx, 0.42f, gz, wx2, 0.42f, wz2, MOTE_RGB565(255,240,170));
                 add_boom(wx2, wz2, 0);                     /* spark where it lands */
@@ -953,7 +968,7 @@ static void g_update(float dt) {
 
     if (state == ST_DEBRIEF) {
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A)) {
-            if (level+1 < NUM_FLOORS) { state = ST_DESCEND; g_desct = 1.15f; play(&snd_step,0.4f); }
+            if (level+1 < NUM_FLOORS) { state = ST_DESCEND; g_desct = 1.15f; play(&step_sfx,0.4f); }
             else {
                 state = ST_WIN;
                 if (level+1 > best_floor || (level+1==best_floor && score>best_score)) {
@@ -965,7 +980,7 @@ static void g_update(float dt) {
     } else if (state == ST_DESCEND) {
         float prev = g_desct;
         g_desct -= dt;
-        if ((int)(prev*3.0f) != (int)(g_desct*3.0f)) play(&snd_step, 0.3f);   /* footsteps down the stairs */
+        if ((int)(prev*3.0f) != (int)(g_desct*3.0f)) play(&step_sfx, 0.3f);   /* footsteps down the stairs */
         if (g_desct <= 0) { level++; load_level(level); }
     } else if (state == ST_TITLE) {
         if (mote_just_pressed(in, MOTE_BTN_UP)   && g_diff>0) g_diff--;
@@ -985,7 +1000,7 @@ static void g_update(float dt) {
                     : mote_just_pressed(in, MOTE_BTN_LEFT)  ? -1 : 0;
             if (dir) for (int k=1;k<=9;k++){
                 int w2=((cur_w+dir*k)%9+9)%9;
-                if (owned[w2]){ cur_w=w2; play(&snd_pickup,0.3f); break; }
+                if (owned[w2]){ cur_w=w2; play(&pickup_sfx,0.3f); break; }
             }
             return;
         }
@@ -1012,7 +1027,7 @@ static void g_update(float dt) {
         if (moving) {
             float prev = walk_t;
             walk_t += dt * 9.0f;
-            if ((int)(prev/3.14159f) != (int)(walk_t/3.14159f)) play(&snd_step, 0.16f);
+            if ((int)(prev/3.14159f) != (int)(walk_t/3.14159f)) play(&step_sfx, 0.16f);
         }
 
         /* fire (auto vs semi) */
@@ -1035,14 +1050,14 @@ static void g_update(float dt) {
                 } else if (id>=0 && g_dr[id].isexit && !has_key) {
                     { const char*t="NEED THE GOLD KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
                     msg_t = 1.5f;
-                } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&snd_door,0.5f); }
+                } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&door_sfx,0.5f); }
             }
             else if (cx>=0&&cz>=0&&cx<MW&&cz<MH&&(g_wall[cz][cx]==4||g_wall[cz][cx]==5) && !g_pw.active) {
                 /* SECRET: push it away from you, two cells */
                 int dx = (fabsf(fx)>fabsf(fz)) ? (fx>0?1:-1) : 0;
                 int dz = dx ? 0 : (fz>0?1:-1);
                 g_pw = (PushWall){cx,cz,dx,dz,0,1,0};
-                play(&snd_secret, 0.7f);
+                play(&secret_sfx, 0.7f);
                 score += 500; fl_secrets++;
             }
         }
@@ -1086,7 +1101,7 @@ static void g_update(float dt) {
             if (p->taken) continue;
             float ddx=p->x-px, ddz=p->z-pz;
             if (ddx*ddx+ddz*ddz < 0.32f) {
-                p->taken = 1; play(&snd_pickup, 0.6f);
+                p->taken = 1; play(&pickup_sfx, 0.6f);
                 if (p->type==PK_AMMO) g_am[0] += 15;
                 else if (p->type==PK_AMMO2) g_am[0] += 35;
                 else if (p->type==PK_FUEL)  g_am[1] += 25;
@@ -1103,12 +1118,12 @@ static void g_update(float dt) {
                     score += TSCORE[p->variant]; fl_treas++;
                 }
                 else if (p->type==PK_WEAPON) {
-                    int nw = next_weapon();
-                    if (nw >= 0) {
+                    int nw = p->variant;
+                    if (nw >= 2 && nw <= 8 && !owned[nw]) {
                         static const int GIFT[9]={0,0,25,12,12,40,30,4,40};
                         owned[nw]=1; cur_w=nw;
                         int pl=WPN[nw].pool; if (pl>=0) g_am[pl]+=GIFT[nw];
-                    } else g_am[0] += 20;                 /* full arsenal: bullets instead */
+                    } else g_am[0] += 20;                 /* dupe: bullets instead */
                 }
             }
         }
@@ -1129,7 +1144,7 @@ static void g_update(float dt) {
             int melee = e->type==EN_RUSH;
             float ddx=px-e->x, ddz=pz-e->z, d=sqrtf(ddx*ddx+ddz*ddz);
             int see = (d < rng) && los(e->x, e->z, px, pz);
-            if (see && !e->alerted) { e->alerted=1; play(&snd_alert, dist_gain(d,0.15f,0.55f)); }
+            if (see && !e->alerted) { e->alerted=1; play(&alert_sfx, dist_gain(d,0.15f,0.55f)); }
             if (e->stag > 0) { e->stag -= dt; continue; }      /* staggered: no fire */
             (void)spd;
             /* SENTRIES with a twist: no visible gliding (no walk frames), but while you
@@ -1156,12 +1171,12 @@ static void g_update(float dt) {
                         e->firecd = fcd; e->fireanim = 0.22f;
                         health -= 7 + (int)(mote_frand()*7); hurt = 0.22f;
                         g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
-                        play(&snd_hit, 0.5f);
-                        if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
+                        play(&hit_sfx, 0.5f);
+                        if (health <= 0) { health = 0; state = ST_DEAD; play(&death_sfx,0.6f); }
                     }
                 } else {
                     e->firecd = fcd; e->fireanim = 0.28f;
-                    play(&snd_efire, dist_gain(d, 0.12f, 0.6f));
+                    play(&efire_sfx, dist_gain(d, 0.12f, 0.6f));
                     /* they can MISS: harder at range, harder still if you keep moving */
                     float acc = 0.85f - d*0.055f - (g_pmoving ? 0.22f : 0.0f) + (g_diff-1)*0.10f;
                     if (e->type==EN_CMDO || e->type==EN_BOSS) acc += 0.12f;   /* the elites aim */
@@ -1183,7 +1198,7 @@ static void g_update(float dt) {
                         dmg = (dmg * (g_diff==0 ? 7 : g_diff==2 ? 12 : 10)) / 10;
                         health -= dmg; hurt = 0.22f;
                         g_dmgdir = atan2f(e->x-px, e->z-pz); g_dmgt = 0.30f;
-                        if (health <= 0) { health = 0; state = ST_DEAD; play(&snd_death,0.6f); }
+                        if (health <= 0) { health = 0; state = ST_DEAD; play(&death_sfx,0.6f); }
                     }
                 }
             }
@@ -1253,10 +1268,8 @@ static void g_update(float dt) {
     for (int i = 0; i < g_npk; i++) {
         Pickup *p = &g_pk[i];
         if (p->taken) continue;
-        if (p->type==PK_WEAPON) {
-            int nw = next_weapon(); if (nw<0) nw=1;
-            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, WICON_X(nw),0,WICON_W,WICON_H, 0.30f, MOTE_BLEND_NONE);
-        }
+        if (p->type==PK_WEAPON)
+            mote->scene_add_billboard(v3(p->x,0.15f,p->z), &wpickup_img, WICON_X(p->variant),0,WICON_W,WICON_H, 0.30f, MOTE_BLEND_NONE);
         else if (p->type>=PK_FUEL && p->type<=PK_CELLS)
             mote->scene_add_billboard(v3(p->x,0.16f,p->z), &ammo3_img, (p->type-PK_FUEL)*20,0,20,20, 0.24f, MOTE_BLEND_NONE);
         else {
