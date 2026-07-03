@@ -106,7 +106,11 @@ def p_flamer(d):
     d.rectangle([4.6*S,1.6*S,7.8*S,3*S], fill=(90,92,100,255))                     # valve
     d.rounded_rectangle([9.6*S,6.4*S,14.6*S,8.4*S], radius=S//2, fill=(108,114,128,255), outline=(40,42,50,255), width=S//2)  # nozzle arm
     d.polygon([(14.6*S,5.6*S),(16*S,7.4*S),(14.6*S,9.2*S)], fill=(255,170,60,255)) # pilot flame
-sheet = Image.new("RGBA", (96,16), (0,0,0,0))
-for i, fn in enumerate([p_cash, p_pistol, p_smg, p_shotgun, p_medkit, p_flamer]):
+def p_rocket(d):
+    d.rounded_rectangle([1.2*S,6.2*S,12.6*S,9.8*S], radius=1.4*S, fill=(96,120,86,255), outline=(46,58,42,255), width=S//2)  # olive tube
+    d.polygon([(12.6*S,5.4*S),(15.6*S,8*S),(12.6*S,10.6*S)], fill=(196,60,44,255))   # warhead
+    d.rectangle([2.6*S,5*S,4*S,6.2*S], fill=(46,58,42,255))                          # sight
+sheet = Image.new("RGBA", (112,16), (0,0,0,0))
+for i, fn in enumerate([p_cash, p_pistol, p_smg, p_shotgun, p_medkit, p_flamer, p_rocket]):
     sheet.paste(cell(fn), (i*16, 0))
-sheet.save("pickups.png"); print("wrote pickups.png 96x16")
+sheet.save("pickups.png"); print("wrote pickups.png 112x16")

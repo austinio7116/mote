@@ -577,8 +577,8 @@ static void spawn_world(void) {
 
 /* =========================================================== crime layer === */
 enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED };
-enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, NWEAP };
-enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME };
+enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, NWEAP };
+enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
 enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT };
 
@@ -619,8 +619,8 @@ static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
 
-static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f };
-static const int   W_PELLETS[NWEAP]= { 0, 1, 1, 5, 0 };
+static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f, 1.15f };
+static const int   W_PELLETS[NWEAP]= { 0, 1, 1, 5, 0, 0 };
 static const float W_SPREAD[NWEAP] = { 0, 0.015f, 0.06f, 0.26f };
 
 /* streamed engine drone (saw + sub-octave + noise), pitched to car speed —
@@ -1238,6 +1238,17 @@ static void fire_weapon(void) {
         add_heat_at(0.05f, pl_x(), pl_z(), 0); return;
     }
     if (ammo[weapon]<=0){ say("NO AMMO"); fire_cd=0.25f; return; }
+    if (weapon==W_ROCKET){
+        /* ROCKET LAUNCHER: the tank's shell as a shoulder weapon */
+        ammo[weapon]--; fire_cd=W_CD[weapon]; g_aim_t=0.8f;
+        float ry=pl_yaw();
+        float mx0=pl_x()+cosf(ry)*2.6f, mz0=pl_z()+sinf(ry)*2.6f;   /* clear of yourself */
+        add_fx(mx0,mz0,2); sfx(&boom_sfx,0.45f); rmbl(0.5f,120);
+        panic_at(pl_x(),pl_z()); add_heat_at(0.25f, pl_x(), pl_z(), 1);
+        for (int b=0;b<NBULLET;b++) if(!bullets[b].alive){
+            bullets[b]=(Bullet){ mx0,mz0, cosf(ry)*34.0f, sinf(ry)*34.0f, 1.5f, 1, 0, 1 }; break; }
+        return;
+    }
     if (weapon==W_FLAME){
         /* FLAMETHROWER: a licking cone of fire — no bullets, direct burn */
         ammo[weapon]--; fire_cd=W_CD[weapon]; g_aim_t=0.5f;
@@ -1371,6 +1382,7 @@ static void update_pickups(float dt) {
                     float_txt(p->x,p->z,b); } break;
                 case PK_HEALTH: health=MAXHP; float_txt(p->x,p->z,"HEALTH"); break;
                 case PK_FLAME: owned[W_FLAME]=1; ammo[W_FLAME]+=140; weapon=W_FLAME; float_txt(p->x,p->z,"FLAMER"); break;
+                case PK_ROCKET: owned[W_ROCKET]=1; ammo[W_ROCKET]+=6; weapon=W_ROCKET; float_txt(p->x,p->z,"ROCKET"); break;
                 case PK_PISTOL: owned[W_PISTOL]=1; ammo[W_PISTOL]+=40; weapon=W_PISTOL; float_txt(p->x,p->z,"PISTOL"); break;
                 case PK_SMG: owned[W_SMG]=1; ammo[W_SMG]+=80; weapon=W_SMG; float_txt(p->x,p->z,"SMG"); break;
                 case PK_SHOTGUN: owned[W_SHOTGUN]=1; ammo[W_SHOTGUN]+=24; weapon=W_SHOTGUN; float_txt(p->x,p->z,"SHOTGUN"); break;
@@ -1653,10 +1665,10 @@ static void reset_game(void) {
     for (int i=0;i<NCAR;i++) car_body_init(i);      /* physics bodies for every vehicle */
     hosp_x=player.x; hosp_z=player.z;
     /* weapon CACHES hidden at random spots across the whole city */
-    { static const uint8_t CACHE[6]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH};
+    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_CASH,PK_ROCKET,PK_SMG};
       for (int k=0;k<28;k++){
         for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
-            if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(6)]); break; } } } }
+            if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } } }
     /* weapons + medkits scattered on pavements around the start */
     add_pickup(markers[0].x+2, markers[0].z+2, PK_PISTOL);
     { static const uint8_t scatter[8]={PK_PISTOL,PK_SMG,PK_HEALTH,PK_SHOTGUN,PK_SMG,PK_HEALTH,PK_PISTOL,PK_HEALTH};
@@ -2136,7 +2148,7 @@ static void world_dot(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
     mote->draw_circle(fb, (int)sx, (int)sy, r, col, 1, 0, 128);
 }
 
-static const char *WNAME[NWEAP] = { "FIST", "PISTOL", "SMG", "SHOTGUN", "FLAMER" };
+static const char *WNAME[NWEAP] = { "FIST", "PISTOL", "SMG", "SHOTGUN", "FLAMER", "ROCKET" };
 
 static uint16_t map_color(char c){
     switch(c){
