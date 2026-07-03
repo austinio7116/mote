@@ -351,7 +351,8 @@ static void gen_level(int idx){
         for (int z=r0.z;z<r0.z+r0.h;z++) for (int x=r0.x;x<r0.x+r0.w;x++) g_gen[z][x]='.';
         for (int t=0;t<400 && nr<11;t++){
             int rw=4+grndi(5), rh=3+grndi(4);
-            const Room *h=&rooms[grndi(nr)];
+            int hi=grndi(nr);
+            const Room *h=&rooms[hi];
             int side=grndi(4); Room r={0,0,rw,rh};
             if (side==0){ r.x=h->x+h->w+1; r.z=h->z-rh+3+grndi(h->h+rh-5); }
             else if (side==1){ r.x=h->x-rw-1; r.z=h->z-rh+3+grndi(h->h+rh-5); }
@@ -366,6 +367,9 @@ static void gen_level(int idx){
             for (int z=r.z;z<r.z+r.h;z++) for (int x=r.x;x<r.x+r.w;x++) g_gen[z][x]='.';
             dwx[nr]=dwz[nr]=-1; multi[nr]=0;
             gpunch(h, &rooms[nr], &dwx[nr], &dwz[nr]);    /* the way in */
+            multi[hi]=1;                                  /* the host now has 2+ doorways —
+                                                             it can never become the secret
+                                                             (would seal its whole subtree) */
             nr++;
         }
         for (int i=0;i<nr;i++) for (int j=i+1;j<nr;j++)    /* extra doors between rooms
@@ -1219,8 +1223,9 @@ static void g_update(float dt) {
     for (int i = 0; i < 12; i++) if (g_pr[i].live) {
         const MoteImage *pi = g_pr[i].kind==0 ? &fireball_img
                             : g_pr[i].kind==1 ? &cannonb_img : &plasmab_img;
+        static const float PSZ[3] = { 0.26f, 0.30f, 0.18f };
         mote->scene_add_billboard(v3(g_pr[i].x, 0.45f, g_pr[i].z), pi, 0,0,0,0,
-                                  0.22f, g_pr[i].kind==1 ? MOTE_BLEND_NONE : MOTE_BLEND_ADD);
+                                  PSZ[g_pr[i].kind], g_pr[i].kind==1 ? MOTE_BLEND_NONE : MOTE_BLEND_ADD);
     }
 
     for (int i = 0; i < g_nsc; i++) {

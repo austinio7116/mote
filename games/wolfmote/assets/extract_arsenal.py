@@ -101,5 +101,5 @@ def orb(name, inner, outer, S=12):
     Image.fromarray(a,"RGBA").save(f"{AD}/{name}.png")
 orb("fireball", (255,240,150), (200,60,10))
 orb("plasmab",  (210,240,255), (30,80,220))
-orb("cannonb",  (150,150,160), (28,28,34))
+orb("cannonb",  (210,210,225), (60,60,72))
 print("orbs baked")
