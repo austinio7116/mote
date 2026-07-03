@@ -1276,14 +1276,6 @@ static void g_update(float dt) {
             }
         }
 
-    for (int i = 0; i < 12; i++) if (g_pr[i].live) {
-        const MoteImage *pi = g_pr[i].kind==0 ? &fireball_img
-                            : g_pr[i].kind==1 ? &cannonb_img : &plasmab_img;
-        static const float PSZ[3] = { 0.26f, 0.30f, 0.18f };
-        mote->scene_add_billboard(v3(g_pr[i].x, 0.45f, g_pr[i].z), pi, 0,0,0,0,
-                                  PSZ[g_pr[i].kind], g_pr[i].kind==1 ? MOTE_BLEND_NONE : MOTE_BLEND_ADD);
-    }
-
     for (int i = 0; i < g_nsc; i++) {
         Scenery *sc = &g_sc[i];
         const typeof(SCP[0]) *t = &SCP[sc->type];
@@ -1340,6 +1332,13 @@ static void g_update(float dt) {
     for (int i=0;i<16;i++){ Tracer*t=&g_tr[i];             /* the shots themselves */
         if (t->t<=0) continue; t->t -= 0.033f;
         mote->scene_add_line(v3(t->ax,t->ay,t->az), v3(t->bx,t->by,t->bz), t->col);
+    }
+    for (int i = 0; i < 12; i++) if (g_pr[i].live) {
+        const MoteImage *pi = g_pr[i].kind==0 ? &fireball_img
+                            : g_pr[i].kind==1 ? &cannonb_img : &plasmab_img;
+        static const float PSZ[3] = { 0.26f, 0.30f, 0.18f };
+        mote->scene_add_billboard(v3(g_pr[i].x, 0.45f, g_pr[i].z), pi, 0,0,0,0,
+                                  PSZ[g_pr[i].kind], g_pr[i].kind==1 ? MOTE_BLEND_NONE : MOTE_BLEND_ADD);
     }
     for (int i=0;i<8;i++){ Boom*b=&g_bm[i];                /* explosions + impact sparks */
         if (b->t<=0) continue; b->t -= 0.033f;
