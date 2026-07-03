@@ -12,7 +12,14 @@ OUT=(22,20,26,255)
 SKIN=(212,166,128,255); SKIND=(172,126,92,255)
 BLOOD=(122,18,22,255); BLOOD2=(154,26,28,255)
 
-def down(im,w,h): return im.resize((w,h), Image.LANCZOS)
+def down(im,w,h):
+    import numpy as np
+    r = im.resize((w,h), Image.LANCZOS)
+    a = np.asarray(r).copy()
+    hard = a[:,:,3] > 110                     # crisp key: kill LANCZOS fringe speckle
+    a[:,:,3] = np.where(hard, 255, 0)
+    a[~hard] = 0
+    return Image.fromarray(a, "RGBA")
 
 def shaded_rrect(d, box, r, base, lite, dark, ow=1):
     """rounded block with left-light / right-shade + outline"""
@@ -27,6 +34,15 @@ def shaded_rrect(d, box, r, base, lite, dark, ow=1):
         else: d.rounded_rectangle([a,y0+ow*S*0.6,b,y1-ow*S*0.6], radius=rr, fill=col)
     band(x0+ow*S*0.6, x0+w*0.32, lite)
     band(x1-w*0.26,  x1-ow*S*0.6, dark)
+
+def capsule(d, x0,y0,x1,y1, w, fill, oc=OUT):
+    """outlined limb from joint to joint (stays ATTACHED at x0,y0)"""
+    d.line([x0,y0,x1,y1], fill=oc, width=int(w+S))
+    d.ellipse([x0-(w+S)/2,y0-(w+S)/2,x0+(w+S)/2,y0+(w+S)/2], fill=oc)
+    d.ellipse([x1-(w+S)/2,y1-(w+S)/2,x1+(w+S)/2,y1+(w+S)/2], fill=oc)
+    d.line([x0,y0,x1,y1], fill=fill, width=int(w))
+    d.ellipse([x0-w/2,y0-w/2,x0+w/2,y0+w/2], fill=fill)
+    d.ellipse([x1-w/2,y1-w/2,x1+w/2,y1+w/2], fill=fill)
 
 def guard_frame(pose):
     CW,CH=24,40
@@ -59,14 +75,15 @@ def guard_frame(pose):
         d.ellipse([cx-4.8*S,20.4*S,cx-0.6*S,24.6*S], fill=SKIN, outline=SKIND, width=S//2)
         d.ellipse([cx+0.6*S,20.4*S,cx+4.8*S,24.6*S], fill=SKIN, outline=SKIND, width=S//2)
     else:
-        # arms: idle by the sides holding the rifle low across / pain flared out
-        spread = 3.4 if pose=="pain" else 0.0
+        # arms: idle hang by the sides; pain arms FLY UP but stay on the shoulders
         for sx in (-1,1):
-            ax=cx+sx*(7.6+spread)*S+lean
-            ang = 10 if pose!="pain" else 34
-            d.rounded_rectangle([ax-1.8*S,14.5*S,ax+1.8*S,24*S], radius=1.4*S,
-                                fill=UNI, outline=OUT, width=S//2)
-            d.ellipse([ax-1.6*S,23*S,ax+1.6*S,26.4*S], fill=SKIN, outline=SKIND, width=S//2)
+            shx=cx+sx*5.8*S+lean; shy=15.6*S                 # shoulder joint
+            if pose=="pain":
+                hx2=cx+sx*10.6*S+lean; hy2=9.5*S             # flung up-and-out
+            else:
+                hx2=cx+sx*7.6*S+lean;  hy2=24*S
+            capsule(d, shx,shy, hx2,hy2, 3.2*S, UNI)
+            d.ellipse([hx2-1.7*S,hy2-1.7*S,hx2+1.7*S,hy2+1.7*S], fill=SKIN, outline=SKIND, width=S//2)
         if pose=="idle":
             d.rounded_rectangle([cx-8.4*S,21.6*S,cx+8.4*S,23.6*S], radius=S, fill=GM, outline=OUT, width=S//2)  # rifle across
             d.rectangle([cx+6.4*S,20.4*S,cx+8.4*S,22*S], fill=GM)
@@ -115,11 +132,12 @@ def brute_frame(pose):
         d.ellipse([cx-2.4*S,18.9*S,cx+2.4*S,23.5*S], fill=(12,12,16,255))
         d.ellipse([cx+4.4*S,19.6*S,cx+8.8*S,24.4*S], fill=ARD, outline=OUT, width=S//2)  # supporting fist
     else:
-        spread = 3.0 if pose=="pain" else 0.0
         for sx in (-1,1):
-            ax=cx+sx*(10.2+spread)*S+lean
-            d.rounded_rectangle([ax-2.2*S,17*S,ax+2.2*S,27*S], radius=1.6*S, fill=AR, outline=OUT, width=S//2)
-            d.ellipse([ax-2.4*S,26*S,ax+2.4*S,30.4*S], fill=ARD, outline=OUT, width=S//2)   # slab fist
+            shx=cx+sx*8.6*S+lean; shy=17.5*S                 # shoulder (under the pauldron)
+            if pose=="pain": hx2=cx+sx*12.6*S+lean; hy2=12*S # thrown up-and-out
+            else:            hx2=cx+sx*10.2*S+lean; hy2=26.5*S
+            capsule(d, shx,shy, hx2,hy2, 4.0*S, AR)
+            d.ellipse([hx2-2.4*S,hy2-2.2*S,hx2+2.4*S,hy2+2.2*S], fill=ARD, outline=OUT, width=S//2)   # slab fist
     # full helm, visor slit — no face
     hx=cx+lean
     d.ellipse([hx-4.9*S,3*S,hx+4.9*S,14*S], fill=ARD, outline=OUT, width=S//2)
