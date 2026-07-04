@@ -35,4 +35,32 @@ void cue_game_render(uint16_t *fb, int y0, int y1);
 void cue_game_draw_overlay(uint16_t *fb);
 void cue_game_set_frame_ms(float ms);
 
+/* ===== 2P LINK (ABI v43) =================================================
+ * The Mote glue (game.c) owns the transport (mote->link_*), the hello/nonce
+ * handshake, framing, keepalive and timeout. This layer owns all game state:
+ * it (de)serialises the shot stream and the authoritative settle, and gates
+ * turn ownership. The SHOT-TAKER is authoritative — it runs the physics and
+ * TRANSMITS ball positions; the peer is a viewer of that turn (its rules
+ * engine is bypassed for the remote's shots). See game.c cross-arch note.
+ *
+ * Largest link payload (an 'E' final = state + CueRules + ball layout). */
+#define CUE_LINK_MAXMSG 512
+
+int  cue_game_link_pending(void);        /* 1 while the link-wait screen is up  */
+int  cue_game_link_kind(void);           /* game kind currently selected        */
+void cue_game_link_begin(int me, int kind); /* start the match: me = 0/1 player  */
+int  cue_game_link_active(void);         /* 1 while a link match is live         */
+int  cue_game_link_my_turn(void);        /* 1 when it is the local player's shot  */
+int  cue_game_link_sub(void);            /* phase: 0 aim/place, 1 balls-moving, 2 other */
+int  cue_game_link_take_settled(void);   /* one-shot: a shot just fully resolved  */
+void cue_game_link_lost(int opp_left);   /* end the match: 1 = 'Q', 0 = link lost */
+
+/* wire (de)serialisation — game.c relays these as 0xA5-framed 'C'/'B'/'E' */
+int  cue_game_link_enc_aim(uint8_t *buf);        /* cue/aim stream            */
+int  cue_game_link_enc_balls(uint8_t *buf);      /* ball positions (moving)   */
+int  cue_game_link_enc_final(uint8_t *buf);      /* authoritative settle       */
+void cue_game_link_dec_aim(const uint8_t *buf, int len);
+void cue_game_link_dec_balls(const uint8_t *buf, int len);
+void cue_game_link_dec_final(const uint8_t *buf, int len);
+
 #endif

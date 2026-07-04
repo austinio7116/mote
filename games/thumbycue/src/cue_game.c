@@ -21,7 +21,8 @@
 #define DEG2RAD (3.14159265f / 180.0f)
 
 /* Top-level screens. */
-enum { SC_TITLE = 0, SC_MAIN, SC_PLAY, SC_OPTIONS, SC_CUSTOM, SC_GAME, SC_PAUSE, SC_OVER };
+enum { SC_TITLE = 0, SC_MAIN, SC_PLAY, SC_OPTIONS, SC_CUSTOM, SC_GAME, SC_PAUSE, SC_OVER,
+       SC_LINKWAIT /* LINK: waiting on the peer / handshake (driven by game.c) */ };
 /* In-game sub-states. */
 enum { GS_AIM = 0, GS_BACKSWING, GS_SHOOTING, GS_PLACE, GS_DECIDE };
 
@@ -59,7 +60,15 @@ static int s_kind;            /* CueGameKind: 0 UK8, 1 US8, 2 US9, 3 CN8, 4 SNK1
 static const char *k_mode_name[CUE_GAME_COUNT] = {
     "UK 8-BALL", "US 8-BALL", "US 9-BALL", "CHINESE 8",
     "SNOOKER 15", "SNOOKER 10", "SNOOKER 6" };
-static int s_opp_mode = 1;    /* 0 = 2 PLAYER, 1 = VS CPU, 2 = CPU vs CPU */
+static int s_opp_mode = 1;    /* 0 = 2 PLAYER, 1 = VS CPU, 2 = CPU vs CPU, 3 = 2P LINK */
+
+/* LINK: 2P-over-USB session state. s_link_me is the local player's index (the
+ * nonce winner is player 0 = breaks first); s_link_viewer-ness is derived from
+ * s_rules.turn != s_link_me. See the LINK section at the end of this file. */
+static int s_link_on;         /* a link match is live */
+static int s_link_me;         /* local player index 0/1 */
+static int s_link_settled;    /* one-shot: our shot just fully resolved */
+static int s_link_end_reason; /* SC_OVER banner: 0 normal, 1 opp left, 2 link lost */
 static int s_cloth_idx;
 static int s_ballset;          /* see k_ballset_name */
 #define CUE_NBALLSET 8
@@ -156,14 +165,16 @@ static int is_cpu_player(int p) {
 }
 static int cur_is_cpu(void)   { return is_cpu_player(s_rules.turn); }
 static int cur_persona(void)  { return s_persona_p[s_rules.turn & 1]; }
-static int any_cpu(void)      { return s_opp_mode != 0; }
+static int any_cpu(void)      { return s_opp_mode == 1 || s_opp_mode == 2; }  /* LINK: mode 3 has no CPU */
 /* Full / short display names for a player slot given the opponent mode. */
 static const char *player_name(int p) {
+    if (s_opp_mode == 3) return p == s_link_me ? "YOU" : "PEER";   /* LINK */
     if (s_opp_mode == 2) return p == 0 ? "CPU 1"    : "CPU 2";
     if (s_opp_mode == 1) return p == 0 ? "PLAYER 1" : "CPU";
     return p == 0 ? "PLAYER 1" : "PLAYER 2";
 }
 static const char *player_tag(int p) {
+    if (s_opp_mode == 3) return p == s_link_me ? "YOU" : "PEER";   /* LINK */
     if (s_opp_mode == 2) return p == 0 ? "C1"  : "C2";
     if (s_opp_mode == 1) return p == 0 ? "P1"  : "CPU";
     return p == 0 ? "P1" : "P2";
@@ -191,6 +202,9 @@ static int play_rows(int *rows) {
 enum { PI_RESUME, PI_PLACE, PI_NEWFRAME, PI_MENU, PI_LOBBY };
 static int pause_items(int *acts) {
     int n = 0;
+    if (s_link_on) {   /* LINK: only resume / quit — NEW FRAME + PLACE would desync */
+        acts[n++] = PI_RESUME; acts[n++] = PI_MENU; return n;
+    }
     acts[n++] = PI_RESUME;
     if (s_inhand_avail && !cur_is_cpu()) acts[n++] = PI_PLACE;
     acts[n++] = PI_NEWFRAME;
@@ -309,6 +323,7 @@ void cue_game_set_mode(int mode) { if (mode < 0) mode = 0; if (mode >= CUE_GAME_
 void cue_game_init(uint32_t seed) {
     cue_audio_init();
     if (seed) s_ai_rng = seed;          /* honour the entropy seed (device: get_rand_32) */
+    s_link_on = 0; s_link_end_reason = 0;   /* LINK: clean session on (re)init */
     s_kind = CUE_GAME_UK8; s_opp_mode = 1; s_screen = SC_TITLE;
     rack();   /* something to show behind the title */
 }
@@ -479,6 +494,17 @@ static void cpu_decide(void) {
 /* Route a just-resolved shot: fall straight through, auto-decide for the CPU,
  * or park in GS_DECIDE for a human choice. */
 static void route_post_shot(void) {
+    /* LINK: no interactive decision prompts over the wire — auto-resolve to
+     * "play on" so both units stay deterministically in step (the authoritative
+     * 'E' settle then syncs the peer). Advanced push-out / foul-and-a-miss
+     * choices are a known gap in link mode. */
+    if (s_link_on) {
+        if (s_rules.pushout_offer)              { s_rules.pushout_offer = 0; s_rules.pushout_avail = 0; }
+        else if (s_rules.pushout_resp)          { s_rules.pushout_resp = 0; }
+        else if (s_rules.decision == CUE_DEC_PENDING) cue_rules_apply_decision(&s_rules, CUE_DEC_PLAY);
+        post_shot_transition();
+        return;
+    }
     int pending = s_rules.pushout_offer ? 0 :
                   s_rules.pushout_resp  ? 1 :
                   (s_rules.decision == CUE_DEC_PENDING) ? 2 : -1;
@@ -511,6 +537,11 @@ static void decide_input(const CraftRawButtons *b) {
 
 /* ---- in-game tick ---------------------------------------------------- */
 static void ingame_tick(const CraftRawButtons *b, float dt) {
+    /* LINK: on the peer's turn we are a spectator — the whole shot (aim, ball
+     * motion, settle) arrives via cue_game_link_dec_*; ignore local input and
+     * never run physics/rules here (that would desync — libm diverges across
+     * x86/ARM). MENU (pause) is handled by the caller before this point. */
+    if (s_link_on && s_rules.turn != s_link_me) return;
     int jr_a = !b->a && s_prev.a;
     int adir = (b->left && !b->right) ? +1 : (b->right && !b->left) ? -1 : 0;
     int cpu_turn = cur_is_cpu();
@@ -723,6 +754,7 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
             s_power = 0; s_pull = 0; s_tip_side = s_tip_vert = 0; s_elev = 0; s_aim = s_view_az;
             s_msg_t = 2.0f;
             route_post_shot();
+            if (s_link_on) s_link_settled = 1;   /* LINK: emit the authoritative 'E' */
         }
     } else if (s_state == GS_DECIDE) {
         decide_input(b);
@@ -764,7 +796,7 @@ void cue_game_tick(const CraftRawButtons *b, float dt) {
                       rack(); }                  /* update the background table render */
             break;
         case ROW_MODE:
-            if (lr) s_opp_mode = (s_opp_mode + (lr>0?1:2)) % 3;
+            if (lr) s_opp_mode = (s_opp_mode + (lr>0?1:3)) % 4;   /* LINK: +mode 3 = 2P LINK */
             break;
         case ROW_CPU1:
             if (lr) s_persona_p[0] = (s_persona_p[0] + (lr>0?1:CUE_NUM_PERSONAS-1)) % CUE_NUM_PERSONAS;
@@ -785,10 +817,20 @@ void cue_game_tick(const CraftRawButtons *b, float dt) {
                       bi = (bi + (lr>0?1:3)) % 4; s_match_bo = bo_opts[bi]; }
             break;
         case ROW_START:
-            if (jp(b->a, s_prev.a)) { new_match(); s_screen = SC_GAME; }
+            if (jp(b->a, s_prev.a)) {
+                if (s_opp_mode == 3) { s_screen = SC_LINKWAIT; s_cursor = 0; rack(); }  /* LINK: hand off to game.c */
+                else { new_match(); s_screen = SC_GAME; }
+            }
             break;
         }
         if (jp(b->b, s_prev.b)) { s_screen = SC_MAIN; s_cursor = 0; }
+        break; }
+    case SC_LINKWAIT: {   /* LINK: game.c runs the handshake; here just pick the
+                           * game type (nonce winner's choice wins) or cancel. */
+        int lr = (jp(b->right,s_prev.right)?1:0) - (jp(b->left,s_prev.left)?1:0);
+        if (lr) { s_kind = (s_kind + (lr>0?1:CUE_GAME_COUNT-1)) % CUE_GAME_COUNT;
+                  s_ballset = default_ballset(s_kind); rack(); }
+        if (jp(b->b, s_prev.b)) { s_screen = SC_PLAY; s_cursor = 0; }   /* cancel */
         break; }
     case SC_OPTIONS: {
         menu_move(b, 2);
@@ -820,16 +862,19 @@ void cue_game_tick(const CraftRawButtons *b, float dt) {
                 s_balls[0].on = 1; s_balls[0].vel = v3(0,0,0); s_balls[0].w = v3(0,0,0);
                 s_state = GS_PLACE; s_screen = SC_GAME; break;
             case PI_NEWFRAME: new_frame(); s_screen = SC_GAME; break;
-            case PI_MENU:   s_screen = SC_MAIN; s_cursor = 0; break;     /* ThumbyCue main menu */
+            case PI_MENU:   s_link_on = 0;                              /* LINK: game.c sends 'Q' + stops */
+                            s_screen = SC_MAIN; s_cursor = 0; break;     /* ThumbyCue main menu */
             case PI_LOBBY:  if (s_lobby_cb) s_lobby_cb(); break;         /* slot: reboot to lobby */
         }
         break; }
     case SC_OVER:
         if (jp(b->a, s_prev.a)) {
-            if (s_match_over) { s_screen = SC_MAIN; s_cursor = 0; }   /* match done → menu */
+            if (s_link_on || s_link_end_reason) {                     /* LINK: single frame → menu */
+                s_link_on = 0; s_link_end_reason = 0; s_screen = SC_MAIN; s_cursor = 0;
+            } else if (s_match_over) { s_screen = SC_MAIN; s_cursor = 0; }   /* match done → menu */
             else { s_breaker = 1 - s_breaker; new_frame(); s_screen = SC_GAME; }  /* next frame, alternate break */
         }
-        if (jp(b->b, s_prev.b)) { s_screen = SC_MAIN; s_cursor = 0; }
+        if (jp(b->b, s_prev.b)) { s_link_on = 0; s_link_end_reason = 0; s_screen = SC_MAIN; s_cursor = 0; }
         break;
     }
     cue_audio_tick(dt);
@@ -1136,6 +1181,12 @@ void cue_game_draw_overlay(uint16_t *fb) {
         menu_row(fb, "FRAME", k_frame_name[s_frame_idx], 15, s_cursor==1);
         center(fb, "B BACK", 118, RGB565C(170,180,190));
         break; }
+    case SC_LINKWAIT: {   /* LINK: game.c overlays the live connection status */
+        dim(fb, 8);
+        center(fb, "2P LINK", 16, RGB565C(255,240,200));
+        menu_row(fb, "GAME", k_mode_name[s_kind], 44, 1);
+        center(fb, "L/R GAME   B CANCEL", 118, RGB565C(150,150,160));
+        break; }
     case SC_PAUSE: {
         dim(fb, 7);
         center(fb, "PAUSED", 18, RGB565C(255,240,200));
@@ -1145,6 +1196,13 @@ void cue_game_draw_overlay(uint16_t *fb) {
         break; }
     case SC_OVER: {
         dim(fb, 6);
+        if (s_link_end_reason) {                  /* LINK: connection-shaped ending */
+            center(fb, "2P LINK", 30, RGB565C(255,240,200));
+            center(fb, s_link_end_reason == 1 ? "OPPONENT LEFT" : "LINK LOST", 52,
+                   RGB565C(255,120,120));
+            center(fb, "A MENU", 100, RGB565C(180,180,190));
+            break;
+        }
         const char *wn = player_name(s_rules.winner == 1 ? 1 : 0);
         const char *p1 = player_tag(0), *p2 = player_tag(1);
         if (s_match_over && s_match_bo > 1) {
@@ -1251,7 +1309,10 @@ void cue_game_draw_overlay(uint16_t *fb) {
         if (cur_is_cpu() && (s_state == GS_AIM || s_state == GS_BACKSWING ||
                              s_state == GS_SHOOTING))
             blit_face(fb, cur_persona(), 2, 94, 32);
-        if (s_state == GS_DECIDE) {
+        if (s_link_on && s_rules.turn != s_link_me) {   /* LINK: watching the peer */
+            center(fb, "PEER'S TURN", 119, RGB565C(255,220,120));
+        }
+        else if (s_state == GS_DECIDE) {
             char ob[44];
             if (s_decide_type == 0) {
                 center(fb, "PUSH OUT?", 104, RGB565C(255,220,120));
@@ -1280,5 +1341,163 @@ void cue_game_draw_overlay(uint16_t *fb) {
         else if (s_state == GS_SHOOTING) center(fb, s_freeview ? "FREEVIEW" : "A FREEVIEW", 119, RGB565C(150,200,150));
         else if (s_msg_t > 0 && s_rules.msg[0]) center(fb, s_rules.msg, 30, RGB565C(255,230,140));
         break; }
+    }
+}
+
+/* ======================================================================== *
+ *  2P LINK (ABI v43) — shot-taker-authoritative replication.
+ *
+ *  Turn ownership: the nonce winner is player 0 and breaks. On each unit,
+ *  ingame_tick only accepts input while s_rules.turn == s_link_me; on the
+ *  peer's turn the unit is a pure viewer, driven entirely by the decoders
+ *  below. The shooter runs the physics and streams:
+ *    'C' aim/cue  (~10 Hz, aim + place)   — the peer watches the cue line move
+ *    'B' balls    (~15 Hz, while moving)  — the peer watches the balls roll
+ *    'E' final    (once, at settle)       — authoritative overwrite of the peer's
+ *                                           ball layout + CueRules + whose turn.
+ *  The peer's rules engine is BYPASSED for the shooter's shots — it never
+ *  simulates, so cross-arch libm divergence (sinf/sqrtf) can't desync it.
+ *  game.c owns the transport, framing, handshake, keepalive and timeout.
+ * ======================================================================== */
+#define LK_POS 16000.0f     /* metres -> s16 table units (±2.04 m, 0.06 mm res) */
+#define LK_ANG 10000.0f     /* radians (wrapped to ±pi) -> s16                   */
+
+static float lk_wrap(float a) {
+    while (a >  3.14159265f) a -= 6.28318531f;
+    while (a < -3.14159265f) a += 6.28318531f;
+    return a;
+}
+
+int  cue_game_link_pending(void) { return s_screen == SC_LINKWAIT; }
+int  cue_game_link_kind(void)    { return s_kind; }
+int  cue_game_link_active(void)  { return s_link_on; }
+int  cue_game_link_my_turn(void) { return s_link_on && s_rules.turn == s_link_me; }
+int  cue_game_link_sub(void) {
+    if (s_screen != SC_GAME) return 2;
+    if (s_state == GS_SHOOTING) return 1;
+    if (s_state == GS_AIM || s_state == GS_BACKSWING || s_state == GS_PLACE) return 0;
+    return 2;
+}
+int  cue_game_link_take_settled(void) { int s = s_link_settled; s_link_settled = 0; return s; }
+
+void cue_game_link_begin(int me, int kind) {
+    if (kind < 0) kind = 0; if (kind >= CUE_GAME_COUNT) kind = CUE_GAME_COUNT - 1;
+    s_kind = kind;
+    s_opp_mode = 3;                 /* 2P LINK: no CPU */
+    s_link_me = me & 1;
+    s_link_on = 1; s_link_settled = 0; s_link_end_reason = 0;
+    s_match_bo = 1;                 /* single frame over the link (known gap) */
+    if (!ballset_ok(s_kind, s_ballset)) s_ballset = default_ballset(s_kind);
+    s_frames[0] = s_frames[1] = 0; s_match_over = 0;
+    s_breaker = 0;                  /* player 0 (the nonce winner) breaks */
+    new_frame();                    /* racks + cue_rules_init, turn = s_breaker = 0 */
+    s_screen = SC_GAME;
+}
+
+void cue_game_link_lost(int opp_left) {
+    s_link_on = 0;
+    s_link_end_reason = opp_left ? 1 : 2;
+    s_match_over = 1;
+    s_screen = SC_OVER; s_cursor = 0;
+}
+
+/* ---- encode (shot-taker) -------------------------------------------------- */
+int cue_game_link_enc_aim(uint8_t *b) {
+    int p = 0;
+    int16_t aim = (int16_t)(lk_wrap(s_aim) * LK_ANG);
+    b[p++] = (uint8_t)aim; b[p++] = (uint8_t)(aim >> 8);
+    int pw = (int)(s_power * 255.0f); if (pw < 0) pw = 0; if (pw > 255) pw = 255;
+    b[p++] = (uint8_t)pw;
+    int sd = (int)(s_tip_side / 0.5f * 127.0f); if (sd < -127) sd = -127; if (sd > 127) sd = 127;
+    int vt = (int)(s_tip_vert / 0.5f * 127.0f); if (vt < -127) vt = -127; if (vt > 127) vt = 127;
+    b[p++] = (uint8_t)(int8_t)sd; b[p++] = (uint8_t)(int8_t)vt;
+    int16_t cx = (int16_t)(s_balls[0].pos.x * LK_POS), cz = (int16_t)(s_balls[0].pos.z * LK_POS);
+    b[p++] = (uint8_t)cx; b[p++] = (uint8_t)(cx >> 8);
+    b[p++] = (uint8_t)cz; b[p++] = (uint8_t)(cz >> 8);
+    b[p++] = (uint8_t)s_state;
+    return p;                       /* 10 bytes */
+}
+
+int cue_game_link_enc_balls(uint8_t *b) {
+    int p = 0;
+    b[p++] = (uint8_t)s_n;
+    for (int i = 0; i < s_n; i++) {
+        int16_t x = (int16_t)(s_balls[i].pos.x * LK_POS), z = (int16_t)(s_balls[i].pos.z * LK_POS);
+        b[p++] = (uint8_t)x; b[p++] = (uint8_t)(x >> 8);
+        b[p++] = (uint8_t)z; b[p++] = (uint8_t)(z >> 8);
+        b[p++] = (uint8_t)s_balls[i].on;
+    }
+    return p;                       /* 1 + 5*n */
+}
+
+int cue_game_link_enc_final(uint8_t *b) {
+    int p = 0;
+    b[p++] = (uint8_t)s_state;
+    uint8_t flags = 0;
+    if (s_screen == SC_OVER)  flags |= 1;
+    if (s_place_restrict)     flags |= 2;
+    if (s_inhand_avail)       flags |= 4;
+    b[p++] = flags;
+    memcpy(b + p, &s_rules, sizeof(CueRules)); p += (int)sizeof(CueRules);
+    b[p++] = (uint8_t)s_n;
+    for (int i = 0; i < s_n; i++) {
+        int16_t x = (int16_t)(s_balls[i].pos.x * LK_POS), z = (int16_t)(s_balls[i].pos.z * LK_POS);
+        b[p++] = (uint8_t)x; b[p++] = (uint8_t)(x >> 8);
+        b[p++] = (uint8_t)z; b[p++] = (uint8_t)(z >> 8);
+        b[p++] = (uint8_t)s_balls[i].on; b[p++] = (uint8_t)s_balls[i].id;
+    }
+    return p;                       /* 2 + sizeof(CueRules) + 1 + 6*n */
+}
+
+/* ---- decode (viewer) ------------------------------------------------------ */
+void cue_game_link_dec_aim(const uint8_t *b, int len) {
+    if (!s_link_on || len < 10 || s_rules.turn == s_link_me) return;   /* my own echo → ignore */
+    int16_t aim = (int16_t)(b[0] | (b[1] << 8));
+    s_aim = aim / LK_ANG; s_view_az = s_aim;
+    s_power = b[2] / 255.0f;
+    s_tip_side = (int8_t)b[3] / 127.0f * 0.5f;
+    s_tip_vert = (int8_t)b[4] / 127.0f * 0.5f;
+    int16_t cx = (int16_t)(b[5] | (b[6] << 8)), cz = (int16_t)(b[7] | (b[8] << 8));
+    s_balls[0].pos.x = cx / LK_POS; s_balls[0].pos.z = cz / LK_POS;
+    s_balls[0].pos.y = s_table.R; s_balls[0].on = 1;
+    int sub = b[9];
+    s_state = (sub == GS_BACKSWING) ? GS_BACKSWING : (sub == GS_PLACE) ? GS_PLACE : GS_AIM;
+    s_freelook = 0; s_freeview = 0;
+}
+
+void cue_game_link_dec_balls(const uint8_t *b, int len) {
+    if (!s_link_on || len < 1 || s_rules.turn == s_link_me) return;
+    int p = 0, n = b[p++]; if (n > CUE_MAX_BALLS) n = CUE_MAX_BALLS;
+    for (int i = 0; i < n && p + 5 <= len; i++) {
+        int16_t x = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
+        int16_t z = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
+        s_balls[i].pos.x = x / LK_POS; s_balls[i].pos.z = z / LK_POS; s_balls[i].pos.y = s_table.R;
+        s_balls[i].on = b[p++];
+    }
+    s_state = GS_SHOOTING; s_follow_idx = 0;
+}
+
+void cue_game_link_dec_final(const uint8_t *b, int len) {
+    if (!s_link_on || len < 2 + (int)sizeof(CueRules) + 1) return;
+    int p = 0, st = b[p++], flags = b[p++];
+    memcpy(&s_rules, b + p, sizeof(CueRules)); p += (int)sizeof(CueRules);
+    int n = b[p++]; if (n > CUE_MAX_BALLS) n = CUE_MAX_BALLS;
+    for (int i = 0; i < n && p + 6 <= len; i++) {
+        int16_t x = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
+        int16_t z = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
+        s_balls[i].pos.x = x / LK_POS; s_balls[i].pos.z = z / LK_POS; s_balls[i].pos.y = s_table.R;
+        s_balls[i].on = b[p++]; s_balls[i].id = b[p++];
+        s_balls[i].vel = v3(0,0,0); s_balls[i].w = v3(0,0,0); s_balls[i].drop = 0;
+    }
+    s_state = (st == GS_PLACE) ? GS_PLACE : GS_AIM;
+    s_place_restrict = (flags & 2) != 0;
+    s_inhand_avail   = (flags & 4) != 0;
+    s_freelook = 0; s_freeview = 0; s_follow_idx = 0;
+    s_msg_t = 2.0f;
+    if (flags & 1) {                            /* frame over on the shooter's side */
+        s_screen = SC_OVER; s_match_over = 1;
+        if (s_rules.winner == 0 || s_rules.winner == 1) s_frames[s_rules.winner] = 1;
+    } else {
+        s_screen = SC_GAME;
     }
 }
