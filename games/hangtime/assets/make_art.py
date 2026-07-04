@@ -120,11 +120,11 @@ def hero():
 def anchor():
     img = Image.new("RGBA", (12, 24), NONE)
     d = ImageDraw.Draw(img)
-    # frame 0: dark grey stud with a rim and a top-left glint
-    d.ellipse([0, 0, 11, 11], fill=(46, 46, 52, 255))
-    d.ellipse([1, 1, 10, 10], fill=(74, 74, 82, 255))
-    d.ellipse([3, 3, 6, 6], fill=(100, 100, 110, 255))
-    d.point([(4, 3), (3, 4)], fill=(140, 140, 150, 255))
+    # frame 0: grey stud with a rim and a top-left glint
+    d.ellipse([0, 0, 11, 11], fill=(84, 84, 92, 255))
+    d.ellipse([1, 1, 10, 10], fill=(126, 126, 136, 255))
+    d.ellipse([3, 3, 6, 6], fill=(158, 158, 168, 255))
+    d.point([(4, 3), (3, 4)], fill=(198, 198, 208, 255))
     # frame 1: in-grab-range — lighter body, pale rim
     d.ellipse([0, 12, 11, 23], fill=(235, 235, 225, 255))
     d.ellipse([1, 13, 10, 22], fill=(96, 96, 106, 255))
@@ -187,9 +187,9 @@ def icon():
     # anchor stud, rope, swinging hero
     ax, ay = 36, 10
     d.line([(ax, ay), (22, 34)], fill=(90, 60, 30, 255), width=2)
-    d.ellipse([ax - 6, ay - 6, ax + 6, ay + 6], fill=(46, 46, 52, 255))
-    d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(74, 74, 82, 255))
-    d.ellipse([ax - 3, ay - 3, ax, ay], fill=(110, 110, 120, 255))
+    d.ellipse([ax - 6, ay - 6, ax + 6, ay + 6], fill=(84, 84, 92, 255))
+    d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(126, 126, 136, 255))
+    d.ellipse([ax - 3, ay - 3, ax, ay], fill=(158, 158, 168, 255))
     # hero (chunky, tilted along the rope) at rope end
     hero_img = Image.new("RGBA", (16, 16), NONE)
     paint(hero_img, 0, 0, HANG_BACK)
