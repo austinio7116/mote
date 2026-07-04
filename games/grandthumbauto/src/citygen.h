@@ -235,16 +235,34 @@ static void cg_jog(int vertical,int pos,int wid){
 }
 #define CG_MAXART 4
 static int cg_axv[CG_MAXART], cg_naxv, cg_axh[CG_MAXART], cg_naxh;   /* base arterial lines (for districts) */
-static void cg_arterials(void){
-    int inset=cg_ri(26,44);                                 /* the ring road */
-    int x0=inset+cg_ri(-8,9), y0=inset+cg_ri(-8,9);
-    int x1=CG_W-inset+cg_ri(-8,9), y1=CG_H-inset+cg_ri(-8,9);
+static void cg_ring_rect(int x0,int y0,int x1,int y1){
     for(int x=x0;x<x1;x++){ cg_stamp(x,y0,4); cg_stamp(x,y1-4,4); }
     for(int y=y0;y<y1;y++){ cg_stamp(x0,y,4); cg_stamp(x1-4,y,4); }
+}
+static void cg_arterials(void){
+    /* the HIGHWAY shape varies per city: an asymmetric ring, a strongly
+     * rectangular belt, or two overlapping rectangles */
+    int variant=cg_ri(0,3);
+    if(variant<2){
+        int a= variant==1 ? cg_ri(12,22) : cg_ri(22,52);    /* rectangular belt hugs one axis */
+        int b= variant==1 ? cg_ri(44,74) : cg_ri(22,52);
+        int flip=cg_ri(0,2);
+        int ix0=(flip?b:a)+cg_ri(-6,7), ix1=(flip?b:a)+cg_ri(-6,7);
+        int iy0=(flip?a:b)+cg_ri(-6,7), iy1=(flip?a:b)+cg_ri(-6,7);
+        cg_ring_rect(ix0, iy0, CG_W-ix1, CG_H-iy1);
+    } else {
+        for(int r=0;r<2;r++){                               /* overlapping rectangles */
+            int cx0=cg_ri(12,110), cy0=cg_ri(12,110);
+            int cx1=cx0+cg_ri(90,200), cy1=cy0+cg_ri(90,200);
+            if(cx1>CG_W-12) cx1=CG_W-12;
+            if(cy1>CG_H-12) cy1=CG_H-12;
+            cg_ring_rect(cx0,cy0,cx1,cy1);
+        }
+    }
     cg_naxv=cg_ri(2,4); cg_naxh=cg_ri(2,4);
     for(int i=0;i<cg_naxv;i++){ cg_axv[i]=CG_W*(i+1)/(cg_naxv+1)+cg_ri(-20,21); cg_jog(1,cg_axv[i],4); }
     for(int i=0;i<cg_naxh;i++){ cg_axh[i]=CG_H*(i+1)/(cg_naxh+1)+cg_ri(-20,21); cg_jog(0,cg_axh[i],4); }
-    cg_axv[cg_naxv]=x0; cg_axh[cg_naxh]=y0;                 /* ring counts as boundaries too */
+    cg_axv[cg_naxv]=cg_ri(24,56); cg_axh[cg_naxh]=cg_ri(24,56);   /* extra district split line */
 }
 
 /* per-district BSP streets: districts are the rects between arterial base lines */

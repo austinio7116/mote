@@ -117,6 +117,51 @@ static int water_mask(int x, int z) {
     return m;
 }
 
+/* ZEBRA CROSSINGS: one bit per tile, rebuilt for every generated city. A zebra
+ * lives on a corridor tile whose neighbour along the corridor is a REAL
+ * junction (3+ approaches). The painter draws the stripes here and pedestrians
+ * may ONLY cross roads on these tiles. bit set = zebra. */
+static uint8_t g_zebra[(CG_W*CG_H+7)/8];
+static int zebra_at(int x,int z){
+    if (x<0||z<0||x>=MAPW||z>=MAPH) return 0;
+    int i=z*MAPW+x; return (g_zebra[i>>3]>>(i&7))&1;
+}
+static int junction_approaches(int x,int z){
+    static const int DX[4]={0,1,0,-1}, DZ[4]={-1,0,1,0};
+    int appr=0;
+    for (int k=0;k<4;k++){
+        for (int s=1;s<=ROADW+2;s++){
+            int xx=x+DX[k]*s, zz=z+DZ[k]*s, oo,pp2,ss2;
+            if (!is_roadlike(xx,zz)) break;
+            corridor_info(xx,zz,&oo,&pp2,&ss2);
+            if (oo==3) continue;
+            if (oo == ((k==0||k==2)?2:1)) appr++;
+            break;
+        }
+    }
+    return appr;
+}
+static void build_zebra_map(void){
+    for (int i=0;i<(MAPW*MAPH+7)/8;i++) g_zebra[i]=0;
+    for (int z=1;z<MAPH-1;z++)for (int x=1;x<MAPW-1;x++){
+        int o,p,span; 
+        if (!is_roadlike(x,z)) continue;
+        corridor_info(x,z,&o,&p,&span);
+        if (o!=1 && o!=2) continue;
+        static const int DX2[2]={1,-1};
+        for (int k=0;k<2;k++){
+            int jx = o==1 ? x+DX2[k] : x, jz = o==1 ? z : z+DX2[k];
+            int oo,pp2,ss2;
+            if (!is_roadlike(jx,jz)) continue;
+            corridor_info(jx,jz,&oo,&pp2,&ss2);
+            if (oo==3 && junction_approaches(jx,jz)>=3){
+                int i=z*MAPW+x; g_zebra[i>>3]|=(uint8_t)(1<<(i&7));
+                break;
+            }
+        }
+    }
+}
+
 /* ---------------------------------------------------------- textured ground -- */
 /* One reusable flat quad on y=0. Its face_uvs are rewritten per tile before each
  * draw; scene_add_object emits the UVs immediately, so sharing is safe. */
@@ -677,17 +722,17 @@ static void paint_quad(float x0, float z0, float x1, float z1, uint16_t col) {
 }
 /* a lane line along X (E-W) at world z=zc; dashed unless solid */
 static void line_x(float xa, float xb, float zc, uint16_t col, int solid) {
-    float w = 0.11f;
+    float w = 0.20f;
     if (solid) { paint_quad(xa, zc-w, xb, zc+w, col); return; }
     float x0 = floorf(xa/2.0f)*2.0f;                 /* dash phase in WORLD space: tiles align */
-    for (float x=x0; x<xb-0.05f; x+=2.0f){ float a=x<xa?xa:x, b=x+0.9f<xb?x+0.9f:xb;
+    for (float x=x0; x<xb-0.05f; x+=2.2f){ float a=x<xa?xa:x, b=x+1.25f<xb?x+1.25f:xb;
         if (b>a) paint_quad(a, zc-w, b, zc+w, col); }
 }
 static void line_z(float za, float zb, float xc, uint16_t col, int solid) {
-    float w = 0.11f;
+    float w = 0.20f;
     if (solid) { paint_quad(xc-w, za, xc+w, zb, col); return; }
     float z0 = floorf(za/2.0f)*2.0f;
-    for (float z=z0; z<zb-0.05f; z+=2.0f){ float a=z<za?za:z, b=z+0.9f<zb?z+0.9f:zb;
+    for (float z=z0; z<zb-0.05f; z+=2.2f){ float a=z<za?za:z, b=z+1.25f<zb?z+1.25f:zb;
         if (b>a) paint_quad(xc-w, a, xc+w, b, col); }
 }
 
@@ -710,17 +755,26 @@ static void road_markings(int x, int z) {
             }
             else line_x(x0, x0+TILE, z0, white, 0);               /* dashed lane separator */
         }
-        /* STOP LINES: a junction one tile ahead gets a solid bar across the
-         * INBOUND half only (right-hand traffic: eastbound keeps south). */
-        {
+        /* ZEBRA across the junction FACE (full road width, this tile paints its
+         * slice) with the STOP BAR behind it on the inbound half. */
+        if (zebra_at(x,z)) {
             float zc=(z-p+span*0.5f)*TILE, half=span*TILE*0.5f;
             int oo,pp2,ss2;
+            uint16_t zeb = MOTE_RGB565(214,214,222);
             if (is_roadlike(x+1,z)){ corridor_info(x+1,z,&oo,&pp2,&ss2);
-                if (oo==3){ float za=zc>z0?zc:z0, zb=(zc+half)<z0+TILE?(zc+half):z0+TILE;
-                    if (zb>za+0.05f) paint_quad(x0+TILE-0.55f, za+0.12f, x0+TILE-0.18f, zb-0.12f, white); } }
+                if (oo==3){
+                    for (float zz=z0+0.18f; zz<z0+TILE-0.4f; zz+=1.05f)
+                        paint_quad(x0+TILE-1.85f, zz, x0+TILE-0.30f, zz+0.62f, zeb);
+                    float za=zc>z0?zc:z0, zb=(zc+half)<z0+TILE?(zc+half):z0+TILE;
+                    if (zb>za+0.05f) paint_quad(x0+TILE-2.65f, za+0.10f, x0+TILE-2.10f, zb-0.10f, white);
+                } }
             if (is_roadlike(x-1,z)){ corridor_info(x-1,z,&oo,&pp2,&ss2);
-                if (oo==3){ float za=(zc-half)>z0?(zc-half):z0, zb=zc<z0+TILE?zc:z0+TILE;
-                    if (zb>za+0.05f) paint_quad(x0+0.18f, za+0.12f, x0+0.55f, zb-0.12f, white); } }
+                if (oo==3){
+                    for (float zz=z0+0.18f; zz<z0+TILE-0.4f; zz+=1.05f)
+                        paint_quad(x0+0.30f, zz, x0+1.85f, zz+0.62f, zeb);
+                    float za=(zc-half)>z0?(zc-half):z0, zb=zc<z0+TILE?zc:z0+TILE;
+                    if (zb>za+0.05f) paint_quad(x0+2.10f, za+0.10f, x0+2.65f, zb-0.10f, white);
+                } }
         }
     } else if (o == 2) {                            /* vertical corridor: N-S lanes */
         if (p > 0) {
@@ -735,16 +789,25 @@ static void road_markings(int x, int z) {
             }
             else line_z(z0, z0+TILE, x0, white, 0);
         }
-        /* stop lines: southbound keeps WEST, northbound keeps EAST */
-        {
+        /* zebra + stop bar, vertical roads (southbound keeps WEST) */
+        if (zebra_at(x,z)) {
             float xc=(x-p+span*0.5f)*TILE, half=span*TILE*0.5f;
             int oo,pp2,ss2;
+            uint16_t zeb = MOTE_RGB565(214,214,222);
             if (is_roadlike(x,z+1)){ corridor_info(x,z+1,&oo,&pp2,&ss2);
-                if (oo==3){ float xa=(xc-half)>x0?(xc-half):x0, xb=xc<x0+TILE?xc:x0+TILE;
-                    if (xb>xa+0.05f) paint_quad(xa+0.12f, z0+TILE-0.55f, xb-0.12f, z0+TILE-0.18f, white); } }
+                if (oo==3){
+                    for (float xx=x0+0.18f; xx<x0+TILE-0.4f; xx+=1.05f)
+                        paint_quad(xx, z0+TILE-1.85f, xx+0.62f, z0+TILE-0.30f, zeb);
+                    float xa=(xc-half)>x0?(xc-half):x0, xb=xc<x0+TILE?xc:x0+TILE;
+                    if (xb>xa+0.05f) paint_quad(xa+0.10f, z0+TILE-2.65f, xb-0.10f, z0+TILE-2.10f, white);
+                } }
             if (is_roadlike(x,z-1)){ corridor_info(x,z-1,&oo,&pp2,&ss2);
-                if (oo==3){ float xa=xc>x0?xc:x0, xb=(xc+half)<x0+TILE?(xc+half):x0+TILE;
-                    if (xb>xa+0.05f) paint_quad(xa+0.12f, z0+0.18f, xb-0.12f, z0+0.55f, white); } }
+                if (oo==3){
+                    for (float xx=x0+0.18f; xx<x0+TILE-0.4f; xx+=1.05f)
+                        paint_quad(xx, z0+0.30f, xx+0.62f, z0+1.85f, zeb);
+                    float xa=xc>x0?xc:x0, xb=(xc+half)<x0+TILE?(xc+half):x0+TILE;
+                    if (xb>xa+0.05f) paint_quad(xa+0.10f, z0+2.10f, xb-0.10f, z0+2.65f, white);
+                } }
         }
     } else {                                        /* junction complex: bend, T, or cross? */
         /* orient==3 covers plain BENDS too. Count the APPROACH ROADS: scan out through
@@ -784,18 +847,11 @@ static void road_markings(int x, int z) {
             int ew=exL+exR+1, eh=exU+exD+1;
             if (ew>=3 && eh>=3 && appr>=3){                  /* real multi-lane boxes only */
                 uint16_t ybox = MOTE_RGB565(210,180,70);
-                if (!JCELL(x-1,z)) line_z(z0+0.10f, z0+TILE-0.10f, x0+0.18f, ybox, 1);
-                if (!JCELL(x+1,z)) line_z(z0+0.10f, z0+TILE-0.10f, x0+TILE-0.18f, ybox, 1);
-                if (!JCELL(x,z-1)) line_x(x0+0.10f, x0+TILE-0.10f, z0+0.18f, ybox, 1);
-                if (!JCELL(x,z+1)) line_x(x0+0.10f, x0+TILE-0.10f, z0+TILE-0.18f, ybox, 1);
-                for (float c2=floorf((x0+z0)/1.7f)*1.7f; c2 < x0+z0+2*TILE; c2+=1.7f){
-                    float a = x0 > c2-(z0+TILE) ? x0 : c2-(z0+TILE);
-                    float b = (x0+TILE) < c2-z0 ? (x0+TILE) : c2-z0;
-                    for (float u=a; u<b; u+=0.42f){
-                        float pxw=u, pzw=c2-u;
-                        paint_quad(pxw-0.09f, pzw-0.09f, pxw+0.09f, pzw+0.09f, ybox);
-                    }
-                }
+                /* clean YELLOW BORDER around the box (no interior hatch) */
+                if (!JCELL(x-1,z)) line_z(z0-0.05f, z0+TILE+0.05f, x0+0.30f, ybox, 1);
+                if (!JCELL(x+1,z)) line_z(z0-0.05f, z0+TILE+0.05f, x0+TILE-0.30f, ybox, 1);
+                if (!JCELL(x,z-1)) line_x(x0-0.05f, x0+TILE+0.05f, z0+0.30f, ybox, 1);
+                if (!JCELL(x,z+1)) line_x(x0-0.05f, x0+TILE+0.05f, z0+TILE-0.30f, ybox, 1);
             }
             #undef JCELL
         }
@@ -816,7 +872,7 @@ static void road_markings(int x, int z) {
                         float il=1.0f/sqrtf(vx*vx+vz*vz); vx*=il; vz*=il;
                         float pxw=Cx+vx*Ra, pzw=Cz+vz*Ra;
                         if (pxw>=x0 && pxw<x0+TILE && pzw>=z0 && pzw<z0+TILE)
-                            paint_quad(pxw-0.13f, pzw-0.13f, pxw+0.13f, pzw+0.13f, yel);
+                            paint_quad(pxw-0.20f, pzw-0.20f, pxw+0.20f, pzw+0.20f, yel);
                     }
                 }
                 /* roads of DIFFERENT widths: the arc (radius = narrower road) ends short of
@@ -837,15 +893,7 @@ static void road_markings(int x, int z) {
             }
             return;                                             /* no crosswalks on a bend */
         }
-        int oN,oS,oW,oE,pp,ss;
-        corridor_info(x,z-1,&oN,&pp,&ss); corridor_info(x,z+1,&oS,&pp,&ss);
-        corridor_info(x-1,z,&oW,&pp,&ss); corridor_info(x+1,z,&oE,&pp,&ss);
-        int cN=(oN==2), cS=(oS==2), cW=(oW==1), cE=(oE==1);
-        uint16_t cw = MOTE_RGB565(196,196,204);
-        if (cN) for (float xx=x0+0.5f; xx<x0+TILE-0.3f; xx+=1.1f) paint_quad(xx,z0+0.3f,xx+0.5f,z0+1.4f,cw);
-        if (cS) for (float xx=x0+0.5f; xx<x0+TILE-0.3f; xx+=1.1f) paint_quad(xx,z0+TILE-1.4f,xx+0.5f,z0+TILE-0.3f,cw);
-        if (cW) for (float zz=z0+0.5f; zz<z0+TILE-0.3f; zz+=1.1f) paint_quad(x0+0.3f,zz,x0+1.4f,zz+0.5f,cw);
-        if (cE) for (float zz=z0+0.5f; zz<z0+TILE-0.3f; zz+=1.1f) paint_quad(x0+TILE-1.4f,zz,x0+TILE-0.3f,zz+0.5f,cw);
+        /* (zebras now live on the corridor tiles facing the junction) */
     }
 }
 
@@ -1123,11 +1171,27 @@ static void update_peds(float dt) {
         if (flee){ p->flee = 1.4f; p->yaw = atan2f(p->z-tz, p->x-tx); }        /* run away from threat */
         if (p->flee>0) p->flee-=dt;
         float spd = p->flee>0 ? 4.2f : 1.3f;
-        if (frand() < (p->flee>0?0.0f:1.2f)*dt) p->yaw = (float)irand(8)*0.7854f;
+        {
+            int onr = is_roadlike((int)(p->x/TILE),(int)(p->z/TILE));
+            if (!onr && frand() < (p->flee>0?0.0f:1.2f)*dt) p->yaw = (float)irand(8)*0.7854f;
+        }
         float dx=cosf(p->yaw), dz=sinf(p->yaw);
         float nx=p->x+dx*spd*dt, nz=p->z+dz*spd*dt;
+        /* calm peds only step onto a road AT A ZEBRA; once crossing they hold
+         * course until they're back on the far pavement (fleeing peds ignore
+         * the highway code, understandably) */
+        int on_road = is_roadlike((int)(p->x/TILE),(int)(p->z/TILE));
+        if (p->flee<=0){
+            int nx_t=(int)(nx/TILE), nz_t=(int)(nz/TILE);
+            int to_road = is_roadlike(nx_t,nz_t);
+            if (!on_road && to_road && !zebra_at(nx_t,nz_t)){
+                p->yaw += 2.094f;                             /* no jaywalking: turn away */
+                p->animt += spd*dt*1.2f; continue;
+            }
+        }
         if (ped_blocked_by_car(nx,nz) && !ped_blocked_by_car(p->x,p->z)) p->yaw += 2.094f;
         else if (move_body(&p->x,&p->z, nx, nz, 0)) p->yaw += 2.094f;   /* turn on bump */
+        else if (on_road && p->flee<=0) { /* mid-crossing: hold course */ }
         p->animt += spd*dt*1.2f;
     }
 }
@@ -1726,6 +1790,7 @@ static void reset_game(void) {
 #endif
         citygen(g_city, seed);
     }
+    build_zebra_map();
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
