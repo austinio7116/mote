@@ -97,7 +97,7 @@ static const ETypeDef k_types[ET_NTYPES] = {
     { &sf_fighter_mesh,2.0f, 0, 5, 20, 1000, 20, 1,0, PR_BOLT,    1.5f, 0.5f, g_fighter, 1,  5, 1.0f, 2.0f, 10 },
     { &sf_fighter_mesh,2.0f, 0, 5, 20,  100, 50, 1,0, PR_MISSILE, 6.0f, 0.5f, g_fighter, 1,  5, 1.0f, 2.0f, 10 },
     { &trident_mesh,   1.75f, -1.5708f, 5, 10, 500, 20, 1,0, PR_BOLT, 1.5f, 0.5f, g_trident, 2, 5, 1.0f, 2.0f, 10 },
-    { &corvette_mesh,  2.3f, 0, 4, 50,  20, 200, 1,0, PR_BOLT,  0.85f, 0.5f, g_corvette, 6, 5, 1.0f, 2.0f, 3 },
+    { &corvette_mesh,  2.3f, 0, 4, 50,  20, 200, 1,0, PR_BOLT,  0.85f, 0.5f, g_corvette, 6, 5, 1.0f, 2.0f, 1.2f },
     { &luminaris_mesh, 2.0f, 0, 6, 20, 200, 100, 1,0, PR_BOLT,  1.5f, 0.5f, g_luminaris, 1, 20, 0.2f, 0.8f, 10 },
     { &ufo_mesh,       1.9f, 0, 2, 50,  20, 200, 1,1, PR_BALL,  0.6f, 0.2f, g_ufo, 4,  0, 0,0, 0 },
 };
@@ -120,11 +120,11 @@ typedef struct {
     BWeapon w[3]; int nw;
 } BossDef;
 static const BossDef k_bosses[3] = {
-    { 0 /* MoteModel walkerie, drawn specially */, 3.8f, 0, 500, 5, 6, 10, MOTE_RGB565(150,160,175), 0,
+    { 0 /* MoteModel walkerie, drawn specially */, 3.8f, 0, 500, 5, 6, 2, MOTE_RGB565(150,160,175), 0,
       { {1.5f, 1.0f, 0, PR_BOLT, b1_w1, 2},
         {1.0f, 1.0f, 0, PR_BOLT, b1_w2, 2},
         {2.0f, 1.0f, 1, PR_BOLT, b1_w3, 4} }, 3 },
-    { &corvette_mesh, 4.0f, 0, 500, 5, 6, 10, 0, 0,
+    { &corvette_mesh, 4.0f, 0, 500, 5, 6, 2, 0, 0,
       { {1.0f, 0.5f, 0, PR_BOLT, b2_w1, 4},
         {1.0f, 0.5f, 1, PR_BOLT, b2_w2, 2} }, 2 },
     { &ufo_mesh, 3.6f, 0, 500, 2, 1, 0, 0, 1,
@@ -219,7 +219,9 @@ static float bg_scroll;
 static int   hs_entering, hs_pos, hs_rank;
 static char  hs_ini[4];
 static MoteParticles parts;      /* explosions */
-static MoteParticles exhaust;    /* engine trail */
+#define NJET 14
+typedef struct { float lx, lz, life, life0; uint16_t col; } Jet;   /* ship-local */
+static Jet jets[NJET];
 
 static float difficulty(void) { return save.diff == 0 ? 0.f : (save.diff == 1 ? 0.5f : 1.f); }
 
@@ -271,25 +273,16 @@ static float etype_vx(void) { return 0; }
 static int strlen_local(const char *s) { int n = 0; while (s[n]) n++; return n; }
 
 /* basis rows are world-space right/up/forward (see Mat3 in mote_vec.h) */
-/* yaw about Y, then bank about the travel (world-z) axis PROJECTED INTO THE
- * VIEW PLANE. A raw world-z roll leaks into apparent in-plane turning under
- * our oblique camera (worst on boxy hulls like the corvette); projecting the
- * tilt axis out of the view direction makes a strafing ship read as a pure
- * wing-dip, matching the original's near-top-down look.
- * A = normalize(z - (z.f)f) for the fixed camera forward f. */
+/* yaw about Y, then roll about the WORLD Z (travel) axis — true banking: the
+ * ship rotates about its own line of flight. Ships whose model nose is not on
+ * the z axis MUST carry a yaw0 correction or the roll swings their hull
+ * (looks like turning instead of tilting). */
 static Mat3 mat3_yaw_bank(float yaw, float bank) {
-    static const Vec3 A = { 0, 0.727f, 0.686f };
     float cy = cosf(yaw), sy = sinf(yaw), cb = cosf(bank), sb = sinf(bank);
-    Vec3 rows[3] = { { cy, 0, -sy }, { 0, 1, 0 }, { sy, 0, cy } };
     Mat3 m;
-    for (int i = 0; i < 3; i++) {   /* Rodrigues rotation about A */
-        Vec3 v = rows[i];
-        Vec3 axv = v3_cross(A, v);
-        float adv = v3_dot(A, v);
-        m.r[i] = v3(v.x * cb + axv.x * sb + A.x * adv * (1 - cb),
-                    v.y * cb + axv.y * sb + A.y * adv * (1 - cb),
-                    v.z * cb + axv.z * sb + A.z * adv * (1 - cb));
-    }
+    m.r[0] = v3(cy * cb, cy * sb, -sy);
+    m.r[1] = v3(-sb, cb, 0);
+    m.r[2] = v3(sy * cb, sy * sb, cy);
     return m;
 }
 static Mat3 mat3_tumble(float ry, float rx) {
@@ -513,7 +506,6 @@ static void g_init(void) {
         star_col[i] = MOTE_RGB565(b, b, b + 30 > 255 ? 255 : b + 30);
     }
     parts.gravity = v3(0, 0, 0); parts.drag = 1.2f;
-    exhaust.gravity = v3(0, 0, 0); exhaust.drag = 0.4f;
     if (mote->load(0, &save, sizeof save) != sizeof save || save.magic != GS_MAGIC) {
         for (int i = 0; i < HS_N; i++) { save.top[i].ini[0] = '-'; save.top[i].ini[1] = '-';
             save.top[i].ini[2] = '-'; save.top[i].ini[3] = 0; save.top[i].score = 0; }
@@ -814,14 +806,23 @@ static void g_update(float dt) {
             }
         }
 
-        /* ----- exhaust trail: streaming puffs from both engine nozzles ----- */
+        /* ----- engine jets: puffs ride WITH the ship (local frame), drifting
+         * a little aft as they fade — a flame, not a trail ----- */
         for (int side = 0; side < 2; side++) {
-            float jx = mote_randf(-0.5f, 0.5f);
-            mote_particles_burst(&exhaust, v3(px + (side ? -0.36f : 0.36f), 0.05f, pz - 1.15f),
-                                 mote_frand() < 0.4f ? MOTE_RGB565(255, 235, 120) : MOTE_RGB565(255, 150, 40),
-                                 1, 0.3f, 0.4f);
-            for (int i = 0; i < MOTE_PARTICLES_MAX; i++)     /* stream them backwards */
-                if (exhaust.p[i].life > 0.39f) exhaust.p[i].vel = v3(jx, 0, -7.5f - 3.0f * mote_frand());
+            for (int i = 0; i < NJET; i++) {
+                if (jets[i].life > 0) continue;
+                jets[i].lx = (side ? -0.36f : 0.36f) + mote_randf(-0.05f, 0.05f);
+                jets[i].lz = -1.1f - mote_randf(0, 0.15f);
+                jets[i].life = jets[i].life0 = mote_randf(0.16f, 0.26f);
+                jets[i].col = mote_frand() < 0.4f ? MOTE_RGB565(255, 235, 120)
+                                                  : MOTE_RGB565(255, 150, 40);
+                break;
+            }
+        }
+        for (int i = 0; i < NJET; i++) {
+            if (jets[i].life <= 0) continue;
+            jets[i].life -= dt;
+            jets[i].lz -= 3.0f * dt;   /* small aft drift within the flame */
         }
 
         /* ----- wave spawner ----- */
@@ -1102,10 +1103,16 @@ static void g_update(float dt) {
             mote_draw_ex(mote, d->mesh, p->pos, mat3_yaw_bank(p->spin, 0), 0.82f);
         mote->scene_add_ring(p->pos, 1.25f, d->ring);
     }
+    if (state == ST_PLAYING) {
+        for (int i = 0; i < NJET; i++) {
+            if (jets[i].life <= 0) continue;
+            float fr = jets[i].life / jets[i].life0;
+            uint16_t c = fr > 0.5f ? jets[i].col : MOTE_RGB565(160, 60, 20);
+            mote->scene_add_point(v3(px + jets[i].lx, 0.05f, pz + jets[i].lz), c, fr > 0.6f ? 2 : 1);
+        }
+    }
     mote_particles_tick(&parts, dt);
     mote_particles_draw(mote, &parts, 0.12f);
-    mote_particles_tick(&exhaust, dt);
-    mote_particles_draw(mote, &exhaust, 0.10f);
 }
 
 /* ============================ HUD ============================ */
