@@ -40,6 +40,26 @@ def fbm(w, h, rng, oct=4, base=8):
         tot += amp; amp *= 0.5
     return out/tot
 
+def patch(m, rng, cx, cy, size, ch, only=None):
+    """an ANGULAR organic blob (union of offset rectangles + ragged edge) — the
+    hand map never draws circles"""
+    cells=set()
+    nr = 3 + int(size//12)
+    for _ in range(nr):
+        w2 = int(rng.integers(max(2,size//3), max(3,int(size*0.8))))
+        h2 = int(rng.integers(max(2,size//3), max(3,int(size*0.8))))
+        ox = int(cx + rng.integers(-size//2, size//2+1) - w2//2)
+        oy = int(cy + rng.integers(-size//2, size//2+1) - h2//2)
+        for y in range(oy, oy+h2):
+            for x in range(ox, ox+w2):
+                if 0<=x<W and 0<=y<H: cells.add((x,y))
+    for x,y in list(cells):                                # ragged edge
+        n = sum((nx,ny) in cells for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))
+        if n<=2 and rng.random()<0.45: cells.discard((x,y))
+    for x,y in cells:
+        if only is None or m[y][x] in only: m[y][x]=ch
+    return cells
+
 def disc(m, cx, cy, r, ch):
     x0,x1 = max(0,int(cx-r)), min(W,int(cx+r+1))
     y0,y1 = max(0,int(cy-r)), min(H,int(cy+r+1))
@@ -67,8 +87,8 @@ def carve_rivers(m, rng):
             if not (-30 < x < W+30 and -30 < y < H+30): break
             # width: upper reach -> mouth, with slow noise swells and pinches
             w = (w0 + (w1-w0)*t) * (0.70 + 0.55*abs(math.sin(t*9 + woff)))
-            if taper_end and t > 0.8: w *= (1.0 - (t-0.8)/0.22)   # tributary dies out
-            if w < 1.2: break
+            if taper_end and t > 0.65: w *= max(0.0, 1.0 - (t-0.65)/0.32)  # dies to a POINT
+            if w < 0.9: break
             px2, py2 = -math.sin(ang), math.cos(ang)
             disc(m, x + px2*off, y + py2*off, w, WATER)
             if rng.random() < 0.030:                              # one-sided COVE
@@ -127,10 +147,9 @@ def carve_rivers(m, rng):
         e2 = (e_out + 2) % 4
         s2, x2 = edge_pt(e2), edge_pt((e2+2)%4)
         channel(s2[0], s2[1], x2, rng.uniform(3,4.5), rng.uniform(7,10), 200, forks=1, tribs=1)
-    for _ in range(int(rng.integers(0,3))):                       # lakes
-        lx,ly = rng.integers(30,W-30), rng.integers(30,H-30)
-        for _ in range(int(rng.integers(3,6))):
-            disc(m, lx+rng.integers(-7,8), ly+rng.integers(-6,7), rng.uniform(4,7), WATER)
+    for _ in range(int(rng.integers(0,3))):                       # lakes: angular, never round
+        lx,ly = int(rng.integers(30,W-30)), int(rng.integers(30,H-30))
+        patch(m, rng, lx, ly, int(rng.integers(10,18)), WATER)
     # RAGGED SHORES
     for _ in range(2):
         wm = [[m[y][x]==WATER for x in range(W)] for y in range(H)]
@@ -148,8 +167,7 @@ def carve_rivers(m, rng):
         if len(ys)==0: break
         k = int(rng.integers(0,len(ys)))
         cx,cy = int(xs[k]), int(ys[k])
-        for _ in range(int(rng.integers(2,5))):
-            disc(m, cx+rng.integers(-4,5), cy+rng.integers(-4,5), rng.uniform(2,4.5), GRASS)
+        patch(m, rng, cx, cy, int(rng.integers(6,11)), GRASS, only=(WATER,))
 
 def grass_banks(m, rng):
     """CLUMPED bank grass — the original pours pavement right to the water and
@@ -338,29 +356,34 @@ def micro_details(m, rng):
                 break
 
 def parks(m, rng):
+    """the central park is an ANGULAR patch with an angular pond and a 2-wide
+    path ring; pocket parks green ENTIRE small blocks so they sit naturally in
+    the street grid — no circles anywhere."""
     cx,cy = W//2+int(rng.integers(-40,41)), H//2+int(rng.integers(-40,41))
-    blob=set()
-    for _ in range(int(rng.integers(9,14))):
-        bx,by,r = cx+rng.integers(-13,14), cy+rng.integers(-11,12), rng.uniform(5,10)
-        for y in range(max(0,int(by-r)),min(H,int(by+r+1))):
-            for x in range(max(0,int(bx-r)),min(W,int(bx+r+1))):
-                if (x-bx)**2+(y-by)**2<=r*r: blob.add((x,y))
-    for x,y in blob:
-        if m[y][x]==PAVE: m[y][x]=GRASS
-    edge=set()
-    for x,y in blob:                                   # 2-wide path RING around the park
-        if any((nx,ny) not in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1))):
-            edge.add((x,y))
-    ring=set(edge)
-    for x,y in edge:
-        for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
-            if (nx,ny) in blob: ring.add((nx,ny))
-    for x,y in ring:
-        if m[y][x]==GRASS: m[y][x]=ROAD
-    disc(m, cx+rng.integers(-3,4), cy+rng.integers(-3,4), rng.uniform(2.5,4.0), WATER)
-    for _ in range(int(rng.integers(8,14))):
-        px,py = rng.integers(12,W-12), rng.integers(12,H-12)
-        if m[py][px]==PAVE: disc(m, px, py, rng.uniform(2,4.5), GRASS)
+    blob = patch(m, rng, cx, cy, int(rng.integers(20,28)), GRASS, only=(PAVE,BLO,BMID,BHI))
+    blob = {(x,y) for x,y in blob if m[y][x]==GRASS}
+    if blob:                                              # an angular pond inside
+        inner=[(x,y) for x,y in blob
+               if all((nx,ny) in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))]
+        if inner:
+            px2,py2 = inner[int(rng.integers(0,len(inner)))]
+            patch(m, rng, px2, py2, int(rng.integers(5,8)), WATER, only=(GRASS,))
+    # pocket parks: whole small BLOCKS become greens
+    seen=[[False]*W for _ in range(H)]
+    blocks=[]
+    for sy in range(H):
+        for sx in range(W):
+            if seen[sy][sx] or m[sy][sx]!=PAVE: continue
+            stack=[(sx,sy)]; seen[sy][sx]=True; cells=[]
+            while stack:
+                x,y=stack.pop(); cells.append((x,y))
+                for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
+                    if 0<=nx<W and 0<=ny<H and not seen[ny][nx] and m[ny][nx]==PAVE:
+                        seen[ny][nx]=True; stack.append((nx,ny))
+            if 25 <= len(cells) <= 140: blocks.append(cells)
+    rng.shuffle(blocks)
+    for cells in blocks[:int(rng.integers(4,8))]:
+        for x,y in cells: m[y][x]=GRASS
 
 # ---------------------------------------------------------- connectivity ---
 def connect_roads(m, rng):
