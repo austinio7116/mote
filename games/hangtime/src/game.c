@@ -134,7 +134,7 @@ static void gen_course(void) {
         int chance = gen_x < 800.0f ? 22 : 14;
         if ((int)(mote_rand() % 100) < chance) {
             int n = 2 + (int)(mote_rand() % 2);
-            int back_last = (int)(mote_rand() % 100) < 45;
+            int back_last = (int)(mote_rand() % 100) < 70;
             float cx = (gen_x + nx) * 0.5f - n * PAD_W * 0.5f;
             for (int k = 0; k < n; k++) {
                 int j = pad_i & (PAD_N - 1);
