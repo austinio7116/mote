@@ -24,6 +24,7 @@ MOTE_MODULE_HEADER();
 #include "sf_fighter.h"
 #include "trident.h"
 #include "corvette.h"
+#include "corvette_boss.h"
 #include "luminaris.h"
 #include "ufo.h"
 #include "walkerie.h"
@@ -40,7 +41,8 @@ MOTE_MODULE_HEADER();
 #include "rocket.h"
 #include "barrel.h"
 #include "missile.h"
-#include "nebula.h"        /* scrolling galaxy background (tile_nebula_green) */
+#include "nebula.h"
+#include "galaxyfont.font.h"  /* Orbitron (OFL) title face */        /* scrolling galaxy background (tile_nebula_green) */
 /* baked SFX (assets/*.wav) */
 #include "shoot.h"
 #include "shoot_enemy.h"
@@ -79,6 +81,9 @@ typedef struct {
     float rate, delay;
     const Gun *guns; int ngun;
     float dodge, man_lo, man_hi, tilt;   /* evasive-maneuver params */
+    float pitch0;    /* presentation nose-down pitch: long flat hulls foreshorten
+                      * to a blob under the oblique camera; a small dip shows the
+                      * deck. Only the corvette needs it. */
 } ETypeDef;
 
 static const Gun g_fighter[]  = { {0.00f, -0.50f, 0} };
@@ -97,7 +102,7 @@ static const ETypeDef k_types[ET_NTYPES] = {
     { &sf_fighter_mesh,2.0f, 0, 5, 20, 1000, 20, 1,0, PR_BOLT,    1.5f, 0.5f, g_fighter, 1,  5, 1.0f, 2.0f, 10 },
     { &sf_fighter_mesh,2.0f, 0, 5, 20,  100, 50, 1,0, PR_MISSILE, 6.0f, 0.5f, g_fighter, 1,  5, 1.0f, 2.0f, 10 },
     { &trident_mesh,   1.75f, -1.5708f, 5, 10, 500, 20, 1,0, PR_BOLT, 1.5f, 0.5f, g_trident, 2, 5, 1.0f, 2.0f, 10 },
-    { &corvette_mesh,  2.3f, 0, 4, 50,  20, 200, 1,0, PR_BOLT,  0.85f, 0.5f, g_corvette, 6, 5, 1.0f, 2.0f, 1.2f },
+    { &corvette_mesh,  2.3f, 0, 4, 50,  20, 200, 1,0, PR_BOLT,  0.85f, 0.5f, g_corvette, 6, 5, 1.0f, 2.0f, 3 },
     { &luminaris_mesh, 2.0f, 0, 6, 20, 200, 100, 1,0, PR_BOLT,  1.5f, 0.5f, g_luminaris, 1, 20, 0.2f, 0.8f, 10 },
     { &ufo_mesh,       1.9f, 0, 2, 50,  20, 200, 1,1, PR_BALL,  0.6f, 0.2f, g_ufo, 4,  0, 0,0, 0 },
 };
@@ -120,11 +125,11 @@ typedef struct {
     BWeapon w[3]; int nw;
 } BossDef;
 static const BossDef k_bosses[3] = {
-    { 0 /* MoteModel walkerie, drawn specially */, 3.8f, 0, 500, 5, 6, 2, MOTE_RGB565(150,160,175), 0,
+    { 0 /* MoteModel walkerie, drawn specially */, 3.8f, 0, 500, 5, 6, 10, MOTE_RGB565(150,160,175), 0,
       { {1.5f, 1.0f, 0, PR_BOLT, b1_w1, 2},
         {1.0f, 1.0f, 0, PR_BOLT, b1_w2, 2},
         {2.0f, 1.0f, 1, PR_BOLT, b1_w3, 4} }, 3 },
-    { &corvette_mesh, 4.0f, 0, 500, 5, 6, 2, 0, 0,
+    { &corvette_boss_mesh, 4.0f, 0, 500, 5, 6, 10, 0, 0,
       { {1.0f, 0.5f, 0, PR_BOLT, b2_w1, 4},
         {1.0f, 0.5f, 1, PR_BOLT, b2_w2, 2} }, 2 },
     { &ufo_mesh, 3.6f, 0, 500, 2, 1, 0, 0, 1,
@@ -218,7 +223,60 @@ static float bg_scroll;
 /* initials entry */
 static int   hs_entering, hs_pos, hs_rank;
 static char  hs_ini[4];
-static MoteParticles parts;      /* explosions */
+static MoteParticles parts;      /* explosion sparks */
+/* cluster-of-fireballs explosions: several lit sphere impostors growing and
+ * fading around the death point, plus a shockwave ring */
+#define MAX_BOOM 6
+typedef struct {
+    int alive, nball;
+    Vec3 pos;
+    float t, dur, size;
+    uint16_t hot, mid, cool;
+    struct { float ox, oz, ph, sz; } b[8];
+} Boom;
+static Boom booms[MAX_BOOM];
+
+static void spawn_boom(Vec3 pos, float size, int kind) {  /* 0 ship, 1 rock, 2 boss */
+    for (int i = 0; i < MAX_BOOM; i++) {
+        Boom *bm = &booms[i];
+        if (bm->alive) continue;
+        bm->alive = 1; bm->pos = pos; bm->t = 0;
+        bm->dur = kind == 2 ? 0.9f : 0.55f;
+        bm->size = size * (kind == 2 ? 0.8f : 0.7f);
+        bm->nball = kind == 2 ? 8 : 6;
+        if (kind == 1) { bm->hot = MOTE_RGB565(230, 200, 150); bm->mid = MOTE_RGB565(150, 120, 90); bm->cool = MOTE_RGB565(70, 60, 50); }
+        else { bm->hot = MOTE_RGB565(255, 245, 170); bm->mid = MOTE_RGB565(255, 150, 40); bm->cool = MOTE_RGB565(140, 40, 15); }
+        for (int k = 0; k < bm->nball; k++) {
+            float a = mote_randf(0, 6.283f), r = mote_randf(0.2f, bm->size * 0.9f);
+            bm->b[k].ox = sinf(a) * r;
+            bm->b[k].oz = cosf(a) * r;
+            bm->b[k].ph = mote_randf(0, 0.3f);
+            bm->b[k].sz = mote_randf(0.55f, 1.0f);
+        }
+        return;
+    }
+}
+
+static void booms_tick_draw(float dt) {
+    for (int i = 0; i < MAX_BOOM; i++) {
+        Boom *bm = &booms[i];
+        if (!bm->alive) continue;
+        bm->t += dt;
+        float T = bm->t / bm->dur;
+        if (T >= 1) { bm->alive = 0; continue; }
+        for (int k = 0; k < bm->nball; k++) {
+            float p = (T - bm->b[k].ph) / (1.0f - bm->b[k].ph);
+            if (p <= 0 || p >= 1) continue;
+            float r = bm->size * bm->b[k].sz * sinf(3.14159f * p) * 0.72f;
+            uint16_t c = p < 0.3f ? bm->hot : (p < 0.65f ? bm->mid : bm->cool);
+            float spread = 1.0f + p * 0.9f;   /* balls drift outward as they burn */
+            mote->scene_add_sphere(v3(bm->pos.x + bm->b[k].ox * spread, 0.3f + r * 0.3f,
+                                      bm->pos.z + bm->b[k].oz * spread), r, c);
+        }
+        if (T < 0.45f)   /* shockwave ring */
+            mote->scene_add_ring(bm->pos, bm->size * (0.6f + T * 2.6f), bm->mid);
+    }
+}
 #define NJET 14
 typedef struct { float lx, lz, life, life0; uint16_t col; } Jet;   /* ship-local */
 static Jet jets[NJET];
@@ -471,6 +529,7 @@ static void reset_game(void) {
     for (int i = 0; i < MAX_SHOTS; i++) shots[i].alive = 0;
     for (int i = 0; i < MAX_MISS; i++) missiles[i].alive = 0;
     for (int i = 0; i < MAX_PU; i++) pus[i].alive = 0;
+    for (int i = 0; i < MAX_BOOM; i++) booms[i].alive = 0;
     px = 0; pz = -1.0f; pbank = 0;
     float d = difficulty();
     health = max_health = 75 - 50 * d;
@@ -524,6 +583,7 @@ static void player_hit(float dmg) {
     if (health <= 0) {
         health = 0;
         mote_particles_burst(&parts, v3(px, 0, pz), MOTE_RGB565(255, 200, 80), 30, 8, 1.2f);
+        spawn_boom(v3(px, 0, pz), 1.6f, 2);
         play_snd(&boom_player_snd, 1.0f);
         state = ST_GAMEOVER; over_t = 0;
         hs_rank = hs_qualifies(score);
@@ -538,6 +598,8 @@ static void kill_enemy(Enemy *e) {
     mote_particles_burst(&parts, e->pos, e->boss ? MOTE_RGB565(255, 120, 240)
                        : MOTE_RGB565(255, 170, 60), e->boss ? 40 : 14,
                        e->boss ? 9 : 6, e->boss ? 1.4f : 0.8f);
+    int rock = !e->boss && !k_types[e->type].is_ship;
+    spawn_boom(e->pos, e->scale, e->boss ? 2 : (rock ? 1 : 0));
     play_snd(k_types[e->type].is_ship || e->boss ? &boom_enemy_snd : &boom_rock_snd, 0.9f);
     float drop_th = 0.6f + 0.3f * difficulty();
     if (e->boss) {
@@ -714,6 +776,16 @@ static void g_update(float dt) {
         else { ev.boss = 0; ev.type = ei % ET_NTYPES; ev.scale = k_types[ev.type].size * 2.0f; }
         ev.ry = t * 1.6f; ev.rx = t * 0.9f;
         draw_enemy(&ev);
+#ifdef MOTE_HOST
+        if (getenv("GS_BOOM")) {   /* repeating close-range explosion test */
+            static float bt;
+            bt -= dt;
+            if (bt <= 0) { bt = 1.0f; spawn_boom(v3(0, 0, 2.0f), 1.8f, atoi(getenv("GS_BOOM")) - 1); }
+            booms_tick_draw(dt);
+            mote_particles_tick(&parts, dt);
+            mote_particles_draw(mote, &parts, 0.12f);
+        }
+#endif
         return;
     }
 
@@ -733,11 +805,11 @@ static void g_update(float dt) {
     }
 
     if (state == ST_TITLE) {
-        static float tspin;
-        tspin += dt * 0.7f;
-        /* hero shot: ship right up close to the camera */
+        static float ttilt;
+        ttilt += dt;
+        /* hero shot: nose up-screen, tilting level->left->level->right in a loop */
         mote_draw_ex(mote, &mk6_mesh, v3(0, 8.1f, -4.2f),
-                     mat3_yaw_bank(tspin, 0.22f * sinf(tspin * 1.6f)), 1.6f);
+                     mat3_yaw_bank(0, 0.55f * sinf(ttilt * 1.1f)), 1.6f);
         if (mote_just_pressed(in, MOTE_BTN_UP) && save.diff > 0) { save.diff--; save_write(); }
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && save.diff < 2) { save.diff++; save_write(); }
         if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) {
@@ -1101,7 +1173,8 @@ static void g_update(float dt) {
             mote_draw_tint(mote, d->mesh, p->pos, mat3_yaw_bank(p->spin, 0), 0.72f, MOTE_RGB565(90, 230, 110));
         else
             mote_draw_ex(mote, d->mesh, p->pos, mat3_yaw_bank(p->spin, 0), 0.82f);
-        mote->scene_add_ring(p->pos, 1.25f, d->ring);
+        uint16_t dim = (uint16_t)((d->ring >> 1) & 0x7BEF);   /* halve each channel */
+        mote->scene_add_ring(p->pos, 0.9f + 0.08f * sinf(p->spin * 2.f), dim);
     }
     if (state == ST_PLAYING) {
         for (int i = 0; i < NJET; i++) {
@@ -1111,6 +1184,7 @@ static void g_update(float dt) {
             mote->scene_add_point(v3(px + jets[i].lx, 0.05f, pz + jets[i].lz), c, fr > 0.6f ? 2 : 1);
         }
     }
+    booms_tick_draw(dt);
     mote_particles_tick(&parts, dt);
     mote_particles_draw(mote, &parts, 0.12f);
 }
@@ -1130,8 +1204,8 @@ static void g_overlay(uint16_t *fb) {
         return;
     }
     if (state == ST_TITLE) {
-        mote->text_2x(fb, "GALAXY", 28, 12, MOTE_RGB565(140, 230, 255));
-        mote->text_2x(fb, "SWARM", 34, 28, MOTE_RGB565(255, 170, 60));
+        mote->text_font(fb, &galaxyfont, "GALAXY", 22, 8, MOTE_RGB565(140, 230, 255));
+        mote->text_font(fb, &galaxyfont, "SWARM", 30, 28, MOTE_RGB565(255, 170, 60));
         mote_textf(mote, fb, 22, 78, MOTE_RGB565(200, 200, 210), "DIFF: %s", k_diff_names[save.diff]);
         mote->text(fb, "A FIRE   B SHIELD", 14, 92, MOTE_RGB565(230, 230, 230));
         mote->text(fb, "A: START", 46, 102, MOTE_RGB565(180, 180, 190));
@@ -1210,7 +1284,7 @@ static const MoteGameVtbl k_vtbl = {
         .max_lines = 140,       /* bolts: up to 9 guns x in-flight + enemy fire */
         .max_discs = 48,
         .max_rings = 16,
-        .max_spheres = 130,     /* two particle pools + ufo energy balls */
+        .max_spheres = 170,     /* sparks + fireball clusters + ufo energy balls */
         .depth = 1,
     },
 };
