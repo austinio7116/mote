@@ -769,6 +769,36 @@ static void road_markings(int x, int z) {
                 break;
             }
         }
+        /* BOX JUNCTION: a big junction block (3x3+ of junction cells) gets
+         * yellow cross-hatch with a solid border — drivers read it as
+         * "keep clear", and the huge arterial crossings stop being bare
+         * asphalt fields. Painted per-tile with world-phased diagonals so
+         * the pattern flows unbroken across the whole box. */
+        {
+            int exL=0,exR=0,exU=0,exD=0, oj,pj,sj;
+            #define JCELL(ax,az) (is_roadlike(ax,az) && (corridor_info(ax,az,&oj,&pj,&sj), oj==3))
+            while (exL<ROADW+2 && JCELL(x-1-exL,z)) exL++;
+            while (exR<ROADW+2 && JCELL(x+1+exR,z)) exR++;
+            while (exU<ROADW+2 && JCELL(x,z-1-exU)) exU++;
+            while (exD<ROADW+2 && JCELL(x,z+1+exD)) exD++;
+            int ew=exL+exR+1, eh=exU+exD+1;
+            if (ew>=3 && eh>=3 && appr>=3){                  /* real multi-lane boxes only */
+                uint16_t ybox = MOTE_RGB565(210,180,70);
+                if (!JCELL(x-1,z)) line_z(z0+0.10f, z0+TILE-0.10f, x0+0.18f, ybox, 1);
+                if (!JCELL(x+1,z)) line_z(z0+0.10f, z0+TILE-0.10f, x0+TILE-0.18f, ybox, 1);
+                if (!JCELL(x,z-1)) line_x(x0+0.10f, x0+TILE-0.10f, z0+0.18f, ybox, 1);
+                if (!JCELL(x,z+1)) line_x(x0+0.10f, x0+TILE-0.10f, z0+TILE-0.18f, ybox, 1);
+                for (float c2=floorf((x0+z0)/1.7f)*1.7f; c2 < x0+z0+2*TILE; c2+=1.7f){
+                    float a = x0 > c2-(z0+TILE) ? x0 : c2-(z0+TILE);
+                    float b = (x0+TILE) < c2-z0 ? (x0+TILE) : c2-z0;
+                    for (float u=a; u<b; u+=0.42f){
+                        float pxw=u, pzw=c2-u;
+                        paint_quad(pxw-0.09f, pzw-0.09f, pxw+0.09f, pzw+0.09f, ybox);
+                    }
+                }
+            }
+            #undef JCELL
+        }
         if (appr < 3){
             /* BEND: curved DOUBLE-YELLOW median — a quarter arc tangent to both roads'
              * median lines (centre offset R from each), drawn only inside this tile so

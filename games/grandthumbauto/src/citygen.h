@@ -230,22 +230,8 @@ static void cg_stamp(int x,int y,int wid){
     }
 }
 static void cg_jog(int vertical,int pos,int wid){
-    int p=pos,t=0,lim=vertical?CG_H:CG_W;
-    while(t<lim){
-        int seg=cg_ri(40,90);
-        for(int s2=0;s2<seg&&t<lim;s2++,t++){
-            if(vertical) cg_stamp(p,t,wid); else cg_stamp(t,p,wid);
-        }
-        if(t<lim){
-            int jog=cg_ri(-14,15);
-            int lo=p<p+jog?p:p+jog, hi=(p>p+jog?p:p+jog)+wid-1;
-            for(int q=lo;q<=hi;q++){ if(vertical) cg_stamp(q,t,wid); else cg_stamp(t,q,wid); }
-            t+=wid;
-            p+=jog;
-            int mx=(vertical?CG_W:CG_H)-wid-10;
-            if(p<10)p=10; if(p>mx)p=mx;
-        }
-    }
+    int lim=vertical?CG_H:CG_W;
+    for(int t=0;t<lim;t++){ if(vertical) cg_stamp(pos,t,wid); else cg_stamp(t,pos,wid); }
 }
 #define CG_MAXART 4
 static int cg_axv[CG_MAXART], cg_naxv, cg_axh[CG_MAXART], cg_naxh;   /* base arterial lines (for districts) */
@@ -657,9 +643,13 @@ static void cg_fix_pool_roads(void){
 }
 
 static void cg_bridge_walkways(void){
-    /* every bridge gets pavement flanks so pedestrians can cross the water */
+    /* POSTPROCESS SAFETY RAIL: no road or bridge may ever sit directly against
+     * open water — every watery neighbour becomes a block of pavement, so
+     * pedestrians always have a kerb (bridge walkways included) and you never
+     * step off tarmac straight into the river. */
     for(int y=1;y<CG_H-1;y++)for(int x=1;x<CG_W-1;x++){
-        if(cg_at(x,y)!=T_BRIDGE) continue;
+        uint8_t c=cg_at(x,y);
+        if(c!=T_BRIDGE&&c!=T_ROAD) continue;
         static const int DX[4]={1,-1,0,0},DY[4]={0,0,1,-1};
         for(int k=0;k<4;k++)
             if(cg_at(x+DX[k],y+DY[k])==T_WATER) cg_set(x+DX[k],y+DY[k],T_PAVE);
