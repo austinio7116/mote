@@ -352,35 +352,41 @@ def micro_details(m, rng):
                 for cx,cy in cand: m[cy][cx]=WATER
                 break
 
-def parks(m, rng):
-    """the central park is an ANGULAR patch with an angular pond and a 2-wide
-    path ring; pocket parks green ENTIRE small blocks so they sit naturally in
-    the street grid — no circles anywhere."""
-    cx,cy = W//2+int(rng.integers(-40,41)), H//2+int(rng.integers(-40,41))
-    blob = patch(m, rng, cx, cy, int(rng.integers(20,28)), GRASS,
-                 only=(PAVE,ROAD))                        # roads inside the park are ERASED
+def make_park(m, rng, cx, cy, size):
+    blob = patch(m, rng, cx, cy, size, GRASS, only=(PAVE,ROAD))
     blob = {(x,y) for x,y in blob if m[y][x]==GRASS}
-    if blob:
-        border=set()                                      # 2-wide road BORDER around the park
-        for x,y in blob:
-            for dx in (-1,0,1):
-                for dy in (-1,0,1):
-                    n=(x+dx,y+dy)
-                    if n not in blob and 0<=n[0]<W and 0<=n[1]<H: border.add(n)
-        ring2=set(border)
-        for x,y in border:
-            for dx in (-1,0,1):
-                for dy in (-1,0,1):
-                    n=(x+dx,y+dy)
-                    if n not in blob and 0<=n[0]<W and 0<=n[1]<H: ring2.add(n)
-        for x,y in ring2:
-            if m[y][x] not in (WATER,BRIDGE): m[y][x]=ROAD
-        inner=[(x,y) for x,y in blob
-               if all((nx,ny) in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))]
-        for _ in range(1 + (rng.random()<0.4)):           # lake(s) inside
-            if not inner: break
-            px2,py2 = inner[int(rng.integers(0,len(inner)))]
-            patch(m, rng, px2, py2, int(rng.integers(5,9)), WATER, only=(GRASS,))
+    if not blob: return
+    border=set()
+    for x,y in blob:
+        for dx in (-1,0,1):
+            for dy in (-1,0,1):
+                n=(x+dx,y+dy)
+                if n not in blob and 0<=n[0]<W and 0<=n[1]<H: border.add(n)
+    ring2=set(border)
+    for x,y in border:
+        for dx in (-1,0,1):
+            for dy in (-1,0,1):
+                n=(x+dx,y+dy)
+                if n not in blob and 0<=n[0]<W and 0<=n[1]<H: ring2.add(n)
+    for x,y in ring2:
+        if m[y][x] not in (WATER,BRIDGE): m[y][x]=ROAD
+    inner=[(x,y) for x,y in blob
+           if all((nx,ny) in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))]
+    for _ in range(1 + (rng.random()<0.4)):
+        if not inner: break
+        px2,py2 = inner[int(rng.integers(0,len(inner)))]
+        patch(m, rng, px2, py2, int(rng.integers(5,9)), WATER, only=(GRASS,))
+
+def parks(m, rng):
+    """1-3 bordered parks with lakes; the first sits near the centre"""
+    spots=[(W//2+int(rng.integers(-40,41)), H//2+int(rng.integers(-40,41)))]
+    for _ in range(int(rng.integers(0,3))):
+        spots.append((int(rng.integers(35,W-35)), int(rng.integers(35,H-35))))
+    done=[]
+    for cx,cy in spots:
+        if any((cx-ox)**2+(cy-oy)**2 < 60*60 for ox,oy in done): continue
+        make_park(m, rng, cx, cy, int(rng.integers(16,26)))
+        done.append((cx,cy))
     # pocket parks: whole small BLOCKS become greens
     seen=[[False]*W for _ in range(H)]
     blocks=[]
@@ -397,6 +403,49 @@ def parks(m, rng):
     rng.shuffle(blocks)
     for cells in blocks[:int(rng.integers(4,8))]:
         for x,y in cells: m[y][x]=GRASS
+
+def harbour_roads(m, rng):
+    """straight dockside roads: axis-aligned 2-wide segments laid along
+    STRAIGHT stretches of shoreline (the game's dock marker needs a road tile
+    beside water, and roads must never poke across the shore)"""
+    from scipy import ndimage
+    wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
+    d = ndimage.distance_transform_edt(~wm)
+    segs=[]
+    for y in range(3,H-3):                                 # horizontal runs hugging the shore
+        run=[]
+        for x in range(3,W-3):
+            if 1.0 <= d[y][x] < 2.4 and m[y][x] in (PAVE,GRASS): run.append(x)
+            else:
+                if len(run)>=12: segs.append(('h',y,run[0],run[-1],len(run)))
+                run=[]
+        if len(run)>=12: segs.append(('h',y,run[0],run[-1],len(run)))
+    for x in range(3,W-3):                                 # vertical runs
+        run=[]
+        for y in range(3,H-3):
+            if 1.0 <= d[y][x] < 2.4 and m[y][x] in (PAVE,GRASS): run.append(y)
+            else:
+                if len(run)>=12: segs.append(('v',x,run[0],run[-1],len(run)))
+                run=[]
+        if len(run)>=12: segs.append(('v',x,run[0],run[-1],len(run)))
+    segs.sort(key=lambda t:-t[4])
+    laid=0
+    for kind,c,a,b,_ in segs:
+        if laid>=4: break
+        if kind=='h':
+            land = 1 if (c+1<H and d[c+1][c and 1] >= d[c-1][1]) else -1
+            land = 1 if np.mean(d[c+1][a:b+1]) > np.mean(d[c-1][a:b+1]) else -1
+            for x in range(a,b+1):
+                for dd in (0,land):
+                    yy=c+dd
+                    if 0<=yy<H and m[yy][x] in (PAVE,GRASS): m[yy][x]=ROAD
+        else:
+            land = 1 if np.mean(d[a:b+1,c+1]) > np.mean(d[a:b+1,c-1]) else -1
+            for y in range(a,b+1):
+                for dd in (0,land):
+                    xx=c+dd
+                    if 0<=xx<W and m[y][xx] in (PAVE,GRASS): m[y][xx]=ROAD
+        laid+=1
 
 # ---------------------------------------------------------- connectivity ---
 def connect_roads(m, rng):
@@ -482,6 +531,7 @@ def generate(seed):
                 if n <= 1: m[y][x]=PAVE; changed+=1
         if not changed: break
     parks(m, rng)
+    harbour_roads(m, rng)
     fill_blocks(m, rng)
     micro_details(m, rng)
     connect_roads(m, rng)
