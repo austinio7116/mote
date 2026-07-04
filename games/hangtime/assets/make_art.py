@@ -138,16 +138,18 @@ def pad():
     RED = (200, 60, 40, 255)
     WHITE = (245, 240, 230, 255)
     LEG = (52, 52, 58, 255)
-    # frame 0: sprung pad — striped canvas on dark legs
-    d.rectangle([1, 0, 22, 3], fill=RED)
-    for x in range(1, 23, 6):
+    # frame 0: sprung pad — striped canvas on dark legs. The canvas spans the
+    # full 24px (stripe period 6 divides 24) so cluster segments tile
+    # seamlessly into one long platform.
+    d.rectangle([0, 0, 23, 3], fill=RED)
+    for x in range(0, 24, 6):
         d.rectangle([x + 3, 0, x + 5, 3], fill=WHITE)
     d.rectangle([0, 1, 23, 1], fill=(120, 30, 20, 255))
     d.rectangle([3, 4, 5, 7], fill=LEG)
     d.rectangle([18, 4, 20, 7], fill=LEG)
     # frame 1: squashed — canvas compressed at the bottom of the cell
-    d.rectangle([1, 12, 22, 14], fill=RED)
-    for x in range(1, 23, 6):
+    d.rectangle([0, 12, 23, 14], fill=RED)
+    for x in range(0, 24, 6):
         d.rectangle([x + 3, 12, x + 5, 14], fill=WHITE)
     d.rectangle([3, 15, 5, 15], fill=LEG)
     d.rectangle([18, 15, 20, 15], fill=LEG)

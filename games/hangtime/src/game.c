@@ -127,17 +127,18 @@ static void gen_course(void) {
         float ny = gen_y + (float)(int)(mote_rand() % 37) - 18.0f;
         ny = mote_clampf(ny, 14.0f, 46.0f);
         float nx = gen_x + dx;
-        /* a cluster of 2-3 bounce pads under some gaps (rarer as the course
-         * goes on); the LAST pad of a cluster is sometimes angled backwards —
-         * land on it and it flings you back the way you came. */
-        int chance = gen_x < 800.0f ? 32 : 20;
+        /* occasionally, one long bounce platform under a gap: 2-3 segments
+         * butted end-to-end; the LAST segment is sometimes angled backwards
+         * (hinged at the junction) — land on it and it flings you back the
+         * way you came. */
+        int chance = gen_x < 800.0f ? 22 : 14;
         if ((int)(mote_rand() % 100) < chance) {
             int n = 2 + (int)(mote_rand() % 2);
             int back_last = (int)(mote_rand() % 100) < 45;
-            float cx = (gen_x + nx) * 0.5f - (n * (PAD_W + 4.0f) - 4.0f) * 0.5f;
+            float cx = (gen_x + nx) * 0.5f - n * PAD_W * 0.5f;
             for (int k = 0; k < n; k++) {
                 int j = pad_i & (PAD_N - 1);
-                padx[j] = cx + k * (PAD_W + 4.0f);
+                padx[j] = cx + k * PAD_W;
                 pad_sq[j] = 0;
                 pad_back[j] = (uint8_t)(back_last && k == n - 1);
                 pad_i++;
@@ -273,7 +274,9 @@ static void step_player(float dt) {
             for (int i = 0; i < PAD_N && i < pad_i; i++) {
                 float pxl = padx[i];
                 if (px + 4.0f < pxl || px - 4.0f > pxl + PAD_W) continue;
-                if (py + 6.0f >= PAD_Y && py + 6.0f <= PAD_Y + 10.0f) {
+                /* the tilted segment's surface sits higher — catch it sooner */
+                float top = pad_back[i] ? PAD_Y - 8.0f : PAD_Y;
+                if (py + 6.0f >= top && py + 6.0f <= PAD_Y + 10.0f) {
                     py = PAD_Y - 6.0f;
                     if (pad_back[i]) { vx = BACK_VX; vy = BACK_VY; }
                     else             { vy = BOUNCE_VY; vx *= 0.985f; }
@@ -389,13 +392,17 @@ static void g_overlay(uint16_t *fb) {
     int cam = (int)camf;
     float sx = px - cam, sy = py;
 
-    /* bounce pads (under the hero; blit_ex so the backwards pad can tilt) */
+    /* bounce pads (under the hero; blit_ex so the backwards segment can
+     * tilt). The tilted segment is hinged at its LEFT edge so it stays
+     * connected to the rest of the platform. */
     for (int i = 0; i < PAD_N && i < pad_i; i++) {
-        if (padx[i] < camf - 30.0f || padx[i] > camf + 150.0f) continue;
-        mote->blit_ex(fb, &pad_img, padx[i] + PAD_W * 0.5f - cam, PAD_Y + 4.0f,
+        if (padx[i] < camf - 40.0f || padx[i] > camf + 150.0f) continue;
+        float a = pad_back[i] ? -BACK_ANG : 0.0f;
+        float cx = padx[i] - cam + PAD_W * 0.5f * cosf(a);
+        float cy = PAD_Y + 4.0f + PAD_W * 0.5f * sinf(a);
+        mote->blit_ex(fb, &pad_img, cx, cy,
                       0, pad_sq[i] > 0 ? 8 : 0, 24, 8,
-                      pad_back[i] ? -BACK_ANG : 0.0f, 1.0f,
-                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
+                      a, 1.0f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
     }
 
     if (pl == PL_HUNG) {
