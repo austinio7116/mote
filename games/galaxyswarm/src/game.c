@@ -744,7 +744,7 @@ static void g_update(float dt) {
         static float tspin;
         tspin += dt * 0.7f;
         /* hero shot: ship right up close to the camera */
-        mote_draw_ex(mote, &mk6_mesh, v3(0, 12.4f, -7.0f),
+        mote_draw_ex(mote, &mk6_mesh, v3(0, 8.1f, -4.2f),
                      mat3_yaw_bank(tspin, 0.22f * sinf(tspin * 1.6f)), 1.6f);
         if (mote_just_pressed(in, MOTE_BTN_UP) && save.diff > 0) { save.diff--; save_write(); }
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && save.diff < 2) { save.diff++; save_write(); }
