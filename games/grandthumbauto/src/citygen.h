@@ -633,6 +633,18 @@ static void cg_connect(void){
     }
 }
 
+static void cg_seal_border(void){
+    /* the outer border is NEVER walkable: any pavement/grass in the outer two
+     * rings becomes building (water and the rare bridge stay) */
+    for(int y=0;y<CG_H;y++)for(int x=0;x<CG_W;x++){
+        if(x>=2&&x<CG_W-2&&y>=2&&y<CG_H-2) continue;
+        uint8_t c=cg_at(x,y);
+        if(c!=T_PAVE&&c!=T_GRASS&&c!=T_ROAD) continue;
+        float k=cg_fbm(x,y,5,0x4B1D);
+        cg_set(x,y, k>0.60f?T_BHI:(k>0.42f?T_BMID:T_BLO));
+    }
+}
+
 /* ==================================================================== API == */
 static void citygen(uint8_t *map, uint32_t seed){
     cg = map; cg_rng = seed?seed:0xC17E5EEDu;
@@ -650,6 +662,7 @@ static void citygen(uint8_t *map, uint32_t seed){
     cg_micro();
     cg_connect();
     cg_prune();
+    cg_seal_border();
 }
 
 #endif /* CITYGEN_H */

@@ -535,6 +535,12 @@ def generate(seed):
     fill_blocks(m, rng)
     micro_details(m, rng)
     connect_roads(m, rng)
+    for y in range(H):                                     # sealed border: never walkable
+        for x in range(W):
+            if 2<=x<W-2 and 2<=y<H-2: continue
+            if m[y][x] in (PAVE,GRASS,ROAD):
+                k=dense_border= (x*7+y*13)%10/10.0
+                m[y][x] = BHI if k>0.62 else BMID if k>0.42 else BLO
     return m
 
 def save(m, path):
