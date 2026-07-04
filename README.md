@@ -1760,8 +1760,15 @@ mote->link_stop();                           /* also called for you on game exit
   other player. The engine buffers ~512 B of RX — poll every frame.
 - While the link is started it owns the device's USB controller; the CLI/log channel
   yields and returns when the link stops.
-- Reference game: **DeepThumb**'s `2P LINK` mode (`games/deepthumb`) — hello handshake,
-  host-plays-white, 5-byte move messages, disconnect + quit handling.
+- Reference game: **DeepThumb**'s `2P LINK` mode (`games/deepthumb`) — hello handshake
+  with a random-nonce side draw, 5-byte move messages, disconnect + quit handling.
+- **Across the LAN (Mote Studio)**: the DEVICE tab's **LAN LINK** row connects two
+  Studios (`Host LAN` / `Join LAN`, zero-config discovery; `MOTE_LINK_PEER=<ip>` for a
+  fixed address). Games in each Studio's preview link up directly, and **Bridge USB**
+  relays a real USB-docked Thumby's link bytes over the pipe — two physical devices
+  playing remotely. Tip: don't use `link_is_host()` to assign sides in a game — over
+  the bridge both devices are USB device-role, so both read 0. Put a random nonce in
+  your hello and break the tie with it (what DeepThumb does).
 
 ### 5.8 — The helper layer (`mote_build.h`, header-only)
 

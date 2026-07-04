@@ -92,11 +92,15 @@ enum { OPP_AI, OPP_LINK };
 enum { RES_NONE, RES_MATE, RES_STALE, RES_LINK_LOST, RES_OPP_LEFT };
 
 /* link wire protocol: every message starts with the magic byte, then a type.
- *   0xA5 'H' proto      — hello (sent on connect; both sides must see it)
- *   0xA5 'M' from to pr — a move in chal 0x88 squares + promo piece
- *   0xA5 'Q'            — orderly quit (peer went back to the menu)          */
+ *   0xA5 'H' proto nl nh — hello + a random 16-bit NONCE (sent on connect; both
+ *                          sides must see it). The higher nonce plays WHITE — a
+ *                          transport-agnostic tiebreak, since two Thumbys bridged
+ *                          through Studios over the LAN are both USB device-role
+ *                          (link_is_host() is 0 on BOTH ends there).
+ *   0xA5 'M' from to pr  — a move in chal 0x88 squares + promo piece
+ *   0xA5 'Q'             — orderly quit (peer went back to the menu)          */
 #define LK_MAGIC 0xA5
-#define LK_PROTO 1
+#define LK_PROTO 2
 
 /* pause menu */
 enum { PAUSE_RESUME, PAUSE_SOUND, PAUSE_EVAL, PAUSE_BOARD, PAUSE_SAVE, PAUSE_QUIT, PAUSE_COUNT };
@@ -127,9 +131,10 @@ typedef struct {
 static Game game;
 
 /* link session state */
-static int     lk_sent_hello, lk_got_hello;
-static uint8_t lk_msg[8];        /* partial inbound message */
-static int     lk_msg_len;
+static int      lk_sent_hello, lk_got_hello;
+static uint16_t lk_my_nonce, lk_peer_nonce;   /* white = higher nonce */
+static uint8_t  lk_msg[8];       /* partial inbound message */
+static int      lk_msg_len;
 
 /* legal-move scratch */
 static chal_move_info_t legal_moves[256];
@@ -381,7 +386,12 @@ static void do_undo(void) {
 static int link_ok(void) { return mote->abi_version >= 43; }
 
 static void lk_send_bye(void)   { uint8_t m[2] = { LK_MAGIC, 'Q' }; mote->link_send(m, 2); }
-static void lk_send_hello(void) { uint8_t m[3] = { LK_MAGIC, 'H', LK_PROTO }; mote->link_send(m, 3); }
+static void lk_new_nonce(void)  { lk_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8); }
+static void lk_send_hello(void) {
+    uint8_t m[5] = { LK_MAGIC, 'H', LK_PROTO,
+                     (uint8_t)lk_my_nonce, (uint8_t)(lk_my_nonce >> 8) };
+    mote->link_send(m, 5);
+}
 static void lk_send_move(int from, int to, int promo) {
     uint8_t m[5] = { LK_MAGIC, 'M', (uint8_t)from, (uint8_t)to, (uint8_t)promo };
     mote->link_send(m, 5);
@@ -436,12 +446,13 @@ static void poll_link(void) {
             }
             lk_msg[lk_msg_len++] = b;
             int type = lk_msg[1];
-            int want = (type == 'M') ? 5 : (type == 'H') ? 3 : (type == 'Q') ? 2 : -1;
+            int want = (type == 'M') ? 5 : (type == 'H') ? 5 : (type == 'Q') ? 2 : -1;
             if (want < 0) { lk_msg_len = 0; continue; }        /* unknown: resync */
             if (lk_msg_len < want) continue;
             lk_msg_len = 0;
             if (type == 'H') {
                 lk_got_hello = 1;                              /* in-game repeats: harmless */
+                lk_peer_nonce = (uint16_t)(lk_msg[3] | (lk_msg[4] << 8));
             } else if (type == 'Q') {
                 if (game.state == ST_PLAYER || game.state == ST_REMOTE)
                     link_game_end(RES_OPP_LEFT);
@@ -685,10 +696,11 @@ static void logic_setup(const MoteInput *in) {
         }
     }
     if (mote_just_pressed(in, MOTE_BTN_A)) {
-        if (game.opponent == OPP_LINK) {     /* sides are assigned by the link */
+        if (game.opponent == OPP_LINK) {     /* sides are assigned by the handshake */
             mote->link_start();
             lk_sent_hello = lk_got_hello = 0;
             lk_msg_len = 0;
+            lk_new_nonce();
             enter_state(ST_LINK);
             return;
         }
@@ -720,10 +732,17 @@ static void logic_link(const MoteInput *in) {
             lk_sent_hello = 1;
         }
         poll_link();
+        if (lk_got_hello && lk_peer_nonce == lk_my_nonce) {   /* 1-in-65536 tie */
+            lk_new_nonce();
+            lk_got_hello = 0;                /* re-exchange with the fresh nonce */
+            lk_send_hello();
+        }
         if (lk_got_hello) {
             lk_send_hello();                 /* peer's link is live now — make sure
                                               * it has one hello from us, then go */
-            game.player_is_white = mote->link_is_host();  /* host plays white */
+            game.player_is_white = lk_my_nonce > lk_peer_nonce;   /* higher nonce = white:
+                                              * works over USB, sockets, AND the Studio LAN
+                                              * bridge (where both units are device-role) */
             chal_new_game();
             game.cursor_file = 4;
             game.cursor_rank = game.player_is_white ? 6 : 1;
@@ -908,8 +927,8 @@ static void draw_setup(void) {
         text(12, 78, "UP/DN  LEVEL", C_DIM);
         text(12, 87, "LB/RB  SIDE", C_DIM);
     } else {
-        text(12, 78, "LINK HOST PLAYS", C_DIM);
-        text(12, 87, "WHITE", C_DIM);
+        text(12, 78, "SIDES ARE DRAWN", C_DIM);
+        text(12, 87, "AT CONNECT", C_DIM);
     }
     fill(28, 100, 72, 14, C_HL);
     outline(28, 100, 72, 14, C_WHITE);

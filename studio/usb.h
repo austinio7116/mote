@@ -19,4 +19,10 @@ int  mote_dev_push(const char *mote_path, const char *name, int launch, mote_log
 int  mote_dev_wipe(mote_log_fn log);
 int  mote_dev_logs(int seconds, mote_log_fn log, volatile int *stop);   /* stream until seconds elapse or *stop */
 
+/* Raw persistent serial pipe (the LAN link bridge relays it to the network). */
+void *mote_dev_open_raw(void);                       /* NULL if no device */
+int   mote_dev_raw_read(void *h, void *buf, int n);  /* <=~100ms block; 0 = nothing */
+int   mote_dev_raw_write(void *h, const void *buf, int n);
+void  mote_dev_close_raw(void *h);
+
 #endif

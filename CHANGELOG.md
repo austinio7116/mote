@@ -17,11 +17,24 @@ units to use it.
 - RAM cost on device: the TinyUSB host stack adds ~2 KB net (paid for by trimming the
   unused OS heap) — the **277 KB game arena and the module boundary are unchanged**.
 
+### Studio
+- **LAN LINK** (DEVICE tab): connect two Studios across the network — `Host LAN` on one,
+  `Join LAN` on the other (zero-config UDP discovery on the subnet; set
+  `MOTE_LINK_PEER=<ip>` before launch for a fixed address). Two consumers:
+  - **Preview games**: a game running in each Studio's preview links up as if cabled.
+  - **Bridge USB**: relays a USB-connected Thumby's 2P-link bytes over the pipe — two
+    REAL devices, each docked to a Studio, play each other remotely.
+  The LAN session survives game restarts/hot reloads; `MOTE_LINK_HOST=1` /
+  `MOTE_LINK_JOIN=<ip|auto>` autostart it.
+
 ### Games
 - **DeepThumb 2P LINK**: pick `OPP: 2P LINK` on both units in the setup screen, connect
-  the cable, and the link host plays white. Hello handshake (a PC can't be mistaken for
-  an opponent), 5-byte move messages, disconnect ("LINK LOST") and quit ("OPPONENT
-  LEFT") handling; undo/save are disabled in link games. Also now paces itself at 30 fps.
+  the cable (or bridge over the LAN), and sides are drawn at connect — the hello carries
+  a random nonce and the higher one plays white (transport-agnostic: over the Studio
+  bridge both devices are USB device-role, so `link_is_host()` can't break the tie).
+  Hello handshake (a PC can't be mistaken for an opponent), 5-byte move messages,
+  disconnect ("LINK LOST") and quit ("OPPONENT LEFT") handling; undo/save are disabled
+  in link games. Also now paces itself at 30 fps.
 
 ## 0.14-alpha
 

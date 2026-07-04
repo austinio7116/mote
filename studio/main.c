@@ -49,6 +49,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "third_party/stb_image_write.h"
 #include "usb.h"        /* native device link (no Python/pyserial) */
+#include "link_net.h"   /* LAN link: TCP pipe + discovery (2P across the network) */
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
@@ -4946,6 +4947,35 @@ static void anim_down(int mx,int my){ an_ensure(); AClip*c=&g_an_clip[g_an_cur];
 
 /* ================= device / USB panel ================= */
 static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Push","Push & Launch","Stream Logs","Wipe Store" };
+
+/* --- LAN link (studio/link_net): host/join a peer Studio; optionally BRIDGE a
+ * USB-connected Thumby's 2P-link bytes over it so two real devices play across
+ * the network. While the bridge runs it owns both the serial port and the LAN
+ * pipe (preview games + the other device buttons wait their turn). */
+extern int mote_studio_link_bridge_active;    /* consumed by mote_plat_studio */
+static volatile int g_bridge_on;
+static int bridge_thread(void *a){ (void)a;
+    void *h=mote_dev_open_raw();
+    if(!h){ log_add("bridge: no Mote device found (CAFE:4D01)"); g_bridge_on=0; mote_studio_link_bridge_active=0; return 0; }
+    log_add("bridge: relaying USB device <-> LAN link");
+    unsigned char buf[512]; long tx=0,rx=0;
+    while(g_bridge_on){
+        int n=mote_dev_raw_read(h,buf,sizeof buf);                  /* <=~100ms block */
+        for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; }
+        if(n>0)tx+=n;
+        int m=link_net_recv(buf,sizeof buf);
+        for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off); if(w<=0)break; off+=w; }
+        if(m>0)rx+=m;
+    }
+    mote_dev_close_raw(h);
+    { char s[110]; snprintf(s,sizeof s,"bridge: stopped (%ld B to peer, %ld B to device)",tx,rx); log_add(s); }
+    mote_studio_link_bridge_active=0; return 0; }
+static void bridge_stop(void){ g_bridge_on=0; }
+static void bridge_start(void){ if(g_bridge_on)return;
+    if(link_net_status()==LINK_NET_OFF){ log_add("bridge: start Host or Join first"); return; }
+    g_bridge_on=1; mote_studio_link_bridge_active=1; SDL_CreateThread(bridge_thread,"bridge",NULL); }
+
+static SDL_Rect g_lkb[4]; static const char *LKB_L[4]={ "Host LAN","Join LAN","Bridge USB","Stop Link" };
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
     text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
@@ -4955,7 +4985,23 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     for(int i=0;i<6;i++){ int bw=textw(R,DVB_L[i],1)+46; g_dvb[i]=(SDL_Rect){x,y,bw,28};
         rrect(R,x,y,bw,28,4,hit(mx,my,x,y,bw,28)?C_BTNHI:C_BTN); icon(R,ic[i],x+10,y+7,14,C_TXT); text(R,DVB_L[i],x+30,y+8,1,C_TXT,C_BTN);
         tip(g_dvb[i],mx,my,DVB_T[i]); x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
-    text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK); }
+    text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK);
+    /* --- LAN LINK row --- */
+    int ly=y+64;
+    text(R,"LAN LINK  (2P across the network: preview games, or bridge a USB Thumby)",ox,ly,1,C_TITLE,C_DOCK);
+    static const char*LKB_T[4]={ "Listen for a peer Studio on the LAN (tcp 42450 + discovery)",
+        "Find a hosting Studio on the LAN and connect (set MOTE_LINK_PEER=ip for a fixed address)",
+        "Relay the USB-connected Thumby's 2P link over the LAN pipe - two real devices play remotely",
+        "Drop the LAN link (and the bridge)" };
+    int lic[4]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_ERASER};
+    x=ox; ly+=20;
+    for(int i=0;i<4;i++){ int bw=textw(R,LKB_L[i],1)+46; g_lkb[i]=(SDL_Rect){x,ly,bw,28};
+        int on=(i==2&&g_bridge_on);
+        rrect(R,x,ly,bw,28,4,on?C_ACC:hit(mx,my,x,ly,bw,28)?C_BTNHI:C_BTN);
+        icon(R,lic[i],x+10,ly+7,14,C_TXT); text(R,LKB_L[i],x+30,ly+8,1,C_TXT,C_BTN);
+        tip(g_lkb[i],mx,my,LKB_T[i]); x+=bw+8; }
+    { char st[160]; snprintf(st,sizeof st,"link: %s%s",link_net_info(),g_bridge_on?"  [bridging USB device]":"");
+      text(R,st,ox,ly+38,1,link_net_status()==LINK_NET_CONNECTED?C_ACC:C_DIM,C_DOCK); } }
 /* native device ops (no Python) run on a worker thread, logging into the Console */
 static int g_devop; static volatile int g_devstop;
 static int dev_thread(void*a){ (void)a;
@@ -4966,9 +5012,16 @@ static int dev_thread(void*a){ (void)a;
     return 0; }
 static void dev_run(int op){ g_devop=op; g_tab=TAB_CONSOLE; SDL_CreateThread(dev_thread,"dev",NULL); }
 static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].x,g_dvb[i].y,g_dvb[i].w,g_dvb[i].h)){
+    if(g_bridge_on){ log_add("device is bridging the LAN link - Stop Link first"); g_tab=TAB_CONSOLE; return; }
     char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600]; g_tab=TAB_CONSOLE;
     if(i==0)dev_run(0); else if(i==1)dev_run(1); else if(i==4)dev_run(4); else if(i==5)dev_run(5);
-    else if(i==2)njob(3,dir); else if(i==3)njob(4,dir); return; } }
+    else if(i==2)njob(3,dir); else if(i==3)njob(4,dir); return; }
+    for(int i=0;i<4;i++)if(hit(mx,my,g_lkb[i].x,g_lkb[i].y,g_lkb[i].w,g_lkb[i].h)){
+        if(i==0){ link_net_host(); log_add("link: hosting on the LAN (tcp 42450)"); }
+        else if(i==1){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("link: joining..."); }
+        else if(i==2){ if(g_bridge_on)bridge_stop(); else bridge_start(); }
+        else { bridge_stop(); link_net_stop(); log_add("link: stopped"); }
+        return; } }
 
 /* ================= code editor (CODE tab) ================= */
 static char *g_code; static unsigned char *g_codecol; static int g_codelen,g_codecap;
@@ -6227,6 +6280,10 @@ int main(int argc,char**argv){
         snprintf(g_status,sizeof g_status,"baked ground.tiles.h + level1..3.level.h"); } }
     if(getenv("MOTE_STUDIO_SEL")){ for(int i=0;i<g_ntree;i++)if(!strcmp(g_tree[i].name,getenv("MOTE_STUDIO_SEL"))){ tree_select(i); break; } }
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));   /* re-apply last: wins over content hooks that switch tabs (e.g. bake -> console) */
+    /* LAN link autostart (headless testing / muscle memory): MOTE_LINK_HOST=1 hosts;
+     * MOTE_LINK_JOIN=<ip|anything> joins (a non-IP value means LAN discovery). */
+    if(getenv("MOTE_LINK_HOST")) link_net_host();
+    else if(getenv("MOTE_LINK_JOIN")) link_net_join(getenv("MOTE_LINK_JOIN"));
 
     int running=1,watch=0;
     do { SDL_Event e;
@@ -6477,6 +6534,7 @@ int main(int argc,char**argv){
         if(g_picker)draw_picker(ren); if(g_fpick)draw_filepick(ren); if(g_modal)draw_modal(ren); if(g_prompt)draw_prompt(ren);
         { int tmx,tmy; SDL_GetMouseState(&tmx,&tmy); tip_render(ren,tmx,tmy); }
         SDL_RenderPresent(ren);
+        link_net_task();   /* pump the LAN link (accept/discovery/loss detect) */
         if(shot){ SDL_SaveBMP(surf,shot); printf("studio: wrote %s\n",shot); break; }
         /* cap to ~60fps — vsync is ignored under WSL/software GL, so without this the
          * loop free-runs (fast frame-based animation + needless CPU). */

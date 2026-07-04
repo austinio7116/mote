@@ -113,3 +113,13 @@ int mote_dev_logs(int seconds,mote_log_fn log,volatile int *stop){ shandle h=ser
     long dl=seconds>0?now_ms()+seconds*1000:0; char line[256];
     while((!dl||now_ms()<dl)&&(!stop||!*stop)){ int l=ser_readline(h,line,sizeof line,400); if(l>0)log(line); }
     ser_close(h); return 0; }
+
+/* --- raw persistent pipe (the LAN link bridge): the port stays open and bytes
+ * pass through untouched — the device's 2P link owns its end of the CDC pipe,
+ * the Studio relays this end to the network peer. read blocks <=~100 ms. */
+struct mote_dev_raw { shandle h; };
+void *mote_dev_open_raw(void){ shandle h=ser_open(); if(h==SBAD)return 0;
+    static struct mote_dev_raw r; r.h=h; return &r; }
+int  mote_dev_raw_read (void *p, void *b, int n){ return ser_read (((struct mote_dev_raw*)p)->h, b, n); }
+int  mote_dev_raw_write(void *p, const void *b, int n){ return ser_write(((struct mote_dev_raw*)p)->h, b, n); }
+void mote_dev_close_raw(void *p){ ser_close(((struct mote_dev_raw*)p)->h); }

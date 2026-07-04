@@ -225,7 +225,11 @@ mote->link_stop();                               // auto-called on game exit
 ```
 Frame your own messages (magic byte + type) and start with a hello exchange — a PC
 plugged in also "connects". CONNECTED can drop back to SEARCHING = disconnect. ~512 B
-RX buffer, poll every frame. Reference: `games/deepthumb` 2P LINK mode.
+RX buffer, poll every frame. Reference: `games/deepthumb` 2P LINK mode. Studio's
+DEVICE tab has a LAN LINK row (Host/Join + Bridge USB) that carries the same pipe
+between two Studios — including bridging two real USB-docked devices remotely; there
+both ends are device-role, so DON'T assign roles from link_is_host() — put a random
+nonce in your hello and let the higher one win (deepthumb's scheme).
 
 **Save + rumble** (v23): `mote->save(slot,data,len)` / `load(slot,buf,max)` / `save_slots()`
 (survives power-off); `mote->rumble(intensity, ms)`. **Master volume** (v29):

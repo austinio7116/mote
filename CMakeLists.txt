@@ -88,6 +88,7 @@ if(MOTE_TARGET STREQUAL "host")
     add_executable(mote_studio
         studio/main.c
         studio/usb.c
+        studio/link_net.c
         studio/motecore.c
         os/mote_os.c
         os/mote_launcher.c
@@ -107,7 +108,7 @@ if(MOTE_TARGET STREQUAL "host")
         # SDL2main must precede SDL2 (circular static refs); winpthread provides
         # clock_gettime/nanosleep; SDL2::SDL2-static pulls SDL's own Windows deps.
         target_link_options(mote_studio PRIVATE -static -static-libgcc)
-        target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2-static -Wl,--end-group setupapi comdlg32 winpthread)
+        target_link_libraries(mote_studio PRIVATE -Wl,--start-group SDL2::SDL2main SDL2::SDL2-static -Wl,--end-group setupapi comdlg32 winpthread ws2_32)
     elseif(TARGET SDL2::SDL2)
         target_link_libraries(mote_studio PRIVATE SDL2::SDL2)
     else()

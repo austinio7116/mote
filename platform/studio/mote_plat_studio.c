@@ -164,14 +164,31 @@ void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), voi
     closedir(d);
 }
 
-/* --- ABI v43: 2-player link — no transport in the Studio preview. A game that
- * starts the link just sees SEARCHING forever (its "waiting for opponent"
- * screen); test real 2P with two `mote run` instances (MOTE_LINK_SOCK). */
+/* --- ABI v43: 2-player link — rides the Studio's LAN link (studio/link_net).
+ *
+ * The pipe endpoints are UI-OWNED: the DEVICE tab's Host/Join buttons open the
+ * LAN session and it deliberately SURVIVES game restarts (hot reload would drop
+ * a game-owned connection on every Save). A preview game's link_start/stop only
+ * gate whether the game sees the pipe. When the USB device BRIDGE is relaying a
+ * real Thumby over the same pipe, preview games see SEARCHING (one consumer at
+ * a time; mote_studio_link_bridge_active is set by the Studio UI). */
+#include "../../studio/link_net.h"
+int mote_studio_link_bridge_active;   /* set by the Studio UI while bridging */
 static int s_lk_started;
 void mote_plat_link_start(void)  { s_lk_started = 1; }
 void mote_plat_link_stop(void)   { s_lk_started = 0; }
-void mote_plat_link_task(void)   { }
-int  mote_plat_link_status(void) { return s_lk_started ? 1 : 0; }
-int  mote_plat_link_is_host(void){ return 0; }
-int  mote_plat_link_send(const void *data, int len) { (void)data; (void)len; return 0; }
-int  mote_plat_link_recv(void *buf, int max)        { (void)buf;  (void)max; return 0; }
+void mote_plat_link_task(void)   { link_net_task(); }
+int  mote_plat_link_status(void) {
+    if (!s_lk_started) return 0;
+    if (mote_studio_link_bridge_active) return 1;        /* pipe busy: keep searching */
+    return link_net_status();                            /* same 0/1/2 meanings */
+}
+int  mote_plat_link_is_host(void){ return mote_studio_link_bridge_active ? 0 : link_net_is_host(); }
+int  mote_plat_link_send(const void *data, int len) {
+    if (!s_lk_started || mote_studio_link_bridge_active) return 0;
+    return link_net_send(data, len);
+}
+int  mote_plat_link_recv(void *buf, int max) {
+    if (!s_lk_started || mote_studio_link_bridge_active) return 0;
+    return link_net_recv(buf, max);
+}
