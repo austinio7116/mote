@@ -221,7 +221,7 @@ def jog_line(m, rng, vertical, pos, wid=4):
                 if vertical: stamp_road(m, q, t, wid, True)
                 else:        stamp_road(m, t, q, wid, True)
             t += wid
-            p = max(4, min((W if vertical else H)-wid-4, p+jog))
+            p = max(10, min((W if vertical else H)-wid-10, p+jog))
 
 def ring_road(m, rng):
     """the original's strongest signature: a thick rectangular ring with jogged
@@ -247,7 +247,8 @@ def local_streets(m, rng):
     def split(cset, x0,y0,x1,y1, depth):
         w,h = x1-x0, y1-y0
         cx,cy = (x0+x1)//2, (y0+y1)//2
-        stop = 11 + int(12*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))  # 11..23
+        stop = 13 + int(14*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))  # 13..27
+        if depth >= 1 and rng.random() < 0.16: return              # leave a SUPERBLOCK
         if w < stop and h < stop: return
         horiz = h > w if abs(h-w) > 3 else rng.random()<0.5
         wid = 2
@@ -450,6 +451,11 @@ def generate(seed):
     esplanades(m, rng)
     arterials(m, rng)
     local_streets(m, rng)
+    B = 5                                                  # built-up map RIM: erase streets
+    for y in range(H):                                     # in the border band, buildings
+        for x in range(W):                                 # will pack it in the fill pass
+            if (x < B or x >= W-B or y < B or y >= H-B) and m[y][x] == ROAD:
+                m[y][x] = PAVE
     parks(m, rng)
     fill_blocks(m, rng)
     micro_details(m, rng)
