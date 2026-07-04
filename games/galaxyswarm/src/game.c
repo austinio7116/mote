@@ -729,8 +729,8 @@ static void g_update(float dt) {
     while (bg_scroll < 0) bg_scroll += nebula_img.h;
 
     /* camera */
-    Vec3 cam = v3(px * 0.25f, 16.5f, -11.5f);
-    Mat3 basis = mote_camera_look(cam, v3(px * 0.35f, 0, 6.0f));
+    Vec3 cam = v3(px * 0.3f, 12.8f, -9.4f);
+    Mat3 basis = mote_camera_look(cam, v3(px * 0.42f, 0, 4.6f));
     mote->scene_camera(&basis, cam, 62.0f);
 
     /* starfield parallax above the nebula */
