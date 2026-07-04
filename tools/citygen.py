@@ -456,6 +456,14 @@ def generate(seed):
         for x in range(W):                                 # will pack it in the fill pass
             if (x < B or x >= W-B or y < B or y >= H-B) and m[y][x] == ROAD:
                 m[y][x] = PAVE
+    for _ in range(8):                                     # prune dead-end stubs the rim cut
+        changed=0
+        for y in range(1,H-1):
+            for x in range(1,W-1):
+                if m[y][x]!=ROAD: continue
+                n = sum(m[ny][nx] in (ROAD,BRIDGE) for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))
+                if n <= 1: m[y][x]=PAVE; changed+=1
+        if not changed: break
     parks(m, rng)
     fill_blocks(m, rng)
     micro_details(m, rng)
