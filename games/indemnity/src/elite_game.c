@@ -46,6 +46,7 @@
 #include "galaxy_gen.h"
 #include "craft_font.h"
 #include "meshes_gen.h"
+#include "elite_pvp.h"   /* PVP: 1v1 LINK ARENA */
 #include <stdio.h>
 #include <string.h>
 
@@ -58,6 +59,7 @@ typedef enum {
     ST_CTRLSETUP = 13,   /* controller binding screen (from SETTINGS) */
     ST_EVENT = 14,       /* dock-arrival hail modal (events.c)        */
     ST_SAVESEL = 15,     /* CONTINUE: scrollable multi-save selector  */
+    ST_PVPWAIT = 16,     /* PVP: LINK ARENA link-wait / handshake     */
 } GState;
 
 #define DOCK_RANGE 600.0f
@@ -915,6 +917,24 @@ static void set_nebula_for_addr(SysAddr a) {
     if (dens > 1.0f) dens = 1.0f;
     r3d_scene_set_nebula((uint32_t)((uint32_t)a.sx * 2654435761u ^ (uint32_t)a.sy) | 1u,
                          dens);
+}
+
+/* PVP: prepare elite_game's statics for the empty-space LINK ARENA — no
+ * station/beacon anchor, HUD reticle locked to the peer, all other locks
+ * cleared. elite_pvp.c builds the ships; this just tunes the shell. */
+void elite_game_pvp_prep(void) {
+    s_anchor_has_poi = false;
+    s_anchor_mm = v3(0, 0, 0);
+    s_station_mesh = NULL;
+    s_target = PVP_REMOTE;
+    s_loot_target = s_rock_target = -1;
+    s_prev_rock = s_prev_loot = -1;
+    s_station_lock = false;
+    s_menus_live = false;
+    s_dead_latch = false;
+    s_cloak_t = 0.0f;
+    s_incoming = false;
+    s_state = ST_FLIGHT;
 }
 
 static void arrive_in_system(SysAddr addr) {
@@ -2218,7 +2238,8 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
             break;
         }
         bool has_save = (s_savelist_n > 0);
-        int title_max = s_cheat_on ? (1 + N_SCENARIOS) : 1;
+        /* Items: 0 CONTINUE · 1 NEW GAME · 2 PVP ARENA · (cheats) 3.. scenarios. */
+        int title_max = s_cheat_on ? (2 + N_SCENARIOS) : 2;
         static bool tu, td, trb;
         if (btn->up && !tu && s_title_cursor > 0) { s_title_cursor--; sfx_ui_move(); }
         if (btn->down && !td && s_title_cursor < title_max) { s_title_cursor++; sfx_ui_move(); }
@@ -2244,9 +2265,15 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
                 sfx_ui_select();
                 break;
             }
+            if (s_title_cursor == 2) {          /* PVP: LINK ARENA */
+                pvp_begin();
+                s_state = ST_PVPWAIT;
+                sfx_ui_select();
+                break;
+            }
 #if ELITE_CHEATS
-            if (s_title_cursor >= 2) {           /* a test scenario — straight in */
-                s_cheat_scenario = s_title_cursor - 1;   /* 1..N */
+            if (s_title_cursor >= 3) {           /* a test scenario — straight in */
+                s_cheat_scenario = s_title_cursor - 2;   /* 1..N */
                 start_new_game(s_boot_seed);
                 break;
             }
@@ -2290,7 +2317,25 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
         break;
     }
 
+    case ST_PVPWAIT: {
+        /* PVP: pump the handshake; the arena is built inside pvp_wait_tick. */
+        int r = pvp_wait_tick(btn, dt);
+        if (r == PVP_START) s_state = ST_FLIGHT;           /* fight! (pvp set it too) */
+        else if (r == PVP_CANCEL) { s_state = ST_TITLE; save_rebuild_list(); }
+        break;
+    }
+
     case ST_FLIGHT:
+        if (pvp_active()) {
+            /* PVP: the LINK ARENA reuses the flight camera/HUD but runs its
+             * own sim (no dash, no docking, no hyperspace). */
+            if (pvp_arena_tick(btn, dt) == PVP_EXIT) {
+                pvp_end();
+                s_state = ST_TITLE;
+                save_rebuild_list();
+            }
+            break;
+        }
         if (menu_edge) {
             s_state = ST_DASH;
             s_dash_from = ST_FLIGHT;
@@ -2686,6 +2731,7 @@ void elite_game_render_begin(void) {
     case ST_GALAXY_MAP:
     case ST_SYSTEM_MAP:
     case ST_EVENT:
+    case ST_PVPWAIT:        /* PVP: bare starfield behind the link-wait text */
         /* Fullscreen UI: minimal empty scene (UI fills the band). */
         g_em->scene_begin(&p->basis, 60.0f); r3d_pipe_set_camera(&p->basis, 60.0f);
         break;
@@ -3230,18 +3276,18 @@ void elite_game_draw_overlay(uint16_t *fb) {
                     T_top, T_bot, T_in, T_out);
         }
         bool has_save = save_exists();
-        const char *base_items[2] = { "CONTINUE", "NEW GAME" };
-        int n  = s_cheat_on ? (2 + N_SCENARIOS) : 2;
+        const char *base_items[3] = { "CONTINUE", "NEW GAME", "PVP ARENA" };
+        int n  = s_cheat_on ? (3 + N_SCENARIOS) : 3;
         int sp = s_cheat_on ? 8 : 10;
-        int y0 = s_cheat_on ? 50 : 78;
+        int y0 = s_cheat_on ? 46 : 72;
         for (int i = 0; i < n; i++) {
-            const char *label = base_items[i < 2 ? i : 0];
+            const char *label = base_items[i < 3 ? i : 0];
 #if ELITE_CHEATS
-            if (i >= 2) label = k_scenarios[i - 2];
+            if (i >= 3) label = k_scenarios[i - 3];
 #endif
             uint16_t c = (i == 0 && !has_save) ? RGB565C(60, 66, 84)
                        : (i == s_title_cursor) ? RGB565C(120, 255, 120)
-                       : (i >= 2)               ? RGB565C(225, 185, 85)
+                       : (i >= 3)               ? RGB565C(225, 185, 85)
                                                 : RGB565C(120, 126, 145);
             int yy = y0 + i * sp;
             if (i == s_title_cursor)
@@ -3302,6 +3348,7 @@ void elite_game_draw_overlay(uint16_t *fb) {
         return;
     }
 
+    case ST_PVPWAIT:    pvp_draw_overlay(fb); return;   /* PVP: link-wait card */
     case ST_GALAXY_MAP: map_galaxy_draw(fb); return;
     case ST_SYSTEM_MAP: map_system_draw(fb); return;
     case ST_HYPERJUMP:  draw_hyperjump_overlay(fb); return;
@@ -3375,6 +3422,9 @@ void elite_game_draw_overlay(uint16_t *fb) {
             craft_font_draw(fb, "DOCKING...", 44, 30, RGB565C(120, 230, 255));
         else if (can_dock())
             craft_font_draw(fb, "LB+RB: DOCK", 42, 30, RGB565C(120, 230, 255));
+        if (pvp_active()) pvp_draw_overlay(fb);   /* PVP: VICTORY / LINK LOST banner */
+    } else if (pvp_active()) {
+        pvp_draw_overlay(fb);                      /* PVP: DEFEAT card (no kill report) */
     } else {
         /* THE KILL REPORT (user req): who got you, flying what. */
         uint16_t hd = RGB565C(255, 90, 70);

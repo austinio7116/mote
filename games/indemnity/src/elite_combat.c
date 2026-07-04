@@ -17,6 +17,7 @@
 #include "elite_platform.h"
 #include "elite_types.h"
 #include "elite_game.h"   /* crit_toast / player_engaged / distress_protected */
+#include "elite_pvp.h"    /* PVP: victim-authoritative damage hook */
 #include <stdio.h>        /* snprintf */
 
 #define HEAT_MAX       100.0f
@@ -171,6 +172,23 @@ static float combat_difficulty_mult(void) {
 }
 
 void combat_direct_damage(int shooter, int victim, float dmg, Vec3 hit_pos) {
+    /* PVP: victim-authoritative damage. A hit I land on the remote peer is
+     * NOT applied here — the peer owns its own hull/shield and reports it
+     * back via 'P'. Send the blow (raw, pre-difficulty; the victim scales by
+     * ITS difficulty) and show local impact FX only. */
+    if (pvp_active() && shooter == PLAYER && victim == pvp_remote_slot()) {
+        Ship *v = &g_ships[victim];
+        if (!v->alive) return;
+        pvp_report_damage(dmg, s_shot_type);
+        if (v->shield > 0.0f) {
+            fx_spawn_shield_flash(hit_pos, v->vel, s_shot_type == WPN_ION ? 1 : 0);
+            fx_shield_envelope(v->pos, v->vel, v->mesh ? v->mesh->bound_r : 6.0f);
+        } else {
+            fx_hull_burst(hit_pos, v->vel, dmg * (1.0f / 40.0f));
+        }
+        s_hitmark = 0.12f;
+        return;
+    }
     float dm = combat_difficulty_mult();
     if (dm != 1.0f) {
         if (victim == PLAYER)      dmg /= dm;   /* we take less */
