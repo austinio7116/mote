@@ -1256,14 +1256,15 @@ static void g_overlay(uint16_t *fb) {
     }
 
     if (state == ST_GAMEOVER) {
-        mote->text_2x(fb, "GAME OVER", 10, 34, MOTE_RGB565(255, 90, 60));
+        mote->text_font(fb, &galaxyfont, "GAME OVER", 8, 30, MOTE_RGB565(255, 90, 60));
         mote_textf(mote, fb, 28, 56, MOTE_RGB565(250, 230, 90), "SCORE %d", score);
         mote_textf(mote, fb, 28, 66, MOTE_RGB565(160, 160, 175), "KILLS %d  W%d", kills, wave + 1);
         if (hs_entering) {
             mote->text(fb, "HIGH SCORE! ENTER NAME", 0, 82, MOTE_RGB565(140, 255, 140));
             for (int i = 0; i <= hs_pos && i < 3; i++) {
                 char c[2] = { hs_ini[i], 0 };
-                mote->text_2x(fb, c, 46 + i * 14, 94, i == hs_pos ? MOTE_RGB565(255, 255, 120) : MOTE_RGB565(200, 200, 210));
+                mote->text_font(fb, &galaxyfont, c, 46 + i * 14, 92,
+                                i == hs_pos ? MOTE_RGB565(255, 255, 120) : MOTE_RGB565(200, 200, 210));
             }
             mote->text(fb, "UP/DN LETTER  A NEXT", 6, 116, MOTE_RGB565(150, 150, 165));
         } else {
