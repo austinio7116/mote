@@ -633,6 +633,43 @@ static void cg_connect(void){
     }
 }
 
+static void cg_fix_pool_roads(void){
+    /* a small water blob (pool/fountain/pond crumb) must never touch a road:
+     * if any cell of a blob <=32 cells is 4-adjacent to road, fill the blob */
+    for(int y=1;y<CG_H-1;y++)for(int x=1;x<CG_W-1;x++){
+        if(cg_at(x,y)!=T_WATER) continue;
+        uint8_t n1=cg_at(x+1,y),n2=cg_at(x-1,y),n3=cg_at(x,y+1),n4=cg_at(x,y-1);
+        if(n1!=T_ROAD&&n2!=T_ROAD&&n3!=T_ROAD&&n4!=T_ROAD) continue;
+        /* bounded flood of this water blob */
+        static uint16_t st[80], cells[64]; int sp=0,n=0,overflow=0;
+        st[sp++]=(uint16_t)(y*CG_W+x); cg_set(x,y,1);
+        while(sp>0){
+            uint16_t idx=st[--sp];
+            if(n>=64){overflow=1;break;}
+            cells[n++]=idx;
+            int xx=idx%CG_W, yy=idx/CG_W;
+            static const int DX[4]={1,-1,0,0},DY[4]={0,0,1,-1};
+            for(int k=0;k<4;k++){
+                int nx2=xx+DX[k],ny2=yy+DY[k];
+                if(cg_at(nx2,ny2)==T_WATER&&sp<78){ cg_set(nx2,ny2,1); st[sp++]=(uint16_t)(ny2*CG_W+nx2); }
+            }
+        }
+        uint8_t final = overflow ? T_WATER : T_PAVE;       /* big water = a real river: leave it */
+        for(int i=0;i<n;i++) cg[cells[i]]=final;
+        if(overflow){ for(int i=0;i<CG_W*CG_H;i++) if(cg[i]==1) cg[i]=T_WATER; }
+    }
+}
+
+static void cg_bridge_walkways(void){
+    /* every bridge gets pavement flanks so pedestrians can cross the water */
+    for(int y=1;y<CG_H-1;y++)for(int x=1;x<CG_W-1;x++){
+        if(cg_at(x,y)!=T_BRIDGE) continue;
+        static const int DX[4]={1,-1,0,0},DY[4]={0,0,1,-1};
+        for(int k=0;k<4;k++)
+            if(cg_at(x+DX[k],y+DY[k])==T_WATER) cg_set(x+DX[k],y+DY[k],T_PAVE);
+    }
+}
+
 static void cg_seal_border(void){
     /* the outer border is NEVER walkable: any pavement/grass in the outer two
      * rings becomes building (water and the rare bridge stay) */
@@ -662,6 +699,8 @@ static void citygen(uint8_t *map, uint32_t seed){
     cg_micro();
     cg_connect();
     cg_prune();
+    cg_bridge_walkways();
+    cg_fix_pool_roads();
     cg_seal_border();
 }
 
