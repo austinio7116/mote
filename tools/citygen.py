@@ -114,7 +114,7 @@ def carve_rivers(m, rng):
             # FORK around an island, rejoining downstream
             if forks and rng.random() < 0.012 and 0.15 < t < 0.7:
                 forks -= 1
-                sep = rng.uniform(8, 16); dur = int(rng.integers(30, 70))
+                sep = rng.uniform(9, 24); dur = int(rng.integers(35, 110))
                 bx, by = x + px2*sep, y + py2*sep
                 bang = ang
                 for j in range(dur):
@@ -167,7 +167,9 @@ def carve_rivers(m, rng):
         if len(ys)==0: break
         k = int(rng.integers(0,len(ys)))
         cx,cy = int(xs[k]), int(ys[k])
-        patch(m, rng, cx, cy, int(rng.integers(6,11)), GRASS, only=(WATER,))
+        big = rng.random() < 0.35
+        patch(m, rng, cx, cy, int(rng.integers(13,24)) if big else int(rng.integers(6,11)),
+              GRASS, only=(WATER,))
 
 def grass_banks(m, rng):
     """CLUMPED bank grass — the original pours pavement right to the water and
@@ -360,14 +362,30 @@ def parks(m, rng):
     path ring; pocket parks green ENTIRE small blocks so they sit naturally in
     the street grid — no circles anywhere."""
     cx,cy = W//2+int(rng.integers(-40,41)), H//2+int(rng.integers(-40,41))
-    blob = patch(m, rng, cx, cy, int(rng.integers(20,28)), GRASS, only=(PAVE,BLO,BMID,BHI))
+    blob = patch(m, rng, cx, cy, int(rng.integers(20,28)), GRASS,
+                 only=(PAVE,ROAD))                        # roads inside the park are ERASED
     blob = {(x,y) for x,y in blob if m[y][x]==GRASS}
-    if blob:                                              # an angular pond inside
+    if blob:
+        border=set()                                      # 2-wide road BORDER around the park
+        for x,y in blob:
+            for dx in (-1,0,1):
+                for dy in (-1,0,1):
+                    n=(x+dx,y+dy)
+                    if n not in blob and 0<=n[0]<W and 0<=n[1]<H: border.add(n)
+        ring2=set(border)
+        for x,y in border:
+            for dx in (-1,0,1):
+                for dy in (-1,0,1):
+                    n=(x+dx,y+dy)
+                    if n not in blob and 0<=n[0]<W and 0<=n[1]<H: ring2.add(n)
+        for x,y in ring2:
+            if m[y][x] not in (WATER,BRIDGE): m[y][x]=ROAD
         inner=[(x,y) for x,y in blob
                if all((nx,ny) in blob for nx,ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)))]
-        if inner:
+        for _ in range(1 + (rng.random()<0.4)):           # lake(s) inside
+            if not inner: break
             px2,py2 = inner[int(rng.integers(0,len(inner)))]
-            patch(m, rng, px2, py2, int(rng.integers(5,8)), WATER, only=(GRASS,))
+            patch(m, rng, px2, py2, int(rng.integers(5,9)), WATER, only=(GRASS,))
     # pocket parks: whole small BLOCKS become greens
     seen=[[False]*W for _ in range(H)]
     blocks=[]
