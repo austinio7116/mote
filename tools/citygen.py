@@ -184,17 +184,6 @@ def grass_banks(m, rng):
             if d[y][x] < 2.5 and clump[y][x] > 0.52 and rng.random()<0.9: m[y][x]=GRASS
             elif d[y][x] < 4 and clump[y][x] > 0.62 and rng.random()<0.55: m[y][x]=GRASS
 
-def esplanades(m, rng):
-    """roads that trace the riverbanks — the original's grid meets the water
-    with streets running along the shore."""
-    from scipy import ndimage
-    wm = np.array([[m[y][x]==WATER for x in range(W)] for y in range(H)])
-    d = ndimage.distance_transform_edt(~wm)
-    band = (d >= 4.0) & (d < 6.2)
-    for y in range(H):
-        for x in range(W):
-            if band[y][x] and m[y][x] in (PAVE,GRASS): m[y][x]=ROAD
-
 # ---------------------------------------------------------------- roads ----
 def stamp_road(m, x, y, wid, bridging):
     for dy in range(wid):
@@ -247,8 +236,7 @@ def local_streets(m, rng):
     def split(cset, x0,y0,x1,y1, depth):
         w,h = x1-x0, y1-y0
         cx,cy = (x0+x1)//2, (y0+y1)//2
-        stop = 13 + int(14*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))  # 13..27
-        if depth >= 1 and rng.random() < 0.16: return              # leave a SUPERBLOCK
+        stop = 11 + int(11*(1.0-dense[min(cy,H-1)][min(cx,W-1)]))  # 11..22
         if w < stop and h < stop: return
         horiz = h > w if abs(h-w) > 3 else rng.random()<0.5
         wid = 2
@@ -287,13 +275,19 @@ def fill_blocks(m, rng):
     single type, district noise setting the local red/grey/blue mix."""
     kind  = fbm(W, H, rng, oct=3, base=5)
     dense = fbm(W, H, rng, oct=3, base=4)
+    open_ = fbm(W, H, rng, oct=3, base=6)                 # in-block OPEN paved areas
     rm = np.array([[m[y][x] in (ROAD,BRIDGE) for x in range(W)] for y in range(H)])
     from scipy import ndimage
     droad = ndimage.distance_transform_edt(~rm)
     anchors = [(x,y) for y in range(H) for x in range(W)]
     rng.shuffle(anchors)
+    for x,y in anchors:                                   # dress the open areas first:
+        if m[y][x]!=PAVE or open_[y][x]<=0.63 or droad[y][x]<2: continue
+        r=rng.random()
+        if   r<0.045: m[y][x]=GRASS                       # a tree
+        elif r<0.052 and droad[y][x]>=2.5: m[y][x]=WATER  # a tiny pool/fountain
     for x,y in anchors:
-        if m[y][x] != PAVE or droad[y][x] < 2: continue
+        if m[y][x] != PAVE or droad[y][x] < 2 or open_[y][x] > 0.63: continue
         d = dense[y][x]
         if rng.random() > 0.60 + 0.35*d: continue
         bw,bh = int(rng.integers(1,5)), int(rng.integers(1,4))
@@ -308,7 +302,7 @@ def fill_blocks(m, rng):
         for cx,cy in cand: m[cy][cx]=ch
     # infill: the little 1-2 tile buildings that crowd the leftover gaps
     for x,y in anchors:
-        if m[y][x] != PAVE or droad[y][x] < 2: continue
+        if m[y][x] != PAVE or droad[y][x] < 2 or open_[y][x] > 0.63: continue
         d = dense[y][x]
         if rng.random() > 0.45 + 0.40*d: continue
         k = kind[y][x] + rng.uniform(-0.22,0.22)
@@ -448,7 +442,6 @@ def generate(seed):
     m = [[PAVE]*W for _ in range(H)]
     carve_rivers(m, rng)
     grass_banks(m, rng)
-    esplanades(m, rng)
     arterials(m, rng)
     local_streets(m, rng)
     B = 5                                                  # built-up map RIM: erase streets
@@ -456,6 +449,30 @@ def generate(seed):
         for x in range(W):                                 # will pack it in the fill pass
             if (x < B or x >= W-B or y < B or y >= H-B) and m[y][x] == ROAD:
                 m[y][x] = PAVE
+    for t in range(B, W-B):                                # perimeter road just INSIDE the rim
+        for d in range(2):
+            if m[B+d][t]==PAVE: m[B+d][t]=ROAD
+            if m[H-B-1-d][t]==PAVE: m[H-B-1-d][t]=ROAD
+    for t in range(B, H-B):
+        for d in range(2):
+            if m[t][B+d]==PAVE: m[t][B+d]=ROAD
+            if m[t][W-B-1-d]==PAVE: m[t][W-B-1-d]=ROAD
+    # merge neighbouring blocks into L/T shapes: delete random LOCAL street
+    # segments (dead-end pruning below tidies the cut ends back to junctions)
+    for _ in range(int(rng.integers(10, 18))):
+        for _try in range(60):
+            x,y = int(rng.integers(B+4, W-B-4)), int(rng.integers(B+4, H-B-4))
+            if m[y][x]!=ROAD: continue
+            horiz = m[y][x-1]==ROAD or m[y][x+1]==ROAD
+            wide = (m[y-1][x]==ROAD)+(m[y+1][x]==ROAD) if horiz else (m[y][x-1]==ROAD)+(m[y][x+1]==ROAD)
+            if wide > 1: continue                          # arterial: leave it
+            ln = int(rng.integers(5, 12))
+            for i in range(ln):
+                xx,yy = (x+i,y) if horiz else (x,y+i)
+                if 0<=xx<W and 0<=yy<H and m[yy][xx]==ROAD: m[yy][xx]=PAVE
+                if horiz and 0<=xx<W and 0<=yy+1<H and m[yy+1][xx]==ROAD: m[yy+1][xx]=PAVE
+                if not horiz and 0<=xx+1<W and 0<=yy<H and m[yy][xx+1]==ROAD: m[yy][xx+1]=PAVE
+            break
     for _ in range(8):                                     # prune dead-end stubs the rim cut
         changed=0
         for y in range(1,H-1):
