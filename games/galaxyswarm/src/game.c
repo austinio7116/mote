@@ -203,6 +203,7 @@ static float shield_t, shield_max;
 static int   shield_on;
 static float fire_rate, fire_t, shot_power;
 static int   shot_count;                 /* active gun slots, 2..9 */
+#define N_SHAPES 7
 static int   shape_idx;                  /* bolt style, cycles with Shape pickups */
 static int   shot_r, shot_g, shot_b;     /* bolt colour, shifts warm per Rate pickup */
 static int   rocket_on; static float missile_rate, missile_t;
@@ -244,6 +245,16 @@ static int view_idx(void) {
     if (v == -2) { const char *s = getenv("GS_VIEW"); v = s ? atoi(s) : -1; }
     return v;
 }
+static int etype_idx(void) {
+    static int v = -2;
+    if (v == -2) { const char *s = getenv("GS_ETYPE"); v = s ? atoi(s) : -1; }
+    return v;
+}
+static float etype_vx(void) {
+    static float y = -1e9f;
+    if (y < -1e8f) { const char *s = getenv("GS_VX"); y = s ? (float)atof(s) : 0.f; }
+    return y;
+}
 static float view_yaw(void) {
     static float y = -1e9f;
     if (y < -1e8f) { const char *s = getenv("GS_VYAW"); y = s ? (float)atof(s) * DEG : 0.f; }
@@ -253,17 +264,32 @@ static float view_yaw(void) {
 static int god_mode(void) { return 0; }
 static int view_idx(void) { return -1; }
 static float view_yaw(void) { return 0; }
+static int etype_idx(void) { return -1; }
+static float etype_vx(void) { return 0; }
 #endif
 
 static int strlen_local(const char *s) { int n = 0; while (s[n]) n++; return n; }
 
 /* basis rows are world-space right/up/forward (see Mat3 in mote_vec.h) */
+/* yaw about Y, then bank about the travel (world-z) axis PROJECTED INTO THE
+ * VIEW PLANE. A raw world-z roll leaks into apparent in-plane turning under
+ * our oblique camera (worst on boxy hulls like the corvette); projecting the
+ * tilt axis out of the view direction makes a strafing ship read as a pure
+ * wing-dip, matching the original's near-top-down look.
+ * A = normalize(z - (z.f)f) for the fixed camera forward f. */
 static Mat3 mat3_yaw_bank(float yaw, float bank) {
+    static const Vec3 A = { 0, 0.727f, 0.686f };
     float cy = cosf(yaw), sy = sinf(yaw), cb = cosf(bank), sb = sinf(bank);
+    Vec3 rows[3] = { { cy, 0, -sy }, { 0, 1, 0 }, { sy, 0, cy } };
     Mat3 m;
-    m.r[0] = v3(cb * cy, sb, -cb * sy);
-    m.r[1] = v3(-sb * cy, cb, sb * sy);
-    m.r[2] = v3(sy, 0, cy);
+    for (int i = 0; i < 3; i++) {   /* Rodrigues rotation about A */
+        Vec3 v = rows[i];
+        Vec3 axv = v3_cross(A, v);
+        float adv = v3_dot(A, v);
+        m.r[i] = v3(v.x * cb + axv.x * sb + A.x * adv * (1 - cb),
+                    v.y * cb + axv.y * sb + A.y * adv * (1 - cb),
+                    v.z * cb + axv.z * sb + A.z * adv * (1 - cb));
+    }
     return m;
 }
 static Mat3 mat3_tumble(float ry, float rx) {
@@ -469,6 +495,8 @@ static void reset_game(void) {
     if (getenv("GS_DEMO")) {   /* dev: show off the full arsenal */
         shot_count = 7; rocket_on = 1; comp_alive[0] = comp_alive[1] = 1;
         shot_power = 20; fire_rate = 0.2f;
+        const char *sh = getenv("GS_SHAPE");
+        if (sh) shape_idx = atoi(sh) % N_SHAPES;
     }
 #endif
     start_wave();
@@ -543,7 +571,7 @@ static void apply_powerup(int type) {
     case PU_MAXHP:  max_health += 20; health += 20; break;
     case PU_FORCE:  shield_t += shield_max; break;
     case PU_CANNON: if (shot_count < 9) shot_count++; break;
-    case PU_SHAPE:  shape_idx = (shape_idx + 1) & 3; break;
+    case PU_SHAPE:  shape_idx = (shape_idx + 1) % N_SHAPES; break;
     case PU_ROCKET:
         if (!rocket_on) rocket_on = 1;
         else missile_rate = mote_clampf(missile_rate - 0.3f, 0.5f, 1.5f);
@@ -579,39 +607,92 @@ static int nearest_enemy(Vec3 p) {
     return best;
 }
 
-/* ---------- bolt drawing: shape styles cycle with the Shape power-up ---------- */
+/* ---------- bolt drawing: the original's 7 Vol_ bolt shapes, rebuilt from
+ * scene primitives (lines/points/discs). Cycles with the Shape power-up. ---------- */
 static void draw_player_bolt(const Shot *s) {
     uint16_t col = MOTE_RGB565(shot_r, shot_g, shot_b);
-    float len = 0.55f + 0.35f * logf(mote_clampf(s->dmg, 10, 30) / 10.f);
+    uint16_t dim = MOTE_RGB565(shot_r / 2, shot_g / 2, shot_b / 2);
+    float len = 0.6f + 0.4f * logf(mote_clampf(s->dmg, 10, 30) / 10.f);
     Vec3 d = v3_norm(s->vel);
     Vec3 tail = v3_sub(s->pos, v3_scale(d, len));
+    Vec3 side = v3(d.z, 0, -d.x);   /* unit lateral */
     switch (shape_idx) {
-    case 0:   /* bolt */
+    case 0:   /* bolt: simple streak + hot tip */
         mote->scene_add_line(s->pos, tail, col);
+        mote->scene_add_point(s->pos, col, 2);
         break;
-    case 1: { /* twin rail */
-        Vec3 side = v3(d.z * 0.09f, 0, -d.x * 0.09f);
-        mote->scene_add_line(v3_add(s->pos, side), v3_add(tail, side), col);
-        mote->scene_add_line(v3_sub(s->pos, side), v3_sub(tail, side), col);
+    case 1: { /* arrow: streak + chevron head */
+        Vec3 w = v3_scale(side, 0.22f);
+        Vec3 back = v3_sub(s->pos, v3_scale(d, 0.28f));
+        mote->scene_add_line(s->pos, tail, dim);
+        mote->scene_add_line(s->pos, v3_add(back, w), col);
+        mote->scene_add_line(s->pos, v3_sub(back, w), col);
         break; }
-    case 2: { /* diamond */
+    case 2: { /* crystal: elongated hexagon outline */
+        Vec3 w = v3_scale(side, 0.14f);
+        Vec3 a = v3_sub(s->pos, v3_scale(d, len * 0.3f));
+        Vec3 b = v3_add(tail, v3_scale(d, len * 0.3f));
+        mote->scene_add_line(s->pos, v3_add(a, w), col);
+        mote->scene_add_line(s->pos, v3_sub(a, w), col);
+        mote->scene_add_line(v3_add(a, w), v3_add(b, w), col);
+        mote->scene_add_line(v3_sub(a, w), v3_sub(b, w), col);
+        mote->scene_add_line(v3_add(b, w), tail, col);
+        mote->scene_add_line(v3_sub(b, w), tail, col);
+        break; }
+    case 3: { /* diamond */
         Vec3 mid = v3_add(tail, v3_scale(d, len * 0.5f));
-        Vec3 side = v3(d.z * 0.16f, 0, -d.x * 0.16f);
-        mote->scene_add_line(s->pos, v3_add(mid, side), col);
-        mote->scene_add_line(v3_add(mid, side), tail, col);
-        mote->scene_add_line(s->pos, v3_sub(mid, side), col);
-        mote->scene_add_line(v3_sub(mid, side), tail, col);
+        Vec3 w = v3_scale(side, 0.18f);
+        mote->scene_add_line(s->pos, v3_add(mid, w), col);
+        mote->scene_add_line(v3_add(mid, w), tail, col);
+        mote->scene_add_line(s->pos, v3_sub(mid, w), col);
+        mote->scene_add_line(v3_sub(mid, w), tail, col);
+        break; }
+    case 4: { /* flame: hot head disc + flickering tapered tail */
+        mote->scene_add_disc(s->pos, 0.16f, col);
+        float fl = mote_randf(0.6f, 1.0f);
+        mote->scene_add_disc(v3_sub(s->pos, v3_scale(d, 0.22f)), 0.11f * fl, dim);
+        mote->scene_add_line(v3_sub(s->pos, v3_scale(d, 0.3f)),
+                             v3_sub(s->pos, v3_scale(d, len * fl)), dim);
+        break; }
+    case 5: { /* star: 4-point sparkle */
+        Vec3 w = v3_scale(side, 0.2f);
+        Vec3 u = v3_scale(d, 0.2f);
+        mote->scene_add_line(v3_add(s->pos, u), v3_sub(s->pos, u), col);
+        mote->scene_add_line(v3_add(s->pos, w), v3_sub(s->pos, w), col);
+        Vec3 w2 = v3_scale(side, 0.11f);
+        Vec3 u2 = v3_scale(d, 0.11f);
+        mote->scene_add_line(v3_add(v3_add(s->pos, u2), w2), v3_sub(v3_sub(s->pos, u2), w2), dim);
+        mote->scene_add_line(v3_sub(v3_add(s->pos, u2), w2), v3_add(v3_sub(s->pos, u2), w2), dim);
+        mote->scene_add_point(s->pos, MOTE_RGB565(255, 255, 255), 2);
         break; }
     default: { /* zigzag */
         Vec3 a = v3_add(tail, v3_scale(d, len * 0.66f));
         Vec3 b = v3_add(tail, v3_scale(d, len * 0.33f));
-        Vec3 side = v3(d.z * 0.14f, 0, -d.x * 0.14f);
-        mote->scene_add_line(s->pos, v3_add(a, side), col);
-        mote->scene_add_line(v3_add(a, side), v3_sub(b, side), col);
-        mote->scene_add_line(v3_sub(b, side), tail, col);
+        Vec3 w = v3_scale(side, 0.16f);
+        mote->scene_add_line(s->pos, v3_add(a, w), col);
+        mote->scene_add_line(v3_add(a, w), v3_sub(b, w), col);
+        mote->scene_add_line(v3_sub(b, w), tail, col);
         break; }
     }
-    mote->scene_add_point(s->pos, col, 2);
+}
+
+/* shared enemy draw (game + strafe viewer): ships stay nose-down and bank as
+ * they strafe; asteroids tumble; the ufo just spins flat */
+static void draw_enemy(const Enemy *e) {
+    const ETypeDef *d = &k_types[e->type];
+    if (e->boss) {
+        const BossDef *b = &k_bosses[e->boss - 1];
+        Mat3 m = b->radial ? mat3_tumble(e->ry, 0)
+               : mat3_yaw_bank(3.14159f + b->yaw0, -e->vx * b->tilt * 0.035f);
+        if (!b->mesh) mote_model_draw_ex(mote, &walkerie, e->pos, m, e->scale);
+        else mote_draw_ex(mote, b->mesh, e->pos, m, e->scale);
+    } else if (d->is_ship) {
+        Mat3 m = d->radial ? mat3_tumble(e->ry, 0)
+               : mat3_yaw_bank(3.14159f + d->yaw0, -e->vx * d->tilt * 0.035f);
+        mote_draw_ex(mote, d->mesh, e->pos, m, e->scale);
+    } else {
+        mote_draw_ex(mote, d->mesh, e->pos, mat3_tumble(e->ry, e->rx), e->scale);
+    }
 }
 
 /* ============================ update ============================ */
@@ -627,6 +708,20 @@ static void g_update(float dt) {
                      mat3_yaw_bank(view_yaw(), 0), k_view[i].size * 2.2f);
         mote->scene_add_line(v3(0, 0, 6.6f), v3(0, 0, 9.5f), MOTE_RGB565(80, 255, 255));
         mote->scene_add_point(v3(0, 0, 9.5f), MOTE_RGB565(80, 255, 255), 3);
+        return;
+    }
+    if (etype_idx() >= 0) {   /* strafe viewer: the exact in-game enemy draw */
+        static Enemy ev; static float t;
+        t += dt;
+        Vec3 vc = v3(0, 16.5f, -11.5f);
+        Mat3 vb = mote_camera_look(vc, v3(0, 0, 4.0f));
+        mote->scene_camera(&vb, vc, 62.0f);
+        int ei = etype_idx();
+        ev.alive = 1; ev.pos = v3(0, 0, 4.0f); ev.vx = etype_vx();
+        if (ei >= 100) { ev.boss = ei - 99; ev.type = ET_CORVETTE; ev.scale = k_bosses[ev.boss-1].size * 1.5f; }
+        else { ev.boss = 0; ev.type = ei % ET_NTYPES; ev.scale = k_types[ev.type].size * 2.0f; }
+        ev.ry = t * 1.6f; ev.rx = t * 0.9f;
+        draw_enemy(&ev);
         return;
     }
 
@@ -973,25 +1068,8 @@ static void g_update(float dt) {
             mote_draw_ex(mote, &barrel_mesh, v3(cx, 0, pz), mat3_yaw_bank(0, pbank * 0.5f), 0.58f);
         }
     }
-    for (int i = 0; i < MAX_EN; i++) {
-        Enemy *e = &en[i];
-        if (!e->alive) continue;
-        const ETypeDef *d = &k_types[e->type];
-        if (e->boss) {
-            const BossDef *b = &k_bosses[e->boss - 1];
-            /* enemies face -z (yaw pi): bank sign flips vs the player */
-            Mat3 m = b->radial ? mat3_tumble(e->ry, 0)
-                   : mat3_yaw_bank(3.14159f + b->yaw0, e->vx * b->tilt * 0.035f);
-            if (!b->mesh) mote_model_draw_ex(mote, &walkerie, e->pos, m, e->scale);
-            else mote_draw_ex(mote, b->mesh, e->pos, m, e->scale);
-        } else if (d->is_ship) {
-            Mat3 m = d->radial ? mat3_tumble(e->ry, 0)
-                   : mat3_yaw_bank(3.14159f + d->yaw0, e->vx * d->tilt * 0.035f);
-            mote_draw_ex(mote, d->mesh, e->pos, m, e->scale);
-        } else {
-            mote_draw_ex(mote, d->mesh, e->pos, mat3_tumble(e->ry, e->rx), e->scale);
-        }
-    }
+    for (int i = 0; i < MAX_EN; i++)
+        if (en[i].alive) draw_enemy(&en[i]);
     for (int i = 0; i < MAX_SHOTS; i++) {
         Shot *s = &shots[i];
         if (!s->alive) continue;
@@ -1037,6 +1115,11 @@ static void g_overlay(uint16_t *fb) {
     if (view_idx() >= 0) {
         mote_textf(mote, fb, 3, 3, MOTE_RGB565(255, 255, 255), "%s yaw %d",
                    k_view[view_idx() % NVIEW].name, (int)(view_yaw() / DEG));
+        return;
+    }
+    if (etype_idx() >= 0) {
+        mote_textf(mote, fb, 3, 3, MOTE_RGB565(255, 255, 255), "etype %d vx %d",
+                   etype_idx(), (int)etype_vx());
         return;
     }
     if (state == ST_TITLE) {
@@ -1118,6 +1201,7 @@ static const MoteGameVtbl k_vtbl = {
         .max_tris = 1100,
         .max_points = 200,
         .max_lines = 140,       /* bolts: up to 9 guns x in-flight + enemy fire */
+        .max_discs = 48,
         .max_rings = 16,
         .max_spheres = 130,     /* two particle pools + ufo energy balls */
         .depth = 1,
