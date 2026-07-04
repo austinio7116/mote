@@ -19,6 +19,10 @@
 #include "mote_anim3d.h" /* rigged-model runtime (parts spin/steer)       */
 #include <math.h>
 #include <string.h>
+#ifdef MOTE_HOST
+#include <stdio.h>       /* MOTE_MK_DBG: print map index + track checksum */
+#include <stdlib.h>
+#endif
 
 #include "kart.rig.h"    /* kart_rig: multi-part model (hull/trim/4 wheels)*/
 #include "banana.h"      /* banana — multi-part banana model   */
@@ -291,6 +295,7 @@ typedef struct {
     float ai_offset, ai_off_t, ai_react;
     float wheel_spin;   /* accumulated wheel roll angle (rad)  */
     float vis_steer;    /* smoothed visual steer angle (rad)   */
+    int   remote;       /* 2P link: this kart is driven by the peer's packets */
 } Kart;
 
 /* rig part indices (match kart_parts[] order in kart.rig.h) */
@@ -417,7 +422,7 @@ static float angwrap(float a) {
 /* ===================================================================== */
 /*  Game state                                                           */
 /* ===================================================================== */
-enum { ST_TITLE, ST_COUNT, ST_RACE, ST_FINISH };
+enum { ST_TITLE, ST_COUNT, ST_RACE, ST_FINISH, ST_LINK };
 static int   g_state = ST_TITLE;
 static float g_timer;
 static float g_racetime;
@@ -428,6 +433,46 @@ static float g_best_lap;
 static float g_last_lap;
 static int   g_msg_id; static float g_msg_t;
 static float g_flash;          /* lightning screen-flash timer (seconds) */
+
+/* ===================================================================== */
+/*  2P LINK RACE (engine ABI v43)                                        */
+/* ===================================================================== */
+/* Every message is 0xA5 magic + type + fixed payload; the parser resyncs on
+ * any unknown type.  Wire:
+ *   'H' proto nonce_lo nonce_hi                 handshake, resent ~0.5s
+ *   'S' map_sel                                 authority -> peer setup
+ *   'P' x16 z16 head8 speed8 lap8 prog8 flags8  kart state @15Hz (+ keepalive)
+ *   'F' time32(ms)                              crossed the finish line
+ *   'Q'                                         quit -> peer sees OPPONENT LEFT
+ *
+ * TRACK SYNC: we DO NOT transmit the track.  Each unit rebuilds the SAME map
+ * by INDEX (authority's g_map_sel, carried in 'S').  MotoKart's track is pure
+ * CONTINUOUS float math (track_center_at) with NO discrete branch gated on a
+ * trig result, so the sub-ULP sinf/cosf drift between x86 (Studio) and ARM
+ * (device) cannot cascade into a different layout.  The remote kart is drawn
+ * at its TRANSMITTED absolute x/z with its ground height derived on the LOCAL
+ * road, and each unit counts its OWN laps/finish — so nothing cross-checks
+ * track geometry between the two units and the drift stays invisible.  (The
+ * random grid shuffle + scenery RNG are NOT shared: 2P uses a fixed side-by-
+ * side grid, and scenery is local-only.)
+ *
+ * ITEMS + AI are DISABLED in 2P: the item roulette (place-weighted), shells
+ * (home on karts), bananas and lightning all act cross-kart and are RNG-
+ * entangled — too much to replicate safely for v1.  Drift mini-turbos, which
+ * are pure local physics, still work, so 2P races keep real depth. */
+#define LINK_PROTO 1
+static int      g_link;                 /* link mode engaged */
+static int      g_authority;            /* nonce winner -> starts grid slot 0 */
+static int      g_nk = NKART;           /* active karts (2 while linked) */
+static uint16_t g_my_nonce, g_peer_nonce;
+static int      g_sent_hello, g_got_hello, g_link_started, g_link_setup_map;
+static float    g_link_hello_t, g_link_send_t, g_link_rx_age;
+static float    rp_x, rp_z, rp_yaw, rp_speed;   /* remote kart replicated target */
+static int      rp_lap, rp_prog, rp_flags;
+static int      g_link_myfin, g_link_peerfin;
+static uint32_t g_my_time_ms, g_peer_time_ms;
+static int      g_link_result;          /* 0 racing/waiting 1 win 2 lose 3 lost 4 left */
+static uint8_t  g_lk[16]; static int g_lk_len;
 
 static void save_best(void) {
     uint32_t blob[2] = { 0x4D4B5254u, (uint32_t)(g_best_lap * 1000.0f) };
@@ -509,13 +554,14 @@ static void karts_reset(void) {
         k->drifting = 0; k->drift_dir = 0; k->drift_charge = 0; k->boost = 0;
         k->spin = 0; k->ihit = 0; k->star = 0; k->mega = 0; k->bullet = 0; k->shrunk = 0;
         k->item = ITEM_NONE; k->item_count = 0; k->item_cooldown = 0;
-        k->wheel_spin = 0; k->vis_steer = 0;
+        k->wheel_spin = 0; k->vis_steer = 0; k->remote = 0;
         k->ai_offset = ((i * 1.7f) - 4.0f); k->ai_off_t = frand() * 6.0f;
         k->ai_react = 0.85f + 0.1f * i;
     }
 }
 
 static void race_reset(void) {
+    g_link = 0; g_nk = NKART;      /* single-player: full grid, items + AI on */
     karts_reset();
     items_reset();
     g_racetime = 0; g_count = 3; g_timer = 0;
@@ -814,8 +860,8 @@ static void kart_sim(Kart *k, float dt, int locked) {
 }
 
 static void karts_collide(void) {
-    for (int a = 0; a < NKART; a++)
-        for (int b = a + 1; b < NKART; b++) {
+    for (int a = 0; a < g_nk; a++)
+        for (int b = a + 1; b < g_nk; b++) {
             float dx = kart[b].pos.x - kart[a].pos.x;
             float dz = kart[b].pos.z - kart[a].pos.z;
             float d2 = dx * dx + dz * dz;
@@ -841,7 +887,7 @@ static void karts_collide(void) {
 static void scenery_collide(void) {
     const float rr = 1.15f;        /* trunk radius + kart radius */
     for (int t = 0; t < n_tree; t++) {
-        for (int k = 0; k < NKART; k++) {
+        for (int k = 0; k < g_nk; k++) {
             float dx = kart[k].pos.x - tree[t].pos.x, dz = kart[k].pos.z - tree[t].pos.z;
             float d2 = dx * dx + dz * dz;
             if (d2 < rr * rr && d2 > 1e-4f) {
@@ -909,10 +955,10 @@ static void items_sim(float dt) {
 }
 
 static void update_places(void) {
-    for (int a = 0; a < NKART; a++) {
+    for (int a = 0; a < g_nk; a++) {
         int p = 1;
         float sa = kart[a].lap + kart[a].prog;
-        for (int b = 0; b < NKART; b++)
+        for (int b = 0; b < g_nk; b++)
             if (b != a && (kart[b].lap + kart[b].prog) > sa) p++;
         kart[a].place = p;
     }
@@ -1136,7 +1182,7 @@ static void draw_world(void) {
     for (int i = 0; i < n_sign; i++) if (in_view(sgn[i].pos))
         mote->scene_add_billboard(sgn[i].pos, &sign_img, sgn[i].dir * 20, 0, 20, 20, 1.0f, MOTE_BLEND_NONE);
 
-    for (int i = 0; i < NBOX; i++) if (box[i].active) {
+    if (!g_link) for (int i = 0; i < NBOX; i++) if (box[i].active) {   /* items off in 2P */
         Vec3 bp = track_point(box[i].seg, box[i].lat);
         bp.y += 0.7f + 0.12f * sinf(g_racetime * 3.0f + i);   /* hover (no ground shadow) */
         if (in_view(bp))
@@ -1161,7 +1207,7 @@ static void draw_world(void) {
     quad(pr, v3_add(pr, v3(0.3f, 0, 0)), v3_add(v3_add(pr, v3(0.3f, 0, 0)), v3_scale(up, 4.0f)), v3_add(pr, v3_scale(up, 4.0f)), MOTE_RGB565(180, 180, 190));
     mote->scene_add_billboard(v3_add(c0, v3_scale(up, 4.2f)), &banner_img, 0, 0, 0, 0, 1.3f, MOTE_BLEND_NONE);
 
-    for (int i = 1; i < NKART; i++) if (in_view(kart[i].pos)) draw_kart(&kart[i]);
+    for (int i = 1; i < g_nk; i++) if (in_view(kart[i].pos)) draw_kart(&kart[i]);
     draw_kart(&kart[0]);
 }
 
@@ -1194,11 +1240,133 @@ static void draw_title(void) {
 }
 
 /* ===================================================================== */
+/*  2P link plumbing                                                     */
+/* ===================================================================== */
+static void link_send1(uint8_t t) { uint8_t m[2] = {0xA5, t}; mote->link_send(m, 2); }
+static void link_send_hello(void) {
+    uint8_t m[5] = {0xA5, 'H', LINK_PROTO, (uint8_t)g_my_nonce, (uint8_t)(g_my_nonce >> 8)};
+    mote->link_send(m, 5);
+}
+static void link_send_state(void) {
+    Kart *k = &kart[0];
+    int16_t x = (int16_t)(k->pos.x * 256.0f), z = (int16_t)(k->pos.z * 256.0f);
+    uint8_t flags = (uint8_t)((k->boost > 0 ? 1 : 0) | (k->drifting ? 2 : 0) | (k->drift_dir > 0 ? 4 : 0));
+    uint8_t m[11] = {0xA5, 'P', (uint8_t)x, (uint8_t)(x >> 8), (uint8_t)z, (uint8_t)(z >> 8),
+                     (uint8_t)(int8_t)(angwrap(k->yaw) * 40.5845f),
+                     (uint8_t)(int8_t)mote_clampf(k->speed * 5.0f, -127, 127),
+                     (uint8_t)k->lap, (uint8_t)mote_clampf(k->prog * 255.0f, 0, 255), flags};
+    mote->link_send(m, 11);
+}
+static void link_send_finish(void) {
+    uint8_t m[6] = {0xA5, 'F', (uint8_t)g_my_time_ms, (uint8_t)(g_my_time_ms >> 8),
+                    (uint8_t)(g_my_time_ms >> 16), (uint8_t)(g_my_time_ms >> 24)};
+    mote->link_send(m, 6);
+}
+static void link_handle(const uint8_t *m) {
+    g_link_rx_age = 0;                        /* any message doubles as a keepalive */
+    switch (m[1]) {
+        case 'H': g_got_hello = 1; g_peer_nonce = (uint16_t)(m[3] | (m[4] << 8)); break;
+        case 'S': g_link_setup_map = m[2]; g_link_started = 2; break;
+        case 'P': {
+            int16_t x = (int16_t)(m[2] | (m[3] << 8)), z = (int16_t)(m[4] | (m[5] << 8));
+            rp_x = x / 256.0f; rp_z = z / 256.0f;
+            rp_yaw = (int8_t)m[6] / 40.5845f; rp_speed = (int8_t)m[7] / 5.0f;
+            rp_lap = m[8]; rp_prog = m[9]; rp_flags = m[10];
+        } break;
+        case 'F': g_peer_time_ms = (uint32_t)m[2] | ((uint32_t)m[3] << 8)
+                                 | ((uint32_t)m[4] << 16) | ((uint32_t)m[5] << 24);
+            g_link_peerfin = 1;
+            if (g_link_myfin && !g_link_result)
+                g_link_result = (g_my_time_ms <= g_peer_time_ms) ? 1 : 2;
+            break;
+        case 'Q': if (!g_link_result)          /* if I already finished, their bail = my win */
+                      g_link_result = (g_link_myfin && !g_link_peerfin) ? 1 : 4;
+            break;
+    }
+}
+static void link_poll(void) {
+    uint8_t chunk[64]; int n;
+    while ((n = mote->link_recv(chunk, (int)sizeof chunk)) > 0)
+        for (int i = 0; i < n; i++) {
+            uint8_t b = chunk[i];
+            if (g_lk_len == 0) { if (b == 0xA5) g_lk[g_lk_len++] = b; continue; }
+            g_lk[g_lk_len++] = b;
+            int t = g_lk[1];
+            int want = t == 'P' ? 11 : t == 'F' ? 6 : t == 'H' ? 5 : t == 'S' ? 3 : t == 'Q' ? 2 : -1;
+            if (want < 0) { g_lk_len = 0; continue; }        /* unknown type: resync */
+            if (g_lk_len < want) continue;
+            g_lk_len = 0; link_handle(g_lk);
+        }
+}
+static void link_quit(void) {                    /* leave a link session back to the title */
+    if (g_link) link_send1('Q');
+    g_link = 0; g_nk = NKART; mote->link_stop(); mote->set_fps_limit(0);
+    g_state = ST_TITLE;
+}
+/* place a linked kart on the fixed side-by-side grid (no random shuffle) */
+static void link_place(Kart *k, int slot, int driver) {
+    int gseg = ((NSEG - 6 - (slot / 2) * 3) % NSEG + NSEG) % NSEG;
+    float lat = (slot % 2 ? 1.0f : -1.0f) * 2.0f;
+    k->pos = track_point(gseg, lat); k->pos.y += RIDE_H;
+    k->yaw = atan2f(t_fwd[gseg].x, t_fwd[gseg].z);
+    k->speed = 0; k->vlat = 0; k->pitch = 0; k->lean = 0;
+    k->seg = gseg; k->prog = (float)gseg / NSEG; k->lap = 0; k->place = slot + 1;
+    k->driver = driver;
+    k->half = 0; k->laptime = 0; k->drifting = 0; k->drift_dir = 0; k->drift_charge = 0; k->boost = 0;
+    k->spin = 0; k->ihit = 0; k->star = 0; k->mega = 0; k->bullet = 0; k->shrunk = 0;
+    k->item = ITEM_NONE; k->item_count = 0; k->item_cooldown = 0;
+    k->wheel_spin = 0; k->vis_steer = 0;
+}
+static void link_race_reset(int authority) {
+    g_authority = authority; g_nk = 2;
+    int myslot = authority ? 0 : 1, pslot = authority ? 1 : 0;
+    link_place(&kart[0], myslot, DRIVER_ID[0]); kart[0].is_player = 1; kart[0].remote = 0;
+    link_place(&kart[1], pslot, DRIVER_ID[1]); kart[1].is_player = 0; kart[1].remote = 1;
+    rp_x = kart[1].pos.x; rp_z = kart[1].pos.z; rp_yaw = kart[1].yaw;
+    rp_speed = 0; rp_lap = 0; rp_prog = (int)(kart[1].prog * 255.0f); rp_flags = 0;
+    items_reset();                               /* boxes stay unused (2P: items off) */
+    g_racetime = 0; g_count = 3; g_timer = 0; g_state = ST_COUNT; g_msg_t = 0;
+    g_link_myfin = g_link_peerfin = 0; g_link_result = 0; g_my_time_ms = g_peer_time_ms = 0;
+    g_link_send_t = 0; g_link_rx_age = 0;
+#ifdef MOTE_HOST
+    if (getenv("MOTE_MK_DBG")) {              /* confirm both units built the same track */
+        uint32_t h = 2166136261u; const uint8_t *p = (const uint8_t *)t_cen;
+        for (size_t i = 0; i < sizeof t_cen; i++) { h ^= p[i]; h *= 16777619u; }
+        fprintf(stderr, "[MK] linked: authority=%d map=%d track_fnv=%08x\n",
+                authority, g_map_sel, h);
+    }
+#endif
+}
+/* drive the peer's kart from its packets: lerp to target, then ride MY road */
+static void remote_kart_update(Kart *k, float dt) {
+    float kf = dt * 10.0f; if (kf > 1) kf = 1;    /* smoothing (k ~= dt*10) */
+    k->pos.x += (rp_x - k->pos.x) * kf;
+    k->pos.z += (rp_z - k->pos.z) * kf;
+    k->yaw += angwrap(rp_yaw - k->yaw) * kf;
+    k->speed = rp_speed;
+    float lat, prog, surfy, wid; Vec3 fwd, rgt;
+    k->seg = track_query(k->pos, k->seg, &lat, &prog, &surfy, &fwd, &rgt, &wid);
+    float skirt = wid + 10.0f;
+    k->pos.y = (fabsf(lat) <= skirt) ? surfy + RIDE_H : terr_height(k->pos.x, k->pos.z) + RIDE_H;
+    k->pitch = fwd.y * 1.2f;
+    k->lap = rp_lap; k->prog = prog;
+    k->wheel_spin += k->speed * dt / 0.085f; if (k->wheel_spin > TPI) k->wheel_spin -= TPI;
+    k->boost = (rp_flags & 1) ? 1.0f : 0.0f;
+    k->drifting = (rp_flags & 2) ? 1 : 0;
+    k->drift_dir = (rp_flags & 4) ? 1 : -1;
+    k->drift_charge = k->drifting ? 1.0f : 0.0f;
+    float want_steer = k->drifting ? k->drift_dir * 0.5f : 0.0f;
+    k->vis_steer += (want_steer - k->vis_steer) * 12.0f * dt;
+}
+
+/* ===================================================================== */
 /*  Update                                                               */
 /* ===================================================================== */
 static void g_update(float dt) {
     if (dt > 0.05f) dt = 0.05f;
     const MoteInput *in = mote->input();
+
+    if (g_link) mote->set_fps_limit(30);   /* steady pacing while linked (OS reset after init) */
 
     if (g_state == ST_TITLE) {
         g_title_spin += dt;
@@ -1213,8 +1381,60 @@ static void g_update(float dt) {
         }
         draw_title();
         g_eng_a = 0.0f;
+        if (mote->abi_version >= 43 && mote_just_pressed(in, MOTE_BTN_LB)) {  /* start 2P link */
+            mote->link_start();
+            g_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8);
+            g_sent_hello = g_got_hello = g_link_started = 0; g_lk_len = 0; g_link_hello_t = 0;
+            g_link = 1; g_state = ST_LINK;
+            return;
+        }
         if (mote_just_pressed(in, MOTE_BTN_A)) race_reset();
         return;
+    }
+
+    if (g_state == ST_LINK) {                 /* handshake: swap nonces, higher = authority */
+        g_link_hello_t -= dt;
+        if (mote->link_status() != MOTE_LINK_CONNECTED) {
+            g_sent_hello = g_got_hello = 0; g_lk_len = 0;   /* reconnect restarts handshake */
+        } else {
+            if (!g_sent_hello || g_link_hello_t <= 0) { link_send_hello(); g_sent_hello = 1; g_link_hello_t = 0.5f; }
+            link_poll();
+            if (g_got_hello && g_peer_nonce == g_my_nonce) {   /* 1-in-65536 tie: re-roll */
+                g_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8) ^ 0x5A5Au;
+                g_got_hello = 0; link_send_hello();
+            }
+            if (g_link_started == 2) {                         /* peer rolled + sent the map */
+                link_send_hello();
+                load_map(g_link_setup_map); link_race_reset(0);
+                return;
+            } else if (g_got_hello && g_my_nonce > g_peer_nonce) {   /* I'm the authority */
+                link_send_hello();                             /* one final hello, then set up */
+                uint8_t m[3] = {0xA5, 'S', (uint8_t)g_map_sel}; mote->link_send(m, 3);
+                load_map(g_map_sel); link_race_reset(1);
+                return;
+            }
+        }
+        g_title_spin += dt;
+        for (int i = 0; i < NKART; i++) {
+            kart[i].vis_steer = sinf(g_title_spin * 1.6f + i * 0.9f) * 0.42f;
+            kart[i].wheel_spin += dt * 4.0f;
+        }
+        draw_title();
+        g_eng_a = 0.0f;
+        if (mote_just_pressed(in, MOTE_BTN_B)) link_quit();
+        return;
+    }
+
+    /* linked upkeep (COUNT / RACE / FINISH): poll, keepalive, 15Hz state, end handling */
+    if (g_link) {
+        link_poll();
+        g_link_rx_age += dt;
+        if (g_link_rx_age > 3.0f && !g_link_result) g_link_result = 3;   /* peer went silent */
+        g_link_send_t -= dt;
+        if (g_link_send_t <= 0) { link_send_state(); g_link_send_t = 1.0f / 15.0f; }
+        if ((g_link_result || g_state == ST_FINISH) && mote_just_pressed(in, MOTE_BTN_B)) {
+            link_quit(); return;               /* B leaves once the race is over (still BRAKE mid-race) */
+        }
     }
 
     if (g_state == ST_COUNT) {
@@ -1225,7 +1445,10 @@ static void g_update(float dt) {
             else if (g_count == 0) mote->audio_play_sfx(&go_sfx, 0.9f);
             if (g_count < 0) g_state = ST_RACE;
         }
-        for (int i = 0; i < NKART; i++) kart_sim(&kart[i], dt, 1);
+        for (int i = 0; i < g_nk; i++) {
+            if (g_link && kart[i].remote) remote_kart_update(&kart[i], dt);
+            else kart_sim(&kart[i], dt, 1);
+        }
         karts_collide();
         update_places();
         camera_update(dt);
@@ -1238,10 +1461,13 @@ static void g_update(float dt) {
     g_racetime += dt;
     if (g_msg_t > 0) g_msg_t -= dt;
     if (g_flash > 0) g_flash -= dt;
-    for (int i = 0; i < NKART; i++) kart_sim(&kart[i], dt, (g_state == ST_FINISH && i == 0));
+    for (int i = 0; i < g_nk; i++) {
+        if (g_link && kart[i].remote) remote_kart_update(&kart[i], dt);
+        else kart_sim(&kart[i], dt, (g_state == ST_FINISH && i == 0));
+    }
     karts_collide();
     scenery_collide();
-    items_sim(dt);
+    if (!g_link) items_sim(dt);        /* items disabled in 2P (see link notes) */
     update_places();
     camera_update(dt);
 
@@ -1255,10 +1481,18 @@ static void g_update(float dt) {
         mote->audio_play_sfx(&lap_sfx, 1.0f);
         mote->rumble(0.6f, 300);
         save_best();                 /* persist once, when the race is over */
+        if (g_link && !g_link_myfin) {           /* 2P: report my finish time; lower time wins */
+            g_link_myfin = 1;
+            g_my_time_ms = (uint32_t)(g_racetime * 1000.0f);
+            link_send_finish();
+            if (g_link_peerfin && !g_link_result)
+                g_link_result = (g_my_time_ms <= g_peer_time_ms) ? 1 : 2;
+        }
     }
     if (g_state == ST_FINISH) {
         g_timer += dt;
-        if (g_timer > 1.0f && mote_just_pressed(in, MOTE_BTN_A)) g_state = ST_TITLE;
+        /* SP: A continues. 2P: B returns to title (handled in the g_link upkeep block). */
+        if (!g_link && g_timer > 1.0f && mote_just_pressed(in, MOTE_BTN_A)) g_state = ST_TITLE;
     }
 
     draw_world();
@@ -1283,7 +1517,7 @@ static void minimap(uint16_t *fb) {
         int my = cy + (int)(t_cen[i].z / 78.0f * R);
         mote->draw_pixel(fb, mx, my, MOTE_RGB565(210, 210, 220));
     }
-    for (int i = 0; i < NKART; i++) {
+    for (int i = 0; i < g_nk; i++) {
         int mx = cx + (int)(kart[i].pos.x / 78.0f * R);
         int my = cy + (int)(kart[i].pos.z / 78.0f * R);
         uint16_t c = kart[i].is_player ? MOTE_RGB565(255, 240, 60) : MOTE_RGB565(230, 70, 70);
@@ -1313,11 +1547,30 @@ static void g_overlay(uint16_t *fb) {
         int dx = (int)((128 - (int)strlen(dn) * 6) / 2);
         mote->draw_rect(fb, 0, 80, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
         mote->text(fb, dn, dx, 82, dc);
-        mote->text(fb, "A START  <>MAP  ^vDIFF", 8, 96, MOTE_RGB565(180, 190, 210));
+        if (mote->abi_version >= 43)
+            mote->text(fb, "A 1P   LB 2P LINK", 16, 96, MOTE_RGB565(120, 200, 255));
+        else
+            mote->text(fb, "A START  <>MAP  ^vDIFF", 8, 96, MOTE_RGB565(180, 190, 210));
         if (g_best_lap > 0) { fmt_time(tb, g_best_lap);
             mote_textf(mote, fb, 24, 107, amber, "BEST LAP %s", tb); }
         mote->text(fb, "A accel B brake RB drift", 4, 116, MOTE_RGB565(160, 170, 195));
         mote->text(fb, "LB item", 46, 123, MOTE_RGB565(160, 170, 195));
+        return;
+    }
+
+    if (g_state == ST_LINK) {
+        mote->draw_rect(fb, 10, 38, 108, 54, MOTE_RGB565(16, 18, 26), 1, 0, 128);
+        mote->draw_rect(fb, 10, 38, 108, 54, MOTE_RGB565(60, 120, 180), 0, 0, 128);
+        mote->text(fb, "2P RACE", 42, 44, MOTE_RGB565(120, 200, 255));
+        if (mote->link_status() == MOTE_LINK_CONNECTED)
+            mote->text(fb, "WAITING FOR PEER", 18, 58, MOTE_RGB565(120, 240, 130));
+        else {
+            mote->text(fb, "CONNECT USB CABLE", 15, 58, white);
+            mote->text(fb, "OR STUDIO LINK", 25, 67, MOTE_RGB565(140, 150, 170));
+        }
+        { int dots = ((int)(g_title_spin * 3)) % 4;
+          for (int i = 0; i < dots; i++) mote->draw_rect(fb, 56 + i * 6, 76, 3, 3, amber, 1, 0, 128); }
+        mote->text(fb, "B CANCEL", 46, 82, MOTE_RGB565(140, 150, 170));
         return;
     }
 
@@ -1339,7 +1592,7 @@ static void g_overlay(uint16_t *fb) {
     mote->draw_rect(fb, 3, 119, (int)(50 * sf), 6, sc, 1, 0, 128);   /* speed bar (no number) */
 
     mote_textf(mote, fb, 2, 2, white, "LAP %d/%d", k->lap < LAPS ? k->lap + 1 : LAPS, LAPS);
-    mote_textf(mote, fb, 2, 11, amber, "%d/%d", k->place, NKART);
+    mote_textf(mote, fb, 2, 11, amber, "%d/%d", k->place, g_nk);
 
     fmt_time(tb, k->laptime);
     mote_textf(mote, fb, 50, 2, white, "%s", tb);
@@ -1365,7 +1618,21 @@ static void g_overlay(uint16_t *fb) {
     if (g_msg_t > 0 && g_msg_id == 1)
         mote->text_2x(fb, "LAP!", 44, 30, amber);
 
-    if (g_state == ST_FINISH) {
+    if (g_state == ST_FINISH && g_link) {                 /* 2P result */
+        mote->draw_rect(fb, 14, 40, 100, 48, MOTE_RGB565(15, 18, 32), 1, 0, 128);
+        mote->draw_rect(fb, 14, 40, 100, 48, amber, 0, 0, 128);
+        const char *r = g_link_result == 1 ? "WIN!" : g_link_result == 2 ? "LOSE"
+                      : g_link_result == 3 ? "LOST" : g_link_result == 4 ? "LEFT" : 0;
+        uint16_t rc = g_link_result == 1 ? MOTE_RGB565(120, 240, 130)
+                    : g_link_result >= 2 ? MOTE_RGB565(240, 90, 90) : white;
+        if (r) mote->text_2x(fb, r, 40, 44, rc);
+        else   mote->text(fb, "WAITING FOR P2", 22, 48, white);
+        if (g_link_myfin)   { fmt_time(tb, g_my_time_ms / 1000.0f);
+            mote_textf(mote, fb, 24, 66, white, "YOU %s", tb); }
+        if (g_link_peerfin) { char tb2[8]; fmt_time(tb2, g_peer_time_ms / 1000.0f);
+            mote_textf(mote, fb, 24, 74, MOTE_RGB565(150, 200, 255), "P2  %s", tb2); }
+        mote->text(fb, "B  TITLE", 46, 82, amber);
+    } else if (g_state == ST_FINISH) {
         mote->draw_rect(fb, 14, 44, 100, 40, MOTE_RGB565(15, 18, 32), 1, 0, 128);
         mote->draw_rect(fb, 14, 44, 100, 1, amber, 1, 0, 128);
         const char *r = g_finish_place == 1 ? "1ST!" : g_finish_place == 2 ? "2ND" :
