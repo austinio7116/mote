@@ -7,9 +7,10 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
 (RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
-Current engine ABI: **v42** (textured meshes v35, streamed SFX recipes v37, key-value
+Current engine ABI: **v43** (textured meshes v35, streamed SFX recipes v37, key-value
 blob storage v38, proportional `text_font` v39, native low-fi `MoteSound` v40, indexed
-4/8-bit palette `MoteImage` v41, **2D rigid-body solver `phys2d_step` v42** — see below).
+4/8-bit palette `MoteImage` v41, 2D rigid-body solver `phys2d_step` v42, **2-player
+link `link_*` v43** — see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -211,6 +212,20 @@ mote->draw_pixel/draw_line/draw_rect/draw_circle(fb, ...);            // pass ba
 mote->blit(fb,&img,x,y, fx,fy,fw,fh, MOTE_SPR_HFLIP, 0,128);          // axis-aligned
 mote->blit_ex(fb,&img, cx,cy, fx,fy,fw,fh, angle, scale, MOTE_BLEND_ADD, 0,128); // rotate+scale
 ```
+
+**2-player link** (v43) — a raw byte pipe to a second unit (device: USB CDC dual-role
+over one USB-C cable, both units flip roles until they enumerate; host emulator: two
+instances sharing `MOTE_LINK_SOCK`, default `/tmp/mote_link.sock`):
+```c
+mote->link_start();                              // discovery; OS pumps it per frame
+if (mote->link_status() == MOTE_LINK_CONNECTED)  // OFF / SEARCHING / CONNECTED
+    if (mote->link_is_host()) ...                // exactly one side: assign white/server
+mote->link_send(msg, len);  mote->link_recv(buf, max);   // non-blocking, unframed bytes
+mote->link_stop();                               // auto-called on game exit
+```
+Frame your own messages (magic byte + type) and start with a hello exchange — a PC
+plugged in also "connects". CONNECTED can drop back to SEARCHING = disconnect. ~512 B
+RX buffer, poll every frame. Reference: `games/deepthumb` 2P LINK mode.
 
 **Save + rumble** (v23): `mote->save(slot,data,len)` / `load(slot,buf,max)` / `save_slots()`
 (survives power-off); `mote->rumble(intensity, ms)`. **Master volume** (v29):

@@ -290,3 +290,122 @@ void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), voi
     }
     closedir(d);
 }
+
+/* --- ABI v43: 2-player link — the host twin of the device's USB dual-role.
+ *
+ * Transport: a Unix stream socket at MOTE_LINK_SOCK (default /tmp/mote_link.sock).
+ * Discovery mirrors the device flip: try to connect() to a waiting peer; if
+ * nobody's there, bind+listen and wait. The listener side reports is_host=1
+ * (the analogue of winning the USB host role). Everything is non-blocking and
+ * pumped from mote_plat_link_task() once per frame. */
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+
+static int  s_lk_state;        /* MOTE_LINK_OFF/SEARCHING/CONNECTED (mote_api.h values) */
+static int  s_lk_is_host;
+static int  s_lk_fd = -1;      /* the connected pipe */
+static int  s_lk_listen = -1;  /* listener while waiting (host side) */
+static int  s_lk_bound;        /* we own the socket file (unlink on stop) */
+static char s_lk_path[108];
+
+static void lk_sock_path(struct sockaddr_un *a) {
+    if (!s_lk_path[0]) {
+        const char *p = getenv("MOTE_LINK_SOCK");
+        snprintf(s_lk_path, sizeof s_lk_path, "%s", p ? p : "/tmp/mote_link.sock");
+    }
+    memset(a, 0, sizeof *a);
+    a->sun_family = AF_UNIX;
+    snprintf(a->sun_path, sizeof a->sun_path, "%s", s_lk_path);
+}
+
+static void lk_nonblock(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK); }
+
+static void lk_close_conn(void) {
+    if (s_lk_fd >= 0) { close(s_lk_fd); s_lk_fd = -1; }
+}
+
+void mote_plat_link_start(void) {
+    if (s_lk_state != 0) return;
+    s_lk_state = 1;                       /* SEARCHING; task() does the work */
+    s_lk_is_host = 0;
+}
+
+void mote_plat_link_stop(void) {
+    lk_close_conn();
+    if (s_lk_listen >= 0) { close(s_lk_listen); s_lk_listen = -1; }
+    if (s_lk_bound) { unlink(s_lk_path); s_lk_bound = 0; }
+    s_lk_state = 0;
+    s_lk_is_host = 0;
+}
+
+void mote_plat_link_task(void) {
+    if (s_lk_state == 0) return;
+
+    if (s_lk_state == 2) {                /* connected: detect peer loss via EOF */
+        char probe;
+        ssize_t r = recv(s_lk_fd, &probe, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (r == 0) {                     /* orderly shutdown by the peer */
+            lk_close_conn();
+            s_lk_state = 1;
+            s_lk_is_host = 0;
+        }
+        return;
+    }
+
+    /* SEARCHING. Host side: poll accept. */
+    if (s_lk_listen >= 0) {
+        int c = accept(s_lk_listen, NULL, NULL);
+        if (c >= 0) {
+            lk_nonblock(c);
+            s_lk_fd = c; s_lk_is_host = 1; s_lk_state = 2;
+        }
+        return;
+    }
+
+    /* No role yet: try to connect to a waiting peer, else become the listener. */
+    struct sockaddr_un addr; lk_sock_path(&addr);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return;
+    if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) {
+        lk_nonblock(fd);
+        s_lk_fd = fd; s_lk_is_host = 0; s_lk_state = 2;
+        return;
+    }
+    close(fd);
+    /* connect refused/absent: claim the listener role. A stale socket file from
+     * a crashed run would make bind fail forever, so clear it first — but only
+     * when connect() said nobody is home (ECONNREFUSED / ENOENT). */
+    if (errno == ECONNREFUSED) unlink(addr.sun_path);
+    int lf = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (lf < 0) return;
+    if (bind(lf, (struct sockaddr *)&addr, sizeof addr) == 0 && listen(lf, 1) == 0) {
+        lk_nonblock(lf);
+        s_lk_listen = lf; s_lk_bound = 1;
+    } else {
+        close(lf);   /* EADDRINUSE: the peer just bound — connect() next frame */
+    }
+}
+
+int mote_plat_link_status(void)  { return s_lk_state; }
+int mote_plat_link_is_host(void) { return s_lk_state == 2 ? s_lk_is_host : 0; }
+
+int mote_plat_link_send(const void *data, int len) {
+    if (s_lk_state != 2 || len <= 0) return 0;
+    ssize_t w = send(s_lk_fd, data, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (w < 0) {
+        if (errno == EPIPE || errno == ECONNRESET) { lk_close_conn(); s_lk_state = 1; }
+        return 0;
+    }
+    return (int)w;
+}
+
+int mote_plat_link_recv(void *buf, int max) {
+    if (s_lk_state != 2 || max <= 0) return 0;
+    ssize_t r = recv(s_lk_fd, buf, (size_t)max, MSG_DONTWAIT);
+    if (r > 0) return (int)r;
+    if (r == 0) { lk_close_conn(); s_lk_state = 1; s_lk_is_host = 0; }   /* EOF */
+    return 0;
+}

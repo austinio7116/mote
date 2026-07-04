@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v42</span>
+    <span class="abi">ABI v43</span>
     <div style="margin-top:8px"><a href="games.html" style="color:#7c5cff;font-weight:600;text-decoration:none">&#127918; Games gallery &rarr;</a></div>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
@@ -1157,6 +1157,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v40</td><td><a href="#ty-motesound"><code>MoteSound</code></a> carries a sample rate + bit depth — clips stored at native (lower) quality, resampled at playback; an 8-bit/11025&nbsp;Hz SFX costs ~1/4 the flash. Struct-extend only; legacy <code>{pcm,count}</code> headers unchanged.</td></tr>
 <tr><td>v41</td><td><a href="#ty-moteimage"><code>MoteImage</code></a> gains 4-/8-bit palette-indexed formats — low-colour textures at 1/4 or 1/2 the flash on every texture path; bakers emit indexed automatically + losslessly (≤256 colours). Struct-extend only.</td></tr>
 <tr><td>v42</td><td><a href="#fn-phys2d_step"><code>phys2d_step</code></a> — 2D top-down rigid-body solver (<a href="#ty-motebody2d"><code>MoteBody2D</code></a>/<a href="#ty-moteworld2d"><code>MoteWorld2D</code></a>): circles + oriented boxes, spin from off-centre impacts, collision masks, sensors, tyre-grip lateral friction.</td></tr>
+<tr><td>v43</td><td>2-player link: <code>link_start/stop/status/is_host/send/recv</code> — a raw byte pipe to a second unit. Device: USB CDC dual-role over one USB-C cable (both units flip device/host roles until one enumerates the other); host emulator: a local socket (<code>MOTE_LINK_SOCK</code>) between two instances. The link host (<code>link_is_host()==1</code>) plays the symmetry-breaking role. First game: DeepThumb’s 2P LINK mode.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

@@ -1734,6 +1734,35 @@ it whenever). The async LCD flush overlaps the wait, so capping costs no extra l
 static int armed; if (!armed) { armed = 1; mote->set_fps_limit(30); }
 ```
 
+#### 2-player link — `link_start/stop/status/is_host/send/recv` *(ABI v43)*
+A raw byte pipe to a **second unit**. On device the transport is USB: both units run
+the same discovery, flipping randomly between USB **device** and USB **host** roles
+until one enumerates the other over a single USB-C cable (the proven TinyCircuits
+engine_link scheme — no PC in the middle). On the host emulator it's a local socket:
+run two instances with the same `MOTE_LINK_SOCK` (default `/tmp/mote_link.sock`) and
+they find each other, so 2P games are testable headlessly on one machine.
+
+```c
+mote->link_start();                          /* begin discovery (the OS pumps it) */
+if (mote->link_status() == MOTE_LINK_CONNECTED) {
+    if (mote->link_is_host()) { /* exactly one side: assign white / be the server */ }
+    uint8_t msg[5] = { 0xA5, 'M', from, to, promo };
+    mote->link_send(msg, 5);                 /* returns bytes queued (0 if full/off) */
+    uint8_t buf[32]; int n = mote->link_recv(buf, sizeof buf);   /* non-blocking */
+}
+mote->link_stop();                           /* also called for you on game exit */
+```
+
+- `link_status()` → `MOTE_LINK_OFF` / `MOTE_LINK_SEARCHING` / `MOTE_LINK_CONNECTED`.
+  A lost cable drops back to SEARCHING — treat it as a disconnect.
+- The pipe is **unframed bytes**: define a tiny message format (magic byte + type) and
+  start with a hello exchange, so a PC or stray CDC peer can't be mistaken for the
+  other player. The engine buffers ~512 B of RX — poll every frame.
+- While the link is started it owns the device's USB controller; the CLI/log channel
+  yields and returns when the link stops.
+- Reference game: **DeepThumb**'s `2P LINK` mode (`games/deepthumb`) — hello handshake,
+  host-plays-white, 5-byte move messages, disconnect + quit handling.
+
 ### 5.8 — The helper layer (`mote_build.h`, header-only)
 
 These have **no ABI cost** (they compile into your module). The mesh builders take

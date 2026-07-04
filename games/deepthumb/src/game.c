@@ -19,6 +19,11 @@
  *   MENU   pause menu         LB (2D)  undo
  *   3D camera (hold a shoulder): LB + L/R = turn, LB + U/D = zoom,
  *                                RB + dir = PAN, LB+RB + U/D = tilt
+ *
+ * 2-player USB link (ABI v43): pick OPP: 2P LINK in the setup screen on both
+ * units, connect them with a USB-C cable (host emulator: two instances share
+ * MOTE_LINK_SOCK), and the link host plays white. Moves are 5-byte framed
+ * messages; undo/save are disabled in link games.
  */
 #include "mote_api.h"
 #include "mote_build.h"
@@ -78,7 +83,20 @@ static const char *diff_names[5] = { "BEGINNER", "EASY", "MEDIUM", "HARD", "EXPE
 #define NUM_DIFF 5
 
 /* game states */
-enum { ST_TITLE, ST_SETUP, ST_PLAYER, ST_AI, ST_OVER };
+enum { ST_TITLE, ST_SETUP, ST_PLAYER, ST_AI, ST_OVER, ST_LINK, ST_REMOTE };
+
+/* opponent */
+enum { OPP_AI, OPP_LINK };
+
+/* results (game.result) */
+enum { RES_NONE, RES_MATE, RES_STALE, RES_LINK_LOST, RES_OPP_LEFT };
+
+/* link wire protocol: every message starts with the magic byte, then a type.
+ *   0xA5 'H' proto      — hello (sent on connect; both sides must see it)
+ *   0xA5 'M' from to pr — a move in chal 0x88 squares + promo piece
+ *   0xA5 'Q'            — orderly quit (peer went back to the menu)          */
+#define LK_MAGIC 0xA5
+#define LK_PROTO 1
 
 /* pause menu */
 enum { PAUSE_RESUME, PAUSE_SOUND, PAUSE_EVAL, PAUSE_BOARD, PAUSE_SAVE, PAUSE_QUIT, PAUSE_COUNT };
@@ -103,9 +121,15 @@ typedef struct {
     int pause_cursor;
     int move_count;
     int title_init_done;
+    int opponent;           /* OPP_AI / OPP_LINK */
 } Game;
 
 static Game game;
+
+/* link session state */
+static int     lk_sent_hello, lk_got_hello;
+static uint8_t lk_msg[8];        /* partial inbound message */
+static int     lk_msg_len;
 
 /* legal-move scratch */
 static chal_move_info_t legal_moves[256];
@@ -343,6 +367,7 @@ static void play_sound(const MoteSound *snd) {
 }
 
 static void do_undo(void) {
+    if (game.opponent == OPP_LINK) return;   /* no undo in a 2P link game */
     if (game.move_count < 2) return;
     if (chal_undo_move_api()) game.move_count--;
     if (chal_undo_move_api()) game.move_count--;
@@ -350,6 +375,82 @@ static void do_undo(void) {
     n_targets = 0;
     game.has_last_move = 0;
     update_eval();
+}
+
+/* ============================================================ 2P link */
+static int link_ok(void) { return mote->abi_version >= 43; }
+
+static void lk_send_bye(void)   { uint8_t m[2] = { LK_MAGIC, 'Q' }; mote->link_send(m, 2); }
+static void lk_send_hello(void) { uint8_t m[3] = { LK_MAGIC, 'H', LK_PROTO }; mote->link_send(m, 3); }
+static void lk_send_move(int from, int to, int promo) {
+    uint8_t m[5] = { LK_MAGIC, 'M', (uint8_t)from, (uint8_t)to, (uint8_t)promo };
+    mote->link_send(m, 5);
+}
+
+static void link_game_end(int res) {     /* connection-shaped endings */
+    game.result = res;
+    game.winner_is_white = -1;
+    game.paused = 0;
+    mote->link_stop();
+    enter_state(ST_OVER);
+}
+
+static void quit_link_to_title(void) {
+    lk_send_bye();
+    mote->link_stop();
+    game.title_init_done = 0;
+    enter_state(ST_TITLE);
+}
+
+static void apply_remote_move(int from, int to, int promo) {
+    int to_rank = 7 - (to >> 4),   to_file = to & 7;
+    int fr_rank = 7 - (from >> 4), fr_file = from & 7;
+    int is_capture  = (chal_get_piece(to_rank, to_file) & 7) != CHAL_EMPTY;
+    int moving_type = chal_get_piece(fr_rank, fr_file) & 7;
+    if (!chal_play_move(from, to, promo)) {  /* desync — should never happen */
+        link_game_end(RES_LINK_LOST);
+        return;
+    }
+    game.has_last_move = 1;
+    game.last_from_rank = fr_rank; game.last_from_file = fr_file;
+    game.last_to_rank   = to_rank; game.last_to_file   = to_file;
+    game.move_count++;
+    if (is_capture)                    play_sound(&sfx_take_snd);
+    else if (moving_type == CHAL_PAWN) play_sound(&sfx_pawn_snd);
+    else                               play_sound(&sfx_move_snd);
+    update_eval();
+    check_game_end();
+    if (game.state != ST_OVER) enter_state(ST_PLAYER);
+}
+
+/* Drain inbound bytes into framed messages and dispatch them. */
+static void poll_link(void) {
+    uint8_t chunk[32];
+    int n;
+    while ((n = mote->link_recv(chunk, (int)sizeof chunk)) > 0) {
+        for (int i = 0; i < n; i++) {
+            uint8_t b = chunk[i];
+            if (lk_msg_len == 0) {
+                if (b == LK_MAGIC) lk_msg[lk_msg_len++] = b;   /* else: resync junk */
+                continue;
+            }
+            lk_msg[lk_msg_len++] = b;
+            int type = lk_msg[1];
+            int want = (type == 'M') ? 5 : (type == 'H') ? 3 : (type == 'Q') ? 2 : -1;
+            if (want < 0) { lk_msg_len = 0; continue; }        /* unknown: resync */
+            if (lk_msg_len < want) continue;
+            lk_msg_len = 0;
+            if (type == 'H') {
+                lk_got_hello = 1;                              /* in-game repeats: harmless */
+            } else if (type == 'Q') {
+                if (game.state == ST_PLAYER || game.state == ST_REMOTE)
+                    link_game_end(RES_OPP_LEFT);
+            } else if (type == 'M') {
+                if (game.state == ST_REMOTE)
+                    apply_remote_move(lk_msg[2], lk_msg[3], lk_msg[4]);
+            }
+        }
+    }
 }
 
 /* ============================================================ save/load */
@@ -406,6 +507,8 @@ static void do_player_select(void) {
             int moving_type = chal_get_piece(game.sel_rank, game.sel_file) & 7;
             int is_capture  = (chal_get_piece(game.cursor_rank, game.cursor_file) & 7) != CHAL_EMPTY;
             if (chal_play_move(from_sq, to_sq, promo)) {
+                if (game.opponent == OPP_LINK)     /* peer needs it even if it mates */
+                    lk_send_move(from_sq, to_sq, promo);
                 if (is_capture)                    play_sound(&sfx_take_snd);
                 else if (moving_type == CHAL_PAWN) play_sound(&sfx_pawn_snd);
                 else                               play_sound(&sfx_move_snd);
@@ -419,7 +522,8 @@ static void do_player_select(void) {
                 game.move_count++;
                 update_eval();
                 check_game_end();
-                if (game.state != ST_OVER) enter_state(ST_AI);
+                if (game.state != ST_OVER)
+                    enter_state(game.opponent == OPP_LINK ? ST_REMOTE : ST_AI);
                 return;
             }
         }
@@ -525,7 +629,9 @@ static void draw_pause_menu(void) {
         int y = 31 + i * 13;
         uint16_t color = (i == game.pause_cursor) ? C_WHITE : C_DIM;
         if (i == game.pause_cursor) fill(18, y - 1, 92, 11, C_HL);
-        text(24, y, items[i], color);
+        /* no saving a 2P link game */
+        const char *label = (i == PAUSE_SAVE && game.opponent == OPP_LINK) ? "-" : items[i];
+        text(24, y, label, color);
         if (vals[i][0]) text(84, y, vals[i], C_GREEN);
     }
 }
@@ -542,8 +648,9 @@ static int handle_pause_menu(const MoteInput *in) {   /* returns 1 -> leave to t
             case PAUSE_SOUND:  game.sound_on = !game.sound_on; break;
             case PAUSE_EVAL:   game.show_eval_bar = !game.show_eval_bar; break;
             case PAUSE_BOARD:  game.board_3d = !game.board_3d; reset_camera(); break;
-            case PAUSE_SAVE:   save_game(); return 1;
-            case PAUSE_QUIT:   clear_save(); return 1;
+            case PAUSE_SAVE:   if (game.opponent == OPP_LINK) break;   /* no save in 2P */
+                               save_game(); return 1;
+            case PAUSE_QUIT:   if (game.opponent != OPP_LINK) clear_save(); return 1;
         }
     }
     if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B))
@@ -563,16 +670,28 @@ static void logic_title(const MoteInput *in) {
 }
 
 static void logic_setup(const MoteInput *in) {
-    if (mote_just_pressed(in, MOTE_BTN_UP))
-        game.difficulty = (game.difficulty + 1) % NUM_DIFF;
-    if (mote_just_pressed(in, MOTE_BTN_DOWN))
-        game.difficulty = (game.difficulty + NUM_DIFF - 1) % NUM_DIFF;
-    if (mote_just_pressed(in, MOTE_BTN_LEFT)  || mote_just_pressed(in, MOTE_BTN_RIGHT) ||
-        mote_just_pressed(in, MOTE_BTN_LB)    || mote_just_pressed(in, MOTE_BTN_RB)) {
-        game.player_is_white = !game.player_is_white;
-        chal_new_game();
+    if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT)) {
+        if (link_ok())                       /* old OS: no link ABI, stay vs AI */
+            game.opponent = (game.opponent == OPP_AI) ? OPP_LINK : OPP_AI;
+    }
+    if (game.opponent == OPP_AI) {
+        if (mote_just_pressed(in, MOTE_BTN_UP))
+            game.difficulty = (game.difficulty + 1) % NUM_DIFF;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))
+            game.difficulty = (game.difficulty + NUM_DIFF - 1) % NUM_DIFF;
+        if (mote_just_pressed(in, MOTE_BTN_LB) || mote_just_pressed(in, MOTE_BTN_RB)) {
+            game.player_is_white = !game.player_is_white;
+            chal_new_game();
+        }
     }
     if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (game.opponent == OPP_LINK) {     /* sides are assigned by the link */
+            mote->link_start();
+            lk_sent_hello = lk_got_hello = 0;
+            lk_msg_len = 0;
+            enter_state(ST_LINK);
+            return;
+        }
         chal_new_game();
         game.cursor_file = 4;
         game.cursor_rank = game.player_is_white ? 6 : 1;
@@ -584,6 +703,45 @@ static void logic_setup(const MoteInput *in) {
         reset_camera();
         update_eval();
         enter_state(is_player_turn() ? ST_PLAYER : ST_AI);
+    }
+}
+
+/* waiting for the cable/peer: pump the handshake */
+static void logic_link(const MoteInput *in) {
+    game.think_frame++;
+    if (mote->link_status() != MOTE_LINK_CONNECTED) {
+        lk_sent_hello = lk_got_hello = 0;    /* (re)connect restarts the handshake */
+        lk_msg_len = 0;
+    } else {
+        /* Repeat HELLO ~2x/s: the peer's link may start (and clear its buffer)
+         * after ours, so a single hello can be lost. */
+        if (!lk_sent_hello || (game.think_frame % 30) == 0) {
+            lk_send_hello();
+            lk_sent_hello = 1;
+        }
+        poll_link();
+        if (lk_got_hello) {
+            lk_send_hello();                 /* peer's link is live now — make sure
+                                              * it has one hello from us, then go */
+            game.player_is_white = mote->link_is_host();  /* host plays white */
+            chal_new_game();
+            game.cursor_file = 4;
+            game.cursor_rank = game.player_is_white ? 6 : 1;
+            game.selected = 0;
+            n_targets = 0;
+            game.has_last_move = 0;
+            game.result = 0;
+            game.move_count = 0;
+            reset_camera();
+            update_eval();
+            play_sound(&sfx_move_snd);
+            enter_state(is_player_turn() ? ST_PLAYER : ST_REMOTE);
+            return;
+        }
+    }
+    if (mote_just_pressed(in, MOTE_BTN_B)) {
+        mote->link_stop();
+        enter_state(ST_SETUP);
     }
 }
 
@@ -616,8 +774,16 @@ static void camera_control(const MoteInput *in, float dt, int lb, int rb) {
 
 static void logic_player(const MoteInput *in, float dt) {
     if (game.paused) {
-        if (handle_pause_menu(in)) { game.title_init_done = 0; enter_state(ST_TITLE); }
+        if (handle_pause_menu(in)) {
+            if (game.opponent == OPP_LINK) { quit_link_to_title(); return; }
+            game.title_init_done = 0; enter_state(ST_TITLE);
+        }
         return;
+    }
+    if (game.opponent == OPP_LINK) {
+        if (mote->link_status() != MOTE_LINK_CONNECTED) { link_game_end(RES_LINK_LOST); return; }
+        poll_link();                              /* catch the peer's 'Q' */
+        if (game.state != ST_PLAYER) return;
     }
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
         game.paused = 1;
@@ -676,8 +842,29 @@ static void logic_ai(void) {
     if (game.state != ST_OVER) enter_state(ST_PLAYER);
 }
 
+/* opponent's move over the link: wait for it (MENU still pauses) */
+static void logic_remote(const MoteInput *in, float dt) {
+    if (game.paused) {
+        if (handle_pause_menu(in)) { quit_link_to_title(); }
+        return;
+    }
+    if (mote->link_status() != MOTE_LINK_CONNECTED) { link_game_end(RES_LINK_LOST); return; }
+    poll_link();                                  /* applies the move -> ST_PLAYER */
+    if (game.state != ST_REMOTE) return;
+    if (mote_just_pressed(in, MOTE_BTN_MENU)) {
+        game.paused = 1;
+        game.pause_cursor = 0;
+        return;
+    }
+    int lb = mote_pressed(in, MOTE_BTN_LB), rb = mote_pressed(in, MOTE_BTN_RB);
+    if (game.board_3d && (lb || rb))              /* free camera while waiting */
+        camera_control(in, dt, lb, rb);
+    game.think_frame++;
+}
+
 static void logic_over(const MoteInput *in) {
     if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (game.opponent == OPP_LINK) mote->link_stop();   /* natural game end */
         game.title_init_done = 0;
         enter_state(ST_TITLE);
     }
@@ -698,36 +885,68 @@ static void draw_title(void) {
 }
 
 static void draw_setup(void) {
+    int link = game.opponent == OPP_LINK;
     draw_board_backdrop();
     darken();
     fill(6, 8, 116, 112, C_BG);
     outline(6, 8, 116, 112, C_DIM);
     text(30, 12, "NEW GAME", C_WHITE);
     for (int x = 12; x < 116; x++) px(x, 21, C_DIM);
-    text(12, 25, "ENGINE", C_DIM);
-    text(55, 25, "CHAL", C_WHITE);
+    text(12, 25, "OPP", C_DIM);
+    text(55, 25, link ? "2P LINK" : "CHAL AI", C_WHITE);
     text(12, 35, "SIDE", C_DIM);
-    text(55, 35, game.player_is_white ? "WHITE" : "BLACK", C_WHITE);
-    draw_piece_at(102, 31, game.player_is_white ? CHAL_KING : ((CHAL_BLACK << 3) | CHAL_KING));
+    text(55, 35, link ? "BY LINK" : (game.player_is_white ? "WHITE" : "BLACK"), link ? C_DIM : C_WHITE);
+    if (!link)
+        draw_piece_at(102, 31, game.player_is_white ? CHAL_KING : ((CHAL_BLACK << 3) | CHAL_KING));
     text(12, 45, "LEVEL", C_DIM);
-    text(55, 45, diff_names[game.difficulty], C_WHITE);
+    text(55, 45, link ? "-" : diff_names[game.difficulty], link ? C_DIM : C_WHITE);
     text(12, 55, "ELO", C_DIM);
-    text(55, 55, chal_elo[game.difficulty], C_GREEN);
+    text(55, 55, link ? "-" : chal_elo[game.difficulty], link ? C_DIM : C_GREEN);
     for (int x = 12; x < 116; x++) px(x, 65, C_DIM);
-    text(12, 69, "UP/DN  LEVEL", C_DIM);
-    text(12, 78, "LT/RT  SIDE", C_DIM);
+    text(12, 69, "LT/RT  OPPONENT", C_DIM);
+    if (!link) {
+        text(12, 78, "UP/DN  LEVEL", C_DIM);
+        text(12, 87, "LB/RB  SIDE", C_DIM);
+    } else {
+        text(12, 78, "LINK HOST PLAYS", C_DIM);
+        text(12, 87, "WHITE", C_DIM);
+    }
     fill(28, 100, 72, 14, C_HL);
     outline(28, 100, 72, 14, C_WHITE);
-    text(38, 104, "A: PLAY", C_WHITE);
+    text(38, 104, link ? "A: LINK" : "A: PLAY", C_WHITE);
+}
+
+static void draw_link_wait(void) {
+    draw_board_backdrop();
+    darken();
+    fill(10, 34, 108, 60, C_BG);
+    outline(10, 34, 108, 60, C_DIM);
+    text(42, 40, "2P LINK", C_WHITE);
+    int connected = mote->link_status() == MOTE_LINK_CONNECTED;
+    if (connected) {
+        text(18, 56, "WAITING FOR PEER", C_GREEN);
+    } else {
+        text(15, 56, "CONNECT USB CABLE", C_WHITE);
+        text(19, 66, "TO A SECOND UNIT", C_DIM);
+    }
+    int dots = (game.think_frame / 20) % 4;      /* searching animation */
+    for (int i = 0; i < dots; i++) fill(56 + i * 6, 76, 3, 3, C_CURSOR);
+    text(34, 84, "B: CANCEL", C_DIM);
 }
 
 static void draw_over_box(void) {
     fill(14, 42, 100, 44, C_BG);
     outline(14, 42, 100, 44, C_WHITE);
-    if (game.result == 1) {
+    if (game.result == RES_MATE) {
         text(27, 48, "CHECKMATE!", C_WHITE);
         if (game.winner_is_white == game.player_is_white) text(33, 58, "YOU WIN!", C_GREEN);
         else                                              text(30, 58, "YOU LOSE!", C_RED);
+    } else if (game.result == RES_LINK_LOST) {
+        text(33, 48, "LINK LOST", C_RED);
+        text(19, 58, "CABLE DISCONNECTED", C_DIM);
+    } else if (game.result == RES_OPP_LEFT) {
+        text(19, 48, "OPPONENT LEFT", C_WHITE);
+        text(28, 58, "GAME ENDED", C_DIM);
     } else {
         text(33, 48, "STALEMATE", C_WHITE);
         text(40, 58, "DRAW", C_DIM);
@@ -768,15 +987,20 @@ static void g_init(void) {
 }
 
 static void g_update(float dt) {
+    mote->set_fps_limit(30);   /* plenty for chess; keeps host/device pacing alike
+                                * (set from update — the OS resets it after init) */
     const MoteInput *in = mote->input();
     switch (game.state) {
         case ST_TITLE:  logic_title(in);      break;
         case ST_SETUP:  logic_setup(in);      break;
         case ST_PLAYER: logic_player(in, dt); break;
         case ST_AI:     logic_ai();           break;
+        case ST_LINK:   logic_link(in);       break;
+        case ST_REMOTE: logic_remote(in, dt); break;
         case ST_OVER:   logic_over(in);       break;
     }
-    if (game.board_3d && (game.state == ST_PLAYER || game.state == ST_AI || game.state == ST_OVER))
+    if (game.board_3d && (game.state == ST_PLAYER || game.state == ST_AI ||
+                          game.state == ST_REMOTE || game.state == ST_OVER))
         submit_3d();
 }
 
@@ -796,6 +1020,15 @@ static void g_overlay(uint16_t *fb) {
             if (!game.board_3d) draw_board();
             fill(0, SCREEN_H - 10, SCREEN_W, 10, C_BG);
             text(30, SCREEN_H - 9, "THINKING...", C_WHITE);
+            break;
+        case ST_LINK: draw_link_wait(); break;
+        case ST_REMOTE:
+            if (!game.board_3d) draw_board();
+            draw_eval_bar();
+            if (!game.paused) {
+                fill(0, SCREEN_H - 10, SCREEN_W, 10, C_BG);
+                text(27, SCREEN_H - 9, "OPPONENT...", C_WHITE);
+            } else { darken(); draw_pause_menu(); }
             break;
         case ST_OVER:
             if (!game.board_3d) draw_board();

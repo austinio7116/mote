@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+**Two players, one cable.** Engine ABI **v42 → v43**: a 2-player link — reflash both
+units to use it.
+
+### Engine (ABI v43 — reflash firmware)
+- **2-player link**: `link_start/stop/status/is_host/send/recv` — a raw byte pipe to a
+  second unit. On device it's USB CDC **dual-role**: both units flip randomly between
+  USB device and USB host roles until one enumerates the other over a single USB-C
+  cable (the proven TinyCircuits engine_link scheme). On the host emulator it's a local
+  socket — run two instances with the same `MOTE_LINK_SOCK` and they connect, so 2P is
+  testable headlessly on one machine. `link_is_host()` is 1 on exactly one side (use it
+  to assign white / server). While started, the link owns the USB controller; the
+  CLI/log channel yields and returns on `link_stop` (also called on game exit).
+- RAM cost on device: the TinyUSB host stack adds ~2 KB net (paid for by trimming the
+  unused OS heap) — the **277 KB game arena and the module boundary are unchanged**.
+
+### Games
+- **DeepThumb 2P LINK**: pick `OPP: 2P LINK` on both units in the setup screen, connect
+  the cable, and the link host plays white. Hello handshake (a PC can't be mistaken for
+  an opponent), 5-byte move messages, disconnect ("LINK LOST") and quit ("OPPONENT
+  LEFT") handling; undo/save are disabled in link games. Also now paces itself at 30 fps.
+
 ## 0.14-alpha
 
 **The model editor grows up.** Multi-part models are first-class - a parts list with

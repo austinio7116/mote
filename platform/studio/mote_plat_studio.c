@@ -163,3 +163,15 @@ void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), voi
     }
     closedir(d);
 }
+
+/* --- ABI v43: 2-player link — no transport in the Studio preview. A game that
+ * starts the link just sees SEARCHING forever (its "waiting for opponent"
+ * screen); test real 2P with two `mote run` instances (MOTE_LINK_SOCK). */
+static int s_lk_started;
+void mote_plat_link_start(void)  { s_lk_started = 1; }
+void mote_plat_link_stop(void)   { s_lk_started = 0; }
+void mote_plat_link_task(void)   { }
+int  mote_plat_link_status(void) { return s_lk_started ? 1 : 0; }
+int  mote_plat_link_is_host(void){ return 0; }
+int  mote_plat_link_send(const void *data, int len) { (void)data; (void)len; return 0; }
+int  mote_plat_link_recv(void *buf, int max)        { (void)buf;  (void)max; return 0; }

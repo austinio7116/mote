@@ -16,6 +16,16 @@
 #include <string.h>
 #include <stdio.h>
 
+/* While the 2-player link is started it owns the USB controller — this channel
+ * must neither pump tud/protocol (it would eat the game's link bytes) nor
+ * write log lines into the pipe the peer is reading. */
+#if MOTE_LINK_USB
+#include "mote_link.h"
+#define LINK_OWNS_USB() mote_link_active()
+#else
+#define LINK_OWNS_USB() 0
+#endif
+
 #define MOTE_USB_PROTO 1
 
 /* ---- descriptors ---------------------------------------------------- */
@@ -134,6 +144,7 @@ void mote_usb_logs_set(int on) {
 /* Stream a log line to the host. Non-blocking: if no host is reading, the FIFO
  * fills and the write is dropped — never stalls a frame. */
 void mote_usb_log(const char *s) {
+    if (LINK_OWNS_USB()) return;
 #if MOTE_USB_GATED
     if (!s_logs_on) return;
 #endif
@@ -168,6 +179,7 @@ static void handle_line(const char *cmd) {
     /* No game library in the runner — push/list/launch are lobby-only. */
 }
 void mote_usb_task(void) {
+    if (LINK_OWNS_USB()) return;     /* the 2P link owns the controller */
 #if MOTE_USB_GATED
     if (!s_logs_on) return;          /* off → zero USB work during play */
 #endif
@@ -212,6 +224,7 @@ static void handle_line(const char *cmd) {
     }
 }
 void mote_usb_task(void) {
+    if (LINK_OWNS_USB()) return;     /* the 2P link owns the controller */
     tud_task();
     if (s_rx_active) {
         while (s_put_got < s_put_size && tud_cdc_available()) {
@@ -259,6 +272,7 @@ static void handle_line(const char *cmd) {
     }
 }
 void mote_usb_task(void) {
+    if (LINK_OWNS_USB()) return;     /* the 2P link owns the controller */
     tud_task();
     if (s_rx_active) {
         while (s_put_got < s_put_size && tud_cdc_available()) {

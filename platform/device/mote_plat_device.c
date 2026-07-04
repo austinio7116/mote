@@ -43,7 +43,33 @@ extern int  mote_usb_take_launch(void);
 extern void mote_usb_log(const char *s);
 #endif
 
+/* 2-player USB link (os/device/mote_link.c) — only the game-running shapes
+ * (runner + standalone) compile it; elsewhere it's a permanently-off stub. */
+#if MOTE_LINK_USB
+#include "../../os/device/mote_link.h"
+#else
+static inline void mote_link_start(void) {}
+static inline void mote_link_stop(void) {}
+static inline void mote_link_task(void) {}
+static inline int  mote_link_status(void) { return 0; }
+static inline int  mote_link_is_host(void) { return 0; }
+static inline int  mote_link_send(const void *d, int n) { (void)d; (void)n; return 0; }
+static inline int  mote_link_recv(void *b, int n) { (void)b; (void)n; return 0; }
+#endif
+
+/* USB service point: the system CDC channel and the 2P link share it (the
+ * task functions arbitrate ownership between themselves). */
+static inline void usb_service(void) { mote_usb_task(); mote_link_task(); }
+
 void mote_plat_log(const char *s) { mote_usb_log(s); }
+
+void mote_plat_link_start(void)  { mote_link_start(); }
+void mote_plat_link_stop(void)   { mote_link_stop(); }
+void mote_plat_link_task(void)   { mote_link_task(); }
+int  mote_plat_link_status(void) { return mote_link_status(); }
+int  mote_plat_link_is_host(void){ return mote_link_is_host(); }
+int  mote_plat_link_send(const void *data, int len) { return mote_link_send(data, len); }
+int  mote_plat_link_recv(void *buf, int max)        { return mote_link_recv(buf, max); }
 
 static void rumble_init(void);   /* defined below; called from mote_plat_init */
 
@@ -144,21 +170,21 @@ int mote_plat_init(const char *title) {
 }
 
 void mote_plat_present(const uint16_t *fb565) {
-    mote_usb_task();
+    usb_service();
     mote_lcd_present(fb565);                /* wait prior + kick new */
     /* Service USB continuously during the flush instead of starving tud_task. */
-    while (mote_lcd_busy()) mote_usb_task();
+    while (mote_lcd_busy()) usb_service();
 }
 
 /* Overlapped path: kick the flush and return — the next update() overlaps it. */
 void mote_plat_present_async(const uint16_t *fb565) {
-    mote_usb_task();           /* keep CDC serviced at least once per frame */
+    usb_service();             /* keep CDC + link serviced at least once per frame */
     mote_lcd_kick(fb565);
 }
 
 uint32_t mote_plat_wait_flush(void) {
     uint64_t t0 = to_us_since_boot(get_absolute_time());
-    while (mote_lcd_busy()) mote_usb_task();   /* finish the in-flight flush */
+    while (mote_lcd_busy()) usb_service();     /* finish the in-flight flush */
     return (uint32_t)(to_us_since_boot(get_absolute_time()) - t0);
 }
 

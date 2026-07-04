@@ -33,7 +33,10 @@
 #include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 42u  /* v42: 2D rigid-body solver — phys2d_step + MoteBody2D/MoteWorld2D
+#define MOTE_ABI_VERSION 43u  /* v43: 2-player link — link_start/stop/status/is_host/send/recv.
+                               * Device: USB CDC dual-role (two units, one C-to-C cable);
+                               * host emulator: a local socket (MOTE_LINK_SOCK). */
+#define MOTE_ABI_V42_NOTE  /* v42: 2D rigid-body solver — phys2d_step + MoteBody2D/MoteWorld2D
                                * (engine/physics/mote_phys2d). Appended one jump-table entry. */
 #define MOTE_ABI_V41_NOTE  /* v41: MoteImage gains an optional 4-/8-bit palette-indexed format
                                * (texture flash 1/4 or 1/2 of RGB565, decoded by a palette lookup at
@@ -44,6 +47,11 @@
                                * — and the mixer resamples/expands it at playback. Cuts flash ~4x for
                                * 8-bit/11025 SFX. No jump-table change; the struct grew (old
                                * {pcm,count} headers zero the new fields = 16-bit/22050, unchanged). */
+
+/* link_status() values (ABI v43). */
+#define MOTE_LINK_OFF        0   /* link not started */
+#define MOTE_LINK_SEARCHING  1   /* looking for a peer */
+#define MOTE_LINK_CONNECTED  2   /* byte pipe to the peer is up */
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -438,6 +446,38 @@ typedef struct MoteApi {
      * contact pool is arena-sized by config.max_bodies/max_contacts (like the 3D
      * solver). See mote_phys2d.h. Returns contacts resolved on the last substep. */
     uint32_t (*phys2d_step)(MoteWorld2D *w, MoteBody2D *b, int n, float dt);
+
+    /* --- ABI v43: 2-player LINK — a raw byte pipe to a second unit.
+     *
+     * On device the transport is USB: both units run the same discovery, flipping
+     * randomly between USB device and USB host roles until one enumerates the
+     * other over a single USB-C cable (the TinyCircuits engine_link scheme). On
+     * the host emulator it is a local socket (MOTE_LINK_SOCK, default
+     * /tmp/mote_link.sock) so two emulator instances can play each other.
+     *
+     *   link_start():  begin discovery. The OS pumps the transport every frame.
+     *   link_stop():   drop the link and return USB to the system (CLI/logs).
+     *                  The OS also stops it automatically when the game exits.
+     *   link_status(): MOTE_LINK_OFF / SEARCHING / CONNECTED. A lost cable drops
+     *                  back to SEARCHING — treat that as a disconnect.
+     *   link_is_host():valid while connected: 1 on exactly one side (the USB
+     *                  host / socket listener). Use it to break symmetry — who
+     *                  plays white, who is the server.
+     *   link_send():   queue up to `len` bytes; returns bytes accepted (may be
+     *                  short if the FIFO is full; 0 when not connected).
+     *   link_recv():   read up to `max` received bytes; returns the count (0 if
+     *                  none). Non-blocking. The engine buffers ~512 B — poll it
+     *                  every frame.
+     *
+     * The pipe is unframed bytes: define your own tiny message format and start
+     * with a hello/magic exchange so a PC or a stray CDC peer can't be mistaken
+     * for the other player. */
+    void (*link_start)(void);
+    void (*link_stop)(void);
+    int  (*link_status)(void);
+    int  (*link_is_host)(void);
+    int  (*link_send)(const void *data, int len);
+    int  (*link_recv)(void *buf, int max);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

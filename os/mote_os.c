@@ -110,6 +110,13 @@ void mote_api_fill(MoteApi *a) {
     a->text_2x               = mote_font_draw_2x;
     a->text_font             = mote_font_draw_aa;   /* ABI v39: AA proportional fonts */
     a->phys2d_step           = mote_phys2d_step;     /* ABI v42: 2D rigid-body solver */
+    /* ABI v43: 2-player link (device: USB dual-role; host: local socket). */
+    a->link_start            = mote_plat_link_start;
+    a->link_stop             = mote_plat_link_stop;
+    a->link_status           = mote_plat_link_status;
+    a->link_is_host          = mote_plat_link_is_host;
+    a->link_send             = mote_plat_link_send;
+    a->link_recv             = mote_plat_link_recv;
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
@@ -294,6 +301,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         mote_input_update(&in, &raw, (uint32_t)(dt * 1000.0f));
         s_cur_input = &in;
         mote_plat_audio_pump();        /* keep the audio buffer fed (device) */
+        mote_plat_link_task();         /* pump link discovery/transfer (no-op when off) */
 
         /* Engine menu: a 3-second SOLO hold of MENU (no other button) opens it.
          * Short taps, sub-3s long presses, and MENU chords stay free for games. */
@@ -375,6 +383,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
             if (want > t) mote_plat_sleep_us((uint32_t)(want - t));
         }
     }
+    mote_plat_link_stop();     /* drop any 2P link — return USB to the system channel */
     mote_audio_set_stream(0);  /* drop the game's PCM stream — its code is about to be unloaded */
     mote_audio_sfx_clear();    /* stop recipe voices — they point at the game's flash, about to unmap */
     mote_audio_off();         /* don't let notes ring into the launcher */

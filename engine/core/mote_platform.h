@@ -105,4 +105,16 @@ int  mote_plat_kv_save(const char *key, const void *data, int len);
 int  mote_plat_kv_load(const char *key, void *data, int max);
 void mote_plat_kv_list(const char *prefix, void (*cb)(const char *key, void *arg), void *arg);
 
+/* ABI v43: 2-player link (see MoteApi.link_*). Device: USB CDC dual-role to a
+ * second unit; host: a local socket (MOTE_LINK_SOCK) between two emulator
+ * instances; Studio preview: stubs (stays SEARCHING). task() pumps discovery +
+ * transfer and is called once per frame by the OS loop. */
+void mote_plat_link_start(void);
+void mote_plat_link_stop(void);
+void mote_plat_link_task(void);
+int  mote_plat_link_status(void);            /* MOTE_LINK_OFF/SEARCHING/CONNECTED */
+int  mote_plat_link_is_host(void);
+int  mote_plat_link_send(const void *data, int len);
+int  mote_plat_link_recv(void *buf, int max);
+
 #endif /* MOTE_PLATFORM_H */

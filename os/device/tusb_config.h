@@ -37,4 +37,23 @@
 #define CFG_TUD_CDC_TX_BUFSIZE  256
 #define CFG_TUD_CDC_EP_BUFSIZE  64
 
+/* --- 2-player USB link (MOTE_LINK_USB shapes: runner + standalone) --------
+ * The link flips the one controller into HOST role to enumerate the peer unit
+ * as a CDC device (mote_link.c). Settings mirror the TinyCircuits engine_link
+ * host config, which shipped on this exact board: CDC host class only, no hub,
+ * a single peer. RHPORT0_MODE stays DEVICE — the host role is entered with an
+ * explicit tuh_init(0), exactly like engine_link does. */
+#if MOTE_LINK_USB
+#define CFG_TUH_ENABLED             1
+#define CFG_TUH_MAX_SPEED           OPT_MODE_FULL_SPEED
+#define CFG_TUH_ENUMERATION_BUFSIZE 256
+#define CFG_TUH_DEVICE_MAX          1
+#define CFG_TUH_HUB                 0
+#define CFG_TUH_CDC                 1
+/* Small FIFOs: link traffic is a few bytes per frame (game messages), and the
+ * runner's RAM budget above the game-module boundary is tight. */
+#define CFG_TUH_CDC_RX_BUFSIZE      64
+#define CFG_TUH_CDC_TX_BUFSIZE      64
+#endif
+
 #endif /* MOTE_TUSB_CONFIG_H */

@@ -58,6 +58,7 @@ if (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "runner")
     set(MOTE_SRCS
         ${OSDIR}/device/runner_main.c ${OSDIR}/device/mote_loader.c ${OSDIR}/device/mote_xip.c
         ${OSDIR}/device/mote_usb.c            # CDC log channel (gated by the engine menu)
+        ${OSDIR}/device/mote_link.c           # 2-player USB link (ABI v43)
         ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c
         ${MOTE_PLAT} ${MOTE_3D} ${MOTE_2D} ${MOTE_CORE})
 elseif (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby")
@@ -72,6 +73,7 @@ else()
     set(MOTE_SRCS
         ${OSDIR}/device/os_main.c ${OSDIR}/device/mote_loader.c ${OSDIR}/device/mote_usb.c
         ${OSDIR}/device/mote_store.c ${OSDIR}/device/mote_xip.c
+        ${OSDIR}/device/mote_link.c           # 2-player USB link (ABI v43)
         ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c
         ${MOTE_PLAT} ${MOTE_3D} ${MOTE_2D} ${MOTE_CORE})
 endif()
@@ -94,9 +96,18 @@ if (THUMBYONE_SLOT_MODE)
         ${THUMBYONE_FATFS_INCLUDE} ${THUMBYONE_COMMON_INCLUDE}
         ${THUMBYONE_COMMON_LED_INCLUDE} ${THUMBYONE_COMMON_BACKLIGHT_INCLUDE}
         ${THUMBYONE_COMMON_SETTINGS_INCLUDE})
-    set(MOTE_HEAP 0x2000)
+    if (MOTE_SLOT_ROLE STREQUAL "runner")
+        # 6 KB: nothing in the runner mallocs (see os_memmap.ld), and the 2 KB
+        # freed pays for the TinyUSB host stack the 2P link added (v43) while
+        # keeping the game-module boundary (0x2005E800) and the 277 KB arena.
+        set(MOTE_HEAP 0x1800)
+    else()
+        set(MOTE_HEAP 0x2000)
+    endif()
 else()
-    set(MOTE_HEAP 0x4000)
+    # 12 KB (was 16): nothing in the OS mallocs (see os_memmap.ld); the 4 KB
+    # freed pays for the 2P link's TinyUSB host stack (v43) with margin.
+    set(MOTE_HEAP 0x3000)
 endif()
 
 # USB-CDC is in every shape now. The standalone uses the store-backed protocol;
@@ -115,6 +126,11 @@ if (THUMBYONE_SLOT_MODE)
         list(APPEND MOTE_DEFS MOTE_USB_FAT=1)
     endif()
 endif()
+# 2-player USB link: the game-running shapes (runner + standalone) get the
+# TinyUSB HOST stack and the dual-role link module; the lobby doesn't need it.
+if (NOT (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby"))
+    list(APPEND MOTE_DEFS MOTE_LINK_USB=1)
+endif()
 target_compile_definitions(${MOTE_TGT} PRIVATE ${MOTE_DEFS})
 target_compile_options(${MOTE_TGT} PRIVATE
     -O3 -g -ffast-math -Wall -Wextra -Wno-unused-parameter ${MOTE_ARCH})
@@ -123,6 +139,9 @@ set(MOTE_LIBS pico_stdlib pico_multicore pico_unique_id
     hardware_spi hardware_dma hardware_clocks hardware_gpio
     hardware_flash hardware_sync hardware_pwm hardware_irq
     tinyusb_device tinyusb_board)
+if (NOT (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby"))
+    list(APPEND MOTE_LIBS tinyusb_host)     # 2P link: host role for the peer unit
+endif()
 if (THUMBYONE_SLOT_MODE)
     # pico_stdio_uart provides stdio_uart_deinit(), which thumbyone_handoff.c
     # calls before rom_reboot.
