@@ -274,6 +274,28 @@ static int      g_tsel;                     /* title cursor: 0-2 difficulty · 3
 static float    dm_dead_t, dm_spawnx, dm_spawnz;
 static float    g_pkt[MAX_PK];              /* DM pickup respawn timers */
 static uint8_t  dm_msg[16]; static int dm_msg_len;
+static uint8_t  dm_reach[MAXH][MAXW];       /* cells reachable from the map spawn.
+    Generated floors contain SEALED pockets (secret push-wall stashes, secret leaf
+    rooms) that only open by pushing — which DM disables. Nobody may ever spawn
+    in one, and no supplies should hide there. Doors count as passable. */
+static void dm_build_reach(int sx, int sz){
+    static short qx[MAXW*MAXH], qz[MAXW*MAXH];
+    memset(dm_reach, 0, sizeof dm_reach);
+    if (sx<0||sz<0||sx>=MW||sz>=MH) return;
+    int head=0, tail=0;
+    qx[0]=(short)sx; qz[0]=(short)sz; tail=1; dm_reach[sz][sx]=1;
+    while (head<tail){
+        int x=qx[head], z=qz[head]; head++;
+        static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+        for (int k=0;k<4;k++){
+            int nx=x+DX[k], nz=z+DZ[k];
+            if (nx<0||nz<0||nx>=MW||nz>=MH||dm_reach[nz][nx]) continue;
+            if (g_wall[nz][nx]!=0 && g_wall[nz][nx]!=3) continue;   /* walls + secrets seal */
+            if (g_block[nz][nx] && g_wall[nz][nx]!=3) continue;     /* (doors open in DM) */
+            dm_reach[nz][nx]=1; qx[tail]=(short)nx; qz[tail]=(short)nz; tail++;
+        }
+    }
+}
 
 static void dm_send(const void *b, int n){ mote->link_send(b, n); }
 static void dm_send_hello(void){
@@ -890,9 +912,10 @@ static void load_level(int idx) {
 
 /* ---- deathmatch session ---- */
 static void dm_respawn(void){
-    for (int t=0;t<220;t++){                    /* an open cell, away from the peer */
+    for (int t=0;t<220;t++){                    /* an open, REACHABLE cell, away from the peer */
         int x=1+(int)(mote_frand()*(MW-2)), z=1+(int)(mote_frand()*(MH-2));
         if (x<1||z<1||x>=MW-1||z>=MH-1||g_block[z][x]||g_wall[z][x]) continue;
+        if (!dm_reach[z][x]) continue;          /* never a sealed secret pocket */
         if (prop_hits(x+0.5f,z+0.5f,0.3f)) continue;
         float dx=x+0.5f-rp_x, dz=z+0.5f-rp_z;
         if (t<160 && dx*dx+dz*dz < 49.0f) continue;
@@ -920,6 +943,18 @@ static void start_dm(uint32_t seed){
     load_level(2);                              /* the DM arena: a mid-size floor */
     g_nen = 0;                                  /* no monsters — the peer is the hunt */
     has_key = has_silver = 1;                   /* every door opens; no descend in DM */
+    for (int z=0;z<MH;z++) for (int x=0;x<MW;x++)   /* secret PUSH-WALLS become normal
+        DOORS in DM: pushing doesn't replicate, doors do ('O' by id) — and the stash
+        pockets become legit arena space instead of sealed dead zones. Scan order is
+        deterministic, so both units append identical door ids. */
+        if (g_wall[z][x]==4 || g_wall[z][x]==5){
+            if (g_ndr < MAX_DR){
+                g_wall[z][x]=3; g_block[z][x]=0;
+                g_doorid[z][x]=(int8_t)g_ndr;
+                g_dr[g_ndr]=(Door){x,z,0,0,0,0,0,-1};
+                g_ndr++;
+            } else { g_wall[z][x]=1; }          /* door pool full: plain wall */
+        }
     memset(g_pkt,0,sizeof g_pkt);
     for (int i=0;i<g_npk;i++){                  /* treasure -> DM supplies, by INDEX
                                                    (deterministic: same on both units) */
@@ -933,25 +968,22 @@ static void start_dm(uint32_t seed){
         else p->type=PK_AMMO;
     }
     dm_spawnx=px; dm_spawnz=pz;                 /* the map's 'P' cell */
-    { uint16_t hi = dm_my_nonce>dm_peer_nonce?dm_my_nonce:dm_peer_nonce;   /* deterministic:
-         nonce winner keeps 'P'; the other starts at the open cell FARTHEST from it */
-      int i_won = dm_my_nonce==hi;
-      if (!i_won){ float bd=-1; int bx=1,bz=1;
-          for (int z=1;z<MH-1;z++) for (int x=1;x<MW-1;x++){
-              if (g_block[z][x]||g_wall[z][x]) continue;
-              float dx=x+0.5f-dm_spawnx, dz=z+0.5f-dm_spawnz, d2=dx*dx+dz*dz;
-              if (d2>bd){ bd=d2; bx=x; bz=z; } }
-          px=bx+0.5f; pz=bz+0.5f;
-          yaw=atan2f(dm_spawnx-px, dm_spawnz-pz);
-      }
-      rp_x=rp_dx2=i_won?px:dm_spawnx; rp_z=rp_dz2=i_won?pz:dm_spawnz;   /* until the first packet */
-      if (!i_won){ rp_x=rp_dx2=dm_spawnx; rp_z=rp_dz2=dm_spawnz; }
-      else { float bd=-1; int bx=1,bz=1;       /* where the peer WILL be */
-          for (int z=1;z<MH-1;z++) for (int x=1;x<MW-1;x++){
-              if (g_block[z][x]||g_wall[z][x]) continue;
-              float dx=x+0.5f-dm_spawnx, dz=z+0.5f-dm_spawnz, d2=dx*dx+dz*dz;
-              if (d2>bd){ bd=d2; bx=x; bz=z; } }
-          rp_x=rp_dx2=bx+0.5f; rp_z=rp_dz2=bz+0.5f; }
+    dm_build_reach((int)px, (int)pz);           /* seal off the secret pockets */
+    for (int i=0;i<g_npk;i++)                   /* no supplies hiding where nobody can go */
+        if (!g_pk[i].taken && !dm_reach[(int)g_pk[i].z][(int)g_pk[i].x]){
+            g_pk[i].taken=1; g_pkt[i]=1e9f; }
+    {   /* deterministic: nonce winner keeps 'P'; the other starts at the open
+         * REACHABLE cell farthest from it (both units compute the same spot) */
+      float bd=-1; int bx=1,bz=1;
+      for (int z=1;z<MH-1;z++) for (int x=1;x<MW-1;x++){
+          if (g_block[z][x]||g_wall[z][x]||!dm_reach[z][x]) continue;
+          float dx=x+0.5f-dm_spawnx, dz=z+0.5f-dm_spawnz, d2=dx*dx+dz*dz;
+          if (d2>bd){ bd=d2; bx=x; bz=z; } }
+      float fx2=bx+0.5f, fz2=bz+0.5f;
+      int i_won = dm_my_nonce>dm_peer_nonce;
+      if (!i_won){ px=fx2; pz=fz2; yaw=atan2f(dm_spawnx-px, dm_spawnz-pz);
+                   rp_x=rp_dx2=dm_spawnx; rp_z=rp_dz2=dm_spawnz; }
+      else       { rp_x=rp_dx2=fx2; rp_z=rp_dz2=fz2; }
     }
     g_nco=0; msg_t=1.6f;
     { const char*t="DEATHMATCH"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }

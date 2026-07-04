@@ -5,6 +5,9 @@
 #include <string.h>
 
 #ifdef _WIN32
+  #ifndef _WIN32_WINNT
+  #define _WIN32_WINNT 0x0600   /* Vista+: inet_pton lives behind this on MinGW */
+  #endif
   #include <winsock2.h>
   #include <ws2tcpip.h>
   typedef SOCKET nsock;
@@ -99,7 +102,12 @@ void link_net_join(const char *ip) {
 
     memset(&s_join_to, 0, sizeof s_join_to);
     s_join_to.sin_family = AF_INET; s_join_to.sin_port = htons(LN_TCP_PORT);
-    s_have_target = (ip && ip[0] && inet_pton(AF_INET, ip, &s_join_to.sin_addr) == 1);
+    /* inet_addr, not inet_pton: this MinGW's ws2tcpip.h predates the latter */
+    s_have_target = 0;
+    if (ip && ip[0]) {
+        unsigned long a = inet_addr(ip);
+        if (a != INADDR_NONE) { s_join_to.sin_addr.s_addr = a; s_have_target = 1; }
+    }
 
     if (!s_have_target) {                      /* discover: broadcast the probe */
         s_udp = socket(AF_INET, SOCK_DGRAM, 0);
