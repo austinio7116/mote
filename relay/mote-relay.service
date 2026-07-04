@@ -1,0 +1,26 @@
+# Mote link relay — systemd unit.
+# Install:
+#   sudo mkdir -p /opt/mote-relay && sudo cp mote_relay.py /opt/mote-relay/
+#   sudo cp mote-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now mote-relay
+# Logs:  journalctl -u mote-relay -f
+[Unit]
+Description=Mote link relay (byte pipe for 2P Studio link)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 42450
+Restart=always
+RestartSec=2
+# Run as an unprivileged throwaway user with a locked-down sandbox — the relay
+# needs nothing but the network socket.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
