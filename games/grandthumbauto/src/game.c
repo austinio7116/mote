@@ -766,7 +766,12 @@ static float    rp_x, rp_z, rp_yaw, rp_dx2, rp_dz2, rp_anim, rp_fire_t;
 static int      rp_mode, rp_cartype, rp_moving, rp_hp;
 static float    dm_spawnx, dm_spawnz;
 static float    g_dmpkt[NPICK];              /* pickup respawn timers */
-static uint8_t  dm_msg[72]; static int dm_msg_len;   /* 72 holds a 65-byte 'm' map chunk */
+static uint8_t  dm_msg[128]; static int dm_msg_len;  /* holds a 65-byte 'm' chunk or a 'V' traffic list */
+static int      dm_auth;                     /* this unit simulates the shared traffic */
+static int      dm_peer_car = -1;            /* authority: the car slot the PEER is driving (exclude from 'V') */
+static float    dm_tx[NCAR], dm_tz[NCAR], dm_tyaw2[NCAR];  /* peer: streamed traffic targets (lerped) */
+static uint8_t  dm_tpresent[NCAR];           /* peer: was this slot in the last 'V'? */
+static float    dm_vsend_t;                  /* authority: traffic-broadcast cadence */
 /* MAP TRANSFER (fixes cross-arch desync): citygen uses sinf/atan2f for rivers,
  * which don't match bit-for-bit between the x86 Studio and the ARM device — so
  * the same seed made DIFFERENT cities. Instead the nonce winner GENERATES the
@@ -788,6 +793,22 @@ static int dm_flush_out(void){              /* 1 = fully drained (FIFO took it a
     return 1;
 }
 static void dm_send2(uint8_t t, uint8_t v){ uint8_t m[3]={0xA5,t,v}; mote->link_send(m,3); }
+/* Authority streams every ambient car (not either player's) so both units see the
+ * SAME traffic. Entry: idx(bit7=wrecked) x16 z16 yaw8 — 6 bytes. Position-scaled ×8. */
+static void dm_send_traffic(void){
+    uint8_t m[3+NCAR*6]; int n=0, o=3;
+    for (int i=0;i<NCAR;i++){
+        if (!cars[i].alive || i==player.car || i==dm_peer_car) continue;
+        int16_t xi=(int16_t)(cars[i].x*8.0f), zi=(int16_t)(cars[i].z*8.0f);
+        m[o++]=(uint8_t)(i | (cars[i].wrecked?0x80:0));
+        m[o++]=(uint8_t)xi; m[o++]=(uint8_t)(xi>>8);
+        m[o++]=(uint8_t)zi; m[o++]=(uint8_t)(zi>>8);
+        m[o++]=(uint8_t)(int8_t)(cars[i].yaw*40.5845f);
+        n++;
+    }
+    m[0]=0xA5; m[1]='V'; m[2]=(uint8_t)n;
+    mote->link_send(m, o);
+}
 static void dm_send1(uint8_t t){ uint8_t m[2]={0xA5,t}; mote->link_send(m,2); }
 
 static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f, 1.15f };
@@ -2048,8 +2069,25 @@ static void dm_handle(const uint8_t *m){
                   sfx(&boom_sfx,0.4f);
                   if (dm_frags>=DM_FRAGS && !dm_end) dm_end=1;
                   break;
-        case 'C': { int ci=m[2]; if (ci<NCAR && ci!=player.car) cars[ci].alive=0; } break;
-        case 'X': { int ci=m[2];
+        case 'V': {                              /* peer: the authority's ambient traffic */
+            for (int i=0;i<NCAR;i++) dm_tpresent[i]=0;
+            int n=m[2];
+            for (int k=0;k<n;k++){ const uint8_t *e=m+3+k*6; int ci=e[0]&0x7f;
+                if (ci>=NCAR) continue;
+                int16_t xi=(int16_t)(e[1]|(e[2]<<8)), zi=(int16_t)(e[3]|(e[4]<<8));
+                dm_tx[ci]=xi/8.0f; dm_tz[ci]=zi/8.0f; dm_tyaw2[ci]=(int8_t)e[5]/40.5845f;
+                cars[ci].alive=1; cars[ci].wrecked=(e[0]&0x80)?1:0; dm_tpresent[ci]=1;
+            }
+            for (int i=0;i<NCAR;i++)             /* not in 'V' & not mine → the authority's own car slot: hide */
+                if (!dm_tpresent[i] && i!=player.car){ cars[i].alive=0; bodies[i].inv_mass=0;
+                    bodies[i].x=1e6f+i*4; bodies[i].y=1e6f; }
+#ifdef MOTE_HOST
+            if(getenv("MOTE_GTA_DEBUG")){ float sx=0; for(int i=0;i<NCAR;i++) if(dm_tpresent[i])sx+=dm_tx[i];
+                static int c; if((c++%12)==0) fprintf(stderr,"[PEER] traffic=%d sumx=%.0f\n",n,sx); }
+#endif
+        } break;
+        case 'C': { int ci=m[2]; if (ci<NCAR && ci!=player.car){ dm_peer_car=ci; cars[ci].alive=0; } } break;
+        case 'X': { int ci=m[2]; if (ci==dm_peer_car) dm_peer_car=-1;   /* peer released it */
             if (ci<NCAR){
                 int16_t xi=(int16_t)(m[3]|(m[4]<<8)), zi=(int16_t)(m[5]|(m[6]<<8));
                 cars[ci].alive=1; cars[ci].x=xi/8.0f; cars[ci].z=zi/8.0f;
@@ -2072,6 +2110,7 @@ static void dm_poll(void){
             int t=dm_msg[1];
             int want;
             if (t=='m') want = dm_msg_len<5 ? 5 : 5+dm_msg[4];   /* header then len bytes */
+            else if (t=='V') want = dm_msg_len<3 ? 3 : 3+dm_msg[2]*6; /* n entries × 6 */
             else want = t=='P'?10 : t=='X'?9 : t=='S'?6 : t=='H'?5
                      : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
@@ -2081,6 +2120,35 @@ static void dm_poll(void){
     }
 }
 static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
+/* DM shared-traffic recycler (AUTHORITY only): the map is huge and the two players
+ * are far apart, so a fixed scatter leaves both streets empty. Each tick, take the
+ * ambient car farthest from BOTH players and, if it's out of sight of both, drop it
+ * onto a road near whichever player currently has fewer cars around — so the shared
+ * pool keeps BOTH players' streets alive. Peer just renders the stream. */
+static float dm_recyc_t;
+static int dm_cars_near(float px,float pz,float r){ int n=0; float r2=r*r;
+    for(int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].driver!=DRV_NPC) continue;
+        float dx=cars[i].x-px,dz=cars[i].z-pz; if(dx*dx+dz*dz<r2)n++; } return n; }
+static void dm_recycle_traffic(float dt){
+    dm_recyc_t-=dt; if(dm_recyc_t>0) return; dm_recyc_t=0.5f;
+    float ax=pl_x(),az=pl_z(), bx=rp_x,bz=rp_z;      /* my pos + the peer's (from 'P') */
+    int far=-1; float fbest=55.0f*55.0f;
+    for(int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].driver!=DRV_NPC||i==dm_peer_car) continue;
+        float da=(cars[i].x-ax)*(cars[i].x-ax)+(cars[i].z-az)*(cars[i].z-az);
+        float db=(cars[i].x-bx)*(cars[i].x-bx)+(cars[i].z-bz)*(cars[i].z-bz);
+        float d=da<db?da:db;                          /* distance to the NEARER player */
+        if(d>fbest){ fbest=d; far=i; } }
+    if(far<0) return;                                 /* everything's already near someone */
+    float tx=ax,tz=az;                                /* refill around the needier player */
+    if(dm_cars_near(bx,bz,45.0f) < dm_cars_near(ax,az,45.0f)){ tx=bx; tz=bz; }
+    float ox,oz;
+    if(find_road_clear(tx,tz, 26.0f, 52.0f, &ox,&oz)){
+        int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+        cars[far]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty,DRV_NPC,1,100.0f,0 };
+        car_body_init(far);
+    }
+}
+
 /* Everything after the map exists (identical on both units): zebra, clears,
  * deterministic spawns/cars/caches from the integer RNG. Called by the authority
  * once its map is generated + sent, and by the peer once the map has arrived. */
@@ -2127,16 +2195,25 @@ static void reset_game_dm_finish(uint32_t seed){
     else      { player.x=bxp; player.z=bzp; rp_x=rp_dx2=axp; rp_z=rp_dz2=azp; }
     dm_spawnx=player.x; dm_spawnz=player.z;
     hosp_x=player.x; hosp_z=player.z;
-    /* parked cars, seeded + shared by INDEX (enter/exit replicates by index) */
+    /* Shared cars (deterministic on both units — identical map + integer RNG):
+     *   slots 0..5   PARKED, jackable (ownership via the tested 'C'/'X' path),
+     *   slots 6..15  MOVING ambient traffic — the AUTHORITY drives them (DRV_NPC)
+     *                and streams positions ('V'); the peer renders them from the
+     *                stream. Ambient traffic isn't jackable in DM (V1). */
+    dm_auth = dm_my_nonce > dm_peer_nonce;
+    dm_peer_car = -1;
     for (int i=0;i<NCAR;i++) cars[i].alive=0;
-    for (int i=0;i<12;i++)
-        for (int t=0;t<60;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
-            if (!is_drivable(tx,tz)) continue;
+    for (int i=0;i<16;i++){
+        int parked = (i<6);
+        for (int t=0;t<80;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+            if (parked ? !is_drivable(tx,tz) : !is_road(tx,tz)) continue;
             int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
             cars[i]=(Car){ tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f,
-                           road_heading(tx,tz), 0,(uint8_t)ty,DRV_NONE,1,100.0f,0 };
+                           road_heading(tx,tz), 0,(uint8_t)ty, parked?DRV_NONE:DRV_NPC, 1,100.0f,0 };
             break; }
-    for (int i=0;i<NCAR;i++) car_body_init(i);
+    }
+    for (int i=0;i<NCAR;i++){ car_body_init(i); dm_tx[i]=cars[i].x; dm_tz[i]=cars[i].z; dm_tyaw2[i]=cars[i].yaw; dm_tpresent[i]=1; }
+    dm_vsend_t=0;
     /* weapon caches across the city (seeded, identical, respawning) */
     { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_SMG,PK_ROCKET,PK_SHOTGUN};
       for (int k=0;k<40;k++)
@@ -2248,9 +2325,14 @@ static void drown(void) {
 
 static void physics_pass(float dt) {
     static float prex[NCAR], prez[NCAR], prespd[NCAR];
+    int peer_traffic = g_dm && !dm_auth;
     for (int i=0;i<NCAR;i++){
         if (!cars[i].alive){ bodies[i].inv_mass=0; bodies[i].x=1e6f+i*4; bodies[i].y=1e6f;
                              bodies[i].vx=bodies[i].vy=bodies[i].avel=0; continue; }
+        if (peer_traffic && i!=player.car){       /* streamed car → solid static obstacle */
+            bodies[i].inv_mass=0; bodies[i].x=cars[i].x; bodies[i].y=cars[i].z; bodies[i].angle=cars[i].yaw;
+            bodies[i].vx=bodies[i].vy=bodies[i].avel=0;
+        }
         prex[i]=bodies[i].x; prez[i]=bodies[i].y;
         prespd[i]=sqrtf(bodies[i].vx*bodies[i].vx+bodies[i].vy*bodies[i].vy);
     }
@@ -2434,6 +2516,22 @@ static void g_update(float dt) {
           rp_dx2 += (rp_x-rp_dx2)*k; rp_dz2 += (rp_z-rp_dz2)*k; }
         dm_send_t -= dt;
         if (dm_send_t<=0){ dm_send_state(); dm_send_t=1.0f/15; }
+        if (dm_auth){                                   /* authority broadcasts the shared traffic */
+            dm_vsend_t -= dt;
+            if (dm_vsend_t<=0){ dm_send_traffic(); dm_vsend_t=1.0f/12;
+#ifdef MOTE_HOST
+                if(getenv("MOTE_GTA_DEBUG")){ int n=0; float sx=0;
+                    for(int i=0;i<NCAR;i++) if(cars[i].alive&&i!=player.car&&i!=dm_peer_car){n++;sx+=cars[i].x;}
+                    static int c; if((c++%12)==0) fprintf(stderr,"[AUTH] traffic=%d sumx=%.0f\n",n,sx); }
+#endif
+            }
+        } else {                                        /* peer: ease traffic toward streamed targets */
+            float k=dt*12.0f; if(k>1)k=1;
+            for (int i=0;i<NCAR;i++){ if(!cars[i].alive||i==player.car||!dm_tpresent[i]) continue;
+                float dx=dm_tx[i]-cars[i].x, dz=dm_tz[i]-cars[i].z;
+                if (dx*dx+dz*dz > 15.0f*15.0f){ cars[i].x=dm_tx[i]; cars[i].z=dm_tz[i]; cars[i].yaw=dm_tyaw2[i]; }  /* recycle: snap */
+                else { cars[i].x += dx*k; cars[i].z += dz*k; cars[i].yaw += ang_diff(dm_tyaw2[i], cars[i].yaw)*k; } }
+        }
         for (int i=0;i<NPICK;i++)                /* caches come back */
             if (!picks[i].alive && g_dmpkt[i]>0){ g_dmpkt[i]-=dt; if (g_dmpkt[i]<=0) picks[i].alive=1; }
         /* RAMMING: my car at speed over their on-foot avatar */
@@ -2494,6 +2592,7 @@ static void g_update(float dt) {
             else {
                 int best=-1; float bd=14.0f;
                 for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].wrecked||cars[i].driver==DRV_PLAYER) continue;
+                    if (g_dm && cars[i].driver==DRV_NPC) continue;   /* ambient DM traffic isn't jackable (V1) */
                     float dx=cars[i].x-player.x, dz=cars[i].z-player.z, d=dx*dx+dz*dz;
                     if (d<bd){bd=d;best=i;} }
                 if (best>=0) {
@@ -2567,8 +2666,11 @@ static void g_update(float dt) {
         }
     }
 
-    stream_entities(dt);        /* recycle far/stuck traffic + peds into a bubble near the player */
-    update_traffic(dt);         /* control: NPC/cop AI set body velocity + steering */
+    if (!g_dm || dm_auth){      /* peer's ambient traffic comes from the stream, not local AI */
+        stream_entities(dt);    /* recycle far/stuck traffic + peds into a bubble near the player */
+        if (g_dm) dm_recycle_traffic(dt);   /* keep the shared pool near BOTH players */
+        update_traffic(dt);     /* control: NPC/cop AI set body velocity + steering */
+    }
     ai_debug(dt);               /* MOTE_GTA_DEBUG: log lane-keeping health */
     update_cops(dt);
     physics_pass(dt);           /* engine 2D solver: integrate + collide + read back */
