@@ -28,6 +28,19 @@ units to use it.
   `MOTE_LINK_JOIN=<ip|auto>` autostart it.
 
 ### Games
+- **WolfMote 2P DEATHMATCH** (title menu): same seeded dungeon on both units, no
+  monsters, treasure becomes weapons/health/ammo, supplies respawn, every door opens.
+  The other player is a live billboard avatar (fire/hit frames, red dot on the automap);
+  hits are shooter-decided, health is victim-authoritative, first to 10 frags.
+- **GrandThumbAuto 2P DEATHMATCH** (B on the title): the nonce winner rolls the CITY
+  seed and shares it — same procedural city on both units, with traffic/pedestrians/
+  police removed and 40 respawning weapon caches dotted around. Parked cars are shared
+  by index (enter/exit replicates); shoot, burn, blast or RUN OVER the other player.
+  The city map shows the opponent as a flashing red dot, edge-clamped so it always
+  points the hunt. First to 10 frags.
+- Both cap at 30 fps while linked so pacing matches across units.
+- **Studio: Vs Device** (DEVICE tab) — link the PREVIEW game to your USB-docked Thumby
+  over a local serial pipe: test any 2P game against a real device with one PC.
 - **DeepThumb 2P LINK**: pick `OPP: 2P LINK` on both units in the setup screen, connect
   the cable (or bridge over the LAN), and sides are drawn at connect — the hello carries
   a random nonce and the higher one plays white (transport-agnostic: over the Studio

@@ -700,7 +700,7 @@ static void spawn_world(void) {
 }
 
 /* =========================================================== crime layer === */
-enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED };
+enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED, ST_DMLINK };
 enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, NWEAP };
 enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
@@ -742,6 +742,33 @@ static int   mission_pay, mission_chain;   /* roguelike: randomized pay, streak 
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
+
+/* ================================================== 2P DEATHMATCH state ====
+ * Same generated city on both units (nonce winner rolls the seed and sends it),
+ * NO traffic/peds/police, weapon caches respawn, cars are parked props both
+ * sides share by index. Each unit simulates its own player; hits are decided
+ * by the shooter against the replicated avatar and applied by the victim.
+ * wire (after 0xA5): 'H' proto nonce16 · 'S' seed32 · 'P' x16 z16 yaw8 flags8
+ * cartype8 hp8 (~15 Hz = keepalive) · 'F' (fire flash) · 'D' dmg · 'K' (died) ·
+ * 'C' caridx (peer entered car) · 'X' caridx x16 z16 yaw8 fl8 (car returned) ·
+ * 'T' pickidx · 'Q' quit */
+#define DM_PROTO 1
+#define DM_FRAGS 10
+static int      g_dm;                        /* deathmatch session active */
+static void     dm_die(void);
+static uint16_t dm_my_nonce, dm_peer_nonce;
+static int      dm_sent_hello, dm_got_hello, dm_started;
+static float    dm_hello_t;
+static uint32_t dm_seed;
+static float    dm_send_t, dm_rx_age, dm_dead_t, dm_ramcd;
+static int      dm_frags, dm_peer_frags, dm_end;   /* end: 1 win 2 lose 3 link lost */
+static float    rp_x, rp_z, rp_yaw, rp_dx2, rp_dz2, rp_anim, rp_fire_t;
+static int      rp_mode, rp_cartype, rp_moving, rp_hp;
+static float    dm_spawnx, dm_spawnz;
+static float    g_dmpkt[NPICK];              /* pickup respawn timers */
+static uint8_t  dm_msg[16]; static int dm_msg_len;
+static void dm_send2(uint8_t t, uint8_t v){ uint8_t m[3]={0xA5,t,v}; mote->link_send(m,3); }
+static void dm_send1(uint8_t t){ uint8_t m[2]={0xA5,t}; mote->link_send(m,2); }
 
 static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f, 1.15f };
 static const int   W_PELLETS[NWEAP]= { 0, 1, 1, 5, 0, 0 };
@@ -1443,6 +1470,8 @@ static void fire_weapon(void) {
         float fxp=cosf(yaw), fzp=sinf(yaw), hx=pl_x()+fxp*1.4f, hz=pl_z()+fzp*1.4f;
         for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
             float dx=p->x-hx,dz=p->z-hz; if(dx*dx+dz*dz<3.2f){ if(--p->hp<=0) kill_ped(i,1); else { p->flee=1.5f; add_fx(p->x,p->z,0);} break; } }
+        if (g_dm && rp_hp>0 && !rp_mode){ float dx=rp_x-hx,dz=rp_z-hz;
+            if (dx*dx+dz*dz<3.2f){ dm_send2('D',12); add_fx(rp_x,rp_z,0); } }
         add_heat_at(0.05f, pl_x(), pl_z(), 0); return;
     }
     if (ammo[weapon]<=0){ say("NO AMMO"); fire_cd=0.25f; return; }
@@ -1474,12 +1503,16 @@ static void fire_weapon(void) {
             float dx=cc->x-pl_x(), dz=cc->z-pl_z();
             float fwd=dx*fc+dz*fs2, lat=-dx*fs2+dz*fc;
             if (fwd>0.8f && fwd<6.8f && fabsf(lat)<2.0f){ cc->hp-=1.8f; if(cc->hp<=0) wreck_car(cc); } }
+        if (g_dm && rp_hp>0){ float dx=rp_x-pl_x(), dz=rp_z-pl_z();
+            float fwd=dx*fc+dz*fs2, lat=-dx*fs2+dz*fc;
+            if (fwd>0.8f && fwd<6.8f && fabsf(lat)<1.8f) dm_send2('D',3); }
         panic_at(pl_x(),pl_z());
         add_heat_at(0.05f, pl_x(), pl_z(), 0);        /* fire is seen, not heard */
         if (frand()<0.15f) sfx(&boom_sfx,0.15f);
         return;
     }
     ammo[weapon]--; fire_cd=W_CD[weapon]; g_aim_t=0.8f; panic_at(pl_x(),pl_z());  /* gunshots scare bystanders */
+    if (g_dm) dm_send1('F');
     sfx(weapon==W_SHOTGUN?&shotgun_sfx:weapon==W_SMG?&smg_sfx:&shoot_sfx, 0.8f);
     float mx0=pl_x()+cosf(yaw)*1.8f, mz0=pl_z()+sinf(yaw)*1.8f;
     add_fx(mx0,mz0,2);
@@ -1508,7 +1541,9 @@ static void footcop_fire(Ped *p, float px, float pz) {
 
 static void hurt_player(float dmg) {
     health -= dmg; sfx(&hurt_sfx,0.6f); rmbl(0.5f,120);
-    if (health<=0){ health=0; g_state=ST_WASTED; g_screen_t=2.6f; sfx(&bust_sfx,0.7f); }
+    if (health<=0){ health=0;
+        if (g_dm) dm_die();
+        else { g_state=ST_WASTED; g_screen_t=2.6f; sfx(&bust_sfx,0.7f); } }
 }
 
 static void wreck_car(Car *c) {
@@ -1534,6 +1569,8 @@ static void explode(float x, float z) {
     /* the player takes blast damage too (unless snug in the tank) */
     if (!(player.mode==MODE_CAR && cars[player.car].type==VEH_TANK)){
         float dx=pl_x()-x, dz=pl_z()-z; if(dx*dx+dz*dz<16.0f) hurt_player(28); }
+    if (g_dm && rp_hp>0){ float dx=rp_x-x, dz=rp_z-z;
+        if (dx*dx+dz*dz<18.0f) dm_send2('D', 34); }
 }
 static void fire_shell(Car *c) {
     if (g_shell_cd>0) return; g_shell_cd=1.35f; g_tankrecoil=0.22f;
@@ -1555,6 +1592,7 @@ static void update_bullets(float dt) {
             for (int p=0;p<NPED && !boom;p++) if(peds[p].alive){ float dx=peds[p].x-b->x,dz=peds[p].z-b->z; if(dx*dx+dz*dz<2.6f) boom=1; }
             for (int c=0;c<NCAR && !boom;c++) if(cars[c].alive && (cars[c].driver!=DRV_PLAYER || b->fromcop)){ float dx=cars[c].x-b->x,dz=cars[c].z-b->z; if(dx*dx+dz*dz<4.0f) boom=1; }
             if (!boom && b->fromcop && player.mode==MODE_FOOT){ float dx=pl_x()-b->x,dz=pl_z()-b->z; if(dx*dx+dz*dz<2.2f) boom=1; }
+            if (!boom && g_dm && rp_hp>0){ float dx=rp_x-b->x,dz=rp_z-b->z; if(dx*dx+dz*dz<3.5f) boom=1; }
             if (boom){ explode(b->x,b->z); b->alive=0; }
             continue;
         }
@@ -1569,6 +1607,10 @@ static void update_bullets(float dt) {
             continue;
         }
         int hit=0;
+        if (g_dm && rp_hp>0){ float dx=b->x-rp_x, dz=b->z-rp_z;
+            float r = rp_mode ? 2.0f : 1.1f;
+            if (dx*dx+dz*dz<r*r){ hit=1; b->alive=0; add_fx(b->x,b->z,0);
+                dm_send2('D', rp_mode?12:20); } }
         for (int p=0;p<NPED && !hit;p++){ Ped*pd=&peds[p]; if(!pd->alive) continue;
             float dx=b->x-pd->x, dz=b->z-pd->z; if(dx*dx+dz*dz<1.1f){ hit=1; b->alive=0;
                 if(--pd->hp<=0) kill_ped(p,1); else pd->flee=1.5f; } }
@@ -1583,6 +1625,7 @@ static void update_pickups(float dt) {
         p->bob+=dt*4;
         float dx=p->x-pl_x(), dz=p->z-pl_z();
         if (dx*dx+dz*dz<2.2f){ p->alive=0; sfx(&cash_sfx,0.7f);
+            if (g_dm){ dm_send2('T',(uint8_t)i); g_dmpkt[i]=20.0f; }
             switch(p->kind){
                 case PK_CASH: { int amt=25+irand(40); cash+=amt;
                     char b[10]; b[0]='+'; b[1]='$'; int n=amt,k=2; char d[4]; int dn=0;
@@ -1917,6 +1960,172 @@ static void respawn(int busted) {
     g_state=ST_PLAY;
 }
 
+/* ============================================== 2P deathmatch (see state block) */
+static void dm_send_hello(void){
+    uint8_t m[5]={0xA5,'H',DM_PROTO,(uint8_t)dm_my_nonce,(uint8_t)(dm_my_nonce>>8)};
+    mote->link_send(m,5);
+}
+static void dm_send_state(void){
+    static float lx, lz;
+    float x=pl_x(), z=pl_z();
+    int moving = (x-lx)*(x-lx)+(z-lz)*(z-lz) > 0.05f; lx=x; lz=z;
+    int16_t xi=(int16_t)(x*8.0f), zi=(int16_t)(z*8.0f);
+    uint8_t fl=(uint8_t)((player.mode==MODE_CAR?1:0)|(moving?2:0)|(dm_dead_t>0?4:0));
+    uint8_t m[10]={0xA5,'P',(uint8_t)xi,(uint8_t)(xi>>8),(uint8_t)zi,(uint8_t)(zi>>8),
+                   (uint8_t)(int8_t)(pl_yaw()*40.5845f), fl,
+                   (uint8_t)(player.car>=0?cars[player.car].type:0),
+                   (uint8_t)(health<0?0:health)};
+    mote->link_send(m,10);
+}
+static void dm_send_carback(int ci){                 /* car ci re-enters the shared world */
+    Car *c=&cars[ci];
+    int16_t xi=(int16_t)(c->x*8.0f), zi=(int16_t)(c->z*8.0f);
+    uint8_t m[9]={0xA5,'X',(uint8_t)ci,(uint8_t)xi,(uint8_t)(xi>>8),(uint8_t)zi,(uint8_t)(zi>>8),
+                  (uint8_t)(int8_t)(c->yaw*40.5845f),(uint8_t)(c->wrecked?1:0)};
+    mote->link_send(m,9);
+}
+static void dm_die(void){
+    dm_send1('K');
+    dm_peer_frags++;
+    dm_dead_t=2.5f;
+    sfx(&bust_sfx,0.7f);
+    add_fx(pl_x(),pl_z(),0);
+    if (player.mode==MODE_CAR && player.car>=0){     /* release the car for the peer */
+        cars[player.car].driver=DRV_NONE; cars[player.car].spd=0;
+        dm_send_carback(player.car);
+        player.mode=MODE_FOOT; player.x=pl_x(); player.z=pl_z(); player.car=-1;
+    }
+    if (dm_peer_frags>=DM_FRAGS && !dm_end) dm_end=2;
+}
+static void dm_respawn_me(void){
+    health=MAXHP;
+    player.mode=MODE_FOOT; player.car=-1;
+    player.x=dm_spawnx; player.z=dm_spawnz; player.yaw=-1.5708f;
+}
+static void dm_handle(const uint8_t *m){
+    switch (m[1]) {
+        case 'H': dm_got_hello=1; dm_peer_nonce=(uint16_t)(m[3]|(m[4]<<8)); break;
+        case 'S': dm_seed=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
+                  dm_started=2; break;
+        case 'P': {
+            int16_t xi=(int16_t)(m[2]|(m[3]<<8)), zi=(int16_t)(m[4]|(m[5]<<8));
+            rp_x=xi/8.0f; rp_z=zi/8.0f; rp_yaw=(int8_t)m[6]/40.5845f;
+            rp_mode=m[7]&1; rp_moving=(m[7]>>1)&1; rp_cartype=m[8];
+            rp_hp=(m[7]&4)?0:m[9];
+            dm_rx_age=0;
+        } break;
+        case 'F': rp_fire_t=0.25f;
+                  { float d=sqrtf((rp_x-pl_x())*(rp_x-pl_x())+(rp_z-pl_z())*(rp_z-pl_z()));
+                    float g=1.0f-d/50.0f; if(g<0.08f)g=0.08f; if(g>0.5f)g=0.5f;
+                    sfx(&shoot_sfx,g); }
+                  break;
+        case 'D': if (dm_dead_t<=0 && !dm_end){ add_fx(pl_x(),pl_z(),0); hurt_player((float)m[2]); } break;
+        case 'K': dm_frags++;
+                  add_fx(rp_x,rp_z,0); add_fx(rp_x+0.5f,rp_z-0.4f,0);
+                  sfx(&boom_sfx,0.4f);
+                  if (dm_frags>=DM_FRAGS && !dm_end) dm_end=1;
+                  break;
+        case 'C': { int ci=m[2]; if (ci<NCAR && ci!=player.car) cars[ci].alive=0; } break;
+        case 'X': { int ci=m[2];
+            if (ci<NCAR){
+                int16_t xi=(int16_t)(m[3]|(m[4]<<8)), zi=(int16_t)(m[5]|(m[6]<<8));
+                cars[ci].alive=1; cars[ci].x=xi/8.0f; cars[ci].z=zi/8.0f;
+                cars[ci].yaw=(int8_t)m[7]/40.5845f; cars[ci].spd=0;
+                cars[ci].driver=DRV_NONE; cars[ci].wrecked=(m[8]&1);
+                cars[ci].hp=cars[ci].wrecked?0:100.0f;
+                car_body_init(ci);
+            } } break;
+        case 'T': { int i=m[2]; if (i<NPICK && picks[i].alive){ picks[i].alive=0; g_dmpkt[i]=20.0f; } } break;
+        case 'Q': if (!dm_end) dm_end=3; break;
+    }
+}
+static void dm_poll(void){
+    uint8_t chunk[48]; int n;
+    while ((n=mote->link_recv(chunk,(int)sizeof chunk))>0){
+        for (int i=0;i<n;i++){
+            uint8_t b=chunk[i];
+            if (dm_msg_len==0){ if (b==0xA5) dm_msg[dm_msg_len++]=b; continue; }
+            dm_msg[dm_msg_len++]=b;
+            int t=dm_msg[1];
+            int want = t=='P'?10 : t=='X'?9 : t=='S'?6 : t=='H'?5
+                     : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q')?2 : -1;
+            if (want<0){ dm_msg_len=0; continue; }
+            if (dm_msg_len<want) continue;
+            dm_msg_len=0; dm_handle(dm_msg);
+        }
+    }
+}
+static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
+static void reset_game_dm(uint32_t seed){
+    g_dm=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0; dm_send_t=0; dm_rx_age=0; dm_ramcd=0;
+    rp_hp=100; rp_mode=0; rp_fire_t=0; rp_cartype=0; dm_msg_len=0; rp_anim=0;
+    citygen(g_city, seed);
+    build_zebra_map();
+    for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
+    for (int i=0;i<NPICK;i++){ picks[i].alive=0; g_dmpkt[i]=0; }
+    for (int i=0;i<NFX;i++) fxs[i].t=0;
+    for (int i=0;i<NPED;i++) peds[i].alive=0;              /* an empty city: just you two */
+    cash=0; health=MAXHP; heat=0; heat_cool=99; fire_cd=0;
+    weapon=W_PISTOL; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;}
+    owned[W_FIST]=1; owned[W_PISTOL]=1; ammo[W_PISTOL]=60; g_kills=0;
+    mission=MI_NONE; g_msg_t=0; mission_chain=0; nmark=0;  /* no shops/phones/missions */
+    g_rng = seed*2246822519u | 1u;   /* DETERMINISTIC: both units roll identically below */
+    /* spawn A: the seeded pavement-by-a-road search (same result on both units) */
+    int sx=MAPW/2, sz=MAPH/2, done=0;
+    for (int t=0;t<24 && !done;t++){
+        int bx=24+irand(MAPW-48), bz=24+irand(MAPH-48);
+        for (int r=0;r<10 && !done;r++)
+            for (int dz=-r;dz<=r && !done;dz++) for (int dx=-r;dx<=r && !done;dx++){
+                int x=bx+dx,z=bz+dz; if(x<2||z<2||x>=MAPW-2||z>=MAPH-2) continue;
+                if (tile_at(x,z)==',' && (is_roadlike(x+1,z)||is_roadlike(x-1,z)||is_roadlike(x,z+1)||is_roadlike(x,z-1)))
+                    { sx=x; sz=z; done=1; } }
+    }
+    float axp=sx*TILE+TILE*0.5f, azp=sz*TILE+TILE*0.5f;
+    /* spawn B: the pavement tile FARTHEST from A (deterministic scan) */
+    float bd=-1; int fx2=sx, fz2=sz;
+    for (int z=2;z<MAPH-2;z+=2) for (int x=2;x<MAPW-2;x+=2){
+        if (tile_at(x,z)!=',') continue;
+        float dx=(float)(x-sx), dz=(float)(z-sz), d2=dx*dx+dz*dz;
+        if (d2>bd){ bd=d2; fx2=x; fz2=z; } }
+    float bxp=fx2*TILE+TILE*0.5f, bzp=fz2*TILE+TILE*0.5f;
+    int i_won = dm_my_nonce>dm_peer_nonce;
+    player.mode=MODE_FOOT; player.car=-1; player.yaw=-1.5708f; player.animt=0;
+    if (i_won){ player.x=axp; player.z=azp; rp_x=rp_dx2=bxp; rp_z=rp_dz2=bzp; }
+    else      { player.x=bxp; player.z=bzp; rp_x=rp_dx2=axp; rp_z=rp_dz2=azp; }
+    dm_spawnx=player.x; dm_spawnz=player.z;
+    hosp_x=player.x; hosp_z=player.z;
+    /* parked cars, seeded + shared by INDEX (enter/exit replicates by index) */
+    for (int i=0;i<NCAR;i++) cars[i].alive=0;
+    for (int i=0;i<12;i++)
+        for (int t=0;t<60;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+            if (!is_drivable(tx,tz)) continue;
+            int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+            cars[i]=(Car){ tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f,
+                           road_heading(tx,tz), 0,(uint8_t)ty,DRV_NONE,1,100.0f,0 };
+            break; }
+    for (int i=0;i<NCAR;i++) car_body_init(i);
+    /* weapon caches across the city (seeded, identical, respawning) */
+    { static const uint8_t CACHE[8]={PK_PISTOL,PK_SMG,PK_SHOTGUN,PK_FLAME,PK_HEALTH,PK_SMG,PK_ROCKET,PK_SHOTGUN};
+      for (int k=0;k<40;k++)
+        for (int t=0;t<40;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
+            if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } }
+    for (int i=0;i<NPICK;i++) picks[i].seen=1;   /* caches show on the DM map */
+    g_state=ST_PLAY;
+}
+static void dm_draw_remote(void){
+    if (!g_dm || !dm_started || rp_hp<=0) return;
+    if (rp_mode){                                     /* they're driving */
+        int ty=rp_cartype; if (ty>=NCARTYPE) ty%=NCARTYPE;
+        int fxw=(ty%CARS2_COLS)*CAR_CW, fyw=(ty/CARS2_COLS)*CAR_CH;
+        float dlen=VSTAT[ty].len*(float)CAR_CH/(float)cars2_ah[ty];
+        float dwid=VSTAT[ty].wid*(float)CAR_CW/(float)cars2_aw[ty];
+        draw_ground_sprite(&cars2_img, rp_dx2, rp_dz2, rp_yaw, fxw,fyw,CAR_CW,CAR_CH, dlen,dwid,1);
+    } else {                                          /* on foot, same hero sprite */
+        int fr = rp_fire_t>0 ? 5 : rp_moving ? ((int)(rp_anim*8.0f)&3) : 0;
+        draw_ground_sprite(&player_img, rp_dx2, rp_dz2, rp_yaw, fr*16,0,16,16, 1.9f, 1.9f, 1);
+    }
+}
+
 /* step the engine 2D solver over the vehicle bodies, then read results back into
  * the cars. Bodies own position/rotation/velocity; buildings + water stay tile-
  * based (revert an axis that would leave the road/land). */
@@ -1935,6 +2144,7 @@ static void respawn_npc(int i) {
  * wedged/stuck too long, is recycled to a fresh clear spot. Constant entity count
  * → the city can be any size. Cops (heat) and the tank are left alone. */
 static void stream_entities(float dt) {
+    if (g_dm) return;              /* DM: index-shared world — nothing recycles */
     float px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
         if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
@@ -2101,6 +2311,7 @@ static void draw_vehicle(int i){
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
+    mote->set_fps_limit((g_dm || g_state==ST_DMLINK) ? 30 : 0);   /* steady pacing while linked */
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
      * screen has shown for a few frames (the flash write stalls, so we let the
@@ -2116,7 +2327,40 @@ static void g_update(float dt) {
         set_topdown_camera(pl_x(), pl_z());
         mote->scene_camera(&cam_basis, cam_pos, FOV);
         draw_ground_window(); draw_buildings_window();
-        if (g_state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; } }
+        if (g_state==ST_TITLE){
+            if (mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; }
+            else if (mote->abi_version>=43 && mote_just_pressed(in,MOTE_BTN_B)){
+                mote->link_start();
+                dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8);
+                dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
+                g_state=ST_DMLINK;
+            }
+        }
+        else if (g_state==ST_DMLINK){
+            dm_hello_t -= dt;
+            if (mote->link_status() != MOTE_LINK_CONNECTED) {
+                dm_sent_hello=dm_got_hello=0; dm_msg_len=0;
+            } else {
+                if (!dm_sent_hello || dm_hello_t<=0){ dm_send_hello(); dm_sent_hello=1; dm_hello_t=0.5f; }
+                dm_poll();
+                if (dm_got_hello && dm_peer_nonce==dm_my_nonce){        /* 1-in-65536 tie */
+                    dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8)^0x5A5Au;
+                    dm_got_hello=0; dm_send_hello();
+                }
+                if (dm_started==2){                                     /* peer rolled it */
+                    dm_send_hello();
+                    reset_game_dm(dm_seed);
+                } else if (dm_got_hello && dm_my_nonce>dm_peer_nonce){
+                    dm_send_hello();
+                    dm_seed=(uint32_t)mote->micros()*2654435761u ^ ((uint32_t)dm_my_nonce<<16) ^ dm_peer_nonce;
+                    { uint8_t m[6]={0xA5,'S',(uint8_t)dm_seed,(uint8_t)(dm_seed>>8),
+                                    (uint8_t)(dm_seed>>16),(uint8_t)(dm_seed>>24)};
+                      mote->link_send(m,6); }
+                    reset_game_dm(dm_seed);
+                }
+            }
+            if (mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; }
+        }
         else { g_screen_t-=dt;
             if (!death_saved && g_screen_t < 2.35f && mote->save) {   /* screen shown first, then flush */
                 int b[2]={0x47544131, best_cash}; mote->save(0,b,sizeof b); death_saved=1;
@@ -2130,6 +2374,37 @@ static void g_update(float dt) {
     if (fire_cd>0) fire_cd-=dt;
     if (g_shell_cd>0) g_shell_cd-=dt;
     if (g_tankrecoil>0) g_tankrecoil-=dt;
+
+    if (g_dm){                                   /* deathmatch upkeep, every frame */
+        dm_poll();
+        dm_rx_age += dt;
+        if (dm_rx_age>3.0f && !dm_end) dm_end=3; /* peer went silent */
+        heat=0; heat_cool=99;                    /* no police in DM */
+        if (rp_fire_t>0) rp_fire_t-=dt;
+        rp_anim += dt;
+        if (dm_ramcd>0) dm_ramcd-=dt;
+        { float k=dt*10.0f; if(k>1)k=1;          /* smooth the replicated avatar */
+          rp_dx2 += (rp_x-rp_dx2)*k; rp_dz2 += (rp_z-rp_dz2)*k; }
+        dm_send_t -= dt;
+        if (dm_send_t<=0){ dm_send_state(); dm_send_t=1.0f/15; }
+        for (int i=0;i<NPICK;i++)                /* caches come back */
+            if (!picks[i].alive && g_dmpkt[i]>0){ g_dmpkt[i]-=dt; if (g_dmpkt[i]<=0) picks[i].alive=1; }
+        /* RAMMING: my car at speed over their on-foot avatar */
+        if (player.mode==MODE_CAR && rp_hp>0 && !rp_mode && dm_ramcd<=0 &&
+            fabsf(cars[player.car].spd)>6.0f){
+            float dx=rp_x-pl_x(), dz=rp_z-pl_z();
+            if (dx*dx+dz*dz<2.6f){ dm_send2('D',(uint8_t)(fabsf(cars[player.car].spd)*2.2f)); dm_ramcd=0.7f; }
+        }
+        if (dm_end || dm_dead_t>0){              /* end box / respawn wait: world holds */
+            if (dm_dead_t>0){ dm_dead_t-=dt; if (dm_dead_t<=0) dm_respawn_me(); }
+            if (dm_end && mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; return; }
+            set_topdown_camera(pl_x(), pl_z());
+            mote->scene_camera(&cam_basis, cam_pos, FOV);
+            draw_ground_window(); draw_buildings_window();
+            dm_draw_remote();
+            return;
+        }
+    }
 
     /* MENU toggles the full-map view; while open, gameplay pauses and the d-pad pans */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
@@ -2197,6 +2472,7 @@ static void g_update(float dt) {
                         add_heat_at(0.9f, cars[best].x, cars[best].z, 0);  /* grand theft auto, witnessed */
                     }
                     cars[best].driver=DRV_PLAYER; player.mode=MODE_CAR; player.car=best;
+                    if (g_dm) dm_send2('C',(uint8_t)best);   /* peer hides its copy */
                     if (cars[best].type==VEH_TANK) g_turret=cars[best].yaw;
                 }
             }
@@ -2235,9 +2511,11 @@ static void g_update(float dt) {
         if (near_marker(MK_SPRAY, 3.2f) && wanted()>0 && cash>=SPRAY_FEE){
             cash-=SPRAY_FEE; heat=0; if(c->alive)c->hp=100; say("SPRAYED - HEAT CLEARED"); sfx(&cash_sfx,0.7f); }
         if (A && player.mode==MODE_CAR) {                      /* exit beside the car */
+            int ci=player.car;
             float rx=cosf(c->yaw+1.5708f), rz=sinf(c->yaw+1.5708f);
             player.x=c->x+rx*2.2f; player.z=c->z+rz*2.2f; player.yaw=c->yaw;
             c->driver=DRV_NONE; c->spd=0; player.mode=MODE_FOOT; player.car=-1;
+            if (g_dm) dm_send_carback(ci);                     /* peer re-materialises it */
         }
     }
 
@@ -2351,6 +2629,7 @@ static void g_update(float dt) {
         if (player.mode==MODE_CAR && i==player.car) continue;   /* already drawn first */
         draw_vehicle(i);
     }
+    dm_draw_remote();                                           /* the OTHER player */
     /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
      * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
      * 4 flowerbed (low, walk-through), 5 boulder (low, collidable). */
@@ -2420,6 +2699,17 @@ static void draw_map(uint16_t *fb){
     }
     if (mission==MI_COURIER||mission==MI_HIT){ int sx=(int)(mx/TILE)-g_mapsx, sy=(int)(mz/TILE)-g_mapsy;
         if (sx>1&&sx<126&&sy>1&&sy<126) mote->draw_rect(fb,sx-1,sy-1,3,3,MOTE_RGB565(250,230,80),1,0,128); }
+    if (g_dm && rp_hp>0){                              /* the OPPONENT: flashing red.
+        CLAMPED to the window edge when they're outside the panned view, so the
+        map always points the hunt in the right direction. */
+        int rsx=(int)(rp_x/TILE)-g_mapsx, rsy=(int)(rp_z/TILE)-g_mapsy;
+        int off = rsx<3||rsx>124||rsy<14||rsy>113;
+        if (rsx<3) rsx=3; if (rsx>124) rsx=124;
+        if (rsy<14) rsy=14; if (rsy>113) rsy=113;      /* clear of the header/footer */
+        uint16_t rc = (((int)(g_maptime*5.0f))&1) ? MOTE_RGB565(255,70,60) : MOTE_RGB565(150,26,20);
+        mote->draw_circle(fb, rsx, rsy, 2, rc, 1, 0, 128);
+        mote->draw_circle(fb, rsx, rsy, 3, off?MOTE_RGB565(255,160,150):MOTE_RGB565(255,220,220), 0, 0, 128);
+    }
     /* player: flashing dot */
     int psx=(int)(pl_x()/TILE)-g_mapsx, psy=(int)(pl_z()/TILE)-g_mapsy;
     if (psx>=-2&&psx<130&&psy>=-2&&psy<130){
@@ -2457,6 +2747,20 @@ static void draw_phys_boxes(uint16_t *fb){
 
 static void g_overlay(uint16_t *fb) {
     if (g_showmap){ draw_map(fb); return; }
+    if (g_state==ST_DMLINK){
+        mote_ui_panel(fb, 12, 36, 104, 58, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
+        mote->text(fb, "DEATHMATCH", 34, 42, MOTE_RGB565(245,110,95));
+        if (mote->link_status()==MOTE_LINK_CONNECTED)
+            mote->text(fb, "WAITING FOR PEER", 20, 56, MOTE_RGB565(120,230,120));
+        else {
+            mote->text(fb, "CONNECT USB CABLE", 17, 56, MOTE_RGB565(235,238,245));
+            mote->text(fb, "OR STUDIO LINK", 27, 65, MOTE_RGB565(150,160,180));
+        }
+        { static float t2; t2+=0.033f; int dots=((int)(t2*3))%4;
+          for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,75,3,3,MOTE_RGB565(245,230,90),1,0,128); }
+        mote->text(fb, "B CANCEL", 46, 83, MOTE_RGB565(150,160,180));
+        return;
+    }
     g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
     if (g_state==ST_PLAY && (mission==MI_COURIER||mission==MI_HIT)) world_dot(fb, mx, mz, 4, MOTE_RGB565(250,230,80));
@@ -2537,6 +2841,7 @@ static void g_overlay(uint16_t *fb) {
         mote->draw_rect(fb, 10, 77, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
         mote_textf(mote, fb, 38, 84, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
         if (((int)(g_msg_t*2))&1 || 1) mote->text(fb, "PRESS A TO PLAY", 26, 102, MOTE_RGB565(180,220,180));
+        if (mote->abi_version>=43) mote->text(fb, "B  2P DEATHMATCH", 24, 112, MOTE_RGB565(245,110,95));
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
@@ -2549,7 +2854,21 @@ static void g_overlay(uint16_t *fb) {
 
     /* ---------------- HUD ---------------- */
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
-    mote_textf(mote, fb, 2, 2, MOTE_RGB565(120,230,120), "$%d", cash);
+    if (g_dm && g_state==ST_PLAY){
+        if (dm_end){
+            mote_ui_panel(fb, 16, 46, 96, 40, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
+            if (dm_end==1)      mote->text(fb, "YOU WIN!", 46, 53, MOTE_RGB565(120,230,120));
+            else if (dm_end==2) mote->text(fb, "YOU LOSE!", 43, 53, MOTE_RGB565(245,110,95));
+            else                mote->text(fb, "LINK LOST", 43, 53, MOTE_RGB565(245,110,95));
+            mote_textf(mote, fb, 32, 63, MOTE_RGB565(235,238,245), "FRAGS %d-%d", dm_frags, dm_peer_frags);
+            mote->text(fb, "B  TITLE", 46, 73, MOTE_RGB565(245,230,90));
+        } else if (dm_dead_t>0){
+            mote_ui_panel(fb, 32, 54, 64, 18, MOTE_RGB565(30,12,12), MOTE_RGB565(160,60,50));
+            mote->text(fb, "WASTED", 47, 60, MOTE_RGB565(245,110,95));
+        }
+    }
+    if (g_dm) mote_textf(mote, fb, 2, 2, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
+    else      mote_textf(mote, fb, 2, 2, MOTE_RGB565(120,230,120), "$%d", cash);
     /* wanted heads */
     for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
     /* health bar */
