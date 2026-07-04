@@ -766,7 +766,27 @@ static float    rp_x, rp_z, rp_yaw, rp_dx2, rp_dz2, rp_anim, rp_fire_t;
 static int      rp_mode, rp_cartype, rp_moving, rp_hp;
 static float    dm_spawnx, dm_spawnz;
 static float    g_dmpkt[NPICK];              /* pickup respawn timers */
-static uint8_t  dm_msg[16]; static int dm_msg_len;
+static uint8_t  dm_msg[72]; static int dm_msg_len;   /* 72 holds a 65-byte 'm' map chunk */
+/* MAP TRANSFER (fixes cross-arch desync): citygen uses sinf/atan2f for rivers,
+ * which don't match bit-for-bit between the x86 Studio and the ARM device — so
+ * the same seed made DIFFERENT cities. Instead the nonce winner GENERATES the
+ * city, then STREAMS the raw g_city bytes to the peer in 0xA5 'm' chunks; both
+ * end up byte-identical. The integer spawn/car/cache RNG (irand) is deterministic
+ * given the identical map, so only the map itself needs sending. */
+#define CITY_BYTES (MAPW*MAPH)
+#define DM_CHUNK   60
+static int      dm_phase;                    /* 0 handshake · 1 map xfer · 2 playing */
+static int      dm_map_pos;                  /* authority: g_city bytes queued */
+static int      dm_map_recv;                 /* peer: g_city bytes written */
+static uint8_t  dm_out[68]; static int dm_out_len, dm_out_off;   /* pending outbound chunk */
+static int dm_flush_out(void){              /* 1 = fully drained (FIFO took it all) */
+    while (dm_out_off < dm_out_len){
+        int w = mote->link_send(dm_out+dm_out_off, dm_out_len-dm_out_off);
+        if (w<=0) return 0;                  /* FIFO full — resume next frame */
+        dm_out_off += w;
+    }
+    return 1;
+}
 static void dm_send2(uint8_t t, uint8_t v){ uint8_t m[3]={0xA5,t,v}; mote->link_send(m,3); }
 static void dm_send1(uint8_t t){ uint8_t m[2]={0xA5,t}; mote->link_send(m,2); }
 
@@ -2006,7 +2026,10 @@ static void dm_handle(const uint8_t *m){
     switch (m[1]) {
         case 'H': dm_got_hello=1; dm_peer_nonce=(uint16_t)(m[3]|(m[4]<<8)); break;
         case 'S': dm_seed=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
-                  dm_started=2; break;
+                  dm_phase=1; dm_map_recv=0; break;   /* peer: seed known, expect the map */
+        case 'm': { int seq=m[2]|(m[3]<<8), len=m[4], off=seq*DM_CHUNK;
+                    for (int i=0;i<len && off+i<CITY_BYTES;i++) g_city[off+i]=m[5+i];
+                    if (off+len > dm_map_recv) dm_map_recv=off+len; } break;
         case 'P': {
             int16_t xi=(int16_t)(m[2]|(m[3]<<8)), zi=(int16_t)(m[4]|(m[5]<<8));
             rp_x=xi/8.0f; rp_z=zi/8.0f; rp_yaw=(int8_t)m[6]/40.5845f;
@@ -2047,7 +2070,9 @@ static void dm_poll(void){
             if (dm_msg_len==0){ if (b==0xA5) dm_msg[dm_msg_len++]=b; continue; }
             dm_msg[dm_msg_len++]=b;
             int t=dm_msg[1];
-            int want = t=='P'?10 : t=='X'?9 : t=='S'?6 : t=='H'?5
+            int want;
+            if (t=='m') want = dm_msg_len<5 ? 5 : 5+dm_msg[4];   /* header then len bytes */
+            else want = t=='P'?10 : t=='X'?9 : t=='S'?6 : t=='H'?5
                      : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
             if (dm_msg_len<want) continue;
@@ -2056,11 +2081,19 @@ static void dm_poll(void){
     }
 }
 static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
-static void reset_game_dm(uint32_t seed){
-    g_dm=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0; dm_send_t=0; dm_rx_age=0; dm_ramcd=0;
+/* Everything after the map exists (identical on both units): zebra, clears,
+ * deterministic spawns/cars/caches from the integer RNG. Called by the authority
+ * once its map is generated + sent, and by the peer once the map has arrived. */
+static void reset_game_dm_finish(uint32_t seed){
+    g_dm=1; dm_started=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0; dm_send_t=0; dm_rx_age=0; dm_ramcd=0;
     rp_hp=100; rp_mode=0; rp_fire_t=0; rp_cartype=0; dm_msg_len=0; rp_anim=0;
-    citygen(g_city, seed);
     build_zebra_map();
+#ifdef MOTE_HOST
+    if(getenv("MOTE_GTA_DEBUG")){
+        unsigned long h=1469598103934665603UL;
+        for(int i=0;i<CITY_BYTES;i++){ h^=g_city[i]; h*=1099511628211UL; }
+        fprintf(stderr,"[DMMAP] city fnv=%016lx seed=%08x\n",h,(unsigned)seed); }
+#endif
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++){ picks[i].alive=0; g_dmpkt[i]=0; }
     for (int i=0;i<NFX;i++) fxs[i].t=0;
@@ -2333,30 +2366,44 @@ static void g_update(float dt) {
                 mote->link_start();
                 dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8);
                 dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
+                dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
                 g_state=ST_DMLINK;
             }
         }
         else if (g_state==ST_DMLINK){
             dm_hello_t -= dt;
+            int authority = dm_my_nonce > dm_peer_nonce;
             if (mote->link_status() != MOTE_LINK_CONNECTED) {
-                dm_sent_hello=dm_got_hello=0; dm_msg_len=0;
-            } else {
+                dm_sent_hello=dm_got_hello=0; dm_msg_len=0; dm_phase=0;   /* (re)connect restarts */
+            } else if (dm_phase==0) {                                    /* --- handshake --- */
                 if (!dm_sent_hello || dm_hello_t<=0){ dm_send_hello(); dm_sent_hello=1; dm_hello_t=0.5f; }
-                dm_poll();
+                dm_poll();                                              /* a peer 'S' arms dm_phase=1 */
                 if (dm_got_hello && dm_peer_nonce==dm_my_nonce){        /* 1-in-65536 tie */
                     dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8)^0x5A5Au;
                     dm_got_hello=0; dm_send_hello();
-                }
-                if (dm_started==2){                                     /* peer rolled it */
-                    dm_send_hello();
-                    reset_game_dm(dm_seed);
-                } else if (dm_got_hello && dm_my_nonce>dm_peer_nonce){
+                } else if (dm_phase==0 && dm_got_hello && authority){    /* authority: seed, gen, xfer */
                     dm_send_hello();
                     dm_seed=(uint32_t)mote->micros()*2654435761u ^ ((uint32_t)dm_my_nonce<<16) ^ dm_peer_nonce;
                     { uint8_t m[6]={0xA5,'S',(uint8_t)dm_seed,(uint8_t)(dm_seed>>8),
                                     (uint8_t)(dm_seed>>16),(uint8_t)(dm_seed>>24)};
                       mote->link_send(m,6); }
-                    reset_game_dm(dm_seed);
+                    citygen(g_city, dm_seed);                           /* generate locally, then stream */
+                    dm_phase=1; dm_map_pos=0; dm_out_len=dm_out_off=0;
+                }
+            } else if (dm_phase==1) {                                   /* --- map transfer --- */
+                if (authority){
+                    for (int guard=0; guard<24; guard++){
+                        if (!dm_flush_out()) break;                     /* FIFO full — resume next frame */
+                        if (dm_map_pos>=CITY_BYTES) break;
+                        int seq=dm_map_pos/DM_CHUNK, len=CITY_BYTES-dm_map_pos; if(len>DM_CHUNK)len=DM_CHUNK;
+                        dm_out[0]=0xA5; dm_out[1]='m'; dm_out[2]=(uint8_t)seq; dm_out[3]=(uint8_t)(seq>>8); dm_out[4]=(uint8_t)len;
+                        for (int i=0;i<len;i++) dm_out[5+i]=g_city[dm_map_pos+i];
+                        dm_out_len=5+len; dm_out_off=0; dm_map_pos+=len;
+                    }
+                    if (dm_map_pos>=CITY_BYTES && dm_flush_out()){ reset_game_dm_finish(dm_seed); dm_phase=2; }
+                } else {
+                    dm_poll();                                          /* 'm' frames fill g_city */
+                    if (dm_map_recv>=CITY_BYTES){ reset_game_dm_finish(dm_seed); dm_phase=2; }
                 }
             }
             if (mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; }
@@ -2400,8 +2447,9 @@ static void g_update(float dt) {
             if (dm_end && mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; return; }
             set_topdown_camera(pl_x(), pl_z());
             mote->scene_camera(&cam_basis, cam_pos, FOV);
-            draw_ground_window(); draw_buildings_window();
+            draw_ground_window();
             dm_draw_remote();
+            draw_buildings_window();       /* after the avatar: budget priority */
             return;
         }
     }
@@ -2571,7 +2619,10 @@ static void g_update(float dt) {
     mote->scene_camera(&cam_basis, cam_pos, FOV);
 
     draw_ground_window();
-    draw_buildings_window();
+    /* Buildings are submitted AFTER the entities below: the textured-tri pool is
+     * first-come (extra tris are silently dropped), and a clipped far building is
+     * far less jarring than a vanished car. The raster is depth-buffered, so
+     * drawing buildings last still occludes correctly (order-independent). */
 
     /* RECTANGULAR car shadows (cars aren't round) — a dark quad on the road,
      * oriented to the car's heading, offset slightly toward the sun's shadow. */
@@ -2630,6 +2681,7 @@ static void g_update(float dt) {
         draw_vehicle(i);
     }
     dm_draw_remote();                                           /* the OTHER player */
+    draw_buildings_window();                                    /* after entities (budget priority) */
     /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
      * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
      * 4 flowerbed (low, walk-through), 5 boulder (low, collidable). */
@@ -2750,14 +2802,20 @@ static void g_overlay(uint16_t *fb) {
     if (g_state==ST_DMLINK){
         mote_ui_panel(fb, 12, 36, 104, 58, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
         mote->text(fb, "DEATHMATCH", 34, 42, MOTE_RGB565(245,110,95));
-        if (mote->link_status()==MOTE_LINK_CONNECTED)
+        if (dm_phase==1){                                   /* streaming the shared city */
+            int done = dm_my_nonce>dm_peer_nonce ? dm_map_pos : dm_map_recv;
+            int pct = done*100/CITY_BYTES; if(pct>100)pct=100;
+            mote->text(fb, "SYNCING CITY", 30, 56, MOTE_RGB565(245,230,90));
+            mote->draw_rect(fb, 24, 66, 80, 6, MOTE_RGB565(60,60,80), 0, 0,128);
+            mote->draw_rect(fb, 25, 67, 78*pct/100, 4, MOTE_RGB565(120,230,120), 1, 0,128);
+        } else if (mote->link_status()==MOTE_LINK_CONNECTED)
             mote->text(fb, "WAITING FOR PEER", 20, 56, MOTE_RGB565(120,230,120));
         else {
             mote->text(fb, "CONNECT USB CABLE", 17, 56, MOTE_RGB565(235,238,245));
             mote->text(fb, "OR STUDIO LINK", 27, 65, MOTE_RGB565(150,160,180));
         }
         { static float t2; t2+=0.033f; int dots=((int)(t2*3))%4;
-          for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,75,3,3,MOTE_RGB565(245,230,90),1,0,128); }
+          if (dm_phase!=1) for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,75,3,3,MOTE_RGB565(245,230,90),1,0,128); }
         mote->text(fb, "B CANCEL", 46, 83, MOTE_RGB565(150,160,180));
         return;
     }
