@@ -355,17 +355,13 @@ static void cg_prune(void){                                 /* dead-end stubs ->
 static void cg_make_park(int cx,int cy,int size){
     static const uint8_t pr[2]={T_PAVE,T_ROAD};
     cg_patch(cx,cy,size,T_GRASS,pr,2);
+    /* a PAVEMENT margin around the park (the original rings its parks with
+     * pavement + a few buildings, not tarmac): push any street within 2 cells
+     * of the green back to pavement — the fill pass then dots it with buildings */
     int x0=cx-size-3,y0=cy-size-3,x1=cx+size+3,y1=cy+size+3;
-    for(int ring=0;ring<2;ring++){                          /* 2-wide road border */
-        for(int y=y0;y<=y1;y++)for(int x=x0;x<=x1;x++){
-            uint8_t c=cg_at(x,y);
-            if(c==T_GRASS||c==T_WATER||c==T_BRIDGE||c==T_ROAD) continue;
-            int adj=0;
-            for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++)
-                if(cg_at(x+dx,y+dy)==(ring==0?T_GRASS:T_ROAD)) adj=1;
-            if(ring==0&&adj) cg_set(x,y,T_ROAD);
-            else if(ring==1&&adj&&cg_near(x,y,T_GRASS,2)) cg_set(x,y,T_ROAD);
-        }
+    for(int y=y0;y<=y1;y++)for(int x=x0;x<=x1;x++){
+        if(cg_at(x,y)!=T_ROAD) continue;
+        if(cg_near(x,y,T_GRASS,2)) cg_set(x,y,T_PAVE);
     }
     int lakes=1+(cg_frand()<0.4f);                           /* lake(s) inside */
     for(int l=0;l<lakes;l++){

@@ -700,16 +700,51 @@ static void road_markings(int x, int z) {
     if (o == 1) {                                   /* horizontal corridor: E-W lanes */
         if (p > 0) {                                /* internal boundary at north edge */
             int median = (p == span/2);
-            if (median){ line_x(x0, x0+TILE, z0-0.22f, yel, 1);   /* double yellow centre */
-                         line_x(x0, x0+TILE, z0+0.22f, yel, 1); }
+            if (median){
+                if (span <= 2)                      /* minor street: single dashed centre */
+                    line_x(x0, x0+TILE, z0, white, 0);
+                else {                              /* arterial: double solid median */
+                    line_x(x0, x0+TILE, z0-0.22f, yel, 1);
+                    line_x(x0, x0+TILE, z0+0.22f, yel, 1);
+                }
+            }
             else line_x(x0, x0+TILE, z0, white, 0);               /* dashed lane separator */
+        }
+        /* STOP LINES: a junction one tile ahead gets a solid bar across the
+         * INBOUND half only (right-hand traffic: eastbound keeps south). */
+        {
+            float zc=(z-p+span*0.5f)*TILE, half=span*TILE*0.5f;
+            int oo,pp2,ss2;
+            if (is_roadlike(x+1,z)){ corridor_info(x+1,z,&oo,&pp2,&ss2);
+                if (oo==3){ float za=zc>z0?zc:z0, zb=(zc+half)<z0+TILE?(zc+half):z0+TILE;
+                    if (zb>za+0.05f) paint_quad(x0+TILE-0.55f, za+0.12f, x0+TILE-0.18f, zb-0.12f, white); } }
+            if (is_roadlike(x-1,z)){ corridor_info(x-1,z,&oo,&pp2,&ss2);
+                if (oo==3){ float za=(zc-half)>z0?(zc-half):z0, zb=zc<z0+TILE?zc:z0+TILE;
+                    if (zb>za+0.05f) paint_quad(x0+0.18f, za+0.12f, x0+0.55f, zb-0.12f, white); } }
         }
     } else if (o == 2) {                            /* vertical corridor: N-S lanes */
         if (p > 0) {
             int median = (p == span/2);
-            if (median){ line_z(z0, z0+TILE, x0-0.22f, yel, 1);
-                         line_z(z0, z0+TILE, x0+0.22f, yel, 1); }
+            if (median){
+                if (span <= 2)
+                    line_z(z0, z0+TILE, x0, white, 0);
+                else {
+                    line_z(z0, z0+TILE, x0-0.22f, yel, 1);
+                    line_z(z0, z0+TILE, x0+0.22f, yel, 1);
+                }
+            }
             else line_z(z0, z0+TILE, x0, white, 0);
+        }
+        /* stop lines: southbound keeps WEST, northbound keeps EAST */
+        {
+            float xc=(x-p+span*0.5f)*TILE, half=span*TILE*0.5f;
+            int oo,pp2,ss2;
+            if (is_roadlike(x,z+1)){ corridor_info(x,z+1,&oo,&pp2,&ss2);
+                if (oo==3){ float xa=(xc-half)>x0?(xc-half):x0, xb=xc<x0+TILE?xc:x0+TILE;
+                    if (xb>xa+0.05f) paint_quad(xa+0.12f, z0+TILE-0.55f, xb-0.12f, z0+TILE-0.18f, white); } }
+            if (is_roadlike(x,z-1)){ corridor_info(x,z-1,&oo,&pp2,&ss2);
+                if (oo==3){ float xa=xc>x0?xc:x0, xb=(xc+half)<x0+TILE?(xc+half):x0+TILE;
+                    if (xb>xa+0.05f) paint_quad(xa+0.12f, z0+0.18f, xb-0.12f, z0+0.55f, white); } }
         }
     } else {                                        /* junction complex: bend, T, or cross? */
         /* orient==3 covers plain BENDS too. Count the APPROACH ROADS: scan out through
@@ -1654,7 +1689,13 @@ static void buy_gun(void) {
 static void reset_game(void) {
     /* EVERY NEW GAME IS A NEW CITY: regenerate the whole map, then everything
      * below (colliders, markers, traffic, dock) rebuilds from the fresh tiles */
-    citygen(g_city, mote->micros ? (uint32_t)mote->micros() ^ (cg_rng*2654435761u) : cg_rng+1);
+    {
+        uint32_t seed = mote->micros ? (uint32_t)mote->micros() ^ (cg_rng*2654435761u) : cg_rng+1;
+#ifdef MOTE_HOST
+        { const char *sd=getenv("MOTE_GTA_SEED"); if (sd) seed=(uint32_t)strtoul(sd,0,10); }
+#endif
+        citygen(g_city, seed);
+    }
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
@@ -1682,6 +1723,11 @@ static void reset_game(void) {
       for (int k=0;k<8;k++){ float ox,oz;
         if (find_near(player.x,player.z, 20.0f+k*9.0f, 40.0f+k*11.0f, pav_or_grass, &ox,&oz))
             add_pickup(ox,oz,scatter[k]); } }
+#ifdef MOTE_HOST
+    { const char *vw=getenv("MOTE_GTA_VIEW");            /* teleport: "x,z" tile coords */
+      float tx,tz;
+      if (vw && sscanf(vw,"%f,%f",&tx,&tz)==2){ player.mode=MODE_FOOT; player.x=tx*TILE; player.z=tz*TILE; } }
+#endif
 }
 
 static void respawn(int busted) {
