@@ -201,6 +201,7 @@ static int   state;                       /* 0 play · 1 win · 2 dead */
 #define ST_DEBRIEF 3
 #define ST_DESCEND 4
 #define ST_TITLE   5
+#define ST_DMLINK  6     /* 2P deathmatch: waiting for the cable/peer */
 
 /* weapon table — the ORIGINAL trio keeps its slots and art; the new arsenal joins it.
  * pool: -1 melee, 0 bullets, 1 fuel, 2 cannonballs, 3 cells · proj -1 = hitscan */
@@ -241,6 +242,113 @@ static Proj g_pr[12];
 static void add_proj(float x,float z,float dx,float dz,int kind){
     for (int i=0;i<12;i++) if (!g_pr[i].live){
         g_pr[i]=(Proj){x,z,dx,dz, 2.2f, kind, 1}; return; }
+}
+
+/* ====================================================== 2P DEATHMATCH ======
+ * Same dungeon on both units (the hello's nonce winner rolls the seed and
+ * sends it), no monsters, weapons/supplies respawn, first to 10 frags.
+ * Each side simulates only ITS OWN player and streams a small state packet;
+ * hits are decided by the SHOOTER against the replicated avatar and applied
+ * by the VICTIM ('D' events — victim-authoritative health).
+ *
+ * wire (after 0xA5): 'H' proto nonce16 · 'S' seed32 · 'P' x16 z16 yaw8 wpn8
+ * flags8 hp8 (~15 Hz; doubles as the keepalive) · 'F' wpn (fire visual) ·
+ * 'D' dmg · 'K' (I died) · 'O' door · 'T' pickup idx · 'Q' quit */
+#define DM_PROTO   1
+#define DM_FRAGS   10
+static void  play(const MoteSfx *r, float gain);            /* defined below */
+static float dist_gain(float d, float lo, float hi);
+static int   los(float x0, float z0, float x1, float z1);
+static int      g_dm;                       /* deathmatch session active */
+static uint16_t dm_my_nonce, dm_peer_nonce;
+static int      dm_sent_hello, dm_got_hello, dm_started;
+static float    dm_hello_t;
+static uint32_t dm_seed;
+static float    dm_send_t, dm_rx_age;       /* state pacing · keepalive age */
+static float    rp_x, rp_z, rp_yaw;         /* remote avatar: replicated target */
+static float    rp_dx2, rp_dz2;             /* smoothed display position */
+static int      rp_w, rp_hp, rp_moving;
+static float    rp_fire_t, rp_hit_t, rp_anim;
+static int      dm_frags, dm_peer_frags, dm_end;   /* end: 1 win 2 lose 3 link lost */
+static int      g_tsel;                     /* title cursor: 0-2 difficulty · 3 = deathmatch */
+static float    dm_dead_t, dm_spawnx, dm_spawnz;
+static float    g_pkt[MAX_PK];              /* DM pickup respawn timers */
+static uint8_t  dm_msg[16]; static int dm_msg_len;
+
+static void dm_send(const void *b, int n){ mote->link_send(b, n); }
+static void dm_send_hello(void){
+    uint8_t m[5]={0xA5,'H',DM_PROTO,(uint8_t)dm_my_nonce,(uint8_t)(dm_my_nonce>>8)};
+    dm_send(m,5);
+}
+static void dm_send_state(void){
+    int16_t x=(int16_t)(px*256.0f), z=(int16_t)(pz*256.0f);
+    uint8_t m[10]={0xA5,'P',(uint8_t)x,(uint8_t)(x>>8),(uint8_t)z,(uint8_t)(z>>8),
+                   (uint8_t)(int8_t)(yaw*40.5845f),(uint8_t)cur_w,
+                   (uint8_t)((g_pmoving?1:0)|(dm_dead_t>0?2:0)),(uint8_t)(health<0?0:health)};
+    dm_send(m,10);
+}
+static void dm_send1(uint8_t t){ uint8_t m[2]={0xA5,t}; dm_send(m,2); }
+static void dm_send2(uint8_t t, uint8_t v){ uint8_t m[3]={0xA5,t,v}; dm_send(m,3); }
+static void dm_die(void);                   /* fwd: local death (defined below) */
+
+static void dm_handle(const uint8_t *m){
+    switch (m[1]) {
+        case 'H': dm_got_hello=1; dm_peer_nonce=(uint16_t)(m[2+1]|(m[4]<<8)); break;
+        case 'S': dm_seed=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
+                  dm_started=2; break;      /* the peer rolled it — start */
+        case 'P': {
+            int16_t x=(int16_t)(m[2]|(m[3]<<8)), z=(int16_t)(m[4]|(m[5]<<8));
+            rp_x=x/256.0f; rp_z=z/256.0f; rp_yaw=(int8_t)m[6]/40.5845f;
+            rp_w=m[7]; rp_moving=m[8]&1; rp_hp=(m[8]&2)?0:m[9];
+            dm_rx_age=0;
+        } break;
+        case 'F': rp_fire_t=0.22f;
+                  { float d=sqrtf((rp_x-px)*(rp_x-px)+(rp_z-pz)*(rp_z-pz));
+                    play(m[2]==3||m[2]==4?&shotgun_sfx:m[2]==8?&plasmagun_sfx:&shoot_sfx,
+                         dist_gain(d,0.10f,0.5f)); }
+                  break;
+        case 'D': if (dm_dead_t<=0 && !dm_end){
+                      health -= m[2]; hurt=0.22f;
+                      g_dmgdir=atan2f(rp_x-px, rp_z-pz); g_dmgt=0.30f;
+                      add_tracer(rp_x,0.45f,rp_z, px,0.45f,pz, MOTE_RGB565(255,208,110));
+                      play(&hurt_sfx,0.5f);
+                      if (health<=0){ health=0; dm_die(); }
+                  } break;
+        case 'K': dm_frags++; rp_hit_t=0.3f;
+                  if (g_nco<24) g_co[g_nco++]=(Corpse){rp_x,rp_z};
+                  play(&death_sfx,0.5f);
+                  if (dm_frags>=DM_FRAGS && !dm_end) dm_end=1;
+                  break;
+        case 'O': { int id=m[2]; if (id<g_ndr && !g_dr[id].want){ g_dr[id].want=1; g_dr[id].closet=3.0f; } } break;
+        case 'T': { int i=m[2]; if (i<g_npk && !g_pk[i].taken){ g_pk[i].taken=1; g_pkt[i]=22.0f; } } break;
+        case 'Q': if (!dm_end) dm_end=3; break;
+    }
+}
+static void dm_poll(void){
+    uint8_t chunk[48]; int n;
+    while ((n=mote->link_recv(chunk,(int)sizeof chunk))>0){
+        for (int i=0;i<n;i++){
+            uint8_t b=chunk[i];
+            if (dm_msg_len==0){ if (b==0xA5) dm_msg[dm_msg_len++]=b; continue; }
+            dm_msg[dm_msg_len++]=b;
+            int t=dm_msg[1];
+            int want = t=='P'?10 : t=='S'?6 : t=='H'?5 : (t=='F'||t=='D'||t=='O'||t=='T')?3
+                     : (t=='K'||t=='Q')?2 : -1;
+            if (want<0){ dm_msg_len=0; continue; }
+            if (dm_msg_len<want) continue;
+            dm_msg_len=0; dm_handle(dm_msg);
+        }
+    }
+}
+/* shooter-side avatar test: does a shot from (px,pz) along jyaw hit the peer? */
+static int dm_shot_hits(float jyaw, float cone, float maxd, float *out_d){
+    if (rp_hp<=0) return 0;
+    float dx=rp_x-px, dz=rp_z-pz, d=sqrtf(dx*dx+dz*dz);
+    if (d<0.001f || d>maxd) return 0;
+    if ((dx*sinf(jyaw)+dz*cosf(jyaw))/d < cone) return 0;
+    if (!los(px,pz,rp_x,rp_z)) return 0;
+    if (out_d) *out_d=d;
+    return 1;
 }
 
 /* ---- baked sounds ---- */
@@ -612,7 +720,8 @@ static void gen_level(int idx){
 
 /* ============================================================ load level === */
 static void load_level(int idx) {
-    g_seed ^= (uint32_t)mote->micros()*2654435761u + (uint32_t)idx*97u;   /* every floor a fresh roll */
+    if (!g_dm)                                             /* DM: both units share g_seed */
+        g_seed ^= (uint32_t)mote->micros()*2654435761u + (uint32_t)idx*97u;   /* every floor a fresh roll */
     gen_level(idx);
     const char *const *rows = g_genrows;
     MW = (int)strlen(rows[0]);
@@ -779,6 +888,77 @@ static void load_level(int idx) {
     state = ST_PLAY;
 }
 
+/* ---- deathmatch session ---- */
+static void dm_respawn(void){
+    for (int t=0;t<220;t++){                    /* an open cell, away from the peer */
+        int x=1+(int)(mote_frand()*(MW-2)), z=1+(int)(mote_frand()*(MH-2));
+        if (x<1||z<1||x>=MW-1||z>=MH-1||g_block[z][x]||g_wall[z][x]) continue;
+        if (prop_hits(x+0.5f,z+0.5f,0.3f)) continue;
+        float dx=x+0.5f-rp_x, dz=z+0.5f-rp_z;
+        if (t<160 && dx*dx+dz*dz < 49.0f) continue;
+        px=x+0.5f; pz=z+0.5f;
+        yaw=atan2f(rp_x-px, rp_z-pz);           /* face the action */
+        return;
+    }
+    px=dm_spawnx; pz=dm_spawnz;
+}
+static void dm_die(void){
+    dm_send1('K');
+    dm_peer_frags++;
+    dm_dead_t=2.4f;
+    play(&death_sfx,0.6f);
+    if (g_nco<24) g_co[g_nco++]=(Corpse){px,pz};
+    if (dm_peer_frags>=DM_FRAGS && !dm_end) dm_end=2;
+}
+static void start_dm(uint32_t seed){
+    g_dm=1; dm_started=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0;
+    dm_send_t=0; dm_rx_age=0; rp_fire_t=rp_hit_t=0; rp_hp=100; rp_w=1;
+    health=100; score=0; level=0;
+    memset(owned,0,sizeof owned); owned[0]=1; owned[1]=1;
+    memset(g_am,0,sizeof g_am); g_am[0]=50; cur_w=1;
+    g_seed = seed;
+    load_level(2);                              /* the DM arena: a mid-size floor */
+    g_nen = 0;                                  /* no monsters — the peer is the hunt */
+    has_key = has_silver = 1;                   /* every door opens; no descend in DM */
+    memset(g_pkt,0,sizeof g_pkt);
+    for (int i=0;i<g_npk;i++){                  /* treasure -> DM supplies, by INDEX
+                                                   (deterministic: same on both units) */
+        Pickup *p=&g_pk[i];
+        if (p->type==PK_KEY||p->type==PK_KEY2){ p->taken=1; g_pkt[i]=1e9f; continue; }
+        if (p->type!=PK_TREAS) continue;
+        int r=i&3;
+        if (r==0){ p->type=PK_WEAPON; p->variant=2+(i*3)%7; }
+        else if (r==1) p->type=PK_HEALTH;
+        else if (r==2) p->type=PK_AMMO2;
+        else p->type=PK_AMMO;
+    }
+    dm_spawnx=px; dm_spawnz=pz;                 /* the map's 'P' cell */
+    { uint16_t hi = dm_my_nonce>dm_peer_nonce?dm_my_nonce:dm_peer_nonce;   /* deterministic:
+         nonce winner keeps 'P'; the other starts at the open cell FARTHEST from it */
+      int i_won = dm_my_nonce==hi;
+      if (!i_won){ float bd=-1; int bx=1,bz=1;
+          for (int z=1;z<MH-1;z++) for (int x=1;x<MW-1;x++){
+              if (g_block[z][x]||g_wall[z][x]) continue;
+              float dx=x+0.5f-dm_spawnx, dz=z+0.5f-dm_spawnz, d2=dx*dx+dz*dz;
+              if (d2>bd){ bd=d2; bx=x; bz=z; } }
+          px=bx+0.5f; pz=bz+0.5f;
+          yaw=atan2f(dm_spawnx-px, dm_spawnz-pz);
+      }
+      rp_x=rp_dx2=i_won?px:dm_spawnx; rp_z=rp_dz2=i_won?pz:dm_spawnz;   /* until the first packet */
+      if (!i_won){ rp_x=rp_dx2=dm_spawnx; rp_z=rp_dz2=dm_spawnz; }
+      else { float bd=-1; int bx=1,bz=1;       /* where the peer WILL be */
+          for (int z=1;z<MH-1;z++) for (int x=1;x<MW-1;x++){
+              if (g_block[z][x]||g_wall[z][x]) continue;
+              float dx=x+0.5f-dm_spawnx, dz=z+0.5f-dm_spawnz, d2=dx*dx+dz*dz;
+              if (d2>bd){ bd=d2; bx=x; bz=z; } }
+          rp_x=rp_dx2=bx+0.5f; rp_z=rp_dz2=bz+0.5f; }
+    }
+    g_nco=0; msg_t=1.6f;
+    { const char*t="DEATHMATCH"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
+    state = ST_PLAY;
+}
+static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
+
 static void start_game(void) {
     g_seed ^= (uint32_t)mote->micros(); g_seed ^= g_seed<<13;   /* a new dungeon each run */
     level = 0; health = 100; score = 0;
@@ -839,7 +1019,7 @@ static void explode_barrel(int idx){
     { float dx=px-bx, dz=pz-bz;
       if (dx*dx+dz*dz<1.5f*1.5f){ health-=25; hurt=0.22f;
           g_dmgdir=atan2f(bx-px,bz-pz); g_dmgt=0.30f;
-          if (health<=0){ health=0; state=ST_DEAD; play(&death_sfx,0.6f); } } }
+          if (health<=0){ health=0; if (g_dm) dm_die(); else { state=ST_DEAD; play(&death_sfx,0.6f); } } } }
     for (int s2=0;s2<g_nsc;s2++){                          /* CHAIN nearby steel barrels */
         if (g_sc[s2].type!=SC_BARREL) continue;
         float dx=g_sc[s2].x-bx, dz=g_sc[s2].z-bz;
@@ -866,10 +1046,12 @@ static void splash(float x, float z, int dmg, float r, int pdmg) {   /* detonati
         if (dx*dx+dz*dz < r*r){ en->hp -= dmg; en->hitflash=0.2f; en->stag=0.4f;
             if (en->hp<=0) kill_enemy(en); }
     }
+    if (g_dm && rp_hp>0){ float dx=rp_x-x, dz=rp_z-z;
+        if (dx*dx+dz*dz < r*r){ dm_send2('D',(uint8_t)pdmg); rp_hit_t=0.2f; } }
     { float dx=px-x, dz=pz-z;
       if (dx*dx+dz*dz < (r-0.3f)*(r-0.3f)){ health -= pdmg; hurt=0.22f;
           g_dmgdir = atan2f(x-px, z-pz); g_dmgt=0.30f;
-          if (health<=0){ health=0; state=ST_DEAD; play(&death_sfx,0.6f); } } }
+          if (health<=0){ health=0; if (g_dm) dm_die(); else { state=ST_DEAD; play(&death_sfx,0.6f); } } } }
     for (int i=0;i<g_nsc;i++)
         if (g_sc[i].type==SC_BARREL){
             float dx=g_sc[i].x-x, dz=g_sc[i].z-z;
@@ -893,12 +1075,16 @@ static void tick_projectiles(float dt) {
             float dx=en->x-b->x, dz=en->z-b->z;
             if (dx*dx+dz*dz < 0.45f*0.45f) hit=1;
         }
+        if (!hit && g_dm && rp_hp>0){ float dx=rp_x-b->x, dz=rp_z-b->z;
+            if (dx*dx+dz*dz < 0.45f*0.45f) hit=1; }
         if (hit){
             b->live=0;
             if (b->kind==0)      splash(b->x, b->z, WPN[6].dmg, 1.3f, 6);
             else if (b->kind==1) splash(b->x, b->z, WPN[7].dmg, 1.8f, 18);
             else {                                        /* plasma: direct hit only */
                 add_boom(b->x, b->z, 0);
+                if (g_dm && rp_hp>0){ float dx=rp_x-b->x, dz=rp_z-b->z;
+                    if (dx*dx+dz*dz < 0.6f*0.6f){ dm_send2('D',(uint8_t)WPN[8].dmg); rp_hit_t=0.18f; } }
                 for (int e2=0;e2<g_nen;e2++){ Enemy*en=&g_en[e2];
                     if (!en->alive) continue;
                     float dx=en->x-b->x, dz=en->z-b->z;
@@ -915,6 +1101,7 @@ static void fire_weapon(void) {
     if (pool >= 0 && g_am[pool] <= 0) return;
     if (pool >= 0) g_am[pool]--;
     gun_cd = WPN[cur_w].cd;
+    if (g_dm) dm_send2('F', (uint8_t)cur_w);          /* peer shows flash + bang */
     if (cur_w!=0 && cur_w!=7 && cur_w!=8) muzzle = 0.09f;   /* knife/cannon/plasma: no flash */
     if (cur_w == 0) {                                    /* the KNIFE: silent reach */
         float fx=sinf(yaw), fz=cosf(yaw);
@@ -926,6 +1113,11 @@ static void fire_weapon(void) {
             e->hp -= WPN[0].dmg; e->hitflash=0.18f; e->stag=0.35f;
             if (e->hp <= 0) kill_enemy(e); else play(&hit_sfx, 0.5f);
             return;
+        }
+        if (g_dm && rp_hp>0){                            /* the peer is knife-range too */
+            float dx=rp_x-px, dz=rp_z-pz, d=sqrtf(dx*dx+dz*dz);
+            if (d<1.3f && d>0.001f && (dx*fx+dz*fz)/d>0.75f){
+                dm_send2('D',(uint8_t)WPN[0].dmg); rp_hit_t=0.2f; play(&hit_sfx,0.5f); return; }
         }
         play(&step_sfx, 0.25f);                          /* a whiff */
         return;
@@ -952,9 +1144,12 @@ static void fire_weapon(void) {
             if (d < best_d) { best_d = d; best = i; }
         }
         float gx = px + fx*0.35f, gz = pz + fz*0.35f;      /* your muzzle */
+        float dmd = 1e9f;
+        int dmhit = g_dm && dm_shot_hits(jyaw, cone, 14.0f, &dmd);
         /* march the ray: whatever comes FIRST stops the bullet — a prop (via the
          * grid + its circle), a wall/closed door (is_blocked), or the enemy */
         float lim = best>=0 ? best_d : 14.0f;
+        if (dmhit && dmd < lim) lim = dmd;
         float wx2=px, wz2=pz, trav=0; int prop=-1, wall=0;
         while (trav < lim && prop<0 && !wall){
             float nx2=wx2+fx*0.25f, nz2=wz2+fz*0.25f;
@@ -974,6 +1169,12 @@ static void fire_weapon(void) {
             else if (ty==SC_WBARREL||ty==SC_PLANT||ty==SC_SKULL)
                 { add_boom(g_sc[prop].x, g_sc[prop].z, 0); kill_scenery(prop); play(&hit_sfx,0.4f); }
             else add_boom(wx2, wz2, 0);                    /* pillar/statue: just a spark */
+        } else if (dmhit && !wall && (best<0 || dmd<=best_d)) {
+            add_tracer(gx, 0.42f, gz, rp_x, 0.45f, rp_z, MOTE_RGB565(255,240,170));
+            int dmg = WPN[cur_w].dmg;
+            dm_send2('D', (uint8_t)(dmg>255?255:dmg));
+            rp_hit_t = 0.2f;
+            if (pel==0) play(&hit_sfx, 0.5f);
         } else if (best >= 0 && !wall) {
             Enemy *e = &g_en[best];
             add_tracer(gx, 0.42f, gz, e->x, 0.45f, e->z, MOTE_RGB565(255,240,170));
@@ -992,6 +1193,7 @@ static void fire_weapon(void) {
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (msg_t > 0) msg_t -= dt;
+    mote->set_fps_limit((g_dm || state==ST_DMLINK) ? 30 : 0);   /* steady pacing while linked */
 
     if (state == ST_DEBRIEF) {
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A)) {
@@ -1010,9 +1212,42 @@ static void g_update(float dt) {
         if ((int)(prev*3.0f) != (int)(g_desct*3.0f)) play(&step_sfx, 0.3f);   /* footsteps down the stairs */
         if (g_desct <= 0) { level++; load_level(level); }
     } else if (state == ST_TITLE) {
-        if (mote_just_pressed(in, MOTE_BTN_UP)   && g_diff>0) g_diff--;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_diff<2) g_diff++;
-        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) start_game();
+        int rows = mote->abi_version>=43 ? 4 : 3;
+        if (mote_just_pressed(in, MOTE_BTN_UP)   && g_tsel>0) g_tsel--;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_tsel<rows-1) g_tsel++;
+        g_diff = g_tsel<3 ? g_tsel : 1;                   /* DM plays at NORMAL scaling */
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) {
+            if (g_tsel==3){
+                mote->link_start();
+                dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8);
+                dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
+                state=ST_DMLINK;
+            } else start_game();
+        }
+    } else if (state == ST_DMLINK) {
+        dm_hello_t -= dt;
+        if (mote->link_status() != MOTE_LINK_CONNECTED) {
+            dm_sent_hello=dm_got_hello=0; dm_msg_len=0;   /* (re)connect restarts the handshake */
+        } else {
+            if (!dm_sent_hello || dm_hello_t<=0){ dm_send_hello(); dm_sent_hello=1; dm_hello_t=0.5f; }
+            dm_poll();
+            if (dm_got_hello && dm_peer_nonce==dm_my_nonce){   /* 1-in-65536 tie: re-draw */
+                dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8)^0x5A5Au;
+                dm_got_hello=0; dm_send_hello();
+            }
+            if (dm_started==2){                            /* peer rolled the seed */
+                dm_send_hello();
+                start_dm(dm_seed);
+            } else if (dm_got_hello && dm_my_nonce>dm_peer_nonce){
+                dm_send_hello();                           /* peer's link is live — final hello */
+                dm_seed=(uint32_t)mote->micros()*2654435761u ^ (dm_my_nonce<<16) ^ dm_peer_nonce;
+                { uint8_t m[6]={0xA5,'S',(uint8_t)dm_seed,(uint8_t)(dm_seed>>8),
+                                (uint8_t)(dm_seed>>16),(uint8_t)(dm_seed>>24)};
+                  dm_send(m,6); }
+                start_dm(dm_seed);
+            }
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B)) { dm_stop(); state=ST_TITLE; }
     } else if (state != ST_PLAY) {
         if (state==ST_DEAD && mote->save && level+1 > best_floor) {
             best_floor=level+1; if(score>best_score)best_score=score;
@@ -1020,6 +1255,30 @@ static void g_update(float dt) {
         }
         if (mote_just_pressed(in, MOTE_BTN_B)) { start_game(); state = ST_TITLE; }
     } else {
+        if (g_dm) {                                        /* deathmatch upkeep, every frame */
+            dm_poll();
+            dm_rx_age += dt;
+            if (dm_rx_age > 3.0f && !dm_end) dm_end = 3;   /* peer went silent */
+            if (rp_fire_t > 0) rp_fire_t -= dt;
+            if (rp_hit_t  > 0) rp_hit_t  -= dt;
+            rp_anim += dt;
+            { float k = dt*10.0f; if (k>1) k=1;            /* smooth the replicated avatar */
+              rp_dx2 += (rp_x-rp_dx2)*k; rp_dz2 += (rp_z-rp_dz2)*k; }
+            dm_send_t -= dt;
+            if (dm_send_t <= 0) { dm_send_state(); dm_send_t = 1.0f/15; }
+            for (int i=0;i<g_npk;i++)                      /* supplies come back in DM */
+                if (g_pk[i].taken && g_pkt[i]>0 && g_pkt[i]<1e8f){
+                    g_pkt[i]-=dt; if (g_pkt[i]<=0) g_pk[i].taken=0; }
+            if (dm_end) {
+                if (mote_just_pressed(in, MOTE_BTN_B)) { dm_stop(); state=ST_TITLE; }
+                goto dm_draw;                              /* world freezes behind the box */
+            }
+            if (dm_dead_t > 0) {                           /* fragged: brief respawn wait */
+                dm_dead_t -= dt;
+                if (dm_dead_t <= 0) { health=100; dm_respawn(); hurt=0; }
+                goto dm_draw;
+            }
+        }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) g_showmap = !g_showmap;
         if (g_showmap) {                                   /* map open: world holds still;
                                                               LEFT/RIGHT picks your weapon */
@@ -1077,9 +1336,10 @@ static void g_update(float dt) {
                 } else if (id>=0 && g_dr[id].isexit && !has_key) {
                     { const char*t="NEED THE GOLD KEY"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
                     msg_t = 1.5f;
-                } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&door_sfx,0.5f); }
+                } else if (id>=0 && !g_dr[id].want) { g_dr[id].want=1; g_dr[id].closet=3.0f; play(&door_sfx,0.5f);
+                    if (g_dm) dm_send2('O',(uint8_t)id); }
             }
-            else if (cx>=0&&cz>=0&&cx<MW&&cz<MH&&(g_wall[cz][cx]==4||g_wall[cz][cx]==5) && !g_pw.active) {
+            else if (!g_dm && cx>=0&&cz>=0&&cx<MW&&cz<MH&&(g_wall[cz][cx]==4||g_wall[cz][cx]==5) && !g_pw.active) {
                 /* SECRET: push it away from you, two cells */
                 int dx = (fabsf(fx)>fabsf(fz)) ? (fx>0?1:-1) : 0;
                 int dz = dx ? 0 : (fz>0?1:-1);
@@ -1129,6 +1389,7 @@ static void g_update(float dt) {
             float ddx=p->x-px, ddz=p->z-pz;
             if (ddx*ddx+ddz*ddz < 0.32f) {
                 p->taken = 1; play(&pickup_sfx, 0.6f);
+                if (g_dm){ dm_send2('T',(uint8_t)i); g_pkt[i]=22.0f; }
                 if (p->type==PK_AMMO) g_am[0] += 15;
                 else if (p->type==PK_AMMO2) g_am[0] += 35;
                 else if (p->type==PK_FUEL)  g_am[1] += 25;
@@ -1232,7 +1493,7 @@ static void g_update(float dt) {
         }
 
         /* stepping THROUGH the green exit door: tally up, then descend */
-        if (g_exi >= 0 && (int)px == g_exi && (int)pz == g_ezi) {
+        if (!g_dm && g_exi >= 0 && (int)px == g_exi && (int)pz == g_ezi) {
             score += 500;
             if (fl_kills >= fl_kills_tot && fl_kills_tot > 0) score += 300;
             if (fl_treas >= fl_treas_tot && fl_treas_tot > 0) score += 300;
@@ -1242,6 +1503,7 @@ static void g_update(float dt) {
     }
 
     /* ------------------------------------------------- draw the 3D scene --- */
+    dm_draw:;
     Vec3 eye = v3(px, 0.5f, pz);
     Vec3 fwd = v3(sinf(yaw), 0, cosf(yaw));
     Mat3 cam = mote_camera_look(eye, v3_add(eye, fwd));
@@ -1326,6 +1588,14 @@ static void g_update(float dt) {
         if (e->fireanim > 0.18f)   /* brief ADD glow right at the gun (the art has its own flash) */
             mote->scene_add_billboard(v3(e->x, big?0.5f:0.45f, e->z), &flash_img,0,0,0,0, 0.26f, MOTE_BLEND_ADD);
     }
+    if (g_dm && rp_hp>0 && dm_started){                    /* the OTHER player */
+        int frame = rp_hit_t>0 ? 2 : (rp_fire_t>0 ? 1 : 0);
+        float bob = rp_moving ? fabsf(sinf(rp_anim*9.0f))*0.02f : 0.0f;
+        mote->scene_add_billboard(v3(rp_dx2, 0.5f+bob, rp_dz2), &commando_img,
+                                  frame*24,0,24,40, 0.92f, MOTE_BLEND_NONE);
+        if (rp_fire_t > 0.16f)
+            mote->scene_add_billboard(v3(rp_dx2, 0.45f, rp_dz2), &flash_img,0,0,0,0, 0.26f, MOTE_BLEND_ADD);
+    }
     for (int i=0;i<16;i++){ Tracer*t=&g_tr[i];             /* the shots themselves */
         if (t->t<=0) continue; t->t -= 0.033f;
         mote->scene_add_line(v3(t->ax,t->ay,t->az), v3(t->bx,t->by,t->bz), t->col);
@@ -1377,7 +1647,8 @@ static void g_overlay(uint16_t *fb) {
                   mote->draw_rect(fb, 94,3,2,2, MOTE_RGB565(232,190,60),1,0,128); }
     if (has_silver){ mote->draw_rect(fb, 96,6,5,3, MOTE_RGB565(190,196,210),1,0,128);
                      mote->draw_rect(fb, 94,7,2,2, MOTE_RGB565(190,196,210),1,0,128); }
-    mote_textf(mote, fb, 104,1, white, "L%d", level+1);
+    if (g_dm) mote_textf(mote, fb, 100,1, MOTE_RGB565(240,120,110), "%d:%d", dm_frags, dm_peer_frags);
+    else      mote_textf(mote, fb, 104,1, white, "L%d", level+1);
 
     if (g_dmgt > 0 && state == ST_PLAY) {
         /* red bar on the edge the shot came FROM (relative to where you face) */
@@ -1417,6 +1688,8 @@ static void g_overlay(uint16_t *fb) {
                          pk->type==PK_TREAS?MOTE_RGB565(240,230,120):MOTE_RGB565(120,190,230);
             mote->draw_rect(fb, ox+mxx*cell+1, oy+(MH-1-mzz)*cell+1, 2,2, c,1,0,128);
         }
+        if (g_dm && rp_hp>0){ int rxx=ox+(int)(rp_x*cell), rzz=oy+(int)((MH-rp_z)*cell);
+            mote->draw_rect(fb, rxx-1, rzz-1, 3,3, MOTE_RGB565(240,60,50),1,0,128); }
         { int mxx=ox+(int)(px*cell), mzz=oy+(int)((MH-pz)*cell);   /* you + facing */
           mote->draw_rect(fb, mxx-1, mzz-1, 3,3, MOTE_RGB565(255,255,255),1,0,128);
           mote->draw_line(fb, mxx, mzz, mxx+(int)(sinf(yaw)*5), mzz-(int)(cosf(yaw)*5), MOTE_RGB565(255,255,255),0,128); }
@@ -1439,14 +1712,31 @@ static void g_overlay(uint16_t *fb) {
         mote->text_font(fb, &title, "WOLFMOTE", 15+1, 24+1, MOTE_RGB565(30,8,8));
         mote->text_font(fb, &title, "WOLFMOTE", 15,   24,   MOTE_RGB565(224,60,48));
         mote->text(fb, "A ROGUE DUNGEON", 28,52, MOTE_RGB565(170,178,195));
-        static const char *DN[3]={"EASY","NORMAL","HARD"};
-        for (int i2=0;i2<3;i2++){
-            uint16_t c2 = i2==g_diff ? amber : MOTE_RGB565(120,126,140);
-            if (i2==g_diff) mote->text(fb, ">", 30, 62+i2*9, amber);
-            mote->text(fb, DN[i2], 40, 62+i2*9, c2);
+        static const char *DN[4]={"EASY","NORMAL","HARD","2P DEATHMATCH"};
+        int rows = mote->abi_version>=43 ? 4 : 3;
+        for (int i2=0;i2<rows;i2++){
+            uint16_t c2 = i2==g_tsel ? amber : MOTE_RGB565(120,126,140);
+            if (i2==g_tsel) mote->text(fb, ">", 30, 60+i2*9, amber);
+            mote->text(fb, DN[i2], 40, 60+i2*9, i2==3?MOTE_RGB565(240,120,110):c2);
         }
-        mote_textf(mote, fb, 24,92, MOTE_RGB565(150,160,180), "BEST F%d $%d", best_floor, best_score);
+        mote_textf(mote, fb, 24,97, MOTE_RGB565(150,160,180), "BEST F%d $%d", best_floor, best_score);
         mote->text(fb, "A  BEGIN", 44,110, MOTE_RGB565(140,220,150));
+        return;
+    }
+    if (state == ST_DMLINK) {
+        mote->draw_rect(fb, 10,38,108,54, MOTE_RGB565(16,18,26),1,0,128);
+        mote->draw_rect(fb, 10,38,108,54, MOTE_RGB565(120,40,36),0,0,128);
+        mote->text(fb, "DEATHMATCH", 34,44, MOTE_RGB565(240,120,110));
+        if (mote->link_status()==MOTE_LINK_CONNECTED)
+            mote->text(fb, "WAITING FOR PEER", 18,58, MOTE_RGB565(120,240,130));
+        else {
+            mote->text(fb, "CONNECT USB CABLE", 15,58, white);
+            mote->text(fb, "OR STUDIO LINK", 25,67, MOTE_RGB565(140,150,170));
+        }
+        { int dots=((int)(g_time*3))%4;
+          for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,76,3,3,amber,1,0,128); }
+        mote->text(fb, "B CANCEL", 46,82, MOTE_RGB565(140,150,170));
+        g_time += 0.033f;
         return;
     }
     if (state == ST_DEBRIEF) {
@@ -1460,6 +1750,20 @@ static void g_overlay(uint16_t *fb) {
         mote->text(fb, "B  DESCEND", 40,90, amber);
     }
 
+    if (g_dm && state == ST_PLAY) {
+        if (dm_end) {
+            mote->draw_rect(fb, 14,48,100,34, MOTE_RGB565(16,18,26),1,0,128);
+            mote->draw_rect(fb, 14,48,100,34, MOTE_RGB565(120,40,36),0,0,128);
+            if (dm_end==1)      mote->text(fb, "YOU WIN!", 46,55, MOTE_RGB565(120,240,130));
+            else if (dm_end==2) mote->text(fb, "YOU LOSE!", 43,55, MOTE_RGB565(240,90,90));
+            else                mote->text(fb, "LINK LOST", 43,55, MOTE_RGB565(240,90,90));
+            mote_textf(mote, fb, 34,64, white, "FRAGS %d-%d", dm_frags, dm_peer_frags);
+            mote->text(fb, "B  TITLE", 46,73, amber);
+        } else if (dm_dead_t > 0) {
+            mote->draw_rect(fb, 24,56,80,16, MOTE_RGB565(36,16,16),1,0,128);
+            mote->text(fb, "FRAGGED", 44,61, MOTE_RGB565(240,90,90));
+        }
+    }
     if (state == ST_WIN) {
         mote->draw_rect(fb, 16,52,96,24, MOTE_RGB565(20,30,20),1,0,128);
         mote_textf(mote, fb, 30,58, MOTE_RGB565(120,240,130), "YOU ESCAPED!");

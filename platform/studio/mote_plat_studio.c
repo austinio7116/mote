@@ -175,20 +175,69 @@ void mote_plat_kv_list(const char *prefix, void (*cb)(const char *, void *), voi
 #include "../../studio/link_net.h"
 int mote_studio_link_bridge_active;   /* set by the Studio UI while bridging */
 static int s_lk_started;
+
+/* --- Preview vs USB DEVICE (the UI's "Vs Device" mode): the preview game's
+ * link rides a LOCAL pipe to the docked Thumby — two mutex-guarded byte rings
+ * (game->device / device->game) whose serial end is pumped by the bridge
+ * thread in studio/main.c. No network involved. */
+static SDL_mutex *s_dl_mx;
+static uint8_t s_dl_g2d[1024], s_dl_d2g[1024];
+static int s_dl_g2d_h, s_dl_g2d_t, s_dl_d2g_h, s_dl_d2g_t;
+static int s_dl_on;
+
+static int dl_put(uint8_t *ring, int cap, int *h, int t, const uint8_t *d, int n) {
+    int put = 0;
+    while (put < n) { int nx = (*h + 1) % cap; if (nx == t) break; ring[*h] = d[put++]; *h = nx; }
+    return put;
+}
+static int dl_get(const uint8_t *ring, int cap, int h, int *t, uint8_t *d, int max) {
+    int got = 0;
+    while (got < max && *t != h) { d[got++] = ring[*t]; *t = (*t + 1) % cap; }
+    return got;
+}
+static void dl_lock(void) { if (!s_dl_mx) s_dl_mx = SDL_CreateMutex(); SDL_LockMutex(s_dl_mx); }
+
+void mote_studio_devlink_set(int on) {
+    dl_lock();
+    s_dl_on = on;
+    s_dl_g2d_h = s_dl_g2d_t = s_dl_d2g_h = s_dl_d2g_t = 0;
+    SDL_UnlockMutex(s_dl_mx);
+}
+int mote_studio_devlink_active(void) { return s_dl_on; }
+int mote_studio_devlink_pull_tx(void *buf, int max) {        /* bridge: game -> serial */
+    dl_lock(); int n = dl_get(s_dl_g2d, sizeof s_dl_g2d, s_dl_g2d_h, &s_dl_g2d_t, buf, max);
+    SDL_UnlockMutex(s_dl_mx); return n;
+}
+int mote_studio_devlink_push_rx(const void *buf, int n) {    /* bridge: serial -> game */
+    dl_lock(); int w = dl_put(s_dl_d2g, sizeof s_dl_d2g, &s_dl_d2g_h, s_dl_d2g_t, buf, n);
+    SDL_UnlockMutex(s_dl_mx); return w;
+}
+
 void mote_plat_link_start(void)  { s_lk_started = 1; }
 void mote_plat_link_stop(void)   { s_lk_started = 0; }
 void mote_plat_link_task(void)   { link_net_task(); }
 int  mote_plat_link_status(void) {
     if (!s_lk_started) return 0;
-    if (mote_studio_link_bridge_active) return 1;        /* pipe busy: keep searching */
+    if (s_dl_on) return 2;                               /* serial pipe up = connected;
+                                                          * the game's hello gates the rest */
+    if (mote_studio_link_bridge_active) return 1;        /* LAN pipe busy: keep searching */
     return link_net_status();                            /* same 0/1/2 meanings */
 }
-int  mote_plat_link_is_host(void){ return mote_studio_link_bridge_active ? 0 : link_net_is_host(); }
+int  mote_plat_link_is_host(void){
+    if (s_dl_on || mote_studio_link_bridge_active) return 0;   /* symmetric: games use a nonce */
+    return link_net_is_host();
+}
 int  mote_plat_link_send(const void *data, int len) {
-    if (!s_lk_started || mote_studio_link_bridge_active) return 0;
+    if (!s_lk_started) return 0;
+    if (s_dl_on) { dl_lock(); int w = dl_put(s_dl_g2d, sizeof s_dl_g2d, &s_dl_g2d_h, s_dl_g2d_t, data, len);
+                   SDL_UnlockMutex(s_dl_mx); return w; }
+    if (mote_studio_link_bridge_active) return 0;
     return link_net_send(data, len);
 }
 int  mote_plat_link_recv(void *buf, int max) {
-    if (!s_lk_started || mote_studio_link_bridge_active) return 0;
+    if (!s_lk_started) return 0;
+    if (s_dl_on) { dl_lock(); int n = dl_get(s_dl_d2g, sizeof s_dl_d2g, s_dl_d2g_h, &s_dl_d2g_t, buf, max);
+                   SDL_UnlockMutex(s_dl_mx); return n; }
+    if (mote_studio_link_bridge_active) return 0;
     return link_net_recv(buf, max);
 }

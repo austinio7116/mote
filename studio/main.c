@@ -4953,29 +4953,38 @@ static SDL_Rect g_dvb[6]; static const char *DVB_L[6]={ "Ping","List Games","Pus
  * the network. While the bridge runs it owns both the serial port and the LAN
  * pipe (preview games + the other device buttons wait their turn). */
 extern int mote_studio_link_bridge_active;    /* consumed by mote_plat_studio */
+extern void mote_studio_devlink_set(int on);  /* preview<->device local pipe (plat studio) */
+extern int  mote_studio_devlink_pull_tx(void *buf, int max);
+extern int  mote_studio_devlink_push_rx(const void *buf, int n);
 static volatile int g_bridge_on;
+static int g_bridge_local;   /* 0 = relay serial<->LAN · 1 = relay serial<->preview game */
 static int bridge_thread(void *a){ (void)a;
+    int local=g_bridge_local;
     void *h=mote_dev_open_raw();
-    if(!h){ log_add("bridge: no Mote device found (CAFE:4D01)"); g_bridge_on=0; mote_studio_link_bridge_active=0; return 0; }
-    log_add("bridge: relaying USB device <-> LAN link");
+    if(!h){ log_add("bridge: no Mote device found (CAFE:4D01) - put the device game in link mode first");
+            g_bridge_on=0; mote_studio_link_bridge_active=0; mote_studio_devlink_set(0); return 0; }
+    log_add(local?"vs device: relaying USB device <-> preview game":"bridge: relaying USB device <-> LAN link");
     unsigned char buf[512]; long tx=0,rx=0;
     while(g_bridge_on){
         int n=mote_dev_raw_read(h,buf,sizeof buf);                  /* <=~100ms block */
-        for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; }
+        for(int off=0;off<n;){ int w=local?mote_studio_devlink_push_rx(buf+off,n-off)
+                                          :link_net_send(buf+off,n-off); if(w<=0)break; off+=w; }
         if(n>0)tx+=n;
-        int m=link_net_recv(buf,sizeof buf);
+        int m=local?mote_studio_devlink_pull_tx(buf,sizeof buf):link_net_recv(buf,sizeof buf);
         for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off); if(w<=0)break; off+=w; }
         if(m>0)rx+=m;
     }
     mote_dev_close_raw(h);
-    { char s[110]; snprintf(s,sizeof s,"bridge: stopped (%ld B to peer, %ld B to device)",tx,rx); log_add(s); }
-    mote_studio_link_bridge_active=0; return 0; }
+    { char s[110]; snprintf(s,sizeof s,"%s: stopped (%ld B from device, %ld B to device)",local?"vs device":"bridge",tx,rx); log_add(s); }
+    mote_studio_link_bridge_active=0; mote_studio_devlink_set(0); return 0; }
 static void bridge_stop(void){ g_bridge_on=0; }
-static void bridge_start(void){ if(g_bridge_on)return;
-    if(link_net_status()==LINK_NET_OFF){ log_add("bridge: start Host or Join first"); return; }
-    g_bridge_on=1; mote_studio_link_bridge_active=1; SDL_CreateThread(bridge_thread,"bridge",NULL); }
+static void bridge_start(int local){ if(g_bridge_on)return;
+    if(!local&&link_net_status()==LINK_NET_OFF){ log_add("bridge: start Host or Join first"); return; }
+    g_bridge_local=local; g_bridge_on=1;
+    if(local)mote_studio_devlink_set(1); else mote_studio_link_bridge_active=1;
+    SDL_CreateThread(bridge_thread,"bridge",NULL); }
 
-static SDL_Rect g_lkb[4]; static const char *LKB_L[4]={ "Host LAN","Join LAN","Bridge USB","Stop Link" };
+static SDL_Rect g_lkb[5]; static const char *LKB_L[5]={ "Host LAN","Join LAN","Bridge USB","Vs Device","Stop Link" };
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
     text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
@@ -4986,22 +4995,25 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         rrect(R,x,y,bw,28,4,hit(mx,my,x,y,bw,28)?C_BTNHI:C_BTN); icon(R,ic[i],x+10,y+7,14,C_TXT); text(R,DVB_L[i],x+30,y+8,1,C_TXT,C_BTN);
         tip(g_dvb[i],mx,my,DVB_T[i]); x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
     text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK);
-    /* --- LAN LINK row --- */
+    /* --- 2P LINK row --- */
     int ly=y+64;
-    text(R,"LAN LINK  (2P across the network: preview games, or bridge a USB Thumby)",ox,ly,1,C_TITLE,C_DOCK);
-    static const char*LKB_T[4]={ "Listen for a peer Studio on the LAN (tcp 42450 + discovery)",
+    text(R,"2P LINK  (LAN peer Studio, bridge a USB Thumby, or preview vs your device)",ox,ly,1,C_TITLE,C_DOCK);
+    static const char*LKB_T[5]={ "Listen for a peer Studio on the LAN (tcp 42450 + discovery)",
         "Find a hosting Studio on the LAN and connect (set MOTE_LINK_PEER=ip for a fixed address)",
         "Relay the USB-connected Thumby's 2P link over the LAN pipe - two real devices play remotely",
-        "Drop the LAN link (and the bridge)" };
-    int lic[4]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_ERASER};
+        "Link the PREVIEW game to the USB-connected Thumby - play against your own device, no network",
+        "Drop the link (LAN and/or bridge)" };
+    int lic[5]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_ERASER};
     x=ox; ly+=20;
-    for(int i=0;i<4;i++){ int bw=textw(R,LKB_L[i],1)+46; g_lkb[i]=(SDL_Rect){x,ly,bw,28};
-        int on=(i==2&&g_bridge_on);
+    for(int i=0;i<5;i++){ int bw=textw(R,LKB_L[i],1)+46; g_lkb[i]=(SDL_Rect){x,ly,bw,28};
+        int on=(i==2&&g_bridge_on&&!g_bridge_local)||(i==3&&g_bridge_on&&g_bridge_local);
         rrect(R,x,ly,bw,28,4,on?C_ACC:hit(mx,my,x,ly,bw,28)?C_BTNHI:C_BTN);
         icon(R,lic[i],x+10,ly+7,14,C_TXT); text(R,LKB_L[i],x+30,ly+8,1,C_TXT,C_BTN);
-        tip(g_lkb[i],mx,my,LKB_T[i]); x+=bw+8; }
-    { char st[160]; snprintf(st,sizeof st,"link: %s%s",link_net_info(),g_bridge_on?"  [bridging USB device]":"");
-      text(R,st,ox,ly+38,1,link_net_status()==LINK_NET_CONNECTED?C_ACC:C_DIM,C_DOCK); } }
+        tip(g_lkb[i],mx,my,LKB_T[i]); x+=bw+8; if(x>ox+w-140){ x=ox; ly+=34; } }
+    { char st[160];
+      if(g_bridge_on&&g_bridge_local) snprintf(st,sizeof st,"link: preview <-> USB device (local)");
+      else snprintf(st,sizeof st,"link: %s%s",link_net_info(),g_bridge_on?"  [bridging USB device]":"");
+      text(R,st,ox,ly+38,1,(g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK); } }
 /* native device ops (no Python) run on a worker thread, logging into the Console */
 static int g_devop; static volatile int g_devstop;
 static int dev_thread(void*a){ (void)a;
@@ -5016,10 +5028,11 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
     char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof dir,"%.250s",g_games[g_sel].dir); char c[600]; g_tab=TAB_CONSOLE;
     if(i==0)dev_run(0); else if(i==1)dev_run(1); else if(i==4)dev_run(4); else if(i==5)dev_run(5);
     else if(i==2)njob(3,dir); else if(i==3)njob(4,dir); return; }
-    for(int i=0;i<4;i++)if(hit(mx,my,g_lkb[i].x,g_lkb[i].y,g_lkb[i].w,g_lkb[i].h)){
+    for(int i=0;i<5;i++)if(hit(mx,my,g_lkb[i].x,g_lkb[i].y,g_lkb[i].w,g_lkb[i].h)){
         if(i==0){ link_net_host(); log_add("link: hosting on the LAN (tcp 42450)"); }
         else if(i==1){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("link: joining..."); }
-        else if(i==2){ if(g_bridge_on)bridge_stop(); else bridge_start(); }
+        else if(i==2){ if(g_bridge_on)bridge_stop(); else bridge_start(0); }
+        else if(i==3){ if(g_bridge_on)bridge_stop(); else bridge_start(1); }
         else { bridge_stop(); link_net_stop(); log_add("link: stopped"); }
         return; } }
 
