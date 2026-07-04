@@ -51,6 +51,9 @@ MOTE_MODULE_HEADER();
 #define PAD_Y     104       /* bounce-pad canvas top (world y) */
 #define PAD_W      24
 #define BOUNCE_VY (-285.0f) /* pad launch: reaches ~y=46, inside grab range of the top studs */
+#define BACK_ANG    0.42f   /* backwards pad tilt (rad) — right edge raised */
+#define BACK_VX  (-150.0f)  /* backwards pad flings you back the way you came */
+#define BACK_VY  (-250.0f)
 #define KILL_Y    152.0f
 #define START_X    40.0f
 #define PX_PER_M   10.0f
@@ -62,6 +65,7 @@ MOTE_MODULE_HEADER();
 static float ax_[ANCH_N], ay_[ANCH_N];
 static float padx[PAD_N];
 static float pad_sq[PAD_N];         /* squash-anim timer */
+static uint8_t pad_back[PAD_N];     /* 1 = angled backwards (flings you back) */
 static int   gen_i, pad_i;
 static float gen_x, gen_y;
 
@@ -123,12 +127,21 @@ static void gen_course(void) {
         float ny = gen_y + (float)(int)(mote_rand() % 37) - 18.0f;
         ny = mote_clampf(ny, 14.0f, 46.0f);
         float nx = gen_x + dx;
-        /* a bounce pad under some gaps (rarer as the course goes on) */
-        int chance = gen_x < 800.0f ? 40 : 26;
+        /* a cluster of 2-3 bounce pads under some gaps (rarer as the course
+         * goes on); the LAST pad of a cluster is sometimes angled backwards —
+         * land on it and it flings you back the way you came. */
+        int chance = gen_x < 800.0f ? 32 : 20;
         if ((int)(mote_rand() % 100) < chance) {
-            padx[pad_i & (PAD_N - 1)] = (gen_x + nx) * 0.5f - PAD_W * 0.5f;
-            pad_sq[pad_i & (PAD_N - 1)] = 0;
-            pad_i++;
+            int n = 2 + (int)(mote_rand() % 2);
+            int back_last = (int)(mote_rand() % 100) < 45;
+            float cx = (gen_x + nx) * 0.5f - (n * (PAD_W + 4.0f) - 4.0f) * 0.5f;
+            for (int k = 0; k < n; k++) {
+                int j = pad_i & (PAD_N - 1);
+                padx[j] = cx + k * (PAD_W + 4.0f);
+                pad_sq[j] = 0;
+                pad_back[j] = (uint8_t)(back_last && k == n - 1);
+                pad_i++;
+            }
         }
         int i = gen_i & (ANCH_N - 1);
         ax_[i] = nx; ay_[i] = ny;
@@ -142,7 +155,7 @@ static void start_run(void) {
     gen_i = pad_i = 0;
     gen_x = START_X; gen_y = 26.0f;
     ax_[0] = START_X; ay_[0] = 26.0f; gen_i = 1;
-    padx[0] = START_X + 8.0f; pad_sq[0] = 0; pad_i = 1;   /* mercy pad under the start */
+    padx[0] = START_X + 8.0f; pad_sq[0] = 0; pad_back[0] = 0; pad_i = 1;  /* mercy pad under the start */
     camf = 0;
     gen_course();
 
@@ -262,8 +275,8 @@ static void step_player(float dt) {
                 if (px + 4.0f < pxl || px - 4.0f > pxl + PAD_W) continue;
                 if (py + 6.0f >= PAD_Y && py + 6.0f <= PAD_Y + 10.0f) {
                     py = PAD_Y - 6.0f;
-                    vy = BOUNCE_VY;
-                    vx *= 0.985f;
+                    if (pad_back[i]) { vx = BACK_VX; vy = BACK_VY; }
+                    else             { vy = BOUNCE_VY; vx *= 0.985f; }
                     pad_sq[i] = 0.22f;
                     mote->audio_play_sfx(&bounce_sfx, 0.9f);
                     mote->rumble(0.4f, 80);
@@ -363,14 +376,6 @@ post_state:;
                          .fw = 12, .fh = 12, .layer = 5 };
         mote->scene2d_add(&s);
     }
-    for (int i = 0; i < PAD_N && i < pad_i; i++) {
-        if (padx[i] < camf - 30.0f || padx[i] > camf + 150.0f) continue;
-        MoteSprite s = { .img = &pad_img,
-                         .x = (int16_t)padx[i], .y = (int16_t)PAD_Y,
-                         .fx = 0, .fy = (uint16_t)(pad_sq[i] > 0 ? 8 : 0),
-                         .fw = 24, .fh = 8, .layer = 4 };
-        mote->scene2d_add(&s);
-    }
 }
 
 /* ----------------------------------------------------------------- overlay */
@@ -383,6 +388,15 @@ static const uint16_t COL_TITLE = MOTE_RGB565(60, 46, 16);
 static void g_overlay(uint16_t *fb) {
     int cam = (int)camf;
     float sx = px - cam, sy = py;
+
+    /* bounce pads (under the hero; blit_ex so the backwards pad can tilt) */
+    for (int i = 0; i < PAD_N && i < pad_i; i++) {
+        if (padx[i] < camf - 30.0f || padx[i] > camf + 150.0f) continue;
+        mote->blit_ex(fb, &pad_img, padx[i] + PAD_W * 0.5f - cam, PAD_Y + 4.0f,
+                      0, pad_sq[i] > 0 ? 8 : 0, 24, 8,
+                      pad_back[i] ? -BACK_ANG : 0.0f, 1.0f,
+                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    }
 
     if (pl == PL_HUNG) {
         /* rope: anchor -> grip (grip sits 7px up the body, along the rope) */
