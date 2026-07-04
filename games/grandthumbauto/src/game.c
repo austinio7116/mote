@@ -509,6 +509,26 @@ static int   irand(int n) { return (int)(frand()*n); }
 #define CAR_WID 2.0f
 
 static int is_drivable(int x,int z){ char c=tile_at(x,z); return c=='.'||c=='B'; }  /* AI: road/bridge */
+/* a QUIET spot to stash the tank: clear 3x3 pavement/grass pocket, no street
+ * within 2 tiles, and at least one straight drivable escape run within 8 tiles
+ * (so the prize is hidden but never sealed in). */
+static int tank_hideout(int x,int z){
+    for (int dz=-1;dz<=1;dz++)for (int dx=-1;dx<=1;dx++){
+        char c=tile_at(x+dx,z+dz);
+        if (c!=','&&c!=' ') return 0;
+    }
+    for (int dz=-2;dz<=2;dz++)for (int dx=-2;dx<=2;dx++)
+        if (is_drivable(x+dx,z+dz)) return 0;
+    static const int DX4[4]={1,-1,0,0}, DZ4[4]={0,0,1,-1};
+    for (int k=0;k<4;k++){
+        for (int s2=2;s2<=8;s2++){
+            char c=tile_at(x+DX4[k]*s2, z+DZ4[k]*s2);
+            if (c=='.'||c=='B') return 1;              /* an escape run to a road */
+            if (c!=','&&c!=' ') break;                 /* blocked: try another way */
+        }
+    }
+    return 0;
+}
 /* heading (radians) aligned with the road at this tile: the cardinal with the
  * longest drivable run — so a spawned car faces ALONG the street, not a wall. */
 static float road_heading(int x,int z){
@@ -656,10 +676,27 @@ static void spawn_world(void) {
     for (int i=0;i<NCAR;i++){ cars[i].hp=100.0f; cars[i].firecd=0; }
     for (int i=0;i<NPED;i++){ if(peds[i].alive) peds[i].hp=2; }
 
-    /* the hidden TANK — far from the player, very tough, DRV_NONE until found */
-    { float ox,oz; if (find_near(player.x,player.z, 70.0f, 140.0f, is_drivable, &ox,&oz))
-        cars[NCAR-1]=(Car){ ox,oz,-1.5708f,0,VEH_TANK,DRV_NONE,1,600.0f,0 };
-      else cars[NCAR-1]=(Car){ (MAPW-6)*TILE,(MAPH-6)*TILE,0,0,VEH_TANK,DRV_NONE,1,600.0f,0 }; }
+    /* the hidden TANK — parked in a QUIET OFF-ROAD pocket far away: a clear 3x3
+     * of pavement/grass with no street within 2 tiles (so you never trip over it
+     * on a highway), but with a straight drivable escape run so the prize can
+     * actually be driven out. */
+    { float ox,oz; int placed=0;
+      for (int pass=0; pass<2 && !placed; pass++){
+          float rmin = pass==0 ? 130.0f : 80.0f;
+          if (find_near(player.x,player.z, rmin, 260.0f, tank_hideout, &ox,&oz)){
+              cars[NCAR-1]=(Car){ ox,oz,(float)(irand(4))*1.5708f,0,VEH_TANK,DRV_NONE,1,600.0f,0 };
+              placed=1;
+          }
+      }
+      if (!placed && find_near(player.x,player.z, 100.0f, 240.0f, is_drivable, &ox,&oz))
+          { cars[NCAR-1]=(Car){ ox,oz,-1.5708f,0,VEH_TANK,DRV_NONE,1,600.0f,0 }; placed=1; }
+      if (!placed) cars[NCAR-1]=(Car){ (MAPW-6)*TILE,(MAPH-6)*TILE,0,0,VEH_TANK,DRV_NONE,1,600.0f,0 };
+#ifdef MOTE_HOST
+      if (getenv("MOTE_GTA_DEBUG"))
+          fprintf(stderr,"[TANK] hidden at tile (%d,%d) hideout=%d\n",
+                  (int)(cars[NCAR-1].x/TILE),(int)(cars[NCAR-1].z/TILE),placed);
+#endif
+    }
 }
 
 /* =========================================================== crime layer === */
@@ -2536,7 +2573,7 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tex_tris = 1750, .max_tris = 2200, .depth = 1,
+    .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220 },   /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
