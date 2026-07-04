@@ -564,6 +564,44 @@ static void place_in_lane(float *cx, float *cz, float *oyaw){
     float move=rdist-1.8f; if(move<0) move=0;                 /* sit ~1.8 m from the right kerb */
     *cx = bx + rx*move; *cz = bz + rz*move; *oyaw = yaw;
 }
+/* TRUE road-network distance (metres, approx) between two world points, via BFS
+ * on a coarse 4x4-tile grid (64x64 cells, ~12 KB bss). Returns -1 if there is no
+ * road route — a courier target straight across a river without a nearby bridge
+ * is a 3x detour, and the mission timer must know that. */
+#define RD_N 64
+static uint8_t  rd_dist[RD_N*RD_N];
+static uint16_t rd_q[RD_N*RD_N];
+static int rd_cell_road(int cx,int cz){
+    for (int dz=0;dz<4;dz++)for (int dx=0;dx<4;dx++)
+        if (is_drivable(cx*4+dx, cz*4+dz)) return 1;
+    return 0;
+}
+static float road_dist(float ax,float az,float bx,float bz){
+    int sa=(int)(ax/TILE)/4 + ((int)(az/TILE)/4)*RD_N;
+    int sb=(int)(bx/TILE)/4 + ((int)(bz/TILE)/4)*RD_N;
+    if (sa<0||sb<0||sa>=RD_N*RD_N||sb>=RD_N*RD_N) return -1.0f;
+    for (int i=0;i<RD_N*RD_N;i++) rd_dist[i]=0xFF;
+    int head=0, tail=0;
+    rd_dist[sa]=0; rd_q[tail++]= (uint16_t)sa;
+    while (head<tail){
+        int c=rd_q[head++];
+        if (c==sb) break;
+        int cx=c%RD_N, cz=c/RD_N;
+        uint8_t d=rd_dist[c];
+        if (d>=250) continue;
+        static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+        for (int k=0;k<4;k++){
+            int nx=cx+DX[k], nz=cz+DZ[k];
+            if (nx<0||nz<0||nx>=RD_N||nz>=RD_N) continue;
+            int n=nz*RD_N+nx;
+            if (rd_dist[n]!=0xFF || !rd_cell_road(nx,nz)) continue;
+            rd_dist[n]=(uint8_t)(d+1); rd_q[tail++]=(uint16_t)n;
+        }
+    }
+    if (rd_dist[sb]==0xFF) return -1.0f;
+    return rd_dist[sb]*4.0f*TILE;                    /* cells -> metres */
+}
+
 static int find_road_clear(float px,float pz,float rmin,float rmax,float*ox,float*oz){
     for (int t=0;t<56;t++){
         float a=frand()*6.2832f, r=rmin+frand()*(rmax-rmin);
@@ -1724,10 +1762,16 @@ static void start_mission(void) {
     float mult = 1.0f + 0.25f*(float)(mission_chain>5?5:mission_chain);
     if (rot==0){ mission=MI_COURIER;
         float rmin = 100.0f + frand()*80.0f, rmax = rmin + 80.0f + frand()*140.0f;
-        if (find_road_clear(pl_x(),pl_z(), rmin, rmax, &mx,&mz)){
+        float route=-1.0f;
+        for (int t=0;t<6 && route<0;t++){                 /* insist on a sane route */
+            if (!find_road_clear(pl_x(),pl_z(), rmin, rmax, &mx,&mz)) break;
             float d=sqrtf((mx-pl_x())*(mx-pl_x())+(mz-pl_z())*(mz-pl_z()));
-            mission_t = (14.0f + frand()*8.0f) + d/7.5f;
-            mission_pay = (int)((350.0f + d*1.8f + frand()*220.0f)*mult);
+            float r=road_dist(pl_x(),pl_z(), mx,mz);
+            if (r>0 && r < d*2.6f) route=r;               /* reachable, not a silly detour */
+        }
+        if (route>0){
+            mission_t = (14.0f + frand()*8.0f) + route/7.5f;   /* timer knows the REAL route */
+            mission_pay = (int)((350.0f + route*1.6f + frand()*220.0f)*mult);
             say("COURIER: REACH THE MARKER");
         } else { mission=MI_NONE; say("LINE DEAD..."); }
     } else if (rot==1){ mission=MI_RAMPAGE;
@@ -1751,6 +1795,8 @@ static void start_mission(void) {
                 mission_target=j; mx=ox; mz=oz; break; }
         }
         if (mission_target>=0){ float d=sqrtf((mx-pl_x())*(mx-pl_x())+(mz-pl_z())*(mz-pl_z()));
+            float r=road_dist(pl_x(),pl_z(), mx,mz);
+            if (r>0) d=r;                                /* the REAL route sets the clock */
             mission_t = 20.0f + frand()*10.0f + d/7.5f;
             mission_pay = (int)((520.0f + d*1.2f + frand()*260.0f)*mult);
             say("HIT: TAKE OUT THE MARK"); }
@@ -1980,6 +2026,41 @@ static void physics_pass(float dt) {
     }
 }
 
+static void draw_vehicle(int i){
+    Car*c=&cars[i]; if(!c->alive) return;
+        const MoteImage *img; int fxw,fyw,cw,ch; float dlen,dwid;
+        if (c->type==VEH_TANK){ img=&tankhull_img; cw=TANK_CW; ch=TANK_CH; fxw=0; fyw=0;
+            dlen=VSTAT[VEH_TANK].len*(float)TANK_CH/(float)TANK_AH;
+            dwid=VSTAT[VEH_TANK].wid*(float)TANK_CW/(float)TANK_AW; }
+        else if (c->type==VEH_BUS){ img=&bus_img; cw=BUS_CW; ch=BUS_CH; fxw=(i&1)*BUS_CW; fyw=0;
+            dlen=VSTAT[VEH_BUS].len*(float)BUS_CH/(float)BUS_AH;
+            dwid=VSTAT[VEH_BUS].wid*(float)BUS_CW/(float)BUS_AW; }
+        else { img=&cars2_img; cw=CAR_CW; ch=CAR_CH;
+            fxw=(c->type%CARS2_COLS)*CAR_CW; fyw=(c->type/CARS2_COLS)*CAR_CH;
+            /* the quad spans the CELL; scale so the opaque ART spans exactly len x wid */
+            dlen=VSTAT[c->type].len*(float)CAR_CH/(float)cars2_ah[c->type];
+            dwid=VSTAT[c->type].wid*(float)CAR_CW/(float)cars2_aw[c->type]; }
+        draw_ground_sprite(img, c->x, c->z, c->yaw, fxw,fyw,cw,ch, dlen, dwid, 1);
+        if (c->type==VEH_TANK && !c->wrecked){
+            /* independent TURRET: swings smoothly toward the hull heading (lags the
+             * hull through turns) and kicks back on recoil. Pivot = image centre. */
+            float tyaw;
+            if (i==player.car) tyaw = g_turret;                      /* player aims it */
+            else if (c->driver==DRV_COP)                             /* the army tracks YOU */
+                tyaw = atan2f(pl_z()-c->z, pl_x()-c->x);
+            else tyaw = c->yaw;
+            float rec = (i==player.car)? g_tankrecoil*1.4f : 0.0f;
+            float tx=c->x - cosf(tyaw)*rec, tz=c->z - sinf(tyaw)*rec;
+            draw_ground_sprite(&tankturret_img, tx, tz, tyaw, 0,0,TURRET_CW,TURRET_CH,
+                               TURRET_LEN_M, TURRET_WID_M, 1);
+        }
+        if (c->wrecked){                                        /* char the husk: dark translucent layer */
+            g_quadShade.scale=g_quad.scale; g_quadShade.bound_r=g_quad.bound_r;
+            Mat3 wb=m3_identity(); m3_rotate_local(&wb, 1, -(c->yaw + 1.5708f));
+            MoteObject o = { .pos=v3(c->x,0.10f,c->z), .basis=wb, .mesh=&g_quadShade };
+            mote->scene_add_object_ex(&o, MOTE_DRAW_NO_DEPTH_WRITE|MOTE_DRAW_BLEND(MOTE_BLEND_ALPHA));
+        } }
+
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
@@ -2200,6 +2281,9 @@ static void g_update(float dt) {
      * buildings occlude them all. Draw order = height order for the NO_DEPTH_WRITE layers:
      * peds on the ground, cars above them, and tree CANOPIES last (they're ~5 m up, so
      * people and cars pass UNDERNEATH — the canopy overlaps them, never the reverse). */
+    if (player.mode==MODE_CAR && g_state==ST_PLAY)
+        draw_vehicle(player.car);        /* FIRST claim on the textured-tri pool:
+                                            your own car must never be the one culled */
     /* world props: phonebox / gun-shop mat / spray decal at each marker */
     for (int m=0;m<nmark;m++){
         int cell = markers[m].kind==MK_PHONE?0 : markers[m].kind==MK_GUN?1 : markers[m].kind==MK_SPRAY?2 : 3;
@@ -2226,39 +2310,10 @@ static void g_update(float dt) {
         draw_ground_sprite(&player_img, player.x, player.z, player.yaw, fr*16,0,16,16, 1.9f, 1.9f, 1); }
     /* vehicles: size the quad by the SPRITE's aspect (sheet cells have transparent pad),
      * so the on-screen car spans ~len*VEH_DRAW with its art proportions preserved. */
-    for (int i=0;i<NCAR;i++){ Car*c=&cars[i]; if(!c->alive) continue;
-        const MoteImage *img; int fxw,fyw,cw,ch; float dlen,dwid;
-        if (c->type==VEH_TANK){ img=&tankhull_img; cw=TANK_CW; ch=TANK_CH; fxw=0; fyw=0;
-            dlen=VSTAT[VEH_TANK].len*(float)TANK_CH/(float)TANK_AH;
-            dwid=VSTAT[VEH_TANK].wid*(float)TANK_CW/(float)TANK_AW; }
-        else if (c->type==VEH_BUS){ img=&bus_img; cw=BUS_CW; ch=BUS_CH; fxw=(i&1)*BUS_CW; fyw=0;
-            dlen=VSTAT[VEH_BUS].len*(float)BUS_CH/(float)BUS_AH;
-            dwid=VSTAT[VEH_BUS].wid*(float)BUS_CW/(float)BUS_AW; }
-        else { img=&cars2_img; cw=CAR_CW; ch=CAR_CH;
-            fxw=(c->type%CARS2_COLS)*CAR_CW; fyw=(c->type/CARS2_COLS)*CAR_CH;
-            /* the quad spans the CELL; scale so the opaque ART spans exactly len x wid */
-            dlen=VSTAT[c->type].len*(float)CAR_CH/(float)cars2_ah[c->type];
-            dwid=VSTAT[c->type].wid*(float)CAR_CW/(float)cars2_aw[c->type]; }
-        draw_ground_sprite(img, c->x, c->z, c->yaw, fxw,fyw,cw,ch, dlen, dwid, 1);
-        if (c->type==VEH_TANK && !c->wrecked){
-            /* independent TURRET: swings smoothly toward the hull heading (lags the
-             * hull through turns) and kicks back on recoil. Pivot = image centre. */
-            float tyaw;
-            if (i==player.car) tyaw = g_turret;                      /* player aims it */
-            else if (c->driver==DRV_COP)                             /* the army tracks YOU */
-                tyaw = atan2f(pl_z()-c->z, pl_x()-c->x);
-            else tyaw = c->yaw;
-            float rec = (i==player.car)? g_tankrecoil*1.4f : 0.0f;
-            float tx=c->x - cosf(tyaw)*rec, tz=c->z - sinf(tyaw)*rec;
-            draw_ground_sprite(&tankturret_img, tx, tz, tyaw, 0,0,TURRET_CW,TURRET_CH,
-                               TURRET_LEN_M, TURRET_WID_M, 1);
-        }
-        if (c->wrecked){                                        /* char the husk: dark translucent layer */
-            g_quadShade.scale=g_quad.scale; g_quadShade.bound_r=g_quad.bound_r;
-            Mat3 wb=m3_identity(); m3_rotate_local(&wb, 1, -(c->yaw + 1.5708f));
-            MoteObject o = { .pos=v3(c->x,0.10f,c->z), .basis=wb, .mesh=&g_quadShade };
-            mote->scene_add_object_ex(&o, MOTE_DRAW_NO_DEPTH_WRITE|MOTE_DRAW_BLEND(MOTE_BLEND_ALPHA));
-        } }
+    for (int i=0;i<NCAR;i++){
+        if (player.mode==MODE_CAR && i==player.car) continue;   /* already drawn first */
+        draw_vehicle(i);
+    }
     /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
      * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
      * 4 flowerbed (low, walk-through), 5 boulder (low, collidable). */
@@ -2481,7 +2536,7 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_tex_tris = 1600, .max_tris = 2200, .depth = 1,
+    .config = { .max_tex_tris = 1750, .max_tris = 2200, .depth = 1,
                 .max_bodies = NCAR+NSTAT, .max_contacts = 220 },   /* 2D physics pool (ABI v42; 2-pt box manifolds, capped) */
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
