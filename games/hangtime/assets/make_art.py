@@ -5,6 +5,7 @@ Outputs (all transparent-background RGBA):
   hero.png    64x16 — four 16x16 frames: hang-back, hang-fore, tuck (flying), flail (falling)
   anchor.png  12x24 — two 12x12 frames: normal, in-grab-range highlight
   pad.png     24x16 — two 24x8 frames: bounce pad normal, squashed
+  flag.png    16x72 — level marker: checkered flag on a tall pole
   ../icon.png 60x60 — launcher icon
 """
 import os
@@ -156,6 +157,25 @@ def pad():
     img.save(os.path.join(HERE, "pad.png"))
 
 
+def flag():
+    img = Image.new("RGBA", (16, 72), NONE)
+    d = ImageDraw.Draw(img)
+    POLE = (74, 74, 82, 255)
+    POLE_D = (46, 46, 52, 255)
+    BLACK = (30, 30, 34, 255)
+    WHITE = (245, 242, 232, 255)
+    # pole with a darker right edge and a rounded cap
+    d.rectangle([2, 1, 3, 71], fill=POLE)
+    d.line([(3, 1), (3, 71)], fill=POLE_D)
+    d.point([(2, 0), (3, 0)], fill=POLE_D)
+    # checkered "level complete" flag, 2px squares
+    for gy in range(4):
+        for gx in range(5):
+            c = BLACK if (gx + gy) % 2 == 0 else WHITE
+            d.rectangle([4 + gx * 2, 2 + gy * 2, 5 + gx * 2, 3 + gy * 2], fill=c)
+    img.save(os.path.join(HERE, "flag.png"))
+
+
 def icon():
     img = Image.new("RGBA", (60, 60), NONE)
     d = ImageDraw.Draw(img)
@@ -179,7 +199,8 @@ def icon():
 
 
 hero()
+flag()
 anchor()
 pad()
 icon()
-print("wrote hero.png anchor.png pad.png ../icon.png")
+print("wrote hero.png anchor.png pad.png flag.png ../icon.png")

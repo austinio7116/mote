@@ -8,9 +8,9 @@
  * the next catch. Miss and you fall: that run is over, unless a bounce pad
  * sits below to fling you back up into grab range.
  *
- * The course is deterministic (fixed seed): every run is the same line of
- * anchors, so distance lost to a fall is distance you can win back with
- * better timing. Best distance persists in save slot 0.
+ * Every run rolls a fresh course (seeded from the clock). Checkered flags
+ * mark every 250 m — crossing one is a level complete. Best distance
+ * persists in save slot 0.
  *
  * Physics: while hung the player is an angle/omega pendulum about the anchor
  * (full rotations allowed — excess energy loops you over the top); a gentle
@@ -33,11 +33,13 @@ MOTE_MODULE_HEADER();
 #include "hero.h"           /* hero_img: 4 frames 16x16 — hang-back, hang-fore, tuck, flail */
 #include "anchor.h"         /* anchor_img: 2 frames 12x12 — normal, in-range highlight */
 #include "pad.h"            /* pad_img: 2 frames 24x8 — pad, squashed */
+#include "flag.h"           /* flag_img: 16x72 — checkered level flag on a pole */
 #include "grab.sfx.h"
 #include "release.sfx.h"
 #include "bounce.sfx.h"
 #include "die.sfx.h"
 #include "record.sfx.h"
+#include "checkpoint.sfx.h"
 
 /* ---- tuning ---- */
 #define GRAV      700.0f    /* px/s^2, shared by pendulum + flight */
@@ -57,7 +59,7 @@ MOTE_MODULE_HEADER();
 #define KILL_Y    152.0f
 #define START_X    40.0f
 #define PX_PER_M   10.0f
-#define COURSE_SEED 0x51C0FFEEu
+#define LEVEL_PX 2500.0f    /* a checkered level-complete flag every 250 m */
 
 /* ---- course ring buffers (deterministic, generated ahead of the camera) ---- */
 #define ANCH_N 32           /* power of two */
@@ -86,6 +88,9 @@ static float camf;
 static float dist_m, best_m;
 static int   new_best;
 static float dead_t;
+static int   cur_level;             /* levels completed this run (250 m each) */
+static float toast_t;               /* "LEVEL N COMPLETE" banner timer */
+static uint32_t s_seed;
 
 typedef struct { uint32_t magic, best; } SaveBlob;
 #define SAVE_MAGIC 0x48475431u      /* 'HGT1' */
@@ -152,7 +157,15 @@ static void gen_course(void) {
 }
 
 static void start_run(void) {
-    mote_rand_seed(COURSE_SEED);                          /* same course every run */
+    /* fresh course every run: mix the clock into a rolling seed */
+    s_seed = s_seed * 1664525u + 1013904223u + (uint32_t)mote->micros();
+#ifdef MOTE_HOST
+    {   /* HT_SEED pins the course for scripted playtests */
+        const char *hs = getenv("HT_SEED");
+        if (hs) s_seed = (uint32_t)atoi(hs);
+    }
+#endif
+    mote_rand_seed(s_seed | 1u);
     gen_i = pad_i = 0;
     gen_x = START_X; gen_y = 26.0f;
     ax_[0] = START_X; ay_[0] = 26.0f; gen_i = 1;
@@ -168,6 +181,7 @@ static void start_run(void) {
     vx = vy = 0; ang = -th;
     auto_grip = 1; target = -1;
     dist_m = 0; new_best = 0;
+    cur_level = 0; toast_t = 0;
 }
 
 /* -------------------------------------------------------------------- init */
@@ -295,6 +309,10 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
 
+    /* stir real timer jitter into the course seed every frame, so each run —
+     * including the first after boot — draws a genuinely different layout */
+    s_seed = s_seed * 1103515245u + (uint32_t)mote->micros();
+
 #ifdef MOTE_HOST
     s_frame++;
     HT_TRACE("f=%d st=%d pl=%d th=%.2f om=%.2f p=%.0f,%.0f v=%.0f,%.0f tgt=%d d=%dm",
@@ -316,15 +334,21 @@ static void g_update(float dt) {
         step_player(dt);
         float bm = (px - START_X) / PX_PER_M;
         if (bm > dist_m) dist_m = bm;
+        int blv = (int)((px - START_X) / LEVEL_PX);
+        if (blv > cur_level) { cur_level = blv; toast_t = 1.6f; }
         goto post_state;
     }
     if (bot && st == ST_DEAD) { start_run(); st = ST_RUN; }
-    if (bot && st == ST_TITLE) st = ST_RUN;
+    if (bot && st == ST_TITLE) { start_run(); st = ST_RUN; }
 #endif
 
     if (st == ST_TITLE) {
         step_player(dt);                                   /* idle swing behind the title */
-        if (mote_just_pressed(in, MOTE_BTN_A)) st = ST_RUN;
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            start_run();                                   /* re-roll with the stirred seed —
+                                                              init's course predates any entropy */
+            st = ST_RUN;
+        }
     } else if (st == ST_RUN) {
         if (pl == PL_HUNG) {
             if (mote_just_pressed(in, MOTE_BTN_A)) auto_grip = 0;
@@ -335,6 +359,13 @@ static void g_update(float dt) {
         step_player(dt);
         float m = (px - START_X) / PX_PER_M;
         if (m > dist_m) dist_m = m;
+        int lv = (int)((px - START_X) / LEVEL_PX);
+        if (lv > cur_level) {                              /* crossed a flag */
+            cur_level = lv;
+            toast_t = 1.6f;
+            mote->audio_play_sfx(&checkpoint_sfx, 0.9f);
+            mote->rumble(0.3f, 100);
+        }
     } else {                                               /* ST_DEAD */
         dead_t += dt;
         if (py < KILL_Y + 40.0f) { py += vy * dt; vy += GRAV * dt; px += vx * dt; }
@@ -365,10 +396,20 @@ post_state:;
 
     for (int i = 0; i < PAD_N; i++)
         if (pad_sq[i] > 0) pad_sq[i] -= dt;
+    if (toast_t > 0) toast_t -= dt;
 
-    /* ---- 2D scene: anchors + pads ---- */
+    /* ---- 2D scene: level flags + anchors ---- */
     int cam = (int)camf;
     mote->scene2d_begin(cam, 0);
+    for (int k = (int)((camf - 16.0f - START_X) / LEVEL_PX); ; k++) {
+        if (k < 1) continue;
+        float fx = START_X + k * LEVEL_PX;
+        if (fx > camf + 150.0f) break;
+        MoteSprite s = { .img = &flag_img,
+                         .x = (int16_t)(fx - 3.0f), .y = 56,
+                         .fx = 0, .fy = 0, .fw = 16, .fh = 72, .layer = 3 };
+        mote->scene2d_add(&s);
+    }
     int lo = gen_i - ANCH_N; if (lo < 0) lo = 0;
     for (int gi = lo; gi < gen_i; gi++) {
         int i = gi & (ANCH_N - 1);
@@ -435,6 +476,14 @@ static void g_overlay(uint16_t *fb) {
     if (st == ST_RUN || st == ST_DEAD)
         mote_textf(mote, fb, 3, 2, COL_INK, "%dm", (int)dist_m);
     mote_textf(mote, fb, 76, 2, COL_INK, "BEST %dm", (int)best_m);
+
+    /* level-complete toast (crossing a checkered flag) */
+    if (st == ST_RUN && toast_t > 0.0f) {
+        char t[16] = "LEVEL ";                             /* no snprintf: newlib printf costs ~35KB flash */
+        int n = 6 + mote_itoa(cur_level, t + 6);
+        mote->text_2x(fb, t, (MOTE_FB_W - n * 12) / 2, 30, COL_TITLE);
+        mote->text(fb, "COMPLETE!", (MOTE_FB_W - 9 * 6) / 2, 46, COL_INK);
+    }
 
     if (st == ST_TITLE) {
         mote->text_2x(fb, "HANG TIME", 22, 34, COL_TITLE);
