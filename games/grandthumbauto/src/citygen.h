@@ -235,13 +235,24 @@ static void cg_jog(int vertical,int pos,int wid){
 }
 #define CG_MAXART 4
 static int cg_axv[CG_MAXART], cg_naxv, cg_axh[CG_MAXART], cg_naxh;   /* base arterial lines (for districts) */
+/* every stamped highway line registers its position so nothing lands too close
+ * to a parallel neighbour — parallel arterials <14 tiles apart jam traffic and
+ * look wrong */
+static int cg_vlines[24], cg_nvl, cg_hlines[24], cg_nhl;
+static int cg_line_ok(int pos,const int*arr,int n){
+    for(int i=0;i<n;i++){ int d=pos-arr[i]; if(d<0)d=-d; if(d<14) return 0; }
+    return 1;
+}
 static void cg_ring_rect(int x0,int y0,int x1,int y1){
     for(int x=x0;x<x1;x++){ cg_stamp(x,y0,4); cg_stamp(x,y1-4,4); }
     for(int y=y0;y<y1;y++){ cg_stamp(x0,y,4); cg_stamp(x1-4,y,4); }
+    if(cg_nvl<22){ cg_vlines[cg_nvl++]=x0; cg_vlines[cg_nvl++]=x1-4; }
+    if(cg_nhl<22){ cg_hlines[cg_nhl++]=y0; cg_hlines[cg_nhl++]=y1-4; }
 }
 static void cg_arterials(void){
     /* the HIGHWAY shape varies per city: an asymmetric ring, a strongly
-     * rectangular belt, or two overlapping rectangles */
+     * rectangular belt, or two STRONGLY OFFSET overlapping rectangles */
+    cg_nvl=cg_nhl=0;
     int variant=cg_ri(0,3);
     if(variant<2){
         int a= variant==1 ? cg_ri(12,22) : cg_ri(22,52);    /* rectangular belt hugs one axis */
@@ -251,17 +262,43 @@ static void cg_arterials(void){
         int iy0=(flip?a:b)+cg_ri(-6,7), iy1=(flip?a:b)+cg_ri(-6,7);
         cg_ring_rect(ix0, iy0, CG_W-ix1, CG_H-iy1);
     } else {
-        for(int r=0;r<2;r++){                               /* overlapping rectangles */
-            int cx0=cg_ri(12,110), cy0=cg_ri(12,110);
-            int cx1=cx0+cg_ri(90,200), cy1=cy0+cg_ri(90,200);
-            if(cx1>CG_W-12) cx1=CG_W-12;
-            if(cy1>CG_H-12) cy1=CG_H-12;
-            cg_ring_rect(cx0,cy0,cx1,cy1);
+        /* rect A in one corner region, rect B pushed hard toward the opposite
+         * corner: overlapping but clearly distinct frames */
+        int ax0=cg_ri(12,34),  ay0=cg_ri(12,34);
+        int ax1=ax0+cg_ri(110,170), ay1=ay0+cg_ri(110,170);
+        if(ax1>CG_W-12)ax1=CG_W-12; if(ay1>CG_H-12)ay1=CG_H-12;
+        cg_ring_rect(ax0,ay0,ax1,ay1);
+        for(int tr=0;tr<40;tr++){
+            int bx1=CG_W-12-cg_ri(0,22), by1=CG_H-12-cg_ri(0,22);
+            int bx0=bx1-cg_ri(110,170), by0=by1-cg_ri(110,170);
+            if(bx0<12)bx0=12; if(by0<12)by0=12;
+            if(cg_line_ok(bx0,cg_vlines,cg_nvl)&&cg_line_ok(bx1-4,cg_vlines,cg_nvl)&&
+               cg_line_ok(by0,cg_hlines,cg_nhl)&&cg_line_ok(by1-4,cg_hlines,cg_nhl)){
+                cg_ring_rect(bx0,by0,bx1,by1); break;
+            }
         }
     }
     cg_naxv=cg_ri(2,4); cg_naxh=cg_ri(2,4);
-    for(int i=0;i<cg_naxv;i++){ cg_axv[i]=CG_W*(i+1)/(cg_naxv+1)+cg_ri(-20,21); cg_jog(1,cg_axv[i],4); }
-    for(int i=0;i<cg_naxh;i++){ cg_axh[i]=CG_H*(i+1)/(cg_naxh+1)+cg_ri(-20,21); cg_jog(0,cg_axh[i],4); }
+    for(int i=0;i<cg_naxv;i++){
+        int pos=-1;
+        for(int tr=0;tr<24&&pos<0;tr++){
+            int c2=CG_W*(i+1)/(cg_naxv+1)+cg_ri(-24,25);
+            if(c2>=12&&c2<CG_W-16&&cg_line_ok(c2,cg_vlines,cg_nvl)) pos=c2;
+        }
+        if(pos<0){ cg_axv[i]=CG_W*(i+1)/(cg_naxv+1); continue; }   /* give up: skip stamping */
+        cg_axv[i]=pos; cg_jog(1,pos,4);
+        if(cg_nvl<24) cg_vlines[cg_nvl++]=pos;
+    }
+    for(int i=0;i<cg_naxh;i++){
+        int pos=-1;
+        for(int tr=0;tr<24&&pos<0;tr++){
+            int c2=CG_H*(i+1)/(cg_naxh+1)+cg_ri(-24,25);
+            if(c2>=12&&c2<CG_H-16&&cg_line_ok(c2,cg_hlines,cg_nhl)) pos=c2;
+        }
+        if(pos<0){ cg_axh[i]=CG_H*(i+1)/(cg_naxh+1); continue; }
+        cg_axh[i]=pos; cg_jog(0,pos,4);
+        if(cg_nhl<24) cg_hlines[cg_nhl++]=pos;
+    }
     cg_axv[cg_naxv]=cg_ri(24,56); cg_axh[cg_naxh]=cg_ri(24,56);   /* extra district split line */
 }
 

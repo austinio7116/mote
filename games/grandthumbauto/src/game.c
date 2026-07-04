@@ -743,7 +743,7 @@ static void road_markings(int x, int z) {
     uint16_t white = MOTE_RGB565(210,210,218);
     uint16_t yel   = MOTE_RGB565(210,210,218);   /* median: double WHITE (user pref) */
     if (o == 1) {                                   /* horizontal corridor: E-W lanes */
-        if (p > 0) {                                /* internal boundary at north edge */
+        if (p > 0 && !zebra_at(x,z)) {              /* lines break at zebra crossings */
             int median = (p == span/2);
             if (median){
                 if (span <= 2)                      /* minor street: single dashed centre */
@@ -777,7 +777,7 @@ static void road_markings(int x, int z) {
                 } }
         }
     } else if (o == 2) {                            /* vertical corridor: N-S lanes */
-        if (p > 0) {
+        if (p > 0 && !zebra_at(x,z)) {
             int median = (p == span/2);
             if (median){
                 if (span <= 2)
