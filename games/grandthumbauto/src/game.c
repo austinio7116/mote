@@ -38,7 +38,10 @@
 #include "roads.tiles.h"   /* roads_img + roads_at — EDGE16 autotiled road sheet */
 #include "water.tiles.h"   /* water_img + water_at — EDGE16 autotiled water (seawall shorelines) */
 #include "mote_tile.h"     /* MOTE_NB_* neighbour bits */
-#include "city_map.h"      /* CITY_W/CITY_H + const flash city_map[] (baked from assets/city.png) */
+#include "citygen.h"       /* runtime procedural city — every new game is a fresh map.
+                            * (assets/city.png remains the hand-made reference; its baked
+                            * city_map.h is no longer compiled in.) */
+static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #include "shoot.sfx.h"
 #include "smg.sfx.h"
 #include "shotgun.sfx.h"
@@ -64,8 +67,8 @@ MOTE_MODULE_HEADER();
 
 /* ------------------------------------------------------------------ world -- */
 #define TILE   4.0f          /* world metres per map tile */
-#define MAPW   CITY_W       /* from city_map.h — the const flash city */
-#define MAPH   CITY_H
+#define MAPW   CG_W         /* generated at boot by citygen.h */
+#define MAPH   CG_H
 #define ROADW  7            /* max lanes a "straight" corridor spans (widest avenues) */
 
 /* tiles: '.' road  ',' pavement  '~' water  ' ' grass  'B' bridge  '#'/'O'/'H' buildings.
@@ -74,7 +77,7 @@ MOTE_MODULE_HEADER();
  * ~200 visible tiles each frame, so the map scales to any size for free. */
 static char tile_at(int x, int z) {
     if (x < 0 || z < 0 || x >= MAPW || z >= MAPH) return '~';   /* water border (island) */
-    return (char)city_map[z*MAPW + x];
+    return (char)g_city[z*MAPW + x];
 }
 static int is_roadlike(int x, int z){ char c=tile_at(x,z); return c=='.'||c=='B'; }  /* road/bridge */
 static int is_road(int x, int z) { char c = tile_at(x, z); return c=='.'||c==','||c=='B'; }
@@ -1649,6 +1652,9 @@ static void buy_gun(void) {
 }
 
 static void reset_game(void) {
+    /* EVERY NEW GAME IS A NEW CITY: regenerate the whole map, then everything
+     * below (colliders, markers, traffic, dock) rebuilds from the fresh tiles */
+    citygen(g_city, mote->micros ? (uint32_t)mote->micros() ^ (cg_rng*2654435761u) : cg_rng+1);
     for (int i=0;i<NBULLET;i++) bullets[i].alive=0;
     for (int i=0;i<NPICK;i++) picks[i].alive=0;
     for (int i=0;i<NFX;i++) fxs[i].t=0;
