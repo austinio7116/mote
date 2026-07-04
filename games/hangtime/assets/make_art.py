@@ -184,17 +184,34 @@ def icon():
         t = y / 59.0
         d.line([(0, y), (59, y)],
                fill=(int(252 - 90 * t), int(238 - 122 * t), int(168 - 150 * t), 255))
-    # anchor stud, rope, swinging hero
-    ax, ay = 36, 10
-    d.line([(ax, ay), (22, 34)], fill=(90, 60, 30, 255), width=2)
-    d.ellipse([ax - 6, ay - 6, ax + 6, ay + 6], fill=(84, 84, 92, 255))
-    d.ellipse([ax - 5, ay - 5, ax + 5, ay + 5], fill=(126, 126, 136, 255))
-    d.ellipse([ax - 3, ay - 3, ax, ay], fill=(158, 158, 168, 255))
-    # hero (chunky, tilted along the rope) at rope end
+
+    SCALE, ANGLE = 3, -38          # hero blow-up + swing tilt (deg, CW)
+    ax, ay = 45, 10                # anchor stud centre
+    hx, hy = 31, 23                # where the hero's hands must land
+
+    # hero mid-swing, big and tilted along the rope
     hero_img = Image.new("RGBA", (16, 16), NONE)
     paint(hero_img, 0, 0, HANG_BACK)
-    hero_big = hero_img.resize((40, 40), Image.NEAREST).rotate(-32, Image.NEAREST, expand=True)
-    img.alpha_composite(hero_big, (2, 22))
+    big = hero_img.resize((16 * SCALE, 16 * SCALE), Image.NEAREST)
+    rot = big.rotate(ANGLE, Image.NEAREST, expand=True)
+    # run a probe pixel at the hands (6.5,1 in the 16px art) through the SAME
+    # transform to find where they end up, then paste so they sit at (hx,hy)
+    probe = Image.new("RGBA", big.size, NONE)
+    pd = ImageDraw.Draw(probe)
+    cx0, cy0 = int(6.5 * SCALE), int(1 * SCALE)
+    pd.rectangle([cx0 - 1, cy0 - 1, cx0 + 1, cy0 + 1], fill=(255, 0, 0, 255))
+    pr = probe.rotate(ANGLE, Image.NEAREST, expand=True)
+    bbox = pr.getbbox()
+    px_, py_ = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
+
+    d.line([(ax, ay), (hx, hy)], fill=(96, 66, 30, 255), width=2)   # rope into the hands
+    d.ellipse([ax - 7, ay - 7, ax + 7, ay + 7], fill=(84, 84, 92, 255))
+    d.ellipse([ax - 6, ay - 6, ax + 6, ay + 6], fill=(126, 126, 136, 255))
+    d.ellipse([ax - 4, ay - 4, ax - 1, ay - 1], fill=(158, 158, 168, 255))
+    img.alpha_composite(rot, (hx - px_, hy - py_))
+    # a few faint dots tracing the swing arc ahead of the hero
+    for mx, my in [(41, 48), (48, 43), (53, 35)]:
+        d.ellipse([mx, my, mx + 1, my + 1], fill=(255, 255, 245, 235))
     img.save(os.path.join(HERE, "..", "icon.png"))
 
 
