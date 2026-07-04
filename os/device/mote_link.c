@@ -78,7 +78,11 @@ static uint32_t rng_next(void) {
     return s_rng;
 }
 static void schedule_flip(uint32_t now_ms) {
-    s_flip_at_ms = now_ms + 200 + (rng_next() >> 20) % 400;
+    /* A window must comfortably outlast a full enumeration + CDC mount by the
+     * peer (tens of ms when the task is pumped continuously, much longer if a
+     * heavy game frame starves it), while random lengths keep the two units
+     * from flipping in lockstep. 600–1300 ms pairs within a few seconds. */
+    s_flip_at_ms = now_ms + 600 + (rng_next() >> 20) % 700;
 }
 
 /* ---- public API ----------------------------------------------------------- */

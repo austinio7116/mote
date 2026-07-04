@@ -196,7 +196,22 @@ uint64_t mote_plat_micros(void) {
     return to_us_since_boot(get_absolute_time());
 }
 
-void mote_plat_sleep_us(uint32_t us) { if (us) busy_wait_us(us); }
+/* Burn the fps-cap slack WHILE servicing USB. This matters for the 2P link:
+ * host-role enumeration advances one control-transfer step per tuh_task() call
+ * (and the peer answers via tud_task()), so at a 30 fps cap this sleep is most
+ * of the frame — a dead busy_wait here starves enumeration past the link's
+ * role-flip window and the units never pair. usb_service() is a cheap no-op
+ * when the link is off and logs are gated. */
+void mote_plat_sleep_us(uint32_t us) {
+    uint64_t end = to_us_since_boot(get_absolute_time()) + us;
+    for (;;) {
+        usb_service();
+        uint64_t now = to_us_since_boot(get_absolute_time());
+        if (now >= end) break;
+        uint64_t left = end - now;
+        busy_wait_us(left > 500 ? 500 : (uint32_t)left);
+    }
+}
 
 bool mote_plat_should_quit(void) { return false; }
 
