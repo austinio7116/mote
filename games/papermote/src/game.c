@@ -89,9 +89,9 @@ static void spawn_burst(float x,float y,uint16_t col,int n,float spd){
         q->x=x; q->y=y; q->vx=cosf(a)*s; q->vy=sinf(a)*s; q->max=q->life=0.5f+(rand()%100)*0.006f; q->col=col; } }
 
 /* ============================================================ game state */
-enum { S_TITLE, S_PLAY, S_DEAD, S_WIN };
-enum { M_ENDLESS, M_TIMED, M_LAST };
-static const char *MODE_L[3]={"ENDLESS","TIMED 90s","LAST STANDING"};
+enum { S_TITLE, S_PLAY, S_DEAD, S_WIN, S_LINKWAIT };
+enum { M_ENDLESS, M_TIMED, M_LAST, M_LINK };
+static const char *MODE_L[4]={"ENDLESS","TIMED 90s","LAST STANDING","2P LINK"};
 static const char *NAME_L[8]={"BLOB","NEON","VOID","DASH","FLUX","ACE","ZIP","NOVA"};
 static int   state = S_TITLE, mode = M_ENDLESS;
 static int   sel_creature=0, sel_name=0, sel_mode=0, menu_row=0;
@@ -102,6 +102,18 @@ static int   milestone;            /* highest area-% milestone announced */
 static float bgm_t; static int bgm_step;
 static uint32_t rng = 0x1234567u;
 static int irand(int n){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return (int)((rng>>1)%(unsigned)n); }
+
+/* ---- 2P link duel state (shared 100x100 grid · fixed corners · victim-authoritative
+ * deaths).  See the LINK section below for the wire protocol + replication model. ---- */
+#define LK_MAGIC  0xA5
+#define LK_PROTO  1
+#define KO_TARGET 3                 /* first to 3 knockouts wins the duel */
+static int      g_link, me, you;    /* link active · local / remote entity id (shared world) */
+static uint16_t lk_my_nonce, lk_peer_nonce;
+static int      lk_sent_hello, lk_got_hello;
+static float    lk_hello_t, lk_state_t, lk_rx_age, lk_respawn_t;
+static int      lk_lost, my_kos, my_deaths, peer_kos;
+static uint8_t  lk_msg[16]; static int lk_msg_len;
 
 #define STEP_BASE 0.085f
 #define WIN_PCT 60
@@ -144,7 +156,8 @@ static void kill_ent(int v,int killer){     /* killer gains v's land (-1 = free 
     for(int i=0;i<NCELL;i++){ if(trail[i]==m)trail[i]=0; if(owner[i]==m)owner[i]=k; }
     ent[v].on_trail=0; ent[v].trail_len=0;
     spawn_burst(wx,wy,pal[v].trail,18,9.0f);
-    mote->audio_play(&snd_die, v==0?0.7f:0.25f);
+    mote->audio_play(&snd_die, (v==me)?0.7f:0.25f);
+    if(g_link){ ent[v].alive=0; return; }   /* link: ko/respawn/state handled by the LINK layer */
     if(v==0){ if(score>best_score){best_score=score; int b=best_score; mote->save(0,&b,sizeof b);} state=S_DEAD; }
     else { ent[v].alive=0; ent[v].respawn = (mode==M_LAST) ? -1.0f : 1.5f+irand(20)*0.1f; }
 }
@@ -214,6 +227,181 @@ static void on_kill(int killer){            /* combo + score bookkeeping for a k
         if(combo>=2){ mote->audio_play(&snd_combo,0.5f); char b[28]; snprintf(b,sizeof b,"COMBO x%d!",combo); say(b,1.4f); } }
 }
 
+/* ================================================================= 2P LINK ==
+ * A territory duel over the ABI-v43 byte pipe: YOU vs the PEER only (no AI).
+ *
+ * SHARED WORLD, NO ARENA SYNC.  papermote's board starts empty save two 7x7
+ * spawn bases, and world setup uses no trig/sqrt — so there is nothing
+ * procedural to diverge across x86 Studio vs ARM device.  Both units place
+ * entity id 0 at the FIXED top-left corner and id 1 at the FIXED bottom-right,
+ * in ONE shared coordinate system; the nonce winner is id 0.  Camera/HUD follow
+ * the LOCAL id (`me`); the peer is `you`.  Zero seed handshake needed.
+ *
+ * REPLICATION — per-step, not batched.  Each unit simulates ONLY its own head
+ * from input; on every local grid step it sends the FINAL direction it moved
+ * ('S' dir).  The peer replays that step onto the SHARED grid with the exact
+ * same movement/trail/claim code (lk_move) for the remote id.  Grid steps run
+ * up to ~22 Hz — faster than the 15 Hz keepalive — but the byte pipe is
+ * in-order and lossless, so one 3-byte 'S' per step guarantees no skipped cell
+ * and exact turns + loop-close fills.  (~66 B/s; trivially inside the RX budget.)
+ *
+ * DEATHS — VICTIM-AUTHORITATIVE, to dodge the interleave race (both heads cut
+ * each other in the same window).  A kill is APPLIED only where the victim is
+ * the LOCAL player: each unit detects its own death (own-trail hit, being cut
+ * by the peer's replayed step, or being enclosed to 0 area) and broadcasts
+ * 'K' victim killer.  Cutting the PEER is deferred — the peer detects it and
+ * sends 'K'; on receipt both units run kill_ent(victim,killer) so the cutter
+ * takes the base identically.  Mutual cuts => both send 'K' => fair double-KO.
+ *
+ * WIN — first to KO_TARGET(3) knockouts (a KO for me == a death for the peer,
+ * so both units agree).  Death => respawn at your own fixed corner after ~1.2s.
+ *
+ * WIRE (after 0xA5 magic; fixed-length, parser resyncs on a bad type):
+ *   'H' proto nonce16  hello (resent ~0.5s; higher nonce = id 0 / authority)
+ *   'S' dir            one grid step, dir = index into DIRS (0..3)
+ *   'K' victim killer reason   a death (ids 0/1, killer 255 = self)
+ *   'R' cx cy dir      respawn at a corner (absolute resync of the head)
+ *   'P' alive kos      ~15 Hz keepalive + peer's KO count (3s silence = LOST)
+ *   'Q'                orderly quit -> peer sees OPPONENT LEFT
+ * -------------------------------------------------------------------------- */
+static const int LK_SX[2]={16,82}, LK_SY[2]={16,82};   /* id 0 / id 1 spawn+respawn corners */
+static void apply_palette(void);                        /* defined in the lifecycle section */
+
+static int dir_index(int dx,int dy){ for(int d=0;d<4;d++) if(DIRS[d][0]==dx&&DIRS[d][1]==dy) return d; return 0; }
+static void lk_new_nonce(void){ lk_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8); }
+static void lk_send(const void*b,int n){ mote->link_send(b,n); }
+static void lk_send_hello(void){ uint8_t m[5]={LK_MAGIC,'H',LK_PROTO,(uint8_t)lk_my_nonce,(uint8_t)(lk_my_nonce>>8)}; lk_send(m,5); }
+static void lk_send_step(int dir){ uint8_t m[3]={LK_MAGIC,'S',(uint8_t)dir}; lk_send(m,3); }
+static void lk_send_kill(int v,int k,int r){ uint8_t m[5]={LK_MAGIC,'K',(uint8_t)v,(uint8_t)k,(uint8_t)r}; lk_send(m,5); }
+static void lk_send_respawn(int cx,int cy,int dir){ uint8_t m[5]={LK_MAGIC,'R',(uint8_t)cx,(uint8_t)cy,(uint8_t)dir}; lk_send(m,5); }
+static void lk_send_state(void){ uint8_t m[4]={LK_MAGIC,'P',(uint8_t)ent[me].alive,(uint8_t)my_kos}; lk_send(m,4); }
+static void lk_send_bye(void){ uint8_t m[2]={LK_MAGIC,'Q'}; lk_send(m,2); }
+
+/* my head just died — transfer land (kill_ent), tally, tell the peer, start respawn */
+static void lk_local_death(int killer,int reason){
+    if(!ent[me].alive) return;
+    kill_ent(me, killer);                 /* g_link path: just clears my land+trail & alive */
+    my_deaths++; lk_send_kill(me, killer, reason);
+    lk_respawn_t = 1.2f; if(me==0) shake=0.5f;
+}
+
+/* one grid step for entity p (e->dx/e->dy already set).  Mirrors do_step's per-entity
+ * body but deaths are victim-authoritative: applied only when the victim is `me`.
+ * allow_deflect: 1 for the local head (RNG wall-bounce ok); 0 for a replayed remote
+ * step (dir is already post-deflect — if it's OOB the grids drifted, so skip).
+ * Returns 1 if the head actually advanced. */
+static int lk_move(int p, int allow_deflect){
+    Ent*e=&ent[p]; if(!e->alive) return 0;
+    int nx=e->cx+e->dx, ny=e->cy+e->dy;
+    if(!in_b(nx,ny)){
+        if(!allow_deflect) return 0;
+        int ax=e->dx?0:1, ay=e->dx?1:0, r=irand(2)?1:-1, turned=0;
+        for(int s=0;s<2;s++){ int ndx=ax*r,ndy=ay*r,tx=e->cx+ndx,ty=e->cy+ndy;
+            if(in_b(tx,ty)&&trail[IDX(tx,ty)]!=p+1){ e->dx=ndx; e->dy=ndy; nx=tx; ny=ty; turned=1; break; } r=-r; }
+        if(!turned) return 0;
+    }
+    int n=IDX(nx,ny); uint8_t tr=trail[n];
+    if(tr){ int victim=tr-1;
+        if(victim==me){                       /* MY trail hit -> I die (self-cross or peer cut me) */
+            lk_local_death(you, tr==p+1?1:0);  /* in a 1v1 the opponent always gets the KO + base */
+            if(p==me) return 0;               /* self-cross stops me; a cutter carries on */
+        }
+        /* victim==you: DEFER — the peer detects its own death and sends 'K' */
+    }
+    if(!e->alive) return 0;
+    if(e->on_trail && owner[IDX(e->cx,e->cy)]!=p+1) trail[IDX(e->cx,e->cy)]=p+1;
+    e->px=e->cx; e->py=e->cy; e->cx=nx; e->cy=ny;
+    if(owner[n]==p+1){
+        if(e->on_trail){ int g=do_claim(p); recount();
+            if(ent[me].alive && ent[me].area==0) lk_local_death(you, 2);  /* enclosed to nothing */
+            if(p==me){ claim_flash=1.0f; score+=g; mote->audio_play(g>140?&snd_claimbig:&snd_claim,0.55f); }
+            else mote->audio_play(&snd_claim,0.16f); }
+        e->on_trail=0;
+    } else { e->on_trail=1; e->trail_len++; }
+    return 1;
+}
+
+/* advance MY head one step (from input) and broadcast the direction taken */
+static void lk_local_step(void){
+    Ent*e=&ent[me]; if(!e->alive) return;
+    if((e->pend_dx||e->pend_dy)&&!(e->pend_dx==-e->dx&&e->pend_dy==-e->dy)){ e->dx=e->pend_dx; e->dy=e->pend_dy; }
+    if(lk_move(me,1) && e->alive) lk_send_step(dir_index(e->dx,e->dy));
+}
+
+static void on_kill_link(void){        /* combo/score/FX when I confirm a KO of the peer */
+    combo=combo_t>0?combo+1:1; combo_t=2.2f; score+=50*combo;
+    mote->audio_play(&snd_cut,0.6f); shake=0.45f;
+    if(combo>=2){ mote->audio_play(&snd_combo,0.5f); char b[28]; snprintf(b,sizeof b,"COMBO x%d!",combo); say(b,1.4f); } }
+
+/* a 'K' arrived (or my deferred cut resolves): apply the death both units share */
+static void lk_apply_kill(int victim,int killer){
+    if(victim<0||victim>1||!ent[victim].alive) return;   /* dedupe: already dead */
+    kill_ent(victim, killer);
+    if(victim==you && killer==me){ my_kos++; on_kill_link(); }   /* I took the peer down */
+}
+
+static void lk_respawn_at(int p,int cx,int cy,int dir){
+    Ent*e=&ent[p]; e->cx=e->px=cx; e->cy=e->py=cy; e->fx=cx+0.5f; e->fy=cy+0.5f;
+    e->dx=DIRS[dir][0]; e->dy=DIRS[dir][1]; e->alive=1; e->on_trail=0; e->trail_len=0;
+    e->home_x=cx; e->home_y=cy; stamp_home(p,cx,cy,3); recount();
+    spawn_burst(cx+0.5f,cy+0.5f,pal[p].head,10,5.0f);
+}
+static void lk_respawn_me(void){
+    int d=irand(4); lk_respawn_at(me, LK_SX[me], LK_SY[me], d);
+    mote->audio_play(&snd_spawn,0.4f);
+    lk_send_respawn(LK_SX[me], LK_SY[me], d);
+}
+
+static void new_link_game(void){
+    g_link=1; mode=M_LINK;
+    me = (lk_my_nonce>lk_peer_nonce)?0:1; you=1-me;        /* higher nonce = id 0 (authority) */
+    memset(owner,0,NCELL); memset(trail,0,NCELL); memset(fresh,0,NCELL);
+    for(int p=0;p<NP;p++){ Ent*e=&ent[p]; int cr=e->creature; memset(e,0,sizeof *e); e->creature=cr; e->alive=0; }
+    ent[me].creature=sel_creature;                        /* you pick yours; peer gets a distinct one */
+    ent[you].creature=(sel_creature==0)?1:0;
+    for(int id=0;id<2;id++){ Ent*e=&ent[id]; int cx=LK_SX[id],cy=LK_SY[id];
+        e->cx=e->px=cx; e->cy=e->py=cy; e->fx=cx+0.5f; e->fy=cy+0.5f;
+        int d=(id==0)?0:2; e->dx=DIRS[d][0]; e->dy=DIRS[d][1];   /* face into the board */
+        e->alive=1; e->home_x=cx; e->home_y=cy; stamp_home(id,cx,cy,3); }
+    apply_palette(); recount();
+    npart=0; combo=0; combo_t=0; score=0; milestone=0; msg_t=0; danger=0; elapsed=0;
+    my_kos=my_deaths=peer_kos=0; lk_respawn_t=0; lk_state_t=0; lk_rx_age=0; lk_lost=0;
+    cam_fx=ent[me].fx; cam_fy=ent[me].fy; cellpx=6.0f; step_acc=claim_flash=shake=0; state=S_PLAY;
+}
+
+static void lk_handle(const uint8_t*m){
+    switch(m[1]){
+        case 'H': lk_got_hello=1; lk_peer_nonce=(uint16_t)(m[3]|(m[4]<<8)); break;
+        case 'S': if(g_link&&state==S_PLAY){ int d=m[2]&3; ent[you].dx=DIRS[d][0]; ent[you].dy=DIRS[d][1]; lk_move(you,0); }
+                  lk_rx_age=0; break;
+        case 'K': if(g_link) lk_apply_kill((int8_t)m[2],(int8_t)m[3]); lk_rx_age=0; break;
+        case 'R': if(g_link) lk_respawn_at(you,m[2],m[3],m[4]&3); lk_rx_age=0; break;
+        case 'P': if(g_link){ peer_kos=m[3]; } lk_rx_age=0; break;
+        case 'Q': if(g_link&&state==S_PLAY){ state=S_WIN; say("OPPONENT LEFT",2.0f); } break;
+    }
+}
+static void lk_poll(void){
+    uint8_t chunk[64]; int n;
+    while((n=mote->link_recv(chunk,(int)sizeof chunk))>0){
+        for(int i=0;i<n;i++){ uint8_t b=chunk[i];
+            if(lk_msg_len==0){ if(b==LK_MAGIC) lk_msg[lk_msg_len++]=b; continue; }
+            lk_msg[lk_msg_len++]=b; int t=lk_msg[1];
+            int want = t=='H'?5 : t=='S'?3 : t=='K'?5 : t=='R'?5 : t=='P'?4 : t=='Q'?2 : -1;
+            if(want<0){ lk_msg_len=0; continue; }      /* bad type -> drop, resync on next magic */
+            if(lk_msg_len<want) continue;
+            lk_msg_len=0; lk_handle(lk_msg);
+        }
+    }
+}
+static void lk_start_wait(void){
+    g_link=0; mote->link_start(); lk_new_nonce();
+    lk_sent_hello=lk_got_hello=0; lk_msg_len=0; lk_hello_t=0; lk_lost=0;
+    state=S_LINKWAIT;
+}
+static void lk_teardown_to_title(void){
+    lk_send_bye(); mote->link_stop(); g_link=0; mote->set_fps_limit(0); state=S_TITLE;
+}
+
 /* ============================================================ one game step */
 static void do_step(void){
     for(int p=0;p<NP;p++){
@@ -264,7 +452,7 @@ static void apply_palette(void){          /* each entity's colours come from its
         pal[p].r=CREA[c].r; pal[p].g=CREA[c].g; pal[p].b=CREA[c].b; }
 }
 static void new_game(void){
-    mode=sel_mode;
+    mode=sel_mode; g_link=0; me=0; you=1;    /* solo: local player is always ent[0] */
     memset(owner,0,NCELL); memset(trail,0,NCELL); memset(fresh,0,NCELL);
     int sx[NP]={16,82,16,82,49,49}, sy[NP]={16,16,82,82,12,86};
     /* you get your chosen creature; the AIs take distinct others */
@@ -296,7 +484,7 @@ static void g_init(void){
 
 /* procedural bgm bed: a bass arp that adds a lead + tempo as you dominate */
 static void bgm_tick(float dt){
-    float dom = ent[0].area/(float)(NCELL*0.5f); if(dom>1)dom=1;          /* 0..1 toward 50% */
+    float dom = ent[me].area/(float)(NCELL*0.5f); if(dom>1)dom=1;         /* 0..1 toward 50% */
     float beat = 0.26f - 0.07f*dom;                                       /* speeds up */
     bgm_t += dt;
     if(bgm_t>=beat){ bgm_t-=beat; int s=(bgm_step++)&7;
@@ -316,44 +504,76 @@ static void g_update(float dt){
     for(int i=0;i<npart;){ Part*q=&part[i]; q->life-=dt; if(q->life<=0){ *q=part[--npart]; continue; }
         q->x+=q->vx*dt; q->y+=q->vy*dt; q->vx*=0.92f; q->vy*=0.92f; i++; }
 
+    if(g_link||state==S_LINKWAIT) mote->set_fps_limit(30);   /* steady host/device pacing while linked */
+
     if(state==S_TITLE){
+        int nmode = mote->abi_version>=43 ? 4 : 3;           /* 2P LINK only on a v43+ OS */
         if(mote_just_pressed(in,MOTE_BTN_UP))   menu_row=(menu_row+2)%3;
         if(mote_just_pressed(in,MOTE_BTN_DOWN)) menu_row=(menu_row+1)%3;
         int dl=mote_just_pressed(in,MOTE_BTN_LEFT)?-1:mote_just_pressed(in,MOTE_BTN_RIGHT)?1:0;
         if(dl){ if(menu_row==0)sel_creature=(sel_creature+NCREA+dl)%NCREA;
-                else if(menu_row==1)sel_name=(sel_name+8+dl)%8; else sel_mode=(sel_mode+3+dl)%3; }
-        if(mote_just_pressed(in,MOTE_BTN_A)) new_game();
+                else if(menu_row==1)sel_name=(sel_name+8+dl)%8; else sel_mode=(sel_mode+nmode+dl)%nmode; }
+        if(mote_just_pressed(in,MOTE_BTN_A)){ if(sel_mode==M_LINK) lk_start_wait(); else new_game(); }
         return;
     }
-    if(state==S_DEAD||state==S_WIN){ if(score>best_score){best_score=score;int b=best_score;mote->save(0,&b,sizeof b);}
+    if(state==S_LINKWAIT){                                   /* handshake: exchange hellos, then start */
+        lk_hello_t-=dt;
+        if(mote->link_status()!=MOTE_LINK_CONNECTED){ lk_sent_hello=lk_got_hello=0; lk_msg_len=0; }
+        else {
+            if(!lk_sent_hello||lk_hello_t<=0){ lk_send_hello(); lk_sent_hello=1; lk_hello_t=0.5f; }
+            lk_poll();
+            if(lk_got_hello && lk_peer_nonce==lk_my_nonce){ lk_new_nonce(); lk_got_hello=0; lk_send_hello(); }  /* tie: re-draw */
+            else if(lk_got_hello){ lk_send_hello(); new_link_game(); }   /* no seed needed — both start now */
+        }
+        if(mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); mote->set_fps_limit(0); state=S_TITLE; }
+        return;
+    }
+    if(state==S_DEAD||state==S_WIN){
+        if(g_link){ if(mote_just_pressed(in,MOTE_BTN_B)) lk_teardown_to_title(); return; }
+        if(score>best_score){best_score=score;int b=best_score;mote->save(0,&b,sizeof b);}
         if(mote_just_pressed(in,MOTE_BTN_A)) new_game();
         else if(mote_just_pressed(in,MOTE_BTN_B)) state=S_TITLE; return; }
 
     /* ---- play ---- */
-    elapsed+=dt; bgm_tick(dt);
-    if(mode==M_TIMED){ game_t-=dt; if(game_t<=0){ game_t=0; int rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
-        state = rank==1 ? S_WIN : S_DEAD; } }
-    Ent*e=&ent[0];
+    Ent*e=&ent[me];
     if(mote_just_pressed(in,MOTE_BTN_RIGHT)){e->pend_dx=1;e->pend_dy=0;}
     else if(mote_just_pressed(in,MOTE_BTN_LEFT)){e->pend_dx=-1;e->pend_dy=0;}
     else if(mote_just_pressed(in,MOTE_BTN_DOWN)){e->pend_dx=0;e->pend_dy=1;}
     else if(mote_just_pressed(in,MOTE_BTN_UP)){e->pend_dx=0;e->pend_dy=-1;}
-    float step = STEP_BASE / (1.0f + (elapsed/180.0f)*0.5f);             /* difficulty: speeds up */
-    if(step<0.045f)step=0.045f;
-    step_acc+=dt;
-    while(step_acc>=step){ step_acc-=step; do_step(); if(state!=S_PLAY)break; }
 
-    /* danger vignette: rises with exposed trail length + nearby enemies */
+    float step;
+    if(g_link){                                             /* ---- linked duel ---- */
+        bgm_tick(dt);
+        lk_poll();
+        if(mote->link_status()!=MOTE_LINK_CONNECTED || lk_rx_age>3.0f){ lk_lost=1; state=S_DEAD; }
+        lk_rx_age+=dt;
+        step=STEP_BASE;                                     /* constant speed — a fair duel */
+        step_acc+=dt;
+        while(step_acc>=step){ step_acc-=step; lk_local_step(); if(state!=S_PLAY)break; lk_poll(); }
+        if(lk_respawn_t>0 && state==S_PLAY){ lk_respawn_t-=dt; if(lk_respawn_t<=0) lk_respawn_me(); }
+        lk_state_t+=dt; if(lk_state_t>=1.0f/15.0f){ lk_state_t-=1.0f/15.0f; lk_send_state(); }
+        if(my_kos>=KO_TARGET) state=S_WIN; else if(my_deaths>=KO_TARGET && state==S_PLAY) state=S_DEAD;
+    } else {                                                /* ---- solo (endless/timed/last) ---- */
+        elapsed+=dt; bgm_tick(dt);
+        if(mode==M_TIMED){ game_t-=dt; if(game_t<=0){ game_t=0; int rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
+            state = rank==1 ? S_WIN : S_DEAD; } }
+        step = STEP_BASE / (1.0f + (elapsed/180.0f)*0.5f);  /* difficulty: speeds up */
+        if(step<0.045f)step=0.045f;
+        step_acc+=dt;
+        while(step_acc>=step){ step_acc-=step; do_step(); if(state!=S_PLAY)break; }
+    }
+
+    /* danger vignette: rises with exposed trail length + a nearby rival */
     float want = e->on_trail ? (e->trail_len*0.012f) : 0.0f;
-    for(int p=1;p<NP;p++) if(ent[p].alive && abs((int)ent[p].fx-e->cx)+abs((int)ent[p].fy-e->cy)<6 && e->on_trail) want+=0.4f;
+    for(int p=0;p<NP;p++) if(p!=me && ent[p].alive && abs((int)ent[p].fx-e->cx)+abs((int)ent[p].fy-e->cy)<6 && e->on_trail) want+=0.4f;
     if(want>1)want=1; danger += (want-danger)*mote_clampf(dt*4.0f,0,1);
 
     float f=step_acc/step; if(f>1)f=1;
     for(int p=0;p<NP;p++){ Ent*q=&ent[p]; q->fx=(q->px+0.5f)+(q->cx-q->px)*f; q->fy=(q->py+0.5f)+(q->cy-q->py)*f; }
-    float tgtcell = 6.0f - 3.0f*mote_clampf(ent[0].area/(float)(NCELL*0.40f),0,1);
+    float tgtcell = 6.0f - 3.0f*mote_clampf(ent[me].area/(float)(NCELL*0.40f),0,1);
     cellpx += (tgtcell-cellpx)*mote_clampf(dt*2.5f,0,1);
-    cam_fx += (ent[0].fx-cam_fx)*mote_clampf(dt*6.0f,0,1);
-    cam_fy += (ent[0].fy-cam_fy)*mote_clampf(dt*6.0f,0,1);
+    cam_fx += (ent[me].fx-cam_fx)*mote_clampf(dt*6.0f,0,1);
+    cam_fy += (ent[me].fy-cam_fy)*mote_clampf(dt*6.0f,0,1);
 }
 
 /* ============================================================ render_band */
@@ -375,7 +595,7 @@ static void draw_creature(uint16_t*fb,int cx,int cy,int sz,const MoteImage*im,in
             uint16_t c=srow[dx*iw/sz]; if(c!=key) fb[yy*128+xx]=c; } } }
 
 static void g_band(uint16_t*fb,int y0,int y1){
-    if(state==S_TITLE){                                  /* clean backdrop behind the title menu */
+    if(state==S_TITLE||state==S_LINKWAIT){               /* clean backdrop behind the title / link-wait menu */
         for(int sy=y0;sy<y1;sy++){ uint16_t*row=fb+sy*128;
             for(int sx=0;sx<128;sx++) row[sx]=(((sx>>3)^(sy>>3))&1)?MOTE_RGB565(22,24,34):MOTE_RGB565(18,20,30); }
         return; }
@@ -436,18 +656,33 @@ static void g_overlay(uint16_t*fb){
         mote_textf(mote,fb,40,2,dim,"BEST %d",best_score);
         return;
     }
+    if(state==S_LINKWAIT){
+        mote_textf(mote,fb,36,14,pal[0].trail,"2P LINK");
+        int conn=mote->link_status()==MOTE_LINK_CONNECTED;
+        draw_creature(fb,64,58,26,CREA[sel_creature].img,0,128);
+        mote->text(fb, conn?"HANDSHAKE...":"SEARCHING...", 26,84, conn?MOTE_RGB565(255,230,120):dim);
+        mote->text(fb,"LINK A 2ND UNIT",22,98,dim);
+        mote->text(fb,"B  CANCEL",40,116,dim);
+        return;
+    }
     if(claim_flash>0){ int a=(int)(claim_flash*26); if(a>18)a=18;
         for(int i=0;i<128*128;i++){ uint16_t c=fb[i]; int r=((c>>11)&31)+a/4,g=((c>>5)&63)+a/3,b=(c&31)+a/4;
             if(r>31)r=31;if(g>63)g=63;if(b>31)b=31; fb[i]=(uint16_t)((r<<11)|(g<<5)|b);} }
     if(danger>0.05f){ int t=(int)(danger*9.0f); if(t>9)t=9; vignette(fb,t,200,40,20); }   /* danger glow */
 
-    int mine=ent[0].area*100/NCELL, rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
+    int mine=ent[me].area*100/NCELL;
     mote->draw_rect(fb,0,0,128,9,MOTE_RGB565(14,16,24),1,0,128);
-    mote_textf(mote,fb,2,1,pal[0].trail,"%d%%",mine);
-    mote_textf(mote,fb,34,1,wht,"R%d/%d",rank,NP);
-    mote_textf(mote,fb,64,1,MOTE_RGB565(245,205,70),"%d",score);
-    if(mode==M_TIMED) mote_textf(mote,fb,104,1,wht,"%d",(int)(game_t+0.99f));
-    else mote_textf(mote,fb,104,1,dim,"K%d",ent[0].kills);
+    mote_textf(mote,fb,2,1,pal[me].trail,"%d%%",mine);
+    if(g_link){                                          /* opp KOs == my deaths (always local-accurate) */
+        mote_textf(mote,fb,34,1,pal[me].trail,"YOU %d",my_kos);
+        mote_textf(mote,fb,84,1,pal[you].trail,"OPP %d",my_deaths);
+    } else {
+        int rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
+        mote_textf(mote,fb,34,1,wht,"R%d/%d",rank,NP);
+        mote_textf(mote,fb,64,1,MOTE_RGB565(245,205,70),"%d",score);
+        if(mode==M_TIMED) mote_textf(mote,fb,104,1,wht,"%d",(int)(game_t+0.99f));
+        else mote_textf(mote,fb,104,1,dim,"K%d",ent[0].kills);
+    }
     if(combo>=2&&combo_t>0) mote_textf(mote,fb,46,11,MOTE_RGB565(255,210,90),"x%d",combo);
 
     /* minimap (whole board) */
@@ -463,9 +698,17 @@ static void g_overlay(uint16_t*fb){
 
     if(state==S_DEAD||state==S_WIN){ int win=state==S_WIN;
         mote->draw_rect(fb,14,50,100,30,win?MOTE_RGB565(18,34,20):MOTE_RGB565(36,16,16),1,0,128);
-        mote_textf(mote,fb,win?30:42,55,win?MOTE_RGB565(120,240,130):MOTE_RGB565(240,90,90),"%s",win?"YOU WIN!":"DEAD");
-        mote_textf(mote,fb,22,65,wht,"%d%% R%d  SCORE %d",mine,rank,score);
-        mote->text(fb,"A REPLAY  B MENU",24,74,dim); }
+        if(g_link){
+            const char*hdr = lk_lost?"LINK LOST":win?"YOU WIN!":"DEFEATED";
+            mote_textf(mote,fb,lk_lost?38:win?30:36,55,lk_lost?MOTE_RGB565(240,90,90):win?MOTE_RGB565(120,240,130):MOTE_RGB565(240,90,90),"%s",hdr);
+            mote_textf(mote,fb,34,65,wht,"KO  %d - %d",my_kos,my_deaths);
+            mote->text(fb,"B  MENU",42,74,dim);
+        } else {
+            int rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
+            mote_textf(mote,fb,win?30:42,55,win?MOTE_RGB565(120,240,130):MOTE_RGB565(240,90,90),"%s",win?"YOU WIN!":"DEAD");
+            mote_textf(mote,fb,22,65,wht,"%d%% R%d  SCORE %d",mine,rank,score);
+            mote->text(fb,"A REPLAY  B MENU",24,74,dim);
+        } }
 }
 
 static const MoteGameVtbl k_vtbl = {
