@@ -338,12 +338,13 @@ typedef struct { int seg; float lat; int active; float respawn; } ItemBox;
 static ItemBox box[NBOX];
 
 #define NBANANA 16
-typedef struct { Vec3 pos; int active; int owner; float grace; } Banana;
+typedef struct { Vec3 pos; int active; int owner; float grace; uint8_t id; } Banana;
 static Banana bananas[NBANANA];
 
 #define NSHELL 8
-typedef struct { Vec3 pos; int seg; int owner; int active; int homing; float ttl; } Shell;
+typedef struct { Vec3 pos; int seg; int owner; int active; int homing; float ttl; uint8_t id; } Shell;
 static Shell shell[NSHELL];
+static uint8_t g_proj_seq;    /* 2P: numbers MY spawned projectiles for 'X' removal */
 
 /* ===================================================================== */
 /*  Scenery                                                              */
@@ -444,6 +445,9 @@ static float g_flash;          /* lightning screen-flash timer (seconds) */
  *   'P' x16 z16 head8 speed8 lap8 prog8 flags8  kart state @15Hz (+ keepalive)
  *   'F' time32(ms)                              crossed the finish line
  *   'Q'                                         quit -> peer sees OPPONENT LEFT
+ *   'B' idx8                                    I took item box idx
+ *   'U' kind8 x16 z16 id8                       I used item kind at (x,z)
+ *   'X' mine8 id8                               remove projectile (hit reported)
  *
  * TRACK SYNC: we DO NOT transmit the track.  Each unit rebuilds the SAME map
  * by INDEX (authority's g_map_sel, carried in 'S').  MotoKart's track is pure
@@ -456,10 +460,17 @@ static float g_flash;          /* lightning screen-flash timer (seconds) */
  * random grid shuffle + scenery RNG are NOT shared: 2P uses a fixed side-by-
  * side grid, and scenery is local-only.)
  *
- * ITEMS + AI are DISABLED in 2P: the item roulette (place-weighted), shells
- * (home on karts), bananas and lightning all act cross-kart and are RNG-
- * entangled — too much to replicate safely for v1.  Drift mini-turbos, which
- * are pure local physics, still work, so 2P races keep real depth. */
+ * AI is disabled in 2P (the peer is the field). ITEMS run in 2P as EVENTS,
+ * victim-authoritative like every cross-kart effect in the platform's games:
+ *  - boxes are deterministic (same map -> same layout); a pickup replicates by
+ *    index ('B'), and each unit only collects with its OWN kart.
+ *  - bananas/shells spawn on both units via 'U' (with a per-owner id) and are
+ *    simulated locally, but they only COLLIDE with the LOCAL kart; the victim
+ *    reports the hit ('X') so the owner's copy disappears too.
+ *  - lightning is an event; the VICTIM decides (invincibility checked at
+ *    receipt) and its shrink shows up in the next 'P' flags.
+ *  - star/mega/bullet/shrunk/spin ride in the 'P' flags so the replica renders
+ *    right and star-contact stays victim-side in karts_collide(). */
 #define LINK_PROTO 1
 static int      g_link;                 /* link mode engaged */
 static int      g_authority;            /* nonce winner -> starts grid slot 0 */
@@ -604,7 +615,7 @@ static int kart_invincible(const Kart *k) { return k->star > 0 || k->mega > 0 ||
 /* Weighted item roulette — leaders get banana/shell, stragglers get the big guns. */
 static void give_item(Kart *k) {
     /* 0 = leader .. 1 = last place */
-    float t = (NKART > 1) ? (k->place - 1) / (float)(NKART - 1) : 0.5f;
+    float t = (g_nk > 1) ? (k->place - 1) / (float)(g_nk - 1) : 0.5f;
     /* weights for each item, blended from a LEAD table to a LAST table by t.
      * order: -, BOOST,TRIBOOST, BANANA,TRIBANANA, GSHELL,RSHELL, STAR,BULLET, LIGHTNING,MEGA
      * lightning is the only no-dodge screen-wide hit, so it stays RARE. */
@@ -628,12 +639,21 @@ static void spin_out(Kart *k) {
     if (k->is_player) { mote->rumble(0.8f, 220); mote->audio_play_sfx(&hit_sfx, 0.9f); }
 }
 
+static void link_send_use(int kind, float x, float z, uint8_t id) {   /* 2P: item event */
+    int16_t xi = (int16_t)(x * 256.0f), zi = (int16_t)(z * 256.0f);
+    uint8_t m[8] = {0xA5, 'U', (uint8_t)kind, (uint8_t)xi, (uint8_t)(xi >> 8),
+                    (uint8_t)zi, (uint8_t)(zi >> 8), id};
+    mote->link_send(m, 8);
+}
 static void drop_banana(Kart *k) {
     for (int i = 0; i < NBANANA; i++) if (!bananas[i].active) {
         Vec3 back = v3(sinf(k->yaw), 0, cosf(k->yaw));
         bananas[i].pos = v3_sub(k->pos, v3_scale(back, 1.4f));
         bananas[i].pos.y = k->pos.y - RIDE_H + 0.08f;   /* banana model half-height */
         bananas[i].active = 1; bananas[i].owner = (int)(k - kart); bananas[i].grace = 0.4f;
+        bananas[i].id = ++g_proj_seq;
+        if (g_link && k->is_player)
+            link_send_use(ITEM_BANANA, bananas[i].pos.x, bananas[i].pos.z, bananas[i].id);
         return;
     }
 }
@@ -642,6 +662,9 @@ static void fire_shell(Kart *k, int homing) {
         shell[i].seg = k->seg; shell[i].owner = (int)(k - kart);
         shell[i].pos = v3_add(k->pos, v3_scale(t_fwd[k->seg], 2.0f));
         shell[i].active = 1; shell[i].homing = homing; shell[i].ttl = homing ? 7.0f : 6.0f;
+        shell[i].id = ++g_proj_seq;
+        if (g_link && k->is_player)
+            link_send_use(homing ? ITEM_RSHELL : ITEM_GSHELL, shell[i].pos.x, shell[i].pos.z, shell[i].id);
         if (k->is_player) mote->audio_play_sfx(&shell_sfx, 0.8f);
         return;
     }
@@ -670,10 +693,14 @@ static void use_item(Kart *k) {
                              if (k->is_player) { mote->audio_play_sfx(&boost_sfx, 1.0f); mote->rumble(0.6f, 300); }
                              break;
         case ITEM_LIGHTNING:                 /* zap everyone else: shrink + slow, no spin */
-            for (int j = 0; j < NKART; j++) {
-                Kart *o = &kart[j];
-                if (o == k || kart_invincible(o)) continue;
-                o->shrunk = 4.0f;            /* small + slow for a short spell (no spin-out) */
+            if (g_link && k->is_player) {
+                link_send_use(ITEM_LIGHTNING, k->pos.x, k->pos.z, 0);   /* victim decides */
+            } else {
+                for (int j = 0; j < NKART; j++) {
+                    Kart *o = &kart[j];
+                    if (o == k || kart_invincible(o)) continue;
+                    o->shrunk = 4.0f;        /* small + slow for a short spell (no spin-out) */
+                }
             }
             if (k->is_player) { mote->audio_play_sfx(&hit_sfx, 1.0f); mote->rumble(0.7f, 280); }
             g_flash = 0.4f;                  /* white-out the whole screen for a beat */
@@ -720,7 +747,12 @@ static void kart_sim(Kart *k, float dt, int locked) {
         return;
     }
 
-    if (k->is_player && !locked && k->spin <= 0) {
+    int auto_drive = 0;
+#ifdef MOTE_HOST
+    auto_drive = k->is_player && getenv("MOTE_KART_AUTO") != NULL;   /* test hook:
+        drive the player's kart with the AI brain so headless runs follow the track */
+#endif
+    if (k->is_player && !auto_drive && !locked && k->spin <= 0) {
         const MoteInput *in = mote->input();
         if (mote_pressed(in, MOTE_BTN_A)) throttle += 1.0f;
         if (mote_pressed(in, MOTE_BTN_B)) throttle -= 1.0f;
@@ -728,7 +760,7 @@ static void kart_sim(Kart *k, float dt, int locked) {
         if (mote_pressed(in, MOTE_BTN_RIGHT)) steer += 1.0f;
         if (mote_pressed(in, MOTE_BTN_RB)) want_drift = 1.0f;
         if (mote_just_pressed(in, MOTE_BTN_LB)) use_item(k);
-    } else if (!k->is_player && !locked && k->spin <= 0) {
+    } else if ((!k->is_player || auto_drive) && !locked && k->spin <= 0) {
         /* ---- AI racing brain ---- */
         /* aim at a point down the road; look further the faster we go */
         int look = 4 + (int)(k->speed * 0.45f);
@@ -902,15 +934,22 @@ static void scenery_collide(void) {
     }
 }
 
+static void link_send_hit(int owner, uint8_t id) {   /* 2P: this projectile is spent */
+    uint8_t m[4] = {0xA5, 'X', (uint8_t)(owner == 0 ? 1 : 0), id};   /* mine=1: I spawned it */
+    mote->link_send(m, 4);
+}
 static void items_sim(float dt) {
+    int nk = g_link ? 1 : NKART;   /* 2P: only MY kart collects/collides — the peer's
+                                      unit is authoritative for the replica (its kart) */
     for (int i = 0; i < NBOX; i++) {
         if (!box[i].active) { box[i].respawn -= dt; if (box[i].respawn <= 0) box[i].active = 1; continue; }
         Vec3 bp = track_point(box[i].seg, box[i].lat);
-        for (int kk = 0; kk < NKART; kk++) {
+        for (int kk = 0; kk < nk; kk++) {
             float dx = kart[kk].pos.x - bp.x, dz = kart[kk].pos.z - bp.z;
             if (dx * dx + dz * dz < 2.2f * 2.2f && kart[kk].item == ITEM_NONE && kart[kk].spin <= 0) {
                 give_item(&kart[kk]);
                 box[i].active = 0; box[i].respawn = 3.0f;
+                if (g_link) { uint8_t m[3] = {0xA5, 'B', (uint8_t)i}; mote->link_send(m, 3); }
                 if (kart[kk].is_player) mote->audio_play_sfx(&item_sfx, 0.8f);
                 break;
             }
@@ -918,10 +957,12 @@ static void items_sim(float dt) {
     }
     for (int i = 0; i < NBANANA; i++) if (bananas[i].active) {
         if (bananas[i].grace > 0) bananas[i].grace -= dt;
-        for (int kk = 0; kk < NKART; kk++) {
+        for (int kk = 0; kk < nk; kk++) {
             if (bananas[i].grace > 0 && kk == bananas[i].owner) continue;
             float dx = kart[kk].pos.x - bananas[i].pos.x, dz = kart[kk].pos.z - bananas[i].pos.z;
-            if (dx * dx + dz * dz < 0.8f * 0.8f) { spin_out(&kart[kk]); bananas[i].active = 0; break; }
+            if (dx * dx + dz * dz < 0.8f * 0.8f) { spin_out(&kart[kk]); bananas[i].active = 0;
+                if (g_link) link_send_hit(bananas[i].owner, bananas[i].id);
+                break; }
         }
     }
     for (int i = 0; i < NSHELL; i++) if (shell[i].active) {
@@ -946,10 +987,12 @@ static void items_sim(float dt) {
             }
         }
         shell[i].pos.y = sy + 0.02f;        /* shell model base sits on the road */
-        for (int kk = 0; kk < NKART; kk++) {
+        for (int kk = 0; kk < nk; kk++) {
             if (kk == shell[i].owner && shell[i].ttl > (shell[i].homing ? 6.5f : 5.5f)) continue;
             float dx = kart[kk].pos.x - shell[i].pos.x, dz = kart[kk].pos.z - shell[i].pos.z;
-            if (dx * dx + dz * dz < 0.85f * 0.85f) { spin_out(&kart[kk]); shell[i].active = 0; break; }
+            if (dx * dx + dz * dz < 0.85f * 0.85f) { spin_out(&kart[kk]); shell[i].active = 0;
+                if (g_link) link_send_hit(shell[i].owner, shell[i].id);
+                break; }
         }
     }
 }
@@ -1182,7 +1225,7 @@ static void draw_world(void) {
     for (int i = 0; i < n_sign; i++) if (in_view(sgn[i].pos))
         mote->scene_add_billboard(sgn[i].pos, &sign_img, sgn[i].dir * 20, 0, 20, 20, 1.0f, MOTE_BLEND_NONE);
 
-    if (!g_link) for (int i = 0; i < NBOX; i++) if (box[i].active) {   /* items off in 2P */
+    for (int i = 0; i < NBOX; i++) if (box[i].active) {
         Vec3 bp = track_point(box[i].seg, box[i].lat);
         bp.y += 0.7f + 0.12f * sinf(g_racetime * 3.0f + i);   /* hover (no ground shadow) */
         if (in_view(bp))
@@ -1250,7 +1293,9 @@ static void link_send_hello(void) {
 static void link_send_state(void) {
     Kart *k = &kart[0];
     int16_t x = (int16_t)(k->pos.x * 256.0f), z = (int16_t)(k->pos.z * 256.0f);
-    uint8_t flags = (uint8_t)((k->boost > 0 ? 1 : 0) | (k->drifting ? 2 : 0) | (k->drift_dir > 0 ? 4 : 0));
+    uint8_t flags = (uint8_t)((k->boost > 0 ? 1 : 0) | (k->drifting ? 2 : 0) | (k->drift_dir > 0 ? 4 : 0)
+                            | (k->star > 0 ? 8 : 0) | (k->mega > 0 ? 16 : 0) | (k->bullet > 0 ? 32 : 0)
+                            | (k->shrunk > 0 ? 64 : 0) | (k->spin > 0 ? 128 : 0));
     uint8_t m[11] = {0xA5, 'P', (uint8_t)x, (uint8_t)(x >> 8), (uint8_t)z, (uint8_t)(z >> 8),
                      (uint8_t)(int8_t)(angwrap(k->yaw) * 40.5845f),
                      (uint8_t)(int8_t)mote_clampf(k->speed * 5.0f, -127, 127),
@@ -1282,6 +1327,36 @@ static void link_handle(const uint8_t *m) {
         case 'Q': if (!g_link_result)          /* if I already finished, their bail = my win */
                       g_link_result = (g_link_myfin && !g_link_peerfin) ? 1 : 4;
             break;
+        case 'B': { int i = m[2]; if (i < NBOX && box[i].active) { box[i].active = 0; box[i].respawn = 3.0f; } } break;
+        case 'U': {                            /* peer used an item */
+            int kind = m[2];
+            float x = (int16_t)(m[3] | (m[4] << 8)) / 256.0f, z = (int16_t)(m[5] | (m[6] << 8)) / 256.0f;
+            uint8_t id = m[7];
+            if (kind == ITEM_BANANA) {
+                for (int i = 0; i < NBANANA; i++) if (!bananas[i].active) {
+                    bananas[i].pos = v3(x, kart[1].pos.y - RIDE_H + 0.08f, z);
+                    bananas[i].active = 1; bananas[i].owner = 1; bananas[i].grace = 0.4f; bananas[i].id = id;
+                    break;
+                }
+            } else if (kind == ITEM_GSHELL || kind == ITEM_RSHELL) {
+                for (int i = 0; i < NSHELL; i++) if (!shell[i].active) {
+                    shell[i].pos = v3(x, kart[1].pos.y, z); shell[i].seg = kart[1].seg; shell[i].owner = 1;
+                    shell[i].active = 1; shell[i].homing = (kind == ITEM_RSHELL);
+                    shell[i].ttl = shell[i].homing ? 7.0f : 6.0f; shell[i].id = id;
+                    mote->audio_play_sfx(&shell_sfx, 0.5f);
+                    break;
+                }
+            } else if (kind == ITEM_LIGHTNING) {   /* victim-side: I decide if it lands */
+                if (!kart_invincible(&kart[0])) kart[0].shrunk = 4.0f;
+                g_flash = 0.4f; mote->audio_play_sfx(&hit_sfx, 0.8f); mote->rumble(0.5f, 220);
+            }
+        } break;
+        case 'X': {                            /* a projectile was spent on the peer's unit */
+            int mine = m[2], id = m[3];        /* mine=1: it was one I spawned (owner 0 here) */
+            int own = mine ? 0 : 1;
+            for (int i = 0; i < NBANANA; i++) if (bananas[i].active && bananas[i].owner == own && bananas[i].id == id) bananas[i].active = 0;
+            for (int i = 0; i < NSHELL; i++)  if (shell[i].active  && shell[i].owner  == own && shell[i].id  == id) shell[i].active = 0;
+        } break;
     }
 }
 static void link_poll(void) {
@@ -1292,7 +1367,8 @@ static void link_poll(void) {
             if (g_lk_len == 0) { if (b == 0xA5) g_lk[g_lk_len++] = b; continue; }
             g_lk[g_lk_len++] = b;
             int t = g_lk[1];
-            int want = t == 'P' ? 11 : t == 'F' ? 6 : t == 'H' ? 5 : t == 'S' ? 3 : t == 'Q' ? 2 : -1;
+            int want = t == 'P' ? 11 : t == 'U' ? 8 : t == 'F' ? 6 : t == 'H' ? 5 :
+                       t == 'X' ? 4 : (t == 'S' || t == 'B') ? 3 : t == 'Q' ? 2 : -1;
             if (want < 0) { g_lk_len = 0; continue; }        /* unknown type: resync */
             if (g_lk_len < want) continue;
             g_lk_len = 0; link_handle(g_lk);
@@ -1324,7 +1400,7 @@ static void link_race_reset(int authority) {
     link_place(&kart[1], pslot, DRIVER_ID[1]); kart[1].is_player = 0; kart[1].remote = 1;
     rp_x = kart[1].pos.x; rp_z = kart[1].pos.z; rp_yaw = kart[1].yaw;
     rp_speed = 0; rp_lap = 0; rp_prog = (int)(kart[1].prog * 255.0f); rp_flags = 0;
-    items_reset();                               /* boxes stay unused (2P: items off) */
+    items_reset(); g_proj_seq = 0;               /* same deterministic box grid both units */
     g_racetime = 0; g_count = 3; g_timer = 0; g_state = ST_COUNT; g_msg_t = 0;
     g_link_myfin = g_link_peerfin = 0; g_link_result = 0; g_my_time_ms = g_peer_time_ms = 0;
     g_link_send_t = 0; g_link_rx_age = 0;
@@ -1354,6 +1430,17 @@ static void remote_kart_update(Kart *k, float dt) {
     k->boost = (rp_flags & 1) ? 1.0f : 0.0f;
     k->drifting = (rp_flags & 2) ? 1 : 0;
     k->drift_dir = (rp_flags & 4) ? 1 : -1;
+    /* item auras: arm the timer on the flag's rising edge, run it locally while
+     * the flag holds (so star flash / mega scale / spin animate), drop on clear */
+    if (rp_flags & 8)  { if (k->star   <= 0) k->star   = 6.0f; } else k->star   = 0;
+    if (rp_flags & 16) { if (k->mega   <= 0) k->mega   = 7.0f; } else k->mega   = 0;
+    if (rp_flags & 32) { if (k->bullet <= 0) k->bullet = 4.5f; } else k->bullet = 0;
+    if (rp_flags & 64) { if (k->shrunk <= 0) k->shrunk = 4.0f; } else k->shrunk = 0;
+    if (rp_flags & 128){ if (k->spin   <= 0) k->spin   = 1.1f; k->yaw += 11.0f * dt; }
+    else k->spin = 0;
+    if (k->star > 0) k->star -= dt;  if (k->mega > 0) k->mega -= dt;
+    if (k->bullet > 0) k->bullet -= dt;  if (k->shrunk > 0) k->shrunk -= dt;
+    if (k->spin > 0) k->spin -= dt;
     k->drift_charge = k->drifting ? 1.0f : 0.0f;
     float want_steer = k->drifting ? k->drift_dir * 0.5f : 0.0f;
     k->vis_steer += (want_steer - k->vis_steer) * 12.0f * dt;
@@ -1471,7 +1558,7 @@ static void g_update(float dt) {
     }
     karts_collide();
     scenery_collide();
-    if (!g_link) items_sim(dt);        /* items disabled in 2P (see link notes) */
+    items_sim(dt);                     /* 2P too: see the link notes up top */
     update_places();
     camera_update(dt);
 
