@@ -85,11 +85,14 @@ def tune(writer: asyncio.StreamWriter):
         pass
 
 class Room:
-    __slots__ = ("reader", "writer", "future", "public", "label", "created", "gid", "code")
+    __slots__ = ("reader", "writer", "future", "public", "label", "created", "gid", "code",
+                 "claimed", "released")
     def __init__(self, reader, writer, future, public, label, gid, code):
         self.reader, self.writer, self.future = reader, writer, future
         self.public, self.label, self.gid, self.code = public, label, gid, code
         self.created = time.monotonic()
+        self.claimed = asyncio.Event()    # a joiner has taken the room
+        self.released = asyncio.Event()   # host handler has stopped watching the reader
 
 def rkey(gid, code):
     return gid + "/" + code       # rooms are namespaced per game, so codes don't collide across games
@@ -151,6 +154,8 @@ class Relay:
 
     async def pair(self, room: "Room", reader, writer, peer):
         """`room` is the waiting host; we're the joiner. Splice them."""
+        room.claimed.set()                       # host handler: stop watching the reader
+        await room.released.wait()               # ...and confirm before we read it
         room.writer.write(b"GO H\n"); await room.writer.drain()
         writer.write(b"GO G\n"); await writer.drain()
         log(f"room {room.gid}/{room.code}: paired ({peer})")
@@ -164,27 +169,42 @@ class Relay:
         """Register `room` and hold this connection (untouched) for a partner."""
         self.rooms[key] = room
         log(f"room {key}: waiting {'(public)' if room.public else '(private)'} ({peer})")
-        # join_timeout only reaps a room NOBODY joined. asyncio.shield is load-bearing:
-        # a bare wait_for CANCELS the future on timeout, which used to unwind this
-        # handler and close the host's socket at waiting+120s EVEN MID-MATCH — every
-        # paired session died on that clock. Shielded, the timeout fires without
-        # touching the future, and the paired branch holds the connection open until
-        # the relay actually finishes.
-        try:
-            await asyncio.wait_for(asyncio.shield(room.future), timeout=self.args.join_timeout)
-        except asyncio.TimeoutError:
-            if self.rooms.get(key) is room:              # genuinely unpaired: reap it
-                self.rooms.pop(key, None)
-                try:
-                    writer.write(b"TIMEOUT\n"); await writer.drain()
-                except OSError:
-                    pass
-                log(f"room {key}: timed out")
-            else:                                        # paired meanwhile: see the match out
-                try:
-                    await room.future
-                except (Exception, asyncio.CancelledError):
-                    pass
+        # A waiting room has NO clock: it lives exactly as long as its host's socket.
+        # We watch the host's reader for EOF (TCP keepalive surfaces silent deaths in
+        # ~a minute), so cancelled/crashed/unplugged hosts reap instantly and a patient
+        # host can wait as long as they like. --join-timeout (default: off) remains as
+        # an optional operator backstop. History: a mandatory 120s wait_for here used
+        # to CANCEL room.future on timeout, unwinding this handler and closing the
+        # host's socket EVEN MID-MATCH — every paired session died on that clock.
+        watch = asyncio.create_task(room.reader.read(1))
+        claim = asyncio.create_task(room.claimed.wait())
+        tmo = self.args.join_timeout if self.args.join_timeout > 0 else None
+        done, pending = await asyncio.wait({watch, claim}, timeout=tmo,
+                                           return_when=asyncio.FIRST_COMPLETED)
+        if claim in done:                                # a joiner took the room
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
+            room.released.set()                          # reader handed to the relay
+            try:
+                await room.future                        # hold the socket until the match ends
+            except (Exception, asyncio.CancelledError):
+                pass
+            return
+        # not claimed: EOF/error on the host (left / died) — or the optional backstop
+        for t in (watch, claim):
+            t.cancel()
+        await asyncio.gather(watch, claim, return_exceptions=True)
+        room.released.set()                              # never leave pair() waiting forever
+        if self.rooms.get(key) is room:
+            self.rooms.pop(key, None)
+        if watch in done:
+            log(f"room {key}: host left while waiting")
+        else:
+            try:
+                writer.write(b"TIMEOUT\n"); await writer.drain()
+            except OSError:
+                pass
+            log(f"room {key}: timed out (backstop)")
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info("peername")
@@ -272,7 +292,7 @@ async def main():
     ap = argparse.ArgumentParser(description="Mote link relay (byte pipe + room codes)")
     ap.add_argument("--addr", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=42450)
-    ap.add_argument("--join-timeout", type=int, default=600, help="seconds a LONE host waits for a partner before the room is reaped (never fires on a paired room)")
+    ap.add_argument("--join-timeout", type=int, default=0, help="optional backstop: seconds a LONE host may wait before the room is reaped (0 = wait as long as the host stays connected; never fires on a paired room)")
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     args = ap.parse_args()
