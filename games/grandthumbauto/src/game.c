@@ -2824,6 +2824,15 @@ static void g_update(float dt) {
                         add_heat_at(0.9f, cars[best].x, cars[best].z, 0);  /* grand theft auto, witnessed */
                     }
                     cars[best].driver=DRV_PLAYER; player.mode=MODE_CAR; player.car=best;
+                    /* PEER ONLY: give the car a LIVE physics body. On the peer,
+                     * physics_pass pins every car except player.car to
+                     * inv_mass=0 (a static streamed obstacle) every frame, so a
+                     * freshly-jacked car still had zero mass — drive force did
+                     * nothing and it wouldn't collide ('engine noise but the
+                     * car won't move'). Re-init restores real mass; physics_pass
+                     * then skips it (i==player.car). The authority's bodies are
+                     * always live, so leave its jack feel (rolling entry) alone. */
+                    if (g_dm && !dm_auth) car_body_init(best);
                     if (g_dm) dm_send2('C',(uint8_t)best);   /* peer hides its copy */
                     if (cars[best].type==VEH_TANK) g_turret=cars[best].yaw;
                 }
