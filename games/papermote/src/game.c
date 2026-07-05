@@ -403,7 +403,7 @@ static void lk_start_wait(void){
     state=S_LINKWAIT;
 }
 static void lk_teardown_to_title(void){
-    lk_send_bye(); mote->link_stop(); g_link=0; mote->set_fps_limit(0); state=S_TITLE;
+    lk_send_bye(); mote->link_stop(); g_link=0; state=S_TITLE;
 }
 
 /* ============================================================ one game step */
@@ -508,7 +508,6 @@ static void g_update(float dt){
     for(int i=0;i<npart;){ Part*q=&part[i]; q->life-=dt; if(q->life<=0){ *q=part[--npart]; continue; }
         q->x+=q->vx*dt; q->y+=q->vy*dt; q->vx*=0.92f; q->vy*=0.92f; i++; }
 
-    if(g_link||state==S_LINKWAIT) mote->set_fps_limit(30);   /* steady host/device pacing while linked */
 
     if(state==S_TITLE){
         int nmode = mote->abi_version>=44 ? 4 : 3;           /* 2P LINK needs net_lobby (v44) */
@@ -529,7 +528,7 @@ static void g_update(float dt){
             if(lk_got_hello && lk_peer_nonce==lk_my_nonce){ lk_new_nonce(); lk_got_hello=0; lk_send_hello(); }  /* tie: re-draw */
             else if(lk_got_hello){ lk_send_hello(); new_link_game(); }   /* no seed needed — both start now */
         }
-        if(mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); mote->set_fps_limit(0); state=S_TITLE; }
+        if(mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); state=S_TITLE; }
         return;
     }
     if(state==S_DEAD||state==S_WIN){

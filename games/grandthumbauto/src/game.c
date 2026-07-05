@@ -2119,7 +2119,7 @@ static void dm_poll(void){
         }
     }
 }
-static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
+static void dm_stop(void){ g_dm=0; mote->link_stop(); }
 /* DM shared-traffic recycler (AUTHORITY only): the map is huge and the two players
  * are far apart, so a fixed scatter leaves both streets empty. Each tick, take the
  * ambient car farthest from BOTH players and, if it's out of sight of both, drop it
@@ -2426,7 +2426,6 @@ static void draw_vehicle(int i){
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
-    mote->set_fps_limit((g_dm || g_state==ST_DMLINK) ? 30 : 0);   /* steady pacing while linked */
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
      * screen has shown for a few frames (the flash write stalls, so we let the

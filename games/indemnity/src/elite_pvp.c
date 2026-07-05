@@ -337,7 +337,6 @@ int pvp_begin(void) {
     MoteNetCfg cfg = { "IndemnityRun", PVP_PROTO, MOTE_NET_ALL };
     if (!g_em || g_em->abi_version < 44 ||
         g_em->net_lobby(&cfg, &host) != MOTE_NET_CONNECTED) return 0;
-    if (g_em->set_fps_limit) g_em->set_fps_limit(30);          /* steady link pacing */
     s_my_nonce = (uint16_t)(host ? 2 : 1);
     s_sent_hello = s_got_hello = s_got_ident = 0;
     s_hello_t = 0; s_msg_len = 0;
@@ -375,7 +374,6 @@ int pvp_arena_tick(const CraftRawButtons *btn, float dt) {
     static int prev_b;
     int b_edge = btn->b && !prev_b; prev_b = btn->b;
 
-    if (g_em && g_em->set_fps_limit) g_em->set_fps_limit(30);
     poll();
     s_rx_age += dt;
     if (g_em && g_em->net_health && g_em->net_health() == MOTE_NET_LOST && s_end == END_NONE) s_end = END_LINKLOST;   /* v45 */
@@ -440,7 +438,6 @@ void pvp_report_damage(float dmg, int wtype) {
 void pvp_end(void) {
     if (s_active) send1('Q');
     if (g_em && g_em->link_stop) g_em->link_stop();
-    if (g_em && g_em->set_fps_limit) g_em->set_fps_limit(0);
     s_active = 0; s_waiting = 0; s_end = END_NONE; s_msg_len = 0;
 }
 

@@ -278,7 +278,6 @@ static void g_update(float dt) {
     cue_game_tick(&b, dt);
     if (lk_ok()) {                    /* LINK: pump the session after the game tick */
         lk_tick(dt);
-        if (lk_state != LK_OFF) mote->set_fps_limit(30);   /* steady pacing while linked */
     }
     cue_game_render_begin();          /* build the engine scene on core0 */
 }

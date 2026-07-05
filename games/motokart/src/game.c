@@ -1376,7 +1376,7 @@ static void link_poll(void) {
 }
 static void link_quit(void) {                    /* leave a link session back to the title */
     if (g_link) link_send1('Q');
-    g_link = 0; g_nk = NKART; mote->link_stop(); mote->set_fps_limit(0);
+    g_link = 0; g_nk = NKART; mote->link_stop();
     g_state = ST_TITLE;
 }
 /* place a linked kart on the fixed side-by-side grid (no random shuffle) */
@@ -1453,7 +1453,6 @@ static void g_update(float dt) {
     if (dt > 0.05f) dt = 0.05f;
     const MoteInput *in = mote->input();
 
-    if (g_link) mote->set_fps_limit(30);   /* steady pacing while linked (OS reset after init) */
 
     if (g_state == ST_TITLE) {
         g_title_spin += dt;

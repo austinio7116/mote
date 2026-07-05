@@ -1032,7 +1032,7 @@ static void start_dm(uint32_t seed){
     { const char*t="DEATHMATCH"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
     state = ST_PLAY;
 }
-static void dm_stop(void){ g_dm=0; mote->link_stop(); mote->set_fps_limit(0); }
+static void dm_stop(void){ g_dm=0; mote->link_stop(); }
 
 static void start_game(void) {
     g_seed ^= (uint32_t)mote->micros(); g_seed ^= g_seed<<13;   /* a new dungeon each run */
@@ -1268,7 +1268,6 @@ static void fire_weapon(void) {
 static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (msg_t > 0) msg_t -= dt;
-    mote->set_fps_limit((g_dm || state==ST_DMLINK) ? 30 : 0);   /* steady pacing while linked */
 
     if (state == ST_DEBRIEF) {
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A)) {

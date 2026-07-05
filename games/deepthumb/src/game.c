@@ -1014,8 +1014,6 @@ static void g_init(void) {
 }
 
 static void g_update(float dt) {
-    mote->set_fps_limit(30);   /* plenty for chess; keeps host/device pacing alike
-                                * (set from update — the OS resets it after init) */
     const MoteInput *in = mote->input();
     switch (game.state) {
         case ST_TITLE:  logic_title(in);      break;
