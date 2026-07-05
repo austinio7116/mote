@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v43</span>
+    <span class="abi">ABI v45</span>
     <div style="margin-top:8px"><a href="games.html" style="color:#7c5cff;font-weight:600;text-decoration:none">&#127918; Games gallery &rarr;</a></div>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
@@ -110,6 +110,7 @@
     <a href="#api-audio">Audio</a>
     <a href="#api-text">Text &amp; overlay</a>
     <a href="#api-control">Control, arena &amp; telemetry</a>
+    <a href="#api-net">Multiplayer</a>
 
     <div class="grp">Data types</div>
     <a href="#t-render">Rendering</a>
@@ -685,6 +686,70 @@ query size); <code>kv_list</code> calls <code>cb(key, arg)</code> for every key 
 callback must not call <code>kv_*</code> re-entrantly on a list it's iterating). Keys are short ASCII, no <code>/</code>,
 case-insensitive on FAT.</p>
 
+
+<!-- ======================================================================
+                              MULTIPLAYER
+======================================================================= -->
+<h2 id="api-net" class="anchor">Engine API — Multiplayer <span class="badge abi">v43–v45</span></h2>
+<p>Two-player play over <strong>one raw byte pipe</strong>, transport-transparent: a USB-C cable between two
+units, the Studio's local preview&harr;device pipe, two Studios on a LAN, or an internet relay — a game written
+against these calls gets every transport for free. The engine owns the whole player experience (transport pick,
+rooms, pairing, handshake, link health); a game asks for an opponent with one call and then exchanges bytes.</p>
+
+<h3 id="fn-net_lobby">net_lobby <span class="badge abi">v44</span></h3>
+<pre class="sig"><span class="ty">int</span> (*<span class="fn">net_lobby</span>)(<span class="kw">const</span> <span class="ty">MoteNetCfg</span> *cfg, <span class="ty">int</span> *out_is_host);</pre>
+<p>The standard multiplayer lobby. <strong>Blocks</strong> (like the engine pause menu) while the engine draws
+transport selection (USB Cable / LAN / Internet per <code>cfg-&gt;transports</code>), room screens (quick match,
+host with a 4-letter code, join by code, browse), connects, and runs its handshake. Returns
+<code>MOTE_NET_CONNECTED</code> with a <strong>clean pipe</strong> — no handshake bytes left in the stream — or
+<code>MOTE_NET_CANCELLED</code> if the player backed out. <code>*out_is_host</code> is 1 on exactly one side:
+use it for every symmetry-breaking decision (colour, map seed, authority). Pairing is gated by
+<code>game_name + proto_version</code> — two different games (or protocol versions) can never pair, even over a
+cable. Bump <code>proto_version</code> whenever you change your wire format.</p>
+<pre><span class="ty">int</span> host = 0;
+<span class="ty">MoteNetCfg</span> cfg = { <span class="st">"MyGame"</span>, 1, MOTE_NET_ALL };
+<span class="kw">if</span> (mote-&gt;net_lobby(&amp;cfg, &amp;host) == MOTE_NET_CONNECTED)
+    start_match(host);   <span class="cm">/* then link_send/recv as normal */</span></pre>
+
+<h3 id="fn-net_health">net_health <span class="badge abi">v45</span></h3>
+<pre class="sig"><span class="ty">int</span> (*<span class="fn">net_health</span>)(<span class="kw">void</span>);</pre>
+<p>Engine-measured transport truth for the current lobby session. The engine exchanges its own keepalives
+whenever the game goes quiet (&gt;500&nbsp;ms) and strips inbound ones before <code>link_recv</code>, so silence
+<em>always</em> means a real stall — turn-based games included. Returns <code>MOTE_NET_OK</code>,
+<code>MOTE_NET_STALLED</code> (nothing received for &gt;2.5&nbsp;s — the engine is already drawing a
+<em>LINK STALLED</em> banner over your game; keep simulating, blips recover), or <code>MOTE_NET_LOST</code>
+(&gt;20&nbsp;s — end the match). <strong>Use this instead of your own silence timer</strong>: a 3-second timeout
+turns every internet hiccup into a dead match.</p>
+
+<h3 id="fn-link">link_start / link_stop / link_status / link_is_host <span class="badge abi">v43</span></h3>
+<pre class="sig"><span class="kw">void</span> (*<span class="fn">link_start</span>)(<span class="kw">void</span>);   <span class="kw">void</span> (*<span class="fn">link_stop</span>)(<span class="kw">void</span>);
+<span class="ty">int</span>  (*<span class="fn">link_status</span>)(<span class="kw">void</span>);  <span class="ty">int</span>  (*<span class="fn">link_is_host</span>)(<span class="kw">void</span>);</pre>
+<p>The raw layer beneath the lobby. <code>link_status()</code> returns <code>MOTE_LINK_OFF/SEARCHING/CONNECTED</code>.
+Games normally never call <code>link_start</code> directly any more — <code>net_lobby</code> does — but
+<code>link_stop()</code> ends a session and <code>link_status()</code> still detects a hard transport drop.
+<strong>Do not use <code>link_is_host()</code> for authority</strong>: over relayed transports both ends can be
+USB device-role and it reads 0 on both — that's what <code>net_lobby</code>'s <code>out_is_host</code> is for.
+On device the transport is USB-CDC dual-role (both units flip roles until one enumerates the other);
+on the host emulator two instances pair through a local socket (<code>MOTE_LINK_SOCK=/tmp/lk.sock</code>).</p>
+
+<h3 id="fn-link_send">link_send / link_recv <span class="badge abi">v43</span></h3>
+<pre class="sig"><span class="ty">int</span> (*<span class="fn">link_send</span>)(<span class="kw">const</span> <span class="kw">void</span> *data, <span class="ty">int</span> len);
+<span class="ty">int</span> (*<span class="fn">link_recv</span>)(<span class="kw">void</span> *buf, <span class="ty">int</span> max);</pre>
+<p>Non-blocking byte pipe; both return the byte count actually moved. It's a <strong>stream, not packets</strong> —
+frame your messages (the shipped games use a magic byte + type + fixed payload, e.g. <code>0xA5 't' ...</code>, and
+resync on the magic). Proven conventions from the seven shipped 2P games: the <code>out_is_host</code> winner makes
+every shared decision once and transmits it (never regenerate shared content from float maths on both sides — x86
+previews and the ARM device disagree in the last bit of <code>sinf</code>); each unit simulates only its own player
+and streams a small state packet ~15&nbsp;Hz; damage is <strong>victim-authoritative</strong> (the shooter reports,
+the victim applies to itself).</p>
+
+<h3 id="ty-motenetcfg">MoteNetCfg <span class="badge hdr">mote_api.h</span> <span class="badge abi">v44</span></h3>
+<pre><span class="kw">typedef struct</span> {
+    <span class="kw">const char</span> *game_name;      <span class="cm">/* pairs only with the same name...   */</span>
+    <span class="ty">uint16_t</span>    proto_version;  <span class="cm">/* ...and the same protocol version   */</span>
+    <span class="ty">uint8_t</span>     transports;     <span class="cm">/* MOTE_NET_USB|LAN|INTERNET, or _ALL */</span>
+} <span class="ty">MoteNetCfg</span>;</pre>
+
 <!-- ======================================================================
                               DATA TYPES
 ======================================================================= -->
@@ -1157,7 +1222,9 @@ header-only/SDK changes do not.</p>
 <tr><td>v40</td><td><a href="#ty-motesound"><code>MoteSound</code></a> carries a sample rate + bit depth — clips stored at native (lower) quality, resampled at playback; an 8-bit/11025&nbsp;Hz SFX costs ~1/4 the flash. Struct-extend only; legacy <code>{pcm,count}</code> headers unchanged.</td></tr>
 <tr><td>v41</td><td><a href="#ty-moteimage"><code>MoteImage</code></a> gains 4-/8-bit palette-indexed formats — low-colour textures at 1/4 or 1/2 the flash on every texture path; bakers emit indexed automatically + losslessly (≤256 colours). Struct-extend only.</td></tr>
 <tr><td>v42</td><td><a href="#fn-phys2d_step"><code>phys2d_step</code></a> — 2D top-down rigid-body solver (<a href="#ty-motebody2d"><code>MoteBody2D</code></a>/<a href="#ty-moteworld2d"><code>MoteWorld2D</code></a>): circles + oriented boxes, spin from off-centre impacts, collision masks, sensors, tyre-grip lateral friction.</td></tr>
-<tr><td>v43</td><td>2-player link: <code>link_start/stop/status/is_host/send/recv</code> — a raw byte pipe to a second unit. Device: USB CDC dual-role over one USB-C cable (both units flip device/host roles until one enumerates the other); host emulator: a local socket (<code>MOTE_LINK_SOCK</code>) between two instances. The link host (<code>link_is_host()==1</code>) plays the symmetry-breaking role. First game: DeepThumb’s 2P LINK mode.</td></tr>
+<tr><td>v43</td><td>2-player link: <code>link_start/stop/status/is_host/send/recv</code> — a raw byte pipe to a second unit. Device: USB CDC dual-role over one USB-C cable (both units flip device/host roles until one enumerates the other); host emulator: a local socket (<code>MOTE_LINK_SOCK</code>) between two instances. First game: DeepThumb’s 2P LINK mode.</td></tr>
+<tr><td>v44</td><td><a href="#fn-net_lobby"><code>net_lobby</code></a> — the standard multiplayer lobby: the engine draws transport pick (USB / LAN / Internet), rooms (quick match / host with a 4-letter code / join / browse), connects, and hands back a clean pipe + the authority (<code>out_is_host</code>). Rooms gated per game + protocol version (<a href="#ty-motenetcfg"><code>MoteNetCfg</code></a>). Online play is device-driven: a docked Studio auto-relays to the room server with zero clicks.</td></tr>
+<tr><td>v45</td><td><a href="#fn-net_health"><code>net_health</code></a> — engine-owned link health: the OS keepalives quiet sessions (and strips them), reports OK / STALLED (&gt;2.5s, engine draws the LINK STALLED banner) / LOST (&gt;20s), so internet blips recover instead of killing matches and turn-based games don’t look dead between moves.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine

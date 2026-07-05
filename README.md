@@ -63,15 +63,20 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
    - [Running hot code from RAM — `.ramtext` (ABI v36)](#running-hot-code-from-ram--ramtext-abi-v36)
 8. [Input — buttons, edges, arming](#8-input)
 9. [Audio](#9-audio)
-10. [Device workflow — build, push, flash](#10-device-workflow)
+10. [Multiplayer — USB, LAN, internet rooms, and how to write a 2P game](#10-multiplayer)
+    - [Playing — every way two Thumbys can meet](#playing--every-way-two-thumbys-can-meet)
+    - [Link health — blips don't kill matches](#link-health--blips-dont-kill-matches)
+    - [The relay server](#the-relay-server)
+    - [For developers — one call, then bytes](#for-developers--one-call-then-bytes)
+11. [Device workflow — build, push, flash](#11-device-workflow)
     - [Flashing firmware (only when you change engine/OS C code)](#flashing-firmware-only-when-you-change-engineos-c-code)
-11. [Gotchas + rough edges](#11-gotchas--rough-edges)
+12. [Gotchas + rough edges](#12-gotchas--rough-edges)
     - [Real gotchas (things that *will* bite you)](#real-gotchas-things-that-will-bite-you)
     - [Rough edges](#rough-edges)
-12. [Project layout + reference](#12-project-layout--reference)
+13. [Project layout + reference](#13-project-layout--reference)
     - [Example games — what each one teaches](#example-games--what-each-one-teaches)
     - [Key reference files to read when in doubt](#key-reference-files-to-read-when-in-doubt)
-13. [Changelog](#13-changelog)
+14. [Changelog](#14-changelog)
 
 ---
 
@@ -2061,7 +2066,118 @@ procedural effects (tiny, editable); **WAV → `MoteSound`** for recorded/sample
 
 ---
 
-## 10. Device workflow
+## 10. Multiplayer
+
+Mote multiplayer is **engine-owned end to end**: a game asks the engine for an
+opponent with one call, and the engine handles everything a player sees —
+transport choice, rooms, pairing, the handshake, and link health. Seven games
+ship with 2-player modes: **DeepThumb** (chess), **Wolfmote** (deathmatch with
+loot drops), **Grand Thumb Auto** (open-city deathmatch, shared traffic),
+**MotoKart** (racing with the full item game), **ThumbyCue** (pool & snooker),
+**PaperMote** (territory duel) and **Indemnity Run** (1v1 arena with your saved
+ship + loadout).
+
+### Playing — every way two Thumbys can meet
+
+Pick the multiplayer option in any 2-player game and the engine shows the same
+lobby everywhere. What you can select depends on where the device is:
+
+**USB Cable — two Thumbys, one cable.** Connect the two devices with a USB-C
+**data** cable, pick *USB Cable* on both, and they pair in a few seconds (the
+units flip USB roles automatically until they find each other). No PC involved.
+
+**Vs the Studio preview — device against your PC.** Dock the Thumby in Mote
+Studio, run the same game in the Studio preview, and enter multiplayer → *USB
+Cable* on **both** (the preview's lobby and the device's). The Studio notices
+the docked device is looking for a direct opponent and links the two
+automatically — great for testing a game against yourself.
+
+**LAN — two Studios on the same network.** Each player docks their Thumby in a
+Mote Studio; pick *LAN* → Host on one device, *LAN* → Join on the other. The
+Studios find each other by broadcast (tcp 42450) and relay the two devices.
+
+**Internet — anywhere.** Dock the Thumby in Mote Studio (the Studio must show
+**Device: ON** in the DEVICE tab's MULTIPLAYER row — it does by default), then
+drive everything from the device:
+
+- **Quick Match** — one tap: joins any open public room for this game, or
+  opens one and waits.
+- **Host Room** — opens a room and shows a **4-letter code**; tell your friend.
+- **Join Code** — enter their code with the d-pad.
+- **Browse Rooms** — list the open public rooms for this game and pick one.
+
+No port-forwarding, no firewall prompts: both Studios connect **out** to a
+small relay server, which splices the two byte streams. Rooms are **per-game**
+(a WolfMote room never pairs with a MotoKart player) and per-protocol-version,
+so mismatched games can't meet. While a session is live the Studio shows
+**Device: RELAYING** and logs heartbeats (`relaying ok … max gap …`) in the
+Console; everything manual (LAN peering, USB bridging, rooms by hand) still
+exists under **Advanced** in the DEVICE tab.
+
+### Link health — blips don't kill matches
+
+The engine keepalives every session itself (tiny frames the games never see)
+and measures true transport silence. A short internet hiccup shows a
+**LINK STALLED** banner over the game and the match carries on when packets
+resume; only a real outage (>20 s) ends it. This works for turn-based games
+too — chess says nothing between moves, and the engine's keepalives are what
+prove the peer is still there.
+
+### The relay server
+
+The default relay is a tiny Python byte-splicer (`relay/mote_relay.py`) — no
+game logic, no accounts, just rooms and pipes. The Studio ships pointing at a
+default relay; change it in DEVICE → Advanced → the `relay` field (host or
+host:port, Enter to apply — persisted to `mote_relay.txt` next to the exe), or
+set `MOTE_RELAY=host[:port]` in the environment.
+
+Self-hosting is one file on any always-on box (a free-tier cloud VM works):
+
+```bash
+# on the server
+python3 mote_relay.py --port 443            # 443 = firewall-friendly everywhere
+# systemd unit + full deploy guide: relay/README.md
+```
+
+Rooms idle out after 15 minutes of true silence; TCP keepalives reap dead
+peers in about a minute; an event-loop watchdog and per-room gap logs make
+"the internet hiccuped" visible in `journalctl` instead of a mystery.
+
+### For developers — one call, then bytes
+
+```c
+int host = 0;
+MoteNetCfg cfg = { "MyGame", 1, MOTE_NET_ALL };   /* name, protocol version, transports */
+if (mote->net_lobby(&cfg, &host) == MOTE_NET_CONNECTED) {
+    /* paired: host is 1 on exactly one side — use it for authority/colour/spawn */
+}
+```
+
+`net_lobby()` blocks while the engine drives the whole lobby UI, and returns
+with a **clean connected pipe** — no handshake bytes in the stream. From there
+it's plain `mote->link_send(buf, n)` / `mote->link_recv(buf, max)`: a raw
+byte pipe, identical across USB / LAN / Internet, so a game written against it
+gets every transport for free.
+
+Conventions the shipped games use (worth copying):
+
+- **Frame your messages** — magic byte + type + fixed payload, resync on the
+  magic (`0xA5 't' …` in the shipped games). The pipe is a stream, not packets.
+- **`host` decides asymmetric things once** — who's white, who rolls the map
+  seed, who simulates traffic. Never regenerate shared content from maths on
+  both sides (x86 Studio previews and the ARM device disagree on `sinf` at the
+  last bit); the authority generates, the other receives.
+- **Victims decide their own damage** — each unit simulates its own player and
+  applies hits reported against it, so neither side's lag punches through.
+- **End the match on `mote->net_health() == MOTE_NET_LOST`**, not your own
+  silence timer — the engine's keepalives mean short gaps recover on their own
+  (it shows the stall banner for you). `MOTE_NET_STALLED` is informational.
+- **Test with two emulators**: run two instances sharing a socket —
+  `MOTE_LINK_SOCK=/tmp/lk.sock ./build_host/mote_host mygame.so` twice — and
+  drive them with `MOTE_KEYS`. `examples/linkdemo` is the minimal reference
+  (lobby → HOST/GUEST → exchange bytes, ~60 lines).
+
+## 11. Device workflow
 
 Games deploy with **`mote push`** — no firmware reflash. The flow:
 
@@ -2114,7 +2230,7 @@ RP2350 mass-storage drive.
 
 ---
 
-## 11. Gotchas + rough edges
+## 12. Gotchas + rough edges
 
 ### Real gotchas (things that *will* bite you)
 
@@ -2172,7 +2288,7 @@ RP2350 mass-storage drive.
 
 ---
 
-## 12. Project layout + reference
+## 13. Project layout + reference
 
 ```
 engine/     the engine — math/ render/ physics/ audio/ input/ assets/ core/
@@ -2266,9 +2382,20 @@ level). Its `.mote` ships in the games bundle attached to the
 - **`os/mote_os.c`** — the exact frame loop and how the ABI table is assembled.
 - **`examples/hello-mesh/src/game.c`** — the smallest complete game.
 
-## 13. Changelog
+## 14. Changelog
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+
+### 0.15-alpha
+
+**Multiplayer.** Engine ABI v42 → v45 — reflash the device and rebuild games.
+
+- **`net_lobby()` (v44):** games get an opponent with one call; the engine draws the standard lobby — **USB Cable / LAN / Internet**, host/join/browse rooms with 4-letter codes, d-pad code entry — and returns a clean connected `link_send/recv` pipe with the authority decided (`out_is_host`). Rooms are gated per game + protocol version.
+- **Device-driven online:** dock a Thumby in the Studio and the whole internet match is set up from the device — the Studio auto-relays (Device: ON/RELAYING in the DEVICE tab), speaks a tiny control protocol with the device, performs the room action on the relay, and splices the pipes. Manual LAN/USB-bridge/room controls moved under **Advanced**.
+- **Link health (v45):** the engine keepalives every session and strips them on receipt, so silence always means a real stall — `net_health()` returns OK / STALLED (>2.5 s, engine draws a LINK STALLED banner over any game) / LOST (>20 s). Blips recover instead of killing matches; turn-based games stop looking dead between moves.
+- **2P USB link (v43):** dual-role USB on device (role-flip discovery), local socket pairs on the host emulator (`MOTE_LINK_SOCK`), `examples/linkdemo` is the minimal reference.
+- **Seven games with multiplayer modes:** DeepThumb, Wolfmote (+ loot drops on death), Grand Thumb Auto (+ shared traffic), MotoKart (+ the full item game in 2P), ThumbyCue, PaperMote, Indemnity Run (saved ship + loadout).
+- **Relay server** (`relay/mote_relay.py` + deploy guide): dumb byte-splicer with public/private rooms, quick match, per-game gating, aggressive TCP keepalives, an event-loop watchdog and per-room gap logging.
 
 ### 0.14-alpha
 

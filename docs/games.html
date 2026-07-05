@@ -58,6 +58,8 @@ header nav a:hover{color:var(--text)}
   display:flex;gap:12px;align-items:center;transition:border-color .15s, transform .12s, background .15s}
 .card:hover{transform:translateY(-2px);border-color:#39415a;background:var(--panel2)}
 .card.sel{border-color:var(--accent);background:var(--panel2);box-shadow:0 0 0 1px var(--accent) inset}
+.mp{display:inline-block;background:rgba(55,214,122,.14);color:var(--accent2);border:1px solid rgba(55,214,122,.4);
+  font-size:11px;font-weight:700;padding:0 6px;border-radius:6px;margin-left:6px;vertical-align:1px}
 .card img{width:48px;height:48px;image-rendering:pixelated;border-radius:9px;flex:none}
 .card b{font-size:15px;display:block}
 .card span{color:var(--dim);font-size:12px;line-height:1.35;display:block;margin-top:2px}
@@ -78,7 +80,7 @@ footer a{color:var(--accent)}
   <h1>Mote <span>Games</span></h1>
   <nav><a href="index.html">Engine docs</a><a href="https://github.com/austinio7116/mote">GitHub</a><a href="https://github.com/austinio7116/ThumbyOne">ThumbyOne</a><a href="https://github.com/austinio7116/ThumbyOne/releases/latest">Firmware</a></nav>
 </header>
-<p class="tagline">Twenty games for the Thumby Color, built on the Mote engine. Pick a game to see it on the device — then grab its <code>.mote</code> and drop it in <code>/mote/</code>.</p>
+<p class="tagline">Twenty games for the Thumby Color, built on the Mote engine. Pick a game to see it on the device — then grab its <code>.mote</code> and drop it in <code>/mote/</code>. Games marked <span style="color:var(--accent2);font-weight:600">2P</span> play multiplayer — USB cable, LAN, or internet rooms, set up right on the device.</p>
 
 <section class="hero" id="hero">
   <div class="device">
@@ -106,12 +108,12 @@ footer a{color:var(--accent)}
 
 <script>
 const GAMES = [
- {id:"wolfmote", file:"WolfMote.mote", name:"WolfMote", by:"austinio7116", kb:277,
+ {id:"wolfmote", file:"WolfMote.mote", name:"WolfMote", by:"austinio7116", kb:277, mp:1,
   tag:"Rogue dungeon FPS",
-  desc:"A Wolfenstein-style FPS crossed with a roguelike: eight procedurally generated floors of packed rooms, push-wall secrets and locked vaults. Nine weapons from silent knife to plasma rifle — including a fireball-lobbing flamethrower — drop as weighted random loot. Pick your difficulty and descend."},
- {id:"grandthumbauto", file:"GrandThumbAuto.mote", name:"Grand Thumb Auto", by:"mote", kb:372,
+  desc:"A Wolfenstein-style FPS crossed with a roguelike: eight procedurally generated floors of packed rooms, push-wall secrets and locked vaults. Nine weapons from silent knife to plasma rifle — including a fireball-lobbing flamethrower — drop as weighted random loot. 2P DEATHMATCH: first to ten frags in a shared dungeon, weapons respawning — and when you die you drop your whole arsenal as a loot bag either player can claim."},
+ {id:"grandthumbauto", file:"GrandThumbAuto.mote", name:"Grand Thumb Auto", by:"mote", kb:372, mp:1,
   tag:"Open-city crime sandbox",
-  desc:"A GTA-1-style top-down city — and every new game generates a brand-new one: fresh rivers, bridges, districts and parks each run. Steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank (now hidden somewhere quiet). Real 2D rigid-body driving with tyre grip and traffic that fights back."},
+  desc:"A GTA-1-style top-down city — and every new game generates a brand-new one: fresh rivers, bridges, districts and parks each run. Steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank (now hidden somewhere quiet). Real 2D rigid-body driving with tyre grip and traffic that fights back. 2P DEATHMATCH: same generated city on both units, shared traffic to steal, weapon caches, first to ten."},
  {id:"galaxyswarm", file:"GalaxySwarm.mote", name:"Galaxy Swarm", by:"austinio7116", kb:513,
   tag:"Endless-wave space shooter",
   desc:"A remake of the Android original with its actual 3D models: endless waves of fighters, tridents, corvettes and spinning UFOs over a scrolling galaxy. Nine power-ups build your arsenal from twin lasers to a nine-gun spread with homing rockets and companion drones \u2014 and every tenth wave a boss arrives."},
@@ -127,24 +129,24 @@ const GAMES = [
  {id:"thumbycraft", file:"thumbycraft.mote", name:"ThumbyCraft", by:"austinio7116", kb:385,
   tag:"Voxel mining & building",
   desc:"A pocket voxel world: dig, gather, craft tools and build in a fully destructible landscape with caves, torches and chests — a complete survival loop on a 128-pixel screen. Best played directly on ThumbyOne, where the full-feature build has its own dedicated slot."},
- {id:"thumbycue", file:"thumbycue.mote", name:"ThumbyCue", by:"austinio7116", kb:329,
+ {id:"thumbycue", file:"thumbycue.mote", name:"ThumbyCue", by:"austinio7116", kb:329, mp:1,
   tag:"3D snooker & pool",
-  desc:"Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play against the AI or a friend."},
- {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320, n:2,
+  desc:"Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play the AI, pass-the-device — or 2P LINK a friend across the room or across the world."},
+ {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320, n:2, mp:1,
   tag:"Elite-style space sim",
-  desc:"A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it."},
- {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"austinio7116", kb:94, n:1,
+  desc:"A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it. PVP ARENA: bring your SAVED ship and loadout to a 1v1 dogfight against a friend's."},
+ {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"austinio7116", kb:94, n:1, mp:1,
   tag:"Chess, 2D or full 3D",
-  desc:"A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera."},
- {id:"motokart", file:"motokart.mote", name:"MotoKart", by:"austinio7116", kb:51,
+  desc:"A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera. 2P LINK plays a friend over cable or internet; the handshake deals the colours."},
+ {id:"motokart", file:"motokart.mote", name:"MotoKart", by:"austinio7116", kb:51, mp:1,
   tag:"Kart racing",
-  desc:"Mode-7-style kart racing: three-lap circuits with kerbs, checkered gates and rival karts. Clean lines win races."},
+  desc:"Mode-7-style kart racing: three-lap circuits with kerbs, checkered gates and rival karts — with the full item game: mushrooms, bananas, green and red shells, stars, bullets, lightning. 2P LINK races a friend head-to-head, items and all."},
  {id:"nightmote", file:"nightmote.mote", name:"NightMote", by:"mote", kb:66,
   tag:"Horde survivor",
   desc:"A Vampire-Survivors-style horde game: mow down the swarm, hoover up XP, and build your weapon loadout level by level across a procedural overworld. One more run before bed."},
- {id:"papermote", file:"papermote.mote", name:"PaperMote", by:"mote", kb:61,
+ {id:"papermote", file:"papermote.mote", name:"PaperMote", by:"mote", kb:61, mp:1,
   tag:"Territory battle",
-  desc:"Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes."},
+  desc:"Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes — plus a 2P LINK territory duel, first to three KOs."},
  {id:"golf", file:"golf.mote", name:"Golf", by:"mote", kb:30,
   tag:"3D golf",
   desc:"A full round over rolling 3D terrain: judge the wind, shape your power and putt out. Simple to swing, hard to par."},
@@ -194,7 +196,7 @@ function select(g,scroll){
   [...dots.children].forEach((d,i)=>d.onclick=()=>{show(i);restart();});
   document.getElementById('m-icon').src=`img/gallery/${g.id}-icon.png`;
   document.getElementById('m-name').textContent=g.name;
-  document.getElementById('m-by').textContent=`by ${g.by} · ${g.tag}`;
+  document.getElementById('m-by').textContent=`by ${g.by} · ${g.tag}${g.mp?' · 2-player (USB / LAN / internet)':''}`;
   document.getElementById('m-desc').textContent=g.desc;
   const dl=document.getElementById('m-dl');
   dl.href=`games/${g.file}`; dl.setAttribute('download',g.file);
@@ -207,7 +209,7 @@ function restart(){ clearInterval(timer); if(nshots()>1) timer=setInterval(()=>s
 
 GAMES.forEach(g=>{
   const c=document.createElement('div'); c.className='card'; c.dataset.id=g.id;
-  c.innerHTML=`<img src="img/gallery/${g.id}-icon.png" alt=""><div><b>${g.name}</b><span>${g.tag}</span></div>`;
+  c.innerHTML=`<img src="img/gallery/${g.id}-icon.png" alt=""><div><b>${g.name}${g.mp?'<i class="mp">2P</i>':''}</b><span>${g.tag}</span></div>`;
   c.onclick=()=>select(g,true);
   grid.appendChild(c);
 });
