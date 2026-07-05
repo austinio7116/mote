@@ -54,8 +54,20 @@ static void txq_flush(void) {
 int mote_net_send(const void *data, int len) {
     if (len <= 0) return 0;
     if (!s_active) { int w = mote_plat_link_send(data, len); if (w > 0) s_last_tx = now_ms(); return w; }
-    s_last_tx = now_ms();                    /* we WILL deliver what we accept */
     txq_flush();
+    if (s_txq_off > 0) { memmove(s_txq, s_txq + s_txq_off, (size_t)(s_txq_len - s_txq_off));
+                         s_txq_len -= s_txq_off; s_txq_off = 0; }
+    /* ALL OR NOTHING. A message is accepted only if the carry can hold every
+     * byte the wire might refuse — then it is guaranteed to deliver whole and
+     * in order. The old code queued "as much as fits" and returned a short
+     * count: fire-and-forget senders (state packets, world messages) never
+     * check that, so under burst pressure the TAIL OF A FRAME WAS CUT and the
+     * receiver's stream desynced — stalls, phantom turns, dead protocols on
+     * exactly the three games that send big or clustered messages. A rejected
+     * WHOLE message (return 0) is recoverable: periodic senders repeat, and
+     * critical one-shots carry game-level acks. */
+    if (len > (int)sizeof s_txq - s_txq_len) return 0;
+    s_last_tx = now_ms();                    /* we WILL deliver what we accept */
     const uint8_t *d = (const uint8_t *)data;
     int done = 0;
     if (s_txq_len == 0) {                    /* fast path: straight to the wire */
@@ -63,13 +75,9 @@ int mote_net_send(const void *data, int len) {
         if (w >= len) return len;
         done = w > 0 ? w : 0;
     }
-    /* queue the remainder (or all of it) so no frame is ever split */
-    if (s_txq_off > 0) { memmove(s_txq, s_txq + s_txq_off, (size_t)(s_txq_len - s_txq_off));
-                         s_txq_len -= s_txq_off; s_txq_off = 0; }
-    int space = (int)sizeof s_txq - s_txq_len;
-    int q = len - done; if (q > space) q = space;
-    if (q > 0) { memcpy(s_txq + s_txq_len, d + done, (size_t)q); s_txq_len += q; done += q; }
-    return done;                             /* carry-aware games resume from here */
+    memcpy(s_txq + s_txq_len, d + done, (size_t)(len - done));
+    s_txq_len += len - done;
+    return len;                              /* accepted = will be delivered */
 }
 
 /* Read from the platform and strip keepalive frames. A partial magic match at

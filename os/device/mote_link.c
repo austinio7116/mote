@@ -54,7 +54,16 @@ static void ring_clear(void) { s_rhead = s_rtail = 0; }
 /* ---- TinyUSB host-role callbacks ---------------------------------------- */
 void tuh_mount_cb(uint8_t daddr)   { (void)daddr; }
 void tuh_umount_cb(uint8_t daddr)  { (void)daddr; s_cdc_mounted = 0; }
-void tuh_cdc_mount_cb(uint8_t idx)   { s_cdc_idx = idx; s_cdc_mounted = 1; }
+void tuh_cdc_mount_cb(uint8_t idx)   {
+    s_cdc_idx = idx; s_cdc_mounted = 1;
+    /* Assert DTR+RTS. TinyUSB's cdc_device keeps its TX fifo OVERWRITABLE
+     * until the host raises DTR (PCs always do; we never did) — so on a
+     * unit-to-unit link the device-role peer's tud_cdc_write silently
+     * overwrote queued bytes under pressure AND returned the full count.
+     * One lossy direction, bulk transfers only: GTA's city stream, cue's
+     * settle blob. DTR flips the peer's fifo to honest partial writes. */
+    tuh_cdc_set_control_line_state(idx, 0x03, NULL, 0);
+}
 void tuh_cdc_umount_cb(uint8_t idx)  { (void)idx; s_cdc_mounted = 0; }
 void tuh_cdc_rx_cb(uint8_t idx) {
     /* Read ONLY what the ring can hold. The old unconditional drain made the
@@ -168,7 +177,13 @@ int mote_link_send(const void *data, int len) {
         n = tuh_cdc_write(s_cdc_idx, data, (uint32_t)len);
         tuh_cdc_write_flush(s_cdc_idx);
     } else {
-        n = tud_cdc_write(data, (uint32_t)len);
+        /* Belt-and-braces for the DTR fix above: if the peer hasn't raised
+         * DTR (old firmware on the other unit), the TX fifo is overwritable
+         * and tud_cdc_write LIES about full acceptance while dropping queued
+         * bytes. Clamp to real space so the return is always honest. */
+        uint32_t room = tud_cdc_write_available();
+        uint32_t l = (uint32_t)len; if (l > room) l = room;
+        n = l ? tud_cdc_write(data, l) : 0;
         tud_cdc_write_flush();
     }
     return (int)n;
