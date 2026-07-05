@@ -33,7 +33,11 @@
 #include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 43u  /* v43: 2-player link — link_start/stop/status/is_host/send/recv.
+#define MOTE_ABI_VERSION 44u  /* v44: standard multiplayer lobby — net_lobby() runs an
+                               * engine-drawn transport pick + connect + nonce handshake and
+                               * hands back a CONNECTED link (link_send/recv after). MoteNetCfg /
+                               * MOTE_NET_*. Appended one jump-table entry. */
+#define MOTE_ABI_V43_NOTE  /* v43: 2-player link — link_start/stop/status/is_host/send/recv.
                                * Device: USB CDC dual-role (two units, one C-to-C cable);
                                * host emulator: a local socket (MOTE_LINK_SOCK). */
 #define MOTE_ABI_V42_NOTE  /* v42: 2D rigid-body solver — phys2d_step + MoteBody2D/MoteWorld2D
@@ -52,6 +56,23 @@
 #define MOTE_LINK_OFF        0   /* link not started */
 #define MOTE_LINK_SEARCHING  1   /* looking for a peer */
 #define MOTE_LINK_CONNECTED  2   /* byte pipe to the peer is up */
+
+/* net_lobby() (ABI v44). transports is a bitmask of the options the lobby offers. */
+#define MOTE_NET_USB        0x01
+#define MOTE_NET_LAN        0x02
+#define MOTE_NET_INTERNET   0x04
+#define MOTE_NET_ALL        0x07
+#define MOTE_NET_CANCELLED  0    /* net_lobby: player backed out */
+#define MOTE_NET_CONNECTED  1    /* net_lobby: paired — use link_send/recv now */
+
+/* What a game passes to net_lobby(). game_name + proto_version form the game id
+ * that gates rooms (only same-game, same-proto peers ever pair). transports = which
+ * of USB/LAN/INTERNET the lobby offers (0 = all). */
+typedef struct MoteNetCfg {
+    const char *game_name;
+    uint16_t    proto_version;
+    uint8_t     transports;
+} MoteNetCfg;
 
 struct MoteAutotile;   /* full definition in mote_tile.h; the ABI only passes a pointer */
 /* MOTE_DRAW_* per-object draw flags for scene_add_object_ex() live in mote_object.h. */
@@ -478,6 +499,15 @@ typedef struct MoteApi {
     int  (*link_is_host)(void);
     int  (*link_send)(const void *data, int len);
     int  (*link_recv)(void *buf, int max);
+
+    /* --- ABI v44: standard multiplayer lobby. Runs a BLOCKING engine-drawn lobby
+     * (pick USB/LAN/INTERNET, host/browse/join, then connect) and returns with a
+     * live link — use link_send/recv afterwards exactly as before. The engine owns
+     * the nonce handshake and writes the resolved authority to *out_is_host (1 on
+     * exactly one side; use it for who-seeds / who-goes-first). Rooms are gated by
+     * game (cfg->game_name + proto_version), so only the same game can pair — even
+     * over a cable. Returns MOTE_NET_CONNECTED or MOTE_NET_CANCELLED. */
+    int (*net_lobby)(const MoteNetCfg *cfg, int *out_is_host);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

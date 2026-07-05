@@ -76,6 +76,7 @@ if(MOTE_TARGET STREQUAL "host")
         os/mote_launcher.c
         os/mote_ui.c
         os/mote_menu.c
+        os/mote_lobby.c
         os/mote_os.c)
     target_include_directories(mote_host PRIVATE ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_host PRIVATE MOTE_HOST=1)
@@ -94,6 +95,7 @@ if(MOTE_TARGET STREQUAL "host")
         os/mote_launcher.c
         os/mote_menu.c
         os/mote_ui.c
+        os/mote_lobby.c
         platform/studio/mote_plat_studio.c)
     target_include_directories(mote_studio PRIVATE ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_studio PRIVATE MOTE_HOST=1)

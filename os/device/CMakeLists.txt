@@ -59,7 +59,7 @@ if (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "runner")
         ${OSDIR}/device/runner_main.c ${OSDIR}/device/mote_loader.c ${OSDIR}/device/mote_xip.c
         ${OSDIR}/device/mote_usb.c            # CDC log channel (gated by the engine menu)
         ${OSDIR}/device/mote_link.c           # 2-player USB link (ABI v43)
-        ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c
+        ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c ${OSDIR}/mote_lobby.c
         ${MOTE_PLAT} ${MOTE_3D} ${MOTE_2D} ${MOTE_CORE})
 elseif (THUMBYONE_SLOT_MODE AND MOTE_SLOT_ROLE STREQUAL "lobby")
     set(MOTE_TGT mote_lobby)
@@ -74,7 +74,7 @@ else()
         ${OSDIR}/device/os_main.c ${OSDIR}/device/mote_loader.c ${OSDIR}/device/mote_usb.c
         ${OSDIR}/device/mote_store.c ${OSDIR}/device/mote_xip.c
         ${OSDIR}/device/mote_link.c           # 2-player USB link (ABI v43)
-        ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c
+        ${OSDIR}/mote_os.c ${OSDIR}/mote_launcher.c ${OSDIR}/mote_ui.c ${OSDIR}/mote_menu.c ${OSDIR}/mote_lobby.c
         ${MOTE_PLAT} ${MOTE_3D} ${MOTE_2D} ${MOTE_CORE})
 endif()
 

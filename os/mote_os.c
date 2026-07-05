@@ -16,6 +16,7 @@
 #include "mote_audio.h"      /* synth */
 #include "mote_menu.h"       /* engine overlay menu (3s MENU hold) */
 #include "mote_ui.h"         /* shared styled-UI kit (mote->menu) */
+#include "mote_lobby.h"      /* ABI v44: standard multiplayer lobby (net_lobby) */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -117,6 +118,8 @@ void mote_api_fill(MoteApi *a) {
     a->link_is_host          = mote_plat_link_is_host;
     a->link_send             = mote_plat_link_send;
     a->link_recv             = mote_plat_link_recv;
+    /* ABI v44: standard multiplayer lobby (transport pick + connect + handshake). */
+    a->net_lobby             = mote_lobby;
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
