@@ -164,19 +164,27 @@ class Relay:
         """Register `room` and hold this connection (untouched) for a partner."""
         self.rooms[key] = room
         log(f"room {key}: waiting {'(public)' if room.public else '(private)'} ({peer})")
+        # join_timeout only reaps a room NOBODY joined. asyncio.shield is load-bearing:
+        # a bare wait_for CANCELS the future on timeout, which used to unwind this
+        # handler and close the host's socket at waiting+120s EVEN MID-MATCH — every
+        # paired session died on that clock. Shielded, the timeout fires without
+        # touching the future, and the paired branch holds the connection open until
+        # the relay actually finishes.
         try:
-            await asyncio.wait_for(room.future, timeout=self.args.join_timeout)
+            await asyncio.wait_for(asyncio.shield(room.future), timeout=self.args.join_timeout)
         except asyncio.TimeoutError:
-            if self.rooms.get(key) is room:
+            if self.rooms.get(key) is room:              # genuinely unpaired: reap it
                 self.rooms.pop(key, None)
                 try:
                     writer.write(b"TIMEOUT\n"); await writer.drain()
                 except OSError:
                     pass
                 log(f"room {key}: timed out")
-            else:
-                try: await room.future      # a joiner grabbed us; let the relay finish
-                except Exception: pass
+            else:                                        # paired meanwhile: see the match out
+                try:
+                    await room.future
+                except (Exception, asyncio.CancelledError):
+                    pass
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info("peername")
@@ -264,7 +272,7 @@ async def main():
     ap = argparse.ArgumentParser(description="Mote link relay (byte pipe + room codes)")
     ap.add_argument("--addr", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=42450)
-    ap.add_argument("--join-timeout", type=int, default=120, help="seconds a lone client waits for a partner")
+    ap.add_argument("--join-timeout", type=int, default=600, help="seconds a LONE host waits for a partner before the room is reaped (never fires on a paired room)")
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     args = ap.parse_args()
