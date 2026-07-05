@@ -108,6 +108,9 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
 
     /* online control state */
     int   ctrl_sent = 0;                 /* MN1 command sent to the Studio yet */
+    int   ctrl_acked = 0;                /* Studio replied (OK/CODE/...): stop resending */
+    char  cmdline[48]; int cmdlen = 0;   /* the command, kept for resends */
+    float resend_t = 0;
     int   go = 0;                        /* Studio said GO — pipe is transparent */
     char  mln[80]; int mn_n = 0;         /* MN1 line accumulator */
     char  err_msg[24] = "";
@@ -170,7 +173,8 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 action = acts[sel];
                 lob_rng = (uint32_t)now | 1u; my_nonce = (uint16_t)(lob_rand() >> 8);
                 sent_hello = resolved = sent_end = got_end = 0; hn = 0; hello_t = 0;
-                ctrl_sent = 0; go = 0; mn_n = 0; nrooms = 0; err_msg[0] = 0;
+                ctrl_sent = ctrl_acked = 0; cmdlen = 0; resend_t = 0;
+                go = 0; mn_n = 0; nrooms = 0; err_msg[0] = 0;
                 if (action == ACT_JOIN) { strcpy(entry, "AAAA"); ecur = 0; screen = SC_CODE; }
                 else { mote_plat_link_start(); LOBDBG("online act=%d -> link_start\n", action); screen = SC_CTRL; }
             }
@@ -212,23 +216,31 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
             }
             int st = mote_plat_link_status();
             if (st == MOTE_LINK_CONNECTED && !ctrl_sent) {          /* Studio is listening */
-                char c[48]; int p = 0;
+                int p = 0;
                 const char *verb = action == ACT_QUICK ? "QUICK" : action == ACT_HOST ? "HOST" :
                                    action == ACT_JOIN ? "JOIN" : action == ACT_BROWSE ? "LIST" :
                                    action == ACT_LANHOST ? "LANHOST" : "LANJOIN";
-                memcpy(c, "MN1 ", 4); p = 4;
-                { int k = 0; while (verb[k]) c[p++] = verb[k++]; }
-                c[p++] = ' '; u32dec(c, &p, sizeof c, gid);
-                if (action == ACT_JOIN) { c[p++] = ' '; memcpy(c + p, room_code, 4); p += 4; }
-                c[p++] = '\n';
-                mote_plat_link_send(c, p); ctrl_sent = 1;
-                LOBDBG("sent control (%d bytes)\n", p);
+                memcpy(cmdline, "MN1 ", 4); p = 4;
+                { int k = 0; while (verb[k]) cmdline[p++] = verb[k++]; }
+                cmdline[p++] = ' '; u32dec(cmdline, &p, sizeof cmdline, gid);
+                if (action == ACT_JOIN) { cmdline[p++] = ' '; memcpy(cmdline + p, room_code, 4); p += 4; }
+                cmdline[p++] = '\n'; cmdlen = p;
+                mote_plat_link_send(cmdline, cmdlen); ctrl_sent = 1; resend_t = 0.6f;
+                LOBDBG("sent control (%d bytes)\n", cmdlen);
+            }
+            /* Resend until the Studio acks (MN1 OK / any reply): the proxy may open
+             * the port well after our first send — and the open can flush it away. */
+            if (st == MOTE_LINK_CONNECTED && ctrl_sent && !ctrl_acked && !go) {
+                resend_t -= dt;
+                if (resend_t <= 0) { mote_plat_link_send(cmdline, cmdlen); resend_t = 0.6f;
+                                     LOBDBG("resent control\n"); }
             }
             if (st == MOTE_LINK_CONNECTED && ctrl_sent && !go) {     /* parse MN1 replies */
                 for (;;) {
                     uint8_t b; if (mote_plat_link_recv(&b, 1) != 1) break;
                     if (b == '\n' || mn_n >= (int)sizeof mln - 1) {
                         mln[mn_n] = 0; mn_n = 0;
+                        if (!strncmp(mln, "MN1 ", 4)) ctrl_acked = 1;   /* Studio heard us */
                         if (!strncmp(mln, "MN1 GO", 6)) { go = 1; LOBDBG("GO -> handshake\n"); break; }
                         else if (!strncmp(mln, "MN1 CODE ", 9)) { memcpy(room_code, mln + 9, 4); room_code[4] = 0; }
                         else if (!strncmp(mln, "MN1 ERR", 7)) {
@@ -280,11 +292,12 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 if (mote_just_pressed(&in, MOTE_BTN_B)) { mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0; }
                 if (mote_just_pressed(&in, MOTE_BTN_A)) {                 /* join the picked room */
                     memcpy(room_code, rooms[sel], 4); room_code[4] = 0;
-                    char c[32]; int p = 0; memcpy(c, "MN1 JOIN ", 9); p = 9;
-                    u32dec(c, &p, sizeof c, gid); c[p++] = ' ';
-                    memcpy(c + p, room_code, 4); p += 4; c[p++] = '\n';
-                    mote_plat_link_send(c, p);
-                    action = ACT_JOIN; ctrl_sent = 1; go = 0; mn_n = 0; screen = SC_CTRL;
+                    int p = 0; memcpy(cmdline, "MN1 JOIN ", 9); p = 9;
+                    u32dec(cmdline, &p, sizeof cmdline, gid); cmdline[p++] = ' ';
+                    memcpy(cmdline + p, room_code, 4); p += 4; cmdline[p++] = '\n'; cmdlen = p;
+                    mote_plat_link_send(cmdline, cmdlen);
+                    action = ACT_JOIN; ctrl_sent = 1; ctrl_acked = 0; resend_t = 0.6f;
+                    go = 0; mn_n = 0; screen = SC_CTRL;
                 }
                 mote_ui_ground(fb);
                 mote_ui_header(fb, "OPEN ROOMS", sel + 1, nrooms);

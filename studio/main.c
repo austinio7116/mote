@@ -5003,6 +5003,8 @@ static char g_room_code[10];         /* our hosted/joined code */
 static char g_browse[MAX_BROWSE][40]; static int g_browse_n; static volatile int g_browse_busy;
 static SDL_Rect g_olb[3], g_browse_rect[MAX_BROWSE];   /* Quick / Host / Browse + list rows */
 static SDL_Rect g_proxy_tgl;                            /* device auto-proxy ON/OFF toggle */
+static int g_adv_open;                                  /* manual link controls expanded */
+static SDL_Rect g_adv_tgl;
 
 /* parse the field (host or host:port, default port 443) -> configure the link +
  * the UI string. Does NOT touch disk (so the compiled default is never
@@ -5060,6 +5062,7 @@ static int browse_thread(void*a){ (void)a; g_browse_busy=1;
 static volatile int g_proxy_on = 1;       /* master enable (toggle in ONLINE row) */
 static volatile int g_proxy_suspend = 0;  /* a manual op wants the port */
 static volatile int g_proxy_active = 0;   /* holding the port / relaying right now */
+static volatile int g_proxy_busy;         /* serving a device command (UI: RELAYING) */
 static void proxy_yield(void){ g_proxy_suspend=1; for(int i=0;i<80&&g_proxy_active;i++)SDL_Delay(10); }
 static void proxy_resume(void){ g_proxy_suspend=0; }
 static int proxy_paused(void){ return !g_proxy_on||g_proxy_suspend||g_bridge_on; }
@@ -5081,6 +5084,7 @@ static void proxy_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(
 /* Act on one MN1 command. Returns 1 to proceed to relay+GO, 0 if fully handled. */
 static int proxy_command(void*h,char*line){
     if(strncmp(line,"MN1 ",4)) return 0;
+    proxy_send(h,"MN1 OK\n");            /* ack NOW: the device resends until heard */
     char*cmd=line+4; char*sp=strchr(cmd,' ');
     char verb[12]; int vl=sp?(int)(sp-cmd):(int)strlen(cmd); if(vl>11)vl=11; memcpy(verb,cmd,vl); verb[vl]=0;
     unsigned gid=sp?(unsigned)strtoul(sp+1,NULL,10):0;
@@ -5114,11 +5118,21 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
         if(!h){ SDL_Delay(400); continue; }
         g_proxy_active=1;
         char line[96];
-        if(proxy_readline(h,line,sizeof line)>0 && proxy_command(h,line)){
+        if(proxy_readline(h,line,sizeof line)>0){ g_proxy_busy=1; if(proxy_command(h,line)){
+            int cancelled=0;
+            char db[96]; int dn=0;
             while(!proxy_paused()){ int st=link_net_status();      /* wait for the relay to pair */
                 if(st==LINK_NET_CONNECTED)break;
                 if(st==LINK_NET_OFF){ proxy_send(h,"MN1 ERR failed\n"); break; }
-                SDL_Delay(20); }
+                /* drain the device while waiting: discard command resends, honor CANCEL
+                 * (also doubles as the loop delay - raw_read blocks <=~100ms) */
+                char c; int r=mote_dev_raw_read(h,&c,1);
+                if(r==1){
+                    if(c=='\n'){ db[dn]=0; dn=0;
+                        if(!strncmp(db,"MN1 CANCEL",10)){ cancelled=1; break; } }
+                    else if(c!='\r'&&dn<(int)sizeof db-1) db[dn++]=c;
+                } }
+            if(cancelled){ link_net_stop(); g_room_code[0]=0; log_add("online(dev): cancelled on device"); }
             if(link_net_status()==LINK_NET_CONNECTED){
                 proxy_send(h,"MN1 GO\n"); log_add("online(dev): paired - relaying");
                 while(!proxy_paused()){                            /* splice device <-> relay */
@@ -5130,8 +5144,8 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 }
                 link_net_stop(); g_room_code[0]=0; log_add("online(dev): session ended");
             }
-        }
-        mote_dev_close_raw(h); g_proxy_active=0;
+        } }
+        mote_dev_close_raw(h); g_proxy_active=0; g_proxy_busy=0;
         SDL_Delay(150);
     }
     g_proxy_active=0; return 0;
@@ -5147,8 +5161,41 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         rrect(R,x,y,bw,28,4,hit(mx,my,x,y,bw,28)?C_BTNHI:C_BTN); icon(R,ic[i],x+10,y+7,14,C_TXT); text(R,DVB_L[i],x+30,y+8,1,C_TXT,C_BTN);
         tip(g_dvb[i],mx,my,DVB_T[i]); x+=bw+8; if(x>ox+w-160){ x=ox; y+=34; } }
     text(R,"Output streams into the CONSOLE tab.",ox,y+40,1,C_DIM,C_DOCK);
-    /* --- 2P LINK row --- */
+    /* --- MULTIPLAYER: one always-visible status row. The normal path is the
+     * DEVICE-side lobby (auto-proxy); every manual control lives under Advanced. --- */
     int ly=y+64;
+    text(R,"MULTIPLAYER  (set up matches on the Thumby itself - the Studio relays automatically)",ox,ly,1,C_TITLE,C_DOCK);
+    ly+=20;
+    /* device auto-proxy toggle: when ON, the docked Thumby drives online from its own lobby */
+    { const char*pl=g_proxy_on?(g_proxy_busy?"Device: RELAYING":"Device: ON"):"Device: OFF";
+      int pw=textw(R,pl,1)+20; g_proxy_tgl=(SDL_Rect){ox,ly,pw,22};
+      rrect(R,g_proxy_tgl.x,g_proxy_tgl.y,pw,22,4,g_proxy_busy?C_ACC:g_proxy_on?C_BTN:C_DOCK);
+      text(R,pl,g_proxy_tgl.x+10,ly+6,1,g_proxy_on?C_TXT:C_DIM,g_proxy_busy?C_ACC:g_proxy_on?C_BTN:C_DOCK);
+      tip(g_proxy_tgl,mx,my,"When ON, a docked Thumby sets up USB/LAN/Internet matches from its own lobby - no clicks here");
+      /* status line beside the toggle */
+      char st[200];
+      if(g_bridge_on&&g_bridge_local) snprintf(st,sizeof st,"preview <-> USB device (local)");
+      else if(g_room_code[0]&&link_net_status()!=LINK_NET_CONNECTED) snprintf(st,sizeof st,"relay %s   ROOM CODE: %s   %s",g_relay_cfg,g_room_code,link_net_info());
+      else if(g_relay_cfg[0]) snprintf(st,sizeof st,"relay %s   %s%s",g_relay_cfg,link_net_info(),g_bridge_on?"  [bridging USB device]":"");
+      else snprintf(st,sizeof st,"no relay configured   %s",link_net_info());
+      text(R,st,g_proxy_tgl.x+g_proxy_tgl.w+14,ly+6,1,
+           (g_proxy_busy||g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK);
+      /* Advanced expander, right-aligned */
+      const char*al=g_adv_open?"Advanced <":"Advanced >";
+      int aw=textw(R,al,1)+20; g_adv_tgl=(SDL_Rect){ox+w-aw-8,ly,aw,22};
+      rrect(R,g_adv_tgl.x,g_adv_tgl.y,aw,22,4,hit(mx,my,g_adv_tgl.x,g_adv_tgl.y,aw,22)?C_BTNHI:g_adv_open?C_BTN:C_DOCK);
+      text(R,al,g_adv_tgl.x+10,ly+6,1,g_adv_open?C_TXT:C_DIM,C_BTN);
+      tip(g_adv_tgl,mx,my,"Manual link controls: LAN peer Studios, USB bridge, rooms by hand"); }
+    if(!g_adv_open){
+        /* hidden controls must not click */
+        for(int i=0;i<5;i++)g_lkb[i]=(SDL_Rect){0,0,0,0};
+        for(int i=0;i<3;i++)g_olb[i]=(SDL_Rect){0,0,0,0};
+        g_relay_r=(SDL_Rect){0,0,0,0};
+        for(int i=0;i<g_browse_n;i++)g_browse_rect[i]=(SDL_Rect){0,0,0,0};
+        return;
+    }
+    /* --- ADVANCED: 2P LINK row --- */
+    ly+=32;
     text(R,"2P LINK  (LAN peer Studio, bridge a USB Thumby, or preview vs your device)",ox,ly,1,C_TITLE,C_DOCK);
     static const char*LKB_T[5]={ "Listen for a peer Studio on the LAN (tcp 42450 + discovery)",
         "Find a hosting Studio on the LAN and connect (set MOTE_LINK_PEER=ip for a fixed address)",
@@ -5162,13 +5209,9 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         rrect(R,x,ly,bw,28,4,on?C_ACC:hit(mx,my,x,ly,bw,28)?C_BTNHI:C_BTN);
         icon(R,lic[i],x+10,ly+7,14,C_TXT); text(R,LKB_L[i],x+30,ly+8,1,C_TXT,C_BTN);
         tip(g_lkb[i],mx,my,LKB_T[i]); x+=bw+8; if(x>ox+w-140){ x=ox; ly+=34; } }
-    { char st[160];
-      if(g_bridge_on&&g_bridge_local) snprintf(st,sizeof st,"link: preview <-> USB device (local)");
-      else snprintf(st,sizeof st,"link: %s%s",link_net_info(),g_bridge_on?"  [bridging USB device]":"");
-      text(R,st,ox,ly+38,1,(g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK); }
-    /* --- ONLINE (relay) row --- */
-    int oy2=ly+58;
-    text(R,"ONLINE  (play over the internet - no port-forwarding; set up a match from the Thumby itself)",ox,oy2,1,C_TITLE,C_DOCK);
+    /* --- ADVANCED: ONLINE (relay) row --- */
+    int oy2=ly+40;
+    text(R,"ONLINE  (manual rooms - normally the device lobby does this for you)",ox,oy2,1,C_TITLE,C_DOCK);
     oy2+=18;
     /* editable relay address field */
     text(R,"relay",ox,oy2+7,1,C_DIM,C_DOCK);
@@ -5176,17 +5219,11 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     rrect(R,g_relay_r.x,g_relay_r.y,200,22,4,g_relay_focus?(Col){12,14,20}:C_DOCK);
     { char nm[96]; snprintf(nm,sizeof nm,"%s%s",g_relay_host_in,g_relay_focus?"_":""); text(R,nm,g_relay_r.x+6,oy2+6,1,C_TXT,g_relay_focus?(Col){12,14,20}:C_DOCK); }
     text(R,"(host or host:port - Enter to apply)",ox+254,oy2+7,1,C_DIM,C_DOCK);
-    /* device auto-proxy toggle: when ON, the docked Thumby drives online from its own lobby */
-    { const char*pl=g_proxy_on?(g_proxy_active?"Device: RELAYING":"Device: ON"):"Device: OFF";
-      int pw=textw(R,pl,1)+20; g_proxy_tgl=(SDL_Rect){ox+w-pw-8,oy2,pw,22};
-      rrect(R,g_proxy_tgl.x,g_proxy_tgl.y,pw,22,4,g_proxy_active?C_ACC:g_proxy_on?C_BTN:C_DOCK);
-      text(R,pl,g_proxy_tgl.x+10,oy2+6,1,g_proxy_on?C_TXT:C_DIM,g_proxy_active?C_ACC:g_proxy_on?C_BTN:C_DOCK);
-      tip(g_proxy_tgl,mx,my,"When ON, a docked Thumby sets up USB/LAN/Internet matches from its own lobby - no clicks here"); }
     oy2+=28;
     static const char*OLB_L[3]={ "Quick Match","Host Room","Browse" };
-    static const char*OLB_T[3]={ "Advanced/manual: join any open public room, or open one and wait",
-        "Advanced/manual: open a public room with a code others can join or Browse to",
-        "Advanced/manual: list open public rooms; click one to join" };
+    static const char*OLB_T[3]={ "Manual: join any open public room, or open one and wait",
+        "Manual: open a public room with a code others can join or Browse to",
+        "Manual: list open public rooms; click one to join" };
     int oic[3]={IC_PLAY,IC_UPLOAD,IC_FOLDER};
     x=ox; oy2+=20;
     for(int i=0;i<3;i++){ int bw=textw(R,OLB_L[i],1)+46; g_olb[i]=(SDL_Rect){x,oy2,bw,28};
@@ -5194,14 +5231,9 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         rrect(R,x,oy2,bw,28,4,dis?C_DOCK:hit(mx,my,x,oy2,bw,28)?C_BTNHI:C_BTN);
         icon(R,oic[i],x+10,oy2+7,14,dis?C_DIM:C_TXT); text(R,OLB_L[i],x+30,oy2+8,1,dis?C_DIM:C_TXT,C_BTN);
         tip(g_olb[i],mx,my,OLB_T[i]); x+=bw+8; }
-    { char st[180];
-      if(!g_relay_cfg[0]) snprintf(st,sizeof st,"set MOTE_RELAY=host[:port] to enable online (default port 443)");
-      else if(g_room_code[0]&&link_net_status()!=LINK_NET_CONNECTED) snprintf(st,sizeof st,"relay %s   ROOM CODE: %s   %s",g_relay_cfg,g_room_code,link_net_info());
-      else snprintf(st,sizeof st,"relay %s   %s",g_relay_cfg,link_net_info());
-      text(R,st,ox,oy2+36,1,link_net_status()==LINK_NET_CONNECTED?C_ACC:C_DIM,C_DOCK); }
     /* browse results: click a room to join */
-    if(g_browse_busy) text(R,"browsing...",ox,oy2+50,1,C_DIM,C_DOCK);
-    else for(int i=0;i<g_browse_n;i++){ int ry=oy2+50+i*16; g_browse_rect[i]=(SDL_Rect){ox,ry,240,14};
+    if(g_browse_busy) text(R,"browsing...",ox,oy2+40,1,C_DIM,C_DOCK);
+    else for(int i=0;i<g_browse_n;i++){ int ry=oy2+40+i*16; g_browse_rect[i]=(SDL_Rect){ox,ry,240,14};
         rrect(R,ox,ry,240,14,3,hit(mx,my,ox,ry,240,14)?C_BTNHI:C_BTN);
         char row[48]; snprintf(row,sizeof row,"> %s",g_browse[i]); text(R,row,ox+6,ry+3,1,C_TXT,C_BTN); } }
 /* native device ops (no Python) run on a worker thread, logging into the Console */
@@ -5229,6 +5261,8 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
     /* device auto-proxy toggle */
     if(hit(mx,my,g_proxy_tgl.x,g_proxy_tgl.y,g_proxy_tgl.w,g_proxy_tgl.h)){
         g_proxy_on=!g_proxy_on; log_add(g_proxy_on?"online: device auto-proxy ON":"online: device auto-proxy OFF"); return; }
+    /* Advanced expander */
+    if(hit(mx,my,g_adv_tgl.x,g_adv_tgl.y,g_adv_tgl.w,g_adv_tgl.h)){ g_adv_open=!g_adv_open; return; }
     /* ONLINE relay address field (editable even before it's configured) */
     if(hit(mx,my,g_relay_r.x,g_relay_r.y,g_relay_r.w,g_relay_r.h)){ g_relay_focus=1; SDL_StartTextInput(); return; }
     g_relay_focus=0;
