@@ -104,7 +104,7 @@ static void map_buttons(const MoteInput *in, CraftRawButtons *b) {
  *   'A'                — keepalive (~1 Hz when nothing else is sent).
  *   'Q'                — orderly quit.                                          */
 #define LK_MAGIC 0xA5
-#define LK_PROTO 2   /* 2: 'C' carries the shooter's view az/pitch + cue draw */
+#define LK_PROTO 3   /* 3: settle 'E' is acked ('e') and re-sent until confirmed */
 enum { LK_OFF = 0, LK_HS, LK_PLAY };
 static int      lk_state;
 static uint16_t lk_my_nonce, lk_peer_nonce;
@@ -128,10 +128,20 @@ static void lk_new_nonce(void) {
  * a frame either ships WHOLE or waits — never a partial. Disposable stream
  * frames ('C'/'B'/'A') are skipped while the pipe is backed up; state frames
  * ('H'/'S'/'E'/'Q') always queue. */
-static uint8_t lk_tx[1024]; static int lk_tx_len, lk_tx_off;
+static uint8_t lk_tx[1024];
+/* Reliable settle: the one frame that MUST arrive (it carries the turn flip).
+ * Kept + re-sent every 0.7 s until the peer acks its counter with 'e'. */
+static uint8_t lk_e_buf[CUE_LINK_MAXMSG]; static int lk_e_len;
+static uint8_t lk_e_ctr;      /* rolling id of OUR pending settle */
+static int     lk_e_pending;  static float lk_e_t;
+static int     lk_e_seen = -1; /* last peer settle id we applied */ static int lk_tx_len, lk_tx_off;
 static void lk_tx_flush(void) {
     while (lk_tx_off < lk_tx_len) {
-        int s = mote->link_send(lk_tx + lk_tx_off, lk_tx_len - lk_tx_off);
+        /* slice ≤240 B per call: the engine accepts a send all-or-nothing
+         * against its ~512 B carry, so a full-backlog call could be refused
+         * forever — small slices always eventually fit */
+        int n = lk_tx_len - lk_tx_off; if (n > 240) n = 240;
+        int s = mote->link_send(lk_tx + lk_tx_off, n);
         if (s <= 0) break;                   /* FIFO full — resume next frame */
         lk_tx_off += s;
     }
@@ -167,7 +177,12 @@ static void lk_dispatch(uint8_t type, const uint8_t *p, int len) {
                   } break;
         case 'C': cue_game_link_dec_aim(p, len);   break;
         case 'B': cue_game_link_dec_balls(p, len); break;
-        case 'E': cue_game_link_dec_final(p, len); break;
+        case 'E': if (len >= 1) {
+                      uint8_t ctr = p[len-1];
+                      if ((int)ctr != lk_e_seen) { cue_game_link_dec_final(p, len-1); lk_e_seen = ctr; }
+                      lk_frame('e', &ctr, 1);               /* ack every copy */
+                  } break;
+        case 'e': if (len >= 1 && p[0] == lk_e_ctr) lk_e_pending = 0; break;
     }
 }
 static void lk_poll(void) {
@@ -220,10 +235,10 @@ static void lk_tick(float dt) {
                 lk_kind = cue_game_link_kind();
                 { uint8_t s = (uint8_t)lk_kind; lk_frame('S', &s, 1); }
                 cue_game_link_begin(0, lk_kind);
-                lk_state = LK_PLAY; lk_send_t = lk_rx_age = 0; lk_frame_ctr = 0;
+                lk_state = LK_PLAY; lk_send_t = lk_rx_age = 0; lk_frame_ctr = 0; lk_e_pending = 0; lk_e_seen = -1; lk_e_ctr = 0;
             } else if (lk_got_sel) {                        /* loser: start on the host's 'S' */
                 cue_game_link_begin(1, lk_kind);
-                lk_state = LK_PLAY; lk_send_t = lk_rx_age = 0; lk_frame_ctr = 0;
+                lk_state = LK_PLAY; lk_send_t = lk_rx_age = 0; lk_frame_ctr = 0; lk_e_pending = 0; lk_e_seen = -1; lk_e_ctr = 0;
             }
         }
         return;
@@ -243,7 +258,15 @@ static void lk_tick(float dt) {
     if (mote->net_health() == MOTE_NET_LOST) { cue_game_link_lost(0); mote->link_stop(); lk_state = LK_OFF; return; }   /* v45 */
 
     static uint8_t pay[CUE_LINK_MAXMSG];
-    if (cue_game_link_take_settled()) { int n = cue_game_link_enc_final(pay); lk_frame('E', pay, n); }
+    if (cue_game_link_take_settled()) {
+        int n = cue_game_link_enc_final(lk_e_buf);
+        lk_e_ctr++; lk_e_buf[n++] = lk_e_ctr;
+        lk_e_len = n; lk_e_pending = 1; lk_e_t = 0.7f;
+        lk_frame('E', lk_e_buf, lk_e_len);
+    }
+    if (lk_e_pending && (lk_e_t -= dt) <= 0) {              /* settle until acked */
+        lk_frame('E', lk_e_buf, lk_e_len); lk_e_t = 0.7f;
+    }
     lk_frame_ctr++;
     if (cue_game_link_my_turn()) {
         int ph = cue_game_link_sub();
