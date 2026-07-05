@@ -42,6 +42,25 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
+/* ------------------------------------------------------------------ debug tap
+ * Host-only, env-gated instrumentation for the 2P link (MOTE_PAPER_DEBUG=1):
+ * per-step traces, trail-cut events, and causally-clocked FNV hashes of bot
+ * state + territory so two instances' logs can be diffed to PROVE sync.
+ * Extra test hooks: MOTE_PAPER_FPS (cap host fps so MOTE_KEYS frames map to
+ * wall time), MOTE_PAPER_SCRIPT ("step:dir,..." cell-precise steering of the
+ * local head), MOTE_PAPER_SLOWSTART (ms; delay the first LINKWAIT poll to
+ * model a relay/CDC burst at match start), MOTE_PAPER_NOBOTS (2P sans bots
+ * for the trail-crossing repro). None of it exists in the device build. */
+#ifdef MOTE_HOST
+#include <stdlib.h>   /* getenv — an implicit decl would truncate the pointer */
+static int pdbg_on(void){ static int on=-1; if(on<0) on=getenv("MOTE_PAPER_DEBUG")!=0; return on; }
+#define PDBG(...) do{ if(pdbg_on()){ fprintf(stderr,__VA_ARGS__); fputc('\n',stderr); fflush(stderr);} }while(0)
+static uint32_t pdbg_fnv(const void*d,int n){ const uint8_t*p=(const uint8_t*)d; uint32_t h=2166136261u;
+    while(n--){ h^=*p++; h*=16777619u; } return h; }
+#else
+#define PDBG(...) do{}while(0)
+#endif
+
 /* ===================================================================== grid */
 #define MW 100
 #define MH 100
@@ -111,6 +130,9 @@ static int irand(int n){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return (int)((
 static int      g_link, me, you;    /* link active · local / remote entity id (shared world) */
 static uint16_t lk_my_nonce, lk_peer_nonce;
 static int      lk_sent_hello, lk_got_hello;
+static int      lk_ready;           /* peer confirmed IN-GAME (any 'S'/'P'/... received) — no
+                                     * heads move before this, so no step can ever be sent
+                                     * to a peer that isn't parsing in-game messages yet */
 static float    lk_hello_t, lk_state_t, lk_rx_age, lk_respawn_t;
 static int      lk_lost, my_kos, my_deaths, peer_kos;
 static uint8_t  lk_msg[16]; static int lk_msg_len;
@@ -256,15 +278,51 @@ static void on_kill(int killer){            /* combo + score bookkeeping for a k
  * WIN — first to KO_TARGET(3) knockouts (a KO for me == a death for the peer,
  * so both units agree).  Death => respawn at your own fixed corner after ~1.2s.
  *
+ * AI BOTS — AUTHORITY-SIMULATED, INPUT-REPLAYED.  The nonce winner (id 0) is
+ * the AUTHORITY: it alone runs ai_pick for the four bots (ids 2..5) and, on
+ * each bot grid step, streams the FINAL direction taken ('A' bot dir) — the
+ * same per-step replication the players use, replayed through the same
+ * lk_move/do_claim integer code, so bot positions AND their territory claims
+ * are identical on both units (no float, no local RNG on the peer).  Bot steps
+ * tick with the shared STEP_BASE cadence (~12 Hz — inside the 10-15 Hz budget;
+ * 4 bots = ~16 B per step tick).  Bot DEATHS are decided by the authority only
+ * ('K' with a bot victim): the peer defers (its local cut of a bot trail sends
+ * the absolute cell in 'C'; the authority verifies against its bot-fresh
+ * grid).  Bot respawns are authority-picked and broadcast absolute ('E').
+ * Bot kills never count toward the KO race — players only.
+ *
+ * TRAIL-CUT RECONCILIATION ('C') — WHY: the deferred cut used to rely purely
+ * on the victim replaying the cutter's *relative* dir-steps; any head drift
+ * (e.g. steps lost in a start burst, see lk_handle 'H') made the replayed
+ * ghost cross somewhere else and the kill silently missed.  Now the cutter
+ * ALSO reports the ABSOLUTE cell it crossed ('C' x y).  Deaths stay
+ * VICTIM-AUTHORITATIVE: the trail's owner — who always has the freshest copy
+ * of its own trail — verifies trail[cell] and only then dies (and broadcasts
+ * 'K' as before).  If the cell is no longer its trail (the loop was banked
+ * or it already died before the report arrived), the cut is VOID: banking
+ * beats a racing cut — that tie-break is deliberate and consistent on both
+ * units, because only the owner ever judges its own trail.
+ *
  * WIRE (after 0xA5 magic; fixed-length, parser resyncs on a bad type):
  *   'H' proto nonce16  hello (resent ~0.5s; higher nonce = id 0 / authority)
  *   'S' dir            one grid step, dir = index into DIRS (0..3)
- *   'K' victim killer reason   a death (ids 0/1, killer 255 = self)
+ *   'K' victim killer reason   a death (victim 0..5, killer 255 = none/self)
  *   'R' cx cy dir      respawn at a corner (absolute resync of the head)
  *   'P' alive kos      ~15 Hz keepalive + peer's KO count (3s silence = LOST)
  *   'Q'                orderly quit -> peer sees OPPONENT LEFT
+ *   'A' bot dir        authority: one bot grid step (bot 2..5, replayed)
+ *   'E' bot cx cy dir  authority: bot respawn (absolute)
+ *   'C' x y            cutter: my head crossed a trail at this cell — the
+ *                      trail's owner verifies and applies its own death
  * -------------------------------------------------------------------------- */
 static const int LK_SX[2]={16,82}, LK_SY[2]={16,82};   /* id 0 / id 1 spawn+respawn corners */
+#define NBOT 4                                          /* 2P bots: entity ids 2..5 */
+static const int LK_BX[NBOT]={82,16,49,49}, LK_BY[NBOT]={16,82,12,86}, LK_BD[NBOT]={2,0,1,3};
+static int lk_bots;                                     /* bots enabled this match */
+static int lk_auth(void){ return me==0; }               /* nonce winner simulates the bots */
+#ifdef MOTE_HOST
+static uint32_t lk_botsteps;                            /* causal clock: applied bot steps */
+#endif
 static void apply_palette(void);                        /* defined in the lifecycle section */
 
 static int dir_index(int dx,int dy){ for(int d=0;d<4;d++) if(DIRS[d][0]==dx&&DIRS[d][1]==dy) return d; return 0; }
@@ -276,20 +334,43 @@ static void lk_send_kill(int v,int k,int r){ uint8_t m[5]={LK_MAGIC,'K',(uint8_t
 static void lk_send_respawn(int cx,int cy,int dir){ uint8_t m[5]={LK_MAGIC,'R',(uint8_t)cx,(uint8_t)cy,(uint8_t)dir}; lk_send(m,5); }
 static void lk_send_state(void){ uint8_t m[4]={LK_MAGIC,'P',(uint8_t)ent[me].alive,(uint8_t)my_kos}; lk_send(m,4); }
 static void lk_send_bye(void){ uint8_t m[2]={LK_MAGIC,'Q'}; lk_send(m,2); }
+static void lk_send_bot_step(int b,int dir){ uint8_t m[4]={LK_MAGIC,'A',(uint8_t)b,(uint8_t)dir}; lk_send(m,4); }
+static void lk_send_bot_spawn(int b,int cx,int cy,int dir){ uint8_t m[6]={LK_MAGIC,'E',(uint8_t)b,(uint8_t)cx,(uint8_t)cy,(uint8_t)dir}; lk_send(m,6); }
+static void lk_send_cut(int cx,int cy){ uint8_t m[4]={LK_MAGIC,'C',(uint8_t)cx,(uint8_t)cy}; lk_send(m,4); }
 
-/* my head just died — transfer land (kill_ent), tally, tell the peer, start respawn */
+/* my head just died — transfer land (kill_ent), tally, tell the peer, start respawn.
+ * Only a kill BY THE PEER advances the KO race (bot kills cost land + a respawn,
+ * nothing else — otherwise my_deaths could hit 3 without the peer's my_kos ever
+ * reaching 3 and the two units would end in different states). */
 static void lk_local_death(int killer,int reason){
     if(!ent[me].alive) return;
+    PDBG("[P%d] DIE me=%d killer=%d reason=%d at (%d,%d)",me,me,killer,reason,ent[me].cx,ent[me].cy);
     kill_ent(me, killer);                 /* g_link path: just clears my land+trail & alive */
-    my_deaths++; lk_send_kill(me, killer, reason);
-    lk_respawn_t = 1.2f; if(me==0) shake=0.5f;
+    if(killer==you) my_deaths++;
+    lk_send_kill(me, killer, reason);
+    lk_respawn_t = 1.2f; shake=0.5f;
+}
+
+/* authority verdict: a bot died (cut / enclosed).  Applied locally + broadcast;
+ * the peer applies it from 'K'.  Respawn is scheduled here (authority-only). */
+static void lk_bot_die(int v,int k){
+    if(v<2||v>=NP||!ent[v].alive) return;
+    PDBG("[P%d] BOTDIE v=%d killer=%d at (%d,%d)",me,v,k,ent[v].cx,ent[v].cy);
+    kill_ent(v, k);
+    ent[v].respawn = 1.5f + irand(20)*0.1f;
+    if(k==me){ score+=25; mote->audio_play(&snd_cut,0.5f); }
+    lk_send_kill(v, k<0?255:k, 0);
 }
 
 /* one grid step for entity p (e->dx/e->dy already set).  Mirrors do_step's per-entity
- * body but deaths are victim-authoritative: applied only when the victim is `me`.
- * allow_deflect: 1 for the local head (RNG wall-bounce ok); 0 for a replayed remote
- * step (dir is already post-deflect — if it's OOB the grids drifted, so skip).
- * Returns 1 if the head actually advanced. */
+ * body but movement is strictly ONE CELL per call (steps are replicated per cell —
+ * no frame-endpoint sampling, so a 1-cell trail can never be tunnelled over) and
+ * every death has ONE owner: players are victim-authoritative (only `me` applies
+ * its own death here), bots are authority-authoritative (only the nonce winner
+ * calls lk_bot_die; the peer defers and/or reports the cell via 'C').
+ * allow_deflect: 1 for a locally simulated head (RNG wall-bounce ok); 0 for a
+ * replayed remote step (dir is already post-deflect — if it's OOB the grids
+ * drifted, so skip).  Returns 1 if the head actually advanced. */
 static int lk_move(int p, int allow_deflect){
     Ent*e=&ent[p]; if(!e->alive) return 0;
     int nx=e->cx+e->dx, ny=e->cy+e->dy;
@@ -302,18 +383,31 @@ static int lk_move(int p, int allow_deflect){
     }
     int n=IDX(nx,ny); uint8_t tr=trail[n];
     if(tr){ int victim=tr-1;
-        if(victim==me){                       /* MY trail hit -> I die (self-cross or peer cut me) */
-            lk_local_death(you, tr==p+1?1:0);  /* in a 1v1 the opponent always gets the KO + base */
-            if(p==me) return 0;               /* self-cross stops me; a cutter carries on */
+        PDBG("[P%d] CROSS p=%d hits trail of %d at (%d,%d)",me,p,victim,nx,ny);
+        if(victim==p){                        /* own trail */
+            if(p==me){ lk_local_death(you,1); return 0; }  /* my self-cross: peer gets the KO */
+            if(p>=2 && lk_auth()) lk_bot_die(p,-1);        /* bot self-cross (AI avoids it) */
+            return 0;                          /* replayed peer self-cross: their call — hold */
         }
-        /* victim==you: DEFER — the peer detects its own death and sends 'K' */
+        if(victim==me){                        /* someone cut MY trail -> I die, I broadcast */
+            lk_local_death(p, 0);
+        } else if(victim==you){                /* the PEER's trail: the peer is the judge */
+            if(p==me) lk_send_cut(nx,ny);      /* defer, but report the ABSOLUTE cell (see 'C') */
+        } else {                               /* a BOT's trail: the authority is the judge */
+            if(lk_auth()) lk_bot_die(victim, p);
+            else if(p==me) lk_send_cut(nx,ny); /* report the cell; authority verifies + 'K's */
+        }
     }
     if(!e->alive) return 0;
     if(e->on_trail && owner[IDX(e->cx,e->cy)]!=p+1) trail[IDX(e->cx,e->cy)]=p+1;
     e->px=e->cx; e->py=e->cy; e->cx=nx; e->cy=ny;
     if(owner[n]==p+1){
         if(e->on_trail){ int g=do_claim(p); recount();
-            if(ent[me].alive && ent[me].area==0) lk_local_death(you, 2);  /* enclosed to nothing */
+#ifdef MOTE_HOST
+            PDBG("[P%d] CLAIM p=%d gained=%d ownhash=%08x",me,p,g,pdbg_fnv(owner,NCELL));
+#endif
+            if(ent[me].alive && ent[me].area==0) lk_local_death(p==me?you:p, 2);  /* enclosed to nothing */
+            if(lk_auth()) for(int q=2;q<NP;q++) if(ent[q].alive&&ent[q].area==0) lk_bot_die(q,p);
             if(p==me){ claim_flash=1.0f; score+=g; mote->audio_play(g>140?&snd_claimbig:&snd_claim,0.55f); }
             else mote->audio_play(&snd_claim,0.16f); }
         e->on_trail=0;
@@ -321,11 +415,64 @@ static int lk_move(int p, int allow_deflect){
     return 1;
 }
 
+#ifdef MOTE_HOST
+/* MOTE_PAPER_SCRIPT="6:d,50:r,..." — set the pend dir at local step N (test rig) */
+static void pdbg_script(Ent*e,int step){
+    static int parsed; static struct{int at;int dx,dy;} sc[64]; static int nsc;
+    if(!parsed){ parsed=1; const char*s=getenv("MOTE_PAPER_SCRIPT");
+        while(s&&*s&&nsc<64){ while(*s==','||*s==' ')s++; if(!*s)break;
+            int at=atoi(s); while(*s&&*s!=':')s++; if(*s!=':')break; s++;
+            int dx=0,dy=0; if(*s=='l')dx=-1; else if(*s=='r')dx=1; else if(*s=='u')dy=-1; else if(*s=='d')dy=1;
+            sc[nsc].at=at; sc[nsc].dx=dx; sc[nsc].dy=dy; nsc++; while(*s&&*s!=',')s++; } }
+    for(int i=0;i<nsc;i++) if(sc[i].at==step){ e->pend_dx=sc[i].dx; e->pend_dy=sc[i].dy; }
+}
+#endif
+
 /* advance MY head one step (from input) and broadcast the direction taken */
 static void lk_local_step(void){
     Ent*e=&ent[me]; if(!e->alive) return;
+#ifdef MOTE_HOST
+    { static int lstep; lstep++; if(pdbg_on()) pdbg_script(e,lstep); }
+#endif
     if((e->pend_dx||e->pend_dy)&&!(e->pend_dx==-e->dx&&e->pend_dy==-e->dy)){ e->dx=e->pend_dx; e->dy=e->pend_dy; }
-    if(lk_move(me,1) && e->alive) lk_send_step(dir_index(e->dx,e->dy));
+    if(lk_move(me,1) && e->alive){ lk_send_step(dir_index(e->dx,e->dy));
+        PDBG("[P%d] LSTEP me=%d (%d,%d)",me,me,e->cx,e->cy); }
+}
+
+#ifdef MOTE_HOST
+/* causal bot-state hash: logged every 64 APPLIED bot steps on both units.  All
+ * bot mutations ride ONE in-order stream (the authority's 'A'/'E'/'K'), so at
+ * an equal applied-step count the hashes MUST match — that is the sync proof.
+ * (home_x/home_y/area are derived from the owner grid and excluded: they can
+ * lag by an in-flight player event without the bots being wrong.) */
+static void pdbg_bot_clock(void){
+    if(!pdbg_on()) return;
+    if((++lk_botsteps&63)!=0) return;
+    int st[NBOT*7];
+    for(int b=0;b<NBOT;b++){ Ent*e=&ent[2+b]; int*o=st+b*7;
+        o[0]=e->cx;o[1]=e->cy;o[2]=e->dx;o[3]=e->dy;o[4]=e->alive;o[5]=e->on_trail;o[6]=e->trail_len; }
+    uint32_t bh=pdbg_fnv(st,(int)sizeof st);
+    /* bot-owned territory view: owner cells held by bots (players' claims can
+     * straddle the window; bot cells are driven by the same single stream) */
+    uint32_t oh=2166136261u, th=2166136261u;
+    for(int i=0;i<NCELL;i++){ if(owner[i]>=3){ oh^=(uint32_t)i; oh*=16777619u; oh^=owner[i]; oh*=16777619u; }
+                              if(trail[i]>=3){ th^=(uint32_t)i; th*=16777619u; th^=trail[i]; th*=16777619u; } }
+    PDBG("[P%d] BOTHASH #%u state=%08x own=%08x trail=%08x pos=(%d,%d)(%d,%d)(%d,%d)(%d,%d)",
+         me,(unsigned)lk_botsteps,bh,oh,th,
+         ent[2].cx,ent[2].cy,ent[3].cx,ent[3].cy,ent[4].cx,ent[4].cy,ent[5].cx,ent[5].cy);
+}
+#endif
+
+/* authority only: think + advance one bot, broadcast the final direction */
+static void lk_bot_step(int b){
+    Ent*e=&ent[b]; if(!e->alive) return;
+    int d=ai_pick(b); if(d>=0){ e->dx=DIRS[d][0]; e->dy=DIRS[d][1]; }
+    if(lk_move(b,1)){
+        lk_send_bot_step(b, dir_index(e->dx,e->dy));
+#ifdef MOTE_HOST
+        pdbg_bot_clock();
+#endif
+    }
 }
 
 static void on_kill_link(void){        /* combo/score/FX when I confirm a KO of the peer */
@@ -333,11 +480,14 @@ static void on_kill_link(void){        /* combo/score/FX when I confirm a KO of 
     mote->audio_play(&snd_cut,0.6f); shake=0.45f;
     if(combo>=2){ mote->audio_play(&snd_combo,0.5f); char b[28]; snprintf(b,sizeof b,"COMBO x%d!",combo); say(b,1.4f); } }
 
-/* a 'K' arrived (or my deferred cut resolves): apply the death both units share */
+/* a 'K' arrived (or my deferred cut resolves): apply the death both units share.
+ * victim may be the peer OR a bot (bot 'K's only ever come from the authority);
+ * my own death is never applied from the wire — I am the only judge of it. */
 static void lk_apply_kill(int victim,int killer){
-    if(victim<0||victim>1||!ent[victim].alive) return;   /* dedupe: already dead */
+    if(victim<0||victim>=NP||victim==me||!ent[victim].alive) return;   /* dedupe / not my call */
     kill_ent(victim, killer);
     if(victim==you && killer==me){ my_kos++; on_kill_link(); }   /* I took the peer down */
+    else if(victim>=2 && killer==me){ score+=25; mote->audio_play(&snd_cut,0.5f); }  /* my bot KO, authority-confirmed */
 }
 
 static void lk_respawn_at(int p,int cx,int cy,int dir){
@@ -352,6 +502,19 @@ static void lk_respawn_me(void){
     lk_send_respawn(LK_SX[me], LK_SY[me], d);
 }
 
+/* authority only: pick a clear 7x7 spot for a dead bot, apply + broadcast it */
+static void lk_bot_respawn(int b){
+    for(int tries=0;tries<80;tries++){
+        int cx=6+irand(MW-12), cy=6+irand(MH-12), free=1;
+        for(int y=cy-3;y<=cy+3&&free;y++) for(int x=cx-3;x<=cx+3;x++){ int c=IDX(x,y); if(owner[c]||trail[c]){free=0;break;} }
+        if(free){ int d=irand(4);
+            lk_respawn_at(b,cx,cy,d); ent[b].target_len=10+irand(26);
+            lk_send_bot_spawn(b,cx,cy,d);
+            PDBG("[P%d] BOTSPAWN b=%d at (%d,%d) dir=%d",me,b,cx,cy,d);
+            return; } }
+    ent[b].respawn=0.5f;               /* board too busy: retry shortly */
+}
+
 static void new_link_game(void){
     g_link=1; mode=M_LINK;
     me = (lk_my_nonce>lk_peer_nonce)?0:1; you=1-me;        /* higher nonce = id 0 (authority) */
@@ -363,21 +526,79 @@ static void new_link_game(void){
         e->cx=e->px=cx; e->cy=e->py=cy; e->fx=cx+0.5f; e->fy=cy+0.5f;
         int d=(id==0)?0:2; e->dx=DIRS[d][0]; e->dy=DIRS[d][1];   /* face into the board */
         e->alive=1; e->home_x=cx; e->home_y=cy; stamp_home(id,cx,cy,3); }
+    /* AI bots (ids 2..5): FIXED corners/dirs in the shared coordinate system —
+     * both units stamp the same bases; only the authority ever *thinks* for them */
+    lk_bots=1;
+#ifdef MOTE_HOST
+    if(getenv("MOTE_PAPER_NOBOTS")) lk_bots=0;             /* test rig: clean 1v1 board */
+    lk_botsteps=0;
+#endif
+    if(lk_bots){
+        int usedc[NCREA]={0}; usedc[ent[me].creature]=1; usedc[ent[you].creature]=1;
+        for(int b=0;b<NBOT;b++){ int id=2+b; Ent*e=&ent[id]; int cx=LK_BX[b],cy=LK_BY[b];
+            e->cx=e->px=cx; e->cy=e->py=cy; e->fx=cx+0.5f; e->fy=cy+0.5f;
+            e->dx=DIRS[LK_BD[b]][0]; e->dy=DIRS[LK_BD[b]][1];
+            e->ai=1; e->alive=1; e->persona=(uint8_t)(id%3);
+            e->home_x=cx; e->home_y=cy; e->target_len=12+irand(24);   /* authority-only field */
+            int c=0; while(usedc[c])c++; usedc[c]=1; e->creature=c;   /* local cosmetics */
+            stamp_home(id,cx,cy,2); }
+    }
     apply_palette(); recount();
     npart=0; combo=0; combo_t=0; score=0; milestone=0; msg_t=0; danger=0; elapsed=0;
-    my_kos=my_deaths=peer_kos=0; lk_respawn_t=0; lk_state_t=0; lk_rx_age=0; lk_lost=0;
+    my_kos=my_deaths=peer_kos=0; lk_respawn_t=0; lk_state_t=0; lk_rx_age=0; lk_lost=0; lk_ready=0;
     cam_fx=ent[me].fx; cam_fy=ent[me].fy; cellpx=6.0f; step_acc=claim_flash=shake=0; state=S_PLAY;
 }
 
 static void lk_handle(const uint8_t*m){
     switch(m[1]){
-        case 'H': lk_got_hello=1; lk_peer_nonce=(uint16_t)(m[3]|(m[4]<<8)); break;
-        case 'S': if(g_link&&state==S_PLAY){ int d=m[2]&3; ent[you].dx=DIRS[d][0]; ent[you].dy=DIRS[d][1]; lk_move(you,0); }
+        case 'H':
+            lk_got_hello=1; lk_peer_nonce=(uint16_t)(m[3]|(m[4]<<8));
+            /* START THE MATCH *INSIDE* THE PARSER.  The old flow started it after
+             * lk_poll() returned — so any 'S' steps that arrived in the SAME rx
+             * chunk as the hello (routine over a relayed/CDC pipe, which delivers
+             * coalesced bursts) were still gated on g_link==0 and SILENTLY
+             * DROPPED, leaving the remote head permanently offset: replayed
+             * crossings then landed on the wrong cells and trail cuts missed.
+             * Starting here means every byte after the hello lands in-game. */
+            if(state==S_LINKWAIT){
+                if(lk_peer_nonce==lk_my_nonce){ lk_new_nonce(); lk_got_hello=0; lk_send_hello(); }   /* tie: re-draw */
+                else { lk_send_hello(); new_link_game();
+                       PDBG("[P%d] START me=%d you=%d auth=%d",me,me,you,lk_auth()); }
+            }
+            /* a hello while WE are already playing = the peer hasn't started yet
+             * (our start-hello can be eaten by the tail of its lobby handshake).
+             * Re-answer until its first in-game packet proves it's in. */
+            else if(g_link && state==S_PLAY && !lk_ready) lk_send_hello();
+            break;
+        case 'S': if(g_link&&state==S_PLAY){ int d=m[2]&3; ent[you].dx=DIRS[d][0]; ent[you].dy=DIRS[d][1];
+                      if(lk_move(you,0)) PDBG("[P%d] RSTEP you=%d (%d,%d)",me,you,ent[you].cx,ent[you].cy);
+                      else PDBG("[P%d] RSTEP-HELD you=%d dir=%d at (%d,%d)",me,you,d,ent[you].cx,ent[you].cy); }
+                  else PDBG("[P%d] RSTEP-DROP glink=%d state=%d",me,g_link,state);
                   lk_rx_age=0; break;
-        case 'K': if(g_link) lk_apply_kill((int8_t)m[2],(int8_t)m[3]); lk_rx_age=0; break;
+        case 'K': PDBG("[P%d] K-RX victim=%d killer=%d",me,(int8_t)m[2],(int8_t)m[3]);
+                  if(g_link) lk_apply_kill((int8_t)m[2],(int8_t)m[3]); lk_rx_age=0; break;
         case 'R': if(g_link) lk_respawn_at(you,m[2],m[3],m[4]&3); lk_rx_age=0; break;
         case 'P': if(g_link){ peer_kos=m[3]; } lk_rx_age=0; break;
         case 'Q': if(g_link&&state==S_PLAY){ state=S_WIN; say("OPPONENT LEFT",2.0f); } break;
+        case 'A': if(g_link&&state==S_PLAY&&!lk_auth()){ int b=m[2]; int d=m[3]&3;   /* a bot step from the authority */
+                      if(b>=2&&b<NP){ ent[b].dx=DIRS[d][0]; ent[b].dy=DIRS[d][1];
+                          if(lk_move(b,0)){
+#ifdef MOTE_HOST
+                              pdbg_bot_clock();
+#endif
+                          } } }
+                  lk_rx_age=0; break;
+        case 'E': if(g_link&&state==S_PLAY&&!lk_auth()){ int b=m[2];                 /* bot respawn (absolute) */
+                      if(b>=2&&b<NP) lk_respawn_at(b,m[3],m[4],m[5]&3); }
+                  lk_rx_age=0; break;
+        case 'C': if(g_link&&state==S_PLAY){ int cx=m[2],cy=m[3];                    /* peer: "my head crossed a trail HERE" */
+                      if(in_b(cx,cy)){ uint8_t t2=trail[IDX(cx,cy)];
+                          PDBG("[P%d] C-RX cell=(%d,%d) trail=%d",me,cx,cy,t2);
+                          if(t2==(uint8_t)(me+1)) lk_local_death(you,3);             /* my FRESH trail confirms: I die */
+                          else if(t2>=3 && lk_auth()) lk_bot_die(t2-1, you);         /* bot trail: authority verdict */
+                          /* t2==0: banked/cleared before the report — cut is void by design */
+                      } }
+                  lk_rx_age=0; break;
     }
 }
 static void lk_poll(void){
@@ -386,10 +607,14 @@ static void lk_poll(void){
         for(int i=0;i<n;i++){ uint8_t b=chunk[i];
             if(lk_msg_len==0){ if(b==LK_MAGIC) lk_msg[lk_msg_len++]=b; continue; }
             lk_msg[lk_msg_len++]=b; int t=lk_msg[1];
-            int want = t=='H'?5 : t=='S'?3 : t=='K'?5 : t=='R'?5 : t=='P'?4 : t=='Q'?2 : -1;
+            int want = t=='H'?5 : t=='S'?3 : t=='K'?5 : t=='R'?5 : t=='P'?4 : t=='Q'?2
+                     : t=='A'?4 : t=='E'?6 : t=='C'?4 : -1;
             if(want<0){ lk_msg_len=0; continue; }      /* bad type -> drop, resync on next magic */
             if(lk_msg_len<want) continue;
-            lk_msg_len=0; lk_handle(lk_msg);
+            lk_msg_len=0;
+            if(g_link && t!='H' && t!='Q' && !lk_ready){ lk_ready=1;   /* first in-game packet: peer is in */
+                PDBG("[P%d] READY (first in-game packet '%c')",me,t); }
+            lk_handle(lk_msg);
         }
     }
 }
@@ -399,6 +624,10 @@ static void lk_start_wait(void){
     MoteNetCfg cfg={"PaperMote",LK_PROTO,MOTE_NET_ALL};
     if (mote->net_lobby(&cfg,&host)!=MOTE_NET_CONNECTED){ state=S_TITLE; return; }
     g_link=0; lk_my_nonce=(uint16_t)(host?2:1);
+#ifdef MOTE_HOST
+    /* test rig: pin the authority so scripted 2-instance runs are role-stable */
+    { const char*nv=getenv("MOTE_PAPER_NONCE"); if(nv) lk_my_nonce=(uint16_t)atoi(nv); }
+#endif
     lk_sent_hello=lk_got_hello=0; lk_msg_len=0; lk_hello_t=0; lk_lost=0;
     state=S_LINKWAIT;
 }
@@ -500,6 +729,10 @@ static void bgm_tick(float dt){
 
 static void g_update(float dt){
     const MoteInput*in=mote->input();
+#ifdef MOTE_HOST
+    /* test rig: cap the host frame rate so MOTE_KEYS frame windows map to wall time */
+    { static int fpsdone; if(!fpsdone){ fpsdone=1; const char*f=getenv("MOTE_PAPER_FPS"); if(f) mote->set_fps_limit(atoi(f)); } }
+#endif
     if(claim_flash>0)claim_flash-=dt*2.0f; if(shake>0)shake-=dt*3.0f;
     if(combo_t>0){ combo_t-=dt; if(combo_t<=0)combo=0; } if(msg_t>0)msg_t-=dt;
     /* fade claim-flash freshness */
@@ -524,11 +757,18 @@ static void g_update(float dt){
         if(mote->link_status()!=MOTE_LINK_CONNECTED){ lk_sent_hello=lk_got_hello=0; lk_msg_len=0; }
         else {
             if(!lk_sent_hello||lk_hello_t<=0){ lk_send_hello(); lk_sent_hello=1; lk_hello_t=0.5f; }
-            lk_poll();
-            if(lk_got_hello && lk_peer_nonce==lk_my_nonce){ lk_new_nonce(); lk_got_hello=0; lk_send_hello(); }  /* tie: re-draw */
-            else if(lk_got_hello){ lk_send_hello(); new_link_game(); }   /* no seed needed — both start now */
+#ifdef MOTE_HOST
+            /* test rig: model a bursty pipe by holding the first poll back — the
+             * peer's hello AND its first steps then arrive as ONE chunk */
+            { static float ss=-1.0f; if(ss<0){ const char*e=getenv("MOTE_PAPER_SLOWSTART"); ss=e?atoi(e)*0.001f:0.0001f;
+                  if(ss>0.001f) PDBG("[P?] SLOWSTART armed %.0fms",ss*1000.0f); }
+              if(ss>0){ ss-=dt;
+                  if(ss<=0) PDBG("[P?] SLOWSTART over — polling the burst now");
+                  else { if(mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); state=S_TITLE; } return; } } }
+#endif
+            lk_poll();       /* a peer hello starts the match INSIDE the parser (see lk_handle 'H') */
         }
-        if(mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); state=S_TITLE; }
+        if(state==S_LINKWAIT && mote_just_pressed(in,MOTE_BTN_B)){ mote->link_stop(); state=S_TITLE; }
         return;
     }
     if(state==S_DEAD||state==S_WIN){
@@ -552,10 +792,25 @@ static void g_update(float dt){
         lk_rx_age+=dt;
         step=STEP_BASE;                                     /* constant speed — a fair duel */
         step_acc+=dt;
-        while(step_acc>=step){ step_acc-=step; lk_local_step(); if(state!=S_PLAY)break; lk_poll(); }
+        if(!lk_ready) step_acc=0;                           /* nobody moves until the peer is in-game */
+        while(step_acc>=step){ step_acc-=step;
+            lk_local_step();
+            /* the AUTHORITY thinks + moves the bots on the same step clock and
+             * streams each step ('A'); the peer only ever replays them */
+            if(lk_bots && lk_auth() && state==S_PLAY) for(int b=2;b<NP;b++) lk_bot_step(b);
+            if(state!=S_PLAY)break; lk_poll(); }
         if(lk_respawn_t>0 && state==S_PLAY){ lk_respawn_t-=dt; if(lk_respawn_t<=0) lk_respawn_me(); }
+        if(lk_bots && lk_auth() && state==S_PLAY)           /* authority: revive dead bots */
+            for(int b=2;b<NP;b++) if(!ent[b].alive && ent[b].respawn>0){
+                ent[b].respawn-=dt; if(ent[b].respawn<=0) lk_bot_respawn(b); }
         lk_state_t+=dt; if(lk_state_t>=1.0f/15.0f){ lk_state_t-=1.0f/15.0f; lk_send_state(); }
         if(my_kos>=KO_TARGET) state=S_WIN; else if(my_deaths>=KO_TARGET && state==S_PLAY) state=S_DEAD;
+#ifdef MOTE_HOST
+        if(pdbg_on()){ static float t; t+=dt; if(t>=1.0f){ t-=1.0f;
+            PDBG("[P%d] AREA a=%d,%d,%d,%d,%d,%d kos=%d deaths=%d own=%08x trail=%08x",
+                 me,ent[0].area,ent[1].area,ent[2].area,ent[3].area,ent[4].area,ent[5].area,
+                 my_kos,my_deaths,pdbg_fnv(owner,NCELL),pdbg_fnv(trail,NCELL)); } }
+#endif
     } else {                                                /* ---- solo (endless/timed/last) ---- */
         elapsed+=dt; bgm_tick(dt);
         if(mode==M_TIMED){ game_t-=dt; if(game_t<=0){ game_t=0; int rank=1; for(int p=1;p<NP;p++) if(ent[p].area>ent[0].area)rank++;
