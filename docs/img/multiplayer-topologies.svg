@@ -34,7 +34,7 @@
   </defs>
 
   <rect x="0.5" y="0.5" width="879" height="607" rx="14" fill="#0b0d12" stroke="#1c2130"/>
-  <text x="24" y="32" fill="#f5cd46" font-size="20" font-weight="700">Multiplayer &#8212; every way two Thumbys can meet</text>
+  <text x="24" y="32" fill="#f5cd46" font-size="20" font-weight="700">Multiplayer &#8212; connection options</text>
   <text x="24" y="53" fill="#8b93a8" font-size="12.5">the engine shows the same lobby everywhere; the game just gets a byte pipe</text>
 
   <!-- ============ 1. USB CABLE ============ -->

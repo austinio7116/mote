@@ -64,7 +64,7 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 8. [Input — buttons, edges, arming](#8-input)
 9. [Audio](#9-audio)
 10. [Multiplayer — USB, LAN, internet rooms, and how to write a 2P game](#10-multiplayer)
-    - [Playing — every way two Thumbys can meet](#playing--every-way-two-thumbys-can-meet)
+    - [Playing — connecting two players](#playing--connecting-two-players)
     - [Link health — blips don't kill matches](#link-health--blips-dont-kill-matches)
     - [The relay server](#the-relay-server)
     - [For developers — one call, then bytes](#for-developers--one-call-then-bytes)
@@ -2079,7 +2079,7 @@ ship + loadout).
 
 <p align="center"><img src="docs/img/multiplayer-topologies.svg" width="860" alt="The four multiplayer topologies: two Thumbys on one USB-C cable; a Thumby docked into Mote Studio playing the Studio's preview emulator (auto-bridged); two Thumbys each docked into a Studio on the same LAN (tcp 42450 broadcast); and two docked Thumbys paired over the internet through a relay server both Studios connect out to, with 4-letter room codes"></p>
 
-### Playing — every way two Thumbys can meet
+### Playing — connecting two players
 
 Pick the multiplayer option in any 2-player game and the engine shows the same
 lobby everywhere. What you can select depends on where the device is:
