@@ -789,6 +789,15 @@ static uint8_t  dm_out[68]; static int dm_out_len, dm_out_off;   /* pending outb
  * no longer be silently lost (link-ring pressure, transport hiccups) — a bad map
  * is re-sent until the hashes agree, and NOBODY plays on a corrupt city. */
 static uint32_t dm_peer_hash; static int dm_got_hash, dm_map_acked; static float dm_verify_t;
+/* authority->peer WORLD PLACEMENT ('W' cars+spawns, 'w' caches): the peer never
+ * trusts its own generation of gameplay objects — determinism-by-discipline
+ * broke once (RNG fork -> phantom cars) and silently breaks again the moment
+ * anyone adds a transcendental to placement. The authority's world is the world. */
+static int dm_w_done, dm_wc_done;           /* peer: world msgs applied */
+static int dm_world_acked; static float dm_world_t;  /* authority: peer confirmed 'W'+'w' */
+#ifdef MOTE_HOST
+static void dm_world_hash_log(const char *tag);
+#endif
 static uint32_t dm_city_fnv(void){ uint32_t h=2166136261u;
     for (int i=0;i<CITY_BYTES;i++){ h^=g_city[i]; h*=16777619u; } return h; }
 static int dm_flush_out(void){              /* 1 = fully drained (FIFO took it all) */
@@ -2115,6 +2124,41 @@ static void dm_handle(const uint8_t *m){
         case 'R': dm_map_pos=0; dm_map_acked=0;             /* peer wants the map again */
                   break;
         case 'Y': dm_map_acked=1; break;
+        case 'y': dm_world_acked=1; break;                  /* peer holds the world */
+        case 'W': if (!(dm_my_nonce>dm_peer_nonce)){    /* cars + spawns */
+                  if (!dm_w_done){
+                      dm_w_done=1;
+                      int p=2;
+                      int sax=m[p++], saz=m[p++], sbx=m[p++], sbz=m[p++];
+                      player.x=sbx*TILE+TILE*0.5f; player.z=sbz*TILE+TILE*0.5f;
+                      rp_x=rp_dx2=sax*TILE+TILE*0.5f; rp_z=rp_dz2=saz*TILE+TILE*0.5f;
+                      dm_spawnx=player.x; dm_spawnz=player.z; hosp_x=player.x; hosp_z=player.z;
+                      for (int i=0;i<16;i++){
+                          int tx=m[p++], tz=m[p++], ty=m[p++]; float yaw=(int8_t)m[p++]/40.5845f;
+                          cars[i]=(Car){ tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, yaw, 0,(uint8_t)ty,
+                                         (i<6)?DRV_NONE:DRV_NPC, 1,100.0f,0 };
+                          car_body_init(i);
+                          dm_tx[i]=cars[i].x; dm_tz[i]=cars[i].z; dm_tyaw2[i]=cars[i].yaw; dm_tpresent[i]=1;
+                      }
+                  }
+                  if (dm_w_done && dm_wc_done){ uint8_t a[2]={0xA5,'y'}; mote->link_send(a,2); }
+                  } break;
+        case 'w': if (!(dm_my_nonce>dm_peer_nonce)){    /* weapon caches */
+                  if (!dm_wc_done){
+                      dm_wc_done=1;
+                      for (int i=0;i<NPICK;i++) picks[i].alive=0;
+                      int p=2;
+                      for (int k=0;k<40;k++){
+                          int tx=m[p++], tz=m[p++], ty=m[p++];
+                          add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, ty);
+                      }
+                      for (int i=0;i<NPICK;i++) picks[i].seen=1;
+#ifdef MOTE_HOST
+                      dm_world_hash_log("peer-applied");
+#endif
+                  }
+                  if (dm_w_done && dm_wc_done){ uint8_t a[2]={0xA5,'y'}; mote->link_send(a,2); }
+                  } break;
         case 'Q': if (!dm_end) dm_end=3; break;
     }
 }
@@ -2129,8 +2173,8 @@ static void dm_poll(void){
             int want;
             if (t=='m') want = dm_msg_len<5 ? 5 : 5+dm_msg[4];   /* header then len bytes */
             else if (t=='V') want = dm_msg_len<3 ? 3 : 3+dm_msg[2]*6; /* n entries × 6 */
-            else want = t=='P'?10 : t=='X'?9 : (t=='S'||t=='Z')?6 : t=='H'?5
-                     : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q'||t=='R'||t=='Y')?2 : -1;
+            else want = t=='w'?122 : t=='W'?70 : t=='P'?10 : t=='X'?9 : (t=='S'||t=='Z')?6 : t=='H'?5
+                     : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q'||t=='R'||t=='Y'||t=='y')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
             if (dm_msg_len<want) continue;
             dm_msg_len=0; dm_handle(dm_msg);
@@ -2267,6 +2311,46 @@ static void reset_game_dm_finish(uint32_t seed){
             if (pav_or_grass(tx,tz)){ add_pickup(tx*TILE+TILE*0.5f, tz*TILE+TILE*0.5f, CACHE[irand(8)]); break; } } }
     for (int i=0;i<NPICK;i++) picks[i].seen=1;   /* caches show on the DM map */
     g_state=ST_PLAY;
+#ifdef MOTE_HOST
+    if (getenv("MOTE_GTA_DEBUG")){
+        uint32_t h=2166136261u;
+        for (int i=0;i<16;i++){ h^=(int)(cars[i].x/TILE); h*=16777619u; h^=(int)(cars[i].z/TILE); h*=16777619u; h^=cars[i].type; h*=16777619u; }
+        for (int i=0;i<NPICK;i++){ if(!picks[i].alive)continue; h^=(int)(picks[i].x/TILE); h*=16777619u; h^=(int)(picks[i].z/TILE); h*=16777619u; h^=picks[i].kind; h*=16777619u; }
+        fprintf(stderr,"[WORLD] local-gen fnv=%08x spawn=(%d,%d)\n",h,(int)(player.x/TILE),(int)(player.z/TILE));
+    }
+#endif
+}
+#ifdef MOTE_HOST
+static void dm_world_hash_log(const char *tag){
+    if (!getenv("MOTE_GTA_DEBUG")) return;
+    uint32_t h=2166136261u;
+    for (int i=0;i<16;i++){ h^=(int)(cars[i].x/TILE); h*=16777619u; h^=(int)(cars[i].z/TILE); h*=16777619u; h^=cars[i].type; h*=16777619u; }
+    for (int i=0;i<NPICK;i++){ if(!picks[i].alive)continue; h^=(int)(picks[i].x/TILE); h*=16777619u; h^=(int)(picks[i].z/TILE); h*=16777619u; h^=picks[i].kind; h*=16777619u; }
+    fprintf(stderr,"[WORLD] %s fnv=%08x me=(%d,%d) peer=(%d,%d)\n",tag,h,(int)(player.x/TILE),(int)(player.z/TILE),(int)(rp_x/TILE),(int)(rp_z/TILE));
+}
+#endif
+/* Authority ships the PLACED world — both spawns, all 16 cars, all 40 caches —
+ * so the peer never derives placement from the seed. (Identical RNG streams
+ * are not guaranteed across builds: device vs preview is ARM vs x86.)
+ * Re-offered every 0.5s until the peer acks with 'y'. */
+static void dm_send_world(void){
+    { uint8_t w[70]; int p=0;
+      w[p++]=0xA5; w[p++]='W';
+      w[p++]=(uint8_t)((int)(dm_spawnx/TILE)); w[p++]=(uint8_t)((int)(dm_spawnz/TILE));
+      w[p++]=(uint8_t)((int)(rp_x/TILE));      w[p++]=(uint8_t)((int)(rp_z/TILE));
+      for (int i=0;i<16;i++){
+          w[p++]=(uint8_t)((int)(cars[i].x/TILE)); w[p++]=(uint8_t)((int)(cars[i].z/TILE));
+          w[p++]=cars[i].type; w[p++]=(uint8_t)(int8_t)(cars[i].yaw*40.5845f);
+      }
+      mote->link_send(w,p); }
+    { uint8_t w[122]; int p=0;
+      w[p++]=0xA5; w[p++]='w';
+      int sent=0;
+      for (int i=0;i<NPICK && sent<40;i++){ if(!picks[i].alive) continue;
+          w[p++]=(uint8_t)((int)(picks[i].x/TILE)); w[p++]=(uint8_t)((int)(picks[i].z/TILE));
+          w[p++]=picks[i].kind; sent++; }
+      while (sent<40){ w[p++]=0; w[p++]=0; w[p++]=PK_HEALTH; sent++; }
+      mote->link_send(w,p); }
 }
 static void dm_draw_remote(void){
     if (!g_dm || !dm_started || rp_hp<=0) return;
@@ -2499,7 +2583,8 @@ static void g_update(float dt) {
                     dm_my_nonce=(uint16_t)(host?2:1);
                     dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
                     dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
-                    dm_got_hash=dm_map_acked=0; dm_verify_t=0;
+                    dm_got_hash=dm_map_acked=0; dm_verify_t=0; dm_w_done=dm_wc_done=0;
+                    dm_world_acked=0; dm_world_t=0;
                     g_state=ST_DMLINK;
                 }
             }
@@ -2555,7 +2640,14 @@ static void g_update(float dt) {
                             uint8_t m[6]={0xA5,'Z',(uint8_t)h,(uint8_t)(h>>8),(uint8_t)(h>>16),(uint8_t)(h>>24)};
                             mote->link_send(m,6); dm_verify_t=0.5f;
                         }
-                        if (dm_map_acked){ reset_game_dm_finish(dm_seed); dm_phase=2; }
+                        if (dm_map_acked){
+                            reset_game_dm_finish(dm_seed); dm_phase=2;
+                            dm_world_acked=0; dm_world_t=0.5f;
+                            dm_send_world();                 /* re-offered from play upkeep until 'y' */
+#ifdef MOTE_HOST
+                            dm_world_hash_log("auth-sent");
+#endif
+                        }
                     }
                 } else {
                     dm_poll();                                          /* 'm' frames fill g_city */
@@ -2606,6 +2698,10 @@ static void g_update(float dt) {
         dm_send_t -= dt;
         if (dm_send_t<=0){ dm_send_state(); dm_send_t=1.0f/15; }
         if (dm_auth){                                   /* authority broadcasts the shared traffic */
+            if (!dm_world_acked){                       /* world offer until the peer confirms */
+                dm_world_t -= dt;
+                if (dm_world_t<=0){ dm_send_world(); dm_world_t=0.5f; }
+            }
             dm_vsend_t -= dt;
             if (dm_vsend_t<=0){ dm_send_traffic(); dm_vsend_t=1.0f/12;
 #ifdef MOTE_HOST
