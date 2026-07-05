@@ -5141,7 +5141,10 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 r0=mote_dev_raw_read(h,&c0,1);
                 if(r0==1)break;
                 if(r0<0){ break; }                           /* device gone: cycle the port */
-                if(++idle0>60){ r0=0; break; }               /* ~6s silence: cycle the port */
+                if(++idle0>10){ r0=0; break; }               /* ~1s idle: RELEASE the port —
+                    with exclusive opens, holding it starves the mote CLI; a device
+                    that wants us resends its request every 0.6s and catches the
+                    next probe */
             }
             if(r0!=1) break;
             if((unsigned char)c0==0x4D){
@@ -5276,7 +5279,8 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
             break;                                           /* session over: cycle the port */
         }
         mote_dev_close_raw(h); g_proxy_active=0; g_proxy_busy=0;
-        SDL_Delay(150);
+        SDL_Delay(600);                                      /* closed gap: give the CLI a
+                                                                fair window at the port */
     }
     return 0;
 }

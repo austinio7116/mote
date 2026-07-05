@@ -43,6 +43,7 @@
   static void ser_close(shandle h){ if(h!=SBAD)CloseHandle(h); }
 #else
   #include <fcntl.h>
+  #include <sys/file.h>
   #include <unistd.h>
   #include <termios.h>
   #include <dirent.h>
@@ -61,8 +62,16 @@
               if(vid==MVID&&pid==MPID){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } } }
       closedir(d); return found; }
   static shandle ser_open(void){ char port[64]; const char*ov=getenv("MOTE_DEV_PORT");   /* test override: a pty/tty path */
-      if(ov&&ov[0]) snprintf(port,sizeof port,"%.63s",ov); else if(!find_port(port,sizeof port))return SBAD;
+      if(ov){ if(!ov[0])return SBAD;                       /* SET but empty = never touch real hardware
+                                                              (a test harness with a broken pty once fell
+                                                              back to the REAL device and ate its replies) */
+              snprintf(port,sizeof port,"%.63s",ov); }
+      else if(!find_port(port,sizeof port))return SBAD;
       int fd=open(port,O_RDWR|O_NOCTTY); if(fd<0)return SBAD;
+      /* EXCLUSIVE: flock is the same advisory lock pyserial's exclusive=True takes,
+       * so the Studio and the mote CLI can never silently interleave on one port —
+       * the loser gets a clean busy failure instead of a corrupted conversation. */
+      if(flock(fd,LOCK_EX|LOCK_NB)!=0){ close(fd); return SBAD; }
       struct termios t; if(tcgetattr(fd,&t)){ close(fd); return SBAD; } cfmakeraw(&t);
       cfsetispeed(&t,B115200); cfsetospeed(&t,B115200); t.c_cc[VMIN]=0; t.c_cc[VTIME]=1;   /* 0.1s read timeout */
       tcsetattr(fd,TCSANOW,&t); tcflush(fd,TCIOFLUSH); return fd; }

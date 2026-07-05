@@ -904,7 +904,18 @@ def _serial(port):
                 break
     if not port:
         sys.exit("mote: no Mote device found (VID:PID %04X:%04X)" % (MOTE_VID, MOTE_PID))
-    return serial.Serial(port, 115200, timeout=1.0)
+    # exclusive=True takes the same flock the Studio takes: if the Studio's
+    # auto-proxy (or anything else) holds the port, we fail CLEANLY instead of
+    # both sides silently eating each other's replies. Retry briefly — the
+    # proxy's idle probes hold the port for under a second at a time.
+    import time as _t
+    last = None
+    for _ in range(8):
+        try:
+            return serial.Serial(port, 115200, timeout=1.0, exclusive=True)
+        except (serial.SerialException, OSError) as e:
+            last = e; _t.sleep(0.4)
+    raise SystemExit(f"mote: serial port busy (is Mote Studio holding it?): {last}")
 
 
 def _readline(ser, timeout):
