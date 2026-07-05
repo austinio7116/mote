@@ -664,9 +664,10 @@ static void spawn_world(void) {
             npc_target[i]=yaw; stuck_t[i]=0;
         } else cars[i].alive=0;
     }
-    /* a jackable car right next to the player */
-    { float ox,oz; if (find_near(player.x,player.z, 2.0f, 3.4f, is_drivable, &ox,&oz))
-        cars[0]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0, CAR_SPORTS,DRV_NONE,1 }; }
+    /* a jackable car right next to the player — a RANDOM type each run */
+    { float ox,oz; if (find_near(player.x,player.z, 2.0f, 3.4f, is_drivable, &ox,&oz)){
+        int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+        cars[0]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0, (uint8_t)ty,DRV_NONE,1 }; } }
     /* pedestrians on nearby pavement/grass */
     for (int i=0;i<NPED;i++){ float ox,oz;                    /* ~22 pedestrians; rest free for foot-cops */
         if (i<22 && find_near(player.x,player.z, 4.0f, 34.0f, pav_or_grass, &ox,&oz))
@@ -795,6 +796,7 @@ static uint32_t dm_peer_hash; static int dm_got_hash, dm_map_acked; static float
  * anyone adds a transcendental to placement. The authority's world is the world. */
 static int dm_w_done, dm_wc_done;           /* peer: world msgs applied */
 static int dm_world_acked; static float dm_world_t;  /* authority: peer confirmed 'W'+'w' */
+static float dm_rreq_t; static int dm_rreq_mark;      /* peer: 'R' repeat until bytes resume */
 #ifdef MOTE_HOST
 static void dm_world_hash_log(const char *tag);
 #endif
@@ -2295,6 +2297,17 @@ static void reset_game_dm_finish(uint32_t seed){
     for (int i=0;i<NCAR;i++) cars[i].alive=0;
     for (int i=0;i<16;i++){
         int parked = (i<6);
+        /* slots 0 and 1 are each player's STARTING car, parked right by their
+         * spawn (0 = spawn A, 1 = spawn B), random type. The authority places
+         * them and transmits the whole world via 'W', so both units agree. */
+        if (i<2){
+            float sxp=(i==0)?axp:bxp, szp=(i==0)?azp:bzp, ox,oz;
+            if (find_near(sxp,szp, 2.0f, 8.0f, is_drivable, &ox,&oz)){
+                int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
+                cars[i]=(Car){ ox,oz, road_heading((int)(ox/TILE),(int)(oz/TILE)), 0,(uint8_t)ty, DRV_NONE,1,100.0f,0 };
+                continue;
+            }
+        }
         for (int t=0;t<80;t++){ int tx=2+irand(MAPW-4), tz=2+irand(MAPH-4);
             if (parked ? !is_drivable(tx,tz) : !is_road(tx,tz)) continue;
             int ty=irand(NCARTYPE); if(ty==CAR_POLICE||ty==CAR_POLICE2||ty==CAR_FIRETRUCK)ty=CAR_SEDAN;
@@ -2584,7 +2597,7 @@ static void g_update(float dt) {
                     dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
                     dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
                     dm_got_hash=dm_map_acked=0; dm_verify_t=0; dm_w_done=dm_wc_done=0;
-                    dm_world_acked=0; dm_world_t=0;
+                    dm_world_acked=0; dm_world_t=0; dm_rreq_t=2.0f; dm_rreq_mark=0;
                     g_state=ST_DMLINK;
                 }
             }
@@ -2651,6 +2664,12 @@ static void g_update(float dt) {
                     }
                 } else {
                     dm_poll();                                          /* 'm' frames fill g_city */
+                    if (dm_map_recv < CITY_BYTES){
+                        if (dm_map_recv > dm_rreq_mark){ dm_rreq_mark=dm_map_recv; dm_rreq_t=2.0f; }
+                        else if ((dm_rreq_t -= dt) <= 0){               /* stream stalled: nudge */
+                            uint8_t r[2]={0xA5,'R'}; mote->link_send(r,2); dm_rreq_t=2.0f;
+                        }
+                    }
                     if (dm_map_recv>=CITY_BYTES && dm_got_hash){
                         uint32_t h=dm_city_fnv();
 #ifdef MOTE_HOST
@@ -2662,6 +2681,7 @@ static void g_update(float dt) {
                         } else {                                        /* corrupt: full re-stream */
                             dm_map_recv=0; dm_got_hash=0;
                             uint8_t r[2]={0xA5,'R'}; mote->link_send(r,2);
+                            dm_rreq_t=2.0f; dm_rreq_mark=0;             /* repeat 'R' until 'm' resumes */
 #ifdef MOTE_HOST
                             if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CITY] MISMATCH - requesting re-stream\n");
 #endif
@@ -2777,7 +2797,7 @@ static void g_update(float dt) {
             else {
                 int best=-1; float bd=14.0f;
                 for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].wrecked||cars[i].driver==DRV_PLAYER) continue;
-                    if (g_dm && cars[i].driver==DRV_NPC) continue;   /* ambient DM traffic isn't jackable (V1) */
+                    if (g_dm && i==dm_peer_car) continue;           /* the peer is driving this one */
                     float dx=cars[i].x-player.x, dz=cars[i].z-player.z, d=dx*dx+dz*dz;
                     if (d<bd){bd=d;best=i;} }
                 if (best>=0) {
