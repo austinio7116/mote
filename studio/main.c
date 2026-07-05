@@ -5136,6 +5136,7 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
             while(!proxy_paused()){
                 r0=mote_dev_raw_read(h,&c0,1);
                 if(r0==1)break;
+                if(r0<0){ break; }                           /* device gone: cycle the port */
                 if(++idle0>60){ r0=0; break; }               /* ~6s silence: cycle the port */
             }
             if(r0!=1) break;
@@ -5154,6 +5155,7 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                     int quiet=0;
                     while(!proxy_paused()&&mote_studio_preview_link_on()){
                         int n=mote_dev_raw_read(h,buf,sizeof buf);
+                        if(n<0){ log_add("device <-> preview: device disconnected"); break; }
                         if(n>0){ quiet=0; for(int off=0;off<n;){ int w=mote_studio_devlink_push_rx(buf+off,n-off); if(w<=0)break; off+=w; } }
                         else if(++quiet>80){ log_add("device <-> preview: device went silent - unlinking"); break; }
                         int m=mote_studio_devlink_pull_tx(buf,sizeof buf);
@@ -5201,6 +5203,8 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 /* drain the device while waiting (doubles as the loop delay): CANCEL
                  * aborts; any NEW command replaces the pending action */
                 char c; int r=mote_dev_raw_read(h,&c,1);
+                if(r<0){ link_net_stop(); g_room_code[0]=0; have=0;
+                         log_add("online(dev): device disconnected - dropping the pending room"); break; }
                 if(r==1){
                     if(c=='\n'){ db[dn]=0; dn=0;
                         if(!strncmp(db,"MN1 CANCEL",10)){
@@ -5216,9 +5220,16 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 int mc=0;                                    /* MN1_CANCEL matcher state */
                 long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
                 Uint32 lup=t0,ldn=t0; Uint32 gup=0,gdn=0;    /* per-direction max silent gap */
+                Uint32 silence_ms=30000;                     /* device MIA -> end the session
+                    (a live v45 device keepalives at 2Hz even when the game is quiet, so
+                    silence means it QUIT the game or got unplugged; 30s stays clear of a
+                    player parked in the blocking engine menu) */
+                { const char*e=getenv("MOTE_PROXY_SILENCE_MS"); if(e&&atoi(e)>0) silence_ms=(Uint32)atoi(e); }
                 while(1){                                    /* splice device <-> relay */
                     if(proxy_paused()){ why="paused (manual op / toggle)"; break; }
                     int n=mote_dev_raw_read(h,buf,sizeof buf);
+                    if(n<0){ why="device disconnected (USB re-enumerated?)"; break; }
+                    if(n==0&&SDL_GetTicks()-lup>silence_ms){ why="device silent - left the game?"; break; }
                     int stop=0;
                     for(int i=0;i<n&&!stop;i++){             /* scan for a device-side CANCEL */
                         if(buf[i]==MN1_CANCEL[mc]){ if(++mc==(int)sizeof(MN1_CANCEL)-1)stop=1; }

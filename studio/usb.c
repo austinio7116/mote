@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define MVID 0xCAFE
 #define MPID 0x4D01
@@ -35,7 +36,10 @@
       SetCommTimeouts(h,&to);
       PurgeComm(h,PURGE_RXCLEAR|PURGE_TXCLEAR); return h; }
   static int ser_write(shandle h,const void*b,int n){ DWORD w=0; return WriteFile(h,b,n,&w,0)?(int)w:0; }
-  static int ser_read(shandle h,void*b,int n){ DWORD r=0; return ReadFile(h,b,n,&r,0)?(int)r:0; }
+  /* -1 = the DEVICE IS GONE (unplugged / re-enumerated), 0 = just no data yet.
+   * Quitting a Mote game re-enumerates USB, so long-lived readers (the proxy
+   * splice) must see removal as an event, not as eternal silence. */
+  static int ser_read(shandle h,void*b,int n){ DWORD r=0; return ReadFile(h,b,n,&r,0)?(int)r:-1; }
   static void ser_close(shandle h){ if(h!=SBAD)CloseHandle(h); }
 #else
   #include <fcntl.h>
@@ -63,13 +67,16 @@
       cfsetispeed(&t,B115200); cfsetospeed(&t,B115200); t.c_cc[VMIN]=0; t.c_cc[VTIME]=1;   /* 0.1s read timeout */
       tcsetattr(fd,TCSANOW,&t); tcflush(fd,TCIOFLUSH); return fd; }
   static int ser_write(shandle h,const void*b,int n){ int r=(int)write(h,b,n); return r<0?0:r; }
-  static int ser_read(shandle h,void*b,int n){ int r=(int)read(h,b,n); return r<0?0:r; }
+  static int ser_read(shandle h,void*b,int n){ int r=(int)read(h,b,n);
+      if(r<0) return (errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)?0:-1;   /* -1 = port died */
+      return r; }
   static void ser_close(shandle h){ if(h!=SBAD)close(h); }
 #endif
 
 /* read one '\n'-terminated line (CR stripped) with a millisecond timeout */
 static int ser_readline(shandle h,char *out,int n,int tmo){ int len=0; long dl=now_ms()+tmo;
     while(now_ms()<dl){ char c; int r=ser_read(h,&c,1);
+        if(r<0)break;                                    /* device gone */
         if(r==1){ if(c=='\n'){ out[len]=0; return len; } if(c!='\r'&&len<n-1)out[len++]=c; } }
     out[len]=0; return len?len:-1; }
 
