@@ -36,6 +36,10 @@ int  pvp_begin(void);   /* 0 = lobby cancelled / unavailable */
  * flight) · PVP_CANCEL user backed out (caller returns to the title). */
 int  pvp_wait_tick(const CraftRawButtons *btn, float dt);
 
+/* Ship-select: the player picked this saved slot to bring to the duel. Set
+ * BEFORE pvp_begin(); -1 (default) means no save -> a random balanced fit. */
+void pvp_set_slot(int slot);
+
 /* True once the arena is live (through to the end screen). */
 int  pvp_active(void);
 int  pvp_remote_slot(void);      /* == PVP_REMOTE, for the combat hook */

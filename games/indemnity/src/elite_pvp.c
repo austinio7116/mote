@@ -239,26 +239,34 @@ static void face_toward(Ship *s, Vec3 from, Vec3 to) {
 
 /* Load the player's saved commander (their ship + loadout). Falls back to a
  * stock combat fit when no save exists so PvP is playable headless / fresh. */
+static int s_forced_slot = -1;   /* ship-select UI picked this save slot (-1 = none) */
+void pvp_set_slot(int slot) { s_forced_slot = slot; }
+
+/* Curated no-save loadouts — all on the nimble REAVER hull (3 hardpoints,
+ * whose slot sizes fit every weapon below) so each is valid and roughly
+ * balanced; only the weapon FLAVOUR varies. Better than the old fixed fit. */
 static void load_my_ship(void) {
-    int slot = -1, mx = save_max_slots();
-    for (int s = 0; s < mx; s++) {
-        SavePeek pk;
-        if (save_peek(s, &pk) && pk.valid) { slot = s; break; }
-    }
-    if (slot >= 0) {
-        save_set_slot(slot);
+    if (s_forced_slot >= 0) {                       /* the player chose this saved ship */
+        save_set_slot(s_forced_slot);
         SaveMeta meta;
-        if (save_load(&meta)) return;      /* g_player now holds their ship */
+        int ok = save_load(&meta);
+        s_forced_slot = -1;
+        if (ok) return;                             /* g_player now holds their ship */
     }
-    /* STOCK FALLBACK: a REAVER (fast-turning, 3 hardpoints) with a decent
-     * mid-grade fit — stated in the design as the no-save loadout. */
+    /* NO-SAVE FALLBACK: a random-but-balanced fit on the REAVER, so duels
+     * without a saved ship still feel varied. (Each unit rolls its own; both
+     * are drawn from the same balanced pool.) */
+    static const uint8_t PRIMARY[6] = { WPN_PULSE_M, WPN_BEAM, WPN_PLASMA, WPN_BLASTER, WPN_PULSE_L, WPN_ION };
+    static const uint8_t SECOND [6] = { WPN_AUTOCANNON, WPN_HOMING, WPN_FLAK, WPN_GAUSS, WPN_HOMING, WPN_AUTOCANNON };
+    uint32_t r = (uint32_t)((g_em && g_em->micros ? g_em->micros() : 1) * 2654435761u) ^ 0x9E3779B9u;
+    int pick = (int)((r >> 8) % 6);
     player_init();
     g_player.hull_id   = 4;                 /* REAVER */
     g_player.hull_seed = 0x51EED04u;
     g_player.difficulty = 1;                /* MEDIUM */
     for (int i = 0; i < HULL_SLOTS; i++) { g_player.mounts[i].in_use = 0; g_player.ammo[i] = -1; }
-    g_player.mounts[0] = (WeaponInst){ .type = WPN_PULSE_M,    .quality = Q_STANDARD, .integrity = 100, .in_use = 1 };
-    g_player.mounts[1] = (WeaponInst){ .type = WPN_AUTOCANNON, .quality = Q_STANDARD, .integrity = 100, .in_use = 1 };
+    g_player.mounts[0] = (WeaponInst){ .type = PRIMARY[pick], .quality = Q_STANDARD, .integrity = 100, .in_use = 1 };
+    g_player.mounts[1] = (WeaponInst){ .type = SECOND[pick],  .quality = Q_STANDARD, .integrity = 100, .in_use = 1 };
     g_player.shield_eq = (WeaponInst){ .type = EQ_SHIELD, .quality = Q_STANDARD, .integrity = 100, .in_use = 1, .tier = 2 };
     g_player.armor_eq  = (WeaponInst){ .type = EQ_ARMOR,  .quality = Q_STANDARD, .integrity = 100, .in_use = 1, .tier = 2 };
 }
@@ -437,6 +445,29 @@ int pvp_arena_tick(const CraftRawButtons *btn, float dt) {
     if (r->alive) {                             /* smooth position toward the target */
         float k = dt * 8.0f; if (k > 1) k = 1;
         r->pos = v3_lerp(r->pos, s_rp_pos, k);
+    }
+
+    /* SOLID ship-vs-ship: the two hulls no longer pass through each other.
+     * The remote is replicated, so we only ever move the LOCAL player out of
+     * it and reflect the player's velocity; the peer resolves the mirror on
+     * its side. A hard ram scuffs the local hull (victim-authoritative — my
+     * hp% rides out on the next 'P'), so both sides take ram damage without
+     * double-counting. */
+    if (p->alive && r->alive) {
+        Vec3 d = v3_sub(p->pos, r->pos);
+        float rad = (p->mesh ? p->mesh->bound_r : 6.0f) + (r->mesh ? r->mesh->bound_r : 6.0f);
+        float d2 = v3_len2(d);
+        if (d2 < rad * rad && d2 > 1e-4f) {
+            float dist = sqrtf(d2); Vec3 n = v3_scale(d, 1.0f / dist);
+            p->pos = v3_add(p->pos, v3_scale(n, rad - dist));   /* separate */
+            float vn = v3_dot(p->vel, n);
+            if (vn < 0) {
+                p->vel = v3_sub(p->vel, v3_scale(n, 1.35f * vn));  /* bounce */
+                float impact = -vn;
+                if (impact > 40.0f && s_end == END_NONE)
+                    combat_direct_damage(PVP_REMOTE, PLAYER, impact * 0.12f, p->pos);
+            }
+        }
     }
 
     /* Stream my state (also the keepalive). */

@@ -170,6 +170,7 @@ typedef struct { int slot; SavePeek pk; } SaveListEntry;
 static SaveListEntry s_savelist[SAVE_LIST_MAX];
 static int  s_savelist_n;
 static int  s_sel_cursor, s_sel_scroll;
+static bool s_pvp_select;      /* the save picker is choosing a ship for a PVP duel */
 static bool s_sel_confirm_del;        /* "are you sure?" overlay */
 static int  s_save_slot = -1;         /* active slot; -1 = unsaved new game */
 static void save_rebuild_list(void) {
@@ -938,6 +939,8 @@ void elite_game_pvp_prep(void) {
     s_dead_latch = false;
     s_cloak_t = 0.0f;
     s_incoming = false;
+    s_scoop_toast_t = 0; s_scoop_toast[0] = 0;   /* clear any leftover crit toast ('ENGINES HIT!'
+                                                    from a prior duel used to stick across menus) */
     /* NB: do NOT set s_state = ST_FLIGHT here. This runs in arena build STEP 7,
      * one frame before step 8 sets s_active=1 and returns PVP_START. Setting
      * FLIGHT here pulled the game out of ST_PVPWAIT before step 8 ran, so PVP
@@ -2276,7 +2279,13 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
                 break;
             }
             if (s_title_cursor == 2) {          /* PVP: LINK ARENA */
-                if (pvp_begin()) {              /* engine lobby connected a peer */
+                save_rebuild_list();
+                if (s_savelist_n > 0) {         /* have saves: pick which ship to bring */
+                    s_pvp_select = true;
+                    s_sel_cursor = 0; s_sel_scroll = 0; s_sel_confirm_del = false;
+                    s_state = ST_SAVESEL;
+                    sfx_ui_select();
+                } else if (pvp_begin()) {       /* no save: random fit, straight to the lobby */
                     s_state = ST_PVPWAIT;
                     sfx_ui_select();
                 }
@@ -2313,14 +2322,21 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
             } else if (bk) { s_sel_confirm_del = false; sfx_ui_move(); }
             break;
         }
-        if (s_savelist_n == 0) { if (bk || a_edge) s_state = ST_TITLE; break; }
+        if (s_savelist_n == 0) { if (bk || a_edge) { s_pvp_select = false; s_state = ST_TITLE; } break; }
         if (up && s_sel_cursor > 0) { s_sel_cursor--; sfx_ui_move(); }
         if (dn && s_sel_cursor < s_savelist_n - 1) { s_sel_cursor++; sfx_ui_move(); }
-        if (del) { s_sel_confirm_del = true; sfx_ui_move(); break; }
-        if (bk) { s_state = ST_TITLE; sfx_ui_move(); break; }
+        if (del && !s_pvp_select) { s_sel_confirm_del = true; sfx_ui_move(); break; }  /* no deleting mid-duel-pick */
+        if (bk) { s_pvp_select = false; s_state = ST_TITLE; sfx_ui_move(); break; }
         if (a_edge) {
             int slot = s_savelist[s_sel_cursor].slot;
             save_set_slot(slot); s_save_slot = slot;
+            if (s_pvp_select) {                       /* PVP: bring THIS saved ship to the duel */
+                s_pvp_select = false;
+                pvp_set_slot(slot);
+                if (pvp_begin()) { s_state = ST_PVPWAIT; sfx_ui_select(); }
+                else s_state = ST_TITLE;
+                break;
+            }
             SaveMeta meta;
             if (save_load(&meta)) { combat_set_kills(meta.kills); arrive_docked(&meta); }
             break;
@@ -3316,7 +3332,7 @@ void elite_game_draw_overlay(uint16_t *fb) {
     }
 
     case ST_SAVESEL: {
-        craft_font_draw(fb, "CONTINUE", 38, 3, RGB565C(200, 210, 225));
+        craft_font_draw(fb, s_pvp_select ? "DUEL SHIP" : "CONTINUE", 38, 3, RGB565C(200, 210, 225));
         if (s_savelist_n == 0) {
             craft_font_draw(fb, "NO SAVED GAMES", 20, 58, RGB565C(150, 120, 90));
             craft_font_draw(fb, "B:BACK", 46, 110, RGB565C(95, 110, 140));
