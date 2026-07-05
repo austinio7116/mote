@@ -4991,7 +4991,7 @@ static SDL_Rect g_lkb[5]; static const char *LKB_L[5]={ "Host LAN","Join LAN","B
  * editable field (default below), persisted to mote_relay.txt; MOTE_RELAY env
  * overrides it. */
 static char g_relay_cfg[140];        /* "host:port" for the UI (empty = unset) */
-static char g_relay_host_in[80]="145.241.218.71";   /* editable field: host or host:port */
+static char g_relay_host_in[80]="141.147.78.173";   /* editable field: host or host:port */
 static int  g_relay_focus; static SDL_Rect g_relay_r;
 static char g_room_code[10];         /* our hosted/joined code */
 #define MAX_BROWSE 12
@@ -4999,22 +4999,29 @@ static char g_browse[MAX_BROWSE][40]; static int g_browse_n; static volatile int
 static SDL_Rect g_olb[3], g_browse_rect[MAX_BROWSE];   /* Quick / Host / Browse + list rows */
 
 /* parse the field (host or host:port, default port 443) -> configure the link +
- * the UI string, and persist to mote_relay.txt so it survives restarts. */
-static void relay_apply_field(void){
+ * the UI string. Does NOT touch disk (so the compiled default is never
+ * persisted, letting a new default take effect until the user overrides). */
+static void relay_configure(void){
     char host[128]; int port=443; const char*c=strchr(g_relay_host_in,':');
     if(c){ int hl=(int)(c-g_relay_host_in); if(hl>127)hl=127; memcpy(host,g_relay_host_in,hl); host[hl]=0; port=atoi(c+1); if(port<=0)port=443; }
     else snprintf(host,sizeof host,"%s",g_relay_host_in);
     if(!host[0]){ g_relay_cfg[0]=0; return; }
     link_net_relay_config(host,port);
     snprintf(g_relay_cfg,sizeof g_relay_cfg,"%s:%d",host,port);
+}
+/* explicit user apply (Enter in the field): configure AND persist to disk. */
+static void relay_apply_field(void){
+    relay_configure();
     FILE*f=fopen("mote_relay.txt","w"); if(f){ fprintf(f,"%s\n",g_relay_host_in); fclose(f); }
 }
-/* startup: precedence MOTE_RELAY env > saved mote_relay.txt > compiled default. */
+/* startup: precedence MOTE_RELAY env > saved mote_relay.txt > compiled default.
+ * Read-only — never writes, so bumping the default reaches anyone who hasn't
+ * explicitly set their own address. */
 static void relay_init(void){
     const char*env=getenv("MOTE_RELAY");
     if(env&&env[0]) snprintf(g_relay_host_in,sizeof g_relay_host_in,"%.79s",env);
     else { FILE*f=fopen("mote_relay.txt","r"); if(f){ if(fgets(g_relay_host_in,sizeof g_relay_host_in,f)){ char*nl=strchr(g_relay_host_in,'\n'); if(nl)*nl=0; } fclose(f); } }
-    relay_apply_field();
+    relay_configure();
 }
 static void gen_room_code(void){
     static const char A[]="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   /* no confusable 0/O/1/I */
