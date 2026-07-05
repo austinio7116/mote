@@ -5111,6 +5111,12 @@ static int proxy_command(void*h,char*line){
     proxy_send(h,"MN1 ERR badcmd\n"); return 0;
 }
 
+/* The device may abandon a session without a clean CANCEL (in-game LINK LOST,
+ * lobby back-outs) — so the proxy must NEVER wedge on a stale action: any new
+ * "MN1 ..." line REPLACES the pending one, and during a live splice the exact
+ * byte string "MN1 CANCEL\n" from the device ends the session (game protocols
+ * are 0xA5-framed binary, so that ASCII run can't occur by accident). */
+#define MN1_CANCEL "MN1 CANCEL\n"
 static int netproxy_thread(void*a){ (void)a; char buf[512];
     for(;;){
         if(proxy_paused()){ SDL_Delay(100); continue; }
@@ -5118,37 +5124,65 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
         if(!h){ SDL_Delay(400); continue; }
         g_proxy_active=1;
         char line[96];
-        if(proxy_readline(h,line,sizeof line)>0){ g_proxy_busy=1; if(proxy_command(h,line)){
-            int cancelled=0;
+        for(;;){                                             /* serve commands on this port */
+            if(proxy_readline(h,line,sizeof line)<=0) break; /* silence / paused: cycle the port */
+            g_proxy_busy=1;
+            int have=proxy_command(h,line);                  /* CANCEL etc return 0: read the next line */
+            if(!have) continue;
             char db[96]; int dn=0;
-            while(!proxy_paused()){ int st=link_net_status();      /* wait for the relay to pair */
+            while(have&&!proxy_paused()){ int st=link_net_status();   /* wait for the relay to pair */
                 if(st==LINK_NET_CONNECTED)break;
-                if(st==LINK_NET_OFF){ proxy_send(h,"MN1 ERR failed\n"); break; }
-                /* drain the device while waiting: discard command resends, honor CANCEL
-                 * (also doubles as the loop delay - raw_read blocks <=~100ms) */
+                if(st==LINK_NET_OFF){ proxy_send(h,"MN1 ERR failed\n"); have=0; break; }
+                /* drain the device while waiting (doubles as the loop delay): CANCEL
+                 * aborts; any NEW command replaces the pending action */
                 char c; int r=mote_dev_raw_read(h,&c,1);
                 if(r==1){
                     if(c=='\n'){ db[dn]=0; dn=0;
-                        if(!strncmp(db,"MN1 CANCEL",10)){ cancelled=1; break; } }
+                        if(!strncmp(db,"MN1 CANCEL",10)){
+                            link_net_stop(); g_room_code[0]=0; have=0;
+                            log_add("online(dev): cancelled on device"); }
+                        else if(!strncmp(db,"MN1 ",4)){
+                            log_add("online(dev): new request - replacing the pending one");
+                            have=proxy_command(h,db); } }
                     else if(c!='\r'&&dn<(int)sizeof db-1) db[dn++]=c;
                 } }
-            if(cancelled){ link_net_stop(); g_room_code[0]=0; log_add("online(dev): cancelled on device"); }
-            if(link_net_status()==LINK_NET_CONNECTED){
+            if(have&&link_net_status()==LINK_NET_CONNECTED){
                 proxy_send(h,"MN1 GO\n"); log_add("online(dev): paired - relaying");
-                while(!proxy_paused()){                            /* splice device <-> relay */
+                int mc=0;                                    /* MN1_CANCEL matcher state */
+                long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
+                while(1){                                    /* splice device <-> relay */
+                    if(proxy_paused()){ why="paused (manual op / toggle)"; break; }
                     int n=mote_dev_raw_read(h,buf,sizeof buf);
-                    for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; }
+                    int stop=0;
+                    for(int i=0;i<n&&!stop;i++){             /* scan for a device-side CANCEL */
+                        if(buf[i]==MN1_CANCEL[mc]){ if(++mc==(int)sizeof(MN1_CANCEL)-1)stop=1; }
+                        else mc=(buf[i]==MN1_CANCEL[0])?1:0;
+                    }
+                    for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; up+=w; }
+                    if(stop){ why="device left (lobby cancel)"; break; }
                     int m=link_net_recv(buf,sizeof buf);
-                    for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off); if(w<=0)break; off+=w; }
-                    if(link_net_status()!=LINK_NET_CONNECTED)break;
+                    for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off);
+                        if(w<=0){ if(++stalls<=3){ char sm[96];
+                                snprintf(sm,sizeof sm,"online(dev): device write STALLED (%d B undelivered) - device not draining?",m-off);
+                                log_add(sm); }
+                            break; }
+                        off+=w; dn2+=w; }
+                    if(link_net_status()!=LINK_NET_CONNECTED){ why=link_net_info(); break; }
+                    Uint32 now=SDL_GetTicks();               /* heartbeat every 15s */
+                    if(now-tlog>15000){ tlog=now; char hb[112];
+                        snprintf(hb,sizeof hb,"online(dev): relaying ok  dev->net %ld B, net->dev %ld B (%us)",up,dn2,(now-t0)/1000);
+                        log_add(hb); }
                 }
-                link_net_stop(); g_room_code[0]=0; log_add("online(dev): session ended");
+                { char em[160]; snprintf(em,sizeof em,"online(dev): session ended after %us - %s  (dev->net %ld B, net->dev %ld B)",
+                                         (SDL_GetTicks()-t0)/1000,why,up,dn2); log_add(em); }
+                link_net_stop(); g_room_code[0]=0;
             }
-        } }
+            break;                                           /* session over: cycle the port */
+        }
         mote_dev_close_raw(h); g_proxy_active=0; g_proxy_busy=0;
         SDL_Delay(150);
     }
-    g_proxy_active=0; return 0;
+    return 0;
 }
 
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;

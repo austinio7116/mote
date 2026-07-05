@@ -15,7 +15,10 @@
   typedef SOCKET nsock;
   #define NBAD INVALID_SOCKET
   #define ncl(s) closesocket(s)
-  static int nerr_wouldblock(void) { int e = WSAGetLastError(); return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS; }
+  /* transient = retry next pump. WSAENOBUFS is the classic Windows footgun: bursty
+   * small sends fail with it under momentary buffer pressure — it is NOT fatal. */
+  static int nerr_wouldblock(void) { int e = WSAGetLastError(); return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS || e == WSAENOBUFS || e == WSAEINTR; }
+  static int nerr_code(void) { return WSAGetLastError(); }
   static void nnonblock(nsock s) { u_long one = 1; ioctlsocket(s, FIONBIO, &one); }
   /* aggressive keepalive: first probe after 30s idle, then every 10s — keeps the
    * NAT mapping alive through quiet moments and detects a dead peer in ~1 min. */
@@ -37,7 +40,8 @@
   typedef int nsock;
   #define NBAD (-1)
   #define ncl(s) close(s)
-  static int nerr_wouldblock(void) { return errno == EWOULDBLOCK || errno == EAGAIN || errno == EINPROGRESS; }
+  static int nerr_wouldblock(void) { return errno == EWOULDBLOCK || errno == EAGAIN || errno == EINPROGRESS || errno == ENOBUFS || errno == EINTR; }
+  static int nerr_code(void) { return errno; }
   static void nnonblock(nsock s) { fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK); }
   /* aggressive keepalive: first probe after 30s idle, then every 10s (see note above). */
   static void nkeepalive(nsock s) {
@@ -248,7 +252,10 @@ void link_net_task(void) {
         if (s_state == LINK_NET_CONNECTED) {           /* paired: watch for peer close */
             char probe; int r = recv(s_conn, &probe, 1, MSG_PEEK);
             if (r == 0 || (r < 0 && !nerr_wouldblock())) {
-                drop_all_locked(); set_info("peer left");
+                char b[64]; int e = r == 0 ? 0 : nerr_code();
+                snprintf(b, sizeof b, r == 0 ? "peer left (relay closed the pipe)"
+                                             : "peer left (probe err %d)", e);
+                drop_all_locked(); set_info(b);
             }
             unl(); return;
         }
@@ -350,8 +357,9 @@ int link_net_send(const void *data, int len) {
 #endif
     );
     if (w < 0) { w = 0; if (!nerr_wouldblock()) {
-        if (s_relay) { drop_all_locked(); set_info("peer lost"); }
-        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info("peer lost"); } } }
+        char b[48]; snprintf(b, sizeof b, "peer lost (send err %d)", nerr_code());
+        if (s_relay) { drop_all_locked(); set_info(b); }
+        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); } } }
     unl(); return w;
 }
 
@@ -361,8 +369,10 @@ int link_net_recv(void *buf, int max) {
     int r = (int)recv(s_conn, (char *)buf, max, 0);
     if (r > 0) { unl(); return r; }
     if (r == 0 || !nerr_wouldblock()) {        /* EOF or hard error */
-        if (s_relay) { drop_all_locked(); set_info("peer lost"); }
-        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info("peer lost"); s_next_probe_ms = 0; }
+        char b[48]; snprintf(b, sizeof b, r == 0 ? "peer lost (pipe closed)"
+                                                 : "peer lost (recv err %d)", r == 0 ? 0 : nerr_code());
+        if (s_relay) { drop_all_locked(); set_info(b); }
+        else { ncl(s_conn); s_conn = NBAD; s_state = LINK_NET_SEARCHING; set_info(b); s_next_probe_ms = 0; }
     }
     unl(); return 0;
 }

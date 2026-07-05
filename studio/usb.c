@@ -30,7 +30,9 @@
       HANDLE h=CreateFileA(port,GENERIC_READ|GENERIC_WRITE,0,0,OPEN_EXISTING,0,0); if(h==INVALID_HANDLE_VALUE)return SBAD;
       DCB dcb; memset(&dcb,0,sizeof dcb); dcb.DCBlength=sizeof dcb; GetCommState(h,&dcb);
       dcb.BaudRate=115200; dcb.ByteSize=8; dcb.Parity=NOPARITY; dcb.StopBits=ONESTOPBIT; SetCommState(h,&dcb);
-      COMMTIMEOUTS to; memset(&to,0,sizeof to); to.ReadIntervalTimeout=MAXDWORD; to.ReadTotalTimeoutConstant=30; SetCommTimeouts(h,&to);
+      COMMTIMEOUTS to; memset(&to,0,sizeof to); to.ReadIntervalTimeout=MAXDWORD; to.ReadTotalTimeoutConstant=30;
+      to.WriteTotalTimeoutConstant=2000;   /* a device that stops draining CDC must NOT freeze us forever */
+      SetCommTimeouts(h,&to);
       PurgeComm(h,PURGE_RXCLEAR|PURGE_TXCLEAR); return h; }
   static int ser_write(shandle h,const void*b,int n){ DWORD w=0; return WriteFile(h,b,n,&w,0)?(int)w:0; }
   static int ser_read(shandle h,void*b,int n){ DWORD r=0; return ReadFile(h,b,n,&r,0)?(int)r:0; }

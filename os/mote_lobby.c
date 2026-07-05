@@ -225,6 +225,7 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 cmdline[p++] = ' '; u32dec(cmdline, &p, sizeof cmdline, gid);
                 if (action == ACT_JOIN) { cmdline[p++] = ' '; memcpy(cmdline + p, room_code, 4); p += 4; }
                 cmdline[p++] = '\n'; cmdlen = p;
+                mote_plat_link_send("MN1 CANCEL\n", 11);   /* clear any stale Studio session */
                 mote_plat_link_send(cmdline, cmdlen); ctrl_sent = 1; resend_t = 0.6f;
                 LOBDBG("sent control (%d bytes)\n", cmdlen);
             }
@@ -279,6 +280,7 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
         else if (screen == SC_BROWSE) {
             if (nrooms == 0) {
                 if (mote_just_pressed(&in, MOTE_BTN_A) || mote_just_pressed(&in, MOTE_BTN_B)) {
+                    mote_plat_link_send("MN1 CANCEL\n", 11);
                     mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0;
                 }
                 mote_ui_ground(fb);
@@ -289,7 +291,10 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 for (int i = 0; i < nrooms; i++) items[i] = rooms[i];
                 if (mote_just_pressed(&in, MOTE_BTN_DOWN)) sel = (sel + 1) % nrooms;
                 if (mote_just_pressed(&in, MOTE_BTN_UP))   sel = (sel + nrooms - 1) % nrooms;
-                if (mote_just_pressed(&in, MOTE_BTN_B)) { mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0; }
+                if (mote_just_pressed(&in, MOTE_BTN_B)) {
+                    mote_plat_link_send("MN1 CANCEL\n", 11);
+                    mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0;
+                }
                 if (mote_just_pressed(&in, MOTE_BTN_A)) {                 /* join the picked room */
                     memcpy(room_code, rooms[sel], 4); room_code[4] = 0;
                     int p = 0; memcpy(cmdline, "MN1 JOIN ", 9); p = 9;
@@ -307,7 +312,10 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
         }
         /* ---------------- link up + ML handshake (USB direct, or relayed) ---------------- */
         else if (screen == SC_LINK) {
-            if (mote_just_pressed(&in, MOTE_BTN_B)) { mote_plat_link_stop(); return MOTE_NET_CANCELLED; }
+            if (mote_just_pressed(&in, MOTE_BTN_B)) {
+                if (transport != MOTE_NET_USB) mote_plat_link_send("MN1 CANCEL\n", 11);
+                mote_plat_link_stop(); return MOTE_NET_CANCELLED;
+            }
             int st = mote_plat_link_status();
             { static int pl=-1; if(st!=pl){ LOBDBG("link status=%d\n",st); pl=st; } }
             if (st == MOTE_LINK_CONNECTED) {
@@ -371,7 +379,10 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
         }
         /* ---------------- net error ---------------- */
         else { /* SC_ERR */
-            if (mote_just_pressed(&in, MOTE_BTN_A) || mote_just_pressed(&in, MOTE_BTN_B)) { mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0; }
+            if (mote_just_pressed(&in, MOTE_BTN_A) || mote_just_pressed(&in, MOTE_BTN_B)) {
+                mote_plat_link_send("MN1 CANCEL\n", 11);
+                mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0;
+            }
             mote_ui_ground(fb);
             mote_font_draw(fb, "CONNECTION FAILED", 14, 44, MOTE_RGB565(240, 90, 90));
             if (err_msg[0]) mote_font_draw(fb, err_msg, 18, 62, MOTE_RGB565(200, 180, 180));
