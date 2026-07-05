@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.15.1-alpha — multiplayer, fixed for real play
+
+**Two-player now works reliably — over a USB cable or over the internet.** The four newest
+2-player games each had a bug that hit every connection type (fixed below), and linking two
+real devices directly on a cable could also lose data and desync the two screens (fixed in
+the firmware). Reflash both units; ABI unchanged (**v45**), so single-player games are
+untouched and the three older 2-player games (Wolfmote, MotoKart, DeepThumb) need no
+rebuild — they just play more reliably on the new firmware.
+
+### All 2-player games (firmware fix)
+- Linking two devices directly with a cable used to lose data under load — matches wouldn't
+  sync, links dropped, or the two screens disagreed. Fixed in the engine's link layer, so
+  every 2-player game benefits at once. (It never showed against Studio / internet play,
+  which is why the initial release looked fine there.)
+
+### The four newest 2-player games
+- **ThumbyCue** — turns hand off properly: no more breaking off, fouling, and both players
+  stuck on "PEER'S TURN". The watching player now also sees the balls **spin** as they roll,
+  instead of sliding.
+- **Grand Thumb Auto** — both players are in the exact same city (the two maps could differ
+  before); you can jack **any** moving car, not just parked ones; you start next to a car;
+  and a stolen car actually drives and keeps its speed. Single-player now gets a random
+  starting car too.
+- **Indemnity Run** — duels start instead of hanging on the loading screen and timing out
+  (your opponent used to fly on autopilot); ships collide instead of passing through; you
+  choose which saved ship to bring (or get a random balanced ship with no save); and a
+  damage warning that stuck on screen is cleared.
+- **PaperMote** — the AI bots move and appear in the same place for both players, and
+  crossing your opponent's trail always crashes them (it used to sometimes pass through).
+
 ## Unreleased
 
 **Two players, one cable.** Engine ABI **v42 → v43**: a 2-player link — reflash both
