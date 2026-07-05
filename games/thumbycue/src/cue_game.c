@@ -1139,7 +1139,8 @@ void cue_game_draw_overlay(uint16_t *fb) {
             switch (rows[i]) {
             case ROW_GAME:  menu_row(fb, "GAME", k_mode_name[s_kind], y, sel); break;
             case ROW_MODE:  menu_row(fb, "MODE",
-                                s_opp_mode==0?"2 PLAYER":s_opp_mode==1?"VS CPU":"CPU vs CPU", y, sel); break;
+                                s_opp_mode==0?"2 PLAYER":s_opp_mode==1?"VS CPU":
+                                s_opp_mode==2?"CPU vs CPU":"2P LINK", y, sel); break;
             case ROW_CPU1:  menu_row(fb, "CPU 1", CUE_PERSONAS[s_persona_p[0]].name, y, sel); break;
             case ROW_CPU2:  menu_row(fb, s_opp_mode==2?"CPU 2":"CPU", CUE_PERSONAS[s_persona_p[1]].name, y, sel); break;
             case ROW_BALLS: menu_row(fb, "BALLS", snk?"SNOOKER":k_ballset_name[s_ballset], y, sel); break;
