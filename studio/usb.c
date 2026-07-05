@@ -54,7 +54,8 @@
               snprintf(p,sizeof p,"/sys/class/tty/%s/%s/idProduct",e->d_name,ups[u]); if((f=fopen(p,"r"))){ if(fscanf(f,"%x",&pid)!=1)pid=0; fclose(f); }
               if(vid==MVID&&pid==MPID){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } } }
       closedir(d); return found; }
-  static shandle ser_open(void){ char port[64]; if(!find_port(port,sizeof port))return SBAD;
+  static shandle ser_open(void){ char port[64]; const char*ov=getenv("MOTE_DEV_PORT");   /* test override: a pty/tty path */
+      if(ov&&ov[0]) snprintf(port,sizeof port,"%.63s",ov); else if(!find_port(port,sizeof port))return SBAD;
       int fd=open(port,O_RDWR|O_NOCTTY); if(fd<0)return SBAD;
       struct termios t; if(tcgetattr(fd,&t)){ close(fd); return SBAD; } cfmakeraw(&t);
       cfsetispeed(&t,B115200); cfsetospeed(&t,B115200); t.c_cc[VMIN]=0; t.c_cc[VTIME]=1;   /* 0.1s read timeout */
