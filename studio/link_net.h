@@ -28,4 +28,15 @@ int  link_net_send(const void *data, int len);
 int  link_net_recv(void *buf, int max);
 const char *link_net_info(void);     /* short human status line for the UI */
 
+/* --- Internet relay (studio/../relay/mote_relay.py) — the friendly transport:
+ * both Studios connect OUT to the relay (no port-forwarding, no local firewall
+ * prompt) and join a room. Once paired the same s_conn pipe drives send/recv, so
+ * the bridge + preview code is unchanged. Configure the relay once (host + port;
+ * default 443), then Host/Join/Quick. All non-blocking except link_net_list. */
+void link_net_relay_config(const char *host, int port);         /* port<=0 keeps 443 */
+void link_net_relay_host(const char *code, int public_, const char *label);
+void link_net_relay_join(const char *code);
+void link_net_relay_quick(const char *label);
+int  link_net_list(char *out, int max);   /* BLOCKING ~2.5s: fills "CODE LABEL\n"*, returns room count (<0 err) */
+
 #endif /* MOTE_LINK_NET_H */

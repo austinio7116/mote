@@ -4985,6 +4985,38 @@ static void bridge_start(int local){ if(g_bridge_on)return;
     SDL_CreateThread(bridge_thread,"bridge",NULL); }
 
 static SDL_Rect g_lkb[5]; static const char *LKB_L[5]={ "Host LAN","Join LAN","Bridge USB","Vs Device","Stop Link" };
+
+/* ---- ONLINE (internet relay): both Studios connect OUT to a relay and join a
+ * room — no port-forwarding, no local firewall prompt. Config from MOTE_RELAY. */
+static char g_relay_cfg[140];        /* "host:port" for the UI (empty = unset) */
+static char g_room_code[10];         /* our hosted/joined code */
+#define MAX_BROWSE 12
+static char g_browse[MAX_BROWSE][40]; static int g_browse_n; static volatile int g_browse_busy;
+static SDL_Rect g_olb[3], g_browse_rect[MAX_BROWSE];   /* Quick / Host / Browse + list rows */
+
+static void relay_config_from_env(void){
+    const char*r=getenv("MOTE_RELAY"); if(!r||!r[0]) return;
+    char host[128]; int port=443; const char*c=strchr(r,':');
+    if(c){ int hl=(int)(c-r); if(hl>127)hl=127; memcpy(host,r,hl); host[hl]=0; port=atoi(c+1); }
+    else snprintf(host,sizeof host,"%s",r);
+    if(port<=0)port=443;
+    link_net_relay_config(host,port);
+    snprintf(g_relay_cfg,sizeof g_relay_cfg,"%s:%d",host,port);
+}
+static void gen_room_code(void){
+    static const char A[]="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   /* no confusable 0/O/1/I */
+    for(int i=0;i<4;i++) g_room_code[i]=A[rand()%(int)(sizeof A-1)];
+    g_room_code[4]=0;
+}
+static const char *room_label(void){ return (g_sel>=0)?g_games[g_sel].name:"MOTE"; }
+static int browse_thread(void*a){ (void)a; g_browse_busy=1;
+    static char buf[MAX_BROWSE*40+64];
+    int n=link_net_list(buf,sizeof buf); g_browse_n=0;
+    if(n>0){ char*p=buf; while(*p&&g_browse_n<MAX_BROWSE){ char*e=strchr(p,'\n');
+        int len=e?(int)(e-p):(int)strlen(p); if(len>39)len=39;
+        memcpy(g_browse[g_browse_n],p,len); g_browse[g_browse_n][len]=0; g_browse_n++;
+        if(!e)break; p=e+1; } }
+    g_browse_busy=0; return 0; }
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
     text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
@@ -5013,7 +5045,31 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     { char st[160];
       if(g_bridge_on&&g_bridge_local) snprintf(st,sizeof st,"link: preview <-> USB device (local)");
       else snprintf(st,sizeof st,"link: %s%s",link_net_info(),g_bridge_on?"  [bridging USB device]":"");
-      text(R,st,ox,ly+38,1,(g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK); } }
+      text(R,st,ox,ly+38,1,(g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK); }
+    /* --- ONLINE (relay) row --- */
+    int oy2=ly+58;
+    text(R,"ONLINE  (play over the internet - no port-forwarding; then Bridge USB or run the preview)",ox,oy2,1,C_TITLE,C_DOCK);
+    static const char*OLB_L[3]={ "Quick Match","Host Room","Browse" };
+    static const char*OLB_T[3]={ "One tap: join any open public room, or open one and wait",
+        "Open a public room with a code others can join or Browse to",
+        "List open public rooms; click one to join" };
+    int oic[3]={IC_PLAY,IC_UPLOAD,IC_FOLDER};
+    x=ox; oy2+=20;
+    for(int i=0;i<3;i++){ int bw=textw(R,OLB_L[i],1)+46; g_olb[i]=(SDL_Rect){x,oy2,bw,28};
+        int dis=!g_relay_cfg[0];
+        rrect(R,x,oy2,bw,28,4,dis?C_DOCK:hit(mx,my,x,oy2,bw,28)?C_BTNHI:C_BTN);
+        icon(R,oic[i],x+10,oy2+7,14,dis?C_DIM:C_TXT); text(R,OLB_L[i],x+30,oy2+8,1,dis?C_DIM:C_TXT,C_BTN);
+        tip(g_olb[i],mx,my,OLB_T[i]); x+=bw+8; }
+    { char st[180];
+      if(!g_relay_cfg[0]) snprintf(st,sizeof st,"set MOTE_RELAY=host[:port] to enable online (default port 443)");
+      else if(g_room_code[0]&&link_net_status()!=LINK_NET_CONNECTED) snprintf(st,sizeof st,"relay %s   ROOM CODE: %s   %s",g_relay_cfg,g_room_code,link_net_info());
+      else snprintf(st,sizeof st,"relay %s   %s",g_relay_cfg,link_net_info());
+      text(R,st,ox,oy2+36,1,link_net_status()==LINK_NET_CONNECTED?C_ACC:C_DIM,C_DOCK); }
+    /* browse results: click a room to join */
+    if(g_browse_busy) text(R,"browsing...",ox,oy2+50,1,C_DIM,C_DOCK);
+    else for(int i=0;i<g_browse_n;i++){ int ry=oy2+50+i*16; g_browse_rect[i]=(SDL_Rect){ox,ry,240,14};
+        rrect(R,ox,ry,240,14,3,hit(mx,my,ox,ry,240,14)?C_BTNHI:C_BTN);
+        char row[48]; snprintf(row,sizeof row,"> %s",g_browse[i]); text(R,row,ox+6,ry+3,1,C_TXT,C_BTN); } }
 /* native device ops (no Python) run on a worker thread, logging into the Console */
 static int g_devop; static volatile int g_devstop;
 static int dev_thread(void*a){ (void)a;
@@ -5033,7 +5089,20 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
         else if(i==1){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("link: joining..."); }
         else if(i==2){ if(g_bridge_on)bridge_stop(); else bridge_start(0); }
         else if(i==3){ if(g_bridge_on)bridge_stop(); else bridge_start(1); }
-        else { bridge_stop(); link_net_stop(); log_add("link: stopped"); }
+        else { bridge_stop(); link_net_stop(); g_room_code[0]=0; g_browse_n=0; log_add("link: stopped"); }
+        return; }
+    /* ONLINE (relay) buttons */
+    if(g_relay_cfg[0]) for(int i=0;i<3;i++)if(hit(mx,my,g_olb[i].x,g_olb[i].y,g_olb[i].w,g_olb[i].h)){
+        if(i==0){ g_room_code[0]=0; g_browse_n=0; link_net_relay_quick(room_label()); log_add("online: quick match..."); }
+        else if(i==1){ gen_room_code(); g_browse_n=0; link_net_relay_host(g_room_code,1,room_label());
+                       char m[64]; snprintf(m,sizeof m,"online: hosting room %s",g_room_code); log_add(m); }
+        else if(i==2){ if(!g_browse_busy) SDL_CreateThread(browse_thread,"browse",NULL); }
+        return; }
+    /* click a browsed room to join it */
+    if(!g_browse_busy) for(int i=0;i<g_browse_n;i++)if(hit(mx,my,g_browse_rect[i].x,g_browse_rect[i].y,g_browse_rect[i].w,g_browse_rect[i].h)){
+        char code[10]; int k=0; const char*s=g_browse[i]; while(s[k]&&s[k]!=' '&&k<9){ code[k]=s[k]; k++; } code[k]=0;
+        snprintf(g_room_code,sizeof g_room_code,"%s",code); g_browse_n=0;
+        link_net_relay_join(code); char m[48]; snprintf(m,sizeof m,"online: joining %s",code); log_add(m);
         return; } }
 
 /* ================= code editor (CODE tab) ================= */
@@ -6297,6 +6366,15 @@ int main(int argc,char**argv){
      * MOTE_LINK_JOIN=<ip|anything> joins (a non-IP value means LAN discovery). */
     if(getenv("MOTE_LINK_HOST")) link_net_host();
     else if(getenv("MOTE_LINK_JOIN")) link_net_join(getenv("MOTE_LINK_JOIN"));
+    /* Online relay: MOTE_RELAY=host[:port] configures it; the following autostart a
+     * room for headless testing — MOTE_RELAY_HOST=<code>, MOTE_RELAY_JOIN=<code>,
+     * MOTE_RELAY_QUICK=1. */
+    relay_config_from_env();
+    if(g_relay_cfg[0]){
+        if(getenv("MOTE_RELAY_QUICK")) link_net_relay_quick("TEST");
+        else if(getenv("MOTE_RELAY_HOST")){ snprintf(g_room_code,sizeof g_room_code,"%s",getenv("MOTE_RELAY_HOST")); link_net_relay_host(g_room_code,1,"TEST"); }
+        else if(getenv("MOTE_RELAY_JOIN")){ snprintf(g_room_code,sizeof g_room_code,"%s",getenv("MOTE_RELAY_JOIN")); link_net_relay_join(g_room_code); }
+    }
 
     int running=1,watch=0;
     do { SDL_Event e;

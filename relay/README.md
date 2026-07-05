@@ -96,12 +96,16 @@ After `GO`, every byte each side sends is forwarded verbatim to the other. The
 own random nonce** (never `link_is_host`, which is 0 on both ends over the Studio
 bridge), so it's advisory only.
 
-`link_net.c` gets a third transport alongside Host/Join LAN — connect out to a
-configured `relay_host:42450`, send the chosen `MOTE1 …` line, read the `GO`
-line, then hand the socket to the existing bridge/pipe unchanged. The DEVICE-tab
-UI maps naturally: **Host Private** (`HOST <code> PRIV`), **Host Public**
-(`HOST <code> PUB <name>`), **Quick Match** (`QUICK`), and a **Browse** list
-(`LIST` → pick → `JOIN`).
+**Wired into the Studio.** `link_net.c` has a relay transport alongside Host/Join
+LAN: it connects out to the configured `relay_host:port`, does the `MOTE1 …`
+handshake, reads the `GO` line, then the same `s_conn` pipe drives send/recv so
+the bridge + preview are unchanged. Configure with **`MOTE_RELAY=host[:port]`**
+(default port 443) before launching the Studio; the DEVICE tab then shows an
+**ONLINE** row: **Quick Match** (`QUICK`), **Host Room** (`HOST <auto-code> PUB
+<game>` — the code is shown to share), and **Browse** (`LIST` → click a room →
+`JOIN`). Then **Bridge USB** to relay a docked device, or just run the preview.
+(Headless test hooks: `MOTE_RELAY_HOST=<code>` / `MOTE_RELAY_JOIN=<code>` /
+`MOTE_RELAY_QUICK=1` autostart a room at launch.)
 
 ## Scaling later
 
