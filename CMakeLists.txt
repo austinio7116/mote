@@ -58,6 +58,9 @@ if(MOTE_TARGET STREQUAL "host")
     target_compile_options(mote_engine PRIVATE -O2 -ffast-math -Wall -Wextra)
     target_link_libraries(mote_engine PUBLIC m)
 
+    # Only mote_host (Linux-only) consumes this backend; it uses POSIX sockets,
+    # so keep it out of the Windows build entirely.
+    if(NOT WIN32)
     add_library(mote_plat_host STATIC platform/host/mote_plat_host.c)
     target_include_directories(mote_plat_host PUBLIC ${MOTE_INCLUDE_DIRS})
     target_compile_definitions(mote_plat_host PUBLIC MOTE_HOST=1)
@@ -67,6 +70,7 @@ if(MOTE_TARGET STREQUAL "host")
         target_include_directories(mote_plat_host PUBLIC ${SDL2_INCLUDE_DIRS})
         target_link_libraries(mote_plat_host PUBLIC ${SDL2_LIBRARIES})
     endif()
+    endif()  # NOT WIN32 (host platform backend)
 
     # Mote OS host: launcher + dlopen a selected game module + run the loop.
     # (Linux-only reference loader; the Studio is the cross-platform target.)
