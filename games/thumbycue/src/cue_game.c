@@ -709,6 +709,13 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
             if (s_cam_dist_z<0.0f) s_cam_dist_z=0.0f; if (s_cam_dist_z>1.0f) s_cam_dist_z=1.0f;
             if (s_cam_pitch<0.0f)  s_cam_pitch=0.0f;  if (s_cam_pitch>1.0f)  s_cam_pitch=1.0f;
         }
+        /* LINK viewer: balls and outcomes are REPLICATED — 'B' frames carry
+         * positions (no velocities) and the final 'E' carries the authoritative
+         * result. Simulating here saw stationary balls, declared the shot over
+         * on frame one, ran the rules on a phantom no-contact foul, flipped the
+         * turn and emitted a bogus 'E' of its own — the released turn-chaos bug.
+         * A viewer never simulates and never resolves. */
+        if (s_link_on && s_rules.turn != s_link_me) return;
         /* loudness of impacts tracks the fastest ball this step → a hard clack
          * is loud, a gentle kiss soft, a slow ball trickling in pots softly. */
         float vmax = 0.0f;
