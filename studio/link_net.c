@@ -88,6 +88,7 @@ static char  s_rly_line[96];          /* the MOTE1 handshake to send once connec
 static char  s_rly_buf[24]; static int s_rly_len;   /* GO-line accumulator (byte-by-byte) */
 static char  s_relay_host[128];
 static int   s_relay_port = LN_RELAY_PORT_DEFAULT;
+static unsigned s_relay_gid;          /* game id for room gating (0 = ungated) */
 
 static void lk(void)  { if (!s_mx) s_mx = SDL_CreateMutex(); SDL_LockMutex(s_mx); }
 static void unl(void) { SDL_UnlockMutex(s_mx); }
@@ -173,6 +174,8 @@ void link_net_relay_config(const char *host, int port) {
     unl();
 }
 
+void link_net_relay_game(unsigned gameid) { lk(); s_relay_gid = gameid; unl(); }
+
 /* resolve s_relay_host:s_relay_port (IP or hostname) into s_join_to */
 static int resolve_relay_locked(void) {
     struct addrinfo hints, *res = NULL;
@@ -204,18 +207,21 @@ static void relay_start_locked(const char *line) {
 }
 
 void link_net_relay_host(const char *code, int public_, const char *label) {
+    lk();
     char line[96];
-    snprintf(line, sizeof line, "MOTE1 HOST %s %s %s\n",
-             code, public_ ? "PUB" : "PRIV", (label && label[0]) ? label : "GAME");
-    lk(); relay_start_locked(line); unl();
+    snprintf(line, sizeof line, "MOTE2 HOST %u %s %s %s\n",
+             s_relay_gid, code, public_ ? "PUB" : "PRIV", (label && label[0]) ? label : "GAME");
+    relay_start_locked(line); unl();
 }
 void link_net_relay_join(const char *code) {
-    char line[64]; snprintf(line, sizeof line, "MOTE1 JOIN %s\n", code);
-    lk(); relay_start_locked(line); unl();
+    lk();
+    char line[64]; snprintf(line, sizeof line, "MOTE2 JOIN %u %s\n", s_relay_gid, code);
+    relay_start_locked(line); unl();
 }
 void link_net_relay_quick(const char *label) {
-    char line[64]; snprintf(line, sizeof line, "MOTE1 QUICK %s\n", (label && label[0]) ? label : "QUICK");
-    lk(); relay_start_locked(line); unl();
+    lk();
+    char line[64]; snprintf(line, sizeof line, "MOTE2 QUICK %u %s\n", s_relay_gid, (label && label[0]) ? label : "QUICK");
+    relay_start_locked(line); unl();
 }
 
 /* try one non-blocking connect to s_join_to; 1 = connected */
@@ -367,7 +373,7 @@ const char *link_net_info(void) { return s_info; }   /* racy read of a short str
  * touch the link state). Fills `out` with "CODE LABEL\n" lines; returns the
  * room count, or <0 on error. Call from a worker thread (blocks up to ~2.5s). */
 int link_net_list(char *out, int max) {
-    lk(); char host[128]; int port; snprintf(host, sizeof host, "%s", s_relay_host); port = s_relay_port; unl();
+    lk(); char host[128]; int port; unsigned gid; snprintf(host, sizeof host, "%s", s_relay_host); port = s_relay_port; gid = s_relay_gid; unl();
     if (!host[0] || max <= 0) return -1;
     if (net_boot() != 0) return -1;
     struct addrinfo hints, *res = NULL; memset(&hints, 0, sizeof hints);
@@ -385,7 +391,7 @@ int link_net_list(char *out, int max) {
 #endif
     if (connect(c, res->ai_addr, (int)res->ai_addrlen) != 0) { freeaddrinfo(res); ncl(c); return -1; }
     freeaddrinfo(res);
-    send(c, "MOTE1 LIST\n", 11, LN_SEND_FLAGS);
+    { char q[32]; int ql = snprintf(q, sizeof q, "MOTE2 LIST %u\n", gid); send(c, q, ql, LN_SEND_FLAGS); }
     int o = 0, rooms = 0, ll = 0; char lb[128];
     for (;;) {
         char ch; int r = (int)recv(c, &ch, 1, 0);

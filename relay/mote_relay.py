@@ -85,22 +85,26 @@ def tune(writer: asyncio.StreamWriter):
         pass
 
 class Room:
-    __slots__ = ("reader", "writer", "future", "public", "label", "created")
-    def __init__(self, reader, writer, future, public, label):
+    __slots__ = ("reader", "writer", "future", "public", "label", "created", "gid", "code")
+    def __init__(self, reader, writer, future, public, label, gid, code):
         self.reader, self.writer, self.future = reader, writer, future
-        self.public, self.label, self.created = public, label, time.monotonic()
+        self.public, self.label, self.gid, self.code = public, label, gid, code
+        self.created = time.monotonic()
+
+def rkey(gid, code):
+    return gid + "/" + code       # rooms are namespaced per game, so codes don't collide across games
 
 class Relay:
     def __init__(self, args):
         self.args = args
-        self.rooms = {}            # CODE -> Room  (a host waiting for a partner)
+        self.rooms = {}            # "gid/CODE" -> Room  (a host waiting for a partner)
         self.conns = 0
 
-    def gen_code(self) -> str:
+    def gen_code(self, gid) -> str:
         alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no confusable 0/O/1/I
         for _ in range(20):
             c = "".join(random.choice(alpha) for _ in range(4))
-            if c not in self.rooms:
+            if rkey(gid, c) not in self.rooms:
                 return c
         return "R" + "".join(random.choice(alpha) for _ in range(5))
 
@@ -138,30 +142,30 @@ class Relay:
         await asyncio.gather(t1, t2, return_exceptions=True)
         return why[0] or "closed"
 
-    async def pair(self, code, room: "Room", reader, writer, peer):
+    async def pair(self, room: "Room", reader, writer, peer):
         """`room` is the waiting host; we're the joiner. Splice them."""
         room.writer.write(b"GO H\n"); await room.writer.drain()
         writer.write(b"GO G\n"); await writer.drain()
-        log(f"room {code}: paired ({peer})")
+        log(f"room {room.gid}/{room.code}: paired ({peer})")
         why = await self.relay(room.reader, room.writer, reader, writer)
         if not room.future.done():
             room.future.set_result(True)        # release the host's handler
-        log(f"room {code}: closed ({why})")
+        log(f"room {room.gid}/{room.code}: closed ({why})")
 
-    async def wait_as_host(self, code, room: "Room", writer, peer):
+    async def wait_as_host(self, key, room: "Room", writer, peer):
         """Register `room` and hold this connection (untouched) for a partner."""
-        self.rooms[code] = room
-        log(f"room {code}: waiting {'(public)' if room.public else '(private)'} ({peer})")
+        self.rooms[key] = room
+        log(f"room {key}: waiting {'(public)' if room.public else '(private)'} ({peer})")
         try:
             await asyncio.wait_for(room.future, timeout=self.args.join_timeout)
         except asyncio.TimeoutError:
-            if self.rooms.get(code) is room:
-                self.rooms.pop(code, None)
+            if self.rooms.get(key) is room:
+                self.rooms.pop(key, None)
                 try:
                     writer.write(b"TIMEOUT\n"); await writer.drain()
                 except OSError:
                     pass
-                log(f"room {code}: timed out")
+                log(f"room {key}: timed out")
             else:
                 try: await room.future      # a joiner grabbed us; let the relay finish
                 except Exception: pass
@@ -176,56 +180,63 @@ class Relay:
         try:
             line = await asyncio.wait_for(read_line(reader), timeout=10)
             t = line.decode("ascii", "ignore").split()
-            if len(t) < 2 or t[0] != "MOTE1":
+            # MOTE2 (game-gated): "MOTE2 <VERB> <GAMEID> ..."  ·  MOTE1 (legacy, ungated): "MOTE1 <VERB> ..."
+            if len(t) < 2 or t[0] not in ("MOTE1", "MOTE2"):
                 writer.write(b"ERR\n"); await writer.drain(); return
             verb = t[1].upper()
+            if t[0] == "MOTE2":
+                gid = t[2] if len(t) > 2 else ""
+                a = t[3:]                        # verb args after the game-id
+                if not gid:
+                    writer.write(b"ERR\n"); await writer.drain(); return
+            else:
+                gid = "*"                        # legacy shared pool
+                a = t[2:]
             loop = asyncio.get_event_loop()
 
-            if verb == "LIST":                  # browse open public rooms (query only)
+            if verb == "LIST":                  # browse this game's open public rooms
                 out = bytearray()
-                for c, r in list(self.rooms.items()):
-                    if r.public:
-                        out += f"ROOM {c} {r.label}\n".encode()
+                for k, r in list(self.rooms.items()):
+                    if r.public and r.gid == gid:
+                        out += f"ROOM {r.code} {r.label}\n".encode()
                         if len(out) > 3500: break
                 out += b"END\n"
                 writer.write(out); await writer.drain()
                 return
 
-            if verb == "HOST":                  # MOTE1 HOST <CODE> <PUB|PRIV> [LABEL]
-                code = clean_code(t[2]) if len(t) > 2 else ""
+            if verb == "HOST":                  # HOST <CODE> <PUB|PRIV> [LABEL]
+                code = clean_code(a[0]) if len(a) > 0 else ""
                 if not code:
                     writer.write(b"ERR\n"); await writer.drain(); return
-                if code in self.rooms:
+                key = rkey(gid, code)
+                if key in self.rooms:
                     writer.write(b"TAKEN\n"); await writer.drain(); return
-                public = (len(t) > 3 and t[3].upper() == "PUB")
-                label = clean_label(t[4]) if len(t) > 4 else "GAME"
-                my_code = code
-                await self.wait_as_host(code, Room(reader, writer, loop.create_future(), public, label), writer, peer)
+                public = (len(a) > 1 and a[1].upper() == "PUB")
+                label = clean_label(a[2]) if len(a) > 2 else "GAME"
+                my_code = key
+                await self.wait_as_host(key, Room(reader, writer, loop.create_future(), public, label, gid, code), writer, peer)
                 return
 
-            if verb == "JOIN":                  # MOTE1 JOIN <CODE>
-                code = clean_code(t[2]) if len(t) > 2 else ""
-                room = self.rooms.pop(code, None) if code else None
+            if verb == "JOIN":                  # JOIN <CODE>  (must be the same game-id)
+                code = clean_code(a[0]) if len(a) > 0 else ""
+                room = self.rooms.pop(rkey(gid, code), None) if code else None
                 if room is None:
                     writer.write(b"NONE\n"); await writer.drain(); return
-                await self.pair(code, room, reader, writer, peer)
+                await self.pair(room, reader, writer, peer)
                 return
 
-            if verb == "QUICK":                 # MOTE1 QUICK [LABEL] — one-tap matchmaking
-                # join the oldest waiting public room, if any...
+            if verb == "QUICK":                 # QUICK [LABEL] — match within this game only
                 oldest = None
-                for c, r in self.rooms.items():
-                    if r.public and (oldest is None or r.created < self.rooms[oldest].created):
-                        oldest = c
+                for k, r in self.rooms.items():
+                    if r.public and r.gid == gid and (oldest is None or r.created < self.rooms[oldest].created):
+                        oldest = k
                 if oldest is not None:
-                    room = self.rooms.pop(oldest)
-                    await self.pair(oldest, room, reader, writer, peer)
+                    await self.pair(self.rooms.pop(oldest), reader, writer, peer)
                     return
-                # ...else become a public room ourselves and wait.
-                code = self.gen_code()
-                label = clean_label(t[2]) if len(t) > 2 else "QUICK"
-                my_code = code
-                await self.wait_as_host(code, Room(reader, writer, loop.create_future(), True, label), writer, peer)
+                code = self.gen_code(gid)        # ...else host a public room and wait
+                label = clean_label(a[0]) if len(a) > 0 else "QUICK"
+                key = rkey(gid, code); my_code = key
+                await self.wait_as_host(key, Room(reader, writer, loop.create_future(), True, label, gid, code), writer, peer)
                 return
 
             writer.write(b"ERR\n"); await writer.drain()

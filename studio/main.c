@@ -5029,6 +5029,12 @@ static void gen_room_code(void){
     g_room_code[4]=0;
 }
 static const char *room_label(void){ return (g_sel>=0)?g_games[g_sel].name:"MOTE"; }
+/* Room gating: derive a game id from the selected game's name (FNV-1a) so Browse/
+ * Quick/Join only pair the same game. (The device-driven lobby will later supply
+ * the game's own id + protocol version; for the Studio-driven path this is the
+ * selected game.) */
+static unsigned fnv32(const char*s){ unsigned h=2166136261u; while(*s){ h^=(unsigned char)*s++; h*=16777619u; } return h; }
+static void relay_set_game(void){ link_net_relay_game(fnv32(room_label())); }
 static int browse_thread(void*a){ (void)a; g_browse_busy=1;
     static char buf[MAX_BROWSE*40+64];
     int n=link_net_list(buf,sizeof buf); g_browse_n=0;
@@ -5124,6 +5130,7 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
     g_relay_focus=0;
     /* ONLINE (relay) buttons */
     if(g_relay_cfg[0]) for(int i=0;i<3;i++)if(hit(mx,my,g_olb[i].x,g_olb[i].y,g_olb[i].w,g_olb[i].h)){
+        relay_set_game();   /* gate rooms to the selected game */
         if(i==0){ g_room_code[0]=0; g_browse_n=0; link_net_relay_quick(room_label()); log_add("online: quick match..."); }
         else if(i==1){ gen_room_code(); g_browse_n=0; link_net_relay_host(g_room_code,1,room_label());
                        char m[64]; snprintf(m,sizeof m,"online: hosting room %s",g_room_code); log_add(m); }
@@ -5133,6 +5140,7 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
     if(!g_browse_busy) for(int i=0;i<g_browse_n;i++)if(hit(mx,my,g_browse_rect[i].x,g_browse_rect[i].y,g_browse_rect[i].w,g_browse_rect[i].h)){
         char code[10]; int k=0; const char*s=g_browse[i]; while(s[k]&&s[k]!=' '&&k<9){ code[k]=s[k]; k++; } code[k]=0;
         snprintf(g_room_code,sizeof g_room_code,"%s",code); g_browse_n=0;
+        relay_set_game();
         link_net_relay_join(code); char m[48]; snprintf(m,sizeof m,"online: joining %s",code); log_add(m);
         return; } }
 
@@ -6402,6 +6410,7 @@ int main(int argc,char**argv){
      * MOTE_RELAY_QUICK=1. */
     relay_init();
     if(g_relay_cfg[0]){
+        relay_set_game();
         if(getenv("MOTE_RELAY_QUICK")) link_net_relay_quick("TEST");
         else if(getenv("MOTE_RELAY_HOST")){ snprintf(g_room_code,sizeof g_room_code,"%s",getenv("MOTE_RELAY_HOST")); link_net_relay_host(g_room_code,1,"TEST"); }
         else if(getenv("MOTE_RELAY_JOIN")){ snprintf(g_room_code,sizeof g_room_code,"%s",getenv("MOTE_RELAY_JOIN")); link_net_relay_join(g_room_code); }

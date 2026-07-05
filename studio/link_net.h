@@ -34,6 +34,7 @@ const char *link_net_info(void);     /* short human status line for the UI */
  * the bridge + preview code is unchanged. Configure the relay once (host + port;
  * default 443), then Host/Join/Quick. All non-blocking except link_net_list. */
 void link_net_relay_config(const char *host, int port);         /* port<=0 keeps 443 */
+void link_net_relay_game(unsigned gameid);   /* room gating: only same-gameid peers pair (0 = legacy/ungated) */
 void link_net_relay_host(const char *code, int public_, const char *label);
 void link_net_relay_join(const char *code);
 void link_net_relay_quick(const char *label);
