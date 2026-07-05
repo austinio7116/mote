@@ -412,6 +412,19 @@ int mote_plat_link_recv(void *buf, int max) {
     if (s_frag) { static unsigned rng = 0x1234u; rng = rng * 1664525u + 1013904223u;
                   int cap = 1 + (int)((rng >> 20) % 7); if (max > cap) max = cap; }
     ssize_t r = recv(s_lk_fd, buf, (size_t)max, MSG_DONTWAIT);
+    /* MOTE_LINK_LOSS=N: drop roughly 1-in-N received bytes — simulates the
+     * device-side ring-overflow loss so integrity layers can be tested. */
+    { static int s_loss = -1;
+      if (s_loss < 0) { const char *e = getenv("MOTE_LINK_LOSS"); s_loss = e ? atoi(e) : 0; }
+      if (s_loss > 0 && r > 0) {
+          static unsigned lr = 0x9e37u; uint8_t *p = (uint8_t *)buf; ssize_t o = 0;
+          for (ssize_t i = 0; i < r; i++) {
+              lr = lr * 1664525u + 1013904223u;
+              if ((int)((lr >> 16) % (unsigned)s_loss) == 0) continue;   /* dropped */
+              p[o++] = p[i];
+          }
+          r = o;
+      } }
     if (r > 0) return (int)r;
     if (r == 0) { lk_close_conn(); s_lk_state = 1; s_lk_is_host = 0; }   /* EOF */
     return 0;

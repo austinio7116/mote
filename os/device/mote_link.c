@@ -57,8 +57,15 @@ void tuh_umount_cb(uint8_t daddr)  { (void)daddr; s_cdc_mounted = 0; }
 void tuh_cdc_mount_cb(uint8_t idx)   { s_cdc_idx = idx; s_cdc_mounted = 1; }
 void tuh_cdc_umount_cb(uint8_t idx)  { (void)idx; s_cdc_mounted = 0; }
 void tuh_cdc_rx_cb(uint8_t idx) {
+    /* Read ONLY what the ring can hold. The old unconditional drain made the
+     * USB-HOST-role unit silently drop bytes under burst (ring_put drops when
+     * full) — the device-role side flow-controls via NAK, so exactly ONE side
+     * of a cable link corrupted bulk transfers (GTA's city, cue's shot data).
+     * Whatever stays in TinyUSB's rx buffer backpressures the sender; the
+     * link task drains it as the game frees ring space. */
     uint8_t b;
-    while (tuh_cdc_read(idx, &b, 1) == 1) ring_put(b);
+    while (ring_avail() < (int)sizeof s_ring - 1 && tuh_cdc_read(idx, &b, 1) == 1)
+        ring_put(b);
 }
 
 /* ---- role switching ------------------------------------------------------ */
@@ -120,6 +127,12 @@ void mote_link_task(void) {
 
     if (s_is_host) {
         tuh_task();
+        /* drain what the rx callback left behind (ring was full then) */
+        if (s_cdc_mounted) {
+            uint8_t b;
+            while (ring_avail() < (int)sizeof s_ring - 1 &&
+                   tuh_cdc_read(s_cdc_idx, &b, 1) == 1) ring_put(b);
+        }
         s_connected = s_cdc_mounted;
     } else {
         tud_task();

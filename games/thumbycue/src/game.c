@@ -104,7 +104,7 @@ static void map_buttons(const MoteInput *in, CraftRawButtons *b) {
  *   'A'                — keepalive (~1 Hz when nothing else is sent).
  *   'Q'                — orderly quit.                                          */
 #define LK_MAGIC 0xA5
-#define LK_PROTO 1
+#define LK_PROTO 2   /* 2: 'C' carries the shooter's view az/pitch + cue draw */
 enum { LK_OFF = 0, LK_HS, LK_PLAY };
 static int      lk_state;
 static uint16_t lk_my_nonce, lk_peer_nonce;

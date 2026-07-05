@@ -1424,7 +1424,15 @@ int cue_game_link_enc_aim(uint8_t *b) {
     b[p++] = (uint8_t)cx; b[p++] = (uint8_t)(cx >> 8);
     b[p++] = (uint8_t)cz; b[p++] = (uint8_t)(cz >> 8);
     b[p++] = (uint8_t)s_state;
-    return p;                       /* 10 bytes */
+    /* spectator view mirroring (proto 2): the opponent sees what YOU see —
+     * your actual camera line + pitch and the cue's backswing draw */
+    int16_t vaz = (int16_t)(lk_wrap(s_view_az) * LK_ANG);
+    b[p++] = (uint8_t)vaz; b[p++] = (uint8_t)(vaz >> 8);
+    int cp = (int)(s_cam_pitch * 255.0f); if (cp < 0) cp = 0; if (cp > 255) cp = 255;
+    b[p++] = (uint8_t)cp;
+    int pl = (int)(s_pull * 255.0f); if (pl < 0) pl = 0; if (pl > 255) pl = 255;
+    b[p++] = (uint8_t)pl;
+    return p;                       /* 14 bytes */
 }
 
 int cue_game_link_enc_balls(uint8_t *b) {
@@ -1462,7 +1470,7 @@ int cue_game_link_enc_final(uint8_t *b) {
 void cue_game_link_dec_aim(const uint8_t *b, int len) {
     if (!s_link_on || len < 10 || s_rules.turn == s_link_me) return;   /* my own echo → ignore */
     int16_t aim = (int16_t)(b[0] | (b[1] << 8));
-    s_aim = aim / LK_ANG; s_view_az = s_aim;
+    s_aim = aim / LK_ANG;
     s_power = b[2] / 255.0f;
     s_tip_side = (int8_t)b[3] / 127.0f * 0.5f;
     s_tip_vert = (int8_t)b[4] / 127.0f * 0.5f;
@@ -1471,6 +1479,12 @@ void cue_game_link_dec_aim(const uint8_t *b, int len) {
     s_balls[0].pos.y = s_table.R; s_balls[0].on = 1;
     int sub = b[9];
     s_state = (sub == GS_BACKSWING) ? GS_BACKSWING : (sub == GS_PLACE) ? GS_PLACE : GS_AIM;
+    if (len >= 14) {                /* proto 2: mirror the shooter's real view + cue draw */
+        int16_t vaz = (int16_t)(b[10] | (b[11] << 8));
+        s_view_az = vaz / LK_ANG;
+        s_cam_pitch = b[12] / 255.0f;
+        s_pull = b[13] / 255.0f;
+    } else s_view_az = s_aim;
     s_freelook = 0; s_freeview = 0;
 }
 

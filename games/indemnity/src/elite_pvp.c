@@ -461,8 +461,20 @@ void pvp_draw_overlay(uint16_t *fb) {
     if (s_waiting) {
         ctext2x(fb, "LINK ARENA", 28, RGB565C(150, 200, 255));
         int st = (g_em && g_em->link_status) ? g_em->link_status() : 0;
-        if (st == MOTE_LINK_CONNECTED)
+        if (st == MOTE_LINK_CONNECTED) {
             ctext(fb, "PEER FOUND - SYNCING", 60, RGB565C(120, 255, 140));
+            /* sync self-diagnosis: exactly which leg is missing, on screen —
+             * TX> hello sent · HELO peer hello rx'd · SHIP peer identity rx'd.
+             * A stall names its missing piece instead of hanging mutely. */
+            { char d[20]; int k = 0;
+              d[k++]='T'; d[k++]='X'; d[k++]=s_sent_hello?'+':'-'; d[k++]=' ';
+              d[k++]='H'; d[k++]='E'; d[k++]='L'; d[k++]=s_got_hello?'+':'-'; d[k++]=' ';
+              d[k++]='S'; d[k++]='H'; d[k++]='P'; d[k++]=s_got_ident?'+':'-'; d[k]=0;
+              ctext(fb, d, 74, RGB565C(150, 170, 200)); }
+            { int nh = (g_em && g_em->net_health) ? g_em->net_health() : 0;
+              if (nh == MOTE_NET_STALLED) ctext(fb, "LINK STALLED...", 86, RGB565C(255, 200, 120));
+              else if (nh == MOTE_NET_LOST) ctext(fb, "PEER SILENT 20S+", 86, RGB565C(255, 120, 90)); }
+        }
         else {
             ctext(fb, "CONNECT USB CABLE", 56, RGB565C(210, 214, 222));
             ctext(fb, "WAITING FOR PEER", 68, RGB565C(150, 160, 180));

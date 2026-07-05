@@ -784,6 +784,13 @@ static int      dm_phase;                    /* 0 handshake · 1 map xfer · 2 p
 static int      dm_map_pos;                  /* authority: g_city bytes queued */
 static int      dm_map_recv;                 /* peer: g_city bytes written */
 static uint8_t  dm_out[68]; static int dm_out_len, dm_out_off;   /* pending outbound chunk */
+/* map-transfer integrity: the authority streams, then sends its city hash ('Z');
+ * the peer verifies and acks ('Y') or asks for a full re-stream ('R'). Chunks can
+ * no longer be silently lost (link-ring pressure, transport hiccups) — a bad map
+ * is re-sent until the hashes agree, and NOBODY plays on a corrupt city. */
+static uint32_t dm_peer_hash; static int dm_got_hash, dm_map_acked; static float dm_verify_t;
+static uint32_t dm_city_fnv(void){ uint32_t h=2166136261u;
+    for (int i=0;i<CITY_BYTES;i++){ h^=g_city[i]; h*=16777619u; } return h; }
 static int dm_flush_out(void){              /* 1 = fully drained (FIFO took it all) */
     while (dm_out_off < dm_out_len){
         int w = mote->link_send(dm_out+dm_out_off, dm_out_len-dm_out_off);
@@ -2097,6 +2104,13 @@ static void dm_handle(const uint8_t *m){
                 car_body_init(ci);
             } } break;
         case 'T': { int i=m[2]; if (i<NPICK && picks[i].alive){ picks[i].alive=0; g_dmpkt[i]=20.0f; } } break;
+        case 'Z': dm_peer_hash=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
+                  dm_got_hash=1;
+                  if (dm_phase>=2){ uint8_t a[2]={0xA5,'Y'}; mote->link_send(a,2); }  /* late re-'Z': re-ack */
+                  break;
+        case 'R': dm_map_pos=0; dm_map_acked=0;             /* peer wants the map again */
+                  break;
+        case 'Y': dm_map_acked=1; break;
         case 'Q': if (!dm_end) dm_end=3; break;
     }
 }
@@ -2111,8 +2125,8 @@ static void dm_poll(void){
             int want;
             if (t=='m') want = dm_msg_len<5 ? 5 : 5+dm_msg[4];   /* header then len bytes */
             else if (t=='V') want = dm_msg_len<3 ? 3 : 3+dm_msg[2]*6; /* n entries × 6 */
-            else want = t=='P'?10 : t=='X'?9 : t=='S'?6 : t=='H'?5
-                     : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q')?2 : -1;
+            else want = t=='P'?10 : t=='X'?9 : (t=='S'||t=='Z')?6 : t=='H'?5
+                     : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q'||t=='R'||t=='Y')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
             if (dm_msg_len<want) continue;
             dm_msg_len=0; dm_handle(dm_msg);
@@ -2453,6 +2467,7 @@ static void g_update(float dt) {
                     dm_my_nonce=(uint16_t)(host?2:1);
                     dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
                     dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
+                    dm_got_hash=dm_map_acked=0; dm_verify_t=0;
                     g_state=ST_DMLINK;
                 }
             }
@@ -2479,6 +2494,7 @@ static void g_update(float dt) {
                 }
             } else if (dm_phase==1) {                                   /* --- map transfer --- */
                 if (authority){
+                    dm_poll();                                          /* serve 'R' / 'Y' */
                     for (int guard=0; guard<24; guard++){
                         if (!dm_flush_out()) break;                     /* FIFO full — resume next frame */
                         if (dm_map_pos>=CITY_BYTES) break;
@@ -2488,21 +2504,35 @@ static void g_update(float dt) {
                         dm_out_len=5+len; dm_out_off=0; dm_map_pos+=len;
                     }
                     if (dm_map_pos>=CITY_BYTES && dm_flush_out()){
+                        dm_verify_t -= dt;
+                        if (dm_verify_t<=0){                            /* offer the hash until acked */
+                            uint32_t h=dm_city_fnv();
 #ifdef MOTE_HOST
-                        if (getenv("MOTE_GTA_DEBUG")){ uint32_t h=2166136261u;
-                            for (int ci=0;ci<CITY_BYTES;ci++){ h^=g_city[ci]; h*=16777619u; }
-                            fprintf(stderr,"[CITY] auth fnv=%08x\n",h); }
+                            if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CITY] auth fnv=%08x\n",h);
 #endif
-                        reset_game_dm_finish(dm_seed); dm_phase=2; }
+                            uint8_t m[6]={0xA5,'Z',(uint8_t)h,(uint8_t)(h>>8),(uint8_t)(h>>16),(uint8_t)(h>>24)};
+                            mote->link_send(m,6); dm_verify_t=0.5f;
+                        }
+                        if (dm_map_acked){ reset_game_dm_finish(dm_seed); dm_phase=2; }
+                    }
                 } else {
                     dm_poll();                                          /* 'm' frames fill g_city */
-                    if (dm_map_recv>=CITY_BYTES){
+                    if (dm_map_recv>=CITY_BYTES && dm_got_hash){
+                        uint32_t h=dm_city_fnv();
 #ifdef MOTE_HOST
-                        if (getenv("MOTE_GTA_DEBUG")){ uint32_t h=2166136261u;
-                            for (int ci=0;ci<CITY_BYTES;ci++){ h^=g_city[ci]; h*=16777619u; }
-                            fprintf(stderr,"[CITY] peer fnv=%08x\n",h); }
+                        if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CITY] peer fnv=%08x (want %08x)\n",h,dm_peer_hash);
 #endif
-                        reset_game_dm_finish(dm_seed); dm_phase=2; }
+                        if (h==dm_peer_hash){
+                            uint8_t a[2]={0xA5,'Y'}; mote->link_send(a,2);
+                            reset_game_dm_finish(dm_seed); dm_phase=2;
+                        } else {                                        /* corrupt: full re-stream */
+                            dm_map_recv=0; dm_got_hash=0;
+                            uint8_t r[2]={0xA5,'R'}; mote->link_send(r,2);
+#ifdef MOTE_HOST
+                            if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CITY] MISMATCH - requesting re-stream\n");
+#endif
+                        }
+                    }
                 }
             }
             if (mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; }
