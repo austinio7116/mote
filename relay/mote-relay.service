@@ -10,7 +10,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 42450
+# Port 443 matches the Studio client default (MOTE_RELAY=host with no :port) and
+# looks like ordinary HTTPS, so it passes almost every network. To use a high
+# port instead, change 443 here AND drop the two capability lines below.
+ExecStart=/usr/bin/python3 /opt/mote-relay/mote_relay.py --port 443
 Restart=always
 RestartSec=2
 # Run as an unprivileged throwaway user with a locked-down sandbox — the relay
@@ -21,6 +24,10 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 RestrictAddressFamilies=AF_INET AF_INET6
+# 443 is privileged (<1024); grant JUST the bind capability so the unprivileged
+# DynamicUser can listen there without full root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target
