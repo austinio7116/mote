@@ -11,11 +11,19 @@
   #endif
   #include <winsock2.h>
   #include <ws2tcpip.h>
+  #include <mstcpip.h>   /* struct tcp_keepalive, SIO_KEEPALIVE_VALS */
   typedef SOCKET nsock;
   #define NBAD INVALID_SOCKET
   #define ncl(s) closesocket(s)
   static int nerr_wouldblock(void) { int e = WSAGetLastError(); return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS; }
   static void nnonblock(nsock s) { u_long one = 1; ioctlsocket(s, FIONBIO, &one); }
+  /* aggressive keepalive: first probe after 30s idle, then every 10s — keeps the
+   * NAT mapping alive through quiet moments and detects a dead peer in ~1 min. */
+  static void nkeepalive(nsock s) {
+      BOOL on = TRUE; setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, (const char *)&on, sizeof on);
+      struct tcp_keepalive ka; ka.onoff = 1; ka.keepalivetime = 30000; ka.keepaliveinterval = 10000;
+      DWORD ret = 0; WSAIoctl(s, SIO_KEEPALIVE_VALS, &ka, sizeof ka, NULL, 0, &ret, NULL, NULL);
+  }
   static int net_boot(void) { static int up; if (!up) { WSADATA w; if (WSAStartup(MAKEWORD(2,2), &w)) return -1; up = 1; } return 0; }
 #else
   #include <sys/socket.h>
@@ -31,6 +39,19 @@
   #define ncl(s) close(s)
   static int nerr_wouldblock(void) { return errno == EWOULDBLOCK || errno == EAGAIN || errno == EINPROGRESS; }
   static void nnonblock(nsock s) { fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK); }
+  /* aggressive keepalive: first probe after 30s idle, then every 10s (see note above). */
+  static void nkeepalive(nsock s) {
+      int one = 1; setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+  #ifdef TCP_KEEPIDLE
+      int idle = 30; setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
+  #endif
+  #ifdef TCP_KEEPINTVL
+      int intvl = 10; setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
+  #endif
+  #ifdef TCP_KEEPCNT
+      int cnt = 4; setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
+  #endif
+  }
   static int net_boot(void) { return 0; }
 #endif
 
@@ -174,6 +195,7 @@ static void relay_start_locked(const char *line) {
     nnonblock(c);
     connect(c, (struct sockaddr *)&s_join_to, sizeof s_join_to);   /* non-blocking → in progress */
     int one = 1; setsockopt(c, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+    nkeepalive(c);
     s_conn = c;
     snprintf(s_rly_line, sizeof s_rly_line, "%s", line);
     s_relay = 1; s_rly = 0; s_rly_len = 0;
@@ -205,6 +227,7 @@ static int try_connect_locked(void) {
     if (connect(c, (struct sockaddr *)&s_join_to, sizeof s_join_to) != 0) { ncl(c); return 0; }
     nnonblock(c);
     int one = 1; setsockopt(c, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+    nkeepalive(c);
     s_conn = c; s_state = LINK_NET_CONNECTED;
     char b[80]; snprintf(b, sizeof b, "linked to %s", inet_ntoa(s_join_to.sin_addr)); set_info(b);
     return 1;
@@ -275,6 +298,7 @@ void link_net_task(void) {
         if (c != NBAD) {
             nnonblock(c);
             int one = 1; setsockopt(c, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof one);
+            nkeepalive(c);
             s_conn = c; s_state = LINK_NET_CONNECTED;
             set_info("peer linked");
         }

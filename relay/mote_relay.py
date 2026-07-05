@@ -67,15 +67,22 @@ async def read_line(reader: asyncio.StreamReader, cap: int = 64) -> bytes:
     return bytes(buf)
 
 def tune(writer: asyncio.StreamWriter):
-    """Low latency matters for the real-time games: disable Nagle, enable
-    keepalive so a silently-dead peer eventually errors out."""
+    """Low latency + AGGRESSIVE keepalive. The keepalive probes are what keep the
+    home-router / carrier-grade-NAT mapping alive through quiet moments (a pause,
+    a menu, a long turn) — without them the NAT silently drops the TCP connection
+    and both players get a 'link lost' with nothing in any log. Probes also detect
+    a genuinely dead peer within ~1 minute so rooms don't linger."""
     sock = writer.get_extra_info("socket")
-    if sock is not None:
-        try:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        except OSError:
-            pass
+    if sock is None:
+        return
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "TCP_KEEPIDLE"):  sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)   # first probe after 30s idle
+        if hasattr(socket, "TCP_KEEPINTVL"): sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)  # then every 10s
+        if hasattr(socket, "TCP_KEEPCNT"):   sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 4)     # dead after ~70s
+    except OSError:
+        pass
 
 class Room:
     __slots__ = ("reader", "writer", "future", "public", "label", "created")
@@ -97,17 +104,21 @@ class Relay:
                 return c
         return "R" + "".join(random.choice(alpha) for _ in range(5))
 
-    async def pipe(self, r: asyncio.StreamReader, w: asyncio.StreamWriter, tag: str):
-        """Forward r -> w until EOF, error, or `idle` seconds of silence."""
+    async def pipe(self, r: asyncio.StreamReader, w: asyncio.StreamWriter, reason):
+        """Forward r -> w until EOF, error, or `idle` seconds of true silence.
+        Records WHY it ended in reason[0] so the room-closed log is diagnosable.
+        (Idle is a long backstop now; TCP keepalive catches dead peers far sooner.)"""
         try:
             while True:
                 data = await asyncio.wait_for(r.read(4096), timeout=self.args.idle)
                 if not data:
-                    break
+                    reason[0] = "peer EOF"; break
                 w.write(data)
                 await w.drain()
-        except (asyncio.TimeoutError, OSError, ConnectionError):
-            pass
+        except asyncio.TimeoutError:
+            reason[0] = f"idle >{self.args.idle}s"
+        except (OSError, ConnectionError) as e:
+            reason[0] = f"net {type(e).__name__}"
         finally:
             try:
                 w.close()
@@ -115,8 +126,9 @@ class Relay:
                 pass
 
     async def relay(self, r1, w1, r2, w2):
-        t1 = asyncio.create_task(self.pipe(r1, w2, "a>b"))
-        t2 = asyncio.create_task(self.pipe(r2, w1, "b>a"))
+        why = [""]
+        t1 = asyncio.create_task(self.pipe(r1, w2, why))
+        t2 = asyncio.create_task(self.pipe(r2, w1, why))
         await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
         for w in (w1, w2):          # closing either end unblocks the other pipe
             try:
@@ -124,16 +136,17 @@ class Relay:
             except OSError:
                 pass
         await asyncio.gather(t1, t2, return_exceptions=True)
+        return why[0] or "closed"
 
     async def pair(self, code, room: "Room", reader, writer, peer):
         """`room` is the waiting host; we're the joiner. Splice them."""
         room.writer.write(b"GO H\n"); await room.writer.drain()
         writer.write(b"GO G\n"); await writer.drain()
         log(f"room {code}: paired ({peer})")
-        await self.relay(room.reader, room.writer, reader, writer)
+        why = await self.relay(room.reader, room.writer, reader, writer)
         if not room.future.done():
             room.future.set_result(True)        # release the host's handler
-        log(f"room {code}: closed")
+        log(f"room {code}: closed ({why})")
 
     async def wait_as_host(self, code, room: "Room", writer, peer):
         """Register `room` and hold this connection (untouched) for a partner."""
@@ -233,7 +246,7 @@ async def main():
     ap.add_argument("--addr", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=42450)
     ap.add_argument("--join-timeout", type=int, default=120, help="seconds a lone client waits for a partner")
-    ap.add_argument("--idle", type=int, default=45, help="seconds of silence before a paired room is dropped")
+    ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     args = ap.parse_args()
 
