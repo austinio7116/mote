@@ -4987,21 +4987,34 @@ static void bridge_start(int local){ if(g_bridge_on)return;
 static SDL_Rect g_lkb[5]; static const char *LKB_L[5]={ "Host LAN","Join LAN","Bridge USB","Vs Device","Stop Link" };
 
 /* ---- ONLINE (internet relay): both Studios connect OUT to a relay and join a
- * room — no port-forwarding, no local firewall prompt. Config from MOTE_RELAY. */
+ * room — no port-forwarding, no local firewall prompt. The relay address is an
+ * editable field (default below), persisted to mote_relay.txt; MOTE_RELAY env
+ * overrides it. */
 static char g_relay_cfg[140];        /* "host:port" for the UI (empty = unset) */
+static char g_relay_host_in[80]="145.241.218.71";   /* editable field: host or host:port */
+static int  g_relay_focus; static SDL_Rect g_relay_r;
 static char g_room_code[10];         /* our hosted/joined code */
 #define MAX_BROWSE 12
 static char g_browse[MAX_BROWSE][40]; static int g_browse_n; static volatile int g_browse_busy;
 static SDL_Rect g_olb[3], g_browse_rect[MAX_BROWSE];   /* Quick / Host / Browse + list rows */
 
-static void relay_config_from_env(void){
-    const char*r=getenv("MOTE_RELAY"); if(!r||!r[0]) return;
-    char host[128]; int port=443; const char*c=strchr(r,':');
-    if(c){ int hl=(int)(c-r); if(hl>127)hl=127; memcpy(host,r,hl); host[hl]=0; port=atoi(c+1); }
-    else snprintf(host,sizeof host,"%s",r);
-    if(port<=0)port=443;
+/* parse the field (host or host:port, default port 443) -> configure the link +
+ * the UI string, and persist to mote_relay.txt so it survives restarts. */
+static void relay_apply_field(void){
+    char host[128]; int port=443; const char*c=strchr(g_relay_host_in,':');
+    if(c){ int hl=(int)(c-g_relay_host_in); if(hl>127)hl=127; memcpy(host,g_relay_host_in,hl); host[hl]=0; port=atoi(c+1); if(port<=0)port=443; }
+    else snprintf(host,sizeof host,"%s",g_relay_host_in);
+    if(!host[0]){ g_relay_cfg[0]=0; return; }
     link_net_relay_config(host,port);
     snprintf(g_relay_cfg,sizeof g_relay_cfg,"%s:%d",host,port);
+    FILE*f=fopen("mote_relay.txt","w"); if(f){ fprintf(f,"%s\n",g_relay_host_in); fclose(f); }
+}
+/* startup: precedence MOTE_RELAY env > saved mote_relay.txt > compiled default. */
+static void relay_init(void){
+    const char*env=getenv("MOTE_RELAY");
+    if(env&&env[0]) snprintf(g_relay_host_in,sizeof g_relay_host_in,"%.79s",env);
+    else { FILE*f=fopen("mote_relay.txt","r"); if(f){ if(fgets(g_relay_host_in,sizeof g_relay_host_in,f)){ char*nl=strchr(g_relay_host_in,'\n'); if(nl)*nl=0; } fclose(f); } }
+    relay_apply_field();
 }
 static void gen_room_code(void){
     static const char A[]="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   /* no confusable 0/O/1/I */
@@ -5049,6 +5062,14 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     /* --- ONLINE (relay) row --- */
     int oy2=ly+58;
     text(R,"ONLINE  (play over the internet - no port-forwarding; then Bridge USB or run the preview)",ox,oy2,1,C_TITLE,C_DOCK);
+    oy2+=18;
+    /* editable relay address field */
+    text(R,"relay",ox,oy2+7,1,C_DIM,C_DOCK);
+    g_relay_r=(SDL_Rect){ox+44,oy2,200,22};
+    rrect(R,g_relay_r.x,g_relay_r.y,200,22,4,g_relay_focus?(Col){12,14,20}:C_DOCK);
+    { char nm[96]; snprintf(nm,sizeof nm,"%s%s",g_relay_host_in,g_relay_focus?"_":""); text(R,nm,g_relay_r.x+6,oy2+6,1,C_TXT,g_relay_focus?(Col){12,14,20}:C_DOCK); }
+    text(R,"(host or host:port - Enter to apply)",ox+254,oy2+7,1,C_DIM,C_DOCK);
+    oy2+=28;
     static const char*OLB_L[3]={ "Quick Match","Host Room","Browse" };
     static const char*OLB_T[3]={ "One tap: join any open public room, or open one and wait",
         "Open a public room with a code others can join or Browse to",
@@ -5091,6 +5112,9 @@ static void dev_click(int mx,int my){ for(int i=0;i<6;i++)if(hit(mx,my,g_dvb[i].
         else if(i==3){ if(g_bridge_on)bridge_stop(); else bridge_start(1); }
         else { bridge_stop(); link_net_stop(); g_room_code[0]=0; g_browse_n=0; log_add("link: stopped"); }
         return; }
+    /* ONLINE relay address field (editable even before it's configured) */
+    if(hit(mx,my,g_relay_r.x,g_relay_r.y,g_relay_r.w,g_relay_r.h)){ g_relay_focus=1; SDL_StartTextInput(); return; }
+    g_relay_focus=0;
     /* ONLINE (relay) buttons */
     if(g_relay_cfg[0]) for(int i=0;i<3;i++)if(hit(mx,my,g_olb[i].x,g_olb[i].y,g_olb[i].w,g_olb[i].h)){
         if(i==0){ g_room_code[0]=0; g_browse_n=0; link_net_relay_quick(room_label()); log_add("online: quick match..."); }
@@ -6369,7 +6393,7 @@ int main(int argc,char**argv){
     /* Online relay: MOTE_RELAY=host[:port] configures it; the following autostart a
      * room for headless testing — MOTE_RELAY_HOST=<code>, MOTE_RELAY_JOIN=<code>,
      * MOTE_RELAY_QUICK=1. */
-    relay_config_from_env();
+    relay_init();
     if(g_relay_cfg[0]){
         if(getenv("MOTE_RELAY_QUICK")) link_net_relay_quick("TEST");
         else if(getenv("MOTE_RELAY_HOST")){ snprintf(g_room_code,sizeof g_room_code,"%s",getenv("MOTE_RELAY_HOST")); link_net_relay_host(g_room_code,1,"TEST"); }
@@ -6445,6 +6469,13 @@ int main(int argc,char**argv){
                 SDL_Keycode k=e.key.keysym.sym; SDL_Keymod md=SDL_GetModState();
                 if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_z){ set_doc(g_tab==TAB_TEXTURE); if(md&KMOD_SHIFT)redo_pop(); else undo_pop(); continue; }   /* Ctrl+Z undo · Ctrl+Shift+Z redo */
                 if((md&(KMOD_CTRL|KMOD_GUI))&&k==SDLK_y){ set_doc(g_tab==TAB_TEXTURE); redo_pop(); continue; } }                                  /* Ctrl+Y redo */
+            if(g_tab==TAB_DEVICE&&g_relay_focus){   /* editing the ONLINE relay address */
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p;
+                    if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='.'||c==':'||c=='-'){ int l=(int)strlen(g_relay_host_in); if(l<(int)sizeof g_relay_host_in-1){ g_relay_host_in[l]=c; g_relay_host_in[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym;
+                    if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_relay_host_in); if(l)g_relay_host_in[l-1]=0; }
+                    else if(k==SDLK_RETURN||k==SDLK_KP_ENTER){ relay_apply_field(); g_relay_focus=0; SDL_StopTextInput(); log_add(g_relay_cfg[0]?"online: relay set":"online: relay cleared"); }
+                    else if(k==SDLK_ESCAPE){ g_relay_focus=0; SDL_StopTextInput(); } continue; } }
             if(g_tab==TAB_TILES&&g_ln_focus){   /* renaming the current layer (tileset) */
                 char*ln=g_terr[g_curterr].name;
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(ln); if(l<14){ ln[l]=c; ln[l+1]=0; } } } continue; }
