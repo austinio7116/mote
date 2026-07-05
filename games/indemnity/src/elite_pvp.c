@@ -277,7 +277,10 @@ static void build_arena(void) {
     combat_set_kills(0);
     elite_input_reset();
 
-    load_my_ship();
+    /* g_player was loaded + snapshotted in pvp_begin BEFORE the lobby opened —
+     * do NOT touch the save filesystem here: this runs with the USB link live,
+     * and on device a FatFs read mid-link (flash window remaps vs USB ISRs)
+     * wedges the game — the field 'stalls on arena load' bug. */
 
     /* --- my ship (entity 0) --- */
     Ship *p = &g_ships[PLAYER];

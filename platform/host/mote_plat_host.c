@@ -341,8 +341,10 @@ void mote_plat_link_stop(void) {
     s_lk_is_host = 0;
 }
 
+static void txf_pump(void);
 void mote_plat_link_task(void) {
     if (s_lk_state == 0) return;
+    txf_pump();                              /* device-shaped TX FIFO drains here */
 
     if (s_lk_state == 2) {                /* connected: detect peer loss via EOF */
         char probe;
@@ -392,8 +394,28 @@ void mote_plat_link_task(void) {
 int mote_plat_link_status(void)  { return s_lk_state; }
 int mote_plat_link_is_host(void) { return s_lk_state == 2 ? s_lk_is_host : 0; }
 
+/* MOTE_LINK_TXFIFO=N: model the DEVICE's CDC transmit path — a tiny N-byte FIFO
+ * that only drains when the link task pumps (once per frame). Mid-frame senders
+ * that retry-spin (instead of carrying to the next frame) truncate exactly like
+ * they do on hardware. 0/unset = raw socket (old behaviour). */
+static uint8_t s_txf[4096]; static int s_txf_len, s_txf_cap = -1;
+static void txf_pump(void) {
+    if (s_txf_cap <= 0 || s_lk_state != 2) return;
+    if (s_txf_len > 0) {
+        ssize_t w = send(s_lk_fd, s_txf, (size_t)s_txf_len, MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (w > 0) { memmove(s_txf, s_txf + w, (size_t)(s_txf_len - (int)w)); s_txf_len -= (int)w; }
+    }
+}
 int mote_plat_link_send(const void *data, int len) {
     if (s_lk_state != 2 || len <= 0) return 0;
+    if (s_txf_cap < 0) { const char *e = getenv("MOTE_LINK_TXFIFO"); s_txf_cap = e ? atoi(e) : 0; }
+    if (s_txf_cap > 0) {                    /* device-shaped: fill the FIFO, drain per frame */
+        int space = s_txf_cap - s_txf_len;
+        int w2 = len < space ? len : space;
+        if (w2 <= 0) return 0;
+        memcpy(s_txf + s_txf_len, data, (size_t)w2); s_txf_len += w2;
+        return w2;
+    }
     ssize_t w = send(s_lk_fd, data, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL);
     if (w < 0) {
         if (errno == EPIPE || errno == ECONNRESET) { lk_close_conn(); s_lk_state = 1; }

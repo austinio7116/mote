@@ -118,21 +118,37 @@ static void lk_new_nonce(void) {
     lk_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8);
     if (!lk_my_nonce) lk_my_nonce = 1;
 }
-/* link_send may accept < len; loop (bounded) so a frame goes out whole. On the
- * host socket the first call takes it all. */
-static void lk_raw(const uint8_t *d, int n) {
-    int off = 0, tries = 0;
-    while (off < n && tries < 128) {
-        int s = mote->link_send(d + off, n - off);
-        if (s <= 0) { tries++; continue; }
-        off += s; tries = 0;
+/* OUTBOUND CARRY. link_send drains into the device's small CDC FIFO, which only
+ * empties when the OS pumps USB — ONCE PER FRAME. The old code spin-retried 128
+ * times inside one frame: no pump could run, so a frame bigger than the FIFO
+ * (the ~380-byte settle 'E'!) was TRUNCATED mid-send, the peer's parser ate the
+ * following frames as the missing payload, and the turn handoff died — the
+ * released both-stuck-on-peer's-turn bug (invisible on host sockets, which
+ * accept everything first call). Frames now queue here and flush across frames:
+ * a frame either ships WHOLE or waits — never a partial. Disposable stream
+ * frames ('C'/'B'/'A') are skipped while the pipe is backed up; state frames
+ * ('H'/'S'/'E'/'Q') always queue. */
+static uint8_t lk_tx[1024]; static int lk_tx_len, lk_tx_off;
+static void lk_tx_flush(void) {
+    while (lk_tx_off < lk_tx_len) {
+        int s = mote->link_send(lk_tx + lk_tx_off, lk_tx_len - lk_tx_off);
+        if (s <= 0) break;                   /* FIFO full — resume next frame */
+        lk_tx_off += s;
     }
+    if (lk_tx_off >= lk_tx_len) lk_tx_len = lk_tx_off = 0;
 }
 static void lk_frame(uint8_t type, const uint8_t *payload, int len) {
-    static uint8_t out[CUE_LINK_MAXMSG + 8];
-    out[0] = LK_MAGIC; out[1] = type; out[2] = (uint8_t)len; out[3] = (uint8_t)(len >> 8);
-    if (len > 0) memcpy(out + 4, payload, (size_t)len);
-    lk_raw(out, len + 4);
+    lk_tx_flush();
+    int pending = lk_tx_len - lk_tx_off;
+    int disposable = (type == 'C' || type == 'B' || type == 'A');
+    if (pending > 0 && disposable) return;   /* stream frame + backlog: skip it */
+    if (lk_tx_off > 0) { memmove(lk_tx, lk_tx + lk_tx_off, (size_t)pending);
+                         lk_tx_len = pending; lk_tx_off = 0; }
+    if (lk_tx_len + 4 + len > (int)sizeof lk_tx) return;   /* can't happen for state frames */
+    lk_tx[lk_tx_len++] = LK_MAGIC; lk_tx[lk_tx_len++] = type;
+    lk_tx[lk_tx_len++] = (uint8_t)len; lk_tx[lk_tx_len++] = (uint8_t)(len >> 8);
+    if (len > 0) { memcpy(lk_tx + lk_tx_len, payload, (size_t)len); lk_tx_len += len; }
+    lk_tx_flush();
     lk_send_t = 0;
 }
 static void lk_send_hello(void) {
@@ -220,6 +236,7 @@ static void lk_tick(float dt) {
     if (mote->link_status() != MOTE_LINK_CONNECTED) {
         cue_game_link_lost(0); mote->link_stop(); lk_state = LK_OFF; return;
     }
+    lk_tx_flush();                                          /* carry: ship what the FIFO refused */
     lk_poll();
     if (lk_state != LK_PLAY) return;                        /* 'Q' ended it inside poll */
     lk_rx_age += dt;

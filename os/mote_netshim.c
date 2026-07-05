@@ -20,11 +20,14 @@ static int      s_active;               /* a lobby session is up */
 static uint32_t s_last_tx, s_last_rx;   /* ms timestamps (any bytes either way) */
 static uint8_t  s_hold[KA_LEN];         /* inbound partial-magic holdback */
 static int      s_nhold;
+static uint8_t  s_txq[512];             /* outbound carry (see mote_net_send) */
+static int      s_txq_len, s_txq_off;
 
 static uint32_t now_ms(void) { return (uint32_t)(mote_plat_micros() / 1000ull); }
 
 void mote_net_begin(void) {
     s_active = 1; s_nhold = 0;
+    s_txq_len = s_txq_off = 0;
     s_last_tx = s_last_rx = now_ms();
 }
 
@@ -33,10 +36,40 @@ void mote_net_link_stop(void) {
     mote_plat_link_stop();
 }
 
+/* OUTBOUND CARRY. Device CDC accepts only what fits its small FIFO, and that
+ * FIFO drains once per frame (when the OS pumps USB) — so a game's unchecked
+ * one-shot link_send could be silently TRUNCATED, splitting a frame on the
+ * wire (a truncated GTA seed message put the two players in different worlds
+ * while the map itself verified). The shim now queues whatever the platform
+ * refuses and flushes it every tick: bytes a game hands us are delivered
+ * WHOLE and IN ORDER, across frames. Sized to the runner's spare bss. */
+static void txq_flush(void) {
+    while (s_txq_off < s_txq_len) {
+        int w = mote_plat_link_send(s_txq + s_txq_off, s_txq_len - s_txq_off);
+        if (w <= 0) break;
+        s_txq_off += w;
+    }
+    if (s_txq_off >= s_txq_len) s_txq_len = s_txq_off = 0;
+}
 int mote_net_send(const void *data, int len) {
-    int w = mote_plat_link_send(data, len);
-    if (w > 0) s_last_tx = now_ms();
-    return w;
+    if (len <= 0) return 0;
+    if (!s_active) { int w = mote_plat_link_send(data, len); if (w > 0) s_last_tx = now_ms(); return w; }
+    s_last_tx = now_ms();                    /* we WILL deliver what we accept */
+    txq_flush();
+    const uint8_t *d = (const uint8_t *)data;
+    int done = 0;
+    if (s_txq_len == 0) {                    /* fast path: straight to the wire */
+        int w = mote_plat_link_send(d, len);
+        if (w >= len) return len;
+        done = w > 0 ? w : 0;
+    }
+    /* queue the remainder (or all of it) so no frame is ever split */
+    if (s_txq_off > 0) { memmove(s_txq, s_txq + s_txq_off, (size_t)(s_txq_len - s_txq_off));
+                         s_txq_len -= s_txq_off; s_txq_off = 0; }
+    int space = (int)sizeof s_txq - s_txq_len;
+    int q = len - done; if (q > space) q = space;
+    if (q > 0) { memcpy(s_txq + s_txq_len, d + done, (size_t)q); s_txq_len += q; done += q; }
+    return done;                             /* carry-aware games resume from here */
 }
 
 /* Read from the platform and strip keepalive frames. A partial magic match at
@@ -82,6 +115,7 @@ int mote_net_recv(void *buf, int max) {
 
 void mote_net_tick(void) {
     if (!s_active || mote_plat_link_status() != MOTE_LINK_CONNECTED) return;
+    txq_flush();                             /* ship whatever the FIFO refused last frame */
     uint32_t now = now_ms();
     if ((uint32_t)(now - s_last_tx) >= KA_SEND_MS) {     /* game is quiet: we speak */
         mote_plat_link_send(KA, KA_LEN);

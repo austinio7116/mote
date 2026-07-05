@@ -640,7 +640,7 @@ static void spawn_world(void) {
     /* player spawn: a pavement tile beside a road — in a RANDOM district each run */
     int cx=MAPW/2, cz=MAPH/2, sx=cx, sz=cz, done=0;
     for (int t=0;t<24 && !done;t++){
-        int bx=24+irand(MAPW-48), bz=24+irand(MAPH-48);
+        int bx=MAPW/4+irand(MAPW/2), bz=MAPH/4+irand(MAPH/2);   /* central half */
         for (int r=0;r<10 && !done;r++)
             for (int dz=-r;dz<=r && !done;dz++) for (int dx=-r;dx<=r && !done;dx++){
                 int x=bx+dx,z=bz+dz; if(x<2||z<2||x>=MAPW-2||z>=MAPH-2) continue;
@@ -2053,7 +2053,11 @@ static void dm_respawn_me(void){
 static void dm_handle(const uint8_t *m){
     switch (m[1]) {
         case 'H': dm_got_hello=1; dm_peer_nonce=(uint16_t)(m[3]|(m[4]<<8)); break;
-        case 'S': dm_seed=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
+        case 'S': if (dm_got_hello && dm_my_nonce > dm_peer_nonce) break;   /* I generate; a crossed 'S' is stale */
+                  dm_seed=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
+#ifdef MOTE_HOST
+                  if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[SEED-RX] %08x\n",dm_seed);
+#endif
                   dm_phase=1; dm_map_recv=0; break;   /* peer: seed known, expect the map */
         case 'm': { int seq=m[2]|(m[3]<<8), len=m[4], off=seq*DM_CHUNK;
                     for (int i=0;i<len && off+i<CITY_BYTES;i++) g_city[off+i]=m[5+i];
@@ -2167,6 +2171,13 @@ static void dm_recycle_traffic(float dt){
  * deterministic spawns/cars/caches from the integer RNG. Called by the authority
  * once its map is generated + sent, and by the peer once the map has arrived. */
 static void reset_game_dm_finish(uint32_t seed){
+    /* EVERYTHING below derives from g_rng (spawn search, PARKED CAR placement,
+     * traffic init). The authority consumed RNG while GENERATING the city; the
+     * peer received it and consumed none — their g_rng states differed, so the
+     * two units placed the jackable cars (and spawns) in DIFFERENT spots: you
+     * could see a car your unit invented and fail to enter it ('can't get in
+     * cars'). Reseed BOTH units identically from the shared match seed. */
+    g_rng = seed ^ 0x51ED2701u; if (!g_rng) g_rng = 1u;
     g_dm=1; dm_started=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0; dm_send_t=0; dm_rx_age=0; dm_ramcd=0;
     rp_hp=100; rp_mode=0; rp_fire_t=0; rp_cartype=0; dm_msg_len=0; rp_anim=0;
     build_zebra_map();
@@ -2188,7 +2199,7 @@ static void reset_game_dm_finish(uint32_t seed){
     /* spawn A: the seeded pavement-by-a-road search (same result on both units) */
     int sx=MAPW/2, sz=MAPH/2, done=0;
     for (int t=0;t<24 && !done;t++){
-        int bx=24+irand(MAPW-48), bz=24+irand(MAPH-48);
+        int bx=MAPW/4+irand(MAPW/2), bz=MAPH/4+irand(MAPH/2);   /* central half */
         for (int r=0;r<10 && !done;r++)
             for (int dz=-r;dz<=r && !done;dz++) for (int dx=-r;dx<=r && !done;dx++){
                 int x=bx+dx,z=bz+dz; if(x<2||z<2||x>=MAPW-2||z>=MAPH-2) continue;
@@ -2196,12 +2207,26 @@ static void reset_game_dm_finish(uint32_t seed){
                     { sx=x; sz=z; done=1; } }
     }
     float axp=sx*TILE+TILE*0.5f, azp=sz*TILE+TILE*0.5f;
-    /* spawn B: the pavement tile FARTHEST from A (deterministic scan) */
-    float bd=-1; int fx2=sx, fz2=sz;
-    for (int z=2;z<MAPH-2;z+=2) for (int x=2;x<MAPW-2;x+=2){
-        if (tile_at(x,z)!=',') continue;
-        float dx=(float)(x-sx), dz=(float)(z-sz), d2=dx*dx+dz*dz;
-        if (d2>bd){ bd=d2; fx2=x; fz2=z; } }
+    /* spawn B: a pavement tile a MODERATE distance from A — close enough that the
+     * fight starts quickly, far enough not to spawn-camp. Both spawns stay inside
+     * the central half of the map; among candidates in a 30..70-tile ring from A,
+     * take the one closest to 45 tiles (deterministic: same scan on both units).
+     * (The old rule picked the map-corner FARTHEST tile — a dull trek.) */
+    float bd=1e18f; int fx2=sx, fz2=sz;
+    { int cx0=MAPW/4, cx1=MAPW-MAPW/4, cz0=MAPH/4, cz1=MAPH-MAPH/4;   /* central half */
+      for (int z=cz0;z<cz1;z+=2) for (int x=cx0;x<cx1;x+=2){
+          if (tile_at(x,z)!=',') continue;
+          float dx=(float)(x-sx), dz=(float)(z-sz), d2=dx*dx+dz*dz;
+          if (d2 < 30.0f*30.0f || d2 > 70.0f*70.0f) continue;
+          float score = (d2-45.0f*45.0f)*(d2-45.0f*45.0f);
+          if (score<bd){ bd=score; fx2=x; fz2=z; } }
+      if (fx2==sx && fz2==sz){                    /* no ring candidate (odd map): widen */
+          float far2=-1;
+          for (int z=cz0;z<cz1;z+=2) for (int x=cx0;x<cx1;x+=2){
+              if (tile_at(x,z)!=',') continue;
+              float dx=(float)(x-sx), dz=(float)(z-sz), d2=dx*dx+dz*dz;
+              if (d2>far2){ far2=d2; fx2=x; fz2=z; } }
+      } }
     float bxp=fx2*TILE+TILE*0.5f, bzp=fz2*TILE+TILE*0.5f;
     int i_won = dm_my_nonce>dm_peer_nonce;
     player.mode=MODE_FOOT; player.car=-1; player.yaw=-1.5708f; player.animt=0;
@@ -2209,6 +2234,13 @@ static void reset_game_dm_finish(uint32_t seed){
     else      { player.x=bxp; player.z=bzp; rp_x=rp_dx2=axp; rp_z=rp_dz2=azp; }
     dm_spawnx=player.x; dm_spawnz=player.z;
     hosp_x=player.x; hosp_z=player.z;
+#ifdef MOTE_HOST
+    if (getenv("MOTE_GTA_DEBUG")){
+        float ddx=(axp-bxp)/TILE, ddz=(azp-bzp)/TILE;
+        fprintf(stderr,"[SPAWN] A=(%d,%d) B=(%d,%d) dist=%.0f tiles (map %dx%d)\n",
+                sx,sz,fx2,fz2,(float)__builtin_sqrtf(ddx*ddx+ddz*ddz),MAPW,MAPH);
+    }
+#endif
     /* Shared cars (deterministic on both units — identical map + integer RNG):
      *   slots 0..5   PARKED, jackable (ownership via the tested 'C'/'X' path),
      *   slots 6..15  MOVING ambient traffic — the AUTHORITY drives them (DRV_NPC)
@@ -2474,7 +2506,6 @@ static void g_update(float dt) {
         }
         else if (g_state==ST_DMLINK){
             dm_hello_t -= dt;
-            int authority = dm_my_nonce > dm_peer_nonce;
             if (mote->link_status() != MOTE_LINK_CONNECTED) {
                 dm_sent_hello=dm_got_hello=0; dm_msg_len=0; dm_phase=0;   /* (re)connect restarts */
             } else if (dm_phase==0) {                                    /* --- handshake --- */
@@ -2483,9 +2514,19 @@ static void g_update(float dt) {
                 if (dm_got_hello && dm_peer_nonce==dm_my_nonce){        /* 1-in-65536 tie */
                     dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8)^0x5A5Au;
                     dm_got_hello=0; dm_send_hello();
-                } else if (dm_phase==0 && dm_got_hello && authority){    /* authority: seed, gen, xfer */
+                } else if (dm_phase==0 && dm_got_hello &&
+                           dm_my_nonce > dm_peer_nonce){    /* authority: seed, gen, xfer.
+                    * MUST be evaluated HERE, after dm_poll(): a frame-top 'authority'
+                    * snapshot read peer_nonce=0 on the very frame the first hello
+                    * landed, so BOTH sides won, BOTH rolled seeds and streamed maps,
+                    * and each adopted the OTHER's seed — same city (hash-verified),
+                    * different seed-derived spawns and parked cars ('can't get in
+                    * cars', 'can't find the opponent'). The oldest bug of the lot. */
                     dm_send_hello();
                     dm_seed=(uint32_t)mote->micros()*2654435761u ^ ((uint32_t)dm_my_nonce<<16) ^ dm_peer_nonce;
+#ifdef MOTE_HOST
+                    if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[SEED-TX] %08x (nonces my=%u peer=%u)\n",dm_seed,dm_my_nonce,dm_peer_nonce);
+#endif
                     { uint8_t m[6]={0xA5,'S',(uint8_t)dm_seed,(uint8_t)(dm_seed>>8),
                                     (uint8_t)(dm_seed>>16),(uint8_t)(dm_seed>>24)};
                       mote->link_send(m,6); }
@@ -2493,6 +2534,7 @@ static void g_update(float dt) {
                     dm_phase=1; dm_map_pos=0; dm_out_len=dm_out_off=0;
                 }
             } else if (dm_phase==1) {                                   /* --- map transfer --- */
+                int authority = dm_my_nonce > dm_peer_nonce;            /* nonces final here */
                 if (authority){
                     dm_poll();                                          /* serve 'R' / 'Y' */
                     for (int guard=0; guard<24; guard++){
