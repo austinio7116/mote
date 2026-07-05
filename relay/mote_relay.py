@@ -108,15 +108,22 @@ class Relay:
                 return c
         return "R" + "".join(random.choice(alpha) for _ in range(5))
 
-    async def pipe(self, r: asyncio.StreamReader, w: asyncio.StreamWriter, reason):
+    async def pipe(self, r: asyncio.StreamReader, w: asyncio.StreamWriter, reason, tag=""):
         """Forward r -> w until EOF, error, or `idle` seconds of true silence.
         Records WHY it ended in reason[0] so the room-closed log is diagnosable.
-        (Idle is a long backstop now; TCP keepalive catches dead peers far sooner.)"""
+        (Idle is a long backstop now; TCP keepalive catches dead peers far sooner.)
+        Logs any forwarding gap >2.5s when traffic RESUMES — the smoking gun for
+        'both games said LINK LOST but nothing disconnected'."""
+        last = time.monotonic()
         try:
             while True:
                 data = await asyncio.wait_for(r.read(4096), timeout=self.args.idle)
+                now = time.monotonic()
                 if not data:
                     reason[0] = "peer EOF"; break
+                if now - last > 2.5:
+                    log(f"{tag}: silent {now-last:.1f}s then resumed")
+                last = now
                 w.write(data)
                 await w.drain()
         except asyncio.TimeoutError:
@@ -129,10 +136,10 @@ class Relay:
             except OSError:
                 pass
 
-    async def relay(self, r1, w1, r2, w2):
+    async def relay(self, r1, w1, r2, w2, tag=""):
         why = [""]
-        t1 = asyncio.create_task(self.pipe(r1, w2, why))
-        t2 = asyncio.create_task(self.pipe(r2, w1, why))
+        t1 = asyncio.create_task(self.pipe(r1, w2, why, f"{tag} host->guest"))
+        t2 = asyncio.create_task(self.pipe(r2, w1, why, f"{tag} guest->host"))
         await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
         for w in (w1, w2):          # closing either end unblocks the other pipe
             try:
@@ -147,7 +154,8 @@ class Relay:
         room.writer.write(b"GO H\n"); await room.writer.drain()
         writer.write(b"GO G\n"); await writer.drain()
         log(f"room {room.gid}/{room.code}: paired ({peer})")
-        why = await self.relay(room.reader, room.writer, reader, writer)
+        why = await self.relay(room.reader, room.writer, reader, writer,
+                               tag=f"room {room.gid}/{room.code}")
         if not room.future.done():
             room.future.set_result(True)        # release the host's handler
         log(f"room {room.gid}/{room.code}: closed ({why})")
@@ -260,6 +268,19 @@ async def main():
     ap.add_argument("--idle", type=int, default=900, help="seconds of TRUE silence before a paired room is dropped (TCP keepalive catches dead peers in ~70s regardless; this is only a backstop for a paused/AFK pair)")
     ap.add_argument("--max-conns", type=int, default=2000)
     args = ap.parse_args()
+
+    async def watchdog():
+        """The one instrument that indicts the VM itself: sleep(0.25) waking late
+        means the event loop (or the whole box) stalled — every room froze with it."""
+        last = time.monotonic()
+        while True:
+            await asyncio.sleep(0.25)
+            now = time.monotonic()
+            lag = now - last - 0.25
+            if lag > 1.0:
+                log(f"WATCHDOG: event loop stalled {lag:.1f}s (VM starvation?)")
+            last = now
+    asyncio.get_event_loop().create_task(watchdog())
 
     relay = Relay(args)
     server = await asyncio.start_server(relay.handle, args.addr, args.port)

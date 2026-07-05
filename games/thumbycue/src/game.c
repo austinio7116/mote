@@ -223,7 +223,7 @@ static void lk_tick(float dt) {
     lk_poll();
     if (lk_state != LK_PLAY) return;                        /* 'Q' ended it inside poll */
     lk_rx_age += dt;
-    if (lk_rx_age > 5.0f) { cue_game_link_lost(0); mote->link_stop(); lk_state = LK_OFF; return; }
+    if (mote->net_health() == MOTE_NET_LOST) { cue_game_link_lost(0); mote->link_stop(); lk_state = LK_OFF; return; }   /* v45 */
 
     static uint8_t pay[CUE_LINK_MAXMSG];
     if (cue_game_link_take_settled()) { int n = cue_game_link_enc_final(pay); lk_frame('E', pay, n); }

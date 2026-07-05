@@ -2513,7 +2513,7 @@ static void g_update(float dt) {
     if (g_dm){                                   /* deathmatch upkeep, every frame */
         dm_poll();
         dm_rx_age += dt;
-        if (dm_rx_age>3.0f && !dm_end) dm_end=3; /* peer went silent */
+        if (mote->net_health()==MOTE_NET_LOST && !dm_end) dm_end=3; /* v45: engine-measured loss (blips recover) */
         heat=0; heat_cool=99;                    /* no police in DM */
         if (rp_fire_t>0) rp_fire_t-=dt;
         rp_anim += dt;

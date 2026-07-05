@@ -1520,7 +1520,7 @@ static void g_update(float dt) {
     if (g_link) {
         link_poll();
         g_link_rx_age += dt;
-        if (g_link_rx_age > 3.0f && !g_link_result) g_link_result = 3;   /* peer went silent */
+        if (mote->net_health() == MOTE_NET_LOST && !g_link_result) g_link_result = 3;   /* v45: engine-measured loss */
         g_link_send_t -= dt;
         if (g_link_send_t <= 0) { link_send_state(); g_link_send_t = 1.0f / 15.0f; }
         if ((g_link_result || g_state == ST_FINISH) && mote_just_pressed(in, MOTE_BTN_B)) {

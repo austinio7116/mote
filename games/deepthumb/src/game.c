@@ -806,7 +806,8 @@ static void logic_player(const MoteInput *in, float dt) {
         return;
     }
     if (game.opponent == OPP_LINK) {
-        if (mote->link_status() != MOTE_LINK_CONNECTED) { link_game_end(RES_LINK_LOST); return; }
+        if (mote->link_status() != MOTE_LINK_CONNECTED ||
+            mote->net_health() == MOTE_NET_LOST) { link_game_end(RES_LINK_LOST); return; }   /* v45 */
         poll_link();                              /* catch the peer's 'Q' */
         if (game.state != ST_PLAYER) return;
     }
@@ -873,7 +874,8 @@ static void logic_remote(const MoteInput *in, float dt) {
         if (handle_pause_menu(in)) { quit_link_to_title(); }
         return;
     }
-    if (mote->link_status() != MOTE_LINK_CONNECTED) { link_game_end(RES_LINK_LOST); return; }
+    if (mote->link_status() != MOTE_LINK_CONNECTED ||
+        mote->net_health() == MOTE_NET_LOST) { link_game_end(RES_LINK_LOST); return; }       /* v45 */
     poll_link();                                  /* applies the move -> ST_PLAYER */
     if (game.state != ST_REMOTE) return;
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {

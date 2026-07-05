@@ -4960,6 +4960,8 @@ extern int mote_studio_link_bridge_active;    /* consumed by mote_plat_studio */
 extern void mote_studio_devlink_set(int on);  /* preview<->device local pipe (plat studio) */
 extern int  mote_studio_devlink_pull_tx(void *buf, int max);
 extern int  mote_studio_devlink_push_rx(const void *buf, int n);
+extern int  mote_studio_preview_link_on(void);       /* preview game's link is started */
+extern int  mote_studio_preview_link_waiting(void);  /* ...and unpaired (wants an opponent) */
 static volatile int g_bridge_on;
 static int g_bridge_local;   /* 0 = relay serial<->LAN · 1 = relay serial<->preview game */
 static int bridge_thread(void *a){ (void)a;
@@ -5125,10 +5127,73 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
         g_proxy_active=1;
         char line[96];
         for(;;){                                             /* serve commands on this port */
-            if(proxy_readline(h,line,sizeof line)<=0) break; /* silence / paused: cycle the port */
+            int have=1;                                      /* an action is pending (set by both entry paths) */
+            /* Sniff the mode from the first byte: 'M''N' text = an online request;
+             * 0x4D 0x4C binary = the device lobby's ML hello — it picked USB CABLE
+             * while docked, i.e. it wants a DIRECT opponent: auto-bridge it to the
+             * preview game (the zero-click 'Vs Device'). */
+            char c0; int r0=0, idle0=0;
+            while(!proxy_paused()){
+                r0=mote_dev_raw_read(h,&c0,1);
+                if(r0==1)break;
+                if(++idle0>60){ r0=0; break; }               /* ~6s silence: cycle the port */
+            }
+            if(r0!=1) break;
+            if((unsigned char)c0==0x4D){
+                char c1; int r1=0, idle1=0;
+                while(!proxy_paused()){ r1=mote_dev_raw_read(h,&c1,1); if(r1==1)break; if(++idle1>10){r1=0;break;} }
+                if(r1==1&&(unsigned char)c1==0x4C){          /* ML hello -> vs preview */
+                    g_proxy_busy=1;
+                    int waited=0;
+                    while(!proxy_paused()&&!mote_studio_preview_link_waiting()&&waited<300){
+                        char sk[64]; mote_dev_raw_read(h,sk,sizeof sk); waited++; }  /* ~30s for the preview to enter ITS lobby */
+                    if(!mote_studio_preview_link_waiting()) break;
+                    mote_studio_devlink_set(1);
+                    log_add("device <-> preview game: linked (auto)");
+                    mote_studio_devlink_push_rx("\x4d\x4c",2);
+                    int quiet=0;
+                    while(!proxy_paused()&&mote_studio_preview_link_on()){
+                        int n=mote_dev_raw_read(h,buf,sizeof buf);
+                        if(n>0){ quiet=0; for(int off=0;off<n;){ int w=mote_studio_devlink_push_rx(buf+off,n-off); if(w<=0)break; off+=w; } }
+                        else if(++quiet>80){ log_add("device <-> preview: device went silent - unlinking"); break; }
+                        int m=mote_studio_devlink_pull_tx(buf,sizeof buf);
+                        for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off); if(w<=0)break; off+=w; }
+                    }
+                    mote_studio_devlink_set(0);
+                    log_add("device <-> preview: session ended");
+                    break;                                   /* cycle the port */
+                }
+                /* 0x4D then not 0x4C ('M' then 'N'...): an MN1 line — keep BOTH bytes */
+                line[0]=c0; line[1]=(r1==1)?c1:0;
+                { int ln=(r1==1)?2:1, idle=0;
+                  while(!proxy_paused()&&ln<(int)sizeof line-1){
+                      char c; int r=mote_dev_raw_read(h,&c,1);
+                      if(r<=0){ if(++idle>60){ln=0;break;} continue; }
+                      idle=0;
+                      if(c=='\n')break;
+                      if(c!='\r')line[ln++]=c;
+                  }
+                  if(ln<=0)break;
+                  line[ln]=0; }
+                g_proxy_busy=1;
+                if(!proxy_command(h,line)) continue;
+                goto serve_action;
+            }
+            /* text mode: c0 starts a line (non-'M' first byte: unlikely, but harmless) */
+            line[0]=c0;
+            { int ln=1, idle=0;
+              while(!proxy_paused()&&ln<(int)sizeof line-1){
+                  char c; int r=mote_dev_raw_read(h,&c,1);
+                  if(r<=0){ if(++idle>60){ln=0;break;} continue; }
+                  idle=0;
+                  if(c=='\n')break;
+                  if(c!='\r')line[ln++]=c;
+              }
+              if(ln<=0)break;
+              line[ln]=0; }
             g_proxy_busy=1;
-            int have=proxy_command(h,line);                  /* CANCEL etc return 0: read the next line */
-            if(!have) continue;
+            if(!proxy_command(h,line)) continue;             /* CANCEL etc return 0: read the next line */
+            serve_action:;
             char db[96]; int dn=0;
             while(have&&!proxy_paused()){ int st=link_net_status();   /* wait for the relay to pair */
                 if(st==LINK_NET_CONNECTED)break;
@@ -5150,6 +5215,7 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 proxy_send(h,"MN1 GO\n"); log_add("online(dev): paired - relaying");
                 int mc=0;                                    /* MN1_CANCEL matcher state */
                 long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
+                Uint32 lup=t0,ldn=t0; Uint32 gup=0,gdn=0;    /* per-direction max silent gap */
                 while(1){                                    /* splice device <-> relay */
                     if(proxy_paused()){ why="paused (manual op / toggle)"; break; }
                     int n=mote_dev_raw_read(h,buf,sizeof buf);
@@ -5158,6 +5224,8 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                         if(buf[i]==MN1_CANCEL[mc]){ if(++mc==(int)sizeof(MN1_CANCEL)-1)stop=1; }
                         else mc=(buf[i]==MN1_CANCEL[0])?1:0;
                     }
+                    { Uint32 nw=SDL_GetTicks();
+                      if(n>0){ if(nw-lup>gup)gup=nw-lup; lup=nw; } }
                     for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; up+=w; }
                     if(stop){ why="device left (lobby cancel)"; break; }
                     int m=link_net_recv(buf,sizeof buf);
@@ -5167,14 +5235,17 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                                 log_add(sm); }
                             break; }
                         off+=w; dn2+=w; }
+                    { Uint32 nw=SDL_GetTicks();
+                      if(m>0){ if(nw-ldn>gdn)gdn=nw-ldn; ldn=nw; } }
                     if(link_net_status()!=LINK_NET_CONNECTED){ why=link_net_info(); break; }
                     Uint32 now=SDL_GetTicks();               /* heartbeat every 15s */
-                    if(now-tlog>15000){ tlog=now; char hb[112];
-                        snprintf(hb,sizeof hb,"online(dev): relaying ok  dev->net %ld B, net->dev %ld B (%us)",up,dn2,(now-t0)/1000);
-                        log_add(hb); }
+                    if(now-tlog>15000){ tlog=now; char hb[160];
+                        snprintf(hb,sizeof hb,"online(dev): relaying ok  dev->net %ld B, net->dev %ld B (%us)  max gap dev %.1fs net %.1fs",
+                                 up,dn2,(now-t0)/1000,gup/1000.0f,gdn/1000.0f);
+                        log_add(hb); gup=gdn=0; }
                 }
-                { char em[160]; snprintf(em,sizeof em,"online(dev): session ended after %us - %s  (dev->net %ld B, net->dev %ld B)",
-                                         (SDL_GetTicks()-t0)/1000,why,up,dn2); log_add(em); }
+                { char em[200]; snprintf(em,sizeof em,"online(dev): session ended after %us - %s  (dev->net %ld B, net->dev %ld B; last-window max gap dev %.1fs net %.1fs)",
+                                         (SDL_GetTicks()-t0)/1000,why,up,dn2,gup/1000.0f,gdn/1000.0f); log_add(em); }
                 link_net_stop(); g_room_code[0]=0;
             }
             break;                                           /* session over: cycle the port */

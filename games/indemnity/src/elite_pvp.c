@@ -378,7 +378,7 @@ int pvp_arena_tick(const CraftRawButtons *btn, float dt) {
     if (g_em && g_em->set_fps_limit) g_em->set_fps_limit(30);
     poll();
     s_rx_age += dt;
-    if (s_rx_age > 3.0f && s_end == END_NONE) s_end = END_LINKLOST;
+    if (g_em && g_em->net_health && g_em->net_health() == MOTE_NET_LOST && s_end == END_NONE) s_end = END_LINKLOST;   /* v45 */
 
     if (s_end != END_NONE) {                    /* end card: world frozen, FX play */
         fx_tick(dt);

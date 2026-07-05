@@ -16,7 +16,8 @@
 #include "mote_audio.h"      /* synth */
 #include "mote_menu.h"       /* engine overlay menu (3s MENU hold) */
 #include "mote_ui.h"         /* shared styled-UI kit (mote->menu) */
-#include "mote_lobby.h"      /* ABI v44: standard multiplayer lobby (net_lobby) */
+#include "mote_lobby.h"
+#include "mote_netshim.h"      /* ABI v44: standard multiplayer lobby (net_lobby) */
 #include <string.h>
 
 /* OS-owned per-frame state the game reads through the ABI. */
@@ -111,15 +112,19 @@ void mote_api_fill(MoteApi *a) {
     a->text_2x               = mote_font_draw_2x;
     a->text_font             = mote_font_draw_aa;   /* ABI v39: AA proportional fonts */
     a->phys2d_step           = mote_phys2d_step;     /* ABI v42: 2D rigid-body solver */
-    /* ABI v43: 2-player link (device: USB dual-role; host: local socket). */
+    /* ABI v43: 2-player link (device: USB dual-role; host: local socket).
+     * send/recv/stop route through the v45 net shim: outside a lobby session it
+     * is a pure pass-through; inside one it keepalives the pipe + strips them. */
     a->link_start            = mote_plat_link_start;
-    a->link_stop             = mote_plat_link_stop;
+    a->link_stop             = mote_net_link_stop;
     a->link_status           = mote_plat_link_status;
     a->link_is_host          = mote_plat_link_is_host;
-    a->link_send             = mote_plat_link_send;
-    a->link_recv             = mote_plat_link_recv;
+    a->link_send             = mote_net_send;
+    a->link_recv             = mote_net_recv;
     /* ABI v44: standard multiplayer lobby (transport pick + connect + handshake). */
     a->net_lobby             = mote_lobby;
+    /* ABI v45: engine-owned link health. */
+    a->net_health            = mote_net_health;
     /* ABI v6: telemetry. */
     a->log                   = mote_plat_log;
     a->perf                  = mote_perf_get;
@@ -305,6 +310,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         s_cur_input = &in;
         mote_plat_audio_pump();        /* keep the audio buffer fed (device) */
         mote_plat_link_task();         /* pump link discovery/transfer (no-op when off) */
+        mote_net_tick();               /* v45: keepalive the lobby session when the game is quiet */
 
         /* Engine menu: a 3-second SOLO hold of MENU (no other button) opens it.
          * Short taps, sub-3s long presses, and MENU chords stay free for games. */
@@ -371,6 +377,7 @@ void mote_os_run(const MoteApi *api, const MoteGameVtbl *vt) {
         }
 
         if (vt->overlay) vt->overlay(fb);      /* game HUD (core0) */
+        mote_net_overlay(fb);                  /* v45: engine stall banner over any game */
         mote_perf_overlay(fb);                 /* perf graph (core0) */
 
         mote_plat_present_async(fb);           /* kick flush; overlaps next update */

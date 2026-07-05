@@ -33,7 +33,13 @@
 #include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 44u  /* v44: standard multiplayer lobby — net_lobby() runs an
+#define MOTE_ABI_VERSION 45u  /* v45: engine-owned link health — the OS keepalives the
+                               * pipe itself and strips them on receipt, so net_health()
+                               * reports transport truth (OK/STALLED/LOST) and the OS
+                               * draws the stall banner. Games swap their own hard
+                               * silence timeouts for net_health()==MOTE_NET_LOST.
+                               * Appended one jump-table entry.
+                               * v44: standard multiplayer lobby — net_lobby() runs an
                                * engine-drawn transport pick + connect + nonce handshake and
                                * hands back a CONNECTED link (link_send/recv after). MoteNetCfg /
                                * MOTE_NET_*. Appended one jump-table entry. */
@@ -64,6 +70,17 @@
 #define MOTE_NET_ALL        0x07
 #define MOTE_NET_CANCELLED  0    /* net_lobby: player backed out */
 #define MOTE_NET_CONNECTED  1    /* net_lobby: paired — use link_send/recv now */
+
+/* net_health() (ABI v45) — engine-measured transport truth for a lobby session.
+ * The OS exchanges its own keepalives whenever the game goes quiet (and strips
+ * inbound ones before link_recv hands bytes over), so silence == a REAL stall:
+ *   OK       bytes are flowing (or no lobby session is active)
+ *   STALLED  nothing received for >2.5 s — the OS is already showing a banner;
+ *            keep simulating, DON'T end the match (internet blips recover)
+ *   LOST     nothing for >20 s — treat as the old 'link lost' */
+#define MOTE_NET_OK         0
+#define MOTE_NET_STALLED    1
+#define MOTE_NET_LOST       2
 
 /* What a game passes to net_lobby(). game_name + proto_version form the game id
  * that gates rooms (only same-game, same-proto peers ever pair). transports = which
@@ -508,6 +525,8 @@ typedef struct MoteApi {
      * game (cfg->game_name + proto_version), so only the same game can pair — even
      * over a cable. Returns MOTE_NET_CONNECTED or MOTE_NET_CANCELLED. */
     int (*net_lobby)(const MoteNetCfg *cfg, int *out_is_host);
+    /* ABI v45: engine-owned link health (see MOTE_NET_OK/STALLED/LOST). */
+    int (*net_health)(void);
 } MoteApi;
 
 /* ---------------------------------------------------------------------------

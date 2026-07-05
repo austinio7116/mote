@@ -204,6 +204,9 @@ void mote_studio_devlink_set(int on) {
     SDL_UnlockMutex(s_dl_mx);
 }
 int mote_studio_devlink_active(void) { return s_dl_on; }
+int mote_studio_preview_link_on(void) { return s_lk_started; }   /* preview game has link up */
+int mote_studio_preview_link_waiting(void) {                     /* ...and needs an opponent */
+    return s_lk_started && !s_dl_on && !mote_studio_link_bridge_active; }
 int mote_studio_devlink_pull_tx(void *buf, int max) {        /* bridge: game -> serial */
     dl_lock(); int n = dl_get(s_dl_g2d, sizeof s_dl_g2d, s_dl_g2d_h, &s_dl_g2d_t, buf, max);
     SDL_UnlockMutex(s_dl_mx); return n;

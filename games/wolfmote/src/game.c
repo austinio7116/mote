@@ -1339,7 +1339,9 @@ static void g_update(float dt) {
         if (g_dm) {                                        /* deathmatch upkeep, every frame */
             dm_poll();
             dm_rx_age += dt;
-            if (dm_rx_age > 3.0f && !dm_end) dm_end = 3;   /* peer went silent */
+            /* v45: the ENGINE keepalives + measures the pipe; a blip shows its own
+             * stall banner and recovers — only a real loss (>20s) ends the match */
+            if (mote->net_health() == MOTE_NET_LOST && !dm_end) dm_end = 3;
             if (rp_fire_t > 0) rp_fire_t -= dt;
             if (rp_hit_t  > 0) rp_hit_t  -= dt;
             rp_anim += dt;

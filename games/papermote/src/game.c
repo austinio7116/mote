@@ -549,7 +549,7 @@ static void g_update(float dt){
     if(g_link){                                             /* ---- linked duel ---- */
         bgm_tick(dt);
         lk_poll();
-        if(mote->link_status()!=MOTE_LINK_CONNECTED || lk_rx_age>3.0f){ lk_lost=1; state=S_DEAD; }
+        if(mote->link_status()!=MOTE_LINK_CONNECTED || mote->net_health()==MOTE_NET_LOST){ lk_lost=1; state=S_DEAD; }   /* v45 */
         lk_rx_age+=dt;
         step=STEP_BASE;                                     /* constant speed — a fair duel */
         step_acc+=dt;

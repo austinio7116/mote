@@ -39,6 +39,7 @@
  * bytes stay unread for the game.
  */
 #include "mote_lobby.h"
+#include "mote_netshim.h"
 #include "mote_platform.h"
 #include "mote_launcher.h"   /* mote_launcher_fb */
 #include "mote_font.h"
@@ -353,6 +354,7 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 }
                 if (screen != SC_MISMATCH && resolved && sent_end && got_end) {
                     if (out_is_host) *out_is_host = is_host;
+                    mote_net_begin();          /* v45: engine keepalives + health from here */
                     LOBDBG("CONNECTED is_host=%d\n",is_host);
                     return MOTE_NET_CONNECTED;
                 }
