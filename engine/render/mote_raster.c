@@ -59,9 +59,16 @@ void mote_point(int x, int y, uint16_t d, uint16_t color, int size,
 void mote_disc(int cx, int cy, uint16_t d, int r, uint16_t color,
              int y_min, int y_max) {
     if (r < 1) r = 1;
-    for (int dy = -r; dy <= r; dy++) {
+    /* Nothing on a 128px screen needs a bigger radius — and a garbage radius
+     * (an uninitialised body, a float->int overflow) used to spin this loop
+     * BILLIONS of iterations with r*r overflowing: the renderer hung solid
+     * (indemnity's PVP 'stalls on arena load'). Clamp, then bound dy to the
+     * visible band instead of continue-ing through 2r+1 rows. */
+    if (r > MOTE_FB_PW + MOTE_FB_PH) r = MOTE_FB_PW + MOTE_FB_PH;
+    int dy0 = -r; if (cy + dy0 < y_min)  dy0 = y_min - cy;
+    int dy1 =  r; if (cy + dy1 >= y_max) dy1 = y_max - 1 - cy;
+    for (int dy = dy0; dy <= dy1; dy++) {
         int py = cy + dy;
-        if (py < y_min || py >= y_max) continue;
         int half = (int)sqrtf((float)(r * r - dy * dy));
         int x0 = cx - half, x1 = cx + half;
         if (x0 < 0) x0 = 0;

@@ -437,6 +437,8 @@ void r3d_planet_bake(const SystemInfo *info) {
 }
 
 /* --- per-frame: emit star + planets as engine primitives ---------------- */
+void r3d_planet_clear(void) { s_info = NULL; }   /* PVP arena: empty space, no bodies */
+
 void r3d_planet_emit(Vec3 cam_pos_mm) {
     if (!s_info || !g_em) return;
     for (int i = -1; i < (int)s_info->n_planets; i++) {

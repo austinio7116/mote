@@ -4,6 +4,10 @@
  * driven from the shot-resolve step here.
  */
 #include "cue_game.h"
+#ifdef MOTE_HOST
+#include <stdlib.h>
+#include <stdio.h>
+#endif
 #include "cue_types.h"
 #include "cue_physics.h"
 #include "cue_table.h"
@@ -686,9 +690,16 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
     }
 
     if (s_state == GS_AIM) {
-        if (b->a) { s_state = GS_BACKSWING; s_power = 0; s_pull = 0; }
+        if (b->a) { s_state = GS_BACKSWING; s_power = 0; s_pull = 0;
+#ifdef MOTE_HOST
+            { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,"[CUE-BACKSWING] turn=%d me=%d\n",s_rules.turn,s_link_me); }
+#endif
+        }
     } else if (s_state == GS_BACKSWING) {
         if (jr_a) {
+#ifdef MOTE_HOST
+            { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,"[CUE-RELEASE] power=%.4f -> %s\n",s_power,s_power>0.008f?"SHOT":"back to aim"); }
+#endif
             if (s_power > 0.008f) begin_shot();   /* allow very gentle roll-ups */
             else s_state = GS_AIM;
         }
@@ -761,6 +772,9 @@ static void ingame_tick(const CraftRawButtons *b, float dt) {
             s_power = 0; s_pull = 0; s_tip_side = s_tip_vert = 0; s_elev = 0; s_aim = s_view_az;
             s_msg_t = 2.0f;
             route_post_shot();
+#ifdef MOTE_HOST
+            { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,"[CUE-RESOLVED] turn=%d me=%d st=%d link=%d\n",s_rules.turn,s_link_me,s_state,s_link_on); }
+#endif
             if (s_link_on) s_link_settled = 1;   /* LINK: emit the authoritative 'E' */
         }
     } else if (s_state == GS_DECIDE) {
@@ -1448,6 +1462,11 @@ int cue_game_link_enc_balls(uint8_t *b) {
 }
 
 int cue_game_link_enc_final(uint8_t *b) {
+#ifdef MOTE_HOST
+    { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,
+        "[CUE-E-TX] turn=%d me=%d st=%d over=%d inhand=%d restrict=%d msg='%s'\n",
+        s_rules.turn, s_link_me, s_state, s_screen==SC_OVER, s_inhand_avail, s_place_restrict, s_rules.msg); }
+#endif
     int p = 0;
     b[p++] = (uint8_t)s_state;
     uint8_t flags = 0;
@@ -1501,6 +1520,10 @@ void cue_game_link_dec_balls(const uint8_t *b, int len) {
 }
 
 void cue_game_link_dec_final(const uint8_t *b, int len) {
+#ifdef MOTE_HOST
+    { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,
+        "[CUE-E-RX] len=%d need>=%d\n", len, 2 + (int)sizeof(CueRules) + 1); }
+#endif
     if (!s_link_on || len < 2 + (int)sizeof(CueRules) + 1) return;
     int p = 0, st = b[p++], flags = b[p++];
     memcpy(&s_rules, b + p, sizeof(CueRules)); p += (int)sizeof(CueRules);
@@ -1515,6 +1538,10 @@ void cue_game_link_dec_final(const uint8_t *b, int len) {
     s_state = (st == GS_PLACE) ? GS_PLACE : GS_AIM;
     s_place_restrict = (flags & 2) != 0;
     s_inhand_avail   = (flags & 4) != 0;
+#ifdef MOTE_HOST
+    { const char *e = getenv("MOTE_CUE_DEBUG"); if (e && e[0]) fprintf(stderr,
+        "[CUE-E-APPLIED] turn=%d me=%d st=%d msg='%s'\n", s_rules.turn, s_link_me, s_state, s_rules.msg); }
+#endif
     s_freelook = 0; s_freeview = 0; s_follow_idx = 0;
     s_msg_t = 2.0f;
     if (flags & 1) {                            /* frame over on the shooter's side */

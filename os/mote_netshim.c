@@ -116,10 +116,18 @@ int mote_net_recv(void *buf, int max) {
 void mote_net_tick(void) {
     if (!s_active || mote_plat_link_status() != MOTE_LINK_CONNECTED) return;
     txq_flush();                             /* ship whatever the FIFO refused last frame */
+    if (s_txq_len) return;                   /* bytes in flight prove we're alive — and a
+                                                keepalive must NEVER interleave into a
+                                                queued frame */
     uint32_t now = now_ms();
     if ((uint32_t)(now - s_last_tx) >= KA_SEND_MS) {     /* game is quiet: we speak */
-        mote_plat_link_send(KA, KA_LEN);
-        s_last_tx = now;
+        /* a PARTIAL keepalive write is poison: the receiver's stripper holds the
+         * partial magic and then flushes it as GAME BYTES — frame-header corruption.
+         * Whatever the FIFO refuses goes through the queue like everything else. */
+        int w = mote_plat_link_send(KA, KA_LEN);
+        if (w > 0 && w < KA_LEN) { memcpy(s_txq, KA + w, (size_t)(KA_LEN - w));
+                                   s_txq_len = KA_LEN - w; s_txq_off = 0; }
+        if (w > 0) s_last_tx = now;
     }
 }
 

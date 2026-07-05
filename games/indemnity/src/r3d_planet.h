@@ -31,6 +31,7 @@ int r3d_planet_art_peek(int i, const uint8_t **tex, const uint16_t **pal);
 /* Project star + planets into this frame's impostor list.
  * cam_pos_mm: camera position in system Mm coords. Call on core0
  * between r3d_scene_begin and rasterisation. */
+void r3d_planet_clear(void);
 void r3d_planet_emit(Vec3 cam_pos_mm);
 
 /* Rasterise the impostor list into rows [y0,y1). Called by r3d_scene. */

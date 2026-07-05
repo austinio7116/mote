@@ -259,7 +259,12 @@ static void load_my_ship(void) {
     g_player.armor_eq  = (WeaponInst){ .type = EQ_ARMOR,  .quality = Q_STANDARD, .integrity = 100, .in_use = 1, .tier = 2 };
 }
 
-static void build_arena(void) {
+/* The arena build runs ONE STEP PER FRAME (s_build_step 1..8) with the step
+ * number painted on the sync card — if a device wedges mid-build, the frozen
+ * number names the culprit; and the frame loop keeps running between steps,
+ * so hellos/keepalives still flow and the peer can't time out on a SLOW step. */
+static int s_build_step;
+static void build_arena_step(void) {
     int i_won = s_my_nonce > s_peer_nonce;    /* both compute both spawn sides */
     float sep = PVP_SEP;
 #ifdef MOTE_HOST
@@ -268,66 +273,67 @@ static void build_arena(void) {
     Vec3 mypos = v3(i_won ? -sep * 0.5f :  sep * 0.5f, 0, 0);
     Vec3 rmpos = v3(i_won ?  sep * 0.5f : -sep * 0.5f, 0, 0);
 
-    ships_init();
-    fx_init();
-    proj_init();
-    rocks_init();          /* empty space: no belt/traffic/salvage clutter */
-    loot_init();
-    combat_init();
-    combat_set_kills(0);
-    elite_input_reset();
+    switch (s_build_step) {
+    case 1: ships_init(); fx_init(); break;
+    case 2: proj_init(); rocks_init(); break;  /* empty space: no belt/traffic/salvage */
+    case 3: loot_init(); break;
+    case 4: combat_init(); combat_set_kills(0); elite_input_reset(); break;
+    case 5: {
 
     /* g_player was loaded + snapshotted in pvp_begin BEFORE the lobby opened —
-     * do NOT touch the save filesystem here: this runs with the USB link live,
-     * and on device a FatFs read mid-link (flash window remaps vs USB ISRs)
-     * wedges the game — the field 'stalls on arena load' bug. */
-
-    /* --- my ship (entity 0) --- */
-    Ship *p = &g_ships[PLAYER];
-    p->alive = true;
-    p->pos = mypos;
-    p->vel = v3(0, 0, 0);
-    p->throttle = 0.0f;
-    p->assist = true;
-    p->boost_t = 0; p->heat = 0; p->fire_cool = 0;
-    p->team = TEAM_PLAYER;
-    player_apply_to_ship();                   /* hull/shield/turn from g_player */
-    p->turret_type = 0;                        /* no auto-aim help in a duel */
-    p->hull = p->hull_max;
-    p->shield = p->shield_max;
-    face_toward(p, mypos, rmpos);
-    id_snapshot();
+     * never touch the save filesystem here (USB link is live). */
+        Ship *p = &g_ships[PLAYER];
+        p->alive = true;
+        p->pos = mypos;
+        p->vel = v3(0, 0, 0);
+        p->throttle = 0.0f;
+        p->assist = true;
+        p->boost_t = 0; p->heat = 0; p->fire_cool = 0;
+        p->team = TEAM_PLAYER;
+        player_apply_to_ship();               /* hull/shield/turn from g_player */
+        p->turret_type = 0;                    /* no auto-aim help in a duel */
+        p->hull = p->hull_max;
+        p->shield = p->shield_max;
+        face_toward(p, mypos, rmpos);
+        id_snapshot();
+        break; }
+    case 6: {
 
     /* --- the peer (entity PVP_REMOTE) --- */
-    Ship *r = &g_ships[PVP_REMOTE];
-    memset(r, 0, sizeof *r);
-    r->alive = true;
-    r->mesh = hull_mesh(s_peer_id.hull_seed, s_peer_id.hull_id);
-    r->team = TEAM_HOSTILE;
-    r->ai_state = AI_NONE;                      /* driven by packets, never local AI */
-    r->hull_max   = s_peer_id.hull_max   > 0 ? s_peer_id.hull_max   : 100;
-    r->shield_max = s_peer_id.shield_max;
-    r->hull = r->hull_max; r->shield = r->shield_max;
-    r->shield_var = s_peer_id.shv; r->armor_var = s_peer_id.arv;
-    r->max_speed = 500.0f; r->accel = 300.0f; r->turn_rate = 2.5f;
-    r->assist = false; r->throttle = 0.0f;     /* -> ship_physics dead-reckons on vel */
-    r->n_weapons = s_peer_id.nw;
-    for (int i = 0; i < MAX_HARDPOINTS; i++) r->weapons[i] = s_peer_id.wpn[i];
-    r->cls = s_peer_id.hull_id;
-    r->pos = rmpos;
-    face_toward(r, rmpos, mypos);
-    s_rp_pos = rmpos; s_rp_fwd = r->basis.r[2]; s_rp_up = r->basis.r[1]; s_rp_vel = v3(0,0,0);
-
-    elite_game_pvp_prep();                      /* anchor off, HUD locks the remote */
-
-    s_active = 1; s_waiting = 0;
-    s_end = END_NONE; s_death_sent = 0;
-    s_send_t = 0; s_rx_age = 0;
-    s_prev_firecool = 0;
-    PVPDBG("ARENA built: i_won=%d my(nonce=%u hull=%.0f shd=%.0f) peer(hull_id=%d hull=%.0f shd=%.0f) mypos=(%.0f,%.0f,%.0f) rmpos=(%.0f,%.0f,%.0f)\n",
-           i_won, s_my_nonce, p->hull_max, p->shield_max, s_peer_id.hull_id,
-           r->hull_max, r->shield_max, p->pos.x, p->pos.y, p->pos.z, r->pos.x, r->pos.y, r->pos.z);
+        Ship *r = &g_ships[PVP_REMOTE];
+        memset(r, 0, sizeof *r);
+        r->alive = true;
+        r->mesh = hull_mesh(s_peer_id.hull_seed, s_peer_id.hull_id);
+        r->team = TEAM_HOSTILE;
+        r->ai_state = AI_NONE;                  /* driven by packets, never local AI */
+        r->hull_max   = s_peer_id.hull_max   > 0 ? s_peer_id.hull_max   : 100;
+        r->shield_max = s_peer_id.shield_max;
+        r->hull = r->hull_max; r->shield = r->shield_max;
+        r->shield_var = s_peer_id.shv; r->armor_var = s_peer_id.arv;
+        r->max_speed = 500.0f; r->accel = 300.0f; r->turn_rate = 2.5f;
+        r->assist = false; r->throttle = 0.0f; /* -> ship_physics dead-reckons on vel */
+        r->n_weapons = s_peer_id.nw;
+        for (int i = 0; i < MAX_HARDPOINTS; i++) r->weapons[i] = s_peer_id.wpn[i];
+        r->cls = s_peer_id.hull_id;
+        r->pos = rmpos;
+        face_toward(r, rmpos, mypos);
+        s_rp_pos = rmpos; s_rp_fwd = r->basis.r[2]; s_rp_up = r->basis.r[1]; s_rp_vel = v3(0,0,0);
+        break; }
+    case 7: elite_game_pvp_prep(); break;       /* anchor off, HUD locks the remote */
+    case 8: {
+        s_active = 1; s_waiting = 0;
+        s_end = END_NONE; s_death_sent = 0;
+        s_send_t = 0; s_rx_age = 0;
+        s_prev_firecool = 0;
+        Ship *p = &g_ships[PLAYER]; Ship *r = &g_ships[PVP_REMOTE];
+        PVPDBG("ARENA built: i_won=%d my(nonce=%u hull=%.0f shd=%.0f) peer(hull_id=%d hull=%.0f shd=%.0f) mypos=(%.0f,%.0f,%.0f) rmpos=(%.0f,%.0f,%.0f)\n",
+               i_won, s_my_nonce, p->hull_max, p->shield_max, s_peer_id.hull_id,
+               r->hull_max, r->shield_max, p->pos.x, p->pos.y, p->pos.z, r->pos.x, r->pos.y, r->pos.z);
+        break; }
+    }
+    (void)i_won;
 }
+int pvp_build_step(void) { return s_build_step; }   /* sync-card diagnostic */
 
 /* ---- public API --------------------------------------------------------- */
 int pvp_active(void)      { return s_active; }
@@ -343,6 +349,7 @@ int pvp_begin(void) {
     s_my_nonce = (uint16_t)(host ? 2 : 1);
     s_sent_hello = s_got_hello = s_got_ident = 0;
     s_hello_t = 0; s_msg_len = 0;
+    s_build_step = 0;
     s_active = 0; s_waiting = 1;
     return 1;
 }
@@ -368,7 +375,13 @@ int pvp_wait_tick(const CraftRawButtons *btn, float dt) {
     if (s_got_hello && s_peer_nonce == s_my_nonce) {   /* 1-in-65536 tie: re-roll */
         s_my_nonce ^= 0x5A5Au; s_got_hello = 0; send_hello();
     }
-    if (s_got_hello && s_got_ident) { build_arena(); return PVP_START; }
+    if (s_got_hello && s_got_ident) {
+        if (s_build_step == 0) s_build_step = 1;
+        build_arena_step();
+        if (s_build_step >= 8) { s_build_step = 0; return PVP_START; }
+        s_build_step++;
+        return PVP_WAIT;
+    }
     return PVP_WAIT;
 }
 
@@ -477,6 +490,13 @@ void pvp_draw_overlay(uint16_t *fb) {
             { int nh = (g_em && g_em->net_health) ? g_em->net_health() : 0;
               if (nh == MOTE_NET_STALLED) ctext(fb, "LINK STALLED...", 86, RGB565C(255, 200, 120));
               else if (nh == MOTE_NET_LOST) ctext(fb, "PEER SILENT 20S+", 86, RGB565C(255, 120, 90)); }
+            if (s_build_step > 0) {                 /* staged arena build: the frozen
+                                                       number names a wedged step */
+                char bs[16]; int k = 0;
+                bs[k++]='A'; bs[k++]='R'; bs[k++]='E'; bs[k++]='N'; bs[k++]='A'; bs[k++]=' ';
+                bs[k++]=(char)('0'+s_build_step); bs[k++]='/'; bs[k++]='8'; bs[k]=0;
+                ctext(fb, bs, 98, RGB565C(150, 220, 255));
+            }
         }
         else {
             ctext(fb, "CONNECT USB CABLE", 56, RGB565C(210, 214, 222));

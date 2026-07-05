@@ -923,6 +923,10 @@ static void set_nebula_for_addr(SysAddr a) {
  * station/beacon anchor, HUD reticle locked to the peer, all other locks
  * cleared. elite_pvp.c builds the ships; this just tunes the shell. */
 void elite_game_pvp_prep(void) {
+    r3d_planet_clear();      /* the arena is EMPTY SPACE: entering PVP from the title
+                              * left the last (or never-initialised) star system live,
+                              * and its sun disc rendered with a garbage radius — the
+                              * 'stalls on arena load' renderer hang */
     s_anchor_has_poi = false;
     s_anchor_mm = v3(0, 0, 0);
     s_station_mesh = NULL;

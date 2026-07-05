@@ -754,7 +754,9 @@ void mote_scene_raster(uint16_t *fb, int y0, int y1) {
      * write it, so they layer over the scene without occluding each other. */
     for (int i = 0; i < s_ndiscs; i++) {
         const ScreenDisc *q = &s_discs[i];
-        mote_disc((int)(q->cx * ss), (int)(q->cy * ss), q->d, (int)(q->r * ss), q->color, py0, py1);
+        { float rf = q->r * ss;                       /* float->int overflow guard */
+          int ri = rf > 4096.0f ? 4096 : rf < 1.0f ? 1 : (int)rf;
+          mote_disc((int)(q->cx * ss), (int)(q->cy * ss), q->d, ri, q->color, py0, py1); }
     }
     /* Billboard ring outlines (ghost balls, reticles): midpoint circle, depth-tested. */
     if (s_nrings > 0) {
