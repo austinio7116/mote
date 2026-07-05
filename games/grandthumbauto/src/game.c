@@ -771,6 +771,8 @@ static uint8_t  dm_msg[128]; static int dm_msg_len;  /* holds a 65-byte 'm' chun
 static int      dm_auth;                     /* this unit simulates the shared traffic */
 static int      dm_peer_car = -1;            /* authority: the car slot the PEER is driving (exclude from 'V') */
 static float    dm_tx[NCAR], dm_tz[NCAR], dm_tyaw2[NCAR];  /* peer: streamed traffic targets (lerped) */
+static float    dm_tvx[NCAR], dm_tvz[NCAR];                 /* peer: velocity estimated from 'V' deltas
+                                                              (so a jacked car keeps its momentum) */
 static uint8_t  dm_tpresent[NCAR];           /* peer: was this slot in the last 'V'? */
 static float    dm_vsend_t;                  /* authority: traffic-broadcast cadence */
 /* MAP TRANSFER (fixes cross-arch desync): citygen uses sinf/atan2f for rivers,
@@ -2039,9 +2041,13 @@ static void dm_send_state(void){
 static void dm_send_carback(int ci){                 /* car ci re-enters the shared world */
     Car *c=&cars[ci];
     int16_t xi=(int16_t)(c->x*8.0f), zi=(int16_t)(c->z*8.0f);
-    uint8_t m[9]={0xA5,'X',(uint8_t)ci,(uint8_t)xi,(uint8_t)(xi>>8),(uint8_t)zi,(uint8_t)(zi>>8),
-                  (uint8_t)(int8_t)(c->yaw*40.5845f),(uint8_t)(c->wrecked?1:0)};
-    mote->link_send(m,9);
+    /* carry the car's MOMENTUM back too, so a car you bail out of at speed
+     * keeps rolling on the other screen instead of snapping to a stop */
+    int16_t vx=(int16_t)(bodies[ci].vx*64.0f), vz=(int16_t)(bodies[ci].vy*64.0f);
+    uint8_t m[13]={0xA5,'X',(uint8_t)ci,(uint8_t)xi,(uint8_t)(xi>>8),(uint8_t)zi,(uint8_t)(zi>>8),
+                  (uint8_t)(int8_t)(c->yaw*40.5845f),(uint8_t)(c->wrecked?1:0),
+                  (uint8_t)vx,(uint8_t)(vx>>8),(uint8_t)vz,(uint8_t)(vz>>8)};
+    mote->link_send(m,13);
 }
 static void dm_die(void){
     dm_send1('K');
@@ -2097,7 +2103,12 @@ static void dm_handle(const uint8_t *m){
             for (int k=0;k<n;k++){ const uint8_t *e=m+3+k*6; int ci=e[0]&0x7f;
                 if (ci>=NCAR) continue;
                 int16_t xi=(int16_t)(e[1]|(e[2]<<8)), zi=(int16_t)(e[3]|(e[4]<<8));
-                dm_tx[ci]=xi/8.0f; dm_tz[ci]=zi/8.0f; dm_tyaw2[ci]=(int8_t)e[5]/40.5845f;
+                float nx=xi/8.0f, nz=zi/8.0f;
+                if (dm_tpresent[ci] || cars[ci].alive){    /* velocity from the position delta (~12 Hz stream) */
+                    float vx=(nx-dm_tx[ci])*12.0f, vz=(nz-dm_tz[ci])*12.0f;
+                    float sp2=vx*vx+vz*vz; if (sp2 < 60.0f*60.0f){ dm_tvx[ci]=vx; dm_tvz[ci]=vz; }  /* reject teleport/recycle jumps */
+                }
+                dm_tx[ci]=nx; dm_tz[ci]=nz; dm_tyaw2[ci]=(int8_t)e[5]/40.5845f;
                 cars[ci].alive=1; cars[ci].wrecked=(e[0]&0x80)?1:0; dm_tpresent[ci]=1;
             }
             for (int i=0;i<NCAR;i++)             /* not in 'V' & not mine → the authority's own car slot: hide */
@@ -2113,10 +2124,14 @@ static void dm_handle(const uint8_t *m){
             if (ci<NCAR){
                 int16_t xi=(int16_t)(m[3]|(m[4]<<8)), zi=(int16_t)(m[5]|(m[6]<<8));
                 cars[ci].alive=1; cars[ci].x=xi/8.0f; cars[ci].z=zi/8.0f;
-                cars[ci].yaw=(int8_t)m[7]/40.5845f; cars[ci].spd=0;
+                cars[ci].yaw=(int8_t)m[7]/40.5845f;
                 cars[ci].driver=DRV_NONE; cars[ci].wrecked=(m[8]&1);
                 cars[ci].hp=cars[ci].wrecked?0:100.0f;
                 car_body_init(ci);
+                int16_t vx=(int16_t)(m[9]|(m[10]<<8)), vz=(int16_t)(m[11]|(m[12]<<8));
+                bodies[ci].vx=vx/64.0f; bodies[ci].vy=vz/64.0f;   /* restore momentum from the handoff */
+                cars[ci].spd=bodies[ci].vx*cosf(cars[ci].yaw)+bodies[ci].vy*sinf(cars[ci].yaw);
+                dm_tvx[ci]=bodies[ci].vx; dm_tvz[ci]=bodies[ci].vy;
             } } break;
         case 'T': { int i=m[2]; if (i<NPICK && picks[i].alive){ picks[i].alive=0; g_dmpkt[i]=20.0f; } } break;
         case 'Z': dm_peer_hash=(uint32_t)m[2]|((uint32_t)m[3]<<8)|((uint32_t)m[4]<<16)|((uint32_t)m[5]<<24);
@@ -2175,7 +2190,7 @@ static void dm_poll(void){
             int want;
             if (t=='m') want = dm_msg_len<5 ? 5 : 5+dm_msg[4];   /* header then len bytes */
             else if (t=='V') want = dm_msg_len<3 ? 3 : 3+dm_msg[2]*6; /* n entries × 6 */
-            else want = t=='w'?122 : t=='W'?70 : t=='P'?10 : t=='X'?9 : (t=='S'||t=='Z')?6 : t=='H'?5
+            else want = t=='w'?122 : t=='W'?70 : t=='P'?10 : t=='X'?13 : (t=='S'||t=='Z')?6 : t=='H'?5
                      : (t=='D'||t=='C'||t=='T')?3 : (t=='F'||t=='K'||t=='Q'||t=='R'||t=='Y'||t=='y')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
             if (dm_msg_len<want) continue;
@@ -2832,7 +2847,9 @@ static void g_update(float dt) {
                      * car won't move'). Re-init restores real mass; physics_pass
                      * then skips it (i==player.car). The authority's bodies are
                      * always live, so leave its jack feel (rolling entry) alone. */
-                    if (g_dm && !dm_auth) car_body_init(best);
+                    if (g_dm && !dm_auth){ car_body_init(best);
+                        bodies[best].vx=dm_tvx[best]; bodies[best].vy=dm_tvz[best];  /* keep the car's momentum */
+                        cars[best].spd = bodies[best].vx*cosf(cars[best].yaw)+bodies[best].vy*sinf(cars[best].yaw); }
                     if (g_dm) dm_send2('C',(uint8_t)best);   /* peer hides its copy */
                     if (cars[best].type==VEH_TANK) g_turret=cars[best].yaw;
                 }
