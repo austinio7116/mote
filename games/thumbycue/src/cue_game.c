@@ -1513,7 +1513,20 @@ void cue_game_link_dec_balls(const uint8_t *b, int len) {
     for (int i = 0; i < n && p + 5 <= len; i++) {
         int16_t x = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
         int16_t z = (int16_t)(b[p] | (b[p+1] << 8)); p += 2;
-        s_balls[i].pos.x = x / LK_POS; s_balls[i].pos.z = z / LK_POS; s_balls[i].pos.y = s_table.R;
+        float nx = x / LK_POS, nz = z / LK_POS;
+        /* SPIN ON THE VIEWER: the stream carries positions, not angular
+         * velocity, so replicated balls used to slide without rolling. Roll
+         * the render orientation from the horizontal displacement instead —
+         * rolling without slipping, so it's exact and needs no extra bytes:
+         * a move of |d| rotates the ball |d|/R about (up x d). */
+        Vec3 d = v3(nx - s_balls[i].pos.x, 0.0f, nz - s_balls[i].pos.z);
+        float dl = v3_len(d);
+        if (dl > 1e-4f) {
+            Vec3 axis = v3_cross(v3(0,1,0), d);
+            float al = v3_len(axis);
+            if (al > 1e-6f) m3_rotate_world(&s_balls[i].orient, v3_scale(axis, 1.0f/al), dl / s_table.R);
+        }
+        s_balls[i].pos.x = nx; s_balls[i].pos.z = nz; s_balls[i].pos.y = s_table.R;
         s_balls[i].on = b[p++];
     }
     s_state = GS_SHOOTING; s_follow_idx = 0;
