@@ -48,9 +48,18 @@ int mote_net_recv(void *buf, int max) {
     if (!s_active) return mote_plat_link_recv(buf, max);
     if (max <= 0) return 0;
 
+    /* CAPACITY INVARIANT — this must never lose a byte. Worst case every input
+     * byte becomes output AND the whole holdback flushes, so only read up to
+     * max - s_nhold raw bytes; then output <= max by construction and the flush
+     * can never truncate. (The original read `max` raw bytes and dropped up to
+     * 7 held bytes whenever a read filled the game's buffer — invisible over
+     * local sockets, but device CDC delivers coalesced bursts that fill every
+     * read during bulk transfers: GTA's city push, thumbycue's settle blob.) */
     uint8_t raw[256];
-    int budget = max < (int)sizeof raw ? max : (int)sizeof raw;
-    int r = mote_plat_link_recv(raw, budget);
+    int budget = max - s_nhold;
+    if (budget > (int)sizeof raw) budget = (int)sizeof raw;
+    int r = 0;
+    if (budget > 0) r = mote_plat_link_recv(raw, budget);
     if (r > 0) s_last_rx = now_ms();
     else if (s_nhold == 0) return 0;
 
@@ -63,10 +72,10 @@ int mote_net_recv(void *buf, int max) {
             continue;
         }
         /* mismatch: the held bytes were real game data — flush, then retest b */
-        for (int k = 0; k < s_nhold && o < max; k++) out[o++] = s_hold[k];
+        for (int k = 0; k < s_nhold; k++) out[o++] = s_hold[k];
         s_nhold = 0;
         if (b == KA[0]) { s_hold[s_nhold++] = b; continue; }
-        if (o < max) out[o++] = b;
+        out[o++] = b;
     }
     return o;
 }

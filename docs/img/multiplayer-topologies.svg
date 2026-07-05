@@ -1,0 +1,147 @@
+<svg width="880" height="608" viewBox="0 0 880 608" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,'Segoe UI',sans-serif">
+  <defs>
+    <marker id="ag" markerWidth="10" markerHeight="10" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#37d67a"/>
+    </marker>
+    <marker id="ad" markerWidth="12" markerHeight="12" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,4 L0,8 z" fill="#8b93a8"/>
+    </marker>
+    <marker id="adr" markerWidth="12" markerHeight="12" refX="1" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M8,0 L0,4 L8,8 z" fill="#8b93a8"/>
+    </marker>
+    <!-- Thumby Color handheld -->
+    <g id="thumby">
+      <rect x="0" y="0" width="68" height="46" rx="9" fill="#1d2434" stroke="#4a5570" stroke-width="1.4"/>
+      <rect x="23" y="9" width="22" height="22" rx="2.5" fill="#0b0d12" stroke="#5a6584" stroke-width="1"/>
+      <rect x="27" y="13" width="6" height="6" fill="#37d67a"/>
+      <rect x="36" y="21" width="5" height="5" fill="#7c5cff"/>
+      <rect x="7" y="21" width="13" height="4.5" rx="1.5" fill="#4a5570"/>
+      <rect x="11.25" y="16.75" width="4.5" height="13" rx="1.5" fill="#4a5570"/>
+      <circle cx="54" cy="26.5" r="3" fill="#4a5570"/>
+      <circle cx="60.5" cy="19" r="3" fill="#4a5570"/>
+    </g>
+    <!-- PC running Mote Studio -->
+    <g id="studio">
+      <rect x="0" y="0" width="96" height="60" rx="5" fill="#151a27" stroke="#4a5570" stroke-width="1.4"/>
+      <rect x="5" y="5" width="86" height="50" rx="3" fill="#0b0d12"/>
+      <path d="M41 60 h14 l3 9 h-20 z" fill="#2a3147"/>
+      <rect x="27" y="69" width="42" height="4" rx="2" fill="#2a3147"/>
+    </g>
+    <!-- relay cloud -->
+    <g id="cloud">
+      <path d="M16 42 C6 42 4 28 16 24 C14 12 30 6 40 12 C46 2 66 2 72 12 C84 8 94 18 88 28 C98 32 94 42 84 42 H16 Z" fill="#181e2d" stroke="#4a5570" stroke-width="1.4"/>
+    </g>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="879" height="607" rx="14" fill="#0b0d12" stroke="#1c2130"/>
+  <text x="24" y="32" fill="#f5cd46" font-size="20" font-weight="700">Multiplayer &#8212; every way two Thumbys can meet</text>
+  <text x="24" y="53" fill="#8b93a8" font-size="12.5">the engine shows the same lobby everywhere; the game just gets a byte pipe</text>
+
+  <!-- ============ 1. USB CABLE ============ -->
+  <g transform="translate(16,66)">
+    <rect x="0.5" y="0.5" width="415" height="255" rx="12" fill="#12151d" stroke="#262c3d"/>
+    <circle cx="27" cy="27" r="11" fill="none" stroke="#7c5cff" stroke-width="1.5"/>
+    <text x="27" y="31.5" fill="#7c5cff" font-size="13" font-weight="700" text-anchor="middle">1</text>
+    <text x="46" y="32" fill="#dfe4f0" font-size="13.5" font-weight="600">USB Cable &#8212; two Thumbys, one cable</text>
+
+    <use href="#thumby" x="52" y="108"/>
+    <use href="#thumby" x="296" y="108"/>
+    <text x="86" y="172" fill="#8b93a8" font-size="10" text-anchor="middle">Thumby</text>
+    <text x="330" y="172" fill="#8b93a8" font-size="10" text-anchor="middle">Thumby</text>
+
+    <path d="M124 131 C 160 147, 256 147, 292 131" fill="none" stroke="#37d67a" stroke-width="2"/>
+    <rect x="118" y="127" width="7" height="8" rx="1.5" fill="#37d67a"/>
+    <rect x="291" y="127" width="7" height="8" rx="1.5" fill="#37d67a"/>
+    <text x="208" y="116" fill="#37d67a" font-size="12" font-weight="600" text-anchor="middle">one USB-C data cable</text>
+    <text x="208" y="196" fill="#8b93a8" font-size="10.5" text-anchor="middle">USB roles flip automatically until they pair</text>
+
+    <text x="208" y="230" fill="#8b93a8" font-size="11" text-anchor="middle">no PC involved</text>
+  </g>
+
+  <!-- ============ 2. VS THE STUDIO PREVIEW ============ -->
+  <g transform="translate(448,66)">
+    <rect x="0.5" y="0.5" width="415" height="255" rx="12" fill="#12151d" stroke="#262c3d"/>
+    <circle cx="27" cy="27" r="11" fill="none" stroke="#7c5cff" stroke-width="1.5"/>
+    <text x="27" y="31.5" fill="#7c5cff" font-size="13" font-weight="700" text-anchor="middle">2</text>
+    <text x="46" y="32" fill="#dfe4f0" font-size="13.5" font-weight="600">Vs the Studio preview &#8212; device vs PC</text>
+
+    <use href="#thumby" x="48" y="95"/>
+    <text x="82" y="159" fill="#8b93a8" font-size="10" text-anchor="middle">Thumby</text>
+
+    <use href="#studio" x="260" y="86"/>
+    <text x="308" y="100" fill="#8b93a8" font-size="7.5" text-anchor="middle" letter-spacing="1">PREVIEW</text>
+    <use href="#thumby" transform="translate(290,105) scale(0.52)"/>
+    <text x="308" y="176" fill="#8b93a8" font-size="10" text-anchor="middle">Mote Studio</text>
+
+    <line x1="120" y1="118" x2="254" y2="118" stroke="#37d67a" stroke-width="2" marker-start="none"/>
+    <circle cx="120" cy="118" r="2.5" fill="#37d67a"/>
+    <circle cx="254" cy="118" r="2.5" fill="#37d67a"/>
+    <text x="188" y="106" fill="#37d67a" font-size="11.5" font-weight="600" text-anchor="middle">Studio auto-bridges</text>
+    <text x="188" y="136" fill="#8b93a8" font-size="10" text-anchor="middle">pick &#8220;USB Cable&#8221; on both sides</text>
+
+    <text x="208" y="230" fill="#8b93a8" font-size="11" text-anchor="middle">test a game against yourself &#8212; device vs the preview emulator</text>
+  </g>
+
+  <!-- ============ 3. LAN ============ -->
+  <g transform="translate(16,336)">
+    <rect x="0.5" y="0.5" width="415" height="255" rx="12" fill="#12151d" stroke="#262c3d"/>
+    <circle cx="27" cy="27" r="11" fill="none" stroke="#7c5cff" stroke-width="1.5"/>
+    <text x="27" y="31.5" fill="#7c5cff" font-size="13" font-weight="700" text-anchor="middle">3</text>
+    <text x="46" y="32" fill="#dfe4f0" font-size="13.5" font-weight="600">LAN &#8212; two Studios, one network</text>
+
+    <use href="#thumby" x="10" y="118"/>
+    <use href="#studio" x="88" y="105"/>
+    <use href="#studio" x="232" y="105"/>
+    <use href="#thumby" x="338" y="118"/>
+
+    <circle cx="136" cy="130" r="2.5" fill="#7c5cff"/>
+    <text x="136" y="145" fill="#8b93a8" font-size="8" text-anchor="middle" letter-spacing="1">STUDIO</text>
+    <circle cx="280" cy="130" r="2.5" fill="#7c5cff"/>
+    <text x="280" y="145" fill="#8b93a8" font-size="8" text-anchor="middle" letter-spacing="1">STUDIO</text>
+
+    <line x1="78" y1="141" x2="88" y2="141" stroke="#37d67a" stroke-width="2"/>
+    <line x1="328" y1="141" x2="338" y2="141" stroke="#37d67a" stroke-width="2"/>
+
+    <line x1="190" y1="135" x2="226" y2="135" stroke="#8b93a8" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#ad)" marker-start="url(#adr)"/>
+    <text x="208" y="98" fill="#7c5cff" font-size="12" font-weight="600" text-anchor="middle">tcp 42450 broadcast</text>
+    <text x="44" y="182" fill="#8b93a8" font-size="10" text-anchor="middle">Thumby</text>
+    <text x="372" y="182" fill="#8b93a8" font-size="10" text-anchor="middle">Thumby</text>
+    <text x="208" y="198" fill="#8b93a8" font-size="10" text-anchor="middle">the Studios find each other, then relay the two devices</text>
+
+    <text x="208" y="230" fill="#8b93a8" font-size="11" text-anchor="middle">Host on one device, Join on the other &#8212; each docked in its own Studio</text>
+  </g>
+
+  <!-- ============ 4. INTERNET ============ -->
+  <g transform="translate(448,336)">
+    <rect x="0.5" y="0.5" width="415" height="255" rx="12" fill="#12151d" stroke="#262c3d"/>
+    <circle cx="27" cy="27" r="11" fill="none" stroke="#7c5cff" stroke-width="1.5"/>
+    <text x="27" y="31.5" fill="#7c5cff" font-size="13" font-weight="700" text-anchor="middle">4</text>
+    <text x="46" y="32" fill="#dfe4f0" font-size="13.5" font-weight="600">Internet &#8212; anywhere</text>
+
+    <use href="#cloud" x="160" y="46"/>
+    <text x="208" y="76" fill="#dfe4f0" font-size="11" font-weight="600" text-anchor="middle">relay</text>
+
+    <text x="290" y="46" fill="#8b93a8" font-size="9" text-anchor="middle">room code</text>
+    <rect x="263" y="51" width="54" height="18" rx="9" fill="none" stroke="#f5cd46" stroke-width="1.3"/>
+    <text x="290" y="64" fill="#f5cd46" font-size="11" font-weight="700" text-anchor="middle" letter-spacing="2">KD8E</text>
+
+    <use href="#thumby" x="8" y="168"/>
+    <use href="#studio" x="86" y="145"/>
+    <use href="#studio" x="236" y="145"/>
+    <use href="#thumby" x="340" y="168"/>
+
+    <line x1="76" y1="191" x2="86" y2="191" stroke="#37d67a" stroke-width="2"/>
+    <line x1="332" y1="191" x2="340" y2="191" stroke="#37d67a" stroke-width="2"/>
+
+    <line x1="108" y1="142" x2="174" y2="94" stroke="#37d67a" stroke-width="1.8" marker-end="url(#ag)"/>
+    <line x1="312" y1="142" x2="246" y2="94" stroke="#37d67a" stroke-width="1.8" marker-end="url(#ag)"/>
+    <text x="208" y="119" fill="#37d67a" font-size="11.5" font-weight="600" text-anchor="middle">both connect OUT</text>
+    <text x="208" y="134" fill="#8b93a8" font-size="10" text-anchor="middle">no port forwarding</text>
+    <circle cx="134" cy="170" r="2.5" fill="#7c5cff"/>
+    <text x="134" y="185" fill="#8b93a8" font-size="8" text-anchor="middle" letter-spacing="1">STUDIO</text>
+    <circle cx="284" cy="170" r="2.5" fill="#7c5cff"/>
+    <text x="284" y="185" fill="#8b93a8" font-size="8" text-anchor="middle" letter-spacing="1">STUDIO</text>
+
+    <text x="208" y="240" fill="#8b93a8" font-size="10.5" text-anchor="middle">Quick Match &#183; Host Room &#183; Join Code &#183; Browse &#8212; all driven from the device</text>
+  </g>
+</svg>

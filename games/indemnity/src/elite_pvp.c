@@ -341,7 +341,6 @@ int pvp_begin(void) {
     s_sent_hello = s_got_hello = s_got_ident = 0;
     s_hello_t = 0; s_msg_len = 0;
     s_active = 0; s_waiting = 1;
-    id_build_mine();          /* read the saved ship once, up front */
     return 1;
 }
 

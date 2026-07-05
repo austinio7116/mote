@@ -404,6 +404,13 @@ int mote_plat_link_send(const void *data, int len) {
 
 int mote_plat_link_recv(void *buf, int max) {
     if (s_lk_state != 2 || max <= 0) return 0;
+    /* MOTE_LINK_FRAG=1: return adversarial 1..7-byte chunks so emulator tests
+     * exercise device-CDC-like delivery (coalesced bursts / arbitrary splits) —
+     * the exact conditions that expose framing and byte-loss bugs. */
+    static int s_frag = -1;
+    if (s_frag < 0) { const char *e = getenv("MOTE_LINK_FRAG"); s_frag = (e && e[0] && e[0] != '0') ? 1 : 0; }
+    if (s_frag) { static unsigned rng = 0x1234u; rng = rng * 1664525u + 1013904223u;
+                  int cap = 1 + (int)((rng >> 20) % 7); if (max > cap) max = cap; }
     ssize_t r = recv(s_lk_fd, buf, (size_t)max, MSG_DONTWAIT);
     if (r > 0) return (int)r;
     if (r == 0) { lk_close_conn(); s_lk_state = 1; s_lk_is_host = 0; }   /* EOF */

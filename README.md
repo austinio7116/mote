@@ -2077,6 +2077,8 @@ loot drops), **Grand Thumb Auto** (open-city deathmatch, shared traffic),
 **PaperMote** (territory duel) and **Indemnity Run** (1v1 arena with your saved
 ship + loadout).
 
+<p align="center"><img src="docs/img/multiplayer-topologies.svg" width="860" alt="The four multiplayer topologies: two Thumbys on one USB-C cable; a Thumby docked into Mote Studio playing the Studio's preview emulator (auto-bridged); two Thumbys each docked into a Studio on the same LAN (tcp 42450 broadcast); and two docked Thumbys paired over the internet through a relay server both Studios connect out to, with 4-letter room codes"></p>
+
 ### Playing — every way two Thumbys can meet
 
 Pick the multiplayer option in any 2-player game and the engine shows the same
@@ -2158,6 +2160,8 @@ with a **clean connected pipe** — no handshake bytes in the stream. From there
 it's plain `mote->link_send(buf, n)` / `mote->link_recv(buf, max)`: a raw
 byte pipe, identical across USB / LAN / Internet, so a game written against it
 gets every transport for free.
+
+<p align="center"><img src="docs/img/multiplayer-stack.svg" width="860" alt="The multiplayer stack: your game calls net_lobby() then link_send/link_recv; the engine lobby handles transport choice, rooms (MN1 via the docked Studio) and the ML handshake; engine link health keepalives every session; underneath, three interchangeable transports — USB cable, LAN and internet relay"></p>
 
 Conventions the shipped games use (worth copying):
 

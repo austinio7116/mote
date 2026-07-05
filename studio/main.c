@@ -266,7 +266,11 @@ static void scan_games(void){ g_ngame=0; scan_dir("games",0); scan_dir("examples
 /* ---- console log ring + async command runner ---- */
 static char g_log[80][150]; static int g_logn; static SDL_mutex *g_logmx;
 static int g_consel_a=-1, g_consel_b=-1, g_condrag=0;   /* console line selection (absolute log indices) */
-static void log_add(const char*s){ if(!g_logmx)g_logmx=SDL_CreateMutex(); SDL_LockMutex(g_logmx);
+static void log_add(const char*s){
+    /* headless capture: MOTE_STUDIO_LOG=1 tees the Console to stderr */
+    { static int tee=-1; if(tee<0){const char*e=getenv("MOTE_STUDIO_LOG"); tee=(e&&e[0]&&e[0]!='0')?1:0;}
+      if(tee){ fprintf(stderr,"[console] %s\n",s); fflush(stderr); } }
+    if(!g_logmx)g_logmx=SDL_CreateMutex(); SDL_LockMutex(g_logmx);
     snprintf(g_log[g_logn%80],150,"%s",s); g_logn++; SDL_UnlockMutex(g_logmx); }
 typedef struct { char cmd[700], label[40]; } Job;
 static int job_thread(void*arg){ Job*j=arg; char line[180]; log_add("");
@@ -5218,6 +5222,7 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
             if(have&&link_net_status()==LINK_NET_CONNECTED){
                 proxy_send(h,"MN1 GO\n"); log_add("online(dev): paired - relaying");
                 int mc=0;                                    /* MN1_CANCEL matcher state */
+                static uint8_t dcarry[4096]; int ncarry=0;   /* net->dev flow-control carry */
                 long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
                 Uint32 lup=t0,ldn=t0; Uint32 gup=0,gdn=0;    /* per-direction max silent gap */
                 Uint32 silence_ms=30000;                     /* device MIA -> end the session
@@ -5239,13 +5244,22 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                       if(n>0){ if(nw-lup>gup)gup=nw-lup; lup=nw; } }
                     for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; up+=w; }
                     if(stop){ why="device left (lobby cancel)"; break; }
-                    int m=link_net_recv(buf,sizeof buf);
-                    for(int off=0;off<m;){ int w=mote_dev_raw_write(h,buf+off,m-off);
-                        if(w<=0){ if(++stalls<=3){ char sm[96];
-                                snprintf(sm,sizeof sm,"online(dev): device write STALLED (%d B undelivered) - device not draining?",m-off);
-                                log_add(sm); }
-                            break; }
-                        off+=w; dn2+=w; }
+                    /* net -> dev with a CARRY: a device that NAKs (512B link ring full
+                     * during a bulk burst) must never cost bytes — hold the remainder,
+                     * stop pulling from the relay while it's held (TCP backpressures
+                     * the sender), retry next iteration. */
+                    int m=0;
+                    if(ncarry<(int)sizeof dcarry-256){
+                        m=link_net_recv(dcarry+ncarry,(int)sizeof dcarry-ncarry);
+                        if(m>0) ncarry+=m;
+                    }
+                    if(ncarry){
+                        int w=mote_dev_raw_write(h,dcarry,ncarry);
+                        if(w>0){ dn2+=w; memmove(dcarry,dcarry+w,ncarry-w); ncarry-=w; }
+                        else if(++stalls==3||stalls==50){ char sm[112];
+                            snprintf(sm,sizeof sm,"online(dev): device slow to drain (%d B held, flow-controlled)",ncarry);
+                            log_add(sm); }
+                    }
                     { Uint32 nw=SDL_GetTicks();
                       if(m>0){ if(nw-ldn>gdn)gdn=nw-ldn; ldn=nw; } }
                     if(link_net_status()!=LINK_NET_CONNECTED){ why=link_net_info(); break; }

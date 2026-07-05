@@ -33,7 +33,10 @@ static uint32_t s_flip_at_ms;     /* next role flip while searching */
 static uint32_t s_rng;
 
 /* ---- RX ring (both roles). Filled from tuh/tud task context (main loop,
- * core 0) and drained by the game in update() — no cross-core access. */
+ * core 0) and drained by the game in update() — no cross-core access.
+ * 512 B is PACING, not capacity: when it fills the CDC endpoint NAKs, the
+ * Studio splice carries the remainder (never drops), and TCP backpressures
+ * the sender — bulk messages arrive intact, just flow-controlled. */
 static uint8_t  s_ring[512];
 static uint16_t s_rhead, s_rtail;
 

@@ -2487,10 +2487,22 @@ static void g_update(float dt) {
                         for (int i=0;i<len;i++) dm_out[5+i]=g_city[dm_map_pos+i];
                         dm_out_len=5+len; dm_out_off=0; dm_map_pos+=len;
                     }
-                    if (dm_map_pos>=CITY_BYTES && dm_flush_out()){ reset_game_dm_finish(dm_seed); dm_phase=2; }
+                    if (dm_map_pos>=CITY_BYTES && dm_flush_out()){
+#ifdef MOTE_HOST
+                        if (getenv("MOTE_GTA_DEBUG")){ uint32_t h=2166136261u;
+                            for (int ci=0;ci<CITY_BYTES;ci++){ h^=g_city[ci]; h*=16777619u; }
+                            fprintf(stderr,"[CITY] auth fnv=%08x\n",h); }
+#endif
+                        reset_game_dm_finish(dm_seed); dm_phase=2; }
                 } else {
                     dm_poll();                                          /* 'm' frames fill g_city */
-                    if (dm_map_recv>=CITY_BYTES){ reset_game_dm_finish(dm_seed); dm_phase=2; }
+                    if (dm_map_recv>=CITY_BYTES){
+#ifdef MOTE_HOST
+                        if (getenv("MOTE_GTA_DEBUG")){ uint32_t h=2166136261u;
+                            for (int ci=0;ci<CITY_BYTES;ci++){ h^=g_city[ci]; h*=16777619u; }
+                            fprintf(stderr,"[CITY] peer fnv=%08x\n",h); }
+#endif
+                        reset_game_dm_finish(dm_seed); dm_phase=2; }
                 }
             }
             if (mote_just_pressed(in,MOTE_BTN_B)){ dm_stop(); g_state=ST_TITLE; }
