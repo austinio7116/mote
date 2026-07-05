@@ -253,7 +253,9 @@ static void add_proj(float x,float z,float dx,float dz,int kind){
  *
  * wire (after 0xA5): 'H' proto nonce16 · 'S' seed32 · 'P' x16 z16 yaw8 wpn8
  * flags8 hp8 (~15 Hz; doubles as the keepalive) · 'F' wpn (fire visual) ·
- * 'D' dmg · 'K' (I died) · 'O' door · 'T' pickup idx · 'Q' quit */
+ * 'D' dmg · 'K' (I died) · 'O' door · 'T' pickup idx · 'Q' quit ·
+ * 'L' id x16 z16 mask8 (victim died: dropped its guns as a loot bag) ·
+ * 'G' id (someone grabbed loot bag id) */
 #define DM_PROTO   1
 #define DM_FRAGS   10
 static void  play(const MoteSfx *r, float gain);            /* defined below */
@@ -274,6 +276,25 @@ static int      g_tsel;                     /* title cursor: 0-2 difficulty · 3
 static float    dm_dead_t, dm_spawnx, dm_spawnz;
 static float    g_pkt[MAX_PK];              /* DM pickup respawn timers */
 static uint8_t  dm_msg[16]; static int dm_msg_len;
+
+/* Loot bags: on death you DROP your carried guns where you fell (and respawn
+ * with knife+pistol) — either player can walk over the bag to claim the lot.
+ * Victim-authoritative like damage: the victim spawns the bag on both units
+ * ('L'), a grab replicates by bag id ('G'). Ids are unique per owner (bit 7 =
+ * nonce winner), so simultaneous deaths can't collide. */
+#define MAX_DROP 8
+typedef struct { float x,z; uint8_t id, mask, live; } Drop;   /* mask bit k-2 = gun k */
+static Drop    dm_drop[MAX_DROP];
+static uint8_t dm_drop_seq;
+static void dm_drop_add(uint8_t id, float x, float z, uint8_t mask){
+    int sl=0;
+    for (int i=0;i<MAX_DROP;i++) if (!dm_drop[i].live){ sl=i; break; }
+    dm_drop[sl]=(Drop){x,z,id,mask,1};
+}
+static int dm_drop_best(uint8_t mask){          /* biggest gun in the bag (for the art) */
+    for (int k=8;k>=2;k--) if (mask&(1u<<(k-2))) return k;
+    return 2;
+}
 static uint8_t  dm_reach[MAXH][MAXW];       /* cells reachable from the map spawn.
     Generated floors contain SEALED pockets (secret push-wall stashes, secret leaf
     rooms) that only open by pushing — which DM disables. Nobody may ever spawn
@@ -343,6 +364,11 @@ static void dm_handle(const uint8_t *m){
                   break;
         case 'O': { int id=m[2]; if (id<g_ndr && !g_dr[id].want){ g_dr[id].want=1; g_dr[id].closet=3.0f; } } break;
         case 'T': { int i=m[2]; if (i<g_npk && !g_pk[i].taken){ g_pk[i].taken=1; g_pkt[i]=22.0f; } } break;
+        case 'L': { int16_t x=(int16_t)(m[3]|(m[4]<<8)), z=(int16_t)(m[5]|(m[6]<<8));
+                    dm_drop_add(m[2], x/256.0f, z/256.0f, m[7]); } break;
+        case 'G': for (int i=0;i<MAX_DROP;i++)
+                      if (dm_drop[i].live && dm_drop[i].id==m[2]) dm_drop[i].live=0;
+                  break;
         case 'Q': if (!dm_end) dm_end=3; break;
     }
 }
@@ -354,7 +380,8 @@ static void dm_poll(void){
             if (dm_msg_len==0){ if (b==0xA5) dm_msg[dm_msg_len++]=b; continue; }
             dm_msg[dm_msg_len++]=b;
             int t=dm_msg[1];
-            int want = t=='P'?10 : t=='S'?6 : t=='H'?5 : (t=='F'||t=='D'||t=='O'||t=='T')?3
+            int want = t=='P'?10 : t=='L'?8 : t=='S'?6 : t=='H'?5
+                     : (t=='F'||t=='D'||t=='O'||t=='T'||t=='G')?3
                      : (t=='K'||t=='Q')?2 : -1;
             if (want<0){ dm_msg_len=0; continue; }
             if (dm_msg_len<want) continue;
@@ -931,10 +958,26 @@ static void dm_die(void){
     dm_dead_t=2.4f;
     play(&death_sfx,0.6f);
     if (g_nco<24) g_co[g_nco++]=(Corpse){px,pz};
+    {   /* drop everything beyond knife+pistol as a loot bag, then lose it */
+        uint8_t mask=0;
+        for (int k=2;k<9;k++) if (owned[k]) mask|=(uint8_t)(1u<<(k-2));
+        if (mask){
+            uint8_t id=(uint8_t)((dm_my_nonce>dm_peer_nonce?0x80:0)|(dm_drop_seq++&0x7F));
+            int16_t x=(int16_t)(px*256.0f), z=(int16_t)(pz*256.0f);
+            uint8_t m[8]={0xA5,'L',id,(uint8_t)x,(uint8_t)(x>>8),(uint8_t)z,(uint8_t)(z>>8),mask};
+            dm_send(m,8);
+            dm_drop_add(id,px,pz,mask);
+            for (int k=2;k<9;k++) owned[k]=0;
+            g_am[1]=g_am[2]=g_am[3]=0;          /* pools for guns you no longer have */
+            if (g_am[0]>50) g_am[0]=50;
+            cur_w=1;
+        }
+    }
     if (dm_peer_frags>=DM_FRAGS && !dm_end) dm_end=2;
 }
 static void start_dm(uint32_t seed){
     g_dm=1; dm_started=1; dm_end=0; dm_frags=dm_peer_frags=0; dm_dead_t=0;
+    memset(dm_drop,0,sizeof dm_drop); dm_drop_seq=0;
     dm_send_t=0; dm_rx_age=0; rp_fire_t=rp_hit_t=0; rp_hp=100; rp_w=1;
     health=100; score=0; level=0;
     memset(owned,0,sizeof owned); owned[0]=1; owned[1]=1;
@@ -1244,16 +1287,22 @@ static void g_update(float dt) {
         if ((int)(prev*3.0f) != (int)(g_desct*3.0f)) play(&step_sfx, 0.3f);   /* footsteps down the stairs */
         if (g_desct <= 0) { level++; load_level(level); }
     } else if (state == ST_TITLE) {
-        int rows = mote->abi_version>=43 ? 4 : 3;
+        int rows = mote->abi_version>=44 ? 4 : 3;   /* DM needs net_lobby */
         if (mote_just_pressed(in, MOTE_BTN_UP)   && g_tsel>0) g_tsel--;
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_tsel<rows-1) g_tsel++;
         g_diff = g_tsel<3 ? g_tsel : 1;                   /* DM plays at NORMAL scaling */
         if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) {
             if (g_tsel==3){
-                mote->link_start();
-                dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8);
-                dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
-                state=ST_DMLINK;
+                /* the engine lobby connects (USB/LAN/Internet) and resolves an
+                 * authority; seed the nonce from it (2 beats 1) so the existing
+                 * hello + seed-roll handshake runs unchanged, tie-free */
+                int host=0;
+                MoteNetCfg cfg={"WolfMote",DM_PROTO,MOTE_NET_ALL};
+                if (mote->net_lobby(&cfg,&host)==MOTE_NET_CONNECTED){
+                    dm_my_nonce=(uint16_t)(host?2:1);
+                    dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
+                    state=ST_DMLINK;
+                }
             } else start_game();
         }
     } else if (state == ST_DMLINK) {
@@ -1448,6 +1497,29 @@ static void g_update(float dt) {
             }
         }
 
+        /* loot bags (DM): claim a dead player's dropped arsenal */
+        if (g_dm) for (int i=0;i<MAX_DROP;i++){
+            Drop *dr=&dm_drop[i];
+            if (!dr->live) continue;
+            float ddx=dr->x-px, ddz=dr->z-pz;
+            if (ddx*ddx+ddz*ddz >= 0.32f) continue;
+            if (dm_dead_t>0) continue;                    /* no looting from the floor */
+            dr->live=0; dm_send2('G',dr->id);
+            play(&pickup_sfx,0.7f);
+            {   static const int GIFT[9]={0,0,25,12,12,40,30,4,40};
+                int best=1;
+                for (int k=2;k<9;k++) if (dr->mask&(1u<<(k-2))){
+                    if (!owned[k]){ owned[k]=1;
+                        int pl=WPN[k].pool; if (pl>=0) g_am[pl]+=GIFT[k]; }
+                    else g_am[0]+=10;
+                    best=k;
+                }
+                cur_w=best;
+                msg_t=1.4f;
+                { const char*t="LOOTED THE ARSENAL"; char*b=g_msg; while(*t)*b++=*t++; *b=0; }
+            }
+        }
+
         /* enemies */
         int alive = 0;
         for (int i = 0; i < g_nen; i++) {
@@ -1601,6 +1673,15 @@ static void g_update(float dt) {
         }
     }
 
+    if (g_dm) for (int i=0;i<MAX_DROP;i++){                /* loot bags: the dead's arsenal,
+                                                              bobbing so it reads as special */
+        Drop *dr=&dm_drop[i];
+        if (!dr->live) continue;
+        int best=dm_drop_best(dr->mask);
+        float bob=0.15f+0.05f*sinf(g_time*3.0f+(float)i);
+        mote->scene_add_billboard(v3(dr->x,bob,dr->z), &wpickup_img, WICON_X(best),0,WICON_W,WICON_H, 0.34f, MOTE_BLEND_NONE);
+    }
+
     for (int i = 0; i < g_nco; i++)                        /* blood pools under the fallen */
         mote->scene_add_billboard(v3(g_co[i].x,0.07f,g_co[i].z), &blood_img,0,0,0,0,0.22f, MOTE_BLEND_NONE);
     for (int i = 0; i < g_nen; i++) {
@@ -1745,7 +1826,7 @@ static void g_overlay(uint16_t *fb) {
         mote->text_font(fb, &title, "WOLFMOTE", 15,   24,   MOTE_RGB565(224,60,48));
         mote->text(fb, "A ROGUE DUNGEON", 28,52, MOTE_RGB565(170,178,195));
         static const char *DN[4]={"EASY","NORMAL","HARD","2P DEATHMATCH"};
-        int rows = mote->abi_version>=43 ? 4 : 3;
+        int rows = mote->abi_version>=44 ? 4 : 3;   /* DM needs net_lobby */
         for (int i2=0;i2<rows;i2++){
             uint16_t c2 = i2==g_tsel ? amber : MOTE_RGB565(120,126,140);
             if (i2==g_tsel) mote->text(fb, ">", 30, 60+i2*9, amber);

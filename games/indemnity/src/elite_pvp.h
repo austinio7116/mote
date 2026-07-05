@@ -31,7 +31,7 @@
 enum { PVP_WAIT = 0, PVP_START = 1, PVP_CANCEL = 2, PVP_EXIT = 3 };
 
 /* Enter the link-wait screen: start the link, roll the hello nonce. */
-void pvp_begin(void);
+int  pvp_begin(void);   /* 0 = lobby cancelled / unavailable */
 /* Handshake pump. PVP_WAIT keep waiting · PVP_START arena built (go to
  * flight) · PVP_CANCEL user backed out (caller returns to the title). */
 int  pvp_wait_tick(const CraftRawButtons *btn, float dt);

@@ -2266,9 +2266,10 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
                 break;
             }
             if (s_title_cursor == 2) {          /* PVP: LINK ARENA */
-                pvp_begin();
-                s_state = ST_PVPWAIT;
-                sfx_ui_select();
+                if (pvp_begin()) {              /* engine lobby connected a peer */
+                    s_state = ST_PVPWAIT;
+                    sfx_ui_select();
+                }
                 break;
             }
 #if ELITE_CHEATS

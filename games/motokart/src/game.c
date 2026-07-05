@@ -1381,11 +1381,15 @@ static void g_update(float dt) {
         }
         draw_title();
         g_eng_a = 0.0f;
-        if (mote->abi_version >= 43 && mote_just_pressed(in, MOTE_BTN_LB)) {  /* start 2P link */
-            mote->link_start();
-            g_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8);
-            g_sent_hello = g_got_hello = g_link_started = 0; g_lk_len = 0; g_link_hello_t = 0;
-            g_link = 1; g_state = ST_LINK;
+        if (mote->abi_version >= 44 && mote_just_pressed(in, MOTE_BTN_LB)) {  /* start 2P link */
+            /* engine lobby: transport pick + connect + authority (2 beats 1) */
+            int host = 0;
+            MoteNetCfg cfg = { "MotoKart", LINK_PROTO, MOTE_NET_ALL };
+            if (mote->net_lobby(&cfg, &host) == MOTE_NET_CONNECTED) {
+                g_my_nonce = (uint16_t)(host ? 2 : 1);
+                g_sent_hello = g_got_hello = g_link_started = 0; g_lk_len = 0; g_link_hello_t = 0;
+                g_link = 1; g_state = ST_LINK;
+            }
             return;
         }
         if (mote_just_pressed(in, MOTE_BTN_A)) race_reset();

@@ -113,7 +113,7 @@ static float    lk_hello_t, lk_send_t, lk_rx_age;
 static int      lk_frame_ctr;
 static uint8_t  lk_buf[CUE_LINK_MAXMSG + 8]; static int lk_len;   /* inbound frame accumulator */
 
-static int  lk_ok(void) { return mote->abi_version >= 43; }
+static int  lk_ok(void) { return mote->abi_version >= 44; }   /* net_lobby */
 static void lk_new_nonce(void) {
     lk_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8);
     if (!lk_my_nonce) lk_my_nonce = 1;
@@ -174,11 +174,15 @@ static void lk_poll(void) {
 static void lk_tick(float dt) {
     if (lk_state == LK_OFF) {
         if (lk_ok() && cue_game_link_pending()) {           /* user chose 2P LINK + START */
-            mote->link_start();
-            lk_sent_hello = lk_got_hello = lk_got_sel = 0; lk_len = 0;
-            lk_hello_t = lk_send_t = lk_rx_age = 0;
-            lk_new_nonce();
-            lk_state = LK_HS;
+            /* engine lobby: transport pick + connect + authority (2 beats 1) */
+            int host = 0;
+            MoteNetCfg cfg = { "ThumbyCue", LK_PROTO, MOTE_NET_ALL };
+            if (mote->net_lobby(&cfg, &host) == MOTE_NET_CONNECTED) {
+                lk_sent_hello = lk_got_hello = lk_got_sel = 0; lk_len = 0;
+                lk_hello_t = lk_send_t = lk_rx_age = 0;
+                lk_my_nonce = (uint16_t)(host ? 2 : 1);
+                lk_state = LK_HS;
+            } else cue_game_link_abort();                   /* backed out of the lobby */
         }
         return;
     }

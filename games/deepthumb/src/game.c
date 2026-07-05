@@ -383,7 +383,7 @@ static void do_undo(void) {
 }
 
 /* ============================================================ 2P link */
-static int link_ok(void) { return mote->abi_version >= 43; }
+static int link_ok(void) { return mote->abi_version >= 44; }   /* net_lobby */
 
 static void lk_send_bye(void)   { uint8_t m[2] = { LK_MAGIC, 'Q' }; mote->link_send(m, 2); }
 static void lk_new_nonce(void)  { lk_my_nonce = (uint16_t)(mote->micros() * 2654435761u >> 8); }
@@ -697,11 +697,17 @@ static void logic_setup(const MoteInput *in) {
     }
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         if (game.opponent == OPP_LINK) {     /* sides are assigned by the handshake */
-            mote->link_start();
-            lk_sent_hello = lk_got_hello = 0;
-            lk_msg_len = 0;
-            lk_new_nonce();
-            enter_state(ST_LINK);
+            /* The engine lobby picks the transport (USB/LAN/Internet), connects,
+             * and resolves an authority. Seed our nonce from it (2 beats 1) so the
+             * existing hello exchange + white-side rule run unchanged, tie-free. */
+            int host = 0;
+            MoteNetCfg cfg = { "DeepThumb", LK_PROTO, MOTE_NET_ALL };
+            if (mote->net_lobby(&cfg, &host) == MOTE_NET_CONNECTED) {
+                lk_sent_hello = lk_got_hello = 0;
+                lk_msg_len = 0;
+                lk_my_nonce = host ? 2 : 1;
+                enter_state(ST_LINK);
+            }
             return;
         }
         chal_new_game();
@@ -945,8 +951,8 @@ static void draw_link_wait(void) {
     if (connected) {
         text(18, 56, "WAITING FOR PEER", C_GREEN);
     } else {
-        text(15, 56, "CONNECT USB CABLE", C_WHITE);
-        text(19, 66, "TO A SECOND UNIT", C_DIM);
+        text(24, 56, "LINK DROPPED -", C_WHITE);
+        text(18, 66, "RECONNECTING...", C_DIM);
     }
     int dots = (game.think_frame / 20) % 4;      /* searching animation */
     for (int i = 0; i < dots; i++) fill(56 + i * 6, 76, 3, 3, C_CURSOR);

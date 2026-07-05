@@ -1369,6 +1369,7 @@ static float lk_wrap(float a) {
 }
 
 int  cue_game_link_pending(void) { return s_screen == SC_LINKWAIT; }
+void cue_game_link_abort(void)    { s_screen = SC_PLAY; s_cursor = 0; }   /* lobby cancelled */
 int  cue_game_link_kind(void)    { return s_kind; }
 int  cue_game_link_active(void)  { return s_link_on; }
 int  cue_game_link_my_turn(void) { return s_link_on && s_rules.turn == s_link_me; }

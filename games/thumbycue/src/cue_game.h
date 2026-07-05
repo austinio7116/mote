@@ -47,6 +47,7 @@ void cue_game_set_frame_ms(float ms);
 #define CUE_LINK_MAXMSG 512
 
 int  cue_game_link_pending(void);        /* 1 while the link-wait screen is up  */
+void cue_game_link_abort(void);          /* leave the link-wait screen (lobby cancel) */
 int  cue_game_link_kind(void);           /* game kind currently selected        */
 void cue_game_link_begin(int me, int kind); /* start the match: me = 0/1 player  */
 int  cue_game_link_active(void);         /* 1 while a link match is live         */

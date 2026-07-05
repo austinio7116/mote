@@ -2444,12 +2444,18 @@ static void g_update(float dt) {
         draw_ground_window(); draw_buildings_window();
         if (g_state==ST_TITLE){
             if (mote_just_pressed(in,MOTE_BTN_A)){ reset_game(); g_state=ST_PLAY; }
-            else if (mote->abi_version>=43 && mote_just_pressed(in,MOTE_BTN_B)){
-                mote->link_start();
-                dm_my_nonce=(uint16_t)(mote->micros()*2654435761u>>8);
-                dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
-                dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
-                g_state=ST_DMLINK;
+            else if (mote->abi_version>=44 && mote_just_pressed(in,MOTE_BTN_B)){
+                /* the engine lobby connects (USB/LAN/Internet) and resolves the
+                 * authority; nonce 2 beats 1 so the existing hello + city transfer
+                 * handshake runs unchanged, tie-free */
+                int host=0;
+                MoteNetCfg cfg={"GrandThumbAuto",DM_PROTO,MOTE_NET_ALL};
+                if (mote->net_lobby(&cfg,&host)==MOTE_NET_CONNECTED){
+                    dm_my_nonce=(uint16_t)(host?2:1);
+                    dm_sent_hello=dm_got_hello=dm_started=0; dm_msg_len=0; dm_hello_t=0;
+                    dm_phase=0; dm_map_pos=dm_map_recv=0; dm_out_len=dm_out_off=0;
+                    g_state=ST_DMLINK;
+                }
             }
         }
         else if (g_state==ST_DMLINK){
@@ -3001,7 +3007,7 @@ static void g_overlay(uint16_t *fb) {
         mote->draw_rect(fb, 10, 77, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
         mote_textf(mote, fb, 38, 84, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
         if (((int)(g_msg_t*2))&1 || 1) mote->text(fb, "PRESS A TO PLAY", 26, 102, MOTE_RGB565(180,220,180));
-        if (mote->abi_version>=43) mote->text(fb, "B  2P DEATHMATCH", 24, 112, MOTE_RGB565(245,110,95));
+        if (mote->abi_version>=44) mote->text(fb, "B  2P DEATHMATCH", 24, 112, MOTE_RGB565(245,110,95));
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){

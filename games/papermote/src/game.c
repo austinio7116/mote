@@ -394,7 +394,11 @@ static void lk_poll(void){
     }
 }
 static void lk_start_wait(void){
-    g_link=0; mote->link_start(); lk_new_nonce();
+    /* engine lobby: transport pick + connect + authority (2 beats 1) */
+    int host=0;
+    MoteNetCfg cfg={"PaperMote",LK_PROTO,MOTE_NET_ALL};
+    if (mote->net_lobby(&cfg,&host)!=MOTE_NET_CONNECTED){ state=S_TITLE; return; }
+    g_link=0; lk_my_nonce=(uint16_t)(host?2:1);
     lk_sent_hello=lk_got_hello=0; lk_msg_len=0; lk_hello_t=0; lk_lost=0;
     state=S_LINKWAIT;
 }
@@ -507,7 +511,7 @@ static void g_update(float dt){
     if(g_link||state==S_LINKWAIT) mote->set_fps_limit(30);   /* steady host/device pacing while linked */
 
     if(state==S_TITLE){
-        int nmode = mote->abi_version>=43 ? 4 : 3;           /* 2P LINK only on a v43+ OS */
+        int nmode = mote->abi_version>=44 ? 4 : 3;           /* 2P LINK needs net_lobby (v44) */
         if(mote_just_pressed(in,MOTE_BTN_UP))   menu_row=(menu_row+2)%3;
         if(mote_just_pressed(in,MOTE_BTN_DOWN)) menu_row=(menu_row+1)%3;
         int dl=mote_just_pressed(in,MOTE_BTN_LEFT)?-1:mote_just_pressed(in,MOTE_BTN_RIGHT)?1:0;

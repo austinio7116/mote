@@ -331,15 +331,19 @@ int pvp_active(void)      { return s_active; }
 int pvp_waiting(void)     { return s_waiting; }
 int pvp_remote_slot(void) { return PVP_REMOTE; }
 
-void pvp_begin(void) {
-    if (g_em && g_em->link_start) g_em->link_start();
-    if (g_em && g_em->set_fps_limit) g_em->set_fps_limit(30);  /* steady link pacing */
-    s_my_nonce = (uint16_t)((g_em ? g_em->micros() : 1) * 2654435761u >> 8);
-    if (!s_my_nonce) s_my_nonce = 0xA53Cu;
+int pvp_begin(void) {
+    /* engine lobby: transport pick + connect + authority (2 beats 1) */
+    int host = 0;
+    MoteNetCfg cfg = { "IndemnityRun", PVP_PROTO, MOTE_NET_ALL };
+    if (!g_em || g_em->abi_version < 44 ||
+        g_em->net_lobby(&cfg, &host) != MOTE_NET_CONNECTED) return 0;
+    if (g_em->set_fps_limit) g_em->set_fps_limit(30);          /* steady link pacing */
+    s_my_nonce = (uint16_t)(host ? 2 : 1);
     s_sent_hello = s_got_hello = s_got_ident = 0;
     s_hello_t = 0; s_msg_len = 0;
     s_active = 0; s_waiting = 1;
     id_build_mine();          /* read the saved ship once, up front */
+    return 1;
 }
 
 int pvp_wait_tick(const CraftRawButtons *btn, float dt) {
