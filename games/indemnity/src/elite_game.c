@@ -938,7 +938,13 @@ void elite_game_pvp_prep(void) {
     s_dead_latch = false;
     s_cloak_t = 0.0f;
     s_incoming = false;
-    s_state = ST_FLIGHT;
+    /* NB: do NOT set s_state = ST_FLIGHT here. This runs in arena build STEP 7,
+     * one frame before step 8 sets s_active=1 and returns PVP_START. Setting
+     * FLIGHT here pulled the game out of ST_PVPWAIT before step 8 ran, so PVP
+     * never activated (pvp_active()==0): single-player flight ran over the PVP
+     * arena, no state packets were sent, and the link stalled then timed out
+     * ('opponent flies on AI, not shooting, link lost'). The transition to
+     * ST_FLIGHT is owned solely by the PVP_START return in the ST_PVPWAIT case. */
 }
 
 static void arrive_in_system(SysAddr addr) {
@@ -2325,7 +2331,7 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
     case ST_PVPWAIT: {
         /* PVP: pump the handshake; the arena is built inside pvp_wait_tick. */
         int r = pvp_wait_tick(btn, dt);
-        if (r == PVP_START) s_state = ST_FLIGHT;           /* fight! (pvp set it too) */
+        if (r == PVP_START) s_state = ST_FLIGHT;           /* fight! (the ONLY path to FLIGHT) */
         else if (r == PVP_CANCEL) { s_state = ST_TITLE; save_rebuild_list(); }
         break;
     }

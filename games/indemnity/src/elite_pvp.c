@@ -67,6 +67,8 @@ static PvpIdent s_my_id, s_peer_id;
 static float    s_send_t, s_rx_age;
 static int      s_end;                /* END_* */
 static int      s_death_sent;
+static int      s_death_acked;   /* peer confirmed our 'K' */
+static float    s_death_t;
 
 /* Replicated remote target (packet -> smoothed onto the pool entity). */
 static Vec3     s_rp_pos;
@@ -193,7 +195,9 @@ static void handle(const uint8_t *m) {
                   combat_set_shot_type(wt);
                   combat_direct_damage(PVP_REMOTE, PLAYER, dmg, g_ships[PLAYER].pos);
               } break;
-    case 'K': if (s_active && s_end == END_NONE) {     /* peer died -> VICTORY */
+    case 'k': s_death_acked = 1; break;                /* peer confirmed our 'K' */
+    case 'K': send1('k');                              /* always confirm (acks can drop) */
+              if (s_active && s_end == END_NONE) {     /* peer died -> VICTORY */
                   Ship *r = &g_ships[PVP_REMOTE];
                   if (r->alive) { fx_spawn_explosion(r->pos, r->vel);
                                   sfx_explosion(1.0f, r->mesh ? r->mesh->bound_r / 15.0f : 0.5f);
@@ -214,7 +218,7 @@ static void poll(void) {
             int t = s_msg[1];
             int want = t == 'P' ? 30 : t == 'I' ? 19 : t == 'H' ? 5
                      : t == 'D' ? 5 : t == 'F' ? 3
-                     : (t == 'K' || t == 'Q') ? 2 : -1;
+                     : (t == 'K' || t == 'Q' || t == 'k') ? 2 : -1;
             if (want < 0) { s_msg_len = 0; continue; }   /* junk: resync */
             if (s_msg_len < want) continue;
             handle(s_msg);
@@ -322,7 +326,7 @@ static void build_arena_step(void) {
     case 7: elite_game_pvp_prep(); break;       /* anchor off, HUD locks the remote */
     case 8: {
         s_active = 1; s_waiting = 0;
-        s_end = END_NONE; s_death_sent = 0;
+        s_end = END_NONE; s_death_sent = 0; s_death_acked = 0; s_death_t = 0;
         s_send_t = 0; s_rx_age = 0;
         s_prev_firecool = 0;
         Ship *p = &g_ships[PLAYER]; Ship *r = &g_ships[PVP_REMOTE];
@@ -395,6 +399,9 @@ int pvp_arena_tick(const CraftRawButtons *btn, float dt) {
 
     if (s_end != END_NONE) {                    /* end card: world frozen, FX play */
         fx_tick(dt);
+        if (s_death_sent && !s_death_acked && (s_death_t -= dt) <= 0) {
+            send1('K'); s_death_t = 0.7f;       /* the match verdict must land */
+        }
         if (b_edge) { send1('Q'); return PVP_EXIT; }
         return PVP_WAIT;
     }
@@ -436,9 +443,10 @@ int pvp_arena_tick(const CraftRawButtons *btn, float dt) {
     s_send_t -= dt;
     if (s_send_t <= 0) { state_send(); s_send_t = 1.0f / 18.0f; }
 
-    /* My death -> tell the peer, show DEFEAT. */
+    /* My death -> tell the peer, show DEFEAT. 'K' decides the match, so it is
+     * re-sent until the peer confirms with 'k'. */
     if (!p->alive && !s_death_sent) {
-        send1('K'); s_death_sent = 1; s_end = END_DEFEAT;
+        send1('K'); s_death_sent = 1; s_death_acked = 0; s_death_t = 0.7f; s_end = END_DEFEAT;
     }
     return PVP_WAIT;
 }
