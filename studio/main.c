@@ -5388,8 +5388,9 @@ static void draw_gallery(SDL_Renderer*R,int ox,int oy,int w,int h){
         g_gal_act[i]=(SDL_Rect){0,0,0,0};
         if(cy>top+clip.h || cy+CH<top) continue;         /* offscreen: skip (still lazy-drawn) */
         rrect(R,cx,cy,CW,CH,6,(Col){26,29,38});
-        /* thumbnail (create texture lazily on the main thread) */
-        int tw=104,th=72,tx=cx+10,ty=cy+12;
+        /* thumbnail (create texture lazily on the main thread). The Thumby screen
+         * is SQUARE (128x128), so keep the thumb square — don't stretch it wide. */
+        int tw=72,th=72,tx=cx+10,ty=cy+12;
         if(!g_gal_tex[i] && g->thumb_px){ g_gal_tex[i]=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STATIC,g->thumb_w,g->thumb_h);
             if(g_gal_tex[i]) SDL_UpdateTexture(g_gal_tex[i],NULL,g->thumb_px,g->thumb_w*2); }
         if(g_gal_tex[i]){ SDL_Rect dr={tx,ty,tw,th}; SDL_RenderCopy(R,g_gal_tex[i],NULL,&dr); }
