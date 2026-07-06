@@ -110,8 +110,8 @@ int mote_dev_catalog(MoteCatEntry *out,int max,int *dev_abi){
     ser_write(h,"LIST\n",5); char r[128]; int n=0;
     for(;;){ int l=ser_readline(h,r,sizeof r,1500); if(l<=0||!strcmp(r,"OK")||!strncmp(r,"ERR",3))break;
         if(n>=max)continue;
-        /* line: "<name>[.mote] [version] [abi]" — split on whitespace */
-        char nm[64]="",ver[16]="0"; sscanf(r,"%63s %15s",nm,ver);
+        /* line: "<idx> <name>[.mote] [version] [abi]" — skip the index */
+        char nm[64]="",ver[16]="0"; sscanf(r,"%*d %63s %15s",nm,ver);
         char *dot=strstr(nm,".mote"); if(dot)*dot=0;
         snprintf(out[n].name,sizeof out[n].name,"%s",nm);
         snprintf(out[n].version,sizeof out[n].version,"%s",ver[0]?ver:"0");

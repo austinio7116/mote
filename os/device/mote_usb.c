@@ -190,19 +190,43 @@ void mote_usb_task(void) {
 /* ---------- backend: FAT-backed /mote/ (lobby) --------------------------- */
 #elif defined(MOTE_USB_FAT)
 #include "ff.h"
+#include "mote_module.h"    /* MoteModuleHeader / MOTE_MODULE_VADDR — read a .mote's embedded version */
 #define MOTE_DIR "/mote"
 static FIL      s_putf; static int s_put_open, s_rx_active;
 static uint32_t s_put_size, s_put_got;
+/* Read a .mote's embedded game version (ABI v46+) + its ABI straight from the FAT
+ * file header, so the gallery can diff installed vs available. version defaults to
+ * "0" (unversioned) for older modules that predate the version field. */
+static void mote_read_meta(const char *path, char *ver, int vn, int *abi) {
+    ver[0] = '0'; ver[1] = 0; if (abi) *abi = 0;
+    FIL f; if (f_open(&f, path, FA_READ) != FR_OK) return;
+    MoteModuleHeader h; UINT br = 0;
+    if (f_read(&f, &h, sizeof h, &br) == FR_OK && br == sizeof h && h.magic == MOTE_MODULE_MAGIC) {
+        if (abi) *abi = (int)h.abi_version;
+        if (h.abi_version >= 46 && h.version_vaddr &&
+            f_lseek(&f, h.version_vaddr - MOTE_MODULE_VADDR) == FR_OK) {
+            char tmp[16]; UINT b2 = 0;
+            if (f_read(&f, tmp, sizeof tmp - 1, &b2) == FR_OK && b2 > 0) {
+                tmp[b2] = 0; int i = 0;
+                for (; i < vn - 1 && tmp[i] > ' '; i++) ver[i] = tmp[i];
+                ver[i] = 0; if (!ver[0]) { ver[0] = '0'; ver[1] = 0; }
+            }
+        }
+    }
+    f_close(&f);
+}
 static void handle_line(const char *cmd) {
     char name[40]; unsigned size;
     if (strcmp(cmd, "PING") == 0) {
-        char b[24]; snprintf(b, sizeof b, "MOTE %d\n", MOTE_USB_PROTO); cdc_say(b);
+        char b[40]; snprintf(b, sizeof b, "MOTE %d ABI %d\n", MOTE_USB_PROTO, MOTE_ABI_VERSION); cdc_say(b);
     } else if (strcmp(cmd, "LIST") == 0) {
         DIR d; FILINFO fi; int i = 0;
         if (f_opendir(&d, MOTE_DIR) == FR_OK) {
             while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
                 if (fi.fattrib & AM_DIR) continue;
-                char b[80]; snprintf(b, sizeof b, "%d %s\n", i++, fi.fname); cdc_say(b);
+                char path[96]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, fi.fname);
+                char ver[16]; int abi; mote_read_meta(path, ver, sizeof ver, &abi);
+                char b[112]; snprintf(b, sizeof b, "%d %s %s %d\n", i++, fi.fname, ver, abi); cdc_say(b);
             }
             f_closedir(&d);
         }
