@@ -173,9 +173,13 @@ static void rebuild(MoteCatalog *c) {
  * through the same journal the USB push uses. Runs while RB is pressed in the
  * launcher; B returns. */
 #define GG_MAX 40
-static struct { char fname[40]; char name[36]; char ver[16]; int abi, mp, state; } g_gg[GG_MAX];
+static struct { char fname[40]; char name[36]; char author[24]; char ver[16]; long size; int abi, mp, state; } g_gg[GG_MAX];
 static int g_ngg;
 static uint16_t g_gthumb[64*64]; static int g_gthumb_for = -1;
+/* async thumbnail fetch state (declared here so gg_fetch_manifest can reset it) */
+static int g_th_state;   /* 0 idle · 1 reading header · 2 reading blob · 3 done */
+static int g_th_want=-1, g_th_got, g_th_len, g_th_ll; static char g_th_l[80];
+static uint64_t g_th_t0;
 
 static int gg_vercmp(const char *a, const char *b) {
     while (*a || *b) { long na=0, nb=0;
@@ -213,23 +217,39 @@ static int gg_read(uint8_t *buf, int len, int tmo_ms) {   /* read up to len byte
         if (r>0){ got+=r; t0=mote_plat_micros(); } else if ((mote_plat_micros()-t0)/1000>(uint64_t)tmo_ms) break; }
     return got;
 }
-static int gg_fetch_manifest(void) {
-    g_ngg=0; g_gthumb_for=-1;
+static void gg_spinner(uint16_t *fb, int cx, int cy);   /* fwd */
+static int gg_fetch_manifest(uint16_t *fb) {
+    g_ngg=0; g_gthumb_for=-1; g_th_state=0; g_th_want=-1;
     mote_usb_cdc_send("MN1 GMANIFEST\n",14);
-    char line[220]; int deadline=0;
+    char line[220]; int silent=0, got_any=0;
     for (;;) {
-        int l=gg_line(line,sizeof line,4000);
-        if (l<0) { if(++deadline>1) return -1; continue; }
+        int l=gg_line(line,sizeof line,250);         /* short: keeps the spinner animating */
+        if (l<0) {                                   /* nothing yet: animate + (re)request */
+            if (++silent>44) return -1;              /* ~11s of silence -> give up */
+            /* Studio can miss the very first request (auto-proxy still opening the
+             * port, or fetching the manifest) — resend until ANY byte comes back.
+             * Stop once a reply starts, so we never trigger a second stream. */
+            if (!got_any && (silent&3)==1) mote_usb_cdc_send("MN1 GMANIFEST\n",14);
+            mote_ui_ground(fb); mote_ui_header(fb,"GALLERY",0,0);
+            gg_spinner(fb,MOTE_FB_W/2,50);
+            mote_font_draw(fb,"connecting to studio...",(MOTE_FB_W-mote_font_width("connecting to studio..."))/2,74,0x8410);
+            mote_plat_present(fb);
+            continue;
+        }
+        silent=0; got_any=1;                         /* a reply is flowing (no per-line present: keep it fast) */
         if (!strncmp(line,"MN1 GEND",8)) break;
         if (!strncmp(line,"MN1 GERR",8)) return -1;
         if (!strncmp(line,"MN1 GAME ",9) && g_ngg<GG_MAX) {
-            int idx,abi,mp; char ver[16], rest[130];
-            if (sscanf(line+9,"%d %d %d %15s %129[^\n]",&idx,&abi,&mp,ver,rest)>=5) {
-                char *bar=strchr(rest,'|'); char *nm=bar?bar+1:rest; if(bar)*bar=0;
+            int idx,abi,mp; long sz; char ver[16], rest[170];
+            if (sscanf(line+9,"%d %d %d %ld %15s %169[^\n]",&idx,&abi,&mp,&sz,ver,rest)>=6) {
+                /* rest = "fname|author|name" */
+                char *b1=strchr(rest,'|'); char *au=b1?b1+1:(char*)""; if(b1)*b1=0;
+                char *b2=au[0]?strchr(au,'|'):0; char *nm=b2?b2+1:au; if(b2)*b2=0;
                 snprintf(g_gg[g_ngg].fname,sizeof g_gg[0].fname,"%s.mote",rest);
+                snprintf(g_gg[g_ngg].author,sizeof g_gg[0].author,"%s",au);
                 snprintf(g_gg[g_ngg].name,sizeof g_gg[0].name,"%s",nm);
                 snprintf(g_gg[g_ngg].ver,sizeof g_gg[0].ver,"%s",ver);
-                g_gg[g_ngg].abi=abi; g_gg[g_ngg].mp=mp;
+                g_gg[g_ngg].abi=abi; g_gg[g_ngg].mp=mp; g_gg[g_ngg].size=sz;
                 char iv[16]; gg_installed(g_gg[g_ngg].fname,iv,sizeof iv);
                 g_gg[g_ngg].state = !iv[0] ? 0 : (gg_vercmp(iv,ver)<0 ? 2 : 1);   /* 0 new · 1 installed · 2 update */
                 g_ngg++;
@@ -238,18 +258,48 @@ static int gg_fetch_manifest(void) {
     }
     return 0;
 }
-static void gg_fetch_thumb(int i) {
-    if (i==g_gthumb_for) return;
+/* Non-blocking thumbnail fetch: request once, then read incrementally each frame
+ * (th_pump) so browsing stays instant and a spinner shows while it streams in. */
+static void th_request(int i) {
     char cmd[24]; snprintf(cmd,sizeof cmd,"MN1 GTHUMB %d\n",i); mote_usb_cdc_send(cmd,(int)strlen(cmd));
-    char line[64];
-    for (int tries=0;tries<4;tries++){ int l=gg_line(line,sizeof line,3000); if(l<0) return;
-        if (!strncmp(line,"MN1 GTHUMB ",11)) { int idx,w,h,len;
-            if (sscanf(line+11,"%d %d %d %d",&idx,&w,&h,&len)==4 && w==64 && h==64) {
-                gg_read((uint8_t*)g_gthumb,len>(int)sizeof g_gthumb?(int)sizeof g_gthumb:len,4000);
-                g_gthumb_for=i; }
-            return; }
-        if (!strncmp(line,"MN1 GERR",8)) return;
+    g_th_want=i; g_th_state=1; g_th_got=0; g_th_len=0; g_th_ll=0; g_th_t0=mote_plat_micros();
+}
+static void th_pump(void) {
+    if (g_th_state==0 || g_th_state==3) return;
+    if ((mote_plat_micros()-g_th_t0)/1000 > 4000) { g_th_state=3; return; }   /* stalled: give up */
+    mote_usb_cdc_pump();
+    if (g_th_state==1) { char c;
+        while (mote_usb_cdc_recv(&c,1)==1) { g_th_t0=mote_plat_micros();
+            if (c=='\n') { g_th_l[g_th_ll]=0;
+                if (!strncmp(g_th_l,"MN1 GTHUMB ",11)) { int idx,w,h,len;
+                    if (sscanf(g_th_l+11,"%d %d %d %d",&idx,&w,&h,&len)==4 && w==56 && h==56) {
+                        g_th_len = len>(int)sizeof g_gthumb ? (int)sizeof g_gthumb : len; g_th_got=0; g_th_state=2; return; } }
+                if (!strncmp(g_th_l,"MN1 GERR",8)) { g_th_state=3; return; }
+                g_th_ll=0;   /* other line (e.g. MN1 OK) — keep reading */
+            } else if (c!='\r' && g_th_ll<79) g_th_l[g_th_ll++]=c;
+        }
+    } else if (g_th_state==2) {
+        /* drain the blob fast: keep pumping USB + reading, up to ~60ms this frame
+         * (8 KB at CDC speed is tens of ms) instead of one 256-byte buffer per frame */
+        uint64_t t0=mote_plat_micros();
+        for (;;) {
+            mote_usb_cdc_pump();
+            int r = mote_usb_cdc_recv(((uint8_t*)g_gthumb)+g_th_got, g_th_len-g_th_got);
+            if (r>0) { g_th_got+=r; g_th_t0=mote_plat_micros(); }
+            if (g_th_got>=g_th_len) { g_gthumb_for=g_th_want; g_th_state=3; break; }
+            if ((mote_plat_micros()-t0)/1000 > 60) break;   /* resume next frame */
+        }
     }
+}
+/* 8-dot spinner (no libm — fixed offsets) */
+static void gg_spinner(uint16_t *fb, int cx, int cy) {
+    static const int DX[8]={10,7,0,-7,-10,-7,0,7}, DY[8]={0,7,10,7,0,-7,-10,-7};
+    unsigned t=(unsigned)(mote_plat_micros()/90000u);
+    for (int i=0;i<8;i++){ int x=cx+DX[i], y=cy+DY[i];
+        int b=50+((int)((i - (int)t)&7))*26; if(b>255)b=255;
+        uint16_t c=(uint16_t)(((b>>3)<<11)|((b>>2)<<5)|(b>>3));
+        for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int px=x+dx,py=y+dy;
+            if((unsigned)px<MOTE_FB_W&&(unsigned)py<MOTE_FB_H) fb[py*MOTE_FB_W+px]=c; } }
 }
 static int gg_install(int i, uint16_t *fb) {
     char cmd[24]; snprintf(cmd,sizeof cmd,"MN1 GFETCH %d\n",i); mote_usb_cdc_send(cmd,(int)strlen(cmd));
@@ -275,66 +325,93 @@ static int gg_install(int i, uint16_t *fb) {
     if (got>=size) { f_unlink(MOTE_DIR "/.installing"); return 0; }
     return -1;   /* incomplete — marker stays; launcher hides the partial file */
 }
+static void human_size(long b, char *out, int n) {
+    if (b >= 1024*1024) snprintf(out,n,"%ld.%ld MB", b/(1024*1024), (b%(1024*1024))*10/(1024*1024));
+    else                snprintf(out,n,"%ld KB", (b+512)/1024);
+}
+/* HERO view: one game per screen — thumbnail with browse arrows, big title,
+ * author, version + human size, state. No overlap; only the selected game's
+ * thumbnail is fetched. */
 static void gg_draw(uint16_t *fb, int sel, int msg_t, const char *msg) {
     mote_ui_ground(fb);
-    mote_ui_header(fb, "GALLERY", g_ngg?sel+1:0, g_ngg);
-    if (g_ngg==0) { mote_font_draw(fb,"connecting to studio...",(MOTE_FB_W-mote_font_width("connecting to studio..."))/2,52,0x8410); mote_ui_footer(fb,0); return; }
-    /* selected thumbnail top-right */
-    if (g_gthumb_for==sel) { int ox=MOTE_FB_W-66, oy=16;
-        for(int y=0;y<64;y++)for(int x=0;x<64;x++) fb[(oy+y)*MOTE_FB_W+(ox+x)]=g_gthumb[y*64+x]; }
-    /* a short vertical list centred on sel */
-    int rows=5, top=sel-2; if(top<0)top=0; if(top>g_ngg-rows)top=g_ngg-rows; if(top<0)top=0;
-    for (int r=0;r<rows && top+r<g_ngg;r++){ int gi=top+r; int y=18+r*16; int on=gi==sel;
-        if(on) for(int yy=y-1;yy<y+13;yy++)for(int xx=6;xx<MOTE_FB_W-70;xx++) fb[yy*MOTE_FB_W+xx]=0x1082;
-        uint16_t c = on?0xFFFF:0xACD3;
-        mote_font_draw(fb,g_gg[gi].name,10,y+2,c);
-        const char *tag = g_gg[gi].state==2?"UPD":g_gg[gi].state==1?"OK":"NEW";
-        uint16_t tc = g_gg[gi].state==2?0xFD20:g_gg[gi].state==1?0x5680:0x07FF;
-        mote_font_draw(fb,tag,MOTE_FB_W-90,y+2,tc);
-    }
-    /* footer: version + action */
-    char ft[40]; snprintf(ft,sizeof ft,"v%s  A:%s  B:back",g_gg[sel].ver,
-                          g_gg[sel].state==1?"reinstall":g_gg[sel].state==2?"update":"install");
-    mote_font_draw(fb,ft,6,MOTE_FB_H-12,0x8410);
-    if (msg_t>0) mote_font_draw(fb,msg,6,MOTE_FB_H-24,0x07E0);
+    mote_ui_header(fb, "GALLERY", sel+1, g_ngg);
+    /* 48x48 thumbnail box, centred near the top */
+    const int TS=56; int tx=(MOTE_FB_W-TS)/2, ty=15;
+    for (int x=tx-2;x<tx+TS+2;x++){ fb[(ty-2)*MOTE_FB_W+x]=0x18E3; fb[(ty+TS+1)*MOTE_FB_W+x]=0x18E3; }
+    for (int y=ty-2;y<ty+TS+2;y++){ fb[y*MOTE_FB_W+tx-2]=0x18E3; fb[y*MOTE_FB_W+tx+TS+1]=0x18E3; }
+    if (g_gthumb_for==sel)
+        for (int y=0;y<TS;y++)for(int x=0;x<TS;x++) fb[(ty+y)*MOTE_FB_W+(tx+x)]=g_gthumb[y*TS+x];
+    else { for (int y=0;y<TS;y++)for(int x=0;x<TS;x++) fb[(ty+y)*MOTE_FB_W+(tx+x)]=0x0841;
+           gg_spinner(fb,tx+TS/2,ty+TS/2); }
+    /* browse arrows either side of the thumbnail (2x = big + clear) */
+    { int ay=ty+TS/2-7; mote_font_draw_2x(fb,"<",10,ay,0xACD3); mote_font_draw_2x(fb,">",MOTE_FB_W-22,ay,0xACD3); }
+    /* 2P badge, top-right corner of the thumbnail */
+    if (g_gg[sel].mp) { int bx=tx+TS-13, by=ty+1;
+        for(int y=by;y<by+10;y++)for(int x=bx;x<bx+13;x++) fb[y*MOTE_FB_W+x]=0x2A4A;
+        mote_font_draw(fb,"2P",bx+2,by+2,0x8FF4); }
+    /* title — 2x when it fits, else 1x */
+    { const char *nm=g_gg[sel].name; int w2=mote_font_width(nm)*2;
+      if (w2 <= MOTE_FB_W-6) mote_font_draw_2x(fb,nm,(MOTE_FB_W-w2)/2,74,0xFFFF);
+      else { int w=mote_font_width(nm); mote_font_draw(fb,nm,(MOTE_FB_W-w)/2,77,0xFFFF); } }
+    /* by <author> */
+    { char b[44]; snprintf(b,sizeof b,"by %s",g_gg[sel].author); int w=mote_font_width(b);
+      mote_font_draw(fb,b,(MOTE_FB_W-w)/2,92,0x7BCF); }
+    /* v<ver>   <size>   STATE (centred) */
+    { const char *tag=g_gg[sel].state==2?"UPDATE":g_gg[sel].state==1?"INSTALLED":"NEW";
+      uint16_t tc=g_gg[sel].state==2?0xFD20:g_gg[sel].state==1?0x5EEB:0x07FF;
+      char sz[16]; human_size(g_gg[sel].size,sz,sizeof sz);
+      char info[36]; snprintf(info,sizeof info,"v%s   %s",g_gg[sel].ver,sz);
+      int iw=mote_font_width(info), gw=mote_font_width(tag), x0=(MOTE_FB_W-(iw+10+gw))/2;
+      mote_font_draw(fb,info,x0,104,0xACD3); mote_font_draw(fb,tag,x0+iw+10,104,tc); }
+    /* footer: message, or the controls */
+    if (msg_t>0) { int w=mote_font_width(msg); mote_font_draw(fb,msg,(MOTE_FB_W-w)/2,118,0x07E0); }
+    else { const char *ft=g_gg[sel].state==1?"A reinstall    B back":g_gg[sel].state==2?"A update    B back":"A install    B back";
+           mote_font_draw(fb,ft,(MOTE_FB_W-mote_font_width(ft))/2,118,0x8410); }
 }
 /* The whole gallery screen: owns the CDC for the MN1 G-protocol while active. */
 static void gallery_screen(void) {
     uint16_t *fb = mote_launcher_fb();
     mote_usb_gallery_own(1);
-    int sel=0, msg_t=0; char msg[40]={0};
-    /* initial connect + fetch (renders "connecting..." meanwhile) */
-    gg_draw(fb,0,0,""); mote_plat_present(fb);
-    if (gg_fetch_manifest()!=0) {
-        for(int i=0;i<90;i++){ mote_ui_ground(fb);
-            mote_font_draw(fb,"GALLERY",(MOTE_FB_W-mote_font_width("GALLERY"))/2,20,0xFFFF);
-            mote_font_draw(fb,"dock in mote studio",(MOTE_FB_W-mote_font_width("dock in mote studio"))/2,54,0x8410);
-            mote_font_draw(fb,"and enable device relay",(MOTE_FB_W-mote_font_width("and enable device relay"))/2,66,0x8410);
-            mote_font_draw(fb,"B: back",(MOTE_FB_W-mote_font_width("B: back"))/2,92,0xACD3);
+    while (gg_fetch_manifest(fb)!=0) {                 /* renders its own spinner while connecting */
+        int pa=1,pb=1, done=0;                         /* clear "not connected" screen; A retries, B exits */
+        while (!done && !mote_plat_should_quit()) {
+            mote_ui_ground(fb);
+            mote_font_draw_2x(fb,"NO STUDIO",(MOTE_FB_W-mote_font_width("NO STUDIO")*2)/2,18,0xFD40);
+            mote_font_draw(fb,"Not connected to Mote Studio",(MOTE_FB_W-mote_font_width("Not connected to Mote Studio"))/2,44,0xFFFF);
+            mote_font_draw(fb,"1  dock it in Mote Studio",(MOTE_FB_W-mote_font_width("1  dock it in Mote Studio"))/2,62,0x9CD3);
+            mote_font_draw(fb,"2  DEVICE tab: Device ON",(MOTE_FB_W-mote_font_width("2  DEVICE tab: Device ON"))/2,74,0x9CD3);
+            mote_font_draw(fb,"A retry      B back",(MOTE_FB_W-mote_font_width("A retry      B back"))/2,102,0xACD3);
             mote_plat_present(fb);
-            MoteButtons rb; mote_plat_buttons(&rb); if(rb.b) break; }
-        mote_usb_gallery_own(0); return;
+            MoteButtons b; mote_plat_buttons(&b);
+            if (b.b && !pb) { mote_usb_gallery_own(0); return; }
+            if (b.a && !pa) done=1;                    /* retry: fall out to re-run gg_fetch_manifest */
+            pa=b.a; pb=b.b;
+        }
+        if (mote_plat_should_quit()) { mote_usb_gallery_own(0); return; }
     }
+    int sel=0, msg_t=0, last_sel=-1; char msg[40]={0}; uint64_t settled=0;
     MoteInput in; memset(&in,0,sizeof in);
     { MoteButtons r0; mote_plat_buttons(&r0); mote_input_arm(&in,&r0); }
     uint64_t last=mote_plat_micros();
-    gg_fetch_thumb(sel);
     while (!mote_plat_should_quit()) {
         uint64_t now=mote_plat_micros(); uint32_t dt=(uint32_t)((now-last)/1000); last=now;
         MoteButtons raw; mote_plat_buttons(&raw); mote_input_update(&in,&raw,dt);
         if (mote_just_pressed(&in,MOTE_BTN_B)) break;
-        if (g_ngg>0) {
-            if (mote_just_pressed(&in,MOTE_BTN_DOWN)) { sel=(sel+1)%g_ngg; gg_fetch_thumb(sel); }
-            if (mote_just_pressed(&in,MOTE_BTN_UP))   { sel=(sel-1+g_ngg)%g_ngg; gg_fetch_thumb(sel); }
-            if (mote_just_pressed(&in,MOTE_BTN_A)) {
-                int r=gg_install(sel, fb);
-                if (r==0){ char iv[16]; gg_installed(g_gg[sel].fname,iv,sizeof iv);
-                           g_gg[sel].state = !iv[0]?0:(gg_vercmp(iv,g_gg[sel].ver)<0?2:1);
-                           snprintf(msg,sizeof msg,"installed v%s",g_gg[sel].ver); }
-                else snprintf(msg,sizeof msg,"install failed");
-                msg_t=120;
-            }
+        if (mote_just_pressed(&in,MOTE_BTN_DOWN)||mote_just_pressed(&in,MOTE_BTN_RIGHT)) sel=(sel+1)%g_ngg;
+        if (mote_just_pressed(&in,MOTE_BTN_UP)  ||mote_just_pressed(&in,MOTE_BTN_LEFT))  sel=(sel-1+g_ngg)%g_ngg;
+        if (mote_just_pressed(&in,MOTE_BTN_A)) {
+            while (g_th_state==1||g_th_state==2) th_pump();   /* finish any in-flight thumb first (shared CDC) */
+            int r=gg_install(sel, fb);
+            char iv[16]; gg_installed(g_gg[sel].fname,iv,sizeof iv);
+            g_gg[sel].state = !iv[0]?0:(gg_vercmp(iv,g_gg[sel].ver)<0?2:1);
+            snprintf(msg,sizeof msg, r==0?"installed v%s":"install failed", g_gg[sel].ver);
+            msg_t=140; g_th_state=0; g_gthumb_for=-1;    /* force a fresh thumb request */
         }
+        /* debounced, serialized async thumbnail fetch — never blocks navigation */
+        if (sel!=last_sel){ last_sel=sel; settled=now; }
+        if (g_th_state==3) g_th_state=0;                 /* previous finished -> idle */
+        if (g_th_state==0 && g_gthumb_for!=sel && (now-settled)/1000>=120) th_request(sel);
+        th_pump();
         if (msg_t>0) msg_t--;
         gg_draw(fb,sel,msg_t,msg);
         mote_plat_present(fb);

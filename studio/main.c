@@ -5096,6 +5096,7 @@ static void proxy_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(
 static void gal_serve_manifest(void*h);
 static void gal_serve_thumb(void*h,unsigned idx);
 static void gal_serve_fetch(void*h,unsigned idx);
+static volatile Uint32 g_gal_until;   /* SDL ticks: hold the device port until then (gallery session) */
 
 /* Act on one MN1 command. Returns 1 to proceed to relay+GO, 0 if fully handled. */
 static int proxy_command(void*h,char*line){
@@ -5104,6 +5105,7 @@ static int proxy_command(void*h,char*line){
     char*cmd=line+4; char*sp=strchr(cmd,' ');
     char verb[12]; int vl=sp?(int)(sp-cmd):(int)strlen(cmd); if(vl>11)vl=11; memcpy(verb,cmd,vl); verb[vl]=0;
     unsigned gid=sp?(unsigned)strtoul(sp+1,NULL,10):0;
+    if(verb[0]=='G') g_gal_until = SDL_GetTicks()+15000;   /* gallery session: keep the port for prompt replies */
     if(!strcmp(verb,"GMANIFEST")){ gal_serve_manifest(h); return 0; }
     if(!strcmp(verb,"GTHUMB")){ gal_serve_thumb(h,gid); return 0; }
     if(!strcmp(verb,"GFETCH")){ gal_serve_fetch(h,gid); return 0; }
@@ -5154,10 +5156,12 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                 r0=mote_dev_raw_read(h,&c0,1);
                 if(r0==1)break;
                 if(r0<0){ break; }                           /* device gone: cycle the port */
-                if(++idle0>10){ r0=0; break; }               /* ~1s idle: RELEASE the port —
-                    with exclusive opens, holding it starves the mote CLI; a device
-                    that wants us resends its request every 0.6s and catches the
-                    next probe */
+                if(++idle0>10){                              /* ~1s idle */
+                    if(SDL_GetTicks()<g_gal_until){ idle0=0; continue; }  /* in a gallery session: HOLD the port
+                        so each thumbnail/install request gets a prompt reply (no reopen churn) */
+                    r0=0; break;                             /* else RELEASE the port — holding it starves the
+                        mote CLI; a device that wants us resends every 0.6s and catches the next probe */
+                }
             }
             if(r0!=1) break;
             if((unsigned char)c0==0x4D){
@@ -5340,9 +5344,20 @@ static int gal_refresh_thread(void*a){ (void)a;
     } else g_gal_state=3;
     g_gal_busy=0; return 0;
 }
+/* gallery base URL, precedence: MOTE_GALLERY_BASE env > mote_gallery.txt (next to
+ * the exe) > the public Pages default. The file lets you point Studio at a local
+ * folder (file://...) or a self-hosted gallery without an env var. */
+static void gal_resolve_base(void){
+    if(g_gal.base[0]) return;
+    const char*b=getenv("MOTE_GALLERY_BASE");
+    if(b&&*b){ gallery_set_base(&g_gal,b); return; }
+    char line[GAL_URLLEN]={0};
+    FILE*f=fopen("mote_gallery.txt","r");
+    if(f){ if(fgets(line,sizeof line,f)){ char*e=strpbrk(line,"\r\n"); if(e)*e=0; } fclose(f); }
+    gallery_set_base(&g_gal, line[0]?line:"https://austinio7116.github.io/mote");
+}
 static void gal_refresh(void){ if(g_gal_busy)return;
-    if(!g_gal.base[0]){ const char*b=getenv("MOTE_GALLERY_BASE");
-        gallery_set_base(&g_gal, (b&&*b)?b:"https://austinio7116.github.io/mote"); }
+    gal_resolve_base();
     g_gal_busy=1; SDL_CreateThread(gal_refresh_thread,"galref",NULL); }
 static int gal_install_thread(void*a){ int idx=(int)(intptr_t)a; GalGame *g=&g_gal.g[idx];
     char path[512],base[64],fn[80],m[160];
@@ -5447,23 +5462,24 @@ static void gal_click(int mx,int my){
  * The device drives its own gallery screen over CDC; Studio serves from the same
  * cache the desktop viewer uses. Runs on the netproxy thread (holds the port). */
 static void gal_ensure_loaded(void){
-    if(!g_gal.base[0]){ const char*b=getenv("MOTE_GALLERY_BASE");
-        gallery_set_base(&g_gal,(b&&*b)?b:"https://austinio7116.github.io/mote"); }
+    gal_resolve_base();
     if(!g_gal.loaded) gallery_refresh(&g_gal);
 }
 static void gal_serve_manifest(void*h){
     gal_ensure_loaded();
     if(!g_gal.loaded){ proxy_send(h,"MN1 GERR fetch\n"); return; }
-    for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i]; char base[64],line[220]; gal_base(g->file,base,sizeof base);
-        /* MN1 GAME <idx> <abi> <mp> <ver> <fname>|<name>  (name is last, may hold spaces) */
-        snprintf(line,sizeof line,"MN1 GAME %d %d %d %s %s|%s\n",i,g->abi,g->multiplayer,g->version,base,g->name);
+    for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i]; char base[64],line[260]; gal_base(g->file,base,sizeof base);
+        /* MN1 GAME <idx> <abi> <mp> <size> <ver> <fname>|<author>|<name>
+         * (the three | fields are last; only <name> may contain spaces) */
+        snprintf(line,sizeof line,"MN1 GAME %d %d %d %ld %s %s|%s|%s\n",
+                 i,g->abi,g->multiplayer,g->size,g->version,base,g->author,g->name);
         mote_dev_raw_write(h,line,(int)strlen(line)); }
     proxy_send(h,"MN1 GEND\n");
 }
 static void gal_serve_thumb(void*h,unsigned idx){
     if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
     GalGame*g=&g_gal.g[idx]; gallery_load_thumb(&g_gal,g);
-    enum{TW=64,TH=64}; static uint16_t sc[TW*TH];
+    enum{TW=56,TH=56}; static uint16_t sc[TW*TH];
     if(g->thumb_px&&g->thumb_w>0&&g->thumb_h>0)
         for(int y=0;y<TH;y++)for(int x=0;x<TW;x++){ int sx=x*g->thumb_w/TW, sy=y*g->thumb_h/TH; sc[y*TW+x]=g->thumb_px[sy*g->thumb_w+sx]; }
     else memset(sc,0,sizeof sc);

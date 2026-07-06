@@ -75,44 +75,47 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     mote_ui_header(s_fb, "MOTE", sel + 1, cat->count);
 
     if (cat->count == 0) {
-        mote_font_draw(s_fb, "no games installed", (MOTE_FB_W - mote_font_width("no games installed")) / 2, 56, COL_DIM);
-        mote_font_draw(s_fb, "mote push a game", (MOTE_FB_W - mote_font_width("mote push a game")) / 2, 68, COL_HINT);
+        mote_font_draw(s_fb, "no games installed", (MOTE_FB_W - mote_font_width("no games installed")) / 2, 52, COL_DIM);
+#ifdef THUMBYONE_SLOT_MODE
+        mote_font_draw(s_fb, "press RB for the GALLERY", (MOTE_FB_W - mote_font_width("press RB for the GALLERY")) / 2, 66, COL_HINT);
+        mote_font_draw(s_fb, "(dock in Mote Studio)", (MOTE_FB_W - mote_font_width("(dock in Mote Studio)")) / 2, 78, COL_DIM);
+#else
+        mote_font_draw(s_fb, "mote push a game", (MOTE_FB_W - mote_font_width("mote push a game")) / 2, 66, COL_HINT);
+#endif
         mote_ui_footer(s_fb, 0);
         return;
     }
     const char *nm = cat->e[sel].name;
 
-    /* hero icon (left), framed + dropshadow */
-    int ix = 5, iy = 24;
-    fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));      /* shadow */
-    fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));  /* frame */
+    /* HERO: big centred icon, then a large title — matches the gallery. Position
+     * is shown in the header ("MOTE  n/count"); up/down (or L/R) browse. */
+    int ix = (MOTE_FB_W - MOTE_ICON_W)/2, iy = 18;
+    fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));       /* shadow */
+    fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));   /* frame */
     const uint16_t *ic = cat->e[sel].icon;
     if (ic) blit_icon(ic, ix, iy);
     else if (cat->e[sel].icon_blob) blit_icon_blob(cat->e[sel].icon_blob, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
         char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
-    /* fragmented .mote: can't run/icon in place — flag it over the icon */
     if (cat->e[sel].frag) {
         fill(ix, iy + MOTE_ICON_H - 13, MOTE_ICON_W, 13, MOTE_RGB565(150, 28, 28));
         mote_font_draw(s_fb, "DEFRAG", ix + MOTE_ICON_W/2 - 17, iy + MOTE_ICON_H - 10, MOTE_RGB565(255, 232, 210));
     }
-
-    /* browse list (right): a window of names centred on the selection */
-    int lx = 70, ly = 23, rh = 13, rows = 6;
-    int start = sel - 2;
-    if (start > cat->count - rows) start = cat->count - rows;
-    if (start < 0) start = 0;
-    for (int r = 0; r < rows && start + r < cat->count; r++) {
-        int i = start + r, y = ly + r * rh;
-        if (i == sel) {
-            fill(lx - 2, y, MOTE_FB_W - (lx - 2) - 2, 11, MOTE_RGB565(36, 74, 138));
-            fill(lx - 2, y, 2, 11, MOTE_RGB565(120, 200, 255));
-            mote_font_draw(s_fb, cat->e[i].name, lx + 3, y + 2, MOTE_RGB565(255, 255, 255));
-        } else {
-            mote_font_draw(s_fb, cat->e[i].name, lx + 3, y + 2, MOTE_RGB565(122, 136, 164));
-        }
+    /* browse arrows either side */
+    if (cat->count > 1) {
+        mote_font_draw_2x(s_fb, "<", 6, iy + MOTE_ICON_H/2 - 7, MOTE_RGB565(110,130,164));
+        mote_font_draw_2x(s_fb, ">", MOTE_FB_W - 18, iy + MOTE_ICON_H/2 - 7, MOTE_RGB565(110,130,164));
     }
-    mote_ui_footer(s_fb, cat->e[sel].frag ? "FRAGMENTED - RUN DEFRAG IN LOBBY" : "A PLAY   UP/DN BROWSE");
+    /* BIG title (2x when it fits, else 1x), centred below the icon */
+    { int w2 = mote_font_width(nm) * 2;
+      if (w2 <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - w2)/2, 88, MOTE_RGB565(255,255,255));
+      else mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm))/2, 91, MOTE_RGB565(255,255,255)); }
+    mote_ui_footer(s_fb, cat->e[sel].frag ? "FRAGMENTED - RUN DEFRAG IN LOBBY" :
+#ifdef THUMBYONE_SLOT_MODE
+                   "A PLAY    RB GALLERY");
+#else
+                   "A PLAY   UP/DN BROWSE");
+#endif
 }
 
 int mote_launcher_run(MoteCatalogFn rebuild) {
