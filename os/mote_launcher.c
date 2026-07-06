@@ -89,7 +89,7 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
 
     /* HERO: big centred icon, then a large title — matches the gallery. Position
      * is shown in the header ("MOTE  n/count"); up/down (or L/R) browse. */
-    int ix = (MOTE_FB_W - MOTE_ICON_W)/2, iy = 18;
+    int ix = (MOTE_FB_W - MOTE_ICON_W)/2, iy = 22;
     fill(ix + 1, iy + 2, MOTE_ICON_W + 3, MOTE_ICON_H + 3, MOTE_RGB565(4, 6, 12));       /* shadow */
     fill(ix - 2, iy - 2, MOTE_ICON_W + 4, MOTE_ICON_H + 4, MOTE_RGB565(96, 176, 255));   /* frame */
     const uint16_t *ic = cat->e[sel].icon;
@@ -108,8 +108,8 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     }
     /* BIG title (2x when it fits, else 1x), centred below the icon */
     { int w2 = mote_font_width(nm) * 2;
-      if (w2 <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - w2)/2, 88, MOTE_RGB565(255,255,255));
-      else mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm))/2, 91, MOTE_RGB565(255,255,255)); }
+      if (w2 <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - w2)/2, 92, MOTE_RGB565(255,255,255));
+      else mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm))/2, 95, MOTE_RGB565(255,255,255)); }
     mote_ui_footer(s_fb, cat->e[sel].frag ? "FRAGMENTED - RUN DEFRAG IN LOBBY" :
 #ifdef THUMBYONE_SLOT_MODE
                    "A PLAY    RB GALLERY");

@@ -336,7 +336,7 @@ static void gg_draw(uint16_t *fb, int sel, int msg_t, const char *msg) {
     mote_ui_ground(fb);
     mote_ui_header(fb, "GALLERY", sel+1, g_ngg);
     /* 48x48 thumbnail box, centred near the top */
-    const int TS=56; int tx=(MOTE_FB_W-TS)/2, ty=15;
+    const int TS=56; int tx=(MOTE_FB_W-TS)/2, ty=18;
     for (int x=tx-2;x<tx+TS+2;x++){ fb[(ty-2)*MOTE_FB_W+x]=0x18E3; fb[(ty+TS+1)*MOTE_FB_W+x]=0x18E3; }
     for (int y=ty-2;y<ty+TS+2;y++){ fb[y*MOTE_FB_W+tx-2]=0x18E3; fb[y*MOTE_FB_W+tx+TS+1]=0x18E3; }
     if (g_gthumb_for==sel)
@@ -351,18 +351,18 @@ static void gg_draw(uint16_t *fb, int sel, int msg_t, const char *msg) {
         mote_font_draw(fb,"2P",bx+2,by+2,0x8FF4); }
     /* title — 2x when it fits, else 1x */
     { const char *nm=g_gg[sel].name; int w2=mote_font_width(nm)*2;
-      if (w2 <= MOTE_FB_W-6) mote_font_draw_2x(fb,nm,(MOTE_FB_W-w2)/2,74,0xFFFF);
-      else { int w=mote_font_width(nm); mote_font_draw(fb,nm,(MOTE_FB_W-w)/2,77,0xFFFF); } }
+      if (w2 <= MOTE_FB_W-6) mote_font_draw_2x(fb,nm,(MOTE_FB_W-w2)/2,78,0xFFFF);
+      else { int w=mote_font_width(nm); mote_font_draw(fb,nm,(MOTE_FB_W-w)/2,81,0xFFFF); } }
     /* by <author> */
     { char b[44]; snprintf(b,sizeof b,"by %s",g_gg[sel].author); int w=mote_font_width(b);
-      mote_font_draw(fb,b,(MOTE_FB_W-w)/2,92,0x7BCF); }
+      mote_font_draw(fb,b,(MOTE_FB_W-w)/2,95,0x7BCF); }
     /* v<ver>   <size>   STATE (centred) */
     { const char *tag=g_gg[sel].state==2?"UPDATE":g_gg[sel].state==1?"INSTALLED":"NEW";
       uint16_t tc=g_gg[sel].state==2?0xFD20:g_gg[sel].state==1?0x5EEB:0x07FF;
       char sz[16]; human_size(g_gg[sel].size,sz,sizeof sz);
       char info[36]; snprintf(info,sizeof info,"v%s   %s",g_gg[sel].ver,sz);
       int iw=mote_font_width(info), gw=mote_font_width(tag), x0=(MOTE_FB_W-(iw+10+gw))/2;
-      mote_font_draw(fb,info,x0,104,0xACD3); mote_font_draw(fb,tag,x0+iw+10,104,tc); }
+      mote_font_draw(fb,info,x0,106,0xACD3); mote_font_draw(fb,tag,x0+iw+10,106,tc); }
     /* footer: message, or the controls */
     if (msg_t>0) { int w=mote_font_width(msg); mote_font_draw(fb,msg,(MOTE_FB_W-w)/2,118,0x07E0); }
     else { const char *ft=g_gg[sel].state==1?"A reinstall    B back":g_gg[sel].state==2?"A update    B back":"A install    B back";
