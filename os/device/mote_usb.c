@@ -236,9 +236,18 @@ static void handle_line(const char *cmd) {
          * so the launcher lists it and the runner can map it. */
         size_t ln = strlen(name);
         int has_ext = ln > 5 && strcmp(name + ln - 5, ".mote") == 0;
-        char path[80]; snprintf(path, sizeof path, "%s/%s%s", MOTE_DIR, name, has_ext ? "" : ".mote");
+        char fname[48]; snprintf(fname, sizeof fname, "%s%s", name, has_ext ? "" : ".mote");
+        char path[80]; snprintf(path, sizeof path, "%s/%s", MOTE_DIR, fname);
         f_mkdir(MOTE_DIR);   /* ok if it exists */
-        if (f_open(&s_putf, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) { cdc_say("ERR open\n"); return; }
+        /* INSTALL JOURNAL: mark this file 'installing' BEFORE truncating it. Flash is
+         * tight, so we overwrite in place with no room to keep the old copy — an
+         * interrupted push therefore leaves a PARTIAL .mote. The marker (cleared only
+         * on a clean finish) tells the launcher to skip that file until it's pushed
+         * whole again, so a half-written game can never be launched. */
+        { FIL mf; if (f_open(&mf, MOTE_DIR "/.installing", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+            UINT bw; f_write(&mf, fname, (UINT)strlen(fname), &bw); f_close(&mf); } }
+        if (f_open(&s_putf, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
+            f_unlink(MOTE_DIR "/.installing"); cdc_say("ERR open\n"); return; }
         /* 4 KB clusters (FAT12) → the file is born 4 KB-aligned for the runner's
          * ATRANS XIP map; no special placement needed. */
         s_put_open = 1; s_put_size = size; s_put_got = 0; s_rx_active = 1;
@@ -260,6 +269,7 @@ void mote_usb_task(void) {
         if (s_put_got >= s_put_size) {
             s_rx_active = 0;
             if (s_put_open) { f_close(&s_putf); s_put_open = 0; }
+            f_unlink(MOTE_DIR "/.installing");   /* install finished whole — clear the journal */
             cdc_say("OK\n");
         }
         return;

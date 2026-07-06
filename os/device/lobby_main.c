@@ -114,12 +114,22 @@ static void resolve_icon(const char *fname, const void **out_blob, const uint16_
  * up). offset = list index here; the real flash offset is resolved on select. */
 static void rebuild(MoteCatalog *c) {
     c->count = 0;
+    /* A file mid-install (or left PARTIAL by an interrupted push) is named in the
+     * install journal — hide it so the launcher never runs a half-written .mote.
+     * The marker survives a reboot on FAT, so an install cut short by a yank stays
+     * hidden until it's pushed whole again (which clears the marker). */
+    char installing[48] = {0};
+    { FIL mf; UINT br = 0;
+      if (f_open(&mf, MOTE_DIR "/.installing", FA_READ) == FR_OK) {
+          if (f_read(&mf, installing, sizeof installing - 1, &br) == FR_OK) installing[br] = 0;
+          f_close(&mf); } }
     DIR dir;
     FILINFO fno;
     if (f_opendir(&dir, MOTE_DIR) != FR_OK) return;
     while (c->count < MOTE_CATALOG_MAX && f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
         if (fno.fattrib & AM_DIR) continue;
         if (!ends_with_mote(fno.fname)) continue;
+        if (installing[0] && strcmp(fno.fname, installing) == 0) continue;   /* mid-install: hide */
         strncpy(g_file[c->count], fno.fname, sizeof g_file[0] - 1);
         g_file[c->count][sizeof g_file[0] - 1] = 0;
         /* display name = stem (drop ".mote") */
