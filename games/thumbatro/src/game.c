@@ -610,4 +610,5 @@ static const MoteGameVtbl k_vtbl = {
     .config = { .max_sprites = 1 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void){ return &k_vtbl; }
-MOTE_GAME_META("ThumbAtro","austinio7116");
+MOTE_GAME_META("ThumbAtro", "austinio7116");
+MOTE_GAME_VERSION("1.0.0");

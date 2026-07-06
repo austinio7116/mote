@@ -17,6 +17,8 @@
 #include <math.h>
 
 MOTE_GAME_MODULE();
+MOTE_GAME_META("tetris3d", "austinio7116");
+MOTE_GAME_VERSION("1.0.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();

@@ -26,6 +26,8 @@
 static MoteSound paddle_snd, wall_snd, score_snd, miss_snd;
 
 MOTE_GAME_MODULE();
+MOTE_GAME_META("pong3d", "austinio7116");
+MOTE_GAME_VERSION("1.0.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();

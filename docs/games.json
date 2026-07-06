@@ -1,0 +1,391 @@
+{
+ "schema": 1,
+ "generated": "2026-07-06T05:36:56+00:00",
+ "min_firmware": "1.32.1",
+ "games": [
+  {
+   "id": "wolfmote",
+   "name": "WolfMote",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 293192,
+   "sha256": "1b2c42972b46f930a32b4e3b50dac2a8adbc9067e15704a599f13a4a4aab269c",
+   "file": "games/WolfMote.mote",
+   "icon": "img/gallery/wolfmote-icon.png",
+   "thumb": "img/gallery/wolfmote-1.png",
+   "screenshots": [
+    "img/gallery/wolfmote-1.png",
+    "img/gallery/wolfmote-2.png",
+    "img/gallery/wolfmote-3.png"
+   ],
+   "tag": "Rogue dungeon FPS",
+   "desc": "A Wolfenstein-style FPS crossed with a roguelike: eight procedurally generated floors of packed rooms, push-wall secrets and locked vaults. Nine weapons from silent knife to plasma rifle — including a fireball-lobbing flamethrower — drop as weighted random loot. 2P DEATHMATCH: first to ten frags in a shared dungeon, weapons respawning — and when you die you drop your whole arsenal as a loot bag either player can claim.",
+   "multiplayer": true
+  },
+  {
+   "id": "grandthumbauto",
+   "name": "Grand Thumb Auto",
+   "author": "austinio7116",
+   "version": "1.1.0",
+   "abi": 46,
+   "size": 395096,
+   "sha256": "0cf0257205d0e5e46794b0b52eb0ccae006935b3ffc7720d741cb22b2c4f7b56",
+   "file": "games/GrandThumbAuto.mote",
+   "icon": "img/gallery/grandthumbauto-icon.png",
+   "thumb": "img/gallery/grandthumbauto-1.png",
+   "screenshots": [
+    "img/gallery/grandthumbauto-1.png",
+    "img/gallery/grandthumbauto-2.png",
+    "img/gallery/grandthumbauto-3.png"
+   ],
+   "tag": "Open-city crime sandbox",
+   "desc": "A GTA-1-style top-down city — and every new game generates a brand-new one: fresh rivers, bridges, districts and parks each run. Steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank (now hidden somewhere quiet). Real 2D rigid-body driving with tyre grip and traffic that fights back. 2P DEATHMATCH: same generated city on both units, shared traffic to steal, weapon caches, first to ten.",
+   "multiplayer": true
+  },
+  {
+   "id": "galaxyswarm",
+   "name": "Galaxy Swarm",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 525080,
+   "sha256": "20ab312b2cb4fb9efd48a6d1a2d498e7a68a4da2b693625304d2201a7982b052",
+   "file": "games/GalaxySwarm.mote",
+   "icon": "img/gallery/galaxyswarm-icon.png",
+   "thumb": "img/gallery/galaxyswarm-1.png",
+   "screenshots": [
+    "img/gallery/galaxyswarm-1.png",
+    "img/gallery/galaxyswarm-2.png",
+    "img/gallery/galaxyswarm-3.png"
+   ],
+   "tag": "Endless-wave space shooter",
+   "desc": "A remake of the Android original with its actual 3D models: endless waves of fighters, tridents, corvettes and spinning UFOs over a scrolling galaxy. Nine power-ups build your arsenal from twin lasers to a nine-gun spread with homing rockets and companion drones — and every tenth wave a boss arrives.",
+   "multiplayer": false
+  },
+  {
+   "id": "thumbalaga",
+   "name": "Thumbalaga",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 445256,
+   "sha256": "36845b4bdb301f8ce2a18050f6e53043f80a512f34fe1b6e62bc14be024e4f7d",
+   "file": "games/Thumbalaga.mote",
+   "icon": "img/gallery/thumbalaga-icon.png",
+   "thumb": "img/gallery/thumbalaga-1.png",
+   "screenshots": [
+    "img/gallery/thumbalaga-1.png",
+    "img/gallery/thumbalaga-2.png",
+    "img/gallery/thumbalaga-3.png"
+   ],
+   "tag": "Formation shoot-'em-up",
+   "desc": "A Galaga-inspired fixed shooter: waves swoop in formation, dive-bomb, and capture your fighter. Chain perfect stages, earn double ships, and chase the high score.",
+   "multiplayer": false
+  },
+  {
+   "id": "thumbatro",
+   "name": "ThumbAtro",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 195824,
+   "sha256": "dc64380dcc56ace77174767732040ac0b2a3c816ed9c3a57ec72d176d2da96e4",
+   "file": "games/ThumbAtro.mote",
+   "icon": "img/gallery/thumbatro-icon.png",
+   "thumb": "img/gallery/thumbatro-1.png",
+   "screenshots": [
+    "img/gallery/thumbatro-1.png",
+    "img/gallery/thumbatro-2.png"
+   ],
+   "tag": "Poker roguelike deckbuilder",
+   "desc": "A Balatro-style deckbuilder: play poker hands to hit rising blinds, then warp your deck with jokers, planet cards and tarot upgrades. One more ante is always a mistake — take it anyway.",
+   "multiplayer": false
+  },
+  {
+   "id": "thumbyrogue",
+   "name": "ThumbyRogue",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 371124,
+   "sha256": "fea9e041561f70f8ab37f4165648976cf40eb57b10a8df7b65e4d4d87141c61e",
+   "file": "games/ThumbyRogue.mote",
+   "icon": "img/gallery/thumbyrogue-icon.png",
+   "thumb": "img/gallery/thumbyrogue-1.png",
+   "screenshots": [
+    "img/gallery/thumbyrogue-1.png",
+    "img/gallery/thumbyrogue-2.png",
+    "img/gallery/thumbyrogue-3.png"
+   ],
+   "tag": "First-person dungeon crawl",
+   "desc": "Descend into The Crypt: a raycast first-person roguelike with procedural floors, monsters, loot and permadeath. Every run is a new dungeon.",
+   "multiplayer": false
+  },
+  {
+   "id": "thumbycraft",
+   "name": "ThumbyCraft",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 394724,
+   "sha256": "92300f3b9490421b26dd9b84ed1d09fe1830c0645c60ab841c9c4757354e20c4",
+   "file": "games/thumbycraft.mote",
+   "icon": "img/gallery/thumbycraft-icon.png",
+   "thumb": "img/gallery/thumbycraft-1.png",
+   "screenshots": [
+    "img/gallery/thumbycraft-1.png",
+    "img/gallery/thumbycraft-2.png",
+    "img/gallery/thumbycraft-3.png"
+   ],
+   "tag": "Voxel mining & building",
+   "desc": "A pocket voxel world: dig, gather, craft tools and build in a fully destructible landscape with caves, torches and chests — a complete survival loop on a 128-pixel screen. Best played directly on ThumbyOne, where the full-feature build has its own dedicated slot.",
+   "multiplayer": false
+  },
+  {
+   "id": "thumbycue",
+   "name": "ThumbyCue",
+   "author": "austinio7116",
+   "version": "1.1.0",
+   "abi": 46,
+   "size": 342872,
+   "sha256": "d13622da8945b7e14cad6609ce62907b8ea4316a10f8f90a81954338863a5701",
+   "file": "games/thumbycue.mote",
+   "icon": "img/gallery/thumbycue-icon.png",
+   "thumb": "img/gallery/thumbycue-1.png",
+   "screenshots": [
+    "img/gallery/thumbycue-1.png",
+    "img/gallery/thumbycue-2.png",
+    "img/gallery/thumbycue-3.png"
+   ],
+   "tag": "3D snooker & pool",
+   "desc": "Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play the AI, pass-the-device — or 2P LINK a friend across the room or across the world.",
+   "multiplayer": true
+  },
+  {
+   "id": "indemnity",
+   "name": "Indemnity Run",
+   "author": "austinio7116",
+   "version": "1.1.0",
+   "abi": 46,
+   "size": 335380,
+   "sha256": "73a0ec3c8db1194fd7dc672a6f8bff75d8ebb46a5f6b4e874dc6f8dbeeaf3c86",
+   "file": "games/indemnity.mote",
+   "icon": "img/gallery/indemnity-icon.png",
+   "thumb": "img/gallery/indemnity-1.png",
+   "screenshots": [
+    "img/gallery/indemnity-1.png",
+    "img/gallery/indemnity-2.png"
+   ],
+   "tag": "Elite-style space sim",
+   "desc": "A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it. PVP ARENA: bring your SAVED ship and loadout to a 1v1 dogfight against a friend's.",
+   "multiplayer": true
+  },
+  {
+   "id": "deepthumb",
+   "name": "DeepThumb",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 99888,
+   "sha256": "bd3005835a25e29124948ea7e7937c5d1fb05567ecbad4ade748149522a7746d",
+   "file": "games/DeepThumb.mote",
+   "icon": "img/gallery/deepthumb-icon.png",
+   "thumb": "img/gallery/deepthumb-1.png",
+   "screenshots": [
+    "img/gallery/deepthumb-1.png"
+   ],
+   "tag": "Chess, 2D or full 3D",
+   "desc": "A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera. 2P LINK plays a friend over cable or internet; the handshake deals the colours.",
+   "multiplayer": true
+  },
+  {
+   "id": "motokart",
+   "name": "MotoKart",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 58508,
+   "sha256": "1795b76dc09e03707f86781ebfed867f3f317780c174755d13db26004e645e1c",
+   "file": "games/motokart.mote",
+   "icon": "img/gallery/motokart-icon.png",
+   "thumb": "img/gallery/motokart-1.png",
+   "screenshots": [
+    "img/gallery/motokart-1.png",
+    "img/gallery/motokart-2.png",
+    "img/gallery/motokart-3.png"
+   ],
+   "tag": "Kart racing",
+   "desc": "Mode-7-style kart racing: three-lap circuits with kerbs, checkered gates and rival karts — with the full item game: mushrooms, bananas, green and red shells, stars, bullets, lightning. 2P LINK races a friend head-to-head, items and all.",
+   "multiplayer": true
+  },
+  {
+   "id": "nightmote",
+   "name": "NightMote",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 68392,
+   "sha256": "e3898eab0a8561ef55a1ff3d1109134071ad727d0ea64f17bc5b0a08fb155eec",
+   "file": "games/nightmote.mote",
+   "icon": "img/gallery/nightmote-icon.png",
+   "thumb": "img/gallery/nightmote-1.png",
+   "screenshots": [
+    "img/gallery/nightmote-1.png",
+    "img/gallery/nightmote-2.png",
+    "img/gallery/nightmote-3.png"
+   ],
+   "tag": "Horde survivor",
+   "desc": "A Vampire-Survivors-style horde game: mow down the swarm, hoover up XP, and build your weapon loadout level by level across a procedural overworld. One more run before bed.",
+   "multiplayer": false
+  },
+  {
+   "id": "papermote",
+   "name": "PaperMote",
+   "author": "austinio7116",
+   "version": "1.1.0",
+   "abi": 46,
+   "size": 69216,
+   "sha256": "901086ec817218a6c63f071eeeb74a9c780cdb188d4b1070a7598b51a2054a28",
+   "file": "games/papermote.mote",
+   "icon": "img/gallery/papermote-icon.png",
+   "thumb": "img/gallery/papermote-1.png",
+   "screenshots": [
+    "img/gallery/papermote-1.png",
+    "img/gallery/papermote-2.png",
+    "img/gallery/papermote-3.png"
+   ],
+   "tag": "Territory battle",
+   "desc": "Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes — plus a 2P LINK territory duel, first to three KOs.",
+   "multiplayer": true
+  },
+  {
+   "id": "golf",
+   "name": "Golf",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 30796,
+   "sha256": "060e92f2add62115a8664105754e59dbc40feb881d7448164fac78c63f021a11",
+   "file": "games/golf.mote",
+   "icon": "img/gallery/golf-icon.png",
+   "thumb": "img/gallery/golf-1.png",
+   "screenshots": [
+    "img/gallery/golf-1.png",
+    "img/gallery/golf-2.png",
+    "img/gallery/golf-3.png"
+   ],
+   "tag": "3D golf",
+   "desc": "A full round over rolling 3D terrain: judge the wind, shape your power and putt out. Simple to swing, hard to par.",
+   "multiplayer": false
+  },
+  {
+   "id": "tanks",
+   "name": "Tanks",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 26028,
+   "sha256": "0e3a89d1422068839a828a024b89385f05a54214c78cba20fe29df58c747780f",
+   "file": "games/tanks.mote",
+   "icon": "img/gallery/tanks-icon.png",
+   "thumb": "img/gallery/tanks-1.png",
+   "screenshots": [
+    "img/gallery/tanks-1.png"
+   ],
+   "tag": "Artillery duel",
+   "desc": "Turn-based tank battles with fully rigged 3D tanks — tracks, turret, recoil and all. Walk your shots in before the enemy walks in theirs.",
+   "multiplayer": false
+  },
+  {
+   "id": "chess",
+   "name": "Chess",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 50404,
+   "sha256": "ee02776d67ce1adfe8a9a3ae85e75a68067be22bd3cfdada2838232db332eaba",
+   "file": "games/chess.mote",
+   "icon": "img/gallery/chess-icon.png",
+   "thumb": "img/gallery/chess-1.png",
+   "screenshots": [
+    "img/gallery/chess-1.png"
+   ],
+   "tag": "3D chess",
+   "desc": "Chess with baked STL Staunton pieces on a lit 3D board. A clean, complete game of the classic.",
+   "multiplayer": false
+  },
+  {
+   "id": "tetris3d",
+   "name": "Tetris3D",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 10340,
+   "sha256": "61f55f7f40d7e4d863f1e79a7075db5e10b238c72f1c194178709c1a5442aa02",
+   "file": "games/tetris3d.mote",
+   "icon": "img/gallery/tetris3d-icon.png",
+   "thumb": "img/gallery/tetris3d-1.png",
+   "screenshots": [
+    "img/gallery/tetris3d-1.png"
+   ],
+   "tag": "Falling blocks",
+   "desc": "The falling-block classic rendered in crisp engine 3D. Ten kilobytes of pure compulsion.",
+   "multiplayer": false
+  },
+  {
+   "id": "arkanoid3d",
+   "name": "Arkanoid3D",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 27992,
+   "sha256": "88b5d1e9f40587b8c7a9816387053f9bd8309254be458757484286fba281465b",
+   "file": "games/arkanoid3d.mote",
+   "icon": "img/gallery/arkanoid3d-icon.png",
+   "thumb": "img/gallery/arkanoid3d-1.png",
+   "screenshots": [
+    "img/gallery/arkanoid3d-1.png"
+   ],
+   "tag": "Brick breaker",
+   "desc": "A polished brick-breaker with power-ups, particles, ball trails and escalating levels — the paddle arcade staple with a 3D glow-up.",
+   "multiplayer": false
+  },
+  {
+   "id": "pong3d",
+   "name": "Pong3D",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 11736,
+   "sha256": "09d0fcb2d53c2e852f52134c172e931733edfbcc63e3a6d000415a094cad6b81",
+   "file": "games/pong3d.mote",
+   "icon": "img/gallery/pong3d-icon.png",
+   "thumb": "img/gallery/pong3d-1.png",
+   "screenshots": [
+    "img/gallery/pong3d-1.png"
+   ],
+   "tag": "Arcade classic",
+   "desc": "Pong, reborn with trails and spin. First to the score wins; the AI does not blink.",
+   "multiplayer": false
+  },
+  {
+   "id": "fling",
+   "name": "Fling",
+   "author": "austinio7116",
+   "version": "1.0.0",
+   "abi": 46,
+   "size": 23468,
+   "sha256": "f573501004e070aa14fccd04255a1ee8c3a2d7275a832be639c1d6637d389b42",
+   "file": "games/fling.mote",
+   "icon": "img/gallery/fling-icon.png",
+   "thumb": "img/gallery/fling-1.png",
+   "screenshots": [
+    "img/gallery/fling-1.png"
+   ],
+   "tag": "Physics castle-smasher",
+   "desc": "Angry-Birds-style fort demolition in side-view 3D: charge the fling, arc your bird into the tower, and let real rigid-body physics topple the pigs. Every fort is freshly generated.",
+   "multiplayer": false
+  }
+ ]
+}

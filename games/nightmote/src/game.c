@@ -34,6 +34,8 @@
 static MoteSound s_shoot, s_hit, s_pickup, s_levelup, s_hurt;
 
 MOTE_GAME_MODULE();
+MOTE_GAME_META("nightmote", "austinio7116");
+MOTE_GAME_VERSION("1.0.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
