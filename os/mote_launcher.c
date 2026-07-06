@@ -75,12 +75,12 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     mote_ui_header(s_fb, "MOTE", sel + 1, cat->count);
 
     if (cat->count == 0) {
-        mote_font_draw(s_fb, "no games installed", (MOTE_FB_W - mote_font_width("no games installed")) / 2, 52, COL_DIM);
+        mote_ui_text(s_fb, "no games installed", (MOTE_FB_W - mote_ui_text_w("no games installed")) / 2, 50, COL_DIM);
 #ifdef THUMBYONE_SLOT_MODE
-        mote_font_draw(s_fb, "press RB for the GALLERY", (MOTE_FB_W - mote_font_width("press RB for the GALLERY")) / 2, 66, COL_HINT);
-        mote_font_draw(s_fb, "(dock in Mote Studio)", (MOTE_FB_W - mote_font_width("(dock in Mote Studio)")) / 2, 78, COL_DIM);
+        mote_ui_text(s_fb, "press RB for the GALLERY", (MOTE_FB_W - mote_ui_text_w("press RB for the GALLERY")) / 2, 66, COL_HINT);
+        mote_ui_text(s_fb, "(dock in Mote Studio)", (MOTE_FB_W - mote_ui_text_w("(dock in Mote Studio)")) / 2, 80, COL_DIM);
 #else
-        mote_font_draw(s_fb, "mote push a game", (MOTE_FB_W - mote_font_width("mote push a game")) / 2, 66, COL_HINT);
+        mote_ui_text(s_fb, "mote push a game", (MOTE_FB_W - mote_ui_text_w("mote push a game")) / 2, 66, COL_HINT);
 #endif
         mote_ui_footer(s_fb, 0);
         return;
@@ -96,20 +96,20 @@ static void draw(const MoteCatalog *cat, int sel, int top) {
     if (ic) blit_icon(ic, ix, iy);
     else if (cat->e[sel].icon_blob) blit_icon_blob(cat->e[sel].icon_blob, ix, iy);
     else { fill(ix, iy, MOTE_ICON_W, MOTE_ICON_H, accent(nm));
-        char L[2]; uppch(L, nm); mote_font_draw_2x(s_fb, L, ix + MOTE_ICON_W/2 - 5, iy + MOTE_ICON_H/2 - 7, COL_SEL_TX); }
+        char L[2]; uppch(L, nm); mote_ui_title(s_fb, L, ix + MOTE_ICON_W/2 - mote_ui_title_w(L)/2, iy + MOTE_ICON_H/2 - 8, COL_SEL_TX); }
     if (cat->e[sel].frag) {
         fill(ix, iy + MOTE_ICON_H - 13, MOTE_ICON_W, 13, MOTE_RGB565(150, 28, 28));
         mote_font_draw(s_fb, "DEFRAG", ix + MOTE_ICON_W/2 - 17, iy + MOTE_ICON_H - 10, MOTE_RGB565(255, 232, 210));
     }
     /* browse arrows either side */
     if (cat->count > 1) {
-        mote_font_draw_2x(s_fb, "<", 6, iy + MOTE_ICON_H/2 - 7, MOTE_RGB565(110,130,164));
-        mote_font_draw_2x(s_fb, ">", MOTE_FB_W - 18, iy + MOTE_ICON_H/2 - 7, MOTE_RGB565(110,130,164));
+        mote_ui_title(s_fb, "<", 5, iy + MOTE_ICON_H/2 - 8, MOTE_RGB565(110,130,164));
+        mote_ui_title(s_fb, ">", MOTE_FB_W - 13, iy + MOTE_ICON_H/2 - 8, MOTE_RGB565(110,130,164));
     }
-    /* BIG title (2x when it fits, else 1x), centred below the icon */
-    { int w2 = mote_font_width(nm) * 2;
-      if (w2 <= MOTE_FB_W - 6) mote_font_draw_2x(s_fb, nm, (MOTE_FB_W - w2)/2, 92, MOTE_RGB565(255,255,255));
-      else mote_font_draw(s_fb, nm, (MOTE_FB_W - mote_font_width(nm))/2, 95, MOTE_RGB565(255,255,255)); }
+    /* BIG title, centred below the icon (large; medium fallback when it won't fit) */
+    { int wl = mote_ui_title_w(nm);
+      if (wl <= MOTE_FB_W - 6) mote_ui_title(s_fb, nm, (MOTE_FB_W - wl)/2, 90, MOTE_RGB565(255,255,255));
+      else mote_ui_text(s_fb, nm, (MOTE_FB_W - mote_ui_text_w(nm))/2, 93, MOTE_RGB565(255,255,255)); }
     mote_ui_footer(s_fb, cat->e[sel].frag ? "FRAGMENTED - RUN DEFRAG IN LOBBY" :
 #ifdef THUMBYONE_SLOT_MODE
                    "A PLAY    RB GALLERY");

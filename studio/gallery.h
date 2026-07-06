@@ -19,6 +19,7 @@
 #define GAL_HEXLEN   65
 #define GAL_URLLEN   200
 #define GAL_DESCLEN  512
+#define GAL_MAXSHOTS 6           /* screenshots per game the slideshow cycles through */
 
 /* install state vs the docked device */
 enum { GAL_NONE = 0, GAL_INSTALLED, GAL_UPDATE, GAL_INCOMPATIBLE };
@@ -33,6 +34,7 @@ typedef struct {
     char     sha256[GAL_HEXLEN];
     char     file[GAL_URLLEN];   /* relative to the gallery base, e.g. games/Foo.mote */
     char     thumb[GAL_URLLEN];  /* relative screenshot for the UI, or "" */
+    char     shots[GAL_MAXSHOTS][GAL_URLLEN]; int nshots;   /* the slideshow's screenshots */
     char     tag[GAL_NAMELEN];
     char     desc[GAL_DESCLEN];
     int      multiplayer;
@@ -87,6 +89,11 @@ int  gallery_download(Gallery *G, const GalGame *g, const char *outpath);
 /* Lazily fetch + decode g's thumbnail into g->thumb_px (RGB565). No-op if already
  * loaded or the game has no thumb. Returns 0 on success. */
 int  gallery_load_thumb(Gallery *G, GalGame *g);
+
+/* Decode screenshot `idx` of game g into a freshly-malloc'd RGB565 buffer (caller
+ * frees *outpx). Cache-first like the .mote/thumb. Returns 0 on success. Used by the
+ * device gallery-service to stream any screenshot for the on-device slideshow. */
+int  gallery_load_shot(Gallery *G, const GalGame *g, int idx, uint16_t **outpx, int *outw, int *outh);
 
 /* Compare two dotted-numeric versions: <0, 0, >0 (like strcmp semantics). */
 int  gallery_vercmp(const char *a, const char *b);

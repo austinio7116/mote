@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.16-alpha — the Gallery, and a real UI font
+
+**Install and update games straight from the gallery — on the PC *and* on the handheld —
+and the whole UI reads properly now.** This is an integrated update: new **ThumbyOne
+firmware 1.33.0**, a new **Mote Studio (0.16-alpha)**, and engine **ABI v46**. Reflash the
+firmware; single-player games built against v45 still run (v46 is backward-compatible), but
+per-game *versions* only show for games rebuilt with the new SDK.
+
+### The Gallery
+- **Browse, install and update games from an online gallery** — no manual file copying.
+  Studio fetches the catalog and each game directly from GitHub Pages over HTTPS and keeps
+  one on-disk cache that both the PC UI and the docked device read, so every game is
+  downloaded at most once per version.
+- **On the handheld too:** press **RB** in the Mote slot (docked to Studio over USB) to open
+  a gallery browser on the device itself — a hero view per game with its screenshot, size,
+  and an install/update state chip. Installs are written **in place** with a journal + marker,
+  so an interrupted install can never leave a half-written game that launches.
+- **Per-game versions** (ABI v46): each game embeds a version string in its module header, so
+  the gallery can tell *New* from *Installed* from *Update available* by comparing versions.
+- **On-device gallery UX:** the selected game's screenshots auto-advance as a slideshow with
+  the next shot preloaded (seamless, no spinner flicker); long titles rock back and forth as a
+  ticker instead of wrapping; **LB** opens a scrollable description; **B** cancels a slow load
+  instead of waiting for a timeout.
+
+### A new UI font (device + Studio)
+- The device UI (launcher, gallery, engine menu) now renders in **Audiowide** — an
+  anti-aliased proportional font baked at three sizes (medium/reading/large). The old 3×5
+  bitmap was hard to read on the picker and gallery; text is now crisp and properly sized.
+  The glyph tables are `const` (flash only) — **zero extra RAM**.
+- The **engine overlay menu** (PERF / BRIGHT / VOLUME / USB LOGS / lobby / resume) was
+  widened and moved onto the new font — legible at a glance.
+- **Mote Studio** matches: Audiowide is the default UI face, with **View → "Hybrid Body
+  Font"** to switch the dense body text back to DejaVu while keeping the Audiowide chrome
+  (menu bar, tabs, section headers). The choice persists; `MOTE_STUDIO_UIFONT=<ttf>` overrides
+  the face entirely. The code editor stays monospace.
+
+### Firmware / SDK
+- **ThumbyOne firmware 1.33.0** — adds the on-device gallery slot and the AA UI fonts
+  (lobby +~9 KB, runner +~7 KB of flash; no RAM change). Reflash `firmware_thumbyone.uf2`.
+- **`MOTE_GAME_VERSION("x.y.z")`** in the SDK stamps a game's version into its module header
+  (ABI v46); `tools/gen_gallery.py` merges those into `docs/games.json`. `game.toml` is gone —
+  version + metadata live in the game and the gallery manifest.
+
 ## 0.15.1-alpha — multiplayer, fixed for real play
 
 **Two-player now works reliably — over a USB cable or over the internet.** The four newest

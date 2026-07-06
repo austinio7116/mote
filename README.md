@@ -88,6 +88,25 @@ the full engine API, data types, math + SDK helpers, enums, and the ABI version 
 
 > **Mote ships on real hardware as part of [ThumbyOne](https://github.com/austinio7116/ThumbyOne).** The ThumbyOne multi-boot firmware bundles the Mote engine as a slot, so the `.mote` games you build here run on an actual **Thumby Color** — not just the desktop emulator. Flash ThumbyOne, drop `.mote` files into the device's `/mote/` folder over USB, and they appear in the **MOTE** tile's launcher. (You can develop entirely in the Studio emulator without a device — the firmware is only needed to run on hardware.)
 
+### Getting games: the Gallery
+
+You don't have to copy files by hand. Mote has a built-in **gallery** for installing and
+updating games. In **Mote Studio**, the **GALLERY** tab lists every published game with a
+screenshot, size and version; dock a Thumby Color and it shows what's already installed and
+offers one-click **Install** and **Update** — with a running count of updates available:
+
+![Mote Studio's GALLERY tab with a device docked — the whole library as cards, each with Install / Update, an "updates available" count, and version diffs like 0 → 1.0.0](docs/img/studio-gallery.png)
+
+The same gallery runs **on the handheld itself**: in the Mote launcher press **RB** (with the
+device docked to Studio over USB) to browse and install right from the device — one game per
+screen with its screenshot, version, size and a state chip:
+
+![The on-device Mote gallery on a Thumby Color — the hero view for Grand Thumb Auto with its screenshot, v1.1.0, size and an UPDATE chip](docs/img/mote-gallery-device.png)
+
+Every game carries its own version and installs are written in place, so the gallery can tell
+**New** from **Installed** from **Update available** at a glance — a returning player just
+opens the gallery and updates their whole library.
+
 A Mote game is **not** an app that owns `main()` and a loop. It is a *module* —
 a small chunk of compiled code (a `.so` on your PC, a `.mote` file on the device)
 that the OS loads, hands a table of engine function pointers, and then drives. You

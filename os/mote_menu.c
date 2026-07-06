@@ -5,6 +5,7 @@
 #include "mote_platform.h"
 #include "mote_input.h"
 #include "mote_font.h"
+#include "mote_ui.h"         /* AA UI fonts + standard palette */
 #include "mote_perf.h"
 #include "mote_config.h"
 #include "mote_audio.h"
@@ -24,17 +25,14 @@ enum { M_PERF, M_BRIGHT, M_VOL,
        M_LOBBY, M_RESUME, M_N };
 static const char *PERF_NAME[MOTE_PERF_LEVELS] = { "OFF", "FPS", "MINI", "FULL" };
 
-#define PX 12
-#define PY 14
-#define PW 104
+/* Wider panel than the old bitmap menu — Audiowide needs the room. Geometry is
+ * derived from the row count so gated (USB LOGS) and non-gated builds both fit. */
+#define PX 4
+#define PY 8
+#define PW 120
+#define ROW_H 14
 #define ROW_Y (PY + 22)
-#if MOTE_USB_GATED
-#define PH 110            /* taller: room for the extra USB LOGS row */
-#define ROW_H 13
-#else
-#define PH 100
-#define ROW_H 15
-#endif
+#define PH   (22 + M_N * ROW_H + 12)
 
 static void fill(uint16_t *fb, int x, int y, int w, int h, uint16_t c) {
     for (int j = y; j < y + h; j++) { if ((unsigned)j >= MOTE_FB_H) continue;
@@ -55,37 +53,37 @@ static void bar(uint16_t *fb, int x, int y, int w, int h, int pct, uint16_t fg) 
 
 static void draw_panel(uint16_t *fb, int sel) {
     fill(fb, PX, PY, PW, PH, MOTE_RGB565(16, 20, 32));
-    fill(fb, PX, PY, PW, 14, MOTE_RGB565(22, 28, 48));                       /* title bar */
-    fill(fb, PX, PY, PW, 1, MOTE_RGB565(96, 176, 255));
-    fill(fb, PX, PY + PH - 1, PW, 1, MOTE_RGB565(96, 176, 255));
-    fill(fb, PX, PY, 1, PH, MOTE_RGB565(96, 176, 255));
-    fill(fb, PX + PW - 1, PY, 1, PH, MOTE_RGB565(96, 176, 255));
-    fill(fb, PX, PY + 13, PW, 1, MOTE_RGB565(96, 176, 255));                 /* accent rule */
-    mote_font_draw(fb, "ENGINE MENU", PX + 8, PY + 4, MOTE_RGB565(255, 206, 92));  /* gold */
+    fill(fb, PX, PY, PW, 18, MOTE_RGB565(22, 28, 48));                       /* title bar */
+    fill(fb, PX, PY, PW, 1, MOTE_UI_ACCENT);
+    fill(fb, PX, PY + PH - 1, PW, 1, MOTE_UI_ACCENT);
+    fill(fb, PX, PY, 1, PH, MOTE_UI_ACCENT);
+    fill(fb, PX + PW - 1, PY, 1, PH, MOTE_UI_ACCENT);
+    fill(fb, PX, PY + 17, PW, 1, MOTE_UI_ACCENT);                            /* accent rule under title */
+    mote_ui_text(fb, "ENGINE MENU", PX + 8, PY + 3, MOTE_UI_GOLD);
 
     for (int i = 0; i < M_N; i++) {
         int y = ROW_Y + i * ROW_H;
-        if (i == sel) { fill(fb, PX + 2, y - 2, PW - 4, 12, MOTE_RGB565(36, 74, 138));
-                        fill(fb, PX + 2, y - 2, 2, 12, MOTE_RGB565(120, 200, 255)); }
-        uint16_t tc = (i == sel) ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(190, 200, 220);
-        int vx = PX + 52;
+        if (i == sel) { fill(fb, PX + 2, y - 1, PW - 4, 13, MOTE_RGB565(36, 74, 138));
+                        fill(fb, PX + 2, y - 1, 2, 13, MOTE_RGB565(120, 200, 255)); }
+        uint16_t tc = (i == sel) ? MOTE_RGB565(255, 255, 255) : MOTE_UI_TEXT;
+        int vx = PX + 72;
         switch (i) {
-            case M_PERF:   mote_font_draw(fb, "PERF",   PX + 8, y, tc);
-                           mote_font_draw(fb, PERF_NAME[mote_perf_level()], vx, y, MOTE_RGB565(150, 230, 150)); break;
-            case M_BRIGHT: mote_font_draw(fb, "BRIGHT", PX + 8, y, tc);
-                           bar(fb, vx, y, 44, 7, s_bright, MOTE_RGB565(240, 210, 90)); break;
-            case M_VOL:    mote_font_draw(fb, "VOLUME", PX + 8, y, tc);
-                           bar(fb, vx, y, 44, 7, s_vol, MOTE_RGB565(120, 190, 255)); break;
+            case M_PERF:   mote_ui_text(fb, "PERF",   PX + 8, y, tc);
+                           mote_ui_text(fb, PERF_NAME[mote_perf_level()], vx, y, MOTE_RGB565(150, 230, 150)); break;
+            case M_BRIGHT: mote_ui_text(fb, "BRIGHT", PX + 8, y, tc);
+                           bar(fb, vx, y + 1, 42, 8, s_bright, MOTE_RGB565(240, 210, 90)); break;
+            case M_VOL:    mote_ui_text(fb, "VOLUME", PX + 8, y, tc);
+                           bar(fb, vx, y + 1, 42, 8, s_vol, MOTE_RGB565(120, 190, 255)); break;
 #if MOTE_USB_GATED
-            case M_USBLOG: mote_font_draw(fb, "USB LOGS", PX + 8, y, tc);
-                           mote_font_draw(fb, mote_usb_logs_enabled() ? "ON" : "OFF", vx, y,
-                                          mote_usb_logs_enabled() ? MOTE_RGB565(150, 230, 150) : MOTE_RGB565(150, 150, 160)); break;
+            case M_USBLOG: mote_ui_text(fb, "USB LOGS", PX + 8, y, tc);
+                           mote_ui_text(fb, mote_usb_logs_enabled() ? "ON" : "OFF", vx, y,
+                                        mote_usb_logs_enabled() ? MOTE_RGB565(150, 230, 150) : MOTE_UI_DIM); break;
 #endif
-            case M_LOBBY:  mote_font_draw(fb, "RETURN TO LOBBY", PX + 8, y, tc); break;
-            case M_RESUME: mote_font_draw(fb, "RESUME", PX + 8, y, tc); break;
+            case M_LOBBY:  mote_ui_text(fb, "EXIT TO LOBBY", PX + 8, y, tc); break;
+            case M_RESUME: mote_ui_text(fb, "RESUME", PX + 8, y, tc); break;
         }
     }
-    mote_font_draw(fb, "L/R adjust  B close", PX + 6, PY + PH - 9, MOTE_RGB565(110, 120, 142));
+    mote_ui_text(fb, "L/R set   B close", (MOTE_FB_W - mote_ui_text_w("L/R set   B close"))/2, PY + PH - 12, MOTE_UI_DIM);
 }
 
 int mote_engine_menu(uint16_t *fb) {

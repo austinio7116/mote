@@ -54,7 +54,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.12-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.16-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
@@ -175,7 +175,8 @@ static int ptextw(SDL_Renderer*R,const char*s,int sc){ int w; clabel(R,s,C_TXT,C
 
 /* anti-aliased UI font (stb_truetype) for all IDE chrome — scale 1 small, >=2 large */
 typedef struct { stbtt_bakedchar ch[96]; SDL_Texture*tex; int px; } UFont;
-static UFont g_uf[2]; static unsigned char g_ttf[1<<21];
+static UFont g_uf[3]; static unsigned char g_ttf[1<<21];   /* [0]=body [1]=large-heading [2]=chrome-title (always Audiowide) */
+#define SC_TITLE 3   /* text() scale code: chrome/identity title — Audiowide even in hybrid */
 static void bake_font(SDL_Renderer*R,UFont*uf,int px){
     static unsigned char bmp[512*256]; memset(bmp,0,sizeof bmp);
     stbtt_BakeFontBitmap(g_ttf,0,(float)px,bmp,512,256,32,96,uf->ch);
@@ -184,14 +185,39 @@ static void bake_font(SDL_Renderer*R,UFont*uf,int px){
     SDL_UpdateTexture(uf->tex,NULL,rgba,512*4); SDL_SetTextureBlendMode(uf->tex,SDL_BLENDMODE_BLEND); uf->px=px; }
 static UFont g_mono; static int g_mono_cw=8, g_mono_h=18;   /* monospace face for the code editor */
 static FILE *open_first(const char *const *paths,int n){ for(int i=0;i<n;i++){ FILE*f=fopen(paths[i],"rb"); if(f)return f; } return NULL; }
+/* UI face mode: 0 = full Audiowide, 1 = hybrid (Audiowide headings + DejaVu body). */
+static int g_ui_hybrid=0; static SDL_Renderer *g_font_R;
+static const char *g_head_paths[3], *g_sans_paths[5];
+static int load_ttf(const char *const*paths,int n){ FILE*f=open_first(paths,n); if(!f)return 0;
+    size_t r=fread(g_ttf,1,sizeof g_ttf,f); fclose(f); return r>=10; }
+static void uifont_cfg_save(void){ FILE*f=fopen("studio/assets/uifont.cfg","w"); if(f){ fprintf(f,"%d\n",g_ui_hybrid); fclose(f); } }
+static void uifont_cfg_load(void){ FILE*f=fopen("studio/assets/uifont.cfg","r"); if(f){ int v=0; if(fscanf(f,"%d",&v)==1)g_ui_hybrid=v?1:0; fclose(f); } }
+/* (Re)bake both UI sizes for the current mode. Headings are always Audiowide; the
+ * body is Audiowide (full) or DejaVu (hybrid). Safe to call at runtime on toggle. */
+static void ui_font_apply(void){
+    if(!g_font_R) return;
+    for(int i=0;i<3;i++) if(g_uf[i].tex){ SDL_DestroyTexture(g_uf[i].tex); g_uf[i].tex=NULL; }
+    int head=load_ttf(g_head_paths,3);                       /* Audiowide -> g_ttf */
+    if(head){ bake_font(g_font_R,&g_uf[1],19);               /* heading: always Audiowide */
+              bake_font(g_font_R,&g_uf[2],14);               /* chrome-title: always Audiowide (body size) */
+              if(!g_ui_hybrid) bake_font(g_font_R,&g_uf[0],14); }   /* full: body Audiowide too */
+    if(g_ui_hybrid||!head){                                   /* body (or full fallback) from sans */
+        if(load_ttf(g_sans_paths,5)){ bake_font(g_font_R,&g_uf[0],14);
+            if(!head){ bake_font(g_font_R,&g_uf[1],19); bake_font(g_font_R,&g_uf[2],14); } } }
+}
 static void ui_font_init(SDL_Renderer*R){
-    /* bundled first (cross-platform), then OS locations (Linux DejaVu, Windows fonts) */
-    const char *sans[]={ "studio/assets/fonts/DejaVuSans.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "C:/Windows/Fonts/segoeui.ttf","C:/Windows/Fonts/arial.ttf" };
+    /* Default UI face is Audiowide (matches the device); DejaVu is the hybrid body +
+     * fallback. MOTE_STUDIO_UIFONT overrides the whole face. */
+    const char *ov=getenv("MOTE_STUDIO_UIFONT");
+    static const char *head[3], *sans[5];
+    head[0]=(ov&&ov[0])?ov:"studio/assets/fonts/Audiowide.ttf"; head[1]="assets/ui-font/Audiowide.ttf"; head[2]="studio/assets/fonts/DejaVuSans.ttf";
+    sans[0]=(ov&&ov[0])?ov:"studio/assets/fonts/DejaVuSans.ttf"; sans[1]="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    sans[2]="C:/Windows/Fonts/segoeui.ttf"; sans[3]="C:/Windows/Fonts/arial.ttf"; sans[4]="studio/assets/fonts/DejaVuSans.ttf";
+    for(int i=0;i<3;i++)g_head_paths[i]=head[i];
+    for(int i=0;i<5;i++)g_sans_paths[i]=sans[i];
+    g_font_R=R; uifont_cfg_load(); ui_font_apply();
     const char *mono[]={ "studio/assets/fonts/DejaVuSansMono.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         "C:/Windows/Fonts/consola.ttf","C:/Windows/Fonts/cour.ttf" };
-    FILE*f=open_first(sans,4); if(!f)return;
-    if(fread(g_ttf,1,sizeof g_ttf,f)<10){ fclose(f); return; } fclose(f); bake_font(R,&g_uf[0],14); bake_font(R,&g_uf[1],19);
     FILE*fm=open_first(mono,4);
     if(fm){ if(fread(g_ttf,1,sizeof g_ttf,fm)>=10){ fclose(fm); bake_font(R,&g_mono,15); g_mono_h=g_mono.px+4;
         float fx=0,fy=0; stbtt_aligned_quad q; stbtt_GetBakedQuad(g_mono.ch,512,256,'M'-32,&fx,&fy,&q,1); g_mono_cw=(int)(fx+0.5f); } else fclose(fm); } }
@@ -202,15 +228,18 @@ static void mono_char(SDL_Renderer*R,char c,int x,int y,Col fg){ if(c<32||c>126|
     SDL_Rect src={(int)(q.s0*512),(int)(q.t0*256),(int)((q.s1-q.s0)*512),(int)((q.t1-q.t0)*256)};
     SDL_FRect dst={q.x0,q.y0,q.x1-q.x0,q.y1-q.y0}; SDL_RenderCopyF(R,g_mono.tex,&src,&dst); }
 static void mono_str(SDL_Renderer*R,const char*s,int x,int y,Col fg){ for(const char*p=s;*p;p++){ mono_char(R,*p,x,y,fg); x+=g_mono_cw; } }
+/* pick the baked face for a scale code: SC_TITLE=chrome (Audiowide even in hybrid),
+ * >=2 = large heading, else body. */
+static UFont* uf_pick(int sc){ return sc==SC_TITLE ? &g_uf[2] : sc>=2 ? &g_uf[1] : &g_uf[0]; }
 static void text(SDL_Renderer*R,const char*s,int x,int y,int sc,Col fg,Col bg){ (void)bg;
-    UFont*uf=&g_uf[sc>=2?1:0]; if(!uf->tex){ ptext(R,s,x,y,sc,fg,bg); return; }
+    UFont*uf=uf_pick(sc); if(!uf->tex){ ptext(R,s,x,y,sc==SC_TITLE?1:sc,fg,bg); return; }
     SDL_SetTextureColorMod(uf->tex,fg.r,fg.g,fg.b);
     float fx=(float)x, fy=(float)y+uf->px*0.80f; stbtt_aligned_quad q;
     for(const unsigned char*p=(const unsigned char*)s;*p;p++){ if(*p<32||*p>126)continue;
         stbtt_GetBakedQuad(uf->ch,512,256,*p-32,&fx,&fy,&q,1);
         SDL_Rect src={(int)(q.s0*512),(int)(q.t0*256),(int)((q.s1-q.s0)*512),(int)((q.t1-q.t0)*256)};
         SDL_FRect dst={q.x0,q.y0,q.x1-q.x0,q.y1-q.y0}; SDL_RenderCopyF(R,uf->tex,&src,&dst); } }
-static int textw(SDL_Renderer*R,const char*s,int sc){ UFont*uf=&g_uf[sc>=2?1:0]; if(!uf->tex)return ptextw(R,s,sc);
+static int textw(SDL_Renderer*R,const char*s,int sc){ UFont*uf=uf_pick(sc); if(!uf->tex)return ptextw(R,s,sc==SC_TITLE?1:sc);
     float fx=0,fy=0; stbtt_aligned_quad q; for(const unsigned char*p=(const unsigned char*)s;*p;p++){ if(*p<32||*p>126)continue;
         stbtt_GetBakedQuad(uf->ch,512,256,*p-32,&fx,&fy,&q,1);} return (int)fx; }
 static int hit(int mx,int my,int x,int y,int w,int h){ return mx>=x&&mx<x+w&&my>=y&&my<y+h; }
@@ -523,13 +552,14 @@ static void icon_edit(void){ if(g_sel<0){ snprintf(g_status,sizeof g_status,"ope
 
 /* ================= menu bar ================= */
 static SDL_Texture *g_dev_clear; static int g_chassis_clear;   /* chassis toggle; defined with load_device below */
-enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_ICON, A_VSCODE, A_ALIGN, A_CHASSIS, A_ABOUT };
+enum { A_NEW,A_OPEN,A_REVEAL,A_QUIT, A_BUILD,A_BUILDDEV,A_RELOAD,A_STOP,A_PUSH,A_PUSHLAUNCH, A_IMPORT,A_BAKEALL, A_ICON, A_VSCODE, A_ALIGN, A_CHASSIS, A_UIFONT, A_ABOUT };
+#define MENU_DROP_W 214
 typedef struct { const char*title; struct { const char*l; int a; } it[8]; int n; int mx,mw; } Menu;
 static Menu MENUS[]={
     {"Project",{{"New Game...",A_NEW},{"Open...",A_OPEN},{"Reveal in Files",A_REVEAL},{"Quit",A_QUIT}},4},
     {"Assets",{{"Import...",A_IMPORT},{"Edit Icon",A_ICON},{"Bake All",A_BAKEALL}},3},
     {"Build",{{"Build",A_BUILD},{"Build + Device",A_BUILDDEV},{"Run / Reload",A_RELOAD},{"Stop",A_STOP},{"Push",A_PUSH},{"Push & Launch",A_PUSHLAUNCH}},6},
-    {"View",{{"Toggle Chassis",A_CHASSIS}},1},
+    {"View",{{"Toggle Chassis",A_CHASSIS},{"Hybrid Body Font",A_UIFONT}},2},
     {"Help",{{"About Mote Studio",A_ABOUT}},1},
 };
 static const int NMENU=(int)(sizeof MENUS/sizeof MENUS[0]);
@@ -606,6 +636,8 @@ static void dispatch(int a){ char dir[260]="."; if(g_sel>=0)snprintf(dir,sizeof 
         if(!g_dev_clear){ snprintf(g_status,sizeof g_status,"no clear chassis image (studio/assets/thumby_color_clear.png)"); break; }
         g_chassis_clear=!g_chassis_clear;
         snprintf(g_status,sizeof g_status,"chassis: %s",g_chassis_clear?"clear":"solid"); break;
+    case A_UIFONT: g_ui_hybrid=!g_ui_hybrid; ui_font_apply(); uifont_cfg_save();
+        snprintf(g_status,sizeof g_status,"UI font: %s",g_ui_hybrid?"Audiowide titles + DejaVu body":"Audiowide"); break;
     case A_ABOUT: snprintf(g_status,sizeof g_status,"Mote Studio %s - native C/SDL2 IDE for Thumby Color",MOTE_STUDIO_VERSION); break;
     } }
 
@@ -627,17 +659,19 @@ static void icon_flip(SDL_Renderer*R,int idx,int x,int y,int sz,Col c){ if(!g_ic
     SDL_SetTextureColorMod(g_icons,c.r,c.g,c.b); SDL_Rect s={idx*48,0,48,48},d={x,y,sz,sz}; SDL_RenderCopyEx(R,g_icons,&s,&d,0,NULL,SDL_FLIP_HORIZONTAL); }
 
 static void draw_menubar(SDL_Renderer*R){ plain(R,0,0,WIN_W,MENU_H,C_HDR); plain(R,0,MENU_H-1,WIN_W,1,C_LINE);
-    int x=10; text(R,"MOTE STUDIO",x,7,1,C_TITLE,C_HDR); x+=textw(R,"MOTE STUDIO",1)+22;
-    for(int i=0;i<NMENU;i++){ int w=textw(R,MENUS[i].title,1)+20; if(g_menu_open==i)plain(R,x,0,w,MENU_H,C_PANEL);
-        text(R,MENUS[i].title,x+10,7,1,C_TXT,g_menu_open==i?C_PANEL:C_HDR); MENUS[i].mx=x; MENUS[i].mw=w; x+=w; } }
+    int x=10; text(R,"MOTE STUDIO",x,7,SC_TITLE,C_TITLE,C_HDR); x+=textw(R,"MOTE STUDIO",SC_TITLE)+22;
+    for(int i=0;i<NMENU;i++){ int w=textw(R,MENUS[i].title,SC_TITLE)+20; if(g_menu_open==i)plain(R,x,0,w,MENU_H,C_PANEL);
+        text(R,MENUS[i].title,x+10,7,SC_TITLE,C_TXT,g_menu_open==i?C_PANEL:C_HDR); MENUS[i].mx=x; MENUS[i].mw=w; x+=w; } }
 static void draw_menu_dropdown(SDL_Renderer*R){ if(g_menu_open<0)return; Menu*m=&MENUS[g_menu_open];
     int mx,my; SDL_GetMouseState(&mx,&my);
-    int w=150,h=m->n*22+6,x=m->mx,y=MENU_H; plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC);
+    int w=MENU_DROP_W,h=m->n*22+6,x=m->mx,y=MENU_H; plain(R,x,y,w,h,C_PANEL); plain(R,x,y,w,1,C_ACC);
     for(int i=0;i<m->n;i++){ int iy=y+4+i*22; int hov=hit(mx,my,x,iy,w,22);
-        if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,m->it[i].l,x+10,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
+        const char*lbl=m->it[i].l; char tmp[48];
+        if(m->it[i].a==A_UIFONT){ snprintf(tmp,sizeof tmp,"[%c] Hybrid Body Font",g_ui_hybrid?'x':' '); lbl=tmp; }
+        if(hov)plain(R,x+2,iy,w-4,22,C_BTNHI); text(R,lbl,x+10,iy+4,1,hov?C_HDR:C_TXT,hov?C_BTNHI:C_PANEL); } }
 /* mouse is currently inside an open dropdown (so panels below shouldn't hover). */
 static int menu_blocks(int mx,int my){ if(g_menu_open<0)return 0; Menu*m=&MENUS[g_menu_open];
-    return hit(mx,my,m->mx,MENU_H,150,m->n*22+6) || my<MENU_H; }
+    return hit(mx,my,m->mx,MENU_H,MENU_DROP_W,m->n*22+6) || my<MENU_H; }
 /* explorer right-click context menu */
 static int g_ctx; static int g_ctxx,g_ctxy; static char g_ctxdir[340],g_ctxpath[340]; static int g_ctxisdir;
 static const char *CTX_L[6]={ "New File", "New Folder", "Rename", "Delete", "Open Folder", "Open in VS Code" };
@@ -691,7 +725,7 @@ static void ctx_click(int mx,int my){ int w=160; for(int i=0;i<CTX_N;i++){ int i
 static void draw_prompt(SDL_Renderer*R){ if(!g_prompt)return; int mx,my; SDL_GetMouseState(&mx,&my);
     SDL_SetRenderDrawBlendMode(R,SDL_BLENDMODE_BLEND); SDL_SetRenderDrawColor(R,0,0,0,150); SDL_Rect f={0,0,WIN_W,WIN_H}; SDL_RenderFillRect(R,&f);
     int w=460,del=(g_prompt==PR_DELETE),h=del?132:120,x=(WIN_W-w)/2,y=(WIN_H-h)/2;
-    rrect(R,x,y,w,h,10,C_PANEL); rrect(R,x,y,w,28,10,C_HDR); text(R,g_prompttitle,x+14,y+8,1,C_TITLE,C_HDR);
+    rrect(R,x,y,w,h,10,C_PANEL); rrect(R,x,y,w,28,10,C_HDR); text(R,g_prompttitle,x+14,y+8,SC_TITLE,C_TITLE,C_HDR);
     if(del){ const char*b=strrchr(g_promptpath,'/'); text(R,"Delete:",x+14,y+40,1,C_DIM,C_PANEL); text(R,b?b+1:g_promptpath,x+72,y+40,1,(Col){240,150,150},C_PANEL);
         text(R,"This cannot be undone.",x+14,y+62,1,C_DIM,C_PANEL); }
     else { rrect(R,x+14,y+50,w-28,26,4,(Col){12,14,20});
@@ -802,7 +836,7 @@ static void rect_outline(SDL_Renderer*R,int x,int y,int w,int h,Col c,int th){ S
  * every bottom/right panel reads the same. Layout helpers return the next x or content y. */
 static int ui_card(SDL_Renderer*R,int x,int y,int w,int h,const char*title){
     rrect(R,x,y,w,h,7,C_PANEL); rect_outline(R,x,y,w,h,C_LINE,1);
-    if(title&&title[0]){ text(R,title,x+11,y+8,1,C_TITLE,C_PANEL); plain(R,x+11,y+21,w-22,1,C_LINE); return y+30; }
+    if(title&&title[0]){ text(R,title,x+11,y+8,SC_TITLE,C_TITLE,C_PANEL); plain(R,x+11,y+21,w-22,1,C_LINE); return y+30; }
     return y+10; }
 static void ui_label(SDL_Renderer*R,const char*s,int x,int y){ text(R,s,x,y,1,C_DIM,C_PANEL); }
 #define UI_H 22                                   /* one control height — tall enough that 3px corners read clean */
@@ -920,7 +954,7 @@ static void draw_emulator(SDL_Renderer*R,SDL_Texture*tex,const MoteButtons*b){
     int zy=BOT_Y-30, zx=CENTER_X+CENTER_W/2-40; char z[16]; snprintf(z,sizeof z,"%dx",N);
     g_zoom_m=(SDL_Rect){zx,zy,24,22}; g_zoom_p=(SDL_Rect){zx+56,zy,24,22};
     rrect(R,zx,zy,24,22,4,C_BTN); icon(R,IC_ZOOM,zx+5,zy+4,14,C_DIM);
-    rrect(R,zx+28,zy,24,22,4,C_DOCK); { int zw=textw(R,z,1); text(R,z,zx+28+(24-zw)/2,zy+5,1,C_TITLE,C_DOCK); }
+    rrect(R,zx+28,zy,24,22,4,C_DOCK); { int zw=textw(R,z,SC_TITLE); text(R,z,zx+28+(24-zw)/2,zy+5,SC_TITLE,C_TITLE,C_DOCK); }
     rrect(R,zx+56,zy,24,22,4,C_BTN); text(R,"+",zx+63,zy+4,1,C_TXT,C_BTN);
 }
 
@@ -966,7 +1000,7 @@ static SDL_Rect g_insp_edit, g_insp_bake, g_insp_open;
 static void draw_engine_pools(SDL_Renderer*R,int x,int*yp){
     int y=*yp; MCfg c=get_config(g_sel,g_games[g_sel].dir);
     if(!c.found){ *yp=y; return; }
-    plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,1,C_TITLE,C_DOCK); y+=18;
+    plain(R,x,y,RIGHT_W-28,1,C_LINE); y+=10; text(R,"ENGINE POOLS",x,y,SC_TITLE,C_TITLE,C_DOCK); y+=18;
     struct { const char*k; int v; } pp[]={ {"3D triangles",c.tris},{"textured tris",c.tex_tris},{"spheres",c.spheres},
         {"tex spheres",c.tex_spheres},{"billboards",c.billboards},{"splats",c.splats},{"2D sprites",c.sprites},
         {"points",c.points},{"lines",c.lines},{"discs",c.discs},{"rings",c.rings},{"shadows",c.shadows},
@@ -985,8 +1019,8 @@ static void draw_engine_pools(SDL_Renderer*R,int x,int*yp){
 }
 static void draw_inspector(SDL_Renderer*R){ plain(R,INSP_X,TOPH,RIGHT_W,BOT_Y-TOPH,C_DOCK); plain(R,INSP_X,TOPH,1,BOT_Y-TOPH,C_LINE);
     plain(R,INSP_X,TOPH,RIGHT_W,20,C_HDR);
-    if(g_tab==TAB_TILES){ text(R,"TILE SHEET",INSP_X+8,TOPH+6,1,C_TITLE,C_HDR); draw_tiles_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
-    if(g_tab==TAB_ANIM){ text(R,"SPRITE SHEET",INSP_X+8,TOPH+6,1,C_TITLE,C_HDR); draw_anim_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
+    if(g_tab==TAB_TILES){ text(R,"TILE SHEET",INSP_X+8,TOPH+6,SC_TITLE,C_TITLE,C_HDR); draw_tiles_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
+    if(g_tab==TAB_ANIM){ text(R,"SPRITE SHEET",INSP_X+8,TOPH+6,SC_TITLE,C_TITLE,C_HDR); draw_anim_sheet(R,INSP_X+8,TOPH+28,RIGHT_W-14,BOT_Y-TOPH-32); return; }
     text(R,"INSPECTOR",INSP_X+8,TOPH+6,1,C_DIM,C_HDR);
     int x=INSP_X+14,y=TOPH+34; g_insp_edit=(SDL_Rect){0,0,0,0}; g_insp_bake=(SDL_Rect){0,0,0,0}; g_insp_open=(SDL_Rect){0,0,0,0};
     if(g_tsel<0||g_sel<0){ text(R,g_sel<0?"no project open":"select a file",x,y,1,C_DIM,C_DOCK); return; }
@@ -5094,8 +5128,9 @@ static void proxy_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(
  * the verified .mote bytes to install. The device does its own installed-vs-
  * available diff (it owns its /mote/ catalog). */
 static void gal_serve_manifest(void*h);
-static void gal_serve_thumb(void*h,unsigned idx);
+static void gal_serve_thumb(void*h,unsigned idx,unsigned shot);
 static void gal_serve_fetch(void*h,unsigned idx);
+static void gal_serve_desc(void*h,unsigned idx);
 static volatile Uint32 g_gal_until;   /* SDL ticks: hold the device port until then (gallery session) */
 
 /* Act on one MN1 command. Returns 1 to proceed to relay+GO, 0 if fully handled. */
@@ -5107,7 +5142,8 @@ static int proxy_command(void*h,char*line){
     unsigned gid=sp?(unsigned)strtoul(sp+1,NULL,10):0;
     if(verb[0]=='G') g_gal_until = SDL_GetTicks()+15000;   /* gallery session: keep the port for prompt replies */
     if(!strcmp(verb,"GMANIFEST")){ gal_serve_manifest(h); return 0; }
-    if(!strcmp(verb,"GTHUMB")){ gal_serve_thumb(h,gid); return 0; }
+    if(!strcmp(verb,"GTHUMB")){ unsigned shot=0; char*s2=sp?strchr(sp+1,' '):NULL; if(s2)shot=(unsigned)strtoul(s2+1,NULL,10); gal_serve_thumb(h,gid,shot); return 0; }
+    if(!strcmp(verb,"GDESC")){ gal_serve_desc(h,gid); return 0; }
     if(!strcmp(verb,"GFETCH")){ gal_serve_fetch(h,gid); return 0; }
     if(!strcmp(verb,"CANCEL")){ link_net_stop(); g_room_code[0]=0; return 0; }
     if(!strcmp(verb,"LANHOST")){ link_net_host(); log_add("online(dev): hosting on LAN"); return 1; }
@@ -5383,7 +5419,7 @@ static void gal_spinner(SDL_Renderer*R,int cx,int cy,int rad){
 }
 static void draw_gallery(SDL_Renderer*R,int ox,int oy,int w,int h){
     int mx,my; SDL_GetMouseState(&mx,&my);
-    text(R,"GALLERY  (install & update games from austinio7116.github.io/mote)",ox,oy,1,C_TITLE,C_DOCK);
+    text(R,"GALLERY  (install & update games from austinio7116.github.io/mote)",ox,oy,SC_TITLE,C_TITLE,C_DOCK);
     /* refresh button, right-aligned */
     { const char*rl="Refresh"; int bw=textw(R,rl,1)+40; g_gal_refresh_r=(SDL_Rect){ox+w-bw,oy-4,bw,24};
       rrect(R,g_gal_refresh_r.x,g_gal_refresh_r.y,bw,24,4,hit(mx,my,g_gal_refresh_r.x,g_gal_refresh_r.y,bw,24)?C_BTNHI:C_BTN);
@@ -5401,7 +5437,7 @@ static void draw_gallery(SDL_Renderer*R,int ox,int oy,int w,int h){
     if(g_gal_state<=1){ gal_spinner(R,ox+w/2,top+70,16);
         text(R,"Loading gallery...",ox+w/2-textw(R,"Loading gallery...",1)/2,top+96,1,C_DIM,C_DOCK); return; }
     if(g_gal_state==3){
-        text(R,"Couldn't reach the gallery.",ox,top+30,1,C_TITLE,C_DOCK);
+        text(R,"Couldn't reach the gallery.",ox,top+30,SC_TITLE,C_TITLE,C_DOCK);
         text(R,g_gal.err,ox,top+50,1,C_DIM,C_DOCK);
         const char*rl="Retry"; int bw=textw(R,rl,1)+30; g_gal_retry_r=(SDL_Rect){ox,top+72,bw,26};
         rrect(R,ox,top+72,bw,26,4,hit(mx,my,ox,top+72,bw,26)?C_BTNHI:C_ACC); text(R,rl,ox+15,top+79,1,C_TXT,C_ACC); return; }
@@ -5469,22 +5505,31 @@ static void gal_serve_manifest(void*h){
     gal_ensure_loaded();
     if(!g_gal.loaded){ proxy_send(h,"MN1 GERR fetch\n"); return; }
     for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i]; char base[64],line[260]; gal_base(g->file,base,sizeof base);
-        /* MN1 GAME <idx> <abi> <mp> <size> <ver> <fname>|<author>|<name>
+        /* MN1 GAME <idx> <abi> <mp> <nshots> <size> <ver> <fname>|<author>|<name>
          * (the three | fields are last; only <name> may contain spaces) */
-        snprintf(line,sizeof line,"MN1 GAME %d %d %d %ld %s %s|%s|%s\n",
-                 i,g->abi,g->multiplayer,g->size,g->version,base,g->author,g->name);
+        snprintf(line,sizeof line,"MN1 GAME %d %d %d %d %ld %s %s|%s|%s\n",
+                 i,g->abi,g->multiplayer,g->nshots,g->size,g->version,base,g->author,g->name);
         mote_dev_raw_write(h,line,(int)strlen(line)); }
     proxy_send(h,"MN1 GEND\n");
 }
-static void gal_serve_thumb(void*h,unsigned idx){
+static void gal_serve_thumb(void*h,unsigned idx,unsigned shot){
     if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
-    GalGame*g=&g_gal.g[idx]; gallery_load_thumb(&g_gal,g);
-    enum{TW=56,TH=56}; static uint16_t sc[TW*TH];
-    if(g->thumb_px&&g->thumb_w>0&&g->thumb_h>0)
-        for(int y=0;y<TH;y++)for(int x=0;x<TW;x++){ int sx=x*g->thumb_w/TW, sy=y*g->thumb_h/TH; sc[y*TW+x]=g->thumb_px[sy*g->thumb_w+sx]; }
-    else memset(sc,0,sizeof sc);
-    char hd[48]; snprintf(hd,sizeof hd,"MN1 GTHUMB %u %d %d %d\n",idx,TW,TH,(int)sizeof sc);
+    GalGame*g=&g_gal.g[idx];
+    if((int)shot>=g->nshots) shot=0;
+    enum{TW=64,TH=64}; static uint16_t sc[TW*TH];   /* native 128x128 shots halve cleanly to 64 */
+    uint16_t *px=NULL; int pw=0,ph=0;
+    if(gallery_load_shot(&g_gal,g,(int)shot,&px,&pw,&ph)==0 && px && pw>0 && ph>0){
+        for(int y=0;y<TH;y++)for(int x=0;x<TW;x++){ int sx=x*pw/TW, sy=y*ph/TH; sc[y*TW+x]=px[sy*pw+sx]; }
+        free(px);
+    } else memset(sc,0,sizeof sc);
+    char hd[56]; snprintf(hd,sizeof hd,"MN1 GTHUMB %u %u %d %d %d\n",idx,shot,TW,TH,(int)sizeof sc);
     mote_dev_raw_write(h,hd,(int)strlen(hd)); mote_dev_raw_write(h,sc,(int)sizeof sc);
+}
+static void gal_serve_desc(void*h,unsigned idx){
+    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    const char *d=g_gal.g[idx].desc; int len=(int)strlen(d);
+    char hd[32]; snprintf(hd,sizeof hd,"MN1 GDESC %d\n",len); mote_dev_raw_write(h,hd,(int)strlen(hd));
+    mote_dev_raw_write(h,d,len);
 }
 static void gal_serve_fetch(void*h,unsigned idx){
     if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
@@ -5498,7 +5543,7 @@ static void gal_serve_fetch(void*h,unsigned idx){
 }
 
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
-    text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
+    text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,SC_TITLE,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
     static const char*DVB_T[6]={ "Check the device answers over USB","List the games installed on the device",
         "Build the device .mote + copy it over","Push, then boot straight into the game",
@@ -5510,7 +5555,7 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     /* --- MULTIPLAYER: one always-visible status row. The normal path is the
      * DEVICE-side lobby (auto-proxy); every manual control lives under Advanced. --- */
     int ly=y+64;
-    text(R,"MULTIPLAYER  (set up matches on the Thumby itself - the Studio relays automatically)",ox,ly,1,C_TITLE,C_DOCK);
+    text(R,"MULTIPLAYER  (set up matches on the Thumby itself - the Studio relays automatically)",ox,ly,SC_TITLE,C_TITLE,C_DOCK);
     ly+=20;
     /* device auto-proxy toggle: when ON, the docked Thumby drives online from its own lobby */
     { const char*pl=g_proxy_on?(g_proxy_busy?"Device: RELAYING":"Device: ON"):"Device: OFF";
@@ -5542,7 +5587,7 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     }
     /* --- ADVANCED: 2P LINK row --- */
     ly+=32;
-    text(R,"2P LINK  (LAN peer Studio, bridge a USB Thumby, or preview vs your device)",ox,ly,1,C_TITLE,C_DOCK);
+    text(R,"2P LINK  (LAN peer Studio, bridge a USB Thumby, or preview vs your device)",ox,ly,SC_TITLE,C_TITLE,C_DOCK);
     static const char*LKB_T[5]={ "Listen for a peer Studio on the LAN (tcp 42450 + discovery)",
         "Find a hosting Studio on the LAN and connect (set MOTE_LINK_PEER=ip for a fixed address)",
         "Relay the USB-connected Thumby's 2P link over the LAN pipe - two real devices play remotely",
@@ -5557,7 +5602,7 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
         tip(g_lkb[i],mx,my,LKB_T[i]); x+=bw+8; if(x>ox+w-140){ x=ox; ly+=34; } }
     /* --- ADVANCED: ONLINE (relay) row --- */
     int oy2=ly+40;
-    text(R,"ONLINE  (manual rooms - normally the device lobby does this for you)",ox,oy2,1,C_TITLE,C_DOCK);
+    text(R,"ONLINE  (manual rooms - normally the device lobby does this for you)",ox,oy2,SC_TITLE,C_TITLE,C_DOCK);
     oy2+=18;
     /* editable relay address field */
     text(R,"relay",ox,oy2+7,1,C_DIM,C_DOCK);
@@ -6266,9 +6311,9 @@ static void sheet_drag(int mx,int my){ if(px_panel_drag(mx,my))return; if(g_sh_p
 static void sheet_up(int mx,int my){ if(g_sh_paint)sh_paint_at(mx,my,2); g_sh_paint=0; }
 
 static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK); plain(R,0,BOT_Y,WIN_W,1,C_LINE);
-    int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],1)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
+    int x=0; for(int i=0;i<TAB_N;i++){ int w=textw(R,TAB_L[i],SC_TITLE)+24; g_tabr[i]=(SDL_Rect){x,BOT_Y,w,22};
         plain(R,x,BOT_Y,w,22,g_tab==i?C_PANEL:C_DOCK); if(g_tab==i)plain(R,x,BOT_Y,w,2,C_ACC);
-        text(R,TAB_L[i],x+12,BOT_Y+7,1,g_tab==i?C_TXT:C_DIM,g_tab==i?C_PANEL:C_DOCK); x+=w; }
+        text(R,TAB_L[i],x+12,BOT_Y+7,SC_TITLE,g_tab==i?C_TXT:C_DIM,g_tab==i?C_PANEL:C_DOCK); x+=w; }
     plain(R,0,BOT_Y+22,WIN_W,1,C_LINE); int cy=BOT_Y+30;
     if(g_tab==TAB_CODE){ draw_code(R,0,BOT_Y+23,WIN_W,WIN_H-(BOT_Y+23)); return; }
     if(g_tab==TAB_CONSOLE){ SDL_LockMutex(g_logmx?g_logmx:(g_logmx=SDL_CreateMutex()));
@@ -7048,7 +7093,7 @@ int main(int argc,char**argv){
                 if(my>=TOPH&&my<BOT_Y&&abs(mx-INSP_X)<=4){ g_split=2; continue; }
                 if(my>=BOT_Y-4&&my<=BOT_Y+1){ g_split=3; continue; }
                 if(my<MENU_H){ int hitm=-1; for(int i=0;i<NMENU;i++)if(mx>=MENUS[i].mx&&mx<MENUS[i].mx+MENUS[i].mw)hitm=i; g_menu_open=(g_menu_open==hitm)?-1:hitm; continue; }
-                if(g_menu_open>=0){ Menu*m=&MENUS[g_menu_open]; int x=m->mx,y=MENU_H,w=150;
+                if(g_menu_open>=0){ Menu*m=&MENUS[g_menu_open]; int x=m->mx,y=MENU_H,w=MENU_DROP_W;
                     if(mx>=x&&mx<x+w&&my>=y&&my<y+m->n*22+6){ int i=(my-y-4)/22; if(i>=0&&i<m->n)dispatch(m->it[i].a); }
                     g_menu_open=-1; continue; }
                 if(my<TOPH){ for(int i=0;i<g_ntb;i++)if(hit(mx,my,g_tb[i].x,g_tb[i].y,g_tb[i].w,g_tb[i].h))dispatch(g_tb[i].a); continue; }

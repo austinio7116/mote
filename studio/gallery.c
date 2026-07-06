@@ -164,6 +164,19 @@ int gallery_refresh(Gallery *G) {
         j_str(j_field(ob, oe, "sha256"),  g->sha256,  sizeof g->sha256);
         j_str(j_field(ob, oe, "file"),    g->file,    sizeof g->file);
         j_str(j_field(ob, oe, "thumb"),   g->thumb,   sizeof g->thumb);
+        /* screenshots: [ "a.png", "b.png", ... ] — walk the quoted strings up to `]` */
+        { const char *sv = j_field(ob, oe, "screenshots"); g->nshots = 0;
+          if (sv && *sv == '[') {
+            const char *rb = memchr(sv, ']', oe - sv); const char *lim = rb ? rb : oe;
+            const char *q = sv + 1;
+            while (g->nshots < GAL_MAXSHOTS) {
+                const char *qs = memchr(q, '"', lim - q); if (!qs) break;
+                j_str(qs, g->shots[g->nshots], GAL_URLLEN); g->nshots++;
+                q = qs + 1; while (q < lim && *q != '"') q++; q++;   /* past this string */
+            }
+          }
+          if (g->nshots == 0 && g->thumb[0]) { snprintf(g->shots[0], GAL_URLLEN, "%s", g->thumb); g->nshots = 1; }
+        }
         j_str(j_field(ob, oe, "tag"),     g->tag,     sizeof g->tag);
         j_str(j_field(ob, oe, "desc"),    g->desc,    sizeof g->desc);
         { const char *mv = j_field(ob, oe, "multiplayer"); g->multiplayer = mv && !strncmp(mv, "true", 4); }
@@ -218,6 +231,23 @@ int gallery_load_thumb(Gallery *G, GalGame *g) {
         g->thumb_px = px; g->thumb_w = w; g->thumb_h = h; }
     stbi_image_free(d);
     return px ? 0 : -1;
+}
+
+int gallery_load_shot(Gallery *G, const GalGame *g, int idx, uint16_t **outpx, int *outw, int *outh) {
+    if (idx < 0 || idx >= g->nshots || !g->shots[idx][0]) return -1;
+    char url[GAL_URLLEN * 2], tmp[GAL_URLLEN * 2];
+    snprintf(url, sizeof url, "%s/%s", G->base, g->shots[idx]);
+    snprintf(tmp, sizeof tmp, "%s/shot_%s_%d.png", G->cache, g->id, idx);   /* cached, reusable */
+    if (!file_exists(tmp) && fetch(url, tmp, G->err, sizeof G->err) != 0) return -1;
+    int w, h, n; unsigned char *d = stbi_load(tmp, &w, &h, &n, 4);
+    if (!d) { snprintf(G->err, sizeof G->err, "shot decode failed"); return -1; }
+    uint16_t *px = malloc((size_t)w * h * 2);
+    if (px) { for (int i = 0; i < w*h; i++) {
+        int r = d[i*4], gg = d[i*4+1], b = d[i*4+2];
+        px[i] = (uint16_t)(((r & 0xF8) << 8) | ((gg & 0xFC) << 3) | (b >> 3)); } }
+    stbi_image_free(d);
+    if (!px) return -1;
+    *outpx = px; *outw = w; *outh = h; return 0;
 }
 
 void gallery_set_base(Gallery *G, const char *base) {
