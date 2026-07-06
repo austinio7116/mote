@@ -36,6 +36,28 @@ per-game *versions* only show for games rebuilt with the new SDK.
   (menu bar, tabs, section headers). The choice persists; `MOTE_STUDIO_UIFONT=<ttf>` overrides
   the face entirely. The code editor stays monospace.
 
+### Rig / 3D-animation editor
+- **Keyframes now persist.** Authored clips were previously kept only in memory — switching
+  from RIG to another tab (which rebuilds the rig) or reopening the project **wiped every
+  keyframe**; the only durable output was the generated `.anim3d.h`, which was never read back.
+  Studio now writes an editable `<model>.anim` sidecar (clip length/loop + per-key Euler+pos,
+  and each key's snap/linear flag) on Save, on Bake, and when you leave the RIG tab, and
+  restores it on open — so a clip survives tab switches and reopens and stays re-editable.
+- **Snap vs. linear keyframes.** Each keyframe now has an interpolation mode — a **key: snap /
+  key: linear** toggle in the RIG inspector (snap keys draw as squares on the timeline, linear
+  as diamonds). *Snap* holds the pose until the next key then jumps; *linear* eases between
+  them. No more faking a hold with a pair of near-identical keys. The mode bakes into the clip
+  (new trailing `step` field on `MoteModelKey`) and is honoured live by `mote_anim3d.h`; older
+  baked clips are unaffected (missing field ⇒ linear).
+- **Manipulator no longer moves/rotates the wrong way.** The gizmo was drawn along *world* axes
+  while a part's translation and rotation live in its **parent** frame, so parented or rotated
+  parts translated and spun opposite to the handle you grabbed. The gizmo axes and rotate rings
+  now align to the part's parent basis, so dragging always follows the handle. The rotate-ring
+  drag also picks its sign from whether the axis faces the camera, fixing the rotation that
+  "went the complete opposite way" depending on the viewing angle.
+- Dragging a translate/rotate handle now snaps the playhead to the edited key, so the change is
+  visible immediately (matches the +/- steppers).
+
 ### Firmware / SDK
 - **ThumbyOne firmware 1.33.0** — adds the on-device gallery slot and the AA UI fonts
   (lobby +~9 KB, runner +~7 KB of flash; no RAM change). Reflash `firmware_thumbyone.uf2`.

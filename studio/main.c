@@ -3422,14 +3422,15 @@ static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[3
 static uint16_t *g_rig_tex_px; static int g_rig_tex_w, g_rig_tex_h;   /* shared rig texture (ABI v35) */
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
 static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_mesh, g_rg_view, g_rg_texassign, g_rg_texclear;
-static SDL_Rect g_rg_pose, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
+static SDL_Rect g_rg_pose, g_rg_interp, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
 /* 3-axis manipulator gizmo (rig view): translate handles + rotate rings */
 #define GZ_RING 20
 static SDL_Point g_gz_o, g_gz_ax[3], g_gz_ring[3][GZ_RING]; static float g_gz_alen[3];
 static int g_gz_drag=-1; static float g_gz_ang, g_gz_L;   /* drag: 0..2 translate X/Y/Z, 3..5 rotate X/Y/Z */
+static float g_gz_az[3];   /* each gizmo axis' view-space z (>0 = toward camera) — sets the rotate-drag sign */
 /* ---- clip authoring: keyframes of per-part Euler rotation + translation ---- */
 #define RIG_MAXK 24
-typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; } RigKey;   /* per-part rotation (rad) + translation */
+typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; int step; } RigKey;   /* per-part rotation (rad) + translation; step=1 holds this key's pose until the next (snap) */
 static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
 static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
 static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
@@ -3437,6 +3438,9 @@ static int g_kdrag=-1, g_scrub; /* dragging a keyframe (index) / dragging the pl
 static int rig_key_insert(int t_ms);   /* fwd */
 static void rig_save(void);   /* fwd */
 static void rig_anim_bake(void);   /* fwd */
+static int  rig_keys_path(char*out,size_t n);   /* fwd: editable keyframe sidecar (<model>.anim) */
+static void rig_keys_load(void);                /* fwd: restore authored keyframes from the sidecar */
+static void rig_keys_save(void);                /* fwd: persist authored keyframes to the sidecar */
 
 /* uvN: 6 floats per tri (u0,v0,u1,v1,u2,v2 in 0..1, v already flipped), or NULL. */
 static void rp_tri(int p,V3 a,V3 b,V3 c,const float*uvN){ RigPart*r=&g_rp[p];
@@ -3488,8 +3492,9 @@ static void rig_load(const char*objpath){
     /* seed a single rest keyframe so pose mode is editable immediately (and reset any
      * stale keys from a previously loaded rig). The Save/Bake of a one-key clip is a
      * harmless static pose; add more keys to animate. */
-    g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0;
+    g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0; g_rk[0].step=0;
     for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
+    rig_keys_load();   /* restore authored keyframes if a <model>.anim sidecar exists */
     snprintf(g_status,sizeof g_status,"rig: %d parts (drag to rotate; set pivot/parent, then Save)",g_nrp);
 }
 /* Build the rig parts from the LIVE editable model (g_obj) instead of a disk .obj — each
@@ -3498,6 +3503,8 @@ static void rig_load(const char*objpath){
  * tab while a model is loaded, so the Rig view always reflects current edits. Seeds one rest
  * keyframe (like rig_load); re-enter the tab after editing to re-rig. */
 static void rig_build_from_eobj(void){
+    char prevnm[RIG_MAXP][28]; int prevn=g_nrp<RIG_MAXP?g_nrp:RIG_MAXP;   /* snapshot part identity to decide if keyframes survive this rebuild */
+    for(int p=0;p<prevn;p++)snprintf(prevnm[p],28,"%s",g_rp[p].name);
     for(int p=0;p<g_nrp;p++){ free(g_rp[p].t); g_rp[p].t=0; free(g_rp[p].uv); g_rp[p].uv=0; g_rp[p].nt=g_rp[p].cap=0; }
     g_nrp=0; g_rsel=0; g_rig_obj[0]=0;                       /* live model: no on-disk source */
     free(g_rig_tex_px); g_rig_tex_px=0; g_rig_tex_w=g_rig_tex_h=0; g_texsync_src[0]=0; g_texsync_mtime=0;
@@ -3515,9 +3522,16 @@ static void rig_build_from_eobj(void){
         if(v.x<mn.x)mn.x=v.x;if(v.y<mn.y)mn.y=v.y;if(v.z<mn.z)mn.z=v.z;if(v.x>mx.x)mx.x=v.x;if(v.y>mx.y)mx.y=v.y;if(v.z>mx.z)mx.z=v.z; }
     g_rcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2};
     float ex=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_rscale=ex>1e-4f?2.0f/ex:1;
-    g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0;
-    for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
-    snprintf(g_status,sizeof g_status,"rig: %d parts from the live model",g_nrp); }
+    int same=(prevn==g_nrp); for(int p=0;same&&p<g_nrp;p++)if(strcmp(prevnm[p],g_rp[p].name))same=0;
+    if(!same){   /* first entry, or the part set changed under us: reset then restore any saved clip */
+        g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0; g_rk[0].step=0;
+        for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
+        rig_keys_load(); }
+    /* same part set: KEEP the in-memory keyframes, so a MESH<->RIG tab switch (which re-enters
+     * this function) no longer wipes an unsaved animation. */
+    if(g_ksel>=g_nrk)g_ksel=g_nrk?g_nrk-1:0;
+    if(g_nobj>RIG_MAXP)snprintf(g_status,sizeof g_status,"rig: %d parts (model has %d — only the first %d can be rigged)",g_nrp,g_nobj,RIG_MAXP);
+    else snprintf(g_status,sizeof g_status,"rig: %d parts from the live model",g_nrp); }
 
 /* ===== GUI texture assignment (MESH + RIG views) =====
  * Texturing is a real UI workflow, not a naming convention: the user assigns a
@@ -3576,17 +3590,19 @@ static void rig_key_clamp(void){ for(int i=0;i<g_nrk;i++){ if(g_rk[i].t_ms<0)g_r
 static void rig_key_bubble(int *i){ while(*i>0 && g_rk[*i].t_ms<g_rk[*i-1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i-1]; g_rk[*i-1]=t; (*i)--; }
     while(*i<g_nrk-1 && g_rk[*i].t_ms>g_rk[*i+1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i+1]; g_rk[*i+1]=t; (*i)++; } }
 /* insert a key at time t_ms capturing the current (interpolated) pose; returns its index */
-static int rig_key_insert(int t_ms){ if(g_nrk>=RIG_MAXK)return g_ksel; if(t_ms<0)t_ms=0; if(t_ms>g_clip_ms)t_ms=g_clip_ms;
+static int rig_key_insert(int t_ms){ if(g_nrk>=RIG_MAXK){ snprintf(g_status,sizeof g_status,"keyframe limit reached (%d) — delete one to add another",RIG_MAXK); return g_ksel; } if(t_ms<0)t_ms=0; if(t_ms>g_clip_ms)t_ms=g_clip_ms;
     V3 er[RIG_MAXP],po[RIG_MAXP]; rig_pose_at((float)t_ms,er,po);
     int at=0; while(at<g_nrk && g_rk[at].t_ms<t_ms) at++;
     if(at<g_nrk && g_rk[at].t_ms==t_ms){ for(int p=0;p<g_nrp;p++){ g_rk[at].erot[p]=er[p]; g_rk[at].pos[p]=po[p]; } return at; }  /* replace exact */
     for(int i=g_nrk;i>at;i--) g_rk[i]=g_rk[i-1];
-    g_rk[at].t_ms=t_ms; for(int p=0;p<RIG_MAXP;p++){ g_rk[at].erot[p]=er[p]; g_rk[at].pos[p]=po[p]; } g_nrk++; return at; }
+    g_rk[at].t_ms=t_ms; g_rk[at].step=0; for(int p=0;p<RIG_MAXP;p++){ g_rk[at].erot[p]=er[p]; g_rk[at].pos[p]=po[p]; } g_nrk++; return at; }
 static void rig_pose_at(float t,V3 erot[RIG_MAXP],V3 pos[RIG_MAXP]){
   for(int p=0;p<g_nrp;p++){ erot[p]=(V3){0,0,0}; pos[p]=(V3){0,0,0}; } if(!g_nrk)return; int last=g_nrk-1;
   if(t<=g_rk[0].t_ms){ for(int p=0;p<g_nrp;p++){ erot[p]=g_rk[0].erot[p]; pos[p]=g_rk[0].pos[p]; } return; }
   if(t>=g_rk[last].t_ms){ for(int p=0;p<g_nrp;p++){ erot[p]=g_rk[last].erot[p]; pos[p]=g_rk[last].pos[p]; } return; }
-  int i=0; while(i+1<g_nrk&&g_rk[i+1].t_ms<=t)i++; float f=(t-g_rk[i].t_ms)/(float)(g_rk[i+1].t_ms-g_rk[i].t_ms);
+  int i=0; while(i+1<g_nrk&&g_rk[i+1].t_ms<=t)i++;
+  if(g_rk[i].step){ for(int p=0;p<g_nrp;p++){ erot[p]=g_rk[i].erot[p]; pos[p]=g_rk[i].pos[p]; } return; }   /* snap: hold this key */
+  int span=g_rk[i+1].t_ms-g_rk[i].t_ms; float f=span>0?(t-g_rk[i].t_ms)/(float)span:0.0f;   /* guard equal-time keys (retime can stack two) */
   for(int p=0;p<g_nrp;p++){ V3 a=g_rk[i].erot[p],b=g_rk[i+1].erot[p]; erot[p]=(V3){a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,a.z+(b.z-a.z)*f};
     V3 c=g_rk[i].pos[p],d=g_rk[i+1].pos[p]; pos[p]=(V3){c.x+(d.x-c.x)*f,c.y+(d.y-c.y)*f,c.z+(d.z-c.z)*f}; } }
 /* local transform = rotate about pivot, then translate by the part's pose pos (parent frame) */
@@ -3651,19 +3667,27 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     /* ---- 3-axis manipulator at the selected part's posed pivot ---- */
     #define PROJV(W,VX,VY) do{ V3 _q=(W); RVIEW(_q); float _iz=persp/(dist-_q.z); \
         int _sx=cx+(int)(_q.x*_iz), _sy=cyy-(int)(_q.y*_iz); (VX)=ox+_sx*vw/rw; (VY)=oy+_sy*h/rh; }while(0)
-    { V3 pr=m3a(RW[g_rsel],g_rp[g_rsel].pivot); V3 O={pr.x+OW[g_rsel].x,pr.y+OW[g_rsel].y,pr.z+OW[g_rsel].z};
+    { int gpar=g_rp[g_rsel].parent;
+      /* Gizmo axis frame: POSE mode edits pos/erot which live in the PARENT frame, so align to
+       * the parent basis (identity for root). PIVOT mode edits the joint in MODEL space, so keep
+       * model/world axes. Getting this wrong is what made parented parts move/rotate backwards. */
+      M3 PB=(g_pose_mode&&gpar>=0&&gpar<g_rsel)?RW[gpar]:(M3){1,0,0,0,1,0,0,0,1};
+      V3 pr=m3a(RW[g_rsel],g_rp[g_rsel].pivot); V3 O={pr.x+OW[g_rsel].x,pr.y+OW[g_rsel].y,pr.z+OW[g_rsel].z};
       float L=0.45f/(g_rscale>1e-4f?g_rscale:1.0f); g_gz_L=L;        /* world axis length -> ~constant on screen */
       PROJV(O,g_gz_o.x,g_gz_o.y);
+      V3 gd[3]; for(int a=0;a<3;a++){ V3 u={a==0,a==1,a==2}; gd[a]=m3a(PB,u);   /* axis direction in world space (parent basis) */
+          g_gz_az[a]=gd[a].y*sp+(gd[a].x*syw+gd[a].z*cyw)*cp; }               /* its view-space z (>0 toward camera) — sets rotate-drag sign */
       Col axc[3]={{235,90,90},{110,215,110},{96,150,255}};          /* X red, Y green, Z blue */
-      for(int a=0;a<3;a++){ V3 e=O; ((float*)&e)[a]+=L; PROJV(e,g_gz_ax[a].x,g_gz_ax[a].y);
+      for(int a=0;a<3;a++){ V3 e={O.x+L*gd[a].x,O.y+L*gd[a].y,O.z+L*gd[a].z}; PROJV(e,g_gz_ax[a].x,g_gz_ax[a].y);
           int hot=(g_gz_drag==a);
           SDL_SetRenderDrawColor(R,axc[a].r,axc[a].g,axc[a].b,255); SDL_RenderDrawLine(R,g_gz_o.x,g_gz_o.y,g_gz_ax[a].x,g_gz_ax[a].y);
           float dx=(float)(g_gz_ax[a].x-g_gz_o.x),dy=(float)(g_gz_ax[a].y-g_gz_o.y); g_gz_alen[a]=sqrtf(dx*dx+dy*dy);
           int s=hot?5:4; plain(R,g_gz_ax[a].x-s,g_gz_ax[a].y-s,2*s+1,2*s+1,axc[a]); rect_outline(R,g_gz_ax[a].x-s,g_gz_ax[a].y-s,2*s+1,2*s+1,(Col){0,0,0},1); }
       if(g_pose_mode) for(int a=0;a<3;a++){ Col rc={(Uint8)(axc[a].r*3/4),(Uint8)(axc[a].g*3/4),(Uint8)(axc[a].b*3/4)}; int hot=(g_gz_drag==3+a);
-          int px=0,py=0; for(int s=0;s<GZ_RING;s++){ float th=6.2831853f*s/GZ_RING; V3 e=O;   /* circle in the plane perpendicular to axis a */
-              float c0=L*cosf(th),s0=L*sinf(th); if(a==0){ e.y+=c0; e.z+=s0; } else if(a==1){ e.x+=c0; e.z+=s0; } else { e.x+=c0; e.y+=s0; }
-              PROJV(e,g_gz_ring[a][s].x,g_gz_ring[a][s].y); if(s){ SDL_SetRenderDrawColor(R,hot?255:rc.r,hot?255:rc.g,hot?255:rc.b,255); SDL_RenderDrawLine(R,px,py,g_gz_ring[a][s].x,g_gz_ring[a][s].y); } px=g_gz_ring[a][s].x; py=g_gz_ring[a][s].y; }
+          V3 db=gd[(a+1)%3],dc=gd[(a+2)%3];                          /* ring in the plane spanned by the other two parent axes */
+          int px=0,py=0; for(int sg=0;sg<GZ_RING;sg++){ float th=6.2831853f*sg/GZ_RING; float c0=L*cosf(th),s0=L*sinf(th);
+              V3 e={O.x+c0*db.x+s0*dc.x,O.y+c0*db.y+s0*dc.y,O.z+c0*db.z+s0*dc.z};
+              PROJV(e,g_gz_ring[a][sg].x,g_gz_ring[a][sg].y); if(sg){ SDL_SetRenderDrawColor(R,hot?255:rc.r,hot?255:rc.g,hot?255:rc.b,255); SDL_RenderDrawLine(R,px,py,g_gz_ring[a][sg].x,g_gz_ring[a][sg].y); } px=g_gz_ring[a][sg].x; py=g_gz_ring[a][sg].y; }
           SDL_SetRenderDrawColor(R,hot?255:rc.r,hot?255:rc.g,hot?255:rc.b,255); SDL_RenderDrawLine(R,px,py,g_gz_ring[a][0].x,g_gz_ring[a][0].y); }
       ring(R,g_gz_o.x,g_gz_o.y,4,(Col){0,0,0},1); ring(R,g_gz_o.x,g_gz_o.y,3,(Col){255,235,120},1); }
     #undef PROJV
@@ -3685,9 +3709,10 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     plain(R,tx,ty-2,tw,26,(Col){22,25,34}); rect_outline(R,tx,ty-2,tw,26,(Col){46,50,64},1);
     for(int g=0;g<=4;g++){ int gx=tx+g*tw/4; plain(R,gx,ty-2,1,26,(Col){38,42,54});          /* time gridlines + labels */
         char tl[12]; snprintf(tl,sizeof tl,"%d",g_clip_ms*g/4); text(R,tl,gx+2,ty+15,1,(Col){90,96,116},(Col){22,25,34}); }
-    for(int i=0;i<g_nrk;i++){ int kxp=tx+(int)(g_rk[i].t_ms/dur*tw); g_rg_keytk[i]=(SDL_Rect){kxp-6,ty-2,13,16};   /* draggable diamonds */
+    for(int i=0;i<g_nrk;i++){ int kxp=tx+(int)(g_rk[i].t_ms/dur*tw); g_rg_keytk[i]=(SDL_Rect){kxp-6,ty-2,13,16};   /* draggable diamonds (squares = snap) */
         Col kc=(i==g_ksel)?(Col){255,205,80}:(Col){150,160,190};
-        for(int dy=-5;dy<=5;dy++){ int wdt=5-(dy<0?-dy:dy); plain(R,kxp-wdt,ty+5+dy,wdt*2+1,1,kc); } }
+        if(g_rk[i].step) plain(R,kxp-4,ty+1,9,9,kc);                                                   /* snap key: square */
+        else for(int dy=-5;dy<=5;dy++){ int wdt=5-(dy<0?-dy:dy); plain(R,kxp-wdt,ty+5+dy,wdt*2+1,1,kc); } }   /* linear key: diamond */
     { int php=tx+(int)(t_ms/dur*tw); plain(R,php-1,ty-4,2,28,(Col){255,90,90});            /* red playhead */
       for(int dy=0;dy<5;dy++) plain(R,php-4+dy,ty-6+dy,2*(4-dy)+2,1,(Col){255,90,90}); }   /* triangle handle */
     { char tb[40]; snprintf(tb,sizeof tb,"t = %d ms%s",(int)(t_ms+0.5f),g_playing?"  (playing)":""); text(R,tb,tx,oy+h-16,1,C_DIM,(Col){16,18,26}); }
@@ -3704,6 +3729,8 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     g_rg_par=(SDL_Rect){lx,cy,MESH_CARDW-24,19}; rrect(R,lx,cy,MESH_CARDW-24,19,4,hit(mx,my,lx,cy,MESH_CARDW-24,19)?C_BTNHI:C_BTN);
     { char pb[44]; snprintf(pb,sizeof pb,"parent < %s >", s->parent<0?"root":g_rp[s->parent].name); text(R,pb,lx+8,cy+4,1,C_TXT,C_BTN); } cy+=24;
     ui_pill_t(R,lx,cy,NULL,g_pose_mode?"edit: pose":"edit: pivot",g_pose_mode,&g_rg_pose,mx,my,"Toggle editing the keyframe pose vs the part's rest pivot"); cy+=UI_H+6;
+    if(g_pose_mode&&g_nrk){ ui_pill_c(R,lx,cy,NULL,g_rk[g_ksel].step?"key: snap":"key: linear",g_rk[g_ksel].step,(Col){235,170,90},&g_rg_interp,mx,my); tip(g_rg_interp,mx,my,"This keyframe's interpolation: linear = smooth ease into the next key; snap = hold this pose, then jump at the next key"); cy+=UI_H+6; }
+    else g_rg_interp=(SDL_Rect){0,0,0,0};
     if(!g_pose_mode){
         const char*ax[3]={"x","y","z"}; float*pv[3]={&s->pivot.x,&s->pivot.y,&s->pivot.z};
         text(R,"PIVOT (joint)",lx,cy,1,C_DIM,C_PANEL); cy+=14;
@@ -3753,6 +3780,7 @@ static int rig_down(int mx,int my){
     if(HITR(g_rg_texassign)){ fp_open(5); return 1; }                         /* pick/import a PNG -> sidecar */
     if(g_rg_texclear.w&&HITR(g_rg_texclear)){ mesh_tex_clear(); return 1; }
     if(HITR(g_rg_pose)){ g_pose_mode=!g_pose_mode; if(g_pose_mode&&!g_nrk){ g_ksel=rig_key_insert(0); g_scrub_t=0; } return 1; }
+    if(g_rg_interp.w&&HITR(g_rg_interp)){ if(g_nrk)g_rk[g_ksel].step=!g_rk[g_ksel].step; return 1; }   /* toggle this key's snap/linear interp */
     /* manipulator: grab a translate handle, or (pose mode) a rotate ring */
     for(int a=0;a<3;a++){ int dx=mx-g_gz_ax[a].x,dy=my-g_gz_ax[a].y; if(dx*dx+dy*dy<=49){ g_gz_drag=a; g_lx=mx; g_ly=my; return 1; } }
     if(g_pose_mode&&g_nrk) for(int a=0;a<3;a++) for(int sg=0;sg<GZ_RING;sg++){ int dx=mx-g_gz_ring[a][sg].x,dy=my-g_gz_ring[a][sg].y;
@@ -3775,6 +3803,7 @@ static int rig_down(int mx,int my){
     #undef HITR
 }
 static void rig_save(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
+    rig_keys_save();   /* persist the editable keyframe sidecar alongside the rig */
     if(!g_rig_obj[0]){   /* live model from g_obj: push the rig-tab's pivot/parent edits back into the model, then use the SAME canonical bakers as the Mesh editor (one set of scene.* files, no stray duplicate) */
         int n=g_nrp<g_nobj?g_nrp:g_nobj;
         for(int p=0;p<n;p++){ g_obj[p].parent=g_rp[p].parent; g_obj[p].pivot=g_rp[p].pivot; }
@@ -3795,6 +3824,7 @@ static RQ rq_mul(RQ a,RQ b){ return (RQ){a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y, a.w*b.
 static RQ rq_eul(float rx,float ry,float rz){ return rq_mul(rq_mul(rq_axis(0,0,1,rz),rq_axis(0,1,0,ry)),rq_axis(1,0,0,rx)); }   /* matches mote_quat_euler */
 static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
     if(g_nrk<1){ snprintf(g_status,sizeof g_status,"add keyframes (+Key) before baking a clip"); return; }
+    rig_keys_save();   /* keep the editable source in sync with what we bake */
     char base[40]; if(!g_rig_obj[0])snprintf(base,sizeof base,"%.36s",g_model_name);   /* live model -> match <name>_rig.h */
     else { const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; snprintf(base,sizeof base,"%.30s",b); char*d=strrchr(base,'.'); if(d)*d=0; }
     { char san[40]; emesh_sanitize(base,san,sizeof san); snprintf(base,sizeof base,"%s",san); }
@@ -3809,7 +3839,7 @@ static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g
     for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
         fprintf(f,"static const MoteModelKey %s_%s_k[%d] = {\n",base,pn,g_nrk);
         for(int k=0;k<g_nrk;k++){ RQ q=rq_eul(g_rk[k].erot[p].x,g_rk[k].erot[p].y,g_rk[k].erot[p].z); V3 t=g_rk[k].pos[p];
-            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {%.5ff,%.5ff,%.5ff} },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w,t.x,t.y,t.z); }
+            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {%.5ff,%.5ff,%.5ff}, %d },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w,t.x,t.y,t.z,g_rk[k].step?1:0); }
         fprintf(f,"};\n"); }
     fprintf(f,"static const MoteModelTrack %s_clip_tr[%d] = {\n",base,ntr);
     for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
@@ -3817,6 +3847,38 @@ static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g
     fprintf(f,"};\nstatic const MoteModelClip %s_clip = { \"%s\", %s_clip_tr, %d, %d, %d };\n\n#endif\n",base,base,base,ntr,g_clip_ms,g_clip_loop);
     fclose(f); snprintf(g_status,sizeof g_status,"baked src/%s.anim3d.h (%d keys, %d tracks) \xb7 play &%s_clip",base,g_nrk,ntr,base);
 }
+
+/* ---- editable keyframe sidecar (<model>.anim) ----------------------------------------
+ * The baked <name>.anim3d.h is generated OUTPUT (quaternions, not re-parsed). This text
+ * sidecar is the editable SOURCE: clip length/loop + per-key per-part Euler(deg)+pos, so a
+ * clip survives tab switches and project reopens and stays re-editable. Lives next to the
+ * model (disk .obj: <base>.anim; live model: assets/<name>.anim). */
+static int rig_keys_path(char*out,size_t n){
+    if(g_rig_obj[0]){ const char*dot=strrchr(g_rig_obj,'.'); size_t base=dot?(size_t)(dot-g_rig_obj):strlen(g_rig_obj);
+        snprintf(out,n,"%.*s.anim",(int)base,g_rig_obj); return 1; }
+    if(g_sel>=0&&g_model_name[0]){ snprintf(out,n,"%.380s/assets/%.40s.anim",g_games[g_sel].dir,g_model_name); return 1; }
+    return 0; }
+static void rig_keys_save(void){ if(g_sel<0||!g_nrp)return; char ap[440]; if(!rig_keys_path(ap,sizeof ap))return;
+    FILE*f=fopen(ap,"w"); if(!f)return;
+    fprintf(f,"# Mote anim (Studio) - editable keyframes. rot in degrees, pos in model units.\nclip %d %d\n",g_clip_ms,g_clip_loop);
+    for(int k=0;k<g_nrk;k++){ fprintf(f,"key %d %d\n",g_rk[k].t_ms,g_rk[k].step?1:0);
+        for(int p=0;p<g_nrp;p++){ V3 e=g_rk[k].erot[p],t=g_rk[k].pos[p];
+            if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)<1e-6f)continue;   /* omit rest parts; loader zero-fills */
+            fprintf(f,"p %s %.4f %.4f %.4f %.6f %.6f %.6f\n",g_rp[p].name,
+                e.x*57.29578f,e.y*57.29578f,e.z*57.29578f,t.x,t.y,t.z); } }
+    fclose(f); }
+static void rig_keys_load(void){ char ap[440]; if(!rig_keys_path(ap,sizeof ap))return;
+    FILE*f=fopen(ap,"r"); if(!f)return; char ln[256]; int cur=-1,nk=0;
+    while(fgets(ln,sizeof ln,f)){ if(ln[0]=='#')continue;
+        if(!strncmp(ln,"clip ",5)){ int d,l; if(sscanf(ln+5,"%d %d",&d,&l)==2){ g_clip_ms=d<100?100:(d>10000?10000:d); g_clip_loop=((l%3)+3)%3; } }
+        else if(!strncmp(ln,"key ",4)){ int t=0,st=0; if(sscanf(ln+4,"%d %d",&t,&st)>=1&&nk<RIG_MAXK){ cur=nk++; g_rk[cur].t_ms=t; g_rk[cur].step=st?1:0;
+            for(int p=0;p<RIG_MAXP;p++){ g_rk[cur].erot[p]=(V3){0,0,0}; g_rk[cur].pos[p]=(V3){0,0,0}; } } else cur=-1; }
+        else if(ln[0]=='p'&&ln[1]==' '&&cur>=0){ char nm[28]; V3 e,t;
+            if(sscanf(ln+2,"%27s %f %f %f %f %f %f",nm,&e.x,&e.y,&e.z,&t.x,&t.y,&t.z)==7){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm)){p=i;break;}
+                if(p>=0){ g_rk[cur].erot[p]=(V3){e.x/57.29578f,e.y/57.29578f,e.z/57.29578f}; g_rk[cur].pos[p]=t; } } } }
+    fclose(f);
+    if(nk<1){ nk=1; g_rk[0].t_ms=0; g_rk[0].step=0; for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; } }
+    g_nrk=nk; g_ksel=0; g_scrub_t=0; rig_key_clamp(); }
 
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
@@ -7109,7 +7171,7 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH)eobj_persist(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH)eobj_persist(); if(g_tab==TAB_RIG&&i!=TAB_RIG&&g_nrp)rig_keys_save(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
@@ -7166,10 +7228,12 @@ int main(int argc,char**argv){
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_RIG&&g_gz_drag>=0){   /* manipulator drag */
                     if(g_gz_drag<3){ int a=g_gz_drag; float Sx=(float)(g_gz_ax[a].x-g_gz_o.x),Sy=(float)(g_gz_ax[a].y-g_gz_o.y), len2=Sx*Sx+Sy*Sy;
                         if(len2>=1.0f){ float dmx=(float)(e.motion.x-g_lx),dmy=(float)(e.motion.y-g_ly), dalong=(dmx*Sx+dmy*Sy)*g_gz_L/len2;
-                            if(!g_pose_mode) ((float*)&g_rp[g_rsel].pivot)[a]+=dalong; else if(g_nrk) ((float*)&g_rk[g_ksel].pos[g_rsel])[a]+=dalong; }
+                            if(!g_pose_mode) ((float*)&g_rp[g_rsel].pivot)[a]+=dalong; else if(g_nrk){ ((float*)&g_rk[g_ksel].pos[g_rsel])[a]+=dalong; g_scrub_t=(float)g_rk[g_ksel].t_ms; } }
                         g_lx=e.motion.x; g_ly=e.motion.y; }
                     else if(g_pose_mode&&g_nrk){ int a=g_gz_drag-3; float ang=atan2f((float)(e.motion.y-g_gz_o.y),(float)(e.motion.x-g_gz_o.x)), d=ang-g_gz_ang;
-                        while(d>3.14159265f)d-=6.2831853f; while(d<-3.14159265f)d+=6.2831853f; ((float*)&g_rk[g_ksel].erot[g_rsel])[a]+=d; g_gz_ang=ang; } }
+                        while(d>3.14159265f)d-=6.2831853f; while(d<-3.14159265f)d+=6.2831853f;
+                        d *= (g_gz_az[a]>=0.0f? -1.0f : 1.0f);   /* axis toward camera => screen-CW is a NEGATIVE turn about it: keeps the part following the mouse either way */
+                        ((float*)&g_rk[g_ksel].erot[g_rsel])[a]+=d; g_gz_ang=ang; g_scrub_t=(float)g_rk[g_ksel].t_ms; } }
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_MMASK))&&g_tab==TAB_RIG&&g_rdrag){ g_ryaw-=(e.motion.x-g_lx)*0.01f; g_rpitch+=(e.motion.y-g_ly)*0.01f; g_lx=e.motion.x; g_ly=e.motion.y; }
                 else if((e.motion.state&SDL_BUTTON_LMASK)&&g_tab==TAB_AUDIO)audio_drag(e.motion.x);
                 else if((e.motion.state&(SDL_BUTTON_LMASK|SDL_BUTTON_RMASK))&&g_tab==TAB_TILES)tiles_drag(e.motion.x,e.motion.y);

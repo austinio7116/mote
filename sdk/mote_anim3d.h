@@ -105,6 +105,9 @@ typedef struct {
     uint16_t t_ms;                /* time within the clip */
     MoteQuat rot;                 /* local rotation about the part's pivot */
     Vec3     pos;                 /* local translation (model units) */
+    uint8_t  step;                /* 1 = HOLD this key's pose until the next key (snap, no
+                                   * interpolation); 0 = smooth-interpolate to the next key.
+                                   * Trailing field: old baked clips omit it => 0 => linear. */
 } MoteModelKey;
 
 typedef struct {
@@ -168,6 +171,7 @@ static inline void mote__rig_sample(const MoteModelTrack *tr, uint32_t t_ms, Mot
     if (t_ms >= last->t_ms) { *rot = last->rot; *pos = last->pos; return; }
     int i = 0; while (i + 1 < tr->nkeys && tr->keys[i + 1].t_ms <= t_ms) i++;
     const MoteModelKey *a = &tr->keys[i], *b = &tr->keys[i + 1];
+    if (a->step) { *rot = a->rot; *pos = a->pos; return; }   /* snap: hold until next key */
     float span = (float)(b->t_ms - a->t_ms);
     float f = span > 0 ? (float)(t_ms - a->t_ms) / span : 0.0f;
     *rot = mote_quat_nlerp(a->rot, b->rot, f);

@@ -14,9 +14,20 @@ You never hand-write transforms. The workflow is:
    pivots/hierarchy with a 3-axis manipulator; `obj2rig` bakes it to a `MoteRig`.
 
 2. **Animate on a timeline.** In the Rig tab you scrub a timeline, pose parts (drag the
-   rotate rings / translate handles, or type values), and drop keyframes. **Bake anim3d**
-   writes a `<name>.anim3d.h` — a `const MoteModelClip` (per-part rotation + translation
-   keyframe tracks) that lives in flash and costs no RAM.
+   rotate rings / translate handles, or type values), and drop keyframes. Each keyframe is
+   **linear** (smooth ease into the next key) or **snap** (hold this pose, then jump at the
+   next key) — toggle it with the **key: linear / key: snap** pill; snap keys show as squares
+   on the timeline, linear as diamonds. **Bake anim3d** writes a `<name>.anim3d.h` — a
+   `const MoteModelClip` (per-part rotation + translation keyframe tracks) that lives in
+   flash and costs no RAM.
+
+   The manipulator gizmo aligns to each part's **parent frame**, so dragging a handle always
+   moves/rotates the part the way the handle points — even for parts that hang off a rotated
+   parent. Your keyframes are saved to an editable `<model>.anim` sidecar (next to the model)
+   on Save/Bake and when you leave the tab, and reload when you reopen — so a clip survives
+   tab switches and reopens. One clip per model: to ship several animations for one rig (walk,
+   fire, idle…), bake each and keep the generated `.anim3d.h` headers, or hand-author extra
+   `MoteModelClip`s over the same `MoteRig` (as the tanks example does for its recoil clip).
 
 3. **Play it — ~3 lines.** Include the baked header and drive a player:
 
