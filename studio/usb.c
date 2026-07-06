@@ -101,6 +101,23 @@ int mote_dev_list(mote_log_fn log){ shandle h=ser_open(); if(h==SBAD){ log("no M
     for(;;){ int l=ser_readline(h,r,sizeof r,1500); if(l<=0||!strcmp(r,"OK"))break; if(!strncmp(r,"ERR",3)){ log(r); break; } log(r); any++; }
     ser_close(h); if(!any)log("(no games installed)"); return 0; }
 
+int mote_dev_catalog(MoteCatEntry *out,int max,int *dev_abi){
+    shandle h=ser_open(); if(h==SBAD)return -1;
+    if(dev_abi){ *dev_abi=0;
+        ser_write(h,"PING\n",5); char pr[128]; ser_readline(h,pr,sizeof pr,1500);
+        /* "MOTE <proto> [ABI <n>]" — parse the ABI token if the firmware reports it */
+        char *a=strstr(pr,"ABI "); if(a) *dev_abi=atoi(a+4); }
+    ser_write(h,"LIST\n",5); char r[128]; int n=0;
+    for(;;){ int l=ser_readline(h,r,sizeof r,1500); if(l<=0||!strcmp(r,"OK")||!strncmp(r,"ERR",3))break;
+        if(n>=max)continue;
+        /* line: "<name>[.mote] [version] [abi]" — split on whitespace */
+        char nm[64]="",ver[16]="0"; sscanf(r,"%63s %15s",nm,ver);
+        char *dot=strstr(nm,".mote"); if(dot)*dot=0;
+        snprintf(out[n].name,sizeof out[n].name,"%s",nm);
+        snprintf(out[n].version,sizeof out[n].version,"%s",ver[0]?ver:"0");
+        n++; }
+    ser_close(h); return n; }
+
 int mote_dev_push(const char *path,const char *name,int launch,mote_log_fn log){
     FILE *f=fopen(path,"rb"); if(!f){ log("push: built .mote not found (build first)"); return -1; }
     fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET); unsigned char *data=malloc(sz?sz:1);

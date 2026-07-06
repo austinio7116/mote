@@ -15,6 +15,13 @@ typedef void (*mote_log_fn)(const char *line);   /* sink for output lines */
 int  mote_dev_present(void);                                  /* 1 if a board is found */
 int  mote_dev_ping(mote_log_fn log);
 int  mote_dev_list(mote_log_fn log);
+
+/* Read the device catalog for the gallery diff: each installed game's name
+ * (.mote basename, no extension) and version ("0" if the game predates ABI v46).
+ * *dev_abi (if non-NULL) gets the device engine's ABI, or 0 if unknown.
+ * Returns the game count, or -1 if no device. Does NOT log. */
+typedef struct { char name[48]; char version[16]; } MoteCatEntry;
+int  mote_dev_catalog(MoteCatEntry *out, int max, int *dev_abi);
 int  mote_dev_push(const char *mote_path, const char *name, int launch, mote_log_fn log);
 int  mote_dev_wipe(mote_log_fn log);
 int  mote_dev_logs(int seconds, mote_log_fn log, volatile int *stop);   /* stream until seconds elapse or *stop */

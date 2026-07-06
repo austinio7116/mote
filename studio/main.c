@@ -10,6 +10,7 @@
  * Run from the repo root: `mote studio`.
  */
 #include "mote_os.h"
+#include "gallery.h"
 #include "mote_launcher.h"
 #include "mote_platform.h"
 #include "mote_config.h"
@@ -506,8 +507,8 @@ static time_t tree_mtime(const char*dir){ struct stat st; time_t m=0; char p[320
 static void tree_refresh(void){ if(g_sel<0)return; build_tree(g_games[g_sel].dir); g_treewatch=tree_mtime(g_games[g_sel].dir); }
 
 /* ================= bottom dock + state ================= */
-enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_SHEET, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_FONT, TAB_DEVICE, TAB_CONSOLE, TAB_N };
-static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","SHEET","MESH","RIG","AUDIO","FONT","DEVICE","CONSOLE" };
+enum { TAB_PIXEL, TAB_TEXTURE, TAB_CODE, TAB_TILES, TAB_ANIM, TAB_SHEET, TAB_MESH, TAB_RIG, TAB_AUDIO, TAB_FONT, TAB_DEVICE, TAB_GALLERY, TAB_CONSOLE, TAB_N };
+static const char *TAB_L[TAB_N]={ "PIXEL ART","TEXTURE","CODE","TILES","ANIM","SHEET","MESH","RIG","AUDIO","FONT","DEVICE","GALLERY","CONSOLE" };
 static int g_tab=TAB_CONSOLE;
 /* Open the launcher icon in the Pixel Art editor (create a blank 60x60 if none).
  * Save then writes <root>/icon.png + bakes src/icon.h — no raw header, no CLI.
@@ -5285,6 +5286,150 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
     return 0;
 }
 
+/* ============================ GALLERY tab ================================
+ * Browse / install / update games from the online gallery (games.json on
+ * GitHub Pages). All network IO is on worker threads so a slow Pages fetch
+ * never blocks the UI — the panel shows a spinner while loading, an error +
+ * Retry on failure, and fills each card's thumbnail in as it arrives. */
+static Gallery      g_gal;
+static volatile int g_gal_state;      /* 0 never · 1 loading · 2 loaded · 3 error */
+static volatile int g_gal_busy;       /* a refresh or install is in flight */
+static volatile int g_gal_thumbs;     /* thumbnail loader running */
+static char         g_gal_inst_id[GAL_IDLEN];   /* id being installed, or "" */
+static int          g_gal_scroll;
+static MoteCatEntry g_cat[GAL_MAX]; static int g_ncat, g_dev_abi;
+static SDL_Rect     g_gal_refresh_r, g_gal_retry_r, g_gal_act[GAL_MAX];
+static SDL_Texture *g_gal_tex[GAL_MAX];
+
+static void gal_base(const char *file,char *out,int n){   /* "games/Foo.mote" -> "Foo" */
+    const char *s=strrchr(file,'/'); s=s?s+1:file; snprintf(out,n,"%s",s);
+    char *d=strstr(out,".mote"); if(d)*d=0;
+}
+static const char *gal_dev_ver(const char *id,void *ctx){ (void)ctx;
+    for(int i=0;i<g_gal.n;i++) if(!strcmp(g_gal.g[i].id,id)){
+        char b[64]; gal_base(g_gal.g[i].file,b,sizeof b);
+        for(int j=0;j<g_ncat;j++) if(!strcmp(g_cat[j].name,b)) return g_cat[j].version;
+        return NULL; }
+    return NULL;
+}
+static int gal_thumb_thread(void*a){ (void)a;
+    for(int i=0;i<g_gal.n;i++) gallery_load_thumb(&g_gal,&g_gal.g[i]);
+    g_gal_thumbs=0; return 0;
+}
+static int gal_refresh_thread(void*a){ (void)a;
+    g_gal_state=1;
+    int rc=gallery_refresh(&g_gal);                    /* slow HTTPS fetch — no port held */
+    if(rc==0){
+        proxy_yield(); g_ncat=mote_dev_catalog(g_cat,GAL_MAX,&g_dev_abi); proxy_resume();
+        if(g_ncat<0){ g_ncat=0; g_dev_abi=0; }
+        gallery_diff(&g_gal,g_dev_abi,gal_dev_ver,NULL);
+        g_gal_state=2;
+        if(!g_gal_thumbs){ g_gal_thumbs=1; SDL_CreateThread(gal_thumb_thread,"galthumb",NULL); }
+    } else g_gal_state=3;
+    g_gal_busy=0; return 0;
+}
+static void gal_refresh(void){ if(g_gal_busy)return;
+    if(!g_gal.base[0]){ const char*b=getenv("MOTE_GALLERY_BASE");
+        gallery_set_base(&g_gal, (b&&*b)?b:"https://austinio7116.github.io/mote"); }
+    g_gal_busy=1; SDL_CreateThread(gal_refresh_thread,"galref",NULL); }
+static int gal_install_thread(void*a){ int idx=(int)(intptr_t)a; GalGame *g=&g_gal.g[idx];
+    char path[512],base[64],fn[80],m[160];
+    snprintf(m,sizeof m,"$ gallery: install %s v%s",g->name,g->version); log_add(""); log_add(m);
+    if(gallery_ensure_mote(&g_gal,g,path,sizeof path)!=0){ log_add(g_gal.err); g_gal_inst_id[0]=0; g_gal_busy=0; return 0; }
+    gal_base(g->file,base,sizeof base); snprintf(fn,sizeof fn,"%s.mote",base);
+    proxy_yield();
+    mote_dev_push(path,fn,0,log_add);
+    g_ncat=mote_dev_catalog(g_cat,GAL_MAX,&g_dev_abi); if(g_ncat<0)g_ncat=0;
+    proxy_resume();
+    gallery_diff(&g_gal,g_dev_abi,gal_dev_ver,NULL);
+    g_gal_inst_id[0]=0; g_gal_busy=0; return 0;
+}
+static void gal_install(int idx){ if(g_gal_busy||idx<0||idx>=g_gal.n)return; g_gal_busy=1;
+    snprintf(g_gal_inst_id,sizeof g_gal_inst_id,"%s",g_gal.g[idx].id);
+    SDL_CreateThread(gal_install_thread,"galinst",(void*)(intptr_t)idx); }
+
+static void gal_spinner(SDL_Renderer*R,int cx,int cy,int rad){
+    unsigned t=SDL_GetTicks()/90; for(int i=0;i<8;i++){ float an=i*6.2832f/8;
+        int x=cx+(int)(rad*cosf(an)), y=cy+(int)(rad*sinf(an));
+        int b=40+((int)((i - t)&7))*26; if(b>255)b=255;
+        Col c={(Uint8)(b*0.5f),(Uint8)(b*0.85f),(Uint8)b}; plain(R,x-2,y-2,4,4,c); }
+}
+static void draw_gallery(SDL_Renderer*R,int ox,int oy,int w,int h){
+    int mx,my; SDL_GetMouseState(&mx,&my);
+    text(R,"GALLERY  (install & update games from austinio7116.github.io/mote)",ox,oy,1,C_TITLE,C_DOCK);
+    /* refresh button, right-aligned */
+    { const char*rl="Refresh"; int bw=textw(R,rl,1)+40; g_gal_refresh_r=(SDL_Rect){ox+w-bw,oy-4,bw,24};
+      rrect(R,g_gal_refresh_r.x,g_gal_refresh_r.y,bw,24,4,hit(mx,my,g_gal_refresh_r.x,g_gal_refresh_r.y,bw,24)?C_BTNHI:C_BTN);
+      icon(R,IC_FOLDER,g_gal_refresh_r.x+10,g_gal_refresh_r.y+5,14,C_TXT); text(R,rl,g_gal_refresh_r.x+28,oy+2,1,C_TXT,C_BTN); }
+    if(g_gal_state==0 && !g_gal_busy) gal_refresh();     /* auto-load on first view */
+    /* status line */
+    char st[200];
+    if(g_gal_state==2){ int up=0; for(int i=0;i<g_gal.n;i++) if(g_gal.g[i].state==GAL_UPDATE)up++;
+        snprintf(st,sizeof st,"%d games%s%s   device ABI %d%s",g_gal.n,
+                 up?"   ":"",up?(up==1?"1 update available":""):"", g_dev_abi,
+                 g_ncat?"":"   (dock a device to see what's installed)");
+        if(up>1) snprintf(st,sizeof st,"%d games   %d updates available   device ABI %d",g_gal.n,up,g_dev_abi);
+        text(R,st,ox,oy+18,1,C_DIM,C_DOCK); }
+    int top=oy+40, y=top-g_gal_scroll;
+    if(g_gal_state<=1){ gal_spinner(R,ox+w/2,top+70,16);
+        text(R,"Loading gallery...",ox+w/2-textw(R,"Loading gallery...",1)/2,top+96,1,C_DIM,C_DOCK); return; }
+    if(g_gal_state==3){
+        text(R,"Couldn't reach the gallery.",ox,top+30,1,C_TITLE,C_DOCK);
+        text(R,g_gal.err,ox,top+50,1,C_DIM,C_DOCK);
+        const char*rl="Retry"; int bw=textw(R,rl,1)+30; g_gal_retry_r=(SDL_Rect){ox,top+72,bw,26};
+        rrect(R,ox,top+72,bw,26,4,hit(mx,my,ox,top+72,bw,26)?C_BTNHI:C_ACC); text(R,rl,ox+15,top+79,1,C_TXT,C_ACC); return; }
+    g_gal_retry_r=(SDL_Rect){0,0,0,0};
+    /* --- card grid --- */
+    const int CW=336, CH=96, GAP=12; int cols=(w+GAP)/(CW+GAP); if(cols<1)cols=1;
+    int gx0=ox+(w-(cols*CW+(cols-1)*GAP))/2;
+    SDL_Rect clip={ox,top,w,h-(top-oy)}; SDL_RenderSetClipRect(R,&clip);
+    for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i];
+        int cx=gx0+(i%cols)*(CW+GAP), cy=y+(i/cols)*(CH+GAP);
+        g_gal_act[i]=(SDL_Rect){0,0,0,0};
+        if(cy>top+clip.h || cy+CH<top) continue;         /* offscreen: skip (still lazy-drawn) */
+        rrect(R,cx,cy,CW,CH,6,(Col){26,29,38});
+        /* thumbnail (create texture lazily on the main thread) */
+        int tw=104,th=72,tx=cx+10,ty=cy+12;
+        if(!g_gal_tex[i] && g->thumb_px){ g_gal_tex[i]=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STATIC,g->thumb_w,g->thumb_h);
+            if(g_gal_tex[i]) SDL_UpdateTexture(g_gal_tex[i],NULL,g->thumb_px,g->thumb_w*2); }
+        if(g_gal_tex[i]){ SDL_Rect dr={tx,ty,tw,th}; SDL_RenderCopy(R,g_gal_tex[i],NULL,&dr); }
+        else { rrect(R,tx,ty,tw,th,4,(Col){18,20,27}); gal_spinner(R,tx+tw/2,ty+th/2,9); }
+        /* text block */
+        int rxx=tx+tw+12;
+        text(R,g->name,rxx,cy+12,1,C_TITLE,(Col){26,29,38});
+        char sub[80]; snprintf(sub,sizeof sub,"v%s  ·  %s",g->version,g->author);
+        text(R,sub,rxx,cy+30,1,C_DIM,(Col){26,29,38});
+        if(g->multiplayer){ int bw=textw(R,"2P",1)+10; rrect(R,cx+CW-bw-10,cy+10,bw,15,3,(Col){40,70,60}); text(R,"2P",cx+CW-bw-6,cy+12,1,(Col){140,240,180},(Col){40,70,60}); }
+        /* tag (clipped to card) */
+        text(R,g->tag,rxx,cy+48,1,(Col){150,160,180},(Col){26,29,38});
+        /* action button / state */
+        const char *al; Col ac; int act=0;
+        int installing=(g_gal_inst_id[0]&&!strcmp(g_gal_inst_id,g->id));
+        if(installing){ al="Installing..."; ac=(Col){60,66,84}; }
+        else switch(g->state){
+            case GAL_UPDATE:       al="Update"; ac=C_ACC; act=1; break;
+            case GAL_INSTALLED:    al="Installed"; ac=(Col){40,60,45}; break;
+            case GAL_INCOMPATIBLE: al="Needs firmware"; ac=(Col){70,45,45}; break;
+            default:               al="Install"; ac=C_BTN; act=1; break;
+        }
+        int bw=textw(R,al,1)+24, bx=cx+CW-bw-10, by=cy+CH-30;
+        int hot=act&&!g_gal_busy&&hit(mx,my,bx,by,bw,24);
+        rrect(R,bx,by,bw,24,4,hot?C_BTNHI:ac);
+        text(R,al,bx+12,by+7,1,(g->state==GAL_INSTALLED||g->state==GAL_INCOMPATIBLE||installing)?C_DIM:C_TXT,ac);
+        if(g->state==GAL_UPDATE && !installing){ char uv[24]; snprintf(uv,sizeof uv,"%s>%s",g->installed_version,g->version);
+            text(R,uv,bx-textw(R,uv,1)-10,by+7,1,(Col){150,160,180},(Col){26,29,38}); }
+        if(act&&!g_gal_busy) g_gal_act[i]=(SDL_Rect){bx,by,bw,24};
+    }
+    SDL_RenderSetClipRect(R,NULL);
+}
+static void gal_click(int mx,int my){
+    if(hit(mx,my,g_gal_refresh_r.x,g_gal_refresh_r.y,g_gal_refresh_r.w,g_gal_refresh_r.h)){ gal_refresh(); return; }
+    if(g_gal_state==3 && hit(mx,my,g_gal_retry_r.x,g_gal_retry_r.y,g_gal_retry_r.w,g_gal_retry_r.h)){ gal_refresh(); return; }
+    if(g_gal_state==2 && !g_gal_busy) for(int i=0;i<g_gal.n;i++)
+        if(hit(mx,my,g_gal_act[i].x,g_gal_act[i].y,g_gal_act[i].w,g_gal_act[i].h)){
+            int s=g_gal.g[i].state; if(s==GAL_NONE||s==GAL_UPDATE) gal_install(i); return; }
+}
+
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
     text(R,"DEVICE  (USB-CDC, VID:PID CAFE:4D01)",ox,oy,1,C_TITLE,C_DOCK);
     int x=ox,y=oy+24; int ic[6]={IC_PLAY,IC_FOLDER,IC_UPLOAD,IC_PLAY,IC_CODE,IC_ERASER};
@@ -6072,6 +6217,7 @@ static void draw_bottom(SDL_Renderer*R){ plain(R,0,BOT_Y,WIN_W,BOTTOM_H,C_DOCK);
     if(g_tab==TAB_AUDIO){ draw_audio(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_FONT){ draw_font(R,8,cy-4,WIN_W-16,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_DEVICE){ draw_devpanel(R,12,cy,WIN_W-24); return; }
+    if(g_tab==TAB_GALLERY){ draw_gallery(R,12,cy,WIN_W-24,WIN_H-cy-8); return; }
     if(g_tab==TAB_TILES){ draw_tiles(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_ANIM){ draw_anim(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
     if(g_tab==TAB_SHEET){ draw_sheet(R,12,cy-4,WIN_W-24,WIN_H-(cy-4)-8); return; }
@@ -6517,6 +6663,8 @@ int main(int argc,char**argv){
     if(getenv("MOTE_STUDIO_PAINT")){ snprintf(g_model_name,sizeof g_model_name,"%.36s",getenv("MOTE_STUDIO_PAINT"));   /* open <model>.mmesh in texture-paint mode */
         mmesh_load(); if(g_nobj){ g_edit_mode=1; eobj_fit(); eobj_paint_enter(); g_tab=TAB_MESH; } }
     if(getenv("MOTE_STUDIO_TAB")) g_tab=atoi(getenv("MOTE_STUDIO_TAB"));
+    if(shot && g_tab==TAB_GALLERY){ g_picker=0; gal_refresh();   /* capture: dismiss the startup project picker, preload the grid + thumbs */
+        for(int i=0;i<250 && (g_gal_state<2 || g_gal_thumbs); i++) SDL_Delay(30); SDL_Delay(120); }
     if(getenv("MOTE_STUDIO_MESH")){ load_mesh(getenv("MOTE_STUDIO_MESH")); g_tab=TAB_MESH; }   /* capture/test: preview an .obj/.stl in the Mesh importer */
     if(getenv("MOTE_STUDIO_MESHSEC")) g_me_closed=(uint32_t)strtoul(getenv("MOTE_STUDIO_MESHSEC"),0,0);   /* capture/test: collapse MODEL EDITOR sections (bitmask) */
     if(getenv("MOTE_STUDIO_MESHTAB")) g_me_cardtab=atoi(getenv("MOTE_STUDIO_MESHTAB"));   /* capture/test: 1 = the Objects part-list tab */
@@ -6721,6 +6869,7 @@ int main(int argc,char**argv){
             if(g_picker){ int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
                 if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; }
+            if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_GALLERY){ g_gal_scroll-=e.wheel.y*48; if(g_gal_scroll<0)g_gal_scroll=0; continue; }
                 else if(e.type==SDL_MOUSEBUTTONUP)g_pdrag=0;
                 else if(e.type==SDL_MOUSEMOTION&&g_pdrag){ int maxs=g_nprow-rows; if(maxs<1)maxs=1;   /* drag the scrollbar */
                     g_pscroll=(e.motion.y-listy)*maxs/(listh>1?listh:1); if(g_pscroll<0)g_pscroll=0; if(g_pscroll>maxs)g_pscroll=maxs; }
@@ -6855,7 +7004,7 @@ int main(int argc,char**argv){
                     else if(g_tab==TAB_MESH){ if(g_edit_mode&&g_op.op!=OP_NONE&&e.button.button==SDL_BUTTON_RIGHT)op_cancel();   /* RMB cancels a modal op */
                             else if(e.button.button==SDL_BUTTON_MIDDLE){ g_mdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
                             else if(!mesh_down(mx,my)){ g_mdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_RIG){ if(e.button.button==SDL_BUTTON_MIDDLE){ g_rdrag=1; g_lx=mx; g_ly=my; }   /* MMB always orbits */
-                                else if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my);
+                                else if(!rig_down(mx,my)){ g_rdrag=1; g_lx=mx; g_ly=my; } } else if(g_tab==TAB_AUDIO)audio_down(mx,my); else if(g_tab==TAB_FONT){ if(e.button.button==SDL_BUTTON_RIGHT)font_rdown(mx,my); else font_down(mx,my); } else if(g_tab==TAB_DEVICE)dev_click(mx,my); else if(g_tab==TAB_GALLERY)gal_click(mx,my);
                     else if(g_tab==TAB_TILES){ if(e.button.button==SDL_BUTTON_RIGHT)tiles_rdown(mx,my); else tiles_down(mx,my); }
                     else if(g_tab==TAB_ANIM)anim_down(mx,my);
                     else if(g_tab==TAB_SHEET)sheet_down(mx,my);
