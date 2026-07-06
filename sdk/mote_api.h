@@ -33,7 +33,14 @@
 #include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 45u  /* v45: engine-owned link health — the OS keepalives the
+#define MOTE_ABI_VERSION 46u  /* v46: per-game VERSION string in the module header
+                               * (MoteModuleHeader.version_vaddr, set by MOTE_GAME_VERSION).
+                               * The launcher/gallery read the installed version straight
+                               * from flash (like the icon) to diff against the online
+                               * gallery. No jump-table change — a header append only, so
+                               * v46 firmware still runs v45 games (they just report no
+                               * embedded version). Read version_vaddr only when abi>=46.
+                               * v45: engine-owned link health — the OS keepalives the
                                * pipe itself and strips them on receipt, so net_health()
                                * reports transport truth (OK/STALLED/LOST) and the OS
                                * draws the stall banner. Games swap their own hard
@@ -578,5 +585,18 @@ const MoteGameVtbl *mote_game_register(const MoteApi *api);
 #define MOTE_GAME_META(NAME, AUTHOR)                                          \
     const char *const mote_game_name   = NAME;                                \
     const char *const mote_game_author = AUTHOR
+
+/* Optional per-game VERSION (semver string, e.g. "1.2.0"). Put it at file scope
+ * in game.c alongside MOTE_GAME_META:
+ *     MOTE_GAME_VERSION("1.2.0");
+ * It is emitted as a plain char[] in .rodata so the launcher/gallery can read the
+ * INSTALLED version straight from the module's flash image (via
+ * MoteModuleHeader.version_vaddr) without running the game — that's how "update
+ * available" is decided against the online gallery. Tools also text-scan this from
+ * game.c for the gallery manifest. A game that omits it reports version "0"
+ * (unversioned) and always shows an update once the gallery copy carries a real
+ * version. `used` keeps it even though nothing references it in C. */
+#define MOTE_GAME_VERSION(VER)                                                 \
+    const char mote_game_version[] __attribute__((used)) = VER
 
 #endif /* MOTE_API_H */

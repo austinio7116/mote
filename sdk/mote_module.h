@@ -49,6 +49,12 @@ typedef struct {
     uint32_t ramtext_load;     /* flash/XIP source of the .ramtext image */
     uint32_t ramtext_start;    /* RAM dest start */
     uint32_t ramtext_end;      /* RAM dest end */
+    /* ABI v46: per-game VERSION string. The linked (VADDR-relative) address of
+     * `mote_game_version[]` (a semver C string set by MOTE_GAME_VERSION), or 0 if
+     * the game ships none. Read straight from flash like the icon:
+     * XIP_BASE + image_off + (version_vaddr - MOTE_MODULE_VADDR), null-terminated.
+     * Only valid when abi_version >= 46; older modules end at ramtext_end. */
+    uint32_t version_vaddr;
 } MoteModuleHeader;
 
 /* A game supplies a 60x60 RGB565 launcher icon by `#include "icon.h"` (baked by
@@ -66,6 +72,7 @@ typedef struct {
                 __mote_bss_start[], __mote_bss_end[],                           \
                 __mote_ramtext_load[], __mote_ramtext_start[], __mote_ramtext_end[]; \
     extern const uint8_t mote_game_icon_data[] __attribute__((weak));          \
+    extern const char mote_game_version[] __attribute__((weak));               \
     __attribute__((section(".mote_header"), used))                            \
     const MoteModuleHeader mote_module_header = {                                         \
         .magic = MOTE_MODULE_MAGIC,                                                \
@@ -80,6 +87,7 @@ typedef struct {
         .ramtext_load  = (uint32_t)(uintptr_t)__mote_ramtext_load,           \
         .ramtext_start = (uint32_t)(uintptr_t)__mote_ramtext_start,          \
         .ramtext_end   = (uint32_t)(uintptr_t)__mote_ramtext_end,            \
+        .version_vaddr = (uint32_t)(uintptr_t)mote_game_version,              \
     }
 
 #endif /* MOTE_MODULE_H */
