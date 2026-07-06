@@ -96,6 +96,7 @@ if(MOTE_TARGET STREQUAL "host")
         studio/usb.c
         studio/link_net.c
         studio/motecore.c
+        studio/gallery.c
         os/mote_os.c
         os/mote_launcher.c
         os/mote_menu.c
