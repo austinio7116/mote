@@ -19,9 +19,16 @@ typedef void (*MoteCatalogFn)(MoteCatalog *out);
  * into a handoff back to the lobby. Standalone never returns it. */
 #define MOTE_LAUNCHER_QUIT (-2)
 
-/* Returns the selected index, -1 on quit (host window close), or
- * MOTE_LAUNCHER_QUIT (slot build, hold MENU). */
+/* Sentinel: the user pressed RB to open the online GALLERY (docked in Studio).
+ * The lobby handles it by running its gallery screen, then re-entering. */
+#define MOTE_LAUNCHER_GALLERY (-3)
+
+/* Returns the selected index, -1 on quit (host window close),
+ * MOTE_LAUNCHER_QUIT (slot build, hold MENU), or MOTE_LAUNCHER_GALLERY (RB). */
 int mote_launcher_run(MoteCatalogFn rebuild);
+
+/* The launcher's shared framebuffer + font/ui — reused by the lobby gallery screen. */
+uint16_t *mote_launcher_fb(void);
 
 /* The launcher's 128x128 framebuffer — reusable by the OS for boot/panic
  * solid screens (avoids a second dedicated 32KB buffer). */

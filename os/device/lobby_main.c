@@ -16,6 +16,13 @@
 #include "ff.h"
 #include "slot_layout.h"     /* slot enums (THUMBYONE_COMMON_INCLUDE) + THUMBYONE_FAT_OFFSET */
 #include "mote_module.h"     /* MoteModuleHeader — read each .mote's embedded icon */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "mote_usb.h"        /* CDC hooks for the on-device gallery client */
+#include "mote_font.h"
+#include "mote_ui.h"
+#include "mote_input.h"      /* buttons for the gallery screen */
 #include "hardware/regs/addressmap.h"   /* XIP_BASE */
 #include <string.h>
 
@@ -158,6 +165,183 @@ static void rebuild(MoteCatalog *c) {
     f_closedir(&dir);
 }
 
+/* ============================ ON-DEVICE GALLERY =============================
+ * The handheld's own gallery browser. Docked in Mote Studio, it drives the MN1
+ * G-protocol over CDC — Studio fetches from GitHub and streams back the available
+ * games, a thumbnail for the selection, and the verified .mote to install. The
+ * device does its own installed-vs-available diff and writes installs in place
+ * through the same journal the USB push uses. Runs while RB is pressed in the
+ * launcher; B returns. */
+#define GG_MAX 40
+static struct { char fname[40]; char name[36]; char ver[16]; int abi, mp, state; } g_gg[GG_MAX];
+static int g_ngg;
+static uint16_t g_gthumb[64*64]; static int g_gthumb_for = -1;
+
+static int gg_vercmp(const char *a, const char *b) {
+    while (*a || *b) { long na=0, nb=0;
+        while (*a>='0'&&*a<='9') na=na*10+(*a++-'0');
+        while (*b>='0'&&*b<='9') nb=nb*10+(*b++-'0');
+        if (na!=nb) return na<nb?-1:1;
+        if (*a=='.') a++;
+        if (*b=='.') b++;
+        if (!*a&&!*b) break;
+        if ((*a&&*a<'0')||(*b&&*b<'0')) break; }
+    return 0;
+}
+static void gg_installed(const char *fname, char *ver, int vn) {
+    ver[0]=0; char path[64]; snprintf(path,sizeof path,"%s/%s",MOTE_DIR,fname);
+    FIL f; if (f_open(&f,path,FA_READ)!=FR_OK) return;
+    MoteModuleHeader h; UINT br;
+    if (f_read(&f,&h,sizeof h,&br)==FR_OK && br==sizeof h && h.magic==MOTE_MODULE_MAGIC) {
+        snprintf(ver,vn,"0");
+        if (h.abi_version>=46 && h.version_vaddr && f_lseek(&f,h.version_vaddr-MOTE_MODULE_VADDR)==FR_OK) {
+            char t[16]; UINT b2;
+            if (f_read(&f,t,sizeof t-1,&b2)==FR_OK && b2>0) { t[b2]=0; int i=0; for(;i<vn-1&&t[i]>' ';i++)ver[i]=t[i]; ver[i]=0; } }
+    }
+    f_close(&f);
+}
+/* read one '\n'-terminated line from CDC (pumping USB); -1 on timeout */
+static int gg_line(char *out, int cap, int tmo_ms) {
+    int n=0; uint64_t t0=mote_plat_micros();
+    for (;;) { mote_usb_cdc_pump(); char c; int r=mote_usb_cdc_recv(&c,1);
+        if (r==1) { if (c=='\n'){ out[n]=0; return n; } if (c!='\r'&&n<cap-1) out[n++]=c; t0=mote_plat_micros(); }
+        else if ((mote_plat_micros()-t0)/1000 > (uint64_t)tmo_ms) return -1; }
+}
+static int gg_read(uint8_t *buf, int len, int tmo_ms) {   /* read up to len bytes */
+    int got=0; uint64_t t0=mote_plat_micros();
+    while (got<len) { mote_usb_cdc_pump(); int r=mote_usb_cdc_recv(buf+got,len-got);
+        if (r>0){ got+=r; t0=mote_plat_micros(); } else if ((mote_plat_micros()-t0)/1000>(uint64_t)tmo_ms) break; }
+    return got;
+}
+static int gg_fetch_manifest(void) {
+    g_ngg=0; g_gthumb_for=-1;
+    mote_usb_cdc_send("MN1 GMANIFEST\n",14);
+    char line[220]; int deadline=0;
+    for (;;) {
+        int l=gg_line(line,sizeof line,4000);
+        if (l<0) { if(++deadline>1) return -1; continue; }
+        if (!strncmp(line,"MN1 GEND",8)) break;
+        if (!strncmp(line,"MN1 GERR",8)) return -1;
+        if (!strncmp(line,"MN1 GAME ",9) && g_ngg<GG_MAX) {
+            int idx,abi,mp; char ver[16], rest[130];
+            if (sscanf(line+9,"%d %d %d %15s %129[^\n]",&idx,&abi,&mp,ver,rest)>=5) {
+                char *bar=strchr(rest,'|'); char *nm=bar?bar+1:rest; if(bar)*bar=0;
+                snprintf(g_gg[g_ngg].fname,sizeof g_gg[0].fname,"%s.mote",rest);
+                snprintf(g_gg[g_ngg].name,sizeof g_gg[0].name,"%s",nm);
+                snprintf(g_gg[g_ngg].ver,sizeof g_gg[0].ver,"%s",ver);
+                g_gg[g_ngg].abi=abi; g_gg[g_ngg].mp=mp;
+                char iv[16]; gg_installed(g_gg[g_ngg].fname,iv,sizeof iv);
+                g_gg[g_ngg].state = !iv[0] ? 0 : (gg_vercmp(iv,ver)<0 ? 2 : 1);   /* 0 new · 1 installed · 2 update */
+                g_ngg++;
+            }
+        }
+    }
+    return 0;
+}
+static void gg_fetch_thumb(int i) {
+    if (i==g_gthumb_for) return;
+    char cmd[24]; snprintf(cmd,sizeof cmd,"MN1 GTHUMB %d\n",i); mote_usb_cdc_send(cmd,(int)strlen(cmd));
+    char line[64];
+    for (int tries=0;tries<4;tries++){ int l=gg_line(line,sizeof line,3000); if(l<0) return;
+        if (!strncmp(line,"MN1 GTHUMB ",11)) { int idx,w,h,len;
+            if (sscanf(line+11,"%d %d %d %d",&idx,&w,&h,&len)==4 && w==64 && h==64) {
+                gg_read((uint8_t*)g_gthumb,len>(int)sizeof g_gthumb?(int)sizeof g_gthumb:len,4000);
+                g_gthumb_for=i; }
+            return; }
+        if (!strncmp(line,"MN1 GERR",8)) return;
+    }
+}
+static int gg_install(int i, uint16_t *fb) {
+    char cmd[24]; snprintf(cmd,sizeof cmd,"MN1 GFETCH %d\n",i); mote_usb_cdc_send(cmd,(int)strlen(cmd));
+    char line[64]; long size=-1;
+    for (int tries=0;tries<4;tries++){ int l=gg_line(line,sizeof line,6000); if(l<0) return -1;
+        if (!strncmp(line,"MN1 GERR",8)) return -1;
+        if (!strncmp(line,"MN1 GDATA ",10)) { size=atol(line+10); break; } }
+    if (size<=0) return -1;
+    char path[64]; snprintf(path,sizeof path,"%s/%s",MOTE_DIR,g_gg[i].fname);
+    { FIL mf; if (f_open(&mf,MOTE_DIR "/.installing",FA_WRITE|FA_CREATE_ALWAYS)==FR_OK){ UINT bw; f_write(&mf,g_gg[i].fname,(UINT)strlen(g_gg[i].fname),&bw); f_close(&mf); } }
+    FIL f; if (f_open(&f,path,FA_WRITE|FA_CREATE_ALWAYS)!=FR_OK){ f_unlink(MOTE_DIR "/.installing"); return -1; }
+    long got=0; uint8_t buf[512]; int lastpct=-1;
+    while (got<size) { int want=(int)(size-got); if(want>(int)sizeof buf)want=sizeof buf;
+        int r=gg_read(buf,want,8000); if(r<=0)break; UINT bw; f_write(&f,buf,(UINT)r,&bw); got+=r;
+        int pct=(int)(got*100/size);
+        if (pct!=lastpct) { lastpct=pct; mote_ui_ground(fb);
+            mote_font_draw(fb,"INSTALLING",34,48,0xFFFF);
+            char pc[8]; snprintf(pc,sizeof pc,"%d%%",pct); mote_font_draw(fb,pc,56,64,0x07FF);
+            int bw2=100*pct/100; for(int y=76;y<82;y++)for(int x=14;x<14+bw2;x++) fb[y*MOTE_FB_W+x]=0x07E0;
+            mote_plat_present(fb); }
+    }
+    f_close(&f);
+    if (got>=size) { f_unlink(MOTE_DIR "/.installing"); return 0; }
+    return -1;   /* incomplete — marker stays; launcher hides the partial file */
+}
+static void gg_draw(uint16_t *fb, int sel, int msg_t, const char *msg) {
+    mote_ui_ground(fb);
+    mote_ui_header(fb, "GALLERY", g_ngg?sel+1:0, g_ngg);
+    if (g_ngg==0) { mote_font_draw(fb,"connecting to studio...",(MOTE_FB_W-mote_font_width("connecting to studio..."))/2,52,0x8410); mote_ui_footer(fb,0); return; }
+    /* selected thumbnail top-right */
+    if (g_gthumb_for==sel) { int ox=MOTE_FB_W-66, oy=16;
+        for(int y=0;y<64;y++)for(int x=0;x<64;x++) fb[(oy+y)*MOTE_FB_W+(ox+x)]=g_gthumb[y*64+x]; }
+    /* a short vertical list centred on sel */
+    int rows=5, top=sel-2; if(top<0)top=0; if(top>g_ngg-rows)top=g_ngg-rows; if(top<0)top=0;
+    for (int r=0;r<rows && top+r<g_ngg;r++){ int gi=top+r; int y=18+r*16; int on=gi==sel;
+        if(on) for(int yy=y-1;yy<y+13;yy++)for(int xx=6;xx<MOTE_FB_W-70;xx++) fb[yy*MOTE_FB_W+xx]=0x1082;
+        uint16_t c = on?0xFFFF:0xACD3;
+        mote_font_draw(fb,g_gg[gi].name,10,y+2,c);
+        const char *tag = g_gg[gi].state==2?"UPD":g_gg[gi].state==1?"OK":"NEW";
+        uint16_t tc = g_gg[gi].state==2?0xFD20:g_gg[gi].state==1?0x5680:0x07FF;
+        mote_font_draw(fb,tag,MOTE_FB_W-90,y+2,tc);
+    }
+    /* footer: version + action */
+    char ft[40]; snprintf(ft,sizeof ft,"v%s  A:%s  B:back",g_gg[sel].ver,
+                          g_gg[sel].state==1?"reinstall":g_gg[sel].state==2?"update":"install");
+    mote_font_draw(fb,ft,6,MOTE_FB_H-12,0x8410);
+    if (msg_t>0) mote_font_draw(fb,msg,6,MOTE_FB_H-24,0x07E0);
+}
+/* The whole gallery screen: owns the CDC for the MN1 G-protocol while active. */
+static void gallery_screen(void) {
+    uint16_t *fb = mote_launcher_fb();
+    mote_usb_gallery_own(1);
+    int sel=0, msg_t=0; char msg[40]={0};
+    /* initial connect + fetch (renders "connecting..." meanwhile) */
+    gg_draw(fb,0,0,""); mote_plat_present(fb);
+    if (gg_fetch_manifest()!=0) {
+        for(int i=0;i<90;i++){ mote_ui_ground(fb);
+            mote_font_draw(fb,"GALLERY",(MOTE_FB_W-mote_font_width("GALLERY"))/2,20,0xFFFF);
+            mote_font_draw(fb,"dock in mote studio",(MOTE_FB_W-mote_font_width("dock in mote studio"))/2,54,0x8410);
+            mote_font_draw(fb,"and enable device relay",(MOTE_FB_W-mote_font_width("and enable device relay"))/2,66,0x8410);
+            mote_font_draw(fb,"B: back",(MOTE_FB_W-mote_font_width("B: back"))/2,92,0xACD3);
+            mote_plat_present(fb);
+            MoteButtons rb; mote_plat_buttons(&rb); if(rb.b) break; }
+        mote_usb_gallery_own(0); return;
+    }
+    MoteInput in; memset(&in,0,sizeof in);
+    { MoteButtons r0; mote_plat_buttons(&r0); mote_input_arm(&in,&r0); }
+    uint64_t last=mote_plat_micros();
+    gg_fetch_thumb(sel);
+    while (!mote_plat_should_quit()) {
+        uint64_t now=mote_plat_micros(); uint32_t dt=(uint32_t)((now-last)/1000); last=now;
+        MoteButtons raw; mote_plat_buttons(&raw); mote_input_update(&in,&raw,dt);
+        if (mote_just_pressed(&in,MOTE_BTN_B)) break;
+        if (g_ngg>0) {
+            if (mote_just_pressed(&in,MOTE_BTN_DOWN)) { sel=(sel+1)%g_ngg; gg_fetch_thumb(sel); }
+            if (mote_just_pressed(&in,MOTE_BTN_UP))   { sel=(sel-1+g_ngg)%g_ngg; gg_fetch_thumb(sel); }
+            if (mote_just_pressed(&in,MOTE_BTN_A)) {
+                int r=gg_install(sel, fb);
+                if (r==0){ char iv[16]; gg_installed(g_gg[sel].fname,iv,sizeof iv);
+                           g_gg[sel].state = !iv[0]?0:(gg_vercmp(iv,g_gg[sel].ver)<0?2:1);
+                           snprintf(msg,sizeof msg,"installed v%s",g_gg[sel].ver); }
+                else snprintf(msg,sizeof msg,"install failed");
+                msg_t=120;
+            }
+        }
+        if (msg_t>0) msg_t--;
+        gg_draw(fb,sel,msg_t,msg);
+        mote_plat_present(fb);
+    }
+    mote_usb_gallery_own(0);
+}
+
 int main(void) {
     mote_plat_init("Mote");                          /* LCD + buttons + audio (no USB) */
     thumbyone_slot_init_brightness_and_led(true);
@@ -169,6 +353,7 @@ int main(void) {
         if (idx == MOTE_LAUNCHER_QUIT) {
             thumbyone_handoff_request_lobby();        /* back to ThumbyOne lobby; no return */
         }
+        if (idx == MOTE_LAUNCHER_GALLERY) { gallery_screen(); continue; }   /* RB: online gallery */
         if (idx < 0) continue;
         /* Tell the runner which game to run via a FAT file (survives the chain;
          * scratch registers don't). The runner reads + clears it, resolves the

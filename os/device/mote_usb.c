@@ -256,9 +256,21 @@ static void handle_line(const char *cmd) {
         cdc_say("ERR unknown\n");
     }
 }
+/* ---- on-device GALLERY client hooks (used by the lobby gallery screen) ----
+ * While the gallery screen owns the CDC it drives the MN1 G-protocol itself, so
+ * mote_usb_task must keep USB alive (tud_task) but NOT consume the CDC — otherwise
+ * handle_line would eat the gallery responses as unknown commands. */
+static int s_gal_own;
+void mote_usb_gallery_own(int on) { s_gal_own = on; }
+int  mote_usb_cdc_send(const void *b, int n) { int w = (int)tud_cdc_write(b, (uint32_t)n); tud_cdc_write_flush(); return w; }
+int  mote_usb_cdc_recv(void *b, int n) { int g = 0; uint8_t *p = b;
+    while (g < n && tud_cdc_available()) { int c = tud_cdc_read_char(); if (c < 0) break; p[g++] = (uint8_t)c; } return g; }
+void mote_usb_cdc_pump(void) { tud_task(); }
+
 void mote_usb_task(void) {
     if (LINK_OWNS_USB()) return;     /* the 2P link owns the controller */
     tud_task();
+    if (s_gal_own) return;           /* gallery screen owns the CDC — don't touch it */
     if (s_rx_active) {
         while (s_put_got < s_put_size && tud_cdc_available()) {
             uint8_t tmp[64]; UINT bw = 0;

@@ -158,6 +158,8 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
         /* Hold MENU ~0.6 s to leave the Mote slot back to the ThumbyOne lobby. */
         if (in.held[MOTE_BTN_MENU] && in.hold_ms[MOTE_BTN_MENU] >= 600)
             return MOTE_LAUNCHER_QUIT;
+        /* RB opens the online gallery (install/update games; needs a Studio dock). */
+        if (mote_just_pressed(&in, MOTE_BTN_RB)) return MOTE_LAUNCHER_GALLERY;
 #endif
 
 #ifdef MOTE_HOST

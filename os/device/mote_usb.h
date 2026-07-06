@@ -10,6 +10,13 @@
 
 void mote_usb_init(void);     /* tusb_init() */
 void mote_usb_task(void);     /* pump: tud_task + protocol */
+
+/* On-device gallery client (lobby gallery screen). While it owns the CDC, the
+ * normal PUT/LIST handler is bypassed and the screen drives the MN1 G-protocol. */
+void mote_usb_gallery_own(int on);
+int  mote_usb_cdc_send(const void *buf, int n);   /* -> host; bytes queued */
+int  mote_usb_cdc_recv(void *buf, int n);         /* <- host; bytes read (0 = none yet) */
+void mote_usb_cdc_pump(void);                     /* keep USB alive (tud_task) */
 int  mote_usb_take_launch(void);   /* index from a LAUNCH cmd (clears), or -1 */
 void mote_usb_log(const char *s);  /* stream a log line over CDC (non-blocking) */
 
