@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "generated": "2026-07-06T05:36:56+00:00",
- "min_firmware": "1.32.1",
+ "generated": "2026-07-06T18:34:18+00:00",
+ "min_firmware": "1.33.0",
  "games": [
   {
    "id": "wolfmote",

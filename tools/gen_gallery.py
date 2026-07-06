@@ -99,7 +99,7 @@ def main():
     manifest = {
         "schema": 1,
         "generated": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),
-        "min_firmware": "1.32.1",     # informational; per-game `abi` is the real gate
+        "min_firmware": "1.33.0",     # informational; per-game `abi` is the real gate
         "games": games,
     }
     with open(OUT, "w", encoding="utf-8") as fh:
