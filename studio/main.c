@@ -5088,6 +5088,15 @@ static int proxy_readline(void*h,char*out,int cap){
 }
 static void proxy_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(s)); }
 
+/* On-device GALLERY service (defined after the gallery UI block): the docked
+ * handheld drives its own gallery screen by sending "MN1 G..." over CDC, and
+ * Studio answers from its gallery cache — manifest lines, RGB565 thumbnails, and
+ * the verified .mote bytes to install. The device does its own installed-vs-
+ * available diff (it owns its /mote/ catalog). */
+static void gal_serve_manifest(void*h);
+static void gal_serve_thumb(void*h,unsigned idx);
+static void gal_serve_fetch(void*h,unsigned idx);
+
 /* Act on one MN1 command. Returns 1 to proceed to relay+GO, 0 if fully handled. */
 static int proxy_command(void*h,char*line){
     if(strncmp(line,"MN1 ",4)) return 0;
@@ -5095,6 +5104,9 @@ static int proxy_command(void*h,char*line){
     char*cmd=line+4; char*sp=strchr(cmd,' ');
     char verb[12]; int vl=sp?(int)(sp-cmd):(int)strlen(cmd); if(vl>11)vl=11; memcpy(verb,cmd,vl); verb[vl]=0;
     unsigned gid=sp?(unsigned)strtoul(sp+1,NULL,10):0;
+    if(!strcmp(verb,"GMANIFEST")){ gal_serve_manifest(h); return 0; }
+    if(!strcmp(verb,"GTHUMB")){ gal_serve_thumb(h,gid); return 0; }
+    if(!strcmp(verb,"GFETCH")){ gal_serve_fetch(h,gid); return 0; }
     if(!strcmp(verb,"CANCEL")){ link_net_stop(); g_room_code[0]=0; return 0; }
     if(!strcmp(verb,"LANHOST")){ link_net_host(); log_add("online(dev): hosting on LAN"); return 1; }
     if(!strcmp(verb,"LANJOIN")){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("online(dev): joining LAN"); return 1; }
@@ -5429,6 +5441,44 @@ static void gal_click(int mx,int my){
     if(g_gal_state==2 && !g_gal_busy) for(int i=0;i<g_gal.n;i++)
         if(hit(mx,my,g_gal_act[i].x,g_gal_act[i].y,g_gal_act[i].w,g_gal_act[i].h)){
             int s=g_gal.g[i].state; if(s==GAL_NONE||s==GAL_UPDATE) gal_install(i); return; }
+}
+
+/* ===== on-device gallery service — answer the handheld's MN1 G-requests =====
+ * The device drives its own gallery screen over CDC; Studio serves from the same
+ * cache the desktop viewer uses. Runs on the netproxy thread (holds the port). */
+static void gal_ensure_loaded(void){
+    if(!g_gal.base[0]){ const char*b=getenv("MOTE_GALLERY_BASE");
+        gallery_set_base(&g_gal,(b&&*b)?b:"https://austinio7116.github.io/mote"); }
+    if(!g_gal.loaded) gallery_refresh(&g_gal);
+}
+static void gal_serve_manifest(void*h){
+    gal_ensure_loaded();
+    if(!g_gal.loaded){ proxy_send(h,"MN1 GERR fetch\n"); return; }
+    for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i]; char base[64],line[220]; gal_base(g->file,base,sizeof base);
+        /* MN1 GAME <idx> <abi> <mp> <ver> <fname>|<name>  (name is last, may hold spaces) */
+        snprintf(line,sizeof line,"MN1 GAME %d %d %d %s %s|%s\n",i,g->abi,g->multiplayer,g->version,base,g->name);
+        mote_dev_raw_write(h,line,(int)strlen(line)); }
+    proxy_send(h,"MN1 GEND\n");
+}
+static void gal_serve_thumb(void*h,unsigned idx){
+    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    GalGame*g=&g_gal.g[idx]; gallery_load_thumb(&g_gal,g);
+    enum{TW=64,TH=64}; static uint16_t sc[TW*TH];
+    if(g->thumb_px&&g->thumb_w>0&&g->thumb_h>0)
+        for(int y=0;y<TH;y++)for(int x=0;x<TW;x++){ int sx=x*g->thumb_w/TW, sy=y*g->thumb_h/TH; sc[y*TW+x]=g->thumb_px[sy*g->thumb_w+sx]; }
+    else memset(sc,0,sizeof sc);
+    char hd[48]; snprintf(hd,sizeof hd,"MN1 GTHUMB %u %d %d %d\n",idx,TW,TH,(int)sizeof sc);
+    mote_dev_raw_write(h,hd,(int)strlen(hd)); mote_dev_raw_write(h,sc,(int)sizeof sc);
+}
+static void gal_serve_fetch(void*h,unsigned idx){
+    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    GalGame*g=&g_gal.g[idx]; char path[512];
+    if(gallery_ensure_mote(&g_gal,g,path,sizeof path)!=0){ proxy_send(h,"MN1 GERR dl\n"); return; }
+    FILE*f=fopen(path,"rb"); if(!f){ proxy_send(h,"MN1 GERR open\n"); return; }
+    fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
+    char hd[48]; snprintf(hd,sizeof hd,"MN1 GDATA %ld\n",sz); mote_dev_raw_write(h,hd,(int)strlen(hd));
+    char buf[4096]; long off=0; while(off<sz){ int ch=(int)fread(buf,1,sizeof buf,f); if(ch<=0)break; mote_dev_raw_write(h,buf,ch); off+=ch; }
+    fclose(f);
 }
 
 static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_GetMouseState(&mx,&my); (void)w;
