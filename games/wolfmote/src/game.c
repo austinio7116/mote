@@ -920,6 +920,10 @@ static void load_level(int idx) {
         for (int k=0;k<9;k++) owned[k]=1;
         g_am[0]=200; g_am[1]=50; g_am[2]=50; g_am[3]=200;
     }
+    if (getenv("MOTE_WOLF_WEAPON")) {                     /* capture hook: select a weapon */
+        int w = atoi(getenv("MOTE_WOLF_WEAPON"));
+        if (w>=0 && w<9) { owned[w]=1; cur_w=w; }
+    }
     if (getenv("MOTE_WOLF_DEBUG")){
         { int tc[5]={0,0,0,0,0}; for (int i=0;i<g_nen;i++) tc[g_en[i].type]++;
           fprintf(stderr,"[MAP] P=(%.1f,%.1f) exit=(%d,%d) key=%d en: G%d X%d R%d C%d Z%d\n",
