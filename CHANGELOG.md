@@ -37,6 +37,11 @@ per-game *versions* only show for games rebuilt with the new SDK.
   the face entirely. The code editor stays monospace.
 
 ### Rig / 3D-animation editor
+- **Multiple clips per rig.** A rig can now hold several named animations (walk / fire / idle…)
+  instead of just one. A `< name > + x` selector at the top of the RIG inspector cycles, adds,
+  renames and deletes clips; each has its own keyframes, duration and loop mode. **Bake anim3d**
+  writes every clip into one `<model>.anim3d.h`: the blank "main" clip stays `<base>_clip`
+  (unchanged for existing games), named clips are `<base>_<name>_clip`.
 - **Keyframes now persist.** Authored clips were previously kept only in memory — switching
   from RIG to another tab (which rebuilds the rig) or reopening the project **wiped every
   keyframe**; the only durable output was the generated `.anim3d.h`, which was never read back.
@@ -57,6 +62,9 @@ per-game *versions* only show for games rebuilt with the new SDK.
   "went the complete opposite way" depending on the viewing angle.
 - Dragging a translate/rotate handle now snaps the playhead to the edited key, so the change is
   visible immediately (matches the +/- steppers).
+- Up to 32 keyframes per clip (was 24); hitting the keyframe or 16-part limit now reports it
+  instead of silently dropping. A rig loaded from a tree `.obj` is no longer clobbered by the
+  live model when you bounce off the RIG tab.
 
 ### Firmware / SDK
 - **ThumbyOne firmware 1.33.0** — adds the on-device gallery slot and the AA UI fonts

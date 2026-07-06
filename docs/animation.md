@@ -24,10 +24,11 @@ You never hand-write transforms. The workflow is:
    The manipulator gizmo aligns to each part's **parent frame**, so dragging a handle always
    moves/rotates the part the way the handle points — even for parts that hang off a rotated
    parent. Your keyframes are saved to an editable `<model>.anim` sidecar (next to the model)
-   on Save/Bake and when you leave the tab, and reload when you reopen — so a clip survives
-   tab switches and reopens. One clip per model: to ship several animations for one rig (walk,
-   fire, idle…), bake each and keep the generated `.anim3d.h` headers, or hand-author extra
-   `MoteModelClip`s over the same `MoteRig` (as the tanks example does for its recoil clip).
+   on Save/Bake and when you leave the tab, and reload when you reopen — so your clips survive
+   tab switches and reopens. A rig can hold several named clips (walk, fire, idle…) via the
+   `< name > + x` selector at the top of the RIG inspector; each has its own keyframes, length
+   and loop mode. **Bake anim3d** writes them all into one `<model>.anim3d.h` — the blank
+   "main" clip as `<base>_clip`, named clips as `<base>_<name>_clip`.
 
 3. **Play it — ~3 lines.** Include the baked header and drive a player:
 

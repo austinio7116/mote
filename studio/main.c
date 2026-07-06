@@ -3415,6 +3415,7 @@ static int mesh_down(int mx,int my){
 
 /* ================= rig tab: model parts + pivots/hierarchy -> MoteRig ================= */
 #define RIG_MAXP 16
+#define RIG_MAXK 32   /* keyframes per clip (declared early: g_rg_keytk[] sizing below needs it) */
 /* `uv`: 6 floats per tri (u0,v0,u1,v1,u2,v2 in 0..1, already v-flipped to the
  * engine's top-left convention). NULL/g_rig_tex==0 => flat-shaded part. */
 typedef struct { char name[28]; V3 *t; float *uv; int nt,cap; int parent; V3 pivot; } RigPart;
@@ -3422,22 +3423,31 @@ static RigPart g_rp[RIG_MAXP]; static int g_nrp, g_rsel; static char g_rig_obj[3
 static uint16_t *g_rig_tex_px; static int g_rig_tex_w, g_rig_tex_h;   /* shared rig texture (ABI v35) */
 static float g_ryaw=0.6f,g_rpitch=0.35f; static int g_rdrag; static V3 g_rcen; static float g_rscale=1;
 static SDL_Rect g_rg_part[RIG_MAXP], g_rg_par, g_rg_px[6], g_rg_pz[6], g_rg_cen, g_rg_save, g_rg_mesh, g_rg_view, g_rg_texassign, g_rg_texclear;
-static SDL_Rect g_rg_pose, g_rg_interp, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[24];
+static SDL_Rect g_rg_pose, g_rg_interp, g_rg_play, g_rg_loop, g_rg_addk, g_rg_delk, g_rg_durm, g_rg_durp, g_rg_bake, g_rg_track, g_rg_keytk[RIG_MAXK];
+static SDL_Rect g_rg_clipprev, g_rg_clipnext, g_rg_clipname, g_rg_clipadd, g_rg_clipdel;   /* multi-clip selector */
 /* 3-axis manipulator gizmo (rig view): translate handles + rotate rings */
 #define GZ_RING 20
 static SDL_Point g_gz_o, g_gz_ax[3], g_gz_ring[3][GZ_RING]; static float g_gz_alen[3];
 static int g_gz_drag=-1; static float g_gz_ang, g_gz_L;   /* drag: 0..2 translate X/Y/Z, 3..5 rotate X/Y/Z */
 static float g_gz_az[3];   /* each gizmo axis' view-space z (>0 = toward camera) — sets the rotate-drag sign */
 /* ---- clip authoring: keyframes of per-part Euler rotation + translation ---- */
-#define RIG_MAXK 24
 typedef struct { int t_ms; V3 erot[RIG_MAXP]; V3 pos[RIG_MAXP]; int step; } RigKey;   /* per-part rotation (rad) + translation; step=1 holds this key's pose until the next (snap) */
 static RigKey g_rk[RIG_MAXK]; static int g_nrk, g_ksel;
 static int g_clip_ms=1000, g_clip_loop=1, g_pose_mode, g_playing; static float g_play_t; static uint32_t g_play_last;
 static float g_scrub_t;        /* playhead time (ms) when not playing — drag the track to scrub */
 static int g_kdrag=-1, g_scrub; /* dragging a keyframe (index) / dragging the playhead */
+/* One rig can hold several named clips (walk/fire/idle…). The active clip lives in the
+ * g_rk/g_nrk/g_clip_ms/g_clip_loop working set above; the rest are parked in g_rclips[] and
+ * swapped in/out by rig_clip_store()/rig_clip_load(). A blank name is the model's "main" clip
+ * and bakes to <base>_clip (backward compatible); named clips bake to <base>_<name>_clip. */
+#define RIG_MAXCLIP 8
+typedef struct { char name[24]; int ms, loop, nrk; RigKey rk[RIG_MAXK]; } RigClip;
+static RigClip g_rclips[RIG_MAXCLIP]; static int g_nrclip=1, g_rclipsel=0, g_rclipfocus;
 static int rig_key_insert(int t_ms);   /* fwd */
 static void rig_save(void);   /* fwd */
 static void rig_anim_bake(void);   /* fwd */
+static void rig_clip_store(void);   /* fwd: flush working set -> g_rclips[sel] */
+static void rig_clip_load(int i);   /* fwd: g_rclips[i] -> working set */
 static int  rig_keys_path(char*out,size_t n);   /* fwd: editable keyframe sidecar (<model>.anim) */
 static void rig_keys_load(void);                /* fwd: restore authored keyframes from the sidecar */
 static void rig_keys_save(void);                /* fwd: persist authored keyframes to the sidecar */
@@ -3492,6 +3502,7 @@ static void rig_load(const char*objpath){
     /* seed a single rest keyframe so pose mode is editable immediately (and reset any
      * stale keys from a previously loaded rig). The Save/Bake of a one-key clip is a
      * harmless static pose; add more keys to animate. */
+    g_nrclip=1; g_rclipsel=0; g_rclips[0].name[0]=0; g_rclipfocus=0;   /* one blank ("main") clip until the sidecar says otherwise */
     g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0; g_rk[0].step=0;
     for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
     rig_keys_load();   /* restore authored keyframes if a <model>.anim sidecar exists */
@@ -3523,7 +3534,8 @@ static void rig_build_from_eobj(void){
     g_rcen=(V3){(mn.x+mx.x)/2,(mn.y+mx.y)/2,(mn.z+mx.z)/2};
     float ex=fmaxf(mx.x-mn.x,fmaxf(mx.y-mn.y,mx.z-mn.z)); g_rscale=ex>1e-4f?2.0f/ex:1;
     int same=(prevn==g_nrp); for(int p=0;same&&p<g_nrp;p++)if(strcmp(prevnm[p],g_rp[p].name))same=0;
-    if(!same){   /* first entry, or the part set changed under us: reset then restore any saved clip */
+    if(!same){   /* first entry, or the part set changed under us: reset then restore any saved clips */
+        g_nrclip=1; g_rclipsel=0; g_rclips[0].name[0]=0; g_rclipfocus=0;
         g_nrk=1; g_ksel=0; g_scrub_t=0; g_rk[0].t_ms=0; g_rk[0].step=0;
         for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; }
         rig_keys_load(); }
@@ -3586,6 +3598,14 @@ static M3 m3eul(float rx,float ry,float rz){ float cx=cosf(rx),sx=sinf(rx),cy=co
   M3 X={1,0,0,0,cx,-sx,0,sx,cx},Y={cy,0,sy,0,1,0,-sy,0,cy},Z={cz,-sz,0,sz,cz,0,0,0,1}; return m3mm(Z,m3mm(Y,X)); }
 static void rig_pose_at(float t,V3 erot[RIG_MAXP],V3 pos[RIG_MAXP]);   /* fwd */
 static void rig_key_clamp(void){ for(int i=0;i<g_nrk;i++){ if(g_rk[i].t_ms<0)g_rk[i].t_ms=0; if(g_rk[i].t_ms>g_clip_ms)g_rk[i].t_ms=g_clip_ms; } }
+/* park the working set (g_rk/g_nrk/duration/loop) back into the selected clip slot */
+static void rig_clip_store(void){ if(g_rclipsel<0||g_rclipsel>=RIG_MAXCLIP)return; RigClip*c=&g_rclips[g_rclipsel];
+    c->ms=g_clip_ms; c->loop=g_clip_loop; c->nrk=g_nrk<RIG_MAXK?g_nrk:RIG_MAXK; for(int k=0;k<c->nrk;k++)c->rk[k]=g_rk[k]; }
+/* pull clip i into the working set (seeding one rest key if it is empty) */
+static void rig_clip_load(int i){ if(i<0||i>=g_nrclip)return; g_rclipsel=i; RigClip*c=&g_rclips[i];
+    g_clip_ms=c->ms>=100?c->ms:1000; g_clip_loop=((c->loop%3)+3)%3; g_nrk=c->nrk<RIG_MAXK?c->nrk:RIG_MAXK; for(int k=0;k<g_nrk;k++)g_rk[k]=c->rk[k];
+    if(g_nrk<1){ g_nrk=1; g_rk[0].t_ms=0; g_rk[0].step=0; for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; } }
+    g_ksel=0; g_scrub_t=0; g_playing=0; rig_key_clamp(); }
 /* keep g_rk sorted by t_ms after one key's time changes; follow that key's index */
 static void rig_key_bubble(int *i){ while(*i>0 && g_rk[*i].t_ms<g_rk[*i-1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i-1]; g_rk[*i-1]=t; (*i)--; }
     while(*i<g_nrk-1 && g_rk[*i].t_ms>g_rk[*i+1].t_ms){ RigKey t=g_rk[*i]; g_rk[*i]=g_rk[*i+1]; g_rk[*i+1]=t; (*i)++; } }
@@ -3719,7 +3739,18 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
     text(R,g_nrk?"drag the playhead to scrub \xb7 drag a key to retime \xb7 +Key adds at the playhead":"+Key adds a keyframe at the playhead \xb7 then pose & +Key again",ox+150,oy+h-16,1,C_DIM,(Col){16,18,26});
 
     /* ---- inspector card ---- */
-    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"RIG"); int lx=cardx+12;
+    int cy=ui_card(R,cardx,oy,MESH_CARDW,h,"RIG"); int lx=cardx+12; int cw=MESH_CARDW-24;
+    /* ---- clip selector: < name > + x  (several named clips per rig) ---- */
+    { char hd[24]; snprintf(hd,sizeof hd,"CLIP %d/%d",g_rclipsel+1,g_nrclip); text(R,hd,lx,cy,1,C_DIM,C_PANEL); cy+=15;
+      int aw=18,bw=22,nw=cw-(2*aw+2*bw+10);
+      g_rg_clipprev=(SDL_Rect){lx,cy,aw,22}; rrect(R,lx,cy,aw,22,4,hit(mx,my,lx,cy,aw,22)?C_BTNHI:C_BTN); text(R,"<",lx+6,cy+5,1,C_TXT,C_BTN);
+      int nx=lx+aw+2; g_rg_clipname=(SDL_Rect){nx,cy,nw,22}; rrect(R,nx,cy,nw,22,4,g_rclipfocus?(Col){12,14,20}:C_BTN);
+      { const char*cn=g_rclips[g_rclipsel].name; char nm[40]; snprintf(nm,sizeof nm,"%s%s",cn[0]?cn:(g_rclipfocus?"":"main"),g_rclipfocus?"_":"");
+        text(R,nm,nx+7,cy+5,1,(cn[0]||g_rclipfocus)?C_TXT:C_DIM,g_rclipfocus?(Col){12,14,20}:C_BTN); }
+      int rx=nx+nw+2; g_rg_clipnext=(SDL_Rect){rx,cy,aw,22}; rrect(R,rx,cy,aw,22,4,hit(mx,my,rx,cy,aw,22)?C_BTNHI:C_BTN); text(R,">",rx+6,cy+5,1,C_TXT,C_BTN);
+      int ax=rx+aw+4; g_rg_clipadd=(SDL_Rect){ax,cy,bw,22}; rrect(R,ax,cy,bw,22,4,hit(mx,my,ax,cy,bw,22)?C_BTNHI:C_BTN); text(R,"+",ax+7,cy+5,1,C_TXT,C_BTN);
+      int dx=ax+bw+2; g_rg_clipdel=(SDL_Rect){dx,cy,bw,22}; rrect(R,dx,cy,bw,22,4,hit(mx,my,dx,cy,bw,22)?C_BTNHI:C_BTN); text(R,"x",dx+8,cy+5,1,g_nrclip>1?C_TXT:C_DIM,C_BTN);
+      cy+=27; plain(R,lx,cy,cw,1,C_LINE); cy+=7; }
     text(R,"PARTS",lx,cy,1,C_DIM,C_PANEL); cy+=15;
     for(int p=0;p<g_nrp;p++){ int sel=(p==g_rsel); g_rg_part[p]=(SDL_Rect){lx,cy,MESH_CARDW-24,17};
         rrect(R,lx,cy,MESH_CARDW-24,17,4,sel?C_SEL:(hit(mx,my,lx,cy,MESH_CARDW-24,17)?C_BTNHI:C_BTN));
@@ -3766,6 +3797,16 @@ static void draw_rig(SDL_Renderer*R,int ox,int oy,int w,int h){ plain(R,ox,oy,w,
 static int rig_down(int mx,int my){
     #define HITR(r) hit(mx,my,(r).x,(r).y,(r).w,(r).h)
     if(!g_nrp) return 0;
+    /* ---- clip selector: focus name / cycle / add / delete ---- */
+    if(g_rg_clipname.w&&HITR(g_rg_clipname)){ g_rclipfocus=1; SDL_StartTextInput(); return 1; }
+    g_rclipfocus=0;   /* any other click defocuses the clip-name field */
+    if(HITR(g_rg_clipprev)){ rig_clip_store(); rig_clip_load((g_rclipsel-1+g_nrclip)%g_nrclip); return 1; }
+    if(HITR(g_rg_clipnext)){ rig_clip_store(); rig_clip_load((g_rclipsel+1)%g_nrclip); return 1; }
+    if(HITR(g_rg_clipadd)){ if(g_nrclip<RIG_MAXCLIP){ rig_clip_store(); int ni=g_nrclip++; RigClip*c=&g_rclips[ni]; memset(c,0,sizeof*c);
+            snprintf(c->name,sizeof c->name,"clip%d",ni+1); c->ms=1000; c->loop=1; c->nrk=0; rig_clip_load(ni); g_pose_mode=1; }
+        else snprintf(g_status,sizeof g_status,"clip limit reached (%d)",RIG_MAXCLIP); return 1; }
+    if(HITR(g_rg_clipdel)){ if(g_nrclip>1){ for(int i=g_rclipsel;i<g_nrclip-1;i++)g_rclips[i]=g_rclips[i+1]; g_nrclip--;
+            rig_clip_load(g_rclipsel>=g_nrclip?g_nrclip-1:g_rclipsel); } else snprintf(g_status,sizeof g_status,"can't delete the only clip"); return 1; }
     for(int p=0;p<g_nrp;p++) if(HITR(g_rg_part[p])){ g_rsel=p; return 1; }
     for(int i=0;i<g_nrk;i++) if(HITR(g_rg_keytk[i])){ g_ksel=i; g_kdrag=i; g_playing=0; g_scrub_t=(float)g_rk[i].t_ms; return 1; }   /* select + start retime drag */
     if(HITR(g_rg_track)){ g_scrub=1; g_playing=0;                                          /* scrub the playhead */
@@ -3824,61 +3865,80 @@ static RQ rq_mul(RQ a,RQ b){ return (RQ){a.w*b.x+a.x*b.w+a.y*b.z-a.z*b.y, a.w*b.
 static RQ rq_eul(float rx,float ry,float rz){ return rq_mul(rq_mul(rq_axis(0,0,1,rz),rq_axis(0,1,0,ry)),rq_axis(1,0,0,rx)); }   /* matches mote_quat_euler */
 static void rig_anim_bake(void){ if(g_sel<0||!g_nrp){ snprintf(g_status,sizeof g_status,"open a project / load a rig first"); return; }
     if(g_nrk<1){ snprintf(g_status,sizeof g_status,"add keyframes (+Key) before baking a clip"); return; }
-    rig_keys_save();   /* keep the editable source in sync with what we bake */
+    rig_keys_save();   /* flush working set + keep the editable source in sync with what we bake */
     char base[40]; if(!g_rig_obj[0])snprintf(base,sizeof base,"%.36s",g_model_name);   /* live model -> match <name>_rig.h */
     else { const char*b=strrchr(g_rig_obj,'/'); b=b?b+1:g_rig_obj; snprintf(base,sizeof base,"%.30s",b); char*d=strrchr(base,'.'); if(d)*d=0; }
     { char san[40]; emesh_sanitize(base,san,sizeof san); snprintf(base,sizeof base,"%s",san); }
     char hp[440]; snprintf(hp,sizeof hp,"%.330s/src/%.30s.anim3d.h",g_games[g_sel].dir,base); FILE*f=fopen(hp,"w"); if(!f){ snprintf(g_status,sizeof g_status,"could not write %s.anim3d.h",base); return; }
-    fprintf(f,"/* GENERATED by Mote Studio — 3D animation clip. Play with mote_anim3d.h:\n"
-              " *   mote_rig_play(&player, &%s_clip); mote_rig_tick(&player, dt); mote_rig_draw(mote,&%s_rig,&player,pos); */\n"
+    fprintf(f,"/* GENERATED by Mote Studio — 3D animation clip(s). Play with mote_anim3d.h:\n"
+              " *   mote_rig_play(&player, &%s_clip); mote_rig_tick(&player, dt); mote_rig_draw(mote,&%s_rig,&player,pos);\n"
+              " * The blank/main clip is <base>_clip; named clips are <base>_<name>_clip. */\n"
               "#ifndef MOTE_A3_%s_H\n#define MOTE_A3_%s_H\n#include \"mote_anim3d.h\"\n\n",base,base,base,base);
-    int anim[RIG_MAXP], ntr=0;
-    for(int p=0;p<g_nrp;p++){ anim[p]=0; for(int k=0;k<g_nrk;k++){ V3 e=g_rk[k].erot[p],t=g_rk[k].pos[p];
-        if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)>1e-4f){ anim[p]=1; break; } } if(anim[p])ntr++; }
-    if(ntr==0){ anim[0]=1; ntr=1; }   /* always emit at least one track so the clip is valid */
-    for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
-        fprintf(f,"static const MoteModelKey %s_%s_k[%d] = {\n",base,pn,g_nrk);
-        for(int k=0;k<g_nrk;k++){ RQ q=rq_eul(g_rk[k].erot[p].x,g_rk[k].erot[p].y,g_rk[k].erot[p].z); V3 t=g_rk[k].pos[p];
-            fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {%.5ff,%.5ff,%.5ff}, %d },\n",g_rk[k].t_ms,q.x,q.y,q.z,q.w,t.x,t.y,t.z,g_rk[k].step?1:0); }
-        fprintf(f,"};\n"); }
-    fprintf(f,"static const MoteModelTrack %s_clip_tr[%d] = {\n",base,ntr);
-    for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
-        fprintf(f,"    { %d, %s_%s_k, %d },\n",p,base,pn,g_nrk); }
-    fprintf(f,"};\nstatic const MoteModelClip %s_clip = { \"%s\", %s_clip_tr, %d, %d, %d };\n\n#endif\n",base,base,base,ntr,g_clip_ms,g_clip_loop);
-    fclose(f); snprintf(g_status,sizeof g_status,"baked src/%s.anim3d.h (%d keys, %d tracks) \xb7 play &%s_clip",base,g_nrk,ntr,base);
+    int totk=0;
+    for(int ci=0;ci<g_nrclip;ci++){ RigClip*cl=&g_rclips[ci];
+        char symb[80]; if(cl->name[0]){ char cn[40]; snprintf(cn,sizeof cn,"%.30s",cl->name); for(char*c=cn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+            snprintf(symb,sizeof symb,"%s_%s",base,cn); } else snprintf(symb,sizeof symb,"%s",base);   /* blank clip keeps <base>_clip (compat) */
+        const char*cname=cl->name[0]?cl->name:base;   /* runtime clip name string */
+        int nk=cl->nrk>=1?cl->nrk:1; totk+=nk;
+        int anim[RIG_MAXP], ntr=0;
+        for(int p=0;p<g_nrp;p++){ anim[p]=0; for(int k=0;k<cl->nrk;k++){ V3 e=cl->rk[k].erot[p],t=cl->rk[k].pos[p];
+            if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)>1e-4f){ anim[p]=1; break; } } if(anim[p])ntr++; }
+        if(ntr==0){ anim[0]=1; ntr=1; }   /* always emit at least one track so the clip is valid */
+        for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+            fprintf(f,"static const MoteModelKey %s_%s_k[%d] = {\n",symb,pn,nk);
+            for(int k=0;k<nk;k++){ RigKey*rk=k<cl->nrk?&cl->rk[k]:&cl->rk[0]; RQ q=rq_eul(rk->erot[p].x,rk->erot[p].y,rk->erot[p].z); V3 t=rk->pos[p];
+                fprintf(f,"    { %d, {%.5ff,%.5ff,%.5ff,%.5ff}, {%.5ff,%.5ff,%.5ff}, %d },\n",rk->t_ms,q.x,q.y,q.z,q.w,t.x,t.y,t.z,rk->step?1:0); }
+            fprintf(f,"};\n"); }
+        fprintf(f,"static const MoteModelTrack %s_clip_tr[%d] = {\n",symb,ntr);
+        for(int p=0;p<g_nrp;p++){ if(!anim[p])continue; char pn[40]; snprintf(pn,sizeof pn,"%.30s",g_rp[p].name); for(char*c=pn;*c;c++) if(!((*c>='a'&&*c<='z')||(*c>='A'&&*c<='Z')||(*c>='0'&&*c<='9')))*c='_';
+            fprintf(f,"    { %d, %s_%s_k, %d },\n",p,symb,pn,nk); }
+        fprintf(f,"};\nstatic const MoteModelClip %s_clip = { \"%s\", %s_clip_tr, %d, %d, %d };\n\n",symb,cname,symb,ntr,cl->ms,cl->loop); }
+    fprintf(f,"#endif\n");
+    fclose(f); snprintf(g_status,sizeof g_status,"baked src/%s.anim3d.h (%d clip%s, %d keys) \xb7 play &%s_clip",base,g_nrclip,g_nrclip==1?"":"s",totk,base);
 }
 
 /* ---- editable keyframe sidecar (<model>.anim) ----------------------------------------
  * The baked <name>.anim3d.h is generated OUTPUT (quaternions, not re-parsed). This text
- * sidecar is the editable SOURCE: clip length/loop + per-key per-part Euler(deg)+pos, so a
- * clip survives tab switches and project reopens and stays re-editable. Lives next to the
- * model (disk .obj: <base>.anim; live model: assets/<name>.anim). */
+ * sidecar is the editable SOURCE: one or more named clips, each length/loop + per-key
+ * per-part Euler(deg)+pos, so clips survive tab switches and project reopens and stay
+ * re-editable. Lives next to the model (disk .obj: <base>.anim; live model: assets/<name>.anim).
+ * A `clip` line reads either `clip <name|-> <ms> <loop>` (current) or the legacy `clip <ms>
+ * <loop>` (a single unnamed clip). */
 static int rig_keys_path(char*out,size_t n){
     if(g_rig_obj[0]){ const char*dot=strrchr(g_rig_obj,'.'); size_t base=dot?(size_t)(dot-g_rig_obj):strlen(g_rig_obj);
         snprintf(out,n,"%.*s.anim",(int)base,g_rig_obj); return 1; }
     if(g_sel>=0&&g_model_name[0]){ snprintf(out,n,"%.380s/assets/%.40s.anim",g_games[g_sel].dir,g_model_name); return 1; }
     return 0; }
 static void rig_keys_save(void){ if(g_sel<0||!g_nrp)return; char ap[440]; if(!rig_keys_path(ap,sizeof ap))return;
+    rig_clip_store();   /* park the active working set into its slot before writing every clip */
     FILE*f=fopen(ap,"w"); if(!f)return;
-    fprintf(f,"# Mote anim (Studio) - editable keyframes. rot in degrees, pos in model units.\nclip %d %d\n",g_clip_ms,g_clip_loop);
-    for(int k=0;k<g_nrk;k++){ fprintf(f,"key %d %d\n",g_rk[k].t_ms,g_rk[k].step?1:0);
-        for(int p=0;p<g_nrp;p++){ V3 e=g_rk[k].erot[p],t=g_rk[k].pos[p];
-            if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)<1e-6f)continue;   /* omit rest parts; loader zero-fills */
-            fprintf(f,"p %s %.4f %.4f %.4f %.6f %.6f %.6f\n",g_rp[p].name,
-                e.x*57.29578f,e.y*57.29578f,e.z*57.29578f,t.x,t.y,t.z); } }
+    fprintf(f,"# Mote anim (Studio) - editable keyframes. rot in degrees, pos in model units.\n");
+    for(int ci=0;ci<g_nrclip;ci++){ RigClip*c=&g_rclips[ci];
+        fprintf(f,"clip %s %d %d\n",c->name[0]?c->name:"-",c->ms,c->loop);
+        for(int k=0;k<c->nrk;k++){ fprintf(f,"key %d %d\n",c->rk[k].t_ms,c->rk[k].step?1:0);
+            for(int p=0;p<g_nrp;p++){ V3 e=c->rk[k].erot[p],t=c->rk[k].pos[p];
+                if(fabsf(e.x)+fabsf(e.y)+fabsf(e.z)+fabsf(t.x)+fabsf(t.y)+fabsf(t.z)<1e-6f)continue;   /* omit rest parts; loader zero-fills */
+                fprintf(f,"p %s %.4f %.4f %.4f %.6f %.6f %.6f\n",g_rp[p].name,
+                    e.x*57.29578f,e.y*57.29578f,e.z*57.29578f,t.x,t.y,t.z); } } }
     fclose(f); }
 static void rig_keys_load(void){ char ap[440]; if(!rig_keys_path(ap,sizeof ap))return;
-    FILE*f=fopen(ap,"r"); if(!f)return; char ln[256]; int cur=-1,nk=0;
+    FILE*f=fopen(ap,"r"); if(!f)return; char ln[256]; int ci=-1;
+    g_nrclip=0;
     while(fgets(ln,sizeof ln,f)){ if(ln[0]=='#')continue;
-        if(!strncmp(ln,"clip ",5)){ int d,l; if(sscanf(ln+5,"%d %d",&d,&l)==2){ g_clip_ms=d<100?100:(d>10000?10000:d); g_clip_loop=((l%3)+3)%3; } }
-        else if(!strncmp(ln,"key ",4)){ int t=0,st=0; if(sscanf(ln+4,"%d %d",&t,&st)>=1&&nk<RIG_MAXK){ cur=nk++; g_rk[cur].t_ms=t; g_rk[cur].step=st?1:0;
-            for(int p=0;p<RIG_MAXP;p++){ g_rk[cur].erot[p]=(V3){0,0,0}; g_rk[cur].pos[p]=(V3){0,0,0}; } } else cur=-1; }
-        else if(ln[0]=='p'&&ln[1]==' '&&cur>=0){ char nm[28]; V3 e,t;
+        if(!strncmp(ln,"clip ",5)){ char nm[24]; int ms=1000,lp=1;
+            if(sscanf(ln+5,"%23s %d %d",nm,&ms,&lp)!=3){ if(sscanf(ln+5,"%d %d",&ms,&lp)==2)strcpy(nm,"-"); else continue; }   /* legacy unnamed */
+            if(g_nrclip>=RIG_MAXCLIP)break; ci=g_nrclip++; RigClip*c=&g_rclips[ci];
+            if(!strcmp(nm,"-"))c->name[0]=0; else snprintf(c->name,sizeof c->name,"%.23s",nm);
+            c->ms=ms<100?100:(ms>10000?10000:ms); c->loop=((lp%3)+3)%3; c->nrk=0; }
+        else if(!strncmp(ln,"key ",4)&&ci>=0){ RigClip*c=&g_rclips[ci]; int t=0,st=0;
+            if(sscanf(ln+4,"%d %d",&t,&st)>=1&&c->nrk<RIG_MAXK){ int kk=c->nrk++; c->rk[kk].t_ms=t; c->rk[kk].step=st?1:0;
+                for(int p=0;p<RIG_MAXP;p++){ c->rk[kk].erot[p]=(V3){0,0,0}; c->rk[kk].pos[p]=(V3){0,0,0}; } } }
+        else if(ln[0]=='p'&&ln[1]==' '&&ci>=0){ RigClip*c=&g_rclips[ci]; if(c->nrk<1)continue; char nm[28]; V3 e,t;
             if(sscanf(ln+2,"%27s %f %f %f %f %f %f",nm,&e.x,&e.y,&e.z,&t.x,&t.y,&t.z)==7){ int p=-1; for(int i=0;i<g_nrp;i++)if(!strcmp(g_rp[i].name,nm)){p=i;break;}
-                if(p>=0){ g_rk[cur].erot[p]=(V3){e.x/57.29578f,e.y/57.29578f,e.z/57.29578f}; g_rk[cur].pos[p]=t; } } } }
+                if(p>=0){ int kk=c->nrk-1; c->rk[kk].erot[p]=(V3){e.x/57.29578f,e.y/57.29578f,e.z/57.29578f}; c->rk[kk].pos[p]=t; } } } }
     fclose(f);
-    if(nk<1){ nk=1; g_rk[0].t_ms=0; g_rk[0].step=0; for(int p=0;p<RIG_MAXP;p++){ g_rk[0].erot[p]=(V3){0,0,0}; g_rk[0].pos[p]=(V3){0,0,0}; } }
-    g_nrk=nk; g_ksel=0; g_scrub_t=0; rig_key_clamp(); }
+    if(g_nrclip<1){ g_nrclip=1; g_rclips[0].name[0]=0; g_rclips[0].ms=1000; g_rclips[0].loop=1; g_rclips[0].nrk=0; }
+    g_rclipsel=0; g_rclipfocus=0; rig_clip_load(0); }   /* activate the first clip into the working set */
 
 /* ================= audio waveform viewer ================= */
 static int16_t *g_wav; static int g_wavn; static char g_wav_name[128]; static long g_crop_a=-1,g_crop_b=-1; static int g_wavdrag;
@@ -7100,6 +7160,10 @@ int main(int argc,char**argv){
                 int cap = g_an_namefocus ? 50 : 14;
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(dst); if(l<cap){ dst[l]=c; dst[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(dst); if(l)dst[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE){ g_an_cnamefocus=g_an_namefocus=0; g_an_evfocus=-1; } continue; } }
+            if(g_tab==TAB_RIG&&g_rclipfocus){   /* editing the active clip's name */
+                char *dst=g_rclips[g_rclipsel].name;
+                if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'){ int l=(int)strlen(dst); if(l<(int)sizeof g_rclips[0].name-1){ dst[l]=c; dst[l+1]=0; } } } continue; }
+                if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(dst); if(l)dst[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_rclipfocus=0; continue; } }
             if(g_tab==TAB_SHEET&&g_sh_namefocus){   /* editing the sprite-sheet save-name field */
                 if(e.type==SDL_TEXTINPUT){ for(char*p=e.text.text;*p;p++){ char c=*p; if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_'||c=='-'){ int l=(int)strlen(g_sh_name); if(l<50){ g_sh_name[l]=c; g_sh_name[l+1]=0; } } } continue; }
                 if(e.type==SDL_KEYDOWN){ SDL_Keycode k=e.key.keysym.sym; if(k==SDLK_BACKSPACE){ int l=(int)strlen(g_sh_name); if(l)g_sh_name[l-1]=0; } else if(k==SDLK_RETURN||k==SDLK_ESCAPE)g_sh_namefocus=0; continue; } }
@@ -7171,7 +7235,7 @@ int main(int argc,char**argv){
                     if(hit(mx,my,g_zoom_m.x,g_zoom_m.y,g_zoom_m.w,g_zoom_m.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c>1?c-1:1; }
                     else if(hit(mx,my,g_zoom_p.x,g_zoom_p.y,g_zoom_p.w,g_zoom_p.h)){ int c=g_zoom?g_zoom:g_emu_N; g_zoom=c<g_emu_maxN?c+1:g_emu_maxN; }
                     continue; }
-                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH)eobj_persist(); if(g_tab==TAB_RIG&&i!=TAB_RIG&&g_nrp)rig_keys_save(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0)rig_build_from_eobj(); } }
+                if(my>=BOT_Y){ if(my<BOT_Y+22){ for(int i=0;i<TAB_N;i++)if(hit(mx,my,g_tabr[i].x,g_tabr[i].y,g_tabr[i].w,g_tabr[i].h)){ if(g_tab==TAB_MESH&&i!=TAB_MESH)eobj_persist(); if(g_tab==TAB_RIG&&i!=TAB_RIG&&g_nrp)rig_keys_save(); g_tab=i; if(i==TAB_CODE)g_codefocus=1; if(i==TAB_RIG&&g_nobj>0&&!g_rig_obj[0])rig_build_from_eobj(); } }   /* rebuild from the live model only when NOT viewing a disk .obj rig (else a tab bounce would clobber it) */
                     else if(g_tab==TAB_PIXEL||g_tab==TAB_TEXTURE)pixel_down(mx,my);
                     else if(g_tab==TAB_CODE){ g_codefocus=1; if(g_code_track.w&&hit(mx,my,g_code_track.x,g_code_track.y,g_code_track.w,g_code_track.h)){ g_codesbdrag=1; float f=(float)(my-g_code_track.y)/g_code_track.h; g_codescroll=(int)(f*g_code_total)-g_code_vis/2; if(g_codescroll<0)g_codescroll=0; }
                         else { int sh=(SDL_GetModState()&KMOD_SHIFT)!=0; if(sh){ if(g_csel<0)g_csel=g_cur; code_click(mx,my); } else { code_click(mx,my); g_csel=g_cur; } g_codeseldrag=1; } }
