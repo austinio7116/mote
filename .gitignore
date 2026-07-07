@@ -31,3 +31,4 @@ dist-windows/
 dist/
 dist-linux/
 studio/assets/uifont.cfg
+.claude/worktrees/

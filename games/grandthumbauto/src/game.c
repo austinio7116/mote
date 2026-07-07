@@ -764,6 +764,7 @@ static float mission_hold;   /* WANTED: seconds survived at/above the target sta
 static int   mission_leg;    /* DELIVER: 0 = go to the car, 1 = drive it to the drop */
 static float drop_x, drop_z; /* the eventual delivery point (kept while mx,mz points at the near leg) */
 static int   mtarg[6], mtarg_n;   /* DEMO: the car indices to wreck */
+static uint32_t g_recur_seed;     /* the recurring contact for the current streak (0 = fresh face) */
 static float cp_x[5], cp_z[5]; static int cp_n, cp_i;   /* CIRCUIT/RIVAL: checkpoint chain + player's progress */
 static int   rival_car, rival_i;  /* RIVAL: (rival_car unused now) rival's checkpoint progress */
 static float rival_x, rival_z, rival_yaw, rival_spd;    /* RIVAL: phantom pace-car — moves along the route, never stuck */
@@ -864,7 +865,7 @@ static const float W_SPREAD[NWEAP] = { 0, 0.015f, 0.06f, 0.26f };
 
 /* streamed engine drone (saw + sub-octave + noise), pitched to car speed —
  * adapted from motokart. g_eng_f/g_eng_a are set each frame from g_update. */
-static volatile float g_eng_f = 48.0f, g_eng_a = 0.0f;
+static volatile float g_eng_f = 32.0f, g_eng_a = 0.0f;
 static float g_eng_ph, g_eng_ph2, g_eng_nz; static uint32_t g_eng_rng = 0x2ab3c1u;
 static int engine_fill(int16_t *out, int n) {
     float inc = g_eng_f/22050.0f, inc2 = inc*0.5f, a = g_eng_a;
@@ -2026,7 +2027,7 @@ static void update_missions(float dt) {
                                 else { mission_win(); return; } } } break;
     }
     if (mission_t<=0){ say("MISSION FAILED - CHAIN LOST"); lose=1; }
-    if (lose){ mission_cleanup(); mission=MI_NONE; mission_chain=0; }
+    if (lose){ mission_cleanup(); mission=MI_NONE; mission_chain=0; g_recur_seed=0; }   /* streak lost → new contact */
 }
 
 /* Jobs that steer you to a place (mx,mz) get the pulsing magenta beacon; the
@@ -2061,16 +2062,11 @@ static void ftext_sh(const MoteFont *f, uint16_t *fb, int x, int y, uint16_t col
 /* ================= phone-call CONTACTS ==================================
  * A fresh procedural character briefs every phone job: a seed-generated name and
  * a pixel portrait (skin/hair/face/outfit), GTA-style, drawn into the briefing. */
-static int      g_brief_active;      /* freezes the world during a call */
-static int      g_brief_stage;       /* 0 answer/ignore · 1 pick job A/B · 2 legacy single-offer */
-static int      g_branch[2];         /* the two job types the caller offers on stage 1 */
+static int      g_brief_active;      /* freezes the world during a job briefing */
 static uint32_t g_brief_seed;
 static char     g_brief_name[24];
 static const char *g_brief_role;
 static const char *g_brief_body;
-#define BRIEF_ANSWER 0
-#define BRIEF_CHOOSE 1
-#define BRIEF_SINGLE 2
 
 static uint32_t cr_mix(uint32_t x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
 static uint32_t g_seed_override;   /* host capture hook: force a specific contact seed */
@@ -2098,16 +2094,9 @@ static const char *job_body(int t){ switch(t){
     case MI_VIGIL:   return "Rival crew's on my turf. Thin it.";case MI_WANTED: return "Bring the city down. Survive.";
     case MI_CIRCUIT: return "Run my course. Beat the clock.";  case MI_RIVAL:  return "Think you're fast? Prove it.";
     default:         return "Do the job. Get paid."; } }
-/* A short verb label for the branch buttons (fits a narrow option row). */
-static const char *job_tag(int t){ switch(t){
-    case MI_COURIER: return "COURIER";  case MI_RAMPAGE: return "RAMPAGE";  case MI_GETAWAY: return "GETAWAY";
-    case MI_HIT:     return "HIT";      case MI_DELIVER: return "DELIVERY"; case MI_PICKUP:  return "PICKUP";
-    case MI_REPO:    return "REPO";     case MI_ESCORT:  return "ESCORT";   case MI_SMUGGLE: return "SMUGGLE";
-    case MI_DEMO:    return "DEMOLITION";case MI_VIGIL:  return "VIGILANTE";case MI_WANTED:  return "MOST WANTED";
-    case MI_CIRCUIT: return "TIME TRIAL";case MI_RIVAL:  return "STREET RACE"; default: return "JOB"; } }
-
 static void gen_contact(int mtype){
     uint32_t s = g_seed_override ? cr_mix(g_seed_override)
+               : g_recur_seed    ? g_recur_seed            /* same face keeps calling during a streak */
                : cr_mix((uint32_t)mote->micros() ^ ((uint32_t)mission_chain*2654435761u) ^ 0x9e3779b9u);
     g_brief_seed = s;
     int female = ((s>>20)&7) < 3;   /* ~37% women — MUST match draw_portrait's bit */
@@ -2392,28 +2381,10 @@ static int setup_mission(int rot, float mult){
     return mission!=MI_NONE;
 }
 
-/* Roll random job types until one sets up (bounded), honouring the host test pin. */
-static int roll_mission(float mult){
-    for (int a=0;a<8;a++){ int rot = 1 + irand(MI_COUNT-1);   /* MI_COURIER .. MI_RIVAL */
-#ifdef MOTE_HOST
-        if (g_force_mtype) rot = g_force_mtype;
-#endif
-        if (setup_mission(rot, mult)) return 1;
-    }
-    return 0;
-}
 static float mission_mult(void){ return 1.0f + 0.25f*(float)(mission_chain>5?5:mission_chain); }
 
-/* Direct single-offer job (used by the host test hook and as a fallback): roll one
- * and brief it. The phone marker uses the branching answer_phone() flow instead. */
-static void start_mission(void) {
-    if (mission!=MI_NONE) return;
-    if (!roll_mission(mission_mult())){ say("LINE DEAD..."); return; }
-    gen_contact(mission); g_brief_stage=BRIEF_SINGLE; g_brief_active=1;   /* a contact briefs the job */
-}
-
-/* --- Branching phone: ring → ANSWER/IGNORE → pick one of TWO offered jobs. Stakes
- * scale with the chain, so a hot streak surfaces the big, dangerous work. --- */
+/* Job stakes rise with the streak: early calls lean to soft jobs; a hot streak
+ * surfaces the heavy, better-paying work — the same contact escalating over time. */
 static int pick_offer_type(int chain){
     static const int EASY[] = { MI_COURIER, MI_PICKUP, MI_DELIVER, MI_CIRCUIT, MI_SMUGGLE, MI_ESCORT, MI_REPO };
     static const int HARD[] = { MI_HIT, MI_RAMPAGE, MI_DEMO, MI_VIGIL, MI_WANTED, MI_RIVAL, MI_GETAWAY };
@@ -2421,26 +2392,28 @@ static int pick_offer_type(int chain){
     if ((int)irand(100) < hardbias) return HARD[irand((int)(sizeof HARD/sizeof*HARD))];
     return EASY[irand((int)(sizeof EASY/sizeof*EASY))];
 }
-static void answer_phone(void){
-    if (mission!=MI_NONE || g_brief_active) return;
-    gen_contact(MI_COURIER);                 /* roll the caller's face + name */
-    g_branch[0] = pick_offer_type(mission_chain);
-    g_branch[1] = g_branch[0];
-    for (int g=0; g<8 && g_branch[1]==g_branch[0]; g++) g_branch[1] = pick_offer_type(mission_chain);
-    g_brief_stage = BRIEF_ANSWER; g_brief_active = 1;
-}
-static void commit_branch(int pick){
-    float mult=mission_mult();
-    int ok=0;
-    for (int a=0; a<8 && !ok; a++) ok = setup_mission(g_branch[pick], mult);   /* the pick's search is random — retry it */
-    if (!ok) roll_mission(mult);                                               /* only then fall back to any job */
+
+/* Roll job types (biased up by the streak) until one's props are in place. */
+static int roll_mission(float mult){
+    for (int a=0;a<8;a++){ int rot = pick_offer_type(mission_chain);
 #ifdef MOTE_HOST
-    if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CALL] offers=[%s,%s] pick=%d(%s) got=%s%s\n",
-        job_tag(g_branch[0]),job_tag(g_branch[1]),pick,job_tag(g_branch[pick]),job_tag(mission), ok?"":" (FALLBACK)");
+        if (g_force_mtype) rot = g_force_mtype;
 #endif
-    g_brief_active=0;
-    if (mission==MI_NONE) say("LINE DEAD...");
+        if (setup_mission(rot, mult)) return 1;
+    }
+    return 0;
 }
+
+/* Answer the phone: a contact offers ONE job — accept or decline. Land it and the
+ * SAME contact rings back with something bigger (mission_win keeps the streak). */
+static void start_mission(void) {
+    if (mission!=MI_NONE) return;
+    if (!roll_mission(mission_mult())){ say("LINE DEAD..."); return; }
+    gen_contact(mission);
+    if (!g_recur_seed) g_recur_seed = g_brief_seed;   /* lock this contact for the streak */
+    g_brief_active=1;
+}
+
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
     sfx(&win_sfx,0.8f); float_txt(pl_x(),pl_z(),"PAID");
@@ -2480,7 +2453,7 @@ static void reset_game(void) {
     for (int i=0;i<NFX;i++) fxs[i].t=0;
     cash=0; health=MAXHP; heat=0; heat_cool=99; fire_cd=0;
     weapon=W_FIST; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;} owned[W_FIST]=1; g_kills=0;
-    mission=MI_NONE; g_msg_t=0; mission_chain=0;
+    mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0;
     g_rng ^= (uint32_t)mote->micros();     /* each run is a different city day */
 #ifdef MOTE_HOST
     if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[SEED] micros=%u rng=%u\n",(unsigned)mote->micros(),g_rng);
@@ -2752,7 +2725,7 @@ static void reset_game_dm_finish(uint32_t seed){
     cash=0; health=MAXHP; heat=0; heat_cool=99; fire_cd=0;
     weapon=W_PISTOL; for(int i=0;i<NWEAP;i++){owned[i]=0;ammo[i]=0;}
     owned[W_FIST]=1; owned[W_PISTOL]=1; ammo[W_PISTOL]=60; g_kills=0;
-    mission=MI_NONE; g_msg_t=0; mission_chain=0; nmark=0;  /* no shops/phones/missions */
+    mission=MI_NONE; g_msg_t=0; mission_chain=0; g_recur_seed=0; nmark=0;  /* no shops/phones/missions */
     g_rng = seed*2246822519u | 1u;   /* DETERMINISTIC: both units roll identically below */
     /* spawn A: the seeded pavement-by-a-road search (same result on both units) */
     int sx=MAPW/2, sz=MAPH/2, done=0;
@@ -3091,18 +3064,10 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
 
-    if (g_brief_active){                                  /* a phone call freezes the city */
-        int A=mote_just_pressed(in, MOTE_BTN_A), B=mote_just_pressed(in, MOTE_BTN_B);
-        if (g_brief_stage==BRIEF_SINGLE){
-            if (A) g_brief_active=0;                                       /* accept the set-up job */
-            else if (B){ g_brief_active=0; mission_cleanup(); mission=MI_NONE; say("DECLINED"); }
-        } else if (g_brief_stage==BRIEF_ANSWER){
-            if (A) g_brief_stage=BRIEF_CHOOSE;                             /* answer → hear the two offers */
-            else if (B){ g_brief_active=0; say("IGNORED"); }              /* nothing spawned yet */
-        } else {                                                          /* BRIEF_CHOOSE: pick a job */
-            if (A) commit_branch(0);
-            else if (B) commit_branch(1);
-        }
+    if (g_brief_active){                                  /* the job briefing freezes the city */
+        if (mote_just_pressed(in, MOTE_BTN_A)) g_brief_active = 0;         /* accept */
+        else if (mote_just_pressed(in, MOTE_BTN_B)){                       /* decline (the contact still calls back) */
+            g_brief_active=0; mission_cleanup(); mission=MI_NONE; say("DECLINED"); }
         return;
     }
 #ifdef MOTE_HOST
@@ -3111,8 +3076,7 @@ static void g_update(float dt) {
           uint32_t sd=(uint32_t)atoi(e);
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
-          if (getenv("MOTE_GTA_CALL")) answer_phone(); else start_mission();   /* test the branching call */
-          bdone=1; } }
+          start_mission(); bdone=1; } }
 #endif
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
@@ -3338,7 +3302,7 @@ static void g_update(float dt) {
         /* A: interact with a shop/phone if in range, else enter/jack a car */
         if (A) {
             if (near_marker(MK_GUN, 3.0f))        buy_gun();
-            else if (near_marker(MK_PHONE, 3.0f)) answer_phone();
+            else if (near_marker(MK_PHONE, 3.0f)) start_mission();
             else {
                 int best=-1; float bd=14.0f;
                 for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].wrecked||cars[i].driver==DRV_PLAYER) continue;
@@ -3472,7 +3436,7 @@ static void g_update(float dt) {
     float ztarget = CAM_FOOT;
     if (player.mode==MODE_CAR){ float s=fabsf(cars[player.car].spd);
         ztarget = CAM_CAR + (CAM_MAX-CAM_CAR)*(s/18.0f); if(ztarget>CAM_MAX) ztarget=CAM_MAX;
-        g_eng_f = 46.0f + s*7.5f;
+        g_eng_f = 30.0f + s*5.0f;   /* lower, rumblier drone (was 46 + s*7.5) */
         float at = 0.11f + s*0.012f; if(at>0.30f)at=0.30f; g_eng_a += (at-g_eng_a)*0.3f;
     } else g_eng_a *= 0.85f;
     g_camh += (ztarget - g_camh) * mote_clampf(2.5f*dt, 0.0f, 1.0f);
@@ -3776,35 +3740,18 @@ static void g_overlay(uint16_t *fb) {
         mote_dim_box(fb, 0, 0, 128, 128, 7);                       /* translucent — the city stays visible */
         draw_portrait(fb, 44, 12, g_brief_seed);                   /* the contact's mugshot */
         char l1[28], l2[28];
-        if (g_brief_stage==BRIEF_ANSWER){                          /* stage 0: pick up or ignore */
-            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
-            mote_dim_box(fb, 3, 60, 122, 44, 5);
-            mote_ftextc(mote, fb, g_fread, 64, 64, MOTE_RGB565(236,238,245), g_brief_name);
-            mote_ftextc(mote, fb, g_fmed, 64, 84, MOTE_RGB565(196,204,220), "wants a word...");
-            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ANSWER    B IGNORE");
-        } else if (g_brief_stage==BRIEF_CHOOSE){                   /* stage 1: two jobs on the table */
-            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(244,204,72), g_brief_name);
-            mote_dim_box(fb, 3, 60, 122, 52, 5);
-            uint16_t ca=MOTE_RGB565(120,210,255), cb=MOTE_RGB565(255,190,90), dim=MOTE_RGB565(188,196,210);
-            mote_ftextfc(mote, fb, g_fread, 64, 60, ca, "A: %s", job_tag(g_branch[0]));
-            wrap2(g_fmed, job_body(g_branch[0]), 118, l1, l2, 28);
-            mote_ftextc(mote, fb, g_fmed, 64, 74, dim, l1);
-            mote_ftextfc(mote, fb, g_fread, 64, 88, cb, "B: %s", job_tag(g_branch[1]));
-            wrap2(g_fmed, job_body(g_branch[1]), 118, l1, l2, 28);
-            mote_ftextc(mote, fb, g_fmed, 64, 102, dim, l1);
-            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A or B  -  CHOOSE");
-        } else {                                                   /* BRIEF_SINGLE: the classic one-job brief */
-            mote_dim_box(fb, 3, 44, 122, 82, 5);
-            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
-            mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
-            mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
-            mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
-            wrap2(g_fread, g_brief_body, 118, l1, l2, 28);
-            int by = l2[0] ? 90 : 96;
-            mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
-            if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2);
-            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
-        }
+        mote_dim_box(fb, 3, 44, 122, 82, 5);
+        /* a returning contact reads as CALLING BACK (streak) rather than a cold call */
+        if (mission_chain>0) mote_ftextfc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(120,210,255), "CALLING BACK  x%d", mission_chain);
+        else                 mote_ftextc (mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
+        mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
+        mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
+        mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
+        wrap2(g_fread, g_brief_body, 118, l1, l2, 28);
+        int by = l2[0] ? 90 : 96;
+        mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
+        if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2);
+        mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
         return;
     }
     if (g_state==ST_TITLE){
