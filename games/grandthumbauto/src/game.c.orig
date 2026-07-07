@@ -686,51 +686,6 @@ static float road_dist(float ax,float az,float bx,float bz){
     return rd_dist[sb]*4.0f*TILE;                    /* cells -> metres */
 }
 
-/* THE RACER'S ROUTER. A greedy car needs a distance field that reflects REAL road
- * connectivity: rd_cell_road links any two cells that each merely contain some road,
- * so a dead-end stub makes cells look joined — a lie that traps a greedy racer in a
- * blind corridor (it reads "shorter this way" into a wall). rd_edge fixes that: two
- * coarse cells are adjacent only if their roads actually TOUCH at the shared border.
- * race_field then BFS-floods cell distances FROM the checkpoint; the racer descends
- * that field at each junction, which on an accurate graph has no local minima. */
-static int rd_edge(int cx,int cz,int nx,int nz){
-    if (nx==cx+1){ for(int d=0;d<4;d++) if(is_drivable(cx*4+3,cz*4+d)&&is_drivable(nx*4+0,nz*4+d)) return 1; return 0; }
-    if (nx==cx-1){ for(int d=0;d<4;d++) if(is_drivable(cx*4+0,cz*4+d)&&is_drivable(nx*4+3,nz*4+d)) return 1; return 0; }
-    if (nz==cz+1){ for(int d=0;d<4;d++) if(is_drivable(cx*4+d,cz*4+3)&&is_drivable(nx*4+d,nz*4+0)) return 1; return 0; }
-    if (nz==cz-1){ for(int d=0;d<4;d++) if(is_drivable(cx*4+d,cz*4+0)&&is_drivable(nx*4+d,nz*4+3)) return 1; return 0; }
-    return 0;
-}
-static uint8_t rf_dist[RD_N*RD_N];                  /* racer field: cell distance to the checkpoint */
-static int     rf_valid=0; static float rf_tx=-1, rf_tz=-1;
-static void race_field(float tx,float tz){
-    rf_valid=0;
-    for (int i=0;i<RD_N*RD_N;i++) rf_dist[i]=0xFF;
-    int sb=(int)(tx/TILE)/4 + ((int)(tz/TILE)/4)*RD_N;
-    if (sb<0||sb>=RD_N*RD_N) return;
-    int head=0, tail=0; rf_dist[sb]=0; rd_q[tail++]=(uint16_t)sb;   /* reuse rd_q (transient) */
-    while (head<tail){
-        int c=rd_q[head++], cx=c%RD_N, cz=c/RD_N; uint8_t d=rf_dist[c];
-        if (d>=250) continue;
-        static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
-        for (int k=0;k<4;k++){
-            int nx=cx+DX[k], nz=cz+DZ[k];
-            if (nx<0||nz<0||nx>=RD_N||nz>=RD_N) continue;
-            int n=nz*RD_N+nx;
-            if (rf_dist[n]!=0xFF || !rd_cell_road(nx,nz) || !rd_edge(cx,cz,nx,nz)) continue;
-            rf_dist[n]=(uint8_t)(d+1); rd_q[tail++]=(uint16_t)n;
-        }
-    }
-    rf_tx=tx; rf_tz=tz; rf_valid=1;
-}
-/* cost-to-checkpoint at a world point (in coarse cells); huge if unrouteable */
-static float race_cost(float x,float z){
-    int cx=(int)(x/TILE)/4, cz=(int)(z/TILE)/4;
-    if (!rf_valid||cx<0||cz<0||cx>=RD_N||cz>=RD_N) return 1e6f;
-    uint8_t d=rf_dist[cz*RD_N+cx];
-    return d==0xFF ? 1e6f : (float)d;
-}
-
-
 static int find_road_clear(float px,float pz,float rmin,float rmax,float*ox,float*oz){
     for (int t=0;t<56;t++){
         float a=frand()*6.2832f, r=rmin+frand()*(rmax-rmin);
@@ -868,14 +823,8 @@ static float drop_x, drop_z; /* the eventual delivery point (kept while mx,mz po
 static int   mtarg[6], mtarg_n;   /* DEMO: the car indices to wreck */
 static uint32_t g_recur_seed;     /* the recurring contact for the current streak (0 = fresh face) */
 static float cp_x[5], cp_z[5]; static int cp_n, cp_i;   /* CIRCUIT/RIVAL: checkpoint chain + player's progress */
-static int   rival_car, rival_i;  /* RIVAL: rival's car slot + its checkpoint progress (a REAL AI car) */
-/* RIVAL rubber-band top speeds (m/s). Traffic cruises at 9.5; the racer runs faster,
- * and modulates by who's ahead so the street race stays tight and beatable. */
-#define RIVAL_CAP_AHEAD   10.0f     /* rival is a checkpoint ahead of the player → ease off (but still race) */
-#define RIVAL_CAP_EVEN_LO 11.5f     /* same leg, rival already closer than the player → coast */
-#define RIVAL_CAP_EVEN    13.0f     /* same leg, roughly level */
-#define RIVAL_CAP_BEHIND  15.5f     /* rival is behind (or trailing on the leg) → floor it */
-#define RIVAL_ARRIVE2    100.0f     /* checkpoint arrival radius^2 (10 m — a car needs some slack) */
+static int   rival_car, rival_i;  /* RIVAL: (rival_car unused now) rival's checkpoint progress */
+static float rival_x, rival_z, rival_yaw, rival_spd;    /* RIVAL: phantom pace-car — moves along the route, never stuck */
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
@@ -1295,45 +1244,6 @@ static float best_turn(float x,float z,float d,int allow_straight){
     return 1.5708f * floorf(bestd/1.5708f + 0.5f);   /* normalise to a cardinal */
 }
 
-/* RACER navigation: among the drivable cardinals leaving (x,z) (relative to the
- * committed heading d), pick the one whose road best REDUCES the true road-network
- * distance to the checkpoint (tx,tz) — i.e. greedy descent on the coarse BFS field,
- * which converges on a connected grid. allow_back gates the 180° reverse: junction
- * turns pass 0 so the racer never U-turns mid-street; a boxed-in dead-end passes 1.
- * Only 'straight' open  → returns d (keep cruising, no turn). */
-static float best_turn_toward(float x,float z,float d,float tx,float tz,int allow_straight,int allow_back){
-    const float R[4]={ 1.5708f,-1.5708f, allow_straight?0.0f:3.14159f, 3.14159f };
-    float cand[4], crun[4]; int nv=0;
-    for (int k=0;k<4;k++){
-        if (k==3 && !allow_back) continue;                       /* R[3] is the reverse */
-        float cd=d+R[k];
-        /* Require a real road run (>= 1.5 tiles) to count as an exit — the traffic AI's
-         * anti-wedge rule: the racer only commits to a cardinal it can actually drive down,
-         * so it never steers into a stub/kerb and freezes on the clamp. */
-        float rr = road_run(x,z, cosf(cd),sinf(cd), TILE*5.0f);
-        if (rr < TILE*1.5f) continue;
-        cand[nv]=cd; crun[nv]=rr; nv++;
-    }
-    if (nv==0) return best_turn(x,z,d,allow_straight);           /* boxed in: fall back to longest run */
-    if (nv==1) return 1.5708f * floorf(cand[0]/1.5708f + 0.5f);  /* only one way — take it */
-    int bi=0; float bs=1e30f;
-    for (int k=0;k<nv;k++){
-        float fx=cosf(cand[k]), fz=sinf(cand[k]);
-        /* sample the field cost where this road ACTUALLY reaches (its run extent, capped),
-         * not a fixed distance that may overshoot a bend into a building — a bent exit was
-         * being wrongly scored as unrouteable, which trapped the racer in dither loops. */
-        float sd=crun[k]; if(sd>TILE*4.0f) sd=TILE*4.0f;
-        float sx=x+fx*sd, sz=z+fz*sd;
-        float g=sqrtf((sx-tx)*(sx-tx)+(sz-tz)*(sz-tz));         /* straight-line to the checkpoint */
-        float cst=race_cost(sx,sz);                             /* true routed cost (cells) via the field */
-        /* the routed cost DOMINATES (×1000) so the racer always descends the real road
-         * network; the straight-line only breaks ties between equal-cost branches.  A
-         * branch the field can't route from sorts last but still beats being boxed in. */
-        float score = (cst>=1e6f) ? (1e9f + g) : (cst*1000.0f + g);
-        if (score<bs-0.01f){ bs=score; bi=k; }
-    }
-    return 1.5708f * floorf(cand[bi]/1.5708f + 0.5f);
-}
 /* Traffic AI = a small STATE MACHINE on the tile grid:
  *   CRUISE — drive straight along the committed cardinal, holding the right-lane centre
  *            with PURE-PURSUIT (steer at a look-ahead point → smooth, no wiggle); go
@@ -1358,123 +1268,16 @@ static void update_traffic(float dt) {
         float d = 1.5708f * floorf(npc_target[i]/1.5708f + 0.5f);   /* committed cardinal */
         float ba=b->angle, spd=b->vx*cosf(ba)+b->vy*sinf(ba);
 
-        /* THE RACER: a real AI car that reuses this whole lane-keeping + CRUISE/TURN
-         * machine (so it stays lane-centred and never trips the road-clamp), but steers
-         * its junction choices toward the current checkpoint and runs a rubber-banded
-         * top speed. rcx/rcz = the checkpoint it is currently chasing. */
-        int is_racer = (mission==MI_RIVAL && i==rival_car && rival_i<cp_n);
-        float rcx=0, rcz=0;
-        /* racer escape state (single racer): drives a fixed cardinal straight for a beat to
-         * break a wedge/orbit, and a DISPLACEMENT-based stuck timer that (unlike the forward-
-         * speed one) also catches a car spinning-in-place on a turn waypoint. */
-        static float rc_escd, rc_esc_t, rc_sx, rc_sz, rc_samp, rc_bestcost=1e9f, rc_prog_t;
-        static int   rc_circ_n;
-        if (is_racer){ rcx=cp_x[rival_i]; rcz=cp_z[rival_i];
-            if (!rf_valid || rf_tx!=rcx || rf_tz!=rcz){ race_field(rcx,rcz); rc_bestcost=1e9f; rc_prog_t=0; rc_circ_n=0; }
-            rc_samp += dt;
-            if (rc_samp >= 0.5f){                            /* barely moved (<1 m) in 0.5 s → wedged */
-                float mv=(c->x-rc_sx)*(c->x-rc_sx)+(c->z-rc_sz)*(c->z-rc_sz);
-                if (mv < 1.0f) stuck_t[i]+=rc_samp; else stuck_t[i]=0;   /* real cornering still counts as moving */
-                rc_sx=c->x; rc_sz=c->z; rc_samp=0;
-            }
-            /* ANTI-CIRCLE: a car looping a block still "moves", so displacement won't flag it.
-             * Watch routed COST instead — if it hasn't dropped for 2 s the racer is going
-             * nowhere. First couple of times, force an escape (may U-turn out of a dead-end).
-             * If it KEEPS failing on the same checkpoint (a pathological layout the strict
-             * field can't route), GUARANTEE progress: hop to a clear road tile nearer the
-             * checkpoint and re-route. Never fires while normally descending the field, so a
-             * healthy leg is never teleported. */
-            float cc = race_cost(c->x,c->z);
-            if (cc < rc_bestcost-0.5f){ rc_bestcost=cc; rc_prog_t=0; rc_circ_n=0; }
-            else { rc_prog_t += dt;
-                if (rc_prog_t > 2.0f){ rc_prog_t=0; rc_bestcost=cc;
-                    if (++rc_circ_n < 3){ stuck_t[i]=1.05f; }        /* try to steer out first */
-                    else {                                            /* persistent → guaranteed hop */
-                        float curd=sqrtf((rcx-c->x)*(rcx-c->x)+(rcz-c->z)*(rcz-c->z));
-                        float bx=0,bz=0, bestd=curd*0.7f; int got=0;
-                        for (int t=0;t<96;t++){
-                            float mxp=c->x+(rcx-c->x)*0.5f, mzp=c->z+(rcz-c->z)*0.5f;   /* bias toward the CP */
-                            float a=frand()*6.2832f, r=8.0f+frand()*72.0f;
-                            int tx=(int)((mxp+cosf(a)*r)/TILE), tz=(int)((mzp+sinf(a)*r)/TILE);
-                            if (tx<2||tz<2||tx>=MAPW-2||tz>=MAPH-2||!is_drivable(tx,tz)) continue;
-                            float wx=(tx+0.5f)*TILE, wz=(tz+0.5f)*TILE;
-                            float dd=sqrtf((rcx-wx)*(rcx-wx)+(rcz-wz)*(rcz-wz)); if(dd>=bestd) continue;
-                            int clear=1; for(int j=0;j<NCAR;j++){ if(!cars[j].alive||j==i) continue;
-                                float ddx=cars[j].x-wx, ddz=cars[j].z-wz; if(ddx*ddx+ddz*ddz<36.0f){clear=0;break;} }
-                            if (clear){ bestd=dd; bx=wx; bz=wz; got=1; }
-                        }
-                        if (got){ float yaw; place_in_lane(&bx,&bz,&yaw);
-                            c->x=bx; c->z=bz; c->yaw=yaw; c->spd=0; car_body_init(i);
-                            npc_target[i]=yaw; ai_state[i]=AIS_CRUISE; stuck_t[i]=0; rc_esc_t=0;
-                            rc_sx=bx; rc_sz=bz; rc_samp=0; rc_bestcost=1e9f;
-                            d=1.5708f*floorf(yaw/1.5708f+0.5f); ba=yaw; spd=0; }
-                        rc_circ_n=0;
-                    }
-                }
-            }
-            if (rc_esc_t > 0.0f) rc_esc_t -= dt;
-            /* HARD UNSTICK — safety net. The per-axis road-clamp can wedge a body in an
-             * off-road pocket (both axes revert every step → frozen forever, and no steering
-             * escapes it). If the racer is truly stuck a while, re-seat it lane-centred on a
-             * nearby clear road tile and re-route. Only fires when genuinely frozen, so it is
-             * rare; far cleaner than a rival glued to a kerb for the whole race. */
-            if (stuck_t[i] > 2.0f){
-                float ox,oz;
-                if (find_road_clear(c->x,c->z, 2.0f, 26.0f, &ox,&oz)){
-                    float yaw; place_in_lane(&ox,&oz,&yaw);
-                    c->x=ox; c->z=oz; c->yaw=yaw; c->spd=0;
-                    car_body_init(i);                        /* re-seat the physics body on the road */
-                    npc_target[i]=yaw; ai_state[i]=AIS_CRUISE;
-                    stuck_t[i]=0; rc_esc_t=0; rc_sx=ox; rc_sz=oz; rc_samp=0;
-                    d = 1.5708f * floorf(yaw/1.5708f + 0.5f); ba=yaw; spd=0;
-                }
-            }
-        }
-
-        /* JAM RECOVERY: break free of a wedge/orbit. The racer commits to CRUISING straight
-         * along a fresh checkpoint-ward cardinal (a tight turn waypoint here can re-orbit),
-         * and holds it for ~1 s (rc_esc_t) so it clears the junction before turning again. */
-        if (stuck_t[i] > 1.0f){
-            if (is_racer){
-                d = best_turn_toward(c->x,c->z,d, rcx,rcz, 1,1);   /* escape onto any real road toward CP */
-                npc_target[i]=d; ai_state[i]=AIS_CRUISE; rc_escd=d; rc_esc_t=1.0f;
-            } else {
-                d=best_turn(c->x,c->z,d,0); npc_target[i]=d; ai_state[i]=AIS_TURN;
-                turn_wx[i]=c->x+cosf(d)*TILE*1.9f; turn_wz[i]=c->z+sinf(d)*TILE*1.9f;
-            }
-        }
-        int racer_escaping = (is_racer && rc_esc_t > 0.0f);   /* hold a straight escape line */
-        if (racer_escaping){ d=rc_escd; npc_target[i]=d; ai_state[i]=AIS_CRUISE; }
+        /* JAM RECOVERY: peel out perpendicularly onto the longest-run road (leave the queue). */
+        if (stuck_t[i] > 1.0f){ d=best_turn(c->x,c->z,d,0); npc_target[i]=d; ai_state[i]=AIS_TURN;
+            turn_wx[i]=c->x+cosf(d)*TILE*1.9f; turn_wz[i]=c->z+sinf(d)*TILE*1.9f; }
         float fx=cosf(d), fz=sinf(d), rx=-sinf(d), rz=cosf(d);   /* forward / driver's right */
 
         float run_ahead = road_run(c->x,c->z, fx,fz, TILE*3.0f);
         if (ai_state[i]==AIS_CRUISE){
-            /* decide whether to commit a turn this frame, and to WHICH cardinal:
-             *  - road ends straight ahead → must turn (traffic: longest run; racer: toward CP)
-             *  - racer only: an open cross-junction is coming AND turning onto it heads
-             *    toward the checkpoint → peel off the straight to make the turn. */
-            int do_turn = 0; float newd = d; float kerb = run_ahead;
-            if (is_racer && !racer_escaping){
-                /* Descend the cost field: once per TILE, among the cardinals that have a real
-                 * road run (best_turn_toward's >=2-tile gate → never a wedge), pick the one
-                 * that most reduces routed distance to the checkpoint. Deciding per-tile (not
-                 * per-frame) lets the car commit and drive smoothly instead of thrashing. */
-                static int rc_dtx=-9999, rc_dtz=-9999;
-                int ctx=(int)(c->x/TILE), ctz=(int)(c->z/TILE);
-                if (ctx!=rc_dtx || ctz!=rc_dtz){
-                    rc_dtx=ctx; rc_dtz=ctz;
-                    float want = best_turn_toward(c->x,c->z, d, rcx,rcz, 1, 0);
-                    if (fabsf(ang_diff(want,d)) > 0.1f){ do_turn=1; newd=want; kerb=TILE*1.0f; }
-                }
-                if (!do_turn && run_ahead < TILE*1.5f){         /* road ends straight ahead → must turn */
-                    do_turn=1; newd = best_turn_toward(c->x,c->z,d, rcx,rcz, 0,1);
-                }
-            } else if (!is_racer && run_ahead < TILE*1.5f){
-                do_turn = 1; newd = best_turn(c->x,c->z,d,0);
-            }
-            if (do_turn){                                        /* road ends straight ahead → turn */
-                float odx=fx, odz=fz;                            /* old heading + room to the kerb */
-                d = newd; npc_target[i]=d; ai_state[i]=AIS_TURN;
+            if (run_ahead < TILE*1.5f){                          /* road ends straight ahead → turn */
+                float odx=fx, odz=fz, kerb=run_ahead;            /* old heading + room to the kerb */
+                d = best_turn(c->x,c->z,d,0); npc_target[i]=d; ai_state[i]=AIS_TURN;
                 fx=cosf(d); fz=sinf(d); rx=-sinf(d); rz=cosf(d);
                 /* exit waypoint by TURN DIRECTION: rights HUG the near corner (shallow in,
                  * early out); lefts drive DEEPER into the junction before turning across —
@@ -1549,27 +1352,7 @@ static void update_traffic(float dt) {
 
         float cc=cosf(ba), ss=sinf(ba), fs=b->vx*cc+b->vy*ss;    /* cap forward speed */
         float cap = blocked ? 2.0f : (turning ? 3.0f : (approach ? 4.6f : 9.5f));
-        if (is_racer && !blocked){
-            /* RUBBER-BAND top speed: a race car, faster than traffic on the straights,
-             * eased when ahead of the player and floored when behind so the race stays
-             * close and winnable. Corners still cap low (fast turns cut the lane and hit
-             * the road-clamp) but a touch above traffic. */
-            float rds;
-            if      (rival_i > cp_i) rds = RIVAL_CAP_AHEAD;      /* a checkpoint ahead → back off */
-            else if (rival_i < cp_i) rds = RIVAL_CAP_BEHIND;    /* behind → chase hard */
-            else {                                              /* same leg → match the player's gap */
-                float pdx=cp_x[cp_i]-pl_x(), pdz=cp_z[cp_i]-pl_z(), pd=sqrtf(pdx*pdx+pdz*pdz);
-                float rdx=rcx-c->x, rdz=rcz-c->z, rrd=sqrtf(rdx*rdx+rdz*rdz);
-                rds = rrd < pd-6.0f ? RIVAL_CAP_EVEN_LO : (rrd > pd+6.0f ? RIVAL_CAP_BEHIND : RIVAL_CAP_EVEN);
-            }
-            cap = turning ? 4.2f : (approach ? 6.0f : rds);   /* takes corners quicker than traffic */
-        }
         if (fs>cap){ float lx=b->vx-cc*fs, lz=b->vy-ss*fs; b->vx=cc*cap+lx; b->vy=ss*cap+lz; }
-#ifdef MOTE_HOST
-        if (is_racer && getenv("MOTE_GTA_RTRACE"))
-            fprintf(stderr,"[RTRACE] p=(%.1f,%.1f) d=%.2f cost=%.0f state=%d turn=%d on=%d ra=%.1f spd=%.1f st=%.1f\n",
-                c->x,c->z, d, race_cost(c->x,c->z), ai_state[i], turning, road_world(c->x,c->z), run_ahead, spd, stuck_t[i]);
-#endif
     }
 }
 
@@ -2224,6 +2007,23 @@ static void update_escort(Ped *v, float dt){
     if (v->hp==0) v->alive=0;
 }
 
+/* The RIVAL is a phantom pace-car: it glides straight along the checkpoint route
+ * (no collision, so it never wall-jams) at a rubber-banded speed that keeps the
+ * race tight — coasts when ahead, floors it when behind. */
+static void update_rival(float dt){
+    if (rival_i>=cp_n) return;
+    float tx=cp_x[rival_i]-rival_x, tz=cp_z[rival_i]-rival_z, td=sqrtf(tx*tx+tz*tz);
+    if (td<6.0f){ rival_i++; if(rival_i>=cp_n) return;
+        tx=cp_x[rival_i]-rival_x; tz=cp_z[rival_i]-rival_z; td=sqrtf(tx*tx+tz*tz); }
+    float rds;
+    if (rival_i > cp_i) rds = 5.5f;                 /* a checkpoint ahead → ease off */
+    else if (rival_i < cp_i) rds = 12.5f;           /* behind → push hard */
+    else { float pdx=cp_x[cp_i]-pl_x(), pdz=cp_z[cp_i]-pl_z(), pd=sqrtf(pdx*pdx+pdz*pdz);
+           rds = td < pd-4.0f ? 6.5f : (td > pd+4.0f ? 11.5f : 8.5f); }   /* same leg: match the player */
+    rival_spd += (rds - rival_spd) * mote_clampf(3.0f*dt, 0.0f, 1.0f);
+    if (td>0.01f){ rival_x += tx/td*rival_spd*dt; rival_z += tz/td*rival_spd*dt; rival_yaw=atan2f(tz,tx); }
+}
+
 static void update_missions(float dt) {
     if (mission==MI_NONE) return;
     mission_t-=dt;
@@ -2232,12 +2032,8 @@ static void update_missions(float dt) {
     if ((mission==MI_RIVAL||mission==MI_CIRCUIT) && getenv("MOTE_GTA_DEBUG")){
         static float acc; acc+=dt;
         if (acc>=1.0f){ acc=0;
-            Car *rc=(mission==MI_RIVAL&&rival_car>=0)?&cars[rival_car]:0;
-            float rspd = rc ? sqrtf(bodies[rival_car].vx*bodies[rival_car].vx+bodies[rival_car].vy*bodies[rival_car].vy) : 0;
-            float tgx = (rival_i<cp_n)?cp_x[rival_i]:0, tgz=(rival_i<cp_n)?cp_z[rival_i]:0;
-            fprintf(stderr,"[RACE] cp=%d/%d rival=%d rspd=%.1f rpos=(%.0f,%.0f) tgt=(%.0f,%.0f) stuck=%.1f alive=%d t=%.0f\n",
-            cp_i,cp_n,rival_i, rspd, rc?rc->x:0,rc?rc->z:0, tgx,tgz,
-            rc?stuck_t[rival_car]:0, rc?rc->alive:0, mission_t); } }
+            fprintf(stderr,"[RACE] cp=%d/%d rival=%d rspd=%.1f t=%.0f\n",
+            cp_i,cp_n,rival_i, rival_spd, mission_t); } }
 #endif
     switch (mission){
     case MI_COURIER: { float dx=pl_x()-mx, dz=pl_z()-mz;
@@ -2290,23 +2086,8 @@ static void update_missions(float dt) {
         if (dx*dx+dz*dz<49.0f){ cp_i++; if(cp_i<cp_n){ mx=cp_x[cp_i]; mz=cp_z[cp_i]; sfx(&cash_sfx,0.5f); }
                                 else { mission_win(); return; } } } break;
     case MI_RIVAL: { if (cp_i>=cp_n){ mission_win(); return; }
-        /* the RIVAL is a real AI car (update_traffic steers it toward cp_x/z[rival_i]);
-         * advance its checkpoint here from its true body position. If it is wrecked or
-         * recycled it simply stops progressing — take it out and the race is yours. */
-        Car *rc=(rival_car>=0)?&cars[rival_car]:0;
-        if (rc && rc->alive && !rc->wrecked && rival_i<cp_n){
-            float rdx=rc->x-cp_x[rival_i], rdz=rc->z-cp_z[rival_i];
-            if (rdx*rdx+rdz*rdz < RIVAL_ARRIVE2){ rival_i++;
-#ifdef MOTE_HOST
-                if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[RACE] >>> RIVAL HIT CHECKPOINT %d/%d\n", rival_i, cp_n);
-#endif
-            }
-        }
-        if (rival_i>=cp_n){                                     /* he crossed the line first */
-#ifdef MOTE_HOST
-            if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[RACE] >>> RIVAL WON THE RACE (completed all %d checkpoints)\n", cp_n);
-#endif
-            say("THE RIVAL TOOK IT"); lose=1; break; }
+        update_rival(dt);
+        if (rival_i>=cp_n){ say("THE RIVAL TOOK IT"); lose=1; break; }   /* he crossed the line first */
         float dx=pl_x()-cp_x[cp_i], dz=pl_z()-cp_z[cp_i];
         if (dx*dx+dz*dz<49.0f){ cp_i++; if(cp_i<cp_n){ mx=cp_x[cp_i]; mz=cp_z[cp_i]; sfx(&cash_sfx,0.5f); }
                                 else { mission_win(); return; } } } break;
@@ -2558,12 +2339,8 @@ static int find_npc_car(float rmin, float rmax){
  * medium hop from the previous — the racecourse for CIRCUIT/RIVAL. */
 static int build_route(int n){
     float px=pl_x(), pz=pl_z(); cp_n=0;
-    for (int k=0;k<n && cp_n<5;k++){ float ox,oz; int ok=0;
-        for (int t=0;t<8 && !ok;t++){                    /* insist each leg is road-REACHABLE */
-            if (!find_road_clear(px,pz, 55.0f, 115.0f, &ox,&oz)) break;
-            if (road_dist(px,pz, ox,oz) > 0) ok=1;       /* so the player AND the rival can complete it */
-        }
-        if (!ok) break;
+    for (int k=0;k<n && cp_n<5;k++){ float ox,oz;
+        if (!find_road_clear(px,pz, 55.0f, 115.0f, &ox,&oz)) break;
         cp_x[cp_n]=ox; cp_z[cp_n]=oz; cp_n++; px=ox; pz=oz; }
     return cp_n>=2;
 }
@@ -2722,26 +2499,15 @@ static int setup_mission(int rot, float mult){
             mission_pay = (int)((300.0f + total*1.3f + frand()*160.0f)*mult);
             say("CIRCUIT: BEAT THE CLOCK");
         }
-    } else { /* MI_RIVAL — a REAL AI sports car races the same checkpoint route */
-        float ox,oz;
-        if (build_route(3+irand(2)) && find_road_clear(pl_x(),pl_z(), 8.0f, 34.0f, &ox,&oz)){
-            /* claim a car slot for the rival: reuse a nearby ambient traffic car, else a
-             * free slot. is_mission_car(rival_car) then exempts it from the recycler. */
-            int slot=-1;
-            for (int j=6;j<NCAR;j++){ if(j==player.car) continue;
-                if(cars[j].alive && cars[j].driver==DRV_NPC && cars[j].type!=VEH_TANK && cars[j].type!=VEH_BUS){ slot=j; break; } }
-            if (slot<0) for (int j=6;j<NCAR;j++){ if(j!=player.car && !cars[j].alive){ slot=j; break; } }
-            if (slot>=0){
-                float yaw; place_in_lane(&ox,&oz,&yaw);       /* start on-road, lane-centred, facing the street */
-                cars[slot]=(Car){ ox,oz,yaw,0,CAR_SPORTS,DRV_NPC,1,100.0f,0 };
-                car_body_init(slot); npc_target[slot]=yaw; ai_state[slot]=AIS_CRUISE; stuck_t[slot]=0;
-                mission=MI_RIVAL; cp_i=0; rival_i=0; rival_car=slot; mx=cp_x[0]; mz=cp_z[0];
-                float total=0, lx=pl_x(), lz=pl_z();
-                for (int k=0;k<cp_n;k++){ float dx=cp_x[k]-lx, dz=cp_z[k]-lz; total+=sqrtf(dx*dx+dz*dz); lx=cp_x[k]; lz=cp_z[k]; }
-                mission_t = 20.0f + total/5.5f;               /* enough to finish if you push */
-                mission_pay = (int)((520.0f + total*1.5f + frand()*220.0f)*mult);
-                say("RACE: BEAT THE RIVAL");
-            }
+    } else { /* MI_RIVAL — a phantom pace-car races the same route (no physics, never wall-stuck) */
+        if (build_route(3+irand(2))){
+            mission=MI_RIVAL; cp_i=0; rival_i=0; mx=cp_x[0]; mz=cp_z[0];
+            rival_x=pl_x(); rival_z=pl_z(); rival_yaw=pl_yaw(); rival_spd=0;
+            float total=0, lx=pl_x(), lz=pl_z();
+            for (int k=0;k<cp_n;k++){ float dx=cp_x[k]-lx, dz=cp_z[k]-lz; total+=sqrtf(dx*dx+dz*dz); lx=cp_x[k]; lz=cp_z[k]; }
+            mission_t = 16.0f + total/7.0f;               /* enough to finish if you push */
+            mission_pay = (int)((520.0f + total*1.5f + frand()*220.0f)*mult);
+            say("RACE: BEAT THE RIVAL");
         }
     }
     return mission!=MI_NONE;
@@ -3897,7 +3663,13 @@ static void g_update(float dt) {
         draw_vehicle(i);
     }
     dm_draw_remote();                                           /* the OTHER player */
-    /* the rival is a real DRV_NPC car — draw_vehicle() above already renders it */
+    if (mission==MI_RIVAL && rival_i<cp_n){                     /* the phantom rival's sports car */
+        int ty=CAR_SPORTS;
+        int fxw=(ty%CARS2_COLS)*CAR_CW, fyw=(ty/CARS2_COLS)*CAR_CH;
+        float dlen=VSTAT[ty].len*(float)CAR_CH/(float)cars2_ah[ty];
+        float dwid=VSTAT[ty].wid*(float)CAR_CW/(float)cars2_aw[ty];
+        draw_ground_sprite(&cars2_img, rival_x, rival_z, rival_yaw, fxw,fyw,CAR_CW,CAR_CH, dlen,dwid,1);
+    }
     draw_buildings_window();                                    /* after entities (budget priority) */
     /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
      * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
@@ -3984,8 +3756,8 @@ static void draw_map(uint16_t *fb){
         mote->draw_rect(fb, sx, sy-7, 1,5, mc,1,0,128); mote->draw_rect(fb, sx, sy+3, 1,5, mc,1,0,128);  /* crosshair */
         mote->draw_rect(fb, sx-1, sy-1, 3,3, mc,1,0,128);
         mote->draw_rect(fb, sx, sy, 1,1, MOTE_RGB565(255,255,255),1,0,128); }
-    if (mission==MI_RIVAL && rival_car>=0 && cars[rival_car].alive){   /* the rival: a red blip on the map */
-        int sx=(int)(cars[rival_car].x/TILE)-g_mapsx, sy=(int)(cars[rival_car].z/TILE)-g_mapsy;
+    if (mission==MI_RIVAL && rival_i<cp_n){                      /* the rival: a red blip on the map */
+        int sx=(int)(rival_x/TILE)-g_mapsx, sy=(int)(rival_z/TILE)-g_mapsy;
         if (sx>=1&&sx<=126&&sy>=1&&sy<=126) mote->draw_rect(fb, sx-1, sy-1, 3,3, MOTE_RGB565(240,60,50), 1,0,128); }
     if (g_dm && rp_hp>0){                              /* the OPPONENT: flashing red.
         CLAMPED to the window edge when they're outside the panned view, so the
