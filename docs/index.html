@@ -611,6 +611,19 @@ even cursive scripts keep their letter joins.</p>
 <pre class="sig"><span class="cm">#include "bigfont.font.h"</span>   <span class="cm">// baked from assets/bigfont.ttf</span>
 mote-&gt;<span class="fn">text_font</span>(fb, &amp;bigfont, <span class="st">"Hello, Mote!"</span>, <span class="num">4</span>, <span class="num">4</span>, <span class="fn">MOTE_RGB565</span>(<span class="num">245</span>,<span class="num">245</span>,<span class="num">255</span>));</pre>
 
+<h3 id="fn-ui_font">ui_font — the engine's built-in UI fonts <span class="badge abi">v47</span></h3>
+<pre class="sig"><span class="kw">const</span> <span class="ty">MoteFont</span> *(*<span class="fn">ui_font</span>)(<span class="kw">int</span> size);</pre>
+<p>Returns the engine's own baked <strong>Audiowide</strong> UI font — the same face the launcher, gallery and engine
+menu use — so a game gets crisp, consistent text with <strong>no font of its own</strong> (the glyph tables live in
+firmware flash; zero per-game flash). Draw the returned <code>MoteFont</code> with <a href="#fn-text_font"><code>text_font</code></a>.
+<code>size</code> picks one of three tiers: <code>MOTE_FONT_MED</code> (~11px, 1.5× — labels &amp; standard text),
+<code>MOTE_FONT_READ</code> (~13px, 1.66× — headers, banners, short briefings), <code>MOTE_FONT_LARGE</code> (~15px, 2× —
+impact words). Never <code>NULL</code> on v47+; guard on <code>abi_version&nbsp;≥&nbsp;47</code> and fall back to
+<a href="#fn-text"><code>text</code></a> (or your own baked font) on older firmware.</p>
+<pre class="sig"><span class="kw">const</span> <span class="ty">MoteFont</span> *body = (mote-&gt;abi_version&gt;=<span class="num">47</span> &amp;&amp; mote-&gt;<span class="fn">ui_font</span>) ? mote-&gt;<span class="fn">ui_font</span>(<span class="fn">MOTE_FONT_MED</span>) : <span class="num">0</span>;
+<span class="kw">if</span> (body) mote-&gt;<span class="fn">text_font</span>(fb, body, <span class="st">"$1250"</span>, <span class="num">4</span>, <span class="num">2</span>, <span class="fn">MOTE_RGB565</span>(<span class="num">120</span>,<span class="num">230</span>,<span class="num">120</span>));
+<span class="cm">// SDK helpers in mote_build.h: mote_ftext / mote_ftextc / mote_ftextfc (centred, printf) + mote_dim_box (translucent panel)</span></pre>
+
 <h3 id="fn-draw_2d">draw_pixel / draw_line / draw_rect / draw_circle <span class="badge abi">v30 / v31</span></h3>
 <pre class="sig"><span class="kw">void</span> (*<span class="fn">draw_pixel</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x, <span class="kw">int</span> y, <span class="ty">uint16_t</span> color);
 <span class="kw">void</span> (*<span class="fn">draw_line</span>)(<span class="ty">uint16_t</span> *fb, <span class="kw">int</span> x0, <span class="kw">int</span> y0, <span class="kw">int</span> x1, <span class="kw">int</span> y1, <span class="ty">uint16_t</span> color, <span class="kw">int</span> yc0, <span class="kw">int</span> yc1);
