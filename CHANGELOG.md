@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.17-alpha — the engine's font, in games; a real GTA cast; rig editor
+
+**The Audiowide UI font is now available to games, and Grand Thumb Auto shows what that
+buys you.** New **ThumbyOne firmware 1.34.0** (engine **ABI v47**) and **Mote Studio
+(0.17-alpha)**. Reflash the firmware — games rebuilt against v47 (Grand Thumb Auto, WolfMote)
+need it; every other game keeps running unchanged.
+
+### The engine's font, in games (ABI v47)
+- **`mote->ui_font(size)`** hands a game the engine's baked Audiowide — the same font the
+  launcher, gallery and menu use — at three sizes (MED 1.5× for labels, READ 1.66× for
+  headers/banners, LARGE 2× for impact). A game draws with `text_font()` and carries **no
+  font of its own** (zero flash), with a clean bitmap-font fallback on older firmware.
+- SDK helpers (`mote_ftext / mote_ftextc / mote_ftextfc`, `mote_dim_box` for a translucent
+  readability panel) in `mote_build.h`, so every game can adopt the look cheaply.
+- The **multiplayer lobby** (transport pick, room code, host/join/browse, USB link) is redrawn
+  in Audiowide — the **room code is now big and read-aloud clear**.
+
+### Grand Thumb Auto
+- **Phone jobs now come from a person.** Each call opens a briefing with a **procedurally
+  generated contact** — a name (men and women) and a pixel mugshot with real variety (face
+  shape, skin, hair/hats, colour eyes, facial hair, outfits) — delivering the job in a big
+  readable box over the (still visible) frozen city. Accept or decline.
+- **All the text is legible now** — title, HUD (cash / weapon / mission), the WASTED/BUSTED
+  screen and the map all moved to Audiowide with the header/label size convention.
+- **You can find where to go.** The mission target on the map was a small yellow square lost
+  among the shops; it's now a **pulsing magenta crosshair, clamped to the map edge** so it
+  always points the way (with a matching in-world beacon).
+
+### WolfMote
+- Title screen redesigned — the cramped, overflowing bordered box is gone, replaced by a
+  translucent dungeon panel with the difficulty menu, best score and BEGIN all in Audiowide.
+- Floor-clear debrief, deathmatch results and messages moved to the readable font.
+
+### Rig / 3D-animation editor
+- **Multiple clips per rig.** A rig can now hold several named animations (walk / fire / idle…)
+  instead of just one. A `< name > + x` selector at the top of the RIG inspector cycles, adds,
+  renames and deletes clips; each has its own keyframes, duration and loop mode. **Bake anim3d**
+  writes every clip into one `<model>.anim3d.h`: the blank "main" clip stays `<base>_clip`
+  (unchanged for existing games), named clips are `<base>_<name>_clip`.
+- **Keyframes now persist.** Authored clips were previously kept only in memory — switching
+  from RIG to another tab (which rebuilds the rig) or reopening the project **wiped every
+  keyframe**; the only durable output was the generated `.anim3d.h`, which was never read back.
+  Studio now writes an editable `<model>.anim` sidecar (clip length/loop + per-key Euler+pos,
+  and each key's snap/linear flag) on Save, on Bake, and when you leave the RIG tab, and
+  restores it on open — so a clip survives tab switches and reopens and stays re-editable.
+- **Snap vs. linear keyframes.** Each keyframe now has an interpolation mode — a **key: snap /
+  key: linear** toggle in the RIG inspector (snap keys draw as squares on the timeline, linear
+  as diamonds). *Snap* holds the pose until the next key then jumps; *linear* eases between
+  them. No more faking a hold with a pair of near-identical keys. The mode bakes into the clip
+  (new trailing `step` field on `MoteModelKey`) and is honoured live by `mote_anim3d.h`; older
+  baked clips are unaffected (missing field ⇒ linear).
+- **Manipulator no longer moves/rotates the wrong way.** The gizmo was drawn along *world* axes
+  while a part's translation and rotation live in its **parent** frame, so parented or rotated
+  parts translated and spun opposite to the handle you grabbed. The gizmo axes and rotate rings
+  now align to the part's parent basis, so dragging always follows the handle. The rotate-ring
+  drag also picks its sign from whether the axis faces the camera, fixing the rotation that
+  "went the complete opposite way" depending on the viewing angle.
+- Dragging a translate/rotate handle now snaps the playhead to the edited key, so the change is
+  visible immediately (matches the +/- steppers).
+- Up to 32 keyframes per clip (was 24); hitting the keyframe or 16-part limit now reports it
+  instead of silently dropping. A rig loaded from a tree `.obj` is no longer clobbered by the
+  live model when you bounce off the RIG tab.
+
+### Firmware / SDK
+- **ThumbyOne firmware 1.34.0** — engine ABI v47 (`ui_font()`) + the Audiowide multiplayer
+  lobby. Reflash `firmware_thumbyone.uf2`. v47 runs all older games; v47-built games (Grand
+  Thumb Auto, WolfMote) need it.
+- Grand Thumb Auto → **v1.2.0**, WolfMote → **v1.1.0** in the gallery (`min_firmware` 1.34.0).
+
 ## 0.16-alpha — the Gallery, and a real UI font
 
 **Install and update games straight from the gallery — on the PC *and* on the handheld —
@@ -35,36 +104,6 @@ per-game *versions* only show for games rebuilt with the new SDK.
   Font"** to switch the dense body text back to DejaVu while keeping the Audiowide chrome
   (menu bar, tabs, section headers). The choice persists; `MOTE_STUDIO_UIFONT=<ttf>` overrides
   the face entirely. The code editor stays monospace.
-
-### Rig / 3D-animation editor
-- **Multiple clips per rig.** A rig can now hold several named animations (walk / fire / idle…)
-  instead of just one. A `< name > + x` selector at the top of the RIG inspector cycles, adds,
-  renames and deletes clips; each has its own keyframes, duration and loop mode. **Bake anim3d**
-  writes every clip into one `<model>.anim3d.h`: the blank "main" clip stays `<base>_clip`
-  (unchanged for existing games), named clips are `<base>_<name>_clip`.
-- **Keyframes now persist.** Authored clips were previously kept only in memory — switching
-  from RIG to another tab (which rebuilds the rig) or reopening the project **wiped every
-  keyframe**; the only durable output was the generated `.anim3d.h`, which was never read back.
-  Studio now writes an editable `<model>.anim` sidecar (clip length/loop + per-key Euler+pos,
-  and each key's snap/linear flag) on Save, on Bake, and when you leave the RIG tab, and
-  restores it on open — so a clip survives tab switches and reopens and stays re-editable.
-- **Snap vs. linear keyframes.** Each keyframe now has an interpolation mode — a **key: snap /
-  key: linear** toggle in the RIG inspector (snap keys draw as squares on the timeline, linear
-  as diamonds). *Snap* holds the pose until the next key then jumps; *linear* eases between
-  them. No more faking a hold with a pair of near-identical keys. The mode bakes into the clip
-  (new trailing `step` field on `MoteModelKey`) and is honoured live by `mote_anim3d.h`; older
-  baked clips are unaffected (missing field ⇒ linear).
-- **Manipulator no longer moves/rotates the wrong way.** The gizmo was drawn along *world* axes
-  while a part's translation and rotation live in its **parent** frame, so parented or rotated
-  parts translated and spun opposite to the handle you grabbed. The gizmo axes and rotate rings
-  now align to the part's parent basis, so dragging always follows the handle. The rotate-ring
-  drag also picks its sign from whether the axis faces the camera, fixing the rotation that
-  "went the complete opposite way" depending on the viewing angle.
-- Dragging a translate/rotate handle now snaps the playhead to the edited key, so the change is
-  visible immediately (matches the +/- steppers).
-- Up to 32 keyframes per clip (was 24); hitting the keyframe or 16-part limit now reports it
-  instead of silently dropping. A rig loaded from a tree `.obj` is no longer clobbered by the
-  live model when you bounce off the RIG tab.
 
 ### Firmware / SDK
 - **ThumbyOne firmware 1.33.0** — adds the on-device gallery slot and the AA UI fonts

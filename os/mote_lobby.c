@@ -200,13 +200,13 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 mote_plat_link_start(); ctrl_sent = 0; screen = SC_CTRL;
             }
             mote_ui_ground(fb);
-            mote_font_draw(fb, "ENTER CODE", 34, 22, MOTE_RGB565(255, 206, 92));
+            mote_ui_read(fb, "ENTER CODE", (128 - mote_ui_read_w("ENTER CODE")) / 2, 20, MOTE_RGB565(255, 206, 92));
             for (int i = 0; i < 4; i++) {
-                int x = 30 + i * 18; char c[2] = { entry[i], 0 };
-                if (i == ecur) mote_draw_rect(fb, x - 3, 52, 15, 16, MOTE_RGB565(40, 60, 100), 1, 0, 128);
-                mote_font_draw(fb, c, x, 55, MOTE_RGB565(232, 234, 240));
+                int cx = 34 + i * 20; char c[2] = { entry[i], 0 };   /* big, boxed code digits */
+                if (i == ecur) mote_draw_rect(fb, cx - 9, 46, 18, 22, MOTE_RGB565(40, 60, 100), 1, 0, 128);
+                mote_ui_title(fb, c, cx - mote_ui_title_w(c) / 2, 48, MOTE_RGB565(232, 234, 240));
             }
-            mote_font_draw(fb, "DPAD PICK   A JOIN", 18, 92, MOTE_RGB565(140, 150, 170));
+            mote_ui_text(fb, "DPAD PICK   A JOIN", (128 - mote_ui_text_w("DPAD PICK   A JOIN")) / 2, 92, MOTE_RGB565(140, 150, 170));
             mote_ui_footer(fb, "B BACK");
         }
         /* ---------------- online control (talk to the Studio) ---------------- */
@@ -263,17 +263,18 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
             mote_ui_ground(fb);
             const char *title = action == ACT_HOST ? "HOSTING" : action == ACT_BROWSE ? "BROWSING" :
                                 action == ACT_LANHOST ? "HOSTING (LAN)" : "CONNECTING";
-            mote_font_draw(fb, title, 30, 22, MOTE_RGB565(255, 206, 92));
+            mote_ui_read(fb, title, (128 - mote_ui_read_w(title)) / 2, 20, MOTE_RGB565(255, 206, 92));
             if (st != MOTE_LINK_CONNECTED) {
-                mote_font_draw(fb, "REACHING STUDIO...", 16, 56, MOTE_RGB565(200, 210, 230));
-                mote_font_draw(fb, "dock this Thumby in", 18, 74, MOTE_RGB565(150, 160, 180));
-                mote_font_draw(fb, "Mote Studio", 40, 84, MOTE_RGB565(150, 160, 180));
+                mote_ui_text(fb, "REACHING STUDIO...", (128 - mote_ui_text_w("REACHING STUDIO...")) / 2, 52, MOTE_RGB565(200, 210, 230));
+                mote_ui_text(fb, "dock this Thumby in", (128 - mote_ui_text_w("dock this Thumby in")) / 2, 72, MOTE_RGB565(150, 160, 180));
+                mote_ui_text(fb, "Mote Studio", (128 - mote_ui_text_w("Mote Studio")) / 2, 84, MOTE_RGB565(150, 160, 180));
             } else if (action == ACT_HOST && room_code[0]) {
-                mote_font_draw(fb, "ROOM CODE", 34, 46, MOTE_RGB565(200, 210, 230));
-                mote_font_draw(fb, room_code, 44, 62, MOTE_RGB565(120, 240, 150));
-                mote_font_draw(fb, "waiting for player...", 12, 92, MOTE_RGB565(150, 160, 180));
+                mote_ui_text(fb, "ROOM CODE", (128 - mote_ui_text_w("ROOM CODE")) / 2, 40, MOTE_RGB565(200, 210, 230));
+                mote_ui_title(fb, room_code, (128 - mote_ui_title_w(room_code)) / 2, 56, MOTE_RGB565(120, 240, 150));   /* big, read-aloud code */
+                mote_ui_text(fb, "waiting for player...", (128 - mote_ui_text_w("waiting for player...")) / 2, 92, MOTE_RGB565(150, 160, 180));
             } else {
-                mote_font_draw(fb, action == ACT_QUICK ? "FINDING MATCH..." : "CONNECTING...", 20, 60, MOTE_RGB565(120, 230, 120));
+                const char *s = action == ACT_QUICK ? "FINDING MATCH..." : "CONNECTING...";
+                mote_ui_text(fb, s, (128 - mote_ui_text_w(s)) / 2, 60, MOTE_RGB565(120, 230, 120));
             }
             mote_ui_footer(fb, "B CANCEL");
         }
@@ -285,7 +286,7 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                     mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0;
                 }
                 mote_ui_ground(fb);
-                mote_font_draw(fb, "NO OPEN ROOMS", 24, 50, MOTE_RGB565(200, 180, 180));
+                mote_ui_read(fb, "NO OPEN ROOMS", (128 - mote_ui_read_w("NO OPEN ROOMS")) / 2, 48, MOTE_RGB565(200, 180, 180));
                 mote_ui_footer(fb, "B BACK");
             } else {
                 const char *items[MAX_ROOMS];
@@ -360,23 +361,25 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 }
             }
             mote_ui_ground(fb);
-            mote_font_draw(fb, transport == MOTE_NET_USB ? "USB LINK" : "LINKING", 40, 22, MOTE_RGB565(255, 206, 92));
-            if (st == MOTE_LINK_CONNECTED)
-                mote_font_draw(fb, resolved ? "CONNECTING..." : "HANDSHAKE...", 30, 54, MOTE_RGB565(120, 230, 120));
-            else if (transport == MOTE_NET_USB) {
-                mote_font_draw(fb, "LINK A CABLE TO", 26, 50, MOTE_RGB565(232, 234, 240));
-                mote_font_draw(fb, "THE OTHER THUMBY", 24, 60, MOTE_RGB565(232, 234, 240));
+            { const char *t = transport == MOTE_NET_USB ? "USB LINK" : "LINKING";
+              mote_ui_read(fb, t, (128 - mote_ui_read_w(t)) / 2, 20, MOTE_RGB565(255, 206, 92)); }
+            if (st == MOTE_LINK_CONNECTED) {
+                const char *s = resolved ? "CONNECTING..." : "HANDSHAKE...";
+                mote_ui_text(fb, s, (128 - mote_ui_text_w(s)) / 2, 54, MOTE_RGB565(120, 230, 120));
+            } else if (transport == MOTE_NET_USB) {
+                mote_ui_text(fb, "LINK A CABLE TO", (128 - mote_ui_text_w("LINK A CABLE TO")) / 2, 48, MOTE_RGB565(232, 234, 240));
+                mote_ui_text(fb, "THE OTHER THUMBY", (128 - mote_ui_text_w("THE OTHER THUMBY")) / 2, 60, MOTE_RGB565(232, 234, 240));
             } else
-                mote_font_draw(fb, "WAITING...", 36, 54, MOTE_RGB565(200, 210, 230));
+                mote_ui_text(fb, "WAITING...", (128 - mote_ui_text_w("WAITING...")) / 2, 54, MOTE_RGB565(200, 210, 230));
             mote_ui_footer(fb, "B CANCEL");
         }
         /* ---------------- game mismatch ---------------- */
         else if (screen == SC_MISMATCH) {
             if (mote_just_pressed(&in, MOTE_BTN_A) || mote_just_pressed(&in, MOTE_BTN_B)) { mote_plat_link_stop(); return MOTE_NET_CANCELLED; }
             mote_ui_ground(fb);
-            mote_font_draw(fb, "DIFFERENT GAME", 24, 44, MOTE_RGB565(240, 90, 90));
-            mote_font_draw(fb, "the other player is", 20, 58, MOTE_RGB565(200, 180, 180));
-            mote_font_draw(fb, "running another game", 18, 68, MOTE_RGB565(200, 180, 180));
+            mote_ui_read(fb, "DIFFERENT GAME", (128 - mote_ui_read_w("DIFFERENT GAME")) / 2, 40, MOTE_RGB565(240, 90, 90));
+            mote_ui_text(fb, "the other player is", (128 - mote_ui_text_w("the other player is")) / 2, 60, MOTE_RGB565(200, 180, 180));
+            mote_ui_text(fb, "running another game", (128 - mote_ui_text_w("running another game")) / 2, 72, MOTE_RGB565(200, 180, 180));
             mote_ui_footer(fb, "B BACK");
         }
         /* ---------------- net error ---------------- */
@@ -386,8 +389,8 @@ int mote_lobby(const MoteNetCfg *cfg, int *out_is_host) {
                 mote_plat_link_stop(); screen = SC_ACTION; sel = 0; top = 0;
             }
             mote_ui_ground(fb);
-            mote_font_draw(fb, "CONNECTION FAILED", 14, 44, MOTE_RGB565(240, 90, 90));
-            if (err_msg[0]) mote_font_draw(fb, err_msg, 18, 62, MOTE_RGB565(200, 180, 180));
+            mote_ui_read(fb, "CONNECTION FAILED", (128 - mote_ui_read_w("CONNECTION FAILED")) / 2, 42, MOTE_RGB565(240, 90, 90));
+            if (err_msg[0]) mote_ui_text(fb, err_msg, (128 - mote_ui_text_w(err_msg)) / 2, 62, MOTE_RGB565(200, 180, 180));
             mote_ui_footer(fb, "B BACK");
         }
         mote_plat_present(fb);

@@ -65,6 +65,9 @@
 #include <string.h>
 
 MOTE_GAME_MODULE();
+
+/* Engine UI fonts (ABI v47): READ 1.66x headers/CTAs, MED 1.5x labels/menu. */
+static const MoteFont *g_fmed, *g_fread;
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -1063,6 +1066,9 @@ static void bg_floor_ceiling(uint16_t *fb, int y0, int y1) {
 }
 
 static void g_init(void) {
+    { int v47 = (mote->abi_version>=47 && mote->ui_font);
+      g_fmed  = v47 ? mote->ui_font(MOTE_FONT_MED)  : 0;
+      g_fread = v47 ? mote->ui_font(MOTE_FONT_READ) : 0; }
     if (mote->load){ int b[3]={0,0,0};
         if (mote->load(1,b,sizeof b)==sizeof b && b[0]==0x574F4C46){ best_floor=b[1]; best_score=b[2]; } }
     mote_rand_seed((uint32_t)mote->micros() | 1u);
@@ -1779,8 +1785,10 @@ static void g_overlay(uint16_t *fb) {
         else if (rel > 0)             mote->draw_rect(fb, 0,30,2,68,   rc,1,0,128);   /* left */
         else                          mote->draw_rect(fb, 126,30,2,68, rc,1,0,128);   /* right */
     }
-    if (msg_t > 0 && state == ST_PLAY)
-        mote->text(fb, g_msg, 34,118, amber);
+    if (msg_t > 0 && state == ST_PLAY){
+        mote_dim_box(fb, 0, 114, 128, 14, 5);
+        mote_ftextc(mote, fb, g_fmed, 64, 116, amber, g_msg);
+    }
 
     /* -------- AUTOMAP: explored cells only -------- */
     if (g_showmap && state == ST_PLAY) {
@@ -1821,24 +1829,28 @@ static void g_overlay(uint16_t *fb) {
     /* -------- FLOOR DEBRIEF -------- */
     if (state == ST_DESCEND) {
         mote->draw_rect(fb, 0,0,128,128, MOTE_RGB565(6,8,10),1,0,128);
-        mote_textf(mote, fb, 24,56, MOTE_RGB565(190,200,220), "DESCENDING...");
-        mote_textf(mote, fb, 44,70, amber, "FLOOR %d", level+2);
+        mote_ftextc (mote, fb, g_fmed,  64, 54, MOTE_RGB565(190,200,220), "DESCENDING...");
+        mote_ftextfc(mote, fb, g_fread, 64, 68, amber, "FLOOR %d", level+2);
     }
     if (state == ST_TITLE) {
-        mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(10,12,16),1,0,128);
-        mote->draw_rect(fb, 0,26,128,76, MOTE_RGB565(120,40,36),0,0,128);
-        mote->text_font(fb, &title, "WOLFMOTE", 15+1, 24+1, MOTE_RGB565(30,8,8));
-        mote->text_font(fb, &title, "WOLFMOTE", 15,   24,   MOTE_RGB565(224,60,48));
-        mote->text(fb, "A ROGUE DUNGEON", 28,52, MOTE_RGB565(170,178,195));
+        /* translucent dungeon-dark panel (no cheap hard box) with a thin blood rule */
+        mote_dim_box(fb, 0, 30, 128, 92, 4);
+        mote->draw_rect(fb, 0, 30, 128, 1, MOTE_RGB565(150,44,40), 1, 0, 128);
+        mote->draw_rect(fb, 0, 121, 128, 1, MOTE_RGB565(90,26,24), 1, 0, 128);
+        /* logo (bespoke title font) with drop shadow, up top */
+        mote->text_font(fb, &title, "WOLFMOTE", (128-mote_fontw(&title,"WOLFMOTE"))/2+1, 8+1, MOTE_RGB565(30,8,8));
+        mote->text_font(fb, &title, "WOLFMOTE", (128-mote_fontw(&title,"WOLFMOTE"))/2,   8,   MOTE_RGB565(224,60,48));
+        mote_ftextc(mote, fb, g_fmed, 64, 30, MOTE_RGB565(170,178,195), "A ROGUE DUNGEON");
         static const char *DN[4]={"EASY","NORMAL","HARD","2P DEATHMATCH"};
         int rows = mote->abi_version>=44 ? 4 : 3;   /* DM needs net_lobby */
         for (int i2=0;i2<rows;i2++){
-            uint16_t c2 = i2==g_tsel ? amber : MOTE_RGB565(120,126,140);
-            if (i2==g_tsel) mote->text(fb, ">", 30, 60+i2*9, amber);
-            mote->text(fb, DN[i2], 40, 60+i2*9, i2==3?MOTE_RGB565(240,120,110):c2);
+            int y = 46 + i2*13;
+            if (i2==g_tsel) mote_dim_box(fb, 12, y-1, 104, 13, 10);   /* selection highlight */
+            uint16_t c2 = i2==g_tsel ? amber : (i2==3?MOTE_RGB565(210,110,100):MOTE_RGB565(140,146,160));
+            mote_ftextc(mote, fb, g_fmed, 64, y, c2, DN[i2]);
         }
-        mote_textf(mote, fb, 24,97, MOTE_RGB565(150,160,180), "BEST F%d $%d", best_floor, best_score);
-        mote->text(fb, "A  BEGIN", 44,110, MOTE_RGB565(140,220,150));
+        mote_ftextfc(mote, fb, g_fmed, 64, 100, MOTE_RGB565(150,160,180), "BEST  F%d  $%d", best_floor, best_score);
+        mote_ftextc (mote, fb, g_fread, 64, 111, MOTE_RGB565(150,230,160), "A  BEGIN");
         return;
     }
     if (state == ST_DMLINK) {
@@ -1858,28 +1870,29 @@ static void g_overlay(uint16_t *fb) {
         return;
     }
     if (state == ST_DEBRIEF) {
-        mote->draw_rect(fb, 12,30,104,70, MOTE_RGB565(16,20,26),1,0,128);
-        mote->draw_rect(fb, 12,30,104,70, MOTE_RGB565(90,110,160),0,0,128);
-        mote_textf(mote, fb, 26,36, MOTE_RGB565(120,240,130), "FLOOR %d CLEAR", level+1);
-        mote_textf(mote, fb, 22,50, white, "KILLS    %d/%d", fl_kills, fl_kills_tot);
-        mote_textf(mote, fb, 22,60, white, "TREASURE %d/%d", fl_treas, fl_treas_tot);
-        mote_textf(mote, fb, 22,70, white, "SECRETS  %d", fl_secrets);
-        mote_textf(mote, fb, 22,80, white, "TIME     %d:%d%d", (int)(fl_time/60), (((int)fl_time)%60)/10, ((int)fl_time)%10);
-        mote->text(fb, "B  DESCEND", 40,90, amber);
+        mote_dim_box(fb, 8, 28, 112, 80, 4);
+        mote->draw_rect(fb, 8, 28, 112, 1, MOTE_RGB565(90,110,160), 1, 0, 128);
+        mote->draw_rect(fb, 8, 107, 112, 1, MOTE_RGB565(50,62,96), 1, 0, 128);
+        uint16_t lbl = MOTE_RGB565(170,178,200);
+        mote_ftextfc(mote, fb, g_fread, 64, 32, MOTE_RGB565(120,240,130), "FLOOR %d CLEAR", level+1);
+        mote_ftext (mote, fb, g_fmed, "KILLS",    22, 48, lbl); mote_ftextf(mote, fb, g_fmed, 76, 48, MOTE_RGB565(232,234,240), "%d/%d", fl_kills, fl_kills_tot);
+        mote_ftext (mote, fb, g_fmed, "TREASURE", 22, 61, lbl); mote_ftextf(mote, fb, g_fmed, 76, 61, MOTE_RGB565(232,234,240), "%d/%d", fl_treas, fl_treas_tot);
+        mote_ftext (mote, fb, g_fmed, "SECRETS",  22, 74, lbl); mote_ftextf(mote, fb, g_fmed, 76, 74, MOTE_RGB565(232,234,240), "%d", fl_secrets);
+        mote_ftext (mote, fb, g_fmed, "TIME",     22, 87, lbl); mote_ftextf(mote, fb, g_fmed, 76, 87, MOTE_RGB565(232,234,240), "%d:%d%d", (int)(fl_time/60), (((int)fl_time)%60)/10, ((int)fl_time)%10);
+        mote_ftextc(mote, fb, g_fread, 64, 100, MOTE_RGB565(245,205,70), "B  DESCEND");
     }
 
     if (g_dm && state == ST_PLAY) {
         if (dm_end) {
-            mote->draw_rect(fb, 14,48,100,34, MOTE_RGB565(16,18,26),1,0,128);
-            mote->draw_rect(fb, 14,48,100,34, MOTE_RGB565(120,40,36),0,0,128);
-            if (dm_end==1)      mote->text(fb, "YOU WIN!", 46,55, MOTE_RGB565(120,240,130));
-            else if (dm_end==2) mote->text(fb, "YOU LOSE!", 43,55, MOTE_RGB565(240,90,90));
-            else                mote->text(fb, "LINK LOST", 43,55, MOTE_RGB565(240,90,90));
-            mote_textf(mote, fb, 34,64, white, "FRAGS %d-%d", dm_frags, dm_peer_frags);
-            mote->text(fb, "B  TITLE", 46,73, amber);
+            mote_dim_box(fb, 12, 46, 104, 40, 4);
+            mote->draw_rect(fb, 12, 46, 104, 1, MOTE_RGB565(150,44,40), 1, 0, 128);
+            const char *r = dm_end==1?"YOU WIN!":dm_end==2?"YOU LOSE!":"LINK LOST";
+            mote_ftextc (mote, fb, g_fread, 64, 50, dm_end==1?MOTE_RGB565(120,240,130):MOTE_RGB565(240,90,90), r);
+            mote_ftextfc(mote, fb, g_fmed, 64, 64, MOTE_RGB565(232,234,240), "FRAGS %d-%d", dm_frags, dm_peer_frags);
+            mote_ftextc (mote, fb, g_fmed, 64, 75, MOTE_RGB565(245,205,70), "B  TITLE");
         } else if (dm_dead_t > 0) {
-            mote->draw_rect(fb, 24,56,80,16, MOTE_RGB565(36,16,16),1,0,128);
-            mote->text(fb, "FRAGGED", 44,61, MOTE_RGB565(240,90,90));
+            mote_dim_box(fb, 24, 54, 80, 18, 4);
+            mote_ftextc(mote, fb, g_fread, 64, 58, MOTE_RGB565(240,90,90), "FRAGGED");
         }
     }
     if (state == ST_WIN) {
@@ -1903,4 +1916,4 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 MOTE_GAME_META("WolfMote", "austinio7116");
-MOTE_GAME_VERSION("1.0.0");
+MOTE_GAME_VERSION("1.1.0");

@@ -33,7 +33,13 @@
 #include "mote_phys2d.h"   /* MoteWorld2D/MoteBody2D — 2D top-down rigid bodies */
 #include "mote_splat.h"    /* MoteSplat — Gaussian-splat renderer */
 
-#define MOTE_ABI_VERSION 46u  /* v46: per-game VERSION string in the module header
+#define MOTE_ABI_VERSION 47u  /* v47: ui_font() — the engine's baked Audiowide UI fonts
+                               * (the ones the launcher/gallery/menu use) exposed to games,
+                               * so a game gets crisp, consistent text with no per-game font
+                               * baked in: mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
+                               * s, x, y, col). Jump-table append only; guard on abi>=47 and
+                               * fall back to text()/your own font on older firmware.
+                               * v46: per-game VERSION string in the module header
                                * (MoteModuleHeader.version_vaddr, set by MOTE_GAME_VERSION).
                                * The launcher/gallery read the installed version straight
                                * from flash (like the icon) to diff against the online
@@ -534,7 +540,15 @@ typedef struct MoteApi {
     int (*net_lobby)(const MoteNetCfg *cfg, int *out_is_host);
     /* ABI v45: engine-owned link health (see MOTE_NET_OK/STALLED/LOST). */
     int (*net_health)(void);
+    /* ABI v47: the engine's baked Audiowide UI fonts (as used by the launcher,
+     * gallery and engine menu) — draw with text_font() for crisp, consistent text
+     * with nothing baked into the game. `size` is MOTE_FONT_MED/READ/LARGE. Never
+     * NULL on v47+. Guard: if (mote->abi_version>=47) use it, else fall back. */
+    const MoteFont *(*ui_font)(int size);
 } MoteApi;
+
+/* ui_font() sizes: MED ~11px body ("1.5x"), READ ~13px ("1.66x"), LARGE ~15px ("2x"). */
+enum { MOTE_FONT_MED = 0, MOTE_FONT_READ = 1, MOTE_FONT_LARGE = 2 };
 
 /* ---------------------------------------------------------------------------
  * The game's side of the contract: callbacks the OS drives.

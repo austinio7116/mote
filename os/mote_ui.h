@@ -8,6 +8,7 @@
 #define MOTE_UI_H
 
 #include <stdint.h>
+#include "mote_2d.h"   /* MoteFont (for mote_ui_font) */
 
 #define MOTE_UI_BG      0x10A4   /* dark navy ground */
 /* The standard Mote palette (RGB565), shared so every screen matches the chrome. */
@@ -27,6 +28,8 @@ int  mote_ui_text_w (const char *s);   /* medium pixel width */
 int  mote_ui_title_w(const char *s);   /* large pixel width  */
 int  mote_ui_read_w (const char *s);   /* reading pixel width */
 int  mote_ui_text_h (void);            /* medium line height */
+/* ABI v47: the baked font for a MOTE_FONT_MED/READ/LARGE size, for mote->ui_font(). */
+const MoteFont *mote_ui_font(int size);
 int  mote_ui_title_h(void);            /* large line height  */
 int  mote_ui_read_h (void);            /* reading line height */
 

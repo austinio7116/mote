@@ -111,6 +111,7 @@ void mote_api_fill(MoteApi *a) {
     a->text                  = mote_font_draw;
     a->text_2x               = mote_font_draw_2x;
     a->text_font             = mote_font_draw_aa;   /* ABI v39: AA proportional fonts */
+    a->ui_font               = mote_ui_font;         /* ABI v47: engine's baked Audiowide fonts */
     a->phys2d_step           = mote_phys2d_step;     /* ABI v42: 2D rigid-body solver */
     /* ABI v43: 2-player link (device: USB dual-role; host: local socket).
      * send/recv/stop route through the v45 net shim: outside a lobby session it

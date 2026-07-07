@@ -89,7 +89,7 @@
   <div class="brand">
     <h1>Mote Engine</h1>
     <div class="sub">API / ABI reference for the Thumby&nbsp;Color</div>
-    <span class="abi">ABI v46</span>
+    <span class="abi">ABI v47</span>
     <div style="margin-top:8px"><a href="games.html" style="color:#7c5cff;font-weight:600;text-decoration:none">&#127918; Games gallery &rarr;</a></div>
   </div>
   <input id="filter" type="text" placeholder="filter…" autocomplete="off" spellcheck="false">
@@ -1252,6 +1252,7 @@ header-only/SDK changes do not.</p>
 <tr><td>v44</td><td><a href="#fn-net_lobby"><code>net_lobby</code></a> — the standard multiplayer lobby: the engine draws transport pick (USB / LAN / Internet), rooms (quick match / host with a 4-letter code / join / browse), connects, and hands back a clean pipe + the authority (<code>out_is_host</code>). Rooms gated per game + protocol version (<a href="#ty-motenetcfg"><code>MoteNetCfg</code></a>). Online play is device-driven: a docked Studio auto-relays to the room server with zero clicks.</td></tr>
 <tr><td>v45</td><td><a href="#fn-net_health"><code>net_health</code></a> — engine-owned link health: the OS keepalives quiet sessions (and strips them), reports OK / STALLED (&gt;2.5s, engine draws the LINK STALLED banner) / LOST (&gt;20s), so internet blips recover instead of killing matches and turn-based games don’t look dead between moves.</td></tr>
 <tr><td>v46</td><td>Per-game <strong>version string</strong> in the module header (<code>version_vaddr</code>, set by <a href="#versioning"><code>MOTE_GAME_VERSION()</code></a>) — the gallery reads it from flash to tell New / Installed / Update-available. Backward-compatible: v46 firmware runs v45 games, and the version is simply absent (reads as <code>0</code>) for games built before it.</td></tr>
+<tr><td>v47</td><td><code>ui_font(size)</code> — the engine's baked <strong>Audiowide UI fonts</strong> (the ones the launcher/gallery/menu use) exposed to games. <code>MOTE_FONT_MED</code> (11px, 1.5&times;), <code>MOTE_FONT_READ</code> (13px, 1.66&times;), <code>MOTE_FONT_LARGE</code> (15px, 2&times;) — draw via <code>text_font()</code> for crisp, consistent text with no per-game font baked in and zero extra flash. Jump-table append only; guard on <code>abi&gt;=47</code> and fall back to <code>text()</code> on older firmware.</td></tr>
 </table>
 <p class="note">Beyond the ABI, 0.3-alpha adds <strong>header-only</strong> 3D rigid-part animation
 (<code>sdk/mote_anim3d.h</code>) — rigs + keyframe clips that compose through the normal draw path, so they need no engine
@@ -1260,7 +1261,7 @@ change. See the <a href="https://github.com/austinio7116/mote/blob/main/docs/ani
 </main>
 
 <footer>
-  Mote Engine API/ABI reference · ABI v46 · generated from the engine headers
+  Mote Engine API/ABI reference · ABI v47 · generated from the engine headers
   (<code>sdk/mote_api.h</code>, <code>mote_build.h</code>, <code>mote_tile.h</code>, <code>mote_anim.h</code>,
   <code>mote_vec.h</code>, <code>mote_mesh.h</code>, <code>mote_2d.h</code>, <code>mote_phys.h</code>,
   <code>mote_splat.h</code>, <code>mote_input.h</code>, <code>mote_module.h</code>).

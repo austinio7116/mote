@@ -196,9 +196,9 @@ static inline int mote__ftoa(float f, char *o, int dec) {
     if (dec > 0) { o[q++] = '.'; for (int s = scale / 10; s >= 1; s /= 10) o[q++] = (char)('0' + (frac / s) % 10); }
     o[q] = 0; return q;
 }
-static inline int mote_vtextf(const MoteApi *mote, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, va_list ap) {
-    char b[128]; int q = 0;
-    for (const char *p = fmt; *p && q < 120; p++) {
+static inline int mote_vfmt(char *b, int cap, const char *fmt, va_list ap) {
+    int q = 0, lim = cap - 8;
+    for (const char *p = fmt; *p && q < lim; p++) {
         if (*p != '%') { b[q++] = *p; continue; }
         p++;
         switch (*p) {
@@ -206,16 +206,55 @@ static inline int mote_vtextf(const MoteApi *mote, uint16_t *fb, int x, int y, u
             case 'u': { unsigned u = va_arg(ap, unsigned); char t[12]; int tp = 0; if (!u) t[tp++] = '0'; while (u) { t[tp++] = (char)('0'+u%10); u/=10; } while (tp) b[q++] = t[--tp]; } break;
             case 'x': { unsigned u = va_arg(ap, unsigned); char t[12]; int tp = 0; if (!u) t[tp++]='0'; while (u) { unsigned d=u&15u; t[tp++]=(char)(d<10?'0'+d:'a'+d-10); u>>=4; } while (tp) b[q++]=t[--tp]; } break;
             case 'c': b[q++] = (char)va_arg(ap, int); break;
-            case 's': { const char *s = va_arg(ap, const char *); while (*s && q < 120) b[q++] = *s++; } break;
+            case 's': { const char *s = va_arg(ap, const char *); while (*s && q < lim) b[q++] = *s++; } break;
             case 'f': q += mote__ftoa((float)va_arg(ap, double), b + q, 2); break;
             case '%': b[q++] = '%'; break;
             default: b[q++] = '%'; if (*p) b[q++] = *p; break;
         }
     }
-    b[q] = 0; return mote->text(fb, b, x, y, col);
+    b[q] = 0; return q;
+}
+static inline int mote_vtextf(const MoteApi *mote, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, va_list ap) {
+    char b[128]; mote_vfmt(b, sizeof b, fmt, ap); return mote->text(fb, b, x, y, col);
 }
 static inline int mote_textf(const MoteApi *mote, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, ...) {
     va_list ap; va_start(ap, fmt); int r = mote_vtextf(mote, fb, x, y, col, fmt, ap); va_end(ap); return r;
+}
+
+/* ---- AA UI-font helpers (ABI v47 mote->ui_font). Grab the fonts once, e.g.
+ *   const MoteFont *HEAD = mote->ui_font ? mote->ui_font(MOTE_FONT_READ) : 0;   // 1.66x banners/headers
+ *   const MoteFont *BODY = mote->ui_font ? mote->ui_font(MOTE_FONT_MED)  : 0;   // 1.5x  labels/standard
+ * then draw. `f`==NULL falls back to the bitmap font, so it's safe pre-v47. The
+ * centred variants take a CENTRE x (usually 64). */
+static inline int mote_fontw(const MoteFont *f, const char *s) {
+    if (!f) { int n = 0; while (*s++) n++; return n * 4; }
+    int w = 0; for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p < f->first || *p >= f->first + f->count) { w += 4; continue; }
+        w += f->glyphs[*p - f->first].adv; }
+    return w;
+}
+static inline int mote_ftext(const MoteApi *mote, uint16_t *fb, const MoteFont *f, const char *s, int x, int y, uint16_t col) {
+    return f ? mote->text_font(fb, f, s, x, y, col) : mote->text(fb, s, x, y, col);
+}
+static inline int mote_ftextc(const MoteApi *mote, uint16_t *fb, const MoteFont *f, int cx, int y, uint16_t col, const char *s) {
+    return mote_ftext(mote, fb, f, s, cx - mote_fontw(f, s) / 2, y, col);
+}
+static inline int mote_ftextf(const MoteApi *mote, uint16_t *fb, const MoteFont *f, int x, int y, uint16_t col, const char *fmt, ...) {
+    char b[96]; va_list ap; va_start(ap, fmt); mote_vfmt(b, sizeof b, fmt, ap); va_end(ap);
+    return mote_ftext(mote, fb, f, b, x, y, col);
+}
+static inline int mote_ftextfc(const MoteApi *mote, uint16_t *fb, const MoteFont *f, int cx, int y, uint16_t col, const char *fmt, ...) {
+    char b[96]; va_list ap; va_start(ap, fmt); mote_vfmt(b, sizeof b, fmt, ap); va_end(ap);
+    return mote_ftextc(mote, fb, f, cx, y, col, b);
+}
+/* Translucent dark overlay for a region (draw_rect has no alpha): dims the real
+ * framebuffer pixels toward black, keeping keep16/16 (e.g. 6 ≈ 38%). Makes text
+ * pop over a busy scene without a solid box. Assumes a 128-wide framebuffer. */
+static inline void mote_dim_box(uint16_t *fb, int x, int y, int w, int h, int keep16) {
+    for (int j = y; j < y + h; j++) { if ((unsigned)j >= 128) continue;
+        for (int i = x; i < x + w; i++) { if ((unsigned)i >= 128) continue;
+            uint16_t c = fb[j*128+i]; int r=(c>>11)&31, g=(c>>5)&63, b=c&31;
+            fb[j*128+i] = (uint16_t)(((r*keep16>>4)<<11)|((g*keep16>>4)<<5)|(b*keep16>>4)); } }
 }
 
 /* ---- sprites — build a MoteSprite without hand-ordering its 9 positional fields. */

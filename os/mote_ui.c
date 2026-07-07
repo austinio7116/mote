@@ -15,6 +15,8 @@ void mote_ui_read  (uint16_t *fb, const char *s, int x, int y, uint16_t c){ mote
 int  mote_ui_text_w (const char *s){ return mote_font_aa_width(&mote_ui_med,s); }
 int  mote_ui_title_w(const char *s){ return mote_font_aa_width(&mote_ui_lg ,s); }
 int  mote_ui_read_w (const char *s){ return mote_font_aa_width(&mote_ui_rd ,s); }
+/* ABI v47: hand a game the engine's baked font (MED/READ/LARGE) to draw via text_font. */
+const MoteFont *mote_ui_font(int size){ return size==2 ? &mote_ui_lg : size==1 ? &mote_ui_rd : &mote_ui_med; }
 int  mote_ui_text_h (void){ return mote_ui_med.line_h; }
 int  mote_ui_title_h(void){ return mote_ui_lg.line_h; }
 int  mote_ui_read_h (void){ return mote_ui_rd.line_h; }

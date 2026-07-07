@@ -60,6 +60,11 @@ static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #endif
 
 MOTE_GAME_MODULE();
+
+/* Engine UI fonts (ABI v47): READ (1.66x) for headers/banners/short briefings,
+ * MED (1.5x) for labels + standard text. NULL pre-v47 -> bitmap-font fallback.
+ * Draw with the shared mote_ftext... + mote_dim_box helpers in mote_build.h. */
+static const MoteFont *g_fmed, *g_fread, *g_flarge;
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -858,6 +863,10 @@ static int engine_fill(int16_t *out, int n) {
 static void reset_game(void);
 
 static void g_init(void) {
+    int v47 = (mote->abi_version>=47 && mote->ui_font);
+    g_fmed   = v47 ? mote->ui_font(MOTE_FONT_MED)   : 0;   /* 1.5x  labels/standard */
+    g_fread  = v47 ? mote->ui_font(MOTE_FONT_READ)  : 0;   /* 1.66x headers/banners */
+    g_flarge = v47 ? mote->ui_font(MOTE_FONT_LARGE) : 0;   /* 2x    big impact words */
     mote->scene_set_background(MOTE_RGB565(24, 26, 32));
     if (mote->audio_set_stream) mote->audio_set_stream(engine_fill);
     mote->scene_set_sun(v3_norm(v3(0.25f, 0.92f, -0.3f)));
@@ -1895,6 +1904,113 @@ static void update_missions(float dt) {
     if (mission_t<=0){ say("MISSION FAILED - CHAIN LOST"); mission=MI_NONE; mission_chain=0; }
 }
 
+/* ================= phone-call CONTACTS ==================================
+ * A fresh procedural character briefs every phone job: a seed-generated name and
+ * a pixel portrait (skin/hair/face/outfit), GTA-style, drawn into the briefing. */
+static int      g_brief_active;      /* freezes the world; A accepts, B declines */
+static uint32_t g_brief_seed;
+static char     g_brief_name[24];
+static const char *g_brief_role;
+static const char *g_brief_body;
+
+static uint32_t cr_mix(uint32_t x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
+static uint32_t g_seed_override;   /* host capture hook: force a specific contact seed */
+
+static void gen_contact(int mtype){
+    uint32_t s = g_seed_override ? cr_mix(g_seed_override)
+               : cr_mix((uint32_t)mote->micros() ^ ((uint32_t)mission_chain*2654435761u) ^ 0x9e3779b9u);
+    g_brief_seed = s;
+    int female = ((s>>20)&7) < 3;   /* ~37% women — MUST match draw_portrait's bit */
+    static const char *FIRST_M[]={"Tony","Vince","Sal","Rico","Frank","Nico","Carl","Vic","Leon","Bruno",
+        "Dwayne","Omar","Yuri","Marco","Gus","Paulie","Reggie","Tariq","Ivan","Cole","Mickey","Hank","Deshawn","Sergei"};
+    static const char *FIRST_F[]={"Rosa","Maria","Nina","Lena","Priya","Dana","Tanya","Sofia","Yara","Renee",
+        "Carmen","Zoe","Naomi","Bex","Aria","Ivy","Marta","Kim"};
+    static const char *LAST []={"Costa","Vercetti","Marlowe","Delgado","Ramos","Voss","Okafor","Salieri","Bishop",
+        "Cruz","Nash","Petrov","Diallo","Moretti","Kane","Solano","Reyes","Vex"};
+    const char *fn = female ? FIRST_F[(s>>2)%(sizeof FIRST_F/sizeof*FIRST_F)]
+                            : FIRST_M[ s     %(sizeof FIRST_M/sizeof*FIRST_M)];
+    const char *ln = LAST[(s>>8)%(sizeof LAST/sizeof*LAST)];
+    { char *b=g_brief_name; const char*p=fn; while(*p)*b++=*p++; *b++=' '; p=ln; while(*p)*b++=*p++; *b=0; }
+    g_brief_role = mtype==MI_COURIER?"THE FIXER":mtype==MI_RAMPAGE?"THE ENFORCER":
+                   mtype==MI_GETAWAY?"YOUR HANDLER":"THE CLIENT";
+    g_brief_body = mtype==MI_COURIER?"Move the package. No cops." :
+                   mtype==MI_RAMPAGE?"Send a message. Drop 'em." :
+                   mtype==MI_GETAWAY?"You're too hot. Lose it." :
+                                     "Take out the mark. Clean.";
+}
+
+/* Procedural 44x46 mugshot from a seed. Blocky GTA-1 flavour with real variety:
+ * face shape (width/height/jaw), sex, skin/hair/outfit, many hair + hat styles. */
+static void draw_portrait(uint16_t *fb, int ox, int oy, uint32_t s){
+    #define PR(X,Y,W,H,C) mote->draw_rect(fb,(X),(Y),(W),(H),(C),1,0,128)
+    static const uint16_t SKIN[6]={MOTE_RGB565(246,208,170),MOTE_RGB565(228,176,132),MOTE_RGB565(200,142,98),
+        MOTE_RGB565(152,102,66),MOTE_RGB565(112,76,52),MOTE_RGB565(236,192,150)};
+    static const uint16_t HAIR[7]={MOTE_RGB565(26,22,20),MOTE_RGB565(74,46,28),MOTE_RGB565(206,174,92),
+        MOTE_RGB565(184,186,194),MOTE_RGB565(150,52,32),MOTE_RGB565(44,38,42),MOTE_RGB565(120,80,50)};
+    static const uint16_t CLOTH[8]={MOTE_RGB565(58,72,122),MOTE_RGB565(124,46,46),MOTE_RGB565(42,92,62),
+        MOTE_RGB565(92,92,102),MOTE_RGB565(152,122,42),MOTE_RGB565(72,52,92),MOTE_RGB565(32,62,92),MOTE_RGB565(112,72,42)};
+    static const int FHAIR[6]={1,7,9,10,11,12};                   /* female-leaning styles */
+    static const uint16_t EYE[6]={MOTE_RGB565(96,56,30),MOTE_RGB565(72,122,182),MOTE_RGB565(80,142,92),
+        MOTE_RGB565(134,112,58),MOTE_RGB565(122,132,142),MOTE_RGB565(44,32,28)};  /* brown/blue/green/hazel/grey/dark */
+    uint16_t skin=SKIN[s%6], hair=HAIR[(s>>3)%7], cloth=CLOTH[(s>>6)%8], hc=hair, eye=EYE[(s>>28)%6];
+    int female=((s>>20)&7)<3;                                     /* MUST match gen_contact */
+    int hw=9+(int)((s>>22)%4), fh=22+(int)((s>>24)%5), jaw=(int)((s>>26)%3);
+    int beard=female?0:(int)((s>>13)%4), shades=((s>>16)&7)<2;
+    int hs=female?FHAIR[(s>>10)%6]:(int)((s>>10)%9);
+    int sr=((skin>>11)&31)<<3, sg=((skin>>5)&63)<<2, sb=(skin&31)<<3;
+    uint16_t sh=MOTE_RGB565(sr*3/4,sg*3/4,sb*3/4), dk=MOTE_RGB565(22,24,28), bg=MOTE_RGB565(38,42,56);
+    int cx=ox+22, fx=cx-hw, fy=oy+9, cy=fy+fh;                    /* face box; cy = chin */
+    PR(ox,oy,44,46, MOTE_RGB565(26,28,38)); PR(ox+2,oy+2,40,42, bg);   /* backdrop */
+    PR(cx-5, cy-3, 10, 10, skin);                                 /* neck */
+    PR(ox+4, oy+38, 36, 8, cloth);                                /* shoulders */
+    PR(cx-6, oy+38, 12, 3, cloth); PR(cx-3, oy+38, 6, 2, MOTE_RGB565(sr*9/10,sg*9/10,sb*9/10)); /* collar */
+    PR(fx, fy, hw*2, fh, skin);                                   /* face */
+    if (jaw==0){ PR(fx,cy-2,2,2,bg); PR(fx+hw*2-2,cy-2,2,2,bg); }            /* round chin */
+    else if (jaw==2){ PR(fx,cy-5,2,5,bg); PR(fx+hw*2-2,cy-5,2,5,bg); }      /* tapered chin */
+    PR(fx-2,fy+10,2,5,skin); PR(fx+hw*2,fy+10,2,5,skin);          /* ears */
+    if (female?((s>>18)&1):(((s>>18)&7)==0)){ uint16_t g=MOTE_RGB565(240,220,120);
+        PR(fx-2,fy+15,1,1,g); PR(fx+hw*2+1,fy+15,1,1,g); }        /* earrings */
+    switch(hs){                                                  /* hair / hat */
+        case 0: break;                                                              /* bald */
+        case 1: PR(fx+1,fy-3,hw*2-2,5,hc); break;                                   /* short */
+        case 2: PR(fx,fy-3,hw*2,5,hc); PR(fx,fy,2,9,hc); PR(fx+hw*2-2,fy,2,9,hc); break; /* slick */
+        case 3: PR(fx-3,fy-6,hw*2+6,9,hc); PR(fx-3,fy,3,11,hc); PR(fx+hw*2,fy,3,11,hc); break; /* afro */
+        case 4: PR(fx+1,fy-3,hw*2-2,5,hc); PR(cx-4,fy-7,8,5,hc); break;              /* quiff */
+        case 5: PR(fx-1,fy-5,hw*2+2,6,cloth); PR(fx-4,fy,9,2,cloth); break;          /* cap */
+        case 6: PR(fx-2,fy-5,hw*2+4,9,cloth); break;                                /* beanie */
+        case 7: PR(fx,fy-2,hw*2,4,cloth); PR(fx+1,fy+2,hw*2-2,2,hc); break;          /* bandana */
+        case 8: PR(fx-3,fy-5,hw*2+6,fh+4,cloth); PR(fx,fy,hw*2,fh,skin);             /* hood */
+                PR(fx-3,fy+5,3,fh-2,cloth); PR(fx+hw*2,fy+5,3,fh-2,cloth); break;
+        case 9: PR(fx-2,fy-4,hw*2+4,7,hc); PR(fx-3,fy,3,fh+7,hc); PR(fx+hw*2,fy,3,fh+7,hc); break; /* long */
+        case 10: PR(fx,fy-4,hw*2,6,hc); PR(fx+hw*2,fy,4,16,hc); break;               /* ponytail */
+        case 11: PR(fx,fy-3,hw*2,5,hc); PR(cx-4,fy-8,8,6,hc); break;                 /* bun */
+        case 12: PR(fx-2,fy-4,hw*2+4,7,hc); PR(fx-3,fy,3,fh+2,hc); PR(fx+hw*2,fy,3,fh+2,hc);
+                 PR(cx-4,fy-8,8,5,hc); break;                                        /* long + updo */
+    }
+    { int ey=fy+9, exl=cx-8, exr=cx+3;                           /* bigger eyes with colour */
+      if (shades){ PR(cx-9,ey,7,4,dk); PR(cx+2,ey,7,4,dk); PR(cx-2,ey+1,4,1,dk); }
+      else { uint16_t wq=MOTE_RGB565(234,236,240);
+             PR(exl,ey,5,3,wq); PR(exr,ey,5,3,wq);                          /* whites */
+             PR(exl+2,ey,2,3,eye); PR(exr+1,ey,2,3,eye);                    /* iris */
+             PR(exl+2,ey+1,1,1,dk); PR(exr+2,ey+1,1,1,dk);                  /* pupil */
+             if (female){ PR(exl-1,ey-1,6,1,dk); PR(exr-1,ey-1,6,1,dk); }   /* lashes */
+             else { PR(exl,ey-2,5,1,hair); PR(exr,ey-2,5,1,hair); } }       /* brows */
+    }
+    PR(cx-1, fy+13, 2,3, sh);                                     /* nose */
+    if (beard==1) PR(cx-6,fy+16,12,2,hair);                       /* moustache */
+    else if (beard==2 || beard==3){                              /* stubble / full beard: the WHOLE jaw */
+        uint16_t bc = beard==3 ? hair : MOTE_RGB565(sr*11/20,sg*11/20,sb*11/20);
+        PR(fx, fy+15, hw*2, cy-(fy+15), bc);                      /* fill the lower face, full width */
+        if (jaw==0){ PR(fx,cy-2,2,2,bg); PR(fx+hw*2-2,cy-2,2,2,bg); }              /* follow the chin shape */
+        else if (jaw==2){ PR(fx,cy-5,2,5,bg); PR(fx+hw*2-2,cy-5,2,5,bg); }
+        if (beard==2) PR(fx, fy+15, hw*2, 1, skin);              /* stubble: soften its top edge */
+    }
+    PR(cx-3, fy+18, 6,1, female?MOTE_RGB565(210,70,96):MOTE_RGB565(120,60,60));      /* mouth */
+    if (female) PR(cx-2, fy+19, 4,1, MOTE_RGB565(180,54,78));                        /* lower lip */
+    mote->draw_rect(fb, ox,oy,44,46, MOTE_RGB565(150,120,60), 0,0,128);              /* frame */
+    #undef PR
+}
+
 /* ROGUELIKE phone jobs: random type, randomized stakes, and a CHAIN — each success
  * bumps the multiplier (+25% per job, up to x2.25); a failure resets it. */
 static void start_mission(void) {
@@ -1943,6 +2059,7 @@ static void start_mission(void) {
             say("HIT: TAKE OUT THE MARK"); }
         else { mission=MI_NONE; say("LINE DEAD..."); }
     }
+    if (mission!=MI_NONE){ gen_contact(mission); g_brief_active=1; }   /* a contact briefs the job */
 }
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
@@ -2585,6 +2702,19 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
 
+    if (g_brief_active){                                  /* phone briefing freezes the city */
+        if (mote_just_pressed(in, MOTE_BTN_A)) g_brief_active = 0;                 /* accept */
+        else if (mote_just_pressed(in, MOTE_BTN_B)){ g_brief_active = 0; mission = MI_NONE; say("DECLINED"); }
+        return;
+    }
+#ifdef MOTE_HOST
+    { static int bdone=0; const char *e=getenv("MOTE_GTA_BRIEF");
+      if (e && g_state==ST_PLAY && !g_brief_active && !bdone){
+          uint32_t sd=(uint32_t)atoi(e);
+          if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
+          start_mission(); bdone=1; } }
+#endif
+
     /* high score is flushed to flash ONCE per death, but only AFTER the death
      * screen has shown for a few frames (the flash write stalls, so we let the
      * WASTED/BUSTED screen paint first and hide the hitch). */
@@ -3082,8 +3212,16 @@ static void draw_map(uint16_t *fb){
         if (sx<1||sx>126||sy<1||sy>126) continue;
         mote->draw_rect(fb, sx, sy, 2, 2, MOTE_RGB565(235,235,245), 1, 0, 128);
     }
-    if (mission==MI_COURIER||mission==MI_HIT){ int sx=(int)(mx/TILE)-g_mapsx, sy=(int)(mz/TILE)-g_mapsy;
-        if (sx>1&&sx<126&&sy>1&&sy<126) mote->draw_rect(fb,sx-1,sy-1,3,3,MOTE_RGB565(250,230,80),1,0,128); }
+    if (mission==MI_COURIER||mission==MI_HIT){                    /* the JOB target: unmistakable */
+        int sx=(int)(mx/TILE)-g_mapsx, sy=(int)(mz/TILE)-g_mapsy;
+        if (sx<8) sx=8; if (sx>119) sx=119; if (sy<16) sy=16; if (sy>112) sy=112;   /* clamp: always on-map */
+        uint16_t mc=MOTE_RGB565(255,60,200);                     /* magenta — no shop marker uses it */
+        int ph=((int)(g_maptime*4.0f))&1;
+        mote->draw_circle(fb, sx, sy, ph?6:4, mc, 0, 0, 128);    /* pulsing target ring */
+        mote->draw_rect(fb, sx-7, sy, 5,1, mc,1,0,128); mote->draw_rect(fb, sx+3, sy, 5,1, mc,1,0,128);
+        mote->draw_rect(fb, sx, sy-7, 1,5, mc,1,0,128); mote->draw_rect(fb, sx, sy+3, 1,5, mc,1,0,128);  /* crosshair */
+        mote->draw_rect(fb, sx-1, sy-1, 3,3, mc,1,0,128);
+        mote->draw_rect(fb, sx, sy, 1,1, MOTE_RGB565(255,255,255),1,0,128); }
     if (g_dm && rp_hp>0){                              /* the OPPONENT: flashing red.
         CLAMPED to the window edge when they're outside the panned view, so the
         map always points the hunt in the right direction. */
@@ -3103,8 +3241,8 @@ static void draw_map(uint16_t *fb){
         mote->draw_circle(fb, psx, psy, 3, MOTE_RGB565(20,20,26), 0, 0, 128);
     }
     mote_ui_panel(fb, 0, 0, 128, 11, MOTE_RGB565(14,16,24), MOTE_RGB565(60,70,110));
-    mote_textf(mote, fb, 3, 2, MOTE_RGB565(240,230,120), "CITY MAP");
-    mote->text(fb, "MENU CLOSE   DPAD PAN", 3, 119, MOTE_RGB565(150,160,180));
+    mote_ftext(mote, fb, g_fmed, "CITY MAP", 3, 1, MOTE_RGB565(240,230,120));
+    mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,160,180), "MENU CLOSE    DPAD PAN");
 }
 
 /* DEBUG: outline every 2D physics body (green = vehicle OBB, orange = static building/tree)
@@ -3134,27 +3272,30 @@ static void g_overlay(uint16_t *fb) {
     if (g_showmap){ draw_map(fb); return; }
     if (g_state==ST_DMLINK){
         mote_ui_panel(fb, 12, 36, 104, 58, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
-        mote->text(fb, "DEATHMATCH", 34, 42, MOTE_RGB565(245,110,95));
+        mote_ftextc(mote, fb, g_fread, 64, 40, MOTE_RGB565(245,110,95), "DEATHMATCH");
         if (dm_phase==1){                                   /* streaming the shared city */
             int done = dm_my_nonce>dm_peer_nonce ? dm_map_pos : dm_map_recv;
             int pct = done*100/CITY_BYTES; if(pct>100)pct=100;
-            mote->text(fb, "SYNCING CITY", 30, 56, MOTE_RGB565(245,230,90));
-            mote->draw_rect(fb, 24, 66, 80, 6, MOTE_RGB565(60,60,80), 0, 0,128);
-            mote->draw_rect(fb, 25, 67, 78*pct/100, 4, MOTE_RGB565(120,230,120), 1, 0,128);
+            mote_ftextc(mote, fb, g_fmed, 64, 56, MOTE_RGB565(245,230,90), "SYNCING CITY");
+            mote->draw_rect(fb, 24, 70, 80, 6, MOTE_RGB565(60,60,80), 0, 0,128);
+            mote->draw_rect(fb, 25, 71, 78*pct/100, 4, MOTE_RGB565(120,230,120), 1, 0,128);
         } else if (mote->link_status()==MOTE_LINK_CONNECTED)
-            mote->text(fb, "WAITING FOR PEER", 20, 56, MOTE_RGB565(120,230,120));
+            mote_ftextc(mote, fb, g_fmed, 64, 56, MOTE_RGB565(120,230,120), "WAITING FOR PEER");
         else {
-            mote->text(fb, "CONNECT USB CABLE", 17, 56, MOTE_RGB565(235,238,245));
-            mote->text(fb, "OR STUDIO LINK", 27, 65, MOTE_RGB565(150,160,180));
+            mote_ftextc(mote, fb, g_fmed, 64, 54, MOTE_RGB565(235,238,245), "CONNECT USB CABLE");
+            mote_ftextc(mote, fb, g_fmed, 64, 66, MOTE_RGB565(150,160,180), "OR STUDIO LINK");
         }
         { static float t2; t2+=0.033f; int dots=((int)(t2*3))%4;
-          if (dm_phase!=1) for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,75,3,3,MOTE_RGB565(245,230,90),1,0,128); }
-        mote->text(fb, "B CANCEL", 46, 83, MOTE_RGB565(150,160,180));
+          if (dm_phase!=1) for (int i2=0;i2<dots;i2++) mote->draw_rect(fb,56+i2*6,78,3,3,MOTE_RGB565(245,230,90),1,0,128); }
+        mote_ftextc(mote, fb, g_fmed, 64, 84, MOTE_RGB565(150,160,180), "B CANCEL");
         return;
     }
     g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
-    if (g_state==ST_PLAY && (mission==MI_COURIER||mission==MI_HIT)) world_dot(fb, mx, mz, 4, MOTE_RGB565(250,230,80));
+    if (g_state==ST_PLAY && (mission==MI_COURIER||mission==MI_HIT)){   /* pulsing magenta beacon, matches the map */
+        int ph=((int)(mote->micros()/220000ull))&1;
+        world_dot(fb, mx, mz, ph?6:5, MOTE_RGB565(255,60,200));
+        world_dot(fb, mx, mz, 2, MOTE_RGB565(255,255,255)); }
 
     /* water shimmer: animated specular flecks on visible water tiles (deterministic
      * per-tile phase → each fleck twinkles independently) — cheap "living water". */
@@ -3216,30 +3357,58 @@ static void g_overlay(uint16_t *fb) {
         uint16_t c = f->kind==0?MOTE_RGB565(170,20,24) : f->kind==1?MOTE_RGB565(250,180,60) : MOTE_RGB565(255,244,180);
         world_dot(fb, f->x, f->z, f->kind==2?3:2, c); }
 
+    if (g_brief_active){
+        mote_dim_box(fb, 0, 0, 128, 128, 7);                       /* translucent — the city stays visible */
+        mote_dim_box(fb, 3, 44, 122, 82, 5);                       /* text panel a touch darker for contrast */
+        mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
+        draw_portrait(fb, 44, 12, g_brief_seed);                   /* the contact's mugshot */
+        mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
+        mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
+        mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
+        /* the job itself, big and readable (1.66x), word-wrapped to <=2 lines */
+        { const char *s=g_brief_body; char l1[24], l2[24]; int n1=0, brk=-1;
+          for (int i=0; s[i]; i++){ char t[24]; int k=i<23?i:23; for(int j=0;j<k;j++)t[j]=s[j]; t[k]=0;
+              if (s[i]==' '){ if (mote_fontw(g_fread,t) <= 118) brk=i; }
+              if (mote_fontw(g_fread,t) > 118 && brk>0) break; n1=i+1; }
+          if (mote_fontw(g_fread,s) <= 118){ int j=0; while(s[j]){l1[j]=s[j];j++;} l1[j]=0; l2[0]=0; }
+          else { int c=brk>0?brk:n1; int j=0; for(;j<c&&j<23;j++)l1[j]=s[j]; l1[j]=0;
+                 const char *r=s+(brk>0?brk+1:c); j=0; while(r[j]&&j<23){l2[j]=r[j];j++;} l2[j]=0; }
+          int by = l2[0] ? 90 : 96;                                /* single line sits lower */
+          mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
+          if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2); }
+        mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
+        return;
+    }
     if (g_state==ST_TITLE){
         /* big serif logo straight over the live city, GTA1-style: black drop shadow,
          * warm gold face, thin underline — no boxed-in panel */
-        if (mote->text_font){
-            mote->text_font(fb, &title, "GRAND",     25+2, 34+2, MOTE_RGB565(12,10,14));
-            mote->text_font(fb, &title, "GRAND",     25,   34,   MOTE_RGB565(244,204,72));
-            mote->text_font(fb, &title, "THUMBAUTO", 7+2,  54+2, MOTE_RGB565(12,10,14));
-            mote->text_font(fb, &title, "THUMBAUTO", 7,    54,   MOTE_RGB565(244,204,72));
+        if (mote->text_font){                                    /* logo moved up to free the lower half */
+            mote->text_font(fb, &title, "GRAND",     25+2, 18+2, MOTE_RGB565(12,10,14));
+            mote->text_font(fb, &title, "GRAND",     25,   18,   MOTE_RGB565(244,204,72));
+            mote->text_font(fb, &title, "THUMBAUTO", 7+2,  38+2, MOTE_RGB565(12,10,14));
+            mote->text_font(fb, &title, "THUMBAUTO", 7,    38,   MOTE_RGB565(244,204,72));
         } else {
-            mote->text_2x(fb, "GRAND", 30, 40, MOTE_RGB565(240,210,80));
-            mote->text_2x(fb, "THUMBAUTO", 14, 56, MOTE_RGB565(240,210,80));
+            mote->text_2x(fb, "GRAND", 30, 24, MOTE_RGB565(240,210,80));
+            mote->text_2x(fb, "THUMBAUTO", 14, 40, MOTE_RGB565(240,210,80));
         }
-        mote->draw_rect(fb, 10, 78, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
-        mote->draw_rect(fb, 10, 77, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
-        mote_textf(mote, fb, 38, 84, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
-        if (((int)(g_msg_t*2))&1 || 1) mote->text(fb, "PRESS A TO PLAY", 26, 102, MOTE_RGB565(180,220,180));
-        if (mote->abi_version>=44) mote->text(fb, "B  2P DEATHMATCH", 24, 112, MOTE_RGB565(245,110,95));
+        /* translucent dark banner so the body text pops over the live city, framed by
+         * the gold rule on top (dim the real pixels — you can still see the road) */
+        mote_dim_box(fb, 4, 67, 120, 54, 6);   /* keep 6/16 ≈ 38% */
+        mote->draw_rect(fb, 10, 63, 108, 1, MOTE_RGB565(12,10,14), 1, 0, 128);
+        mote->draw_rect(fb, 10, 62, 108, 1, MOTE_RGB565(244,204,72), 1, 0, 128);
+        /* engine Audiowide (v47): CTA as a 1.66x banner, stats/labels at 1.5x */
+        mote_ftextfc(mote, fb, g_fmed,  64, 71, MOTE_RGB565(235,238,245), "BEST $%d", best_cash);
+        mote_ftextc (mote, fb, g_fread, 64, 87, MOTE_RGB565(150,230,150), "PRESS A TO PLAY");
+        if (mote->abi_version>=44)
+          mote_ftextc(mote, fb, g_fmed, 64, 107, MOTE_RGB565(245,110,95), "B  2P DEATHMATCH");
         return;
     }
     if (g_state==ST_WASTED || g_state==ST_BUSTED){
         uint16_t c = g_state==ST_WASTED?MOTE_RGB565(210,40,40):MOTE_RGB565(60,120,240);
-        mote->text_2x(fb, g_state==ST_WASTED?"WASTED":"BUSTED", 26, 52, c);
-        mote_textf(mote, fb, 30, 74, MOTE_RGB565(220,220,230), "CASH $%d", cash);
-        mote_textf(mote, fb, 30, 84, MOTE_RGB565(180,190,200), "KILLS %d", g_kills);
+        mote_dim_box(fb, 0, 40, 128, 52, 5);   /* readability over the frozen city */
+        mote_ftextc (mote, fb, g_flarge, 64, 46, c, g_state==ST_WASTED?"WASTED":"BUSTED");
+        mote_ftextfc(mote, fb, g_fmed, 64, 70, MOTE_RGB565(220,220,230), "CASH $%d", cash);
+        mote_ftextfc(mote, fb, g_fmed, 64, 82, MOTE_RGB565(180,190,200), "KILLS %d", g_kills);
         return;
     }
 
@@ -3248,37 +3417,37 @@ static void g_overlay(uint16_t *fb) {
     if (g_dm && g_state==ST_PLAY){
         if (dm_end){
             mote_ui_panel(fb, 16, 46, 96, 40, MOTE_RGB565(14,16,24), MOTE_RGB565(160,60,50));
-            if (dm_end==1)      mote->text(fb, "YOU WIN!", 46, 53, MOTE_RGB565(120,230,120));
-            else if (dm_end==2) mote->text(fb, "YOU LOSE!", 43, 53, MOTE_RGB565(245,110,95));
-            else                mote->text(fb, "LINK LOST", 43, 53, MOTE_RGB565(245,110,95));
-            mote_textf(mote, fb, 32, 63, MOTE_RGB565(235,238,245), "FRAGS %d-%d", dm_frags, dm_peer_frags);
-            mote->text(fb, "B  TITLE", 46, 73, MOTE_RGB565(245,230,90));
+            { const char *r = dm_end==1?"YOU WIN!":dm_end==2?"YOU LOSE!":"LINK LOST";
+              mote_ftextc(mote, fb, g_fread, 64, 51, dm_end==1?MOTE_RGB565(120,230,120):MOTE_RGB565(245,110,95), r); }
+            mote_ftextfc(mote, fb, g_fmed, 64, 64, MOTE_RGB565(235,238,245), "FRAGS %d-%d", dm_frags, dm_peer_frags);
+            mote_ftextc (mote, fb, g_fmed, 64, 75, MOTE_RGB565(245,230,90), "B  TITLE");
         } else if (dm_dead_t>0){
             mote_ui_panel(fb, 32, 54, 64, 18, MOTE_RGB565(30,12,12), MOTE_RGB565(160,60,50));
-            mote->text(fb, "WASTED", 47, 60, MOTE_RGB565(245,110,95));
+            mote_ftextc(mote, fb, g_fread, 64, 58, MOTE_RGB565(245,110,95), "WASTED");
         }
     }
-    if (g_dm) mote_textf(mote, fb, 2, 2, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
-    else      mote_textf(mote, fb, 2, 2, MOTE_RGB565(120,230,120), "$%d", cash);
+    if (g_dm) mote_ftextf(mote, fb, g_fmed, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
+    else      mote_ftextf(mote, fb, g_fmed, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
     /* wanted heads */
     for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
     /* health bar */
     mote->draw_rect(fb, 2, 116, 40, 6, MOTE_RGB565(40,20,20), 1, 0,128);
     mote->draw_rect(fb, 2, 116, (int)(40*health/MAXHP), 6, MOTE_RGB565(210,60,60), 1, 0,128);
     /* weapon + ammo */
-    mote_textf(mote, fb, 66, 116, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
-    if (weapon!=W_FIST) mote_textf(mote, fb, 108, 116, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
+    mote_ftextf(mote, fb, g_fmed, 60, 115, MOTE_RGB565(220,220,140), "%s", WNAME[weapon]);
+    if (weapon!=W_FIST) mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
 
     if (mission!=MI_NONE){
-        if (mission==MI_COURIER)      mote_textf(mote, fb, 2, 13, MOTE_RGB565(250,230,90), "COURIER $%d %ds", mission_pay, (int)mission_t);
-        else if (mission==MI_RAMPAGE) mote_textf(mote, fb, 2, 13, MOTE_RGB565(250,230,90), "RAMPAGE %d/%d %ds", mission_kills, mission_target, (int)mission_t);
-        else if (mission==MI_GETAWAY) mote_textf(mote, fb, 2, 13, MOTE_RGB565(250,230,90), "LOSE THE HEAT %ds", (int)mission_t);
-        else                          mote_textf(mote, fb, 2, 13, MOTE_RGB565(250,230,90), "HIT $%d %ds", mission_pay, (int)mission_t);
+        if (mission==MI_COURIER)      mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "COURIER $%d %ds", mission_pay, (int)mission_t);
+        else if (mission==MI_RAMPAGE) mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "RAMPAGE %d/%d %ds", mission_kills, mission_target, (int)mission_t);
+        else if (mission==MI_GETAWAY) mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "LOSE THE HEAT %ds", (int)mission_t);
+        else                          mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "HIT $%d %ds", mission_pay, (int)mission_t);
     }
-    if (g_msg_t>0) mote->text(fb, g_msg, 4, 104, MOTE_RGB565(250,240,160));
-    else if (near_marker(MK_GUN,3.0f)) mote->text(fb, "A: BUY WEAPON", 4,104, MOTE_RGB565(230,220,120));
-    else if (near_marker(MK_PHONE,3.0f)) mote->text(fb, "A: ANSWER PHONE", 4,104, MOTE_RGB565(150,200,240));
-    else if (player.mode==MODE_FOOT) mote->text(fb, "A ENTER  B PUNCH/SHOOT", 4,104, MOTE_RGB565(140,150,170));
+    if (g_msg_t>0){ mote_dim_box(fb, 0, 99, 128, 17, 5);   /* mission line as a readable banner */
+        mote_ftextc(mote, fb, g_fread, 64, 102, MOTE_RGB565(250,240,160), g_msg); }
+    else if (near_marker(MK_GUN,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(230,220,120), "A: BUY WEAPON");
+    else if (near_marker(MK_PHONE,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(150,200,240), "A: ANSWER PHONE");
+    else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B PUNCH/SHOOT");
 }
 
 static const MoteGameVtbl k_vtbl = {
@@ -3289,4 +3458,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("GrandThumbAuto", "austinio7116");
-MOTE_GAME_VERSION("1.1.0");
+MOTE_GAME_VERSION("1.2.0");
