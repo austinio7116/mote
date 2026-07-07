@@ -2059,6 +2059,13 @@ static void wrap2(const MoteFont *f, const char *s, int maxw, char *l1, char *l2
     int j=0; for(;j<brk&&j<cap-1;j++)l1[j]=s[j]; l1[j]=0;
     const char *r=s+brk+1; j=0; while(r[j]&&j<cap-1){l2[j]=r[j];j++;} l2[j]=0;
 }
+/* Same, wrapping to up to THREE lines (a long crew name can push a pitch to 3). */
+static void wrap3(const MoteFont *f, const char *s, int maxw, char *l1, char *l2, char *l3, int cap){
+    l1[0]=l2[0]=l3[0]=0;
+    wrap2(f, s, maxw, l1, l2, cap);
+    if (l2[0]){ char tmp[56]; int i=0; while(l2[i]&&i<55){tmp[i]=l2[i];i++;} tmp[i]=0;
+        wrap2(f, tmp, maxw, l2, l3, cap); }
+}
 
 /* Left-aligned formatted HUD text with a 1px black drop shadow so it stays legible
  * over the busy street underneath. */
@@ -2076,8 +2083,51 @@ static uint32_t g_brief_seed;
 static char     g_brief_name[24];
 static const char *g_brief_role;
 static const char *g_brief_body;
+static char        g_brief_body_buf[72];   /* templated pitch (crew/target names) */
 
 static uint32_t cr_mix(uint32_t x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
+
+/* ================= procedural CREWS (factions) =========================
+ * Each city spins up a handful of rival crews with generated names, a boss face,
+ * a turf, and a standing with the player. Your recurring caller is a crew boss;
+ * the wet-work jobs (hit/repo/vigilante/demo) target a RIVAL crew by name, so the
+ * briefings read like an unfolding turf war rather than disconnected errands. */
+#define NFACTION 4
+typedef struct { uint32_t seed; char name[18]; int8_t standing; uint8_t hostile, colv; float tx, tz; } Faction;
+static Faction g_fac[NFACTION];
+static int  g_employer = -1;      /* crew you're working for this streak (your recurring boss) */
+static int  g_job_rival = -1;     /* crew the current job hits (-1 = none) */
+static char g_tgt_name[20];       /* named mark for a HIT */
+
+static void make_crew_name(char *out, uint32_t s){
+    static const char *ADJ[16]={"NEON","IRON","RED","GOLD","JADE","ASH","VOLT","GHOST","STEEL","ONYX","CRIMSON","DOCK","NIGHT","SILVER","RUST","COBALT"};
+    static const char *NOUN[14]={"VIPERS","KINGS","SYNDICATE","CARTEL","WOLVES","SAINTS","DRAGONS","JACKALS","BARONS","REAPERS","CROWNS","SHARKS","HOUNDS","FANGS"};
+    const char *a=ADJ[(s>>3)&15], *n=NOUN[(s>>9)%14]; char *o=out;
+    while(*a)*o++=*a++; *o++=' '; while(*n)*o++=*n++; *o=0;
+}
+static void gen_person_name(char *out, uint32_t s){
+    static const char *F[16]={"Tony","Rico","Sal","Vince","Nico","Marco","Yuri","Cole","Bruno","Omar","Gus","Ivan","Rosa","Nina","Lena","Sofia"};
+    static const char *L[10]={"Costa","Voss","Ramos","Kane","Petrov","Reyes","Nash","Vex","Diallo","Moretti"};
+    const char *f=F[(s>>2)&15], *l=L[(s>>7)%10]; char *o=out;
+    while(*f)*o++=*f++; *o++=' '; while(*l)*o++=*l++; *o=0;
+}
+static void gen_factions(void){
+    g_employer=-1; g_job_rival=-1;
+    for (int i=0;i<NFACTION;i++){
+        uint32_t s = cr_mix(((uint32_t)irand(1<<15)<<16) ^ (uint32_t)irand(1<<15) ^ (i*2654435761u) ^ 0x9e3779b9u);
+        g_fac[i].seed=s; make_crew_name(g_fac[i].name, s);
+        g_fac[i].standing=0; g_fac[i].hostile=0; g_fac[i].colv=(uint8_t)(s&3);
+        float ox,oz;
+        if (find_road_clear(player.x,player.z, 30.0f+i*45.0f, 320.0f, &ox,&oz)){ g_fac[i].tx=ox; g_fac[i].tz=oz; }
+        else { g_fac[i].tx=player.x; g_fac[i].tz=player.z; }
+    }
+}
+/* a rival crew for a wet-work job: any crew that isn't your employer */
+static int pick_rival(void){
+    if (NFACTION<2) return 0;
+    int r; for (int t=0;t<8;t++){ r=irand(NFACTION); if(r!=g_employer) return r; }
+    return (g_employer+1)%NFACTION;
+}
 static uint32_t g_seed_override;   /* host capture hook: force a specific contact seed */
 #ifdef MOTE_HOST
 static int g_force_mtype;           /* host test hook: force a specific mission type (MI_*) */
@@ -2120,7 +2170,18 @@ static void gen_contact(int mtype){
     const char *ln = LAST[(s>>8)%(sizeof LAST/sizeof*LAST)];
     { char *b=g_brief_name; const char*p=fn; while(*p)*b++=*p++; *b++=' '; p=ln; while(*p)*b++=*p++; *b=0; }
     g_brief_role = job_role(mtype);
-    g_brief_body = job_body(mtype);
+    /* wet-work jobs name the rival crew (and the mark) so the call reads like a turf war */
+    if (g_job_rival>=0 && g_job_rival<NFACTION){
+        const char *rc = g_fac[g_job_rival].name;
+        switch (mtype){
+            case MI_HIT:  snprintf(g_brief_body_buf,sizeof g_brief_body_buf,"Take out %s, %s.", g_tgt_name, rc); break;
+            case MI_REPO: snprintf(g_brief_body_buf,sizeof g_brief_body_buf,"A %s debtor ran. Wreck it.", rc); break;
+            case MI_VIGIL:snprintf(g_brief_body_buf,sizeof g_brief_body_buf,"%s on our turf. Thin 'em.", rc); break;
+            case MI_DEMO: snprintf(g_brief_body_buf,sizeof g_brief_body_buf,"Torch every %s car.", rc); break;
+            default:      snprintf(g_brief_body_buf,sizeof g_brief_body_buf,"%s", job_body(mtype)); break;
+        }
+        g_brief_body = g_brief_body_buf;
+    } else g_brief_body = job_body(mtype);
 }
 
 /* Procedural 44x46 mugshot from a seed. Blocky GTA-1 flavour with real variety:
@@ -2242,7 +2303,7 @@ static void mission_cleanup(void){
  * if the type's preconditions were met, 0 if it couldn't place (roll another). */
 static int setup_mission(int rot, float mult){
     mission=MI_NONE;
-    mission_car=-1; mission_leg=0; mission_hold=0; mission_cap=0; mtarg_n=0; rival_car=-1; cp_n=0; cp_i=0;
+    mission_car=-1; mission_leg=0; mission_hold=0; mission_cap=0; mtarg_n=0; rival_car=-1; cp_n=0; cp_i=0; g_job_rival=-1;
     if (rot==MI_COURIER){ mission=MI_COURIER;
         float rmin = 100.0f + frand()*80.0f, rmax = rmin + 80.0f + frand()*140.0f;
         float route=-1.0f;
@@ -2270,6 +2331,8 @@ static int setup_mission(int rot, float mult){
         mission_pay = (int)((h*260.0f + frand()*180.0f)*mult);
         add_heat(h); say("SET UP! LOSE THE HEAT");
     } else if (rot==MI_HIT){ mission=MI_HIT;
+        g_job_rival = pick_rival();                       /* the mark belongs to a rival crew */
+        gen_person_name(g_tgt_name, cr_mix(g_fac[g_job_rival].seed + (uint32_t)irand(1<<16)));
         float ox,oz; mission_target=-1;
         float rmin = 70.0f + frand()*70.0f;
         if (find_near(pl_x(),pl_z(), rmin, rmin+130.0f, pav_or_grass, &ox,&oz)){
@@ -2307,6 +2370,7 @@ static int setup_mission(int rot, float mult){
             say("PICKUP: GRAB THE PACKAGES");
         } else for (int i=0;i<NPICK;i++) if(picks[i].kind==PK_PACKAGE) picks[i].alive=0;   /* undo a partial place */
     } else if (rot==MI_REPO){
+        g_job_rival = pick_rival();
         int car = find_npc_car(30.0f, 150.0f);
         if (car>=0){
             mission=MI_REPO; mission_car=car; mx=cars[car].x; mz=cars[car].z;
@@ -2346,12 +2410,14 @@ static int setup_mission(int rot, float mult){
             if(d2<18.0f*18.0f||d2>170.0f*170.0f) continue;
             mtarg[mtarg_n++]=i; }
         if (mtarg_n>=2){
+            g_job_rival = pick_rival();
             mission=MI_DEMO; mission_target=mtarg_n; mission_kills=0;
             mission_t = 24.0f + mtarg_n*11.0f;
             mission_pay = (int)((mtarg_n*190.0f + frand()*160.0f)*mult);
             say("DEMOLITION: WRECK THEM ALL");
         } else mtarg_n=0;
     } else if (rot==MI_VIGIL){ mission=MI_VIGIL;
+        g_job_rival = pick_rival();
         mission_cap = irand(4);                              /* which gang variant to cull */
         mission_target = 4 + irand(4);                       /* 4-7 kills */
         mission_kills = 0;
@@ -2417,16 +2483,25 @@ static int roll_mission(float mult){
  * SAME contact rings back with something bigger (mission_win keeps the streak). */
 static void start_mission(void) {
     if (mission!=MI_NONE) return;
+    if (g_recur_seed==0){ g_employer = irand(NFACTION); g_recur_seed = g_fac[g_employer].seed; }  /* a crew boss takes you on */
     if (!roll_mission(mission_mult())){ say("LINE DEAD..."); return; }
-    gen_contact(mission);
-    if (!g_recur_seed) g_recur_seed = g_brief_seed;   /* lock this contact for the streak */
+    gen_contact(mission);                              /* face = your employer's boss (via g_recur_seed) */
     g_brief_active=1;
 }
 
+static char g_evt[44];   /* persistent buffer for a procedural event line passed to say() */
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
     sfx(&win_sfx,0.8f); float_txt(pl_x(),pl_z(),"PAID");
-    say(mission_chain>=2 ? "THEY'LL REMEMBER THIS" : "JOB DONE");
+    if (g_employer>=0){ int s=g_fac[g_employer].standing+12; g_fac[g_employer].standing=(int8_t)(s>100?100:s); }
+    int became_hostile=0;
+    if (g_job_rival>=0){                                    /* hitting a crew turns them against you */
+        int was=g_fac[g_job_rival].hostile;
+        int s=g_fac[g_job_rival].standing-22; if(s<-100)s=-100; g_fac[g_job_rival].standing=(int8_t)s;
+        if (s<=-55 && !was){ g_fac[g_job_rival].hostile=1; became_hostile=1; }
+    }
+    if (became_hostile){ snprintf(g_evt,sizeof g_evt,"THE %s WANT YOU DEAD", g_fac[g_job_rival].name); say(g_evt); }
+    else say(mission_chain>=2 ? "THEY'LL REMEMBER THIS" : "JOB DONE");
     mission_cleanup(); mission=MI_NONE;
 }
 
@@ -2469,6 +2544,7 @@ static void reset_game(void) {
 #endif
     spawn_world();
     place_markers();
+    gen_factions();                                 /* fresh rival crews for this city */
     for (int i=0;i<nmark;i++){ float dx=markers[i].x-player.x, dz=markers[i].z-player.z;
         if (dx*dx+dz*dz < 60.0f*60.0f) markers[i].seen=1; }
     for (int i=0;i<NCAR;i++) car_body_init(i);      /* physics bodies for every vehicle */
@@ -3772,18 +3848,21 @@ static void g_overlay(uint16_t *fb) {
     if (g_brief_active){
         mote_dim_box(fb, 0, 0, 128, 128, 7);                       /* translucent — the city stays visible */
         draw_portrait(fb, 44, 12, g_brief_seed);                   /* the contact's mugshot */
-        char l1[28], l2[28];
+        char l1[28], l2[28], l3[28];
         mote_dim_box(fb, 3, 44, 122, 82, 5);
         /* a returning contact reads as CALLING BACK (streak) rather than a cold call */
         if (mission_chain>0) mote_ftextc (mote, fb, g_fmed, 64, 2, MOTE_RGB565(120,210,255), "CALLING BACK");
         else                 mote_ftextc (mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
-        mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
-        mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
-        mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
-        wrap2(g_fread, g_brief_body, 118, l1, l2, 28);
-        int by = l2[0] ? 90 : 96;
-        mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
-        if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2);
+        mote_ftextc (mote, fb, g_fmed, 64, 60, MOTE_RGB565(236,238,245), g_brief_name);
+        mote_ftextfc(mote, fb, g_fmed, 64, 71, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
+        mote->draw_rect(fb, 14, 83, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
+        wrap3(g_fread, g_brief_body, 118, l1, l2, l3, 28);
+        int nl = l3[0]?3 : l2[0]?2 : 1;
+        int by = nl==3?84 : nl==2?90 : 96;
+        uint16_t bc=MOTE_RGB565(232,234,240);
+        mote_ftextc(mote, fb, g_fread, 64, by, bc, l1);
+        if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+12, bc, l2);
+        if (l3[0]) mote_ftextc(mote, fb, g_fread, 64, by+24, bc, l3);
         mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
         return;
     }
