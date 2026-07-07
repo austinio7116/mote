@@ -317,6 +317,51 @@ static void build_buildings(void) {
     }
 }
 
+/* GARAGE meshes: a low box with a ROOF + back/side walls but the STREET-FACING wall
+ * removed, so you drive in under the roof. One mesh per opening direction (0:+X 1:-X
+ * 2:+Z 3:-Z open). Built once at init; drawn on garage tiles by draw_buildings_window. */
+#define GARAGE_H 3.6f
+static MeshVert gr_v[4][8];
+static MeshFace gr_f[4][10];
+static uint8_t  gr_uv[4][60];
+static float    gr_md;
+static Mesh     gr_mesh[4];
+static void build_garages(void){
+    float hx=TILE*0.5f, hy=GARAGE_H*0.5f, hz=TILE*0.5f;
+    float md=hx; if(hy>md)md=hy; if(hz>md)md=hz; gr_md=md;
+    int8_t X=(int8_t)(hx/md*127), Y=(int8_t)(hy/md*127), Z=(int8_t)(hz/md*127);
+    int8_t C[8][3] = { {-X,-Y,-Z},{X,-Y,-Z},{X,Y,-Z},{-X,Y,-Z},
+                       {-X,-Y, Z},{X,-Y, Z},{X,Y, Z},{-X,Y, Z} };
+    struct { uint8_t a,b,c,d; int8_t nx,ny,nz; int roof; } Q[6] = {
+        {0,1,2,3, 0,0,-127, 0},{5,4,7,6, 0,0,127, 0},{4,0,3,7,-127,0,0, 0},
+        {1,5,6,2,127,0,0, 0},{4,5,1,0,0,-127,0, 0},{3,2,6,7,0,127,0, 1} };
+    static const int SKIP[4] = { 3, 2, 1, 0 };   /* which wall face is the open front, per dir */
+    for (int gi=0; gi<4; gi++){
+        for (int i=0;i<8;i++){ gr_v[gi][i].x=C[i][0]; gr_v[gi][i].y=C[i][1]; gr_v[gi][i].z=C[i][2]; }
+        int fi=0;
+        for (int q=0;q<6;q++){
+            if (q==SKIP[gi] || q==4) continue;    /* drop the open front + the floor */
+            uint8_t r[4]={Q[q].a,Q[q].b,Q[q].c,Q[q].d};
+            uint8_t uL=Q[q].roof?128:0, uR=Q[q].roof?255:127;
+            uint8_t U[4]={uL,uR,uR,uL}, V[4]={0,0,255,255};
+            gr_f[gi][fi]=(MeshFace){r[0],r[1],r[2],Q[q].nx,Q[q].ny,Q[q].nz};
+            gr_uv[gi][fi*6+0]=U[0];gr_uv[gi][fi*6+1]=V[0];gr_uv[gi][fi*6+2]=U[1];gr_uv[gi][fi*6+3]=V[1];gr_uv[gi][fi*6+4]=U[2];gr_uv[gi][fi*6+5]=V[2]; fi++;
+            gr_f[gi][fi]=(MeshFace){r[0],r[2],r[3],Q[q].nx,Q[q].ny,Q[q].nz};
+            gr_uv[gi][fi*6+0]=U[0];gr_uv[gi][fi*6+1]=V[0];gr_uv[gi][fi*6+2]=U[2];gr_uv[gi][fi*6+3]=V[2];gr_uv[gi][fi*6+4]=U[3];gr_uv[gi][fi*6+5]=V[3]; fi++;
+        }
+        gr_mesh[gi]=(Mesh){ .verts=gr_v[gi], .faces=gr_f[gi], .nverts=8, .nfaces=fi,
+                            .scale=gr_md, .bound_r=gr_md*1.75f, .texture=&bld_concrete_img, .face_uvs=gr_uv[gi] };
+    }
+}
+/* garage dir index (0:+X 1:-X 2:+Z 3:-Z open) for a garage tile, or -1 */
+static int garage_dir(int x, int z){
+    for (int i=0;i<g_ngar;i++) if (g_gar[i].x==x && g_gar[i].z==z){
+        int ox=g_gar[i].ox, oz=g_gar[i].oz;
+        return ox>0?0 : ox<0?1 : oz>0?2 : 3;
+    }
+    return -1;
+}
+
 static unsigned hash_u(unsigned h){ h^=h>>13; h*=2654435761u; h^=h>>15; return h; }
 /* A real city has coherent DEVELOPMENTS (a run of buildings built alike) inside larger
  * DISTRICTS (downtown vs. outskirts). We derive both from position, not per-tile class:
@@ -1029,6 +1074,7 @@ static void g_init(void) {
     build_ground();
     build_quad();
     build_buildings();
+    build_garages();
     if (mote->load){ int b[2]={0,0}; if(mote->load(0,b,sizeof b)==(int)sizeof b && b[0]==0x47544131) best_cash=b[1]; }
     reset_game();
     g_state = ST_TITLE;
@@ -1254,9 +1300,10 @@ static void draw_buildings_window(void) {
         for (int x = cx - 14; x <= cx + 14; x++) {
             char c = tile_at(x, z);
             if (c != '#' && c != 'O' && c != 'H') continue;
-            if (is_garage(x, z)) continue;                /* garage bay: an opening in the block, no cube */
-            int L = bld_level(x, z);
-            float th = g_lvl_h[L], hy = th * 0.5f;
+            int gdir = is_garage(x, z) ? garage_dir(x, z) : -1;
+            float th, hy;
+            if (gdir >= 0){ th = GARAGE_H; hy = th * 0.5f; }      /* garage: a low roofed bay, open front */
+            else { int L = bld_level(x, z); th = g_lvl_h[L]; hy = th * 0.5f; }
             float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f, sx, sy;
             /* Draw if the BASE or the TOP could be on screen. Culling on the elevated
              * centre alone made tall blocks blink out (revealing the ground beneath)
@@ -1265,7 +1312,8 @@ static void draw_buildings_window(void) {
             if (world_to_screen(v3(wx, 0.1f, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
             if (!vis && world_to_screen(v3(wx, th, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
             if (!vis) continue;
-            mote_draw(mote, &g_bmesh[L][bld_tex(x,z)], v3(wx, hy, wz));
+            if (gdir >= 0) mote_draw(mote, &gr_mesh[gdir], v3(wx, hy, wz));
+            else           mote_draw(mote, &g_bmesh[bld_level(x,z)][bld_tex(x,z)], v3(wx, hy, wz));
         }
 }
 
@@ -3537,10 +3585,10 @@ static void g_update(float dt) {
           for (int m=0;m<nmark;m++) if(markers[m].kind==MK_PHONE){
               if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
               player.x=markers[m].x-3; player.z=markers[m].z; tpd=1; break; } } }
-    { static int tps=0; if (getenv("MOTE_GTA_TP_SPRAY") && g_state==ST_PLAY && !tps){   /* test: stand by a spray garage */
-          for (int m=0;m<nmark;m++) if(markers[m].kind==MK_SPRAY){
-              if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
-              player.x=markers[m].x; player.z=markers[m].z; player.yaw=0; tps=1; break; } } }
+    { static int tps=0; if (getenv("MOTE_GTA_TP_SPRAY") && g_state==ST_PLAY && !tps && g_ngar>0){   /* test: stand on the approach, look into the bay */
+          if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
+          player.x=(g_gar[0].x + g_gar[0].ox*2)*TILE+TILE*0.5f; player.z=(g_gar[0].z + g_gar[0].oz*2)*TILE+TILE*0.5f;
+          player.yaw=atan2f(-(float)g_gar[0].oz, -(float)g_gar[0].ox); tps=1; } }
 #endif
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
@@ -4047,10 +4095,10 @@ static void world_ring(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
  * an off-screen objective. Rasterised as perpendicular spans from tip to tail. */
 static void draw_arrow(uint16_t *fb, float cx, float cy, float ang, uint16_t col){
     float dx=cosf(ang), dy=sinf(ang), px=-dy, py=dx;
-    float tx=cx+dx*8.0f, ty=cy+dy*8.0f;                 /* tip leads the point */
-    for (int i=0;i<=9;i++){ float f=(float)i/9.0f;
-        float bx=tx-dx*12.0f*f, by=ty-dy*12.0f*f;       /* walk back from the tip */
-        float hw=6.5f*f;                                /* widen toward the tail */
+    float tx=cx+dx*5.0f, ty=cy+dy*5.0f;                 /* tip leads the point */
+    for (int i=0;i<=7;i++){ float f=(float)i/7.0f;
+        float bx=tx-dx*8.0f*f, by=ty-dy*8.0f*f;         /* walk back from the tip */
+        float hw=3.5f*f;                                /* slim */
         mote->draw_line(fb, (int)(bx-px*hw),(int)(by-py*hw), (int)(bx+px*hw),(int)(by+py*hw), col, 0, 128);
     }
 }
@@ -4181,8 +4229,7 @@ static void g_overlay(uint16_t *fb) {
             float ang=atan2f(s1y-s0y, s1x-s0x), dx=cosf(ang), dy=sinf(ang);
             float tX=fabsf(dx)>1e-4f?50.0f/fabsf(dx):1e9f, tY=fabsf(dy)>1e-4f?40.0f/fabsf(dy):1e9f;
             float tt=tX<tY?tX:tY;
-            int ph=((int)(mote->micros()/200000ull))&1;
-            draw_arrow(fb, 64.0f+dx*tt, 66.0f+dy*tt, ang, ph?mc:MOTE_RGB565(255,150,225));
+            draw_arrow(fb, 64.0f+dx*tt, 66.0f+dy*tt, ang, mc);   /* steady, no flashing */
         } }
     if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
         int ph=((int)(mote->micros()/240000ull))&1;
