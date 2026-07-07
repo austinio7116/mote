@@ -1753,7 +1753,7 @@ static void place_markers(void) {
      * from the spawn (flood fill — the map has isolated road fragments that look like
      * piers but connect to nothing). Prefers 20-90 tiles out, else nearest reachable. */
     { static uint8_t rvis[(MAPW*MAPH+7)/8];               /* road-reachability bitmap */
-      static uint16_t q[4096];
+      uint16_t *q = rd_q;   /* borrow the road-BFS queue (transient; not in use at reset) — saves 8 KB RAM */
       for (unsigned i=0;i<sizeof rvis;i++) rvis[i]=0;
       int sx0=-1, sz0=-1;                                 /* nearest road to the spawn */
       for (int r=0;r<12 && sx0<0;r++)
