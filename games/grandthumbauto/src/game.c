@@ -15,10 +15,14 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include "ground.h"        /* ground_img  — 8-cell 16px atlas (asphalt/pavement/grass/water/...) */
-#include "bld_brick.h"     /* bld_brick_img  — 64x32 wall|roof atlas */
-#include "bld_office.h"    /* bld_office_img */
-#include "bld_tower.h"     /* bld_tower_img  */
-#include "bld_concrete.h"  /* bld_concrete_img */
+#include "bld_brick.h"      /* bld_brick_img  — 64x32 wall|roof atlas (facade|roof) */
+#include "bld_office.h"     /* bld_office_img */
+#include "bld_tower.h"      /* bld_tower_img  */
+#include "bld_concrete.h"   /* bld_concrete_img */
+#include "bld_glass.h"      /* bld_glass_img  — cyan curtain-wall */
+#include "bld_painted.h"    /* bld_painted_img — warm painted + storefront */
+#include "bld_brownstone.h" /* bld_brownstone_img — dark-red residential */
+#include "bld_panel.h"      /* bld_panel_img  — grey cladding panels */
 #include "cars2.h"         /* cars2_img — 48 top-down cars, 28x60 grid */
 #include "cars2_meta.h"    /* per-car opaque art sizes (draw + physics sizing) */
 #include "bus.h"           /* bus_img — coach + school bus, 28x84 cells */
@@ -248,23 +252,35 @@ static void road_uv(int cell) {
 }
 
 /* --------------------------------------------------------- textured buildings -- */
-/* 3 height classes x 4 facade textures — a textured cube (walls + roof on top).
- * Geometry depends only on the height class; the 4 textures share it. */
-#define NBHT  3
-#define NBTEX 4
-static MeshVert g_bv[NBHT][8];
-static MeshFace g_bf[NBHT][12];
-static uint8_t  g_buv[NBHT][72];
-static float    g_bmd[NBHT];
-static Mesh     g_bmesh[NBHT][NBTEX];
-static float    g_bh[NBHT] = { 3.0f, 5.5f, 8.5f };     /* '#','O','H' heights (m) */
+/* Buildings are procedural MASSING, not a grid of separate random columns. Each
+ * solid tile draws a FULL-tile textured cube (facade walls + roof), so contiguous
+ * same-class tiles butt together with no gaps and read as ONE structure. Two things
+ * make blocks look like buildings rather than dice:
+ *   1. A stable per-BUILDING hash (bld_seed: the top-left corner of the contiguous
+ *      same-class region) drives ONE facade texture + ONE coherent height for the
+ *      whole building — no per-tile texture/height noise, so nothing shimmers.
+ *   2. Interior tiles rise above edge tiles (setback / tiered core), and rare
+ *      hash-picked buildings become landmark towers — real stepped rooftops.
+ * Height is quantised to NBLV discrete levels (one precomputed cube mesh each);
+ * a building draws the mesh for its level, textured by one of NBTEX atlases.
+ * Everything is derived from the flash tile map + fixed hashes: deterministic per
+ * seed, identical every frame (no Math.random / time in the render path). */
+#define NBLV  14                                       /* discrete height levels */
+#define NBTEX 8                                         /* facade|roof atlases */
+static const float g_lvl_h[NBLV] = { 2.6f,3.3f,4.0f,4.8f,5.7f,6.8f,8.0f,9.4f,
+                                     11.0f,12.8f,15.0f,17.5f,20.5f,24.0f };
+static MeshVert g_bv[NBLV][8];
+static MeshFace g_bf[NBLV][12];
+static uint8_t  g_buv[NBLV][72];
+static float    g_bmd[NBLV];
+static Mesh     g_bmesh[NBLV][NBTEX];
 
-static void build_bgeom(int h, float hx, float hy, float hz) {
-    float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[h] = md;
+static void build_bgeom(int L, float hx, float hy, float hz) {
+    float md = hx; if (hy > md) md = hy; if (hz > md) md = hz; g_bmd[L] = md;
     int8_t X=(int8_t)(hx/md*127), Y=(int8_t)(hy/md*127), Z=(int8_t)(hz/md*127);
     int8_t C[8][3] = { {-X,-Y,-Z},{X,-Y,-Z},{X,Y,-Z},{-X,Y,-Z},
                        {-X,-Y, Z},{X,-Y, Z},{X,Y, Z},{-X,Y, Z} };
-    for (int i=0;i<8;i++){ g_bv[h][i].x=C[i][0]; g_bv[h][i].y=C[i][1]; g_bv[h][i].z=C[i][2]; }
+    for (int i=0;i<8;i++){ g_bv[L][i].x=C[i][0]; g_bv[L][i].y=C[i][1]; g_bv[L][i].z=C[i][2]; }
     struct { uint8_t a,b,c,d; int8_t nx,ny,nz; int roof; } Q[6] = {
         {0,1,2,3, 0,0,-127, 0},{5,4,7,6, 0,0,127, 0},{4,0,3,7,-127,0,0, 0},
         {1,5,6,2,127,0,0, 0},{4,5,1,0,0,-127,0, 0},{3,2,6,7,0,127,0, 1} };
@@ -274,24 +290,64 @@ static void build_bgeom(int h, float hx, float hy, float hz) {
         int8_t nx=Q[q].nx,ny=Q[q].ny,nz=Q[q].nz;
         uint8_t uL=Q[q].roof?128:0, uR=Q[q].roof?255:127;
         uint8_t U[4]={uL,uR,uR,uL}, V[4]={0,0,255,255};
-        g_bf[h][fi]=(MeshFace){r[0],r[1],r[2],nx,ny,nz};
-        g_buv[h][fi*6+0]=U[0];g_buv[h][fi*6+1]=V[0];g_buv[h][fi*6+2]=U[1];g_buv[h][fi*6+3]=V[1];g_buv[h][fi*6+4]=U[2];g_buv[h][fi*6+5]=V[2]; fi++;
-        g_bf[h][fi]=(MeshFace){r[0],r[2],r[3],nx,ny,nz};
-        g_buv[h][fi*6+0]=U[0];g_buv[h][fi*6+1]=V[0];g_buv[h][fi*6+2]=U[2];g_buv[h][fi*6+3]=V[2];g_buv[h][fi*6+4]=U[3];g_buv[h][fi*6+5]=V[3]; fi++;
+        g_bf[L][fi]=(MeshFace){r[0],r[1],r[2],nx,ny,nz};
+        g_buv[L][fi*6+0]=U[0];g_buv[L][fi*6+1]=V[0];g_buv[L][fi*6+2]=U[1];g_buv[L][fi*6+3]=V[1];g_buv[L][fi*6+4]=U[2];g_buv[L][fi*6+5]=V[2]; fi++;
+        g_bf[L][fi]=(MeshFace){r[0],r[2],r[3],nx,ny,nz};
+        g_buv[L][fi*6+0]=U[0];g_buv[L][fi*6+1]=V[0];g_buv[L][fi*6+2]=U[2];g_buv[L][fi*6+3]=V[2];g_buv[L][fi*6+4]=U[3];g_buv[L][fi*6+5]=V[3]; fi++;
     }
 }
 static void build_buildings(void) {
-    const MoteImage *tex[NBTEX] = { &bld_brick_img, &bld_office_img, &bld_tower_img, &bld_concrete_img };
-    for (int h=0; h<NBHT; h++) {
-        build_bgeom(h, TILE*0.47f, g_bh[h]*0.5f, TILE*0.47f);
+    const MoteImage *tex[NBTEX] = { &bld_brick_img, &bld_office_img, &bld_tower_img,
+                                    &bld_concrete_img, &bld_glass_img, &bld_painted_img,
+                                    &bld_brownstone_img, &bld_panel_img };
+    for (int L=0; L<NBLV; L++) {
+        build_bgeom(L, TILE*0.5f, g_lvl_h[L]*0.5f, TILE*0.5f);      /* full-tile footprint: blocks merge */
         for (int t=0; t<NBTEX; t++)
-            g_bmesh[h][t] = (Mesh){ .verts=g_bv[h], .faces=g_bf[h], .nverts=8, .nfaces=12,
-                                    .scale=g_bmd[h], .bound_r=g_bmd[h]*1.75f,
-                                    .texture=tex[t], .face_uvs=g_buv[h] };
+            g_bmesh[L][t] = (Mesh){ .verts=g_bv[L], .faces=g_bf[L], .nverts=8, .nfaces=12,
+                                    .scale=g_bmd[L], .bound_r=g_bmd[L]*1.75f,
+                                    .texture=tex[t], .face_uvs=g_buv[L] };
     }
 }
-static int bld_ht(char c) { return c=='#'?0 : c=='O'?1 : 2; }
-static int bld_tex(int x, int z) { unsigned h=(unsigned)(x*2654435761u ^ z*40503u); return (h>>7)&3; }
+
+/* Stable per-BUILDING hash: the top-left corner of the contiguous same-class run
+ * containing (x,z). Every tile of a building resolves to the same anchor -> the
+ * same seed -> one texture + one coherent base height (bounded scan, cheap). */
+static unsigned bld_seed(int x, int z) {
+    char c = tile_at(x, z);
+    int x0 = x, z0 = z;
+    for (int i=0; i<10 && tile_at(x0-1, z ) == c; i++) x0--;   /* leftmost in this row */
+    for (int i=0; i<10 && tile_at(x0, z0-1) == c; i++) z0--;   /* topmost in that column */
+    unsigned h = (unsigned)(x0*2654435761u ^ z0*40503u ^ (unsigned)(c)*2246822519u);
+    h ^= h>>13; h *= 2654435761u; h ^= h>>15;
+    return h;
+}
+/* 0 = edge tile, 1 = 4-neighbours solid, 2 = full 8-neighbours solid (deep core). */
+static int bld_interior(int x, int z) {
+    int n4 = is_solid(x-1,z)+is_solid(x+1,z)+is_solid(x,z-1)+is_solid(x,z+1);
+    if (n4 < 4) return 0;
+    int n8 = n4 + is_solid(x-1,z-1)+is_solid(x+1,z-1)+is_solid(x-1,z+1)+is_solid(x+1,z+1);
+    return n8 >= 8 ? 2 : 1;
+}
+/* Height level for a tile: class base + coherent per-building jitter + tiered
+ * setback (interior tiles taller) + a rare landmark-tower bonus. */
+static int bld_level(int x, int z) {
+    char c = tile_at(x, z);
+    unsigned s = bld_seed(x, z);
+    int base = c=='#' ? 1 : c=='O' ? 4 : 7;            /* low / mid / high class */
+    base += (int)(s % 3u);                             /* coherent per-building jitter */
+    int inter = bld_interior(x, z);
+    base += inter;                                     /* stepped / setback core */
+    if (inter == 2 && ((s>>11) & 15u) == 0u) base += 4;/* rare landmark skyscraper */
+    if (base < 0) base = 0; if (base >= NBLV) base = NBLV-1;
+    return base;
+}
+/* One facade|roof atlas per building, biased by class (low = brick/painted/masonry,
+ * mid = office/panel, high = tower/glass) then picked from the building seed. */
+static int bld_tex(int x, int z) {
+    static const uint8_t cand[3][4] = { {0,5,6,3}, {1,3,7,5}, {2,4,7,1} };
+    char c = tile_at(x, z); int ci = c=='#' ? 0 : c=='O' ? 1 : 2;
+    return cand[ci][(bld_seed(x,z) >> 17) & 3u];
+}
 
 /* ---------------------------------------------------------------- camera ---- */
 /* 100% TOP-DOWN: the camera looks straight down (−Y). North (−Z) is screen-up,
@@ -1121,9 +1177,10 @@ static void draw_buildings_window(void) {
         for (int x = cx - 12; x <= cx + 12; x++) {
             char c = tile_at(x, z);
             if (c != '#' && c != 'O' && c != 'H') continue;
-            int h = bld_ht(c);
-            if (!tile_visible(x, z, g_bh[h]*0.5f)) continue;
-            mote_draw(mote, &g_bmesh[h][bld_tex(x,z)], v3(x*TILE+TILE*0.5f, g_bh[h]*0.5f, z*TILE+TILE*0.5f));
+            int L = bld_level(x, z);
+            float hy = g_lvl_h[L] * 0.5f;
+            if (!tile_visible(x, z, hy)) continue;
+            mote_draw(mote, &g_bmesh[L][bld_tex(x,z)], v3(x*TILE+TILE*0.5f, hy, z*TILE+TILE*0.5f));
         }
 }
 
