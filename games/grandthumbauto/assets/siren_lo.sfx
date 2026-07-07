@@ -1,0 +1,11 @@
+# Mote SFX recipe — police two-tone, LOW tone (~436 Hz)
+# Paired with siren_hi.sfx; the chase loop alternates them for a wee-woo wail.
+wave 0
+freq 0.35 0 0 0
+duty 0.35 0
+vib 0 0
+env 0.04 0.39 0 0.16
+lpf 0.9 0 0.1
+hpf 0 0
+pha 0 0
+arp 0 0

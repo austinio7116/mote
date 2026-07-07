@@ -49,6 +49,8 @@ static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #include "crash.sfx.h"
 #include "cash.sfx.h"
 #include "siren.sfx.h"
+#include "siren_lo.sfx.h"
+#include "siren_hi.sfx.h"
 #include "boom.sfx.h"
 #include "hurt.sfx.h"
 #include "win.sfx.h"
@@ -708,9 +710,20 @@ static void spawn_world(void) {
 /* =========================================================== crime layer === */
 enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED, ST_DMLINK };
 enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, NWEAP };
-enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET };
+enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET, PK_PACKAGE };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
-enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT };
+enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT,
+       MI_DELIVER,   /* fetch a named car, drive it to the drop undamaged */
+       MI_PICKUP,    /* grab N scattered packages before the clock */
+       MI_REPO,      /* ram-wreck a fleeing target car */
+       MI_ESCORT,    /* keep a VIP on foot alive to the drop */
+       MI_SMUGGLE,   /* reach the drop while staying under a heat cap */
+       MI_DEMO,      /* wreck N marked cars */
+       MI_VIGIL,     /* cull N of a target gang variant */
+       MI_WANTED,    /* provoke and SURVIVE N stars for a duration */
+       MI_CIRCUIT,   /* time trial: hit a chain of checkpoints before the clock */
+       MI_RIVAL,     /* race a rubber-band sports-car rival through the checkpoints */
+       MI_COUNT };
 
 typedef struct { float x,z,vx,vz,life; uint8_t alive, fromcop, shell; } Bullet;
 typedef struct { float x,z; uint8_t kind, alive, seen; float bob; } Pickup;
@@ -745,6 +758,15 @@ static float fire_cd;
 static float g_aim_t;      /* player just fired: hold the aiming pose briefly */
 static int   mission, mission_kills, mission_target; static float mission_t, mx, mz;
 static int   mission_pay, mission_chain;   /* roguelike: randomized pay, streak multiplier */
+static int   mission_car;    /* DELIVER: car to fetch+deliver · REPO: car to wreck (car index) */
+static int   mission_cap;    /* SMUGGLE: max stars allowed · WANTED: stars to hold · VIGIL: gang variant */
+static float mission_hold;   /* WANTED: seconds survived at/above the target stars so far */
+static int   mission_leg;    /* DELIVER: 0 = go to the car, 1 = drive it to the drop */
+static float drop_x, drop_z; /* the eventual delivery point (kept while mx,mz points at the near leg) */
+static int   mtarg[6], mtarg_n;   /* DEMO: the car indices to wreck */
+static float cp_x[5], cp_z[5]; static int cp_n, cp_i;   /* CIRCUIT/RIVAL: checkpoint chain + player's progress */
+static int   rival_car, rival_i;  /* RIVAL: (rival_car unused now) rival's checkpoint progress */
+static float rival_x, rival_z, rival_yaw, rival_spd;    /* RIVAL: phantom pace-car — moves along the route, never stuck */
 static const char *g_msg; static float g_msg_t;
 static float hosp_x, hosp_z;
 static int   g_showmap, g_mapsx, g_mapsy; static float g_maptime;   /* full-map view */
@@ -1146,6 +1168,7 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
  * turns) for a drivable look-ahead, so cars track curving/irregular streets
  * instead of assuming a clean grid. Drive slowly + carefully. */
 static int wanted(void);   /* crime layer, defined below */
+static float pl_x(void), pl_z(void);   /* player world pos (car or foot), defined below */
 /* metres of contiguous road from (x,z) along a unit dir, sampled at 0.5 m (cap ~m) */
 static float road_run(float x,float z,float dx,float dz,float cap){
     float s; for (s=0.5f; s<=cap; s+=0.5f){ if(!road_world(x+dx*s, z+dz*s)) break; }
@@ -1177,6 +1200,12 @@ static void update_traffic(float dt) {
         if (!c->alive || (c->driver!=DRV_NPC && !patrol)) continue;   /* patrols cruise like traffic */
         MoteBody2D *b=&bodies[i];
         const VStat *v=&VSTAT[c->type];
+        if (mission==MI_REPO && i==mission_car && c->driver==DRV_NPC){   /* the debtor floors it away from you */
+            float ay=atan2f(c->z-pl_z(), c->x-pl_x());
+            float dd=1.5708f*floorf(ay/1.5708f+0.5f);
+            if (road_run(c->x,c->z, cosf(dd),sinf(dd), TILE*1.5f) < TILE*1.2f) dd=best_turn(c->x,c->z,dd,0);
+            ai_drive(i, dd, 1.0f, dt); continue;
+        }
         float d = 1.5708f * floorf(npc_target[i]/1.5708f + 0.5f);   /* committed cardinal */
         float ba=b->angle, spd=b->vx*cosf(ba)+b->vy*sinf(ba);
 
@@ -1530,6 +1559,7 @@ static void kill_ped(int i, int gore) {
           int n=bonus,k=5; char d[4]; int dn=0; while(n){d[dn++]='0'+n%10;n/=10;} while(dn) b[k++]=d[--dn]; b[k]=0;
           float_txt(p->x,p->z-1.0f,b); } }
     if (mission==MI_RAMPAGE) mission_kills++;
+    else if (mission==MI_VIGIL && !p->iscop && p->variant==mission_cap) mission_kills++;
 }
 
 static void fire_weapon(void) {
@@ -1707,6 +1737,7 @@ static void update_pickups(float dt) {
                 case PK_PISTOL: owned[W_PISTOL]=1; ammo[W_PISTOL]+=40; weapon=W_PISTOL; float_txt(p->x,p->z,"PISTOL"); break;
                 case PK_SMG: owned[W_SMG]=1; ammo[W_SMG]+=80; weapon=W_SMG; float_txt(p->x,p->z,"SMG"); break;
                 case PK_SHOTGUN: owned[W_SHOTGUN]=1; ammo[W_SHOTGUN]+=24; weapon=W_SHOTGUN; float_txt(p->x,p->z,"SHOTGUN"); break;
+                case PK_PACKAGE: if(mission==MI_PICKUP){ mission_kills++; } float_txt(p->x,p->z,"PACKAGE"); break;
             } }
     }
 }
@@ -1883,25 +1914,148 @@ static void update_heat(float dt) {
     int copnear=0; float px=pl_x(),pz=pl_z();
     for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP){ float dx=cars[i].x-px,dz=cars[i].z-pz; if(dx*dx+dz*dz<900.0f){copnear=1;break;} }
     if(!copnear) for (int i=0;i<NPED;i++) if(peds[i].alive&&peds[i].iscop){ float dx=peds[i].x-px,dz=peds[i].z-pz; if(dx*dx+dz*dz<900.0f){copnear=1;break;} }
-    if (heat_cool>5.0f && !copnear && heat>0){ heat-=0.22f*dt; if(heat<0)heat=0; }
+    /* Wanted stars are sticky: the law only starts to forget after you've been
+     * clean AND out of sight for a while (longer the hotter you are), then bleeds
+     * off slowly — ~10s per star, so a 5-star spree takes the better part of a
+     * minute of laying low to shake. */
+    float need = 6.0f + 1.4f*heat;
+    if (heat_cool>need && !copnear && heat>0){ heat-=0.10f*dt; if(heat<0)heat=0; }
+}
+
+static void mission_cleanup(void);   /* defined with start_mission below */
+
+/* The escort VIP walks himself toward the drop; he's fragile, so police gunfire
+ * and speeding cars can drop him — the player's job is to keep the route clear. */
+static void update_escort(Ped *v, float dt){
+    float dx=drop_x-v->x, dz=drop_z-v->z, d=sqrtf(dx*dx+dz*dz);
+    if (d>1.0f){ float sp=3.6f*dt, nx=v->x+dx/d*sp, nz=v->z+dz/d*sp;
+        if (walkable_world(nx,v->z)) v->x=nx;             /* axis-separated: hug corners, don't jam */
+        if (walkable_world(v->x,nz)) v->z=nz;
+        v->yaw=atan2f(dz,dx); }
+    v->animt += dt*6.0f;
+    for (int i=0;i<NBULLET;i++){ Bullet*b=&bullets[i]; if(!b->alive||!b->fromcop) continue;
+        float bx=b->x-v->x, bz=b->z-v->z; if(bx*bx+bz*bz<1.6f){ b->alive=0; if(v->hp>0)v->hp--; } }
+    for (int i=0;i<NCAR;i++){ Car*c=&cars[i]; if(!c->alive||c->wrecked||fabsf(c->spd)<7.0f) continue;
+        float cx=c->x-v->x, cz=c->z-v->z; if(cx*cx+cz*cz<3.0f && v->hp>0) v->hp--; }
+    if (v->hp==0) v->alive=0;
+}
+
+/* The RIVAL is a phantom pace-car: it glides straight along the checkpoint route
+ * (no collision, so it never wall-jams) at a rubber-banded speed that keeps the
+ * race tight — coasts when ahead, floors it when behind. */
+static void update_rival(float dt){
+    if (rival_i>=cp_n) return;
+    float tx=cp_x[rival_i]-rival_x, tz=cp_z[rival_i]-rival_z, td=sqrtf(tx*tx+tz*tz);
+    if (td<6.0f){ rival_i++; if(rival_i>=cp_n) return;
+        tx=cp_x[rival_i]-rival_x; tz=cp_z[rival_i]-rival_z; td=sqrtf(tx*tx+tz*tz); }
+    float rds;
+    if (rival_i > cp_i) rds = 5.5f;                 /* a checkpoint ahead → ease off */
+    else if (rival_i < cp_i) rds = 12.5f;           /* behind → push hard */
+    else { float pdx=cp_x[cp_i]-pl_x(), pdz=cp_z[cp_i]-pl_z(), pd=sqrtf(pdx*pdx+pdz*pdz);
+           rds = td < pd-4.0f ? 6.5f : (td > pd+4.0f ? 11.5f : 8.5f); }   /* same leg: match the player */
+    rival_spd += (rds - rival_spd) * mote_clampf(3.0f*dt, 0.0f, 1.0f);
+    if (td>0.01f){ rival_x += tx/td*rival_spd*dt; rival_z += tz/td*rival_spd*dt; rival_yaw=atan2f(tz,tx); }
 }
 
 static void update_missions(float dt) {
     if (mission==MI_NONE) return;
     mission_t-=dt;
-    if (mission==MI_COURIER){
-        float dx=pl_x()-mx, dz=pl_z()-mz;
-        if (dx*dx+dz*dz<36.0f){ mission_win(); return; }
-    } else if (mission==MI_RAMPAGE){
-        if (mission_kills>=mission_target){ mission_win(); return; }
-    } else if (mission==MI_GETAWAY){
-        if (wanted()==0){ mission_win(); return; }
-    } else if (mission==MI_HIT){
-        Ped *t = (mission_target>=0)? &peds[mission_target] : 0;
-        if (!t || !t->alive){ mission_win(); return; }
-        mx=t->x; mz=t->z;                       /* the marker follows the mark */
+    int lose=0;                              /* set to end the job as a failure this frame */
+#ifdef MOTE_HOST
+    if ((mission==MI_RIVAL||mission==MI_CIRCUIT) && getenv("MOTE_GTA_DEBUG")){
+        static float acc; acc+=dt;
+        if (acc>=1.0f){ acc=0;
+            fprintf(stderr,"[RACE] cp=%d/%d rival=%d rspd=%.1f t=%.0f\n",
+            cp_i,cp_n,rival_i, rival_spd, mission_t); } }
+#endif
+    switch (mission){
+    case MI_COURIER: { float dx=pl_x()-mx, dz=pl_z()-mz;
+        if (dx*dx+dz*dz<36.0f){ mission_win(); return; } } break;
+    case MI_RAMPAGE: if (mission_kills>=mission_target){ mission_win(); return; } break;
+    case MI_GETAWAY: if (wanted()==0){ mission_win(); return; } break;
+    case MI_HIT: { Ped *t=(mission_target>=0)?&peds[mission_target]:0;
+        if (!t||!t->alive){ mission_win(); return; }
+        mx=t->x; mz=t->z; } break;                        /* marker follows the mark */
+    case MI_DELIVER: { Car *c=(mission_car>=0)?&cars[mission_car]:0;
+        if (!c||c->wrecked||!c->alive){ say("THE MOTOR'S TOTALLED"); lose=1; break; }
+        if (mission_leg==0){ mx=c->x; mz=c->z;            /* leg 0: reach & board the car */
+            if (player.mode==MODE_CAR && player.car==mission_car){ mission_leg=1; say("TO THE DROP - NO SCRATCHES"); } }
+        else { mx=drop_x; mz=drop_z;                       /* leg 1: deliver it */
+            float dx=c->x-drop_x, dz=c->z-drop_z;
+            if (dx*dx+dz*dz<42.0f && player.mode==MODE_CAR && player.car==mission_car){
+                if (c->hp>=88){ mission_pay += mission_pay/5; say("PRISTINE - BONUS PAID"); }
+                else if (c->hp<45) mission_pay = mission_pay*7/10;   /* banged up: docked */
+                mission_win(); return; } } } break;
+    case MI_PICKUP: { if (mission_kills>=mission_target){ mission_win(); return; }
+        float bd=1e18f;                                    /* beacon → nearest package left */
+        for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive||p->kind!=PK_PACKAGE) continue;
+            float dx=p->x-pl_x(), dz=p->z-pl_z(), d2=dx*dx+dz*dz; if(d2<bd){bd=d2;mx=p->x;mz=p->z;} } } break;
+    case MI_REPO: { Car *c=(mission_car>=0)?&cars[mission_car]:0;
+        if (!c){ lose=1; break; }
+        if (c->wrecked){ mission_win(); return; }
+        if (!c->alive){ say("HE SLIPPED AWAY"); lose=1; break; }   /* recycled/escaped */
+        mx=c->x; mz=c->z; } break;
+    case MI_ESCORT: { Ped *v=(mission_target>=0)?&peds[mission_target]:0;
+        if (!v||!v->alive){ say("THE VIP IS DOWN"); lose=1; break; }
+        update_escort(v, dt); mx=v->x; mz=v->z;            /* beacon rides the VIP */
+        float dx=v->x-drop_x, dz=v->z-drop_z;
+        if (dx*dx+dz*dz<36.0f){ mission_win(); return; } } break;
+    case MI_SMUGGLE: { if (wanted()>mission_cap){ say("TOO HOT - DEAL'S OFF"); lose=1; break; }
+        float dx=pl_x()-mx, dz=pl_z()-mz; if (dx*dx+dz*dz<36.0f){ mission_win(); return; } } break;
+    case MI_DEMO: { int done=0; float bd=1e18f;
+        for (int k=0;k<mtarg_n;k++){ Car*c=&cars[mtarg[k]];
+            if (c->wrecked||!c->alive){ done++; continue; }
+            float dx=c->x-pl_x(), dz=c->z-pl_z(), d2=dx*dx+dz*dz; if(d2<bd){bd=d2;mx=c->x;mz=c->z;} }
+        mission_kills=done;
+        if (done>=mtarg_n){ mission_win(); return; } } break;
+    case MI_VIGIL: { if (mission_kills>=mission_target){ mission_win(); return; }
+        float bd=1e18f;                                    /* beacon → nearest gang member */
+        for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive||p->iscop||p->variant!=mission_cap) continue;
+            float dx=p->x-pl_x(), dz=p->z-pl_z(), d2=dx*dx+dz*dz; if(d2<bd){bd=d2;mx=p->x;mz=p->z;} } } break;
+    case MI_WANTED: { if (wanted()>=mission_cap) mission_hold+=dt;
+        if (mission_hold>=(float)mission_target){ mission_win(); return; } } break;
+    case MI_CIRCUIT: { if (cp_i>=cp_n){ mission_win(); return; }
+        float dx=pl_x()-cp_x[cp_i], dz=pl_z()-cp_z[cp_i];
+        if (dx*dx+dz*dz<49.0f){ cp_i++; if(cp_i<cp_n){ mx=cp_x[cp_i]; mz=cp_z[cp_i]; sfx(&cash_sfx,0.5f); }
+                                else { mission_win(); return; } } } break;
+    case MI_RIVAL: { if (cp_i>=cp_n){ mission_win(); return; }
+        update_rival(dt);
+        if (rival_i>=cp_n){ say("THE RIVAL TOOK IT"); lose=1; break; }   /* he crossed the line first */
+        float dx=pl_x()-cp_x[cp_i], dz=pl_z()-cp_z[cp_i];
+        if (dx*dx+dz*dz<49.0f){ cp_i++; if(cp_i<cp_n){ mx=cp_x[cp_i]; mz=cp_z[cp_i]; sfx(&cash_sfx,0.5f); }
+                                else { mission_win(); return; } } } break;
     }
-    if (mission_t<=0){ say("MISSION FAILED - CHAIN LOST"); mission=MI_NONE; mission_chain=0; }
+    if (mission_t<=0){ say("MISSION FAILED - CHAIN LOST"); lose=1; }
+    if (lose){ mission_cleanup(); mission=MI_NONE; mission_chain=0; }
+}
+
+/* Jobs that steer you to a place (mx,mz) get the pulsing magenta beacon; the
+ * "make chaos anywhere" jobs (rampage/getaway/most-wanted) don't. */
+static int mission_beacon(void){
+    return mission!=MI_NONE && mission!=MI_RAMPAGE && mission!=MI_GETAWAY && mission!=MI_WANTED;
+}
+
+/* Word-wrap `s` in font `f` to fit `maxw` px across up to two lines (each < cap
+ * chars). Breaks on the last space that keeps line 1 in bounds; l2 is "" if the
+ * whole string fits on one line. Used so banners/titles never run off-screen. */
+static void wrap2(const MoteFont *f, const char *s, int maxw, char *l1, char *l2, int cap){
+    l1[0]=0; l2[0]=0;
+    if (!f || mote_fontw(f,s) <= maxw){ int j=0; while(s[j]&&j<cap-1){l1[j]=s[j];j++;} l1[j]=0; return; }
+    int brk=-1;
+    for (int i=0; s[i]; i++){ if(s[i]!=' ') continue;
+        char t[48]; int k=i<47?i:47; for(int j=0;j<k;j++)t[j]=s[j]; t[k]=0;
+        if (mote_fontw(f,t) <= maxw) brk=i; else break; }
+    if (brk<=0){ int j=0; for(;s[j]&&j<cap-1;j++)l1[j]=s[j]; l1[j]=0; return; }  /* no space fits: hard clip */
+    int j=0; for(;j<brk&&j<cap-1;j++)l1[j]=s[j]; l1[j]=0;
+    const char *r=s+brk+1; j=0; while(r[j]&&j<cap-1){l2[j]=r[j];j++;} l2[j]=0;
+}
+
+/* Left-aligned formatted HUD text with a 1px black drop shadow so it stays legible
+ * over the busy street underneath. */
+static void ftext_sh(const MoteFont *f, uint16_t *fb, int x, int y, uint16_t col, const char *fmt, ...){
+    char b[64]; va_list ap; va_start(ap, fmt); mote_vfmt(b, sizeof b, fmt, ap); va_end(ap);
+    mote_ftext(mote, fb, f, b, x+1, y+1, MOTE_RGB565(0,0,0));
+    mote_ftext(mote, fb, f, b, x,   y,   col);
 }
 
 /* ================= phone-call CONTACTS ==================================
@@ -1915,6 +2069,9 @@ static const char *g_brief_body;
 
 static uint32_t cr_mix(uint32_t x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
 static uint32_t g_seed_override;   /* host capture hook: force a specific contact seed */
+#ifdef MOTE_HOST
+static int g_force_mtype;           /* host test hook: force a specific mission type (MI_*) */
+#endif
 
 static void gen_contact(int mtype){
     uint32_t s = g_seed_override ? cr_mix(g_seed_override)
@@ -1931,12 +2088,23 @@ static void gen_contact(int mtype){
                             : FIRST_M[ s     %(sizeof FIRST_M/sizeof*FIRST_M)];
     const char *ln = LAST[(s>>8)%(sizeof LAST/sizeof*LAST)];
     { char *b=g_brief_name; const char*p=fn; while(*p)*b++=*p++; *b++=' '; p=ln; while(*p)*b++=*p++; *b=0; }
-    g_brief_role = mtype==MI_COURIER?"THE FIXER":mtype==MI_RAMPAGE?"THE ENFORCER":
-                   mtype==MI_GETAWAY?"YOUR HANDLER":"THE CLIENT";
-    g_brief_body = mtype==MI_COURIER?"Move the package. No cops." :
-                   mtype==MI_RAMPAGE?"Send a message. Drop 'em." :
-                   mtype==MI_GETAWAY?"You're too hot. Lose it." :
-                                     "Take out the mark. Clean.";
+    switch(mtype){
+        case MI_COURIER: g_brief_role="THE FIXER";     g_brief_body="Move the package. No cops.";       break;
+        case MI_RAMPAGE: g_brief_role="THE ENFORCER";  g_brief_body="Send a message. Drop 'em.";        break;
+        case MI_GETAWAY: g_brief_role="YOUR HANDLER";  g_brief_body="You're too hot. Lose it.";         break;
+        case MI_HIT:     g_brief_role="THE CLIENT";    g_brief_body="Take out the mark. Clean.";        break;
+        case MI_DELIVER: g_brief_role="THE DEALER";    g_brief_body="Boost that motor. Not a scratch."; break;
+        case MI_PICKUP:  g_brief_role="THE RUNNER";    g_brief_body="Packages are down. Collect 'em.";  break;
+        case MI_REPO:    g_brief_role="THE COLLECTOR"; g_brief_body="A debt skipped. Total his ride.";  break;
+        case MI_ESCORT:  g_brief_role="THE BOSS";      g_brief_body="Walk my guy home. Keep him alive."; break;
+        case MI_SMUGGLE: g_brief_role="THE FIXER";     g_brief_body="Quiet run. Don't draw heat.";      break;
+        case MI_DEMO:    g_brief_role="THE TORCH";     g_brief_body="Insurance job. Wreck the lot.";    break;
+        case MI_VIGIL:   g_brief_role="THE CAPO";      g_brief_body="Rival crew's on my turf. Thin it."; break;
+        case MI_WANTED:  g_brief_role="THE CLIENT";    g_brief_body="Bring the city down. Survive.";    break;
+        case MI_CIRCUIT: g_brief_role="THE TIMEKEEPER";g_brief_body="Run my course. Beat the clock.";   break;
+        case MI_RIVAL:   g_brief_role="THE RACER";     g_brief_body="Think you're fast? Prove it.";     break;
+        default:         g_brief_role="THE CLIENT";    g_brief_body="Do the job. Get paid.";            break;
+    }
 }
 
 /* Procedural 44x46 mugshot from a seed. Blocky GTA-1 flavour with real variety:
@@ -2011,13 +2179,59 @@ static void draw_portrait(uint16_t *fb, int ox, int oy, uint32_t s){
     #undef PR
 }
 
+/* Nearest jackable car (parked OR ordinary traffic, undamaged) in a distance band —
+ * the DELIVER target. Cops/tanks/buses excluded; the caller parks whatever it picks. */
+static int find_parked_car(float rmin, float rmax){
+    int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
+    for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
+        if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK||c->type==VEH_BUS) continue;
+        if(c->driver!=DRV_NONE && c->driver!=DRV_NPC) continue;
+        float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
+        if(d2<rmin*rmin||d2>rmax*rmax) continue;
+        if(d2<bd){ bd=d2; best=i; } }
+    return best;
+}
+/* Nearest cruising traffic car (for the repo target). */
+static int find_npc_car(float rmin, float rmax){
+    int best=-1; float bd=1e18f, px=pl_x(), pz=pl_z();
+    for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
+        if(!c->alive||c->wrecked||c->driver!=DRV_NPC||c->type==VEH_TANK||c->type==VEH_BUS) continue;
+        float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
+        if(d2<rmin*rmin||d2>rmax*rmax) continue;
+        if(d2<bd){ bd=d2; best=i; } }
+    return best;
+}
+/* Chain up to `n` checkpoints along the roads, each a fresh clear road point a
+ * medium hop from the previous — the racecourse for CIRCUIT/RIVAL. */
+static int build_route(int n){
+    float px=pl_x(), pz=pl_z(); cp_n=0;
+    for (int k=0;k<n && cp_n<5;k++){ float ox,oz;
+        if (!find_road_clear(px,pz, 55.0f, 115.0f, &ox,&oz)) break;
+        cp_x[cp_n]=ox; cp_z[cp_n]=oz; cp_n++; px=ox; pz=oz; }
+    return cp_n>=2;
+}
+
+/* Undo any world spawns a job placed (packages, escort VIP) — run on win, fail,
+ * or a declined briefing so a refused call leaves no litter. */
+static void mission_cleanup(void){
+    for(int i=0;i<NPICK;i++) if(picks[i].alive && picks[i].kind==PK_PACKAGE) picks[i].alive=0;
+    if(mission==MI_ESCORT && mission_target>=0 && mission_target<NPED) peds[mission_target].alive=0;
+}
+
 /* ROGUELIKE phone jobs: random type, randomized stakes, and a CHAIN — each success
- * bumps the multiplier (+25% per job, up to x2.25); a failure resets it. */
+ * bumps the multiplier (+25% per job, up to x2.25); a failure resets it. Some jobs
+ * need the right props nearby (a parked car, a debtor in traffic); when setup fails
+ * we just roll another type, so the phone never dead-ends unless the city is empty. */
 static void start_mission(void) {
     if (mission!=MI_NONE) return;
-    int rot = irand(4);
     float mult = 1.0f + 0.25f*(float)(mission_chain>5?5:mission_chain);
-    if (rot==0){ mission=MI_COURIER;
+    mission_car=-1; mission_leg=0; mission_hold=0; mission_cap=0; mtarg_n=0; rival_car=-1; cp_n=0; cp_i=0;
+    for (int attempt=0; attempt<8 && mission==MI_NONE; attempt++){
+    int rot = 1 + irand(MI_COUNT-1);   /* MI_COURIER .. MI_WANTED */
+#ifdef MOTE_HOST
+    if (g_force_mtype) rot = g_force_mtype;   /* test: pin the job type */
+#endif
+    if (rot==MI_COURIER){ mission=MI_COURIER;
         float rmin = 100.0f + frand()*80.0f, rmax = rmin + 80.0f + frand()*140.0f;
         float route=-1.0f;
         for (int t=0;t<6 && route<0;t++){                 /* insist on a sane route */
@@ -2030,20 +2244,20 @@ static void start_mission(void) {
             mission_t = (14.0f + frand()*8.0f) + route/7.5f;   /* timer knows the REAL route */
             mission_pay = (int)((350.0f + route*1.6f + frand()*220.0f)*mult);
             say("COURIER: REACH THE MARKER");
-        } else { mission=MI_NONE; say("LINE DEAD..."); }
-    } else if (rot==1){ mission=MI_RAMPAGE;
+        } else mission=MI_NONE;
+    } else if (rot==MI_RAMPAGE){ mission=MI_RAMPAGE;
         mission_target = 5 + irand(7);                      /* 5-11 kills */
         mission_t = 22.0f + mission_target*4.5f + frand()*8.0f;
         mission_kills=0;
         mission_pay = (int)((mission_target*95.0f + frand()*200.0f)*mult);
         owned[W_PISTOL]=1; if(ammo[W_PISTOL]<40)ammo[W_PISTOL]=40; if(weapon==W_FIST)weapon=W_PISTOL;
         say("RAMPAGE: MOW THEM DOWN");
-    } else if (rot==2){ mission=MI_GETAWAY;
+    } else if (rot==MI_GETAWAY){ mission=MI_GETAWAY;
         float h = 2.4f + frand()*1.8f;                      /* 2-4 stars of trouble */
         mission_t = 55.0f + h*12.0f;
         mission_pay = (int)((h*260.0f + frand()*180.0f)*mult);
         add_heat(h); say("SET UP! LOSE THE HEAT");
-    } else { mission=MI_HIT;
+    } else if (rot==MI_HIT){ mission=MI_HIT;
         float ox,oz; mission_target=-1;
         float rmin = 70.0f + frand()*70.0f;
         if (find_near(pl_x(),pl_z(), rmin, rmin+130.0f, pav_or_grass, &ox,&oz)){
@@ -2057,15 +2271,119 @@ static void start_mission(void) {
             mission_t = 20.0f + frand()*10.0f + d/7.5f;
             mission_pay = (int)((520.0f + d*1.2f + frand()*260.0f)*mult);
             say("HIT: TAKE OUT THE MARK"); }
-        else { mission=MI_NONE; say("LINE DEAD..."); }
+        else mission=MI_NONE;
+    } else if (rot==MI_DELIVER){
+        int car = find_parked_car(20.0f, 150.0f);
+        if (car>=0 && find_road_clear(pl_x(),pl_z(), 90.0f, 210.0f, &drop_x,&drop_z)){
+            cars[car].driver=DRV_NONE; cars[car].spd=0;      /* the mark leaves it parked for you */
+            mission=MI_DELIVER; mission_car=car; mission_leg=0;
+            mx=cars[car].x; mz=cars[car].z;                 /* leg 0: reach the car */
+            float d=road_dist(pl_x(),pl_z(), drop_x,drop_z); if(d<=0) d=180.0f;
+            mission_t = 32.0f + d/6.0f;                      /* generous — precision, not speed */
+            mission_pay = (int)((440.0f + d*1.4f + frand()*200.0f)*mult);
+            say("DELIVER: STEAL THE MOTOR");
+        }
+    } else if (rot==MI_PICKUP){
+        int want = 3 + irand(2), got=0;                     /* 3-4 packages */
+        for (int k=0;k<want;k++){ float ox,oz;
+            if (find_road_clear(pl_x(),pl_z(), 40.0f+k*16.0f, 105.0f+k*28.0f, &ox,&oz)){ add_pickup(ox,oz,PK_PACKAGE); got++; } }
+        if (got>=2){
+            for (int i=0;i<NPICK;i++) if(picks[i].alive && picks[i].kind==PK_PACKAGE) picks[i].seen=1;  /* show on the map */
+            mission=MI_PICKUP; mission_target=got; mission_kills=0;
+            mission_t = 20.0f + got*11.0f;
+            mission_pay = (int)((got*170.0f + frand()*160.0f)*mult);
+            say("PICKUP: GRAB THE PACKAGES");
+        } else for (int i=0;i<NPICK;i++) if(picks[i].kind==PK_PACKAGE) picks[i].alive=0;   /* undo a partial place */
+    } else if (rot==MI_REPO){
+        int car = find_npc_car(30.0f, 150.0f);
+        if (car>=0){
+            mission=MI_REPO; mission_car=car; mx=cars[car].x; mz=cars[car].z;
+            mission_t = 38.0f + frand()*14.0f;
+            mission_pay = (int)((480.0f + frand()*260.0f)*mult);
+            say("REPO: WRECK THE DEBTOR'S CAR");
+        }
+    } else if (rot==MI_ESCORT){
+        float ox,oz;
+        if (find_near(pl_x(),pl_z(), 8.0f, 26.0f, pav_or_grass, &ox,&oz) &&
+            find_road_clear(pl_x(),pl_z(), 80.0f, 190.0f, &drop_x,&drop_z)){
+            int slot=-1;
+            for (int j=0;j<NPED;j++) if(!peds[j].alive || !peds[j].iscop){ slot=j; break; }
+            if (slot>=0){
+                peds[slot]=(Ped){ ox,oz,0,0,(uint8_t)(irand(4)),1,8,0,0,0,0 };  /* VIP: tougher, hp 8 */
+                mission=MI_ESCORT; mission_target=slot; mx=ox; mz=oz;
+                float d=road_dist(ox,oz, drop_x,drop_z); if(d<=0) d=160.0f;
+                mission_t = 40.0f + d/5.0f;
+                mission_pay = (int)((560.0f + d*1.5f + frand()*220.0f)*mult);
+                add_heat(1.4f);                             /* the route runs hot */
+                say("ESCORT: WALK THE VIP HOME");
+            }
+        }
+    } else if (rot==MI_SMUGGLE){
+        if (find_road_clear(pl_x(),pl_z(), 90.0f, 210.0f, &mx,&mz)){
+            float d=road_dist(pl_x(),pl_z(), mx,mz); if(d<=0) d=160.0f;
+            mission=MI_SMUGGLE; mission_cap = 2;             /* busted if you reach 3 stars */
+            mission_t = 28.0f + d/6.0f;
+            mission_pay = (int)((620.0f + d*1.7f + frand()*220.0f)*mult);
+            say("SMUGGLE: STAY UNDER THE RADAR");
+        }
+    } else if (rot==MI_DEMO){
+        int want = 3 + irand(3);                             /* 3-5 cars */
+        for (int i=0;i<NCAR && mtarg_n<want && mtarg_n<6;i++){ Car*c=&cars[i];
+            if(!c->alive||c->wrecked||i==player.car||c->type==VEH_TANK) continue;
+            float dx=c->x-pl_x(),dz=c->z-pl_z(),d2=dx*dx+dz*dz;
+            if(d2<18.0f*18.0f||d2>170.0f*170.0f) continue;
+            mtarg[mtarg_n++]=i; }
+        if (mtarg_n>=2){
+            mission=MI_DEMO; mission_target=mtarg_n; mission_kills=0;
+            mission_t = 24.0f + mtarg_n*11.0f;
+            mission_pay = (int)((mtarg_n*190.0f + frand()*160.0f)*mult);
+            say("DEMOLITION: WRECK THEM ALL");
+        } else mtarg_n=0;
+    } else if (rot==MI_VIGIL){ mission=MI_VIGIL;
+        mission_cap = irand(4);                              /* which gang variant to cull */
+        mission_target = 4 + irand(4);                       /* 4-7 kills */
+        mission_kills = 0;
+        mission_t = 28.0f + mission_target*4.5f;
+        mission_pay = (int)((mission_target*125.0f + frand()*180.0f)*mult);
+        owned[W_PISTOL]=1; if(ammo[W_PISTOL]<40)ammo[W_PISTOL]=40; if(weapon==W_FIST)weapon=W_PISTOL;
+        say("VIGILANTE: THIN THE CREW");
+    } else if (rot==MI_WANTED){ mission=MI_WANTED;
+        mission_cap = 3;                                     /* reach & hold 3 stars */
+        mission_hold = 0;
+        mission_target = 20 + irand(10);                     /* seconds to survive at >=cap */
+        mission_t = mission_target + 30.0f;
+        mission_pay = (int)((900.0f + frand()*320.0f)*mult);
+        owned[W_PISTOL]=1; if(ammo[W_PISTOL]<40)ammo[W_PISTOL]=40; if(weapon==W_FIST)weapon=W_PISTOL;
+        say("MOST WANTED: SURVIVE THE HEAT");
+    } else if (rot==MI_CIRCUIT){
+        if (build_route(3+irand(2))){                        /* 3-4 checkpoints */
+            mission=MI_CIRCUIT; cp_i=0; mx=cp_x[0]; mz=cp_z[0];
+            float total=0, lx=pl_x(), lz=pl_z();
+            for (int k=0;k<cp_n;k++){ float dx=cp_x[k]-lx, dz=cp_z[k]-lz; total+=sqrtf(dx*dx+dz*dz); lx=cp_x[k]; lz=cp_z[k]; }
+            mission_t = 11.0f + total/8.5f;                   /* tight — you must actually drive it */
+            mission_pay = (int)((300.0f + total*1.3f + frand()*160.0f)*mult);
+            say("CIRCUIT: BEAT THE CLOCK");
+        }
+    } else { /* MI_RIVAL — a phantom pace-car races the same route (no physics, never wall-stuck) */
+        if (build_route(3+irand(2))){
+            mission=MI_RIVAL; cp_i=0; rival_i=0; mx=cp_x[0]; mz=cp_z[0];
+            rival_x=pl_x(); rival_z=pl_z(); rival_yaw=pl_yaw(); rival_spd=0;
+            float total=0, lx=pl_x(), lz=pl_z();
+            for (int k=0;k<cp_n;k++){ float dx=cp_x[k]-lx, dz=cp_z[k]-lz; total+=sqrtf(dx*dx+dz*dz); lx=cp_x[k]; lz=cp_z[k]; }
+            mission_t = 16.0f + total/7.0f;               /* enough to finish if you push */
+            mission_pay = (int)((520.0f + total*1.5f + frand()*220.0f)*mult);
+            say("RACE: BEAT THE RIVAL");
+        }
     }
-    if (mission!=MI_NONE){ gen_contact(mission); g_brief_active=1; }   /* a contact briefs the job */
+    }
+    if (mission==MI_NONE){ say("LINE DEAD..."); return; }
+    gen_contact(mission); g_brief_active=1;   /* a contact briefs the job */
 }
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
     sfx(&win_sfx,0.8f); float_txt(pl_x(),pl_z(),"PAID");
     say(mission_chain>=2 ? "JOB DONE - CHAIN UP!" : "JOB DONE");
-    mission=MI_NONE;
+    mission_cleanup(); mission=MI_NONE;
 }
 
 static int near_marker(int kind, float rad) {
@@ -2528,11 +2846,20 @@ static void respawn_npc(int i) {
 /* keep a lively bubble of traffic + peds around the player: anything too far, or
  * wedged/stuck too long, is recycled to a fresh clear spot. Constant entity count
  * → the city can be any size. Cops (heat) and the tank are left alone. */
+/* A car the active job depends on (rival, repo/deliver target, a demo target) must
+ * NOT be recycled when it drifts far from the player, or the job breaks. */
+static int is_mission_car(int i){
+    if (mission==MI_NONE) return 0;
+    if (i==mission_car || i==rival_car) return 1;
+    if (mission==MI_DEMO) for(int k=0;k<mtarg_n;k++) if(mtarg[k]==i) return 1;
+    return 0;
+}
 static void stream_entities(float dt) {
     if (g_dm) return;              /* DM: index-shared world — nothing recycles */
     float px=pl_x(), pz=pl_z();
     for (int i=0;i<NCAR;i++){ Car*c=&cars[i];
         if (!c->alive || i==player.car || c->driver==DRV_COP || c->type==VEH_TANK) continue;
+        if (is_mission_car(i)) continue;      /* the job's own cars are exempt from recycling */
         float dx=c->x-px, dz=c->z-pz, d2=dx*dx+dz*dz;
         if (c->driver==DRV_NPC){       /* moving traffic: recycle ONLY when off-screen */
             if (fabsf(c->spd) < 0.6f) stuck_t[i]+=dt; else stuck_t[i]=0;
@@ -2564,7 +2891,7 @@ static void stream_entities(float dt) {
             for (int i=0;i<NCAR;i++) if(!cars[i].alive){ respawn_npc(i); break; }
         } else if (nn > target+1){                             /* shrink: drop the FARTHEST (off-screen) */
             int far=-1; float fd=48.0f*48.0f;
-            for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].driver!=DRV_NPC||i==player.car) continue;
+            for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].driver!=DRV_NPC||i==player.car||is_mission_car(i)) continue;
                 float dx=cars[i].x-px, dz=cars[i].z-pz, d2=dx*dx+dz*dz;
                 if (d2>fd){ fd=d2; far=i; } }
             if (far>=0) cars[far].alive=0;
@@ -2704,7 +3031,7 @@ static void g_update(float dt) {
 
     if (g_brief_active){                                  /* phone briefing freezes the city */
         if (mote_just_pressed(in, MOTE_BTN_A)) g_brief_active = 0;                 /* accept */
-        else if (mote_just_pressed(in, MOTE_BTN_B)){ g_brief_active = 0; mission = MI_NONE; say("DECLINED"); }
+        else if (mote_just_pressed(in, MOTE_BTN_B)){ g_brief_active = 0; mission_cleanup(); mission = MI_NONE; say("DECLINED"); }
         return;
     }
 #ifdef MOTE_HOST
@@ -2712,6 +3039,7 @@ static void g_update(float dt) {
       if (e && g_state==ST_PLAY && !g_brief_active && !bdone){
           uint32_t sd=(uint32_t)atoi(e);
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
+          const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
           start_mission(); bdone=1; } }
 #endif
 
@@ -3058,13 +3386,14 @@ static void g_update(float dt) {
         if (cc->hp<18.0f && frand()<dt*7.0f)
             add_fx(cc->x+(frand()*2-1)*0.6f, cc->z+(frand()*2-1)*0.6f, 4);
     }
-    /* siren wail loops while a squad car is actively on you */
-    { static float s_siren;
+    /* two-tone siren wails while a squad car is actively on you: the chase loop
+     * alternates a high and a low tone (~597/436 Hz) for a continuous wee-woo. */
+    { static float s_siren; static int s_tone;
       s_siren-=dt; int chase=0;
       if (wanted()>0) for (int i=0;i<NCAR;i++) if(cars[i].alive&&cars[i].driver==DRV_COP){
           float dx=cars[i].x-pl_x(), dz=cars[i].z-pl_z();
           if (dx*dx+dz*dz<70.0f*70.0f){ chase=1; break; } }
-      if (chase && s_siren<=0){ sfx(&siren_sfx,0.32f); s_siren=1.7f; } }
+      if (chase && s_siren<=0){ sfx(s_tone?&siren_hi_sfx:&siren_lo_sfx, 0.34f); s_tone^=1; s_siren=0.44f; } }
     if (cash>best_cash) best_cash=cash;    /* in memory only — flushed to flash at death */
 
     /* speed-based zoom + engine pitch: tight/quiet on foot, out/loud with speed */
@@ -3144,6 +3473,13 @@ static void g_update(float dt) {
         draw_vehicle(i);
     }
     dm_draw_remote();                                           /* the OTHER player */
+    if (mission==MI_RIVAL && rival_i<cp_n){                     /* the phantom rival's sports car */
+        int ty=CAR_SPORTS;
+        int fxw=(ty%CARS2_COLS)*CAR_CW, fyw=(ty/CARS2_COLS)*CAR_CH;
+        float dlen=VSTAT[ty].len*(float)CAR_CH/(float)cars2_ah[ty];
+        float dwid=VSTAT[ty].wid*(float)CAR_CW/(float)cars2_aw[ty];
+        draw_ground_sprite(&cars2_img, rival_x, rival_z, rival_yaw, fxw,fyw,CAR_CW,CAR_CH, dlen,dwid,1);
+    }
     draw_buildings_window();                                    /* after entities (budget priority) */
     /* scenery LAST — canopies drawn over everyone passing beneath. The hash picks the
      * TYPE per tile: 0 oak / 1 pine / 2 autumn (tall, collidable trunks), 3 bush /
@@ -3212,7 +3548,7 @@ static void draw_map(uint16_t *fb){
         if (sx<1||sx>126||sy<1||sy>126) continue;
         mote->draw_rect(fb, sx, sy, 2, 2, MOTE_RGB565(235,235,245), 1, 0, 128);
     }
-    if (mission==MI_COURIER||mission==MI_HIT){                    /* the JOB target: unmistakable */
+    if (mission_beacon()){                                       /* the JOB target: unmistakable */
         int sx=(int)(mx/TILE)-g_mapsx, sy=(int)(mz/TILE)-g_mapsy;
         if (sx<8) sx=8; if (sx>119) sx=119; if (sy<16) sy=16; if (sy>112) sy=112;   /* clamp: always on-map */
         uint16_t mc=MOTE_RGB565(255,60,200);                     /* magenta — no shop marker uses it */
@@ -3222,6 +3558,9 @@ static void draw_map(uint16_t *fb){
         mote->draw_rect(fb, sx, sy-7, 1,5, mc,1,0,128); mote->draw_rect(fb, sx, sy+3, 1,5, mc,1,0,128);  /* crosshair */
         mote->draw_rect(fb, sx-1, sy-1, 3,3, mc,1,0,128);
         mote->draw_rect(fb, sx, sy, 1,1, MOTE_RGB565(255,255,255),1,0,128); }
+    if (mission==MI_RIVAL && rival_i<cp_n){                      /* the rival: a red blip on the map */
+        int sx=(int)(rival_x/TILE)-g_mapsx, sy=(int)(rival_z/TILE)-g_mapsy;
+        if (sx>=1&&sx<=126&&sy>=1&&sy<=126) mote->draw_rect(fb, sx-1, sy-1, 3,3, MOTE_RGB565(240,60,50), 1,0,128); }
     if (g_dm && rp_hp>0){                              /* the OPPONENT: flashing red.
         CLAMPED to the window edge when they're outside the panned view, so the
         map always points the hunt in the right direction. */
@@ -3292,7 +3631,7 @@ static void g_overlay(uint16_t *fb) {
     }
     g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
-    if (g_state==ST_PLAY && (mission==MI_COURIER||mission==MI_HIT)){   /* pulsing magenta beacon, matches the map */
+    if (g_state==ST_PLAY && mission_beacon()){   /* pulsing magenta beacon, matches the map */
         int ph=((int)(mote->micros()/220000ull))&1;
         world_dot(fb, mx, mz, ph?6:5, MOTE_RGB565(255,60,200));
         world_dot(fb, mx, mz, 2, MOTE_RGB565(255,255,255)); }
@@ -3314,6 +3653,10 @@ static void g_overlay(uint16_t *fb) {
     /* trees, people and vehicles are drawn as depth-tested ground quads in the scene pass;
      * only the on-foot PLAYER stays an overlay so it's always visible (never occluded). */
     for (int i=0;i<NPICK;i++){ Pickup*p=&picks[i]; if(!p->alive) continue;
+        if (p->kind==PK_PACKAGE){                       /* no atlas cell: draw a crate marker */
+            world_dot(fb, p->x, p->z, 4, MOTE_RGB565(28,20,10));
+            world_dot(fb, p->x, p->z, 3, MOTE_RGB565(196,150,78));
+            world_dot(fb, p->x, p->z, 1, MOTE_RGB565(120,86,40)); continue; }
         push_sprite(&pickups_img, p->x, p->z, 0, p->kind*16,0,16,16, 1.8f, 0); }
     for (int i=1;i<g_nspr;i++){ Spr t=g_spr[i]; int j=i-1;
         while (j>=0 && g_spr[j].sy>t.sy){ g_spr[j+1]=g_spr[j]; j--; } g_spr[j+1]=t; }
@@ -3426,8 +3769,8 @@ static void g_overlay(uint16_t *fb) {
             mote_ftextc(mote, fb, g_fread, 64, 58, MOTE_RGB565(245,110,95), "WASTED");
         }
     }
-    if (g_dm) mote_ftextf(mote, fb, g_fmed, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
-    else      mote_ftextf(mote, fb, g_fmed, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
+    if (g_dm) ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(245,110,95), "FRAGS %d:%d", dm_frags, dm_peer_frags);
+    else      ftext_sh(g_fmed, fb, 3, 0, MOTE_RGB565(120,230,120), "$%d", cash);
     /* wanted heads */
     for (int i=0;i<5;i++) mote->draw_circle(fb, 70+i*8, 5, 2, i<wanted()?MOTE_RGB565(250,210,70):MOTE_RGB565(50,54,64), 1, 0,128);
     /* health bar */
@@ -3438,13 +3781,31 @@ static void g_overlay(uint16_t *fb) {
     if (weapon!=W_FIST) mote_ftextf(mote, fb, g_fmed, 108, 115, MOTE_RGB565(200,200,210), "%d", ammo[weapon]);
 
     if (mission!=MI_NONE){
-        if (mission==MI_COURIER)      mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "COURIER $%d %ds", mission_pay, (int)mission_t);
-        else if (mission==MI_RAMPAGE) mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "RAMPAGE %d/%d %ds", mission_kills, mission_target, (int)mission_t);
-        else if (mission==MI_GETAWAY) mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "LOSE THE HEAT %ds", (int)mission_t);
-        else                          mote_ftextf(mote, fb, g_fmed, 2, 12, MOTE_RGB565(250,230,90), "HIT $%d %ds", mission_pay, (int)mission_t);
+        uint16_t mcol=MOTE_RGB565(250,230,90); int t=(int)mission_t;
+        switch (mission){
+        case MI_COURIER: ftext_sh(g_fmed, fb, 2,12, mcol, "COURIER $%d %ds", mission_pay, t); break;
+        case MI_RAMPAGE: ftext_sh(g_fmed, fb, 2,12, mcol, "RAMPAGE %d/%d %ds", mission_kills, mission_target, t); break;
+        case MI_GETAWAY: ftext_sh(g_fmed, fb, 2,12, mcol, "LOSE HEAT %ds", t); break;
+        case MI_HIT:     ftext_sh(g_fmed, fb, 2,12, mcol, "HIT $%d %ds", mission_pay, t); break;
+        case MI_DELIVER: ftext_sh(g_fmed, fb, 2,12, mcol, mission_leg?"DELIVER $%d %ds":"STEAL CAR %ds", mission_leg?mission_pay:t, t); break;
+        case MI_PICKUP:  ftext_sh(g_fmed, fb, 2,12, mcol, "PACKAGES %d/%d %ds", mission_kills, mission_target, t); break;
+        case MI_REPO:    ftext_sh(g_fmed, fb, 2,12, mcol, "WRECK CAR %ds", t); break;
+        case MI_ESCORT:  ftext_sh(g_fmed, fb, 2,12, mcol, "ESCORT VIP %ds", t); break;
+        case MI_SMUGGLE: ftext_sh(g_fmed, fb, 2,12, mcol, "SMUGGLE (<%d*) %ds", mission_cap+1, t); break;
+        case MI_DEMO:    ftext_sh(g_fmed, fb, 2,12, mcol, "WRECK %d/%d %ds", mission_kills, mission_target, t); break;
+        case MI_VIGIL:   ftext_sh(g_fmed, fb, 2,12, mcol, "CULL %d/%d %ds", mission_kills, mission_target, t); break;
+        case MI_WANTED:  ftext_sh(g_fmed, fb, 2,12, mcol, "SURVIVE %d/%ds", (int)mission_hold, mission_target); break;
+        case MI_CIRCUIT: ftext_sh(g_fmed, fb, 2,12, mcol, "CP %d/%d %ds", cp_i, cp_n, t); break;
+        case MI_RIVAL:   ftext_sh(g_fmed, fb, 2,12, mcol, "RACE %d-%d %ds", cp_i, rival_i, t); break;
+        }
     }
-    if (g_msg_t>0){ mote_dim_box(fb, 0, 99, 128, 17, 5);   /* mission line as a readable banner */
-        mote_ftextc(mote, fb, g_fread, 64, 102, MOTE_RGB565(250,240,160), g_msg); }
+    if (g_msg_t>0){ char l1[28], l2[28]; wrap2(g_fread, g_msg, 122, l1, l2, 28);  /* banner: wrap, never clip */
+        uint16_t mtc=MOTE_RGB565(250,240,160);
+        if (l2[0]){ mote_dim_box(fb, 0, 83, 128, 31, 6);
+            mote_ftextc(mote, fb, g_fread, 64, 85, mtc, l1);
+            mote_ftextc(mote, fb, g_fread, 64, 99, mtc, l2); }
+        else { mote_dim_box(fb, 0, 99, 128, 17, 5);
+            mote_ftextc(mote, fb, g_fread, 64, 102, mtc, l1); } }
     else if (near_marker(MK_GUN,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(230,220,120), "A: BUY WEAPON");
     else if (near_marker(MK_PHONE,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(150,200,240), "A: ANSWER PHONE");
     else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B PUNCH/SHOOT");
