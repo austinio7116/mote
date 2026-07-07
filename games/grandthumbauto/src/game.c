@@ -2061,17 +2061,50 @@ static void ftext_sh(const MoteFont *f, uint16_t *fb, int x, int y, uint16_t col
 /* ================= phone-call CONTACTS ==================================
  * A fresh procedural character briefs every phone job: a seed-generated name and
  * a pixel portrait (skin/hair/face/outfit), GTA-style, drawn into the briefing. */
-static int      g_brief_active;      /* freezes the world; A accepts, B declines */
+static int      g_brief_active;      /* freezes the world during a call */
+static int      g_brief_stage;       /* 0 answer/ignore · 1 pick job A/B · 2 legacy single-offer */
+static int      g_branch[2];         /* the two job types the caller offers on stage 1 */
 static uint32_t g_brief_seed;
 static char     g_brief_name[24];
 static const char *g_brief_role;
 static const char *g_brief_body;
+#define BRIEF_ANSWER 0
+#define BRIEF_CHOOSE 1
+#define BRIEF_SINGLE 2
 
 static uint32_t cr_mix(uint32_t x){ x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; x^=x>>16; return x; }
 static uint32_t g_seed_override;   /* host capture hook: force a specific contact seed */
 #ifdef MOTE_HOST
 static int g_force_mtype;           /* host test hook: force a specific mission type (MI_*) */
 #endif
+
+/* The contact's title and one-line pitch for a job type — used by the briefing and
+ * by the branching call screen (which shows two of these side by side). */
+static const char *job_role(int t){ switch(t){
+    case MI_COURIER: return "THE FIXER";     case MI_RAMPAGE: return "THE ENFORCER";
+    case MI_GETAWAY: return "YOUR HANDLER";  case MI_HIT:     return "THE CLIENT";
+    case MI_DELIVER: return "THE DEALER";    case MI_PICKUP:  return "THE RUNNER";
+    case MI_REPO:    return "THE COLLECTOR"; case MI_ESCORT:  return "THE BOSS";
+    case MI_SMUGGLE: return "THE FIXER";     case MI_DEMO:    return "THE TORCH";
+    case MI_VIGIL:   return "THE CAPO";      case MI_WANTED:  return "THE CLIENT";
+    case MI_CIRCUIT: return "THE TIMEKEEPER";case MI_RIVAL:   return "THE RACER";
+    default:         return "THE CLIENT"; } }
+static const char *job_body(int t){ switch(t){
+    case MI_COURIER: return "Move the package. No cops.";     case MI_RAMPAGE: return "Send a message. Drop 'em.";
+    case MI_GETAWAY: return "You're too hot. Lose it.";       case MI_HIT:     return "Take out the mark. Clean.";
+    case MI_DELIVER: return "Boost that motor. Not a scratch.";case MI_PICKUP: return "Packages are down. Collect 'em.";
+    case MI_REPO:    return "A debt skipped. Total his ride."; case MI_ESCORT:  return "Walk my guy home. Keep him alive.";
+    case MI_SMUGGLE: return "Quiet run. Don't draw heat.";    case MI_DEMO:    return "Insurance job. Wreck the lot.";
+    case MI_VIGIL:   return "Rival crew's on my turf. Thin it.";case MI_WANTED: return "Bring the city down. Survive.";
+    case MI_CIRCUIT: return "Run my course. Beat the clock.";  case MI_RIVAL:  return "Think you're fast? Prove it.";
+    default:         return "Do the job. Get paid."; } }
+/* A short verb label for the branch buttons (fits a narrow option row). */
+static const char *job_tag(int t){ switch(t){
+    case MI_COURIER: return "COURIER";  case MI_RAMPAGE: return "RAMPAGE";  case MI_GETAWAY: return "GETAWAY";
+    case MI_HIT:     return "HIT";      case MI_DELIVER: return "DELIVERY"; case MI_PICKUP:  return "PICKUP";
+    case MI_REPO:    return "REPO";     case MI_ESCORT:  return "ESCORT";   case MI_SMUGGLE: return "SMUGGLE";
+    case MI_DEMO:    return "DEMOLITION";case MI_VIGIL:  return "VIGILANTE";case MI_WANTED:  return "MOST WANTED";
+    case MI_CIRCUIT: return "TIME TRIAL";case MI_RIVAL:  return "STREET RACE"; default: return "JOB"; } }
 
 static void gen_contact(int mtype){
     uint32_t s = g_seed_override ? cr_mix(g_seed_override)
@@ -2088,23 +2121,8 @@ static void gen_contact(int mtype){
                             : FIRST_M[ s     %(sizeof FIRST_M/sizeof*FIRST_M)];
     const char *ln = LAST[(s>>8)%(sizeof LAST/sizeof*LAST)];
     { char *b=g_brief_name; const char*p=fn; while(*p)*b++=*p++; *b++=' '; p=ln; while(*p)*b++=*p++; *b=0; }
-    switch(mtype){
-        case MI_COURIER: g_brief_role="THE FIXER";     g_brief_body="Move the package. No cops.";       break;
-        case MI_RAMPAGE: g_brief_role="THE ENFORCER";  g_brief_body="Send a message. Drop 'em.";        break;
-        case MI_GETAWAY: g_brief_role="YOUR HANDLER";  g_brief_body="You're too hot. Lose it.";         break;
-        case MI_HIT:     g_brief_role="THE CLIENT";    g_brief_body="Take out the mark. Clean.";        break;
-        case MI_DELIVER: g_brief_role="THE DEALER";    g_brief_body="Boost that motor. Not a scratch."; break;
-        case MI_PICKUP:  g_brief_role="THE RUNNER";    g_brief_body="Packages are down. Collect 'em.";  break;
-        case MI_REPO:    g_brief_role="THE COLLECTOR"; g_brief_body="A debt skipped. Total his ride.";  break;
-        case MI_ESCORT:  g_brief_role="THE BOSS";      g_brief_body="Walk my guy home. Keep him alive."; break;
-        case MI_SMUGGLE: g_brief_role="THE FIXER";     g_brief_body="Quiet run. Don't draw heat.";      break;
-        case MI_DEMO:    g_brief_role="THE TORCH";     g_brief_body="Insurance job. Wreck the lot.";    break;
-        case MI_VIGIL:   g_brief_role="THE CAPO";      g_brief_body="Rival crew's on my turf. Thin it."; break;
-        case MI_WANTED:  g_brief_role="THE CLIENT";    g_brief_body="Bring the city down. Survive.";    break;
-        case MI_CIRCUIT: g_brief_role="THE TIMEKEEPER";g_brief_body="Run my course. Beat the clock.";   break;
-        case MI_RIVAL:   g_brief_role="THE RACER";     g_brief_body="Think you're fast? Prove it.";     break;
-        default:         g_brief_role="THE CLIENT";    g_brief_body="Do the job. Get paid.";            break;
-    }
+    g_brief_role = job_role(mtype);
+    g_brief_body = job_body(mtype);
 }
 
 /* Procedural 44x46 mugshot from a seed. Blocky GTA-1 flavour with real variety:
@@ -2222,15 +2240,11 @@ static void mission_cleanup(void){
  * bumps the multiplier (+25% per job, up to x2.25); a failure resets it. Some jobs
  * need the right props nearby (a parked car, a debtor in traffic); when setup fails
  * we just roll another type, so the phone never dead-ends unless the city is empty. */
-static void start_mission(void) {
-    if (mission!=MI_NONE) return;
-    float mult = 1.0f + 0.25f*(float)(mission_chain>5?5:mission_chain);
+/* Set up ONE specific job type: spawn its props, set timer/pay/objective. Returns 1
+ * if the type's preconditions were met, 0 if it couldn't place (roll another). */
+static int setup_mission(int rot, float mult){
+    mission=MI_NONE;
     mission_car=-1; mission_leg=0; mission_hold=0; mission_cap=0; mtarg_n=0; rival_car=-1; cp_n=0; cp_i=0;
-    for (int attempt=0; attempt<8 && mission==MI_NONE; attempt++){
-    int rot = 1 + irand(MI_COUNT-1);   /* MI_COURIER .. MI_WANTED */
-#ifdef MOTE_HOST
-    if (g_force_mtype) rot = g_force_mtype;   /* test: pin the job type */
-#endif
     if (rot==MI_COURIER){ mission=MI_COURIER;
         float rmin = 100.0f + frand()*80.0f, rmax = rmin + 80.0f + frand()*140.0f;
         float route=-1.0f;
@@ -2375,9 +2389,57 @@ static void start_mission(void) {
             say("RACE: BEAT THE RIVAL");
         }
     }
+    return mission!=MI_NONE;
+}
+
+/* Roll random job types until one sets up (bounded), honouring the host test pin. */
+static int roll_mission(float mult){
+    for (int a=0;a<8;a++){ int rot = 1 + irand(MI_COUNT-1);   /* MI_COURIER .. MI_RIVAL */
+#ifdef MOTE_HOST
+        if (g_force_mtype) rot = g_force_mtype;
+#endif
+        if (setup_mission(rot, mult)) return 1;
     }
-    if (mission==MI_NONE){ say("LINE DEAD..."); return; }
-    gen_contact(mission); g_brief_active=1;   /* a contact briefs the job */
+    return 0;
+}
+static float mission_mult(void){ return 1.0f + 0.25f*(float)(mission_chain>5?5:mission_chain); }
+
+/* Direct single-offer job (used by the host test hook and as a fallback): roll one
+ * and brief it. The phone marker uses the branching answer_phone() flow instead. */
+static void start_mission(void) {
+    if (mission!=MI_NONE) return;
+    if (!roll_mission(mission_mult())){ say("LINE DEAD..."); return; }
+    gen_contact(mission); g_brief_stage=BRIEF_SINGLE; g_brief_active=1;   /* a contact briefs the job */
+}
+
+/* --- Branching phone: ring → ANSWER/IGNORE → pick one of TWO offered jobs. Stakes
+ * scale with the chain, so a hot streak surfaces the big, dangerous work. --- */
+static int pick_offer_type(int chain){
+    static const int EASY[] = { MI_COURIER, MI_PICKUP, MI_DELIVER, MI_CIRCUIT, MI_SMUGGLE, MI_ESCORT, MI_REPO };
+    static const int HARD[] = { MI_HIT, MI_RAMPAGE, MI_DEMO, MI_VIGIL, MI_WANTED, MI_RIVAL, MI_GETAWAY };
+    int hardbias = chain>=3 ? 55 : chain>=1 ? 35 : 18;   /* % chance of a heavy job */
+    if ((int)irand(100) < hardbias) return HARD[irand((int)(sizeof HARD/sizeof*HARD))];
+    return EASY[irand((int)(sizeof EASY/sizeof*EASY))];
+}
+static void answer_phone(void){
+    if (mission!=MI_NONE || g_brief_active) return;
+    gen_contact(MI_COURIER);                 /* roll the caller's face + name */
+    g_branch[0] = pick_offer_type(mission_chain);
+    g_branch[1] = g_branch[0];
+    for (int g=0; g<8 && g_branch[1]==g_branch[0]; g++) g_branch[1] = pick_offer_type(mission_chain);
+    g_brief_stage = BRIEF_ANSWER; g_brief_active = 1;
+}
+static void commit_branch(int pick){
+    float mult=mission_mult();
+    int ok=0;
+    for (int a=0; a<8 && !ok; a++) ok = setup_mission(g_branch[pick], mult);   /* the pick's search is random — retry it */
+    if (!ok) roll_mission(mult);                                               /* only then fall back to any job */
+#ifdef MOTE_HOST
+    if (getenv("MOTE_GTA_DEBUG")) fprintf(stderr,"[CALL] offers=[%s,%s] pick=%d(%s) got=%s%s\n",
+        job_tag(g_branch[0]),job_tag(g_branch[1]),pick,job_tag(g_branch[pick]),job_tag(mission), ok?"":" (FALLBACK)");
+#endif
+    g_brief_active=0;
+    if (mission==MI_NONE) say("LINE DEAD...");
 }
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
@@ -3029,9 +3091,18 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
 
-    if (g_brief_active){                                  /* phone briefing freezes the city */
-        if (mote_just_pressed(in, MOTE_BTN_A)) g_brief_active = 0;                 /* accept */
-        else if (mote_just_pressed(in, MOTE_BTN_B)){ g_brief_active = 0; mission_cleanup(); mission = MI_NONE; say("DECLINED"); }
+    if (g_brief_active){                                  /* a phone call freezes the city */
+        int A=mote_just_pressed(in, MOTE_BTN_A), B=mote_just_pressed(in, MOTE_BTN_B);
+        if (g_brief_stage==BRIEF_SINGLE){
+            if (A) g_brief_active=0;                                       /* accept the set-up job */
+            else if (B){ g_brief_active=0; mission_cleanup(); mission=MI_NONE; say("DECLINED"); }
+        } else if (g_brief_stage==BRIEF_ANSWER){
+            if (A) g_brief_stage=BRIEF_CHOOSE;                             /* answer → hear the two offers */
+            else if (B){ g_brief_active=0; say("IGNORED"); }              /* nothing spawned yet */
+        } else {                                                          /* BRIEF_CHOOSE: pick a job */
+            if (A) commit_branch(0);
+            else if (B) commit_branch(1);
+        }
         return;
     }
 #ifdef MOTE_HOST
@@ -3040,7 +3111,8 @@ static void g_update(float dt) {
           uint32_t sd=(uint32_t)atoi(e);
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
-          start_mission(); bdone=1; } }
+          if (getenv("MOTE_GTA_CALL")) answer_phone(); else start_mission();   /* test the branching call */
+          bdone=1; } }
 #endif
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
@@ -3266,7 +3338,7 @@ static void g_update(float dt) {
         /* A: interact with a shop/phone if in range, else enter/jack a car */
         if (A) {
             if (near_marker(MK_GUN, 3.0f))        buy_gun();
-            else if (near_marker(MK_PHONE, 3.0f)) start_mission();
+            else if (near_marker(MK_PHONE, 3.0f)) answer_phone();
             else {
                 int best=-1; float bd=14.0f;
                 for (int i=0;i<NCAR;i++){ if(!cars[i].alive||cars[i].wrecked||cars[i].driver==DRV_PLAYER) continue;
@@ -3702,24 +3774,37 @@ static void g_overlay(uint16_t *fb) {
 
     if (g_brief_active){
         mote_dim_box(fb, 0, 0, 128, 128, 7);                       /* translucent — the city stays visible */
-        mote_dim_box(fb, 3, 44, 122, 82, 5);                       /* text panel a touch darker for contrast */
-        mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
         draw_portrait(fb, 44, 12, g_brief_seed);                   /* the contact's mugshot */
-        mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
-        mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
-        mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
-        /* the job itself, big and readable (1.66x), word-wrapped to <=2 lines */
-        { const char *s=g_brief_body; char l1[24], l2[24]; int n1=0, brk=-1;
-          for (int i=0; s[i]; i++){ char t[24]; int k=i<23?i:23; for(int j=0;j<k;j++)t[j]=s[j]; t[k]=0;
-              if (s[i]==' '){ if (mote_fontw(g_fread,t) <= 118) brk=i; }
-              if (mote_fontw(g_fread,t) > 118 && brk>0) break; n1=i+1; }
-          if (mote_fontw(g_fread,s) <= 118){ int j=0; while(s[j]){l1[j]=s[j];j++;} l1[j]=0; l2[0]=0; }
-          else { int c=brk>0?brk:n1; int j=0; for(;j<c&&j<23;j++)l1[j]=s[j]; l1[j]=0;
-                 const char *r=s+(brk>0?brk+1:c); j=0; while(r[j]&&j<23){l2[j]=r[j];j++;} l2[j]=0; }
-          int by = l2[0] ? 90 : 96;                                /* single line sits lower */
-          mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
-          if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2); }
-        mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
+        char l1[28], l2[28];
+        if (g_brief_stage==BRIEF_ANSWER){                          /* stage 0: pick up or ignore */
+            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
+            mote_dim_box(fb, 3, 60, 122, 44, 5);
+            mote_ftextc(mote, fb, g_fread, 64, 64, MOTE_RGB565(236,238,245), g_brief_name);
+            mote_ftextc(mote, fb, g_fmed, 64, 84, MOTE_RGB565(196,204,220), "wants a word...");
+            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ANSWER    B IGNORE");
+        } else if (g_brief_stage==BRIEF_CHOOSE){                   /* stage 1: two jobs on the table */
+            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(244,204,72), g_brief_name);
+            mote_dim_box(fb, 3, 60, 122, 52, 5);
+            uint16_t ca=MOTE_RGB565(120,210,255), cb=MOTE_RGB565(255,190,90), dim=MOTE_RGB565(188,196,210);
+            mote_ftextfc(mote, fb, g_fread, 64, 60, ca, "A: %s", job_tag(g_branch[0]));
+            wrap2(g_fmed, job_body(g_branch[0]), 118, l1, l2, 28);
+            mote_ftextc(mote, fb, g_fmed, 64, 74, dim, l1);
+            mote_ftextfc(mote, fb, g_fread, 64, 88, cb, "B: %s", job_tag(g_branch[1]));
+            wrap2(g_fmed, job_body(g_branch[1]), 118, l1, l2, 28);
+            mote_ftextc(mote, fb, g_fmed, 64, 102, dim, l1);
+            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A or B  -  CHOOSE");
+        } else {                                                   /* BRIEF_SINGLE: the classic one-job brief */
+            mote_dim_box(fb, 3, 44, 122, 82, 5);
+            mote_ftextc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
+            mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
+            mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
+            mote->draw_rect(fb, 14, 85, 100, 1, MOTE_RGB565(120,96,40), 1, 0, 128);
+            wrap2(g_fread, g_brief_body, 118, l1, l2, 28);
+            int by = l2[0] ? 90 : 96;
+            mote_ftextc(mote, fb, g_fread, 64, by, MOTE_RGB565(232,234,240), l1);
+            if (l2[0]) mote_ftextc(mote, fb, g_fread, 64, by+14, MOTE_RGB565(232,234,240), l2);
+            mote_ftextc(mote, fb, g_fmed, 64, 118, MOTE_RGB565(150,230,150), "A ACCEPT    B DECLINE");
+        }
         return;
     }
     if (g_state==ST_TITLE){
