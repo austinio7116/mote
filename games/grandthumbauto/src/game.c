@@ -1254,8 +1254,9 @@ static void drive_car(Car *c, float dt, int throttle, int brake, int steerL, int
      * It only becomes REVERSE once the car has actually STOPPED first. */
     static float s_bhold; static int s_revok;
     if (brake){
-        if (s_bhold == 0.0f) s_revok = (fabsf(fs) < 0.5f);    /* decided at the PRESS: only a hold
-                                                                 that STARTS from standstill reverses */
+        if (s_bhold == 0.0f) s_revok = (fs < 3.0f);          /* decided at the PRESS: a FRESH brake press
+                                                                reverses unless you're still driving forward
+                                                                (so a car nudging you never locks out reverse) */
         s_bhold += dt;
     } else s_bhold = 0;                                       /* release re-arms the decision */
     float thr = throttle?1.0f:0.0f, brk = 0.0f;
@@ -3664,17 +3665,19 @@ static void g_update(float dt) {
     }
 
     if (player.mode == MODE_FOOT) {
-        /* tank controls, same feel as driving: LEFT/RIGHT turn to aim, UP or LB walk
-         * forward along your heading, DOWN backs up (a touch slower). */
-        float turn = (mote_pressed(in,MOTE_BTN_RIGHT)?1.0f:0.0f) - (mote_pressed(in,MOTE_BTN_LEFT)?1.0f:0.0f);
-        player.yaw += turn * 3.6f * dt;
-        float fwd = ((mote_pressed(in,MOTE_BTN_UP)||mote_pressed(in,MOTE_BTN_LB))?1.0f:0.0f)
-                  - (mote_pressed(in,MOTE_BTN_DOWN)?0.65f:0.0f);
-        if (fwd != 0.0f) {
-            float sp = 5.0f*fwd;
-            float nx=player.x+cosf(player.yaw)*sp*dt, nz=player.z+sinf(player.yaw)*sp*dt;
-            if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
-                move_body(&player.x, &player.z, nx, nz, 0);
+        /* direct 8-way walk: the dpad moves you, and you face your heading */
+        float mvx=0, mvz=0;
+        if (mote_pressed(in, MOTE_BTN_UP))    mvz -= 1;
+        if (mote_pressed(in, MOTE_BTN_DOWN))  mvz += 1;
+        if (mote_pressed(in, MOTE_BTN_LEFT))  mvx -= 1;
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) mvx += 1;
+        float ml = mvx*mvx+mvz*mvz;
+        if (ml > 0.01f) {
+            float inv = 1.0f/sqrtf(ml); mvx*=inv; mvz*=inv;
+            player.yaw = atan2f(mvz, mvx);
+            { float nx=player.x+mvx*5.0f*dt, nz=player.z+mvz*5.0f*dt;
+              if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
+                  move_body(&player.x, &player.z, nx, nz, 0); }
             player.animt += dt*8.0f;
         }
         if (mote_pressed(in, MOTE_BTN_B)) fire_weapon();
@@ -3943,6 +3946,17 @@ static void world_ring(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
     mote->draw_circle(fb, (int)sx, (int)sy, r,   col, 0, 0, 128);
     mote->draw_circle(fb, (int)sx, (int)sy, r-1, col, 0, 0, 128);
 }
+/* A filled arrowhead at (cx,cy) pointing along screen angle `ang` — edge pointer to
+ * an off-screen objective. Rasterised as perpendicular spans from tip to tail. */
+static void draw_arrow(uint16_t *fb, float cx, float cy, float ang, uint16_t col){
+    float dx=cosf(ang), dy=sinf(ang), px=-dy, py=dx;
+    float tx=cx+dx*8.0f, ty=cy+dy*8.0f;                 /* tip leads the point */
+    for (int i=0;i<=9;i++){ float f=(float)i/9.0f;
+        float bx=tx-dx*12.0f*f, by=ty-dy*12.0f*f;       /* walk back from the tip */
+        float hw=6.5f*f;                                /* widen toward the tail */
+        mote->draw_line(fb, (int)(bx-px*hw),(int)(by-py*hw), (int)(bx+px*hw),(int)(by+py*hw), col, 0, 128);
+    }
+}
 
 static const char *WNAME[NWEAP] = { "FIST", "PISTOL", "SMG", "SHOTGUN", "FLAMER", "ROCKET" };
 
@@ -4057,9 +4071,23 @@ static void g_overlay(uint16_t *fb) {
     }
     g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
-    if (g_state==ST_PLAY && mission_beacon()){   /* BEATING magenta ring around the target — encircles, never covers, the sprite */
-        int ph=((int)(mote->micros()/200000ull))&1;
-        world_ring(fb, mx, mz, ph?10:8, MOTE_RGB565(255,70,200)); }
+    if (g_state==ST_PLAY && mission_beacon()){   /* target: beating ring if on-screen, else an edge ARROW pointing to it */
+        uint16_t mc = MOTE_RGB565(255,70,200);
+        float sx, sy; int on = world_to_screen(v3(mx,0.1f,mz), &sx, &sy, 0);
+        if (on && sx>=6 && sx<=122 && sy>=18 && sy<=118){
+            int ph=((int)(mote->micros()/200000ull))&1;
+            world_ring(fb, mx, mz, ph?10:8, mc);
+        } else {                                  /* off-screen: point the way from screen centre */
+            float s0x,s0y,s1x,s1y;                /* screen dir = project player + a step toward target */
+            world_to_screen(v3(pl_x(),0.1f,pl_z()), &s0x,&s0y, 0);
+            float ux=mx-pl_x(), uz=mz-pl_z(), ul=sqrtf(ux*ux+uz*uz); if(ul<0.01f) ul=1;
+            world_to_screen(v3(pl_x()+ux/ul*6.0f, 0.1f, pl_z()+uz/ul*6.0f), &s1x,&s1y, 0);
+            float ang=atan2f(s1y-s0y, s1x-s0x), dx=cosf(ang), dy=sinf(ang);
+            float tX=fabsf(dx)>1e-4f?50.0f/fabsf(dx):1e9f, tY=fabsf(dy)>1e-4f?40.0f/fabsf(dy):1e9f;
+            float tt=tX<tY?tX:tY;
+            int ph=((int)(mote->micros()/200000ull))&1;
+            draw_arrow(fb, 64.0f+dx*tt, 66.0f+dy*tt, ang, ph?mc:MOTE_RGB565(255,150,225));
+        } }
     if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
         int ph=((int)(mote->micros()/240000ull))&1;
         for (int m=0;m<nmark;m++){ if (markers[m].kind!=MK_PHONE) continue;
