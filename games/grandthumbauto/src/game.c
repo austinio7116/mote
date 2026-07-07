@@ -309,17 +309,28 @@ static void build_buildings(void) {
     }
 }
 
-/* Stable per-BUILDING hash: the top-left corner of the contiguous same-class run
- * containing (x,z). Every tile of a building resolves to the same anchor -> the
- * same seed -> one texture + one coherent base height (bounded scan, cheap). */
-static unsigned bld_seed(int x, int z) {
-    char c = tile_at(x, z);
-    int x0 = x, z0 = z;
-    for (int i=0; i<10 && tile_at(x0-1, z ) == c; i++) x0--;   /* leftmost in this row */
-    for (int i=0; i<10 && tile_at(x0, z0-1) == c; i++) z0--;   /* topmost in that column */
-    unsigned h = (unsigned)(x0*2654435761u ^ z0*40503u ^ (unsigned)(c)*2246822519u);
-    h ^= h>>13; h *= 2654435761u; h ^= h>>15;
-    return h;
+static unsigned hash_u(unsigned h){ h^=h>>13; h*=2654435761u; h^=h>>15; return h; }
+/* A real city has coherent DEVELOPMENTS (a run of buildings built alike) inside larger
+ * DISTRICTS (downtown vs. outskirts). We derive both from position, not per-tile class:
+ *   - DEV cell (~4 tiles): every building tile in it shares one facade + base height,
+ *     so a block reads as one development instead of mismatched dice.
+ *   - DISTRICT field (~16 tiles, smoothed over neighbours): a slow height bias so towers
+ *     CLUSTER into a downtown and taper to low blocks at the edges — a skyline, not noise. */
+#define BLK_DEV  4
+#define BLK_DIST 16
+static unsigned dev_hash(int x, int z){
+    int bx=(int)floorf((float)x/BLK_DEV), bz=(int)floorf((float)z/BLK_DEV);
+    return hash_u((unsigned)(bx*2654435761u) ^ (unsigned)(bz*40503u));
+}
+/* District elevation 0..9: one value per ~16-tile zone (full range -> real downtown-vs-
+ * outskirts contrast), nudged toward its dominant neighbour so downtown zones stay
+ * contiguous instead of a lone tall zone beside a lone short one. */
+static int district_elev(int x, int z){
+    int bx=(int)floorf((float)x/BLK_DIST), bz=(int)floorf((float)z/BLK_DIST);
+    int self = (int)(hash_u((unsigned)(bx*374761393u) ^ (unsigned)(bz*668265263u)) % 10u);
+    int east = (int)(hash_u((unsigned)((bx+1)*374761393u) ^ (unsigned)(bz*668265263u)) % 10u);
+    int south= (int)(hash_u((unsigned)(bx*374761393u) ^ (unsigned)((bz+1)*668265263u)) % 10u);
+    return (self*2 + east + south) / 4;                /* weighted toward self: contiguous zones, full range kept */
 }
 /* 0 = edge tile, 1 = 4-neighbours solid, 2 = full 8-neighbours solid (deep core). */
 static int bld_interior(int x, int z) {
@@ -328,25 +339,27 @@ static int bld_interior(int x, int z) {
     int n8 = n4 + is_solid(x-1,z-1)+is_solid(x+1,z-1)+is_solid(x-1,z+1)+is_solid(x+1,z+1);
     return n8 >= 8 ? 2 : 1;
 }
-/* Height level for a tile: class base + coherent per-building jitter + tiered
- * setback (interior tiles taller) + a rare landmark-tower bonus. */
+/* Height level: DISTRICT band (downtown tall, outskirts low) + a small per-development
+ * jitter + the mapgen class as a nudge + a tiered setback core, so a whole block shares
+ * a coherent height that steps up at its centre. */
 static int bld_level(int x, int z) {
     char c = tile_at(x, z);
-    unsigned s = bld_seed(x, z);
-    int base = c=='#' ? 1 : c=='O' ? 4 : 7;            /* low / mid / high class */
-    base += (int)(s % 3u);                             /* coherent per-building jitter */
+    unsigned d = dev_hash(x, z);
+    int band  = district_elev(x, z);                   /* 0..9 downtown gradient */
+    int classb= c=='#' ? 0 : c=='O' ? 1 : 2;           /* mapgen intent as a gentle nudge */
+    int base  = 1 + band + classb + (int)(d & 1u);     /* coherent across the development */
     int inter = bld_interior(x, z);
     base += inter;                                     /* stepped / setback core */
-    if (inter == 2 && ((s>>11) & 15u) == 0u) base += 4;/* rare landmark skyscraper */
+    if (band >= 7 && inter == 2 && ((d>>11) & 3u)==0u) base += 4;  /* downtown landmark tower */
     if (base < 0) base = 0; if (base >= NBLV) base = NBLV-1;
     return base;
 }
-/* One facade|roof atlas per building, biased by class (low = brick/painted/masonry,
- * mid = office/panel, high = tower/glass) then picked from the building seed. */
+/* One facade|roof atlas per DEVELOPMENT (whole block shares a style), biased by the
+ * district band: low blocks = brick/painted/masonry, tall downtown = tower/glass. */
 static int bld_tex(int x, int z) {
     static const uint8_t cand[3][4] = { {0,5,6,3}, {1,3,7,5}, {2,4,7,1} };
-    char c = tile_at(x, z); int ci = c=='#' ? 0 : c=='O' ? 1 : 2;
-    return cand[ci][(bld_seed(x,z) >> 17) & 3u];
+    int band = district_elev(x, z); int ci = band<4 ? 0 : band<7 ? 1 : 2;
+    return cand[ci][(dev_hash(x,z) >> 17) & 3u];
 }
 
 /* ---------------------------------------------------------------- camera ---- */
@@ -1226,14 +1239,21 @@ static void draw_ground_window(void) {
 
 static void draw_buildings_window(void) {
     int cx = (int)(view_x / TILE), cz = (int)(view_z / TILE);
-    for (int z = cz - 12; z <= cz + 12; z++)
-        for (int x = cx - 12; x <= cx + 12; x++) {
+    for (int z = cz - 14; z <= cz + 14; z++)      /* wider than the ground so tall blocks at the edge stay up */
+        for (int x = cx - 14; x <= cx + 14; x++) {
             char c = tile_at(x, z);
             if (c != '#' && c != 'O' && c != 'H') continue;
             int L = bld_level(x, z);
-            float hy = g_lvl_h[L] * 0.5f;
-            if (!tile_visible(x, z, hy)) continue;
-            mote_draw(mote, &g_bmesh[L][bld_tex(x,z)], v3(x*TILE+TILE*0.5f, hy, z*TILE+TILE*0.5f));
+            float th = g_lvl_h[L], hy = th * 0.5f;
+            float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f, sx, sy;
+            /* Draw if the BASE or the TOP could be on screen. Culling on the elevated
+             * centre alone made tall blocks blink out (revealing the ground beneath)
+             * as their centre projected off-screen while their footprint was still in view. */
+            int vis = 0;
+            if (world_to_screen(v3(wx, 0.1f, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
+            if (!vis && world_to_screen(v3(wx, th, wz), &sx, &sy, 0) && sx>-52 && sx<180 && sy>-52 && sy<180) vis = 1;
+            if (!vis) continue;
+            mote_draw(mote, &g_bmesh[L][bld_tex(x,z)], v3(wx, hy, wz));
         }
 }
 
