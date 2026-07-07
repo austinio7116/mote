@@ -51,6 +51,7 @@ static uint8_t g_city[CG_W*CG_H];   /* the generated city (bss, ~65 KB) */
 #include "siren.sfx.h"
 #include "siren_lo.sfx.h"
 #include "siren_hi.sfx.h"
+#include "phone.sfx.h"
 #include "boom.sfx.h"
 #include "hurt.sfx.h"
 #include "win.sfx.h"
@@ -3077,6 +3078,10 @@ static void g_update(float dt) {
           if (sd){ mote_rand_seed(sd|1u); g_seed_override=sd; }   /* vary job type + contact per seed */
           const char *mt=getenv("MOTE_GTA_MTYPE"); if(mt) g_force_mtype=atoi(mt);
           start_mission(); bdone=1; } }
+    { static int tpd=0; if (getenv("MOTE_GTA_TP_PHONE") && g_state==ST_PLAY && !tpd){   /* test: stand by a phone box */
+          for (int m=0;m<nmark;m++) if(markers[m].kind==MK_PHONE){
+              if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
+              player.x=markers[m].x-3; player.z=markers[m].z; tpd=1; break; } } }
 #endif
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
@@ -3430,6 +3435,15 @@ static void g_update(float dt) {
           float dx=cars[i].x-pl_x(), dz=cars[i].z-pl_z();
           if (dx*dx+dz*dz<70.0f*70.0f){ chase=1; break; } }
       if (chase && s_siren<=0){ sfx(s_tone?&siren_hi_sfx:&siren_lo_sfx, 0.34f); s_tone^=1; s_siren=0.44f; } }
+    /* a phone box RINGS when you're looking for work and get close — louder the nearer you are */
+    { static float s_ring; s_ring-=dt;
+      if (mission==MI_NONE && !g_brief_active && g_state==ST_PLAY){
+          float best=1e18f;
+          for (int m=0;m<nmark;m++){ if(markers[m].kind!=MK_PHONE) continue;
+              float dx=markers[m].x-pl_x(), dz=markers[m].z-pl_z(), d2=dx*dx+dz*dz; if(d2<best)best=d2; }
+          float d=sqrtf(best);
+          if (d<22.0f && s_ring<=0){ float g=0.55f*(1.0f-d/22.0f); if(g<0.06f)g=0.06f;
+              sfx(&phone_sfx, g); s_ring=1.9f; } } }
     if (cash>best_cash) best_cash=cash;    /* in memory only — flushed to flash at death */
 
     /* speed-based zoom + engine pitch: tight/quiet on foot, out/loud with speed */
@@ -3553,6 +3567,14 @@ static void world_dot(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
     if (sx<-4||sx>132||sy<8||sy>128) return;
     mote->draw_circle(fb, (int)sx, (int)sy, r, col, 1, 0, 128);
 }
+/* A HOLLOW 2px ring around a world point — highlights a sprite (phonebox, mark, VIP)
+ * without covering it, unlike a filled dot. */
+static void world_ring(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
+    float sx, sy; if (!world_to_screen(v3(wx,0.1f,wz), &sx, &sy, 0)) return;
+    if (sx<-8||sx>136||sy<4||sy>132) return;
+    mote->draw_circle(fb, (int)sx, (int)sy, r,   col, 0, 0, 128);
+    mote->draw_circle(fb, (int)sx, (int)sy, r-1, col, 0, 0, 128);
+}
 
 static const char *WNAME[NWEAP] = { "FIST", "PISTOL", "SMG", "SHOTGUN", "FLAMER", "ROCKET" };
 
@@ -3667,10 +3689,14 @@ static void g_overlay(uint16_t *fb) {
     }
     g_nspr = 0;
     /* markers are drawn as prop sprites in the scene pass now (phonebox/gun mat/spray) */
-    if (g_state==ST_PLAY && mission_beacon()){   /* pulsing magenta beacon, matches the map */
-        int ph=((int)(mote->micros()/220000ull))&1;
-        world_dot(fb, mx, mz, ph?6:5, MOTE_RGB565(255,60,200));
-        world_dot(fb, mx, mz, 2, MOTE_RGB565(255,255,255)); }
+    if (g_state==ST_PLAY && mission_beacon()){   /* BEATING magenta ring around the target — encircles, never covers, the sprite */
+        int ph=((int)(mote->micros()/200000ull))&1;
+        world_ring(fb, mx, mz, ph?10:8, MOTE_RGB565(255,70,200)); }
+    if (g_state==ST_PLAY && mission==MI_NONE){   /* looking for work: beating ring on every phone box */
+        int ph=((int)(mote->micros()/240000ull))&1;
+        for (int m=0;m<nmark;m++){ if (markers[m].kind!=MK_PHONE) continue;
+            float dx=markers[m].x-view_x, dz=markers[m].z-view_z; if (dx*dx+dz*dz>2500.0f) continue;
+            world_ring(fb, markers[m].x, markers[m].z, ph?7:6, MOTE_RGB565(120,200,255)); } }
 
     /* water shimmer: animated specular flecks on visible water tiles (deterministic
      * per-tile phase → each fleck twinkles independently) — cheap "living water". */
