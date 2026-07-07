@@ -99,7 +99,7 @@ static int is_solid(int x, int z){ char c = tile_at(x, z); return c=='#'||c=='O'
  * can drive a car IN to respray / sell. Registered at marker placement; used by the
  * passability, collision, and building-draw code below. */
 #define NGARAGE 6
-static struct { int16_t x, z; uint8_t kind; } g_gar[NGARAGE]; static int g_ngar;
+static struct { int16_t x, z; uint8_t kind; int8_t ox, oz; } g_gar[NGARAGE]; static int g_ngar;  /* (ox,oz)=opening dir (out toward the street) */
 static int is_garage(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return 1; return 0; }
 static int garage_kind_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return g_gar[i].kind; return -1; }
 
@@ -1836,16 +1836,27 @@ static void place_markers(void) {
     for (int m=0;m<nwant;m++){
         int bx=want[m].tx, bz=want[m].tz, fx=bx, fz=bz, found=0;
         if (want[m].kind==MK_SPRAY && g_ngar<NGARAGE){
-            /* SPRAY = a drive-in GARAGE BAY: a building tile with a road neighbour, carved
-             * open so you drive your car in off the street. Its building neighbours are the walls. */
-            int gx=0, gz=0;
-            for (int r=1;r<26 && !found;r++)
+            /* SPRAY = a drive-in GARAGE BAY carved INTO a building: pick a building tile
+             * whose FRONT opens onto pavement leading to a road, and whose BACK (and ideally
+             * sides) are still building — a recess in the mass, not a lone edge tile. You
+             * drive road -> pavement -> INTO the bay. (ox,oz) = the opening direction. */
+            static const int DX[4]={1,-1,0,0}, DZ[4]={0,0,1,-1};
+            int gx=0, gz=0, gox=0, goz=0;
+            for (int r=1;r<28 && !found;r++)
                 for (int dz=-r;dz<=r && !found;dz++) for (int dx=-r;dx<=r && !found;dx++){
-                    int x=bx+dx,z=bz+dz; if(x<2||z<2||x>=MAPW-2||z>=MAPH-2) continue;
-                    if (!is_solid(x,z)) continue;                 /* must be a building tile to carve */
-                    if (is_drivable(x+1,z)||is_drivable(x-1,z)||is_drivable(x,z+1)||is_drivable(x,z-1)){ gx=x; gz=z; found=1; } }
+                    int x=bx+dx,z=bz+dz; if(x<3||z<3||x>=MAPW-3||z>=MAPH-3) continue;
+                    if (!is_solid(x,z)) continue;                            /* the tile we carve is a building */
+                    for (int d=0;d<4 && !found;d++){
+                        int fx=x+DX[d],   fz=z+DZ[d];                        /* front (approach) */
+                        int f2x=x+DX[d]*2,f2z=z+DZ[d]*2;                     /* one further out */
+                        int kx=x-DX[d],   kz=z-DZ[d];                        /* back (must stay a wall) */
+                        if (tile_at(fx,fz)!=',') continue;                  /* opening faces PAVEMENT */
+                        if (tile_at(f2x,f2z)!='.' && tile_at(f2x,f2z)!=',') continue;  /* which reaches the street */
+                        if (!is_solid(kx,kz)) continue;                     /* back wall behind the bay */
+                        gx=x; gz=z; gox=DX[d]; goz=DZ[d]; found=1;
+                    } }
             if (found){
-                g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)gx,(int16_t)gz, MK_SPRAY };
+                g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)gx,(int16_t)gz, MK_SPRAY, (int8_t)gox,(int8_t)goz };
                 markers[nmark++] = (Marker){ gx*TILE+TILE*0.5f, gz*TILE+TILE*0.5f, MK_SPRAY };
                 continue;
             }
@@ -3946,12 +3957,21 @@ static void g_update(float dt) {
     if (player.mode==MODE_CAR && g_state==ST_PLAY)
         draw_vehicle(player.car);        /* FIRST claim on the textured-tri pool:
                                             your own car must never be the one culled */
-    /* world props: phonebox / gun-shop mat / spray decal at each marker */
+    /* world props: phonebox / gun-shop mat at each marker (spray shops are garage bays,
+     * marked by an arrow into the opening instead of a floor decal). */
     for (int m=0;m<nmark;m++){
-        int cell = markers[m].kind==MK_PHONE?0 : markers[m].kind==MK_GUN?1 : markers[m].kind==MK_SPRAY?2 : 3;
+        if (markers[m].kind==MK_SPRAY) continue;             /* garage: drawn as an arrow below */
+        int cell = markers[m].kind==MK_PHONE?0 : markers[m].kind==MK_GUN?1 : 3;
         float dx=markers[m].x-view_x, dz=markers[m].z-view_z;
         if (dx*dx+dz*dz > 2500.0f) continue;
         draw_ground_sprite(&props_img, markers[m].x, markers[m].z, 0, cell*16,0,16,16, 2.1f, 2.1f, 0);
+    }
+    for (int i=0;i<g_ngar;i++){                               /* an arrow on the approach, pointing INTO the bay */
+        float ax=(g_gar[i].x + g_gar[i].ox)*TILE + TILE*0.5f;
+        float az=(g_gar[i].z + g_gar[i].oz)*TILE + TILE*0.5f;
+        float dx=ax-view_x, dz=az-view_z; if (dx*dx+dz*dz > 2500.0f) continue;
+        float yaw=atan2f((float)g_gar[i].oz, (float)g_gar[i].ox);     /* heading points INTO the garage (sprite +Z is -x at yaw 0) */
+        draw_ground_sprite(&props_img, ax, az, yaw, 4*16,0,16,16, 2.6f, 2.2f, 1);
     }
     for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive) continue;
         int fr=((int)p->animt)&1, fy=p->variant*16;
