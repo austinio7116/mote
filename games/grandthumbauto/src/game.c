@@ -4309,7 +4309,11 @@ static void g_overlay(uint16_t *fb) {
             mote_ftextc(mote, fb, g_fread, 64, 102, mtc, l1); } }
     else if (near_marker(MK_GUN,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(230,220,120), "A: BUY WEAPON");
     else if (near_marker(MK_PHONE,3.0f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(150,200,240), "A: ANSWER PHONE");
-    else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B PUNCH/SHOOT");
+    else if (near_marker(MK_SPRAY,3.4f)) {
+        if (player.mode==MODE_CAR && wanted()>0) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "DRIVE IN: RESPRAY $100");
+        else mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(120,220,150), "SPRAY SHOP: LOSE HEAT"); }
+    else if (near_marker(MK_DOCK,3.6f)) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(235,170,90), "DRIVE A CAR IN TO SELL");
+    else if (player.mode==MODE_FOOT) mote_ftextc(mote, fb, g_fmed, 64,104, MOTE_RGB565(140,150,170), "A ENTER   B ATTACK");
 }
 
 static const MoteGameVtbl k_vtbl = {
