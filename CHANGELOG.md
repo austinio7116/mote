@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.18-alpha — Grand Thumb Auto 1.3.0: a living city
+
+**A big Grand Thumb Auto update** — a real rival racer, a procedural turf war, a proper
+city skyline, drive-in garages and more guns. **Games-only: no firmware or Studio change**
+(still ThumbyOne firmware 1.34.0 / engine ABI v47) — just grab the new game from the arcade.
+
+### Missions & the roguelike loop
+- **Ten new phone jobs** beyond courier/rampage/getaway/hit: **delivery** (boost a car and
+  drive it in undamaged — pay scales with condition), **pickup run**, **repo** (ram-wreck a
+  fleeing debtor), **escort** a VIP on foot, **smuggle** under a heat cap, **demolition**,
+  **vigilante**, **most-wanted** (provoke and survive N stars), a **time-trial**, and a **street race**.
+- **A rival you can actually race.** The street race spawns a real AI sports car that
+  navigates the road grid to each checkpoint — a BFS distance-field over real road
+  connectivity, not a fake pace-car — rubber-banded to stay close and beatable.
+- **A procedural turf war.** Each city generates rival **crews** with generated names, a boss
+  and a standing with you. Your recurring caller is a crew boss who **calls back with bigger
+  jobs** as your streak grows; wet-work jobs name the **rival crew** (and the mark), so the
+  calls read like an unfolding war.
+- **Every call is a person** — a procedurally generated contact with a pixel mugshot briefs
+  each job. Accept or decline.
+
+### The city
+- **Procedural building massing.** Contiguous tiles merge into single structures inside
+  height **districts** (downtown-to-outskirts gradient) with varied facades and cluttered
+  rooftops — a coherent skyline instead of a grid of separate dice.
+- **Drive-in garage bays.** Pay-n-spray shops are now roofed bays carved *into* the building
+  blocks — drive in off the street (an arrow points the way) to shake the cops.
+
+### Guns & feel
+- **New weapons** — UZI, minigun, grenade — stocked at the gun shop; **RB cycles** your guns on foot.
+- **Wanted levels are sticky** (they bleed off slowly — longer the hotter you are), with a
+  proper **two-tone police siren** and a lower, rumblier engine drone.
+- **Off-screen target arrows** point you to the current objective/checkpoint when it's out of view.
+
 ## 0.17-alpha — the engine's font, in games; a real GTA cast; rig editor
 
 **The Audiowide UI font is now available to games, and Grand Thumb Auto shows what that
