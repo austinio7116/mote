@@ -1526,10 +1526,18 @@ static void place_markers(void) {
     }
     for (int m=0;m<nwant;m++){
         int bx=want[m].tx, bz=want[m].tz, fx=bx, fz=bz, found=0;
-        for (int r=0;r<20 && !found;r++)
+        /* snap to a STREET-FACING pavement tile (one next to a road) so the shop/phone
+         * is always reachable on foot — not buried in a building's inner courtyard. */
+        for (int r=0;r<24 && !found;r++)
             for (int dz=-r;dz<=r && !found;dz++) for (int dx=-r;dx<=r && !found;dx++){
                 int x=bx+dx,z=bz+dz; if(x<1||z<1||x>=MAPW-1||z>=MAPH-1) continue;
-                if (tile_at(x,z)==','){ fx=x; fz=z; found=1; } }
+                if (tile_at(x,z)!=',') continue;
+                if (is_drivable(x+1,z)||is_drivable(x-1,z)||is_drivable(x,z+1)||is_drivable(x,z-1)){ fx=x; fz=z; found=1; } }
+        if (!found)                                          /* fallback: any pavement at all */
+            for (int r=0;r<24 && !found;r++)
+                for (int dz=-r;dz<=r && !found;dz++) for (int dx=-r;dx<=r && !found;dx++){
+                    int x=bx+dx,z=bz+dz; if(x<1||z<1||x>=MAPW-1||z>=MAPH-1) continue;
+                    if (tile_at(x,z)==','){ fx=x; fz=z; found=1; } }
         markers[nmark++]=(Marker){ fx*TILE+TILE*0.5f, fz*TILE+TILE*0.5f, (uint8_t)want[m].kind };
     }
 #ifdef MOTE_HOST
@@ -2418,7 +2426,7 @@ static void start_mission(void) {
 static void mission_win(void){
     cash += mission_pay; mission_chain++;
     sfx(&win_sfx,0.8f); float_txt(pl_x(),pl_z(),"PAID");
-    say(mission_chain>=2 ? "JOB DONE - CHAIN UP!" : "JOB DONE");
+    say(mission_chain>=2 ? "THEY'LL REMEMBER THIS" : "JOB DONE");
     mission_cleanup(); mission=MI_NONE;
 }
 
@@ -3289,18 +3297,17 @@ static void g_update(float dt) {
     }
 
     if (player.mode == MODE_FOOT) {
-        float mvx=0, mvz=0;
-        if (mote_pressed(in, MOTE_BTN_UP))    mvz -= 1;
-        if (mote_pressed(in, MOTE_BTN_DOWN))  mvz += 1;
-        if (mote_pressed(in, MOTE_BTN_LEFT))  mvx -= 1;
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) mvx += 1;
-        float ml = mvx*mvx+mvz*mvz;
-        if (ml > 0.01f) {
-            float inv = 1.0f/sqrtf(ml); mvx*=inv; mvz*=inv;
-            player.yaw = atan2f(mvz, mvx);
-            { float nx=player.x+mvx*5.0f*dt, nz=player.z+mvz*5.0f*dt;
-              if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
-                  move_body(&player.x, &player.z, nx, nz, 0); }
+        /* tank controls, same feel as driving: LEFT/RIGHT turn to aim, UP or LB walk
+         * forward along your heading, DOWN backs up (a touch slower). */
+        float turn = (mote_pressed(in,MOTE_BTN_RIGHT)?1.0f:0.0f) - (mote_pressed(in,MOTE_BTN_LEFT)?1.0f:0.0f);
+        player.yaw += turn * 3.6f * dt;
+        float fwd = ((mote_pressed(in,MOTE_BTN_UP)||mote_pressed(in,MOTE_BTN_LB))?1.0f:0.0f)
+                  - (mote_pressed(in,MOTE_BTN_DOWN)?0.65f:0.0f);
+        if (fwd != 0.0f) {
+            float sp = 5.0f*fwd;
+            float nx=player.x+cosf(player.yaw)*sp*dt, nz=player.z+sinf(player.yaw)*sp*dt;
+            if (!ped_blocked_by_car(nx,nz) || ped_blocked_by_car(player.x,player.z))
+                move_body(&player.x, &player.z, nx, nz, 0);
             player.animt += dt*8.0f;
         }
         if (mote_pressed(in, MOTE_BTN_B)) fire_weapon();
@@ -3768,7 +3775,7 @@ static void g_overlay(uint16_t *fb) {
         char l1[28], l2[28];
         mote_dim_box(fb, 3, 44, 122, 82, 5);
         /* a returning contact reads as CALLING BACK (streak) rather than a cold call */
-        if (mission_chain>0) mote_ftextfc(mote, fb, g_fmed, 64, 2, MOTE_RGB565(120,210,255), "CALLING BACK  x%d", mission_chain);
+        if (mission_chain>0) mote_ftextc (mote, fb, g_fmed, 64, 2, MOTE_RGB565(120,210,255), "CALLING BACK");
         else                 mote_ftextc (mote, fb, g_fmed, 64, 2, MOTE_RGB565(150,200,240), "INCOMING CALL");
         mote_ftextc (mote, fb, g_fmed, 64, 62, MOTE_RGB565(236,238,245), g_brief_name);
         mote_ftextfc(mote, fb, g_fmed, 64, 73, MOTE_RGB565(244,204,72), "%s   $%d", g_brief_role, mission_pay);
