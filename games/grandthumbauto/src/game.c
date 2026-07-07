@@ -811,7 +811,7 @@ static void spawn_world(void) {
 
 /* =========================================================== crime layer === */
 enum { ST_TITLE, ST_PLAY, ST_WASTED, ST_BUSTED, ST_DMLINK };
-enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, NWEAP };
+enum { W_FIST, W_PISTOL, W_SMG, W_SHOTGUN, W_FLAME, W_ROCKET, W_UZI, W_MINIGUN, W_GRENADE, NWEAP };
 enum { PK_CASH, PK_PISTOL, PK_SMG, PK_SHOTGUN, PK_HEALTH, PK_FLAME, PK_ROCKET, PK_PACKAGE };
 enum { MK_GUN, MK_SPRAY, MK_PHONE, MK_DOCK };
 enum { MI_NONE, MI_COURIER, MI_RAMPAGE, MI_GETAWAY, MI_HIT,
@@ -967,9 +967,11 @@ static void dm_send_traffic(void){
 }
 static void dm_send1(uint8_t t){ uint8_t m[2]={0xA5,t}; mote->link_send(m,2); }
 
-static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f, 1.15f };
-static const int   W_PELLETS[NWEAP]= { 0, 1, 1, 5, 0, 0 };
-static const float W_SPREAD[NWEAP] = { 0, 0.015f, 0.06f, 0.26f };
+/*                                     fist  pistol smg   shotgun flame rocket uzi   minigun grenade */
+static const float W_CD[NWEAP]     = { 0.32f, 0.30f, 0.085f, 0.62f, 0.055f, 1.15f, 0.05f, 0.03f, 0.9f };
+static const int   W_PELLETS[NWEAP]= { 0,     1,     1,      5,     0,      0,     1,     2,     0    };
+static const float W_SPREAD[NWEAP] = { 0,     0.015f,0.06f,  0.26f, 0,      0,     0.11f, 0.15f, 0    };
+static const char *WNAME[NWEAP]    = { "FIST","PISTOL","SMG","SHOTGUN","FLAMER","ROCKET","UZI","MINIGUN","GRENADE" };
 
 /* streamed engine drone (saw + sub-octave + noise), pitched to car speed —
  * adapted from motokart. g_eng_f/g_eng_a are set each frame from g_update. */
@@ -1896,9 +1898,18 @@ static void fire_weapon(void) {
         if (frand()<0.15f) sfx(&boom_sfx,0.15f);
         return;
     }
+    if (weapon==W_GRENADE){
+        /* GRENADE: a lobbed charge — a slow shell round that flies a beat then blasts */
+        ammo[weapon]--; fire_cd=W_CD[weapon]; g_aim_t=0.6f;
+        float ry=pl_yaw(); float mx0=pl_x()+cosf(ry)*2.0f, mz0=pl_z()+sinf(ry)*2.0f;
+        sfx(&punch_sfx,0.5f); panic_at(pl_x(),pl_z()); add_heat_at(0.2f, pl_x(), pl_z(), 1);
+        for (int b=0;b<NBULLET;b++) if(!bullets[b].alive){
+            bullets[b]=(Bullet){ mx0,mz0, cosf(ry)*17.0f, sinf(ry)*17.0f, 0.7f, 1, 0, 1 }; break; }  /* shell → explodes at ~12 m */
+        return;
+    }
     ammo[weapon]--; fire_cd=W_CD[weapon]; g_aim_t=0.8f; panic_at(pl_x(),pl_z());  /* gunshots scare bystanders */
     if (g_dm) dm_send1('F');
-    sfx(weapon==W_SHOTGUN?&shotgun_sfx:weapon==W_SMG?&smg_sfx:&shoot_sfx, 0.8f);
+    sfx(weapon==W_SHOTGUN?&shotgun_sfx:weapon==W_SMG?&smg_sfx:weapon==W_MINIGUN?&smg_sfx:weapon==W_UZI?&smg_sfx:&shoot_sfx, 0.8f);
     float mx0=pl_x()+cosf(yaw)*1.8f, mz0=pl_z()+sinf(yaw)*1.8f;
     add_fx(mx0,mz0,2);
     for (int k=0;k<W_PELLETS[weapon];k++){
@@ -2805,10 +2816,19 @@ static int near_marker(int kind, float rad) {
 }
 
 static void buy_gun(void) {
-    if      (!owned[W_PISTOL] && cash>=150){ owned[W_PISTOL]=1; ammo[W_PISTOL]+=60; cash-=150; weapon=W_PISTOL; say("PISTOL -$150"); }
-    else if (!owned[W_SMG]    && cash>=400){ owned[W_SMG]=1;    ammo[W_SMG]+=90;    cash-=400; weapon=W_SMG;    say("SMG -$400"); }
-    else if (!owned[W_SHOTGUN]&& cash>=700){ owned[W_SHOTGUN]=1;ammo[W_SHOTGUN]+=28; cash-=700; weapon=W_SHOTGUN;say("SHOTGUN -$700"); }
-    else if (cash>=50){ int w=owned[W_SHOTGUN]?W_SHOTGUN:owned[W_SMG]?W_SMG:W_PISTOL; owned[w]=1; ammo[w]+=40; cash-=50; weapon=w; say("AMMO -$50"); }
+    /* the gun shop stocks a tiered arsenal; each visit buys the next one you lack,
+     * then just tops up ammo for the best gun you own. */
+    if      (!owned[W_PISTOL]  && cash>=150) { owned[W_PISTOL]=1;  ammo[W_PISTOL]+=60;   cash-=150;  weapon=W_PISTOL;  say("PISTOL -$150"); }
+    else if (!owned[W_UZI]     && cash>=250) { owned[W_UZI]=1;     ammo[W_UZI]+=120;     cash-=250;  weapon=W_UZI;     say("UZI -$250"); }
+    else if (!owned[W_SMG]     && cash>=400) { owned[W_SMG]=1;     ammo[W_SMG]+=90;      cash-=400;  weapon=W_SMG;     say("SMG -$400"); }
+    else if (!owned[W_GRENADE] && cash>=550) { owned[W_GRENADE]=1; ammo[W_GRENADE]+=8;   cash-=550;  weapon=W_GRENADE; say("GRENADES -$550"); }
+    else if (!owned[W_SHOTGUN] && cash>=700) { owned[W_SHOTGUN]=1; ammo[W_SHOTGUN]+=28;  cash-=700;  weapon=W_SHOTGUN; say("SHOTGUN -$700"); }
+    else if (!owned[W_MINIGUN] && cash>=1200){ owned[W_MINIGUN]=1; ammo[W_MINIGUN]+=300; cash-=1200; weapon=W_MINIGUN; say("MINIGUN -$1200"); }
+    else if (cash>=50){
+        int w = owned[W_MINIGUN]?W_MINIGUN : owned[W_SHOTGUN]?W_SHOTGUN : owned[W_GRENADE]?W_GRENADE :
+                owned[W_SMG]?W_SMG : owned[W_UZI]?W_UZI : W_PISTOL;
+        owned[w]=1; ammo[w] += (w==W_MINIGUN?150 : w==W_GRENADE?4 : 40); cash-=50; weapon=w; say("AMMO -$50");
+    }
     else say("NEED MORE CASH");
     sfx(&cash_sfx,0.7f);
 }
@@ -3681,6 +3701,11 @@ static void g_update(float dt) {
             player.animt += dt*8.0f;
         }
         if (mote_pressed(in, MOTE_BTN_B)) fire_weapon();
+        if (mote_just_pressed(in, MOTE_BTN_RB)){          /* RB: switch to your next owned weapon */
+            for (int t=0;t<NWEAP;t++){ weapon=(weapon+1)%NWEAP;
+                if (weapon==W_FIST || (owned[weapon] && ammo[weapon]>0)) break; }
+            say(WNAME[weapon]);
+        }
         /* A: interact with a shop/phone if in range, else enter/jack a car */
         if (A) {
             if (near_marker(MK_GUN, 3.0f))        buy_gun();
@@ -3958,7 +3983,6 @@ static void draw_arrow(uint16_t *fb, float cx, float cy, float ang, uint16_t col
     }
 }
 
-static const char *WNAME[NWEAP] = { "FIST", "PISTOL", "SMG", "SHOTGUN", "FLAMER", "ROCKET" };
 
 static uint16_t map_color(char c){
     switch(c){
