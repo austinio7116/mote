@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.18-alpha — Grand Thumb Auto 1.3.0: a living city
+## Grand Thumb Auto 1.3.0 — a living city
 
 **A big Grand Thumb Auto update** — a real rival racer, a procedural turf war, a proper
-city skyline, drive-in garages and more guns. **Games-only: no firmware or Studio change**
-(still ThumbyOne firmware 1.34.0 / engine ABI v47) — just grab the new game from the arcade.
+city skyline, drive-in garages and more guns. A game update only — **no engine, firmware or
+Studio change** (runs on the current ThumbyOne firmware 1.34.0 / ABI v47); just grab the new
+game from the arcade.
 
 ### Missions & the roguelike loop
 - **Ten new phone jobs** beyond courier/rampage/getaway/hit: **delivery** (boost a car and
