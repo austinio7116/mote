@@ -1953,7 +1953,7 @@ static void kill_ped(int i, int gore) {
           int n=bonus,k=5; char d[4]; int dn=0; while(n){d[dn++]='0'+n%10;n/=10;} while(dn) b[k++]=d[--dn]; b[k]=0;
           float_txt(p->x,p->z-1.0f,b); } }
     if (mission==MI_RAMPAGE) mission_kills++;
-    else if (mission==MI_VIGIL && !p->iscop && p->variant==mission_cap) mission_kills++;
+    else if (mission==MI_VIGIL && !p->iscop) mission_kills++;   /* any gang member on the street counts */
 }
 
 static void fire_weapon(void) {
@@ -2399,8 +2399,8 @@ static void update_missions(float dt) {
         mission_kills=done;
         if (done>=mtarg_n){ mission_win(); return; } } break;
     case MI_VIGIL: { if (mission_kills>=mission_target){ mission_win(); return; }
-        float bd=1e18f;                                    /* beacon → nearest gang member */
-        for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive||p->iscop||p->variant!=mission_cap) continue;
+        float bd=1e18f;                                    /* beacon → nearest person on foot */
+        for (int i=0;i<NPED;i++){ Ped*p=&peds[i]; if(!p->alive||p->iscop) continue;
             float dx=p->x-pl_x(), dz=p->z-pl_z(), d2=dx*dx+dz*dz; if(d2<bd){bd=d2;mx=p->x;mz=p->z;} } } break;
     case MI_WANTED: { if (wanted()>=mission_cap) mission_hold+=dt;
         if (mission_hold>=(float)mission_target){ mission_win(); return; } } break;
@@ -2430,7 +2430,7 @@ static void update_missions(float dt) {
         if (dx*dx+dz*dz<49.0f){ cp_i++; if(cp_i<cp_n){ mx=cp_x[cp_i]; mz=cp_z[cp_i]; sfx(&cash_sfx,0.5f); }
                                 else { mission_win(); return; } } } break;
     }
-    if (mission_t<=0){ say("MISSION FAILED - CHAIN LOST"); lose=1; }
+    if (mission_t<=0){ say("MISSION FAILED"); lose=1; }
     if (lose){ mission_cleanup(); mission=MI_NONE; mission_chain=0; g_recur_seed=0; }   /* streak lost → new contact */
 }
 
@@ -4093,13 +4093,21 @@ static void world_ring(uint16_t *fb, float wx, float wz, int r, uint16_t col) {
 }
 /* A filled arrowhead at (cx,cy) pointing along screen angle `ang` — edge pointer to
  * an off-screen objective. Rasterised as perpendicular spans from tip to tail. */
+/* A small, slim, SOLID filled arrowhead (scanline-fill of the triangle, so no gaps). */
 static void draw_arrow(uint16_t *fb, float cx, float cy, float ang, uint16_t col){
     float dx=cosf(ang), dy=sinf(ang), px=-dy, py=dx;
-    float tx=cx+dx*5.0f, ty=cy+dy*5.0f;                 /* tip leads the point */
-    for (int i=0;i<=7;i++){ float f=(float)i/7.0f;
-        float bx=tx-dx*8.0f*f, by=ty-dy*8.0f*f;         /* walk back from the tip */
-        float hw=3.5f*f;                                /* slim */
-        mote->draw_line(fb, (int)(bx-px*hw),(int)(by-py*hw), (int)(bx+px*hw),(int)(by+py*hw), col, 0, 128);
+    float Tx=cx+dx*5.5f,          Ty=cy+dy*5.5f;                 /* tip */
+    float B1x=cx-dx*3.5f+px*3.5f, B1y=cy-dy*3.5f+py*3.5f;        /* tail corners (slim) */
+    float B2x=cx-dx*3.5f-px*3.5f, B2y=cy-dy*3.5f-py*3.5f;
+    int minx=(int)floorf(fminf(Tx,fminf(B1x,B2x))), maxx=(int)ceilf(fmaxf(Tx,fmaxf(B1x,B2x)));
+    int miny=(int)floorf(fminf(Ty,fminf(B1y,B2y))), maxy=(int)ceilf(fmaxf(Ty,fmaxf(B1y,B2y)));
+    for (int y=miny;y<=maxy;y++) for (int x=minx;x<=maxx;x++){
+        float fx=(float)x+0.5f, fy=(float)y+0.5f;               /* inside-triangle edge test */
+        float d1=(fx-B1x)*(Ty-B1y)-(Tx-B1x)*(fy-B1y);
+        float d2=(fx-Tx )*(B2y-Ty )-(B2x-Tx )*(fy-Ty );
+        float d3=(fx-B2x)*(B1y-B2y)-(B1x-B2x)*(fy-B2y);
+        int neg=(d1<0)||(d2<0)||(d3<0), pos=(d1>0)||(d2>0)||(d3>0);
+        if (!(neg&&pos)) mote->draw_pixel(fb, x, y, col);
     }
 }
 
@@ -4423,4 +4431,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("GrandThumbAuto", "austinio7116");
-MOTE_GAME_VERSION("1.2.0");
+MOTE_GAME_VERSION("1.3.0");
