@@ -95,6 +95,14 @@ static int is_roadlike(int x, int z){ char c=tile_at(x,z); return c=='.'||c=='B'
 static int is_road(int x, int z) { char c = tile_at(x, z); return c=='.'||c==','||c=='B'; }
 static int is_solid(int x, int z){ char c = tile_at(x, z); return c=='#'||c=='O'||c=='H'; }
 
+/* GARAGE bays: a few building tiles carved open (drivable, no collider, no cube) so you
+ * can drive a car IN to respray / sell. Registered at marker placement; used by the
+ * passability, collision, and building-draw code below. */
+#define NGARAGE 6
+static struct { int16_t x, z; uint8_t kind; } g_gar[NGARAGE]; static int g_ngar;
+static int is_garage(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return 1; return 0; }
+static int garage_kind_at(int x, int z){ for(int i=0;i<g_ngar;i++) if(g_gar[i].x==x && g_gar[i].z==z) return g_gar[i].kind; return -1; }
+
 /* corridor classification for lane markings, computed on demand (capped scans). */
 static void corridor_info(int x, int z, int *orient, int *pos, int *span) {
     *orient = 0; *pos = 0; *span = 1;
@@ -616,8 +624,8 @@ static float road_heading(int x,int z){
         if (run>bestrun){ bestrun=run; best=k; } }
     return H[best];
 }
-static int walkable_world(float wx,float wz){ char c=tile_at((int)(wx/TILE),(int)(wz/TILE)); return c!='#'&&c!='O'&&c!='H'&&c!='~'; }
-static int drivable_world(float wx,float wz){ char c=tile_at((int)(wx/TILE),(int)(wz/TILE)); return c!='#'&&c!='O'&&c!='H'&&c!='~'; }
+static int walkable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
+static int drivable_world(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c!='#'&&c!='O'&&c!='H'&&c!='~') || is_garage(tx,tz); }
 static int road_world(float wx,float wz){ return is_drivable((int)(wx/TILE),(int)(wz/TILE)); }  /* road/bridge only (AI cars stay off pavement) */
 
 static int pav_or_grass(int x,int z){ char c=tile_at(x,z); return c==','||c==' '; }
@@ -1227,6 +1235,9 @@ static void draw_ground_window(void) {
             } else if (c == '~') {                    /* water: autotiled seawall shorelines */
                 g_ground.texture = &water_img;
                 road_uv(water_at.lut[water_mask(x, z)]);
+            } else if (is_garage(x, z)) {            /* garage bay floor: use the pavement cell so it reads as a drive-in */
+                g_ground.texture = &ground_img;
+                ground_uv(ground_cell(','));
             } else {
                 g_ground.texture = &ground_img;
                 ground_uv(ground_cell(c));
@@ -1243,6 +1254,7 @@ static void draw_buildings_window(void) {
         for (int x = cx - 14; x <= cx + 14; x++) {
             char c = tile_at(x, z);
             if (c != '#' && c != 'O' && c != 'H') continue;
+            if (is_garage(x, z)) continue;                /* garage bay: an opening in the block, no cube */
             int L = bld_level(x, z);
             float th = g_lvl_h[L], hy = th * 0.5f;
             float wx = x*TILE+TILE*0.5f, wz = z*TILE+TILE*0.5f, sx, sy;
@@ -1771,7 +1783,7 @@ static void place_markers(void) {
         if ((gx+gz)==2) kind=MK_GUN; else if ((gx+gz)==4) kind=MK_SPRAY;
         if (nwant<24) want[nwant++]=(typeof(want[0])){bx,bz,kind};
     }
-    nmark=0;
+    nmark=0; g_ngar=0;
     /* the SELL DOCK: a water-side drivable spot that is REACHABLE on the road network
      * from the spawn (flood fill — the map has isolated road fragments that look like
      * piers but connect to nothing). Prefers 20-90 tiles out, else nearest reachable. */
@@ -1823,6 +1835,22 @@ static void place_markers(void) {
     }
     for (int m=0;m<nwant;m++){
         int bx=want[m].tx, bz=want[m].tz, fx=bx, fz=bz, found=0;
+        if (want[m].kind==MK_SPRAY && g_ngar<NGARAGE){
+            /* SPRAY = a drive-in GARAGE BAY: a building tile with a road neighbour, carved
+             * open so you drive your car in off the street. Its building neighbours are the walls. */
+            int gx=0, gz=0;
+            for (int r=1;r<26 && !found;r++)
+                for (int dz=-r;dz<=r && !found;dz++) for (int dx=-r;dx<=r && !found;dx++){
+                    int x=bx+dx,z=bz+dz; if(x<2||z<2||x>=MAPW-2||z>=MAPH-2) continue;
+                    if (!is_solid(x,z)) continue;                 /* must be a building tile to carve */
+                    if (is_drivable(x+1,z)||is_drivable(x-1,z)||is_drivable(x,z+1)||is_drivable(x,z-1)){ gx=x; gz=z; found=1; } }
+            if (found){
+                g_gar[g_ngar++] = (typeof(g_gar[0])){ (int16_t)gx,(int16_t)gz, MK_SPRAY };
+                markers[nmark++] = (Marker){ gx*TILE+TILE*0.5f, gz*TILE+TILE*0.5f, MK_SPRAY };
+                continue;
+            }
+            /* no bay found nearby → fall through to a pavement decal */
+        }
         /* snap to a STREET-FACING pavement tile (one next to a road) so the shop/phone
          * is always reachable on foot — not buried in a building's inner courtyard. */
         for (int r=0;r<24 && !found;r++)
@@ -3366,7 +3394,7 @@ static void stream_entities(float dt) {
     }
 }
 
-static int blocked_bldg_w(float wx,float wz){ char c=tile_at((int)(wx/TILE),(int)(wz/TILE)); return c=='#'||c=='O'||c=='H'; }
+static int blocked_bldg_w(float wx,float wz){ int tx=(int)(wx/TILE),tz=(int)(wz/TILE); char c=tile_at(tx,tz); return (c=='#'||c=='O'||c=='H') && !is_garage(tx,tz); }
 static int in_water_w(float wx,float wz){ return tile_at((int)(wx/TILE),(int)(wz/TILE))=='~'; }
 
 /* drove/walked into the river — splash, sink the car, WASTED */
@@ -3397,7 +3425,7 @@ static void physics_pass(float dt) {
     for (int z=cz-R; z<=cz+R && ns<NCAR+NSTAT; z++)
         for (int x=cx-R; x<=cx+R && ns<NCAR+NSTAT; x++){
             char t=tile_at(x,z);
-            if (t=='#'||t=='O'||t=='H'){
+            if ((t=='#'||t=='O'||t=='H') && !is_garage(x,z)){   /* garage bays have no wall — drive in */
                 bodies[ns]=mote_body2d_box(x*TILE+TILE*0.5f, z*TILE+TILE*0.5f, TILE*0.5f, TILE*0.5f, 0.0f, 0.0f);
                 bodies[ns].friction=0.7f; bodies[ns].restitution=0.05f; ns++;
             } else if (t==' '){
@@ -3498,6 +3526,10 @@ static void g_update(float dt) {
           for (int m=0;m<nmark;m++) if(markers[m].kind==MK_PHONE){
               if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
               player.x=markers[m].x-3; player.z=markers[m].z; tpd=1; break; } } }
+    { static int tps=0; if (getenv("MOTE_GTA_TP_SPRAY") && g_state==ST_PLAY && !tps){   /* test: stand by a spray garage */
+          for (int m=0;m<nmark;m++) if(markers[m].kind==MK_SPRAY){
+              if(player.mode==MODE_CAR){cars[player.car].alive=0;player.mode=MODE_FOOT;player.car=-1;}
+              player.x=markers[m].x; player.z=markers[m].z; player.yaw=0; tps=1; break; } } }
 #endif
 
     /* high score is flushed to flash ONCE per death, but only AFTER the death
