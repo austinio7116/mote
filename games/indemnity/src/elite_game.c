@@ -3341,42 +3341,43 @@ void elite_game_draw_overlay(uint16_t *fb) {
     }
 
     case ST_SAVESEL: {
-        craft_font_draw(fb, s_pvp_select ? "DUEL SHIP" : "CONTINUE", 38, 3, RGB565C(200, 210, 225));
+        eui_textc(fb, s_pvp_select ? "DUEL SHIP" : "CONTINUE", 64, 2, RGB565C(200, 210, 225));
         if (s_savelist_n == 0) {
-            craft_font_draw(fb, "NO SAVED GAMES", 20, 58, RGB565C(150, 120, 90));
-            craft_font_draw(fb, "B:BACK", 46, 110, RGB565C(95, 110, 140));
+            eui_textc(fb, "NO SAVED GAMES", 64, 56, RGB565C(160, 130, 100));
+            craft_font_draw(fb, "B:BACK", 46, 112, RGB565C(95, 110, 140));
             return;
         }
-        /* focused save: its ship is the 3D icon above; show its stats */
+        /* focused save: its ship is the 3D icon above; show its stats (readable) */
         SavePeek *pk = &s_savelist[s_sel_cursor].pk;
         char sysn[14]; galaxy_system_name(pk->addr, sysn);
         char line[44];
-        snprintf(line, sizeof line, "%s", sysn);
-        craft_font_draw(fb, line, 6, 50, RGB565C(150, 200, 235));
+        eui_text(fb, sysn, 6, 48, RGB565C(150, 200, 235));
         snprintf(line, sizeof line, "%ld CR", (long)pk->credits);
-        craft_font_draw(fb, line, 6, 60, RGB565C(255, 210, 90));
-        snprintf(line, sizeof line, "%s  -  %d KILLS",
+        eui_text(fb, line, 6, 60, RGB565C(255, 210, 90));
+        snprintf(line, sizeof line, "%s - %d KILLS",
                  elite_rank_name(pk->kills), (int)pk->kills);
-        craft_font_draw(fb, line, 6, 70, RGB565C(180, 190, 210));
-        /* scrollable game list */
-        int VIS = 3;
+        eui_textclip(fb, line, 6, 126, 72, RGB565C(180, 190, 210));
+        /* scrollable game list, readable */
+        int VIS = 2;
         if (s_sel_cursor < s_sel_scroll) s_sel_scroll = s_sel_cursor;
         if (s_sel_cursor >= s_sel_scroll + VIS) s_sel_scroll = s_sel_cursor - VIS + 1;
-        int ly = 84;
+        int ly = 86;
         for (int i = s_sel_scroll; i < s_savelist_n && i < s_sel_scroll + VIS;
-             i++, ly += 9) {
+             i++, ly += 13) {
             uint16_t c = (i == s_sel_cursor) ? RGB565C(120, 255, 120)
                                              : RGB565C(110, 116, 135);
-            if (i == s_sel_cursor) craft_font_draw(fb, ">", 8, ly, c);
+            if (i == s_sel_cursor) eui_text(fb, ">", 6, ly, c);
             char row[20];
             snprintf(row, sizeof row, "GAME %d", s_savelist[i].slot + 1);
-            craft_font_draw(fb, row, 16, ly, c);
+            eui_text(fb, row, 16, ly, c);
         }
+        eui_scrollbar(fb, 125, 86, VIS * 13, s_savelist_n, VIS, s_sel_scroll,
+                      RGB565C(120, 255, 120), RGB565C(60, 70, 90));
         if (s_sel_confirm_del) {
-            for (int y = 52; y < 82; y++)
+            for (int y = 50; y < 84; y++)
                 for (int x = 8; x < 120; x++) fb[y * ELITE_FB_W + x] = RGB565C(28, 8, 8);
-            craft_font_draw(fb, "DELETE THIS GAME?", 14, 60, RGB565C(255, 120, 90));
-            craft_font_draw(fb, "A:YES   B:NO", 30, 71, RGB565C(205, 205, 215));
+            eui_textc(fb, "DELETE THIS GAME?", 64, 56, RGB565C(255, 120, 90));
+            eui_textc(fb, "A:YES   B:NO", 64, 70, RGB565C(205, 205, 215));
         } else {
             craft_font_draw(fb, "A:PLAY LB:DEL B:BACK", 6, 119,
                             RGB565C(95, 110, 140));

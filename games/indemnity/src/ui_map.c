@@ -55,6 +55,7 @@ static const StarBrief *star_brief(SysAddr a) {
 }
 
 #include "craft_font.h"
+#include "elite_ui.h"
 #include "econ.h"
 #include "elite_types.h"
 #include "craft_font.h"
@@ -548,23 +549,14 @@ void map_galaxy_draw(uint16_t *fb) {
     }
 
     /* Header + footer info. */
-    if (s_chart_layer == 0) {
-        craft_font_draw(fb, "GALAXY CHART", 2, 2, COL_TITLE);
-    } else if (s_chart_layer == 1) {
-        craft_font_draw(fb, "CHART: THREAT", 2, 2,
-                        RGB565C(240, 140, 60));
-    } else if (s_chart_layer == 2) {
-        craft_font_draw(fb, "CHART: FACTION", 2, 2,
-                        RGB565C(120, 170, 255));
-    } else {
-        craft_font_draw(fb, "CHART: ECONOMY", 2, 2,
-                        RGB565C(245, 150, 60));
-    }
+    if (s_chart_layer == 0)      eui_text(fb, "GALAXY CHART",   2, 1, COL_TITLE);
+    else if (s_chart_layer == 1) eui_text(fb, "CHART: THREAT",  2, 1, RGB565C(240, 140, 60));
+    else if (s_chart_layer == 2) eui_text(fb, "CHART: FACTION", 2, 1, RGB565C(120, 170, 255));
+    else                         eui_text(fb, "CHART: ECONOMY", 2, 1, RGB565C(245, 150, 60));
     char buf[32];
-    snprintf(buf, sizeof buf, "FUEL %d.%d LY", (int)s_fuel,
-             ((int)(s_fuel * 10)) % 10);
-    craft_font_draw(fb, buf, 76, 2, COL_TXT);
-    for (int x = 0; x < 128; x++) px(fb, x, 9, COL_GRID);
+    snprintf(buf, sizeof buf, "%d.%dLY", (int)s_fuel, ((int)(s_fuel * 10)) % 10);
+    craft_font_draw(fb, buf, 126 - craft_font_width(buf), 3, COL_TXT);
+    for (int x = 0; x < 128; x++) px(fb, x, 13, COL_GRID);
     for (int x = 0; x < 128; x++) px(fb, x, 118, COL_GRID);
     if (s_hl_valid) {
         char name[14];
@@ -647,11 +639,11 @@ void map_system_draw(uint16_t *fb) {
 
     char buf[36];
     snprintf(buf, sizeof buf, "%s SYSTEM", si->name);
-    craft_font_draw(fb, buf, 2, 2, COL_TITLE);
-    for (int x = 0; x < 128; x++) px(fb, x, 9, COL_GRID);
+    eui_textclip(fb, buf, 2, 126, 1, COL_TITLE);
+    for (int x = 0; x < 128; x++) px(fb, x, 13, COL_GRID);
 
     /* Schematic strip: star at left, planets by orbit order. */
-    int strip_y = 22;
+    int strip_y = 24;
     /* Star. */
     for (int dy = -4; dy <= 4; dy++)
         for (int dx = -4; dx <= 4; dx++)

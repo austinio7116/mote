@@ -8,6 +8,7 @@
 #include "ui_icons.h"
 #include "econ.h"
 #include "craft_font.h"
+#include "elite_ui.h"
 #include <stdio.h>
 
 #define COL_BG    RGB565C(  6,  10,  20)

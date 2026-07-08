@@ -11,6 +11,7 @@
 #include "elite_platform.h"
 #include "elite_input.h"
 #include "craft_font.h"
+#include "elite_ui.h"
 #include <string.h>
 
 #define COL_HDR  RGB565C(200, 210, 225)

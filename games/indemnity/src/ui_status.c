@@ -16,6 +16,7 @@
 #include "ui_detail.h"
 #include "econ.h"
 #include "craft_font.h"
+#include "elite_ui.h"
 #include "elite_platform.h"
 #include <stdio.h>
 #include <stdarg.h>
@@ -315,13 +316,13 @@ void status_draw(uint16_t *fb) {
 #endif
 
     char buf[24];
-    craft_font_draw(fb, "SHIP STATUS", 2, 2, COL_HDR);
+    eui_text(fb, "SHIP STATUS", 2, 1, COL_HDR);
     snprintf(buf, sizeof buf, "%dCR", g_player.credits);
-    craft_font_draw(fb, buf, 128 - craft_font_width(buf) - 2, 2, COL_CRED);
-    for (int x = 0; x < 128; x++) fb[9 * ELITE_FB_W + x] = COL_GRID;
+    craft_font_draw(fb, buf, 128 - craft_font_width(buf) - 2, 3, COL_CRED);
+    for (int x = 0; x < 128; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
     build_rows();
-    int y = 13;
+    int y = 15;
     for (int r = s_scroll; r < s_n_rows && y < 117; r++, y += 8) {
         const Row *rw = &s_rows[r];
         if (rw->kind == RK_BAR) {
