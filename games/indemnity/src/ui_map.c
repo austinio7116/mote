@@ -694,7 +694,7 @@ void map_system_draw(uint16_t *fb) {
     /* POI list with cursor — readable rows, cursor-follow scroll + scrollbar
        (scan strip carries the full intel for the selected POI below). */
     int y0 = 36, rh = 11;
-    int vis = (92 - y0) / rh; if (vis < 1) vis = 1;   /* ~5 rows */
+    int vis = (81 - y0) / rh; if (vis < 1) vis = 1;   /* 4 rows — leaves room for the readable scan */
     if (s_cursor < s_list_scroll)        s_list_scroll = s_cursor;
     if (s_cursor >= s_list_scroll + vis) s_list_scroll = s_cursor - vis + 1;
     if (s_npois > vis && s_list_scroll > s_npois - vis) s_list_scroll = s_npois - vis;
@@ -725,7 +725,7 @@ void map_system_draw(uint16_t *fb) {
     /* Scan strip: live intel for the cursor POI. Belts are certain
      * (persistent geography); pirates/salvage are odds. */
     if (s_npois > 0) {
-        for (int x = 0; x < 128; x++) px(fb, x, 96, COL_GRID);
+        for (int x = 0; x < 128; x++) px(fb, x, 84, COL_GRID);
         PoiIntel in2;
         elite_game_poi_intel(&s_pois[s_cursor], &in2);
         const SystemInfo *si2 = system_info();
@@ -747,24 +747,22 @@ void map_system_draw(uint16_t *fb) {
         } else {
             snprintf(buf, sizeof buf, "NAV BEACON");
         }
-        craft_font_draw(fb, buf, 2, 99, COL_TXT);
-        /* line 2: rocks + danger odds */
+        eui_textclip(fb, buf, 2, in2.distress ? 78 : 126, 87, COL_TXT);
+        if (in2.distress)
+            eui_textr(fb, "DISTRESS!", 126, 87, RGB565C(255, 90, 70));
+        /* line 2: rocks + danger odds, readable */
         const char *pir = in2.pirate_pct == 0 ? "NONE"
                         : in2.pirate_pct < 30 ? "LOW"
                         : in2.pirate_pct < 60 ? "MED" : "HIGH";
-        snprintf(buf, sizeof buf, "%s PIRATE:%s SALV:%d%%",
-                 in2.belt ? "BELT!" : "ROCKS:-", pir,
-                 (int)in2.debris_pct);
-        craft_font_draw(fb, buf, 2, 108,
-                        in2.belt ? RGB565C(255, 200, 90) : COL_DIM);
-        if (in2.distress)
-            craft_font_draw(fb, "DISTRESS CALL!",
-                            128 - craft_font_width("DISTRESS CALL!") - 2,
-                            99, RGB565C(255, 90, 70));
+        if (in2.belt) eui_text(fb, "BELT", 2, 99, RGB565C(255, 200, 90));
+        snprintf(buf, sizeof buf, "PIR:%s", pir);
+        eui_text(fb, buf, in2.belt ? 44 : 2, 99, COL_DIM);
+        snprintf(buf, sizeof buf, "SLV:%d%%", (int)in2.debris_pct);
+        eui_textr(fb, buf, 126, 99, COL_DIM);
     }
 
-    for (int x = 0; x < 128; x++) px(fb, x, 118, COL_GRID);
+    for (int x = 0; x < 128; x++) px(fb, x, 117, COL_GRID);
     { char h[36]; snprintf(h, sizeof h, "%s:SUPERCRUISE %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 121, COL_TXT); }
+      craft_font_draw(fb, h, 2, 120, COL_TXT); }
 }

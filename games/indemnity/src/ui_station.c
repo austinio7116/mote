@@ -1630,7 +1630,7 @@ static void draw_shipyard(uint16_t *fb) {
           plat_menu_btn(MB_A), plat_menu_btn(MB_INFO), plat_menu_btn(MB_B));
       else snprintf(h, sizeof h, "%s:BUY %s:DETAIL %s:BACK",
           plat_menu_btn(MB_A), plat_menu_btn(MB_INFO), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 118, COL_DIM); }
+      craft_font_draw(fb, h, 2, 120, COL_DIM); }
     if (s_yard_confirm) {
         int idx = s_yard_confirm - 1;
         int econ = system_info()->stations[s_station].econ;
@@ -2250,7 +2250,7 @@ void station_draw(uint16_t *fb) {
     }
 
     if (s_screen == SCR_HOME) fill_with_pane(fb, COL_BG, 10, 119);
-    else if (s_screen == SCR_SHIPYARD) fill_with_pane(fb, COL_BG, 10, 95);
+    else if (s_screen == SCR_SHIPYARD) fill_with_pane(fb, COL_BG, 10, 82);   /* 3D pane ends at the spec separator */
     else fill(fb, COL_BG);
     if (s_screen == SCR_MARKET) draw_market(fb);
     else if (s_screen == SCR_SHIPYARD) draw_shipyard(fb);
