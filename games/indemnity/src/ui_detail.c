@@ -271,12 +271,6 @@ static uint16_t cmp_col(float nv, float cv) {
     return RGB565C(255, 75, 60);
 }
 
-/* Scroll offset for the hull spec column (driven by the shipyard detail's
-   up/down; the sheet clamps the upper bound once it knows the row count). */
-static int s_hull_scroll;
-void detail_hull_scroll(int d) { s_hull_scroll += d; if (s_hull_scroll < 0) s_hull_scroll = 0; }
-void detail_hull_scroll_reset(void) { s_hull_scroll = 0; }
-
 void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
                       const char *footer) {
     /* Fill everything EXCEPT a top-right box, where the live 3D ship renders.
