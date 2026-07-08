@@ -41,7 +41,7 @@ size_t r3d_fx_parts_bytes(void);  void r3d_fx_set_parts(void *p);
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("indemnity", "austinio7116");
-MOTE_GAME_VERSION("1.1.0");
+MOTE_GAME_VERSION("1.2.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
