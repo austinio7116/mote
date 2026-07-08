@@ -1981,72 +1981,42 @@ static void draw_bar(uint16_t *fb) {
 }
 
 /* DATABASE: re-read unlocked lore fragments (events OP_LORE bits). */
-static int codex_wrap(uint16_t *fb, const char *text, int x0, int x1,
-                      int y, uint16_t col) {
-    int maxc = (x1 - x0) / CRAFT_FONT_CELL_W;
-    const char *p = text;
-    char line[34];
-    while (*p && y < 114) {
-        int n = 0, sp = -1;
-        while (p[n] && n < maxc && n < (int)sizeof line - 1) {
-            if (p[n] == ' ') sp = n;
-            n++;
-        }
-        if (p[n] && sp > 0) n = sp;
-        memcpy(line, p, n);
-        line[n] = 0;
-        craft_font_draw(fb, line, x0, y, col);
-        y += 7;
-        p += n;
-        while (*p == ' ') p++;
-    }
-    return y;
-}
-
 static void draw_codex(uint16_t *fb) {
-    draw_header(fb);
     int seen = 0;
     for (int i = 0; i < k_n_lore; i++)
         if (events_lore_seen(i)) seen++;
 
-    if (s_detail && events_lore_seen(s_cursor)) {
-        craft_font_draw(fb, k_lore[s_cursor].title, 2, 12, COL_HDR);
-        hl(fb, 19, COL_GRID);
-        codex_wrap(fb, k_lore[s_cursor].body, 2, 126, 26, COL_TXT);
-        hl(fb, 118, COL_GRID);
+    if (s_detail && events_lore_seen(s_cursor)) {   /* article: title owns the header row */
+        eui_text(fb, k_lore[s_cursor].title, 2, 1, COL_HDR);
+        hl(fb, 13, COL_GRID);
+        eui_wrap(fb, k_lore[s_cursor].body, 2, 126, 16, 115, COL_TXT);
+        hl(fb, 116, COL_GRID);
         { char h[16]; snprintf(h, sizeof h, "%s:BACK", plat_menu_btn(MB_B));
-          craft_font_draw(fb, h, 2, 121, COL_DIM); }
+          eui_text(fb, h, 2, 118, COL_DIM); }
         return;
     }
 
-    { char buf[24];
-      snprintf(buf, sizeof buf, "DATABASE  %d/%d", seen, k_n_lore);
-      craft_font_draw(fb, buf, 2, 12, COL_DIM); }
-    hl(fb, 19, COL_GRID);
-    if (seen == 0)
-        craft_font_draw(fb, "NO RECORDS DECRYPTED", 2, 30, COL_DIM);
-    /* the archive outgrew the screen: 10 visible rows, cursor-follow */
-    const int CODEX_ROWS = 10;
+    draw_header(fb);
+    /* Header shows the station + credits; the archive count rides the footer.
+       Readable, height-filling scroll window (was a fixed 10-row bitmap list). */
+    int y0 = 15, lh;
+    int rows = eui_fit(116 - y0, k_n_lore, &lh);
     if (s_cursor < s_scroll) s_scroll = s_cursor;
-    if (s_cursor >= s_scroll + CODEX_ROWS)
-        s_scroll = s_cursor - CODEX_ROWS + 1;
-    for (int r = 0; r < CODEX_ROWS && s_scroll + r < k_n_lore; r++) {
-        int i = s_scroll + r;
-        int y = 26 + r * 9;
+    if (s_cursor >= s_scroll + rows) s_scroll = s_cursor - rows + 1;
+    if (k_n_lore > rows && s_scroll > k_n_lore - rows) s_scroll = k_n_lore - rows;
+    if (s_scroll < 0) s_scroll = 0;
+    for (int r = 0; r < rows && s_scroll + r < k_n_lore; r++) {
+        int i = s_scroll + r, y = y0 + r * lh;
         bool unlocked = events_lore_seen(i);
-        if (i == s_cursor)
-            craft_font_draw(fb, ">", 2, y, unlocked ? COL_TXT : COL_DIM);
-        craft_font_draw(fb, unlocked ? k_lore[i].title : "- ENCRYPTED -",
-                        8, y,
-                        unlocked ? (i == s_cursor ? COL_TXT : COL_HDR)
-                                 : COL_GRID);
+        uint16_t c = unlocked ? (i == s_cursor ? COL_TXT : COL_HDR) : COL_GRID;
+        if (i == s_cursor) eui_text(fb, ">", 2, y, unlocked ? COL_TXT : COL_DIM);
+        eui_text(fb, unlocked ? k_lore[i].title : "- ENCRYPTED -", 11, y, c);
     }
-    if (s_scroll + CODEX_ROWS < k_n_lore)
-        craft_font_draw(fb, "...", 8, 26 + CODEX_ROWS * 9, COL_DIM);
-    hl(fb, 118, COL_GRID);
-    { char h[28]; snprintf(h, sizeof h, "%s:READ %s:BACK",
-        plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 121, COL_DIM); }
+    eui_scrollbar(fb, 125, y0, 116 - y0, k_n_lore, rows, s_scroll, COL_TXT, COL_GRID);
+    hl(fb, 116, COL_GRID);
+    { char h[36]; snprintf(h, sizeof h, "%d/%d  %s:READ %s:BACK",
+        seen, k_n_lore, plat_menu_btn(MB_A), plat_menu_btn(MB_B));
+      eui_text(fb, h, 2, 118, COL_DIM); }
 }
 
 void station_draw(uint16_t *fb) {

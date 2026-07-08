@@ -4,6 +4,8 @@
 #include "elite_engine.h"   /* extern const MoteApi *g_em (engine jump table) */
 #include "mote_api.h"
 #include "mote_build.h"     /* mote_ftext / mote_ftextc / mote_fontw */
+#include <string.h>
+#include <stdio.h>
 
 static const MoteFont *g_body;   /* MED ~11px (1.5x) — labels/values/list rows */
 static const MoteFont *g_big;    /* LARGE ~15px (2x)  — panel headers          */
@@ -65,6 +67,38 @@ int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scro
     }
     eui_scrollbar(fb, 125, y0, y1 - y0, n, rows, scroll, sel, dim);
     return scroll;
+}
+
+int eui_wrap(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col){
+    eui_bind();
+    int maxw = x1 - x0, lh = eui_lineh();
+    char line[64]; line[0] = 0;
+    const char *p = text;
+    while (*p && y < ymax){
+        while (*p == ' ') p++;                     /* eat run of spaces */
+        const char *w0 = p;
+        while (*p && *p != ' ' && *p != '\n') p++; /* one word [w0,p) */
+        int wl = (int)(p - w0);
+        if (wl > 0){
+            char cand[80];
+            int ll = (int)strlen(line);
+            if (wl > (int)sizeof line - 1) wl = sizeof line - 1;
+            if (ll == 0) snprintf(cand, sizeof cand, "%.*s", wl, w0);
+            else         snprintf(cand, sizeof cand, "%s %.*s", line, wl, w0);
+            if (ll > 0 && eui_textw(cand) > maxw){ /* word overflows: flush, start anew */
+                eui_text(fb, line, x0, y, col); y += lh;
+                snprintf(line, sizeof line, "%.*s", wl, w0);
+            } else {
+                snprintf(line, sizeof line, "%s", cand);
+            }
+        }
+        if (*p == '\n'){                            /* hard break */
+            if (line[0]){ eui_text(fb, line, x0, y, col); y += lh; line[0] = 0; }
+            p++;
+        }
+    }
+    if (line[0] && y < ymax){ eui_text(fb, line, x0, y, col); y += lh; }
+    return y;
 }
 
 void eui_scrollbar(uint16_t *fb, int bx, int y0, int rows_px, int n, int rows, int scroll,

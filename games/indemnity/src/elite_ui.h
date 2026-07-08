@@ -19,6 +19,11 @@ void eui_textc(uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* c
 void eui_textr(uint16_t *fb, const char *s, int xr, int y, uint16_t col);   /* right edge at xr */
 void eui_big  (uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* large centered header */
 
+/* Word-wrap `text` into the column [x0,x1) starting at y, one body line per row
+ * (pitch = eui_lineh()). Breaks on spaces, honours '\n'. Stops before ymax so it
+ * never runs into a footer. Returns the y just past the last line drawn. */
+int  eui_wrap (uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col);
+
 /* A scrollable vertical menu list drawn between y0 and y1 at left margin x. Draws a
  * caret on `cursor`, keeps it visible, and draws a scrollbar on the right when the
  * list is taller than the window. Returns the (possibly adjusted) scroll offset —
