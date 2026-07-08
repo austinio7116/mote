@@ -49,6 +49,7 @@ static Screen s_screen;
 static int s_station;
 static int s_cursor;
 static int s_home_scroll;   /* station-hub menu scroll offset (readable font -> scrolling) */
+static int s_codex_scroll;  /* codex article body scroll (long lore -> up/down) */
 static int s_scroll;
 static int s_bought[N_GOODS];     /* session purchases (depletes stock) */
 static CraftRawButtons s_prev;
@@ -1341,12 +1342,14 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
     case SCR_CODEX: {
         /* Unlocked entries are selectable; locked rows show as ???. */
         if (s_detail) {
+            if (up && s_codex_scroll > 0) s_codex_scroll--;   /* scroll the article */
+            if (down) s_codex_scroll++;                        /* draw clamps upper bound */
             if (back || a_edge) s_detail = 0;
             break;
         }
         if (up && s_cursor > 0) s_cursor--;
         if (down && s_cursor < k_n_lore - 1) s_cursor++;
-        if (a_edge && events_lore_seen(s_cursor)) s_detail = 1;
+        if (a_edge && events_lore_seen(s_cursor)) { s_detail = 1; s_codex_scroll = 0; }
         if (back) { s_detail = 0; s_screen = SCR_HOME; s_cursor = 6; }
         break;
     }
@@ -2074,9 +2077,16 @@ static void draw_codex(uint16_t *fb) {
     if (s_detail && events_lore_seen(s_cursor)) {   /* article: title owns the header row */
         eui_text(fb, k_lore[s_cursor].title, 2, 1, COL_HDR);
         hl(fb, 13, COL_GRID);
-        eui_wrap(fb, k_lore[s_cursor].body, 2, 126, 16, 115, COL_TXT);
+        const char *body = k_lore[s_cursor].body;
+        int vis = (115 - 16) / eui_lineh();
+        int total = eui_wrap_scroll(NULL, body, 2, 121, 16, 115, 0, COL_TXT);   /* measure */
+        if (s_codex_scroll > total - vis) s_codex_scroll = total - vis;
+        if (s_codex_scroll < 0) s_codex_scroll = 0;
+        eui_wrap_scroll(fb, body, 2, 121, 16, 115, s_codex_scroll, COL_TXT);
+        bool scr = total > vis;
+        if (scr) eui_scrollbar(fb, 125, 16, 115 - 16, total, vis, s_codex_scroll, COL_TXT, COL_GRID);
         hl(fb, 116, COL_GRID);
-        { char h[16]; snprintf(h, sizeof h, "%s:BACK", plat_menu_btn(MB_B));
+        { char h[24]; snprintf(h, sizeof h, "%s%s:BACK", scr ? "UD:READ  " : "", plat_menu_btn(MB_B));
           eui_text(fb, h, 2, 118, COL_DIM); }
         return;
     }
