@@ -2050,12 +2050,12 @@ static void draw_bar(uint16_t *fb) {
     uint32_t h = (uint32_t)(si->seed >> 20) ^ (uint32_t)(s_station * 131);
     h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
     static const char *k_chatter[6] = {
-        "\"PIRATES THICK OUT BY",
-        "\"DOMINION PATROLS ARE",
-        "\"SAW A DERELICT NEAR",
-        "\"FUEL PRICES CLIMBING",
-        "\"LOST A WING AT THE",
-        "\"KEEP YOUR SCANNER ON",
+        "\"PIRATES THICK OUT BY THE BEACON...\"",
+        "\"DOMINION PATROLS ARE EVERYWHERE...\"",
+        "\"SAW A DERELICT NEAR THE BEACON...\"",
+        "\"FUEL PRICES KEEP CLIMBING...\"",
+        "\"LOST A WING AT THE BEACON...\"",
+        "\"KEEP YOUR SCANNER ON OUT THERE...\"",
     };
     int best = 0, best_price = 999999;
     for (int g = 0; g < 16; g++) {
@@ -2068,7 +2068,7 @@ static void draw_bar(uint16_t *fb) {
     /* One readable body: rumour, trade tip, law status, faction reputation.
        Everything scrolls together so nothing is stuck in the unreadable font. */
     char body[400]; int p = 0;
-    p += snprintf(body + p, sizeof body - p, "%s THE BEACON...\"\n\n",
+    p += snprintf(body + p, sizeof body - p, "%s\n\n",
                   k_chatter[h % 6u]);
     p += snprintf(body + p, sizeof body - p, "TIP: %s IS CHEAP HERE\n\n",
                   k_goods[best].name);
