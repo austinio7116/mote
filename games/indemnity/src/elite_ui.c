@@ -126,6 +126,41 @@ const char *eui_wrapt(uint16_t *fb, const char *text, int x0, int x1, int y, int
     int oy = y; return wrap_core(fb, text, x0, x1, y, ymax, col, &oy);
 }
 
+int eui_wrap_scroll(uint16_t *fb, const char *text, int x0, int x1,
+                    int y0, int y1, int scroll, uint16_t col){
+    eui_bind();
+    int maxw = x1 - x0, lh = eui_lineh();
+    int vis = (y1 - y0) / lh; if (vis < 1) vis = 1;
+    char line[64]; line[0] = 0;
+    const char *p = text;
+    int idx = 0;
+#define EUI_EMIT() do {                                                     \
+        if (fb && idx >= scroll && idx < scroll + vis)                      \
+            eui_text(fb, line, x0, y0 + (idx - scroll) * lh, col);          \
+        idx++; line[0] = 0;                                                 \
+    } while (0)
+    while (*p){
+        while (*p == ' ') p++;
+        const char *w0 = p;
+        while (*p && *p != ' ' && *p != '\n') p++;
+        int wl = (int)(p - w0);
+        if (wl > 0){
+            char cand[80];
+            int ll = (int)strlen(line);
+            if (wl > (int)sizeof line - 1) wl = sizeof line - 1;
+            if (ll == 0) snprintf(cand, sizeof cand, "%.*s", wl, w0);
+            else         snprintf(cand, sizeof cand, "%s %.*s", line, wl, w0);
+            if (ll > 0 && eui_textw(cand) > maxw){ EUI_EMIT();
+                snprintf(line, sizeof line, "%.*s", wl, w0);
+            } else snprintf(line, sizeof line, "%s", cand);
+        }
+        if (*p == '\n'){ if (line[0]) EUI_EMIT(); p++; }
+    }
+    if (line[0]) EUI_EMIT();
+#undef EUI_EMIT
+    return idx;
+}
+
 void eui_scrollbar(uint16_t *fb, int bx, int y0, int rows_px, int n, int rows, int scroll,
                    uint16_t sel, uint16_t dim){
     if (n <= rows || !g_em || !g_em->draw_rect) return;

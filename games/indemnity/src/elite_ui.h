@@ -27,6 +27,11 @@ int  eui_wrap (uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, 
 /* Like eui_wrap but returns a pointer to the first character NOT drawn (the
    remainder that hit ymax) — chain a second column/region with it. */
 const char *eui_wrapt(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col);
+/* Word-wrap `text` into a scrollbox [x0,x1)×[y0,y1): draws only the lines in the
+   window [scroll, scroll+visible) and returns the TOTAL line count (so the caller
+   can size a scrollbar and clamp scroll). Pass fb==NULL to measure without drawing. */
+int  eui_wrap_scroll(uint16_t *fb, const char *text, int x0, int x1,
+                     int y0, int y1, int scroll, uint16_t col);
 
 /* A scrollable vertical menu list drawn between y0 and y1 at left margin x. Draws a
  * caret on `cursor`, keeps it visible, and draws a scrollbar on the right when the

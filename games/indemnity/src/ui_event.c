@@ -35,6 +35,7 @@ static char s_body[300];
 static char s_result[300];
 static int  s_cursor;
 static int  s_phase;          /* 0 choosing, 1 aftermath */
+static int  s_body_scroll;    /* readable body scrollbox offset, in lines */
 static CraftRawButtons s_prev;
 
 static bool enabled(int i) { return events_choice_enabled(s_ev, i); }
@@ -51,6 +52,7 @@ void ui_event_open(const Event *ev) {
     s_result[0] = 0;
     s_cursor = first_enabled();
     s_phase = 0;
+    s_body_scroll = 0;
     memset(&s_prev, 1, sizeof s_prev);     /* debounce the opening press */
 }
 
@@ -58,19 +60,27 @@ bool ui_event_tick(const CraftRawButtons *btn, float dt) {
     (void)dt;
     bool up = btn->up && !s_prev.up;
     bool down = btn->down && !s_prev.down;
+    bool left = btn->left && !s_prev.left;
+    bool right = btn->right && !s_prev.right;
     bool a = btn->a && !s_prev.a;
     bool any_close = a || (btn->b && !s_prev.b) || (btn->menu && !s_prev.menu);
     s_prev = *btn;
     if (!s_ev) return true;
 
+    /* Up/Down scroll the readable body scrollbox in either phase (the draw
+       clamps the upper bound once it knows the line count). */
+    if (up && s_body_scroll > 0) s_body_scroll--;
+    if (down) s_body_scroll++;
+
     if (s_phase == 1) {
         if (any_close) { s_ev = NULL; return true; }
         return false;
     }
-    if (up)
+    /* Choices are picked with Left/Right so Up/Down stay free for scrolling. */
+    if (left)
         for (int i = s_cursor - 1; i >= 0; i--)
             if (enabled(i)) { s_cursor = i; break; }
-    if (down)
+    if (right)
         for (int i = s_cursor + 1; i < s_ev->n_choices; i++)
             if (enabled(i)) { s_cursor = i; break; }
     if (a && enabled(s_cursor)) {
@@ -78,33 +88,35 @@ bool ui_event_tick(const CraftRawButtons *btn, float dt) {
         const char *raw = (t >= 0) ? s_ev->texts[t] : "...";
         events_expand(raw, s_result, sizeof s_result);
         s_phase = 1;
+        s_body_scroll = 0;              /* aftermath text starts at the top */
         plat_rumble(0.2f, 0.06f);
     }
     return false;
 }
 
-/* Compact-font word wrap; returns the first char NOT drawn (tail), so it can be
-   chained beside→below the portrait just like eui_wrapt. Used as the no-truncation
-   fallback when a long body won't fit in the readable font. */
-static const char *body_compact(uint16_t *fb, const char *text, int x0, int x1,
-                                int y, int ymax, uint16_t col) {
-    int maxc = (x1 - x0) / CRAFT_FONT_CELL_W; if (maxc < 4) maxc = 4;
-    const char *p = text; char line[40];
-    while (*p) {
-        while (*p == ' ') p++;
-        if (!*p) break;
-        if (y + 7 > ymax) return p;
-        int n = 0, last_sp = -1;
-        while (p[n] && p[n] != '\n' && n < maxc && n < (int)sizeof line - 1) {
-            if (p[n] == ' ') last_sp = n; n++;
-        }
-        if (p[n] && p[n] != '\n' && last_sp > 0) n = last_sp;
-        memcpy(line, p, n); line[n] = 0;
-        if (fb) craft_font_draw(fb, line, x0, y, col);
-        y += 7; p += n;
-        if (*p == '\n') p++;
+/* Draw the event body in the readable font: a few fixed lines beside the
+   portrait, then a scrollbox for the remainder (up/down scroll + scrollbar).
+   Clamps s_body_scroll and returns true when the box actually scrolls. */
+static bool draw_body(uint16_t *fb, const char *text, uint16_t bcol, bool face,
+                      int ty, int body_ymax) {
+    int lh = eui_lineh();
+    int bside_x = 4 + PORTRAIT + 4, below_y = ty + PORTRAIT + 2;
+    const char *tail = text;
+    if (face) tail = eui_wrapt(fb, text, bside_x, 124, ty, below_y, bcol);
+    if (!tail) tail = "";
+    int sb_y0 = face ? below_y : ty;
+    if (sb_y0 >= body_ymax) return false;
+    int total = eui_wrap_scroll(NULL, tail, 4, 121, sb_y0, body_ymax, 0, bcol);
+    int vis = (body_ymax - sb_y0) / lh; if (vis < 1) vis = 1;
+    if (s_body_scroll > total - vis) s_body_scroll = total - vis;
+    if (s_body_scroll < 0) s_body_scroll = 0;
+    eui_wrap_scroll(fb, tail, 4, 121, sb_y0, body_ymax, s_body_scroll, bcol);
+    if (total > vis) {
+        eui_scrollbar(fb, 123, sb_y0, body_ymax - sb_y0, total, vis, s_body_scroll,
+                      COL_TXT, COL_GRID);
+        return true;
     }
-    return p;
+    return false;
 }
 
 void ui_event_draw(uint16_t *fb) {
@@ -123,44 +135,18 @@ void ui_event_draw(uint16_t *fb) {
     eui_textc(fb, s_ev->title, 64, 1, COL_HDR);
     for (int x = 2; x < 126; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
-    /* portrait + body, in the readable font */
+    /* portrait */
     int ty = 16;
     bool face = s_ev->npc_kind != NK_NONE;
     if (face)
         face_draw(fb, 4, ty, PORTRAIT, events_npc_seed(), s_ev->npc_kind);
     const char *text = s_phase ? s_result : s_body;
     uint16_t bcol = s_phase ? COL_TXT : COL_BODY;
-    /* Body must stop above the bottom block (choices, or the receipt/continue). */
     int lh = eui_lineh();
-    int body_ymax = (s_phase == 1) ? 116 : 116 - lh * s_ev->n_choices - 2;
-    int bside_x = 4 + PORTRAIT + 4, below_y = ty + PORTRAIT + 2;
-    /* Does the whole body fit in the readable font? Measure (fb==NULL) first;
-       if not, render it in the compact font so nothing is truncated. */
-    const char *m = face ? eui_wrapt(NULL, text, bside_x, 124, ty, below_y, bcol) : text;
-    if (m && *m) m = eui_wrapt(NULL, m, 4, 124, face ? below_y : ty, body_ymax, bcol);
-    bool aa_fits = !(m && *m);
-    if (aa_fits) {
-        if (face) {
-            const char *tail = eui_wrapt(fb, text, bside_x, 124, ty, below_y, bcol);
-            if (tail && *tail) eui_wrap(fb, tail, 4, 124, below_y, body_ymax, bcol);
-        } else {
-            eui_wrap(fb, text, 4, 124, ty, body_ymax, bcol);
-        }
-    } else {                                    /* compact fallback — reads it all */
-        if (face) {
-            const char *tail = body_compact(fb, text, bside_x, 124, ty, ty + PORTRAIT, bcol);
-            if (tail && *tail) body_compact(fb, tail, 4, 124, below_y, body_ymax, bcol);
-        } else {
-            body_compact(fb, text, 4, 124, ty, body_ymax, bcol);
-        }
-    }
-
-    /* footer */
-    for (int x = 2; x < 126; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
 
     if (s_phase == 1) {
-        /* The receipt: every mechanical change, spelled out — rep and
-         * fuel moves were invisible before (user req). */
+        /* The receipt: every mechanical change, spelled out — build it first so
+         * the readable result text can scroll in the space above it. */
         const EvReceipt *r = events_receipt();
         char ln[8][28];
         uint16_t lc[8];
@@ -219,17 +205,25 @@ void ui_event_draw(uint16_t *fb) {
             lc[n++] = COL_WARN;
         }
         if (n > 6) n = 6;
-        int ry = 116 - 7 * n;
-        for (int i = 0; i < n; i++)
-            craft_font_draw(fb, ln[i], 6, ry + 7 * i, lc[i]);
+        int rtop = (n > 0) ? 116 - 7 * n : 116;
+        int body_ymax = (n > 0) ? rtop - 3 : 114;
+        bool scr = draw_body(fb, text, bcol, face, ty, body_ymax);
 
-        char h[20];
-        snprintf(h, sizeof h, "%s:CONTINUE", plat_menu_btn(MB_A));
+        for (int x = 2; x < 126; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
+        for (int i = 0; i < n; i++)
+            craft_font_draw(fb, ln[i], 6, rtop + 7 * i, lc[i]);
+        char h[28];
+        snprintf(h, sizeof h, "%s%s:CONTINUE", scr ? "UD:READ  " : "",
+                 plat_menu_btn(MB_A));
         craft_font_draw(fb, h, 4, 121, COL_DIM);
         return;
     }
 
-    /* choices, bottom-anchored, in the readable font */
+    /* phase 0: body scrollbox above bottom-anchored choices */
+    int body_ymax = 116 - lh * s_ev->n_choices - 2;
+    bool scr = draw_body(fb, text, bcol, face, ty, body_ymax);
+
+    for (int x = 2; x < 126; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
     int y0 = 116 - lh * s_ev->n_choices;
     for (int i = 0; i < s_ev->n_choices; i++) {
         const Choice *ch = &s_ev->choices[i];
@@ -248,8 +242,9 @@ void ui_event_draw(uint16_t *fb) {
         }
     }
     {
-        char h[16];
-        snprintf(h, sizeof h, "%s:SELECT", plat_menu_btn(MB_A));
+        char h[28];
+        snprintf(h, sizeof h, "%sLR:PICK %s:SELECT", scr ? "UD:READ  " : "",
+                 plat_menu_btn(MB_A));
         craft_font_draw(fb, h, 4, 121, COL_DIM);
     }
 }
