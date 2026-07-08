@@ -1529,38 +1529,29 @@ static void draw_market(uint16_t *fb) {
         }
     }
 
-    /* Detail strip for the selection — the CRITICAL numbers, large. Buy/sell
-       up top in the big font (coloured: cyan bargain / gold pays-high), stock
-       and held below in the readable font. */
+    /* Detail strip for the selection — the two numbers not in the row: STOCK
+       and HELD, shown LARGE. (Buy/sell already sit on the row itself.) */
     hl(fb, 79, COL_GRID);
     {
         int i = s_cursor;
         int stock = econ_stock(si, s_station, i) - s_bought[i]; if (stock < 0) stock = 0;
-        int buy = econ_price(si, s_station, i, true);
-        int sell = econ_price(si, s_station, i, false);
-        int base = (int)k_goods[i].base;
-        eui_text(fb, "BUY", 3, 84, COL_DIM);
-        if (buy > 0) { snprintf(buf, sizeof buf, "%d", buy);
-                       eui_textbig(fb, buf, 26, 81, mkt_buy_col(buy, base, COL_TXT)); }
-        else eui_textbig(fb, "--", 26, 81, COL_GRID);
-        eui_text(fb, "SELL", 70, 84, COL_DIM);
-        snprintf(buf, sizeof buf, "%d", sell);
-        eui_textbig(fb, buf, 96, 81, mkt_sell_col(sell, base, COL_TXT));
-        snprintf(buf, sizeof buf, "STOCK %d", stock);
-        eui_text(fb, buf, 3, 97, COL_DIM);
-        snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
-        eui_text(fb, buf, 70, 97, g_player.cargo[i] ? COL_CRED : COL_DIM);
+        eui_text(fb, "STOCK", 4, 86, COL_DIM);
+        snprintf(buf, sizeof buf, "%d", stock);
+        eui_textbig(fb, buf, 46, 82, COL_TXT);
+        eui_text(fb, "HELD", 76, 86, COL_DIM);
+        snprintf(buf, sizeof buf, "%d", g_player.cargo[i]);
+        eui_textbig(fb, buf, 108, 82, g_player.cargo[i] ? COL_CRED : COL_TXT);
     }
 
     /* Footer: list position + hold + prompts. */
-    hl(fb, 107, COL_GRID);
+    hl(fb, 100, COL_GRID);
     snprintf(buf, sizeof buf, "%d/%d", s_cursor + 1, N_GOODS);
-    craft_font_draw(fb, buf, 2, 110, COL_DIM);
+    craft_font_draw(fb, buf, 2, 103, COL_DIM);
     { char h[24]; snprintf(h, sizeof h, "HOLD %d/%d", player_cargo_total(), player_cargo_cap());
-      craft_font_draw(fb, h, 40, 110, COL_DIM); }
+      craft_font_draw(fb, h, 40, 103, COL_DIM); }
     { char h[20]; snprintf(h, sizeof h, "%s:TRADE  %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 119, COL_DIM); }
+      craft_font_draw(fb, h, 2, 112, COL_DIM); }
 
     if (s_mkt_open) {
         static const char *const it[4] = { "BUY", "BUY MAX", "SELL", "SELL ALL" };
