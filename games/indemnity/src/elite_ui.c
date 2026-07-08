@@ -96,7 +96,7 @@ static const char *wrap_core(uint16_t *fb, const char *text, int x0, int x1,
             else          snprintf(cand, sizeof cand, "%s %.*s", line, wl, w0);
             if (ll > 0 && eui_textw(cand) > maxw){ /* word overflows: flush, start anew */
                 if (y + lh > ymax){ *out_y = y; return line_start; }
-                eui_text(fb, line, x0, y, col); y += lh;
+                if (fb) eui_text(fb, line, x0, y, col); y += lh;   /* fb==NULL: measure only */
                 snprintf(line, sizeof line, "%.*s", wl, w0);
                 line_start = w0;
             } else {
@@ -106,14 +106,14 @@ static const char *wrap_core(uint16_t *fb, const char *text, int x0, int x1,
         if (*p == '\n'){                            /* hard break */
             if (line[0]){
                 if (y + lh > ymax){ *out_y = y; return line_start; }
-                eui_text(fb, line, x0, y, col); y += lh; line[0] = 0;
+                if (fb) eui_text(fb, line, x0, y, col); y += lh; line[0] = 0;
             }
             p++; line_start = p;
         }
     }
     if (line[0]){
         if (y + lh > ymax){ *out_y = y; return line_start; }
-        eui_text(fb, line, x0, y, col); y += lh;
+        if (fb) eui_text(fb, line, x0, y, col); y += lh;
     }
     *out_y = y;
     return p;

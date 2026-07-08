@@ -83,6 +83,30 @@ bool ui_event_tick(const CraftRawButtons *btn, float dt) {
     return false;
 }
 
+/* Compact-font word wrap; returns the first char NOT drawn (tail), so it can be
+   chained beside→below the portrait just like eui_wrapt. Used as the no-truncation
+   fallback when a long body won't fit in the readable font. */
+static const char *body_compact(uint16_t *fb, const char *text, int x0, int x1,
+                                int y, int ymax, uint16_t col) {
+    int maxc = (x1 - x0) / CRAFT_FONT_CELL_W; if (maxc < 4) maxc = 4;
+    const char *p = text; char line[40];
+    while (*p) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        if (y + 7 > ymax) return p;
+        int n = 0, last_sp = -1;
+        while (p[n] && p[n] != '\n' && n < maxc && n < (int)sizeof line - 1) {
+            if (p[n] == ' ') last_sp = n; n++;
+        }
+        if (p[n] && p[n] != '\n' && last_sp > 0) n = last_sp;
+        memcpy(line, p, n); line[n] = 0;
+        if (fb) craft_font_draw(fb, line, x0, y, col);
+        y += 7; p += n;
+        if (*p == '\n') p++;
+    }
+    return p;
+}
+
 void ui_event_draw(uint16_t *fb) {
     if (!s_ev) return;
 
@@ -109,15 +133,26 @@ void ui_event_draw(uint16_t *fb) {
     /* Body must stop above the bottom block (choices, or the receipt/continue). */
     int lh = eui_lineh();
     int body_ymax = (s_phase == 1) ? 116 : 116 - lh * s_ev->n_choices - 2;
-    if (face) {
-        /* Wrap beside the portrait first (reclaiming that band), then full
-           width below it — same idea as before but readable. */
-        const char *tail = eui_wrapt(fb, text, 4 + PORTRAIT + 4, 124, ty,
-                                     ty + PORTRAIT + 2, bcol);   /* fit 3 lines beside */
-        if (tail && *tail)
-            eui_wrap(fb, tail, 4, 124, ty + PORTRAIT + 2, body_ymax, bcol);
-    } else {
-        eui_wrap(fb, text, 4, 124, ty, body_ymax, bcol);
+    int bside_x = 4 + PORTRAIT + 4, below_y = ty + PORTRAIT + 2;
+    /* Does the whole body fit in the readable font? Measure (fb==NULL) first;
+       if not, render it in the compact font so nothing is truncated. */
+    const char *m = face ? eui_wrapt(NULL, text, bside_x, 124, ty, below_y, bcol) : text;
+    if (m && *m) m = eui_wrapt(NULL, m, 4, 124, face ? below_y : ty, body_ymax, bcol);
+    bool aa_fits = !(m && *m);
+    if (aa_fits) {
+        if (face) {
+            const char *tail = eui_wrapt(fb, text, bside_x, 124, ty, below_y, bcol);
+            if (tail && *tail) eui_wrap(fb, tail, 4, 124, below_y, body_ymax, bcol);
+        } else {
+            eui_wrap(fb, text, 4, 124, ty, body_ymax, bcol);
+        }
+    } else {                                    /* compact fallback — reads it all */
+        if (face) {
+            const char *tail = body_compact(fb, text, bside_x, 124, ty, ty + PORTRAIT, bcol);
+            if (tail && *tail) body_compact(fb, tail, 4, 124, below_y, body_ymax, bcol);
+        } else {
+            body_compact(fb, text, 4, 124, ty, body_ymax, bcol);
+        }
     }
 
     /* footer */
