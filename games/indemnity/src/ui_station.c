@@ -69,6 +69,8 @@ static Mission s_offers[MISSION_OFFERS];
 /* Bar encounter: rolled once per dock visit, on first BAR entry. */
 static const Event *s_bar_ev;
 static bool s_bar_rolled;
+static int  s_bar_scroll, s_bar_maxscroll;  /* readable body scrollbox */
+static bool s_bar_focus;                     /* false: scroll body; true: approach focused */
 
 /* Shipyard stock: each dockyard rolls its own 5 ships. */
 #define YARD_OFFERS 5
@@ -176,10 +178,11 @@ const Event *station_pending_event(void) {
     return ev;
 }
 
-/* True while the shipyard hull DETAIL sheet is open (not the kit view) — the
-   3D preview then tucks into a top-right box so the spec fills the screen. */
+/* True while a shipyard hull sheet is open (the DETAIL spec sheet OR the kit
+   loadout drill-down) — the 3D preview then tucks into a top-right box so the
+   readable spec / loadout fills the rest of the screen. */
 int station_hull_detail_view(void) {
-    return s_screen == SCR_SHIPYARD && s_detail && !s_kit_view;
+    return s_screen == SCR_SHIPYARD && s_detail;
 }
 
 int station_preview2(uint32_t *mesh_seed, int *class_hint) {
@@ -331,12 +334,14 @@ extern int turret_cal_for_seed(uint32_t seed);
  * the rotating 3D pane stays live. */
 static void detail_draw_kit(uint16_t *fb, int hull_id, uint32_t seed,
                             const char *foot) {
+    /* Fill everything EXCEPT the top-right box, where the live 3D hull renders
+       (station_hull_detail_view() now covers the kit page too). The readable
+       loadout list fills the width below it. */
     for (int yy = 0; yy < ELITE_FB_H; yy++) {
-        int xmax = (yy >= 10 && yy < 95) ? 64 : ELITE_FB_W;
+        int hi = (yy < 57) ? 63 : ELITE_FB_W;
         uint16_t *r = fb + yy * ELITE_FB_W;
-        for (int x = 0; x < xmax; x++) r[x] = COL_BG;
+        for (int x = 0; x < hi; x++) r[x] = COL_BG;
     }
-    for (int yy = 10; yy < 95; yy++) fb[yy * ELITE_FB_W + 64] = COL_GRID;
     const HullDef *h = &k_hulls[hull_id];
     static const char *qt[5] = { "SLV", "STD", "RNF", "MIL", "PRO" };
     static const char *cal[4] = { "STANDARD", "REINFORCED",
@@ -345,25 +350,31 @@ static void detail_draw_kit(uint16_t *fb, int hull_id, uint32_t seed,
     hull_kit_preview(hull_id, seed, kit);
     HullRoll rv; hull_roll(hull_id, seed, &rv);
     char buf[28];
-    int y = 4;
-    craft_font_draw(fb, "WEAPONS:", 2, y, COL_HDR); y += 9;
+
+    eui_text(fb, "LOADOUT", 2, 1, COL_HDR);
+    for (int x = 0; x < 61; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
+    eui_text(fb, "WEAPONS", 2, 16, COL_DIM);   /* section label beside the ship */
+
+    /* Full-width readable rows below the ship box: slot size, name, grade. */
+    for (int x = 0; x < ELITE_FB_W; x++) fb[57 * ELITE_FB_W + x] = COL_GRID;
+    int y = 61;
     for (int i = 0; i < rv.n_slots && i < HULL_SLOTS; i++) {
-        if (kit[i].in_use)
-            snprintf(buf, sizeof buf, "Z%d %s %s", rv.slot_size[i],
-                     k_weapons[kit[i].type].name, qt[kit[i].quality]);
-        else
-            snprintf(buf, sizeof buf, "Z%d EMPTY", rv.slot_size[i]);
-        craft_font_draw(fb, buf, 4, y,
-                        kit[i].in_use ? COL_TXT : COL_DIM);
-        y += 8;
+        snprintf(buf, sizeof buf, "Z%d", rv.slot_size[i]);
+        eui_text(fb, buf, 4, y, COL_DIM);
+        if (kit[i].in_use) {
+            eui_textclip(fb, k_weapons[kit[i].type].name, 30, 102, y, COL_TXT);
+            eui_textr(fb, qt[kit[i].quality], 124, y, COL_CRED);
+        } else {
+            eui_text(fb, "EMPTY", 30, y, COL_DIM);
+        }
+        y += 14;
     }
     if (h->has_turret) {
-        y += 3;
-        craft_font_draw(fb, "TURRET:", 2, y, COL_HDR); y += 9;
-        snprintf(buf, sizeof buf, "Z1 %s", cal[turret_cal_for_seed(seed)]);
-        craft_font_draw(fb, buf, 4, y, COL_TXT); y += 8;
+        eui_text(fb, "TUR", 4, y, COL_HDR);
+        eui_textclip(fb, cal[turret_cal_for_seed(seed)], 30, 124, y, COL_TXT);
+        y += 14;
     }
-    for (int x = 0; x < 64; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
+    for (int x = 0; x < ELITE_FB_W; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
     craft_font_draw(fb, foot, 2, 121, COL_DIM);
 }
 
@@ -1195,6 +1206,7 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
             }
             else if (s_cursor == 4) {
                 s_screen = SCR_BAR;
+                s_bar_scroll = 0; s_bar_focus = false;   /* start by reading */
                 if (!s_bar_rolled) {           /* one roll per dock visit */
                     s_bar_rolled = true;
                     s_bar_ev = events_roll_bar(system_info(), s_station);
@@ -1335,7 +1347,24 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
     }
 
     case SCR_BAR:
-        if (s_bar_ev && a_edge) { act = DOCK_EVENT; break; }
+        /* One vertical axis, like the event screen: Down scrolls the readable
+           body (rumour/tip/lawful/rep) to the bottom, then hands focus to the
+           APPROACH item; Up steps back and past the top returns to scrolling. */
+        if (s_bar_ev) {
+            if (s_bar_maxscroll <= 0) s_bar_focus = true;   /* nothing to read */
+            if (!s_bar_focus) {
+                if (down) { if (s_bar_scroll < s_bar_maxscroll) s_bar_scroll++;
+                            else s_bar_focus = true; }
+                if (up && s_bar_scroll > 0) s_bar_scroll--;
+            } else {
+                if (up && s_bar_maxscroll > 0) s_bar_focus = false;
+            }
+            if (a_edge && s_bar_focus) { act = DOCK_EVENT; break; }
+            if (back) { s_screen = SCR_HOME; s_cursor = 4; }
+            break;
+        }
+        if (up && s_bar_scroll > 0) s_bar_scroll--;
+        if (down && s_bar_scroll < s_bar_maxscroll) s_bar_scroll++;
         if (back || a_edge) { s_screen = SCR_HOME; s_cursor = 4; }
         break;
 
@@ -2014,18 +2043,10 @@ static void draw_missions(uint16_t *fb) {
 static void draw_bar(uint16_t *fb) {
     draw_header(fb);
     const SystemInfo *si = system_info();
-    char buf[64];
     int lh = eui_lineh();
-    /* Prose region (event + rumour + tip) fills the top in the readable font;
-       the black-market note and faction rep table stay compact, anchored below. */
-    const int PROSE_MAX = 80;
-    int y = 16;
-    if (s_bar_ev) {                 /* someone here wants a word */
-        eui_text(fb, ">", 2, y, COL_TXT);
-        eui_textclip(fb, s_bar_ev->title, 11, 126, y, COL_TXT);
-        y += lh + 2;
-    }
-    /* Rumours: seeded flavour + a genuine trade tip. */
+    bool have_ev = (s_bar_ev != NULL);
+
+    /* Seeded rumour + a genuine trade tip. */
     uint32_t h = (uint32_t)(si->seed >> 20) ^ (uint32_t)(s_station * 131);
     h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
     static const char *k_chatter[6] = {
@@ -2036,11 +2057,7 @@ static void draw_bar(uint16_t *fb) {
         "\"LOST A WING AT THE",
         "\"KEEP YOUR SCANNER ON",
     };
-    snprintf(buf, sizeof buf, "%s THE BEACON...\"", k_chatter[h % 6u]);
-    y = eui_wrap(fb, buf, 2, 126, y, PROSE_MAX, COL_DIM) + 3;
-    /* Trade tip: what this economy exports cheap. */
-    int best = 0;
-    int best_price = 999999;
+    int best = 0, best_price = 999999;
     for (int g = 0; g < 16; g++) {
         int p = econ_price(si, s_station, g, true);
         if (p > 0 && p * 100 / (k_goods[g].base + 1) < best_price) {
@@ -2048,23 +2065,44 @@ static void draw_bar(uint16_t *fb) {
             best = g;
         }
     }
-    snprintf(buf, sizeof buf, "TIP: %s IS CHEAP HERE", k_goods[best].name);
-    eui_wrap(fb, buf, 2, 126, y, PROSE_MAX, COL_TXT);
-    /* Compact status block, anchored above the footer. */
-    craft_font_draw(fb, econ_has_black_market(si) ? "BLACK MARKET: SEE MARKET"
-                                                  : "LAWFUL - NO BLACK MARKET",
-                    2, 82, econ_has_black_market(si) ? COL_ILL : COL_DIM);
-    int ry = 90;
-    for (int f = 0; f < N_FACTIONS; f++) {
-        snprintf(buf, sizeof buf, "%-10s REP %d", k_faction_names[f], g_rep[f]);
-        craft_font_draw(fb, buf, 2, ry, COL_DIM);
-        ry += 8;
+    /* One readable body: rumour, trade tip, law status, faction reputation.
+       Everything scrolls together so nothing is stuck in the unreadable font. */
+    char body[400]; int p = 0;
+    p += snprintf(body + p, sizeof body - p, "%s THE BEACON...\"\n\n",
+                  k_chatter[h % 6u]);
+    p += snprintf(body + p, sizeof body - p, "TIP: %s IS CHEAP HERE\n\n",
+                  k_goods[best].name);
+    p += snprintf(body + p, sizeof body - p, "%s\n\n",
+                  econ_has_black_market(si) ? "BLACK MARKET: SEE MARKET"
+                                            : "LAWFUL - NO BLACK MARKET");
+    for (int f = 0; f < N_FACTIONS && p < (int)sizeof body - 1; f++)
+        p += snprintf(body + p, sizeof body - p, "%s  REP %d\n",
+                      k_faction_names[f], g_rep[f]);
+
+    const int y0 = 16, HL_Y = 113;
+    int cy = HL_Y - lh - 1;                     /* the APPROACH item row */
+    int body_ymax = have_ev ? cy - 1 : HL_Y - 1;
+    int vis = (body_ymax - y0) / lh; if (vis < 1) vis = 1;
+    int total = eui_wrap_scroll(NULL, body, 2, 121, y0, body_ymax, 0, COL_HDR);
+    s_bar_maxscroll = (total > vis) ? total - vis : 0;
+    if (s_bar_scroll > s_bar_maxscroll) s_bar_scroll = s_bar_maxscroll;
+    if (s_bar_scroll < 0) s_bar_scroll = 0;
+    eui_wrap_scroll(fb, body, 2, 121, y0, body_ymax, s_bar_scroll, COL_HDR);
+    if (s_bar_maxscroll > 0)
+        eui_scrollbar(fb, 123, y0, body_ymax - y0, total, vis, s_bar_scroll,
+                      COL_CUR, COL_GRID);
+
+    if (have_ev) {                              /* bottom-anchored approach item */
+        bool foc = s_bar_focus;
+        if (foc) eui_text(fb, ">", 2, cy, COL_TXT);
+        eui_textclip(fb, s_bar_ev->title, 11, 122, cy, foc ? COL_TXT : COL_DIM);
     }
-    hl(fb, 113, COL_GRID);
-    { char hh[32];
-      if (s_bar_ev) snprintf(hh, sizeof hh, "%s:APPROACH %s:BACK",
-                             plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      else snprintf(hh, sizeof hh, "%s:BACK", plat_menu_btn(MB_B));
+    hl(fb, HL_Y, COL_GRID);
+    { char hh[40];
+      const char *ud = s_bar_maxscroll > 0 ? "UD:READ " : "";
+      if (have_ev) snprintf(hh, sizeof hh, "%s%s:APPROACH %s:BACK",
+                            ud, plat_menu_btn(MB_A), plat_menu_btn(MB_B));
+      else snprintf(hh, sizeof hh, "%s%s:BACK", ud, plat_menu_btn(MB_B));
       eui_text(fb, hh, 2, 115, COL_DIM); }
 }
 
