@@ -1495,7 +1495,8 @@ static void draw_market(uint16_t *fb) {
     const SystemInfo *si = system_info();
     char buf[16];
 
-    /* Small column header over the buy/sell numbers. */
+    /* Small column header: goods on the left, buy/sell over their numbers. */
+    craft_font_draw(fb, "GOODS", 4, 15, COL_DIM);
     craft_font_draw(fb, "BUY",  100 - craft_font_width("BUY"),  15, COL_DIM);
     craft_font_draw(fb, "SELL", 122 - craft_font_width("SELL"), 15, COL_DIM);
 
