@@ -273,10 +273,11 @@ static uint16_t cmp_col(float nv, float cv) {
 
 void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
                       const char *footer) {
-    /* Fill everything EXCEPT a top-right box, where the live 3D ship renders.
-       All specs then fit on one screen: 7 in the left column, 3 bottom-right. */
+    /* Fill everything EXCEPT a big top-right box, where the live 3D ship renders.
+       All specs fit on one screen: 7 in the left column, 3 bottom-right (aligned
+       with the left column's bottom three rows). */
     for (int y = 0; y < ELITE_FB_H; y++) {
-        int hi = (y < 52) ? 73 : ELITE_FB_W;   /* leave x73..127 open up top for the ship */
+        int hi = (y < 57) ? 63 : ELITE_FB_W;   /* leave x63..127 open up top for the ship */
         uint16_t *row = fb + y * ELITE_FB_W;
         for (int x = 0; x < hi; x++) row[x] = COL_BG;
     }
@@ -287,8 +288,8 @@ void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
     hull_roll(hull_id, seed, &rv);
     const HullRoll *rc = player_roll();
     char buf[28];
-    eui_textclip(fb, h->name, 2, 72, 1, COL_HDR);
-    for (int x = 0; x < 72; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
+    eui_textclip(fb, h->name, 2, 60, 1, COL_HDR);
+    for (int x = 0; x < 61; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
     #define CMPC(nv, cv) cmp_col((float)(nv), (float)(cv))
     #define HS(lx, vx, yy, label, col, fmt, ...) do { \
@@ -305,8 +306,8 @@ void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
     { float jn=h->jump_range*rv.jmp; HS(2, 32, y, "JMP", CMPC(jn, cur->jump_range*rc->jmp), "%d.%d",(int)jn,((int)(jn*10))%10); } y+=11;
     HS(2, 32, y, "HUL", CMPC(h->hull_base*rv.hull, cur->hull_base*rc->hull), "%d",(int)(h->hull_base*rv.hull)); y+=11;
     HS(2, 32, y, "SHD", CMPC(h->shield_base*rv.shd, cur->shield_base*rc->shd), "%d",(int)(h->shield_base*rv.shd)); y+=11;
-    /* Bottom-right (x66), below the ship box: fitting/equipment stats. */
-    int yr = 55;
+    /* Bottom-right (x66): fitting stats, aligned with the left column's JMP/HUL/SHD. */
+    int yr = 59;
     HS(66, 96, yr, "TIER", CMPC(h->max_shield_tier+h->max_hull_tier, cur->max_shield_tier+cur->max_hull_tier), "S%dH%d", h->max_shield_tier, h->max_hull_tier); yr+=11;
     {   int ng=0, cg=0;
         for (int i=0;i<rv.n_slots;i++) ng+=rv.slot_size[i];

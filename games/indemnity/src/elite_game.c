@@ -2815,8 +2815,8 @@ void elite_game_render_begin(void) {
             if (pv == 2 && station_hull_detail_view()) {
                 /* Detail sheet: tuck the hull into a small top-right box so the
                    spec column + bottom-right stats fill the rest of the screen. */
-                dist = m->bound_r * 3.9f;
-                obj.pos = v3(dist * 0.42f, dist * 0.27f, dist);
+                dist = m->bound_r * 3.4f;                 /* larger — box is x63..127, y2..56 */
+                obj.pos = v3(dist * 0.28f, dist * 0.32f, dist);  /* centred in that box */
             } else {
                 obj.pos = v3(dist * 0.29f, 0, dist);
             }

@@ -1190,6 +1190,7 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
             else if (s_cursor == 3) {
                 mission_make_offers(system_info(), s_station, s_offers);
                 s_screen = SCR_MISSIONS; s_cursor = 0;
+                extern int s_mis_tab; s_mis_tab = 1;   /* open on AVAILABLE offers */
             }
             else if (s_cursor == 4) {
                 s_screen = SCR_BAR;
@@ -1311,15 +1312,22 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
         break;
 
     case SCR_MISSIONS: {
+        extern int s_mis_tab;
+        if (left)  { s_mis_tab = 0; s_cursor = 0; }
+        if (right) { s_mis_tab = 1; s_cursor = 0; }
+        int na = 0, nv = 0;
+        for (int i = 0; i < MAX_MISSIONS; i++) if (g_missions[i].type != MIS_NONE) na++;
+        for (int i = 0; i < MISSION_OFFERS; i++) if (s_offers[i].type != MIS_NONE) nv++;
+        int cnt = s_mis_tab == 0 ? na : nv;
         if (up && s_cursor > 0) s_cursor--;
-        if (down && s_cursor < MISSION_OFFERS - 1) s_cursor++;
-        if (a_edge) {
-            const Mission *m = &s_offers[s_cursor];
-            if (m->type == MIS_NONE) toast("NO OFFER");
-            else if (mission_accept(m)) {
-                toast("ACCEPTED");
-                s_offers[s_cursor].type = MIS_NONE;
-            } else toast("LOG/HOLD FULL");
+        if (down && s_cursor < cnt - 1) s_cursor++;
+        if (a_edge && s_mis_tab == 1) {            /* accept the cursor-th present offer */
+            int k = 0, si = -1;
+            for (int i = 0; i < MISSION_OFFERS; i++)
+                if (s_offers[i].type != MIS_NONE) { if (k == s_cursor) { si = i; break; } k++; }
+            if (si < 0) toast("NO OFFER");
+            else if (mission_accept(&s_offers[si])) { toast("ACCEPTED"); s_offers[si].type = MIS_NONE; }
+            else toast("LOG/HOLD FULL");
         }
         if (back) { s_screen = SCR_HOME; s_cursor = 3; }
         break;
@@ -1571,16 +1579,12 @@ static const char *k_qtag[5] = { "SLV", "STD", "RNF", "MIL", "PRO" };
 
 static void draw_shipyard(uint16_t *fb) {
     draw_header(fb);
-    /* Scrollable ship list (offers + your ship), then a readable price + spec
-       for the selection; the full spec is on LB:DETAIL. */
+    /* All ship rows fit (offers + your ship), no scroll; a readable spec for the
+       selection sits below, with the cost (yellow) tucked on the 2nd stat row. */
     int total = YARD_OFFERS + 1;
-    int y0 = 15, rh = 12, vis = 5;
-    if (s_cursor < s_scroll) s_scroll = s_cursor;
-    if (s_cursor >= s_scroll + vis) s_scroll = s_cursor - vis + 1;
-    if (total > vis && s_scroll > total - vis) s_scroll = total - vis;
-    if (s_scroll < 0) s_scroll = 0;
-    for (int r = 0; r < vis && s_scroll + r < total; r++) {
-        int i = s_scroll + r, y = y0 + r * rh;
+    int y0 = 14, rh = 11;
+    for (int i = 0; i < total; i++) {
+        int y = y0 + i * rh;
         if (i < YARD_OFFERS) {
             uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
             eui_text(fb, s_yard[i].name, 3, y, c);
@@ -1592,7 +1596,6 @@ static void draw_shipyard(uint16_t *fb) {
             eui_text(fb, k_hulls[g_player.hull_id].name, 3, y, c);
         }
     }
-    eui_scrollbar(fb, 125, y0, vis * rh, total, vis, s_scroll, COL_CUR, COL_GRID);
 
     const HullDef *sel = (s_cursor == YARD_OFFERS)
                              ? &k_hulls[g_player.hull_id]
@@ -1601,29 +1604,26 @@ static void draw_shipyard(uint16_t *fb) {
     hull_roll((s_cursor == YARD_OFFERS) ? g_player.hull_id : s_yard[s_cursor].cls,
               (s_cursor == YARD_OFFERS) ? g_player.hull_seed : s_yard[s_cursor].seed,
               &selr);
-    hl(fb, 76, COL_GRID);
+    hl(fb, 82, COL_GRID);
     char buf[36];
-    if (s_cursor == YARD_OFFERS) {
-        eui_textclip(fb, k_hulls[g_player.hull_id].name, 3, 80, 78, COL_TXT);
-        eui_textr(fb, "YOUR SHIP", 126, 78, COL_DIM);
-    } else {
-        int econ = system_info()->stations[s_station].econ;
-        int cost = s_yard[s_cursor].price - player_tradein(econ);
-        const char *lab = (cost < 0) ? "GET" : s_yard[s_cursor].bargain ? "OFFER" : "COST";
-        eui_textclip(fb, s_yard[s_cursor].name, 3, 62, 78, COL_TXT);
-        snprintf(buf, sizeof buf, "%s %dCR", lab, cost < 0 ? -cost : cost);
-        eui_textr(fb, buf, 126, 78, COL_CRED);
-    }
     /* Readable spec, two lines. Full detail (all slots etc.) on LB:DETAIL. */
     char slots[8]; int sl = 0;
     for (int i = 0; i < selr.n_slots && sl < 7; i++) slots[sl++] = (char)('0' + selr.slot_size[i]);
     slots[sl] = 0;
     uint16_t vc = RGB565C(140, 255, 140);
-    snprintf(buf, sizeof buf, "SPD %d",  (int)(sel->max_speed * selr.spd));  eui_text(fb, buf, 3, 91, vc);
-    snprintf(buf, sizeof buf, "CRG %d",  selr.cargo);                        eui_text(fb, buf, 50, 91, vc);
-    snprintf(buf, sizeof buf, "SL %s",   slots);                             eui_text(fb, buf, 92, 91, vc);
-    snprintf(buf, sizeof buf, "HULL %d", (int)(sel->hull_base * selr.hull)); eui_text(fb, buf, 3, 103, vc);
-    snprintf(buf, sizeof buf, "SHD %d",  (int)(sel->shield_base * selr.shd));eui_text(fb, buf, 66, 103, vc);
+    snprintf(buf, sizeof buf, "SPD %d",  (int)(sel->max_speed * selr.spd));  eui_text(fb, buf, 3, 85, vc);
+    snprintf(buf, sizeof buf, "CRG %d",  selr.cargo);                        eui_text(fb, buf, 50, 85, vc);
+    snprintf(buf, sizeof buf, "SL %s",   slots);                             eui_text(fb, buf, 92, 85, vc);
+    snprintf(buf, sizeof buf, "HULL %d", (int)(sel->hull_base * selr.hull)); eui_text(fb, buf, 3, 97, vc);
+    snprintf(buf, sizeof buf, "SHD %d",  (int)(sel->shield_base * selr.shd));eui_text(fb, buf, 52, 97, vc);
+    if (s_cursor == YARD_OFFERS) {
+        eui_textr(fb, "OWNED", 126, 97, RGB565C(120, 210, 235));
+    } else {
+        int econ = system_info()->stations[s_station].econ;
+        int cost = s_yard[s_cursor].price - player_tradein(econ);
+        snprintf(buf, sizeof buf, cost < 0 ? "+%dCR" : "%dCR", cost < 0 ? -cost : cost);
+        eui_textr(fb, buf, 126, 97, COL_CRED);
+    }
     { char h[44];
       if (s_detail) snprintf(h, sizeof h, "%s:BUY %s:KIT </>:CMP %s:BACK",
           plat_menu_btn(MB_A), plat_menu_btn(MB_INFO), plat_menu_btn(MB_B));
@@ -1942,65 +1942,70 @@ static void mission_describe(const Mission *m, char *l1, int c1, char *l2, int c
     }
 }
 
+int s_mis_tab;   /* 0 = ACTIVE contracts, 1 = AVAILABLE offers (LR switches) */
+
 static void draw_missions(uint16_t *fb) {
     draw_header(fb);
     char l1[40], l2[40], buf[24];
 
-    /* One scrollable list: active LOG contracts first, then OFFERS. Each is two
-       readable lines (what + where, with the reward), so the old ">"-shorthand
-       is spelled out. Cursor sits on offers (A accepts). */
-    const Mission *items[MAX_MISSIONS + MISSION_OFFERS];
-    int slot[MAX_MISSIONS + MISSION_OFFERS];    /* -1 = active log, else offer index */
-    int n = 0, sel_item = -1, first_offer = -1;
-    for (int i = 0; i < MAX_MISSIONS; i++)
-        if (g_missions[i].type != MIS_NONE) { items[n] = &g_missions[i]; slot[n] = -1; n++; }
-    for (int i = 0; i < MISSION_OFFERS; i++)
-        if (s_offers[i].type != MIS_NONE) {
-            if (first_offer < 0) first_offer = n;
-            if (i == s_cursor) sel_item = n;
-            items[n] = &s_offers[i]; slot[n] = i; n++;
-        }
-    if (sel_item < 0) sel_item = first_offer >= 0 ? first_offer : 0;
+    /* Two tabs (LR): your ACTIVE contracts vs the AVAILABLE offers — each its
+       own readable scrollable list, so it's obvious which is which. */
+    const Mission *items[8]; int slot[8]; int n = 0;
+    int na = 0, nv = 0;
+    for (int i = 0; i < MAX_MISSIONS; i++) if (g_missions[i].type != MIS_NONE) na++;
+    for (int i = 0; i < MISSION_OFFERS; i++) if (s_offers[i].type != MIS_NONE) nv++;
+    if (s_mis_tab == 0) {
+        for (int i = 0; i < MAX_MISSIONS; i++)
+            if (g_missions[i].type != MIS_NONE) { items[n] = &g_missions[i]; slot[n] = i; n++; }
+    } else {
+        for (int i = 0; i < MISSION_OFFERS; i++)
+            if (s_offers[i].type != MIS_NONE) { items[n] = &s_offers[i]; slot[n] = i; n++; }
+    }
+    if (s_cursor >= n) s_cursor = n > 0 ? n - 1 : 0;
 
-    int y0 = 15, pitch = 21;
-    int vis = (104 - y0) / pitch; if (vis < 1) vis = 1;
-    int scroll = sel_item - (vis - 1);
+    /* Tab bar. */
+    snprintf(buf, sizeof buf, "ACTIVE %d", na);
+    eui_text(fb, buf, 4, 15, s_mis_tab == 0 ? COL_CUR : COL_DIM);
+    snprintf(buf, sizeof buf, "OFFERS %d", nv);
+    eui_textr(fb, buf, 124, 15, s_mis_tab == 1 ? COL_CUR : COL_DIM);
+    hl(fb, 27, COL_GRID);
+
+    int y0 = 29, pitch = 20, vis = (108 - y0) / pitch; if (vis < 1) vis = 1;
+    int scroll = s_cursor - (vis - 1);
     if (scroll > n - vis) scroll = n - vis;
     if (scroll < 0) scroll = 0;
 
-    if (n == 0) {
-        eui_textc(fb, "NO CONTRACTS HERE", 64, 52, COL_DIM);
-    }
+    if (n == 0)
+        eui_textc(fb, s_mis_tab == 0 ? "NO ACTIVE CONTRACTS" : "NO OFFERS HERE", 64, 58, COL_DIM);
+
     for (int r = 0; r < vis && scroll + r < n; r++) {
         int idx = scroll + r, y = y0 + r * pitch;
         const Mission *m = items[idx];
-        bool off = slot[idx] >= 0;
-        bool sel = off && slot[idx] == s_cursor;
+        bool sel = (idx == s_cursor);
         mission_describe(m, l1, sizeof l1, l2, sizeof l2);
-        /* Right-hand tag makes ACTIVE contracts unmistakable from offers:
-           offers show their reward; accepted contracts show ACTIVE / DONE. */
         const char *tag; uint16_t tagc;
-        if (off)          { snprintf(buf, sizeof buf, "%dCR", (int)m->reward); tag = buf; tagc = COL_CRED; }
-        else if (m->done) { tag = "DONE";   tagc = COL_CRED; }
-        else              { tag = "ACTIVE"; tagc = RGB565C(90, 200, 255); }
-        uint16_t tc = sel ? COL_CUR : off ? COL_TXT : (m->done ? COL_CRED : COL_HDR);
+        if (s_mis_tab == 1) { snprintf(buf, sizeof buf, "%dCR", (int)m->reward); tag = buf; tagc = COL_CRED; }
+        else if (m->done)   { tag = "DONE";   tagc = COL_CRED; }
+        else                { tag = "ACTIVE"; tagc = RGB565C(90, 200, 255); }
+        uint16_t tc = sel ? COL_CUR : COL_TXT;
         if (sel) eui_text(fb, ">", 0, y, COL_CUR);
         int tw = eui_textw(tag);
         eui_textclip(fb, l1, 9, 121 - tw - 3, y, tc);
         eui_textr(fb, tag, 121, y, tagc);
-        /* line 2: destination / status */
-        const char *d2 = (!off && m->done) ? "READY - COLLECT PAY" : l2;
-        eui_textclip(fb, d2, 9, 121, y + 11, off ? COL_DIM : COL_CRED);
+        const char *d2 = (s_mis_tab == 0 && m->done) ? "READY - COLLECT PAY" : l2;
+        eui_textclip(fb, d2, 9, 121, y + 11, COL_DIM);
     }
     eui_scrollbar(fb, 125, y0, vis * pitch, n, vis, scroll, COL_CUR, COL_GRID);
 
-    hl(fb, 105, COL_GRID);
-    Faction fac = system_faction(system_info()->addr);
-    snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
-    craft_font_draw(fb, buf, 2, 108, COL_DIM);
-    { char h[24]; snprintf(h, sizeof h, "%s:ACCEPT  %s:BACK",
-        plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 117, COL_DIM); }
+    hl(fb, 109, COL_GRID);
+    { char h[28];
+      if (s_mis_tab == 1) snprintf(h, sizeof h, "<>:TAB  %s:ACCEPT %s:BACK",
+          plat_menu_btn(MB_A), plat_menu_btn(MB_B));
+      else snprintf(h, sizeof h, "<>:TAB  %s:BACK", plat_menu_btn(MB_B));
+      craft_font_draw(fb, h, 2, 112, COL_DIM); }
+    { Faction fac = system_faction(system_info()->addr);
+      snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
+      craft_font_draw(fb, buf, 2, 120, COL_DIM); }
 }
 
 static void draw_bar(uint16_t *fb) {
