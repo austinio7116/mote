@@ -1511,17 +1511,9 @@ static void draw_market(uint16_t *fb) {
         bool sel = (i == s_cursor);
         if (sel && g_em && g_em->draw_rect)          /* selection band */
             g_em->draw_rect(fb, 0, ry - 1, 128, row_h, RGB565C(30, 38, 58), 1, 0, 128);
-        int sx = (i % goods_COLS) * goods_CELLW, sy = (i / goods_COLS) * goods_CELLH;
-        if (sel && g_em && g_em->blit_ex && g_em->abi_version >= 34) {
-            /* Selected icon drawn SCALED via blit_ex — this is the exact
-               "scaled indexed sub-rect" path the motokart note flagged; it
-               doubles as an on-device sanity check of blit_ex. */
-            g_em->blit_ex(fb, &goods_img, 10.0f, (float)(ry + 7), sx, sy,
-                          goods_CELLW, goods_CELLH, 0.0f, 1.35f, 0 /*BLEND_NONE*/,
-                          ry - 1, ry + row_h);
-        } else if (g_em && g_em->blit) {              /* commodity icon from the sheet */
-            g_em->blit(fb, &goods_img, 2, ry - 1, sx, sy, goods_CELLW, goods_CELLH, 0, 0, 128);
-        }
+        if (g_em && g_em->blit)                       /* commodity icon from the sheet */
+            g_em->blit(fb, &goods_img, 2, ry - 1, (i % goods_COLS) * goods_CELLW,
+                       (i / goods_COLS) * goods_CELLH, goods_CELLW, goods_CELLH, 0, 0, 128);
         uint16_t nc = sel ? COL_CUR : illegal ? COL_ILL : COL_DIM;
         eui_textclip(fb, k_goods[i].name, 21, 82, ry + 3, nc);
         int buy = econ_price(si, s_station, i, true);
