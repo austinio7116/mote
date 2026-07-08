@@ -113,7 +113,7 @@ void ui_event_draw(uint16_t *fb) {
         /* Wrap beside the portrait first (reclaiming that band), then full
            width below it — same idea as before but readable. */
         const char *tail = eui_wrapt(fb, text, 4 + PORTRAIT + 4, 124, ty,
-                                     ty + PORTRAIT, bcol);
+                                     ty + PORTRAIT + 2, bcol);   /* fit 3 lines beside */
         if (tail && *tail)
             eui_wrap(fb, tail, 4, 124, ty + PORTRAIT + 2, body_ymax, bcol);
     } else {

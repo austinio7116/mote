@@ -1553,18 +1553,15 @@ static void draw_shipyard(uint16_t *fb) {
     int lh = eui_lineh();
     int y = 16;
     for (int i = 0; i < YARD_OFFERS; i++, y += lh) {
-        uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) eui_text(fb, ">", 2, y, COL_CUR);
-        eui_text(fb, s_yard[i].name, 11, y, c);
+        uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;   /* colour marks selection */
+        eui_text(fb, s_yard[i].name, 3, y, c);
         if (s_yard[i].bargain)                       /* special offer */
-            eui_text(fb, "*", 13 + eui_textw(s_yard[i].name), y, RGB565C(255, 210, 70));
+            eui_text(fb, "*", 5 + eui_textw(s_yard[i].name), y, RGB565C(255, 210, 70));
     }
     {   /* YOUR ship: compare row, no purchase — blue IS the label. */
         uint16_t c = (s_cursor == YARD_OFFERS) ? RGB565C(120, 210, 235)
                                                : RGB565C(80, 150, 175);
-        if (s_cursor == YARD_OFFERS)
-            eui_text(fb, ">", 2, y, c);
-        eui_text(fb, k_hulls[g_player.hull_id].name, 11, y, c);
+        eui_text(fb, k_hulls[g_player.hull_id].name, 3, y, c);
     }
     /* Selected offer: price + stat strip in the full-width footer. */
     const HullDef *sel = (s_cursor == YARD_OFFERS)
