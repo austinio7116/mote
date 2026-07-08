@@ -1498,8 +1498,8 @@ static void draw_market(uint16_t *fb) {
     /* Icon browser: one commodity per 16px row (icon + readable name + buy/sell),
        scrolled a few at a time; the selection's stock/held/verdict shows on the
        detail strip above the footer. */
-    int y0 = 15, row_h = 16;
-    int vis = (96 - y0) / row_h; if (vis < 1) vis = 1;
+    int y0 = 14, row_h = 16;
+    int vis = (79 - y0) / row_h; if (vis < 1) vis = 1;
     if (s_cursor < s_scroll)          s_scroll = s_cursor;
     if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
     if (N_GOODS > vis && s_scroll > N_GOODS - vis) s_scroll = N_GOODS - vis;
@@ -1529,8 +1529,9 @@ static void draw_market(uint16_t *fb) {
         }
     }
 
-    /* Detail strip for the selection: stock, held, and a plain-word verdict. */
-    hl(fb, 96, COL_GRID);
+    /* Detail strip for the selection — READABLE font: stock/held on one line,
+       a plain-word trade verdict (coloured) on the next. */
+    hl(fb, 79, COL_GRID);
     {
         int i = s_cursor;
         int stock = econ_stock(si, s_station, i) - s_bought[i]; if (stock < 0) stock = 0;
@@ -1538,13 +1539,17 @@ static void draw_market(uint16_t *fb) {
         int sell = econ_price(si, s_station, i, false);
         int base = (int)k_goods[i].base;
         snprintf(buf, sizeof buf, "STOCK %d", stock);
-        craft_font_draw(fb, buf, 2, 99, COL_DIM);
+        eui_text(fb, buf, 3, 81, COL_DIM);
         snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
-        craft_font_draw(fb, buf, 52, 99, g_player.cargo[i] ? COL_CRED : COL_DIM);
-        const char *v = ""; uint16_t vc = COL_DIM;
-        if (buy > 0 && buy * 100 < base * 95)      { v = "BARGAIN";  vc = RGB565C(90, 200, 255); }
-        else if (sell * 100 > base * 108)          { v = "PAYS HIGH"; vc = RGB565C(245, 200, 80); }
-        if (*v) craft_font_draw(fb, v, 126 - craft_font_width(v), 99, vc);
+        eui_text(fb, buf, 66, 81, g_player.cargo[i] ? COL_CRED : COL_DIM);
+        if (buy > 0 && buy * 100 < base * 95)
+            eui_text(fb, "BARGAIN - BUY IN", 3, 94, RGB565C(90, 200, 255));
+        else if (sell * 100 > base * 108)
+            eui_text(fb, "PAYS HIGH - SELL", 3, 94, RGB565C(245, 200, 80));
+        else if (buy <= 0)
+            eui_text(fb, "NOT TRADED HERE", 3, 94, COL_GRID);
+        else
+            eui_text(fb, "FAIR MARKET", 3, 94, COL_DIM);
     }
 
     /* Footer: list position + hold + prompts. */
