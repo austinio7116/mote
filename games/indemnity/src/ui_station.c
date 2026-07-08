@@ -25,6 +25,8 @@
 #include "elite_weapons.h"
 #include "craft_font.h"
 #include "events.h"
+#include "elite_engine.h"   /* g_em — engine jump table (blit) */
+#include "goods.h"          /* goods_img — commodity icon spritesheet (assets/goods.png) */
 #include <stdio.h>
 #include <string.h>
 
@@ -1480,64 +1482,81 @@ static void draw_action_box(uint16_t *fb, const char *title,
     }
 }
 
+/* Cyan = bargain to buy (well under galactic base), gold = sells high here. */
+static uint16_t mkt_buy_col(int buy, int base, uint16_t fallback) {
+    return (buy > 0 && buy * 100 < base * 95) ? RGB565C(90, 200, 255) : fallback;
+}
+static uint16_t mkt_sell_col(int sell, int base, uint16_t fallback) {
+    return (sell * 100 > base * 108) ? RGB565C(245, 200, 80) : fallback;
+}
+
 static void draw_market(uint16_t *fb) {
     draw_header(fb);
     const SystemInfo *si = system_info();
-    /* Column labels sit BELOW the header divider (hl@13) so the AA station
-       name never clips them; a second rule underlines the labels. */
-    craft_font_draw(fb, "GOODS", 8, 15, COL_DIM);
-    craft_font_draw(fb, "BUY", 56, 15, COL_DIM);
-    craft_font_draw(fb, "SELL", 76, 15, COL_DIM);
-    craft_font_draw(fb, "ST", 100, 15, COL_DIM);
-    craft_font_draw(fb, "HL", 114, 15, COL_DIM);
-    hl(fb, 23, COL_GRID);
+    char buf[16];
 
-    int y = 26;
-    for (int i = s_scroll; i < N_GOODS && i < s_scroll + 9; i++, y += 10) {
+    /* Icon browser: one commodity per 16px row (icon + readable name + buy/sell),
+       scrolled a few at a time; the selection's stock/held/verdict shows on the
+       detail strip above the footer. */
+    int y0 = 15, row_h = 16;
+    int vis = (96 - y0) / row_h; if (vis < 1) vis = 1;
+    if (s_cursor < s_scroll)          s_scroll = s_cursor;
+    if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
+    if (N_GOODS > vis && s_scroll > N_GOODS - vis) s_scroll = N_GOODS - vis;
+    if (s_scroll < 0) s_scroll = 0;
+
+    for (int r = 0; r < vis && s_scroll + r < N_GOODS; r++) {
+        int i = s_scroll + r, ry = y0 + r * row_h;
         bool illegal = (k_goods[i].flags & GOOD_ILLEGAL) != 0;
+        bool sel = (i == s_cursor);
+        if (sel && g_em && g_em->draw_rect)          /* selection band */
+            g_em->draw_rect(fb, 0, ry - 1, 128, row_h, RGB565C(30, 38, 58), 1, 0, 128);
+        if (g_em && g_em->blit)                       /* commodity icon from the sheet */
+            g_em->blit(fb, &goods_img, 2, ry - 1, (i % goods_COLS) * goods_CELLW,
+                       (i / goods_COLS) * goods_CELLH, goods_CELLW, goods_CELLH, 0, 0, 128);
+        uint16_t nc = sel ? COL_CUR : illegal ? COL_ILL : COL_DIM;
+        eui_textclip(fb, k_goods[i].name, 21, 82, ry + 3, nc);
         int buy = econ_price(si, s_station, i, true);
         int sell = econ_price(si, s_station, i, false);
-        int stock = econ_stock(si, s_station, i) - s_bought[i];
-        uint16_t c = (i == s_cursor) ? COL_CUR : illegal ? COL_ILL : COL_DIM;
-        if (i == s_cursor) craft_font_draw(fb, ">", 2, y, COL_CUR);
-        craft_font_draw(fb, k_goods[i].name, 8, y, c);
-        char buf[12];
+        int base = (int)k_goods[i].base;
         if (buy > 0) {
-            /* Value colours: green = well under galactic base (buy
-             * here), gold = well over (sell here). The trade matrix,
-             * finally visible in the UI. */
-            int base = (int)k_goods[i].base;
-            /* Good-buy is CYAN: the old green vanished into the green
-             * cursor highlight (user report). Cool cyan = bargain in,
-             * warm gold = payout out — distinct from each other and
-             * from the cursor. */
-            uint16_t bc = (buy * 100 < base * 95)
-                              ? RGB565C(90, 200, 255) : c;
-            uint16_t sc2 = (sell * 100 > base * 108)
-                               ? RGB565C(245, 200, 80) : c;
             snprintf(buf, sizeof buf, "%d", buy);
-            craft_font_draw(fb, buf, 56, y, bc);
+            eui_textr(fb, buf, 103, ry + 3, mkt_buy_col(buy, base, nc));
             snprintf(buf, sizeof buf, "%d", sell);
-            craft_font_draw(fb, buf, 76, y, sc2);
-            snprintf(buf, sizeof buf, "%d", stock > 0 ? stock : 0);
-            craft_font_draw(fb, buf, 100, y, c);
+            eui_textr(fb, buf, 126, ry + 3, mkt_sell_col(sell, base, nc));
         } else {
-            craft_font_draw(fb, "--", 56, y, RGB565C(60, 66, 84));
-        }
-        if (g_player.cargo[i]) {
-            snprintf(buf, sizeof buf, "%d", g_player.cargo[i]);
-            craft_font_draw(fb, buf, 114, y, COL_CRED);
+            eui_textr(fb, "--", 126, ry + 3, RGB565C(60, 66, 84));
         }
     }
-    hl(fb, 113, COL_GRID);
-    char buf[32];
-    snprintf(buf, sizeof buf, "HOLD %d/%d", player_cargo_total(),
-             player_cargo_cap());
-    craft_font_draw(fb, buf, 2, 116, COL_DIM);
-    { char h[16]; snprintf(h, sizeof h, "%s:TRADE", plat_menu_btn(MB_A));
-      craft_font_draw(fb, h, 74, 116, COL_DIM);
-      snprintf(h, sizeof h, "%s:BACK", plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 123, COL_DIM); }
+
+    /* Detail strip for the selection: stock, held, and a plain-word verdict. */
+    hl(fb, 96, COL_GRID);
+    {
+        int i = s_cursor;
+        int stock = econ_stock(si, s_station, i) - s_bought[i]; if (stock < 0) stock = 0;
+        int buy = econ_price(si, s_station, i, true);
+        int sell = econ_price(si, s_station, i, false);
+        int base = (int)k_goods[i].base;
+        snprintf(buf, sizeof buf, "STOCK %d", stock);
+        craft_font_draw(fb, buf, 2, 99, COL_DIM);
+        snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
+        craft_font_draw(fb, buf, 52, 99, g_player.cargo[i] ? COL_CRED : COL_DIM);
+        const char *v = ""; uint16_t vc = COL_DIM;
+        if (buy > 0 && buy * 100 < base * 95)      { v = "BARGAIN";  vc = RGB565C(90, 200, 255); }
+        else if (sell * 100 > base * 108)          { v = "PAYS HIGH"; vc = RGB565C(245, 200, 80); }
+        if (*v) craft_font_draw(fb, v, 126 - craft_font_width(v), 99, vc);
+    }
+
+    /* Footer: list position + hold + prompts. */
+    hl(fb, 107, COL_GRID);
+    snprintf(buf, sizeof buf, "%d/%d", s_cursor + 1, N_GOODS);
+    craft_font_draw(fb, buf, 2, 110, COL_DIM);
+    { char h[24]; snprintf(h, sizeof h, "HOLD %d/%d", player_cargo_total(), player_cargo_cap());
+      craft_font_draw(fb, h, 40, 110, COL_DIM); }
+    { char h[20]; snprintf(h, sizeof h, "%s:TRADE  %s:BACK",
+        plat_menu_btn(MB_A), plat_menu_btn(MB_B));
+      craft_font_draw(fb, h, 2, 119, COL_DIM); }
+
     if (s_mkt_open) {
         static const char *const it[4] = { "BUY", "BUY MAX", "SELL", "SELL ALL" };
         draw_action_box(fb, k_goods[s_cursor].name, it, 4, s_mkt_cur);
