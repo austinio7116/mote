@@ -1495,11 +1495,15 @@ static void draw_market(uint16_t *fb) {
     const SystemInfo *si = system_info();
     char buf[16];
 
+    /* Small column header over the buy/sell numbers. */
+    craft_font_draw(fb, "BUY",  100 - craft_font_width("BUY"),  15, COL_DIM);
+    craft_font_draw(fb, "SELL", 122 - craft_font_width("SELL"), 15, COL_DIM);
+
     /* Icon browser: one commodity per compact row (12px icon + readable name +
        buy/sell), five at a time; the selection's stock/held shows on the detail
        strip above the footer. */
-    int y0 = 14, row_h = 14;
-    int vis = (85 - y0) / row_h; if (vis < 1) vis = 1;
+    int y0 = 22, row_h = 14;
+    int vis = (92 - y0) / row_h; if (vis < 1) vis = 1;
     if (s_cursor < s_scroll)          s_scroll = s_cursor;
     if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
     if (N_GOODS > vis && s_scroll > N_GOODS - vis) s_scroll = N_GOODS - vis;
@@ -1515,41 +1519,40 @@ static void draw_market(uint16_t *fb) {
             g_em->blit(fb, &goods_img, 2, ry + 1, (i % goods_COLS) * goods_CELLW,
                        (i / goods_COLS) * goods_CELLH, goods_CELLW, goods_CELLH, 0, 0, 128);
         uint16_t nc = sel ? COL_CUR : illegal ? COL_ILL : COL_DIM;
-        eui_textclip(fb, k_goods[i].name, 18, 82, ry + 2, nc);
+        eui_textclip(fb, k_goods[i].name, 18, 76, ry + 2, nc);
         int buy = econ_price(si, s_station, i, true);
         int sell = econ_price(si, s_station, i, false);
         int base = (int)k_goods[i].base;
         if (buy > 0) {
             snprintf(buf, sizeof buf, "%d", buy);
-            eui_textr(fb, buf, 103, ry + 2, mkt_buy_col(buy, base, nc));
+            eui_textr(fb, buf, 100, ry + 2, mkt_buy_col(buy, base, nc));
             snprintf(buf, sizeof buf, "%d", sell);
-            eui_textr(fb, buf, 126, ry + 2, mkt_sell_col(sell, base, nc));
+            eui_textr(fb, buf, 122, ry + 2, mkt_sell_col(sell, base, nc));
         } else {
-            eui_textr(fb, "--", 126, ry + 2, RGB565C(60, 66, 84));
+            eui_textr(fb, "--", 122, ry + 2, RGB565C(60, 66, 84));
         }
     }
+    /* Scrollbar at the right edge spans the list window. */
+    eui_scrollbar(fb, 125, y0, vis * row_h, N_GOODS, vis, s_scroll, COL_CUR, COL_GRID);
 
-    /* Detail strip for the selection — STOCK and HELD in the readable font.
-       (Buy/sell already sit on the row itself.) */
-    hl(fb, 85, COL_GRID);
+    /* Detail strip for the selection — STOCK and HELD in the readable font, with
+       the ship's total hold (used/size) as small text at the row end. */
+    hl(fb, 92, COL_GRID);
     {
         int i = s_cursor;
         int stock = econ_stock(si, s_station, i) - s_bought[i]; if (stock < 0) stock = 0;
         snprintf(buf, sizeof buf, "STOCK %d", stock);
-        eui_text(fb, buf, 4, 88, COL_TXT);
+        eui_text(fb, buf, 4, 95, COL_TXT);
         snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
-        eui_text(fb, buf, 72, 88, g_player.cargo[i] ? COL_CRED : COL_TXT);
+        eui_text(fb, buf, 58, 95, g_player.cargo[i] ? COL_CRED : COL_TXT);
+        snprintf(buf, sizeof buf, "%d/%d", player_cargo_total(), player_cargo_cap());
+        craft_font_draw(fb, buf, 126 - craft_font_width(buf), 98, COL_DIM);
     }
 
-    /* Footer: list position + hold + prompts. */
-    hl(fb, 102, COL_GRID);
-    snprintf(buf, sizeof buf, "%d/%d", s_cursor + 1, N_GOODS);
-    craft_font_draw(fb, buf, 2, 105, COL_DIM);
-    { char h[24]; snprintf(h, sizeof h, "HOLD %d/%d", player_cargo_total(), player_cargo_cap());
-      craft_font_draw(fb, h, 40, 105, COL_DIM); }
+    /* Footer: prompts (position is shown by the scrollbar). */
     { char h[20]; snprintf(h, sizeof h, "%s:TRADE  %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 114, COL_DIM); }
+      craft_font_draw(fb, h, 2, 112, COL_DIM); }
 
     if (s_mkt_open) {
         static const char *const it[4] = { "BUY", "BUY MAX", "SELL", "SELL ALL" };
