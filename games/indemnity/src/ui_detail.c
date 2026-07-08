@@ -273,95 +273,69 @@ static uint16_t cmp_col(float nv, float cv) {
 
 void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
                       const char *footer) {
-    /* Left column only — the shipyard's rotating 3D pane stays live. */
-    for (int y = 0; y < ELITE_FB_H; y++) {
-        int xmax = (y >= 10 && y < 95) ? 64 : ELITE_FB_W;
-        uint16_t *row = fb + y * ELITE_FB_W;
-        for (int x = 0; x < xmax; x++) row[x] = COL_BG;
-    }
-    for (int y = 10; y < 95; y++) fb[y * ELITE_FB_W + 64] = COL_GRID;
-
+    /* Full-width readable spec sheet. The rotating 3D ship still previews in
+       the shipyard LIST view; here the specs get the whole screen so they read. */
+    fill(fb, COL_BG);
     const HullDef *h = &k_hulls[hull_id];
     const HullDef *cur = &k_hulls[g_player.hull_id];
-    /* This INSTANCE's roll vs YOUR ship's roll — shopping is reading
-     * the quirks, not the brochure. */
     HullRoll rv;
     hull_roll(hull_id, seed, &rv);
     const HullRoll *rc = player_roll();
     char buf[28];
-    craft_font_draw(fb, h->name, 2, 2, COL_HDR);
-    hl(fb, 9, COL_GRID);
+    eui_textclip(fb, h->name, 3, 126, 1, COL_HDR);
+    hl(fb, 13, COL_GRID);
 
-    int y = 13;
-    /* Stat colour vs YOUR ship (user spec: colour only, no deltas —
-     * green better / red worse on a margin scale, grey = matching). */
+    /* Two readable columns, coloured vs YOUR ship (green better / red worse). */
     #define CMPC(nv, cv) cmp_col((float)(nv), (float)(cv))
-    #define HSTATC(label, col, fmt, ...) do { \
-        craft_font_draw(fb, label, 2, y, COL_DIM); \
+    #define HS(cx, yy, label, col, fmt, ...) do { \
+        eui_text(fb, label, cx, yy, COL_DIM); \
         snprintf(buf, sizeof buf, fmt, __VA_ARGS__); \
-        craft_font_draw(fb, buf, 34, y, col); \
-        y += 8; \
+        eui_text(fb, buf, (cx) + 36, yy, col); \
     } while (0)
-    HSTATC("SPD", CMPC(h->max_speed * rv.spd,
-                       cur->max_speed * rc->spd), "%d",
-           (int)(h->max_speed * rv.spd));
-    HSTATC("ACC", CMPC(h->accel * rv.acc, cur->accel * rc->acc), "%d",
-           (int)(h->accel * rv.acc));
-    {
-        float tn = h->turn_rate * rv.trn, tc = cur->turn_rate * rc->trn;
-        HSTATC("TRN", CMPC(tn, tc), "%d.%d", (int)tn,
-               ((int)(tn * 10)) % 10);
-    }
-    HSTATC("CRG", CMPC(rv.cargo, rc->cargo), "%dT", rv.cargo);
-    {
-        float jn = h->jump_range * rv.jmp;
-        HSTATC("JMP", CMPC(jn, cur->jump_range * rc->jmp), "%d.%dLY",
-               (int)jn, ((int)(jn * 10)) % 10);
-    }
-    HSTATC("HUL", CMPC(h->hull_base * rv.hull,
-                       cur->hull_base * rc->hull), "%d",
-           (int)(h->hull_base * rv.hull));
-    HSTATC("SHD", CMPC(h->shield_base * rv.shd,
-                       cur->shield_base * rc->shd), "%d",
-           (int)(h->shield_base * rv.shd));
-    /* TIER + GUNS: colour compares TOTALS across slots, but the text
-     * stays in its original form (user spec). */
-    {
-        int nt = h->max_shield_tier + h->max_hull_tier;
-        int ct = cur->max_shield_tier + cur->max_hull_tier;
-        HSTATC("TIER", CMPC(nt, ct), "S%d H%d",
-               h->max_shield_tier, h->max_hull_tier);
+    int ya = 17;
+    HS(3, ya, "SPD", CMPC(h->max_speed*rv.spd, cur->max_speed*rc->spd), "%d", (int)(h->max_speed*rv.spd));
+    HS(66, ya, "HUL", CMPC(h->hull_base*rv.hull, cur->hull_base*rc->hull), "%d", (int)(h->hull_base*rv.hull));
+    ya += 12;
+    HS(3, ya, "ACC", CMPC(h->accel*rv.acc, cur->accel*rc->acc), "%d", (int)(h->accel*rv.acc));
+    HS(66, ya, "SHD", CMPC(h->shield_base*rv.shd, cur->shield_base*rc->shd), "%d", (int)(h->shield_base*rv.shd));
+    ya += 12;
+    { float tn = h->turn_rate*rv.trn;
+      HS(3, ya, "TRN", CMPC(tn, cur->turn_rate*rc->trn), "%d.%d", (int)tn, ((int)(tn*10))%10); }
+    HS(66, ya, "TIER", CMPC(h->max_shield_tier+h->max_hull_tier, cur->max_shield_tier+cur->max_hull_tier),
+       "S%dH%d", h->max_shield_tier, h->max_hull_tier);
+    ya += 12;
+    HS(3, ya, "CRG", CMPC(rv.cargo, rc->cargo), "%dT", rv.cargo);
+    HS(66, ya, "UTIL", CMPC(rv.utils, rc->utils), "%d", rv.utils);
+    ya += 12;
+    { float jn = h->jump_range*rv.jmp;
+      HS(3, ya, "JMP", CMPC(jn, cur->jump_range*rc->jmp), "%d.%dLY", (int)jn, ((int)(jn*10))%10); }
+    ya += 12;
+    {   /* GUNS: slot sizes, full width (the value is wide) */
         int ng = 0, cg = 0;
         for (int i = 0; i < rv.n_slots; i++) ng += rv.slot_size[i];
         for (int i = 0; i < rc->n_slots; i++) cg += rc->slot_size[i];
-        char slots[14];
-        int sl = 0;
-        for (int i = 0; i < rv.n_slots; i++) {
-            slots[sl++] = 'Z';
-            slots[sl++] = (char)('0' + rv.slot_size[i]);
-            slots[sl++] = ' ';
+        char slots[20]; int sl = 0;
+        for (int i = 0; i < rv.n_slots && sl < 16; i++) {
+            slots[sl++] = 'Z'; slots[sl++] = (char)('0' + rv.slot_size[i]); slots[sl++] = ' ';
         }
         slots[sl] = 0;
-        HSTATC("GUNS", CMPC(ng, cg), "%s", slots);
-        HSTATC("UTIL", CMPC(rv.utils, rc->utils), "%d BAY%s",
-               rv.utils, rv.utils == 1 ? "" : "S");
+        eui_text(fb, "GUNS", 3, ya, COL_DIM);
+        eui_textclip(fb, slots, 42, 126, ya, CMPC(ng, cg));
+        ya += 12;
     }
-    #undef HSTATC
+    #undef HS
     #undef CMPC
 
-    hl(fb, 95, COL_GRID);
+    hl(fb, ya + 1, COL_GRID);
+    int py = ya + 4;
     if (cost == DETAIL_OWNED)
-        craft_font_draw(fb, "OWNED", 2, 99, COL_CRED);
-    else if (cost < 0) {           /* trade-down: difference refunded */
-        snprintf(buf, sizeof buf, "GET %d CR (TRADE-IN)", -cost);
-        craft_font_draw(fb, buf, 2, 99, COL_CRED);
-    } else {
-        snprintf(buf, sizeof buf, "COST %d CR (TRADE-IN)", cost);
-        craft_font_draw(fb, buf, 2, 99, COL_CRED);
-    }
-    snprintf(buf, sizeof buf, "LIST %d CR", h->price);
-    craft_font_draw(fb, buf, 2, 107, COL_DIM);
-    hl(fb, 118, COL_GRID);
+        eui_text(fb, "OWNED", 3, py, COL_CRED);
+    else if (cost < 0) { snprintf(buf, sizeof buf, "GET %dCR (TRADE-IN)", -cost);
+                         eui_textclip(fb, buf, 3, 126, py, COL_CRED); }
+    else { snprintf(buf, sizeof buf, "COST %dCR (TRADE-IN)", cost);
+           eui_textclip(fb, buf, 3, 126, py, COL_CRED); }
+    snprintf(buf, sizeof buf, "LIST %dCR", h->price);
+    craft_font_draw(fb, buf, 3, py + 13, COL_DIM);
     craft_font_draw(fb, footer, 2, 121, COL_DIM);
 }
 

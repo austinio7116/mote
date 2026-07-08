@@ -1565,74 +1565,65 @@ static const char *k_qtag[5] = { "SLV", "STD", "RNF", "MIL", "PRO" };
 
 static void draw_shipyard(uint16_t *fb) {
     draw_header(fb);
-    /* Ship offers in the readable font (short hull names); the price + stat
-       strip below the rule stays compact. */
-    int lh = eui_lineh();
-    int y = 16;
-    for (int i = 0; i < YARD_OFFERS; i++, y += lh) {
-        uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;   /* colour marks selection */
-        eui_text(fb, s_yard[i].name, 3, y, c);
-        if (s_yard[i].bargain)                       /* special offer */
-            eui_text(fb, "*", 5 + eui_textw(s_yard[i].name), y, RGB565C(255, 210, 70));
+    /* Scrollable ship list (offers + your ship), then a readable price + spec
+       for the selection; the full spec is on LB:DETAIL. */
+    int total = YARD_OFFERS + 1;
+    int y0 = 15, rh = 12, vis = 5;
+    if (s_cursor < s_scroll) s_scroll = s_cursor;
+    if (s_cursor >= s_scroll + vis) s_scroll = s_cursor - vis + 1;
+    if (total > vis && s_scroll > total - vis) s_scroll = total - vis;
+    if (s_scroll < 0) s_scroll = 0;
+    for (int r = 0; r < vis && s_scroll + r < total; r++) {
+        int i = s_scroll + r, y = y0 + r * rh;
+        if (i < YARD_OFFERS) {
+            uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
+            eui_text(fb, s_yard[i].name, 3, y, c);
+            if (s_yard[i].bargain)
+                eui_text(fb, "*", 5 + eui_textw(s_yard[i].name), y, RGB565C(255, 210, 70));
+        } else {   /* YOUR ship: compare row, no purchase — blue label */
+            uint16_t c = (s_cursor == YARD_OFFERS) ? RGB565C(120, 210, 235)
+                                                   : RGB565C(80, 150, 175);
+            eui_text(fb, k_hulls[g_player.hull_id].name, 3, y, c);
+        }
     }
-    {   /* YOUR ship: compare row, no purchase — blue IS the label. */
-        uint16_t c = (s_cursor == YARD_OFFERS) ? RGB565C(120, 210, 235)
-                                               : RGB565C(80, 150, 175);
-        eui_text(fb, k_hulls[g_player.hull_id].name, 3, y, c);
-    }
-    /* Selected offer: price + stat strip in the full-width footer. */
+    eui_scrollbar(fb, 125, y0, vis * rh, total, vis, s_scroll, COL_CUR, COL_GRID);
+
     const HullDef *sel = (s_cursor == YARD_OFFERS)
                              ? &k_hulls[g_player.hull_id]
                              : &k_hulls[s_yard[s_cursor].cls];
     HullRoll selr;
-    hull_roll((s_cursor == YARD_OFFERS) ? g_player.hull_id
-                                        : s_yard[s_cursor].cls,
-              (s_cursor == YARD_OFFERS) ? g_player.hull_seed
-                                        : s_yard[s_cursor].seed,
+    hull_roll((s_cursor == YARD_OFFERS) ? g_player.hull_id : s_yard[s_cursor].cls,
+              (s_cursor == YARD_OFFERS) ? g_player.hull_seed : s_yard[s_cursor].seed,
               &selr);
-    hl(fb, 95, COL_GRID);
+    hl(fb, 76, COL_GRID);
     char buf[36];
     if (s_cursor == YARD_OFFERS) {
-        snprintf(buf, sizeof buf, "%s  YOUR SHIP",
-                 k_hulls[g_player.hull_id].name);
+        eui_textclip(fb, k_hulls[g_player.hull_id].name, 3, 80, 78, COL_TXT);
+        eui_textr(fb, "YOUR SHIP", 126, 78, COL_DIM);
     } else {
         int econ = system_info()->stations[s_station].econ;
-        int tradein = player_tradein(econ);
-        int cost = s_yard[s_cursor].price - tradein;
-        const char *lab = (cost < 0) ? "GET"
-                        : s_yard[s_cursor].bargain ? "OFFER" : "COST";
-        snprintf(buf, sizeof buf, "%s %s %d CR", s_yard[s_cursor].name,
-                 lab, cost < 0 ? -cost : cost);
+        int cost = s_yard[s_cursor].price - player_tradein(econ);
+        const char *lab = (cost < 0) ? "GET" : s_yard[s_cursor].bargain ? "OFFER" : "COST";
+        eui_textclip(fb, s_yard[s_cursor].name, 3, 62, 78, COL_TXT);
+        snprintf(buf, sizeof buf, "%s %dCR", lab, cost < 0 ? -cost : cost);
+        eui_textr(fb, buf, 126, 78, COL_CRED);
     }
-    craft_font_draw(fb, buf, 2, 98, COL_CRED);
-    /* Label/value colour pairs: "SPD85 CRG6 H70 S50 SL1" */
-    {
-        char slots[8];
-        int sl = 0;
-        for (int i = 0; i < selr.n_slots && sl < 7; i++)
-            slots[sl++] = (char)('0' + selr.slot_size[i]);
-        slots[sl] = 0;
-        char vals[5][8];
-        snprintf(vals[0], 8, "%d", (int)(sel->max_speed * selr.spd));
-        snprintf(vals[1], 8, "%d", selr.cargo);
-        snprintf(vals[2], 8, "%d", (int)(sel->hull_base * selr.hull));
-        snprintf(vals[3], 8, "%d", (int)(sel->shield_base * selr.shd));
-        snprintf(vals[4], 8, "%s", slots);
-        static const char *labs[5] = { "SPD", "CRG", "H", "S", "SL" };
-        int x = 2;
-        for (int i = 0; i < 5; i++) {
-            x = craft_font_draw(fb, labs[i], x, 105, RGB565C(80, 95, 120));
-            x = craft_font_draw(fb, vals[i], x, 105, RGB565C(140, 255, 140));
-            x += 3;
-        }
-    }
-    hl(fb, 113, COL_GRID);
+    /* Readable spec, two lines. Full detail (all slots etc.) on LB:DETAIL. */
+    char slots[8]; int sl = 0;
+    for (int i = 0; i < selr.n_slots && sl < 7; i++) slots[sl++] = (char)('0' + selr.slot_size[i]);
+    slots[sl] = 0;
+    uint16_t vc = RGB565C(140, 255, 140);
+    snprintf(buf, sizeof buf, "SPD %d",  (int)(sel->max_speed * selr.spd));  eui_text(fb, buf, 3, 91, vc);
+    snprintf(buf, sizeof buf, "CRG %d",  selr.cargo);                        eui_text(fb, buf, 50, 91, vc);
+    snprintf(buf, sizeof buf, "SL %s",   slots);                             eui_text(fb, buf, 92, 91, vc);
+    snprintf(buf, sizeof buf, "HULL %d", (int)(sel->hull_base * selr.hull)); eui_text(fb, buf, 3, 103, vc);
+    snprintf(buf, sizeof buf, "SHD %d",  (int)(sel->shield_base * selr.shd));eui_text(fb, buf, 66, 103, vc);
     { char h[44];
       if (s_detail) snprintf(h, sizeof h, "%s:BUY %s:KIT </>:CMP %s:BACK",
           plat_menu_btn(MB_A), plat_menu_btn(MB_INFO), plat_menu_btn(MB_B));
       else snprintf(h, sizeof h, "%s:BUY %s:DETAIL %s:BACK",
           plat_menu_btn(MB_A), plat_menu_btn(MB_INFO), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 117, COL_DIM); }
+      craft_font_draw(fb, h, 2, 118, COL_DIM); }
     if (s_yard_confirm) {
         int idx = s_yard_confirm - 1;
         int econ = system_info()->stations[s_station].econ;

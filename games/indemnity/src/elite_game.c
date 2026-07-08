@@ -3135,25 +3135,25 @@ static void dash_settings_overlay(uint16_t *fb) {
 #else
     (void)grow; (void)srow; (void)irow;
 #endif
-    int top = 44, n = settings_rows();
-    int bot = top + n * 9 + 14;
-    if (bot > 124) { top -= (bot - 124); bot = 124; }   /* fit all 9 PC rows */
+    int top = 46, n = settings_rows();
+    int bot = top + n * 11 + 14;
+    if (bot > 125) { top -= (bot - 125); bot = 125; }   /* fit all rows */
     int row_y = top;
     int y0 = top - 18; if (y0 < 0) y0 = 0;
     if (bot > ELITE_FB_H) bot = ELITE_FB_H;
     for (int y = y0; y < bot; y++)
-        for (int x = 12; x < 116; x++)
+        for (int x = 10; x < 118; x++)
             fb[y * ELITE_FB_W + x] = RGB565C(8, 11, 20);
-    craft_font_draw(fb, "SETTINGS", 31, top - 14, RGB565C(200, 210, 225));
+    eui_textc(fb, "SETTINGS", 64, top - 15, RGB565C(200, 210, 225));
     for (int i = 0; i < n; i++) {
         uint16_t c = (i == s_settings_cursor) ? RGB565C(120, 255, 120)
                                               : RGB565C(120, 126, 145);
         if (i == s_settings_cursor)
-            craft_font_draw(fb, ">", 18, row_y + i * 9, c);
-        craft_font_draw(fb, si2[i], 25, row_y + i * 9, c);
+            eui_text(fb, ">", 14, row_y + i * 11, c);
+        eui_textclip(fb, si2[i], 24, 116, row_y + i * 11, c);
     }
     { char h[28]; snprintf(h, sizeof h, "</>:ADJUST %s:BACK", plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 18, bot - 12, RGB565C(95, 110, 140)); }
+      craft_font_draw(fb, h, 14, bot - 11, RGB565C(95, 110, 140)); }
 }
 
 /* Lore intro: a slow upward crawl over the live title brawl, in place of the
@@ -3471,20 +3471,20 @@ void elite_game_draw_overlay(uint16_t *fb) {
         if (s_kr.env) {
             static const char *envn[4] = { "", "AN ASTEROID",
                                            "THE STATION", "THE STAR" };
-            craft_font_draw(fb, "FLEW INTO", 12, 40, tx);
-            craft_font_draw(fb, envn[s_kr.env & 3], 12, 50, gd);
+            eui_text(fb, "FLEW INTO", 12, 38, tx);
+            eui_textclip(fb, envn[s_kr.env & 3], 12, 126, 52, gd);
         } else if (s_kr.valid) {
             snprintf(b, sizeof b, "KILLED BY %s %s",
                      s_kr.wfac ? k_faction_names[(s_kr.wfac - 1) %
                                                  N_FACTIONS]
                      : s_kr.police ? "POLICE" : "PIRATE",
                      k_tier_names[s_kr.tier]);
-            craft_font_draw(fb, b, 12, 38, gd);
+            eui_textclip(fb, b, 12, 126, 36, gd);
             snprintf(b, sizeof b, "%s CLASS RAIDER",
                      k_hulls[s_kr.cls % N_HULLS].name);
-            craft_font_draw(fb, b, 12, 47, tx);
-            craft_font_draw(fb, "GUNS", 12, 59, dm);
-            int yy = 59;
+            eui_textclip(fb, b, 12, 126, 49, tx);
+            craft_font_draw(fb, "GUNS", 12, 64, dm);
+            int yy = 64;
             for (int i = 0; i < s_kr.nw; i++) {
                 craft_font_draw(fb, k_weapons[s_kr.wpn[i]].name, 38, yy,
                                 tx);
@@ -3506,11 +3506,11 @@ void elite_game_draw_overlay(uint16_t *fb) {
                      (int)(s_kr.trn * 10) % 10, s_kr.chaff);
             craft_font_draw(fb, b, 12, yy, tx);
         } else {
-            craft_font_draw(fb, "CAUSE UNKNOWN", 12, 40, tx);
+            eui_textc(fb, "CAUSE UNKNOWN", 64, 42, tx);
         }
         if (s_respawn_t <= 0) {
             char h[28]; snprintf(h, sizeof h, "%s: INSURANCE CLAIM", plat_menu_btn(MB_A));
-            craft_font_draw(fb, h, 12, 116, gd);
+            eui_textclip(fb, h, 12, 126, 116, gd);
         }
     }
 
