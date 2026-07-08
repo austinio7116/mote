@@ -1,5 +1,20 @@
 # Changelog
 
+## Readable menus — ThumbyCue 1.2.0, MotoKart 1.1.0, DeepThumb 1.1.0
+
+**Three more games move their menus to the engine's Audiowide UI font.** Game updates
+only — no engine, firmware or Studio change (they run on the current ThumbyOne firmware
+1.34.0 / ABI v47, and fall back to the old bitmap font on earlier firmware).
+
+- **ThumbyCue 1.2.0** — every menu (title, main, the dense PLAY setup, options, custom
+  table, pause, game-over, 2P-link) is readable now, each re-laid-out for the taller
+  glyphs; the gameplay result/decision messages are enlarged too. The chunky logo and the
+  tight in-frame scoreboard stay compact.
+- **MotoKart 1.1.0** — title, map/difficulty/mode select, countdown, lap/place HUD, and the
+  finish screens all readable; long control hints kept compact so nothing overflows.
+- **DeepThumb 1.1.0** — the NEW GAME setup, pause menu, game-over and status/link cards all
+  readable, with values right-aligned so labels never collide.
+
 ## Grand Thumb Auto 1.3.0 — a living city
 
 **A big Grand Thumb Auto update** — a real rival racer, a procedural turf war, a proper

@@ -1409,10 +1409,11 @@ static void draw_home(uint16_t *fb) {
              si->stations[s_station].tech);
     craft_font_draw(fb, buf, 2, 13, COL_DIM);
 
-    /* Readable Audiowide menu, vertically scrolled (11 items don't all fit at the
-     * larger size — show a window above the FUEL/CARGO readout, with a scrollbar). */
-    int y0 = 17, lh = eui_lineh() + 2;
-    int vis = (95 - y0) / lh; if (vis < 1) vis = 1;
+    /* Readable Audiowide menu in the LEFT column (the 3D station render owns the right).
+     * Colour alone marks the selection (no caret — saves width); tight line spacing and
+     * a tall window fit more rows; scrollbar sits at the column edge, clear of the render. */
+    int y0 = 14, lh = eui_lineh();
+    int vis = (116 - y0) / lh; if (vis < 1) vis = 1;
     if (s_cursor < s_home_scroll)         s_home_scroll = s_cursor;
     if (s_cursor >= s_home_scroll + vis)  s_home_scroll = s_cursor - vis + 1;
     if (s_home_scroll > HOME_ITEMS - vis) s_home_scroll = HOME_ITEMS - vis;
@@ -1420,21 +1421,20 @@ static void draw_home(uint16_t *fb) {
     for (int r = 0; r < vis && s_home_scroll + r < HOME_ITEMS; r++) {
         int i = s_home_scroll + r, y = y0 + r*lh;
         uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) eui_text(fb, ">", 6, y, COL_CUR);
-        eui_text(fb, k_home[i], 15, y, c);
+        eui_text(fb, k_home[i], 3, y, c);
         if (i == 7) {                              /* REFUEL cost */
             float need = g_player.fuel_max - g_player.fuel;
             if (need >= 0.1f) { snprintf(buf, sizeof buf, "%d", (int)(need * 12.0f) + 1);
-                                eui_textr(fb, buf, 92, y, COL_CRED); }
+                                eui_textr(fb, buf, 58, y, COL_CRED); }
         } else if (i == 8) {                       /* SERVICE cost */
             int rc = player_rearm_cost() + service_hull_cost();
-            if (rc > 0) { snprintf(buf, sizeof buf, "%d", rc); eui_textr(fb, buf, 92, y, COL_CRED); }
+            if (rc > 0) { snprintf(buf, sizeof buf, "%d", rc); eui_textr(fb, buf, 58, y, COL_CRED); }
         } else if (i == 9 && g_player.fine > 0) {  /* PAY FINE */
             snprintf(buf, sizeof buf, "%d", g_player.fine);
-            eui_textr(fb, buf, 92, y, RGB565C(255, 120, 70));
+            eui_textr(fb, buf, 58, y, RGB565C(255, 120, 70));
         }
     }
-    eui_scrollbar(fb, y0, vis*lh - 2, HOME_ITEMS, vis, s_home_scroll, COL_CUR, COL_GRID);
+    eui_scrollbar(fb, 63, y0, vis*lh - 2, HOME_ITEMS, vis, s_home_scroll, COL_CUR, COL_GRID);
 
     /* Fuel + cargo live under the station pane on the right — the
      * 10-row service list (PAY FINE) reclaimed their old left slot. */

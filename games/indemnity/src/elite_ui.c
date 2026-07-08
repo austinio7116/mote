@@ -51,14 +51,13 @@ int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scro
         if (i == cursor) eui_text(fb, ">", x - 9, y, c);
         eui_text(fb, items[i], x, y, c);
     }
-    eui_scrollbar(fb, y0, rows*lh - 2, n, rows, scroll, sel, dim);
+    eui_scrollbar(fb, 125, y0, rows*lh - 2, n, rows, scroll, sel, dim);
     return scroll;
 }
 
-void eui_scrollbar(uint16_t *fb, int y0, int rows_px, int n, int rows, int scroll,
+void eui_scrollbar(uint16_t *fb, int bx, int y0, int rows_px, int n, int rows, int scroll,
                    uint16_t sel, uint16_t dim){
     if (n <= rows || !g_em || !g_em->draw_rect) return;
-    int bx = 125;
     g_em->draw_rect(fb, bx, y0, 2, rows_px, dim, 1, 0, 128);               /* track */
     int th = rows_px*rows/n; if (th < 4) th = 4;
     int ty = y0 + (rows_px - th)*scroll/(n - rows);

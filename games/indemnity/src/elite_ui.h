@@ -24,7 +24,7 @@ int  eui_list (uint16_t *fb, const char *const *items, int n, int cursor, int sc
 
 /* Draw just the scrollbar (for a hand-rolled scrolling list that needs per-row extras).
  * `rows` = visible rows, `n` = total items. No-op when everything fits. */
-void eui_scrollbar(uint16_t *fb, int y0, int rows_px, int n, int rows, int scroll,
+void eui_scrollbar(uint16_t *fb, int bx, int y0, int rows_px, int n, int rows, int scroll,
                    uint16_t sel, uint16_t dim);
 
 #endif /* ELITE_UI_H */
