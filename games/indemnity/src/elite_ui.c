@@ -21,6 +21,18 @@ static void eui_bind(void){
 
 int  eui_ready(void){ eui_bind(); return AA ? 1 : 0; }
 int  eui_lineh(void){ eui_bind(); return AA ? 12 : 9; }
+
+int  eui_fit(int height, int n, int *pitch){
+    eui_bind();
+    int minp = AA ? 11 : 8;                 /* tightest legible row pitch (glyph height) */
+    int rows = height / minp;
+    if (rows < 1) rows = 1;
+    if (rows > n) rows = n;
+    int p = rows > 0 ? height / rows : minp; /* spread the rows to fill the window */
+    if (p < minp) p = minp;
+    if (pitch) *pitch = p;
+    return rows;
+}
 int  eui_textw(const char *s){ eui_bind(); return AA ? mote_fontw(g_body, s) : craft_font_width(s); }
 
 void eui_text(uint16_t *fb, const char *s, int x, int y, uint16_t c){
@@ -39,8 +51,8 @@ void eui_big(uint16_t *fb, const char *s, int cx, int y, uint16_t c){
 int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scroll,
              int x, int y0, int y1, uint16_t sel, uint16_t dim){
     eui_bind();
-    int lh = eui_lineh() + 2;
-    int rows = (y1 - y0) / lh; if (rows < 1) rows = 1;
+    int lh;
+    int rows = eui_fit(y1 - y0, n, &lh);
     if (cursor < scroll)          scroll = cursor;
     if (cursor >= scroll + rows)  scroll = cursor - rows + 1;
     if (n > rows && scroll > n - rows) scroll = n - rows;
@@ -51,7 +63,7 @@ int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scro
         if (i == cursor) eui_text(fb, ">", x - 9, y, c);
         eui_text(fb, items[i], x, y, c);
     }
-    eui_scrollbar(fb, 125, y0, rows*lh - 2, n, rows, scroll, sel, dim);
+    eui_scrollbar(fb, 125, y0, y1 - y0, n, rows, scroll, sel, dim);
     return scroll;
 }
 

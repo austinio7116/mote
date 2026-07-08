@@ -1411,8 +1411,8 @@ static void draw_home(uint16_t *fb) {
     /* Readable Audiowide menu in the LEFT column (the 3D station render owns the right).
      * Colour alone marks the selection (no caret — saves width); tight line spacing and
      * a tall window fit more rows; scrollbar sits at the column edge, clear of the render. */
-    int y0 = 14, lh = eui_lineh();
-    int vis = (116 - y0) / lh; if (vis < 1) vis = 1;
+    int y0 = 14, win = 117 - y0, lh;
+    int vis = eui_fit(win, HOME_ITEMS, &lh);        /* fill the column: optimal rows + spacing */
     if (s_cursor < s_home_scroll)         s_home_scroll = s_cursor;
     if (s_cursor >= s_home_scroll + vis)  s_home_scroll = s_cursor - vis + 1;
     if (s_home_scroll > HOME_ITEMS - vis) s_home_scroll = HOME_ITEMS - vis;
@@ -1433,7 +1433,7 @@ static void draw_home(uint16_t *fb) {
             eui_textr(fb, buf, 58, y, RGB565C(255, 120, 70));
         }
     }
-    eui_scrollbar(fb, 63, y0, vis*lh - 2, HOME_ITEMS, vis, s_home_scroll, COL_CUR, COL_GRID);
+    eui_scrollbar(fb, 63, y0, win, HOME_ITEMS, vis, s_home_scroll, COL_CUR, COL_GRID);
 
     /* Fuel + cargo live under the station pane on the right — the
      * 10-row service list (PAY FINE) reclaimed their old left slot. */

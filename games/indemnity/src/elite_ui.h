@@ -9,6 +9,10 @@
  * the global g_em, so no init wiring is needed. */
 int  eui_ready(void);                 /* 1 if the Audiowide font is active */
 int  eui_lineh(void);                 /* body line height (px) — a good row pitch base */
+/* Pick the number of rows that best fills a `height`-px window for `n` items: as many
+ * readable rows as fit (down to the tightest legible pitch), spread to fill the height.
+ * Writes the row pitch to *pitch. Use for scrolling lists so they fill the space. */
+int  eui_fit(int height, int n, int *pitch);
 int  eui_textw(const char *s);        /* body-text pixel width */
 void eui_text (uint16_t *fb, const char *s, int x,  int y, uint16_t col);   /* left at (x,y) */
 void eui_textc(uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* centered on cx */
