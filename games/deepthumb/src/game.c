@@ -159,6 +159,16 @@ static inline void blit_tile(int sx, int sy, int src_x)          { mote->blit(FB
 static inline void blit_sprite(int sx, int sy, int sxx, int syy) { mote->blit(FB, &pieces_img, sx, sy, sxx, syy, TILE, TILE, 0, 0, 128); }
 static inline int  text(int x, int y, const char *s, uint16_t c) { return mote->text(FB, s, x, y, c); }
 
+/* ---- AA UI fonts (ABI v47). Grabbed once in g_init(); NULL pre-v47, and the
+ * mote_ftext* helpers fall back to the 3x5 bitmap font, so this stays safe on
+ * old firmware. g_fmed = ~11px body/labels, g_fbig = ~15px screen titles. */
+static const MoteFont *g_fmed, *g_fbig;
+static inline int ftext (int x,  int y, const char *s, uint16_t c) { return mote_ftext (mote, FB, g_fmed, s, x, y, c); }
+static inline int ftextc(int cx, int y, uint16_t c, const char *s) { return mote_ftextc(mote, FB, g_fmed, cx, y, c, s); }
+static inline int btextc(int cx, int y, uint16_t c, const char *s) { return mote_ftextc(mote, FB, g_fbig, cx, y, c, s); }
+/* right-align a MED string so it ends at rx */
+static inline int ftextr(int rx, int y, uint16_t c, const char *s) { return mote_ftext(mote, FB, g_fmed, s, rx - mote_fontw(g_fmed, s), y, c); }
+
 /* Halve every RGB565 channel — the original's viper _darken_screen(). */
 static void darken(void) {
     int n = SCREEN_W * SCREEN_H;
@@ -630,20 +640,20 @@ static void draw_pause_menu(void) {
     static const char *items[PAUSE_COUNT] = { "RESUME", "SOUND", "EVAL BAR", "BOARD", "SAVE+QUIT", "QUIT" };
     fill(14, 14, 100, 100, C_BG);
     outline(14, 14, 100, 100, C_WHITE);
-    text(40, 18, "PAUSED", C_WHITE);
-    for (int x = 20; x < 108; x++) px(x, 27, C_DIM);
+    ftextc(64, 17, C_WHITE, "PAUSED");
+    for (int x = 20; x < 108; x++) px(x, 30, C_DIM);
     const char *vals[PAUSE_COUNT] = {
         "", game.sound_on ? "ON" : "OFF", game.show_eval_bar ? "ON" : "OFF",
         game.board_3d ? "3D" : "2D", "", ""
     };
     for (int i = 0; i < PAUSE_COUNT; i++) {
-        int y = 31 + i * 13;
+        int y = 33 + i * 13;
         uint16_t color = (i == game.pause_cursor) ? C_WHITE : C_DIM;
-        if (i == game.pause_cursor) fill(18, y - 1, 92, 11, C_HL);
+        if (i == game.pause_cursor) fill(18, y - 1, 92, 13, C_HL);
         /* no saving a 2P link game */
         const char *label = (i == PAUSE_SAVE && game.opponent == OPP_LINK) ? "-" : items[i];
-        text(24, y, label, color);
-        if (vals[i][0]) text(84, y, vals[i], C_GREEN);
+        ftext(22, y, label, color);
+        if (vals[i][0]) ftextr(108, y, C_GREEN, vals[i]);
     }
 }
 
@@ -901,14 +911,14 @@ static void logic_over(const MoteInput *in) {
 static void draw_title(void) {
     draw_board_backdrop();
     darken();
-    text(29, 34, "DEEPTHUMB", 0);
-    text(30, 33, "DEEPTHUMB", C_WHITE);
-    text(41, 47, "CHESS", 0);
-    text(42, 46, "CHESS", C_DIM);
-    fill(16, 72, 96, 34, C_BG);
-    outline(16, 72, 96, 34, C_DIM);
-    text(30, 76, "A: NEW GAME", C_WHITE);
-    text(30, 88, "B: CONTINUE", C_DIM);
+    btextc(65, 27, 0,       "DEEPTHUMB");
+    btextc(64, 26, C_WHITE, "DEEPTHUMB");
+    ftextc(65, 46, 0,     "CHESS");
+    ftextc(64, 45, C_DIM, "CHESS");
+    fill(16, 70, 96, 40, C_BG);
+    outline(16, 70, 96, 40, C_DIM);
+    ftextc(64, 76, C_WHITE, "A: NEW GAME");
+    ftextc(64, 92, C_DIM,   "B: CONTINUE");
 }
 
 static void draw_setup(void) {
@@ -917,70 +927,71 @@ static void draw_setup(void) {
     darken();
     fill(6, 8, 116, 112, C_BG);
     outline(6, 8, 116, 112, C_DIM);
-    text(30, 12, "NEW GAME", C_WHITE);
-    for (int x = 12; x < 116; x++) px(x, 21, C_DIM);
-    text(12, 25, "OPP", C_DIM);
-    text(55, 25, link ? "2P LINK" : "CHAL AI", C_WHITE);
-    text(12, 35, "SIDE", C_DIM);
-    text(55, 35, link ? "BY LINK" : (game.player_is_white ? "WHITE" : "BLACK"), link ? C_DIM : C_WHITE);
+    ftextc(64, 10, C_WHITE, "NEW GAME");
+    for (int x = 12; x < 116; x++) px(x, 22, C_DIM);
+    ftext(12, 25, "OPP", C_DIM);
+    ftext(54, 25, link ? "2P LINK" : "CHAL AI", C_WHITE);
+    ftext(12, 36, "SIDE", C_DIM);
+    ftext(54, 36, link ? "BY LINK" : (game.player_is_white ? "WHITE" : "BLACK"), link ? C_DIM : C_WHITE);
     if (!link)
-        draw_piece_at(102, 31, game.player_is_white ? CHAL_KING : ((CHAL_BLACK << 3) | CHAL_KING));
-    text(12, 45, "LEVEL", C_DIM);
-    text(55, 45, link ? "-" : diff_names[game.difficulty], link ? C_DIM : C_WHITE);
-    text(12, 55, "ELO", C_DIM);
-    text(55, 55, link ? "-" : chal_elo[game.difficulty], link ? C_DIM : C_GREEN);
-    for (int x = 12; x < 116; x++) px(x, 65, C_DIM);
-    text(12, 69, "LT/RT  OPPONENT", C_DIM);
+        draw_piece_at(101, 34, game.player_is_white ? CHAL_KING : ((CHAL_BLACK << 3) | CHAL_KING));
+    ftext(12, 47, "LEVEL", C_DIM);
+    ftext(54, 47, link ? "-" : diff_names[game.difficulty], link ? C_DIM : C_WHITE);
+    ftext(12, 58, "ELO", C_DIM);
+    ftext(54, 58, link ? "-" : chal_elo[game.difficulty], link ? C_DIM : C_GREEN);
+    for (int x = 12; x < 116; x++) px(x, 70, C_DIM);
+    /* dense control legend stays on the compact bitmap font (MED would overflow) */
+    text(12, 73, "LT/RT  OPPONENT", C_DIM);
     if (!link) {
-        text(12, 78, "UP/DN  LEVEL", C_DIM);
-        text(12, 87, "LB/RB  SIDE", C_DIM);
+        text(12, 82, "UP/DN  LEVEL", C_DIM);
+        text(12, 91, "LB/RB  SIDE", C_DIM);
     } else {
-        text(12, 78, "SIDES ARE DRAWN", C_DIM);
-        text(12, 87, "AT CONNECT", C_DIM);
+        text(12, 82, "SIDES ARE DRAWN", C_DIM);
+        text(12, 91, "AT CONNECT", C_DIM);
     }
-    fill(28, 100, 72, 14, C_HL);
-    outline(28, 100, 72, 14, C_WHITE);
-    text(38, 104, link ? "A: LINK" : "A: PLAY", C_WHITE);
+    fill(28, 103, 72, 15, C_HL);
+    outline(28, 103, 72, 15, C_WHITE);
+    ftextc(64, 105, C_WHITE, link ? "A: LINK" : "A: PLAY");
 }
 
 static void draw_link_wait(void) {
     draw_board_backdrop();
     darken();
-    fill(10, 34, 108, 60, C_BG);
-    outline(10, 34, 108, 60, C_DIM);
-    text(42, 40, "2P LINK", C_WHITE);
+    fill(6, 34, 116, 60, C_BG);
+    outline(6, 34, 116, 60, C_DIM);
+    ftextc(64, 39, C_WHITE, "2P LINK");
     int connected = mote->link_status() == MOTE_LINK_CONNECTED;
     if (connected) {
-        text(18, 56, "WAITING FOR PEER", C_GREEN);
+        ftextc(64, 55, C_GREEN, "WAITING FOR PEER");
     } else {
-        text(24, 56, "LINK DROPPED -", C_WHITE);
-        text(18, 66, "RECONNECTING...", C_DIM);
+        ftextc(64, 53, C_WHITE, "LINK DROPPED");
+        ftextc(64, 65, C_DIM,   "RECONNECTING...");
     }
     int dots = (game.think_frame / 20) % 4;      /* searching animation */
-    for (int i = 0; i < dots; i++) fill(56 + i * 6, 76, 3, 3, C_CURSOR);
-    text(34, 84, "B: CANCEL", C_DIM);
+    for (int i = 0; i < dots; i++) fill(56 + i * 6, 79, 3, 3, C_CURSOR);
+    ftextc(64, 84, C_DIM, "B: CANCEL");
 }
 
 static void draw_over_box(void) {
-    fill(14, 42, 100, 44, C_BG);
-    outline(14, 42, 100, 44, C_WHITE);
+    fill(14, 40, 100, 48, C_BG);
+    outline(14, 40, 100, 48, C_WHITE);
     if (game.result == RES_MATE) {
-        text(27, 48, "CHECKMATE!", C_WHITE);
-        if (game.winner_is_white == game.player_is_white) text(33, 58, "YOU WIN!", C_GREEN);
-        else                                              text(30, 58, "YOU LOSE!", C_RED);
+        ftextc(64, 45, C_WHITE, "CHECKMATE!");
+        if (game.winner_is_white == game.player_is_white) ftextc(64, 58, C_GREEN, "YOU WIN!");
+        else                                              ftextc(64, 58, C_RED,   "YOU LOSE!");
     } else if (game.result == RES_LINK_LOST) {
-        text(33, 48, "LINK LOST", C_RED);
-        text(19, 58, "CABLE DISCONNECTED", C_DIM);
+        ftextc(64, 45, C_RED, "LINK LOST");
+        ftextc(64, 58, C_DIM, "DISCONNECTED");
     } else if (game.result == RES_OPP_LEFT) {
-        text(19, 48, "OPPONENT LEFT", C_WHITE);
-        text(28, 58, "GAME ENDED", C_DIM);
+        ftextc(64, 45, C_WHITE, "OPPONENT LEFT");
+        ftextc(64, 58, C_DIM,   "GAME ENDED");
     } else {
-        text(33, 48, "STALEMATE", C_WHITE);
-        text(40, 58, "DRAW", C_DIM);
+        ftextc(64, 45, C_WHITE, "STALEMATE");
+        ftextc(64, 58, C_DIM,   "DRAW");
     }
-    fill(30, 70, 68, 12, C_HL);
-    outline(30, 70, 68, 12, C_DIM);
-    text(33, 72, "A: AGAIN", C_WHITE);
+    fill(28, 71, 72, 15, C_HL);
+    outline(28, 71, 72, 15, C_DIM);
+    ftextc(64, 73, C_WHITE, "A: AGAIN");
 }
 
 /* ============================================================ vtbl */
@@ -1001,6 +1012,11 @@ static void g_init(void) {
     tt_buffer = mote->alloc((uint32_t)(tt_count * chal_get_tt_entry_size()));
     chal_set_tt(tt_buffer, tt_count);
     chal_new_game();
+
+    if (mote->abi_version >= 47 && mote->ui_font) {
+        g_fmed = mote->ui_font(MOTE_FONT_MED);
+        g_fbig = mote->ui_font(MOTE_FONT_LARGE);
+    }
 
     mote->scene_set_background(MOTE_RGB565(36, 42, 60));
     mote->scene_set_sun(v3_norm(v3(0.4f, 1.0f, 0.3f)));
@@ -1043,16 +1059,16 @@ static void g_overlay(uint16_t *fb) {
             break;
         case ST_AI:
             if (!game.board_3d) draw_board();
-            fill(0, SCREEN_H - 10, SCREEN_W, 10, C_BG);
-            text(30, SCREEN_H - 9, "THINKING...", C_WHITE);
+            fill(0, SCREEN_H - 14, SCREEN_W, 14, C_BG);
+            ftextc(64, SCREEN_H - 13, C_WHITE, "THINKING...");
             break;
         case ST_LINK: draw_link_wait(); break;
         case ST_REMOTE:
             if (!game.board_3d) draw_board();
             draw_eval_bar();
             if (!game.paused) {
-                fill(0, SCREEN_H - 10, SCREEN_W, 10, C_BG);
-                text(27, SCREEN_H - 9, "OPPONENT...", C_WHITE);
+                fill(0, SCREEN_H - 14, SCREEN_W, 14, C_BG);
+                ftextc(64, SCREEN_H - 13, C_WHITE, "OPPONENT...");
             } else { darken(); draw_pause_menu(); }
             break;
         case ST_OVER:
