@@ -36,6 +36,8 @@ static char s_result[300];
 static int  s_cursor;
 static int  s_phase;          /* 0 choosing, 1 aftermath */
 static int  s_body_scroll;    /* readable body scrollbox offset, in lines */
+static int  s_body_maxscroll; /* last frame's max scroll (set by draw_body) */
+static bool s_choice_focus;   /* false: up/down scroll the body; true: move choices */
 static CraftRawButtons s_prev;
 
 static bool enabled(int i) { return events_choice_enabled(s_ev, i); }
@@ -53,6 +55,7 @@ void ui_event_open(const Event *ev) {
     s_cursor = first_enabled();
     s_phase = 0;
     s_body_scroll = 0;
+    s_choice_focus = false;                /* start by reading the body */
     memset(&s_prev, 1, sizeof s_prev);     /* debounce the opening press */
 }
 
@@ -60,29 +63,40 @@ bool ui_event_tick(const CraftRawButtons *btn, float dt) {
     (void)dt;
     bool up = btn->up && !s_prev.up;
     bool down = btn->down && !s_prev.down;
-    bool left = btn->left && !s_prev.left;
-    bool right = btn->right && !s_prev.right;
     bool a = btn->a && !s_prev.a;
     bool any_close = a || (btn->b && !s_prev.b) || (btn->menu && !s_prev.menu);
     s_prev = *btn;
     if (!s_ev) return true;
 
-    /* Up/Down scroll the readable body scrollbox in either phase (the draw
-       clamps the upper bound once it knows the line count). */
-    if (up && s_body_scroll > 0) s_body_scroll--;
-    if (down) s_body_scroll++;
-
     if (s_phase == 1) {
+        /* Aftermath: Up/Down just scroll the readable result text. */
+        if (up && s_body_scroll > 0) s_body_scroll--;
+        if (down && s_body_scroll < s_body_maxscroll) s_body_scroll++;
         if (any_close) { s_ev = NULL; return true; }
         return false;
     }
-    /* Choices are picked with Left/Right so Up/Down stay free for scrolling. */
-    if (left)
-        for (int i = s_cursor - 1; i >= 0; i--)
-            if (enabled(i)) { s_cursor = i; break; }
-    if (right)
-        for (int i = s_cursor + 1; i < s_ev->n_choices; i++)
-            if (enabled(i)) { s_cursor = i; break; }
+
+    /* One vertical axis: Down scrolls the body to the bottom, then hands focus
+       to the choices; Up steps back up the choices, and past the top choice it
+       returns to scrolling the body. No Left/Right needed. */
+    if (!s_choice_focus) {
+        if (down) {
+            if (s_body_scroll < s_body_maxscroll) s_body_scroll++;
+            else { s_choice_focus = true; s_cursor = first_enabled(); }
+        }
+        if (up && s_body_scroll > 0) s_body_scroll--;
+    } else {
+        if (down)
+            for (int i = s_cursor + 1; i < s_ev->n_choices; i++)
+                if (enabled(i)) { s_cursor = i; break; }
+        if (up) {
+            int prev = -1;
+            for (int i = s_cursor - 1; i >= 0; i--)
+                if (enabled(i)) { prev = i; break; }
+            if (prev >= 0) s_cursor = prev;
+            else if (s_body_maxscroll > 0) s_choice_focus = false;  /* back to reading */
+        }
+    }
     if (a && enabled(s_cursor)) {
         int t = events_run_choice(s_ev, s_cursor);
         const char *raw = (t >= 0) ? s_ev->texts[t] : "...";
@@ -105,13 +119,14 @@ static bool draw_body(uint16_t *fb, const char *text, uint16_t bcol, bool face,
     if (face) tail = eui_wrapt(fb, text, bside_x, 124, ty, below_y, bcol);
     if (!tail) tail = "";
     int sb_y0 = face ? below_y : ty;
-    if (sb_y0 >= body_ymax) return false;
+    if (sb_y0 >= body_ymax) { s_body_maxscroll = 0; return false; }
     int total = eui_wrap_scroll(NULL, tail, 4, 121, sb_y0, body_ymax, 0, bcol);
     int vis = (body_ymax - sb_y0) / lh; if (vis < 1) vis = 1;
-    if (s_body_scroll > total - vis) s_body_scroll = total - vis;
+    s_body_maxscroll = (total > vis) ? total - vis : 0;
+    if (s_body_scroll > s_body_maxscroll) s_body_scroll = s_body_maxscroll;
     if (s_body_scroll < 0) s_body_scroll = 0;
     eui_wrap_scroll(fb, tail, 4, 121, sb_y0, body_ymax, s_body_scroll, bcol);
-    if (total > vis) {
+    if (s_body_maxscroll > 0) {
         eui_scrollbar(fb, 123, sb_y0, body_ymax - sb_y0, total, vis, s_body_scroll,
                       COL_TXT, COL_GRID);
         return true;
@@ -222,6 +237,7 @@ void ui_event_draw(uint16_t *fb) {
     /* phase 0: body scrollbox above bottom-anchored choices */
     int body_ymax = 116 - lh * s_ev->n_choices - 2;
     bool scr = draw_body(fb, text, bcol, face, ty, body_ymax);
+    if (s_body_maxscroll <= 0) s_choice_focus = true;   /* nothing to read: focus the choices */
 
     for (int x = 2; x < 126; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
     int y0 = 116 - lh * s_ev->n_choices;
@@ -229,8 +245,12 @@ void ui_event_draw(uint16_t *fb) {
         const Choice *ch = &s_ev->choices[i];
         int y = y0 + lh * i;
         bool en = enabled(i);
-        uint16_t col = !en ? COL_DIM : (i == s_cursor ? COL_TXT : COL_BODY);
-        if (i == s_cursor && en) eui_text(fb, ">", 4, y, COL_TXT);
+        /* Caret + bright highlight only while the choices hold focus; dimmer
+           while the body scrollbox is being read, so focus is always visible. */
+        bool sel = (i == s_cursor);
+        uint16_t col = !en ? COL_DIM
+                     : (sel && s_choice_focus) ? COL_TXT : COL_BODY;
+        if (sel && s_choice_focus && en) eui_text(fb, ">", 4, y, COL_TXT);
         if (ch->cost > 0) {
             char cc[12];
             snprintf(cc, sizeof cc, "%dCR", ch->cost);
@@ -243,7 +263,7 @@ void ui_event_draw(uint16_t *fb) {
     }
     {
         char h[28];
-        snprintf(h, sizeof h, "%sLR:PICK %s:SELECT", scr ? "UD:READ  " : "",
+        snprintf(h, sizeof h, "%s%s:SELECT", scr ? "UD:READ/PICK  " : "",
                  plat_menu_btn(MB_A));
         craft_font_draw(fb, h, 4, 121, COL_DIM);
     }
