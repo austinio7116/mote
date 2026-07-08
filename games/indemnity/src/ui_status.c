@@ -322,8 +322,16 @@ void status_draw(uint16_t *fb) {
     for (int x = 0; x < 128; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
     build_rows();
-    int y = 15;
-    for (int r = s_scroll; r < s_n_rows && y < 117; r++, y += 8) {
+    /* Readable rows, scrolled (full spec of the selected item is one A press
+       away on the detail sheet, so the row text may clip). */
+    int y0 = 15, rh = 13;
+    int vis = (116 - y0) / rh; if (vis < 1) vis = 1;
+    if (s_cursor < s_scroll)          s_scroll = s_cursor;
+    if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
+    if (s_n_rows > vis && s_scroll > s_n_rows - vis) s_scroll = s_n_rows - vis;
+    if (s_scroll < 0) s_scroll = 0;
+    int y = y0;
+    for (int r = s_scroll; r < s_n_rows && r < s_scroll + vis; r++, y += rh) {
         const Row *rw = &s_rows[r];
         if (rw->kind == RK_BAR) {
             const Ship *p = &g_ships[PLAYER];
@@ -333,11 +341,10 @@ void status_draw(uint16_t *fb) {
             if (cur < 0) cur = 0;
             uint16_t fc = shd ? RGB565C(90, 160, 255)
                               : RGB565C(110, 220, 130);
-            craft_font_draw(fb, rw->text, 2, y, COL_DIM);
-            int bx = 44, bw = 46, by = y + 1, bh = 5;
+            eui_text(fb, rw->text, 2, y + 1, COL_DIM);
+            int bx = 50, bw = 30, by = y + 3, bh = 6;
             float frac = mx > 0 ? cur / mx : 0; if (frac > 1) frac = 1;
             int fill = (int)(frac * (bw - 2) + 0.5f);
-            /* frame */
             for (int xx = 0; xx < bw; xx++) {
                 fb[by * ELITE_FB_W + bx + xx] = COL_GRID;
                 fb[(by + bh - 1) * ELITE_FB_W + bx + xx] = COL_GRID;
@@ -350,20 +357,18 @@ void status_draw(uint16_t *fb) {
                 for (int xx = 0; xx < fill; xx++)
                     fb[(by + yy) * ELITE_FB_W + bx + 1 + xx] = fc;
             char hb[16];
-            snprintf(hb, sizeof hb, "%d/%d", (int)(cur + 0.5f),
-                     (int)(mx + 0.5f));
-            craft_font_draw(fb, hb, bx + bw + 3, y, fc);
+            snprintf(hb, sizeof hb, "%d/%d", (int)(cur + 0.5f), (int)(mx + 0.5f));
+            eui_text(fb, hb, bx + bw + 3, y + 1, fc);
             continue;
         }
-        /* Don't draw under the preview window. */
         int x0 = 2;
-        if (rw->icon >= 0 && y >= 11) icon_weapon(fb, x0, y - 1, rw->icon);
-        if (r == s_cursor && selectable(r))
-            craft_font_draw(fb, ">", 0, y, COL_TXT);
-        craft_font_draw(fb, rw->text, x0 + 2, y,
-                        (r == s_cursor && selectable(r)) ? COL_TXT
-                                                         : rw->color);
+        bool sel = (r == s_cursor && selectable(r));
+        if (rw->icon >= 0) icon_weapon(fb, x0, y + 2, rw->icon);
+        if (sel) eui_text(fb, ">", 0, y + 1, COL_TXT);
+        eui_textclip(fb, rw->text, rw->icon >= 0 ? 16 : x0 + 3, 124, y + 1,
+                     sel ? COL_TXT : rw->color);
     }
+    eui_scrollbar(fb, 125, y0, vis * rh, s_n_rows, vis, s_scroll, COL_TXT, COL_GRID);
 
     for (int x = 0; x < 128; x++) fb[118 * ELITE_FB_W + x] = COL_GRID;
     { char h[40]; snprintf(h, sizeof h, "%s:DETAILS %s:HIDE %s:BACK",
