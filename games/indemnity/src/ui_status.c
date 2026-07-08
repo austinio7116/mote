@@ -114,11 +114,11 @@ static void build_rows(void) {
         if (m->in_use)
             row(RK_MOUNT, i,
                 m->integrity < 50 ? COL_WARN : COL_DIM, m->type,
-                "   Z%d %s%s%s %s %d%%", player_slot_size(i),
+                "Z%d %s%s%s %d%%", player_slot_size(i),
                 k_weapons[m->type].name,
                 m->affix ? "-" : "",
                 m->affix ? k_affixes[m->affix].tag : "",
-                k_qual_tag[m->quality], m->integrity);
+                m->integrity);
         else
             row(RK_TEXT, 0, COL_DIM, -1, "Z%d EMPTY", player_slot_size(i));
     }
@@ -141,8 +141,7 @@ static void build_rows(void) {
         const WeaponInst *e = i ? &g_player.armor_eq : &g_player.shield_eq;
         if (e->in_use)
             row(RK_EQ, i, e->integrity < 50 ? COL_WARN : COL_DIM, e->type,
-                "   %s Z%d %s %d%%", item_name(e->type), e->tier,
-                k_qual_tag[e->quality], e->integrity);
+                "%s Z%d %d%%", item_name(e->type), e->tier, e->integrity);
         else
             row(RK_TEXT, 0, COL_WARN, -1, "   %s ----",
                 item_name(WPN_COUNT + i));
@@ -361,12 +360,13 @@ void status_draw(uint16_t *fb) {
             eui_text(fb, hb, bx + bw + 3, y + 1, fc);
             continue;
         }
-        int x0 = 2;
         bool sel = (r == s_cursor && selectable(r));
-        if (rw->icon >= 0) icon_weapon(fb, x0, y + 2, rw->icon);
+        const char *txt = rw->text;
+        while (*txt == ' ') txt++;                 /* old layout's indent — icon replaces it */
+        int tx = 4;
+        if (rw->icon >= 0) { icon_weapon(fb, 2, y + 2, rw->icon); tx = 17; }
         if (sel) eui_text(fb, ">", 0, y + 1, COL_TXT);
-        eui_textclip(fb, rw->text, rw->icon >= 0 ? 16 : x0 + 3, 124, y + 1,
-                     sel ? COL_TXT : rw->color);
+        eui_textclip(fb, txt, tx, 124, y + 1, sel ? COL_TXT : rw->color);
     }
     eui_scrollbar(fb, 125, y0, vis * rh, s_n_rows, vis, s_scroll, COL_TXT, COL_GRID);
 

@@ -540,12 +540,13 @@ void map_galaxy_draw(uint16_t *fb) {
         }
         char name[14];
         galaxy_system_name(s_hl, name);
-        int tw2 = craft_font_width(name);
-        int lx = dx + 5;
-        if (lx + tw2 > 126) lx = dx - 5 - tw2;
-        int ly = dy - 7;
-        if (ly < 11) ly = dy + 5;
-        craft_font_draw(fb, name, lx, ly, c);
+        int tw2 = eui_textw(name);
+        int lx = dx + 6;
+        if (lx + tw2 > 126) lx = dx - 6 - tw2;
+        if (lx < 1) lx = 1;
+        int ly = dy - 13;
+        if (ly < 15) ly = dy + 5;
+        eui_text(fb, name, lx, ly, c);
     }
 
     /* Header + footer info. */
@@ -557,21 +558,21 @@ void map_galaxy_draw(uint16_t *fb) {
     snprintf(buf, sizeof buf, "%d.%dLY", (int)s_fuel, ((int)(s_fuel * 10)) % 10);
     craft_font_draw(fb, buf, 126 - craft_font_width(buf), 3, COL_TXT);
     for (int x = 0; x < 128; x++) px(fb, x, 13, COL_GRID);
-    for (int x = 0; x < 128; x++) px(fb, x, 118, COL_GRID);
+    for (int x = 0; x < 128; x++) px(fb, x, 115, COL_GRID);
     if (s_hl_valid) {
         char name[14];
         galaxy_system_name(s_hl, name);
         if (sysaddr_eq(s_hl, s_cur_sys))
-            snprintf(buf, sizeof buf, "%s  <HERE>", name);
+            snprintf(buf, sizeof buf, "%s  HERE", name);
         else
             snprintf(buf, sizeof buf, "%s  %d.%dLY %s", name,
                      (int)s_hl_dist, ((int)(s_hl_dist * 10)) % 10,
                      (s_hl_dist <= s_range && s_hl_dist <= s_fuel)
                          ? "A:JUMP" : "RANGE!");
-        craft_font_draw(fb, buf, 2, 121, COL_TXT);
+        eui_textclip(fb, buf, 2, 126, 117, COL_TXT);
     } else {
         { char h[16]; snprintf(h, sizeof h, "%s:BACK", plat_menu_btn(MB_B));
-          craft_font_draw(fb, h, 2, 121, COL_DIM); }
+          craft_font_draw(fb, h, 2, 119, COL_DIM); }
     }
     /* Layer legends, bottom-right of the map area. */
     if (s_chart_layer == 1) {
