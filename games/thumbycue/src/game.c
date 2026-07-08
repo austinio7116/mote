@@ -37,7 +37,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("thumbycue", "austinio7116");
-MOTE_GAME_VERSION("1.1.0");
+MOTE_GAME_VERSION("1.2.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
