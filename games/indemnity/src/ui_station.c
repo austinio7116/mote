@@ -1910,53 +1910,96 @@ static void draw_outfit(uint16_t *fb) {
       craft_font_draw(fb, h, 2, 116, COL_DIM); }
 }
 
+/* Plain-language description of a contract: title (what to do) + where. */
+static void mission_describe(const Mission *m, char *l1, int c1, char *l2, int c2) {
+    char dn[14];
+    switch (m->type) {
+    case MIS_DELIVERY:
+        galaxy_system_name(m->target, dn);
+        snprintf(l1, c1, "DELIVER %d %s", m->count, k_goods[m->good].name);
+        snprintf(l2, c2, "TO %s", dn);
+        break;
+    case MIS_CULL:
+        snprintf(l1, c1, "CULL %d PIRATES", m->count);
+        snprintf(l2, c2, "ANYWHERE");
+        break;
+    case MIS_BOUNTY: {
+        static const char *bt[5] = { "TARGET", "REGULAR", "VETERAN", "ACE", "ELITE" };
+        galaxy_system_name(m->target, dn);
+        snprintf(l1, c1, "%s BOUNTY", bt[m->tier > 4 ? 4 : m->tier]);
+        snprintf(l2, c2, "AT %s", dn);
+        break; }
+    case MIS_ASSASSINATE:
+        galaxy_system_name(m->target, dn);
+        snprintf(l1, c1, "ASSASSINATE A MARK");
+        snprintf(l2, c2, "AT %s - ILLEGAL", dn);
+        break;
+    case MIS_WARZONE:
+        galaxy_system_name(m->target, dn);
+        snprintf(l1, c1, "WAR: WIN %d KILLS", m->count);
+        snprintf(l2, c2, "AT %s", dn);
+        break;
+    default:
+        snprintf(l1, c1, "%s", m->label);
+        l2[0] = 0;
+    }
+}
+
 static void draw_missions(uint16_t *fb) {
     draw_header(fb);
-    char buf[34];
-    Faction fac = system_faction(system_info()->addr);
+    char l1[40], l2[40], buf[24];
 
-    /* Readable section headers + faction standing; the mission rows themselves
-       stay compact so the ">"-notation label AND reward stay fully visible. */
-    int y = 15;
-    eui_text(fb, "LOG", 2, y, COL_HDR);
-    snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
-    eui_textr(fb, buf, 126, y, COL_DIM);
-    y += 13;
-    int any = 0;
-    /* LOG rows stay compact: the OFFERS list below is the interactive part and
-       gets the readable font; four readable LOG rows + four readable OFFERS +
-       both headers cannot share this screen without overrunning the footer. */
-    for (int i = 0; i < MAX_MISSIONS; i++) {
-        const Mission *m = &g_missions[i];
-        if (m->type == MIS_NONE) continue;
-        any = 1;
-        uint16_t c = m->done ? COL_CRED : COL_DIM;
-        snprintf(buf, sizeof buf, "%s%s", m->label, m->done ? " *DONE" : "");
-        craft_font_draw(fb, buf, 8, y, c);
-        y += 9;
-    }
-    if (!any) { craft_font_draw(fb, "(NONE ACTIVE)", 8, y, COL_DIM); y += 9; }
-
-    y += 3;
-    eui_text(fb, "OFFERS", 2, y, COL_HDR);
-    y += 13;
-    for (int i = 0; i < MISSION_OFFERS; i++, y += 11) {
-        const Mission *m = &s_offers[i];
-        uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) eui_text(fb, ">", 0, y, COL_CUR);
-        if (m->type == MIS_NONE) {
-            eui_text(fb, "----", 8, y, c);
-        } else {
-            snprintf(buf, sizeof buf, "%d", m->reward);
-            int rw = eui_textw(buf);
-            eui_textclip(fb, m->label, 8, 122 - rw - 4, y, c);
-            eui_textr(fb, buf, 122, y, COL_CRED);
+    /* One scrollable list: active LOG contracts first, then OFFERS. Each is two
+       readable lines (what + where, with the reward), so the old ">"-shorthand
+       is spelled out. Cursor sits on offers (A accepts). */
+    const Mission *items[MAX_MISSIONS + MISSION_OFFERS];
+    int slot[MAX_MISSIONS + MISSION_OFFERS];    /* -1 = active log, else offer index */
+    int n = 0, sel_item = -1, first_offer = -1;
+    for (int i = 0; i < MAX_MISSIONS; i++)
+        if (g_missions[i].type != MIS_NONE) { items[n] = &g_missions[i]; slot[n] = -1; n++; }
+    for (int i = 0; i < MISSION_OFFERS; i++)
+        if (s_offers[i].type != MIS_NONE) {
+            if (first_offer < 0) first_offer = n;
+            if (i == s_cursor) sel_item = n;
+            items[n] = &s_offers[i]; slot[n] = i; n++;
         }
+    if (sel_item < 0) sel_item = first_offer >= 0 ? first_offer : 0;
+
+    int y0 = 15, pitch = 21;
+    int vis = (104 - y0) / pitch; if (vis < 1) vis = 1;
+    int scroll = sel_item - (vis - 1);
+    if (scroll > n - vis) scroll = n - vis;
+    if (scroll < 0) scroll = 0;
+
+    if (n == 0) {
+        eui_textc(fb, "NO CONTRACTS HERE", 64, 52, COL_DIM);
     }
-    hl(fb, 113, COL_GRID);
-    { char h[28]; snprintf(h, sizeof h, "%s:ACCEPT %s:BACK",
+    for (int r = 0; r < vis && scroll + r < n; r++) {
+        int idx = scroll + r, y = y0 + r * pitch;
+        const Mission *m = items[idx];
+        bool off = slot[idx] >= 0;
+        bool sel = off && slot[idx] == s_cursor;
+        mission_describe(m, l1, sizeof l1, l2, sizeof l2);
+        uint16_t tc = sel ? COL_CUR : off ? COL_TXT : (m->done ? COL_CRED : COL_HDR);
+        if (sel) eui_text(fb, ">", 0, y, COL_CUR);
+        eui_textclip(fb, l1, 9, 121, y, tc);
+        /* line 2: destination / status + reward */
+        const char *d2 = l2;
+        if (!off && m->done) d2 = "READY - COLLECT PAY";
+        snprintf(buf, sizeof buf, "%dCR", (int)m->reward);
+        int rw = eui_textw(buf);
+        eui_textclip(fb, d2, 9, 120 - rw, y + 11, off ? COL_DIM : COL_CRED);
+        eui_textr(fb, buf, 121, y + 11, COL_CRED);
+    }
+    eui_scrollbar(fb, 125, y0, vis * pitch, n, vis, scroll, COL_CUR, COL_GRID);
+
+    hl(fb, 105, COL_GRID);
+    Faction fac = system_faction(system_info()->addr);
+    snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
+    craft_font_draw(fb, buf, 2, 108, COL_DIM);
+    { char h[24]; snprintf(h, sizeof h, "%s:ACCEPT  %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      eui_text(fb, h, 2, 115, COL_DIM); }
+      craft_font_draw(fb, h, 2, 117, COL_DIM); }
 }
 
 static void draw_bar(uint16_t *fb) {

@@ -3093,10 +3093,10 @@ static void dash_draw_panels(uint16_t *fb, int y0) {
     /* button row: taller pills so the readable label fits */
     int by = my1 + 3;
     if (by + 14 < ELITE_FB_H) {
-        dash_bezel(fb, 10, by, 58, by + 13, s_dash_sel == 2, 3);
-        dash_bezel(fb, 70, by, 118, by + 13, s_dash_sel == 3, 3);
-        eui_textc(fb, "STATUS",   34, by + 1, s_dash_sel == 2 ? on : off);
-        eui_textc(fb, "SETTINGS", 94, by + 1, s_dash_sel == 3 ? on : off);
+        dash_bezel(fb, 2, by, 62, by + 13, s_dash_sel == 2, 3);
+        dash_bezel(fb, 65, by, 125, by + 13, s_dash_sel == 3, 3);
+        eui_textc(fb, "STATUS",   32, by + 1, s_dash_sel == 2 ? on : off);
+        eui_textc(fb, "SETTINGS", 95, by + 1, s_dash_sel == 3 ? on : off);
     }
     if (by + 24 < ELITE_FB_H)
         { char h[28]; snprintf(h, sizeof h, "%s:OPEN  %s:RESUME",
