@@ -14,6 +14,7 @@
 #include "elite_engine.h"
 #include "r3d_pipe.h"
 #include "elite_game.h"
+#include "elite_ui.h"      /* readable Audiowide menu text (title/menus) */
 #include "elite_types.h"
 #include "r3d_scene.h"
 #include "r3d_planet.h"
@@ -3311,30 +3312,37 @@ void elite_game_draw_overlay(uint16_t *fb) {
         }
         bool has_save = save_exists();
         const char *base_items[3] = { "CONTINUE", "NEW GAME", "PVP ARENA" };
-        int n  = s_cheat_on ? (3 + N_SCENARIOS) : 3;
-        int sp = s_cheat_on ? 8 : 10;
-        int y0 = s_cheat_on ? 46 : 72;
-        for (int i = 0; i < n; i++) {
-            const char *label = base_items[i < 3 ? i : 0];
-#if ELITE_CHEATS
-            if (i >= 3) label = k_scenarios[i - 3];
-#endif
-            uint16_t c = (i == 0 && !has_save) ? RGB565C(60, 66, 84)
-                       : (i == s_title_cursor) ? RGB565C(120, 255, 120)
-                       : (i >= 3)               ? RGB565C(225, 185, 85)
-                                                : RGB565C(120, 126, 145);
-            int yy = y0 + i * sp;
-            if (i == s_title_cursor)
-                craft_font_draw(fb, ">", s_cheat_on ? 16 : 44, yy,
-                                RGB565C(120, 255, 120));
-            craft_font_draw(fb, label, s_cheat_on ? 24 : 52, yy, c);
-        }
-        if (!s_cheat_on)
-            craft_font_draw(fb, "AN INFINITE GALAXY TO EXPLORE", 6, 116,
+        if (!s_cheat_on) {
+            /* Readable centred menu, colour marks the selection (no caret). */
+            int lh = eui_lineh();
+            for (int i = 0; i < 3; i++) {
+                uint16_t c = (i == 0 && !has_save) ? RGB565C(60, 66, 84)
+                           : (i == s_title_cursor) ? RGB565C(120, 255, 120)
+                                                   : RGB565C(120, 126, 145);
+                eui_textc(fb, base_items[i], 64, 72 + i * lh, c);
+            }
+            craft_font_draw(fb, "AN INFINITE GALAXY TO EXPLORE", 6, 118,
                             RGB565C(80, 100, 125));
-        else
+        } else {
+            /* Cheat scenario picker stays compact — many rows. */
+            int n = 3 + N_SCENARIOS;
+            for (int i = 0; i < n; i++) {
+                const char *label = base_items[i < 3 ? i : 0];
+#if ELITE_CHEATS
+                if (i >= 3) label = k_scenarios[i - 3];
+#endif
+                uint16_t c = (i == 0 && !has_save) ? RGB565C(60, 66, 84)
+                           : (i == s_title_cursor) ? RGB565C(120, 255, 120)
+                           : (i >= 3)               ? RGB565C(225, 185, 85)
+                                                    : RGB565C(120, 126, 145);
+                int yy = 46 + i * 8;
+                if (i == s_title_cursor)
+                    craft_font_draw(fb, ">", 16, yy, RGB565C(120, 255, 120));
+                craft_font_draw(fb, label, 24, yy, c);
+            }
             craft_font_draw(fb, "TEST SCENARIOS  (RBx10 HIDES)", 6, 119,
                             RGB565C(120, 110, 70));
+        }
         return;
     }
 
