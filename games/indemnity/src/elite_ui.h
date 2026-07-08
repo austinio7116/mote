@@ -19,6 +19,9 @@ void eui_textc(uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* c
 void eui_textr(uint16_t *fb, const char *s, int xr, int y, uint16_t col);   /* right edge at xr */
 void eui_textclip(uint16_t *fb, const char *s, int x, int xmax, int y, uint16_t col); /* truncate to fit [x,xmax) */
 void eui_big  (uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* large centered header */
+int  eui_bigw (const char *s);                                              /* large-font pixel width */
+void eui_textbig (uint16_t *fb, const char *s, int x,  int y, uint16_t col); /* large, left at (x,y) */
+void eui_textbigr(uint16_t *fb, const char *s, int xr, int y, uint16_t col); /* large, right edge at xr */
 
 /* Word-wrap `text` into the column [x0,x1) starting at y, one body line per row
  * (pitch = eui_lineh()). Breaks on spaces, honours '\n'. Stops before ymax so it

@@ -54,6 +54,13 @@ void eui_big(uint16_t *fb, const char *s, int cx, int y, uint16_t c){
     if (AA && g_big) mote_ftextc(g_em, fb, g_big, cx, y, c, s);
     else eui_textc(fb, s, cx, y, c);
 }
+int  eui_bigw(const char *s){ eui_bind(); return (AA && g_big) ? mote_fontw(g_big, s) : eui_textw(s); }
+void eui_textbig(uint16_t *fb, const char *s, int x, int y, uint16_t c){
+    eui_bind();
+    if (AA && g_big) mote_ftext(g_em, fb, g_big, s, x, y, c);
+    else eui_text(fb, s, x, y, c);
+}
+void eui_textbigr(uint16_t *fb, const char *s, int xr, int y, uint16_t c){ eui_textbig(fb, s, xr - eui_bigw(s), y, c); }
 
 int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scroll,
              int x, int y0, int y1, uint16_t sel, uint16_t dim){

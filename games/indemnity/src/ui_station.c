@@ -1529,8 +1529,9 @@ static void draw_market(uint16_t *fb) {
         }
     }
 
-    /* Detail strip for the selection — READABLE font: stock/held on one line,
-       a plain-word trade verdict (coloured) on the next. */
+    /* Detail strip for the selection — the CRITICAL numbers, large. Buy/sell
+       up top in the big font (coloured: cyan bargain / gold pays-high), stock
+       and held below in the readable font. */
     hl(fb, 79, COL_GRID);
     {
         int i = s_cursor;
@@ -1538,18 +1539,17 @@ static void draw_market(uint16_t *fb) {
         int buy = econ_price(si, s_station, i, true);
         int sell = econ_price(si, s_station, i, false);
         int base = (int)k_goods[i].base;
+        eui_text(fb, "BUY", 3, 84, COL_DIM);
+        if (buy > 0) { snprintf(buf, sizeof buf, "%d", buy);
+                       eui_textbig(fb, buf, 26, 81, mkt_buy_col(buy, base, COL_TXT)); }
+        else eui_textbig(fb, "--", 26, 81, COL_GRID);
+        eui_text(fb, "SELL", 70, 84, COL_DIM);
+        snprintf(buf, sizeof buf, "%d", sell);
+        eui_textbig(fb, buf, 96, 81, mkt_sell_col(sell, base, COL_TXT));
         snprintf(buf, sizeof buf, "STOCK %d", stock);
-        eui_text(fb, buf, 3, 81, COL_DIM);
+        eui_text(fb, buf, 3, 97, COL_DIM);
         snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
-        eui_text(fb, buf, 66, 81, g_player.cargo[i] ? COL_CRED : COL_DIM);
-        if (buy > 0 && buy * 100 < base * 95)
-            eui_text(fb, "BARGAIN - BUY IN", 3, 94, RGB565C(90, 200, 255));
-        else if (sell * 100 > base * 108)
-            eui_text(fb, "PAYS HIGH - SELL", 3, 94, RGB565C(245, 200, 80));
-        else if (buy <= 0)
-            eui_text(fb, "NOT TRADED HERE", 3, 94, COL_GRID);
-        else
-            eui_text(fb, "FAIR MARKET", 3, 94, COL_DIM);
+        eui_text(fb, buf, 70, 97, g_player.cargo[i] ? COL_CRED : COL_DIM);
     }
 
     /* Footer: list position + hold + prompts. */
