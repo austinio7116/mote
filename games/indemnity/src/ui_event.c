@@ -7,6 +7,7 @@
  * There is no back-out — a hail must be answered (FTL rules).
  */
 #include "ui_event.h"
+#include "elite_ui.h"
 #include "r3d_face.h"
 #include "craft_font.h"
 #include "elite_types.h"
@@ -82,30 +83,6 @@ bool ui_event_tick(const CraftRawButtons *btn, float dt) {
     return false;
 }
 
-/* Word-wrapped 1x text in [x0,x1]; returns the next free y. */
-static int draw_wrapped(uint16_t *fb, const char *text, int x0, int x1,
-                        int y, uint16_t col) {
-    int maxc = (x1 - x0) / CRAFT_FONT_CELL_W;
-    if (maxc < 4) maxc = 4;
-    const char *p = text;
-    char line[34];
-    while (*p && y < 120) {
-        int n = 0, last_sp = -1;
-        while (p[n] && n < maxc && (int)(n) < (int)sizeof line - 1) {
-            if (p[n] == ' ') last_sp = n;
-            n++;
-        }
-        if (p[n] && last_sp > 0) n = last_sp;
-        memcpy(line, p, n);
-        line[n] = 0;
-        craft_font_draw(fb, line, x0, y, col);
-        y += 7;
-        p += n;
-        while (*p == ' ') p++;
-    }
-    return y;
-}
-
 void ui_event_draw(uint16_t *fb) {
     if (!s_ev) return;
 
@@ -119,39 +96,28 @@ void ui_event_draw(uint16_t *fb) {
 #endif
 
     /* title */
-    int tw = craft_font_width(s_ev->title);
-    craft_font_draw(fb, s_ev->title, (128 - tw) / 2, 3, COL_HDR);
-    for (int x = 2; x < 126; x++) fb[10 * ELITE_FB_W + x] = COL_GRID;
+    eui_textc(fb, s_ev->title, 64, 1, COL_HDR);
+    for (int x = 2; x < 126; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
-    /* portrait + body */
-    int ty = 14;
+    /* portrait + body, in the readable font */
+    int ty = 16;
     bool face = s_ev->npc_kind != NK_NONE;
     if (face)
         face_draw(fb, 4, ty, PORTRAIT, events_npc_seed(), s_ev->npc_kind);
     const char *text = s_phase ? s_result : s_body;
     uint16_t bcol = s_phase ? COL_TXT : COL_BODY;
+    /* Body must stop above the bottom block (choices, or the receipt/continue). */
+    int lh = eui_lineh();
+    int body_ymax = (s_phase == 1) ? 116 : 116 - lh * s_ev->n_choices - 2;
     if (face) {
-        /* beside the portrait, then full width below it */
-        int y = ty;
-        int maxc = (124 - 42) / CRAFT_FONT_CELL_W;
-        const char *p = text;
-        char line[34];
-        while (*p && y < ty + PORTRAIT - 5) {
-            int n = 0, last_sp = -1;
-            while (p[n] && n < maxc && n < (int)sizeof line - 1) {
-                if (p[n] == ' ') last_sp = n;
-                n++;
-            }
-            if (p[n] && last_sp > 0) n = last_sp;
-            memcpy(line, p, n); line[n] = 0;
-            craft_font_draw(fb, line, 42, y, bcol);
-            y += 7;
-            p += n;
-            while (*p == ' ') p++;
-        }
-        draw_wrapped(fb, p, 4, 124, ty + PORTRAIT + 3, bcol);
+        /* Wrap beside the portrait first (reclaiming that band), then full
+           width below it — same idea as before but readable. */
+        const char *tail = eui_wrapt(fb, text, 4 + PORTRAIT + 4, 124, ty,
+                                     ty + PORTRAIT, bcol);
+        if (tail && *tail)
+            eui_wrap(fb, tail, 4, 124, ty + PORTRAIT + 2, body_ymax, bcol);
     } else {
-        draw_wrapped(fb, text, 4, 124, ty + 2, bcol);
+        eui_wrap(fb, text, 4, 124, ty, body_ymax, bcol);
     }
 
     /* footer */
@@ -228,19 +194,22 @@ void ui_event_draw(uint16_t *fb) {
         return;
     }
 
-    /* choices, bottom-anchored */
-    int y0 = 116 - 8 * s_ev->n_choices;
+    /* choices, bottom-anchored, in the readable font */
+    int y0 = 116 - lh * s_ev->n_choices;
     for (int i = 0; i < s_ev->n_choices; i++) {
         const Choice *ch = &s_ev->choices[i];
-        int y = y0 + 8 * i;
+        int y = y0 + lh * i;
         bool en = enabled(i);
         uint16_t col = !en ? COL_DIM : (i == s_cursor ? COL_TXT : COL_BODY);
-        if (i == s_cursor && en) craft_font_draw(fb, ">", 4, y, COL_TXT);
-        int x = craft_font_draw(fb, ch->label, 10, y, col);
+        if (i == s_cursor && en) eui_text(fb, ">", 4, y, COL_TXT);
         if (ch->cost > 0) {
             char cc[12];
-            snprintf(cc, sizeof cc, " %dCR", ch->cost);
-            craft_font_draw(fb, cc, x, y, en ? COL_CRED : COL_DIM);
+            snprintf(cc, sizeof cc, "%dCR", ch->cost);
+            int cx = 124 - eui_textw(cc);
+            eui_textclip(fb, ch->label, 11, cx - 3, y, col);
+            eui_text(fb, cc, cx, y, en ? COL_CRED : COL_DIM);
+        } else {
+            eui_textclip(fb, ch->label, 11, 124, y, col);
         }
     }
     {

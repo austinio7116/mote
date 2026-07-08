@@ -24,6 +24,9 @@ void eui_big  (uint16_t *fb, const char *s, int cx, int y, uint16_t col);   /* l
  * (pitch = eui_lineh()). Breaks on spaces, honours '\n'. Stops before ymax so it
  * never runs into a footer. Returns the y just past the last line drawn. */
 int  eui_wrap (uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col);
+/* Like eui_wrap but returns a pointer to the first character NOT drawn (the
+   remainder that hit ymax) — chain a second column/region with it. */
+const char *eui_wrapt(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col);
 
 /* A scrollable vertical menu list drawn between y0 and y1 at left margin x. Draws a
  * caret on `cursor`, keeps it visible, and draws a scrollbar on the right when the

@@ -18,6 +18,9 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include <stdint.h>
+#ifdef MOTE_HOST
+#include <stdlib.h>   /* getenv/strtoul — host-only test seed override */
+#endif
 
 #include "craft_buttons.h"     /* CraftRawButtons (vec-free) */
 #include "elite_audio.h"       /* the sfx_ and audio_ API we implement here */
@@ -115,7 +118,11 @@ static void g_init(void){
     audio_set_master(0.7f);                            /* elite synth default level */
     if (mote->audio_set_stream) mote->audio_set_stream(audio_render);
     mote->set_background_cb(r3d_background);           /* starfield/nebula/galaxies/dust */
-    elite_game_init((uint32_t)mote->micros() | 1u);
+    uint32_t seed = (uint32_t)mote->micros() | 1u;
+#ifdef MOTE_HOST
+    { const char *e = getenv("MOTE_IR_SEED"); if (e) seed = ((uint32_t)strtoul(e, 0, 0) << 1) | 1u; }
+#endif
+    elite_game_init(seed);
 }
 static void g_update(float dt){
     CraftRawButtons b; map_buttons(mote->input(), &b);

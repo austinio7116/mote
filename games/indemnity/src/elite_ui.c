@@ -74,12 +74,16 @@ int eui_list(uint16_t *fb, const char *const *items, int n, int cursor, int scro
     return scroll;
 }
 
-int eui_wrap(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col){
+/* Shared word-wrap core: draws lines of `text` in [x0,x1) from y, stopping
+   before ymax. Writes the final y to *out_y and returns a pointer to the first
+   character NOT drawn (== end of string if everything fit). */
+static const char *wrap_core(uint16_t *fb, const char *text, int x0, int x1,
+                             int y, int ymax, uint16_t col, int *out_y){
     eui_bind();
     int maxw = x1 - x0, lh = eui_lineh();
     char line[64]; line[0] = 0;
-    const char *p = text;
-    while (*p && y < ymax){
+    const char *p = text, *line_start = text;
+    while (*p){
         while (*p == ' ') p++;                     /* eat run of spaces */
         const char *w0 = p;
         while (*p && *p != ' ' && *p != '\n') p++; /* one word [w0,p) */
@@ -88,22 +92,38 @@ int eui_wrap(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, ui
             char cand[80];
             int ll = (int)strlen(line);
             if (wl > (int)sizeof line - 1) wl = sizeof line - 1;
-            if (ll == 0) snprintf(cand, sizeof cand, "%.*s", wl, w0);
-            else         snprintf(cand, sizeof cand, "%s %.*s", line, wl, w0);
+            if (ll == 0){ snprintf(cand, sizeof cand, "%.*s", wl, w0); line_start = w0; }
+            else          snprintf(cand, sizeof cand, "%s %.*s", line, wl, w0);
             if (ll > 0 && eui_textw(cand) > maxw){ /* word overflows: flush, start anew */
+                if (y + lh > ymax){ *out_y = y; return line_start; }
                 eui_text(fb, line, x0, y, col); y += lh;
                 snprintf(line, sizeof line, "%.*s", wl, w0);
+                line_start = w0;
             } else {
                 snprintf(line, sizeof line, "%s", cand);
             }
         }
         if (*p == '\n'){                            /* hard break */
-            if (line[0]){ eui_text(fb, line, x0, y, col); y += lh; line[0] = 0; }
-            p++;
+            if (line[0]){
+                if (y + lh > ymax){ *out_y = y; return line_start; }
+                eui_text(fb, line, x0, y, col); y += lh; line[0] = 0;
+            }
+            p++; line_start = p;
         }
     }
-    if (line[0] && y < ymax){ eui_text(fb, line, x0, y, col); y += lh; }
-    return y;
+    if (line[0]){
+        if (y + lh > ymax){ *out_y = y; return line_start; }
+        eui_text(fb, line, x0, y, col); y += lh;
+    }
+    *out_y = y;
+    return p;
+}
+
+int eui_wrap(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col){
+    int oy = y; wrap_core(fb, text, x0, x1, y, ymax, col, &oy); return oy;
+}
+const char *eui_wrapt(uint16_t *fb, const char *text, int x0, int x1, int y, int ymax, uint16_t col){
+    int oy = y; return wrap_core(fb, text, x0, x1, y, ymax, col, &oy);
 }
 
 void eui_scrollbar(uint16_t *fb, int bx, int y0, int rows_px, int n, int rows, int scroll,
