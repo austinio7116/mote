@@ -3452,13 +3452,11 @@ void elite_game_draw_overlay(uint16_t *fb) {
                 fb[46 + x + 22 * 128] = RGB565C(60, 170, 200);
         }
         if (s_scoop_toast_t > 0)
-            craft_font_draw(fb, s_scoop_toast,
-                            64 - craft_font_width(s_scoop_toast) / 2, 38,
-                            RGB565C(255, 200, 60));
+            eui_textc(fb, s_scoop_toast, 64, 39, RGB565C(255, 200, 60));
         if (s_state == ST_DOCKING)
-            craft_font_draw(fb, "DOCKING...", 44, 30, RGB565C(120, 230, 255));
+            eui_textc(fb, "DOCKING...", 64, 27, RGB565C(120, 230, 255));
         else if (can_dock())
-            craft_font_draw(fb, "LB+RB: DOCK", 42, 30, RGB565C(120, 230, 255));
+            eui_textc(fb, "LB+RB: DOCK", 64, 27, RGB565C(120, 230, 255));
         if (pvp_active()) pvp_draw_overlay(fb);   /* PVP: VICTORY / LINK LOST banner */
     } else if (pvp_active()) {
         pvp_draw_overlay(fb);                      /* PVP: DEFEAT card (no kill report) */
@@ -3530,10 +3528,9 @@ void elite_game_draw_overlay(uint16_t *fb) {
             /* Toasts must survive the panels (rescue hails, warnings —
              * the sim is live under here). */
             if (s_scoop_toast_t > 0)
-                craft_font_draw(fb, s_scoop_toast,
-                                64 - craft_font_width(s_scoop_toast) / 2,
-                                dtop - up + dash_h + 2,
-                                RGB565C(255, 200, 60));
+                eui_textc(fb, s_scoop_toast, 64,
+                          dtop - up + dash_h + 2,
+                          RGB565C(255, 200, 60));
         }
         if (s_in_settings) dash_settings_overlay(fb);
     }

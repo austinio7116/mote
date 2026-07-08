@@ -58,8 +58,6 @@ static const StarBrief *star_brief(SysAddr a) {
 #include "elite_ui.h"
 #include "econ.h"
 #include "elite_types.h"
-#include "craft_font.h"
-#include "econ.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -599,12 +597,13 @@ void map_galaxy_draw(uint16_t *fb) {
 
 /* ====================== SYSTEM MAP ===================================== */
 static Poi  s_pois[MAX_POIS];
-static int  s_npois, s_cursor;
+static int  s_npois, s_cursor, s_list_scroll;
 static Vec3 s_player_mm;
 
 void map_system_open(Vec3 player_pos_mm) {
     s_npois = system_pois(s_pois, MAX_POIS);
     s_cursor = 0;
+    s_list_scroll = 0;
     s_player_mm = player_pos_mm;
     edges_reset();
 }
@@ -698,26 +697,36 @@ void map_system_draw(uint16_t *fb) {
         }
     }
 
-    /* POI list with cursor (shortened — scan strip below). */
-    int list_y = 36;
-    int first = s_cursor - 4 > 0 ? s_cursor - 4 : 0;
-    for (int i = first; i < s_npois && list_y < 92; i++, list_y += 9) {
+    /* POI list with cursor — readable rows, cursor-follow scroll + scrollbar
+       (scan strip carries the full intel for the selected POI below). */
+    int y0 = 36, rh = 11;
+    int vis = (92 - y0) / rh; if (vis < 1) vis = 1;   /* ~5 rows */
+    if (s_cursor < s_list_scroll)        s_list_scroll = s_cursor;
+    if (s_cursor >= s_list_scroll + vis) s_list_scroll = s_cursor - vis + 1;
+    if (s_npois > vis && s_list_scroll > s_npois - vis) s_list_scroll = s_npois - vis;
+    if (s_list_scroll < 0) s_list_scroll = 0;
+    int list_y = y0;
+    for (int i = s_list_scroll; i < s_npois && i < s_list_scroll + vis;
+         i++, list_y += rh) {
         const Poi *p = &s_pois[i];
         float dist = v3_len(v3_sub(p->pos_mm, s_player_mm));
         const char *icon = (p->kind == POI_BEACON) ? "@"
                          : (p->kind == POI_STATION) ? "#" : "O";
-        snprintf(buf, sizeof buf, "%s %-13s %5dMM", icon, p->name, (int)dist);
-        craft_font_draw(fb, buf, 8, list_y,
-                        (i == s_cursor) ? COL_CUR : COL_DIM);
-        if (i == s_cursor) craft_font_draw(fb, ">", 2, list_y, COL_CUR);
-        {
-            PoiIntel li;
-            elite_game_poi_intel(p, &li);
-            if (li.distress)
-                craft_font_draw(fb, "!", 122, list_y,
-                                RGB565C(255, 90, 70));
-        }
+        uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
+        if (i == s_cursor) eui_text(fb, ">", 0, list_y, COL_CUR);
+        PoiIntel li;
+        elite_game_poi_intel(p, &li);
+        char db[12]; snprintf(db, sizeof db, "%dMM", (int)dist);
+        int dw = eui_textw(db);
+        int distress = li.distress ? 1 : 0;
+        int dxr = distress ? 110 : 120;              /* leave room for the "!" */
+        snprintf(buf, sizeof buf, "%s %s", icon, p->name);
+        eui_textclip(fb, buf, 8, dxr - dw - 4, list_y, c);
+        eui_textr(fb, db, dxr, list_y, c);
+        if (distress) eui_textr(fb, "!", 122, list_y, RGB565C(255, 90, 70));
     }
+    eui_scrollbar(fb, 125, y0, vis * rh, s_npois, vis, s_list_scroll,
+                  COL_CUR, COL_GRID);
 
     /* Scan strip: live intel for the cursor POI. Belts are certain
      * (persistent geography); pirates/salvage are odds. */

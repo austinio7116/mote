@@ -31,6 +31,14 @@ static void stat(uint16_t *fb, int y, const char *k, const char *v,
     craft_font_draw(fb, k, 4, y, COL_DIM);
     craft_font_draw(fb, v, 60, y, vc);
 }
+/* Readable key/value row for the roomy sheets (the weapon sheet keeps the
+   compact craft stat() above — it packs up to ten numeric rows and would
+   overflow the screen in the taller font). */
+static void stat_r(uint16_t *fb, int y, const char *k, const char *v,
+                   uint16_t vc) {
+    eui_textclip(fb, k, 4, 58, y, COL_DIM);
+    eui_text(fb, v, 62, y, vc);
+}
 
 /* Delta tag beside a stat: green when better, red when worse.
  * lower_better flips the sense (heat). */
@@ -68,31 +76,31 @@ void detail_draw_weapon(uint16_t *fb, const WeaponInst *wi,
             "LB+B BREAKS LOCKS",
         };
         icon_weapon_2x(fb, 4, 3, wi->type);
-        craft_font_draw(fb, item_name(wi->type), 32, 4, COL_HDR);
-        craft_font_draw(fb, "UTILITY GADGET", 32, 11, COL_DIM);
-        hl(fb, 19, COL_GRID);
-        int y = 26;
-        craft_font_draw(fb, k_fx1[wi->type - EQ_HEATSINK], 4, y, COL_VAL);
-        y += 10;
+        eui_textclip(fb, item_name(wi->type), 32, 124, 2, COL_HDR);
+        craft_font_draw(fb, "UTILITY GADGET", 32, 13, COL_DIM);
+        hl(fb, 21, COL_GRID);
+        int y = 25;
+        eui_text(fb, k_fx1[wi->type - EQ_HEATSINK], 4, y, COL_VAL);
+        y += 13;
         if (wi->type == EQ_CHAFF) {
-            craft_font_draw(fb, "4 CHARGES, RESTOCK", 4, y, COL_DIM);
-            y += 8;
-            craft_font_draw(fb, "AT REARM (20CR EA)", 4, y, COL_DIM);
-            y += 10;
+            eui_text(fb, "4 CHARGES, RESTOCK", 4, y, COL_DIM);
+            y += 12;
+            eui_text(fb, "AT REARM (20CR EA)", 4, y, COL_DIM);
+            y += 13;
         }
         if (wi->type == EQ_FUELSCOOP) {
-            craft_font_draw(fb, "HEAT BUILDS - WATCH T", 4, y, COL_WARN);
-            y += 10;
+            eui_text(fb, "HEAT BUILDS - WATCH T", 4, y, COL_WARN);
+            y += 13;
         }
         char ibuf[16];
         snprintf(ibuf, sizeof ibuf, "%d%%", wi->integrity);
-        stat(fb, y, "INTEGRITY", ibuf,
-             wi->integrity < 60 ? COL_WARN : COL_VAL);
-        y += 8;
+        stat_r(fb, y, "INTEGRITY", ibuf,
+               wi->integrity < 60 ? COL_WARN : COL_VAL);
+        y += 13;
         if (price >= 0) {
             hl(fb, y + 1, COL_GRID);
             snprintf(ibuf, sizeof ibuf, "%s %dCR", price_label, price);
-            craft_font_draw(fb, ibuf, 4, y + 5, COL_CRED);
+            eui_text(fb, ibuf, 4, y + 4, COL_CRED);
         }
         hl(fb, 118, COL_GRID);
         craft_font_draw(fb, footer, 2, 121, COL_DIM);
@@ -102,12 +110,12 @@ void detail_draw_weapon(uint16_t *fb, const WeaponInst *wi,
     if (wi->type >= WPN_COUNT) {
         /* Equipment sheet: protection rather than firepower. */
         icon_weapon_2x(fb, 4, 3, wi->type);
-        craft_font_draw(fb, item_name(wi->type), 32, 4, COL_HDR);
+        eui_textclip(fb, item_name(wi->type), 32, 124, 2, COL_HDR);
         craft_font_draw(fb, k_qual_long[wi->quality > 4 ? 4 : wi->quality],
-                        32, 11,
+                        32, 13,
                         (wi->quality >= Q_MILITARY) ? COL_CRED : COL_DIM);
-        hl(fb, 19, COL_GRID);
-        int y = 24;
+        hl(fb, 21, COL_GRID);
+        int y = 25;
         if (wi->affix) {
             static const char *k_shv_fx[4] = { "", "FAST REGEN, -CAP",
                                                "+50% CAP, SLOW REGEN",
@@ -121,33 +129,33 @@ void detail_draw_weapon(uint16_t *fb, const WeaponInst *wi,
             const char *fx2 = (wi->type == EQ_ARMOR)
                                   ? k_arv_fx[wi->affix & 3]
                                   : k_shv_fx[wi->affix & 3];
-            craft_font_draw(fb, vn, 4, y, RGB565C(150, 220, 255));
-            y += 8;
-            craft_font_draw(fb, fx2, 4, y, COL_DIM);
-            y += 9;
+            eui_text(fb, vn, 4, y, RGB565C(150, 220, 255));
+            y += 12;
+            eui_textclip(fb, fx2, 4, 124, y, COL_DIM);
+            y += 13;
         }
         snprintf(buf, sizeof buf, "Z%d", wi->tier);
-        stat(fb, y, "SIZE", buf, COL_VAL); y += 8;
+        stat_r(fb, y, "SIZE", buf, COL_VAL); y += 13;
         float mult = k_tier_mult[wi->tier > 3 ? 3 : wi->tier] *
                      quality_dmg_mult(wi->quality) *
                      (0.6f + 0.4f * wi->integrity * 0.01f);
         snprintf(buf, sizeof buf, "X%d.%d", (int)mult,
                  ((int)(mult * 10)) % 10);
-        stat(fb, y, "PROTECTION", buf, COL_VAL);
+        stat_r(fb, y, "PROTECTION", buf, COL_VAL);
         if (cmp && cmp->in_use && cmp->type == wi->type && cmp != wi) {
             float cm = k_tier_mult[cmp->tier > 3 ? 3 : cmp->tier] *
                        quality_dmg_mult(cmp->quality) *
                        (0.6f + 0.4f * cmp->integrity * 0.01f);
             stat_delta(fb, y, mult - cm, 0);
         }
-        y += 8;
+        y += 13;
         snprintf(buf, sizeof buf, "%d%%", wi->integrity);
-        stat(fb, y, "INTEGRITY", buf,
-             wi->integrity < 60 ? COL_WARN : COL_VAL); y += 8;
+        stat_r(fb, y, "INTEGRITY", buf,
+               wi->integrity < 60 ? COL_WARN : COL_VAL); y += 13;
         if (price >= 0) {
             hl(fb, y + 1, COL_GRID);
             snprintf(buf, sizeof buf, "%s %dCR", price_label, price);
-            craft_font_draw(fb, buf, 4, y + 5, COL_CRED);
+            eui_text(fb, buf, 4, y + 4, COL_CRED);
         }
         hl(fb, 118, COL_GRID);
         craft_font_draw(fb, footer, 2, 121, COL_DIM);
@@ -164,73 +172,82 @@ void detail_draw_weapon(uint16_t *fb, const WeaponInst *wi,
     }
 
     icon_weapon_2x(fb, 4, 3, wi->type);
+    /* Readable headline; the VS benchmark tag (right) stays compact so a long
+       weapon name and its comparator never collide. The numeric stat block
+       below stays in the dense craft font (up to ten rows — a taller font
+       would overrun the sheet). */
+    int hxmax = cw ? 92 : 124;
     /* Affixed weapons show "VENTED GAUSS" as the headline. */
     if (wi->affix && wi->affix < AFX_COUNT) {
         char nbuf[26];
         snprintf(nbuf, sizeof nbuf, "%.11s %s", k_affixes[wi->affix].name,
                  w->name);
-        craft_font_draw(fb, nbuf, 32, 4, RGB565C(150, 220, 255));
+        eui_textclip(fb, nbuf, 32, hxmax, 2, RGB565C(150, 220, 255));
     } else {
-        craft_font_draw(fb, w->name, 32, 4, COL_HDR);
+        eui_textclip(fb, w->name, 32, hxmax, 2, COL_HDR);
     }
     craft_font_draw(fb, k_qual_long[wi->quality > 4 ? 4 : wi->quality],
-                    32, 11, (wi->quality >= Q_MILITARY) ? COL_CRED : COL_DIM);
+                    32, 13, (wi->quality >= Q_MILITARY) ? COL_CRED : COL_DIM);
     if (cw) {
         /* Comparison benchmark as a two-row header tag, top right —
          * the deltas below are measured against this. */
         int tw = craft_font_width("VS");
-        craft_font_draw(fb, "VS", 126 - tw, 4, COL_DIM);
+        craft_font_draw(fb, "VS", 126 - tw, 2, COL_DIM);
         tw = craft_font_width(cw->name);
-        craft_font_draw(fb, cw->name, 126 - tw, 11,
+        craft_font_draw(fb, cw->name, 126 - tw, 13,
                         RGB565C(90, 170, 220));
     }
-    hl(fb, 19, COL_GRID);
+    hl(fb, 21, COL_GRID);
 
     float dm = mount_dmg_mult(wi);
-    int y = 24;
+    /* Readable stat rows. Pitch shrinks to 10 only when the seeker/blast rows
+       push the count to nine or ten, so the densest sheet still fits. */
+    int extra = (w->aoe > 0) + (w->turn > 0);
+    int rp = extra >= 1 ? 9 : 10;
+    int y = 22;
     snprintf(buf, sizeof buf, "Z%d", w->size);
-    stat(fb, y, "SLOT SIZE", buf, COL_VAL); y += 8;
+    stat_r(fb, y, "SLOT SIZE", buf, COL_VAL); y += rp;
     snprintf(buf, sizeof buf, "%d.%d", (int)(w->dmg * dm),
              ((int)(w->dmg * dm * 10)) % 10);
-    stat(fb, y, "DAMAGE", buf, COL_VAL);
+    stat_r(fb, y, "DAMAGE", buf, COL_VAL);
     if (cw) stat_delta(fb, y, w->dmg * dm - cw->dmg * cdm, 0);
-    y += 8;
+    y += rp;
     float dps = w->dmg * dm / w->cooldown;
     snprintf(buf, sizeof buf, "%d.%d", (int)dps, ((int)(dps * 10)) % 10);
-    stat(fb, y, "DPS", buf, COL_VAL);
+    stat_r(fb, y, "DPS", buf, COL_VAL);
     if (cw) stat_delta(fb, y, dps - cw->dmg * cdm / cw->cooldown, 0);
-    y += 8;
+    y += rp;
     snprintf(buf, sizeof buf, "%d.%d/S", (int)(w->heat / w->cooldown),
              ((int)(w->heat / w->cooldown * 10)) % 10);
-    stat(fb, y, "HEAT", buf,
+    stat_r(fb, y, "HEAT", buf,
          (w->heat / w->cooldown > 30) ? COL_WARN : COL_VAL);
     if (cw) stat_delta(fb, y, w->heat / w->cooldown -
                                   cw->heat / cw->cooldown, 1);
-    y += 8;
+    y += rp;
     if (w->speed > 0)
         snprintf(buf, sizeof buf, "%dM/S", (int)w->speed);
     else
         snprintf(buf, sizeof buf, "HITSCAN");
-    stat(fb, y, "VELOCITY", buf, COL_VAL); y += 8;
+    stat_r(fb, y, "VELOCITY", buf, COL_VAL); y += rp;
     snprintf(buf, sizeof buf, "%dM", (int)w->range);
-    stat(fb, y, "RANGE", buf, COL_VAL);
+    stat_r(fb, y, "RANGE", buf, COL_VAL);
     if (cw) stat_delta(fb, y, w->range - cw->range, 0);
-    y += 8;
+    y += rp;
     if (w->ammo_max)
         snprintf(buf, sizeof buf, "%d RNDS", w->ammo_max);
     else
         snprintf(buf, sizeof buf, "ENERGY");
-    stat(fb, y, "AMMO", buf, COL_VAL); y += 8;
+    stat_r(fb, y, "AMMO", buf, COL_VAL); y += rp;
     if (w->aoe > 0) {
         snprintf(buf, sizeof buf, "%dM BLAST", (int)w->aoe);
-        stat(fb, y, "WARHEAD", buf, COL_WARN); y += 8;
+        stat_r(fb, y, "WARHEAD", buf, COL_WARN); y += rp;
     }
     if (w->turn > 0) {
-        stat(fb, y, "GUIDANCE", "SEEKER", COL_ILL); y += 8;
+        stat_r(fb, y, "GUIDANCE", "SEEKER", COL_ILL); y += rp;
     }
     snprintf(buf, sizeof buf, "%d%%", wi->integrity);
-    stat(fb, y, "INTEGRITY", buf,
-         wi->integrity < 60 ? COL_WARN : COL_VAL); y += 8;
+    stat_r(fb, y, "INTEGRITY", buf,
+         wi->integrity < 60 ? COL_WARN : COL_VAL); y += rp;
 
     if (price >= 0) {
         hl(fb, y + 1, COL_GRID);
@@ -353,22 +370,22 @@ void detail_draw_good(uint16_t *fb, int good, int held,
     fill(fb, COL_BG);
     const GoodDef *g = &k_goods[good];
     char buf[28];
-    craft_font_draw(fb, g->name, 4, 4, COL_HDR);
-    if (g->flags & GOOD_ILLEGAL)
-        craft_font_draw(fb, "ILLEGAL", 90, 4, COL_ILL);
-    hl(fb, 12, COL_GRID);
-    int y = 18;
+    int illegal = (g->flags & GOOD_ILLEGAL) != 0;
+    eui_textclip(fb, g->name, 4, illegal ? 82 : 124, 2, COL_HDR);
+    if (illegal)
+        eui_textr(fb, "ILLEGAL", 124, 2, COL_ILL);
+    hl(fb, 15, COL_GRID);
+    int y = 19;
     snprintf(buf, sizeof buf, "%d UNITS HELD", held);
-    craft_font_draw(fb, buf, 4, y, COL_VAL); y += 9;
+    eui_text(fb, buf, 4, y, COL_VAL); y += 13;
     snprintf(buf, sizeof buf, "GALACTIC AVG %dCR", g->base);
-    craft_font_draw(fb, buf, 4, y, COL_DIM); y += 9;
-    if (g->flags & GOOD_ILLEGAL) {
-        craft_font_draw(fb, "ONLY BLACK MARKETS", 4, y, COL_ILL); y += 7;
-        craft_font_draw(fb, "WILL TOUCH THIS", 4, y, COL_ILL); y += 9;
-    } else {
-        craft_font_draw(fb, "SELL WHERE THE", 4, y, COL_DIM); y += 7;
-        craft_font_draw(fb, "ECONOMY IMPORTS IT", 4, y, COL_DIM); y += 9;
-    }
+    eui_text(fb, buf, 4, y, COL_DIM); y += 15;
+    if (illegal)
+        y = eui_wrap(fb, "ONLY BLACK MARKETS WILL TOUCH THIS",
+                     4, 124, y, 116, COL_ILL);
+    else
+        y = eui_wrap(fb, "SELL WHERE THE ECONOMY IMPORTS IT",
+                     4, 124, y, 116, COL_DIM);
     hl(fb, 118, COL_GRID);
     craft_font_draw(fb, footer, 2, 121, COL_DIM);
 }

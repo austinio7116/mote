@@ -1291,7 +1291,7 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
             if (s_rows[s_cursor].kind == ROW_HDR) s_cursor--;
         }
         if (s_cursor < s_scroll) s_scroll = s_cursor;
-        if (s_cursor > s_scroll + 8) s_scroll = s_cursor - 8;
+        if (s_cursor > s_scroll + 5) s_scroll = s_cursor - 5;  /* ~6 readable rows */
         if (lb_edge && row_detailable(&s_rows[s_cursor]))
             s_detail = 1;                       /* Info = detail sheet */
         if (a_edge) {
@@ -1652,42 +1652,56 @@ static void draw_shipyard(uint16_t *fb) {
 
 static void draw_outfit(uint16_t *fb) {
     draw_header(fb);
-    craft_font_draw(fb, "OUTFITTING", 2, 12, COL_DIM);
-    hl(fb, 19, COL_GRID);
-    const HullDef *h = &k_hulls[g_player.hull_id];
+    /* Readable section label; the header's divider (y13) already separates it. */
+    eui_text(fb, "OUTFITTING", 2, 14, COL_DIM);
+    hl(fb, 27, COL_GRID);
+    const HullDef *h = &k_hulls[g_player.hull_id]; (void)h;
     outfit_build_rows();
     if (s_cursor >= s_n_rows) s_cursor = s_n_rows - 1;
-    int y = 22;
+    /* Readable rows (full spec of the selection is one detail-sheet press away, so
+       list text may clip and the mount/equip quality tag is dropped here). */
+    int y0 = 29, rh = 13;
+    int vis = (112 - y0) / rh; if (vis < 1) vis = 1;   /* ~6 rows */
+    if (s_cursor < s_scroll)        s_scroll = s_cursor;
+    if (s_cursor >= s_scroll + vis) s_scroll = s_cursor - vis + 1;
+    if (s_n_rows > vis && s_scroll > s_n_rows - vis) s_scroll = s_n_rows - vis;
+    if (s_scroll < 0) s_scroll = 0;
+    int y = y0;
     char buf[36];
-    for (int i = s_scroll; i < s_n_rows && i < s_scroll + 9; i++, y += 10) {
+    for (int i = s_scroll; i < s_n_rows && i < s_scroll + vis; i++, y += rh) {
         const OutfitRow *r = &s_rows[i];
         uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) craft_font_draw(fb, ">", 2, y, COL_CUR);
+        int ty = y + 1;                              /* text baseline */
+        if (i == s_cursor) eui_text(fb, ">", 0, ty, COL_CUR);
         switch (r->kind) {
         case ROW_MOUNT: {
             const WeaponInst *m = &g_player.mounts[r->index];
             if (m->in_use) {
-                icon_weapon(fb, 7, y - 1, m->type);
-                snprintf(buf, sizeof buf, "Z%d %s%s%s %s %d%%",
+                icon_weapon(fb, 6, y + 3, m->type);
+                /* quality tag dropped from list row — shown on the detail sheet */
+                snprintf(buf, sizeof buf, "Z%d %s%s%s %d%%",
                          player_slot_size(r->index),
                          k_weapons[m->type].name,
                          m->affix ? "-" : "",
                          m->affix ? k_affixes[m->affix].tag : "",
-                         k_qtag[m->quality], m->integrity);
-            } else
+                         m->integrity);
+                int cost = m->integrity < 100;
+                eui_textclip(fb, buf, 20, cost ? 100 : 124, ty, c);
+                if (cost) {
+                    snprintf(buf, sizeof buf, "%d", repair_cost(m));
+                    eui_textr(fb, buf, 122, ty, COL_CRED);
+                }
+            } else {
                 snprintf(buf, sizeof buf, "Z%d EMPTY",
                          player_slot_size(r->index));
-            craft_font_draw(fb, buf, 21, y, c);
-            if (m->in_use && m->integrity < 100) {
-                snprintf(buf, sizeof buf, "%d", repair_cost(m));
-                craft_font_draw(fb, buf, 104, y, COL_CRED);
+                eui_textclip(fb, buf, 6, 124, ty, c);
             }
             break;
         }
         case ROW_EQUIP: {
             const WeaponInst *e = r->index ? &g_player.armor_eq
                                            : &g_player.shield_eq;
-            icon_weapon(fb, 7, y - 1, WPN_COUNT + r->index);
+            icon_weapon(fb, 6, y + 3, WPN_COUNT + r->index);
             if (e->in_use) {
                 const char *vn = (e->type == EQ_ARMOR)
                                      ? k_armor_var_names[e->affix & 3]
@@ -1695,26 +1709,27 @@ static void draw_outfit(uint16_t *fb) {
                 snprintf(buf, sizeof buf, "%s%s%s Z%d %d%%", vn,
                          e->affix ? " " : "", item_name(e->type),
                          e->tier, e->integrity);
-                craft_font_draw(fb, buf, 21, y, c);
-                if (e->integrity < 100) {
-                    int cost = (int)((100 - e->integrity) *
+                int cost = e->integrity < 100;
+                eui_textclip(fb, buf, 20, cost ? 100 : 124, ty, c);
+                if (cost) {
+                    int cst = (int)((100 - e->integrity) *
                                      equip_price(e->type, e->tier,
                                                  e->quality) / 100 * 0.6f *
                                      skill_repair_mult()) + 1;
-                    snprintf(buf, sizeof buf, "%d", cost);
-                    craft_font_draw(fb, buf, 104, y, COL_CRED);
+                    snprintf(buf, sizeof buf, "%d", cst);
+                    eui_textr(fb, buf, 122, ty, COL_CRED);
                 }
             } else {
                 snprintf(buf, sizeof buf, "%s ----",
                          item_name(WPN_COUNT + r->index));
-                craft_font_draw(fb, buf, 21, y, c);
+                eui_textclip(fb, buf, 20, 124, ty, c);
             }
             break;
         }
         case ROW_TURRET: {
             const WeaponInst *t2 = &g_player.turret_eq;
             if (t2->in_use) {
-                icon_weapon(fb, 7, y - 1, t2->type);
+                icon_weapon(fb, 6, y + 3, t2->type);
                 {
                     static const char *k_cal[4] = { "STANDARD",
                         "REINFORCED", "MILITARY", "PROTOTYPE" };
@@ -1722,42 +1737,44 @@ static void draw_outfit(uint16_t *fb) {
                              k_weapons[t2->type].name,
                              k_cal[player_turret_gunner_tier()]);
                 }
-            } else
+                eui_textclip(fb, buf, 20, 124, ty, c);
+            } else {
                 snprintf(buf, sizeof buf, "TURRET ---- (Z1)");
-            craft_font_draw(fb, buf, 21, y, c);
+                eui_textclip(fb, buf, 6, 124, ty, c);
+            }
             break;
         }
         case ROW_UTIL: {
             const WeaponInst *e = &g_player.util_eq[r->index];
             if (e->in_use) {
-                icon_weapon(fb, 7, y - 1, e->type);
+                icon_weapon(fb, 6, y + 3, e->type);
                 snprintf(buf, sizeof buf, "%s %d%%",
                          item_name(e->type), e->integrity);
-                craft_font_draw(fb, buf, 21, y, c);
+                eui_textclip(fb, buf, 20, 124, ty, c);
             } else {
                 snprintf(buf, sizeof buf, "UTIL BAY %d ----", r->index + 1);
-                craft_font_draw(fb, buf, 21, y, c);
+                eui_textclip(fb, buf, 6, 124, ty, c);
             }
             break;
         }
         case ROW_UTILSHOP: {
-            int ty = EQ_HEATSINK + r->index;
-            icon_weapon(fb, 7, y - 1, ty);
-            snprintf(buf, sizeof buf, "BUY %s", item_name(ty));
-            craft_font_draw(fb, buf, 21, y, c);
+            int ity = EQ_HEATSINK + r->index;
+            icon_weapon(fb, 6, y + 3, ity);
+            snprintf(buf, sizeof buf, "BUY %s", item_name(ity));
+            eui_textclip(fb, buf, 20, 100, ty, c);
             {
                 const SystemInfo *sie = system_info();
                 snprintf(buf, sizeof buf, "%d",
-                         (int)(k_equip[ty - WPN_COUNT].base_price *
+                         (int)(k_equip[ity - WPN_COUNT].base_price *
                                econ_weapon_mult(
                                    sie->stations[s_station].econ) *
                                skill_price_mult()));
             }
-            craft_font_draw(fb, buf, 104, y, COL_CRED);
+            eui_textr(fb, buf, 122, ty, COL_CRED);
             break;
         }
         case ROW_EQSHOP: {
-            icon_weapon(fb, 7, y - 1, WPN_COUNT + r->index);
+            icon_weapon(fb, 6, y + 3, WPN_COUNT + r->index);
             {
                 const SystemInfo *sie = system_info();
                 uint32_t vh = (uint32_t)(sie->seed >> 22) ^
@@ -1771,7 +1788,7 @@ static void draw_outfit(uint16_t *fb) {
                          variant ? " " : "",
                          item_name(WPN_COUNT + r->index), r->tier);
             }
-            craft_font_draw(fb, buf, 21, y, c);
+            eui_textclip(fb, buf, 20, 100, ty, c);
             {
                 const SystemInfo *sie = system_info();
                 snprintf(buf, sizeof buf, "%d",
@@ -1781,56 +1798,56 @@ static void draw_outfit(uint16_t *fb) {
                                    sie->stations[s_station].econ) *
                                skill_price_mult()));
             }
-            craft_font_draw(fb, buf, 104, y, COL_CRED);
+            eui_textr(fb, buf, 122, ty, COL_CRED);
             break;
         }
         case ROW_HDR: {
             static const char *k_hdr[3] = { "-YOUR SHIP-", "-YOUR HOLD-",
                                             "-STATION SHOP-" };
-            craft_font_draw(fb, k_hdr[r->index], 4, y,
-                            RGB565C(90, 140, 190));
+            eui_text(fb, k_hdr[r->index], 4, ty, RGB565C(90, 140, 190));
             break;
         }
         case ROW_SALV: {
             const WeaponInst *m = &g_player.salvage[r->index];
-            icon_weapon(fb, 7, y - 1, m->type);
+            icon_weapon(fb, 6, y + 3, m->type);
             snprintf(buf, sizeof buf, "%s%s%s %s %d%%",
                      item_name(m->type),
                      m->affix ? "-" : "",
                      m->affix ? k_affixes[m->affix].tag : "",
                      k_qtag[m->quality], m->integrity);
-            craft_font_draw(fb, buf, 21, y, c);
+            eui_textclip(fb, buf, 20, 100, ty, c);
             /* What the shop pays (B sells). */
             snprintf(buf, sizeof buf, "+%d",
                      (int)(instance_price(m) *
                            (0.35f + 0.30f * m->integrity * 0.01f)));
-            craft_font_draw(fb, buf, 100, y, RGB565C(120, 200, 120));
+            eui_textr(fb, buf, 122, ty, RGB565C(120, 200, 120));
             break;
         }
         case ROW_SHOP: {
             const ArmoryItem *it = &s_armory[r->index];
-            icon_weapon(fb, 7, y - 1, it->type);
+            icon_weapon(fb, 6, y + 3, it->type);
             if (it->featured) {
                 /* Featured rare: starred, quality-tagged, gold name. */
                 snprintf(buf, sizeof buf, "*%s %s%s%s",
                          k_qtag[it->quality], k_weapons[it->type].name,
                          it->affix ? "-" : "",
                          it->affix ? k_affixes[it->affix].tag : "");
-                craft_font_draw(fb, buf, 21, y,
-                                (i == s_cursor) ? COL_CUR
-                                                : RGB565C(255, 200, 90));
+                eui_textclip(fb, buf, 20, 100, ty,
+                             (i == s_cursor) ? COL_CUR
+                                             : RGB565C(255, 200, 90));
             } else {
                 snprintf(buf, sizeof buf, "BUY %s Z%d",
                          k_weapons[it->type].name, k_weapons[it->type].size);
-                craft_font_draw(fb, buf, 21, y, c);
+                eui_textclip(fb, buf, 20, 100, ty, c);
             }
             snprintf(buf, sizeof buf, "%d",
                      (int)(it->price * skill_price_mult()));
-            craft_font_draw(fb, buf, 104, y, COL_CRED);
+            eui_textr(fb, buf, 122, ty, COL_CRED);
             break;
         }
         }
     }
+    eui_scrollbar(fb, 125, y0, vis * rh, s_n_rows, vis, s_scroll, COL_CUR, COL_GRID);
     hl(fb, 113, COL_GRID);
     /* action popup */
     if (s_pop_open) {
@@ -1906,6 +1923,9 @@ static void draw_missions(uint16_t *fb) {
     eui_textr(fb, buf, 126, y, COL_DIM);
     y += 13;
     int any = 0;
+    /* LOG rows stay compact: the OFFERS list below is the interactive part and
+       gets the readable font; four readable LOG rows + four readable OFFERS +
+       both headers cannot share this screen without overrunning the footer. */
     for (int i = 0; i < MAX_MISSIONS; i++) {
         const Mission *m = &g_missions[i];
         if (m->type == MIS_NONE) continue;
@@ -1917,26 +1937,21 @@ static void draw_missions(uint16_t *fb) {
     }
     if (!any) { craft_font_draw(fb, "(NONE ACTIVE)", 8, y, COL_DIM); y += 9; }
 
-    y += 5;
+    y += 3;
     eui_text(fb, "OFFERS", 2, y, COL_HDR);
     y += 13;
-    for (int i = 0; i < MISSION_OFFERS; i++) {
+    for (int i = 0; i < MISSION_OFFERS; i++, y += 11) {
         const Mission *m = &s_offers[i];
         uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) craft_font_draw(fb, ">", 2, y, COL_CUR);
+        if (i == s_cursor) eui_text(fb, ">", 0, y, COL_CUR);
         if (m->type == MIS_NONE) {
-            craft_font_draw(fb, "----", 8, y, c);
+            eui_text(fb, "----", 8, y, c);
         } else {
             snprintf(buf, sizeof buf, "%d", m->reward);
-            int rw = craft_font_width(buf);
-            char lbl[28]; snprintf(lbl, sizeof lbl, "%s", m->label);
-            int maxx = 128 - rw - 6;              /* clip label before the reward */
-            for (int n = (int)strlen(lbl); n > 0 && 8 + craft_font_width(lbl) > maxx; n--)
-                lbl[n - 1] = 0;
-            craft_font_draw(fb, lbl, 8, y, c);
-            craft_font_draw(fb, buf, 128 - rw - 2, y, COL_CRED);
+            int rw = eui_textw(buf);
+            eui_textclip(fb, m->label, 8, 122 - rw - 4, y, c);
+            eui_textr(fb, buf, 122, y, COL_CRED);
         }
-        y += 9;
     }
     hl(fb, 113, COL_GRID);
     { char h[28]; snprintf(h, sizeof h, "%s:ACCEPT %s:BACK",

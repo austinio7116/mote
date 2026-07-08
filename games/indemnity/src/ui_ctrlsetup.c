@@ -24,7 +24,7 @@
 #define N_AX   CTRL_AX_N            /* 4 */
 #define N_BTN  CTRL_BTN_N           /* 11 */
 #define N_ROWS (N_AX + N_BTN)
-#define VIS    10                   /* visible rows */
+#define VIS    6                    /* visible readable rows */
 
 static const char *k_ax_name[N_AX] = { "ROLL", "PITCH", "YAW", "THROTTLE" };
 static const char *k_btn_name[N_BTN] = {
@@ -120,43 +120,48 @@ void ctrlsetup_draw(uint16_t *fb) {
     dim_backdrop(fb);
     bool editable = plat_ctrl_editable() != 0;
 
-    craft_font_draw(fb, "CONTROLLER", 2, 2, COL_HDR);
+    uint16_t GRID = RGB565C(28, 40, 58);
+    eui_text(fb, "CONTROLLER", 2, 1, COL_HDR);
     const char *dev = plat_ctrl_device_name();
     if (dev && dev[0])
-        craft_font_draw(fb, dev, 128 - craft_font_width(dev) - 2, 2, COL_DIM);
-    for (int x = 0; x < 128; x++) fb[9 * ELITE_FB_W + x] = RGB565C(28, 40, 58);
+        craft_font_draw(fb, dev, 128 - craft_font_width(dev) - 2, 3, COL_DIM);
+    for (int x = 0; x < 128; x++) fb[13 * ELITE_FB_W + x] = GRID;
 
-    int y = 13;
-    for (int r = s_scroll; r < N_ROWS && r < s_scroll + VIS; r++, y += 8) {
+    /* Readable binding rows (name left, current bind right), cursor-follow
+       scroll + scrollbar — fewer rows than the old 8px list, but legible. */
+    int y0 = 15, rh = 12, y = y0;
+    for (int r = s_scroll; r < N_ROWS && r < s_scroll + VIS; r++, y += rh) {
         bool sel = (r == s_cursor);
         uint16_t c = sel ? COL_SEL : COL_DIM;
-        if (sel) craft_font_draw(fb, ">", 2, y, c);
+        if (sel) eui_text(fb, ">", 0, y, c);
         const char *name = row_is_axis(r) ? k_ax_name[r] : k_btn_name[r - N_AX];
-        craft_font_draw(fb, name, 9, y, c);
         char lbl[20];
         if (row_is_axis(r)) plat_ctrl_axis_label((CtrlAxis)r, lbl, sizeof lbl);
         else plat_ctrl_btn_label((CtrlButton)(r - N_AX), lbl, sizeof lbl);
-        craft_font_draw(fb, lbl, 126 - craft_font_width(lbl), y,
-                        sel ? COL_BIND : COL_DIM);
+        int lw = eui_textw(lbl);
+        eui_textclip(fb, name, 9, 120 - lw - 4, y, c);
+        eui_textr(fb, lbl, 120, y, sel ? COL_BIND : COL_DIM);
     }
+    eui_scrollbar(fb, 125, y0, VIS * rh, N_ROWS, VIS, s_scroll, COL_SEL, GRID);
 
     if (s_capturing) {
         const char *msg = row_is_axis(s_cursor) ? "MOVE AN AXIS" : "PRESS A BUTTON";
-        for (int yy = 52; yy < 72; yy++)
+        for (int yy = 50; yy < 74; yy++)
             for (int x = 8; x < 120; x++) fb[yy * ELITE_FB_W + x] = RGB565C(8, 11, 20);
-        craft_font_draw(fb, msg, 64 - craft_font_width(msg) / 2, 58, COL_CAP);
-        craft_font_draw(fb, "B: CANCEL", 64 - craft_font_width("B: CANCEL") / 2, 66, COL_FOOT);
+        eui_textc(fb, msg, 64, 53, COL_CAP);
+        eui_textc(fb, "B: CANCEL", 64, 63, COL_FOOT);
         return;
     }
-    for (int x = 0; x < 128; x++) fb[95 * ELITE_FB_W + x] = RGB565C(28, 40, 58);
+    for (int x = 0; x < 128; x++) fb[95 * ELITE_FB_W + x] = GRID;
     if (!editable) {
-        craft_font_draw(fb, "STANDARD MAPPING (READ-ONLY)", 2, 118, COL_FOOT);
+        eui_text(fb, "STANDARD MAPPING", 2, 99, COL_FOOT);
+        eui_text(fb, "(READ-ONLY)", 2, 111, COL_FOOT);
         return;
     }
     /* Live input readout: press/move on the stick to identify it before binding. */
     const char *li = plat_ctrl_last_input();
-    craft_font_draw(fb, "TESTING:", 2, 99, COL_DIM);
-    craft_font_draw(fb, (li && li[0]) ? li : "—", 44, 99, RGB565C(120, 230, 255));
-    craft_font_draw(fb, "A:BIND  </>:INV/CLR  B:BACK", 2, 108, COL_FOOT);
-    craft_font_draw(fb, "keyboard always works", 2, 117, COL_FOOT);
+    eui_text(fb, "TESTING:", 2, 98, COL_DIM);
+    eui_textclip(fb, (li && li[0]) ? li : "-", 56, 126, 98, RGB565C(120, 230, 255));
+    craft_font_draw(fb, "A:BIND  </>:INV/CLR  B:BACK", 2, 110, COL_FOOT);
+    craft_font_draw(fb, "keyboard always works", 2, 118, COL_FOOT);
 }
