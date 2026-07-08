@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-08T22:01:52+00:00",
+ "generated": "2026-07-08T22:41:32+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -166,10 +166,10 @@
    "id": "indemnity",
    "name": "Indemnity Run",
    "author": "austinio7116",
-   "version": "1.2.0",
+   "version": "1.2.1",
    "abi": 47,
-   "size": 339364,
-   "sha256": "1f09be01c5382220e383a29e854c38e1b6c170f69c19fc0ca5c9a0bd2bd98ead",
+   "size": 339988,
+   "sha256": "1635f1ab0440266f0f74f580da5ff8e28e2a2ef63a619bdcf822f945d88e06dd",
    "file": "games/indemnity.mote",
    "icon": "img/gallery/indemnity-icon.png",
    "thumb": "img/gallery/indemnity-1.png",
