@@ -18,6 +18,7 @@
 #include "elite_rocks.h"
 #include "r3d_scene.h"
 #include "craft_font.h"
+#include "elite_ui.h"      /* readable weapon-name banner (HUD gauges stay compact) */
 #include "ui_icons.h"
 #include <stdio.h>
 
@@ -352,11 +353,10 @@ void ui_hud_draw(uint16_t *fb, const HudInfo *info) {
                      (int)p->ammo[p->active_w]);
         else
             snprintf(buf, sizeof buf, "%s", w->name);
-        int wx = 64 - craft_font_width(buf) / 2 + 7;
-        craft_font_draw(fb, buf, wx,
-                        2, (w->ammo_max && p->ammo[p->active_w] <= 0)
+        int wx = 64 - eui_textw(buf) / 2 + 8;    /* readable weapon-name banner */
+        eui_text(fb, buf, wx, 1, (w->ammo_max && p->ammo[p->active_w] <= 0)
                                 ? COL_HULL : COL_NUM);
-        icon_weapon(fb, wx - 15, 1, p->weapons[p->active_w]);
+        icon_weapon(fb, wx - 16, 2, p->weapons[p->active_w]);
     }
 
     /* Left panel: THREE clean rows, nothing below y123 (the old loose
