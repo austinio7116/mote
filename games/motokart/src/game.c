@@ -1700,8 +1700,10 @@ static void g_overlay(uint16_t *fb) {
     mote->text(fb, tb, 2, 30, white);
 
     /* held item — icon in a panel at the bottom-right, only when you have one.
-     * Plain axis-aligned blit (well-trodden sub-rect path) instead of a scaled
-     * blit_ex sub-rect, which faulted on the device. */
+     * Plain axis-aligned blit here (no scaling needed). NOTE: the earlier belief
+     * that a scaled blit_ex sub-rect "faulted on the device" was an ABI/firmware
+     * mismatch, not an engine bug — blit_ex (incl. scaled indexed sub-rects) is
+     * confirmed working on v47 hardware (Indemnity uses it for 2x detail icons). */
     if (k->item != ITEM_NONE) {
         int px = 104, py = 102;                 /* 16x16 icon in a 24x24 panel */
         mote->draw_rect(fb, px - 4, py - 4, 24, 24, MOTE_RGB565(18, 20, 28), 1, 0, 128);

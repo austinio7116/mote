@@ -47,6 +47,7 @@ static Row s_rows[MAX_ROWS];
 static int s_n_rows;
 static int s_cursor;      /* row index (selectable rows only) */
 static int s_scroll;
+#define STATUS_VIS 7      /* visible readable rows (row region 15..116 at 13px) */
 static int s_detail;      /* 0 list, 1 weapon, 2 good */
 static CraftRawButtons s_prev;
 
@@ -258,12 +259,13 @@ bool status_tick(const CraftRawButtons *btn, float dt) {
     if (down && s_cursor >= 0) {
         int prev = s_cursor;
         s_cursor = next_sel(s_cursor, 1);
-        /* Symmetric at the bottom: reveal the trailing static lines. */
-        if (s_cursor == prev && s_scroll + 12 < s_n_rows) s_scroll++;
+        /* Symmetric at the bottom: reveal the trailing static lines. The
+         * readable sheet shows ~7 rows (13px pitch), not the old 12. */
+        if (s_cursor == prev && s_scroll + STATUS_VIS < s_n_rows) s_scroll++;
     }
     if (s_cursor >= 0) {
         if (s_cursor < s_scroll) s_scroll = s_cursor;
-        if (s_cursor > s_scroll + 11) s_scroll = s_cursor - 11;
+        if (s_cursor > s_scroll + STATUS_VIS - 1) s_scroll = s_cursor - (STATUS_VIS - 1);
     }
     if (a && selectable(s_cursor))
         s_detail = (s_rows[s_cursor].kind == RK_CARGO) ? 2 : 1;
@@ -317,16 +319,15 @@ void status_draw(uint16_t *fb) {
     char buf[24];
     eui_text(fb, "SHIP STATUS", 2, 1, COL_HDR);
     snprintf(buf, sizeof buf, "%dCR", g_player.credits);
-    craft_font_draw(fb, buf, 128 - craft_font_width(buf) - 2, 3, COL_CRED);
+    eui_textr(fb, buf, 126, 1, COL_CRED);
     for (int x = 0; x < 128; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
     build_rows();
     /* Readable rows, scrolled (full spec of the selected item is one A press
        away on the detail sheet, so the row text may clip). */
-    int y0 = 15, rh = 13;
-    int vis = (116 - y0) / rh; if (vis < 1) vis = 1;
-    if (s_cursor < s_scroll)          s_scroll = s_cursor;
-    if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
+    int y0 = 15, rh = 13, vis = STATUS_VIS;
+    /* Scroll is driven by the tick (cursor-follow + edge scroll to reveal the
+       trailing static rows); just keep it in range here. */
     if (s_n_rows > vis && s_scroll > s_n_rows - vis) s_scroll = s_n_rows - vis;
     if (s_scroll < 0) s_scroll = 0;
     int y = y0;

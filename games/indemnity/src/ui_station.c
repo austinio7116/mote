@@ -1760,7 +1760,7 @@ static void draw_outfit(uint16_t *fb) {
         case ROW_UTILSHOP: {
             int ity = EQ_HEATSINK + r->index;
             icon_weapon(fb, 6, y + 3, ity);
-            snprintf(buf, sizeof buf, "BUY %s", item_name(ity));
+            snprintf(buf, sizeof buf, "%s", item_name(ity));
             eui_textclip(fb, buf, 20, 100, ty, c);
             {
                 const SystemInfo *sie = system_info();
@@ -1784,7 +1784,7 @@ static void draw_outfit(uint16_t *fb) {
                 uint8_t variant = (uint8_t)(vh % 4u);
                 const char *vn = r->index ? k_armor_var_names[variant]
                                           : k_shield_var_names[variant];
-                snprintf(buf, sizeof buf, "BUY %s%s%s Z%d", vn,
+                snprintf(buf, sizeof buf, "%s%s%s Z%d", vn,
                          variant ? " " : "",
                          item_name(WPN_COUNT + r->index), r->tier);
             }
@@ -1836,7 +1836,7 @@ static void draw_outfit(uint16_t *fb) {
                              (i == s_cursor) ? COL_CUR
                                              : RGB565C(255, 200, 90));
             } else {
-                snprintf(buf, sizeof buf, "BUY %s Z%d",
+                snprintf(buf, sizeof buf, "%s Z%d",
                          k_weapons[it->type].name, k_weapons[it->type].size);
                 eui_textclip(fb, buf, 20, 100, ty, c);
             }
@@ -1980,16 +1980,20 @@ static void draw_missions(uint16_t *fb) {
         bool off = slot[idx] >= 0;
         bool sel = off && slot[idx] == s_cursor;
         mission_describe(m, l1, sizeof l1, l2, sizeof l2);
+        /* Right-hand tag makes ACTIVE contracts unmistakable from offers:
+           offers show their reward; accepted contracts show ACTIVE / DONE. */
+        const char *tag; uint16_t tagc;
+        if (off)          { snprintf(buf, sizeof buf, "%dCR", (int)m->reward); tag = buf; tagc = COL_CRED; }
+        else if (m->done) { tag = "DONE";   tagc = COL_CRED; }
+        else              { tag = "ACTIVE"; tagc = RGB565C(90, 200, 255); }
         uint16_t tc = sel ? COL_CUR : off ? COL_TXT : (m->done ? COL_CRED : COL_HDR);
         if (sel) eui_text(fb, ">", 0, y, COL_CUR);
-        eui_textclip(fb, l1, 9, 121, y, tc);
-        /* line 2: destination / status + reward */
-        const char *d2 = l2;
-        if (!off && m->done) d2 = "READY - COLLECT PAY";
-        snprintf(buf, sizeof buf, "%dCR", (int)m->reward);
-        int rw = eui_textw(buf);
-        eui_textclip(fb, d2, 9, 120 - rw, y + 11, off ? COL_DIM : COL_CRED);
-        eui_textr(fb, buf, 121, y + 11, COL_CRED);
+        int tw = eui_textw(tag);
+        eui_textclip(fb, l1, 9, 121 - tw - 3, y, tc);
+        eui_textr(fb, tag, 121, y, tagc);
+        /* line 2: destination / status */
+        const char *d2 = (!off && m->done) ? "READY - COLLECT PAY" : l2;
+        eui_textclip(fb, d2, 9, 121, y + 11, off ? COL_DIM : COL_CRED);
     }
     eui_scrollbar(fb, 125, y0, vis * pitch, n, vis, scroll, COL_CUR, COL_GRID);
 

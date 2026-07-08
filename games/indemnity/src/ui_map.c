@@ -266,15 +266,15 @@ static void draw_gmap_info(uint16_t *fb) {
     for (int i = 0; i < ELITE_FB_W * ELITE_FB_H; i++) fb[i] = BG;
     char buf[30];
 
-    craft_font_draw(fb, si.name, 2, 2, HDR);
+    eui_text(fb, si.name, 2, 1, HDR);
     /* star chip */
     uint16_t sc2 = si.star_color;
-    for (int yy = 2; yy < 8; yy++)
-        for (int xx = 110; xx < 116; xx++)
+    for (int yy = 3; yy < 11; yy++)
+        for (int xx = 118; xx < 125; xx++)
             fb[yy * ELITE_FB_W + xx] = sc2;
-    for (int x = 0; x < 128; x++) fb[10 * ELITE_FB_W + x] = GRID;
+    for (int x = 0; x < 128; x++) fb[13 * ELITE_FB_W + x] = GRID;
 
-    int y = 14;
+    int y = 15;
     static const char *k_cls[6] = { "M DWARF", "K ORANGE", "G YELLOW",
                                     "F WHITE", "A WHITE", "B GIANT" };
     static const char *k_gov[6] = { "ANARCHY", "FEUDAL", "DICTATOR",
@@ -283,10 +283,10 @@ static void draw_gmap_info(uint16_t *fb) {
                                      "REFINE", "TOURISM", "MILITARY",
                                      "SERVICE" };
     #define ROW(label, fmt, ...) do { \
-        craft_font_draw(fb, label, 2, y, RGB565C(110, 116, 135)); \
+        eui_text(fb, label, 3, y, RGB565C(110, 116, 135)); \
         snprintf(buf, sizeof buf, fmt, __VA_ARGS__); \
-        craft_font_draw(fb, buf, 52, y, VAL); \
-        y += 8; \
+        eui_text(fb, buf, 62, y, VAL); \
+        y += 11; \
     } while (0)
     ROW("DIST", "%d.%dLY%s", (int)s_hl_dist,
         ((int)(s_hl_dist * 10)) % 10,
@@ -296,10 +296,10 @@ static void draw_gmap_info(uint16_t *fb) {
      * spectral, threat = the green->red ramp, faction = empire hue,
      * stations = the economy hues. */
     #define ROWC(label, col, fmt, ...) do { \
-        craft_font_draw(fb, label, 2, y, RGB565C(110, 116, 135)); \
+        eui_text(fb, label, 3, y, RGB565C(110, 116, 135)); \
         snprintf(buf, sizeof buf, fmt, __VA_ARGS__); \
-        craft_font_draw(fb, buf, 52, y, col); \
-        y += 8; \
+        eui_text(fb, buf, 62, y, col); \
+        y += 11; \
     } while (0)
     ROWC("STAR", si.star_color, "%s", k_cls[si.star_class]);
     {
@@ -327,47 +327,41 @@ static void draw_gmap_info(uint16_t *fb) {
     }
     ROW("PLANETS", "%d", si.n_planets);
     if (econ_has_black_market(&si)) {
-        craft_font_draw(fb, "BLACK MARKET", 2, y, RGB565C(220, 100, 200));
-        y += 8;
+        eui_text(fb, "BLACK MARKET", 3, y, RGB565C(220, 100, 200));
+        y += 11;
     }
     /* Per-mission objectives flagged in THIS system, by their log label —
      * so a full mission log shows you which contract points where. */
-    for (int i = 0; i < MAX_MISSIONS && y < 104; i++) {
+    for (int i = 0; i < MAX_MISSIONS && y < 112; i++) {
         const Mission *m = &g_missions[i];
         if (m->done || m->type == MIS_NONE) continue;
         if ((m->type == MIS_BOUNTY || m->type == MIS_DELIVERY ||
              m->type == MIS_ASSASSINATE || m->type == MIS_WARZONE) &&
             sysaddr_eq(m->target, s_hl)) {
             snprintf(buf, sizeof buf, "! %s", m->label);
-            craft_font_draw(fb, buf, 2, y, RGB565C(255, 120, 70));
-            y += 8;
+            eui_textclip(fb, buf, 3, 126, y, RGB565C(255, 120, 70));
+            y += 11;
         }
     }
     #undef ROW
 
     y += 2;
-    craft_font_draw(fb, si.n_stations ? "STATIONS:" : "NO STATIONS", 2, y,
-                    HDR);
-    y += 8;
-    for (int i = 0; i < si.n_stations && y < 108; i++) {
-        snprintf(buf, sizeof buf, "%s", si.stations[i].name);
-        craft_font_draw(fb, buf, 4, y, RGB565C(160, 170, 190));
-        y += 7;
-        {
-            static const uint16_t ecol[8] = {
-                RGB565C(110, 210, 90), RGB565C(245, 150, 60),
-                RGB565C(90, 210, 255), RGB565C(190, 130, 80),
-                RGB565C(150, 160, 190), RGB565C(245, 120, 210),
-                RGB565C(255, 80, 70), RGB565C(150, 150, 150) };
-            snprintf(buf, sizeof buf, " %s T%d",
-                     k_econ[si.stations[i].econ], si.stations[i].tech);
-            craft_font_draw(fb, buf, 4, y,
-                            ecol[si.stations[i].econ & 7]);
-        }
-        y += 9;
+    eui_text(fb, si.n_stations ? "STATIONS" : "NO STATIONS", 3, y, HDR);
+    y += 12;
+    for (int i = 0; i < si.n_stations && y < 114; i++) {
+        static const uint16_t ecol[8] = {
+            RGB565C(110, 210, 90), RGB565C(245, 150, 60),
+            RGB565C(90, 210, 255), RGB565C(190, 130, 80),
+            RGB565C(150, 160, 190), RGB565C(245, 120, 210),
+            RGB565C(255, 80, 70), RGB565C(150, 150, 150) };
+        eui_textclip(fb, si.stations[i].name, 4, 74, y, RGB565C(160, 170, 190));
+        snprintf(buf, sizeof buf, "%s T%d",
+                 k_econ[si.stations[i].econ], si.stations[i].tech);
+        eui_text(fb, buf, 78, y, ecol[si.stations[i].econ & 7]);
+        y += 11;
     }
 
-    for (int x = 0; x < 128; x++) fb[118 * ELITE_FB_W + x] = GRID;
+    for (int x = 0; x < 128; x++) fb[117 * ELITE_FB_W + x] = GRID;
     bool can = s_hl_valid && !sysaddr_eq(s_hl, s_cur_sys) &&
                s_hl_dist <= s_range && s_hl_dist <= s_fuel;
     { char h[40];
