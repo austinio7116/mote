@@ -1548,21 +1548,23 @@ static const char *k_qtag[5] = { "SLV", "STD", "RNF", "MIL", "PRO" };
 
 static void draw_shipyard(uint16_t *fb) {
     draw_header(fb);
-    craft_font_draw(fb, "SHIPYARD", 2, 12, COL_DIM);
-    int y = 24;
-    for (int i = 0; i < YARD_OFFERS; i++, y += 11) {
+    /* Ship offers in the readable font (short hull names); the price + stat
+       strip below the rule stays compact. */
+    int lh = eui_lineh();
+    int y = 16;
+    for (int i = 0; i < YARD_OFFERS; i++, y += lh) {
         uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
-        if (i == s_cursor) craft_font_draw(fb, ">", 2, y, COL_CUR);
-        int nx = craft_font_draw(fb, s_yard[i].name, 8, y, c);
+        if (i == s_cursor) eui_text(fb, ">", 2, y, COL_CUR);
+        eui_text(fb, s_yard[i].name, 11, y, c);
         if (s_yard[i].bargain)                       /* special offer */
-            craft_font_draw(fb, " *", nx, y, RGB565C(255, 210, 70));
+            eui_text(fb, "*", 13 + eui_textw(s_yard[i].name), y, RGB565C(255, 210, 70));
     }
     {   /* YOUR ship: compare row, no purchase — blue IS the label. */
         uint16_t c = (s_cursor == YARD_OFFERS) ? RGB565C(120, 210, 235)
                                                : RGB565C(80, 150, 175);
         if (s_cursor == YARD_OFFERS)
-            craft_font_draw(fb, ">", 2, y, c);
-        craft_font_draw(fb, k_hulls[g_player.hull_id].name, 8, y, c);
+            eui_text(fb, ">", 2, y, c);
+        eui_text(fb, k_hulls[g_player.hull_id].name, 11, y, c);
     }
     /* Selected offer: price + stat strip in the full-width footer. */
     const HullDef *sel = (s_cursor == YARD_OFFERS)
