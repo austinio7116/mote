@@ -2224,6 +2224,13 @@ void elite_game_tick(const CraftRawButtons *btn, float dt) {
     s_prev_menu = btn->menu;
     bool a_edge = btn->a && !s_prev_a;
     s_prev_a = btn->a;
+#ifdef MOTE_HOST
+    { static int dvd=0; if (!dvd && getenv("MOTE_IR_DOCK") && s_state==ST_FLIGHT){   /* test: jump to a docked station */
+        Poi pois[MAX_POIS]; int n=system_pois(pois,MAX_POIS);
+        for (int i=0;i<n;i++) if(pois[i].kind==POI_STATION){
+            drop_anchor(pois[i].pos_mm,&pois[i]); spawn_player(); station_open(pois[i].index); s_state=ST_DOCKED; break; }
+        dvd=1; } }
+#endif
 
     /* Engine hum only exists in flight states; everything else mutes
      * it (prevents any residual tone on title/menus). */
