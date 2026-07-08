@@ -1390,9 +1390,15 @@ static void hl(uint16_t *fb, int y, uint16_t c) {
 
 static void draw_header(uint16_t *fb) {
     const SystemInfo *si = system_info();
-    eui_text(fb, si->stations[s_station].name, 2, 1, COL_HDR);
     char buf[24];
     snprintf(buf, sizeof buf, "%dCR", g_player.credits);
+    int credx = 126 - eui_textw(buf);           /* left edge of the credits */
+    /* Clip the (variable-length) station name so it never slides under the
+       credits — long names like "QUATAR STATION" used to collide. */
+    char nm[24];
+    snprintf(nm, sizeof nm, "%s", si->stations[s_station].name);
+    for (int n = (int)strlen(nm); n > 0 && eui_textw(nm) > credx - 5; n--) nm[n - 1] = 0;
+    eui_text(fb, nm, 2, 1, COL_HDR);
     eui_textr(fb, buf, 126, 1, COL_CRED);
     hl(fb, 13, COL_GRID);
 }
@@ -1477,14 +1483,16 @@ static void draw_action_box(uint16_t *fb, const char *title,
 static void draw_market(uint16_t *fb) {
     draw_header(fb);
     const SystemInfo *si = system_info();
-    craft_font_draw(fb, "GOODS", 8, 12, COL_DIM);
-    craft_font_draw(fb, "BUY", 56, 12, COL_DIM);
-    craft_font_draw(fb, "SELL", 76, 12, COL_DIM);
-    craft_font_draw(fb, "ST", 100, 12, COL_DIM);
-    craft_font_draw(fb, "HL", 114, 12, COL_DIM);
-    hl(fb, 19, COL_GRID);
+    /* Column labels sit BELOW the header divider (hl@13) so the AA station
+       name never clips them; a second rule underlines the labels. */
+    craft_font_draw(fb, "GOODS", 8, 15, COL_DIM);
+    craft_font_draw(fb, "BUY", 56, 15, COL_DIM);
+    craft_font_draw(fb, "SELL", 76, 15, COL_DIM);
+    craft_font_draw(fb, "ST", 100, 15, COL_DIM);
+    craft_font_draw(fb, "HL", 114, 15, COL_DIM);
+    hl(fb, 23, COL_GRID);
 
-    int y = 22;
+    int y = 26;
     for (int i = s_scroll; i < N_GOODS && i < s_scroll + 9; i++, y += 10) {
         bool illegal = (k_goods[i].flags & GOOD_ILLEGAL) != 0;
         int buy = econ_price(si, s_station, i, true);
@@ -1921,15 +1929,17 @@ static void draw_missions(uint16_t *fb) {
 
 static void draw_bar(uint16_t *fb) {
     draw_header(fb);
-    craft_font_draw(fb, "THE BAR", 2, 12, COL_DIM);
-    hl(fb, 19, COL_GRID);
     const SystemInfo *si = system_info();
-    char buf[34];
-    int y = 26;
+    char buf[64];
+    int lh = eui_lineh();
+    /* Prose region (event + rumour + tip) fills the top in the readable font;
+       the black-market note and faction rep table stay compact, anchored below. */
+    const int PROSE_MAX = 80;
+    int y = 16;
     if (s_bar_ev) {                 /* someone here wants a word */
-        craft_font_draw(fb, ">", 2, y, COL_TXT);
-        craft_font_draw(fb, s_bar_ev->title, 8, y, COL_TXT);
-        y += 12;
+        eui_text(fb, ">", 2, y, COL_TXT);
+        eui_textclip(fb, s_bar_ev->title, 11, 126, y, COL_TXT);
+        y += lh + 2;
     }
     /* Rumours: seeded flavour + a genuine trade tip. */
     uint32_t h = (uint32_t)(si->seed >> 20) ^ (uint32_t)(s_station * 131);
@@ -1942,9 +1952,8 @@ static void draw_bar(uint16_t *fb) {
         "\"LOST A WING AT THE",
         "\"KEEP YOUR SCANNER ON",
     };
-    craft_font_draw(fb, k_chatter[h % 6u], 2, y, COL_DIM);
-    craft_font_draw(fb, " THE BEACON...\"", 2, y + 7, COL_DIM);
-    y += 20;
+    snprintf(buf, sizeof buf, "%s THE BEACON...\"", k_chatter[h % 6u]);
+    y = eui_wrap(fb, buf, 2, 126, y, PROSE_MAX, COL_DIM) + 3;
     /* Trade tip: what this economy exports cheap. */
     int best = 0;
     int best_price = 999999;
@@ -1956,28 +1965,23 @@ static void draw_bar(uint16_t *fb) {
         }
     }
     snprintf(buf, sizeof buf, "TIP: %s IS CHEAP HERE", k_goods[best].name);
-    craft_font_draw(fb, buf, 2, y, COL_TXT);
-    y += 12;
-    if (econ_has_black_market(si)) {
-        craft_font_draw(fb, "BACK ROOM: ILLEGAL GOODS", 2, y, COL_ILL);
-        craft_font_draw(fb, "TRADE AT THE MARKET", 2, y + 7, COL_ILL);
-    } else {
-        craft_font_draw(fb, "(LAWFUL STATION -", 2, y, COL_DIM);
-        craft_font_draw(fb, " NO BLACK MARKET)", 2, y + 7, COL_DIM);
-    }
-    y += 20;
+    eui_wrap(fb, buf, 2, 126, y, PROSE_MAX, COL_TXT);
+    /* Compact status block, anchored above the footer. */
+    craft_font_draw(fb, econ_has_black_market(si) ? "BLACK MARKET: SEE MARKET"
+                                                  : "LAWFUL - NO BLACK MARKET",
+                    2, 82, econ_has_black_market(si) ? COL_ILL : COL_DIM);
+    int ry = 90;
     for (int f = 0; f < N_FACTIONS; f++) {
-        snprintf(buf, sizeof buf, "%-10s REP %d", k_faction_names[f],
-                 g_rep[f]);
-        craft_font_draw(fb, buf, 2, y, COL_DIM);
-        y += 8;
+        snprintf(buf, sizeof buf, "%-10s REP %d", k_faction_names[f], g_rep[f]);
+        craft_font_draw(fb, buf, 2, ry, COL_DIM);
+        ry += 8;
     }
-    hl(fb, 118, COL_GRID);
-    { char h[32];
-      if (s_bar_ev) snprintf(h, sizeof h, "%s:APPROACH %s:BACK",
+    hl(fb, 113, COL_GRID);
+    { char hh[32];
+      if (s_bar_ev) snprintf(hh, sizeof hh, "%s:APPROACH %s:BACK",
                              plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      else snprintf(h, sizeof h, "%s:BACK", plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 121, COL_DIM); }
+      else snprintf(hh, sizeof hh, "%s:BACK", plat_menu_btn(MB_B));
+      eui_text(fb, hh, 2, 115, COL_DIM); }
 }
 
 /* DATABASE: re-read unlocked lore fragments (events OP_LORE bits). */

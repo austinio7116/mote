@@ -44,6 +44,11 @@ void eui_text(uint16_t *fb, const char *s, int x, int y, uint16_t c){
 }
 void eui_textc(uint16_t *fb, const char *s, int cx, int y, uint16_t c){ eui_text(fb, s, cx - eui_textw(s)/2, y, c); }
 void eui_textr(uint16_t *fb, const char *s, int xr, int y, uint16_t c){ eui_text(fb, s, xr - eui_textw(s),   y, c); }
+void eui_textclip(uint16_t *fb, const char *s, int x, int xmax, int y, uint16_t c){
+    char t[48]; snprintf(t, sizeof t, "%s", s);
+    for (int n = (int)strlen(t); n > 0 && x + eui_textw(t) > xmax; n--) t[n - 1] = 0;
+    eui_text(fb, t, x, y, c);
+}
 void eui_big(uint16_t *fb, const char *s, int cx, int y, uint16_t c){
     eui_bind();
     if (AA && g_big) mote_ftextc(g_em, fb, g_big, cx, y, c, s);
