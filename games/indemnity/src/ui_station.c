@@ -1503,8 +1503,8 @@ static void draw_market(uint16_t *fb) {
     /* Icon browser: one commodity per compact row (12px icon + readable name +
        buy/sell), five at a time; the selection's stock/held shows on the detail
        strip above the footer. */
-    int y0 = 22, row_h = 14;
-    int vis = (92 - y0) / row_h; if (vis < 1) vis = 1;
+    int y0 = 22, row_h = 13;
+    int vis = (101 - y0) / row_h; if (vis < 1) vis = 1;   /* 6 rows */
     if (s_cursor < s_scroll)          s_scroll = s_cursor;
     if (s_cursor >= s_scroll + vis)   s_scroll = s_cursor - vis + 1;
     if (N_GOODS > vis && s_scroll > N_GOODS - vis) s_scroll = N_GOODS - vis;
@@ -1538,22 +1538,22 @@ static void draw_market(uint16_t *fb) {
 
     /* Detail strip for the selection — STOCK and HELD in the readable font, with
        the ship's total hold (used/size) as small text at the row end. */
-    hl(fb, 92, COL_GRID);
+    hl(fb, 101, COL_GRID);
     {
         int i = s_cursor;
         int stock = econ_stock(si, s_station, i) - s_bought[i]; if (stock < 0) stock = 0;
         snprintf(buf, sizeof buf, "STOCK %d", stock);
-        eui_text(fb, buf, 4, 95, COL_TXT);
+        eui_text(fb, buf, 4, 104, COL_TXT);
         snprintf(buf, sizeof buf, "HELD %d", g_player.cargo[i]);
-        eui_text(fb, buf, 58, 95, g_player.cargo[i] ? COL_CRED : COL_TXT);
+        eui_text(fb, buf, 58, 104, g_player.cargo[i] ? COL_CRED : COL_TXT);
         snprintf(buf, sizeof buf, "%d/%d", player_cargo_total(), player_cargo_cap());
-        craft_font_draw(fb, buf, 126 - craft_font_width(buf), 98, COL_DIM);
+        craft_font_draw(fb, buf, 126 - craft_font_width(buf), 107, COL_DIM);
     }
 
     /* Footer: prompts (position is shown by the scrollbar). */
     { char h[20]; snprintf(h, sizeof h, "%s:TRADE  %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 112, COL_DIM); }
+      craft_font_draw(fb, h, 2, 118, COL_DIM); }
 
     if (s_mkt_open) {
         static const char *const it[4] = { "BUY", "BUY MAX", "SELL", "SELL ALL" };
