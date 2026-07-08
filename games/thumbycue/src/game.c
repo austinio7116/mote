@@ -300,6 +300,7 @@ static void g_init(void) {
     void *tab = mote->alloc(cue_render_tab_bytes());
     cue_render_set_buffers(tab, NULL);
     cue_render_set_api(mote);                  /* renderer emits via the engine ABI */
+    cue_game_set_aa(mote);                      /* menus draw with the engine's Audiowide font */
     mote->set_background_cb(cue_render_bg);     /* table backdrop gradient */
     mote->scene_set_near(0.05f);                /* small table — near plane in close */
     mote->audio_set_master(0.7f);               /* match cue_game's default VOLUME (14/20) */

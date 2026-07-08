@@ -20,6 +20,22 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include "mote_api.h"
+#include "mote_build.h"     /* mote_ftext / mote_ftextc / mote_fontw — AA UI-font helpers */
+
+/* Audiowide UI fonts from the engine (ABI v47), for readable menus. NULL on old
+ * firmware -> the menu helpers fall back to the small bitmap font. */
+static const MoteApi  *g_mote;
+static const MoteFont *g_fbody;   /* MED 1.5x — menu labels/values */
+static const MoteFont *g_fbig;    /* LARGE 2x — menu headers */
+void cue_game_set_aa(const void *m){
+    g_mote = (const MoteApi *)m;
+    if (g_mote && g_mote->abi_version >= 47 && g_mote->ui_font){
+        g_fbody = g_mote->ui_font(MOTE_FONT_MED);
+        g_fbig  = g_mote->ui_font(MOTE_FONT_LARGE);
+    }
+}
+#define AA_OK (g_mote && g_fbody)
 
 #define MAX_STRIKE_SPEED 8.5f
 #define DEG2RAD (3.14159265f / 180.0f)
@@ -1086,29 +1102,53 @@ static void blit_face(uint16_t *fb, int idx, int x, int y, int sz) {
         }
     }
 }
+/* compact bitmap helpers — used by the dense in-game scoreboard (kept small) */
 static void center(uint16_t *fb, const char *s, int y, uint16_t c) {
     int w = craft_font_width(s); craft_font_draw(fb, s, 64 - w/2, y, c);
 }
 static void rtext(uint16_t *fb, const char *s, int xr, int y, uint16_t c) {
     int w = craft_font_width(s); craft_font_draw(fb, s, xr - w, y, c);
 }
+/* readable MENU helpers — Audiowide when available, else the bitmap font */
+static void mtitle(uint16_t *fb, const char *s, int y, uint16_t c) {   /* big header (2x) */
+    if (AA_OK && g_fbig) mote_ftextc(g_mote, fb, g_fbig, 64, y, c, s);
+    else center(fb, s, y, c);
+}
+static void mtext(uint16_t *fb, const char *s, int y, uint16_t c) {    /* centred body (1.5x) */
+    if (AA_OK) mote_ftextc(g_mote, fb, g_fbody, 64, y, c, s);
+    else center(fb, s, y, c);
+}
 static void menu_list(uint16_t *fb, const char *const *items, int n, int cursor, int y0) {
     /* left-aligned action list (cursor caret in the left margin) */
     for (int i = 0; i < n; i++) {
-        int y = y0 + i*11;
+        int y = y0 + i*(AA_OK?14:11);
         uint16_t c = (i==cursor) ? RGB565C(255,240,120) : RGB565C(190,190,200);
-        if (i==cursor) craft_font_draw(fb, ">", 30, y, c);
-        craft_font_draw(fb, items[i], 40, y, c);
+        if (AA_OK) {
+            if (i==cursor) mote_ftext(g_mote, fb, g_fbody, ">", 34, y, c);
+            mote_ftext(g_mote, fb, g_fbody, items[i], 48, y, c);
+        } else {
+            if (i==cursor) craft_font_draw(fb, ">", 30, y, c);
+            craft_font_draw(fb, items[i], 40, y, c);
+        }
     }
 }
 /* A settings row: label hard-left, value hard-right. The selected row gets a
  * caret + < > arrows around the value to show it's adjustable. */
 static void menu_row(uint16_t *fb, const char *label, const char *value, int y, int sel) {
     uint16_t lc = sel ? RGB565C(255,240,120) : RGB565C(180,185,195);
+    uint16_t vc = sel ? RGB565C(255,255,180) : RGB565C(150,200,230);
+    if (AA_OK) {
+        if (sel) mote_ftext(g_mote, fb, g_fbody, ">", 4, y, lc);
+        mote_ftext(g_mote, fb, g_fbody, label, 15, y, lc);
+        if (value) { char vb[28]; const char *vs = value;
+            if (sel){ snprintf(vb, sizeof vb, "< %s >", value); vs = vb; }
+            int w = mote_fontw(g_fbody, vs); mote_ftext(g_mote, fb, g_fbody, vs, 125 - w, y, vc);
+        }
+        return;
+    }
     if (sel) craft_font_draw(fb, ">", 4, y, lc);
     craft_font_draw(fb, label, 12, y, lc);
     if (value) {
-        uint16_t vc = sel ? RGB565C(255,255,180) : RGB565C(150,200,230);
         if (sel) { char vb[28]; snprintf(vb, sizeof vb, "< %s >", value); rtext(fb, vb, 124, y, vc); }
         else     rtext(fb, value, 124, y, vc);
     }
@@ -1140,22 +1180,22 @@ void cue_game_draw_overlay(uint16_t *fb) {
         dim(fb, 7);
         craft_font_draw_title(fb, "THUMBYCUE", 14, 40, 3,
                               RGB565C(255,250,210), RGB565C(210,150,40), RGB565C(20,20,20));
-        center(fb, "SNOOKER & POOL", 70, RGB565C(200,220,255));
-        if (((int)(s_menu_spin*2))&1) center(fb, "PRESS A", 96, RGB565C(240,240,160));
+        mtext(fb, "SNOOKER & POOL", 72, RGB565C(200,220,255));
+        if (((int)(s_menu_spin*2))&1) mtext(fb, "PRESS A", 98, RGB565C(240,240,160));
         break;
     case SC_MAIN: {
         dim(fb, 8);
-        center(fb, "THUMBYCUE", 16, RGB565C(255,240,200));
-        menu_row(fb, "PLAY",    NULL, 54, s_cursor==0);
-        menu_row(fb, "OPTIONS", NULL, 70, s_cursor==1);
+        mtitle(fb, "THUMBYCUE", 12, RGB565C(255,240,200));
+        menu_row(fb, "PLAY",    NULL, 56, s_cursor==0);
+        menu_row(fb, "OPTIONS", NULL, 74, s_cursor==1);
         break; }
     case SC_PLAY: {
         dim(fb, 8);
-        center(fb, "PLAY", 4, RGB565C(255,240,200));
+        mtitle(fb, "PLAY", 0, RGB565C(255,240,200));
         int rows[8]; int nr = play_rows(rows);
         int snk = (s_kind >= CUE_GAME_FIRST_SNK);   /* derive from menu mode, not stale table */
         for (int i = 0; i < nr; i++) {
-            int y = 15 + i*10, sel = (i == s_cursor);   /* high enough that 8 rows clear the avatars */
+            int y = 14 + i*(AA_OK?11:10), sel = (i == s_cursor);   /* AA rows are taller; still clears the avatars */
             char vb[24];
             switch (rows[i]) {
             case ROW_GAME:  menu_row(fb, "GAME", k_mode_name[s_kind], y, sel); break;
@@ -1187,54 +1227,54 @@ void cue_game_draw_overlay(uint16_t *fb) {
         break; }
     case SC_OPTIONS: {
         dim(fb, 8);
-        center(fb, "OPTIONS", 14, RGB565C(255,240,200));
+        mtitle(fb, "OPTIONS", 12, RGB565C(255,240,200));
         char vbuf[8]; snprintf(vbuf,sizeof vbuf,"%d", s_vol);
-        menu_row(fb, "VOLUME", vbuf, 50, s_cursor==0);
-        menu_row(fb, "AIM",    k_aim_name[s_aim_level], 62, s_cursor==1);
-        center(fb, "B BACK", 116, RGB565C(150,150,160));
+        menu_row(fb, "VOLUME", vbuf, 52, s_cursor==0);
+        menu_row(fb, "AIM",    k_aim_name[s_aim_level], 70, s_cursor==1);
+        mtext(fb, "B BACK", 116, RGB565C(150,150,160));
         break; }
     case SC_CUSTOM: {
         /* No full-screen dim — the table shows live at full brightness so the
          * felt + frame colours read true. Only thin strips behind the selectors
          * and the hint are darkened for legibility. */
-        band(fb, 0, 27, 5);
-        band(fb, 115, 128, 5);
-        menu_row(fb, "FELT",  k_cloth_name[s_cloth_idx], 4,  s_cursor==0);
-        menu_row(fb, "FRAME", k_frame_name[s_frame_idx], 15, s_cursor==1);
-        center(fb, "B BACK", 118, RGB565C(170,180,190));
+        band(fb, 0, 30, 5);
+        band(fb, 114, 128, 5);
+        menu_row(fb, "FELT",  k_cloth_name[s_cloth_idx], 3,  s_cursor==0);
+        menu_row(fb, "FRAME", k_frame_name[s_frame_idx], 16, s_cursor==1);
+        mtext(fb, "B BACK", 116, RGB565C(170,180,190));
         break; }
     case SC_LINKWAIT: {   /* LINK: game.c overlays the live connection status */
         dim(fb, 8);
-        center(fb, "2P LINK", 16, RGB565C(255,240,200));
-        menu_row(fb, "GAME", k_mode_name[s_kind], 44, 1);
+        mtitle(fb, "2P LINK", 12, RGB565C(255,240,200));
+        menu_row(fb, "GAME", k_mode_name[s_kind], 46, 1);
         center(fb, "L/R GAME   B CANCEL", 118, RGB565C(150,150,160));
         break; }
     case SC_PAUSE: {
         dim(fb, 7);
-        center(fb, "PAUSED", 18, RGB565C(255,240,200));
+        mtitle(fb, "PAUSED", 14, RGB565C(255,240,200));
         int acts[6]; int n = pause_items(acts);
         const char *it[6]; for (int i = 0; i < n; i++) it[i] = pause_label(acts[i]);
-        menu_list(fb, it, n, s_cursor, 60 - n*5);
+        menu_list(fb, it, n, s_cursor, 66 - n*7);
         break; }
     case SC_OVER: {
         dim(fb, 6);
         if (s_link_end_reason) {                  /* LINK: connection-shaped ending */
-            center(fb, "2P LINK", 30, RGB565C(255,240,200));
-            center(fb, s_link_end_reason == 1 ? "OPPONENT LEFT" : "LINK LOST", 52,
-                   RGB565C(255,120,120));
-            center(fb, "A MENU", 100, RGB565C(180,180,190));
+            mtitle(fb, "2P LINK", 26, RGB565C(255,240,200));
+            mtext(fb, s_link_end_reason == 1 ? "OPPONENT LEFT" : "LINK LOST", 54,
+                  RGB565C(255,120,120));
+            mtext(fb, "A MENU", 100, RGB565C(180,180,190));
             break;
         }
         const char *wn = player_name(s_rules.winner == 1 ? 1 : 0);
         const char *p1 = player_tag(0), *p2 = player_tag(1);
         if (s_match_over && s_match_bo > 1) {
-            center(fb, "MATCH OVER", 26, RGB565C(255,240,200));
+            mtitle(fb, "MATCH OVER", 22, RGB565C(255,240,200));
             snprintf(buf,sizeof buf,"%s WINS THE MATCH", wn);
-            center(fb, buf, 46, RGB565C(255,230,120));
+            mtext(fb, buf, 46, RGB565C(255,230,120));
         } else {
-            center(fb, "FRAME OVER", 26, RGB565C(255,240,200));
+            mtitle(fb, "FRAME OVER", 22, RGB565C(255,240,200));
             snprintf(buf,sizeof buf,"%s WINS", wn);
-            center(fb, buf, 46, RGB565C(255,230,120));
+            mtext(fb, buf, 46, RGB565C(255,230,120));
         }
         if (s_table.is_snooker) {
             snprintf(buf,sizeof buf,"FRAME %d - %d", s_rules.score[0], s_rules.score[1]);
@@ -1244,8 +1284,8 @@ void cue_game_draw_overlay(uint16_t *fb) {
             snprintf(buf,sizeof buf,"%s  %d - %d  %s   (Bo%d)", p1, s_frames[0], s_frames[1], p2, s_match_bo);
             center(fb, buf, 76, RGB565C(255,255,255));
         }
-        if (s_match_over) center(fb, "A MENU", 100, RGB565C(180,180,190));
-        else              center(fb, "A NEXT FRAME   B MENU", 100, RGB565C(180,180,190));
+        if (s_match_over) mtext(fb, "A MENU", 102, RGB565C(180,180,190));
+        else              mtext(fb, "A NEXT   B MENU", 102, RGB565C(180,180,190));
         break; }
     case SC_GAME: {
         /* --- broadcast-style scoreboard across the top --- */
@@ -1337,13 +1377,13 @@ void cue_game_draw_overlay(uint16_t *fb) {
         else if (s_state == GS_DECIDE) {
             char ob[44];
             if (s_decide_type == 0) {
-                center(fb, "PUSH OUT?", 104, RGB565C(255,220,120));
+                mtext(fb, "PUSH OUT?", 102, RGB565C(255,220,120));
                 center(fb, "A PUSH OUT   B PLAY", 119, RGB565C(200,220,200));
             } else if (s_decide_type == 1) {
-                center(fb, "OPPONENT PUSHED OUT", 104, RGB565C(255,220,120));
+                mtext(fb, "PUSHED OUT", 102, RGB565C(255,220,120));
                 center(fb, "A PLAY   B PASS BACK", 119, RGB565C(200,220,200));
             } else {
-                center(fb, s_rules.msg, 104, RGB565C(255,180,120));
+                mtext(fb, s_rules.msg, 102, RGB565C(255,180,120));
                 int p = snprintf(ob, sizeof ob, "A PLAY");
                 if (s_rules.dec_can_restore) p += snprintf(ob+p, sizeof ob-p, "  B AGAIN");
                 if (s_rules.dec_free_ball)   snprintf(ob+p, sizeof ob-p, "  LB FREE");
@@ -1361,7 +1401,7 @@ void cue_game_draw_overlay(uint16_t *fb) {
         else if (s_state == GS_AIM) center(fb, s_rules.free_ball ? "FREE BALL  LB LOOK" : "LB LOOK", 119,
                                            s_rules.free_ball ? RGB565C(120,220,255) : RGB565C(120,150,120));
         else if (s_state == GS_SHOOTING) center(fb, s_freeview ? "FREEVIEW" : "A FREEVIEW", 119, RGB565C(150,200,150));
-        else if (s_msg_t > 0 && s_rules.msg[0]) center(fb, s_rules.msg, 30, RGB565C(255,230,140));
+        else if (s_msg_t > 0 && s_rules.msg[0]) mtext(fb, s_rules.msg, 28, RGB565C(255,230,140));
         break; }
     }
 }

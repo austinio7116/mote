@@ -9,6 +9,10 @@
 #include "craft_buttons.h"
 
 void cue_game_init(uint32_t seed);
+/* Hand cue_game the Mote API so its menus can draw with the engine's Audiowide UI
+ * font (readable). Opaque pointer to avoid pulling the engine ABI into this header;
+ * cue_game.c casts it. Safe to omit / pass NULL (falls back to the bitmap font). */
+void cue_game_set_aa(const void *mote_api);
 /* ThumbyOne slot mode: when set, the pause menu's exit item returns to the
  * lobby (via this callback, which reboots) instead of the standalone main menu. */
 void cue_game_set_lobby_cb(void (*cb)(void));
