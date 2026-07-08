@@ -1614,15 +1614,16 @@ static void draw_shipyard(uint16_t *fb) {
     snprintf(buf, sizeof buf, "SPD %d",  (int)(sel->max_speed * selr.spd));  eui_text(fb, buf, 3, 85, vc);
     snprintf(buf, sizeof buf, "CRG %d",  selr.cargo);                        eui_text(fb, buf, 50, 85, vc);
     snprintf(buf, sizeof buf, "SL %s",   slots);                             eui_text(fb, buf, 92, 85, vc);
-    snprintf(buf, sizeof buf, "HULL %d", (int)(sel->hull_base * selr.hull)); eui_text(fb, buf, 3, 97, vc);
-    snprintf(buf, sizeof buf, "SHD %d",  (int)(sel->shield_base * selr.shd));eui_text(fb, buf, 52, 97, vc);
+    snprintf(buf, sizeof buf, "HUL %d", (int)(sel->hull_base * selr.hull)); eui_text(fb, buf, 3, 96, vc);
+    snprintf(buf, sizeof buf, "SHD %d",  (int)(sel->shield_base * selr.shd));eui_text(fb, buf, 52, 96, vc);
+    /* Cost on its own row (yellow); your own ship reads OWNED. */
     if (s_cursor == YARD_OFFERS) {
-        eui_textr(fb, "OWNED", 126, 97, RGB565C(120, 210, 235));
+        eui_text(fb, "OWNED", 3, 107, RGB565C(120, 210, 235));
     } else {
         int econ = system_info()->stations[s_station].econ;
         int cost = s_yard[s_cursor].price - player_tradein(econ);
-        snprintf(buf, sizeof buf, cost < 0 ? "+%dCR" : "%dCR", cost < 0 ? -cost : cost);
-        eui_textr(fb, buf, 126, 97, COL_CRED);
+        snprintf(buf, sizeof buf, cost < 0 ? "+%d CR" : "%d CR", cost < 0 ? -cost : cost);
+        eui_text(fb, buf, 3, 107, COL_CRED);
     }
     { char h[44];
       if (s_detail) snprintf(h, sizeof h, "%s:BUY %s:KIT </>:CMP %s:BACK",
@@ -1965,12 +1966,12 @@ static void draw_missions(uint16_t *fb) {
 
     /* Tab bar. */
     snprintf(buf, sizeof buf, "ACTIVE %d", na);
-    eui_text(fb, buf, 4, 15, s_mis_tab == 0 ? COL_CUR : COL_DIM);
+    eui_text(fb, buf, 4, 14, s_mis_tab == 0 ? COL_CUR : COL_DIM);
     snprintf(buf, sizeof buf, "OFFERS %d", nv);
-    eui_textr(fb, buf, 124, 15, s_mis_tab == 1 ? COL_CUR : COL_DIM);
-    hl(fb, 27, COL_GRID);
+    eui_textr(fb, buf, 124, 14, s_mis_tab == 1 ? COL_CUR : COL_DIM);
+    hl(fb, 25, COL_GRID);
 
-    int y0 = 29, pitch = 20, vis = (108 - y0) / pitch; if (vis < 1) vis = 1;
+    int y0 = 26, pitch = 22, vis = (115 - y0) / pitch; if (vis < 1) vis = 1;   /* fits all 4 */
     int scroll = s_cursor - (vis - 1);
     if (scroll > n - vis) scroll = n - vis;
     if (scroll < 0) scroll = 0;
@@ -1997,15 +1998,14 @@ static void draw_missions(uint16_t *fb) {
     }
     eui_scrollbar(fb, 125, y0, vis * pitch, n, vis, scroll, COL_CUR, COL_GRID);
 
-    hl(fb, 109, COL_GRID);
-    { char h[28];
-      if (s_mis_tab == 1) snprintf(h, sizeof h, "<>:TAB  %s:ACCEPT %s:BACK",
-          plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      else snprintf(h, sizeof h, "<>:TAB  %s:BACK", plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 112, COL_DIM); }
+    hl(fb, 116, COL_GRID);
     { Faction fac = system_faction(system_info()->addr);
-      snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
-      craft_font_draw(fb, buf, 2, 120, COL_DIM); }
+      char h[40];
+      if (s_mis_tab == 1) snprintf(h, sizeof h, "%s %d  <>TAB %s:ACCEPT %s:BK",
+          k_faction_names[fac], g_rep[fac], plat_menu_btn(MB_A), plat_menu_btn(MB_B));
+      else snprintf(h, sizeof h, "%s %d  <>TAB %s:BACK",
+          k_faction_names[fac], g_rep[fac], plat_menu_btn(MB_B));
+      craft_font_draw(fb, h, 2, 119, COL_DIM); }
 }
 
 static void draw_bar(uint16_t *fb) {

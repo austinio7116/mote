@@ -15,6 +15,9 @@
 #include "r3d_pipe.h"
 #include "elite_game.h"
 #include "elite_ui.h"      /* readable Audiowide menu text (title/menus) */
+#ifdef MOTE_HOST
+#include <stdlib.h>        /* getenv — host-only MOTE_IR_DOCK/SEED test hooks */
+#endif
 #include "elite_types.h"
 #include "r3d_scene.h"
 #include "r3d_planet.h"
@@ -2817,8 +2820,14 @@ void elite_game_render_begin(void) {
                    spec column + bottom-right stats fill the rest of the screen. */
                 dist = m->bound_r * 3.4f;                 /* larger — box is x63..127, y2..56 */
                 obj.pos = v3(dist * 0.28f, dist * 0.32f, dist);  /* centred in that box */
+            } else if (pv == 2) {
+                /* Shipyard list: keep the hull in the right pane, sized to sit
+                   between the header rule and the spec rule (y13..82) — not
+                   spilling past the separators. */
+                dist = m->bound_r * 3.5f;
+                obj.pos = v3(dist * 0.27f, dist * 0.16f, dist);
             } else {
-                obj.pos = v3(dist * 0.29f, 0, dist);
+                obj.pos = v3(dist * 0.29f, 0, dist);      /* station preview (hub) */
             }
             g_em->scene_add_object(&obj);
         }
