@@ -1399,15 +1399,14 @@ static void draw_header(uint16_t *fb) {
 
 static void draw_home(uint16_t *fb) {
     draw_header(fb);
-    static const char *k_econ[8] = {
-        "AGRICULTURE", "INDUSTRIAL", "HIGH TECH", "EXTRACTION",
-        "REFINERY", "TOURISM", "MILITARY", "SERVICE",
+    static const char *k_econ[8] = {   /* short tags: sit over the 3D render, not the menu */
+        "AGRI", "IND", "TECH", "EXTR", "REFN", "TOUR", "MIL", "SVC",
     };
     const SystemInfo *si = system_info();
     char buf[32];
     snprintf(buf, sizeof buf, "%s T%d", k_econ[si->stations[s_station].econ],
              si->stations[s_station].tech);
-    craft_font_draw(fb, buf, 2, 13, COL_DIM);
+    craft_font_draw(fb, buf, 126 - craft_font_width(buf), 15, COL_DIM);
 
     /* Readable Audiowide menu in the LEFT column (the 3D station render owns the right).
      * Colour alone marks the selection (no caret — saves width); tight line spacing and
