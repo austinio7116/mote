@@ -1879,52 +1879,53 @@ static void draw_outfit(uint16_t *fb) {
 
 static void draw_missions(uint16_t *fb) {
     draw_header(fb);
-    craft_font_draw(fb, "MISSIONS", 2, 12, COL_DIM);
     char buf[34];
     Faction fac = system_faction(system_info()->addr);
-    snprintf(buf, sizeof buf, "%s REP %d", k_faction_names[fac], g_rep[fac]);
-    craft_font_draw(fb, buf, 56, 12, COL_DIM);
-    hl(fb, 19, COL_GRID);
 
-    /* Log. */
-    int y = 22;
-    craft_font_draw(fb, "LOG:", 2, y, COL_HDR);
-    y += 8;
+    /* Readable section headers + faction standing; the mission rows themselves
+       stay compact so the ">"-notation label AND reward stay fully visible. */
+    int y = 15;
+    eui_text(fb, "LOG", 2, y, COL_HDR);
+    snprintf(buf, sizeof buf, "%s %d", k_faction_names[fac], g_rep[fac]);
+    eui_textr(fb, buf, 126, y, COL_DIM);
+    y += 13;
     int any = 0;
     for (int i = 0; i < MAX_MISSIONS; i++) {
         const Mission *m = &g_missions[i];
         if (m->type == MIS_NONE) continue;
         any = 1;
         uint16_t c = m->done ? COL_CRED : COL_DIM;
-        snprintf(buf, sizeof buf, "%s%s", m->label, m->done ? " DONE" : "");
-        craft_font_draw(fb, buf, 6, y, c);
-        y += 8;
+        snprintf(buf, sizeof buf, "%s%s", m->label, m->done ? " *DONE" : "");
+        craft_font_draw(fb, buf, 8, y, c);
+        y += 9;
     }
-    if (!any) { craft_font_draw(fb, "(EMPTY)", 6, y, COL_DIM); y += 8; }
+    if (!any) { craft_font_draw(fb, "(NONE ACTIVE)", 8, y, COL_DIM); y += 9; }
 
-    /* Offers. */
-    y += 3;
-    craft_font_draw(fb, "OFFERS:", 2, y, COL_HDR);
-    y += 8;
+    y += 5;
+    eui_text(fb, "OFFERS", 2, y, COL_HDR);
+    y += 13;
     for (int i = 0; i < MISSION_OFFERS; i++) {
         const Mission *m = &s_offers[i];
         uint16_t c = (i == s_cursor) ? COL_CUR : COL_DIM;
         if (i == s_cursor) craft_font_draw(fb, ">", 2, y, COL_CUR);
         if (m->type == MIS_NONE) {
-            craft_font_draw(fb, "----", 6, y, c);
+            craft_font_draw(fb, "----", 8, y, c);
         } else {
-            craft_font_draw(fb, m->label, 6, y, c);
             snprintf(buf, sizeof buf, "%d", m->reward);
-            craft_font_draw(fb, buf, 128 - craft_font_width(buf) - 2, y,
-                            COL_CRED);
+            int rw = craft_font_width(buf);
+            char lbl[28]; snprintf(lbl, sizeof lbl, "%s", m->label);
+            int maxx = 128 - rw - 6;              /* clip label before the reward */
+            for (int n = (int)strlen(lbl); n > 0 && 8 + craft_font_width(lbl) > maxx; n--)
+                lbl[n - 1] = 0;
+            craft_font_draw(fb, lbl, 8, y, c);
+            craft_font_draw(fb, buf, 128 - rw - 2, y, COL_CRED);
         }
         y += 9;
     }
     hl(fb, 113, COL_GRID);
-    { char h[28]; snprintf(h, sizeof h, "%s:ACCEPT  %s:BACK",
+    { char h[28]; snprintf(h, sizeof h, "%s:ACCEPT %s:BACK",
         plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-      craft_font_draw(fb, h, 2, 116, COL_DIM); }
-    craft_font_draw(fb, "PAY ON RETURN TO ANY DOCK", 2, 123, COL_DIM);
+      eui_text(fb, h, 2, 115, COL_DIM); }
 }
 
 static void draw_bar(uint16_t *fb) {
