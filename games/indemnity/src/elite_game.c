@@ -3076,31 +3076,38 @@ static void dash_draw_panels(uint16_t *fb, int y0) {
             fb[y * ELITE_FB_W + x] = RGB565C(13, 17, 27);
     int avail = ELITE_FB_H - y0;
     if (avail < 24) return;                  /* still mostly closed */
-    uint16_t on = RGB565C(120, 255, 120), off = RGB565C(120, 132, 156);
-    /* MFD pair — readable label rides the top, chart sits below it. */
-    int mh = avail - 34;
-    if (mh > 52) mh = 52;
+    /* MFD pair */
+    int mh = avail - 26;
+    if (mh > 58) mh = 58;
     int my0 = y0 + 2, my1 = my0 + mh;
     dash_bezel(fb, 2, my0, 62, my1, s_dash_sel == 0, 4);
     dash_bezel(fb, 65, my0, 125, my1, s_dash_sel == 1, 4);
-    if (mh > 24) {
-        dash_mini_galaxy(fb, 4, my0 + 14, 57, mh - 16);
-        dash_mini_system(fb, 67, my0 + 14, 57, mh - 16);
+    if (mh > 20) {
+        dash_mini_galaxy(fb, 4, my0 + 9, 57, mh - 11);
+        dash_mini_system(fb, 67, my0 + 9, 57, mh - 11);
     }
-    eui_textc(fb, "GALAXY", 32, my0 + 1, s_dash_sel == 0 ? on : off);
-    eui_textc(fb, "SYSTEM", 95, my0 + 1, s_dash_sel == 1 ? on : off);
-    /* button row: taller pills so the readable label fits */
+    craft_font_draw(fb, "GALAXY", 9, my0 + 2,
+                    s_dash_sel == 0 ? RGB565C(120, 255, 120)
+                                    : RGB565C(110, 120, 140));
+    craft_font_draw(fb, "SYSTEM", 72, my0 + 2,
+                    s_dash_sel == 1 ? RGB565C(120, 255, 120)
+                                    : RGB565C(110, 120, 140));
+    /* button row: small pills */
     int by = my1 + 3;
-    if (by + 14 < ELITE_FB_H) {
-        dash_bezel(fb, 10, by, 58, by + 14, s_dash_sel == 2, 3);
-        dash_bezel(fb, 70, by, 118, by + 14, s_dash_sel == 3, 3);
-        eui_textc(fb, "STATUS",   34, by + 2, s_dash_sel == 2 ? on : off);
-        eui_textc(fb, "SETTINGS", 94, by + 2, s_dash_sel == 3 ? on : off);
+    if (by + 10 < ELITE_FB_H) {
+        dash_bezel(fb, 10, by, 58, by + 10, s_dash_sel == 2, 3);
+        dash_bezel(fb, 70, by, 118, by + 10, s_dash_sel == 3, 3);
+        craft_font_draw(fb, "STATUS", 17, by + 2,
+                        s_dash_sel == 2 ? RGB565C(120, 255, 120)
+                                        : RGB565C(110, 120, 140));
+        craft_font_draw(fb, "SETTINGS", 73, by + 2,
+                        s_dash_sel == 3 ? RGB565C(120, 255, 120)
+                                        : RGB565C(110, 120, 140));
     }
-    if (by + 24 < ELITE_FB_H)
-        { char h[28]; snprintf(h, sizeof h, "%s:OPEN  %s:RESUME",
+    if (by + 20 < ELITE_FB_H)
+        { char h[28]; snprintf(h, sizeof h, "%s:OPEN %s:RESUME",
             plat_menu_btn(MB_A), plat_menu_btn(MB_B));
-          eui_textc(fb, h, 64, by + 16, RGB565C(90, 105, 132)); }
+          craft_font_draw(fb, h, 22, by + 13, RGB565C(80, 95, 120)); }
 }
 
 static void dash_settings_overlay(uint16_t *fb) {
