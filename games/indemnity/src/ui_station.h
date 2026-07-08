@@ -15,6 +15,7 @@ void station_toast(const char *msg);
 const struct Event *station_pending_event(void);
 /* 3D preview pane: returns 0 none, 1 station, 2 ship (seed+class out). */
 int station_preview2(uint32_t *mesh_seed, int *class_hint);
+int station_hull_detail_view(void);
 DockAction station_tick(const CraftRawButtons *btn, float dt);
 int station_debug_screen(void);   /* guide harness: current SCR_* as int */
 void station_draw(uint16_t *fb);

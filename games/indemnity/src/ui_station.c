@@ -175,6 +175,12 @@ const Event *station_pending_event(void) {
     return ev;
 }
 
+/* True while the shipyard hull DETAIL sheet is open (not the kit view) — the
+   3D preview then tucks into a top-right box so the spec fills the screen. */
+int station_hull_detail_view(void) {
+    return s_screen == SCR_SHIPYARD && s_detail && !s_kit_view;
+}
+
 int station_preview2(uint32_t *mesh_seed, int *class_hint) {
     if (s_screen == SCR_HOME) return 1;
     if (s_screen == SCR_SHIPYARD) {

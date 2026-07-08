@@ -5483,86 +5483,75 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
               if(ln<=0)break;
               line[ln]=0; }
             g_proxy_busy=1;
-            if(!proxy_command(h,line)) continue;             /* CANCEL etc return 0: read the next line */
+            if(!proxy_command(&uc,line)) continue;           /* CANCEL etc return 0: read the next line */
             serve_action:;
-            char db[96]; int dn=0;
-            while(have&&!proxy_paused()){ int st=link_net_status();   /* wait for the relay to pair */
-                if(st==LINK_NET_CONNECTED)break;
-                if(st==LINK_NET_OFF){ proxy_send(h,"MN1 ERR failed\n"); have=0; break; }
-                /* drain the device while waiting (doubles as the loop delay): CANCEL
-                 * aborts; any NEW command replaces the pending action */
-                char c; int r=mote_dev_raw_read(h,&c,1);
-                if(r<0){ link_net_stop(); g_room_code[0]=0; have=0;
-                         log_add("online(dev): device disconnected - dropping the pending room"); break; }
-                if(r==1){
-                    if(c=='\n'){ db[dn]=0; dn=0;
-                        if(!strncmp(db,"MN1 CANCEL",10)){
-                            link_net_stop(); g_room_code[0]=0; have=0;
-                            log_add("online(dev): cancelled on device"); }
-                        else if(!strncmp(db,"MN1 ",4)){
-                            log_add("online(dev): new request - replacing the pending one");
-                            have=proxy_command(h,db); } }
-                    else if(c!='\r'&&dn<(int)sizeof db-1) db[dn++]=c;
-                } }
-            if(have&&link_net_status()==LINK_NET_CONNECTED){
-                proxy_send(h,"MN1 GO\n"); log_add("online(dev): paired - relaying");
-                int mc=0;                                    /* MN1_CANCEL matcher state */
-                static uint8_t dcarry[4096]; int ncarry=0;   /* net->dev flow-control carry */
-                long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
-                Uint32 lup=t0,ldn=t0; Uint32 gup=0,gdn=0;    /* per-direction max silent gap */
-                Uint32 silence_ms=30000;                     /* device MIA -> end the session
-                    (a live v45 device keepalives at 2Hz even when the game is quiet, so
-                    silence means it QUIT the game or got unplugged; 30s stays clear of a
-                    player parked in the blocking engine menu) */
-                { const char*e=getenv("MOTE_PROXY_SILENCE_MS"); if(e&&atoi(e)>0) silence_ms=(Uint32)atoi(e); }
-                while(1){                                    /* splice device <-> relay */
-                    if(proxy_paused()){ why="paused (manual op / toggle)"; break; }
-                    int n=mote_dev_raw_read(h,buf,sizeof buf);
-                    if(n<0){ why="device disconnected (USB re-enumerated?)"; break; }
-                    if(n==0&&SDL_GetTicks()-lup>silence_ms){ why="device silent - left the game?"; break; }
-                    int stop=0;
-                    for(int i=0;i<n&&!stop;i++){             /* scan for a device-side CANCEL */
-                        if(buf[i]==MN1_CANCEL[mc]){ if(++mc==(int)sizeof(MN1_CANCEL)-1)stop=1; }
-                        else mc=(buf[i]==MN1_CANCEL[0])?1:0;
-                    }
-                    { Uint32 nw=SDL_GetTicks();
-                      if(n>0){ if(nw-lup>gup)gup=nw-lup; lup=nw; } }
-                    for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; up+=w; }
-                    if(stop){ why="device left (lobby cancel)"; break; }
-                    /* net -> dev with a CARRY: a device that NAKs (512B link ring full
-                     * during a bulk burst) must never cost bytes — hold the remainder,
-                     * stop pulling from the relay while it's held (TCP backpressures
-                     * the sender), retry next iteration. */
-                    int m=0;
-                    if(ncarry<(int)sizeof dcarry-256){
-                        m=link_net_recv(dcarry+ncarry,(int)sizeof dcarry-ncarry);
-                        if(m>0) ncarry+=m;
-                    }
-                    if(ncarry){
-                        int w=mote_dev_raw_write(h,dcarry,ncarry);
-                        if(w>0){ dn2+=w; memmove(dcarry,dcarry+w,ncarry-w); ncarry-=w; }
-                        else if(++stalls==3||stalls==50){ char sm[112];
-                            snprintf(sm,sizeof sm,"online(dev): device slow to drain (%d B held, flow-controlled)",ncarry);
-                            log_add(sm); }
-                    }
-                    { Uint32 nw=SDL_GetTicks();
-                      if(m>0){ if(nw-ldn>gdn)gdn=nw-ldn; ldn=nw; } }
-                    if(link_net_status()!=LINK_NET_CONNECTED){ why=link_net_info(); break; }
-                    Uint32 now=SDL_GetTicks();               /* heartbeat every 15s */
-                    if(now-tlog>15000){ tlog=now; char hb[160];
-                        snprintf(hb,sizeof hb,"online(dev): relaying ok  dev->net %ld B, net->dev %ld B (%us)  max gap dev %.1fs net %.1fs",
-                                 up,dn2,(now-t0)/1000,gup/1000.0f,gdn/1000.0f);
-                        log_add(hb); gup=gdn=0; }
-                }
-                { char em[200]; snprintf(em,sizeof em,"online(dev): session ended after %us - %s  (dev->net %ld B, net->dev %ld B; last-window max gap dev %.1fs net %.1fs)",
-                                         (SDL_GetTicks()-t0)/1000,why,up,dn2,gup/1000.0f,gdn/1000.0f); log_add(em); }
-                link_net_stop(); g_room_code[0]=0;
-            }
+            if(proxy_await_pair(&uc)) proxy_splice(&uc,"online(dev)");
             break;                                           /* session over: cycle the port */
         }
         mote_dev_close_raw(h); g_proxy_active=0; g_proxy_busy=0;
         SDL_Delay(600);                                      /* closed gap: give the CLI a
                                                                 fair window at the port */
+    }
+    return 0;
+}
+
+/* Preview online proxy — the mirror of netproxy_thread for the Studio's OWN preview
+ * game. When a preview game enters its multiplayer lobby and picks LAN/Internet, it
+ * speaks the MN1 control protocol over the plat-studio link rings, exactly as a
+ * docked device speaks it over CDC. We service it here (pick the room, then splice
+ * the rings to link_net), so a preview sets up an online match with ZERO Studio
+ * clicks — the preview is a "virtual docked device". It stands aside for a real
+ * docked device (Vs Device) and the manual USB bridge, and never shares link_net
+ * with the USB proxy (netproxy pauses while mote_studio_pvlink_active()). */
+static int pvproxy_thread(void*a){ (void)a;
+    Chan pc={NULL,pv_rd,pv_wr};
+    int handoff=0;                                           /* preview picked USB-Cable: it drives link_net directly */
+    for(;;){
+        if(!mote_studio_preview_link_on()) handoff=0;        /* link cycled: eligible to adopt again */
+        /* Adopt only when the master proxy is on, a preview game's link is up and
+         * WAITING for an opponent, and nothing else owns the byte pipe / link_net. */
+        if(!g_proxy_on || g_bridge_on || g_proxy_active || mote_studio_devlink_active()
+           || handoff || !mote_studio_preview_link_waiting()){ SDL_Delay(120); continue; }
+        mote_studio_pvlink_set(1);                           /* the rings now carry the preview link */
+        if(g_proxy_active || g_bridge_on){ mote_studio_pvlink_set(0); continue; }   /* lost the race */
+        log_add("online(preview): preview game entered its lobby - servicing");
+        g_proxy_busy=1;
+        char line[96];
+        for(;;){                                             /* serve MN1 commands from the preview */
+            if(!mote_studio_preview_link_on()){ log_add("online(preview): preview left the lobby"); break; }
+            if(proxy_paused()) break;
+            char c0; int r0=chan_read(&pc,&c0,1);
+            if(r0<0) break;                                  /* preview link gone */
+            if(r0==0) continue;                              /* idle (pv_rd sleeps) */
+            int ln;
+            if((unsigned char)c0==0x4D){                     /* 'M': MN1 line OR an ML hello (0x4D 0x4C) */
+                char c1; int r1=chan_read(&pc,&c1,1);
+                if(r1<0) break;
+                if(r1==1 && (unsigned char)c1==0x4C){        /* USB-Cable pick: no MN1 — let the preview
+                    use link_net as-is (a manually-armed Host/Join LAN or relay session) */
+                    mote_studio_pvlink_set(0); handoff=1;
+                    log_add("online(preview): direct-link mode - preview uses link_net directly");
+                    break;
+                }
+                line[0]=c0; ln=1; if(r1==1){ line[1]=c1; ln=2; }
+            } else { line[0]=c0; ln=1; }
+            { int idle=0, gone=0;                            /* accumulate the rest of the MN1 line */
+              while(ln<(int)sizeof line-1){
+                  char ch; int r=chan_read(&pc,&ch,1);
+                  if(r<0){ gone=1; break; }
+                  if(r==0){ if(++idle>60)break; continue; }
+                  idle=0; if(ch=='\n')break; if(ch!='\r')line[ln++]=ch;
+              }
+              if(gone) break; }
+            line[ln]=0;
+            if(ln<4) continue;                               /* stray bytes: keep reading */
+            if(!proxy_command(&pc,line)) continue;           /* CANCEL/LIST/gallery: read the next line */
+            if(proxy_await_pair(&pc)) proxy_splice(&pc,"online(preview)");
+            break;                                           /* session done */
+        }
+        if(!handoff){ link_net_stop(); g_room_code[0]=0; }   /* handoff keeps the manual session alive */
+        mote_studio_pvlink_set(0); g_proxy_busy=0;
+        SDL_Delay(300);
     }
     return 0;
 }
@@ -5784,22 +5773,24 @@ static void draw_devpanel(SDL_Renderer*R,int ox,int oy,int w){ int mx,my; SDL_Ge
     /* --- MULTIPLAYER: one always-visible status row. The normal path is the
      * DEVICE-side lobby (auto-proxy); every manual control lives under Advanced. --- */
     int ly=y+64;
-    text(R,"MULTIPLAYER  (set up matches on the Thumby itself - the Studio relays automatically)",ox,ly,SC_TITLE,C_TITLE,C_DOCK);
+    text(R,"MULTIPLAYER  (set up matches from the Thumby's OR the preview game's own lobby - the Studio relays automatically)",ox,ly,SC_TITLE,C_TITLE,C_DOCK);
     ly+=20;
     /* device auto-proxy toggle: when ON, the docked Thumby drives online from its own lobby */
     { const char*pl=g_proxy_on?(g_proxy_busy?"Device: RELAYING":"Device: ON"):"Device: OFF";
       int pw=textw(R,pl,1)+20; g_proxy_tgl=(SDL_Rect){ox,ly,pw,22};
       rrect(R,g_proxy_tgl.x,g_proxy_tgl.y,pw,22,4,g_proxy_busy?C_ACC:g_proxy_on?C_BTN:C_DOCK);
       text(R,pl,g_proxy_tgl.x+10,ly+6,1,g_proxy_on?C_TXT:C_DIM,g_proxy_busy?C_ACC:g_proxy_on?C_BTN:C_DOCK);
-      tip(g_proxy_tgl,mx,my,"When ON, a docked Thumby sets up USB/LAN/Internet matches from its own lobby - no clicks here");
+      tip(g_proxy_tgl,mx,my,"When ON, a docked Thumby OR a preview game sets up USB/LAN/Internet matches from its own lobby - no clicks here");
       /* status line beside the toggle */
       char st[200];
       if(g_bridge_on&&g_bridge_local) snprintf(st,sizeof st,"preview <-> USB device (local)");
+      else if(mote_studio_pvlink_active()) snprintf(st,sizeof st,"preview game online%s%s   relay %s   %s",
+              g_room_code[0]?"   CODE: ":"",g_room_code[0]?g_room_code:"",g_relay_cfg[0]?g_relay_cfg:"(none)",link_net_info());
       else if(g_room_code[0]&&link_net_status()!=LINK_NET_CONNECTED) snprintf(st,sizeof st,"relay %s   ROOM CODE: %s   %s",g_relay_cfg,g_room_code,link_net_info());
       else if(g_relay_cfg[0]) snprintf(st,sizeof st,"relay %s   %s%s",g_relay_cfg,link_net_info(),g_bridge_on?"  [bridging USB device]":"");
       else snprintf(st,sizeof st,"no relay configured   %s",link_net_info());
       text(R,st,g_proxy_tgl.x+g_proxy_tgl.w+14,ly+6,1,
-           (g_proxy_busy||g_bridge_on||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK);
+           (g_proxy_busy||g_bridge_on||mote_studio_pvlink_active()||link_net_status()==LINK_NET_CONNECTED)?C_ACC:C_DIM,C_DOCK);
       /* Advanced expander, right-aligned */
       const char*al=g_adv_open?"Advanced <":"Advanced >";
       int aw=textw(R,al,1)+20; g_adv_tgl=(SDL_Rect){ox+w-aw-8,ly,aw,22};
@@ -6813,6 +6804,28 @@ static void draw_modal(SDL_Renderer*R){ SDL_SetRenderDrawBlendMode(R,SDL_BLENDMO
     text(R,"CANCEL",g_mk_cancel.x+18,g_mk_cancel.y+8,2,C_TXT,C_BTN); text(R,"CREATE",g_mk_create.x+22,g_mk_create.y+8,2,C_TXT,C_BTNHI);
     text(R,"Enter = create   Esc = cancel",bx+130,by+bh-36,1,C_DIM,C_PANEL); }
 
+/* Headless test hook: MOTE_STUDIO_PVKEYS scripts the PREVIEW game's buttons over
+ * frames — "name:from-to ..." (up down left right a b lb rb menu), like mote_host's
+ * MOTE_KEYS. Used to drive a game's own multiplayer lobby (A > Internet > Quick)
+ * from a script so preview-vs-preview online can be verified with no display. */
+static struct { int btn,f0,f1; } g_pvk[32]; static int g_npvk=-1, g_pvkframe;
+static int pvk_btn(const char*n,int l){
+    if(l==2&&!strncmp(n,"up",2))return 0; if(l==4&&!strncmp(n,"down",4))return 1;
+    if(l==4&&!strncmp(n,"left",4))return 2; if(l==5&&!strncmp(n,"right",5))return 3;
+    if(l==1&&n[0]=='a')return 4; if(l==1&&n[0]=='b')return 5;
+    if(l==2&&!strncmp(n,"lb",2))return 6; if(l==2&&!strncmp(n,"rb",2))return 7;
+    if(l==4&&!strncmp(n,"menu",4))return 8; return -1; }
+static void pvk_parse(void){ g_npvk=0; const char*e=getenv("MOTE_STUDIO_PVKEYS"); if(!e)return;
+    while(*e&&g_npvk<32){ while(*e==' ')e++; const char*c=strchr(e,':'); if(!c)break;
+        int b=pvk_btn(e,(int)(c-e)); int f0=atoi(c+1); const char*d=strchr(c,'-'); int f1=d?atoi(d+1):f0;
+        if(b>=0){ g_pvk[g_npvk].btn=b; g_pvk[g_npvk].f0=f0; g_pvk[g_npvk].f1=f1; g_npvk++; }
+        const char*sp=strchr(e,' '); if(!sp)break; e=sp+1; } }
+static void pvk_apply(MoteButtons*b){ if(g_npvk<0)pvk_parse(); memset(b,0,sizeof*b);
+    int f=g_pvkframe++;
+    for(int i=0;i<g_npvk;i++) if(f>=g_pvk[i].f0&&f<=g_pvk[i].f1){ switch(g_pvk[i].btn){
+        case 0:b->up=1;break; case 1:b->down=1;break; case 2:b->left=1;break; case 3:b->right=1;break;
+        case 4:b->a=1;break; case 5:b->b=1;break; case 6:b->lb=1;break; case 7:b->rb=1;break; case 8:b->menu=1;break; } } }
+
 static SDL_Joystick *g_jpad;   /* raw-joystick fallback for pads SDL has no GameController mapping for */
 static void poll_input(MoteButtons*b,SDL_GameController*pad){ const Uint8*k=SDL_GetKeyboardState(NULL); memset(b,0,sizeof*b);
     b->up=k[SDL_SCANCODE_UP]||k[SDL_SCANCODE_W]; b->down=k[SDL_SCANCODE_DOWN]||k[SDL_SCANCODE_S];
@@ -7171,6 +7184,7 @@ int main(int argc,char**argv){
      * MOTE_RELAY_QUICK=1. */
     relay_init();
     SDL_CreateThread(netproxy_thread,"netproxy",NULL);   /* device-driven online auto-proxy */
+    SDL_CreateThread(pvproxy_thread,"pvproxy",NULL);     /* preview-driven online auto-proxy (LAN/Internet) */
     if(g_relay_cfg[0]){
         relay_set_game();
         if(getenv("MOTE_RELAY_QUICK")) link_net_relay_quick("TEST");
@@ -7428,7 +7442,8 @@ int main(int argc,char**argv){
             else if(cmy>=BOT_Y-4&&cmy<=BOT_Y+1)want=g_cur_ns; }
           if(want)SDL_SetCursor(want); }
         MoteButtons b; memset(&b,0,sizeof b); int over_emu = !g_modal&&!g_picker&&!g_align&&!g_fpick&&!g_codefocus&&g_menu_open<0;
-        if(over_emu){ poll_input(&b,pad);
+        if(getenv("MOTE_STUDIO_PVKEYS")){ pvk_apply(&b); mote_studio_set_buttons(&b); }   /* headless: scripted preview input */
+        else if(over_emu){ poll_input(&b,pad);
             int mmx,mmy; Uint32 ms=SDL_GetMouseState(&mmx,&mmy);
             if((ms&SDL_BUTTON_LMASK)&&!g_split&&mmx>=CENTER_X&&mmx<INSP_X&&mmy>=TOPH&&mmy<BOT_Y) emu_hit(mmx,mmy,&b);
             mote_studio_set_buttons(&b); }

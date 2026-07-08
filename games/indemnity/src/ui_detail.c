@@ -279,14 +279,13 @@ void detail_hull_scroll_reset(void) { s_hull_scroll = 0; }
 
 void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
                       const char *footer) {
-    /* Left column = readable spec (scrollable); the rotating 3D ship stays LIVE
-       in the right pane (x62..). Never remove the ship. */
+    /* Fill everything EXCEPT a top-right box, where the live 3D ship renders.
+       All specs then fit on one screen: 7 in the left column, 3 bottom-right. */
     for (int y = 0; y < ELITE_FB_H; y++) {
-        int xmax = (y >= 10 && y < 94) ? 61 : ELITE_FB_W;
+        int hi = (y < 52) ? 73 : ELITE_FB_W;   /* leave x73..127 open up top for the ship */
         uint16_t *row = fb + y * ELITE_FB_W;
-        for (int x = 0; x < xmax; x++) row[x] = COL_BG;
+        for (int x = 0; x < hi; x++) row[x] = COL_BG;
     }
-    for (int y = 10; y < 94; y++) fb[y * ELITE_FB_W + 61] = COL_GRID;
 
     const HullDef *h = &k_hulls[hull_id];
     const HullDef *cur = &k_hulls[g_player.hull_id];
@@ -294,56 +293,47 @@ void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
     hull_roll(hull_id, seed, &rv);
     const HullRoll *rc = player_roll();
     char buf[28];
-    eui_textclip(fb, h->name, 2, 60, 1, COL_HDR);
-    for (int x = 0; x < 61; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
+    eui_textclip(fb, h->name, 2, 72, 1, COL_HDR);
+    for (int x = 0; x < 72; x++) fb[13 * ELITE_FB_W + x] = COL_GRID;
 
-    /* Build the readable spec rows (all of them — scroll reveals the rest). */
-    const char *labs[12]; char vals[12][14]; uint16_t cols[12]; int n = 0;
     #define CMPC(nv, cv) cmp_col((float)(nv), (float)(cv))
-    #define ADD(lb, col, fmt, ...) do { labs[n] = lb; \
-        snprintf(vals[n], sizeof vals[n], fmt, __VA_ARGS__); cols[n] = col; n++; } while (0)
-    ADD("SPD", CMPC(h->max_speed*rv.spd, cur->max_speed*rc->spd), "%d", (int)(h->max_speed*rv.spd));
-    ADD("ACC", CMPC(h->accel*rv.acc, cur->accel*rc->acc), "%d", (int)(h->accel*rv.acc));
-    { float tn = h->turn_rate*rv.trn;
-      ADD("TRN", CMPC(tn, cur->turn_rate*rc->trn), "%d.%d", (int)tn, ((int)(tn*10))%10); }
-    ADD("CRG", CMPC(rv.cargo, rc->cargo), "%dT", rv.cargo);
-    { float jn = h->jump_range*rv.jmp;
-      ADD("JMP", CMPC(jn, cur->jump_range*rc->jmp), "%d.%d", (int)jn, ((int)(jn*10))%10); }
-    ADD("HUL", CMPC(h->hull_base*rv.hull, cur->hull_base*rc->hull), "%d", (int)(h->hull_base*rv.hull));
-    ADD("SHD", CMPC(h->shield_base*rv.shd, cur->shield_base*rc->shd), "%d", (int)(h->shield_base*rv.shd));
-    ADD("TIER", CMPC(h->max_shield_tier+h->max_hull_tier, cur->max_shield_tier+cur->max_hull_tier),
-        "S%dH%d", h->max_shield_tier, h->max_hull_tier);
-    {   int ng = 0, cg = 0;
-        for (int i = 0; i < rv.n_slots; i++) ng += rv.slot_size[i];
-        for (int i = 0; i < rc->n_slots; i++) cg += rc->slot_size[i];
-        char s[14]; int sl = 0;
-        for (int i = 0; i < rv.n_slots && sl < 11; i++) { s[sl++] = 'Z'; s[sl++] = (char)('0' + rv.slot_size[i]); }
-        s[sl] = 0;
-        ADD("GUN", CMPC(ng, cg), "%s", s); }
-    ADD("UTL", CMPC(rv.utils, rc->utils), "%d", rv.utils);
-    #undef ADD
+    #define HS(lx, vx, yy, label, col, fmt, ...) do { \
+        eui_text(fb, label, lx, yy, COL_DIM); \
+        snprintf(buf, sizeof buf, fmt, __VA_ARGS__); \
+        eui_textclip(fb, buf, vx, (lx) < 40 ? 71 : 126, yy, col); \
+    } while (0)
+    /* Left column (x2): the flight-performance + defence stats. */
+    int y = 15;
+    HS(2, 32, y, "SPD", CMPC(h->max_speed*rv.spd, cur->max_speed*rc->spd), "%d", (int)(h->max_speed*rv.spd)); y+=11;
+    HS(2, 32, y, "ACC", CMPC(h->accel*rv.acc, cur->accel*rc->acc), "%d", (int)(h->accel*rv.acc)); y+=11;
+    { float tn=h->turn_rate*rv.trn; HS(2, 32, y, "TRN", CMPC(tn, cur->turn_rate*rc->trn), "%d.%d",(int)tn,((int)(tn*10))%10); } y+=11;
+    HS(2, 32, y, "CRG", CMPC(rv.cargo, rc->cargo), "%dT", rv.cargo); y+=11;
+    { float jn=h->jump_range*rv.jmp; HS(2, 32, y, "JMP", CMPC(jn, cur->jump_range*rc->jmp), "%d.%d",(int)jn,((int)(jn*10))%10); } y+=11;
+    HS(2, 32, y, "HUL", CMPC(h->hull_base*rv.hull, cur->hull_base*rc->hull), "%d",(int)(h->hull_base*rv.hull)); y+=11;
+    HS(2, 32, y, "SHD", CMPC(h->shield_base*rv.shd, cur->shield_base*rc->shd), "%d",(int)(h->shield_base*rv.shd)); y+=11;
+    /* Bottom-right (x66), below the ship box: fitting/equipment stats. */
+    int yr = 55;
+    HS(66, 96, yr, "TIER", CMPC(h->max_shield_tier+h->max_hull_tier, cur->max_shield_tier+cur->max_hull_tier), "S%dH%d", h->max_shield_tier, h->max_hull_tier); yr+=11;
+    {   int ng=0, cg=0;
+        for (int i=0;i<rv.n_slots;i++) ng+=rv.slot_size[i];
+        for (int i=0;i<rc->n_slots;i++) cg+=rc->slot_size[i];
+        char s[14]; int sl=0;
+        for (int i=0;i<rv.n_slots && sl<11;i++){ s[sl++]='Z'; s[sl++]=(char)('0'+rv.slot_size[i]); }
+        s[sl]=0;
+        HS(66, 92, yr, "GUN", CMPC(ng,cg), "%s", s); } yr+=11;
+    HS(66, 96, yr, "UTL", CMPC(rv.utils, rc->utils), "%d", rv.utils); yr+=11;
+    #undef HS
     #undef CMPC
 
-    int y0 = 15, rh = 11, vis = (94 - y0) / rh;
-    if (s_hull_scroll > n - vis) s_hull_scroll = n - vis;
-    if (s_hull_scroll < 0) s_hull_scroll = 0;
-    for (int r = 0; r < vis && s_hull_scroll + r < n; r++) {
-        int i = s_hull_scroll + r, y = y0 + r * rh;
-        eui_text(fb, labs[i], 2, y, COL_DIM);
-        eui_textclip(fb, vals[i], 30, 57, y, cols[i]);
-    }
-    if (n > vis) eui_scrollbar(fb, 58, y0, vis * rh, n, vis, s_hull_scroll, COL_VAL, COL_GRID);
-
-    /* Bottom band (full width, below the pane): trade price + list + footer. */
-    hl(fb, 96, COL_GRID);
+    hl(fb, 94, COL_GRID);
     if (cost == DETAIL_OWNED)
-        eui_text(fb, "OWNED", 3, 99, COL_CRED);
+        eui_text(fb, "OWNED", 3, 97, COL_CRED);
     else if (cost < 0) { snprintf(buf, sizeof buf, "GET %dCR (TRADE-IN)", -cost);
-                         eui_textclip(fb, buf, 3, 126, 99, COL_CRED); }
+                         eui_textclip(fb, buf, 3, 126, 97, COL_CRED); }
     else { snprintf(buf, sizeof buf, "COST %dCR (TRADE-IN)", cost);
-           eui_textclip(fb, buf, 3, 126, 99, COL_CRED); }
+           eui_textclip(fb, buf, 3, 126, 97, COL_CRED); }
     snprintf(buf, sizeof buf, "LIST %dCR", h->price);
-    craft_font_draw(fb, buf, 3, 111, COL_DIM);
+    craft_font_draw(fb, buf, 3, 110, COL_DIM);
     craft_font_draw(fb, footer, 2, 121, COL_DIM);
 }
 

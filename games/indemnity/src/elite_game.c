@@ -2812,7 +2812,14 @@ void elite_game_render_begin(void) {
             m3_rotate_local(&obj.basis, 1, s_time * 0.5f);
             m3_rotate_local(&obj.basis, 0, 0.30f);
             float dist = m->bound_r * 2.5f;
-            obj.pos = v3(dist * 0.29f, 0, dist);
+            if (pv == 2 && station_hull_detail_view()) {
+                /* Detail sheet: tuck the hull into a small top-right box so the
+                   spec column + bottom-right stats fill the rest of the screen. */
+                dist = m->bound_r * 3.9f;
+                obj.pos = v3(dist * 0.42f, dist * 0.27f, dist);
+            } else {
+                obj.pos = v3(dist * 0.29f, 0, dist);
+            }
             g_em->scene_add_object(&obj);
         }
         break;
