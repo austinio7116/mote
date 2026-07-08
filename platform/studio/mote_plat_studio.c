@@ -179,11 +179,19 @@ static int s_lk_started;
 /* --- Preview vs USB DEVICE (the UI's "Vs Device" mode): the preview game's
  * link rides a LOCAL pipe to the docked Thumby — two mutex-guarded byte rings
  * (game->device / device->game) whose serial end is pumped by the bridge
- * thread in studio/main.c. No network involved. */
+ * thread in studio/main.c. No network involved.
+ *
+ * The SAME rings also carry the preview's ONLINE play (s_pv_on): when a preview
+ * game enters its multiplayer lobby and picks LAN/Internet, the Studio's preview
+ * proxy (studio/main.c pvproxy_thread) reads the MN1 control protocol off these
+ * rings — exactly as the USB proxy reads it off the CDC pipe of a docked device —
+ * opens the relay/LAN room, then splices the rings to link_net. The preview is a
+ * "virtual docked device": one owner at a time (Vs Device OR online, never both). */
 static SDL_mutex *s_dl_mx;
 static uint8_t s_dl_g2d[1024], s_dl_d2g[1024];
 static int s_dl_g2d_h, s_dl_g2d_t, s_dl_d2g_h, s_dl_d2g_t;
-static int s_dl_on;
+static int s_dl_on;   /* Vs Device: rings pumped to a docked Thumby over USB */
+static int s_pv_on;   /* preview online: rings serviced by the preview proxy (relay/LAN) */
 
 static int dl_put(uint8_t *ring, int cap, int *h, int t, const uint8_t *d, int n) {
     int put = 0;
@@ -203,10 +211,18 @@ void mote_studio_devlink_set(int on) {
     s_dl_g2d_h = s_dl_g2d_t = s_dl_d2g_h = s_dl_d2g_t = 0;
     SDL_UnlockMutex(s_dl_mx);
 }
+/* preview online proxy owns the link rings (relay/LAN, not the USB device) */
+void mote_studio_pvlink_set(int on) {
+    dl_lock();
+    s_pv_on = on;
+    s_dl_g2d_h = s_dl_g2d_t = s_dl_d2g_h = s_dl_d2g_t = 0;
+    SDL_UnlockMutex(s_dl_mx);
+}
+int mote_studio_pvlink_active(void) { return s_pv_on; }
 int mote_studio_devlink_active(void) { return s_dl_on; }
 int mote_studio_preview_link_on(void) { return s_lk_started; }   /* preview game has link up */
 int mote_studio_preview_link_waiting(void) {                     /* ...and needs an opponent */
-    return s_lk_started && !s_dl_on && !mote_studio_link_bridge_active; }
+    return s_lk_started && !s_dl_on && !s_pv_on && !mote_studio_link_bridge_active; }
 int mote_studio_devlink_pull_tx(void *buf, int max) {        /* bridge: game -> serial */
     dl_lock(); int n = dl_get(s_dl_g2d, sizeof s_dl_g2d, s_dl_g2d_h, &s_dl_g2d_t, buf, max);
     SDL_UnlockMutex(s_dl_mx); return n;
@@ -221,25 +237,25 @@ void mote_plat_link_stop(void)   { s_lk_started = 0; }
 void mote_plat_link_task(void)   { link_net_task(); }
 int  mote_plat_link_status(void) {
     if (!s_lk_started) return 0;
-    if (s_dl_on) return 2;                               /* serial pipe up = connected;
-                                                          * the game's hello gates the rest */
+    if (s_dl_on || s_pv_on) return 2;                    /* ring pipe up = connected; the MN1
+                                                          * control + game hello gate the rest */
     if (mote_studio_link_bridge_active) return 1;        /* LAN pipe busy: keep searching */
     return link_net_status();                            /* same 0/1/2 meanings */
 }
 int  mote_plat_link_is_host(void){
-    if (s_dl_on || mote_studio_link_bridge_active) return 0;   /* symmetric: games use a nonce */
+    if (s_dl_on || s_pv_on || mote_studio_link_bridge_active) return 0;   /* symmetric: games use a nonce */
     return link_net_is_host();
 }
 int  mote_plat_link_send(const void *data, int len) {
     if (!s_lk_started) return 0;
-    if (s_dl_on) { dl_lock(); int w = dl_put(s_dl_g2d, sizeof s_dl_g2d, &s_dl_g2d_h, s_dl_g2d_t, data, len);
+    if (s_dl_on || s_pv_on) { dl_lock(); int w = dl_put(s_dl_g2d, sizeof s_dl_g2d, &s_dl_g2d_h, s_dl_g2d_t, data, len);
                    SDL_UnlockMutex(s_dl_mx); return w; }
     if (mote_studio_link_bridge_active) return 0;
     return link_net_send(data, len);
 }
 int  mote_plat_link_recv(void *buf, int max) {
     if (!s_lk_started) return 0;
-    if (s_dl_on) { dl_lock(); int n = dl_get(s_dl_d2g, sizeof s_dl_d2g, s_dl_d2g_h, &s_dl_d2g_t, buf, max);
+    if (s_dl_on || s_pv_on) { dl_lock(); int n = dl_get(s_dl_d2g, sizeof s_dl_d2g, s_dl_d2g_h, &s_dl_d2g_t, buf, max);
                    SDL_UnlockMutex(s_dl_mx); return n; }
     if (mote_studio_link_bridge_active) return 0;
     return link_net_recv(buf, max);

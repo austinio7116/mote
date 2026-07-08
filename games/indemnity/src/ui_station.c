@@ -1224,8 +1224,10 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
             break;
         }
         if (s_detail) {
-            if (left)  s_cursor = (s_cursor + YARD_OFFERS) % (YARD_OFFERS + 1);
-            if (right) s_cursor = (s_cursor + 1) % (YARD_OFFERS + 1);
+            if (left)  { s_cursor = (s_cursor + YARD_OFFERS) % (YARD_OFFERS + 1); detail_hull_scroll_reset(); }
+            if (right) { s_cursor = (s_cursor + 1) % (YARD_OFFERS + 1); detail_hull_scroll_reset(); }
+            if (up)   detail_hull_scroll(-1);            /* scroll the spec column */
+            if (down) detail_hull_scroll(1);
             if (lb_edge) s_kit_view = !s_kit_view;       /* Info = kit view */
             if (a_edge && s_cursor < YARD_OFFERS) s_yard_confirm = s_cursor + 1;
             if (back) { if (s_kit_view) s_kit_view = 0; else s_detail = 0; }
@@ -1233,7 +1235,7 @@ DockAction station_tick(const CraftRawButtons *btn, float dt) {
         }
         if (up && s_cursor > 0) s_cursor--;
         if (down && s_cursor < YARD_OFFERS) s_cursor++;
-        if (lb_edge) { s_detail = 1; s_kit_view = 0; }   /* Info = details */
+        if (lb_edge) { s_detail = 1; s_kit_view = 0; detail_hull_scroll_reset(); }   /* Info = details */
         if (a_edge && s_cursor < YARD_OFFERS) s_yard_confirm = s_cursor + 1;
         if (back) { s_screen = SCR_HOME; s_cursor = 1; }
         break;

@@ -27,6 +27,8 @@ void detail_draw_weapon(uint16_t *fb, const WeaponInst *wi,
 #define DETAIL_OWNED (-2000000000)
 void detail_draw_hull(uint16_t *fb, int hull_id, uint32_t seed, int cost,
                       const char *footer);
+void detail_hull_scroll(int d);       /* up/down scroll of the hull spec column */
+void detail_hull_scroll_reset(void);
 
 /* Commodity sheet (status cargo drill-down). */
 void detail_draw_good(uint16_t *fb, int good, int held,

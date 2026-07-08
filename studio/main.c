@@ -5121,6 +5121,9 @@ extern int mote_studio_link_bridge_active;    /* consumed by mote_plat_studio */
 extern void mote_studio_devlink_set(int on);  /* preview<->device local pipe (plat studio) */
 extern int  mote_studio_devlink_pull_tx(void *buf, int max);
 extern int  mote_studio_devlink_push_rx(const void *buf, int n);
+extern int  mote_studio_devlink_active(void);        /* Vs Device bridge owns the rings */
+extern void mote_studio_pvlink_set(int on);          /* preview online proxy owns the rings */
+extern int  mote_studio_pvlink_active(void);
 extern int  mote_studio_preview_link_on(void);       /* preview game's link is started */
 extern int  mote_studio_preview_link_waiting(void);  /* ...and unpaired (wants an opponent) */
 static volatile int g_bridge_on;
@@ -5230,19 +5233,39 @@ static void proxy_yield(void){ g_proxy_suspend=1; for(int i=0;i<80&&g_proxy_acti
 static void proxy_resume(void){ g_proxy_suspend=0; }
 static int proxy_paused(void){ return !g_proxy_on||g_proxy_suspend||g_bridge_on; }
 
-/* read one '\n'-terminated MN1 line from the device; 0 on abort / long silence */
-static int proxy_readline(void*h,char*out,int cap){
+/* A proxy CHANNEL is the byte pipe to whatever drives a match: the docked Thumby
+ * over USB-CDC, or the Studio's own preview game over the plat-studio link rings.
+ * proxy_command/await/splice speak the MN1 control protocol + relay bytes over
+ * whichever channel, so a PREVIEW game sets up LAN/Internet play exactly like a
+ * real docked device. rd(): <=~100ms, 0 = nothing, <0 = channel gone. */
+typedef struct { void *h; int (*rd)(void*,void*,int); int (*wr)(void*,const void*,int); } Chan;
+static int chan_read(Chan*c,void*b,int n){ return c->rd(c->h,b,n); }
+static int chan_write(Chan*c,const void*b,int n){ return c->wr(c->h,b,n); }
+/* USB channel: the docked device's raw serial pipe */
+static int usb_rd(void*h,void*b,int n){ return mote_dev_raw_read(h,b,n); }
+static int usb_wr(void*h,const void*b,int n){ return mote_dev_raw_write(h,b,n); }
+/* preview channel: the plat-studio link rings (mote_plat_studio.c) */
+static int pv_rd(void*h,void*b,int n){ (void)h;
+    if(!mote_studio_preview_link_on()) return -1;           /* game dropped its link = gone */
+    int r=mote_studio_devlink_pull_tx(b,n);
+    if(r==0)SDL_Delay(10);                                  /* idle: don't busy-spin (USB read blocks) */
+    return r; }
+static int pv_wr(void*h,const void*b,int n){ (void)h; return mote_studio_devlink_push_rx(b,n); }
+
+/* read one '\n'-terminated MN1 line from the channel; 0 on abort / long silence / gone */
+static int proxy_readline(Chan*ch,char*out,int cap){
     int n=0,idle=0;
     while(!proxy_paused()){
-        char c; int r=mote_dev_raw_read(h,&c,1);            /* ~0.1s read timeout */
-        if(r<=0){ if(++idle>60)return 0; continue; }        /* ~6s silence -> give up */
+        char b; int r=chan_read(ch,&b,1);                   /* ~0.1s read timeout */
+        if(r<0)return 0;                                    /* channel gone */
+        if(r==0){ if(++idle>60)return 0; continue; }        /* ~6s silence -> give up */
         idle=0;
-        if(c=='\n'){ out[n]=0; return n; }
-        if(c!='\r'&&n<cap-1) out[n++]=c;
+        if(b=='\n'){ out[n]=0; return n; }
+        if(b!='\r'&&n<cap-1) out[n++]=b;
     }
     return 0;
 }
-static void proxy_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(s)); }
+static void proxy_send(Chan*c,const char*s){ chan_write(c,s,(int)strlen(s)); }
 
 /* On-device GALLERY service (defined after the gallery UI block): the docked
  * handheld drives its own gallery screen by sending "MN1 G..." over CDC, and
@@ -5255,39 +5278,41 @@ static void gal_serve_fetch(void*h,unsigned idx);
 static void gal_serve_desc(void*h,unsigned idx);
 static volatile Uint32 g_gal_until;   /* SDL ticks: hold the device port until then (gallery session) */
 
-/* Act on one MN1 command. Returns 1 to proceed to relay+GO, 0 if fully handled. */
-static int proxy_command(void*h,char*line){
+/* Act on one MN1 command from a channel (docked device OR preview game). Returns
+ * 1 to proceed to relay+GO, 0 if fully handled. The gallery (G*) verbs only ever
+ * come from a docked device, so they use the raw USB handle (c->h). */
+static int proxy_command(Chan*c,char*line){
     if(strncmp(line,"MN1 ",4)) return 0;
-    proxy_send(h,"MN1 OK\n");            /* ack NOW: the device resends until heard */
+    proxy_send(c,"MN1 OK\n");            /* ack NOW: the peer resends until heard */
     char*cmd=line+4; char*sp=strchr(cmd,' ');
     char verb[12]; int vl=sp?(int)(sp-cmd):(int)strlen(cmd); if(vl>11)vl=11; memcpy(verb,cmd,vl); verb[vl]=0;
     unsigned gid=sp?(unsigned)strtoul(sp+1,NULL,10):0;
     if(verb[0]=='G') g_gal_until = SDL_GetTicks()+15000;   /* gallery session: keep the port for prompt replies */
-    if(!strcmp(verb,"GMANIFEST")){ gal_serve_manifest(h); return 0; }
-    if(!strcmp(verb,"GTHUMB")){ unsigned shot=0; char*s2=sp?strchr(sp+1,' '):NULL; if(s2)shot=(unsigned)strtoul(s2+1,NULL,10); gal_serve_thumb(h,gid,shot); return 0; }
-    if(!strcmp(verb,"GDESC")){ gal_serve_desc(h,gid); return 0; }
-    if(!strcmp(verb,"GFETCH")){ gal_serve_fetch(h,gid); return 0; }
+    if(!strcmp(verb,"GMANIFEST")){ gal_serve_manifest(c->h); return 0; }
+    if(!strcmp(verb,"GTHUMB")){ unsigned shot=0; char*s2=sp?strchr(sp+1,' '):NULL; if(s2)shot=(unsigned)strtoul(s2+1,NULL,10); gal_serve_thumb(c->h,gid,shot); return 0; }
+    if(!strcmp(verb,"GDESC")){ gal_serve_desc(c->h,gid); return 0; }
+    if(!strcmp(verb,"GFETCH")){ gal_serve_fetch(c->h,gid); return 0; }
     if(!strcmp(verb,"CANCEL")){ link_net_stop(); g_room_code[0]=0; return 0; }
-    if(!strcmp(verb,"LANHOST")){ link_net_host(); log_add("online(dev): hosting on LAN"); return 1; }
-    if(!strcmp(verb,"LANJOIN")){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("online(dev): joining LAN"); return 1; }
-    if(!g_relay_cfg[0]){ proxy_send(h,"MN1 ERR no relay\n"); return 0; }
+    if(!strcmp(verb,"LANHOST")){ link_net_host(); log_add("online: hosting on LAN"); return 1; }
+    if(!strcmp(verb,"LANJOIN")){ link_net_join(getenv("MOTE_LINK_PEER")); log_add("online: joining LAN"); return 1; }
+    if(!g_relay_cfg[0]){ proxy_send(c,"MN1 ERR no relay\n"); return 0; }
     link_net_relay_game(gid);
-    if(!strcmp(verb,"QUICK")){ g_room_code[0]=0; link_net_relay_quick(room_label()); log_add("online(dev): quick match"); return 1; }
+    if(!strcmp(verb,"QUICK")){ g_room_code[0]=0; link_net_relay_quick(room_label()); log_add("online: quick match"); return 1; }
     if(!strcmp(verb,"HOST")){ gen_room_code(); link_net_relay_host(g_room_code,1,room_label());
-        char m[32]; snprintf(m,sizeof m,"MN1 CODE %s\n",g_room_code); proxy_send(h,m);
-        char l[48]; snprintf(l,sizeof l,"online(dev): hosting room %s",g_room_code); log_add(l); return 1; }
+        char m[32]; snprintf(m,sizeof m,"MN1 CODE %s\n",g_room_code); proxy_send(c,m);
+        char l[48]; snprintf(l,sizeof l,"online: hosting room %s",g_room_code); log_add(l); return 1; }
     if(!strcmp(verb,"JOIN")){ char code[8]={0}; char*c2=sp?strchr(sp+1,' '):NULL;
         if(c2){ c2++; int k=0; while(c2[k]&&c2[k]!=' '&&k<7){ code[k]=c2[k]; k++; } }
         snprintf(g_room_code,sizeof g_room_code,"%s",code); link_net_relay_join(code);
-        char l[48]; snprintf(l,sizeof l,"online(dev): joining %s",code); log_add(l); return 1; }
+        char l[48]; snprintf(l,sizeof l,"online: joining %s",code); log_add(l); return 1; }
     if(!strcmp(verb,"LIST")){ static char buf[MAX_BROWSE*40+64]; int rn=link_net_list(buf,sizeof buf);
         if(rn>0){ char*p=buf; while(*p){ char*e=strchr(p,'\n'); int len=e?(int)(e-p):(int)strlen(p); if(len>50)len=50;
-            char m[80]; memcpy(m,"MN1 ROOM ",9); memcpy(m+9,p,len); m[9+len]='\n'; mote_dev_raw_write(h,m,10+len);
+            char m[80]; memcpy(m,"MN1 ROOM ",9); memcpy(m+9,p,len); m[9+len]='\n'; chan_write(c,m,10+len);
             if(!e)break; p=e+1; } }
-        proxy_send(h,"MN1 ENDROOMS\n");
-        char l2[96]; if(proxy_readline(h,l2,sizeof l2)>0) return proxy_command(h,l2);   /* follow-up JOIN */
+        proxy_send(c,"MN1 ENDROOMS\n");
+        char l2[96]; if(proxy_readline(c,l2,sizeof l2)>0) return proxy_command(c,l2);   /* follow-up JOIN */
         return 0; }
-    proxy_send(h,"MN1 ERR badcmd\n"); return 0;
+    proxy_send(c,"MN1 ERR badcmd\n"); return 0;
 }
 
 /* The device may abandon a session without a clean CANCEL (in-game LINK LOST,
@@ -5296,15 +5321,97 @@ static int proxy_command(void*h,char*line){
  * byte string "MN1 CANCEL\n" from the device ends the session (game protocols
  * are 0xA5-framed binary, so that ASCII run can't occur by accident). */
 #define MN1_CANCEL "MN1 CANCEL\n"
+
+/* After a room action, wait for the relay/LAN to pair. Drains the channel so a
+ * peer-side CANCEL aborts and a NEW "MN1 ..." replaces the pending action.
+ * Returns 1 when paired (ready for GO), 0 if it failed / was cancelled / gone. */
+static int proxy_await_pair(Chan*c){
+    char db[96]; int dn=0;
+    while(!proxy_paused()){
+        int st=link_net_status();
+        if(st==LINK_NET_CONNECTED)return 1;
+        if(st==LINK_NET_OFF){ proxy_send(c,"MN1 ERR failed\n"); return 0; }
+        char b; int r=chan_read(c,&b,1);                     /* drain while waiting (loop delay) */
+        if(r<0){ link_net_stop(); g_room_code[0]=0;
+                 log_add("online: peer channel gone - dropping the pending room"); return 0; }
+        if(r==1){
+            if(b=='\n'){ db[dn]=0; dn=0;
+                if(!strncmp(db,"MN1 CANCEL",10)){ link_net_stop(); g_room_code[0]=0;
+                    log_add("online: cancelled"); return 0; }
+                else if(!strncmp(db,"MN1 ",4)){ log_add("online: new request - replacing the pending one");
+                    if(!proxy_command(c,db))return 0; } }        /* CANCEL/handled -> abort the wait */
+            else if(b!='\r'&&dn<(int)sizeof db-1) db[dn++]=b;
+        }
+    }
+    return 0;
+}
+
+/* Paired: send GO, then splice the channel <-> the relay/LAN pipe until either
+ * side drops. Shared by the USB proxy (docked device) and the preview proxy;
+ * `tag` prefixes the log lines. Same flow-control carry + gap/silence handling as
+ * the original device path (see [[multiplayer-lobby-v44]] field-debugging notes). */
+static void proxy_splice(Chan*c,const char*tag){
+    char buf[512]; uint8_t dcarry[4096]; int ncarry=0;       /* net->peer flow-control carry */
+    proxy_send(c,"MN1 GO\n"); { char m[64]; snprintf(m,sizeof m,"%s: paired - relaying",tag); log_add(m); }
+    int mc=0;                                                /* MN1_CANCEL matcher state */
+    long up=0,dn2=0; Uint32 t0=SDL_GetTicks(),tlog=t0; const char*why="?"; int stalls=0;
+    Uint32 lup=t0,ldn=t0; Uint32 gup=0,gdn=0;                /* per-direction max silent gap */
+    Uint32 silence_ms=30000;                                 /* peer MIA -> end the session
+        (a live v45 peer keepalives at 2Hz even when the game is quiet, so silence means it
+        QUIT the game or got unplugged; 30s stays clear of a player parked in a blocking menu) */
+    { const char*e=getenv("MOTE_PROXY_SILENCE_MS"); if(e&&atoi(e)>0) silence_ms=(Uint32)atoi(e); }
+    while(1){                                                /* splice peer <-> relay */
+        if(proxy_paused()){ why="paused (manual op / toggle)"; break; }
+        int n=chan_read(c,buf,sizeof buf);
+        if(n<0){ why="peer channel gone"; break; }
+        if(n==0&&SDL_GetTicks()-lup>silence_ms){ why="peer silent - left the game?"; break; }
+        int stop=0;
+        for(int i=0;i<n&&!stop;i++){                         /* scan for a peer-side CANCEL */
+            if(buf[i]==MN1_CANCEL[mc]){ if(++mc==(int)sizeof(MN1_CANCEL)-1)stop=1; }
+            else mc=(buf[i]==MN1_CANCEL[0])?1:0;
+        }
+        { Uint32 nw=SDL_GetTicks(); if(n>0){ if(nw-lup>gup)gup=nw-lup; lup=nw; } }
+        for(int off=0;off<n;){ int w=link_net_send(buf+off,n-off); if(w<=0)break; off+=w; up+=w; }
+        if(stop){ why="peer left (lobby cancel)"; break; }
+        /* net -> peer with a CARRY: a peer that NAKs (512B link ring full during a bulk
+         * burst) must never cost bytes — hold the remainder, stop pulling from the relay
+         * while held (TCP backpressures the sender), retry next iteration. */
+        int m=0;
+        if(ncarry<(int)sizeof dcarry-256){
+            m=link_net_recv(dcarry+ncarry,(int)sizeof dcarry-ncarry);
+            if(m>0) ncarry+=m;
+        }
+        if(ncarry){
+            int w=chan_write(c,dcarry,ncarry);
+            if(w>0){ dn2+=w; memmove(dcarry,dcarry+w,ncarry-w); ncarry-=w; }
+            else if(++stalls==3||stalls==50){ char sm[128];
+                snprintf(sm,sizeof sm,"%s: peer slow to drain (%d B held, flow-controlled)",tag,ncarry);
+                log_add(sm); }
+        }
+        { Uint32 nw=SDL_GetTicks(); if(m>0){ if(nw-ldn>gdn)gdn=nw-ldn; ldn=nw; } }
+        if(link_net_status()!=LINK_NET_CONNECTED){ why=link_net_info(); break; }
+        Uint32 now=SDL_GetTicks();                           /* heartbeat every 15s */
+        if(now-tlog>15000){ tlog=now; char hb[176];
+            snprintf(hb,sizeof hb,"%s: relaying ok  peer->net %ld B, net->peer %ld B (%us)  max gap peer %.1fs net %.1fs",
+                     tag,up,dn2,(now-t0)/1000,gup/1000.0f,gdn/1000.0f);
+            log_add(hb); gup=gdn=0; }
+    }
+    { char em[220]; snprintf(em,sizeof em,"%s: session ended after %us - %s  (peer->net %ld B, net->peer %ld B; last-window max gap peer %.1fs net %.1fs)",
+                             tag,(SDL_GetTicks()-t0)/1000,why,up,dn2,gup/1000.0f,gdn/1000.0f); log_add(em); }
+    link_net_stop(); g_room_code[0]=0;
+}
+
 static int netproxy_thread(void*a){ (void)a; char buf[512];
     for(;;){
-        if(proxy_paused()){ SDL_Delay(100); continue; }
+        /* Stand down while the preview proxy owns link_net (a preview game is playing
+         * online): the two never share the relay/LAN pipe. */
+        if(proxy_paused()||mote_studio_pvlink_active()){ SDL_Delay(100); continue; }
         void*h=mote_dev_open_raw();                          /* only succeeds when the device is in link mode */
         if(!h){ SDL_Delay(400); continue; }
         g_proxy_active=1;
+        Chan uc={h,usb_rd,usb_wr};
         char line[96];
         for(;;){                                             /* serve commands on this port */
-            int have=1;                                      /* an action is pending (set by both entry paths) */
             /* Sniff the mode from the first byte: 'M''N' text = an online request;
              * 0x4D 0x4C binary = the device lobby's ML hello — it picked USB CABLE
              * while docked, i.e. it wants a DIRECT opponent: auto-bridge it to the
@@ -5360,7 +5467,7 @@ static int netproxy_thread(void*a){ (void)a; char buf[512];
                   if(ln<=0)break;
                   line[ln]=0; }
                 g_proxy_busy=1;
-                if(!proxy_command(h,line)) continue;
+                if(!proxy_command(&uc,line)) continue;
                 goto serve_action;
             }
             /* text mode: c0 starts a line (non-'M' first byte: unlikely, but harmless) */
