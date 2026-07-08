@@ -116,6 +116,10 @@ static const Map MAPS[] = {
 static const Map *g_map = &MAPS[0];
 static int g_map_sel = 0;
 
+/* AA UI fonts (ABI v47). NULL on older firmware -> helpers fall back to bitmap. */
+static const MoteFont *g_fmed = 0;   /* ~11px 1.5x  -- labels / HUD / body */
+static const MoteFont *g_fbig = 0;   /* ~15px 2x    -- headers / callouts  */
+
 /* difficulty: 0 = EASY (the original feel), 1 = MEDIUM, 2 = HARD */
 static int g_difficulty = 0;
 static const char *DIFF_NAME[3]  = { "EASY", "MEDIUM", "HARD" };
@@ -605,6 +609,10 @@ static void g_init(void) {
     load_best();
     load_map(0);
     mote->audio_set_stream(engine_fill);
+    if (mote->abi_version >= 47 && mote->ui_font) {
+        g_fmed = mote->ui_font(MOTE_FONT_MED);   /* ~11px labels/HUD */
+        g_fbig = mote->ui_font(MOTE_FONT_LARGE); /* ~15px headers    */
+    }
     g_state = ST_TITLE;
     g_title_spin = 0;
 }
@@ -1623,46 +1631,47 @@ static void g_overlay(uint16_t *fb) {
     char tb[8];
 
     if (g_state == ST_TITLE) {
-        mote->draw_rect(fb, 0, 30, 128, 22, MOTE_RGB565(15, 18, 32), 1, 0, 128);
-        mote->text_2x(fb, "MOTOKART", 16, 34, MOTE_RGB565(255, 90, 70));
+        /* title */
+        mote->draw_rect(fb, 0, 28, 128, 22, MOTE_RGB565(15, 18, 32), 1, 0, 128);
+        mote_ftextc(mote, fb, g_fbig, 64, 30, MOTE_RGB565(255, 90, 70), "MOTOKART");
         /* map selector (LEFT/RIGHT) */
-        int nx = (int)((128 - (int)strlen(g_map->name) * 6) / 2);
-        mote->draw_rect(fb, 0, 66, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
-        mote->text(fb, "<", 10, 68, amber);
-        mote->text(fb, g_map->name, nx, 68, white);
-        mote->text(fb, ">", 114, 68, amber);
+        mote->draw_rect(fb, 0, 54, 128, 15, MOTE_RGB565(20, 24, 40), 1, 0, 128);
+        mote->text(fb, "<", 6, 58, amber);
+        mote_ftextc(mote, fb, g_fmed, 64, 55, white, g_map->name);
+        mote->text(fb, ">", 118, 58, amber);
         /* difficulty selector (UP/DOWN) */
         const char *dn = DIFF_NAME[g_difficulty];
         uint16_t dc = g_difficulty == 0 ? MOTE_RGB565(120, 220, 120)
                     : g_difficulty == 1 ? MOTE_RGB565(245, 210, 80)
                                         : MOTE_RGB565(245, 110, 90);
-        int dx = (int)((128 - (int)strlen(dn) * 6) / 2);
-        mote->draw_rect(fb, 0, 80, 128, 11, MOTE_RGB565(20, 24, 40), 1, 0, 128);
-        mote->text(fb, dn, dx, 82, dc);
+        mote->draw_rect(fb, 0, 71, 128, 15, MOTE_RGB565(20, 24, 40), 1, 0, 128);
+        mote_ftextc(mote, fb, g_fmed, 64, 72, dc, dn);
         if (mote->abi_version >= 43)
-            mote->text(fb, "A 1P   LB 2P LINK", 16, 96, MOTE_RGB565(120, 200, 255));
-        else
-            mote->text(fb, "A START  <>MAP  ^vDIFF", 8, 96, MOTE_RGB565(180, 190, 210));
+            mote_ftextc(mote, fb, g_fmed, 64, 90, MOTE_RGB565(120, 200, 255), "A 1P    LB LINK");
+        else  /* pre-v43 => bitmap font (g_fmed NULL); the long nav hint fits there */
+            mote->text(fb, "A START  <>MAP  ^vDIFF", 8, 90, MOTE_RGB565(180, 190, 210));
         if (g_best_lap > 0) { fmt_time(tb, g_best_lap);
             mote_textf(mote, fb, 24, 107, amber, "BEST LAP %s", tb); }
+        /* long control hints stay on the compact bitmap font (they overflow at MED) */
         mote->text(fb, "A accel B brake RB drift", 4, 116, MOTE_RGB565(160, 170, 195));
         mote->text(fb, "LB item", 46, 123, MOTE_RGB565(160, 170, 195));
         return;
     }
 
     if (g_state == ST_LINK) {
-        mote->draw_rect(fb, 10, 38, 108, 54, MOTE_RGB565(16, 18, 26), 1, 0, 128);
-        mote->draw_rect(fb, 10, 38, 108, 54, MOTE_RGB565(60, 120, 180), 0, 0, 128);
-        mote->text(fb, "2P RACE", 42, 44, MOTE_RGB565(120, 200, 255));
+        mote->draw_rect(fb, 8, 34, 112, 60, MOTE_RGB565(16, 18, 26), 1, 0, 128);
+        mote->draw_rect(fb, 8, 34, 112, 60, MOTE_RGB565(60, 120, 180), 0, 0, 128);
+        mote_ftextc(mote, fb, g_fbig, 64, 37, MOTE_RGB565(120, 200, 255), "2P RACE");
         if (mote->link_status() == MOTE_LINK_CONNECTED)
-            mote->text(fb, "WAITING FOR PEER", 18, 58, MOTE_RGB565(120, 240, 130));
+            mote_ftextc(mote, fb, g_fmed, 64, 58, MOTE_RGB565(120, 240, 130), "WAITING...");
         else {
+            /* device names overflow at MED, keep these two on the compact font */
             mote->text(fb, "CONNECT USB CABLE", 15, 58, white);
             mote->text(fb, "OR STUDIO LINK", 25, 67, MOTE_RGB565(140, 150, 170));
         }
         { int dots = ((int)(g_title_spin * 3)) % 4;
-          for (int i = 0; i < dots; i++) mote->draw_rect(fb, 56 + i * 6, 76, 3, 3, amber, 1, 0, 128); }
-        mote->text(fb, "B CANCEL", 46, 82, MOTE_RGB565(140, 150, 170));
+          for (int i = 0; i < dots; i++) mote->draw_rect(fb, 56 + i * 6, 78, 3, 3, amber, 1, 0, 128); }
+        mote_ftextc(mote, fb, g_fmed, 64, 82, MOTE_RGB565(150, 160, 180), "B CANCEL");
         return;
     }
 
@@ -1683,11 +1692,12 @@ static void g_overlay(uint16_t *fb) {
     uint16_t sc = k->boost > 0 ? MOTE_RGB565(255, 160, 40) : MOTE_RGB565(90, 200, 120);
     mote->draw_rect(fb, 3, 119, (int)(50 * sf), 6, sc, 1, 0, 128);   /* speed bar (no number) */
 
-    mote_textf(mote, fb, 2, 2, white, "LAP %d/%d", k->lap < LAPS ? k->lap + 1 : LAPS, LAPS);
-    mote_textf(mote, fb, 2, 11, amber, "%d/%d", k->place, g_nk);
+    /* priority glanceable HUD -> MED; timer stays compact to clear the minimap */
+    mote_ftextf(mote, fb, g_fmed, 2, 1, white, "LAP %d/%d", k->lap < LAPS ? k->lap + 1 : LAPS, LAPS);
+    mote_ftextf(mote, fb, g_fmed, 2, 15, amber, "%d/%d", k->place, g_nk);
 
     fmt_time(tb, k->laptime);
-    mote_textf(mote, fb, 50, 2, white, "%s", tb);
+    mote->text(fb, tb, 2, 30, white);
 
     /* held item — icon in a panel at the bottom-right, only when you have one.
      * Plain axis-aligned blit (well-trodden sub-rect path) instead of a scaled
@@ -1705,34 +1715,34 @@ static void g_overlay(uint16_t *fb) {
     if (g_state == ST_COUNT) {
         const char *s = g_count == 3 ? "3" : g_count == 2 ? "2" : g_count == 1 ? "1" : "GO!";
         uint16_t c = g_count == 0 ? MOTE_RGB565(90, 240, 110) : MOTE_RGB565(255, 220, 80);
-        mote->text_2x(fb, s, g_count == 0 ? 50 : 60, 54, c);
+        mote_ftextc(mote, fb, g_fbig, 64, 50, c, s);
     }
     if (g_msg_t > 0 && g_msg_id == 1)
-        mote->text_2x(fb, "LAP!", 44, 30, amber);
+        mote_ftextc(mote, fb, g_fbig, 64, 28, amber, "LAP!");
 
     if (g_state == ST_FINISH && g_link) {                 /* 2P result */
-        mote->draw_rect(fb, 14, 40, 100, 48, MOTE_RGB565(15, 18, 32), 1, 0, 128);
-        mote->draw_rect(fb, 14, 40, 100, 48, amber, 0, 0, 128);
+        mote->draw_rect(fb, 12, 36, 104, 56, MOTE_RGB565(15, 18, 32), 1, 0, 128);
+        mote->draw_rect(fb, 12, 36, 104, 56, amber, 0, 0, 128);
         const char *r = g_link_result == 1 ? "WIN!" : g_link_result == 2 ? "LOSE"
                       : g_link_result == 3 ? "LOST" : g_link_result == 4 ? "LEFT" : 0;
         uint16_t rc = g_link_result == 1 ? MOTE_RGB565(120, 240, 130)
                     : g_link_result >= 2 ? MOTE_RGB565(240, 90, 90) : white;
-        if (r) mote->text_2x(fb, r, 40, 44, rc);
-        else   mote->text(fb, "WAITING FOR P2", 22, 48, white);
+        if (r) mote_ftextc(mote, fb, g_fbig, 64, 38, rc, r);
+        else   mote_ftextc(mote, fb, g_fmed, 64, 41, white, "WAITING P2");
         if (g_link_myfin)   { fmt_time(tb, g_my_time_ms / 1000.0f);
-            mote_textf(mote, fb, 24, 66, white, "YOU %s", tb); }
+            mote_ftextf(mote, fb, g_fmed, 24, 56, white, "YOU %s", tb); }
         if (g_link_peerfin) { char tb2[8]; fmt_time(tb2, g_peer_time_ms / 1000.0f);
-            mote_textf(mote, fb, 24, 74, MOTE_RGB565(150, 200, 255), "P2  %s", tb2); }
-        mote->text(fb, "B  TITLE", 46, 82, amber);
+            mote_ftextf(mote, fb, g_fmed, 24, 68, MOTE_RGB565(150, 200, 255), "P2  %s", tb2); }
+        mote_ftextc(mote, fb, g_fmed, 64, 80, amber, "B TITLE");
     } else if (g_state == ST_FINISH) {
-        mote->draw_rect(fb, 14, 44, 100, 40, MOTE_RGB565(15, 18, 32), 1, 0, 128);
-        mote->draw_rect(fb, 14, 44, 100, 1, amber, 1, 0, 128);
+        mote->draw_rect(fb, 12, 42, 104, 46, MOTE_RGB565(15, 18, 32), 1, 0, 128);
+        mote->draw_rect(fb, 12, 42, 104, 46, amber, 0, 0, 128);
         const char *r = g_finish_place == 1 ? "1ST!" : g_finish_place == 2 ? "2ND" :
                         g_finish_place == 3 ? "3RD" : "FINISH";
-        mote->text_2x(fb, r, 44, 50, g_finish_place == 1 ? MOTE_RGB565(255, 215, 60) : white);
+        mote_ftextc(mote, fb, g_fbig, 64, 45, g_finish_place == 1 ? MOTE_RGB565(255, 215, 60) : white, r);
         if (g_best_lap > 0) { fmt_time(tb, g_best_lap);
-            mote_textf(mote, fb, 30, 70, MOTE_RGB565(190, 200, 220), "BEST LAP %s", tb); }
-        mote->text(fb, "A  CONTINUE", 36, 78, white);
+            mote_ftextfc(mote, fb, g_fmed, 64, 65, MOTE_RGB565(190, 200, 220), "BEST %s", tb); }
+        mote_ftextc(mote, fb, g_fmed, 64, 76, white, "A CONTINUE");
     }
 }
 
