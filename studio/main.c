@@ -5266,6 +5266,9 @@ static int proxy_readline(Chan*ch,char*out,int cap){
     return 0;
 }
 static void proxy_send(Chan*c,const char*s){ chan_write(c,s,(int)strlen(s)); }
+/* raw-handle send for the gallery serve functions: they hold the USB device
+ * handle directly (void*h), not a Chan — so they must NOT go through proxy_send. */
+static void gal_send(void*h,const char*s){ mote_dev_raw_write(h,s,(int)strlen(s)); }
 
 /* On-device GALLERY service (defined after the gallery UI block): the docked
  * handheld drives its own gallery screen by sending "MN1 G..." over CDC, and
@@ -5721,17 +5724,17 @@ static void gal_ensure_loaded(void){
 }
 static void gal_serve_manifest(void*h){
     gal_ensure_loaded();
-    if(!g_gal.loaded){ proxy_send(h,"MN1 GERR fetch\n"); return; }
+    if(!g_gal.loaded){ gal_send(h,"MN1 GERR fetch\n"); return; }
     for(int i=0;i<g_gal.n;i++){ GalGame*g=&g_gal.g[i]; char base[64],line[260]; gal_base(g->file,base,sizeof base);
         /* MN1 GAME <idx> <abi> <mp> <nshots> <size> <ver> <fname>|<author>|<name>
          * (the three | fields are last; only <name> may contain spaces) */
         snprintf(line,sizeof line,"MN1 GAME %d %d %d %d %ld %s %s|%s|%s\n",
                  i,g->abi,g->multiplayer,g->nshots,g->size,g->version,base,g->author,g->name);
         mote_dev_raw_write(h,line,(int)strlen(line)); }
-    proxy_send(h,"MN1 GEND\n");
+    gal_send(h,"MN1 GEND\n");
 }
 static void gal_serve_thumb(void*h,unsigned idx,unsigned shot){
-    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    if((int)idx>=g_gal.n){ gal_send(h,"MN1 GERR idx\n"); return; }
     GalGame*g=&g_gal.g[idx];
     if((int)shot>=g->nshots) shot=0;
     enum{TW=64,TH=64}; static uint16_t sc[TW*TH];   /* native 128x128 shots halve cleanly to 64 */
@@ -5744,16 +5747,16 @@ static void gal_serve_thumb(void*h,unsigned idx,unsigned shot){
     mote_dev_raw_write(h,hd,(int)strlen(hd)); mote_dev_raw_write(h,sc,(int)sizeof sc);
 }
 static void gal_serve_desc(void*h,unsigned idx){
-    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    if((int)idx>=g_gal.n){ gal_send(h,"MN1 GERR idx\n"); return; }
     const char *d=g_gal.g[idx].desc; int len=(int)strlen(d);
     char hd[32]; snprintf(hd,sizeof hd,"MN1 GDESC %d\n",len); mote_dev_raw_write(h,hd,(int)strlen(hd));
     mote_dev_raw_write(h,d,len);
 }
 static void gal_serve_fetch(void*h,unsigned idx){
-    if((int)idx>=g_gal.n){ proxy_send(h,"MN1 GERR idx\n"); return; }
+    if((int)idx>=g_gal.n){ gal_send(h,"MN1 GERR idx\n"); return; }
     GalGame*g=&g_gal.g[idx]; char path[512];
-    if(gallery_ensure_mote(&g_gal,g,path,sizeof path)!=0){ proxy_send(h,"MN1 GERR dl\n"); return; }
-    FILE*f=fopen(path,"rb"); if(!f){ proxy_send(h,"MN1 GERR open\n"); return; }
+    if(gallery_ensure_mote(&g_gal,g,path,sizeof path)!=0){ gal_send(h,"MN1 GERR dl\n"); return; }
+    FILE*f=fopen(path,"rb"); if(!f){ gal_send(h,"MN1 GERR open\n"); return; }
     fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET);
     char hd[48]; snprintf(hd,sizeof hd,"MN1 GDATA %ld\n",sz); mote_dev_raw_write(h,hd,(int)strlen(hd));
     char buf[4096]; long off=0; while(off<sz){ int ch=(int)fread(buf,1,sizeof buf,f); if(ch<=0)break; mote_dev_raw_write(h,buf,ch); off+=ch; }
@@ -7224,7 +7227,6 @@ int main(int argc,char**argv){
             if(g_picker){ int bx,by,bw,bh,listy,listh,rows; picker_geom(&bx,&by,&bw,&bh,&listy,&listh,&rows);
                 if(e.type==SDL_KEYDOWN&&e.key.keysym.sym==SDLK_ESCAPE)g_picker=0;
                 else if(e.type==SDL_MOUSEWHEEL){ g_pscroll-=e.wheel.y; }
-            if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_GALLERY){ g_gal_scroll-=e.wheel.y*48; if(g_gal_scroll<0)g_gal_scroll=0; continue; }
                 else if(e.type==SDL_MOUSEBUTTONUP)g_pdrag=0;
                 else if(e.type==SDL_MOUSEMOTION&&g_pdrag){ int maxs=g_nprow-rows; if(maxs<1)maxs=1;   /* drag the scrollbar */
                     g_pscroll=(e.motion.y-listy)*maxs/(listh>1?listh:1); if(g_pscroll<0)g_pscroll=0; if(g_pscroll>maxs)g_pscroll=maxs; }
@@ -7294,6 +7296,8 @@ int main(int argc,char**argv){
             /* wheel scrolls the Explorer tree when the pointer is over it */
             if(e.type==SDL_MOUSEWHEEL){ int wx,wy; SDL_GetMouseState(&wx,&wy);
                 if(wx<LEFT_W&&wy>=TOPH&&wy<BOT_Y){ g_treescroll-=e.wheel.y*ROW_H*2; if(g_treescroll<0)g_treescroll=0; continue; } }
+            /* wheel scrolls the gallery list (only reached when no modal is open; tree wins when hovered) */
+            if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_GALLERY){ g_gal_scroll-=e.wheel.y*48; if(g_gal_scroll<0)g_gal_scroll=0; continue; }
             if(e.type==SDL_MOUSEWHEEL&&g_tab==TAB_MESH&&g_edit_mode){ int wx,wy; SDL_GetMouseState(&wx,&wy);   /* scroll the model-editor sidebar when over it */
                 if(wx>=g_me_cardx&&wy>=g_me_cardtop&&wy<=g_me_cardbot){ g_me_scroll-=e.wheel.y*40; if(g_me_scroll<0)g_me_scroll=0; if(g_me_scroll>g_me_maxs)g_me_scroll=g_me_maxs; continue; } }
             if(e.type==SDL_MOUSEWHEEL&&(g_tab==TAB_MESH||g_tab==TAB_RIG)){ int wx,wy; SDL_GetMouseState(&wx,&wy);   /* zoom the 3D preview */
