@@ -159,11 +159,11 @@ static Ring rings[MAXRING];
 #define MAXEN 32
 enum { K_DRIFT, K_CHASE, K_SNIPE, K_ORBIT, K_TURRET, K_HEAVY };
 typedef struct {
-    float x, y, vx, vy, hp, t, fire, poison;
+    float x, y, vx, vy, hp, hpmax, t, fire, poison;
     float hx, hy;                       /* home/anchor */
     uint16_t ship;                      /* ship cell or boss index */
     uint8_t on, active, kind, flip, ceil, boss;
-    uint8_t deck[3], deck_n, deck_i;    /* boss attack-move rotation */
+    uint8_t deck[4], deck_n, deck_i;    /* boss attack-move rotation */
     Gene wpn;
 } Enemy;
 static Enemy en[MAXEN];
@@ -717,15 +717,16 @@ static Enemy *place_enemy(int kind, float x, float y) {
     e->wpn = roll_gene();
     if (kind == K_HEAVY) {
         e->ship = (uint16_t)(mote_rand() % BOSS_COUNT);
-        e->hp = 14.0f + sector * 4.0f;
+        e->hp = 22.0f + sector * 6.0f;               /* mini-bosses hit the gym */
         e->wpn.lvl = (uint8_t)mote_clampi(1 + sector / 2, 1, 9);
     } else {
         e->ship = (uint16_t)(1 + mote_rand() % (SHIP_COUNT - 1));
         if (e->ship == PLAYER_SHIP) e->ship++;
         e->hp = (kind == K_SNIPE || kind == K_ORBIT) ? 3.0f : 2.0f;
         if (kind == K_TURRET) e->hp = 3.0f;
-        e->hp += sector * 0.5f;
+        e->hp += sector * 0.8f;
     }
+    e->hpmax = e->hp;
     return e;
 }
 
@@ -871,7 +872,8 @@ static void gen_sector(void) {
                 if (a > ba) { ba = a; best = c; }
             }
             bz->ship = (uint16_t)best;
-            bz->hp = 40.0f + sector * 8.0f;
+            bz->hp = bz->hpmax = 70.0f + sector * 14.0f;
+            if (sector >= 6) { bz->deck_n = 4; bz->deck[3] = (uint8_t)(mote_rand() % 7); }
         }
     } else {
         carve_disc(gc, cor_y[gc], 4, 4);
@@ -1250,6 +1252,9 @@ static void player_update(float dt) {
 
 /* ================================================================== enemy AI */
 static void enemies_update(float dt) {
+    /* the deeper you dive, the faster and meaner everything shoots */
+    float ds = 1.0f + (sector - 1) * 0.05f; if (ds > 1.6f) ds = 1.6f;   /* bullet speed */
+    float df = 1.0f + (sector - 1) * 0.08f; if (df > 2.2f) df = 2.2f;   /* fire cadence */
     for (int i = 0; i < MAXEN; i++) {
         Enemy *e = &en[i];
         if (!e->on) continue;
@@ -1276,8 +1281,8 @@ static void enemies_update(float dt) {
             e->vx = sinf(e->t * 0.7f) * 18.0f - 6.0f;
             e->vy = sinf(e->t * 1.3f) * 14.0f;
             if (dist < 110 && e->fire <= 0) {
-                enemy_fire(e, dx < 0 ? 3.14159f : 0, 70);
-                e->fire = 2.0f + mote_randf(0, 0.9f);
+                enemy_fire(e, dx < 0 ? 3.14159f : 0, 70 * ds);
+                e->fire = (2.0f + mote_randf(0, 0.9f)) / df;
             }
             break;
         case K_CHASE:
@@ -1297,8 +1302,8 @@ static void enemies_update(float dt) {
             e->vy += ((dy / dist) * want * 60.0f - (e->y - e->hy) * 0.4f) * dt;
             e->vx *= 1 - 0.8f * dt; e->vy *= 1 - 0.8f * dt;
             if (dist < 130 && e->fire <= 0) {
-                enemy_fire(e, atan2f(dy, dx), 105);
-                e->fire = 2.4f + mote_randf(0, 1.0f);
+                enemy_fire(e, atan2f(dy, dx), 105 * ds);
+                e->fire = (2.4f + mote_randf(0, 1.0f)) / df;
             }
             break; }
         case K_ORBIT:
@@ -1306,39 +1311,44 @@ static void enemies_update(float dt) {
             e->y = e->hy + sinf(e->t * 1.4f) * 22.0f;
             if (e->fire <= 0 && dist < 120) {
                 for (int k = 0; k < 4; k++)
-                    enemy_shoot(e, e->t + k * 1.5708f, 62);
-                e->fire = 2.6f;
+                    enemy_shoot(e, e->t + k * 1.5708f, 62 * ds);
+                e->fire = 2.6f / df;
             }
             break;
         case K_TURRET:
             if (dist < 120 && e->fire <= 0) {
-                enemy_fire(e, atan2f(dy, dx), 92);
-                e->fire = 2.1f + mote_randf(0, 0.8f);
+                enemy_fire(e, atan2f(dy, dx), 92 * ds);
+                e->fire = (2.1f + mote_randf(0, 0.8f)) / df;
             }
             break;
         case K_HEAVY:
-            e->vx = sinf(e->t * 0.4f) * (e->boss ? 22.0f : 12.0f);
-            e->vy = cosf(e->t * 0.55f) * (e->boss ? 16.0f : 9.0f);
+            {
+                float amp = (e->boss && e->hp < e->hpmax * 0.35f) ? 1.8f : 1.0f;
+                e->vx = sinf(e->t * 0.4f * (amp > 1 ? 1.6f : 1.0f)) * (e->boss ? 22.0f : 12.0f) * amp;
+                e->vy = cosf(e->t * 0.55f * (amp > 1 ? 1.6f : 1.0f)) * (e->boss ? 16.0f : 9.0f) * amp;
+            }
             if (e->boss && dist < 180 && e->fire <= 0) {
-                /* rotate through the boss's randomized attack deck */
+                /* rotate through the randomized attack deck; below 35% hull
+                 * the guardian ENRAGES: double cadence, wilder movement */
+                int enrage = e->hp < e->hpmax * 0.35f;
                 float base = atan2f(dy, dx);
                 int mv = e->deck[e->deck_i % (e->deck_n ? e->deck_n : 1)];
                 switch (mv) {
                 case 0:                              /* aimed 5-way fan */
-                    for (int k = -2; k <= 2; k++) enemy_shoot(e, base + k * 0.22f, 95);
-                    e->fire = 1.6f; break;
+                    for (int k = -2; k <= 2; k++) enemy_shoot(e, base + k * 0.22f, 95 * ds);
+                    e->fire = 1.6f / (df * (enrage ? 2.0f : 1.0f)); break;
                 case 1:                              /* radial ring */
-                    for (int k = 0; k < 10; k++) enemy_shoot(e, e->t + k * 0.628f, 72);
-                    e->fire = 1.9f; break;
+                    for (int k = 0; k < 10; k++) enemy_shoot(e, e->t + k * 0.628f, 72 * ds);
+                    e->fire = 1.9f / (df * (enrage ? 2.0f : 1.0f)); break;
                 case 2:                              /* spiral arms */
                     for (int k = 0; k < 3; k++)
-                        enemy_shoot(e, e->t * 2.4f + k * 2.094f, 80);
-                    e->fire = 0.35f; break;
+                        enemy_shoot(e, e->t * 2.4f + k * 2.094f, 80 * ds);
+                    e->fire = 0.35f / (df * (enrage ? 2.0f : 1.0f)); break;
                 case 3:                              /* mortar rain (arcing shells) */
                     for (int k = 0; k < 4; k++)
                         enemy_shoot_k(e, -1.5708f + mote_randf(-0.7f, 0.7f),
-                                      mote_randf(70, 130), EB_MORTAR);
-                    e->fire = 1.7f; break;
+                                      mote_randf(70, 130) * ds, EB_MORTAR);
+                    e->fire = 1.7f / (df * (enrage ? 2.0f : 1.0f)); break;
                 case 4:                              /* bullet wall */
                     for (int k = -2; k <= 2; k++) {
                         for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
@@ -1349,20 +1359,22 @@ static void enemies_update(float dt) {
                             break;
                         }
                     }
-                    e->fire = 1.8f; break;
+                    e->fire = 1.8f / (df * (enrage ? 2.0f : 1.0f)); break;
                 case 5:                              /* seeker pair */
-                    enemy_shoot_k(e, base + 0.6f, 70, EB_HOMER);
-                    enemy_shoot_k(e, base - 0.6f, 70, EB_HOMER);
-                    e->fire = 2.4f; break;
+                    enemy_shoot_k(e, base + 0.6f, 70 * ds, EB_HOMER);
+                    enemy_shoot_k(e, base - 0.6f, 70 * ds, EB_HOMER);
+                    e->fire = 2.4f / (df * (enrage ? 2.0f : 1.0f)); break;
                 default:                             /* big orb volley */
                     for (int k = -1; k <= 1; k++)
-                        enemy_shoot_k(e, base + k * 0.3f, 55, EB_BIG);
-                    e->fire = 2.2f; break;
+                        enemy_shoot_k(e, base + k * 0.3f, 55 * ds, EB_BIG);
+                    e->fire = 2.2f / (df * (enrage ? 2.0f : 1.0f)); break;
                 }
                 if ((mote_rand() & 3) == 0) e->deck_i++;   /* drift to the next move */
             } else if (!e->boss && dist < 150 && e->fire <= 0) {
-                enemy_fire(e, atan2f(dy, dx), 85);
-                e->fire = 1.9f;
+                float aim = atan2f(dy, dx);
+                enemy_fire(e, aim, 85 * ds);
+                if (sector >= 4) enemy_fire(e, aim + 0.35f, 78 * ds);   /* second volley */
+                e->fire = 1.9f / df;
             }
             if ((mote_rand() & 15) == 0)
                 spawn_part(e->x - (e->flip ? -1 : 1) * boss_fw[e->ship] * 0.45f,
@@ -2024,9 +2036,8 @@ static void hud(uint16_t *fb) {
     for (int i = 0; i < MAXEN; i++) {              /* guardian HP bar */
         Enemy *e = &en[i];
         if (!e->on || !e->boss || !e->active) continue;
-        float hpmax = 40.0f + sector * 8.0f;
         mote->draw_rect(fb, 24, 14, 80, 4, MOTE_RGB565(40, 20, 26), 1, 0, MOTE_FB_H);
-        int w = (int)(80.0f * mote_clampf(e->hp / hpmax, 0, 1));
+        int w = (int)(80.0f * mote_clampf(e->hp / e->hpmax, 0, 1));
         if (w > 0) mote->draw_rect(fb, 24, 14, w, 4, MOTE_RGB565(255, 80, 70), 1, 0, MOTE_FB_H);
         break;
     }
