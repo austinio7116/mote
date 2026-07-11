@@ -20,6 +20,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <stdarg.h>
 #include "mote_api.h"
 #include "mote_build.h"
@@ -57,7 +58,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Scrapwing", "austinio7116");
-MOTE_GAME_VERSION("1.0.0");
+MOTE_GAME_VERSION("1.1.0");
 
 /* ------------------------------------------------------------------ world */
 #define TILE   8
@@ -123,9 +124,53 @@ static const uint16_t elem_col[EL_N][3] = {
     { MOTE_RGB565(190,255,130), MOTE_RGB565(90,220,80),   MOTE_RGB565(20,110,40) },
     { MOTE_RGB565(240,150,255), MOTE_RGB565(190,80,230),  MOTE_RGB565(80,20,120) },
 };
+/* engine exhaust tint per home biome: bright core / mid tail */
+static const uint16_t exh_col[5][2] = {
+    { MOTE_RGB565(200, 170, 255), MOTE_RGB565(120, 80, 190) },   /* cavern: violet  */
+    { MOTE_RGB565(255, 130, 140), MOTE_RGB565(200, 50, 80) },    /* hive: red       */
+    { MOTE_RGB565(150, 220, 255), MOTE_RGB565(60, 130, 240) },   /* glacier: blue   */
+    { MOTE_RGB565(170, 255, 140), MOTE_RGB565(70, 190, 90) },    /* sporepit: green */
+    { MOTE_RGB565(255, 200, 100), MOTE_RGB565(240, 120, 40) },   /* ember: orange   */
+};
+
 static const float pat_rate[PAT_N] = { 5.0f, 4.5f, 3.2f, 4.5f, 4.0f, 1.8f, 2.2f, 2.6f };
 static const float pat_dmg[PAT_N]  = { 1.0f, 0.7f, 0.6f, 0.9f, 0.7f, 2.6f, 1.6f, 0.5f };
 static const float pat_spd[PAT_N]  = { 170, 170, 160, 150, 150, 90, 320, 180 };
+
+/* ---- seeded identity: every sprite is ALWAYS the same foe (no database — a
+ * hash of the sprite index fixes its class, weapon gene, mods and name) ---- */
+static uint32_t ship_hash(int cell) {
+    uint32_t h = (uint32_t)cell * 2654435761u + 0x9E3779B9u;
+    h ^= h >> 15; h *= 0x85EBCA6Bu; h ^= h >> 13;
+    return h;
+}
+static const char *const SYL_A[16] = { "VOR","KRA","ZEX","TAL","MOR","VEX","DRA","KEL",
+                                       "NYX","RUX","SHA","GOR","PHY","QUI","BEL","TOR" };
+static const char *const SYL_B[16] = { "TAK","ZUL","MIR","DON","VEK","RAX","LIS","GAR",
+                                       "NOX","BRU","THA","KOR","SIL","MUN","DEX","VAN" };
+static const char *const BOSS_A[8] = { "DREAD","VOID","IRON","BLOOD","STORM","GRAVE","NULL","OMEGA" };
+static const char *const BOSS_B[8] = { "MAW","CROWN","HULK","WARDEN","REAPER","BASTION","HERALD","MONARCH" };
+static void ship_name(int cell, char *out, int max) {
+    uint32_t h = ship_hash(cell);
+    snprintf(out, max, "%s-%s", SYL_A[h & 15], SYL_B[(h >> 4) & 15]);
+}
+static void boss_name(int idx, char *out, int max) {
+    uint32_t h = ship_hash(idx + 1000);
+    snprintf(out, max, "%s %s", BOSS_A[h & 7], BOSS_B[(h >> 3) & 7]);
+}
+
+/* icon IS the weapon identity: each of the 48 pattern x element combos owns a
+ * fixed, collision-free icon (assigned deterministically at init). */
+static uint8_t combo_icon[PAT_N * EL_N];
+static void init_combo_icons(void) {
+    static uint8_t used[WEAPON_ICON_COUNT];
+    for (int c = 0; c < PAT_N * EL_N; c++) {
+        int i = (int)(ship_hash(c + 500) % WEAPON_ICON_COUNT);
+        while (used[i]) i = (i + 1) % WEAPON_ICON_COUNT;
+        used[i] = 1;
+        combo_icon[c] = (uint8_t)i;
+    }
+}
 
 static float gene_dmg(const Gene *g)  { float d = pat_dmg[g->pat] * (1.0f + 0.18f * (g->lvl - 1));
                                         if (g->elem == EL_PULSE) d *= 1.15f; return d; }
@@ -143,12 +188,13 @@ static Shot shots[MAXSHOT];
 
 #define MAXEB 64
 enum { EB_STRAIGHT, EB_SINE, EB_MORTAR, EB_BIG, EB_HOMER };
-typedef struct { float x, y, vx, vy, age, phase; uint8_t on, elem, kind; } EBullet;
+typedef struct { float x, y, vx, vy, age, phase; uint8_t on, elem, kind, demo; } EBullet;
 static EBullet ebul[MAXEB];
 
 #define MAXP 900
 #define PF_ADD  1
 #define PF_GRAV 2
+#define PF_SEEK 4      /* new-catalogue kill: debris is absorbed into your ship */
 typedef struct { float x, y, vx, vy; uint16_t col; uint8_t life, maxlife, flags; } Part;
 static Part parts[MAXP];
 static int part_head;
@@ -217,7 +263,7 @@ static int  gate_open;                  /* boss sectors seal the gate until the 
 static float gate_t;
 
 /* ------------------------------------------------------------------ states */
-enum { ST_TITLE, ST_PLAY, ST_LAB, ST_FUSE, ST_CLEAR, ST_DEAD };
+enum { ST_TITLE, ST_PLAY, ST_LAB, ST_FUSE, ST_CATALOG, ST_CATINFO, ST_CLEAR, ST_DEAD };
 static int state;
 static float state_t;
 static int cam_x, cam_y;
@@ -231,6 +277,46 @@ static float demo_cd;                   /* bench demo-fire cooldown */
 static int   g_demo_fire;               /* shots spawned now are demo-only */
 static int   g_god;                     /* dev hook: SCRAP_GOD=1 disables damage */
 static int   best_sector, best_scrap;
+/* ---- catalogue (Spelunky-style journal): bitmaps persisted in the save ---- */
+static uint8_t cat_ship[(SHIP_COUNT + 7) / 8];
+static uint8_t ship_parts[SHIP_COUNT];  /* 0..5 salvaged parts; 5 = airframe UNLOCKED */
+#define PARTS_NEED 5
+static int sel_ship = PLAYER_SHIP;      /* title-screen airframe selection */
+static int player_ship = PLAYER_SHIP;   /* the airframe flown this run */
+static int cat_dirty;                   /* save deferred to safe moments (flash!) */
+static uint8_t cat_boss[(BOSS_COUNT + 7) / 8];
+static uint8_t cat_wpn[(PAT_N * EL_N + 7) / 8];
+static int cat_tab, cat_cur;            /* catalogue UI state */
+static int cat_from_title;              /* opened from the title screen */
+static float nav_rep;                   /* dpad hold-to-repeat timer */
+
+/* held d-pad direction with autorepeat: returns -1/+1 for LEFT/RIGHT, -2/+2
+ * for UP/DOWN, 0 when idle. First press fires instantly, then repeats. */
+static int nav_dir(const MoteInput *in, float dt) {
+    int d = 0;
+    if (mote_pressed(in, MOTE_BTN_LEFT)) d = -1;
+    else if (mote_pressed(in, MOTE_BTN_RIGHT)) d = 1;
+    else if (mote_pressed(in, MOTE_BTN_UP)) d = -2;
+    else if (mote_pressed(in, MOTE_BTN_DOWN)) d = 2;
+    if (!d) { nav_rep = 0; return 0; }
+    int just = mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT) ||
+               mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN);
+    if (just) { nav_rep = 0.34f; return d; }
+    nav_rep -= dt;
+    if (nav_rep <= 0) { nav_rep = 0.07f; return d; }
+    return 0;
+}
+static Enemy cat_en;                    /* the info page's demo shooter */
+static int cat_deck_i;
+#define NOTIF_N 4
+static struct { uint8_t type; uint16_t id; float t; } notifs[NOTIF_N];  /* 0 ship 1 boss 2 wpn */
+static int bit_get(const uint8_t *b, int i) { return (b[i >> 3] >> (i & 7)) & 1; }
+static void bit_set(uint8_t *b, int i) { b[i >> 3] |= (uint8_t)(1u << (i & 7)); }
+static int bits_count(const uint8_t *b, int n) {
+    int c = 0;
+    for (int i = 0; i < n; i++) c += bit_get(b, i);
+    return c;
+}
 /* title-screen actors: a wandering enemy fly-by + a boss that peeks in */
 static float ten_x, ten_y, ten_vx;
 static int   ten_on, ten_cell;
@@ -282,7 +368,7 @@ static void px_set(uint16_t *fb, int x, int y, uint16_t c) {
 /* ================================================================== shatter */
 /* Ships explode into their actual sprite pixels. */
 static void shatter(const MoteImage *img, int fx, int fy, int fw, int fh,
-                    int wx, int wy, int flip, float bvx, float bvy) {
+                    int wx, int wy, int flip, float bvx, float bvy, int seek) {
     int area = fw * fh;
     int step = 1;
     while (area / (step * step) > 380) step++;   /* bound particle count */
@@ -297,7 +383,8 @@ static void shatter(const MoteImage *img, int fx, int fy, int fw, int fh,
             spawn_part(wx + x, wy + y,
                        ox / d * sp + bvx * 0.5f + mote_randf(-9, 9),
                        oy / d * sp + bvy * 0.5f + mote_randf(-9, 9),
-                       c, mote_randf(0.5f, 1.2f), PF_GRAV);
+                       c, seek ? mote_randf(1.0f, 1.6f) : mote_randf(0.5f, 1.2f),
+                       seek ? PF_SEEK : PF_GRAV);
         }
 }
 
@@ -313,7 +400,7 @@ static Gene roll_gene(void) {
     g.mods = 0;
     if ((mote_rand() & 255) < 55) g.mods |= 1u << (mote_rand() & 3);
     if (sector >= 4 && (mote_rand() & 255) < 30) g.mods |= 1u << (mote_rand() & 3);
-    g.icon = (uint8_t)(mote_rand() % WEAPON_ICON_COUNT);
+    g.icon = combo_icon[g.pat * EL_N + g.elem];
     return g;
 }
 
@@ -334,7 +421,7 @@ static Gene fuse_genes(const Gene *a, const Gene *b) {
         }
     for (int bit = 3; bit >= 0 && count_bits(c.mods) > 3; bit--)
         c.mods &= (uint8_t)~(1u << bit);          /* cap at 3 mods */
-    c.icon = b->icon;
+    c.icon = combo_icon[c.pat * EL_N + c.elem];   /* icon IS the combo */
     return c;
 }
 
@@ -499,15 +586,37 @@ static void drop_power(float x, float y, int pu) {
 
 static float dmg_enemy(Enemy *e, float d);   /* fwd */
 static void take_hit(float n);               /* fwd */
+static int  mark_ship(int cell);             /* fwd: catalogue */
+static void notif_push(int type, int id);
+static void mark_boss(int idx);
+static void mark_wpn(int pat, int elem);
 
 static void kill_enemy(Enemy *e) {
     e->on = 0;
     kills++;
+    int absorbed = 0;
+    if (e->kind == K_HEAVY) mark_boss(e->ship);
+    else if (e->kind != K_TURRET) {
+        mark_ship(e->ship);
+        if (ship_parts[e->ship] < PARTS_NEED) {      /* salvage a part */
+            ship_parts[e->ship]++;
+            cat_dirty = 1;
+            absorbed = 1;
+            if (ship_parts[e->ship] == PARTS_NEED) {
+                notif_push(3, e->ship);              /* airframe unlocked! */
+                char nm[16], bb[40];
+                ship_name(e->ship, nm, sizeof nm);
+                snprintf(bb, sizeof bb, "%s AIRFRAME UNLOCKED", nm);
+                say(bb);
+                mote->audio_play_sfx(&fuse_sfx, 0.8f);
+            }
+        }
+    }
     if (e->kind == K_HEAVY) {
         shatter(&bosses_img, boss_fx[e->ship], boss_fy[e->ship],
                 boss_fw[e->ship], boss_fh[e->ship],
                 (int)(e->x - boss_fw[e->ship] / 2), (int)(e->y - boss_fh[e->ship] / 2),
-                e->flip, e->vx, e->vy);
+                e->flip, e->vx, e->vy, 0);
         if (e->boss) {                               /* guardian jackpot */
             scrap += 60;
             uint8_t lvl = (uint8_t)mote_clampi(2 + sector / 2, 2, 9);
@@ -538,7 +647,7 @@ static void kill_enemy(Enemy *e) {
         mote->audio_play_sfx(&boom_big_sfx, e->boss ? 1.0f : 0.85f);
         mote->rumble(e->boss ? 1.0f : 0.7f, e->boss ? 400 : 220);
     } else if (e->kind == K_TURRET) {
-        shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0);
+        shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0, 0);
         scrap += 4;
         if ((mote_rand() & 255) < 46) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
         mote->audio_play_sfx(&boom_small_sfx, 0.5f);
@@ -548,7 +657,7 @@ static void kill_enemy(Enemy *e) {
                 (cell / SHIP_COLS) * SHIP_CELL + ship_by[cell],
                 ship_bw[cell], ship_bh[cell],
                 (int)(e->x - ship_bw[cell] / 2), (int)(e->y - ship_bh[cell] / 2),
-                e->flip, e->vx, e->vy);
+                e->flip, e->vx, e->vy, absorbed);
         scrap += 8;
         if ((mote_rand() & 255) < 36) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
         else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
@@ -562,6 +671,7 @@ static void kill_enemy(Enemy *e) {
 static void enemy_shoot_k(Enemy *e, float ang, float spd, int kind) {
     for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
         ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = (uint8_t)kind;
+        ebul[i].demo = (uint8_t)g_demo_fire;
         ebul[i].x = e->x; ebul[i].y = e->y; ebul[i].age = 0;
         ebul[i].phase = mote_randf(0, 6.28f);
         ebul[i].vx = cosf(ang) * spd; ebul[i].vy = sinf(ang) * spd;
@@ -581,7 +691,7 @@ static void enemy_fire(Enemy *e, float aim, float spd) {
             for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
                 ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = EB_STRAIGHT;
                 ebul[i].x = e->x + nx * s; ebul[i].y = e->y + ny * s;
-                ebul[i].age = 0; ebul[i].phase = 0;
+                ebul[i].age = 0; ebul[i].phase = 0; ebul[i].demo = (uint8_t)g_demo_fire;
                 ebul[i].vx = cosf(aim) * spd; ebul[i].vy = sinf(aim) * spd;
                 break;
             }
@@ -714,6 +824,39 @@ static void carve_disc(int cc, int cr, int rx, int ry) {
         }
 }
 
+/* the fixed class each sprite hash maps to (turret/heavy assigned separately) */
+static const uint8_t kind_lut[16] = { K_DRIFT, K_DRIFT, K_DRIFT, K_DRIFT, K_DRIFT,
+                                      K_CHASE, K_CHASE, K_CHASE, K_CHASE,
+                                      K_SNIPE, K_SNIPE, K_SNIPE,
+                                      K_ORBIT, K_ORBIT, K_DRIFT, K_CHASE };
+static void ship_config(int cell, uint8_t *kind, Gene *g, float *hp_base) {
+    uint32_t h = ship_hash(cell);
+    *kind = kind_lut[(h >> 8) & 15];
+    g->pat = (uint8_t)((h >> 12) % PAT_N);
+    g->elem = (uint8_t)((h >> 16) % EL_N);
+    g->mods = ((h >> 20) & 255) < 70 ? (uint8_t)(1u << ((h >> 28) & 3)) : 0;
+    g->lvl = 1;                                     /* level scales at spawn */
+    g->icon = combo_icon[g->pat * EL_N + g->elem];
+    *hp_base = (*kind == K_SNIPE || *kind == K_ORBIT ? 3.0f : 2.0f)
+             + ((h >> 24) & 3) * 0.5f;
+}
+static int pick_ship_for_biome(void) {
+    for (int t = 0; t < 40; t++) {
+        int c = 1 + (int)(mote_rand() % (SHIP_COUNT - 1));
+        if (c == PLAYER_SHIP) continue;
+        if (cur_biome == 0 || ship_biome[c] == cur_biome) return c;
+    }
+    int c = 1 + (int)(mote_rand() % (SHIP_COUNT - 1));
+    return c == PLAYER_SHIP ? c + 1 : c;
+}
+static int pick_boss_for_biome(void) {
+    for (int t = 0; t < 30; t++) {
+        int c = (int)(mote_rand() % BOSS_COUNT);
+        if (cur_biome == 0 || boss_biome[c] == cur_biome) return c;
+    }
+    return (int)(mote_rand() % BOSS_COUNT);
+}
+
 static Enemy *place_enemy(int kind, float x, float y) {
     Enemy *e = alloc_enemy();
     if (!e) return 0;
@@ -723,15 +866,24 @@ static Enemy *place_enemy(int kind, float x, float y) {
     e->poison = 0; e->flip = 1; e->ceil = 0; e->boss = 0;
     e->wpn = roll_gene();
     if (kind == K_HEAVY) {
-        e->ship = (uint16_t)(mote_rand() % BOSS_COUNT);
+        e->ship = (uint16_t)pick_boss_for_biome();
         e->hp = 22.0f + sector * 6.0f;               /* mini-bosses hit the gym */
+        uint32_t bh = ship_hash(e->ship + 2000);     /* seeded loadout, like ships */
+        e->wpn.pat = (uint8_t)((bh >> 12) % PAT_N);
+        e->wpn.elem = (uint8_t)((bh >> 16) % EL_N);
+        e->wpn.mods = 0;
+        e->wpn.icon = combo_icon[e->wpn.pat * EL_N + e->wpn.elem];
         e->wpn.lvl = (uint8_t)mote_clampi(1 + sector / 2, 1, 9);
+    } else if (kind == K_TURRET) {
+        e->ship = 0;
+        e->hp = 3.0f + sector * 0.8f;
     } else {
-        e->ship = (uint16_t)(1 + mote_rand() % (SHIP_COUNT - 1));
-        if (e->ship == PLAYER_SHIP) e->ship++;
-        e->hp = (kind == K_SNIPE || kind == K_ORBIT) ? 3.0f : 2.0f;
-        if (kind == K_TURRET) e->hp = 3.0f;
-        e->hp += sector * 0.8f;
+        /* a biome-matched sprite whose SEEDED config decides everything */
+        e->ship = (uint16_t)pick_ship_for_biome();
+        float hp_base;
+        ship_config(e->ship, &e->kind, &e->wpn, &hp_base);
+        e->wpn.lvl = (uint8_t)mote_clampi(1 + (sector > 1 ? (int)(mote_rand() % sector) / 2 : 0), 1, 9);
+        e->hp = hp_base + sector * 0.8f;
     }
     e->hpmax = e->hp;
     return e;
@@ -867,20 +1019,21 @@ static void gen_sector(void) {
         Enemy *bz = place_enemy(K_HEAVY, ac * TILE, ar * TILE);
         if (bz) {
             bz->boss = 1;
-            /* randomized attack deck: 3 moves drawn from the boss move library */
-            bz->deck_n = 3;
-            for (int k = 0; k < 3; k++) bz->deck[k] = (uint8_t)(mote_rand() % 7);
-            bz->deck_i = 0;
-            /* guardians use the LARGEST dreadnoughts on the sheet */
+            /* guardians: the LARGEST biome-matched dreadnought */
             int best = 0, ba = 0;
-            for (int t = 0; t < 10; t++) {
-                int c = (int)(mote_rand() % BOSS_COUNT);
+            for (int t = 0; t < 12; t++) {
+                int c = pick_boss_for_biome();
                 int a = boss_fw[c] * boss_fh[c];
                 if (a > ba) { ba = a; best = c; }
             }
             bz->ship = (uint16_t)best;
+            /* its attack deck is SEEDED by the sprite: this boss always fights
+             * this way — learnable, catalogue-able */
+            uint32_t bh = ship_hash(best + 2000);
+            bz->deck_n = (uint8_t)(sector >= 6 ? 4 : 3);
+            for (int k = 0; k < 4; k++) bz->deck[k] = (uint8_t)((bh >> (k * 3)) % 7);
+            bz->deck_i = 0;
             bz->hp = bz->hpmax = 70.0f + sector * 14.0f;
-            if (sector >= 6) { bz->deck_n = 4; bz->deck[3] = (uint8_t)(mote_rand() % 7); }
         }
     } else {
         carve_disc(gc, cor_y[gc], 4, 4);
@@ -896,9 +1049,7 @@ static void gen_sector(void) {
         int cy = cor_y[mote_clampi(c, 2, COLS - 3)];
         float ex = c * TILE + 4, ey = cy * TILE + mote_randf(-16, 16);
         if (solid(ex, ey)) ey = cy * TILE;
-        static const uint8_t kinds[8] = { K_DRIFT, K_DRIFT, K_CHASE, K_CHASE,
-                                          K_SNIPE, K_ORBIT, K_DRIFT, K_SNIPE };
-        place_enemy(kinds[mote_rand() & 7], ex, ey);
+        place_enemy(K_DRIFT, ex, ey);   /* real class comes from the sprite's seed */
     }
     int nheavy = sector >= 2 ? 1 + (sector - 2) / 2 : 0; if (nheavy > 3) nheavy = 3;
     if (boss_sector) nheavy = 0;
@@ -1010,8 +1161,20 @@ static void start_run(void) {
     for (int i = 0; i < PMINE_N; i++) pmine[i].on = 0;
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
-    inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+    player_ship = (sel_ship >= 0 && sel_ship < SHIP_COUNT &&
+                   (sel_ship == PLAYER_SHIP || ship_parts[sel_ship] >= PARTS_NEED))
+                  ? sel_ship : PLAYER_SHIP;
+    if (player_ship == PLAYER_SHIP) {
+        inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+        inv[0].icon = combo_icon[PAT_BOLT * EL_N + EL_PULSE];
+    } else {                                          /* fly a salvaged airframe */
+        uint8_t k2; float hpb;
+        ship_config(player_ship, &k2, &inv[0], &hpb);
+        inv[0].lvl = 1;
+    }
+    mark_wpn(inv[0].pat, inv[0].elem);
     g_god = getenv("SCRAP_GOD") != 0;
+
     const char *ds = getenv("SCRAP_SEC");   /* start at a given sector */
     if (ds) { sector = mote_clampi(atoi(ds), 1, 99); }
     gen_sector();
@@ -1034,6 +1197,7 @@ static void start_run(void) {
             inv[0].pat = (uint8_t)mote_clampi(p, 0, PAT_N - 1);
             inv[0].elem = (uint8_t)mote_clampi(e, 0, EL_N - 1);
             inv[0].mods = (uint8_t)m; inv[0].lvl = (uint8_t)mote_clampi(l, 1, 9);
+            inv[0].icon = combo_icon[inv[0].pat * EL_N + inv[0].elem];
         }
     }
     state = ST_PLAY; state_t = 0;
@@ -1042,12 +1206,47 @@ static void start_run(void) {
     say(bt);
 }
 
+static void save_all(void) {
+    uint8_t d[16 + sizeof cat_ship + sizeof cat_boss + sizeof cat_wpn + sizeof ship_parts];
+    int m = 0x53575235;                                 /* 'SWR5' */
+    memcpy(d, &m, 4);
+    memcpy(d + 4, &best_sector, 4);
+    memcpy(d + 8, &best_scrap, 4);
+    memcpy(d + 12, &sel_ship, 4);
+    int o = 16;
+    memcpy(d + o, cat_ship, sizeof cat_ship); o += sizeof cat_ship;
+    memcpy(d + o, cat_boss, sizeof cat_boss); o += sizeof cat_boss;
+    memcpy(d + o, cat_wpn, sizeof cat_wpn); o += sizeof cat_wpn;
+    memcpy(d + o, ship_parts, sizeof ship_parts);
+    mote->save(0, d, (int)sizeof d);
+    cat_dirty = 0;
+}
+static void save_flush(void) { if (cat_dirty) save_all(); }
 static void save_best(void) {
     if (sector > best_sector || (sector == best_sector && scrap > best_scrap)) {
         best_sector = sector; best_scrap = scrap;
-        int d[3] = { 0x53575231, best_sector, best_scrap };   /* 'SWR1' magic */
-        mote->save(0, d, sizeof d);
+        save_all();
     }
+}
+static void notif_push(int type, int id) {
+    for (int i = 0; i < NOTIF_N; i++) if (notifs[i].t <= 0) {
+        notifs[i].type = (uint8_t)type; notifs[i].id = (uint16_t)id; notifs[i].t = 2.4f;
+        return;
+    }
+}
+static int mark_ship(int cell) {
+    if (bit_get(cat_ship, cell)) return 0;
+    bit_set(cat_ship, cell); notif_push(0, cell); cat_dirty = 1;
+    return 1;
+}
+static void mark_boss(int idx) {
+    if (bit_get(cat_boss, idx)) return;
+    bit_set(cat_boss, idx); notif_push(1, idx); cat_dirty = 1;
+}
+static void mark_wpn(int pat, int elem) {
+    int i = pat * EL_N + elem;
+    if (bit_get(cat_wpn, i)) return;
+    bit_set(cat_wpn, i); notif_push(2, i); cat_dirty = 1;
 }
 
 /* ================================================================== init */
@@ -1055,9 +1254,43 @@ static void g_init(void) {
     build_gradient();
     mote->set_background_cb(bg_cb);
     mote_rand_seed(mote->micros() | 1u);
-    int d[3] = { 0, 0, 0 };
-    if (mote->load(0, d, sizeof d) == sizeof d && d[0] == 0x53575231) {
-        best_sector = d[1]; best_scrap = d[2];
+    init_combo_icons();
+    {
+        uint8_t d[16 + sizeof cat_ship + sizeof cat_boss + sizeof cat_wpn + sizeof ship_parts];
+        int got = mote->load(0, d, (int)sizeof d);
+        int m = 0;
+        if (got >= 12) memcpy(&m, d, 4);
+        if (m == 0x53575235 && got == (int)sizeof d) {
+            memcpy(&best_sector, d + 4, 4);
+            memcpy(&best_scrap, d + 8, 4);
+            memcpy(&sel_ship, d + 12, 4);
+            int o = 16;
+            memcpy(cat_ship, d + o, sizeof cat_ship); o += sizeof cat_ship;
+            memcpy(cat_boss, d + o, sizeof cat_boss); o += sizeof cat_boss;
+            memcpy(cat_wpn, d + o, sizeof cat_wpn); o += sizeof cat_wpn;
+            memcpy(ship_parts, d + o, sizeof ship_parts);
+        } else if ((m == 0x53575233 || m == 0x53575231) && got >= 12) {
+            memcpy(&best_sector, d + 4, 4);
+            memcpy(&best_scrap, d + 8, 4);
+            if (m == 0x53575233) {                   /* old catalogue: keep finds */
+                memcpy(cat_ship, d + 12, sizeof cat_ship);
+                memcpy(cat_boss, d + 12 + sizeof cat_ship, sizeof cat_boss);
+                memcpy(cat_wpn, d + 12 + sizeof cat_ship + sizeof cat_boss, sizeof cat_wpn);
+                for (int i = 0; i < SHIP_COUNT; i++)
+                    if (bit_get(cat_ship, i)) ship_parts[i] = 1;
+            }
+        }
+        if (sel_ship != PLAYER_SHIP &&
+            (sel_ship < 0 || sel_ship >= SHIP_COUNT || ship_parts[sel_ship] < PARTS_NEED))
+            sel_ship = PLAYER_SHIP;
+    }
+    bit_set(cat_ship, PLAYER_SHIP);                  /* your fighter: always yours */
+    ship_parts[PLAYER_SHIP] = PARTS_NEED;
+    if (getenv("SCRAP_CAT")) {                       /* dev: unlock the catalogue */
+        memset(cat_ship, 0xFF, sizeof cat_ship);
+        memset(cat_boss, 0xFF, sizeof cat_boss);
+        memset(cat_wpn, 0xFF, sizeof cat_wpn);
+        memset(ship_parts, PARTS_NEED, sizeof ship_parts);
     }
     state = ST_TITLE;
 }
@@ -1082,17 +1315,18 @@ static void take_hit(float n) {
         spawn_part(px, py, mote_randf(-70, 70), mote_randf(-70, 70),
                    MOTE_RGB565(255, 120, 60), mote_randf(0.2f, 0.5f), PF_ADD);
     if (hull <= 0) {
-        int cell = PLAYER_SHIP;
+        int cell = player_ship;
         shatter(&ships_img, (cell % SHIP_COLS) * SHIP_CELL + ship_bx[cell],
                 (cell / SHIP_COLS) * SHIP_CELL + ship_by[cell],
                 ship_bw[cell], ship_bh[cell],
                 (int)(px - ship_bw[cell] / 2), (int)(py - ship_bh[cell] / 2),
-                facing < 0, pvx, pvy);
+                facing < 0, pvx, pvy, 0);
         spawn_ring(px, py, MOTE_RGB565(255, 160, 80));
         spawn_ring(px, py, MOTE_RGB565(140, 220, 255));
         mote->audio_play_sfx(&boom_big_sfx, 0.9f);
         mote->rumble(1.0f, 400);
         save_best();
+        save_flush();
         state = ST_DEAD; state_t = 0;
     }
 }
@@ -1243,6 +1477,7 @@ static void player_update(float dt) {
 
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
         state = ST_LAB; lab_cur = equipped; lab_mark = -1;
+        save_flush();
     }
 
     if (invuln > 0) invuln -= dt;
@@ -1299,9 +1534,6 @@ static void enemies_update(float dt) {
                 float sp = sqrtf(e->vx * e->vx + e->vy * e->vy);
                 if (sp > 68) { e->vx *= 68 / sp; e->vy *= 68 / sp; }
             } else { e->vx *= 1 - dt; e->vy *= 1 - dt; }
-            if ((mote_rand() & 31) == 0)
-                spawn_part(e->x - e->vx * 0.05f, e->y, mote_randf(-8, 8), mote_randf(-8, 8),
-                           MOTE_RGB565(255, 130, 50), 0.2f, PF_ADD);
             break;
         case K_SNIPE: {
             float want = dist < 70 ? -1.0f : (dist > 100 ? 1.0f : 0.0f);
@@ -1361,7 +1593,7 @@ static void enemies_update(float dt) {
                         for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
                             ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = EB_STRAIGHT;
                             ebul[i].x = e->x; ebul[i].y = e->y + k * 9;
-                            ebul[i].age = 0; ebul[i].phase = 0;
+                            ebul[i].age = 0; ebul[i].phase = 0; ebul[i].demo = (uint8_t)g_demo_fire;
                             ebul[i].vx = cosf(base) * 80; ebul[i].vy = 0;
                             break;
                         }
@@ -1383,10 +1615,14 @@ static void enemies_update(float dt) {
                 if (sector >= 4) enemy_fire(e, aim + 0.35f, 78 * ds);   /* second volley */
                 e->fire = 1.9f / df;
             }
-            if ((mote_rand() & 15) == 0)
-                spawn_part(e->x - (e->flip ? -1 : 1) * boss_fw[e->ship] * 0.45f,
-                           e->y + mote_randf(-3, 3), (e->flip ? 22 : -22), mote_randf(-6, 6),
-                           MOTE_RGB565(255, 150, 60), 0.3f, PF_ADD);
+            if ((mote_rand() & 3) == 0) {
+                int bio = boss_biome[e->ship];
+                float bx2 = e->x - (e->flip ? -1.0f : 1.0f) * boss_fw[e->ship] * 0.48f;
+                for (int k2 = 0; k2 < 2; k2++)
+                    spawn_part(bx2, e->y + mote_randf(-4, 4),
+                               (e->flip ? 1 : -1) * mote_randf(24, 60), mote_randf(-8, 8),
+                               exh_col[bio][k2], mote_randf(0.2f, 0.45f), PF_ADD);
+            }
             break;
         }
         if (e->kind != K_ORBIT && e->kind != K_TURRET) {
@@ -1395,6 +1631,19 @@ static void enemies_update(float dt) {
             if (!solid(e->x, eyn)) e->y = eyn; else e->vy = -e->vy * 0.6f;
         }
         e->flip = dx < 0;               /* face the player */
+
+        /* engine plume, tinted by home biome, streaming off the tail */
+        if (e->kind != K_TURRET && e->kind != K_HEAVY && (mote_rand() & 3) == 0) {
+            int bio = ship_biome[e->ship];
+            float tail = 8.0f - (float)ship_bx[e->ship];
+            float tx2 = e->x + (e->flip ? tail + 1 : -(tail + 1));
+            float ty2 = e->y - 8.0f + ship_by[e->ship] + ship_bh[e->ship] * 0.5f;
+            for (int k2 = 0; k2 < 2; k2++)
+                spawn_part(tx2, ty2 + mote_randf(-1, 1),
+                           (e->flip ? 1 : -1) * mote_randf(20, 55) - e->vx * 0.3f,
+                           mote_randf(-9, 9) - e->vy * 0.3f,
+                           exh_col[bio][k2], mote_randf(0.15f, 0.35f), PF_ADD);
+        }
 
         /* contact damage */
         float hw, hh; enemy_bbox(e, &hw, &hh);
@@ -1574,6 +1823,8 @@ static void shots_update(float dt) {
         } else if (b->kind == EB_MORTAR) {           /* arcing shell */
             b->vy += 120.0f * dt;
             b->x += b->vx * dt; b->y += b->vy * dt;
+        } else if (b->kind == EB_HOMER && b->demo) {
+            b->x += b->vx * dt; b->y += b->vy * dt;
         } else if (b->kind == EB_HOMER) {            /* slow seeker */
             float want = atan2f(py - b->y, px - b->x);
             float cur = atan2f(b->vy, b->vx), d = want - cur;
@@ -1589,6 +1840,11 @@ static void shots_update(float dt) {
         /* element micro-trail so bullet types read at a glance */
         if ((mote_rand() & 15) == 0)
             spawn_part(b->x, b->y, 0, 0, elem_col[b->elem][2], 0.18f, PF_ADD);
+        if (b->demo) {                               /* catalogue demo: fly free */
+            if (b->age > 1.6f || b->x < cam_x - 8 || b->x > cam_x + 136 ||
+                b->y > cam_y + 140) b->on = 0;
+            continue;
+        }
         float life_max = b->kind == EB_HOMER ? 2.4f : 3.0f;
         if (b->age > life_max || solid(b->x, b->y)) { b->on = 0; continue; }
         float dx = b->x - px, dy = b->y - py;
@@ -1690,6 +1946,7 @@ static void chips_update(float dt) {
                 c->on = 0;
             } else if (inv_n < INV_MAX) {
                 inv[inv_n++] = c->g;
+                mark_wpn(c->g.pat, c->g.elem);
                 char b[48], l[40];
                 gene_label(&c->g, l, sizeof l);
                 int n = 0;
@@ -1730,9 +1987,23 @@ static void parts_update(float dt) {
         Part *p = &parts[i];
         if (!p->life) continue;
         p->life--;
-        if (p->flags & PF_GRAV) p->vy += 55.0f * dt;
+        if (p->flags & PF_SEEK) {                    /* spiral home to the ship */
+            float dx = px - p->x, dy = py - p->y;
+            float d = sqrtf(dx * dx + dy * dy) + 0.1f;
+            if (d < 4.0f) {                          /* absorbed: a little glint */
+                p->life = 0;
+                spawn_part(px + mote_randf(-3, 3), py + mote_randf(-3, 3),
+                           mote_randf(-8, 8), mote_randf(-8, 8),
+                           MOTE_RGB565(200, 240, 255), 0.12f, PF_ADD);
+                continue;
+            }
+            p->vx += dx / d * 620.0f * dt;
+            p->vy += dy / d * 620.0f * dt;
+            p->vx *= 1 - 2.6f * dt; p->vy *= 1 - 2.6f * dt;
+            if (p->life < 2) p->life = 2;            /* never dies before arriving */
+        } else if (p->flags & PF_GRAV) p->vy += 55.0f * dt;
         p->x += p->vx * dt; p->y += p->vy * dt;
-        p->vx *= 1 - 0.6f * dt; p->vy *= 1 - 0.6f * dt;
+        if (!(p->flags & PF_SEEK)) { p->vx *= 1 - 0.6f * dt; p->vy *= 1 - 0.6f * dt; }
     }
     for (int i = 0; i < MAXRING; i++)
         if (rings[i].on && (rings[i].age += dt) > 0.45f) rings[i].on = 0;
@@ -1810,8 +2081,8 @@ static void submit_scene(void) {
     /* player (blinks while invulnerable) */
     if (state != ST_DEAD && (invuln <= 0 || ((int)(invuln * 12) & 1))) {
         MoteSprite s = { &ships_img, (int16_t)(px - 8), (int16_t)(py - 8),
-                         (uint16_t)((PLAYER_SHIP % SHIP_COLS) * SHIP_CELL),
-                         (uint16_t)((PLAYER_SHIP / SHIP_COLS) * SHIP_CELL),
+                         (uint16_t)((player_ship % SHIP_COLS) * SHIP_CELL),
+                         (uint16_t)((player_ship / SHIP_COLS) * SHIP_CELL),
                          SHIP_CELL, SHIP_CELL, 10,
                          (uint8_t)(facing < 0 ? MOTE_SPR_HFLIP : 0) };
         mote->scene2d_add(&s);
@@ -1834,12 +2105,12 @@ static void g_update(float dt) {
 
         /* hero ship: bobbing flight + constant exhaust */
         float shx = 56 + sinf(bg_time * 0.5f) * 10.0f;
-        float shy = 44 + sinf(bg_time * 1.3f) * 3.0f;
+        float shy = 40 + sinf(bg_time * 1.3f) * 3.0f;   /* matches the title blit */
         for (int k = 0; k < 2; k++)
-            spawn_part(cam_x + shx - 7, cam_y + shy + 1 + mote_randf(-1, 1),
-                       mote_randf(-60, -25), mote_randf(-6, 6),
+            spawn_part(cam_x + shx - 8, cam_y + shy + mote_randf(-1, 1),
+                       mote_randf(-85, -45) + 24.0f, mote_randf(-3, 3),
                        (k & 1) ? MOTE_RGB565(255, 170, 60) : MOTE_RGB565(255, 90, 30),
-                       mote_randf(0.15f, 0.4f), PF_ADD);
+                       mote_randf(0.1f, 0.24f), PF_ADD);
 
         /* occasional enemy drifting across */
         if (!ten_on && (mote_rand() & 255) < 3) {
@@ -1880,6 +2151,23 @@ static void g_update(float dt) {
         }
 
         parts_update(dt);
+        {   /* choose your airframe among unlocked salvage */
+            int nd = nav_dir(in, dt);
+            if (nd == -1 || nd == 1) {
+                int d2 = nd, c = sel_ship;
+                for (int t = 0; t < SHIP_COUNT + 1; t++) {
+                    c += d2;
+                    if (c < 0) c = SHIP_COUNT - 1;
+                    if (c >= SHIP_COUNT) c = 0;
+                    if (c == PLAYER_SHIP || ship_parts[c] >= PARTS_NEED) break;
+                }
+                if (c != sel_ship) { sel_ship = c; cat_dirty = 1; }
+            }
+        }
+        if (mote_just_pressed(in, MOTE_BTN_MENU)) {
+            cat_from_title = 1;
+            state = ST_CATALOG;
+        }
         if (mote_just_pressed(in, MOTE_BTN_A)) start_run();
         break; }
     case ST_PLAY:
@@ -1891,6 +2179,7 @@ static void g_update(float dt) {
         chips_update(dt);
         parts_update(dt);
         if (toast_t > 0) toast_t -= dt;
+        for (int i = 0; i < NOTIF_N; i++) if (notifs[i].t > 0) notifs[i].t -= dt;
         submit_scene();
         break;
     case ST_LAB: {
@@ -1915,9 +2204,125 @@ static void g_update(float dt) {
                 mote->audio_play_sfx(&denied_sfx, 0.5f);
             }
         }
+        if (mote_just_pressed(in, MOTE_BTN_LB)) { cat_from_title = 0; state = ST_CATALOG; }
         if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) state = ST_PLAY;
         submit_scene();
         parts_update(dt);
+        break; }
+    case ST_CATALOG: {
+        int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
+        int cols = cat_tab == 0 ? 7 : cat_tab == 1 ? 4 : 8;
+        int nd = nav_dir(in, dt);                    /* hold to scroll fast */
+        if (nd == -1) cat_cur = (cat_cur + n - 1) % n;
+        if (nd == 1)  cat_cur = (cat_cur + 1) % n;
+        if (nd == -2) cat_cur = (cat_cur + n - cols) % n;
+        if (nd == 2)  cat_cur = (cat_cur + cols) % n;
+        if (mote_just_pressed(in, MOTE_BTN_LB) || mote_just_pressed(in, MOTE_BTN_RB)) {
+            cat_tab = (cat_tab + (mote_just_pressed(in, MOTE_BTN_RB) ? 1 : 2)) % 3;
+            cat_cur = 0;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
+            if (bit_get(bits, cat_cur)) {
+                for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+                for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
+                for (int i = 0; i < MAXP; i++) parts[i].life = 0;
+                demo_cd = 0.25f; cat_deck_i = 0;
+                state = ST_CATINFO;
+            } else mote->audio_play_sfx(&denied_sfx, 0.4f);
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B))
+            state = cat_from_title ? ST_TITLE : ST_LAB;
+        if (mote_just_pressed(in, MOTE_BTN_MENU))
+            state = cat_from_title ? ST_TITLE : ST_PLAY;
+        submit_scene();
+        break; }
+    case ST_CATINFO: {
+        int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
+        const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
+        int nd = nav_dir(in, dt);                    /* hold to skim found entries */
+        if (nd == -1 || nd == 1) {
+            int d = nd == 1 ? 1 : n - 1;
+            for (int t = 0; t < n; t++) {            /* jump to the next FOUND entry */
+                cat_cur = (cat_cur + d) % n;
+                if (bit_get(bits, cat_cur)) break;
+            }
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
+            demo_cd = 0.2f; cat_deck_i = 0;
+        }
+        if (bit_get(bits, cat_cur)) {
+            demo_cd -= dt;
+            if (cat_tab == 2) {                      /* the weapon, fired for real */
+                Gene g = { (uint8_t)(cat_cur / EL_N), (uint8_t)(cat_cur % EL_N), 0, 3, 0 };
+                g.icon = combo_icon[cat_cur];
+                if (demo_cd <= 0) {
+                    fire_gene(&g, cam_x + 26, cam_y + 82, 1, 1);
+                    demo_cd = 1.0f / gene_rate(&g);
+                }
+            } else {                                 /* the foe, shooting at YOU */
+                memset(&cat_en, 0, sizeof cat_en);
+                cat_en.x = cam_x + 102;
+                cat_en.y = cam_y + 88;
+                cat_en.t = bg_time;
+                if (cat_tab == 0) {
+                    uint8_t kind; float hpb;
+                    ship_config(cat_cur, &kind, &cat_en.wpn, &hpb);
+                    if (cat_cur == PLAYER_SHIP)
+                        cat_en.wpn = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+                    if (demo_cd <= 0) {
+                        g_demo_fire = 1;
+                        enemy_fire(&cat_en, 3.14159f, 80);
+                        g_demo_fire = 0;
+                        demo_cd = 1.3f;
+                    }
+                } else {
+                    uint32_t bh = ship_hash(cat_cur + 2000);
+                    cat_en.wpn.pat = (uint8_t)((bh >> 12) % PAT_N);
+                    cat_en.wpn.elem = (uint8_t)((bh >> 16) % EL_N);
+                    if (demo_cd <= 0) {              /* cycle its seeded deck */
+                        int mv = (int)((bh >> (cat_deck_i % 3) * 3) % 7);
+                        g_demo_fire = 1;
+                        switch (mv) {
+                        case 0: for (int k = -2; k <= 2; k++)
+                                    enemy_shoot(&cat_en, 3.14159f + k * 0.22f, 85); break;
+                        case 1: for (int k = 0; k < 10; k++)
+                                    enemy_shoot(&cat_en, bg_time + k * 0.628f, 62); break;
+                        case 2: for (int k = 0; k < 3; k++)
+                                    enemy_shoot(&cat_en, bg_time * 2.4f + k * 2.094f, 70); break;
+                        case 3: for (int k = 0; k < 4; k++)
+                                    enemy_shoot_k(&cat_en, -1.5708f + mote_randf(-0.7f, 0.7f),
+                                                  mote_randf(60, 110), EB_MORTAR); break;
+                        case 4: for (int k = -2; k <= 2; k++) {
+                                    cat_en.y = cam_y + 88 + k * 8;
+                                    enemy_shoot(&cat_en, 3.14159f, 75);
+                                }
+                                cat_en.y = cam_y + 88; break;
+                        case 5: enemy_shoot_k(&cat_en, 3.14159f + 0.5f, 62, EB_HOMER);
+                                enemy_shoot_k(&cat_en, 3.14159f - 0.5f, 62, EB_HOMER); break;
+                        default: for (int k = -1; k <= 1; k++)
+                                    enemy_shoot_k(&cat_en, 3.14159f + k * 0.3f, 50, EB_BIG); break;
+                        }
+                        g_demo_fire = 0;
+                        cat_deck_i++;
+                        demo_cd = 1.4f;
+                    }
+                }
+            }
+            shots_update(dt);
+            parts_update(dt);
+        }
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B)) {
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
+            state = ST_CATALOG;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_MENU)) {
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
+            state = cat_from_title ? ST_TITLE : ST_PLAY;
+        }
+        submit_scene();
         break; }
     case ST_FUSE: {
         if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT) ||
@@ -1942,6 +2347,7 @@ static void g_update(float dt) {
             inv[b] = inv[--inv_n];
             inv[a] = child;
             equipped = a; lab_cur = a; lab_mark = -1;
+            mark_wpn(child.pat, child.elem);
             mote->audio_play_sfx(&fuse_sfx, 0.8f);
             char bb[48], l[40];
             gene_label(&child, l, sizeof l);
@@ -1970,6 +2376,7 @@ static void g_update(float dt) {
         if (state_t > 1.6f) {
             sector++;
             if (hull < hull_max) hull += 1;
+            save_flush();
             gen_sector();
             char b[40];
             snprintf(b, sizeof b, "SECTOR %d: %s", sector, biomes[cur_biome].name);
@@ -2190,7 +2597,7 @@ static void lab_overlay(uint16_t *fb) {
     char ms[6];
     mods_str(g->mods, ms);
     textf_med(fb, 5, 114, MOTE_RGB565(150, 160, 190), "MODS %s", ms);
-    mote->text_font(fb, f, "A EQ  RB FUSE", 54, 114, MOTE_RGB565(255, 220, 110));
+    mote->text_font(fb, f, "A EQ RB FUSE LB CAT", 40, 114, MOTE_RGB565(255, 220, 110));
 }
 
 /* The FUSION BENCH: chassis + core -> result, LIVE-FIRED in the demo strip. */
@@ -2242,6 +2649,261 @@ static void bench_overlay(uint16_t *fb) {
     mote->text_font(fb, f, "A FUSE B BACK", 50, 114, MOTE_RGB565(255, 255, 255));
 }
 
+static const char *const kind_name[6] = { "DRIFTER", "HUNTER", "SNIPER", "ORBITER", "TURRET", "HEAVY" };
+static const char *const biome_short[5] = { "CAVERN", "HIVE", "GLACIER", "SPOREPIT", "EMBER" };
+
+static void catalog_overlay(uint16_t *fb) {
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(8, 10, 20), MOTE_RGB565(120, 150, 200));
+    int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
+    int cols = cat_tab == 0 ? 7 : cat_tab == 1 ? 4 : 8;
+    int rows = cat_tab == 0 ? 5 : cat_tab == 1 ? 3 : 6;
+    int cw = cat_tab == 0 ? 17 : cat_tab == 1 ? 30 : 15;
+    int ch = cat_tab == 1 ? 28 : cw;
+    const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
+    char hdr[36];
+    snprintf(hdr, sizeof hdr, "%s %d/%d",
+             cat_tab == 0 ? "SHIPS" : cat_tab == 1 ? "BOSSES" : "WEAPONS",
+             bits_count(bits, n), n);
+    mote->text_font(fb, f, hdr, 4, 2, MOTE_RGB565(160, 220, 255));
+    mote->text(fb, "LB/RB", 100, 5, MOTE_RGB565(120, 130, 160));
+    mote->text(fb, "A INFO", 100, 12, MOTE_RGB565(255, 220, 110));
+
+    int per = cols * rows;
+    int page = cat_cur / per;
+    int gx0 = (128 - cols * cw) / 2;
+    for (int k = 0; k < per; k++) {
+        int idx = page * per + k;
+        if (idx >= n) break;
+        int x = gx0 + (k % cols) * cw, y = 15 + (k / cols) * ch;
+        if (idx == cat_cur)
+            mote->draw_rect(fb, x, y, cw, ch, MOTE_RGB565(40, 55, 90), 1, 0, MOTE_FB_H);
+        int found = bit_get(bits, idx);
+        if (!found) {
+            mote->text(fb, "?", x + cw / 2 - 2, y + ch / 2 - 3, MOTE_RGB565(55, 60, 85));
+        } else if (cat_tab == 0) {
+            mote->blit(fb, &ships_img, x + (cw - 16) / 2, y + (ch - 16) / 2,
+                       (idx % SHIP_COLS) * SHIP_CELL, (idx / SHIP_COLS) * SHIP_CELL,
+                       16, 16, 0, 0, MOTE_FB_H);
+            if (ship_parts[idx] >= PARTS_NEED)
+                mote->draw_rect(fb, x + cw - 3, y + 1, 2, 2, MOTE_RGB565(140, 255, 170), 1, 0, MOTE_FB_H);
+        } else if (cat_tab == 1) {
+            float sc = 26.0f / (boss_fw[idx] > boss_fh[idx] ? boss_fw[idx] : boss_fh[idx]);
+            if (sc > 1) sc = 1;
+            mote->blit_ex(fb, &bosses_img, x + cw / 2, y + ch / 2,
+                          boss_fx[idx], boss_fy[idx], boss_fw[idx], boss_fh[idx],
+                          0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        } else {
+            int ic = combo_icon[idx];
+            mote->blit_ex(fb, &weapons_img, x + cw / 2, y + ch / 2,
+                          (ic % WEAPON_ICON_COLS) * 16, (ic / WEAPON_ICON_COLS) * 16,
+                          16, 16, 0, 0.8f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        }
+    }
+
+    /* detail pane */
+    int dy0 = 15 + rows * ch + 1;
+    mote->draw_line(fb, 2, dy0, 125, dy0, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+    char l1[40], l2[40];
+    if (!bit_get(bits, cat_cur)) {
+        snprintf(l1, sizeof l1, "#%d", cat_cur + 1);
+        mote->text(fb, l1, 4, dy0 + 3, MOTE_RGB565(120, 130, 160));
+        mote->text(fb, "NOT YET ENCOUNTERED", 4, dy0 + 12, MOTE_RGB565(90, 100, 130));
+        return;
+    }
+    if (cat_tab == 0) {
+        uint8_t kind; Gene g; float hpb;
+        ship_config(cat_cur, &kind, &g, &hpb);
+        char nm[16];
+        ship_name(cat_cur, nm, sizeof nm);
+        if (cat_cur == PLAYER_SHIP) {                /* the starter: its true identity */
+            snprintf(nm, sizeof nm, "SCRAPWING");
+            g = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+            snprintf(l1, sizeof l1, "%s  YOUR FIGHTER", nm);
+        } else
+            snprintf(l1, sizeof l1, "%s  %s", nm, kind_name[kind]);
+        snprintf(l2, sizeof l2, "%s %s  %s", elem_name[g.elem], pat_name[g.pat],
+                 biome_short[ship_biome[cat_cur]]);
+        mote->text_font(fb, f, l1, 4, dy0 + 2, MOTE_RGB565(220, 230, 250));
+        mote->text_font(fb, f, l2, 4, dy0 + 13, elem_col[g.elem][0]);
+    } else if (cat_tab == 1) {
+        char nm[20];
+        boss_name(cat_cur, nm, sizeof nm);
+        snprintf(l1, sizeof l1, "%s", nm);
+        snprintf(l2, sizeof l2, "DREADNOUGHT  %s", biome_short[boss_biome[cat_cur]]);
+        mote->text_font(fb, f, l1, 4, dy0 + 2, MOTE_RGB565(255, 160, 120));
+        mote->text_font(fb, f, l2, 4, dy0 + 13, MOTE_RGB565(190, 200, 225));
+    } else {
+        Gene g = { (uint8_t)(cat_cur / EL_N), (uint8_t)(cat_cur % EL_N), 0, 1, 0 };
+        snprintf(l1, sizeof l1, "%s %s", elem_name[g.elem], pat_name[g.pat]);
+        mote->text_font(fb, f, l1, 4, dy0 + 1, elem_col[g.elem][0]);
+        mote->text(fb, "B HANGAR  MENU CLOSE", 4, dy0 + 13, MOTE_RGB565(120, 130, 160));
+    }
+}
+
+/* bottom-right discovery toasts: icon + NEW, queued */
+static void notif_overlay(uint16_t *fb) {
+    int y = 106;
+    for (int i = 0; i < NOTIF_N; i++) {
+        if (notifs[i].t <= 0) continue;
+        mote_ui_panel(fb, 96, y, 30, 20, MOTE_RGB565(12, 16, 30), MOTE_RGB565(120, 150, 200));
+        if (notifs[i].type == 0 || notifs[i].type == 3) {
+            mote->blit(fb, &ships_img, 108, y + 2,
+                       (notifs[i].id % SHIP_COLS) * SHIP_CELL,
+                       (notifs[i].id / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
+        } else if (notifs[i].type == 1) {
+            int b = notifs[i].id;
+            float sc = 16.0f / (boss_fw[b] > boss_fh[b] ? boss_fw[b] : boss_fh[b]);
+            mote->blit_ex(fb, &bosses_img, 116, y + 10, boss_fx[b], boss_fy[b],
+                          boss_fw[b], boss_fh[b], 0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        } else {
+            int ic = combo_icon[notifs[i].id];
+            mote->blit(fb, &weapons_img, 108, y + 2,
+                       (ic % WEAPON_ICON_COLS) * 16, (ic / WEAPON_ICON_COLS) * 16,
+                       16, 16, 0, 0, MOTE_FB_H);
+        }
+        mote->text(fb, notifs[i].type == 3 ? "SHIP" : "NEW", 97, y + 7,
+                   notifs[i].type == 3 ? MOTE_RGB565(140, 255, 170) : MOTE_RGB565(255, 220, 110));
+        y -= 22;
+        if (y < 40) break;
+    }
+}
+
+static const char *const move_name[7] = { "FAN", "RING", "SPIRL", "RAIN",
+                                          "WALL", "SEEKR", "ORBS" };
+static const uint16_t biome_col[5] = {
+    MOTE_RGB565(175, 180, 200), MOTE_RGB565(255, 110, 120), MOTE_RGB565(120, 190, 255),
+    MOTE_RGB565(130, 230, 120), MOTE_RGB565(255, 160, 80) };
+
+static void catinfo_overlay(uint16_t *fb) {
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(8, 10, 20), MOTE_RGB565(120, 150, 200));
+    const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
+    int found = bit_get(bits, cat_cur);
+    char nm[24], ln[40];
+
+    /* header: name + (ships) biome tag, over a rule line */
+    if (cat_tab == 0 && cat_cur == PLAYER_SHIP) snprintf(nm, sizeof nm, "SCRAPWING");
+    else if (cat_tab == 0) ship_name(cat_cur, nm, sizeof nm);
+    else if (cat_tab == 1) boss_name(cat_cur, nm, sizeof nm);
+    else snprintf(nm, sizeof nm, "%s %s", elem_name[cat_cur % EL_N], pat_name[cat_cur / EL_N]);
+    mote->text_font(fb, f, found ? nm : "UNKNOWN SIGNAL", 4, 1,
+                    !found ? MOTE_RGB565(120, 130, 160)
+                    : cat_tab == 2 ? elem_col[cat_cur % EL_N][0] : MOTE_RGB565(230, 238, 255));
+    if (found && cat_tab == 0) {
+        const char *bs = biome_short[ship_biome[cat_cur]];
+        mote->text_font(fb, f, bs, 126 - (int)strlen(bs) * 7, 1,
+                        biome_col[ship_biome[cat_cur]]);
+    }
+    mote->draw_line(fb, 2, 12, 125, 12, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+
+    /* portrait */
+    mote->draw_rect(fb, 4, 15, 40, 40, MOTE_RGB565(4, 6, 12), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 4, 15, 40, 40, MOTE_RGB565(70, 95, 140), 0, 0, MOTE_FB_H);
+    if (!found) {
+        mote->text_font(fb, f, "?", 21, 28, MOTE_RGB565(55, 60, 85));
+        mote->text_font(fb, f, "NOT YET", 56, 22, MOTE_RGB565(120, 130, 160));
+        mote->text_font(fb, f, "ENCOUNTERED", 52, 34, MOTE_RGB565(90, 100, 130));
+        mote->text_font(fb, f, "< >  NEXT    B BACK", 8, 112, MOTE_RGB565(150, 160, 190));
+        return;
+    }
+    if (cat_tab == 0)
+        mote->blit_ex(fb, &ships_img, 24, 35, (cat_cur % SHIP_COLS) * SHIP_CELL,
+                      (cat_cur / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 2.1f,
+                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    else if (cat_tab == 1) {
+        float sc = 36.0f / (boss_fw[cat_cur] > boss_fh[cat_cur] ? boss_fw[cat_cur] : boss_fh[cat_cur]);
+        if (sc > 1.5f) sc = 1.5f;
+        mote->blit_ex(fb, &bosses_img, 24, 35, boss_fx[cat_cur], boss_fy[cat_cur],
+                      boss_fw[cat_cur], boss_fh[cat_cur], 0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    } else {
+        int ic = combo_icon[cat_cur];
+        mote->blit_ex(fb, &weapons_img, 24, 35, (ic % WEAPON_ICON_COLS) * 16,
+                      (ic / WEAPON_ICON_COLS) * 16, 16, 16, 0, 2.1f,
+                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    }
+
+    /* stats column (all readable MED) */
+    if (cat_tab == 0) {
+        uint8_t kind; Gene g; float hpb;
+        ship_config(cat_cur, &kind, &g, &hpb);
+        if (cat_cur == PLAYER_SHIP) {                /* the starter: its real loadout */
+            g = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+            g.icon = combo_icon[PAT_BOLT * EL_N + EL_PULSE];
+        }
+        char ms[6];
+        mods_str(g.mods, ms);
+        mote->text_font(fb, f, cat_cur == PLAYER_SHIP ? "YOUR FIGHTER" : kind_name[kind],
+                        48, 15, MOTE_RGB565(230, 238, 255));
+        snprintf(ln, sizeof ln, "HP %d   %s", (int)(hpb + 0.8f), g.mods ? ms : "");
+        mote->text_font(fb, f, ln, 48, 26, MOTE_RGB565(120, 235, 140));
+        mote->blit(fb, &weapons_img, 48, 38,
+                   (g.icon % WEAPON_ICON_COLS) * 16, (g.icon / WEAPON_ICON_COLS) * 16,
+                   16, 16, 0, 0, MOTE_FB_H);
+        mote->text_font(fb, f, elem_name[g.elem], 68, 37, elem_col[g.elem][0]);
+        mote->text_font(fb, f, pat_name[g.pat], 68, 47, elem_col[g.elem][1]);
+    } else if (cat_tab == 1) {
+        uint32_t bh = ship_hash(cat_cur + 2000);
+        int be = (int)((bh >> 16) % EL_N), bp = (int)((bh >> 12) % PAT_N);
+        mote->text_font(fb, f, "DREADNOUGHT", 48, 15, MOTE_RGB565(255, 160, 120));
+        mote->text_font(fb, f, "HP 70+14/S", 48, 26, MOTE_RGB565(120, 235, 140));
+        mote->text_font(fb, f, biome_short[boss_biome[cat_cur]], 48, 37,
+                        biome_col[boss_biome[cat_cur]]);
+        snprintf(ln, sizeof ln, "%s %s", elem_name[be], pat_name[bp]);
+        mote->text_font(fb, f, ln, 48, 47, elem_col[be][0]);
+        /* attack deck: its three fixed moves */
+        snprintf(ln, sizeof ln, "%s+%s+%s", move_name[bh % 7], move_name[(bh >> 3) % 7],
+                 move_name[(bh >> 6) % 7]);
+        mote->text_font(fb, f, ln, 14, 58, MOTE_RGB565(255, 220, 110));
+    } else {
+        Gene g = { (uint8_t)(cat_cur / EL_N), (uint8_t)(cat_cur % EL_N), 0, 1, 0 };
+        uint16_t bc = elem_col[g.elem][1];
+        mote->text_font(fb, f, "DMG", 48, 15, MOTE_RGB565(190, 200, 225));
+        stat_bar(fb, 76, 18, 48, gene_dmg(&g), DMG_MAX, bc, -1);
+        mote->text_font(fb, f, "RPS", 48, 27, MOTE_RGB565(190, 200, 225));
+        stat_bar(fb, 76, 30, 48, gene_rate(&g), RPS_MAX, bc, -1);
+        mote->text_font(fb, f, "SPD", 48, 39, MOTE_RGB565(190, 200, 225));
+        stat_bar(fb, 76, 42, 48, pat_spd[g.pat], SPD_MAX, bc, -1);
+    }
+
+    if (cat_tab == 0) {                              /* salvage progress: 5 parts */
+        mote->text_font(fb, f, ship_parts[cat_cur] >= PARTS_NEED ? "YOURS" : "PARTS",
+                        14, 57, ship_parts[cat_cur] >= PARTS_NEED
+                                ? MOTE_RGB565(140, 255, 170) : MOTE_RGB565(150, 160, 190));
+        for (int k = 0; k < PARTS_NEED; k++) {
+            uint16_t c = k < ship_parts[cat_cur]
+                       ? (ship_parts[cat_cur] >= PARTS_NEED ? MOTE_RGB565(140, 255, 170)
+                                                            : MOTE_RGB565(255, 220, 110))
+                       : MOTE_RGB565(35, 42, 62);
+            mote->draw_rect(fb, 58 + k * 11, 58, 9, 7, c, 1, 0, MOTE_FB_H);
+        }
+    }
+    /* live-fire strip */
+    int sy = cat_tab == 2 ? 58 : 70;
+    mote->draw_rect(fb, 3, sy, 122, 106 - sy + 2, MOTE_RGB565(4, 6, 12), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 3, sy, 122, 106 - sy + 2, MOTE_RGB565(70, 95, 140), 0, 0, MOTE_FB_H);
+    if (cat_tab == 2)
+        mote->blit(fb, &ships_img, 18, 74,
+                   (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
+                   (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
+    else if (cat_tab == 0)
+        mote->blit(fb, &ships_img, 94, 80, (cat_cur % SHIP_COLS) * SHIP_CELL,
+                   (cat_cur / SHIP_COLS) * SHIP_CELL, 16, 16, MOTE_SPR_HFLIP, 0, MOTE_FB_H);
+    else {
+        float sc = 30.0f / (boss_fw[cat_cur] > boss_fh[cat_cur] ? boss_fw[cat_cur] : boss_fh[cat_cur]);
+        if (sc > 1) sc = 1;
+        mote->blit_ex(fb, &bosses_img, 102, 88, boss_fx[cat_cur], boss_fy[cat_cur],
+                      boss_fw[cat_cur], boss_fh[cat_cur], 0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    }
+
+    mote->text_font(fb, f, "< > NEXT   B BACK", 4, 112, MOTE_RGB565(150, 160, 190));
+    {
+        char num[8];
+        snprintf(num, sizeof num, "#%d", cat_cur + 1);
+        mote->text(fb, num, 104, 116, MOTE_RGB565(120, 130, 160));
+    }
+}
+
 static void g_overlay(uint16_t *fb) {
     if (state == ST_TITLE) {
         /* boss peeking in from the right edge (drawn under everything else) */
@@ -2270,21 +2932,37 @@ static void g_overlay(uint16_t *fb) {
             if ((unsigned)x >= MOTE_FB_W || (unsigned)y >= MOTE_FB_H) continue;
             if (p->life * 3 > p->maxlife * 2 || (p->life & 1)) px_add(fb, x, y, p->col);
         }
-        /* hero ship */
+        /* hero ship: the selected airframe */
         mote->blit(fb, &ships_img, (int)(56 + sinf(bg_time * 0.5f) * 10.0f) - 8,
-                   (int)(44 + sinf(bg_time * 1.3f) * 3.0f) - 8,
-                   (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
-                   (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
+                   (int)(40 + sinf(bg_time * 1.3f) * 3.0f) - 8,
+                   (sel_ship % SHIP_COLS) * SHIP_CELL,
+                   (sel_ship / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
 
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_LARGE), "SCRAPWING", 20, 16,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_LARGE), "SCRAPWING", 20, 14,
                         MOTE_RGB565(140, 220, 255));
-        mote->text(fb, "DPAD+RB THRUST   A FIRE", 8, 66, MOTE_RGB565(190, 200, 225));
-        mote->text(fb, "LB SHIELD   B SWAP WPN", 10, 76, MOTE_RGB565(190, 200, 225));
-        mote->text(fb, "MENU FUSION LAB", 30, 86, MOTE_RGB565(150, 160, 190));
+        {   /* airframe + its weapon */
+            char nm[16], sl[32];
+            uint8_t k2; Gene sg; float hpb;
+            if (sel_ship == PLAYER_SHIP) {
+                snprintf(sl, sizeof sl, "< SCRAPWING >");
+                mote->text(fb, sl, 64 - 39, 52, MOTE_RGB565(230, 238, 255));
+                mote->text(fb, "PULSE BOLT", 64 - 30, 60, elem_col[EL_PULSE][0]);
+            } else {
+                ship_config(sel_ship, &k2, &sg, &hpb);
+                ship_name(sel_ship, nm, sizeof nm);
+                snprintf(sl, sizeof sl, "< %s >", nm);
+                mote->text(fb, sl, 64 - (int)strlen(sl) * 3, 52, MOTE_RGB565(230, 238, 255));
+                snprintf(sl, sizeof sl, "%s %s", elem_name[sg.elem], pat_name[sg.pat]);
+                mote->text(fb, sl, 64 - (int)strlen(sl) * 3, 60, elem_col[sg.elem][0]);
+            }
+        }
+        mote->text(fb, "DPAD+RB THRUST   A FIRE", 8, 70, MOTE_RGB565(190, 200, 225));
+        mote->text(fb, "LB SHIELD   B SWAP WPN", 10, 79, MOTE_RGB565(190, 200, 225));
+        mote->text(fb, "MENU CATALOG  </> SHIP", 12, 88, MOTE_RGB565(150, 160, 190));
         if (best_sector) {
             char bb[40];
             snprintf(bb, sizeof bb, "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
-            mote->text(fb, bb, 14, 98, MOTE_RGB565(255, 220, 110));
+            mote->text(fb, bb, 14, 99, MOTE_RGB565(255, 220, 110));
         }
         if (((int)(bg_time * 2) & 1))
             mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "PRESS A", 44, 112,
@@ -2293,6 +2971,7 @@ static void g_overlay(uint16_t *fb) {
     }
 
     if (state == ST_FUSE) bench_overlay(fb);      /* panel first: demo FX draw over it */
+    if (state == ST_CATINFO) catinfo_overlay(fb);
 
     /* world-space pixel FX */
     for (int i = 0; i < MAXP; i++) {
@@ -2336,15 +3015,15 @@ static void g_overlay(uint16_t *fb) {
         }
     }
 
-    if (state == ST_FUSE) return;                 /* bench drew first; FX are on top */
+    if (state == ST_FUSE || state == ST_CATINFO) return;   /* panel drew first; FX on top */
 
     if (state == ST_PLAY || state == ST_CLEAR) {
         if (b_drone > 0) {                           /* wingman mini-ship */
             int dx2 = (int)(px + cosf(drone_ang) * 15.0f) - cam_x;
             int dy2 = (int)(py + sinf(drone_ang) * 15.0f) - cam_y;
             mote->blit_ex(fb, &ships_img, dx2, dy2,
-                          (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
-                          (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16,
+                          (player_ship % SHIP_COLS) * SHIP_CELL,
+                          (player_ship / SHIP_COLS) * SHIP_CELL, 16, 16,
                           0, 0.5f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
         }
         for (int i = 0; i < PMINE_N; i++) {          /* deployed chrono mines */
@@ -2371,8 +3050,10 @@ static void g_overlay(uint16_t *fb) {
     }
 
     hud(fb);
+    if (state == ST_PLAY) notif_overlay(fb);
 
     if (state == ST_LAB) lab_overlay(fb);
+    if (state == ST_CATALOG) catalog_overlay(fb);
     if (state == ST_CLEAR)
         mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "WARPING...", 34, 58,
                         MOTE_RGB565(180, 240, 255));

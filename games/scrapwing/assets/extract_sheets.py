@@ -45,6 +45,17 @@ def _in_ranges(i, ranges):
 BOSS_DROP = {10, 40, 52, 73, 80, 81, 83, 85, 86}
 BOSS_MIN_DIM = 130          # smaller sprites on the boss sheets are duplicate ships
 
+# hand-confirmed orientation fixes, reviewed against the numbered review grid
+# (/tmp/scrapwing_ships_review.png; number = index + 1). Applied AFTER the
+# automatic orient_right pass, BEFORE the drop (so review numbers stay valid).
+SHIP_ROT_CW90 = {3, 32, 60, 61, 77, 91, 121, 122, 124, 179, 180, 181, 182, 239,
+                 270, 271, 272, 299, 300, 302, 320, 324, 331, 334, 348, 360,
+                 388, 390, 397}
+SHIP_ROT_180 = {21, 132, 290, 291}
+SHIP_DROP = {386}           # not actually a ship
+# boss fixes (reviewed against /tmp/scrapwing_bosses_review.png; number = index + 1)
+BOSS_ROT_180 = {6, 10, 16, 35, 36, 45, 50, 52, 57, 76, 77}
+
 GRID_PITCH = 91.9           # full-res cell pitch (2816px / ~30.6 cells)
 
 
@@ -155,6 +166,35 @@ def contact(sprites, path, cell=48, scale_s=None):
     img.save(path)
 
 
+# biome ids must match game.c: 0 CAVERN, 1 HIVE, 2 GLACIER, 3 SPOREPIT, 4 EMBERFORGE
+def classify_biome(spr):
+    """Dominant SATURATED hue of a sprite -> the biome it haunts. Grey hull
+    plating is ignored — the accent colours carry the faction identity; ships
+    with almost no colour stay in the cavern (the catch-all biome)."""
+    import colorsys
+    a = np.asarray(spr)
+    counts = [0, 0, 0, 0, 0]
+    px = a[a[..., 3] >= 128]
+    n_opaque = max(1, len(px))
+    for r, g, b, _ in px:
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s < 0.32 or v < 0.30:
+            continue                             # grey/dark plating: no vote
+        if h < 0.03 or h > 0.87:
+            counts[1] += 1                       # red/pink/magenta -> hive
+        elif h < 0.15:
+            counts[4] += 1                       # orange/amber -> emberforge
+        elif h < 0.45:
+            counts[3] += 1                       # green -> sporepit
+        elif h < 0.70:
+            counts[2] += 1                       # blue/cyan -> glacier
+        else:
+            counts[0] += 1                       # violet -> cavern
+    if sum(counts) < n_opaque * 0.06:
+        return 0                                 # barely any colour -> cavern
+    return counts.index(max(counts))
+
+
 def make_icon(player):
     img = Image.new("RGBA", (60, 60), (8, 9, 22, 255))
     rng = np.random.RandomState(11)
@@ -188,12 +228,22 @@ def main():
     print("art-pixel scale: %.2f" % s)
 
     ships = [orient_right(shrink_by(t, s, cap=16)) for t in ships_raw]
+    for i in range(len(ships)):                      # reviewer-confirmed corrections
+        if i in SHIP_ROT_CW90:
+            ships[i] = ships[i].transpose(Image.ROTATE_270)
+        elif i in SHIP_ROT_180:
+            ships[i] = ships[i].transpose(Image.ROTATE_180)
+    player_idx = PLAYER_IDX - sum(1 for i in SHIP_DROP if i < PLAYER_IDX)
+    ships = [t for i, t in enumerate(ships) if i not in SHIP_DROP]
     weapons = [shrink_by(t, s, cap=16) for i, t in enumerate(weapons_raw)
                if i in WEAPON_FORCE_KEEP or not _in_ranges(i, WEAPON_EXCLUDE)]
     mines = [shrink_by(t, s, cap=16) for i, t in enumerate(weapons_raw)
              if _in_ranges(i, MINE_RANGES)]
     bosses = [orient_right(shrink_by(t, s)) for i, t in enumerate(big_raw)
               if i not in BOSS_DROP]
+    for i in range(len(bosses)):                     # reviewer-confirmed corrections
+        if i in BOSS_ROT_180:
+            bosses[i] = bosses[i].transpose(Image.ROTATE_180)
 
     ships_img, ships_meta = grid_sheet(ships, 16, 16)
     weap_img, _ = grid_sheet(weapons, 16, 16)
@@ -215,7 +265,7 @@ def main():
                 "#ifndef SHIPS_META_H\n#define SHIPS_META_H\n\n")
         f.write("#define SHIP_COUNT %d\n#define SHIP_COLS 16\n#define SHIP_CELL 16\n"
                 % len(ships_meta))
-        f.write("#define PLAYER_SHIP %d\n" % PLAYER_IDX)
+        f.write("#define PLAYER_SHIP %d\n" % player_idx)
         f.write("#define BOSS_COUNT %d\n" % len(boss_meta))
         f.write("#define WEAPON_ICON_COUNT %d\n#define WEAPON_ICON_COLS 16\n" % len(weapons))
         f.write("#define MINE_COUNT %d\n#define MINE_COLS 16\n\n" % len(mines))
@@ -226,6 +276,11 @@ def main():
         for fi, field in enumerate(("fx", "fy", "fw", "fh")):
             f.write("static const uint16_t boss_%s[%d] = {%s};\n" %
                     (field, len(boss_meta), ",".join(str(m[fi]) for m in boss_meta)))
+        f.write("\n/* dominant-hue biome per sprite: 0 cavern 1 hive 2 glacier 3 sporepit 4 ember */\n")
+        f.write("static const uint8_t ship_biome[%d] = {%s};\n" %
+                (len(ships), ",".join(str(classify_biome(s)) for s in ships)))
+        f.write("static const uint8_t boss_biome[%d] = {%s};\n" %
+                (len(bosses), ",".join(str(classify_biome(s)) for s in bosses)))
         f.write("\n#endif\n")
 
 
