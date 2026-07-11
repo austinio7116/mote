@@ -1,0 +1,10 @@
+# small ship shatter
+wave 3
+freq 0.30 0 -0.28 0
+duty 0.5 0
+vib 0 0
+env 0 0.10 0.4 0.30
+lpf 0.8 -0.15 0.2
+hpf 0 0
+pha 0.1 -0.02
+arp 0 0

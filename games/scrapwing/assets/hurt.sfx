@@ -1,0 +1,10 @@
+# hull hit
+wave 0
+freq 0.22 0 -0.18 0
+duty 0.5 0
+vib 0 0
+env 0 0.05 0.3 0.17
+lpf 0.7 0 0
+hpf 0 0
+pha 0 0
+arp 0 0

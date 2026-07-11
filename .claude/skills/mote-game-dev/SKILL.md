@@ -7,10 +7,10 @@ description: Build games for the Thumby Color handheld with the Mote engine + St
 
 **Mote** is a native C game engine + console OS + IDE for the **Thumby Color**
 (RP2350, 128×128 RGB565, dual-core, **272 KB game arena**). Games are plain C modules.
-Current engine ABI: **v43** (textured meshes v35, streamed SFX recipes v37, key-value
+Current engine ABI: **v47** (textured meshes v35, streamed SFX recipes v37, key-value
 blob storage v38, proportional `text_font` v39, native low-fi `MoteSound` v40, indexed
-4/8-bit palette `MoteImage` v41, 2D rigid-body solver `phys2d_step` v42, **2-player
-link `link_*` v43** — see below).
+4/8-bit palette `MoteImage` v41, 2D rigid-body solver `phys2d_step` v42, 2-player
+link `link_*` v43, **engine-baked readable UI fonts `ui_font()` v47** — see below).
 
 ## The fast workflow: IDE for assets, Claude (you) for code
 
@@ -264,9 +264,16 @@ The synth is single-precision (fixed in 0.8); the recipe path is cheap, but a ga
 *dense* simultaneous polyphony (a bullet-hell, a fast break) can still saturate it — bake
 to PCM (or use a cheap fixed-point synth via `audio_set_stream`) in that case.
 
-**Text / control** (overlay + engine):
+**Text / control** (overlay + engine) — **use the READABLE engine fonts for ALL game
+text from the start** (v47): the engine bakes Audiowide UI fonts in, so every HUD,
+menu, toast and title should draw through `text_font` + `ui_font`. The tiny 5x7
+`mote->text` is for debug overlays only — don't ship player-facing text in it.
 ```c
-mote->text(fb, "SCORE", x, y, MOTE_RGB565(250,230,90));   // also text_2x; mote_textf for printf-style
+mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "SCORE 12", x, y, col);
+// sizes: MOTE_FONT_MED ~11px body ("1.5x") · MOTE_FONT_READ ~13px · MOTE_FONT_LARGE ~15px titles
+// printf-style: snprintf to a buffer, then text_font (mote_textf draws the debug 5x7 font)
+// budget ~6-7px/char at MED on the 128px screen — keep HUD labels short or they clip
+mote->text(fb, "dbg", x, y, col);                         // debug-only 5x7 (also text_2x)
 mote->micros();  mote->log("...");  int i = mote->menu("Pause", items, n);
 ```
 
