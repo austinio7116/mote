@@ -37,8 +37,12 @@ MOTE_MODULE_HEADER();
 #include "props.h"          /* props_img: chips[6] turret[2] core[2] (8x8) */
 #include "mines.h"          /* mines_img: 16x16 proximity mines */
 #include "gate.h"           /* gate_img: 2 frames 16x24 */
-#include "rock.tiles.h"     /* rock_at: BLOB47 ruleset (Studio Tiles tab) */
-#include "hull.tiles.h"     /* hull_at */
+#include "rock.tiles.h"     /* biome terrains: BLOB47 rulesets (Studio Tiles tab) */
+#include "hull.tiles.h"     /* hull_at — derelict ledges, present in every biome */
+#include "flesh.tiles.h"
+#include "ice.tiles.h"
+#include "spore.tiles.h"
+#include "lava.tiles.h"
 #include "ships_meta.h"     /* SHIP_COUNT, bboxes, PLAYER_SHIP, boss rects */
 
 #include "shot_pulse.sfx.h"
@@ -66,7 +70,25 @@ MOTE_GAME_META("Scrapwing", "austinio7116");
 
 static uint8_t map[ROWS * COLS];
 static uint8_t cor_y[COLS];
-static const MoteAutotile *layers[2] = { &rock_at, &hull_at };
+static const MoteAutotile *layers[2] = { &rock_at, &hull_at };  /* [0] set per biome */
+
+/* ---- biomes: alien terrains with their own sky, nebula and shape ---- */
+typedef struct {
+    const char *name;
+    const MoteAutotile *terrain;
+    uint8_t sky0[3], sky1[3];       /* gradient top / bottom rgb */
+    uint8_t neb0[3], nebs[3];       /* nebula base + slope (per unit alpha, /4) */
+    uint8_t n_stal, extra_chambers; /* generation flavour */
+} Biome;
+static const Biome biomes[5] = {
+    { "CAVERN",  &rock_at,  { 6, 6, 22 },  { 20, 12, 48 }, { 10, 6, 26 }, { 4, 1, 8 }, 26, 0 },
+    { "HIVE",    &flesh_at, { 20, 4, 14 }, { 52, 14, 34 }, { 26, 8, 16 }, { 8, 1, 3 }, 18, 2 },
+    { "GLACIER", &ice_at,   { 6, 12, 30 }, { 18, 36, 66 }, { 14, 20, 34 }, { 5, 6, 8 }, 30, 0 },
+    { "SPOREPIT", &spore_at, { 4, 14, 10 }, { 14, 38, 26 }, { 8, 18, 10 }, { 2, 7, 3 }, 22, 1 },
+    { "EMBERFORGE", &lava_at, { 16, 6, 4 }, { 44, 18, 10 }, { 24, 10, 8 }, { 8, 3, 1 }, 38, 0 },
+};
+static int cur_biome;
+static void build_gradient(void);   /* fwd: sky rebuilt per sector */
 
 /* ------------------------------------------------------------------ tuning */
 #define GRAV     62.0f
@@ -625,6 +647,13 @@ static void ensure_path(void) {
 
 static void gen_sector(void) {
     mote_rand_seed(run_seed + sector * 7919u);
+    /* pick the sector's biome: always launch from home cavern */
+    cur_biome = sector == 1 ? 0
+              : (int)(((run_seed >> 6) + sector * 2654435761u) % 5u);
+    const char *dbm = getenv("SCRAP_BIOME");
+    if (dbm) cur_biome = mote_clampi(atoi(dbm), 0, 4);
+    layers[0] = biomes[cur_biome].terrain;
+    build_gradient();
     for (int i = 0; i < ROWS * COLS; i++) map[i] = L_ROCK;
     for (int i = 0; i < MAXEN; i++) en[i].on = 0;
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
@@ -643,7 +672,8 @@ static void gen_sector(void) {
     }
 
     /* chambers along the corridor */
-    int n_chamber = 5 + (int)(mote_rand() % 3);
+    int n_chamber = 5 + (int)(mote_rand() % 3) + biomes[cur_biome].extra_chambers;
+    if (n_chamber > 8) n_chamber = 8;
     static int chx[8], chy[8];
     for (int i = 0; i < n_chamber; i++) {
         int c = 24 + i * (COLS - 48) / n_chamber + (int)(mote_rand() % 12);
@@ -685,7 +715,7 @@ static void gen_sector(void) {
     }
 
     /* stalactites/stalagmites in the corridor */
-    for (int k = 0; k < 26; k++) {
+    for (int k = 0; k < biomes[cur_biome].n_stal; k++) {
         int c = 16 + (int)(mote_rand() % (COLS - 32));
         int cy = cor_y[c];
         int top = cy, bot = cy;
@@ -741,10 +771,12 @@ static int bg_cam_x, bg_cam_y;      /* latched for the render cores */
 static float bg_time;
 
 static void build_gradient(void) {
+    const Biome *b = &biomes[cur_biome];
     for (int i = 0; i < 32; i++) {
         float t = i / 31.0f;
-        int rr = (int)(6 + 14 * t), gg = (int)(6 + 6 * t), bb = (int)(22 + 26 * t);
-        bg_grad[i] = MOTE_RGB565(rr, gg, bb);
+        bg_grad[i] = MOTE_RGB565((int)(b->sky0[0] + (b->sky1[0] - b->sky0[0]) * t),
+                                 (int)(b->sky0[1] + (b->sky1[1] - b->sky0[1]) * t),
+                                 (int)(b->sky0[2] + (b->sky1[2] - b->sky0[2]) * t));
     }
 }
 
@@ -774,7 +806,10 @@ static void bg_cb(uint16_t *fb, int y0, int y1) {
             uint16_t c = base;
             if (v > 38) {
                 int a = v - 38;                              /* 1..25 */
-                c = MOTE_RGB565(10 + a, 6 + a / 3, 26 + a * 2);
+                const Biome *bm = &biomes[cur_biome];
+                c = MOTE_RGB565(bm->neb0[0] + ((a * bm->nebs[0]) >> 2),
+                                bm->neb0[1] + ((a * bm->nebs[1]) >> 2),
+                                bm->neb0[2] + ((a * bm->nebs[2]) >> 2));
             }
             row[x] = c;
         }
@@ -836,7 +871,9 @@ static void start_run(void) {
         }
     }
     state = ST_PLAY; state_t = 0;
-    say("SECTOR 1");
+    char bt[40];
+    snprintf(bt, sizeof bt, "SECTOR 1: %s", biomes[cur_biome].name);
+    say(bt);
 }
 
 static void save_best(void) {
@@ -1421,10 +1458,8 @@ static void g_update(float dt) {
             sector++;
             if (hull < HULL_MAX) hull += 1;
             gen_sector();
-            char b[24];
-            b[0] = 'S'; b[1] = 'E'; b[2] = 'C'; b[3] = 'T'; b[4] = 'O'; b[5] = 'R'; b[6] = ' ';
-            if (sector >= 10) { b[7] = (char)('0' + sector / 10); b[8] = (char)('0' + sector % 10); b[9] = 0; }
-            else { b[7] = (char)('0' + sector); b[8] = 0; }
+            char b[40];
+            snprintf(b, sizeof b, "SECTOR %d: %s", sector, biomes[cur_biome].name);
             say(b);
             state = ST_PLAY;
         }

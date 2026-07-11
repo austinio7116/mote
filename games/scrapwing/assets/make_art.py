@@ -312,25 +312,32 @@ def edge_profile(seed, depth):
         prof.append(d)
     return prof
 
+TILE_STYLES = {
+    #        base0          base1          base2          edge_lit       edge_dk     fleck v0/v1                 depth corner
+    "rock":  ((96, 74, 78), (78, 58, 66), (112, 90, 92), (168, 140, 130), (46, 32, 42),
+              ((130, 108, 100), (110, 150, 140)), 2, 3),
+    "hull":  ((74, 88, 100), (62, 74, 86), (86, 102, 116), (150, 185, 205), (34, 42, 52),
+              ((100, 118, 132), (96, 130, 126)), 1, 2),
+    "flesh": ((150, 62, 92), (122, 46, 76), (176, 84, 108), (232, 148, 168), (66, 22, 44),
+              ((92, 30, 56), (200, 110, 130)), 2, 4),
+    "ice":   ((132, 162, 198), (108, 136, 178), (162, 192, 222), (236, 246, 255), (52, 74, 122),
+              ((210, 235, 250), (170, 220, 245)), 1, 3),
+    "spore": ((64, 106, 78), (50, 88, 66), (80, 126, 92), (150, 220, 140), (26, 48, 38),
+              ((160, 255, 130), (240, 230, 120)), 2, 3),
+    "lava":  ((58, 48, 54), (46, 38, 44), (72, 60, 64), (205, 115, 60), (18, 14, 18),
+              ((255, 140, 40), (255, 200, 70)), 2, 3),
+}
+
 def draw_tile(img, ox, oy, mask, style, var):
     """One 8x8 autotile cell. mask bits = same-terrain neighbour PRESENT.
 
     Exposed sides are carved back with a bumpy random-walk silhouette and
-    convex corners get a diagonal cut, so caves read as organic rock (and hull
-    as bevelled girders), not blocky squares. Transparent pixels outside the
-    silhouette let the starfield show through.
+    convex corners get a diagonal cut, so terrain reads organically. Each
+    style adds its own fill motif: hull panels+rivets, flesh pores, ice
+    facets, spore glow dots, lava veins.
     """
-    rock = style == "rock"
-    if rock:
-        b0 = (96, 74, 78); b1 = (78, 58, 66); b2 = (112, 90, 92)
-        edge_lit = (168, 140, 130); edge_dk = (46, 32, 42)
-        fleck = (130, 108, 100) if var == 0 else (110, 150, 140)
-        depth, corner = 2, 3
-    else:  # hull: tighter bevel, structural
-        b0 = (74, 88, 100); b1 = (62, 74, 86); b2 = (86, 102, 116)
-        edge_lit = (150, 185, 205); edge_dk = (34, 42, 52)
-        fleck = (100, 118, 132) if var == 0 else (96, 130, 126)
-        depth, corner = 1, 2
+    b0, b1, b2, edge_lit, edge_dk, flecks, depth, corner = TILE_STYLES[style]
+    fleck = flecks[var % len(flecks)]
 
     cell_seed = (mask * 7 + var * 131) & 0xFFFF
     pn = edge_profile(cell_seed + 1, depth)
@@ -348,7 +355,6 @@ def draw_tile(img, ox, oy, mask, style, var):
             for x in range(pw[i]): solid[i][x] = False
         if not (mask & NB_E):
             for x in range(pe[i]): solid[i][TS - 1 - x] = False
-    # convex corners: diagonal cut -> rounded outcrops instead of right angles
     for y in range(TS):
         for x in range(TS):
             if not (mask & NB_N) and not (mask & NB_W) and x + y < corner:
@@ -364,29 +370,36 @@ def draw_tile(img, ox, oy, mask, style, var):
         for x in range(TS):
             if not solid[y][x]:
                 continue
-            # coarse 2x2 patches so the fill reads as strata, not static
             h = hash2((ox * 31 + x + var * 7) >> 1, (oy * 17 + y) >> 1)
             c = b0 if h % 7 < 5 else (b1 if h % 7 == 5 else b2)
-            if not rock:
+            hf = hash2(ox * 31 + x + var * 7, oy * 17 + y)
+            if style == "hull":
                 if (x + ox // TS) % 4 == 3 or (y + oy // TS) % 4 == 3:
                     c = b1                       # panel lines
-                if (h >> 8) % 41 == 0:
+                if (hf >> 8) % 41 == 0:
                     c = fleck                    # rivet
-            elif (h >> 8) % 29 == 0:
-                c = fleck                        # mineral fleck
-            # rim shading follows the silhouette: lit above, dark below, mid sides
+            elif style == "flesh":
+                if (hf >> 8) % 13 == 0:
+                    c = flecks[0]                # dark pores
+                elif (hf >> 8) % 31 == 0:
+                    c = flecks[1]                # membrane sheen
+            elif style == "ice":
+                if ((x - y + (ox // TS) * 3) & 7) == (hf & 7) and (hf >> 9) % 5 == 0:
+                    c = fleck                    # diagonal facet glints
+            elif style == "spore":
+                if (hf >> 8) % 17 == 0:
+                    c = fleck                    # glowing spores
+            elif style == "lava":
+                # branching magma veins: thin bright cracks through the basalt
+                if ((hash2((ox * 31 + x) >> 1, (oy * 17 + y + var * 5) >> 2) & 15) == 3
+                        and (hf & 3) != 0):
+                    c = flecks[(hf >> 6) & 1]
+            elif (hf >> 8) % 29 == 0:
+                c = fleck                        # rock mineral fleck
             up = y > 0 and solid[y - 1][x]
             dn = y < TS - 1 and solid[y + 1][x]
             lf = x > 0 and solid[y][x - 1]
             rt = x < TS - 1 and solid[y][x + 1]
-            edge_n = not (mask & NB_N) or not up
-            edge_s = not (mask & NB_S) or not dn
-            edge_w = not (mask & NB_W) or not lf
-            edge_e = not (mask & NB_E) or not rt
-            if y == 0 and (mask & NB_N): edge_n = False
-            if y == TS - 1 and (mask & NB_S): edge_s = False
-            if x == 0 and (mask & NB_W): edge_w = False
-            if x == TS - 1 and (mask & NB_E): edge_e = False
             if not up and y > 0 or (y == 0 and not (mask & NB_N)):
                 c = edge_lit
             elif not dn and y < TS - 1 or (y == TS - 1 and not (mask & NB_S)):
@@ -397,7 +410,6 @@ def draw_tile(img, ox, oy, mask, style, var):
                 c = shade(edge_dk, 1.4)[:3]
             put(img, ox + x, oy + y, (*c, 255))
 
-    # inner corners: both cardinals present but the diagonal missing
     if (mask & NB_N) and (mask & NB_E) and not (mask & NB_NE):
         put(img, ox + TS - 1, oy, (*edge_lit, 255))
     if (mask & NB_N) and (mask & NB_W) and not (mask & NB_NW):
@@ -476,6 +488,6 @@ def write_meta(meta, bigmeta):
 if __name__ == "__main__":
     make_props()
     make_gate()
-    n = make_tiles("rock"); make_tiles("hull")
+    for s in TILE_STYLES: n = make_tiles(s)
     print("blob47 cells:", n)
     print("done")
