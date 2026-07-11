@@ -167,8 +167,18 @@ typedef struct {
 static Enemy en[MAXEN];
 
 #define MAXCHIP 20
-enum { CH_WEAPON, CH_HEAL, CH_SHIELD };
-typedef struct { float x, y, t; uint8_t on, type; Gene g; } Chip;
+enum { CH_WEAPON, CH_HEAL, CH_POWER };
+/* Powerups ride the orb sprites — a FIXED sprite per effect so players learn
+ * them on sight (colors follow meaning: cyan shield, green heal, red nova...). */
+enum { PU_SHIELD, PU_REPAIR, PU_NOVA, PU_OVERDRIVE, PU_AMP, PU_AFTERBURN,
+       PU_GHOST, PU_LEVELCORE, PU_SCRAP, PU_N };
+static const uint8_t pu_sprite[PU_N] = { 8, 10, 25, 5, 9, 24, 6, 17, 19 };
+static const char *const pu_name[PU_N] = {
+    "SHIELD CELL +", "REPAIR KIT", "NOVA!", "OVERDRIVE", "DAMAGE AMP",
+    "AFTERBURNER", "GHOST FIELD", "WEAPON LEVEL UP", "SCRAP CACHE" };
+/* weighted spawn odds (sum 100) */
+static const uint8_t pu_weight[PU_N] = { 18, 16, 10, 13, 13, 11, 8, 4, 7 };
+typedef struct { float x, y, t; uint8_t on, type, pu; Gene g; } Chip;
 static Chip chips[MAXCHIP];
 
 /* ------------------------------------------------------------------ player */
@@ -176,6 +186,7 @@ static float px, py, pvx, pvy;
 static int   facing = 1;
 static float hull, invuln, fire_cd, die_t;
 static float shield_e, shield_max;
+static float b_over, b_amp, b_after, b_ghost;   /* timed powerup buffs */
 static int   shield_on;
 static float thrust_x, thrust_y;
 
@@ -363,7 +374,8 @@ static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
  * player, and by the Fusion Bench to LIVE-DEMO a fusion result. */
 static void fire_gene(const Gene *g, float x, float y, int dsign, int demo) {
     float dir = dsign > 0 ? 0.0f : 3.14159f;
-    float dmg = gene_dmg(g), spd = pat_spd[g->pat];
+    float dmg = gene_dmg(g) * (!demo && b_amp > 0 ? 1.5f : 1.0f);
+    float spd = pat_spd[g->pat];
     uint8_t m = g->mods;
     g_demo_fire = demo;
     switch (g->pat) {
@@ -440,14 +452,26 @@ static void enemy_bbox(const Enemy *e, float *hw, float *hh) {
     else { *hw = ship_bw[e->ship] * 0.5f; *hh = ship_bh[e->ship] * 0.5f; }
 }
 
+static int roll_powerup(void) {
+    int r = (int)(mote_rand() % 100), acc = 0;
+    for (int i = 0; i < PU_N; i++) { acc += pu_weight[i]; if (r < acc) return i; }
+    return PU_SHIELD;
+}
+
 static void drop_chip(float x, float y, const Gene *g, int type) {
     for (int i = 0; i < MAXCHIP; i++) if (!chips[i].on) {
         chips[i].on = 1; chips[i].type = (uint8_t)type;
         chips[i].x = x; chips[i].y = y; chips[i].t = 0;
+        chips[i].pu = (uint8_t)(type == CH_POWER ? roll_powerup() : 0);
         if (g) chips[i].g = *g;
-        if (type == CH_SHIELD) chips[i].g.icon = (uint8_t)(mote_rand() % MINE_COUNT);
         return;
     }
+}
+static void drop_power(float x, float y, int pu) {
+    drop_chip(x, y, 0, CH_POWER);
+    for (int i = 0; i < MAXCHIP; i++)
+        if (chips[i].on && chips[i].x == x && chips[i].y == y && chips[i].type == CH_POWER)
+            { chips[i].pu = (uint8_t)pu; break; }
 }
 
 static float dmg_enemy(Enemy *e, float d);   /* fwd */
@@ -473,7 +497,8 @@ static void kill_enemy(Enemy *e) {
             Gene g3 = e->wpn; g3.lvl = lvl;
             drop_chip(e->x, e->y - 10, &g3, CH_WEAPON);
             drop_chip(e->x - 4, e->y + 8, 0, CH_HEAL);
-            drop_chip(e->x + 6, e->y + 8, 0, CH_SHIELD);
+            drop_power(e->x + 6, e->y + 8, PU_SHIELD);
+            drop_chip(e->x + 14, e->y + 4, 0, CH_POWER);
             gate_open = 1;
             say("WARP GATE UNLOCKED");
             mote->audio_play_sfx(&gate_sfx, 0.9f);
@@ -482,7 +507,8 @@ static void kill_enemy(Enemy *e) {
             drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
             Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
             drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
-            drop_chip(e->x, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
+            drop_chip(e->x - 4, e->y + 6, 0, CH_HEAL);
+            drop_chip(e->x + 6, e->y + 6, 0, CH_POWER);
         }
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
@@ -502,7 +528,8 @@ static void kill_enemy(Enemy *e) {
                 e->flip, e->vx, e->vy);
         scrap += 8;
         if ((mote_rand() & 255) < 105) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
-        else if ((mote_rand() & 255) < 26) drop_chip(e->x, e->y, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
+        else if ((mote_rand() & 255) < 34) drop_chip(e->x, e->y, 0, CH_HEAL);
+        else if ((mote_rand() & 255) < 22) drop_chip(e->x, e->y, 0, CH_POWER);
         spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
         mote->audio_play_sfx(&boom_small_sfx, 0.65f);
         mote->rumble(0.3f, 90);
@@ -807,13 +834,18 @@ static void gen_sector(void) {
         int ci = 1 + (int)(mote_rand() % (n_chamber - 1));
         place_enemy(K_HEAVY, chx[ci] * TILE, chy[ci] * TILE);
     }
-    /* free-floating shield cells along the corridor */
+    /* free-floating powerup orbs + a repair kit or two along the corridor */
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
-    int ncell = 3 + (int)(mote_rand() % 3);
+    int ncell = 5 + (int)(mote_rand() % 3);
     for (int k = 0; k < ncell; k++) {
         int c = 30 + (int)(mote_rand() % (COLS - 44));
         float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-10, 10);
-        if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_SHIELD);
+        if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_POWER);
+    }
+    for (int k = 0; k < 2; k++) {
+        int c = 40 + (int)(mote_rand() % (COLS - 60));
+        float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-8, 8);
+        if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_HEAL);
     }
     ensure_path();
     gate_t = 0;
@@ -899,6 +931,7 @@ static void start_run(void) {
     sector = 1; scrap = 0; kills = 0;
     hull = HULL_MAX; invuln = 0; fire_cd = 0; die_t = 0;
     shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
+    b_over = b_amp = b_after = b_ghost = 0;
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
     inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
@@ -955,7 +988,7 @@ static void g_init(void) {
 
 /* ================================================================== player */
 static void take_hit(float n) {
-    if (g_god || invuln > 0 || state != ST_PLAY) return;
+    if (g_god || b_ghost > 0 || invuln > 0 || state != ST_PLAY) return;
     if (shield_on) {                     /* the shield eats it */
         shield_e = mote_clampf(shield_e - 0.4f, 0, shield_max);
         for (int k = 0; k < 8; k++) {
@@ -996,8 +1029,9 @@ static void player_update(float dt) {
     if (mote_pressed(in, MOTE_BTN_UP) || mote_pressed(in, MOTE_BTN_RB)) thrust_y -= 1;
     if (mote_pressed(in, MOTE_BTN_DOWN))  thrust_y += 1;
 
-    pvx += (thrust_x * THRUST - pvx * DRAG) * dt;
-    pvy += (thrust_y * THRUST + GRAV - pvy * DRAG) * dt;
+    float th = THRUST * (b_after > 0 ? 1.35f : 1.0f);
+    pvx += (thrust_x * th - pvx * DRAG) * dt;
+    pvy += (thrust_y * th + GRAV - pvy * DRAG) * dt;
     pvx = mote_clampf(pvx, -VMAX, VMAX);
     pvy = mote_clampf(pvy, -VMAX, VMAX);
 
@@ -1027,11 +1061,22 @@ static void player_update(float dt) {
     px = mote_clampf(px, 6, WORLD_W - 6);
     py = mote_clampf(py, 6, WORLD_H - 6);
 
+    /* timed powerup buffs */
+    if (b_over > 0)  b_over -= dt;
+    if (b_amp > 0)   b_amp -= dt;
+    if (b_after > 0) b_after -= dt;
+    if (b_ghost > 0) {
+        b_ghost -= dt;
+        if ((mote_rand() & 3) == 0)                  /* phasing shimmer */
+            spawn_part(px + mote_randf(-7, 7), py + mote_randf(-6, 6), 0, -4,
+                       MOTE_RGB565(190, 200, 230), 0.2f, PF_ADD);
+    }
+
     /* fire */
     fire_cd -= dt;
     if (mote_pressed(in, MOTE_BTN_A) && fire_cd <= 0) {
         fire_gene(&inv[equipped], px + facing * 7, py, facing, 0);
-        fire_cd = 1.0f / gene_rate(&inv[equipped]);
+        fire_cd = 1.0f / (gene_rate(&inv[equipped]) * (b_over > 0 ? 1.4f : 1.0f));
     }
 
     /* B: cycle equipped weapon */
@@ -1338,10 +1383,43 @@ static void chips_update(float dt) {
                 say("HULL PATCHED");
                 mote->audio_play_sfx(&pickup_sfx, 0.7f);
                 c->on = 0;
-            } else if (c->type == CH_SHIELD) {
-                shield_max = mote_clampf(shield_max + 0.75f, 0, 5.0f);
-                shield_e = shield_max;
-                say("SHIELD CELL +");
+            } else if (c->type == CH_POWER) {
+                switch (c->pu) {
+                case PU_SHIELD:
+                    shield_max = mote_clampf(shield_max + 0.75f, 0, 5.0f);
+                    shield_e = shield_max;
+                    break;
+                case PU_REPAIR:
+                    hull = mote_clampf(hull + 2, 0, HULL_MAX);
+                    break;
+                case PU_NOVA: {                     /* screen-shaking blast wave */
+                    for (int k = 0; k < MAXEN; k++) {
+                        Enemy *e2 = &en[k];
+                        if (!e2->on || !e2->active) continue;
+                        float ex = e2->x - px, ey = e2->y - py;
+                        if (ex * ex + ey * ey < 80 * 80) dmg_enemy(e2, 10.0f);
+                    }
+                    spawn_ring(px, py, MOTE_RGB565(255, 120, 80));
+                    spawn_ring(px, py, MOTE_RGB565(255, 220, 140));
+                    for (int k = 0; k < 60; k++) {
+                        float a = mote_randf(0, 6.28f), sp = mote_randf(60, 190);
+                        spawn_part(px, py, cosf(a) * sp, sinf(a) * sp,
+                                   k & 1 ? MOTE_RGB565(255, 150, 60) : MOTE_RGB565(255, 230, 150),
+                                   mote_randf(0.25f, 0.6f), PF_ADD);
+                    }
+                    mote->audio_play_sfx(&boom_big_sfx, 1.0f);
+                    mote->rumble(0.9f, 300);
+                    break; }
+                case PU_OVERDRIVE: b_over = 20.0f; break;
+                case PU_AMP:       b_amp = 15.0f; break;
+                case PU_AFTERBURN: b_after = 20.0f; break;
+                case PU_GHOST:     b_ghost = 6.0f; break;
+                case PU_LEVELCORE:
+                    if (inv[equipped].lvl < 9) inv[equipped].lvl++;
+                    break;
+                case PU_SCRAP: scrap += 25; break;
+                }
+                say(pu_name[c->pu]);
                 mote->audio_play_sfx(&pickup_sfx, 0.8f);
                 c->on = 0;
             } else if (inv_n < INV_MAX) {
@@ -1363,10 +1441,19 @@ static void chips_update(float dt) {
             }
         }
         /* sparkle */
-        if ((mote_rand() & 31) == 0 && c->type != CH_HEAL) {
-            uint16_t sc = c->type == CH_SHIELD ? MOTE_RGB565(120, 220, 255)
-                                               : elem_col[c->g.elem][0];
-            spawn_part(c->x + mote_randf(-5, 5), c->y + mote_randf(-5, 5), 0, -8, sc, 0.3f, PF_ADD);
+        if (c->type == CH_WEAPON) {
+            /* sparkle colour + density = level bracket (rarity at a glance) */
+            int lv = c->g.lvl;
+            uint16_t sc = lv >= 7 ? MOTE_RGB565(220, 130, 255)
+                        : lv >= 4 ? MOTE_RGB565(255, 220, 110)
+                                  : MOTE_RGB565(235, 240, 255);
+            int mask = lv >= 7 ? 7 : (lv >= 4 ? 15 : 31);
+            if (((int)mote_rand() & mask) == 0)
+                spawn_part(c->x + mote_randf(-6, 6), c->y + mote_randf(-6, 6),
+                           0, -9, sc, 0.35f, PF_ADD);
+        } else if (c->type == CH_POWER && (mote_rand() & 31) == 0) {
+            spawn_part(c->x + mote_randf(-5, 5), c->y + mote_randf(-5, 5), 0, -8,
+                       MOTE_RGB565(200, 230, 255), 0.3f, PF_ADD);
         }
     }
 }
@@ -1410,10 +1497,11 @@ static void submit_scene(void) {
             MoteSprite s = { &props_img, (int16_t)(c->x - 4), (int16_t)(c->y - 4 + bob),
                              (uint16_t)((8 + (((int)(c->t * 6)) & 1)) * 8), 0, 8, 8, 6, 0 };
             mote->scene2d_add(&s);
-        } else if (c->type == CH_SHIELD) {
+        } else if (c->type == CH_POWER) {
+            int sp = pu_sprite[c->pu];
             MoteSprite s = { &mines_img, (int16_t)(c->x - 8), (int16_t)(c->y - 8 + bob),
-                             (uint16_t)((c->g.icon % MINE_COLS) * 16),
-                             (uint16_t)((c->g.icon / MINE_COLS) * 16), 16, 16, 6, 0 };
+                             (uint16_t)((sp % MINE_COLS) * 16),
+                             (uint16_t)((sp / MINE_COLS) * 16), 16, 16, 6, 0 };
             mote->scene2d_add(&s);
         } else {
             MoteSprite s = { &weapons_img, (int16_t)(c->x - 8), (int16_t)(c->y - 8 + bob),
@@ -1687,6 +1775,13 @@ static void hud(uint16_t *fb) {
         int w = (int)(80.0f * mote_clampf(e->hp / hpmax, 0, 1));
         if (w > 0) mote->draw_rect(fb, 24, 14, w, 4, MOTE_RGB565(255, 80, 70), 1, 0, MOTE_FB_H);
         break;
+    }
+    {
+        int bx = 3;                                  /* active buff pips */
+        if (b_over > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(90, 230, 210), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_amp > 0)   { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(255, 90, 90), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_after > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(255, 160, 60), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_ghost > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(200, 210, 235), 1, 0, MOTE_FB_H); bx += 6; }
     }
     mote->draw_rect(fb, 3, 8, 33, 3, MOTE_RGB565(30, 40, 60), 1, 0, MOTE_FB_H);
     int sw = (int)(33.0f * shield_e / (shield_max > 0 ? shield_max : 1));
