@@ -37,8 +37,8 @@ MOTE_MODULE_HEADER();
 #include "props.h"          /* props_img: chips[6] turret[2] core[2] (8x8) */
 #include "mines.h"          /* mines_img: 16x16 proximity mines */
 #include "gate.h"           /* gate_img: 2 frames 16x24 */
-#include "rock.h"           /* rock_img: BLOB47 sheet, 2 variants */
-#include "hull.h"           /* hull_img */
+#include "rock.tiles.h"     /* rock_at: BLOB47 ruleset (Studio Tiles tab) */
+#include "hull.tiles.h"     /* hull_at */
 #include "ships_meta.h"     /* SHIP_COUNT, bboxes, PLAYER_SHIP, boss rects */
 
 #include "shot_pulse.sfx.h"
@@ -66,8 +66,7 @@ MOTE_GAME_META("Scrapwing", "austinio7116");
 
 static uint8_t map[ROWS * COLS];
 static uint8_t cor_y[COLS];
-static MoteAutotile at_rock, at_hull;
-static const MoteAutotile *layers[2] = { &at_rock, &at_hull };
+static const MoteAutotile *layers[2] = { &rock_at, &hull_at };
 
 /* ------------------------------------------------------------------ tuning */
 #define GRAV     62.0f
@@ -115,7 +114,7 @@ static float gene_rate(const Gene *g) { float r = pat_rate[g->pat] * (1.0f + 0.0
 typedef struct {
     float x, y, vx, vy, age, dmg, phase;
     float rx, ry, prx, pry;             /* rendered pos (wave offset applied) */
-    uint8_t on, pat, elem, mods, pierce, bounce;
+    uint8_t on, pat, elem, mods, pierce, bounce, lvl;
 } Shot;
 static Shot shots[MAXSHOT];
 
@@ -135,7 +134,7 @@ typedef struct { float x, y, age; uint8_t on; uint16_t col; } Ring;
 static Ring rings[MAXRING];
 
 #define MAXEN 32
-enum { K_DRIFT, K_CHASE, K_SNIPE, K_ORBIT, K_TURRET, K_HEAVY, K_MINE };
+enum { K_DRIFT, K_CHASE, K_SNIPE, K_ORBIT, K_TURRET, K_HEAVY };
 typedef struct {
     float x, y, vx, vy, hp, t, fire, poison;
     float hx, hy;                       /* home/anchor */
@@ -145,14 +144,17 @@ typedef struct {
 } Enemy;
 static Enemy en[MAXEN];
 
-#define MAXCHIP 12
-typedef struct { float x, y, t; uint8_t on, heal; Gene g; } Chip;
+#define MAXCHIP 20
+enum { CH_WEAPON, CH_HEAL, CH_SHIELD };
+typedef struct { float x, y, t; uint8_t on, type; Gene g; } Chip;
 static Chip chips[MAXCHIP];
 
 /* ------------------------------------------------------------------ player */
 static float px, py, pvx, pvy;
 static int   facing = 1;
 static float hull, invuln, fire_cd, die_t;
+static float shield_e, shield_max;
+static int   shield_on;
 static float thrust_x, thrust_y;
 
 #define INV_MAX 8
@@ -257,6 +259,7 @@ static Gene roll_gene(void) {
 
 static int count_bits(unsigned v) { int n = 0; while (v) { n += v & 1; v >>= 1; } return n; }
 
+/* DETERMINISTIC (pure) so the lab preview always matches the fused result. */
 static Gene fuse_genes(const Gene *a, const Gene *b) {
     Gene c;
     c.pat = a->pat;                     /* chassis: firing pattern */
@@ -265,11 +268,24 @@ static Gene fuse_genes(const Gene *a, const Gene *b) {
     if (c.lvl > 9) c.lvl = 9;
     c.mods = a->mods | b->mods;
     if (a->elem == b->elem || a->pat == b->pat)   /* resonance: bonus mod */
-        c.mods |= 1u << (mote_rand() & 3);
-    while (count_bits(c.mods) > 3)                /* cap at 3 mods */
-        c.mods &= ~(1u << (mote_rand() & 3));
+        for (int bit = 0; bit < 4; bit++) {
+            uint8_t m = (uint8_t)(1u << ((a->pat + b->elem + bit) & 3));
+            if (!(c.mods & m)) { c.mods |= m; break; }
+        }
+    for (int bit = 3; bit >= 0 && count_bits(c.mods) > 3; bit--)
+        c.mods &= (uint8_t)~(1u << bit);          /* cap at 3 mods */
     c.icon = b->icon;
     return c;
+}
+
+static void mods_str(uint8_t mods, char *out) {
+    int n = 0;
+    if (mods & MOD_HOMING) out[n++] = 'H';
+    if (mods & MOD_PIERCE) out[n++] = 'P';
+    if (mods & MOD_SPLIT)  out[n++] = 'S';
+    if (mods & MOD_BOUNCE) out[n++] = 'B';
+    if (!n) out[n++] = '-';
+    out[n] = 0;
 }
 
 static void gene_label(const Gene *g, char *out, int max) {
@@ -308,6 +324,7 @@ static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
         s->pierce = (uint8_t)((g->elem == EL_VOID ? 1 : 0) +
                               ((inherit_mods & MOD_PIERCE) ? 2 : 0));
         s->bounce = (inherit_mods & MOD_BOUNCE) ? 3 : 0;
+        s->lvl = g->lvl;
         return s;
     }
     return 0;
@@ -335,11 +352,47 @@ static void fire_weapon(const Gene *g) {
                         spawn_shot(x, y, dir + mote_randf(-0.45f, 0.45f),
                                    spd * mote_randf(0.8f, 1.2f), g, dmg, m); break;
     }
-    /* muzzle flash: a burst of additive sparks */
+    /* muzzle flash: each element announces itself differently */
     const uint16_t *ec = elem_col[g->elem];
-    for (int k = 0; k < 7; k++)
-        spawn_part(x + facing * 2, y, facing * mote_randf(20, 90),
-                   mote_randf(-28, 28), ec[k & 1], mote_randf(0.08f, 0.2f), PF_ADD);
+    switch (g->elem) {
+    case EL_FIRE:                                   /* forward ember cone */
+        for (int k = 0; k < 10; k++)
+            spawn_part(x + facing * 2, y, facing * mote_randf(40, 110),
+                       mote_randf(-38, 38), k & 1 ? ec[0] : ec[1],
+                       mote_randf(0.12f, 0.3f), PF_ADD | PF_GRAV);
+        break;
+    case EL_VOLT:                                   /* static discharge ring */
+        for (int k = 0; k < 8; k++) {
+            float a = k * 0.785f + mote_randf(-0.2f, 0.2f);
+            spawn_part(x + cosf(a) * 3, y + sinf(a) * 3,
+                       cosf(a) * mote_randf(50, 110), sinf(a) * mote_randf(50, 110),
+                       ec[k & 1], 0.09f, PF_ADD);
+        }
+        break;
+    case EL_VENOM:                                  /* spat droplets */
+        for (int k = 0; k < 5; k++)
+            spawn_part(x + facing * 2, y, facing * mote_randf(20, 70),
+                       mote_randf(-30, -4), ec[k % 3], mote_randf(0.2f, 0.45f),
+                       PF_ADD | PF_GRAV);
+        break;
+    case EL_VOID:                                   /* imploding motes */
+        for (int k = 0; k < 7; k++) {
+            float a = mote_randf(0, 6.28f), r = mote_randf(5, 9);
+            spawn_part(x + cosf(a) * r, y + sinf(a) * r,
+                       -cosf(a) * 55, -sinf(a) * 55, ec[k % 3], 0.16f, PF_ADD);
+        }
+        break;
+    case EL_PLASMA:                                 /* slow goo puff */
+        for (int k = 0; k < 5; k++)
+            spawn_part(x + facing * 3, y + mote_randf(-2, 2),
+                       facing * mote_randf(8, 30), mote_randf(-12, 12),
+                       ec[1 + (k & 1)], mote_randf(0.2f, 0.4f), PF_ADD);
+        break;
+    default:                                        /* pulse: crisp flash */
+        for (int k = 0; k < 7; k++)
+            spawn_part(x + facing * 2, y, facing * mote_randf(30, 100),
+                       mote_randf(-24, 24), ec[k & 1], mote_randf(0.06f, 0.16f), PF_ADD);
+    }
     fire_sfx(g);
 }
 
@@ -352,15 +405,15 @@ static Enemy *alloc_enemy(void) {
 static void enemy_bbox(const Enemy *e, float *hw, float *hh) {
     if (e->kind == K_HEAVY) { *hw = boss_fw[e->ship] * 0.5f; *hh = boss_fh[e->ship] * 0.5f; }
     else if (e->kind == K_TURRET) { *hw = 4; *hh = 4; }
-    else if (e->kind == K_MINE) { *hw = 5; *hh = 5; }
     else { *hw = ship_bw[e->ship] * 0.5f; *hh = ship_bh[e->ship] * 0.5f; }
 }
 
-static void drop_chip(float x, float y, const Gene *g, int heal) {
+static void drop_chip(float x, float y, const Gene *g, int type) {
     for (int i = 0; i < MAXCHIP; i++) if (!chips[i].on) {
-        chips[i].on = 1; chips[i].heal = (uint8_t)heal;
+        chips[i].on = 1; chips[i].type = (uint8_t)type;
         chips[i].x = x; chips[i].y = y; chips[i].t = 0;
         if (g) chips[i].g = *g;
+        if (type == CH_SHIELD) chips[i].g.icon = (uint8_t)(mote_rand() % MINE_COUNT);
         return;
     }
 }
@@ -377,10 +430,10 @@ static void kill_enemy(Enemy *e) {
                 (int)(e->x - boss_fw[e->ship] / 2), (int)(e->y - boss_fh[e->ship] / 2),
                 e->flip, e->vx, e->vy);
         scrap += 25;
-        drop_chip(e->x - 5, e->y, &e->wpn, 0);
+        drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
         Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
-        drop_chip(e->x + 5, e->y - 4, &g2, 0);
-        if (mote_rand() & 1) drop_chip(e->x, e->y + 6, 0, 1);
+        drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
+        drop_chip(e->x, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
         mote->audio_play_sfx(&boom_big_sfx, 0.85f);
@@ -388,23 +441,8 @@ static void kill_enemy(Enemy *e) {
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0);
         scrap += 4;
-        if ((mote_rand() & 255) < 90) drop_chip(e->x, e->y - 4, &e->wpn, 0);
+        if ((mote_rand() & 255) < 90) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
         mote->audio_play_sfx(&boom_small_sfx, 0.5f);
-    } else if (e->kind == K_MINE) {
-        shatter(&mines_img, (e->ship % MINE_COLS) * 16, (e->ship / MINE_COLS) * 16,
-                16, 16, (int)e->x - 8, (int)e->y - 8, 0, 0, 0);
-        spawn_ring(e->x, e->y, MOTE_RGB565(255, 150, 200));
-        mote->audio_play_sfx(&boom_small_sfx, 0.7f);
-        scrap += 2;
-        /* blast: hurts the player and chains to nearby enemies/mines */
-        float dx = px - e->x, dy = py - e->y;
-        if (dx * dx + dy * dy < 22 * 22) { take_hit(1); pvx += dx * 3; pvy += dy * 3; }
-        for (int i = 0; i < MAXEN; i++) {
-            Enemy *o = &en[i];
-            if (!o->on || o == e) continue;
-            float ox = o->x - e->x, oy = o->y - e->y;
-            if (ox * ox + oy * oy < 22 * 22) dmg_enemy(o, 3.0f);
-        }
     } else {
         int cell = e->ship;
         shatter(&ships_img, (cell % SHIP_COLS) * SHIP_CELL + ship_bx[cell],
@@ -413,8 +451,8 @@ static void kill_enemy(Enemy *e) {
                 (int)(e->x - ship_bw[cell] / 2), (int)(e->y - ship_bh[cell] / 2),
                 e->flip, e->vx, e->vy);
         scrap += 8;
-        if ((mote_rand() & 255) < 105) drop_chip(e->x, e->y, &e->wpn, 0);
-        else if ((mote_rand() & 255) < 18) drop_chip(e->x, e->y, 0, 1);
+        if ((mote_rand() & 255) < 105) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
+        else if ((mote_rand() & 255) < 26) drop_chip(e->x, e->y, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
         spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
         mote->audio_play_sfx(&boom_small_sfx, 0.65f);
         mote->rumble(0.3f, 90);
@@ -455,12 +493,35 @@ static void volt_chain(float x, float y, float dmg, Enemy *skip) {
 
 static void shot_impact_fx(Shot *s) {
     const uint16_t *ec = elem_col[s->elem];
-    int n = s->pat == PAT_ORB ? 16 : 8;
-    for (int k = 0; k < n; k++) {
-        float a = mote_randf(0, 6.28f), sp = mote_randf(12, 70);
-        spawn_part(s->rx, s->ry, cosf(a) * sp, sinf(a) * sp,
-                   ec[k % 3], mote_randf(0.12f, 0.35f), PF_ADD);
+    int n = (s->pat == PAT_ORB ? 16 : 8) + (s->lvl >= 4 ? 6 : 0);
+    switch (s->elem) {
+    case EL_VOID:                                   /* implosion: sucked inward */
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), r = mote_randf(7, 14);
+            spawn_part(s->rx + cosf(a) * r, s->ry + sinf(a) * r,
+                       -cosf(a) * 70, -sinf(a) * 70, ec[k % 3], 0.22f, PF_ADD);
+        }
+        break;
+    case EL_VENOM:                                  /* acid splatter, drips down */
+        for (int k = 0; k < n; k++)
+            spawn_part(s->rx, s->ry, mote_randf(-35, 35), mote_randf(-55, -5),
+                       ec[k % 3], mote_randf(0.3f, 0.6f), PF_ADD | PF_GRAV);
+        break;
+    case EL_PULSE: {                                /* 4-way spark star */
+        static const float ax[4] = { 1, -1, 0, 0 }, ay[4] = { 0, 0, 1, -1 };
+        for (int k = 0; k < 4; k++)
+            for (int j = 1; j <= 2 + n / 8; j++)
+                spawn_part(s->rx + ax[k] * j * 2, s->ry + ay[k] * j * 2,
+                           ax[k] * 95, ay[k] * 95, ec[j & 1], 0.16f, PF_ADD);
+        break; }
+    default:                                        /* radial burst */
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(12, 70);
+            spawn_part(s->rx, s->ry, cosf(a) * sp, sinf(a) * sp,
+                       ec[k % 3], mote_randf(0.12f, 0.35f), PF_ADD);
+        }
     }
+    if (s->elem == EL_PLASMA) spawn_ring(s->rx, s->ry, ec[1]);
 }
 
 static float dmg_enemy(Enemy *e, float d) {
@@ -510,9 +571,9 @@ static void carve_disc(int cc, int cr, int rx, int ry) {
         }
 }
 
-static void place_enemy(int kind, float x, float y) {
+static Enemy *place_enemy(int kind, float x, float y) {
     Enemy *e = alloc_enemy();
-    if (!e) return;
+    if (!e) return 0;
     e->on = 1; e->active = 0; e->kind = (uint8_t)kind;
     e->x = e->hx = x; e->y = e->hy = y; e->vx = e->vy = 0;
     e->t = mote_randf(0, 6.28f); e->fire = mote_randf(0.4f, 1.6f);
@@ -522,9 +583,6 @@ static void place_enemy(int kind, float x, float y) {
         e->ship = (uint16_t)(mote_rand() % BOSS_COUNT);
         e->hp = 14.0f + sector * 4.0f;
         e->wpn.lvl = (uint8_t)mote_clampi(1 + sector / 2, 1, 9);
-    } else if (kind == K_MINE) {
-        e->ship = (uint16_t)(mote_rand() % MINE_COUNT);
-        e->hp = 1.0f;
     } else {
         e->ship = (uint16_t)(1 + mote_rand() % (SHIP_COUNT - 1));
         if (e->ship == PLAYER_SHIP) e->ship++;
@@ -532,6 +590,37 @@ static void place_enemy(int kind, float x, float y) {
         if (kind == K_TURRET) e->hp = 3.0f;
         e->hp += sector * 0.5f;
     }
+    return e;
+}
+
+
+/* BFS spawn->gate over empty cells; if decoration ever sealed the level,
+ * blast the corridor tube clear again. Decorations are built non-blocking,
+ * so this is a belt-and-braces guarantee. */
+static void ensure_path(void) {
+    static uint8_t vis[ROWS * COLS];
+    static uint16_t q[ROWS * COLS];
+    for (int i = 0; i < ROWS * COLS; i++) vis[i] = 0;
+    int head = 0, tail = 0;
+    int sc = mote_clampi((int)(px / TILE), 0, COLS - 1);
+    int sr = mote_clampi((int)(py / TILE), 0, ROWS - 1);
+    q[tail++] = (uint16_t)(sr * COLS + sc); vis[sr * COLS + sc] = 1;
+    int gc = mote_clampi((gate_x + 8) / TILE, 0, COLS - 1);
+    int gr = mote_clampi((gate_y + 12) / TILE, 0, ROWS - 1);
+    while (head < tail) {
+        int cell = q[head++], c = cell % COLS, r = cell / COLS;
+        if (c == gc && r == gr) return;                /* gate reachable */
+        static const int dc[4] = { 1, -1, 0, 0 }, dr[4] = { 0, 0, 1, -1 };
+        for (int k = 0; k < 4; k++) {
+            int nc = c + dc[k], nr = r + dr[k];
+            if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+            int ni = nr * COLS + nc;
+            if (vis[ni] || map[ni]) continue;
+            vis[ni] = 1; q[tail++] = (uint16_t)ni;
+        }
+    }
+    for (int c = 2; c < COLS - 2; c++)
+        for (int rr = cor_y[c] - 2; rr <= cor_y[c] + 2; rr++) carve(c, rr);
 }
 
 static void gen_sector(void) {
@@ -564,30 +653,35 @@ static void gen_sector(void) {
         chx[i] = c; chy[i] = cor_y[c];
     }
 
-    /* hull stations inside some chambers */
-    int n_station = 2 + (int)(mote_rand() % 2);
-    for (int i = 0; i < n_station; i++) {
-        int ci = (int)(mote_rand() % n_chamber);
-        int cx = chx[ci], cy = chy[ci];
-        int w = 12 + (int)(mote_rand() % 7), h = 7 + (int)(mote_rand() % 4);
-        int c0 = mote_clampi(cx - w / 2, 2, COLS - w - 2);
-        int r0 = mote_clampi(cy - h / 2, 2, ROWS - h - 2);
-        for (int rr = r0; rr < r0 + h; rr++)
-            for (int cc = c0; cc < c0 + w; cc++) {
-                int edge = (rr == r0 || rr == r0 + h - 1 || cc == c0 || cc == c0 + w - 1);
-                map[rr * COLS + cc] = edge ? L_HULL : 0;
+    /* derelict hull ledges: wall-mounted girders that NEVER seal the level —
+     * a column is only built where the passage keeps >= 3 free tiles on the
+     * ledge's open side, so the corridor always stays flyable */
+    int n_led = 7 + (int)(mote_rand() % 4);
+    for (int i = 0; i < n_led; i++) {
+        int c0 = 14 + (int)(mote_rand() % (COLS - 34));
+        int L = 4 + (int)(mote_rand() % 6);
+        int th = 1 + (int)(mote_rand() & 1);
+        int on_ceil = (int)(mote_rand() & 1);
+        int placed = 0, tx = 0, ty = 0;
+        for (int cc = c0; cc < c0 + L && cc < COLS - 3; cc++) {
+            int top = cor_y[cc], bot = cor_y[cc];
+            if (solid_cell(cc, top)) continue;
+            while (top > 1 && !solid_cell(cc, top - 1)) top--;
+            while (bot < ROWS - 2 && !solid_cell(cc, bot + 1)) bot++;
+            if (bot - top + 1 < th + 3) continue;      /* keep the passage open */
+            if (on_ceil) {
+                for (int rr = top; rr < top + th; rr++) map[rr * COLS + cc] = L_HULL;
+                tx = cc; ty = top + th;
+            } else {
+                for (int rr = bot; rr > bot - th; rr--) map[rr * COLS + cc] = L_HULL;
+                tx = cc; ty = bot - th;
             }
-        /* door gaps left + right */
-        int dy = r0 + 2 + (int)(mote_rand() % (h - 4));
-        map[dy * COLS + c0] = 0; map[(dy + 1) * COLS + c0] = 0;
-        dy = r0 + 2 + (int)(mote_rand() % (h - 4));
-        map[dy * COLS + c0 + w - 1] = 0; map[(dy + 1) * COLS + c0 + w - 1] = 0;
-        /* turrets inside */
-        place_enemy(K_TURRET, (c0 + 2 + (int)(mote_rand() % (w - 4))) * TILE + 4,
-                    (r0 + h - 2) * TILE + 4);
-        if (w > 14)
-            place_enemy(K_TURRET, (c0 + 2 + (int)(mote_rand() % (w - 4))) * TILE + 4,
-                        (r0 + h - 2) * TILE + 4);
+            placed++;
+        }
+        if (placed >= 3 && (mote_rand() & 1)) {        /* a turret guards some ledges */
+            Enemy *t = place_enemy(K_TURRET, tx * TILE + 4, ty * TILE + 4);
+            if (t) t->ceil = (uint8_t)on_ceil;
+        }
     }
 
     /* stalactites/stalagmites in the corridor */
@@ -629,13 +723,15 @@ static void gen_sector(void) {
         int ci = 1 + (int)(mote_rand() % (n_chamber - 1));
         place_enemy(K_HEAVY, chx[ci] * TILE, chy[ci] * TILE);
     }
-    /* proximity mines drifting in the corridor */
-    int nmine = 5 + sector; if (nmine > 10) nmine = 10;
-    for (int k = 0; k < nmine; k++) {
-        int c = 34 + (int)(mote_rand() % (COLS - 48));
-        float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-12, 12);
-        if (!solid(ex, ey)) place_enemy(K_MINE, ex, ey);
+    /* free-floating shield cells along the corridor */
+    for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
+    int ncell = 3 + (int)(mote_rand() % 3);
+    for (int k = 0; k < ncell; k++) {
+        int c = 30 + (int)(mote_rand() % (COLS - 44));
+        float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-10, 10);
+        if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_SHIELD);
     }
+    ensure_path();
     gate_t = 0;
 }
 
@@ -713,6 +809,7 @@ static void bg_cb(uint16_t *fb, int y0, int y1) {
 static void start_run(void) {
     sector = 1; scrap = 0; kills = 0;
     hull = HULL_MAX; invuln = 0; fire_cd = 0; die_t = 0;
+    shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
     inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
@@ -723,6 +820,11 @@ static void start_run(void) {
     if (dx) {
         int c = mote_clampi(atoi(dx) / TILE, 2, COLS - 3);
         px = c * TILE; py = cor_y[c] * TILE;
+    }
+    const char *di = getenv("SCRAP_INV");   /* fill hold with random salvage */
+    if (di) {
+        int n = mote_clampi(atoi(di), 0, INV_MAX - 1);
+        for (int k = 0; k < n; k++) inv[inv_n++] = roll_gene();
     }
     const char *dw = getenv("SCRAP_WPN");
     if (dw) {
@@ -747,12 +849,6 @@ static void save_best(void) {
 
 /* ================================================================== init */
 static void g_init(void) {
-    mote_autotile_template(&at_rock, MOTE_AT_BLOB47);
-    at_rock.sheet = &rock_img; at_rock.tile_w = at_rock.tile_h = TILE;
-    at_rock.edge_is_solid = 1; at_rock.nvar = 2;
-    mote_autotile_template(&at_hull, MOTE_AT_BLOB47);
-    at_hull.sheet = &hull_img; at_hull.tile_w = at_hull.tile_h = TILE;
-    at_hull.edge_is_solid = 1; at_hull.nvar = 2;
     build_gradient();
     mote->set_background_cb(bg_cb);
     mote_rand_seed(mote->micros() | 1u);
@@ -766,6 +862,15 @@ static void g_init(void) {
 /* ================================================================== player */
 static void take_hit(float n) {
     if (invuln > 0 || state != ST_PLAY) return;
+    if (shield_on) {                     /* the shield eats it */
+        shield_e = mote_clampf(shield_e - 0.4f, 0, shield_max);
+        for (int k = 0; k < 8; k++) {
+            float a = mote_randf(0, 6.28f);
+            spawn_part(px + cosf(a) * 8, py + sinf(a) * 8,
+                       cosf(a) * 40, sinf(a) * 40, MOTE_RGB565(150, 230, 255), 0.2f, PF_ADD);
+        }
+        return;
+    }
     hull -= n;
     invuln = 1.2f;
     mote->audio_play_sfx(&hurt_sfx, 0.7f);
@@ -847,7 +952,19 @@ static void player_update(float dt) {
         say(b);
     }
 
-    if (mote_just_pressed(in, MOTE_BTN_B)) {
+    /* hold B: energy shield — drains while up, recharges while down */
+    shield_on = mote_pressed(in, MOTE_BTN_B) && shield_e > 0.05f;
+    if (shield_on) {
+        shield_e -= dt;
+        if (shield_e < 0) shield_e = 0;
+        if ((mote_rand() & 7) == 0)
+            spawn_part(px + mote_randf(-8, 8), py + mote_randf(-8, 8), 0, 0,
+                       MOTE_RGB565(120, 220, 255), 0.12f, PF_ADD);
+    } else {
+        shield_e = mote_clampf(shield_e + 0.4f * dt, 0, shield_max);
+    }
+
+    if (mote_just_pressed(in, MOTE_BTN_MENU)) {
         state = ST_LAB; lab_cur = equipped; lab_mark = -1;
     }
 
@@ -930,11 +1047,6 @@ static void enemies_update(float dt) {
                 e->fire = 1.9f + mote_randf(0, 0.8f);
             }
             break;
-        case K_MINE:
-            e->y = e->hy + sinf(e->t * 1.1f) * 3.0f;
-            if ((mote_rand() & 63) == 0)             /* warning blink */
-                spawn_part(e->x, e->y, 0, 0, MOTE_RGB565(255, 90, 90), 0.2f, PF_ADD);
-            break;
         case K_HEAVY:
             e->vx = sinf(e->t * 0.4f) * 12.0f;
             e->vy = cosf(e->t * 0.55f) * 9.0f;
@@ -961,7 +1073,6 @@ static void enemies_update(float dt) {
         /* contact damage */
         float hw, hh; enemy_bbox(e, &hw, &hh);
         if (dx > -(hw + PRAD) && dx < hw + PRAD && dy > -(hh + PRAD) && dy < hh + PRAD) {
-            if (e->kind == K_MINE) { kill_enemy(e); continue; }   /* detonates */
             take_hit(1);
             pvx += (px - e->x) * 4.0f; pvy += (py - e->y) * 4.0f;
         }
@@ -1009,13 +1120,52 @@ static void shots_update(float dt) {
             s->rx += mote_randf(-1.4f, 1.4f); s->ry += mote_randf(-1.4f, 1.4f);
         }
 
-        /* trail */
+        /* trail: the element's signature wake (denser at high fusion level) */
         const uint16_t *ec = elem_col[s->elem];
-        int tn = s->pat == PAT_ORB ? 3 : (s->pat == PAT_RAIL ? 1 : 2);
-        for (int k = 0; k < tn; k++)
-            spawn_part(s->rx + mote_randf(-1, 1), s->ry + mote_randf(-1, 1),
-                       -s->vx * 0.06f + mote_randf(-5, 5), -s->vy * 0.06f + mote_randf(-5, 5),
-                       ec[1 + (k & 1)], s->pat == PAT_ORB ? 0.4f : 0.22f, PF_ADD);
+        int dense = 1 + (s->lvl >= 4) + (s->lvl >= 7);
+        switch (s->elem) {
+        case EL_FIRE:                               /* flame tongue + smoke */
+            for (int k = 0; k < 2 * dense; k++)
+                spawn_part(s->rx + mote_randf(-1, 1), s->ry + mote_randf(-1, 1),
+                           -s->vx * 0.15f + mote_randf(-12, 12),
+                           -s->vy * 0.15f + mote_randf(-18, 2),
+                           (k & 1) ? ec[0] : ec[1], mote_randf(0.15f, 0.4f), PF_ADD);
+            if ((mote_rand() & 7) == 0)
+                spawn_part(s->rx, s->ry, mote_randf(-4, 4), -10,
+                           MOTE_RGB565(64, 58, 64), 0.55f, 0);
+            break;
+        case EL_VENOM:                              /* falling acid drips */
+            if ((mote_rand() & 3) < 1 + dense)
+                spawn_part(s->rx, s->ry, mote_randf(-4, 4), 8, ec[1],
+                           mote_randf(0.3f, 0.55f), PF_ADD | PF_GRAV);
+            break;
+        case EL_VOLT:                               /* crackling static */
+            if ((mote_rand() & 3) < dense + 1)
+                spawn_part(s->rx, s->ry, mote_randf(-35, 35), mote_randf(-35, 35),
+                           ec[0], 0.1f, PF_ADD);
+            break;
+        case EL_PLASMA:                             /* lingering goo beads */
+            for (int k = 0; k < dense; k++)
+                spawn_part(s->rx + mote_randf(-1, 1), s->ry + mote_randf(-1, 1),
+                           -s->vx * 0.04f, -s->vy * 0.04f,
+                           ec[1 + (mote_rand() & 1)], 0.35f, PF_ADD);
+            break;
+        case EL_VOID: {                             /* dark wake + violet motes */
+            spawn_part(s->rx, s->ry, 0, 0, MOTE_RGB565(38, 12, 58), 0.4f, 0);
+            if (dense > 1)
+                spawn_part(s->rx, s->ry, mote_randf(-8, 8), mote_randf(-8, 8),
+                           ec[2], 0.3f, PF_ADD);
+            break; }
+        default:                                    /* pulse: clean afterglow */
+            if ((int)(mote_rand() & 1) < dense)
+                spawn_part(s->rx, s->ry, -s->vx * 0.05f, -s->vy * 0.05f,
+                           ec[1], 0.16f, PF_ADD);
+        }
+        if (s->pat == PAT_ORB)
+            for (int k = 0; k < dense + 1; k++)
+                spawn_part(s->rx + mote_randf(-3, 3), s->ry + mote_randf(-3, 3),
+                           mote_randf(-10, 10), mote_randf(-10, 10),
+                           ec[k % 3], 0.4f, PF_ADD);
 
         if (s->x < 0 || s->x > WORLD_W || s->y < 0 || s->y > WORLD_H) { s->on = 0; continue; }
         if (solid(s->rx, s->ry)) {
@@ -1047,7 +1197,15 @@ static void shots_update(float dt) {
         b->x += b->vx * dt; b->y += b->vy * dt;
         if (b->age > 3.0f || solid(b->x, b->y)) { b->on = 0; continue; }
         float dx = b->x - px, dy = b->y - py;
-        if (dx * dx + dy * dy < (PRAD + 2) * (PRAD + 2)) {
+        float d2 = dx * dx + dy * dy;
+        if (shield_on && d2 < 10 * 10) {             /* fizzles on the bubble */
+            b->on = 0;
+            for (int k = 0; k < 5; k++)
+                spawn_part(b->x, b->y, mote_randf(-30, 30), mote_randf(-30, 30),
+                           MOTE_RGB565(150, 230, 255), 0.15f, PF_ADD);
+            continue;
+        }
+        if (d2 < (PRAD + 2) * (PRAD + 2)) {
             b->on = 0;
             take_hit(1);
         }
@@ -1067,10 +1225,16 @@ static void chips_update(float dt) {
             c->x += dx / d * 70 * dt; c->y += dy / d * 70 * dt;
         }
         if (d2 < 8 * 8) {
-            if (c->heal) {
+            if (c->type == CH_HEAL) {
                 if (hull < HULL_MAX) hull += 1;
                 say("HULL PATCHED");
                 mote->audio_play_sfx(&pickup_sfx, 0.7f);
+                c->on = 0;
+            } else if (c->type == CH_SHIELD) {
+                shield_max = mote_clampf(shield_max + 0.75f, 0, 5.0f);
+                shield_e = shield_max;
+                say("SHIELD CELL +");
+                mote->audio_play_sfx(&pickup_sfx, 0.8f);
                 c->on = 0;
             } else if (inv_n < INV_MAX) {
                 inv[inv_n++] = c->g;
@@ -1085,15 +1249,17 @@ static void chips_update(float dt) {
                 mote->audio_play_sfx(&pickup_sfx, 0.7f);
                 c->on = 0;
             } else if (c->t > 1.0f) {
-                say("HOLD FULL - FUSE IN LAB (B)");
+                say("HOLD FULL - FUSE (MENU)");
                 mote->audio_play_sfx(&denied_sfx, 0.5f);
                 c->t = 0;
             }
         }
         /* sparkle */
-        if ((mote_rand() & 31) == 0 && !c->heal)
-            spawn_part(c->x + mote_randf(-5, 5), c->y + mote_randf(-5, 5),
-                       0, -8, elem_col[c->g.elem][0], 0.3f, PF_ADD);
+        if ((mote_rand() & 31) == 0 && c->type != CH_HEAL) {
+            uint16_t sc = c->type == CH_SHIELD ? MOTE_RGB565(120, 220, 255)
+                                               : elem_col[c->g.elem][0];
+            spawn_part(c->x + mote_randf(-5, 5), c->y + mote_randf(-5, 5), 0, -8, sc, 0.3f, PF_ADD);
+        }
     }
 }
 
@@ -1130,9 +1296,14 @@ static void submit_scene(void) {
         Chip *c = &chips[i];
         if (!c->on) continue;
         float bob = sinf(c->t * 4.0f) * 2.0f;
-        if (c->heal) {
+        if (c->type == CH_HEAL) {
             MoteSprite s = { &props_img, (int16_t)(c->x - 4), (int16_t)(c->y - 4 + bob),
                              (uint16_t)((8 + (((int)(c->t * 6)) & 1)) * 8), 0, 8, 8, 6, 0 };
+            mote->scene2d_add(&s);
+        } else if (c->type == CH_SHIELD) {
+            MoteSprite s = { &mines_img, (int16_t)(c->x - 8), (int16_t)(c->y - 8 + bob),
+                             (uint16_t)((c->g.icon % MINE_COLS) * 16),
+                             (uint16_t)((c->g.icon / MINE_COLS) * 16), 16, 16, 6, 0 };
             mote->scene2d_add(&s);
         } else {
             MoteSprite s = { &weapons_img, (int16_t)(c->x - 8), (int16_t)(c->y - 8 + bob),
@@ -1158,12 +1329,8 @@ static void submit_scene(void) {
             mote->scene2d_add(&s);
         } else if (e->kind == K_TURRET) {
             MoteSprite s = { &props_img, (int16_t)(e->x - 4), (int16_t)(e->y - 4),
-                             (uint16_t)((6 + (e->fire < 0.4f)) * 8), 0, 8, 8, 7, 0 };
-            mote->scene2d_add(&s);
-        } else if (e->kind == K_MINE) {
-            MoteSprite s = { &mines_img, (int16_t)(e->x - 8), (int16_t)(e->y - 8),
-                             (uint16_t)((e->ship % MINE_COLS) * 16),
-                             (uint16_t)((e->ship / MINE_COLS) * 16), 16, 16, 7, 0 };
+                             (uint16_t)((6 + (e->fire < 0.4f)) * 8), 0, 8, 8, 7,
+                             (uint8_t)(e->ceil ? MOTE_SPR_VFLIP : 0) };
             mote->scene2d_add(&s);
         } else {
             int cell = e->ship;
@@ -1239,7 +1406,7 @@ static void g_update(float dt) {
                 spawn_ring(px, py, MOTE_RGB565(200, 240, 255));
             } else lab_mark = -1;
         }
-        if (mote_just_pressed(in, MOTE_BTN_B)) state = ST_PLAY;
+        if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) state = ST_PLAY;
         submit_scene();
         parts_update(dt);
         break; }
@@ -1285,36 +1452,96 @@ static int textf_med(uint16_t *fb, int x, int y, uint16_t col, const char *fmt, 
 
 static void draw_shot(uint16_t *fb, const Shot *s) {
     int x = (int)s->rx - cam_x, y = (int)s->ry - cam_y;
-    if (x < -6 || x > 133 || y < -6 || y > 133) return;
+    if (x < -8 || x > 135 || y < -8 || y > 135) return;
     const uint16_t *ec = elem_col[s->elem];
-    switch (s->pat) {
-    case PAT_ORB:
-        mote->draw_circle(fb, x, y, 3, ec[1], 1, 0, MOTE_FB_H);
+    int x0 = (int)s->prx - cam_x, y0 = (int)s->pry - cam_y;
+    int big = s->lvl >= 4, huge = s->lvl >= 7;
+
+    /* pattern silhouettes: ORB and RAIL override the element core */
+    if (s->pat == PAT_ORB) {
+        int r = 3 + big + huge;
+        mote->draw_circle(fb, x, y, r, ec[1], 1, 0, MOTE_FB_H);
         mote->draw_circle(fb, x, y, 1, MOTE_RGB565(255, 255, 255), 1, 0, MOTE_FB_H);
-        px_add(fb, x - 4, y, ec[2]); px_add(fb, x + 4, y, ec[2]);
-        px_add(fb, x, y - 4, ec[2]); px_add(fb, x, y + 4, ec[2]);
-        break;
-    case PAT_RAIL: {
-        int x0 = (int)s->prx - cam_x, y0 = (int)s->pry - cam_y;
-        mote->draw_line(fb, x0, y0, x, y, ec[0], 0, MOTE_FB_H);
-        mote->draw_line(fb, x0, y0 + 1, x, y + 1, ec[2], 0, MOTE_FB_H);
+        float a = s->age * 9.0f;
+        for (int k = 0; k < 2 + big; k++) {          /* orbiting satellites */
+            int sx = x + (int)(cosf(a + k * 2.09f) * (r + 2));
+            int sy = y + (int)(sinf(a + k * 2.09f) * (r + 2));
+            px_set(fb, sx, sy, ec[0]);
+            px_add(fb, sx + 1, sy, ec[2]);
+        }
+        return;
+    }
+    if (s->pat == PAT_RAIL) {                        /* triple-line beam */
+        mote->draw_line(fb, x0, y0, x, y, MOTE_RGB565(255, 255, 255), 0, MOTE_FB_H);
+        mote->draw_line(fb, x0, y0 + 1, x, y + 1, ec[1], 0, MOTE_FB_H);
+        mote->draw_line(fb, x0, y0 - 1, x, y - 1, ec[2], 0, MOTE_FB_H);
+        px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+        return;
+    }
+    if (s->pat == PAT_WAVE || s->pat == PAT_HELIX)   /* sinuous ribbon body */
+        mote->draw_line(fb, x0, y0, x, y, ec[2], 0, MOTE_FB_H);
+
+    switch (s->elem) {
+    case EL_PULSE: {                                 /* crisp dart streak */
+        float sp = sqrtf(s->vx * s->vx + s->vy * s->vy) + 0.01f;
+        int dx = (int)(s->vx / sp * (3 + big)), dy = (int)(s->vy / sp * (3 + big));
+        mote->draw_line(fb, x - dx, y - dy, x, y, ec[0], 0, MOTE_FB_H);
+        px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+        px_add(fb, x - dx * 2, y - dy * 2, ec[2]);
+        break; }
+    case EL_PLASMA: {                                /* pulsing goo ball */
+        int r = 1 + (((int)(s->age * 18)) & 1) + big;
+        mote->draw_circle(fb, x, y, r, ec[1], 1, 0, MOTE_FB_H);
+        px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+        px_add(fb, x + r + 1, y, ec[2]);
+        px_add(fb, x - r - 1, y, ec[2]);
+        break; }
+    case EL_FIRE: {                                  /* flame head */
+        int bx = s->vx >= 0 ? -1 : 1;
+        px_set(fb, x, y, MOTE_RGB565(255, 255, 200));
+        px_set(fb, x + bx, y, ec[0]);
+        px_add(fb, x, y - 1, ec[1]);
+        px_add(fb, x, y + 1, ec[1]);
+        px_add(fb, x + bx * 2, y, ec[1]);
+        if (big) px_add(fb, x + bx * 3, y, ec[2]);
+        break; }
+    case EL_VOLT: {                                  /* jagged lightning arc */
+        int mx = (x0 + x) / 2 + (int)mote_randf(-3, 3);
+        int my = (y0 + y) / 2 + (int)mote_randf(-3, 3);
+        mote->draw_line(fb, x0, y0, mx, my, ec[1], 0, MOTE_FB_H);
+        mote->draw_line(fb, mx, my, x, y, ec[0], 0, MOTE_FB_H);
         px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
         break; }
-    default:
-        px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
-        px_add(fb, x - 1, y, ec[0]); px_add(fb, x + 1, y, ec[0]);
-        px_add(fb, x, y - 1, ec[0]); px_add(fb, x, y + 1, ec[0]);
-        px_add(fb, x - 2, y, ec[1]); px_add(fb, x + 2, y, ec[1]);
+    case EL_VENOM:                                   /* acid droplet */
+        px_set(fb, x, y, ec[0]);
+        px_set(fb, x, y - 1, ec[1]);
+        px_add(fb, x, y + 1, ec[1]);
+        px_add(fb, x - 1, y, ec[2]);
+        px_add(fb, x + 1, y, ec[2]);
         break;
+    case EL_VOID: {                                  /* dark rift + orbiting motes */
+        px_set(fb, x, y, MOTE_RGB565(18, 4, 28));
+        float a = s->age * 14.0f;
+        int ox = (int)(cosf(a) * 3), oy = (int)(sinf(a) * 3);
+        px_add(fb, x + ox, y + oy, ec[0]);
+        px_add(fb, x - ox, y - oy, ec[1]);
+        mote->draw_circle(fb, x, y, 2 + big, ec[2], 0, 0, MOTE_FB_H);
+        break; }
     }
 }
 
 static void hud(uint16_t *fb) {
-    /* hull pips */
+    /* hull pips + shield bar */
     for (int i = 0; i < HULL_MAX; i++) {
         uint16_t c = i < (int)hull ? MOTE_RGB565(90, 230, 120) : MOTE_RGB565(50, 40, 60);
-        mote->draw_rect(fb, 3 + i * 7, 3, 5, 4, c, 1, 0, MOTE_FB_H);
+        mote->draw_rect(fb, 3 + i * 7, 2, 5, 4, c, 1, 0, MOTE_FB_H);
     }
+    mote->draw_rect(fb, 3, 8, 33, 3, MOTE_RGB565(30, 40, 60), 1, 0, MOTE_FB_H);
+    int sw = (int)(33.0f * shield_e / (shield_max > 0 ? shield_max : 1));
+    if (sw > 0)
+        mote->draw_rect(fb, 3, 8, sw, 3,
+                        shield_on ? MOTE_RGB565(190, 245, 255) : MOTE_RGB565(90, 190, 240),
+                        1, 0, MOTE_FB_H);
     textf_med(fb, 42, 1, MOTE_RGB565(180, 190, 220), "SEC %d", sector);
     textf_med(fb, 88, 1, MOTE_RGB565(255, 220, 110), "%d", scrap);
 
@@ -1338,24 +1565,48 @@ static void hud(uint16_t *fb) {
 }
 
 static void lab_overlay(uint16_t *fb) {
-    mote_ui_panel(fb, 2, 6, 124, 116, MOTE_RGB565(10, 12, 24), MOTE_RGB565(90, 120, 180));
-    mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "FUSION LAB", 32, 8,
-                    MOTE_RGB565(160, 220, 255));
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(10, 12, 24), MOTE_RGB565(90, 120, 180));
+    mote->text_font(fb, f, "FUSION LAB", 34, 2, MOTE_RGB565(160, 220, 255));
+
     for (int i = 0; i < inv_n; i++) {
-        int y = 21 + i * 10;
+        int y = 15 + i * 11;
+        const Gene *g = &inv[i];
+        if (i == lab_cur)
+            mote->draw_rect(fb, 3, y, 122, 11, MOTE_RGB565(30, 40, 70), 1, 0, MOTE_FB_H);
+        if (i == equipped)
+            mote->text_font(fb, f, ">", 4, y, MOTE_RGB565(255, 255, 255));
+        if (i == lab_mark)
+            mote->text_font(fb, f, "*", 10, y + 1, MOTE_RGB565(255, 200, 80));
+        mote->blit_ex(fb, &weapons_img, 21, y + 5,
+                      (g->icon % WEAPON_ICON_COLS) * 16, (g->icon / WEAPON_ICON_COLS) * 16,
+                      16, 16, 0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        Gene sg = *g; sg.mods = 0;                 /* mods shown in the stats pane */
         char l[40];
-        gene_label(&inv[i], l, sizeof l);
-        uint16_t c = elem_col[inv[i].elem][0];
-        if (i == lab_cur) mote->draw_rect(fb, 4, y, 120, 10, MOTE_RGB565(30, 40, 70), 1, 0, MOTE_FB_H);
-        if (i == equipped) mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), ">", 5, y, MOTE_RGB565(255, 255, 255));
-        if (i == lab_mark) mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "*", 12, y + 1, MOTE_RGB565(255, 200, 80));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), l, 19, y, c);
+        gene_label(&sg, l, sizeof l);
+        mote->text_font(fb, f, l, 30, y, elem_col[g->elem][0]);
     }
-    mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
-                    lab_mark >= 0 ? "PICK CORE, RB AGAIN" : "A EQUIP   RB FUSE x2", 6, 100,
-                    lab_mark >= 0 ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(150, 160, 190));
-    mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "B CLOSE", 6, 110,
-                    MOTE_RGB565(150, 160, 190));
+
+    /* stats pane: highlighted weapon, or the exact fusion result */
+    mote->draw_line(fb, 2, 103, 125, 103, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+    char ms[6];
+    if (lab_mark >= 0 && lab_mark != lab_cur) {
+        Gene c = fuse_genes(&inv[lab_mark], &inv[lab_cur]);
+        char l[40];
+        gene_label(&c, l, sizeof l);
+        Gene lg = c; lg.mods = 0; gene_label(&lg, l, sizeof l);
+        textf_med(fb, 4, 104, MOTE_RGB565(255, 220, 110), "FUSE> %s", l);
+        mods_str(c.mods, ms);
+        textf_med(fb, 4, 115, MOTE_RGB565(220, 230, 250),
+                  "DMG %.1f  RPS %.1f  %s", gene_dmg(&c), gene_rate(&c), ms);
+    } else {
+        const Gene *g = &inv[lab_cur];
+        mods_str(g->mods, ms);
+        textf_med(fb, 4, 104, MOTE_RGB565(220, 230, 250),
+                  "DMG %.1f RPS %.1f SPD %d", gene_dmg(g), gene_rate(g), (int)pat_spd[g->pat]);
+        textf_med(fb, 4, 115, MOTE_RGB565(150, 160, 190),
+                  lab_mark == lab_cur ? "MODS %s  PICK 2ND, RB" : "MODS %s  RB FUSE A EQ", ms);
+    }
 }
 
 static void g_overlay(uint16_t *fb) {
@@ -1365,11 +1616,11 @@ static void g_overlay(uint16_t *fb) {
         mote->blit(fb, &ships_img, 56, 40,
                    (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
                    (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "DPAD THRUST  A FIRE", 8, 60,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "DPAD THRUST   A FIRE", 8, 60,
                         MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "B LAB  LB/RB WEAPON", 8, 72,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "B SHIELD   MENU LAB", 8, 72,
                         MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "SALVAGE. FUSE. DIVE.", 8, 88,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "LB/RB SWAP WEAPON", 8, 88,
                         MOTE_RGB565(150, 160, 190));
         if (best_sector)
             textf_med(fb, 8, 102, MOTE_RGB565(255, 220, 110),
@@ -1409,6 +1660,16 @@ static void g_overlay(uint16_t *fb) {
         px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
         px_add(fb, x + 1, y, ec[1]); px_add(fb, x - 1, y, ec[1]);
         px_add(fb, x, y + 1, ec[1]); px_add(fb, x, y - 1, ec[1]);
+    }
+
+    if (shield_on && state == ST_PLAY) {
+        int sx = (int)px - cam_x, sy = (int)py - cam_y;
+        mote->draw_circle(fb, sx, sy, 9, MOTE_RGB565(90, 190, 240), 0, 0, MOTE_FB_H);
+        float a = bg_time * 7.0f;
+        for (int k = 0; k < 3; k++) {
+            int ox = (int)(cosf(a + k * 2.09f) * 9), oy = (int)(sinf(a + k * 2.09f) * 9);
+            px_add(fb, sx + ox, sy + oy, MOTE_RGB565(150, 230, 255));
+        }
     }
 
     hud(fb);

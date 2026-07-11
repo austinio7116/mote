@@ -301,45 +301,102 @@ def hash2(x, y):
 
 TS = 8  # tile size
 
+def edge_profile(seed, depth):
+    """Bumpy inset depth per pixel along one edge (0..depth), random-walked."""
+    rng = random.Random(seed)
+    d = rng.randint(0, depth)
+    prof = []
+    for _ in range(TS):
+        d += rng.choice([-1, 0, 0, 1])
+        d = clamp(d, 0, depth)
+        prof.append(d)
+    return prof
+
 def draw_tile(img, ox, oy, mask, style, var):
-    """One 8x8 autotile cell. mask bits = same-terrain neighbour PRESENT."""
-    if style == "rock":
+    """One 8x8 autotile cell. mask bits = same-terrain neighbour PRESENT.
+
+    Exposed sides are carved back with a bumpy random-walk silhouette and
+    convex corners get a diagonal cut, so caves read as organic rock (and hull
+    as bevelled girders), not blocky squares. Transparent pixels outside the
+    silhouette let the starfield show through.
+    """
+    rock = style == "rock"
+    if rock:
         b0 = (96, 74, 78); b1 = (78, 58, 66); b2 = (112, 90, 92)
         edge_lit = (168, 140, 130); edge_dk = (46, 32, 42)
         fleck = (130, 108, 100) if var == 0 else (110, 150, 140)
-    else:  # hull
+        depth, corner = 2, 3
+    else:  # hull: tighter bevel, structural
         b0 = (74, 88, 100); b1 = (62, 74, 86); b2 = (86, 102, 116)
-        edge_lit = (140, 170, 190); edge_dk = (34, 42, 52)
+        edge_lit = (150, 185, 205); edge_dk = (34, 42, 52)
         fleck = (100, 118, 132) if var == 0 else (96, 130, 126)
+        depth, corner = 1, 2
+
+    cell_seed = (mask * 7 + var * 131) & 0xFFFF
+    pn = edge_profile(cell_seed + 1, depth)
+    ps = edge_profile(cell_seed + 2, depth)
+    pw = edge_profile(cell_seed + 3, depth)
+    pe = edge_profile(cell_seed + 4, depth)
+
+    solid = [[True] * TS for _ in range(TS)]
+    for i in range(TS):
+        if not (mask & NB_N):
+            for y in range(pn[i]): solid[y][i] = False
+        if not (mask & NB_S):
+            for y in range(ps[i]): solid[TS - 1 - y][i] = False
+        if not (mask & NB_W):
+            for x in range(pw[i]): solid[i][x] = False
+        if not (mask & NB_E):
+            for x in range(pe[i]): solid[i][TS - 1 - x] = False
+    # convex corners: diagonal cut -> rounded outcrops instead of right angles
     for y in range(TS):
         for x in range(TS):
-            # coarse 2x2 patches so the fill reads as rock strata, not static
+            if not (mask & NB_N) and not (mask & NB_W) and x + y < corner:
+                solid[y][x] = False
+            if not (mask & NB_N) and not (mask & NB_E) and (TS - 1 - x) + y < corner:
+                solid[y][x] = False
+            if not (mask & NB_S) and not (mask & NB_W) and x + (TS - 1 - y) < corner:
+                solid[y][x] = False
+            if not (mask & NB_S) and not (mask & NB_E) and (TS - 1 - x) + (TS - 1 - y) < corner:
+                solid[y][x] = False
+
+    for y in range(TS):
+        for x in range(TS):
+            if not solid[y][x]:
+                continue
+            # coarse 2x2 patches so the fill reads as strata, not static
             h = hash2((ox * 31 + x + var * 7) >> 1, (oy * 17 + y) >> 1)
             c = b0 if h % 7 < 5 else (b1 if h % 7 == 5 else b2)
-            if style == "hull":
-                # panel lines
+            if not rock:
                 if (x + ox // TS) % 4 == 3 or (y + oy // TS) % 4 == 3:
-                    c = b1
+                    c = b1                       # panel lines
                 if (h >> 8) % 41 == 0:
-                    c = fleck  # rivet
-            else:
-                if (h >> 8) % 29 == 0:
-                    c = fleck  # mineral fleck
+                    c = fleck                    # rivet
+            elif (h >> 8) % 29 == 0:
+                c = fleck                        # mineral fleck
+            # rim shading follows the silhouette: lit above, dark below, mid sides
+            up = y > 0 and solid[y - 1][x]
+            dn = y < TS - 1 and solid[y + 1][x]
+            lf = x > 0 and solid[y][x - 1]
+            rt = x < TS - 1 and solid[y][x + 1]
+            edge_n = not (mask & NB_N) or not up
+            edge_s = not (mask & NB_S) or not dn
+            edge_w = not (mask & NB_W) or not lf
+            edge_e = not (mask & NB_E) or not rt
+            if y == 0 and (mask & NB_N): edge_n = False
+            if y == TS - 1 and (mask & NB_S): edge_s = False
+            if x == 0 and (mask & NB_W): edge_w = False
+            if x == TS - 1 and (mask & NB_E): edge_e = False
+            if not up and y > 0 or (y == 0 and not (mask & NB_N)):
+                c = edge_lit
+            elif not dn and y < TS - 1 or (y == TS - 1 and not (mask & NB_S)):
+                c = edge_dk
+            elif (not lf and x > 0) or (x == 0 and not (mask & NB_W)):
+                c = shade(edge_lit, 0.62)[:3]
+            elif (not rt and x < TS - 1) or (x == TS - 1 and not (mask & NB_E)):
+                c = shade(edge_dk, 1.4)[:3]
             put(img, ox + x, oy + y, (*c, 255))
-    # exposed edges (neighbour ABSENT): lit on top, shadow below, sides mid
-    if not (mask & NB_N):
-        for x in range(TS):
-            put(img, ox + x, oy, (*edge_lit, 255))
-            put(img, ox + x, oy + 1, shade(edge_lit, 0.72))
-    if not (mask & NB_S):
-        for x in range(TS):
-            put(img, ox + x, oy + TS - 1, (*edge_dk, 255))
-    if not (mask & NB_W):
-        for y in range(TS):
-            put(img, ox, oy + y, shade(edge_lit, 0.62))
-    if not (mask & NB_E):
-        for y in range(TS):
-            put(img, ox + TS - 1, oy + y, shade(edge_dk, 1.4))
+
     # inner corners: both cardinals present but the diagonal missing
     if (mask & NB_N) and (mask & NB_E) and not (mask & NB_NE):
         put(img, ox + TS - 1, oy, (*edge_lit, 255))
@@ -358,6 +415,19 @@ def make_tiles(style):
         for i, m in enumerate(cells):
             draw_tile(img, i * TS, v * TS, m, style, v)
     img.save(os.path.join(HERE, style + ".png"))
+    # Studio-native .tileset sidecar: the canonical BLOB47 LUT (mask -> cell),
+    # so the set opens in the Tiles tab and bakes to a `<style>_at` MoteAutotile.
+    lut = [0] * 256
+    order = {m: i for i, m in enumerate(cells)}
+    for m in range(256):
+        lut[m] = order[reduce_mask(m)]
+    with open(os.path.join(GAME, "tilesets", style + ".tileset"), "w") as f:
+        f.write("sheet assets/%s.png\n" % style)
+        f.write("tile %d\ntype 0\nedge 1\nnvar %d\ncols %d\nrows %d\n" %
+                (TS, nvar, len(cells), nvar))
+        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
+        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("vweight 1 1 1 1 1 1 1 1\n")
     return len(cells)
 
 # ------------------------------------------------------------------ icon
