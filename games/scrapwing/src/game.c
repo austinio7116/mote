@@ -520,10 +520,6 @@ static void kill_enemy(Enemy *e) {
         } else {
             scrap += 25;
             drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
-            if (mote_rand() & 1) {
-                Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
-                drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
-            }
             drop_chip(e->x + 2, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_POWER);
         }
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
@@ -533,7 +529,7 @@ static void kill_enemy(Enemy *e) {
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0);
         scrap += 4;
-        if ((mote_rand() & 255) < 60) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
+        if ((mote_rand() & 255) < 25) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
         mote->audio_play_sfx(&boom_small_sfx, 0.5f);
     } else {
         int cell = e->ship;
@@ -543,7 +539,7 @@ static void kill_enemy(Enemy *e) {
                 (int)(e->x - ship_bw[cell] / 2), (int)(e->y - ship_bh[cell] / 2),
                 e->flip, e->vx, e->vy);
         scrap += 8;
-        if ((mote_rand() & 255) < 55) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
+        if ((mote_rand() & 255) < 18) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
         else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
         else if ((mote_rand() & 255) < 12) drop_chip(e->x, e->y, 0, CH_POWER);
         spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
