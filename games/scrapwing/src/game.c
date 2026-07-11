@@ -897,7 +897,7 @@ static void gen_sector(void) {
     }
     /* free-floating powerup orbs + a repair kit or two along the corridor */
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
-    int ncell = 2 + (int)(mote_rand() % 3);
+    int ncell = 1 + (int)(mote_rand() % 2);
     for (int k = 0; k < ncell; k++) {
         int c = 30 + (int)(mote_rand() % (COLS - 44));
         float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-10, 10);
