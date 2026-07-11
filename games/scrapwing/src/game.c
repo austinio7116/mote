@@ -169,6 +169,7 @@ enum { ST_TITLE, ST_PLAY, ST_LAB, ST_CLEAR, ST_DEAD };
 static int state;
 static float state_t;
 static int cam_x, cam_y;
+static float cam_look;              /* smoothed facing lookahead (px) */
 
 static char  toast[40];
 static float toast_t;
@@ -1112,7 +1113,7 @@ static void parts_update(float dt) {
 
 /* ================================================================== update */
 static void submit_scene(void) {
-    cam_x = mote_clampi((int)px + facing * 20 - MOTE_FB_W / 2, 0, WORLD_W - MOTE_FB_W);
+    cam_x = mote_clampi((int)(px + cam_look) - MOTE_FB_W / 2, 0, WORLD_W - MOTE_FB_W);
     cam_y = mote_clampi((int)py - MOTE_FB_H / 2, 0, WORLD_H - MOTE_FB_H);
     bg_cam_x = cam_x; bg_cam_y = cam_y;
 
@@ -1189,6 +1190,8 @@ static void submit_scene(void) {
 static void g_update(float dt) {
     if (dt > 0.05f) dt = 0.05f;
     bg_time += dt;
+    /* ease the camera lookahead toward the facing side — never snap on a flip */
+    cam_look += (facing * 20.0f - cam_look) * mote_clampf(5.0f * dt, 0.0f, 1.0f);
     const MoteInput *in = mote->input();
 
     switch (state) {
