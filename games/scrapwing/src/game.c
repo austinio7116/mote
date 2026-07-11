@@ -57,6 +57,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Scrapwing", "austinio7116");
+MOTE_GAME_VERSION("1.0.0");
 
 /* ------------------------------------------------------------------ world */
 #define TILE   8
@@ -230,6 +231,12 @@ static float demo_cd;                   /* bench demo-fire cooldown */
 static int   g_demo_fire;               /* shots spawned now are demo-only */
 static int   g_god;                     /* dev hook: SCRAP_GOD=1 disables damage */
 static int   best_sector, best_scrap;
+/* title-screen actors: a wandering enemy fly-by + a boss that peeks in */
+static float ten_x, ten_y, ten_vx;
+static int   ten_on, ten_cell;
+static float tboss_t;                   /* phase clock */
+static int   tboss_phase, tboss_idx;    /* 0 wait / 1 slide in / 2 hold / 3 retreat */
+static float tboss_y, tboss_wait;
 
 static void say(const char *s) { int i = 0; while (s[i] && i < 39) { toast[i] = s[i]; i++; }
                                  toast[i] = 0; toast_t = 1.8f; }
@@ -1815,12 +1822,62 @@ static void g_update(float dt) {
     const MoteInput *in = mote->input();
 
     switch (state) {
-    case ST_TITLE:
+    case ST_TITLE: {
         bg_cam_x = (int)(bg_time * 24.0f);
         bg_cam_y = 60;
+        cam_x = bg_cam_x; cam_y = bg_cam_y;           /* FX track the drifting stars */
         mote->scene2d_begin(bg_cam_x, bg_cam_y);      /* stars only, no tiles */
+
+        /* hero ship: bobbing flight + constant exhaust */
+        float shx = 56 + sinf(bg_time * 0.5f) * 10.0f;
+        float shy = 44 + sinf(bg_time * 1.3f) * 3.0f;
+        for (int k = 0; k < 2; k++)
+            spawn_part(cam_x + shx - 7, cam_y + shy + 1 + mote_randf(-1, 1),
+                       mote_randf(-60, -25), mote_randf(-6, 6),
+                       (k & 1) ? MOTE_RGB565(255, 170, 60) : MOTE_RGB565(255, 90, 30),
+                       mote_randf(0.15f, 0.4f), PF_ADD);
+
+        /* occasional enemy drifting across */
+        if (!ten_on && (mote_rand() & 255) < 3) {
+            ten_on = 1;
+            ten_cell = 1 + (int)(mote_rand() % (SHIP_COUNT - 1));
+            int ltr = (int)(mote_rand() & 1);
+            ten_x = ltr ? -18.0f : 146.0f;
+            ten_vx = ltr ? mote_randf(18, 40) : -mote_randf(18, 40);
+            ten_y = mote_randf(64, 112);
+        }
+        if (ten_on) {
+            ten_x += ten_vx * dt;
+            if ((mote_rand() & 15) == 0)
+                spawn_part(cam_x + ten_x + (ten_vx > 0 ? -8 : 8), cam_y + ten_y,
+                           -ten_vx * 0.6f, 0, MOTE_RGB565(255, 150, 60), 0.2f, PF_ADD);
+            if (ten_x < -24 || ten_x > 152) ten_on = 0;
+        }
+
+        /* sometimes a BOSS pokes into view from the right... and thinks better of it */
+        tboss_t += dt;
+        switch (tboss_phase) {
+        case 0:
+            if (tboss_wait <= 0) tboss_wait = mote_randf(6, 13);
+            if (tboss_t > tboss_wait) {
+                tboss_phase = 1; tboss_t = 0; tboss_wait = 0;
+                int best = 0, ba = 0;
+                for (int t2 = 0; t2 < 8; t2++) {
+                    int c = (int)(mote_rand() % BOSS_COUNT);
+                    if (boss_fw[c] * boss_fh[c] > ba) { ba = boss_fw[c] * boss_fh[c]; best = c; }
+                }
+                tboss_idx = best;
+                tboss_y = mote_randf(56, 92);
+            }
+            break;
+        case 1: if (tboss_t > 1.3f) { tboss_phase = 2; tboss_t = 0; } break;
+        case 2: if (tboss_t > 0.9f) { tboss_phase = 3; tboss_t = 0; } break;
+        case 3: if (tboss_t > 1.3f) { tboss_phase = 0; tboss_t = 0; } break;
+        }
+
+        parts_update(dt);
         if (mote_just_pressed(in, MOTE_BTN_A)) start_run();
-        break;
+        break; }
     case ST_PLAY:
         player_update(dt);
         if (state == ST_LAB) { submit_scene(); break; }
@@ -2183,22 +2240,50 @@ static void bench_overlay(uint16_t *fb) {
 
 static void g_overlay(uint16_t *fb) {
     if (state == ST_TITLE) {
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_LARGE), "SCRAPWING", 20, 18,
-                        MOTE_RGB565(140, 220, 255));
-        mote->blit(fb, &ships_img, 56, 40,
+        /* boss peeking in from the right edge (drawn under everything else) */
+        if (tboss_phase) {
+            float peek = boss_fw[tboss_idx] * 0.38f;
+            float t = tboss_t / 1.3f;
+            float k = tboss_phase == 1 ? (t < 1 ? t : 1)
+                    : tboss_phase == 3 ? (t < 1 ? 1 - t : 0) : 1.0f;
+            k = k * k * (3 - 2 * k);                    /* smoothstep: it lurks */
+            int bx = (int)(MOTE_FB_W - peek * k);
+            mote->blit(fb, &bosses_img, bx, (int)(tboss_y - boss_fh[tboss_idx] / 2),
+                       boss_fx[tboss_idx], boss_fy[tboss_idx],
+                       boss_fw[tboss_idx], boss_fh[tboss_idx], MOTE_SPR_HFLIP, 0, MOTE_FB_H);
+        }
+        /* enemy fly-by */
+        if (ten_on)
+            mote->blit(fb, &ships_img, (int)ten_x - 8, (int)ten_y - 8,
+                       (ten_cell % SHIP_COLS) * SHIP_CELL,
+                       (ten_cell / SHIP_COLS) * SHIP_CELL, 16, 16,
+                       ten_vx < 0 ? MOTE_SPR_HFLIP : 0, 0, MOTE_FB_H);
+        /* exhaust + ambient particles */
+        for (int i = 0; i < MAXP; i++) {
+            Part *p = &parts[i];
+            if (!p->life) continue;
+            int x = (int)p->x - cam_x, y = (int)p->y - cam_y;
+            if ((unsigned)x >= MOTE_FB_W || (unsigned)y >= MOTE_FB_H) continue;
+            if (p->life * 3 > p->maxlife * 2 || (p->life & 1)) px_add(fb, x, y, p->col);
+        }
+        /* hero ship */
+        mote->blit(fb, &ships_img, (int)(56 + sinf(bg_time * 0.5f) * 10.0f) - 8,
+                   (int)(44 + sinf(bg_time * 1.3f) * 3.0f) - 8,
                    (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
                    (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "DPAD+RB THRUST  A FIRE", 4, 60,
-                        MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "LB SHIELD  B SWAP WPN", 6, 72,
-                        MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "MENU FUSION LAB", 8, 88,
-                        MOTE_RGB565(150, 160, 190));
-        if (best_sector)
-            textf_med(fb, 8, 102, MOTE_RGB565(255, 220, 110),
-                      "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
+
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_LARGE), "SCRAPWING", 20, 16,
+                        MOTE_RGB565(140, 220, 255));
+        mote->text(fb, "DPAD+RB THRUST   A FIRE", 8, 66, MOTE_RGB565(190, 200, 225));
+        mote->text(fb, "LB SHIELD   B SWAP WPN", 10, 76, MOTE_RGB565(190, 200, 225));
+        mote->text(fb, "MENU FUSION LAB", 30, 86, MOTE_RGB565(150, 160, 190));
+        if (best_sector) {
+            char bb[40];
+            snprintf(bb, sizeof bb, "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
+            mote->text(fb, bb, 14, 98, MOTE_RGB565(255, 220, 110));
+        }
         if (((int)(bg_time * 2) & 1))
-            mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "PRESS A", 44, 114,
+            mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "PRESS A", 44, 112,
                             MOTE_RGB565(255, 255, 255));
         return;
     }
