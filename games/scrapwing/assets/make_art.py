@@ -485,6 +485,7 @@ def write_meta(meta, bigmeta):
                 (len(SHAPE_NAMES), ",".join('"%s"' % s for s in SHAPE_NAMES)))
         f.write("\n#endif\n")
 
+
 if __name__ == "__main__":
     make_props()
     make_gate()

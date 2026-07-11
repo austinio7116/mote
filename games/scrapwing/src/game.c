@@ -58,7 +58,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Scrapwing", "austinio7116");
-MOTE_GAME_VERSION("1.1.0");
+MOTE_GAME_VERSION("1.2.0");
 
 /* ------------------------------------------------------------------ world */
 #define TILE   8
@@ -72,6 +72,226 @@ MOTE_GAME_VERSION("1.1.0");
 
 static uint8_t map[ROWS * COLS];
 static uint8_t cor_y[COLS];
+
+/* ---- procedural scenery: 16 sprite cells generated into RAM each sector in
+ * the biome's palette (seeded => unique per sector, deterministic for resume;
+ * zero flash). Cells: 0-2 crystals, 3-5 rocks, 6 stalactite, 7 stalagmite,
+ * 8-9 ore nodules, 10-11 biome growths, 12 hazard projectile, 13-15 extras. */
+#define PG_CELLS 16
+#define PG_W (PG_CELLS * 16)
+static uint16_t pg_px[PG_W * 16];
+static const MoteImage pg_img = { pg_px, PG_W, 16, 0xF81F, 0 };
+static uint8_t pg_bx[PG_CELLS], pg_by[PG_CELLS], pg_bw[PG_CELLS], pg_bh[PG_CELLS];
+
+/* per-biome palette: base dk/md/br, crystal dk/md/br, glow */
+static const uint8_t pg_pal[5][7][3] = {
+    { {46,32,42},{96,74,78},{150,128,130}, {90,50,160},{150,100,220},{210,170,255}, {230,200,255} },
+    { {66,22,44},{150,62,92},{220,130,150}, {160,40,80},{230,90,120},{255,170,190}, {255,200,210} },
+    { {52,74,122},{132,162,198},{220,235,250}, {40,120,190},{110,190,240},{190,240,255}, {235,252,255} },
+    { {26,48,38},{64,106,78},{130,180,120}, {40,140,70},{100,210,110},{180,255,160}, {220,255,190} },
+    { {18,14,18},{58,48,54},{130,105,90}, {180,90,20},{255,150,40},{255,220,120}, {255,240,170} },
+};
+#define PGC(b, i) MOTE_RGB565(pg_pal[b][i][0], pg_pal[b][i][1], pg_pal[b][i][2])
+
+static void pg_set(int cell, int x, int y, uint16_t c) {
+    if ((unsigned)x < 16 && (unsigned)y < 16)
+        pg_px[y * PG_W + cell * 16 + x] = c;
+}
+
+static void pg_crystal(int cell, int b, int nsp, int tall) {
+    uint16_t dk = PGC(b, 3), md = PGC(b, 4), br = PGC(b, 5), gl = PGC(b, 6);
+    for (int s = 0; s < nsp; s++) {
+        int h = 5 + (int)(mote_rand() % 5) + (tall && s == nsp / 2 ? 4 : 0);
+        int w = 1 + (int)(mote_rand() & 1);
+        int x0 = 8 + (int)(mote_rand() % 8) - 4;
+        int lean = (int)(mote_rand() % 3) - 1;
+        for (int y = 0; y < h; y++) {
+            float t = (float)y / (h - 1 ? h - 1 : 1);
+            int ww = (int)(w * (1 - t) + 0.5f);
+            int cx = x0 + (int)(lean * t * 2);
+            for (int dx = -ww; dx <= ww; dx++)
+                pg_set(cell, cx + dx, 14 - y, dx == -ww ? br : (dx <= 0 ? md : dk));
+        }
+        pg_set(cell, x0 + lean * 2, 14 - h, gl);
+    }
+}
+
+static void pg_rock(int cell, int b, int size) {
+    uint16_t dk = PGC(b, 0), md = PGC(b, 1), br = PGC(b, 2);
+    int rx = 3 + (int)(mote_rand() % (size + 1));
+    int ry = 2 + (int)(mote_rand() % (size / 2 + 1));
+    int cy = 14 - ry;
+    for (int y = -ry; y <= ry; y++)
+        for (int x = -rx; x <= rx; x++) {
+            float d = (x / (rx + .5f)) * (x / (rx + .5f)) + (y / (ry + .5f)) * (y / (ry + .5f));
+            if (d <= 1.0f + mote_randf(-0.15f, 0.05f)) {
+                uint16_t c = md;
+                if (y == -ry || (d > 0.72f && y < 0)) c = br;
+                else if (y == ry || (d > 0.75f && y > 0)) c = dk;
+                else if ((mote_rand() & 7) == 0) c = dk;
+                pg_set(cell, 8 + x, cy + y, c);
+            }
+        }
+}
+
+static void pg_spike(int cell, int b, int down) {
+    uint16_t dk = PGC(b, 0), md = PGC(b, 1), br = PGC(b, 2);
+    int h = 8 + (int)(mote_rand() % 5);
+    int x0 = 8 + (int)(mote_rand() % 5) - 2;
+    for (int y = 0; y < h; y++) {
+        float t = (float)y / (h - 1);
+        int ww = (int)(2.4f * (1 - t));
+        int yy = down ? 1 + y : 14 - y;
+        for (int dx = -ww; dx <= ww; dx++)
+            pg_set(cell, x0 + dx, yy, dx == -ww ? br : (dx < ww ? md : dk));
+    }
+}
+
+static void pg_nodule(int cell, int b, int big) {
+    uint16_t dk = PGC(b, 3), md = PGC(b, 4), br = PGC(b, 5), gl = PGC(b, 6);
+    int cx = 6 + (int)(mote_rand() % 4), cy = 7 + (int)(mote_rand() % 4);
+    int n = 6 + (int)(mote_rand() % 4) + (big ? 4 : 0);
+    for (int k = 0; k < n; k++) {                    /* chunky ore vein */
+        int x = cx + (int)(mote_rand() % 9) - 4;
+        int y = cy + (int)(mote_rand() % 9) - 4;
+        pg_set(cell, x, y, md);
+        pg_set(cell, x + 1, y, md);
+        pg_set(cell, x + 1, y + 1, dk);
+        pg_set(cell, x, y - 1, br);
+        pg_set(cell, x + 1, y - 1, (mote_rand() & 1) ? gl : br);
+    }
+}
+
+static void pg_growth(int cell, int b) {
+    uint16_t bdk = PGC(b, 0), bmd = PGC(b, 1);
+    uint16_t cdk = PGC(b, 3), cmd = PGC(b, 4), cbr = PGC(b, 5), gl = PGC(b, 6);
+    switch (b) {
+    case 3: {                                        /* tiny mushroom */
+        int x0 = 6 + (int)(mote_rand() % 4);
+        int h = 3 + (int)(mote_rand() % 3);
+        for (int y = 0; y < h; y++) pg_set(cell, x0, 14 - y, MOTE_RGB565(200, 190, 170));
+        for (int dx = -2; dx <= 2; dx++) {
+            pg_set(cell, x0 + dx, 14 - h, cmd);
+            if (dx > -2 && dx < 2) pg_set(cell, x0 + dx, 13 - h, cbr);
+        }
+        pg_set(cell, x0, 12 - h, gl);
+        break; }
+    case 1: {                                        /* fleshy bulb pod */
+        int cx = 8, cy = 12;
+        for (int y = -2; y <= 2; y++)
+            for (int x = -2; x <= 2; x++)
+                if (x * x + y * y <= 5)
+                    pg_set(cell, cx + x, cy + y, y <= 0 ? cmd : cdk);
+        pg_set(cell, cx - 1, cy - 1, cbr);
+        pg_set(cell, cx, cy - 2, gl);
+        break; }
+    case 4: {                                        /* cracked ember rock */
+        pg_rock(cell, b, 2);
+        for (int k = 0; k < 5; k++)
+            pg_set(cell, 5 + (int)(mote_rand() % 6), 11 + (int)(mote_rand() % 3), cmd);
+        pg_set(cell, 7 + (int)(mote_rand() % 3), 12, gl);
+        break; }
+    case 2: {                                        /* faceted ice chunk */
+        pg_rock(cell, b, 2);
+        for (int k = 0; k < 3; k++)
+            pg_set(cell, 5 + (int)(mote_rand() % 6), 10 + (int)(mote_rand() % 4), gl);
+        break; }
+    default:
+        pg_crystal(cell, b, 2, 0);
+    }
+    (void)bdk; (void)bmd;
+}
+
+static void pg_projectile(int cell, int b) {
+    uint16_t dk = PGC(b, 0), md = PGC(b, 1);
+    uint16_t cdk = PGC(b, 3), cmd = PGC(b, 4), cbr = PGC(b, 5), gl = PGC(b, 6);
+    switch (b) {
+    case 2:                                          /* icicle shard, point down */
+        for (int y = 0; y < 9; y++) {
+            int ww = (int)(2.2f * (1 - y / 8.0f));
+            for (int dx = -ww; dx <= ww; dx++)
+                pg_set(cell, 8 + dx, 3 + y, dx == -ww ? cbr : cmd);
+        }
+        pg_set(cell, 8, 12, gl);
+        break;
+    case 3:                                          /* drifting spore pod */
+        for (int y = -3; y <= 3; y++)
+            for (int x = -3; x <= 3; x++)
+                if (x * x + y * y <= 10)
+                    pg_set(cell, 8 + x, 8 + y, y <= 0 ? cmd : cdk);
+        for (int k = 0; k < 4; k++)
+            pg_set(cell, 8 + (int)(mote_rand() % 5) - 2, 8 + (int)(mote_rand() % 5) - 2, gl);
+        break;
+    case 4:                                          /* molten rock: glowing body */
+        for (int y = -3; y <= 3; y++)
+            for (int x = -3; x <= 3; x++)
+                if (x * x + y * y <= 10 + (int)(mote_rand() % 3) - 2)
+                    pg_set(cell, 8 + x, 8 + y, cmd);
+        for (int k = 0; k < 5; k++)                  /* dark crust patches */
+            pg_set(cell, 8 + (int)(mote_rand() % 5) - 2, 8 + (int)(mote_rand() % 5) - 2, dk);
+        pg_set(cell, 8, 8, gl);
+        pg_set(cell, 7, 7, cbr);
+        pg_set(cell, 9, 8, cbr);
+        break;
+    case 1: {                                        /* falling pod */
+        for (int y = -3; y <= 2; y++)
+            for (int x = -2; x <= 2; x++)
+                if (x * x + y * y <= 6)
+                    pg_set(cell, 8 + x, 8 + y, y <= 0 ? cmd : cdk);
+        pg_set(cell, 7, 6, cbr);
+        break; }
+    default:                                         /* tumbling rock chunk */
+        for (int y = -3; y <= 3; y++)
+            for (int x = -3; x <= 3; x++)
+                if (x * x + y * y <= 9 + (int)(mote_rand() % 3) - 1)
+                    pg_set(cell, 8 + x, 8 + y, (y < 0) ? PGC(b, 2) : md);
+        pg_set(cell, 7, 5, PGC(b, 6));
+    }
+}
+
+static int cur_biome_get(void);
+static void pg_generate(void) {
+    for (int i = 0; i < PG_W * 16; i++) pg_px[i] = 0xF81F;
+    int b = cur_biome_get();
+    pg_crystal(0, b, 2, 0); pg_crystal(1, b, 3, 0); pg_crystal(2, b, 4, 1);
+    pg_rock(3, b, 1); pg_rock(4, b, 2); pg_rock(5, b, 3);
+    pg_spike(6, b, 1); pg_spike(7, b, 0);
+    pg_nodule(8, b, 0); pg_nodule(9, b, 1);
+    pg_growth(10, b); pg_growth(11, b);
+    pg_projectile(12, b);
+    pg_crystal(13, b, 3, 1); pg_rock(14, b, 2); pg_nodule(15, b, 1);
+    /* opaque bounds per cell, for seating */
+    for (int c = 0; c < PG_CELLS; c++) {
+        int x0 = 16, y0 = 16, x1 = -1, y1 = -1;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+                if (pg_px[y * PG_W + c * 16 + x] != 0xF81F) {
+                    if (x < x0) x0 = x;
+                    if (y < y0) y0 = y;
+                    if (x > x1) x1 = x;
+                    if (y > y1) y1 = y;
+                }
+        pg_bx[c] = (uint8_t)(x1 < 0 ? 0 : x0);
+        pg_by[c] = (uint8_t)(x1 < 0 ? 0 : y0);
+        pg_bw[c] = (uint8_t)(x1 < 0 ? 0 : x1 - x0 + 1);
+        pg_bh[c] = (uint8_t)(x1 < 0 ? 0 : y1 - y0 + 1);
+    }
+}
+#define PG_IDX 512                                    /* deco idx >= PG_IDX = pg cell */
+
+/* non-colliding landscape props, placed at gen */
+#define MAXDECO 176
+static struct { int16_t x, y; uint16_t idx; uint8_t flags; } decos[MAXDECO];
+static int deco_n;
+
+/* biome hazards: telegraphed particle emitters, never block the path */
+#define MAXHAZ 8
+static struct { float x, y, t, cycle; uint8_t on, ceil, anchor, fired; } haz[MAXHAZ];
+static int haz_n;
+/* hazard projectiles: real dodgeable objects (rock/pod/icicle/spore/lava) */
+#define MAXHPJ 10
+static struct { float x, y, vx, vy, rot, vr, age; uint8_t on; } hpj[MAXHPJ];
+
 static const MoteAutotile *layers[2] = { &rock_at, &hull_at };  /* [0] set per biome */
 
 /* ---- biomes: alien terrains with their own sky, nebula and shape ---- */
@@ -90,6 +310,7 @@ static const Biome biomes[5] = {
     { "EMBERFORGE", &lava_at, { 16, 6, 4 }, { 44, 18, 10 }, { 24, 10, 8 }, { 8, 3, 1 }, 38, 0 },
 };
 static int cur_biome;
+static int cur_biome_get(void) { return cur_biome; }
 static void build_gradient(void);   /* fwd: sky rebuilt per sector */
 
 /* ------------------------------------------------------------------ tuning */
@@ -928,6 +1149,26 @@ static void gen_sector(void) {
     if (dbm) cur_biome = mote_clampi(atoi(dbm), 0, 4);
     layers[0] = biomes[cur_biome].terrain;
     build_gradient();
+    pg_generate();                                   /* fresh biome props, unique per sector */
+#ifndef __arm__
+    const char *pgd = getenv("SCRAP_PGDUMP");        /* dev: dump the proc atlas as PPM */
+    if (pgd) {
+        FILE *pf = fopen(pgd, "wb");
+        if (pf) {
+            fprintf(pf, "P6 %d 16 255\n", PG_W);
+            for (int p = 0; p < PG_W * 16; p++) {
+                uint16_t c = pg_px[p];
+                unsigned char rgb[3] = {
+                    (unsigned char)(((c >> 11) & 31) * 255 / 31),
+                    (unsigned char)(((c >> 5) & 63) * 255 / 63),
+                    (unsigned char)((c & 31) * 255 / 31) };
+                if (c == 0xF81F) rgb[0] = rgb[1] = rgb[2] = 24;
+                fwrite(rgb, 1, 3, pf);
+            }
+            fclose(pf);
+        }
+    }
+#endif
     for (int i = 0; i < ROWS * COLS; i++) map[i] = L_ROCK;
     for (int i = 0; i < MAXEN; i++) en[i].on = 0;
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
@@ -1057,6 +1298,96 @@ static void gen_sector(void) {
         int ci = 1 + (int)(mote_rand() % (n_chamber - 1));
         place_enemy(K_HEAVY, chx[ci] * TILE, chy[ci] * TILE);
     }
+    /* landscape dressing: biome props resting on floors (some hang from roofs) */
+    deco_n = 0;
+    /* procedural detail pass: generated smalls on surfaces + veins in walls */
+    {
+        static const uint8_t pg_surf[11] = { 0, 1, 2, 3, 4, 5, 10, 11, 7, 13, 14 };
+        static const uint8_t pg_ins[6] = { 8, 9, 0, 1, 13, 15 };
+        int want_s = 18 + (int)(mote_rand() % 6);
+        for (int tries = 0; tries < 200 && want_s > 0 && deco_n < MAXDECO; tries++) {
+            int cell = pg_surf[mote_rand() % 11];
+            int c = 8 + (int)(mote_rand() % (COLS - 18));
+            int r = cor_y[c];
+            if (solid_cell(c, r)) continue;
+            int hang = (cell == 7) ? 0 : (mote_rand() & 3) == 0;
+            int fw2 = pg_bw[cell], fh2 = pg_bh[cell];
+            if (!fw2) continue;
+            int y0;
+            if (hang || cell == 6) {
+                while (r > 1 && !solid_cell(c, r - 1)) r--;
+                y0 = r * TILE - pg_by[cell] - 2;
+            } else {
+                while (r < ROWS - 2 && !solid_cell(c, r + 1)) r++;
+                if (!solid_cell(c - 1, r + 1) || solid_cell(c - 1, r)) continue;
+                y0 = (r + 1) * TILE - pg_by[cell] - fh2 + 2;
+            }
+            decos[deco_n].x = (int16_t)(c * TILE + 4 - 8);
+            decos[deco_n].y = (int16_t)y0;
+            decos[deco_n].idx = (uint16_t)(PG_IDX + ((hang && cell != 6) ? 6 : cell));
+            decos[deco_n].flags = (uint8_t)(mote_rand() & 1 ? MOTE_SPR_HFLIP : 0);
+            deco_n++;
+            want_s--;
+        }
+        int want_i = 78 + (int)(mote_rand() % 16);
+        for (int tries = 0; tries < 1200 && want_i > 0 && deco_n < MAXDECO; tries++) {
+            int cell = pg_ins[mote_rand() % 6];
+            int c = 4 + (int)(mote_rand() % (COLS - 8));
+            int r = 2 + (int)(mote_rand() % (ROWS - 4));
+            if (!solid_cell(c, r)) continue;
+            int near_open = 0;
+            for (int k = 1; k <= 6 && !near_open; k++)
+                near_open = !solid_cell(c + k, r) || !solid_cell(c - k, r) ||
+                            !solid_cell(c, r + k) || !solid_cell(c, r - k);
+            if (!near_open) continue;
+            int x0 = c * TILE + 4 - 8, y0 = r * TILE + 4 - 8;
+            if (!solid(x0 + pg_bx[cell], y0 + pg_by[cell]) ||
+                !solid(x0 + pg_bx[cell] + pg_bw[cell] - 1, y0 + pg_by[cell] + pg_bh[cell] - 1))
+                continue;
+            decos[deco_n].x = (int16_t)x0;
+            decos[deco_n].y = (int16_t)y0;
+            decos[deco_n].idx = (uint16_t)(PG_IDX + cell);
+            decos[deco_n].flags = (uint8_t)(mote_rand() & 1 ? MOTE_SPR_HFLIP : 0);
+            deco_n++;
+            want_i--;
+        }
+    }
+
+    /* biome hazards appear from sector 2 and multiply with depth */
+    haz_n = 0;
+    for (int i = 0; i < MAXHPJ; i++) hpj[i].on = 0;
+    {
+        int want = sector < 2 ? 0 : 2 + (sector - 2);
+        if (want > MAXHAZ) want = MAXHAZ;
+        /* floor hazards in spore/ember biomes, ceiling hazards elsewhere */
+        int on_floor = (cur_biome == 3 || cur_biome == 4);
+        static const uint8_t pg_anchor[5] = { 6, 10, 6, 10, 11 };
+        for (int tries = 0; tries < 120 && haz_n < want; tries++) {
+            int c = 26 + (int)(mote_rand() % (COLS - 44));
+            int r = cor_y[c];
+            if (solid_cell(c, r)) continue;
+            if (on_floor) {
+                while (r < ROWS - 2 && !solid_cell(c, r + 1)) r++;
+                if (!solid_cell(c - 1, r + 1) || !solid_cell(c + 1, r + 1) ||
+                    solid_cell(c - 1, r) || solid_cell(c + 1, r)) continue;
+            } else {
+                while (r > 1 && !solid_cell(c, r - 1)) r--;
+            }
+            int close = 0;                           /* keep them spread out */
+            for (int k = 0; k < haz_n; k++)
+                if (haz[k].x > c * TILE - 40 && haz[k].x < c * TILE + 40) close = 1;
+            if (close) continue;
+            haz[haz_n].on = 1;
+            haz[haz_n].ceil = (uint8_t)!on_floor;
+            haz[haz_n].x = c * TILE + 4;
+            haz[haz_n].y = on_floor ? (r + 1) * TILE + 2 : r * TILE - 2;
+            haz[haz_n].t = mote_randf(0, 3.0f);
+            haz[haz_n].cycle = mote_randf(2.8f, 4.0f) - mote_clampf(sector * 0.08f, 0, 1.0f);
+            haz[haz_n].anchor = pg_anchor[cur_biome];
+            haz_n++;
+        }
+    }
+
     /* free-floating powerup orbs + a repair kit or two along the corridor */
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
     int ncell = 1 + (int)(mote_rand() % 2);
@@ -1069,6 +1400,13 @@ static void gen_sector(void) {
         int c = 40 + (int)(mote_rand() % (COLS - 60));
         float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-8, 8);
         if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_HEAL);
+    }
+    if (getenv("SCRAP_DBG")) {
+        for (int i = 0; i < deco_n; i++)
+            fprintf(stderr, "[DECO] %d cell=%d at %d,%d\n", i,
+                    (int)decos[i].idx - PG_IDX, decos[i].x, decos[i].y);
+        for (int i = 0; i < haz_n; i++)
+            fprintf(stderr, "[HAZ] %d at %.0f,%.0f ceil=%d\n", i, haz[i].x, haz[i].y, haz[i].ceil);
     }
     ensure_path();
     gate_t = 0;
@@ -1150,7 +1488,68 @@ static void bg_cb(uint16_t *fb, int y0, int y1) {
 }
 
 /* ================================================================== run setup */
+/* mid-run suspend save (slot 1): written at the START of each sector, resumed
+ * from the title, DELETED on death — a bookmark, never a checkpoint. */
+typedef struct {
+    int magic, sector;
+    uint32_t seed;
+    float hull;
+    int hull_max, scrap, kills, inv_n, equipped, player_ship;
+    float shield_max;
+    Gene inv[INV_MAX];
+} RunSave;
+#define RUN_MAGIC 0x53575231 + 0x1000              /* 'SWRN'-ish, distinct */
+static int run_save_sector;                        /* 0 = no suspended run */
+
+static void run_save_write(void) {
+    RunSave r;
+    memset(&r, 0, sizeof r);
+    r.magic = RUN_MAGIC; r.sector = sector; r.seed = run_seed;
+    r.hull = hull; r.hull_max = hull_max; r.scrap = scrap; r.kills = kills;
+    r.inv_n = inv_n; r.equipped = equipped; r.player_ship = player_ship;
+    r.shield_max = shield_max;
+    memcpy(r.inv, inv, sizeof inv);
+    mote->save(1, &r, sizeof r);
+    run_save_sector = sector;
+}
+static void run_save_clear(void) {
+    if (!run_save_sector) return;
+    mote->save(1, 0, 0);
+    run_save_sector = 0;
+}
+static int run_save_load(RunSave *r) {
+    if (mote->load(1, r, sizeof *r) != sizeof *r) return 0;
+    return r->magic == RUN_MAGIC && r->sector >= 1 && r->inv_n >= 1 && r->inv_n <= INV_MAX;
+}
+
+static void resume_run(void) {
+    RunSave r;
+    if (!run_save_load(&r)) return;
+    sector = r.sector; run_seed = r.seed;
+    hull_max = mote_clampi(r.hull_max, HULL_MAX, 8);
+    hull = mote_clampf(r.hull, 1, hull_max);
+    scrap = r.scrap; kills = r.kills;
+    inv_n = mote_clampi(r.inv_n, 1, INV_MAX);
+    equipped = mote_clampi(r.equipped, 0, inv_n - 1);
+    player_ship = mote_clampi(r.player_ship, 0, SHIP_COUNT - 1);
+    memcpy(inv, r.inv, sizeof inv);
+    shield_max = mote_clampf(r.shield_max, 2.0f, 5.0f);
+    shield_e = shield_max; shield_on = 0;
+    invuln = 0; fire_cd = 0; die_t = 0;
+    b_over = b_amp = b_after = b_ghost = 0;
+    b_bomb = b_rear = b_vert = 0; bomb_cd = 0;
+    b_drone = b_reflect = b_magnet = 0; drone_cd = 0; drone_ang = 0;
+    mine_charges = 0; mine_cd = 0;
+    for (int i = 0; i < PMINE_N; i++) pmine[i].on = 0;
+    gen_sector();                                   /* deterministic from the seed */
+    state = ST_PLAY; state_t = 0;
+    char bt[40];
+    snprintf(bt, sizeof bt, "RESUMED SEC %d: %s", sector, biomes[cur_biome].name);
+    say(bt);
+}
+
 static void start_run(void) {
+    run_save_clear();                               /* a fresh run burns the bookmark */
     sector = 1; scrap = 0; kills = 0;
     hull = HULL_MAX; invuln = 0; fire_cd = 0; die_t = 0;
     shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
@@ -1160,6 +1559,10 @@ static void start_run(void) {
     mine_charges = 0; mine_cd = 0; hull_max = HULL_MAX;
     for (int i = 0; i < PMINE_N; i++) pmine[i].on = 0;
     run_seed = mote_rand();
+    {
+        const char *dsd = getenv("SCRAP_SEED");
+        if (dsd) run_seed = (uint32_t)atoi(dsd) | 1u;
+    }
     inv_n = 1; equipped = 0;
     player_ship = (sel_ship >= 0 && sel_ship < SHIP_COUNT &&
                    (sel_ship == PLAYER_SHIP || ship_parts[sel_ship] >= PARTS_NEED))
@@ -1222,6 +1625,8 @@ static void save_all(void) {
     cat_dirty = 0;
 }
 static void save_flush(void) { if (cat_dirty) save_all(); }
+
+
 static void save_best(void) {
     if (sector > best_sector || (sector == best_sector && scrap > best_scrap)) {
         best_sector = sector; best_scrap = scrap;
@@ -1286,6 +1691,10 @@ static void g_init(void) {
     }
     bit_set(cat_ship, PLAYER_SHIP);                  /* your fighter: always yours */
     ship_parts[PLAYER_SHIP] = PARTS_NEED;
+    {
+        RunSave r;
+        if (run_save_load(&r)) run_save_sector = r.sector;
+    }
     if (getenv("SCRAP_CAT")) {                       /* dev: unlock the catalogue */
         memset(cat_ship, 0xFF, sizeof cat_ship);
         memset(cat_boss, 0xFF, sizeof cat_boss);
@@ -1327,6 +1736,7 @@ static void take_hit(float n) {
         mote->rumble(1.0f, 400);
         save_best();
         save_flush();
+        run_save_clear();
         state = ST_DEAD; state_t = 0;
     }
 }
@@ -1685,6 +2095,113 @@ static void pmines_update(float dt) {
     }
 }
 
+/* biome hazard pulse: idle -> shimmer telegraph (0.8s) -> ACTIVE burst (1s).
+ * Active streams hurt; they are narrow and timed, never sealing the path. */
+
+static void hpj_spawn(float x, float y, int ceil2) {
+    for (int i = 0; i < MAXHPJ; i++) if (!hpj[i].on) {
+        if (getenv("SCRAP_DBG")) fprintf(stderr, "[HPJ] t=%.2f spawn %.0f,%.0f\n", bg_time, x, y);
+        hpj[i].on = 1; hpj[i].age = 0; hpj[i].rot = 0; hpj[i].vr = 0;
+        hpj[i].x = x + mote_randf(-3, 3); hpj[i].y = y;
+        switch (cur_biome) {
+        case 0:                                      /* crumbling rock chunk */
+            hpj[i].vx = mote_randf(-12, 12); hpj[i].vy = 20;
+            hpj[i].vr = mote_randf(-4, 4);
+            break;
+        case 1:                                      /* heavy pod drop */
+            hpj[i].vx = mote_randf(-8, 8); hpj[i].vy = 26;
+            hpj[i].vr = mote_randf(-1.5f, 1.5f);
+            break;
+        case 2:                                      /* icicle: fast, point down */
+            hpj[i].vx = 0; hpj[i].vy = 55;
+            break;
+        case 3:                                      /* spore pod drifts UP */
+            hpj[i].vx = mote_randf(-14, 14); hpj[i].vy = mote_randf(-60, -38);
+            hpj[i].vr = mote_randf(-1, 1);
+            break;
+        default:                                     /* molten rock: arcing launch */
+            hpj[i].vx = mote_randf(-45, 45); hpj[i].vy = mote_randf(-215, -150);
+            hpj[i].vr = mote_randf(-5, 5);
+        }
+        (void)ceil2;
+        return;
+    }
+}
+
+static void hpj_burst(int i) {
+    const uint16_t *bc = exh_col[cur_biome];
+    for (int k = 0; k < 14; k++) {
+        float a = mote_randf(0, 6.28f), sp = mote_randf(20, 90);
+        spawn_part(hpj[i].x, hpj[i].y, cosf(a) * sp, sinf(a) * sp * 0.7f,
+                   bc[k & 1], mote_randf(0.2f, 0.45f), PF_ADD | (k & 1 ? PF_GRAV : 0));
+    }
+    mote->audio_play_sfx(&boom_small_sfx, 0.25f);
+    hpj[i].on = 0;
+}
+
+static void haz_update(float dt) {
+    for (int i = 0; i < haz_n; i++) {
+        if (!haz[i].on) continue;
+        haz[i].t += dt;
+        float ph = fmodf(haz[i].t, haz[i].cycle);
+        float tele0 = haz[i].cycle - 1.8f;           /* telegraph window */
+        float act0 = haz[i].cycle - 1.0f;            /* volley window    */
+        float hx2 = haz[i].x, hy2 = haz[i].y;
+        int dn = !haz[i].ceil ? -1 : 1;
+        const uint16_t *bc = exh_col[cur_biome];
+        if (ph > tele0 && ph < act0) {               /* shimmer warning */
+            if ((mote_rand() & 3) == 0)
+                spawn_part(hx2 + mote_randf(-4, 4), hy2 + (haz[i].ceil ? 2 : -2),
+                           0, dn * 6.0f, bc[0], 0.2f, PF_ADD);
+        } else if (ph >= act0) {                     /* throw real objects */
+            /* stagger 2-3 projectiles across the window */
+            float w = ph - act0;
+            int slot = (int)(w * 3.0f);
+            int burst = 3;
+            if (slot < burst && haz[i].fired <= slot) {
+                hpj_spawn(hx2, hy2 + (haz[i].ceil ? 9 : -9), haz[i].ceil);
+                haz[i].fired = (uint8_t)(slot + 1);
+            }
+        }
+        if (ph < tele0) haz[i].fired = 0;
+    }
+
+    /* the objects themselves */
+    for (int i = 0; i < MAXHPJ; i++) {
+        if (!hpj[i].on) continue;
+        hpj[i].age += dt;
+        switch (cur_biome) {
+        case 2:  hpj[i].vy += 330.0f * dt; break;    /* icicle accelerates */
+        case 3:  hpj[i].vx += sinf(hpj[i].age * 5.0f) * 30.0f * dt; break; /* sway */
+        case 4:  hpj[i].vy += 300.0f * dt; break;    /* lava arc */
+        default: hpj[i].vy += 240.0f * dt; break;    /* falling debris */
+        }
+        hpj[i].x += hpj[i].vx * dt;
+        hpj[i].y += hpj[i].vy * dt;
+        hpj[i].rot += hpj[i].vr * dt;
+        /* trail per biome: these read as burning/glinting objects */
+        {
+            const uint16_t *bc = exh_col[cur_biome];
+            spawn_part(hpj[i].x + mote_randf(-2, 2), hpj[i].y + mote_randf(-2, 2),
+                       -hpj[i].vx * 0.1f, -hpj[i].vy * 0.1f, bc[mote_rand() & 1],
+                       mote_randf(0.15f, 0.3f), PF_ADD);
+        }
+        if (cur_biome == 3 && hpj[i].age > 1.9f) { hpj_burst(i); continue; }  /* pop */
+        if (hpj[i].age > 3.2f) { hpj[i].on = 0; continue; }
+        /* brief grace so a fresh projectile clears its own emitter */
+        if (hpj[i].age > 0.14f &&
+            (solid(hpj[i].x, hpj[i].y + 3) || solid(hpj[i].x, hpj[i].y - 3))) {
+            hpj_burst(i);
+            continue;
+        }
+        float dx = hpj[i].x - px, dy = hpj[i].y - py;
+        if (dx > -(PRAD + 7) && dx < PRAD + 7 && dy > -(PRAD + 7) && dy < PRAD + 7) {
+            take_hit(1);
+            hpj_burst(i);
+        }
+    }
+}
+
 /* ================================================================== shots */
 static void shots_update(float dt) {
     for (int i = 0; i < MAXSHOT; i++) {
@@ -2018,6 +2535,28 @@ static void submit_scene(void) {
     mote->scene2d_begin(cam_x, cam_y);
     mote->scene2d_set_autotile_layers(map, COLS, ROWS, layers, 2);
 
+    /* landscape props draw OVER the ships (layer 12): flying behind a crystal
+     * or under a mushroom cap naturally hides you for a beat */
+    for (int i = 0; i < deco_n; i++) {               /* all generated; view-culled */
+        if (decos[i].x < cam_x - 20 || decos[i].x > cam_x + MOTE_FB_W + 4 ||
+            decos[i].y < cam_y - 20 || decos[i].y > cam_y + MOTE_FB_H + 4) continue;
+        int cell = decos[i].idx - PG_IDX;
+        MoteSprite s = { &pg_img, decos[i].x, decos[i].y,
+                         (uint16_t)(cell * 16), 0, 16, 16, 12, decos[i].flags };
+        mote->scene2d_add(&s);
+    }
+    for (int i = 0; i < haz_n; i++) {
+        if (!haz[i].on) continue;
+        int a = haz[i].anchor;
+        MoteSprite s = { &pg_img,
+                         (int16_t)(haz[i].x - 8),
+                         (int16_t)(haz[i].ceil ? haz[i].y - pg_by[a]
+                                               : haz[i].y - pg_by[a] - pg_bh[a]),
+                         (uint16_t)(a * 16), 0, 16, 16, 12,
+                         (uint8_t)((haz[i].ceil && a != 6) ? MOTE_SPR_VFLIP : 0) };
+        mote->scene2d_add(&s);
+    }
+
     /* warp gate (animated; sealed until a boss sector's guardian falls) */
     if (gate_open) {
         MoteSprite gs = { &gate_img, (int16_t)gate_x, (int16_t)gate_y,
@@ -2168,13 +2707,18 @@ static void g_update(float dt) {
             cat_from_title = 1;
             state = ST_CATALOG;
         }
-        if (mote_just_pressed(in, MOTE_BTN_A)) start_run();
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            if (run_save_sector) resume_run();
+            else start_run();
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B) && run_save_sector) start_run();
         break; }
     case ST_PLAY:
         player_update(dt);
         if (state == ST_LAB) { submit_scene(); break; }
         enemies_update(dt);
         pmines_update(dt);
+        haz_update(dt);
         shots_update(dt);
         chips_update(dt);
         parts_update(dt);
@@ -2336,7 +2880,7 @@ static void g_update(float dt) {
         Gene child = fuse_genes(&inv[lab_mark], &inv[bench_core]);
         demo_cd -= dt;
         if (demo_cd <= 0) {                          /* the result fires, for real */
-            fire_gene(&child, cam_x + 26, cam_y + 71, 1, 1);
+            fire_gene(&child, cam_x + 26, cam_y + 68, 1, 1);
             demo_cd = 1.0f / gene_rate(&child);
         }
         shots_update(dt);
@@ -2378,6 +2922,7 @@ static void g_update(float dt) {
             if (hull < hull_max) hull += 1;
             save_flush();
             gen_sector();
+            run_save_write();
             char b[40];
             snprintf(b, sizeof b, "SECTOR %d: %s", sector, biomes[cur_biome].name);
             say(b);
@@ -2547,15 +3092,23 @@ static void hud(uint16_t *fb) {
     }
 }
 
-/* labelled stat bar with optional reference tick (integer-only drawing) */
+/* stat bar. With ref >= 0 it compares against a parent value: the parent
+ * amount is a grey ghost fill, anything GAINED on top of it glows bright
+ * (a LOSS shows as a hollow dark-red stub). */
 static void stat_bar(uint16_t *fb, int x, int y, int w, float v, float vmax,
-                     uint16_t col, float tick) {
+                     uint16_t col, float ref) {
     mote->draw_rect(fb, x, y, w, 5, MOTE_RGB565(26, 32, 50), 1, 0, MOTE_FB_H);
-    int fw = (int)(w * mote_clampf(v / vmax, 0, 1));
-    if (fw > 0) mote->draw_rect(fb, x, y, fw, 5, col, 1, 0, MOTE_FB_H);
-    if (tick >= 0) {
-        int tx = x + (int)((w - 1) * mote_clampf(tick / vmax, 0, 1));
-        mote->draw_rect(fb, tx, y - 1, 1, 7, MOTE_RGB565(255, 255, 255), 1, 0, MOTE_FB_H);
+    int fv = (int)(w * mote_clampf(v / vmax, 0, 1));
+    if (ref >= 0) {
+        int fr = (int)(w * mote_clampf(ref / vmax, 0, 1));
+        int base = fv < fr ? fv : fr;
+        if (base > 0) mote->draw_rect(fb, x, y, base, 5, MOTE_RGB565(110, 118, 140), 1, 0, MOTE_FB_H);
+        if (fv > fr)
+            mote->draw_rect(fb, x + fr, y, fv - fr, 5, col, 1, 0, MOTE_FB_H);
+        else if (fr > fv)
+            mote->draw_rect(fb, x + fv, y, fr - fv, 5, MOTE_RGB565(70, 40, 44), 1, 0, MOTE_FB_H);
+    } else if (fv > 0) {
+        mote->draw_rect(fb, x, y, fv, 5, col, 1, 0, MOTE_FB_H);
     }
 }
 
@@ -2566,13 +3119,15 @@ static void stat_bar(uint16_t *fb, int x, int y, int w, float v, float vmax,
 static void lab_overlay(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(10, 12, 24), MOTE_RGB565(90, 120, 180));
-    mote->text_font(fb, f, "HANGAR", 44, 2, MOTE_RGB565(160, 220, 255));
+    mote->text_font(fb, f, "HANGAR", 4, 2, MOTE_RGB565(160, 220, 255));
+    mote->text(fb, "LB CATALOG", 66, 5, MOTE_RGB565(120, 130, 160));
 
-    for (int i = 0; i < inv_n; i++) {
-        int y = 15 + i * 11;
+    int top = (inv_n > 7 && lab_cur > 6) ? lab_cur - 6 : 0;   /* 7 rows + scroll */
+    for (int r = 0; r < 7 && top + r < inv_n; r++) {
+        int i = top + r, y = 14 + r * 10;
         const Gene *g = &inv[i];
         if (i == lab_cur)
-            mote->draw_rect(fb, 3, y, 122, 11, MOTE_RGB565(30, 40, 70), 1, 0, MOTE_FB_H);
+            mote->draw_rect(fb, 3, y, 122, 10, MOTE_RGB565(30, 40, 70), 1, 0, MOTE_FB_H);
         if (i == equipped)
             mote->text_font(fb, f, ">", 4, y, MOTE_RGB565(255, 255, 255));
         mote->blit_ex(fb, &weapons_img, 18, y + 5,
@@ -2584,20 +3139,24 @@ static void lab_overlay(uint16_t *fb) {
         mote->text_font(fb, f, l, 28, y, elem_col[g->elem][0]);
     }
 
-    /* stats: three bars beat a block of numbers */
-    mote->draw_line(fb, 2, 103, 125, 103, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+    /* stats of the highlighted weapon: damage per shot, shots per second,
+     * projectile speed — the SAME three lines the fusion bench shows */
+    mote->draw_line(fb, 2, 86, 125, 86, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
     const Gene *g = &inv[lab_cur];
     uint16_t bc = elem_col[g->elem][1];
-    mote->text_font(fb, f, "D", 5, 104, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 13, 107, 24, gene_dmg(g), DMG_MAX, bc, -1);
-    mote->text_font(fb, f, "R", 44, 104, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 52, 107, 24, gene_rate(g), RPS_MAX, bc, -1);
-    mote->text_font(fb, f, "S", 83, 104, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 91, 107, 24, pat_spd[g->pat], SPD_MAX, bc, -1);
+    int d10 = (int)(gene_dmg(g) * 10 + 0.5f), r10 = (int)(gene_rate(g) * 10 + 0.5f);
+    mote->text_font(fb, f, "DMG", 4, 88, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 91, 60, gene_dmg(g), DMG_MAX, bc, -1);
+    textf_med(fb, 98, 88, MOTE_RGB565(230, 238, 255), "%d.%d", d10 / 10, d10 % 10);
+    mote->text_font(fb, f, "RATE", 4, 98, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 101, 60, gene_rate(g), RPS_MAX, bc, -1);
+    textf_med(fb, 98, 98, MOTE_RGB565(230, 238, 255), "%d.%d", r10 / 10, r10 % 10);
     char ms[6];
     mods_str(g->mods, ms);
-    textf_med(fb, 5, 114, MOTE_RGB565(150, 160, 190), "MODS %s", ms);
-    mote->text_font(fb, f, "A EQ RB FUSE LB CAT", 40, 114, MOTE_RGB565(255, 220, 110));
+    textf_med(fb, 4, 108, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[g->pat]);
+    textf_med(fb, 60, 108, g->mods ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(120, 130, 160),
+              "MODS %s", ms);
+    mote->text(fb, "A EQUIP  RB FUSE", 30, 119, MOTE_RGB565(255, 220, 110));
 }
 
 /* The FUSION BENCH: chassis + core -> result, LIVE-FIRED in the demo strip. */
@@ -2629,24 +3188,35 @@ static void bench_overlay(uint16_t *fb) {
     mote->text_font(fb, f, l, 14, 39, elem_col[c.elem][0]);
 
     /* live demo strip: the RESULT is firing in here right now */
-    mote->draw_rect(fb, 3, 52, 122, 40, MOTE_RGB565(5, 7, 14), 1, 0, MOTE_FB_H);
-    mote->draw_rect(fb, 3, 52, 122, 40, MOTE_RGB565(60, 80, 120), 0, 0, MOTE_FB_H);
-    mote->blit(fb, &ships_img, 6, 63,
+    mote->draw_rect(fb, 3, 52, 122, 32, MOTE_RGB565(5, 7, 14), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 3, 52, 122, 32, MOTE_RGB565(60, 80, 120), 0, 0, MOTE_FB_H);
+    mote->blit(fb, &ships_img, 6, 60,
                (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
                (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
 
-    /* result bars, with white ticks marking the CHASSIS parent for comparison */
+    /* result stats vs the IN weapon: grey = what IN already had, bright =
+     * what the fusion GAINS (dark red = lost); the number goes green/red too */
     uint16_t bc = elem_col[c.elem][1];
-    mote->text_font(fb, f, "DMG", 4, 94, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 30, 97, 92, gene_dmg(&c), DMG_MAX, bc, gene_dmg(ga));
-    mote->text_font(fb, f, "RPS", 4, 104, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 30, 107, 92, gene_rate(&c), RPS_MAX, bc, gene_rate(ga));
+    float dv = gene_dmg(&c), dr = gene_dmg(ga);
+    float rv = gene_rate(&c), rr = gene_rate(ga);
+    int d10 = (int)(dv * 10 + 0.5f), r10 = (int)(rv * 10 + 0.5f);
+    mote->text_font(fb, f, "DMG", 4, 86, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 89, 58, dv, DMG_MAX, bc, dr);
+    textf_med(fb, 94, 86, dv > dr + 0.01f ? MOTE_RGB565(120, 235, 140)
+              : dv < dr - 0.01f ? MOTE_RGB565(255, 110, 100) : MOTE_RGB565(230, 238, 255),
+              "%d.%d%s", d10 / 10, d10 % 10, dv > dr + 0.01f ? "+" : dv < dr - 0.01f ? "-" : "");
+    mote->text_font(fb, f, "RATE", 4, 96, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 99, 58, rv, RPS_MAX, bc, rr);
+    textf_med(fb, 94, 96, rv > rr + 0.01f ? MOTE_RGB565(120, 235, 140)
+              : rv < rr - 0.01f ? MOTE_RGB565(255, 110, 100) : MOTE_RGB565(230, 238, 255),
+              "%d.%d%s", r10 / 10, r10 % 10, rv > rr + 0.01f ? "+" : rv < rr - 0.01f ? "-" : "");
     char ms[6];
     mods_str(c.mods, ms);
     uint8_t newm = (uint8_t)(c.mods & ~(ga->mods | gb->mods));
-    textf_med(fb, 4, 114, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
-              "MODS %s%s", ms, newm ? "!" : "");
-    mote->text_font(fb, f, "A FUSE B BACK", 50, 114, MOTE_RGB565(255, 255, 255));
+    textf_med(fb, 4, 106, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[c.pat]);
+    textf_med(fb, 60, 106, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
+              "MODS %s%s", ms, newm ? " NEW!" : "");
+    mote->text(fb, "A FUSE   B BACK", 34, 118, MOTE_RGB565(255, 220, 110));
 }
 
 static const char *const kind_name[6] = { "DRIFTER", "HUNTER", "SNIPER", "ORBITER", "TURRET", "HEAVY" };
@@ -2964,7 +3534,14 @@ static void g_overlay(uint16_t *fb) {
             snprintf(bb, sizeof bb, "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
             mote->text(fb, bb, 14, 99, MOTE_RGB565(255, 220, 110));
         }
-        if (((int)(bg_time * 2) & 1))
+        if (run_save_sector) {
+            char rl[32];
+            snprintf(rl, sizeof rl, "A RESUME SEC %d", run_save_sector);
+            if (((int)(bg_time * 2) & 1))
+                mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), rl, 26, 108,
+                                MOTE_RGB565(140, 255, 170));
+            mote->text(fb, "B NEW RUN", 38, 121, MOTE_RGB565(150, 160, 190));
+        } else if (((int)(bg_time * 2) & 1))
             mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "PRESS A", 44, 112,
                             MOTE_RGB565(255, 255, 255));
         return;
@@ -3036,6 +3613,18 @@ static void g_overlay(uint16_t *fb) {
             if (((int)(pmine[i].t * 3) & 3) == 0)
                 mote->draw_circle(fb, x, y, 3 + ((int)(pmine[i].t * 12) & 3),
                                   MOTE_RGB565(90, 50, 130), 0, 0, MOTE_FB_H);
+        }
+    }
+
+    if (state == ST_PLAY || state == ST_CLEAR) {
+        for (int i = 0; i < MAXHPJ; i++) {
+            if (!hpj[i].on) continue;
+            int sx = (int)hpj[i].x - cam_x, sy = (int)hpj[i].y - cam_y;
+            const uint16_t *bc = exh_col[cur_biome];
+            px_add(fb, sx - 4, sy, bc[1]); px_add(fb, sx + 4, sy, bc[1]);
+            px_add(fb, sx, sy - 4, bc[1]); px_add(fb, sx, sy + 4, bc[1]);
+            mote->blit_ex(fb, &pg_img, sx, sy, 12 * 16, 0, 16, 16,
+                          hpj[i].rot, 1.5f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
         }
     }
 

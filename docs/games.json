@@ -1,16 +1,16 @@
 {
  "schema": 1,
- "generated": "2026-07-11T13:42:15+00:00",
+ "generated": "2026-07-11T22:34:17+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
    "id": "scrapwing",
    "name": "Scrapwing",
    "author": "austinio7116",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "abi": 47,
-   "size": 495720,
-   "sha256": "701d3fcee07d8b8736c6fbc75f5fe63ce77b665be96a3ccabe9cd345efe62edb",
+   "size": 512840,
+   "sha256": "b032a69c30341974e3df810b905e55829a061f083c252021f2b77e6f6c1103d3",
    "file": "games/Scrapwing.mote",
    "icon": "img/gallery/scrapwing-icon.png",
    "thumb": "img/gallery/scrapwing-1.png",
