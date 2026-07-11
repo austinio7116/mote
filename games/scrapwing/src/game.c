@@ -173,14 +173,18 @@ enum { CH_WEAPON, CH_HEAL, CH_POWER };
 /* Powerups ride the orb sprites — a FIXED sprite per effect so players learn
  * them on sight (colors follow meaning: cyan shield, green heal, red nova...). */
 enum { PU_SHIELD, PU_REPAIR, PU_NOVA, PU_OVERDRIVE, PU_AMP, PU_AFTERBURN,
-       PU_GHOST, PU_LEVELCORE, PU_SCRAP, PU_BOMBS, PU_REARGUN, PU_VERTGUN, PU_N };
-static const uint8_t pu_sprite[PU_N] = { 8, 10, 25, 5, 9, 24, 6, 17, 19, 21, 1, 4 };
+       PU_GHOST, PU_LEVELCORE, PU_SCRAP, PU_BOMBS, PU_REARGUN, PU_VERTGUN,
+       PU_DRONE, PU_REFLECT, PU_MAGNET, PU_CHRONO, PU_HULLMAX, PU_N };
+static const uint8_t pu_sprite[PU_N] = { 8, 10, 25, 5, 9, 24, 6, 17, 19, 21, 1, 4,
+                                         22, 20, 0, 23, 11 };
 static const char *const pu_name[PU_N] = {
     "SHIELD CELL +", "REPAIR KIT", "NOVA!", "OVERDRIVE", "DAMAGE AMP",
     "AFTERBURNER", "GHOST FIELD", "WEAPON LEVEL UP", "SCRAP CACHE",
-    "BOMB BAY", "TAIL GUN", "VERT CANNONS" };
+    "BOMB BAY", "TAIL GUN", "VERT CANNONS",
+    "DRONE WINGMAN", "REFLECTOR", "MAGNET CORE", "CHRONO MINES x3", "HULL OVERCHARGE" };
 /* weighted spawn odds (sum 100) */
-static const uint8_t pu_weight[PU_N] = { 13, 14, 8, 10, 10, 8, 6, 4, 7, 8, 6, 6 };
+static const uint8_t pu_weight[PU_N] = { 10, 11, 6, 8, 8, 7, 5, 3, 6, 7, 5, 5,
+                                         5, 4, 3, 4, 3 };
 typedef struct { float x, y, t; uint8_t on, type, pu; Gene g; } Chip;
 static Chip chips[MAXCHIP];
 
@@ -191,6 +195,13 @@ static float hull, invuln, fire_cd, die_t;
 static float shield_e, shield_max;
 static float b_over, b_amp, b_after, b_ghost;   /* timed powerup buffs */
 static float b_bomb, b_rear, b_vert, bomb_cd;   /* offensive powerup timers */
+static float b_drone, drone_cd, drone_ang;      /* wingman */
+static float b_reflect, b_magnet;
+static int   mine_charges;                      /* chrono mines waiting to deploy */
+static float mine_cd;
+static int   hull_max;                          /* grows with HULL OVERCHARGE */
+#define PMINE_N 6
+static struct { float x, y, t; uint8_t on; } pmine[PMINE_N];
 static int   shield_on;
 static float thrust_x, thrust_y;
 
@@ -985,6 +996,9 @@ static void start_run(void) {
     shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
     b_over = b_amp = b_after = b_ghost = 0;
     b_bomb = b_rear = b_vert = 0; bomb_cd = 0;
+    b_drone = b_reflect = b_magnet = 0; drone_cd = 0; drone_ang = 0;
+    mine_charges = 0; mine_cd = 0; hull_max = HULL_MAX;
+    for (int i = 0; i < PMINE_N; i++) pmine[i].on = 0;
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
     inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
@@ -1143,6 +1157,47 @@ static void player_update(float dt) {
             spawn_shot(px, py + 5, 1.5708f, 170, &sub, sub_dmg, 0);
         }
         fire_cd = 1.0f / (gene_rate(g) * (b_over > 0 ? 1.4f : 1.0f));
+    }
+
+    /* drone wingman: orbits and snipes the nearest threat */
+    if (b_drone > 0) {
+        b_drone -= dt;
+        drone_ang += 2.6f * dt;
+        float dxp = px + cosf(drone_ang) * 15.0f;
+        float dyp = py + sinf(drone_ang) * 15.0f;
+        drone_cd -= dt;
+        if (drone_cd <= 0) {
+            Enemy *best = 0; float bd = 95 * 95;
+            for (int k = 0; k < MAXEN; k++) {
+                Enemy *e2 = &en[k];
+                if (!e2->on || !e2->active) continue;
+                float ex = e2->x - dxp, ey = e2->y - dyp, d2 = ex * ex + ey * ey;
+                if (d2 < bd) { bd = d2; best = e2; }
+            }
+            if (best) {
+                Gene dg = { PAT_BOLT, inv[equipped].elem, 0, inv[equipped].lvl, 0 };
+                spawn_shot(dxp, dyp, atan2f(best->y - dyp, best->x - dxp), 180,
+                           &dg, gene_dmg(&inv[equipped]) * 0.5f, 0);
+                drone_cd = 0.8f;
+            }
+        }
+        if ((mote_rand() & 7) == 0)
+            spawn_part(dxp, dyp, mote_randf(-6, 6), mote_randf(-6, 6),
+                       MOTE_RGB565(140, 255, 170), 0.15f, PF_ADD);
+    }
+    if (b_reflect > 0) b_reflect -= dt;
+    if (b_magnet > 0)  b_magnet -= dt;
+
+    /* chrono mines: deploy behind the ship, one every few seconds */
+    mine_cd -= dt;
+    if (mine_charges > 0 && mine_cd <= 0) {
+        for (int i = 0; i < PMINE_N; i++) if (!pmine[i].on) {
+            pmine[i].on = 1; pmine[i].t = 0;
+            pmine[i].x = px - facing * 10; pmine[i].y = py;
+            mine_charges--;
+            mine_cd = 3.0f;
+            break;
+        }
     }
 
     /* bomb bay: shells drop away beneath, hunting turrets and ground targets */
@@ -1331,6 +1386,37 @@ static void enemies_update(float dt) {
     }
 }
 
+static void pmines_update(float dt) {
+    for (int i = 0; i < PMINE_N; i++) {
+        if (!pmine[i].on) continue;
+        pmine[i].t += dt;
+        if (pmine[i].t > 30.0f) { pmine[i].on = 0; continue; }
+        for (int k = 0; k < MAXEN; k++) {
+            Enemy *e = &en[k];
+            if (!e->on || !e->active) continue;
+            float dx = e->x - pmine[i].x, dy = e->y - pmine[i].y;
+            if (dx * dx + dy * dy < 22 * 22) {       /* detonate */
+                for (int j = 0; j < MAXEN; j++) {
+                    Enemy *o = &en[j];
+                    if (!o->on || !o->active) continue;
+                    float ox = o->x - pmine[i].x, oy = o->y - pmine[i].y;
+                    if (ox * ox + oy * oy < 26 * 26) dmg_enemy(o, 8.0f);
+                }
+                spawn_ring(pmine[i].x, pmine[i].y, MOTE_RGB565(200, 150, 255));
+                for (int j = 0; j < 22; j++) {
+                    float a = mote_randf(0, 6.28f), sp = mote_randf(30, 120);
+                    spawn_part(pmine[i].x, pmine[i].y, cosf(a) * sp, sinf(a) * sp,
+                               j & 1 ? MOTE_RGB565(220, 150, 255) : MOTE_RGB565(255, 230, 150),
+                               mote_randf(0.2f, 0.5f), PF_ADD);
+                }
+                mote->audio_play_sfx(&boom_small_sfx, 0.7f);
+                pmine[i].on = 0;
+                break;
+            }
+        }
+    }
+}
+
 /* ================================================================== shots */
 static void shots_update(float dt) {
     for (int i = 0; i < MAXSHOT; i++) {
@@ -1489,6 +1575,10 @@ static void shots_update(float dt) {
         float dx = b->x - px, dy = b->y - py;
         float d2 = dx * dx + dy * dy;
         if (shield_on && d2 < 10 * 10) {             /* fizzles on the bubble */
+            if (b_reflect > 0) {                     /* ...or bounces right back */
+                Gene rg = { PAT_BOLT, b->elem, 0, 3, 0 };
+                spawn_shot(b->x, b->y, atan2f(-b->vy, -b->vx), 190, &rg, 1.2f, 0);
+            }
             b->on = 0;
             for (int k = 0; k < 5; k++)
                 spawn_part(b->x, b->y, mote_randf(-30, 30), mote_randf(-30, 30),
@@ -1511,13 +1601,15 @@ static void chips_update(float dt) {
         c->t += dt;
         float dx = px - c->x, dy = py - c->y;
         float d2 = dx * dx + dy * dy;
-        if (d2 < 26 * 26) {                        /* magnet */
+        float mr = b_magnet > 0 ? 85.0f : 26.0f;
+        float ms = b_magnet > 0 ? 170.0f : 70.0f;
+        if (d2 < mr * mr) {                        /* magnet */
             float d = sqrtf(d2) + 0.1f;
-            c->x += dx / d * 70 * dt; c->y += dy / d * 70 * dt;
+            c->x += dx / d * ms * dt; c->y += dy / d * ms * dt;
         }
         if (d2 < 8 * 8) {
             if (c->type == CH_HEAL) {
-                if (hull < HULL_MAX) hull += 1;
+                if (hull < hull_max) hull += 1;
                 say("HULL PATCHED");
                 mote->audio_play_sfx(&pickup_sfx, 0.7f);
                 c->on = 0;
@@ -1528,7 +1620,7 @@ static void chips_update(float dt) {
                     shield_e = shield_max;
                     break;
                 case PU_REPAIR:
-                    hull = mote_clampf(hull + 2, 0, HULL_MAX);
+                    hull = mote_clampf(hull + 2, 0, hull_max);
                     break;
                 case PU_NOVA: {                     /* screen-shaking blast wave */
                     for (int k = 0; k < MAXEN; k++) {
@@ -1559,6 +1651,14 @@ static void chips_update(float dt) {
                 case PU_BOMBS:   b_bomb = 25.0f; break;
                 case PU_REARGUN: b_rear = 25.0f; break;
                 case PU_VERTGUN: b_vert = 25.0f; break;
+                case PU_DRONE:   b_drone = 30.0f; break;
+                case PU_REFLECT: b_reflect = 20.0f; break;
+                case PU_MAGNET:  b_magnet = 30.0f; break;
+                case PU_CHRONO:  mine_charges += 3; break;
+                case PU_HULLMAX:
+                    if (hull_max < 8) hull_max++;
+                    hull = mote_clampf(hull + 1, 0, hull_max);
+                    break;
                 }
                 say(pu_name[c->pu]);
                 mote->audio_play_sfx(&pickup_sfx, 0.8f);
@@ -1711,6 +1811,7 @@ static void g_update(float dt) {
         player_update(dt);
         if (state == ST_LAB) { submit_scene(); break; }
         enemies_update(dt);
+        pmines_update(dt);
         shots_update(dt);
         chips_update(dt);
         parts_update(dt);
@@ -1793,7 +1894,7 @@ static void g_update(float dt) {
         submit_scene();
         if (state_t > 1.6f) {
             sector++;
-            if (hull < HULL_MAX) hull += 1;
+            if (hull < hull_max) hull += 1;
             gen_sector();
             char b[40];
             snprintf(b, sizeof b, "SECTOR %d: %s", sector, biomes[cur_biome].name);
@@ -1910,9 +2011,9 @@ static void draw_shot(uint16_t *fb, const Shot *s) {
 
 static void hud(uint16_t *fb) {
     /* hull pips + shield bar */
-    for (int i = 0; i < HULL_MAX; i++) {
+    for (int i = 0; i < hull_max; i++) {
         uint16_t c = i < (int)hull ? MOTE_RGB565(90, 230, 120) : MOTE_RGB565(50, 40, 60);
-        mote->draw_rect(fb, 3 + i * 7, 2, 5, 4, c, 1, 0, MOTE_FB_H);
+        mote->draw_rect(fb, 3 + i * 6, 2, 4, 4, c, 1, 0, MOTE_FB_H);
     }
     for (int i = 0; i < MAXEN; i++) {              /* guardian HP bar */
         Enemy *e = &en[i];
@@ -1932,6 +2033,10 @@ static void hud(uint16_t *fb) {
         if (b_bomb > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(120, 90, 60), 1, 0, MOTE_FB_H); bx += 6; }
         if (b_rear > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(90, 140, 255), 1, 0, MOTE_FB_H); bx += 6; }
         if (b_vert > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(120, 255, 120), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_drone > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(140, 255, 170), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_reflect > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(200, 150, 255), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_magnet > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(255, 130, 190), 1, 0, MOTE_FB_H); bx += 6; }
+        if (mine_charges > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(180, 110, 230), 1, 0, MOTE_FB_H); bx += 6; }
     }
     mote->draw_rect(fb, 3, 8, 33, 3, MOTE_RGB565(30, 40, 60), 1, 0, MOTE_FB_H);
     int sw = (int)(33.0f * shield_e / (shield_max > 0 ? shield_max : 1));
@@ -2130,6 +2235,28 @@ static void g_overlay(uint16_t *fb) {
     }
 
     if (state == ST_FUSE) return;                 /* bench drew first; FX are on top */
+
+    if (state == ST_PLAY || state == ST_CLEAR) {
+        if (b_drone > 0) {                           /* wingman mini-ship */
+            int dx2 = (int)(px + cosf(drone_ang) * 15.0f) - cam_x;
+            int dy2 = (int)(py + sinf(drone_ang) * 15.0f) - cam_y;
+            mote->blit_ex(fb, &ships_img, dx2, dy2,
+                          (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
+                          (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16,
+                          0, 0.5f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        }
+        for (int i = 0; i < PMINE_N; i++) {          /* deployed chrono mines */
+            if (!pmine[i].on) continue;
+            int x = (int)pmine[i].x - cam_x, y = (int)pmine[i].y - cam_y;
+            uint16_t c = ((int)(pmine[i].t * 6) & 1) ? MOTE_RGB565(230, 160, 255)
+                                                     : MOTE_RGB565(120, 70, 160);
+            px_set(fb, x, y, c); px_set(fb, x + 1, y, c);
+            px_set(fb, x, y + 1, c); px_set(fb, x + 1, y + 1, c);
+            if (((int)(pmine[i].t * 3) & 3) == 0)
+                mote->draw_circle(fb, x, y, 3 + ((int)(pmine[i].t * 12) & 3),
+                                  MOTE_RGB565(90, 50, 130), 0, 0, MOTE_FB_H);
+        }
+    }
 
     if (shield_on && state == ST_PLAY) {
         int sx = (int)px - cam_x, sy = (int)py - cam_y;
