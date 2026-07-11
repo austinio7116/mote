@@ -136,7 +136,7 @@ static float gene_rate(const Gene *g) { float r = pat_rate[g->pat] * (1.0f + 0.0
 typedef struct {
     float x, y, vx, vy, age, dmg, phase;
     float rx, ry, prx, pry;             /* rendered pos (wave offset applied) */
-    uint8_t on, pat, elem, mods, pierce, bounce, lvl;
+    uint8_t on, pat, elem, mods, pierce, bounce, lvl, demo;
 } Shot;
 static Shot shots[MAXSHOT];
 
@@ -189,7 +189,7 @@ static int  gate_x, gate_y;             /* gate world pos (top-left) */
 static float gate_t;
 
 /* ------------------------------------------------------------------ states */
-enum { ST_TITLE, ST_PLAY, ST_LAB, ST_CLEAR, ST_DEAD };
+enum { ST_TITLE, ST_PLAY, ST_LAB, ST_FUSE, ST_CLEAR, ST_DEAD };
 static int state;
 static float state_t;
 static int cam_x, cam_y;
@@ -197,7 +197,10 @@ static float cam_look;              /* smoothed facing lookahead (px) */
 
 static char  toast[40];
 static float toast_t;
-static int   lab_cur, lab_mark;         /* lab cursor + fuse-mark (-1 none) */
+static int   lab_cur, lab_mark;         /* hangar cursor + bench chassis index */
+static int   bench_core;                /* bench core selection */
+static float demo_cd;                   /* bench demo-fire cooldown */
+static int   g_demo_fire;               /* shots spawned now are demo-only */
 static int   best_sector, best_scrap;
 
 static void say(const char *s) { int i = 0; while (s[i] && i < 39) { toast[i] = s[i]; i++; }
@@ -347,16 +350,20 @@ static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
                               ((inherit_mods & MOD_PIERCE) ? 2 : 0));
         s->bounce = (inherit_mods & MOD_BOUNCE) ? 3 : 0;
         s->lvl = g->lvl;
+        s->demo = (uint8_t)g_demo_fire;
         return s;
     }
     return 0;
 }
 
-static void fire_weapon(const Gene *g) {
-    float dir = facing > 0 ? 0.0f : 3.14159f;
-    float x = px + facing * 7, y = py;
+/* Fire a weapon gene from (x,y) toward dsign (+1 right / -1 left). demo shots
+ * are visual-only: no collisions, culled at the demo strip's edge. Used by the
+ * player, and by the Fusion Bench to LIVE-DEMO a fusion result. */
+static void fire_gene(const Gene *g, float x, float y, int dsign, int demo) {
+    float dir = dsign > 0 ? 0.0f : 3.14159f;
     float dmg = gene_dmg(g), spd = pat_spd[g->pat];
     uint8_t m = g->mods;
+    g_demo_fire = demo;
     switch (g->pat) {
     case PAT_BOLT:  spawn_shot(x, y, dir, spd, g, dmg, m); break;
     case PAT_TWIN:  spawn_shot(x, y - 3, dir, spd, g, dmg, m);
@@ -374,12 +381,13 @@ static void fire_weapon(const Gene *g) {
                         spawn_shot(x, y, dir + mote_randf(-0.45f, 0.45f),
                                    spd * mote_randf(0.8f, 1.2f), g, dmg, m); break;
     }
+    g_demo_fire = 0;
     /* muzzle flash: each element announces itself differently */
     const uint16_t *ec = elem_col[g->elem];
     switch (g->elem) {
     case EL_FIRE:                                   /* forward ember cone */
         for (int k = 0; k < 10; k++)
-            spawn_part(x + facing * 2, y, facing * mote_randf(40, 110),
+            spawn_part(x + dsign * 2, y, dsign * mote_randf(40, 110),
                        mote_randf(-38, 38), k & 1 ? ec[0] : ec[1],
                        mote_randf(0.12f, 0.3f), PF_ADD | PF_GRAV);
         break;
@@ -393,7 +401,7 @@ static void fire_weapon(const Gene *g) {
         break;
     case EL_VENOM:                                  /* spat droplets */
         for (int k = 0; k < 5; k++)
-            spawn_part(x + facing * 2, y, facing * mote_randf(20, 70),
+            spawn_part(x + dsign * 2, y, dsign * mote_randf(20, 70),
                        mote_randf(-30, -4), ec[k % 3], mote_randf(0.2f, 0.45f),
                        PF_ADD | PF_GRAV);
         break;
@@ -406,13 +414,13 @@ static void fire_weapon(const Gene *g) {
         break;
     case EL_PLASMA:                                 /* slow goo puff */
         for (int k = 0; k < 5; k++)
-            spawn_part(x + facing * 3, y + mote_randf(-2, 2),
-                       facing * mote_randf(8, 30), mote_randf(-12, 12),
+            spawn_part(x + dsign * 3, y + mote_randf(-2, 2),
+                       dsign * mote_randf(8, 30), mote_randf(-12, 12),
                        ec[1 + (k & 1)], mote_randf(0.2f, 0.4f), PF_ADD);
         break;
     default:                                        /* pulse: crisp flash */
         for (int k = 0; k < 7; k++)
-            spawn_part(x + facing * 2, y, facing * mote_randf(30, 100),
+            spawn_part(x + dsign * 2, y, dsign * mote_randf(30, 100),
                        mote_randf(-24, 24), ec[k & 1], mote_randf(0.06f, 0.16f), PF_ADD);
     }
     fire_sfx(g);
@@ -936,7 +944,7 @@ static void player_update(float dt) {
     thrust_x = thrust_y = 0;
     if (mote_pressed(in, MOTE_BTN_LEFT))  { thrust_x -= 1; facing = -1; }
     if (mote_pressed(in, MOTE_BTN_RIGHT)) { thrust_x += 1; facing = 1; }
-    if (mote_pressed(in, MOTE_BTN_UP))    thrust_y -= 1;
+    if (mote_pressed(in, MOTE_BTN_UP) || mote_pressed(in, MOTE_BTN_RB)) thrust_y -= 1;
     if (mote_pressed(in, MOTE_BTN_DOWN))  thrust_y += 1;
 
     pvx += (thrust_x * THRUST - pvx * DRAG) * dt;
@@ -973,14 +981,13 @@ static void player_update(float dt) {
     /* fire */
     fire_cd -= dt;
     if (mote_pressed(in, MOTE_BTN_A) && fire_cd <= 0) {
-        fire_weapon(&inv[equipped]);
+        fire_gene(&inv[equipped], px + facing * 7, py, facing, 0);
         fire_cd = 1.0f / gene_rate(&inv[equipped]);
     }
 
-    /* weapon quick-cycle */
-    if (mote_just_pressed(in, MOTE_BTN_RB) || mote_just_pressed(in, MOTE_BTN_LB)) {
-        int d = mote_just_pressed(in, MOTE_BTN_RB) ? 1 : -1;
-        equipped = (equipped + d + inv_n) % inv_n;
+    /* B: cycle equipped weapon */
+    if (mote_just_pressed(in, MOTE_BTN_B)) {
+        equipped = (equipped + 1) % inv_n;
         char b[48], l[40];
         gene_label(&inv[equipped], l, sizeof l);
         int n = 0; b[n++] = '>'; b[n++] = ' ';
@@ -989,8 +996,8 @@ static void player_update(float dt) {
         say(b);
     }
 
-    /* hold B: energy shield — drains while up, recharges while down */
-    shield_on = mote_pressed(in, MOTE_BTN_B) && shield_e > 0.05f;
+    /* hold LB: energy shield — drains while up, recharges while down */
+    shield_on = mote_pressed(in, MOTE_BTN_LB) && shield_e > 0.05f;
     if (shield_on) {
         shield_e -= dt;
         if (shield_e < 0) shield_e = 0;
@@ -1124,7 +1131,7 @@ static void shots_update(float dt) {
         s->age += dt;
         if (s->age > 1.6f) { s->on = 0; continue; }
 
-        if (s->mods & MOD_HOMING) {
+        if ((s->mods & MOD_HOMING) && !s->demo) {
             Enemy *best = 0; float bd = 70 * 70;
             for (int k = 0; k < MAXEN; k++) {
                 Enemy *e = &en[k];
@@ -1205,6 +1212,10 @@ static void shots_update(float dt) {
                            ec[k % 3], 0.4f, PF_ADD);
 
         if (s->x < 0 || s->x > WORLD_W || s->y < 0 || s->y > WORLD_H) { s->on = 0; continue; }
+        if (s->demo) {                              /* bench demo: fly free, die off-panel */
+            if (s->rx > cam_x + 140 || s->age > 1.2f) s->on = 0;
+            continue;
+        }
         if (solid(s->rx, s->ry)) {
             if (s->bounce) {
                 s->bounce--;
@@ -1423,29 +1434,64 @@ static void g_update(float dt) {
             say("EQUIPPED");
             state = ST_PLAY;
         }
-        if (mote_just_pressed(in, MOTE_BTN_RB)) {
-            if (lab_mark < 0) lab_mark = lab_cur;
-            else if (lab_mark != lab_cur && inv_n >= 2) {
-                Gene child = fuse_genes(&inv[lab_mark], &inv[lab_cur]);
-                int a = lab_mark < lab_cur ? lab_mark : lab_cur;
-                int b = lab_mark < lab_cur ? lab_cur : lab_mark;
-                inv[b] = inv[--inv_n];              /* remove both, add child */
-                inv[a] = child;
-                equipped = a; lab_cur = a; lab_mark = -1;
-                mote->audio_play_sfx(&fuse_sfx, 0.8f);
-                char bb[48], l[40];
-                gene_label(&child, l, sizeof l);
-                int n = 0; const char *pre = "FUSED: ";
-                for (int k = 0; pre[k]; k++) bb[n++] = pre[k];
-                for (int k = 0; l[k] && n < 46; k++) bb[n++] = l[k];
-                bb[n] = 0;
-                say(bb);
-                spawn_ring(px, py, MOTE_RGB565(200, 240, 255));
-            } else lab_mark = -1;
+        if (mote_just_pressed(in, MOTE_BTN_RB)) {   /* take it to the fusion bench */
+            if (inv_n >= 2) {
+                lab_mark = lab_cur;
+                bench_core = (lab_cur + 1) % inv_n;
+                for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+                for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
+                for (int i = 0; i < MAXP; i++) parts[i].life = 0;
+                demo_cd = 0.25f;
+                state = ST_FUSE;
+            } else {
+                say("NEED 2 WEAPONS");
+                mote->audio_play_sfx(&denied_sfx, 0.5f);
+            }
         }
         if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) state = ST_PLAY;
         submit_scene();
         parts_update(dt);
+        break; }
+    case ST_FUSE: {
+        if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT) ||
+            mote_just_pressed(in, MOTE_BTN_UP)   || mote_just_pressed(in, MOTE_BTN_DOWN)) {
+            int d = (mote_just_pressed(in, MOTE_BTN_LEFT) ||
+                     mote_just_pressed(in, MOTE_BTN_UP)) ? -1 : 1;
+            do { bench_core = (bench_core + d + inv_n) % inv_n; } while (bench_core == lab_mark);
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;   /* restart the demo */
+            demo_cd = 0.1f;
+        }
+        Gene child = fuse_genes(&inv[lab_mark], &inv[bench_core]);
+        demo_cd -= dt;
+        if (demo_cd <= 0) {                          /* the result fires, for real */
+            fire_gene(&child, cam_x + 26, cam_y + 71, 1, 1);
+            demo_cd = 1.0f / gene_rate(&child);
+        }
+        shots_update(dt);
+        parts_update(dt);
+        if (mote_just_pressed(in, MOTE_BTN_A)) {     /* commit the fusion */
+            int a = lab_mark < bench_core ? lab_mark : bench_core;
+            int b = lab_mark < bench_core ? bench_core : lab_mark;
+            inv[b] = inv[--inv_n];
+            inv[a] = child;
+            equipped = a; lab_cur = a; lab_mark = -1;
+            mote->audio_play_sfx(&fuse_sfx, 0.8f);
+            char bb[48], l[40];
+            gene_label(&child, l, sizeof l);
+            int n = 0; const char *pre = "FUSED: ";
+            for (int k = 0; pre[k]; k++) bb[n++] = pre[k];
+            for (int k = 0; l[k] && n < 46; k++) bb[n++] = l[k];
+            bb[n] = 0;
+            say(bb);
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            state = ST_LAB;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU)) {
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            lab_mark = -1;
+            state = ST_LAB;
+        }
+        submit_scene();
         break; }
     case ST_CLEAR:
         state_t += dt;
@@ -1599,10 +1645,26 @@ static void hud(uint16_t *fb) {
     }
 }
 
+/* labelled stat bar with optional reference tick (integer-only drawing) */
+static void stat_bar(uint16_t *fb, int x, int y, int w, float v, float vmax,
+                     uint16_t col, float tick) {
+    mote->draw_rect(fb, x, y, w, 5, MOTE_RGB565(26, 32, 50), 1, 0, MOTE_FB_H);
+    int fw = (int)(w * mote_clampf(v / vmax, 0, 1));
+    if (fw > 0) mote->draw_rect(fb, x, y, fw, 5, col, 1, 0, MOTE_FB_H);
+    if (tick >= 0) {
+        int tx = x + (int)((w - 1) * mote_clampf(tick / vmax, 0, 1));
+        mote->draw_rect(fb, tx, y - 1, 1, 7, MOTE_RGB565(255, 255, 255), 1, 0, MOTE_FB_H);
+    }
+}
+
+#define DMG_MAX 8.0f
+#define RPS_MAX 12.0f
+#define SPD_MAX 330.0f
+
 static void lab_overlay(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(10, 12, 24), MOTE_RGB565(90, 120, 180));
-    mote->text_font(fb, f, "FUSION LAB", 34, 2, MOTE_RGB565(160, 220, 255));
+    mote->text_font(fb, f, "HANGAR", 44, 2, MOTE_RGB565(160, 220, 255));
 
     for (int i = 0; i < inv_n; i++) {
         int y = 15 + i * 11;
@@ -1611,37 +1673,78 @@ static void lab_overlay(uint16_t *fb) {
             mote->draw_rect(fb, 3, y, 122, 11, MOTE_RGB565(30, 40, 70), 1, 0, MOTE_FB_H);
         if (i == equipped)
             mote->text_font(fb, f, ">", 4, y, MOTE_RGB565(255, 255, 255));
-        if (i == lab_mark)
-            mote->text_font(fb, f, "*", 10, y + 1, MOTE_RGB565(255, 200, 80));
-        mote->blit_ex(fb, &weapons_img, 21, y + 5,
+        mote->blit_ex(fb, &weapons_img, 18, y + 5,
                       (g->icon % WEAPON_ICON_COLS) * 16, (g->icon / WEAPON_ICON_COLS) * 16,
                       16, 16, 0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
-        Gene sg = *g; sg.mods = 0;                 /* mods shown in the stats pane */
+        Gene sg = *g; sg.mods = 0;
         char l[40];
         gene_label(&sg, l, sizeof l);
-        mote->text_font(fb, f, l, 30, y, elem_col[g->elem][0]);
+        mote->text_font(fb, f, l, 28, y, elem_col[g->elem][0]);
     }
 
-    /* stats pane: highlighted weapon, or the exact fusion result */
+    /* stats: three bars beat a block of numbers */
     mote->draw_line(fb, 2, 103, 125, 103, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+    const Gene *g = &inv[lab_cur];
+    uint16_t bc = elem_col[g->elem][1];
+    mote->text_font(fb, f, "D", 5, 104, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 13, 107, 24, gene_dmg(g), DMG_MAX, bc, -1);
+    mote->text_font(fb, f, "R", 44, 104, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 52, 107, 24, gene_rate(g), RPS_MAX, bc, -1);
+    mote->text_font(fb, f, "S", 83, 104, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 91, 107, 24, pat_spd[g->pat], SPD_MAX, bc, -1);
     char ms[6];
-    if (lab_mark >= 0 && lab_mark != lab_cur) {
-        Gene c = fuse_genes(&inv[lab_mark], &inv[lab_cur]);
-        char l[40];
-        gene_label(&c, l, sizeof l);
-        Gene lg = c; lg.mods = 0; gene_label(&lg, l, sizeof l);
-        textf_med(fb, 4, 104, MOTE_RGB565(255, 220, 110), "FUSE> %s", l);
-        mods_str(c.mods, ms);
-        textf_med(fb, 4, 115, MOTE_RGB565(220, 230, 250),
-                  "DMG %.1f  RPS %.1f  %s", gene_dmg(&c), gene_rate(&c), ms);
-    } else {
-        const Gene *g = &inv[lab_cur];
-        mods_str(g->mods, ms);
-        textf_med(fb, 4, 104, MOTE_RGB565(220, 230, 250),
-                  "DMG %.1f RPS %.1f SPD %d", gene_dmg(g), gene_rate(g), (int)pat_spd[g->pat]);
-        textf_med(fb, 4, 115, MOTE_RGB565(150, 160, 190),
-                  lab_mark == lab_cur ? "MODS %s  PICK 2ND, RB" : "MODS %s  RB FUSE A EQ", ms);
-    }
+    mods_str(g->mods, ms);
+    textf_med(fb, 5, 114, MOTE_RGB565(150, 160, 190), "MODS %s", ms);
+    mote->text_font(fb, f, "A EQ  RB FUSE", 54, 114, MOTE_RGB565(255, 220, 110));
+}
+
+/* The FUSION BENCH: chassis + core -> result, LIVE-FIRED in the demo strip. */
+static void bench_overlay(uint16_t *fb) {
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    const Gene *ga = &inv[lab_mark], *gb = &inv[bench_core];
+    Gene c = fuse_genes(ga, gb);
+    char l[40];
+
+    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(8, 10, 20), MOTE_RGB565(120, 150, 200));
+    mote->text_font(fb, f, "FUSION BENCH", 26, 2, MOTE_RGB565(160, 220, 255));
+
+    Gene sa = *ga; sa.mods = 0; gene_label(&sa, l, sizeof l);
+    mote->text_font(fb, f, "IN", 4, 15, MOTE_RGB565(120, 130, 160));
+    mote->blit_ex(fb, &weapons_img, 24, 20, (ga->icon % WEAPON_ICON_COLS) * 16,
+                  (ga->icon / WEAPON_ICON_COLS) * 16, 16, 16, 0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    mote->text_font(fb, f, l, 34, 15, elem_col[ga->elem][0]);
+
+    Gene sb = *gb; sb.mods = 0; gene_label(&sb, l, sizeof l);
+    mote->text_font(fb, f, "+", 4, 27, MOTE_RGB565(255, 220, 110));
+    mote->text_font(fb, f, "<", 12, 27, MOTE_RGB565(255, 255, 255));
+    mote->blit_ex(fb, &weapons_img, 24, 32, (gb->icon % WEAPON_ICON_COLS) * 16,
+                  (gb->icon / WEAPON_ICON_COLS) * 16, 16, 16, 0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    mote->text_font(fb, f, l, 34, 27, elem_col[gb->elem][0]);
+    mote->text_font(fb, f, ">", 120, 27, MOTE_RGB565(255, 255, 255));
+
+    Gene sc = c; sc.mods = 0; gene_label(&sc, l, sizeof l);
+    mote->text_font(fb, f, "=", 4, 39, MOTE_RGB565(255, 220, 110));
+    mote->text_font(fb, f, l, 14, 39, elem_col[c.elem][0]);
+
+    /* live demo strip: the RESULT is firing in here right now */
+    mote->draw_rect(fb, 3, 52, 122, 40, MOTE_RGB565(5, 7, 14), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 3, 52, 122, 40, MOTE_RGB565(60, 80, 120), 0, 0, MOTE_FB_H);
+    mote->blit(fb, &ships_img, 6, 63,
+               (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
+               (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
+
+    /* result bars, with white ticks marking the CHASSIS parent for comparison */
+    uint16_t bc = elem_col[c.elem][1];
+    mote->text_font(fb, f, "DMG", 4, 94, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 30, 97, 92, gene_dmg(&c), DMG_MAX, bc, gene_dmg(ga));
+    mote->text_font(fb, f, "RPS", 4, 104, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 30, 107, 92, gene_rate(&c), RPS_MAX, bc, gene_rate(ga));
+    char ms[6];
+    mods_str(c.mods, ms);
+    uint8_t newm = (uint8_t)(c.mods & ~(ga->mods | gb->mods));
+    textf_med(fb, 4, 114, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
+              "MODS %s%s", ms, newm ? "!" : "");
+    mote->text_font(fb, f, "A FUSE B BACK", 50, 114, MOTE_RGB565(255, 255, 255));
 }
 
 static void g_overlay(uint16_t *fb) {
@@ -1651,11 +1754,11 @@ static void g_overlay(uint16_t *fb) {
         mote->blit(fb, &ships_img, 56, 40,
                    (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
                    (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "DPAD THRUST   A FIRE", 8, 60,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "DPAD+RB THRUST  A FIRE", 4, 60,
                         MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "B SHIELD   MENU LAB", 8, 72,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "LB SHIELD  B SWAP WPN", 6, 72,
                         MOTE_RGB565(190, 200, 225));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "LB/RB SWAP WEAPON", 8, 88,
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "MENU FUSION LAB", 8, 88,
                         MOTE_RGB565(150, 160, 190));
         if (best_sector)
             textf_med(fb, 8, 102, MOTE_RGB565(255, 220, 110),
@@ -1665,6 +1768,8 @@ static void g_overlay(uint16_t *fb) {
                             MOTE_RGB565(255, 255, 255));
         return;
     }
+
+    if (state == ST_FUSE) bench_overlay(fb);      /* panel first: demo FX draw over it */
 
     /* world-space pixel FX */
     for (int i = 0; i < MAXP; i++) {
@@ -1696,6 +1801,8 @@ static void g_overlay(uint16_t *fb) {
         px_add(fb, x + 1, y, ec[1]); px_add(fb, x - 1, y, ec[1]);
         px_add(fb, x, y + 1, ec[1]); px_add(fb, x, y - 1, ec[1]);
     }
+
+    if (state == ST_FUSE) return;                 /* bench drew first; FX are on top */
 
     if (shield_on && state == ST_PLAY) {
         int sx = (int)px - cam_x, sy = (int)py - cam_y;
