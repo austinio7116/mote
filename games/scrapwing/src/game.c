@@ -514,17 +514,17 @@ static void kill_enemy(Enemy *e) {
             drop_chip(e->x, e->y - 10, &g3, CH_WEAPON);
             drop_chip(e->x - 4, e->y + 8, 0, CH_HEAL);
             drop_power(e->x + 6, e->y + 8, PU_SHIELD);
-            drop_chip(e->x + 14, e->y + 4, 0, CH_POWER);
             gate_open = 1;
             say("WARP GATE UNLOCKED");
             mote->audio_play_sfx(&gate_sfx, 0.9f);
         } else {
             scrap += 25;
             drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
-            Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
-            drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
-            drop_chip(e->x - 4, e->y + 6, 0, CH_HEAL);
-            drop_chip(e->x + 6, e->y + 6, 0, CH_POWER);
+            if (mote_rand() & 1) {
+                Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
+                drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
+            }
+            drop_chip(e->x + 2, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_POWER);
         }
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
@@ -533,7 +533,7 @@ static void kill_enemy(Enemy *e) {
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0);
         scrap += 4;
-        if ((mote_rand() & 255) < 90) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
+        if ((mote_rand() & 255) < 60) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
         mote->audio_play_sfx(&boom_small_sfx, 0.5f);
     } else {
         int cell = e->ship;
@@ -543,9 +543,9 @@ static void kill_enemy(Enemy *e) {
                 (int)(e->x - ship_bw[cell] / 2), (int)(e->y - ship_bh[cell] / 2),
                 e->flip, e->vx, e->vy);
         scrap += 8;
-        if ((mote_rand() & 255) < 105) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
-        else if ((mote_rand() & 255) < 34) drop_chip(e->x, e->y, 0, CH_HEAL);
-        else if ((mote_rand() & 255) < 22) drop_chip(e->x, e->y, 0, CH_POWER);
+        if ((mote_rand() & 255) < 55) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
+        else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
+        else if ((mote_rand() & 255) < 12) drop_chip(e->x, e->y, 0, CH_POWER);
         spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
         mote->audio_play_sfx(&boom_small_sfx, 0.65f);
         mote->rumble(0.3f, 90);
@@ -901,13 +901,13 @@ static void gen_sector(void) {
     }
     /* free-floating powerup orbs + a repair kit or two along the corridor */
     for (int i = 0; i < MAXCHIP; i++) chips[i].on = 0;
-    int ncell = 5 + (int)(mote_rand() % 3);
+    int ncell = 2 + (int)(mote_rand() % 3);
     for (int k = 0; k < ncell; k++) {
         int c = 30 + (int)(mote_rand() % (COLS - 44));
         float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-10, 10);
         if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_POWER);
     }
-    for (int k = 0; k < 2; k++) {
+    {
         int c = 40 + (int)(mote_rand() % (COLS - 60));
         float ex = c * TILE + 4, ey = cor_y[c] * TILE + mote_randf(-8, 8);
         if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_HEAL);
