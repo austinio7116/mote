@@ -136,12 +136,13 @@ static float gene_rate(const Gene *g) { float r = pat_rate[g->pat] * (1.0f + 0.0
 typedef struct {
     float x, y, vx, vy, age, dmg, phase;
     float rx, ry, prx, pry;             /* rendered pos (wave offset applied) */
-    uint8_t on, pat, elem, mods, pierce, bounce, lvl, demo;
+    uint8_t on, pat, elem, mods, pierce, bounce, lvl, demo, bomb;
 } Shot;
 static Shot shots[MAXSHOT];
 
 #define MAXEB 64
-typedef struct { float x, y, vx, vy, age; uint8_t on, elem; } EBullet;
+enum { EB_STRAIGHT, EB_SINE, EB_MORTAR, EB_BIG, EB_HOMER };
+typedef struct { float x, y, vx, vy, age, phase; uint8_t on, elem, kind; } EBullet;
 static EBullet ebul[MAXEB];
 
 #define MAXP 900
@@ -162,6 +163,7 @@ typedef struct {
     float hx, hy;                       /* home/anchor */
     uint16_t ship;                      /* ship cell or boss index */
     uint8_t on, active, kind, flip, ceil, boss;
+    uint8_t deck[3], deck_n, deck_i;    /* boss attack-move rotation */
     Gene wpn;
 } Enemy;
 static Enemy en[MAXEN];
@@ -171,13 +173,14 @@ enum { CH_WEAPON, CH_HEAL, CH_POWER };
 /* Powerups ride the orb sprites — a FIXED sprite per effect so players learn
  * them on sight (colors follow meaning: cyan shield, green heal, red nova...). */
 enum { PU_SHIELD, PU_REPAIR, PU_NOVA, PU_OVERDRIVE, PU_AMP, PU_AFTERBURN,
-       PU_GHOST, PU_LEVELCORE, PU_SCRAP, PU_N };
-static const uint8_t pu_sprite[PU_N] = { 8, 10, 25, 5, 9, 24, 6, 17, 19 };
+       PU_GHOST, PU_LEVELCORE, PU_SCRAP, PU_BOMBS, PU_REARGUN, PU_VERTGUN, PU_N };
+static const uint8_t pu_sprite[PU_N] = { 8, 10, 25, 5, 9, 24, 6, 17, 19, 21, 1, 4 };
 static const char *const pu_name[PU_N] = {
     "SHIELD CELL +", "REPAIR KIT", "NOVA!", "OVERDRIVE", "DAMAGE AMP",
-    "AFTERBURNER", "GHOST FIELD", "WEAPON LEVEL UP", "SCRAP CACHE" };
+    "AFTERBURNER", "GHOST FIELD", "WEAPON LEVEL UP", "SCRAP CACHE",
+    "BOMB BAY", "TAIL GUN", "VERT CANNONS" };
 /* weighted spawn odds (sum 100) */
-static const uint8_t pu_weight[PU_N] = { 18, 16, 10, 13, 13, 11, 8, 4, 7 };
+static const uint8_t pu_weight[PU_N] = { 13, 14, 8, 10, 10, 8, 6, 4, 7, 8, 6, 6 };
 typedef struct { float x, y, t; uint8_t on, type, pu; Gene g; } Chip;
 static Chip chips[MAXCHIP];
 
@@ -187,6 +190,7 @@ static int   facing = 1;
 static float hull, invuln, fire_cd, die_t;
 static float shield_e, shield_max;
 static float b_over, b_amp, b_after, b_ghost;   /* timed powerup buffs */
+static float b_bomb, b_rear, b_vert, bomb_cd;   /* offensive powerup timers */
 static int   shield_on;
 static float thrust_x, thrust_y;
 
@@ -364,6 +368,7 @@ static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
         s->bounce = (inherit_mods & MOD_BOUNCE) ? 3 : 0;
         s->lvl = g->lvl;
         s->demo = (uint8_t)g_demo_fire;
+        s->bomb = 0;
         return s;
     }
     return 0;
@@ -536,12 +541,43 @@ static void kill_enemy(Enemy *e) {
     }
 }
 
-static void enemy_shoot(Enemy *e, float ang, float spd) {
+static void enemy_shoot_k(Enemy *e, float ang, float spd, int kind) {
     for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
-        ebul[i].on = 1; ebul[i].elem = e->wpn.elem;
+        ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = (uint8_t)kind;
         ebul[i].x = e->x; ebul[i].y = e->y; ebul[i].age = 0;
+        ebul[i].phase = mote_randf(0, 6.28f);
         ebul[i].vx = cosf(ang) * spd; ebul[i].vy = sinf(ang) * spd;
         return;
+    }
+}
+static void enemy_shoot(Enemy *e, float ang, float spd) { enemy_shoot_k(e, ang, spd, EB_STRAIGHT); }
+
+/* An enemy fires the way its WEAPON GENE says: its pattern maps to an
+ * emission shape, so what it drops is also how it fought you. */
+static void enemy_fire(Enemy *e, float aim, float spd) {
+    switch (e->wpn.pat) {
+    case PAT_BOLT:  enemy_shoot(e, aim, spd); break;
+    case PAT_TWIN: {
+        float nx = -sinf(aim) * 3, ny = cosf(aim) * 3;
+        for (int s = -1; s <= 1; s += 2) {
+            for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
+                ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = EB_STRAIGHT;
+                ebul[i].x = e->x + nx * s; ebul[i].y = e->y + ny * s;
+                ebul[i].age = 0; ebul[i].phase = 0;
+                ebul[i].vx = cosf(aim) * spd; ebul[i].vy = sinf(aim) * spd;
+                break;
+            }
+        }
+        break; }
+    case PAT_FAN:   for (int k = -1; k <= 1; k++) enemy_shoot(e, aim + k * 0.3f, spd); break;
+    case PAT_WAVE:  enemy_shoot_k(e, aim, spd, EB_SINE); break;
+    case PAT_HELIX: enemy_shoot_k(e, aim, spd, EB_SINE);
+                    enemy_shoot_k(e, aim, spd, EB_SINE); break;
+    case PAT_ORB:   enemy_shoot_k(e, aim, spd * 0.55f, EB_BIG); break;
+    case PAT_RAIL:  enemy_shoot(e, aim, spd * 1.8f); break;
+    case PAT_SCATTER: for (int k = 0; k < 3; k++)
+                        enemy_shoot(e, aim + mote_randf(-0.5f, 0.5f), spd * mote_randf(0.8f, 1.2f));
+                      break;
     }
 }
 
@@ -610,6 +646,18 @@ static float dmg_enemy(Enemy *e, float d) {
 static void shot_hit_enemy(Shot *s, Enemy *e) {
     dmg_enemy(e, s->dmg);
     shot_impact_fx(s);
+    if (s->bomb) {                                   /* bombs always splash */
+        for (int i = 0; i < MAXEN; i++) {
+            Enemy *o = &en[i];
+            if (!o->on || !o->active || o == e) continue;
+            float ddx = o->x - s->rx, ddy = o->y - s->ry;
+            if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
+        }
+        spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
+        mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+        s->pierce = 0; s->on = 0;
+        return;
+    }
     switch (s->elem) {
     case EL_FIRE:                                 /* splash burn */
         for (int i = 0; i < MAXEN; i++) {
@@ -800,6 +848,10 @@ static void gen_sector(void) {
         Enemy *bz = place_enemy(K_HEAVY, ac * TILE, ar * TILE);
         if (bz) {
             bz->boss = 1;
+            /* randomized attack deck: 3 moves drawn from the boss move library */
+            bz->deck_n = 3;
+            for (int k = 0; k < 3; k++) bz->deck[k] = (uint8_t)(mote_rand() % 7);
+            bz->deck_i = 0;
             /* guardians use the LARGEST dreadnoughts on the sheet */
             int best = 0, ba = 0;
             for (int t = 0; t < 10; t++) {
@@ -932,6 +984,7 @@ static void start_run(void) {
     hull = HULL_MAX; invuln = 0; fire_cd = 0; die_t = 0;
     shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
     b_over = b_amp = b_after = b_ghost = 0;
+    b_bomb = b_rear = b_vert = 0; bomb_cd = 0;
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
     inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
@@ -1072,11 +1125,33 @@ static void player_update(float dt) {
                        MOTE_RGB565(190, 200, 230), 0.2f, PF_ADD);
     }
 
-    /* fire */
+    if (b_bomb > 0) b_bomb -= dt;
+    if (b_rear > 0) b_rear -= dt;
+    if (b_vert > 0) b_vert -= dt;
+
+    /* fire (+ tail gun / vert cannons riders) */
     fire_cd -= dt;
     if (mote_pressed(in, MOTE_BTN_A) && fire_cd <= 0) {
-        fire_gene(&inv[equipped], px + facing * 7, py, facing, 0);
-        fire_cd = 1.0f / (gene_rate(&inv[equipped]) * (b_over > 0 ? 1.4f : 1.0f));
+        const Gene *g = &inv[equipped];
+        fire_gene(g, px + facing * 7, py, facing, 0);
+        float sub_dmg = gene_dmg(g) * 0.6f * (b_amp > 0 ? 1.5f : 1.0f);
+        Gene sub = *g; sub.pat = PAT_BOLT; sub.mods = 0;
+        if (b_rear > 0)
+            spawn_shot(px - facing * 5, py, facing > 0 ? 3.14159f : 0.0f, 170, &sub, sub_dmg, 0);
+        if (b_vert > 0) {
+            spawn_shot(px, py - 5, -1.5708f, 170, &sub, sub_dmg, 0);
+            spawn_shot(px, py + 5, 1.5708f, 170, &sub, sub_dmg, 0);
+        }
+        fire_cd = 1.0f / (gene_rate(g) * (b_over > 0 ? 1.4f : 1.0f));
+    }
+
+    /* bomb bay: shells drop away beneath, hunting turrets and ground targets */
+    bomb_cd -= dt;
+    if (b_bomb > 0 && bomb_cd <= 0) {
+        Gene bg = { PAT_BOLT, EL_FIRE, 0, inv[equipped].lvl, 0 };
+        Shot *s = spawn_shot(px, py + 5, 1.5708f, 30, &bg, 3.0f, 0);
+        if (s) { s->bomb = 1; s->vx = pvx * 0.4f; }
+        bomb_cd = 0.75f;
     }
 
     /* B: cycle equipped weapon */
@@ -1146,8 +1221,8 @@ static void enemies_update(float dt) {
             e->vx = sinf(e->t * 0.7f) * 18.0f - 6.0f;
             e->vy = sinf(e->t * 1.3f) * 14.0f;
             if (dist < 110 && e->fire <= 0) {
-                enemy_shoot(e, dx < 0 ? 3.14159f : 0, 70);
-                e->fire = 1.8f + mote_randf(0, 0.9f);
+                enemy_fire(e, dx < 0 ? 3.14159f : 0, 70);
+                e->fire = 2.0f + mote_randf(0, 0.9f);
             }
             break;
         case K_CHASE:
@@ -1167,8 +1242,8 @@ static void enemies_update(float dt) {
             e->vy += ((dy / dist) * want * 60.0f - (e->y - e->hy) * 0.4f) * dt;
             e->vx *= 1 - 0.8f * dt; e->vy *= 1 - 0.8f * dt;
             if (dist < 130 && e->fire <= 0) {
-                enemy_shoot(e, atan2f(dy, dx), 110);
-                e->fire = 2.2f + mote_randf(0, 1.0f);
+                enemy_fire(e, atan2f(dy, dx), 105);
+                e->fire = 2.4f + mote_randf(0, 1.0f);
             }
             break; }
         case K_ORBIT:
@@ -1182,29 +1257,57 @@ static void enemies_update(float dt) {
             break;
         case K_TURRET:
             if (dist < 120 && e->fire <= 0) {
-                enemy_shoot(e, atan2f(dy, dx), 95);
-                e->fire = 1.9f + mote_randf(0, 0.8f);
+                enemy_fire(e, atan2f(dy, dx), 92);
+                e->fire = 2.1f + mote_randf(0, 0.8f);
             }
             break;
         case K_HEAVY:
             e->vx = sinf(e->t * 0.4f) * (e->boss ? 22.0f : 12.0f);
             e->vy = cosf(e->t * 0.55f) * (e->boss ? 16.0f : 9.0f);
-            if (e->boss && dist < 170 && e->fire <= 0) {
+            if (e->boss && dist < 180 && e->fire <= 0) {
+                /* rotate through the boss's randomized attack deck */
                 float base = atan2f(dy, dx);
-                if (((int)(e->t / 4.0f)) & 1) {      /* radial burst phase */
-                    for (int k = 0; k < 8; k++)
-                        enemy_shoot(e, e->t + k * 0.785f, 70);
-                } else {                             /* aimed 5-way fan */
-                    for (int k = -2; k <= 2; k++)
-                        enemy_shoot(e, base + k * 0.22f, 95);
+                int mv = e->deck[e->deck_i % (e->deck_n ? e->deck_n : 1)];
+                switch (mv) {
+                case 0:                              /* aimed 5-way fan */
+                    for (int k = -2; k <= 2; k++) enemy_shoot(e, base + k * 0.22f, 95);
+                    e->fire = 1.6f; break;
+                case 1:                              /* radial ring */
+                    for (int k = 0; k < 10; k++) enemy_shoot(e, e->t + k * 0.628f, 72);
+                    e->fire = 1.9f; break;
+                case 2:                              /* spiral arms */
+                    for (int k = 0; k < 3; k++)
+                        enemy_shoot(e, e->t * 2.4f + k * 2.094f, 80);
+                    e->fire = 0.35f; break;
+                case 3:                              /* mortar rain (arcing shells) */
+                    for (int k = 0; k < 4; k++)
+                        enemy_shoot_k(e, -1.5708f + mote_randf(-0.7f, 0.7f),
+                                      mote_randf(70, 130), EB_MORTAR);
+                    e->fire = 1.7f; break;
+                case 4:                              /* bullet wall */
+                    for (int k = -2; k <= 2; k++) {
+                        for (int i = 0; i < MAXEB; i++) if (!ebul[i].on) {
+                            ebul[i].on = 1; ebul[i].elem = e->wpn.elem; ebul[i].kind = EB_STRAIGHT;
+                            ebul[i].x = e->x; ebul[i].y = e->y + k * 9;
+                            ebul[i].age = 0; ebul[i].phase = 0;
+                            ebul[i].vx = cosf(base) * 80; ebul[i].vy = 0;
+                            break;
+                        }
+                    }
+                    e->fire = 1.8f; break;
+                case 5:                              /* seeker pair */
+                    enemy_shoot_k(e, base + 0.6f, 70, EB_HOMER);
+                    enemy_shoot_k(e, base - 0.6f, 70, EB_HOMER);
+                    e->fire = 2.4f; break;
+                default:                             /* big orb volley */
+                    for (int k = -1; k <= 1; k++)
+                        enemy_shoot_k(e, base + k * 0.3f, 55, EB_BIG);
+                    e->fire = 2.2f; break;
                 }
-                e->fire = 1.5f;
+                if ((mote_rand() & 3) == 0) e->deck_i++;   /* drift to the next move */
             } else if (!e->boss && dist < 150 && e->fire <= 0) {
-                float base = atan2f(dy, dx);
-                enemy_shoot(e, base, 85);
-                enemy_shoot(e, base + 0.3f, 85);
-                enemy_shoot(e, base - 0.3f, 85);
-                e->fire = 2.0f;
+                enemy_fire(e, atan2f(dy, dx), 85);
+                e->fire = 1.9f;
             }
             if ((mote_rand() & 15) == 0)
                 spawn_part(e->x - (e->flip ? -1 : 1) * boss_fw[e->ship] * 0.45f,
@@ -1257,6 +1360,7 @@ static void shots_update(float dt) {
             }
         }
 
+        if (s->bomb) s->vy += 150.0f * dt;           /* bombs fall */
         s->x += s->vx * dt; s->y += s->vy * dt;
         s->prx = s->rx; s->pry = s->ry;
         s->rx = s->x; s->ry = s->y;
@@ -1328,6 +1432,16 @@ static void shots_update(float dt) {
                 s->x += s->vx * dt * 2; s->y += s->vy * dt * 2;
             } else {
                 shot_impact_fx(s);
+                if (s->bomb) {
+                    for (int i = 0; i < MAXEN; i++) {
+                        Enemy *o = &en[i];
+                        if (!o->on || !o->active) continue;
+                        float ddx = o->x - s->rx, ddy = o->y - s->ry;
+                        if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
+                    }
+                    spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
+                    mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+                }
                 s->on = 0;
             }
             continue;
@@ -1347,8 +1461,31 @@ static void shots_update(float dt) {
         EBullet *b = &ebul[i];
         if (!b->on) continue;
         b->age += dt;
-        b->x += b->vx * dt; b->y += b->vy * dt;
-        if (b->age > 3.0f || solid(b->x, b->y)) { b->on = 0; continue; }
+        if (b->kind == EB_SINE) {                    /* weaving bullet */
+            float sp = sqrtf(b->vx * b->vx + b->vy * b->vy) + 0.01f;
+            float nx = -b->vy / sp, ny = b->vx / sp;
+            float w = cosf(b->age * 9.0f + b->phase) * 42.0f;
+            b->x += (b->vx + nx * w) * dt; b->y += (b->vy + ny * w) * dt;
+        } else if (b->kind == EB_MORTAR) {           /* arcing shell */
+            b->vy += 120.0f * dt;
+            b->x += b->vx * dt; b->y += b->vy * dt;
+        } else if (b->kind == EB_HOMER) {            /* slow seeker */
+            float want = atan2f(py - b->y, px - b->x);
+            float cur = atan2f(b->vy, b->vx), d = want - cur;
+            while (d > 3.14159f) d -= 6.28318f;
+            while (d < -3.14159f) d += 6.28318f;
+            float sp = sqrtf(b->vx * b->vx + b->vy * b->vy);
+            float na = cur + mote_clampf(d, -1.3f * dt, 1.3f * dt);
+            b->vx = cosf(na) * sp; b->vy = sinf(na) * sp;
+            b->x += b->vx * dt; b->y += b->vy * dt;
+        } else {
+            b->x += b->vx * dt; b->y += b->vy * dt;
+        }
+        /* element micro-trail so bullet types read at a glance */
+        if ((mote_rand() & 15) == 0)
+            spawn_part(b->x, b->y, 0, 0, elem_col[b->elem][2], 0.18f, PF_ADD);
+        float life_max = b->kind == EB_HOMER ? 2.4f : 3.0f;
+        if (b->age > life_max || solid(b->x, b->y)) { b->on = 0; continue; }
         float dx = b->x - px, dy = b->y - py;
         float d2 = dx * dx + dy * dy;
         if (shield_on && d2 < 10 * 10) {             /* fizzles on the bubble */
@@ -1358,7 +1495,8 @@ static void shots_update(float dt) {
                            MOTE_RGB565(150, 230, 255), 0.15f, PF_ADD);
             continue;
         }
-        if (d2 < (PRAD + 2) * (PRAD + 2)) {
+        float hr = (b->kind == EB_BIG ? PRAD + 4 : PRAD + 2);
+        if (d2 < hr * hr) {
             b->on = 0;
             take_hit(1);
         }
@@ -1418,6 +1556,9 @@ static void chips_update(float dt) {
                     if (inv[equipped].lvl < 9) inv[equipped].lvl++;
                     break;
                 case PU_SCRAP: scrap += 25; break;
+                case PU_BOMBS:   b_bomb = 25.0f; break;
+                case PU_REARGUN: b_rear = 25.0f; break;
+                case PU_VERTGUN: b_vert = 25.0f; break;
                 }
                 say(pu_name[c->pu]);
                 mote->audio_play_sfx(&pickup_sfx, 0.8f);
@@ -1709,6 +1850,12 @@ static void draw_shot(uint16_t *fb, const Shot *s) {
         px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
         return;
     }
+    if (s->bomb) {                                   /* falling shell */
+        px_set(fb, x, y, MOTE_RGB565(60, 55, 60));
+        px_set(fb, x, y - 1, MOTE_RGB565(90, 85, 90));
+        if ((int)(s->age * 10) & 1) px_add(fb, x, y - 2, MOTE_RGB565(255, 170, 60));
+        return;
+    }
     if (s->pat == PAT_WAVE || s->pat == PAT_HELIX)   /* sinuous ribbon body */
         mote->draw_line(fb, x0, y0, x, y, ec[2], 0, MOTE_FB_H);
 
@@ -1782,6 +1929,9 @@ static void hud(uint16_t *fb) {
         if (b_amp > 0)   { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(255, 90, 90), 1, 0, MOTE_FB_H); bx += 6; }
         if (b_after > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(255, 160, 60), 1, 0, MOTE_FB_H); bx += 6; }
         if (b_ghost > 0) { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(200, 210, 235), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_bomb > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(120, 90, 60), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_rear > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(90, 140, 255), 1, 0, MOTE_FB_H); bx += 6; }
+        if (b_vert > 0)  { mote->draw_rect(fb, bx, 13, 4, 4, MOTE_RGB565(120, 255, 120), 1, 0, MOTE_FB_H); bx += 6; }
     }
     mote->draw_rect(fb, 3, 8, 33, 3, MOTE_RGB565(30, 40, 60), 1, 0, MOTE_FB_H);
     int sw = (int)(33.0f * shield_e / (shield_max > 0 ? shield_max : 1));
@@ -1963,9 +2113,20 @@ static void g_overlay(uint16_t *fb) {
         if (!b->on) continue;
         int x = (int)b->x - cam_x, y = (int)b->y - cam_y;
         const uint16_t *ec = elem_col[b->elem];
-        px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
-        px_add(fb, x + 1, y, ec[1]); px_add(fb, x - 1, y, ec[1]);
-        px_add(fb, x, y + 1, ec[1]); px_add(fb, x, y - 1, ec[1]);
+        if (b->kind == EB_BIG) {
+            mote->draw_circle(fb, x, y, 2, ec[1], 1, 0, MOTE_FB_H);
+            px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+            px_add(fb, x - 3, y, ec[2]); px_add(fb, x + 3, y, ec[2]);
+        } else if (b->kind == EB_HOMER) {
+            px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+            px_add(fb, x - 1, y, ec[0]); px_add(fb, x + 1, y, ec[0]);
+            px_add(fb, x, y - 1, ec[0]); px_add(fb, x, y + 1, ec[0]);
+            if ((int)(b->age * 10) & 1) px_add(fb, x, y - 2, ec[0]);
+        } else {
+            px_set(fb, x, y, MOTE_RGB565(255, 255, 255));
+            px_add(fb, x + 1, y, ec[1]); px_add(fb, x - 1, y, ec[1]);
+            px_add(fb, x, y + 1, ec[1]); px_add(fb, x, y - 1, ec[1]);
+        }
     }
 
     if (state == ST_FUSE) return;                 /* bench drew first; FX are on top */
