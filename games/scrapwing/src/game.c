@@ -161,7 +161,7 @@ typedef struct {
     float x, y, vx, vy, hp, t, fire, poison;
     float hx, hy;                       /* home/anchor */
     uint16_t ship;                      /* ship cell or boss index */
-    uint8_t on, active, kind, flip, ceil;
+    uint8_t on, active, kind, flip, ceil, boss;
     Gene wpn;
 } Enemy;
 static Enemy en[MAXEN];
@@ -186,6 +186,7 @@ static int  inv_n, equipped;
 static int  sector, scrap, kills;
 static uint32_t run_seed;
 static int  gate_x, gate_y;             /* gate world pos (top-left) */
+static int  gate_open;                  /* boss sectors seal the gate until the boss falls */
 static float gate_t;
 
 /* ------------------------------------------------------------------ states */
@@ -201,6 +202,7 @@ static int   lab_cur, lab_mark;         /* hangar cursor + bench chassis index *
 static int   bench_core;                /* bench core selection */
 static float demo_cd;                   /* bench demo-fire cooldown */
 static int   g_demo_fire;               /* shots spawned now are demo-only */
+static int   g_god;                     /* dev hook: SCRAP_GOD=1 disables damage */
 static int   best_sector, best_scrap;
 
 static void say(const char *s) { int i = 0; while (s[i] && i < 39) { toast[i] = s[i]; i++; }
@@ -459,15 +461,33 @@ static void kill_enemy(Enemy *e) {
                 boss_fw[e->ship], boss_fh[e->ship],
                 (int)(e->x - boss_fw[e->ship] / 2), (int)(e->y - boss_fh[e->ship] / 2),
                 e->flip, e->vx, e->vy);
-        scrap += 25;
-        drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
-        Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
-        drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
-        drop_chip(e->x, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
+        if (e->boss) {                               /* guardian jackpot */
+            scrap += 60;
+            uint8_t lvl = (uint8_t)mote_clampi(2 + sector / 2, 2, 9);
+            Gene g1 = roll_gene(); g1.lvl = lvl;
+            g1.mods |= (uint8_t)(1u << (mote_rand() & 3));   /* guaranteed 2 mods */
+            g1.mods |= (uint8_t)(1u << (mote_rand() & 3));
+            drop_chip(e->x - 10, e->y, &g1, CH_WEAPON);
+            Gene g2 = roll_gene(); g2.lvl = lvl;
+            drop_chip(e->x + 10, e->y - 4, &g2, CH_WEAPON);
+            Gene g3 = e->wpn; g3.lvl = lvl;
+            drop_chip(e->x, e->y - 10, &g3, CH_WEAPON);
+            drop_chip(e->x - 4, e->y + 8, 0, CH_HEAL);
+            drop_chip(e->x + 6, e->y + 8, 0, CH_SHIELD);
+            gate_open = 1;
+            say("WARP GATE UNLOCKED");
+            mote->audio_play_sfx(&gate_sfx, 0.9f);
+        } else {
+            scrap += 25;
+            drop_chip(e->x - 5, e->y, &e->wpn, CH_WEAPON);
+            Gene g2 = roll_gene(); g2.lvl = e->wpn.lvl;
+            drop_chip(e->x + 5, e->y - 4, &g2, CH_WEAPON);
+            drop_chip(e->x, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_SHIELD);
+        }
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
-        mote->audio_play_sfx(&boom_big_sfx, 0.85f);
-        mote->rumble(0.7f, 220);
+        mote->audio_play_sfx(&boom_big_sfx, e->boss ? 1.0f : 0.85f);
+        mote->rumble(e->boss ? 1.0f : 0.7f, e->boss ? 400 : 220);
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0);
         scrap += 4;
@@ -607,7 +627,7 @@ static Enemy *place_enemy(int kind, float x, float y) {
     e->on = 1; e->active = 0; e->kind = (uint8_t)kind;
     e->x = e->hx = x; e->y = e->hy = y; e->vx = e->vy = 0;
     e->t = mote_randf(0, 6.28f); e->fire = mote_randf(0.4f, 1.6f);
-    e->poison = 0; e->flip = 1; e->ceil = 0;
+    e->poison = 0; e->flip = 1; e->ceil = 0; e->boss = 0;
     e->wpn = roll_gene();
     if (kind == K_HEAVY) {
         e->ship = (uint16_t)(mote_rand() % BOSS_COUNT);
@@ -741,12 +761,37 @@ static void gen_sector(void) {
     px = 4 * TILE; py = cor_y[4] * TILE;
     carve_disc(4, cor_y[4], 4, 3);
     pvx = pvy = 0;
+    int boss_sector = (sector % 3) == 0;
     int gc = COLS - 6;
-    carve_disc(gc, cor_y[gc], 4, 4);
-    gate_x = gc * TILE - 8; gate_y = cor_y[gc] * TILE - 12;
+    if (boss_sector) {
+        /* the world opens up: a vast arena so the guardian has room to fight */
+        int ac = COLS - 26, ar = mote_clampi(cor_y[ac], 14, ROWS - 15);
+        carve_disc(ac, ar, 20, 13);
+        for (int c = ac; c <= gc; c++) cor_y[c] = (uint8_t)ar;   /* level the approach */
+        carve_disc(gc, ar, 4, 4);
+        gate_x = gc * TILE - 8; gate_y = ar * TILE - 12;
+        Enemy *bz = place_enemy(K_HEAVY, ac * TILE, ar * TILE);
+        if (bz) {
+            bz->boss = 1;
+            /* guardians use the LARGEST dreadnoughts on the sheet */
+            int best = 0, ba = 0;
+            for (int t = 0; t < 10; t++) {
+                int c = (int)(mote_rand() % BOSS_COUNT);
+                int a = boss_fw[c] * boss_fh[c];
+                if (a > ba) { ba = a; best = c; }
+            }
+            bz->ship = (uint16_t)best;
+            bz->hp = 40.0f + sector * 8.0f;
+        }
+    } else {
+        carve_disc(gc, cor_y[gc], 4, 4);
+        gate_x = gc * TILE - 8; gate_y = cor_y[gc] * TILE - 12;
+    }
+    gate_open = !boss_sector;
 
-    /* enemy population */
+    /* enemy population (lighter in boss sectors — the guardian is the show) */
     int n = 12 + sector * 3; if (n > 22) n = 22;
+    if (boss_sector) n = n / 2;
     for (int k = 0; k < n; k++) {
         int c = 30 + (int)(mote_rand() % (COLS - 44));
         int cy = cor_y[mote_clampi(c, 2, COLS - 3)];
@@ -757,6 +802,7 @@ static void gen_sector(void) {
         place_enemy(kinds[mote_rand() & 7], ex, ey);
     }
     int nheavy = sector >= 2 ? 1 + (sector - 2) / 2 : 0; if (nheavy > 3) nheavy = 3;
+    if (boss_sector) nheavy = 0;
     for (int k = 0; k < nheavy; k++) {
         int ci = 1 + (int)(mote_rand() % (n_chamber - 1));
         place_enemy(K_HEAVY, chx[ci] * TILE, chy[ci] * TILE);
@@ -856,6 +902,9 @@ static void start_run(void) {
     run_seed = mote_rand();
     inv_n = 1; equipped = 0;
     inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+    g_god = getenv("SCRAP_GOD") != 0;
+    const char *ds = getenv("SCRAP_SEC");   /* start at a given sector */
+    if (ds) { sector = mote_clampi(atoi(ds), 1, 99); }
     gen_sector();
     /* dev hooks (host testing): SCRAP_X=<world x> teleports the spawn along the
      * corridor; SCRAP_WPN="pat elem mods lvl" overrides the starting weapon. */
@@ -880,7 +929,7 @@ static void start_run(void) {
     }
     state = ST_PLAY; state_t = 0;
     char bt[40];
-    snprintf(bt, sizeof bt, "SECTOR 1: %s", biomes[cur_biome].name);
+    snprintf(bt, sizeof bt, "SECTOR %d: %s", sector, biomes[cur_biome].name);
     say(bt);
 }
 
@@ -906,7 +955,7 @@ static void g_init(void) {
 
 /* ================================================================== player */
 static void take_hit(float n) {
-    if (invuln > 0 || state != ST_PLAY) return;
+    if (g_god || invuln > 0 || state != ST_PLAY) return;
     if (shield_on) {                     /* the shield eats it */
         shield_e = mote_clampf(shield_e - 0.4f, 0, shield_max);
         for (int k = 0; k < 8; k++) {
@@ -1016,7 +1065,8 @@ static void player_update(float dt) {
 
     /* warp gate */
     gate_t += dt;
-    if (px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 2 && py < gate_y + 26) {
+    if (gate_open &&
+        px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 2 && py < gate_y + 26) {
         mote->audio_play_sfx(&gate_sfx, 0.8f);
         state = ST_CLEAR; state_t = 0;
         save_best();
@@ -1092,9 +1142,19 @@ static void enemies_update(float dt) {
             }
             break;
         case K_HEAVY:
-            e->vx = sinf(e->t * 0.4f) * 12.0f;
-            e->vy = cosf(e->t * 0.55f) * 9.0f;
-            if (dist < 150 && e->fire <= 0) {
+            e->vx = sinf(e->t * 0.4f) * (e->boss ? 22.0f : 12.0f);
+            e->vy = cosf(e->t * 0.55f) * (e->boss ? 16.0f : 9.0f);
+            if (e->boss && dist < 170 && e->fire <= 0) {
+                float base = atan2f(dy, dx);
+                if (((int)(e->t / 4.0f)) & 1) {      /* radial burst phase */
+                    for (int k = 0; k < 8; k++)
+                        enemy_shoot(e, e->t + k * 0.785f, 70);
+                } else {                             /* aimed 5-way fan */
+                    for (int k = -2; k <= 2; k++)
+                        enemy_shoot(e, base + k * 0.22f, 95);
+                }
+                e->fire = 1.5f;
+            } else if (!e->boss && dist < 150 && e->fire <= 0) {
                 float base = atan2f(dy, dx);
                 enemy_shoot(e, base, 85);
                 enemy_shoot(e, base + 0.3f, 85);
@@ -1334,10 +1394,12 @@ static void submit_scene(void) {
     mote->scene2d_begin(cam_x, cam_y);
     mote->scene2d_set_autotile_layers(map, COLS, ROWS, layers, 2);
 
-    /* warp gate (animated) */
-    MoteSprite gs = { &gate_img, (int16_t)gate_x, (int16_t)gate_y,
-                      (uint16_t)(((int)(gate_t * 6) & 1) * 16), 0, 16, 24, 3, 0 };
-    mote->scene2d_add(&gs);
+    /* warp gate (animated; sealed until a boss sector's guardian falls) */
+    if (gate_open) {
+        MoteSprite gs = { &gate_img, (int16_t)gate_x, (int16_t)gate_y,
+                          (uint16_t)(((int)(gate_t * 6) & 1) * 16), 0, 16, 24, 3, 0 };
+        mote->scene2d_add(&gs);
+    }
 
     /* chips */
     for (int i = 0; i < MAXCHIP; i++) {
@@ -1616,6 +1678,15 @@ static void hud(uint16_t *fb) {
     for (int i = 0; i < HULL_MAX; i++) {
         uint16_t c = i < (int)hull ? MOTE_RGB565(90, 230, 120) : MOTE_RGB565(50, 40, 60);
         mote->draw_rect(fb, 3 + i * 7, 2, 5, 4, c, 1, 0, MOTE_FB_H);
+    }
+    for (int i = 0; i < MAXEN; i++) {              /* guardian HP bar */
+        Enemy *e = &en[i];
+        if (!e->on || !e->boss || !e->active) continue;
+        float hpmax = 40.0f + sector * 8.0f;
+        mote->draw_rect(fb, 24, 14, 80, 4, MOTE_RGB565(40, 20, 26), 1, 0, MOTE_FB_H);
+        int w = (int)(80.0f * mote_clampf(e->hp / hpmax, 0, 1));
+        if (w > 0) mote->draw_rect(fb, 24, 14, w, 4, MOTE_RGB565(255, 80, 70), 1, 0, MOTE_FB_H);
+        break;
     }
     mote->draw_rect(fb, 3, 8, 33, 3, MOTE_RGB565(30, 40, 60), 1, 0, MOTE_FB_H);
     int sw = (int)(33.0f * shield_e / (shield_max > 0 ? shield_max : 1));
