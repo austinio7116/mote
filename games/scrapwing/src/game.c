@@ -1599,20 +1599,26 @@ static void chips_update(float dt) {
         Chip *c = &chips[i];
         if (!c->on) continue;
         c->t += dt;
+        /* a pickup you can't take right now doesn't magnetize — it stays put
+         * instead of riding on the hull */
+        int can_take = c->type == CH_WEAPON ? (inv_n < INV_MAX)
+                     : c->type == CH_HEAL   ? (hull < hull_max) : 1;
         float dx = px - c->x, dy = py - c->y;
         float d2 = dx * dx + dy * dy;
         float mr = b_magnet > 0 ? 85.0f : 26.0f;
         float ms = b_magnet > 0 ? 170.0f : 70.0f;
-        if (d2 < mr * mr) {                        /* magnet */
+        if (can_take && d2 < mr * mr) {            /* magnet */
             float d = sqrtf(d2) + 0.1f;
             c->x += dx / d * ms * dt; c->y += dy / d * ms * dt;
         }
         if (d2 < 8 * 8) {
             if (c->type == CH_HEAL) {
-                if (hull < hull_max) hull += 1;
-                say("HULL PATCHED");
-                mote->audio_play_sfx(&pickup_sfx, 0.7f);
-                c->on = 0;
+                if (hull < hull_max) {               /* full hull: leave it for later */
+                    hull += 1;
+                    say("HULL PATCHED");
+                    mote->audio_play_sfx(&pickup_sfx, 0.7f);
+                    c->on = 0;
+                }
             } else if (c->type == CH_POWER) {
                 switch (c->pu) {
                 case PU_SHIELD:
