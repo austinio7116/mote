@@ -251,7 +251,35 @@ def cw_conc(d, x0, y0, m, v):
         for y in range(8): px(d, x0 + 7, y0 + y, (58, 58, 62))
 
 
+def cw_fog(d, x0, y0, m, v):
+    """Shroud: solid black interior, dithered feather toward explored sides.
+    Drawn OVER the terrain, so transparent px = terrain peeking through."""
+    mn, me, ms, mw = sides(m)
+    for y in range(8):
+        for x in range(8):
+            # distance (px) to the nearest explored side of this cell
+            dist = 8
+            if mn: dist = min(dist, y)
+            if ms: dist = min(dist, 7 - y)
+            if mw: dist = min(dist, x)
+            if me: dist = min(dist, 7 - x)
+            # inner corners feather diagonally too
+            for (bit, ca, cb, cx, cy) in ((NB_NE, NB_N, NB_E, 7, 0), (NB_SE, NB_S, NB_E, 7, 7),
+                                          (NB_SW, NB_S, NB_W, 0, 7), (NB_NW, NB_N, NB_W, 0, 0)):
+                if (m & ca) and (m & cb) and not (m & bit):
+                    dist = min(dist, (abs(x - cx) + abs(y - cy)) // 2)
+            if dist >= 3:
+                px(d, x0 + x, y0 + y, (0, 0, 0))
+            elif dist == 2:
+                if (x + y * 3 + v) % 4 != 0: px(d, x0 + x, y0 + y, (0, 0, 0))
+            elif dist == 1:
+                if (x + y) % 2 == v % 2: px(d, x0 + x, y0 + y, (0, 0, 0))
+            else:
+                if (x * 3 + y + v) % 4 == 0: px(d, x0 + x, y0 + y, (0, 0, 0))
+
+
 def make_autotiles():
+    blob_sheet("fog", 2, cw_fog)
     blob_sheet("water", 2, cw_water)
     blob_sheet("rock", 2, cw_rock)
     blob_sheet("tree", 2, cw_tree)

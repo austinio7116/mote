@@ -25,6 +25,7 @@
 #include "mote_api.h"
 #include "mote_build.h"
 #include "mote_tile.h"
+#include "fog.tiles.h"
 #include "grass.tiles.h"
 #include "water.tiles.h"
 #include "rock.tiles.h"
@@ -139,14 +140,14 @@ typedef struct {
 } UDef;
 
 static const UDef UD[NUTYPES] = {
-    { "RIFLE", 100, 45, 26, 26, 0, 0.65f, 8, W_MG,     AR_INF,   4, Q_INF, 0,  0 },
+    { "RIFL", 100, 45, 26, 26, 0, 0.65f, 8, W_MG,     AR_INF,   4, Q_INF, 0,  0 },
     { "RCKT",  300, 50, 24, 38, 0, 1.90f, 24, W_ROCKET, AR_INF,   5, Q_INF, 3,  0 },
-    { "FLAME", 200, 55, 26, 17, 0, 1.30f, 20, W_FLAME,  AR_INF,   4, Q_INF, 5,  0 },
+    { "FLAM", 200, 55, 26, 17, 0, 1.30f, 20, W_FLAME,  AR_INF,   4, Q_INF, 5,  0 },
     { "HARV",  800, 350, 21, 0, 0, 0,     0,  W_NONE,   AR_HEAVY, 4, Q_VEH, 13, 0 },
-    { "LTANK", 600, 160, 33, 32, 0, 1.10f, 18, W_CANNON, AR_LIGHT, 5, Q_VEH, 7,  0 },
-    { "HTANK", 950, 300, 23, 34, 0, 1.45f, 27, W_CANNON, AR_HEAVY, 5, Q_VEH, 9,  0 },
+    { "LTNK", 600, 160, 33, 32, 0, 1.10f, 18, W_CANNON, AR_LIGHT, 5, Q_VEH, 7,  0 },
+    { "HTNK", 950, 300, 23, 34, 0, 1.45f, 27, W_CANNON, AR_HEAVY, 5, Q_VEH, 9,  0 },
     { "ARTY",  700, 90, 19, 64, 20, 3.20f, 42, W_ARTY,   AR_LIGHT, 6, Q_VEH, 11, 0 },
-    { "TESLA", 1200, 180, 25, 30, 0, 2.20f, 46, W_TESLA,  AR_HEAVY, 5, Q_VEH, 12, 0 },
+    { "TSLA", 1200, 180, 25, 30, 0, 2.20f, 46, W_TESLA,  AR_HEAVY, 5, Q_VEH, 12, 0 },
     { "HELI",  1000, 140, 46, 30, 0, 0.55f, 11, W_ROCKET, AR_AIR,   7, Q_AIR, 14, 1 },
 };
 
@@ -165,12 +166,12 @@ typedef struct {
 } BDef;
 
 static const BDef BD[NBTYPES] = {
-    { "CYARD", 3, 3, 2500, 1000, 0,   0,                 0,   W_NONE, 0, 6, 0, 0 },
-    { "POWER", 2, 2, 300, 300, 100, 1u << B_CON,          24,  W_NONE, 0, 4, 0, 0 },
-    { "REFRY", 3, 2, 1500, 600, -30, 1u << B_POW,         40,  W_NONE, 0, 4, 0, 0 },
+    { "YARD", 3, 3, 2500, 1000, 0,   0,                 0,   W_NONE, 0, 6, 0, 0 },
+    { "POW", 2, 2, 300, 300, 100, 1u << B_CON,          24,  W_NONE, 0, 4, 0, 0 },
+    { "REF", 3, 2, 1500, 600, -30, 1u << B_POW,         40,  W_NONE, 0, 4, 0, 0 },
     { "RAX",   2, 2, 400, 500, -20, 1u << B_POW,          64,  W_NONE, 0, 4, 0, 0 },
     { "FACT",  3, 2, 1800, 700, -30, 1u << B_REF,         80,  W_NONE, 0, 4, 0, 0 },
-    { "RADAR", 2, 2, 1000, 500, -40, 1u << B_REF,         104, W_NONE, 0, 10, 0, 0 },
+    { "RDR", 2, 2, 1000, 500, -40, 1u << B_REF,         104, W_NONE, 0, 10, 0, 0 },
     { "PAD",   2, 2, 1200, 450, -30, (1u<<B_RADAR)|(1u<<B_FACT), 120, W_NONE, 0, 4, 0, 0 },
     { "TECH",  2, 2, 1500, 400, -60, (1u<<B_RADAR)|(1u<<B_FACT), 136, W_NONE, 0, 4, 0, 0 },
     { "PILL",  1, 1, 400, 350, 0,   1u << B_BAR,          152, W_MG, 30, 5, 0.55f, 9 },
@@ -248,8 +249,15 @@ static uint32_t framec;
 static float gtime;
 
 /* production queues (per team x queue) */
-typedef struct { int16_t item; float prog; float spent; uint8_t ready; } PQueue;
+typedef struct { int16_t item; float prog; float spent; uint8_t ready, more, nagged; } PQueue;
 static PQueue pq[2][NQ];
+
+/* difficulty (picked on the title screen) */
+static int diff = 1;
+static const char *DIFF_NAME[3] = { "EASY", "NORMAL", "HARD" };
+static const int   DIFF_TRICKLE[3] = { 0, 4, 9 };      /* AI credits/s bonus */
+static const int   DIFF_WAVE0[3]   = { 185, 150, 120 };
+static const int   DIFF_WAVES[3]   = { 35, 25, 18 };
 
 /* UI */
 static int side_open, side_tab, side_row;
@@ -471,8 +479,17 @@ static int place_bldg(int type, int team, int tx, int ty){
         wepoch++;
         recalc_power(team);
         if (type == B_REF){       /* refinery ships with a free harvester */
-            int hx = (tx + BD[type].w + 1) * TILE, hy = (ty + 1) * TILE;
-            spawn_unit(U_HARV, team, hx, hy);
+            for (int r = 1; r < 7; r++){
+                int done = 0;
+                for (int dy = -r; dy <= BD[type].h + r && !done; dy++)
+                    for (int dx = -r; dx <= BD[type].w + r && !done; dx++){
+                        int ux = tx + dx, uy = ty + dy;
+                        if (!walkxy(ux, uy)) continue;
+                        spawn_unit(U_HARV, team, ux * TILE + 4, uy * TILE + 4);
+                        done = 1;
+                    }
+                if (done) break;
+            }
         }
         return i;
     }
@@ -1145,7 +1162,7 @@ static void queue_tick(int team, float dt){
         if (p->item < 0 || p->ready) continue;
         if (!(owned[team] & (1u << QPROD_BLDG[q]))){ p->item = -1; continue; }
         int cost = item_cost(q, p->item);
-        float t = (float)cost / 110.0f;              /* seconds at full power */
+        float t = (float)cost / 75.0f;               /* seconds at full power */
         if (!power_ok(team)) t *= 2.4f;
         float step = dt / t * fast;
         int need = (int)((p->prog + step) * cost) - (int)p->spent;
@@ -1164,11 +1181,18 @@ static void queue_tick(int team, float dt){
             p->prog = 1.0f;
             if (q == Q_BLD){
                 p->ready = 1;
-                if (team == 0){ toastf("CONSTRUCTION COMPLETE"); sfx(&ready_sfx, 0.6f, 7, 0.3f); }
+                if (team == 0 && !p->nagged){
+                    p->nagged = 1;
+                    placing = p->item;               /* jump straight to placement */
+                    side_open = 0; a_mode = 0;
+                    toastf("PLACE IT - B TO DEFER");
+                    sfx(&ready_sfx, 0.6f, 7, 0.3f);
+                }
             } else {
                 int u = spawn_from(team, QPROD_BLDG[q], p->item);
                 if (u >= 0){
-                    p->item = -1; p->prog = 0; p->spent = 0;
+                    if (p->more){ p->more--; p->prog = 0; p->spent = 0; }  /* next in batch */
+                    else { p->item = -1; p->prog = 0; p->spent = 0; }
                     if (team == 0){ toastf("UNIT READY"); sfx(&ready_sfx, 0.5f, 7, 0.3f); }
                 }
                 /* else: blocked exit — retry next frame */
@@ -1213,7 +1237,7 @@ static int ai_count_u(int type){
     return n;
 }
 static void ai_think(void){
-    credits[1] += 12;                          /* sustains pressure late game */
+    credits[1] += DIFF_TRICKLE[diff];          /* difficulty-scaled pressure */
     /* -- build order: first unmet desire (prereq + funds) */
     static const struct { uint8_t type, want; } BO[] = {
         { B_POW, 1 }, { B_REF, 1 }, { B_BAR, 1 }, { B_POW, 2 }, { B_FACT, 1 },
@@ -1262,8 +1286,8 @@ static void ai_think(void){
     for (int i = 0; i < MAXU; i++)
         if (un[i].alive && un[i].team == 1 && un[i].type != U_HARV && UD[un[i].type].weapon) army++;
     ai_wave_t += 1;
-    float due = 140 + ai_wave_n * 20;
-    if ((ai_wave_t > due && army >= 6) || army >= 12 + ai_wave_n * 3){
+    float due = DIFF_WAVE0[diff] + ai_wave_n * DIFF_WAVES[diff];
+    if ((ai_wave_t > due && army >= 6) || (ai_wave_n > 0 && army >= 14 + ai_wave_n * 4)){
         ai_wave_t = 0; ai_wave_n++;
         int tgt = -1;
         int b = acquire_bldg(1, WPX * 0.85f, WPX * 0.15f, 1e6f);
@@ -1289,6 +1313,21 @@ static inline void putpx(uint16_t *fb, int x, int y, int y0, int y1, uint16_t c)
     fb[y * 128 + x] = c;
 }
 static inline uint16_t dim565(uint16_t c){ return (c >> 1) & 0x7BEF; }
+
+/* 8-neighbour mask of tiles LACKING a vism bit (N,NE,E,SE,S,SW,W,NW — matches
+ * MOTE_NB_*). Off-map counts as fogged, so shroud edges seal at the border. */
+static int fog_mask(int tx, int ty, int bit){
+    static const int8_t NX[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+    static const int8_t NY[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
+    int m = 0;
+    for (int k = 0; k < 8; k++){
+        int xx = tx + NX[k], yy = ty + NY[k];
+        int fogged = 1;
+        if (tin(xx, yy)) fogged = !(vism[tidx(xx, yy)] & bit);
+        if (fogged) m |= 1 << k;
+    }
+    return m;
+}
 
 /* BLOB47 rulesets per terrain type (T_GRASS..T_SCORCH order) */
 static const MoteAutotile *const AT[8] = {
@@ -1369,7 +1408,16 @@ static void render_band(uint16_t *fb, int y0, int y1){
             int t = tidx(tx, ty);
             int sx = tx * TILE - cx, sy = ty * TILE - cy;
             if (!(vism[t] & 2) && !hk_reveal){
-                mote->draw_rect(fb, sx, sy, 8, 8, 0, 1, y0, y1);
+                int m = fog_mask(tx, ty, 2);
+                if (m == 255){        /* deep shroud: solid black */
+                    mote->draw_rect(fb, sx, sy, 8, 8, 0, 1, y0, y1);
+                    continue;
+                }
+                /* shroud edge: terrain peeks through the blob's dither */
+                draw_terrain_tile(fb, t, tx, ty, sx, sy, y0, y1);
+                mote->blit(fb, fog_at.sheet, sx, sy, fog_at.lut[m] * 8,
+                           mote__at_variant(&fog_at, tx, ty) * 8, 8, 8,
+                           fog_at.xform[m], y0, y1);
                 continue;
             }
             draw_terrain_tile(fb, t, tx, ty, sx, sy, y0, y1);
@@ -1487,7 +1535,7 @@ static void render_band(uint16_t *fb, int y0, int y1){
     /* air units on top */
     for (int i = 0; i < MAXU; i++)
         if (un[i].alive && UD[un[i].type].air) draw_unit(fb, &un[i], y0, y1);
-    /* --- fog dim pass (explored but not visible) */
+    /* --- fog dim pass (explored but not visible), dithered near visible tiles */
     if (!hk_reveal){
         for (int ty = ty0; ty <= ty1; ty++){
             if (ty < 0 || ty >= MH) continue;
@@ -1495,12 +1543,26 @@ static void render_band(uint16_t *fb, int y0, int y1){
                 if (tx < 0 || tx >= MW) continue;
                 int t = tidx(tx, ty);
                 if ((vism[t] & 3) != 2) continue;      /* explored, not visible */
+                int m = fog_mask(tx, ty, 1);           /* bits = fogged neighbours */
+                int vn = !(m & MOTE_NB_N), ve = !(m & MOTE_NB_E);
+                int vs = !(m & MOTE_NB_S), vw = !(m & MOTE_NB_W);
                 int sx = tx * TILE - cx, sy = ty * TILE - cy;
                 int yy0 = sy < y0 ? y0 : sy, yy1 = sy + 8 > y1 ? y1 : sy + 8;
                 int xx0 = sx < 0 ? 0 : sx, xx1 = sx + 8 > 128 ? 128 : sx + 8;
                 for (int y = yy0; y < yy1; y++){
                     uint16_t *row = fb + y * 128;
-                    for (int x = xx0; x < xx1; x++) row[x] = dim565(row[x]);
+                    int ly = y - sy;
+                    for (int x = xx0; x < xx1; x++){
+                        int lx = x - sx;
+                        int dv = 8;                    /* px to nearest visible side */
+                        if (vn && ly < dv) dv = ly;
+                        if (vs && 7 - ly < dv) dv = 7 - ly;
+                        if (vw && lx < dv) dv = lx;
+                        if (ve && 7 - lx < dv) dv = 7 - lx;
+                        if (dv == 0){ if (((lx + ly) & 1) == 0) continue; }
+                        else if (dv == 1){ if (((lx * 3 + ly) & 3) == 0) continue; }
+                        row[x] = dim565(row[x]);
+                    }
                 }
             }
         }
@@ -1552,46 +1614,113 @@ static void draw_minimap(uint16_t *fb){
     mote->draw_rect(fb, rx, ry, 16, 16, MOTE_RGB565(240, 240, 240), 0, 0, 128);
 }
 
-static void draw_sidebar(uint16_t *fb){
+/* one-line blurbs for the footer */
+static const char *UDESC[NUTYPES] = {
+    "VS INFANTRY", "VS TANK+AIR", "BURNS TROOPS", "COLLECTS ORE", "FAST CANNON",
+    "HEAVY CANNON", "SIEGE ARC", "SHOCK BOLT", "ROCKET GUNSHIP",
+};
+static const char *BDESC[NBTYPES] = {
+    "BASE CORE", "POWERS BASE", "ORE DROPOFF +HARV", "TRAINS INFANTRY",
+    "BUILDS VEHICLES", "MINIMAP +TECH", "BUILDS GUNSHIPS", "TOP TECH",
+    "MG DEFENSE", "CANNON DEFENSE", "TESLA DEFENSE",
+};
+static void missing_str(int q, int item, char *out, int n){
+    uint16_t need = (q == Q_BLD ? BD[item].prereq : UPREREQ[item]) & ~owned[0];
+    int len = 0; out[0] = 0;
+    for (int b = 0; b < NBTYPES && len < n - 8; b++)
+        if (need & (1u << b)) len += snprintf(out + len, n - len, "%s ", BD[b].name);
+}
+/* draw a build-item pictogram (the real sprite, shrunk to ~8px) */
+static void draw_item_icon(uint16_t *fb, int q, int item, int cx, int cy){
+    if (q == Q_BLD){
+        const BDef *bd = &BD[item];
+        int pw = bd->w * TILE, ph = item == B_COIL ? 16 : bd->h * TILE;
+        float s = 9.0f / (pw > ph ? pw : ph);
+        mote->blit_ex(fb, &buildings_img, cx, cy, bd->sx, 0, pw, ph, 0, s, MOTE_BLEND_NONE, 0, 128);
+    } else {
+        mote->blit(fb, &units_img, cx - 4, cy - 4, UD[item].col * 8, 0, 8, 8, 0, 0, 128);
+    }
+}
+
+/* ------------------------------------------------------------------ build menu
+ * Full-screen, game-PAUSED build page: tab strip of icons, a 3-column grid of
+ * cards (icon + name + cost), footer description. LB/LEFT/RIGHT tabs+grid,
+ * UP/DOWN rows, A queue/place, B close. */
+static void draw_build_menu(uint16_t *fb){
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    int w = 56, x0 = 128 - w;
-    mote->draw_rect(fb, x0, 0, w, 128, MOTE_RGB565(16, 16, 22), 1, 0, 128);
-    mote->draw_rect(fb, x0, 0, 1, 128, MOTE_RGB565(90, 90, 110), 1, 0, 128);
-    mote->text_font(fb, f, QNAME[side_tab], x0 + 4, 2, MOTE_RGB565(240, 220, 120));
+    mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(10, 10, 16), 1, 0, 128);
+    /* header: tab name left, credits right */
+    mote->text_font(fb, f, QNAME[side_tab], 3, -1, MOTE_RGB565(240, 220, 120));
+    char buf[24];
+    snprintf(buf, sizeof buf, "$%d", credits[0]);
+    mote->text_font(fb, f, buf, 125 - 7 * (int)strlen(buf), -1, MOTE_RGB565(240, 220, 120));
+    /* tab strip: icon chips */
+    static const uint8_t TAB_ICON[NQ] = { 0, 0, 9, 14 };
+    for (int q2 = 0; q2 < NQ; q2++){
+        int tx = 3 + q2 * 19;
+        uint16_t bg = q2 == side_tab ? MOTE_RGB565(52, 52, 76) : MOTE_RGB565(22, 22, 30);
+        mote->draw_rect(fb, tx, 13, 17, 14, bg, 1, 0, 128);
+        if (q2 == side_tab)
+            mote->draw_rect(fb, tx, 13, 17, 14, MOTE_RGB565(240, 220, 120), 0, 0, 128);
+        if (q2 == Q_BLD)
+            mote->blit_ex(fb, &buildings_img, tx + 8, 20, 0, 0, 24, 24, 0, 0.42f, MOTE_BLEND_NONE, 0, 128);
+        else
+            mote->blit(fb, &units_img, tx + 4, 16, TAB_ICON[q2] * 8, 0, 8, 8, 0, 0, 128);
+        if (pq[0][q2].item >= 0)
+            mote->draw_rect(fb, tx + 13, 14, 2, 2,
+                            pq[0][q2].ready ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(240, 220, 120),
+                            1, 0, 128);
+    }
+    mote->text(fb, "PAUSED", 88, 17, MOTE_RGB565(90, 90, 105));
+    /* card grid: 3 cols */
     int n = QMENU_N[side_tab];
-    PQueue *p = &pq[0][side_tab];
     if (side_row >= n) side_row = n - 1;
+    PQueue *p = &pq[0][side_tab];
     for (int i = 0; i < n; i++){
         int item = QMENU[side_tab][i];
-        int y = 16 + i * 11;
+        int cx = 1 + (i % 3) * 42, cy = 30 + (i / 3) * 22;
         int avail = item_avail(0, side_tab, item);
-        uint16_t c = avail ? MOTE_RGB565(220, 220, 230) : MOTE_RGB565(90, 90, 100);
-        if (i == side_row){
-            mote->draw_rect(fb, x0 + 2, y - 1, w - 4, 11, MOTE_RGB565(46, 46, 64), 1, 0, 128);
-            c = avail ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(120, 110, 110);
-        }
+        int cost = item_cost(side_tab, item);
+        int mine = p->item == item;
+        uint16_t bg = !avail ? MOTE_RGB565(16, 16, 20)
+                    : i == side_row ? MOTE_RGB565(52, 52, 76) : MOTE_RGB565(26, 26, 36);
+        mote->draw_rect(fb, cx, cy, 41, 20, bg, 1, 0, 128);
+        if (mine && !p->ready)      /* progress strip along the card bottom */
+            mote->draw_rect(fb, cx, cy + 18, (int)(41 * p->prog), 2, MOTE_RGB565(110, 220, 110), 1, 0, 128);
+        if (i == side_row)
+            mote->draw_rect(fb, cx, cy, 41, 20, MOTE_RGB565(240, 220, 120), 0, 0, 128);
+        draw_item_icon(fb, side_tab, item, cx + 6, cy + 10);
         const char *nm = side_tab == Q_BLD ? BD[item].name : UD[item].name;
-        mote->text_font(fb, f, nm, x0 + 5, y, c);
-        /* production state on this item */
-        if (p->item == item){
-            if (p->ready)
-                mote->text_font(fb, f, "GO", x0 + w - 16, y, MOTE_RGB565(120, 255, 120));
-            else {
-                int bw = (int)((w - 10) * p->prog);
-                mote->draw_rect(fb, x0 + 5, y + 9, w - 10, 1, MOTE_RGB565(50, 50, 60), 1, 0, 128);
-                mote->draw_rect(fb, x0 + 5, y + 9, bw, 1, MOTE_RGB565(120, 220, 120), 1, 0, 128);
-            }
+        uint16_t nc = avail ? MOTE_RGB565(225, 225, 235) : MOTE_RGB565(90, 88, 96);
+        mote->text_font(fb, f, nm, cx + 12, cy - 1, nc);
+        if (mine && p->ready){
+            if ((framec >> 3) & 1)
+                mote->text(fb, "PLACE", cx + 12, cy + 12, MOTE_RGB565(120, 255, 120));
+        } else if (mine){
+            snprintf(buf, sizeof buf, "%d%%", (int)(p->prog * 100));
+            if (p->more) snprintf(buf, sizeof buf, "%d%% x%d", (int)(p->prog * 100), p->more + 1);
+            mote->text(fb, buf, cx + 12, cy + 12, MOTE_RGB565(150, 240, 150));
+        } else {
+            snprintf(buf, sizeof buf, "%d", cost);
+            uint16_t cc = !avail ? MOTE_RGB565(90, 88, 96)
+                        : cost > credits[0] ? MOTE_RGB565(240, 90, 70) : MOTE_RGB565(240, 220, 120);
+            mote->text(fb, buf, cx + 12, cy + 12, cc);
         }
     }
-    /* footer: cost + power of highlighted */
+    /* footer: description or missing prereqs */
+    mote->draw_rect(fb, 0, 118, 128, 10, MOTE_RGB565(16, 16, 24), 1, 0, 128);
     int item = QMENU[side_tab][side_row];
-    char buf[24];
-    int cost = item_cost(side_tab, item);
-    if (side_tab == Q_BLD && BD[item].power)
-        snprintf(buf, sizeof buf, "$%d %+dP", cost, BD[item].power);
-    else
-        snprintf(buf, sizeof buf, "$%d", cost);
-    mote->text_font(fb, f, buf, x0 + 4, 115, MOTE_RGB565(240, 220, 120));
+    if (!item_avail(0, side_tab, item)){
+        char miss[24]; missing_str(side_tab, item, miss, sizeof miss);
+        snprintf(buf, sizeof buf, "NEEDS %s", miss);
+        mote->text(fb, buf, 3, 120, MOTE_RGB565(240, 90, 70));
+    } else {
+        const char *ds = side_tab == Q_BLD ? BDESC[item] : UDESC[item];
+        int pw = side_tab == Q_BLD ? BD[item].power : 0;
+        if (pw) snprintf(buf, sizeof buf, "%s  %+dP", ds, pw);
+        else    snprintf(buf, sizeof buf, "%s", ds);
+        mote->text(fb, buf, 3, 120, MOTE_RGB565(180, 180, 195));
+    }
 }
 
 static void draw_cursor(uint16_t *fb){
@@ -1622,6 +1751,39 @@ static void draw_cursor(uint16_t *fb){
         putpx(fb, x - 3, y - 3, 0, 128, c); putpx(fb, x + 3, y - 3, 0, 128, c);
         putpx(fb, x - 3, y + 3, 0, 128, c); putpx(fb, x + 3, y + 3, 0, 128, c);
     }
+    /* action label: what A will do right now */
+    const char *act = 0;
+    int tx = (int)wx >> 3, ty = (int)wy >> 3;
+    int t = tin(tx, ty) ? tidx(tx, ty) : -1;
+    if (placing >= 0) act = 0;
+    else if (selcount){
+        int over_own = 0;
+        for (int i = 0; i < MAXU && !over_own; i++) if (un[i].alive && un[i].team == 0){
+            float dx = un[i].x - wx, dy = un[i].y - wy;
+            if (dx * dx + dy * dy < 30) over_own = 1;
+        }
+        int harv = 0, combat = 0;
+        for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].sel){
+            if (un[i].type == U_HARV) harv++; else combat++;
+        }
+        if (hostile) act = "ATTACK";
+        else if (over_own) act = "SELECT";
+        else if (t >= 0 && harv && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0) act = "MINE";
+        else if (t >= 0 && harv && !combat && bmap[t] != 0xFF
+                 && bl[bmap[t]].team == 0 && bl[bmap[t]].type == B_REF) act = "DUMP";
+        else if (t >= 0 && walk_t(t)) act = "MOVE";
+    } else if (bsel >= 0 && bl[bsel].alive && t >= 0 && walk_t(t)){
+        int bt = bl[bsel].type;
+        if (bt == B_BAR || bt == B_FACT || bt == B_PAD || bt == B_CON) act = "RALLY";
+    }
+    if (act){
+        int len = (int)strlen(act);
+        int lx = x + 6, ly = y + 5;
+        if (lx + len * 6 > 126) lx = x - 7 - len * 6;
+        if (ly > 110) ly = y - 13;
+        mote->draw_rect(fb, lx - 1, ly - 1, len * 6 + 2, 9, MOTE_RGB565(8, 8, 12), 1, 0, 128);
+        mote->text(fb, act, lx, ly, hostile ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(210, 210, 225));
+    }
 }
 
 static void g_overlay(uint16_t *fb){
@@ -1630,10 +1792,15 @@ static void g_overlay(uint16_t *fb){
     char buf[40];
     if (state == ST_TITLE){
         mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
-        mote->text_font(fb, fl, "RED MOTE", 22, 30, MOTE_RGB565(230, 60, 40));
-        mote->text_font(fb, f, "tiny-scale RTS", 30, 52, MOTE_RGB565(200, 200, 210));
+        mote->text_font(fb, fl, "RED MOTE", 22, 22, MOTE_RGB565(230, 60, 40));
+        mote->text_font(fb, f, "tiny-scale RTS", 30, 44, MOTE_RGB565(200, 200, 210));
+        char db[24];
+        snprintf(db, sizeof db, "< %s >", DIFF_NAME[diff]);
+        mote->text_font(fb, f, db, 64 - (int)strlen(db) * 3, 62, MOTE_RGB565(240, 220, 120));
         if ((framec >> 4) & 1)
-            mote->text_font(fb, f, "A - DEPLOY", 36, 90, MOTE_RGB565(240, 220, 120));
+            mote->text_font(fb, f, "A - DEPLOY", 36, 80, MOTE_RGB565(120, 255, 120));
+        mote->text(fb, "LB BUILD   RB RADAR MAP", 0, 106, MOTE_RGB565(150, 150, 165));
+        mote->text(fb, "A SELECT+ORDER  B CANCEL", 0, 116, MOTE_RGB565(150, 150, 165));
         return;
     }
     if (state == ST_WIN || state == ST_LOSE){
@@ -1646,6 +1813,7 @@ static void g_overlay(uint16_t *fb){
         }
         /* keep drawing the HUD below the banner */
     }
+    if (side_open && state == ST_PLAY){ draw_build_menu(fb); return; }
     /* top bar */
     mote->draw_rect(fb, 0, 0, 128, 9, MOTE_RGB565(12, 12, 18), 1, 0, 128);
     snprintf(buf, sizeof buf, "$%d", credits[0]);
@@ -1668,7 +1836,6 @@ static void g_overlay(uint16_t *fb){
     if (toast_t > 0)
         mote->text_font(fb, f, toast, 64 - (int)strlen(toast) * 3, 14, MOTE_RGB565(255, 230, 140));
 
-    if (side_open) draw_sidebar(fb);
     if (placing >= 0){
         /* footprint ghost */
         const BDef *bd = &BD[placing];
@@ -1688,6 +1855,30 @@ static void g_overlay(uint16_t *fb){
     else if (rb_t > 0.25f){
         mote->text_font(fb, f, pow_prod[0] < pow_use[0] ? "RADAR OFFLINE" : "NEED RADAR",
                         30, 60, MOTE_RGB565(255, 80, 60));
+    }
+    /* selection info bar: what you have selected and what A will do */
+    if (!side_open && placing < 0 && state == ST_PLAY){
+        int cnt[NUTYPES] = {0}, total = 0;
+        for (int i = 0; i < MAXU; i++)
+            if (un[i].alive && un[i].sel){ cnt[un[i].type]++; total++; }
+        char line[40] = "";
+        if (total){
+            int len = 0, kinds = 0;
+            for (int k = 0; k < NUTYPES && kinds < 3; k++)
+                if (cnt[k]){ len += snprintf(line + len, sizeof line - len, "%d %s ", cnt[k], UD[k].name); kinds++; }
+            if (cnt[U_HARV] == total)
+                snprintf(line, sizeof line, "%d HARV: AUTO-MINES ORE", total);
+        } else if (bsel >= 0 && bl[bsel].alive){
+            int bt = bl[bsel].type;
+            if (bt == B_BAR || bt == B_FACT || bt == B_PAD || bt == B_CON)
+                snprintf(line, sizeof line, "%s: A SETS RALLY", BD[bt].name);
+            else
+                snprintf(line, sizeof line, "%s", BD[bt].name);
+        }
+        if (line[0]){
+            mote->draw_rect(fb, 0, 119, 128, 9, MOTE_RGB565(10, 10, 16), 1, 0, 128);
+            mote->text(fb, line, 2, 120, MOTE_RGB565(190, 190, 205));
+        }
     }
     if (!side_open && placing < 0) draw_cursor(fb);
     else if (placing >= 0) draw_cursor(fb);
@@ -1740,6 +1931,9 @@ static void cmd_at(float wx, float wy){
             u->order = O_ATK; u->tgt = tgt; u->dest = t;
         } else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
             u->order = O_HARV; u->hstate = H_SEEK; u->oret = t;
+        } else if (u->type == U_HARV && bmap[t] != 0xFF
+                   && bl[bmap[t]].team == 0 && bl[bmap[t]].type == B_REF){
+            u->order = O_HARV; u->hstate = H_RET;    /* sent home: dump then resume */
         } else {
             u->order = O_MOVE; u->dest = t; u->tgt = -1;
             if (u->type == U_HARV) u->order = O_MOVE;   /* manual reposition */
@@ -1816,30 +2010,47 @@ static void input_play(float dt){
         rb_t = 0;
     }
 
-    /* LB: sidebar */
+    /* LB: sidebar (opens on the ready-to-place building if there is one) */
     if (mote_just_pressed(in, MOTE_BTN_LB)){
         if (placing >= 0){ placing = -1; }
-        if (!side_open){ side_open = 1; side_tab = Q_BLD; side_row = 0; }
+        if (!side_open){
+            side_open = 1; side_tab = Q_BLD; side_row = 0;
+            if (pq[0][Q_BLD].ready)
+                for (int i = 0; i < QMENU_N[Q_BLD]; i++)
+                    if (QMENU[Q_BLD][i] == pq[0][Q_BLD].item) side_row = i;
+        }
         else { side_tab = (side_tab + 1) % NQ; side_row = 0; }
     }
 
     if (side_open){
         if (mote_just_pressed(in, MOTE_BTN_B)) side_open = 0;
         int n = QMENU_N[side_tab];
-        if (mote_just_pressed(in, MOTE_BTN_UP)) side_row = (side_row + n - 1) % n;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN)) side_row = (side_row + 1) % n;
+        /* 3-column grid navigation */
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  side_row = (side_row + n - 1) % n;
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) side_row = (side_row + 1) % n;
+        if (mote_just_pressed(in, MOTE_BTN_UP))    side_row = (side_row + n - 3) % n;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))  side_row = (side_row + 3) % n;
         if (mote_just_pressed(in, MOTE_BTN_A)){
             int item = QMENU[side_tab][side_row];
             PQueue *p = &pq[0][side_tab];
-            if (!item_avail(0, side_tab, item)){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("NEEDS TECH"); }
-            else if (p->ready && side_tab == Q_BLD){
+            char miss[24];
+            if (!item_avail(0, side_tab, item)){
+                missing_str(side_tab, item, miss, sizeof miss);
+                char msg[32]; snprintf(msg, sizeof msg, "NEEDS %s", miss);
+                sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf(msg);
+            }
+            else if (side_tab == Q_BLD && p->ready){
                 if (p->item == item){ placing = p->item; side_open = 0; }
-                else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("PLACE READY BUILDING"); }
+                else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("PLACE READY BLDG FIRST"); }
+            }
+            else if (p->item == item && side_tab != Q_BLD){
+                if (p->more < 4){ p->more++; mote->audio_note(990, 0.18f); }  /* batch +1 */
+                else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE FULL"); }
             }
             else if (p->item >= 0){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE BUSY"); }
             else if (credits[0] < 20){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
             else {
-                p->item = item; p->prog = 0; p->spent = 0; p->ready = 0;
+                p->item = item; p->prog = 0; p->spent = 0; p->ready = 0; p->more = 0; p->nagged = 0;
                 mote->audio_note(880, 0.2f);
             }
         }
@@ -1940,7 +2151,7 @@ static void world_init(void){
     wepoch++;
     for (int i = 0; i < NF; i++){ fdest[i] = 0xFFFF; fepoch[i] = 0; fuse[i] = 0; }
     gen_map();
-    credits[0] = credits[1] = 6000;
+    credits[0] = credits[1] = 8000;
     ai_t = 0; ai_wave_t = 0; ai_wave_n = 0;
     side_open = 0; placing = -1; a_mode = 0; bsel = -1; rb_t = 0;
     toast_t = 0; atk_warn_t = 0; endt = 0;
@@ -2000,6 +2211,8 @@ static void g_update(float dt){
 
     switch (state){
     case ST_TITLE:
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  diff = (diff + 2) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) diff = (diff + 1) % 3;
         if (mote_just_pressed(in, MOTE_BTN_A)){ world_init(); state = ST_PLAY; }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
         return;
@@ -2013,6 +2226,7 @@ static void g_update(float dt){
         break;
     case ST_PLAY:
         input_play(dt);
+        if (side_open) return;      /* build menu pauses the battle */
         break;
     }
 
