@@ -2558,6 +2558,11 @@ static void skirmish_setup(void){
     credits[0] = credits[1] = SK_FUNDS[sk_funds];
     for (int team = 0; team < 2; team++){
         setup_base(team, sk_base == 0 ? BL_CON : sk_base == 1 ? BL_BASIC : BL_FULL);
+        if (sk_base < 2){                   /* radar from the start (powered) */
+            if (sk_base == 0) place_auto(B_POW, team);
+            place_auto(B_RADAR, team);
+            recalc_power(team);
+        }
         setup_army(team, sk_army);
     }
     fog_update();
