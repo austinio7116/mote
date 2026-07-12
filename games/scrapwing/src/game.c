@@ -3448,7 +3448,7 @@ static void catinfo_overlay(uint16_t *fb) {
                       MOTE_BLEND_NONE, 0, MOTE_FB_H);
     else if (cat_tab == 1) {
         float sc = 36.0f / (boss_fw[cat_cur] > boss_fh[cat_cur] ? boss_fw[cat_cur] : boss_fh[cat_cur]);
-        if (sc > 1.5f) sc = 1.5f;
+        if (sc > 1.0f) sc = 1.0f;                    /* shrink to fit, never upscale */
         mote->blit_ex(fb, &bosses_img, 24, 35, boss_fx[cat_cur], boss_fy[cat_cur],
                       boss_fw[cat_cur], boss_fh[cat_cur], 0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
     } else {
