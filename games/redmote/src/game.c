@@ -250,7 +250,7 @@ static int state = ST_TITLE;
 /* ------- game-mode modifiers (set by mission_setup / skirmish_setup) ------- */
 static int gm_mission = -1;          /* -1 = skirmish */
 static uint8_t m_player_build = 1;   /* LB build menu allowed */
-static uint8_t m_ai_prod = 1, m_ai_income = 1;
+static uint8_t m_ai_prod = 1, m_ai_income = 1, m_free_radar = 0;
 static uint16_t m_tech[2];           /* allowed building types per team */
 static int m_wave0 = 150, m_wavestep = 25, m_wavecap = 6;
 static int camp_prog;                /* missions completed */
@@ -2196,7 +2196,7 @@ static void g_overlay(uint16_t *fb){
         int yy0 = boxy < cury ? (int)boxy : (int)cury, yy1 = boxy < cury ? (int)cury : (int)boxy;
         mote->draw_rect(fb, x0, yy0, x1 - x0 + 1, yy1 - yy0 + 1, MOTE_RGB565(240, 240, 240), 0, 0, 128);
     }
-    if (rb_t > 0.001f && owned[0] & (1u << B_RADAR) && power_ok(0)) draw_minimap(fb);
+    if (rb_t > 0.001f && (m_free_radar || ((owned[0] & (1u << B_RADAR)) && power_ok(0)))) draw_minimap(fb);
     else if (rb_t > 0.001f){
         mote->text_font(fb, f, pow_prod[0] < pow_use[0] ? "RADAR OFFLINE" : "NEED RADAR",
                         30, 60, MOTE_RGB565(255, 80, 60));
@@ -2552,17 +2552,12 @@ static const int SK_FUNDS[3] = { 3000, 8000, 20000 };
 static void skirmish_setup(void){
     gm_mission = -1;
     world_init();
-    m_player_build = 1; m_ai_prod = 1; m_ai_income = 1;
+    m_player_build = 1; m_ai_prod = 1; m_ai_income = 1; m_free_radar = 0;
     m_tech[0] = m_tech[1] = TECH_ALL;
     m_wave0 = DIFF_WAVE0[diff]; m_wavestep = DIFF_WAVES[diff]; m_wavecap = DIFF_WAVECAP[diff];
     credits[0] = credits[1] = SK_FUNDS[sk_funds];
     for (int team = 0; team < 2; team++){
         setup_base(team, sk_base == 0 ? BL_CON : sk_base == 1 ? BL_BASIC : BL_FULL);
-        if (sk_base < 2){                   /* radar from the start (powered) */
-            if (sk_base == 0) place_auto(B_POW, team);
-            place_auto(B_RADAR, team);
-            recalc_power(team);
-        }
         setup_army(team, sk_army);
     }
     fog_update();
@@ -2574,6 +2569,7 @@ static void mission_setup(int m){
     diff = 1;
     world_init();
     m_player_build = ms->p_build;
+    m_free_radar = (m == 0);          /* FIRST BLOOD: field radar, no base needed */
     m_ai_prod = ms->a_prod; m_ai_income = ms->a_income;
     m_tech[0] = ms->p_tech; m_tech[1] = ms->a_tech;
     m_wave0 = ms->wave0; m_wavestep = ms->wavestep; m_wavecap = ms->wavecap;
