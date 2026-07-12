@@ -46,6 +46,8 @@ MOTE_MODULE_HEADER();
 #ifdef MOTE_HOST
 #include <stdlib.h>
 static int wdbg_stats(void){ static int on=-1; if(on<0) on=getenv("MOTE_WORM_STATS")!=0; return on; }
+/* MOTE_WORM_DEMO=N: attract mode — the local worm is bot-driven too (N bots) */
+static int wdbg_demo(void){ static int on=-1; if(on<0){ const char*e=getenv("MOTE_WORM_DEMO"); on=e?atoi(e):0; } return on; }
 #endif
 
 /* ================================================================== terrain */
@@ -1144,6 +1146,10 @@ static void g_update(float dt){
         lk_ping_t+=dt; if(lk_ping_t>=1.0f){ lk_ping_t=0; lk_send_ping(); }
     }
 
+#ifdef MOTE_HOST
+    if(wdbg_demo()&&!g_link&&worms[0].alive){ bot_think(0,dt); worm_step(0,dt); }
+    else
+#endif
     if(worms[0].alive){ read_local_ctl(); if(!g_link||lk_ready) worm_step(0,dt); }
     else { worms[0].respawn_t-=dt;
         if(worms[0].respawn_t<=0){ float sx,sy; find_spawn(&sx,&sy); spawn_worm(0,sx,sy);
@@ -1436,6 +1442,7 @@ static void g_init(void){
     load_prefs();
 #ifdef MOTE_HOST
     { const char*mv2=getenv("MOTE_WORM_MODE"); if(mv2) sel_mode=atoi(mv2)?1:0; }
+    if(wdbg_demo()){ sel_mode=0; sel_bots=wdbg_demo()>3?3:wdbg_demo(); sel_kills=3; }
     { const char*lv=getenv("MOTE_WORM_LOADOUT");            /* test hook: "0,3,6,16,18" */
       if(lv){ int n2=0; while(*lv&&n2<5){ int k=atoi(lv); if(k>=0&&k<NWPN_PICK) loadout[n2++]=(uint8_t)k;
               while(*lv&&*lv!=',')lv++; if(*lv)lv++; } } }
