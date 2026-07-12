@@ -657,7 +657,7 @@ def make_canopy():
 
     def crown(ox, rng, snowy=False):
         blobs = [(20, 11, 11), (11, 15, 8), (29, 15, 8), (15, 7, 7), (26, 7, 7),
-                 (20, 18, 8)]
+                 (20, 18, 8), (20, 21, 7), (16, 20, 6), (24, 20, 6)]
         blobs = [(bx + rng.randint(-2, 2), by + rng.randint(-1, 1), r + rng.randint(-1, 1))
                  for bx, by, r in blobs]
         def inside(x, y):
@@ -668,9 +668,11 @@ def make_canopy():
         for y in range(H):
             for x in range(W):
                 if not inside(x, y): continue
-                # ragged silhouette
+                # ragged silhouette (but keep the bottom-center solid: the
+                # trunk must disappear INTO the foliage, not under a gap)
                 edge = not (inside(x - 1, y) and inside(x + 1, y) and inside(x, y - 1) and inside(x, y + 1))
-                if edge and rng.random() < 0.35: continue
+                center_bottom = abs(x - 20) < 7 and y > 16
+                if edge and not center_bottom and rng.random() < 0.35: continue
                 # depth shading: top-lit, dark belly
                 t = y / float(H)
                 c = LLITE if t < 0.28 else (LEAF if t < 0.62 else LDARK)
