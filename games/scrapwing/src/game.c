@@ -2975,6 +2975,12 @@ static void g_update(float dt) {
             for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;   /* restart the demo */
             demo_cd = 0.1f;
         }
+        if (mote_just_pressed(in, MOTE_BTN_LB)) {    /* SWAP: core becomes the base */
+            int t = lab_mark; lab_mark = bench_core; bench_core = t;
+            mote->audio_play_sfx(&pickup_sfx, 0.5f);
+            for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
+            demo_cd = 0.1f;
+        }
         Gene child = fuse_genes(&inv[lab_mark], &inv[bench_core]);
         demo_cd -= dt;
         if (demo_cd <= 0) {                          /* the result fires, for real */
@@ -3345,7 +3351,7 @@ static void bench_overlay(uint16_t *fb) {
     textf_med(fb, 4, 106, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[c.pat]);
     textf_med(fb, 60, 106, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
               "MODS %s%s", ms, newm ? " NEW!" : "");
-    mote->text(fb, "A FUSE   B BACK", 34, 118, MOTE_RGB565(255, 220, 110));
+    mote->text(fb, "A FUSE  LB SWAP  B BACK", 18, 118, MOTE_RGB565(255, 220, 110));
 }
 
 static const char *const kind_name[6] = { "DRIFTER", "HUNTER", "SNIPER", "ORBITER", "TURRET", "HEAVY" };
