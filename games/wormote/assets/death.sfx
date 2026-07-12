@@ -1,0 +1,10 @@
+# worm death — long squelchy boom
+wave 3
+freq 0.24 0 -0.10 -0.02
+duty 0.5 0
+vib 0.3 0.4
+env 0 0.12 0.5 0.45
+lpf 0.55 -0.12 0.3
+hpf 0 0
+pha 0.2 -0.03
+arp 0 0

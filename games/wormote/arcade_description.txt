@@ -1,0 +1,1 @@
+A Liero-style cave deathmatch: destructible pixel dirt, a ninja rope, 20 weapons, bots and 2P link. (beta)

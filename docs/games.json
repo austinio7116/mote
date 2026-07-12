@@ -1,8 +1,28 @@
 {
  "schema": 1,
- "generated": "2026-07-11T22:34:17+00:00",
+ "generated": "2026-07-12T07:37:02+00:00",
  "min_firmware": "1.34.0",
  "games": [
+  {
+   "id": "wormote",
+   "name": "Wormote",
+   "author": "austinio7116",
+   "version": "0.0.1",
+   "abi": 47,
+   "size": 78816,
+   "sha256": "00db5949c554bacef81bc9e51a00549ec76091d8c41d40f6d331d09a1424427c",
+   "file": "games/Wormote.mote",
+   "icon": "img/gallery/wormote-icon.png",
+   "thumb": "img/gallery/wormote-1.png",
+   "screenshots": [
+    "img/gallery/wormote-1.png",
+    "img/gallery/wormote-2.png",
+    "img/gallery/wormote-3.png"
+   ],
+   "tag": "Liero-style cave deathmatch (beta)",
+   "desc": "(beta) A Liero-style cave deathmatch: every pixel of dirt is destructible, and the ninja rope swings you through the wreckage. Pick any 5 of 20 weapons — minigun, gauss, cluster bombs, napalm, larpa, dirtball, laser, doomsday — then out-dig, out-swing and out-shoot bots that tunnel after you, blast through walls at you, and rope around the caves. Blood stains the dirt, dirtballs bury worms alive, and rock yields only to a worm's teeth. 2P LINK duels a friend over cable or internet.",
+   "multiplayer": true
+  },
   {
    "id": "scrapwing",
    "name": "Scrapwing",
