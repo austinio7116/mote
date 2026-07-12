@@ -42,6 +42,10 @@ static void surf_update_col(int c) {
     while (r < WROWS - 1 && !g_tiles[g_fgm[r * WCOLS + c]].solid) r++;
     g_surf[c] = (uint8_t)r;
 }
+void world_rebuild_caches(void) {
+    for (int c = 0; c < WCOLS; c++) surf_update_col(c);
+}
+
 int world_surface_row(int c) {
     if ((unsigned)c >= WCOLS) return ROW_SURFACE_MAX;
     return g_surf[c];

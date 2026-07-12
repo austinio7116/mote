@@ -1,6 +1,8 @@
 /* TerraMote — persistence: RLE-compressed world planes + player blob (kv store). */
 #include "terra.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #define SAVE_MAGIC   0x544D3031u   /* "TM01" */
 #define BAND_ROWS    31            /* 8 bands x 31 rows = 248 */
@@ -80,15 +82,20 @@ int load_world(void) {
         for (int plane = 0; plane < 2; plane++) {
             key[0] = 'w'; key[1] = (char)('f' + plane * 2); key[2] = (char)('0' + b); key[3] = 0;
             int n = mote->kv_load(key, s_scratch, BAND_BYTES * 2 + 16);
-            if (n <= 0) return 0;
-            uint8_t *dst = (plane ? g_bgm : g_fgm) + b * BAND_BYTES;
-            if (rle_unpack(s_scratch, n, dst, BAND_BYTES) != BAND_BYTES) return 0;
+            int u = n > 0 ? rle_unpack(s_scratch, n, (plane ? g_bgm : g_fgm) + b * BAND_BYTES, BAND_BYTES) : -1;
+            if (getenv("TERRA_DBG")) {
+                char msg[64];
+                snprintf(msg, 64, "dbg load %s n=%d unpacked=%d", key, n, u);
+                mote->log(msg);
+            }
+            if (n <= 0 || u != BAND_BYTES) return 0;
         }
     }
     memcpy(g_chests, m.chests, sizeof(g_chests));
     g_seed = m.seed;
     g_time = m.time;
     g_boss_down = m.boss_down;
+    world_rebuild_caches();          /* the surface cache feeds sunlight + the sky */
     return 1;
 }
 

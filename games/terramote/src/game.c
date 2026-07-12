@@ -156,7 +156,7 @@ static void draw_trees(void) {
                 int v = world_biome(c) == 1 ? 3 : (int)(mote__at_hash(c, 7) % 3u);
                 MoteSprite s = {
                     .img = &canopy_img,
-                    .x = (int16_t)(c * TILE + 4 - 20), .y = (int16_t)(r * TILE - 26),
+                    .x = (int16_t)(c * TILE + 4 - 20), .y = (int16_t)(r * TILE - 20),
                     .fx = (uint16_t)(v * 40), .fy = 0, .fw = 40, .fh = 28,
                     .layer = 4, .flags = 0,
                 };
