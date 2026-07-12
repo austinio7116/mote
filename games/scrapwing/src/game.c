@@ -1720,6 +1720,21 @@ static void g_init(void) {
 }
 
 /* ================================================================== player */
+static uint8_t dead_saved;                       /* flash write AFTER the end screen */
+static int dead_pbsec, dead_pbscrap;             /* bests before this run ended */
+
+/* one shell of the death fireball: hot core, flame, sinking debris */
+static void death_burst(float ox, float oy, int n, float sp) {
+    for (int k = 0; k < n; k++) {
+        float a = mote_randf(0, 6.28f), s = mote_randf(sp * 0.3f, sp);
+        uint16_t c = (k % 3 == 0) ? MOTE_RGB565(255, 245, 190)
+                   : (k & 1)      ? MOTE_RGB565(255, 165, 45)
+                                  : MOTE_RGB565(255, 75, 20);
+        spawn_part(px + ox, py + oy, cosf(a) * s, sinf(a) * s * 0.8f, c,
+                   mote_randf(0.3f, 0.85f), PF_ADD | (((k & 3) == 3) ? PF_GRAV : 0));
+    }
+}
+
 static void take_hit(float n) {
     if (g_god || b_ghost > 0 || invuln > 0 || state != ST_PLAY) return;
     if (shield_on) {                     /* the shield eats it */
@@ -1747,11 +1762,13 @@ static void take_hit(float n) {
                 facing < 0, pvx, pvy, 0);
         spawn_ring(px, py, MOTE_RGB565(255, 160, 80));
         spawn_ring(px, py, MOTE_RGB565(140, 220, 255));
+        death_burst(0, 0, 44, 190);
         mote->audio_play_sfx(&boom_big_sfx, 0.9f);
         mote->rumble(1.0f, 400);
-        save_best();
-        save_flush();
-        run_save_clear();
+        /* saves are DEFERRED to the end screen: a flash-sector erase here
+         * would freeze the explosion on device */
+        dead_saved = 0;
+        dead_pbsec = best_sector; dead_pbscrap = best_scrap;
         state = ST_DEAD; state_t = 0;
     }
 }
@@ -3010,12 +3027,34 @@ static void g_update(float dt) {
             state = ST_PLAY;
         }
         break;
-    case ST_DEAD:
+    case ST_DEAD: {
+        float t0 = state_t;
         state_t += dt;
+        static const float boomt[4] = { 0.16f, 0.34f, 0.56f, 0.85f };
+        for (int k = 0; k < 4; k++)
+            if (t0 <= boomt[k] && state_t > boomt[k]) {  /* secondary blasts */
+                float ox = mote_randf(-13, 13), oy = mote_randf(-11, 11);
+                death_burst(ox, oy, 26, 150);
+                spawn_ring(px + ox, py + oy, (k & 1) ? MOTE_RGB565(255, 170, 60)
+                                                     : MOTE_RGB565(255, 235, 200));
+                mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+                mote->rumble(0.5f, 90);
+            }
         parts_update(dt);
         submit_scene();
-        if (state_t > 1.2f && mote_just_pressed(in, MOTE_BTN_A)) state = ST_TITLE;
-        break;
+        /* end screen is on screen from 1.6s; commit the flash writes one
+         * beat later so the erase stall lands BEHIND a static frame */
+        if (!dead_saved && state_t > 1.75f) {
+            save_best();
+            save_flush();
+            run_save_clear();
+            dead_saved = 1;
+        }
+        if (state_t > 1.9f) {
+            if (mote_just_pressed(in, MOTE_BTN_A)) start_run();
+            if (mote_just_pressed(in, MOTE_BTN_B)) state = ST_TITLE;
+        }
+        break; }
     }
 }
 
@@ -3756,14 +3795,34 @@ static void g_overlay(uint16_t *fb) {
         mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "WARPING...", 34, 58,
                         MOTE_RGB565(180, 240, 255));
     if (state == ST_DEAD) {
-        mote_ui_panel(fb, 10, 36, 108, 56, MOTE_RGB565(16, 8, 12), MOTE_RGB565(200, 80, 60));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "SHIP LOST", 36, 38,
-                        MOTE_RGB565(255, 120, 90));
-        textf_med(fb, 16, 52, MOTE_RGB565(220, 220, 240), "SEC %d  KILLS %d", sector, kills);
-        textf_med(fb, 16, 64, MOTE_RGB565(255, 220, 110), "SCRAP %d", scrap);
-        if (state_t > 1.2f)
-            mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "A: RETRY", 40, 78,
-                            MOTE_RGB565(255, 255, 255));
+        if (state_t < 0.13f) {                       /* white-hot detonation flash */
+            uint16_t fc = state_t < 0.06f ? MOTE_RGB565(255, 255, 255)
+                                          : MOTE_RGB565(255, 150, 50);
+            mote->draw_rect(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, fc, 1, 0, MOTE_FB_H);
+        }
+        if (state_t > 1.6f) {                        /* the debrief */
+            const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+            int nb = sector > dead_pbsec ||
+                     (sector == dead_pbsec && scrap > dead_pbscrap);
+            mote_ui_panel(fb, 8, 18, 112, 92, MOTE_RGB565(16, 8, 12), MOTE_RGB565(200, 80, 60));
+            mote->text_font(fb, f, "SHIP LOST", 36, 21, MOTE_RGB565(255, 120, 90));
+            mote->draw_line(fb, 9, 33, 118, 33, MOTE_RGB565(200, 80, 60), 0, MOTE_FB_H);
+            textf_med(fb, 14, 37, MOTE_RGB565(220, 220, 240), "SECTOR");
+            textf_med(fb, 70, 37, MOTE_RGB565(255, 255, 255), "%d", sector);
+            textf_med(fb, 88, 37, MOTE_RGB565(120, 130, 160), "B.%d", dead_pbsec);
+            textf_med(fb, 14, 49, MOTE_RGB565(220, 220, 240), "KILLS");
+            textf_med(fb, 70, 49, MOTE_RGB565(255, 255, 255), "%d", kills);
+            textf_med(fb, 14, 61, MOTE_RGB565(220, 220, 240), "SCRAP");
+            textf_med(fb, 70, 61, MOTE_RGB565(255, 220, 110), "%d", scrap);
+            textf_med(fb, 88, 61, MOTE_RGB565(120, 130, 160), "B.%d", dead_pbscrap);
+            textf_med(fb, 14, 73, MOTE_RGB565(220, 220, 240), "ARSENAL");
+            textf_med(fb, 70, 73, MOTE_RGB565(150, 200, 255), "%d WPN", inv_n);
+            if (nb)
+                mote->text_font(fb, f, "NEW BEST RUN!", 28, 85, MOTE_RGB565(140, 255, 170));
+            if (state_t > 1.9f)
+                mote->text_font(fb, f, "A NEW RUN  B TITLE", 14, 97,
+                                MOTE_RGB565(255, 220, 110));
+        }
     }
 }
 
