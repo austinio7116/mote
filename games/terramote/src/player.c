@@ -192,7 +192,7 @@ void player_reset(int full) {
     g_pl.y = (g_pl.spawn_r + 1) * TILE - 0.01f;
     g_pl.vx = g_pl.vy = 0;
     g_pl.facing = 1;
-    g_pl.iframes = 1.0f;
+    g_pl.iframes = 2.0f;
     g_pl.use_t = 0; g_pl.mine_c = -1; g_pl.breath = 8.0f;
     s_clip = 0;
     mote_anim_play(&s_anim, &player_idle);
@@ -210,7 +210,7 @@ void player_damage(int dmg, float kx) {
     dmg -= defense / 2;
     if (dmg < 1) dmg = 1;
     g_pl.hp -= dmg;
-    g_pl.iframes = 0.7f;
+    g_pl.iframes = 0.9f;
     g_pl.vx = kx; g_pl.vy = -90.0f;
     ftext_add(g_pl.x, g_pl.y - 24, dmg, rgb(255, 80, 60));
     part_burst(g_pl.x, g_pl.y - 10, rgb(200, 40, 40), 5, 60);
@@ -341,7 +341,7 @@ static void use_item(float dt) {
             g_pl.use_t = def->speed / 30.0f;
             audio_sfx(SFX_SWING, 0.8f);
             float cx = g_pl.x + g_pl.facing * 10.0f;
-            npc_damage_at(cx, g_pl.y - 10.0f, 9.0f, 12.0f, def->damage, g_pl.facing * 130.0f);
+            npc_damage_at(cx, g_pl.y - 8.0f, 9.0f, 11.0f, def->damage, g_pl.facing * 130.0f);
         }
         break;
     case IK_BOW:

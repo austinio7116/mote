@@ -293,7 +293,7 @@ static void g_update(float dt) {
         world_submit();
         if (g_dead_t <= 0) {
             player_reset(0);
-            npc_reset();
+            npc_clear_mobs();          /* the boss (if any) stays on the hunt */
             g_state = GS_PLAY;
         }
         break;

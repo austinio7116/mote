@@ -1,6 +1,8 @@
 /* TerraMote — enemies, boss, drops, projectiles, spawning. */
 #include "terra.h"
 #include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #include "slime.h"        /* slime_img       16x12 x3 */
 #include "slime_blue.h"   /* slime_blue_img */
@@ -32,7 +34,7 @@ static const EnemyDef k_edef[E_COUNT] = {
     [E_EYE]         = { 0, 16, 16, 6, 6, 40, 16, 3 },
     [E_BAT]         = { 0, 16, 10, 5, 3, 16, 11, 2 },
     [E_SKELETON]    = { 0, 12, 16, 4, 7, 70, 18, 5 },
-    [E_BOSS_EOC]    = { 0, 40, 40, 15, 15, 1400, 22, 40 },
+    [E_BOSS_EOC]    = { 0, 40, 40, 14, 14, 1400, 15, 40 },
 };
 static const MoteImage *edef_img(uint8_t kind) {
     switch (kind) {
@@ -50,6 +52,11 @@ static const MoteImage *edef_img(uint8_t kind) {
 
 static float s_spawn_t;
 static int s_boss_idx = -1;
+
+void npc_clear_mobs(void) {
+    for (int i = 0; i < MAX_ENEMIES; i++)
+        if (g_en[i].kind && g_en[i].kind != E_BOSS_EOC) g_en[i].kind = E_NONE;
+}
 
 void npc_reset(void) {
     for (int i = 0; i < MAX_ENEMIES; i++) g_en[i].kind = E_NONE;
@@ -296,13 +303,17 @@ static void spawn_try(void) {
     int pr = (int)g_pl.y / TILE;
     int r = pr + (int)(mote_rand() % 13) - 6;
     if ((unsigned)r >= WROWS - 3) return;
-    /* find a free 2-tall air spot near, with ground below */
-    int ok = 0;
+    /* find a free 2-tall air spot near, with ground below (fliers skip the
+     * floor requirement) */
+    int ok = 0, air_ok = 0;
     for (int k = 0; k < 8; k++, r++) {
         if ((unsigned)r >= WROWS - 3) break;
-        if (fg_at(c, r) == T_AIR && fg_at(c, r - 1) == T_AIR && g_tiles[fg_at(c, r + 1)].solid == 1) { ok = 1; break; }
+        if (fg_at(c, r) == T_AIR && fg_at(c, r - 1) == T_AIR) {
+            air_ok = 1;
+            if (g_tiles[fg_at(c, r + 1)].solid == 1) { ok = 1; break; }
+        }
     }
-    if (!ok) return;
+    if (!ok && !air_ok) return;
     float x = c * TILE + 4.0f, y = r * TILE + 4.0f;
     int depth = r;
     uint8_t kind = 0;
@@ -321,11 +332,24 @@ static void spawn_try(void) {
         /* day surface slimes only in the open */
         if (!night && fx_light_at(c, r) < 6) kind = E_BAT;
     }
+    if (!ok && kind != E_EYE && kind != E_BAT) return;   /* walkers need a floor */
     if (kind == E_EYE || kind == E_BAT) y -= 8;
     en_spawn(kind, x, y);
 }
 
 void npc_tick(float dt) {
+    /* dev metrics: TERRA_DBG=1 logs boss hp + enemy count once a second */
+    static float s_dbg_t; static int s_dbg_on = -1;
+    if (s_dbg_on < 0) s_dbg_on = getenv("TERRA_DBG") != 0;
+    if (s_dbg_on) {
+        s_dbg_t += dt;
+        if (s_dbg_t > 1.0f) {
+            s_dbg_t = 0;
+            char b[64]; int bm, bh = npc_boss_hp(&bm);
+            snprintf(b, 64, "dbg t=%.2f en=%d boss=%d php=%d", (double)g_time, en_count(), bh, g_pl.hp);
+            mote->log(b);
+        }
+    }
     s_spawn_t -= dt;
     if (s_spawn_t <= 0) { s_spawn_t = 1.4f; spawn_try(); }
     drops_tick(dt);
@@ -336,7 +360,7 @@ void npc_tick(float dt) {
         if (!e->kind) continue;
         const EnemyDef *d = &k_edef[e->kind];
         if (e->hurt_t > 0) e->hurt_t -= dt;
-        float dx = g_pl.x - e->x, dy = (g_pl.y - 10) - e->y;
+        float dx = g_pl.x - e->x, dy = (g_pl.y - 8) - e->y;
         float dist = sqrtf(dx * dx + dy * dy) + 0.01f;
 
         /* despawn far away (never on screen) */
@@ -396,11 +420,11 @@ void npc_tick(float dt) {
             float cycle = ph2 ? 2.2f : 3.2f;
             float tt = fmodf(e->t, cycle);
             if (tt < cycle - 1.1f) {
-                /* hover above-left/right of the player */
-                float hx = g_pl.x + (e->x > g_pl.x ? 70 : -70);
-                float hy = g_pl.y - 80;
-                e->vx += (hx - e->x) * 2.2f * dt; e->vy += (hy - e->y) * 2.2f * dt;
-                e->vx *= 0.98f; e->vy *= 0.98f;
+                /* hover above-left/right of the player, keeping its distance */
+                float hx = g_pl.x + (e->x > g_pl.x ? 95 : -95);
+                float hy = g_pl.y - 85;
+                e->vx += (hx - e->x) * 4.5f * dt; e->vy += (hy - e->y) * 4.5f * dt;
+                e->vx *= 0.94f; e->vy *= 0.94f;
             } else if (tt - dt < cycle - 1.1f) {
                 /* start a charge at the player */
                 float sp = ph2 ? 250.0f : 190.0f;
@@ -419,7 +443,7 @@ void npc_tick(float dt) {
         }
 
         /* contact damage */
-        if (fabsf(e->x - g_pl.x) < d->hw + 4 && fabsf(e->y - (g_pl.y - 10)) < d->hh + 9) {
+        if (fabsf(e->x - g_pl.x) < d->hw + 4 && fabsf(e->y - (g_pl.y - 8)) < d->hh + 7) {
             player_damage(d->dmg, (g_pl.x > e->x ? 1 : -1) * 120.0f);
         }
         /* lava hurts non-lava enemies */

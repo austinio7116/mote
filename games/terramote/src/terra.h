@@ -236,6 +236,7 @@ void player_build_palette(void);      /* appearance -> RAM palette */
 
 /* ---- enemies module (npc.c) ------------------------------------------------------- */
 void npc_reset(void);
+void npc_clear_mobs(void);
 void npc_tick(float dt);
 void npc_draw(void);
 void npc_spawn_boss(void);
