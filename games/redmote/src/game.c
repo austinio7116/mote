@@ -36,6 +36,7 @@
 #include "road.tiles.h"
 #include "scorch.tiles.h"
 #include "units.h"
+#include "heli.h"
 #include "buildings.h"
 #include "buildings_meta.h"
 #include "mg.sfx.h"
@@ -959,7 +960,9 @@ static int flow_move(Unit *u, float dt, float spdmul){
         float dist = sqrtf(dx * dx + dy * dy);
         if (dist < 3) return 0;
         u->x += dx / dist * speed * dt; u->y += dy / dist * speed * dt;
+        float oldf = u->face;
         u->face = turnto(u->face, atan2f(dx, -dy), 4.5f * dt);
+        if (fabsf(u->face - oldf) > 2.0f * dt) u->htimer = 0.25f;   /* banking */
         return (int)(dist / TILE);
     }
     const uint8_t *f = field_get(u->dest);
@@ -1034,6 +1037,7 @@ static void unit_tick(int ui, float dt){
     const UDef *d = &UD[u->type];
     if (u->cool > 0) u->cool -= dt;
     u->animt += dt;
+    if (u->type == U_HELI && u->htimer > 0) u->htimer -= dt;
 
     /* stuck detector */
     if (u->order == O_MOVE || u->order == O_HUNT){
@@ -1548,13 +1552,15 @@ static void draw_unit(uint16_t *fb, const Unit *u, int y0, int y1){
         int flip = (sinf(u->face) < 0) ? MOTE_SPR_HFLIP : 0;
         mote->blit(fb, &units_img, sx - 4, sy - 4, fr * 8, row, 8, 8, flip, y0, y1);
     } else if (u->type == U_HELI){
-        /* shadow + bobbing airframe + spinning rotor */
-        putpx(fb, sx + 3, sy + 6, y0, y1, MOTE_RGB565(20, 26, 18));
-        putpx(fb, sx + 4, sy + 6, y0, y1, MOTE_RGB565(20, 26, 18));
+        /* shadow + bobbing airframe (banks in turns) + 4-frame spinning rotor */
+        for (int k = -1; k <= 1; k++)
+            putpx(fb, sx + 3 + k, sy + 7, y0, y1, MOTE_RGB565(20, 26, 18));
         float bob = sinf(u->animt * 3) * 1.2f;
-        int col = 14 + ((framec >> 1) & 1);
-        mote->blit_ex(fb, &units_img, sx, sy - 3 + bob, col * 8, row, 8, 8,
+        int body = u->htimer > 0 ? 1 : 0;
+        mote->blit_ex(fb, &heli_img, sx, sy - 4 + bob, body * 12, u->team * 12, 12, 12,
                       u->face, 1.0f, MOTE_BLEND_NONE, y0, y1);
+        mote->blit_ex(fb, &heli_img, sx, sy - 4 + bob, (2 + ((framec >> 1) & 3)) * 12,
+                      u->team * 12, 12, 12, 0, 1.0f, MOTE_BLEND_NONE, y0, y1);
     } else {
         mote->blit_ex(fb, &units_img, sx, sy, d->col * 8, row, 8, 8,
                       u->face, 1.0f, MOTE_BLEND_NONE, y0, y1);
@@ -1830,6 +1836,8 @@ static void draw_item_icon(uint16_t *fb, int q, int item, int cx, int cy){
         float s = 9.0f / (BM_W[item] > BM_H[item] ? BM_W[item] : BM_H[item]);
         mote->blit_ex(fb, &buildings_img, cx, cy, fx, fy, BM_W[item], BM_H[item],
                       0, s, MOTE_BLEND_NONE, 0, 128);
+    } else if (item == U_HELI){
+        mote->blit_ex(fb, &heli_img, cx, cy, 0, 0, 12, 12, 0, 0.8f, MOTE_BLEND_NONE, 0, 128);
     } else {
         mote->blit(fb, &units_img, cx - 4, cy - 4, UD[item].col * 8, 0, 8, 8, 0, 0, 128);
     }
@@ -1858,6 +1866,8 @@ static void draw_build_menu(uint16_t *fb){
         if (q2 == Q_BLD)
             mote->blit_ex(fb, &buildings_img, tx + 8, 20, BM_X[0] + BM_XOFF[0],
                           BM_ROW_H - BM_H[0], BM_W[0], BM_H[0], 0, 0.5f, MOTE_BLEND_NONE, 0, 128);
+        else if (q2 == Q_AIR)
+            mote->blit_ex(fb, &heli_img, tx + 8, 20, 0, 0, 12, 12, 0, 0.8f, MOTE_BLEND_NONE, 0, 128);
         else
             mote->blit(fb, &units_img, tx + 4, 16, TAB_ICON[q2] * 8, 0, 8, 8, 0, 0, 128);
         if (pq[0][q2].n)

@@ -686,6 +686,63 @@ def make_buildings():
     im.save(os.path.join(HERE, "buildings.png"))
 
 
+# ================================================================= heli
+def make_heli():
+    """gunship sheet, 12x12 cells x 2 team rows:
+    col0 body (facing up)  col1 banked body (turning)  col2-5 rotor blades
+    at 0/45/90/135 deg (cycle for spin). Body rotates via blit_ex; the rotor
+    overlay just cycles frames."""
+    import math
+    im = Image.new("RGBA", (6 * 12, 2 * 12), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for team in range(2):
+        base, light, dark = TEAM[team]
+        y0 = team * 12
+        for bank in range(2):
+            x0 = bank * 12
+            w2 = 3 if bank == 0 else 2          # banked body reads narrower
+            xl = 6 - w2 // 2 - (1 if bank else 0)
+            # skids
+            if bank == 0:
+                for yy in range(3, 9):
+                    px(d, x0 + 3, y0 + yy, (34, 34, 40))
+                    px(d, x0 + 8, y0 + yy, (34, 34, 40))
+            else:
+                for yy in range(3, 9):
+                    px(d, x0 + 8, y0 + yy, (34, 34, 40))
+            # tail boom + tail rotor
+            for yy in range(8, 11):
+                px(d, x0 + 6 - (1 if bank else 0), y0 + yy, dark)
+            px(d, x0 + 4, y0 + 10, (150, 150, 160))
+            px(d, x0 + 5 - (1 if bank else 0), y0 + 10, (190, 190, 200))
+            # fuselage
+            for yy in range(2, 8):
+                for xx in range(xl, xl + w2):
+                    px(d, x0 + xx, y0 + yy, base)
+            # shading + canopy + engine
+            for yy in range(2, 8):
+                px(d, x0 + xl, y0 + yy, light)
+            px(d, x0 + xl + (1 if w2 == 3 else 0), y0 + 2, (150, 220, 235))   # canopy
+            px(d, x0 + xl + (1 if w2 == 3 else 0), y0 + 3, (90, 160, 190))
+            px(d, x0 + xl + w2 - 1, y0 + 5, GUND)                              # engine
+            px(d, x0 + xl + w2 - 1, y0 + 6, dark)
+            # stub wings / rocket pods
+            if bank == 0:
+                px(d, x0 + 2, y0 + 5, GUN); px(d, x0 + 9, y0 + 5, GUN)
+                px(d, x0 + 2, y0 + 6, GUNL); px(d, x0 + 9, y0 + 6, GUNL)
+        # rotor frames: 2-blade at 0/45/90/135 degrees
+        for f in range(4):
+            x0 = (2 + f) * 12
+            a = f * math.pi / 4
+            for t in range(-5, 6):
+                X = 6 + t * math.cos(a)
+                Y = 6 + t * math.sin(a)
+                c = (222, 222, 230) if abs(t) < 2 else (170, 170, 182) if abs(t) < 4 else (120, 120, 134)
+                px(d, x0 + int(round(X)), y0 + int(round(Y)), c)
+            px(d, x0 + 6, y0 + 6, (60, 60, 68))     # hub
+    im.save(os.path.join(HERE, "heli.png"))
+
+
 # ================================================================== icon
 def make_icon():
     im = Image.new("RGBA", (60, 60), (30, 34, 26, 255))
@@ -724,6 +781,7 @@ def make_icon():
 
 make_autotiles()
 make_units()
+make_heli()
 # buildings.png now comes from extract_buildings.py (AI-art sheet)
 make_icon()
 print("wrote autotile sheets units.png buildings.png ../icon.png")
