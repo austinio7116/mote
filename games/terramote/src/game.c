@@ -40,6 +40,8 @@ MOTE_MODULE_HEADER();
 #include "tiles_flower.tiles.h"
 #include "tiles_sapling.tiles.h"
 #include "grass_cap.h"                       /* cosmetic caps over exposed dirt */
+#include "canopy.h"                          /* tree crowns: 3 leafy + 1 snowy, 40x28 */
+#include "branch.h"                          /* trunk branches: 16x12 x4 */
 
 const MoteApi *g_mote;
 uint8_t g_state = GS_TITLE;
@@ -137,6 +139,49 @@ static void draw_grass_caps(void) {
 }
 
 static int s_dev_c = -1, s_dev_r = -1;   /* TERRA_POS dev spawn override */
+
+/* tree dressing: crowns on trunk tops, branch stubs along trunks (derived from
+ * the tile map, so chopping the trunk drops the whole tree) */
+static void draw_trees(void) {
+    int c0 = g_cam_x / TILE - 3, c1 = (g_cam_x + MOTE_FB_W - 1) / TILE + 3;
+    int r0 = g_cam_y / TILE - 4, r1 = (g_cam_y + MOTE_FB_H - 1) / TILE + 4;
+    int budget = 14;
+    for (int c = c0; c <= c1 && budget; c++) {
+        if ((unsigned)c >= WCOLS) continue;
+        for (int r = r0; r <= r1 && budget; r++) {
+            if ((unsigned)r >= WROWS) continue;
+            if (fg_at(c, r) != T_TRUNK) continue;
+            if (fg_at(c, r - 1) != T_TRUNK) {
+                /* trunk top: crown (snow biome gets the snowy variant) */
+                int v = world_biome(c) == 1 ? 3 : (int)(mote__at_hash(c, 7) % 3u);
+                MoteSprite s = {
+                    .img = &canopy_img,
+                    .x = (int16_t)(c * TILE + 4 - 20), .y = (int16_t)(r * TILE - 26),
+                    .fx = (uint16_t)(v * 40), .fy = 0, .fw = 40, .fh = 28,
+                    .layer = 4, .flags = 0,
+                };
+                mote->scene2d_add(&s);
+                budget--;
+            } else if (fg_at(c, r + 1) == T_TRUNK) {
+                /* mid-trunk: occasional branch, side + leafiness by position hash */
+                unsigned h = mote__at_hash(c, r);
+                if ((h % 4u) == 0) {
+                    int left = (h >> 4) & 1, leafy = ((h >> 5) & 3u) != 0;
+                    MoteSprite s = {
+                        .img = &branch_img,
+                        .x = (int16_t)(left ? c * TILE - 14 : c * TILE + 6),
+                        .y = (int16_t)(r * TILE - 4),
+                        .fx = (uint16_t)(((leafy ? 2 : 0) + (left ? 0 : 1)) * 16), .fy = 0,
+                        .fw = 16, .fh = 12,
+                        .layer = 4, .flags = 0,
+                    };
+                    mote->scene2d_add(&s);
+                    budget--;
+                }
+            }
+        }
+    }
+}
 
 /* ------------------------------------------------------------------- flow --- */
 void game_new_world(void) {
@@ -238,6 +283,7 @@ static void world_submit(void) {
     mote->scene2d_begin(g_cam_x, g_cam_y);
     mote->scene2d_set_autotiles(g_fgm, WCOLS, WROWS, k_tiles, T_COUNT - 1);
     draw_grass_caps();
+    draw_trees();
     player_draw();
     npc_draw();
 }

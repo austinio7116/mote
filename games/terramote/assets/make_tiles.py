@@ -642,6 +642,103 @@ def make_grass_caps():
         f.write("cell %d %d\n" % (TS, TS))
     print("[tiles] grass_cap.png")
 
+
+
+# ---------------------------------------------------------------- tree crowns
+def make_canopy():
+    """Proper tree crowns (assets/canopy.png): 3 leafy variants + 1 snowy,
+    40x28 cells, drawn as sprites on trunk tops. Branch stubs in branch.png
+    (16x12 cells: left, right, leafy-left, leafy-right)."""
+    import math as _m
+    LEAF = (46, 126, 50); LDARK = (30, 92, 38); LDK2 = (22, 70, 30)
+    LLITE = (96, 176, 66); LSUN = (140, 210, 90)
+    W, H = 40, 28
+    img = Image.new("RGBA", (W * 4, H), (0, 0, 0, 0))
+
+    def crown(ox, rng, snowy=False):
+        blobs = [(20, 11, 11), (11, 15, 8), (29, 15, 8), (15, 7, 7), (26, 7, 7),
+                 (20, 18, 8)]
+        blobs = [(bx + rng.randint(-2, 2), by + rng.randint(-1, 1), r + rng.randint(-1, 1))
+                 for bx, by, r in blobs]
+        def inside(x, y):
+            for bx, by, r in blobs:
+                dx, dy = x - bx, (y - by) * 1.25
+                if dx * dx + dy * dy <= r * r: return True
+            return False
+        for y in range(H):
+            for x in range(W):
+                if not inside(x, y): continue
+                # ragged silhouette
+                edge = not (inside(x - 1, y) and inside(x + 1, y) and inside(x, y - 1) and inside(x, y + 1))
+                if edge and rng.random() < 0.35: continue
+                # depth shading: top-lit, dark belly
+                t = y / float(H)
+                c = LLITE if t < 0.28 else (LEAF if t < 0.62 else LDARK)
+                if rng.random() < 0.14: c = LDARK if t < 0.6 else LDK2
+                if rng.random() < 0.10 and t < 0.5: c = LSUN
+                if edge: c = LDK2 if t > 0.35 else shade(c, 0.8)
+                img.putpixel((ox + x, y), rgb565_snap(c) + (255,))
+        # sunlit crown sprigs
+        for x in range(2, W - 2):
+            if img.getpixel((ox + x, 2))[3] == 0:
+                for y in range(3, 8):
+                    if img.getpixel((ox + x, y))[3]:
+                        if rng.random() < 0.5:
+                            img.putpixel((ox + x, y), rgb565_snap(LSUN) + (255,))
+                        break
+        if snowy:
+            SN = (232, 240, 250); SN2 = (198, 212, 230)
+            for y in range(H):
+                for x in range(W):
+                    px = img.getpixel((ox + x, y))
+                    if not px[3]: continue
+                    above = img.getpixel((ox + x, y - 1))[3] if y else 0
+                    if not above or y < 9:
+                        img.putpixel((ox + x, y), rgb565_snap(SN if rng.random() < 0.75 else SN2) + (255,))
+
+    for v in range(3):
+        crown(v * W, random.Random(9100 + v * 37))
+    crown(3 * W, random.Random(9400), snowy=True)
+    img.save(os.path.join(HERE, "canopy.png"))
+    with open(os.path.join(HERE, "canopy.sheet"), "w") as f:
+        f.write("cell %d %d\n" % (W, H))
+    print("[tiles] canopy.png (3 leafy + 1 snowy)")
+
+    # branches: 16x12 cells — 0 left small, 1 right small, 2 left full, 3 right full.
+    # Solid 2px limbs growing off the trunk with a leaf tuft at every tip
+    # (bare sticks read as floating dashes at this scale).
+    BW, BH = 16, 12
+    bimg = Image.new("RGBA", (BW * 4, BH), (0, 0, 0, 0))
+    BARK = (118, 84, 52); BDARK = (86, 60, 38)
+    for k in range(4):
+        rng = random.Random(700 + k)
+        left = (k % 2) == 0
+        big = k >= 2
+        ox = k * BW
+        ln = 8 if big else 6
+        for i in range(ln):                      # limb: 2px thick, gentle rise
+            x = (BW - 1 - i) if left else i
+            y = 8 - (i >= 3) - (i >= 6)
+            bimg.putpixel((ox + x, y), rgb565_snap(BARK) + (255,))
+            bimg.putpixel((ox + x, y + 1), rgb565_snap(BDARK) + (255,))
+        tuft_r = 4.2 if big else 3.2
+        cx = (BW - 1 - ln) if left else ln
+        cy = 8 - (1 if ln >= 3 else 0) - (1 if ln >= 6 else 0)
+        for y in range(BH):
+            for x in range(BW):
+                dx, dy = x - cx, (y - cy) * 1.2
+                d2 = dx * dx + dy * dy
+                if d2 > tuft_r * tuft_r: continue
+                if d2 > (tuft_r - 1) * (tuft_r - 1) and rng.random() < 0.4: continue
+                t = (y - (cy - tuft_r)) / (2.0 * tuft_r)
+                c = LLITE if t < 0.3 else (LEAF if t < 0.65 else LDARK)
+                if rng.random() < 0.2: c = LDARK
+                bimg.putpixel((ox + x, y), rgb565_snap(c) + (255,))
+    bimg.save(os.path.join(HERE, "branch.png"))
+    with open(os.path.join(HERE, "branch.sheet"), "w") as f:
+        f.write("cell %d %d\n" % (BW, BH))
+    print("[tiles] branch.png")
+
 if __name__ == "__main__":
     os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
     make_terrain()
@@ -649,4 +746,5 @@ if __name__ == "__main__":
     make_furniture()
     make_walls()
     make_grass_caps()
+    make_canopy()
     print("done")

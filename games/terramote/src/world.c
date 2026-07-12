@@ -3,6 +3,7 @@
 #include <math.h>
 
 int world_surface_row_uncached(int c);
+int world_biome(int c);
 
 uint8_t *g_fgm, *g_bgm;
 static uint8_t g_surf[WCOLS];          /* first solid row per column (cache) */
@@ -174,6 +175,7 @@ int world_hit_tree(int c, int r) {
                 if ((wrand() % 14) == 0) drops_add(I_ACORN, 1, cc * TILE + 4, rr * TILE + 4);
             }
     drops_add(I_WOOD, wood + wood / 2, c * TILE + 4, (r - 1) * TILE);
+    if ((wrand() % 5) < 3) drops_add(I_ACORN, 1 + (int)(wrand() % 2), c * TILE + 4, top * TILE);
     part_burst(c * TILE + 4, (top + 2) * TILE, rgb(70, 150, 60), 8, 50);
     audio_sfx(SFX_CHOP, 1.0f);
     return wood;
@@ -230,6 +232,9 @@ static int spawn_c = WCOLS / 2;
 #define B_DESERT_X1   340
 #define B_CORRUPT_X0  352
 
+static int biome_of(int c);
+int world_biome(int c) { return biome_of(c); }
+
 static int biome_of(int c) {   /* 0 forest 1 snow 2 desert 3 corruption */
     if (c < B_SNOW_END) return 1;
     if (c >= B_DESERT_X0 && c < B_DESERT_X1) return 2;
@@ -275,14 +280,8 @@ static void vein(int c, int r, int n, uint8_t ore, uint8_t host) {
 }
 
 static void plant_tree(int c, int ground_r, int h) {
+    /* trunk only — the crown + branches are drawn as sprites over trunk tops */
     for (int i = 1; i <= h; i++) world_set_fg(c, ground_r - i, T_TRUNK);
-    int top = ground_r - h;
-    for (int rr = top - 2; rr <= top + 1; rr++)
-        for (int cc = c - 2; cc <= c + 2; cc++) {
-            if ((cc == c - 2 || cc == c + 2) && (rr == top - 2 || rr == top + 1)) continue;
-            if (fg_at(cc, rr) == T_AIR) world_set_fg(cc, rr, T_LEAF);
-        }
-    if (fg_at(c, top - 3) == T_AIR && (wrand() & 1)) world_set_fg(c, top - 3, T_LEAF);
 }
 
 static void chest_loot(Chest *ch, int depth_r) {
@@ -439,7 +438,7 @@ int world_gen_step(void) {
             if ((ground == T_DIRT || (biome == 1 && ground == T_SNOW)) && fg_at(c, r - 1) == T_AIR) {
                 int flat = fg_at(c - 1, r) != T_AIR && fg_at(c + 1, r) != T_AIR;
                 if (flat && c - last_tree > 4 && wrand() % 3 != 0 && biome != 2 && biome != 3) {
-                    plant_tree(c, r, wrandi(4, 8)); last_tree = c;
+                    plant_tree(c, r, wrandi(4, 7)); last_tree = c;
                 } else if (wrand() % 6 == 0 && biome == 0) {
                     world_set_fg(c, r - 1, T_FLOWER);
                 }
@@ -567,7 +566,7 @@ void world_grow_tick(void) {
         uint8_t t = fg_at(c, r);
         if (t == T_SAPLING) {
             if (wrand() % 24 == 0 && fg_at(c, r - 4) == T_AIR && fg_at(c, r - 5) == T_AIR)
-                plant_tree(c, r + 1, wrandi(4, 7));
+                plant_tree(c, r + 1, wrandi(4, 6));
         }
     }
 }
