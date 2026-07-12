@@ -6,7 +6,8 @@
 
 #include "player.anim.h"      /* player_img/_sheet + clips: player_idle/walk/jump/swing */
 #include "hair.h"             /* hair_img: 6 styles, 16x14 cells */
-#include "items.h"            /* items_img: 12x12 icon grid (cell = item id) */
+#include "items.h"            /* items_img: 16px icon grid (cell = item id) */
+#include "weapons_big.h"      /* weapons_big_img: 32px native in-hand sprites */
 
 const MoteImage *g_items_sheet = &items_img;
 
@@ -188,6 +189,7 @@ void player_reset(int full) {
         inv_add(I_TORCH, 5);
     }
     g_pl.hp = g_pl.maxhp;
+    g_pl.aim_dx = 1; g_pl.aim_dy = 0;
     g_pl.x = g_pl.spawn_c * TILE + 4.0f;
     g_pl.y = (g_pl.spawn_r + 1) * TILE - 0.01f;
     g_pl.vx = g_pl.vy = 0;
@@ -228,27 +230,14 @@ void player_damage(int dmg, float kx) {
 
 /* ------------------------------------------------------------ use / mine ---- */
 static void pick_target(void) {
-    const MoteInput *in = mote->input();
     int pc = px_c(g_pl.x);
-    int pr_feet = ((int)g_pl.y - 1) / TILE, pr_mid = ((int)g_pl.y - 9) / TILE, pr_head = ((int)g_pl.y - P_BH + 2) / TILE;
-    if (mote_pressed(in, MOTE_BTN_DOWN)) {
-        g_ret_c = pc; g_ret_r = pr_feet + 1;
-        if (mote_pressed(in, MOTE_BTN_LEFT))  g_ret_c = pc - 1;
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) g_ret_c = pc + 1;
-    } else if (mote_pressed(in, MOTE_BTN_UP)) {
-        g_ret_c = pc; g_ret_r = pr_head - 1;
-        if (mote_pressed(in, MOTE_BTN_LEFT))  g_ret_c = pc - 1;
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) g_ret_c = pc + 1;
-    } else {
-        g_ret_c = pc + g_pl.facing; g_ret_r = pr_mid;
-        /* if the primary cell is empty when mining, fall to the ledge cell */
-        uint8_t t = fg_at(g_ret_c, g_ret_r);
-        uint8_t held = g_pl.inv[g_pl.hot].item;
-        if (t == T_AIR && (g_items[held].kind == IK_PICK || g_items[held].kind == IK_AXE)) {
-            if (fg_at(g_ret_c, pr_feet) != T_AIR) g_ret_r = pr_feet;
-            else if (fg_at(pc + 2 * g_pl.facing, pr_mid) != T_AIR) g_ret_c = pc + 2 * g_pl.facing;
-        }
-    }
+    int feet_r = ((int)g_pl.y - 1) / TILE;
+    int head_r = ((int)g_pl.y - P_BH + 2) / TILE;
+    int mid_r  = ((int)g_pl.y - 7) / TILE;
+    int dx = g_pl.aim_dx, dy = g_pl.aim_dy;
+    if (dy > 0)      { g_ret_c = pc + dx; g_ret_r = feet_r + 1; }
+    else if (dy < 0) { g_ret_c = pc + dx; g_ret_r = head_r - 1; }
+    else             { g_ret_c = pc + (dx ? dx : g_pl.facing); g_ret_r = mid_r; }
 }
 
 static int interactable(uint8_t t) {
@@ -350,11 +339,13 @@ static void use_item(float dt) {
             if (!ammo) { if (mote_just_pressed(in, MOTE_BTN_B)) ui_toast("NO ARROWS"); break; }
             g_pl.use_t = def->speed / 30.0f;
             inv_take(ammo, 1);
-            float vx = g_pl.facing * 190.0f, vy = -20.0f;
-            if (mote_pressed(in, MOTE_BTN_UP))   { vy = -160.0f; vx = g_pl.facing * 120.0f; }
-            if (mote_pressed(in, MOTE_BTN_DOWN)) { vy = 120.0f;  vx = g_pl.facing * 120.0f; }
+            float adx = g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing;
+            float ady = (float)g_pl.aim_dy;
+            float inv_l = 1.0f / sqrtf(adx * adx + ady * ady);
+            float vx = adx * inv_l * 195.0f;
+            float vy = ady * inv_l * 195.0f + (g_pl.aim_dy == 0 ? -18.0f : 0.0f);
             proj_add(ammo == I_ARROW_FLAME ? PR_ARROW_FLAME : PR_ARROW,
-                     g_pl.x + g_pl.facing * 6, g_pl.y - 12, vx, vy,
+                     g_pl.x + adx * 6, g_pl.y - 10, vx, vy,
                      def->damage + g_items[ammo].damage, 0);
             audio_sfx(SFX_SHOOT, 0.9f);
         }
@@ -419,11 +410,36 @@ void player_tick(float dt) {
         if (g_pl.breath <= 0) { g_pl.breath = 0.6f; player_damage(8, 0); }
     } else g_pl.breath = 8.0f;
 
-    /* horizontal move */
+    /* aim steering: holding B with an aimable item locks you in place and the
+     * d-pad points the reticle (all 8 ways + straight up/down). The direction
+     * PERSISTS after release. Without B, UP/DOWN taps step the aim elevation
+     * and walking keeps the aim in front of you. */
+    int hk = g_items[g_pl.inv[g_pl.hot].item].kind;
+    int aimable = hk == IK_PICK || hk == IK_AXE || hk == IK_BLOCK || hk == IK_BOW;
+    int steer = aimable && mote_pressed(in, MOTE_BTN_B);
+    if (steer) {
+        int dx = 0, dy = 0, any = 0;
+        if (mote_pressed(in, MOTE_BTN_LEFT))  { dx = -1; any = 1; }
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) { dx = 1;  any = 1; }
+        if (mote_pressed(in, MOTE_BTN_UP))    { dy = -1; any = 1; }
+        if (mote_pressed(in, MOTE_BTN_DOWN))  { dy = 1;  any = 1; }
+        if (any) {
+            g_pl.aim_dx = (int8_t)dx; g_pl.aim_dy = (int8_t)dy;
+            if (dx) g_pl.facing = (int8_t)dx;
+            g_pl.mine_c = -1; g_pl.mine_t = 0;   /* retarget */
+        }
+    } else {
+        if (mote_just_pressed(in, MOTE_BTN_UP) && g_pl.aim_dy > -1)  g_pl.aim_dy--;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_pl.aim_dy < 1) g_pl.aim_dy++;
+    }
+
+    /* horizontal move (parked while steering the aim) */
     float move = liq ? P_MOVE * 0.6f : P_MOVE;
     float want = 0;
-    if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; }
-    if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1; }
+    if (!steer) {
+        if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; g_pl.aim_dx = -1; }
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1;  g_pl.aim_dx = 1; }
+    }
     /* knockback decays into control */
     if (g_pl.iframes > 0.45f) want = g_pl.vx;
     g_pl.vx = want;
@@ -452,7 +468,7 @@ void player_tick(float dt) {
         if (g_pl.vy > 70) g_pl.vy = 70;
         if (g_pl.vy < -80) g_pl.vy = -80;
     } else {
-        if (g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
+        if (!steer && g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
             if (mote_pressed(in, MOTE_BTN_DOWN) && s_drop_t <= 0) {
                 /* drop through a platform if we stand on one */
                 int r = (int)g_pl.y / TILE;
@@ -535,29 +551,51 @@ void player_draw(void) {
     }
 }
 
-/* held item swing drawn in screen space (rotates the item icon around the
- * hand) — called from overlay() BEFORE the darkness pass */
+/* weapons_big.png cell per item — ORDER MUST MATCH extract_sheets.py */
+static int big_cell(uint8_t item) {
+    switch (item) {
+    case I_SWORD_WOOD: return 0;  case I_SWORD_COPPER: return 1;
+    case I_SWORD_IRON: return 2;  case I_SWORD_GOLD: return 3;
+    case I_SWORD_BANE: return 4;  case I_SWORD_VOLCANO: return 5;
+    case I_BOW_WOOD: return 6;    case I_BOW_GOLD: return 7;
+    case I_BOW_MOLTEN: return 8;  case I_AXE_WOOD: return 9;
+    case I_AXE_IRON: return 10;   case I_PICK_WOOD: return 11;
+    case I_PICK_COPPER: return 12; case I_PICK_IRON: return 13;
+    case I_PICK_GOLD: return 14;  case I_PICK_NIGHTMARE: return 15;
+    }
+    return -1;
+}
+
+/* held item swing drawn in screen space (native-res weapon art rotating around
+ * the hand) — called from overlay() BEFORE the darkness pass */
 void player_draw_swing(uint16_t *fb);
 void player_draw_swing(uint16_t *fb) {
     Slot *held = &g_pl.inv[g_pl.hot];
     const ItemDef *def = &g_items[held->item];
-    if (!held->item) return;
+    if (!held->item || g_pl.use_t <= 0) return;
     int hx = (int)g_pl.x - g_cam_x, hy = (int)g_pl.y - 9 - g_cam_y;
     int kind = def->kind;
-    if (g_pl.use_t > 0 && (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD)) {
+    int cell = big_cell(held->item);
+    const MoteImage *img = cell >= 0 ? &weapons_big_img : &items_img;
+    int cs = cell >= 0 ? 32 : 16;
+    int fx = cell >= 0 ? cell * 32 : (held->item % 8) * 16;
+    int fy = cell >= 0 ? 0 : (held->item / 8) * 16;
+    float sc = cell >= 0 ? 0.62f : 0.9f;
+    if (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD) {
         float dur = def->speed / 30.0f;
         float ph = 1.0f - (g_pl.use_t / dur);            /* 0..1 through the swing */
-        float a0 = -2.4f, a1 = 0.5f;
+        float a0 = -2.3f, a1 = 0.6f;
         float ang = (a0 + (a1 - a0) * ph) * g_pl.facing;
-        float px = hx + sinf(ang) * 6.0f * g_pl.facing + g_pl.facing * 2;
-        float py = hy - cosf(ang) * 6.0f;
-        mote->blit_ex(fb, &items_img, px, py,
-                      (held->item % 8) * 12, (held->item / 8) * 12, 12, 12,
-                      ang + (g_pl.facing > 0 ? 0.8f : -0.8f - 3.14159f), 1.0f,
+        float px = hx + sinf(ang) * 8.0f * g_pl.facing + g_pl.facing;
+        float py = hy - cosf(ang) * 8.0f;
+        /* art points up-right at 45deg: rotate so the blade leads the swing */
+        mote->blit_ex(fb, img, px, py, fx, fy, cs, cs,
+                      ang + (g_pl.facing > 0 ? 0.785f : -0.785f - 3.14159f), sc,
                       MOTE_BLEND_NONE, 0, MOTE_FB_H);
-    } else if (g_pl.use_t > 0 && kind == IK_BOW) {
-        mote->blit_ex(fb, &items_img, hx + g_pl.facing * 6, hy,
-                      (held->item % 8) * 12, (held->item / 8) * 12, 12, 12,
-                      g_pl.facing > 0 ? 0 : 3.14159f, 1.0f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    } else if (kind == IK_BOW) {
+        float ang = atan2f((float)g_pl.aim_dy, g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing);
+        mote->blit_ex(fb, img, hx + g_pl.facing * 6, hy - 2, fx, fy, cs, cs,
+                      ang + (g_pl.facing > 0 ? 0.785f : 0.785f), sc,
+                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
     }
 }

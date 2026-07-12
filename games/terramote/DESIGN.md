@@ -32,10 +32,12 @@ Side-view sandbox: dig, build, craft, fight. One seeded persistent world per sav
 ## Controls
 
 - D-pad move; A jump; B use held item (swing / mine / place / fire / eat).
-- Aim: the reticle sits one tile ahead of facing; UP/DOWN while holding B tilts
-  aim; DOWN+B targets below the feet (digging down).
-- LB cycle hotbar (hold LB + LEFT/RIGHT to move fast); RB inventory/crafting;
-  RB on a station in range shows its recipes; MENU pause (save & exit).
+- Aim (persistent 8-way reticle): hold B with a pick/axe/block/bow and the
+  d-pad steers the reticle instead of walking (all 8 directions + straight
+  up/down); the direction STAYS when you let go. Without B, UP/DOWN taps step
+  the aim elevation and walking keeps the reticle in front of you.
+- LB cycle hotbar; RB inventory/crafting (station recipes appear when one is
+  in range); MENU pause (save & exit). No music by design — SFX only.
 
 ## Tech tree
 

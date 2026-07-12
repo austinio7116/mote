@@ -127,7 +127,7 @@ typedef struct {
     float  use_t;                /* current item-use timer (swing/mine) */
     float  mine_t;               /* accumulated mining on the target tile */
     int16_t mine_c, mine_r;      /* tile being mined (-1 = none) */
-    int8_t  aim;                 /* -1 up / 0 level / +1 down */
+    int8_t  aim_dx, aim_dy;      /* persistent 8-way aim (reticle direction) */
     uint8_t hot;                 /* hotbar index */
     Slot   inv[INV_SLOTS];
     uint8_t armor[3];            /* item ids: head/body/legs (I_NONE = empty) */

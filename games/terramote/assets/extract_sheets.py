@@ -189,41 +189,129 @@ def make_enemies(im, lab, boxes):
 # ------------------------------------------------------------------ items ----
 CS = 16   # items.png cell size (make_sprites.py must agree)
 
-# sheet2 weapon grid cells: (x0,y0,x1,y1) in source px
+# sheet2 weapon grid cells: (x0,y0,x1,y1) in source px (label strip excluded)
 S2 = {
-    "SWORD_COPPER":  (40, 200, 160, 330),
-    "SWORD_IRON":    (165, 200, 285, 330),
-    "SWORD_BANE":    (290, 200, 408, 330),    # muramasa
-    "SWORD_VOLCANO": (412, 200, 530, 330),    # fiery greatsword
-    "SWORD_GOLD":    (535, 200, 652, 330),    # excalibur
-    "BOW_WOOD":      (778, 200, 895, 330),
-    "BOW_MOLTEN":    (1022, 200, 1140, 330),  # hellwing bow
-    "SWORD_WOOD":    (40, 452, 160, 585),
-    "AXE_IRON":      (2578, 195, 2695, 320),  # the axe
+    "SWORD_COPPER":  (40, 195, 160, 318),
+    "SWORD_IRON":    (165, 195, 285, 318),
+    "SWORD_BANE":    (290, 195, 408, 318),    # muramasa
+    "SWORD_VOLCANO": (412, 195, 530, 318),    # fiery greatsword
+    "SWORD_GOLD":    (535, 195, 652, 318),    # excalibur
+    "BOW_WOOD":      (778, 195, 895, 318),
+    "BOW_MOLTEN":    (1022, 195, 1140, 318),  # hellwing bow
+    "SWORD_WOOD":    (40, 448, 160, 570),
+    "AXE_IRON":      (2562, 192, 2678, 314),  # the axe
 }
 
-def cell_from_dark_grid(im2, box):
-    a = np.array(im2.crop(box)).astype(int)
-    lum = a.mean(axis=2)
-    spread = a.max(axis=2) - a.min(axis=2)
-    fg = (lum > 72) & ~((spread < 25) & (lum < 135))
-    # largest component = the weapon (labels are small)
+def grid_sprite(im2, box):
+    """Whole weapon from a dark-panel grid cell: everything that differs from
+    the panel colour (union of components, labels/frame trimmed), holes filled."""
+    a0 = np.array(im2.crop(box)).astype(int)
+    a = a0[13:-13, 13:-13]                        # inside the cell frame
+    h, w = a.shape[:2]
+    corners = np.concatenate([a[2:12, 2:12].reshape(-1, 3), a[2:12, -12:-2].reshape(-1, 3)])
+    bg = np.median(corners, axis=0)               # the panel colour
+    dist = np.abs(a - bg[None, None, :]).sum(axis=2)
+    fg = dist > 55
     lab, n = ndimage.label(fg, structure=np.ones((3, 3)))
-    if n == 0: raise SystemExit("empty weapon cell %s" % (box,))
-    sizes = ndimage.sum(fg, lab, range(1, n + 1))
-    big = 1 + int(np.argmax(sizes))
-    mask = ndimage.binary_fill_holes(lab == big)
-    ys, xs = np.where(mask)
-    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
-    out = np.zeros((y1 - y0, x1 - x0, 4), np.uint8)
-    out[..., :3] = a[y0:y1, x0:x1].astype(np.uint8)
-    out[..., 3] = np.where(mask[y0:y1, x0:x1], 255, 0)
+    keep = np.zeros_like(fg)
+    for i in range(1, n + 1):
+        m = lab == i
+        if m.sum() < 30: continue
+        ys, xs = np.where(m)
+        if ys.min() > h - 14: continue            # label text at the cell bottom
+        touches = (xs.min() <= 1) + (xs.max() >= w - 2) + (ys.min() <= 1) + (ys.max() >= h - 2)
+        if touches >= 2: continue                 # frame ring remnants hug the edges
+        keep |= m
+    keep = ndimage.binary_fill_holes(keep)
+    ys, xs = np.where(keep)
+    if len(xs) == 0: raise SystemExit("empty weapon cell %s" % (box,))
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    return a[y0:y1, x0:x1], keep[y0:y1, x0:x1]
+
+def est_pitch(a, mask):
+    """The AI sheets are fake-pixel art: recover the art-pixel pitch+phase from
+    colour-boundary alignment (smallest pitch within 95% of the best score, so
+    a 2x harmonic never wins)."""
+    d = np.abs(np.diff(a, axis=1)).sum(axis=2).astype(float)
+    prof = d.sum(axis=0)
+    cands = []
+    w = a.shape[1]
+    for p10 in range(30, 90):
+        p = p10 / 10.0
+        bestph = (0.0, 0.0)
+        for ph10 in range(0, p10, 2):
+            ph = ph10 / 10.0
+            sc = 0.0; cnt = 0
+            x = ph
+            while x < w - 1:
+                sc += prof[int(x)]; cnt += 1; x += p
+            if cnt >= 3:
+                sc /= cnt
+                if sc > bestph[0]: bestph = (sc, ph)
+        cands.append((bestph[0] / (prof.mean() + 1e-6), p, bestph[1]))
+    top = max(c[0] for c in cands)
+    for sc, p, ph in cands:                        # smallest acceptable pitch
+        if sc >= top * 0.95:
+            return p, ph
+    return 5.0, 0.0
+
+def best_phase(a, p):
+    """Phase for a KNOWN pitch (both axes share it on these sheets)."""
+    d = np.abs(np.diff(a, axis=1)).sum(axis=2).astype(float)
+    prof = d.sum(axis=0)
+    w = a.shape[1]
+    best = (0.0, 0.0)
+    for ph10 in range(0, int(p * 10), 2):
+        ph = ph10 / 10.0
+        sc = 0.0; cnt = 0
+        x = ph
+        while x < w - 1:
+            sc += prof[int(x)]; cnt += 1; x += p
+        if cnt >= 2 and sc / cnt > best[0]: best = (sc / cnt, ph)
+    return best[1]
+
+def depixelate(a, mask, pitch=None):
+    """(h,w,3) int + mask -> native-resolution RGBA pixel art. Pass the sheet's
+    global pitch when known (per-sprite estimation drifts on small sprites)."""
+    if pitch is None:
+        p, ph = est_pitch(a, mask)
+    else:
+        p, ph = pitch, best_phase(a, p if False else pitch)
+    h, w = a.shape[:2]
+    aw = max(1, int(round((w - ph) / p))); ah = max(1, int(round((h - ph) / p)))
+    out = np.zeros((ah, aw, 4), np.uint8)
+    for j in range(ah):
+        for i in range(aw):
+            x0 = int(ph + i * p); x1 = int(ph + (i + 1) * p)
+            y0 = int(ph + j * p); y1 = int(ph + (j + 1) * p)
+            x1 = min(x1, w); y1 = min(y1, h)
+            if x1 <= x0: x1 = min(x0 + 1, w)
+            if y1 <= y0: y1 = min(y0 + 1, h)
+            blk = a[y0:y1, x0:x1].reshape(-1, 3)
+            bm = mask[y0:y1, x0:x1].reshape(-1)
+            if bm.mean() < 0.4: continue
+            cols = blk[bm]
+            med = np.median(cols, axis=0)
+            out[j, i, :3] = med.astype(np.uint8)
+            out[j, i, 3] = 255
     return Image.fromarray(out)
+
+def fit_cell(art, size):
+    """Native art -> size x size cell. Kept 1:1 when it fits, else NEAREST from
+    the TRUE art pixels (clean, unlike sampling the fake-pixel original)."""
+    w, h = art.size
+    if w > size or h > size:
+        sc = size / max(w, h)
+        art = art.resize((max(1, round(w * sc)), max(1, round(h * sc))), Image.NEAREST)
+    cell = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    cell.paste(art, ((size - art.width) // 2, (size - art.height) // 2), art)
+    return cell
 
 def make_items(im, lab, boxes):
     items_path = os.path.join(HERE, "items.png")
     sheet = Image.open(items_path).convert("RGBA")
     ids = ITEM_IDS
+    big = {}                       # name -> native art (for weapons_big.png)
     def put(name, cell):
         i = ids.index(name)
         cell = rgb565ify(cell)
@@ -232,48 +320,78 @@ def make_items(im, lab, boxes):
         sheet.paste(cell, (ox, oy), cell)
 
     im2 = Image.open(os.path.join(HERE, "sources_sheet2_weapons.png")).convert("RGB")
-    for name, box in S2.items():
-        c = scale_to(cell_from_dark_grid(im2, box), CS, CS, anchor="center")
-        if name == "SWORD_GOLD": c = tint(c, (242, 200, 60))       # excalibur -> gold
-        put(name, c)
-    # gold bow: the wooden bow, gilded
-    put("BOW_GOLD", tint(scale_to(cell_from_dark_grid(im2, S2["BOW_WOOD"]), CS, CS, "center"), (242, 200, 60)))
-    # wood axe = the axe, browned
-    put("AXE_WOOD", tint(scale_to(cell_from_dark_grid(im2, S2["AXE_IRON"]), CS, CS, "center"), (168, 120, 62)))
+    sprites = {name: grid_sprite(im2, box) for name, box in S2.items()}
+    pits = []
+    for name, (a, m) in sprites.items():
+        if m.sum() > 2500:
+            pits.append(est_pitch(a, m)[0])
+    p2 = float(np.median(pits)) if pits else 4.3
+    if p2 > 6: p2 /= 2               # oversample: keeps the AI art's sub-grid detail
+    print("[extract] sheet2 pitch", p2)
+    arts = {}
+    for name, (a, m) in sprites.items():
+        arts[name] = depixelate(a, m, pitch=p2)
+    arts["SWORD_GOLD"] = tint(arts["SWORD_GOLD"], (242, 200, 60))
+    arts["BOW_GOLD"]   = tint(arts["BOW_WOOD"], (242, 200, 60))
+    arts["AXE_WOOD"]   = tint(arts["AXE_IRON"], (168, 120, 62))
 
-    # sheet1 picks: comp 128 (gold pick) tinted per metal
-    pick = comp_rgba(im, lab, boxes, 128)
-    for name, col in (("PICK_WOOD", (166, 120, 66)), ("PICK_COPPER", (208, 118, 50)),
-                      ("PICK_IRON", (182, 182, 192)), ("PICK_GOLD", None),
-                      ("PICK_NIGHTMARE", (140, 80, 215))):
-        c = scale_to(pick, CS, CS, "center")
-        put(name, c if col is None else tint(c, col))
+    # sheet1 picks: depixelate the gold pick, tint per metal
+    def s1_raw(k):
+        i, x, y, w, h = boxes[k]
+        m = ndimage.binary_fill_holes(lab[y:y + h, x:x + w] == i)
+        a = np.array(im.crop((x, y, x + w, y + h)).convert("RGB")).astype(int)
+        return a, m
+    a1, m1 = s1_raw(124)                        # the chest: big + regular
+    p1 = est_pitch(a1, m1)[0]
+    if p1 > 6: p1 /= 2
+    print("[extract] sheet1 pitch", p1)
+    def s1_art(k):
+        a, m = s1_raw(k)
+        return depixelate(a, m, pitch=p1)
+    pick = s1_art(128)
+    arts["PICK_GOLD"]      = pick
+    arts["PICK_WOOD"]      = tint(pick, (166, 120, 66))
+    arts["PICK_COPPER"]    = tint(pick, (208, 118, 50))
+    arts["PICK_IRON"]      = tint(pick, (182, 182, 192))
+    arts["PICK_NIGHTMARE"] = tint(pick, (140, 80, 215))
 
-    # sheet1 furniture / misc, straight extracts
+    for name, art in arts.items():
+        put(name, fit_cell(art, CS))
+        big[name] = art
+
+    # sheet1 furniture / misc (contiguous sprites): depixelated 16px icons
     for name, k in (("CHEST", 124), ("TORCH", 126), ("PLATFORM", 127), ("DOOR", 137),
                     ("ANVIL", 139), ("WORKBENCH", 140), ("COIN", 141),
                     ("POTION_HEAL", 150), ("SUSPICIOUS_EYE", 151)):
-        put(name, scale_to(comp_rgba(im, lab, boxes, k), CS, CS, "center"))
+        put(name, fit_cell(s1_art(k), CS))
 
-    # armor: mail 148 (iron) tinted per metal; greaves 149 (gold) tinted
-    mail = comp_rgba(im, lab, boxes, 148)
+    mail = s1_art(148)
     for name, col in (("MAIL_COPPER", (208, 118, 50)), ("MAIL_IRON", None),
                       ("MAIL_GOLD", (240, 200, 60)), ("MAIL_MOLTEN", (240, 100, 34))):
-        c = scale_to(mail, CS, CS, "center")
-        put(name, c if col is None else tint(c, col))
-    greaves = comp_rgba(im, lab, boxes, 149)
+        put(name, fit_cell(mail if col is None else tint(mail, col), CS))
+    greaves = s1_art(149)
     for name, col in (("LEGS_COPPER", (208, 118, 50)), ("LEGS_IRON", (182, 182, 192)),
                       ("LEGS_GOLD", None), ("LEGS_MOLTEN", (240, 100, 34))):
-        c = scale_to(greaves, CS, CS, "center")
-        put(name, c if col is None else tint(c, col))
-    # life crystal: purple crystal 123 shifted red
-    lc = comp_rgba(im, lab, boxes, 123)
-    put("LIFE_CRYSTAL", tint(scale_to(lc, CS, CS, "center"), (235, 70, 100)))
-    # demonite ore icon: the purple crystal as-is
-    put("DEMONITE_ORE", scale_to(lc, CS, CS, "center"))
+        put(name, fit_cell(greaves if col is None else tint(greaves, col), CS))
+    lc = s1_art(123)
+    put("LIFE_CRYSTAL", fit_cell(tint(lc, (235, 70, 100)), CS))
+    put("DEMONITE_ORE", fit_cell(lc, CS))
 
     sheet.save(items_path)
-    print("[extract] items.png patched (%d curated cells)" % (len(S2) + 24))
+
+    # in-hand sheet at native art resolution (order must match player.c's table)
+    order = ["SWORD_WOOD", "SWORD_COPPER", "SWORD_IRON", "SWORD_GOLD", "SWORD_BANE",
+             "SWORD_VOLCANO", "BOW_WOOD", "BOW_GOLD", "BOW_MOLTEN",
+             "AXE_WOOD", "AXE_IRON",
+             "PICK_WOOD", "PICK_COPPER", "PICK_IRON", "PICK_GOLD", "PICK_NIGHTMARE"]
+    BC = 32
+    wb = Image.new("RGBA", (BC * len(order), BC), (0, 0, 0, 0))
+    for i, name in enumerate(order):
+        cell = fit_cell(big[name], BC)
+        wb.paste(cell, (i * BC, 0), cell)
+    rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
+    open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell %d %d\n" % (BC, BC))
+    print("[extract] items.png icons + weapons_big.png (%d in-hand sprites)" % len(order))
 
 ITEM_IDS = """NONE DIRT STONE WOOD SAND SNOW EBON CLAY ASH HELLSTONE OBSIDIAN TORCH
 PLATFORM WORKBENCH FURNACE ANVIL CHEST DOOR ACORN GEL LENS MUSHROOM COIN

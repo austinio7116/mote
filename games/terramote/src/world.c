@@ -324,7 +324,7 @@ int world_gen_step(void) {
                     if (hn > 0.52f && r > ROW_HELL + 2 && r < WROWS - 3) { t = T_AIR; }
                 } else if (r >= h) {
                     if (r < dirt_end) {
-                        t = (r == h) ? T_GRASS : T_DIRT; w = (r > h + 1) ? W_DIRT : W_NONE;
+                        t = T_DIRT; w = (r > h + 1) ? W_DIRT : W_NONE;   /* grass is a cosmetic cap */
                         if (biome == 1) { t = (r <= h + 7) ? T_SNOW : T_DIRT; w = (r > h + 7) ? W_DIRT : ((r > h + 1) ? W_SNOW : W_NONE); }
                         if (biome == 2) { t = (r <= h + 14) ? T_SAND : T_DIRT; w = W_NONE; }
                         if (biome == 3 && r == h) t = T_DIRT;   /* corruption: bare dirt */
@@ -436,7 +436,7 @@ int world_gen_step(void) {
             int r = g_surf[c];
             uint8_t ground = fg_at(c, r);
             int biome = biome_of(c);
-            if ((ground == T_GRASS || (biome == 1 && ground == T_SNOW)) && fg_at(c, r - 1) == T_AIR) {
+            if ((ground == T_DIRT || (biome == 1 && ground == T_SNOW)) && fg_at(c, r - 1) == T_AIR) {
                 int flat = fg_at(c - 1, r) != T_AIR && fg_at(c + 1, r) != T_AIR;
                 if (flat && c - last_tree > 4 && wrand() % 3 != 0 && biome != 2 && biome != 3) {
                     plant_tree(c, r, wrandi(4, 8)); last_tree = c;
@@ -565,15 +565,7 @@ void world_grow_tick(void) {
     for (int i = 0; i < 30; i++) {
         int c = wrandi(2, WCOLS - 3), r = wrandi(2, WROWS - 3);
         uint8_t t = fg_at(c, r);
-        if (t == T_DIRT && r <= g_surf[c] + 2) {
-            /* grass spreads from adjacent grass onto exposed dirt */
-            int exposed = !g_tiles[fg_at(c, r - 1)].solid || !g_tiles[fg_at(c - 1, r)].solid ||
-                          !g_tiles[fg_at(c + 1, r)].solid || !g_tiles[fg_at(c, r + 1)].solid;
-            if (exposed && (fg_at(c - 1, r) == T_GRASS || fg_at(c + 1, r) == T_GRASS ||
-                            fg_at(c - 1, r - 1) == T_GRASS || fg_at(c + 1, r - 1) == T_GRASS ||
-                            fg_at(c - 1, r + 1) == T_GRASS || fg_at(c + 1, r + 1) == T_GRASS))
-                world_set_fg(c, r, T_GRASS);
-        } else if (t == T_SAPLING) {
+        if (t == T_SAPLING) {
             if (wrand() % 24 == 0 && fg_at(c, r - 4) == T_AIR && fg_at(c, r - 5) == T_AIR)
                 plant_tree(c, r + 1, wrandi(4, 7));
         }
