@@ -3489,7 +3489,8 @@ static void catinfo_overlay(uint16_t *fb) {
         /* attack deck: its three fixed moves */
         snprintf(ln, sizeof ln, "%s+%s+%s", move_name[bh % 7], move_name[(bh >> 3) % 7],
                  move_name[(bh >> 6) % 7]);
-        mote->text_font(fb, f, ln, 14, 58, MOTE_RGB565(255, 220, 110));
+        int dw = mote->text_font(fb, f, ln, 0, 200, 0);      /* off-screen: measure */
+        mote->text_font(fb, f, ln, (MOTE_FB_W - dw) / 2, 58, MOTE_RGB565(255, 220, 110));
     } else {
         Gene g = { (uint8_t)(cat_cur / EL_N), (uint8_t)(cat_cur % EL_N), 0, 1, 0 };
         uint16_t bc = elem_col[g.elem][1];
