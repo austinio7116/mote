@@ -286,13 +286,13 @@ static int deco_n;
 
 /* biome hazards: telegraphed particle emitters, never block the path */
 #define MAXHAZ 8
-static struct { float x, y, t, cycle; uint8_t on, ceil, anchor, fired, kind; } haz[MAXHAZ];
+static struct { float x, y, t, cycle, len; uint8_t on, ceil, anchor, fired, kind; } haz[MAXHAZ];
 static int haz_n;
 /* hazard projectiles: real dodgeable objects (rock/pod/icicle/spore/lava).
  * Physics + sprite are set at spawn so each biome fields SEVERAL kinds. */
 #define MAXHPJ 14
 static struct { float x, y, vx, vy, rot, vr, age, grav, popt, scale;
-                uint8_t on, sway, cell; } hpj[MAXHPJ];
+                uint8_t on, sway, cell, cloud; } hpj[MAXHPJ];
 
 static const MoteAutotile *layers[2] = { &rock_at, &hull_at };  /* [0] set per biome */
 
@@ -1361,12 +1361,14 @@ static void gen_sector(void) {
     {
         int want = sector < 2 ? 0 : 2 + (sector - 2);
         if (want > MAXHAZ) want = MAXHAZ;
-        /* kind 0 = the biome classic; kind 1 = its opposite-surface partner */
-        static const uint8_t haz_anchor[5][2] = { {6,1}, {10,11}, {6,7}, {10,6}, {11,6} };
-        static const uint8_t haz_floor[5][2]  = { {0,1}, {0,1},  {0,1}, {1,0}, {1,0} };
+        /* kind 0 throws objects; kind 1 is the biome's SECOND hazard:
+         * cavern falling stalactite / hive acid jet / glacier cryo jet
+         * (either surface) / sporepit miasma cloud / ember magma spray */
+        static const uint8_t pg_anchor[5] = { 6, 10, 6, 10, 11 };
         for (int tries = 0; tries < 200 && haz_n < want; tries++) {
             int kind = haz_n & 1;                    /* alternate: both kinds show up */
-            int on_floor = haz_floor[cur_biome][kind];
+            int on_floor = (cur_biome == 3 || cur_biome == 4);
+            if (cur_biome == 2 && kind) on_floor = (int)(mote_rand() & 1);
             int c = 26 + (int)(mote_rand() % (COLS - 44));
             int r = cor_y[c];
             if (solid_cell(c, r)) continue;
@@ -1387,8 +1389,16 @@ static void gen_sector(void) {
             haz[haz_n].y = on_floor ? (r + 1) * TILE + 2 : r * TILE - 2;
             haz[haz_n].t = mote_randf(0, 3.0f);
             haz[haz_n].cycle = mote_randf(2.8f, 4.0f) - mote_clampf(sector * 0.08f, 0, 1.0f);
-            haz[haz_n].anchor = haz_anchor[cur_biome][kind];
+            haz[haz_n].anchor = (cur_biome == 2 && kind && on_floor) ? 7
+                              : pg_anchor[cur_biome];
             haz[haz_n].kind = (uint8_t)kind;
+            haz[haz_n].len = 0;
+            if (kind && (cur_biome == 1 || cur_biome == 2 || cur_biome == 4)) {
+                int dn2 = on_floor ? -1 : 1;         /* jet: reach to the far wall */
+                float L = 12;
+                while (L < 56 && !solid(haz[haz_n].x, haz[haz_n].y + dn2 * L)) L += 4;
+                haz[haz_n].len = L - 4 < 14 ? 14 : L - 4;
+            }
             haz_n++;
         }
     }
@@ -2104,57 +2114,43 @@ static void pmines_update(float dt) {
  * Active streams hurt; they are narrow and timed, never sealing the path. */
 
 static void hpj_spawn(float x, float y, int kind) {
-    static const uint8_t cell_t[5][2] = { {12,0}, {12,8}, {12,3}, {12,8}, {12,9} };
-    static const float  scale_t[5][2] = { {1.5f,1.0f}, {1.5f,1.2f}, {1.5f,1.2f},
-                                          {1.5f,1.3f}, {1.5f,1.1f} };
     for (int i = 0; i < MAXHPJ; i++) if (!hpj[i].on) {
         if (getenv("SCRAP_DBG")) fprintf(stderr, "[HPJ] t=%.2f k=%d spawn %.0f,%.0f\n",
                                          bg_time, kind, x, y);
         hpj[i].on = 1; hpj[i].age = 0; hpj[i].rot = 0; hpj[i].vr = 0;
+        hpj[i].grav = 240; hpj[i].popt = 0; hpj[i].sway = 0; hpj[i].cloud = 0;
+        hpj[i].cell = 12; hpj[i].scale = 1.5f;
         hpj[i].x = x + mote_randf(-3, 3); hpj[i].y = y;
-        hpj[i].grav = 240; hpj[i].popt = 0; hpj[i].sway = 0;
-        hpj[i].cell = cell_t[cur_biome][kind];
-        hpj[i].scale = scale_t[cur_biome][kind];
         switch (cur_biome * 2 + kind) {
         case 0:                                      /* crumbling rock chunk */
             hpj[i].vx = mote_randf(-12, 12); hpj[i].vy = 20;
             hpj[i].vr = mote_randf(-4, 4);
             break;
-        case 1:                                      /* crystal battery: shard fan UP */
-            hpj[i].vx = mote_randf(-40, 40); hpj[i].vy = mote_randf(-140, -100);
-            hpj[i].vr = mote_randf(-6, 6); hpj[i].grav = 260;
+        case 1:                                      /* the WHOLE stalactite falls */
+            hpj[i].vx = mote_randf(-4, 4); hpj[i].vy = 30;
+            hpj[i].vr = mote_randf(-0.3f, 0.3f); hpj[i].grav = 420;
+            hpj[i].cell = 6; hpj[i].scale = 1.0f;
             break;
         case 2:                                      /* heavy pod drop */
             hpj[i].vx = mote_randf(-8, 8); hpj[i].vy = 26;
             hpj[i].vr = mote_randf(-1.5f, 1.5f);
             break;
-        case 3:                                      /* spitter growth: lobbed pods */
-            hpj[i].vx = mote_randf(-30, 30); hpj[i].vy = mote_randf(-150, -110);
-            hpj[i].vr = mote_randf(-3, 3); hpj[i].grav = 300;
-            break;
         case 4:                                      /* icicle: fast, point down */
             hpj[i].vx = 0; hpj[i].vy = 55; hpj[i].grav = 330;
-            break;
-        case 5:                                      /* ice geyser: chunk straight up */
-            hpj[i].vx = mote_randf(-10, 10); hpj[i].vy = mote_randf(-190, -150);
-            hpj[i].vr = mote_randf(-2, 2); hpj[i].grav = 330;
             break;
         case 6:                                      /* spore pod drifts UP, pops */
             hpj[i].vx = mote_randf(-14, 14); hpj[i].vy = mote_randf(-60, -38);
             hpj[i].vr = mote_randf(-1, 1); hpj[i].grav = 0;
             hpj[i].sway = 1; hpj[i].popt = 1.9f;
             break;
-        case 7:                                      /* ceiling dripper: heavy glob */
-            hpj[i].vx = mote_randf(-8, 8); hpj[i].vy = 24;
-            hpj[i].vr = mote_randf(-1, 1); hpj[i].grav = 55; hpj[i].sway = 1;
+        case 7:                                      /* miasma: a drifting spore cloud */
+            hpj[i].cloud = 1; hpj[i].scale = 0;
+            hpj[i].vx = mote_randf(-10, 10); hpj[i].vy = mote_randf(-14, -5);
+            hpj[i].grav = 0; hpj[i].sway = 1;
             break;
-        case 8:                                      /* molten rock: arcing launch */
+        default:                                     /* molten rock: arcing launch */
             hpj[i].vx = mote_randf(-45, 45); hpj[i].vy = mote_randf(-215, -150);
             hpj[i].vr = mote_randf(-5, 5); hpj[i].grav = 300;
-            break;
-        default:                                     /* magma drip: accelerates */
-            hpj[i].vx = mote_randf(-4, 4); hpj[i].vy = 25;
-            hpj[i].grav = 380;
         }
         return;
     }
@@ -2181,18 +2177,47 @@ static void haz_update(float dt) {
         float hx2 = haz[i].x, hy2 = haz[i].y;
         int dn = !haz[i].ceil ? -1 : 1;
         const uint16_t *bc = exh_col[cur_biome];
+        static const uint8_t beh1[5] = { 1, 2, 2, 3, 2 };  /* fall/jet/jet/cloud/jet */
+        int beh = haz[i].kind ? beh1[cur_biome] : 0;
         if (ph > tele0 && ph < act0) {               /* shimmer warning */
             if ((mote_rand() & 3) == 0)
                 spawn_part(hx2 + mote_randf(-4, 4), hy2 + (haz[i].ceil ? 2 : -2),
                            0, dn * 6.0f, bc[0], 0.2f, PF_ADD);
-        } else if (ph >= act0) {                     /* throw real objects */
-            /* stagger 2-3 projectiles across the window */
-            float w = ph - act0;
-            int slot = (int)(w * 3.0f);
-            int burst = 3;
-            if (slot < burst && haz[i].fired <= slot) {
-                hpj_spawn(hx2, hy2 + (haz[i].ceil ? 9 : -9), haz[i].kind);
-                haz[i].fired = (uint8_t)(slot + 1);
+        } else if (ph >= act0) {
+            if (beh == 2) {                          /* JET: a live particle column */
+                float len = haz[i].len;
+                for (int k = 0; k < 7; k++) {
+                    float tt = mote_randf(0, 1);
+                    float jy = hy2 + dn * tt * len;
+                    float jx = hx2 + mote_randf(-2.5f, 2.5f) * (0.4f + tt);
+                    uint16_t jc; uint8_t fl = PF_ADD;
+                    if (cur_biome == 1)              /* acid: green rain */
+                        jc = (mote_rand() & 1) ? MOTE_RGB565(120, 235, 60)
+                                               : MOTE_RGB565(190, 255, 90);
+                    else if (cur_biome == 2)         /* cryo: white-blue gas */
+                        jc = (mote_rand() & 1) ? MOTE_RGB565(190, 230, 255)
+                                               : MOTE_RGB565(245, 250, 255);
+                    else {                           /* magma: liquid fire */
+                        jc = (mote_rand() & 1) ? MOTE_RGB565(255, 140, 20)
+                                               : MOTE_RGB565(255, 210, 60);
+                        if (k & 1) fl |= PF_GRAV;
+                    }
+                    spawn_part(jx, jy, mote_randf(-14, 14) * (cur_biome == 4 ? 2.2f : 1.0f),
+                               dn * mote_randf(50, 120), jc,
+                               mote_randf(0.15f, 0.35f), fl);
+                }
+                float dyj = (py - hy2) * dn;         /* inside the column = burned */
+                float pxd = px - hx2;
+                if (pxd > -7 && pxd < 7 && dyj > 0 && dyj < len)
+                    take_hit(1);
+            } else {                                 /* throw / drop / puff */
+                float w = ph - act0;
+                int burst = beh == 0 ? 3 : 1;        /* fall+cloud fire ONCE */
+                int slot = (int)(w * 3.0f);
+                if (slot < burst && haz[i].fired <= slot) {
+                    hpj_spawn(hx2, hy2 + (haz[i].ceil ? 9 : -9), haz[i].kind);
+                    haz[i].fired = (uint8_t)(slot + 1);
+                }
             }
         }
         if (ph < tele0) haz[i].fired = 0;
@@ -2207,6 +2232,21 @@ static void haz_update(float dt) {
         hpj[i].x += hpj[i].vx * dt;
         hpj[i].y += hpj[i].vy * dt;
         hpj[i].rot += hpj[i].vr * dt;
+        if (hpj[i].cloud) {                          /* miasma: murky, lingering */
+            for (int k = 0; k < 3; k++) {
+                float a = mote_randf(0, 6.28f), rr = mote_randf(0, 9);
+                spawn_part(hpj[i].x + cosf(a) * rr, hpj[i].y + sinf(a) * rr * 0.7f,
+                           mote_randf(-6, 6), mote_randf(-9, 2),
+                           (mote_rand() & 1) ? MOTE_RGB565(130, 190, 50)
+                                             : MOTE_RGB565(80, 130, 35),
+                           mote_randf(0.3f, 0.6f), 0);
+            }
+            if (hpj[i].age > 3.0f) { hpj[i].on = 0; continue; }
+            float cdx = hpj[i].x - px, cdy = hpj[i].y - py;
+            if (cdx > -(PRAD + 9) && cdx < PRAD + 9 && cdy > -(PRAD + 9) && cdy < PRAD + 9)
+                take_hit(1);                         /* it does NOT dissipate on touch */
+            continue;
+        }
         /* trail per biome: these read as burning/glinting objects */
         {
             const uint16_t *bc = exh_col[cur_biome];
@@ -2576,8 +2616,15 @@ static void submit_scene(void) {
     for (int i = 0; i < haz_n; i++) {
         if (!haz[i].on) continue;
         int a = haz[i].anchor;
+        int jgx = 0;
+        if (cur_biome == 0 && haz[i].kind) {         /* stalactite: jiggle, drop, regrow */
+            float jph = fmodf(haz[i].t, haz[i].cycle);
+            if (jph >= haz[i].cycle - 1.0f) continue;            /* it FELL */
+            if (jph > haz[i].cycle - 1.8f)
+                jgx = (int)(sinf(haz[i].t * 42.0f) * 1.5f);
+        }
         MoteSprite s = { &pg_img,
-                         (int16_t)(haz[i].x - 8),
+                         (int16_t)(haz[i].x - 8 + jgx),
                          (int16_t)(haz[i].ceil ? haz[i].y - pg_by[a]
                                                : haz[i].y - pg_by[a] - pg_bh[a]),
                          (uint16_t)(a * 16), 0, 16, 16, 12,
@@ -3680,7 +3727,7 @@ static void g_overlay(uint16_t *fb) {
 
     if (state == ST_PLAY || state == ST_CLEAR) {
         for (int i = 0; i < MAXHPJ; i++) {
-            if (!hpj[i].on) continue;
+            if (!hpj[i].on || hpj[i].cloud) continue;   /* clouds are pure particles */
             int sx = (int)hpj[i].x - cam_x, sy = (int)hpj[i].y - cam_y;
             const uint16_t *bc = exh_col[cur_biome];
             px_add(fb, sx - 4, sy, bc[1]); px_add(fb, sx + 4, sy, bc[1]);
