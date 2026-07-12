@@ -1,16 +1,16 @@
 {
  "schema": 1,
- "generated": "2026-07-12T08:19:30+00:00",
+ "generated": "2026-07-12T09:00:51+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
    "id": "wormote",
    "name": "Wormote",
    "author": "austinio7116",
-   "version": "0.0.1",
+   "version": "0.0.2",
    "abi": 47,
-   "size": 78816,
-   "sha256": "00db5949c554bacef81bc9e51a00549ec76091d8c41d40f6d331d09a1424427c",
+   "size": 78904,
+   "sha256": "35ac528bfd6fafa649fadd04e0bfb5b20f45189f8c9d84406a62155876168e9d",
    "file": "games/Wormote.mote",
    "icon": "img/gallery/wormote-icon.png",
    "thumb": "img/gallery/wormote-1.png",
