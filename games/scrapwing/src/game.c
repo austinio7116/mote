@@ -3606,7 +3606,6 @@ static void g_overlay(uint16_t *fb) {
     }
 
     if (state == ST_FUSE) bench_overlay(fb);      /* panel first: demo FX draw over it */
-    if (state == ST_CATINFO) catinfo_overlay(fb);
 
     /* world-space pixel FX */
     for (int i = 0; i < MAXP; i++) {
@@ -3650,7 +3649,12 @@ static void g_overlay(uint16_t *fb) {
         }
     }
 
-    if (state == ST_FUSE || state == ST_CATINFO) return;   /* panel drew first; FX on top */
+    if (state == ST_CATINFO) {                   /* panel LAST: bullets stay BEHIND the
+                                                  * dimmed panes, bright only in the window */
+        catinfo_overlay(fb);
+        return;
+    }
+    if (state == ST_FUSE) return;                /* bench drew first; FX on top */
 
     if (state == ST_PLAY || state == ST_CLEAR) {
         if (b_drone > 0) {                           /* wingman mini-ship */
