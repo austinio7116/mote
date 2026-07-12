@@ -3,7 +3,19 @@
 A Terraria-style sandbox for the Thumby Color (Mote engine). Dig, build, craft,
 fight the Eye of Cthulhu. See `DESIGN.md` for the architecture.
 
-## Build & run
+## Run it — use Mote Studio (recommended)
+
+```bash
+./tools/mote studio
+```
+
+Open **TerraMote** from the game list and hit **Preview** — the game runs in
+the Studio with live hot-reload: edit `src/game.c` or any asset tab and **Save**
+to rebuild + relaunch instantly. The art lives in the Studio's tabs (Pixel Art
+for the sprite PNGs, Tiles for the autotile rulesets, Audio for the .sfx
+recipes), and Save auto-bakes the headers.
+
+CLI alternatives (mainly for headless/scripted testing):
 
 ```bash
 ./tools/mote run games/terramote          # host emulator (SDL)
