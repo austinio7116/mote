@@ -1,0 +1,10 @@
+# Mote SFX recipe
+wave 0
+freq 0.30 0 0 0
+duty 0.30 0
+vib 0 0
+env 0 0.012 0.05 0.035
+lpf 0.55 0 0.3
+hpf 0.12 0
+pha 0 0
+arp 0 0

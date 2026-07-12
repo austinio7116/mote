@@ -47,6 +47,8 @@
 #include "denied.sfx.h"
 #include "ready.sfx.h"
 #include "cash.sfx.h"
+#include "click.sfx.h"
+#include "ack.sfx.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -1978,7 +1980,7 @@ static void cmd_at(float wx, float wy){
         /* move marker */
         Part *p = part(PK_RING, wx, wy);
         if (p){ p->max = p->life = 0.35f; p->x2 = tgt != -1 ? 4 : 5; }
-        mote->audio_note(tgt != -1 ? 220 : 440, 0.2f);
+        sfx(&ack_sfx, tgt != -1 ? 0.5f : 0.4f, 7, 0.06f);
     }
 }
 static void select_at(float wx, float wy){
@@ -2003,7 +2005,7 @@ static void select_at(float wx, float wy){
         }
         lastsel_u = found; lastsel_t = gtime;
         bsel = -1;
-        mote->audio_note(660, 0.18f);
+        sfx(&click_sfx, 0.4f, 7, 0.05f);
         return;
     }
     /* own building? */
@@ -2012,7 +2014,7 @@ static void select_at(float wx, float wy){
         int bi = bmap[tidx(tx, ty)];
         if (bi != 0xFF && bl[bi].team == 0){
             desel(); bsel = bi;
-            mote->audio_note(520, 0.15f);
+            sfx(&click_sfx, 0.35f, 7, 0.05f);
             return;
         }
     }
@@ -2079,14 +2081,14 @@ static void input_play(float dt){
                 else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("PLACE READY BLDG FIRST"); }
             }
             else if (p->item == item && side_tab != Q_BLD){
-                if (p->more < 4){ p->more++; mote->audio_note(990, 0.18f); }  /* batch +1 */
+                if (p->more < 4){ p->more++; sfx(&click_sfx, 0.45f, 7, 0.05f); }  /* batch +1 */
                 else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE FULL"); }
             }
             else if (p->item >= 0){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE BUSY"); }
             else if (credits[0] < 20){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
             else {
                 p->item = item; p->prog = 0; p->spent = 0; p->ready = 0; p->more = 0; p->nagged = 0;
-                mote->audio_note(880, 0.2f);
+                sfx(&ack_sfx, 0.45f, 7, 0.06f);
             }
         }
         return;   /* dpad captured by sidebar */
@@ -2148,7 +2150,7 @@ static void input_play(float dt){
                     if (un[i].alive && un[i].team == 0
                         && un[i].x >= x0 - 2 && un[i].x <= x1 + 2 && un[i].y >= yy0 - 2 && un[i].y <= yy1 + 2)
                         { un[i].sel = 1; n++; }
-            if (n) mote->audio_note(660, 0.18f);
+            if (n) sfx(&click_sfx, 0.4f, 7, 0.05f);
         } else {
             /* tap: over own unit/building = select; else command selection */
             int own = 0;
@@ -2165,7 +2167,7 @@ static void input_play(float dt){
                 /* set rally for production buildings */
                 int bt = bl[bsel].type;
                 if (bt == B_BAR || bt == B_FACT || bt == B_PAD || bt == B_CON){
-                    if (tin(tx, ty)){ bl[bsel].rally = tidx(tx, ty); mote->audio_note(520, 0.15f); }
+                    if (tin(tx, ty)){ bl[bsel].rally = tidx(tx, ty); sfx(&click_sfx, 0.35f, 7, 0.05f); }
                 }
             }
         }
