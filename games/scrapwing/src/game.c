@@ -58,7 +58,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Scrapwing", "austinio7116");
-MOTE_GAME_VERSION("1.2.0");
+MOTE_GAME_VERSION("1.3.0");
 
 /* ------------------------------------------------------------------ world */
 #define TILE   8
