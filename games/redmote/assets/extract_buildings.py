@@ -136,16 +136,29 @@ sheet = Image.new("RGBA", (x, ROW_H * 2), (0, 0, 0, 0))
 for team in range(2):
     for (slot, anchor, fw, fh, maxh), sx in zip(SLOTS, xs):
         sp = crop_sprite(team, anchor)
+        # bleed sprite colours into the transparent surround so the downscale
+        # doesn't average the dark background into every edge (halo/mush)
+        arr = np.asarray(sp).copy()
+        alpha = arr[:, :, 3] > 0
+        ind = ndimage.distance_transform_edt(~alpha, return_distances=False,
+                                             return_indices=True)
+        arr[:, :, :3] = arr[:, :, :3][tuple(ind)]
+        sp = Image.fromarray(arr)
         tw = fw * 8
         th = max(1, round(sp.height * tw / sp.width))
         if th > maxh:
             th = maxh
             tw = max(1, round(sp.width * th / sp.height))
-        small = sp.resize((tw, th), Image.LANCZOS)
-        al = np.asarray(small)[:, :, 3]
-        px = np.asarray(small).copy()
-        px[:, :, 3] = np.where(al > 100, 255, 0)
-        small = Image.fromarray(px)
+        # two-stage: smooth to 3x, then NEAREST to final — keeps pixel-art crispness
+        mid = sp.resize((tw * 3, th * 3), Image.LANCZOS)
+        small = mid.resize((tw, th), Image.NEAREST)
+        px = np.asarray(small).astype(float)
+        a2 = px[:, :, 3]
+        rgb = px[:, :, :3]
+        rgb = np.clip((rgb - 128) * 1.28 + 140, 0, 255)   # restore contrast + lift
+        px[:, :, :3] = rgb
+        px[:, :, 3] = np.where(a2 > 110, 255, 0)
+        small = Image.fromarray(px.astype(np.uint8))
         ox = sx + (fw * 8 - tw) // 2
         oy = team * ROW_H + ROW_H - th          # anchor at slot bottom
         sheet.alpha_composite(small, (ox, oy))

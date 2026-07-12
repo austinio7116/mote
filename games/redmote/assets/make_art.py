@@ -279,26 +279,37 @@ def cw_fog(d, x0, y0, m, v):
 
 
 def cw_road(d, x0, y0, m, v):
-    """asphalt pad: dark warm tarmac, pale curb along open edges."""
-    base, curb, wear = (54, 51, 48), (82, 79, 76), (64, 60, 56)
-    rect(d, x0, y0, x0 + 7, y0 + 7, base)
+    """MUD DOUBLE TRACK: scattered dirt (grass shows through) with twin wheel
+    ruts running toward each connected side — reads as worn vehicle tracks,
+    not pavement."""
+    dirt, dirt2, rut = (104, 86, 56), (88, 72, 46), (62, 50, 34)
     r2 = cell_rng("rd", m, v)
-    for _ in range(5):
-        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), wear)
-    for _ in range(2):
-        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (44, 42, 40))
-    mn, me, ms, mw = sides(m)
-    if mn:
-        for x in range(8): px(d, x0 + x, y0, curb)
-    if ms:
-        for x in range(8): px(d, x0 + x, y0 + 7, (40, 38, 36))
-    if mw:
-        for y in range(8): px(d, x0, y0 + y, curb)
-    if me:
-        for y in range(8): px(d, x0 + 7, y0 + y, (40, 38, 36))
-    for (cx, cy, c1, c2) in ((0, 0, mn, mw), (7, 0, mn, me), (0, 7, ms, mw), (7, 7, ms, me)):
-        if c1 and c2:
-            d.point((x0 + cx, y0 + cy), fill=(0, 0, 0, 0))
+    mn, me, ms, mw = sides(m)   # True = OPEN side (no road there)
+    # patchy dirt bed, thinning to nothing at open sides
+    for y in range(8):
+        for x in range(8):
+            k = 0.75
+            if mn and y < 2: k *= 0.25
+            if ms and y > 5: k *= 0.25
+            if mw and x < 2: k *= 0.25
+            if me and x > 5: k *= 0.25
+            if r2.random() < k:
+                px(d, x0 + x, y0 + y, dirt if (x * 5 + y * 3 + v) % 3 else dirt2)
+    # twin ruts toward each CONNECTED side (ruts at offsets 2 and 5 from axis)
+    if m & NB_N:
+        for y in range(0, 4): px(d, x0 + 2, y0 + y, rut); px(d, x0 + 5, y0 + y, rut)
+    if m & NB_S:
+        for y in range(4, 8): px(d, x0 + 2, y0 + y, rut); px(d, x0 + 5, y0 + y, rut)
+    if m & NB_W:
+        for x in range(0, 4): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
+    if m & NB_E:
+        for x in range(4, 8): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
+    # isolated / dead-end cells still show a hint of track
+    if not (m & (NB_N | NB_S | NB_E | NB_W)):
+        for x in range(1, 7): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
+    # mud splatter along the ruts
+    for _ in range(3):
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (76, 62, 40))
 
 
 def make_autotiles():
