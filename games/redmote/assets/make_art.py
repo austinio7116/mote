@@ -194,6 +194,32 @@ def cw_rock(d, x0, y0, m, v):
                     px(d, x0 + x, y0 + y, c)
         return
 
+    ncard = (not mn) + (not me) + (not ms) + (not mw)   # open sides
+    if ncard <= 2:
+        # touching the solid interior: lay a massif backing that fades toward
+        # the opening, THEN scatter the usual boulders on top — blends into
+        # the centre without losing the soft rocky rim
+        for y in range(8):
+            for x in range(8):
+                sol = 8
+                if mn: sol = min(sol, y)
+                if ms: sol = min(sol, 7 - y)
+                if mw: sol = min(sol, x)
+                if me: sol = min(sol, 7 - x)
+                for (bit, ca, cb, cx2, cy2) in ((NB_NE, NB_N, NB_E, 7, 0), (NB_SE, NB_S, NB_E, 7, 7),
+                                                (NB_SW, NB_S, NB_W, 0, 7), (NB_NW, NB_N, NB_W, 0, 0)):
+                    if (m & ca) and (m & cb) and not (m & bit):
+                        sol = min(sol, max(abs(x - cx2), abs(y - cy2)) - 1)
+                if sol >= 3:
+                    b = (x + y + v * 3) % 7
+                    c = (92, 88, 96)
+                    if b == 0: c = (120, 116, 126)
+                    elif b == 4: c = (66, 62, 72)
+                    elif b == 5: c = (54, 50, 60)
+                    px(d, x0 + x, y0 + y, c)
+                elif sol == 2 and r2.random() < 0.7:
+                    px(d, x0 + x, y0 + y, (78, 74, 82))
+
     def stamp(tmpl, cx, cy):
         hh, ww = len(tmpl), len(tmpl[0])
         for yy in range(hh):
