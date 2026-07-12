@@ -1056,12 +1056,12 @@ static void kill_enemy(Enemy *e) {
             }
             drop_chip(e->x + 2, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_POWER);
         }
-        spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
-        spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
+        boom_style(6, e->x, e->y, e->boss ? 1.6f : 1.1f);
         sfx_at(&boom_big_sfx, e->boss ? 1.0f : 0.85f, e->x, e->y);
         mote->rumble(e->boss ? 1.0f : 0.7f, e->boss ? 400 : 220);
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0, 0);
+        boom_style(1, e->x, e->y, 0.55f);
         scrap += 4;
         if ((mote_rand() & 255) < 46) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
         sfx_at(&boom_small_sfx, 0.5f, e->x, e->y);
@@ -1076,7 +1076,7 @@ static void kill_enemy(Enemy *e) {
         if ((mote_rand() & 255) < 36) drop_chip(e->x, e->y, &e->wpn, CH_WEAPON);
         else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
         else if ((mote_rand() & 255) < 12) drop_chip(e->x, e->y, 0, CH_POWER);
-        spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
+        boom_style(1, e->x, e->y, 0.7f);
         sfx_at(&boom_small_sfx, 0.65f, e->x, e->y);
         mote->rumble(0.3f, 90);
     }
@@ -1918,18 +1918,6 @@ static void g_init(void) {
 static uint8_t dead_saved;                       /* flash write AFTER the end screen */
 static int dead_pbsec, dead_pbscrap;             /* bests before this run ended */
 
-/* one shell of the death fireball: hot core, flame, sinking debris */
-static void death_burst(float ox, float oy, int n, float sp) {
-    for (int k = 0; k < n; k++) {
-        float a = mote_randf(0, 6.28f), s = mote_randf(sp * 0.3f, sp);
-        uint16_t c = (k % 3 == 0) ? MOTE_RGB565(255, 245, 190)
-                   : (k & 1)      ? MOTE_RGB565(255, 165, 45)
-                                  : MOTE_RGB565(255, 75, 20);
-        spawn_part(px + ox, py + oy, cosf(a) * s, sinf(a) * s * 0.8f, c,
-                   mote_randf(0.3f, 0.85f), PF_ADD | (((k & 3) == 3) ? PF_GRAV : 0));
-    }
-}
-
 static void take_hit(float n) {
     if (g_god || b_ghost > 0 || invuln > 0 || state != ST_PLAY) return;
     if (shield_on) {                     /* the shield eats it */
@@ -1955,9 +1943,7 @@ static void take_hit(float n) {
                 ship_bw[cell], ship_bh[cell],
                 (int)(px - ship_bw[cell] / 2), (int)(py - ship_bh[cell] / 2),
                 facing < 0, pvx, pvy, 0);
-        spawn_ring(px, py, MOTE_RGB565(255, 160, 80));
-        spawn_ring(px, py, MOTE_RGB565(140, 220, 255));
-        death_burst(0, 0, 44, 190);
+        boom_style(6, px, py, 1.7f);
         mote->audio_play_sfx(&boom_big_sfx, 0.9f);
         mote->rumble(1.0f, 400);
         /* saves are DEFERRED to the end screen: a flash-sector erase here
@@ -2814,13 +2800,17 @@ static void parts_update(float dt) {
         if (crk[i].t > 0) continue;
         crk[i].on = 0;
         float cx = crk[i].x, cy = crk[i].y;
-        if (crk[i].kind == 0) {                      /* flak pop */
-            spawn_ring_ex(cx, cy, MOTE_RGB565(255, 240, 200), 5, 26, 0.09f, 1);
+        if (crk[i].kind == 0) {                      /* flak pop: fiery, each one different */
+            static const uint16_t fc[4] = { MOTE_RGB565(255, 200, 90),
+                                            MOTE_RGB565(255, 150, 40),
+                                            MOTE_RGB565(255, 110, 20),
+                                            MOTE_RGB565(240, 70, 15) };
+            spawn_ring_ex(cx, cy, fc[mote_rand() & 3], mote_randf(3.5f, 7.0f),
+                          26, mote_randf(0.07f, 0.13f), 1);
             for (int k = 0; k < 9; k++) {
                 float a = mote_randf(0, 6.28f), sp = mote_randf(50, 150);
                 spawn_part(cx, cy, cosf(a) * sp, sinf(a) * sp,
-                           (k & 1) ? MOTE_RGB565(255, 220, 120) : MOTE_RGB565(255, 150, 60),
-                           mote_randf(0.1f, 0.26f), PF_ADD | PF_DRAG);
+                           fc[mote_rand() & 3], mote_randf(0.1f, 0.26f), PF_ADD | PF_DRAG);
             }
         } else {                                     /* twinkle */
             spawn_ring_ex(cx, cy, MOTE_RGB565(255, 255, 255), 3, 14, 0.07f, 1);
@@ -3276,9 +3266,7 @@ static void g_update(float dt) {
         for (int k = 0; k < 4; k++)
             if (t0 <= boomt[k] && state_t > boomt[k]) {  /* secondary blasts */
                 float ox = mote_randf(-13, 13), oy = mote_randf(-11, 11);
-                death_burst(ox, oy, 26, 150);
-                spawn_ring(px + ox, py + oy, (k & 1) ? MOTE_RGB565(255, 170, 60)
-                                                     : MOTE_RGB565(255, 235, 200));
+                boom_style(1, px + ox, py + oy, 0.85f);
                 mote->audio_play_sfx(&boom_small_sfx, 0.5f);
                 mote->rumble(0.5f, 90);
             }
