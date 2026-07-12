@@ -2754,6 +2754,10 @@ static void g_update(float dt) {
         parts_update(dt);
         break; }
     case ST_CATALOG: {
+        bg_cam_x = (int)(bg_time * 24.0f);           /* drifting galaxy, no tiles */
+        bg_cam_y = 60;
+        cam_x = bg_cam_x; cam_y = bg_cam_y;
+        mote->scene2d_begin(bg_cam_x, bg_cam_y);
         int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
         int cols = cat_tab == 0 ? 7 : cat_tab == 1 ? 4 : 8;
         int nd = nav_dir(in, dt);                    /* hold to scroll fast */
@@ -2779,9 +2783,12 @@ static void g_update(float dt) {
             state = cat_from_title ? ST_TITLE : ST_LAB;
         if (mote_just_pressed(in, MOTE_BTN_MENU))
             state = cat_from_title ? ST_TITLE : ST_PLAY;
-        submit_scene();
         break; }
     case ST_CATINFO: {
+        bg_cam_x = (int)(bg_time * 24.0f);           /* drifting galaxy, no tiles */
+        bg_cam_y = 60;
+        cam_x = bg_cam_x; cam_y = bg_cam_y;
+        mote->scene2d_begin(bg_cam_x, bg_cam_y);
         int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
         const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
         int nd = nav_dir(in, dt);                    /* hold to skim found entries */
@@ -2866,7 +2873,6 @@ static void g_update(float dt) {
             for (int i = 0; i < MAXEB; i++) ebul[i].on = 0;
             state = cat_from_title ? ST_TITLE : ST_PLAY;
         }
-        submit_scene();
         break; }
     case ST_FUSE: {
         if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT) ||
@@ -3092,6 +3098,15 @@ static void hud(uint16_t *fb) {
     }
 }
 
+/* translucent window: quarter the brightness so the galaxy shows through */
+static void dim_rect(uint16_t *fb, int x, int y, int w, int h) {
+    for (int j = 0; j < h; j++) {
+        uint16_t *row = fb + (y + j) * MOTE_FB_W + x;
+        for (int i = 0; i < w; i++)
+            row[i] = (uint16_t)((row[i] >> 2) & 0x39E7);
+    }
+}
+
 /* stat bar. With ref >= 0 it compares against a parent value: the parent
  * amount is a grey ghost fill, anything GAINED on top of it glows bright
  * (a LOSS shows as a hollow dark-red stub). */
@@ -3224,7 +3239,8 @@ static const char *const biome_short[5] = { "CAVERN", "HIVE", "GLACIER", "SPOREP
 
 static void catalog_overlay(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(8, 10, 20), MOTE_RGB565(120, 150, 200));
+    dim_rect(fb, 0, 0, MOTE_FB_W, MOTE_FB_H);
+    mote->draw_rect(fb, 1, 1, 126, 126, MOTE_RGB565(120, 150, 200), 0, 0, MOTE_FB_H);
     int n = cat_tab == 0 ? SHIP_COUNT : cat_tab == 1 ? BOSS_COUNT : PAT_N * EL_N;
     int cols = cat_tab == 0 ? 7 : cat_tab == 1 ? 4 : 8;
     int rows = cat_tab == 0 ? 5 : cat_tab == 1 ? 3 : 6;
@@ -3347,10 +3363,31 @@ static const uint16_t biome_col[5] = {
 
 static void catinfo_overlay(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote_ui_panel(fb, 1, 1, 126, 126, MOTE_RGB565(8, 10, 20), MOTE_RGB565(120, 150, 200));
     const uint8_t *bits = cat_tab == 0 ? cat_ship : cat_tab == 1 ? cat_boss : cat_wpn;
     int found = bit_get(bits, cat_cur);
     char nm[24], ln[40];
+    int sy = cat_tab == 2 ? 58 : 70, sh = 106 - sy + 2;
+
+    /* the boss, FULL RESOLUTION, lurking in from the right — big ones spill
+     * off-screen and slide under the darkened panels */
+    if (found && cat_tab == 1) {
+        int bw = boss_fw[cat_cur], bh = boss_fh[cat_cur];
+        int peek = bw * 2 / 3;
+        if (peek > 76) peek = 76;
+        peek += (int)(sinf(bg_time * 0.7f) * 4.0f);
+        mote->blit(fb, &bosses_img, MOTE_FB_W - peek, sy + sh / 2 - bh / 2,
+                   boss_fx[cat_cur], boss_fy[cat_cur], bw, bh,
+                   MOTE_SPR_HFLIP, 0, MOTE_FB_H);
+    }
+    /* darken everything EXCEPT the live-fire window */
+    if (found) {
+        dim_rect(fb, 0, 0, MOTE_FB_W, sy);
+        dim_rect(fb, 0, sy + sh, MOTE_FB_W, MOTE_FB_H - sy - sh);
+        dim_rect(fb, 0, sy, 3, sh);
+        dim_rect(fb, 125, sy, 3, sh);
+    } else
+        dim_rect(fb, 0, 0, MOTE_FB_W, MOTE_FB_H);
+    mote->draw_rect(fb, 1, 1, 126, 126, MOTE_RGB565(120, 150, 200), 0, 0, MOTE_FB_H);
 
     /* header: name + (ships) biome tag, over a rule line */
     if (cat_tab == 0 && cat_cur == PLAYER_SHIP) snprintf(nm, sizeof nm, "SCRAPWING");
@@ -3430,7 +3467,7 @@ static void catinfo_overlay(uint16_t *fb) {
         uint16_t bc = elem_col[g.elem][1];
         mote->text_font(fb, f, "DMG", 48, 15, MOTE_RGB565(190, 200, 225));
         stat_bar(fb, 76, 18, 48, gene_dmg(&g), DMG_MAX, bc, -1);
-        mote->text_font(fb, f, "RPS", 48, 27, MOTE_RGB565(190, 200, 225));
+        mote->text_font(fb, f, "RATE", 48, 27, MOTE_RGB565(190, 200, 225));
         stat_bar(fb, 76, 30, 48, gene_rate(&g), RPS_MAX, bc, -1);
         mote->text_font(fb, f, "SPD", 48, 39, MOTE_RGB565(190, 200, 225));
         stat_bar(fb, 76, 42, 48, pat_spd[g.pat], SPD_MAX, bc, -1);
@@ -3448,10 +3485,8 @@ static void catinfo_overlay(uint16_t *fb) {
             mote->draw_rect(fb, 58 + k * 11, 58, 9, 7, c, 1, 0, MOTE_FB_H);
         }
     }
-    /* live-fire strip */
-    int sy = cat_tab == 2 ? 58 : 70;
-    mote->draw_rect(fb, 3, sy, 122, 106 - sy + 2, MOTE_RGB565(4, 6, 12), 1, 0, MOTE_FB_H);
-    mote->draw_rect(fb, 3, sy, 122, 106 - sy + 2, MOTE_RGB565(70, 95, 140), 0, 0, MOTE_FB_H);
+    /* live-fire window: a CLEAR opening onto space — just the frame */
+    mote->draw_rect(fb, 3, sy, 122, sh, MOTE_RGB565(70, 95, 140), 0, 0, MOTE_FB_H);
     if (cat_tab == 2)
         mote->blit(fb, &ships_img, 18, 74,
                    (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
@@ -3459,12 +3494,6 @@ static void catinfo_overlay(uint16_t *fb) {
     else if (cat_tab == 0)
         mote->blit(fb, &ships_img, 94, 80, (cat_cur % SHIP_COLS) * SHIP_CELL,
                    (cat_cur / SHIP_COLS) * SHIP_CELL, 16, 16, MOTE_SPR_HFLIP, 0, MOTE_FB_H);
-    else {
-        float sc = 30.0f / (boss_fw[cat_cur] > boss_fh[cat_cur] ? boss_fw[cat_cur] : boss_fh[cat_cur]);
-        if (sc > 1) sc = 1;
-        mote->blit_ex(fb, &bosses_img, 102, 88, boss_fx[cat_cur], boss_fy[cat_cur],
-                      boss_fw[cat_cur], boss_fh[cat_cur], 0, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
-    }
 
     mote->text_font(fb, f, "< > NEXT   B BACK", 4, 112, MOTE_RGB565(150, 160, 190));
     {
@@ -3638,7 +3667,7 @@ static void g_overlay(uint16_t *fb) {
         }
     }
 
-    hud(fb);
+    if (state != ST_CATALOG) hud(fb);            /* the dim panel is translucent */
     if (state == ST_PLAY) notif_overlay(fb);
 
     if (state == ST_LAB) lab_overlay(fb);
