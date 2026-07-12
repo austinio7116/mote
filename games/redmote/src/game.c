@@ -56,7 +56,7 @@
 #include <stdio.h>
 
 MOTE_GAME_MODULE();
-MOTE_GAME_META("Red Mote", "austinio7116");
+MOTE_GAME_META("RedMote", "austinio7116");
 MOTE_GAME_VERSION("0.9.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
@@ -242,8 +242,64 @@ typedef struct {
 static Part pt[MAXPT];
 
 /* =============================================================== state */
-enum { ST_TITLE, ST_PLAY, ST_WIN, ST_LOSE };
+enum { ST_TITLE, ST_PLAY, ST_WIN, ST_LOSE, ST_MISSIONS, ST_SKIRMOPT, ST_INTRO };
 static int state = ST_TITLE;
+
+/* ------- game-mode modifiers (set by mission_setup / skirmish_setup) ------- */
+static int gm_mission = -1;          /* -1 = skirmish */
+static uint8_t m_player_build = 1;   /* LB build menu allowed */
+static uint8_t m_ai_prod = 1, m_ai_income = 1;
+static uint16_t m_tech[2];           /* allowed building types per team */
+static int m_wave0 = 150, m_wavestep = 25, m_wavecap = 6;
+static int camp_prog;                /* missions completed */
+static int menu_row, sk_row;
+static int sk_army = 1, sk_base = 0, sk_funds = 1;
+
+#define TECH_ALL  ((1u << NBTYPES) - 1)
+#define TB(t)     (1u << (t))
+#define TECH_T1   (TB(B_CON)|TB(B_POW)|TB(B_REF)|TB(B_BAR)|TB(B_PILL))
+#define TECH_T2   (TECH_T1|TB(B_FACT)|TB(B_TUR))
+#define TECH_T3   (TECH_T2|TB(B_RADAR))
+
+/* base levels for setup_base(): lists end at 0xFF */
+enum { BL_NONE, BL_CON, BL_BASIC, BL_FULL, BL_OUTPOST, BL_FORT };
+static const uint8_t BASE_LISTS[6][16] = {
+    { 0xFF },
+    { B_CON, 0xFF },
+    { B_CON, B_POW, B_REF, B_BAR, B_PILL, 0xFF },
+    { B_CON, B_POW, B_POW, B_POW, B_REF, B_REF, B_BAR, B_FACT, B_RADAR, B_PAD,
+      B_TECH, B_PILL, B_PILL, B_TUR, B_COIL, 0xFF },
+    { B_POW, B_BAR, B_PILL, B_PILL, 0xFF },
+    { B_CON, B_POW, B_POW, B_BAR, B_FACT, B_PILL, B_PILL, B_TUR, B_TUR, B_COIL, 0xFF },
+};
+enum { AR_NONE, AR_SQUAD, AR_FORCE, AR_HORDE };
+
+typedef struct {
+    const char *name, *b1, *b2;
+    uint8_t p_base, p_army; int p_funds; uint16_t p_tech; uint8_t p_build;
+    uint8_t a_base, a_army; int a_funds; uint16_t a_tech;
+    uint8_t a_prod, a_income; int wave0, wavestep, wavecap;
+} Mission;
+static const Mission MISSIONS[9] = {
+    { "FIRST BLOOD", "No base. Lead your force.", "Raze their outpost.",
+      BL_NONE, AR_FORCE, 0, 0, 0,  BL_OUTPOST, AR_SQUAD, 0, 0, 0, 0, 0, 0, 0 },
+    { "FOOTHOLD", "Build POWER + REFINERY.", "Fund a strike force.",
+      BL_CON, AR_SQUAD, 1200, TECH_T1, 1,  BL_OUTPOST, AR_SQUAD, 0, 0, 0, 0, 0, 0, 0 },
+    { "HOLD THE LINE", "Raids inbound. Dig in", "with PILLS, then hit back.",
+      BL_BASIC, AR_SQUAD, 4000, TECH_T1, 1,  BL_BASIC, AR_SQUAD, 2500, TECH_T1, 1, 1, 45, 50, 3 },
+    { "IRON FIST", "Enemy armour. Build a", "FACTORY. Answer in kind.",
+      BL_BASIC, AR_SQUAD, 6000, TECH_T2, 1,  BL_FORT, AR_FORCE, 4000, TECH_T2, 1, 1, 100, 45, 5 },
+    { "DARK TERRITORY", "3 outposts hide in fog.", "RADAR finds them all.",
+      BL_BASIC, AR_FORCE, 6000, TECH_T3, 1,  BL_NONE, AR_NONE, 0, 0, 0, 0, 0, 0, 0 },
+    { "CRYSTAL WAR", "Rich crystal mid-map.", "Guard your harvesters.",
+      BL_BASIC, AR_SQUAD, 5000, TECH_T3|TB(B_PAD), 1,  BL_FULL, AR_FORCE, 6000, TECH_ALL, 1, 1, 120, 30, 6 },
+    { "SIEGE", "A fortress of guns.", "ARTY cracks it open.",
+      BL_BASIC, AR_FORCE, 9000, TECH_ALL, 1,  BL_FORT, AR_FORCE, 3000, TECH_T2, 1, 0, 0, 0, 0 },
+    { "THUNDERBIRDS", "Water guards their shore.", "GUNSHIPS answer to none.",
+      BL_FULL, AR_SQUAD, 8000, TECH_ALL, 1,  BL_FULL, AR_FORCE, 6000, TECH_ALL, 1, 1, 140, 30, 5 },
+    { "RED DAWN", "All they have, against", "all you know. End it.",
+      BL_CON, AR_SQUAD, 8000, TECH_ALL, 1,  BL_FULL, AR_FORCE, 9000, TECH_ALL, 1, 1, 110, 18, 8 },
+};
 static float camx, camy;
 static float curx = 64, cury = 64;      /* cursor, screen px */
 static int credits[2];
@@ -1205,6 +1261,7 @@ static const char *QNAME[NQ] = { "BUILD", "INFANTRY", "VEHICLES", "AIRCRAFT" };
 static int item_cost(int q, int item){ return q == Q_BLD ? BD[item].cost : UD[item].cost; }
 static int item_avail(int team, int q, int item){
     uint16_t need = q == Q_BLD ? BD[item].prereq : UPREREQ[item];
+    if (q == Q_BLD && !((m_tech[team] >> item) & 1)) return 0;
     return (owned[team] & need) == need;
 }
 /* find an exit spot near a production building and spawn */
@@ -1280,25 +1337,61 @@ static void queue_tick(int team, float dt){
 /* ============================================================== AI */
 static float ai_t, ai_wave_t;
 static int ai_wave_n;
-static void ai_place(int type){
+static int place_auto(int type, int team){
     /* spiral around the conyard (or any building) for a legal spot */
     int cx = 0, cy = 0, n = 0;
-    for (int i = 0; i < MAXB; i++) if (bl[i].alive && bl[i].team == 1 && bl[i].type == B_CON){
+    for (int i = 0; i < MAXB; i++) if (bl[i].alive && bl[i].team == team && bl[i].type == B_CON){
         cx = bl[i].tx; cy = bl[i].ty; n = 1; break;
     }
     if (!n){
-        for (int i = 0; i < MAXB; i++) if (bl[i].alive && bl[i].team == 1){ cx = bl[i].tx; cy = bl[i].ty; n = 1; break; }
-        if (!n) return;
+        for (int i = 0; i < MAXB; i++) if (bl[i].alive && bl[i].team == team){ cx = bl[i].tx; cy = bl[i].ty; n = 1; break; }
+        if (!n) return 0;
     }
     for (int r = 2; r < 16; r++){
         int a0 = rndn(8);
         for (int k = 0; k < 24; k++){
             float a = (a0 + k) * (2 * PI / 24);
             int tx = cx + (int)(cosf(a) * r), ty = cy + (int)(sinf(a) * r);
-            if (can_place(type, 1, tx, ty)){
-                place_bldg(type, 1, tx, ty);
-                return;
+            if (can_place(type, team, tx, ty)){
+                place_bldg(type, team, tx, ty);
+                return 1;
             }
+        }
+    }
+    return 0;
+}
+static void ai_place(int type){ place_auto(type, 1); }
+
+/* mission/skirmish scaffolding: pre-built bases + starting armies */
+static void setup_base(int team, int lvl){
+    const uint8_t *L = BASE_LISTS[lvl];
+    int bx = base_t[team] % MW, by = base_t[team] / MW;
+    for (int i = 0; L[i] != 0xFF; i++){
+        int placed = 0;
+        if (i > 0) placed = place_auto(L[i], team);
+        if (!placed) place_bldg(L[i], team, bx + (i ? (i % 3) * 4 - 4 : 0),
+                                by + (i ? (i / 3) * 3 : 0));
+    }
+    recalc_power(team);
+}
+static void setup_army(int team, int size){
+    static const uint8_t SQUAD[] = { U_RIFLE, U_RIFLE, U_RIFLE, U_ROCK, U_FLAME, U_LTANK };
+    static const uint8_t FORCE[] = { U_RIFLE, U_RIFLE, U_RIFLE, U_ROCK, U_ROCK, U_FLAME,
+                                     U_LTANK, U_LTANK, U_HTANK, U_ARTY, U_RIFLE, U_FLAME };
+    static const uint8_t HORDE[] = { U_RIFLE, U_RIFLE, U_RIFLE, U_RIFLE, U_ROCK, U_ROCK,
+                                     U_FLAME, U_FLAME, U_LTANK, U_LTANK, U_LTANK, U_HTANK,
+                                     U_HTANK, U_ARTY, U_ARTY, U_TESLA, U_HELI, U_HELI,
+                                     U_RIFLE, U_ROCK, U_LTANK, U_HTANK };
+    const uint8_t *L = size == AR_SQUAD ? SQUAD : size == AR_FORCE ? FORCE : HORDE;
+    int n = size == AR_SQUAD ? 6 : size == AR_FORCE ? 12 : 22;
+    if (size == AR_NONE) return;
+    int bx = base_t[team] % MW, by = base_t[team] / MW;
+    for (int i = 0; i < n; i++){
+        for (int tries = 0; tries < 60; tries++){
+            int tx = bx + rndn(17) - 8 + 1, ty = by + rndn(17) - 8 + 1;
+            if (!walkxy(tx, ty)) continue;
+            spawn_unit(L[i], team, tx * TILE + 4, ty * TILE + 4);
+            break;
         }
     }
 }
@@ -1313,7 +1406,7 @@ static int ai_count_u(int type){
     return n;
 }
 static void ai_think(void){
-    credits[1] += DIFF_TRICKLE[diff];          /* difficulty-scaled pressure */
+    if (m_ai_income) credits[1] += DIFF_TRICKLE[diff];   /* difficulty-scaled pressure */
     /* -- build order: first unmet desire (prereq + funds) */
     static const struct { uint8_t type, want; } BO[] = {
         { B_POW, 1 }, { B_REF, 1 }, { B_BAR, 1 }, { B_POW, 2 }, { B_FACT, 1 },
@@ -1322,10 +1415,12 @@ static void ai_think(void){
         { B_TUR, 2 }, { B_POW, 5 }, { B_COIL, 2 },
     };
     PQueue *pb = &pq[1][Q_BLD];
+    if (!m_ai_prod) goto waves;
     if (pb->ready){ ai_place(q_head(pb)); q_pop(pb); }
     else if (q_head(pb) < 0){
         for (unsigned i = 0; i < sizeof BO / sizeof BO[0]; i++){
             if (ai_count_b(BO[i].type) >= BO[i].want) continue;
+            if (!((m_tech[1] >> BO[i].type) & 1)) continue;
             if (!item_avail(1, Q_BLD, BO[i].type)) break;
             if (!power_ok(1) && BD[BO[i].type].power < 0 && BO[i].type != B_POW){
                 q_push(pb, B_POW); break;
@@ -1365,19 +1460,21 @@ static void ai_think(void){
     }
 
     /* -- attack waves */
+waves:;
     int army = 0;
     for (int i = 0; i < MAXU; i++)
         if (un[i].alive && un[i].team == 1 && un[i].type != U_HARV && UD[un[i].type].weapon) army++;
     ai_wave_t += 1;
-    float due = DIFF_WAVE0[diff] + ai_wave_n * DIFF_WAVES[diff];
-    if ((ai_wave_t > due && army >= 6) || (ai_wave_n > 0 && army >= 14 + ai_wave_n * 4)){
+    if (!m_wavecap) return;                     /* defensive AI: never attacks */
+    float due = m_wave0 + ai_wave_n * m_wavestep;
+    if ((ai_wave_t > due && army >= 3) || (ai_wave_n > 0 && army >= 14 + ai_wave_n * 4)){
         ai_wave_t = 0; ai_wave_n++;
         int tgt = -1;
         int b = acquire_bldg(1, WPX * 0.85f, WPX * 0.15f, 1e6f);
         if (b >= 0) tgt = -(b + 2);
         if (tgt != -1){
             int sent = 0, keep = 2 + ai_wave_n / 2;
-            int cap = DIFF_WAVECAP[diff] + 2 * (ai_wave_n - 1);   /* waves stay human-sized */
+            int cap = m_wavecap + 2 * (ai_wave_n - 1);   /* waves stay human-sized */
             for (int i = 0; i < MAXU && sent < cap; i++){
                 Unit *u = &un[i];
                 if (!u->alive || u->team != 1 || u->type == U_HARV || !UD[u->type].weapon) continue;
@@ -1893,15 +1990,80 @@ static void g_overlay(uint16_t *fb){
     char buf[40];
     if (state == ST_TITLE){
         mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
-        mote->text_font(fb, fl, "RED MOTE", 22, 22, MOTE_RGB565(230, 60, 40));
-        mote->text_font(fb, f, "tiny-scale RTS", 30, 44, MOTE_RGB565(200, 200, 210));
-        char db[24];
-        snprintf(db, sizeof db, "< %s >", DIFF_NAME[diff]);
-        mote->text_font(fb, f, db, 64 - (int)strlen(db) * 3, 62, MOTE_RGB565(240, 220, 120));
-        if ((framec >> 4) & 1)
-            mote->text_font(fb, f, "A - DEPLOY", 36, 80, MOTE_RGB565(120, 255, 120));
+        mote->text_font(fb, fl, "RED MOTE", 22, 16, MOTE_RGB565(230, 60, 40));
+        mote->text_font(fb, f, "tiny-scale RTS", 30, 38, MOTE_RGB565(200, 200, 210));
+        for (int r = 0; r < 2; r++){
+            const char *lbl = r == 0 ? "CAMPAIGN" : "SKIRMISH";
+            uint16_t c = r == menu_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(140, 140, 155);
+            if (r == menu_row)
+                mote->draw_rect(fb, 30, 60 + r * 16 - 1, 68, 14, MOTE_RGB565(46, 46, 66), 1, 0, 128);
+            mote->text_font(fb, f, lbl, 64 - (int)strlen(lbl) * 4, 60 + r * 16, c);
+        }
         mote->text(fb, "LB BUILD   RB RADAR MAP", 0, 106, MOTE_RGB565(150, 150, 165));
         mote->text(fb, "A SELECT+ORDER  B CANCEL", 0, 116, MOTE_RGB565(150, 150, 165));
+        return;
+    }
+    if (state == ST_MISSIONS){
+        mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
+        mote->text_font(fb, f, "CAMPAIGN", 3, -1, MOTE_RGB565(240, 220, 120));
+        char nb[8]; snprintf(nb, sizeof nb, "%d/9", camp_prog > 9 ? 9 : camp_prog);
+        mote->text_font(fb, f, nb, 106, -1, MOTE_RGB565(140, 140, 155));
+        for (int i = 0; i < 9; i++){
+            int y = 13 + i * 11;
+            int open2 = i <= camp_prog;
+            uint16_t c = !open2 ? MOTE_RGB565(80, 80, 90)
+                        : i == sk_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(190, 190, 205);
+            if (i == sk_row)
+                mote->draw_rect(fb, 1, y - 1, 126, 11, MOTE_RGB565(40, 40, 60), 1, 0, 128);
+            char row[32];
+            snprintf(row, sizeof row, "%d %s", i + 1, MISSIONS[i].name);
+            mote->text_font(fb, f, row, 5, y - 1, c);
+            if (i < camp_prog) mote->text(fb, "*", 118, y + 1, MOTE_RGB565(120, 255, 120));
+            else if (!open2) mote->text(fb, "-", 118, y + 1, MOTE_RGB565(80, 80, 90));
+        }
+        mote->draw_rect(fb, 0, 112, 128, 16, MOTE_RGB565(14, 14, 20), 1, 0, 128);
+        mote->text(fb, MISSIONS[sk_row].b1, 2, 113, MOTE_RGB565(170, 170, 185));
+        mote->text(fb, MISSIONS[sk_row].b2, 2, 121, MOTE_RGB565(170, 170, 185));
+        return;
+    }
+    if (state == ST_SKIRMOPT){
+        mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
+        mote->text_font(fb, f, "SKIRMISH", 3, -1, MOTE_RGB565(240, 220, 120));
+        static const char *ARMYN[4] = { "NONE", "SQUAD", "FORCE", "HORDE" };
+        static const char *BASEN[3] = { "CONYARD", "BASIC", "FULL" };
+        static const char *FUNDN[3] = { "$3000", "$8000", "$20000" };
+        const char *vals[4] = { ARMYN[sk_army], BASEN[sk_base], FUNDN[sk_funds], DIFF_NAME[diff] };
+        static const char *labs[4] = { "ARMY", "BASE", "FUNDS", "ENEMY" };
+        for (int r = 0; r < 4; r++){
+            int y = 22 + r * 16;
+            uint16_t c = r == sk_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(170, 170, 185);
+            if (r == sk_row)
+                mote->draw_rect(fb, 1, y - 2, 126, 15, MOTE_RGB565(40, 40, 60), 1, 0, 128);
+            mote->text_font(fb, f, labs[r], 6, y, c);
+            char vb[20]; snprintf(vb, sizeof vb, "< %s >", vals[r]);
+            mote->text_font(fb, f, vb, 122 - (int)strlen(vb) * 7, y, MOTE_RGB565(240, 220, 120));
+        }
+        {
+            int y = 92;
+            if (sk_row == 4)
+                mote->draw_rect(fb, 34, y - 2, 60, 15, MOTE_RGB565(46, 66, 46), 1, 0, 128);
+            mote->text_font(fb, f, "START", 47, y,
+                            sk_row == 4 ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(170, 170, 185));
+        }
+        mote->text(fb, "BOTH SIDES GET THE SETUP", 2, 118, MOTE_RGB565(120, 120, 135));
+        return;
+    }
+    if (state == ST_INTRO && gm_mission >= 0){
+        mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
+        char mb[24]; snprintf(mb, sizeof mb, "MISSION %d", gm_mission + 1);
+        mote->text_font(fb, f, mb, 3, -1, MOTE_RGB565(140, 140, 155));
+        mote->text_font(fb, fl, MISSIONS[gm_mission].name, 4, 24, MOTE_RGB565(230, 60, 40));
+        mote->text(fb, MISSIONS[gm_mission].b1, 3, 52, MOTE_RGB565(200, 200, 210));
+        mote->text(fb, MISSIONS[gm_mission].b2, 3, 62, MOTE_RGB565(200, 200, 210));
+        if (!MISSIONS[gm_mission].p_build)
+            mote->text(fb, "NO BUILDING THIS MISSION", 3, 80, MOTE_RGB565(240, 220, 120));
+        if ((framec >> 4) & 1)
+            mote->text_font(fb, f, "A - BEGIN", 34, 100, MOTE_RGB565(120, 255, 120));
         return;
     }
     if (state == ST_WIN || state == ST_LOSE){
@@ -1910,7 +2072,9 @@ static void g_overlay(uint16_t *fb){
             mote->draw_rect(fb, 14, 40, 100, 46, MOTE_RGB565(120, 120, 140), 0, 0, 128);
             mote->text_font(fb, fl, state == ST_WIN ? "VICTORY" : "DEFEATED", 26, 46,
                             state == ST_WIN ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(255, 80, 60));
-            mote->text_font(fb, f, "A restart  B quit", 24, 68, MOTE_RGB565(200, 200, 210));
+            const char *nxt = (state == ST_WIN && gm_mission >= 0 && gm_mission < 8)
+                              ? "A next mission  B quit" : "A menu  B quit";
+            mote->text_font(fb, f, nxt, 64 - (int)strlen(nxt) * 3, 68, MOTE_RGB565(200, 200, 210));
         }
         /* keep drawing the HUD below the banner */
     }
@@ -2121,7 +2285,10 @@ static void input_play(float dt){
     }
 
     /* LB: sidebar (opens on the ready-to-place building if there is one) */
-    if (mote_just_pressed(in, MOTE_BTN_LB)){
+    if (mote_just_pressed(in, MOTE_BTN_LB) && !m_player_build){
+        toastf("NO BASE - COMMAND YOUR TROOPS");
+    }
+    else if (mote_just_pressed(in, MOTE_BTN_LB)){
         if (placing >= 0){ placing = -1; }
         if (!side_open){
             side_open = 1; side_tab = Q_BLD; side_row = 0;
@@ -2255,20 +2422,10 @@ static void world_init(void){
     ai_t = 0; ai_wave_t = 0; ai_wave_n = 0;
     side_open = 0; placing = -1; a_mode = 0; bsel = -1; rb_t = 0;
     toast_t = 0; atk_warn_t = 0; endt = 0;
-    for (int team = 0; team < 2; team++){
-        int bx = base_t[team] % MW, by = base_t[team] / MW;
-        place_bldg(B_CON, team, bx, by);
-        /* starting force */
-        for (int i = 0; i < 3; i++)
-            spawn_unit(U_RIFLE, team, (bx + 4) * TILE + i * 9, (by + 3) * TILE + 12);
-        spawn_unit(U_LTANK, team, (bx - 1) * TILE, (by + 1) * TILE);
-        recalc_power(team);
-    }
     camx = base_t[0] % MW * TILE - 48; camy = base_t[0] / MW * TILE - 56;
     if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
     if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
     curx = 64; cury = 64;
-    fog_update();
 
     if (hk_battle){
         /* two armies clashing mid-map, for FX verification */
@@ -2293,6 +2450,67 @@ static void world_init(void){
     }
 }
 
+static const int SK_FUNDS[3] = { 3000, 8000, 20000 };
+static void skirmish_setup(void){
+    gm_mission = -1;
+    world_init();
+    m_player_build = 1; m_ai_prod = 1; m_ai_income = 1;
+    m_tech[0] = m_tech[1] = TECH_ALL;
+    m_wave0 = DIFF_WAVE0[diff]; m_wavestep = DIFF_WAVES[diff]; m_wavecap = DIFF_WAVECAP[diff];
+    credits[0] = credits[1] = SK_FUNDS[sk_funds];
+    for (int team = 0; team < 2; team++){
+        setup_base(team, sk_base == 0 ? BL_CON : sk_base == 1 ? BL_BASIC : BL_FULL);
+        setup_army(team, sk_army);
+    }
+    fog_update();
+}
+
+static void mission_setup(int m){
+    gm_mission = m;
+    const Mission *ms = &MISSIONS[m];
+    diff = 1;
+    world_init();
+    m_player_build = ms->p_build;
+    m_ai_prod = ms->a_prod; m_ai_income = ms->a_income;
+    m_tech[0] = ms->p_tech; m_tech[1] = ms->a_tech;
+    m_wave0 = ms->wave0; m_wavestep = ms->wavestep; m_wavecap = ms->wavecap;
+    credits[0] = ms->p_funds; credits[1] = ms->a_funds;
+    setup_base(0, ms->p_base);
+    setup_base(1, ms->a_base);
+    setup_army(0, ms->p_army);
+    setup_army(1, ms->a_army);
+    switch (m){
+    case 4: {   /* DARK TERRITORY: three hidden outposts instead of one base */
+        static const uint8_t SPOT[3][2] = { {80, 14}, {78, 70}, {40, 20} };
+        for (int k = 0; k < 3; k++){
+            int bx = SPOT[k][0], by = SPOT[k][1];
+            place_bldg(B_POW, 1, bx, by);
+            place_bldg(B_BAR, 1, bx + 3, by);
+            place_bldg(B_PILL, 1, bx - 1, by + 3);
+            for (int i = 0; i < 3; i++)
+                spawn_unit(i ? U_RIFLE : U_LTANK, 1, (bx + 1 + i * 2) * TILE, (by + 4) * TILE);
+        }
+        recalc_power(1);
+        break; }
+    case 5:     /* CRYSTAL WAR: much richer centre */
+        ore_field(48, 48, 70, T_CRYS);
+        ore_field(44, 52, 30, T_CRYS);
+        break;
+    case 7: {   /* THUNDERBIRDS: a water moat guards the enemy shore */
+        for (int y = 0; y < MH; y++)
+            for (int x = 0; x < MW; x++){
+                int dsh = x + (MH - y);   /* diagonal band between the bases */
+                if (dsh > 118 && dsh < 128 && !near_base(x, y, 14)){
+                    int t = tidx(x, y);
+                    if (bmap[t] == 0xFF){ terr[t] = T_WATER; orea[t] = 0; }
+                }
+            }
+        wepoch++;
+        break; }
+    }
+    fog_update();
+}
+
 /* ============================================================== update */
 static void g_update(float dt){
     if (dt > 0.05f) dt = 0.05f;
@@ -2306,20 +2524,61 @@ static void g_update(float dt){
     if (!booted){
         booted = 1;
         mote->set_fps_limit(60);
-        if (hk_auto || hk_battle){ world_init(); state = ST_PLAY; }
+        if (hk_battle){
+            world_init();
+            m_player_build = 1; m_ai_prod = 1; m_ai_income = 1;
+            m_tech[0] = m_tech[1] = TECH_ALL;
+            state = ST_PLAY;
+        } else if (hk_auto){ skirmish_setup(); state = ST_PLAY; }
     }
 
     switch (state){
     case ST_TITLE:
-        if (mote_just_pressed(in, MOTE_BTN_LEFT))  diff = (diff + 2) % 3;
-        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) diff = (diff + 1) % 3;
-        if (mote_just_pressed(in, MOTE_BTN_A)){ world_init(); state = ST_PLAY; }
+        if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN))
+            menu_row ^= 1;
+        if (mote_just_pressed(in, MOTE_BTN_A)){
+            if (menu_row == 0){ state = ST_MISSIONS; sk_row = 0; }
+            else { state = ST_SKIRMOPT; sk_row = 0; }
+        }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
+        return;
+    case ST_MISSIONS: {
+        if (mote_just_pressed(in, MOTE_BTN_UP)) sk_row = (sk_row + 8) % 9;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) sk_row = (sk_row + 1) % 9;
+        if (mote_just_pressed(in, MOTE_BTN_A)){
+            if (sk_row <= camp_prog){ mission_setup(sk_row); state = ST_INTRO; }
+            else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("LOCKED"); }
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B)) state = ST_TITLE;
+        return; }
+    case ST_SKIRMOPT: {
+        if (mote_just_pressed(in, MOTE_BTN_UP)) sk_row = (sk_row + 4) % 5;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) sk_row = (sk_row + 1) % 5;
+        int dir = mote_just_pressed(in, MOTE_BTN_RIGHT) ? 1
+                : mote_just_pressed(in, MOTE_BTN_LEFT) ? -1 : 0;
+        if (dir){
+            if (sk_row == 0) sk_army = (sk_army + 4 + dir) % 4;
+            if (sk_row == 1) sk_base = (sk_base + 3 + dir) % 3;
+            if (sk_row == 2) sk_funds = (sk_funds + 3 + dir) % 3;
+            if (sk_row == 3) diff = (diff + 3 + dir) % 3;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_A) && sk_row == 4){
+            skirmish_setup(); state = ST_PLAY;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B)) state = ST_TITLE;
+        return; }
+    case ST_INTRO:
+        if (mote_just_pressed(in, MOTE_BTN_A)) state = ST_PLAY;
+        if (mote_just_pressed(in, MOTE_BTN_B)) state = ST_MISSIONS;
         return;
     case ST_WIN: case ST_LOSE:
         endt += dt;
         if (endt > 1.0f){
-            if (mote_just_pressed(in, MOTE_BTN_A)){ state = ST_TITLE; }
+            if (mote_just_pressed(in, MOTE_BTN_A)){
+                if (state == ST_WIN && gm_mission >= 0 && gm_mission < 8){
+                    mission_setup(gm_mission + 1); state = ST_INTRO;
+                } else state = ST_TITLE;
+            }
             if (mote_just_pressed(in, MOTE_BTN_B)) mote->exit_to_launcher();
         }
         /* battle keeps simulating below the banner */
@@ -2363,15 +2622,26 @@ static void g_update(float dt){
 
     /* win/lose */
     if (state == ST_PLAY && (framec % 30) == 0){
-        /* classic RA: your last structure falling is defeat, for either side */
-        if (bldg_count(1) == 0){ state = ST_WIN; endt = 0; }
-        else if (bldg_count(0) == 0){ state = ST_LOSE; endt = 0; }
+        /* a side is finished when it has nothing left standing OR walking */
+        if (bldg_count(1) == 0 && unit_count(1) == 0){
+            state = ST_WIN; endt = 0;
+            if (gm_mission >= 0 && gm_mission + 1 > camp_prog){
+                camp_prog = gm_mission + 1;
+                struct { char m[4]; int prog; } sv = { "RM1", 0 };
+                sv.prog = camp_prog;
+                mote->save(0, &sv, sizeof sv);
+            }
+        }
+        else if (bldg_count(0) == 0 && unit_count(0) == 0){ state = ST_LOSE; endt = 0; }
     }
 }
 
 static void g_init(void){
     hk_init();
     rs = (uint32_t)mote->micros() | 1;
+    struct { char m[4]; int prog; } sv;
+    if (mote->load(0, &sv, sizeof sv) == sizeof sv && sv.m[0] == 'R' && sv.m[1] == 'M'
+        && sv.prog >= 0 && sv.prog <= 9) camp_prog = sv.prog;
     terr = mote->alloc(NT);
     orea = mote->alloc(NT);
     bmap = mote->alloc(NT);

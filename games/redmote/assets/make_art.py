@@ -171,24 +171,54 @@ def cw_rock(d, x0, y0, m, v):
             d.point((x0 + cx + (1 if cx == 0 else -1), y0 + cy), fill=(0, 0, 0, 0))
 
 
+TREE_BIG = [        # 5x5 crown: lit top-left, shaded bottom-right rim
+    ".kkk.",
+    "kmhmk",
+    "khHmk",
+    "kmmdk",
+    ".kdk.",
+]
+TREE_SML = [
+    ".k.",
+    "mhk",
+    "kdk",
+]
+
+
 def cw_tree(d, x0, y0, m, v):
-    dark, mid2, hi = (22, 46, 20), (30, 62, 26), (48, 92, 40)
+    """forest canopy: clustered round tree crowns (lit top-left), grass gaps
+    between crowns; crowns thin out toward the forest edge."""
     mn, me, ms, mw = sides(m)
     r2 = cell_rng("t", m, v)
-    for y in range(8):
-        for x in range(8):
-            # edge band: canopy thins to transparency toward missing sides
-            edge = ((mn and y < 2) or (ms and y > 5) or (mw and x < 2) or (me and x > 5))
-            corner = ((mn and mw and x + y < 4) or (mn and me and (7 - x) + y < 4)
-                      or (ms and mw and x + (7 - y) < 4) or (ms and me and (7 - x) + (7 - y) < 4))
-            if corner and r2.random() < 0.75: continue
-            if edge and r2.random() < 0.45: continue
-            c = dark if (x * 3 + y * 5 + v) % 4 else mid2
-            px(d, x0 + x, y0 + y, c)
-    # highlight clumps
-    for cx, cy in ((2, 2), (5, 4), (3, 6)) if v == 0 else ((5, 2), (2, 5), (6, 6)):
-        px(d, x0 + cx, y0 + cy, hi)
-        px(d, x0 + cx - 1, y0 + cy, mid2)
+    pal = {"k": (18, 38, 16), "d": (26, 50, 22), "m": (38, 72, 30),
+           "h": (56, 100, 42), "H": (84, 134, 56)}
+
+    def stamp(tmpl, cx, cy):
+        hh, ww = len(tmpl), len(tmpl[0])
+        for yy in range(hh):
+            for xx in range(ww):
+                ch = tmpl[yy][xx]
+                if ch == ".":
+                    continue
+                X, Y = cx - ww // 2 + xx, cy - hh // 2 + yy
+                if 0 <= X < 8 and 0 <= Y < 8:
+                    px(d, x0 + X, y0 + Y, pal[ch])
+
+    # candidate crowns; variant shifts the layout so the forest doesn't grid up
+    if v == 0:
+        spots = [(2, 2, TREE_BIG), (6, 5, TREE_BIG), (6, 1, TREE_SML), (1, 6, TREE_SML)]
+    else:
+        spots = [(5, 2, TREE_BIG), (1, 5, TREE_BIG), (2, 7, TREE_SML), (7, 7, TREE_SML)]
+    for (cx, cy, tmpl) in spots:
+        # near an open side, crowns thin out (forest edge raggedness)
+        drop = 0.0
+        if mn and cy < 3: drop += 0.55
+        if ms and cy > 4: drop += 0.55
+        if mw and cx < 3: drop += 0.55
+        if me and cx > 4: drop += 0.55
+        if r2.random() < drop:
+            continue
+        stamp(tmpl, cx, cy)
 
 
 def _nugget_cell(d, x0, y0, m, v, cmain, clight, cdark, dense):
