@@ -509,16 +509,48 @@ static int place_bldg(int type, int team, int tx, int ty){
                 int t = tidx(tx + x, ty + y);
                 bmap[t] = i; orea[t] = 0;   /* terrain stays — grass shows through the art */
             }
-        /* pave a road ring around the new structure */
+        /* worn ground: a PATCHY ring around the structure (skip ~a third of the
+         * tiles so it reads as trampled dirt, not a wall), then a wandering
+         * trail to the nearest existing track — organic, RA-style */
         for (int y = -1; y <= BD[type].h; y++)
             for (int x = -1; x <= BD[type].w; x++){
                 if (x >= 0 && x < BD[type].w && y >= 0 && y < BD[type].h) continue;
+                int corner = (x < 0 || x >= BD[type].w) && (y < 0 || y >= BD[type].h);
+                if (rndn(100) < (corner ? 55 : 30)) continue;
                 int rx = tx + x, ry = ty + y;
                 if (!tin(rx, ry)) continue;
                 int rt = tidx(rx, ry);
                 if ((terr[rt] == T_GRASS || terr[rt] == T_SCORCH) && bmap[rt] == 0xFF)
                     { terr[rt] = T_ROAD; orea[rt] = 0; }
             }
+        {   /* meandering connector to the nearest track beyond our own ring */
+            int cx0 = tx + BD[type].w / 2, cy0 = ty + BD[type].h + 1;
+            int btx = -1, bty = -1, bd2 = 26 * 26;
+            for (int yy = 0; yy < MH; yy++)
+                for (int xx = 0; xx < MW; xx++){
+                    if (terr[tidx(xx, yy)] != T_ROAD) continue;
+                    int ddx = xx - cx0, ddy = yy - cy0;
+                    int d2 = ddx * ddx + ddy * ddy;
+                    if (d2 > 8 && d2 < bd2){ bd2 = d2; btx = xx; bty = yy; }
+                }
+            if (btx >= 0){
+                int wx = cx0, wy = cy0;
+                for (int step = 0; step < 90 && (wx != btx || wy != bty); step++){
+                    if (tin(wx, wy)){
+                        int wt = tidx(wx, wy);
+                        if ((terr[wt] == T_GRASS || terr[wt] == T_SCORCH) && bmap[wt] == 0xFF)
+                            { terr[wt] = T_ROAD; orea[wt] = 0; }
+                    }
+                    int ddx = btx > wx ? 1 : btx < wx ? -1 : 0;
+                    int ddy = bty > wy ? 1 : bty < wy ? -1 : 0;
+                    int r = rndn(100);
+                    if (r < 16 && ddx) wy += rndn(2) ? 1 : -1;        /* wander */
+                    else if (r < 32 && ddy) wx += rndn(2) ? 1 : -1;
+                    else if (ddx && (!ddy || rndn(2))) wx += ddx;
+                    else if (ddy) wy += ddy;
+                }
+            }
+        }
         wepoch++;
         recalc_power(team);
         if (type == B_REF){       /* refinery ships with a free harvester */

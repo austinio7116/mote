@@ -279,41 +279,58 @@ def cw_fog(d, x0, y0, m, v):
 
 
 def cw_road(d, x0, y0, m, v):
-    """MUD DOUBLE TRACK: scattered dirt (grass shows through) with twin wheel
-    ruts running toward each connected side — reads as worn vehicle tracks,
-    not pavement."""
-    dirt, dirt2, rut = (104, 86, 56), (88, 72, 46), (62, 50, 34)
+    """Worn dirt trail, RA-style: ragged mud bed with faint, broken, WAVY wheel
+    ruts. Each connected side's rut pair bends through per-variant jittered hub
+    points, so straights S-curve, corners arc, and junctions read as worn
+    crossings — never tramlines."""
+    dirt, dirt2, dirt3 = (100, 83, 53), (88, 72, 46), (108, 92, 62)
+    rut, rutd = (74, 60, 40), (60, 48, 32)
     r2 = cell_rng("rd", m, v)
-    mn, me, ms, mw = sides(m)   # True = OPEN side (no road there)
-    # patchy dirt bed, thinning to nothing at open sides
+    mn, me, ms, mw = sides(m)
+    # ragged mud bed, thinning toward open sides, with noisy edges
     for y in range(8):
         for x in range(8):
-            k = 0.75
-            if mn and y < 2: k *= 0.25
-            if ms and y > 5: k *= 0.25
-            if mw and x < 2: k *= 0.25
-            if me and x > 5: k *= 0.25
+            k = 0.58
+            if mn and y < 2: k *= 0.22
+            if ms and y > 5: k *= 0.22
+            if mw and x < 2: k *= 0.22
+            if me and x > 5: k *= 0.22
             if r2.random() < k:
-                px(d, x0 + x, y0 + y, dirt if (x * 5 + y * 3 + v) % 3 else dirt2)
-    # twin ruts toward each CONNECTED side (ruts at offsets 2 and 5 from axis)
-    if m & NB_N:
-        for y in range(0, 4): px(d, x0 + 2, y0 + y, rut); px(d, x0 + 5, y0 + y, rut)
-    if m & NB_S:
-        for y in range(4, 8): px(d, x0 + 2, y0 + y, rut); px(d, x0 + 5, y0 + y, rut)
-    if m & NB_W:
-        for x in range(0, 4): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
-    if m & NB_E:
-        for x in range(4, 8): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
-    # isolated / dead-end cells still show a hint of track
-    if not (m & (NB_N | NB_S | NB_E | NB_W)):
-        for x in range(1, 7): px(d, x0 + x, y0 + 2, rut); px(d, x0 + x, y0 + 5, rut)
-    # mud splatter along the ruts
+                c = (dirt, dirt2, dirt3)[(x * 5 + y * 3 + v) % 3]
+                px(d, x0 + x, y0 + y, c)
+    # rut polylines: edge points fixed (tiles must join), hubs jittered by variant
+    def seg(p0, p1, col, drop):
+        steps = max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1]), 1) * 2
+        for i in range(steps + 1):
+            t = i / steps
+            xx = int(round(p0[0] + (p1[0] - p0[0]) * t))
+            yy = int(round(p0[1] + (p1[1] - p0[1]) * t))
+            if r2.random() > drop:
+                px(d, x0 + xx, y0 + yy, col)
+    jl = ((v * 7 + 1) % 3) - 1
+    jr = ((v * 5 + 2) % 3) - 1
+    Lh = (3 + jl, 3 + ((v * 3) % 3) - 1)
+    Rh = (4 + jr, 4 + ((v * 11) % 3) - 1)
+    EDGES = {"N": ((2, 0), (5, 0)), "S": ((2, 7), (5, 7)),
+             "W": ((0, 2), (0, 5)), "E": ((7, 2), (7, 5))}
+    conn = [c for c, on in (("N", m & NB_N), ("S", m & NB_S),
+                            ("W", m & NB_W), ("E", m & NB_E)) if on]
+    for c in conn:
+        e = EDGES[c]
+        seg(e[0], Lh, rut, 0.30)
+        seg(e[1], Rh, rut, 0.30)
+    if not conn:      # isolated worn patch: a hint of criss-cross
+        seg((1, 2), Rh, rut, 0.35)
+        seg((6, 5), Lh, rut, 0.35)
+    # sparse darker wear along the trail + odd stone
     for _ in range(3):
-        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (76, 62, 40))
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), rutd)
+    if r2.random() < 0.3:
+        px(d, x0 + r2.randrange(2, 6), y0 + r2.randrange(2, 6), (118, 112, 100))
 
 
 def make_autotiles():
-    blob_sheet("road", 2, cw_road)
+    blob_sheet("road", 4, cw_road)
     blob_sheet("fog", 2, cw_fog)
     blob_sheet("water", 2, cw_water)
     blob_sheet("rock", 2, cw_rock)
