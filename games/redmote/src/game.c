@@ -202,7 +202,8 @@ typedef struct {
     float face, tface;        /* sprite angles (0 = up) */
     int16_t hp;
     uint8_t order, hstate;
-    uint16_t dest;            /* dest tile index */
+    uint16_t dest;            /* dest tile index (group destination) */
+    uint16_t slot;            /* personal formation tile, 0xFFFF = none */
     int16_t tgt;              /* >=0 unit, <=-2 building -(t+2), -1 none */
     float cool, stuck, htimer, animt;
     uint16_t cargo, oret;     /* harvester cargo, remembered ore tile */
@@ -551,7 +552,7 @@ static int spawn_unit(int type, int team, float x, float y){
         memset(u, 0, sizeof *u);
         u->type = type; u->team = team; u->alive = 1;
         u->x = x; u->y = y; u->hp = UD[type].hp;
-        u->tgt = -1; u->oret = 0xFFFF;
+        u->tgt = -1; u->oret = 0xFFFF; u->slot = 0xFFFF;
         if (type == U_HARV) u->order = O_HARV;
         return i;
     }
@@ -581,21 +582,20 @@ static int place_bldg(int type, int team, int tx, int ty){
                 int t = tidx(tx + x, ty + y);
                 bmap[t] = i; orea[t] = 0;   /* terrain stays — grass shows through the art */
             }
-        /* worn ground: a PATCHY ring around the structure (skip ~a third of the
-         * tiles so it reads as trampled dirt, not a wall), then a wandering
-         * trail to the nearest existing track — organic, RA-style */
+        /* worn apron: the full ring minus its corners (rounded), then a SMOOTH
+         * bowed trail to the nearest existing track — consistent every time,
+         * natural because the curve and the mud tiles do the softening */
         for (int y = -1; y <= BD[type].h; y++)
             for (int x = -1; x <= BD[type].w; x++){
                 if (x >= 0 && x < BD[type].w && y >= 0 && y < BD[type].h) continue;
-                int corner = (x < 0 || x >= BD[type].w) && (y < 0 || y >= BD[type].h);
-                if (rndn(100) < (corner ? 55 : 30)) continue;
+                if ((x < 0 || x >= BD[type].w) && (y < 0 || y >= BD[type].h)) continue;
                 int rx = tx + x, ry = ty + y;
                 if (!tin(rx, ry)) continue;
                 int rt = tidx(rx, ry);
                 if ((terr[rt] == T_GRASS || terr[rt] == T_SCORCH) && bmap[rt] == 0xFF)
                     { terr[rt] = T_ROAD; orea[rt] = 0; }
             }
-        {   /* meandering connector to the nearest track beyond our own ring */
+        {   /* connector: a single- or double-bow curve to the nearest track */
             int cx0 = tx + BD[type].w / 2, cy0 = ty + BD[type].h + 1;
             int btx = -1, bty = -1, bd2 = 26 * 26;
             for (int yy = 0; yy < MH; yy++)
@@ -606,20 +606,23 @@ static int place_bldg(int type, int team, int tx, int ty){
                     if (d2 > 8 && d2 < bd2){ bd2 = d2; btx = xx; bty = yy; }
                 }
             if (btx >= 0){
-                int wx = cx0, wy = cy0;
-                for (int step = 0; step < 90 && (wx != btx || wy != bty); step++){
-                    if (tin(wx, wy)){
-                        int wt = tidx(wx, wy);
-                        if ((terr[wt] == T_GRASS || terr[wt] == T_SCORCH) && bmap[wt] == 0xFF)
-                            { terr[wt] = T_ROAD; orea[wt] = 0; }
-                    }
-                    int ddx = btx > wx ? 1 : btx < wx ? -1 : 0;
-                    int ddy = bty > wy ? 1 : bty < wy ? -1 : 0;
-                    int r = rndn(100);
-                    if (r < 16 && ddx) wy += rndn(2) ? 1 : -1;        /* wander */
-                    else if (r < 32 && ddy) wx += rndn(2) ? 1 : -1;
-                    else if (ddx && (!ddy || rndn(2))) wx += ddx;
-                    else if (ddy) wy += ddy;
+                float ddx = (float)(btx - cx0), ddy = (float)(bty - cy0);
+                float len = sqrtf(ddx * ddx + ddy * ddy);
+                float pxv = -ddy / len, pyv = ddx / len;      /* perpendicular */
+                int bows = ((btx + bty) & 1) ? 1 : 2;         /* bow or S-curve */
+                float amp = len / 6.0f;
+                if (amp > 2.4f) amp = 2.4f;
+                if (amp < 1.0f) amp = 1.0f;
+                int steps = (int)(len * 2) + 1;
+                for (int i = 0; i <= steps; i++){
+                    float t = (float)i / steps;
+                    float off = sinf(PI * t * bows) * amp;
+                    int wx = (int)(cx0 + ddx * t + pxv * off + 0.5f);
+                    int wy = (int)(cy0 + ddy * t + pyv * off + 0.5f);
+                    if (!tin(wx, wy)) continue;
+                    int wt = tidx(wx, wy);
+                    if ((terr[wt] == T_GRASS || terr[wt] == T_SCORCH) && bmap[wt] == 0xFF)
+                        { terr[wt] = T_ROAD; orea[wt] = 0; }
                 }
             }
         }
@@ -961,6 +964,20 @@ static int find_refinery(int team, float x, float y){
     return best;
 }
 
+/* fill `out` with up to n walkable formation tiles spiralling out from dest */
+static int form_slots(uint16_t dest, uint16_t *out, int n){
+    int cx = dest % MW, cy = dest / MW, got = 0;
+    for (int r = 0; r < 9 && got < n; r++){
+        for (int dy = -r; dy <= r && got < n; dy++)
+            for (int dx = -r; dx <= r && got < n; dx++){
+                if (dx > -r && dx < r && dy > -r && dy < r) continue;   /* ring only */
+                if (walkxy(cx + dx, cy + dy)) out[got++] = (uint16_t)tidx(cx + dx, cy + dy);
+            }
+    }
+    while (got < n) out[got++] = dest;
+    return got;
+}
+
 /* move along flow field toward u->dest; returns flow distance at unit tile */
 static int flow_move(Unit *u, float dt, float spdmul){
     const UDef *d = &UD[u->type];
@@ -996,6 +1013,18 @@ static int flow_move(Unit *u, float dt, float spdmul){
         cur = bn; fd = bv;
     }
     if (fd == 0) return 0;
+    if (u->order == O_MOVE && u->slot != 0xFFFF && fd <= 3){
+        /* close to the group destination: break formation-ward */
+        float wx2 = (u->slot % MW) * TILE + 4, wy2 = (u->slot / MW) * TILE + 4;
+        float dx2 = wx2 - u->x, dy2 = wy2 - u->y;
+        float dd = sqrtf(dx2 * dx2 + dy2 * dy2);
+        if (dd < 2.2f) return 0;                     /* slot reached */
+        float nx2 = u->x + dx2 / dd * speed * dt, ny2 = u->y + dy2 / dd * speed * dt;
+        if (walkxy((int)nx2 >> 3, (int)u->y >> 3)) u->x = nx2;
+        if (walkxy((int)u->x >> 3, (int)ny2 >> 3)) u->y = ny2;
+        u->face = turnto(u->face, atan2f(dx2, -dy2), 5.0f * dt);
+        return 1;
+    }
     int bn = cur; uint8_t bv = f[cur];
     for (int k = 0; k < 8; k++){
         static const int8_t DX[8] = {1,-1,0,0, 1,1,-1,-1};
@@ -2212,11 +2241,12 @@ static void cmd_at(float wx, float wy){
     if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == 1 && (vism[t] & 2))
         tgt = -(bmap[t] + 2);
     int any = 0;
+    int movers[64], nmov = 0;
     for (int i = 0; i < MAXU; i++){
         Unit *u = &un[i];
         if (!u->alive || !u->sel) continue;
         any = 1;
-        u->stuck = 0;
+        u->stuck = 0; u->slot = 0xFFFF;
         if (tgt != -1 && UD[u->type].weapon){
             u->order = O_ATK; u->tgt = tgt; u->dest = t;
         } else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
@@ -2226,8 +2256,25 @@ static void cmd_at(float wx, float wy){
             u->order = O_HARV; u->hstate = H_RET;    /* sent home: dump then resume */
         } else {
             u->order = O_MOVE; u->dest = t; u->tgt = -1;
-            if (u->type == U_HARV) u->order = O_MOVE;   /* manual reposition */
+            if (nmov < 64) movers[nmov++] = i;
         }
+    }
+    if (nmov > 1){
+        /* formation: spiral slots, nearest unit takes the innermost */
+        uint16_t slots[64];
+        form_slots(t, slots, nmov);
+        for (int k = 1; k < nmov; k++){          /* sort by distance to dest */
+            int id = movers[k], j = k - 1;
+            float dxk = un[id].x - wx, dyk = un[id].y - wy;
+            float dk = dxk * dxk + dyk * dyk;
+            while (j >= 0){
+                float dxj = un[movers[j]].x - wx, dyj = un[movers[j]].y - wy;
+                if (dxj * dxj + dyj * dyj <= dk) break;
+                movers[j + 1] = movers[j]; j--;
+            }
+            movers[j + 1] = id;
+        }
+        for (int k = 0; k < nmov; k++) un[movers[k]].slot = slots[k];
     }
     if (any){
         /* move marker */

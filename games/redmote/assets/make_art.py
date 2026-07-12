@@ -104,86 +104,96 @@ def cell_rng(name, m, v):
 
 
 def cw_water(d, x0, y0, m, v):
-    """RA-style water: bright high-frequency shimmer (per-pixel noise, two anim
-    frames), edged with a chunky irregular ROCK shoreline, not a foam line."""
+    """RA-style water: bright per-pixel shimmer. Open sides are CARVED — the
+    waterline recedes in a wavy bite (transparent = grass beyond the shore),
+    with rock rubble scattered along the actual waterline."""
     W = [(46, 88, 132), (54, 100, 146), (64, 112, 158), (76, 126, 170)]
     SPARK = (112, 158, 196)
-    RK = [(38, 34, 30), (58, 52, 44), (82, 74, 62), (104, 96, 82)]
+    RK = [(38, 34, 30), (58, 52, 44), (82, 74, 62)]
     r2 = cell_rng("w", m, v)
-    def wpx(x, y):
-        h = ((x + v * 3) * 7 + (y + v * 5) * 13 + v * 11) % 16
-        if h == 0: return SPARK
-        return W[h % 4]
+    mn, me, ms, mw = sides(m)
+
+    # shoreline depth along each open side: anchored to 1 at cell borders so
+    # neighbouring cells join, bulging to 2-3 mid-cell (the wavy bite)
+    def depth(i, salt):
+        if i == 0 or i == 7:
+            return 1
+        h = (i * 7 + salt * 13 + v * 5) % 4
+        return 1 + (1 if h >= 2 else 0) + (1 if h == 3 else 0)
+
     for y in range(8):
         for x in range(8):
-            px(d, x0 + x, y0 + y, wpx(x, y))
-    mn, me, ms, mw = sides(m)
-    # rocky shore band along open sides: jagged 1-2px rubble
-    def rock(x, y, big):
-        px(d, x0 + x, y0 + y, RK[r2.randrange(3)])
-        if big and x < 7 and r2.random() < 0.5:
-            px(d, x0 + x + 1, y0 + y, RK[1 + r2.randrange(3)])
-    if mn:
-        for x in range(8):
-            if r2.random() < 0.85: rock(x, 0, x % 3 == 1)
-            if r2.random() < 0.45: rock(x, 1, 0)
-    if ms:
-        for x in range(8):
-            if r2.random() < 0.85: rock(x, 7, x % 3 == 2)
-            if r2.random() < 0.45: rock(x, 6, 0)
-    if mw:
-        for y in range(8):
-            if r2.random() < 0.85: rock(0, y, 0)
-            if r2.random() < 0.45: rock(1, y, 0)
-    if me:
-        for y in range(8):
-            if r2.random() < 0.85: rock(7, y, 0)
-            if r2.random() < 0.45: rock(6, y, 0)
-    # convex corners: transparent rounding + a rock knuckle
-    for (cx, cy, c1, c2) in ((0, 0, mn, mw), (7, 0, mn, me), (0, 7, ms, mw), (7, 7, ms, me)):
-        if c1 and c2:
-            d.point((x0 + cx, y0 + cy), fill=(0, 0, 0, 0))
-            px(d, x0 + (1 if cx == 0 else 6), y0 + cy, RK[0])
-            px(d, x0 + cx, y0 + (1 if cy == 0 else 6), RK[1])
-    # inner corners: rock fleck where the shore turns
+            din = 8            # distance inside the water from the carved line
+            if mn: din = min(din, y - (depth(x, 0) - 1))
+            if ms: din = min(din, (7 - y) - (depth(x, 1) - 1))
+            if mw: din = min(din, x - (depth(y, 2) - 1))
+            if me: din = min(din, (7 - x) - (depth(y, 3) - 1))
+            # convex corners bite deeper
+            if mn and mw: din = min(din, (x + y) - 3)
+            if mn and me: din = min(din, ((7 - x) + y) - 3)
+            if ms and mw: din = min(din, (x + (7 - y)) - 3)
+            if ms and me: din = min(din, ((7 - x) + (7 - y)) - 3)
+            if din < 0:
+                continue                       # beyond the shore: grass
+            if din == 0:                       # the waterline: rubble, gaps
+                if r2.random() < 0.72:
+                    px(d, x0 + x, y0 + y, RK[r2.randrange(3)])
+                continue
+            h = ((x + v * 3) * 7 + (y + v * 5) * 13 + v * 11) % 16
+            px(d, x0 + x, y0 + y, SPARK if h == 0 else W[h % 4])
+    # inner corners: a rock fleck where the shore turns
     for (bit, ca, cb, cx, cy) in ((NB_NE, NB_N, NB_E, 7, 0), (NB_SE, NB_S, NB_E, 7, 7),
                                   (NB_SW, NB_S, NB_W, 0, 7), (NB_NW, NB_N, NB_W, 0, 0)):
         if (m & ca) and (m & cb) and not (m & bit):
-            px(d, x0 + cx, y0 + cy, RK[0])
-            px(d, x0 + cx, y0 + cy + (1 if cy == 0 else -1), RK[2])
+            px(d, x0 + cx, y0 + cy, RK[1])
+
+
+BOULDER = [
+    ".hh.",
+    "hmmd",
+    "hmmd",
+    ".dd.",
+]
+BOULDER_S = [
+    "hm",
+    "md",
+]
 
 
 def cw_rock(d, x0, y0, m, v):
-    base, hi, dk = (88, 86, 92), (108, 106, 114), (58, 56, 62)
-    rect(d, x0, y0, x0 + 7, y0 + 7, base)
-    r2 = cell_rng("r", m, v)
-    for _ in range(6):
-        x, y = r2.randrange(7), r2.randrange(7)
-        rect(d, x0 + x, y0 + y, x0 + x + 1, y0 + y + 1, hi)
-    for _ in range(4):
-        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), dk)
-    px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (128, 126, 134))
+    """boulder piles on open ground — clustered rounded stones with lit tops,
+    thinning to lone rocks at the patch edge. Grass shows between boulders."""
     mn, me, ms, mw = sides(m)
-    if mn:
-        for x in range(8):
-            if x % 3 == 1: d.point((x0 + x, y0), fill=(0, 0, 0, 0))
-            else: px(d, x0 + x, y0, dk)
-    if ms:
-        for x in range(8):
-            if x % 3 == 2: d.point((x0 + x, y0 + 7), fill=(0, 0, 0, 0))
-            else: px(d, x0 + x, y0 + 7, (44, 42, 48))
-    if mw:
-        for y in range(8):
-            if y % 3 == 1: d.point((x0, y0 + y), fill=(0, 0, 0, 0))
-            else: px(d, x0, y0 + y, dk)
-    if me:
-        for y in range(8):
-            if y % 3 == 2: d.point((x0 + 7, y0 + y), fill=(0, 0, 0, 0))
-            else: px(d, x0 + 7, y0 + y, (44, 42, 48))
-    for (cx, cy, c1, c2) in ((0, 0, mn, mw), (7, 0, mn, me), (0, 7, ms, mw), (7, 7, ms, me)):
-        if c1 and c2:
-            d.point((x0 + cx, y0 + cy), fill=(0, 0, 0, 0))
-            d.point((x0 + cx + (1 if cx == 0 else -1), y0 + cy), fill=(0, 0, 0, 0))
+    r2 = cell_rng("r", m, v)
+    pal = {"h": (118, 114, 122), "m": (92, 88, 96), "d": (58, 54, 62)}
+
+    def stamp(tmpl, cx, cy):
+        hh, ww = len(tmpl), len(tmpl[0])
+        for yy in range(hh):
+            for xx in range(ww):
+                ch = tmpl[yy][xx]
+                if ch == ".":
+                    continue
+                X, Y = cx - ww // 2 + xx, cy - hh // 2 + yy
+                if 0 <= X < 8 and 0 <= Y < 8:
+                    px(d, x0 + X, y0 + Y, pal[ch])
+
+    if v == 0:
+        spots = [(2, 2, BOULDER), (6, 5, BOULDER), (6, 1, BOULDER_S), (1, 6, BOULDER_S)]
+    else:
+        spots = [(5, 2, BOULDER), (2, 6, BOULDER), (7, 6, BOULDER_S), (1, 1, BOULDER_S)]
+    for (cx, cy, tmpl) in spots:
+        drop = 0.0
+        if mn and cy < 3: drop += 0.5
+        if ms and cy > 4: drop += 0.5
+        if mw and cx < 3: drop += 0.5
+        if me and cx > 4: drop += 0.5
+        if r2.random() < drop:
+            continue
+        stamp(tmpl, cx, cy)
+    # scree between the boulders
+    for _ in range(3):
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (74, 70, 78))
 
 
 TREE_BIG = [        # 5x5 crown: lit top-left, shaded bottom-right rim
@@ -237,25 +247,31 @@ def cw_tree(d, x0, y0, m, v):
 
 
 def cw_ore(d, x0, y0, m, v):
-    """dense shimmering ore carpet: 2x2 clumps of layered golds, thinning to
-    scattered clusters at the field edge (RA's glittering fields)."""
+    """ore heaps: 2x2 nugget clumps with grass showing between them —
+    glittering but not a solid carpet."""
     G = [(112, 86, 18), (150, 116, 24), (190, 150, 34), (226, 188, 52)]
-    SPARK = (252, 230, 110)
+    SPARK = (250, 224, 96)
     mn, me, ms, mw = sides(m)
     r2 = cell_rng("o", m, v)
-    for y in range(8):
-        for x in range(8):
-            k = 0.86
-            if mn and y < 3: k *= 0.30
-            if ms and y > 4: k *= 0.30
-            if mw and x < 3: k *= 0.30
-            if me and x > 4: k *= 0.30
-            if r2.random() > k: continue
-            # 2x2 clump shading so it reads as nugget heaps, not static
-            h = ((x // 2) * 31 + (y // 2) * 17 + v * 7) % 8
-            c = G[h % 4]
-            if ((x * 13 + y * 7 + v * 5) % 11) == 0: c = SPARK
-            px(d, x0 + x, y0 + y, c)
+    for by in range(4):
+        for bx in range(4):
+            cx, cy = bx * 2, by * 2
+            k = 0.62
+            if mn and cy < 3: k *= 0.30
+            if ms and cy > 4: k *= 0.30
+            if mw and cx < 3: k *= 0.30
+            if me and cx > 4: k *= 0.30
+            if r2.random() > k:
+                continue
+            base = G[(bx * 31 + by * 17 + v * 7) % 4]
+            for oy in range(2):
+                for ox in range(2):
+                    if r2.random() < 0.18:
+                        continue               # ragged heap outline
+                    c = base
+                    if ox == 0 and oy == 0: c = G[min(3, (G.index(base) + 1))]
+                    if ((cx + ox) * 13 + (cy + oy) * 7 + v * 5) % 23 == 0: c = SPARK
+                    px(d, x0 + cx + ox, y0 + cy + oy, c)
 
 
 def cw_crys(d, x0, y0, m, v):
@@ -335,54 +351,44 @@ def cw_fog(d, x0, y0, m, v):
 
 
 def cw_road(d, x0, y0, m, v):
-    """Worn dirt trail, RA-style: ragged mud bed with faint, broken, WAVY wheel
-    ruts. Each connected side's rut pair bends through per-variant jittered hub
-    points, so straights S-curve, corners arc, and junctions read as worn
-    crossings — never tramlines."""
-    dirt, dirt2, dirt3 = (100, 83, 53), (88, 72, 46), (108, 92, 62)
-    rut, rutd = (74, 60, 40), (60, 48, 32)
+    """readable dirt trail: a solid band along the connection axis (distance
+    field to the edge-midpoint->hub centreline), twin ruts as clean offset
+    lines that arc around corners. Dithered rim, barely any noise."""
+    DIRT = [(102, 85, 54), (94, 77, 49)]
+    RUT = (66, 53, 35)
+    RIM = (84, 70, 45)
     r2 = cell_rng("rd", m, v)
-    mn, me, ms, mw = sides(m)
-    # ragged mud bed, thinning toward open sides, with noisy edges
+    hubx = 3.5 + (((v * 7) % 3) - 1) * 0.5
+    huby = 3.5 + (((v * 5) % 3) - 1) * 0.5
+    segs = []
+    if m & NB_N: segs.append((3.5, -0.5, hubx, huby))
+    if m & NB_S: segs.append((3.5, 7.5, hubx, huby))
+    if m & NB_W: segs.append((-0.5, 3.5, hubx, huby))
+    if m & NB_E: segs.append((7.5, 3.5, hubx, huby))
+    if not segs:
+        segs = [(1.0, 3.5, 6.0, 3.5)]
+
+    def sdist(px_, py_, sg):
+        x0s, y0s, x1s, y1s = sg
+        vx, vy = x1s - x0s, y1s - y0s
+        L2 = vx * vx + vy * vy
+        t = 0 if L2 == 0 else max(0.0, min(1.0, ((px_ - x0s) * vx + (py_ - y0s) * vy) / L2))
+        dx_, dy_ = px_ - (x0s + vx * t), py_ - (y0s + vy * t)
+        return (dx_ * dx_ + dy_ * dy_) ** 0.5
+
     for y in range(8):
         for x in range(8):
-            k = 0.58
-            if mn and y < 2: k *= 0.22
-            if ms and y > 5: k *= 0.22
-            if mw and x < 2: k *= 0.22
-            if me and x > 5: k *= 0.22
-            if r2.random() < k:
-                c = (dirt, dirt2, dirt3)[(x * 5 + y * 3 + v) % 3]
-                px(d, x0 + x, y0 + y, c)
-    # rut polylines: edge points fixed (tiles must join), hubs jittered by variant
-    def seg(p0, p1, col, drop):
-        steps = max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1]), 1) * 2
-        for i in range(steps + 1):
-            t = i / steps
-            xx = int(round(p0[0] + (p1[0] - p0[0]) * t))
-            yy = int(round(p0[1] + (p1[1] - p0[1]) * t))
-            if r2.random() > drop:
-                px(d, x0 + xx, y0 + yy, col)
-    jl = ((v * 7 + 1) % 3) - 1
-    jr = ((v * 5 + 2) % 3) - 1
-    Lh = (3 + jl, 3 + ((v * 3) % 3) - 1)
-    Rh = (4 + jr, 4 + ((v * 11) % 3) - 1)
-    EDGES = {"N": ((2, 0), (5, 0)), "S": ((2, 7), (5, 7)),
-             "W": ((0, 2), (0, 5)), "E": ((7, 2), (7, 5))}
-    conn = [c for c, on in (("N", m & NB_N), ("S", m & NB_S),
-                            ("W", m & NB_W), ("E", m & NB_E)) if on]
-    for c in conn:
-        e = EDGES[c]
-        seg(e[0], Lh, rut, 0.30)
-        seg(e[1], Rh, rut, 0.30)
-    if not conn:      # isolated worn patch: a hint of criss-cross
-        seg((1, 2), Rh, rut, 0.35)
-        seg((6, 5), Lh, rut, 0.35)
-    # sparse darker wear along the trail + odd stone
-    for _ in range(3):
-        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), rutd)
-    if r2.random() < 0.3:
-        px(d, x0 + r2.randrange(2, 6), y0 + r2.randrange(2, 6), (118, 112, 100))
+            dmin = min(sdist(x + 0.5, y + 0.5, sg) for sg in segs)
+            if dmin <= 2.1:
+                if abs(dmin - 1.3) < 0.4 and r2.random() > 0.12:
+                    px(d, x0 + x, y0 + y, RUT)      # clean offset ruts, arc at corners
+                else:
+                    px(d, x0 + x, y0 + y, DIRT[(x * 5 + y * 3 + v) % 2])
+            elif dmin <= 2.8:
+                if ((x + y) & 1) == 0:
+                    px(d, x0 + x, y0 + y, RIM)      # dithered rim into the grass
+    for _ in range(2):
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (78, 64, 42))
 
 
 def make_autotiles():
