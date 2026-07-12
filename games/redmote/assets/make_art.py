@@ -74,16 +74,17 @@ for _m in range(256):
     BLOB_LUT[_m] = _seen[_r]
 
 
-def write_tileset(name, sheet, nvar, lut, cols):
+def write_tileset(name, sheet, nvar, lut, cols, weights=None):
     with open(os.path.join(HERE, "..", "tilesets", name + ".tileset"), "w") as f:
         f.write("sheet %s\ntile 8\ntype 0\nedge 1\nnvar %d\ncols %d\nrows %d\n" %
                 (sheet, nvar, cols, nvar))
         f.write("lut " + " ".join(str(v) for v in lut) + "\n")
         f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
-        f.write("vweight 1 1 1 1 1 1 1 1\n")
+        w = (list(weights) + [1] * 8)[:8] if weights else [1] * 8
+        f.write("vweight " + " ".join(str(x) for x in w) + "\n")
 
 
-def blob_sheet(name, nvar, painter):
+def blob_sheet(name, nvar, painter, weights=None):
     """47 cells x nvar variant rows, painted from the reduced neighbour mask."""
     im = Image.new("RGBA", (47 * 8, nvar * 8), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -91,7 +92,7 @@ def blob_sheet(name, nvar, painter):
         for ci, mask in enumerate(BLOB_ORDER):
             painter(d, ci * 8, v * 8, mask, v)
     im.save(os.path.join(HERE, name + ".png"))
-    write_tileset(name, "assets/%s.png" % name, nvar, BLOB_LUT, 47)
+    write_tileset(name, "assets/%s.png" % name, nvar, BLOB_LUT, 47, weights)
 
 
 # side/corner helpers: a cell's missing cardinal = a border on that side
@@ -161,11 +162,37 @@ BOULDER_S = [
 
 
 def cw_rock(d, x0, y0, m, v):
-    """boulder piles on open ground — clustered rounded stones with lit tops,
-    thinning to lone rocks at the patch edge. Grass shows between boulders."""
+    """edge cells: boulder piles with grass between. INTERIOR cells (rock on
+    all four sides) fuse into a solid mountain massif with diagonal ridges."""
     mn, me, ms, mw = sides(m)
     r2 = cell_rng("r", m, v)
     pal = {"h": (118, 114, 122), "m": (92, 88, 96), "d": (58, 54, 62)}
+    if m == 255:
+        # DEEP interior (rock on all 8 sides): solid mountain mass, lit from NW.
+        # v0/v1 craggy slopes; v2 is a rare PEAK cell (weighted low in the tileset).
+        if v < 2:
+            for y in range(8):
+                for x in range(8):
+                    b = (x + y + v * 3) % 7          # diagonal relief bands
+                    c = (92, 88, 96)
+                    if b == 0: c = (120, 116, 126)   # lit ridge line
+                    elif b == 1: c = (104, 100, 110)
+                    elif b == 4: c = (66, 62, 72)    # shadow slope
+                    elif b == 5: c = (54, 50, 60)    # crevice floor
+                    if ((x * 5 + y * 3 + v * 11) % 17) == 0: c = (44, 42, 50)
+                    px(d, x0 + x, y0 + y, c)
+        else:
+            for y in range(8):
+                for x in range(8):
+                    dxp, dyp = x - 3, y - 3          # summit at (3,3)
+                    r = dxp * dxp + dyp * dyp
+                    if r <= 1: c = (168, 166, 176)   # sunlit crest
+                    elif r <= 4: c = (132, 128, 138)
+                    elif dxp > 0 and dyp > 0: c = (58, 54, 64)   # SE shade
+                    else: c = (96, 92, 100)
+                    if ((x * 7 + y * 5) % 13) == 0 and r > 4: c = (74, 70, 80)
+                    px(d, x0 + x, y0 + y, c)
+        return
 
     def stamp(tmpl, cx, cy):
         hh, ww = len(tmpl), len(tmpl[0])
@@ -395,7 +422,7 @@ def make_autotiles():
     blob_sheet("road", 4, cw_road)
     blob_sheet("fog", 2, cw_fog)
     blob_sheet("water", 2, cw_water)
-    blob_sheet("rock", 2, cw_rock)
+    blob_sheet("rock", 3, cw_rock, weights=(3, 3, 1))
     blob_sheet("tree", 2, cw_tree)
     blob_sheet("ore", 2, cw_ore)
     blob_sheet("crys", 1, cw_crys)

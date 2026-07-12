@@ -500,7 +500,11 @@ static void gen_map(void){
         blob(wx + rndn(7) - 3, wy + rndn(7) - 3, 18, T_WATER, 1);
         blob(wx + rndn(11) - 5, wy + rndn(11) - 5, 12, T_WATER, 1);
     }
-    for (int i = 0; i < 7; i++) blob(rndn(MW), rndn(MH), 12, T_ROCK, 1);
+    for (int i = 0; i < 5; i++){                 /* mountain ranges: clustered walks */
+        int rx = rndn(MW), ry = rndn(MH);
+        blob(rx, ry, 22, T_ROCK, 1);
+        blob(rx + rndn(7) - 3, ry + rndn(7) - 3, 14, T_ROCK, 1);
+    }
     for (int i = 0; i < 15; i++) blob(rndn(MW), rndn(MH), 8, T_TREE, 1);
     /* ore: two fields near each base + rich centre */
     ore_field(22, 70, 42, T_ORE);  ore_field(8, 62, 30, T_ORE);
@@ -997,6 +1001,21 @@ static int flow_move(Unit *u, float dt, float spdmul){
         if (fabsf(u->face - oldf) > 2.0f * dt) u->htimer = 0.25f;   /* banking */
         return (int)(dist / TILE);
     }
+    if (!walk_t(tidx(tx, ty))){
+        /* wedged onto unwalkable ground (mountain edge): force a bee-line out */
+        for (int r = 1; r < 4; r++)
+            for (int dy2 = -r; dy2 <= r; dy2++)
+                for (int dx2 = -r; dx2 <= r; dx2++){
+                    if (!walkxy(tx + dx2, ty + dy2)) continue;
+                    float ex = (tx + dx2) * TILE + 4.0f, ey = (ty + dy2) * TILE + 4.0f;
+                    float dx3 = ex - u->x, dy3 = ey - u->y;
+                    float dd = sqrtf(dx3 * dx3 + dy3 * dy3) + 0.001f;
+                    u->x += dx3 / dd * speed * dt;
+                    u->y += dy3 / dd * speed * dt;
+                    return 200;
+                }
+        return 255;
+    }
     const uint8_t *f = field_get(u->dest);
     int cur = tidx(tx, ty);
     int fd = f[cur];
@@ -1056,9 +1075,11 @@ static int flow_move(Unit *u, float dt, float spdmul){
             float od = sqrtf(od2);
             sx += ox / od * (1.0f - od / 6.0f);
             sy += oy / od * (1.0f - od / 6.0f);
-            if (od < 3.5f){                     /* hard de-overlap, capped */
+            if (od < 3.5f){                     /* hard de-overlap, capped + walkable */
                 float push = (3.5f - od) * 0.35f;
-                u->x += ox / od * push; u->y += oy / od * push;
+                float px2 = u->x + ox / od * push, py2 = u->y + oy / od * push;
+                if (walkxy((int)px2 >> 3, (int)u->y >> 3)) u->x = px2;
+                if (walkxy((int)u->x >> 3, (int)py2 >> 3)) u->y = py2;
             }
         } else if (od2 <= 0.01f){
             u->x += ((uh >> 8) & 1) ? 0.4f : -0.4f;   /* exactly stacked: split */
@@ -2033,8 +2054,13 @@ static void draw_cursor(uint16_t *fb){
         int lx = x + 6, ly = y + 5;
         if (lx + len * 6 > 126) lx = x - 7 - len * 6;
         if (ly > 110) ly = y - 13;
-        mote->draw_rect(fb, lx - 1, ly - 1, len * 6 + 2, 9, MOTE_RGB565(8, 8, 12), 1, 0, 128);
-        mote->text(fb, act, lx, ly, hostile ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(210, 210, 225));
+        for (int yy = ly - 1; yy < ly + 8; yy++){       /* translucent chip */
+            if (yy < 0 || yy >= 128) continue;
+            uint16_t *row2 = fb + yy * 128;
+            for (int xx = lx - 1; xx < lx + len * 6 + 1; xx++)
+                if (xx >= 0 && xx < 128) row2[xx] = dim565(row2[xx]);
+        }
+        mote->text(fb, act, lx, ly, hostile ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(230, 230, 240));
     }
 }
 
