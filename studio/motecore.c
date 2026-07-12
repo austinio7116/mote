@@ -99,10 +99,11 @@ int mc_build(const char *dir, int device, mote_log_fn log){
       snprintf(cmd,sizeof cmd,"%sgcc %s %s -c sdk/mote_syscalls.c -o %s 2>&1",ARM,arch,base,so);
       if(run_logged(cmd,log)!=0){ log("syscall-stub compile FAILED"); return -1; }
       strncat(objs,so,sizeof objs-strlen(objs)-2); strncat(objs," ",sizeof objs-strlen(objs)-1); }
+    /* QUOTE the elf/.mote paths — MOTE_GAME_META names may contain spaces ("Red Mote") */
     char elf[600]; snprintf(elf,sizeof elf,"%.320s/build/%s.elf",dir,name);
-    snprintf(cmd,sizeof cmd,"%sgcc %s -nostartfiles -T sdk/game.ld -Wl,--gc-sections %s -lm -lgcc -o %s 2>&1",ARM,arch,objs,elf);
+    snprintf(cmd,sizeof cmd,"%sgcc %s -nostartfiles -T sdk/game.ld -Wl,--gc-sections %s -lm -lgcc -o \"%s\" 2>&1",ARM,arch,objs,elf);
     if(run_logged(cmd,log)!=0){ log("device link FAILED"); return -1; }
-    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data -j .ramtext %s %.320s/build/%s.mote 2>&1",ARM,elf,dir,name);
+    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data -j .ramtext \"%s\" \"%.320s/build/%s.mote\" 2>&1",ARM,elf,dir,name);
     if(run_logged(cmd,log)!=0){ log("objcopy FAILED"); return -1; }
     { char m[120]; snprintf(m,sizeof m,"device module built: build/%s.mote",name); log(m); }
     return 0; }
