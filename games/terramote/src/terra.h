@@ -214,6 +214,7 @@ int  world_stand_px(int wx, int wy, float vy, float feet_y); /* incl. one-way pl
 void world_liquid_tick(void);
 void world_grow_tick(void);           /* grass spread, saplings, flowers */
 int  world_surface_row(int c);        /* cached first-solid row per column */
+int  world_biome(int c);              /* 0 forest 1 snow 2 desert 3 corruption */
 void world_mine_tile(int c, int r);   /* break + drop */
 int  world_place_tile(int c, int r, uint8_t tile);
 int  world_hit_tree(int c, int r);    /* chop: fells trunk above, drops wood */
