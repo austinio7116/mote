@@ -37,7 +37,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("Wormote", "austinio7116");
-MOTE_GAME_VERSION("0.0.2");
+MOTE_GAME_VERSION("1.0.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
