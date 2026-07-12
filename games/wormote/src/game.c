@@ -194,7 +194,7 @@ typedef struct {
     uint8_t wsel, wpn[5]; int8_t ammo[5]; float rel_t[5]; float cool, fire_vis;
     uint8_t rope;                     /* 0 none · 1 flying · 2 hooked */
     float rx,ry,rvx,rvy,rlen; int rtgt;
-    int   ground; float digt, animt; int frame;
+    int   ground; float digt, downt, animt; int frame;
     uint16_t ctl;
     /* bots */
     float ai_think, ai_strafe, ai_fire, ai_ropet, ai_stuck; int ai_dir; float ai_lastx;
@@ -491,15 +491,17 @@ static void worm_step(int wi,float dt){
     Worm*w=&worms[wi];
     uint16_t c=w->ctl;
     int lr=((c&CL_RIGHT)?1:0)-((c&CL_LEFT)?1:0);
-    int roped=(c&CL_ROPE)&&w->rope==2;
+    int roped=(w->rope==2);
 
     if(lr){ w->face=lr;
         float tgt=lr*36.0f, acc=w->ground?420.0f:140.0f;
         if((tgt-w->vx)*lr>0){ w->vx+=lr*acc*dt; if((w->vx-tgt)*lr>0)w->vx=tgt; } }
     else if(w->ground){ w->vx*=1.0f-mote_clampf(dt*14.0f,0,1); if(fabsf(w->vx)<3)w->vx=0; }
 
-    if(roped){ if(c&CL_UP){ w->rlen-=60*dt; if(w->rlen<6)w->rlen=6; }
-               if(c&CL_DOWN){ w->rlen+=60*dt; if(w->rlen>110)w->rlen=110; } }
+    /* hooked: UP/DOWN reel the rope; the constraint hauls the worm along and the
+     * velocity it imparts survives release (slingshot). Aiming resumes off-rope. */
+    if(roped){ if(c&CL_UP){ w->rlen-=70*dt; if(w->rlen<6)w->rlen=6; }
+               if(c&CL_DOWN){ w->rlen+=70*dt; if(w->rlen>110)w->rlen=110; } }
     else { if(c&CL_UP){ w->aim+=2.6f*dt; if(w->aim>1.35f)w->aim=1.35f; }
            if(c&CL_DOWN){ w->aim-=2.6f*dt; if(w->aim<-0.95f)w->aim=-0.95f; } }
 
@@ -619,7 +621,10 @@ static void worm_step(int wi,float dt){
      * too, but painfully slowly — explosions never break it, worms can gnaw
      * through, so nobody is ever entombed for good. */
     w->digt-=dt;
-    int digdown=(c&CL_DOWN)&&w->ground&&!roped;
+    /* dig-down wants COMMITMENT: a tap of DOWN just aims — only holding it well
+     * past the aim sweep (grounded) starts chewing the floor */
+    if((c&CL_DOWN)&&w->ground&&!roped) w->downt+=dt; else w->downt=0;
+    int digdown=w->downt>0.5f;
     if(((blocked&&lr)||digdown)&&w->digt<=0){
         int cx0=(int)w->x, cy0=(int)w->y;
         int sx0=digdown?cx0-2:cx0+lr*2, sx1=digdown?cx0+2:cx0+lr*4;
