@@ -507,7 +507,7 @@ static int place_bldg(int type, int team, int tx, int ty){
         for (int y = 0; y < BD[type].h; y++)
             for (int x = 0; x < BD[type].w; x++){
                 int t = tidx(tx + x, ty + y);
-                bmap[t] = i; terr[t] = T_CONC; orea[t] = 0;
+                bmap[t] = i; orea[t] = 0;   /* terrain stays — grass shows through the art */
             }
         /* pave a road ring around the new structure */
         for (int y = -1; y <= BD[type].h; y++)
