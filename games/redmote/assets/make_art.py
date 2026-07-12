@@ -194,8 +194,8 @@ def cw_rock(d, x0, y0, m, v):
                     px(d, x0 + x, y0 + y, c)
         return
 
-    ncard = (not mn) + (not me) + (not ms) + (not mw)   # open sides
-    if ncard <= 2:
+    ncard = (not mn) + (not me) + (not ms) + (not mw)   # PRESENT rock cardinals
+    if ncard >= 2:
         # touching the solid interior: lay a massif backing that fades toward
         # the opening, THEN scatter the usual boulders on top — blends into
         # the centre without losing the soft rocky rim
