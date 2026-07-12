@@ -33,9 +33,11 @@
 #include "ore.tiles.h"
 #include "crys.tiles.h"
 #include "conc.tiles.h"
+#include "road.tiles.h"
 #include "scorch.tiles.h"
 #include "units.h"
 #include "buildings.h"
+#include "buildings_meta.h"
 #include "mg.sfx.h"
 #include "cannon.sfx.h"
 #include "rocket.sfx.h"
@@ -89,7 +91,7 @@ static void hk_init(void){}
 #define WPX    (MW * TILE)
 #define NT     (MW * MH)
 
-enum { T_GRASS, T_WATER, T_ROCK, T_TREE, T_ORE, T_CRYS, T_CONC, T_SCORCH };
+enum { T_GRASS, T_WATER, T_ROCK, T_TREE, T_ORE, T_CRYS, T_CONC, T_SCORCH, T_ROAD };
 
 static uint8_t *terr;   /* NT terrain type */
 static uint8_t *orea;   /* NT ore amount (1 unit = 50cr) */
@@ -105,8 +107,8 @@ static inline int tin(int tx, int ty){ return tx >= 0 && ty >= 0 && tx < MW && t
 static inline int tidx(int tx, int ty){ return ty * MW + tx; }
 static inline int walk_t(int t){
     uint8_t k = terr[t];
-    return (k == T_GRASS || k == T_ORE || k == T_CRYS || k == T_CONC || k == T_SCORCH)
-           && bmap[t] == 0xFF;
+    return (k == T_GRASS || k == T_ORE || k == T_CRYS || k == T_CONC || k == T_SCORCH
+            || k == T_ROAD) && bmap[t] == 0xFF;
 }
 static inline int walkxy(int tx, int ty){ return tin(tx, ty) && walk_t(tidx(tx, ty)); }
 
@@ -250,9 +252,25 @@ static uint16_t owned[2];               /* building-type bitmask per team */
 static uint32_t framec;
 static float gtime;
 
-/* production queues (per team x queue) */
-typedef struct { int16_t item; float prog; float spent; uint8_t ready, more, nagged; } PQueue;
+/* production queues (per team x queue): a FIFO — head is in production */
+#define PQ_MAX 6
+typedef struct { int16_t q[PQ_MAX]; uint8_t n; float prog, spent; uint8_t ready, nagged; } PQueue;
 static PQueue pq[2][NQ];
+static int q_head(const PQueue *p){ return p->n ? p->q[0] : -1; }
+static int q_push(PQueue *p, int item){
+    if (p->n >= PQ_MAX) return 0;
+    p->q[p->n++] = item;
+    return 1;
+}
+static void q_pop(PQueue *p){
+    if (p->n){ memmove(p->q, p->q + 1, sizeof(int16_t) * (p->n - 1)); p->n--; }
+    p->prog = 0; p->spent = 0; p->ready = 0; p->nagged = 0;
+}
+static int q_count(const PQueue *p, int item){
+    int c = 0;
+    for (int i = 0; i < p->n; i++) if (p->q[i] == item) c++;
+    return c;
+}
 
 /* difficulty (picked on the title screen) */
 static int diff = 1;
@@ -491,6 +509,16 @@ static int place_bldg(int type, int team, int tx, int ty){
                 int t = tidx(tx + x, ty + y);
                 bmap[t] = i; terr[t] = T_CONC; orea[t] = 0;
             }
+        /* pave a road ring around the new structure */
+        for (int y = -1; y <= BD[type].h; y++)
+            for (int x = -1; x <= BD[type].w; x++){
+                if (x >= 0 && x < BD[type].w && y >= 0 && y < BD[type].h) continue;
+                int rx = tx + x, ry = ty + y;
+                if (!tin(rx, ry)) continue;
+                int rt = tidx(rx, ry);
+                if ((terr[rt] == T_GRASS || terr[rt] == T_SCORCH) && bmap[rt] == 0xFF)
+                    { terr[rt] = T_ROAD; orea[rt] = 0; }
+            }
         wepoch++;
         recalc_power(team);
         if (type == B_REF){       /* refinery ships with a free harvester */
@@ -519,7 +547,7 @@ static int can_place(int type, int team, int tx, int ty){
         for (int x = 0; x < bd->w; x++){
             int t = tidx(tx + x, ty + y);
             uint8_t k = terr[t];
-            if (!(k == T_GRASS || k == T_CONC || k == T_SCORCH) || bmap[t] != 0xFF) return 0;
+            if (!(k == T_GRASS || k == T_CONC || k == T_SCORCH || k == T_ROAD) || bmap[t] != 0xFF) return 0;
         }
     for (int i = 0; i < MAXU; i++) if (un[i].alive && !UD[un[i].type].air){
         int ux = (int)un[i].x >> 3, uy = (int)un[i].y >> 3;
@@ -835,6 +863,7 @@ static int flow_move(Unit *u, float dt, float spdmul){
     float speed = d->speed * spdmul;
     int tx = (int)u->x >> 3, ty = (int)u->y >> 3;
     if (!tin(tx, ty)) return 255;
+    if (!d->air && terr[tidx(tx, ty)] == T_ROAD) speed *= 1.2f;   /* paved bonus */
     if (d->air){
         /* aircraft: straight-line flight */
         float wx = (u->dest % MW) * TILE + 4, wy = (u->dest / MW) * TILE + 4;
@@ -1173,9 +1202,10 @@ static void queue_tick(int team, float dt){
     float fast = hk_fast ? 10.f : 1.f;
     for (int q = 0; q < NQ; q++){
         PQueue *p = &pq[team][q];
-        if (p->item < 0 || p->ready) continue;
-        if (!(owned[team] & (1u << QPROD_BLDG[q]))){ p->item = -1; continue; }
-        int cost = item_cost(q, p->item);
+        int head = q_head(p);
+        if (head < 0 || p->ready) continue;
+        if (!(owned[team] & (1u << QPROD_BLDG[q]))){ p->n = 0; q_pop(p); continue; }
+        int cost = item_cost(q, head);
         float t = (float)cost / 75.0f;               /* seconds at full power */
         if (team == 1) t *= DIFF_AIPROD[diff];       /* AI handicap: slower works */
         if (!power_ok(team)) t *= 2.4f;
@@ -1198,16 +1228,15 @@ static void queue_tick(int team, float dt){
                 p->ready = 1;
                 if (team == 0 && !p->nagged){
                     p->nagged = 1;
-                    placing = p->item;               /* jump straight to placement */
+                    placing = head;                  /* jump straight to placement */
                     side_open = 0; a_mode = 0;
                     toastf("PLACE IT - B TO DEFER");
                     sfx(&ready_sfx, 0.6f, 7, 0.3f);
                 }
             } else {
-                int u = spawn_from(team, QPROD_BLDG[q], p->item);
+                int u = spawn_from(team, QPROD_BLDG[q], head);
                 if (u >= 0){
-                    if (p->more){ p->more--; p->prog = 0; p->spent = 0; }  /* next in batch */
-                    else { p->item = -1; p->prog = 0; p->spent = 0; }
+                    q_pop(p);                        /* next queued item starts */
                     if (team == 0){ toastf("UNIT READY"); sfx(&ready_sfx, 0.5f, 7, 0.3f); }
                 }
                 /* else: blocked exit — retry next frame */
@@ -1261,15 +1290,15 @@ static void ai_think(void){
         { B_TUR, 2 }, { B_POW, 5 }, { B_COIL, 2 },
     };
     PQueue *pb = &pq[1][Q_BLD];
-    if (pb->ready){ ai_place(pb->item); pb->item = -1; pb->prog = 0; pb->spent = 0; pb->ready = 0; }
-    else if (pb->item < 0){
+    if (pb->ready){ ai_place(q_head(pb)); q_pop(pb); }
+    else if (q_head(pb) < 0){
         for (unsigned i = 0; i < sizeof BO / sizeof BO[0]; i++){
             if (ai_count_b(BO[i].type) >= BO[i].want) continue;
             if (!item_avail(1, Q_BLD, BO[i].type)) break;
             if (!power_ok(1) && BD[BO[i].type].power < 0 && BO[i].type != B_POW){
-                pb->item = B_POW; break;
+                q_push(pb, B_POW); break;
             }
-            pb->item = BO[i].type;
+            q_push(pb, BO[i].type);
             break;
         }
     }
@@ -1281,24 +1310,24 @@ static void ai_think(void){
     PQueue *pi = &pq[1][Q_INF];
     PQueue *pa = &pq[1][Q_AIR];
     if (ai_unit_cool > 0) ai_unit_cool -= 1;
-    if (pv->item < 0 && harv < 2 && (owned[1] & (1u << B_REF)) && item_avail(1, Q_VEH, U_HARV))
-        pv->item = U_HARV;
+    if (q_head(pv) < 0 && harv < 2 && (owned[1] & (1u << B_REF)) && item_avail(1, Q_VEH, U_HARV))
+        q_push(pv, U_HARV);
     else if (ai_unit_cool <= 0){
         int ordered = 0;
-        if (pv->item < 0){
+        if (q_head(pv) < 0){
             static const uint8_t tanks[] = { U_LTANK, U_LTANK, U_HTANK, U_ARTY, U_TESLA };
             for (int k = 0; k < 6; k++){
                 uint8_t t = tanks[rndn(5)];
-                if (item_avail(1, Q_VEH, t) && ai_count_u(t) < 2 + ai_wave_n){ pv->item = t; ordered = 1; break; }
+                if (item_avail(1, Q_VEH, t) && ai_count_u(t) < 2 + ai_wave_n){ q_push(pv, t); ordered = 1; break; }
             }
         }
-        if (!ordered && pi->item < 0 && item_avail(1, Q_INF, U_RIFLE)){
+        if (!ordered && q_head(pi) < 0 && item_avail(1, Q_INF, U_RIFLE)){
             static const uint8_t inf[] = { U_RIFLE, U_RIFLE, U_ROCK, U_FLAME };
             uint8_t t = inf[rndn(4)];
-            if (ai_count_u(t) < 3 + ai_wave_n){ pi->item = t; ordered = 1; }
+            if (ai_count_u(t) < 3 + ai_wave_n){ q_push(pi, t); ordered = 1; }
         }
-        if (!ordered && pa->item < 0 && item_avail(1, Q_AIR, U_HELI) && ai_count_u(U_HELI) < 1 + ai_wave_n / 2){
-            pa->item = U_HELI; ordered = 1;
+        if (!ordered && q_head(pa) < 0 && item_avail(1, Q_AIR, U_HELI) && ai_count_u(U_HELI) < 1 + ai_wave_n / 2){
+            q_push(pa, U_HELI); ordered = 1;
         }
         if (ordered) ai_unit_cool = DIFF_UNITGAP[diff];
     }
@@ -1352,8 +1381,8 @@ static int fog_mask(int tx, int ty, int bit){
 }
 
 /* BLOB47 rulesets per terrain type (T_GRASS..T_SCORCH order) */
-static const MoteAutotile *const AT[8] = {
-    &grass_at, &water_at, &rock_at, &tree_at, &ore_at, &crys_at, &conc_at, &scorch_at,
+static const MoteAutotile *const AT[9] = {
+    &grass_at, &water_at, &rock_at, &tree_at, &ore_at, &crys_at, &conc_at, &scorch_at, &road_at,
 };
 /* xform bits (bit0 HFLIP, bit1 VFLIP, bits2-3 rot) match MOTE_SPR_* layout */
 static void draw_terrain_tile(uint16_t *fb, int t, int tx, int ty, int sx, int sy,
@@ -1454,17 +1483,14 @@ static void render_band(uint16_t *fb, int y0, int y1){
         int t = tidx(b->tx, b->ty);
         if (!(vism[t] & 2) && !hk_reveal) continue;
         int px = b->tx * TILE - cx, py = b->ty * TILE - cy;
-        int sh = b->type == B_COIL ? 16 : d->h * TILE;
-        int syo = b->type == B_COIL ? py - 8 : py;
-        if (px > 128 || py > 128 + 8 || px + d->w * TILE < 0 || syo + sh < 0) continue;
-        mote->blit(fb, &buildings_img, px, syo, d->sx, b->team * 24, d->w * TILE, sh, 0, y0, y1);
-        if (b->type == B_TUR)
-            mote->blit_ex(fb, &buildings_img, px + 4, py + 4, 168, b->team * 24, 8, 8,
-                          b->tface, 1.0f, MOTE_BLEND_NONE, y0, y1);
+        int syo = py + d->h * TILE - BM_ROW_H;        /* slot bottom == footprint bottom */
+        if (px > 128 || py > 136 || px + d->w * TILE < 0 || syo + BM_ROW_H < 0) continue;
+        mote->blit(fb, &buildings_img, px, syo, BM_X[b->type], b->team * BM_ROW_H,
+                   d->w * TILE, BM_ROW_H, 0, y0, y1);
         /* production progress bar across the source building (first of its type) */
         if (b->team == 0 && !(prod_seen & (1u << b->type))){
             for (int q = 0; q < NQ; q++){
-                if (QPROD_BLDG[q] != b->type || pq[0][q].item < 0) continue;
+                if (QPROD_BLDG[q] != b->type || !pq[0][q].n) continue;
                 prod_seen |= 1u << b->type;
                 int bw2 = d->w * TILE;
                 int by = py + (b->type == B_COIL ? TILE : d->h * TILE) - 2;
@@ -1631,6 +1657,7 @@ static void draw_minimap(uint16_t *fb){
                 case T_CRYS:  c = MOTE_RGB565(64, 200, 216); break;
                 case T_CONC:  c = MOTE_RGB565(90, 90, 96); break;
                 case T_SCORCH: c = MOTE_RGB565(44, 38, 30); break;
+                case T_ROAD:  c = MOTE_RGB565(60, 58, 56); break;
                 default:      c = MOTE_RGB565(40, 58, 32); break;
                 }
                 int bi = bmap[t];
@@ -1670,10 +1697,10 @@ static void missing_str(int q, int item, char *out, int n){
 /* draw a build-item pictogram (the real sprite, shrunk to ~8px) */
 static void draw_item_icon(uint16_t *fb, int q, int item, int cx, int cy){
     if (q == Q_BLD){
-        const BDef *bd = &BD[item];
-        int pw = bd->w * TILE, ph = item == B_COIL ? 16 : bd->h * TILE;
-        float s = 9.0f / (pw > ph ? pw : ph);
-        mote->blit_ex(fb, &buildings_img, cx, cy, bd->sx, 0, pw, ph, 0, s, MOTE_BLEND_NONE, 0, 128);
+        int fx = BM_X[item] + BM_XOFF[item], fy = BM_ROW_H - BM_H[item];
+        float s = 9.0f / (BM_W[item] > BM_H[item] ? BM_W[item] : BM_H[item]);
+        mote->blit_ex(fb, &buildings_img, cx, cy, fx, fy, BM_W[item], BM_H[item],
+                      0, s, MOTE_BLEND_NONE, 0, 128);
     } else {
         mote->blit(fb, &units_img, cx - 4, cy - 4, UD[item].col * 8, 0, 8, 8, 0, 0, 128);
     }
@@ -1700,10 +1727,11 @@ static void draw_build_menu(uint16_t *fb){
         if (q2 == side_tab)
             mote->draw_rect(fb, tx, 13, 17, 14, MOTE_RGB565(240, 220, 120), 0, 0, 128);
         if (q2 == Q_BLD)
-            mote->blit_ex(fb, &buildings_img, tx + 8, 20, 0, 0, 24, 24, 0, 0.42f, MOTE_BLEND_NONE, 0, 128);
+            mote->blit_ex(fb, &buildings_img, tx + 8, 20, BM_X[0] + BM_XOFF[0],
+                          BM_ROW_H - BM_H[0], BM_W[0], BM_H[0], 0, 0.5f, MOTE_BLEND_NONE, 0, 128);
         else
             mote->blit(fb, &units_img, tx + 4, 16, TAB_ICON[q2] * 8, 0, 8, 8, 0, 0, 128);
-        if (pq[0][q2].item >= 0)
+        if (pq[0][q2].n)
             mote->draw_rect(fb, tx + 13, 14, 2, 2,
                             pq[0][q2].ready ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(240, 220, 120),
                             1, 0, 128);
@@ -1718,7 +1746,8 @@ static void draw_build_menu(uint16_t *fb){
         int cx = 1 + (i % 3) * 42, cy = 30 + (i / 3) * 22;
         int avail = item_avail(0, side_tab, item);
         int cost = item_cost(side_tab, item);
-        int mine = p->item == item;
+        int mine = q_head(p) == item;
+        int qcnt = q_count(p, item);
         uint16_t bg = !avail ? MOTE_RGB565(16, 16, 20)
                     : i == side_row ? MOTE_RGB565(52, 52, 76) : MOTE_RGB565(26, 26, 36);
         mote->draw_rect(fb, cx, cy, 41, 20, bg, 1, 0, 128);
@@ -1734,9 +1763,12 @@ static void draw_build_menu(uint16_t *fb){
             if ((framec >> 3) & 1)
                 mote->text(fb, "PLACE", cx + 12, cy + 12, MOTE_RGB565(120, 255, 120));
         } else if (mine){
-            snprintf(buf, sizeof buf, "%d%%", (int)(p->prog * 100));
-            if (p->more) snprintf(buf, sizeof buf, "%d%% x%d", (int)(p->prog * 100), p->more + 1);
+            if (qcnt > 1) snprintf(buf, sizeof buf, "%d%% x%d", (int)(p->prog * 100), qcnt);
+            else snprintf(buf, sizeof buf, "%d%%", (int)(p->prog * 100));
             mote->text(fb, buf, cx + 12, cy + 12, MOTE_RGB565(150, 240, 150));
+        } else if (qcnt){
+            snprintf(buf, sizeof buf, "x%d", qcnt);
+            mote->text(fb, buf, cx + 12, cy + 12, MOTE_RGB565(240, 220, 120));
         } else {
             snprintf(buf, sizeof buf, "%d", cost);
             uint16_t cc = !avail ? MOTE_RGB565(90, 88, 96)
@@ -1888,8 +1920,8 @@ static void g_overlay(uint16_t *fb){
         int yy0 = boxy < cury ? (int)boxy : (int)cury, yy1 = boxy < cury ? (int)cury : (int)boxy;
         mote->draw_rect(fb, x0, yy0, x1 - x0 + 1, yy1 - yy0 + 1, MOTE_RGB565(240, 240, 240), 0, 0, 128);
     }
-    if (rb_t > 0.25f && owned[0] & (1u << B_RADAR) && power_ok(0)) draw_minimap(fb);
-    else if (rb_t > 0.25f){
+    if (rb_t > 0.001f && owned[0] & (1u << B_RADAR) && power_ok(0)) draw_minimap(fb);
+    else if (rb_t > 0.001f){
         mote->text_font(fb, f, pow_prod[0] < pow_use[0] ? "RADAR OFFLINE" : "NEED RADAR",
                         30, 60, MOTE_RGB565(255, 80, 60));
     }
@@ -1992,14 +2024,23 @@ static void select_at(float wx, float wy){
         if (d2 < bd2){ bd2 = d2; found = i; }
     }
     if (found >= 0){
-        /* double-tap: select all of this type on screen */
+        /* double-tap: all of this type on screen · triple-tap: the WHOLE army */
+        static int tapn;
         if (lastsel_u >= 0 && un[lastsel_u].alive && gtime - lastsel_t < 0.45f
             && un[found].type == un[lastsel_u].type){
+            tapn++;
             desel();
-            for (int i = 0; i < MAXU; i++)
-                if (un[i].alive && un[i].team == 0 && un[i].type == un[found].type
-                    && onscreen(un[i].x, un[i].y, 0)) un[i].sel = 1;
+            if (tapn >= 2){
+                for (int i = 0; i < MAXU; i++)
+                    if (un[i].alive && un[i].team == 0 && UD[un[i].type].weapon) un[i].sel = 1;
+                toastf("ARMY SELECTED");
+            } else {
+                for (int i = 0; i < MAXU; i++)
+                    if (un[i].alive && un[i].team == 0 && un[i].type == un[found].type
+                        && onscreen(un[i].x, un[i].y, 0)) un[i].sel = 1;
+            }
         } else {
+            tapn = 0;
             desel();
             un[found].sel = 1;
         }
@@ -2054,7 +2095,7 @@ static void input_play(float dt){
             side_open = 1; side_tab = Q_BLD; side_row = 0;
             if (pq[0][Q_BLD].ready)
                 for (int i = 0; i < QMENU_N[Q_BLD]; i++)
-                    if (QMENU[Q_BLD][i] == pq[0][Q_BLD].item) side_row = i;
+                    if (QMENU[Q_BLD][i] == q_head(&pq[0][Q_BLD])) side_row = i;
         }
         else { side_tab = (side_tab + 1) % NQ; side_row = 0; }
     }
@@ -2076,20 +2117,12 @@ static void input_play(float dt){
                 char msg[32]; snprintf(msg, sizeof msg, "NEEDS %s", miss);
                 sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf(msg);
             }
-            else if (side_tab == Q_BLD && p->ready){
-                if (p->item == item){ placing = p->item; side_open = 0; }
-                else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("PLACE READY BLDG FIRST"); }
+            else if (side_tab == Q_BLD && p->ready && q_head(p) == item){
+                placing = item; side_open = 0;       /* place the finished one */
             }
-            else if (p->item == item && side_tab != Q_BLD){
-                if (p->more < 4){ p->more++; sfx(&click_sfx, 0.45f, 7, 0.05f); }  /* batch +1 */
-                else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE FULL"); }
-            }
-            else if (p->item >= 0){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE BUSY"); }
-            else if (credits[0] < 20){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
-            else {
-                p->item = item; p->prog = 0; p->spent = 0; p->ready = 0; p->more = 0; p->nagged = 0;
-                sfx(&ack_sfx, 0.45f, 7, 0.06f);
-            }
+            else if (credits[0] < 20 && !p->n){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
+            else if (!q_push(p, item)){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE FULL"); }
+            else sfx(&ack_sfx, 0.45f, 7, 0.06f);
         }
         return;   /* dpad captured by sidebar */
     }
@@ -2116,8 +2149,7 @@ static void input_play(float dt){
                 place_bldg(placing, 0, tx, ty);
                 fx_flash((tx + BD[placing].w * 0.5f) * TILE, (ty + BD[placing].h * 0.5f) * TILE, 8);
                 sfx(&place_sfx, 0.7f, 7, 0.1f);
-                PQueue *p = &pq[0][Q_BLD];
-                p->item = -1; p->prog = 0; p->spent = 0; p->ready = 0;
+                q_pop(&pq[0][Q_BLD]);                /* next queued building starts */
                 placing = -1;
             } else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("CANNOT PLACE THERE"); }
         }
@@ -2184,7 +2216,6 @@ static void world_init(void){
     memset(pt, 0, sizeof pt);
     memset(pq, 0, sizeof pq);
     memset(vism, 0, NT);
-    for (int t = 0; t < 2; t++) for (int q = 0; q < NQ; q++) pq[t][q].item = -1;
     wepoch++;
     for (int i = 0; i < NF; i++){ fdest[i] = 0xFFFF; fepoch[i] = 0; fuse[i] = 0; }
     gen_map();

@@ -90,8 +90,8 @@ def blob_sheet(name, nvar, painter):
     for v in range(nvar):
         for ci, mask in enumerate(BLOB_ORDER):
             painter(d, ci * 8, v * 8, mask, v)
-    im.save(os.path.join(HERE, name + "_at.png"))
-    write_tileset(name, "assets/%s_at.png" % name, nvar, BLOB_LUT, 47)
+    im.save(os.path.join(HERE, name + ".png"))
+    write_tileset(name, "assets/%s.png" % name, nvar, BLOB_LUT, 47)
 
 
 # side/corner helpers: a cell's missing cardinal = a border on that side
@@ -278,7 +278,31 @@ def cw_fog(d, x0, y0, m, v):
                 if (x * 3 + y + v) % 4 == 0: px(d, x0 + x, y0 + y, (0, 0, 0))
 
 
+def cw_road(d, x0, y0, m, v):
+    """asphalt pad: dark warm tarmac, pale curb along open edges."""
+    base, curb, wear = (54, 51, 48), (82, 79, 76), (64, 60, 56)
+    rect(d, x0, y0, x0 + 7, y0 + 7, base)
+    r2 = cell_rng("rd", m, v)
+    for _ in range(5):
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), wear)
+    for _ in range(2):
+        px(d, x0 + r2.randrange(8), y0 + r2.randrange(8), (44, 42, 40))
+    mn, me, ms, mw = sides(m)
+    if mn:
+        for x in range(8): px(d, x0 + x, y0, curb)
+    if ms:
+        for x in range(8): px(d, x0 + x, y0 + 7, (40, 38, 36))
+    if mw:
+        for y in range(8): px(d, x0, y0 + y, curb)
+    if me:
+        for y in range(8): px(d, x0 + 7, y0 + y, (40, 38, 36))
+    for (cx, cy, c1, c2) in ((0, 0, mn, mw), (7, 0, mn, me), (0, 7, ms, mw), (7, 7, ms, me)):
+        if c1 and c2:
+            d.point((x0 + cx, y0 + cy), fill=(0, 0, 0, 0))
+
+
 def make_autotiles():
+    blob_sheet("road", 2, cw_road)
     blob_sheet("fog", 2, cw_fog)
     blob_sheet("water", 2, cw_water)
     blob_sheet("rock", 2, cw_rock)
@@ -299,8 +323,8 @@ def make_autotiles():
             px(d, x, y0 + y, shade(GRASS, r2.choice((0.82, 0.9, 1.12, 1.2))))
         for _ in range(2):
             px(d, r2.randrange(8), y0 + r2.randrange(8), (94, 82, 52))
-    im.save(os.path.join(HERE, "grass_at.png"))
-    write_tileset("grass", "assets/grass_at.png", 4, [0] * 256, 1)
+    im.save(os.path.join(HERE, "grass.png"))
+    write_tileset("grass", "assets/grass.png", 4, [0] * 256, 1)
 
 
 # ================================================================= units
@@ -642,6 +666,6 @@ def make_icon():
 
 make_autotiles()
 make_units()
-make_buildings()
+# buildings.png now comes from extract_buildings.py (AI-art sheet)
 make_icon()
 print("wrote autotile sheets units.png buildings.png ../icon.png")
