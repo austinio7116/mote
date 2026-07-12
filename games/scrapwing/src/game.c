@@ -415,16 +415,23 @@ typedef struct { float x, y, vx, vy, age, phase; uint8_t on, elem, kind, demo; }
 static EBullet ebul[MAXEB];
 
 #define MAXP 900
-#define PF_ADD  1
-#define PF_GRAV 2
-#define PF_SEEK 4      /* new-catalogue kill: debris is absorbed into your ship */
+#define PF_ADD    1
+#define PF_GRAV   2
+#define PF_SEEK   4    /* new-catalogue kill: debris is absorbed into your ship */
+#define PF_STREAK 8    /* drawn as a short velocity-aligned line */
+#define PF_DRAG  16    /* heavy air drag: fast sparks that die on the spot */
 typedef struct { float x, y, vx, vy; uint16_t col; uint8_t life, maxlife, flags; } Part;
 static Part parts[MAXP];
 static int part_head;
 
-#define MAXRING 8
-typedef struct { float x, y, age; uint8_t on; uint16_t col; } Ring;
+#define MAXRING 14
+/* fill=0: expanding outline that FADES out; fill=1: a solid flash disc */
+typedef struct { float x, y, age, maxage, speed, r0; uint8_t on, fill; uint16_t col; } Ring;
 static Ring rings[MAXRING];
+
+/* delayed sub-bursts: crackle pops + twinkles that fire after the main blast */
+#define MAXCRK 12
+static struct { float x, y, t; uint8_t on, kind; } crk[MAXCRK];
 
 #define MAXEN 32
 enum { K_DRIFT, K_CHASE, K_SNIPE, K_ORBIT, K_TURRET, K_HEAVY };
@@ -467,6 +474,8 @@ static float b_over, b_amp, b_after, b_ghost;   /* timed powerup buffs */
 static float b_bomb, b_rear, b_vert, bomb_cd;   /* offensive powerup timers */
 static float b_drone, drone_cd, drone_ang;      /* wingman */
 static float b_reflect, b_magnet;
+static uint8_t run_pu[PU_N];             /* powerups collected THIS run (log) */
+static uint8_t lab_view;                 /* hangar pane: 0 = weapon, 1 = run log */
 static int   mine_charges;                      /* chrono mines waiting to deploy */
 static float mine_cd;
 static int   hull_max;                          /* grows with HULL OVERCHARGE */
@@ -495,6 +504,7 @@ static float cam_look;              /* smoothed facing lookahead (px) */
 static char  toast[40];
 static float toast_t;
 static int   lab_cur, lab_mark;         /* hangar cursor + bench chassis index */
+static int   g_bd_style;                /* SCRAP_BOOMDEMO: style on display (1-based) */
 static int   bench_core;                /* bench core selection */
 static float demo_cd;                   /* bench demo-fire cooldown */
 static int   g_demo_fire;               /* shots spawned now are demo-only */
@@ -569,9 +579,26 @@ static void spawn_part(float x, float y, float vx, float vy, uint16_t col,
     p->col = col; p->life = p->maxlife = (uint8_t)l; p->flags = flags;
 }
 
-static void spawn_ring(float x, float y, uint16_t col) {
+static uint16_t col_fade(uint16_t c, float f) {
+    if (f > 1) f = 1; if (f < 0) f = 0;
+    return (uint16_t)(((int)(((c >> 11) & 31) * f) << 11) |
+                      ((int)(((c >> 5) & 63) * f) << 5) |
+                       (int)((c & 31) * f));
+}
+
+static void spawn_ring_ex(float x, float y, uint16_t col, float r0, float speed,
+                          float maxage, int fill) {
     for (int i = 0; i < MAXRING; i++) if (!rings[i].on) {
-        rings[i] = (Ring){ x, y, 0, 1, col }; return;
+        rings[i] = (Ring){ x, y, 0, maxage, speed, r0, 1, (uint8_t)fill, col }; return;
+    }
+}
+static void spawn_ring(float x, float y, uint16_t col) {
+    spawn_ring_ex(x, y, col, 2, 70, 0.45f, 0);
+}
+static void crk_push(float x, float y, float delay, int kind) {
+    for (int i = 0; i < MAXCRK; i++) if (!crk[i].on) {
+        crk[i].on = 1; crk[i].x = x; crk[i].y = y; crk[i].t = delay;
+        crk[i].kind = (uint8_t)kind; return;
     }
 }
 
@@ -672,6 +699,130 @@ static void gene_label(const Gene *g, char *out, int max) {
     if ((g->mods & MOD_SPLIT)  && n < max - 1) out[n++] = 'S';
     if ((g->mods & MOD_BOUNCE) && n < max - 1) out[n++] = 'B';
     out[n] = 0;
+}
+
+/* six candidate explosion looks (SCRAP_BOOMDEMO cycles them on the title).
+ * pw scales size/count: 0.7 small kill, 1.0 standard, 1.6 boss/death. */
+static const char *const boom_name[6] = { "EMBER BLOOM", "SHOCKWAVE", "FIREBALL",
+                                          "FLAK BURST", "SOLAR PLUME", "NOVA CHAIN" };
+static void boom_style(int st, float x, float y, float pw) {
+    int n;
+    switch (st) {
+    case 0:                                          /* EMBER BLOOM */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 245, 205), 8 * pw, 34, 0.11f, 1);
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 150, 40), 2, 85 * pw, 0.5f, 0);
+        n = (int)(48 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(60, 210 * pw);
+            uint16_t c = (k % 3 == 0) ? MOTE_RGB565(255, 250, 220)
+                       : (k & 1)      ? MOTE_RGB565(255, 210, 80)
+                                      : MOTE_RGB565(255, 130, 30);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp, c,
+                       mote_randf(0.3f, 0.75f), PF_ADD | PF_DRAG);
+        }
+        n = (int)(24 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(25, 110 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp - 20,
+                       (k & 1) ? MOTE_RGB565(255, 140, 40) : MOTE_RGB565(230, 70, 20),
+                       mote_randf(0.5f, 1.0f), PF_ADD | PF_GRAV);
+        }
+        break;
+    case 1:                                          /* SHOCKWAVE */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 255, 255), 2, 150 * pw, 0.33f, 0);
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 170, 60), 2, 90 * pw, 0.55f, 0);
+        n = (int)(30 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(140, 260 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(255, 255, 240) : MOTE_RGB565(255, 210, 90),
+                       mote_randf(0.2f, 0.45f), PF_ADD | PF_STREAK | PF_DRAG);
+        }
+        n = (int)(22 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(50, 160 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(255, 190, 70) : MOTE_RGB565(255, 120, 40),
+                       mote_randf(0.3f, 0.6f), PF_ADD | PF_DRAG);
+        }
+        for (int k = 0; k < 16; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(18, 50);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       MOTE_RGB565(120, 112, 105), mote_randf(0.5f, 1.0f), 0);
+        }
+        break;
+    case 2:                                          /* FIREBALL */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 235, 180), 6 * pw, 28, 0.1f, 1);
+        n = (int)(52 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(14, 85 * pw);
+            uint16_t c = (k % 3 == 0) ? MOTE_RGB565(255, 220, 120)
+                       : (k & 1)      ? MOTE_RGB565(255, 130, 30)
+                                      : MOTE_RGB565(200, 50, 15);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp, c,
+                       mote_randf(0.35f, 0.8f), PF_ADD);
+        }
+        for (int k = 0; k < 18; k++)
+            spawn_part(x + mote_randf(-4, 4), y + mote_randf(-4, 4),
+                       mote_randf(-14, 14), mote_randf(-32, -8),
+                       (k & 1) ? MOTE_RGB565(70, 64, 60) : MOTE_RGB565(100, 92, 86),
+                       mote_randf(0.7f, 1.3f), 0);
+        for (int k = 0; k < 14; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(120, 220 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       MOTE_RGB565(255, 245, 200), mote_randf(0.15f, 0.3f),
+                       PF_ADD | PF_DRAG);
+        }
+        break;
+    case 3:                                          /* FLAK BURST */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 255, 255), 12 * pw, 40, 0.1f, 1);
+        n = (int)(56 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(50, 170 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k % 3 == 0) ? MOTE_RGB565(255, 255, 255)
+                                    : MOTE_RGB565(255, 200, 90),
+                       mote_randf(0.14f, 0.4f), PF_ADD | PF_DRAG);
+        }
+        n = 4 + (int)(2 * pw);
+        for (int k = 0; k < n; k++)
+            crk_push(x + mote_randf(-16, 16) * pw, y + mote_randf(-13, 13) * pw,
+                     0.1f + k * 0.11f, 0);
+        break;
+    case 4:                                          /* SOLAR PLUME */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 220, 120), 6 * pw, 26, 0.1f, 1);
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 190, 60), 2, 70 * pw, 0.45f, 0);
+        n = (int)(34 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = -1.5708f + mote_randf(-1.0f, 1.0f), sp = mote_randf(80, 230 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(255, 235, 150) : MOTE_RGB565(255, 160, 40),
+                       mote_randf(0.4f, 0.8f), PF_ADD | PF_STREAK | PF_GRAV);
+        }
+        n = (int)(20 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(30, 90);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       MOTE_RGB565(255, 120, 30), mote_randf(0.5f, 1.1f),
+                       PF_ADD | PF_GRAV);
+        }
+        break;
+    default:                                         /* NOVA CHAIN */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 250, 230), 7 * pw, 30, 0.1f, 1);
+        spawn_ring_ex(x, y, MOTE_RGB565(160, 200, 255), 2, 110 * pw, 0.4f, 0);
+        n = (int)(34 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(45, 140 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(220, 235, 255) : MOTE_RGB565(255, 220, 120),
+                       mote_randf(0.3f, 0.7f), PF_ADD | PF_DRAG);
+        }
+        n = (int)(8 * pw);
+        for (int k = 0; k < n; k++)
+            crk_push(x + mote_randf(-15, 15) * pw, y + mote_randf(-13, 13) * pw,
+                     mote_randf(0.08f, 0.55f), 1);
+        break;
+    }
 }
 
 /* world-positioned SFX: full volume on screen, fading to silence ~a screen
@@ -1522,8 +1673,9 @@ typedef struct {
     int hull_max, scrap, kills, inv_n, equipped, player_ship;
     float shield_max;
     Gene inv[INV_MAX];
+    uint8_t pu[PU_N];                              /* run powerup log */
 } RunSave;
-#define RUN_MAGIC 0x53575231 + 0x1000              /* 'SWRN'-ish, distinct */
+#define RUN_MAGIC (0x53575231 + 0x2000)            /* v2: +pu log */
 static int run_save_sector;                        /* 0 = no suspended run */
 
 static void run_save_write(void) {
@@ -1534,6 +1686,7 @@ static void run_save_write(void) {
     r.inv_n = inv_n; r.equipped = equipped; r.player_ship = player_ship;
     r.shield_max = shield_max;
     memcpy(r.inv, inv, sizeof inv);
+    memcpy(r.pu, run_pu, sizeof run_pu);
     mote->save(1, &r, sizeof r);
     run_save_sector = sector;
 }
@@ -1558,6 +1711,7 @@ static void resume_run(void) {
     equipped = mote_clampi(r.equipped, 0, inv_n - 1);
     player_ship = mote_clampi(r.player_ship, 0, SHIP_COUNT - 1);
     memcpy(inv, r.inv, sizeof inv);
+    memcpy(run_pu, r.pu, sizeof run_pu);
     shield_max = mote_clampf(r.shield_max, 2.0f, 5.0f);
     shield_e = shield_max; shield_on = 0;
     invuln = 0; fire_cd = 0; die_t = 0;
@@ -1582,6 +1736,7 @@ static void start_run(void) {
     b_bomb = b_rear = b_vert = 0; bomb_cd = 0;
     b_drone = b_reflect = b_magnet = 0; drone_cd = 0; drone_ang = 0;
     mine_charges = 0; mine_cd = 0; hull_max = HULL_MAX;
+    memset(run_pu, 0, sizeof run_pu);
     for (int i = 0; i < PMINE_N; i++) pmine[i].on = 0;
     run_seed = mote_rand();
     {
@@ -2553,6 +2708,7 @@ static void chips_update(float dt) {
                     hull = mote_clampf(hull + 1, 0, hull_max);
                     break;
                 }
+                if (run_pu[c->pu] < 255) run_pu[c->pu]++;
                 say(pu_name[c->pu]);
                 mote->audio_play_sfx(&pickup_sfx, 0.8f);
                 c->on = 0;
@@ -2615,10 +2771,35 @@ static void parts_update(float dt) {
             if (p->life < 2) p->life = 2;            /* never dies before arriving */
         } else if (p->flags & PF_GRAV) p->vy += 55.0f * dt;
         p->x += p->vx * dt; p->y += p->vy * dt;
-        if (!(p->flags & PF_SEEK)) { p->vx *= 1 - 0.6f * dt; p->vy *= 1 - 0.6f * dt; }
+        if (!(p->flags & PF_SEEK)) {
+            float dg = (p->flags & PF_DRAG) ? 4.2f : 0.6f;
+            p->vx *= 1 - dg * dt; p->vy *= 1 - dg * dt;
+        }
     }
     for (int i = 0; i < MAXRING; i++)
-        if (rings[i].on && (rings[i].age += dt) > 0.45f) rings[i].on = 0;
+        if (rings[i].on && (rings[i].age += dt) > rings[i].maxage) rings[i].on = 0;
+    for (int i = 0; i < MAXCRK; i++) {
+        if (!crk[i].on) continue;
+        crk[i].t -= dt;
+        if (crk[i].t > 0) continue;
+        crk[i].on = 0;
+        float cx = crk[i].x, cy = crk[i].y;
+        if (crk[i].kind == 0) {                      /* flak pop */
+            spawn_ring_ex(cx, cy, MOTE_RGB565(255, 240, 200), 5, 26, 0.09f, 1);
+            for (int k = 0; k < 9; k++) {
+                float a = mote_randf(0, 6.28f), sp = mote_randf(50, 150);
+                spawn_part(cx, cy, cosf(a) * sp, sinf(a) * sp,
+                           (k & 1) ? MOTE_RGB565(255, 220, 120) : MOTE_RGB565(255, 150, 60),
+                           mote_randf(0.1f, 0.26f), PF_ADD | PF_DRAG);
+            }
+        } else {                                     /* twinkle */
+            spawn_ring_ex(cx, cy, MOTE_RGB565(255, 255, 255), 3, 14, 0.07f, 1);
+            for (int k = 0; k < 4; k++)
+                spawn_part(cx, cy, mote_randf(-40, 40), mote_randf(-40, 40),
+                           MOTE_RGB565(230, 245, 255), mote_randf(0.08f, 0.2f),
+                           PF_ADD | PF_DRAG);
+        }
+    }
 }
 
 /* ================================================================== update */
@@ -2744,6 +2925,19 @@ static void g_update(float dt) {
         cam_x = bg_cam_x; cam_y = bg_cam_y;           /* FX track the drifting stars */
         mote->scene2d_begin(bg_cam_x, bg_cam_y);      /* stars only, no tiles */
 
+        if (getenv("SCRAP_BOOMDEMO")) {              /* dev: audition the six looks */
+            static float bd_t; static int bd_i;
+            bd_t -= dt;
+            if (bd_t <= 0) {
+                boom_style((bd_i / 2) % 6, cam_x + 64 + ((bd_i & 1) ? 26 : -26),
+                           cam_y + 62, (bd_i & 1) ? 1.6f : 1.0f);
+                bd_i++; bd_t = 1.4f;
+            }
+            g_bd_style = (bd_i - 1) / 2 % 6 + 1;     /* overlay label: 1-based */
+            parts_update(dt);
+            break;
+        }
+
         /* hero ship: bobbing flight + constant exhaust */
         float shx = 56 + sinf(bg_time * 0.5f) * 10.0f;
         float shy = 40 + sinf(bg_time * 1.3f) * 3.0f;   /* matches the title blit */
@@ -2831,6 +3025,8 @@ static void g_update(float dt) {
     case ST_LAB: {
         if (mote_just_pressed(in, MOTE_BTN_UP))   lab_cur = (lab_cur + inv_n - 1) % inv_n;
         if (mote_just_pressed(in, MOTE_BTN_DOWN)) lab_cur = (lab_cur + 1) % inv_n;
+        if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT))
+            lab_view ^= 1;
         if (mote_just_pressed(in, MOTE_BTN_A)) {
             equipped = lab_cur;
             say("EQUIPPED");
@@ -2994,7 +3190,7 @@ static void g_update(float dt) {
         Gene child = fuse_genes(&inv[lab_mark], &inv[bench_core]);
         demo_cd -= dt;
         if (demo_cd <= 0) {                          /* the result fires, for real */
-            fire_gene(&child, cam_x + 26, cam_y + 68, 1, 1);
+            fire_gene(&child, cam_x + 26, cam_y + 65, 1, 1);
             demo_cd = 1.0f / gene_rate(&child);
         }
         shots_update(dt);
@@ -3287,6 +3483,33 @@ static void lab_overlay(uint16_t *fb) {
     /* stats of the highlighted weapon: damage per shot, shots per second,
      * projectile speed — the SAME three lines the fusion bench shows */
     mote->draw_line(fb, 2, 86, 125, 86, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
+    if (lab_view) {                                  /* RUN LOG: powerups collected */
+        textf_med(fb, 4, 88, MOTE_RGB565(160, 220, 255), "RUN LOG");
+        textf_med(fb, 62, 88, MOTE_RGB565(220, 220, 240), "KILLS %d", kills);
+        int gx = 5, gy = 100, shown = 0, total = 0;
+        for (int i = 0; i < PU_N; i++) {
+            if (!run_pu[i]) continue;
+            total++;
+            if (shown < 12) {
+                int sp = pu_sprite[i];
+                mote->blit_ex(fb, &mines_img, gx + 5, gy + 5,
+                              (sp % MINE_COLS) * 16, (sp / MINE_COLS) * 16, 16, 16,
+                              0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+                if (run_pu[i] > 1)
+                    textf_med(fb, gx + 10, gy + 2, MOTE_RGB565(255, 220, 110),
+                              "%d", run_pu[i]);
+                gx += 20;
+                if (gx > 108) { gx = 5; gy += 13; }
+                shown++;
+            }
+        }
+        if (!total)
+            textf_med(fb, 4, 102, MOTE_RGB565(120, 130, 160), "NO POWERUPS YET");
+        else if (total > shown)
+            textf_med(fb, 108, 88, MOTE_RGB565(120, 130, 160), "+%d", total - shown);
+        mote->text(fb, "< WEAPON", 44, 119, MOTE_RGB565(150, 160, 190));
+        return;
+    }
     const Gene *g = &inv[lab_cur];
     uint16_t bc = elem_col[g->elem][1];
     int d10 = (int)(gene_dmg(g) * 10 + 0.5f), r10 = (int)(gene_rate(g) * 10 + 0.5f);
@@ -3301,7 +3524,8 @@ static void lab_overlay(uint16_t *fb) {
     textf_med(fb, 4, 108, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[g->pat]);
     textf_med(fb, 60, 108, g->mods ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(120, 130, 160),
               "MODS %s", ms);
-    mote->text(fb, "A EQUIP  RB FUSE", 30, 119, MOTE_RGB565(255, 220, 110));
+    mote->text(fb, "A EQUIP  RB FUSE", 14, 119, MOTE_RGB565(255, 220, 110));
+    mote->text(fb, "> RUN", 100, 119, MOTE_RGB565(150, 160, 190));
 }
 
 /* The FUSION BENCH: chassis + core -> result, LIVE-FIRED in the demo strip. */
@@ -3333,9 +3557,9 @@ static void bench_overlay(uint16_t *fb) {
     mote->text_font(fb, f, l, 14, 39, elem_col[c.elem][0]);
 
     /* live demo strip: the RESULT is firing in here right now */
-    mote->draw_rect(fb, 3, 52, 122, 32, MOTE_RGB565(5, 7, 14), 1, 0, MOTE_FB_H);
-    mote->draw_rect(fb, 3, 52, 122, 32, MOTE_RGB565(60, 80, 120), 0, 0, MOTE_FB_H);
-    mote->blit(fb, &ships_img, 6, 60,
+    mote->draw_rect(fb, 3, 52, 122, 26, MOTE_RGB565(5, 7, 14), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 3, 52, 122, 26, MOTE_RGB565(60, 80, 120), 0, 0, MOTE_FB_H);
+    mote->blit(fb, &ships_img, 6, 57,
                (PLAYER_SHIP % SHIP_COLS) * SHIP_CELL,
                (PLAYER_SHIP / SHIP_COLS) * SHIP_CELL, 16, 16, 0, 0, MOTE_FB_H);
 
@@ -3345,23 +3569,34 @@ static void bench_overlay(uint16_t *fb) {
     float dv = gene_dmg(&c), dr = gene_dmg(ga);
     float rv = gene_rate(&c), rr = gene_rate(ga);
     int d10 = (int)(dv * 10 + 0.5f), r10 = (int)(rv * 10 + 0.5f);
-    mote->text_font(fb, f, "DMG", 4, 86, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 32, 89, 58, dv, DMG_MAX, bc, dr);
-    textf_med(fb, 94, 86, dv > dr + 0.01f ? MOTE_RGB565(120, 235, 140)
+    mote->text_font(fb, f, "DMG", 4, 80, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 83, 58, dv, DMG_MAX, bc, dr);
+    textf_med(fb, 94, 80, dv > dr + 0.01f ? MOTE_RGB565(120, 235, 140)
               : dv < dr - 0.01f ? MOTE_RGB565(255, 110, 100) : MOTE_RGB565(230, 238, 255),
               "%d.%d%s", d10 / 10, d10 % 10, dv > dr + 0.01f ? "+" : dv < dr - 0.01f ? "-" : "");
-    mote->text_font(fb, f, "RATE", 4, 96, MOTE_RGB565(180, 190, 220));
-    stat_bar(fb, 32, 99, 58, rv, RPS_MAX, bc, rr);
-    textf_med(fb, 94, 96, rv > rr + 0.01f ? MOTE_RGB565(120, 235, 140)
+    mote->text_font(fb, f, "RATE", 4, 90, MOTE_RGB565(180, 190, 220));
+    stat_bar(fb, 32, 93, 58, rv, RPS_MAX, bc, rr);
+    textf_med(fb, 94, 90, rv > rr + 0.01f ? MOTE_RGB565(120, 235, 140)
               : rv < rr - 0.01f ? MOTE_RGB565(255, 110, 100) : MOTE_RGB565(230, 238, 255),
               "%d.%d%s", r10 / 10, r10 % 10, rv > rr + 0.01f ? "+" : rv < rr - 0.01f ? "-" : "");
     char ms[6];
     mods_str(c.mods, ms);
     uint8_t newm = (uint8_t)(c.mods & ~(ga->mods | gb->mods));
-    textf_med(fb, 4, 106, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[c.pat]);
-    textf_med(fb, 60, 106, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
+    textf_med(fb, 4, 100, MOTE_RGB565(180, 190, 220), "SPD %d", (int)pat_spd[c.pat]);
+    textf_med(fb, 60, 100, newm ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(180, 190, 220),
               "MODS %s%s", ms, newm ? " NEW!" : "");
-    mote->text(fb, "A FUSE  LB SWAP  B BACK", 18, 118, MOTE_RGB565(255, 220, 110));
+    if (c.mods) {                                    /* what each mod DOES, cycling */
+        static const uint8_t mbit[4] = { MOD_HOMING, MOD_PIERCE, MOD_SPLIT, MOD_BOUNCE };
+        static const char *const mdesc[4] = { "H SHOTS SEEK FOES", "P PIERCES 3 FOES",
+                                              "S SPLITS ON HIT", "B WALL BOUNCE x3" };
+        int have[4], nh = 0;
+        for (int k = 0; k < 4; k++) if (c.mods & mbit[k]) have[nh++] = k;
+        int cur = have[(int)(bg_time / 1.5f) % nh];
+        textf_med(fb, 4, 110, (newm & mbit[cur]) ? MOTE_RGB565(255, 220, 110)
+                                                 : MOTE_RGB565(150, 200, 255),
+                  "%s", mdesc[cur]);
+    }
+    mote->text(fb, "A FUSE  LB SWAP  B BACK", 18, 121, MOTE_RGB565(255, 220, 110));
 }
 
 static const char *const kind_name[6] = { "DRIFTER", "HUNTER", "SNIPER", "ORBITER", "TURRET", "HEAVY" };
@@ -3636,6 +3871,37 @@ static void catinfo_overlay(uint16_t *fb) {
 
 static void g_overlay(uint16_t *fb) {
     if (state == ST_TITLE) {
+        if (g_bd_style) {                            /* SCRAP_BOOMDEMO: FX + label only */
+            for (int i = 0; i < MAXP; i++) {
+                Part *p = &parts[i];
+                if (!p->life) continue;
+                int x = (int)p->x - cam_x, y = (int)p->y - cam_y;
+                if ((unsigned)x >= MOTE_FB_W || (unsigned)y >= MOTE_FB_H) continue;
+                if (p->flags & PF_STREAK)
+                    mote->draw_line(fb, x, y, (int)(p->x - p->vx * 0.045f) - cam_x,
+                                    (int)(p->y - p->vy * 0.045f) - cam_y, p->col, 0, MOTE_FB_H);
+                else if (p->flags & PF_ADD) {
+                    if (p->life * 3 > p->maxlife * 2 || (p->life & 1)) px_add(fb, x, y, p->col);
+                } else px_set(fb, x, y, p->col);
+            }
+            for (int i = 0; i < MAXRING; i++) {
+                if (!rings[i].on) continue;
+                float fr = 1.0f - rings[i].age / rings[i].maxage;
+                int r; uint16_t c;
+                if (rings[i].fill) { r = (int)(rings[i].r0 * (0.35f + 0.65f * fr));
+                                     c = col_fade(rings[i].col, 0.55f + 0.45f * fr); }
+                else { r = (int)(rings[i].r0 + rings[i].age * rings[i].speed);
+                       c = col_fade(rings[i].col, fr); }
+                if (r < 1) r = 1;
+                mote->draw_circle(fb, (int)rings[i].x - cam_x, (int)rings[i].y - cam_y,
+                                  r, c, rings[i].fill, 0, MOTE_FB_H);
+            }
+            textf_med(fb, 20, 4, MOTE_RGB565(255, 220, 110), "%d/6 %s",
+                      g_bd_style, boom_name[g_bd_style - 1]);
+            mote->text(fb, "SMALL", 22, 114, MOTE_RGB565(150, 160, 190));
+            mote->text(fb, "LARGE", 82, 114, MOTE_RGB565(150, 160, 190));
+            return;
+        }
         /* boss peeking in from the right edge (drawn under everything else) */
         if (tboss_phase) {
             float peek = boss_fw[tboss_idx] * 0.38f;
@@ -3715,7 +3981,11 @@ static void g_overlay(uint16_t *fb) {
         if (!p->life) continue;
         int x = (int)p->x - cam_x, y = (int)p->y - cam_y;
         if ((unsigned)x >= MOTE_FB_W || (unsigned)y >= MOTE_FB_H) continue;
-        if (p->flags & PF_ADD) {
+        if (p->flags & PF_STREAK) {
+            float k = 0.045f;
+            mote->draw_line(fb, x, y, (int)(p->x - p->vx * k) - cam_x,
+                            (int)(p->y - p->vy * k) - cam_y, p->col, 0, MOTE_FB_H);
+        } else if (p->flags & PF_ADD) {
             /* fade additive sparks out by age */
             if (p->life * 3 > p->maxlife * 2 || (p->life & 1)) px_add(fb, x, y, p->col);
         } else {
@@ -3724,9 +3994,18 @@ static void g_overlay(uint16_t *fb) {
     }
     for (int i = 0; i < MAXRING; i++) {
         if (!rings[i].on) continue;
-        int r = (int)(rings[i].age * 70.0f) + 2;
+        float fr = 1.0f - rings[i].age / rings[i].maxage;
+        int r; uint16_t c;
+        if (rings[i].fill) {                         /* flash disc: shrinks, stays HOT */
+            r = (int)(rings[i].r0 * (0.35f + 0.65f * fr));
+            c = col_fade(rings[i].col, 0.55f + 0.45f * fr);
+        } else {                                     /* outline: expands, fades out */
+            r = (int)(rings[i].r0 + rings[i].age * rings[i].speed);
+            c = col_fade(rings[i].col, fr);
+        }
+        if (r < 1) r = 1;
         mote->draw_circle(fb, (int)rings[i].x - cam_x, (int)rings[i].y - cam_y,
-                          r, rings[i].col, 0, 0, MOTE_FB_H);
+                          r, c, rings[i].fill, 0, MOTE_FB_H);
     }
     for (int i = 0; i < MAXSHOT; i++)
         if (shots[i].on) draw_shot(fb, &shots[i]);
