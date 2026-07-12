@@ -122,7 +122,12 @@ def crop_sprite(team, name):
         w2 = len(cols)
         lo, hi = int(w2 * 0.40), int(w2 * 0.80)
         b[2] = b[0] + lo + int(np.argmin(cols[lo:hi]))
-    sp = Image.fromarray(rgba[b[1]:b[3], b[0]:b[2]])
+    # alpha = the FILLED silhouette: dark interiors (yard floors, bays, shadows)
+    # sit near the background grey — fill_holes keeps everything the sprite
+    # encloses, only true outside-background stays transparent
+    m = ndimage.binary_fill_holes(mask[b[1]:b[3], b[0]:b[2]])
+    sub = a[b[1]:b[3], b[0]:b[2]]
+    sp = Image.fromarray(np.dstack([sub, np.where(m, 255, 0)]).astype(np.uint8))
     return recolor_blue(sp) if team == 0 else sp
 
 
