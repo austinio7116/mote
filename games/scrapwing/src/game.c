@@ -674,6 +674,16 @@ static void gene_label(const Gene *g, char *out, int max) {
     out[n] = 0;
 }
 
+/* world-positioned SFX: full volume on screen, fading to silence ~a screen
+ * and a half away, so distant hazards/kills stop shouting over the action */
+static void sfx_at(const MoteSfx *s, float gain, float x, float y) {
+    float dx = x - (cam_x + MOTE_FB_W / 2), dy = y - (cam_y + MOTE_FB_H / 2);
+    float d = sqrtf(dx * dx + dy * dy);
+    float f = d <= 78.0f ? 1.0f : 1.0f - (d - 78.0f) / 130.0f;
+    if (f <= 0.02f) return;
+    mote->audio_play_sfx(s, gain * f);
+}
+
 static void fire_sfx(const Gene *g) {
     if (g->pat == PAT_ORB || g->pat == PAT_RAIL || g->elem == EL_FIRE)
         mote->audio_play_sfx(&shot_heavy_sfx, 0.45f);
@@ -867,13 +877,13 @@ static void kill_enemy(Enemy *e) {
         }
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 200, 120));
         spawn_ring(e->x, e->y, MOTE_RGB565(255, 120, 60));
-        mote->audio_play_sfx(&boom_big_sfx, e->boss ? 1.0f : 0.85f);
+        sfx_at(&boom_big_sfx, e->boss ? 1.0f : 0.85f, e->x, e->y);
         mote->rumble(e->boss ? 1.0f : 0.7f, e->boss ? 400 : 220);
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0, 0);
         scrap += 4;
         if ((mote_rand() & 255) < 46) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
-        mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+        sfx_at(&boom_small_sfx, 0.5f, e->x, e->y);
     } else {
         int cell = e->ship;
         shatter(&ships_img, (cell % SHIP_COLS) * SHIP_CELL + ship_bx[cell],
@@ -886,7 +896,7 @@ static void kill_enemy(Enemy *e) {
         else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
         else if ((mote_rand() & 255) < 12) drop_chip(e->x, e->y, 0, CH_POWER);
         spawn_ring(e->x, e->y, elem_col[e->wpn.elem][0]);
-        mote->audio_play_sfx(&boom_small_sfx, 0.65f);
+        sfx_at(&boom_small_sfx, 0.65f, e->x, e->y);
         mote->rumble(0.3f, 90);
     }
 }
@@ -1005,7 +1015,7 @@ static void shot_hit_enemy(Shot *s, Enemy *e) {
             if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
         }
         spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
-        mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+        sfx_at(&boom_small_sfx, 0.5f, s->rx, s->ry);
         s->pierce = 0; s->on = 0;
         return;
     }
@@ -2119,7 +2129,7 @@ static void pmines_update(float dt) {
                                j & 1 ? MOTE_RGB565(220, 150, 255) : MOTE_RGB565(255, 230, 150),
                                mote_randf(0.2f, 0.5f), PF_ADD);
                 }
-                mote->audio_play_sfx(&boom_small_sfx, 0.7f);
+                sfx_at(&boom_small_sfx, 0.7f, pmine[i].x, pmine[i].y);
                 pmine[i].on = 0;
                 break;
             }
@@ -2180,7 +2190,7 @@ static void hpj_burst(int i) {
         spawn_part(hpj[i].x, hpj[i].y, cosf(a) * sp, sinf(a) * sp * 0.7f,
                    bc[k & 1], mote_randf(0.2f, 0.45f), PF_ADD | (k & 1 ? PF_GRAV : 0));
     }
-    mote->audio_play_sfx(&boom_small_sfx, 0.25f);
+    sfx_at(&boom_small_sfx, 0.32f, hpj[i].x, hpj[i].y);
     hpj[i].on = 0;
 }
 
@@ -2396,7 +2406,7 @@ static void shots_update(float dt) {
                         if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
                     }
                     spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
-                    mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+                    sfx_at(&boom_small_sfx, 0.5f, s->rx, s->ry);
                 }
                 s->on = 0;
             }
