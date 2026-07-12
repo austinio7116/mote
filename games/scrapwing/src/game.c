@@ -703,8 +703,9 @@ static void gene_label(const Gene *g, char *out, int max) {
 
 /* six candidate explosion looks (SCRAP_BOOMDEMO cycles them on the title).
  * pw scales size/count: 0.7 small kill, 1.0 standard, 1.6 boss/death. */
-static const char *const boom_name[6] = { "EMBER BLOOM", "SHOCKWAVE", "FIREBALL",
-                                          "FLAK BURST", "SOLAR PLUME", "NOVA CHAIN" };
+static const char *const boom_name[7] = { "EMBER BLOOM", "SHOCKWAVE", "FIREBALL",
+                                          "FLAK BURST", "SOLAR PLUME", "NOVA CHAIN",
+                                          "SHOCK+FLAK" };
 static void boom_style(int st, float x, float y, float pw) {
     int n;
     switch (st) {
@@ -806,6 +807,35 @@ static void boom_style(int st, float x, float y, float pw) {
                        MOTE_RGB565(255, 120, 30), mote_randf(0.5f, 1.1f),
                        PF_ADD | PF_GRAV);
         }
+        break;
+    case 6:                                          /* SHOCK+FLAK: the 2/6 wave with
+                                                      * tight crackle pops on the hull */
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 255, 255), 2, 150 * pw, 0.33f, 0);
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 170, 60), 2, 90 * pw, 0.55f, 0);
+        spawn_ring_ex(x, y, MOTE_RGB565(255, 250, 220), 7 * pw, 30, 0.1f, 1);
+        n = (int)(30 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(140, 260 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(255, 255, 240) : MOTE_RGB565(255, 210, 90),
+                       mote_randf(0.2f, 0.45f), PF_ADD | PF_STREAK | PF_DRAG);
+        }
+        n = (int)(22 * pw);
+        for (int k = 0; k < n; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(50, 160 * pw);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       (k & 1) ? MOTE_RGB565(255, 190, 70) : MOTE_RGB565(255, 120, 40),
+                       mote_randf(0.3f, 0.6f), PF_ADD | PF_DRAG);
+        }
+        for (int k = 0; k < 16; k++) {
+            float a = mote_randf(0, 6.28f), sp = mote_randf(18, 50);
+            spawn_part(x, y, cosf(a) * sp, sinf(a) * sp,
+                       MOTE_RGB565(120, 112, 105), mote_randf(0.5f, 1.0f), 0);
+        }
+        n = 5 + (int)(2 * pw);                       /* TIGHT flak: hugs the wreck */
+        for (int k = 0; k < n; k++)
+            crk_push(x + mote_randf(-8, 8), y + mote_randf(-7, 7),
+                     0.06f + k * 0.09f, 0);
         break;
     default:                                         /* NOVA CHAIN */
         spawn_ring_ex(x, y, MOTE_RGB565(255, 250, 230), 7 * pw, 30, 0.1f, 1);
@@ -2929,11 +2959,11 @@ static void g_update(float dt) {
             static float bd_t; static int bd_i;
             bd_t -= dt;
             if (bd_t <= 0) {
-                boom_style((bd_i / 2) % 6, cam_x + 64 + ((bd_i & 1) ? 26 : -26),
+                boom_style((bd_i / 2) % 7, cam_x + 64 + ((bd_i & 1) ? 26 : -26),
                            cam_y + 62, (bd_i & 1) ? 1.6f : 1.0f);
                 bd_i++; bd_t = 1.4f;
             }
-            g_bd_style = (bd_i - 1) / 2 % 6 + 1;     /* overlay label: 1-based */
+            g_bd_style = (bd_i - 1) / 2 % 7 + 1;     /* overlay label: 1-based */
             parts_update(dt);
             break;
         }
@@ -3896,7 +3926,7 @@ static void g_overlay(uint16_t *fb) {
                 mote->draw_circle(fb, (int)rings[i].x - cam_x, (int)rings[i].y - cam_y,
                                   r, c, rings[i].fill, 0, MOTE_FB_H);
             }
-            textf_med(fb, 20, 4, MOTE_RGB565(255, 220, 110), "%d/6 %s",
+            textf_med(fb, 20, 4, MOTE_RGB565(255, 220, 110), "%d/7 %s",
                       g_bd_style, boom_name[g_bd_style - 1]);
             mote->text(fb, "SMALL", 22, 114, MOTE_RGB565(150, 160, 190));
             mote->text(fb, "LARGE", 82, 114, MOTE_RGB565(150, 160, 190));
