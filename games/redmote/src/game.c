@@ -342,6 +342,7 @@ static const int   DIFF_WAVECAP[3]  = { 4, 6, 9 };            /* units in wave 1
 
 /* UI */
 static int side_open, side_tab, side_row;
+static int paused, pause_row;
 static int placing = -1;                /* building type in placement mode */
 static float boxx, boxy; static int boxing;
 static float a_down_t; static int a_mode; /* 0 none 1 maybe-box 2 boxing */
@@ -2158,6 +2159,20 @@ static void g_overlay(uint16_t *fb){
         }
         /* keep drawing the HUD below the banner */
     }
+    if (paused && state == ST_PLAY){
+        for (int i = 0; i < 128 * 128; i++) fb[i] = dim565(fb[i]);
+        mote->draw_rect(fb, 28, 36, 72, 56, MOTE_RGB565(14, 14, 22), 1, 0, 128);
+        mote->draw_rect(fb, 28, 36, 72, 56, MOTE_RGB565(120, 120, 140), 0, 0, 128);
+        mote->text_font(fb, f, "PAUSED", 43, 36, MOTE_RGB565(240, 220, 120));
+        static const char *PR[3] = { "RESUME", "RESTART", "TO TITLE" };
+        for (int r = 0; r < 3; r++){
+            if (r == pause_row)
+                mote->draw_rect(fb, 31, 51 + r * 12, 66, 12, MOTE_RGB565(40, 40, 60), 1, 0, 128);
+            mote->text_font(fb, f, PR[r], 37, 51 + r * 12,
+                            r == pause_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(170, 170, 185));
+        }
+        return;
+    }
     if (side_open && state == ST_PLAY){ draw_build_menu(fb); return; }
     /* top bar */
     mote->draw_rect(fb, 0, 0, 128, 9, MOTE_RGB565(12, 12, 18), 1, 0, 128);
@@ -2361,12 +2376,10 @@ static void input_play(float dt){
     const MoteInput *in = mote->input();
     float wx = camx + curx, wy = camy + cury;
 
-    /* pause */
+    /* pause: a game STATE, not a blocking modal — the OS loop keeps running,
+     * so the engine menu (3s MENU hold) stays reachable on top of it */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
-        static const char *items[] = { "Resume", "Restart", "Quit" };
-        int r = mote->menu("Red Mote", items, 3);
-        if (r == 1){ state = ST_TITLE; }
-        else if (r == 2) mote->exit_to_launcher();
+        paused = 1; pause_row = 0;
         return;
     }
 
@@ -2518,7 +2531,7 @@ static void world_init(void){
     gen_map();
     credits[0] = credits[1] = 8000;
     ai_t = 0; ai_wave_t = 0; ai_wave_n = 0;
-    side_open = 0; placing = -1; a_mode = 0; bsel = -1; rb_t = 0;
+    side_open = 0; placing = -1; a_mode = 0; bsel = -1; rb_t = 0; paused = 0;
     toast_t = 0; atk_warn_t = 0; endt = 0;
     camx = base_t[0] % MW * TILE - 48; camy = base_t[0] / MW * TILE - 56;
     if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
@@ -2683,6 +2696,21 @@ static void g_update(float dt){
         /* battle keeps simulating below the banner */
         break;
     case ST_PLAY:
+        if (paused){
+            if (mote_just_pressed(in, MOTE_BTN_UP))   pause_row = (pause_row + 2) % 3;
+            if (mote_just_pressed(in, MOTE_BTN_DOWN)) pause_row = (pause_row + 1) % 3;
+            if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU))
+                paused = 0;
+            if (mote_just_pressed(in, MOTE_BTN_A)){
+                paused = 0;
+                if (pause_row == 1){          /* restart the current battle */
+                    if (gm_mission >= 0){ mission_setup(gm_mission); state = ST_INTRO; }
+                    else skirmish_setup();
+                }
+                else if (pause_row == 2) state = ST_TITLE;
+            }
+            return;                           /* sim frozen while paused */
+        }
         input_play(dt);
         if (side_open) return;      /* build menu pauses the battle */
         break;

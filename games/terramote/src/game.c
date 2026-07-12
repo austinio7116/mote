@@ -211,11 +211,37 @@ void game_continue(void) {
     }
 }
 
-static void pause_menu(void) {
-    static const char *items[3] = { "RESUME", "SAVE", "SAVE & QUIT" };
-    int r = mote->menu("TERRAMOTE", items, 3);
-    if (r == 1) { save_world(); ui_toast("WORLD SAVED"); }
-    else if (r == 2) { save_world(); mote->exit_to_launcher(); }
+/* pause is a game STATE (not a blocking mote->menu modal), so the OS loop —
+ * and with it the engine menu's 3s MENU hold — keeps working while paused. */
+static int s_pause_row;
+static void ui_pause(uint16_t *fb) {
+    for (int i = 0; i < 128 * 128; i++) {
+        uint16_t c = fb[i];
+        fb[i] = (uint16_t)(((c >> 1) & 0x7BEF));
+    }
+    mote->draw_rect(fb, 24, 34, 80, 60, MOTE_RGB565(14, 14, 22), 1, 0, 128);
+    mote->draw_rect(fb, 24, 34, 80, 60, MOTE_RGB565(120, 120, 140), 0, 0, 128);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote->text_font(fb, f, "PAUSED", 41, 34, MOTE_RGB565(240, 220, 120));
+    static const char *PR[3] = { "RESUME", "SAVE", "SAVE + QUIT" };
+    for (int r = 0; r < 3; r++) {
+        if (r == s_pause_row)
+            mote->draw_rect(fb, 27, 49 + r * 13, 74, 13, MOTE_RGB565(40, 40, 60), 1, 0, 128);
+        mote->text_font(fb, f, PR[r], 33, 49 + r * 13,
+                        r == s_pause_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(170, 170, 185));
+    }
+}
+static void pause_tick(void) {
+    const MoteInput *in = mote->input();
+    if (mote_just_pressed(in, MOTE_BTN_UP))   s_pause_row = (s_pause_row + 2) % 3;
+    if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_pause_row = (s_pause_row + 1) % 3;
+    if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU))
+        g_state = GS_PLAY;
+    if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (s_pause_row == 0) g_state = GS_PLAY;
+        else if (s_pause_row == 1) { save_world(); ui_toast("WORLD SAVED"); g_state = GS_PLAY; }
+        else { save_world(); mote->exit_to_launcher(); }
+    }
 }
 
 /* ------------------------------------------------------------------- init --- */
@@ -275,7 +301,7 @@ static void play_tick(float dt) {
 
     const MoteInput *in = mote->input();
     if (mote_just_pressed(in, MOTE_BTN_RB)) { g_state = GS_INV; audio_sfx(SFX_TICK, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) pause_menu();
+    if (mote_just_pressed(in, MOTE_BTN_MENU)) { g_state = GS_PAUSE; s_pause_row = 0; }
 }
 
 static void world_submit(void) {
@@ -334,6 +360,10 @@ static void g_update(float dt) {
         /* world frozen, still rendered */
         world_submit();
         break;
+    case GS_PAUSE:
+        pause_tick();
+        world_submit();
+        break;
     case GS_DEAD:
         g_dead_t -= dt;
         parts_tick(dt);
@@ -373,6 +403,7 @@ static void g_overlay(uint16_t *fb) {
     case GS_INV:   ui_inventory(fb); break;
     case GS_CHEST: ui_chest(fb); break;
     case GS_DEAD:  ui_hud(fb); ui_dead(fb); break;
+    case GS_PAUSE: ui_pause(fb); break;
     }
 }
 

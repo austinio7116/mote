@@ -19,7 +19,7 @@ from collections import Counter
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, "gemini_buildings.png")
+SRC = os.path.join(HERE, "..", "ref", "gemini_buildings.png")
 HALF = 2048
 
 # expected sprite centres in the RED (right) half, relative to x=2048.
