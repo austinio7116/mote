@@ -111,6 +111,7 @@ static void draw_grass_caps(void) {
         for (int c = c0; c <= c1 && budget; c++) {
             if ((unsigned)c >= WCOLS) continue;
             if (g_fgm[r * WCOLS + c] != T_DIRT) continue;
+            if (r > world_surface_row(c) + 3) continue;   /* grass hugs the surface */
             int up    = !g_tiles[fg_at(c, r - 1)].solid;
             int left  = !g_tiles[fg_at(c - 1, r)].solid;
             int right = !g_tiles[fg_at(c + 1, r)].solid;

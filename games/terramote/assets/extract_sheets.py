@@ -228,7 +228,6 @@ S2 = {
     "SWORD_VOLCANO": (412, 195, 530, 318),    # fiery greatsword
     "SWORD_GOLD":    (535, 195, 652, 318),    # excalibur
     "BOW_WOOD":      (778, 195, 895, 318),
-    "BOW_MOLTEN":    (1022, 195, 1140, 318),  # hellwing bow
     "SWORD_WOOD":    (40, 448, 160, 570),
     "AXE_IRON":      (2562, 192, 2678, 314),  # the axe
 }
@@ -364,7 +363,17 @@ def make_items(im, lab, boxes):
         arts[name] = depixelate(a, m, pitch=p2)
     arts["SWORD_GOLD"] = tint(arts["SWORD_GOLD"], (242, 200, 60))
     arts["BOW_GOLD"]   = tint(arts["BOW_WOOD"], (242, 200, 60))
-    arts["AXE_WOOD"]   = tint(arts["AXE_IRON"], (168, 120, 62))
+    arts["AXE_WOOD"]   = tint(arts["AXE_IRON"], (150, 102, 56))
+    # molten fury: fiery wooden bow with ember tips (hellwing art fragments)
+    mb = tint(arts["BOW_WOOD"], (238, 96, 26))
+    ma = np.array(mb)
+    op = np.where(ma[..., 3] > 0)
+    if len(op[0]):
+        for yy in (op[0].min(), op[0].max()):
+            xs = op[1][op[0] == yy]
+            for xx in xs:
+                ma[yy, xx, :3] = (255, 210, 80)
+    arts["BOW_MOLTEN"] = Image.fromarray(ma)
 
     # sheet1 picks: depixelate the gold pick, tint per metal
     def s1_raw(k):
