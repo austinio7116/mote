@@ -5,7 +5,8 @@
 #include <string.h>
 
 #include "player.anim.h"      /* player_img/_sheet + clips: player_idle/walk/jump/swing */
-#include "hair.h"             /* hair_img: 6 styles, 16x14 cells */
+#include "hair.h"             /* hair_img: drawn styles, 12x10 cells */
+#include "player_meta.h"      /* generated per-frame head offsets */
 #include "items.h"            /* items_img: 16px icon grid (cell = item id) */
 #include "weapons_big.h"      /* weapons_big_img: 32px native in-hand sprites */
 
@@ -423,10 +424,10 @@ void player_tick(float dt) {
         if (mote_pressed(in, MOTE_BTN_RIGHT)) { dx = 1;  any = 1; }
         if (mote_pressed(in, MOTE_BTN_UP))    { dy = -1; any = 1; }
         if (mote_pressed(in, MOTE_BTN_DOWN))  { dy = 1;  any = 1; }
-        if (any) {
+        if (any && (dx != g_pl.aim_dx || dy != g_pl.aim_dy)) {
             g_pl.aim_dx = (int8_t)dx; g_pl.aim_dy = (int8_t)dy;
             if (dx) g_pl.facing = (int8_t)dx;
-            g_pl.mine_c = -1; g_pl.mine_t = 0;   /* retarget */
+            g_pl.mine_c = -1; g_pl.mine_t = 0;   /* retarget on aim change only */
         }
     } else {
         if (mote_just_pressed(in, MOTE_BTN_UP) && g_pl.aim_dy > -1)  g_pl.aim_dy--;
@@ -524,9 +525,6 @@ void player_tick(float dt) {
 }
 
 /* ------------------------------------------------------------------ draw ---- */
-/* per-body-frame head bob for the hair overlay (frames: see make_sprites.py) */
-static const int8_t k_bob[11] = { 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0 };
-
 void player_draw(void) {
     int cell = mote_anim_cell(&s_anim);
     int sx = (int)g_pl.x - 6, sy = (int)g_pl.y - 16;
@@ -541,9 +539,12 @@ void player_draw(void) {
     };
     mote->scene2d_add(&body);
     if (g_pl.hair_style < 13) {
-        int bob = (cell < 11) ? k_bob[cell] : 0;
+        /* ride the measured head position of this animation frame */
+        int dx = 0, dy = 0;
+        if (cell < PLAYER_FRAMES) { dx = player_head_dx[cell]; dy = player_head_dy[cell]; }
+        if (flip) dx = -dx;
         MoteSprite hair = {
-            .img = &s_hair_img, .x = (int16_t)sx, .y = (int16_t)(sy + bob),
+            .img = &s_hair_img, .x = (int16_t)(sx + dx), .y = (int16_t)(sy + dy),
             .fx = (uint16_t)(g_pl.hair_style * 12), .fy = 0, .fw = 12, .fh = 10,
             .layer = 11, .flags = flip,
         };
@@ -566,36 +567,50 @@ static int big_cell(uint8_t item) {
     return -1;
 }
 
-/* held item swing drawn in screen space (native-res weapon art rotating around
- * the hand) — called from overlay() BEFORE the darkness pass */
+/* held item swing drawn in screen space, rotating around the GRIP (the art
+ * points up-right at 45 deg with the handle at its lower-left; row 1 of
+ * weapons_big is pre-mirrored for left-facing swings). Runs in overlay()
+ * BEFORE the darkness pass. */
 void player_draw_swing(uint16_t *fb);
 void player_draw_swing(uint16_t *fb) {
     Slot *held = &g_pl.inv[g_pl.hot];
     const ItemDef *def = &g_items[held->item];
     if (!held->item || g_pl.use_t <= 0) return;
-    int hx = (int)g_pl.x - g_cam_x, hy = (int)g_pl.y - 9 - g_cam_y;
     int kind = def->kind;
     int cell = big_cell(held->item);
+    if (cell < 0 && kind != IK_PICK && kind != IK_AXE && kind != IK_SWORD && kind != IK_BOW) return;
     const MoteImage *img = cell >= 0 ? &weapons_big_img : &items_img;
+    int right = g_pl.facing > 0;
     int cs = cell >= 0 ? 32 : 16;
     int fx = cell >= 0 ? cell * 32 : (held->item % 8) * 16;
-    int fy = cell >= 0 ? 0 : (held->item / 8) * 16;
+    int fy = cell >= 0 ? (right ? 0 : 32) : (held->item / 8) * 16;
     float sc = cell >= 0 ? 0.62f : 0.9f;
+    /* hand position on the body */
+    float hxf = g_pl.x - g_cam_x + g_pl.facing * 2.0f;
+    float hyf = g_pl.y - 9.0f - g_cam_y;
     if (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD) {
         float dur = def->speed / 30.0f;
-        float ph = 1.0f - (g_pl.use_t / dur);            /* 0..1 through the swing */
-        float a0 = -2.3f, a1 = 0.6f;
-        float ang = (a0 + (a1 - a0) * ph) * g_pl.facing;
-        float px = hx + sinf(ang) * 8.0f * g_pl.facing + g_pl.facing;
-        float py = hy - cosf(ang) * 8.0f;
-        /* art points up-right at 45deg: rotate so the blade leads the swing */
-        mote->blit_ex(fb, img, px, py, fx, fy, cs, cs,
-                      ang + (g_pl.facing > 0 ? 0.785f : -0.785f - 3.14159f), sc,
+        float ph = 1.0f - (g_pl.use_t / dur);                /* 0..1 through the swing */
+        /* blade direction (screen-clockwise angle from +x) sweeps over the head
+         * and down in front; mirrored when facing left */
+        float d0 = -2.35f, d1 = 0.45f;                       /* radians */
+        float delta = d0 + (d1 - d0) * ph;
+        if (!right) delta = 3.14159f - delta;
+        /* unrotated blade dir: right art -45deg, mirrored art -135deg */
+        float ang = delta - (right ? -0.785f : -2.356f);
+        /* grip in source px (rel. center): lower-left, mirrored -> lower-right */
+        float gpx = (right ? -0.30f : 0.30f) * cs, gpy = 0.30f * cs;
+        float ca = cosf(ang), sa = sinf(ang);
+        float cx = hxf - (ca * gpx - sa * gpy) * sc;
+        float cy = hyf - (sa * gpx + ca * gpy) * sc;
+        mote->blit_ex(fb, img, cx, cy, fx, fy, cs, cs, ang, sc,
                       MOTE_BLEND_NONE, 0, MOTE_FB_H);
     } else if (kind == IK_BOW) {
-        float ang = atan2f((float)g_pl.aim_dy, g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing);
-        mote->blit_ex(fb, img, hx + g_pl.facing * 6, hy - 2, fx, fy, cs, cs,
-                      ang + (g_pl.facing > 0 ? 0.785f : 0.785f), sc,
-                      MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        float adx = g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing;
+        float delta = atan2f((float)g_pl.aim_dy, adx);
+        /* bow art fires +x unrotated; mirrored row fires -x */
+        float ang = right ? delta : (delta - 3.14159f);
+        mote->blit_ex(fb, img, hxf + g_pl.facing * 4.0f, hyf - 1.0f, fx, fy, cs, cs,
+                      ang, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
     }
 }
