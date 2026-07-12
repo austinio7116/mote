@@ -230,15 +230,55 @@ void player_damage(int dmg, float kx) {
 }
 
 /* ------------------------------------------------------------ use / mine ---- */
-static void pick_target(void) {
+/* Aim -> an ordered CANDIDATE column of cells (automine: the reticle locks to
+ * the first cell the held tool can act on, so holding B carves a full
+ * walkable passage — head+feet rows level, stair notches on diagonals). */
+static int aim_candidates(int cc[3], int rr[3]) {
     int pc = px_c(g_pl.x);
     int feet_r = ((int)g_pl.y - 1) / TILE;
     int head_r = ((int)g_pl.y - P_BH + 2) / TILE;
-    int mid_r  = ((int)g_pl.y - 7) / TILE;
     int dx = g_pl.aim_dx, dy = g_pl.aim_dy;
-    if (dy > 0)      { g_ret_c = pc + dx; g_ret_r = feet_r + 1; }
-    else if (dy < 0) { g_ret_c = pc + dx; g_ret_r = head_r - 1; }
-    else             { g_ret_c = pc + (dx ? dx : g_pl.facing); g_ret_r = mid_r; }
+    int n = 0;
+    if (dy < 0 && dx == 0) {            /* straight up: shaft above the head */
+        cc[n] = pc; rr[n++] = head_r - 1;
+    } else if (dy > 0 && dx == 0) {     /* straight down: through the floor */
+        cc[n] = pc; rr[n++] = feet_r + 1;
+    } else if (dy < 0) {                /* up-stairs: the raised passage ahead */
+        cc[n] = pc + dx; rr[n++] = head_r - 1;
+        cc[n] = pc + dx; rr[n++] = head_r;
+    } else if (dy > 0) {                /* down-stairs: step-down notch ahead */
+        cc[n] = pc + dx; rr[n++] = feet_r;
+        cc[n] = pc + dx; rr[n++] = feet_r + 1;
+    } else {                            /* level: full-height corridor ahead */
+        int d = dx ? dx : g_pl.facing;
+        cc[n] = pc + d; rr[n++] = head_r;
+        cc[n] = pc + d; rr[n++] = feet_r;
+    }
+    return n;
+}
+
+static void pick_target(void) {
+    int cc[3], rr[3];
+    int n = aim_candidates(cc, rr);
+    uint8_t held = g_pl.inv[g_pl.hot].item;
+    int kind = g_items[held].kind;
+    g_ret_c = cc[0]; g_ret_r = rr[0];
+    if (kind == IK_PICK || kind == IK_AXE) {
+        for (int i = 0; i < n; i++) {
+            const TileDef *td = &g_tiles[fg_at(cc[i], rr[i])];
+            if (!td->hardness) continue;                      /* air/bedrock */
+            if ((kind == IK_AXE) != (td->axe != 0)) continue; /* wrong tool */
+            if (kind == IK_PICK && td->min_power > g_items[held].power) continue;
+            g_ret_c = cc[i]; g_ret_r = rr[i];
+            return;
+        }
+        /* nothing mineable: still point at the first non-air cell if any */
+        for (int i = 0; i < n; i++)
+            if (fg_at(cc[i], rr[i]) != T_AIR) { g_ret_c = cc[i]; g_ret_r = rr[i]; return; }
+    } else if (kind == IK_BLOCK) {
+        for (int i = 0; i < n; i++)
+            if (fg_at(cc[i], rr[i]) == T_AIR) { g_ret_c = cc[i]; g_ret_r = rr[i]; return; }
+    }
 }
 
 static int interactable(uint8_t t) {
@@ -434,12 +474,15 @@ void player_tick(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_pl.aim_dy < 1) g_pl.aim_dy++;
     }
 
-    /* horizontal move (parked while steering the aim) */
+    /* horizontal move. Steering with a horizontal component still walks — you
+     * push into the face you're digging and advance as it clears (tunneling);
+     * only pure up/down aiming parks you. */
+    int park = steer && g_pl.aim_dx == 0;
     float move = liq ? P_MOVE * 0.6f : P_MOVE;
     float want = 0;
-    if (!steer) {
-        if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; g_pl.aim_dx = -1; }
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1;  g_pl.aim_dx = 1; }
+    if (!park) {
+        if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; if (!steer) g_pl.aim_dx = -1; }
+        if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1;  if (!steer) g_pl.aim_dx = 1; }
     }
     /* knockback decays into control */
     if (g_pl.iframes > 0.45f) want = g_pl.vx;
@@ -469,7 +512,7 @@ void player_tick(float dt) {
         if (g_pl.vy > 70) g_pl.vy = 70;
         if (g_pl.vy < -80) g_pl.vy = -80;
     } else {
-        if (!steer && g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
+        if (!park && g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
             if (mote_pressed(in, MOTE_BTN_DOWN) && s_drop_t <= 0) {
                 /* drop through a platform if we stand on one */
                 int r = (int)g_pl.y / TILE;
