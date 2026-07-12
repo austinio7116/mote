@@ -1,10 +1,10 @@
-# pulse cannon — snappy square zap
-wave 0
-freq 0.40 0 -0.22 0
-duty 0.4 0
+# Mote SFX recipe
+wave 3
+freq 0.19 0 0.10 0
+duty 0 0
 vib 0 0
-env 0 0.05 0.2 0.12
-lpf 1 0 0
-hpf 0.05 0
+env 0.03 0.15 0.05 0.20
+lpf 0.36 0 0.45
+hpf 0.04 0
 pha 0 0
 arp 0 0

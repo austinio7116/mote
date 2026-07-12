@@ -255,9 +255,12 @@ static PQueue pq[2][NQ];
 /* difficulty (picked on the title screen) */
 static int diff = 1;
 static const char *DIFF_NAME[3] = { "EASY", "NORMAL", "HARD" };
-static const int   DIFF_TRICKLE[3] = { 0, 4, 9 };      /* AI credits/s bonus */
-static const int   DIFF_WAVE0[3]   = { 185, 150, 120 };
-static const int   DIFF_WAVES[3]   = { 35, 25, 18 };
+static const int   DIFF_TRICKLE[3]  = { 0, 0, 5 };     /* AI credits/s bonus */
+static const int   DIFF_WAVE0[3]    = { 200, 165, 125 };
+static const int   DIFF_WAVES[3]    = { 40, 30, 20 };
+static const float DIFF_AIPROD[3]   = { 2.2f, 1.7f, 1.25f };  /* AI builds this much SLOWER */
+static const float DIFF_UNITGAP[3]  = { 9.0f, 6.0f, 3.0f };   /* s between AI unit orders */
+static const int   DIFF_WAVECAP[3]  = { 4, 6, 9 };            /* units in wave 1 (+2/wave) */
 
 /* UI */
 static int side_open, side_tab, side_row;
@@ -287,6 +290,16 @@ static void sfx(const MoteSfx *s, float g, int slot, float mind){
     if (gtime - sfx_t[slot] < mind) return;
     sfx_t[slot] = gtime;
     mote->audio_play_sfx(s, g);
+}
+/* world-positioned sfx: gain falls off with distance from the camera centre,
+ * silent ~1 screen past the edge — a huge battle should not be a wall of noise */
+static void sfx_at(const MoteSfx *s, float g, int slot, float mind, float x, float y){
+    float dx = x - (camx + 64), dy = y - (camy + 64);
+    float d = sqrtf(dx * dx + dy * dy);
+    float att = 1.0f - (d - 72.0f) / 110.0f;
+    if (att <= 0.02f) return;
+    if (att > 1) att = 1;
+    sfx(s, g * att * att, slot, mind);
 }
 static int onscreen(float x, float y, float m){
     return x > camx - m && x < camx + 128 + m && y > camy - m && y < camy + 128 + m;
@@ -577,8 +590,8 @@ static void explosion(float x, float y, int big){
     if (big){ fx_ring(x, y, 12); fx_debris(x, y, 10); }
     if (big || rndn(3) == 0) scorch((int)x >> 3, (int)y >> 3);
     if (onscreen(x, y, 60)){
-        if (big) sfx(&boom_big_sfx, 0.9f, 6, 0.10f);
-        else sfx(&boom_small_sfx, 0.65f, 5, 0.06f);
+        if (big) sfx_at(&boom_big_sfx, 0.85f, 6, 0.16f, x, y);
+        else sfx_at(&boom_small_sfx, 0.55f, 5, 0.10f, x, y);
         mote->rumble(big ? 0.5f : 0.2f, big ? 120 : 50);
     }
 }
@@ -692,7 +705,6 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
     float tx, ty; get_tpos(tgt, &tx, &ty);
     float dx = tx - x, dy = ty - y;
     float dist = sqrtf(dx * dx + dy * dy) + 0.001f;
-    int aud = onscreen(x, y, 50);
     switch (weapon){
     case W_MG: {
         Part *p = part(PK_TRACER, x, y);
@@ -702,7 +714,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         }
         fx_flash(x + dx / dist * 3, y + dy / dist * 3, 1.5f);
         damage_at(tgt, dmg, W_MG);
-        if (aud) sfx(&mg_sfx, 0.4f, 0, 0.07f);
+        sfx_at(&mg_sfx, 0.30f, 0, 0.11f, x, y);
         break; }
     case W_CANNON: {
         Proj *p = proj(P_SHELL, team, x, y);
@@ -711,7 +723,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
             p->life = dist / 230; p->dmg = dmg; p->tgt = tgt;
         }
         fx_flash(x + dx / dist * 4, y + dy / dist * 4, 2.5f);
-        if (aud) sfx(&cannon_sfx, 0.55f, 1, 0.08f);
+        sfx_at(&cannon_sfx, 0.50f, 1, 0.14f, x, y);
         break; }
     case W_ROCKET: {
         Proj *p = proj(P_ROCKET, team, x, y);
@@ -720,7 +732,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
             p->vx = cosf(a) * 90; p->vy = sinf(a) * 90;
             p->life = 2.2f; p->dmg = dmg; p->tgt = tgt;
         }
-        if (aud) sfx(&rocket_sfx, 0.45f, 2, 0.10f);
+        sfx_at(&rocket_sfx, 0.35f, 2, 0.20f, x, y);
         break; }
     case W_FLAME: {
         for (int i = 0; i < 7; i++){
@@ -734,7 +746,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         }
         damage_at(tgt, dmg, W_FLAME);
         if (rndn(4) == 0) scorch((int)tx >> 3, (int)ty >> 3);
-        if (aud) sfx(&flame_sfx, 0.4f, 3, 0.15f);
+        sfx_at(&flame_sfx, 0.35f, 3, 0.30f, x, y);
         break; }
     case W_TESLA: {
         Part *p = part(PK_BOLT, x, y);
@@ -742,7 +754,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         fx_flash(tx, ty, 3);
         fx_sparks(tx, ty, 4, 40);
         damage_at(tgt, dmg, W_TESLA);
-        if (aud) sfx(&tesla_sfx, 0.6f, 4, 0.10f);
+        sfx_at(&tesla_sfx, 0.50f, 4, 0.16f, x, y);
         break; }
     case W_ARTY: {
         Proj *p = proj(P_ARTY, team, x, y);
@@ -752,7 +764,7 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         }
         fx_flash(x + dx / dist * 4, y + dy / dist * 4, 3);
         fx_smoke(x, y, 1);
-        if (aud) sfx(&cannon_sfx, 0.6f, 1, 0.08f);
+        sfx_at(&cannon_sfx, 0.55f, 1, 0.14f, x, y);
         break; }
     }
 }
@@ -1163,6 +1175,7 @@ static void queue_tick(int team, float dt){
         if (!(owned[team] & (1u << QPROD_BLDG[q]))){ p->item = -1; continue; }
         int cost = item_cost(q, p->item);
         float t = (float)cost / 75.0f;               /* seconds at full power */
+        if (team == 1) t *= DIFF_AIPROD[diff];       /* AI handicap: slower works */
         if (!power_ok(team)) t *= 2.4f;
         float step = dt / t * fast;
         int need = (int)((p->prog + step) * cost) - (int)p->spent;
@@ -1258,28 +1271,35 @@ static void ai_think(void){
             break;
         }
     }
-    /* -- units: composition targets scale with wave count */
+    /* -- units: ONE order per DIFF_UNITGAP seconds, across all queues — the AI
+     * must not out-macro a human on a d-pad. Harvesters are exempt (economy). */
+    static float ai_unit_cool;
     int harv = ai_count_u(U_HARV);
     PQueue *pv = &pq[1][Q_VEH];
     PQueue *pi = &pq[1][Q_INF];
     PQueue *pa = &pq[1][Q_AIR];
-    if (pv->item < 0){
-        if (harv < 2 && (owned[1] & (1u << B_REF)) && item_avail(1, Q_VEH, U_HARV)) pv->item = U_HARV;
-        else {
+    if (ai_unit_cool > 0) ai_unit_cool -= 1;
+    if (pv->item < 0 && harv < 2 && (owned[1] & (1u << B_REF)) && item_avail(1, Q_VEH, U_HARV))
+        pv->item = U_HARV;
+    else if (ai_unit_cool <= 0){
+        int ordered = 0;
+        if (pv->item < 0){
             static const uint8_t tanks[] = { U_LTANK, U_LTANK, U_HTANK, U_ARTY, U_TESLA };
             for (int k = 0; k < 6; k++){
                 uint8_t t = tanks[rndn(5)];
-                if (item_avail(1, Q_VEH, t) && ai_count_u(t) < 3 + ai_wave_n){ pv->item = t; break; }
+                if (item_avail(1, Q_VEH, t) && ai_count_u(t) < 2 + ai_wave_n){ pv->item = t; ordered = 1; break; }
             }
         }
+        if (!ordered && pi->item < 0 && item_avail(1, Q_INF, U_RIFLE)){
+            static const uint8_t inf[] = { U_RIFLE, U_RIFLE, U_ROCK, U_FLAME };
+            uint8_t t = inf[rndn(4)];
+            if (ai_count_u(t) < 3 + ai_wave_n){ pi->item = t; ordered = 1; }
+        }
+        if (!ordered && pa->item < 0 && item_avail(1, Q_AIR, U_HELI) && ai_count_u(U_HELI) < 1 + ai_wave_n / 2){
+            pa->item = U_HELI; ordered = 1;
+        }
+        if (ordered) ai_unit_cool = DIFF_UNITGAP[diff];
     }
-    if (pi->item < 0 && item_avail(1, Q_INF, U_RIFLE)){
-        static const uint8_t inf[] = { U_RIFLE, U_RIFLE, U_ROCK, U_FLAME };
-        uint8_t t = inf[rndn(4)];
-        if (ai_count_u(t) < 4 + ai_wave_n) pi->item = t;
-    }
-    if (pa->item < 0 && item_avail(1, Q_AIR, U_HELI) && ai_count_u(U_HELI) < 1 + ai_wave_n / 2)
-        pa->item = U_HELI;
 
     /* -- attack waves */
     int army = 0;
@@ -1294,7 +1314,8 @@ static void ai_think(void){
         if (b >= 0) tgt = -(b + 2);
         if (tgt != -1){
             int sent = 0, keep = 2 + ai_wave_n / 2;
-            for (int i = 0; i < MAXU; i++){
+            int cap = DIFF_WAVECAP[diff] + 2 * (ai_wave_n - 1);   /* waves stay human-sized */
+            for (int i = 0; i < MAXU && sent < cap; i++){
                 Unit *u = &un[i];
                 if (!u->alive || u->team != 1 || u->type == U_HARV || !UD[u->type].weapon) continue;
                 if (u->order != O_IDLE && u->order != O_MOVE) continue;
@@ -1302,7 +1323,6 @@ static void ai_think(void){
                 u->order = O_HUNT; u->tgt = tgt; u->dest = 0;
                 sent++;
             }
-            (void)sent;
         }
     }
 }
@@ -1424,6 +1444,7 @@ static void render_band(uint16_t *fb, int y0, int y1){
         }
     }
     /* --- buildings */
+    uint32_t prod_seen = 0;      /* one progress bar per producing type */
     for (int i = 0; i < MAXB; i++){
         Bldg *b = &bl[i];
         if (!b->alive) continue;
@@ -1438,10 +1459,24 @@ static void render_band(uint16_t *fb, int y0, int y1){
         if (b->type == B_TUR)
             mote->blit_ex(fb, &buildings_img, px + 4, py + 4, 168, b->team * 24, 8, 8,
                           b->tface, 1.0f, MOTE_BLEND_NONE, y0, y1);
-        /* production flash on the yard */
-        if (b->team == 0 && b->type == B_CON && pq[0][Q_BLD].item >= 0 && !pq[0][Q_BLD].ready
-            && ((framec >> 3) & 1))
-            putpx(fb, px + 3, py + 16, y0, y1, MOTE_RGB565(255, 230, 120));
+        /* production progress bar across the source building (first of its type) */
+        if (b->team == 0 && !(prod_seen & (1u << b->type))){
+            for (int q = 0; q < NQ; q++){
+                if (QPROD_BLDG[q] != b->type || pq[0][q].item < 0) continue;
+                prod_seen |= 1u << b->type;
+                int bw2 = d->w * TILE;
+                int by = py + (b->type == B_COIL ? TILE : d->h * TILE) - 2;
+                mote->draw_rect(fb, px, by, bw2, 2, MOTE_RGB565(24, 24, 30), 1, y0, y1);
+                if (pq[0][q].ready){
+                    if ((framec >> 3) & 1)
+                        mote->draw_rect(fb, px, by, bw2, 2, MOTE_RGB565(120, 255, 120), 1, y0, y1);
+                } else {
+                    int fw2 = (int)(bw2 * pq[0][q].prog);
+                    mote->draw_rect(fb, px, by, fw2, 2, MOTE_RGB565(250, 210, 80), 1, y0, y1);
+                }
+                break;
+            }
+        }
         /* health bar when damaged */
         if (b->hp < d->hp){
             int w = d->w * TILE * b->hp / d->hp;

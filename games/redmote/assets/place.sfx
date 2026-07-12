@@ -1,10 +1,10 @@
-# sector gate — warp shimmer
-wave 2
-freq 0.40 0 0.08 0
-duty 0.5 0
-vib 0.25 0.7
-env 0.02 0.3 0.2 0.45
-lpf 1 0 0
+# Mote SFX recipe
+wave 0
+freq 0.22 0.06 -0.30 0
+duty 0.35 0
+vib 0 0
+env 0 0.07 0.32 0.14
+lpf 0.50 0 0.5
 hpf 0 0
-pha 0.15 0.03
-arp 0.4 0.5
+pha 0 0
+arp 0 0
