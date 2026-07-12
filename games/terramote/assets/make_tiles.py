@@ -113,41 +113,84 @@ def write_tileset(name, lut, nvar, cols, rows, edge=1, vweight=None):
 # ---------------------------------------------------------------- materials
 RNG = random.Random(1717)
 
+def clumps(cell, rng, col, n, size=3, only_base=None):
+    """Organic 1..size-px blobs instead of uniform speckle."""
+    for _ in range(n):
+        x, y = rng.randint(0, TS - 1), rng.randint(0, TS - 1)
+        for _ in range(rng.randint(1, size)):
+            if only_base is None or cell.get(x, y) == only_base:
+                cell.put(x, y, col)
+            x = max(0, min(TS - 1, x + rng.randint(-1, 1)))
+            y = max(0, min(TS - 1, y + rng.randint(-1, 1)))
+
+def shade_ramp(cell):
+    """(disabled) per-cell ramps read as corduroy banding when tiled."""
+    _ = cell
+
 def speckle(cell, base, dark, light, density=0.22, rng=None):
+    """v2: clumped two-tone texture + top-lit ramp (name kept for callers)."""
     rng = rng or RNG
     cell.fill(base)
-    for y in range(TS):
-        for x in range(TS):
-            v = rng.random()
-            if v < density * 0.5:   cell.put(x, y, dark)
-            elif v < density:       cell.put(x, y, light)
+    n = max(2, int(density * 30))
+    clumps(cell, rng, dark, n)
+    clumps(cell, rng, light, max(1, n - 1))
+    shade_ramp(cell)
 
 def apply_edges(cell, mask, rimc, top_hi=None):
-    """1px darker rim on faces NOT connected; inner-corner notch where the
-    diagonal is missing but both cardinals are present. Optional top highlight."""
+    """v2 lit edges: bright sun-catch on exposed tops, deep shadow below,
+    medium sides, darkened outer corners, notched inner corners."""
+    base = cell.get(3, 3) or rimc
+    hi   = top_hi or mix(base, (255, 255, 255), 0.45)
+    hi2  = mix(base, (255, 255, 255), 0.2)
+    lo   = shade(base, 0.5)
+    lo2  = shade(base, 0.72)
+    side = shade(base, 0.62)
     if not (mask & N):
-        for x in range(TS): cell.put(x, 0, rimc)
-        if top_hi:
-            for x in range(TS):
-                if cell.get(x, 1) is not None: cell.put(x, 1, top_hi)
+        for x in range(TS): cell.put(x, 0, hi)
+        for x in range(0, TS, 2): cell.put(x + (x // 2) % 2, 1, hi2)
     if not (mask & S):
-        for x in range(TS): cell.put(x, TS - 1, rimc)
+        for x in range(TS): cell.put(x, TS - 1, lo)
+        for x in range(1, TS, 3): cell.put(x, TS - 2, lo2)
     if not (mask & W):
-        for y in range(TS): cell.put(0, y, rimc)
+        for y in range(TS): cell.put(0, y, side)
     if not (mask & E):
-        for y in range(TS): cell.put(TS - 1, y, rimc)
+        for y in range(TS): cell.put(TS - 1, y, side)
+    if not (mask & N) and not (mask & W): cell.put(0, 0, mix(hi, side, 0.5))
+    if not (mask & N) and not (mask & E): cell.put(TS - 1, 0, mix(hi, side, 0.5))
+    if not (mask & S) and not (mask & W): cell.put(0, TS - 1, shade(base, 0.42))
+    if not (mask & S) and not (mask & E): cell.put(TS - 1, TS - 1, shade(base, 0.42))
     for (dm, cm1, cm2, cx, cy) in ((NW, N, W, 0, 0), (NE, N, E, TS - 1, 0),
                                    (SW, S, W, 0, TS - 1), (SE, S, E, TS - 1, TS - 1)):
         if (mask & cm1) and (mask & cm2) and not (mask & dm):
-            cell.put(cx, cy, rimc)
-            cell.put(cx + (1 if cx == 0 else -1), cy, rimc)
-            cell.put(cx, cy + (1 if cy == 0 else -1), rimc)
+            cell.put(cx, cy, lo)
+            cell.put(cx + (1 if cx == 0 else -1), cy, lo2)
+            cell.put(cx, cy + (1 if cy == 0 else -1), lo2)
 
 def mat_cell(mask, base, dark, light, rim, density=0.22, top_hi=None, seed=0):
     rng = random.Random((mask * 131 + seed) & 0x7FFFFFFF)
     c = Cell()
     speckle(c, base, dark, light, density, rng)
     apply_edges(c, mask, rim, top_hi)
+    return c
+
+def stone_cell(mask, base, dark, light, seed=0, cracks=True):
+    """Rocky: clumped tone + short crack polylines + light chips."""
+    rng = random.Random((mask * 761 + 5 + seed) & 0x7FFFFFFF)
+    c = Cell()
+    c.fill(base)
+    clumps(c, rng, shade(base, 0.86), 6, 4)
+    clumps(c, rng, shade(base, 0.93), 4, 4)
+    clumps(c, rng, light, 3, 2)
+    if cracks:
+        for _ in range(rng.randint(1, 2)):
+            x, y = rng.randint(1, 6), rng.randint(1, 6)
+            for _ in range(rng.randint(3, 5)):
+                c.put(x, y, dark)
+                x = max(0, min(TS - 1, x + rng.choice((-1, 0, 1))))
+                y = max(0, min(TS - 1, y + rng.choice((0, 1))))
+        c.put(rng.randint(1, 6), rng.randint(1, 6), light)
+    shade_ramp(c)
+    apply_edges(c, mask, dark)
     return c
 
 def grass_cell(mask, seed=0):
@@ -189,31 +232,36 @@ def grass_cell(mask, seed=0):
     return c
 
 def ore_cell(mask, fleck, fleck_hi, seed=0):
-    """Stone base + clustered ore flecks."""
-    STONE = (116, 116, 124); SDARK = (86, 86, 96); SLITE = (140, 140, 148)
+    """Stone base + 2x2 metallic nuggets (highlight top-left, shadow bottom-right)."""
+    STONE = (118, 118, 126); SDARK = (84, 84, 94); SLITE = (142, 142, 150)
     rng = random.Random((mask * 313 + 11 + seed) & 0x7FFFFFFF)
     c = Cell()
-    speckle(c, STONE, SDARK, SLITE, 0.2, rng)
-    for _ in range(2 + (mask % 2)):              # 2-3 clusters
-        cx, cy = rng.randint(1, TS - 2), rng.randint(1, TS - 2)
-        for _ in range(4):
-            x = max(0, min(TS - 1, cx + rng.randint(-1, 1)))
-            y = max(0, min(TS - 1, cy + rng.randint(-1, 1)))
-            c.put(x, y, fleck)
-        c.put(cx, cy, fleck_hi)
+    c.fill(STONE)
+    clumps(c, rng, shade(STONE, 0.85), 3, 3)
+    fleck_sh = shade(fleck, 0.55)
+    for _ in range(2 + (mask % 2)):
+        x, y = rng.randint(1, TS - 3), rng.randint(1, TS - 3)
+        c.put(x, y, fleck_hi); c.put(x + 1, y, fleck)
+        c.put(x, y + 1, fleck); c.put(x + 1, y + 1, fleck_sh)
+        if rng.random() < 0.5: c.put(x + 2, y + rng.randint(0, 1), fleck)
+    shade_ramp(c)
     apply_edges(c, mask, SDARK)
     return c
 
 def leaf_cell(mask, seed=0):
-    LEAF = (44, 128, 48); LDARK = (26, 92, 34); LLITE = (92, 172, 66)
+    LEAF = (46, 126, 50); LDARK = (28, 90, 36); LLITE = (96, 176, 66); LSUN = (140, 210, 90)
     rng = random.Random((mask * 517 + 3 + seed) & 0x7FFFFFFF)
     c = Cell()
-    speckle(c, LEAF, LDARK, LLITE, 0.35, rng)
-    apply_edges(c, mask, LDARK)
-    # scalloped exposed edges: knock out corner pixels for a leafy silhouette
+    c.fill(LEAF)
+    clumps(c, rng, LDARK, 4, 3)
+    clumps(c, rng, LLITE, 3, 3)
+    apply_edges(c, mask, LDARK, top_hi=LSUN)
+    # scalloped exposed edges + sunlit top sprigs
     if not (mask & N):
         for x in (0, 3, 6):
             if rng.random() < 0.6: c.px[0][x] = None
+        for x in range(TS):
+            if c.get(x, 0) is not None and rng.random() < 0.5: c.put(x, 0, LSUN)
     if not (mask & S):
         for x in (1, 4, 7):
             if rng.random() < 0.6: c.px[TS - 1][x] = None
@@ -240,11 +288,11 @@ def blob_sheet(name, cellfn, nvar=1):
 def make_terrain():
     blob_sheet("tiles_dirt",  lambda m, s: mat_cell(m, (128, 84, 50), (100, 62, 36), (150, 104, 66), (84, 52, 30), seed=s), nvar=2)
     blob_sheet("tiles_grass", lambda m, s: grass_cell(m, s), nvar=2)
-    blob_sheet("tiles_stone", lambda m, s: mat_cell(m, (116, 116, 124), (86, 86, 96), (140, 140, 148), (66, 66, 76), 0.2, (150, 150, 158), s), nvar=2)
+    blob_sheet("tiles_stone", lambda m, s: stone_cell(m, (118, 118, 126), (72, 72, 84), (148, 148, 156), s), nvar=3)
     blob_sheet("tiles_wood",  lambda m, s: wood_cell(m, s))
     blob_sheet("tiles_sand",  lambda m, s: mat_cell(m, (212, 192, 116), (188, 164, 92), (232, 216, 148), (160, 138, 72), 0.18, seed=s), nvar=2)
     blob_sheet("tiles_snow",  lambda m, s: mat_cell(m, (222, 232, 244), (192, 205, 224), (244, 250, 255), (164, 180, 205), 0.15, seed=s), nvar=2)
-    blob_sheet("tiles_ebon",  lambda m, s: mat_cell(m, (104, 88, 128), (76, 62, 98), (128, 112, 152), (54, 42, 74), 0.24, seed=s))
+    blob_sheet("tiles_ebon",  lambda m, s: stone_cell(m, (102, 86, 128), (62, 48, 84), (132, 114, 158), s), nvar=2)
     blob_sheet("tiles_clay",  lambda m, s: mat_cell(m, (172, 106, 74), (146, 84, 56), (194, 128, 92), (118, 66, 44), 0.12, seed=s))
     blob_sheet("tiles_copper", lambda m, s: ore_cell(m, (198, 112, 42), (238, 160, 84), s))
     blob_sheet("tiles_iron",   lambda m, s: ore_cell(m, (166, 146, 130), (210, 196, 186), s))
@@ -252,7 +300,7 @@ def make_terrain():
     blob_sheet("tiles_demonite", lambda m, s: ore_cell(m, (108, 62, 178), (162, 112, 235), s))
     blob_sheet("tiles_ash",   lambda m, s: mat_cell(m, (74, 66, 66), (56, 48, 50), (94, 84, 82), (40, 34, 36), 0.25, seed=s), nvar=2)
     blob_sheet("tiles_hellstone", lambda m, s: hellstone_cell(m, s))
-    blob_sheet("tiles_obsidian",  lambda m, s: mat_cell(m, (46, 38, 66), (30, 24, 46), (84, 66, 120), (20, 16, 32), 0.18, seed=s))
+    blob_sheet("tiles_obsidian",  lambda m, s: stone_cell(m, (48, 40, 70), (26, 20, 40), (96, 74, 138), s))
     blob_sheet("tiles_leaf",  lambda m, s: leaf_cell(m, s), nvar=2)
 
 def wood_cell(mask, seed=0):
@@ -273,16 +321,22 @@ def wood_cell(mask, seed=0):
     return c
 
 def hellstone_cell(mask, seed=0):
-    BASE = (96, 42, 36); DARK = (66, 26, 26); GLOW = (240, 120, 24); GLO2 = (255, 190, 60)
+    BASE = (92, 40, 34); DARK = (58, 22, 22); GLOW = (244, 122, 26); GLO2 = (255, 200, 70)
     rng = random.Random((mask * 419 + seed) & 0x7FFFFFFF)
     c = Cell()
-    speckle(c, BASE, DARK, (128, 62, 48), 0.2, rng)
-    x, y = rng.randint(1, 6), rng.randint(1, 6)          # a wandering magma vein
-    for _ in range(7):
-        c.put(x, y, GLOW)
-        if rng.random() < 0.3: c.put(x, y, GLO2)
+    c.fill(BASE)
+    clumps(c, rng, DARK, 4, 3)
+    clumps(c, rng, (128, 60, 46), 2, 3)
+    # a thick wandering magma vein with a hot core + halo
+    x, y = rng.randint(1, 6), rng.randint(1, 6)
+    for _ in range(6):
+        c.put(x, y, GLO2)
+        for dx, dy in ((1, 0), (0, 1), (-1, 0), (0, -1)):
+            if c.get(x + dx, y + dy) not in (GLO2,):
+                if rng.random() < 0.75: c.put(x + dx, y + dy, GLOW)
         x = max(0, min(TS - 1, x + rng.randint(-1, 1)))
         y = max(0, min(TS - 1, y + rng.randint(-1, 1)))
+    shade_ramp(c)
     apply_edges(c, mask, DARK)
     return c
 
