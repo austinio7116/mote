@@ -440,8 +440,10 @@ static int near_base(int tx, int ty, int r){
 static void blob(int cx, int cy, int n, uint8_t type, int avoid_bases){
     int x = cx, y = cy;
     for (int i = 0; i < n; i++){
-        for (int dy = -1; dy <= 1; dy++)
-            for (int dx = -1; dx <= 1; dx++){
+        int r = rndn(3) ? 1 : 2;               /* variable brush = ragged outline */
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++){
+                if (dx * dx + dy * dy > r * r + 1) continue;
                 int tx = x + dx, ty = y + dy;
                 if (!tin(tx, ty)) continue;
                 if (avoid_bases && near_base(tx, ty, 13)) continue;
@@ -453,13 +455,21 @@ static void blob(int cx, int cy, int n, uint8_t type, int avoid_bases){
     }
 }
 static void ore_field(int cx, int cy, int n, uint8_t type){
+    /* walked clumps: a dense heart with straggly arms, like a real seam */
+    int x = cx, y = cy;
     for (int i = 0; i < n; i++){
-        int tx = cx + rndn(11) - 5, ty = cy + rndn(11) - 5;
-        if (!tin(tx, ty)) continue;
-        int t = tidx(tx, ty);
-        if (terr[t] != T_GRASS) continue;
-        terr[t] = type;
-        orea[t] = (uint8_t)(3 + rndn(6));
+        for (int dy = 0; dy <= 1; dy++)
+            for (int dx = 0; dx <= 1; dx++){
+                int tx = x + dx, ty = y + dy;
+                if (!tin(tx, ty)) continue;
+                int t = tidx(tx, ty);
+                if (terr[t] != T_GRASS) continue;
+                terr[t] = type;
+                int dd = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                orea[t] = (uint8_t)(dd < 9 ? 5 + rndn(4) : 2 + rndn(4));
+            }
+        x += rndn(3) - 1; y += rndn(3) - 1;
+        if (rndn(4) == 0){ x = cx + rndn(7) - 3; y = cy + rndn(7) - 3; }  /* re-seed near heart */
     }
 }
 static void carve(int x0, int y0, int x1, int y1){
@@ -483,7 +493,12 @@ static void gen_map(void){
     memset(bmap, 0xFF, NT);
     base_t[0] = tidx(12, 78);
     base_t[1] = tidx(81, 15);
-    for (int i = 0; i < 6; i++) blob(rndn(MW), rndn(MH), 26, T_WATER, 1);
+    for (int i = 0; i < 5; i++){                 /* lobed lakes: walks from one seed */
+        int wx = rndn(MW), wy = rndn(MH);
+        blob(wx, wy, 26, T_WATER, 1);
+        blob(wx + rndn(7) - 3, wy + rndn(7) - 3, 18, T_WATER, 1);
+        blob(wx + rndn(11) - 5, wy + rndn(11) - 5, 12, T_WATER, 1);
+    }
     for (int i = 0; i < 7; i++) blob(rndn(MW), rndn(MH), 12, T_ROCK, 1);
     for (int i = 0; i < 15; i++) blob(rndn(MW), rndn(MH), 8, T_TREE, 1);
     /* ore: two fields near each base + rich centre */
@@ -2620,6 +2635,17 @@ static void g_update(float dt){
     if (ai_t >= 1.0f && state != ST_TITLE){ ai_t = 0; ai_think(); }
     if ((framec % 6) == 0) fog_update();
 #ifdef MOTE_HOST
+    {   static int camhook = -1; static int chx, chy;
+        if (camhook < 0){
+            const char *e = getenv("MOTE_RTS_CAM");
+            camhook = e && sscanf(e, "%d,%d", &chx, &chy) == 2;
+        }
+        if (camhook){
+            camx = chx * TILE - 64; camy = chy * TILE - 64;
+            if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
+            if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
+        }
+    }
     if (hk_spy){       /* art-review camera: lock onto the AI base */
         for (int i = 0; i < MAXB; i++)
             if (bl[i].alive && bl[i].team == 1 && bl[i].type == B_CON){

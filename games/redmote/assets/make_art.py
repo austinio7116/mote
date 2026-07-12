@@ -104,38 +104,53 @@ def cell_rng(name, m, v):
 
 
 def cw_water(d, x0, y0, m, v):
-    deep, mid = (26, 52, 92), (48, 86, 138)
-    shore, foam = (86, 130, 180), (150, 190, 220)
-    rect(d, x0, y0, x0 + 7, y0 + 7, deep)
-    r2 = cell_rng("w", m, 0)
-    for i in range(4):     # animated glints: frame v shifts them
-        gx, gy = r2.randrange(0, 7), r2.randrange(0, 8)
-        px(d, x0 + (gx + v * 3) % 7, y0 + gy, mid)
+    """RA-style water: bright high-frequency shimmer (per-pixel noise, two anim
+    frames), edged with a chunky irregular ROCK shoreline, not a foam line."""
+    W = [(46, 88, 132), (54, 100, 146), (64, 112, 158), (76, 126, 170)]
+    SPARK = (112, 158, 196)
+    RK = [(38, 34, 30), (58, 52, 44), (82, 74, 62), (104, 96, 82)]
+    r2 = cell_rng("w", m, v)
+    def wpx(x, y):
+        h = ((x + v * 3) * 7 + (y + v * 5) * 13 + v * 11) % 16
+        if h == 0: return SPARK
+        return W[h % 4]
+    for y in range(8):
+        for x in range(8):
+            px(d, x0 + x, y0 + y, wpx(x, y))
     mn, me, ms, mw = sides(m)
+    # rocky shore band along open sides: jagged 1-2px rubble
+    def rock(x, y, big):
+        px(d, x0 + x, y0 + y, RK[r2.randrange(3)])
+        if big and x < 7 and r2.random() < 0.5:
+            px(d, x0 + x + 1, y0 + y, RK[1 + r2.randrange(3)])
     if mn:
-        for x in range(8): px(d, x0 + x, y0, shore if x % 3 else foam)
-        for x in range(0, 8, 2): px(d, x0 + x, y0 + 1, mid)
+        for x in range(8):
+            if r2.random() < 0.85: rock(x, 0, x % 3 == 1)
+            if r2.random() < 0.45: rock(x, 1, 0)
     if ms:
-        for x in range(8): px(d, x0 + x, y0 + 7, shore if (x + 1) % 3 else foam)
-        for x in range(1, 8, 2): px(d, x0 + x, y0 + 6, mid)
+        for x in range(8):
+            if r2.random() < 0.85: rock(x, 7, x % 3 == 2)
+            if r2.random() < 0.45: rock(x, 6, 0)
     if mw:
-        for y in range(8): px(d, x0, y0 + y, shore if y % 3 else foam)
-        for y in range(0, 8, 2): px(d, x0 + 1, y0 + y, mid)
+        for y in range(8):
+            if r2.random() < 0.85: rock(0, y, 0)
+            if r2.random() < 0.45: rock(1, y, 0)
     if me:
-        for y in range(8): px(d, x0 + 7, y0 + y, shore if (y + 1) % 3 else foam)
-        for y in range(1, 8, 2): px(d, x0 + 6, y0 + y, mid)
-    # convex corners: round into transparency (the bank curves)
+        for y in range(8):
+            if r2.random() < 0.85: rock(7, y, 0)
+            if r2.random() < 0.45: rock(6, y, 0)
+    # convex corners: transparent rounding + a rock knuckle
     for (cx, cy, c1, c2) in ((0, 0, mn, mw), (7, 0, mn, me), (0, 7, ms, mw), (7, 7, ms, me)):
         if c1 and c2:
             d.point((x0 + cx, y0 + cy), fill=(0, 0, 0, 0))
-            px(d, x0 + abs(cx - 1), y0 + cy, foam)
-            px(d, x0 + cx, y0 + abs(cy - 1), foam)
-    # inner corners (both cardinals same, diagonal missing): a fleck of foam
+            px(d, x0 + (1 if cx == 0 else 6), y0 + cy, RK[0])
+            px(d, x0 + cx, y0 + (1 if cy == 0 else 6), RK[1])
+    # inner corners: rock fleck where the shore turns
     for (bit, ca, cb, cx, cy) in ((NB_NE, NB_N, NB_E, 7, 0), (NB_SE, NB_S, NB_E, 7, 7),
                                   (NB_SW, NB_S, NB_W, 0, 7), (NB_NW, NB_N, NB_W, 0, 0)):
         if (m & ca) and (m & cb) and not (m & bit):
-            px(d, x0 + cx, y0 + cy, foam)
-            px(d, x0 + cx, y0 + cy + (1 if cy == 0 else -1), shore)
+            px(d, x0 + cx, y0 + cy, RK[0])
+            px(d, x0 + cx, y0 + cy + (1 if cy == 0 else -1), RK[2])
 
 
 def cw_rock(d, x0, y0, m, v):
@@ -221,32 +236,43 @@ def cw_tree(d, x0, y0, m, v):
         stamp(tmpl, cx, cy)
 
 
-def _nugget_cell(d, x0, y0, m, v, cmain, clight, cdark, dense):
-    mn, me, ms, mw = sides(m)
-    r2 = cell_rng("o" + str(cmain[0]), m, v)
-    spots = [(1, 1), (4, 0), (6, 2), (2, 3), (5, 4), (0, 5), (3, 6), (6, 6), (1, 7), (4, 2), (7, 4), (2, 0)]
-    n = dense + (v % 2)
-    for i in range(n):
-        x, y = spots[(i * 5 + v * 3) % len(spots)]
-        x = (x + r2.randrange(2)) % 8; y = (y + r2.randrange(2)) % 8
-        # thin out toward the field edge
-        k = 1.0
-        if mn and y < 3: k *= 0.35
-        if ms and y > 4: k *= 0.35
-        if mw and x < 3: k *= 0.35
-        if me and x > 4: k *= 0.35
-        if r2.random() > k: continue
-        px(d, x0 + x, y0 + y, cmain)
-        if x < 7: px(d, x0 + x + 1, y0 + y, clight)
-        if y < 7: px(d, x0 + x, y0 + y + 1, cdark)
-
-
 def cw_ore(d, x0, y0, m, v):
-    _nugget_cell(d, x0, y0, m, v, (200, 160, 32), (232, 200, 64), (150, 116, 24), 9)
+    """dense shimmering ore carpet: 2x2 clumps of layered golds, thinning to
+    scattered clusters at the field edge (RA's glittering fields)."""
+    G = [(112, 86, 18), (150, 116, 24), (190, 150, 34), (226, 188, 52)]
+    SPARK = (252, 230, 110)
+    mn, me, ms, mw = sides(m)
+    r2 = cell_rng("o", m, v)
+    for y in range(8):
+        for x in range(8):
+            k = 0.86
+            if mn and y < 3: k *= 0.30
+            if ms and y > 4: k *= 0.30
+            if mw and x < 3: k *= 0.30
+            if me and x > 4: k *= 0.30
+            if r2.random() > k: continue
+            # 2x2 clump shading so it reads as nugget heaps, not static
+            h = ((x // 2) * 31 + (y // 2) * 17 + v * 7) % 8
+            c = G[h % 4]
+            if ((x * 13 + y * 7 + v * 5) % 11) == 0: c = SPARK
+            px(d, x0 + x, y0 + y, c)
 
 
 def cw_crys(d, x0, y0, m, v):
-    _nugget_cell(d, x0, y0, m, v, (64, 200, 216), (128, 232, 240), (32, 130, 150), 6)
+    """crystal field: clustered cyan shards, denser than before, dark facets."""
+    C = [(30, 110, 128), (52, 160, 178), (90, 208, 222), (150, 240, 248)]
+    mn, me, ms, mw = sides(m)
+    r2 = cell_rng("c2", m, v)
+    for y in range(8):
+        for x in range(8):
+            k = 0.55
+            if mn and y < 3: k *= 0.3
+            if ms and y > 4: k *= 0.3
+            if mw and x < 3: k *= 0.3
+            if me and x > 4: k *= 0.3
+            if r2.random() > k: continue
+            h = ((x // 2) * 23 + (y // 2) * 29 + v * 13) % 4
+            px(d, x0 + x, y0 + y, C[h])
 
 
 def cw_scorch(d, x0, y0, m, v):
@@ -369,18 +395,20 @@ def make_autotiles():
     blob_sheet("crys", 1, cw_crys)
     blob_sheet("scorch", 2, cw_scorch)
     blob_sheet("conc", 1, cw_conc)
-    # grass base: single cell, 4 mottled variant rows
+    # grass base: single cell, 4 densely mottled variant rows (RA-dark)
     im = Image.new("RGBA", (8, 4 * 8), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
+    GS = [(46, 68, 34), (54, 78, 40), (60, 88, 46), (50, 74, 38)]
     for v in range(4):
         y0 = v * 8
-        rect(d, 0, y0, 7, y0 + 7, GRASS)
         r2 = random.Random(100 + v)
-        for _ in range(9):
-            x, y = r2.randrange(8), r2.randrange(8)
-            px(d, x, y0 + y, shade(GRASS, r2.choice((0.82, 0.9, 1.12, 1.2))))
+        for y in range(8):
+            for x in range(8):
+                px(d, x, y0 + y, GS[(x * 7 + y * 13 + v * 5 + r2.randrange(2)) % 4])
+        for _ in range(3):
+            px(d, r2.randrange(8), y0 + r2.randrange(8), (74, 104, 56))
         for _ in range(2):
-            px(d, r2.randrange(8), y0 + r2.randrange(8), (94, 82, 52))
+            px(d, r2.randrange(8), y0 + r2.randrange(8), (88, 76, 48))
     im.save(os.path.join(HERE, "grass.png"))
     write_tileset("grass", "assets/grass.png", 4, [0] * 256, 1)
 
