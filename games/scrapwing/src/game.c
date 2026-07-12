@@ -286,11 +286,13 @@ static int deco_n;
 
 /* biome hazards: telegraphed particle emitters, never block the path */
 #define MAXHAZ 8
-static struct { float x, y, t, cycle; uint8_t on, ceil, anchor, fired; } haz[MAXHAZ];
+static struct { float x, y, t, cycle; uint8_t on, ceil, anchor, fired, kind; } haz[MAXHAZ];
 static int haz_n;
-/* hazard projectiles: real dodgeable objects (rock/pod/icicle/spore/lava) */
-#define MAXHPJ 10
-static struct { float x, y, vx, vy, rot, vr, age; uint8_t on; } hpj[MAXHPJ];
+/* hazard projectiles: real dodgeable objects (rock/pod/icicle/spore/lava).
+ * Physics + sprite are set at spawn so each biome fields SEVERAL kinds. */
+#define MAXHPJ 14
+static struct { float x, y, vx, vy, rot, vr, age, grav, popt, scale;
+                uint8_t on, sway, cell; } hpj[MAXHPJ];
 
 static const MoteAutotile *layers[2] = { &rock_at, &hull_at };  /* [0] set per biome */
 
@@ -1359,16 +1361,18 @@ static void gen_sector(void) {
     {
         int want = sector < 2 ? 0 : 2 + (sector - 2);
         if (want > MAXHAZ) want = MAXHAZ;
-        /* floor hazards in spore/ember biomes, ceiling hazards elsewhere */
-        int on_floor = (cur_biome == 3 || cur_biome == 4);
-        static const uint8_t pg_anchor[5] = { 6, 10, 6, 10, 11 };
-        for (int tries = 0; tries < 120 && haz_n < want; tries++) {
+        /* kind 0 = the biome classic; kind 1 = its opposite-surface partner */
+        static const uint8_t haz_anchor[5][2] = { {6,1}, {10,11}, {6,7}, {10,6}, {11,6} };
+        static const uint8_t haz_floor[5][2]  = { {0,1}, {0,1},  {0,1}, {1,0}, {1,0} };
+        for (int tries = 0; tries < 200 && haz_n < want; tries++) {
+            int kind = haz_n & 1;                    /* alternate: both kinds show up */
+            int on_floor = haz_floor[cur_biome][kind];
             int c = 26 + (int)(mote_rand() % (COLS - 44));
             int r = cor_y[c];
             if (solid_cell(c, r)) continue;
             if (on_floor) {
                 while (r < ROWS - 2 && !solid_cell(c, r + 1)) r++;
-                if (!solid_cell(c - 1, r + 1) || !solid_cell(c + 1, r + 1) ||
+                if ((!solid_cell(c - 1, r + 1) && !solid_cell(c + 1, r + 1)) ||
                     solid_cell(c - 1, r) || solid_cell(c + 1, r)) continue;
             } else {
                 while (r > 1 && !solid_cell(c, r - 1)) r--;
@@ -1383,7 +1387,8 @@ static void gen_sector(void) {
             haz[haz_n].y = on_floor ? (r + 1) * TILE + 2 : r * TILE - 2;
             haz[haz_n].t = mote_randf(0, 3.0f);
             haz[haz_n].cycle = mote_randf(2.8f, 4.0f) - mote_clampf(sector * 0.08f, 0, 1.0f);
-            haz[haz_n].anchor = pg_anchor[cur_biome];
+            haz[haz_n].anchor = haz_anchor[cur_biome][kind];
+            haz[haz_n].kind = (uint8_t)kind;
             haz_n++;
         }
     }
@@ -1406,7 +1411,7 @@ static void gen_sector(void) {
             fprintf(stderr, "[DECO] %d cell=%d at %d,%d\n", i,
                     (int)decos[i].idx - PG_IDX, decos[i].x, decos[i].y);
         for (int i = 0; i < haz_n; i++)
-            fprintf(stderr, "[HAZ] %d at %.0f,%.0f ceil=%d\n", i, haz[i].x, haz[i].y, haz[i].ceil);
+            fprintf(stderr, "[HAZ] %d at %.0f,%.0f ceil=%d kind=%d\n", i, haz[i].x, haz[i].y, haz[i].ceil, haz[i].kind);
     }
     ensure_path();
     gate_t = 0;
@@ -2098,32 +2103,59 @@ static void pmines_update(float dt) {
 /* biome hazard pulse: idle -> shimmer telegraph (0.8s) -> ACTIVE burst (1s).
  * Active streams hurt; they are narrow and timed, never sealing the path. */
 
-static void hpj_spawn(float x, float y, int ceil2) {
+static void hpj_spawn(float x, float y, int kind) {
+    static const uint8_t cell_t[5][2] = { {12,0}, {12,8}, {12,3}, {12,8}, {12,9} };
+    static const float  scale_t[5][2] = { {1.5f,1.0f}, {1.5f,1.2f}, {1.5f,1.2f},
+                                          {1.5f,1.3f}, {1.5f,1.1f} };
     for (int i = 0; i < MAXHPJ; i++) if (!hpj[i].on) {
-        if (getenv("SCRAP_DBG")) fprintf(stderr, "[HPJ] t=%.2f spawn %.0f,%.0f\n", bg_time, x, y);
+        if (getenv("SCRAP_DBG")) fprintf(stderr, "[HPJ] t=%.2f k=%d spawn %.0f,%.0f\n",
+                                         bg_time, kind, x, y);
         hpj[i].on = 1; hpj[i].age = 0; hpj[i].rot = 0; hpj[i].vr = 0;
         hpj[i].x = x + mote_randf(-3, 3); hpj[i].y = y;
-        switch (cur_biome) {
+        hpj[i].grav = 240; hpj[i].popt = 0; hpj[i].sway = 0;
+        hpj[i].cell = cell_t[cur_biome][kind];
+        hpj[i].scale = scale_t[cur_biome][kind];
+        switch (cur_biome * 2 + kind) {
         case 0:                                      /* crumbling rock chunk */
             hpj[i].vx = mote_randf(-12, 12); hpj[i].vy = 20;
             hpj[i].vr = mote_randf(-4, 4);
             break;
-        case 1:                                      /* heavy pod drop */
+        case 1:                                      /* crystal battery: shard fan UP */
+            hpj[i].vx = mote_randf(-40, 40); hpj[i].vy = mote_randf(-140, -100);
+            hpj[i].vr = mote_randf(-6, 6); hpj[i].grav = 260;
+            break;
+        case 2:                                      /* heavy pod drop */
             hpj[i].vx = mote_randf(-8, 8); hpj[i].vy = 26;
             hpj[i].vr = mote_randf(-1.5f, 1.5f);
             break;
-        case 2:                                      /* icicle: fast, point down */
-            hpj[i].vx = 0; hpj[i].vy = 55;
+        case 3:                                      /* spitter growth: lobbed pods */
+            hpj[i].vx = mote_randf(-30, 30); hpj[i].vy = mote_randf(-150, -110);
+            hpj[i].vr = mote_randf(-3, 3); hpj[i].grav = 300;
             break;
-        case 3:                                      /* spore pod drifts UP */
+        case 4:                                      /* icicle: fast, point down */
+            hpj[i].vx = 0; hpj[i].vy = 55; hpj[i].grav = 330;
+            break;
+        case 5:                                      /* ice geyser: chunk straight up */
+            hpj[i].vx = mote_randf(-10, 10); hpj[i].vy = mote_randf(-190, -150);
+            hpj[i].vr = mote_randf(-2, 2); hpj[i].grav = 330;
+            break;
+        case 6:                                      /* spore pod drifts UP, pops */
             hpj[i].vx = mote_randf(-14, 14); hpj[i].vy = mote_randf(-60, -38);
-            hpj[i].vr = mote_randf(-1, 1);
+            hpj[i].vr = mote_randf(-1, 1); hpj[i].grav = 0;
+            hpj[i].sway = 1; hpj[i].popt = 1.9f;
             break;
-        default:                                     /* molten rock: arcing launch */
+        case 7:                                      /* ceiling dripper: heavy glob */
+            hpj[i].vx = mote_randf(-8, 8); hpj[i].vy = 24;
+            hpj[i].vr = mote_randf(-1, 1); hpj[i].grav = 55; hpj[i].sway = 1;
+            break;
+        case 8:                                      /* molten rock: arcing launch */
             hpj[i].vx = mote_randf(-45, 45); hpj[i].vy = mote_randf(-215, -150);
-            hpj[i].vr = mote_randf(-5, 5);
+            hpj[i].vr = mote_randf(-5, 5); hpj[i].grav = 300;
+            break;
+        default:                                     /* magma drip: accelerates */
+            hpj[i].vx = mote_randf(-4, 4); hpj[i].vy = 25;
+            hpj[i].grav = 380;
         }
-        (void)ceil2;
         return;
     }
 }
@@ -2159,7 +2191,7 @@ static void haz_update(float dt) {
             int slot = (int)(w * 3.0f);
             int burst = 3;
             if (slot < burst && haz[i].fired <= slot) {
-                hpj_spawn(hx2, hy2 + (haz[i].ceil ? 9 : -9), haz[i].ceil);
+                hpj_spawn(hx2, hy2 + (haz[i].ceil ? 9 : -9), haz[i].kind);
                 haz[i].fired = (uint8_t)(slot + 1);
             }
         }
@@ -2170,12 +2202,8 @@ static void haz_update(float dt) {
     for (int i = 0; i < MAXHPJ; i++) {
         if (!hpj[i].on) continue;
         hpj[i].age += dt;
-        switch (cur_biome) {
-        case 2:  hpj[i].vy += 330.0f * dt; break;    /* icicle accelerates */
-        case 3:  hpj[i].vx += sinf(hpj[i].age * 5.0f) * 30.0f * dt; break; /* sway */
-        case 4:  hpj[i].vy += 300.0f * dt; break;    /* lava arc */
-        default: hpj[i].vy += 240.0f * dt; break;    /* falling debris */
-        }
+        hpj[i].vy += hpj[i].grav * dt;
+        if (hpj[i].sway) hpj[i].vx += sinf(hpj[i].age * 5.0f) * 30.0f * dt;
         hpj[i].x += hpj[i].vx * dt;
         hpj[i].y += hpj[i].vy * dt;
         hpj[i].rot += hpj[i].vr * dt;
@@ -2186,7 +2214,7 @@ static void haz_update(float dt) {
                        -hpj[i].vx * 0.1f, -hpj[i].vy * 0.1f, bc[mote_rand() & 1],
                        mote_randf(0.15f, 0.3f), PF_ADD);
         }
-        if (cur_biome == 3 && hpj[i].age > 1.9f) { hpj_burst(i); continue; }  /* pop */
+        if (hpj[i].popt > 0 && hpj[i].age > hpj[i].popt) { hpj_burst(i); continue; }
         if (hpj[i].age > 3.2f) { hpj[i].on = 0; continue; }
         /* brief grace so a fresh projectile clears its own emitter */
         if (hpj[i].age > 0.14f &&
@@ -3652,8 +3680,8 @@ static void g_overlay(uint16_t *fb) {
             const uint16_t *bc = exh_col[cur_biome];
             px_add(fb, sx - 4, sy, bc[1]); px_add(fb, sx + 4, sy, bc[1]);
             px_add(fb, sx, sy - 4, bc[1]); px_add(fb, sx, sy + 4, bc[1]);
-            mote->blit_ex(fb, &pg_img, sx, sy, 12 * 16, 0, 16, 16,
-                          hpj[i].rot, 1.5f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+            mote->blit_ex(fb, &pg_img, sx, sy, hpj[i].cell * 16, 0, 16, 16,
+                          hpj[i].rot, hpj[i].scale, MOTE_BLEND_NONE, 0, MOTE_FB_H);
         }
     }
 
