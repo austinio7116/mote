@@ -1,0 +1,4 @@
+# TerraMote SFX recipe (Studio Audio tab format)
+wave 1
+freq 0.31 0.05 -0.32 0
+env 0 0.04 0.2 0.18

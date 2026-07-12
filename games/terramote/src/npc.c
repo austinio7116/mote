@@ -1,0 +1,469 @@
+/* TerraMote — enemies, boss, drops, projectiles, spawning. */
+#include "terra.h"
+#include <math.h>
+
+#include "slime.h"        /* slime_img       16x12 x3 */
+#include "slime_blue.h"   /* slime_blue_img */
+#include "slime_lava.h"   /* slime_lava_img */
+#include "zombie.h"       /* zombie_img      16x24 x4 */
+#include "skeleton.h"     /* skeleton_img */
+#include "eye.h"          /* eye_img         16x16 x2 */
+#include "bat.h"          /* bat_img         16x10 x2 */
+#include "eoc.h"          /* eoc_img         40x40 x4 */
+
+Enemy g_en[MAX_ENEMIES];
+Drop  g_drops[MAX_DROPS];
+Proj  g_proj[MAX_PROJ];
+
+typedef struct {
+    const MoteImage *img;
+    uint8_t fw, fh;        /* frame size */
+    uint8_t hw, hh;        /* half-extent hitbox (from center) */
+    int16_t hp;
+    uint8_t dmg;
+    uint8_t coins;
+} EnemyDef;
+
+static const EnemyDef k_edef[E_COUNT] = {
+    [E_SLIME_GREEN] = { 0, 16, 12, 6, 4, 14, 6, 1 },
+    [E_SLIME_BLUE]  = { 0, 16, 12, 6, 4, 26, 8, 2 },
+    [E_SLIME_LAVA]  = { 0, 16, 12, 6, 4, 45, 14, 3 },
+    [E_ZOMBIE]      = { 0, 12, 16, 4, 7, 46, 13, 3 },
+    [E_EYE]         = { 0, 16, 16, 6, 6, 40, 16, 3 },
+    [E_BAT]         = { 0, 16, 10, 5, 3, 16, 11, 2 },
+    [E_SKELETON]    = { 0, 12, 16, 4, 7, 70, 18, 5 },
+    [E_BOSS_EOC]    = { 0, 40, 40, 15, 15, 1400, 22, 40 },
+};
+static const MoteImage *edef_img(uint8_t kind) {
+    switch (kind) {
+    case E_SLIME_GREEN: return &slime_img;
+    case E_SLIME_BLUE:  return &slime_blue_img;
+    case E_SLIME_LAVA:  return &slime_lava_img;
+    case E_ZOMBIE:      return &zombie_img;
+    case E_EYE:         return &eye_img;
+    case E_BAT:         return &bat_img;
+    case E_SKELETON:    return &skeleton_img;
+    case E_BOSS_EOC:    return &eoc_img;
+    }
+    return &slime_img;
+}
+
+static float s_spawn_t;
+static int s_boss_idx = -1;
+
+void npc_reset(void) {
+    for (int i = 0; i < MAX_ENEMIES; i++) g_en[i].kind = E_NONE;
+    for (int i = 0; i < MAX_DROPS; i++) g_drops[i].item = I_NONE;
+    for (int i = 0; i < MAX_PROJ; i++) g_proj[i].kind = PR_NONE;
+    s_boss_idx = -1;
+    s_spawn_t = 2.0f;
+}
+
+/* ------------------------------------------------------------------ drops ---- */
+void drops_add(uint8_t item, int n, float x, float y) {
+    if (!item || n <= 0) return;
+    for (int i = 0; i < MAX_DROPS; i++) {
+        if (g_drops[i].item) continue;
+        g_drops[i] = (Drop){ item, (uint8_t)(n > 99 ? 99 : n), x, y,
+                             mote_randf(-25, 25), -60.0f, 0 };
+        return;
+    }
+}
+
+static void drops_tick(float dt) {
+    for (int i = 0; i < MAX_DROPS; i++) {
+        Drop *d = &g_drops[i];
+        if (!d->item) continue;
+        d->t += dt;
+        float px = g_pl.x, py = g_pl.y - 10;
+        float dx = px - d->x, dy = py - d->y;
+        float dist2 = dx * dx + dy * dy;
+        if (d->t > 0.5f && dist2 < 26 * 26) {            /* magnet */
+            float inv = 1.0f / sqrtf(dist2 + 1.0f);
+            d->vx = dx * inv * 130.0f; d->vy = dy * inv * 130.0f;
+        } else {
+            d->vy += 480.0f * dt;
+            if (d->vy > 220) d->vy = 220;
+            if (world_solid_px((int)d->x, (int)(d->y + 4)))
+                { d->vy = 0; d->vx *= 0.8f; }
+            if (BG_LIQ(bg_at(px_c(d->x), (int)d->y / TILE)) >= 4) { d->vy *= 0.7f; d->vx *= 0.9f; }
+        }
+        float nx = d->x + d->vx * dt, ny2 = d->y + d->vy * dt;
+        if (!world_solid_px((int)nx, (int)d->y)) d->x = nx;
+        if (!world_solid_px((int)d->x, (int)ny2)) d->y = ny2;
+        if (d->t > 0.4f && dist2 < 9 * 9) {              /* collect */
+            int left = inv_add(d->item, d->count);
+            audio_sfx(d->item == I_COIN ? SFX_COIN : SFX_TICK, d->item == I_COIN ? 0.9f : 0.45f);
+            if (left) d->count = (uint8_t)left;
+            else d->item = I_NONE;
+        }
+        if (d->t > 90.0f) d->item = I_NONE;              /* eventually despawns */
+    }
+}
+
+static void drops_draw(void) {
+    for (int i = 0; i < MAX_DROPS; i++) {
+        Drop *d = &g_drops[i];
+        if (!d->item) continue;
+        MoteSprite spr = {
+            .img = g_items_sheet, .x = (int16_t)(d->x - 6), .y = (int16_t)(d->y - 6),
+            .fx = (uint16_t)((d->item % 8) * 12), .fy = (uint16_t)((d->item / 8) * 12),
+            .fw = 12, .fh = 12, .layer = 8, .flags = 0,
+        };
+        mote->scene2d_add(&spr);
+    }
+}
+
+/* ------------------------------------------------------------- projectiles ---- */
+void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile) {
+    for (int i = 0; i < MAX_PROJ; i++) {
+        if (g_proj[i].kind) continue;
+        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, (int16_t)dmg, (uint8_t)hostile };
+        return;
+    }
+}
+
+static void proj_tick(float dt) {
+    for (int i = 0; i < MAX_PROJ; i++) {
+        Proj *p = &g_proj[i];
+        if (!p->kind) continue;
+        p->t += dt;
+        p->vy += 240.0f * dt;
+        p->x += p->vx * dt; p->y += p->vy * dt;
+        if (p->t > 4.0f || world_solid_px((int)p->x, (int)p->y)) {
+            if (!p->hostile && (mote_rand() & 1))
+                drops_add(p->kind == PR_ARROW_FLAME ? I_ARROW_FLAME : I_ARROW, 1, p->x - p->vx * dt, p->y - p->vy * dt);
+            part_burst(p->x, p->y, rgb(180, 170, 150), 3, 30);
+            p->kind = PR_NONE;
+            continue;
+        }
+        if (p->kind == PR_ARROW_FLAME && (mote_rand() % 3) == 0)
+            part_burst(p->x, p->y, rgb(255, 150, 40), 1, 8);
+        if (p->hostile) {
+            if (fabsf(p->x - g_pl.x) < 5 && fabsf(p->y - (g_pl.y - 10)) < 11) {
+                player_damage(p->dmg, p->vx > 0 ? 80.0f : -80.0f);
+                p->kind = PR_NONE;
+            }
+        } else {
+            for (int e = 0; e < MAX_ENEMIES; e++) {
+                Enemy *en = &g_en[e];
+                if (!en->kind) continue;
+                const EnemyDef *ed = &k_edef[en->kind];
+                if (fabsf(p->x - en->x) < ed->hw + 2 && fabsf(p->y - en->y) < ed->hh + 2) {
+                    npc_damage_at(en->x, en->y, 1, 1, p->dmg, p->vx > 0 ? 90.0f : -90.0f);
+                    p->kind = PR_NONE;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/* projectiles draw in screen space with smooth rotation (overlay path) */
+void proj_draw(uint16_t *fb);
+void proj_draw(uint16_t *fb) {
+    for (int i = 0; i < MAX_PROJ; i++) {
+        Proj *p = &g_proj[i];
+        if (!p->kind) continue;
+        float ang = atan2f(p->vy, p->vx);             /* arrow art points right */
+        int cell = p->kind == PR_ARROW_FLAME ? 8 : 7;
+        mote->blit_ex(fb, g_ui_sheet, p->x - g_cam_x, p->y - g_cam_y,
+                      (cell % 9) * 12, 0, 12, 12, ang, 1.0f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+    }
+}
+
+/* --------------------------------------------------------------- enemies ---- */
+static int en_free(void) {
+    for (int i = 0; i < MAX_ENEMIES; i++) if (!g_en[i].kind) return i;
+    return -1;
+}
+static int en_count(void) {
+    int n = 0;
+    for (int i = 0; i < MAX_ENEMIES; i++) if (g_en[i].kind && g_en[i].kind != E_BOSS_EOC) n++;
+    return n;
+}
+
+int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx) {
+    int hits = 0;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_en[i];
+        if (!e->kind) continue;
+        const EnemyDef *d = &k_edef[e->kind];
+        if (fabsf(x - e->x) > hw + d->hw || fabsf(y - e->y) > hh + d->hh) continue;
+        e->hp -= dmg;
+        e->hurt_t = 0.15f;
+        ftext_add(e->x, e->y - d->hh - 6, dmg, rgb(255, 200, 90));
+        if (e->kind != E_BOSS_EOC) { e->vx = kx; e->vy = -70.0f; }
+        hits++;
+        if (e->hp <= 0) {
+            const EnemyDef *ed = d;
+            part_burst(e->x, e->y, rgb(180, 40, 50), 10, 70);
+            audio_sfx(SFX_KILL, 0.9f);
+            switch (e->kind) {
+            case E_SLIME_GREEN: drops_add(I_GEL, 1 + (mote_rand() % 2), e->x, e->y); break;
+            case E_SLIME_BLUE:  drops_add(I_GEL, 1 + (mote_rand() % 3), e->x, e->y); break;
+            case E_SLIME_LAVA:  drops_add(I_GEL, 2, e->x, e->y); break;
+            case E_ZOMBIE: if ((mote_rand() % 5) == 0) drops_add(I_LENS, 1, e->x, e->y); break;
+            case E_EYE:    drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y); break;
+            case E_SKELETON: if ((mote_rand() % 4) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y); break;
+            case E_BOSS_EOC:
+                drops_add(I_DEMONITE_ORE, 28 + (mote_rand() % 8), e->x, e->y);
+                drops_add(I_LENS, 4, e->x - 10, e->y);
+                drops_add(I_POTION_HEAL, 3, e->x + 10, e->y);
+                drops_add(I_LIFE_CRYSTAL, 1, e->x, e->y - 10);
+                g_boss_down = 1;
+                s_boss_idx = -1;
+                ui_toast("THE EYE OF CTHULHU IS DEFEATED");
+                audio_sfx(SFX_ROAR, 1.0f);
+                break;
+            }
+            if (ed->coins) drops_add(I_COIN, ed->coins + (int)(mote_rand() % (ed->coins + 1)), e->x, e->y - 4);
+            if (e->kind != E_BOSS_EOC && (mote_rand() % 18) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y);
+            e->kind = E_NONE;
+        }
+    }
+    return hits;
+}
+
+/* grounded walker physics shared by slimes/zombies/skeletons */
+static void walker_phys(Enemy *e, const EnemyDef *d, float dt) {
+    e->vy += 620.0f * dt;
+    if (e->vy > 260) e->vy = 260;
+    if (BG_LIQ(bg_at(px_c(e->x), (int)e->y / TILE)) >= 4 && e->kind != E_SLIME_LAVA) e->vy *= 0.92f;
+    float nx = e->x + e->vx * dt;
+    float edge = nx + (e->vx > 0 ? d->hw : -d->hw);
+    if (!world_solid_px((int)edge, (int)(e->y + d->hh - 2)) &&
+        !world_solid_px((int)edge, (int)(e->y - d->hh + 2)))
+        e->x = nx;
+    else if (e->on_ground) {
+        /* try a step-up, else jump/turn */
+        if (!world_solid_px((int)edge, (int)(e->y - d->hh - 6)) &&
+            (e->kind == E_ZOMBIE || e->kind == E_SKELETON))
+            e->vy = -175.0f;
+        else e->vx = 0;
+    }
+    float ny = e->y + e->vy * dt;
+    e->on_ground = 0;
+    if (e->vy >= 0) {
+        if (world_solid_px((int)(e->x - d->hw + 1), (int)(ny + d->hh)) ||
+            world_solid_px((int)(e->x + d->hw - 1), (int)(ny + d->hh))) {
+            ny = (float)(((int)(ny + d->hh) / TILE) * TILE) - d->hh;
+            e->vy = 0; e->on_ground = 1;
+        }
+    } else {
+        if (world_solid_px((int)(e->x - d->hw + 1), (int)(ny - d->hh)) ||
+            world_solid_px((int)(e->x + d->hw - 1), (int)(ny - d->hh))) {
+            e->vy = 0; ny = e->y;
+        }
+    }
+    e->y = ny;
+}
+
+static void en_spawn(uint8_t kind, float x, float y) {
+    int i = en_free();
+    if (i < 0) return;
+    g_en[i] = (Enemy){ 0 };
+    g_en[i].kind = kind;
+    g_en[i].x = x; g_en[i].y = y;
+    g_en[i].hp = k_edef[kind].hp;
+    g_en[i].facing = x > g_pl.x ? -1 : 1;
+    g_en[i].t = mote_randf(0, 1.0f);
+}
+
+void npc_spawn_boss(void) {
+    int i = en_free();
+    if (i < 0) { for (i = 0; i < MAX_ENEMIES; i++) if (g_en[i].kind != E_BOSS_EOC) { g_en[i].kind = E_NONE; break; } }
+    en_spawn(E_BOSS_EOC, g_pl.x - 140, g_pl.y - 120);
+    for (int k = 0; k < MAX_ENEMIES; k++) if (g_en[k].kind == E_BOSS_EOC) s_boss_idx = k;
+    ui_toast("THE EYE OF CTHULHU HAS AWOKEN!");
+    audio_sfx(SFX_ROAR, 1.0f);
+    mote->rumble(0.8f, 400);
+}
+
+int npc_boss_hp(int *max);
+int npc_boss_hp(int *max) {
+    *max = k_edef[E_BOSS_EOC].hp;
+    if (s_boss_idx >= 0 && g_en[s_boss_idx].kind == E_BOSS_EOC) return g_en[s_boss_idx].hp;
+    return 0;
+}
+
+static void spawn_try(void) {
+    if (en_count() >= (IS_NIGHT() ? 8 : 5)) return;
+    int side = (mote_rand() & 1) ? 1 : -1;
+    int pc = px_c(g_pl.x);
+    int c = pc + side * (18 + (int)(mote_rand() % 8));
+    if ((unsigned)c >= WCOLS - 2 || c < 2) return;
+    int pr = (int)g_pl.y / TILE;
+    int r = pr + (int)(mote_rand() % 13) - 6;
+    if ((unsigned)r >= WROWS - 3) return;
+    /* find a free 2-tall air spot near, with ground below */
+    int ok = 0;
+    for (int k = 0; k < 8; k++, r++) {
+        if ((unsigned)r >= WROWS - 3) break;
+        if (fg_at(c, r) == T_AIR && fg_at(c, r - 1) == T_AIR && g_tiles[fg_at(c, r + 1)].solid == 1) { ok = 1; break; }
+    }
+    if (!ok) return;
+    float x = c * TILE + 4.0f, y = r * TILE + 4.0f;
+    int depth = r;
+    uint8_t kind = 0;
+    int night = IS_NIGHT();
+    if (depth >= ROW_HELL - 6) {
+        kind = E_SLIME_LAVA;
+    } else if (depth > 150) {
+        kind = (mote_rand() % 3 == 0) ? E_BAT : ((mote_rand() & 1) ? E_SKELETON : E_SLIME_BLUE);
+    } else if (depth > ROW_DIRT_END) {
+        kind = (mote_rand() & 1) ? E_BAT : E_SLIME_BLUE;
+    } else {
+        /* surface-ish */
+        if (BG_LIQ(bg_at(c, r)) >= 4) return;
+        if (night) kind = (mote_rand() % 3 == 0) ? E_EYE : E_ZOMBIE;
+        else kind = (mote_rand() % 4 == 0) ? E_SLIME_BLUE : E_SLIME_GREEN;
+        /* day surface slimes only in the open */
+        if (!night && fx_light_at(c, r) < 6) kind = E_BAT;
+    }
+    if (kind == E_EYE || kind == E_BAT) y -= 8;
+    en_spawn(kind, x, y);
+}
+
+void npc_tick(float dt) {
+    s_spawn_t -= dt;
+    if (s_spawn_t <= 0) { s_spawn_t = 1.4f; spawn_try(); }
+    drops_tick(dt);
+    proj_tick(dt);
+
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_en[i];
+        if (!e->kind) continue;
+        const EnemyDef *d = &k_edef[e->kind];
+        if (e->hurt_t > 0) e->hurt_t -= dt;
+        float dx = g_pl.x - e->x, dy = (g_pl.y - 10) - e->y;
+        float dist = sqrtf(dx * dx + dy * dy) + 0.01f;
+
+        /* despawn far away (never on screen) */
+        if (e->kind != E_BOSS_EOC && dist > 340.0f) { e->kind = E_NONE; continue; }
+
+        switch (e->kind) {
+        case E_SLIME_GREEN: case E_SLIME_BLUE: case E_SLIME_LAVA:
+            e->t += dt;
+            if (e->on_ground) {
+                e->vx = 0;
+                float wait = e->kind == E_SLIME_LAVA ? 1.0f : 1.5f;
+                if (e->t > wait && dist < 190) {
+                    e->t = 0;
+                    e->facing = dx > 0 ? 1 : -1;
+                    e->vx = e->facing * (35.0f + (e->kind != E_SLIME_GREEN ? 14.0f : 0));
+                    e->vy = -160.0f;
+                }
+            }
+            walker_phys(e, d, dt);
+            break;
+        case E_ZOMBIE: case E_SKELETON: {
+            float sp = e->kind == E_SKELETON ? 33.0f : 26.0f;
+            e->facing = dx > 0 ? 1 : -1;
+            e->vx = e->facing * sp;
+            walker_phys(e, d, dt);
+            e->t += dt;
+            /* zombies dig in at dawn: despawn off-screen */
+            if (e->kind == E_ZOMBIE && !IS_NIGHT() && dist > 150) e->kind = E_NONE;
+            break;
+        }
+        case E_EYE: case E_BAT: {
+            float sp = e->kind == E_EYE ? 55.0f : 42.0f;
+            float ax = dx / dist * sp * 2.2f, ay = dy / dist * sp * 2.2f;
+            if (e->kind == E_BAT) {
+                ax += mote_randf(-140, 140); ay += mote_randf(-140, 140);
+            } else {
+                ay += sinf(e->t * 5.0f) * 60.0f;
+            }
+            e->t += dt;
+            e->vx += ax * dt; e->vy += ay * dt;
+            float vmax = sp + 25;
+            float v = sqrtf(e->vx * e->vx + e->vy * e->vy);
+            if (v > vmax) { e->vx = e->vx / v * vmax; e->vy = e->vy / v * vmax; }
+            float nx = e->x + e->vx * dt, ny = e->y + e->vy * dt;
+            if (world_solid_px((int)(nx + (e->vx > 0 ? d->hw : -d->hw)), (int)e->y)) e->vx = -e->vx * 0.7f;
+            else e->x = nx;
+            if (world_solid_px((int)e->x, (int)(ny + (e->vy > 0 ? d->hh : -d->hh)))) e->vy = -e->vy * 0.7f;
+            else e->y = ny;
+            e->facing = e->vx > 0 ? 1 : -1;
+            if (e->kind == E_EYE && !IS_NIGHT() && dist > 150) e->kind = E_NONE;
+            break;
+        }
+        case E_BOSS_EOC: {
+            int ph2 = e->hp < (int)(k_edef[E_BOSS_EOC].hp * 0.4f);
+            e->phase = (uint8_t)ph2;
+            e->t += dt;
+            float cycle = ph2 ? 2.2f : 3.2f;
+            float tt = fmodf(e->t, cycle);
+            if (tt < cycle - 1.1f) {
+                /* hover above-left/right of the player */
+                float hx = g_pl.x + (e->x > g_pl.x ? 70 : -70);
+                float hy = g_pl.y - 80;
+                e->vx += (hx - e->x) * 2.2f * dt; e->vy += (hy - e->y) * 2.2f * dt;
+                e->vx *= 0.98f; e->vy *= 0.98f;
+            } else if (tt - dt < cycle - 1.1f) {
+                /* start a charge at the player */
+                float sp = ph2 ? 250.0f : 190.0f;
+                e->vx = dx / dist * sp; e->vy = dy / dist * sp;
+                audio_sfx(SFX_ROAR, 0.5f);
+            }
+            e->x += e->vx * dt; e->y += e->vy * dt;
+            if (e->y < 8) e->y = 8;
+            /* flees at dawn */
+            if (!IS_NIGHT()) {
+                e->vy = -160; e->y += e->vy * dt;
+                if (e->t > 6.0f || e->y < -80) { e->kind = E_NONE; s_boss_idx = -1; ui_toast("THE EYE FLEES..."); }
+            }
+            break;
+        }
+        }
+
+        /* contact damage */
+        if (fabsf(e->x - g_pl.x) < d->hw + 4 && fabsf(e->y - (g_pl.y - 10)) < d->hh + 9) {
+            player_damage(d->dmg, (g_pl.x > e->x ? 1 : -1) * 120.0f);
+        }
+        /* lava hurts non-lava enemies */
+        if (e->kind != E_SLIME_LAVA && e->kind != E_BOSS_EOC &&
+            BG_IS_LAVA(bg_at(px_c(e->x), (int)e->y / TILE)) && BG_LIQ(bg_at(px_c(e->x), (int)e->y / TILE)) >= 3) {
+            npc_damage_at(e->x, e->y, 1, 1, 12, 0);
+        }
+    }
+}
+
+void npc_draw(void) {
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_en[i];
+        if (!e->kind) continue;
+        const EnemyDef *d = &k_edef[e->kind];
+        const MoteImage *img = edef_img(e->kind);
+        int frame = 0;
+        switch (e->kind) {
+        case E_SLIME_GREEN: case E_SLIME_BLUE: case E_SLIME_LAVA:
+            frame = e->on_ground ? ((e->t > 1.1f) ? 1 : 0) : 2;
+            break;
+        case E_ZOMBIE: case E_SKELETON:
+            frame = ((int)(e->t * 6.0f)) & 3;
+            break;
+        case E_EYE: case E_BAT:
+            frame = ((int)(e->t * 8.0f)) & 1;
+            break;
+        case E_BOSS_EOC:
+            frame = (e->phase ? 2 : 0) + (((int)(e->t * 6.0f)) & 1);
+            break;
+        }
+        MoteSprite s = {
+            .img = img,
+            .x = (int16_t)(e->x - d->fw / 2),
+            .y = (int16_t)(e->y - d->fh / 2),
+            .fx = (uint16_t)(frame * d->fw), .fy = 0,
+            .fw = d->fw, .fh = d->fh,
+            .layer = 9,
+            .flags = e->facing < 0 ? 0 : MOTE_SPR_HFLIP,   /* art faces LEFT for eye/eoc */
+        };
+        /* humanoid + slime art faces RIGHT: flip the other way */
+        if (e->kind != E_EYE && e->kind != E_BOSS_EOC)
+            s.flags = e->facing < 0 ? MOTE_SPR_HFLIP : 0;
+        if (e->hurt_t > 0 && ((int)(e->hurt_t * 30) & 1)) s.y -= 1;   /* hit shake */
+        mote->scene2d_add(&s);
+    }
+}

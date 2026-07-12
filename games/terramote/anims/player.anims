@@ -1,0 +1,17 @@
+sheet assets/player.png
+tile 12 16
+clips 5
+clip idle 1 2 0 0 1
+f 0 500 -
+clip walk 1 10 0 0 4
+f 1 95 -
+f 2 95 -
+f 3 95 -
+f 4 95 -
+clip jump 1 8 0 0 1
+f 5 200 -
+clip swing 0 12 0 0 2
+f 6 60 -
+f 7 110 -
+clip hurt 0 8 0 0 1
+f 8 220 -
