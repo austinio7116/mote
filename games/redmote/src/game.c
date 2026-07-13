@@ -2113,6 +2113,17 @@ static void draw_cursor(uint16_t *fb){
     }
 }
 
+/* true pixel width of a string in a proportional UI font (for centring) */
+static int text_w(const MoteFont *fn, const char *s){
+    int w = 0;
+    for (; *s; s++){
+        unsigned ch = (unsigned char)*s;
+        if (ch < fn->first || ch >= (unsigned)(fn->first + fn->count)){ w += 5; continue; }
+        w += fn->glyphs[ch - fn->first].adv;
+    }
+    return w;
+}
+
 static void g_overlay(uint16_t *fb){
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     const MoteFont *fl = mote->ui_font(MOTE_FONT_LARGE);
@@ -2124,9 +2135,10 @@ static void g_overlay(uint16_t *fb){
         for (int r = 0; r < 3; r++){
             static const char *M[3] = { "CAMPAIGN", "SKIRMISH", "MULTIPLAYER" };
             uint16_t c = r == menu_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(140, 140, 155);
+            int tw = text_w(f, M[r]), tx = 64 - tw / 2, y = 54 + r * 15;
             if (r == menu_row)
-                mote->draw_rect(fb, 22, 54 + r * 15 - 1, 84, 13, MOTE_RGB565(46, 46, 66), 1, 0, 128);
-            mote->text_font(fb, f, M[r], 64 - (int)strlen(M[r]) * 4, 54 + r * 15, c);
+                mote->draw_rect(fb, tx - 6, y - 1, tw + 12, 13, MOTE_RGB565(46, 46, 66), 1, 0, 128);
+            mote->text_font(fb, f, M[r], tx, y, c);
         }
         mote->text(fb, "LB BUILD  RB MAP  A ORDER", 0, 108, MOTE_RGB565(150, 150, 165));
         mote->text(fb, "MULTIPLAYER = 1v1 OVER LINK", 0, 118, MOTE_RGB565(120, 130, 150));
