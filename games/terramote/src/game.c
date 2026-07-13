@@ -140,6 +140,16 @@ static void draw_grass_caps(void) {
 }
 
 static int s_dev_c = -1, s_dev_r = -1;   /* TERRA_POS dev spawn override */
+static uint32_t s_dev_seed = 0;          /* TERRA_SEED dev override (0 = use clock) */
+
+/* Mix the raw microsecond clock into a well-distributed 32-bit seed, so worlds
+ * differ strongly even when micros() values are small or close together. */
+static uint32_t make_seed(void) {
+    if (s_dev_seed) return s_dev_seed;
+    uint32_t s = (uint32_t)mote->micros();
+    s ^= s >> 16; s *= 0x7feb352dU; s ^= s >> 15; s *= 0x846ca68bU; s ^= s >> 16;
+    return s ? s : 1u;
+}
 
 /* tree dressing: crowns on trunk tops, branch stubs along trunks (derived from
  * the tile map, so chopping the trunk drops the whole tree) */
@@ -186,7 +196,7 @@ static void draw_trees(void) {
 
 /* ------------------------------------------------------------------- flow --- */
 void game_new_world(void) {
-    world_generate((uint32_t)mote->micros() | 1u);
+    world_generate(make_seed());
     s_gen_pct = 0;
     g_time = 0.25f;
     g_boss_down = 0;
@@ -261,6 +271,7 @@ static void dev_hooks(void) {
         }
     }
     if ((e = getenv("TERRA_TIME"))) s_dev_time = (float)atof(e);
+    if ((e = getenv("TERRA_SEED"))) s_dev_seed = (uint32_t)strtoul(e, 0, 10);
     if ((e = getenv("TERRA_POS"))) {                 /* "col:row" spawn override */
         char *p = (char *)e;
         s_dev_c = (int)strtol(p, &p, 10);
