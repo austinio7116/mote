@@ -107,8 +107,25 @@ void player_build_palette(void) {
     s_hair_img = (MoteImage){ s_hair_px, hair_img.w, hair_img.h, MOTE_KEY_MAGENTA, 0 };
 }
 
-const MoteImage *player_body_img(void) { return &s_body_img; }
-const MoteImage *player_hair_img(void) { return &s_hair_img; }
+/* Immediate-mode draw of the recoloured character (body + hair overlay) into an
+ * fb at (px,py) for logical animation cell `cell` (0..PLAYER_FRAMES-1). Uses the
+ * SAME packed-grid addressing (player_sheet) and per-frame head offset as
+ * player_draw() — the character creator preview calls this so there is ONE
+ * renderer. NB: player_img is the anim-packed atlas (a grid, e.g. 3x3), NOT a
+ * flat 9x1 strip, so the cell must be resolved through the sheet, not cell*tile_w. */
+void player_blit_frame(uint16_t *fb, int px, int py, int cell) {
+    int cols = mote_anim_cols(&player_sheet);
+    int fx = (cell % cols) * player_sheet.tile_w;
+    int fy = (cell / cols) * player_sheet.tile_h;
+    mote->blit(fb, &s_body_img, px, py, fx, fy,
+               player_sheet.tile_w, player_sheet.tile_h, 0, 0, MOTE_FB_H);
+    if (g_pl.hair_style < 13) {
+        int dx = cell < PLAYER_FRAMES ? player_head_dx[cell] : 0;
+        int dy = cell < PLAYER_FRAMES ? player_head_dy[cell] : 0;
+        mote->blit(fb, &s_hair_img, px + dx, py + dy,
+                   g_pl.hair_style * 12, 0, 12, 10, 0, 0, MOTE_FB_H);
+    }
+}
 
 void player_alloc(void);
 void player_alloc(void) {
