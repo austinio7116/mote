@@ -498,6 +498,7 @@ static uint32_t run_seed;
 static int  gate_x, gate_y;             /* gate world pos (top-left) */
 static uint32_t run_seed_get(void) { return run_seed; }
 static int sector_get(void) { return sector; }
+static void gate_fx_update(float dt);   /* fwd: tear clock + ambience */
 static int  gate_open;                  /* boss sectors seal the gate until the boss falls */
 static float gate_t;
 
@@ -2141,7 +2142,18 @@ static void player_update(float dt) {
 
     if (invuln > 0) invuln -= dt;
 
+    gate_fx_update(dt);
     /* warp gate */
+    if (gate_open &&
+        px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 6 && py < gate_y + 30) {
+        mote->audio_play_sfx(&gate_sfx, 0.8f);
+        state = ST_CLEAR; state_t = 0;
+        save_best();
+    }
+}
+
+/* tear ambience: clock + particles — runs during PLAY and the warp itself */
+static void gate_fx_update(float dt) {
     gate_t += dt;
     if (gate_open) {
         float gcx = gate_x + 8, gcy = gate_y + 12;
@@ -2164,12 +2176,6 @@ static void player_update(float dt) {
             spawn_part(gcx + mote_randf(-4, 4), gcy + mote_randf(-12, 12),
                        mote_randf(-30, 30), mote_randf(-30, 30),
                        exh_col[nb][0], 0.25f, PF_ADD | PF_STREAK | PF_DRAG);
-    }
-    if (gate_open &&
-        px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 6 && py < gate_y + 30) {
-        mote->audio_play_sfx(&gate_sfx, 0.8f);
-        state = ST_CLEAR; state_t = 0;
-        save_best();
     }
 }
 
@@ -3295,6 +3301,7 @@ static void g_update(float dt) {
         break; }
     case ST_CLEAR:
         state_t += dt;
+        gate_fx_update(dt);                          /* the tear keeps living */
         parts_update(dt);
         for (int k = 0; k < 3; k++)                  /* warp streaks */
             spawn_part(px + mote_randf(-60, 60), py + mote_randf(-50, 50),
