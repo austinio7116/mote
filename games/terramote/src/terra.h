@@ -178,7 +178,7 @@ typedef struct { int16_t c, r; Slot s[CHEST_SLOTS]; } Chest;   /* c<0 = free */
 extern Chest g_chests[MAX_CHESTS];
 
 /* ---- game state ---------------------------------------------------------------- */
-enum { GS_TITLE = 0, GS_CREATE, GS_GENERATING, GS_PLAY, GS_INV, GS_CHEST, GS_DEAD };
+enum { GS_TITLE = 0, GS_CREATE, GS_GENERATING, GS_PLAY, GS_INV, GS_CHEST, GS_DEAD, GS_PAUSE };
 extern uint8_t g_state;
 extern float   g_time;           /* 0..1 day fraction (0.25 = noon, 0.75 = midnight) */
 extern uint8_t g_boss_down;      /* EoC killed */
