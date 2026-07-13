@@ -31,18 +31,21 @@ Side-view sandbox: dig, build, craft, fight. One seeded persistent world per sav
 
 ## Controls
 
-- D-pad move; A jump; B use held item (swing / mine / place / fire / eat).
-- Aim (persistent 8-way reticle): hold B with a pick/axe/block/bow and the
-  d-pad steers the reticle instead of walking (all 8 directions + straight
-  up/down); the direction STAYS when you let go. Without B, UP/DOWN taps step
-  the aim elevation and walking keeps the reticle in front of you.
+- LEFT/RIGHT walk + face; A jump; B use held item (mine / place / swing / fire /
+  eat / grapple).
+- Aim (Liero-style crosshair, like Terraria's cursor): UP/DOWN rotate a
+  continuous aim angle — a tiny crosshair on a sight line, from straight up
+  through level to straight down. The angle PERSISTS. You can walk and aim at the
+  same time (walk = LEFT/RIGHT, aim = UP/DOWN). Mining/placing target the tile
+  the crosshair sits on (a short ray: tools lock to the first solid; blocks land
+  on the last empty cell before it), and the bow + grapple both fire along it.
 - LB cycle hotbar; RB inventory/crafting (station recipes appear when one is
   in range); MENU pause (save & exit). No music by design — SFX only.
 - Grappling hook (default item, Wormote-style ninja rope): select it, press B to
-  fire the hook along the held d-pad direction (or your facing). Once it bites a
-  block it auto-reels you toward the anchor (UP climbs faster, DOWN pays out
-  line, LEFT/RIGHT swing). B again or A detaches (A with a hop). Craftable at an
-  anvil (3 iron bars + 3 gel) if lost.
+  fire the hook along the crosshair. Once it bites a block it auto-reels you
+  toward the anchor (UP climbs faster, DOWN pays out line, LEFT/RIGHT swing).
+  B again or A detaches (A with a hop). Craftable at an anvil (3 iron bars +
+  3 gel) if lost.
 
 ## Tech tree
 

@@ -14,8 +14,20 @@ const MoteImage *g_items_sheet = &items_img;
 
 Player g_pl;
 
-/* reticle target (drawn by ui) */
-int g_ret_c, g_ret_r;
+/* reticle: the affected TILE + the precise crosshair point (drawn by ui) */
+int   g_ret_c, g_ret_r;
+float g_aim_x, g_aim_y;
+
+/* Liero-style continuous aim: an angle you rotate with UP/DOWN. 0 = level in the
+ * facing direction, +pi/2 = straight up, -pi/2 = straight down. Everything
+ * (mining, placing, the bow, the grapple) targets along this. */
+static float s_aim_ang;
+#define AIM_RATE  2.7f          /* radians/sec while UP/DOWN held */
+#define AIM_MAX   1.5708f       /* +/- 90 degrees */
+static void aim_dir(float *dx, float *dy) {
+    *dx = g_pl.facing * cosf(s_aim_ang);
+    *dy = -sinf(s_aim_ang);
+}
 
 /* ---- recolourable RAM copies of the body atlas + hair sheet -------------- */
 static uint16_t *s_body_px;              /* arena: player atlas copy */
@@ -200,7 +212,7 @@ void player_reset(int full) {
         inv_add(I_TORCH, 5);
     }
     g_pl.hp = g_pl.maxhp;
-    g_pl.aim_dx = 1; g_pl.aim_dy = 0;
+    s_aim_ang = 0.0f;
     g_pl.grap = 0;
     g_pl.x = g_pl.spawn_c * TILE + 4.0f;
     g_pl.y = (g_pl.spawn_r + 1) * TILE - 0.01f;
@@ -241,55 +253,35 @@ void player_damage(int dmg, float kx) {
 }
 
 /* ------------------------------------------------------------ use / mine ---- */
-/* Aim -> an ordered CANDIDATE column of cells (automine: the reticle locks to
- * the first cell the held tool can act on, so holding B carves a full
- * walkable passage — head+feet rows level, stair notches on diagonals). */
-static int aim_candidates(int cc[3], int rr[3]) {
-    int pc = px_c(g_pl.x);
-    int feet_r = ((int)g_pl.y - 1) / TILE;
-    int head_r = ((int)g_pl.y - P_BH + 2) / TILE;
-    int dx = g_pl.aim_dx, dy = g_pl.aim_dy;
-    int n = 0;
-    if (dy < 0 && dx == 0) {            /* straight up: shaft above the head */
-        cc[n] = pc; rr[n++] = head_r - 1;
-    } else if (dy > 0 && dx == 0) {     /* straight down: through the floor */
-        cc[n] = pc; rr[n++] = feet_r + 1;
-    } else if (dy < 0) {                /* up-stairs: the raised passage ahead */
-        cc[n] = pc + dx; rr[n++] = head_r - 1;
-        cc[n] = pc + dx; rr[n++] = head_r;
-    } else if (dy > 0) {                /* down-stairs: step-down notch ahead */
-        cc[n] = pc + dx; rr[n++] = feet_r;
-        cc[n] = pc + dx; rr[n++] = feet_r + 1;
-    } else {                            /* level: full-height corridor ahead */
-        int d = dx ? dx : g_pl.facing;
-        cc[n] = pc + d; rr[n++] = head_r;
-        cc[n] = pc + d; rr[n++] = feet_r;
-    }
-    return n;
-}
-
+/* Cast a short ray from the chest along the aim angle and pick the target tile:
+ * mining/tools lock to the first solid the ray meets; block-placing lands on the
+ * last air cell before that solid (so you build onto the surface you point at).
+ * The crosshair (g_aim_x/y) is the target tile centre. */
 static void pick_target(void) {
-    int cc[3], rr[3];
-    int n = aim_candidates(cc, rr);
+    float dx, dy; aim_dir(&dx, &dy);
+    float hx = g_pl.x, hy = g_pl.y - 8.0f;
     uint8_t held = g_pl.inv[g_pl.hot].item;
     int kind = g_items[held].kind;
-    g_ret_c = cc[0]; g_ret_r = rr[0];
-    if (kind == IK_PICK || kind == IK_AXE) {
-        for (int i = 0; i < n; i++) {
-            const TileDef *td = &g_tiles[fg_at(cc[i], rr[i])];
-            if (!td->hardness) continue;                      /* air/bedrock */
-            if ((kind == IK_AXE) != (td->axe != 0)) continue; /* wrong tool */
-            if (kind == IK_PICK && td->min_power > g_items[held].power) continue;
-            g_ret_c = cc[i]; g_ret_r = rr[i];
-            return;
-        }
-        /* nothing mineable: still point at the first non-air cell if any */
-        for (int i = 0; i < n; i++)
-            if (fg_at(cc[i], rr[i]) != T_AIR) { g_ret_c = cc[i]; g_ret_r = rr[i]; return; }
-    } else if (kind == IK_BLOCK) {
-        for (int i = 0; i < n; i++)
-            if (fg_at(cc[i], rr[i]) == T_AIR) { g_ret_c = cc[i]; g_ret_r = rr[i]; return; }
+    int reach = (kind == IK_BLOCK) ? 3 : 5;                   /* tiles */
+    int hitc = -1, hitr = -1, ac = -1, ar = -1;
+    int lc = px_c(hx), lr = (int)hy / TILE;
+    for (int d = 6; d <= reach * TILE; d += 3) {
+        int cc = px_c(hx + dx * d), rr = (int)(hy + dy * d) / TILE;
+        if (cc == lc && rr == lr) continue;
+        lc = cc; lr = rr;
+        if (g_tiles[fg_at(cc, rr)].solid == 1) { hitc = cc; hitr = rr; break; }
+        ac = cc; ar = rr;                                     /* last empty cell */
     }
+    if (kind == IK_BLOCK) {
+        if (ac >= 0) { g_ret_c = ac; g_ret_r = ar; }
+        else { g_ret_c = px_c(hx + dx * 9); g_ret_r = (int)(hy + dy * 9) / TILE; }
+    } else {
+        if (hitc >= 0) { g_ret_c = hitc; g_ret_r = hitr; }
+        else if (ac >= 0) { g_ret_c = ac; g_ret_r = ar; }
+        else { g_ret_c = px_c(hx + dx * 20); g_ret_r = (int)(hy + dy * 20) / TILE; }
+    }
+    g_aim_x = g_ret_c * TILE + TILE / 2;
+    g_aim_y = g_ret_r * TILE + TILE / 2;
 }
 
 static int interactable(uint8_t t) {
@@ -392,13 +384,11 @@ static void use_item(float dt) {
             if (!ammo) { if (mote_just_pressed(in, MOTE_BTN_B)) ui_toast("NO ARROWS"); break; }
             g_pl.use_t = def->speed / 30.0f;
             inv_take(ammo, 1);
-            float adx = g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing;
-            float ady = (float)g_pl.aim_dy;
-            float inv_l = 1.0f / sqrtf(adx * adx + ady * ady);
-            float vx = adx * inv_l * 195.0f;
-            float vy = ady * inv_l * 195.0f + (g_pl.aim_dy == 0 ? -18.0f : 0.0f);
+            float dx, dy; aim_dir(&dx, &dy);              /* fire along the crosshair */
+            float vx = dx * 195.0f;
+            float vy = dy * 195.0f + (fabsf(dy) < 0.02f ? -18.0f : 0.0f);
             proj_add(ammo == I_ARROW_FLAME ? PR_ARROW_FLAME : PR_ARROW,
-                     g_pl.x + adx * 6, g_pl.y - 10, vx, vy,
+                     g_pl.x + dx * 6, g_pl.y - 10, vx, vy,
                      def->damage + g_items[ammo].damage, 0);
             audio_sfx(SFX_SHOOT, 0.9f);
         }
@@ -446,16 +436,12 @@ static void grapple_fire_fly(float dt) {
     if (has && mote_just_pressed(in, MOTE_BTN_B)) {
         if (g_pl.grap) { g_pl.grap = 0; }                  /* detach */
         else {
-            int fdx = (mote_pressed(in, MOTE_BTN_RIGHT) ? 1 : 0) - (mote_pressed(in, MOTE_BTN_LEFT) ? 1 : 0);
-            int fdy = (mote_pressed(in, MOTE_BTN_DOWN) ? 1 : 0) - (mote_pressed(in, MOTE_BTN_UP) ? 1 : 0);
-            if (!fdx && !fdy) fdx = g_pl.facing;
-            float l = sqrtf((float)(fdx * fdx + fdy * fdy));
+            float dx, dy; aim_dir(&dx, &dy);               /* fire along the crosshair */
             g_pl.grap = 1;
-            g_pl.grap_x = g_pl.x + fdx * 4.0f;
-            g_pl.grap_y = g_pl.y - 8.0f + fdy * 4.0f;
-            g_pl.grap_vx = fdx / l * GRAP_SPEED;
-            g_pl.grap_vy = fdy / l * GRAP_SPEED;
-            if (fdx) g_pl.facing = (int8_t)fdx;
+            g_pl.grap_x = g_pl.x + dx * 4.0f;
+            g_pl.grap_y = g_pl.y - 8.0f + dy * 4.0f;
+            g_pl.grap_vx = dx * GRAP_SPEED;
+            g_pl.grap_vy = dy * GRAP_SPEED;
             audio_sfx(SFX_SHOOT, 0.55f);
         }
     }
@@ -570,42 +556,21 @@ void player_tick(float dt) {
     /* grappling hook: fire/detach + advance the hook in flight (owns B) */
     grapple_fire_fly(dt);
 
-    /* aim steering: holding B with an aimable item locks you in place and the
-     * d-pad points the reticle (all 8 ways + straight up/down). The direction
-     * PERSISTS after release. Without B, UP/DOWN taps step the aim elevation
-     * and walking keeps the aim in front of you. */
-    int hk = g_items[g_pl.inv[g_pl.hot].item].kind;
-    int aimable = hk == IK_PICK || hk == IK_AXE || hk == IK_BLOCK || hk == IK_BOW;
-    int steer = aimable && mote_pressed(in, MOTE_BTN_B);
-    if (steer) {
-        int dx = 0, dy = 0, any = 0;
-        if (mote_pressed(in, MOTE_BTN_LEFT))  { dx = -1; any = 1; }
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) { dx = 1;  any = 1; }
-        if (mote_pressed(in, MOTE_BTN_UP))    { dy = -1; any = 1; }
-        if (mote_pressed(in, MOTE_BTN_DOWN))  { dy = 1;  any = 1; }
-        if (any && (dx != g_pl.aim_dx || dy != g_pl.aim_dy)) {
-            g_pl.aim_dx = (int8_t)dx; g_pl.aim_dy = (int8_t)dy;
-            if (dx) g_pl.facing = (int8_t)dx;
-            g_pl.mine_c = -1; g_pl.mine_t = 0;   /* retarget on aim change only */
-        }
-    } else {
-        if (mote_just_pressed(in, MOTE_BTN_UP) && g_pl.aim_dy > -1)  g_pl.aim_dy--;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_pl.aim_dy < 1) g_pl.aim_dy++;
+    /* Liero-style aim: UP/DOWN rotate the crosshair up/down; it persists. While
+     * hooked the rope claims UP/DOWN (reel), so aim only rotates when free. */
+    int hooked = grapple_move(dt);
+    if (!hooked) {
+        if (mote_pressed(in, MOTE_BTN_UP))   s_aim_ang += AIM_RATE * dt;
+        if (mote_pressed(in, MOTE_BTN_DOWN)) s_aim_ang -= AIM_RATE * dt;
+        s_aim_ang = mote_clampf(s_aim_ang, -AIM_MAX, AIM_MAX);
     }
 
-  /* while hooked, the rope owns all motion (swing + reel + collide) */
-  int hooked = grapple_move(dt);
   if (!hooked) {
-    /* horizontal move. Steering with a horizontal component still walks — you
-     * push into the face you're digging and advance as it clears (tunneling);
-     * only pure up/down aiming parks you. */
-    int park = steer && g_pl.aim_dx == 0;
+    /* walk + face with LEFT/RIGHT (aim is on UP/DOWN, so you can move and aim at once) */
     float move = liq ? P_MOVE * 0.6f : P_MOVE;
     float want = 0;
-    if (!park) {
-        if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; if (!steer) g_pl.aim_dx = -1; }
-        if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1;  if (!steer) g_pl.aim_dx = 1; }
-    }
+    if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; }
+    if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1; }
     /* knockback decays into control */
     if (g_pl.iframes > 0.45f) want = g_pl.vx;
     g_pl.vx = want;
@@ -634,7 +599,7 @@ void player_tick(float dt) {
         if (g_pl.vy > 70) g_pl.vy = 70;
         if (g_pl.vy < -80) g_pl.vy = -80;
     } else {
-        if (!park && g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
+        if (g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
             if (mote_pressed(in, MOTE_BTN_DOWN) && s_drop_t <= 0) {
                 /* drop through a platform if we stand on one */
                 int r = (int)g_pl.y / TILE;
@@ -772,8 +737,8 @@ void player_draw_swing(uint16_t *fb) {
         mote->blit_ex(fb, img, cx, cy, fx, fy, cs, cs, ang, sc,
                       MOTE_BLEND_NONE, 0, MOTE_FB_H);
     } else if (kind == IK_BOW) {
-        float adx = g_pl.aim_dx ? (float)g_pl.aim_dx : (float)g_pl.facing;
-        float delta = atan2f((float)g_pl.aim_dy, adx);
+        float dx, dy; aim_dir(&dx, &dy);
+        float delta = atan2f(dy, dx);
         /* bow art fires +x unrotated; mirrored row fires -x */
         float ang = right ? delta : (delta - 3.14159f);
         mote->blit_ex(fb, img, hxf + g_pl.facing * 4.0f, hyf - 1.0f, fx, fy, cs, cs,

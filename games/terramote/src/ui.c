@@ -9,6 +9,7 @@ const MoteImage *g_ui_sheet = &ui_img;
 Chest *g_open_chest;
 
 extern int g_ret_c, g_ret_r;
+extern float g_aim_x, g_aim_y;
 extern uint8_t g_ui_fresh;
 extern const uint16_t g_skin_opts[4], g_hair_opts[8], g_cloth_opts[8];
 const MoteImage *player_body_img(void);
@@ -82,13 +83,17 @@ void ui_hud(uint16_t *fb) {
         for (int i = 0; i < nb && i < 8; i++)
             mote->blit(fb, &ui_img, 34 + i * 9, 30, 6 * 12, 0, 12, 12, 0, 0, MOTE_FB_H);
     }
-    /* held item name flash when switching (small, above the bar) */
-    /* reticle + mining crack progress */
+    /* aim: a dotted sight line from the hand to a tiny crosshair, + the target
+     * tile box (and its mining-progress fill) */
     if (g_state == GS_PLAY) {
+        int hx = (int)g_pl.x - g_cam_x, hy = (int)g_pl.y - 8 - g_cam_y;
+        int ax = (int)g_aim_x - g_cam_x, ay = (int)g_aim_y - g_cam_y;
+        for (int k = 1; k <= 4; k++)                       /* sight line dots */
+            mote->draw_pixel(fb, hx + (ax - hx) * k / 5, hy + (ay - hy) * k / 5, rgb(255, 240, 150));
         int rx = g_ret_c * TILE - g_cam_x, ry = g_ret_r * TILE - g_cam_y;
         if (rx > -8 && rx < 128 && ry > -8 && ry < 128) {
             uint16_t col = ((int)(s_ui_t * 4) & 1) ? rgb(255, 250, 200) : rgb(200, 190, 140);
-            mote->draw_rect(fb, rx - 1, ry - 1, TILE + 2, TILE + 2, col, 0, 0, MOTE_FB_H);
+            mote->draw_rect(fb, rx, ry, TILE, TILE, col, 0, 0, MOTE_FB_H);
             if (g_pl.mine_c == g_ret_c && g_pl.mine_r == g_ret_r && g_pl.mine_t > 0) {
                 const TileDef *td = &g_tiles[fg_at(g_ret_c, g_ret_r)];
                 float frac = g_pl.mine_t / ((float)td->hardness * 8.0f);
@@ -97,6 +102,10 @@ void ui_hud(uint16_t *fb) {
                                 rgb(255, 255, 255), 0, 0, MOTE_FB_H);
             }
         }
+        /* tiny crosshair at the exact aim point */
+        mote->draw_line(fb, ax - 3, ay, ax + 3, ay, rgb(255, 255, 255), 0, MOTE_FB_H);
+        mote->draw_line(fb, ax, ay - 3, ax, ay + 3, rgb(255, 255, 255), 0, MOTE_FB_H);
+        mote->draw_pixel(fb, ax, ay, rgb(40, 40, 40));
     }
     /* boss bar */
     int bmax, bhp = npc_boss_hp(&bmax);
