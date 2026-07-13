@@ -832,37 +832,41 @@ def make_heli():
 
 # ================================================================== icon
 def make_icon():
+    """Fictional military insignia: a red star inside an industrial gear ring,
+    over a tiny tank column. No star-shading stroke, no tracer streaks."""
+    import math
     im = Image.new("RGBA", (60, 60), (30, 34, 26, 255))
     d = ImageDraw.Draw(im)
     r2 = random.Random(7)
-    # mottled field
-    for _ in range(160):
+    for _ in range(160):        # mottled field
         x, y = r2.randrange(60), r2.randrange(60)
         px(d, x, y, r2.choice(((36, 42, 30), (26, 30, 22), (42, 48, 34))))
-    # big red star, black outline
-    import math
-    cx, cy, R, r = 30, 26, 21, 8.5
+    cx, cy = 30, 24
+    STEEL, STEELL, STEELD = (78, 84, 74), (104, 112, 100), (44, 48, 42)
+    # gear teeth
+    for i in range(12):
+        a = i * math.pi / 6
+        x, y = cx + 20 * math.cos(a), cy + 20 * math.sin(a)
+        rect(d, x - 2, y - 2, x + 2, y + 2, STEELD)
+    d.ellipse((cx - 18, cy - 18, cx + 18, cy + 18), outline=STEEL + (255,), width=3)
+    d.ellipse((cx - 15, cy - 15, cx + 15, cy + 15), outline=STEELL + (255,), width=1)
+    d.ellipse((cx - 13, cy - 13, cx + 13, cy + 13), fill=(24, 22, 20, 255))
+    # red star, flat fill + black outline (no shading line)
+    R, r = 12, 5
     pts = []
     for i in range(10):
         a = -math.pi / 2 + i * math.pi / 5
         rad = R if i % 2 == 0 else r
         pts.append((cx + rad * math.cos(a), cy + rad * math.sin(a)))
-    d.polygon(pts, fill=(178, 44, 36, 255), outline=(16, 12, 10, 255))
-    # star shading
-    d.line((pts[0], (cx, cy)), fill=(216, 84, 64, 255))
-    # tiny tank column along the bottom
-    for i, tx in enumerate((6, 22, 38)):
+    d.polygon(pts, fill=(188, 44, 36, 255), outline=(16, 12, 10, 255))
+    # tiny tank column along the bottom (no muzzle flashes / tracers)
+    for tx in (6, 22, 38):
         ty = 47
         rect(d, tx, ty + 2, tx + 9, ty + 6, (52, 58, 46))       # hull
         rect(d, tx, ty + 1, tx + 9, ty + 1, (70, 78, 60))
         rect(d, tx - 1, ty + 5, tx + 10, ty + 7, (34, 36, 30))  # tracks
         rect(d, tx + 3, ty, tx + 6, ty + 2, (70, 78, 60))       # turret
         rect(d, tx + 6, ty + 1, tx + 13, ty + 1, (24, 24, 22))  # barrel
-        px(d, tx + 14, ty + 1, (255, 220, 90))                  # muzzle flash
-        px(d, tx + 15, ty + 1, (255, 160, 40))
-    # tracer streaks
-    for x, y in ((50, 14), (46, 20), (52, 24)):
-        d.line((x, y, x + 5, y - 2), fill=(255, 220, 90, 255))
     im.convert("RGB").save(os.path.join(HERE, "..", "icon.png"))
 
 
