@@ -169,6 +169,15 @@ void craft_do(const Recipe *rc) {
 #define P_GRAV  620.0f
 #define P_FALLM 270.0f
 
+/* grappling hook (Wormote-style pendulum, auto-reeled so it also hauls you up) */
+#define GRAP_SPEED   250.0f      /* hook fly speed */
+#define GRAP_RANGE   104.0f      /* max reach (13 tiles) */
+#define GRAP_REEL     50.0f      /* auto reel-in px/s (pull toward the anchor) */
+#define GRAP_REEL_UP  90.0f      /* hold UP to climb faster */
+#define GRAP_MINLEN    9.0f
+#define GRAP_GRAV    340.0f      /* softened gravity while swinging */
+#define GRAP_SWING   300.0f      /* LEFT/RIGHT swing accel */
+
 static int solid_at(float x, float y) { return world_solid_px((int)x, (int)y); }
 
 static int body_free(float x, float y) {   /* would the body fit at feet (x,y)? */
@@ -187,10 +196,12 @@ void player_reset(int full) {
         inv_add(I_PICK_WOOD, 1);
         inv_add(I_AXE_WOOD, 1);
         inv_add(I_SWORD_WOOD, 1);
+        inv_add(I_GRAPPLE, 1);
         inv_add(I_TORCH, 5);
     }
     g_pl.hp = g_pl.maxhp;
     g_pl.aim_dx = 1; g_pl.aim_dy = 0;
+    g_pl.grap = 0;
     g_pl.x = g_pl.spawn_c * TILE + 4.0f;
     g_pl.y = (g_pl.spawn_r + 1) * TILE - 0.01f;
     g_pl.vx = g_pl.vy = 0;
@@ -321,6 +332,7 @@ static void use_item(float dt) {
         }
     }
 
+    if (def->kind == IK_GRAPPLE) return;    /* the grapple has its own B handling */
     if (!mote_pressed(in, MOTE_BTN_B)) { g_pl.mine_c = -1; g_pl.mine_t = 0; return; }
 
     switch (def->kind) {
@@ -421,6 +433,110 @@ static void use_item(float dt) {
     }
 }
 
+/* ------------------------------------------------------------- grapple ------
+ * B fires the hook along the held d-pad direction (or your facing); B again, or
+ * A, detaches. While hooked the rope is a pendulum constraint (Wormote's ninja
+ * rope) plus a steady auto-reel that hauls you toward the anchor, so it both
+ * swings AND pulls you up to a ledge. UP climbs faster, DOWN pays out line. */
+static void grapple_fire_fly(float dt) {
+    const MoteInput *in = mote->input();
+    int has = g_items[g_pl.inv[g_pl.hot].item].kind == IK_GRAPPLE;
+    if (!has && g_pl.grap) g_pl.grap = 0;                  /* switched item: drop rope */
+
+    if (has && mote_just_pressed(in, MOTE_BTN_B)) {
+        if (g_pl.grap) { g_pl.grap = 0; }                  /* detach */
+        else {
+            int fdx = (mote_pressed(in, MOTE_BTN_RIGHT) ? 1 : 0) - (mote_pressed(in, MOTE_BTN_LEFT) ? 1 : 0);
+            int fdy = (mote_pressed(in, MOTE_BTN_DOWN) ? 1 : 0) - (mote_pressed(in, MOTE_BTN_UP) ? 1 : 0);
+            if (!fdx && !fdy) fdx = g_pl.facing;
+            float l = sqrtf((float)(fdx * fdx + fdy * fdy));
+            g_pl.grap = 1;
+            g_pl.grap_x = g_pl.x + fdx * 4.0f;
+            g_pl.grap_y = g_pl.y - 8.0f + fdy * 4.0f;
+            g_pl.grap_vx = fdx / l * GRAP_SPEED;
+            g_pl.grap_vy = fdy / l * GRAP_SPEED;
+            if (fdx) g_pl.facing = (int8_t)fdx;
+            audio_sfx(SFX_SHOOT, 0.55f);
+        }
+    }
+
+    if (g_pl.grap == 1) {                                  /* hook in flight */
+        float step = fmaxf(fabsf(g_pl.grap_vx), fabsf(g_pl.grap_vy)) * dt;
+        int n = (int)step + 1; if (n > 12) n = 12;
+        float sx = g_pl.grap_vx * dt / n, sy = g_pl.grap_vy * dt / n;
+        for (int i = 0; i < n; i++) {
+            g_pl.grap_x += sx; g_pl.grap_y += sy;
+            if (world_solid_px((int)g_pl.grap_x, (int)g_pl.grap_y)) {
+                float dx = g_pl.x - g_pl.grap_x, dy = (g_pl.y - 8.0f) - g_pl.grap_y;
+                g_pl.grap = 2;
+                g_pl.grap_len = sqrtf(dx * dx + dy * dy);
+                if (g_pl.grap_len < GRAP_MINLEN) g_pl.grap_len = GRAP_MINLEN;
+                audio_sfx(SFX_TICK, 0.5f);
+                mote->rumble(0.25f, 60);
+                break;
+            }
+        }
+        float dx = g_pl.grap_x - g_pl.x, dy = g_pl.grap_y - (g_pl.y - 8.0f);
+        if (dx * dx + dy * dy > GRAP_RANGE * GRAP_RANGE) g_pl.grap = 0;   /* missed */
+    }
+}
+
+/* Swing/reel movement while hooked. Returns 1 if it owned the frame's motion. */
+static int grapple_move(float dt) {
+    if (g_pl.grap != 2) return 0;
+    const MoteInput *in = mote->input();
+
+    /* detach with a jump hop */
+    if (mote_just_pressed(in, MOTE_BTN_A)) { g_pl.grap = 0; g_pl.vy -= 120.0f; return 1; }
+
+    /* reel: auto pull-in, faster with UP, pay out with DOWN */
+    float reel = GRAP_REEL;
+    if (mote_pressed(in, MOTE_BTN_UP))   reel = GRAP_REEL_UP;
+    if (mote_pressed(in, MOTE_BTN_DOWN)) reel = -GRAP_REEL_UP;
+    g_pl.grap_len -= reel * dt;
+    g_pl.grap_len = mote_clampf(g_pl.grap_len, GRAP_MINLEN, GRAP_RANGE);
+
+    /* swing input + softened gravity */
+    if (mote_pressed(in, MOTE_BTN_LEFT))  { g_pl.vx -= GRAP_SWING * dt; g_pl.facing = -1; }
+    if (mote_pressed(in, MOTE_BTN_RIGHT)) { g_pl.vx += GRAP_SWING * dt; g_pl.facing = 1; }
+    g_pl.vy += GRAP_GRAV * dt;
+
+    /* rope constraint: cancel outward velocity, spring the excess length in */
+    float dx = g_pl.x - g_pl.grap_x, dy = (g_pl.y - 8.0f) - g_pl.grap_y;
+    float d = sqrtf(dx * dx + dy * dy);
+    if (d > g_pl.grap_len && d > 0.01f) {
+        float nx = dx / d, ny = dy / d;
+        float vr = g_pl.vx * nx + g_pl.vy * ny;
+        if (vr > 0) { g_pl.vx -= nx * vr; g_pl.vy -= ny * vr; }
+        float pull = (d - g_pl.grap_len) * 12.0f;
+        if (pull > 130.0f) pull = 130.0f;
+        g_pl.vx -= nx * pull; g_pl.vy -= ny * pull;
+    }
+    g_pl.vx *= 1.0f - mote_clampf(dt * 1.6f, 0, 1);        /* mild drag */
+
+    /* integrate against solids (sub-stepped so we never tunnel) */
+    int n = (int)(fmaxf(fabsf(g_pl.vx), fabsf(g_pl.vy)) * dt) + 1; if (n > 8) n = 8;
+    for (int i = 0; i < n; i++) {
+        float nx = g_pl.x + g_pl.vx * dt / n;
+        float ex = nx + (g_pl.vx > 0 ? P_HW : -P_HW);
+        if (!solid_at(ex, g_pl.y - 2) && !solid_at(ex, g_pl.y - 10)) g_pl.x = nx;
+        else g_pl.vx = 0;
+        float ny = g_pl.y + g_pl.vy * dt / n;
+        if (g_pl.vy > 0) {   /* down: land on solids */
+            if (!world_solid_px((int)(g_pl.x - P_HW + 1), (int)ny) &&
+                !world_solid_px((int)(g_pl.x + P_HW - 1), (int)ny)) g_pl.y = ny;
+            else { g_pl.vy = 0; g_pl.on_ground = 1; }
+        } else {             /* up: bonk head */
+            int top = (int)ny - P_BH;
+            if (!solid_at(g_pl.x - P_HW + 1, top) && !solid_at(g_pl.x + P_HW - 1, top)) g_pl.y = ny;
+            else g_pl.vy = 0;
+        }
+    }
+    if (g_pl.x < P_HW) g_pl.x = P_HW;
+    if (g_pl.x > WORLD_W - P_HW) g_pl.x = WORLD_W - P_HW;
+    return 1;
+}
+
 /* ------------------------------------------------------------------ tick ---- */
 void player_tick(float dt) {
     const MoteInput *in = mote->input();
@@ -451,6 +567,9 @@ void player_tick(float dt) {
         if (g_pl.breath <= 0) { g_pl.breath = 0.6f; player_damage(8, 0); }
     } else g_pl.breath = 8.0f;
 
+    /* grappling hook: fire/detach + advance the hook in flight (owns B) */
+    grapple_fire_fly(dt);
+
     /* aim steering: holding B with an aimable item locks you in place and the
      * d-pad points the reticle (all 8 ways + straight up/down). The direction
      * PERSISTS after release. Without B, UP/DOWN taps step the aim elevation
@@ -474,6 +593,9 @@ void player_tick(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && g_pl.aim_dy < 1) g_pl.aim_dy++;
     }
 
+  /* while hooked, the rope owns all motion (swing + reel + collide) */
+  int hooked = grapple_move(dt);
+  if (!hooked) {
     /* horizontal move. Steering with a horizontal component still walks — you
      * push into the face you're digging and advance as it clears (tunneling);
      * only pure up/down aiming parks you. */
@@ -553,6 +675,7 @@ void player_tick(float dt) {
         }
     }
     g_pl.y = ny;
+  } /* end !hooked */
 
     pick_target();
     use_item(dt);
@@ -656,4 +779,19 @@ void player_draw_swing(uint16_t *fb) {
         mote->blit_ex(fb, img, hxf + g_pl.facing * 4.0f, hyf - 1.0f, fx, fy, cs, cs,
                       ang, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
     }
+}
+
+/* the rope + claw, screen space (overlay, before darkness) */
+void player_draw_rope(uint16_t *fb);
+void player_draw_rope(uint16_t *fb) {
+    if (!g_pl.grap) return;
+    int hx = (int)g_pl.x - g_cam_x, hy = (int)g_pl.y - 9 - g_cam_y;
+    int gx = (int)g_pl.grap_x - g_cam_x, gy = (int)g_pl.grap_y - g_cam_y;
+    mote->draw_line(fb, hx, hy, gx, gy, rgb(120, 92, 54), 0, MOTE_FB_H);
+    mote->draw_line(fb, hx, hy - 1, gx, gy - 1, rgb(90, 66, 38), 0, MOTE_FB_H);
+    /* claw */
+    uint16_t iron = g_pl.grap == 2 ? rgb(210, 212, 220) : rgb(180, 182, 190);
+    mote->draw_rect(fb, gx - 1, gy - 1, 3, 3, iron, 1, 0, MOTE_FB_H);
+    mote->draw_pixel(fb, gx - 2, gy - 2, iron);
+    mote->draw_pixel(fb, gx + 2, gy - 2, iron);
 }

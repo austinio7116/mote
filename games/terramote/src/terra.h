@@ -71,12 +71,13 @@ enum {
     I_HELM_MOLTEN, I_MAIL_MOLTEN, I_LEGS_MOLTEN,
     /* consumables / specials */
     I_POTION_HEAL, I_SUSPICIOUS_EYE, I_LIFE_CRYSTAL,
+    I_GRAPPLE,                   /* append only — id maps 1:1 to its icon cell */
     I_COUNT
 };
 
 /* item kinds */
 enum { IK_NONE = 0, IK_BLOCK, IK_MATERIAL, IK_PICK, IK_AXE, IK_SWORD, IK_BOW,
-       IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME };
+       IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME, IK_GRAPPLE };
 
 typedef struct {
     const char *name;
@@ -135,6 +136,11 @@ typedef struct {
     /* appearance (character builder) */
     uint8_t hair_style, hair_col, skin_col, shirt_col, pants_col;
     float  breath;               /* drowning */
+    /* grappling hook (Wormote-style ninja rope) */
+    uint8_t grap;                /* 0 none · 1 flying · 2 hooked */
+    float  grap_x, grap_y;       /* hook tip, world px */
+    float  grap_vx, grap_vy;     /* hook velocity while flying */
+    float  grap_len;             /* rope length when hooked */
 } Player;
 extern Player g_pl;
 

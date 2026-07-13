@@ -78,6 +78,7 @@ const ItemDef g_items[I_COUNT] = {
     [I_POTION_HEAL]    = { "HEAL POTION",   IK_CONSUME, IC(I_POTION_HEAL),    0, 50, 0, 30, 20 },
     [I_SUSPICIOUS_EYE] = { "SUSPICIOUS EYE",IK_CONSUME, IC(I_SUSPICIOUS_EYE), 0,  0, 0,  3, 20 },
     [I_LIFE_CRYSTAL]   = { "LIFE CRYSTAL",  IK_CONSUME, IC(I_LIFE_CRYSTAL),   0, 20, 0,  9, 20 },
+    [I_GRAPPLE]        = { "GRAPPLING HOOK",IK_GRAPPLE, IC(I_GRAPPLE),        0,  0, 0,  1, 0 },
 };
 
 /* ---------------------------------------------------------------- tiles ----
@@ -143,6 +144,7 @@ const Recipe g_recipes[] = {
     { ST_FURNACE,   I_HELL_BAR, 1,   { { I_HELLSTONE, 3 }, { I_OBSIDIAN, 1 } } },
     { ST_FURNACE,   I_ANVIL, 1,      { { I_IRON_BAR, 5 } } },
     /* anvil: the metal ages */
+    { ST_ANVIL, I_GRAPPLE, 1,      { { I_IRON_BAR, 3 },    { I_GEL, 3 } } },   /* replace a lost hook */
     { ST_ANVIL, I_PICK_COPPER, 1,  { { I_COPPER_BAR, 8 },  { I_WOOD, 3 } } },
     { ST_ANVIL, I_SWORD_COPPER, 1, { { I_COPPER_BAR, 6 } } },
     { ST_ANVIL, I_HELM_COPPER, 1,  { { I_COPPER_BAR, 8 } } },

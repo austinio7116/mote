@@ -38,6 +38,11 @@ Side-view sandbox: dig, build, craft, fight. One seeded persistent world per sav
   the aim elevation and walking keeps the reticle in front of you.
 - LB cycle hotbar; RB inventory/crafting (station recipes appear when one is
   in range); MENU pause (save & exit). No music by design — SFX only.
+- Grappling hook (default item, Wormote-style ninja rope): select it, press B to
+  fire the hook along the held d-pad direction (or your facing). Once it bites a
+  block it auto-reels you toward the anchor (UP climbs faster, DOWN pays out
+  line, LEFT/RIGHT swing). B again or A detaches (A with a hop). Craftable at an
+  anvil (3 iron bars + 3 gel) if lost.
 
 ## Tech tree
 

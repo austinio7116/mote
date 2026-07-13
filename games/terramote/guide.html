@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TerraMote — Field Manual</title>
+<style>
+  :root{
+    --bg:#15110d; --bg-raise:#1e1812; --bg-sink:#100c09; --panel:#241d15;
+    --ink:#ece4d6; --ink-soft:#b6a992; --ink-faint:#7d7161; --line:#382d22;
+    --gold:#ffc23a; --gold-deep:#e2860f; --accent-ink:#ffce5c;
+    --forest:#66c455; --cavern:#84add0; --corrupt:#b979ea; --hell:#ff6f34;
+    --ice:#a6d8ec; --sand:#e2c47e; --danger:#ef5638; --good:#66c455;
+    --sky1:#4e9cf0; --sky2:#2f6fbf;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -12px rgba(0,0,0,.7);
+    --mono:ui-monospace,"Cascadia Code","SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#e9e1cf; --bg-raise:#f2ecdd; --bg-sink:#ded4bd; --panel:#f4eee1;
+      --ink:#2a2015; --ink-soft:#5f5340; --ink-faint:#8a7c64; --line:#d3c6ab;
+      --gold:#c9820a; --gold-deep:#a86a05; --accent-ink:#a86a05;
+      --forest:#2f8f34; --cavern:#3f6f96; --corrupt:#8a44c0; --hell:#d24d18;
+      --ice:#3f8fb0; --sand:#a8842f; --danger:#c23a1c; --good:#2f8f34;
+      --shadow:0 1px 0 rgba(255,255,255,.5), 0 12px 28px -16px rgba(80,60,20,.45);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15110d; --bg-raise:#1e1812; --bg-sink:#100c09; --panel:#241d15;
+    --ink:#ece4d6; --ink-soft:#b6a992; --ink-faint:#7d7161; --line:#382d22;
+    --gold:#ffc23a; --gold-deep:#e2860f; --accent-ink:#ffce5c;
+    --forest:#66c455; --cavern:#84add0; --corrupt:#b979ea; --hell:#ff6f34;
+    --ice:#a6d8ec; --sand:#e2c47e; --danger:#ef5638; --good:#66c455;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -12px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"]{
+    --bg:#e9e1cf; --bg-raise:#f2ecdd; --bg-sink:#ded4bd; --panel:#f4eee1;
+    --ink:#2a2015; --ink-soft:#5f5340; --ink-faint:#8a7c64; --line:#d3c6ab;
+    --gold:#c9820a; --gold-deep:#a86a05; --accent-ink:#a86a05;
+    --forest:#2f8f34; --cavern:#3f6f96; --corrupt:#8a44c0; --hell:#d24d18;
+    --ice:#3f8fb0; --sand:#a8842f; --danger:#c23a1c; --good:#2f8f34;
+    --shadow:0 1px 0 rgba(255,255,255,.5), 0 12px 28px -16px rgba(80,60,20,.45);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;-webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(120% 60% at 50% -8%, color-mix(in srgb,var(--gold) 9%, transparent), transparent 60%);
+    background-attachment:fixed;}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  section{padding:52px 0;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:none}
+
+  .mono{font-family:var(--mono)}
+  h1,h2,h3{font-family:var(--mono);text-wrap:balance;line-height:1.12;margin:0}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--gold);font-weight:700;margin:0 0 14px}
+  h2{font-size:clamp(1.5rem,3.4vw,2.15rem);letter-spacing:.02em;text-transform:uppercase}
+  h3{font-size:1.02rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+  p{margin:0 0 14px;max-width:64ch}
+  a{color:var(--accent-ink)}
+  .lede{font-size:1.12rem;color:var(--ink-soft);max-width:60ch}
+  strong{color:var(--ink);font-weight:650}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* ---- header / theme toggle ---- */
+  .topbar{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 86%,transparent);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  .topbar .wrap{display:flex;align-items:center;gap:14px;height:52px}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:.14em;font-size:.82rem;text-transform:uppercase}
+  .brand b{color:var(--gold)}
+  .toc{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap}
+  .toc a{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-faint);text-decoration:none;padding:6px 9px;border-radius:6px}
+  .toc a:hover{color:var(--ink);background:var(--bg-raise)}
+  #themeBtn{font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
+    cursor:pointer;background:var(--bg-raise);color:var(--ink-soft);border:1px solid var(--line);
+    border-radius:6px;padding:6px 10px}
+  #themeBtn:hover{color:var(--ink);border-color:var(--gold)}
+  @media (max-width:720px){.toc{display:none}}
+
+  /* ---- hero ---- */
+  .hero{padding:64px 0 40px;position:relative;overflow:hidden}
+  .hero .strata{position:absolute;inset:0;z-index:0;opacity:.5}
+  .hero .strata i{position:absolute;left:0;right:0;display:block}
+  .hero .inner{position:relative;z-index:1}
+  .hero h1{font-size:clamp(2.6rem,8vw,5rem);letter-spacing:.04em;text-transform:uppercase;font-weight:700}
+  .hero h1 span{color:var(--gold)}
+  .hero .sub{font-size:1.15rem;color:var(--ink-soft);margin:14px 0 22px;max-width:56ch}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;
+    border:1px solid var(--line);background:var(--bg-raise);color:var(--ink-soft);
+    padding:5px 10px;border-radius:999px}
+  .chip b{color:var(--gold)}
+
+  /* ---- generic cards / grid ---- */
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media (max-width:760px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:520px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--bg-raise);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;box-shadow:var(--shadow)}
+  .card h3{margin-bottom:8px}
+  .card p{font-size:.94rem;color:var(--ink-soft);margin:0}
+
+  /* ---- controls ---- */
+  .ctrls{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  @media (max-width:640px){.ctrls{grid-template-columns:1fr}}
+  .key{display:flex;gap:14px;align-items:flex-start;background:var(--bg-raise);
+    border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .btn{flex:0 0 auto;min-width:42px;height:32px;display:grid;place-items:center;padding:0 10px;
+    font-family:var(--mono);font-weight:700;font-size:.82rem;border-radius:8px;
+    background:var(--panel);border:1px solid var(--line);color:var(--gold);letter-spacing:.04em}
+  .key div b{display:block;font-family:var(--mono);font-size:.82rem;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--ink)}
+  .key div span{font-size:.9rem;color:var(--ink-soft)}
+
+  /* ---- world cross-section ---- */
+  .column{display:grid;grid-template-columns:120px 1fr;gap:0;border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+  .strat{display:contents}
+  .depth{padding:16px 14px;font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink);border-top:1px solid rgba(0,0,0,.25);
+    display:flex;flex-direction:column;justify-content:center}
+  .depth small{color:rgba(255,255,255,.6);font-size:.62rem;letter-spacing:.1em;margin-top:3px}
+  .zone{padding:16px 18px;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .zone b{font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;font-size:.82rem;color:var(--ink)}
+  .zone p{font-size:.9rem;color:var(--ink-soft);margin:4px 0 0;max-width:60ch}
+  .column .strat:first-child .depth,.column .strat:first-child .zone{border-top:none}
+
+  /* ---- tech tree ---- */
+  .tech{display:flex;flex-direction:column;gap:0}
+  .stage{display:grid;grid-template-columns:56px 1fr;gap:16px;padding:16px 0;
+    border-top:1px dashed var(--line);align-items:start}
+  .stage:first-child{border-top:none}
+  .stage .no{font-family:var(--mono);font-size:1.4rem;font-weight:700;color:var(--gold);
+    line-height:1;padding-top:2px}
+  .stage .no small{display:block;font-size:.58rem;letter-spacing:.12em;color:var(--ink-faint);margin-top:6px}
+  .stage h3{margin-bottom:6px}
+  .stage p{font-size:.94rem;color:var(--ink-soft);margin:0 0 8px}
+  .gate{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.72rem;
+    letter-spacing:.04em;color:var(--ink-soft);background:var(--bg-raise);border:1px solid var(--line);
+    border-radius:999px;padding:4px 11px}
+  .gate::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--st,var(--gold))}
+
+  /* ---- tables ---- */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:.92rem}
+  caption{text-align:left;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;
+    font-size:.74rem;color:var(--gold);padding:12px 14px 0}
+  th,td{text-align:left;padding:9px 14px;border-top:1px solid var(--line)}
+  thead th{font-family:var(--mono);font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--ink-faint);border-top:none;background:var(--bg-sink)}
+  tbody tr:hover{background:var(--bg-raise)}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+  .want{font-family:var(--mono);font-size:.86rem;color:var(--ink-soft)}
+  .item{font-weight:600;color:var(--ink)}
+
+  /* ---- bestiary ---- */
+  .beast{background:var(--bg-raise);border:1px solid var(--line);border-radius:12px;
+    padding:0;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
+  .beast .bar{height:5px;background:var(--th,var(--ink-faint))}
+  .beast .body{padding:14px 16px}
+  .beast h3{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .beast .where{font-family:var(--mono);font-size:.66rem;letter-spacing:.06em;color:var(--ink-faint);
+    text-transform:uppercase;font-weight:600}
+  .stats{display:flex;gap:16px;margin:10px 0 8px;font-family:var(--mono)}
+  .stats div{font-size:.72rem;letter-spacing:.05em;color:var(--ink-faint);text-transform:uppercase}
+  .stats div b{display:block;font-size:1.1rem;color:var(--ink);letter-spacing:0}
+  .stats div b.hp{color:var(--good)} .stats div b.dm{color:var(--danger)}
+  .beast .drop{font-size:.86rem;color:var(--ink-soft)}
+  .beast .drop b{color:var(--ink);font-weight:600}
+
+  /* ---- boss callout ---- */
+  .boss{border:1px solid var(--corrupt);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);
+    background:
+      radial-gradient(90% 120% at 90% 10%, color-mix(in srgb,var(--corrupt) 22%, transparent), transparent 55%),
+      var(--bg-raise)}
+  .boss .body{padding:22px 24px}
+  .boss .eyebrow{color:var(--corrupt)}
+  .boss h2{color:var(--ink)}
+  .phase{display:flex;gap:12px;align-items:flex-start;margin-top:12px}
+  .phase .p{font-family:var(--mono);font-weight:700;color:var(--corrupt);font-size:.8rem;
+    border:1px solid var(--corrupt);border-radius:6px;padding:3px 8px;flex:0 0 auto}
+
+  /* ---- callout / tips ---- */
+  .tips{display:grid;gap:10px}
+  .tip{display:grid;grid-template-columns:26px 1fr;gap:12px;background:var(--bg-raise);
+    border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;padding:12px 14px}
+  .tip .n{font-family:var(--mono);color:var(--gold);font-weight:700}
+  .tip p{margin:0;font-size:.94rem;color:var(--ink-soft)}
+  .tip b{color:var(--ink)}
+
+  ul.clean{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+  ul.clean li{display:grid;grid-template-columns:18px 1fr;gap:10px;font-size:.95rem;color:var(--ink-soft)}
+  ul.clean li::before{content:"▸";color:var(--gold);font-family:var(--mono)}
+  ul.clean li b{color:var(--ink)}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--ink-faint);font-size:.85rem}
+  footer .mono{color:var(--ink-soft)}
+
+  a.jump{color:inherit;text-decoration:none}
+  :focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:4px}
+  @media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brand"><b>▚</b> TerraMote</div>
+    <nav class="toc">
+      <a href="#start">Start</a>
+      <a href="#controls">Controls</a>
+      <a href="#world">World</a>
+      <a href="#biomes">Biomes</a>
+      <a href="#tools">Tools</a>
+      <a href="#tech">Tech Tree</a>
+      <a href="#craft">Crafting</a>
+      <a href="#foes">Bestiary</a>
+      <a href="#boss">The Eye</a>
+      <a href="#survive">Survival</a>
+    </nav>
+    <button id="themeBtn" type="button" aria-label="Toggle theme">◐ Theme</button>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap inner">
+    <p class="eyebrow">Field Manual · Thumby Color</p>
+    <h1>Terra<span>Mote</span></h1>
+    <p class="sub">Dig, build, craft and fight your way from a sunlit forest down through
+      stone caverns to the burning underworld — and slay the Eye of Cthulhu. A pocket
+      Terraria for a 128×128 handheld.</p>
+    <div class="chips">
+      <span class="chip"><b>448×248</b> tile world</span>
+      <span class="chip">4 biomes · 4 layers</span>
+      <span class="chip"><b>66</b> items · 45 recipes</span>
+      <span class="chip">8 foes + 1 boss</span>
+      <span class="chip">One save, persistent</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ============ START ============ -->
+<section id="start">
+  <p class="eyebrow">01 — First Hour</p>
+  <h2>Getting Started</h2>
+  <p class="lede">You wake on the surface with a wooden pick, axe, sword, a grappling
+    hook and five torches. Night is coming. Here's the plan.</p>
+  <div class="grid g2" style="margin-top:22px">
+    <div class="card"><h3>① Chop &amp; gather</h3><p>Swing your <strong>axe</strong> at tree
+      trunks for wood, and mine <strong>dirt &amp; stone</strong> with the pick. You want
+      ~30 wood and ~25 stone to start.</p></div>
+    <div class="card"><h3>② Build a workbench</h3><p>Open the inventory (RB), switch to the
+      <strong>Craft</strong> tab, and make a <strong>Workbench</strong> (10 wood). Place it,
+      stand near it, and it unlocks wood tools, torches, a furnace and more.</p></div>
+    <div class="card"><h3>③ Make a shelter</h3><p>Wall off a small room with a
+      <strong>door</strong> and place <strong>torches</strong> before dark. Zombies and
+      flying Demon Eyes roam at night — walls and light keep them out.</p></div>
+    <div class="card"><h3>④ Head down</h3><p>Mine a stairway with diagonal aim, light as you
+      go, and grab <strong>copper &amp; iron ore</strong>. Smelt bars at a
+      <strong>furnace</strong>, build an <strong>anvil</strong>, and the tech tree opens up.</p></div>
+  </div>
+  <div class="tips" style="margin-top:16px">
+    <div class="tip"><span class="n">!</span><p><b>Torches are survival, not decoration.</b>
+      Caves are pitch black. Unlit, you can't see enemies, ledges or ore. Craft torches from
+      1 wood + 1 gel (gel drops from slimes) and place them liberally.</p></div>
+  </div>
+</section>
+
+<!-- ============ CONTROLS ============ -->
+<section id="controls">
+  <p class="eyebrow">02 — Controls</p>
+  <h2>How To Play</h2>
+  <p class="lede">Eight buttons do everything. The key idea: <strong>hold B to aim</strong>,
+    and the D-pad points a reticle instead of walking.</p>
+  <div class="ctrls" style="margin-top:22px">
+    <div class="key"><span class="btn">D-PAD</span><div><b>Move &amp; aim</b><span>Walk left/right, climb, and steer the targeting reticle.</span></div></div>
+    <div class="key"><span class="btn">A</span><div><b>Jump</b><span>Hold nothing special — press to hop. Down + A drops through platforms.</span></div></div>
+    <div class="key"><span class="btn">B</span><div><b>Use item</b><span>Mine, chop, place a block, swing, fire, eat, or fire the grapple.</span></div></div>
+    <div class="key"><span class="btn">LB</span><div><b>Cycle hotbar</b><span>Step through your 8 quick-slots.</span></div></div>
+    <div class="key"><span class="btn">RB</span><div><b>Inventory / Craft</b><span>Opens bag + crafting. Recipes appear when you stand near their station.</span></div></div>
+    <div class="key"><span class="btn">MENU</span><div><b>Pause</b><span>Resume, Save, or Save &amp; Quit. The world autosaves too.</span></div></div>
+  </div>
+
+  <div class="grid g3" style="margin-top:16px">
+    <div class="card"><h3>Aiming a tool</h3><p><strong>Hold B</strong> with a pick, axe, block
+      or bow and the D-pad aims the reticle in all 8 directions (and straight up/down). The
+      aim <em>stays</em> when you release. Without B, tap UP/DOWN to tilt your aim.</p></div>
+    <div class="card"><h3>Auto-mining</h3><p>Hold B toward a wall to carve a full-height
+      tunnel; aim diagonally to dig neat stairs. You keep walking as blocks clear, so tunnelling
+      is one smooth motion.</p></div>
+    <div class="card"><h3>The grappling hook</h3><p>Select it, press <strong>B</strong> to fire
+      along your aim. Once it bites rock it reels you in — <strong>UP</strong> climbs,
+      <strong>DOWN</strong> pays out line, <strong>LEFT/RIGHT</strong> swing.
+      <strong>A</strong> or B again lets go (A with a hop).</p></div>
+  </div>
+</section>
+
+<!-- ============ WORLD ============ -->
+<section id="world">
+  <p class="eyebrow">03 — The World</p>
+  <h2>A World To Dig Through</h2>
+  <p class="lede">TerraMote is a single tall, wide world you descend. Each layer is darker,
+    richer and more dangerous than the last.</p>
+  <div class="column" style="margin-top:22px">
+    <div class="strat">
+      <div class="depth" style="background:linear-gradient(180deg,#4e9cf0,#2f6fbf);color:#fff">Sky<small>daylight</small></div>
+      <div class="zone"><b>The Surface</b><p>Open sky, parallax hills, trees and grass. Four
+        biomes stretch across it. Safe by day; zombies and Demon Eyes come at night.</p></div>
+    </div>
+    <div class="strat">
+      <div class="depth" style="background:linear-gradient(180deg,#7a5230,#5f3f26);color:#fff">Dirt<small>shallow</small></div>
+      <div class="zone"><b>Underground (Dirt)</b><p>Just below the grass: soft dirt and clay,
+        the first <strong>copper</strong> and <strong>iron</strong> veins, and pockets of cave.</p></div>
+    </div>
+    <div class="strat">
+      <div class="depth" style="background:linear-gradient(180deg,#5a5a63,#3f3f47);color:#fff">Stone<small>caverns</small></div>
+      <div class="zone"><b>The Caverns</b><p>Deep stone riddled with tunnels and underground
+        pools. Home to <strong>gold</strong>, glowing mushrooms, treasure chests, bats and
+        skeletons. Water appears; so does the first lava.</p></div>
+    </div>
+    <div class="strat">
+      <div class="depth" style="background:linear-gradient(180deg,#8a2f1e,#4a1410);color:#fff">Hell<small>the bottom</small></div>
+      <div class="zone"><b>The Underworld</b><p>Ash, lava lakes and <strong>hellstone</strong>.
+        Everything glows, everything burns. Lava Slimes prowl. You need a Nightmare Pickaxe and
+        care to mine here.</p></div>
+    </div>
+  </div>
+  <div class="tips" style="margin-top:16px">
+    <div class="tip"><span class="n">◷</span><p><b>Day &amp; night cycle.</b> A full day runs
+      about 7 minutes (roughly 4½ min day, 2½ min night). Light dims at dusk, the sun and moon
+      arc overhead, and night is when the surface turns hostile — and when you can summon the boss.</p></div>
+  </div>
+</section>
+
+<!-- ============ BIOMES ============ -->
+<section id="biomes">
+  <p class="eyebrow">04 — Biomes</p>
+  <h2>Surface Biomes</h2>
+  <p class="lede">The surface is divided left-to-right into four regions. Spawn sits in the
+    forest; explore outward to find the others.</p>
+  <div class="grid g4" style="margin-top:22px">
+    <div class="card" style="border-top:3px solid var(--forest)">
+      <h3 style="color:var(--forest)">Forest</h3>
+      <p>The green heartland where you start. Trees, grass, flowers and gentle hills. Green and
+        blue slimes by day. Your home base.</p></div>
+    <div class="card" style="border-top:3px solid var(--ice)">
+      <h3 style="color:var(--ice)">Snow</h3>
+      <p>Far to the west. Snow-capped ground and frosted trees. Cosmetically icy — the same
+        digging and enemies, dressed for winter.</p></div>
+    <div class="card" style="border-top:3px solid var(--sand)">
+      <h3 style="color:var(--sand)">Desert</h3>
+      <p>A flat expanse of <strong>sand</strong>, east of the forest. Sparse and treeless — a
+        fast highway across the map and a source of sand.</p></div>
+    <div class="card" style="border-top:3px solid var(--corrupt)">
+      <h3 style="color:var(--corrupt)">Corruption</h3>
+      <p>The far east: bare dirt, purple grass, <strong>ebonstone</strong> and deep chasms.
+        Down its shafts sit <strong>Demon Altars</strong> and veins of <strong>demonite</strong>
+        — everything you need to challenge the boss.</p></div>
+  </div>
+</section>
+
+<!-- ============ TOOLS / MINING ============ -->
+<section id="tools">
+  <p class="eyebrow">05 — Tools &amp; Mining</p>
+  <h2>The Right Pick For The Rock</h2>
+  <p class="lede">Every block has a <strong>hardness</strong> (how long it takes) and some need
+    a minimum <strong>pick power</strong> to break at all. Harder ores gate deeper progress —
+    upgrade your pick to reach them.</p>
+
+  <div class="grid g2" style="margin-top:22px;align-items:start">
+    <div class="tablewrap">
+      <table>
+        <caption>Pickaxes — power unlocks blocks</caption>
+        <thead><tr><th>Pickaxe</th><th class="r">Power</th><th>Unlocks up to</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Wood</td><td class="r">35</td><td>dirt, stone, wood, sand, snow, clay, copper, iron</td></tr>
+          <tr><td class="item">Copper</td><td class="r">50</td><td>+ gold ore</td></tr>
+          <tr><td class="item">Iron</td><td class="r">65</td><td>+ ebonstone, demonite</td></tr>
+          <tr><td class="item">Gold</td><td class="r">80</td><td>+ obsidian</td></tr>
+          <tr><td class="item">Nightmare</td><td class="r">110</td><td>+ hellstone (the underworld)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Block gates — what you need to mine it</caption>
+        <thead><tr><th>Block</th><th class="r">Needs power</th><th>Found</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Copper / Iron</td><td class="r">any</td><td>dirt &amp; upper stone</td></tr>
+          <tr><td class="item">Gold ore</td><td class="r">50</td><td>deep stone</td></tr>
+          <tr><td class="item">Ebonstone</td><td class="r">65</td><td>corruption</td></tr>
+          <tr><td class="item">Demonite ore</td><td class="r">65</td><td>corruption chasms</td></tr>
+          <tr><td class="item">Obsidian</td><td class="r">80</td><td>where water meets lava</td></tr>
+          <tr><td class="item">Hellstone</td><td class="r">100</td><td>the underworld</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tips" style="margin-top:16px">
+    <div class="tip"><span class="n">⛏</span><p><b>Axes chop, picks mine.</b> Trees, and wooden
+      furniture, need an <strong>axe</strong>; stone and ore need a <strong>pick</strong>. Point
+      at the wrong material with the wrong tool and nothing happens.</p></div>
+    <div class="tip"><span class="n">◆</span><p><b>Obsidian is made, not found.</b> Guide
+      <strong>water onto lava</strong> (or dig so they meet) and the collision turns into
+      obsidian — a key ingredient for hellstone bars.</p></div>
+  </div>
+</section>
+
+<!-- ============ TECH TREE ============ -->
+<section id="tech">
+  <p class="eyebrow">06 — Progression</p>
+  <h2>The Tech Tree</h2>
+  <p class="lede">Each tier unlocks the next station and the next metal. This is the spine of
+    the whole game — follow it from wood to molten.</p>
+  <div class="tech" style="margin-top:20px">
+    <div class="stage"><div class="no">1<small>WOOD</small></div><div>
+      <h3>Wood Age</h3>
+      <p>Chop trees, craft a <strong>Workbench</strong> (10 wood). From it: wood pick, axe,
+        sword and bow, plus torches, platforms, doors and chests.</p>
+      <span class="gate" style="--st:var(--forest)">Station: Workbench (10 wood)</span></div></div>
+    <div class="stage"><div class="no">2<small>STONE</small></div><div>
+      <h3>Fire &amp; Metal</h3>
+      <p>Mine 20 stone and build a <strong>Furnace</strong> (20 stone + 4 wood + 3 torches).
+        Smelt copper &amp; iron ore into bars, then forge an <strong>Anvil</strong> (5 iron bars).</p>
+      <span class="gate" style="--st:var(--cavern)">Station: Furnace → Anvil</span></div></div>
+    <div class="stage"><div class="no">3<small>METAL</small></div><div>
+      <h3>Copper → Iron → Gold</h3>
+      <p>At the anvil, work each metal into a matching <strong>pickaxe, sword and full armor
+        set</strong>. Better picks reach deeper ore; armor adds defense. Gold also makes a bow.</p>
+      <span class="gate" style="--st:var(--sand)">Station: Anvil</span></div></div>
+    <div class="stage"><div class="no">4<small>DEMON</small></div><div>
+      <h3>Corruption &amp; the Altar</h3>
+      <p>Take an iron pick into the corruption, mine <strong>demonite ore</strong>, and gather
+        <strong>6 lenses</strong> (from Demon Eyes &amp; zombies). At a <strong>Demon Altar</strong>
+        craft a <strong>Suspicious Eye</strong> — the boss summon.</p>
+      <span class="gate" style="--st:var(--corrupt)">Station: Demon Altar</span></div></div>
+    <div class="stage"><div class="no">5<small>BOSS</small></div><div>
+      <h3>Slay the Eye</h3>
+      <p>Beat the <strong>Eye of Cthulhu</strong> for a pile of demonite. Smelt demonite bars and
+        forge <strong>Light's Bane</strong> (sword) and the <strong>Nightmare Pickaxe</strong> —
+        the only pick that breaks hellstone.</p>
+      <span class="gate" style="--st:var(--corrupt)">Reward: demonite bars</span></div></div>
+    <div class="stage"><div class="no">6<small>MOLTEN</small></div><div>
+      <h3>The Underworld</h3>
+      <p>With the Nightmare pick, mine <strong>hellstone</strong>, smelt it with obsidian into
+        hellstone bars, and forge the endgame: <strong>Molten armor</strong>, the
+        <strong>Volcano</strong> sword, the <strong>Molten Fury</strong> bow and flame arrows.</p>
+      <span class="gate" style="--st:var(--hell)">Endgame gear</span></div></div>
+  </div>
+</section>
+
+<!-- ============ CRAFTING ============ -->
+<section id="craft">
+  <p class="eyebrow">07 — Crafting Reference</p>
+  <h2>Recipes By Station</h2>
+  <p class="lede">Stand near a station and its recipes appear in the Craft tab. Everything you
+    can build, in order of the stations that unlock it.</p>
+
+  <div class="grid g2" style="margin-top:22px;align-items:start">
+    <div class="tablewrap">
+      <table>
+        <caption>By hand · anywhere</caption>
+        <thead><tr><th>Make</th><th>From</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Workbench</td><td class="want">10 wood</td></tr>
+          <tr><td class="item">Torch ×3</td><td class="want">1 wood · 1 gel</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Workbench</caption>
+        <thead><tr><th>Make</th><th>From</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Wood Pick / Axe / Sword</td><td class="want">7–9 wood</td></tr>
+          <tr><td class="item">Wood Bow</td><td class="want">10 wood</td></tr>
+          <tr><td class="item">Arrow ×5</td><td class="want">1 wood · 1 stone</td></tr>
+          <tr><td class="item">Platform ×2</td><td class="want">1 wood</td></tr>
+          <tr><td class="item">Door</td><td class="want">6 wood</td></tr>
+          <tr><td class="item">Chest</td><td class="want">8 wood</td></tr>
+          <tr><td class="item">Healing Potion</td><td class="want">1 glowshroom · 2 gel</td></tr>
+          <tr><td class="item">Furnace</td><td class="want">20 stone · 4 wood · 3 torch</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Furnace · smelting</caption>
+        <thead><tr><th>Make</th><th>From</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Copper Bar</td><td class="want">3 copper ore</td></tr>
+          <tr><td class="item">Iron Bar</td><td class="want">3 iron ore</td></tr>
+          <tr><td class="item">Gold Bar</td><td class="want">4 gold ore</td></tr>
+          <tr><td class="item">Demonite Bar</td><td class="want">3 demonite ore</td></tr>
+          <tr><td class="item">Hellstone Bar</td><td class="want">3 hellstone · 1 obsidian</td></tr>
+          <tr><td class="item">Anvil</td><td class="want">5 iron bars</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Anvil · forging</caption>
+        <thead><tr><th>Make</th><th>From</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Grappling Hook</td><td class="want">3 iron bars · 3 gel</td></tr>
+          <tr><td class="item">Metal pick / sword</td><td class="want">6–10 bars</td></tr>
+          <tr><td class="item">Armor (helm/mail/legs)</td><td class="want">8–10 bars each</td></tr>
+          <tr><td class="item">Gold Bow</td><td class="want">6 gold bars</td></tr>
+          <tr><td class="item">Light's Bane</td><td class="want">8 demonite bars</td></tr>
+          <tr><td class="item">Nightmare Pickaxe</td><td class="want">10 demonite bars · 4 wood</td></tr>
+          <tr><td class="item">Volcano / Molten Fury</td><td class="want">8–10 hellstone bars</td></tr>
+          <tr><td class="item">Molten armor</td><td class="want">8–10 hellstone bars each</td></tr>
+          <tr><td class="item">Flame Arrow ×5</td><td class="want">5 arrow · 1 hellstone</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tips" style="margin-top:16px">
+    <div class="tip"><span class="n">◈</span><p><b>Demon Altar:</b> the only recipe there —
+      <strong>Suspicious Eye</strong> from <strong>6 lenses</strong>. Altars sit at the bottom of
+      corruption chasms.</p></div>
+  </div>
+</section>
+
+<!-- ============ ITEMS ============ -->
+<section id="gear">
+  <p class="eyebrow">08 — Gear</p>
+  <h2>Weapons &amp; Armor</h2>
+  <p class="lede">Melee for reliability, bows for range, armor for staying alive. Damage and
+    defense climb with every tier.</p>
+  <div class="grid g3" style="margin-top:22px;align-items:start">
+    <div class="tablewrap">
+      <table>
+        <caption>Swords · melee dmg</caption>
+        <thead><tr><th>Sword</th><th class="r">Dmg</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Wood</td><td class="r">8</td></tr>
+          <tr><td class="item">Copper</td><td class="r">11</td></tr>
+          <tr><td class="item">Iron</td><td class="r">14</td></tr>
+          <tr><td class="item">Gold</td><td class="r">18</td></tr>
+          <tr><td class="item">Light's Bane</td><td class="r">23</td></tr>
+          <tr><td class="item">Volcano</td><td class="r">32</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Bows · + arrow dmg</caption>
+        <thead><tr><th>Bow</th><th class="r">Dmg</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Wood</td><td class="r">7</td></tr>
+          <tr><td class="item">Gold</td><td class="r">12</td></tr>
+          <tr><td class="item">Molten Fury</td><td class="r">19</td></tr>
+          <tr><td class="item">Arrow</td><td class="r">+3</td></tr>
+          <tr><td class="item">Flame Arrow</td><td class="r">+6</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <caption>Armor · defense (set)</caption>
+        <thead><tr><th>Set</th><th class="r">Def</th></tr></thead>
+        <tbody>
+          <tr><td class="item">Copper</td><td class="r">4</td></tr>
+          <tr><td class="item">Iron</td><td class="r">7</td></tr>
+          <tr><td class="item">Gold</td><td class="r">10</td></tr>
+          <tr><td class="item">Molten</td><td class="r">16</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card"><h3>Consumables</h3><p><strong>Healing Potion</strong> restores 50 HP
+      (short cooldown). <strong>Life Crystal</strong> permanently raises max HP by 20, up to 200 —
+      look for them in deep chests. <strong>Glowshrooms</strong> brew potions.</p></div>
+    <div class="card"><h3>Materials that matter</h3><p><strong>Gel</strong> (slimes) → torches,
+      potions, grapple. <strong>Lens</strong> (Demon Eyes) → the boss summon. <strong>Gold
+      coins</strong> drop from everything — you lose half on death, so bank them at home.</p></div>
+  </div>
+</section>
+
+<!-- ============ BESTIARY ============ -->
+<section id="foes">
+  <p class="eyebrow">09 — Bestiary</p>
+  <h2>Things That Bite</h2>
+  <p class="lede">Enemies spawn by depth and time of day. The stripe shows the threat; the
+    numbers are their health and contact damage.</p>
+  <div class="grid g3" style="margin-top:22px">
+
+    <div class="beast"><div class="bar" style="--th:var(--good)"></div><div class="body">
+      <h3>Green Slime <span class="where">Surface · day</span></h3>
+      <div class="stats"><div>HP<b class="hp">14</b></div><div>DMG<b class="dm">6</b></div></div>
+      <p class="drop">Hops toward you. Harmless in ones. Drops <b>gel</b>.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--cavern)"></div><div class="body">
+      <h3>Blue Slime <span class="where">Surface · caverns</span></h3>
+      <div class="stats"><div>HP<b class="hp">26</b></div><div>DMG<b class="dm">8</b></div></div>
+      <p class="drop">Tougher, bouncier cousin. Drops more <b>gel</b>.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--ice)"></div><div class="body">
+      <h3>Bat <span class="where">Caverns · dark</span></h3>
+      <div class="stats"><div>HP<b class="hp">16</b></div><div>DMG<b class="dm">11</b></div></div>
+      <p class="drop">Erratic flyer that swoops through tunnels. Hard to hit; drops coins.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--hell)"></div><div class="body">
+      <h3>Zombie <span class="where">Surface · night</span></h3>
+      <div class="stats"><div>HP<b class="hp">46</b></div><div>DMG<b class="dm">13</b></div></div>
+      <p class="drop">Marches at you and can jump obstacles. Buries itself at dawn. Rarely drops a <b>lens</b>.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--danger)"></div><div class="body">
+      <h3>Demon Eye <span class="where">Surface · night</span></h3>
+      <div class="stats"><div>HP<b class="hp">40</b></div><div>DMG<b class="dm">16</b></div></div>
+      <p class="drop">Flies straight at you, weaving. Your main source of <b>lenses</b> for the boss summon.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--hell)"></div><div class="body">
+      <h3>Skeleton <span class="where">Deep caverns</span></h3>
+      <div class="stats"><div>HP<b class="hp">70</b></div><div>DMG<b class="dm">18</b></div></div>
+      <p class="drop">Fast, hits hard, jumps ledges. Sometimes drops a <b>healing potion</b>.</p></div></div>
+
+    <div class="beast"><div class="bar" style="--th:var(--hell)"></div><div class="body">
+      <h3>Lava Slime <span class="where">Underworld</span></h3>
+      <div class="stats"><div>HP<b class="hp">45</b></div><div>DMG<b class="dm">14</b></div></div>
+      <p class="drop">Immune to the lava it swims in. Fight it on solid ground, not over a pool.</p></div></div>
+
+    <div class="beast" style="border-color:var(--corrupt)"><div class="bar" style="--th:var(--corrupt)"></div><div class="body">
+      <h3>Eye of Cthulhu <span class="where" style="color:var(--corrupt)">Boss · summoned</span></h3>
+      <div class="stats"><div>HP<b class="hp">1400</b></div><div>DMG<b class="dm">15</b></div></div>
+      <p class="drop">The one that ends the run. See below.</p></div></div>
+
+  </div>
+</section>
+
+<!-- ============ BOSS ============ -->
+<section id="boss">
+  <p class="eyebrow">10 — The Boss</p>
+  <div class="boss"><div class="body">
+    <p class="eyebrow">Summoned Encounter</p>
+    <h2>The Eye Of Cthulhu</h2>
+    <p style="color:var(--ink-soft);max-width:62ch">Craft a <strong>Suspicious Eye</strong>
+      (6 lenses, at a Demon Altar) and use it <strong>at night</strong> in open space. A giant
+      floating eye awakens with <strong>1400 HP</strong> — hover, charge, repeat. It flees at
+      dawn, so you have one night to win. Come in iron or gold armor with a solid sword.</p>
+    <div class="phase"><span class="p">P1</span><p style="margin:0;color:var(--ink-soft)">
+      <b style="color:var(--ink)">Hover &amp; charge.</b> It circles above and dashes at you.
+      Strafe, keep distance, and hit it on each pass with a sword or arrows.</p></div>
+    <div class="phase"><span class="p">P2</span><p style="margin:0;color:var(--ink-soft)">
+      <b style="color:var(--ink)">Enraged (below 40% HP).</b> It splits open into a fanged maw
+      and charges faster and more often. Keep moving and burst it down.</p></div>
+    <p style="margin:16px 0 0;color:var(--ink-soft)">Reward: a pile of <strong>demonite ore</strong>,
+      lenses, potions and a <strong>Life Crystal</strong> — the demonite fuels Light's Bane and the
+      Nightmare Pickaxe, your ticket to the underworld.</p>
+  </div></div>
+</section>
+
+<!-- ============ SURVIVAL ============ -->
+<section id="survive">
+  <p class="eyebrow">11 — Survival</p>
+  <h2>Staying Alive</h2>
+  <div class="grid g3" style="margin-top:22px">
+    <div class="card"><h3>Light</h3><p>Sunlight fills the surface; underground is dark unless
+      you light it. Torches, lava and glowing ore cast real light that spreads around corners.
+      Carry torches always.</p></div>
+    <div class="card"><h3>Water</h3><p>Deep pools flood tunnels. Your <strong>breath</strong>
+      runs down underwater (watch the bubbles) — surface before it empties or you take drowning
+      damage. Water also slows your swing.</p></div>
+    <div class="card"><h3>Lava</h3><p>Instant, heavy damage — never wade in. Bridge it with
+      platforms, or drop water on it to freeze it into obsidian and cross safely.</p></div>
+    <div class="card"><h3>Falling</h3><p>Long drops hurt. Break a fall by grappling a wall, or
+      dig the landing into water. Platforms (Down + A) let you drop through one level at a time.</p></div>
+    <div class="card"><h3>Death</h3><p>At 0 HP you respawn at your spawn point after a few
+      seconds and lose <strong>half your carried coins</strong> where you fell. A summoned boss
+      keeps hunting — bank coins and don't fight far from home.</p></div>
+    <div class="card"><h3>Saving</h3><p>The world autosaves periodically and on Save / Save &amp;
+      Quit from the pause menu. One persistent world per game — pick up right where you left off.</p></div>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section id="road">
+  <p class="eyebrow">12 — The Run</p>
+  <h2>Road To The Eye</h2>
+  <p class="lede">A checklist from spawn to boss kill.</p>
+  <ul class="clean" style="margin-top:20px">
+    <li><b>Wood &amp; workbench.</b> Chop trees, craft a workbench, make wood tools and a bow.</li>
+    <li><b>Torches &amp; a base.</b> Kill slimes for gel → torches. Wall off a lit shelter with a door.</li>
+    <li><b>Mine down.</b> Grab copper &amp; iron, build a furnace then an anvil, smelt bars.</li>
+    <li><b>Gear up.</b> Forge an iron (or gold) pick, sword and a full armor set.</li>
+    <li><b>Go east to the corruption.</b> Mine demonite with the iron pick; find a Demon Altar.</li>
+    <li><b>Farm lenses at night.</b> Kill Demon Eyes for 6 lenses; craft a Suspicious Eye at the altar.</li>
+    <li><b>Summon &amp; slay the Eye</b> at night in open ground. Bank the demonite.</li>
+    <li><b>Forge Light's Bane + the Nightmare Pickaxe</b>, then descend to the underworld for hellstone and molten gear.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer><div class="wrap">
+  <p class="mono">TERRAMOTE · a Terraria demake for the Thumby Color (RP2350 · 128×128)</p>
+  <p>Built on the Mote engine. Controls, recipes, and enemy stats in this manual are pulled
+    directly from the game's data — numbers may shift as the game is tuned.</p>
+</div></footer>
+
+<script>
+  (function(){
+    var root=document.documentElement, btn=document.getElementById('themeBtn');
+    function cur(){return root.getAttribute('data-theme') ||
+      (matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');}
+    btn.addEventListener('click',function(){
+      var next=cur()==='dark'?'light':'dark';
+      root.setAttribute('data-theme',next);
+    });
+  })();
+</script>
+
+</body>
+</html>
