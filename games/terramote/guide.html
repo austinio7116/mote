@@ -206,6 +206,20 @@
   a.jump{color:inherit;text-decoration:none}
   :focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:4px}
   @media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+
+  /* ---- print / PDF ---- */
+  @page{margin:14mm}
+  @media print{
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .topbar{display:none}
+    .hero{padding:8px 0 24px}
+    section{padding:24px 0;break-inside:avoid}
+    h2{break-after:avoid}
+    .card,.beast,.tip,.stage,.tablewrap,.boss,.key,.column,.chip,li{break-inside:avoid}
+    .grid,.ctrls,.tech{break-inside:auto}
+    a[href^="#"]{color:inherit;text-decoration:none}
+    body{background:var(--bg)}
+  }
 </style>
 </head>
 <body>
@@ -346,26 +360,27 @@
 <section id="biomes">
   <p class="eyebrow">04 — Biomes</p>
   <h2>Surface Biomes</h2>
-  <p class="lede">The surface is divided left-to-right into four regions. Spawn sits in the
-    forest; explore outward to find the others.</p>
+  <p class="lede">You always spawn in the <strong>forest</strong>; the other three biomes are
+    scattered to your left and right at <strong>random positions each world</strong> — head out
+    both ways to find them.</p>
   <div class="grid g4" style="margin-top:22px">
     <div class="card" style="border-top:3px solid var(--forest)">
       <h3 style="color:var(--forest)">Forest</h3>
-      <p>The green heartland where you start. Trees, grass, flowers and gentle hills. Green and
-        blue slimes by day. Your home base.</p></div>
+      <p>The green heartland where you start — always around spawn. Trees, grass, flowers and
+        gentle hills. Green and blue slimes by day. Your home base.</p></div>
     <div class="card" style="border-top:3px solid var(--ice)">
       <h3 style="color:var(--ice)">Snow</h3>
-      <p>Far to the west. Snow-capped ground and frosted trees. Cosmetically icy — the same
-        digging and enemies, dressed for winter.</p></div>
+      <p>Snow-capped ground and frosted trees, somewhere off to one side. Cosmetically icy — the
+        same digging and enemies, dressed for winter.</p></div>
     <div class="card" style="border-top:3px solid var(--sand)">
       <h3 style="color:var(--sand)">Desert</h3>
-      <p>A flat expanse of <strong>sand</strong>, east of the forest. Sparse and treeless — a
-        fast highway across the map and a source of sand.</p></div>
+      <p>A flat expanse of <strong>sand</strong>. Sparse and treeless — a fast highway across the
+        map and a source of sand.</p></div>
     <div class="card" style="border-top:3px solid var(--corrupt)">
       <h3 style="color:var(--corrupt)">Corruption</h3>
-      <p>The far east: bare dirt, purple grass, <strong>ebonstone</strong> and deep chasms.
-        Down its shafts sit <strong>Demon Altars</strong> and veins of <strong>demonite</strong>
-        — everything you need to challenge the boss.</p></div>
+      <p>Bare dirt, purple grass, <strong>ebonstone</strong> and deep chasms — could be on either
+        flank. Down its shafts sit <strong>Demon Altars</strong> and veins of
+        <strong>demonite</strong>, everything you need to challenge the boss.</p></div>
   </div>
 </section>
 
@@ -695,7 +710,7 @@
     <li><b>Torches &amp; a base.</b> Kill slimes for gel → torches. Wall off a lit shelter with a door.</li>
     <li><b>Mine down.</b> Grab copper &amp; iron, build a furnace then an anvil, smelt bars.</li>
     <li><b>Gear up.</b> Forge an iron (or gold) pick, sword and a full armor set.</li>
-    <li><b>Go east to the corruption.</b> Mine demonite with the iron pick; find a Demon Altar.</li>
+    <li><b>Find the corruption</b> (either flank). Mine demonite with the iron pick; find a Demon Altar.</li>
     <li><b>Farm lenses at night.</b> Kill Demon Eyes for 6 lenses; craft a Suspicious Eye at the altar.</li>
     <li><b>Summon &amp; slay the Eye</b> at night in open ground. Bank the demonite.</li>
     <li><b>Forge Light's Bane + the Nightmare Pickaxe</b>, then descend to the underworld for hellstone and molten gear.</li>
