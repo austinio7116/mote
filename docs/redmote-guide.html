@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RedMote — Field Manual</title>
+<style>
+  :root{
+    --bg:#0d0f0c; --panel:#161a13; --panel2:#1d2218; --ink:#d8dccb;
+    --dim:#8b917c; --red:#c8342a; --redl:#e05a48; --gold:#e6cd6e; --steel:#8892a0;
+    --line:#2c3324; --grid:#242a1c;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+  /* header */
+  header.hero{background:
+      radial-gradient(120% 140% at 80% -20%, #2a1512 0%, transparent 55%),
+      linear-gradient(180deg,#14170f,#0d0f0c);
+    border-bottom:2px solid var(--red);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--steel);border-radius:8px;
+    background:#0a0a08;flex:0 0 auto;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .htext h1{margin:0;font-size:2.6rem;letter-spacing:.06em;color:var(--red);
+    text-shadow:0 2px 0 #4a100c;font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.15rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 10px;border-radius:20px;letter-spacing:.04em}
+
+  /* sticky nav */
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(13,15,12,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:34px 0 8px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.5rem;color:var(--gold);margin:0 0 4px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--red);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 20px;max-width:70ch}
+  h3{color:var(--redl);margin:22px 0 8px;font-size:1.05rem}
+  p{max-width:74ch}
+  ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:var(--ink)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+
+  /* cards / grids */
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h3{margin-top:0}
+  .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+
+  /* tables */
+  .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{color:var(--gold);font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:2px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
+  .ab{display:inline-block;margin-left:8px;color:var(--dim);font-weight:400;font-size:.78rem;
+    letter-spacing:.06em}
+  td.role,td.pre{color:var(--dim);font-size:.86rem}
+  td.pw.pos{color:#7cc85e} td.pw.neg{color:var(--redl)}
+
+  /* damage matrix */
+  table.dmg{min-width:480px}
+  table.dmg td.wnm{font-weight:600;color:var(--ink)}
+  td.dm{text-align:center;font-variant-numeric:tabular-nums;font-weight:600;color:#0c0f0a}
+  .d0{background:#2a2320;color:#6b6355;font-weight:400}
+  .d1{background:#7d2b22;color:#f2d3cd}
+  .d2{background:#9c6b1f;color:#fbe7c4}
+  .d3{background:#4f7d2b;color:#e8f5d6}
+  .d4{background:#2f9c52;color:#e6fbe9}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0 0;font-size:.8rem;color:var(--dim)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block}
+
+  /* controls */
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
+    max-width:74ch}
+  .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
+    border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
+    white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
+
+  /* tech tree */
+  .tiers{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:720px){.tiers{grid-template-columns:1fr 1fr}}
+  .tier{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .tier h4{margin:0 0 8px;color:var(--gold);font-size:.9rem;letter-spacing:.04em}
+  .tier ul{margin:0;padding-left:18px;font-size:.9rem}
+  .tier li{color:var(--dim)} .tier li b{color:var(--ink)}
+  .arrow{text-align:center;color:var(--red);font-size:1.4rem;line-height:1;margin:-4px 0}
+
+  /* mission cards */
+  .mcard{display:flex;gap:16px;background:var(--panel);border:1px solid var(--line);
+    border-left:3px solid var(--red);border-radius:10px;padding:16px;margin-bottom:12px}
+  .mnum{flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:#22110f;
+    border:2px solid var(--red);color:var(--redl);font-weight:800;font-size:1.2rem;
+    display:flex;align-items:center;justify-content:center}
+  .mbody h3{margin:2px 0 6px;color:var(--ink)}
+  .mbody p{margin:0 0 10px;color:var(--dim)}
+  .mmeta{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.83rem;color:var(--dim)}
+  .mmeta b{color:var(--gold);font-weight:600}
+  .mmeta .teach b{color:var(--redl)}
+
+  .callout{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:14px 16px;margin:16px 0;color:var(--ink)}
+  .callout b{color:var(--gold)}
+  footer{padding:30px 0 50px;color:var(--dim);font-size:.85rem;text-align:center}
+
+  /* light theme fallback */
+  @media (prefers-color-scheme:light){
+    :root{--bg:#f3f1e8;--panel:#fff;--panel2:#efece0;--ink:#23281c;--dim:#5c614f;
+      --line:#d8d5c4;--grid:#e6e3d4;}
+    .htext h1{text-shadow:none}
+    td.dm{color:#0c0f0a}
+  }
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap"><div class="hrow">
+  <img class="hicon" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8CAIAAAC1nk4lAAAEpklEQVR4nMVawWrbQBDdGCGEMSaEEIoJIYRQQsnBhNAvKDn44EPJZ+aUQ46l9NhDCKWHUkLwIYhSggnCGCGW0MMo4/Xs7OxqJafvEkWenX2anZ2ZHWnr4Gik3hZpllSlbqOhJ6huo1dQVZW6pXLn4GhjDIfb5r9F8Wyr6tLSg2HWRpdsP601EbPlUUbG2rBFUYaMsW0JF/K6J0n9U5YOslS9XtfDB8NsUZQoI6O2dOAjehG97mAve6lZYvWTCY8INlDirkeZ8dnYpefu9k6krRS31Cwxz3JorVGRYMXj4xMvIXyeh/uZV1iGh7TXyY6OD5tOCUMCqePyaq2BjNZ6a3Swt70zELYgStvuwTrDaJ/JVvljbt8McRgWWyQjIkWA4MeEMXK9ub6xhSfTCVwQ9nG8KelAmIyBLnKtFpUtnw7qIAfsTerAm4TRF1UKi+8hTXTN509JkhDGQNfmWi6XWb/Psp9MJ4S3K/bXo9YXfC0jeqO1yfju9k5g7AJI3lzfjPZH6BtCoKxJp2vxYGVp82kw7hIDmLFCZlwul1eHo8tZbhtbOextxhNiaYKVpU37s/4UztgL096sfiUue081r0K9jMHMshKW93z+VBTPYGYhRfSUmOpARVE820kkzsayhvOP5yEDnYcAF8DMAmPTzFeHo3K5FLRVi4oYWwWsfDfHE5mZ+Su7Lwm8pWIQaTskEZaCB5OfLmdrGdF+hvHZ2Jsmm7kH+gZOdnU48u45E6Y8KGE9RIbT0iRCIwbDbL6ocMrLWd6INAyRncScmg3YjTciCeFZv09WXIaXcQg62IjIWzY5yLRnrCIszSLr92WTg4E7Yay6Iv3GcLqHXLLYkFO3UDxFTN3M0vljPplOsKLvBOkgJeUeI7OeI3sqoIyOOxQRF/emdDKXSRRyJHZFEmXVU1hMh4P4BgaKkKjigp3MkRXjHjJj2UMuZ7kZKDCquAJLiG8QaK09cRqT08P9zKxOYe2g1sNDinKEYcydav3gaD/5w/0MZnTtxTRLVMlZ2ts7zR/zTxcX5qwhYZgIsCcuL8BnnO5hF7XmGQ6cBOZulDVA0ntGBLgKa0oaI0lVatvkZhj59vUL8g5kXFN5ZWy2dWzGWmvci1qvNZG3jj8cCEU3244I7HvIjBv1PQjetMOktZ5+niquw4QgfbkuSatOe3khRE3wzRrAYJhVlWadB1aT7fOGd03Bj8OLHGQYaWl0wYj+NAB3XtPKTLU/BMDcjah39iag5VvUkFYiyrhOnzJMv6//tHwbiWCbzegATTecCXNgpIo4HiDZyIlZF4g8bmHijLacDMx/rAtEkibvZaI5ucAWEavZ7Vu44ienR3jz188HYQK4CJTHIbI8W9YDN+Zd2+n4PRH98f03O3fap8+2CXkTQLhOLibvvXe7cLGzO0Tp+VMBF3//PBFFm5a3Ub8DVdwJCxUFYtPyiJ7aWATYHFa1R/3FRc//APpltQE2Lc9iFfKatg3+I96ul9fhl1zWV0S+pYmWr7+AMOSbVmnYRdqgpdMskRtu+CGH/RN7U+owdYWqDKql+A9+xIE86bjvsMiolh/MCeBJx0VuMmpz4egfpscAGyUOFycAAAAASUVORK5CYII=" alt="RedMote icon">
+  <div class="htext">
+    <h1>RED MOTE</h1>
+    <div class="sub">A comically tiny — but fully functional — Red Alert-style RTS</div>
+    <div class="by">for the Thumby Color · by austinio7116 · v1.1.1</div>
+    <div class="badges">
+      <span class="badge">9-mission campaign</span>
+      <span class="badge">Skirmish mode</span>
+      <span class="badge">Full tech tree</span>
+      <span class="badge">Fog of war</span>
+      <span class="badge">~6-pixel units</span>
+    </div>
+  </div>
+</div></div></header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#intro">Overview</a>
+  <a href="#controls">Controls</a>
+  <a href="#loop">First 5 minutes</a>
+  <a href="#economy">Economy</a>
+  <a href="#buildings">Buildings</a>
+  <a href="#tech">Tech tree</a>
+  <a href="#units">Units</a>
+  <a href="#combat">Combat</a>
+  <a href="#counters">Counters</a>
+  <a href="#campaign">Campaign</a>
+  <a href="#skirmish">Skirmish</a>
+  <a href="#tips">Tips</a>
+</div></nav>
+
+<div class="wrap">
+
+<section id="intro">
+  <h2>What is RedMote?</h2>
+  <p class="lede">RedMote is a complete real-time strategy game on a 128×128 screen. Units are
+  only about six pixels tall, so entire armies fight on-screen at once — but under the
+  hood it's the full RTS: a base to build, an economy to run, a tech tree to climb, fog of
+  war to scout, and an enemy that builds its own base and sends attack waves at you.</p>
+  <div class="grid g3">
+    <div><img class="shot" src="data:image/png;base64,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" alt="battle"><div class="shotcap">Armies clash — tracers, tesla arcs, explosions</div></div>
+    <div><img class="shot" src="data:image/png;base64,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" alt="base"><div class="shotcap">A base built out, roads knitting it together</div></div>
+    <div><img class="shot" src="data:image/png;base64,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" alt="build menu"><div class="shotcap">The paused build menu — the whole tech tree</div></div>
+  </div>
+  <p style="margin-top:18px">You play the <b>blue</b> army; the enemy is <b>red</b>. Win by destroying
+  everything the enemy has — every building <i>and</i> every unit. Lose if the same happens to you.</p>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <p class="lede">Eight buttons do everything. Orders are context-sensitive — the cursor shows a
+  label (<code>MOVE</code>, <code>ATTACK</code>, <code>MINE</code>, <code>RALLY</code>) for what
+  <b>A</b> will do where you're pointing.</p>
+  <div class="keys">
+    <span class="kb">D-pad</span><span>Move the cursor. Push it against a screen edge to scroll the map.</span>
+    <span class="kb">A</span><span>Tap a unit to select it · tap the ground with a selection to issue the order the cursor shows · <b>drag</b> to box-select a group.</span>
+    <span class="kb">A A</span><span>Double-tap a unit — select every unit of that type on screen.</span>
+    <span class="kb">A A A</span><span>Triple-tap — select your <b>whole army</b>, map-wide.</span>
+    <span class="kb">B</span><span>Deselect / cancel placement / close a menu.</span>
+    <span class="kb">LB</span><span>Open the <b>build menu</b> (pauses the game). LB again cycles tabs; D-pad picks a card; A queues or places it; B closes.</span>
+    <span class="kb">RB</span><span><b>Hold</b> for the radar minimap — press A over the map to order or recenter there. A quick <b>tap</b> jumps the view to your base.</span>
+    <span class="kb">MENU</span><span>Pause (Resume / Restart / To Title). Hold MENU 3s for the engine's system menu.</span>
+  </div>
+  <div class="callout"><b>Minimap orders:</b> with a group selected, hold <b>RB</b> and press <b>A</b>
+  on the radar map to send them straight to that spot anywhere on the map — you don't have to
+  scroll there first.</div>
+</section>
+
+<section id="loop">
+  <h2>Your first five minutes</h2>
+  <p class="lede">Nearly every mission (and skirmish) opens the same way. Get the economy running
+  before you build anything else.</p>
+  <ol>
+    <li><b>Power first.</b> Open the build menu (LB) and put down a <b>Power Plant</b> — most
+      buildings drain power and stall without it.</li>
+    <li><b>Refinery next.</b> A <b>Refinery</b> arrives with a free <b>Harvester</b> that
+      immediately drives to the nearest ore and starts banking credits automatically.</li>
+    <li><b>Add production.</b> A <b>Barracks</b> for infantry, then a <b>War Factory</b> for tanks
+      (and more harvesters — two per refinery keeps the money flowing).</li>
+    <li><b>Tech up.</b> A <b>Radar Dome</b> lights the minimap and unlocks heavier vehicles; a
+      <b>Tech Center</b> opens the Tesla Tank and Tesla Coil.</li>
+    <li><b>Defend, then attack.</b> Screen your base with Pillboxes and Gun Turrets, build an
+      army, select it (triple-tap), and push into the enemy.</li>
+  </ol>
+</section>
+
+<section id="economy">
+  <h2>Economy &amp; power</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Ore &amp; crystal</h3>
+      <p><b>Ore</b> is worth <b>50</b> credits per patch; <b>crystal</b> is worth <b>100</b> —
+      double value, so contest it. Harvesters fill up to <b>700</b> credits, drive back to a
+      Refinery to unload, and repeat forever, all on their own. Mined ground is spent — send
+      harvesters to fresh seams as fields run dry.</p>
+    </div>
+    <div class="card">
+      <h3>Power</h3>
+      <p>Every Power Plant supplies <b>+100</b>. Most other buildings draw power (shown on each
+      build card). If your usage exceeds supply, <b>production slows to a crawl</b>, the radar map
+      goes dark, and <b>Tesla Coils stop firing</b>. The top bar's power meter turns red when you're
+      short — build another Power Plant.</p>
+    </div>
+  </div>
+  <div class="callout"><b>Rule of thumb:</b> keep a little power headroom and two harvesters per
+  refinery. A stalled economy loses games faster than any battle.</div>
+</section>
+
+<section id="buildings">
+  <h2>Buildings</h2>
+  <p class="lede">Build order is gated by prerequisites — you can't jump straight to the good stuff.
+  Power (+/−) is per building; negatives draw from your Power Plants.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Building</th><th>Cost</th><th>HP</th><th>Power</th><th>Size</th><th>Role</th><th>Requires</th></tr></thead>
+    <tbody><tr><td class="nm">Construction Yard<span class="ab">YARD</span></td><td class="num">$2500</td><td class="num">1000</td><td class="num pw ">0</td><td class="num">3×3</td><td class="role">The base core — everything is built from here</td><td class="pre">—</td></tr>
+<tr><td class="nm">Power Plant<span class="ab">POW</span></td><td class="num">$300</td><td class="num">300</td><td class="num pw pos">+100</td><td class="num">2×2</td><td class="role">Supplies power; build these first and often</td><td class="pre">Construction Yard</td></tr>
+<tr><td class="nm">Ore Refinery<span class="ab">REF</span></td><td class="num">$1500</td><td class="num">600</td><td class="num pw neg">-30</td><td class="num">3×2</td><td class="role">Ore drop-off — ships with a free Harvester</td><td class="pre">Power Plant</td></tr>
+<tr><td class="nm">Barracks<span class="ab">RAX</span></td><td class="num">$400</td><td class="num">500</td><td class="num pw neg">-20</td><td class="num">2×2</td><td class="role">Trains all infantry</td><td class="pre">Power Plant</td></tr>
+<tr><td class="nm">War Factory<span class="ab">FACT</span></td><td class="num">$1800</td><td class="num">700</td><td class="num pw neg">-30</td><td class="num">3×2</td><td class="role">Builds all vehicles</td><td class="pre">Ore Refinery</td></tr>
+<tr><td class="nm">Radar Dome<span class="ab">RDR</span></td><td class="num">$1000</td><td class="num">500</td><td class="num pw neg">-40</td><td class="num">2×2</td><td class="role">Unlocks the minimap and higher-tech vehicles</td><td class="pre">Ore Refinery</td></tr>
+<tr><td class="nm">Helipad<span class="ab">PAD</span></td><td class="num">$1200</td><td class="num">450</td><td class="num pw neg">-30</td><td class="num">2×2</td><td class="role">Builds Gunships</td><td class="pre">Radar + War Factory</td></tr>
+<tr><td class="nm">Tech Center<span class="ab">TECH</span></td><td class="num">$1500</td><td class="num">400</td><td class="num pw neg">-60</td><td class="num">2×2</td><td class="role">Top tech — unlocks the Tesla Tank &amp; Tesla Coil</td><td class="pre">Radar + War Factory</td></tr>
+<tr><td class="nm">Pillbox<span class="ab">PILL</span></td><td class="num">$400</td><td class="num">350</td><td class="num pw ">0</td><td class="num">1×1</td><td class="role">Cheap MG defence — mows down infantry</td><td class="pre">Barracks</td></tr>
+<tr><td class="nm">Gun Turret<span class="ab">GUN</span></td><td class="num">$600</td><td class="num">400</td><td class="num pw ">0</td><td class="num">1×1</td><td class="role">Cannon defence — stops tanks</td><td class="pre">War Factory</td></tr>
+<tr><td class="nm">Tesla Coil<span class="ab">COIL</span></td><td class="num">$1200</td><td class="num">350</td><td class="num pw neg">-50</td><td class="num">1×1</td><td class="role">Devastating tesla defence — needs power to fire</td><td class="pre">Tech Center</td></tr></tbody>
+  </table></div>
+</section>
+
+<section id="tech">
+  <h2>The tech tree</h2>
+  <p class="lede">From a bare Construction Yard to Tesla, the path branches through power, the
+  refinery, and the factory. Each tier unlocks the next.</p>
+  <div class="tiers">
+    <div class="tier"><h4>TIER 1 · Base</h4><ul>
+      <li><b>Construction Yard</b> — the core</li>
+      <li><b>Power Plant</b></li>
+      <li><b>Refinery</b> (+Harvester)</li>
+      <li><b>Barracks</b> → Rifleman, Rocketeer, Flamer</li>
+      <li><b>Pillbox</b> defence</li></ul></div>
+    <div class="tier"><h4>TIER 2 · Armour</h4><ul>
+      <li><b>War Factory</b> → Light Tank, Harvester</li>
+      <li><b>Gun Turret</b> defence</li></ul></div>
+    <div class="tier"><h4>TIER 3 · Radar</h4><ul>
+      <li><b>Radar Dome</b> → minimap</li>
+      <li>unlocks <b>Heavy Tank</b>, <b>Artillery</b></li></ul></div>
+    <div class="tier"><h4>TIER 4 · High-tech</h4><ul>
+      <li><b>Helipad</b> → Gunship</li>
+      <li><b>Tech Center</b> → <b>Tesla Tank</b></li>
+      <li><b>Tesla Coil</b> defence</li></ul></div>
+  </div>
+</section>
+
+<section id="units">
+  <h2>Units</h2>
+  <p class="lede">Nine types across infantry, vehicles and air. Range and fire-rate are in the
+  game's own units; higher speed = faster, lower reload = faster firing.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Unit</th><th>Cost</th><th>HP</th><th>Speed</th><th>Range</th><th>Reload s</th><th>Weapon</th><th>Armour</th><th>Role</th></tr></thead>
+    <tbody><tr><td class="nm">Rifleman<span class="ab">RIFL</span></td><td class="num">$100</td><td class="num">45</td><td class="num">26</td><td class="num">26</td><td class="num">0.65</td><td>MG</td><td>Infantry</td><td class="role">Cheap anti-infantry line trooper</td></tr>
+<tr><td class="nm">Rocketeer<span class="ab">RCKT</span></td><td class="num">$300</td><td class="num">50</td><td class="num">24</td><td class="num">38</td><td class="num">1.9</td><td>Rocket</td><td>Infantry</td><td class="role">Anti-tank &amp; the only infantry that hits aircraft</td></tr>
+<tr><td class="nm">Flamer<span class="ab">FLAM</span></td><td class="num">$200</td><td class="num">55</td><td class="num">26</td><td class="num">17</td><td class="num">1.3</td><td>Flame</td><td>Infantry</td><td class="role">Short-range infantry shredder (130% vs troops)</td></tr>
+<tr><td class="nm">Harvester<span class="ab">HARV</span></td><td class="num">$800</td><td class="num">350</td><td class="num">21</td><td class="num">—</td><td class="num">—</td><td>—</td><td>Heavy</td><td class="role">Unarmed. Mines ore and crystal, banks credits</td></tr>
+<tr><td class="nm">Light Tank<span class="ab">LTNK</span></td><td class="num">$600</td><td class="num">160</td><td class="num">33</td><td class="num">32</td><td class="num">1.1</td><td>Cannon</td><td>Light</td><td class="role">Fast raider; rotating turret, great vs light armour</td></tr>
+<tr><td class="nm">Heavy Tank<span class="ab">HTNK</span></td><td class="num">$950</td><td class="num">300</td><td class="num">23</td><td class="num">34</td><td class="num">1.45</td><td>Cannon</td><td>Heavy</td><td class="role">The main battle line — twin cannons, thick armour</td></tr>
+<tr><td class="nm">Artillery<span class="ab">ARTY</span></td><td class="num">$700</td><td class="num">90</td><td class="num">19</td><td class="num">64</td><td class="num">3.2</td><td>Arty</td><td>Light</td><td class="role">Longest range, arcing splash; fragile up close (20px min range)</td></tr>
+<tr><td class="nm">Tesla Tank<span class="ab">TSLA</span></td><td class="num">$1200</td><td class="num">180</td><td class="num">25</td><td class="num">30</td><td class="num">2.2</td><td>Tesla</td><td>Heavy</td><td class="role">Ignores all armour — full damage to everything</td></tr>
+<tr><td class="nm">Gunship<span class="ab">HELI</span></td><td class="num">$1000</td><td class="num">140</td><td class="num">46</td><td class="num">30</td><td class="num">0.55</td><td>Rocket</td><td>Air</td><td class="role">Flies over any terrain; fast rocket pods</td></tr></tbody>
+  </table></div>
+  <div class="callout"><b>Reading armour:</b> a unit's <i>armour</i> type decides how much damage it
+  takes from each weapon (next section). Infantry melt to machine-guns and fire; heavy armour
+  shrugs off small-arms but not rockets; only Rocketeers and Gunships can hit <b>air</b>.</div>
+</section>
+
+<section id="counters">
+  <h2>Weapons vs armour</h2>
+  <p class="lede">Damage is multiplied by this matrix — pick the right tool. 100% is full damage;
+  green beats the armour, red bounces off, and <b>0%</b> means that weapon simply can't hurt it.</p>
+  <div class="tw"><table class="dmg">
+    <thead><tr><th>Weapon ↓ / Armour →</th><th>Infantry</th><th>Light</th><th>Heavy</th><th>Building</th><th>Air</th></tr></thead>
+    <tbody><tr><td class="wnm">MG</td><td class="dm d3">100%</td><td class="dm d2">55%</td><td class="dm d1">30%</td><td class="dm d1">25%</td><td class="dm d2">60%</td></tr>
+<tr><td class="wnm">Cannon</td><td class="dm d1">45%</td><td class="dm d3">100%</td><td class="dm d2">80%</td><td class="dm d2">70%</td><td class="dm d0">0%</td></tr>
+<tr><td class="wnm">Rocket</td><td class="dm d1">35%</td><td class="dm d3">90%</td><td class="dm d3">100%</td><td class="dm d3">90%</td><td class="dm d3">100%</td></tr>
+<tr><td class="wnm">Flame</td><td class="dm d4">130%</td><td class="dm d2">55%</td><td class="dm d1">35%</td><td class="dm d3">90%</td><td class="dm d0">0%</td></tr>
+<tr><td class="wnm">Tesla</td><td class="dm d3">100%</td><td class="dm d3">100%</td><td class="dm d3">100%</td><td class="dm d3">100%</td><td class="dm d3">100%</td></tr>
+<tr><td class="wnm">Arty</td><td class="dm d4">110%</td><td class="dm d3">90%</td><td class="dm d2">70%</td><td class="dm d4">120%</td><td class="dm d0">0%</td></tr></tbody>
+  </table></div>
+  <div class="legend">
+    <span><i class="sw d4"></i> strong (&gt;100%)</span>
+    <span><i class="sw d3"></i> full (90–100%)</span>
+    <span><i class="sw d2"></i> reduced (50–89%)</span>
+    <span><i class="sw d1"></i> weak (&lt;50%)</span>
+    <span><i class="sw d0"></i> can't damage (0%)</span>
+  </div>
+  <h3>What this means</h3>
+  <ul>
+    <li><b>Machine-guns &amp; Flamers</b> shred infantry but barely dent tanks — screen them out with your own troops or a Pillbox.</li>
+    <li><b>Cannons</b> (Light/Heavy Tank, Gun Turret) are the anti-vehicle backbone but <b>can't touch aircraft</b>.</li>
+    <li><b>Rockets</b> (Rocketeer, Gunship) are the answer to heavy armour <i>and</i> the only reliable anti-air.</li>
+    <li><b>Artillery</b> out-ranges everything and hits buildings hardest (120%) — but has a 20px minimum range, so keep it behind the line.</li>
+    <li><b>Tesla</b> deals full damage to <i>everything</i>, armour be damned — expensive, but the ultimate answer.</li>
+  </ul>
+</section>
+
+<section id="combat">
+  <h2>Commanding your army</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Selecting</h3><p>Tap a unit to pick one, drag a box to grab a group, or
+    triple-tap to select your entire army at once. Double-tap grabs every unit of that type on screen —
+    handy for pulling all your tanks together.</p></div>
+    <div class="card"><h3>Formations</h3><p>Order a group to move and they spread into a formation
+    around the target instead of piling onto one tile — they arrive as a battle line, not a scrum.</p></div>
+    <div class="card"><h3>Attacking</h3><p>With a selection, point at an enemy and the cursor reads
+    <code>ATTACK</code>. Units chase and fire; artillery and tanks keep their range, infantry close in.</p></div>
+    <div class="card"><h3>Rally points</h3><p>Select a Barracks, Factory or Helipad and tap the ground
+    to set a rally point — new units drive there automatically as they roll off the line.</p></div>
+  </div>
+</section>
+
+<section id="campaign">
+  <h2>The campaign</h2>
+  <p class="lede">Nine missions that teach the game one system at a time — from commanding a fixed
+  force with no base, up to a full-tech final battle. Each win unlocks the next and is saved, so you
+  can pick up where you left off.</p>
+  <div class="mcard">
+  <div class="mnum">1</div>
+  <div class="mbody">
+    <h3>First Blood</h3>
+    <p>No base at all — you command a fixed strike force. March across the map and raze the enemy outpost.</p>
+    <div class="mmeta">
+      <span><b>You:</b> 12-unit force, no base, field radar</span>
+      <span><b>Enemy:</b> A small guarded outpost</span>
+      <span class="teach"><b>Teaches:</b> Selection, movement, attacking</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">2</div>
+  <div class="mbody">
+    <h3>Foothold</h3>
+    <p>Your first base. Build a Power Plant and a Refinery, let the harvester fund you, then train a force and crush the guard post.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Construction Yard, $1200, tier-1 tech</span>
+      <span><b>Enemy:</b> An outpost with a squad</span>
+      <span class="teach"><b>Teaches:</b> Power, refineries, harvesters, production</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">3</div>
+  <div class="mbody">
+    <h3>Hold the Line</h3>
+    <p>Infantry raids are coming. Wall the approaches with Pillboxes, weather the waves, then counter-attack.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Basic base, $4000, tier-1 tech</span>
+      <span><b>Enemy:</b> Basic base, attacks in waves</span>
+      <span class="teach"><b>Teaches:</b> Base defence, holding under pressure</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">4</div>
+  <div class="mbody">
+    <h3>Iron Fist</h3>
+    <p>The enemy fields armour. Build a War Factory and answer tanks with tanks.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Basic base, $6000, tier-2 tech</span>
+      <span><b>Enemy:</b> Fortress + a mobile force</span>
+      <span class="teach"><b>Teaches:</b> Vehicles and armour matchups</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">5</div>
+  <div class="mbody">
+    <h3>Dark Territory</h3>
+    <p>Three outposts hide in the fog. Build a Radar Dome and hunt every last one down.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Basic base, 12-unit force, $6000, tier-3</span>
+      <span><b>Enemy:</b> Three hidden outposts</span>
+      <span class="teach"><b>Teaches:</b> Radar, fog of war, scouting</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">6</div>
+  <div class="mbody">
+    <h3>Crystal War</h3>
+    <p>A rich crystal seam runs through the centre. Out-mine the enemy and guard your harvesters.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Basic base, $5000, tier-3 + Helipad</span>
+      <span><b>Enemy:</b> Full base, strong force</span>
+      <span class="teach"><b>Teaches:</b> Economy warfare, harvester defence</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">7</div>
+  <div class="mbody">
+    <h3>Siege</h3>
+    <p>Their base bristles with turrets and never leaves it. Artillery cracks it open — take it slow.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Basic base, 12-unit force, $9000, all tech</span>
+      <span><b>Enemy:</b> A gun fortress (won't attack)</span>
+      <span class="teach"><b>Teaches:</b> Artillery sieging, patience</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">8</div>
+  <div class="mbody">
+    <h3>Thunderbirds</h3>
+    <p>A water moat guards their shore. Gunships answer to no terrain.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Full base, $8000, all tech</span>
+      <span><b>Enemy:</b> Full base behind water</span>
+      <span class="teach"><b>Teaches:</b> Air power, terrain</span>
+    </div>
+  </div></div>
+<div class="mcard">
+  <div class="mnum">9</div>
+  <div class="mbody">
+    <h3>Red Dawn</h3>
+    <p>Everything they have against everything you've learned. Finish it.</p>
+    <div class="mmeta">
+      <span><b>You:</b> Construction Yard, $8000, all tech</span>
+      <span><b>Enemy:</b> Full base, huge force</span>
+      <span class="teach"><b>Teaches:</b> The complete game</span>
+    </div>
+  </div></div>
+</section>
+
+<section id="skirmish">
+  <h2>Skirmish mode</h2>
+  <p class="lede">A one-off battle against the AI with the setup you choose — both sides get the same
+  start, so it's a fair fight. Tune it from the skirmish screen:</p>
+  <div class="grid g2">
+    <div class="card"><h3>Army</h3><p><b>None / Squad / Force / Horde</b> — how big a starting army each
+    side fields, from nothing up to a 22-unit horde for an instant war.</p></div>
+    <div class="card"><h3>Base</h3><p><b>Conyard / Basic / Full</b> — start from a single Construction
+    Yard and build out, or drop into a pre-built base with radar, defences and tech ready.</p></div>
+    <div class="card"><h3>Funds</h3><p><b>$3,000 / $8,000 / $20,000</b> — starting credits for both sides.</p></div>
+    <div class="card"><h3>Enemy</h3><p><b>Easy / Normal / Hard</b> — the AI builds faster, richer and
+    attacks sooner as you raise it. On Easy it lives on harvesters like you; on Hard it gets a small income bonus.</p></div>
+  </div>
+</section>
+
+<section id="tips">
+  <h2>Field tips</h2>
+  <ul>
+    <li><b>Never stop building power.</b> A low-power base can't produce, can't see, and can't fire its Tesla Coils.</li>
+    <li><b>Two harvesters per refinery.</b> One is never enough once you're building an army.</li>
+    <li><b>Protect harvesters.</b> They're unarmed and expensive ($800). A couple of raiders can starve your whole economy — a Pillbox near the ore field pays for itself.</li>
+    <li><b>Mix your army.</b> Rockets for their tanks and air, cannons for their vehicles, flamers/rifles to clear their infantry. A pure tank ball dies to massed rocketeers.</li>
+    <li><b>Artillery wins sieges</b> but folds in a brawl — always keep it behind heavies.</li>
+    <li><b>Scout with cheap units.</b> Fog hides everything; a lone rifleman reveals where the enemy is weak before you commit.</li>
+    <li><b>Contest crystal.</b> At double the value of ore, holding the crystal seam can out-fund the enemy on its own.</li>
+    <li><b>Queue ahead.</b> Line up several units in the build menu so production never idles while you fight.</li>
+  </ul>
+</section>
+
+</div>
+<footer>RedMote v1.1.1 · a Mote game for the Thumby Color · this manual is generated from the game's own data tables.</footer>
+</body>
+</html>
