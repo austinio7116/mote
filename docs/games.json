@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-13T07:26:18+00:00",
+ "generated": "2026-07-13T11:13:26+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -47,10 +47,10 @@
    "id": "redmote",
    "name": "RedMote",
    "author": "austinio7116",
-   "version": "1.1.1",
+   "version": "1.2.0",
    "abi": 47,
-   "size": 236400,
-   "sha256": "df9f0b0f5e14fb90676977c89a35aadee1e12f669c22ab77574a0e5711e77467",
+   "size": 243224,
+   "sha256": "b6213f1b24104166a3c3101379735dd81fb608629305860fbb9d023cf2f756e4",
    "file": "games/RedMote.mote",
    "icon": "img/gallery/redmote-icon.png",
    "thumb": "img/gallery/redmote-1.png",
@@ -60,8 +60,8 @@
     "img/gallery/redmote-3.png"
    ],
    "tag": "Tiny-scale Red Alert RTS",
-   "desc": "A comically tiny but fully functional Red Alert-style RTS: units are about six pixels each, so whole armies clash on the 128-pixel screen. The full tech tree is here — power plants, ore refineries with harvesters, war factories, radar, helipads and tesla coils — behind fog of war and a hold-to-open radar minimap, with nine unit types across six weapon classes that trade blows through a real armour/damage table. Build the base from a paused card menu, queue and batch production, auto-paved roads knitting it together, and rally your selection into formation across procedurally generated maps. A nine-mission teaching campaign runs from an army-only opener to a full-tech finale; a separate skirmish mode lets you dial in army size, base level, funds and enemy difficulty.",
-   "multiplayer": false
+   "desc": "A comically tiny but fully functional Red Alert-style RTS: units are about six pixels each, so whole armies clash on the 128-pixel screen. The full tech tree is here — power plants, ore refineries with harvesters, war factories, radar, helipads and tesla coils — behind fog of war and a hold-to-open radar minimap, with nine unit types across six weapon classes that trade blows through a real armour/damage table. Build the base from a paused card menu, queue and batch production, auto-paved roads knitting it together, and rally your selection into formation across procedurally generated maps. A nine-mission teaching campaign runs from an army-only opener to a full-tech finale; a separate skirmish mode lets you dial in army size, base level, funds and enemy difficulty. 2P LINK: a full lockstep 1v1 over the link — build, tech and battle against a friend over USB, LAN or internet.",
+   "multiplayer": true
   },
   {
    "id": "wolfmote",
