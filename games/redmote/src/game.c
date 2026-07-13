@@ -15,11 +15,12 @@
  *      ground = box select / with selection: move, attack, harvest
  *   B: deselect / cancel
  *   LB: build sidebar (LB again cycles tab, UP/DOWN, A build/place)
- *   RB: tap = jump to base, hold = radar minimap
+ *   RB: tap = jump to base, hold = radar minimap (A over the map = order/recenter)
  *   MENU: pause
  *
  * Host test hooks: MOTE_RTS_AUTO (skip title), MOTE_RTS_REVEAL (no fog),
- * MOTE_RTS_FAST (10x economy), MOTE_RTS_BATTLE (spawn armies clashing
+ * MOTE_RTS_DEMO (self-drive: army hunts the enemy, camera follows — for demo
+ * capture), MOTE_RTS_FAST (10x economy), MOTE_RTS_BATTLE (spawn armies clashing
  * mid-map), MOTE_RTS_STATS (5s telemetry to stderr).
  */
 #include "mote_api.h"
@@ -67,7 +68,7 @@ MOTE_MODULE_HEADER();
 #ifdef MOTE_HOST
 #include <stdlib.h>
 /* cached env hooks — hk() is hit per tile per frame in the fog pass */
-static int hk_reveal = -1, hk_fast = -1, hk_battle = -1, hk_auto = -1, hk_stats = -1, hk_dbg = -1, hk_spy = -1;
+static int hk_reveal = -1, hk_fast = -1, hk_battle = -1, hk_auto = -1, hk_stats = -1, hk_dbg = -1, hk_spy = -1, hk_demo = -1;
 static void hk_init(void){
     hk_reveal = getenv("MOTE_RTS_REVEAL") != 0;
     hk_fast   = getenv("MOTE_RTS_FAST") != 0;
@@ -76,10 +77,11 @@ static void hk_init(void){
     hk_stats  = getenv("MOTE_RTS_STATS") != 0;
     hk_dbg    = getenv("MOTE_RTS_DBG") != 0;
     hk_spy    = getenv("MOTE_RTS_SPYCAM") != 0;
+    hk_demo   = getenv("MOTE_RTS_DEMO") != 0;   /* self-drive: army hunts, camera follows */
     if (hk_battle || hk_spy) hk_reveal = 1;
 }
 #else
-enum { hk_reveal = 0, hk_fast = 0, hk_battle = 0, hk_auto = 0, hk_stats = 0, hk_dbg = 0, hk_spy = 0 };
+enum { hk_reveal = 0, hk_fast = 0, hk_battle = 0, hk_auto = 0, hk_stats = 0, hk_dbg = 0, hk_spy = 0, hk_demo = 0 };
 static void hk_init(void){}
 #endif
 
@@ -1455,15 +1457,18 @@ static void setup_army(int team, int size){
     const uint8_t *L = size == AR_SQUAD ? SQUAD : size == AR_FORCE ? FORCE : HORDE;
     int n = size == AR_SQUAD ? 6 : size == AR_FORCE ? 12 : 22;
     if (size == AR_NONE) return;
-    int bx = base_t[team] % MW, by = base_t[team] / MW;
-    for (int i = 0; i < n; i++){
-        for (int tries = 0; tries < 60; tries++){
-            int tx = bx + rndn(17) - 8 + 1, ty = by + rndn(17) - 8 + 1;
-            if (!walkxy(tx, ty)) continue;
-            spawn_unit(L[i], team, tx * TILE + 4, ty * TILE + 4);
-            break;
-        }
-    }
+    /* tight formation: fill walkable tiles ring-by-ring from a centre so the
+     * force starts as a compact block, not scattered across the base */
+    int cx = base_t[team] % MW + 1, cy = base_t[team] / MW + 3;
+    int placed = 0;
+    for (int r = 0; r <= 6 && placed < n; r++)
+        for (int dy = -r; dy <= r && placed < n; dy++)
+            for (int dx = -r; dx <= r && placed < n; dx++){
+                if (r > 0 && dx > -r && dx < r && dy > -r && dy < r) continue;  /* ring only */
+                int tx = cx + dx, ty = cy + dy;
+                if (!walkxy(tx, ty)) continue;
+                spawn_unit(L[placed++], team, tx * TILE + 4, ty * TILE + 4);
+            }
 }
 static int ai_count_b(int type){
     int n = 0;
@@ -2467,6 +2472,24 @@ static void input_play(float dt){
         return;
     }
 
+    /* minimap click: while the radar map is up (RB held), A over the map issues
+     * orders to the MAP location — or recenters the view if nothing is selected */
+    int mm_show = rb_t > 0.001f && (m_free_radar || ((owned[0] & (1u << B_RADAR)) && power_ok(0)));
+    if (mm_show && mote_just_pressed(in, MOTE_BTN_A)
+        && curx >= 16 && curx < 16 + MW && cury >= 16 && cury < 16 + MH){
+        int mtx = (int)curx - 16, mty = (int)cury - 16;
+        if (tin(mtx, mty)){
+            if (sel_count()) cmd_at(mtx * TILE + 4.0f, mty * TILE + 4.0f);
+            else {
+                camx = mtx * TILE - 64; camy = mty * TILE - 64;
+                if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
+                if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
+                sfx(&click_sfx, 0.35f, 7, 0.05f);
+            }
+        }
+        return;                 /* consume: skip screen box-select / command */
+    }
+
     /* A: select / command / box select */
     if (mote_just_pressed(in, MOTE_BTN_A)){
         a_down_t = gtime; a_mode = 1; boxx = curx; boxy = cury;
@@ -2541,6 +2564,13 @@ static void world_init(void){
     if (hk_battle){
         /* two armies clashing mid-map, for FX verification */
         credits[0] = credits[1] = 20000;
+        /* clear a clean grass arena so the fight isn't buried in an ore field */
+        for (int ty = 40; ty <= 56; ty++)
+            for (int tx = 40; tx <= 56; tx++)
+                if (tin(tx, ty)){
+                    int t = tidx(tx, ty);
+                    if (bmap[t] == 0xFF){ terr[t] = T_GRASS; orea[t] = 0; }
+                }
         static const uint8_t comp[] = { U_RIFLE, U_RIFLE, U_RIFLE, U_ROCK, U_FLAME,
                                         U_LTANK, U_LTANK, U_HTANK, U_ARTY, U_TESLA, U_HELI };
         for (int team = 0; team < 2; team++)
@@ -2755,6 +2785,30 @@ static void g_update(float dt){
             }
         if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
         if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
+    }
+    if (hk_demo && state == ST_PLAY){
+        /* self-driving demo: throw the whole player army at the enemy base and
+         * chase the fight with the camera, so a headless run films real combat */
+        if ((framec % 30) == 0){
+            int eb = acquire_bldg(0, WPX * 0.7f, WPX * 0.3f, 1e9f);
+            int eu = acquire(0, WPX * 0.7f, WPX * 0.3f, 1e9f, 1);
+            int16_t tgt = eb >= 0 ? -(eb + 2) : eu;
+            if (tgt != -1)
+                for (int i = 0; i < MAXU; i++)
+                    if (un[i].alive && un[i].team == 0 && UD[un[i].type].weapon){
+                        un[i].order = O_HUNT; un[i].tgt = tgt; un[i].dest = 0;
+                    }
+        }
+        /* camera eases toward the army's centroid */
+        float sx = 0, sy = 0; int n = 0;
+        for (int i = 0; i < MAXU; i++)
+            if (un[i].alive && un[i].team == 0){ sx += un[i].x; sy += un[i].y; n++; }
+        if (n){
+            float tx = sx / n - 64, ty = sy / n - 64;
+            camx += (tx - camx) * 0.05f; camy += (ty - camy) * 0.05f;
+            if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
+            if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
+        }
     }
 #endif
 
