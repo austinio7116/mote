@@ -1,6 +1,6 @@
 sheet assets/tiles_flower.png
 tile 8
-type 0
+type 1
 edge 0
 nvar 4
 cols 1

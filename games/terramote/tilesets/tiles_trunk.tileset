@@ -1,6 +1,6 @@
 sheet assets/tiles_trunk.png
 tile 8
-type 0
+type 1
 edge 1
 nvar 1
 cols 4

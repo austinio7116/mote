@@ -1,0 +1,8 @@
+sheet assets/slime_lava.png
+tile 16 12
+clips 2
+clip idle 2 4 0 0 2
+f 0 220 -
+f 1 220 -
+clip jump 1 8 0 0 1
+f 2 120 -

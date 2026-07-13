@@ -4,14 +4,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "slime.h"        /* slime_img       16x12 x3 */
-#include "slime_blue.h"   /* slime_blue_img */
-#include "slime_lava.h"   /* slime_lava_img */
-#include "zombie.h"       /* zombie_img      16x24 x4 */
-#include "skeleton.h"     /* skeleton_img */
-#include "eye.h"          /* eye_img         16x16 x2 */
-#include "bat.h"          /* bat_img         16x10 x2 */
-#include "eoc.h"          /* eoc_img         40x40 x4 */
+/* Enemy animation clips — authored in anims/<name>.anims, editable in Studio's
+ * Anim tab, driven here by a MoteAnimPlayer per enemy (like the player). */
+#include "slime.anim.h"        /* slime_sheet · slime_idle / slime_jump */
+#include "slime_blue.anim.h"
+#include "slime_lava.anim.h"
+#include "zombie.anim.h"       /* zombie_sheet · zombie_walk */
+#include "skeleton.anim.h"     /* skeleton_sheet · skeleton_walk */
+#include "eye.anim.h"          /* eye_sheet · eye_fly */
+#include "bat.anim.h"          /* bat_sheet · bat_fly */
+#include "eoc.anim.h"          /* eoc_sheet · eoc_p1 / eoc_p2 */
 
 Enemy g_en[MAX_ENEMIES];
 Drop  g_drops[MAX_DROPS];
@@ -36,18 +38,33 @@ static const EnemyDef k_edef[E_COUNT] = {
     [E_SKELETON]    = { 0, 12, 16, 4, 7, 70, 18, 5 },
     [E_BOSS_EOC]    = { 0, 40, 40, 14, 14, 1400, 15, 40 },
 };
-static const MoteImage *edef_img(uint8_t kind) {
+static const MoteAnimSheet *edef_sheet(uint8_t kind) {
     switch (kind) {
-    case E_SLIME_GREEN: return &slime_img;
-    case E_SLIME_BLUE:  return &slime_blue_img;
-    case E_SLIME_LAVA:  return &slime_lava_img;
-    case E_ZOMBIE:      return &zombie_img;
-    case E_EYE:         return &eye_img;
-    case E_BAT:         return &bat_img;
-    case E_SKELETON:    return &skeleton_img;
-    case E_BOSS_EOC:    return &eoc_img;
+    case E_SLIME_GREEN: return &slime_sheet;
+    case E_SLIME_BLUE:  return &slime_blue_sheet;
+    case E_SLIME_LAVA:  return &slime_lava_sheet;
+    case E_ZOMBIE:      return &zombie_sheet;
+    case E_EYE:         return &eye_sheet;
+    case E_BAT:         return &bat_sheet;
+    case E_SKELETON:    return &skeleton_sheet;
+    case E_BOSS_EOC:    return &eoc_sheet;
     }
-    return &slime_img;
+    return &slime_sheet;
+}
+
+/* the contextually-correct clip for an enemy's current state */
+static const MoteAnimClip *edef_clip(const Enemy *e) {
+    switch (e->kind) {
+    case E_SLIME_GREEN: return e->on_ground ? &slime_idle      : &slime_jump;
+    case E_SLIME_BLUE:  return e->on_ground ? &slime_blue_idle : &slime_blue_jump;
+    case E_SLIME_LAVA:  return e->on_ground ? &slime_lava_idle : &slime_lava_jump;
+    case E_ZOMBIE:      return &zombie_walk;
+    case E_SKELETON:    return &skeleton_walk;
+    case E_EYE:         return &eye_fly;
+    case E_BAT:         return &bat_fly;
+    case E_BOSS_EOC:    return e->phase ? &eoc_p2 : &eoc_p1;
+    }
+    return &slime_idle;
 }
 
 static float s_spawn_t;
@@ -275,6 +292,7 @@ static void en_spawn(uint8_t kind, float x, float y) {
     g_en[i].hp = k_edef[kind].hp;
     g_en[i].facing = x > g_pl.x ? -1 : 1;
     g_en[i].t = mote_randf(0, 1.0f);
+    mote_anim_play(&g_en[i].anim, edef_clip(&g_en[i]));
 }
 
 void npc_spawn_boss(void) {
@@ -443,6 +461,11 @@ void npc_tick(float dt) {
         }
         }
 
+        /* advance animation (switch clip when the enemy's state changes) */
+        const MoteAnimClip *clip = edef_clip(e);
+        if (e->anim.clip != clip) mote_anim_play(&e->anim, clip);
+        mote_anim_tick(&e->anim, dt);
+
         /* contact damage */
         if (fabsf(e->x - g_pl.x) < d->hw + 4 && fabsf(e->y - (g_pl.y - 8)) < d->hh + 7) {
             player_damage(d->dmg, (g_pl.x > e->x ? 1 : -1) * 120.0f);
@@ -460,27 +483,13 @@ void npc_draw(void) {
         Enemy *e = &g_en[i];
         if (!e->kind) continue;
         const EnemyDef *d = &k_edef[e->kind];
-        const MoteImage *img = edef_img(e->kind);
-        int frame = 0;
-        switch (e->kind) {
-        case E_SLIME_GREEN: case E_SLIME_BLUE: case E_SLIME_LAVA:
-            frame = e->on_ground ? ((e->t > 1.1f) ? 1 : 0) : 2;
-            break;
-        case E_ZOMBIE: case E_SKELETON:
-            frame = ((int)(e->t * 6.0f)) & 3;
-            break;
-        case E_EYE: case E_BAT:
-            frame = ((int)(e->t * 8.0f)) & 1;
-            break;
-        case E_BOSS_EOC:
-            frame = (e->phase ? 2 : 0) + (((int)(e->t * 6.0f)) & 1);
-            break;
-        }
+        const MoteAnimSheet *sh = edef_sheet(e->kind);
         MoteSprite s = {
-            .img = img,
+            .img = sh->image,
             .x = (int16_t)(e->x - d->fw / 2),
             .y = (int16_t)(e->y - d->fh / 2),
-            .fx = (uint16_t)(frame * d->fw), .fy = 0,
+            .fx = (uint16_t)mote_anim_fx(&e->anim, sh),
+            .fy = (uint16_t)mote_anim_fy(&e->anim, sh),
             .fw = d->fw, .fh = d->fh,
             .layer = 9,
             .flags = e->facing < 0 ? 0 : MOTE_SPR_HFLIP,   /* art faces LEFT for eye/eoc */

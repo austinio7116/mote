@@ -1,0 +1,8 @@
+sheet assets/zombie.png
+tile 12 16
+clips 1
+clip walk 1 7 0 0 4
+f 0 130 -
+f 1 130 -
+f 2 130 -
+f 3 130 -

@@ -33,11 +33,5 @@ static const uint8_t skeleton_idx[768] = {
 static const MoteImage skeleton_img = { 0, 48, 16, 0xF81F, 0, 2, skeleton_idx, skeleton_pal };  /* 8bpp indexed, 158 colours */
 #define skeleton_W 48
 #define skeleton_H 16
-#define skeleton_CELLW 12
-#define skeleton_CELLH 16
-#define skeleton_COLS 4
-#define skeleton_ROWS 1
-#define skeleton_MARGIN 0
-#define skeleton_SPACING 0
 
 #endif

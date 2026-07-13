@@ -14,11 +14,5 @@ static const uint8_t bat_idx[160] = {
 static const MoteImage bat_img = { 0, 32, 10, 0xF81F, 0, 1, bat_idx, bat_pal };  /* 4bpp indexed, 5 colours */
 #define bat_W 32
 #define bat_H 10
-#define bat_CELLW 16
-#define bat_CELLH 10
-#define bat_COLS 2
-#define bat_ROWS 1
-#define bat_MARGIN 0
-#define bat_SPACING 0
 
 #endif

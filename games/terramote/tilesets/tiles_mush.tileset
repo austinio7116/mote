@@ -1,6 +1,6 @@
 sheet assets/tiles_mush.png
 tile 8
-type 0
+type 1
 edge 0
 nvar 1
 cols 1

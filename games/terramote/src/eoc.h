@@ -408,11 +408,5 @@ static const uint16_t eoc_px[6400] = {
 static const MoteImage eoc_img = { eoc_px, 160, 40, 0xF81F, 0 };
 #define eoc_W 160
 #define eoc_H 40
-#define eoc_CELLW 40
-#define eoc_CELLH 40
-#define eoc_COLS 4
-#define eoc_ROWS 1
-#define eoc_MARGIN 0
-#define eoc_SPACING 0
 
 #endif

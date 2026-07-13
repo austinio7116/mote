@@ -21,11 +21,5 @@ static const uint8_t zombie_idx[384] = {
 static const MoteImage zombie_img = { 0, 48, 16, 0xF81F, 0, 1, zombie_idx, zombie_pal };  /* 4bpp indexed, 10 colours */
 #define zombie_W 48
 #define zombie_H 16
-#define zombie_CELLW 12
-#define zombie_CELLH 16
-#define zombie_COLS 4
-#define zombie_ROWS 1
-#define zombie_MARGIN 0
-#define zombie_SPACING 0
 
 #endif
