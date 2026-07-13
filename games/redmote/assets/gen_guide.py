@@ -56,7 +56,7 @@ MISSIONS = [
     ("First Blood", "No base at all — you command a fixed strike force. March across the map and raze the enemy outpost.",
      "12-unit force, no base, field radar", "A small guarded outpost", "Selection, movement, attacking"),
     ("Foothold", "Your first base. Build a Power Plant and a Refinery, let the harvester fund you, then train a force and crush the guard post.",
-     "Construction Yard, $1200, tier-1 tech", "An outpost with a squad", "Power, refineries, harvesters, production"),
+     "Construction Yard, $3000, tier-1 tech", "An outpost with a squad", "Power, refineries, harvesters, production"),
     ("Hold the Line", "Infantry raids are coming. Wall the approaches with Pillboxes, weather the waves, then counter-attack.",
      "Basic base, $4000, tier-1 tech", "Basic base, attacks in waves", "Base defence, holding under pressure"),
     ("Iron Fist", "The enemy fields armour. Build a War Factory and answer tanks with tanks.",

@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("1.1.1");
+MOTE_GAME_VERSION("1.1.2");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -288,7 +288,7 @@ static const Mission MISSIONS[9] = {
     { "FIRST BLOOD", "No base. Lead your force.", "Raze their outpost.",
       BL_NONE, AR_FORCE, 0, 0, 0,  BL_OUTPOST, AR_SQUAD, 0, 0, 0, 0, 0, 0, 0 },
     { "FOOTHOLD", "Build POWER + REFINERY.", "Fund a strike force.",
-      BL_CON, AR_SQUAD, 1200, TECH_T1, 1,  BL_OUTPOST, AR_SQUAD, 0, 0, 0, 0, 0, 0, 0 },
+      BL_CON, AR_SQUAD, 3000, TECH_T1, 1,  BL_OUTPOST, AR_SQUAD, 0, 0, 0, 0, 0, 0, 0 },
     { "HOLD THE LINE", "Raids inbound. Dig in", "with PILLS, then hit back.",
       BL_BASIC, AR_SQUAD, 4000, TECH_T1, 1,  BL_BASIC, AR_SQUAD, 2500, TECH_T1, 1, 1, 45, 50, 3 },
     { "IRON FIST", "Enemy armour. Build a", "FACTORY. Answer in kind.",
