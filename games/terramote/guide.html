@@ -195,9 +195,9 @@
   .tip p{margin:0;font-size:.94rem;color:var(--ink-soft)}
   .tip b{color:var(--ink)}
 
-  ul.clean{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-  ul.clean li{display:grid;grid-template-columns:18px 1fr;gap:10px;font-size:.95rem;color:var(--ink-soft)}
-  ul.clean li::before{content:"▸";color:var(--gold);font-family:var(--mono)}
+  ul.clean{list-style:none;padding:0;margin:0;display:grid;gap:9px}
+  ul.clean li{position:relative;padding-left:24px;font-size:.95rem;color:var(--ink-soft);max-width:64ch}
+  ul.clean li::before{content:"▸";position:absolute;left:0;top:0;color:var(--gold);font-family:var(--mono)}
   ul.clean li b{color:var(--ink)}
 
   footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--ink-faint);font-size:.85rem}
