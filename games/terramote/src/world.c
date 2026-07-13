@@ -1,6 +1,8 @@
 /* TerraMote — world planes, generation, tile operations, liquids, growth. */
 #include "terra.h"
 #include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 int world_surface_row_uncached(int c);
 int world_biome(int c);
@@ -230,20 +232,73 @@ int world_place_tile(int c, int r, uint8_t tile) {
 static int gen_stage;
 static int spawn_c = WCOLS / 2;
 
-/* biome regions (columns) */
-#define B_SNOW_END    92
-#define B_DESERT_X0   268
-#define B_DESERT_X1   340
-#define B_CORRUPT_X0  352
-
-static int biome_of(int c);
-int world_biome(int c) { return biome_of(c); }
+/* Biome layout — RANDOMIZED per seed. Snow / desert / corruption are placed as
+ * non-overlapping bands scattered across the world (order + position + width all
+ * from the seed); forest fills the rest and always surrounds spawn (like
+ * Terraria). Set once by gen_biomes() at the start of generation. */
+static int16_t g_bstart[3], g_bend[3];   /* special-biome bands */
+static uint8_t g_bkind[3];               /* 1 snow · 2 desert · 3 corruption */
+static int     g_nbands;
+static int     g_corr_lo = -1, g_corr_hi = -1;   /* corruption band, for its gen */
 
 static int biome_of(int c) {   /* 0 forest 1 snow 2 desert 3 corruption */
-    if (c < B_SNOW_END) return 1;
-    if (c >= B_DESERT_X0 && c < B_DESERT_X1) return 2;
-    if (c >= B_CORRUPT_X0) return 3;
+    for (int b = 0; b < g_nbands; b++)
+        if (c >= g_bstart[b] && c < g_bend[b]) return g_bkind[b];
     return 0;
+}
+int world_biome(int c) { return biome_of(c); }
+
+/* Place ALL THREE special biomes at random, split between a left and a right
+ * zone (so spawn stays in a central forest). Zone-packed rather than
+ * rejection-sampled, so every world always gets a snow, a desert AND a
+ * corruption (a corruption-less world would be unbeatable). Seeded RNG. */
+static void gen_biomes(void) {
+    g_nbands = 0; g_corr_lo = g_corr_hi = -1;
+    uint8_t kinds[3] = { 1, 2, 3 };
+    for (int i = 2; i > 0; i--) {                      /* shuffle order */
+        int j = (int)(wrand() % (uint32_t)(i + 1));
+        uint8_t t = kinds[i]; kinds[i] = kinds[j]; kinds[j] = t;
+    }
+    int nleft = 1 + (int)(wrand() & 1);                /* 1 or 2 biomes left of spawn */
+    const int half = 38;                               /* forest half-window at spawn */
+    int zone[2][2] = { { 8, spawn_c - half }, { spawn_c + half, WCOLS - 8 } };
+    int idx = 0;
+    for (int z = 0; z < 2; z++) {
+        int cnt = z == 0 ? nleft : 3 - nleft;
+        if (cnt <= 0) continue;
+        int zs = zone[z][0], ze = zone[z][1], gap = 6;
+        int pref[3], sum = 0;
+        for (int k = 0; k < cnt; k++) {
+            int kind = kinds[idx + k];
+            pref[k] = kind == 1 ? 86 : kind == 2 ? 72 : 96;   /* snow/desert/corruption */
+            sum += pref[k];
+        }
+        int avail = (ze - zs) - gap * (cnt + 1);
+        for (int k = 0; k < cnt; k++)                  /* scale widths down to fit */
+            if (sum > avail) pref[k] = pref[k] * avail / sum;
+        int used = 0;
+        for (int k = 0; k < cnt; k++) used += pref[k];
+        int slack = (ze - zs) - gap * (cnt + 1) - used;
+        if (slack < 0) slack = 0;
+        int pos = zs + gap + (slack ? (int)(wrand() % (uint32_t)slack) : 0);
+        for (int k = 0; k < cnt; k++) {
+            int kind = kinds[idx + k], w = pref[k];
+            if (w >= 24) {
+                g_bstart[g_nbands] = (int16_t)pos; g_bend[g_nbands] = (int16_t)(pos + w);
+                g_bkind[g_nbands] = (uint8_t)kind;
+                if (kind == 3) { g_corr_lo = pos; g_corr_hi = pos + w; }
+                g_nbands++;
+            }
+            pos += w + gap;
+        }
+        idx += cnt;
+    }
+    if (getenv("TERRA_DBG"))
+        for (int b = 0; b < g_nbands; b++) {
+            char m[48];
+            snprintf(m, sizeof m, "BIOME %d %d %d", g_bkind[b], g_bstart[b], g_bend[b]);
+            mote->log(m);
+        }
 }
 
 static void carve_worm(int c, int r, int len, int rad_max, uint8_t fill) {
@@ -310,6 +365,7 @@ int world_gen_step(void) {
     switch (gen_stage++) {
     case 0: {                                           /* terrain fill */
         wg_rng = g_seed | 1u;
+        gen_biomes();                                   /* seed the biome layout first */
         for (int i = 0; i < MAX_CHESTS; i++) g_chests[i].c = -1;
         for (int c = 0; c < WCOLS; c++) {
             float n = fbm2(c * 0.012f, 3.7f, g_seed, 4);
@@ -368,14 +424,15 @@ int world_gen_step(void) {
         for (int i = 0; i < 52; i++)  vein(wrandi(4, WCOLS - 5), wrandi(150, ROW_HELL - 4), wrandi(3, 7), T_GOLD, T_STONE);
         for (int i = 0; i < 60; i++)  vein(wrandi(4, WCOLS - 5), wrandi(ROW_SURFACE_MAX, 120), wrandi(4, 10), T_CLAY, T_DIRT);
         /* demonite deep in corruption */
-        for (int i = 0; i < 10; i++)  vein(wrandi(B_CORRUPT_X0, WCOLS - 6), wrandi(120, 190), wrandi(3, 6), T_DEMONITE, T_STONE);
+        if (g_corr_lo >= 0)
+            for (int i = 0; i < 10; i++)  vein(wrandi(g_corr_lo, g_corr_hi - 1), wrandi(120, 190), wrandi(3, 6), T_DEMONITE, T_STONE);
         /* hellstone in the underworld ash */
         for (int i = 0; i < 55; i++)  vein(wrandi(4, WCOLS - 5), wrandi(ROW_HELL + 4, WROWS - 6), wrandi(3, 7), T_HELLSTONE, T_ASH);
         return 45;
     }
     case 3: {                                           /* corruption chasms + altars */
-        for (int i = 0; i < 3; i++) {
-            int c = wrandi(B_CORRUPT_X0 + 8, WCOLS - 12);
+        for (int i = 0; g_corr_lo >= 0 && i < 3; i++) {
+            int c = wrandi(g_corr_lo + 6, g_corr_hi - 6);
             int top = 0; while (top < WROWS - 1 && !g_tiles[g_fgm[top * WCOLS + c]].solid) top++;
             int depth = wrandi(50, 80);
             for (int r = top; r < top + depth && r < ROW_HELL - 6; r++)
