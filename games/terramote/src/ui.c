@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "ui.h"    /* ui_img: 12px cells: hearts 0-2, slots 3-4, reticle 5, bubble 6, arrows 7-8 */
+#include "player_meta.h"   /* per-frame head offsets so the creator's hair rides the head */
 
 const MoteImage *g_ui_sheet = &ui_img;
 Chest *g_open_chest;
@@ -390,8 +391,12 @@ void ui_create(uint16_t *fb) {
             if (i >= 1) mote->draw_rect(fb, 86, y + 2, 8, 8, chip, 1, 0, MOTE_FB_H);
         }
     }
-    /* live preview, walking, 3x scale via repeated blits is unavailable — draw 1x pair */
+    /* live preview: the walk cycle. The hair is a separate sheet, so it must ride
+     * the head's measured position for THIS frame (player_head_dx/dy) exactly like
+     * the in-game draw in player.c — otherwise it detaches when the head bobs. */
     int frame = 1 + ((int)(s_ui_t * 6) & 3);
+    int hdx = frame < PLAYER_FRAMES ? player_head_dx[frame] : 0;
+    int hdy = frame < PLAYER_FRAMES ? player_head_dy[frame] : 0;
     const MoteImage *body = player_body_img();
     const MoteImage *hair = player_hair_img();
     int px = 104, py = 44;
@@ -399,7 +404,7 @@ void ui_create(uint16_t *fb) {
     mote->draw_rect(fb, px - 6, py - 5, 24, 27, rgb(90, 84, 110), 0, 0, MOTE_FB_H);
     mote->blit(fb, body, px, py, frame * 12, 0, 12, 16, 0, 0, MOTE_FB_H);
     if (g_pl.hair_style < HAIR_STYLES)
-        mote->blit(fb, hair, px, py, g_pl.hair_style * 12, 0, 12, 10, 0, 0, MOTE_FB_H);
+        mote->blit(fb, hair, px + hdx, py + hdy, g_pl.hair_style * 12, 0, 12, 10, 0, 0, MOTE_FB_H);
 
     if (mote_just_pressed(in, MOTE_BTN_UP))   s_create_cur = (s_create_cur + 5) % 6;
     if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_create_cur = (s_create_cur + 1) % 6;
