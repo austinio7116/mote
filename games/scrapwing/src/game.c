@@ -37,7 +37,6 @@ MOTE_MODULE_HEADER();
 #include "weapons.h"        /* weapons_img: 16x16 weapon icons */
 #include "props.h"          /* props_img: chips[6] turret[2] core[2] (8x8) */
 #include "mines.h"          /* mines_img: 16x16 proximity mines */
-#include "gate.h"           /* gate_img: 2 frames 16x24 */
 #include "rock.tiles.h"     /* biome terrains: BLOB47 rulesets (Studio Tiles tab) */
 #include "hull.tiles.h"     /* hull_at — derelict ledges, present in every biome */
 #include "flesh.tiles.h"
@@ -313,6 +312,12 @@ static const Biome biomes[5] = {
 };
 static int cur_biome;
 static int cur_biome_get(void) { return cur_biome; }
+static uint32_t run_seed_get(void);              /* fwd */
+static int sector_get(void);                     /* fwd */
+/* the biome the warp gate leads to — same formula gen_sector uses */
+static int next_biome(void) {
+    return (int)(((run_seed_get() >> 6) + (uint32_t)(sector_get() + 1) * 2654435761u) % 5u);
+}
 static void build_gradient(void);   /* fwd: sky rebuilt per sector */
 
 /* ------------------------------------------------------------------ tuning */
@@ -491,6 +496,8 @@ static int  inv_n, equipped;
 static int  sector, scrap, kills;
 static uint32_t run_seed;
 static int  gate_x, gate_y;             /* gate world pos (top-left) */
+static uint32_t run_seed_get(void) { return run_seed; }
+static int sector_get(void) { return sector; }
 static int  gate_open;                  /* boss sectors seal the gate until the boss falls */
 static float gate_t;
 
@@ -1634,6 +1641,7 @@ static void gen_sector(void) {
         if (!solid(ex, ey)) drop_chip(ex, ey, 0, CH_HEAL);
     }
     if (getenv("SCRAP_DBG")) {
+        fprintf(stderr, "[GATE] %d,%d open=%d next=%d\n", gate_x, gate_y, gate_open, next_biome());
         for (int i = 0; i < deco_n; i++)
             fprintf(stderr, "[DECO] %d cell=%d at %d,%d\n", i,
                     (int)decos[i].idx - PG_IDX, decos[i].x, decos[i].y);
@@ -2135,8 +2143,30 @@ static void player_update(float dt) {
 
     /* warp gate */
     gate_t += dt;
+    if (gate_open) {
+        float gcx = gate_x + 8, gcy = gate_y + 12;
+        int nb = next_biome();
+        if ((mote_rand() & 3) == 0) {                /* rim sparkle */
+            float a = mote_randf(0, 6.28f);
+            spawn_part(gcx + cosf(a) * 7, gcy + sinf(a) * 15,
+                       cosf(a) * 8, sinf(a) * 8,
+                       (mote_rand() & 1) ? exh_col[nb][0] : MOTE_RGB565(255, 255, 255),
+                       mote_randf(0.15f, 0.3f), PF_ADD);
+        }
+        if ((mote_rand() & 7) == 0) {                /* dust dragged INTO the tear */
+            float a = mote_randf(0, 6.28f), r = mote_randf(18, 30);
+            float sx2 = gcx + cosf(a) * r, sy2 = gcy + sinf(a) * r * 1.4f;
+            spawn_part(sx2, sy2, (gcx - sx2) * 1.6f, (gcy - sy2) * 1.6f,
+                       exh_col[nb][mote_rand() & 1], mote_randf(0.4f, 0.6f),
+                       PF_ADD | PF_DRAG);
+        }
+        if ((mote_rand() & 31) == 0)                 /* a slow energy streak */
+            spawn_part(gcx + mote_randf(-4, 4), gcy + mote_randf(-12, 12),
+                       mote_randf(-30, 30), mote_randf(-30, 30),
+                       exh_col[nb][0], 0.25f, PF_ADD | PF_STREAK | PF_DRAG);
+    }
     if (gate_open &&
-        px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 2 && py < gate_y + 26) {
+        px > gate_x - 2 && px < gate_x + 18 && py > gate_y - 6 && py < gate_y + 30) {
         mote->audio_play_sfx(&gate_sfx, 0.8f);
         state = ST_CLEAR; state_t = 0;
         save_best();
@@ -2888,12 +2918,7 @@ static void submit_scene(void) {
         mote->scene2d_add(&s);
     }
 
-    /* warp gate (animated; sealed until a boss sector's guardian falls) */
-    if (gate_open) {
-        MoteSprite gs = { &gate_img, (int16_t)gate_x, (int16_t)gate_y,
-                          (uint16_t)(((int)(gate_t * 6) & 1) * 16), 0, 16, 24, 3, 0 };
-        mote->scene2d_add(&gs);
-    }
+    /* the warp gate is a TEAR IN SPACE, drawn in the overlay pass */
 
     /* chips */
     for (int i = 0; i < MAXCHIP; i++) {
@@ -3411,6 +3436,76 @@ static void draw_shot(uint16_t *fb, const Shot *s) {
         px_add(fb, x - ox, y - oy, ec[1]);
         mote->draw_circle(fb, x, y, 2 + big, ec[2], 0, 0, MOTE_FB_H);
         break; }
+    }
+}
+
+/* ============================================================ warp tear */
+/* The gate is a TEAR in space: a ragged marquise-shaped window showing the
+ * NEXT biome's sky through it, rimmed in that biome's energy colour. */
+#define TEAR_H 17
+#define TEAR_W 8.0f
+static void draw_warp_tear(uint16_t *fb) {
+    if (!gate_open) return;
+    int nb = next_biome();
+    const Biome *b = &biomes[nb];
+    int cx = gate_x + 8 - cam_x, cy = gate_y + 12 - cam_y;
+    if (cx < -14 || cx > MOTE_FB_W + 14 || cy < -24 || cy > MOTE_FB_H + 24) return;
+    int frame = (int)(gate_t * 10.0f);
+    float breathe = 1.0f + 0.05f * sinf(gate_t * 2.3f);
+
+    for (int dy = -TEAR_H; dy <= TEAR_H; dy++) {
+        int y = cy + dy;
+        if ((unsigned)y >= MOTE_FB_H) continue;
+        float t = (float)dy / TEAR_H;
+        float w = TEAR_W * powf(1.0f - (t < 0 ? -t : t), 0.72f) * breathe;
+        /* ragged edges: each side torn independently, slowly rewriting */
+        int jl = (int)(h2(dy * 5 + 1, frame >> 2) % 3) - 1;
+        int jr = (int)(h2(dy * 5 + 99, frame >> 2) % 3) - 1;
+        if ((h2(dy * 3, frame >> 3) & 15) == 0) jl -= 2;     /* occasional spike */
+        if ((h2(dy * 3 + 7, frame >> 3) & 15) == 0) jr += 2;
+        int x0 = cx - (int)w + jl, x1 = cx + (int)w + jr;
+        if (x1 < x0) continue;
+        for (int x = x0; x <= x1; x++) {
+            if ((unsigned)x >= MOTE_FB_W) continue;
+            if (x <= x0 + 1 || x >= x1 - 1) {        /* the burning rim, 2px */
+                fb[y * MOTE_FB_W + x] = ((x + dy + frame) & 3)
+                    ? exh_col[nb][x == x0 || x == x1 ? 0 : 1]
+                    : MOTE_RGB565(255, 255, 255);
+                continue;
+            }
+            /* through the tear: the next world's sky, gently swirling */
+            int wy = (dy + TEAR_H) * 4 + (int)(gate_t * 6.0f);
+            int wx = (x - cx) * 4 + (int)(sinf(dy * 0.4f + gate_t * 2.0f) * 3.0f);
+            uint16_t base;
+            {
+                /* the next world glows BRIGHTER through the tear than its
+                 * own sky ever is — it's radiating through the breach */
+                float gt = (float)(dy + TEAR_H) / (2 * TEAR_H);
+                int r2 = (int)((b->sky0[0] + (b->sky1[0] - b->sky0[0]) * gt) * 3.2f);
+                int g2 = (int)((b->sky0[1] + (b->sky1[1] - b->sky0[1]) * gt) * 3.2f);
+                int b2 = (int)((b->sky0[2] + (b->sky1[2] - b->sky0[2]) * gt) * 3.2f);
+                base = MOTE_RGB565(r2 > 255 ? 255 : r2, g2 > 255 ? 255 : g2,
+                                   b2 > 255 ? 255 : b2);
+            }
+            int cxn = wx >> 5, fx = wx & 31, cyn = wy >> 5, fy = wy & 31;
+            int v00 = (int)(h2(cxn, cyn) & 63),     v10 = (int)(h2(cxn + 1, cyn) & 63);
+            int v01 = (int)(h2(cxn, cyn + 1) & 63), v11 = (int)(h2(cxn + 1, cyn + 1) & 63);
+            int vt = (v00 * (32 - fx) + v10 * fx) >> 5;
+            int vb = (v01 * (32 - fx) + v11 * fx) >> 5;
+            int v = (vt * (32 - fy) + vb * fy) >> 5;
+            uint16_t c = base;
+            if (v > 26) {                            /* dense, radiant nebula */
+                int a = (v - 26) * 2;
+                int r2 = b->neb0[0] * 2 + ((a * b->nebs[0]) >> 2);
+                int g2 = b->neb0[1] * 2 + ((a * b->nebs[1]) >> 2);
+                int b2 = b->neb0[2] * 2 + ((a * b->nebs[2]) >> 2);
+                c = MOTE_RGB565(r2 > 255 ? 255 : r2, g2 > 255 ? 255 : g2,
+                                b2 > 255 ? 255 : b2);
+            }
+            if ((h2(wx >> 2, wy >> 2) & 63) == 3)    /* stars of the next world */
+                c = MOTE_RGB565(230, 240, 255);
+            fb[y * MOTE_FB_W + x] = c;
+        }
     }
 }
 
@@ -4020,6 +4115,9 @@ static void g_overlay(uint16_t *fb) {
     }
 
     if (state == ST_FUSE) bench_overlay(fb);      /* panel first: demo FX draw over it */
+
+    if (state == ST_PLAY || state == ST_CLEAR || state == ST_DEAD)
+        draw_warp_tear(fb);                       /* under the FX: sparks fly over it */
 
     /* world-space pixel FX */
     for (int i = 0; i < MAXP; i++) {
