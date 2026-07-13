@@ -47,6 +47,11 @@ header nav a:hover{color:var(--text)}
 .dl{display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:#fff;text-decoration:none;
   font-weight:600;padding:12px 22px;border-radius:12px;transition:transform .12s, box-shadow .12s;
   box-shadow:0 6px 22px rgba(124,92,255,.35)}
+.dl:hover{transform:translateY(-1px)}
+.guide{display:none;align-items:center;gap:8px;margin-left:12px;color:var(--accent);text-decoration:none;
+  font-weight:600;padding:12px 20px;border:1px solid var(--accent);border-radius:12px;
+  transition:background .12s,color .12s}
+.guide:hover{background:var(--accent);color:#fff}
 .dl:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(124,92,255,.45)}
 .dl small{font-weight:400;opacity:.8}
 .hint{display:block;color:var(--dim);font-size:12.5px;margin-top:12px}
@@ -92,7 +97,7 @@ footer a{color:var(--accent)}
     <h2><img id="m-icon" src="" alt=""> <span id="m-name"></span></h2>
     <div class="by" id="m-by"></div>
     <p id="m-desc"></p>
-    <a class="dl" id="m-dl" href="#" download>&#8681; Download <small id="m-size"></small></a>
+    <a class="dl" id="m-dl" href="#" download>&#8681; Download <small id="m-size"></small></a><a class="guide" id="m-guide" href="#" target="_blank" rel="noopener">&#128214; Guide</a>
     <span class="hint">Copy onto the device: drop the file into the <code>/mote/</code> folder on the ThumbyOne drive.</span>
   </div>
 </section>
@@ -114,7 +119,7 @@ const GAMES = [
  {id:"wormote", file:"Wormote.mote", name:"Wormote", by:"austinio7116", kb:77, mp:1,
   tag:"Liero-style cave deathmatch",
   desc:"A Liero-style cave deathmatch: every pixel of dirt is destructible, and the ninja rope swings you through the wreckage. Pick any 5 of 20 weapons — minigun, gauss, cluster bombs, napalm, larpa, dirtball, laser, doomsday — then out-dig, out-swing and out-shoot bots that tunnel after you, blast through walls at you, and rope around the caves. Blood stains the dirt, dirtballs bury worms alive, and rock yields only to a worm's teeth. 2P LINK duels a friend over cable or internet."},
- {id:"redmote", file:"RedMote.mote", name:"RedMote", by:"austinio7116", kb:237, mp:1,
+ {id:"redmote", file:"RedMote.mote", name:"RedMote", by:"austinio7116", kb:237, mp:1, guide:"redmote-guide.html",
   tag:"Tiny-scale Red Alert RTS",
   desc:"A comically tiny but fully functional Red Alert-style RTS: units are about six pixels each, so whole armies clash on the 128-pixel screen. The full tech tree is here \u2014 power plants, ore refineries with harvesters, war factories, radar, helipads and tesla coils \u2014 behind fog of war and a hold-to-open radar minimap, with nine unit types across six weapon classes that trade blows through a real armour/damage table. Build the base from a paused card menu, queue and batch production, auto-paved roads knitting it together, and rally your selection into formation across procedurally generated maps. A nine-mission teaching campaign runs from an army-only opener to a full-tech finale; a separate skirmish mode lets you dial in army size, base level, funds and enemy difficulty. 2P LINK: a full lockstep 1v1 over the link \u2014 build, tech and battle against a friend over USB, LAN or internet."},
  {id:"wolfmote", file:"WolfMote.mote", name:"WolfMote", by:"austinio7116", kb:277, mp:1,
@@ -135,13 +140,13 @@ const GAMES = [
  {id:"thumbyrogue", file:"ThumbyRogue.mote", name:"ThumbyRogue", by:"austinio7116", kb:362,
   tag:"First-person dungeon crawl",
   desc:"Descend into The Crypt: a raycast first-person roguelike with procedural floors, monsters, loot and permadeath. Every run is a new dungeon."},
- {id:"thumbycraft", file:"thumbycraft.mote", name:"ThumbyCraft", by:"austinio7116", kb:385,
+ {id:"thumbycraft", file:"thumbycraft.mote", name:"ThumbyCraft", by:"austinio7116", kb:385, guide:"https://github.com/austinio7116/ThumbyCraft#thumbycraft",
   tag:"Voxel mining & building",
   desc:"A pocket voxel world: dig, gather, craft tools and build in a fully destructible landscape with caves, torches and chests — a complete survival loop on a 128-pixel screen. Best played directly on ThumbyOne, where the full-feature build has its own dedicated slot."},
  {id:"thumbycue", file:"thumbycue.mote", name:"ThumbyCue", by:"austinio7116", kb:329, mp:1,
   tag:"3D snooker & pool",
   desc:"Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play the AI, pass-the-device — or 2P LINK a friend across the room or across the world."},
- {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320, n:2, mp:1,
+ {id:"indemnity", file:"indemnity.mote", name:"Indemnity Run", by:"austinio7116", kb:320, n:2, mp:1, guide:"https://austinio7116.github.io/ThumbyElite/",
   tag:"Elite-style space sim",
   desc:"A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it. PVP ARENA: bring your SAVED ship and loadout to a 1v1 dogfight against a friend's."},
  {id:"deepthumb", file:"DeepThumb.mote", name:"DeepThumb", by:"austinio7116", kb:94, n:1, mp:1,
@@ -210,6 +215,8 @@ function select(g,scroll){
   const dl=document.getElementById('m-dl');
   dl.href=`games/${g.file}`; dl.setAttribute('download',g.file);
   document.getElementById('m-size').textContent=`${g.file} · ${g.kb} KB`;
+  const gd=document.getElementById('m-guide');
+  if(g.guide){ gd.href=g.guide; gd.style.display='inline-flex'; } else { gd.style.display='none'; }
   [...grid.children].forEach(c=>c.classList.toggle('sel',c.dataset.id===g.id));
   show(0); restart();
   if(scroll) document.getElementById('hero').scrollIntoView({behavior:'smooth',block:'center'});

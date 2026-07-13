@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-13T11:13:26+00:00",
+ "generated": "2026-07-13T15:54:47+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -21,6 +21,7 @@
    ],
    "tag": "Salvage-fusion cave flyer",
    "desc": "An R-Type roguelike crossed with a gravity cave-flyer: thrust through five procedurally generated alien biomes — caverns, flesh hives, glaciers, spore pits and magma forges — where every enemy fires the weapon gene it carries and drops it when it shatters into its own pixels. Splice salvage at the Fusion Bench (with a live-fire preview of the result) across 8 firing patterns, 6 elements and stacking mods. Every third sector a guardian dreadnought seals the warp gate behind a randomized attack deck; drone wingmen, chrono mines, bomb bays and a recharging shield turn the tide. 417 enemy ships. 78 bosses. One life.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -41,6 +42,7 @@
    ],
    "tag": "Liero-style cave deathmatch",
    "desc": "A Liero-style cave deathmatch: every pixel of dirt is destructible, and the ninja rope swings you through the wreckage. Pick any 5 of 20 weapons — minigun, gauss, cluster bombs, napalm, larpa, dirtball, laser, doomsday — then out-dig, out-swing and out-shoot bots that tunnel after you, blast through walls at you, and rope around the caves. Blood stains the dirt, dirtballs bury worms alive, and rock yields only to a worm's teeth. 2P LINK duels a friend over cable or internet.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -61,6 +63,7 @@
    ],
    "tag": "Tiny-scale Red Alert RTS",
    "desc": "A comically tiny but fully functional Red Alert-style RTS: units are about six pixels each, so whole armies clash on the 128-pixel screen. The full tech tree is here — power plants, ore refineries with harvesters, war factories, radar, helipads and tesla coils — behind fog of war and a hold-to-open radar minimap, with nine unit types across six weapon classes that trade blows through a real armour/damage table. Build the base from a paused card menu, queue and batch production, auto-paved roads knitting it together, and rally your selection into formation across procedurally generated maps. A nine-mission teaching campaign runs from an army-only opener to a full-tech finale; a separate skirmish mode lets you dial in army size, base level, funds and enemy difficulty. 2P LINK: a full lockstep 1v1 over the link — build, tech and battle against a friend over USB, LAN or internet.",
+   "guide": "redmote-guide.html",
    "multiplayer": true
   },
   {
@@ -81,6 +84,7 @@
    ],
    "tag": "Rogue dungeon FPS",
    "desc": "A Wolfenstein-style FPS crossed with a roguelike: eight procedurally generated floors of packed rooms, push-wall secrets and locked vaults. Nine weapons from silent knife to plasma rifle — including a fireball-lobbing flamethrower — drop as weighted random loot. 2P DEATHMATCH: first to ten frags in a shared dungeon, weapons respawning — and when you die you drop your whole arsenal as a loot bag either player can claim.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -101,6 +105,7 @@
    ],
    "tag": "Open-city crime sandbox",
    "desc": "A GTA-1-style top-down city — and every new game generates a brand-new one: fresh rivers, bridges, districts and parks each run. Steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank (now hidden somewhere quiet). Real 2D rigid-body driving with tyre grip and traffic that fights back. 2P DEATHMATCH: same generated city on both units, shared traffic to steal, weapon caches, first to ten.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -121,6 +126,7 @@
    ],
    "tag": "Endless-wave space shooter",
    "desc": "A remake of the Android original with its actual 3D models: endless waves of fighters, tridents, corvettes and spinning UFOs over a scrolling galaxy. Nine power-ups build your arsenal from twin lasers to a nine-gun spread with homing rockets and companion drones — and every tenth wave a boss arrives.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -141,6 +147,7 @@
    ],
    "tag": "Formation shoot-'em-up",
    "desc": "A Galaga-inspired fixed shooter: waves swoop in formation, dive-bomb, and capture your fighter. Chain perfect stages, earn double ships, and chase the high score.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -160,6 +167,7 @@
    ],
    "tag": "Poker roguelike deckbuilder",
    "desc": "A Balatro-style deckbuilder: play poker hands to hit rising blinds, then warp your deck with jokers, planet cards and tarot upgrades. One more ante is always a mistake — take it anyway.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -180,6 +188,7 @@
    ],
    "tag": "First-person dungeon crawl",
    "desc": "Descend into The Crypt: a raycast first-person roguelike with procedural floors, monsters, loot and permadeath. Every run is a new dungeon.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -200,6 +209,7 @@
    ],
    "tag": "Voxel mining & building",
    "desc": "A pocket voxel world: dig, gather, craft tools and build in a fully destructible landscape with caves, torches and chests — a complete survival loop on a 128-pixel screen. Best played directly on ThumbyOne, where the full-feature build has its own dedicated slot.",
+   "guide": "https://github.com/austinio7116/ThumbyCraft#thumbycraft",
    "multiplayer": false
   },
   {
@@ -220,6 +230,7 @@
    ],
    "tag": "3D snooker & pool",
    "desc": "Full 3D cue sports: snooker and pool with real ball physics, spin, numbered and striped balls, soft shadows and an aiming ghost ball. Play the AI, pass-the-device — or 2P LINK a friend across the room or across the world.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -239,6 +250,7 @@
    ],
    "tag": "Elite-style space sim",
    "desc": "A 20,000-line space epic: free flight, dogfights, trading and missions across a whole galaxy. Dock at stations, outfit your ship with lasers, missiles and shields, and make your fortune — or lose it. PVP ARENA: bring your SAVED ship and loadout to a 1v1 dogfight against a friend's.",
+   "guide": "https://austinio7116.github.io/ThumbyElite/",
    "multiplayer": true
   },
   {
@@ -257,6 +269,7 @@
    ],
    "tag": "Chess, 2D or full 3D",
    "desc": "A faithful port of the TinyCircuits DeepThumb chess game with a proper engine behind it — play the classic sprite board, or flip to a 3D Staunton set with a free orbiting camera. 2P LINK plays a friend over cable or internet; the handshake deals the colours.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -277,6 +290,7 @@
    ],
    "tag": "Kart racing",
    "desc": "Mode-7-style kart racing: three-lap circuits with kerbs, checkered gates and rival karts — with the full item game: mushrooms, bananas, green and red shells, stars, bullets, lightning. 2P LINK races a friend head-to-head, items and all.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -297,6 +311,7 @@
    ],
    "tag": "Horde survivor",
    "desc": "A Vampire-Survivors-style horde game: mow down the swarm, hoover up XP, and build your weapon loadout level by level across a procedural overworld. One more run before bed.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -317,6 +332,7 @@
    ],
    "tag": "Territory battle",
    "desc": "Paper.io on a handheld: loop back to your land to claim ground, cut rivals' trails to steal their whole base, and don't cross your own line. Five AI rivals, three modes — plus a 2P LINK territory duel, first to three KOs.",
+   "guide": null,
    "multiplayer": true
   },
   {
@@ -337,6 +353,7 @@
    ],
    "tag": "3D golf",
    "desc": "A full round over rolling 3D terrain: judge the wind, shape your power and putt out. Simple to swing, hard to par.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -355,6 +372,7 @@
    ],
    "tag": "Artillery duel",
    "desc": "Turn-based tank battles with fully rigged 3D tanks — tracks, turret, recoil and all. Walk your shots in before the enemy walks in theirs.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -373,6 +391,7 @@
    ],
    "tag": "3D chess",
    "desc": "Chess with baked STL Staunton pieces on a lit 3D board. A clean, complete game of the classic.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -391,6 +410,7 @@
    ],
    "tag": "Falling blocks",
    "desc": "The falling-block classic rendered in crisp engine 3D. Ten kilobytes of pure compulsion.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -409,6 +429,7 @@
    ],
    "tag": "Brick breaker",
    "desc": "A polished brick-breaker with power-ups, particles, ball trails and escalating levels — the paddle arcade staple with a 3D glow-up.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -427,6 +448,7 @@
    ],
    "tag": "Arcade classic",
    "desc": "Pong, reborn with trails and spin. First to the score wins; the AI does not blink.",
+   "guide": null,
    "multiplayer": false
   },
   {
@@ -445,6 +467,7 @@
    ],
    "tag": "Physics castle-smasher",
    "desc": "Angry-Birds-style fort demolition in side-view 3D: charge the fling, arc your bird into the tower, and let real rigid-body physics topple the pigs. Every fort is freshly generated.",
+   "guide": null,
    "multiplayer": false
   }
  ]

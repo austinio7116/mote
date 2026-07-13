@@ -42,7 +42,7 @@ def parse_html_games():
         if not gid: continue
         games.append({
             "id": gid, "file": s("file"), "name": s("name"), "author": s("by"),
-            "tag": s("tag"), "desc": s("desc"),
+            "tag": s("tag"), "desc": s("desc"), "guide": s("guide"),
             "multiplayer": bool(n("mp")), "shots": n("n") or 3,
         })
     return games
@@ -93,6 +93,7 @@ def main():
             "screenshots": [s for s in shots if os.path.isfile(os.path.join(DOCS, s))],
             "tag": g["tag"],
             "desc": g["desc"],
+            "guide": g["guide"],
             "multiplayer": g["multiplayer"],
         })
         print("  %-16s v%-7s abi%d %7d B  %s" % (gid, meta["version"], meta["abi"], meta["size"], meta["sha256"][:12]))
