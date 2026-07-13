@@ -360,7 +360,7 @@ def make_items():
     AXE_WOOD AXE_IRON SWORD_WOOD SWORD_COPPER SWORD_IRON SWORD_GOLD SWORD_BANE
     SWORD_VOLCANO BOW_WOOD BOW_GOLD BOW_MOLTEN ARROW ARROW_FLAME HELM_COPPER
     MAIL_COPPER LEGS_COPPER HELM_IRON MAIL_IRON LEGS_IRON HELM_GOLD MAIL_GOLD
-    LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL""".split()
+    LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE""".split()
     CS = 12          # procedural painters draw at 12px...
     OUT = 16         # ...but the sheet grid is 16px cells (weapon art needs it)
     cols = 8
@@ -540,6 +540,15 @@ def make_items():
                     dx, dy = x - 5.5, y - 5.5
                     if dx*dx + dy*dy < 8: c.px(ox + x, oy + y, (226, 220, 214))
             c.rect(ox + 4, oy + 5, ox + 5, oy + 6, (200, 40, 40)); continue
+        if name == "GRAPPLE":
+            IRON = (188, 190, 198); DK = (120, 122, 132); ROPE = (150, 108, 60)
+            for i in range(4):                       # rope trailing down-left
+                c.px(ox + 3 + i, oy + 9 - i, ROPE)
+            c.px(ox + 6, oy + 5, IRON); c.px(ox + 6, oy + 4, IRON)  # shank
+            for dx, dy in ((5, 3), (7, 3), (4, 4), (8, 4)):         # three curved claws
+                c.px(ox + dx, oy + dy, IRON)
+            c.px(ox + 4, oy + 3, DK); c.px(ox + 8, oy + 3, DK)
+            c.px(ox + 6, oy + 2, IRON); continue
         parts = name.split("_")
         if parts[0] == "PICK": pick_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "AXE": axe_icon(ox, oy, METAL[parts[1]]); continue

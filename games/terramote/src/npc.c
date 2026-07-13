@@ -345,8 +345,9 @@ void npc_tick(float dt) {
         s_dbg_t += dt;
         if (s_dbg_t > 1.0f) {
             s_dbg_t = 0;
-            char b[64]; int bm, bh = npc_boss_hp(&bm);
-            snprintf(b, 64, "dbg t=%.2f en=%d boss=%d php=%d", (double)g_time, en_count(), bh, g_pl.hp);
+            char b[80]; int bm, bh = npc_boss_hp(&bm);
+            snprintf(b, 80, "dbg t=%.2f en=%d boss=%d php=%d py=%d grap=%d rl=%d",
+                     (double)g_time, en_count(), bh, g_pl.hp, (int)g_pl.y, g_pl.grap, (int)g_pl.grap_len);
             mote->log(b);
         }
     }

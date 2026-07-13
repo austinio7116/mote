@@ -88,6 +88,7 @@ static const MoteAutotile *k_tiles[T_COUNT - 1] = {
 void player_alloc(void);
 void save_alloc(void);
 void player_draw_swing(uint16_t *fb);
+void player_draw_rope(uint16_t *fb);
 void proj_draw(uint16_t *fb);
 void fx_draw_particles(uint16_t *fb);
 void parts_tick(float dt);
@@ -394,6 +395,7 @@ static void g_overlay(uint16_t *fb) {
     default: break;
     }
     /* world states: swing + projectiles under water/darkness */
+    player_draw_rope(fb);
     player_draw_swing(fb);
     proj_draw(fb);
     fx_overlay_world(fb);
