@@ -94,6 +94,7 @@ void fx_draw_particles(uint16_t *fb);
 void parts_tick(float dt);
 
 static int   s_gen_pct;
+static int   s_gen_started, s_gen_hold;
 static float s_autosave_t;
 static float s_grow_t;
 static uint8_t s_liq_flip;
@@ -198,6 +199,8 @@ static void draw_trees(void) {
 void game_new_world(void) {
     world_generate(make_seed());
     s_gen_pct = 0;
+    s_gen_started = 0;
+    s_gen_hold = 0;
     g_time = 0.25f;
     g_boss_down = 0;
     g_state = GS_GENERATING;
@@ -341,9 +344,15 @@ static void g_update(float dt) {
         mote->scene_set_background(0x0000);
         break;
     case GS_GENERATING: {
-        for (int i = 0; i < 2 && s_gen_pct < 100; i++)
-            s_gen_pct = world_gen_step();
-        if (s_gen_pct >= 100) {
+        mote->set_background_cb(0);
+        mote->scene_set_background(MOTE_RGB565(16, 14, 22));
+        /* One stage per frame, and the FIRST frame does no work — so the
+         * "GENERATING 0%" screen is on-screen while the heavy first stages run,
+         * and the bar visibly climbs 0->100 instead of flashing one value. */
+        if (!s_gen_started) { s_gen_started = 1; break; }
+        if (s_gen_pct < 100) { s_gen_pct = world_gen_step(); break; }
+        if (++s_gen_hold < 3) break;    /* hold 100% a few frames before the world */
+        {
             player_reset(0);            /* keep appearance/inventory, spawn there */
             npc_reset();
             if (s_dev_time >= 0) g_time = s_dev_time;
