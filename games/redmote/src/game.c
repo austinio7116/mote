@@ -68,7 +68,7 @@ MOTE_MODULE_HEADER();
 #ifdef MOTE_HOST
 #include <stdlib.h>
 /* cached env hooks — hk() is hit per tile per frame in the fog pass */
-static int hk_reveal = -1, hk_fast = -1, hk_battle = -1, hk_auto = -1, hk_stats = -1, hk_dbg = -1, hk_spy = -1, hk_demo = -1;
+static int hk_reveal = -1, hk_fast = -1, hk_battle = -1, hk_auto = -1, hk_stats = -1, hk_dbg = -1, hk_spy = -1, hk_demo = -1, hk_mp = -1;
 static void hk_init(void){
     hk_reveal = getenv("MOTE_RTS_REVEAL") != 0;
     hk_fast   = getenv("MOTE_RTS_FAST") != 0;
@@ -78,10 +78,11 @@ static void hk_init(void){
     hk_dbg    = getenv("MOTE_RTS_DBG") != 0;
     hk_spy    = getenv("MOTE_RTS_SPYCAM") != 0;
     hk_demo   = getenv("MOTE_RTS_DEMO") != 0;   /* self-drive: army hunts, camera follows */
+    hk_mp     = getenv("MOTE_RTS_MP") != 0;     /* headless raw-link MP test (no lobby UI) */
     if (hk_battle || hk_spy) hk_reveal = 1;
 }
 #else
-enum { hk_reveal = 0, hk_fast = 0, hk_battle = 0, hk_auto = 0, hk_stats = 0, hk_dbg = 0, hk_spy = 0, hk_demo = 0 };
+enum { hk_reveal = 0, hk_fast = 0, hk_battle = 0, hk_auto = 0, hk_stats = 0, hk_dbg = 0, hk_spy = 0, hk_demo = 0, hk_mp = 0 };
 static void hk_init(void){}
 #endif
 
@@ -246,7 +247,7 @@ typedef struct {
 static Part pt[MAXPT];
 
 /* =============================================================== state */
-enum { ST_TITLE, ST_PLAY, ST_WIN, ST_LOSE, ST_MISSIONS, ST_SKIRMOPT, ST_INTRO };
+enum { ST_TITLE, ST_PLAY, ST_WIN, ST_LOSE, ST_MISSIONS, ST_SKIRMOPT, ST_INTRO, ST_MPWAIT };
 static int state = ST_TITLE;
 
 /* ------- game-mode modifiers (set by mission_setup / skirmish_setup) ------- */
@@ -310,6 +311,7 @@ static int credits[2];
 static int pow_prod[2], pow_use[2];
 static uint16_t owned[2];               /* building-type bitmask per team */
 static uint32_t framec;
+static uint32_t simc;   /* synced sim-frame clock: = framec (SP) or mp_frame (MP) */
 static float gtime;
 
 /* production queues (per team x queue): a FIFO — head is in production */
@@ -341,6 +343,41 @@ static const int   DIFF_WAVES[3]    = { 40, 30, 20 };
 static const float DIFF_AIPROD[3]   = { 2.2f, 1.7f, 1.25f };  /* AI builds this much SLOWER */
 static const float DIFF_UNITGAP[3]  = { 9.0f, 6.0f, 3.0f };   /* s between AI unit orders */
 static const int   DIFF_WAVECAP[3]  = { 4, 6, 9 };            /* units in wave 1 (+2/wave) */
+
+/* ===================================================================== MP
+ * Lockstep 1v1 over the engine link (net_lobby). Both consoles run the
+ * identical simulation and exchange only COMMANDS, executed on the same frame.
+ * mp_my_team is the local player's team (host=0/blue, client=1/red); in
+ * single-player it stays 0 so all the MY_TEAM/FOE_TEAM plumbing is a no-op. */
+static int mp_active;              /* in a live multiplayer match */
+static int mp_is_host;
+static int mp_my_team;             /* 0 = host/blue, 1 = client/red */
+#define MY_TEAM  (mp_my_team)
+#define FOE_TEAM (mp_my_team ^ 1)
+static uint32_t mp_seed;
+static uint32_t mp_frame;          /* lockstep sim frame (identical on both) */
+static float    mp_accum;          /* fixed-timestep accumulator */
+#define MP_DT     (1.0f / 30.0f)
+#define MP_DELAY  4                /* frames between issuing a command and executing it */
+#define MP_MAGIC  0xB7
+#define MP_RING   64               /* command buffer depth (frames) */
+
+enum { MPC_ORDER, MPC_QUEUE, MPC_PLACE, MPC_RALLY };
+typedef struct {
+    uint8_t team, type;
+    uint8_t a, b, c, d;            /* type-specific small fields */
+    uint8_t mask[(MAXU + 7) / 8];  /* ORDER: which of `team`'s units */
+} MpCmd;
+#define MP_MAXCMD 8                /* commands buffered per frame */
+typedef struct { uint8_t n; MpCmd cmd[MP_MAXCMD]; } MpTurn;
+static MpTurn   mp_buf[MP_RING];         /* commands to execute, by exec frame */
+static uint32_t mp_recv_through;         /* highest exec_frame we've received */
+static uint32_t mp_chk[MP_RING];         /* our own checksum by frame */
+static uint32_t mp_rchk[MP_RING];        /* remote checksum by frame (0 = none) */
+static uint8_t  mp_rchk_have[MP_RING];
+static int      mp_desync;
+static int      mp_over;                 /* match ended (disconnect/result) */
+static int      mp_roles;                /* host/team assigned (net_lobby or raw link) */
 
 /* UI */
 static int side_open, side_tab, side_row;
@@ -533,10 +570,10 @@ static void stamp_sight(int tx, int ty, int r){
 static void fog_update(void){
     for (int i = 0; i < NT; i++) vism[i] &= 2;
     for (int i = 0; i < MAXU; i++)
-        if (un[i].alive && un[i].team == 0)
+        if (un[i].alive && un[i].team == MY_TEAM)
             stamp_sight((int)un[i].x >> 3, (int)un[i].y >> 3, UD[un[i].type].sight);
     for (int i = 0; i < MAXB; i++)
-        if (bl[i].alive && bl[i].team == 0)
+        if (bl[i].alive && bl[i].team == MY_TEAM)
             stamp_sight(bl[i].tx + BD[bl[i].type].w / 2, bl[i].ty + BD[bl[i].type].h / 2,
                         BD[bl[i].type].sight);
 }
@@ -688,21 +725,23 @@ static Part *part(int kind, float x, float y){
 }
 static void fx_sparks(float x, float y, int n, float sp){
     for (int i = 0; i < n; i++){
+        float a = rndf() * 2 * PI, v = sp * (0.3f + rndf()), lr = rndf(); int aux = rndn(3);
         Part *p = part(PK_SPARK, x, y);
-        if (!p) return;
-        float a = rndf() * 2 * PI, v = sp * (0.3f + rndf());
+        if (!p) continue;                    /* keep consuming rnd — lockstep-safe */
         p->vx = cosf(a) * v; p->vy = sinf(a) * v;
-        p->max = p->life = 0.25f + rndf() * 0.35f;
-        p->aux = rndn(3);
+        p->max = p->life = 0.25f + lr * 0.35f;
+        p->aux = aux;
     }
 }
 static void fx_smoke(float x, float y, int n){
     for (int i = 0; i < n; i++){
-        Part *p = part(PK_SMOKE, x + rndf() * 4 - 2, y + rndf() * 4 - 2);
-        if (!p) return;
-        p->vx = 3 + rndf() * 4; p->vy = -6 - rndf() * 5;
-        p->max = p->life = 0.7f + rndf() * 0.8f;
-        p->aux = rndn(2);
+        float ox = rndf(), oy = rndf();
+        float vx = rndf(), vy = rndf(), lr = rndf(); int aux = rndn(2);
+        Part *p = part(PK_SMOKE, x + ox * 4 - 2, y + oy * 4 - 2);
+        if (!p) continue;
+        p->vx = 3 + vx * 4; p->vy = -6 - vy * 5;
+        p->max = p->life = 0.7f + lr * 0.8f;
+        p->aux = aux;
     }
 }
 static void fx_flash(float x, float y, float r){
@@ -715,11 +754,11 @@ static void fx_ring(float x, float y, float r){
 }
 static void fx_debris(float x, float y, int n){
     for (int i = 0; i < n; i++){
+        float a = rndf() * 2 * PI, v = 20 + rndf() * 45, lr = rndf();
         Part *p = part(PK_DEBRIS, x, y);
-        if (!p) return;
-        float a = rndf() * 2 * PI, v = 20 + rndf() * 45;
+        if (!p) continue;
         p->vx = cosf(a) * v; p->vy = sinf(a) * v;
-        p->max = p->life = 0.4f + rndf() * 0.5f;
+        p->max = p->life = 0.4f + lr * 0.5f;
     }
 }
 static void scorch(int tx, int ty){
@@ -751,7 +790,7 @@ static void damage_unit(int ui, int amount, int weapon){
     int d = (amount * m) / 100;
     if (d <= 0) return;
     u->hp -= d;
-    if (u->team == 0 && atk_warn_t <= 0 && !onscreen(u->x, u->y, 20)){
+    if (u->team == MY_TEAM && atk_warn_t <= 0 && !onscreen(u->x, u->y, 20)){
         toastf("UNITS UNDER ATTACK"); atk_warn_t = 12;
     }
     if (u->hp <= 0) unit_die(ui);
@@ -763,7 +802,7 @@ static void damage_bldg(int bi, int amount, int weapon){
     int d = (amount * DMUL[weapon][AR_BLDG]) / 100;
     if (d <= 0) return;
     b->hp -= d;
-    if (b->team == 0 && atk_warn_t <= 0){ toastf("BASE UNDER ATTACK"); atk_warn_t = 12; }
+    if (b->team == MY_TEAM && atk_warn_t <= 0){ toastf("BASE UNDER ATTACK"); atk_warn_t = 12; }
     if (b->hp <= 0) bldg_die(bi);
     else fx_sparks((b->tx + rndf() * BD[b->type].w) * TILE,
                    (b->ty + rndf() * BD[b->type].h) * TILE, 3, 30);
@@ -851,9 +890,10 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
     float dist = sqrtf(dx * dx + dy * dy) + 0.001f;
     switch (weapon){
     case W_MG: {
+        float jx = rndf(), jy = rndf();          /* draw regardless of pool (lockstep) */
         Part *p = part(PK_TRACER, x, y);
         if (p){
-            p->x2 = tx + rndf() * 3 - 1.5f; p->y2 = ty + rndf() * 3 - 1.5f;
+            p->x2 = tx + jx * 3 - 1.5f; p->y2 = ty + jy * 3 - 1.5f;
             p->max = p->life = 0.09f;
         }
         fx_flash(x + dx / dist * 3, y + dy / dist * 3, 1.5f);
@@ -880,10 +920,9 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         break; }
     case W_FLAME: {
         for (int i = 0; i < 7; i++){
+            float a = atan2f(dy, dx) + (rndf() - 0.5f) * 0.6f, v = 40 + rndf() * 45;
             Part *p = part(PK_FLAME, x, y);
             if (p){
-                float a = atan2f(dy, dx) + (rndf() - 0.5f) * 0.6f;
-                float v = 40 + rndf() * 45;
                 p->vx = cosf(a) * v; p->vy = sinf(a) * v;
                 p->max = p->life = dist / 70 + 0.12f;
             }
@@ -893,8 +932,9 @@ static void fire(int weapon, int team, float x, float y, int16_t tgt, int dmg){
         sfx_at(&flame_sfx, 0.35f, 3, 0.30f, x, y);
         break; }
     case W_TESLA: {
+        uint8_t bolt = (uint8_t)rnd();            /* draw regardless of pool (lockstep) */
         Part *p = part(PK_BOLT, x, y);
-        if (p){ p->x2 = tx; p->y2 = ty; p->max = p->life = 0.18f; p->aux = (uint8_t)rnd(); }
+        if (p){ p->x2 = tx; p->y2 = ty; p->max = p->life = 0.18f; p->aux = bolt; }
         fx_flash(tx, ty, 3);
         fx_sparks(tx, ty, 4, 40);
         damage_at(tgt, dmg, W_TESLA);
@@ -918,7 +958,9 @@ static int acquire(int team, float x, float y, float r, int can_air){
     int best = -1; float bd2 = r * r;
     for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team != team){
         if (UD[un[i].type].air && !can_air) continue;
-        if (un[i].team == 0 || tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3)) || team == 1){
+        /* MP: targeting must be fog-INDEPENDENT (each peer has its own fog) —
+         * acquire by range only, identical on both consoles. */
+        if (mp_active || un[i].team == 0 || tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3)) || team == 1){
             float dx = un[i].x - x, dy = un[i].y - y, d2 = dx * dx + dy * dy;
             if (d2 < bd2){ bd2 = d2; best = i; }
         }
@@ -1117,14 +1159,14 @@ static void unit_tick(int ui, float dt){
     switch (u->order){
     case O_IDLE: {
         if (u->type == U_HARV){          /* harvesters never idle for long */
-            if ((framec & 63) == (ui & 63)){ u->order = O_HARV; u->hstate = H_SEEK; }
+            if ((simc & 63) == (ui & 63)){ u->order = O_HARV; u->hstate = H_SEEK; }
             break;
         }
         if (d->weapon == W_NONE) break;
-        if ((framec & 7) == (ui & 7)){    /* stagger scans */
+        if ((simc & 7) == (ui & 7)){    /* stagger scans */
             int t = acquire(u->team, u->x, u->y, d->range + 6, d->weapon != W_CANNON && d->weapon != W_ARTY && d->weapon != W_FLAME);
             if (t >= 0) u->tgt = t;
-            else if (u->team == 1){       /* only AI idles into buildings */
+            else if (!mp_active && u->team == 1){   /* only the SP AI idles into buildings */
                 int b = acquire_bldg(u->team, u->x, u->y, d->range + 6);
                 if (b >= 0) u->tgt = -(b + 2);
             }
@@ -1162,7 +1204,7 @@ static void unit_tick(int ui, float dt){
             } else { u->order = O_IDLE; break; }
         }
         /* hunters opportunistically swap to nearby threats */
-        if (u->order == O_HUNT && (framec & 15) == (ui & 15)){
+        if (u->order == O_HUNT && (simc & 15) == (ui & 15)){
             int t = acquire(u->team, u->x, u->y, d->sight * TILE,
                             d->weapon == W_ROCKET || d->weapon == W_TESLA || d->weapon == W_MG);
             if (t >= 0) u->tgt = t;
@@ -1227,7 +1269,7 @@ static void unit_tick(int ui, float dt){
             u->htimer += dt;
             if (u->htimer > 1.4f){
                 credits[u->team] += u->cargo;
-                if (u->team == 0 && onscreen(u->x, u->y, 90)) sfx(&cash_sfx, 0.5f, 7, 0.2f);
+                if (u->team == MY_TEAM && onscreen(u->x, u->y, 90)) sfx(&cash_sfx, 0.5f, 7, 0.2f);
                 u->cargo = 0; u->hstate = H_SEEK;
             }
             break; }
@@ -1252,7 +1294,7 @@ static void bldg_tick(int bi, float dt){
     if (b->type == B_COIL && !power_ok(b->team)) return;
     float cx = (b->tx + d->w * 0.5f) * TILE, cy = (b->ty + d->h * 0.5f) * TILE;
     if (!tgt_alive(b->tgt)) b->tgt = -1;
-    if (b->tgt == -1 && (framec & 15) == (bi & 15))
+    if (b->tgt == -1 && (simc & 15) == (bi & 15))
         b->tgt = acquire(b->team, cx, cy, d->range, d->weapon == W_MG || d->weapon == W_TESLA);
     if (b->tgt != -1){
         float tx, ty; get_tpos(b->tgt, &tx, &ty);
@@ -1295,7 +1337,7 @@ static void proj_tick(int i, float dt){
             }
         }
         p->x += p->vx * dt; p->y += p->vy * dt;
-        if ((framec & 1) == 0){
+        if ((simc & 1) == 0){
             Part *s = part(PK_SMOKE, p->x, p->y);
             if (s){ s->vx = 0; s->vy = 0; s->max = s->life = 0.30f; s->aux = 1; }
         }
@@ -1368,7 +1410,7 @@ static void queue_tick(int team, float dt){
         if (!(owned[team] & (1u << QPROD_BLDG[q]))){ p->n = 0; q_pop(p); continue; }
         int cost = item_cost(q, head);
         float t = (float)cost / 75.0f;               /* seconds at full power */
-        if (team == 1) t *= DIFF_AIPROD[diff];       /* AI handicap: slower works */
+        if (!mp_active && team == 1) t *= DIFF_AIPROD[diff];   /* SP AI handicap */
         if (!power_ok(team)) t *= 2.4f;
         float step = dt / t * fast;
         int need = (int)((p->prog + step) * cost) - (int)p->spent;
@@ -1387,7 +1429,7 @@ static void queue_tick(int team, float dt){
             p->prog = 1.0f;
             if (q == Q_BLD){
                 p->ready = 1;
-                if (team == 0 && !p->nagged){
+                if (team == MY_TEAM && !p->nagged){
                     p->nagged = 1;
                     placing = head;                  /* jump straight to placement */
                     side_open = 0; a_mode = 0;
@@ -1398,7 +1440,7 @@ static void queue_tick(int team, float dt){
                 int u = spawn_from(team, QPROD_BLDG[q], head);
                 if (u >= 0){
                     q_pop(p);                        /* next queued item starts */
-                    if (team == 0){ toastf("UNIT READY"); sfx(&ready_sfx, 0.5f, 7, 0.3f); }
+                    if (team == MY_TEAM){ toastf("UNIT READY"); sfx(&ready_sfx, 0.5f, 7, 0.3f); }
                 }
                 /* else: blocked exit — retry next frame */
             }
@@ -1616,7 +1658,7 @@ static void draw_unit(uint16_t *fb, const Unit *u, int y0, int y1){
     const UDef *d = &UD[u->type];
     int sx = (int)(u->x - camx), sy = (int)(u->y - camy);
     if (sx < -8 || sx > 136 || sy < -12 || sy > 140) return;
-    if (u->team == 1 && !tile_vis(tidx((int)u->x >> 3, (int)u->y >> 3))) return;
+    if (u->team == FOE_TEAM && !tile_vis(tidx((int)u->x >> 3, (int)u->y >> 3))) return;
     int row = u->team * 8;
     if (d->armor == AR_INF){
         int fr = inf_frame(u);
@@ -1694,18 +1736,18 @@ static void render_band(uint16_t *fb, int y0, int y1){
         mote->blit(fb, &buildings_img, px, syo, BM_X[b->type], b->team * BM_ROW_H,
                    d->w * TILE, BM_ROW_H, 0, y0, y1);
         /* production progress bar across the source building (first of its type) */
-        if (b->team == 0 && !(prod_seen & (1u << b->type))){
+        if (b->team == MY_TEAM && !(prod_seen & (1u << b->type))){
             for (int q = 0; q < NQ; q++){
-                if (QPROD_BLDG[q] != b->type || !pq[0][q].n) continue;
+                if (QPROD_BLDG[q] != b->type || !pq[MY_TEAM][q].n) continue;
                 prod_seen |= 1u << b->type;
                 int bw2 = d->w * TILE;
                 int by = py + (b->type == B_COIL ? TILE : d->h * TILE) - 2;
                 mote->draw_rect(fb, px, by, bw2, 2, MOTE_RGB565(24, 24, 30), 1, y0, y1);
-                if (pq[0][q].ready){
+                if (pq[MY_TEAM][q].ready){
                     if ((framec >> 3) & 1)
                         mote->draw_rect(fb, px, by, bw2, 2, MOTE_RGB565(120, 255, 120), 1, y0, y1);
                 } else {
-                    int fw2 = (int)(bw2 * pq[0][q].prog);
+                    int fw2 = (int)(bw2 * pq[MY_TEAM][q].prog);
                     mote->draw_rect(fb, px, by, fw2, 2, MOTE_RGB565(250, 210, 80), 1, y0, y1);
                 }
                 break;
@@ -1876,7 +1918,7 @@ static void draw_minimap(uint16_t *fb){
     for (int i = 0; i < MAXU; i++) if (un[i].alive){
         int tx = (int)un[i].x >> 3, ty = (int)un[i].y >> 3;
         if (!tin(tx, ty)) continue;
-        if (un[i].team == 1 && !tile_vis(tidx(tx, ty))) continue;
+        if (un[i].team == FOE_TEAM && !tile_vis(tidx(tx, ty))) continue;
         fb[(oy + ty) * 128 + ox + tx] = un[i].team ? MOTE_RGB565(255, 90, 60) : MOTE_RGB565(150, 210, 255);
     }
     /* camera rect */
@@ -1895,7 +1937,7 @@ static const char *BDESC[NBTYPES] = {
     "MG DEFENSE", "CANNON DEFENSE", "TESLA DEFENSE",
 };
 static void missing_str(int q, int item, char *out, int n){
-    uint16_t need = (q == Q_BLD ? BD[item].prereq : UPREREQ[item]) & ~owned[0];
+    uint16_t need = (q == Q_BLD ? BD[item].prereq : UPREREQ[item]) & ~owned[MY_TEAM];
     int len = 0; out[0] = 0;
     for (int b = 0; b < NBTYPES && len < n - 8; b++)
         if (need & (1u << b)) len += snprintf(out + len, n - len, "%s ", BD[b].name);
@@ -1924,7 +1966,7 @@ static void draw_build_menu(uint16_t *fb){
     /* header: tab name left, credits right */
     mote->text_font(fb, f, QNAME[side_tab], 3, -1, MOTE_RGB565(240, 220, 120));
     char buf[24];
-    snprintf(buf, sizeof buf, "$%d", credits[0]);
+    snprintf(buf, sizeof buf, "$%d", credits[MY_TEAM]);
     mote->text_font(fb, f, buf, 125 - 7 * (int)strlen(buf), -1, MOTE_RGB565(240, 220, 120));
     /* tab strip: icon chips */
     static const uint8_t TAB_ICON[NQ] = { 0, 0, 9, 14 };
@@ -1941,16 +1983,17 @@ static void draw_build_menu(uint16_t *fb){
             mote->blit_ex(fb, &heli_img, tx + 8, 20, 0, 0, 12, 12, 0, 0.8f, MOTE_BLEND_NONE, 0, 128);
         else
             mote->blit(fb, &units_img, tx + 4, 16, TAB_ICON[q2] * 8, 0, 8, 8, 0, 0, 128);
-        if (pq[0][q2].n)
+        if (pq[MY_TEAM][q2].n)
             mote->draw_rect(fb, tx + 13, 14, 2, 2,
-                            pq[0][q2].ready ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(240, 220, 120),
+                            pq[MY_TEAM][q2].ready ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(240, 220, 120),
                             1, 0, 128);
     }
-    mote->text(fb, "PAUSED", 88, 17, MOTE_RGB565(90, 90, 105));
+    mote->text(fb, mp_active ? "LIVE" : "PAUSED", mp_active ? 100 : 88, 17,
+               mp_active ? MOTE_RGB565(90, 200, 110) : MOTE_RGB565(90, 90, 105));
     /* card grid: 3 cols */
     int n = QMENU_N[side_tab];
     if (side_row >= n) side_row = n - 1;
-    PQueue *p = &pq[0][side_tab];
+    PQueue *p = &pq[MY_TEAM][side_tab];
     for (int i = 0; i < n; i++){
         int item = QMENU[side_tab][i];
         int cx = 1 + (i % 3) * 42, cy = 30 + (i / 3) * 22;
@@ -1982,7 +2025,7 @@ static void draw_build_menu(uint16_t *fb){
         } else {
             snprintf(buf, sizeof buf, "%d", cost);
             uint16_t cc = !avail ? MOTE_RGB565(90, 88, 96)
-                        : cost > credits[0] ? MOTE_RGB565(240, 90, 70) : MOTE_RGB565(240, 220, 120);
+                        : cost > credits[MY_TEAM] ? MOTE_RGB565(240, 90, 70) : MOTE_RGB565(240, 220, 120);
             mote->text(fb, buf, cx + 12, cy + 12, cc);
         }
     }
@@ -2011,14 +2054,14 @@ static void draw_cursor(uint16_t *fb){
     int selcount = 0;
     for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].sel) selcount++;
     if (selcount){
-        for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == 1){
+        for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == FOE_TEAM){
             float dx = un[i].x - wx, dy = un[i].y - wy;
             if (dx * dx + dy * dy < 25 && tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3))){ hostile = 1; break; }
         }
         int tx = (int)wx >> 3, ty = (int)wy >> 3;
         if (!hostile && tin(tx, ty)){
             int bi = bmap[tidx(tx, ty)];
-            if (bi != 0xFF && bl[bi].team == 1 && (vism[tidx(tx, ty)] & 2)) hostile = 1;
+            if (bi != 0xFF && bl[bi].team == FOE_TEAM && (vism[tidx(tx, ty)] & 2)) hostile = 1;
         }
     }
     if (hostile) c = MOTE_RGB565(255, 80, 60);
@@ -2037,7 +2080,7 @@ static void draw_cursor(uint16_t *fb){
     if (placing >= 0) act = 0;
     else if (selcount){
         int over_own = 0;
-        for (int i = 0; i < MAXU && !over_own; i++) if (un[i].alive && un[i].team == 0){
+        for (int i = 0; i < MAXU && !over_own; i++) if (un[i].alive && un[i].team == MY_TEAM){
             float dx = un[i].x - wx, dy = un[i].y - wy;
             if (dx * dx + dy * dy < 30) over_own = 1;
         }
@@ -2049,7 +2092,7 @@ static void draw_cursor(uint16_t *fb){
         else if (over_own) act = "SELECT";
         else if (t >= 0 && harv && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0) act = "MINE";
         else if (t >= 0 && harv && !combat && bmap[t] != 0xFF
-                 && bl[bmap[t]].team == 0 && bl[bmap[t]].type == B_REF) act = "DUMP";
+                 && bl[bmap[t]].team == MY_TEAM && bl[bmap[t]].type == B_REF) act = "DUMP";
         else if (t >= 0 && walk_t(t)) act = "MOVE";
     } else if (bsel >= 0 && bl[bsel].alive && t >= 0 && walk_t(t)){
         int bt = bl[bsel].type;
@@ -2077,16 +2120,27 @@ static void g_overlay(uint16_t *fb){
     if (state == ST_TITLE){
         mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
         mote->text_font(fb, fl, "RED MOTE", 22, 16, MOTE_RGB565(230, 60, 40));
-        mote->text_font(fb, f, "tiny-scale RTS", 30, 38, MOTE_RGB565(200, 200, 210));
-        for (int r = 0; r < 2; r++){
-            const char *lbl = r == 0 ? "CAMPAIGN" : "SKIRMISH";
+        mote->text_font(fb, f, "tiny-scale RTS", 30, 36, MOTE_RGB565(200, 200, 210));
+        for (int r = 0; r < 3; r++){
+            static const char *M[3] = { "CAMPAIGN", "SKIRMISH", "MULTIPLAYER" };
             uint16_t c = r == menu_row ? MOTE_RGB565(255, 255, 255) : MOTE_RGB565(140, 140, 155);
             if (r == menu_row)
-                mote->draw_rect(fb, 30, 60 + r * 16 - 1, 68, 14, MOTE_RGB565(46, 46, 66), 1, 0, 128);
-            mote->text_font(fb, f, lbl, 64 - (int)strlen(lbl) * 4, 60 + r * 16, c);
+                mote->draw_rect(fb, 22, 54 + r * 15 - 1, 84, 13, MOTE_RGB565(46, 46, 66), 1, 0, 128);
+            mote->text_font(fb, f, M[r], 64 - (int)strlen(M[r]) * 4, 54 + r * 15, c);
         }
-        mote->text(fb, "LB BUILD   RB RADAR MAP", 0, 106, MOTE_RGB565(150, 150, 165));
-        mote->text(fb, "A SELECT+ORDER  B CANCEL", 0, 116, MOTE_RGB565(150, 150, 165));
+        mote->text(fb, "LB BUILD  RB MAP  A ORDER", 0, 108, MOTE_RGB565(150, 150, 165));
+        mote->text(fb, "MULTIPLAYER = 1v1 OVER LINK", 0, 118, MOTE_RGB565(120, 130, 150));
+        return;
+    }
+    if (state == ST_MPWAIT){
+        mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 8, 14), 1, 0, 128);
+        mote->text_font(fb, fl, "LINKED", 34, 30, MOTE_RGB565(120, 255, 120));
+        mote->text_font(fb, f, mp_is_host ? "YOU ARE BLUE (HOST)" : "YOU ARE RED",
+                        64 - (int)strlen(mp_is_host ? "YOU ARE BLUE (HOST)" : "YOU ARE RED") * 3, 56,
+                        mp_is_host ? MOTE_RGB565(120, 170, 240) : MOTE_RGB565(240, 110, 100));
+        if ((framec >> 3) & 1)
+            mote->text_font(fb, f, "SYNCING...", 38, 78, MOTE_RGB565(240, 220, 120));
+        mote->text(fb, "B CANCEL", 46, 112, MOTE_RGB565(150, 150, 165));
         return;
     }
     if (state == ST_MISSIONS){
@@ -2164,7 +2218,7 @@ static void g_overlay(uint16_t *fb){
         }
         /* keep drawing the HUD below the banner */
     }
-    if (paused && state == ST_PLAY){
+    if (paused && state == ST_PLAY && !mp_active){    /* SP: freeze + full menu */
         for (int i = 0; i < 128 * 128; i++) fb[i] = dim565(fb[i]);
         mote->draw_rect(fb, 28, 36, 72, 56, MOTE_RGB565(14, 14, 22), 1, 0, 128);
         mote->draw_rect(fb, 28, 36, 72, 56, MOTE_RGB565(120, 120, 140), 0, 0, 128);
@@ -2178,13 +2232,14 @@ static void g_overlay(uint16_t *fb){
         }
         return;
     }
+    /* MP build menu / pause do NOT freeze the game — drawn as live overlays below */
     if (side_open && state == ST_PLAY){ draw_build_menu(fb); return; }
     /* top bar */
     mote->draw_rect(fb, 0, 0, 128, 9, MOTE_RGB565(12, 12, 18), 1, 0, 128);
-    snprintf(buf, sizeof buf, "$%d", credits[0]);
+    snprintf(buf, sizeof buf, "$%d", credits[MY_TEAM]);
     mote->text_font(fb, f, buf, 2, -1, MOTE_RGB565(240, 220, 120));
     /* power meter */
-    int pp = pow_prod[0], pu = pow_use[0];
+    int pp = pow_prod[MY_TEAM], pu = pow_use[MY_TEAM];
     int pw = 30;
     mote->draw_rect(fb, 70, 2, pw, 4, MOTE_RGB565(40, 40, 48), 1, 0, 128);
     if (pp > 0){
@@ -2205,7 +2260,7 @@ static void g_overlay(uint16_t *fb){
         /* footprint ghost */
         const BDef *bd = &BD[placing];
         int tx = ((int)(camx + curx)) >> 3, ty = ((int)(camy + cury)) >> 3;
-        int ok = can_place(placing, 0, tx, ty);
+        int ok = can_place(placing, MY_TEAM, tx, ty);
         uint16_t c = ok ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(255, 80, 60);
         int sx = tx * TILE - (int)camx, sy = ty * TILE - (int)camy;
         mote->draw_rect(fb, sx, sy, bd->w * TILE, bd->h * TILE, c, 0, 0, 128);
@@ -2216,9 +2271,9 @@ static void g_overlay(uint16_t *fb){
         int yy0 = boxy < cury ? (int)boxy : (int)cury, yy1 = boxy < cury ? (int)cury : (int)boxy;
         mote->draw_rect(fb, x0, yy0, x1 - x0 + 1, yy1 - yy0 + 1, MOTE_RGB565(240, 240, 240), 0, 0, 128);
     }
-    if (rb_t > 0.001f && (m_free_radar || ((owned[0] & (1u << B_RADAR)) && power_ok(0)))) draw_minimap(fb);
+    if (rb_t > 0.001f && (m_free_radar || ((owned[MY_TEAM] & (1u << B_RADAR)) && power_ok(MY_TEAM)))) draw_minimap(fb);
     else if (rb_t > 0.001f){
-        mote->text_font(fb, f, pow_prod[0] < pow_use[0] ? "RADAR OFFLINE" : "NEED RADAR",
+        mote->text_font(fb, f, pow_prod[MY_TEAM] < pow_use[MY_TEAM] ? "RADAR OFFLINE" : "NEED RADAR",
                         30, 60, MOTE_RGB565(255, 80, 60));
     }
     /* selection info bar: what you have selected and what A will do */
@@ -2248,6 +2303,29 @@ static void g_overlay(uint16_t *fb){
     if (!side_open && placing < 0) draw_cursor(fb);
     else if (placing >= 0) draw_cursor(fb);
 
+    if (mp_active && state == ST_PLAY){
+        /* live connection indicator: green ok, amber stalled, red desync */
+        int stalled = (mote->abi_version >= 45 && mote->net_health() == MOTE_NET_STALLED);
+        uint16_t lc = mp_desync ? MOTE_RGB565(240, 60, 50)
+                    : stalled ? MOTE_RGB565(240, 200, 60) : MOTE_RGB565(80, 220, 90);
+        mote->draw_rect(fb, 120, 2, 4, 4, lc, 1, 0, 128);
+        if (mp_desync) mote->text(fb, "DESYNC", 78, 8, MOTE_RGB565(240, 60, 50));
+        /* compact non-freezing RESUME/RESIGN overlay */
+        if (paused){
+            mote->draw_rect(fb, 34, 44, 60, 40, MOTE_RGB565(14, 14, 22), 1, 0, 128);
+            mote->draw_rect(fb, 34, 44, 60, 40, MOTE_RGB565(120, 120, 140), 0, 0, 128);
+            mote->text_font(fb, f, mp_is_host ? "BLUE" : "RED", 48, 44,
+                            mp_is_host ? MOTE_RGB565(120, 170, 240) : MOTE_RGB565(240, 110, 100));
+            static const char *MR[2] = { "RESUME", "RESIGN" };
+            for (int r = 0; r < 2; r++){
+                if (r == pause_row) mote->draw_rect(fb, 37, 59 + r * 12, 54, 12, MOTE_RGB565(40, 40, 60), 1, 0, 128);
+                mote->text_font(fb, f, MR[r], 43, 59 + r * 12,
+                                r == pause_row ? MOTE_RGB565(255, 255, 255)
+                                : r == 1 ? MOTE_RGB565(230, 120, 110) : MOTE_RGB565(170, 170, 185));
+            }
+        }
+    }
+
 #ifdef MOTE_HOST
 #ifdef MOTE_HOST
     if (hk_dbg && (framec % 30) == 0){
@@ -2274,17 +2352,185 @@ static int sel_count(void){
 }
 static void desel(void){ for (int i = 0; i < MAXU; i++) un[i].sel = 0; }
 
+/* ==================================================================== MP core
+ * Lockstep command apply. Every command is applied IDENTICALLY on both consoles
+ * at the same sim frame — no fog, no camera, no audio in here (those are local).
+ * ------------------------------------------------------------------------- */
+static void mp_bitset(uint8_t *m, int i){ m[i >> 3] |= 1u << (i & 7); }
+static int  mp_bit(const uint8_t *m, int i){ return (m[i >> 3] >> (i & 7)) & 1; }
+
+/* deterministic order: point `team`'s masked units at (tx,ty) — fog-independent */
+static void apply_order(int team, const uint8_t *mask, int tx, int ty){
+    if (!tin(tx, ty)) return;
+    int t = tidx(tx, ty);
+    float wx = tx * TILE + 4.0f, wy = ty * TILE + 4.0f;
+    int foe = team ^ 1;
+    int16_t tgt = -1;
+    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == foe){
+        float dx = un[i].x - wx, dy = un[i].y - wy;
+        if (dx * dx + dy * dy < 25){ tgt = i; break; }
+    }
+    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == foe) tgt = -(bmap[t] + 2);
+    int movers[MAXU], nmov = 0;
+    for (int i = 0; i < MAXU; i++){
+        Unit *u = &un[i];
+        if (!u->alive || u->team != team || !mp_bit(mask, i)) continue;
+        u->stuck = 0; u->slot = 0xFFFF;
+        if (tgt != -1 && UD[u->type].weapon){ u->order = O_ATK; u->tgt = tgt; u->dest = t; }
+        else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
+            u->order = O_HARV; u->hstate = H_SEEK; u->oret = t;
+        } else if (u->type == U_HARV && bmap[t] != 0xFF && bl[bmap[t]].team == team && bl[bmap[t]].type == B_REF){
+            u->order = O_HARV; u->hstate = H_RET;
+        } else { u->order = O_MOVE; u->dest = t; u->tgt = -1; if (nmov < MAXU) movers[nmov++] = i; }
+    }
+    if (nmov > 1){
+        uint16_t slots[MAXU];
+        form_slots(t, slots, nmov);
+        for (int k = 1; k < nmov; k++){
+            int id = movers[k], j = k - 1;
+            float dxk = un[id].x - wx, dyk = un[id].y - wy, dk = dxk * dxk + dyk * dyk;
+            while (j >= 0){ float dxj = un[movers[j]].x - wx, dyj = un[movers[j]].y - wy;
+                if (dxj * dxj + dyj * dyj <= dk) break; movers[j + 1] = movers[j]; j--; }
+            movers[j + 1] = id;
+        }
+        for (int k = 0; k < nmov; k++) un[movers[k]].slot = slots[k];
+    }
+}
+static void apply_queue(int team, int tab, int item){
+    if (tab < 0 || tab >= NQ) return;
+    PQueue *p = &pq[team][tab];
+    if (!item_avail(team, tab, item)) return;
+    if (credits[team] < 20 && !p->n) return;
+    q_push(p, item);
+}
+static void apply_place(int team, int bt, int tx, int ty){
+    if (bt < 0 || bt >= NBTYPES) return;
+    PQueue *p = &pq[team][Q_BLD];
+    if (!(p->ready && q_head(p) == bt)) return;   /* only the finished building */
+    if (!can_place(bt, team, tx, ty)) return;
+    place_bldg(bt, team, tx, ty);
+    q_pop(p);
+}
+static void apply_rally(int team, int bidx, int tx, int ty){
+    if (bidx < 0 || bidx >= MAXB || !tin(tx, ty)) return;
+    if (!bl[bidx].alive || bl[bidx].team != team) return;
+    bl[bidx].rally = tidx(tx, ty);
+}
+static void mp_apply_cmd(const MpCmd *c){
+    switch (c->type){
+    case MPC_ORDER: apply_order(c->team, c->mask, c->a, c->b); break;
+    case MPC_QUEUE: apply_queue(c->team, c->a, c->b); break;
+    case MPC_PLACE: apply_place(c->team, c->a, c->b, c->c); break;
+    case MPC_RALLY: apply_rally(c->team, c->a | (c->b << 8), c->c, c->d); break;
+    }
+}
+
+/* local command → buffer for exec (mp_frame+DELAY) AND queue for sending */
+static MpCmd mp_pending[MP_MAXCMD]; static int mp_npending;
+static void mp_issue(MpCmd c){
+    c.team = (uint8_t)MY_TEAM;
+    uint32_t exec = mp_frame + MP_DELAY;
+    MpTurn *tn = &mp_buf[exec % MP_RING];
+    if (tn->n < MP_MAXCMD) tn->cmd[tn->n++] = c;
+    if (mp_npending < MP_MAXCMD) mp_pending[mp_npending++] = c;
+}
+
+static uint32_t f2u(float f){ union { float f; uint32_t u; } x; x.f = f; return x.u; }
+static uint32_t mp_checksum(void){
+    uint32_t h = 2166136261u;
+    #define MIX(v) do { h ^= (uint32_t)(v); h *= 16777619u; } while (0)
+    MIX(mp_frame); MIX(rs);
+    for (int i = 0; i < MAXU; i++) if (un[i].alive){
+        MIX(i); MIX(un[i].type); MIX(un[i].team);
+        MIX(f2u(un[i].x)); MIX(f2u(un[i].y)); MIX(un[i].hp);
+        MIX(un[i].order); MIX(un[i].hstate); MIX((uint16_t)un[i].tgt); MIX(un[i].dest);
+    }
+    for (int i = 0; i < MAXB; i++) if (bl[i].alive){ MIX(i); MIX(bl[i].type); MIX(bl[i].team); MIX(bl[i].hp); }
+    MIX(credits[0]); MIX(credits[1]);
+    #undef MIX
+    return h;
+}
+
+/* --- wire protocol: one turn packet per sim frame --- */
+static void mp_send_turn(void){
+    uint8_t pk[300]; int n = 0;
+    uint32_t exec = mp_frame + MP_DELAY, chk = mp_chk[mp_frame % MP_RING];
+    pk[n++] = MP_MAGIC; pk[n++] = 'T';
+    for (int k = 0; k < 4; k++) pk[n++] = (uint8_t)(exec >> (8 * k));
+    for (int k = 0; k < 4; k++) pk[n++] = (uint8_t)(mp_frame >> (8 * k));
+    for (int k = 0; k < 4; k++) pk[n++] = (uint8_t)(chk >> (8 * k));
+    pk[n++] = (uint8_t)mp_npending;
+    for (int c = 0; c < mp_npending; c++){
+        MpCmd *m = &mp_pending[c];
+        pk[n++] = m->type; pk[n++] = m->team;
+        pk[n++] = m->a; pk[n++] = m->b; pk[n++] = m->c; pk[n++] = m->d;
+        if (m->type == MPC_ORDER){ memcpy(pk + n, m->mask, sizeof m->mask); n += (int)sizeof m->mask; }
+    }
+    mote->link_send(pk, n);
+    mp_npending = 0;
+}
+static uint8_t mp_rx[2048]; static int mp_rxn;
+static void mp_poll(void){
+    uint8_t chunk[512]; int got;
+    while ((got = mote->link_recv(chunk, (int)sizeof chunk)) > 0){
+        if (mp_rxn + got > (int)sizeof mp_rx) mp_rxn = 0;   /* overflow guard */
+        memcpy(mp_rx + mp_rxn, chunk, got); mp_rxn += got;
+    }
+    int i = 0;
+    while (i + 15 <= mp_rxn){
+        if (mp_rx[i] != MP_MAGIC || mp_rx[i + 1] != 'T'){ i++; continue; }
+        int p = i + 2;
+        uint32_t exec = 0, chkf = 0, cks = 0;
+        for (int k = 0; k < 4; k++) exec |= (uint32_t)mp_rx[p++] << (8 * k);
+        for (int k = 0; k < 4; k++) chkf |= (uint32_t)mp_rx[p++] << (8 * k);
+        for (int k = 0; k < 4; k++) cks  |= (uint32_t)mp_rx[p++] << (8 * k);
+        int ncmds = mp_rx[p++];
+        int q = p, ok = 1;
+        for (int c = 0; c < ncmds; c++){
+            if (q + 6 > mp_rxn){ ok = 0; break; }
+            int type = mp_rx[q]; q += 6;
+            if (type == MPC_ORDER){ if (q + (int)sizeof ((MpCmd *)0)->mask > mp_rxn){ ok = 0; break; } q += (int)sizeof ((MpCmd *)0)->mask; }
+        }
+        if (!ok) break;                          /* wait for the rest of this packet */
+        MpTurn *tn = &mp_buf[exec % MP_RING];
+        int r = p;
+        for (int c = 0; c < ncmds; c++){
+            MpCmd m; memset(&m, 0, sizeof m);
+            m.type = mp_rx[r++]; m.team = mp_rx[r++];
+            m.a = mp_rx[r++]; m.b = mp_rx[r++]; m.c = mp_rx[r++]; m.d = mp_rx[r++];
+            if (m.type == MPC_ORDER){ memcpy(m.mask, mp_rx + r, sizeof m.mask); r += (int)sizeof m.mask; }
+            if (tn->n < MP_MAXCMD) tn->cmd[tn->n++] = m;
+        }
+        if (exec > mp_recv_through) mp_recv_through = exec;
+        mp_rchk[chkf % MP_RING] = cks ? cks : 1; mp_rchk_have[chkf % MP_RING] = 1;
+        i = q;
+    }
+    if (i > 0){ memmove(mp_rx, mp_rx + i, mp_rxn - i); mp_rxn -= i; }
+}
+
 static void cmd_at(float wx, float wy){
     int tx = (int)wx >> 3, ty = (int)wy >> 3;
     if (!tin(tx, ty)) return;
+    if (mp_active){                              /* MP: orders go through lockstep */
+        MpCmd c; memset(&c, 0, sizeof c);
+        c.type = MPC_ORDER; c.a = (uint8_t)tx; c.b = (uint8_t)ty;
+        int any = 0;
+        for (int i = 0; i < MAXU; i++)
+            if (un[i].alive && un[i].sel && un[i].team == MY_TEAM){ mp_bitset(c.mask, i); any = 1; }
+        if (!any) return;
+        Part *pp = part(PK_RING, wx, wy); if (pp){ pp->max = pp->life = 0.35f; pp->x2 = 5; }
+        sfx(&ack_sfx, 0.45f, 7, 0.06f);
+        mp_issue(c);
+        return;
+    }
     int t = tidx(tx, ty);
     /* enemy unit under cursor? */
     int16_t tgt = -1;
-    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == 1){
+    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == FOE_TEAM){
         float dx = un[i].x - wx, dy = un[i].y - wy;
         if (dx * dx + dy * dy < 25 && tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3))){ tgt = i; break; }
     }
-    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == 1 && (vism[t] & 2))
+    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == FOE_TEAM && (vism[t] & 2))
         tgt = -(bmap[t] + 2);
     int any = 0;
     int movers[64], nmov = 0;
@@ -2298,7 +2544,7 @@ static void cmd_at(float wx, float wy){
         } else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
             u->order = O_HARV; u->hstate = H_SEEK; u->oret = t;
         } else if (u->type == U_HARV && bmap[t] != 0xFF
-                   && bl[bmap[t]].team == 0 && bl[bmap[t]].type == B_REF){
+                   && bl[bmap[t]].team == MY_TEAM && bl[bmap[t]].type == B_REF){
             u->order = O_HARV; u->hstate = H_RET;    /* sent home: dump then resume */
         } else {
             u->order = O_MOVE; u->dest = t; u->tgt = -1;
@@ -2332,7 +2578,7 @@ static void cmd_at(float wx, float wy){
 static void select_at(float wx, float wy){
     int found = -1;
     float bd2 = 30;
-    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == 0){
+    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == MY_TEAM){
         float dx = un[i].x - wx, dy = un[i].y - wy;
         float d2 = dx * dx + dy * dy;
         if (d2 < bd2){ bd2 = d2; found = i; }
@@ -2346,11 +2592,11 @@ static void select_at(float wx, float wy){
             desel();
             if (tapn >= 2){
                 for (int i = 0; i < MAXU; i++)
-                    if (un[i].alive && un[i].team == 0 && UD[un[i].type].weapon) un[i].sel = 1;
+                    if (un[i].alive && un[i].team == MY_TEAM && UD[un[i].type].weapon) un[i].sel = 1;
                 toastf("ARMY SELECTED");
             } else {
                 for (int i = 0; i < MAXU; i++)
-                    if (un[i].alive && un[i].team == 0 && un[i].type == un[found].type
+                    if (un[i].alive && un[i].team == MY_TEAM && un[i].type == un[found].type
                         && onscreen(un[i].x, un[i].y, 0)) un[i].sel = 1;
             }
         } else {
@@ -2367,7 +2613,7 @@ static void select_at(float wx, float wy){
     int tx = (int)wx >> 3, ty = (int)wy >> 3;
     if (tin(tx, ty)){
         int bi = bmap[tidx(tx, ty)];
-        if (bi != 0xFF && bl[bi].team == 0){
+        if (bi != 0xFF && bl[bi].team == MY_TEAM){
             desel(); bsel = bi;
             sfx(&click_sfx, 0.35f, 7, 0.05f);
             return;
@@ -2382,9 +2628,19 @@ static void input_play(float dt){
     float wx = camx + curx, wy = camy + cury;
 
     /* pause: a game STATE, not a blocking modal — the OS loop keeps running,
-     * so the engine menu (3s MENU hold) stays reachable on top of it */
+     * so the engine menu (3s MENU hold) stays reachable on top of it. In MP the
+     * sim NEVER stops (lockstep), so this is a non-pausing RESUME/RESIGN overlay. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)){
-        paused = 1; pause_row = 0;
+        paused = !paused; pause_row = 0;
+        if (!mp_active) return;
+    }
+    if (mp_active && paused){                    /* non-freezing RESUME/RESIGN overlay */
+        if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN)) pause_row ^= 1;
+        if (mote_just_pressed(in, MOTE_BTN_B)) paused = 0;
+        if (mote_just_pressed(in, MOTE_BTN_A)){
+            paused = 0;
+            if (pause_row == 1){ state = ST_LOSE; endt = 0; mp_over = 1; mote->link_stop(); toastf("YOU RESIGNED"); }
+        }
         return;
     }
 
@@ -2393,7 +2649,7 @@ static void input_play(float dt){
     else {
         if (rb_t > 0.01f && rb_t <= 0.25f){
             for (int i = 0; i < MAXB; i++)
-                if (bl[i].alive && bl[i].team == 0 && bl[i].type == B_CON){
+                if (bl[i].alive && bl[i].team == MY_TEAM && bl[i].type == B_CON){
                     camx = bl[i].tx * TILE - 56; camy = bl[i].ty * TILE - 56;
                 }
         }
@@ -2408,9 +2664,9 @@ static void input_play(float dt){
         if (placing >= 0){ placing = -1; }
         if (!side_open){
             side_open = 1; side_tab = Q_BLD; side_row = 0;
-            if (pq[0][Q_BLD].ready)
+            if (pq[MY_TEAM][Q_BLD].ready)
                 for (int i = 0; i < QMENU_N[Q_BLD]; i++)
-                    if (QMENU[Q_BLD][i] == q_head(&pq[0][Q_BLD])) side_row = i;
+                    if (QMENU[Q_BLD][i] == q_head(&pq[MY_TEAM][Q_BLD])) side_row = i;
         }
         else { side_tab = (side_tab + 1) % NQ; side_row = 0; }
     }
@@ -2425,9 +2681,9 @@ static void input_play(float dt){
         if (mote_just_pressed(in, MOTE_BTN_DOWN))  side_row = (side_row + 3) % n;
         if (mote_just_pressed(in, MOTE_BTN_A)){
             int item = QMENU[side_tab][side_row];
-            PQueue *p = &pq[0][side_tab];
+            PQueue *p = &pq[MY_TEAM][side_tab];
             char miss[24];
-            if (!item_avail(0, side_tab, item)){
+            if (!item_avail(MY_TEAM, side_tab, item)){
                 missing_str(side_tab, item, miss, sizeof miss);
                 char msg[32]; snprintf(msg, sizeof msg, "NEEDS %s", miss);
                 sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf(msg);
@@ -2435,7 +2691,12 @@ static void input_play(float dt){
             else if (side_tab == Q_BLD && p->ready && q_head(p) == item){
                 placing = item; side_open = 0;       /* place the finished one */
             }
-            else if (credits[0] < 20 && !p->n){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
+            else if (credits[MY_TEAM] < 20 && !p->n){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("INSUFFICIENT FUNDS"); }
+            else if (mp_active){                     /* MP: queue via lockstep */
+                MpCmd c; memset(&c, 0, sizeof c);
+                c.type = MPC_QUEUE; c.a = (uint8_t)side_tab; c.b = (uint8_t)item;
+                mp_issue(c); sfx(&ack_sfx, 0.45f, 7, 0.06f);
+            }
             else if (!q_push(p, item)){ sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("QUEUE FULL"); }
             else sfx(&ack_sfx, 0.45f, 7, 0.06f);
         }
@@ -2460,12 +2721,18 @@ static void input_play(float dt){
     if (placing >= 0){
         if (mote_just_pressed(in, MOTE_BTN_A)){
             int tx = (int)(camx + curx) >> 3, ty = (int)(camy + cury) >> 3;
-            if (can_place(placing, 0, tx, ty)){
-                place_bldg(placing, 0, tx, ty);
-                fx_flash((tx + BD[placing].w * 0.5f) * TILE, (ty + BD[placing].h * 0.5f) * TILE, 8);
-                sfx(&place_sfx, 0.7f, 7, 0.1f);
-                q_pop(&pq[0][Q_BLD]);                /* next queued building starts */
-                placing = -1;
+            if (can_place(placing, MY_TEAM, tx, ty)){
+                if (mp_active){                        /* MP: place via lockstep */
+                    MpCmd c; memset(&c, 0, sizeof c);
+                    c.type = MPC_PLACE; c.a = (uint8_t)placing; c.b = (uint8_t)tx; c.c = (uint8_t)ty;
+                    mp_issue(c); sfx(&place_sfx, 0.7f, 7, 0.1f); placing = -1;
+                } else {
+                    place_bldg(placing, MY_TEAM, tx, ty);
+                    fx_flash((tx + BD[placing].w * 0.5f) * TILE, (ty + BD[placing].h * 0.5f) * TILE, 8);
+                    sfx(&place_sfx, 0.7f, 7, 0.1f);
+                    q_pop(&pq[MY_TEAM][Q_BLD]);            /* next queued building starts */
+                    placing = -1;
+                }
             } else { sfx(&denied_sfx, 0.5f, 7, 0.2f); toastf("CANNOT PLACE THERE"); }
         }
         if (mote_just_pressed(in, MOTE_BTN_B)) placing = -1;
@@ -2474,7 +2741,7 @@ static void input_play(float dt){
 
     /* minimap click: while the radar map is up (RB held), A over the map issues
      * orders to the MAP location — or recenters the view if nothing is selected */
-    int mm_show = rb_t > 0.001f && (m_free_radar || ((owned[0] & (1u << B_RADAR)) && power_ok(0)));
+    int mm_show = rb_t > 0.001f && (m_free_radar || ((owned[MY_TEAM] & (1u << B_RADAR)) && power_ok(MY_TEAM)));
     if (mm_show && mote_just_pressed(in, MOTE_BTN_A)
         && curx >= 16 && curx < 16 + MW && cury >= 16 && cury < 16 + MH){
         int mtx = (int)curx - 16, mty = (int)cury - 16;
@@ -2507,24 +2774,24 @@ static void input_play(float dt){
             desel(); bsel = -1;
             int n = 0;
             for (int i = 0; i < MAXU; i++)
-                if (un[i].alive && un[i].team == 0
+                if (un[i].alive && un[i].team == MY_TEAM
                     && un[i].x >= x0 - 2 && un[i].x <= x1 + 2 && un[i].y >= yy0 - 2 && un[i].y <= yy1 + 2
                     && UD[un[i].type].weapon){ un[i].sel = 1; n++; }
             if (!n)   /* no combat units? take anything (harvesters) */
                 for (int i = 0; i < MAXU; i++)
-                    if (un[i].alive && un[i].team == 0
+                    if (un[i].alive && un[i].team == MY_TEAM
                         && un[i].x >= x0 - 2 && un[i].x <= x1 + 2 && un[i].y >= yy0 - 2 && un[i].y <= yy1 + 2)
                         { un[i].sel = 1; n++; }
             if (n) sfx(&click_sfx, 0.4f, 7, 0.05f);
         } else {
             /* tap: over own unit/building = select; else command selection */
             int own = 0;
-            for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == 0){
+            for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == MY_TEAM){
                 float dx = un[i].x - wx, dy = un[i].y - wy;
                 if (dx * dx + dy * dy < 30){ own = 1; break; }
             }
             int tx = (int)wx >> 3, ty = (int)wy >> 3;
-            int ownb = tin(tx, ty) && bmap[tidx(tx, ty)] != 0xFF && bl[bmap[tidx(tx, ty)]].team == 0;
+            int ownb = tin(tx, ty) && bmap[tidx(tx, ty)] != 0xFF && bl[bmap[tidx(tx, ty)]].team == MY_TEAM;
             if (own) select_at(wx, wy);
             else if (sel_count()) { cmd_at(wx, wy); }
             else if (ownb) select_at(wx, wy);
@@ -2532,7 +2799,14 @@ static void input_play(float dt){
                 /* set rally for production buildings */
                 int bt = bl[bsel].type;
                 if (bt == B_BAR || bt == B_FACT || bt == B_PAD || bt == B_CON){
-                    if (tin(tx, ty)){ bl[bsel].rally = tidx(tx, ty); sfx(&click_sfx, 0.35f, 7, 0.05f); }
+                    if (tin(tx, ty)){
+                        if (mp_active){
+                            MpCmd c; memset(&c, 0, sizeof c);
+                            c.type = MPC_RALLY; c.a = (uint8_t)bsel; c.b = (uint8_t)(bsel >> 8);
+                            c.c = (uint8_t)tx; c.d = (uint8_t)ty; mp_issue(c);
+                        } else bl[bsel].rally = tidx(tx, ty);
+                        sfx(&click_sfx, 0.35f, 7, 0.05f);
+                    }
                 }
             }
         }
@@ -2542,7 +2816,126 @@ static void input_play(float dt){
 }
 
 /* ============================================================ world init */
+/* the deterministic simulation core — SP and MP both drive this (SP with real
+ * dt, MP with a fixed MP_DT). No AI, no fog, no camera, no host hooks in here. */
+static void sim_tick(float dt){
+    for (int i = 0; i < MAXU; i++) if (un[i].alive) unit_tick(i, dt);
+    for (int i = 0; i < MAXB; i++) if (bl[i].alive) bldg_tick(i, dt);
+    for (int i = 0; i < MAXP; i++) if (pr[i].alive) proj_tick(i, dt);
+    for (int i = 0; i < MAXPT; i++) if (pt[i].alive){
+        Part *p = &pt[i];
+        p->life -= dt;
+        if (p->life <= 0){ p->alive = 0; continue; }
+        p->x += p->vx * dt; p->y += p->vy * dt;
+        if (p->kind == PK_SPARK || p->kind == PK_DEBRIS){ p->vx *= 1 - 3 * dt; p->vy *= 1 - 3 * dt; }
+        if (p->kind == PK_FLAME){ p->vx *= 1 - 2.2f * dt; p->vy *= 1 - 2.2f * dt; }
+    }
+    queue_tick(0, dt);
+    queue_tick(1, dt);
+}
+
+/* ------------------------------------------------------------------- MP setup */
+static const int SK_FUNDS[3];   /* defined below skirmish */
+static void mp_setup(uint32_t seed, int base, int army, int funds){
+    mp_active = 1;
+    memset(un, 0, sizeof un); memset(bl, 0, sizeof bl); memset(pr, 0, sizeof pr);
+    memset(pt, 0, sizeof pt); memset(pq, 0, sizeof pq); memset(vism, 0, NT);
+    memset(mp_buf, 0, sizeof mp_buf); memset(mp_rchk_have, 0, sizeof mp_rchk_have);
+    mp_recv_through = 0; mp_desync = 0; mp_over = 0; mp_npending = 0; mp_rxn = 0;
+    wepoch++;
+    for (int i = 0; i < NF; i++){ fdest[i] = 0xFFFF; fepoch[i] = 0; fuse[i] = 0; }
+    rs = seed | 1;                       /* SHARED seed -> identical map + RNG stream */
+    gen_map();
+    m_player_build = 1; m_ai_prod = 0; m_ai_income = 0; m_free_radar = 0;
+    m_tech[0] = m_tech[1] = TECH_ALL;
+    m_wave0 = 1 << 30; m_wavestep = 0; m_wavecap = 0;
+    credits[0] = credits[1] = SK_FUNDS[funds < 0 ? 1 : funds > 2 ? 2 : funds];
+    side_open = 0; placing = -1; a_mode = 0; bsel = -1; rb_t = 0; paused = 0;
+    toast_t = 0; atk_warn_t = 0; endt = 0;
+    for (int team = 0; team < 2; team++){
+        setup_base(team, base == 0 ? BL_CON : base == 1 ? BL_BASIC : BL_FULL);
+        setup_army(team, army);
+    }
+    int bx = base_t[MY_TEAM] % MW, by = base_t[MY_TEAM] / MW;
+    camx = bx * TILE - 48; camy = by * TILE - 56;
+    if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
+    if (camy < 0) camy = 0; if (camy > WPX - 128) camy = WPX - 128;
+    curx = 64; cury = 64;
+    mp_frame = 0; mp_accum = 0;
+    fog_update();
+    mote->set_fps_limit(30);             /* lockstep: one sim step per rendered frame */
+}
+
+/* seed/param handshake after net_lobby (host sends, client adopts). Returns 1
+ * once both sides know the match params and the sim is set up. */
+static uint8_t mp_hs[128]; static int mp_hsn;
+static int mp_handshake(void){
+    uint8_t chunk[64]; int got;
+    while ((got = mote->link_recv(chunk, (int)sizeof chunk)) > 0){
+        if (mp_hsn + got > (int)sizeof mp_hs) mp_hsn = 0;
+        memcpy(mp_hs + mp_hsn, chunk, got); mp_hsn += got;
+    }
+    if (mp_is_host){
+        uint8_t h[10] = { MP_MAGIC, 'H', 1 };
+        for (int k = 0; k < 4; k++) h[3 + k] = (uint8_t)(mp_seed >> (8 * k));
+        h[7] = (uint8_t)sk_base; h[8] = (uint8_t)sk_army; h[9] = (uint8_t)sk_funds;
+        mote->link_send(h, 10);
+        for (int i = 0; i + 1 < mp_hsn; i++)
+            if (mp_hs[i] == MP_MAGIC && mp_hs[i + 1] == 'S'){
+                mp_hsn = 0; mp_setup(mp_seed, sk_base, sk_army, sk_funds); return 1;
+            }
+    } else {
+        for (int i = 0; i + 10 <= mp_hsn; i++)
+            if (mp_hs[i] == MP_MAGIC && mp_hs[i + 1] == 'H'){
+                mp_seed = 0;
+                for (int k = 0; k < 4; k++) mp_seed |= (uint32_t)mp_hs[i + 3 + k] << (8 * k);
+                sk_base = mp_hs[i + 7]; sk_army = mp_hs[i + 8]; sk_funds = mp_hs[i + 9];
+                uint8_t s[2] = { MP_MAGIC, 'S' }; mote->link_send(s, 2);
+                mp_hsn = 0; mp_setup(mp_seed, sk_base, sk_army, sk_funds); return 1;
+            }
+    }
+    return 0;
+}
+
+/* the lockstep pump — one call per rendered frame while ST_PLAY && mp_active */
+static void mp_pump(float dt){
+    mp_poll();
+    input_play(dt);                      /* UI + issue local commands every frame */
+    if (mp_over) return;
+    int can = (mp_frame < MP_DELAY) || (mp_recv_through >= mp_frame);
+    if (!can) return;                    /* stall: waiting for the peer's packet */
+    uint32_t ck = mp_checksum();
+    mp_chk[mp_frame % MP_RING] = ck;
+    if (mp_rchk_have[mp_frame % MP_RING] && mp_rchk[mp_frame % MP_RING] != ck) mp_desync = 1;
+#ifdef MOTE_HOST
+    if (hk_mp) fprintf(stderr, "MPCK %u %08x\n", mp_frame, ck);
+#endif
+    mp_send_turn();
+    MpTurn *tn = &mp_buf[mp_frame % MP_RING];
+    for (int pass = 0; pass < 2; pass++)
+        for (int c = 0; c < tn->n; c++) if (tn->cmd[c].team == pass) mp_apply_cmd(&tn->cmd[c]);
+    tn->n = 0; mp_rchk_have[mp_frame % MP_RING] = 0;
+    simc = mp_frame;
+    sim_tick(MP_DT);
+    if ((mp_frame % 6) == 0) fog_update();
+    mp_frame++;
+}
+
+/* open the engine lobby (USB/LAN/Internet), then hand off to the seed handshake */
+static void mp_connect(void){
+    if (mote->abi_version < 44){ toastf("LINK NEEDS NEWER OS"); return; }
+    MoteNetCfg cfg; cfg.game_name = "RedMote"; cfg.proto_version = 1; cfg.transports = MOTE_NET_ALL;
+    int host = 0;
+    if (mote->net_lobby(&cfg, &host) != MOTE_NET_CONNECTED) return;   /* cancelled */
+    mp_is_host = host;
+    mp_my_team = host ? 0 : 1;
+    mp_seed = ((uint32_t)mote->micros() * 2654435761u) | 1u;
+    mp_hsn = 0; mp_roles = 1;
+    state = ST_MPWAIT;
+}
+
 static void world_init(void){
+    mp_active = 0;
     memset(un, 0, sizeof un);
     memset(bl, 0, sizeof bl);
     memset(pr, 0, sizeof pr);
@@ -2594,6 +2987,7 @@ static void world_init(void){
 static const int SK_FUNDS[3] = { 3000, 8000, 20000 };
 static void skirmish_setup(void){
     gm_mission = -1;
+    mp_active = 0;
     world_init();
     m_player_build = 1; m_ai_prod = 1; m_ai_income = 1; m_free_radar = 0;
     m_tech[0] = m_tech[1] = TECH_ALL;
@@ -2607,6 +3001,7 @@ static void skirmish_setup(void){
 }
 
 static void mission_setup(int m){
+    mp_active = 0;
     gm_mission = m;
     const Mission *ms = &MISSIONS[m];
     diff = 1;
@@ -2672,17 +3067,34 @@ static void g_update(float dt){
             m_tech[0] = m_tech[1] = TECH_ALL;
             state = ST_PLAY;
         } else if (hk_auto){ skirmish_setup(); state = ST_PLAY; }
+        else if (hk_mp){ mote->link_start(); mp_roles = 0; state = ST_MPWAIT; }
     }
 
     switch (state){
     case ST_TITLE:
-        if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN))
-            menu_row ^= 1;
+        if (mote_just_pressed(in, MOTE_BTN_UP)) menu_row = (menu_row + 2) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) menu_row = (menu_row + 1) % 3;
         if (mote_just_pressed(in, MOTE_BTN_A)){
             if (menu_row == 0){ state = ST_MISSIONS; sk_row = 0; }
-            else { state = ST_SKIRMOPT; sk_row = 0; }
+            else if (menu_row == 1){ state = ST_SKIRMOPT; sk_row = 0; }
+            else mp_connect();
         }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) mote->exit_to_launcher();
+        return;
+    case ST_MPWAIT:
+        if (mote->link_status() != MOTE_LINK_CONNECTED){
+            if (mp_roles){ mp_active = 0; state = ST_TITLE; }   /* lost after pairing */
+            if (mote_just_pressed(in, MOTE_BTN_B)){ mote->link_stop(); mp_active = 0; state = ST_TITLE; }
+            return;                                             /* raw: keep waiting to pair */
+        }
+        if (!mp_roles){                                         /* raw link just paired: assign */
+            mp_is_host = mote->link_is_host();
+            mp_my_team = mp_is_host ? 0 : 1;
+            if (mp_is_host) mp_seed = ((uint32_t)mote->micros() * 2654435761u) | 1u;
+            mp_hsn = 0; mp_roles = 1;
+        }
+        if (mp_handshake()) state = ST_PLAY;
+        if (mote_just_pressed(in, MOTE_BTN_B)){ mote->link_stop(); mp_active = 0; state = ST_TITLE; }
         return;
     case ST_MISSIONS: {
         if (mote_just_pressed(in, MOTE_BTN_UP)) sk_row = (sk_row + 8) % 9;
@@ -2726,6 +3138,20 @@ static void g_update(float dt){
         /* battle keeps simulating below the banner */
         break;
     case ST_PLAY:
+        if (mp_active){
+            mp_pump(dt);
+            if (!mp_over){
+                if ((mp_frame % 30) == 0){
+                    if (bldg_count(FOE_TEAM) == 0 && unit_count(FOE_TEAM) == 0){ state = ST_WIN; endt = 0; mp_over = 1; mote->link_stop(); }
+                    else if (bldg_count(MY_TEAM) == 0 && unit_count(MY_TEAM) == 0){ state = ST_LOSE; endt = 0; mp_over = 1; mote->link_stop(); }
+                }
+                if (!mp_over && (mote->link_status() != MOTE_LINK_CONNECTED ||
+                    (mote->abi_version >= 45 && mote->net_health() == MOTE_NET_LOST))){
+                    state = ST_WIN; endt = 0; mp_over = 1; toastf("OPPONENT LEFT"); mote->link_stop();
+                }
+            }
+            return;
+        }
         if (paused){
             if (mote_just_pressed(in, MOTE_BTN_UP))   pause_row = (pause_row + 2) % 3;
             if (mote_just_pressed(in, MOTE_BTN_DOWN)) pause_row = (pause_row + 1) % 3;
@@ -2746,23 +3172,9 @@ static void g_update(float dt){
         break;
     }
 
-    float fast = hk_fast ? 10.f : 1.f;
-    (void)fast;
-
-    /* sim */
-    for (int i = 0; i < MAXU; i++) if (un[i].alive) unit_tick(i, dt);
-    for (int i = 0; i < MAXB; i++) if (bl[i].alive) bldg_tick(i, dt);
-    for (int i = 0; i < MAXP; i++) if (pr[i].alive) proj_tick(i, dt);
-    for (int i = 0; i < MAXPT; i++) if (pt[i].alive){
-        Part *p = &pt[i];
-        p->life -= dt;
-        if (p->life <= 0){ p->alive = 0; continue; }
-        p->x += p->vx * dt; p->y += p->vy * dt;
-        if (p->kind == PK_SPARK || p->kind == PK_DEBRIS){ p->vx *= 1 - 3 * dt; p->vy *= 1 - 3 * dt; }
-        if (p->kind == PK_FLAME){ p->vx *= 1 - 2.2f * dt; p->vy *= 1 - 2.2f * dt; }
-    }
-    queue_tick(0, dt);
-    queue_tick(1, dt);
+    /* single-player sim (MP runs its own lockstep pump and returns before here) */
+    simc = framec;
+    sim_tick(dt);
     ai_t += dt;
     if (ai_t >= 1.0f && state != ST_TITLE){ ai_t = 0; ai_think(); }
     if ((framec % 6) == 0) fog_update();
