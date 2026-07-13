@@ -588,6 +588,7 @@ static uint16_t col_fade(uint16_t c, float f) {
 
 static void spawn_ring_ex(float x, float y, uint16_t col, float r0, float speed,
                           float maxage, int fill) {
+    if (maxage < 0.03f) maxage = 0.03f;              /* draw divides by this */
     for (int i = 0; i < MAXRING; i++) if (!rings[i].on) {
         rings[i] = (Ring){ x, y, 0, maxage, speed, r0, 1, (uint8_t)fill, col }; return;
     }
@@ -857,10 +858,35 @@ static void boom_style(int st, float x, float y, float pw) {
 
 /* world-positioned SFX: full volume on screen, fading to silence ~a screen
  * and a half away, so distant hazards/kills stop shouting over the action */
-static void sfx_at(const MoteSfx *s, float gain, float x, float y) {
+static float sfx_falloff(float x, float y) {
     float dx = x - (cam_x + MOTE_FB_W / 2), dy = y - (cam_y + MOTE_FB_H / 2);
     float d = sqrtf(dx * dx + dy * dy);
-    float f = d <= 78.0f ? 1.0f : 1.0f - (d - 78.0f) / 130.0f;
+    return d <= 78.0f ? 1.0f : 1.0f - (d - 78.0f) / 130.0f;
+}
+
+/* booms are the ONE sound that stacks (multi-kills, pod bursts, the staged
+ * death blasts) — baked to PCM at init so eight at once cost the mixer
+ * almost nothing instead of eight live noise synths. */
+static MoteSound snd_boom_small, snd_boom_big;
+static void boom_small_play(float gain) {
+    if (snd_boom_small.count) mote->audio_play(&snd_boom_small, gain);
+    else mote->audio_play_sfx(&boom_small_sfx, gain);
+}
+static void boom_big_play(float gain) {
+    if (snd_boom_big.count) mote->audio_play(&snd_boom_big, gain);
+    else mote->audio_play_sfx(&boom_big_sfx, gain);
+}
+static void boom_small_at(float gain, float x, float y) {
+    float f = sfx_falloff(x, y);
+    if (f > 0.02f) boom_small_play(gain * f);
+}
+static void boom_big_at(float gain, float x, float y) {
+    float f = sfx_falloff(x, y);
+    if (f > 0.02f) boom_big_play(gain * f);
+}
+
+static void sfx_at(const MoteSfx *s, float gain, float x, float y) {
+    float f = sfx_falloff(x, y);
     if (f <= 0.02f) return;
     mote->audio_play_sfx(s, gain * f);
 }
@@ -1057,14 +1083,14 @@ static void kill_enemy(Enemy *e) {
             drop_chip(e->x + 2, e->y + 6, 0, (mote_rand() & 1) ? CH_HEAL : CH_POWER);
         }
         boom_style(6, e->x, e->y, e->boss ? 1.6f : 1.1f);
-        sfx_at(&boom_big_sfx, e->boss ? 1.0f : 0.85f, e->x, e->y);
+        boom_big_at(e->boss ? 1.0f : 0.85f, e->x, e->y);
         mote->rumble(e->boss ? 1.0f : 0.7f, e->boss ? 400 : 220);
     } else if (e->kind == K_TURRET) {
         shatter(&props_img, 6 * 8, 0, 8, 8, (int)e->x - 4, (int)e->y - 4, 0, 0, 0, 0);
         boom_style(1, e->x, e->y, 0.55f);
         scrap += 4;
         if ((mote_rand() & 255) < 46) drop_chip(e->x, e->y - 4, &e->wpn, CH_WEAPON);
-        sfx_at(&boom_small_sfx, 0.5f, e->x, e->y);
+        boom_small_at(0.5f, e->x, e->y);
     } else {
         int cell = e->ship;
         shatter(&ships_img, (cell % SHIP_COLS) * SHIP_CELL + ship_bx[cell],
@@ -1077,7 +1103,7 @@ static void kill_enemy(Enemy *e) {
         else if ((mote_rand() & 255) < 20) drop_chip(e->x, e->y, 0, CH_HEAL);
         else if ((mote_rand() & 255) < 12) drop_chip(e->x, e->y, 0, CH_POWER);
         boom_style(1, e->x, e->y, 0.7f);
-        sfx_at(&boom_small_sfx, 0.65f, e->x, e->y);
+        boom_small_at(0.65f, e->x, e->y);
         mote->rumble(0.3f, 90);
     }
 }
@@ -1196,7 +1222,7 @@ static void shot_hit_enemy(Shot *s, Enemy *e) {
             if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
         }
         spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
-        sfx_at(&boom_small_sfx, 0.5f, s->rx, s->ry);
+        boom_small_at(0.5f, s->rx, s->ry);
         s->pierce = 0; s->on = 0;
         return;
     }
@@ -1869,6 +1895,8 @@ static void g_init(void) {
     build_gradient();
     mote->set_background_cb(bg_cb);
     mote_rand_seed(mote->micros() | 1u);
+    snd_boom_small = mote_sfx_bake(mote, &boom_small_sfx);
+    snd_boom_big = mote_sfx_bake(mote, &boom_big_sfx);
     init_combo_icons();
     {
         uint8_t d[16 + sizeof cat_ship + sizeof cat_boss + sizeof cat_wpn + sizeof ship_parts];
@@ -1944,7 +1972,7 @@ static void take_hit(float n) {
                 (int)(px - ship_bw[cell] / 2), (int)(py - ship_bh[cell] / 2),
                 facing < 0, pvx, pvy, 0);
         boom_style(6, px, py, 1.7f);
-        mote->audio_play_sfx(&boom_big_sfx, 0.9f);
+        boom_big_play(0.9f);
         mote->rumble(1.0f, 400);
         /* saves are DEFERRED to the end screen: a flash-sector erase here
          * would freeze the explosion on device */
@@ -2300,7 +2328,7 @@ static void pmines_update(float dt) {
                                j & 1 ? MOTE_RGB565(220, 150, 255) : MOTE_RGB565(255, 230, 150),
                                mote_randf(0.2f, 0.5f), PF_ADD);
                 }
-                sfx_at(&boom_small_sfx, 0.7f, pmine[i].x, pmine[i].y);
+                boom_small_at(0.7f, pmine[i].x, pmine[i].y);
                 pmine[i].on = 0;
                 break;
             }
@@ -2361,7 +2389,7 @@ static void hpj_burst(int i) {
         spawn_part(hpj[i].x, hpj[i].y, cosf(a) * sp, sinf(a) * sp * 0.7f,
                    bc[k & 1], mote_randf(0.2f, 0.45f), PF_ADD | (k & 1 ? PF_GRAV : 0));
     }
-    sfx_at(&boom_small_sfx, 0.32f, hpj[i].x, hpj[i].y);
+    boom_small_at(0.32f, hpj[i].x, hpj[i].y);
     hpj[i].on = 0;
 }
 
@@ -2577,7 +2605,7 @@ static void shots_update(float dt) {
                         if (ddx * ddx + ddy * ddy < 16 * 16) dmg_enemy(o, s->dmg * 0.6f);
                     }
                     spawn_ring(s->rx, s->ry, MOTE_RGB565(255, 160, 80));
-                    sfx_at(&boom_small_sfx, 0.5f, s->rx, s->ry);
+                    boom_small_at(0.5f, s->rx, s->ry);
                 }
                 s->on = 0;
             }
@@ -2701,7 +2729,7 @@ static void chips_update(float dt) {
                                    k & 1 ? MOTE_RGB565(255, 150, 60) : MOTE_RGB565(255, 230, 150),
                                    mote_randf(0.25f, 0.6f), PF_ADD);
                     }
-                    mote->audio_play_sfx(&boom_big_sfx, 1.0f);
+                    boom_big_play(1.0f);
                     mote->rumble(0.9f, 300);
                     break; }
                 case PU_OVERDRIVE: b_over = 20.0f; break;
@@ -3267,7 +3295,7 @@ static void g_update(float dt) {
             if (t0 <= boomt[k] && state_t > boomt[k]) {  /* secondary blasts */
                 float ox = mote_randf(-13, 13), oy = mote_randf(-11, 11);
                 boom_style(1, px + ox, py + oy, 0.85f);
-                mote->audio_play_sfx(&boom_small_sfx, 0.5f);
+                boom_small_play(0.5f);
                 mote->rumble(0.5f, 90);
             }
         parts_update(dt);
