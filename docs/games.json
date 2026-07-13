@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-13T15:54:47+00:00",
+ "generated": "2026-07-13T20:27:32+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -188,7 +188,7 @@
    ],
    "tag": "First-person dungeon crawl",
    "desc": "Descend into The Crypt: a raycast first-person roguelike with procedural floors, monsters, loot and permadeath. Every run is a new dungeon.",
-   "guide": null,
+   "guide": "https://austinio7116.github.io/ThumbyRogue/",
    "multiplayer": false
   },
   {
