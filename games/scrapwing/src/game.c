@@ -481,6 +481,29 @@ static float b_drone, drone_cd, drone_ang;      /* wingman */
 static float b_reflect, b_magnet;
 static uint8_t run_pu[PU_N];             /* powerups collected THIS run (log) */
 static uint8_t lab_view;                 /* hangar pane: 0 = weapon, 1 = run log */
+static int     pu_cur;                   /* run-log grid cursor (collected index) */
+static uint8_t pu_modal;                 /* powerup detail popup open */
+#define PU_COLS 6
+/* what each powerup DOES, for the run-log popup (2 short lines) */
+static const char *const pu_desc[PU_N][2] = {
+    { "MAX SHIELD +0.75",   "AND FULL RECHARGE" },
+    { "RESTORES 2 HULL",    "" },
+    { "BLAST WAVE: 10 DMG", "TO ALL FOES NEAR" },
+    { "FIRE RATE +40%",     "FOR 20 SECONDS" },
+    { "DAMAGE +50%",        "FOR 15 SECONDS" },
+    { "THRUST +35%",        "FOR 20 SECONDS" },
+    { "PHASE THROUGH HITS", "FOR 6 SECONDS" },
+    { "EQUIPPED WEAPON",    "GAINS A LEVEL" },
+    { "+25 SCRAP",          "" },
+    { "DROPS FIRE BOMBS",   "WHILE FIRING, 25S" },
+    { "REAR SHOTS WHILE",   "FIRING, 25S" },
+    { "UP+DOWN SHOTS",      "WHILE FIRING, 25S" },
+    { "WINGMAN ORBITS AND", "SNIPES FOES, 30S" },
+    { "REFLECTS ENEMY",     "SHOTS AWAY, 20S" },
+    { "PULLS PICKUPS IN",   "FOR 30 SECONDS" },
+    { "3 MINES AUTO-DROP",  "BEHIND YOU" },
+    { "MAX HULL +1 (TO 8)", "AND +1 REPAIR" },
+};
 static int   mine_charges;                      /* chrono mines waiting to deploy */
 static float mine_cd;
 static int   hull_max;                          /* grows with HULL OVERCHARGE */
@@ -1315,7 +1338,7 @@ static Enemy *place_enemy(int kind, float x, float y) {
     e->wpn = roll_gene();
     if (kind == K_HEAVY) {
         e->ship = (uint16_t)pick_boss_for_biome();
-        e->hp = 22.0f + sector * 6.0f;               /* mini-bosses hit the gym */
+        e->hp = 22.0f + sector * 7.0f + sector * sector * 0.9f;  /* hits the gym HARD */
         uint32_t bh = ship_hash(e->ship + 2000);     /* seeded loadout, like ships */
         e->wpn.pat = (uint8_t)((bh >> 12) % PAT_N);
         e->wpn.elem = (uint8_t)((bh >> 16) % EL_N);
@@ -1324,14 +1347,14 @@ static Enemy *place_enemy(int kind, float x, float y) {
         e->wpn.lvl = (uint8_t)mote_clampi(1 + sector / 2, 1, 9);
     } else if (kind == K_TURRET) {
         e->ship = 0;
-        e->hp = 3.0f + sector * 0.8f;
+        e->hp = 3.0f + sector * 0.9f + sector * sector * 0.06f;
     } else {
         /* a biome-matched sprite whose SEEDED config decides everything */
         e->ship = (uint16_t)pick_ship_for_biome();
         float hp_base;
         ship_config(e->ship, &e->kind, &e->wpn, &hp_base);
         e->wpn.lvl = (uint8_t)mote_clampi(1 + (sector > 1 ? (int)(mote_rand() % sector) / 2 : 0), 1, 9);
-        e->hp = hp_base + sector * 0.8f;
+        e->hp = hp_base + sector * 1.0f + sector * sector * 0.10f;
     }
     e->hpmax = e->hp;
     return e;
@@ -1501,7 +1524,7 @@ static void gen_sector(void) {
             bz->deck_n = (uint8_t)(sector >= 6 ? 4 : 3);
             for (int k = 0; k < 4; k++) bz->deck[k] = (uint8_t)((bh >> (k * 3)) % 7);
             bz->deck_i = 0;
-            bz->hp = bz->hpmax = 70.0f + sector * 14.0f;
+            bz->hp = bz->hpmax = 70.0f + sector * 15.0f + sector * sector * 2.0f;
         }
     } else {
         carve_disc(gc, cor_y[gc], 4, 4);
@@ -1838,6 +1861,11 @@ static void start_run(void) {
         int n = mote_clampi(atoi(di), 0, INV_MAX - 1);
         for (int k = 0; k < n; k++) inv[inv_n++] = roll_gene();
     }
+    const char *dpu = getenv("SCRAP_PU");   /* log n random powerup pickups */
+    if (dpu) {
+        int n = mote_clampi(atoi(dpu), 0, 40);
+        for (int k = 0; k < n; k++) run_pu[mote_rand() % PU_N]++;
+    }
     const char *dw = getenv("SCRAP_WPN");
     if (dw) {
         int p, e, m, l;
@@ -2105,7 +2133,7 @@ static void player_update(float dt) {
 
     /* bomb bay: shells drop away beneath, hunting turrets and ground targets */
     bomb_cd -= dt;
-    if (b_bomb > 0 && bomb_cd <= 0) {
+    if (b_bomb > 0 && bomb_cd <= 0 && mote_pressed(in, MOTE_BTN_A)) {
         Gene bg = { PAT_BOLT, EL_FIRE, 0, inv[equipped].lvl, 0 };
         Shot *s = spawn_shot(px, py + 5, 1.5708f, 30, &bg, 3.0f, 0);
         if (s) { s->bomb = 1; s->vx = pvx * 0.4f; }
@@ -2137,6 +2165,7 @@ static void player_update(float dt) {
 
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
         state = ST_LAB; lab_cur = equipped; lab_mark = -1;
+        lab_view = 0; pu_modal = 0;
         save_flush();
     }
 
@@ -3102,10 +3131,39 @@ static void g_update(float dt) {
         submit_scene();
         break;
     case ST_LAB: {
+        int nc = 0;
+        for (int i = 0; i < PU_N; i++) if (run_pu[i]) nc++;
+        if (pu_modal) {                              /* detail popup: any key closes */
+            if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B) ||
+                mote_just_pressed(in, MOTE_BTN_MENU))
+                pu_modal = 0;
+            submit_scene();
+            parts_update(dt);
+            break;
+        }
+        if (lab_view) {                              /* run-log grid focus */
+            if (pu_cur >= nc) pu_cur = nc ? nc - 1 : 0;
+            if (mote_just_pressed(in, MOTE_BTN_LEFT) && pu_cur > 0) pu_cur--;
+            if (mote_just_pressed(in, MOTE_BTN_RIGHT) && pu_cur < nc - 1) pu_cur++;
+            if (mote_just_pressed(in, MOTE_BTN_UP)) {
+                if (pu_cur >= PU_COLS) pu_cur -= PU_COLS;
+                else lab_view = 0;                   /* back up into the weapons */
+            }
+            if (mote_just_pressed(in, MOTE_BTN_DOWN) && pu_cur + PU_COLS < nc)
+                pu_cur += PU_COLS;
+            if (mote_just_pressed(in, MOTE_BTN_A) && nc) pu_modal = 1;
+            if (mote_just_pressed(in, MOTE_BTN_LB)) { cat_from_title = 0; state = ST_CATALOG; }
+            if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B))
+                state = ST_PLAY;
+            submit_scene();
+            parts_update(dt);
+            break;
+        }
         if (mote_just_pressed(in, MOTE_BTN_UP))   lab_cur = (lab_cur + inv_n - 1) % inv_n;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN)) lab_cur = (lab_cur + 1) % inv_n;
-        if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT))
-            lab_view ^= 1;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) {
+            if (lab_cur == inv_n - 1 && nc) { lab_view = 1; pu_cur = 0; }
+            else lab_cur = (lab_cur + 1) % inv_n;
+        }
         if (mote_just_pressed(in, MOTE_BTN_A)) {
             equipped = lab_cur;
             say("EQUIPPED");
@@ -3632,30 +3690,44 @@ static void lab_overlay(uint16_t *fb) {
      * projectile speed — the SAME three lines the fusion bench shows */
     mote->draw_line(fb, 2, 86, 125, 86, MOTE_RGB565(90, 120, 180), 0, MOTE_FB_H);
     if (lab_view) {                                  /* RUN LOG: powerups collected */
+        int list[PU_N], nc = 0;
+        for (int i = 0; i < PU_N; i++) if (run_pu[i]) list[nc++] = i;
         textf_med(fb, 4, 88, MOTE_RGB565(160, 220, 255), "RUN LOG");
-        textf_med(fb, 62, 88, MOTE_RGB565(220, 220, 240), "KILLS %d", kills);
-        int gx = 5, gy = 100, shown = 0, total = 0;
-        for (int i = 0; i < PU_N; i++) {
-            if (!run_pu[i]) continue;
-            total++;
-            if (shown < 12) {
-                int sp = pu_sprite[i];
-                mote->blit_ex(fb, &mines_img, gx + 5, gy + 5,
-                              (sp % MINE_COLS) * 16, (sp / MINE_COLS) * 16, 16, 16,
-                              0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
-                if (run_pu[i] > 1)
-                    textf_med(fb, gx + 10, gy + 2, MOTE_RGB565(255, 220, 110),
-                              "%d", run_pu[i]);
-                gx += 20;
-                if (gx > 108) { gx = 5; gy += 13; }
-                shown++;
-            }
+        if (nc && pu_cur < nc)                       /* selected powerup's name */
+            textf_med(fb, 50, 88, MOTE_RGB565(255, 220, 110), "%s", pu_name[list[pu_cur]]);
+        for (int k = 0; k < nc && k < 12; k++) {
+            int gx = 5 + (k % PU_COLS) * 20, gy = 98 + (k / PU_COLS) * 13;
+            int sp = pu_sprite[list[k]];
+            if (k == pu_cur)
+                mote->draw_rect(fb, gx - 1, gy - 1, 14, 13, MOTE_RGB565(255, 220, 110),
+                                0, 0, MOTE_FB_H);
+            mote->blit_ex(fb, &mines_img, gx + 5, gy + 5,
+                          (sp % MINE_COLS) * 16, (sp / MINE_COLS) * 16, 16, 16,
+                          0, 0.62f, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+            if (run_pu[list[k]] > 1)
+                textf_med(fb, gx + 9, gy + 3, MOTE_RGB565(255, 220, 110),
+                          "%d", run_pu[list[k]]);
         }
-        if (!total)
+        if (!nc)
             textf_med(fb, 4, 102, MOTE_RGB565(120, 130, 160), "NO POWERUPS YET");
-        else if (total > shown)
-            textf_med(fb, 108, 88, MOTE_RGB565(120, 130, 160), "+%d", total - shown);
-        mote->text(fb, "< WEAPON", 44, 119, MOTE_RGB565(150, 160, 190));
+        mote->text(fb, "A INFO  UP WEAPONS", 30, 121, MOTE_RGB565(150, 160, 190));
+
+        if (pu_modal && nc) {                        /* the detail popup */
+            int pi = list[pu_cur];
+            mote_ui_panel(fb, 8, 30, 112, 66, MOTE_RGB565(10, 12, 26),
+                          MOTE_RGB565(255, 220, 110));
+            const MoteFont *fm = mote->ui_font(MOTE_FONT_MED);
+            mote->text_font(fb, fm, pu_name[pi], 30, 33, MOTE_RGB565(255, 220, 110));
+            int sp = pu_sprite[pi];
+            mote->blit(fb, &mines_img, 12, 30 + 7,
+                       (sp % MINE_COLS) * 16, (sp / MINE_COLS) * 16, 16, 16,
+                       0, 0, MOTE_FB_H);
+            textf_med(fb, 32, 46, MOTE_RGB565(150, 200, 255), "COLLECTED x%d", run_pu[pi]);
+            mote->text_font(fb, fm, pu_desc[pi][0], 12, 60, MOTE_RGB565(230, 238, 255));
+            if (pu_desc[pi][1][0])
+                mote->text_font(fb, fm, pu_desc[pi][1], 12, 71, MOTE_RGB565(230, 238, 255));
+            mote->text(fb, "A CLOSE", 50, 87, MOTE_RGB565(255, 220, 110));
+        }
         return;
     }
     const Gene *g = &inv[lab_cur];
@@ -3673,7 +3745,7 @@ static void lab_overlay(uint16_t *fb) {
     textf_med(fb, 60, 108, g->mods ? MOTE_RGB565(255, 220, 110) : MOTE_RGB565(120, 130, 160),
               "MODS %s", ms);
     mote->text(fb, "A EQUIP  RB FUSE", 14, 119, MOTE_RGB565(255, 220, 110));
-    mote->text(fb, "> RUN", 100, 119, MOTE_RGB565(150, 160, 190));
+    mote->text(fb, "v RUN", 100, 119, MOTE_RGB565(150, 160, 190));
 }
 
 /* The FUSION BENCH: chassis + core -> result, LIVE-FIRED in the demo strip. */
@@ -3966,7 +4038,7 @@ static void catinfo_overlay(uint16_t *fb) {
         uint32_t bh = ship_hash(cat_cur + 2000);
         int be = (int)((bh >> 16) % EL_N), bp = (int)((bh >> 12) % PAT_N);
         mote->text_font(fb, f, "DREADNOUGHT", 48, 15, MOTE_RGB565(255, 160, 120));
-        mote->text_font(fb, f, "HP 70+14/S", 48, 26, MOTE_RGB565(120, 235, 140));
+        mote->text_font(fb, f, "HP SOARS BY SECTOR", 48, 26, MOTE_RGB565(120, 235, 140));
         mote->text_font(fb, f, biome_short[boss_biome[cat_cur]], 48, 37,
                         biome_col[boss_biome[cat_cur]]);
         snprintf(ln, sizeof ln, "%s %s", elem_name[be], pat_name[bp]);
