@@ -57,7 +57,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Scrapwing", "austinio7116");
-MOTE_GAME_VERSION("1.3.0");
+MOTE_GAME_VERSION("1.4.0");
 
 /* ------------------------------------------------------------------ world */
 #define TILE   8
@@ -483,6 +483,7 @@ static uint8_t run_pu[PU_N];             /* powerups collected THIS run (log) */
 static uint8_t lab_view;                 /* hangar pane: 0 = weapon, 1 = run log */
 static int     pu_cur;                   /* run-log grid cursor (collected index) */
 static uint8_t pu_modal;                 /* powerup detail popup open */
+static uint8_t lab_focus;                /* 0 = weapon list, 1 = run-log grid cursor */
 #define PU_COLS 6
 /* what each powerup DOES, for the run-log popup (2 short lines) */
 static const char *const pu_desc[PU_N][2] = {
@@ -2165,7 +2166,7 @@ static void player_update(float dt) {
 
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
         state = ST_LAB; lab_cur = equipped; lab_mark = -1;
-        lab_view = 0; pu_modal = 0;
+        lab_view = 0; pu_modal = 0; lab_focus = 0;
         save_flush();
     }
 
@@ -3141,13 +3142,13 @@ static void g_update(float dt) {
             parts_update(dt);
             break;
         }
-        if (lab_view) {                              /* run-log grid focus */
+        if (lab_focus) {                             /* run-log grid cursor active */
             if (pu_cur >= nc) pu_cur = nc ? nc - 1 : 0;
             if (mote_just_pressed(in, MOTE_BTN_LEFT) && pu_cur > 0) pu_cur--;
             if (mote_just_pressed(in, MOTE_BTN_RIGHT) && pu_cur < nc - 1) pu_cur++;
             if (mote_just_pressed(in, MOTE_BTN_UP)) {
                 if (pu_cur >= PU_COLS) pu_cur -= PU_COLS;
-                else lab_view = 0;                   /* back up into the weapons */
+                else lab_focus = 0;                  /* back up into the weapons */
             }
             if (mote_just_pressed(in, MOTE_BTN_DOWN) && pu_cur + PU_COLS < nc)
                 pu_cur += PU_COLS;
@@ -3159,9 +3160,11 @@ static void g_update(float dt) {
             parts_update(dt);
             break;
         }
+        if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT))
+            lab_view ^= 1;                           /* pane: weapon stats <-> run log */
         if (mote_just_pressed(in, MOTE_BTN_UP))   lab_cur = (lab_cur + inv_n - 1) % inv_n;
         if (mote_just_pressed(in, MOTE_BTN_DOWN)) {
-            if (lab_cur == inv_n - 1 && nc) { lab_view = 1; pu_cur = 0; }
+            if (lab_view && lab_cur == inv_n - 1 && nc) { lab_focus = 1; pu_cur = 0; }
             else lab_cur = (lab_cur + 1) % inv_n;
         }
         if (mote_just_pressed(in, MOTE_BTN_A)) {
@@ -3693,12 +3696,14 @@ static void lab_overlay(uint16_t *fb) {
         int list[PU_N], nc = 0;
         for (int i = 0; i < PU_N; i++) if (run_pu[i]) list[nc++] = i;
         textf_med(fb, 4, 88, MOTE_RGB565(160, 220, 255), "RUN LOG");
-        if (nc && pu_cur < nc)                       /* selected powerup's name */
+        if (lab_focus && nc && pu_cur < nc)          /* selected powerup's name */
             textf_med(fb, 50, 88, MOTE_RGB565(255, 220, 110), "%s", pu_name[list[pu_cur]]);
+        else
+            textf_med(fb, 62, 88, MOTE_RGB565(220, 220, 240), "KILLS %d", kills);
         for (int k = 0; k < nc && k < 12; k++) {
             int gx = 5 + (k % PU_COLS) * 20, gy = 98 + (k / PU_COLS) * 13;
             int sp = pu_sprite[list[k]];
-            if (k == pu_cur)
+            if (lab_focus && k == pu_cur)
                 mote->draw_rect(fb, gx - 1, gy - 1, 14, 13, MOTE_RGB565(255, 220, 110),
                                 0, 0, MOTE_FB_H);
             mote->blit_ex(fb, &mines_img, gx + 5, gy + 5,
@@ -3710,7 +3715,10 @@ static void lab_overlay(uint16_t *fb) {
         }
         if (!nc)
             textf_med(fb, 4, 102, MOTE_RGB565(120, 130, 160), "NO POWERUPS YET");
-        mote->text(fb, "A INFO  UP WEAPONS", 30, 121, MOTE_RGB565(150, 160, 190));
+        if (lab_focus)
+            mote->text(fb, "A INFO  UP WEAPONS", 30, 121, MOTE_RGB565(150, 160, 190));
+        else
+            mote->text(fb, "v SELECT  < STATS", 32, 121, MOTE_RGB565(150, 160, 190));
 
         if (pu_modal && nc) {                        /* the detail popup */
             int pi = list[pu_cur];
