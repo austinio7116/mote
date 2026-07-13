@@ -741,6 +741,22 @@ def make_canopy():
         f.write("cell %d %d\n" % (BW, BH))
     print("[tiles] branch.png")
 
+
+def _normalize_sheets():
+    """Rewrite every assets/*.sheet to the full Studio format (a `sheet <png>`
+    line is REQUIRED for the Studio Sheet tab to find the image)."""
+    import glob
+    for f in glob.glob(os.path.join(HERE, "*.sheet")):
+        nm = os.path.splitext(os.path.basename(f))[0]
+        cw = ch = mg = sp = 0
+        for ln in open(f):
+            t = ln.split()
+            if len(t) >= 3 and t[0] == "cell": cw, ch = int(t[1]), int(t[2])
+            elif len(t) >= 2 and t[0] == "margin": mg = int(t[1])
+            elif len(t) >= 2 and t[0] == "spacing": sp = int(t[1])
+        open(f, "w").write("sheet assets/%s.png\ncell %d %d\nmargin %d\nspacing %d\n" % (nm, cw, ch, mg, sp))
+
+
 if __name__ == "__main__":
     os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
     make_terrain()
@@ -750,3 +766,4 @@ if __name__ == "__main__":
     make_grass_caps()
     make_canopy()
     print("done")
+    _normalize_sheets()
