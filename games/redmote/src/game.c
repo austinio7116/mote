@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("0.9.0");
+MOTE_GAME_VERSION("1.1.1");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
