@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-"""Generate docs/redmote-guide.html — a full, self-contained player's guide."""
-import os
-S = os.path.dirname(os.path.abspath(__file__))
-exec(open(os.path.join(S, "assets_b64.py")).read())   # ICON, SHOT1..3
-ROOT = "/home/maustin/thumby-color/mote"
+"""Generate docs/redmote-guide.html — a full, self-contained player's guide.
+Run from anywhere in the repo:  python3 games/redmote/assets/gen_guide.py"""
+import os, base64
+# repo root = three levels up from games/redmote/assets/
+ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
+
+def _b64(p):
+    with open(os.path.join(ROOT, p), "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+ICON  = _b64("games/redmote/icon.png")
+SHOT1 = _b64("docs/img/gallery/redmote-1.png")
+SHOT2 = _b64("docs/img/gallery/redmote-2.png")
+SHOT3 = _b64("docs/img/gallery/redmote-3.png")
 
 # ---- accurate data pulled from games/redmote/src/game.c ----------------------
 # units: (name, full, cost, hp, speed, range, rof, dmg, weapon, armour, role, prereq)
@@ -244,6 +253,27 @@ HTML = f'''<!doctype html>
     .htext h1{{text-shadow:none}}
     td.dm{{color:#0c0f0a}}
   }}
+
+  /* print / PDF: light palette, keep the heatmap colours, avoid ugly breaks */
+  @media print{{
+    :root{{--bg:#fff;--panel:#fff;--panel2:#f4f2ea;--ink:#1c2016;--dim:#4a4f3e;
+      --line:#cfccbc;--grid:#e2dfd0;}}
+    *{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    body{{font-size:11pt}}
+    nav.toc{{display:none}}
+    header.hero{{border-bottom:2px solid var(--red)}}
+    .wrap{{max-width:none;padding:0}}
+    section{{padding:14px 0 4px;border-bottom:none}}
+    h2{{page-break-after:avoid}}  h3{{page-break-after:avoid}}
+    .card,.tier,.mcard,.callout,tr,.grid>div{{page-break-inside:avoid}}
+    table{{min-width:0}}  .tw{{overflow:visible}}
+    #intro,#buildings,#tech,#units,#counters,#campaign{{page-break-before:auto}}
+    .htext h1{{text-shadow:none}}
+    td.dm{{color:#0c0f0a}}
+    a{{color:var(--ink)}}
+    footer{{padding:16px 0}}
+  }}
+  @page{{margin:14mm 12mm}}
 </style>
 </head>
 <body>
