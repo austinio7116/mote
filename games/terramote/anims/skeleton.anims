@@ -1,0 +1,8 @@
+sheet assets/skeleton.png
+tile 12 16
+clips 1
+clip walk 1 7 0 0 4
+f 0 110 -
+f 1 110 -
+f 2 110 -
+f 3 110 -

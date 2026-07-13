@@ -1,0 +1,6 @@
+sheet assets/bat.png
+tile 16 10
+clips 1
+clip fly 1 9 0 0 2
+f 0 90 -
+f 1 90 -

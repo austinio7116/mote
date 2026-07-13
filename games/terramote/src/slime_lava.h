@@ -27,11 +27,5 @@ static const uint8_t slime_lava_idx[576] = {
 static const MoteImage slime_lava_img = { 0, 48, 12, 0xF81F, 0, 2, slime_lava_idx, slime_lava_pal };  /* 8bpp indexed, 189 colours */
 #define slime_lava_W 48
 #define slime_lava_H 12
-#define slime_lava_CELLW 16
-#define slime_lava_CELLH 12
-#define slime_lava_COLS 3
-#define slime_lava_ROWS 1
-#define slime_lava_MARGIN 0
-#define slime_lava_SPACING 0
 
 #endif

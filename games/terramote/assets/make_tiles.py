@@ -100,12 +100,14 @@ def stack_variants(sheets):
         img.paste(s, (0, y)); y += s.height
     return img
 
-def write_tileset(name, lut, nvar, cols, rows, edge=1, vweight=None):
+def write_tileset(name, lut, nvar, cols, rows, edge=1, vweight=None, tpl=0):
+    # tpl: 0 BLOB47 (corner-aware terrain) · 1 EDGE16 (cardinal) · 2 NINESLICE · 3 WANG16.
+    # Custom-LUT furniture uses EDGE16 so Studio shows a 4x4 rule grid (not blob47's 47).
     vw = vweight or [1] * 8
     p = os.path.join(GAME, "tilesets", name + ".tileset")
     with open(p, "w") as f:
         f.write("sheet assets/%s.png\n" % name)
-        f.write("tile %d\ntype 0\nedge %d\nnvar %d\ncols %d\nrows %d\n" % (TS, edge, nvar, cols, rows))
+        f.write("tile %d\ntype %d\nedge %d\nnvar %d\ncols %d\nrows %d\n" % (TS, tpl, edge, nvar, cols, rows))
         f.write("lut " + " ".join(str(v) for v in lut) + "\n")
         f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
         f.write("vweight " + " ".join(str(v) for v in vw[:8]) + "\n")
@@ -370,15 +372,15 @@ def make_trunk():
     cells = [trunk_cell(i) for i in range(16)]
     img = sheet_from_cells(cells, 4, 4)
     img.save(os.path.join(HERE, "tiles_trunk.png"))
-    write_tileset("tiles_trunk", edge16_lut(), 1, 4, 4)
+    write_tileset("tiles_trunk", edge16_lut(), 1, 4, 4, tpl=1)
     print("[tiles] tiles_trunk", img.size)
 
 # ---------------------------------------------------------------- furniture
-def custom_sheet(name, cells, cols, lut, edge=0, nvar=1):
+def custom_sheet(name, cells, cols, lut, edge=0, nvar=1, tpl=1):
     rows = (len(cells) + cols - 1) // cols
     img = sheet_from_cells(cells, cols, rows)
     img.save(os.path.join(HERE, name + ".png"))
-    write_tileset(name, lut, nvar, cols, rows, edge=edge)
+    write_tileset(name, lut, nvar, cols, rows, edge=edge, tpl=tpl)
     print("[tiles]", name, img.size)
 
 def lut_from(fn):

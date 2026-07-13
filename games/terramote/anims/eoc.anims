@@ -1,0 +1,9 @@
+sheet assets/eoc.png
+tile 40 40
+clips 2
+clip p1 1 6 0 0 2
+f 0 160 -
+f 1 160 -
+clip p2 1 6 0 0 2
+f 2 140 -
+f 3 140 -

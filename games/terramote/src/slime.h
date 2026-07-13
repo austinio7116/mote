@@ -27,11 +27,5 @@ static const uint8_t slime_idx[576] = {
 static const MoteImage slime_img = { 0, 48, 12, 0xF81F, 0, 2, slime_idx, slime_pal };  /* 8bpp indexed, 170 colours */
 #define slime_W 48
 #define slime_H 12
-#define slime_CELLW 16
-#define slime_CELLH 12
-#define slime_COLS 3
-#define slime_ROWS 1
-#define slime_MARGIN 0
-#define slime_SPACING 0
 
 #endif
