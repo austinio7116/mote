@@ -338,10 +338,16 @@ def fit_cell(art, size):
     return cell
 
 def make_items(im, lab, boxes):
-    # NB: items.png icons are now authored entirely by make_sprites.make_items()
-    # (clean procedural + SlipPixel furniture). This function ONLY builds the
-    # in-hand weapons_big.png from the depixelated AI art.
+    items_path = os.path.join(HERE, "items.png")
+    sheet = Image.open(items_path).convert("RGBA")
+    ids = ITEM_IDS
     big = {}                       # name -> native art (for weapons_big.png)
+    def put(name, cell):
+        i = ids.index(name)
+        cell = rgb565ify(cell)
+        ox, oy = (i % 8) * CS, (i // 8) * CS
+        sheet.paste(Image.new("RGBA", (CS, CS), (0, 0, 0, 0)), (ox, oy))
+        sheet.paste(cell, (ox, oy), cell)
 
     im2 = Image.open(os.path.join(HERE, "sources_sheet2_weapons.png")).convert("RGB")
     sprites = {name: grid_sprite(im2, box) for name, box in S2.items()}
@@ -390,7 +396,28 @@ def make_items(im, lab, boxes):
     arts["PICK_NIGHTMARE"] = tint(pick, (140, 80, 215))
 
     for name, art in arts.items():
+        put(name, fit_cell(art, CS))
         big[name] = art
+
+    # sheet1 furniture / misc (contiguous sprites): depixelated 16px icons
+    for name, k in (("CHEST", 124), ("TORCH", 126), ("PLATFORM", 127), ("DOOR", 137),
+                    ("ANVIL", 139), ("WORKBENCH", 140), ("COIN", 141),
+                    ("POTION_HEAL", 150), ("SUSPICIOUS_EYE", 151)):
+        put(name, fit_cell(s1_art(k), CS))
+
+    mail = s1_art(148)
+    for name, col in (("MAIL_COPPER", (208, 118, 50)), ("MAIL_IRON", None),
+                      ("MAIL_GOLD", (240, 200, 60)), ("MAIL_MOLTEN", (240, 100, 34))):
+        put(name, fit_cell(mail if col is None else tint(mail, col), CS))
+    greaves = s1_art(149)
+    for name, col in (("LEGS_COPPER", (208, 118, 50)), ("LEGS_IRON", (182, 182, 192)),
+                      ("LEGS_GOLD", None), ("LEGS_MOLTEN", (240, 100, 34))):
+        put(name, fit_cell(greaves if col is None else tint(greaves, col), CS))
+    lc = s1_art(123)
+    put("LIFE_CRYSTAL", fit_cell(tint(lc, (235, 70, 100)), CS))
+    put("DEMONITE_ORE", fit_cell(lc, CS))
+
+    sheet.save(items_path)
 
     # in-hand sheet at native art resolution (order must match player.c's table)
     order = ["SWORD_WOOD", "SWORD_COPPER", "SWORD_IRON", "SWORD_GOLD", "SWORD_BANE",
@@ -406,7 +433,7 @@ def make_items(im, lab, boxes):
         wb.paste(flip, (i * BC, BC), flip)
     rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
     open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell %d %d\n" % (BC, BC))
-    print("[extract] weapons_big.png (%d in-hand sprites) — items.png left to make_sprites" % len(order))
+    print("[extract] items.png icons + weapons_big.png (%d in-hand sprites)" % len(order))
 
 ITEM_IDS = """NONE DIRT STONE WOOD SAND SNOW EBON CLAY ASH HELLSTONE OBSIDIAN TORCH
 PLATFORM WORKBENCH FURNACE ANVIL CHEST DOOR ACORN GEL LENS MUSHROOM COIN

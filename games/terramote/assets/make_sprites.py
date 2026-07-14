@@ -382,152 +382,124 @@ def make_items():
     def cell_origin(i):
         return (i % cols) * CS, (i // cols) * CS
 
-    # --- furniture icons come from the real SlipPixel art (downscaled) so the
-    #     inventory matches what you place in the world -----------------------
-    SLIP = os.path.join(GAME, "SlipPixel")
-    SLIP_ICON = {
-        "TORCH":     ("Torch.png",                    (0, 0, 8, 8)),
-        "PLATFORM":  ("Oak Wood Planks Platform.png", (0, 8, 24, 14)),
-        "WORKBENCH": ("Workbench.png",                None),
-        "FURNACE":   ("Furnace.png",                  (32, 0, 48, 16)),
-        "ANVIL":     ("anvil.png",                    None),
-        "CHEST":     ("Oak Wood Chest.png",           None),
-        "DOOR":      ("Oak Wood Door.png",            (8, 0, 24, 24)),
-        "TABLE":     ("Oak Wood Table.png",           None),
-        "CHAIR":     ("Oak Wood Chair.png",           (0, 0, 8, 16)),
-        "LANTERN":   ("Lantern.png",                  None),
-        "FIREPLACE": ("Fireplace.png",                (0, 0, 48, 16)),
-        "CHAIN":     ("Chain.png",                    None),
-    }
-    def slip_icon(ox, oy, fname, box=None, target=11):
-        im = Image.open(os.path.join(SLIP, fname)).convert("RGBA")
-        if box: im = im.crop(box)
-        w, h = im.size
-        s = min(target / w, target / h, 1.0)              # never upscale (keeps thin things thin)
-        nw, nh = max(1, round(w * s)), max(1, round(h * s))
-        im = im.resize((nw, nh), Image.LANCZOS)
-        px0 = ox + (CS - nw) // 2
-        py0 = oy + (CS - nh) // 2
-        for yy in range(nh):
-            for xx in range(nw):
-                r, g, b, a = im.getpixel((xx, yy))
-                if a >= 128: c.px(px0 + xx, py0 + yy, (r, g, b))
-
     def block_icon(ox, oy, col):
-        lite = tuple(min(255, int(k * 1.35)) for k in col)
-        dk   = tuple(int(k * 0.6) for k in col)
-        edge = tuple(int(k * 0.4) for k in col)
-        c.rect(ox + 2, oy + 2, ox + 9, oy + 9, col)
-        c.rect(ox + 2, oy + 2, ox + 9, oy + 2, lite)      # top highlight
-        c.rect(ox + 2, oy + 3, ox + 2, oy + 9, lite)      # left highlight
-        c.rect(ox + 9, oy + 3, ox + 9, oy + 9, dk)        # right shadow
-        c.rect(ox + 3, oy + 9, ox + 9, oy + 9, dk)        # bottom shadow
-        for x in range(2, 10): c.px(ox + x, oy + 1, edge); c.px(ox + x, oy + 10, edge)
-        for y in range(2, 10): c.px(ox + 1, oy + y, edge); c.px(ox + 10, oy + y, edge)
-
-    WOOD = (150, 108, 60); WOOD_DK = (108, 76, 42)
-    def _mtones(m):
-        return (tuple(min(255, int(k * 1.35)) for k in m), tuple(int(k * 0.62) for k in m))
-
-    def _mixc(a, b, t):
-        return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+        for y in range(2, 10):
+            for x in range(2, 10):
+                v = ((x * 7 + y * 13) % 5)
+                cc = col if v > 1 else tuple(int(k * 0.8) for k in col)
+                c.px(ox + x, oy + y, cc)
+        for x in range(2, 10):
+            c.px(ox + x, oy + 2, tuple(min(255, int(k * 1.25)) for k in col))
+            c.px(ox + x, oy + 9, tuple(int(k * 0.6) for k in col))
+        for y in range(2, 10):
+            c.px(ox + 2, oy + y, tuple(int(k * 0.75) for k in col))
+            c.px(ox + 9, oy + y, tuple(int(k * 0.75) for k in col))
 
     def pick_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        for y in range(4, 11):                              # vertical handle, centred
-            c.px(ox + 6, oy + y, WOOD); c.px(ox + 5, oy + y, WOOD_DK)
-        head = [(1, 5), (2, 4), (3, 3), (4, 3), (5, 2), (6, 2), (7, 3), (8, 3), (9, 4), (10, 5)]
-        for x, y in head: c.px(ox + x, oy + y, m)            # double-pointed arc
-        c.px(ox + 1, oy + 6, dk); c.px(ox + 10, oy + 6, dk)  # the two points dip down
-        for x in (5, 6): c.px(ox + x, oy + 2, hi)            # top sheen
+        hcol = (150, 108, 60)
+        for i in range(6):
+            c.px(ox + 3 + i, oy + 8 - i, hcol)      # handle
+        for i in range(7):                          # curved head
+            c.px(ox + 1 + i, oy + 2 + (0 if 1 < i < 5 else 1), m)
+            if 1 < i < 5: c.px(ox + 1 + i, oy + 3, tuple(int(k*0.75) for k in m))
+        c.px(ox + 1, oy + 4, m); c.px(ox + 7, oy + 4, m)
 
     def axe_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        for i in range(7):                                  # handle, bottom-left -> top-right
-            c.px(ox + 3 + i, oy + 10 - i, WOOD); c.px(ox + 4 + i, oy + 10 - i, WOOD_DK)
-        c.rect(ox + 7, oy + 2, ox + 10, oy + 5, m)          # head block on the handle's top end
-        c.px(ox + 7, oy + 5, None)                          # notch so it sits on the handle
-        for y in range(2, 6): c.px(ox + 10, oy + y, hi)     # cutting edge (outer) sheen
-        c.px(ox + 7, oy + 2, dk)
+        hcol = (150, 108, 60)
+        for i in range(6):
+            c.px(ox + 3 + i, oy + 9 - i, hcol)
+        for y in range(2, 7):
+            for x in range(2, 5):
+                c.px(ox + x, oy + y, m if x > 2 else tuple(int(k*0.75) for k in m))
 
-    def sword_icon(ox, oy, m, glow=False):
-        hi, dk = _mtones(m)
-        blade = [(3 + i, 8 - i) for i in range(7)]          # hilt (bl) -> tip (tr)
-        if glow:                                            # colored aura around the blade
-            halo = tuple(int(k * 0.6) for k in m)
-            for x, y in blade:
-                for dx, dy in ((1, -1), (-1, 1), (1, 0), (0, -1), (-1, 0), (0, 1)):
-                    c.px(ox + x + dx, oy + y + dy, halo)
-        for j, (x, y) in enumerate(blade):
-            t = j / 6.0
-            col = _mixc(m, (255, 244, 190), t) if glow else m   # gradient hilt->bright tip
-            c.px(ox + x, oy + y, col)
-            c.px(ox + x + 1, oy + y, _mixc(col, (255, 255, 255), 0.55))
-        c.px(ox + 10, oy + 1, (255, 255, 255) if glow else hi)  # tip spark
-        c.rect(ox + 2, oy + 8, ox + 5, oy + 8, (96, 98, 110))   # crossguard
-        c.px(ox + 3, oy + 9, WOOD); c.px(ox + 3, oy + 10, WOOD); c.px(ox + 2, oy + 11, WOOD_DK)
+    def sword_icon(ox, oy, m):
+        for i in range(6):
+            c.px(ox + 8 - i, oy + 2 + i, m)
+            c.px(ox + 9 - i, oy + 2 + i, tuple(min(255, int(k * 1.3)) for k in m))
+        c.px(ox + 3, oy + 8, (150, 108, 60)); c.px(ox + 2, oy + 9, (150, 108, 60))
+        c.px(ox + 2, oy + 7, (110, 80, 45)); c.px(ox + 4, oy + 9, (110, 80, 45))
 
     def bow_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        arc = [(5, 1), (4, 2), (3, 3), (3, 4), (2, 5), (2, 6), (3, 7), (3, 8), (4, 9), (5, 10)]
-        for x, y in arc: c.px(ox + x, oy + y, m)
-        for x, y in arc: c.px(ox + x + 1, oy + y, dk)
-        for y in range(2, 10): c.px(ox + 7, oy + y, (214, 214, 220))   # string
-        c.px(ox + 5, oy + 1, hi); c.px(ox + 5, oy + 10, hi)
+        for y in range(2, 10):
+            x = 3 + (2 if 3 < y < 8 else (1 if y in (3, 8) else 0))
+            c.px(ox + x, oy + y, m)
+        for y in range(2, 10):
+            c.px(ox + 3, oy + y, (220, 220, 226)) if False else None
+        c.px(ox + 3, oy + 2, m); c.px(ox + 3, oy + 9, m)
+        for y in range(3, 9):
+            c.px(ox + 8, oy + y, (200, 200, 208))   # string
 
     def arrow_icon(ox, oy, flame=False):
-        for i in range(6): c.px(ox + 3 + i, oy + 9 - i, WOOD)          # shaft
-        tip = (245, 130, 40) if flame else (206, 208, 218)
-        for x, y in [(9, 3), (10, 2), (8, 2), (10, 4), (9, 4)]: c.px(ox + x, oy + y, tip)
-        for x, y in [(2, 10), (3, 9), (2, 8), (4, 10)]: c.px(ox + x, oy + y, (224, 224, 230))  # fletch
+        for i in range(6):
+            c.px(ox + 5, oy + 3 + i, (150, 108, 60))
+        tip = (240, 110, 30) if flame else (180, 180, 190)
+        c.px(ox + 5, oy + 2, tip); c.px(ox + 4, oy + 3, tip); c.px(ox + 6, oy + 3, tip)
+        c.px(ox + 4, oy + 9, (200, 200, 210)); c.px(ox + 6, oy + 9, (200, 200, 210))
 
     def bar_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        c.rect(ox + 3, oy + 5, ox + 8, oy + 6, m)          # upper (narrower)
-        c.rect(ox + 2, oy + 7, ox + 9, oy + 9, m)          # lower (wider)
-        c.rect(ox + 3, oy + 5, ox + 8, oy + 5, hi)
-        c.rect(ox + 2, oy + 9, ox + 9, oy + 9, dk)
-        c.px(ox + 4, oy + 7, hi)
+        for y in range(6, 9):
+            for x in range(2, 10):
+                c.px(ox + x, oy + y, m)
+        for x in range(3, 11):
+            c.px(ox + x, oy + 5, tuple(min(255, int(k * 1.25)) for k in m))
+        c.px(ox + 2, oy + 6, tuple(min(255, int(k*1.25)) for k in m))
 
     def ore_icon(ox, oy, m):
-        block_icon(ox, oy, (110, 110, 118))                # stone matrix
-        hi, dk = _mtones(m)
-        for x, y in ((4, 4), (6, 3), (7, 6), (4, 7), (8, 5)):
-            c.px(ox + x, oy + y, m); c.px(ox + x + 1, oy + y, dk)
-        c.px(ox + 6, oy + 3, hi); c.px(ox + 4, oy + 7, hi)
+        pts = ((4, 4), (6, 3), (7, 5), (5, 6), (3, 6), (6, 7))
+        for x, y in pts:
+            c.px(ox + x, oy + y, m)
+            c.px(ox + x + 1, oy + y, tuple(int(k * 0.75) for k in m))
+        c.px(ox + 5, oy + 5, tuple(min(255, int(k * 1.3)) for k in m))
 
     def helm_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        c.rect(ox + 3, oy + 3, ox + 8, oy + 7, m)          # dome
-        c.px(ox + 3, oy + 3, None); c.px(ox + 8, oy + 3, None)   # round top corners
-        c.rect(ox + 3, oy + 8, ox + 4, oy + 9, m)          # cheek guards
-        c.rect(ox + 7, oy + 8, ox + 8, oy + 9, m)
-        c.rect(ox + 4, oy + 3, ox + 7, oy + 3, hi)         # crest highlight
-        c.rect(ox + 5, oy + 6, ox + 6, oy + 7, dk)         # face slit
+        for y in range(3, 8):
+            for x in range(3, 9):
+                if y == 3 and x in (3, 8): continue
+                c.px(ox + x, oy + y, m)
+        c.rect(ox + 4, oy + 6, ox + 7, oy + 6, tuple(int(k * 0.7) for k in m))
 
     def mail_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        c.rect(ox + 3, oy + 3, ox + 8, oy + 9, m)          # torso
-        c.rect(ox + 2, oy + 3, ox + 2, oy + 5, m)          # shoulders
-        c.rect(ox + 9, oy + 3, ox + 9, oy + 5, m)
-        c.rect(ox + 3, oy + 3, ox + 8, oy + 3, hi)         # collar
-        c.px(ox + 5, oy + 4, dk); c.px(ox + 6, oy + 4, dk) # neck
-        c.rect(ox + 5, oy + 6, ox + 6, oy + 9, dk)         # centre seam
+        c.rect(ox + 3, oy + 3, ox + 8, oy + 8, m)
+        c.rect(ox + 2, oy + 3, ox + 2, oy + 5, tuple(int(k*0.8) for k in m))
+        c.rect(ox + 9, oy + 3, ox + 9, oy + 5, tuple(int(k*0.8) for k in m))
+        c.rect(ox + 5, oy + 4, ox + 6, oy + 7, tuple(int(k * 0.7) for k in m))
 
     def legs_icon(ox, oy, m):
-        hi, dk = _mtones(m)
-        c.rect(ox + 3, oy + 3, ox + 8, oy + 4, m)          # waist
-        c.rect(ox + 3, oy + 5, ox + 5, oy + 10, m)         # left leg
-        c.rect(ox + 6, oy + 5, ox + 8, oy + 10, m)         # right leg
-        c.rect(ox + 3, oy + 3, ox + 8, oy + 3, hi)
-        c.px(ox + 5, oy + 8, dk); c.px(ox + 6, oy + 8, dk)
+        c.rect(ox + 3, oy + 3, ox + 8, oy + 4, m)
+        c.rect(ox + 3, oy + 5, ox + 4, oy + 9, m)
+        c.rect(ox + 7, oy + 5, ox + 8, oy + 9, tuple(int(k * 0.8) for k in m))
 
     for i, name in enumerate(IDS):
         ox, oy = cell_origin(i)
         if name == "NONE": continue
-        if name in SLIP_ICON:                              # furniture: real SlipPixel art
-            fn, box = SLIP_ICON[name]; slip_icon(ox, oy, fn, box); continue
         if name in BLOCK_COL: block_icon(ox, oy, BLOCK_COL[name]); continue
+        if name == "TORCH":
+            for y in range(4, 10): c.px(ox + 5, oy + y, (150, 108, 60)); c.px(ox + 6, oy + y, (120, 84, 46))
+            c.px(ox + 5, oy + 3, (255, 200, 60)); c.px(ox + 6, oy + 3, (255, 160, 30))
+            c.px(ox + 5, oy + 2, (255, 240, 160)); continue
+        if name == "PLATFORM":
+            c.rect(ox + 1, oy + 5, ox + 10, oy + 6, (172, 126, 70))
+            for x in (3, 6, 9): c.px(ox + x, oy + 6, (104, 72, 38))
+            continue
+        if name == "WORKBENCH":
+            c.rect(ox + 1, oy + 4, ox + 10, oy + 5, (176, 128, 72))
+            c.rect(ox + 2, oy + 6, ox + 3, oy + 9, (128, 90, 48))
+            c.rect(ox + 8, oy + 6, ox + 9, oy + 9, (128, 90, 48)); continue
+        if name == "FURNACE":
+            c.rect(ox + 2, oy + 3, ox + 9, oy + 9, (104, 100, 100))
+            c.rect(ox + 4, oy + 6, ox + 7, oy + 8, (40, 36, 36))
+            c.rect(ox + 5, oy + 7, ox + 6, oy + 8, (255, 150, 30)); continue
+        if name == "ANVIL":
+            c.rect(ox + 2, oy + 4, ox + 9, oy + 5, (152, 156, 168))
+            c.rect(ox + 4, oy + 6, ox + 7, oy + 8, (110, 114, 126))
+            c.rect(ox + 3, oy + 9, ox + 8, oy + 9, (72, 76, 88)); continue
+        if name == "CHEST":
+            c.rect(ox + 2, oy + 4, ox + 9, oy + 9, (178, 126, 64))
+            c.rect(ox + 2, oy + 6, ox + 9, oy + 6, (240, 200, 70))
+            c.px(ox + 5, oy + 7, (240, 200, 70)); c.px(ox + 6, oy + 7, (240, 200, 70)); continue
+        if name == "DOOR":
+            c.rect(ox + 3, oy + 2, ox + 8, oy + 10, (170, 122, 66))
+            c.px(ox + 7, oy + 6, (240, 200, 80)); continue
         if name == "ACORN":
             c.rect(ox + 4, oy + 5, ox + 7, oy + 8, (150, 108, 60))
             c.rect(ox + 4, oy + 4, ox + 7, oy + 4, (94, 64, 38))
@@ -569,6 +541,29 @@ def make_items():
                     dx, dy = x - 5.5, y - 5.5
                     if dx*dx + dy*dy < 8: c.px(ox + x, oy + y, (226, 220, 214))
             c.rect(ox + 4, oy + 5, ox + 5, oy + 6, (200, 40, 40)); continue
+        if name == "TABLE":
+            c.rect(ox + 1, oy + 4, ox + 10, oy + 5, (176, 128, 72))       # top
+            c.rect(ox + 2, oy + 6, ox + 2, oy + 9, (128, 90, 48))         # legs
+            c.rect(ox + 9, oy + 6, ox + 9, oy + 9, (128, 90, 48)); continue
+        if name == "CHAIR":
+            c.rect(ox + 3, oy + 2, ox + 4, oy + 8, (176, 128, 72))        # backrest
+            c.rect(ox + 3, oy + 6, ox + 8, oy + 7, (176, 128, 72))        # seat
+            c.rect(ox + 7, oy + 8, ox + 8, oy + 9, (128, 90, 48)); continue
+        if name == "LANTERN":
+            c.rect(ox + 4, oy + 2, ox + 7, oy + 2, (128, 90, 48))         # cap
+            c.rect(ox + 4, oy + 3, ox + 7, oy + 8, (255, 200, 70))        # glass/glow
+            c.px(ox + 5, oy + 5, (255, 250, 200)); c.px(ox + 6, oy + 6, (255, 160, 40))
+            c.rect(ox + 4, oy + 9, ox + 7, oy + 9, (128, 90, 48)); continue
+        if name == "FIREPLACE":
+            c.rect(ox + 1, oy + 2, ox + 10, oy + 3, (150, 92, 60))        # mantle
+            c.rect(ox + 2, oy + 4, ox + 9, oy + 9, (80, 80, 90))          # stone
+            c.rect(ox + 4, oy + 6, ox + 7, oy + 9, (40, 36, 36))          # hearth
+            c.rect(ox + 5, oy + 7, ox + 6, oy + 9, (255, 150, 30)); continue
+        if name == "CHAIN":
+            for y in range(2, 10, 2):
+                c.px(ox + 5, oy + y, (188, 190, 198)); c.px(ox + 6, oy + y, (120, 122, 132))
+                c.px(ox + 5, oy + y + 1, (120, 122, 132)); c.px(ox + 6, oy + y + 1, (188, 190, 198))
+            continue
         if name == "GRAPPLE":
             IRON = (188, 190, 198); DK = (120, 122, 132); ROPE = (150, 108, 60)
             for i in range(4):                       # rope trailing down-left
@@ -581,7 +576,7 @@ def make_items():
         parts = name.split("_")
         if parts[0] == "PICK": pick_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "AXE": axe_icon(ox, oy, METAL[parts[1]]); continue
-        if parts[0] == "SWORD": sword_icon(ox, oy, METAL[parts[1]], glow=parts[1] in ("BANE", "VOLCANO")); continue
+        if parts[0] == "SWORD": sword_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "BOW": bow_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "ARROW": arrow_icon(ox, oy, len(parts) > 1); continue
         if parts[1] == "ORE": ore_icon(ox, oy, METAL[parts[0]]); continue
