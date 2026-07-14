@@ -121,7 +121,7 @@ static void drop_tile_item(int c, int r, uint8_t t) {
  * within a small box (all our furniture is <= 2x3). Returns anchor col/row. */
 static void remove_piece(int c, int r, uint8_t t) {
     for (int dr = -2; dr <= 2; dr++)
-        for (int dc = -1; dc <= 1; dc++) {
+        for (int dc = -2; dc <= 2; dc++) {
             int cc = c + dc, rr = r + dr;
             if (fg_at(cc, rr) == t) {
                 /* connected? conservative: same id in the 3x5 box is one piece
@@ -152,7 +152,8 @@ void world_mine_tile(int c, int r) {
         return;
     }
     if (t == T_WORKBENCH || t == T_FURNACE || t == T_ANVIL ||
-        t == T_DOOR_C || t == T_DOOR_O || t == T_ALTAR) {
+        t == T_DOOR_C || t == T_DOOR_O || t == T_ALTAR ||
+        t == T_TABLE || t == T_CHAIR || t == T_LANTERN || t == T_FIREPLACE) {
         remove_piece(c, r, t);
         drop_tile_item(c, r, t);
         return;
@@ -196,7 +197,21 @@ int world_place_tile(int c, int r, uint8_t tile) {
         world_set_fg(c, r, tile); world_set_fg(c + 1, r, tile);
         return 1;
     }
-    if (tile == T_FURNACE || tile == T_CHEST) {
+    if (tile == T_TABLE) {                               /* 3 wide x 2 tall */
+        for (int dc = 0; dc < 3; dc++)
+            if (fg_at(c + dc, r) || fg_at(c + dc, r - 1)) return 0;
+        for (int dc = 0; dc < 3; dc++)
+            if (g_tiles[fg_at(c + dc, r + 1)].solid != 1) return 0;
+        for (int dc = 0; dc < 3; dc++) { world_set_fg(c + dc, r, tile); world_set_fg(c + dc, r - 1, tile); }
+        return 1;
+    }
+    if (tile == T_CHAIR || tile == T_LANTERN) {          /* 1 wide x 2 tall */
+        if (fg_at(c, r) || fg_at(c, r - 1)) return 0;
+        if (g_tiles[fg_at(c, r + 1)].solid != 1) return 0;
+        world_set_fg(c, r, tile); world_set_fg(c, r - 1, tile);
+        return 1;
+    }
+    if (tile == T_FURNACE || tile == T_CHEST || tile == T_FIREPLACE) {
         if (fg_at(c, r) || fg_at(c + 1, r) || fg_at(c, r - 1) || fg_at(c + 1, r - 1)) return 0;
         if (g_tiles[fg_at(c, r + 1)].solid != 1 || g_tiles[fg_at(c + 1, r + 1)].solid != 1) return 0;
         if (tile == T_CHEST && !world_chest_create(c, r - 1)) return 0;

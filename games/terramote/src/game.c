@@ -39,6 +39,11 @@ MOTE_MODULE_HEADER();
 #include "tiles_mush.tiles.h"
 #include "tiles_flower.tiles.h"
 #include "tiles_sapling.tiles.h"
+#include "tiles_table.tiles.h"
+#include "tiles_chair.tiles.h"
+#include "tiles_lantern.tiles.h"
+#include "tiles_fireplace.tiles.h"
+#include "tiles_chain.tiles.h"
 #include "grass_cap.h"                       /* cosmetic caps over exposed dirt */
 #include "canopy.h"                          /* tree crowns: 3 leafy + 1 snowy, 40x28 */
 #include "branch.h"                          /* trunk branches: 16x12 x4 */
@@ -83,6 +88,11 @@ static const MoteAutotile *k_tiles[T_COUNT - 1] = {
     &tiles_mush_at,
     &tiles_flower_at,
     &tiles_sapling_at,
+    &tiles_table_at,
+    &tiles_chair_at,
+    &tiles_lantern_at,
+    &tiles_fireplace_at,
+    &tiles_chain_at,
 };
 
 void player_alloc(void);

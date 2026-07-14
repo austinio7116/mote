@@ -79,6 +79,11 @@ const ItemDef g_items[I_COUNT] = {
     [I_SUSPICIOUS_EYE] = { "SUSPICIOUS EYE",IK_CONSUME, IC(I_SUSPICIOUS_EYE), 0,  0, 0,  3, 20 },
     [I_LIFE_CRYSTAL]   = { "LIFE CRYSTAL",  IK_CONSUME, IC(I_LIFE_CRYSTAL),   0, 20, 0,  9, 20 },
     [I_GRAPPLE]        = { "GRAPPLING HOOK",IK_GRAPPLE, IC(I_GRAPPLE),        0,  0, 0,  1, 0 },
+    [I_TABLE]          = { "TABLE",         IK_BLOCK, IC(I_TABLE),     T_TABLE,     0, 0, 99, 8 },
+    [I_CHAIR]          = { "CHAIR",         IK_BLOCK, IC(I_CHAIR),     T_CHAIR,     0, 0, 99, 8 },
+    [I_LANTERN]        = { "LANTERN",       IK_BLOCK, IC(I_LANTERN),   T_LANTERN,   0, 0, 99, 8 },
+    [I_FIREPLACE]      = { "FIREPLACE",     IK_BLOCK, IC(I_FIREPLACE), T_FIREPLACE, 0, 0, 99, 8 },
+    [I_CHAIN]          = { "CHAIN",         IK_BLOCK, IC(I_CHAIN),     T_CHAIN,     0, 0, 99, 8 },
 };
 
 /* ---------------------------------------------------------------- tiles ----
@@ -117,6 +122,11 @@ const TileDef g_tiles[T_COUNT] = {
     [T_MUSH]       = { 0, 1,   0, I_MUSHROOM,     7, 0 },
     [T_FLOWER]     = { 0, 1,   0, I_NONE,         0, 0 },
     [T_SAPLING]    = { 0, 1,   0, I_ACORN,        0, 1 },
+    [T_TABLE]      = { 0, 2,   0, I_TABLE,        0, 1 },
+    [T_CHAIR]      = { 0, 2,   0, I_CHAIR,        0, 1 },
+    [T_LANTERN]    = { 0, 1,   0, I_LANTERN,     13, 1 },
+    [T_FIREPLACE]  = { 0, 3,   0, I_FIREPLACE,   14, 1 },
+    [T_CHAIN]      = { 0, 1,   0, I_CHAIN,        0, 0 },
 };
 
 /* ------------------------------------------------------------- recipes ----
@@ -136,6 +146,12 @@ const Recipe g_recipes[] = {
     { ST_WORKBENCH, I_CHEST, 1,      { { I_WOOD, 8 } } },
     { ST_WORKBENCH, I_FURNACE, 1,    { { I_STONE, 20 }, { I_WOOD, 4 }, { I_TORCH, 3 } } },
     { ST_WORKBENCH, I_POTION_HEAL, 1,{ { I_MUSHROOM, 1 }, { I_GEL, 2 } } },
+    /* workbench: furniture */
+    { ST_WORKBENCH, I_TABLE, 1,      { { I_WOOD, 8 } } },
+    { ST_WORKBENCH, I_CHAIR, 1,      { { I_WOOD, 4 } } },
+    { ST_WORKBENCH, I_LANTERN, 1,    { { I_WOOD, 2 }, { I_TORCH, 1 } } },
+    { ST_WORKBENCH, I_FIREPLACE, 1,  { { I_STONE, 10 }, { I_WOOD, 4 }, { I_TORCH, 1 } } },
+    { ST_ANVIL,     I_CHAIN, 3,      { { I_IRON_BAR, 1 } } },
     /* furnace: smelting */
     { ST_FURNACE,   I_COPPER_BAR, 1, { { I_COPPER_ORE, 3 } } },
     { ST_FURNACE,   I_IRON_BAR, 1,   { { I_IRON_ORE, 3 } } },
