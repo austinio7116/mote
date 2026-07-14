@@ -111,6 +111,23 @@ def slip_cells(fname, cols, rows, x0=0, y0=0):
             out.append(c)
     return out
 
+def slip_cells_scaled(fname, box, cols, rows):
+    """Crop a region of a SlipPixel PNG and nearest-scale it to cols*8 x rows*8,
+    then slice into Cells. Used to fit a wider drawing into our tile footprint."""
+    im = Image.open(os.path.join(_SLIP, fname)).convert("RGBA")
+    im = im.crop(box).resize((cols * TS, rows * TS), Image.NEAREST)
+    out = []
+    for cy in range(rows):
+        for cx in range(cols):
+            c = Cell()
+            for y in range(TS):
+                for x in range(TS):
+                    px = im.getpixel((cx * TS + x, cy * TS + y))
+                    if px[3] >= 128:
+                        c.put(x, y, (px[0], px[1], px[2]))
+            out.append(c)
+    return out
+
 def stack_variants(sheets):
     w = sheets[0].width; h = sum(s.height for s in sheets)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0)); y = 0
@@ -410,21 +427,12 @@ def torch_cell():
     return slip_cells("Torch.png", 1, 1)[0]
 
 def platform_cells():
-    PLANK = (172, 126, 70); DARK = (128, 90, 48); LINE = (104, 72, 38)
-    out = []
-    for kind in range(4):        # 0 solo, 1 left end, 2 middle, 3 right end
-        c = Cell()
-        for y in (2, 3):
-            for x in range(TS):
-                c.put(x, y, PLANK if y == 2 else DARK)
-        for x in range(TS):
-            if x % 3 == 1: c.put(x, 3, LINE)
-        if kind in (0, 1):
-            c.put(0, 2, LINE); c.put(0, 3, LINE); c.put(0, 4, DARK)
-        if kind in (0, 3):
-            c.put(TS - 1, 2, LINE); c.put(TS - 1, 3, LINE); c.put(TS - 1, 4, DARK)
-        out.append(c)
-    return out
+    # SlipPixel Oak Wood Planks Platform.png: reslice row 1's three cells into the
+    # autotile order the lut expects: [solo, left-end, middle, right-end]. The
+    # left/right cells carry the plank end-caps; middle is continuous; solo reuses
+    # the middle (a lone plank reads fine).
+    left, mid, right = slip_cells("Oak Wood Planks Platform.png", 3, 1, y0=8)
+    return [mid, left, mid, right]
 
 def bench_cells(top, leg):
     """2-wide table: left / right halves."""
@@ -472,28 +480,13 @@ def altar_cells():
     return out
 
 def door_cells(open_):
-    WOODC = (170, 122, 66); WDARK = (128, 88, 46); RIM = (92, 62, 32); KNOB = (240, 200, 80)
-    out = []
-    for i in range(3):           # top / mid / bottom
-        c = Cell()
-        if not open_:
-            for y in range(TS):
-                for x in range(1, TS - 1):
-                    c.put(x, y, WOODC if ((y + x) % 4) else WDARK)
-            for y in range(TS): c.put(1, y, RIM); c.put(TS - 2, y, RIM)
-            if i == 0:
-                for x in range(1, TS - 1): c.put(x, 0, RIM)
-            if i == 2:
-                for x in range(1, TS - 1): c.put(x, TS - 1, RIM)
-            if i == 1: c.put(TS - 3, 3, KNOB)
-        else:                    # open: thin frame at the left edge
-            for y in range(TS):
-                c.put(0, y, RIM); c.put(1, y, WOODC); c.put(2, y, WDARK)
-            if i == 0: c.put(1, 0, RIM); c.put(2, 0, RIM)
-            if i == 2: c.put(1, TS - 1, RIM); c.put(2, TS - 1, RIM)
-            if i == 1: c.put(2, 3, KNOB)
-        out.append(c)
-    return out
+    # SlipPixel Oak Wood Door.png (40x24): col 0 is the 1-wide OPEN door (edge-on),
+    # cols 1-2 are a 2-wide CLOSED door. Our door footprint is 1 tile wide x 3 tall,
+    # so use col 0 as-is for open, and nearest-scale the 2-wide closed door down to
+    # 8px wide for closed. Both slice into 3 cells (top/mid/bottom) for lut13.
+    if open_:
+        return slip_cells("Oak Wood Door.png", 1, 3, x0=0)
+    return slip_cells_scaled("Oak Wood Door.png", (8, 0, 24, 24), 1, 3)
 
 def mush_cell():
     c = Cell()
