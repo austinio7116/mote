@@ -536,8 +536,10 @@ def lantern_cells():
     return slip_cells("Lantern.png", 1, 2)
 
 def fireplace_cells():
-    # SlipPixel Fireplace.png: 3 frames of 16x16 (unlit..lit). Use the lit frame.
-    return slip_cells("Fireplace.png", 2, 2, x0=2 * 16)
+    # SlipPixel Fireplace.png is a single WIDE hearth (48x16, fire in the centre) —
+    # not 3 frames. Rescale the whole thing to 24x16 so it's a 3-wide (3x2)
+    # furniture whose left/mid/right columns are distinguishable by lut3x2.
+    return slip_cells_scaled("Fireplace.png", (0, 0, 48, 16), 3, 2)
 
 def chain_cell():
     return slip_cells("Chain.png", 1, 1)[0]
@@ -569,7 +571,7 @@ def make_furniture():
     custom_sheet("tiles_table", table_cells(), 3, lut3x2)
     custom_sheet("tiles_chair", chair_cells(), 1, lut1x2)
     custom_sheet("tiles_lantern", lantern_cells(), 1, lut1x2)
-    custom_sheet("tiles_fireplace", fireplace_cells(), 2, lut22)
+    custom_sheet("tiles_fireplace", fireplace_cells(), 3, lut3x2)
     custom_sheet("tiles_chain", [chain_cell()], 1, single)
 
 # ---------------------------------------------------------------- walls
