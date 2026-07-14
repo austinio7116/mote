@@ -4694,8 +4694,7 @@ static void g_overlay(uint16_t *fb) {
         }
         mote->text(fb, "DPAD+RB THRUST   A FIRE", 8, 70, MOTE_RGB565(190, 200, 225));
         mote->text(fb, "LB SHIELD   B SWAP WPN", 10, 79, MOTE_RGB565(190, 200, 225));
-        mote->text(fb, "MENU CATALOG  </> SHIP", 12, 88, MOTE_RGB565(150, 160, 190));
-        mote->text(fb, "RB 2P DUEL", 34, 60, MOTE_RGB565(150, 220, 255));
+        mote->text(fb, "MENU CATALOG  RB 2P", 20, 88, MOTE_RGB565(150, 220, 255));
         if (best_sector) {
             char bb[40];
             snprintf(bb, sizeof bb, "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
