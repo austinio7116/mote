@@ -94,6 +94,11 @@
   .warn{border-left-color:var(--red)}
   .warn b{color:var(--red)}
 
+  .half{max-width:360px}
+  .banner{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px;text-align:center;margin:14px 0}
+  .banner img{width:auto;max-width:100%;height:auto}
+
   footer{padding:30px 0 50px;color:var(--dim);font-size:.85rem}
   footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
 </style>
@@ -142,9 +147,9 @@
   destroy, and splice them into something monstrous. One life. Death is the end of the run.</p>
 
   <div class="grid g3">
-    <div><img class="shot" src="img/gallery/scrapwing-1.png" alt=""><div class="shotcap">Thrust, gravity, and hostile caves</div></div>
-    <div><img class="shot" src="img/gallery/scrapwing-2.png" alt=""><div class="shotcap">Every biome fights differently</div></div>
-    <div><img class="shot" src="img/gallery/scrapwing-3.png" alt=""><div class="shotcap">Guardians seal the warp every third sector</div></div>
+    <div><img class="shot" src="img/gallery/scrapwing-1.png" alt=""><div class="shotcap">Dogfighting in the flesh hive</div></div>
+    <div><img class="shot" src="img/gallery/scrapwing-2.png" alt=""><div class="shotcap">Fire orbs over the ember forge</div></div>
+    <div><img class="shot" src="img/gallery/scrapwing-3.png" alt=""><div class="shotcap">Into the warp tear — green means spore pit next</div></div>
   </div>
 
   <h3>Sector loop</h3>
@@ -164,6 +169,10 @@
   <p>Entering a warp writes a <b>bookmark</b>: quit any time and <code>A RESUME</code> from
   the title picks up at the start of that sector with your full inventory. It is a bookmark,
   not a checkpoint — <b>death deletes it</b>. This is a roguelike.</p>
+  <div class="grid g2" style="margin-top:14px">
+    <div><img class="shot" src="img/guide/sw-tear.png" alt=""><div class="shotcap">The warp tear previews the world beyond it</div></div>
+    <div><img class="shot" src="img/guide/sw-ui-debrief.png" alt=""><div class="shotcap">The debrief: how the run ended, and what it was worth</div></div>
+  </div>
 </div></section>
 
 <section id="controls"><div class="wrap">
@@ -191,6 +200,10 @@
 
   <div class="tip warn"><b>Watch your speed.</b> Slamming into rock above cruising speed
   costs hull. Gravity is patient; you should be too.</div>
+  <div class="grid g2" style="margin-top:14px">
+    <div><img class="shot" src="img/guide/sw-ui-title.png" alt=""><div class="shotcap">The title: pick an airframe, resume, or duel</div></div>
+    <div><img class="shot" src="img/guide/sw-act-cavern.png" alt=""><div class="shotcap">Hovering on feathered thrust in the home cavern</div></div>
+  </div>
 </div></section>
 
 <section id="weapons"><div class="wrap">
@@ -216,6 +229,11 @@
   <p class="role">Each level adds +18% damage and +6% fire rate. A level 9 gene nearly
   triples its base damage.</p>
 
+  <div class="grid g3" style="margin:14px 0 6px">
+    <div><img class="shot" src="img/guide/sw-wpn-helix.png" alt=""><div class="shotcap">PLASMA HELIX — interlaced liquid waves</div></div>
+    <div><img class="shot" src="img/guide/sw-wpn-scatter.png" alt=""><div class="shotcap">FIRE SCATTER — five-shot splash chaos</div></div>
+    <div><img class="shot" src="img/guide/sw-wpn-volt.png" alt=""><div class="shotcap">VOLT FAN — chain lightning spread</div></div>
+  </div>
   <h3>Elements</h3>
   <div class="tw"><table>
     <thead><tr><th>Element</th><th>Signature</th><th>On hit</th></tr></thead>
@@ -259,7 +277,9 @@
         always check both directions.</li>
     <li><code>A</code> commits: both parents are consumed, the child is equipped.</li>
   </ul>
-  <div class="tip"><b>Hold economics.</b> Your hold carries 8 weapons. When it's full,
+  <img class="shot half" src="img/guide/sw-ui-bench.png" alt="">
+  <div class="shotcap" style="text-align:left">The bench: parents in, live-fired result out — with gain/loss bars</div>
+  <div class="tip" style="margin-top:14px"><b>Hold economics.</b> Your hold carries 8 weapons. When it's full,
   new salvage won't fit — fuse aggressively to make room, and to keep your damage curve
   ahead of the sector scaling.</div>
 </div></section>
@@ -278,6 +298,11 @@
         weapon to enter the grid, then <code>A</code> on any powerup for a detail popup
         explaining exactly what it does.</li>
   </ul>
+  <div class="grid g3" style="margin-top:14px">
+    <div><img class="shot" src="img/guide/sw-ui-hangar.png" alt=""><div class="shotcap">Weapon stats pane</div></div>
+    <div><img class="shot" src="img/guide/sw-ui-runlog.png" alt=""><div class="shotcap">The run log grid</div></div>
+    <div><img class="shot" src="img/guide/sw-ui-pumodal.png" alt=""><div class="shotcap">Powerup detail popup</div></div>
+  </div>
 </div></section>
 
 <section id="powerups"><div class="wrap">
@@ -328,6 +353,11 @@
           <td>volcanic vents lobbing lava balls · eruptions of liquid magma spray</td></tr>
     </tbody>
   </table></div>
+  <div class="grid g3" style="margin:4px 0 14px">
+    <div><img class="shot" src="img/guide/sw-act-glacier.png" alt=""><div class="shotcap">Glacier: rail slugs down icicle lanes</div></div>
+    <div><img class="shot" src="img/guide/sw-act-spore.png" alt=""><div class="shotcap">Spore pit: skirmish in the murk</div></div>
+    <div><img class="shot" src="img/guide/sw-act-ember.png" alt=""><div class="shotcap">Ember forge: orbs over the ore fields</div></div>
+  </div>
   <div class="tip"><b>Hazards don't block the path.</b> Every corridor stays flyable —
   hazards punish impatience, not existence. Watch the shimmer, time your pass.</div>
 </div></section>
@@ -347,6 +377,10 @@
     <li>Boss and enemy hull scales <b>superlinearly by sector</b>. Your fused arsenal is
         the only thing that keeps pace.</li>
   </ul>
+  <div class="banner"><img src="img/guide/sw-bosses.png" alt="Four dreadnoughts">
+    <div class="shotcap">Four of the 78 dreadnoughts — every one a fixed identity with its own attack deck</div></div>
+  <img class="shot half" src="img/guide/sw-ui-info-boss.png" alt="">
+  <div class="shotcap" style="text-align:left">A catalogue boss page: full-resolution render, live attack demo</div>
 </div></section>
 
 <section id="catalogue"><div class="wrap">
@@ -363,6 +397,13 @@
         title screen with <code>&lt; &gt;</code>. Each airframe brings its own starting
         weapon gene into the run.</li>
   </ul>
+  <div class="banner"><img src="img/guide/sw-ships.png" alt="24 airframes">
+    <div class="shotcap">A few of the 417 airframes — every silhouette is a fixed class, loadout and name</div></div>
+  <div class="grid g3" style="margin-top:14px">
+    <div><img class="shot" src="img/guide/sw-ui-cat-ships.png" alt=""><div class="shotcap">The ship index</div></div>
+    <div><img class="shot" src="img/guide/sw-ui-info-ship.png" alt=""><div class="shotcap">Ship page: parts progress, live fire</div></div>
+    <div><img class="shot" src="img/guide/sw-ui-cat-boss.png" alt=""><div class="shotcap">The dreadnought wall</div></div>
+  </div>
 </div></section>
 
 <section id="duel"><div class="wrap">
@@ -385,6 +426,11 @@
     <li>The score runs top-centre. Play to any target you agree on. <code>MENU</code>
         twice forfeits.</li>
   </ul>
+  <div class="grid g3" style="margin:4px 0 14px">
+    <div><img class="shot" src="img/guide/sw-duel-fight.png" alt=""><div class="shotcap">First blood in the spore pit</div></div>
+    <div><img class="shot" src="img/guide/sw-duel-wait.png" alt=""><div class="shotcap">Fused up, waiting on the peer</div></div>
+    <div><img class="shot" src="img/guide/sw-duel-round2.png" alt=""><div class="shotcap">Round 2: a brand-new world</div></div>
+  </div>
   <div class="tip"><b>Duel meta.</b> Rounds are short but arsenals persist — sacrificing
   a round to hoover up salvage and fuse a monster between rounds is a legitimate
   strategy. So is denying your rival that same pickup.</div>

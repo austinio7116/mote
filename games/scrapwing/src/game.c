@@ -546,6 +546,7 @@ static int   bench_core;                /* bench core selection */
 static float demo_cd;                   /* bench demo-fire cooldown */
 static int   g_demo_fire;               /* shots spawned now are demo-only */
 static int   g_god;                     /* dev hook: SCRAP_GOD=1 disables damage */
+static int   g_nograv;                  /* dev hook: SCRAP_NOGRAV=1 (screenshots) */
 static int   best_sector, best_scrap;
 /* ---- catalogue (Spelunky-style journal): bitmaps persisted in the save ---- */
 static uint8_t cat_ship[(SHIP_COUNT + 7) / 8];
@@ -1877,6 +1878,7 @@ static void start_run(void) {
     }
     mark_wpn(inv[0].pat, inv[0].elem);
     g_god = getenv("SCRAP_GOD") != 0;
+    g_nograv = getenv("SCRAP_NOGRAV") != 0;
 
     const char *ds = getenv("SCRAP_SEC");   /* start at a given sector */
     if (ds) { sector = mote_clampi(atoi(ds), 1, 99); }
@@ -2456,7 +2458,7 @@ static void player_update(float dt) {
 
     float th = THRUST * (b_after > 0 ? 1.35f : 1.0f);
     pvx += (thrust_x * th - pvx * DRAG) * dt;
-    pvy += (thrust_y * th + GRAV - pvy * DRAG) * dt;
+    pvy += (thrust_y * th + (g_nograv ? 0 : GRAV) - pvy * DRAG) * dt;
     pvx = mote_clampf(pvx, -VMAX, VMAX);
     pvy = mote_clampf(pvy, -VMAX, VMAX);
 
