@@ -93,6 +93,24 @@ def sheet_from_cells(cells, cols, rows):
                     img.putpixel((ox + x, oy + y), (c[0], c[1], c[2], 255))
     return img
 
+_SLIP = os.path.join(GAME, "SlipPixel")
+def slip_cells(fname, cols, rows, x0=0, y0=0):
+    """Slice an 8px-cell block out of a hand-drawn SlipPixel PNG into Cells
+    (row-major). Alpha < 128 -> transparent (shows the wall behind). Lets the
+    community re-edit the source PNGs and just re-run this script."""
+    im = Image.open(os.path.join(_SLIP, fname)).convert("RGBA")
+    out = []
+    for cy in range(rows):
+        for cx in range(cols):
+            c = Cell()
+            for y in range(TS):
+                for x in range(TS):
+                    px = im.getpixel((x0 + cx * TS + x, y0 + cy * TS + y))
+                    if px[3] >= 128:
+                        c.put(x, y, (px[0], px[1], px[2]))
+            out.append(c)
+    return out
+
 def stack_variants(sheets):
     w = sheets[0].width; h = sum(s.height for s in sheets)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0)); y = 0
@@ -387,13 +405,9 @@ def lut_from(fn):
     return [fn(m) for m in range(256)]
 
 def torch_cell():
-    c = Cell()
-    STICK = (150, 108, 60)
-    for y in range(3, 8): c.put(3, y, STICK); c.put(4, y, shade(STICK, 0.8))
-    c.put(3, 2, (255, 200, 60)); c.put(4, 2, (255, 160, 30))
-    c.put(3, 1, (255, 240, 160)); c.put(4, 1, (255, 200, 60))
-    c.put(3, 0, (255, 120, 20))
-    return c
+    # SlipPixel Torch.png is a 4-frame flame (8px cells); take frame 0 as the
+    # static torch. (Animation would need a sprite overlay, not a static tile.)
+    return slip_cells("Torch.png", 1, 1)[0]
 
 def platform_cells():
     PLANK = (172, 126, 70); DARK = (128, 90, 48); LINE = (104, 72, 38)
@@ -426,69 +440,18 @@ def bench_cells(top, leg):
     return out
 
 def anvil_cells():
-    IRON = (110, 114, 126); DARK = (72, 76, 88); LITE = (152, 156, 168)
-    out = []
-    for half in range(2):
-        c = Cell()
-        for x in range(TS):
-            c.put(x, 2, LITE); c.put(x, 3, IRON)
-        if half == 0:
-            c.put(0, 2, DARK); c.put(1, 4, IRON); c.put(1, 5, DARK)
-            for x in range(2, TS): c.put(x, 4, DARK)
-            for x in range(2, 6): c.put(x, 5, IRON); c.put(x, 6, IRON); c.put(x, 7, DARK)
-        else:
-            c.put(TS - 1, 2, DARK)
-            for x in range(0, 5): c.put(x, 4, DARK)
-            for x in range(1, 5): c.put(x, 5, IRON); c.put(x, 6, IRON); c.put(x, 7, DARK)
-            c.put(TS - 1, 3, DARK)
-        out.append(c)
-    return out
+    # SlipPixel anvil.png: 16x8 = [left, right], matches the 2-wide lut2w order.
+    return slip_cells("anvil.png", 2, 1)
 
 def furnace_cells():
-    STONE = (104, 100, 100); SDARK = (70, 66, 68); FIRE = (255, 150, 30); FIR2 = (255, 220, 90)
-    out = []
-    for i in range(4):           # TL TR BL BR
-        c = Cell()
-        rng = random.Random(900 + i)
-        speckle(c, STONE, SDARK, (128, 124, 122), 0.25, rng)
-        top, left = i < 2, (i % 2) == 0
-        if top:
-            for x in range(TS): c.put(x, 0, SDARK)
-            if left: c.put(2, 0, (40, 36, 36)); c.put(2, 1, (60, 52, 50))   # chimney hint
-        else:
-            for x in range(TS): c.put(x, TS - 1, SDARK)
-            # mouth with fire spans the two bottom cells' inner halves
-            xs = range(3, TS) if left else range(0, 5)
-            for x in xs:
-                c.put(x, 3, SDARK); c.put(x, 4, FIRE); c.put(x, 5, FIR2 if (x % 2) else FIRE)
-                c.put(x, 6, SDARK)
-        for y in range(TS):
-            if left: c.put(0, y, SDARK)
-            else:    c.put(TS - 1, y, SDARK)
-        out.append(c)
-    return out
+    # SlipPixel Furnace.png: 3 frames of 16x16 (idle .. lit). Use the lit frame
+    # (2) so the station reads as hot, like the old art. Row-major 2x2 =
+    # TL,TR,BL,BR, matching lut22.
+    return slip_cells("Furnace.png", 2, 2, x0=2 * 16)
 
 def chest_cells():
-    WOODC = (178, 126, 64); WDARK = (132, 92, 46); GOLDC = (240, 200, 70); RIM = (96, 66, 34)
-    out = []
-    for i in range(4):
-        c = Cell()
-        top, left = i < 2, (i % 2) == 0
-        for y in range(TS):
-            for x in range(TS):
-                c.put(x, y, WOODC if (y % 3) else WDARK)
-        if top:
-            for x in range(TS): c.put(x, 0, None); c.put(x, 1, RIM)
-            for x in range(TS): c.put(x, 4, GOLDC)                       # metal band
-            if not left: c.put(0, 5, GOLDC); c.put(0, 6, shade(GOLDC, 0.7))
-            if left: c.put(TS - 1, 5, GOLDC); c.put(TS - 1, 6, shade(GOLDC, 0.7))  # clasp center
-        else:
-            for x in range(TS): c.put(x, TS - 1, RIM)
-        for y in range(1 if top else 0, TS):
-            if left: c.put(0, y, RIM if y > 0 else None)
-            else:    c.put(TS - 1, y, RIM if y > 0 else None)
-        out.append(c)
-    return out
+    # SlipPixel Oak Wood Chest.png: 16x16, row-major 2x2 = TL,TR,BL,BR (lut22).
+    return slip_cells("Oak Wood Chest.png", 2, 2)
 
 def altar_cells():
     ROCK = (92, 62, 110); RDARK = (62, 40, 78); GLOW = (196, 90, 220)
