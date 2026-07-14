@@ -241,6 +241,7 @@ int  craft_can(const Recipe *rc);
 void craft_do(const Recipe *rc);
 int  stations_near(void);             /* ST_* bitmask within reach */
 void player_build_palette(void);      /* appearance -> RAM palette */
+void player_blit_frame(uint16_t *fb, int px, int py, int cell);  /* creator preview: body+hair, same renderer as player_draw */
 
 /* ---- enemies module (npc.c) ------------------------------------------------------- */
 void npc_reset(void);

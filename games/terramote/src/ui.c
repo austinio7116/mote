@@ -12,8 +12,6 @@ extern int g_ret_c, g_ret_r;
 extern float g_aim_x, g_aim_y;
 extern uint8_t g_ui_fresh;
 extern const uint16_t g_skin_opts[4], g_hair_opts[8], g_cloth_opts[8];
-const MoteImage *player_body_img(void);
-const MoteImage *player_hair_img(void);
 int npc_boss_hp(int *max);
 
 #define ICS 16      /* items.png cell size */
@@ -390,16 +388,15 @@ void ui_create(uint16_t *fb) {
             if (i >= 1) mote->draw_rect(fb, 86, y + 2, 8, 8, chip, 1, 0, MOTE_FB_H);
         }
     }
-    /* live preview, walking, 3x scale via repeated blits is unavailable — draw 1x pair */
+    /* live preview: the walk cycle (cells 1..4). Delegate to player_blit_frame so
+     * the creator uses the SAME renderer as the game — packed-grid cell addressing
+     * plus the per-frame head offset for the hair. (The old hand-rolled cell*12
+     * blit assumed a flat 9x1 strip and wrapped into the next packed row.) */
     int frame = 1 + ((int)(s_ui_t * 6) & 3);
-    const MoteImage *body = player_body_img();
-    const MoteImage *hair = player_hair_img();
     int px = 104, py = 44;
     mote->draw_rect(fb, px - 6, py - 5, 24, 27, rgb(30, 26, 42), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, px - 6, py - 5, 24, 27, rgb(90, 84, 110), 0, 0, MOTE_FB_H);
-    mote->blit(fb, body, px, py, frame * 12, 0, 12, 16, 0, 0, MOTE_FB_H);
-    if (g_pl.hair_style < HAIR_STYLES)
-        mote->blit(fb, hair, px, py, g_pl.hair_style * 12, 0, 12, 10, 0, 0, MOTE_FB_H);
+    player_blit_frame(fb, px, py, frame);
 
     if (mote_just_pressed(in, MOTE_BTN_UP))   s_create_cur = (s_create_cur + 5) % 6;
     if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_create_cur = (s_create_cur + 1) % 6;
