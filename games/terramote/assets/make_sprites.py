@@ -396,14 +396,14 @@ def make_items():
         "TABLE":     ("Oak Wood Table.png",           None),
         "CHAIR":     ("Oak Wood Chair.png",           (0, 0, 8, 16)),
         "LANTERN":   ("Lantern.png",                  None),
-        "FIREPLACE": ("Fireplace.png",                (32, 0, 48, 16)),
+        "FIREPLACE": ("Fireplace.png",                (0, 0, 48, 16)),
         "CHAIN":     ("Chain.png",                    None),
     }
     def slip_icon(ox, oy, fname, box=None, target=11):
         im = Image.open(os.path.join(SLIP, fname)).convert("RGBA")
         if box: im = im.crop(box)
         w, h = im.size
-        s = min(target / w, target / h)
+        s = min(target / w, target / h, 1.0)              # never upscale (keeps thin things thin)
         nw, nh = max(1, round(w * s)), max(1, round(h * s))
         im = im.resize((nw, nh), Image.LANCZOS)
         px0 = ox + (CS - nw) // 2
@@ -429,32 +429,43 @@ def make_items():
     def _mtones(m):
         return (tuple(min(255, int(k * 1.35)) for k in m), tuple(int(k * 0.62) for k in m))
 
+    def _mixc(a, b, t):
+        return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
     def pick_icon(ox, oy, m):
         hi, dk = _mtones(m)
-        for i in range(6):                                  # wooden handle (diagonal)
-            c.px(ox + 5 + i, oy + 10 - i, WOOD); c.px(ox + 4 + i, oy + 10 - i, WOOD_DK)
-        head = [(2, 5), (3, 4), (4, 3), (5, 3), (6, 3), (7, 3), (8, 4), (9, 5)]  # curved head
-        for x, y in head: c.px(ox + x, oy + y, m)
-        for x, y in head: c.px(ox + x, oy + y + 1, dk)
-        for x, y in [(4, 3), (5, 3), (6, 3)]: c.px(ox + x, oy + y, hi)
+        for y in range(4, 11):                              # vertical handle, centred
+            c.px(ox + 6, oy + y, WOOD); c.px(ox + 5, oy + y, WOOD_DK)
+        head = [(1, 5), (2, 4), (3, 3), (4, 3), (5, 2), (6, 2), (7, 3), (8, 3), (9, 4), (10, 5)]
+        for x, y in head: c.px(ox + x, oy + y, m)            # double-pointed arc
+        c.px(ox + 1, oy + 6, dk); c.px(ox + 10, oy + 6, dk)  # the two points dip down
+        for x in (5, 6): c.px(ox + x, oy + 2, hi)            # top sheen
 
     def axe_icon(ox, oy, m):
         hi, dk = _mtones(m)
-        for i in range(7):                                  # handle
-            c.px(ox + 4 + i, oy + 11 - i, WOOD); c.px(ox + 3 + i, oy + 11 - i, WOOD_DK)
-        c.rect(ox + 2, oy + 2, ox + 6, oy + 3, m)           # blade head
-        c.rect(ox + 2, oy + 4, ox + 5, oy + 5, m)
-        c.px(ox + 2, oy + 6, m)
-        c.rect(ox + 2, oy + 2, ox + 6, oy + 2, hi)
-        c.px(ox + 2, oy + 6, dk); c.px(ox + 5, oy + 5, dk)
+        for i in range(7):                                  # handle, bottom-left -> top-right
+            c.px(ox + 3 + i, oy + 10 - i, WOOD); c.px(ox + 4 + i, oy + 10 - i, WOOD_DK)
+        c.rect(ox + 7, oy + 2, ox + 10, oy + 5, m)          # head block on the handle's top end
+        c.px(ox + 7, oy + 5, None)                          # notch so it sits on the handle
+        for y in range(2, 6): c.px(ox + 10, oy + y, hi)     # cutting edge (outer) sheen
+        c.px(ox + 7, oy + 2, dk)
 
-    def sword_icon(ox, oy, m):
+    def sword_icon(ox, oy, m, glow=False):
         hi, dk = _mtones(m)
-        for i in range(7):                                  # blade, bottom-left -> top-right
-            c.px(ox + 3 + i, oy + 8 - i, m); c.px(ox + 4 + i, oy + 8 - i, hi)
-        c.px(ox + 9, oy + 2, hi); c.px(ox + 10, oy + 2, hi)  # tip
-        c.rect(ox + 2, oy + 8, ox + 5, oy + 8, (90, 92, 104))   # crossguard
-        c.px(ox + 3, oy + 9, WOOD); c.px(ox + 3, oy + 10, WOOD); c.px(ox + 2, oy + 11, WOOD_DK)  # grip
+        blade = [(3 + i, 8 - i) for i in range(7)]          # hilt (bl) -> tip (tr)
+        if glow:                                            # colored aura around the blade
+            halo = tuple(int(k * 0.6) for k in m)
+            for x, y in blade:
+                for dx, dy in ((1, -1), (-1, 1), (1, 0), (0, -1), (-1, 0), (0, 1)):
+                    c.px(ox + x + dx, oy + y + dy, halo)
+        for j, (x, y) in enumerate(blade):
+            t = j / 6.0
+            col = _mixc(m, (255, 244, 190), t) if glow else m   # gradient hilt->bright tip
+            c.px(ox + x, oy + y, col)
+            c.px(ox + x + 1, oy + y, _mixc(col, (255, 255, 255), 0.55))
+        c.px(ox + 10, oy + 1, (255, 255, 255) if glow else hi)  # tip spark
+        c.rect(ox + 2, oy + 8, ox + 5, oy + 8, (96, 98, 110))   # crossguard
+        c.px(ox + 3, oy + 9, WOOD); c.px(ox + 3, oy + 10, WOOD); c.px(ox + 2, oy + 11, WOOD_DK)
 
     def bow_icon(ox, oy, m):
         hi, dk = _mtones(m)
@@ -570,7 +581,7 @@ def make_items():
         parts = name.split("_")
         if parts[0] == "PICK": pick_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "AXE": axe_icon(ox, oy, METAL[parts[1]]); continue
-        if parts[0] == "SWORD": sword_icon(ox, oy, METAL[parts[1]]); continue
+        if parts[0] == "SWORD": sword_icon(ox, oy, METAL[parts[1]], glow=parts[1] in ("BANE", "VOLCANO")); continue
         if parts[0] == "BOW": bow_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "ARROW": arrow_icon(ox, oy, len(parts) > 1); continue
         if parts[1] == "ORE": ore_icon(ox, oy, METAL[parts[0]]); continue

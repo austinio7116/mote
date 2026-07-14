@@ -197,7 +197,7 @@ int world_place_tile(int c, int r, uint8_t tile) {
         world_set_fg(c, r, tile); world_set_fg(c + 1, r, tile);
         return 1;
     }
-    if (tile == T_TABLE) {                               /* 3 wide x 2 tall */
+    if (tile == T_TABLE || tile == T_FIREPLACE) {        /* 3 wide x 2 tall */
         for (int dc = 0; dc < 3; dc++)
             if (fg_at(c + dc, r) || fg_at(c + dc, r - 1)) return 0;
         for (int dc = 0; dc < 3; dc++)
@@ -211,7 +211,7 @@ int world_place_tile(int c, int r, uint8_t tile) {
         world_set_fg(c, r, tile); world_set_fg(c, r - 1, tile);
         return 1;
     }
-    if (tile == T_FURNACE || tile == T_CHEST || tile == T_FIREPLACE) {
+    if (tile == T_FURNACE || tile == T_CHEST) {
         if (fg_at(c, r) || fg_at(c + 1, r) || fg_at(c, r - 1) || fg_at(c + 1, r - 1)) return 0;
         if (g_tiles[fg_at(c, r + 1)].solid != 1 || g_tiles[fg_at(c + 1, r + 1)].solid != 1) return 0;
         if (tile == T_CHEST && !world_chest_create(c, r - 1)) return 0;
