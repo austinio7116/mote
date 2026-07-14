@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("1.2.0");
+MOTE_GAME_VERSION("1.2.1");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -977,6 +977,7 @@ static int acquire_bldg(int team, float x, float y, float r){
     }
     return best;
 }
+static int can_hit_air(int w){ return w == W_MG || w == W_ROCKET || w == W_TESLA; }
 static float turnto(float cur, float want, float rate){
     float d = want - cur;
     while (d > PI) d -= 2 * PI;
@@ -1164,11 +1165,24 @@ static void unit_tick(int ui, float dt){
         }
         if (d->weapon == W_NONE) break;
         if ((simc & 7) == (ui & 7)){    /* stagger scans */
-            int t = acquire(u->team, u->x, u->y, d->range + 6, d->weapon != W_CANNON && d->weapon != W_ARTY && d->weapon != W_FLAME);
+            int air = can_hit_air(d->weapon);
+            /* 1) enemy already in weapon range: engage in place */
+            int t = acquire(u->team, u->x, u->y, d->range + 6, air);
             if (t >= 0) u->tgt = t;
-            else if (!mp_active && u->team == 1){   /* only the SP AI idles into buildings */
-                int b = acquire_bldg(u->team, u->x, u->y, d->range + 6);
-                if (b >= 0) u->tgt = -(b + 2);
+            else {
+                /* 2) enemy unit within sight: move out and engage (guard-chase) */
+                float guard = d->sight * TILE + 8.0f;
+                t = acquire(u->team, u->x, u->y, guard, air);
+                if (t >= 0){
+                    u->order = O_ATK; u->tgt = t; u->dest = 0; u->stuck = 0;
+                    break;
+                }
+                /* 3) no units near: an enemy BUILDING within sight is fair game */
+                int b = acquire_bldg(u->team, u->x, u->y, guard);
+                if (b >= 0){
+                    u->order = O_ATK; u->tgt = -(b + 2); u->dest = 0; u->stuck = 0;
+                    break;
+                }
             }
         }
         if (u->tgt != -1){
@@ -1194,19 +1208,30 @@ static void unit_tick(int ui, float dt){
     case O_ATK: case O_HUNT: {
         if (!tgt_alive(u->tgt)){
             u->tgt = -1;
+            int air = can_hit_air(d->weapon);
             if (u->order == O_HUNT){
                 /* find a new victim anywhere */
-                int t = acquire(u->team, u->x, u->y, 4000, d->weapon == W_ROCKET || d->weapon == W_TESLA || d->weapon == W_MG);
+                int t = acquire(u->team, u->x, u->y, 4000, air);
                 int b = acquire_bldg(u->team, u->x, u->y, 4000);
                 if (b >= 0) u->tgt = -(b + 2);
                 if (t >= 0 && u->tgt == -1) u->tgt = t;
                 if (u->tgt == -1){ u->order = O_IDLE; break; }
-            } else { u->order = O_IDLE; break; }
+            } else {
+                /* target down: CHAIN to the next nearby enemy — units first,
+                 * then buildings — instead of standing down mid-battle */
+                float chain = d->sight * TILE + 12.0f;
+                int t = acquire(u->team, u->x, u->y, chain, air);
+                if (t >= 0){ u->tgt = t; u->dest = 0; u->stuck = 0; }
+                else {
+                    int b = acquire_bldg(u->team, u->x, u->y, chain);
+                    if (b >= 0){ u->tgt = -(b + 2); u->dest = 0; u->stuck = 0; }
+                    else { u->order = O_IDLE; break; }
+                }
+            }
         }
         /* hunters opportunistically swap to nearby threats */
         if (u->order == O_HUNT && (simc & 15) == (ui & 15)){
-            int t = acquire(u->team, u->x, u->y, d->sight * TILE,
-                            d->weapon == W_ROCKET || d->weapon == W_TESLA || d->weapon == W_MG);
+            int t = acquire(u->team, u->x, u->y, d->sight * TILE, can_hit_air(d->weapon));
             if (t >= 0) u->tgt = t;
         }
         float tx, ty; get_tpos(u->tgt, &tx, &ty);
