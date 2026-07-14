@@ -57,9 +57,13 @@ static void slot_draw(uint16_t *fb, const Slot *s, int x, int y, int sel) {
 
 /* ------------------------------------------------------------------ HUD ----- */
 void ui_hud(uint16_t *fb) {
-    /* hotbar: 8 x 16px cells + hearts underneath-left */
+    /* hotbar: 8 cells that are 18px wide but only 16px apart, so each cell's fill
+     * overlaps — and clips — the previous cell's right border. Draw them all, then
+     * re-stroke the SELECTED cell's outline on top so its highlight is unbroken. */
     for (int i = 0; i < HOTBAR; i++)
         slot_draw(fb, &g_pl.inv[i], i * 16 - 1, 0, i == g_pl.hot);
+    if (g_pl.hot >= 0 && g_pl.hot < HOTBAR)
+        mote->draw_rect(fb, g_pl.hot * 16 - 1, 0, ICS + 2, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
     /* hearts (10px apart, 12px cells) */
     int hearts = g_pl.maxhp / 20;
     for (int i = 0; i < hearts; i++) {
