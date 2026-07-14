@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-14T19:44:37+00:00",
+ "generated": "2026-07-14T20:01:29+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -20,9 +20,9 @@
     "img/gallery/scrapwing-3.png"
    ],
    "tag": "Salvage-fusion cave flyer",
-   "desc": "An R-Type roguelike crossed with a gravity cave-flyer: thrust through five procedurally generated alien biomes — caverns, flesh hives, glaciers, spore pits and magma forges — where every enemy fires the weapon gene it carries and drops it when it shatters into its own pixels. Splice salvage at the Fusion Bench (with a live-fire preview of the result) across 8 firing patterns, 6 elements and stacking mods. Every third sector a guardian dreadnought seals the warp gate behind a randomized attack deck; drone wingmen, chrono mines, bomb bays and a recharging shield turn the tide. 417 enemy ships. 78 bosses. One life.",
+   "desc": "An R-Type roguelike crossed with a gravity cave-flyer: thrust through five procedurally generated alien biomes — caverns, flesh hives, glaciers, spore pits and magma forges — where every enemy fires the weapon gene it carries and drops it when it shatters into its own pixels. Splice salvage at the Fusion Bench (with a live-fire preview of the result) across 8 firing patterns, 6 elements and stacking mods. Every third sector a guardian dreadnought seals the warp gate behind a randomized attack deck; drone wingmen, chrono mines, bomb bays and a recharging shield turn the tide. 417 enemy ships. 78 bosses. One life. 2P DUEL: link two units for a 1v1 deathmatch — your collection airframe as your ship, a fresh seeded biome every round, and the Fusion Bench open between rounds to splice what you salvaged.",
    "guide": null,
-   "multiplayer": false
+   "multiplayer": true
   },
   {
    "id": "wormote",
