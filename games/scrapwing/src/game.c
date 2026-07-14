@@ -2029,6 +2029,8 @@ static uint32_t mp_seed;
 static int      mp_round, mp_score_me, mp_score_foe, mp_i_died, mp_got_hello;
 static float    mp_round_t, mp_over_t, mp_state_t, mp_ping_t, mp_hello_t, mp_quit_t;
 static int      mp_chips_spawned;        /* timed mid-round pickups dealt so far */
+static int      mp_ready_me, mp_ready_peer;  /* between-round fusion handshake */
+static int      mp_bench_opened;
 static int      mp_peer_ship;
 static uint8_t  mp_buf[24];
 static int      mp_len;
@@ -2096,12 +2098,13 @@ static void mp_send_chip(int i) { uint8_t m[3] = { MP_MAGIC, 'C', (uint8_t)i }; 
 static void mp_send_ping(void)  { uint8_t m[4] = { MP_MAGIC, 'P', (uint8_t)mp_score_me,
                                                    (uint8_t)mp_score_foe }; mp_tx_push(m, 4); }
 static void mp_send_bye(void)   { uint8_t m[2] = { MP_MAGIC, 'Q' }; mp_tx_push(m, 2); }
+static void mp_send_ready(void) { uint8_t m[2] = { MP_MAGIC, 'R' }; mp_tx_push(m, 2); }
 
 /* deterministic pickup scatter: pure hash of (seed, round, slot) — immune to
  * each side's diverged particle RNG */
 static void mp_scatter_chips(void) {
     uint32_t a = mp_seed ^ ((uint32_t)mp_round * 2654435761u);
-    for (int k = 0; k < 6; k++) {                    /* weapons */
+    for (int k = 0; k < 3; k++) {                    /* weapons */
         int c = 24 + (int)(h2((int)(a & 1023), k * 3 + 1) % (COLS - 48));
         float x = c * TILE + 4;
         float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE + (int)(h2(k, (int)a) % 21) - 10;
@@ -2116,13 +2119,13 @@ static void mp_scatter_chips(void) {
     static const uint8_t mp_pu_ok[12] = { PU_SHIELD, PU_REPAIR, PU_OVERDRIVE, PU_AMP,
         PU_AFTERBURN, PU_GHOST, PU_LEVELCORE, PU_BOMBS, PU_REARGUN, PU_VERTGUN,
         PU_MAGNET, PU_HULLMAX };
-    for (int k = 0; k < 3; k++) {                    /* duel-useful powerups only */
+    for (int k = 0; k < 2; k++) {                    /* duel-useful powerups only */
         int c = 24 + (int)(h2((int)(a >> 10), k * 5 + 2) % (COLS - 48));
         float x = c * TILE + 4;
         float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE + (int)(h2(k + 9, (int)a) % 17) - 8;
         if (!solid(x, y)) drop_power(x, y, mp_pu_ok[h2(k + 200, (int)a) % 12]);
     }
-    for (int k = 0; k < 2; k++) {                    /* repair kits */
+    for (int k = 0; k < 1; k++) {                    /* repair kit */
         int c = 24 + (int)(h2((int)(a >> 4), k * 7 + 3) % (COLS - 48));
         float x = c * TILE + 4;
         float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE;
@@ -2132,7 +2135,7 @@ static void mp_scatter_chips(void) {
 
 static void mp_round_start(void) {
     sector = 5;                                      /* hazards without a guardian */
-    run_seed = mp_seed;
+    run_seed = mp_seed ^ ((uint32_t)mp_round * 2654435761u);   /* NEW WORLD each round */
     gen_sector();                                    /* g_mp guards: no AI, no gate */
     mp_scatter_chips();
     int mycol = mp_host ? COLS / 4 : (3 * COLS) / 4;
@@ -2151,6 +2154,7 @@ static void mp_round_start(void) {
     hull = hull_max; shield_e = shield_max; shield_on = 0;
     invuln = 2.0f; fire_cd = 0; die_t = 0;
     mp_phase = 1; mp_round_t = 0; mp_chips_spawned = 0; mp_i_died = 0;
+    mp_ready_me = mp_ready_peer = 0; mp_bench_opened = 0;
     if (getenv("SCRAP_DBG"))
         fprintf(stderr, "[MP] round %d start host=%d seed=%u me=%.0f,%.0f biome=%d\n",
                 mp_round, mp_host, (unsigned)mp_seed, px, py, cur_biome);
@@ -2241,6 +2245,9 @@ static void mp_handle(const uint8_t *m) {
             chips[i].on = 0;
         }
         break; }
+    case 'R':
+        mp_ready_peer = 1;
+        break;
     case 'P':
         if (m[2] > mp_score_foe) mp_score_foe = m[2];
         if (m[3] > mp_score_me) mp_score_me = m[3];
@@ -2261,7 +2268,8 @@ static void mp_poll(void) {
             mp_buf[mp_len++] = b;
             int t = mp_buf[1];
             int want = t == 'H' ? 9 : t == 'M' ? 6 : t == 'S' ? 10 : t == 'T' ? 11
-                     : t == 'K' ? 2 : t == 'C' ? 3 : t == 'P' ? 4 : t == 'Q' ? 2 : -1;
+                     : t == 'K' ? 2 : t == 'C' ? 3 : t == 'P' ? 4 : t == 'Q' ? 2
+                     : t == 'R' ? 2 : -1;
             if (want < 0) { mp_len = 0; continue; }
             if (mp_len < want) continue;
             mp_len = 0;
@@ -2314,6 +2322,19 @@ static void mp_begin(void) {                         /* from the title: RB */
     state = ST_MPWAIT; state_t = 0;
 }
 
+/* minimal pump for menu states: keep the pipe alive, notice READY and QUIT */
+static void mp_idle_pump(float dt) {
+    mp_tx_flush();
+    mp_poll();
+    if (!g_mp) return;
+    if (mote->link_status() != MOTE_LINK_CONNECTED || mote->net_health() == MOTE_NET_LOST) {
+        mp_teardown("CONNECTION LOST");
+        return;
+    }
+    mp_ping_t += dt;
+    if (mp_ping_t > 1.0f) { mp_ping_t = 0; mp_send_ping(); }
+}
+
 static void mp_update(float dt) {
     mp_sfx_frame = 0;
     mp_tx_flush();
@@ -2355,7 +2376,7 @@ static void mp_update(float dt) {
         }
     if (mp_phase == 1) {                             /* fresh pickups keep coming */
         mp_round_t += dt;
-        if (mp_round_t > (mp_chips_spawned + 1) * 8.0f && mp_chips_spawned < 20) {
+        if (mp_round_t > (mp_chips_spawned + 1) * 15.0f && mp_chips_spawned < 8) {
             uint32_t a = mp_seed ^ ((uint32_t)mp_round * 2654435761u);
             int k2 = 300 + mp_chips_spawned;
             int c = 24 + (int)(h2((int)(a & 511), k2) % (COLS - 48));
@@ -2375,9 +2396,15 @@ static void mp_update(float dt) {
             }
             mp_chips_spawned++;
         }
-    } else {                                         /* round-over interlude */
+    } else {                                         /* round-over: fuse, then re-arm */
         mp_over_t += dt;
-        if (mp_over_t > 2.4f) { mp_round++; mp_round_start(); }
+        if (!mp_bench_opened && mp_over_t > 2.0f) {
+            mp_bench_opened = 1;
+            state = ST_LAB; lab_cur = equipped; lab_mark = -1;
+            lab_view = 0; pu_modal = 0; lab_focus = 0;
+            say("FUSE + EQUIP - EXIT WHEN READY");
+        }
+        if (mp_ready_me && mp_ready_peer) { mp_round++; mp_round_start(); }
     }
 }
 
@@ -3592,6 +3619,7 @@ static void g_update(float dt) {
             if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B) ||
                 mote_just_pressed(in, MOTE_BTN_MENU))
                 pu_modal = 0;
+            if (g_mp) mp_idle_pump(dt);
             submit_scene();
             parts_update(dt);
             break;
@@ -3608,8 +3636,11 @@ static void g_update(float dt) {
                 pu_cur += PU_COLS;
             if (mote_just_pressed(in, MOTE_BTN_A) && nc) pu_modal = 1;
             if (mote_just_pressed(in, MOTE_BTN_LB)) { cat_from_title = 0; state = ST_CATALOG; }
-            if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B))
+            if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) {
                 state = ST_PLAY;
+                if (g_mp && mp_phase == 2 && !mp_ready_me) { mp_ready_me = 1; mp_send_ready(); }
+            }
+            if (g_mp) mp_idle_pump(dt);
             submit_scene();
             parts_update(dt);
             break;
@@ -3625,6 +3656,7 @@ static void g_update(float dt) {
             equipped = lab_cur;
             say("EQUIPPED");
             state = ST_PLAY;
+            if (g_mp && mp_phase == 2 && !mp_ready_me) { mp_ready_me = 1; mp_send_ready(); }
         }
         if (mote_just_pressed(in, MOTE_BTN_RB)) {   /* take it to the fusion bench */
             if (inv_n >= 2) {
@@ -3641,7 +3673,11 @@ static void g_update(float dt) {
             }
         }
         if (mote_just_pressed(in, MOTE_BTN_LB)) { cat_from_title = 0; state = ST_CATALOG; }
-        if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) state = ST_PLAY;
+        if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) {
+            state = ST_PLAY;
+            if (g_mp && mp_phase == 2 && !mp_ready_me) { mp_ready_me = 1; mp_send_ready(); }
+        }
+        if (g_mp) mp_idle_pump(dt);
         submit_scene();
         parts_update(dt);
         break; }
@@ -3781,6 +3817,7 @@ static void g_update(float dt) {
             for (int i = 0; i < MAXSHOT; i++) shots[i].on = 0;
             demo_cd = 0.1f;
         }
+        if (g_mp) mp_idle_pump(dt);
         Gene child = fuse_genes(&inv[lab_mark], &inv[bench_core]);
         demo_cd -= dt;
         if (demo_cd <= 0) {                          /* the result fires, for real */
@@ -4805,14 +4842,23 @@ static void g_overlay(uint16_t *fb) {
         mote->text(fb, "B CANCEL", 46, 76, MOTE_RGB565(150, 160, 190));
     }
     if (g_mp && state == ST_PLAY && mp_phase == 2) {
-        mote_ui_panel(fb, 10, 44, 108, 40, MOTE_RGB565(16, 10, 20),
-                      mp_i_died ? MOTE_RGB565(200, 80, 60) : MOTE_RGB565(120, 220, 140));
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
-                        mp_i_died ? "SHIP LOST!" : "PEER DESTROYED!",
-                        mp_i_died ? 34 : 14, 48,
-                        mp_i_died ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(140, 255, 170));
-        textf_med(fb, 42, 62, MOTE_RGB565(255, 220, 110), "%d - %d",
-                  mp_score_me, mp_score_foe);
+        if (mp_ready_me) {
+            mote_ui_panel(fb, 10, 48, 108, 32, MOTE_RGB565(10, 12, 26), MOTE_RGB565(120, 150, 200));
+            mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
+                            mp_ready_peer ? "GO!" : "WAITING FOR PEER",
+                            mp_ready_peer ? 54 : 12, 52, MOTE_RGB565(160, 220, 255));
+            textf_med(fb, 42, 66, MOTE_RGB565(255, 220, 110), "%d - %d",
+                      mp_score_me, mp_score_foe);
+        } else {
+            mote_ui_panel(fb, 10, 44, 108, 40, MOTE_RGB565(16, 10, 20),
+                          mp_i_died ? MOTE_RGB565(200, 80, 60) : MOTE_RGB565(120, 220, 140));
+            mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
+                            mp_i_died ? "SHIP LOST!" : "PEER DESTROYED!",
+                            mp_i_died ? 34 : 14, 48,
+                            mp_i_died ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(140, 255, 170));
+            textf_med(fb, 42, 62, MOTE_RGB565(255, 220, 110), "%d - %d",
+                      mp_score_me, mp_score_foe);
+        }
     }
     if (state == ST_CLEAR)
         mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "WARPING...", 34, 58,
