@@ -414,7 +414,7 @@ static float gene_rate(const Gene *g) { float r = pat_rate[g->pat] * (1.0f + 0.0
 typedef struct {
     float x, y, vx, vy, age, dmg, phase;
     float rx, ry, prx, pry;             /* rendered pos (wave offset applied) */
-    uint8_t on, pat, elem, mods, pierce, bounce, lvl, demo, bomb;
+    uint8_t on, pat, elem, mods, pierce, bounce, lvl, demo, bomb, hostile, mp_sent;
 } Shot;
 static Shot shots[MAXSHOT];
 
@@ -531,7 +531,8 @@ static int  gate_open;                  /* boss sectors seal the gate until the 
 static float gate_t;
 
 /* ------------------------------------------------------------------ states */
-enum { ST_TITLE, ST_PLAY, ST_LAB, ST_FUSE, ST_CATALOG, ST_CATINFO, ST_CLEAR, ST_DEAD };
+enum { ST_TITLE, ST_PLAY, ST_LAB, ST_FUSE, ST_CATALOG, ST_CATINFO, ST_CLEAR, ST_DEAD,
+       ST_MPWAIT };
 static int state;
 static float state_t;
 static int cam_x, cam_y;
@@ -937,6 +938,9 @@ static void fire_sfx(const Gene *g) {
     else                             mote->audio_play_sfx(&shot_pulse_sfx, 0.4f);
 }
 
+static int g_fire_hostile;              /* spawning the PEER's shots (2P duel) */
+static int g_mp;                        /* 2P duel active */
+
 static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
                         float dmg, uint8_t inherit_mods) {
     for (int i = 0; i < MAXSHOT; i++) if (!shots[i].on) {
@@ -951,6 +955,8 @@ static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
         s->lvl = g->lvl;
         s->demo = (uint8_t)g_demo_fire;
         s->bomb = 0;
+        s->hostile = (uint8_t)g_fire_hostile;
+        s->mp_sent = (uint8_t)(!g_mp || g_fire_hostile || g_demo_fire);
         return s;
     }
     return 0;
@@ -1555,10 +1561,11 @@ static void gen_sector(void) {
         carve_disc(gc, cor_y[gc], 4, 4);
         gate_x = gc * TILE - 8; gate_y = cor_y[gc] * TILE - 12;
     }
-    gate_open = !boss_sector;
+    gate_open = g_mp ? 0 : !boss_sector;
 
     /* enemy population (lighter in boss sectors — the guardian is the show) */
     int n = 12 + sector * 3; if (n > 22) n = 22;
+    if (g_mp) n = 0;                                 /* duel: the peer IS the enemy */
     if (boss_sector) n = n / 2;
     for (int k = 0; k < n; k++) {
         int c = 30 + (int)(mote_rand() % (COLS - 44));
@@ -1568,7 +1575,7 @@ static void gen_sector(void) {
         place_enemy(K_DRIFT, ex, ey);   /* real class comes from the sprite's seed */
     }
     int nheavy = sector >= 2 ? 1 + (sector - 2) / 2 : 0; if (nheavy > 3) nheavy = 3;
-    if (boss_sector) nheavy = 0;
+    if (boss_sector || g_mp) nheavy = 0;
     for (int k = 0; k < nheavy; k++) {
         int ci = 1 + (int)(mote_rand() % (n_chamber - 1));
         place_enemy(K_HEAVY, chx[ci] * TILE, chy[ci] * TILE);
@@ -2008,8 +2015,375 @@ static void g_init(void) {
 static uint8_t dead_saved;                       /* flash write AFTER the end screen */
 static int dead_pbsec, dead_pbscrap;             /* bests before this run ended */
 
+/* ============================================================ 2P DUEL (1v1)
+ * Both ships fly ONE seeded sector (scenery + hazards, no AI). Each side owns
+ * its own simulation; the peer is a GHOST driven by state packets, and damage
+ * is victim-authoritative: your shots are broadcast, the victim's machine
+ * simulates them as HOSTILE shots and decides its own death. A death ends the
+ * round: both respawn at the quarter points facing each other, inventories
+ * intact, fresh pickups scattered deterministically from (seed, round). */
+#define MP_MAGIC 0xC7
+#define MP_PROTO 1
+static int      mp_host, mp_phase;       /* phase: 1 fighting, 2 round-over */
+static uint32_t mp_seed;
+static int      mp_round, mp_score_me, mp_score_foe, mp_i_died, mp_got_hello;
+static float    mp_round_t, mp_over_t, mp_state_t, mp_ping_t, mp_hello_t, mp_quit_t;
+static int      mp_chips_spawned;        /* timed mid-round pickups dealt so far */
+static int      mp_peer_ship;
+static uint8_t  mp_buf[24];
+static int      mp_len;
+static int      mp_sfx_frame;            /* one remote-fire sound per frame */
+static struct { float x, y, nx, ny; int facing; uint8_t shield, thr, on; } gh;
+
+static uint8_t mp_tx[512];
+static int mp_tx_h, mp_tx_n;             /* ring head + count */
+static void mp_tx_push(const uint8_t *m, int n) {
+    if (mp_tx_n + n > (int)sizeof mp_tx) return;     /* full: drop whole message */
+    for (int i = 0; i < n; i++)
+        mp_tx[(mp_tx_h + mp_tx_n + i) % (int)sizeof mp_tx] = m[i];
+    mp_tx_n += n;
+}
+static void mp_tx_flush(void) {
+    while (mp_tx_n > 0) {
+        int run = (int)sizeof mp_tx - mp_tx_h;
+        if (run > mp_tx_n) run = mp_tx_n;
+        int got = mote->link_send(&mp_tx[mp_tx_h], run);
+        if (got <= 0) return;                        /* transport is full: retry later */
+        mp_tx_h = (mp_tx_h + got) % (int)sizeof mp_tx;
+        mp_tx_n -= got;
+        if (got < run) return;
+    }
+}
+
+static void mp_send_hello(void) {
+    uint8_t m[9] = { MP_MAGIC, 'H', MP_PROTO,
+        (uint8_t)player_ship, (uint8_t)(player_ship >> 8),
+        inv[0].pat, inv[0].elem, inv[0].mods, inv[0].lvl };
+    mp_tx_push(m, 9);
+}
+static void mp_send_match(void) {
+    uint8_t m[6] = { MP_MAGIC, 'M', (uint8_t)mp_seed, (uint8_t)(mp_seed >> 8),
+                     (uint8_t)(mp_seed >> 16), (uint8_t)(mp_seed >> 24) };
+    mp_tx_push(m, 6);
+}
+static void mp_send_state(void) {
+    int x = (int)(px * 4), y = (int)(py * 4);
+    uint8_t f = (uint8_t)((facing > 0 ? 1 : 0) | (shield_on ? 2 : 0) |
+                          ((thrust_x != 0 || thrust_y != 0) ? 4 : 0));
+    uint8_t m[10] = { MP_MAGIC, 'S', (uint8_t)x, (uint8_t)(x >> 8),
+                      (uint8_t)y, (uint8_t)(y >> 8),
+                      (uint8_t)(int8_t)mote_clampf(pvx * 0.25f, -127, 127),
+                      (uint8_t)(int8_t)mote_clampf(pvy * 0.25f, -127, 127),
+                      f, (uint8_t)(hull * 10) };
+    mp_tx_push(m, 10);
+}
+static void mp_send_shot(Shot *s) {
+    int x = (int)(s->x * 4), y = (int)(s->y * 4);
+    float ang = atan2f(s->vy, s->vx);
+    float spd = sqrtf(s->vx * s->vx + s->vy * s->vy);
+    uint8_t m[11] = { MP_MAGIC, 'T', (uint8_t)x, (uint8_t)(x >> 8),
+                      (uint8_t)y, (uint8_t)(y >> 8),
+                      (uint8_t)(int8_t)(ang * 40.0f),
+                      (uint8_t)mote_clampf(spd * 0.5f, 0, 255),
+                      (uint8_t)(s->pat | (s->elem << 4)),
+                      (uint8_t)(s->lvl | (s->mods << 4)),
+                      (uint8_t)(s->bomb ? 1 : 0) };
+    mp_tx_push(m, 11);
+    s->mp_sent = 1;
+}
+static void mp_send_kill(void)  { uint8_t m[2] = { MP_MAGIC, 'K' }; mp_tx_push(m, 2); }
+static void mp_send_chip(int i) { uint8_t m[3] = { MP_MAGIC, 'C', (uint8_t)i }; mp_tx_push(m, 3); }
+static void mp_send_ping(void)  { uint8_t m[4] = { MP_MAGIC, 'P', (uint8_t)mp_score_me,
+                                                   (uint8_t)mp_score_foe }; mp_tx_push(m, 4); }
+static void mp_send_bye(void)   { uint8_t m[2] = { MP_MAGIC, 'Q' }; mp_tx_push(m, 2); }
+
+/* deterministic pickup scatter: pure hash of (seed, round, slot) — immune to
+ * each side's diverged particle RNG */
+static void mp_scatter_chips(void) {
+    uint32_t a = mp_seed ^ ((uint32_t)mp_round * 2654435761u);
+    for (int k = 0; k < 6; k++) {                    /* weapons */
+        int c = 24 + (int)(h2((int)(a & 1023), k * 3 + 1) % (COLS - 48));
+        float x = c * TILE + 4;
+        float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE + (int)(h2(k, (int)a) % 21) - 10;
+        Gene g;
+        g.pat  = (uint8_t)(h2(k + 40, (int)a) % PAT_N);
+        g.elem = (uint8_t)(h2(k + 80, (int)a) % EL_N);
+        g.mods = (uint8_t)((h2(k + 120, (int)a) & 7) == 0 ? (1 << (h2(k, 7) & 3)) : 0);
+        g.lvl  = (uint8_t)(1 + (h2(k + 160, (int)a) % 3));
+        g.icon = combo_icon[g.pat * EL_N + g.elem];
+        if (!solid(x, y)) drop_chip(x, y, &g, CH_WEAPON);
+    }
+    static const uint8_t mp_pu_ok[12] = { PU_SHIELD, PU_REPAIR, PU_OVERDRIVE, PU_AMP,
+        PU_AFTERBURN, PU_GHOST, PU_LEVELCORE, PU_BOMBS, PU_REARGUN, PU_VERTGUN,
+        PU_MAGNET, PU_HULLMAX };
+    for (int k = 0; k < 3; k++) {                    /* duel-useful powerups only */
+        int c = 24 + (int)(h2((int)(a >> 10), k * 5 + 2) % (COLS - 48));
+        float x = c * TILE + 4;
+        float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE + (int)(h2(k + 9, (int)a) % 17) - 8;
+        if (!solid(x, y)) drop_power(x, y, mp_pu_ok[h2(k + 200, (int)a) % 12]);
+    }
+    for (int k = 0; k < 2; k++) {                    /* repair kits */
+        int c = 24 + (int)(h2((int)(a >> 4), k * 7 + 3) % (COLS - 48));
+        float x = c * TILE + 4;
+        float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE;
+        if (!solid(x, y)) drop_chip(x, y, 0, CH_HEAL);
+    }
+}
+
+static void mp_round_start(void) {
+    sector = 5;                                      /* hazards without a guardian */
+    run_seed = mp_seed;
+    gen_sector();                                    /* g_mp guards: no AI, no gate */
+    mp_scatter_chips();
+    int mycol = mp_host ? COLS / 4 : (3 * COLS) / 4;
+    int pcol  = mp_host ? (3 * COLS) / 4 : COLS / 4;
+#ifdef MOTE_HOST
+    { const char *dx = getenv("SCRAP_MPX");          /* dev: spawn adjacent */
+      if (dx) { int c = atoi(dx); mycol = mp_host ? c - 5 : c + 5;
+                pcol = mp_host ? c + 5 : c - 5; } }
+#endif
+    px = mycol * TILE + 4; py = cor_y[mote_clampi(mycol, 2, COLS - 3)] * TILE;
+    pvx = pvy = 0;
+    facing = mp_host ? 1 : -1;                       /* start facing each other */
+    gh.x = gh.nx = pcol * TILE + 4;
+    gh.y = gh.ny = cor_y[mote_clampi(pcol, 2, COLS - 3)] * TILE;
+    gh.facing = -facing; gh.on = 1; gh.shield = 0; gh.thr = 0;
+    hull = hull_max; shield_e = shield_max; shield_on = 0;
+    invuln = 2.0f; fire_cd = 0; die_t = 0;
+    mp_phase = 1; mp_round_t = 0; mp_chips_spawned = 0; mp_i_died = 0;
+    if (getenv("SCRAP_DBG"))
+        fprintf(stderr, "[MP] round %d start host=%d seed=%u me=%.0f,%.0f biome=%d\n",
+                mp_round, mp_host, (unsigned)mp_seed, px, py, cur_biome);
+    char b[24];
+    snprintf(b, sizeof b, "ROUND %d", mp_round + 1);
+    say(b);
+    state = ST_PLAY; state_t = 0;
+}
+
+static void mp_teardown(const char *msg) {
+    if (getenv("SCRAP_DBG"))
+        fprintf(stderr, "[MP] teardown: %s (link=%d health=%d)\n",
+                msg ? msg : "(user)", mote->link_status(), mote->net_health());
+    mp_send_bye();
+    mp_tx_flush();
+    mote->link_stop();
+    g_mp = 0; gh.on = 0;
+    save_flush();
+    if (msg) say(msg);
+    state = ST_TITLE; state_t = 0;
+}
+
+static void mp_died(void) {                          /* my ship is scrap */
+    boom_style(6, px, py, 1.4f);
+    boom_big_play(0.9f);
+    mote->rumble(1.0f, 350);
+    mp_send_kill();
+    if (getenv("SCRAP_DBG")) fprintf(stderr, "[MP] I DIED %d-%d\n", mp_score_me, mp_score_foe + 1);
+    mp_score_foe++;
+    mp_i_died = 1; mp_phase = 2; mp_over_t = 0;
+}
+
+static void mp_handle(const uint8_t *m) {
+    switch (m[1]) {
+    case 'H':
+        mp_got_hello = 1;
+        mp_peer_ship = mote_clampi(m[3] | (m[4] << 8), 0, SHIP_COUNT - 1);
+        break;
+    case 'M':
+        if (!mp_host && state == ST_MPWAIT) {
+            mp_seed = (uint32_t)m[2] | ((uint32_t)m[3] << 8) |
+                      ((uint32_t)m[4] << 16) | ((uint32_t)m[5] << 24);
+            mp_round = 0; mp_score_me = mp_score_foe = 0;
+            mp_round_start();
+        }
+        break;
+    case 'S': {
+        gh.nx = (float)(uint16_t)(m[2] | (m[3] << 8)) * 0.25f;
+        gh.ny = (float)(uint16_t)(m[4] | (m[5] << 8)) * 0.25f;
+        gh.facing = (m[8] & 1) ? 1 : -1;
+        gh.shield = (uint8_t)((m[8] & 2) ? 1 : 0);
+        gh.thr = (uint8_t)((m[8] & 4) ? 1 : 0);
+        gh.on = 1;
+        break; }
+    case 'T': {
+        if (state != ST_PLAY || mp_phase != 1) break;
+        float x = (float)(uint16_t)(m[2] | (m[3] << 8)) * 0.25f;
+        float y = (float)(uint16_t)(m[4] | (m[5] << 8)) * 0.25f;
+        float ang = (float)(int8_t)m[6] / 40.0f;
+        float spd = (float)m[7] * 2.0f;
+        Gene g;
+        g.pat = (uint8_t)(m[8] & 15); g.elem = (uint8_t)(m[8] >> 4);
+        g.lvl = (uint8_t)(m[9] & 15); g.mods = (uint8_t)(m[9] >> 4);
+        if (g.pat >= PAT_N || g.elem >= EL_N) break;
+        g.icon = combo_icon[g.pat * EL_N + g.elem];
+        g_fire_hostile = 1;
+        Shot *s = spawn_shot(x, y, ang, spd, &g, 1.0f, g.mods);
+        g_fire_hostile = 0;
+        if (s && (m[10] & 1)) s->bomb = 1;
+        if (!mp_sfx_frame) {                         /* quiet peer-fire report */
+            float f = sfx_falloff(x, y);
+            if (f > 0.05f) { mote->audio_play_sfx(&shot_pulse_sfx, 0.16f * f); mp_sfx_frame = 1; }
+        }
+        break; }
+    case 'K':
+        if (mp_phase == 1) {
+            mp_score_me++;
+            if (getenv("SCRAP_DBG")) fprintf(stderr, "[MP] PEER DIED %d-%d\n", mp_score_me, mp_score_foe);
+            boom_style(6, gh.x, gh.y, 1.4f);
+            boom_big_at(0.85f, gh.x, gh.y);
+            mp_i_died = 0; mp_phase = 2; mp_over_t = 0;
+        }
+        break;
+    case 'C': {
+        int i = m[2];
+        if (i < MAXCHIP && chips[i].on) {
+            spawn_ring(chips[i].x, chips[i].y, MOTE_RGB565(150, 200, 255));
+            chips[i].on = 0;
+        }
+        break; }
+    case 'P':
+        if (m[2] > mp_score_foe) mp_score_foe = m[2];
+        if (m[3] > mp_score_me) mp_score_me = m[3];
+        break;
+    case 'Q':
+        mp_teardown("OPPONENT LEFT");
+        break;
+    }
+}
+
+static void mp_poll(void) {
+    uint8_t chunk[128];
+    int n;
+    while ((n = mote->link_recv(chunk, (int)sizeof chunk)) > 0) {
+        for (int i = 0; i < n; i++) {
+            uint8_t b = chunk[i];
+            if (mp_len == 0) { if (b == MP_MAGIC) mp_buf[mp_len++] = b; continue; }
+            mp_buf[mp_len++] = b;
+            int t = mp_buf[1];
+            int want = t == 'H' ? 9 : t == 'M' ? 6 : t == 'S' ? 10 : t == 'T' ? 11
+                     : t == 'K' ? 2 : t == 'C' ? 3 : t == 'P' ? 4 : t == 'Q' ? 2 : -1;
+            if (want < 0) { mp_len = 0; continue; }
+            if (mp_len < want) continue;
+            mp_len = 0;
+            mp_handle(mp_buf);
+            if (!g_mp) return;                       /* teardown mid-batch */
+        }
+    }
+}
+
+static void mp_begin(void) {                         /* from the title: RB */
+    player_ship = (sel_ship >= 0 && sel_ship < SHIP_COUNT &&
+                   (sel_ship == PLAYER_SHIP || ship_parts[sel_ship] >= PARTS_NEED))
+                  ? sel_ship : PLAYER_SHIP;
+    inv_n = 1; equipped = 0; lab_cur = 0; lab_mark = -1;
+    {
+        uint8_t k2; float hpb;
+        ship_config(player_ship, &k2, &inv[0], &hpb);
+        inv[0].lvl = 1;
+        if (player_ship == PLAYER_SHIP) inv[0] = (Gene){ PAT_BOLT, EL_PULSE, 0, 1, 0 };
+        inv[0].icon = combo_icon[inv[0].pat * EL_N + inv[0].elem];
+    }
+#ifdef MOTE_HOST
+    { const char *dw = getenv("SCRAP_WPN");          /* dev: duel loadout */
+      if (dw) { int p, e, m, l;
+                if (sscanf(dw, "%d %d %d %d", &p, &e, &m, &l) == 4) {
+                    inv[0].pat = (uint8_t)mote_clampi(p, 0, PAT_N - 1);
+                    inv[0].elem = (uint8_t)mote_clampi(e, 0, EL_N - 1);
+                    inv[0].mods = (uint8_t)m;
+                    inv[0].lvl = (uint8_t)mote_clampi(l, 1, 9);
+                    inv[0].icon = combo_icon[inv[0].pat * EL_N + inv[0].elem];
+                } } }
+#endif
+    hull_max = HULL_MAX; hull = hull_max;
+    shield_max = 2.0f; shield_e = 2.0f; shield_on = 0;
+    b_over = b_amp = b_after = b_ghost = 0;
+    b_bomb = b_rear = b_vert = 0; bomb_cd = 0;
+    b_drone = b_reflect = b_magnet = 0;
+    mine_charges = 0; invuln = 0;
+    memset(run_pu, 0, sizeof run_pu);
+    MoteNetCfg cfg = { "Scrapwing", MP_PROTO, 0 };
+    int host = 0;
+    if (mote->net_lobby(&cfg, &host) != MOTE_NET_CONNECTED) { state = ST_TITLE; return; }
+    g_mp = 1; mp_host = host;
+    mp_got_hello = 0; mp_len = 0; mp_hello_t = 0; mp_state_t = 0; mp_ping_t = 0;
+    mp_quit_t = 0; gh.on = 0; mp_peer_ship = PLAYER_SHIP;
+    mp_seed = (uint32_t)mote->micros() | 1u;
+#ifdef MOTE_HOST
+    { const char *sv = getenv("SCRAP_MPSEED"); if (sv) mp_seed = (uint32_t)atoi(sv) | 1u; }
+#endif
+    state = ST_MPWAIT; state_t = 0;
+}
+
+static void mp_update(float dt) {
+    mp_sfx_frame = 0;
+    mp_tx_flush();
+    mp_poll();
+    if (!g_mp) return;
+    if (mote->link_status() != MOTE_LINK_CONNECTED || mote->net_health() == MOTE_NET_LOST) {
+        mp_teardown("CONNECTION LOST");
+        return;
+    }
+    /* broadcast this frame's new shots (bomb flags & velocities now final) */
+    int sent = 0;
+    for (int i = 0; i < MAXSHOT && sent < 5; i++)
+        if (shots[i].on && !shots[i].mp_sent) { mp_send_shot(&shots[i]); sent++; }
+    mp_state_t += dt;
+    if (mp_state_t > 0.066f) { mp_state_t = 0; mp_send_state(); }
+    mp_ping_t += dt;
+    if (mp_ping_t > 1.0f) { mp_ping_t = 0; mp_send_ping(); }
+    if (mp_quit_t > 0) mp_quit_t -= dt;
+    /* ghost glides toward its reported position */
+    float k = mote_clampf(10.0f * dt, 0, 1);
+    gh.x += (gh.nx - gh.x) * k; gh.y += (gh.ny - gh.y) * k;
+    if (gh.on && gh.thr && mp_phase == 1)            /* peer exhaust */
+        spawn_part(gh.x - gh.facing * 6, gh.y + mote_randf(-1, 1),
+                   -gh.facing * mote_randf(40, 80), mote_randf(-6, 6),
+                   (mote_rand() & 1) ? MOTE_RGB565(255, 170, 60) : MOTE_RGB565(255, 90, 30),
+                   mote_randf(0.08f, 0.18f), PF_ADD);
+    /* my shots die on the ghost with a spark — the REAL verdict is the peer's */
+    if (mp_phase == 1 && gh.on)
+        for (int i = 0; i < MAXSHOT; i++) {
+            Shot *s = &shots[i];
+            if (!s->on || s->hostile || s->demo || s->bomb) continue;
+            float dx = s->rx - gh.x, dy = s->ry - gh.y;
+            if (dx > -7 && dx < 7 && dy > -7 && dy < 7) {
+                for (int j = 0; j < 5; j++)
+                    spawn_part(s->rx, s->ry, mote_randf(-50, 50), mote_randf(-50, 50),
+                               elem_col[s->elem][0], 0.15f, PF_ADD);
+                s->on = 0;
+            }
+        }
+    if (mp_phase == 1) {                             /* fresh pickups keep coming */
+        mp_round_t += dt;
+        if (mp_round_t > (mp_chips_spawned + 1) * 8.0f && mp_chips_spawned < 20) {
+            uint32_t a = mp_seed ^ ((uint32_t)mp_round * 2654435761u);
+            int k2 = 300 + mp_chips_spawned;
+            int c = 24 + (int)(h2((int)(a & 511), k2) % (COLS - 48));
+            float x = c * TILE + 4;
+            float y = cor_y[mote_clampi(c, 2, COLS - 3)] * TILE + (int)(h2(k2, (int)a) % 17) - 8;
+            if (!solid(x, y)) {
+                if (h2(k2 + 1, (int)a) & 1) {
+                    Gene g;
+                    g.pat  = (uint8_t)(h2(k2 + 2, (int)a) % PAT_N);
+                    g.elem = (uint8_t)(h2(k2 + 3, (int)a) % EL_N);
+                    g.mods = 0;
+                    g.lvl  = (uint8_t)(2 + (h2(k2 + 4, (int)a) % 3));
+                    g.icon = combo_icon[g.pat * EL_N + g.elem];
+                    drop_chip(x, y, &g, CH_WEAPON);
+                } else
+                    drop_chip(x, y, 0, CH_HEAL);
+            }
+            mp_chips_spawned++;
+        }
+    } else {                                         /* round-over interlude */
+        mp_over_t += dt;
+        if (mp_over_t > 2.4f) { mp_round++; mp_round_start(); }
+    }
+}
+
 static void take_hit(float n) {
     if (g_god || b_ghost > 0 || invuln > 0 || state != ST_PLAY) return;
+    if (g_mp && mp_phase != 1) return;
     if (shield_on) {                     /* the shield eats it */
         shield_e = mote_clampf(shield_e - 0.4f, 0, shield_max);
         for (int k = 0; k < 8; k++) {
@@ -2027,6 +2401,7 @@ static void take_hit(float n) {
         spawn_part(px, py, mote_randf(-70, 70), mote_randf(-70, 70),
                    MOTE_RGB565(255, 120, 60), mote_randf(0.2f, 0.5f), PF_ADD);
     if (hull <= 0) {
+        if (g_mp) { mp_died(); return; }
         int cell = player_ship;
         shatter(&ships_img, (cell % SHIP_COLS) * SHIP_CELL + ship_bx[cell],
                 (cell / SHIP_COLS) * SHIP_CELL + ship_by[cell],
@@ -2189,9 +2564,15 @@ static void player_update(float dt) {
     }
 
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
-        state = ST_LAB; lab_cur = equipped; lab_mark = -1;
-        lab_view = 0; pu_modal = 0; lab_focus = 0;
-        save_flush();
+        if (g_mp) {
+            if (mp_quit_t > 0) { mp_teardown(0); return; }
+            mp_quit_t = 1.6f;
+            say("MENU AGAIN TO QUIT");
+        } else {
+            state = ST_LAB; lab_cur = equipped; lab_mark = -1;
+            lab_view = 0; pu_modal = 0; lab_focus = 0;
+            save_flush();
+        }
     }
 
     if (invuln > 0) invuln -= dt;
@@ -2595,7 +2976,19 @@ static void shots_update(float dt) {
         s->age += dt;
         if (s->age > 1.6f) { s->on = 0; continue; }
 
-        if ((s->mods & MOD_HOMING) && !s->demo) {
+        if ((s->mods & MOD_HOMING) && !s->demo && s->hostile) {
+            float dx = px - s->x, dy = py - s->y;
+            if (dx * dx + dy * dy < 70 * 70) {
+                float want = atan2f(dy, dx), cur = atan2f(s->vy, s->vx);
+                float d = want - cur;
+                while (d > 3.14159f) d -= 6.28318f;
+                while (d < -3.14159f) d += 6.28318f;
+                float turn = mote_clampf(d, -4.0f * dt, 4.0f * dt);
+                float sp = sqrtf(s->vx * s->vx + s->vy * s->vy);
+                s->vx = cosf(cur + turn) * sp;
+                s->vy = sinf(cur + turn) * sp;
+            }
+        } else if ((s->mods & MOD_HOMING) && !s->demo) {
             Enemy *best = 0; float bd = 70 * 70;
             for (int k = 0; k < MAXEN; k++) {
                 Enemy *e = &en[k];
@@ -2689,7 +3082,10 @@ static void shots_update(float dt) {
             } else {
                 shot_impact_fx(s);
                 if (s->bomb) {
-                    for (int i = 0; i < MAXEN; i++) {
+                    if (s->hostile) {
+                        float ddx = px - s->rx, ddy = py - s->ry;
+                        if (ddx * ddx + ddy * ddy < 16 * 16) take_hit(1);
+                    } else for (int i = 0; i < MAXEN; i++) {
                         Enemy *o = &en[i];
                         if (!o->on || !o->active) continue;
                         float ddx = o->x - s->rx, ddy = o->y - s->ry;
@@ -2703,6 +3099,15 @@ static void shots_update(float dt) {
             continue;
         }
         float hr = s->elem == EL_PLASMA ? 4.5f : (s->pat == PAT_ORB ? 4.0f : 2.6f);
+        if (s->hostile) {                            /* the peer's fire hits YOU */
+            float dx = s->rx - px, dy = s->ry - py;
+            if (dx > -(PRAD + hr) && dx < PRAD + hr && dy > -(PRAD + hr) && dy < PRAD + hr) {
+                take_hit(1);
+                shot_impact_fx(s);
+                s->on = 0;
+            }
+            continue;
+        }
         for (int k = 0; k < MAXEN && s->on; k++) {
             Enemy *e = &en[k];
             if (!e->on || !e->active) continue;
@@ -2795,6 +3200,7 @@ static void chips_update(float dt) {
                     say("HULL PATCHED");
                     mote->audio_play_sfx(&pickup_sfx, 0.7f);
                     c->on = 0;
+                    if (g_mp) mp_send_chip((int)(c - chips));
                 }
             } else if (c->type == CH_POWER) {
                 switch (c->pu) {
@@ -2847,6 +3253,7 @@ static void chips_update(float dt) {
                 say(pu_name[c->pu]);
                 mote->audio_play_sfx(&pickup_sfx, 0.8f);
                 c->on = 0;
+                if (g_mp) mp_send_chip((int)(c - chips));
             } else if (inv_n < INV_MAX) {
                 inv[inv_n++] = c->g;
                 mark_wpn(c->g.pat, c->g.elem);
@@ -2860,6 +3267,7 @@ static void chips_update(float dt) {
                 say(b);
                 mote->audio_play_sfx(&pickup_sfx, 0.7f);
                 c->on = 0;
+                if (g_mp) mp_send_chip((int)(c - chips));
             } else if (c->t > 1.0f) {
                 say("HOLD FULL - FUSE (MENU)");
                 mote->audio_play_sfx(&denied_sfx, 0.5f);
@@ -3034,8 +3442,19 @@ static void submit_scene(void) {
         }
     }
 
+    /* the peer's ship (2P duel): glides on interpolated state */
+    if (g_mp && gh.on && mp_phase == 1) {
+        MoteSprite s = { &ships_img, (int16_t)(gh.x - 8), (int16_t)(gh.y - 8),
+                         (uint16_t)((mp_peer_ship % SHIP_COLS) * SHIP_CELL),
+                         (uint16_t)((mp_peer_ship / SHIP_COLS) * SHIP_CELL),
+                         SHIP_CELL, SHIP_CELL, 10,
+                         (uint8_t)(gh.facing < 0 ? MOTE_SPR_HFLIP : 0) };
+        mote->scene2d_add(&s);
+    }
+
     /* player (blinks while invulnerable) */
-    if (state != ST_DEAD && (invuln <= 0 || ((int)(invuln * 12) & 1))) {
+    if (state != ST_DEAD && !(g_mp && mp_phase == 2 && mp_i_died) &&
+        (invuln <= 0 || ((int)(invuln * 12) & 1))) {
         MoteSprite s = { &ships_img, (int16_t)(px - 8), (int16_t)(py - 8),
                          (uint16_t)((player_ship % SHIP_COLS) * SHIP_CELL),
                          (uint16_t)((player_ship / SHIP_COLS) * SHIP_CELL),
@@ -3142,15 +3561,25 @@ static void g_update(float dt) {
             else start_run();
         }
         if (mote_just_pressed(in, MOTE_BTN_B) && run_save_sector) start_run();
+        if (mote_just_pressed(in, MOTE_BTN_RB)) mp_begin();
         break; }
     case ST_PLAY:
+        if (g_mp && mp_phase == 2) {                 /* round over: wreckage settles */
+            mp_update(dt);
+            parts_update(dt);
+            submit_scene();
+            break;
+        }
         player_update(dt);
+        if (state == ST_TITLE) break;                /* MP quit mid-frame */
         if (state == ST_LAB) { submit_scene(); break; }
-        enemies_update(dt);
+        if (!g_mp) enemies_update(dt);
         pmines_update(dt);
         haz_update(dt);
         shots_update(dt);
         chips_update(dt);
+        if (g_mp) mp_update(dt);
+        if (state != ST_PLAY) break;                 /* link died this frame */
         parts_update(dt);
         if (toast_t > 0) toast_t -= dt;
         for (int i = 0; i < NOTIF_N; i++) if (notifs[i].t > 0) notifs[i].t -= dt;
@@ -3405,6 +3834,22 @@ static void g_update(float dt) {
             state = ST_PLAY;
         }
         break;
+    case ST_MPWAIT: {
+        state_t += dt;
+        mp_tx_flush();
+        mp_poll();
+        if (!g_mp) break;                            /* peer bailed */
+        if (mote->link_status() != MOTE_LINK_CONNECTED ||
+            mote->net_health() == MOTE_NET_LOST) { mp_teardown("CONNECTION LOST"); break; }
+        mp_hello_t -= dt;
+        if (mp_hello_t <= 0) { mp_send_hello(); mp_hello_t = 0.4f; }
+        if (mp_host && mp_got_hello && state_t > 0.6f) {
+            mp_send_match();
+            mp_round = 0; mp_score_me = mp_score_foe = 0;
+            mp_round_start();
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B)) mp_teardown(0);
+        break; }
     case ST_DEAD: {
         float t0 = state_t;
         state_t += dt;
@@ -3636,7 +4081,10 @@ static void hud(uint16_t *fb) {
         mote->draw_rect(fb, 3, 8, sw, 3,
                         shield_on ? MOTE_RGB565(190, 245, 255) : MOTE_RGB565(90, 190, 240),
                         1, 0, MOTE_FB_H);
-    textf_med(fb, 42, 1, MOTE_RGB565(180, 190, 220), "SEC %d", sector);
+    if (g_mp)
+        textf_med(fb, 40, 1, MOTE_RGB565(255, 220, 110), "%d - %d", mp_score_me, mp_score_foe);
+    else
+        textf_med(fb, 42, 1, MOTE_RGB565(180, 190, 220), "SEC %d", sector);
     textf_med(fb, 88, 1, MOTE_RGB565(255, 220, 110), "%d", scrap);
 
     /* equipped weapon plate (element+pattern+level; mods live in the lab list) */
@@ -4208,6 +4656,7 @@ static void g_overlay(uint16_t *fb) {
         mote->text(fb, "DPAD+RB THRUST   A FIRE", 8, 70, MOTE_RGB565(190, 200, 225));
         mote->text(fb, "LB SHIELD   B SWAP WPN", 10, 79, MOTE_RGB565(190, 200, 225));
         mote->text(fb, "MENU CATALOG  </> SHIP", 12, 88, MOTE_RGB565(150, 160, 190));
+        mote->text(fb, "RB 2P DUEL", 34, 60, MOTE_RGB565(150, 220, 255));
         if (best_sector) {
             char bb[40];
             snprintf(bb, sizeof bb, "BEST: SEC %d  %d SCRAP", best_sector, best_scrap);
@@ -4327,6 +4776,10 @@ static void g_overlay(uint16_t *fb) {
         }
     }
 
+    if (g_mp && gh.on && gh.shield && mp_phase == 1 && state == ST_PLAY) {
+        int sx = (int)gh.x - cam_x, sy = (int)gh.y - cam_y;
+        mote->draw_circle(fb, sx, sy, 9, MOTE_RGB565(240, 150, 90), 0, 0, MOTE_FB_H);
+    }
     if (shield_on && state == ST_PLAY) {
         int sx = (int)px - cam_x, sy = (int)py - cam_y;
         mote->draw_circle(fb, sx, sy, 9, MOTE_RGB565(90, 190, 240), 0, 0, MOTE_FB_H);
@@ -4342,6 +4795,25 @@ static void g_overlay(uint16_t *fb) {
 
     if (state == ST_LAB) lab_overlay(fb);
     if (state == ST_CATALOG) catalog_overlay(fb);
+    if (state == ST_MPWAIT) {
+        mote_ui_panel(fb, 14, 42, 100, 44, MOTE_RGB565(10, 12, 26), MOTE_RGB565(120, 150, 200));
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "2P DUEL", 40, 46,
+                        MOTE_RGB565(160, 220, 255));
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
+                        ((int)(bg_time * 2) & 1) ? "SYNCING..." : "READY?", 38, 60,
+                        MOTE_RGB565(220, 230, 250));
+        mote->text(fb, "B CANCEL", 46, 76, MOTE_RGB565(150, 160, 190));
+    }
+    if (g_mp && state == ST_PLAY && mp_phase == 2) {
+        mote_ui_panel(fb, 10, 44, 108, 40, MOTE_RGB565(16, 10, 20),
+                      mp_i_died ? MOTE_RGB565(200, 80, 60) : MOTE_RGB565(120, 220, 140));
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED),
+                        mp_i_died ? "SHIP LOST!" : "PEER DESTROYED!",
+                        mp_i_died ? 34 : 14, 48,
+                        mp_i_died ? MOTE_RGB565(255, 120, 90) : MOTE_RGB565(140, 255, 170));
+        textf_med(fb, 42, 62, MOTE_RGB565(255, 220, 110), "%d - %d",
+                  mp_score_me, mp_score_foe);
+    }
     if (state == ST_CLEAR)
         mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "WARPING...", 34, 58,
                         MOTE_RGB565(180, 240, 255));
