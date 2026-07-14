@@ -360,7 +360,8 @@ def make_items():
     AXE_WOOD AXE_IRON SWORD_WOOD SWORD_COPPER SWORD_IRON SWORD_GOLD SWORD_BANE
     SWORD_VOLCANO BOW_WOOD BOW_GOLD BOW_MOLTEN ARROW ARROW_FLAME HELM_COPPER
     MAIL_COPPER LEGS_COPPER HELM_IRON MAIL_IRON LEGS_IRON HELM_GOLD MAIL_GOLD
-    LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE""".split()
+    LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE
+    TABLE CHAIR LANTERN FIREPLACE CHAIN""".split()
     CS = 12          # procedural painters draw at 12px...
     OUT = 16         # ...but the sheet grid is 16px cells (weapon art needs it)
     cols = 8
@@ -540,6 +541,29 @@ def make_items():
                     dx, dy = x - 5.5, y - 5.5
                     if dx*dx + dy*dy < 8: c.px(ox + x, oy + y, (226, 220, 214))
             c.rect(ox + 4, oy + 5, ox + 5, oy + 6, (200, 40, 40)); continue
+        if name == "TABLE":
+            c.rect(ox + 1, oy + 4, ox + 10, oy + 5, (176, 128, 72))       # top
+            c.rect(ox + 2, oy + 6, ox + 2, oy + 9, (128, 90, 48))         # legs
+            c.rect(ox + 9, oy + 6, ox + 9, oy + 9, (128, 90, 48)); continue
+        if name == "CHAIR":
+            c.rect(ox + 3, oy + 2, ox + 4, oy + 8, (176, 128, 72))        # backrest
+            c.rect(ox + 3, oy + 6, ox + 8, oy + 7, (176, 128, 72))        # seat
+            c.rect(ox + 7, oy + 8, ox + 8, oy + 9, (128, 90, 48)); continue
+        if name == "LANTERN":
+            c.rect(ox + 4, oy + 2, ox + 7, oy + 2, (128, 90, 48))         # cap
+            c.rect(ox + 4, oy + 3, ox + 7, oy + 8, (255, 200, 70))        # glass/glow
+            c.px(ox + 5, oy + 5, (255, 250, 200)); c.px(ox + 6, oy + 6, (255, 160, 40))
+            c.rect(ox + 4, oy + 9, ox + 7, oy + 9, (128, 90, 48)); continue
+        if name == "FIREPLACE":
+            c.rect(ox + 1, oy + 2, ox + 10, oy + 3, (150, 92, 60))        # mantle
+            c.rect(ox + 2, oy + 4, ox + 9, oy + 9, (80, 80, 90))          # stone
+            c.rect(ox + 4, oy + 6, ox + 7, oy + 9, (40, 36, 36))          # hearth
+            c.rect(ox + 5, oy + 7, ox + 6, oy + 9, (255, 150, 30)); continue
+        if name == "CHAIN":
+            for y in range(2, 10, 2):
+                c.px(ox + 5, oy + y, (188, 190, 198)); c.px(ox + 6, oy + y, (120, 122, 132))
+                c.px(ox + 5, oy + y + 1, (120, 122, 132)); c.px(ox + 6, oy + y + 1, (188, 190, 198))
+            continue
         if name == "GRAPPLE":
             IRON = (188, 190, 198); DK = (120, 122, 132); ROPE = (150, 108, 60)
             for i in range(4):                       # rope trailing down-left

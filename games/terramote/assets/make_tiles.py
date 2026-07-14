@@ -522,6 +522,26 @@ def sapling_cell():
         c.put(3 + dx, 3 + dy, (70, 170, 60))
     return c
 
+def table_cells():
+    # SlipPixel Oak Wood Table.png 24x16 -> 3x2 row-major [TL,TM,TR,BL,BM,BR].
+    return slip_cells("Oak Wood Table.png", 3, 2)
+
+def chair_cells():
+    # SlipPixel Oak Wood Chair.png 8x32 holds two facings stacked; use the first
+    # (rows 0-1) as a 1x2 chair [top, bottom].
+    return slip_cells("Oak Wood Chair.png", 1, 2)
+
+def lantern_cells():
+    # SlipPixel Lantern.png 8x16 -> 1x2 [top, bottom].
+    return slip_cells("Lantern.png", 1, 2)
+
+def fireplace_cells():
+    # SlipPixel Fireplace.png: 3 frames of 16x16 (unlit..lit). Use the lit frame.
+    return slip_cells("Fireplace.png", 2, 2, x0=2 * 16)
+
+def chain_cell():
+    return slip_cells("Chain.png", 1, 1)[0]
+
 def make_furniture():
     single = lut_from(lambda m: 0)
     custom_sheet("tiles_torch", [torch_cell()], 1, single)
@@ -540,6 +560,17 @@ def make_furniture():
     custom_sheet("tiles_mush", [mush_cell()], 1, single)
     custom_sheet("tiles_flower", [flower_cell(k) for k in range(4)], 1, single, nvar=4)
     custom_sheet("tiles_sapling", [sapling_cell()], 1, single)
+    # SlipPixel furniture -------------------------------------------------------
+    lut1x2 = lut_from(lambda m: 0 if (m & S) else 1)               # [top, bottom]
+    def _l3x2(m):
+        col = 1 if ((m & W) and (m & E)) else (2 if (m & W) else 0)
+        return (0 if (m & S) else 1) * 3 + col                     # [TL,TM,TR,BL,BM,BR]
+    lut3x2 = lut_from(_l3x2)
+    custom_sheet("tiles_table", table_cells(), 3, lut3x2)
+    custom_sheet("tiles_chair", chair_cells(), 1, lut1x2)
+    custom_sheet("tiles_lantern", lantern_cells(), 1, lut1x2)
+    custom_sheet("tiles_fireplace", fireplace_cells(), 2, lut22)
+    custom_sheet("tiles_chain", [chain_cell()], 1, single)
 
 # ---------------------------------------------------------------- walls
 def make_walls():

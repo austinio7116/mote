@@ -34,6 +34,7 @@ enum {
     T_TORCH, T_WORKBENCH, T_FURNACE, T_ANVIL, T_CHEST,
     T_DOOR_C, T_DOOR_O, T_PLATFORM, T_ALTAR,
     T_MUSH, T_FLOWER, T_SAPLING,
+    T_TABLE, T_CHAIR, T_LANTERN, T_FIREPLACE, T_CHAIN,   /* SlipPixel furniture (append only) */
     T_COUNT
 };
 
@@ -72,6 +73,7 @@ enum {
     /* consumables / specials */
     I_POTION_HEAL, I_SUSPICIOUS_EYE, I_LIFE_CRYSTAL,
     I_GRAPPLE,                   /* append only — id maps 1:1 to its icon cell */
+    I_TABLE, I_CHAIR, I_LANTERN, I_FIREPLACE, I_CHAIN,   /* SlipPixel furniture */
     I_COUNT
 };
 
