@@ -1,10 +1,10 @@
-# pulse cannon — snappy square zap
-wave 0
-freq 0.40 0 -0.22 0
-duty 0.4 0
+# pulse cannon — soft pew (round sine zap)
+wave 2
+freq 0.34 0 -0.22 0
+duty 0.5 0
 vib 0 0
-env 0 0.05 0.2 0.12
-lpf 1 0 0
-hpf 0.05 0
+env 0 0.04 0.35 0.12
+lpf 0.9 0 0
+hpf 0 0
 pha 0 0
 arp 0 0

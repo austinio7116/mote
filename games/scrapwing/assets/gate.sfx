@@ -1,10 +1,10 @@
-# sector gate — warp shimmer
+# sector gate — portal hum
 wave 2
-freq 0.40 0 0.08 0
+freq 0.24 0 0.04 0
 duty 0.5 0
-vib 0.25 0.7
-env 0.02 0.3 0.2 0.45
-lpf 1 0 0
+vib 0.3 0.4
+env 0.05 0.40 0.15 0.55
+lpf 0.8 0 0
 hpf 0 0
-pha 0.15 0.03
-arp 0.4 0.5
+pha 0.2 0.02
+arp 0 0
