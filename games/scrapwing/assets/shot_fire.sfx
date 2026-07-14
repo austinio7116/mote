@@ -1,10 +1,10 @@
-# fire bolt — soft flame whoosh
-wave 3
-freq 0.18 0 -0.06 0
+# fire bolt — flicker whomp (flame-wobble sine)
+wave 2
+freq 0.14 0 0 0
 duty 0.5 0
-vib 0 0
-env 0 0.08 0.3 0.22
-lpf 0.3 -0.04 0.2
+vib 0.45 0.85
+env 0 0.05 0.5 0.20
+lpf 0.6 0 0
 hpf 0 0
 pha 0 0
 arp 0 0
