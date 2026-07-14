@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scrapwing — Pilot's Manual</title>
+<style>
+  :root{
+    --bg:#0a0c16; --panel:#121627; --panel2:#181d33; --ink:#d6dcef;
+    --dim:#8890a8; --cyan:#9fd8ff; --cyanl:#c8ecff; --gold:#ffd76e; --steel:#7f8aa8;
+    --violet:#b789e8; --green:#8ee39a; --red:#ef7b66;
+    --line:#252c48; --grid:#1c2238;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+  header.hero{background:
+      radial-gradient(120% 140% at 80% -20%, #221a3a 0%, transparent 55%),
+      radial-gradient(90% 110% at 10% -30%, #0f2030 0%, transparent 60%),
+      linear-gradient(180deg,#10142a,#0a0c16);
+    border-bottom:2px solid var(--cyan);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--steel);border-radius:8px;
+    background:#06070d;flex:0 0 auto;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .htext h1{margin:0;font-size:2.6rem;letter-spacing:.06em;color:var(--cyan);
+    text-shadow:0 2px 0 #12365a;font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.15rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 10px;border-radius:20px;letter-spacing:.04em}
+
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(10,12,22,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:34px 0 8px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.5rem;color:var(--gold);margin:0 0 4px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--cyan);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 20px;max-width:70ch}
+  h3{color:var(--cyan);margin:22px 0 8px;font-size:1.05rem}
+  p{max-width:74ch}
+  ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:var(--ink)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h3{margin-top:0}
+  .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+
+  .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{color:var(--gold);font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:2px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
+  td.role{color:var(--dim);font-size:.86rem}
+
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
+    max-width:74ch}
+  .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
+    border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
+    white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
+
+  .el{display:inline-block;padding:1px 8px;border-radius:12px;font-size:.8rem;font-weight:700}
+  .el.pulse{background:#3a3416;color:#ffe680}
+  .el.plasma{background:#301a3a;color:#e0a8ff}
+  .el.fire{background:#3a1e12;color:#ffb070}
+  .el.volt{background:#12303a;color:#8ce8ff}
+  .el.venom{background:#16321a;color:#a0f090}
+  .el.void{background:#241238;color:#c89af0}
+
+  .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:12px 16px;margin:10px 0;max-width:74ch}
+  .tip b{color:var(--gold)}
+  .warn{border-left-color:var(--red)}
+  .warn b{color:var(--red)}
+
+  footer{padding:30px 0 50px;color:var(--dim);font-size:.85rem}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hrow">
+      <img class="hicon" src="img/gallery/scrapwing-icon.png" alt="Scrapwing icon">
+      <div class="htext">
+        <h1>SCRAPWING</h1>
+        <div class="sub">Pilot's Manual — salvage-fusion cave flyer</div>
+        <div class="by">by austinio7116 · v1.5.0 · Mote engine</div>
+        <div class="badges">
+          <span class="badge">417 ENEMY SHIPS</span>
+          <span class="badge">78 BOSSES</span>
+          <span class="badge">5 BIOMES</span>
+          <span class="badge">48 WEAPON COMBOS</span>
+          <span class="badge">2P DUEL</span>
+          <span class="badge">ONE LIFE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#run">The Run</a>
+  <a href="#controls">Controls</a>
+  <a href="#weapons">Weapons</a>
+  <a href="#fusion">Fusion</a>
+  <a href="#hangar">Hangar</a>
+  <a href="#powerups">Powerups</a>
+  <a href="#biomes">Biomes &amp; Hazards</a>
+  <a href="#bosses">Bosses</a>
+  <a href="#catalogue">Catalogue</a>
+  <a href="#duel">2P Duel</a>
+  <a href="#tips">Tips</a>
+</div></nav>
+
+<section id="run"><div class="wrap">
+  <h2>The Run</h2>
+  <p class="lede">A gravity cave-flyer crossed with an R-Type roguelike. Fly a salvaged
+  fighter through procedurally generated alien sectors, strip weapons from the ships you
+  destroy, and splice them into something monstrous. One life. Death is the end of the run.</p>
+
+  <div class="grid g3">
+    <div><img class="shot" src="img/gallery/scrapwing-1.png" alt=""><div class="shotcap">Thrust, gravity, and hostile caves</div></div>
+    <div><img class="shot" src="img/gallery/scrapwing-2.png" alt=""><div class="shotcap">Every biome fights differently</div></div>
+    <div><img class="shot" src="img/gallery/scrapwing-3.png" alt=""><div class="shotcap">Guardians seal the warp every third sector</div></div>
+  </div>
+
+  <h3>Sector loop</h3>
+  <ul>
+    <li>Each <b>sector</b> is a winding cave corridor, generated fresh from your run seed.
+        Fight (or sneak) your way east to the <b>warp tear</b> — a crackling rip in space.</li>
+    <li>The tear's rim colour and the world glowing through it <b>preview the next
+        biome</b>: violet = cavern, red = hive, blue = glacier, green = spore pit,
+        orange = ember forge. You always know what you're warping into.</li>
+    <li>Every <b>third sector</b> is a guardian sector: the tear stays sealed until you
+        destroy the dreadnought that owns it.</li>
+    <li>Difficulty climbs steeply — enemy and boss hull scales <i>superlinearly</i> with
+        sector number, so deep runs demand a fused arsenal, not just reflexes.</li>
+  </ul>
+
+  <h3>Saving</h3>
+  <p>Entering a warp writes a <b>bookmark</b>: quit any time and <code>A RESUME</code> from
+  the title picks up at the start of that sector with your full inventory. It is a bookmark,
+  not a checkpoint — <b>death deletes it</b>. This is a roguelike.</p>
+</div></section>
+
+<section id="controls"><div class="wrap">
+  <h2>Controls</h2>
+  <p class="lede">Your ship is always falling. Flying is throttle management — feather the
+  thrust, don't fight the cave.</p>
+
+  <div class="keys">
+    <span class="kb">D-PAD</span><span>Thrust in that direction. LEFT/RIGHT also sets your facing (and firing direction).</span>
+    <span class="kb">RB</span><span>Thrust up — a second UP so your thumb never leaves the fire button.</span>
+    <span class="kb">A</span><span>Fire the equipped weapon (hold for continuous fire).</span>
+    <span class="kb">B</span><span>Cycle to the next weapon in your hold, mid-flight.</span>
+    <span class="kb">LB</span><span>Hold to raise the <b>shield</b> — it eats hits while energy lasts and recharges when lowered.</span>
+    <span class="kb">MENU</span><span>Open the <b>Hangar</b> (equip, inspect, fuse). In a 2P duel: press twice to forfeit.</span>
+  </div>
+
+  <h3>On the title screen</h3>
+  <div class="keys">
+    <span class="kb">A</span><span>Start a run — or resume your bookmarked sector.</span>
+    <span class="kb">B</span><span>Abandon the bookmark and start fresh.</span>
+    <span class="kb">&lt; &gt;</span><span>Choose your airframe from the ships you've unlocked.</span>
+    <span class="kb">RB</span><span>2P DUEL — link up against another pilot.</span>
+    <span class="kb">MENU</span><span>Browse the Catalogue.</span>
+  </div>
+
+  <div class="tip warn"><b>Watch your speed.</b> Slamming into rock above cruising speed
+  costs hull. Gravity is patient; you should be too.</div>
+</div></section>
+
+<section id="weapons"><div class="wrap">
+  <h2>Weapons</h2>
+  <p class="lede">Every weapon is a <b>gene</b>: a firing pattern × an element × a level
+  (1–9) × up to four mods. Enemies fire the exact gene they carry — and drop it when they
+  shatter. 8 patterns × 6 elements = 48 base combinations, before levels and mods.</p>
+
+  <h3>Firing patterns</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Pattern</th><th>Shape</th><th class="num">Dmg</th><th class="num">Rate</th><th class="num">Speed</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">BOLT</td><td class="role">single straight shot — the honest workhorse</td><td class="num">1.0</td><td class="num">5.0/s</td><td class="num">170</td></tr>
+      <tr><td class="nm">TWIN</td><td class="role">two parallel bolts</td><td class="num">0.7 ×2</td><td class="num">4.5/s</td><td class="num">170</td></tr>
+      <tr><td class="nm">FAN</td><td class="role">three-way spread</td><td class="num">0.6 ×3</td><td class="num">3.2/s</td><td class="num">160</td></tr>
+      <tr><td class="nm">WAVE</td><td class="role">weaving sine bolt — snakes past cover</td><td class="num">0.9</td><td class="num">4.5/s</td><td class="num">150</td></tr>
+      <tr><td class="nm">HELIX</td><td class="role">two interlaced waves</td><td class="num">0.7 ×2</td><td class="num">4.0/s</td><td class="num">150</td></tr>
+      <tr><td class="nm">ORB</td><td class="role">slow heavy sphere — hits like a truck</td><td class="num">2.6</td><td class="num">1.8/s</td><td class="num">90</td></tr>
+      <tr><td class="nm">RAIL</td><td class="role">hypervelocity slug</td><td class="num">1.6</td><td class="num">2.2/s</td><td class="num">320</td></tr>
+      <tr><td class="nm">SCATTER</td><td class="role">five-shot random spray</td><td class="num">0.5 ×5</td><td class="num">2.6/s</td><td class="num">180</td></tr>
+    </tbody>
+  </table></div>
+  <p class="role">Each level adds +18% damage and +6% fire rate. A level 9 gene nearly
+  triples its base damage.</p>
+
+  <h3>Elements</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Element</th><th>Signature</th><th>On hit</th></tr></thead>
+    <tbody>
+      <tr><td><span class="el pulse">PULSE</span></td><td class="role">clean gold bolts</td><td>+15% raw damage — no gimmick, just more</td></tr>
+      <tr><td><span class="el plasma">PLASMA</span></td><td class="role">fat liquid globs</td><td>oversized hit radius — forgiving aim</td></tr>
+      <tr><td><span class="el fire">FIRE</span></td><td class="role">flame tongues + smoke</td><td>splash damage to everything nearby</td></tr>
+      <tr><td><span class="el volt">VOLT</span></td><td class="role">crackling static</td><td>chain lightning arcs to the nearest other enemy</td></tr>
+      <tr><td><span class="el venom">VENOM</span></td><td class="role">dripping acid</td><td>poisons the target — damage over time</td></tr>
+      <tr><td><span class="el void">VOID</span></td><td class="role">dark wake</td><td>innately pierces through the first target</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Mods</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Mod</th><th>Letter</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">HOMING</td><td>H</td><td>shots seek the nearest foe</td></tr>
+      <tr><td class="nm">PIERCE</td><td>P</td><td>drills through up to 3 targets</td></tr>
+      <tr><td class="nm">SPLIT</td><td>S</td><td>bursts into two sub-bolts on impact</td></tr>
+      <tr><td class="nm">BOUNCE</td><td>B</td><td>ricochets off terrain up to 3 times</td></tr>
+    </tbody>
+  </table></div>
+</div></section>
+
+<section id="fusion"><div class="wrap">
+  <h2>The Fusion Bench</h2>
+  <p class="lede">The heart of the game. Two genes go in, one comes out — and the result
+  is <b>live-fired in front of you</b> before you commit.</p>
+  <ul>
+    <li>Open the Hangar (<code>MENU</code>), highlight a weapon, press <code>RB</code> to
+        take it to the bench as the <b>base</b>. Pick a <b>core</b> with the D-pad.</li>
+    <li>The result inherits traits from both parents — pattern, element, level growth and
+        mods can all carry across, and fusions can awaken mods <i>neither</i> parent had
+        (marked <b>NEW!</b> in gold).</li>
+    <li>The <b>DMG</b> and <b>RATE</b> bars compare the result against the base: grey is
+        what you already had, the bright segment is the gain, dark red is a loss — with
+        green <code>+</code> / red <code>−</code> numbers.</li>
+    <li>A cycling line spells out what each mod on the result actually does.</li>
+    <li><code>LB</code> swaps base and core instantly — fusion is order-dependent, so
+        always check both directions.</li>
+    <li><code>A</code> commits: both parents are consumed, the child is equipped.</li>
+  </ul>
+  <div class="tip"><b>Hold economics.</b> Your hold carries 8 weapons. When it's full,
+  new salvage won't fit — fuse aggressively to make room, and to keep your damage curve
+  ahead of the sector scaling.</div>
+</div></section>
+
+<section id="hangar"><div class="wrap">
+  <h2>The Hangar &amp; Run Log</h2>
+  <p class="lede">Your pause screen, armoury and record-keeper. The game world holds its
+  breath while you're in here (except in duels — see below).</p>
+  <ul>
+    <li><b>Weapon list</b>: every gene you carry, with icon, name and level.
+        <code>A</code> equips, <code>RB</code> sends it to the Fusion Bench.</li>
+    <li><b>Stats pane</b>: DMG / RATE bars with exact values, plus projectile speed and
+        mods for the highlighted weapon — the same three lines the bench shows.</li>
+    <li><b>Run Log</b> (<code>LEFT/RIGHT</code> to flip the pane): kill count and every
+        powerup collected this run as an icon grid. Press <code>DOWN</code> past the last
+        weapon to enter the grid, then <code>A</code> on any powerup for a detail popup
+        explaining exactly what it does.</li>
+  </ul>
+</div></section>
+
+<section id="powerups"><div class="wrap">
+  <h2>Powerups</h2>
+  <p class="lede">Rare orbs dotted through the sectors — grab them, they don't wait
+  forever. The Run Log remembers everything you've taken.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Powerup</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">SHIELD CELL +</td><td>max shield +0.75 and a full recharge</td></tr>
+      <tr><td class="nm">REPAIR KIT</td><td>restores 2 hull</td></tr>
+      <tr><td class="nm">NOVA!</td><td>instant blast wave — heavy damage to every foe in range</td></tr>
+      <tr><td class="nm">OVERDRIVE</td><td>fire rate +40% for 20s</td></tr>
+      <tr><td class="nm">DAMAGE AMP</td><td>damage +50% for 15s</td></tr>
+      <tr><td class="nm">AFTERBURNER</td><td>thrust +35% for 20s</td></tr>
+      <tr><td class="nm">GHOST FIELD</td><td>phase through all damage for 6s</td></tr>
+      <tr><td class="nm">WEAPON LEVEL UP</td><td>equipped weapon gains a level (max 9)</td></tr>
+      <tr><td class="nm">SCRAP CACHE</td><td>+25 scrap</td></tr>
+      <tr><td class="nm">BOMB BAY</td><td>drops fire bombs beneath you while firing, 25s</td></tr>
+      <tr><td class="nm">TAIL GUN</td><td>rear shots while firing, 25s</td></tr>
+      <tr><td class="nm">VERT CANNONS</td><td>up + down shots while firing, 25s</td></tr>
+      <tr><td class="nm">DRONE WINGMAN</td><td>an orbiting drone snipes nearby foes, 30s</td></tr>
+      <tr><td class="nm">REFLECTOR</td><td>deflects enemy shots away, 20s</td></tr>
+      <tr><td class="nm">MAGNET CORE</td><td>pulls pickups to you, 30s</td></tr>
+      <tr><td class="nm">CHRONO MINES ×3</td><td>three mines auto-deploy behind you</td></tr>
+      <tr><td class="nm">HULL OVERCHARGE</td><td>max hull +1 (up to 8) and +1 repair</td></tr>
+    </tbody>
+  </table></div>
+</div></section>
+
+<section id="biomes"><div class="wrap">
+  <h2>Biomes &amp; Hazards</h2>
+  <p class="lede">Five alien terrains, each with its own enemies, scenery — grown fresh
+  every sector — and two environmental hazards. Hazards telegraph with a shimmer before
+  they strike, appear from sector 2, and multiply as you go deeper.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Biome</th><th>Terrain</th><th>Hazards</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">CAVERN</td><td class="role">violet crystal caves — home turf</td>
+          <td>ceiling rockfall · stalactites that jiggle, snap off and fall</td></tr>
+      <tr><td class="nm">HIVE</td><td class="role">red flesh tunnels</td>
+          <td>heavy pod drops · ceiling growths venting columns of acid rain</td></tr>
+      <tr><td class="nm">GLACIER</td><td class="role">blue ice shelves</td>
+          <td>accelerating icicles · cryo jets blasting from floor or ceiling</td></tr>
+      <tr><td class="nm">SPORE PIT</td><td class="role">green fungal depths</td>
+          <td>rising pods that pop · drifting miasma clouds that sting on contact and <b>don't dissipate</b> — fly around them</td></tr>
+      <tr><td class="nm">EMBER FORGE</td><td class="role">molten rock and gold ore</td>
+          <td>volcanic vents lobbing lava balls · eruptions of liquid magma spray</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tip"><b>Hazards don't block the path.</b> Every corridor stays flyable —
+  hazards punish impatience, not existence. Watch the shimmer, time your pass.</div>
+</div></section>
+
+<section id="bosses"><div class="wrap">
+  <h2>Bosses &amp; the Bestiary</h2>
+  <p class="lede">417 enemy airframes and 78 dreadnoughts, every one a fixed identity:
+  the same sprite always carries the same class, weapon gene, name and biome.</p>
+  <ul>
+    <li><b>Enemy classes</b> — drifters, hunters, snipers, orbiters, turrets and heavies —
+        are seeded from the sprite itself. Learn a face, know its fight.</li>
+    <li><b>Mini-bosses</b> (heavies) prowl mid-sector chambers with serious hull.</li>
+    <li><b>Guardians</b> own every third sector: huge dreadnoughts with a randomized
+        three-move <b>attack deck</b> (fans, rings, spirals, mortar rain, walls, seekers,
+        orbs) that <b>enrages below 35% hull</b>. The warp tear stays sealed until they die
+        — and they drop a levelled weapon, a repair kit and a shield cell.</li>
+    <li>Boss and enemy hull scales <b>superlinearly by sector</b>. Your fused arsenal is
+        the only thing that keeps pace.</li>
+  </ul>
+</div></section>
+
+<section id="catalogue"><div class="wrap">
+  <h2>The Catalogue &amp; Airframes</h2>
+  <p class="lede">A discovery index of everything you've fought: ships, bosses and weapon
+  combos. New finds pop a toast in the corner mid-run.</p>
+  <ul>
+    <li>Open from the title (<code>MENU</code>) or the Hangar (<code>LB</code>).
+        <code>LB/RB</code> switch tabs, <code>A</code> opens an info page.</li>
+    <li>Info pages are <b>live</b>: ships and bosses fire their real attack patterns at
+        you in a demo window; bosses lurk in from the right at full resolution.</li>
+    <li><b>Airframe salvage:</b> destroy 5 of the same enemy airframe and it becomes
+        <b>flyable</b> — a green dot marks it in the catalogue. Select your ship on the
+        title screen with <code>&lt; &gt;</code>. Each airframe brings its own starting
+        weapon gene into the run.</li>
+  </ul>
+</div></section>
+
+<section id="duel"><div class="wrap">
+  <h2>2P Duel</h2>
+  <p class="lede">1v1 deathmatch between two linked units — USB cable, LAN or Internet
+  (via Mote Studio). Your collection airframe is your duel ship.</p>
+  <h3>The rules</h3>
+  <ul>
+    <li>Press <code>RB</code> on the title to open the multiplayer lobby. Once paired,
+        both pilots drop into the <b>same seeded sector</b> — full scenery and hazards,
+        no AI — spawned at the ¼ and ¾ points, facing each other.</li>
+    <li>Weapons, powerups and repair kits are scattered around the arena, with more
+        drifting in as the round runs long. First to find the good salvage wins fights.</li>
+    <li>Any death ends the round — the opponent's guns, a hazard, or the cave itself all
+        score the same. The killer takes the point.</li>
+    <li><b>Between rounds, the Fusion Bench opens for both pilots.</b> Fuse and equip what
+        you salvaged, then exit — the next round starts the moment both players are ready.</li>
+    <li>Every round is a <b>brand-new sector in a random biome</b>. Inventories carry
+        across rounds; hull and shield reset with 2 seconds of spawn protection.</li>
+    <li>The score runs top-centre. Play to any target you agree on. <code>MENU</code>
+        twice forfeits.</li>
+  </ul>
+  <div class="tip"><b>Duel meta.</b> Rounds are short but arsenals persist — sacrificing
+  a round to hoover up salvage and fuse a monster between rounds is a legitimate
+  strategy. So is denying your rival that same pickup.</div>
+</div></section>
+
+<section id="tips"><div class="wrap">
+  <h2>Pilot's Tips</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Feather, don't floor it</h3>
+      <p>Short thrust pulses beat held thrust everywhere except open shafts. Most early
+      deaths are wall impacts, not enemies.</p></div>
+    <div class="card"><h3>Shield discipline</h3>
+      <p>The shield eats hits but drains fast and only recharges while lowered. Flash it
+      for bullet walls and hazard passes — don't cruise with it up.</p></div>
+    <div class="card"><h3>Fuse toward one killer</h3>
+      <p>Sector scaling outpaces raw pickups. Funnel your salvage into one high-level
+      gene with mods rather than hoarding eight mediocre ones.</p></div>
+    <div class="card"><h3>Read the tear</h3>
+      <p>The warp tear shows the next biome. Heading into the ember forge? Spend your
+      repair kit first. Glacier next? Expect vertical icicle lanes.</p></div>
+    <div class="card"><h3>Salvage with intent</h3>
+      <p>Hunting a specific airframe? Its class and biome are fixed — farm its home
+      biome and check part progress in the catalogue (5 parts = flyable).</p></div>
+    <div class="card"><h3>Bookmark before bed</h3>
+      <p>The save is written when you warp. If a sector is going badly, surviving to the
+      tear is worth more than any pickup behind you.</p></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>SCRAPWING · Pilot's Manual · v1.5.0</span>
+  <a href="games.html">← Back to the Mote gallery</a>
+</div></footer>
+
+</body>
+</html>
