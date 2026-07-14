@@ -1,0 +1,10 @@
+# void bolt — hollow dark woosh
+wave 2
+freq 0.22 0 -0.06 0
+duty 0.5 0
+vib 0.2 0.3
+env 0 0.06 0.2 0.18
+lpf 0.6 0 0
+hpf 0 0
+pha 0.3 -0.05
+arp 0 0

@@ -47,7 +47,11 @@ MOTE_MODULE_HEADER();
 
 #include "shot_pulse.sfx.h"
 #include "shot_plasma.sfx.h"
-#include "shot_heavy.sfx.h"
+#include "shot_venom.sfx.h"
+#include "shot_void.sfx.h"
+#include "shot_orb.sfx.h"
+#include "shot_rail.sfx.h"
+#include "shot_fire.sfx.h"
 #include "boom_small.sfx.h"
 #include "boom_big.sfx.h"
 #include "pickup.sfx.h"
@@ -924,12 +928,13 @@ static void sfx_at(const MoteSfx *s, float gain, float x, float y) {
 }
 
 static void fire_sfx(const Gene *g) {
-    if (g->pat == PAT_ORB || g->pat == PAT_RAIL || g->elem == EL_FIRE)
-        mote->audio_play_sfx(&shot_heavy_sfx, 0.45f);
-    else if (g->elem == EL_PLASMA || g->elem == EL_VENOM || g->elem == EL_VOID)
-        mote->audio_play_sfx(&shot_plasma_sfx, 0.4f);
-    else
-        mote->audio_play_sfx(&shot_pulse_sfx, 0.4f);
+    if      (g->pat == PAT_ORB)      mote->audio_play_sfx(&shot_orb_sfx, 0.5f);
+    else if (g->pat == PAT_RAIL)     mote->audio_play_sfx(&shot_rail_sfx, 0.5f);
+    else if (g->elem == EL_FIRE)     mote->audio_play_sfx(&shot_fire_sfx, 0.45f);
+    else if (g->elem == EL_PLASMA)   mote->audio_play_sfx(&shot_plasma_sfx, 0.4f);
+    else if (g->elem == EL_VENOM)    mote->audio_play_sfx(&shot_venom_sfx, 0.4f);
+    else if (g->elem == EL_VOID)     mote->audio_play_sfx(&shot_void_sfx, 0.4f);
+    else                             mote->audio_play_sfx(&shot_pulse_sfx, 0.4f);
 }
 
 static Shot *spawn_shot(float x, float y, float ang, float spd, const Gene *g,
@@ -1154,7 +1159,26 @@ static void enemy_shoot(Enemy *e, float ang, float spd) { enemy_shoot_k(e, ang, 
 
 /* An enemy fires the way its WEAPON GENE says: its pattern maps to an
  * emission shape, so what it drops is also how it fought you. */
+static void enemy_shot_sfx(const Enemy *e) {
+    float f = sfx_falloff(e->x, e->y);
+    if (f <= 0.05f) return;
+    float g = 0.20f * f;                             /* well under the player's own fire */
+    switch (e->wpn.pat) {
+    case PAT_ORB:  mote->audio_play_sfx(&shot_orb_sfx, g); return;
+    case PAT_RAIL: mote->audio_play_sfx(&shot_rail_sfx, g); return;
+    default: break;
+    }
+    switch (e->wpn.elem) {
+    case EL_FIRE:   mote->audio_play_sfx(&shot_fire_sfx, g); break;
+    case EL_PLASMA: mote->audio_play_sfx(&shot_plasma_sfx, g); break;
+    case EL_VENOM:  mote->audio_play_sfx(&shot_venom_sfx, g); break;
+    case EL_VOID:   mote->audio_play_sfx(&shot_void_sfx, g); break;
+    default:        mote->audio_play_sfx(&shot_pulse_sfx, g); break;
+    }
+}
+
 static void enemy_fire(Enemy *e, float aim, float spd) {
+    enemy_shot_sfx(e);
     switch (e->wpn.pat) {
     case PAT_BOLT:  enemy_shoot(e, aim, spd); break;
     case PAT_TWIN: {
@@ -2289,6 +2313,7 @@ static void enemies_update(float dt) {
                 int enrage = e->hp < e->hpmax * 0.35f;
                 float base = atan2f(dy, dx);
                 int mv = e->deck[e->deck_i % (e->deck_n ? e->deck_n : 1)];
+                enemy_shot_sfx(e);
                 switch (mv) {
                 case 0:                              /* aimed 5-way fan */
                     for (int k = -2; k <= 2; k++) enemy_shoot(e, base + k * 0.22f, 95 * ds);

@@ -1,0 +1,10 @@
+# venom spit — wet down-bloop
+wave 2
+freq 0.34 0 0 0
+duty 0.5 0
+vib 0.15 0.7
+env 0 0.05 0.2 0.15
+lpf 0.8 0 0
+hpf 0 0
+pha 0 0
+arp 0.25 -0.35
