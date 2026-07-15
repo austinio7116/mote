@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("1.3.1");
+MOTE_GAME_VERSION("1.3.2");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -1032,18 +1032,44 @@ static int find_refinery(int team, float x, float y){
     return best;
 }
 
-/* fill `out` with up to n walkable formation tiles spiralling out from dest */
+/* fill `out` with up to n walkable formation tiles spiralling out from dest.
+ * Checkerboard parity spaces units 2 tiles apart, so a big group spreads into
+ * a proportionally big formation instead of a 1-tile-pitch clump. */
 static int form_slots(uint16_t dest, uint16_t *out, int n){
     int cx = dest % MW, cy = dest / MW, got = 0;
-    for (int r = 0; r < 9 && got < n; r++){
+    int par = (cx + cy) & 1;
+    for (int r = 0; r < 13 && got < n; r++){
         for (int dy = -r; dy <= r && got < n; dy++)
             for (int dx = -r; dx <= r && got < n; dx++){
-                if (dx > -r && dx < r && dy > -r && dy < r) continue;   /* ring only */
-                if (walkxy(cx + dx, cy + dy)) out[got++] = (uint16_t)tidx(cx + dx, cy + dy);
+                if (r && dx > -r && dx < r && dy > -r && dy < r) continue;  /* ring only */
+                int tx = cx + dx, ty = cy + dy;
+                if (((tx + ty) & 1) != par) continue;                       /* spacing */
+                if (walkxy(tx, ty)) out[got++] = (uint16_t)tidx(tx, ty);
             }
     }
     while (got < n) out[got++] = dest;
     return got;
+}
+
+/* a unit arriving WITHOUT a formation slot (waypoint finals, stragglers) claims
+ * the nearest free checkerboard tile around its dest — deterministic, MP-safe */
+static uint16_t claim_slot(const Unit *u){
+    int cx = u->dest % MW, cy = u->dest / MW;
+    int par = (cx + cy) & 1;
+    for (int r = 0; r < 9; r++)
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++){
+                if (r && dx > -r && dx < r && dy > -r && dy < r) continue;
+                int tx = cx + dx, ty = cy + dy;
+                if (((tx + ty) & 1) != par) continue;
+                if (!walkxy(tx, ty)) continue;
+                int t = tidx(tx, ty), taken = 0;
+                for (int i = 0; i < MAXU && !taken; i++)
+                    if (un[i].alive && &un[i] != u && un[i].slot == t
+                        && un[i].dest == u->dest) taken = 1;
+                if (!taken) return (uint16_t)t;
+            }
+    return u->dest;
 }
 
 /* move along flow field toward u->dest; returns flow distance at unit tile */
@@ -1096,7 +1122,7 @@ static int flow_move(Unit *u, float dt, float spdmul){
         cur = bn; fd = bv;
     }
     if (fd == 0) return 0;
-    if (u->order == O_MOVE && u->slot != 0xFFFF && fd <= 3){
+    if (u->order == O_MOVE && u->slot != 0xFFFF && fd <= 5){
         /* close to the group destination: break formation-ward */
         float wx2 = (u->slot % MW) * TILE + 4, wy2 = (u->slot / MW) * TILE + 4;
         float dx2 = wx2 - u->x, dy2 = wy2 - u->y;
@@ -1220,6 +1246,8 @@ static void unit_tick(int ui, float dt){
         break; }
     case O_MOVE: {
         int fd = flow_move(u, dt, 1);
+        if (fd <= 4 && fd > 0 && u->slot == 0xFFFF && !u->wpn)
+            u->slot = claim_slot(u);              /* arriving without a slot: claim one */
         if (fd <= 0 || (u->stuck > 1.1f && fd < 5) || u->stuck > 3.0f){
             u->stuck = 0;
             if (!wp_next(u)) u->order = O_IDLE;   /* next waypoint, else stand down */
