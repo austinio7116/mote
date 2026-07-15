@@ -93,7 +93,7 @@ def sheet_from_cells(cells, cols, rows):
                     img.putpixel((ox + x, oy + y), (c[0], c[1], c[2], 255))
     return img
 
-_SLIP = os.path.join(GAME, "SlipPixel")
+_SLIP = HERE   # furniture source PNGs live in assets/ (was the SlipPixel/ folder)
 def slip_cells(fname, cols, rows, x0=0, y0=0):
     """Slice an 8px-cell block out of a hand-drawn SlipPixel PNG into Cells
     (row-major). Alpha < 128 -> transparent (shows the wall behind). Lets the
