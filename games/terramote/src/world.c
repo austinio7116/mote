@@ -170,20 +170,25 @@ void world_mine_tile(int c, int r) {
 }
 
 int world_hit_tree(int c, int r) {
-    /* fell the whole trunk from here up; shake off leaves; drop wood */
+    /* fell the whole trunk from here up: it BREAKS APART into logs that pop out
+     * and fall (a drop per segment), and the leaf crown scatters — not a vanish */
     int wood = 0, top = r;
     while (fg_at(c, top) == T_TRUNK) top--;
-    for (int rr = r; rr > top; rr--) { world_set_fg(c, rr, T_AIR); wood++; }
-    /* clear this tree's leaf blob around the crown */
+    for (int rr = r; rr > top; rr--) {
+        world_set_fg(c, rr, T_AIR);
+        drops_add(I_WOOD, 1 + (int)(wrand() % 2), c * TILE + 4, rr * TILE + 4);   /* a log per segment */
+        part_burst(c * TILE + 4, rr * TILE + 4, rgb(120, 84, 46), 3, 45);         /* splinters */
+        wood++;
+    }
+    /* leaf crown -> falling leaf particles + the odd acorn */
     for (int rr = top - 3; rr <= top + 3; rr++)
         for (int cc = c - 3; cc <= c + 3; cc++)
             if (fg_at(cc, rr) == T_LEAF) {
                 world_set_fg(cc, rr, T_AIR);
-                if ((wrand() % 14) == 0) drops_add(I_ACORN, 1, cc * TILE + 4, rr * TILE + 4);
+                part_burst(cc * TILE + 4, rr * TILE + 4, rgb(70, 160, 60), 4, 55);
+                if ((wrand() % 12) == 0) drops_add(I_ACORN, 1, cc * TILE + 4, rr * TILE + 4);
             }
-    drops_add(I_WOOD, wood + wood / 2, c * TILE + 4, (r - 1) * TILE);
     if ((wrand() % 5) < 3) drops_add(I_ACORN, 1 + (int)(wrand() % 2), c * TILE + 4, top * TILE);
-    part_burst(c * TILE + 4, (top + 2) * TILE, rgb(70, 150, 60), 8, 50);
     audio_sfx(SFX_CHOP, 1.0f);
     return wood;
 }

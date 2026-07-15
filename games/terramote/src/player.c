@@ -286,7 +286,12 @@ static void pick_target(void) {
         int cc = px_c(hx + dx * d), rr = (int)(hy + dy * d) / TILE;
         if (cc == lc && rr == lr) continue;
         lc = cc; lr = rr;
-        if (g_tiles[fg_at(cc, rr)].solid == 1) { hitc = cc; hitr = rr; break; }
+        uint8_t t = fg_at(cc, rr);
+        /* the axe locks onto choppable wood (tree trunks/leaves/furniture are
+         * non-solid, so a plain solid check would pass straight through them) */
+        int blocking = (kind == IK_AXE) ? (g_tiles[t].axe || g_tiles[t].solid == 1)
+                                        : (g_tiles[t].solid == 1);
+        if (blocking) { hitc = cc; hitr = rr; break; }
         ac = cc; ar = rr;                                     /* last empty cell */
     }
     if (kind == IK_BLOCK) {
