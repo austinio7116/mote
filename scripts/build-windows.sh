@@ -65,6 +65,11 @@ find "$STAGE" -type d -name build -prune -exec rm -rf {} + 2>/dev/null || true
 # in the working tree must never leak into the public bundle).
 git ls-files --others --directory --exclude-standard -z -- engine sdk os platform studio examples games tools \
   | while IFS= read -r -d '' f; do rm -rf "$STAGE/$f"; done
+# Raw source-art intermediates (the large reference sheets + their baked headers)
+# are dev-time inputs to assets/extract_sheets.py only — the games build and edit
+# fine without them, and they're ~190MB. Never ship them.
+rm -rf "$STAGE"/games/*/sources
+rm -f "$STAGE"/games/*/assets/sources_*.png "$STAGE"/games/*/src/sources_sheet*.h
 # portable toolchain (rename w64devkit -> toolchain so add_bundled_toolchain finds toolchain/bin)
 cp -r "$WB/w64devkit" "$STAGE/toolchain"
 cp -r "$WB/arm" "$STAGE/arm"          # arm-none-eabi-gcc for device .mote builds (Push & Launch)

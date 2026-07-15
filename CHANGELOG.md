@@ -1,12 +1,18 @@
 # Changelog
 
-## Studio fits small screens (unreleased)
+## 0.18-alpha — Studio fits small screens
 
 **Mote Studio now starts maximized, filling the screen** instead of opening a fixed
 1380×920 window — on small laptop displays that window was taller than the screen, so it
 hung off the bottom and couldn't be moved or resized. When you un-maximize, the restored
 window is sized to fit your desktop. **F11 or Alt+Enter** now toggles borderless
 fullscreen from anywhere in the Studio.
+
+**Two gallery games join the bundle in full source**: **ScrapWing 1.5.1** (scavenge-and-fuse
+shooter — 2-player link duel, per-weapon SFX, run-log powerup browser) and **TerraMote**
+(Terraria-style dig/build/craft sandbox). Open them in the Studio like any example. Their
+large raw reference art sheets (~190MB of dev-time inputs to `extract_sheets.py`) are
+stripped from the bundles by the build scripts — the games build and edit fine without them.
 
 ## Readable menus — ThumbyCue 1.2.0, MotoKart 1.1.0, DeepThumb 1.1.0
 
