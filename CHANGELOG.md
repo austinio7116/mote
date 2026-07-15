@@ -1,5 +1,13 @@
 # Changelog
 
+## Studio fits small screens (unreleased)
+
+**Mote Studio now starts maximized, filling the screen** instead of opening a fixed
+1380×920 window — on small laptop displays that window was taller than the screen, so it
+hung off the bottom and couldn't be moved or resized. When you un-maximize, the restored
+window is sized to fit your desktop. **F11 or Alt+Enter** now toggles borderless
+fullscreen from anywhere in the Studio.
+
 ## Readable menus — ThumbyCue 1.2.0, MotoKart 1.1.0, DeepThumb 1.1.0
 
 **Three more games move their menus to the engine's Audiowide UI font.** Game updates

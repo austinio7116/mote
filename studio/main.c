@@ -6991,11 +6991,18 @@ int main(int argc,char**argv){
      * default SDL declares awareness and the whole UI renders tiny on hi-DPI displays. */
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS,"unaware");
     SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_AUDIO); mote_plat_init("Mote Studio"); audio_init(); scan_games(); canvas_new();
-    if(getenv("MOTE_STUDIO_WH")){ int ww,wh; if(sscanf(getenv("MOTE_STUDIO_WH"),"%dx%d",&ww,&wh)==2&&ww>=400&&wh>=300){ WIN_W=ww; WIN_H=wh; } }
+    int fixed_wh=0;
+    if(getenv("MOTE_STUDIO_WH")){ int ww,wh; if(sscanf(getenv("MOTE_STUDIO_WH"),"%dx%d",&ww,&wh)==2&&ww>=400&&wh>=300){ WIN_W=ww; WIN_H=wh; fixed_wh=1; } }
     const char*shot=getenv("MOTE_STUDIO_SHOT"); SDL_Window*win=NULL; SDL_Renderer*ren=NULL; SDL_Surface*surf=NULL;
     if(shot){ surf=SDL_CreateRGBSurfaceWithFormat(0,WIN_W,WIN_H,32,SDL_PIXELFORMAT_RGBA8888); ren=SDL_CreateSoftwareRenderer(surf); }
-    else { win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,SDL_WINDOW_RESIZABLE);
-        SDL_SetWindowMinimumSize(win,1000,680);
+    else { Uint32 wf=SDL_WINDOW_RESIZABLE;
+        if(!fixed_wh){ wf|=SDL_WINDOW_MAXIMIZED;   /* start filling the desktop */
+            SDL_Rect ub;   /* un-maximized (restored) size must still fit small screens */
+            if(!SDL_GetDisplayUsableBounds(0,&ub)){ if(WIN_W>ub.w-16)WIN_W=ub.w-16; if(WIN_H>ub.h-48)WIN_H=ub.h-48; } }
+        win=SDL_CreateWindow("Mote Studio",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIN_W,WIN_H,wf);
+        SDL_SetWindowMinimumSize(win,WIN_W<1000?WIN_W:1000,WIN_H<680?WIN_H:680);
+        if(!fixed_wh)SDL_MaximizeWindow(win);
+        SDL_GetWindowSize(win,&WIN_W,&WIN_H);   /* some WMs apply MAXIMIZED late; size the first frame right */
         { int iw,ih,in; unsigned char*id=stbi_load("studio/assets/mote_icon.png",&iw,&ih,&in,4);   /* title-bar / taskbar icon */
           if(id){ SDL_Surface*is=SDL_CreateRGBSurfaceWithFormatFrom(id,iw,ih,32,iw*4,SDL_PIXELFORMAT_RGBA32);
               if(is){ SDL_SetWindowIcon(win,is); SDL_FreeSurface(is); } stbi_image_free(id); } }
@@ -7199,6 +7206,8 @@ int main(int argc,char**argv){
     do { SDL_Event e;
         while(SDL_PollEvent(&e)){ if(e.type==SDL_QUIT){running=0;continue;}
             if(e.type==SDL_WINDOWEVENT&&e.window.event==SDL_WINDOWEVENT_SIZE_CHANGED){ WIN_W=e.window.data1; WIN_H=e.window.data2; continue; }
+            if(e.type==SDL_KEYDOWN&&win&&(e.key.keysym.sym==SDLK_F11||(e.key.keysym.sym==SDLK_RETURN&&(e.key.keysym.mod&KMOD_ALT)))){   /* F11 / Alt+Enter: borderless fullscreen */
+                SDL_SetWindowFullscreen(win,(SDL_GetWindowFlags(win)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP); continue; }
             if(e.type==SDL_CONTROLLERDEVICEADDED){ if(!pad){ pad=SDL_GameControllerOpen(e.cdevice.which); printf("studio: gamepad connected: %s\n",SDL_GameControllerName(pad)); if(g_jpad){ SDL_JoystickClose(g_jpad); g_jpad=NULL; } } continue; }
             if(e.type==SDL_CONTROLLERDEVICEREMOVED){ if(pad){ SDL_GameControllerClose(pad); pad=NULL; } continue; }
             if(e.type==SDL_JOYDEVICEADDED&&!pad&&!g_jpad&&!SDL_IsGameController(e.jdevice.which)){ g_jpad=SDL_JoystickOpen(e.jdevice.which); printf("studio: joystick connected: %s\n",SDL_JoystickName(g_jpad)); continue; }
