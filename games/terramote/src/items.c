@@ -84,6 +84,18 @@ const ItemDef g_items[I_COUNT] = {
     [I_LANTERN]        = { "LANTERN",       IK_BLOCK, IC(I_LANTERN),   T_LANTERN,   0, 0, 99, 8 },
     [I_FIREPLACE]      = { "FIREPLACE",     IK_BLOCK, IC(I_FIREPLACE), T_FIREPLACE, 0, 0, 99, 8 },
     [I_CHAIN]          = { "CHAIN",         IK_BLOCK, IC(I_CHAIN),     T_CHAIN,     0, 0, 99, 8 },
+#include "weapon_defs.inc"                              /* GENERATED weapon variants */
+};
+
+/* per-weapon combat properties (element / knockback / reach / multishot / spread).
+ * Anything unset is a plain weapon. */
+const WeaponFx g_wfx[I_COUNT] = {
+    [I_SWORD_GOLD]    = { EL_NONE,    150, 1, 0, 0 },
+    [I_SWORD_BANE]    = { EL_DEMONIC, 140, 1, 0, 0 },   /* lifesteal */
+    [I_SWORD_VOLCANO] = { EL_FIRE,    165, 2, 0, 0 },   /* burn DoT + big knockback + reach */
+    [I_BOW_GOLD]      = { EL_NONE,      0, 0, 2, 14 },  /* double shot */
+    [I_BOW_MOLTEN]    = { EL_FIRE,      0, 0, 3, 26 },  /* triple fire shot */
+#include "weapon_fx.inc"                                /* GENERATED weapon variants */
 };
 
 /* ---------------------------------------------------------------- tiles ----
@@ -188,5 +200,6 @@ const Recipe g_recipes[] = {
     { ST_ANVIL, I_LEGS_MOLTEN, 1,  { { I_HELL_BAR, 9 } } },
     /* demon altar */
     { ST_ALTAR, I_SUSPICIOUS_EYE, 1, { { I_LENS, 6 } } },
+#include "weapon_recipes.inc"                            /* GENERATED weapon variants */
 };
 const int g_nrecipes = (int)(sizeof(g_recipes) / sizeof(g_recipes[0]));
