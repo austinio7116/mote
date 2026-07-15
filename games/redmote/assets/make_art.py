@@ -580,197 +580,91 @@ def draw_heavy_hull(d, x0, y0, team):
 
 
 def make_units():
-    im = Image.new("RGBA", (16 * 8, 2 * 8), (0, 0, 0, 0))
+    """units.png — 14 cols x 10px cells, 2 team rows (0 blue, 1 red):
+    0-6 infantry (rifleA/B/fire, rockA/B, flamA/B)
+    7 light hull   8 light turret   9 heavy hull  10 heavy turret
+    11 artillery  12 tesla tank    13 harvester
+    Vehicles face UP (the game rotates with blit_ex). The old gunship cells are
+    gone — the chopper lives in heli.png now."""
+    im = Image.new("RGBA", (14 * 10, 2 * 10), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
+
+    def track(x0, y0, x, ytop, ybot, team):
+        """a 1px-wide track column with tread ticks."""
+        for y in range(ytop, ybot + 1):
+            px(d, x0 + x, y0 + y, TRACK if (y % 2) else (58, 54, 48))
+
     for team in range(2):
         base, light, dark = TEAM[team]
-        y0 = team * 8
+        y0 = team * 10
+        # --- infantry: 8px templates centred in the 10px cell
         for i, key in enumerate(("rifleA", "rifleB", "rifleF", "rockA", "rockB", "flamA", "flamB")):
-            draw_template(d, i * 8, y0, INF[key], team)
+            draw_template(d, i * 10 + 1, y0 + 1, INF[key], team)
 
-        # 7: light tank hull (faces up)
-        draw_light_hull(d, 7 * 8, y0, team)
-        # 8: light turret — small dome + barrel up
-        x0 = 8 * 8
-        rect(d, x0 + 3, y0 + 3, x0 + 4, y0 + 4, light)
-        px(d, x0 + 4, y0 + 4, dark)
-        rect(d, x0 + 3, y0 + 0, x0 + 3, y0 + 2, GUN)   # barrel (1px, slightly off-center reads fine)
-        px(d, x0 + 3, y0 + 0, GUNL)
-        # 9: heavy hull
-        draw_heavy_hull(d, 9 * 8, y0, team)
-        # 10: heavy turret — wide dome + twin barrels
-        x0 = 10 * 8
-        rect(d, x0 + 3, y0 + 3, x0 + 5, y0 + 5, light)
-        px(d, x0 + 5, y0 + 5, dark); px(d, x0 + 3, y0 + 3, (240, 240, 240))
+        # --- 7: light tank hull — 6 wide x 9 long, thin tracks
+        x0 = 7 * 10
+        track(x0, y0, 2, 1, 8, team); track(x0, y0, 7, 1, 8, team)
+        rect(d, x0 + 3, y0 + 1, x0 + 6, y0 + 8, base)
+        rect(d, x0 + 3, y0 + 1, x0 + 6, y0 + 1, light)      # glacis
+        rect(d, x0 + 3, y0 + 8, x0 + 6, y0 + 8, dark)       # rear
+        px(d, x0 + 4, y0 + 7, dark); px(d, x0 + 5, y0 + 7, dark)   # engine deck
+        # --- 8: light turret — centred dome + 2px barrel
+        x0 = 8 * 10
+        rect(d, x0 + 3, y0 + 3, x0 + 6, y0 + 6, light)
+        rect(d, x0 + 4, y0 + 4, x0 + 5, y0 + 5, base)
+        px(d, x0 + 6, y0 + 6, dark)
+        rect(d, x0 + 4, y0 + 0, x0 + 5, y0 + 2, GUN)
+        rect(d, x0 + 4, y0 + 0, x0 + 5, y0 + 0, GUNL)
+        # --- 9: heavy tank hull — 8 wide x 10 long, thin tracks, plated
+        x0 = 9 * 10
+        track(x0, y0, 1, 0, 9, team); track(x0, y0, 8, 0, 9, team)
+        rect(d, x0 + 2, y0 + 0, x0 + 7, y0 + 9, base)
+        rect(d, x0 + 2, y0 + 0, x0 + 7, y0 + 0, light)
+        rect(d, x0 + 2, y0 + 9, x0 + 7, y0 + 9, dark)
+        rect(d, x0 + 2, y0 + 1, x0 + 2, y0 + 8, light)      # side skirt catch-light
+        rect(d, x0 + 3, y0 + 7, x0 + 6, y0 + 7, dark)       # engine louvres
+        px(d, x0 + 3, y0 + 9, GUND); px(d, x0 + 6, y0 + 9, GUND)   # exhausts
+        # --- 10: heavy turret — big dome + twin barrels
+        x0 = 10 * 10
+        rect(d, x0 + 3, y0 + 3, x0 + 6, y0 + 7, light)
+        rect(d, x0 + 4, y0 + 4, x0 + 5, y0 + 6, base)
+        px(d, x0 + 3, y0 + 3, (238, 238, 244)); px(d, x0 + 6, y0 + 7, dark)
         rect(d, x0 + 3, y0 + 0, x0 + 3, y0 + 2, GUN)
-        rect(d, x0 + 5, y0 + 0, x0 + 5, y0 + 2, GUN)
-        # 11: artillery — open chassis, long fixed gun
-        x0 = 11 * 8
-        rect(d, x0 + 1, y0 + 2, x0 + 2, y0 + 7, TRACK)
-        rect(d, x0 + 5, y0 + 2, x0 + 6, y0 + 7, TRACK)
-        rect(d, x0 + 3, y0 + 3, x0 + 4, y0 + 6, base)
-        px(d, x0 + 3, y0 + 3, light)
-        rect(d, x0 + 3, y0 + 0, x0 + 4, y0 + 0, GUNL)   # muzzle brake
-        rect(d, x0 + 3, y0 + 1, x0 + 4, y0 + 2, GUN)    # long barrel
-        # 12: tesla tank — hull + coil orb
-        x0 = 12 * 8
-        draw_light_hull(d, x0, y0, team)
-        px(d, x0 + 3, y0 + 2, (32, 130, 150))
-        rect(d, x0 + 3, y0 + 3, x0 + 4, y0 + 4, (64, 200, 216))
-        px(d, x0 + 3, y0 + 3, (170, 240, 248))
-        # 13: harvester — chunky ore truck
-        x0 = 13 * 8
-        rect(d, x0 + 1, y0 + 0, x0 + 2, y0 + 7, TRACK)
-        rect(d, x0 + 5, y0 + 0, x0 + 6, y0 + 7, TRACK)
-        rect(d, x0 + 3, y0 + 0, x0 + 4, y0 + 7, (150, 116, 24))
-        rect(d, x0 + 3, y0 + 0, x0 + 4, y0 + 1, base)     # cab (team)
-        px(d, x0 + 3, y0 + 0, light)
-        px(d, x0 + 3, y0 + 3, (232, 200, 64))             # ore glint in hopper
-        px(d, x0 + 4, y0 + 5, (200, 160, 32))
-        # 14/15: gunship, rotor frame A/B
-        for f in range(2):
-            x0 = (14 + f) * 8
-            rect(d, x0 + 3, y0 + 1, x0 + 4, y0 + 6, base)      # fuselage
-            px(d, x0 + 3, y0 + 1, light); px(d, x0 + 4, y0 + 6, dark)
-            rect(d, x0 + 2, y0 + 5, x0 + 5, y0 + 5, dark)      # tail plane
-            px(d, x0 + 3, y0 + 2, (26, 52, 92))                # canopy
-            if f == 0:
-                rect(d, x0 + 0, y0 + 3, x0 + 7, y0 + 3, (200, 200, 208))
-            else:
-                rect(d, x0 + 3, y0 + 0, x0 + 3, y0 + 6, (200, 200, 208))
+        rect(d, x0 + 6, y0 + 0, x0 + 6, y0 + 2, GUN)
+        px(d, x0 + 3, y0 + 0, GUNL); px(d, x0 + 6, y0 + 0, GUNL)
+        # --- 11: artillery — open chassis, very long gun with a muzzle brake
+        x0 = 11 * 10
+        track(x0, y0, 2, 3, 9, team); track(x0, y0, 7, 3, 9, team)
+        rect(d, x0 + 3, y0 + 4, x0 + 6, y0 + 8, base)
+        rect(d, x0 + 3, y0 + 4, x0 + 6, y0 + 4, light)
+        rect(d, x0 + 3, y0 + 8, x0 + 6, y0 + 8, dark)
+        rect(d, x0 + 4, y0 + 1, x0 + 5, y0 + 4, GUN)        # long barrel
+        rect(d, x0 + 3, y0 + 0, x0 + 6, y0 + 0, GUNL)       # muzzle brake
+        # --- 12: tesla tank — light hull with a glowing coil
+        x0 = 12 * 10
+        track(x0, y0, 2, 1, 8, team); track(x0, y0, 7, 1, 8, team)
+        rect(d, x0 + 3, y0 + 1, x0 + 6, y0 + 8, base)
+        rect(d, x0 + 3, y0 + 1, x0 + 6, y0 + 1, light)
+        rect(d, x0 + 3, y0 + 8, x0 + 6, y0 + 8, dark)
+        rect(d, x0 + 4, y0 + 3, x0 + 5, y0 + 5, (64, 200, 216))
+        px(d, x0 + 4, y0 + 3, (190, 245, 250))              # coil hotspot
+        px(d, x0 + 4, y0 + 6, (32, 130, 150))
+        # --- 13: harvester — LONG ore truck: scoop, cab, big hopper, exhaust
+        x0 = 13 * 10
+        track(x0, y0, 1, 1, 9, team); track(x0, y0, 8, 1, 9, team)
+        for x in range(2, 8):                                # intake scoop teeth
+            px(d, x0 + x, y0 + 0, (150, 150, 160) if (x % 2) else (96, 96, 106))
+        rect(d, x0 + 2, y0 + 1, x0 + 7, y0 + 1, (52, 52, 58))   # scoop mouth
+        rect(d, x0 + 2, y0 + 2, x0 + 7, y0 + 3, base)        # cab (team)
+        rect(d, x0 + 2, y0 + 2, x0 + 7, y0 + 2, light)
+        px(d, x0 + 4, y0 + 3, (150, 220, 235)); px(d, x0 + 5, y0 + 3, (150, 220, 235))  # windshield
+        rect(d, x0 + 2, y0 + 4, x0 + 7, y0 + 8, (70, 66, 60))    # hopper tray
+        rect(d, x0 + 3, y0 + 5, x0 + 6, y0 + 7, (150, 116, 24))  # ore load
+        px(d, x0 + 4, y0 + 5, (232, 200, 64)); px(d, x0 + 5, y0 + 6, (200, 160, 32))
+        px(d, x0 + 3, y0 + 7, (112, 86, 18))
+        rect(d, x0 + 2, y0 + 9, x0 + 7, y0 + 9, dark)        # rear plate
+        px(d, x0 + 3, y0 + 9, GUND)                           # exhaust
     im.save(os.path.join(HERE, "units.png"))
-
-
-# ============================================================== buildings
-# strip layout, row height 24 per team.  (x, w, h) — game mirrors this table.
-BXOFF = {
-    "conyard":  (0,   24, 24),
-    "power":    (24,  16, 16),
-    "refinery": (40,  24, 16),
-    "barracks": (64,  16, 16),
-    "factory":  (80,  24, 16),
-    "radar":    (104, 16, 16),
-    "helipad":  (120, 16, 16),
-    "tech":     (136, 16, 16),
-    "pillbox":  (152, 8,  8),
-    "turret":   (160, 8,  8),
-    "turgun":   (168, 8,  8),
-    "tesla":    (176, 8,  16),
-}
-ROOF = (96, 96, 104)
-ROOFL = (120, 120, 130)
-ROOFD = (66, 66, 74)
-HAZ = (208, 172, 40)
-
-
-def bdg_body(d, x0, y0, w, h, team):
-    """grey industrial slab with lit top-left edge + team trim strip."""
-    base, light, dark = TEAM[team]
-    rect(d, x0, y0, x0 + w - 1, y0 + h - 1, ROOF)
-    rect(d, x0, y0, x0 + w - 1, y0, ROOFL)
-    rect(d, x0, y0, x0, y0 + h - 1, ROOFL)
-    rect(d, x0, y0 + h - 1, x0 + w - 1, y0 + h - 1, ROOFD)
-    rect(d, x0 + w - 1, y0, x0 + w - 1, y0 + h - 1, ROOFD)
-    rect(d, x0 + 1, y0 + 1, x0 + w - 2, y0 + 1, base)  # team trim under the lit edge
-
-
-def make_buildings():
-    im = Image.new("RGBA", (192, 48), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    for team in range(2):
-        base, light, dark = TEAM[team]
-        y0 = team * 24
-
-        # conyard 24x24: big block, crane arm, hazard door
-        x0, w, h = BXOFF["conyard"][0], 24, 24
-        bdg_body(d, x0, y0, w, h, team)
-        rect(d, x0 + 3, y0 + 4, x0 + 12, y0 + 12, ROOFD)          # roof pit
-        rect(d, x0 + 4, y0 + 5, x0 + 11, y0 + 11, (52, 52, 58))
-        rect(d, x0 + 14, y0 + 3, x0 + 20, y0 + 5, base)           # crane cab
-        rect(d, x0 + 16, y0 + 5, x0 + 17, y0 + 14, light)         # crane arm
-        for i in range(0, 8, 2):                                   # hazard door
-            rect(d, x0 + 6 + i, y0 + 19, x0 + 7 + i, y0 + 22, HAZ if (i // 2) % 2 == 0 else (30, 30, 34))
-        rect(d, x0 + 2, y0 + 15, x0 + 4, y0 + 17, light)          # beacon
-        # power 16x16: twin stacks + bolt
-        x0, w, h = BXOFF["power"][0], 16, 16
-        bdg_body(d, x0, y0, w, h, team)
-        for sx in (3, 9):
-            rect(d, x0 + sx, y0 + 3, x0 + sx + 3, y0 + 8, ROOFL)
-            rect(d, x0 + sx + 1, y0 + 3, x0 + sx + 2, y0 + 4, (40, 40, 46))
-        rect(d, x0 + 6, y0 + 11, x0 + 7, y0 + 13, HAZ)            # bolt mark
-        px(d, x0 + 8, y0 + 10, HAZ); px(d, x0 + 5, y0 + 14, HAZ)
-        # refinery 24x16: silo + dock pad + ore chute
-        x0, w, h = BXOFF["refinery"][0], 24, 16
-        bdg_body(d, x0, y0, w, h, team)
-        d.ellipse((x0 + 2, y0 + 2, x0 + 9, y0 + 9), fill=ROOFL + (255,))
-        d.ellipse((x0 + 3, y0 + 3, x0 + 7, y0 + 7), fill=ROOF + (255,))
-        rect(d, x0 + 14, y0 + 3, x0 + 21, y0 + 12, (44, 44, 50))  # dark dock pad
-        rect(d, x0 + 15, y0 + 4, x0 + 20, y0 + 11, (58, 56, 50))
-        px(d, x0 + 11, y0 + 11, (232, 200, 64)); px(d, x0 + 12, y0 + 12, (200, 160, 32))
-        rect(d, x0 + 3, y0 + 12, x0 + 8, y0 + 13, (200, 160, 32)) # ore chute
-        # barracks 16x16: hut + door + flag
-        x0, w, h = BXOFF["barracks"][0], 16, 16
-        bdg_body(d, x0, y0, w, h, team)
-        rect(d, x0 + 3, y0 + 4, x0 + 12, y0 + 7, ROOFD)           # roof ridge
-        rect(d, x0 + 6, y0 + 10, x0 + 9, y0 + 14, (36, 36, 42))   # door
-        rect(d, x0 + 13, y0 + 2, x0 + 13, y0 + 6, GUNL)           # flag pole
-        rect(d, x0 + 11, y0 + 2, x0 + 12, y0 + 3, base)
-        # factory 24x16: giant bay door with hazard lip
-        x0, w, h = BXOFF["factory"][0], 24, 16
-        bdg_body(d, x0, y0, w, h, team)
-        rect(d, x0 + 4, y0 + 4, x0 + 19, y0 + 13, (40, 40, 46))   # bay
-        for i in range(4, 20, 2):
-            rect(d, x0 + i, y0 + 4, x0 + i, y0 + 5, HAZ if (i // 2) % 2 else (30, 30, 34))
-        rect(d, x0 + 6, y0 + 7, x0 + 17, y0 + 7, (58, 58, 64))    # door slats
-        rect(d, x0 + 6, y0 + 10, x0 + 17, y0 + 10, (58, 58, 64))
-        # radar 16x16: dish on block
-        x0, w, h = BXOFF["radar"][0], 16, 16
-        bdg_body(d, x0, y0, w, h, team)
-        d.ellipse((x0 + 3, y0 + 3, x0 + 12, y0 + 12), fill=ROOFL + (255,))
-        d.ellipse((x0 + 5, y0 + 5, x0 + 10, y0 + 10), fill=(214, 214, 224, 255))
-        px(d, x0 + 7, y0 + 7, (30, 30, 36)); px(d, x0 + 8, y0 + 8, (30, 30, 36))
-        # helipad 16x16: pad circle + H
-        x0, w, h = BXOFF["helipad"][0], 16, 16
-        rect(d, x0, y0, x0 + 15, y0 + 15, (58, 58, 64))
-        rect(d, x0, y0, x0 + 15, y0, (74, 74, 80))
-        d.ellipse((x0 + 2, y0 + 2, x0 + 13, y0 + 13), outline=HAZ + (255,))
-        rect(d, x0 + 6, y0 + 5, x0 + 6, y0 + 10, (214, 214, 224))
-        rect(d, x0 + 9, y0 + 5, x0 + 9, y0 + 10, (214, 214, 224))
-        rect(d, x0 + 7, y0 + 7, x0 + 8, y0 + 8, (214, 214, 224))
-        px(d, x0 + 1, y0 + 1, base); px(d, x0 + 14, y0 + 1, base)  # team corner lights
-        # tech 16x16: sleek lab, antenna, glow windows
-        x0, w, h = BXOFF["tech"][0], 16, 16
-        bdg_body(d, x0, y0, w, h, team)
-        rect(d, x0 + 3, y0 + 3, x0 + 12, y0 + 12, (56, 60, 72))
-        for wx in (4, 7, 10):
-            rect(d, x0 + wx, y0 + 5, x0 + wx + 1, y0 + 6, (64, 200, 216))
-            rect(d, x0 + wx, y0 + 9, x0 + wx + 1, y0 + 10, (64, 200, 216))
-        rect(d, x0 + 13, y0 + 1, x0 + 13, y0 + 5, GUNL)
-        px(d, x0 + 13, y0 + 1, (240, 80, 60))
-        # pillbox 8x8: sandbag dome + slit
-        x0 = BXOFF["pillbox"][0]
-        d.ellipse((x0 + 0, y0 + 0, x0 + 7, y0 + 7), fill=(134, 118, 80, 255))
-        d.ellipse((x0 + 1, y0 + 1, x0 + 6, y0 + 6), fill=(158, 140, 96, 255))
-        rect(d, x0 + 2, y0 + 4, x0 + 5, y0 + 4, (30, 30, 34))
-        px(d, x0 + 2, y0 + 1, base)
-        # turret base 8x8 + gun 8x8 (barrel up)
-        x0 = BXOFF["turret"][0]
-        d.ellipse((x0 + 0, y0 + 0, x0 + 7, y0 + 7), fill=(70, 70, 78, 255))
-        d.ellipse((x0 + 1, y0 + 1, x0 + 6, y0 + 6), fill=(96, 96, 104, 255))
-        px(d, x0 + 1, y0 + 6, base)
-        x0 = BXOFF["turgun"][0]
-        rect(d, x0 + 3, y0 + 3, x0 + 4, y0 + 5, GUNL)
-        rect(d, x0 + 3, y0 + 0, x0 + 3, y0 + 2, GUND)
-        px(d, x0 + 4, y0 + 3, base)
-        # tesla coil 8x16: pole + orb (draws 8px above its 1x1 tile)
-        x0 = BXOFF["tesla"][0]
-        rect(d, x0 + 3, y0 + 6, x0 + 4, y0 + 15, GUN)
-        rect(d, x0 + 2, y0 + 14, x0 + 5, y0 + 15, GUNL)
-        rect(d, x0 + 2, y0 + 6, x0 + 5, y0 + 7, GUNL)     # crown ring
-        rect(d, x0 + 2, y0 + 1, x0 + 5, y0 + 4, (32, 130, 150))
-        rect(d, x0 + 3, y0 + 2, x0 + 4, y0 + 3, (64, 200, 216))
-        px(d, x0 + 3, y0 + 2, (170, 240, 248))
-    im.save(os.path.join(HERE, "buildings.png"))
 
 
 # ================================================================= heli

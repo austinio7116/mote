@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("1.2.1");
+MOTE_GAME_VERSION("1.3.0");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -207,6 +207,8 @@ typedef struct {
     uint8_t order, hstate;
     uint16_t dest;            /* dest tile index (group destination) */
     uint16_t slot;            /* personal formation tile, 0xFFFF = none */
+    uint16_t wp[6];           /* queued waypoints (tiles), traversed in order */
+    uint8_t  wpn;             /* how many waypoints remain */
     int16_t tgt;              /* >=0 unit, <=-2 building -(t+2), -1 none */
     float cool, stuck, htimer, animt;
     uint16_t cargo, oret;     /* harvester cargo, remembered ore tile */
@@ -978,6 +980,22 @@ static int acquire_bldg(int team, float x, float y, float r){
     return best;
 }
 static int can_hit_air(int w){ return w == W_MG || w == W_ROCKET || w == W_TESLA; }
+/* continue along the unit's waypoint path; returns 1 if a hop was taken.
+ * When the path empties and a stored target remains (AI waves), switch to HUNT. */
+static int wp_next(Unit *u){
+    if (u->wpn){
+        u->dest = u->wp[0];
+        memmove(u->wp, u->wp + 1, sizeof(uint16_t) * (u->wpn - 1));
+        u->wpn--;
+        u->order = O_MOVE; u->slot = 0xFFFF; u->stuck = 0;
+        return 1;
+    }
+    if (u->tgt != -1 && UD[u->type].weapon && tgt_alive(u->tgt)){
+        u->order = O_HUNT; u->stuck = 0; u->dest = 0;   /* path done: hunt the goal */
+        return 1;
+    }
+    return 0;
+}
 static float turnto(float cur, float want, float rate){
     float d = want - cur;
     while (d > PI) d -= 2 * PI;
@@ -1164,6 +1182,7 @@ static void unit_tick(int ui, float dt){
             break;
         }
         if (d->weapon == W_NONE) break;
+        if (u->wpn && (simc & 7) == (ui & 7)){ wp_next(u); break; }
         if ((simc & 7) == (ui & 7)){    /* stagger scans */
             int air = can_hit_air(d->weapon);
             /* 1) enemy already in weapon range: engage in place */
@@ -1202,7 +1221,8 @@ static void unit_tick(int ui, float dt){
     case O_MOVE: {
         int fd = flow_move(u, dt, 1);
         if (fd <= 0 || (u->stuck > 1.1f && fd < 5) || u->stuck > 3.0f){
-            u->order = O_IDLE; u->stuck = 0;
+            u->stuck = 0;
+            if (!wp_next(u)) u->order = O_IDLE;   /* next waypoint, else stand down */
         }
         break; }
     case O_ATK: case O_HUNT: {
@@ -1225,6 +1245,7 @@ static void unit_tick(int ui, float dt){
                 else {
                     int b = acquire_bldg(u->team, u->x, u->y, chain);
                     if (b >= 0){ u->tgt = -(b + 2); u->dest = 0; u->stuck = 0; }
+                    else if (wp_next(u)) break;      /* battle over: back on the path */
                     else { u->order = O_IDLE; break; }
                 }
             }
@@ -1617,12 +1638,21 @@ waves:;
         if (tgt != -1){
             int sent = 0, keep = 2 + ai_wave_n / 2;
             int cap = m_wavecap + 2 * (ai_wave_n - 1);   /* waves stay human-sized */
+            /* pick an approach: direct, west flank, or south-east flank — so
+             * attacks come from varied directions, not always the diagonal */
+            int route = rndn(3), wpt = -1;
+            if (route == 1)      wpt = tidx(12 + rndn(10), 34 + rndn(14));
+            else if (route == 2) wpt = tidx(66 + rndn(14), 74 + rndn(10));
             for (int i = 0; i < MAXU && sent < cap; i++){
                 Unit *u = &un[i];
                 if (!u->alive || u->team != 1 || u->type == U_HARV || !UD[u->type].weapon) continue;
                 if (u->order != O_IDLE && u->order != O_MOVE) continue;
                 if (keep > 0 && UD[u->type].armor == AR_INF){ keep--; continue; }
-                u->order = O_HUNT; u->tgt = tgt; u->dest = 0;
+                u->tgt = tgt; u->dest = 0; u->wpn = 0; u->slot = 0xFFFF; u->stuck = 0;
+                if (wpt >= 0){                     /* march the flank, THEN hunt */
+                    u->wp[0] = (uint16_t)wpt; u->wpn = 1;
+                    wp_next(u);
+                } else u->order = O_HUNT;
                 sent++;
             }
         }
@@ -1684,11 +1714,11 @@ static void draw_unit(uint16_t *fb, const Unit *u, int y0, int y1){
     int sx = (int)(u->x - camx), sy = (int)(u->y - camy);
     if (sx < -8 || sx > 136 || sy < -12 || sy > 140) return;
     if (u->team == FOE_TEAM && !tile_vis(tidx((int)u->x >> 3, (int)u->y >> 3))) return;
-    int row = u->team * 8;
+    int row = u->team * 10;
     if (d->armor == AR_INF){
         int fr = inf_frame(u);
         int flip = (sinf(u->face) < 0) ? MOTE_SPR_HFLIP : 0;
-        mote->blit(fb, &units_img, sx - 4, sy - 4, fr * 8, row, 8, 8, flip, y0, y1);
+        mote->blit(fb, &units_img, sx - 5, sy - 5, fr * 10, row, 10, 10, flip, y0, y1);
     } else if (u->type == U_HELI){
         /* shadow + bobbing airframe (banks in turns) + 4-frame spinning rotor */
         for (int k = -1; k <= 1; k++)
@@ -1700,17 +1730,17 @@ static void draw_unit(uint16_t *fb, const Unit *u, int y0, int y1){
         mote->blit_ex(fb, &heli_img, sx, sy - 4 + bob, (2 + ((framec >> 1) & 3)) * 12,
                       u->team * 12, 12, 12, 0, 1.0f, MOTE_BLEND_NONE, y0, y1);
     } else {
-        mote->blit_ex(fb, &units_img, sx, sy, d->col * 8, row, 8, 8,
+        mote->blit_ex(fb, &units_img, sx, sy, d->col * 10, row, 10, 10,
                       u->face, 1.0f, MOTE_BLEND_NONE, y0, y1);
         if (u->type == U_LTANK || u->type == U_HTANK)
-            mote->blit_ex(fb, &units_img, sx, sy, (d->col + 1) * 8, row, 8, 8,
+            mote->blit_ex(fb, &units_img, sx, sy, (d->col + 1) * 10, row, 10, 10,
                           u->tgt != -1 ? u->tface : u->face, 1.0f, MOTE_BLEND_NONE, y0, y1);
     }
     /* selection + health */
     if (u->sel){
         uint16_t c = MOTE_RGB565(240, 240, 240);
-        putpx(fb, sx - 4, sy - 4, y0, y1, c); putpx(fb, sx + 4, sy - 4, y0, y1, c);
-        putpx(fb, sx - 4, sy + 4, y0, y1, c); putpx(fb, sx + 4, sy + 4, y0, y1, c);
+        putpx(fb, sx - 5, sy - 5, y0, y1, c); putpx(fb, sx + 5, sy - 5, y0, y1, c);
+        putpx(fb, sx - 5, sy + 5, y0, y1, c); putpx(fb, sx + 5, sy + 5, y0, y1, c);
     }
     if (u->sel || u->hp < d->hp){
         int w = 7 * u->hp / d->hp; if (w < 1) w = 1;
@@ -1903,6 +1933,23 @@ static void render_band(uint16_t *fb, int y0, int y1){
             }
         }
     }
+    /* waypoint path for the selection: dest -> wp chain (first pathing unit) */
+    for (int i = 0; i < MAXU; i++){
+        Unit *u = &un[i];
+        if (!u->alive || !u->sel || u->team != MY_TEAM) continue;
+        if (!u->wpn && u->order != O_MOVE) continue;
+        if (!u->wpn) continue;
+        int px2 = (u->order == O_MOVE ? (u->dest % MW) : (int)u->x >> 3) * TILE + 4 - cx;
+        int py2 = (u->order == O_MOVE ? (u->dest / MW) : (int)u->y >> 3) * TILE + 4 - cy;
+        for (int k = 0; k < u->wpn; k++){
+            int nx2 = (u->wp[k] % MW) * TILE + 4 - cx, ny2 = (u->wp[k] / MW) * TILE + 4 - cy;
+            mote->draw_line(fb, px2, py2, nx2, ny2, MOTE_RGB565(140, 130, 60), y0, y1);
+            mote->draw_circle(fb, nx2, ny2, 2, MOTE_RGB565(240, 220, 120), 0, y0, y1);
+            px2 = nx2; py2 = ny2;
+        }
+        break;                       /* one representative path keeps it readable */
+    }
+
     /* rally flag for selected building */
     if (bsel >= 0 && bl[bsel].alive && bl[bsel].rally){
         int rx = (bl[bsel].rally % MW) * TILE + 4 - cx, ry = (bl[bsel].rally / MW) * TILE - cy;
@@ -1977,7 +2024,7 @@ static void draw_item_icon(uint16_t *fb, int q, int item, int cx, int cy){
     } else if (item == U_HELI){
         mote->blit_ex(fb, &heli_img, cx, cy, 0, 0, 12, 12, 0, 0.8f, MOTE_BLEND_NONE, 0, 128);
     } else {
-        mote->blit(fb, &units_img, cx - 4, cy - 4, UD[item].col * 8, 0, 8, 8, 0, 0, 128);
+        mote->blit(fb, &units_img, cx - 5, cy - 5, UD[item].col * 10, 0, 10, 10, 0, 0, 128);
     }
 }
 
@@ -2007,7 +2054,7 @@ static void draw_build_menu(uint16_t *fb){
         else if (q2 == Q_AIR)
             mote->blit_ex(fb, &heli_img, tx + 8, 20, 0, 0, 12, 12, 0, 0.8f, MOTE_BLEND_NONE, 0, 128);
         else
-            mote->blit(fb, &units_img, tx + 4, 16, TAB_ICON[q2] * 8, 0, 8, 8, 0, 0, 128);
+            mote->blit(fb, &units_img, tx + 3, 15, TAB_ICON[q2] * 10, 0, 10, 10, 0, 0, 128);
         if (pq[MY_TEAM][q2].n)
             mote->draw_rect(fb, tx + 13, 14, 2, 2,
                             pq[MY_TEAM][q2].ready ? MOTE_RGB565(120, 255, 120) : MOTE_RGB565(240, 220, 120),
@@ -2396,8 +2443,12 @@ static void desel(void){ for (int i = 0; i < MAXU; i++) un[i].sel = 0; }
 static void mp_bitset(uint8_t *m, int i){ m[i >> 3] |= 1u << (i & 7); }
 static int  mp_bit(const uint8_t *m, int i){ return (m[i >> 3] >> (i & 7)) & 1; }
 
-/* deterministic order: point `team`'s masked units at (tx,ty) — fog-independent */
-static void apply_order(int team, const uint8_t *mask, int tx, int ty){
+/* deterministic order: point `team`'s masked units at (tx,ty) — fog-independent.
+ * wpmode: 1 = double-tap waypoint (ALWAYS append, never clears the path);
+ *         0 = single tap (per unit: append as the final leg if a path is
+ *             pending, else a plain replace-move). Attack targets always
+ *             replace and clear the path. */
+static void apply_order(int team, const uint8_t *mask, int tx, int ty, int wpmode){
     if (!tin(tx, ty)) return;
     int t = tidx(tx, ty);
     float wx = tx * TILE + 4.0f, wy = ty * TILE + 4.0f;
@@ -2405,20 +2456,35 @@ static void apply_order(int team, const uint8_t *mask, int tx, int ty){
     int16_t tgt = -1;
     for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == foe){
         float dx = un[i].x - wx, dy = un[i].y - wy;
-        if (dx * dx + dy * dy < 25){ tgt = i; break; }
+        if (dx * dx + dy * dy < 25){
+            if (!mp_active && !tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3))) continue;
+            tgt = i; break;
+        }
     }
-    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == foe) tgt = -(bmap[t] + 2);
+    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == foe
+        && (mp_active || (vism[t] & 2))) tgt = -(bmap[t] + 2);
     int movers[MAXU], nmov = 0;
     for (int i = 0; i < MAXU; i++){
         Unit *u = &un[i];
         if (!u->alive || u->team != team || !mp_bit(mask, i)) continue;
-        u->stuck = 0; u->slot = 0xFFFF;
-        if (tgt != -1 && UD[u->type].weapon){ u->order = O_ATK; u->tgt = tgt; u->dest = t; }
+        u->stuck = 0;
+        if (tgt != -1 && UD[u->type].weapon){
+            u->order = O_ATK; u->tgt = tgt; u->dest = t; u->slot = 0xFFFF; u->wpn = 0;
+        }
         else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
-            u->order = O_HARV; u->hstate = H_SEEK; u->oret = t;
+            u->order = O_HARV; u->hstate = H_SEEK; u->oret = t; u->slot = 0xFFFF; u->wpn = 0;
         } else if (u->type == U_HARV && bmap[t] != 0xFF && bl[bmap[t]].team == team && bl[bmap[t]].type == B_REF){
-            u->order = O_HARV; u->hstate = H_RET;
-        } else { u->order = O_MOVE; u->dest = t; u->tgt = -1; if (nmov < MAXU) movers[nmov++] = i; }
+            u->order = O_HARV; u->hstate = H_RET; u->slot = 0xFFFF; u->wpn = 0;
+        } else if (wpmode || u->wpn){
+            /* stack onto the path (dedupe repeats of the queue tail) */
+            int last = u->wpn ? (int)u->wp[u->wpn - 1] : -1;
+            if (last != t && u->wpn < 6) u->wp[u->wpn++] = (uint16_t)t;
+            if (u->order != O_MOVE && u->order != O_ATK)    /* idle: start walking */
+                wp_next(u);
+        } else {
+            u->order = O_MOVE; u->dest = t; u->tgt = -1; u->slot = 0xFFFF; u->wpn = 0;
+            if (nmov < MAXU) movers[nmov++] = i;
+        }
     }
     if (nmov > 1){
         uint16_t slots[MAXU];
@@ -2455,7 +2521,7 @@ static void apply_rally(int team, int bidx, int tx, int ty){
 }
 static void mp_apply_cmd(const MpCmd *c){
     switch (c->type){
-    case MPC_ORDER: apply_order(c->team, c->mask, c->a, c->b); break;
+    case MPC_ORDER: apply_order(c->team, c->mask, c->a, c->b, c->c); break;
     case MPC_QUEUE: apply_queue(c->team, c->a, c->b); break;
     case MPC_PLACE: apply_place(c->team, c->a, c->b, c->c); break;
     case MPC_RALLY: apply_rally(c->team, c->a | (c->b << 8), c->c, c->d); break;
@@ -2480,7 +2546,7 @@ static uint32_t mp_checksum(void){
     for (int i = 0; i < MAXU; i++) if (un[i].alive){
         MIX(i); MIX(un[i].type); MIX(un[i].team);
         MIX(f2u(un[i].x)); MIX(f2u(un[i].y)); MIX(un[i].hp);
-        MIX(un[i].order); MIX(un[i].hstate); MIX((uint16_t)un[i].tgt); MIX(un[i].dest);
+        MIX(un[i].order); MIX(un[i].hstate); MIX((uint16_t)un[i].tgt); MIX(un[i].dest); MIX(un[i].wpn);
     }
     for (int i = 0; i < MAXB; i++) if (bl[i].alive){ MIX(i); MIX(bl[i].type); MIX(bl[i].team); MIX(bl[i].hp); }
     MIX(credits[0]); MIX(credits[1]);
@@ -2545,72 +2611,27 @@ static void mp_poll(void){
     if (i > 0){ memmove(mp_rx, mp_rx + i, mp_rxn - i); mp_rxn -= i; }
 }
 
-static void cmd_at(float wx, float wy){
+static void cmd_at(float wx, float wy, int wpmode){
     int tx = (int)wx >> 3, ty = (int)wy >> 3;
     if (!tin(tx, ty)) return;
-    if (mp_active){                              /* MP: orders go through lockstep */
+    uint8_t mask[(MAXU + 7) / 8]; memset(mask, 0, sizeof mask);
+    int any = 0;
+    for (int i = 0; i < MAXU; i++)
+        if (un[i].alive && un[i].sel && un[i].team == MY_TEAM){ mp_bitset(mask, i); any = 1; }
+    if (!any) return;
+    /* local feedback only — the order itself is one shared deterministic path */
+    Part *pp = part(PK_RING, wx, wy);
+    if (pp){ pp->max = pp->life = 0.35f; pp->x2 = wpmode ? 3 : 5; }
+    sfx(&ack_sfx, wpmode ? 0.35f : 0.45f, 7, 0.06f);
+    if (wpmode) toastf("WAYPOINT SET");
+    if (mp_active){                              /* MP: via lockstep */
         MpCmd c; memset(&c, 0, sizeof c);
-        c.type = MPC_ORDER; c.a = (uint8_t)tx; c.b = (uint8_t)ty;
-        int any = 0;
-        for (int i = 0; i < MAXU; i++)
-            if (un[i].alive && un[i].sel && un[i].team == MY_TEAM){ mp_bitset(c.mask, i); any = 1; }
-        if (!any) return;
-        Part *pp = part(PK_RING, wx, wy); if (pp){ pp->max = pp->life = 0.35f; pp->x2 = 5; }
-        sfx(&ack_sfx, 0.45f, 7, 0.06f);
+        c.type = MPC_ORDER; c.a = (uint8_t)tx; c.b = (uint8_t)ty; c.c = (uint8_t)wpmode;
+        memcpy(c.mask, mask, sizeof c.mask);
         mp_issue(c);
         return;
     }
-    int t = tidx(tx, ty);
-    /* enemy unit under cursor? */
-    int16_t tgt = -1;
-    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == FOE_TEAM){
-        float dx = un[i].x - wx, dy = un[i].y - wy;
-        if (dx * dx + dy * dy < 25 && tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3))){ tgt = i; break; }
-    }
-    if (tgt == -1 && bmap[t] != 0xFF && bl[bmap[t]].team == FOE_TEAM && (vism[t] & 2))
-        tgt = -(bmap[t] + 2);
-    int any = 0;
-    int movers[64], nmov = 0;
-    for (int i = 0; i < MAXU; i++){
-        Unit *u = &un[i];
-        if (!u->alive || !u->sel) continue;
-        any = 1;
-        u->stuck = 0; u->slot = 0xFFFF;
-        if (tgt != -1 && UD[u->type].weapon){
-            u->order = O_ATK; u->tgt = tgt; u->dest = t;
-        } else if (u->type == U_HARV && (terr[t] == T_ORE || terr[t] == T_CRYS) && orea[t] > 0){
-            u->order = O_HARV; u->hstate = H_SEEK; u->oret = t;
-        } else if (u->type == U_HARV && bmap[t] != 0xFF
-                   && bl[bmap[t]].team == MY_TEAM && bl[bmap[t]].type == B_REF){
-            u->order = O_HARV; u->hstate = H_RET;    /* sent home: dump then resume */
-        } else {
-            u->order = O_MOVE; u->dest = t; u->tgt = -1;
-            if (nmov < 64) movers[nmov++] = i;
-        }
-    }
-    if (nmov > 1){
-        /* formation: spiral slots, nearest unit takes the innermost */
-        uint16_t slots[64];
-        form_slots(t, slots, nmov);
-        for (int k = 1; k < nmov; k++){          /* sort by distance to dest */
-            int id = movers[k], j = k - 1;
-            float dxk = un[id].x - wx, dyk = un[id].y - wy;
-            float dk = dxk * dxk + dyk * dyk;
-            while (j >= 0){
-                float dxj = un[movers[j]].x - wx, dyj = un[movers[j]].y - wy;
-                if (dxj * dxj + dyj * dyj <= dk) break;
-                movers[j + 1] = movers[j]; j--;
-            }
-            movers[j + 1] = id;
-        }
-        for (int k = 0; k < nmov; k++) un[movers[k]].slot = slots[k];
-    }
-    if (any){
-        /* move marker */
-        Part *p = part(PK_RING, wx, wy);
-        if (p){ p->max = p->life = 0.35f; p->x2 = tgt != -1 ? 4 : 5; }
-        sfx(&ack_sfx, tgt != -1 ? 0.5f : 0.4f, 7, 0.06f);
-    }
+    apply_order(MY_TEAM, mask, tx, ty, wpmode);
 }
 static void select_at(float wx, float wy){
     int found = -1;
@@ -2776,6 +2797,11 @@ static void input_play(float dt){
         return;
     }
 
+    /* ground double-tap = waypoint: same spot (±6px) within 0.45s */
+    static float wp_lt; static float wp_lx, wp_ly;
+    #define WP_TAP() (gtime - wp_lt < 0.45f && fabsf(curx - wp_lx) < 6 && fabsf(cury - wp_ly) < 6)
+    #define WP_MARK() do { wp_lt = gtime; wp_lx = curx; wp_ly = cury; } while (0)
+
     /* minimap click: while the radar map is up (RB held), A over the map issues
      * orders to the MAP location — or recenters the view if nothing is selected */
     int mm_show = rb_t > 0.001f && (m_free_radar || ((owned[MY_TEAM] & (1u << B_RADAR)) && power_ok(MY_TEAM)));
@@ -2783,7 +2809,7 @@ static void input_play(float dt){
         && curx >= 16 && curx < 16 + MW && cury >= 16 && cury < 16 + MH){
         int mtx = (int)curx - 16, mty = (int)cury - 16;
         if (tin(mtx, mty)){
-            if (sel_count()) cmd_at(mtx * TILE + 4.0f, mty * TILE + 4.0f);
+            if (sel_count()){ cmd_at(mtx * TILE + 4.0f, mty * TILE + 4.0f, WP_TAP()); WP_MARK(); }
             else {
                 camx = mtx * TILE - 64; camy = mty * TILE - 64;
                 if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
@@ -2830,7 +2856,7 @@ static void input_play(float dt){
             int tx = (int)wx >> 3, ty = (int)wy >> 3;
             int ownb = tin(tx, ty) && bmap[tidx(tx, ty)] != 0xFF && bl[bmap[tidx(tx, ty)]].team == MY_TEAM;
             if (own) select_at(wx, wy);
-            else if (sel_count()) { cmd_at(wx, wy); }
+            else if (sel_count()){ cmd_at(wx, wy, WP_TAP()); WP_MARK(); }
             else if (ownb) select_at(wx, wy);
             else if (bsel >= 0 && bl[bsel].alive){
                 /* set rally for production buildings */
