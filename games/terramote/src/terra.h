@@ -74,6 +74,7 @@ enum {
     I_POTION_HEAL, I_SUSPICIOUS_EYE, I_LIFE_CRYSTAL,
     I_GRAPPLE,                   /* append only — id maps 1:1 to its icon cell */
     I_TABLE, I_CHAIR, I_LANTERN, I_FIREPLACE, I_CHAIN,   /* SlipPixel furniture */
+#include "weapon_ids.inc"                                /* GENERATED weapon variants (gen_weapons.py) */
     I_COUNT
 };
 

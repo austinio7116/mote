@@ -519,18 +519,35 @@ def make_weapons():
                                 (i % WT_COLS) * 32 + 32, (i // WT_COLS) * 32 + 32))
     def sc(i): return small.crop(((i % WT_COLS) * 16, (i // WT_COLS) * 16,
                                   (i % WT_COLS) * 16 + 16, (i // WT_COLS) * 16 + 16))
+    # roster = 16 standard tiers (cells 0-15) + generated variants (cells 16..).
+    # each row: (weapons_big cell, tools_idx into weapons_*_tools, item icon-cell id)
+    roster = [(i, GAME_PICKS[i], ITEM_IDS.index(WEAPON_NAMES[i])) for i in range(len(GAME_PICKS))]
+    try:
+        import importlib, weapon_variants
+        importlib.reload(weapon_variants)
+        for suf, tools_idx, item_id, cell in weapon_variants.VARIANTS:
+            roster.append((cell, tools_idx, item_id))
+    except Exception as e:
+        print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
+    maxid = max(r[2] for r in roster)
+    # in-hand sheet: row0 right-facing, row1 mirrored
+    ncell = max(r[0] for r in roster) + 1
+    wb = Image.new("RGBA", (32 * ncell, 64), (0, 0, 0, 0))
+    # icon sheet, grown to hold every weapon's id cell (8 cols, 16px)
     items = Image.open(os.path.join(HERE, "items.png")).convert("RGBA")
-    wb = Image.new("RGBA", (32 * len(GAME_PICKS), 64), (0, 0, 0, 0))
-    for i, (name, ci) in enumerate(zip(WEAPON_NAMES, GAME_PICKS)):
-        idx = ITEM_IDS.index(name); ox, oy = (idx % 8) * 16, (idx // 8) * 16   # icon (16px)
-        items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
-        items.paste(sc(ci), (ox, oy), sc(ci))
-        c = bc(ci); wb.paste(c, (i * 32, 0), c)                                # in-hand (32px)
-        f = c.transpose(Image.FLIP_LEFT_RIGHT); wb.paste(f, (i * 32, 32), f)
+    need_h = ((maxid // 8) + 1) * 16
+    if items.height < need_h:
+        grown = Image.new("RGBA", (128, need_h), (0, 0, 0, 0)); grown.paste(items, (0, 0)); items = grown
+    for cell, tools_idx, item_id in roster:
+        c = bc(tools_idx); wb.paste(c, (cell * 32, 0), c)
+        f = c.transpose(Image.FLIP_LEFT_RIGHT); wb.paste(f, (cell * 32, 32), f)
+        ox, oy = (item_id % 8) * 16, (item_id // 8) * 16
+        s = sc(tools_idx); items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
+        items.paste(s, (ox, oy), s)
     rgb565ify(items).save(os.path.join(HERE, "items.png"))
     rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
     open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell 32 32\n")
-    print("[extract] patched %d icons + weapons_big.png (same cell = matching icon/in-hand)" % len(GAME_PICKS))
+    print("[extract] %d weapons: weapons_big.png (%d cells) + icons up to id %d" % (len(roster), ncell, maxid))
 
 # ------------------------------------------------------------------- hair ----
 def make_hair():

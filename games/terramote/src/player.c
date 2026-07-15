@@ -738,6 +738,7 @@ static int big_cell(uint8_t item) {
     case I_AXE_IRON: return 10;   case I_PICK_WOOD: return 11;
     case I_PICK_COPPER: return 12; case I_PICK_IRON: return 13;
     case I_PICK_GOLD: return 14;  case I_PICK_NIGHTMARE: return 15;
+#include "weapon_bigcell.inc"                             /* GENERATED weapon variants (cells 16..) */
     }
     return -1;
 }
