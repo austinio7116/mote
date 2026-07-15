@@ -8,7 +8,7 @@
 #include "hair.h"             /* hair_img: drawn styles, 12x10 cells */
 #include "player_meta.h"      /* generated per-frame head offsets */
 #include "items.h"            /* items_img: 16px icon grid (cell = item id) */
-#include "weapons_big.h"      /* weapons_big_img: 32px native in-hand sprites */
+#include "weapons_big.h"      /* weapons_big_img: 32px in-hand sprites (row0 right, row1 mirrored) */
 
 const MoteImage *g_items_sheet = &items_img;
 
@@ -321,6 +321,21 @@ static void toggle_door(int c, int r) {
     audio_sfx(SFX_DOOR, 1.0f);
 }
 
+/* one melee swing arc, applying the weapon's element/knockback/reach + lifesteal */
+static void melee_hit(uint8_t item, const ItemDef *def) {
+    const WeaponFx *fx = &g_wfx[item];
+    float cx = g_pl.x + g_pl.facing * 10.0f;
+    float kb = fx->knock ? (float)fx->knock : 130.0f;
+    float rr = (float)fx->reach;
+    int hits = npc_damage_at(cx, g_pl.y - 8.0f, 9.0f + rr, 11.0f + rr,
+                             def->damage, g_pl.facing * kb, fx->element);
+    if (hits && (fx->element == EL_BLOOD || fx->element == EL_DEMONIC) && g_pl.hp < g_pl.maxhp) {
+        int steal = 1 + def->damage / 8;
+        g_pl.hp += steal; if (g_pl.hp > g_pl.maxhp) g_pl.hp = g_pl.maxhp;
+        ftext_add(g_pl.x, g_pl.y - 24, steal, rgb(80, 220, 80));   /* lifesteal */
+    }
+}
+
 static void use_item(float dt) {
     const MoteInput *in = mote->input();
     Slot *held = &g_pl.inv[g_pl.hot];
@@ -347,6 +362,11 @@ static void use_item(float dt) {
     switch (def->kind) {
     case IK_PICK:
     case IK_AXE: {
+        if (def->kind == IK_AXE && g_pl.use_t <= 0) {    /* axes are weapons too: swing at enemies */
+            melee_hit(held->item, def);
+            g_pl.use_t = def->speed / 30.0f;
+            audio_sfx(SFX_SWING, 0.8f);
+        }
         const TileDef *td = &g_tiles[rt];
         int is_axe_tile = td->axe;
         if (rt == T_AIR || td->hardness == 0) { g_pl.mine_c = -1; break; }
@@ -391,8 +411,7 @@ static void use_item(float dt) {
         if (g_pl.use_t <= 0) {
             g_pl.use_t = def->speed / 30.0f;
             audio_sfx(SFX_SWING, 0.8f);
-            float cx = g_pl.x + g_pl.facing * 10.0f;
-            npc_damage_at(cx, g_pl.y - 8.0f, 9.0f, 11.0f, def->damage, g_pl.facing * 130.0f);
+            melee_hit(held->item, def);
         }
         break;
     case IK_BOW:
@@ -402,11 +421,19 @@ static void use_item(float dt) {
             g_pl.use_t = def->speed / 30.0f;
             inv_take(ammo, 1);
             float dx, dy; aim_dir(&dx, &dy);              /* fire along the crosshair */
-            float vx = dx * 195.0f;
-            float vy = dy * 195.0f + (fabsf(dy) < 0.02f ? -18.0f : 0.0f);
-            proj_add(ammo == I_ARROW_FLAME ? PR_ARROW_FLAME : PR_ARROW,
-                     g_pl.x + dx * 6, g_pl.y - 10, vx, vy,
-                     def->damage + g_items[ammo].damage, 0);
+            const WeaponFx *fx = &g_wfx[held->item];
+            int n = fx->nshot ? fx->nshot : 1;            /* multishot */
+            float base = atan2f(dy, dx);
+            float spr = (float)fx->spread * 3.14159f / 180.0f;
+            int admg = def->damage + g_items[ammo].damage;
+            uint8_t pk = ammo == I_ARROW_FLAME ? PR_ARROW_FLAME : PR_ARROW;
+            uint8_t el = ammo == I_ARROW_FLAME ? EL_FIRE : fx->element;
+            for (int s = 0; s < n; s++) {
+                float a = base + (n > 1 ? spr * ((float)s / (n - 1) - 0.5f) : 0.0f);
+                float vx = cosf(a) * 195.0f;
+                float vy = sinf(a) * 195.0f + (fabsf(dy) < 0.02f ? -18.0f : 0.0f);
+                proj_add(pk, g_pl.x + dx * 6, g_pl.y - 10, vx, vy, admg, 0, el);
+            }
             audio_sfx(SFX_SHOOT, 0.9f);
         }
         break;
@@ -729,7 +756,7 @@ void player_draw_swing(uint16_t *fb) {
     if (cell < 0 && kind != IK_PICK && kind != IK_AXE && kind != IK_SWORD && kind != IK_BOW) return;
     const MoteImage *img = cell >= 0 ? &weapons_big_img : &items_img;
     int right = g_pl.facing > 0;
-    int cs = cell >= 0 ? 32 : 16;
+    int cs = cell >= 0 ? 32 : 16;                        /* big in-hand sheet is 32px */
     int fx = cell >= 0 ? cell * 32 : (held->item % 8) * 16;
     int fy = cell >= 0 ? (right ? 0 : 32) : (held->item / 8) * 16;
     float sc = cell >= 0 ? 0.62f : 0.9f;

@@ -86,6 +86,16 @@ const ItemDef g_items[I_COUNT] = {
     [I_CHAIN]          = { "CHAIN",         IK_BLOCK, IC(I_CHAIN),     T_CHAIN,     0, 0, 99, 8 },
 };
 
+/* per-weapon combat properties (element / knockback / reach / multishot / spread).
+ * Anything unset is a plain weapon. */
+const WeaponFx g_wfx[I_COUNT] = {
+    [I_SWORD_GOLD]    = { EL_NONE,    150, 1, 0, 0 },
+    [I_SWORD_BANE]    = { EL_DEMONIC, 140, 1, 0, 0 },   /* lifesteal */
+    [I_SWORD_VOLCANO] = { EL_FIRE,    165, 2, 0, 0 },   /* burn DoT + big knockback + reach */
+    [I_BOW_GOLD]      = { EL_NONE,      0, 0, 2, 14 },  /* double shot */
+    [I_BOW_MOLTEN]    = { EL_FIRE,      0, 0, 3, 26 },  /* triple fire shot */
+};
+
 /* ---------------------------------------------------------------- tiles ----
  * solid: 0 pass, 1 solid, 2 one-way platform.
  * hardness: mine-time scale (0 = unbreakable). min_power: pick gate.

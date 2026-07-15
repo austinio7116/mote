@@ -139,10 +139,10 @@ static void drops_draw(void) {
 }
 
 /* ------------------------------------------------------------- projectiles ---- */
-void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile) {
+void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element) {
     for (int i = 0; i < MAX_PROJ; i++) {
         if (g_proj[i].kind) continue;
-        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, (int16_t)dmg, (uint8_t)hostile };
+        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, (int16_t)dmg, (uint8_t)hostile, element };
         return;
     }
 }
@@ -174,7 +174,8 @@ static void proj_tick(float dt) {
                 if (!en->kind) continue;
                 const EnemyDef *ed = &k_edef[en->kind];
                 if (fabsf(p->x - en->x) < ed->hw + 2 && fabsf(p->y - en->y) < ed->hh + 2) {
-                    npc_damage_at(en->x, en->y, 1, 1, p->dmg, p->vx > 0 ? 90.0f : -90.0f);
+                    npc_damage_at(en->x, en->y, 1, 1, p->dmg, p->vx > 0 ? 90.0f : -90.0f,
+                                  p->kind == PR_ARROW_FLAME ? EL_FIRE : p->element);
                     p->kind = PR_NONE;
                     break;
                 }
@@ -207,7 +208,7 @@ static int en_count(void) {
     return n;
 }
 
-int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx) {
+int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element) {
     int hits = 0;
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_en[i];
@@ -218,6 +219,15 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx) {
         e->hurt_t = 0.15f;
         ftext_add(e->x, e->y - d->hh - 6, dmg, rgb(255, 200, 90));
         if (e->kind != E_BOSS_EOC) { e->vx = kx; e->vy = -70.0f; }
+        /* on-hit elemental status */
+        switch (element) {
+        case EL_FIRE:   e->dot_t = 3.0f; e->dot_dps = 5 + dmg / 4; e->status_el = EL_FIRE;   break;
+        case EL_POISON: e->dot_t = 5.0f; e->dot_dps = 3 + dmg / 6; e->status_el = EL_POISON; break;
+        case EL_BLOOD:  e->dot_t = 2.5f; e->dot_dps = 4 + dmg / 5; e->status_el = EL_BLOOD;  break;
+        case EL_ICE:    e->slow_t = 2.5f; e->status_el = EL_ICE;    break;
+        case EL_NATURE: e->slow_t = 1.5f; e->status_el = EL_NATURE; break;
+        default: break;
+        }
         hits++;
         if (e->hp <= 0) {
             const EnemyDef *ed = d;
@@ -254,7 +264,7 @@ static void walker_phys(Enemy *e, const EnemyDef *d, float dt) {
     e->vy += 620.0f * dt;
     if (e->vy > 260) e->vy = 260;
     if (BG_LIQ(bg_at(px_c(e->x), (int)e->y / TILE)) >= 4 && e->kind != E_SLIME_LAVA) e->vy *= 0.92f;
-    float nx = e->x + e->vx * dt;
+    float nx = e->x + e->vx * dt * (e->slow_t > 0 ? 0.45f : 1.0f);   /* ice/nature slow */
     float edge = nx + (e->vx > 0 ? d->hw : -d->hw);
     if (!world_solid_px((int)edge, (int)(e->y + d->hh - 2)) &&
         !world_solid_px((int)edge, (int)(e->y - d->hh + 2)))
@@ -379,6 +389,23 @@ void npc_tick(float dt) {
         if (!e->kind) continue;
         const EnemyDef *d = &k_edef[e->kind];
         if (e->hurt_t > 0) e->hurt_t -= dt;
+        /* elemental status: damage-over-time in discrete ticks, slow decays */
+        if (e->dot_t > 0) {
+            float prev = e->dot_t; e->dot_t -= dt;
+            if (floorf(prev * 2.0f) != floorf(e->dot_t * 2.0f)) {   /* twice a second */
+                int dd = e->dot_dps / 2; if (dd < 1) dd = 1;
+                npc_damage_at(e->x, e->y, 0.1f, 0.1f, dd, 0, EL_NONE);
+                part_burst(e->x, e->y, e->status_el == EL_POISON ? rgb(120, 220, 80)
+                                     : e->status_el == EL_BLOOD ? rgb(200, 40, 60) : rgb(255, 140, 40), 2, 20);
+                if (!e->kind) continue;                              /* died to the tick */
+            }
+        }
+        if (e->slow_t > 0) {
+            e->slow_t -= dt;
+            if ((mote_rand() % 8) == 0)
+                part_burst(e->x, e->y, e->status_el == EL_NATURE ? rgb(120, 220, 80) : rgb(150, 220, 255), 1, 10);
+        }
+        if (e->dot_t <= 0 && e->slow_t <= 0) e->status_el = EL_NONE;
         float dx = g_pl.x - e->x, dy = (g_pl.y - 8) - e->y;
         float dist = sqrtf(dx * dx + dy * dy) + 0.01f;
 
@@ -473,7 +500,7 @@ void npc_tick(float dt) {
         /* lava hurts non-lava enemies */
         if (e->kind != E_SLIME_LAVA && e->kind != E_BOSS_EOC &&
             BG_IS_LAVA(bg_at(px_c(e->x), (int)e->y / TILE)) && BG_LIQ(bg_at(px_c(e->x), (int)e->y / TILE)) >= 3) {
-            npc_damage_at(e->x, e->y, 1, 1, 12, 0);
+            npc_damage_at(e->x, e->y, 1, 1, 12, 0, EL_NONE);
         }
     }
 }

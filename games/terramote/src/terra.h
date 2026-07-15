@@ -81,6 +81,9 @@ enum {
 enum { IK_NONE = 0, IK_BLOCK, IK_MATERIAL, IK_PICK, IK_AXE, IK_SWORD, IK_BOW,
        IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME, IK_GRAPPLE };
 
+/* weapon elements — drive on-hit status effects + hit tint */
+enum { EL_NONE = 0, EL_FIRE, EL_ICE, EL_POISON, EL_HOLY, EL_DEMONIC, EL_ARCANE, EL_BLOOD, EL_NATURE };
+
 typedef struct {
     const char *name;
     uint8_t  kind;
@@ -91,6 +94,18 @@ typedef struct {
     uint8_t  stack;       /* max stack (1 for tools) */
     uint8_t  speed;       /* use time in frames-ish (lower = faster) */
 } ItemDef;
+
+/* combat properties per weapon item (separate table so the ItemDef list stays
+ * readable). All zero = a plain weapon: no element, default knockback/reach,
+ * single shot. */
+typedef struct {
+    uint8_t element;      /* EL_* — on-hit status + tint (0 = none) */
+    uint8_t knock;        /* knockback strength (0 = default 130) */
+    uint8_t reach;        /* extra melee arc half-size in px (0 = default) */
+    uint8_t nshot;        /* ranged: projectiles per shot (0/1 = single) */
+    uint8_t spread;       /* ranged: fan spread in degrees across nshot */
+} WeaponFx;
+extern const WeaponFx g_wfx[I_COUNT];
 extern const ItemDef g_items[I_COUNT];
 
 /* pick power needed per tile (0 = any pick / by hand tool) */
@@ -155,6 +170,9 @@ typedef struct {
     float  x, y, vx, vy;
     int16_t hp;
     float  t, hurt_t;            /* ai timer, hurt flash */
+    float  dot_t, slow_t;        /* damage-over-time / slow status timers (s) */
+    int16_t dot_dps;             /* damage per second while dot_t > 0 */
+    uint8_t status_el;           /* EL_* driving the current status tint */
     int8_t  facing;
     uint8_t phase, on_ground;
     MoteAnimPlayer anim;
@@ -167,7 +185,7 @@ typedef struct { uint8_t item, count; float x, y, vx, vy, t; } Drop;
 extern Drop g_drops[MAX_DROPS];
 
 #define MAX_PROJ 12
-typedef struct { uint8_t kind; float x, y, vx, vy, t; int16_t dmg; uint8_t hostile; } Proj;
+typedef struct { uint8_t kind; float x, y, vx, vy, t; int16_t dmg; uint8_t hostile; uint8_t element; } Proj;
 enum { PR_NONE = 0, PR_ARROW, PR_ARROW_FLAME, PR_LASER };
 extern Proj g_proj[MAX_PROJ];
 
@@ -251,9 +269,9 @@ void npc_clear_mobs(void);
 void npc_tick(float dt);
 void npc_draw(void);
 void npc_spawn_boss(void);
-int  npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx); /* sword arc */
+int  npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element); /* sword arc */
 void drops_add(uint8_t item, int n, float x, float y);
-void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile);
+void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element);
 void part_burst(float x, float y, uint16_t col, int n, float speed);
 void ftext_add(float x, float y, int val, uint16_t col);
 

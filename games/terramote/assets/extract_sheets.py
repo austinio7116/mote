@@ -444,6 +444,94 @@ SWORD_VOLCANO BOW_WOOD BOW_GOLD BOW_MOLTEN ARROW ARROW_FLAME HELM_COPPER
 MAIL_COPPER LEGS_COPPER HELM_IRON MAIL_IRON LEGS_IRON HELM_GOLD MAIL_GOLD
 LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE""".split()
 
+# ---------------------------------------------------------- weapons/tools ----
+# Two developer-supplied sheets of weapon/tool art:
+#   sources_sheet2_weapons2.png     — small (16px) sprites, transparent bg
+#   sources_sheet2_weapons_big.png  — big  (32px) sprites, labelled, semi-transp
+#                                     dark cell backgrounds (bright pixels = art)
+# align_sheet() detects every sprite (merging stray fragments), drops the dark
+# grid/label pixels, and re-centres each into a clean grid -> weapons_tools.png
+# (16px) and weapons_big_tools.png (32px) — reusable indexed resources.
+# make_weapons() then picks the game tiers out of each: the small picks patch the
+# inventory icons in items.png; the big picks build the 32px in-hand weapons_big.png
+# (row0 right-facing / row1 mirrored, in player.c big_cell() order).
+WT_COLS = 12    # columns in the aligned resource grids (cell index == contact-sheet number)
+def extract_weapons_from_big():
+    """SINGLE SOURCE OF TRUTH: detect every sprite in the labelled big sheet
+    (dropping the dark grid, tier labels and headers), then build TWO aligned,
+    index-matched resources: weapons_big_tools.png (32px) and weapons_tools.png
+    (16px = each big sprite downscaled). Cell k is the SAME weapon in both, so a
+    game item that picks index k gets a matching icon + in-hand sprite."""
+    im = Image.open(os.path.join(HERE, "sources_sheet2_weapons_big.png")).convert("RGBA")
+    a = np.array(im); al = a[..., 3]; rgb = a[..., :3].astype(int)
+    mask = (al > 110) & (rgb.max(axis=2) > 70)
+    mask = ndimage.binary_closing(mask, structure=np.ones((2, 2)))
+    lab, _ = ndimage.label(mask, structure=np.ones((3, 3)))
+    comps = []
+    for i, s in enumerate(ndimage.find_objects(lab)):
+        if s is None: continue
+        h = s[0].stop - s[0].start; w = s[1].stop - s[1].start
+        if (lab[s] == i + 1).sum() < 50 or h < 13 or h > 40 or w > 40 or w > 2.4 * h: continue
+        if s[1].start < 16 or s[0].start < 108: continue     # drop left tier labels + title/headers
+        comps.append([s[1].start, s[0].start, s[1].stop, s[0].stop])
+    parent = list(range(len(comps)))
+    def find(x):
+        while parent[x] != x: parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    for i in range(len(comps)):                              # merge each weapon's fragments
+        for j in range(i + 1, len(comps)):
+            b1, b2 = comps[i], comps[j]
+            gx = max(0, max(b1[0], b2[0]) - min(b1[2], b2[2]))
+            gy = max(0, max(b1[1], b2[1]) - min(b1[3], b2[3]))
+            if gx <= 3 and gy <= 3 and (max(b1[2], b2[2]) - min(b1[0], b2[0])) <= 34 \
+               and (max(b1[3], b2[3]) - min(b1[1], b2[1])) <= 34:
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(len(comps)): groups.setdefault(find(i), []).append(comps[i])
+    weps = [(min(b[0] for b in g), min(b[1] for b in g),
+             max(b[2] for b in g), max(b[3] for b in g)) for g in groups.values()]
+    weps.sort(key=lambda b: (round(b[1] / 40), b[0]))        # reading order (stable numbering)
+    rows = (len(weps) + WT_COLS - 1) // WT_COLS
+    big = Image.new("RGBA", (WT_COLS * 32, rows * 32), (0, 0, 0, 0))
+    small = Image.new("RGBA", (WT_COLS * 16, rows * 16), (0, 0, 0, 0))
+    for k, (x0, y0, x1, y1) in enumerate(weps):
+        w, h = x1 - x0, y1 - y0
+        reg = a[y0:y1, x0:x1].copy(); reg[~mask[y0:y1, x0:x1]] = 0
+        cell = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+        cell.paste(Image.fromarray(reg), ((32 - w) // 2, (32 - h) // 2), Image.fromarray(reg))
+        big.paste(cell, ((k % WT_COLS) * 32, (k // WT_COLS) * 32))
+        small.paste(cell.resize((16, 16), Image.LANCZOS), ((k % WT_COLS) * 16, (k // WT_COLS) * 16))
+    big.save(os.path.join(HERE, "weapons_big_tools.png"))
+    small.save(os.path.join(HERE, "weapons_tools.png"))
+    print("[extract] weapons_big_tools.png + weapons_tools.png (%d weapons, 1:1)" % len(weps))
+    return big, small
+
+# game item -> weapons_*_tools.png cell index, in player.c big_cell() order.
+# PLACEHOLDERS until confirmed from the numbered contact sheet.
+WEAPON_NAMES = ["SWORD_WOOD", "SWORD_COPPER", "SWORD_IRON", "SWORD_GOLD", "SWORD_BANE",
+                "SWORD_VOLCANO", "BOW_WOOD", "BOW_GOLD", "BOW_MOLTEN", "AXE_WOOD", "AXE_IRON",
+                "PICK_WOOD", "PICK_COPPER", "PICK_IRON", "PICK_GOLD", "PICK_NIGHTMARE"]
+GAME_PICKS   = [0, 64, 1, 111, 5, 3, 6, 10, 8, 106, 108, 83, 44, 98, 86, 97]
+
+def make_weapons():
+    big, small = extract_weapons_from_big()
+    def bc(i): return big.crop(((i % WT_COLS) * 32, (i // WT_COLS) * 32,
+                                (i % WT_COLS) * 32 + 32, (i // WT_COLS) * 32 + 32))
+    def sc(i): return small.crop(((i % WT_COLS) * 16, (i // WT_COLS) * 16,
+                                  (i % WT_COLS) * 16 + 16, (i // WT_COLS) * 16 + 16))
+    items = Image.open(os.path.join(HERE, "items.png")).convert("RGBA")
+    wb = Image.new("RGBA", (32 * len(GAME_PICKS), 64), (0, 0, 0, 0))
+    for i, (name, ci) in enumerate(zip(WEAPON_NAMES, GAME_PICKS)):
+        idx = ITEM_IDS.index(name); ox, oy = (idx % 8) * 16, (idx // 8) * 16   # icon (16px)
+        items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
+        items.paste(sc(ci), (ox, oy), sc(ci))
+        c = bc(ci); wb.paste(c, (i * 32, 0), c)                                # in-hand (32px)
+        f = c.transpose(Image.FLIP_LEFT_RIGHT); wb.paste(f, (i * 32, 32), f)
+    rgb565ify(items).save(os.path.join(HERE, "items.png"))
+    rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
+    open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell 32 32\n")
+    print("[extract] patched %d icons + weapons_big.png (same cell = matching icon/in-hand)" % len(GAME_PICKS))
+
 # ------------------------------------------------------------------- hair ----
 def make_hair():
     """Hand-drawn hairstyles for the 12x16 player (head x3..7, y0..5, faces
@@ -550,6 +638,7 @@ if __name__ == "__main__":
     make_player(im, lab, boxes)
     make_enemies(im, lab, boxes)
     make_items(im, lab, boxes)
+    make_weapons()
     n = make_hair()
     print("done — hair styles:", n)
     _normalize_sheets()
