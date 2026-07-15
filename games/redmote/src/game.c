@@ -59,7 +59,7 @@
 
 MOTE_GAME_MODULE();
 MOTE_GAME_META("RedMote", "austinio7116");
-MOTE_GAME_VERSION("1.3.0");
+MOTE_GAME_VERSION("1.3.1");
 #ifdef MOTE_MODULE_BUILD
 #include "mote_module.h"
 MOTE_MODULE_HEADER();
@@ -1992,6 +1992,20 @@ static void draw_minimap(uint16_t *fb){
         if (!tin(tx, ty)) continue;
         if (un[i].team == FOE_TEAM && !tile_vis(tidx(tx, ty))) continue;
         fb[(oy + ty) * 128 + ox + tx] = un[i].team ? MOTE_RGB565(255, 90, 60) : MOTE_RGB565(150, 210, 255);
+    }
+    /* the selection's waypoint route, at map scale (1px = 1 tile) */
+    for (int i = 0; i < MAXU; i++){
+        Unit *u = &un[i];
+        if (!u->alive || !u->sel || u->team != MY_TEAM || !u->wpn) continue;
+        int px2 = ox + (u->order == O_MOVE ? u->dest % MW : (int)u->x >> 3);
+        int py2 = oy + (u->order == O_MOVE ? u->dest / MW : (int)u->y >> 3);
+        for (int k = 0; k < u->wpn; k++){
+            int nx2 = ox + u->wp[k] % MW, ny2 = oy + u->wp[k] / MW;
+            mote->draw_line(fb, px2, py2, nx2, ny2, MOTE_RGB565(150, 140, 70), 0, 128);
+            mote->draw_rect(fb, nx2 - 1, ny2 - 1, 3, 3, MOTE_RGB565(240, 220, 120), 0, 0, 128);
+            px2 = nx2; py2 = ny2;
+        }
+        break;
     }
     /* camera rect */
     int rx = ox + (int)camx / TILE, ry = oy + (int)camy / TILE;
