@@ -239,9 +239,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         /* directional shading: the flank facing the light (west) is lit, the
          * east face falls into shadow — read from the ridge line's slope —
          * plus faint diagonal contour streaks down the faces */
-        uint16_t lit = night ? rgb(30, 48, 56) : rgb(104, 152, 128);
-        uint16_t dk  = night ? rgb(6, 12, 16)  : rgb(38, 84, 66);
-        int haze = night ? 1 : 2;                        /* quarters of sky mixed in */
+        uint16_t lit = night ? rgb(30, 48, 56) : rgb(96, 138, 116);
+        uint16_t dk  = night ? rgb(6, 12, 16)  : rgb(34, 74, 60);
+        int haze = 1;                                    /* 25% sky — a TINT, not a wash */
         for (int x = 0; x < MOTE_FB_W; x++) {
             int real_bot = srow_px[x] - g_cam_y;
             int bot = real_bot > y1 ? y1 : real_bot;

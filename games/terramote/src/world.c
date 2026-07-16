@@ -707,7 +707,10 @@ void world_title_scene(void) {
          * behind the menu; the hills and trees carry the visual variety */
         int sr = 66;
         for (int r = sr; r < WROWS && r < sr + 40; r++) {
-            g_fgm[r * WCOLS + c] = (uint8_t)(r == sr ? T_GRASS : (r < sr + 12 ? T_DIRT : T_STONE));
+            /* T_DIRT surface like the REAL gen (grass_cap sprites add the
+             * green) — a T_GRASS tile row borders green on its BOTTOM edge
+             * too and made a second grass line above the dirt */
+            g_fgm[r * WCOLS + c] = (uint8_t)(r < sr + 12 ? T_DIRT : T_STONE);
             if (r > sr) set_bg_wall(c, r, r < sr + 12 ? W_DIRT : W_STONE);
         }
     }
