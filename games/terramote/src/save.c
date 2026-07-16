@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define SAVE_MAGIC   0x544D3031u   /* "TM01" */
+#define SAVE_MAGIC   0x544D3032u   /* "TM02" — MAX_CHESTS grew, old saves incompatible */
 #define BAND_ROWS    31            /* 8 bands x 31 rows = 248 */
 #define BANDS        8
 #define BAND_BYTES   (BAND_ROWS * WCOLS)

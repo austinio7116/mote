@@ -211,7 +211,7 @@ typedef struct { float x, y, t; int16_t val; uint16_t col; } FText;
 extern FText g_ftext[MAX_FTEXT];
 
 /* ---- chests ------------------------------------------------------------------ */
-#define MAX_CHESTS 24
+#define MAX_CHESTS 40   /* gen places ~26; the rest are the player's */
 #define CHEST_SLOTS 8
 typedef struct { int16_t c, r; Slot s[CHEST_SLOTS]; } Chest;   /* c<0 = free */
 extern Chest g_chests[MAX_CHESTS];
@@ -251,6 +251,8 @@ int  world_gen_step(void);            /* incremental gen; returns pct done (100 
 int  world_solid_px(int wx, int wy);  /* solid at world pixel (platforms excluded) */
 int  world_stand_px(int wx, int wy, float vy, float feet_y); /* incl. one-way platforms */
 void world_liquid_tick(void);
+void world_settle_liquids(void);      /* gen-time: run flow world-wide to rest */
+void world_title_scene(void);         /* build a real surface strip for the title */
 void world_grow_tick(void);           /* grass spread, saplings, flowers */
 int  world_surface_row(int c);        /* cached first-solid row per column */
 
