@@ -338,15 +338,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             int hn = hill_near[x], top = hn < y0 ? y0 : hn;
             float sl = hill_hf(x + 2, 1) - hill_hf(x - 2, 1);
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
-            for (int y = top; y < bot; y++) {        /* nearest layer: full colour */
-                uint16_t c2 = tone;
-                int mq = y >= hb - 6 ? 2 : y >= hb - 13 ? 1 : 0;   /* same global mist line */
-                if (mq) {
-                    uint16_t mist = mix565(skyrow[y], night ? rgb(70, 76, 92) : rgb(235, 238, 240), 2);
-                    c2 = mix565(c2, mist, mq);
-                }
-                fb[y * MOTE_FB_W + x] = c2;
-            }
+            for (int y = top; y < bot; y++)          /* nearest layer: full colour,
+                no mist — the haze belongs to the distant ranges only */
+                fb[y * MOTE_FB_W + x] = tone;
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
