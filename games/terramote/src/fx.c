@@ -155,16 +155,33 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, int q) {
 /* parallax hill height (screen px from a virtual horizon) for layer k.
  * k=0 far MOUNTAINS use ridged noise (sharp triangular peaks); k=1 near
  * hills stay smooth and rolling. */
-static float hill_hf(int sx, int k) {
-    float x = (g_cam_x * (k ? 0.32f : 0.14f) + sx) * (k ? 0.030f : 0.036f);
+static float ridge1(float x, int seed) {            /* 0..1 triangular ridges */
     int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
-    float a = (phash(xi * 2 + k * 977) & 0xFF) / 255.0f;
-    float b = (phash((xi + 1) * 2 + k * 977) & 0xFF) / 255.0f;
+    float a = (phash(xi * 2 + seed) & 0xFF) / 255.0f;
+    float b = (phash((xi + 1) * 2 + seed) & 0xFF) / 255.0f;
     float v = a + (b - a) * f;
-    if (!k) v = 1.0f - fabsf(2.0f * v - 1.0f);          /* ridged */
-    return v * (k ? 26 : 42);
+    return 1.0f - fabsf(2.0f * v - 1.0f);
 }
-static int hill_h(int sx, int k) { return (int)hill_hf(sx, k) + (k ? 4 : 0); }
+/* k: 0 = far-front mountains, 2 = far-back mountains (slower parallax,
+ * different seed), 1 = near rolling hills. Mountains are two ridged octaves
+ * so the silhouette is jagged, not a smooth wave. */
+static float hill_hf(int sx, int k) {
+    if (k == 1) {
+        float x = (g_cam_x * 0.32f + sx) * 0.030f;
+        int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
+        float a = (phash(xi * 2 + 977) & 0xFF) / 255.0f;
+        float b = (phash((xi + 1) * 2 + 977) & 0xFF) / 255.0f;
+        return (a + (b - a) * f) * 26.0f;
+    }
+    /* ONE long-wavelength ridge per range: each mountain is a single big
+     * triangle (one lit face, one shadowed face) so the tone changes only at
+     * summits — small-scale octaves flip the slope every few columns and
+     * shred the faces into vertical strips */
+    float px_ = g_cam_x * (k == 2 ? 0.10f : 0.14f) + sx;
+    if (k == 2) return ridge1(px_ * 0.013f, 4241) * 46.0f;
+    return ridge1(px_ * 0.016f, 0) * 42.0f;
+}
+static int hill_h(int sx, int k) { return (int)hill_hf(sx, k) + (k == 1 ? 4 : 0); }
 
 void fx_background(uint16_t *fb, int y0, int y1) {
     /* per-column precompute: terrain surface (world px) + hill lines in SCREEN
@@ -179,10 +196,12 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         if (s < hrow) hrow = s;
     }
     int hb = (int)((hrow * TILE - g_cam_y) * 0.45f) + 58;   /* hill base, screen y */
+    int16_t hill_back[MOTE_FB_W];
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
         srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
         hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
+        hill_back[x] = (int16_t)(hb - 16 - hill_h(x, 2));   /* back range peeks higher */
         hill_near[x] = (int16_t)(hb - hill_h(x, 1));
     }
     int night = IS_NIGHT();
@@ -235,24 +254,34 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             mote->draw_circle(fb, sx - 2, sy - 1, 3, rgb(188, 194, 214), 1, y0, y1);  /* crescent shade */
         }
     }
-    if (sky_visible) {                                   /* far mountains */
-        /* directional shading: the flank facing the light (west) is lit, the
-         * east face falls into shadow — read from the ridge line's slope —
-         * plus faint diagonal contour streaks down the faces */
+    if (sky_visible) {                                   /* far MASSIF: two ridges */
+        /* Natural mountain shapes need overlap: a BACK range (lighter, slower
+         * parallax) whose peaks poke above a FRONT range that cuts diagonally
+         * across it. Each flank is lit or shadowed from the CONTINUOUS noise
+         * slope (screen-height deltas staircase into stripes). */
         uint16_t lit = night ? rgb(30, 48, 56) : rgb(96, 138, 116);
         uint16_t dk  = night ? rgb(6, 12, 16)  : rgb(34, 74, 60);
-        int haze = 1;                                    /* 25% sky — a TINT, not a wash */
         for (int x = 0; x < MOTE_FB_W; x++) {
             int real_bot = srow_px[x] - g_cam_y;
             int bot = real_bot > y1 ? y1 : real_bot;
-            int hf = hill_far[x], top = hf < y0 ? y0 : hf;
-            /* slope from the CONTINUOUS noise — integer screen heights
-             * staircase and stripe the faces */
-            float sl = hill_hf(x + 2, 0) - hill_hf(x - 2, 0);
-            uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : far_c;
-            for (int y = top; y < bot; y++)          /* constant light tint — the
-                distance cue is PER-LAYER lightening, not a fog gradient */
-                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], haze);
+            int fl = hill_far[x], bl = hill_back[x];
+            int top = (fl < bl ? fl : bl); if (top < y0) top = y0;
+            float slf = hill_hf(x + 2, 0) - hill_hf(x - 2, 0);
+            float slb = hill_hf(x + 2, 2) - hill_hf(x - 2, 2);
+            uint16_t ft = slf >= 1.1f ? lit : slf <= -1.1f ? dk : far_c;
+            uint16_t bt = slb >= 1.1f ? lit : slb <= -1.1f ? dk : far_c;
+            for (int y = top; y < bot; y++) {
+                uint16_t c2;
+                if (y >= fl)      c2 = mix565(ft, skyrow[y], 1);   /* front range */
+                else if (y >= bl) c2 = mix565(bt, skyrow[y], 2);   /* back range: lighter */
+                else continue;                                      /* sky above both */
+                int d = real_bot - y;
+                if (d < 12) {                        /* translucent pale mist at the base */
+                    uint16_t mist = mix565(skyrow[y], night ? rgb(70, 76, 92) : rgb(235, 238, 240), 2);
+                    c2 = mix565(c2, mist, d < 6 ? 2 : 1);
+                }
+                fb[y * MOTE_FB_W + x] = c2;
+            }
         }
     }
     /* clouds: procedural puff clusters — every cloud its own shape, size,
@@ -291,8 +320,15 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             int hn = hill_near[x], top = hn < y0 ? y0 : hn;
             float sl = hill_hf(x + 2, 1) - hill_hf(x - 2, 1);
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
-            for (int y = top; y < bot; y++)          /* nearest layer: full colour */
-                fb[y * MOTE_FB_W + x] = tone;
+            for (int y = top; y < bot; y++) {        /* nearest layer: full colour */
+                uint16_t c2 = tone;
+                int d = real_bot - y;
+                if (d < 10) {                        /* same translucent mist at the base */
+                    uint16_t mist = mix565(skyrow[y], night ? rgb(70, 76, 92) : rgb(235, 238, 240), 2);
+                    c2 = mix565(c2, mist, d < 5 ? 2 : 1);
+                }
+                fb[y * MOTE_FB_W + x] = c2;
+            }
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */

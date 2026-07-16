@@ -105,7 +105,8 @@ int world_stand_px(int wx, int wy, float vy, float feet_y) {
     if (g_tiles[fg_at(wx / TILE, r)].solid == 2 && vy >= 0 &&
         feet_y <= (float)(r * TILE) + 2.0f)
         return 1;
-    return world_branch_stand(wx, wy, vy, feet_y);   /* tree branches hold you too */
+    if (world_branch_stand(wx, wy, vy, feet_y)) return 1;   /* tree branches hold you */
+    return world_canopy_stand(wx, wy, vy, feet_y);           /* ...and crown tops */
 }
 
 /* ----------------------------------------------------------------- chests ---- */
@@ -766,5 +767,21 @@ int world_canopy_px(int wx, int wy) {            /* inside a tree crown (grapple
             int x0 = c * TILE - 16, y0 = r * TILE - 20;
             if (wx >= x0 && wx < x0 + 40 && wy >= y0 && wy < y0 + 28) return 1;
         }
+    return 0;
+}
+
+int world_canopy_stand(int wx, int wy, float vy, float feet_y) {
+    /* stand on tree crowns: same tile-aligned platform rule as branches —
+     * the platform row is 2 tiles above the trunk top (crown sprite top is
+     * r*8-20; feet at (r-2)*8 stand just inside the leafy dome) */
+    if (vy < 0) return 0;
+    int r = wy / TILE;
+    if (feet_y > (float)(r * TILE) + 2.0f) return 0;
+    int rt = r + 2;                                  /* trunk-top row for this platform */
+    for (int c = (wx - 23) / TILE; c <= (wx + 16) / TILE; c++) {
+        if (fg_at(c, rt) != T_TRUNK || fg_at(c, rt - 1) == T_TRUNK) continue;
+        int x0 = c * TILE - 16;
+        if (wx >= x0 && wx < x0 + 40) return 1;
+    }
     return 0;
 }
