@@ -152,6 +152,22 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, int q) {
     return a;
 }
 
+/* soft translucent disc: 50% blend in the core, 25% at the feathered rim */
+static void soft_blob(uint16_t *fb, int cx, int cy, int r, uint16_t col, int y0, int y1) {
+    for (int y = cy - r; y <= cy + r; y++) {
+        if (y < y0 || y >= y1) continue;
+        for (int x = cx - r; x <= cx + r; x++) {
+            if ((unsigned)x >= MOTE_FB_W) continue;
+            int dx = x - cx, dy = y - cy;
+            int d2 = dx * dx + dy * dy;
+            if (d2 > r * r) continue;
+            int q = d2 > (r - 1) * (r - 1) ? 1 : 2;
+            uint16_t *p = &fb[y * MOTE_FB_W + x];
+            *p = mix565(*p, col, q);
+        }
+    }
+}
+
 /* parallax hill height (screen px from a virtual horizon) for layer k.
  * k=0 far MOUNTAINS use ridged noise (sharp triangular peaks); k=1 near
  * hills stay smooth and rolling. */
@@ -171,15 +187,15 @@ static float hill_hf(int sx, int k) {
         int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
         float a = (phash(xi * 2 + 977) & 0xFF) / 255.0f;
         float b = (phash((xi + 1) * 2 + 977) & 0xFF) / 255.0f;
-        return (a + (b - a) * f) * 26.0f;
+        return (a + (b - a) * f) * 14.0f;
     }
     /* ONE long-wavelength ridge per range: each mountain is a single big
      * triangle (one lit face, one shadowed face) so the tone changes only at
      * summits — small-scale octaves flip the slope every few columns and
      * shred the faces into vertical strips */
     float px_ = g_cam_x * (k == 2 ? 0.10f : 0.14f) + sx;
-    if (k == 2) return ridge1(px_ * 0.013f, 4241) * 46.0f;
-    return ridge1(px_ * 0.016f, 0) * 42.0f;
+    if (k == 2) return ridge1(px_ * 0.013f, 4241) * 30.0f;
+    return ridge1(px_ * 0.016f, 0) * 22.0f;
 }
 static int hill_h(int sx, int k) { return (int)hill_hf(sx, k) + (k == 1 ? 4 : 0); }
 
@@ -195,13 +211,13 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         int s = world_surface_row(c);
         if (s < hrow) hrow = s;
     }
-    int hb = (int)((hrow * TILE - g_cam_y) * 0.45f) + 58;   /* hill base, screen y */
+    int hb = (int)((hrow * TILE - g_cam_y) * 0.25f) + 66;   /* hill base, screen y */
     int16_t hill_back[MOTE_FB_W];
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
         srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
         hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
-        hill_back[x] = (int16_t)(hb - 16 - hill_h(x, 2));   /* back range peeks higher */
+        hill_back[x] = (int16_t)(hb - 12 - hill_h(x, 2));   /* back range peeks higher */
         hill_near[x] = (int16_t)(hb - hill_h(x, 1));
     }
     int night = IS_NIGHT();
@@ -275,10 +291,12 @@ void fx_background(uint16_t *fb, int y0, int y1) {
                 if (y >= fl)      c2 = mix565(ft, skyrow[y], 1);   /* front range */
                 else if (y >= bl) c2 = mix565(bt, skyrow[y], 2);   /* back range: lighter */
                 else continue;                                      /* sky above both */
-                int d = real_bot - y;
-                if (d < 12) {                        /* translucent pale mist at the base */
+                /* mist lives at a GLOBAL altitude (the horizon line), not at
+                 * the local terrain height */
+                int mq = y >= hb - 6 ? 2 : y >= hb - 13 ? 1 : 0;
+                if (mq) {
                     uint16_t mist = mix565(skyrow[y], night ? rgb(70, 76, 92) : rgb(235, 238, 240), 2);
-                    c2 = mix565(c2, mist, d < 6 ? 2 : 1);
+                    c2 = mix565(c2, mist, mq);
                 }
                 fb[y * MOTE_FB_W + x] = c2;
             }
@@ -292,22 +310,22 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         for (int k = 0; k < 7; k++) {
             uint32_t h = phash(k * 191 + 7);
             int span = MOTE_FB_W + 90;
-            float speed = 1.0f + ((h >> 4) & 3) * 0.4f;
+            float speed = 1.0f + ((h >> 4) & 3) * 0.2f;  /* gentle variance */
             int par = 5 + (int)((h >> 6) & 3);           /* x-parallax divisor 5..8 */
-            int sx = (int)(((h % 997) + (int)(t * 2600.0f * speed) - g_cam_x / par) % span);
+            int sx = (int)(((h % 997) + (int)(t * 850.0f * speed) - g_cam_x / par) % span);
             if (sx < 0) sx += span;
             sx -= 45;
             int sy = 13 + (int)((h >> 8) % 30);
             int R = 3 + (int)((h >> 14) & 3);            /* puff radius 3..6 */
             int puffs = 3 + (int)((h >> 12) & 3);        /* 3..6 puffs */
             int w = puffs * R + R;
-            mote->draw_rect(fb, sx - w / 2, sy, w, R > 4 ? 3 : 2, cd, 1, y0, y1);  /* flat shaded base */
-            for (int p = 0; p < puffs; p++) {
+            for (int p = 0; p < puffs; p++) {            /* soft translucent puffs */
                 uint32_t hp = phash(k * 331 + p * 61 + 11);
                 int px_ = sx - w / 2 + R + p * (w - 2 * R) / (puffs > 1 ? puffs - 1 : 1);
                 int mid = (p > 0 && p < puffs - 1) ? 1 : 0;   /* taller in the middle */
                 int r_ = R + mid - (int)((hp >> 3) & 1);
-                mote->draw_circle(fb, px_, sy - r_ / 2 - (int)(hp % 2), r_, cl, 1, y0, y1);
+                soft_blob(fb, px_, sy - r_ / 2 - (int)(hp % 2), r_, cl, y0, y1);
+                soft_blob(fb, px_, sy + 1, r_ - 1, cd, y0, y1);   /* shaded underside */
             }
         }
     }
@@ -322,10 +340,10 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
             for (int y = top; y < bot; y++) {        /* nearest layer: full colour */
                 uint16_t c2 = tone;
-                int d = real_bot - y;
-                if (d < 10) {                        /* same translucent mist at the base */
+                int mq = y >= hb - 6 ? 2 : y >= hb - 13 ? 1 : 0;   /* same global mist line */
+                if (mq) {
                     uint16_t mist = mix565(skyrow[y], night ? rgb(70, 76, 92) : rgb(235, 238, 240), 2);
-                    c2 = mix565(c2, mist, d < 5 ? 2 : 1);
+                    c2 = mix565(c2, mist, mq);
                 }
                 fb[y * MOTE_FB_W + x] = c2;
             }
