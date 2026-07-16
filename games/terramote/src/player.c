@@ -189,6 +189,17 @@ void craft_do(const Recipe *rc) {
     inv_add(rc->out, rc->out_n);
     audio_sfx(SFX_CRAFT, 1.0f);
 }
+/* how many times this recipe could be made right now (limited by ingredients) */
+int craft_max(const Recipe *rc) {
+    if (!((stations_near() >> rc->station) & 1)) return 0;
+    int m = 999;
+    for (int i = 0; i < 3; i++)
+        if (rc->in[i].item) {
+            int c = inv_count(rc->in[i].item) / rc->in[i].n;
+            if (c < m) m = c;
+        }
+    return m == 999 ? 0 : m;
+}
 
 /* --------------------------------------------------------------- physics ---- */
 #define P_HW    3.0f          /* half width  (7px box)  */
@@ -581,9 +592,10 @@ void player_tick(float dt) {
     if (s_heal_cd > 0) s_heal_cd -= dt;
     if (s_drop_t > 0) s_drop_t -= dt;
 
-    /* hotbar cycling */
-    if (mote_just_pressed(in, MOTE_BTN_LB)) {
-        g_pl.hot = (uint8_t)((g_pl.hot + 1) % HOTBAR);
+    /* hotbar select: LB steps left, RB steps right (fast item switching) */
+    int hstep = mote_just_pressed(in, MOTE_BTN_RB) - mote_just_pressed(in, MOTE_BTN_LB);
+    if (hstep) {
+        g_pl.hot = (uint8_t)((g_pl.hot + hstep + HOTBAR) % HOTBAR);
         audio_sfx(SFX_TICK, 0.5f);
         g_pl.mine_c = -1; g_pl.mine_t = 0;
     }

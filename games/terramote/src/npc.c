@@ -130,9 +130,9 @@ static void drops_draw(void) {
         Drop *d = &g_drops[i];
         if (!d->item) continue;
         MoteSprite spr = {
-            .img = g_items_sheet, .x = (int16_t)(d->x - 6), .y = (int16_t)(d->y - 6),
-            .fx = (uint16_t)((d->item % 8) * 12), .fy = (uint16_t)((d->item / 8) * 12),
-            .fw = 12, .fh = 12, .layer = 8, .flags = 0,
+            .img = g_items_sheet, .x = (int16_t)(d->x - 8), .y = (int16_t)(d->y - 8),
+            .fx = (uint16_t)((d->item % 8) * 16), .fy = (uint16_t)((d->item / 8) * 16),
+            .fw = 16, .fh = 16, .layer = 8, .flags = 0,   /* items.png is a 16px grid */
         };
         mote->scene2d_add(&spr);
     }

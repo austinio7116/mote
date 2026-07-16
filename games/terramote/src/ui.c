@@ -22,6 +22,7 @@ static uint8_t s_tab;          /* 0 items, 1 craft */
 static int   s_cur;            /* inventory cursor 0..31, 32..34 armor */
 static Slot  s_held;
 static int   s_craft_cur;
+static int   s_game_cur;       /* GAME tab cursor: resume / save / quit */
 static int   s_chest_cur;      /* 0..7 chest, 8..39 inventory */
 static int   s_title_cur;
 static int   s_create_cur;
@@ -43,6 +44,12 @@ static void icon(uint16_t *fb, int item, int x, int y) {
 static void slot_frame(uint16_t *fb, int x, int y, int sel) {
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(24, 22, 26), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, sel ? rgb(255, 220, 120) : rgb(105, 100, 92), 0, 0, MOTE_FB_H);
+}
+/* slots are 18px wide on a 15px grid pitch, so a later slot's fill overpaints
+ * the previous slot's right border — after drawing a group, re-stroke the
+ * SELECTED slot's outline on top so the highlight is never clipped */
+static void sel_restroke(uint16_t *fb, int x, int y) {
+    mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
 }
 static void slot_draw(uint16_t *fb, const Slot *s, int x, int y, int sel) {
     slot_frame(fb, x, y, sel);
@@ -143,15 +150,18 @@ void ui_inventory(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     int no_input = g_ui_fresh;
     mote_dim_box(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, 4);
-    /* tabs */
-    mote->text_font(fb, f, "ITEMS", 6, 2, s_tab == 0 ? rgb(255, 220, 120) : rgb(140, 135, 125));
-    mote->text_font(fb, f, "CRAFT", 52, 2, s_tab == 1 ? rgb(255, 220, 120) : rgb(140, 135, 125));
-    mote->text(fb, "LB", 106, 4, rgb(120, 115, 105));
-    if (!no_input && mote_just_pressed(in, MOTE_BTN_LB)) { s_tab ^= 1; audio_sfx(SFX_TICK, 0.5f); }
-    if (!no_input && (mote_just_pressed(in, MOTE_BTN_RB) || mote_just_pressed(in, MOTE_BTN_MENU))) {
-        if (s_held.item) { inv_add(s_held.item, s_held.count); s_held = (Slot){ 0, 0 }; }
-        g_state = GS_PLAY;
-        return;
+    /* tabs — opened with MENU; LB/RB switch tab; MENU closes back to play */
+    static const char *TABS[3] = { "ITEMS", "CRAFT", "GAME" };
+    for (int t = 0; t < 3; t++)
+        mote->text_font(fb, f, TABS[t], 6 + t * 40, 2, s_tab == t ? rgb(255, 220, 120) : rgb(140, 135, 125));
+    if (!no_input) {
+        if (mote_just_pressed(in, MOTE_BTN_LB)) { s_tab = (uint8_t)((s_tab + 2) % 3); audio_sfx(SFX_TICK, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_RB)) { s_tab = (uint8_t)((s_tab + 1) % 3); audio_sfx(SFX_TICK, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_MENU)) {
+            if (s_held.item) { inv_add(s_held.item, s_held.count); s_held = (Slot){ 0, 0 }; }
+            g_state = GS_PLAY;
+            return;
+        }
     }
 
     if (s_tab == 0) {
@@ -167,6 +177,9 @@ void ui_inventory(uint16_t *fb) {
             slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a);
             mote->text(fb, alab[a], x + 19, y + 6, rgb(150, 145, 135));
         }
+        /* unclipped highlight on top */
+        if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
+        else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 92);
         /* held stack rides the cursor */
         int cx, cy;
         if (s_cur < INV_SLOTS) inv_grid_xy(s_cur, &cx, &cy);
@@ -219,9 +232,9 @@ void ui_inventory(uint16_t *fb) {
         } else if (mote_just_pressed(in, MOTE_BTN_B)) {
             g_state = GS_PLAY;
         }
-    } else {
+    } else if (s_tab == 1) {
         /* craft tab */
-        const Recipe *list[64]; int n;
+        const Recipe *list[128]; int n;
         craft_list(list, &n);
         if (!n) mote->text_font(fb, f, "NO STATION NEARBY", 12, 50, rgb(200, 190, 170));
         if (s_craft_cur >= n) s_craft_cur = n ? n - 1 : 0;
@@ -235,6 +248,11 @@ void ui_inventory(uint16_t *fb) {
             icon(fb, rc->out, 2, y);
             mote->text_font(fb, f, g_items[rc->out].name, 21, y + 2,
                             can ? rgb(235, 230, 215) : rgb(120, 112, 104));
+            /* how many you can build now, right-aligned */
+            int cmax = craft_max(rc);
+            char cb[10]; snprintf(cb, 10, "x%d", cmax);
+            int cw = (int)strlen(cb) * 4;
+            mote->text(fb, cb, MOTE_FB_W - cw - 2, y + 2, cmax > 0 ? rgb(150, 225, 150) : rgb(150, 90, 84));
             /* ingredients: n x icon */
             int x = 21;
             int ty = y + 12;
@@ -260,6 +278,24 @@ void ui_inventory(uint16_t *fb) {
             else audio_sfx(SFX_TICK, 0.4f);
         }
         if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
+    } else {
+        /* GAME tab — resume / save / save + quit (folds in the old pause menu) */
+        static const char *GR[3] = { "RESUME", "SAVE WORLD", "SAVE + QUIT" };
+        for (int r = 0; r < 3; r++) {
+            int y = 40 + r * 18;
+            if (r == s_game_cur) mote->draw_rect(fb, 8, y - 2, MOTE_FB_W - 16, 15, rgb(40, 36, 48), 1, 0, MOTE_FB_H);
+            mote->text_font(fb, f, GR[r], 18, y, r == s_game_cur ? rgb(255, 255, 255) : rgb(170, 170, 185));
+        }
+        mote->text(fb, "UP/DOWN + A", 32, 104, rgb(120, 115, 105));
+        if (no_input) return;
+        if (mote_just_pressed(in, MOTE_BTN_UP))   s_game_cur = (s_game_cur + 2) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_game_cur = (s_game_cur + 1) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            if (s_game_cur == 0) g_state = GS_PLAY;
+            else if (s_game_cur == 1) { save_world(); ui_toast("WORLD SAVED"); g_state = GS_PLAY; }
+            else { save_world(); mote->exit_to_launcher(); }
+        }
     }
 }
 
@@ -275,6 +311,9 @@ void ui_chest(uint16_t *fb) {
         slot_draw(fb, &g_open_chest->s[i], 2 + i * 15, 16, s_chest_cur == i);
     for (int i = 0; i < INV_SLOTS; i++)
         slot_draw(fb, &g_pl.inv[i], 2 + (i % 8) * 15, 44 + (i / 8) * 18, s_chest_cur == CHEST_SLOTS + i);
+    /* unclipped highlight on top */
+    if (s_chest_cur < CHEST_SLOTS) sel_restroke(fb, 2 + s_chest_cur * 15, 16);
+    else { int i = s_chest_cur - CHEST_SLOTS; sel_restroke(fb, 2 + (i % 8) * 15, 44 + (i / 8) * 18); }
     mote->text_font(fb, f, "A MOVE   B CLOSE", 14, 116, rgb(160, 155, 145));
 
     if (no_input) return;

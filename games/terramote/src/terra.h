@@ -259,6 +259,7 @@ int  inv_add(uint8_t item, int n);    /* returns leftover */
 int  inv_count(uint8_t item);
 void inv_take(uint8_t item, int n);
 int  craft_can(const Recipe *rc);
+int  craft_max(const Recipe *rc);   /* how many could be crafted now */
 void craft_do(const Recipe *rc);
 int  stations_near(void);             /* ST_* bitmask within reach */
 void player_build_palette(void);      /* appearance -> RAM palette */

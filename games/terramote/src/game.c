@@ -325,8 +325,9 @@ static void play_tick(float dt) {
     if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_world(); ui_toast("AUTOSAVED"); }
 
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_RB)) { g_state = GS_INV; audio_sfx(SFX_TICK, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_MENU)) { g_state = GS_PAUSE; s_pause_row = 0; }
+    /* MENU opens the tabbed menu (Items / Craft / Game); LB+RB are the hotbar
+     * selectors during play (handled in player.c) */
+    if (mote_just_pressed(in, MOTE_BTN_MENU)) { g_state = GS_INV; audio_sfx(SFX_TICK, 0.6f); }
 }
 
 static void world_submit(void) {
