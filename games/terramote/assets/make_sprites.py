@@ -529,10 +529,16 @@ def make_items():
             c.rect(ox + 4, oy + 4, ox + 7, oy + 4, (94, 64, 38))
             c.px(ox + 5, oy + 3, (94, 64, 38)); c.px(ox + 5, oy + 9, (110, 80, 45)); continue
         if name == "GEL":
-            for y in range(5, 10):
-                for x in range(3, 9):
-                    if (x + y) % 7: c.px(ox + x, oy + y, (90, 200, 110))
-            c.px(ox + 4, oy + 6, (160, 240, 170)); continue
+            # a glossy gel mound: dark edge, jelly body, bright specular
+            GEL_D = (44, 140, 70); GEL_M = (90, 200, 110); GEL_L = (150, 235, 160)
+            blob = { 4: (5, 7), 5: (4, 8), 6: (3, 9), 7: (3, 9), 8: (3, 9), 9: (4, 8) }
+            for y, (x0, x1) in blob.items():
+                for x in range(x0, x1 + 1):
+                    edge = x in (x0, x1) or y == 9
+                    c.px(ox + x, oy + y, GEL_D if edge else GEL_M)
+            c.px(ox + 5, oy + 5, GEL_L); c.px(ox + 4, oy + 6, GEL_L)
+            c.px(ox + 5, oy + 6, GEL_L); c.px(ox + 7, oy + 7, GEL_D)
+            continue
         if name == "LENS":
             for y in range(3, 9):
                 for x in range(4, 8):
