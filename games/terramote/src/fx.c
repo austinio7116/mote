@@ -250,10 +250,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
              * staircase and stripe the faces */
             float sl = hill_hf(x + 2, 0) - hill_hf(x - 2, 0);
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : far_c;
-            for (int y = top; y < bot; y++) {
-                int q = haze + (real_bot - y < 16 ? (16 - (real_bot - y)) / 4 : 0);
-                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], q > 4 ? 4 : q);
-            }
+            for (int y = top; y < bot; y++)          /* constant light tint — the
+                distance cue is PER-LAYER lightening, not a fog gradient */
+                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], haze);
         }
     }
     /* clouds: procedural puff clusters — every cloud its own shape, size,
@@ -292,10 +291,8 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             int hn = hill_near[x], top = hn < y0 ? y0 : hn;
             float sl = hill_hf(x + 2, 1) - hill_hf(x - 2, 1);
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
-            for (int y = top; y < bot; y++) {
-                int q = 1 + (real_bot - y < 14 ? (14 - (real_bot - y)) / 3 : 0);
-                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], q > 4 ? 4 : q);
-            }
+            for (int y = top; y < bot; y++)          /* nearest layer: full colour */
+                fb[y * MOTE_FB_W + x] = tone;
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
