@@ -8,8 +8,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 import gen_weapons as G
 import weapon_variants as WV
 
-BIG = Image.open(os.path.join(HERE, "weapons_big_tools.png")).convert("RGBA")
-WT_COLS = 12
+BIG = Image.open(os.path.join(HERE, "weapons_big.png")).convert("RGBA")   # FINAL baked art (incl. overrides), 1 row of 32px cells
 EFFECT = {
     "fire":"Burn","poison":"Poison","blood":"Bleed + lifesteal","demonic":"Lifesteal",
     "ice":"Chill (slow)","nature":"Snare (slow)","holy":"—","arcane":"—","none":"—",
@@ -33,9 +32,8 @@ def family(kind, vtype):
         if pred(kind, vtype): return name
     return "Weapon"
 
-def sprite_uri(tools_idx):
-    c = BIG.crop(((tools_idx % WT_COLS) * 32, (tools_idx // WT_COLS) * 32,
-                  (tools_idx % WT_COLS) * 32 + 32, (tools_idx // WT_COLS) * 32 + 32))
+def sprite_uri(big_cell):
+    c = BIG.crop((big_cell * 32, 0, big_cell * 32 + 32, 32))   # row 0 = right-facing
     b = io.BytesIO(); c.save(b, "PNG")
     return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
 
@@ -45,11 +43,10 @@ def fmt_recipe(recipe):
     return STATION[st], " · ".join(parts)
 
 def main():
-    tools_of = {suf: ti for suf, ti, iid, cell in WV.VARIANTS}
     rows = []
     for vi, idx in enumerate(sorted(i for i in G.DATA if G.DATA[i][1] != "EXCLUDE")):
         vtype, kind, tier, name, elem, recipe = G.DATA[idx]
-        ti = WV.VARIANTS[vi][1]
+        ti = WV.VARIANTS[vi][3]        # this variant's cell in the baked weapons_big.png
         stn, ing = fmt_recipe(recipe)
         rows.append((name.title(), family(kind, vtype.lower()), EFFECT.get(elem,"—"),
                      G.stats(kind, tier, vtype, recipe)[0], tier, f"{stn}: {ing}" if ing else stn,

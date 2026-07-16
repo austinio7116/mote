@@ -513,6 +513,11 @@ WEAPON_NAMES = ["SWORD_WOOD", "SWORD_COPPER", "SWORD_IRON", "SWORD_GOLD", "SWORD
                 "PICK_WOOD", "PICK_COPPER", "PICK_IRON", "PICK_GOLD", "PICK_NIGHTMARE"]
 GAME_PICKS   = [0, 64, 1, 111, 5, 3, 6, 10, 8, 106, 108, 83, 44, 98, 86, 97]
 
+# per-variant sprite overrides: enum suffix -> (tools_idx to use, tint RGB or None).
+# COPPER_FANG: the boomerang art read badly — use the Bronze Edge sword (28)
+# retinted a redder copper.
+SPRITE_OVERRIDES = { "COPPER_FANG": (28, (206, 92, 50)) }
+
 def make_weapons():
     big, small = extract_weapons_from_big()
     def bc(i): return big.crop(((i % WT_COLS) * 32, (i // WT_COLS) * 32,
@@ -520,13 +525,14 @@ def make_weapons():
     def sc(i): return small.crop(((i % WT_COLS) * 16, (i // WT_COLS) * 16,
                                   (i % WT_COLS) * 16 + 16, (i // WT_COLS) * 16 + 16))
     # roster = 16 standard tiers (cells 0-15) + generated variants (cells 16..).
-    # each row: (weapons_big cell, tools_idx into weapons_*_tools, item icon-cell id)
-    roster = [(i, GAME_PICKS[i], ITEM_IDS.index(WEAPON_NAMES[i])) for i in range(len(GAME_PICKS))]
+    # each row: (weapons_big cell, tools_idx into weapons_*_tools, icon-cell id, tint)
+    roster = [(i, GAME_PICKS[i], ITEM_IDS.index(WEAPON_NAMES[i]), None) for i in range(len(GAME_PICKS))]
     try:
         import importlib, weapon_variants
         importlib.reload(weapon_variants)
         for suf, tools_idx, item_id, cell in weapon_variants.VARIANTS:
-            roster.append((cell, tools_idx, item_id))
+            ov = SPRITE_OVERRIDES.get(suf)
+            roster.append((cell, ov[0] if ov else tools_idx, item_id, ov[1] if ov else None))
     except Exception as e:
         print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
     maxid = max(r[2] for r in roster)
@@ -538,11 +544,13 @@ def make_weapons():
     need_h = ((maxid // 8) + 1) * 16
     if items.height < need_h:
         grown = Image.new("RGBA", (128, need_h), (0, 0, 0, 0)); grown.paste(items, (0, 0)); items = grown
-    for cell, tools_idx, item_id in roster:
-        c = bc(tools_idx); wb.paste(c, (cell * 32, 0), c)
+    for cell, tools_idx, item_id, tcol in roster:
+        c = bc(tools_idx); s = sc(tools_idx)
+        if tcol: c = tint(c, tcol); s = tint(s, tcol)
+        wb.paste(c, (cell * 32, 0), c)
         f = c.transpose(Image.FLIP_LEFT_RIGHT); wb.paste(f, (cell * 32, 32), f)
         ox, oy = (item_id % 8) * 16, (item_id // 8) * 16
-        s = sc(tools_idx); items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
+        items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
         items.paste(s, (ox, oy), s)
     rgb565ify(items).save(os.path.join(HERE, "items.png"))
     rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
