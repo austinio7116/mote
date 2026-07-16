@@ -272,6 +272,7 @@ void npc_tick(float dt);
 void npc_draw(void);
 void npc_spawn_boss(void);
 int  npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element); /* sword arc */
+uint16_t element_color(uint8_t el);   /* particle/FX colour for an EL_* */
 void drops_add(uint8_t item, int n, float x, float y);
 void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element);
 void part_burst(float x, float y, uint16_t col, int n, float speed);
@@ -282,6 +283,7 @@ void fx_init(void);
 void fx_background(uint16_t *fb, int y0, int y1);   /* set_background_cb target */
 void fx_light_update(void);                          /* rebuild light window (core0) */
 void fx_overlay_world(uint16_t *fb);                 /* liquids + darkness pass */
+void fx_draw_flames(uint16_t *fb);                   /* animated torch/furnace flames */
 uint8_t fx_light_at(int c, int r);                   /* 0..15 for spawn checks */
 
 /* ---- ui module (ui.c) ---------------------------------------------------------------- */

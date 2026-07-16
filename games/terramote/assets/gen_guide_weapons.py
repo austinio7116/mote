@@ -24,6 +24,15 @@ FAMILY = [
 ]
 STATION = {"ST_WORKBENCH":"Workbench","ST_FURNACE":"Furnace","ST_ANVIL":"Anvil","ST_ALTAR":"Demon Altar"}
 ING_NAME = {"I_HELL_BAR":"hellstone bar","I_MUSHROOM":"glowshroom"}
+
+# ingredient icons come from the game's items.png (cell index == item id)
+from extract_sheets import ITEM_IDS
+ITEMS_IMG = Image.open(os.path.join(HERE, "items.png")).convert("RGBA")
+def _icon_uri(item_name):
+    i = ITEM_IDS.index(item_name[2:] if item_name.startswith("I_") else item_name)
+    c = ITEMS_IMG.crop(((i % 8) * 16, (i // 8) * 16, (i % 8) * 16 + 16, (i // 8) * 16 + 16))
+    b = io.BytesIO(); c.save(b, "PNG")
+    return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
 TORDER = {"early":0,"prehard":1,"hard":2,"end":3}
 TIER_LABEL = {"early":"Early","prehard":"Pre-hard","hard":"Hardmode","end":"Endgame"}
 
@@ -34,13 +43,23 @@ def family(kind, vtype):
 
 def sprite_uri(big_cell):
     c = BIG.crop((big_cell * 32, 0, big_cell * 32 + 32, 32))   # row 0 = right-facing
-    b = io.BytesIO(); c.save(b, "PNG")
+    import numpy as np
+    a = np.array(c.convert("RGBA"))
+    key = (a[..., 0] >= 248) & (a[..., 1] < 8) & (a[..., 2] >= 248)   # magenta colour-key
+    a[key, 3] = 0
+    b = io.BytesIO(); Image.fromarray(a).save(b, "PNG")
     return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
 
+USED_INGS = set()
 def fmt_recipe(recipe):
+    """station name + icon-rich HTML: <icon> xN per ingredient (name in title=)"""
     st, ings = G.parse_recipe(recipe)
-    parts = [f"{n} {ING_NAME.get(iid, iid[2:].lower().replace('_',' '))}" for iid, n in ings]
-    return STATION[st], " · ".join(parts)
+    spans = []
+    for iid, n in ings:
+        USED_INGS.add(iid)
+        nm = ING_NAME.get(iid, iid[2:].lower().replace('_', ' '))
+        spans.append(f'<span class="ig g-{iid[2:].lower()}" title="{nm}"></span>{n}')
+    return STATION[st], " ".join(spans)
 
 def main():
     rows = []
@@ -59,6 +78,9 @@ def main():
         'background:rgba(128,128,128,.14);border-radius:4px}',
         '    #arsenal td.sp{width:40px;padding:2px 4px}',
         '    #arsenal .tier{font-size:.72em;letter-spacing:.06em;text-transform:uppercase;opacity:.7}',
+        '    #arsenal .ig{width:18px;height:18px;display:inline-block;vertical-align:middle;'
+        'image-rendering:pixelated;background-size:cover;margin:0 1px 0 6px}',
+        '__ING_STYLES__',
         '  </style>',
         '  <p class="eyebrow">09 — The Arsenal</p>',
         '  <h2>Weapon Codex</h2>',
@@ -76,9 +98,13 @@ def main():
             f'        <tr><td class="sp"><img class="ws" alt="{html.escape(name)}" src="{uri}"></td>'
             f'<td class="item">{html.escape(name)}</td><td>{fam}</td><td>{eff}</td>'
             f'<td class="r">{dmg}</td><td class="tier">{TIER_LABEL[tier]}</td>'
-            f'<td class="want">{html.escape(rec)}</td></tr>')
+            f'<td class="want">{rec}</td></tr>')
     out += ['      </tbody>', '    </table>', '  </div>', '</section>', '']
-    open(os.path.join(HERE, "guide_arsenal.html"), "w").write("\n".join(out))
+    frag = "\n".join(out)
+    ing_css = "\n".join("    #arsenal .g-%s{background-image:url(%s)}" % (iid[2:].lower(), _icon_uri(iid))
+                        for iid in sorted(USED_INGS))
+    frag = frag.replace("__ING_STYLES__", ing_css)      # placeholder sits inside the <style> block
+    open(os.path.join(HERE, "guide_arsenal.html"), "w").write(frag)
     print("[guide] single-table codex with sprites: %d weapons -> assets/guide_arsenal.html" % len(rows))
 
 if __name__ == "__main__":

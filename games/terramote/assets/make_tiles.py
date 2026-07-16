@@ -663,7 +663,25 @@ def make_canopy():
     LEAF = (46, 126, 50); LDARK = (30, 92, 38); LDK2 = (22, 70, 30)
     LLITE = (96, 176, 66); LSUN = (140, 210, 90)
     W, H = 40, 28
-    img = Image.new("RGBA", (W * 4, H), (0, 0, 0, 0))
+    img = Image.new("RGBA", (W * 5, H), (0, 0, 0, 0))
+
+    def dead_crown(ox, rng):
+        """corruption: a bare, gnarled crown — crooked branches, no foliage"""
+        BARK = (96, 74, 104); BDARK = (64, 48, 74)
+        def limb(x, y, ang, ln, w):
+            for s in range(ln):
+                fx = x + _m.cos(ang) * s; fy = y - _m.sin(ang) * s
+                for d in range(w):
+                    px_, py_ = int(fx), int(fy - d)
+                    if 0 <= px_ < W and 0 <= py_ < H:
+                        img.putpixel((ox + px_, py_), rgb565_snap(BARK if d == 0 else BDARK) + (255,))
+                if ln > 5 and s == ln // 2 and w > 1:
+                    limb(int(fx), int(fy), ang + rng.uniform(0.5, 0.9) * (1 if rng.random() < 0.5 else -1),
+                         ln // 2, 1)
+        limb(20, H - 1, 1.5708, 12, 2)                       # main stem up
+        for k in range(4):                                    # crooked limbs
+            limb(20, H - 6 - k * 3, 1.5708 + rng.uniform(0.5, 1.1) * (1 if k & 1 else -1),
+                 7 + rng.randint(0, 4), 1)
 
     def crown(ox, rng, snowy=False):
         blobs = [(20, 11, 11), (11, 15, 8), (29, 15, 8), (15, 7, 7), (26, 7, 7),
@@ -711,10 +729,11 @@ def make_canopy():
     for v in range(3):
         crown(v * W, random.Random(9100 + v * 37))
     crown(3 * W, random.Random(9400), snowy=True)
+    dead_crown(4 * W, random.Random(9700))
     img.save(os.path.join(HERE, "canopy.png"))
     with open(os.path.join(HERE, "canopy.sheet"), "w") as f:
         f.write("cell %d %d\n" % (W, H))
-    print("[tiles] canopy.png (3 leafy + 1 snowy)")
+    print("[tiles] canopy.png (3 leafy + 1 snowy + 1 dead)")
 
     # branches: 16x12 cells — 0 left small, 1 right small, 2 left full, 3 right full.
     # Solid 2px limbs growing off the trunk with a leaf tuft at every tip

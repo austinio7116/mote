@@ -341,6 +341,9 @@ static void toggle_door(int c, int r) {
 static void melee_hit(uint8_t item, const ItemDef *def) {
     const WeaponFx *fx = &g_wfx[item];
     float cx = g_pl.x + g_pl.facing * 10.0f;
+    /* the element shows on every swing, hit or miss */
+    if (fx->element)
+        part_burst(cx + g_pl.facing * 2.0f, g_pl.y - 10.0f, element_color(fx->element), 2, 32);
     float kb = fx->knock ? (float)fx->knock : 130.0f;
     float rr = (float)fx->reach;
     int hits = npc_damage_at(cx, g_pl.y - 8.0f, 9.0f + rr, 11.0f + rr,

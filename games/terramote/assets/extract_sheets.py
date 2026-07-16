@@ -23,6 +23,7 @@ from PIL import Image
 from scipy import ndimage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+SRCD = os.path.join(os.path.dirname(HERE), "art_sources")   # source sheets + aligned grids (NOT baked)
 HEAD_CX, HEAD_CY = 8.0, 7.0    # measured from player.png cell 0 (make_player)
 
 # ---- reserved palette (must match make_sprites.py / player.c) --------------
@@ -39,7 +40,7 @@ def snap(c):
 
 # ------------------------------------------------------------- sheet1 comps --
 def sheet1_components():
-    im = Image.open(os.path.join(HERE, "sources_sheet1.png")).convert("RGB")
+    im = Image.open(os.path.join(SRCD, "sources_sheet1.png")).convert("RGB")
     a = np.array(im).astype(int)
     lum = a.mean(axis=2)
     spread = a.max(axis=2) - a.min(axis=2)
@@ -349,7 +350,7 @@ def make_items(im, lab, boxes):
         sheet.paste(Image.new("RGBA", (CS, CS), (0, 0, 0, 0)), (ox, oy))
         sheet.paste(cell, (ox, oy), cell)
 
-    im2 = Image.open(os.path.join(HERE, "sources_sheet2_weapons.png")).convert("RGB")
+    im2 = Image.open(os.path.join(SRCD, "sources_sheet2_weapons.png")).convert("RGB")
     sprites = {name: grid_sprite(im2, box) for name, box in S2.items()}
     pits = []
     for name, (a, m) in sprites.items():
@@ -401,7 +402,7 @@ def make_items(im, lab, boxes):
 
     # sheet1 furniture / misc (contiguous sprites): depixelated 16px icons
     for name, k in (("CHEST", 124), ("TORCH", 126), ("PLATFORM", 127), ("DOOR", 137),
-                    ("ANVIL", 139), ("WORKBENCH", 140), ("COIN", 141),
+                    ("ANVIL", 139), ("WORKBENCH", 140),
                     ("POTION_HEAL", 150), ("SUSPICIOUS_EYE", 151)):
         put(name, fit_cell(s1_art(k), CS))
 
@@ -415,6 +416,24 @@ def make_items(im, lab, boxes):
         put(name, fit_cell(greaves if col is None else tint(greaves, col), CS))
     lc = s1_art(123)
     put("LIFE_CRYSTAL", fit_cell(tint(lc, (235, 70, 100)), CS))
+
+    # a clean hand-drawn gold coin (the sheet1 extraction was an ugly blob)
+    coin = Image.new("RGBA", (CS, CS), (0, 0, 0, 0))
+    GOLD = (236, 190, 48); HI = (255, 240, 150); SH = (176, 128, 22); RIM = (120, 84, 12)
+    cx0, cy0, R = 7.5, 7.5, 6.2
+    for y in range(CS):
+        for x in range(CS):
+            d2 = (x - cx0) ** 2 + (y - cy0) ** 2
+            if d2 > R * R: continue
+            if d2 > (R - 1.2) ** 2: col = RIM                       # rim
+            elif d2 > (R - 2.4) ** 2: col = SH if (x > cx0 or y > cy0) else GOLD
+            else: col = GOLD
+            coin.putpixel((x, y), col + (255,))
+    for dx, dy in ((-2, -3), (-1, -3), (-3, -2), (-3, -1), (-2, -2)):  # top-left sheen
+        coin.putpixel((int(cx0 + dx), int(cy0 + dy)), HI + (255,))
+    for y in range(4, 12):                                             # embossed bar
+        coin.putpixel((7, y), SH + (255,)); coin.putpixel((8, y), HI + (255,))
+    put("COIN", coin)
     put("DEMONITE_ORE", fit_cell(lc, CS))
 
     sheet.save(items_path)
@@ -442,7 +461,8 @@ DEMONITE_BAR HELL_BAR PICK_WOOD PICK_COPPER PICK_IRON PICK_GOLD PICK_NIGHTMARE
 AXE_WOOD AXE_IRON SWORD_WOOD SWORD_COPPER SWORD_IRON SWORD_GOLD SWORD_BANE
 SWORD_VOLCANO BOW_WOOD BOW_GOLD BOW_MOLTEN ARROW ARROW_FLAME HELM_COPPER
 MAIL_COPPER LEGS_COPPER HELM_IRON MAIL_IRON LEGS_IRON HELM_GOLD MAIL_GOLD
-LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE""".split()
+LEGS_GOLD HELM_MOLTEN MAIL_MOLTEN LEGS_MOLTEN POTION_HEAL SUSPICIOUS_EYE LIFE_CRYSTAL GRAPPLE
+TABLE CHAIR LANTERN FIREPLACE CHAIN""".split()
 
 # ---------------------------------------------------------- weapons/tools ----
 # Two developer-supplied sheets of weapon/tool art:
@@ -462,7 +482,7 @@ def extract_weapons_from_big():
     index-matched resources: weapons_big_tools.png (32px) and weapons_tools.png
     (16px = each big sprite downscaled). Cell k is the SAME weapon in both, so a
     game item that picks index k gets a matching icon + in-hand sprite."""
-    im = Image.open(os.path.join(HERE, "sources_sheet2_weapons_big.png")).convert("RGBA")
+    im = Image.open(os.path.join(SRCD, "sources_sheet2_weapons_big.png")).convert("RGBA")
     a = np.array(im); al = a[..., 3]; rgb = a[..., :3].astype(int)
     mask = (al > 110) & (rgb.max(axis=2) > 70)
     mask = ndimage.binary_closing(mask, structure=np.ones((2, 2)))
@@ -501,8 +521,8 @@ def extract_weapons_from_big():
         cell.paste(Image.fromarray(reg), ((32 - w) // 2, (32 - h) // 2), Image.fromarray(reg))
         big.paste(cell, ((k % WT_COLS) * 32, (k // WT_COLS) * 32))
         small.paste(cell.resize((16, 16), Image.LANCZOS), ((k % WT_COLS) * 16, (k // WT_COLS) * 16))
-    big.save(os.path.join(HERE, "weapons_big_tools.png"))
-    small.save(os.path.join(HERE, "weapons_tools.png"))
+    big.save(os.path.join(SRCD, "weapons_big_tools.png"))
+    small.save(os.path.join(SRCD, "weapons_tools.png"))
     print("[extract] weapons_big_tools.png + weapons_tools.png (%d weapons, 1:1)" % len(weps))
     return big, small
 
@@ -553,7 +573,13 @@ def make_weapons():
         items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
         items.paste(s, (ox, oy), s)
     rgb565ify(items).save(os.path.join(HERE, "items.png"))
-    rgb565ify(wb).save(os.path.join(HERE, "weapons_big.png"))
+    # quantize the big in-hand sheet to <=256 colours so `mote bake` emits it
+    # 8bpp palette-indexed — HALF the flash of RGB565 (it's ~half the .mote)
+    flat = Image.new("RGBA", wb.size, (255, 0, 255, 255)); flat.alpha_composite(wb)
+    q = np.array(flat.convert("RGB").quantize(colors=254).convert("RGB"))
+    alpha = np.where(np.array(wb)[..., 3] < 128, 0, 255).astype(np.uint8)
+    out = np.dstack([q, alpha])                               # alpha carries the key
+    Image.fromarray(out, "RGBA").save(os.path.join(HERE, "weapons_big.png"))
     open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell 32 32\n")
     print("[extract] %d weapons: weapons_big.png (%d cells) + icons up to id %d" % (len(roster), ncell, maxid))
 
