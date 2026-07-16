@@ -448,13 +448,15 @@ static void g_overlay(uint16_t *fb) {
     }
     default: break;
     }
-    /* world states: flames + swing + projectiles under water/darkness */
+    /* world states: flames, then particles BEHIND the held weapon, then the
+     * swing + projectiles, darkness, and damage text on top */
     fx_draw_flames(fb);
     player_draw_rope(fb);
+    fx_draw_particles(fb);
     player_draw_swing(fb);
     proj_draw(fb);
     fx_overlay_world(fb);
-    fx_draw_particles(fb);
+    fx_draw_ftext(fb);
     switch (g_state) {
     case GS_PLAY:  ui_hud(fb); break;
     case GS_INV:   ui_inventory(fb); break;
