@@ -23,6 +23,8 @@ static int   s_cur;            /* inventory cursor 0..31, 32..34 armor */
 static Slot  s_held;
 static int   s_craft_cur;
 static int   s_game_cur;       /* GAME tab cursor: resume / save / quit */
+static uint8_t s_inv_cat;      /* ITEMS tab filter: 0 ALL + item_cat categories */
+static uint8_t s_inv_on_pager; /* cursor is up on the filter pager row */
 static int   s_chest_cur;      /* 0..7 chest, 8..39 inventory */
 static int   s_title_cur;
 static int   s_create_cur;
@@ -135,7 +137,32 @@ void ui_hud(uint16_t *fb) {
 /* --------------------------------------------------------------- inventory -- */
 static void inv_grid_xy(int i, int *x, int *y) {
     *x = 2 + (i % 8) * 15;
-    *y = 16 + (i / 8) * 18;
+    *y = 24 + (i / 8) * 18;
+}
+
+/* ---- menu chrome: icon tabs + a category pager ------------------------------ */
+static void draw_menu_tabs(uint16_t *fb, int sel) {
+    static const struct { const char *label; uint8_t icon; } TB[3] = {
+        { "ITEMS", I_CHEST }, { "CRAFT", I_ANVIL }, { "GAME", I_DOOR },
+    };
+    mote->draw_rect(fb, 0, 0, MOTE_FB_W, 13, rgb(14, 13, 20), 1, 0, MOTE_FB_H);   /* bar bg */
+    for (int t = 0; t < 3; t++) {
+        int x = 2 + t * 42, w = 40, on = t == sel;
+        mote->draw_rect(fb, x, 1, w, 12, on ? rgb(52, 46, 66) : rgb(28, 26, 36), 1, 0, MOTE_FB_H);
+        mote->draw_rect(fb, x, 1, w, 12, on ? rgb(255, 220, 120) : rgb(80, 76, 92), 0, 0, MOTE_FB_H);
+        if (!on) mote->draw_rect(fb, x, 12, w, 1, rgb(255, 220, 120), 1, 0, MOTE_FB_H); /* seam under inactive */
+        /* 16px item icon, clipped into the 12px tab (top-aligned reads fine) */
+        mote->blit(fb, g_items_sheet, x + 1, 0, (TB[t].icon % 8) * ICS, (TB[t].icon / 8) * ICS,
+                   ICS, 13, 0, 0, MOTE_FB_H);
+        mote->text(fb, TB[t].label, x + 17, 4, on ? rgb(255, 235, 170) : rgb(140, 135, 130));
+    }
+    mote->draw_rect(fb, 0, 13, MOTE_FB_W, 1, rgb(255, 220, 120), 1, 0, MOTE_FB_H); /* panel top edge */
+}
+static void draw_cat_pager(uint16_t *fb, const char *name, int active) {
+    char b[24]; snprintf(b, 24, "< %s >", name);
+    int w = (int)strlen(b) * 4;
+    mote->text(fb, b, (MOTE_FB_W - w) / 2, 16,
+               active ? rgb(255, 255, 255) : rgb(255, 220, 120));
 }
 
 /* craft categories — with ~150 recipes the list needs paging by type */
@@ -173,10 +200,8 @@ void ui_inventory(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     int no_input = g_ui_fresh;
     mote_dim_box(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, 4);
-    /* tabs — opened with MENU; LB/RB switch tab; MENU closes back to play */
-    static const char *TABS[3] = { "ITEMS", "CRAFT", "GAME" };
-    for (int t = 0; t < 3; t++)
-        mote->text_font(fb, f, TABS[t], 6 + t * 40, 2, s_tab == t ? rgb(255, 220, 120) : rgb(140, 135, 125));
+    /* icon tabs — opened with MENU; LB/RB switch tab; MENU closes back to play */
+    draw_menu_tabs(fb, s_tab);
     if (!no_input) {
         if (mote_just_pressed(in, MOTE_BTN_LB)) { s_tab = (uint8_t)((s_tab + 2) % 3); audio_sfx(SFX_TICK, 0.5f); }
         if (mote_just_pressed(in, MOTE_BTN_RB)) { s_tab = (uint8_t)((s_tab + 1) % 3); audio_sfx(SFX_TICK, 0.5f); }
@@ -189,67 +214,86 @@ void ui_inventory(uint16_t *fb) {
 
     if (s_tab == 0) {
         /* 8x4 grid + 3 armor slots */
+        /* category pager (UP from the top row reaches it; LEFT/RIGHT cycles) */
+        draw_cat_pager(fb, k_cat_name[s_inv_cat], s_inv_on_pager);
         for (int i = 0; i < INV_SLOTS; i++) {
             int x, y; inv_grid_xy(i, &x, &y);
-            slot_draw(fb, &g_pl.inv[i], x, y, s_cur == i);
+            uint8_t it = g_pl.inv[i].item;
+            int match = !s_inv_cat || (it && item_cat(it) == (int)s_inv_cat);
+            if (match) slot_draw(fb, &g_pl.inv[i], x, y, s_cur == i && !s_inv_on_pager);
+            else {                                     /* filtered out: dark empty frame */
+                slot_frame(fb, x, y, 0);
+                mote->draw_rect(fb, x + 1, y + 1, ICS, ICS, rgb(14, 13, 16), 1, 0, MOTE_FB_H);
+            }
         }
         static const char *alab[3] = { "HELM", "MAIL", "LEGS" };
         for (int a = 0; a < 3; a++) {
-            int x = 8 + a * 32, y = 92;
+            int x = 8 + a * 32, y = 100;
             Slot as = { g_pl.armor[a], g_pl.armor[a] ? 1 : 0 };
-            slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a);
+            slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a && !s_inv_on_pager);
             mote->text(fb, alab[a], x + 19, y + 6, rgb(150, 145, 135));
         }
         /* drop slot: throw the held stack to the ground */
         {
             Slot none = { 0, 0 };
-            slot_draw(fb, &none, 104, 92, s_cur == INV_SLOTS + 3);
-            mote->text(fb, "X", 111, 98, rgb(210, 90, 80));
+            slot_draw(fb, &none, 104, 100, s_cur == INV_SLOTS + 3 && !s_inv_on_pager);
+            mote->text(fb, "X", 111, 106, rgb(210, 90, 80));
         }
         /* unclipped highlight on top */
-        if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
-        else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 92);
+        if (!s_inv_on_pager) {
+            if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
+            else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 100);
+        }
         /* held stack rides the cursor */
         int cx, cy;
         if (s_cur < INV_SLOTS) inv_grid_xy(s_cur, &cx, &cy);
-        else { cx = 8 + (s_cur - INV_SLOTS) * 32; cy = 92; }
+        else { cx = 8 + (s_cur - INV_SLOTS) * 32; cy = 100; }
         if (s_held.item) icon(fb, s_held.item, cx + 8, cy + 8);
-        /* hovered name + a stat line (damage/speed/element, defense, power) */
+        /* hovered item: one info line — name + stats */
         uint8_t hov = s_cur < INV_SLOTS ? g_pl.inv[s_cur].item
                     : s_cur < INV_SLOTS + 3 ? g_pl.armor[s_cur - INV_SLOTS] : 0;
         if (s_held.item) hov = s_held.item;
-        if (s_cur == INV_SLOTS + 3 && !hov)
-            mote->text_font(fb, f, "DROP (A = THROW)", 4, 112, rgb(200, 150, 140));
-        if (hov) {
+        if (s_cur == INV_SLOTS + 3 && !hov && !s_inv_on_pager)
+            mote->text(fb, "DROP: A THROWS THE HELD ITEM", 4, 121, rgb(200, 150, 140));
+        if (hov && !s_inv_on_pager) {
             const ItemDef *hd = &g_items[hov];
-            mote->text_font(fb, f, hd->name, 4, 112, rgb(235, 230, 215));
             static const char *eln[9] = { "", "BURN", "CHILL", "POISON", "HOLY",
                                           "LIFESTEAL", "ARCANE", "BLEED", "SNARE" };
-            char st[44] = "";
+            char st[64];
+            int n = snprintf(st, 64, "%s", hd->name);
             switch (hd->kind) {
             case IK_SWORD: case IK_BOW: case IK_AXE: {
                 const WeaponFx *wf = &g_wfx[hov];
-                snprintf(st, 44, "DMG %d  SPD %d%s%s%s", hd->damage, hd->speed,
-                         wf->nshot > 1 ? "  MULTI" : "",
-                         wf->element ? "  " : "", eln[wf->element]);
+                snprintf(st + n, 64 - n, "  DMG %d SPD %d%s%s%s", hd->damage, hd->speed,
+                         wf->nshot > 1 ? " MULTI" : "",
+                         wf->element ? " " : "", eln[wf->element]);
                 break; }
-            case IK_PICK:       snprintf(st, 44, "POWER %d  DMG %d", hd->power, hd->damage); break;
+            case IK_PICK:       snprintf(st + n, 64 - n, "  POWER %d DMG %d", hd->power, hd->damage); break;
             case IK_ARMOR_HEAD: case IK_ARMOR_BODY: case IK_ARMOR_LEGS:
-                                snprintf(st, 44, "DEFENSE %d", hd->power); break;
-            case IK_CONSUME:    if (hd->power) snprintf(st, 44, "HEALS %d", hd->power); break;
+                                snprintf(st + n, 64 - n, "  DEFENSE %d", hd->power); break;
+            case IK_CONSUME:    if (hd->power) snprintf(st + n, 64 - n, "  HEALS %d", hd->power); break;
             }
-            if (st[0]) mote->text(fb, st, 4, 122, rgb(170, 195, 165));
+            mote->text(fb, st, 4, 121, rgb(220, 225, 205));
         }
 
         /* navigation */
         if (no_input) return;
+        if (s_inv_on_pager) {
+            if (mote_just_pressed(in, MOTE_BTN_LEFT))  { s_inv_cat = (uint8_t)((s_inv_cat + 6) % 7); audio_sfx(SFX_TICK, 0.5f); }
+            if (mote_just_pressed(in, MOTE_BTN_RIGHT)) { s_inv_cat = (uint8_t)((s_inv_cat + 1) % 7); audio_sfx(SFX_TICK, 0.5f); }
+            if (mote_just_pressed(in, MOTE_BTN_DOWN) || mote_just_pressed(in, MOTE_BTN_A)) s_inv_on_pager = 0;
+            if (mote_just_pressed(in, MOTE_BTN_UP)) { s_inv_on_pager = 0; s_cur = INV_SLOTS; }  /* wrap to armor */
+            if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
+            return;
+        }
         int col = s_cur < INV_SLOTS ? s_cur % 8 : (s_cur - INV_SLOTS) * 2 + 1;
         int row = s_cur < INV_SLOTS ? s_cur / 8 : 4;
         if (mote_just_pressed(in, MOTE_BTN_LEFT))  col--;
         if (mote_just_pressed(in, MOTE_BTN_RIGHT)) col++;
         if (mote_just_pressed(in, MOTE_BTN_UP))    row--;
         if (mote_just_pressed(in, MOTE_BTN_DOWN))  row++;
-        if (row < 0) row = 4; if (row > 4) row = 0;
+        if (row < 0) { s_inv_on_pager = 1; return; }   /* up past the top row = the pager */
+        if (row > 4) row = 0;
         if (row == 4) { int a = col / 2; if (a < 0) a = 3; if (a > 3) a = 0; s_cur = INV_SLOTS + a; }   /* helm/mail/legs/drop */
         else { if (col < 0) col = 7; if (col > 7) col = 0; s_cur = row * 8 + col; }
 
@@ -294,11 +338,7 @@ void ui_inventory(uint16_t *fb) {
         /* craft tab: category pager on top, then the filtered list */
         const Recipe *list[CRAFT_MAX_LIST]; int n;
         craft_list(list, &n);
-        {
-            char cb[24]; snprintf(cb, 24, "< %s >", k_cat_name[s_craft_cat]);
-            int w = (int)strlen(cb) * 4;
-            mote->text(fb, cb, (MOTE_FB_W - w) / 2, 16, rgb(255, 220, 120));
-        }
+        draw_cat_pager(fb, k_cat_name[s_craft_cat], 0);
         if (!n) mote->text_font(fb, f, s_craft_cat ? "NOTHING HERE" : "NO STATION NEARBY", 12, 56, rgb(200, 190, 170));
         if (s_craft_cur >= n) s_craft_cur = n ? n - 1 : 0;
         int first = s_craft_cur > 3 ? s_craft_cur - 3 : 0;
