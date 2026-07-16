@@ -252,6 +252,8 @@ int  world_solid_px(int wx, int wy);  /* solid at world pixel (platforms exclude
 int  world_stand_px(int wx, int wy, float vy, float feet_y); /* incl. one-way platforms */
 void world_liquid_tick(void);
 void world_settle_liquids(void);      /* gen-time: run flow world-wide to rest */
+int  world_branch_px(int wx, int wy);                            /* on a tree branch (grapple) */
+int  world_branch_stand(int wx, int wy, float vy, float feet_y); /* branch top (one-way stand) */
 void world_title_scene(void);         /* build a real surface strip for the title */
 void world_grow_tick(void);           /* grass spread, saplings, flowers */
 int  world_surface_row(int c);        /* cached first-solid row per column */

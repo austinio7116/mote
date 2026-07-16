@@ -545,7 +545,10 @@ static void grapple_fire_fly(float dt) {
         float sx = g_pl.grap_vx * dt / n, sy = g_pl.grap_vy * dt / n;
         for (int i = 0; i < n; i++) {
             g_pl.grap_x += sx; g_pl.grap_y += sy;
-            if (world_solid_px((int)g_pl.grap_x, (int)g_pl.grap_y)) {
+            int gx = (int)g_pl.grap_x, gy = (int)g_pl.grap_y;
+            if (world_solid_px(gx, gy) ||
+                fg_at(gx / TILE, gy / TILE) == T_TRUNK ||    /* trees are grappleable */
+                world_branch_px(gx, gy)) {
                 float dx = g_pl.x - g_pl.grap_x, dy = (g_pl.y - 8.0f) - g_pl.grap_y;
                 g_pl.grap = 2;
                 g_pl.grap_len = sqrtf(dx * dx + dy * dy);
@@ -699,9 +702,10 @@ void player_tick(float dt) {
     } else {
         if (g_pl.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
             if (mote_pressed(in, MOTE_BTN_DOWN) && s_drop_t <= 0) {
-                /* drop through a platform if we stand on one */
+                /* drop through a platform or a tree branch if we stand on one */
                 int r = (int)g_pl.y / TILE;
-                if (g_tiles[fg_at(px_c(g_pl.x), r)].solid == 2) s_drop_t = 0.22f;
+                if (g_tiles[fg_at(px_c(g_pl.x), r)].solid == 2 ||
+                    world_branch_px((int)g_pl.x, (int)g_pl.y + 2)) s_drop_t = 0.22f;
                 else { g_pl.vy = P_JUMP; audio_sfx(SFX_JUMP, 0.35f); }
             } else { g_pl.vy = P_JUMP; audio_sfx(SFX_JUMP, 0.35f); }
         }
