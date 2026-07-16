@@ -184,10 +184,8 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         for (int x = 0; x < MOTE_FB_W; x++) {
             if (wy < srow_px[x]) {
                 uint16_t col = sky;
-                if (y >= hill_near[x])      col = near_c;   /* hills live in screen space */
-                else if (y >= hill_far[x])  col = far_c;
-                else if (stars) {
-                    /* sparse fixed starfield, gentle parallax */
+                if (stars) {
+                    /* sparse fixed starfield, gentle parallax (deepest layer) */
                     uint32_t h = phash((((wy >> 1) & 0x7FFF) << 12) ^ ((x + (g_cam_x >> 3)) >> 1));
                     if ((h & 0x3FF) < 3) col = (h & 0x800) ? rgb(210, 214, 230) : rgb(150, 155, 180);
                 }
@@ -200,6 +198,20 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int sky_visible = 0;                       /* any sky on screen? */
     for (int x = 0; x < MOTE_FB_W; x++)
         if (srow_px[x] > g_cam_y) { sky_visible = 1; break; }
+    /* back-to-front sky stack: sun/moon, then clouds pass in FRONT of it,
+     * then the hills (the nearest background layer) over both */
+    if (sky_visible) {
+        float ph = (t < 0.60f) ? (t / 0.60f) : ((t - 0.60f) / 0.40f);
+        int sx = (int)(ph * (MOTE_FB_W + 40)) - 20;
+        int sy = 46 - (int)(sinf(ph * 3.14159f) * 24.0f);   /* arc below the hotbar */
+        if (t < 0.60f) {
+            mote->draw_circle(fb, sx, sy, 7, rgb(255, 214, 80), 1, y0, y1);
+            mote->draw_circle(fb, sx, sy, 5, rgb(255, 244, 160), 1, y0, y1);
+        } else {
+            mote->draw_circle(fb, sx, sy, 5, rgb(226, 230, 244), 1, y0, y1);
+            mote->draw_circle(fb, sx - 2, sy - 1, 3, rgb(188, 194, 214), 1, y0, y1);  /* crescent shade */
+        }
+    }
     /* drifting clouds (two parallax speeds), tinted by time of day */
     if (sky_visible) {
         uint16_t cl = night ? rgb(28, 34, 56) : rgb(236, 242, 250);
@@ -216,17 +228,16 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             mote->draw_circle(fb, sx + 7, sy + 2, 4, cd, 1, y0, y1);
         }
     }
-    /* sun / moon disc — arc kept BELOW the hotbar (y >= ~22) so it's visible */
+    /* hills last: they occlude sun and clouds, terrain occludes them */
     if (sky_visible) {
-        float ph = (t < 0.60f) ? (t / 0.60f) : ((t - 0.60f) / 0.40f);
-        int sx = (int)(ph * (MOTE_FB_W + 40)) - 20;
-        int sy = 46 - (int)(sinf(ph * 3.14159f) * 24.0f);
-        if (t < 0.60f) {
-            mote->draw_circle(fb, sx, sy, 7, rgb(255, 214, 80), 1, y0, y1);
-            mote->draw_circle(fb, sx, sy, 5, rgb(255, 244, 160), 1, y0, y1);
-        } else {
-            mote->draw_circle(fb, sx, sy, 5, rgb(226, 230, 244), 1, y0, y1);
-            mote->draw_circle(fb, sx - 2, sy - 1, 3, rgb(188, 194, 214), 1, y0, y1);  /* crescent shade */
+        for (int x = 0; x < MOTE_FB_W; x++) {
+            int bot = srow_px[x] - g_cam_y;              /* sky ends at the terrain */
+            if (bot > y1) bot = y1;
+            int hf = hill_far[x], hn = hill_near[x];
+            if (hf < y0) hf = y0;
+            if (hn < y0) hn = y0;
+            for (int y = hf; y < bot; y++)
+                fb[y * MOTE_FB_W + x] = y >= hn ? near_c : far_c;
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
