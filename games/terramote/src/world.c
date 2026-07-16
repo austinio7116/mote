@@ -740,14 +740,16 @@ int world_branch_px(int wx, int wy) {            /* anywhere on a branch (grappl
     return 0;
 }
 int world_branch_stand(int wx, int wy, float vy, float feet_y) {
+    /* EXACTLY the platform rule, at the trunk cell's row: one flat TILE-ALIGNED
+     * line (feet snap to r*TILE like any tile), not a pixel-precise arm — a
+     * sub-tile surface fights the tile-based landing snap and jitters. */
     if (vy < 0) return 0;                        /* one-way: only when falling */
-    for (int r = (wy - 7) / TILE; r <= (wy + 4) / TILE; r++)
-        for (int c = (wx - 21) / TILE; c <= (wx + 14) / TILE; c++) {
-            int x0, y0;
-            if (!branch_box(c, r, &x0, &y0)) continue;
-            int surf = y0 + 3;                   /* the woody arm's top */
-            if (wx >= x0 && wx < x0 + 16 && wy >= surf && wy < surf + 4 &&
-                feet_y <= (float)surf + 2.0f) return 1;
-        }
+    int r = wy / TILE;
+    if (feet_y > (float)(r * TILE) + 2.0f) return 0;
+    for (int c = (wx - 21) / TILE; c <= (wx + 14) / TILE; c++) {
+        int x0, y0;
+        if (!branch_box(c, r, &x0, &y0)) continue;
+        if (wx >= x0 && wx < x0 + 16) return 1;
+    }
     return 0;
 }
