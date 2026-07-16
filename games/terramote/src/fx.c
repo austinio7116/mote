@@ -148,22 +148,23 @@ static int hill_h(int sx, int k) {
 }
 
 void fx_background(uint16_t *fb, int y0, int y1) {
-    /* per-column precompute: terrain surface + parallax hill lines (world px).
-     * Hills anchor to the WORLD's highest terrain — a constant per world — so
-     * they sit still like a horizon. (Anchoring to the highest terrain on
-     * SCREEN made them bob up and down as the camera moved.) */
+    /* per-column precompute: terrain surface (world px) + hill lines in SCREEN
+     * space. The hills are true parallax: anchored to the world's highest
+     * terrain but scrolling vertically at 0.45x the camera — smooth (no
+     * bobbing) and they stay a band near the horizon instead of flooding the
+     * sky when you stand in a valley. */
     int16_t srow_px[MOTE_FB_W], hill_far[MOTE_FB_W], hill_near[MOTE_FB_W];
     int hrow = WROWS;
     for (int c = 0; c < WCOLS; c++) {                  /* cached array walk: cheap */
         int s = world_surface_row(c);
         if (s < hrow) hrow = s;
     }
-    int horizon = hrow * TILE;
+    int hb = (int)((hrow * TILE - g_cam_y) * 0.45f) + 58;   /* hill base, screen y */
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
         srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
-        hill_far[x]  = (int16_t)(horizon - 4 - hill_h(x, 0));
-        hill_near[x] = (int16_t)(horizon - hill_h(x, 1));
+        hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
+        hill_near[x] = (int16_t)(hb - hill_h(x, 1));
     }
     int night = IS_NIGHT();
     uint16_t far_c  = night ? rgb(10, 20, 26) : rgb(52, 118, 84);
@@ -183,8 +184,8 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         for (int x = 0; x < MOTE_FB_W; x++) {
             if (wy < srow_px[x]) {
                 uint16_t col = sky;
-                if (wy >= hill_near[x])     col = near_c;
-                else if (wy >= hill_far[x]) col = far_c;
+                if (y >= hill_near[x])      col = near_c;   /* hills live in screen space */
+                else if (y >= hill_far[x])  col = far_c;
                 else if (stars) {
                     /* sparse fixed starfield, gentle parallax */
                     uint32_t h = phash((((wy >> 1) & 0x7FFF) << 12) ^ ((x + (g_cam_x >> 3)) >> 1));
@@ -196,7 +197,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             }
         }
     }
-    int sky_visible = horizon > g_cam_y;      /* any sky on screen? */
+    int sky_visible = 0;                       /* any sky on screen? */
+    for (int x = 0; x < MOTE_FB_W; x++)
+        if (srow_px[x] > g_cam_y) { sky_visible = 1; break; }
     /* drifting clouds (two parallax speeds), tinted by time of day */
     if (sky_visible) {
         uint16_t cl = night ? rgb(28, 34, 56) : rgb(236, 242, 250);

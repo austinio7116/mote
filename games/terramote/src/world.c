@@ -393,10 +393,10 @@ static void chest_loot(Chest *ch, int depth_r) {
     if (depth_r > 130) ch->s[s++] = (Slot){ I_IRON_BAR, (uint8_t)wrandi(2, 5) };
     else ch->s[s++] = (Slot){ I_COPPER_BAR, (uint8_t)wrandi(2, 5) };
     if (depth_r > 160 && (wrand() & 1)) ch->s[s++] = (Slot){ I_GOLD_BAR, (uint8_t)wrandi(1, 3) };
-    if (wrand() % 3 == 0) ch->s[s++] = (Slot){ I_POTION_HEAL, (uint8_t)wrandi(1, 3) };
-    if (wrand() % 3 == 0) ch->s[s++] = (Slot){ I_COIN, (uint8_t)wrandi(3, 15) };
-    if (depth_r > 150 && wrand() % 4 == 0) ch->s[s++] = (Slot){ I_MUSHROOM, (uint8_t)wrandi(1, 3) };
-    if (depth_r > 140 && wrand() % 3 != 0 && s < CHEST_SLOTS) ch->s[s++] = (Slot){ I_LIFE_CRYSTAL, 1 };
+    if (wrand() % 2 == 0) ch->s[s++] = (Slot){ I_POTION_HEAL, (uint8_t)wrandi(1, 3) };
+    if (wrand() % 3 != 0) ch->s[s++] = (Slot){ I_COIN, (uint8_t)wrandi(3, 15) };
+    if (depth_r > 110 && wrand() % 3 == 0) ch->s[s++] = (Slot){ I_MUSHROOM, (uint8_t)wrandi(1, 3) };
+    if (depth_r > 120 && wrand() % 3 != 0 && s < CHEST_SLOTS) ch->s[s++] = (Slot){ I_LIFE_CRYSTAL, 1 };
 }
 
 void world_generate(uint32_t seed) {
@@ -531,6 +531,7 @@ int world_gen_step(void) {
                         set_liq(cc, r, 7, 0);
             }
         }
+        world_settle_liquids();       /* pool everything now, not when visited */
         return 68;
     }
     case 5: {                                           /* surface cache + flora */
@@ -550,17 +551,17 @@ int world_gen_step(void) {
             }
         }
         /* glowing mushrooms on deep cave floors */
-        for (int i = 0; i < 260; i++) {
-            int c = wrandi(4, WCOLS - 5), r = wrandi(120, ROW_HELL - 6);
+        for (int i = 0; i < 700; i++) {
+            int c = wrandi(4, WCOLS - 5), r = wrandi(95, ROW_HELL - 6);
             if (fg_at(c, r) == T_AIR && !BG_LIQ(bg_at(c, r)) && g_tiles[fg_at(c, r + 1)].solid == 1 &&
                 (fg_at(c, r + 1) == T_STONE || fg_at(c, r + 1) == T_DIRT))
-                if (wrand() % 3 == 0) world_set_fg(c, r, T_MUSH);
+                if (wrand() % 2 == 0) world_set_fg(c, r, T_MUSH);
         }
         return 80;
     }
     case 6: {                                           /* chests */
         int placed = 0;
-        for (int tries = 0; tries < 4000 && placed < 14; tries++) {
+        for (int tries = 0; tries < 9000 && placed < 26; tries++) {
             int c = wrandi(6, WCOLS - 8), r = wrandi(ROW_SURFACE_MAX + 20, ROW_HELL - 8);
             if (fg_at(c, r) != T_AIR || fg_at(c + 1, r) != T_AIR) continue;
             if (fg_at(c, r - 1) != T_AIR || fg_at(c + 1, r - 1) != T_AIR) continue;
@@ -607,12 +608,9 @@ int world_surface_row_uncached(int c) {
  * Cellular flow inside a window around the camera, alternating scan direction
  * to avoid left bias. Runs every other frame. */
 static uint8_t liq_flip;
-void world_liquid_tick(void) {
+static int liquid_pass(int c0, int c1, int r0, int r1) {
+    int moved = 0;
     liq_flip ^= 1;
-    int c0 = mote_clampi(g_cam_x / TILE - 22, 1, WCOLS - 2);
-    int c1 = mote_clampi(g_cam_x / TILE + 38, 1, WCOLS - 2);
-    int r0 = mote_clampi(g_cam_y / TILE - 20, 1, WROWS - 3);
-    int r1 = mote_clampi(g_cam_y / TILE + 36, 1, WROWS - 3);
     for (int r = r1; r >= r0; r--) {
         for (int ci = c0; ci <= c1; ci++) {
             int c = liq_flip ? (c1 - (ci - c0)) : ci;
@@ -629,12 +627,13 @@ void world_liquid_tick(void) {
                     world_set_fg(c, r + 1, T_OBSIDIAN);
                     set_liq(c, r + 1, 0, 0);
                     set_liq(c, r, lv - 1 > 0 ? lv - 1 : 0, lava);
+                    moved++;
                     continue;
                 }
                 if (blv < 7) {
                     int mv = 7 - blv; if (mv > lv) mv = lv;
                     set_liq(c, r + 1, blv + mv, lava);
-                    lv -= mv;
+                    lv -= mv; moved++;
                     set_liq(c, r, lv, lava);
                     if (!lv) continue;
                 }
@@ -651,18 +650,36 @@ void world_liquid_tick(void) {
                     world_set_fg(cc, r, T_OBSIDIAN);
                     set_liq(cc, r, 0, 0);
                     set_liq(c, r, lv - 1, lava);
+                    moved++;
                     break;
                 }
                 if (nlv < lv - 1) {
                     set_liq(cc, r, nlv + 1, lava);
-                    lv -= 1;
+                    lv -= 1; moved++;
                     set_liq(c, r, lv, lava);
                     if (lv <= 1) break;
                 }
             }
         }
     }
+    return moved;
 }
+
+void world_liquid_tick(void) {
+    int c0 = mote_clampi(g_cam_x / TILE - 22, 1, WCOLS - 2);
+    int c1 = mote_clampi(g_cam_x / TILE + 38, 1, WCOLS - 2);
+    int r0 = mote_clampi(g_cam_y / TILE - 20, 1, WROWS - 3);
+    int r1 = mote_clampi(g_cam_y / TILE + 36, 1, WROWS - 3);
+    liquid_pass(c0, c1, r0, r1);
+}
+
+/* gen-time: run the automaton over the WHOLE world until it stops moving, so
+ * worldgen water starts pooled instead of hanging mid-air until visited */
+void world_settle_liquids(void) {
+    for (int i = 0; i < 220; i++)
+        if (!liquid_pass(1, WCOLS - 2, 1, WROWS - 3)) break;
+}
+
 
 /* ------------------------------------------------------------- growth ------ */
 void world_grow_tick(void) {
@@ -674,4 +691,27 @@ void world_grow_tick(void) {
                 plant_tree(c, r + 1, wrandi(4, 6));
         }
     }
+}
+
+/* ------------------------------------------------------------- title scene --
+ * A real surface strip rendered by the normal engine path behind the title
+ * menu — actual tiles, actual autotiling, actual tree crowns. Overwritten the
+ * moment a world is generated or loaded. */
+void world_title_scene(void) {
+    memset(g_fgm, T_AIR, WCOLS * WROWS);
+    memset(g_bgm, 0, WCOLS * WROWS);
+    g_nbands = 0;                                  /* all forest */
+    wg_rng = 424242u;
+    for (int c = 0; c < WCOLS; c++) {
+        float h = 66.0f + 4.0f * sinf(c * 0.045f) + 2.0f * sinf(c * 0.13f + 1.7f);
+        int sr = (int)h;
+        for (int r = sr; r < WROWS && r < sr + 40; r++) {
+            g_fgm[r * WCOLS + c] = (uint8_t)(r == sr ? T_GRASS : (r < sr + 12 ? T_DIRT : T_STONE));
+            if (r > sr) set_bg_wall(c, r, r < sr + 12 ? W_DIRT : W_STONE);
+        }
+    }
+    world_rebuild_caches();
+    for (int c = 8; c < WCOLS - 8; c += wrandi(7, 13))    /* a healthy forest */
+        if (wrand() % 4) plant_tree(c, g_surf[c], wrandi(4, 7));
+    world_rebuild_caches();
 }

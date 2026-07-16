@@ -574,64 +574,10 @@ void ui_chest(uint16_t *fb) {
 }
 
 /* ------------------------------------------------------------------ title --- */
-static uint32_t title_hash(int x) { uint32_t h = (uint32_t)x * 2654435761u; return h ^ (h >> 15); }
-static int title_hill(int sx, int drift, int k) {
-    /* smooth value-noise ridge, like the in-game hills */
-    float x = (sx + drift) * (k ? 0.035f : 0.05f);
-    int xi = (int)x; float fr = x - xi; fr = fr * fr * (3 - 2 * fr);
-    float a = (title_hash(xi * 2 + k * 977) & 0xFF) / 255.0f;
-    float b = (title_hash((xi + 1) * 2 + k * 977) & 0xFF) / 255.0f;
-    return (int)((a + (b - a) * fr) * (k ? 20 : 30));
-}
-static void title_tree(uint16_t *fb, int x, int base, int h) {
-    mote->draw_rect(fb, x - 1, base - h, 3, h, rgb(110, 78, 44), 1, 0, MOTE_FB_H);
-    mote->draw_rect(fb, x, base - h, 1, h, rgb(140, 100, 56), 1, 0, MOTE_FB_H);
-    int cy = base - h;
-    mote->draw_circle(fb, x - 5, cy + 1, 5, rgb(30, 92, 38), 1, 0, MOTE_FB_H);
-    mote->draw_circle(fb, x + 5, cy + 1, 5, rgb(30, 92, 38), 1, 0, MOTE_FB_H);
-    mote->draw_circle(fb, x, cy - 3, 6, rgb(46, 126, 50), 1, 0, MOTE_FB_H);
-    mote->draw_circle(fb, x - 2, cy - 5, 3, rgb(96, 176, 66), 1, 0, MOTE_FB_H);
-}
 void ui_title(uint16_t *fb) {
+    /* the scene behind is the REAL engine render of a title forest strip
+     * (world_title_scene + fx_background) — this overlay is just the menu */
     const MoteInput *in = mote->input();
-    static uint16_t tf; tf++;                          /* slow ambient animation */
-    const int GY = 100;                                /* grass line */
-    /* warm dawn sky gradient */
-    for (int y = 0; y < GY; y++) {
-        int t = y * 255 / GY;
-        uint16_t c = rgb(120 - t / 4, 170 - t / 5, 250 - t / 8);
-        mote->draw_rect(fb, 0, y, MOTE_FB_W, 1, c, 1, 0, MOTE_FB_H);
-    }
-    /* sun with glow */
-    mote->draw_circle(fb, 100, 20, 9, rgb(255, 216, 110), 1, 0, MOTE_FB_H);
-    mote->draw_circle(fb, 100, 20, 6, rgb(255, 246, 190), 1, 0, MOTE_FB_H);
-    /* drifting clouds */
-    for (int k = 0; k < 3; k++) {
-        int span = MOTE_FB_W + 50;
-        int cx = ((int)(title_hash(k * 91) % 997) + tf / (5 + k * 2)) % span - 25;
-        int cy = 12 + (int)(title_hash(k * 37 + 3) % 22);
-        mote->draw_circle(fb, cx, cy, 5, rgb(240, 246, 252), 1, 0, MOTE_FB_H);
-        mote->draw_circle(fb, cx - 6, cy + 2, 4, rgb(222, 232, 244), 1, 0, MOTE_FB_H);
-        mote->draw_circle(fb, cx + 6, cy + 2, 4, rgb(222, 232, 244), 1, 0, MOTE_FB_H);
-    }
-    /* two static hill silhouette layers (only the clouds drift) */
-    for (int x = 0; x < MOTE_FB_W; x++) {
-        int hf = GY - 22 - title_hill(x, 0, 0);
-        int hn = GY - 6 - title_hill(x, 40, 1);
-        if (hf < GY) mote->draw_rect(fb, x, hf, 1, GY - hf, rgb(52, 118, 84), 1, 0, MOTE_FB_H);
-        if (hn < GY) mote->draw_rect(fb, x, hn, 1, GY - hn, rgb(38, 92, 44), 1, 0, MOTE_FB_H);
-    }
-    /* trees on the near hills */
-    title_tree(fb, 16, GY + 1, 26);
-    title_tree(fb, 108, GY + 2, 20);
-    /* grass + speckled dirt foreground */
-    mote->draw_rect(fb, 0, GY, MOTE_FB_W, 2, rgb(70, 160, 60), 1, 0, MOTE_FB_H);
-    for (int y = GY + 2; y < MOTE_FB_H; y++)
-        for (int x = 0; x < MOTE_FB_W; x++) {
-            uint32_t h = title_hash(x * 131 + y * 7);
-            uint16_t c = (h & 7) > 5 ? rgb(104, 66, 38) : rgb(126, 84, 50);
-            mote->draw_pixel(fb, x, y, c);
-        }
     const MoteFont *fl = mote->ui_font(MOTE_FONT_LARGE);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote_ftextc(mote, fb, fl, MOTE_FB_W / 2 + 1, 19, rgb(26, 46, 26), "TERRAMOTE");   /* drop shadow */

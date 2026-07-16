@@ -306,6 +306,11 @@ static void g_init(void) {
     audio_init();
     npc_reset();
     player_reset(1);
+    /* the title menu floats over a REAL rendered forest strip */
+    world_title_scene();
+    g_time = 0.30f;
+    g_cam_x = (WCOLS / 2) * TILE - MOTE_FB_W / 2;
+    g_cam_y = world_surface_row(WCOLS / 2) * TILE - 86;
     dev_hooks();
     mote->log("terramote up");
 }
@@ -333,12 +338,12 @@ static void play_tick(float dt) {
 }
 
 static void world_submit(void) {
-    camera_update();
+    if (g_state != GS_TITLE) camera_update();      /* title pans its own camera */
     mote->scene2d_begin(g_cam_x, g_cam_y);
     mote->scene2d_set_autotiles(g_fgm, WCOLS, WROWS, k_tiles, T_COUNT - 1);
     draw_grass_caps();
     draw_trees();
-    player_draw();
+    if (g_state != GS_TITLE) player_draw();        /* nobody stands in the vista */
     npc_draw();
 }
 
@@ -351,7 +356,21 @@ static void g_update(float dt) {
     fx_light_update();
 
     switch (g_state) {
-    case GS_TITLE:
+    case GS_TITLE: {
+        /* live world render behind the menu: slow pan across the title forest */
+        static float drift;
+        drift += dt * 6.0f;
+        if (drift >= 1.0f) {
+            int step = (int)drift; drift -= (float)step;
+            g_cam_x += step;
+            if (g_cam_x > (WCOLS - 20) * TILE) g_cam_x = 4 * TILE;
+        }
+        g_cam_y = world_surface_row((g_cam_x + MOTE_FB_W / 2) / TILE) * TILE - 86;
+        mote->set_background_cb(fx_background);
+        parts_tick(dt);
+        world_submit();
+        break;
+    }
     case GS_CREATE:
         mote->set_background_cb(0);
         mote->scene_set_background(0x0000);
