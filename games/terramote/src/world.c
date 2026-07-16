@@ -753,3 +753,15 @@ int world_branch_stand(int wx, int wy, float vy, float feet_y) {
     }
     return 0;
 }
+
+int world_canopy_px(int wx, int wy) {            /* inside a tree crown (grapple) */
+    /* crowns are 40x28 sprites over trunk tops (draw_trees):
+     * box x in [c*8-16, c*8+24), y in [r*8-20, r*8+8) */
+    for (int r = (wy - 7) / TILE; r <= (wy + 20) / TILE; r++)
+        for (int c = (wx - 23) / TILE; c <= (wx + 16) / TILE; c++) {
+            if (fg_at(c, r) != T_TRUNK || fg_at(c, r - 1) == T_TRUNK) continue;
+            int x0 = c * TILE - 16, y0 = r * TILE - 20;
+            if (wx >= x0 && wx < x0 + 40 && wy >= y0 && wy < y0 + 28) return 1;
+        }
+    return 0;
+}
