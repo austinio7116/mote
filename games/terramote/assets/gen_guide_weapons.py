@@ -52,7 +52,7 @@ def main():
         ti = WV.VARIANTS[vi][1]
         stn, ing = fmt_recipe(recipe)
         rows.append((name.title(), family(kind, vtype.lower()), EFFECT.get(elem,"—"),
-                     G.stats(kind, tier, vtype, name)[0], tier, f"{stn}: {ing}" if ing else stn,
+                     G.stats(kind, tier, vtype, recipe)[0], tier, f"{stn}: {ing}" if ing else stn,
                      sprite_uri(ti)))
     rows.sort(key=lambda r: (TORDER.get(r[4],9), r[1], -r[3]))
     out = ['<!-- ============ ARSENAL (generated: gen_guide_weapons.py) ============ -->',
