@@ -45,6 +45,12 @@ static void slot_frame(uint16_t *fb, int x, int y, int sel) {
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(24, 22, 26), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, sel ? rgb(255, 220, 120) : rgb(105, 100, 92), 0, 0, MOTE_FB_H);
 }
+/* slots are 18px wide on a 15px grid pitch, so a later slot's fill overpaints
+ * the previous slot's right border — after drawing a group, re-stroke the
+ * SELECTED slot's outline on top so the highlight is never clipped */
+static void sel_restroke(uint16_t *fb, int x, int y) {
+    mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
+}
 static void slot_draw(uint16_t *fb, const Slot *s, int x, int y, int sel) {
     slot_frame(fb, x, y, sel);
     if (s->item) {
@@ -171,6 +177,9 @@ void ui_inventory(uint16_t *fb) {
             slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a);
             mote->text(fb, alab[a], x + 19, y + 6, rgb(150, 145, 135));
         }
+        /* unclipped highlight on top */
+        if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
+        else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 92);
         /* held stack rides the cursor */
         int cx, cy;
         if (s_cur < INV_SLOTS) inv_grid_xy(s_cur, &cx, &cy);
@@ -302,6 +311,9 @@ void ui_chest(uint16_t *fb) {
         slot_draw(fb, &g_open_chest->s[i], 2 + i * 15, 16, s_chest_cur == i);
     for (int i = 0; i < INV_SLOTS; i++)
         slot_draw(fb, &g_pl.inv[i], 2 + (i % 8) * 15, 44 + (i / 8) * 18, s_chest_cur == CHEST_SLOTS + i);
+    /* unclipped highlight on top */
+    if (s_chest_cur < CHEST_SLOTS) sel_restroke(fb, 2 + s_chest_cur * 15, 16);
+    else { int i = s_chest_cur - CHEST_SLOTS; sel_restroke(fb, 2 + (i % 8) * 15, 44 + (i / 8) * 18); }
     mote->text_font(fb, f, "A MOVE   B CLOSE", 14, 116, rgb(160, 155, 145));
 
     if (no_input) return;

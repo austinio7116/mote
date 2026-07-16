@@ -29,29 +29,59 @@ ING = {"WOOD":"I_WOOD","STONE":"I_STONE","GEL":"I_GEL","LENS":"I_LENS","GLOWSHRO
        "MUSHROOM":"I_MUSHROOM","COPPER_BAR":"I_COPPER_BAR","IRON_BAR":"I_IRON_BAR","GOLD_BAR":"I_GOLD_BAR",
        "DEMONITE_BAR":"I_DEMONITE_BAR","HELL_BAR":"I_HELL_BAR","OBSIDIAN":"I_OBSIDIAN","HELLSTONE":"I_HELLSTONE"}
 
-# tier -> (melee_damage, use_speed, knockback)
-TIER = {"early":(8,22,120), "prehard":(15,20,140), "hard":(24,18,165), "end":(38,15,185)}
+import zlib
+# tier -> melee damage BAND (lo, hi). Every weapon rolls its own point in the
+# band from a stable hash of its name, then its TYPE reshapes the trade-offs —
+# so no two weapons play the same.
+TIER_BAND = {"early":(6,13), "prehard":(13,21), "hard":(21,33), "end":(33,50)}
 
-def stats(kind, tier, vtype):
-    dmg, spd, kn = TIER[tier]
+def _roll(name, salt, lo, hi):
+    """Deterministic per-weapon roll in [lo,hi] (crc32 is stable across runs)."""
+    h = zlib.crc32((name + "/" + str(salt)).encode()) & 0xffff
+    return lo + h % (hi - lo + 1)
+
+def stats(kind, tier, vtype, name=""):
+    lo, hi = TIER_BAND[tier]
+    dmg = _roll(name, "d", lo, hi)
+    spd = _roll(name, "s", 16, 24)                    # use-time frames (lower = faster)
+    kn  = _roll(name, "k", 105, 175)
     reach = 0; nshot = 0; spread = 0; power = 0
+    t = vtype.lower()
+    heavy = any(w in t for w in ("hammer","mace","flail","maul","morningstar","bludgeon","warhammer"))
+    spear = "spear" in t or "lance" in t or "pike" in t
     if kind == "IK_BOW":
-        dmg = max(4, dmg - 5); kn = 0
-        t = vtype.lower()
-        if any(w in t for w in ("gun","scatter","repeater","cannon","blaster","onslaught","autocannon")):
-            nshot = 3; spread = 20
+        kn = 0
+        if any(w in t for w in ("gun","scatter","repeater","cannon","blaster","onslaught","pistol","rifle","launcher","musket","minishark","autocannon")):
+            nshot = _roll(name, "n", 2, 4)            # sprays: more pellets, weaker each
+            spread = _roll(name, "sp", 14, 28)
+            dmg = max(3, int(dmg * 0.45)); spd = _roll(name, "s2", 12, 18)
         elif "crossbow" in t:
-            nshot = 2; spread = 12
-        elif tier in ("hard","end"):
             nshot = 2; spread = 10
+            dmg = max(4, int(dmg * 0.65)); spd = _roll(name, "s2", 18, 24)
+        elif any(w in t for w in ("staff","wand","rod","scepter","focus","nova")):
+            dmg = int(dmg * 0.95)                     # staves: heavy single bolts, slow
+            spd = _roll(name, "s2", 22, 30)
+        else:                                          # bows
+            dmg = max(4, int(dmg * 0.7)); spd = _roll(name, "s2", 15, 21)
+            if tier in ("hard", "end"): nshot = 2; spread = 10
     elif kind == "IK_PICK":
-        power = 7 if tier == "hard" else 9; dmg = max(6, dmg // 2); kn = 90
+        power = 7 if tier == "hard" else 9
+        dmg = max(5, dmg // 2); kn = 90; spd = _roll(name, "s2", 13, 17)
     elif kind == "IK_AXE":
-        power = 5 if tier in ("early","prehard") else 7      # chop power; also a melee weapon
-        if tier in ("hard","end"): reach = 1
-    else:  # IK_SWORD (swords/spears/hammers/maces/flails)
-        if tier == "hard": reach = 1
-        if tier == "end":  reach = 2
+        power = 5 if tier in ("early", "prehard") else 7
+        dmg = int(dmg * 1.05); spd = _roll(name, "s2", 19, 26)   # chunky swings
+        kn = _roll(name, "k2", 130, 185)
+        if tier in ("hard", "end"): reach = 1
+    else:  # melee
+        if heavy:                                      # slow, brutal, big knockback
+            dmg = int(dmg * 1.3); spd = _roll(name, "s2", 24, 30)
+            kn = _roll(name, "k2", 160, 210); reach = 1 if tier in ("hard", "end") else 0
+        elif spear:                                    # fast, light, long
+            dmg = max(4, int(dmg * 0.85)); spd = _roll(name, "s2", 13, 17)
+            reach = 1 + (1 if tier in ("hard", "end") else 0)
+        else:                                          # swords: balanced
+            if tier == "hard": reach = 1
+            if tier == "end":  reach = 2
     return dmg, spd, kn, reach, nshot, spread, power
 
 def parse_recipe(s):
@@ -80,7 +110,7 @@ def main():
         vtype, kind, tier, name, elem, recipe = DATA[idx]
         suf = suffix(name, seen)
         iid = "I_" + suf
-        dmg, spd, kn, reach, nshot, spread, power = stats(kind, tier, vtype)
+        dmg, spd, kn, reach, nshot, spread, power = stats(kind, tier, vtype, name)
         cell = STD_CELLS + vi
         item_id = BASE_ID + vi
         ids.append(iid)

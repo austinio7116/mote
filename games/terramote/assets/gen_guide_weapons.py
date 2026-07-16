@@ -1,88 +1,88 @@
 #!/usr/bin/env python3
-"""Emit the guide's Weapon Codex section (recipes + effects for the 87 variants),
-grouped by weapon family, matching guide.html's table/card classes."""
-import os, json, re, html
+"""Emit the guide's Weapon Codex — ONE sortable table, each row showing the
+weapon's actual in-game sprite (embedded as a data-URI so the guide stays
+self-contained). Matches guide.html's table classes; adds a tiny sprite style."""
+import os, json, io, base64, html
+from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
-import gen_weapons as G   # reuse stats() + DATA + parsers
+import gen_weapons as G
+import weapon_variants as WV
 
+BIG = Image.open(os.path.join(HERE, "weapons_big_tools.png")).convert("RGBA")
+WT_COLS = 12
 EFFECT = {
-    "fire":   "Burn — fire damage over time",
-    "poison": "Poison — damage over time",
-    "blood":  "Bleed — DoT + lifesteal",
-    "demonic":"Lifesteal on hit",
-    "ice":    "Chill — slows the target",
-    "nature": "Snare — slows the target",
-    "holy":   "—", "arcane": "—", "none": "—",
+    "fire":"Burn","poison":"Poison","blood":"Bleed + lifesteal","demonic":"Lifesteal",
+    "ice":"Chill (slow)","nature":"Snare (slow)","holy":"—","arcane":"—","none":"—",
 }
-STATION_NAME = {"ST_WORKBENCH":"Workbench","ST_FURNACE":"Furnace","ST_ANVIL":"Anvil","ST_ALTAR":"Demon Altar"}
-GROUPS = [   # (title, predicate on (kind, vtype))
-    ("Swords &amp; Blades",       lambda k,t: k=="IK_SWORD" and ("sword" in t or "blade" in t or "boomerang" in t)),
-    ("Spears &amp; Lances",       lambda k,t: k=="IK_SWORD" and "spear" in t),
-    ("Maces, Hammers &amp; Flails",lambda k,t: k=="IK_SWORD" and any(w in t for w in ("mace","hammer","flail","morningstar","warhammer","maul","bludgeon"))),
-    ("Axes",                      lambda k,t: k=="IK_AXE"),
-    ("Bows &amp; Guns",           lambda k,t: k=="IK_BOW" and any(w in t for w in ("bow","gun","crossbow","rifle","launcher","pistol","cannon","repeater","blaster","onslaught"))),
-    ("Staves &amp; Wands",        lambda k,t: k=="IK_BOW" and any(w in t for w in ("staff","wand","rod","scepter","focus","nova"))),
-    ("Pickaxes",                  lambda k,t: k=="IK_PICK"),
+FAMILY = [
+    ("Sword", lambda k,t: k=="IK_SWORD" and ("sword" in t or "blade" in t or "boomerang" in t)),
+    ("Spear", lambda k,t: k=="IK_SWORD" and "spear" in t),
+    ("Mace",  lambda k,t: k=="IK_SWORD"),   # remaining melee (hammer/flail/mace)
+    ("Axe",   lambda k,t: k=="IK_AXE"),
+    ("Bow/Gun",lambda k,t: k=="IK_BOW" and any(w in t for w in ("bow","gun","crossbow","rifle","launcher","pistol","cannon","repeater","blaster","onslaught"))),
+    ("Staff", lambda k,t: k=="IK_BOW"),
+    ("Pick",  lambda k,t: k=="IK_PICK"),
 ]
+STATION = {"ST_WORKBENCH":"Workbench","ST_FURNACE":"Furnace","ST_ANVIL":"Anvil","ST_ALTAR":"Demon Altar"}
+ING_NAME = {"I_HELL_BAR":"hellstone bar","I_MUSHROOM":"glowshroom"}
+TORDER = {"early":0,"prehard":1,"hard":2,"end":3}
+TIER_LABEL = {"early":"Early","prehard":"Pre-hard","hard":"Hardmode","end":"Endgame"}
 
-ING_NAME = {"I_HELL_BAR":"hellstone bar", "I_MUSHROOM":"glowshroom"}
+def family(kind, vtype):
+    for name, pred in FAMILY:
+        if pred(kind, vtype): return name
+    return "Weapon"
+
+def sprite_uri(tools_idx):
+    c = BIG.crop(((tools_idx % WT_COLS) * 32, (tools_idx // WT_COLS) * 32,
+                  (tools_idx % WT_COLS) * 32 + 32, (tools_idx // WT_COLS) * 32 + 32))
+    b = io.BytesIO(); c.save(b, "PNG")
+    return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
+
 def fmt_recipe(recipe):
     st, ings = G.parse_recipe(recipe)
-    parts = []
-    for iid, n in ings:
-        nm = ING_NAME.get(iid, iid[2:].lower().replace("_", " "))
-        parts.append(f"{n} {nm}")
-    return STATION_NAME[st], " · ".join(parts)
-
-def rows_for(pred):
-    out = []
-    for idx in sorted(G.DATA):
-        vtype, kind, tier, name, elem, recipe = G.DATA[idx]
-        if kind == "EXCLUDE": continue
-        if not pred(kind, vtype.lower()): continue
-        dmg = G.stats(kind, tier, vtype)[0]
-        stn, ing = fmt_recipe(recipe)
-        out.append((name, EFFECT.get(elem, "—"), dmg, stn, ing, tier))
-    # sort by tier then damage
-    torder = {"early":0,"prehard":1,"hard":2,"end":3}
-    out.sort(key=lambda r: (torder.get(r[5],9), r[2]))
-    return out
-
-def table(title, rows):
-    h = ['    <div class="tablewrap">', '      <table>',
-         f'        <caption>{title}</caption>',
-         '        <thead><tr><th>Weapon</th><th>Effect</th><th class="r">Dmg</th><th>Recipe</th></tr></thead>',
-         '        <tbody>']
-    for name, eff, dmg, stn, ing, tier in rows:
-        rec = f'{stn}: {ing}' if ing else stn
-        h.append(f'          <tr><td class="item">{html.escape(name.title())}</td>'
-                 f'<td>{eff}</td><td class="r">{dmg}</td><td class="want">{html.escape(rec)}</td></tr>')
-    h += ['        </tbody>', '      </table>', '    </div>']
-    return "\n".join(h)
+    parts = [f"{n} {ING_NAME.get(iid, iid[2:].lower().replace('_',' '))}" for iid, n in ings]
+    return STATION[st], " · ".join(parts)
 
 def main():
-    total = sum(1 for i in G.DATA if G.DATA[i][1] != "EXCLUDE")
-    s = ['<!-- ============ ARSENAL (generated: gen_guide_weapons.py) ============ -->',
-         '<section id="arsenal">',
-         '  <p class="eyebrow">09 — The Arsenal</p>',
-         '  <h2>Weapon Codex</h2>',
-         f'  <p class="lede">{total} craftable weapons beyond the starter tiers, each with its own '
-         'damage, elemental effect and recipe. Craft them at the station shown once you have the bars.</p>',
-         '  <div class="tips" style="margin-top:18px">',
-         '    <div class="tip"><span class="n">◈</span><p><b>Elemental effects:</b> '
-         '<strong>Burn/Poison/Bleed</strong> deal damage over time, <strong>Chill/Snare</strong> slow the '
-         'enemy, and <strong>Lifesteal</strong> (demonic/blood) heals you on hit. Bows fire in spreads; '
-         'axes chop trees <em>and</em> swing at foes.</p></div>',
-         '  </div>',
-         '  <div class="grid g2" style="margin-top:20px;align-items:start">']
-    for title, pred in GROUPS:
-        rows = rows_for(pred)
-        if rows: s.append(table(title, rows))
-    s += ['  </div>', '</section>', '']
-    frag = "\n".join(s)
-    open(os.path.join(HERE, "guide_arsenal.html"), "w").write(frag)
-    print("[guide] arsenal section: %d weapons across %d groups -> assets/guide_arsenal.html"
-          % (total, sum(1 for t,p in GROUPS if rows_for(p))))
+    tools_of = {suf: ti for suf, ti, iid, cell in WV.VARIANTS}
+    rows = []
+    for vi, idx in enumerate(sorted(i for i in G.DATA if G.DATA[i][1] != "EXCLUDE")):
+        vtype, kind, tier, name, elem, recipe = G.DATA[idx]
+        ti = WV.VARIANTS[vi][1]
+        stn, ing = fmt_recipe(recipe)
+        rows.append((name.title(), family(kind, vtype.lower()), EFFECT.get(elem,"—"),
+                     G.stats(kind, tier, vtype, name)[0], tier, f"{stn}: {ing}" if ing else stn,
+                     sprite_uri(ti)))
+    rows.sort(key=lambda r: (TORDER.get(r[4],9), r[1], -r[3]))
+    out = ['<!-- ============ ARSENAL (generated: gen_guide_weapons.py) ============ -->',
+        '<section id="arsenal">',
+        '  <style>',
+        '    #arsenal img.ws{width:34px;height:34px;image-rendering:pixelated;vertical-align:middle;'
+        'background:rgba(128,128,128,.14);border-radius:4px}',
+        '    #arsenal td.sp{width:40px;padding:2px 4px}',
+        '    #arsenal .tier{font-size:.72em;letter-spacing:.06em;text-transform:uppercase;opacity:.7}',
+        '  </style>',
+        '  <p class="eyebrow">09 — The Arsenal</p>',
+        '  <h2>Weapon Codex</h2>',
+        f'  <p class="lede">{len(rows)} craftable weapons beyond the starter tiers — each its own sprite, '
+        'elemental effect, damage and recipe. <strong>Burn / Poison / Bleed</strong> deal damage over time, '
+        '<strong>Chill / Snare</strong> slow the target, and <strong>Lifesteal</strong> heals you on hit. '
+        'Ordered by progression tier.</p>',
+        '  <div class="tablewrap" style="margin-top:20px">',
+        '    <table>',
+        '      <thead><tr><th></th><th>Weapon</th><th>Type</th><th>Effect</th>'
+        '<th class="r">Dmg</th><th>Tier</th><th>Recipe</th></tr></thead>',
+        '      <tbody>']
+    for name, fam, eff, dmg, tier, rec, uri in rows:
+        out.append(
+            f'        <tr><td class="sp"><img class="ws" alt="{html.escape(name)}" src="{uri}"></td>'
+            f'<td class="item">{html.escape(name)}</td><td>{fam}</td><td>{eff}</td>'
+            f'<td class="r">{dmg}</td><td class="tier">{TIER_LABEL[tier]}</td>'
+            f'<td class="want">{html.escape(rec)}</td></tr>')
+    out += ['      </tbody>', '    </table>', '  </div>', '</section>', '']
+    open(os.path.join(HERE, "guide_arsenal.html"), "w").write("\n".join(out))
+    print("[guide] single-table codex with sprites: %d weapons -> assets/guide_arsenal.html" % len(rows))
 
 if __name__ == "__main__":
     main()
