@@ -323,14 +323,14 @@ def blob_sheet(name, cellfn, nvar=1):
 
 # ---------------------------------------------------------------- solid tiles
 def make_terrain():
-    blob_sheet("tiles_dirt",  lambda m, s: mat_cell(m, (128, 84, 50), (100, 62, 36), (150, 104, 66), (84, 52, 30), seed=s), nvar=2)
+    blob_sheet("tiles_dirt",  lambda m, s: mat_cell(m, (120, 80, 46), (88, 56, 30), (146, 100, 60), (78, 50, 28), 0.30, seed=s), nvar=2)
     blob_sheet("tiles_grass", lambda m, s: grass_cell(m, s), nvar=2)
     blob_sheet("tiles_stone", lambda m, s: stone_cell(m, (118, 118, 126), (72, 72, 84), (148, 148, 156), s), nvar=3)
     blob_sheet("tiles_wood",  lambda m, s: wood_cell(m, s))
     blob_sheet("tiles_sand",  lambda m, s: mat_cell(m, (212, 192, 116), (188, 164, 92), (232, 216, 148), (160, 138, 72), 0.18, seed=s), nvar=2)
     blob_sheet("tiles_snow",  lambda m, s: mat_cell(m, (222, 232, 244), (192, 205, 224), (244, 250, 255), (164, 180, 205), 0.15, seed=s), nvar=2)
     blob_sheet("tiles_ebon",  lambda m, s: stone_cell(m, (102, 86, 128), (62, 48, 84), (132, 114, 158), s), nvar=2)
-    blob_sheet("tiles_clay",  lambda m, s: mat_cell(m, (172, 106, 74), (146, 84, 56), (194, 128, 92), (118, 66, 44), 0.12, seed=s))
+    blob_sheet("tiles_clay",  lambda m, s: clay_cell(m, s), nvar=2)
     blob_sheet("tiles_copper", lambda m, s: ore_cell(m, (198, 112, 42), (238, 160, 84), s))
     blob_sheet("tiles_iron",   lambda m, s: ore_cell(m, (166, 146, 130), (210, 196, 186), s))
     blob_sheet("tiles_gold",   lambda m, s: ore_cell(m, (222, 178, 32), (252, 224, 100), s))
@@ -341,20 +341,39 @@ def make_terrain():
     blob_sheet("tiles_leaf",  lambda m, s: leaf_cell(m, s), nvar=2)
 
 def wood_cell(mask, seed=0):
-    BASE = (168, 122, 68); DARK = (136, 96, 50); LINE = (110, 76, 40); LITE = (188, 144, 86)
+    # warm GOLD planks with strong horizontal grain lines (distinct from dirt/clay)
+    BASE = (182, 138, 78); DARK = (138, 98, 50); LINE = (100, 64, 32); LITE = (212, 172, 108)
     rng = random.Random((mask * 71 + seed) & 0x7FFFFFFF)
     c = Cell(); c.fill(BASE)
     for y in range(TS):
         if y % 4 == 3:
-            for x in range(TS): c.put(x, y, LINE)
+            for x in range(TS): c.put(x, y, LINE)              # dark plank seam
+        elif y % 4 == 0:
+            for x in range(TS): c.put(x, y, LITE)              # sun-catch top of plank
         else:
             for x in range(TS):
-                if rng.random() < 0.12: c.put(x, y, DARK if rng.random() < 0.6 else LITE)
-    # staggered vertical plank joints
-    for y0 in (0, 4):
+                if rng.random() < 0.14: c.put(x, y, DARK)      # grain flecks
+    for y0 in (0, 4):                                          # staggered vertical joints
         jx = (3 + (mask + y0) * 2) % TS
         for y in range(y0, min(TS, y0 + 3)): c.put(jx, y, LINE)
-    apply_edges(c, mask, (92, 62, 32), (196, 152, 94))
+    apply_edges(c, mask, (86, 56, 28), (216, 176, 112))
+    return c
+
+def clay_cell(mask, seed=0):
+    # SMOOTH terracotta-red with horizontal sediment banding — no speckle, so it
+    # reads clearly apart from earthy dirt and golden wood
+    BASE = (192, 98, 62); DARK = (156, 72, 44); LITE = (216, 126, 90); RIM = (120, 58, 34)
+    rng = random.Random((mask * 233 + seed) & 0x7FFFFFFF)
+    c = Cell(); c.fill(BASE)
+    for y in range(TS):
+        if y in (2, 6):
+            for x in range(TS): c.put(x, y, DARK)              # strata bands
+        elif y in (0, 4):
+            for x in range(TS):
+                if rng.random() < 0.55: c.put(x, y, LITE)
+        elif rng.random() < 0.08:
+            c.put(rng.randint(0, TS - 1), y, DARK)
+    apply_edges(c, mask, RIM)
     return c
 
 def hellstone_cell(mask, seed=0):
