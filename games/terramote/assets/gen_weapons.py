@@ -29,22 +29,25 @@ ING = {"WOOD":"I_WOOD","STONE":"I_STONE","GEL":"I_GEL","LENS":"I_LENS","GLOWSHRO
        "MUSHROOM":"I_MUSHROOM","COPPER_BAR":"I_COPPER_BAR","IRON_BAR":"I_IRON_BAR","GOLD_BAR":"I_GOLD_BAR",
        "DEMONITE_BAR":"I_DEMONITE_BAR","HELL_BAR":"I_HELL_BAR","OBSIDIAN":"I_OBSIDIAN","HELLSTONE":"I_HELLSTONE"}
 
-import zlib
-# tier -> melee damage BAND (lo, hi). Every weapon rolls its own point in the
-# band from a stable hash of its name, then its TYPE reshapes the trade-offs —
-# so no two weapons play the same.
-TIER_BAND = {"early":(6,13), "prehard":(13,21), "hard":(21,33), "end":(33,50)}
+# --- damage is EARNED, not rolled: it derives from the recipe's cost ----------
+# per-unit ingredient value (roughly: how hard is one of these to get?)
+ING_VALUE = {
+    "I_WOOD": 0.3, "I_STONE": 0.3, "I_GEL": 0.4, "I_MUSHROOM": 1.0, "I_LENS": 1.5,
+    "I_COPPER_BAR": 1.0, "I_IRON_BAR": 1.5, "I_GOLD_BAR": 2.2,
+    "I_OBSIDIAN": 2.0, "I_HELLSTONE": 2.5, "I_DEMONITE_BAR": 3.2, "I_HELL_BAR": 4.0,
+}
+STATION_MULT = {"ST_WORKBENCH": 1.0, "ST_FURNACE": 1.0, "ST_ANVIL": 1.0, "ST_ALTAR": 1.1}
 
-def _roll(name, salt, lo, hi):
-    """Deterministic per-weapon roll in [lo,hi] (crc32 is stable across runs)."""
-    h = zlib.crc32((name + "/" + str(salt)).encode()) & 0xffff
-    return lo + h % (hi - lo + 1)
+def recipe_cost(recipe):
+    """Total ingredient value of a recipe string (the price you pay = the power
+    you get). Altar recipes get a small premium (corruption-gated)."""
+    st, ings = parse_recipe(recipe)
+    cost = sum(ING_VALUE.get(iid, 1.0) * n for iid, n in ings)
+    return cost * STATION_MULT[st]
 
-def stats(kind, tier, vtype, name=""):
-    lo, hi = TIER_BAND[tier]
-    dmg = _roll(name, "d", lo, hi)
-    spd = _roll(name, "s", 16, 24)                    # use-time frames (lower = faster)
-    kn  = _roll(name, "k", 105, 175)
+def stats(kind, tier, vtype, recipe=""):
+    cost = recipe_cost(recipe) if recipe else 10.0
+    base = min(55, max(5, 4.0 + 0.72 * cost))          # cost -> damage backbone
     reach = 0; nshot = 0; spread = 0; power = 0
     t = vtype.lower()
     heavy = any(w in t for w in ("hammer","mace","flail","maul","morningstar","bludgeon","warhammer"))
@@ -52,37 +55,36 @@ def stats(kind, tier, vtype, name=""):
     if kind == "IK_BOW":
         kn = 0
         if any(w in t for w in ("gun","scatter","repeater","cannon","blaster","onslaught","pistol","rifle","launcher","musket","minishark","autocannon")):
-            nshot = _roll(name, "n", 2, 4)            # sprays: more pellets, weaker each
-            spread = _roll(name, "sp", 14, 28)
-            dmg = max(3, int(dmg * 0.45)); spd = _roll(name, "s2", 12, 18)
+            nshot = 2 + (cost > 25) + (cost > 40)      # pricier guns spray more pellets
+            spread = 12 + nshot * 4
+            dmg = max(3, int(base * 0.45)); spd = 14   # fast trigger, weak pellets
         elif "crossbow" in t:
             nshot = 2; spread = 10
-            dmg = max(4, int(dmg * 0.65)); spd = _roll(name, "s2", 18, 24)
+            dmg = max(4, int(base * 0.65)); spd = 20
         elif any(w in t for w in ("staff","wand","rod","scepter","focus","nova")):
-            dmg = int(dmg * 0.95)                     # staves: heavy single bolts, slow
-            spd = _roll(name, "s2", 22, 30)
-        else:                                          # bows
-            dmg = max(4, int(dmg * 0.7)); spd = _roll(name, "s2", 15, 21)
-            if tier in ("hard", "end"): nshot = 2; spread = 10
+            dmg = int(base * 0.95); spd = 25           # slow, heavy bolts
+        else:                                           # bows
+            dmg = max(4, int(base * 0.7)); spd = 17
+            if cost > 25: nshot = 2; spread = 10
     elif kind == "IK_PICK":
         power = 7 if tier == "hard" else 9
-        dmg = max(5, dmg // 2); kn = 90; spd = _roll(name, "s2", 13, 17)
+        dmg = max(5, int(base * 0.5)); kn = 90; spd = 14
     elif kind == "IK_AXE":
         power = 5 if tier in ("early", "prehard") else 7
-        dmg = int(dmg * 1.05); spd = _roll(name, "s2", 19, 26)   # chunky swings
-        kn = _roll(name, "k2", 130, 185)
+        dmg = int(base * 1.05); spd = 22               # chunky swings
+        kn = 150 + int(cost / 3)
         if tier in ("hard", "end"): reach = 1
-    else:  # melee
-        if heavy:                                      # slow, brutal, big knockback
-            dmg = int(dmg * 1.3); spd = _roll(name, "s2", 24, 30)
-            kn = _roll(name, "k2", 160, 210); reach = 1 if tier in ("hard", "end") else 0
-        elif spear:                                    # fast, light, long
-            dmg = max(4, int(dmg * 0.85)); spd = _roll(name, "s2", 13, 17)
-            reach = 1 + (1 if tier in ("hard", "end") else 0)
-        else:                                          # swords: balanced
-            if tier == "hard": reach = 1
-            if tier == "end":  reach = 2
-    return dmg, spd, kn, reach, nshot, spread, power
+    elif heavy:                                         # slow, brutal, big knockback
+        dmg = int(base * 1.25); spd = 26
+        kn = 180 + int(cost / 3); reach = 1 if tier in ("hard", "end") else 0
+    elif spear:                                         # fast, light, long
+        dmg = max(4, int(base * 0.85)); spd = 14; kn = 115
+        reach = 1 + (1 if tier in ("hard", "end") else 0)
+    else:                                               # swords: balanced
+        dmg = int(base); spd = 18; kn = 135 + int(cost / 4)
+        if tier == "hard": reach = 1
+        if tier == "end":  reach = 2
+    return dmg, spd, min(210, kn), reach, nshot, spread, power
 
 def parse_recipe(s):
     st, rest = s.split(":", 1)
@@ -110,7 +112,7 @@ def main():
         vtype, kind, tier, name, elem, recipe = DATA[idx]
         suf = suffix(name, seen)
         iid = "I_" + suf
-        dmg, spd, kn, reach, nshot, spread, power = stats(kind, tier, vtype, name)
+        dmg, spd, kn, reach, nshot, spread, power = stats(kind, tier, vtype, recipe)
         cell = STD_CELLS + vi
         item_id = BASE_ID + vi
         ids.append(iid)
