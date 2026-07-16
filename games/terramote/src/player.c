@@ -706,7 +706,8 @@ void player_tick(float dt) {
                 /* drop through a platform or a tree branch if we stand on one */
                 int r = (int)g_pl.y / TILE;
                 if (g_tiles[fg_at(px_c(g_pl.x), r)].solid == 2 ||
-                    world_branch_px((int)g_pl.x, (int)g_pl.y + 2)) s_drop_t = 0.22f;
+                    world_branch_px((int)g_pl.x, (int)g_pl.y + 2) ||
+                    world_canopy_px((int)g_pl.x, (int)g_pl.y + 3)) s_drop_t = 0.22f;
                 else { g_pl.vy = P_JUMP; audio_sfx(SFX_JUMP, 0.35f); }
             } else { g_pl.vy = P_JUMP; audio_sfx(SFX_JUMP, 0.35f); }
         }
