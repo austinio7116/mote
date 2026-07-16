@@ -47,12 +47,14 @@ static void slot_frame(uint16_t *fb, int x, int y, int sel) {
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(24, 22, 26), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, sel ? rgb(255, 220, 120) : rgb(105, 100, 92), 0, 0, MOTE_FB_H);
 }
-/* slots are 18px wide on a 15px grid pitch, so a later slot's fill overpaints
- * the previous slot's right border — after drawing a group, re-stroke the
- * SELECTED slot's outline on top so the highlight is never clipped */
-static void sel_restroke(uint16_t *fb, int x, int y) {
-    mote->draw_rect(fb, x, y, ICS + 2, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
+/* slots are 18px wide but packed on a tighter pitch, so a later slot's fill
+ * overpaints the previous slot's right edge — its VISIBLE width is the pitch,
+ * not 18. After drawing a group, re-stroke the SELECTED slot at its visible
+ * width so the yellow box hugs the segment instead of poking into the neighbour. */
+static void sel_box(uint16_t *fb, int x, int y, int w) {
+    mote->draw_rect(fb, x, y, w, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
 }
+static void sel_restroke(uint16_t *fb, int x, int y) { sel_box(fb, x, y, ICS + 2); }
 static void slot_draw(uint16_t *fb, const Slot *s, int x, int y, int sel) {
     slot_frame(fb, x, y, sel);
     if (s->item) {
@@ -72,7 +74,7 @@ void ui_hud(uint16_t *fb) {
     for (int i = 0; i < HOTBAR; i++)
         slot_draw(fb, &g_pl.inv[i], i * 16 - 1, 0, i == g_pl.hot);
     if (g_pl.hot >= 0 && g_pl.hot < HOTBAR)
-        mote->draw_rect(fb, g_pl.hot * 16 - 1, 0, ICS + 2, ICS + 2, rgb(255, 220, 120), 0, 0, MOTE_FB_H);
+        sel_box(fb, g_pl.hot * 16 - 1, 0, 16);   /* visible width = 16px pitch */
     /* hearts (10px apart, 12px cells) */
     int hearts = g_pl.maxhp / 20;
     for (int i = 0; i < hearts; i++) {
@@ -137,7 +139,7 @@ void ui_hud(uint16_t *fb) {
 /* --------------------------------------------------------------- inventory -- */
 static void inv_grid_xy(int i, int *x, int *y) {
     *x = 2 + (i % 8) * 15;
-    *y = 24 + (i / 8) * 18;
+    *y = 22 + (i / 8) * 18;
 }
 
 /* ---- menu chrome: icon tabs + a category pager ------------------------------ */
@@ -226,35 +228,35 @@ void ui_inventory(uint16_t *fb) {
                 mote->draw_rect(fb, x + 1, y + 1, ICS, ICS, rgb(14, 13, 16), 1, 0, MOTE_FB_H);
             }
         }
-        static const char *alab[3] = { "HELM", "MAIL", "LEGS" };
-        for (int a = 0; a < 3; a++) {
-            int x = 8 + a * 32, y = 100;
-            Slot as = { g_pl.armor[a], g_pl.armor[a] ? 1 : 0 };
-            slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a && !s_inv_on_pager);
-            mote->text(fb, alab[a], x + 19, y + 6, rgb(150, 145, 135));
+        /* armor + drop row: 4 slots evenly spaced, each with a label CENTERED
+         * beneath it (the old right-of-slot labels collided with the next box) */
+        static const char *alab[4] = { "HELM", "MAIL", "LEGS", "DROP" };
+        const int arow_y = 96;
+        for (int a = 0; a < 4; a++) {
+            int x = 8 + a * 32;
+            Slot as = { a < 3 ? g_pl.armor[a] : 0, a < 3 && g_pl.armor[a] ? 1 : 0 };
+            slot_draw(fb, &as, x, arow_y, s_cur == INV_SLOTS + a && !s_inv_on_pager);
+            if (a == 3) mote->text(fb, "X", x + 7, arow_y + 6, rgb(210, 90, 80));
+            int lw = (int)strlen(alab[a]) * 4;                    /* centre under the 18px slot */
+            mote->text(fb, alab[a], x + (ICS + 2 - lw) / 2, arow_y + 20,
+                       a == 3 ? rgb(200, 150, 140) : rgb(150, 145, 135));
         }
-        /* drop slot: throw the held stack to the ground */
-        {
-            Slot none = { 0, 0 };
-            slot_draw(fb, &none, 104, 100, s_cur == INV_SLOTS + 3 && !s_inv_on_pager);
-            mote->text(fb, "X", 111, 106, rgb(210, 90, 80));
-        }
-        /* unclipped highlight on top */
+        /* unclipped highlight on top (visible width = each grid's pitch) */
         if (!s_inv_on_pager) {
-            if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
-            else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 100);
+            if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_box(fb, x, y, 15); }
+            else sel_box(fb, 8 + (s_cur - INV_SLOTS) * 32, arow_y, ICS + 2);   /* armor pitch 32: full */
         }
         /* held stack rides the cursor */
         int cx, cy;
         if (s_cur < INV_SLOTS) inv_grid_xy(s_cur, &cx, &cy);
-        else { cx = 8 + (s_cur - INV_SLOTS) * 32; cy = 100; }
+        else { cx = 8 + (s_cur - INV_SLOTS) * 32; cy = arow_y; }
         if (s_held.item) icon(fb, s_held.item, cx + 8, cy + 8);
         /* hovered item: one info line — name + stats */
         uint8_t hov = s_cur < INV_SLOTS ? g_pl.inv[s_cur].item
                     : s_cur < INV_SLOTS + 3 ? g_pl.armor[s_cur - INV_SLOTS] : 0;
         if (s_held.item) hov = s_held.item;
         if (s_cur == INV_SLOTS + 3 && !hov && !s_inv_on_pager)
-            mote->text(fb, "DROP: A THROWS THE HELD ITEM", 4, 121, rgb(200, 150, 140));
+            mote->text(fb, "DROP: A THROWS THE HELD ITEM", 4, 122, rgb(200, 150, 140));
         if (hov && !s_inv_on_pager) {
             const ItemDef *hd = &g_items[hov];
             static const char *eln[9] = { "", "BURN", "CHILL", "POISON", "HOLY",
@@ -273,7 +275,7 @@ void ui_inventory(uint16_t *fb) {
                                 snprintf(st + n, 64 - n, "  DEFENSE %d", hd->power); break;
             case IK_CONSUME:    if (hd->power) snprintf(st + n, 64 - n, "  HEALS %d", hd->power); break;
             }
-            mote->text(fb, st, 4, 121, rgb(220, 225, 205));
+            mote->text(fb, st, 4, 122, rgb(220, 225, 205));
         }
 
         /* navigation */
@@ -342,7 +344,7 @@ void ui_inventory(uint16_t *fb) {
         if (!n) mote->text_font(fb, f, s_craft_cat ? "NOTHING HERE" : "NO STATION NEARBY", 12, 56, rgb(200, 190, 170));
         if (s_craft_cur >= n) s_craft_cur = n ? n - 1 : 0;
         int first = s_craft_cur > 3 ? s_craft_cur - 3 : 0;
-        for (int k = 0; k < 5 && first + k < n; k++) {
+        for (int k = 0; k < 4 && first + k < n; k++) {
             const Recipe *rc = list[first + k];
             int y = 25 + k * 19;
             int can = craft_can(rc);
@@ -370,6 +372,27 @@ void ui_inventory(uint16_t *fb) {
             if (rc->out_n > 1) {
                 char b[8]; snprintf(b, 8, "x%d", rc->out_n);
                 mote->text(fb, b, 8, y + 11, rgb(200, 195, 180));
+            }
+        }
+        /* footer: the selected recipe spelled out in text */
+        if (n) {
+            const Recipe *rc = list[s_craft_cur];
+            static const char *STN[5] = { "", "Workbench", "Furnace", "Anvil", "Demon Altar" };
+            mote->draw_rect(fb, 0, 103, MOTE_FB_W, MOTE_FB_H - 103, rgb(18, 16, 22), 1, 0, MOTE_FB_H);
+            mote->draw_rect(fb, 0, 103, MOTE_FB_W, 1, rgb(70, 64, 82), 1, 0, MOTE_FB_H);
+            char line[48]; int p = 0;
+            if (rc->out_n > 1) p += snprintf(line + p, 48 - p, "%dx ", rc->out_n);
+            snprintf(line + p, 48 - p, "%s", g_items[rc->out].name);
+            mote->text(fb, line, 3, 106, rgb(240, 232, 200));
+            p = 0;
+            for (int i = 0; i < 3 && rc->in[i].item; i++)
+                p += snprintf(line + p, 48 - p, "%s%d %s", i ? " + " : "",
+                              rc->in[i].n, g_items[rc->in[i].item].name);
+            mote->text(fb, line, 3, 114, rgb(170, 200, 165));
+            if (rc->station) {
+                char at[28]; snprintf(at, 28, "at %s", STN[rc->station]);
+                int w = (int)strlen(at) * 4;
+                mote->text(fb, at, MOTE_FB_W - w - 3, 121, rgb(150, 150, 165));
             }
         }
         if (no_input) return;

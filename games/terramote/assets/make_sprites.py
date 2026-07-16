@@ -449,36 +449,29 @@ def make_items():
     }
     def bar_icon(ox, oy, metal):
         base, light, dark, acc = BAR_SPEC.get(metal, (METAL.get(metal, (180,180,180)),) * 4)
-        # top face: a parallelogram slab (the lit surface, seen from above)
-        for y in range(4, 6):
-            x0 = 4 - (y - 4); x1 = 11 - (y - 4)
-            for x in range(x0, x1):
-                c.px(ox + x, oy + y, light)
-        # front face: base colour, with a left-lit / right-shadow gradient
-        for y in range(6, 10):
+        def mul(col, f): return tuple(min(255, int(k * f)) for k in col)
+        def p(x, y, col): c.px(ox + x, oy + y, col)
+        # SYMMETRIC trapezoid ingot within the 12px painter cell (x,y in 0..11):
+        # a narrow lit top surface over a wider front face, with a shadow foot.
+        for x in range(4, 9):  p(x, 3, light)           # top surface, narrowest
+        for x in range(3, 10): p(x, 4, light)           # top surface, widening
+        for x in range(2, 11): p(x, 5, mul(base, 1.18)) # front-top edge (catch-light)
+        for y in (6, 7):                                # front face body
             for x in range(2, 11):
-                col = base
-                if x <= 3:      col = tuple(min(255, int(k * 1.15)) for k in base)   # left bevel catch-light
-                elif x >= 9:    col = dark                                            # right shadow
-                if y == 9:      col = dark                                            # bottom edge
-                c.px(ox + x, oy + y, col)
-        # seam where top face meets front (reads as the ingot's front-top edge)
-        for x in range(2, 11):
-            c.px(ox + x, oy + 6, tuple(min(255, int(k * 1.2)) for k in base))
-        c.px(ox + 2, oy + 6, light)
-        # signature detail per metal
-        if metal == "HELL":                       # molten embers + a hot glow line
-            for x in range(4, 10): c.px(ox + x, oy + 4, acc)      # glowing top edge
-            for dx, dy in ((4, 7), (7, 8), (9, 7)): c.px(ox + dx, oy + dy, acc)
-        elif metal == "GOLD":                      # diagonal specular streak
-            for i in range(3): c.px(ox + 4 + i, oy + 7 + i if 7 + i < 9 else 8, acc)
-            c.px(ox + 5, oy + 5, acc)
-        elif metal == "IRON":                      # single crisp highlight dot
-            c.px(ox + 5, oy + 5, acc); c.px(ox + 4, oy + 7, acc)
-        elif metal == "DEMONITE":                  # violet crystalline glints
-            for dx, dy in ((5, 5), (6, 7), (8, 8)): c.px(ox + dx, oy + dy, acc)
-        elif metal == "COPPER":                    # faint patina fleck (green-tinged)
-            c.px(ox + 4, oy + 5, acc); c.px(ox + 7, oy + 8, (120, 150, 96))
+                p(x, y, mul(base, 1.10) if x <= 2 else dark if x >= 9 else base)
+        for x in range(3, 10): p(x, 8, dark)            # bottom foot (shadow)
+        # per-metal signature, sitting ON the faces (not floating above)
+        if metal == "HELL":                             # molten glow line + embers
+            for x in range(3, 10): p(x, 5, acc)
+            for dx, dy in ((4, 7), (6, 7), (8, 6)): p(dx, dy, acc)
+        elif metal == "GOLD":                           # specular glints
+            p(3, 6, acc); p(4, 6, acc); p(5, 7, acc); p(4, 4, acc)
+        elif metal == "IRON":                           # crisp highlights
+            p(4, 4, acc); p(3, 6, acc)
+        elif metal == "DEMONITE":                       # violet crystal glints
+            for dx, dy in ((4, 4), (6, 6), (8, 7)): p(dx, dy, acc)
+        elif metal == "COPPER":                         # faint green patina fleck
+            p(4, 4, acc); p(8, 7, (120, 150, 96))
 
     def ore_icon(ox, oy, m):
         pts = ((4, 4), (6, 3), (7, 5), (5, 6), (3, 6), (6, 7))
