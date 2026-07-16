@@ -105,7 +105,7 @@ int world_stand_px(int wx, int wy, float vy, float feet_y) {
     if (g_tiles[fg_at(wx / TILE, r)].solid == 2 && vy >= 0 &&
         feet_y <= (float)(r * TILE) + 2.0f)
         return 1;
-    return 0;
+    return world_branch_stand(wx, wy, vy, feet_y);   /* tree branches hold you too */
 }
 
 /* ----------------------------------------------------------------- chests ---- */
@@ -715,4 +715,39 @@ void world_title_scene(void) {
     for (int c = 8; c < WCOLS - 8; c += wrandi(7, 13))    /* a healthy forest */
         if (wrand() % 4) plant_tree(c, g_surf[c], wrandi(4, 7));
     world_rebuild_caches();
+}
+
+/* --------------------------------------------------------- tree branches ----
+ * Branches are cosmetic sprites derived in draw_trees (game.c) from a hash
+ * rule — these functions mirror that EXACT rule so branches have physics:
+ * stand on them (one-way, like platforms) and grapple onto them. */
+static int branch_box(int c, int r, int *x0, int *y0) {
+    if (fg_at(c, r) != T_TRUNK) return 0;
+    if (fg_at(c, r - 1) != T_TRUNK || fg_at(c, r + 1) != T_TRUNK) return 0;   /* mid-trunk only */
+    unsigned h = mote__at_hash(c, r);
+    if (h % 4u) return 0;
+    *x0 = ((h >> 4) & 1) ? c * TILE - 14 : c * TILE + 6;
+    *y0 = r * TILE - 4;
+    return 1;                                    /* sprite box is 16x12 */
+}
+int world_branch_px(int wx, int wy) {            /* anywhere on a branch (grapple) */
+    for (int r = (wy - 7) / TILE; r <= (wy + 4) / TILE; r++)
+        for (int c = (wx - 21) / TILE; c <= (wx + 14) / TILE; c++) {
+            int x0, y0;
+            if (!branch_box(c, r, &x0, &y0)) continue;
+            if (wx >= x0 && wx < x0 + 16 && wy >= y0 && wy < y0 + 12) return 1;
+        }
+    return 0;
+}
+int world_branch_stand(int wx, int wy, float vy, float feet_y) {
+    if (vy < 0) return 0;                        /* one-way: only when falling */
+    for (int r = (wy - 7) / TILE; r <= (wy + 4) / TILE; r++)
+        for (int c = (wx - 21) / TILE; c <= (wx + 14) / TILE; c++) {
+            int x0, y0;
+            if (!branch_box(c, r, &x0, &y0)) continue;
+            int surf = y0 + 3;                   /* the woody arm's top */
+            if (wx >= x0 && wx < x0 + 16 && wy >= surf && wy < surf + 4 &&
+                feet_y <= (float)surf + 2.0f) return 1;
+        }
+    return 0;
 }

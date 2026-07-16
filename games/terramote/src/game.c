@@ -329,6 +329,10 @@ static void play_tick(float dt) {
     s_grow_t += dt;
     if (s_grow_t > 0.5f) { s_grow_t = 0; world_grow_tick(); }
     s_autosave_t += dt;
+    if (s_autosave_t > 118.5f && s_autosave_t < 119.0f) {
+        ui_toast("AUTOSAVING...");               /* warn BEFORE the save hitch */
+        s_autosave_t = 119.0f;
+    }
     if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_world(); ui_toast("AUTOSAVED"); }
 
     const MoteInput *in = mote->input();
