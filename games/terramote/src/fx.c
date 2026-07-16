@@ -138,9 +138,23 @@ static uint16_t sky_col(int wy) {
 
 static uint32_t phash(int x) { uint32_t h = (uint32_t)x * 2654435761u; return h ^ (h >> 15); }
 
+static inline uint16_t blend565(uint16_t a, uint16_t b) {
+    return (uint16_t)((((a & 0xF7DE) >> 1) + ((b & 0xF7DE) >> 1)));
+}
+/* mix q quarters of b into a (q = 0..4) — cheap atmospheric-haze lerp */
+static inline uint16_t mix565(uint16_t a, uint16_t b, int q) {
+    switch (q) {
+    case 1:  return blend565(a, blend565(a, b));
+    case 2:  return blend565(a, b);
+    case 3:  return blend565(b, blend565(a, b));
+    case 4:  return b;
+    }
+    return a;
+}
+
 /* parallax hill height (screen px from a virtual horizon) for layer k */
 static int hill_h(int sx, int k) {
-    float x = (g_cam_x * (k ? 0.18f : 0.38f) + sx) * (k ? 0.030f : 0.045f);
+    float x = (g_cam_x * (k ? 0.32f : 0.14f) + sx) * (k ? 0.030f : 0.045f);
     int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
     float a = (phash(xi * 2 + k * 977) & 0xFF) / 255.0f;
     float b = (phash((xi + 1) * 2 + k * 977) & 0xFF) / 255.0f;
@@ -172,10 +186,12 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     /* star density fades in as the sun goes down */
     float t = g_time;
     int stars = (t > 0.58f && t < 0.98f);
+    uint16_t skyrow[MOTE_FB_H];
     for (int y = y0; y < y1; y++) {
         uint16_t *row = fb + y * MOTE_FB_W;
         int wy = y + g_cam_y;
         uint16_t sky = sky_col(wy);
+        skyrow[y] = sky;
         int rr = wy / TILE;
         uint16_t cavec;
         if (rr >= ROW_HELL - 4) cavec = rgb(52, 14, 10);
@@ -198,8 +214,10 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int sky_visible = 0;                       /* any sky on screen? */
     for (int x = 0; x < MOTE_FB_W; x++)
         if (srow_px[x] > g_cam_y) { sky_visible = 1; break; }
-    /* back-to-front sky stack: sun/moon, then clouds pass in FRONT of it,
-     * then the hills (the nearest background layer) over both */
+    /* back-to-front sky stack: sun/moon, then the FAR mountain range, then
+     * the clouds drift in front of it, then the NEAR hills over everything.
+     * Both ranges get a sunlit ridge, a darker lower body, and atmospheric
+     * haze (blended toward the sky colour — heavy for the far range). */
     if (sky_visible) {
         float ph = (t < 0.60f) ? (t / 0.60f) : ((t - 0.60f) / 0.40f);
         int sx = (int)(ph * (MOTE_FB_W + 40)) - 20;
@@ -212,32 +230,58 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             mote->draw_circle(fb, sx - 2, sy - 1, 3, rgb(188, 194, 214), 1, y0, y1);  /* crescent shade */
         }
     }
-    /* drifting clouds (two parallax speeds), tinted by time of day */
-    if (sky_visible) {
-        uint16_t cl = night ? rgb(28, 34, 56) : rgb(236, 242, 250);
-        uint16_t cd = night ? rgb(22, 27, 46) : rgb(206, 216, 232);
-        for (int k = 0; k < 5; k++) {
-            int span = MOTE_FB_W + 60;
-            int drift = (int)(t * 2400.0f * (1.0f + (k & 1) * 0.6f));
-            int sx = (int)((phash(k * 191) % 997) + drift - g_cam_x / (4 + (k & 1) * 3)) % span;
-            if (sx < 0) sx += span;
-            sx -= 30;
-            int sy = 20 + (int)(phash(k * 47 + 5) % 26);
-            mote->draw_circle(fb, sx, sy, 5, cl, 1, y0, y1);
-            mote->draw_circle(fb, sx - 7, sy + 2, 4, cd, 1, y0, y1);
-            mote->draw_circle(fb, sx + 7, sy + 2, 4, cd, 1, y0, y1);
+    if (sky_visible) {                                   /* far mountains */
+        uint16_t rim  = night ? rgb(22, 38, 46) : rgb(98, 152, 128);
+        uint16_t deep = night ? rgb(7, 14, 19)  : rgb(42, 92, 72);
+        int haze = night ? 1 : 2;                        /* quarters of sky mixed in */
+        for (int x = 0; x < MOTE_FB_W; x++) {
+            int bot = srow_px[x] - g_cam_y;
+            if (bot > y1) bot = y1;
+            int hf = hill_far[x], top = hf < y0 ? y0 : hf;
+            for (int y = top; y < bot; y++) {
+                uint16_t base = y == hf ? rim : (y - hf < 9 ? far_c : deep);
+                fb[y * MOTE_FB_W + x] = mix565(base, skyrow[y], haze);
+            }
         }
     }
-    /* hills last: they occlude sun and clouds, terrain occludes them */
+    /* clouds: procedural puff clusters — every cloud its own shape, size,
+     * altitude, speed and parallax; they cross in front of the far range */
     if (sky_visible) {
+        uint16_t cl = night ? rgb(30, 36, 58) : rgb(240, 245, 252);
+        uint16_t cd = night ? rgb(22, 27, 46) : rgb(208, 218, 234);
+        for (int k = 0; k < 7; k++) {
+            uint32_t h = phash(k * 191 + 7);
+            int span = MOTE_FB_W + 90;
+            float speed = 1.0f + ((h >> 4) & 3) * 0.4f;
+            int par = 5 + (int)((h >> 6) & 3);           /* x-parallax divisor 5..8 */
+            int sx = (int)(((h % 997) + (int)(t * 2600.0f * speed) - g_cam_x / par) % span);
+            if (sx < 0) sx += span;
+            sx -= 45;
+            int sy = 13 + (int)((h >> 8) % 30);
+            int R = 3 + (int)((h >> 14) & 3);            /* puff radius 3..6 */
+            int puffs = 3 + (int)((h >> 12) & 3);        /* 3..6 puffs */
+            int w = puffs * R + R;
+            mote->draw_rect(fb, sx - w / 2, sy, w, R > 4 ? 3 : 2, cd, 1, y0, y1);  /* flat shaded base */
+            for (int p = 0; p < puffs; p++) {
+                uint32_t hp = phash(k * 331 + p * 61 + 11);
+                int px_ = sx - w / 2 + R + p * (w - 2 * R) / (puffs > 1 ? puffs - 1 : 1);
+                int mid = (p > 0 && p < puffs - 1) ? 1 : 0;   /* taller in the middle */
+                int r_ = R + mid - (int)((hp >> 3) & 1);
+                mote->draw_circle(fb, px_, sy - r_ / 2 - (int)(hp % 2), r_, cl, 1, y0, y1);
+            }
+        }
+    }
+    if (sky_visible) {                                   /* near hills, over the clouds */
+        uint16_t rim  = night ? rgb(20, 36, 26) : rgb(84, 156, 78);
+        uint16_t deep = night ? rgb(9, 17, 13)  : rgb(27, 68, 32);
         for (int x = 0; x < MOTE_FB_W; x++) {
-            int bot = srow_px[x] - g_cam_y;              /* sky ends at the terrain */
+            int bot = srow_px[x] - g_cam_y;
             if (bot > y1) bot = y1;
-            int hf = hill_far[x], hn = hill_near[x];
-            if (hf < y0) hf = y0;
-            if (hn < y0) hn = y0;
-            for (int y = hf; y < bot; y++)
-                fb[y * MOTE_FB_W + x] = y >= hn ? near_c : far_c;
+            int hn = hill_near[x], top = hn < y0 ? y0 : hn;
+            for (int y = top; y < bot; y++) {
+                uint16_t base = y == hn ? rim : (y - hn < 11 ? near_c : deep);
+                fb[y * MOTE_FB_W + x] = mix565(base, skyrow[y], 1);   /* light haze */
+            }
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
@@ -310,9 +354,6 @@ void fx_draw_flames(uint16_t *fb) {
 }
 
 /* ------------------------------------------------- liquids + darkness ------- */
-static inline uint16_t blend565(uint16_t a, uint16_t b) {
-    return (uint16_t)((((a & 0xF7DE) >> 1) + ((b & 0xF7DE) >> 1)));
-}
 
 void fx_overlay_world(uint16_t *fb) {
     /* liquid translucency: per visible cell, tint the filled part */
@@ -473,9 +514,10 @@ void ftext_add(float x, float y, int val, uint16_t col) {
     g_ftext[best] = (FText){ x, y, 0.9f, (int16_t)val, col };
 }
 
-/* particles + damage text draw in screen space AFTER darkness (they read as
- * sparks/UI); called from the overlay path in game.c */
+/* particles draw BEFORE the held-weapon sprite (a trail must sit behind the
+ * blade, not on top of it); the floating damage text stays above darkness. */
 void fx_draw_particles(uint16_t *fb);
+void fx_draw_ftext(uint16_t *fb);
 void fx_draw_particles(uint16_t *fb) {
     for (int i = 0; i < MAX_PART; i++) {
         Part *p = &g_part[i];
@@ -501,6 +543,8 @@ void fx_draw_particles(uint16_t *fb) {
         }
         mote->draw_pixel(fb, sx, sy, c);
     }
+}
+void fx_draw_ftext(uint16_t *fb) {
     for (int i = 0; i < MAX_FTEXT; i++) {
         if (g_ftext[i].t <= 0) continue;
         char buf[8];

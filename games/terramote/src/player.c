@@ -351,8 +351,9 @@ static void swing_trail(uint8_t item, const ItemDef *def) {
     float ph = 1.0f - g_pl.use_t / dur;
     if (ph < 0) ph = 0; else if (ph > 1) ph = 1;
     const WeaponFx *fx = &g_wfx[item];
-    int mode = fx->element ? element_pfx(fx->element) : PFX_TRAIL;
-    uint16_t col = fx->element ? element_color(fx->element) : rgb(225, 230, 240);
+    if (!fx->element) return;                 /* plain weapons swing clean */
+    int mode = element_pfx(fx->element);
+    uint16_t col = element_color(fx->element);
     int right = g_pl.facing > 0;
     float d0 = -2.35f, d1 = 0.45f;
     float delta = d0 + (d1 - d0) * ph;
@@ -360,17 +361,13 @@ static void swing_trail(uint8_t item, const ItemDef *def) {
     float sweep = (right ? 1.0f : -1.0f) * (d1 - d0) / dur;  /* rad/s of the sweep */
     float cd = cosf(delta), sd = sinf(delta);
     float hx = g_pl.x + g_pl.facing * 2.0f, hy = g_pl.y - 9.0f;
-    /* plain smear dies fast; elemental particles live long enough to MOVE */
-    float l0 = mode == PFX_TRAIL ? 0.14f : 0.26f;
-    float l1 = mode == PFX_TRAIL ? 0.26f : 0.46f;
+    float l0 = 0.26f, l1 = 0.46f;             /* long enough for the element to MOVE */
     for (int r = 6; r <= 22; r += 2) {
         float px = hx + cd * r, py = hy + sd * r;
         float tvx = -sd * sweep * r, tvy = cd * sweep * r;   /* tangential velocity */
-        int reps = (mode == PFX_TRAIL && r >= 14) ? 2 : 1;   /* smear thickens at the tip */
-        for (int k = 0; k < reps; k++)
-            part_spark(px + mote_randf(-0.8f, 0.8f), py + mote_randf(-0.8f, 0.8f),
-                       tvx * 0.5f + mote_randf(-6, 6), tvy * 0.5f + mote_randf(-6, 6),
-                       mote_randf(l0, l1), col, mode);
+        part_spark(px + mote_randf(-0.8f, 0.8f), py + mote_randf(-0.8f, 0.8f),
+                   tvx * 0.5f + mote_randf(-6, 6), tvy * 0.5f + mote_randf(-6, 6),
+                   mote_randf(l0, l1), col, mode);
     }
 }
 
