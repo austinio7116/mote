@@ -547,8 +547,9 @@ static void grapple_fire_fly(float dt) {
             g_pl.grap_x += sx; g_pl.grap_y += sy;
             int gx = (int)g_pl.grap_x, gy = (int)g_pl.grap_y;
             if (world_solid_px(gx, gy) ||
-                fg_at(gx / TILE, gy / TILE) == T_TRUNK ||    /* trees are grappleable */
-                world_branch_px(gx, gy)) {
+                fg_at(gx / TILE, gy / TILE) == T_TRUNK ||    /* trees are grappleable: */
+                world_branch_px(gx, gy) ||                   /* trunks, branches, */
+                world_canopy_px(gx, gy)) {                   /* and crowns */
                 float dx = g_pl.x - g_pl.grap_x, dy = (g_pl.y - 8.0f) - g_pl.grap_y;
                 g_pl.grap = 2;
                 g_pl.grap_len = sqrtf(dx * dx + dy * dy);

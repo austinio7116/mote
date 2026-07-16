@@ -152,14 +152,19 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, int q) {
     return a;
 }
 
-/* parallax hill height (screen px from a virtual horizon) for layer k */
-static int hill_h(int sx, int k) {
-    float x = (g_cam_x * (k ? 0.32f : 0.14f) + sx) * (k ? 0.030f : 0.045f);
+/* parallax hill height (screen px from a virtual horizon) for layer k.
+ * k=0 far MOUNTAINS use ridged noise (sharp triangular peaks); k=1 near
+ * hills stay smooth and rolling. */
+static float hill_hf(int sx, int k) {
+    float x = (g_cam_x * (k ? 0.32f : 0.14f) + sx) * (k ? 0.030f : 0.036f);
     int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
     float a = (phash(xi * 2 + k * 977) & 0xFF) / 255.0f;
     float b = (phash((xi + 1) * 2 + k * 977) & 0xFF) / 255.0f;
-    return (int)((a + (b - a) * f) * (k ? 26 : 38)) + (k ? 4 : 0);
+    float v = a + (b - a) * f;
+    if (!k) v = 1.0f - fabsf(2.0f * v - 1.0f);          /* ridged */
+    return v * (k ? 26 : 42);
 }
+static int hill_h(int sx, int k) { return (int)hill_hf(sx, k) + (k ? 4 : 0); }
 
 void fx_background(uint16_t *fb, int y0, int y1) {
     /* per-column precompute: terrain surface (world px) + hill lines in SCREEN
@@ -231,16 +236,23 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         }
     }
     if (sky_visible) {                                   /* far mountains */
-        uint16_t rim  = night ? rgb(22, 38, 46) : rgb(98, 152, 128);
-        uint16_t deep = night ? rgb(7, 14, 19)  : rgb(42, 92, 72);
+        /* directional shading: the flank facing the light (west) is lit, the
+         * east face falls into shadow — read from the ridge line's slope —
+         * plus faint diagonal contour streaks down the faces */
+        uint16_t lit = night ? rgb(30, 48, 56) : rgb(104, 152, 128);
+        uint16_t dk  = night ? rgb(6, 12, 16)  : rgb(38, 84, 66);
         int haze = night ? 1 : 2;                        /* quarters of sky mixed in */
         for (int x = 0; x < MOTE_FB_W; x++) {
-            int bot = srow_px[x] - g_cam_y;
-            if (bot > y1) bot = y1;
+            int real_bot = srow_px[x] - g_cam_y;
+            int bot = real_bot > y1 ? y1 : real_bot;
             int hf = hill_far[x], top = hf < y0 ? y0 : hf;
+            /* slope from the CONTINUOUS noise — integer screen heights
+             * staircase and stripe the faces */
+            float sl = hill_hf(x + 2, 0) - hill_hf(x - 2, 0);
+            uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : far_c;
             for (int y = top; y < bot; y++) {
-                uint16_t base = y == hf ? rim : (y - hf < 9 ? far_c : deep);
-                fb[y * MOTE_FB_W + x] = mix565(base, skyrow[y], haze);
+                int q = haze + (real_bot - y < 16 ? (16 - (real_bot - y)) / 4 : 0);
+                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], q > 4 ? 4 : q);
             }
         }
     }
@@ -272,15 +284,17 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         }
     }
     if (sky_visible) {                                   /* near hills, over the clouds */
-        uint16_t rim  = night ? rgb(20, 36, 26) : rgb(84, 156, 78);
-        uint16_t deep = night ? rgb(9, 17, 13)  : rgb(27, 68, 32);
+        uint16_t lit = night ? rgb(22, 38, 28) : rgb(80, 148, 72);
+        uint16_t dk  = night ? rgb(7, 14, 10)  : rgb(26, 66, 30);
         for (int x = 0; x < MOTE_FB_W; x++) {
-            int bot = srow_px[x] - g_cam_y;
-            if (bot > y1) bot = y1;
+            int real_bot = srow_px[x] - g_cam_y;
+            int bot = real_bot > y1 ? y1 : real_bot;
             int hn = hill_near[x], top = hn < y0 ? y0 : hn;
+            float sl = hill_hf(x + 2, 1) - hill_hf(x - 2, 1);
+            uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
             for (int y = top; y < bot; y++) {
-                uint16_t base = y == hn ? rim : (y - hn < 11 ? near_c : deep);
-                fb[y * MOTE_FB_W + x] = mix565(base, skyrow[y], 1);   /* light haze */
+                int q = 1 + (real_bot - y < 14 ? (14 - (real_bot - y)) / 3 : 0);
+                fb[y * MOTE_FB_W + x] = mix565(tone, skyrow[y], q > 4 ? 4 : q);
             }
         }
     }
