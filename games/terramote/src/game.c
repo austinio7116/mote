@@ -284,6 +284,7 @@ static void dev_hooks(void) {
             if (*p == ',') p++; else break;
         }
     }
+    if ((e = getenv("TERRA_HOT"))) g_pl.hot = (uint8_t)atoi(e);   /* preselect a hotbar slot */
     if ((e = getenv("TERRA_TIME"))) s_dev_time = (float)atof(e);
     if ((e = getenv("TERRA_SEED"))) s_dev_seed = (uint32_t)strtoul(e, 0, 10);
     if ((e = getenv("TERRA_POS"))) {                 /* "col:row" spawn override */

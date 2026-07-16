@@ -451,27 +451,22 @@ def make_items():
         base, light, dark, acc = BAR_SPEC.get(metal, (METAL.get(metal, (180,180,180)),) * 4)
         def mul(col, f): return tuple(min(255, int(k * f)) for k in col)
         def p(x, y, col): c.px(ox + x, oy + y, col)
-        # SYMMETRIC trapezoid ingot within the 12px painter cell (x,y in 0..11):
-        # a narrow lit top surface over a wider front face, with a shadow foot.
-        for x in range(4, 9):  p(x, 3, light)           # top surface, narrowest
-        for x in range(3, 10): p(x, 4, light)           # top surface, widening
-        for x in range(2, 11): p(x, 5, mul(base, 1.18)) # front-top edge (catch-light)
-        for y in (6, 7):                                # front face body
-            for x in range(2, 11):
-                p(x, y, mul(base, 1.10) if x <= 2 else dark if x >= 9 else base)
-        for x in range(3, 10): p(x, 8, dark)            # bottom foot (shadow)
-        # per-metal signature, sitting ON the faces (not floating above)
-        if metal == "HELL":                             # molten glow line + embers
-            for x in range(3, 10): p(x, 5, acc)
-            for dx, dy in ((4, 7), (6, 7), (8, 6)): p(dx, dy, acc)
-        elif metal == "GOLD":                           # specular glints
-            p(3, 6, acc); p(4, 6, acc); p(5, 7, acc); p(4, 4, acc)
-        elif metal == "IRON":                           # crisp highlights
-            p(4, 4, acc); p(3, 6, acc)
-        elif metal == "DEMONITE":                       # violet crystal glints
-            for dx, dy in ((4, 4), (6, 6), (8, 7)): p(dx, dy, acc)
-        elif metal == "COPPER":                         # faint green patina fleck
-            p(4, 4, acc); p(8, 7, (120, 150, 96))
+        # a simple 3D bar (12px cell): a light TOP lid shifted one px right, a
+        # BASE front face, a DARK right side (depth) and a DARK bottom shadow.
+        for x in range(3, 11): p(x, 4, light)            # top lid
+        for y in range(5, 8):                            # front face
+            for x in range(2, 10): p(x, y, base)
+            p(2, y, mul(base, 1.12))                     # left catch-light
+            p(10, y, dark)                               # right depth side
+        for x in range(2, 11): p(x, 8, dark)             # bottom shadow
+        # one small signature accent per metal (palette already sets them apart)
+        if metal == "HELL":
+            for x in range(3, 11): p(x, 4, acc)          # molten glowing lid
+            p(4, 6, acc); p(7, 6, acc)                   # embers
+        elif metal == "GOLD":   p(4, 5, acc); p(6, 6, acc)
+        elif metal == "IRON":   p(4, 5, acc)
+        elif metal == "DEMONITE": p(5, 5, acc); p(7, 6, acc)
+        elif metal == "COPPER": p(8, 6, (120, 150, 96))
 
     def ore_icon(ox, oy, m):
         pts = ((4, 4), (6, 3), (7, 5), (5, 6), (3, 6), (6, 7))
