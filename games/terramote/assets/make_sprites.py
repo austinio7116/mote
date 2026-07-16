@@ -449,36 +449,24 @@ def make_items():
     }
     def bar_icon(ox, oy, metal):
         base, light, dark, acc = BAR_SPEC.get(metal, (METAL.get(metal, (180,180,180)),) * 4)
-        # top face: a parallelogram slab (the lit surface, seen from above)
-        for y in range(4, 6):
-            x0 = 4 - (y - 4); x1 = 11 - (y - 4)
-            for x in range(x0, x1):
-                c.px(ox + x, oy + y, light)
-        # front face: base colour, with a left-lit / right-shadow gradient
-        for y in range(6, 10):
-            for x in range(2, 11):
-                col = base
-                if x <= 3:      col = tuple(min(255, int(k * 1.15)) for k in base)   # left bevel catch-light
-                elif x >= 9:    col = dark                                            # right shadow
-                if y == 9:      col = dark                                            # bottom edge
-                c.px(ox + x, oy + y, col)
-        # seam where top face meets front (reads as the ingot's front-top edge)
-        for x in range(2, 11):
-            c.px(ox + x, oy + 6, tuple(min(255, int(k * 1.2)) for k in base))
-        c.px(ox + 2, oy + 6, light)
-        # signature detail per metal
-        if metal == "HELL":                       # molten embers + a hot glow line
-            for x in range(4, 10): c.px(ox + x, oy + 4, acc)      # glowing top edge
-            for dx, dy in ((4, 7), (7, 8), (9, 7)): c.px(ox + dx, oy + dy, acc)
-        elif metal == "GOLD":                      # diagonal specular streak
-            for i in range(3): c.px(ox + 4 + i, oy + 7 + i if 7 + i < 9 else 8, acc)
-            c.px(ox + 5, oy + 5, acc)
-        elif metal == "IRON":                      # single crisp highlight dot
-            c.px(ox + 5, oy + 5, acc); c.px(ox + 4, oy + 7, acc)
-        elif metal == "DEMONITE":                  # violet crystalline glints
-            for dx, dy in ((5, 5), (6, 7), (8, 8)): c.px(ox + dx, oy + dy, acc)
-        elif metal == "COPPER":                    # faint patina fleck (green-tinged)
-            c.px(ox + 4, oy + 5, acc); c.px(ox + 7, oy + 8, (120, 150, 96))
+        def mul(col, f): return tuple(min(255, int(k * f)) for k in col)
+        def p(x, y, col): c.px(ox + x, oy + y, col)
+        # a simple 3D bar (12px cell): a light TOP lid shifted one px right, a
+        # BASE front face, a DARK right side (depth) and a DARK bottom shadow.
+        for x in range(3, 11): p(x, 4, light)            # top lid
+        for y in range(5, 8):                            # front face
+            for x in range(2, 10): p(x, y, base)
+            p(2, y, mul(base, 1.12))                     # left catch-light
+            p(10, y, dark)                               # right depth side
+        for x in range(2, 11): p(x, 8, dark)             # bottom shadow
+        # one small signature accent per metal (palette already sets them apart)
+        if metal == "HELL":
+            for x in range(3, 11): p(x, 4, acc)          # molten glowing lid
+            p(4, 6, acc); p(7, 6, acc)                   # embers
+        elif metal == "GOLD":   p(4, 5, acc); p(6, 6, acc)
+        elif metal == "IRON":   p(4, 5, acc)
+        elif metal == "DEMONITE": p(5, 5, acc); p(7, 6, acc)
+        elif metal == "COPPER": p(8, 6, (120, 150, 96))
 
     def ore_icon(ox, oy, m):
         pts = ((4, 4), (6, 3), (7, 5), (5, 6), (3, 6), (6, 7))

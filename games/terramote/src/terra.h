@@ -190,8 +190,20 @@ typedef struct { uint8_t kind; float x, y, vx, vy, t; int16_t dmg; uint8_t hosti
 enum { PR_NONE = 0, PR_ARROW, PR_ARROW_FLAME, PR_LASER };
 extern Proj g_proj[MAX_PROJ];
 
-#define MAX_PART 48
-typedef struct { float x, y, vx, vy, t; uint16_t col; } Part;
+#define MAX_PART 160
+/* particle behaviour modes — each element MOVES like its element */
+enum {
+    PFX_BURST = 0,    /* gravity spray (mining debris, hits)            */
+    PFX_TRAIL,        /* swing smear: tangential drag, quick fade       */
+    PFX_EMBER,        /* fire: rises, jitters, hot->dark colour ramp    */
+    PFX_CRYSTAL,      /* ice: drifts down slowly, twinkles              */
+    PFX_BUBBLE,       /* poison: wobbles sideways as it floats up       */
+    PFX_HOLY,         /* holy: serene rise, strong gold/white twinkle   */
+    PFX_SWIRL,        /* arcane/demonic: velocity curls into spirals    */
+    PFX_DROP,         /* blood: heavy droplets that fall fast           */
+    PFX_LEAF,         /* nature: flutters side to side, sinking gently  */
+};
+typedef struct { float x, y, vx, vy, t, t0; uint16_t col; uint8_t fx; } Part;
 extern Part g_part[MAX_PART];
 
 #define MAX_FTEXT 8
@@ -241,6 +253,13 @@ int  world_stand_px(int wx, int wy, float vy, float feet_y); /* incl. one-way pl
 void world_liquid_tick(void);
 void world_grow_tick(void);           /* grass spread, saplings, flowers */
 int  world_surface_row(int c);        /* cached first-solid row per column */
+
+/* fog of war: the map only shows where you've been (2x2-tile chunks) */
+#define EXP_W (WCOLS / 2)
+#define EXP_H (WROWS / 2)
+extern uint8_t g_explored[(EXP_W * EXP_H + 7) / 8];
+int  world_explored(int c, int r);    /* tile coords */
+void world_explore_view(void);        /* reveal the camera view (call per play frame) */
 int  world_biome(int c);              /* 0 forest 1 snow 2 desert 3 corruption */
 void world_rebuild_caches(void);      /* surface cache — REQUIRED after loading planes */
 void world_mine_tile(int c, int r);   /* break + drop */
@@ -276,6 +295,9 @@ uint16_t element_color(uint8_t el);   /* particle/FX colour for an EL_* */
 void drops_add(uint8_t item, int n, float x, float y);
 void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element);
 void part_burst(float x, float y, uint16_t col, int n, float speed);
+void part_spark(float x, float y, float vx, float vy, float life, uint16_t col, int fx_mode);
+int  element_pfx(uint8_t el);                       /* EL_* -> its PFX_* behaviour */
+void part_element(float x, float y, uint8_t el, int n, float speed); /* mode-mapped burst */
 void ftext_add(float x, float y, int val, uint16_t col);
 
 /* ---- fx module: lighting / sky / walls (fx.c) -------------------------------------- */

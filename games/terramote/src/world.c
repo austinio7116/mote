@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 int world_surface_row_uncached(int c);
 int world_biome(int c);
@@ -44,6 +45,28 @@ static void surf_update_col(int c) {
     while (r < WROWS - 1 && !g_tiles[g_fgm[r * WCOLS + c]].solid) r++;
     g_surf[c] = (uint8_t)r;
 }
+/* ---- fog of war -------------------------------------------------------- */
+uint8_t g_explored[(EXP_W * EXP_H + 7) / 8];
+int world_explored(int c, int r) {
+    int cc = c >> 1, cr = r >> 1;
+    if ((unsigned)cc >= EXP_W || (unsigned)cr >= EXP_H) return 0;
+    int i = cr * EXP_W + cc;
+    return (g_explored[i >> 3] >> (i & 7)) & 1;
+}
+void world_explore_view(void) {
+    /* reveal the camera view plus a small margin */
+    int c0 = (g_cam_x / TILE - 2) >> 1, c1 = ((g_cam_x + MOTE_FB_W) / TILE + 2) >> 1;
+    int r0 = (g_cam_y / TILE - 2) >> 1, r1 = ((g_cam_y + MOTE_FB_H) / TILE + 2) >> 1;
+    for (int cr = r0; cr <= r1; cr++) {
+        if ((unsigned)cr >= EXP_H) continue;
+        for (int cc = c0; cc <= c1; cc++) {
+            if ((unsigned)cc >= EXP_W) continue;
+            int i = cr * EXP_W + cc;
+            g_explored[i >> 3] |= (uint8_t)(1 << (i & 7));
+        }
+    }
+}
+
 void world_rebuild_caches(void) {
     for (int c = 0; c < WCOLS; c++) surf_update_col(c);
 }
@@ -377,6 +400,7 @@ static void chest_loot(Chest *ch, int depth_r) {
 }
 
 void world_generate(uint32_t seed) {
+    memset(g_explored, 0, sizeof(g_explored));   /* a fresh world is unexplored */
     g_seed = seed;
     gen_stage = 0;
 }

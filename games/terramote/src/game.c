@@ -284,6 +284,7 @@ static void dev_hooks(void) {
             if (*p == ',') p++; else break;
         }
     }
+    if ((e = getenv("TERRA_HOT"))) g_pl.hot = (uint8_t)atoi(e);   /* preselect a hotbar slot */
     if ((e = getenv("TERRA_TIME"))) s_dev_time = (float)atof(e);
     if ((e = getenv("TERRA_SEED"))) s_dev_seed = (uint32_t)strtoul(e, 0, 10);
     if ((e = getenv("TERRA_POS"))) {                 /* "col:row" spawn override */
@@ -385,6 +386,7 @@ static void g_update(float dt) {
     case GS_PLAY:
         mote->set_background_cb(fx_background);
         play_tick(dt);
+        world_explore_view();          /* fog of war: reveal what you can see */
         if (g_state == GS_DEAD) g_dead_t = 3.0f;
         world_submit();
         break;

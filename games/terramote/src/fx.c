@@ -149,17 +149,19 @@ static int hill_h(int sx, int k) {
 
 void fx_background(uint16_t *fb, int y0, int y1) {
     /* per-column precompute: terrain surface + parallax hill lines (world px).
-     * Hills anchor to the HIGHEST terrain on screen (not a fixed virtual
-     * horizon), so they always peek above the valleys instead of hiding
-     * beneath the ground. */
+     * Hills anchor to the WORLD's highest terrain — a constant per world — so
+     * they sit still like a horizon. (Anchoring to the highest terrain on
+     * SCREEN made them bob up and down as the camera moved.) */
     int16_t srow_px[MOTE_FB_W], hill_far[MOTE_FB_W], hill_near[MOTE_FB_W];
-    int horizon = ROW_SURFACE_MAX * TILE;
+    int hrow = WROWS;
+    for (int c = 0; c < WCOLS; c++) {                  /* cached array walk: cheap */
+        int s = world_surface_row(c);
+        if (s < hrow) hrow = s;
+    }
+    int horizon = hrow * TILE;
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
         srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
-        if (srow_px[x] < horizon) horizon = srow_px[x];
-    }
-    for (int x = 0; x < MOTE_FB_W; x++) {
         hill_far[x]  = (int16_t)(horizon - 4 - hill_h(x, 0));
         hill_near[x] = (int16_t)(horizon - hill_h(x, 1));
     }
@@ -372,21 +374,77 @@ void part_burst(float x, float y, uint16_t col, int n, float speed) {
             if (g_part[i].t > 0) continue;
             float a = mote_randf(0, 6.28318f);
             float v = mote_randf(0.3f, 1.0f) * speed;
-            g_part[i] = (Part){ x, y, cosf(a) * v, sinf(a) * v - speed * 0.4f,
-                                mote_randf(0.25f, 0.6f), col };
+            float life = mote_randf(0.25f, 0.6f);
+            g_part[i] = (Part){ x, y, cosf(a) * v, sinf(a) * v - speed * 0.4f, life, life, col, PFX_BURST };
             break;
         }
+    }
+}
+
+/* a single spark with explicit velocity/lifetime/behaviour — the building
+ * block of weapon swing trails and elemental effects. */
+void part_spark(float x, float y, float vx, float vy, float life, uint16_t col, int fx_mode) {
+    for (int i = 0; i < MAX_PART; i++) {
+        if (g_part[i].t > 0) continue;
+        g_part[i] = (Part){ x, y, vx, vy, life, life, col, (uint8_t)fx_mode };
+        return;
+    }
+}
+
+int element_pfx(uint8_t el) {
+    switch (el) {
+    case EL_FIRE:    return PFX_EMBER;
+    case EL_ICE:     return PFX_CRYSTAL;
+    case EL_POISON:  return PFX_BUBBLE;
+    case EL_HOLY:    return PFX_HOLY;
+    case EL_DEMONIC: case EL_ARCANE: return PFX_SWIRL;
+    case EL_BLOOD:   return PFX_DROP;
+    case EL_NATURE:  return PFX_LEAF;
+    }
+    return PFX_TRAIL;
+}
+
+/* radial burst whose particles BEHAVE like the element (on-hit flare, arrow trail) */
+void part_element(float x, float y, uint8_t el, int n, float speed) {
+    int mode = element_pfx(el);
+    uint16_t col = element_color(el);
+    for (int k = 0; k < n; k++) {
+        float a = mote_randf(0, 6.28318f);
+        float v = mote_randf(0.4f, 1.0f) * speed;
+        part_spark(x, y, cosf(a) * v, sinf(a) * v, mote_randf(0.30f, 0.55f), col, mode);
     }
 }
 void parts_tick(float dt);
 void parts_tick(float dt) {
     for (int i = 0; i < MAX_PART; i++) {
-        if (g_part[i].t <= 0) continue;
-        g_part[i].t -= dt;
-        g_part[i].vy += 300.0f * dt;
-        g_part[i].x += g_part[i].vx * dt;
-        g_part[i].y += g_part[i].vy * dt;
-        if (world_solid_px((int)g_part[i].x, (int)g_part[i].y)) g_part[i].t = 0;
+        Part *p = &g_part[i];
+        if (p->t <= 0) continue;
+        p->t -= dt;
+        float age = p->t0 - p->t;
+        switch (p->fx) {
+        case PFX_BURST:   p->vy += 300.0f * dt; break;
+        case PFX_TRAIL:   p->vx *= 0.90f; p->vy *= 0.90f; break;   /* smear drags to a stop */
+        case PFX_EMBER:   p->vy -= 260.0f * dt;                     /* embers rise... */
+                          p->vx += mote_randf(-160, 160) * dt;      /* ...and flicker sideways */
+                          p->vx *= 0.93f; break;
+        case PFX_CRYSTAL: p->vy += 90.0f * dt;                      /* shards settle gently */
+                          if (p->vy > 24) p->vy = 24;
+                          p->vx *= 0.92f; break;
+        case PFX_BUBBLE:  p->vx = sinf(age * 13.0f + (float)i * 2.1f) * 20.0f;  /* wobble */
+                          p->vy -= 70.0f * dt; break;               /* bubbling upward */
+        case PFX_HOLY:    p->vy -= 120.0f * dt; p->vx *= 0.96f; break;  /* serene rise */
+        case PFX_SWIRL: { float w = 8.5f * dt;                      /* velocity curls -> spirals */
+                          float s = sinf(w), c0 = cosf(w);
+                          float nvx = p->vx * c0 - p->vy * s;
+                          p->vy = p->vx * s + p->vy * c0; p->vx = nvx; } break;
+        case PFX_DROP:    p->vy += 520.0f * dt; break;              /* heavy droplets */
+        case PFX_LEAF:    p->vx = sinf(age * 8.0f + (float)i) * 24.0f;  /* flutter */
+                          p->vy = 18.0f; break;
+        }
+        p->x += p->vx * dt;
+        p->y += p->vy * dt;
+        if ((p->fx == PFX_BURST || p->fx == PFX_DROP) &&
+            world_solid_px((int)p->x, (int)p->y)) p->t = 0;
     }
     for (int i = 0; i < MAX_FTEXT; i++)
         if (g_ftext[i].t > 0) { g_ftext[i].t -= dt; g_ftext[i].y -= 14.0f * dt; }
@@ -406,8 +464,28 @@ void ftext_add(float x, float y, int val, uint16_t col) {
 void fx_draw_particles(uint16_t *fb);
 void fx_draw_particles(uint16_t *fb) {
     for (int i = 0; i < MAX_PART; i++) {
-        if (g_part[i].t <= 0) continue;
-        mote->draw_pixel(fb, (int)g_part[i].x - g_cam_x, (int)g_part[i].y - g_cam_y, g_part[i].col);
+        Part *p = &g_part[i];
+        if (p->t <= 0) continue;
+        int sx = (int)p->x - g_cam_x, sy = (int)p->y - g_cam_y;
+        uint16_t c = p->col;
+        float f = p->t0 > 0 ? p->t / p->t0 : 1.0f;      /* 1 fresh .. 0 dying */
+        int tw = ((int)(p->t * 24.0f) + i) & 3;          /* cheap twinkle phase */
+        switch (p->fx) {
+        case PFX_EMBER:                                   /* hot -> dark colour ramp */
+            c = f > 0.66f ? rgb(255, 244, 190) : f > 0.33f ? rgb(255, 150, 40) : rgb(160, 48, 18);
+            break;
+        case PFX_CRYSTAL: if (tw == 0) c = rgb(235, 250, 255); break;   /* glitter */
+        case PFX_HOLY:    if (tw & 1)  c = rgb(255, 255, 255); break;   /* shimmer */
+        case PFX_SWIRL:   if (tw == 0) c = rgb(255, 235, 255); break;   /* magic flicker */
+        default: break;
+        }
+        /* fade toward black over the particle's life so trails taper to a tail */
+        if (f < 0.55f && p->fx != PFX_EMBER) {
+            int s = (int)(f * 1.8f * 32.0f); if (s > 31) s = 31;
+            c = (uint16_t)(((((c >> 11) & 31) * s >> 5) << 11) |
+                           ((((c >> 5) & 63) * s >> 5) << 5) | ((c & 31) * s >> 5));
+        }
+        mote->draw_pixel(fb, sx, sy, c);
     }
     for (int i = 0; i < MAX_FTEXT; i++) {
         if (g_ftext[i].t <= 0) continue;
