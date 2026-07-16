@@ -84,14 +84,16 @@ void npc_reset(void) {
 }
 
 /* ------------------------------------------------------------------ drops ---- */
-void drops_add(uint8_t item, int n, float x, float y) {
+void drops_add_v(uint8_t item, int n, float x, float y, float vx, float vy) {
     if (!item || n <= 0) return;
     for (int i = 0; i < MAX_DROPS; i++) {
         if (g_drops[i].item) continue;
-        g_drops[i] = (Drop){ item, (uint8_t)(n > 99 ? 99 : n), x, y,
-                             mote_randf(-25, 25), -60.0f, 0 };
+        g_drops[i] = (Drop){ item, (uint8_t)(n > 99 ? 99 : n), x, y, vx, vy, 0 };
         return;
     }
+}
+void drops_add(uint8_t item, int n, float x, float y) {
+    drops_add_v(item, n, x, y, mote_randf(-25, 25), -60.0f);
 }
 
 static void drops_tick(float dt) {
@@ -102,7 +104,7 @@ static void drops_tick(float dt) {
         float px = g_pl.x, py = g_pl.y - 10;
         float dx = px - d->x, dy = py - d->y;
         float dist2 = dx * dx + dy * dy;
-        if (d->t > 0.5f && dist2 < 26 * 26) {            /* magnet */
+        if (d->t > 1.1f && dist2 < 26 * 26) {            /* magnet (after a beat, so drops are SEEN) */
             float inv = 1.0f / sqrtf(dist2 + 1.0f);
             d->vx = dx * inv * 130.0f; d->vy = dy * inv * 130.0f;
         } else {

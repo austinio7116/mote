@@ -299,6 +299,7 @@ void npc_spawn_boss(void);
 int  npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element); /* sword arc */
 uint16_t element_color(uint8_t el);   /* particle/FX colour for an EL_* */
 void drops_add(uint8_t item, int n, float x, float y);
+void drops_add_v(uint8_t item, int n, float x, float y, float vx, float vy); /* custom pop velocity */
 void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element);
 void part_burst(float x, float y, uint16_t col, int n, float speed);
 void part_spark(float x, float y, float vx, float vy, float life, uint16_t col, int fx_mode);
