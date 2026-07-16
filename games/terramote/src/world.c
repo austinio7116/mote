@@ -703,9 +703,9 @@ void world_title_scene(void) {
     g_nbands = 0;                                  /* all forest */
     wg_rng = 424242u;
     for (int c = 0; c < WCOLS; c++) {
-        /* nearly flat — long, gentle swell so one screen never shows a terrace */
-        float h = 66.0f + 1.6f * sinf(c * 0.018f) + 0.9f * sinf(c * 0.041f + 1.7f);
-        int sr = (int)h;
+        /* dead flat — any height change reads as a distracting terrace step
+         * behind the menu; the hills and trees carry the visual variety */
+        int sr = 66;
         for (int r = sr; r < WROWS && r < sr + 40; r++) {
             g_fgm[r * WCOLS + c] = (uint8_t)(r == sr ? T_GRASS : (r < sr + 12 ? T_DIRT : T_STONE));
             if (r > sr) set_bg_wall(c, r, r < sr + 12 ? W_DIRT : W_STONE);
