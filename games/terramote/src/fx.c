@@ -63,6 +63,12 @@ void fx_light_update(void) {
             s_light[j * LW + i] = (uint8_t)v;
         }
     }
+    /* a faint glow around the player so unlit caves are scary, not unplayable */
+    {
+        int pi = px_c(g_pl.x) - s_lc0, pj = ((int)g_pl.y - 8) / TILE - s_lr0;
+        if (pi >= 0 && pi < LW && pj >= 0 && pj < LH && s_light[pj * LW + pi] < 4)
+            s_light[pj * LW + pi] = 4;
+    }
     /* relax sweeps: 4 directions x 2 rounds */
     for (int round = 0; round < 3; round++) {
         for (int j = 0; j < LH; j++)                       /* left->right */
@@ -142,17 +148,27 @@ static int hill_h(int sx, int k) {
 }
 
 void fx_background(uint16_t *fb, int y0, int y1) {
-    int surface_px = ROW_SURFACE_MAX * TILE;   /* virtual horizon for parallax */
-    /* per-column precompute: terrain surface + parallax hill lines (world px) */
+    /* per-column precompute: terrain surface + parallax hill lines (world px).
+     * Hills anchor to the HIGHEST terrain on screen (not a fixed virtual
+     * horizon), so they always peek above the valleys instead of hiding
+     * beneath the ground. */
     int16_t srow_px[MOTE_FB_W], hill_far[MOTE_FB_W], hill_near[MOTE_FB_W];
+    int horizon = ROW_SURFACE_MAX * TILE;
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
         srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
-        hill_far[x]  = (int16_t)(surface_px - hill_h(x, 0));
-        hill_near[x] = (int16_t)(surface_px - hill_h(x, 1));
+        if (srow_px[x] < horizon) horizon = srow_px[x];
     }
-    uint16_t far_c  = IS_NIGHT() ? rgb(10, 20, 26) : rgb(52, 118, 84);
-    uint16_t near_c = IS_NIGHT() ? rgb(14, 26, 20) : rgb(38, 92, 44);
+    for (int x = 0; x < MOTE_FB_W; x++) {
+        hill_far[x]  = (int16_t)(horizon - 4 - hill_h(x, 0));
+        hill_near[x] = (int16_t)(horizon - hill_h(x, 1));
+    }
+    int night = IS_NIGHT();
+    uint16_t far_c  = night ? rgb(10, 20, 26) : rgb(52, 118, 84);
+    uint16_t near_c = night ? rgb(14, 26, 20) : rgb(38, 92, 44);
+    /* star density fades in as the sun goes down */
+    float t = g_time;
+    int stars = (t > 0.58f && t < 0.98f);
     for (int y = y0; y < y1; y++) {
         uint16_t *row = fb + y * MOTE_FB_W;
         int wy = y + g_cam_y;
@@ -167,23 +183,45 @@ void fx_background(uint16_t *fb, int y0, int y1) {
                 uint16_t col = sky;
                 if (wy >= hill_near[x])     col = near_c;
                 else if (wy >= hill_far[x]) col = far_c;
+                else if (stars) {
+                    /* sparse fixed starfield, gentle parallax */
+                    uint32_t h = phash((((wy >> 1) & 0x7FFF) << 12) ^ ((x + (g_cam_x >> 3)) >> 1));
+                    if ((h & 0x3FF) < 3) col = (h & 0x800) ? rgb(210, 214, 230) : rgb(150, 155, 180);
+                }
                 row[x] = col;
             } else {
                 row[x] = cavec;
             }
         }
     }
-    /* sun / moon disc (screen-space arc across the day) */
-    {
-        float t = g_time;
+    int sky_visible = horizon > g_cam_y;      /* any sky on screen? */
+    /* drifting clouds (two parallax speeds), tinted by time of day */
+    if (sky_visible) {
+        uint16_t cl = night ? rgb(28, 34, 56) : rgb(236, 242, 250);
+        uint16_t cd = night ? rgb(22, 27, 46) : rgb(206, 216, 232);
+        for (int k = 0; k < 5; k++) {
+            int span = MOTE_FB_W + 60;
+            int drift = (int)(t * 2400.0f * (1.0f + (k & 1) * 0.6f));
+            int sx = (int)((phash(k * 191) % 997) + drift - g_cam_x / (4 + (k & 1) * 3)) % span;
+            if (sx < 0) sx += span;
+            sx -= 30;
+            int sy = 20 + (int)(phash(k * 47 + 5) % 26);
+            mote->draw_circle(fb, sx, sy, 5, cl, 1, y0, y1);
+            mote->draw_circle(fb, sx - 7, sy + 2, 4, cd, 1, y0, y1);
+            mote->draw_circle(fb, sx + 7, sy + 2, 4, cd, 1, y0, y1);
+        }
+    }
+    /* sun / moon disc — arc kept BELOW the hotbar (y >= ~22) so it's visible */
+    if (sky_visible) {
         float ph = (t < 0.60f) ? (t / 0.60f) : ((t - 0.60f) / 0.40f);
         int sx = (int)(ph * (MOTE_FB_W + 40)) - 20;
-        int sy = 26 - (int)(sinf(ph * 3.14159f) * 20.0f);
-        if (g_cam_y < ROW_SURFACE_MAX * TILE) {
-            if (t < 0.60f)
-                mote->draw_circle(fb, sx, sy, 6, rgb(255, 236, 120), 1, y0, y1);
-            else
-                mote->draw_circle(fb, sx, sy, 5, rgb(226, 230, 244), 1, y0, y1);
+        int sy = 46 - (int)(sinf(ph * 3.14159f) * 24.0f);
+        if (t < 0.60f) {
+            mote->draw_circle(fb, sx, sy, 7, rgb(255, 214, 80), 1, y0, y1);
+            mote->draw_circle(fb, sx, sy, 5, rgb(255, 244, 160), 1, y0, y1);
+        } else {
+            mote->draw_circle(fb, sx, sy, 5, rgb(226, 230, 244), 1, y0, y1);
+            mote->draw_circle(fb, sx - 2, sy - 1, 3, rgb(188, 194, 214), 1, y0, y1);  /* crescent shade */
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
@@ -216,6 +254,41 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             mote->blit(fb, at->sheet, c * TILE - g_cam_x, r * TILE - g_cam_y,
                        (cell % tpr) * TILE, (cell / tpr) * TILE, TILE, TILE,
                        at->xform[m], y0, y1);
+        }
+    }
+}
+
+/* --------------------------------------------------- animated light tiles ----
+ * The static autotiles stay; a small overlay re-blits the FLAME art frames on
+ * top so torches flicker, furnaces pulse, and fireplaces shed embers. */
+#include "Torch.h"      /* 4 frames, 8x8: f0 full torch, f1-3 flame wisps */
+#include "Furnace.h"    /* 3 frames, 16x16: unlit / mid / lit */
+
+void fx_draw_flames(uint16_t *fb) {
+    float ft = g_time * DAY_SECONDS;              /* absolute in-day seconds */
+    int r0 = g_cam_y / TILE, r1 = (g_cam_y + MOTE_FB_H - 1) / TILE;
+    int c0 = g_cam_x / TILE, c1 = (g_cam_x + MOTE_FB_W - 1) / TILE;
+    int tf = 1 + ((int)(ft * 7.0f) % 3);          /* torch wisp frame 1..3 */
+    int ff = 1 + ((int)(ft * 4.0f) & 1);          /* furnace fire frame 1..2 */
+    for (int r = r0; r <= r1; r++) {
+        if ((unsigned)r >= WROWS) continue;
+        for (int c = c0; c <= c1; c++) {
+            if ((unsigned)c >= WCOLS) continue;
+            uint8_t t = g_fgm[r * WCOLS + c];
+            int sx = c * TILE - g_cam_x, sy = r * TILE - g_cam_y;
+            if (t == T_TORCH) {
+                mote->blit(fb, &Torch_img, sx, sy, tf * 8, 0, 8, 8, 0, 0, MOTE_FB_H);
+            } else if (t == T_FURNACE) {
+                /* anchor = top-left of the 2x2 */
+                if (fg_at(c - 1, r) != T_FURNACE && fg_at(c, r - 1) != T_FURNACE)
+                    mote->blit(fb, &Furnace_img, sx, sy, ff * 16, 0, 16, 16, 0, 0, MOTE_FB_H);
+            } else if (t == T_FIREPLACE) {
+                /* anchor = top-left of the 3x2: embers rise from the hearth */
+                if (fg_at(c - 1, r) != T_FIREPLACE && fg_at(c, r - 1) != T_FIREPLACE &&
+                    (mote_rand() % 9) == 0)
+                    part_burst(c * TILE + 12, r * TILE + 10,
+                               (mote_rand() & 1) ? rgb(255, 170, 50) : rgb(255, 120, 30), 1, 14);
+            }
         }
     }
 }

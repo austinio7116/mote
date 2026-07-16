@@ -163,6 +163,8 @@ static void proj_tick(float dt) {
         }
         if (p->kind == PR_ARROW_FLAME && (mote_rand() % 3) == 0)
             part_burst(p->x, p->y, rgb(255, 150, 40), 1, 8);
+        else if (p->element && (mote_rand() % 3) == 0)          /* elemental arrow trail */
+            part_burst(p->x, p->y, element_color(p->element), 1, 8);
         if (p->hostile) {
             if (fabsf(p->x - g_pl.x) < 5 && fabsf(p->y - (g_pl.y - 10)) < 11) {
                 player_damage(p->dmg, p->vx > 0 ? 80.0f : -80.0f);
@@ -208,6 +210,20 @@ static int en_count(void) {
     return n;
 }
 
+uint16_t element_color(uint8_t el) {
+    switch (el) {
+    case EL_FIRE:    return rgb(255, 140, 40);
+    case EL_ICE:     return rgb(140, 220, 255);
+    case EL_POISON:  return rgb(120, 220, 80);
+    case EL_HOLY:    return rgb(255, 240, 170);
+    case EL_DEMONIC: return rgb(190, 90, 240);
+    case EL_ARCANE:  return rgb(230, 120, 255);
+    case EL_BLOOD:   return rgb(220, 50, 60);
+    case EL_NATURE:  return rgb(110, 210, 90);
+    }
+    return 0;
+}
+
 int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element) {
     int hits = 0;
     for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -219,7 +235,8 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
         e->hurt_t = 0.15f;
         ftext_add(e->x, e->y - d->hh - 6, dmg, rgb(255, 200, 90));
         if (e->kind != E_BOSS_EOC) { e->vx = kx; e->vy = -70.0f; }
-        /* on-hit elemental status */
+        /* on-hit elemental status + a puff of the element's colour */
+        if (element) part_burst(e->x, e->y - 2, element_color(element), 3, 45);
         switch (element) {
         case EL_FIRE:   e->dot_t = 3.0f; e->dot_dps = 5 + dmg / 4; e->status_el = EL_FIRE;   break;
         case EL_POISON: e->dot_t = 5.0f; e->dot_dps = 3 + dmg / 6; e->status_el = EL_POISON; break;
@@ -323,7 +340,14 @@ int npc_boss_hp(int *max) {
 }
 
 static void spawn_try(void) {
-    if (en_count() >= (IS_NIGHT() ? 8 : 5)) return;
+    /* the night RAMPS: dusk starts gentle (cap 3), deep night packs up to 8 */
+    int cap = 5;
+    if (IS_NIGHT()) {
+        float np = (g_time - 0.60f) / 0.40f;
+        cap = 3 + (int)(np * 5.0f + 0.5f);
+        if (cap > 8) cap = 8;
+    }
+    if (en_count() >= cap) return;
     int side = (mote_rand() & 1) ? 1 : -1;
     int pc = px_c(g_pl.x);
     int c = pc + side * (18 + (int)(mote_rand() % 8));
@@ -380,7 +404,12 @@ void npc_tick(float dt) {
         }
     }
     s_spawn_t -= dt;
-    if (s_spawn_t <= 0) { s_spawn_t = 1.4f; spawn_try(); }
+    if (s_spawn_t <= 0) {
+        /* spawn cadence ramps through the night: 2.6s at dusk -> 1.2s deep night */
+        float np = IS_NIGHT() ? (g_time - 0.60f) / 0.40f : 0.0f;
+        s_spawn_t = IS_NIGHT() ? (2.6f - 1.4f * np) : 1.4f;
+        spawn_try();
+    }
     drops_tick(dt);
     proj_tick(dt);
 

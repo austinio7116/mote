@@ -138,10 +138,33 @@ static void inv_grid_xy(int i, int *x, int *y) {
     *y = 16 + (i / 8) * 18;
 }
 
+/* craft categories — with ~150 recipes the list needs paging by type */
+#define CRAFT_MAX_LIST 200
+static uint8_t s_craft_cat;    /* 0 ALL, then: */
+static const char *k_cat_name[7] = { "ALL", "TOOLS", "WEAPONS", "ARMOR", "FURNITURE", "BLOCKS", "MISC" };
+static int item_cat(uint8_t id) {
+    const ItemDef *d = &g_items[id];
+    switch (d->kind) {
+    case IK_PICK: case IK_AXE: case IK_GRAPPLE: return 1;
+    case IK_SWORD: case IK_BOW: case IK_AMMO: return 2;
+    case IK_ARMOR_HEAD: case IK_ARMOR_BODY: case IK_ARMOR_LEGS: return 3;
+    case IK_BLOCK:
+        switch (d->place) {
+        case T_TORCH: case T_WORKBENCH: case T_FURNACE: case T_ANVIL: case T_CHEST:
+        case T_DOOR_C: case T_TABLE: case T_CHAIR: case T_LANTERN: case T_FIREPLACE:
+        case T_CHAIN: return 4;
+        }
+        return 5;
+    }
+    return 6;   /* bars, potions, materials */
+}
 static void craft_list(const Recipe **list, int *count) {
     int n = 0, near = stations_near();
-    for (int i = 0; i < g_nrecipes; i++)
-        if ((near >> g_recipes[i].station) & 1) list[n++] = &g_recipes[i];
+    for (int i = 0; i < g_nrecipes && n < CRAFT_MAX_LIST; i++) {
+        if (!((near >> g_recipes[i].station) & 1)) continue;
+        if (s_craft_cat && item_cat(g_recipes[i].out) != (int)s_craft_cat) continue;
+        list[n++] = &g_recipes[i];
+    }
     *count = n;
 }
 
@@ -177,6 +200,12 @@ void ui_inventory(uint16_t *fb) {
             slot_draw(fb, &as, x, y, s_cur == INV_SLOTS + a);
             mote->text(fb, alab[a], x + 19, y + 6, rgb(150, 145, 135));
         }
+        /* drop slot: throw the held stack to the ground */
+        {
+            Slot none = { 0, 0 };
+            slot_draw(fb, &none, 104, 92, s_cur == INV_SLOTS + 3);
+            mote->text(fb, "X", 111, 98, rgb(210, 90, 80));
+        }
         /* unclipped highlight on top */
         if (s_cur < INV_SLOTS) { int x, y; inv_grid_xy(s_cur, &x, &y); sel_restroke(fb, x, y); }
         else sel_restroke(fb, 8 + (s_cur - INV_SLOTS) * 32, 92);
@@ -185,21 +214,43 @@ void ui_inventory(uint16_t *fb) {
         if (s_cur < INV_SLOTS) inv_grid_xy(s_cur, &cx, &cy);
         else { cx = 8 + (s_cur - INV_SLOTS) * 32; cy = 92; }
         if (s_held.item) icon(fb, s_held.item, cx + 8, cy + 8);
-        /* hovered name */
-        uint8_t hov = s_cur < INV_SLOTS ? g_pl.inv[s_cur].item : g_pl.armor[s_cur - INV_SLOTS];
+        /* hovered name + a stat line (damage/speed/element, defense, power) */
+        uint8_t hov = s_cur < INV_SLOTS ? g_pl.inv[s_cur].item
+                    : s_cur < INV_SLOTS + 3 ? g_pl.armor[s_cur - INV_SLOTS] : 0;
         if (s_held.item) hov = s_held.item;
-        if (hov) mote->text_font(fb, f, g_items[hov].name, 4, 114, rgb(235, 230, 215));
+        if (s_cur == INV_SLOTS + 3 && !hov)
+            mote->text_font(fb, f, "DROP (A = THROW)", 4, 112, rgb(200, 150, 140));
+        if (hov) {
+            const ItemDef *hd = &g_items[hov];
+            mote->text_font(fb, f, hd->name, 4, 112, rgb(235, 230, 215));
+            static const char *eln[9] = { "", "BURN", "CHILL", "POISON", "HOLY",
+                                          "LIFESTEAL", "ARCANE", "BLEED", "SNARE" };
+            char st[44] = "";
+            switch (hd->kind) {
+            case IK_SWORD: case IK_BOW: case IK_AXE: {
+                const WeaponFx *wf = &g_wfx[hov];
+                snprintf(st, 44, "DMG %d  SPD %d%s%s%s", hd->damage, hd->speed,
+                         wf->nshot > 1 ? "  MULTI" : "",
+                         wf->element ? "  " : "", eln[wf->element]);
+                break; }
+            case IK_PICK:       snprintf(st, 44, "POWER %d  DMG %d", hd->power, hd->damage); break;
+            case IK_ARMOR_HEAD: case IK_ARMOR_BODY: case IK_ARMOR_LEGS:
+                                snprintf(st, 44, "DEFENSE %d", hd->power); break;
+            case IK_CONSUME:    if (hd->power) snprintf(st, 44, "HEALS %d", hd->power); break;
+            }
+            if (st[0]) mote->text(fb, st, 4, 122, rgb(170, 195, 165));
+        }
 
         /* navigation */
         if (no_input) return;
-        int col = s_cur < INV_SLOTS ? s_cur % 8 : (s_cur - INV_SLOTS) * 3 + 1;
+        int col = s_cur < INV_SLOTS ? s_cur % 8 : (s_cur - INV_SLOTS) * 2 + 1;
         int row = s_cur < INV_SLOTS ? s_cur / 8 : 4;
         if (mote_just_pressed(in, MOTE_BTN_LEFT))  col--;
         if (mote_just_pressed(in, MOTE_BTN_RIGHT)) col++;
         if (mote_just_pressed(in, MOTE_BTN_UP))    row--;
         if (mote_just_pressed(in, MOTE_BTN_DOWN))  row++;
         if (row < 0) row = 4; if (row > 4) row = 0;
-        if (row == 4) { int a = col / 3; if (a < 0) a = 2; if (a > 2) a = 0; s_cur = INV_SLOTS + a; }
+        if (row == 4) { int a = col / 2; if (a < 0) a = 3; if (a > 3) a = 0; s_cur = INV_SLOTS + a; }   /* helm/mail/legs/drop */
         else { if (col < 0) col = 7; if (col > 7) col = 0; s_cur = row * 8 + col; }
 
         if (mote_just_pressed(in, MOTE_BTN_A)) {
@@ -213,6 +264,13 @@ void ui_inventory(uint16_t *fb) {
                     sl->count += put; s_held.count -= put;
                     if (!s_held.count) s_held.item = 0;
                 } else { Slot t = *sl; *sl = s_held; s_held = t; }
+            } else if (s_cur == INV_SLOTS + 3) {
+                /* drop slot: throw the held stack to the ground at your feet */
+                if (s_held.item) {
+                    drops_add(s_held.item, s_held.count, g_pl.x + g_pl.facing * 8.0f, g_pl.y - 12.0f);
+                    s_held = (Slot){ 0, 0 };
+                    audio_sfx(SFX_PLACE, 0.7f);
+                }
             } else {
                 int a = s_cur - INV_SLOTS;
                 int want = a == 0 ? IK_ARMOR_HEAD : a == 1 ? IK_ARMOR_BODY : IK_ARMOR_LEGS;
@@ -233,15 +291,20 @@ void ui_inventory(uint16_t *fb) {
             g_state = GS_PLAY;
         }
     } else if (s_tab == 1) {
-        /* craft tab */
-        const Recipe *list[128]; int n;
+        /* craft tab: category pager on top, then the filtered list */
+        const Recipe *list[CRAFT_MAX_LIST]; int n;
         craft_list(list, &n);
-        if (!n) mote->text_font(fb, f, "NO STATION NEARBY", 12, 50, rgb(200, 190, 170));
+        {
+            char cb[24]; snprintf(cb, 24, "< %s >", k_cat_name[s_craft_cat]);
+            int w = (int)strlen(cb) * 4;
+            mote->text(fb, cb, (MOTE_FB_W - w) / 2, 16, rgb(255, 220, 120));
+        }
+        if (!n) mote->text_font(fb, f, s_craft_cat ? "NOTHING HERE" : "NO STATION NEARBY", 12, 56, rgb(200, 190, 170));
         if (s_craft_cur >= n) s_craft_cur = n ? n - 1 : 0;
         int first = s_craft_cur > 3 ? s_craft_cur - 3 : 0;
         for (int k = 0; k < 5 && first + k < n; k++) {
             const Recipe *rc = list[first + k];
-            int y = 18 + k * 19;
+            int y = 25 + k * 19;
             int can = craft_can(rc);
             if (first + k == s_craft_cur)
                 mote->draw_rect(fb, 0, y - 1, MOTE_FB_W, 19, rgb(40, 36, 48), 1, 0, MOTE_FB_H);
@@ -270,6 +333,8 @@ void ui_inventory(uint16_t *fb) {
             }
         }
         if (no_input) return;
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  { s_craft_cat = (uint8_t)((s_craft_cat + 6) % 7); s_craft_cur = 0; audio_sfx(SFX_TICK, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) { s_craft_cat = (uint8_t)((s_craft_cat + 1) % 7); s_craft_cur = 0; audio_sfx(SFX_TICK, 0.5f); }
         if (mote_just_pressed(in, MOTE_BTN_UP) && s_craft_cur > 0) s_craft_cur--;
         if (mote_just_pressed(in, MOTE_BTN_DOWN) && s_craft_cur < n - 1) s_craft_cur++;
         if (mote_just_pressed(in, MOTE_BTN_A) && n) {

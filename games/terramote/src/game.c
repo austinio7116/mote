@@ -174,8 +174,9 @@ static void draw_trees(void) {
             if ((unsigned)r >= WROWS) continue;
             if (fg_at(c, r) != T_TRUNK) continue;
             if (fg_at(c, r - 1) != T_TRUNK) {
-                /* trunk top: crown (snow biome gets the snowy variant) */
-                int v = world_biome(c) == 1 ? 3 : (int)(mote__at_hash(c, 7) % 3u);
+                /* trunk top: crown — snow gets the snowy variant, corruption a dead one */
+                int bio = world_biome(c);
+                int v = bio == 1 ? 3 : bio == 3 ? 4 : (int)(mote__at_hash(c, 7) % 3u);
                 MoteSprite s = {
                     .img = &canopy_img,
                     .x = (int16_t)(c * TILE + 4 - 20), .y = (int16_t)(r * TILE - 20),
@@ -403,6 +404,7 @@ static void g_update(float dt) {
         if (g_dead_t <= 0) {
             player_reset(0);
             npc_clear_mobs();          /* the boss (if any) stays on the hunt */
+            g_pl.iframes = 4.0f;       /* respawn protection — time to run or gear up */
             g_state = GS_PLAY;
         }
         break;
@@ -425,7 +427,8 @@ static void g_overlay(uint16_t *fb) {
     }
     default: break;
     }
-    /* world states: swing + projectiles under water/darkness */
+    /* world states: flames + swing + projectiles under water/darkness */
+    fx_draw_flames(fb);
     player_draw_rope(fb);
     player_draw_swing(fb);
     proj_draw(fb);
