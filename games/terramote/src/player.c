@@ -338,12 +338,45 @@ static void toggle_door(int c, int r) {
 }
 
 /* one melee swing arc, applying the weapon's element/knockback/reach + lifesteal */
+/* a glowing crescent that TRACKS the blade through its arc: each swing frame we
+ * lay sparks along the blade at the current sweep angle. Their velocity starts
+ * tangential (following the swing), then each ELEMENT takes over: fire embers
+ * rise off the blade, ice crystals glitter and settle, poison bubbles wobble
+ * away, arcane curls into spirals, blood drips, leaves flutter — plain steel
+ * keeps a fast silver smear. Mirrors the geometry in player_draw_swing. */
+static void swing_trail(uint8_t item, const ItemDef *def) {
+    if (def->kind != IK_SWORD && def->kind != IK_AXE) return;
+    float dur = def->speed / 30.0f;
+    if (dur <= 0.0f) return;
+    float ph = 1.0f - g_pl.use_t / dur;
+    if (ph < 0) ph = 0; else if (ph > 1) ph = 1;
+    const WeaponFx *fx = &g_wfx[item];
+    int mode = fx->element ? element_pfx(fx->element) : PFX_TRAIL;
+    uint16_t col = fx->element ? element_color(fx->element) : rgb(225, 230, 240);
+    int right = g_pl.facing > 0;
+    float d0 = -2.35f, d1 = 0.45f;
+    float delta = d0 + (d1 - d0) * ph;
+    if (!right) delta = 3.14159f - delta;
+    float sweep = (right ? 1.0f : -1.0f) * (d1 - d0) / dur;  /* rad/s of the sweep */
+    float cd = cosf(delta), sd = sinf(delta);
+    float hx = g_pl.x + g_pl.facing * 2.0f, hy = g_pl.y - 9.0f;
+    /* plain smear dies fast; elemental particles live long enough to MOVE */
+    float l0 = mode == PFX_TRAIL ? 0.14f : 0.26f;
+    float l1 = mode == PFX_TRAIL ? 0.26f : 0.46f;
+    for (int r = 6; r <= 22; r += 2) {
+        float px = hx + cd * r, py = hy + sd * r;
+        float tvx = -sd * sweep * r, tvy = cd * sweep * r;   /* tangential velocity */
+        int reps = (mode == PFX_TRAIL && r >= 14) ? 2 : 1;   /* smear thickens at the tip */
+        for (int k = 0; k < reps; k++)
+            part_spark(px + mote_randf(-0.8f, 0.8f), py + mote_randf(-0.8f, 0.8f),
+                       tvx * 0.5f + mote_randf(-6, 6), tvy * 0.5f + mote_randf(-6, 6),
+                       mote_randf(l0, l1), col, mode);
+    }
+}
+
 static void melee_hit(uint8_t item, const ItemDef *def) {
     const WeaponFx *fx = &g_wfx[item];
     float cx = g_pl.x + g_pl.facing * 10.0f;
-    /* the element shows on every swing, hit or miss */
-    if (fx->element)
-        part_burst(cx + g_pl.facing * 2.0f, g_pl.y - 10.0f, element_color(fx->element), 2, 32);
     float kb = fx->knock ? (float)fx->knock : 130.0f;
     float rr = (float)fx->reach;
     int hits = npc_damage_at(cx, g_pl.y - 8.0f, 9.0f + rr, 11.0f + rr,
@@ -591,7 +624,11 @@ void player_tick(float dt) {
     const MoteInput *in = mote->input();
     if (dt > 0.05f) dt = 0.05f;
     if (g_pl.iframes > 0) g_pl.iframes -= dt;
-    if (g_pl.use_t > 0) g_pl.use_t -= dt;
+    if (g_pl.use_t > 0) {
+        g_pl.use_t -= dt;
+        Slot *sw = &g_pl.inv[g_pl.hot];                  /* blade trail every swing frame */
+        if (sw->item) swing_trail(sw->item, &g_items[sw->item]);
+    }
     if (s_heal_cd > 0) s_heal_cd -= dt;
     if (s_drop_t > 0) s_drop_t -= dt;
 

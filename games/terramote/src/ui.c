@@ -143,28 +143,74 @@ static void inv_grid_xy(int i, int *x, int *y) {
 }
 
 /* ---- menu chrome: icon tabs + a category pager ------------------------------ */
+#define N_TABS 4
+static const char *k_tab_name[N_TABS] = { "ITEMS", "CRAFT", "MAP", "GAME" };
 static void draw_menu_tabs(uint16_t *fb, int sel) {
-    static const struct { const char *label; uint8_t icon; } TB[3] = {
-        { "ITEMS", I_CHEST }, { "CRAFT", I_ANVIL }, { "GAME", I_DOOR },
-    };
-    mote->draw_rect(fb, 0, 0, MOTE_FB_W, 13, rgb(14, 13, 20), 1, 0, MOTE_FB_H);   /* bar bg */
-    for (int t = 0; t < 3; t++) {
-        int x = 2 + t * 42, w = 40, on = t == sel;
-        mote->draw_rect(fb, x, 1, w, 12, on ? rgb(52, 46, 66) : rgb(28, 26, 36), 1, 0, MOTE_FB_H);
-        mote->draw_rect(fb, x, 1, w, 12, on ? rgb(255, 220, 120) : rgb(80, 76, 92), 0, 0, MOTE_FB_H);
-        if (!on) mote->draw_rect(fb, x, 12, w, 1, rgb(255, 220, 120), 1, 0, MOTE_FB_H); /* seam under inactive */
-        /* 16px item icon, clipped into the 12px tab (top-aligned reads fine) */
-        mote->blit(fb, g_items_sheet, x + 1, 0, (TB[t].icon % 8) * ICS, (TB[t].icon / 8) * ICS,
-                   ICS, 13, 0, 0, MOTE_FB_H);
-        mote->text(fb, TB[t].label, x + 17, 4, on ? rgb(255, 235, 170) : rgb(140, 135, 130));
+    static const uint8_t TICON[N_TABS] = { I_CHEST, I_ANVIL, 0xFF /*map glyph*/, I_DOOR };
+    mote->draw_rect(fb, 0, 0, MOTE_FB_W, 14, rgb(14, 13, 20), 1, 0, MOTE_FB_H);   /* bar bg */
+    for (int t = 0; t < N_TABS; t++) {
+        int x = t * 32, w = 32, on = t == sel;
+        mote->draw_rect(fb, x, 0, w, 13, on ? rgb(52, 46, 66) : rgb(26, 24, 34), 1, 0, MOTE_FB_H);
+        if (TICON[t] == 0xFF) {                       /* MAP: little parchment + red marker */
+            mote->draw_rect(fb, x + 9, 2, 14, 9, rgb(206, 184, 140), 1, 0, MOTE_FB_H);
+            mote->draw_rect(fb, x + 9, 2, 14, 9, rgb(120, 100, 70), 0, 0, MOTE_FB_H);
+            mote->draw_pixel(fb, x + 16, 6, rgb(220, 60, 60));
+        } else {
+            mote->blit(fb, g_items_sheet, x + 8, 0, (TICON[t] % 8) * ICS, (TICON[t] / 8) * ICS,
+                       ICS, 13, 0, 0, MOTE_FB_H);
+        }
+        if (on) mote->draw_rect(fb, x, 12, w, 2, rgb(255, 220, 120), 1, 0, MOTE_FB_H);  /* accent underline */
     }
-    mote->draw_rect(fb, 0, 13, MOTE_FB_W, 1, rgb(255, 220, 120), 1, 0, MOTE_FB_H); /* panel top edge */
+    mote->draw_rect(fb, 0, 14, MOTE_FB_W, 1, rgb(255, 220, 120), 1, 0, MOTE_FB_H); /* panel top edge */
 }
 static void draw_cat_pager(uint16_t *fb, const char *name, int active) {
     char b[24]; snprintf(b, 24, "< %s >", name);
     int w = (int)strlen(b) * 4;
     mote->text(fb, b, (MOTE_FB_W - w) / 2, 16,
                active ? rgb(255, 255, 255) : rgb(255, 220, 120));
+}
+
+/* ---- world map: 1 tile -> 1 pixel ------------------------------------------ */
+static uint16_t map_tile_color(int c, int r) {
+    if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return rgb(10, 9, 12);
+    if (!world_explored(c, r))                    /* fog of war */
+        return ((c ^ r) & 3) ? rgb(11, 10, 14) : rgb(17, 15, 21);
+    uint8_t t = fg_at(c, r), b = bg_at(c, r);
+    if (t == T_AIR) {
+        int lv = BG_LIQ(b);
+        if (lv) return BG_IS_LAVA(b) ? rgb(255, 120, 30) : rgb(48, 96, 210);
+        if (r < world_surface_row(c)) return rgb(92, 158, 232);            /* open sky */
+        if (BG_WALL(b)) return rgb(52, 40, 32);                            /* housed/walled */
+        if (r >= ROW_HELL - 4) return rgb(58, 20, 14);                     /* hell air */
+        return rgb(26, 22, 26);                                            /* cave air */
+    }
+    switch (t) {
+    case T_DIRT:      return rgb(126, 84, 50);
+    case T_GRASS:     return rgb(70, 160, 60);
+    case T_STONE:     return rgb(116, 116, 126);
+    case T_WOOD: case T_PLATFORM: case T_DOOR_C: case T_DOOR_O:
+    case T_TABLE: case T_CHAIR: case T_WORKBENCH: case T_CHEST:
+                      return rgb(168, 122, 68);
+    case T_TRUNK:     return rgb(120, 86, 50);
+    case T_LEAF: case T_SAPLING: return rgb(46, 126, 50);
+    case T_SAND:      return rgb(212, 192, 116);
+    case T_SNOW:      return rgb(222, 232, 244);
+    case T_EBON:      return rgb(104, 88, 128);
+    case T_CLAY:      return rgb(180, 96, 60);
+    case T_COPPER:    return rgb(198, 112, 42);
+    case T_IRON:      return rgb(190, 190, 200);
+    case T_GOLD:      return rgb(240, 200, 50);
+    case T_DEMONITE:  return rgb(140, 90, 210);
+    case T_ASH:       return rgb(70, 62, 62);
+    case T_HELLSTONE: return rgb(200, 70, 40);
+    case T_OBSIDIAN:  return rgb(56, 46, 86);
+    case T_TORCH: case T_LANTERN: case T_FIREPLACE: return rgb(255, 200, 60);
+    case T_FURNACE: case T_ANVIL: case T_CHAIN: return rgb(140, 140, 150);
+    case T_ALTAR:     return rgb(170, 70, 130);
+    case T_MUSH:      return rgb(94, 220, 255);
+    case T_FLOWER:    return rgb(230, 120, 160);
+    }
+    return rgb(90, 90, 96);
 }
 
 /* craft categories — with ~150 recipes the list needs paging by type */
@@ -205,8 +251,8 @@ void ui_inventory(uint16_t *fb) {
     /* icon tabs — opened with MENU; LB/RB switch tab; MENU closes back to play */
     draw_menu_tabs(fb, s_tab);
     if (!no_input) {
-        if (mote_just_pressed(in, MOTE_BTN_LB)) { s_tab = (uint8_t)((s_tab + 2) % 3); audio_sfx(SFX_TICK, 0.5f); }
-        if (mote_just_pressed(in, MOTE_BTN_RB)) { s_tab = (uint8_t)((s_tab + 1) % 3); audio_sfx(SFX_TICK, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_LB)) { s_tab = (uint8_t)((s_tab + N_TABS - 1) % N_TABS); audio_sfx(SFX_TICK, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_RB)) { s_tab = (uint8_t)((s_tab + 1) % N_TABS); audio_sfx(SFX_TICK, 0.5f); }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) {
             if (s_held.item) { inv_add(s_held.item, s_held.count); s_held = (Slot){ 0, 0 }; }
             g_state = GS_PLAY;
@@ -406,6 +452,42 @@ void ui_inventory(uint16_t *fb) {
             else audio_sfx(SFX_TICK, 0.4f);
         }
         if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
+    } else if (s_tab == 2) {
+        /* MAP tab — the whole world at 1px per tile, scrollable with the d-pad.
+         * A recenters on the player; the player blinks as a white/red marker. */
+        static int16_t mx = -1, my;
+        const int view_h = MOTE_FB_H - 15;               /* below the tab bar */
+        if (mx < 0 || mote_just_pressed(in, MOTE_BTN_A)) {
+            mx = (int16_t)(px_c(g_pl.x) - MOTE_FB_W / 2);
+            my = (int16_t)((int)g_pl.y / TILE - view_h / 2);
+        }
+        if (!no_input) {
+            int sp = 3;                                   /* scroll px (tiles) per frame */
+            if (mote_pressed(in, MOTE_BTN_LEFT))  mx = (int16_t)(mx - sp);
+            if (mote_pressed(in, MOTE_BTN_RIGHT)) mx = (int16_t)(mx + sp);
+            if (mote_pressed(in, MOTE_BTN_UP))    my = (int16_t)(my - sp);
+            if (mote_pressed(in, MOTE_BTN_DOWN))  my = (int16_t)(my + sp);
+        }
+        if (mx > WCOLS - MOTE_FB_W) mx = WCOLS - MOTE_FB_W;
+        if (my > WROWS - view_h) my = WROWS - view_h;
+        if (mx < 0) mx = 0;
+        if (my < 0) my = 0;
+        for (int y = 0; y < view_h; y++) {
+            uint16_t *row = fb + (y + 15) * MOTE_FB_W;
+            int r = my + y;
+            for (int x = 0; x < MOTE_FB_W; x++)
+                row[x] = map_tile_color(mx + x, r);
+        }
+        /* blinking player marker */
+        static uint8_t blink;
+        blink++;
+        int pxs = px_c(g_pl.x) - mx, pys = (int)g_pl.y / TILE - my + 15;
+        if ((blink >> 3) & 1) {
+            mote->draw_rect(fb, pxs - 1, pys - 1, 3, 3, rgb(255, 255, 255), 0, 0, MOTE_FB_H);
+            mote->draw_pixel(fb, pxs, pys, rgb(230, 60, 50));
+        }
+        mote->text(fb, "A CENTER", MOTE_FB_W - 35, MOTE_FB_H - 6, rgb(200, 195, 180));
+        if (!no_input && mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
     } else {
         /* GAME tab — resume / save / save + quit (folds in the old pause menu) */
         static const char *GR[3] = { "RESUME", "SAVE WORLD", "SAVE + QUIT" };
@@ -492,17 +574,67 @@ void ui_chest(uint16_t *fb) {
 }
 
 /* ------------------------------------------------------------------ title --- */
+static uint32_t title_hash(int x) { uint32_t h = (uint32_t)x * 2654435761u; return h ^ (h >> 15); }
+static int title_hill(int sx, int drift, int k) {
+    /* smooth value-noise ridge, like the in-game hills */
+    float x = (sx + drift) * (k ? 0.035f : 0.05f);
+    int xi = (int)x; float fr = x - xi; fr = fr * fr * (3 - 2 * fr);
+    float a = (title_hash(xi * 2 + k * 977) & 0xFF) / 255.0f;
+    float b = (title_hash((xi + 1) * 2 + k * 977) & 0xFF) / 255.0f;
+    return (int)((a + (b - a) * fr) * (k ? 20 : 30));
+}
+static void title_tree(uint16_t *fb, int x, int base, int h) {
+    mote->draw_rect(fb, x - 1, base - h, 3, h, rgb(110, 78, 44), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, x, base - h, 1, h, rgb(140, 100, 56), 1, 0, MOTE_FB_H);
+    int cy = base - h;
+    mote->draw_circle(fb, x - 5, cy + 1, 5, rgb(30, 92, 38), 1, 0, MOTE_FB_H);
+    mote->draw_circle(fb, x + 5, cy + 1, 5, rgb(30, 92, 38), 1, 0, MOTE_FB_H);
+    mote->draw_circle(fb, x, cy - 3, 6, rgb(46, 126, 50), 1, 0, MOTE_FB_H);
+    mote->draw_circle(fb, x - 2, cy - 5, 3, rgb(96, 176, 66), 1, 0, MOTE_FB_H);
+}
 void ui_title(uint16_t *fb) {
     const MoteInput *in = mote->input();
-    /* sky backdrop */
-    for (int y = 0; y < MOTE_FB_H; y++) {
-        uint16_t c = rgb(30 + y / 3, 80 + y / 2, 170 + y / 3);
+    static uint16_t tf; tf++;                          /* slow ambient animation */
+    const int GY = 100;                                /* grass line */
+    /* warm dawn sky gradient */
+    for (int y = 0; y < GY; y++) {
+        int t = y * 255 / GY;
+        uint16_t c = rgb(120 - t / 4, 170 - t / 5, 250 - t / 8);
         mote->draw_rect(fb, 0, y, MOTE_FB_W, 1, c, 1, 0, MOTE_FB_H);
     }
-    mote->draw_rect(fb, 0, 96, MOTE_FB_W, 32, rgb(38, 92, 44), 1, 0, MOTE_FB_H);
-    mote->draw_rect(fb, 0, 96, MOTE_FB_W, 2, rgb(58, 150, 60), 1, 0, MOTE_FB_H);
+    /* sun with glow */
+    mote->draw_circle(fb, 100, 20, 9, rgb(255, 216, 110), 1, 0, MOTE_FB_H);
+    mote->draw_circle(fb, 100, 20, 6, rgb(255, 246, 190), 1, 0, MOTE_FB_H);
+    /* drifting clouds */
+    for (int k = 0; k < 3; k++) {
+        int span = MOTE_FB_W + 50;
+        int cx = ((int)(title_hash(k * 91) % 997) + tf / (5 + k * 2)) % span - 25;
+        int cy = 12 + (int)(title_hash(k * 37 + 3) % 22);
+        mote->draw_circle(fb, cx, cy, 5, rgb(240, 246, 252), 1, 0, MOTE_FB_H);
+        mote->draw_circle(fb, cx - 6, cy + 2, 4, rgb(222, 232, 244), 1, 0, MOTE_FB_H);
+        mote->draw_circle(fb, cx + 6, cy + 2, 4, rgb(222, 232, 244), 1, 0, MOTE_FB_H);
+    }
+    /* two static hill silhouette layers (only the clouds drift) */
+    for (int x = 0; x < MOTE_FB_W; x++) {
+        int hf = GY - 22 - title_hill(x, 0, 0);
+        int hn = GY - 6 - title_hill(x, 40, 1);
+        if (hf < GY) mote->draw_rect(fb, x, hf, 1, GY - hf, rgb(52, 118, 84), 1, 0, MOTE_FB_H);
+        if (hn < GY) mote->draw_rect(fb, x, hn, 1, GY - hn, rgb(38, 92, 44), 1, 0, MOTE_FB_H);
+    }
+    /* trees on the near hills */
+    title_tree(fb, 16, GY + 1, 26);
+    title_tree(fb, 108, GY + 2, 20);
+    /* grass + speckled dirt foreground */
+    mote->draw_rect(fb, 0, GY, MOTE_FB_W, 2, rgb(70, 160, 60), 1, 0, MOTE_FB_H);
+    for (int y = GY + 2; y < MOTE_FB_H; y++)
+        for (int x = 0; x < MOTE_FB_W; x++) {
+            uint32_t h = title_hash(x * 131 + y * 7);
+            uint16_t c = (h & 7) > 5 ? rgb(104, 66, 38) : rgb(126, 84, 50);
+            mote->draw_pixel(fb, x, y, c);
+        }
     const MoteFont *fl = mote->ui_font(MOTE_FONT_LARGE);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ftextc(mote, fb, fl, MOTE_FB_W / 2 + 1, 19, rgb(26, 46, 26), "TERRAMOTE");   /* drop shadow */
     mote_ftextc(mote, fb, fl, MOTE_FB_W / 2, 18, rgb(90, 200, 80), "TERRAMOTE");
     mote_ftextc(mote, fb, fl, MOTE_FB_W / 2, 17, rgb(255, 240, 190), "TERRAMOTE");
     int has_save = save_world_exists();
@@ -510,14 +642,15 @@ void ui_title(uint16_t *fb) {
     int n = has_save ? 2 : 1;
     if (s_title_cur >= n) s_title_cur = 0;
     for (int i = 0; i < n; i++) {
-        uint16_t col = i == s_title_cur ? rgb(255, 235, 160) : rgb(190, 185, 175);
+        uint16_t col = i == s_title_cur ? rgb(255, 235, 160) : rgb(230, 226, 216);
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2 + 1, 57 + i * 15, rgb(20, 34, 22), items[i]); /* shadow */
         mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 56 + i * 15, col, items[i]);
         if (i == s_title_cur) {
             int w = mote_fontw(f, items[i]);
             mote->text_font(fb, f, ">", MOTE_FB_W / 2 - w / 2 - 10, 56 + i * 15, col);
         }
     }
-    mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 112, rgb(240, 235, 220), "A SELECT");
+    mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 112, rgb(255, 246, 225), "A SELECT");
     if (mote_just_pressed(in, MOTE_BTN_UP))   s_title_cur = (s_title_cur + n - 1) % n;
     if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_title_cur = (s_title_cur + 1) % n;
     if (mote_just_pressed(in, MOTE_BTN_A)) {

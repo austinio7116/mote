@@ -71,6 +71,11 @@ void save_world(void) {
     WorldMeta m = { SAVE_MAGIC, g_seed, g_time, g_boss_down, {0}, {{0}} };
     memcpy(m.chests, g_chests, sizeof(g_chests));
     mote->kv_save("meta", &m, sizeof(m));
+    {   /* fog of war: RLE the explored bitmap under its own key (back-compat:
+         * old saves simply lack it and start unexplored) */
+        int n = rle_pack(g_explored, sizeof(g_explored), s_scratch, BAND_BYTES * 2 + 16);
+        if (n > 0) mote->kv_save("exp", s_scratch, n);
+    }
     save_player();
 }
 
@@ -95,6 +100,11 @@ int load_world(void) {
     g_seed = m.seed;
     g_time = m.time;
     g_boss_down = m.boss_down;
+    memset(g_explored, 0, sizeof(g_explored));
+    {   /* explored bitmap (optional key — pre-fog saves start unexplored) */
+        int n = mote->kv_load("exp", s_scratch, BAND_BYTES * 2 + 16);
+        if (n > 0) rle_unpack(s_scratch, n, g_explored, sizeof(g_explored));
+    }
     world_rebuild_caches();          /* the surface cache feeds sunlight + the sky */
     return 1;
 }

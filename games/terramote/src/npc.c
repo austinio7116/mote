@@ -163,8 +163,8 @@ static void proj_tick(float dt) {
         }
         if (p->kind == PR_ARROW_FLAME && (mote_rand() % 3) == 0)
             part_burst(p->x, p->y, rgb(255, 150, 40), 1, 8);
-        else if (p->element && (mote_rand() % 3) == 0)          /* elemental arrow trail */
-            part_burst(p->x, p->y, element_color(p->element), 1, 8);
+        else if (p->element && (mote_rand() % 2) == 0)          /* elemental arrow trail */
+            part_element(p->x, p->y, p->element, 1, 12);
         if (p->hostile) {
             if (fabsf(p->x - g_pl.x) < 5 && fabsf(p->y - (g_pl.y - 10)) < 11) {
                 player_damage(p->dmg, p->vx > 0 ? 80.0f : -80.0f);
@@ -235,8 +235,8 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
         e->hurt_t = 0.15f;
         ftext_add(e->x, e->y - d->hh - 6, dmg, rgb(255, 200, 90));
         if (e->kind != E_BOSS_EOC) { e->vx = kx; e->vy = -70.0f; }
-        /* on-hit elemental status + a puff of the element's colour */
-        if (element) part_burst(e->x, e->y - 2, element_color(element), 3, 45);
+        /* on-hit elemental status + a flare that BEHAVES like the element */
+        if (element) part_element(e->x, e->y - 2, element, 6, 55);
         switch (element) {
         case EL_FIRE:   e->dot_t = 3.0f; e->dot_dps = 5 + dmg / 4; e->status_el = EL_FIRE;   break;
         case EL_POISON: e->dot_t = 5.0f; e->dot_dps = 3 + dmg / 6; e->status_el = EL_POISON; break;

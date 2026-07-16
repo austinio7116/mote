@@ -17,5 +17,11 @@ static const uint8_t eye_idx[256] = {
 static const MoteImage eye_img = { 0, 32, 16, 0xF81F, 0, 1, eye_idx, eye_pal };  /* 4bpp indexed, 8 colours */
 #define eye_W 32
 #define eye_H 16
+#define eye_CELLW 16
+#define eye_CELLH 16
+#define eye_COLS 2
+#define eye_ROWS 1
+#define eye_MARGIN 0
+#define eye_SPACING 0
 
 #endif
