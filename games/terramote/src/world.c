@@ -200,7 +200,8 @@ int world_hit_tree(int c, int r) {
     while (fg_at(c, top) == T_TRUNK) top--;
     for (int rr = r; rr > top; rr--) {
         world_set_fg(c, rr, T_AIR);
-        drops_add(I_WOOD, 1 + (int)(wrand() % 2), c * TILE + 4, rr * TILE + 4);   /* a log per segment */
+        drops_add_v(I_WOOD, 1 + (int)(wrand() % 2), c * TILE + 4, rr * TILE + 4,
+                    wrandf() * 110.0f - 55.0f, -(90.0f + wrandf() * 60.0f));  /* logs BURST out and tumble */
         part_burst(c * TILE + 4, rr * TILE + 4, rgb(120, 84, 46), 3, 45);         /* splinters */
         wood++;
     }
