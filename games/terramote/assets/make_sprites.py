@@ -436,13 +436,49 @@ def make_items():
         c.px(ox + 5, oy + 2, tip); c.px(ox + 4, oy + 3, tip); c.px(ox + 6, oy + 3, tip)
         c.px(ox + 4, oy + 9, (200, 200, 210)); c.px(ox + 6, oy + 9, (200, 200, 210))
 
-    def bar_icon(ox, oy, m):
-        for y in range(6, 9):
-            for x in range(2, 10):
-                c.px(ox + x, oy + y, m)
-        for x in range(3, 11):
-            c.px(ox + x, oy + 5, tuple(min(255, int(k * 1.25)) for k in m))
-        c.px(ox + 2, oy + 6, tuple(min(255, int(k*1.25)) for k in m))
+    # each metal bar is an ISOMETRIC INGOT with its own palette + a signature
+    # detail, so the five read apart at a glance (copper vs hellstone used to be
+    # the same orange trapezoid). base/light/dark + accent specks per metal.
+    BAR_SPEC = {
+        # name:      (base,             light,            dark,            accent (specks) )
+        "COPPER":   ((184, 96, 52),    (224, 140, 84),   (120, 58, 30),   (240, 172, 120)),  # ruddy brown, matte
+        "IRON":     ((166, 172, 188),  (222, 226, 236),  (96, 100, 116),  (255, 255, 255)),  # cool steel, bright spec
+        "GOLD":     ((232, 188, 40),   (255, 236, 130),  (150, 112, 12),  (255, 250, 200)),  # rich yellow, strong sheen
+        "DEMONITE": ((92, 70, 150),    (150, 120, 214),  (48, 34, 82),    (196, 170, 255)),  # dark violet, crystal glint
+        "HELL":     ((150, 44, 26),    (255, 132, 40),   (78, 18, 12),    (255, 226, 90)),   # dark red body, molten glow + embers
+    }
+    def bar_icon(ox, oy, metal):
+        base, light, dark, acc = BAR_SPEC.get(metal, (METAL.get(metal, (180,180,180)),) * 4)
+        # top face: a parallelogram slab (the lit surface, seen from above)
+        for y in range(4, 6):
+            x0 = 4 - (y - 4); x1 = 11 - (y - 4)
+            for x in range(x0, x1):
+                c.px(ox + x, oy + y, light)
+        # front face: base colour, with a left-lit / right-shadow gradient
+        for y in range(6, 10):
+            for x in range(2, 11):
+                col = base
+                if x <= 3:      col = tuple(min(255, int(k * 1.15)) for k in base)   # left bevel catch-light
+                elif x >= 9:    col = dark                                            # right shadow
+                if y == 9:      col = dark                                            # bottom edge
+                c.px(ox + x, oy + y, col)
+        # seam where top face meets front (reads as the ingot's front-top edge)
+        for x in range(2, 11):
+            c.px(ox + x, oy + 6, tuple(min(255, int(k * 1.2)) for k in base))
+        c.px(ox + 2, oy + 6, light)
+        # signature detail per metal
+        if metal == "HELL":                       # molten embers + a hot glow line
+            for x in range(4, 10): c.px(ox + x, oy + 4, acc)      # glowing top edge
+            for dx, dy in ((4, 7), (7, 8), (9, 7)): c.px(ox + dx, oy + dy, acc)
+        elif metal == "GOLD":                      # diagonal specular streak
+            for i in range(3): c.px(ox + 4 + i, oy + 7 + i if 7 + i < 9 else 8, acc)
+            c.px(ox + 5, oy + 5, acc)
+        elif metal == "IRON":                      # single crisp highlight dot
+            c.px(ox + 5, oy + 5, acc); c.px(ox + 4, oy + 7, acc)
+        elif metal == "DEMONITE":                  # violet crystalline glints
+            for dx, dy in ((5, 5), (6, 7), (8, 8)): c.px(ox + dx, oy + dy, acc)
+        elif metal == "COPPER":                    # faint patina fleck (green-tinged)
+            c.px(ox + 4, oy + 5, acc); c.px(ox + 7, oy + 8, (120, 150, 96))
 
     def ore_icon(ox, oy, m):
         pts = ((4, 4), (6, 3), (7, 5), (5, 6), (3, 6), (6, 7))
@@ -580,7 +616,7 @@ def make_items():
         if parts[0] == "BOW": bow_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "ARROW": arrow_icon(ox, oy, len(parts) > 1); continue
         if parts[1] == "ORE": ore_icon(ox, oy, METAL[parts[0]]); continue
-        if parts[1] == "BAR": bar_icon(ox, oy, METAL[parts[0]]); continue
+        if parts[1] == "BAR": bar_icon(ox, oy, parts[0]); continue
         if parts[0] == "HELM": helm_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "MAIL": mail_icon(ox, oy, METAL[parts[1]]); continue
         if parts[0] == "LEGS": legs_icon(ox, oy, METAL[parts[1]]); continue
