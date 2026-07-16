@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-16T22:42:42+00:00",
+ "generated": "2026-07-16T22:44:27+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -19,7 +19,7 @@
     "img/gallery/terramote-2.png",
     "img/gallery/terramote-3.png"
    ],
-   "tag": "Pocket Terraria sandbox",
+   "tag": "Dig, build & craft sandbox",
    "desc": "Dig, build, craft and fight across a 448×248-tile world — forest, snow, desert and corruption over stone caverns down to a burning underworld. Chop climbable trees, smelt copper through hellstone, and craft your way through 150+ items and a 137-recipe tech tree including 87 unique elemental weapons whose fire, ice, poison and arcane trails follow every swing. Fog-of-war world map, day/night cycle with ramping night hordes, grappling hook, furniture, chests — and the Eye of Cthulhu waiting for your summons. One persistent world save.",
    "guide": "terramote-guide.html",
    "multiplayer": false
