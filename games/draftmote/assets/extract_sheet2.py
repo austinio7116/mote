@@ -11,8 +11,6 @@ Writes the editable game sheets under assets/:
               white_checker autumn grass_leafy
   props_sheet.png + prop boxes printed: bush chest campfire shelf_big shelf_small
                          book sack   (authored furniture comes from make_props.py)
-  walls_*.png + tilesets/wall_*.tileset : edge16 rule sheets AUTHORED over the
-                         sheet's brick/stone textures (stone, red, dark)
 """
 import os
 import numpy as np
@@ -180,53 +178,6 @@ for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
         FS.paste(snap565(blend_seams(sw)), (i * 16, v * 16))
 FS.save(os.path.join(HERE, "floors.png"))
 print("wrote floors.png (16px tiles, 2 variants):", " ".join(n for n, _, _ in FLOOR_ORDER))
-
-# ------------------------------------------------------------------ walls ----
-# AUTHORED edge16 rule sheets over the sheet's masonry swatches: the exposed
-# sides get a bright top-catch, dark outline and inner shadow, our own rules.
-WALL_SRC = { "stone": (1, 1), "red": (2, 1), "dark": (3, 1) }
-
-def wall_base(cx, cy):
-    # walls at HALF the floor scale: whole swatch -> 8px, tiled 2x2 into the
-    # 16px cell, so the masonry's full repeat fits inside the 8px wall band
-    x = 22 + int(cx * 176.3) + 6
-    y = 462 + cy * 179 + 6
-    t = np.asarray(im.crop((x, y, x + 164, y + 164)).resize((8, 8), Image.LANCZOS)).astype(np.int32)
-    return np.tile(t, (2, 2, 1))
-
-def shade(base, mask_bits):
-    t = base.copy()
-    N, E, S, W = (mask_bits & 1), (mask_bits & 2), (mask_bits & 4), (mask_bits & 8)
-    def lighten(sl, f, add): t[sl] = np.clip(t[sl] * f + add, 0, 255)
-    if not N: lighten(np.s_[0:1, :], 1.35, 26); lighten(np.s_[1:2, :], 1.15, 10)
-    if not S: lighten(np.s_[15:16, :], 0.45, 0); lighten(np.s_[14:15, :], 0.7, 0)
-    if not W: lighten(np.s_[:, 0:1], 1.2, 14)
-    if not E: lighten(np.s_[:, 15:16], 0.55, 0)
-    return t
-
-for wname, (cx, cy) in WALL_SRC.items():
-    base = wall_base(cx, cy)
-    sheet = Image.new("RGB", (4 * 16, 4 * 16), (0, 0, 0))
-    for idx in range(16):
-        cell = Image.fromarray(np.clip(shade(base, idx), 0, 255).astype(np.uint8))
-        sheet.paste(snap565(cell), ((idx % 4) * 16, (idx // 4) * 16))
-    sheet.save(os.path.join(HERE, "walls_%s.png" % wname))
-    lut = []
-    for m in range(256):
-        c = 0
-        if m & 1: c |= 1
-        if m & 4: c |= 2
-        if m & 16: c |= 4
-        if m & 64: c |= 8
-        lut.append(c)
-    os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
-    with open(os.path.join(GAME, "tilesets", "walls_%s.tileset" % wname), "w") as f:
-        f.write("sheet assets/walls_%s.png\n" % wname)
-        f.write("tile 16\ntype 1\nedge 1\nnvar 1\ncols 4\nrows 4\n")
-        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
-        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
-        f.write("vweight 1 1 1 1 1 1 1 1\n")
-print("wrote walls_stone/red/dark + tilesets")
 
 # ------------------------------------------------------------- sheet props ---
 # lifted straight off the sheet at half-art scale, packed left to right
