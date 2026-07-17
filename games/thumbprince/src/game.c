@@ -1279,7 +1279,7 @@ static void title_draw(uint16_t *fb) {
     }
     mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 18, rgb(250, 250, 255), "THUMBPRINCE");
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote_ftextc(mote, fb, f, 64, 38, rgb(150, 180, 240), "DRAFT THE ESTATE");
+    mote_ftextc(mote, fb, f, 64, 38, rgb(150, 180, 240), "LEAVE YOUR MARK");
     mote->blit(fb, &doors_img, 46, 56, 4 * 16, 0, 16, 16, 0, 0, 128);
     mote->blit(fb, &hero_img, 66, 54, 0, 0, 16, 20, 0, 0, 128);
     char buf[32];
