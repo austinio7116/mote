@@ -663,12 +663,8 @@ def make_furniture():
 CLAY_BRICK  = ((178, 102, 64), (128, 68, 42), (204, 128, 84))   # base/mortar/light
 STONE_BRICK = ((124, 124, 132), (86, 86, 96), (150, 150, 158))
 
-def brick_cell(mask, pal, f=1.0, seed=0):
-    """Coursed bricks: 3px courses with staggered head joints; apply_edges on
-    top for the exposed-face bevels. f pre-darkens (walls)."""
+def brick_body(c, rng, pal, f=1.0):
     base, mortar, lite = (shade(p, f) for p in pal)
-    rng = random.Random((mask * 269 + 17 + seed) & 0x7FFFFFFF)
-    c = Cell()
     for y in range(TS):
         course = y // 3
         for x in range(TS):
@@ -677,19 +673,26 @@ def brick_cell(mask, pal, f=1.0, seed=0):
             elif rng.random() < 0.10: col = lite
             else: col = base
             c.put(x, y, col)
-    apply_edges(c, mask, mortar)
+
+def brick_cell(mask, pal, f=1.0, seed=0):
+    """Coursed bricks + apply_edges bevels. f pre-darkens (walls)."""
+    rng = random.Random((mask * 269 + 17 + seed) & 0x7FFFFFFF)
+    c = Cell()
+    brick_body(c, rng, pal, f)
+    apply_edges(c, mask, shade(pal[1], f))
     return c
 
 # ---------------------------------------------------------------- walls
 def make_walls():
-    def wall_corner_cut(c, mask):
-        return c        # back walls stay SQUARE (reference gables are stepped)
     def wall(name, base, dark, light, density=0.2):
-        # pre-darkened so the background layer needs no runtime shading
+        # pre-darkened so the background layer needs no runtime shading;
+        # the six diag_cut_cells give staircase edges their inner-corner cuts
         f = 0.52
-        blob_sheet(name, lambda m, s: wall_corner_cut(
-            mat_cell(m, shade(base, f), shade(dark, f),
-                     shade(light, f), shade(dark, f * 0.7), density, seed=s), m))
+        bs, ds, ls = shade(base, f), shade(dark, f), shade(light, f)
+        def body(c, rng): speckle(c, bs, ds, ls, density, rng)
+        blob_sheet(name,
+                   lambda m, s: mat_cell(m, bs, ds, ls, shade(dark, f * 0.7), density, seed=s),
+                   extra=diag_cut_cells(body, ls, ds), classify=classify_slope)
     wall("wall_dirt",  (128, 84, 50), (100, 62, 36), (150, 104, 66))
     wall("wall_stone", (116, 116, 124), (86, 86, 96), (140, 140, 148))
     wall("wall_wood",  (168, 122, 68), (136, 96, 50), (188, 144, 86), 0.12)
@@ -697,8 +700,14 @@ def make_walls():
     wall("wall_ash",   (74, 66, 66), (56, 48, 50), (94, 84, 82))
     wall("wall_snow",  (200, 212, 228), (170, 184, 205), (226, 236, 248), 0.15)
     # brick walls (clay + stone) reuse the brick painter, pre-darkened
-    blob_sheet("wall_clay_brick", lambda m, s: wall_corner_cut(brick_cell(m, CLAY_BRICK, 0.52, s), m))
-    blob_sheet("wall_stone_brick", lambda m, s: wall_corner_cut(brick_cell(m, STONE_BRICK, 0.52, s), m))
+    blob_sheet("wall_clay_brick", lambda m, s: brick_cell(m, CLAY_BRICK, 0.52, s),
+               extra=diag_cut_cells(lambda c, r: brick_body(c, r, CLAY_BRICK, 0.52),
+                                    shade(CLAY_BRICK[2], 0.52), shade(CLAY_BRICK[1], 0.52)),
+               classify=classify_slope)
+    blob_sheet("wall_stone_brick", lambda m, s: brick_cell(m, STONE_BRICK, 0.52, s),
+               extra=diag_cut_cells(lambda c, r: brick_body(c, r, STONE_BRICK, 0.52),
+                                    shade(STONE_BRICK[2], 0.52), shade(STONE_BRICK[1], 0.52)),
+               classify=classify_slope)
     # glass: mostly TRANSPARENT (the sky/backdrop shows through) with a frame
     # on exposed edges and a diagonal sheen
     def glass_cell(mask, seed=0):
@@ -717,7 +726,15 @@ def make_walls():
         if not (mask & E):
             for y in range(TS): c.put(TS - 1, y, FRAME)
         return c
-    blob_sheet("wall_glass", glass_cell)
+    def glass_body(c, rng):
+        SHEEN = (168, 196, 216); SHEEN2 = (120, 150, 176)
+        for k in range(TS):
+            c.put(k, (k + 2) % TS, SHEEN2 if k % 3 else SHEEN)
+        for k in range(0, TS, 3):
+            c.put(k, (k + 6) % TS, SHEEN2)
+    blob_sheet("wall_glass", glass_cell,
+               extra=diag_cut_cells(glass_body, (70, 82, 96), (70, 82, 96)),
+               classify=classify_slope)
 
 
 
@@ -786,53 +803,53 @@ def _roof_body(c, rng):
             elif y % 3 == 0 and rng.random() < 0.18: c.put(x, y, ROOF_LITE)
             else: c.put(x, y, ROOF_BASE)
 
-def roof_slope_cells():
-    """6 slope cells: [0] NW-cut '/' face · [1] NE-cut '\' face ·
-    [2] SE-cut underside · [3] SW-cut underside · [4] thin '/' · [5] thin '\'"""
+def diag_cut_cells(body_fn, hi, lo, seed=4000):
+    """6 slope cells for ANY material: [0] NW-cut '/' face · [1] NE-cut '\'
+    face · [2] SE-cut underside · [3] SW-cut underside · [4] thin '/' ·
+    [5] thin '\'. body_fn(cell, rng) paints the material; hi = sun-facing cut
+    edge colour, lo = shadowed cut edge colour."""
     out = []
     for k in range(6):
-        rng = random.Random(4000 + k)
-        c = Cell(); _roof_body(c, rng)
+        rng = random.Random(seed + k)
+        c = Cell(); body_fn(c, rng)
         if k == 0:                                    # '/' top face
             for y in range(TS):
                 for x in range(TS):
                     if x + y < TS - 1: c.px[y][x] = None
-            for i in range(TS): c.put(i, TS - 1 - i, ROOF_CAP)
-            for i in range(TS - 1): c.put(i + 1, TS - 1 - i, ROOF_LITE)
+            for i in range(TS): c.put(i, TS - 1 - i, hi)
         elif k == 1:                                  # '\' top face
             for y in range(TS):
                 for x in range(TS):
                     if x > y: c.px[y][x] = None
-            for i in range(TS): c.put(i, i, ROOF_CAP)
-            for i in range(TS - 1): c.put(i, i + 1, ROOF_LITE)
+            for i in range(TS): c.put(i, i, hi)
         elif k == 2:                                  # underside, cut SE
             for y in range(TS):
                 for x in range(TS):
                     if x + y > TS - 1: c.px[y][x] = None
-            for i in range(TS): c.put(i, TS - 1 - i, ROOF_DARK)
+            for i in range(TS): c.put(i, TS - 1 - i, lo)
         elif k == 3:                                  # underside, cut SW
             for y in range(TS):
                 for x in range(TS):
                     if y > x: c.px[y][x] = None
-            for i in range(TS): c.put(i, i, ROOF_DARK)
+            for i in range(TS): c.put(i, i, lo)
         elif k == 4:                                  # thin '/' plank
             for y in range(TS):
                 for x in range(TS):
                     d = x + y - (TS - 1)
                     if d < -1 or d > 2: c.px[y][x] = None
-            for i in range(TS): c.put(i, TS - 1 - i, ROOF_CAP)
-            for i in range(TS - 2): c.put(i, TS - i, ROOF_DARK)
+            for i in range(TS): c.put(i, TS - 1 - i, hi)
+            for i in range(TS - 2): c.put(i, TS - i, lo)
         else:                                         # thin '\' plank
             for y in range(TS):
                 for x in range(TS):
                     d = y - x
                     if d < -1 or d > 2: c.px[y][x] = None
-            for i in range(TS): c.put(i, i, ROOF_CAP)
-            for i in range(TS - 2): c.put(i, i + 2, ROOF_DARK)
+            for i in range(TS): c.put(i, i, hi)
+            for i in range(TS - 2): c.put(i, i + 2, lo)
         out.append(c)
     return out
 
-def classify_roof(m):
+def classify_slope(m):
     n, e, s, w = m & N, m & E, m & S, m & W
     ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
     if not n and not w and e and s and ne and sw: return 0    # '/' outer face
@@ -845,7 +862,9 @@ def classify_roof(m):
     return None
 
 def make_roof():
-    blob_sheet("tiles_roof", roof_cell, nvar=1, extra=roof_slope_cells(), classify=classify_roof)
+    blob_sheet("tiles_roof", roof_cell, nvar=1,
+               extra=diag_cut_cells(_roof_body, ROOF_CAP, ROOF_DARK),
+               classify=classify_slope)
 
 def make_canopy():
     """Proper tree crowns (assets/canopy.png): 3 leafy variants + 1 snowy,

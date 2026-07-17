@@ -4349,7 +4349,7 @@ static int g_bake_confirm;           /* 1 = showing the "overwrite a different l
 static SDL_Rect g_bake_yes, g_bake_no;
 static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall,g_ln_r;
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen,g_tl_dup;
-static SDL_Rect g_tl_openlv[12],g_tl_opents[12]; static char g_tl_lvn[12][24],g_tl_tsn[12][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker */
+static SDL_Rect g_tl_openlv[64],g_tl_opents[64]; static char g_tl_lvn[64][24],g_tl_tsn[64][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker (games ship 40+ tilesets now) */
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[8],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
 static SDL_Rect g_dr_bsz_m,g_dr_bsz_p,g_dr_bhd_m,g_dr_bhd_p,g_dr_sq,g_dr_rd;   /* brush size/hardness steppers + square/round shape toggle (cell-editor panel) */
 static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
@@ -4653,7 +4653,7 @@ static void cell_op(uint16_t*sh,int W,int cx,int cy,int cw,int ch,int x,int y,in
     else if(g_ptool==2)cell_flood(sh,W,cx,cy,cw,ch,x,y,g_pcol); }
 static void draw_tiles_sheet(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL_GetMouseState(&mx,&my); tl_ensure();
     Terr*ct=&g_terr[g_curterr]; int ts=g_tl_ts; int sn=ct->scols*ct->srows; g_tl_tplr=(SDL_Rect){0,0,0,0};
-    g_tl_nlv=tl_scan("levels",".level",g_tl_lvn,12); g_tl_nts=tl_scan("tilesets",".tileset",g_tl_tsn,12);
+    g_tl_nlv=tl_scan("levels",".level",g_tl_lvn,64); g_tl_nts=tl_scan("tilesets",".tileset",g_tl_tsn,64);
     int y=oy;
     /* ---- OPEN card (grows to fit the wrapped level/tileset chips) ---- */
     int ax=ox+12, right=ox+w-12;
