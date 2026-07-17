@@ -464,10 +464,16 @@ uint8_t g_ui_fresh;      /* 1 on the first overlay after a state change: UI skip
 
 static void g_update(float dt) {
     g_dt = dt;
-    {   /* the OS resets the fps limit after init — re-arm once from update so
-         * the cap actually holds (and 2-instance link tests pace in real time) */
+    {   /* The OS resets the fps limit after init, so the init-time cap never
+         * held — TerraMote has effectively run UNCAPPED since 1.0 and the sim
+         * is dt-based, so keep it that way. Only the headless LINK TESTS need
+         * a real-time 30fps pace (two instances must stay in step), so the
+         * re-arm is dev-hook gated. */
         static uint8_t s_fps_set;
-        if (!s_fps_set) { s_fps_set = 1; mote->set_fps_limit(30); }
+        if (!s_fps_set) {
+            s_fps_set = 1;
+            if (getenv("TERRA_NET") || getenv("TERRA_FPS30")) mote->set_fps_limit(30);
+        }
     }
     {   /* dev: trace state flips (TERRA_DBG) */
         static int s_dbg_on = -1; static uint8_t prev = 255; static int frame;
