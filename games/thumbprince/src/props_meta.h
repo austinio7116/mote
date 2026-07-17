@@ -7,7 +7,7 @@
 typedef struct { uint8_t sheet; uint16_t fx; uint8_t fy, fw, fh; } PropDef;
 
 enum {
-    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_PLANT, P_COUNT
+    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_PLANT, P_COUNT
 };
 
 static const PropDef k_props[P_COUNT] = {
@@ -32,7 +32,9 @@ static const PropDef k_props[P_COUNT] = {
     { 1, 314, 20, 20, 12 },  /* gold_pile */
     { 1, 334, 16, 30, 16 },  /* workbench */
     { 1, 364, 16, 20, 16 },  /* chest_open */
-    { 1, 384, 16, 12, 16 },  /* plant */
+    { 1, 384, 14, 16, 18 },  /* terminal */
+    { 1, 400, 14, 14, 18 },  /* breaker */
+    { 1, 414, 16, 12, 16 },  /* plant */
 };
 
 #endif

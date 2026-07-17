@@ -5,7 +5,7 @@
  * prop sprites (props_meta.h) anchored by template letters. Loot is placed on
  * open floor at runtime from the day seed.
  *
- * Template chars:
+ * Template chars (also: e = security terminal, v = power breaker):
  *   '#' wall ring    '.' floor
  *   props: u bush  C campfire  L shelf_big  l shelf_small
  *          b bed_blue  B bed_red  t table  h chair  s sofa  K counter
@@ -35,6 +35,8 @@ enum {
     RF_COMPASS = 32,     /* first entry grants the Compass (rotate drafts) */
     RF_PENCIL = 64,      /* first entry grants the Pencil (gem rerolls) */
     RF_SEAL = 128,       /* cursed: the door seals behind you on entry */
+    RF_KEYCARD = 256,    /* drafting needs the keycard / an override / no power */
+    RF_SPADE = 512,      /* first entry grants the Spade (dig spots) */
 };
 
 enum {                   /* loot pickup types */
@@ -56,7 +58,7 @@ typedef struct {
     uint8_t gems;                   /* gem cost to draft */
     uint8_t floor, wall;
     uint16_t map_col;               /* estate map colour (RGB565) */
-    uint8_t flags;
+    uint16_t flags;
     int8_t  steps, keys, gemsg;     /* first-entry gains */
     uint16_t pts;                   /* first-entry score */
     const char *tmpl;               /* 7 rows x 7 cols */
@@ -74,6 +76,8 @@ enum {
     R_GUEST, R_CHAPEL, R_ARMORY, R_WINECELLAR, R_ORCHARD, R_TREASURY,
     R_NOOK, R_SCULLERY, R_SOLARIUM, R_GAMES, R_BUNK, R_ATELIER,
     R_CRYPT, R_TRICKHALL,
+    R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
+    R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
     R_COUNT,
 };
 
@@ -314,7 +318,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_GEM, 0 } },
 
-    [R_GARDEN] = { "GARDEN", SH_DEAD, 1, 0, FL_LEAFY, WL_STONE, C565(80, 150, 60), RF_GREEN, 0, 0, 1, 0,
+    [R_GARDEN] = { "GARDEN", SH_DEAD, 1, 0, FL_LEAFY, WL_STONE, C565(80, 150, 60), RF_GREEN | RF_SPADE, 0, 0, 1, 0,
         "#######"
         "#u...u#"
         "#.....#"
@@ -466,6 +470,96 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#.....#"
         "#######", { IT_STAR2, IT_POUCH, IT_KEY, 0 } },
+
+    [R_SECURITY] = { "SECURITY", SH_R, 1, 0, FL_STONE, WL_DARK, C565(110, 150, 170), 0, 0, 0, 0, 0,
+        "#######"
+        "#e...l#"
+        "#.....#"
+        "#.....#"
+        "#....r#"
+        "#.....#"
+        "#######", { IT_KEY, IT_COIN, 0 } },
+
+    [R_POWER] = { "POWER ROOM", SH_DEAD, 1, 0, FL_STONE, WL_DARK, C565(200, 180, 60), RF_UNIQUE, 0, 0, 0, 0,
+        "#######"
+        "#v...r#"
+        "#.....#"
+        "#.....#"
+        "#W....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_LABORATORY] = { "LABORATORY", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE | RF_KEYCARD, 0, 0, 0, 0,
+        "#######"
+        "#W...l#"
+        "#.....#"
+        "#.....#"
+        "#..t..#"
+        "#.....#"
+        "#######", { IT_POTION, IT_POTION, IT_STAR3, IT_GEM, 0 } },
+
+    [R_STRONGROOM] = { "STRONGROOM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE | RF_KEYCARD, 0, 0, 0, 0,
+        "#######"
+        "#x...x#"
+        "#.....#"
+        "#.....#"
+        "#g...g#"
+        "#.....#"
+        "#######", { IT_POUCH, IT_POUCH, IT_COIN, 0 } },
+
+    [R_CROSSROADS] = { "CROSSROADS", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(178, 136, 90), 0, 0, 0, 0, 0,
+        "#######"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_LANDING] = { "LANDING", SH_T, 0, 0, FL_WOOD, WL_STONE, C565(160, 122, 80), 0, 0, 0, 0, 0,
+        "#######"
+        "#p....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_SERVHALL] = { "SERVANTS", SH_T, 0, 0, FL_WOOD_DARK, WL_STONE, C565(126, 104, 78), 0, 2, 0, 0, 0,
+        "#######"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#r....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_CLOISTER] = { "CLOISTER", SH_T, 1, 0, FL_GRASS, WL_STONE, C565(88, 152, 84), RF_GREEN, 0, 0, 1, 0,
+        "#######"
+        "#u....#"
+        "#.....#"
+        "#.....#"
+        "#....p#"
+        "#.....#"
+        "#######", { IT_GEM, 0 } },
+
+    [R_BANQUET] = { "BANQUET", SH_T, 1, 0, FL_RED, WL_STONE, C565(200, 110, 70), 0, 4, 0, 0, 0,
+        "#######"
+        "#.....#"
+        "#ht..h#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_FOOD, IT_COIN, 0 } },
+
+    [R_ROTUNDA] = { "ROTUNDA", SH_X, 2, 1, FL_STONE, WL_STONE, C565(210, 190, 150), RF_UNIQUE, 0, 0, 0, 50,
+        "#######"
+        "#p...p#"
+        "#.....#"
+        "#.....#"
+        "#p...p#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

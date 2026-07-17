@@ -98,7 +98,7 @@ hero.save(os.path.join(HERE, "hero.png"))
 print("wrote hero.png (2 front, 2 back, 4 side)")
 
 # ------------------------------------------------------------------ items ----
-IT = Image.new("RGBA", (15 * 12, 12), (0, 0, 0, 0))
+IT = Image.new("RGBA", (17 * 12, 12), (0, 0, 0, 0))
 def item(cell, box, size=12, thresh=40):
     IT.paste(fit(keyed(box, thresh=thresh), size, size), (cell * 12 + (12 - size) // 2, 0))
 
@@ -165,6 +165,28 @@ for xx in range(3, 7):
     px(14, xx, 8, (150, 140, 120))
 px(14, 9, 2, (190, 180, 150)); px(14, 2, 10, (190, 180, 150))
 
+# keycard (authored): cyan security card with chip
+for yy in range(3, 10):
+    for xx in range(1, 11):
+        px(15, xx, yy, (70, 170, 200))
+for xx in range(1, 11):
+    px(15, xx, 3, (130, 220, 240))
+for yy in range(4, 7):
+    for xx in range(2, 5):
+        px(15, xx, yy, (230, 220, 140))          # chip
+px(15, 6, 8, (30, 90, 110)); px(15, 7, 8, (30, 90, 110)); px(15, 8, 8, (30, 90, 110))
+
+# spade (authored): wooden handle, steel blade
+for i2 in range(5):
+    px(16, 3 + i2, 5 - i2, (150, 100, 55))       # handle diagonal
+px(16, 2, 6, (150, 100, 55)); px(16, 7, 0, (180, 128, 74))
+for yy in range(6, 11):
+    for xx in range(6, 11):
+        if xx + yy <= 18:
+            px(16, xx, yy, (170, 175, 190))       # blade
+px(16, 7, 7, (210, 215, 226)); px(16, 8, 8, (210, 215, 226))
+px(16, 10, 10, (110, 115, 130))
+
 IT.save(os.path.join(HERE, "items.png"))
 print("wrote items.png")
 
@@ -183,18 +205,26 @@ def blend_seams(img):
         a[:, i] = a[:, i] * w + a[:, n - 1 - i] * (1 - w)
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
 
-# ONE art scale everywhere: a full ~176px swatch is one 16px game tile (11:1),
-# floors AND walls alike — planks ~3px, bricks ~4px, checker ~3px.
-# Two variants per floor (rows), hash-picked per tile so knots don't grid up.
-FS = Image.new("RGB", (len(FLOOR_ORDER) * 16, 32), (0, 0, 0))
+# ONE art scale everywhere: a full ~176px swatch is one 16px game tile (11:1).
+# Each floor is its own RULE TILESET (Studio Tiles tab): sheet 16x32 = 2 variant
+# rows, the engine's nvar hash picks per tile so the grain doesn't grid up.
+TILESETS = os.path.join(GAME, "tilesets")
+os.makedirs(TILESETS, exist_ok=True)
 for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
     x = 22 + int(cx * 176.3)
     y = 462 + cy * 179
+    sheet = Image.new("RGB", (16, 32), (0, 0, 0))
     for v, (ox, oy) in enumerate(((6, 6), (14, 10))):
         sw = im.crop((x + ox, y + oy, x + ox + 160, y + oy + 160)).resize((16, 16), Image.LANCZOS)
-        FS.paste(snap565(blend_seams(sw)), (i * 16, v * 16))
-FS.save(os.path.join(HERE, "floors.png"))
-print("wrote floors.png (16px tiles, 2 variants):", " ".join(n for n, _, _ in FLOOR_ORDER))
+        sheet.paste(snap565(blend_seams(sw)), (0, v * 16))
+    sheet.save(os.path.join(HERE, "floor_%s.png" % name))
+    with open(os.path.join(TILESETS, "floor_%s.tileset" % name), "w") as f:
+        f.write("sheet assets/floor_%s.png\n" % name)
+        f.write("tile 16\ntype 1\nedge 1\nnvar 2\ncols 1\nrows 2\n")
+        f.write("lut " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("vweight 1 1 1 1 1 1 1 1\n")
+print("wrote floor_<name>.png + .tileset x", len(FLOOR_ORDER))
 
 # ------------------------------------------------------------- sheet props ---
 # lifted straight off the sheet at half-art scale, packed left to right

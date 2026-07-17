@@ -2,9 +2,9 @@
 """ThumbPrince authored structure art — walls and doors, drawn at pixel level
 (downscaled swatches turned to mush at band scale, so these are hand-made).
 
-  walls_stone/red/dark.png  24x16: cell A (0,0) 16x8 horizontal band, cell B
-      (16,0) 8x16 vertical band — sprites AT band size, bricks 8x4, nothing
-      sliced from larger tiles.
+  walls_stone/red/dark.png  3x3 NINESLICE rule tilesets (48x48, 16px cells):
+      the 8px band hugs each cell's outer side, interior transparent. Bricks
+      8x4 fit the band. tilesets/walls_*.tileset for the Studio Tiles tab.
 
   doors.png  16x16 x6: h_closed h_open v_closed v_open gold_closed gold_open
       Content is 16w x 8h anchored to the top of the cell: the door sits FLUSH
@@ -24,11 +24,10 @@ def snap(c):
     return ((c[0] >> 3) << 3, (c[1] >> 2) << 2, (c[2] >> 3) << 3, 255)
 
 # ------------------------------------------------------------------- walls ---
-# DEDICATED band-sized sprites — nothing gets sliced from a bigger tile:
-#   walls_*.png is 24x16: cell A (0,0) 16x8 = the horizontal band,
-#   cell B (16,0) 8x16 = the vertical band. Bricks are 8x4 so complete
-#   bricks fit the 8px band; the horizontal band is running bond whose
-#   half-bricks continue seamlessly across adjacent strips.
+# NINESLICE rule tilesets (the engine's rule type for rectangular frames):
+# 3x3 cells of 16px; the 8px band hugs the outer side of each cell, interior
+# is transparent so the floor shows through. Bricks are 8x4 - complete bricks
+# at band scale. Editable in the Studio Tiles tab (tilesets/walls_*.tileset).
 WALLS = {
     "stone": ((126, 128, 140), (104, 106, 118), (84, 86, 98),  (56, 58, 68)),
     "red":   ((178, 92, 60),   (150, 72, 46),   (122, 56, 38), (78, 40, 30)),
@@ -44,19 +43,40 @@ def brick_px(x, y, pal, joints):
         return li
     return mid if (x * 3 + y * 7) % 11 else dk
 
-def wall_sheet(pal):
-    im = Image.new("RGB", (24, 16), (0, 0, 0))
-    for y in range(8):                       # A: horizontal band, running bond
-        for x in range(16):
-            im.putpixel((x, y), snap(brick_px(x, y, pal, ((0,), (4,))))[:3])
-    for y in range(16):                      # B: vertical band, stacked blocks
-        for x in range(8):
-            im.putpixel((16 + x, y), snap(brick_px(x, y, pal, ((), ())))[:3])
+def wall_nineslice(pal):
+    im = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
+    def hband(cx, cy, yoff):
+        for y in range(8):
+            for x in range(16):
+                im.putpixel((cx * 16 + x, cy * 16 + yoff + y), snap(brick_px(x, y, pal, ((0,), (4,)))))
+    def vband(cx, cy, xoff):
+        for y in range(16):
+            for x in range(8):
+                im.putpixel((cx * 16 + xoff + x, cy * 16 + y), snap(brick_px(x, y, pal, ((0,), (4,)))))
+    hband(0, 0, 0); hband(1, 0, 0); hband(2, 0, 0)      # top row: band on top
+    hband(0, 2, 8); hband(1, 2, 8); hband(2, 2, 8)      # bottom row: band below
+    vband(0, 0, 0); vband(0, 1, 0); vband(0, 2, 0)      # left col: band left
+    vband(2, 0, 8); vband(2, 1, 8); vband(2, 2, 8)      # right col: band right
     return im
 
+TILESETS = os.path.join(GAME, "tilesets")
+os.makedirs(TILESETS, exist_ok=True)
 for name, pal in WALLS.items():
-    wall_sheet(pal).save(os.path.join(HERE, "walls_%s.png" % name))
-print("wrote walls_stone/red/dark.png (band-sized sprites)")
+    wall_nineslice(pal).save(os.path.join(HERE, "walls_%s.png" % name))
+    # nineslice rule: row from N/S same-neighbours, column from W/E
+    N, E, S, W = 1, 4, 16, 64
+    lut = []
+    for m in range(256):
+        row = 1 if (m & N and m & S) else (0 if not (m & N) else 2)
+        col = 1 if (m & W and m & E) else (0 if not (m & W) else 2)
+        lut.append(row * 3 + col)
+    with open(os.path.join(TILESETS, "walls_%s.tileset" % name), "w") as f:
+        f.write("sheet assets/walls_%s.png\n" % name)
+        f.write("tile 16\ntype 2\nedge 1\nnvar 1\ncols 3\nrows 3\n")
+        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
+        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("vweight 1 1 1 1 1 1 1 1\n")
+print("wrote walls_*.png nineslice + tilesets")
 
 # ------------------------------------------------------------------- doors ---
 FRAME  = (52, 40, 34)
