@@ -658,14 +658,12 @@ def make_furniture():
 
 # ---------------------------------------------------------------- walls
 def make_walls():
-    def wall(name, base, dark, light, density=0.14):
-        # pre-darkened so the background layer needs no runtime shading.
-        # The dark speckle is kept CLOSE to the base tone — full-contrast dark
-        # clumps crush to black boxes under interior (walled, sunless) light.
+    def wall(name, base, dark, light, density=0.2):
+        # pre-darkened so the background layer needs no runtime shading
         f = 0.52
-        bs, ds, ls = shade(base, f), shade(dark, f), shade(light, f)
-        soft = mix(bs, ds, 0.55)
-        blob_sheet(name, lambda m, s: mat_cell(m, bs, soft, ls, ds, density, seed=s))
+        blob_sheet(name, lambda m, s: mat_cell(m, shade(base, f), shade(dark, f),
+                                               shade(light, f), shade(dark, f * 0.7),
+                                               density, seed=s))
     wall("wall_dirt",  (128, 84, 50), (100, 62, 36), (150, 104, 66))
     wall("wall_stone", (116, 116, 124), (86, 86, 96), (140, 140, 148))
     wall("wall_wood",  (168, 122, 68), (136, 96, 50), (188, 144, 86), 0.12)
