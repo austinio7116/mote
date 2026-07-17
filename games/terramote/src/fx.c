@@ -9,10 +9,14 @@
 #include "wall_ebon.tiles.h"
 #include "wall_ash.tiles.h"
 #include "wall_snow.tiles.h"
+#include "wall_glass.tiles.h"
+#include "wall_clay_brick.tiles.h"
+#include "wall_stone_brick.tiles.h"
 
 static const MoteAutotile *k_walls[W_COUNT] = {
     0, &wall_dirt_at, &wall_stone_at, &wall_wood_at,
-    &wall_ebon_at, &wall_ash_at, &wall_snow_at
+    &wall_ebon_at, &wall_ash_at, &wall_snow_at,
+    &wall_glass_at, &wall_clay_brick_at, &wall_stone_brick_at
 };
 
 Part  g_part[MAX_PART];
@@ -55,7 +59,7 @@ void fx_light_update(void) {
                 uint8_t b = bg_at(c, r);
                 v = g_tiles[t].light;
                 if (BG_IS_LAVA(b) && BG_LIQ(b)) { int lv = 8 + BG_LIQ(b); if (lv > v) v = lv; }
-                if (r < world_surface_row(c) && !BG_WALL(b)) { if (sun > v) v = sun; }
+                if (r < world_surface_row(c) && (!BG_WALL(b) || BG_WALL(b) == W_GLASS)) { if (sun > v) v = sun; }
                 else if (r <= world_surface_row(c) && r >= world_surface_row(c) - 1 && sun > v && !g_tiles[t].solid)
                     v = sun;                    /* the surface cell itself */
                 if (r >= ROW_HELL - 6) { if (v < 3) v = 3; }   /* hell ambient glow */
@@ -238,7 +242,18 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         else if (rr >= ROW_DIRT_END) cavec = rgb(18, 16, 20);
         else cavec = rgb(30, 20, 14);
         for (int x = 0; x < MOTE_FB_W; x++) {
-            if (wy < srow_px[x]) {
+            /* open air keeps the SKY backdrop: below the first solid of a
+             * column (a roof overhang, a bridge) unwalled near-surface air
+             * must NOT flip to the cave backdrop — that read as black shafts
+             * under every overhang. Caves keep it via their natural walls. */
+            int open_air = wy < srow_px[x];
+            if (!open_air && rr < ROW_DIRT_END) {
+                int cc = (x + g_cam_x) / TILE;
+                uint8_t bgb = ((unsigned)cc < WCOLS && (unsigned)rr < WROWS)
+                              ? g_bgm[rr * WCOLS + cc] : 0;
+                if (!BG_WALL(bgb)) open_air = 1;
+            }
+            if (open_air) {
                 uint16_t col = sky;
                 if (stars) {
                     /* sparse fixed starfield, gentle parallax (deepest layer) */

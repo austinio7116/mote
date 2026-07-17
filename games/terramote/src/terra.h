@@ -37,11 +37,13 @@ enum {
     T_TABLE, T_CHAIR, T_LANTERN, T_FIREPLACE, T_CHAIN,   /* SlipPixel furniture (append only) */
     T_ROOF,                                              /* sloped shingles (diagonal autotile) */
     T_BEAM,                                              /* wooden support post (non-solid) */
+    T_BRICK_CLAY, T_BRICK_STONE,                         /* crafted masonry blocks */
     T_COUNT
 };
 
 /* ---- wall ids (low nibble of bg plane) ----------------------------------- */
-enum { W_NONE = 0, W_DIRT, W_STONE, W_WOOD, W_EBON, W_ASH, W_SNOW, W_COUNT };
+enum { W_NONE = 0, W_DIRT, W_STONE, W_WOOD, W_EBON, W_ASH, W_SNOW,
+       W_GLASS, W_CLAYBRICK, W_STONEBRICK, W_COUNT };   /* nibble: max 15 */
 
 /* bg plane packing: low nibble wall, high nibble liquid (3-bit level + lava) */
 #define BG_WALL(b)      ((b) & 0x0F)
@@ -78,6 +80,8 @@ enum {
     I_TABLE, I_CHAIR, I_LANTERN, I_FIREPLACE, I_CHAIN,   /* SlipPixel furniture */
 #include "weapon_ids.inc"                                /* GENERATED weapon variants (gen_weapons.py) */
     I_WALL_WOOD, I_WALL_STONE, I_ROOF, I_BEAM,           /* building set (append only) */
+    I_BRICK_CLAY, I_BRICK_STONE,
+    I_WALL_CLAYBRICK, I_WALL_STONEBRICK, I_WALL_GLASS,
     I_COUNT
 };
 
