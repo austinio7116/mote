@@ -1,16 +1,16 @@
 {
  "schema": 1,
- "generated": "2026-07-16T22:44:27+00:00",
+ "generated": "2026-07-17T11:29:43+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
    "id": "terramote",
    "name": "TerraMote",
    "author": "austinio7116",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "abi": 47,
-   "size": 673708,
-   "sha256": "d824bef9519f97d9a84cd8e7ada6fef64eb5b575b7e32a3bf51f912866b38925",
+   "size": 690108,
+   "sha256": "94bd5cd1462b9b5893a4a474800c41925a8829302bf509bfa71da1fec091d660",
    "file": "games/TerraMote.mote",
    "icon": "img/gallery/terramote-icon.png",
    "thumb": "img/gallery/terramote-1.png",
@@ -20,7 +20,7 @@
     "img/gallery/terramote-3.png"
    ],
    "tag": "Dig, build & craft sandbox",
-   "desc": "Dig, build, craft and fight across a 448×248-tile world — forest, snow, desert and corruption over stone caverns down to a burning underworld. Chop climbable trees, smelt copper through hellstone, and craft your way through 150+ items and a 137-recipe tech tree including 87 unique elemental weapons whose fire, ice, poison and arcane trails follow every swing. Fog-of-war world map, day/night cycle with ramping night hordes, grappling hook, furniture, chests — and the Eye of Cthulhu waiting for your summons. One persistent world save.",
+   "desc": "Dig, build, craft and fight across a 448×248-tile world — forest, snow, desert and corruption over stone caverns down to a burning underworld. Chop climbable trees, smelt copper through hellstone, and craft your way through 150+ items and a 137-recipe tech tree including 87 unique elemental weapons whose fire, ice, poison and arcane trails follow every swing. Build real houses: back walls, glass windows, beams, bricks and roofs whose slopes shape themselves as you place them. Fog-of-war world map, day/night cycle with ramping night hordes, grappling hook, furniture, chests — and the Eye of Cthulhu waiting for your summons. One persistent world save.",
    "guide": "terramote-guide.html",
    "multiplayer": false
   },
