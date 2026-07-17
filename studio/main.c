@@ -490,7 +490,8 @@ static void load_png(const char*path){ int w,h,n; unsigned char*d=stbi_load(path
 
 /* ================= file tree ================= */
 typedef struct { char name[80],path[320]; int depth,kind; } TRow;  /* kind: 0 dir 1 toml 2 c 3 img 4 mesh 5 other */
-static TRow g_tree[300]; static int g_ntree, g_tsel=-1;
+#define TREE_MAX 1200   /* whole-project rows: big games ship 300+ files (terramote: 304) */
+static TRow g_tree[TREE_MAX]; static int g_ntree, g_tsel=-1;
 static char g_collapsed[64][320]; static int g_ncollapsed;   /* folders the user collapsed (double-click) */
 static int tree_is_collapsed(const char*p){ for(int i=0;i<g_ncollapsed;i++) if(!strcmp(g_collapsed[i],p))return 1; return 0; }
 static void tree_toggle_collapsed(const char*p){ for(int i=0;i<g_ncollapsed;i++) if(!strcmp(g_collapsed[i],p)){ g_collapsed[i][0]=0; for(int j=i;j<g_ncollapsed-1;j++)memcpy(g_collapsed[j],g_collapsed[j+1],320); g_ncollapsed--; return; }
@@ -504,13 +505,15 @@ static int kind_of(const char*n){ size_t l=strlen(n);
     if(l>4&&(!strcasecmp(n+l-4,".obj")||!strcasecmp(n+l-4,".stl")))return 4;
     if(l>4&&(!strcasecmp(n+l-4,".wav")||!strcasecmp(n+l-4,".mp3")||!strcasecmp(n+l-4,".ogg")))return 6;  /* audio */
     return 5; }
-static void tadd(const char*name,const char*path,int depth,int kind){ if(g_ntree>=300)return;
+static void tadd(const char*name,const char*path,int depth,int kind){ if(g_ntree>=TREE_MAX)return;
     TRow*r=&g_tree[g_ntree++]; snprintf(r->name,80,"%s",name); snprintf(r->path,320,"%s",path); r->depth=depth; r->kind=kind; }
 /* Recursive: lists files AND subfolders (subfolders render nested, then their
  * contents). Directories sort first, then alphabetical; skips dotfiles + build/. */
+#define SCAN_MAX 512   /* per-directory entries (heap: this recurses) */
 static void scan_into(const char*dir,int depth){ if(depth>6)return; DIR*d=opendir(dir); if(!d)return; struct dirent*e;
-    char nm[128][80]; int isd[128]; int nn=0;
-    while((e=readdir(d))&&nn<128){ if(e->d_name[0]=='.'||!strcmp(e->d_name,"build"))continue;
+    char (*nm)[80]=malloc(sizeof(char[SCAN_MAX][80])); int *isd=malloc(SCAN_MAX*sizeof(int)); int nn=0;
+    if(!nm||!isd){ free(nm); free(isd); closedir(d); return; }
+    while((e=readdir(d))&&nn<SCAN_MAX){ if(e->d_name[0]=='.'||!strcmp(e->d_name,"build"))continue;
         char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,e->d_name);
         struct stat st; isd[nn]=(stat(p,&st)==0&&S_ISDIR(st.st_mode))?1:0;
         snprintf(nm[nn],80,"%.78s",e->d_name); nn++; } closedir(d);
@@ -520,7 +523,8 @@ static void scan_into(const char*dir,int depth){ if(depth>6)return; DIR*d=opendi
             int ti=isd[i]; isd[i]=isd[j]; isd[j]=ti; }
     for(int i=0;i<nn;i++){ char p[320]; snprintf(p,sizeof p,"%.250s/%.60s",dir,nm[i]);
         if(isd[i]){ tadd(nm[i],p,depth,0); if(!tree_is_collapsed(p))scan_into(p,depth+1); }   /* recurse only into expanded folders */
-        else tadd(nm[i],p,depth,kind_of(nm[i])); } }
+        else tadd(nm[i],p,depth,kind_of(nm[i])); }
+    free(nm); free(isd); }
 static time_t g_treewatch;
 static void build_tree(const char*dir){
     char keep[320]=""; if(g_tsel>=0&&g_tsel<g_ntree) snprintf(keep,sizeof keep,"%s",g_tree[g_tsel].path);  /* preserve selection */
