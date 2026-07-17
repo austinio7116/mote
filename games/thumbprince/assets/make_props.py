@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DraftMote authored furniture — original pixel art in the style of the
+"""ThumbPrince authored furniture — original pixel art in the style of the
 reference sheets (dark outlines, warm saturated ramps, chunky highlights).
 
 Writes assets/props_auth.png (one packed row, 32px tall) and emits

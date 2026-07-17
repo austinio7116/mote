@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DraftMote authored structure art — walls and doors, drawn at pixel level
+"""ThumbPrince authored structure art — walls and doors, drawn at pixel level
 (downscaled swatches turned to mush at band scale, so these are hand-made).
 
   walls_stone/red/dark.png  4x4 edge16 sheets (16px cells). Every cell carries
@@ -13,7 +13,7 @@
       W door; E mirrors).
 
 Hero/items/floors from extract_sheet2.py, furniture from make_props.py.
-Bake: `mote bake games/draftmote`.
+Bake: `mote bake games/thumbprince`.
 """
 import os
 from PIL import Image

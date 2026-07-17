@@ -1,4 +1,4 @@
-/* DraftMote room catalogue — shapes, economy, interiors.
+/* ThumbPrince room catalogue — shapes, economy, interiors.
  *
  * Interiors are 7x7 tile templates (16px tiles): the border ring renders from
  * the walls_* rule tilesets, floors from floors.png macro-tiles, furniture as

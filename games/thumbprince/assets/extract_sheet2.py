@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DraftMote asset extractor for the character/texture sheet
+"""ThumbPrince asset extractor for the character/texture sheet
 (art_sources/ref/sheet2.png — hero walks, texture swatches, items, doors).
 
 Writes the editable game sheets under assets/:

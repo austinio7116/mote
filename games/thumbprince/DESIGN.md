@@ -1,4 +1,4 @@
-# DraftMote — a room-drafting roguelike for the Thumby Color (Mote engine)
+# ThumbPrince — a room-drafting roguelike for the Thumby Color (Mote engine)
 
 The resource-management + tile-placement heart of *Blue Prince*, rebuilt as a
 top-down pixel-art arcade roguelike. Draft rooms onto an estate grid, walk them

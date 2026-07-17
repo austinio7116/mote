@@ -1,4 +1,4 @@
-/* DraftMote — a room-drafting roguelike inspired by Blue Prince's estate
+/* ThumbPrince — a room-drafting roguelike inspired by Blue Prince's estate
  * puzzle: draft rooms onto a 5x8 blueprint, walk them top-down, manage steps,
  * keys, gems and gold, and reach the Antechamber before you're exhausted.
  *
@@ -1277,7 +1277,7 @@ static void title_draw(uint16_t *fb) {
         for (int y = 0; y < 128; y += 2) mote->draw_pixel(fb, v, y, rgb(30, 44, 90));
         for (int x = 0; x < 128; x += 2) mote->draw_pixel(fb, x, v, rgb(30, 44, 90));
     }
-    mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 18, rgb(250, 250, 255), "DRAFTMOTE");
+    mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 18, rgb(250, 250, 255), "THUMBPRINCE");
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote_ftextc(mote, fb, f, 64, 38, rgb(150, 180, 240), "DRAFT THE ESTATE");
     mote->blit(fb, &doors_img, 46, 56, 4 * 16, 0, 16, 16, 0, 0, 128);
@@ -1362,7 +1362,7 @@ static void g_init(void) {
     g_force_rooms = getenv("DRAFT_ROOMS");
     if ((e = getenv("DRAFT_UI")) && *e == 'b') g_draft_ui = 1;
     if (getenv("DRAFT_SKIP")) day_start();
-    mote->log("draftmote up");
+    mote->log("thumbprince up");
 }
 
 static void g_update(float dt) {
@@ -1428,5 +1428,5 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
-MOTE_GAME_META("DraftMote", "austinio7116");
+MOTE_GAME_META("ThumbPrince", "austinio7116");
 MOTE_GAME_VERSION("0.3.0");

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""DraftMote launcher icon — blueprint estate grid, drafted floor swatches,
+"""ThumbPrince launcher icon — blueprint estate grid, drafted floor swatches,
 the caped hero and a big gold key, all from the real game sheets.
 
 Run after extract_sheet2.py:
-    python3 assets/make_icon.py && mote bake games/draftmote
+    python3 assets/make_icon.py && mote bake games/thumbprince
 Writes ../icon.png (game root, 60x60); mote bake turns it into src/icon.h.
 """
 import os
