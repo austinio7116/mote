@@ -489,7 +489,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_LABORATORY] = { "LABORATORY", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE | RF_KEYCARD, 0, 0, 0, 0,
+    [R_LABORATORY] = { "LABORATORY", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#W...l#"
         "#.....#"
@@ -498,7 +498,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_POTION, IT_POTION, IT_STAR3, IT_GEM, 0 } },
 
-    [R_STRONGROOM] = { "STRONGROOM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE | RF_KEYCARD, 0, 0, 0, 0,
+    [R_STRONGROOM] = { "STRONGROOM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#x...x#"
         "#.....#"

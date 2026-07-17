@@ -72,7 +72,8 @@ typedef struct {
     uint8_t room;        /* 0xFF = undrafted */
     uint8_t doors;       /* absolute NESW bits */
     uint8_t lock_roll;   /* sides whose lock has been rolled */
-    uint8_t lock_on;     /* sides currently locked */
+    uint8_t lock_on;     /* sides currently key-locked */
+    uint8_t card_on;     /* sides gated by a keycard reader */
     uint8_t looted;      /* loot slot bits */
     uint8_t chests;      /* opened-chest bits */
     uint8_t entered;     /* first-entry effect given */
@@ -318,8 +319,8 @@ static const char *k_blurb[R_COUNT] = {
     [R_GAMES] = "+25, STAR",        [R_BUNK] = "+8 STEPS",
     [R_ATELIER] = "STAR + GEM",     [R_CRYPT] = "RICH, -4 ST",
     [R_TRICKHALL] = "SEALS SHUT",   [R_SECURITY] = "TERMINAL",
-    [R_POWER] = "THE BREAKER",      [R_LABORATORY] = "KEYCARD ROOM",
-    [R_STRONGROOM] = "KEYCARD ROOM",
+    [R_POWER] = "THE BREAKER",      [R_LABORATORY] = "TONICS, STAR",
+    [R_STRONGROOM] = "GOLD, CHESTS",
     [R_CROSSROADS] = "4 DOORS",     [R_LANDING] = "3 DOORS",
     [R_SERVHALL] = "3 DOORS +2",    [R_CLOISTER] = "GREEN, 3 DR",
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
@@ -372,7 +373,7 @@ static uint8_t orient_mask(uint8_t shape, int entry, int rot) {
 }
 
 /* door visual/interaction state */
-enum { DS_NONE, DS_SEALED, DS_CLOSED, DS_OPEN, DS_LOCKED, DS_GOLD };
+enum { DS_NONE, DS_SEALED, DS_CLOSED, DS_OPEN, DS_LOCKED, DS_CARD, DS_GOLD };
 
 static int door_state(int gi, int side) {
     const Cell *cl = &g_grid[gi];
@@ -383,10 +384,14 @@ static int door_state(int gi, int side) {
     if (nc->room != 0xFF) {
         if (!(nc->doors & DBIT(side ^ 2))) return DS_SEALED;   /* dead door */
         if (nc->room == R_ANTE && !g_won) return DS_GOLD;
+        if ((cl->card_on & DBIT(side)) || (nc->card_on & DBIT(side ^ 2))) return DS_CARD;
         if ((cl->lock_on & DBIT(side)) || (nc->lock_on & DBIT(side ^ 2))) return DS_LOCKED;
         return DS_OPEN;
     }
-    if ((cl->lock_roll & DBIT(side)) && (cl->lock_on & DBIT(side))) return DS_LOCKED;
+    if (cl->lock_roll & DBIT(side)) {
+        if (cl->card_on & DBIT(side)) return DS_CARD;
+        if (cl->lock_on & DBIT(side)) return DS_LOCKED;
+    }
     return DS_CLOSED;
 }
 
@@ -671,7 +676,6 @@ static void deal_cards(void) {
 static int card_affordable(uint8_t id) {
     if (k_rooms[id].gems > g_gems) return 0;
     if ((k_rooms[id].flags & RF_LOCKED) && g_keys < 1 && !g_master) return 0;
-    if ((k_rooms[id].flags & RF_KEYCARD) && !g_keycard && !g_override && !g_power_off) return 0;
     return 1;
 }
 
@@ -682,11 +686,6 @@ static void place_card(int slot) {
     if (d->flags & RF_LOCKED) {
         if (g_master) toast("MASTER KEY OPENS THE VAULT");
         else { g_keys--; toast("USED A KEY"); }
-    }
-    if (d->flags & RF_KEYCARD) {
-        if (g_keycard) toast("THE KEYCARD READS GREEN");
-        else if (g_power_off) toast("READER DARK - DOOR SWINGS OPEN");
-        else { g_override--; toast("OVERRIDE SPENT"); }
     }
     Cell *cl = &g_grid[g_draft_gi];
     cl->room = id;
@@ -784,6 +783,22 @@ static void door_try(int side) {
         return;
     }
 
+    if (st == DS_CARD) {
+        if (g_keycard) toast("THE KEYCARD READS GREEN");
+        else if (g_override > 0) { g_override--; toast("OVERRIDE: READER RELEASED"); }
+        else if (g_power_off) toast("READER DARK - IT SWINGS OPEN");
+        else {
+            toast("A KEYCARD READER");
+            mote->audio_play_sfx(&locked_sfx, 0.9f);
+            return;
+        }
+        mote->audio_play_sfx(&unlock_sfx, 1.0f);
+        cl->card_on &= (uint8_t)~DBIT(side);
+        if (n >= 0) g_grid[n].card_on &= (uint8_t)~DBIT(side ^ 2);
+        if (g_grid[n].room != 0xFF) { enter_room(n, side ^ 2); return; }
+        st = DS_CLOSED;
+    }
+
     if (st == DS_LOCKED) {
         if (g_master) {
             toast("MASTER KEY");
@@ -809,6 +824,16 @@ static void door_try(int side) {
         int p = g_no_locks ? 0 : g_all_locks ? 100 : 5 + 7 * (7 - gi_row(n))
               + (g_cond == CD_CREAKY ? 12 : 0) + (g_power_off ? 8 : 0);
         if ((int)(mote_rand() % 100u) < p) {
+            /* near the top some locks are keycard readers instead */
+            int card_pct = gi_row(n) <= 3 ? 30 : gi_row(n) <= 5 ? 12 : 0;
+            if ((int)(mote_rand() % 100u) < card_pct) {
+                cl->card_on |= DBIT(side);
+                toast("A KEYCARD READER");
+                mote->audio_play_sfx(&locked_sfx, 0.9f);
+                if (!g_keycard && !g_override && !g_power_off) return;
+                door_try(side);               /* re-enter through the reader path */
+                return;
+            }
             cl->lock_on |= DBIT(side);
             toast("LOCKED - NEED A KEY");
             mote->audio_play_sfx(&locked_sfx, 0.9f);
@@ -1218,6 +1243,8 @@ static void room_draw(void) {
         add_spr(&doors_img, k_door_px[s][0], k_door_px[s][1], cell * TILE, 0, TILE, TILE, 2, fl);
         if (st == DS_LOCKED)
             add_spr(&items_img, k_door_px[s][0] + 2, k_door_px[s][1] + 2, 7 * 12, 0, 12, 12, 30, 0);
+        if (st == DS_CARD)
+            add_spr(&items_img, k_door_px[s][0] + 2, k_door_px[s][1] + 2, 15 * 12, 0, 12, 12, 30, 0);
     }
 
     /* furniture, painter-ordered by base line */
@@ -1477,7 +1504,6 @@ static void draft_draw_a(uint16_t *fb) {
     int cx = 60;
     for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, 64, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
     if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, 64, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
-    if (d->flags & RF_KEYCARD) { mote->blit(fb, &items_img, cx, 64, 15 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
     if (!afford) mote->text_font(fb, f, "!", cx + 2, 63, rgb(255, 110, 90));
 
     /* the hand: every option's SHAPE always on show */
