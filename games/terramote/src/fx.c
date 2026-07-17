@@ -370,13 +370,14 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             if (!w || w >= W_COUNT) continue;
             uint8_t t = g_fgm[r * WCOLS + c];
             if (g_tiles[t].solid == 1 && t != T_DOOR_C) {
-                /* carved terrain lets the backdrop peek through its edge
-                 * notches, so the wall behind must still be drawn there.
-                 * Only skip truly covered cells: square built materials, and
-                 * terrain cells with all 8 neighbours the SAME tile (interior
-                 * cells are the uncarved full-square art). */
+                /* tiles with cut-away art (carved terrain, roof slopes, brick
+                 * diagonals) let the backdrop peek through, so the wall behind
+                 * must still be drawn. Only skip truly covered cells: square
+                 * built materials, and cells with all 8 neighbours the SAME
+                 * tile (interior cells are the uncarved full-square art). */
                 int covered = 1;
-                if (t <= T_OBSIDIAN) {
+                if (t <= T_OBSIDIAN || t == T_ROOF ||
+                    t == T_BRICK_CLAY || t == T_BRICK_STONE) {
                     for (int k = 0; k < 8 && covered; k++) {
                         int cc = c + nb[k][0], rr2 = r + nb[k][1];
                         uint8_t nt = ((unsigned)cc < WCOLS && (unsigned)rr2 < WROWS)
