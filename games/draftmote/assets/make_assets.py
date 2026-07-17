@@ -8,9 +8,9 @@
       matter which slice it takes. tilesets/walls_*.tileset regenerated too.
 
   doors.png  16x16 x6: h_closed h_open v_closed v_open gold_closed gold_open
-      Content is 16w x 12h anchored to the top of the cell: the door sits IN
-      the 8px wall band with a 4px sill standing into the room (S doors VFLIP,
-      v cells are the CCW rotation = a W door; E mirrors).
+      Content is 16w x 8h anchored to the top of the cell: the door sits FLUSH
+      in the 8px wall band (S doors VFLIP, v cells are the CCW rotation = a
+      W door; E mirrors).
 
 Hero/items/floors from extract_sheet2.py, furniture from make_props.py.
 Bake: `mote bake games/draftmote`.
@@ -98,27 +98,25 @@ def rect(cell, x0, y0, x1, y1, c):
             px(cell, x, y, c)
 
 def h_door(cell, opened, gold=False):
-    """16w x 12h, top-anchored: in the 8px band + a 4px sill into the room"""
+    """16w x 8h, top-anchored: FLUSH with the 8px wall band, no sill"""
     pl, pll, pld, sm, hd = PLANK, PLANK_L, PLANK_D, SEAM, HANDLE
     if gold:
         pl, pll, pld, sm = (196, 158, 62), (232, 198, 96), (150, 116, 44), (128, 96, 36)
         hd = (255, 244, 190)
-    rect(cell, 0, 0, 1, 10, FRAME); px(cell, 0, 0, FRAME_L); px(cell, 1, 0, FRAME_L)
-    rect(cell, 14, 0, 15, 10, FRAME); px(cell, 14, 0, FRAME_L); px(cell, 15, 0, FRAME_L)
+    rect(cell, 0, 0, 1, 7, FRAME); px(cell, 0, 0, FRAME_L); px(cell, 1, 0, FRAME_L)
+    rect(cell, 14, 0, 15, 7, FRAME); px(cell, 14, 0, FRAME_L); px(cell, 15, 0, FRAME_L)
     rect(cell, 0, 0, 15, 0, FRAME_L)                       # lintel
     if opened:
-        rect(cell, 2, 1, 13, 9, DARK)
-        rect(cell, 2, 8, 13, 9, GLOW)                      # lit threshold
+        rect(cell, 2, 1, 13, 7, DARK)
+        rect(cell, 2, 6, 13, 7, GLOW)                      # lit threshold
     else:
-        rect(cell, 2, 1, 13, 9, pl)
+        rect(cell, 2, 1, 13, 7, pl)
         for x in (5, 10):
-            for y in range(1, 10):
+            for y in range(1, 8):
                 px(cell, x, y, sm)                         # plank seams
         rect(cell, 2, 1, 13, 1, pll)
-        rect(cell, 2, 9, 13, 9, pld)
-        px(cell, 12, 5, hd)
-    rect(cell, 0, 11, 1, 11, (30, 24, 20))                 # sill shadow feet
-    rect(cell, 14, 11, 15, 11, (30, 24, 20))
+        rect(cell, 2, 7, 13, 7, pld)
+        px(cell, 12, 4, hd)
 
 h_door(0, 0)
 h_door(1, 1)

@@ -70,6 +70,7 @@ enum {
     R_HEARTH, R_STILLROOM,
     R_TERRACE, R_GARDEN, R_SUNROOM, R_VAULT,
     R_GUEST, R_CHAPEL, R_ARMORY, R_WINECELLAR, R_ORCHARD, R_TREASURY,
+    R_NOOK, R_SCULLERY, R_SOLARIUM, R_GAMES, R_BUNK, R_ATELIER,
     R_COUNT,
 };
 
@@ -128,7 +129,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#h....#"
         "#.....#"
-        "#######", { IT_COIN, IT_KEY, 0 } },
+        "#######", { IT_COIN, IT_COIN, 0 } },
 
     [R_GREATHALL] = { "GREAT HALL", SH_X, 2, 2, FL_RED, WL_STONE, C565(190, 150, 96), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
@@ -290,7 +291,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#..C..#"
         "#.....#"
         "#.....#"
-        "#######", { IT_KEY, 0 } },
+        "#######", { 0 } },
 
     [R_STILLROOM] = { "STILL ROOM", SH_DEAD, 2, 2, FL_WOOD_DARK, WL_DARK, C565(52, 64, 120), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
@@ -390,6 +391,60 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#..g..#"
         "#.....#"
         "#######", { IT_POUCH, IT_COIN, 0 } },
+
+    [R_NOOK] = { "NOOK", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(150, 110, 70), 0, 0, 0, 0, 25,
+        "#######"
+        "#h...l#"
+        "#.....#"
+        "#.....#"
+        "#....p#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_SCULLERY] = { "SCULLERY", SH_R, 0, 0, FL_CHECKER, WL_STONE, C565(190, 198, 206), 0, 2, 0, 0, 0,
+        "#######"
+        "#W...K#"
+        "#.....#"
+        "#.....#"
+        "#r....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_SOLARIUM] = { "SOLARIUM", SH_STR, 1, 0, FL_GRASS, WL_STONE, C565(110, 170, 90), RF_GREEN, 0, 0, 1, 0,
+        "#######"
+        "#p...p#"
+        "#.....#"
+        "#.....#"
+        "#s....#"
+        "#.....#"
+        "#######", { IT_GEM, 0 } },
+
+    [R_GAMES] = { "GAMES ROOM", SH_L, 1, 0, FL_RED, WL_STONE, C565(180, 120, 60), 0, 0, 0, 0, 25,
+        "#######"
+        "#h...h#"
+        "#..t..#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_BUNK] = { "BUNK ROOM", SH_DEAD, 0, 0, FL_WOOD_DARK, WL_STONE, C565(100, 118, 160), 0, 8, 0, 0, 0,
+        "#######"
+        "#b...b#"
+        "#.....#"
+        "#.....#"
+        "#....r#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_ATELIER] = { "ATELIER", SH_DEAD, 2, 1, FL_WOOD, WL_STONE, C565(210, 160, 190), RF_UNIQUE, 0, 0, 1, 0,
+        "#######"
+        "#d...p#"
+        "#.....#"
+        "#.....#"
+        "#..m..#"
+        "#.....#"
+        "#######", { IT_STAR2, IT_GEM, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

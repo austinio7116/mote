@@ -1,8 +1,2 @@
-# regenerable intermediates (extract_rooms.py / harvest / gen previews)
-ref/rooms/
-ref/props/
+# regenerable extraction previews
 ref/*contact*.png
-ref/tilelib*.png
-ref/masks_debug.png
-ref/room_maps.json
-ref/door*.png

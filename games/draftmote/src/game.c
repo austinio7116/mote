@@ -178,6 +178,8 @@ static const uint8_t k_tag[R_COUNT] = {
     [R_LIBRARY] = TAG_BOOK, [R_STUDY] = TAG_BOOK, [R_DRAFTING] = TAG_BOOK,
     [R_WINECELLAR] = TAG_DRINK, [R_CELLAR] = TAG_DRINK, [R_HEARTH] = TAG_DRINK,
     [R_GREATHALL] = TAG_GRAND, [R_CHAPEL] = TAG_GRAND, [R_FOYER] = TAG_GRAND,
+    [R_NOOK] = TAG_BOOK, [R_ATELIER] = TAG_BOOK,
+    [R_SCULLERY] = TAG_FOOD, [R_BUNK] = TAG_REST, [R_GAMES] = TAG_REST,
 };
 typedef struct { uint8_t a, b; uint8_t pts; const char *name; } ComboDef;
 static const ComboDef k_combos[] = {
@@ -243,7 +245,10 @@ static const char *k_blurb[R_COUNT] = {
     [R_VAULT] = "GOLD HOARD",       [R_GUEST] = "+4, CHEST",
     [R_CHAPEL] = "BIG STAR",        [R_ARMORY] = "KEYS, CHEST",
     [R_WINECELLAR] = "TONIC, GOLD", [R_ORCHARD] = "GREEN, FOOD",
-    [R_TREASURY] = "2 CHESTS",
+    [R_TREASURY] = "2 CHESTS",      [R_NOOK] = "+25 PTS",
+    [R_SCULLERY] = "+2 STEPS",      [R_SOLARIUM] = "GREEN +1GEM",
+    [R_GAMES] = "+25, STAR",        [R_BUNK] = "+8 STEPS",
+    [R_ATELIER] = "STAR + GEM",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -687,8 +692,8 @@ static void chest_try(int i) {
         else                { g_gold += 3; gold += 3; }
     } else {
         if (roll < 18)      { g_gems++; extra = " +GEM"; }
-        else if (roll < 45) { g_keys++; extra = " +KEY"; }
-        else if (roll < 57) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
+        else if (roll < 32) { g_keys++; extra = " +KEY"; }
+        else if (roll < 48) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
     mote->audio_play_sfx(&coin_sfx, 0.9f);
     snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);
