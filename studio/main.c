@@ -4351,6 +4351,8 @@ static SDL_Rect g_terrtab[MAXTERR],g_terradd,g_tl_name_r,g_tl_modet,g_tl_bakeall
 static SDL_Rect g_tl_tplr,g_tl_edger,g_tl_tsm,g_tl_tsp,g_tl_varm,g_tl_varp,g_tl_load,g_tl_savep,g_tl_addrow,g_tl_gen,g_tl_dup;
 static SDL_Rect g_tl_openlv[64],g_tl_opents[64]; static char g_tl_lvn[64][24],g_tl_tsn[64][24]; static int g_tl_nlv,g_tl_nts;   /* OPEN picker (games ship 40+ tilesets now) */
 static SDL_Rect g_sheetcell[64],g_rulecell[64],g_dr_tile,g_dr_tool[8],g_dr_pal[40],g_dr_rec[12],g_dr_hsv,g_dr_hue;
+static int g_extra_cell=-1, g_extras[16], g_nextras, g_extra_pending=-1;   /* raw-mask EXTRA rules ('Blob 47+') */
+static SDL_Rect g_extrarect[16], g_extraadd, g_extranb[9];
 static SDL_Rect g_dr_bsz_m,g_dr_bsz_p,g_dr_bhd_m,g_dr_bhd_p,g_dr_sq,g_dr_rd;   /* brush size/hardness steppers + square/round shape toggle (cell-editor panel) */
 static int g_cdx=-1,g_cdy=-1;   /* line/rect start (cell-local) for the tiles/anim cell editors */
 static SDL_Rect g_tl_type[4],g_tl_xf[6],g_tl_vw[8];   /* rule-type buttons; transform buttons; variant weights */
@@ -4719,13 +4721,48 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
     /* ---- RULES card ---- */
     int ry=ui_card(R,ox,gy,rw,ph,"RULES");
     { static const char*TT[4]={"Blob 47","Edge 16","9-slice","Wang 16"}; int btx=ox+12, bwk=(rw-24)/4;
+      int hasx=0; for(int m=0;m<256&&!hasx;m++)if(ct->lut[m]>=ct->ncell)hasx=1;      /* raw-mask extras present */
       for(int k=0;k<4;k++){ int on=ct->tpl==k; g_tl_type[k]=(SDL_Rect){btx,ry,bwk-3,19};
-        rrect(R,btx,ry,bwk-3,19,4,on?C_SEL:C_BTN); text(R,TT[k],btx+6,ry+5,1,on?C_HDR:C_DIM,on?C_SEL:C_BTN); btx+=bwk; } }
+        char tl2[16]; snprintf(tl2,sizeof tl2,"%s%s",TT[k],(on&&hasx)?"+":"");
+        rrect(R,btx,ry,bwk-3,19,4,on?C_SEL:C_BTN); text(R,tl2,btx+6,ry+5,1,on?C_HDR:C_DIM,on?C_SEL:C_BTN); btx+=bwk; } }
     { int rx=ox+12, bw=46, per=(rw-24)/bw; if(per<1)per=1; int rdz=bw-8;
       for(int ci=0;ci<ct->ncell&&ci<64;ci++){ int gx=rx+(ci%per)*bw, gyy=ry+26+(ci/per)*(bw+8); g_rulecell[ci]=(SDL_Rect){gx,gyy,bw-2,bw+4};
           rrect(R,gx-1,gyy-1,bw,bw+6,3, ci==g_rulesel?C_SEL:C_LINE); blit_cell_x(R,ct,ct->lut[ct->rep[ci]],ct->xform[ct->rep[ci]],gx+3,gyy+2,rdz);
           uint8_t m=ct->rep[ci]; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int on=(dx==0&&dy==0)?1:((m&nb_bit_for(dx,dy))!=0);
-              plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } } }
+              plain(R,gx+rdz/2-1+(dx+1)*3,gyy+rdz+4+(dy+1)*3,2,2,on?(Col){210,200,120}:(Col){54,56,66}); } }
+      /* ---- EXTRA RULES: raw-mask lut overrides beyond the template ('Blob 47+').
+       * Each extra sheet cell is picked by a (need, must-be-empty) neighbour rule;
+       * clicking a neighbour box cycles need -> empty -> any and rewrites the lut. */
+      { g_nextras=0;
+        for(int cell=ct->ncell;cell<sn&&g_nextras<16;cell++){ int used=(cell==g_extra_pending);
+            for(int m=0;m<256&&!used;m++)if(ct->lut[m]==cell)used=1;
+            if(used)g_extras[g_nextras++]=cell; }
+        int exy=ry+26+((ct->ncell+per-1)/per)*(bw+8)+4;
+        text(R,"EXTRA RULES",rx,exy,1,C_DIM,C_DOCK);
+        g_extraadd=(SDL_Rect){rx+textw(R,"EXTRA RULES",1)+8,exy-3,18,18};
+        rrect(R,g_extraadd.x,g_extraadd.y,18,18,4,hit(mx,my,g_extraadd.x,g_extraadd.y,18,18)?C_BTNHI:C_BTN);
+        text(R,"+",g_extraadd.x+6,g_extraadd.y+3,1,C_TXT,C_BTN);
+        exy+=20;
+        for(int i=0;i<g_nextras;i++){ int gx=rx+(i%per)*bw, gyy=exy+(i/per)*(bw+2);
+            g_extrarect[i]=(SDL_Rect){gx,gyy,bw-2,bw-2};
+            rrect(R,gx-1,gyy-1,bw,bw,3, g_extras[i]==g_extra_cell?C_SEL:C_LINE);
+            blit_cell_x(R,ct,g_extras[i],0,gx+3,gyy+2,bw-8); }
+        if(g_extra_cell>=ct->ncell&&g_extra_cell<sn){ int cell=g_extra_cell;
+            uint8_t req=0xFF,forb=0xFF; int nm2=0;
+            for(int m=0;m<256;m++)if(ct->lut[m]==cell){ req&=(uint8_t)m; forb&=(uint8_t)~m; nm2++; }
+            if(!nm2){ req=0; forb=0; }
+            int cgy=exy+((g_nextras+per-1)/per)*(bw+2)+4;
+            text(R,nm2?"rule: + need \xb7 x empty \xb7 blank any":"new rule: click neighbours",rx,cgy,1,C_DIM,C_DOCK); cgy+=14;
+            for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){ int bi=(dy+1)*3+(dx+1);
+                int bx2=rx+(dx+1)*17, by2=cgy+(dy+1)*17; g_extranb[bi]=(SDL_Rect){bx2,by2,15,15};
+                if(dx==0&&dy==0){ rrect(R,bx2,by2,15,15,3,C_ACC); continue; }
+                uint8_t bit=(uint8_t)nb_bit_for(dx,dy);
+                Col cc2=(nm2&&(req&bit))?(Col){96,180,96}:((nm2&&(forb&bit))?(Col){200,86,86}:C_BTN);
+                rrect(R,bx2,by2,15,15,3,cc2);
+                if(nm2&&(req&bit))text(R,"+",bx2+4,by2+2,1,C_HDR,cc2);
+                else if(nm2&&(forb&bit))text(R,"x",bx2+4,by2+2,1,C_HDR,cc2); }
+        } else g_extranb[0]=(SDL_Rect){0,0,0,0};
+      } }
 
     /* ---- EDIT CELL card ---- */
     int ey2=ui_card(R,ex,gy,ew,ph,"EDIT CELL");
@@ -4832,7 +4869,26 @@ static void tiles_down(int mx,int my){
         uint8_t rr=ct->rep[g_rulesel], cur=0; for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr){ cur=ct->xform[m]; break; }
         if(k==0)cur=(uint8_t)((cur&~0x0C)|(((((cur>>2)&3)+1)&3)<<2)); else if(k==1)cur^=0x01; else cur^=0x02;
         for(int m=0;m<256;m++)if(mote__at_reduce((uint8_t)m)==rr)ct->xform[m]=cur; return; }
-    for(int ci=0;ci<ct->ncell&&ci<64;ci++)if(hit(mx,my,g_rulecell[ci].x,g_rulecell[ci].y,g_rulecell[ci].w,g_rulecell[ci].h)){ g_rulesel=ci; g_cellsel=ct->lut[ct->rep[ci]]; return; }
+    for(int i=0;i<g_nextras;i++)if(hit(mx,my,g_extrarect[i].x,g_extrarect[i].y,g_extrarect[i].w,g_extrarect[i].h)){ g_extra_cell=g_extras[i]; g_cellsel=g_extras[i]; return; }
+    if(g_extraadd.w&&hit(mx,my,g_extraadd.x,g_extraadd.y,g_extraadd.w,g_extraadd.h)){ int sn2=ct->scols*ct->srows;
+        for(int cell=ct->ncell;cell<sn2;cell++){ int used=0; for(int m=0;m<256&&!used;m++)if(ct->lut[m]==cell)used=1;
+            if(!used&&cell!=g_extra_pending){ g_extra_pending=cell; g_extra_cell=cell; g_cellsel=cell; return; } }
+        snprintf(g_status,sizeof g_status,"no free sheet cell for an extra rule \xb7 use 'add row' in the inspector"); return; }
+    if(g_extra_cell>=0)for(int bi=0;bi<9;bi++){ if(bi==4||!g_extranb[bi].w)continue;
+        if(hit(mx,my,g_extranb[bi].x,g_extranb[bi].y,g_extranb[bi].w,g_extranb[bi].h)){
+            int ddx=bi%3-1,ddy=bi/3-1; uint8_t bit=(uint8_t)nb_bit_for(ddx,ddy); int cell=g_extra_cell;
+            uint8_t req=0xFF,forb=0xFF; int nm2=0;
+            for(int m=0;m<256;m++)if(ct->lut[m]==cell){ req&=(uint8_t)m; forb&=(uint8_t)~m; nm2++; }
+            if(!nm2){ req=0; forb=0; }
+            if(req&bit){ req&=(uint8_t)~bit; forb|=bit; }               /* need -> must-be-empty */
+            else if(forb&bit){ forb&=(uint8_t)~bit; }                    /* -> any */
+            else req|=bit;                                               /* -> need */
+            { MoteAutotile at2; mote_autotile_template(&at2,ct->tpl);    /* rebuild: release old, apply family */
+              for(int m=0;m<256;m++)if(ct->lut[m]==cell)ct->lut[m]=at2.lut[m];
+              if(req|forb){ for(int m=0;m<256;m++)if((((uint8_t)m&req)==req)&&!((uint8_t)m&forb))ct->lut[m]=(uint8_t)cell; g_extra_pending=-1; }
+              else g_extra_pending=cell; }
+            return; } }
+    for(int ci=0;ci<ct->ncell&&ci<64;ci++)if(hit(mx,my,g_rulecell[ci].x,g_rulecell[ci].y,g_rulecell[ci].w,g_rulecell[ci].h)){ g_rulesel=ci; g_cellsel=ct->lut[ct->rep[ci]]; g_extra_cell=-1; return; }
     if(px_panel_down(mx,my))return;
     if(hit(mx,my,g_dr_tile.x,g_dr_tile.y,g_dr_tile.w,g_dr_tile.h)){ g_dr_paint=1; dr_paint_at(mx,my,0); return; }
     if(hit(mx,my,g_lv_cm.x,g_lv_cm.y,g_lv_cm.w,g_lv_cm.h)){ lv_resize(g_lv_cols-2,g_lv_rows); return; }   /* resize preserves painted work */
