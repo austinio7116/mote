@@ -1180,16 +1180,23 @@ static void room_draw(void) {
     floor_set[0] = k_floors[rd->floor];
     mote->scene2d_set_autotiles(k_room_terrain, ROOM_T, ROOM_T, floor_set, 1);
 
-    /* wall ring: the NINESLICE rule tileset — cell by frame position,
-     * band art hugs the outer side, interior of each cell is transparent */
-    for (int ty = 0; ty < ROOM_T; ty++)
-        for (int tx = 0; tx < ROOM_T; tx++) {
-            if (tx != 0 && tx != ROOM_T - 1 && ty != 0 && ty != ROOM_T - 1) continue;
-            int ix = tx == 0 ? 0 : tx == ROOM_T - 1 ? 2 : 1;
-            int iy = ty == 0 ? 0 : ty == ROOM_T - 1 ? 2 : 1;
-            add_spr(wall->sheet, tx * TILE, ty * TILE,
-                    ix * TILE, iy * TILE, TILE, TILE, 1, 0);
-        }
+    /* wall ring: 8x8 rule tiles, one tile thick — cell picked by the
+     * EDGE16 neighbour mask over the ring, exactly like the tileset rules */
+    {
+        const int GT = ROOM_PX / 8;                    /* 14x14 grid of 8px tiles */
+        for (int gy = 0; gy < GT; gy++)
+            for (int gx = 0; gx < GT; gx++) {
+                int ring = gx == 0 || gx == GT - 1 || gy == 0 || gy == GT - 1;
+                if (!ring) continue;
+                int m = 0;
+                if (gy > 0 && (gx == 0 || gx == GT - 1 || gy - 1 == 0)) m |= 1;         /* N */
+                if (gx < GT - 1 && (gy == 0 || gy == GT - 1 || gx + 1 == GT - 1)) m |= 2; /* E */
+                if (gy < GT - 1 && (gx == 0 || gx == GT - 1 || gy + 1 == GT - 1)) m |= 4; /* S */
+                if (gx > 0 && (gy == 0 || gy == GT - 1 || gx - 1 == 0)) m |= 8;          /* W */
+                add_spr(wall->sheet, gx * 8, gy * 8,
+                        (m % 4) * 8, (m / 4) * 8, 8, 8, 1, 0);
+            }
+    }
 
     /* door overlays at the four mid-edges (nothing drawn for sealed walls) */
     static const int8_t k_door_px[4][2] = { { 48, 0 }, { 96, 48 }, { 48, 96 }, { 0, 48 } };
