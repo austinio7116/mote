@@ -987,8 +987,23 @@ static void hud_draw(uint16_t *fb) {
 static void toast_draw(uint16_t *fb) {
     if (!g_toast_n) return;
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote->draw_rect(fb, 0, 98, 128, 14, rgb(10, 12, 26), 1, 0, 128);
-    mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), g_toast[0]);
+    const char *s = g_toast[0];
+    int len = (int)strlen(s);
+    if (len <= 19) {
+        mote->draw_rect(fb, 0, 98, 128, 14, rgb(10, 12, 26), 1, 0, 128);
+        mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), s);
+        return;
+    }
+    /* wrap at the last space that fits the screen */
+    int cut = 19;
+    for (int i = 19; i > 8; i--)
+        if (s[i] == ' ') { cut = i; break; }
+    char l1[40], l2[40];
+    snprintf(l1, sizeof l1, "%.*s", cut, s);
+    snprintf(l2, sizeof l2, "%s", s + cut + (s[cut] == ' ' ? 1 : 0));
+    mote->draw_rect(fb, 0, 86, 128, 26, rgb(10, 12, 26), 1, 0, 128);
+    mote_ftextc(mote, fb, f, 64, 87, rgb(250, 240, 190), l1);
+    mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), l2);
 }
 
 /* one estate cell on a blueprint panel */
@@ -997,12 +1012,17 @@ static void bp_cell(uint16_t *fb, int x, int y, int cs, int gi, int hilite) {
     mote->draw_rect(fb, x, y, cs - 1, cs - 1, rgb(20, 30, 62), 1, 0, 128);
     if (cl->room != 0xFF) {
         mote->draw_rect(fb, x + 1, y + 1, cs - 3, cs - 3, k_rooms[cl->room].map_col, 1, 0, 128);
-        uint16_t pip = rgb(16, 18, 30);
+        /* doors as WHITE notches (dark backing keeps them visible on pale fills) */
+        uint16_t pip = rgb(255, 255, 255), bk = rgb(14, 18, 34);
         int m = cs / 2 - 1;
-        if (cl->doors & DBIT(DIR_N)) mote->draw_rect(fb, x + m, y, 2, 2, pip, 1, 0, 128);
-        if (cl->doors & DBIT(DIR_S)) mote->draw_rect(fb, x + m, y + cs - 3, 2, 2, pip, 1, 0, 128);
-        if (cl->doors & DBIT(DIR_W)) mote->draw_rect(fb, x, y + m, 2, 2, pip, 1, 0, 128);
-        if (cl->doors & DBIT(DIR_E)) mote->draw_rect(fb, x + cs - 3, y + m, 2, 2, pip, 1, 0, 128);
+        if (cl->doors & DBIT(DIR_N)) { mote->draw_rect(fb, x + m - 1, y, 4, 3, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + m, y, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_S)) { mote->draw_rect(fb, x + m - 1, y + cs - 4, 4, 3, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + m, y + cs - 3, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_W)) { mote->draw_rect(fb, x, y + m - 1, 3, 4, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x, y + m, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_E)) { mote->draw_rect(fb, x + cs - 4, y + m - 1, 3, 4, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + cs - 3, y + m, 2, 2, pip, 1, 0, 128); }
     }
     if (gi == ANTE_GI && cs >= 8)
         mote->blit(fb, &items_img, x + (cs - 12) / 2, y + (cs - 12) / 2, 4 * 12, 0, 12, 12, 0, 0, 128);
