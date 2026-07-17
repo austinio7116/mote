@@ -187,11 +187,12 @@ print("wrote floors.png (16px tiles, 2 variants):", " ".join(n for n, _, _ in FL
 WALL_SRC = { "stone": (1, 1), "red": (2, 1), "dark": (3, 1) }
 
 def wall_base(cx, cy):
-    # same 11:1 scale as the floors: whole swatch -> 16px, brick rows ~4px so
-    # the 8px in-game wall band shows two complete courses
+    # walls at HALF the floor scale: whole swatch -> 8px, tiled 2x2 into the
+    # 16px cell, so the masonry's full repeat fits inside the 8px wall band
     x = 22 + int(cx * 176.3) + 6
     y = 462 + cy * 179 + 6
-    return np.asarray(im.crop((x, y, x + 164, y + 164)).resize((16, 16), Image.LANCZOS)).astype(np.int32)
+    t = np.asarray(im.crop((x, y, x + 164, y + 164)).resize((8, 8), Image.LANCZOS)).astype(np.int32)
+    return np.tile(t, (2, 2, 1))
 
 def shade(base, mask_bits):
     t = base.copy()
