@@ -84,6 +84,10 @@ const ItemDef g_items[I_COUNT] = {
     [I_LANTERN]        = { "LANTERN",       IK_BLOCK, IC(I_LANTERN),   T_LANTERN,   0, 0, 99, 8 },
     [I_FIREPLACE]      = { "FIREPLACE",     IK_BLOCK, IC(I_FIREPLACE), T_FIREPLACE, 0, 0, 99, 8 },
     [I_CHAIN]          = { "CHAIN",         IK_BLOCK, IC(I_CHAIN),     T_CHAIN,     0, 0, 99, 8 },
+    [I_WALL_WOOD]      = { "WOOD WALL",     IK_WALL,  IC(I_WALL_WOOD),  W_WOOD,     0, 0, 99, 6 },
+    [I_WALL_STONE]     = { "STONE WALL",    IK_WALL,  IC(I_WALL_STONE), W_STONE,    0, 0, 99, 6 },
+    [I_ROOF]           = { "ROOF",          IK_BLOCK, IC(I_ROOF),       T_ROOF,     0, 0, 99, 8 },
+    [I_BEAM]           = { "WOOD BEAM",     IK_BLOCK, IC(I_BEAM),       T_BEAM,     0, 0, 99, 8 },
 #include "weapon_defs.inc"                              /* GENERATED weapon variants */
 };
 
@@ -139,6 +143,8 @@ const TileDef g_tiles[T_COUNT] = {
     [T_LANTERN]    = { 0, 1,   0, I_LANTERN,     13, 1 },
     [T_FIREPLACE]  = { 0, 3,   0, I_FIREPLACE,   14, 1 },
     [T_CHAIN]      = { 0, 1,   0, I_CHAIN,        0, 0 },
+    [T_ROOF]       = { 1, 2,   0, I_ROOF,         0, 1 },   /* axe-minable shingles */
+    [T_BEAM]       = { 0, 1,   0, I_BEAM,         0, 1 },   /* walk-through support post */
 };
 
 /* ------------------------------------------------------------- recipes ----
@@ -200,6 +206,11 @@ const Recipe g_recipes[] = {
     { ST_ANVIL, I_LEGS_MOLTEN, 1,  { { I_HELL_BAR, 9 } } },
     /* demon altar */
     { ST_ALTAR, I_SUSPICIOUS_EYE, 1, { { I_LENS, 6 } } },
+    /* building set */
+    { ST_WORKBENCH, I_WALL_WOOD,  4, { { I_WOOD, 1 } } },
+    { ST_WORKBENCH, I_WALL_STONE, 4, { { I_STONE, 1 } } },
+    { ST_WORKBENCH, I_ROOF,       4, { { I_WOOD, 2 } } },
+    { ST_WORKBENCH, I_BEAM,       2, { { I_WOOD, 1 } } },
 #include "weapon_recipes.inc"                            /* GENERATED weapon variants */
 };
 const int g_nrecipes = (int)(sizeof(g_recipes) / sizeof(g_recipes[0]));

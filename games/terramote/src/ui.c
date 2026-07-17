@@ -221,6 +221,7 @@ static int item_cat(uint8_t id) {
     const ItemDef *d = &g_items[id];
     switch (d->kind) {
     case IK_PICK: case IK_AXE: case IK_GRAPPLE: return 1;
+    case IK_WALL: return 5;   /* blocks */
     case IK_SWORD: case IK_BOW: case IK_AMMO: return 2;
     case IK_ARMOR_HEAD: case IK_ARMOR_BODY: case IK_ARMOR_LEGS: return 3;
     case IK_BLOCK:

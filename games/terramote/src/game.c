@@ -44,6 +44,8 @@ MOTE_MODULE_HEADER();
 #include "tiles_lantern.tiles.h"
 #include "tiles_fireplace.tiles.h"
 #include "tiles_chain.tiles.h"
+#include "tiles_roof.tiles.h"
+#include "tiles_beam.tiles.h"
 #include "grass_cap.h"                       /* cosmetic caps over exposed dirt */
 #include "canopy.h"                          /* tree crowns: 3 leafy + 1 snowy, 40x28 */
 #include "branch.h"                          /* trunk branches: 16x12 x4 */
@@ -93,6 +95,8 @@ static const MoteAutotile *k_tiles[T_COUNT - 1] = {
     &tiles_lantern_at,
     &tiles_fireplace_at,
     &tiles_chain_at,
+    &tiles_roof_at,
+    &tiles_beam_at,
 };
 
 void player_alloc(void);
@@ -295,6 +299,26 @@ static void dev_hooks(void) {
     if (getenv("TERRA_SKIP")) game_new_world();      /* skip title+creator */
 }
 
+/* TERRA_BUILD="f:c:r:tile,w:c:r:wall,..." — stamp tiles/walls post-gen (tests) */
+static void dev_build(void) {
+    const char *e = getenv("TERRA_BUILD");
+    if (!e) return;
+    char *p = (char *)e;
+    while (*p) {
+        char kind = *p;
+        if ((kind == 'f' || kind == 'w') && p[1] == ':') {
+            p += 2;
+            int c = (int)strtol(p, &p, 10); if (*p == ':') p++;
+            int r = (int)strtol(p, &p, 10); if (*p == ':') p++;
+            int id = (int)strtol(p, &p, 10);
+            if (kind == 'f') world_set_fg(c, r, (uint8_t)id);
+            else world_set_wall(c, r, (uint8_t)id);
+        } else p++;
+        if (*p == ',') p++;
+    }
+    world_rebuild_caches();
+}
+
 static void g_init(void) {
     g_mote = mote;
     mote->set_fps_limit(30);
@@ -399,6 +423,7 @@ static void g_update(float dt) {
                 player_reset(0);
             }
             g_state = GS_PLAY;
+            dev_build();               /* TERRA_BUILD test structures */
             camera_update();
             mote->set_background_cb(fx_background);
             save_world();

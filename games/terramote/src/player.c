@@ -290,7 +290,7 @@ static void pick_target(void) {
     float hx = g_pl.x, hy = g_pl.y - 8.0f;
     uint8_t held = g_pl.inv[g_pl.hot].item;
     int kind = g_items[held].kind;
-    int reach = (kind == IK_BLOCK) ? 3 : 5;                   /* tiles */
+    int reach = (kind == IK_BLOCK || kind == IK_WALL) ? 3 : 5;  /* tiles */
     int hitc = -1, hitr = -1, ac = -1, ar = -1;
     int lc = px_c(hx), lr = (int)hy / TILE;
     for (int d = 6; d <= reach * TILE; d += 3) {
@@ -305,7 +305,7 @@ static void pick_target(void) {
         if (blocking) { hitc = cc; hitr = rr; break; }
         ac = cc; ar = rr;                                     /* last empty cell */
     }
-    if (kind == IK_BLOCK) {
+    if (kind == IK_BLOCK || kind == IK_WALL) {
         if (ac >= 0) { g_ret_c = ac; g_ret_r = ar; }
         else { g_ret_c = px_c(hx + dx * 9); g_ret_r = (int)(hy + dy * 9) / TILE; }
     } else {
@@ -453,6 +453,41 @@ static void use_item(float dt) {
             if (!held->count) held->item = I_NONE;
             g_pl.use_t = def->speed / 30.0f;
             audio_sfx(SFX_PLACE, 0.9f);
+        }
+        break;
+    }
+    case IK_WALL: {
+        /* background walls: B paints them across empty cells; a TAP on an
+         * existing wall knocks it out (and refunds the placeable kinds) */
+        if (g_pl.use_t > 0) break;
+        int c = g_ret_c, r = g_ret_r;
+        if (g_tiles[fg_at(c, r)].solid == 1) break;
+        uint8_t b = bg_at(c, r);
+        if (BG_WALL(b)) {
+            if (mote_just_pressed(in, MOTE_BTN_B)) {
+                uint8_t old = BG_WALL(b);
+                world_set_wall(c, r, W_NONE);
+                if (old == W_WOOD)  drops_add(I_WALL_WOOD, 1, c * TILE + 4, r * TILE + 4);
+                if (old == W_STONE) drops_add(I_WALL_STONE, 1, c * TILE + 4, r * TILE + 4);
+                part_burst(c * TILE + 4, r * TILE + 4, rgb(120, 100, 70), 4, 40);
+                g_pl.use_t = def->speed / 30.0f;
+                audio_sfx(SFX_DIG, 0.7f);
+            }
+        } else if (held->count) {
+            /* attach rule: needs a neighbouring wall or solid tile */
+            int ok = 0;
+            static const int8_t nb4[4][2] = { {1,0},{-1,0},{0,1},{0,-1} };
+            for (int k = 0; k < 4 && !ok; k++) {
+                int cc = c + nb4[k][0], rr = r + nb4[k][1];
+                if (BG_WALL(bg_at(cc, rr)) || g_tiles[fg_at(cc, rr)].solid == 1) ok = 1;
+            }
+            if (ok) {
+                world_set_wall(c, r, def->place);
+                held->count--;
+                if (!held->count) held->item = I_NONE;
+                g_pl.use_t = def->speed / 30.0f;
+                audio_sfx(SFX_PLACE, 0.8f);
+            }
         }
         break;
     }
