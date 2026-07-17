@@ -865,8 +865,8 @@ def classify_roof(m):
     ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
     if not n and not w and e and s: return 0                  # NW corner -> '/'
     if not n and not e and w and s: return 1                  # NE corner -> '\'
-    if not s and not e and n and w: return 2                  # SE corner (underside)
-    if not s and not w and n and e: return 3                  # SW corner (underside)
+    if not s and not e and n and w and sw: return 2  # SE underside (needs SW: solid bases stay square)
+    if not s and not w and n and e and se: return 3  # SW underside (needs SE)
     if not (n or e or s or w):
         if (ne or sw) and not (nw or se): return 4            # thin '/' run
         if (nw or se) and not (ne or sw): return 5            # thin '\' run
@@ -877,8 +877,9 @@ def classify_wall(m):
     under an L: covered above + one side, open below + the other side) —
     unconditional, nothing else slopes."""
     n, e, s, w = m & N, m & E, m & S, m & W
-    if not s and not e and n and w: return 2                  # under-L, cut SE
-    if not s and not w and n and e: return 3                  # under-L, cut SW
+    sw, se = m & SW, m & SE
+    if not s and not e and n and w and sw: return 2  # under-L, cut SE (needs SW below)
+    if not s and not w and n and e and se: return 3  # under-L, cut SW (needs SE below)
     return None
 
 def make_roof():
