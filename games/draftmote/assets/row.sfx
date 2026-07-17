@@ -1,0 +1,6 @@
+# rank complete fanfare — long rising arp
+wave 0
+freq 0.38 0 0.1 0
+duty 0.5 0
+env 0 0.22 0.35 0.3
+arp 0.3 0.32

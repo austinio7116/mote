@@ -1,0 +1,6 @@
+# shop purchase — register chime
+wave 0
+freq 0.4 0 0.05 0
+duty 0.45 0
+env 0 0.08 0.15 0.18
+arp 0.5 0.26

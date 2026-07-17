@@ -1,0 +1,5 @@
+# gem pickup — glassy high sparkle
+wave 2
+freq 0.68 0 0.1 0
+env 0 0.06 0.3 0.2
+arp 0.25 0.42
