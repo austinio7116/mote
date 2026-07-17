@@ -84,15 +84,15 @@ const ItemDef g_items[I_COUNT] = {
     [I_LANTERN]        = { "LANTERN",       IK_BLOCK, IC(I_LANTERN),   T_LANTERN,   0, 0, 99, 8 },
     [I_FIREPLACE]      = { "FIREPLACE",     IK_BLOCK, IC(I_FIREPLACE), T_FIREPLACE, 0, 0, 99, 8 },
     [I_CHAIN]          = { "CHAIN",         IK_BLOCK, IC(I_CHAIN),     T_CHAIN,     0, 0, 99, 8 },
-    [I_WALL_WOOD]      = { "WOOD WALL",     IK_WALL,  IC(I_WALL_WOOD),  W_WOOD,     0, 0, 99, 6 },
-    [I_WALL_STONE]     = { "STONE WALL",    IK_WALL,  IC(I_WALL_STONE), W_STONE,    0, 0, 99, 6 },
+    [I_WALL_WOOD]      = { "WOOD BACK WALL",     IK_WALL,  IC(I_WALL_WOOD),  W_WOOD,     0, 0, 99, 6 },
+    [I_WALL_STONE]     = { "STONE BACK WALL",    IK_WALL,  IC(I_WALL_STONE), W_STONE,    0, 0, 99, 6 },
     [I_ROOF]           = { "ROOF",          IK_BLOCK, IC(I_ROOF),       T_ROOF,     0, 0, 99, 8 },
     [I_BEAM]           = { "WOOD BEAM",     IK_BLOCK, IC(I_BEAM),       T_BEAM,     0, 0, 99, 8 },
     [I_BRICK_CLAY]     = { "CLAY BRICK",    IK_BLOCK, IC(I_BRICK_CLAY), T_BRICK_CLAY, 0, 0, 99, 8 },
     [I_BRICK_STONE]    = { "STONE BRICK",   IK_BLOCK, IC(I_BRICK_STONE),T_BRICK_STONE,0, 0, 99, 8 },
-    [I_WALL_CLAYBRICK] = { "CLAY BRICK WALL", IK_WALL, IC(I_WALL_CLAYBRICK), W_CLAYBRICK, 0, 0, 99, 6 },
-    [I_WALL_STONEBRICK]= { "STONE BRICK WALL",IK_WALL, IC(I_WALL_STONEBRICK),W_STONEBRICK,0, 0, 99, 6 },
-    [I_WALL_GLASS]     = { "GLASS WALL",    IK_WALL,  IC(I_WALL_GLASS), W_GLASS,    0, 0, 99, 6 },
+    [I_WALL_CLAYBRICK] = { "CLAY BRICK BACK WALL", IK_WALL, IC(I_WALL_CLAYBRICK), W_CLAYBRICK, 0, 0, 99, 6 },
+    [I_WALL_STONEBRICK]= { "STONE BRICK BACK WALL",IK_WALL, IC(I_WALL_STONEBRICK),W_STONEBRICK,0, 0, 99, 6 },
+    [I_WALL_GLASS]     = { "GLASS BACK WALL",    IK_WALL,  IC(I_WALL_GLASS), W_GLASS,    0, 0, 99, 6 },
 #include "weapon_defs.inc"                              /* GENERATED weapon variants */
 };
 
