@@ -185,12 +185,15 @@ static float ridge1(float x, int seed) {            /* 0..1 triangular ridges */
 /* k: 0 = far-front mountains, 2 = far-back mountains (slower parallax,
  * different seed), 1 = near rolling hills. Mountains are two ridged octaves
  * so the silhouette is jagged, not a smooth wave. */
+/* every world gets its own skyline: the ranges' noise seeds mix in the
+ * worldgen seed (stable per save — the title scene pins its own g_seed) */
+static int wseed(int k) { return (int)((g_seed >> 8) & 0xFFFF) * k; }
 static float hill_hf(int sx, int k) {
     if (k == 1) {
         float x = (g_cam_x * 0.32f + sx) * 0.030f;
         int xi = (int)x; float f = x - xi; f = f * f * (3 - 2 * f);
-        float a = (phash(xi * 2 + 977) & 0xFF) / 255.0f;
-        float b = (phash((xi + 1) * 2 + 977) & 0xFF) / 255.0f;
+        float a = (phash(xi * 2 + 977 + wseed(3)) & 0xFF) / 255.0f;
+        float b = (phash((xi + 1) * 2 + 977 + wseed(3)) & 0xFF) / 255.0f;
         return (a + (b - a) * f) * 14.0f;
     }
     /* ONE long-wavelength ridge per range: each mountain is a single big
@@ -198,8 +201,8 @@ static float hill_hf(int sx, int k) {
      * summits — small-scale octaves flip the slope every few columns and
      * shred the faces into vertical strips */
     float px_ = g_cam_x * (k == 2 ? 0.10f : 0.14f) + sx;
-    if (k == 2) return ridge1(px_ * 0.013f, 4241) * 30.0f;
-    return ridge1(px_ * 0.016f, 0) * 22.0f;
+    if (k == 2) return ridge1(px_ * 0.013f, 4241 + wseed(5)) * 30.0f;
+    return ridge1(px_ * 0.016f, wseed(7)) * 22.0f;
 }
 static int hill_h(int sx, int k) { return (int)hill_hf(sx, k) + (k == 1 ? 4 : 0); }
 

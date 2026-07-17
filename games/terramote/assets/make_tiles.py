@@ -203,11 +203,88 @@ def apply_edges(cell, mask, rimc, top_hi=None):
             cell.put(cx + (1 if cx == 0 else -1), cy, lo2)
             cell.put(cx, cy + (1 if cy == 0 else -1), lo2)
 
-def mat_cell(mask, base, dark, light, rim, density=0.22, top_hi=None, seed=0):
+def edge_profile(seed, depth):
+    """Bumpy inset depth per pixel along one exposed edge (0..depth), random-walked."""
+    rng = random.Random(seed)
+    d = rng.randint(0, depth)
+    prof = []
+    for _ in range(TS):
+        d += rng.choice((-1, 0, 0, 1))
+        d = max(0, min(depth, d))
+        prof.append(d)
+    return prof
+
+def carve_edges(cell, mask, top_hi=None, seed=0, depth=2, corner=3):
+    """ScrapWing-style organic silhouette for natural terrain: exposed faces are
+    eaten back by a bumpy random walk and convex corners get a diagonal cut, so
+    blocks read as rounded earth/rock instead of ruler-straight boxes. Carved
+    pixels go TRANSPARENT (the wall layer / backdrop shows in the notches).
+    Rims are lit from the CARVED silhouette: sun-catch along the top surface,
+    deep shadow under overhangs, medium sides, plus the inner-corner notch."""
+    base = cell.get(3, 3) or (128, 128, 128)
+    hi   = top_hi or mix(base, (255, 255, 255), 0.45)
+    lo   = shade(base, 0.5)
+    sidw = shade(base, 0.62)
+    side = shade(base, 0.55)
+    sd = (mask * 7 + seed * 131) & 0xFFFF
+    # full carve depth only when the OPPOSITE face is connected terrain —
+    # 1-thick strips and lone blocks nibble 1px instead of being eaten hollow
+    dn = depth if (mask & S) else 1
+    ds = depth if (mask & N) else 1
+    dw = depth if (mask & E) else 1
+    de = depth if (mask & W) else 1
+    ncard = bool(mask & N) + bool(mask & S) + bool(mask & E) + bool(mask & W)
+    if ncard <= 1:
+        corner = min(corner, 2)
+    pn = edge_profile(sd + 1, dn); ps = edge_profile(sd + 2, ds)
+    pw = edge_profile(sd + 3, dw); pe = edge_profile(sd + 4, de)
+    solid = [[True] * TS for _ in range(TS)]
+    for i in range(TS):
+        if not (mask & N):
+            for y in range(pn[i]): solid[y][i] = False
+        if not (mask & S):
+            for y in range(ps[i]): solid[TS - 1 - y][i] = False
+        if not (mask & W):
+            for x in range(pw[i]): solid[i][x] = False
+        if not (mask & E):
+            for x in range(pe[i]): solid[i][TS - 1 - x] = False
+    for y in range(TS):
+        for x in range(TS):
+            if not (mask & N) and not (mask & W) and x + y < corner: solid[y][x] = False
+            if not (mask & N) and not (mask & E) and (TS - 1 - x) + y < corner: solid[y][x] = False
+            if not (mask & S) and not (mask & W) and x + (TS - 1 - y) < corner: solid[y][x] = False
+            if not (mask & S) and not (mask & E) and (TS - 1 - x) + (TS - 1 - y) < corner: solid[y][x] = False
+    for y in range(TS):
+        for x in range(TS):
+            if not solid[y][x]:
+                cell.px[y][x] = None
+                continue
+            up = y > 0 and solid[y - 1][x]
+            dn = y < TS - 1 and solid[y + 1][x]
+            lf = x > 0 and solid[y][x - 1]
+            rt = x < TS - 1 and solid[y][x + 1]
+            if (not up and y > 0) or (y == 0 and not (mask & N)):
+                cell.put(x, y, hi)
+            elif (not dn and y < TS - 1) or (y == TS - 1 and not (mask & S)):
+                cell.put(x, y, lo)
+            elif (not lf and x > 0) or (x == 0 and not (mask & W)):
+                cell.put(x, y, sidw)
+            elif (not rt and x < TS - 1) or (x == TS - 1 and not (mask & E)):
+                cell.put(x, y, side)
+    # inner corners: a notch where two same-terrain runs meet diagonally
+    if (mask & N) and (mask & E) and not (mask & NE): cell.put(TS - 1, 0, hi)
+    if (mask & N) and (mask & W) and not (mask & NW): cell.put(0, 0, hi)
+    if (mask & S) and (mask & E) and not (mask & SE): cell.put(TS - 1, TS - 1, lo)
+    if (mask & S) and (mask & W) and not (mask & SW): cell.put(0, TS - 1, lo)
+
+def mat_cell(mask, base, dark, light, rim, density=0.22, top_hi=None, seed=0, carve=0):
     rng = random.Random((mask * 131 + seed) & 0x7FFFFFFF)
     c = Cell()
     speckle(c, base, dark, light, density, rng)
-    apply_edges(c, mask, rim, top_hi)
+    if carve:
+        carve_edges(c, mask, top_hi, seed=seed)
+    else:
+        apply_edges(c, mask, rim, top_hi)
     return c
 
 def stone_cell(mask, base, dark, light, seed=0, cracks=True):
@@ -227,7 +304,7 @@ def stone_cell(mask, base, dark, light, seed=0, cracks=True):
                 y = max(0, min(TS - 1, y + rng.choice((0, 1))))
         c.put(rng.randint(1, 6), rng.randint(1, 6), light)
     shade_ramp(c)
-    apply_edges(c, mask, dark)
+    carve_edges(c, mask, seed=seed)
     return c
 
 def grass_cell(mask, seed=0):
@@ -282,7 +359,7 @@ def ore_cell(mask, fleck, fleck_hi, seed=0):
         c.put(x, y + 1, fleck); c.put(x + 1, y + 1, fleck_sh)
         if rng.random() < 0.5: c.put(x + 2, y + rng.randint(0, 1), fleck)
     shade_ramp(c)
-    apply_edges(c, mask, SDARK)
+    carve_edges(c, mask, seed=seed)
     return c
 
 def leaf_cell(mask, seed=0):
@@ -366,19 +443,19 @@ def blob_sheet(name, cellfn, nvar=1, extra=None, classify=None):
 
 # ---------------------------------------------------------------- solid tiles
 def make_terrain():
-    blob_sheet("tiles_dirt",  lambda m, s: mat_cell(m, (120, 80, 46), (88, 56, 30), (146, 100, 60), (78, 50, 28), 0.30, seed=s), nvar=2)
+    blob_sheet("tiles_dirt",  lambda m, s: mat_cell(m, (120, 80, 46), (88, 56, 30), (146, 100, 60), (78, 50, 28), 0.30, seed=s, carve=1), nvar=2)
     blob_sheet("tiles_grass", lambda m, s: grass_cell(m, s), nvar=2)
     blob_sheet("tiles_stone", lambda m, s: stone_cell(m, (118, 118, 126), (72, 72, 84), (148, 148, 156), s), nvar=3)
     blob_sheet("tiles_wood",  lambda m, s: wood_cell(m, s))
-    blob_sheet("tiles_sand",  lambda m, s: mat_cell(m, (212, 192, 116), (188, 164, 92), (232, 216, 148), (160, 138, 72), 0.18, seed=s), nvar=2)
-    blob_sheet("tiles_snow",  lambda m, s: mat_cell(m, (222, 232, 244), (192, 205, 224), (244, 250, 255), (164, 180, 205), 0.15, seed=s), nvar=2)
+    blob_sheet("tiles_sand",  lambda m, s: mat_cell(m, (212, 192, 116), (188, 164, 92), (232, 216, 148), (160, 138, 72), 0.18, seed=s, carve=1), nvar=2)
+    blob_sheet("tiles_snow",  lambda m, s: mat_cell(m, (222, 232, 244), (192, 205, 224), (244, 250, 255), (164, 180, 205), 0.15, seed=s, carve=1), nvar=2)
     blob_sheet("tiles_ebon",  lambda m, s: stone_cell(m, (102, 86, 128), (62, 48, 84), (132, 114, 158), s), nvar=2)
     blob_sheet("tiles_clay",  lambda m, s: clay_cell(m, s), nvar=2)
     blob_sheet("tiles_copper", lambda m, s: ore_cell(m, (198, 112, 42), (238, 160, 84), s))
     blob_sheet("tiles_iron",   lambda m, s: ore_cell(m, (166, 146, 130), (210, 196, 186), s))
     blob_sheet("tiles_gold",   lambda m, s: ore_cell(m, (222, 178, 32), (252, 224, 100), s))
     blob_sheet("tiles_demonite", lambda m, s: ore_cell(m, (108, 62, 178), (162, 112, 235), s))
-    blob_sheet("tiles_ash",   lambda m, s: mat_cell(m, (74, 66, 66), (56, 48, 50), (94, 84, 82), (40, 34, 36), 0.25, seed=s), nvar=2)
+    blob_sheet("tiles_ash",   lambda m, s: mat_cell(m, (74, 66, 66), (56, 48, 50), (94, 84, 82), (40, 34, 36), 0.25, seed=s, carve=1), nvar=2)
     blob_sheet("tiles_hellstone", lambda m, s: hellstone_cell(m, s))
     blob_sheet("tiles_obsidian",  lambda m, s: stone_cell(m, (48, 40, 70), (26, 20, 40), (96, 74, 138), s))
     blob_sheet("tiles_leaf",  lambda m, s: leaf_cell(m, s), nvar=2)
@@ -416,7 +493,7 @@ def clay_cell(mask, seed=0):
                 if rng.random() < 0.55: c.put(x, y, LITE)
         elif rng.random() < 0.08:
             c.put(rng.randint(0, TS - 1), y, DARK)
-    apply_edges(c, mask, RIM)
+    carve_edges(c, mask, seed=seed, depth=1, corner=2)   # clay: smoother than rock
     return c
 
 def hellstone_cell(mask, seed=0):
@@ -436,7 +513,7 @@ def hellstone_cell(mask, seed=0):
         x = max(0, min(TS - 1, x + rng.randint(-1, 1)))
         y = max(0, min(TS - 1, y + rng.randint(-1, 1)))
     shade_ramp(c)
-    apply_edges(c, mask, DARK)
+    carve_edges(c, mask, seed=seed)
     return c
 
 # ---------------------------------------------------------------- tree parts
@@ -545,10 +622,26 @@ def altar_cells():
 def door_cells(open_):
     # SlipPixel Oak Wood Door.png (40x24): col 0 is the 1-wide OPEN door (edge-on),
     # cols 1-2 are a 2-wide CLOSED door. Our door footprint is 1 tile wide x 3 tall,
-    # so use col 0 as-is for open, and nearest-scale the 2-wide closed door down to
+    # so use col 0 for open, and nearest-scale the 2-wide closed door down to
     # 8px wide for closed. Both slice into 3 cells (top/mid/bottom) for lut13.
     if open_:
-        return slip_cells("Oak Wood Door.png", 1, 3, x0=0)
+        cells = slip_cells("Oak Wood Door.png", 1, 3, x0=0)
+        # OPEN must read as an EMPTY doorway. The source's edge-on slab sits at
+        # columns 2..5 with a full-width latch bar mid-door — centred, it looked
+        # like a SHUT door ("sprites feel swapped"). Rebuild: slab flush against
+        # the jamb, doorway clear, a latch knob poking off the slab's edge.
+        out = []
+        for c in cells:
+            c2 = Cell()
+            for y in range(TS):
+                for x in range(4):
+                    p = c.get(x + 2, y)
+                    if p:
+                        c2.put(x, y, p)
+            out.append(c2)
+        out[1].put(4, 3, (40, 40, 48))
+        out[1].put(4, 4, (40, 40, 48))
+        return out
     return slip_cells_scaled("Oak Wood Door.png", (8, 0, 24, 24), 1, 3)
 
 def mush_cell():

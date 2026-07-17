@@ -48,7 +48,8 @@ typedef struct {
     uint32_t seed;
     float    time;
     uint8_t  boss_down;
-    uint8_t  pad[3];
+    uint8_t  wallsfix;   /* 1 = world has the below-surface wall backfill (upgrade once) */
+    uint8_t  pad[2];
     Chest    chests[MAX_CHESTS];
 } WorldMeta;
 
@@ -73,7 +74,7 @@ void save_world(void) {
             if (n > 0) mote->kv_save(key, s_scratch, n);
         }
     }
-    WorldMeta m = { SAVE_MAGIC, g_seed, g_time, g_boss_down, {0}, {{0}} };
+    WorldMeta m = { SAVE_MAGIC, g_seed, g_time, g_boss_down, 1, {0}, {{0}} };
     memcpy(m.chests, g_chests, sizeof(g_chests));
     mote->kv_save("meta", &m, sizeof(m));
     {   /* fog of war: RLE the explored bitmap under its own key (back-compat:
@@ -111,6 +112,10 @@ int load_world(void) {
         if (n > 0) rle_unpack(s_scratch, n, g_explored, sizeof(g_explored));
     }
     world_rebuild_caches();          /* the surface cache feeds sunlight + the sky */
+    if (!m.wallsfix) world_backfill_walls();   /* one-time upgrade: kill the black
+                                                  pockets under overhangs; the next
+                                                  save stamps the flag so axed-out
+                                                  walls stay gone */
     return 1;
 }
 

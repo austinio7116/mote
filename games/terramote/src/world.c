@@ -654,10 +654,40 @@ int world_gen_step(void) {
         g_pl.spawn_c = (int16_t)spawn_c;
         g_pl.spawn_r = (int16_t)(g_surf[spawn_c] - 1);
         for (int c = 0; c < WCOLS; c++) surf_update_col(c);
+        world_backfill_walls();        /* nothing below the surface line is sky-backed */
         return 100;
     }
     }
     return 100;
+}
+
+/* ------------------------------------------------------- wall backfill ------
+ * Gen leaves the top ~2 soil rows wall-less so open trenches show sky — but
+ * under an OVERHANG those same rows sit below the column's natural-surface
+ * line, so digging them exposed the cave-black backdrop (user's bug report).
+ * Give every cell BELOW the natural line a biome wall; the line itself stays
+ * sky-backed. Runs at gen, and ONCE on loading an older save (meta flag) so
+ * walls a player has axed out are never resurrected. */
+static uint8_t backfill_wall_for(uint8_t t, int r) {
+    switch (t) {
+    case T_SNOW:      return W_SNOW;
+    case T_EBON:      return W_EBON;
+    case T_ASH: case T_HELLSTONE: return W_ASH;
+    case T_STONE: case T_COPPER: case T_IRON: case T_GOLD:
+    case T_DEMONITE: case T_OBSIDIAN: return W_STONE;
+    case T_AIR:       return r >= ROW_HELL ? W_ASH : (r > ROW_DIRT_END ? W_STONE : W_DIRT);
+    default:          return t <= T_OBSIDIAN ? W_DIRT : 0;   /* dirt/sand/clay/grass; skip built */
+    }
+}
+void world_backfill_walls(void) {
+    for (int c = 0; c < WCOLS; c++) {
+        for (int r = g_surf_nat[c] + 1; r < WROWS - 1; r++) {
+            uint8_t b = g_bgm[r * WCOLS + c];
+            if (BG_WALL(b)) continue;
+            uint8_t w = backfill_wall_for(g_fgm[r * WCOLS + c], r);
+            if (w) g_bgm[r * WCOLS + c] = (uint8_t)((b & 0xF0) | w);
+        }
+    }
 }
 
 /* helper used before the surf cache exists */
@@ -774,6 +804,7 @@ void world_title_scene(void) {
     memset(g_bgm, 0, WCOLS * WROWS);
     g_nbands = 0;                                  /* all forest */
     wg_rng = 424242u;
+    g_seed = 424242u;                              /* stable title skyline (mountains seed off g_seed) */
     for (int c = 0; c < WCOLS; c++) {
         /* dead flat — any height change reads as a distracting terrace step
          * behind the menu; the hills and trees carry the visual variety */

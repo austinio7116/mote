@@ -3,6 +3,8 @@
 #include "terra.h"
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "player.anim.h"      /* player_img/_sheet + clips: player_idle/walk/jump/swing */
 #include "hair.h"             /* hair_img: drawn styles, 12x10 cells */
@@ -321,12 +323,44 @@ void player_damage(int dmg, float kx) {
  * mining/tools lock to the first solid the ray meets; block-placing lands on the
  * last air cell before that solid (so you build onto the surface you point at).
  * The crosshair (g_aim_x/y) is the target tile centre. */
+/* the wall placement rule, shared by targeting and use_item */
+static int wall_attach_ok(int c, int r) {
+    static const int8_t nb4[4][2] = { {1,0},{-1,0},{0,1},{0,-1} };
+    for (int k = 0; k < 4; k++) {
+        int cc = c + nb4[k][0], rr = r + nb4[k][1];
+        if (BG_WALL(bg_at(cc, rr)) || g_tiles[fg_at(cc, rr)].solid == 1) return 1;
+    }
+    return 0;
+}
+static int wall_placeable(int c, int r) {
+    return g_tiles[fg_at(c, r)].solid != 1 && !BG_WALL(bg_at(c, r)) && wall_attach_ok(c, r);
+}
+
 static void pick_target(void) {
     float dx, dy; aim_dir(&dx, &dy);
     float hx = g_pl.x, hy = g_pl.y - 8.0f;
     uint8_t held = g_pl.inv[g_pl.hot].item;
     int kind = g_items[held].kind;
     int reach = (kind == IK_BLOCK || kind == IK_WALL) ? 3 : 5;  /* tiles */
+    if (kind == IK_WALL) {
+        /* back walls scan NEAR to FAR for the first cell missing one — your own
+         * cell counts, and torches/lanterns/furniture don't block the ray — so
+         * painting auto-hops the cursor to the next gap after every placement */
+        int ac = -1, ar = -1, lc = -1000, lr = -1000;
+        for (int d = 0; d <= reach * TILE; d += 3) {
+            int cc = px_c(hx + dx * d), rr = (int)(hy + dy * d) / TILE;
+            if (cc == lc && rr == lr) continue;
+            lc = cc; lr = rr;
+            if (g_tiles[fg_at(cc, rr)].solid == 1) break;     /* ray ends in rock */
+            ac = cc; ar = rr;                                 /* deepest open cell */
+            if (wall_placeable(cc, rr)) break;                /* first gap wins */
+        }
+        g_ret_c = ac >= 0 ? ac : px_c(hx);
+        g_ret_r = ac >= 0 ? ar : (int)hy / TILE;
+        g_aim_x = g_ret_c * TILE + TILE / 2;
+        g_aim_y = g_ret_r * TILE + TILE / 2;
+        return;
+    }
     int hitc = -1, hitr = -1, ac = -1, ar = -1;
     int lc = px_c(hx), lr = (int)hy / TILE;
     for (int d = 6; d <= reach * TILE; d += 3) {
@@ -335,13 +369,15 @@ static void pick_target(void) {
         lc = cc; lr = rr;
         uint8_t t = fg_at(cc, rr);
         /* the axe locks onto choppable wood (tree trunks/leaves/furniture are
-         * non-solid, so a plain solid check would pass straight through them) */
-        int blocking = (kind == IK_AXE) ? (g_tiles[t].axe || g_tiles[t].solid == 1)
+         * non-solid, so a plain solid check would pass straight through them)
+         * — and onto bare BACK WALLS, which the axe now removes */
+        int blocking = (kind == IK_AXE) ? (g_tiles[t].axe || g_tiles[t].solid == 1 ||
+                                           BG_WALL(bg_at(cc, rr)))
                                         : (g_tiles[t].solid == 1);
         if (blocking) { hitc = cc; hitr = rr; break; }
         ac = cc; ar = rr;                                     /* last empty cell */
     }
-    if (kind == IK_BLOCK || kind == IK_WALL) {
+    if (kind == IK_BLOCK) {
         if (ac >= 0) { g_ret_c = ac; g_ret_r = ar; }
         else { g_ret_c = px_c(hx + dx * 9); g_ret_r = (int)(hy + dy * 9) / TILE; }
     } else {
@@ -459,6 +495,21 @@ static void use_item(float dt) {
             g_pl.use_t = def->speed / 30.0f;
             audio_sfx(SFX_SWING, 0.8f);
         }
+        if (def->kind == IK_AXE && g_tiles[rt].solid != 1 && !g_tiles[rt].axe &&
+            BG_WALL(bg_at(g_ret_c, g_ret_r))) {
+            /* chop out the BACK WALL — the axe is the wall-removal tool */
+            if (g_pl.mine_c != g_ret_c || g_pl.mine_r != g_ret_r) {
+                g_pl.mine_c = (int16_t)g_ret_c; g_pl.mine_r = (int16_t)g_ret_r; g_pl.mine_t = 0;
+            }
+            if (g_pl.use_t <= 0) g_pl.use_t = def->speed / 30.0f;
+            g_pl.mine_t += dt * (float)def->power;
+            if (g_pl.mine_t >= 8.0f) {                       /* soft: walls clear fast */
+                net_wall_op(g_ret_c, g_ret_r, W_NONE);
+                audio_sfx(SFX_CHOP, 0.7f);
+                g_pl.mine_t = 0;
+            }
+            break;
+        }
         const TileDef *td = &g_tiles[rt];
         int is_axe_tile = td->axe;
         if (rt == T_AIR || td->hardness == 0) { g_pl.mine_c = -1; break; }
@@ -500,34 +551,32 @@ static void use_item(float dt) {
         break;
     }
     case IK_WALL: {
-        /* background walls: B paints them across empty cells; a TAP on an
-         * existing wall knocks it out (and refunds the placeable kinds) */
-        if (g_pl.use_t > 0) break;
-        int c = g_ret_c, r = g_ret_r;
-        if (g_tiles[fg_at(c, r)].solid == 1) break;
-        uint8_t b = bg_at(c, r);
-        if (BG_WALL(b)) {
-            if (mote_just_pressed(in, MOTE_BTN_B)) {
-                net_wall_op(c, r, W_NONE);           /* knock out + refund (world_wall_op) */
-                g_pl.use_t = def->speed / 30.0f;
-                audio_sfx(SFX_DIG, 0.7f);
-            }
-        } else if (held->count) {
-            /* attach rule: needs a neighbouring wall or solid tile */
-            int ok = 0;
-            static const int8_t nb4[4][2] = { {1,0},{-1,0},{0,1},{0,-1} };
-            for (int k = 0; k < 4 && !ok; k++) {
-                int cc = c + nb4[k][0], rr = r + nb4[k][1];
-                if (BG_WALL(bg_at(cc, rr)) || g_tiles[fg_at(cc, rr)].solid == 1) ok = 1;
-            }
-            if (ok) {
-                net_wall_op(c, r, def->place);
-                held->count--;
-                if (!held->count) held->item = I_NONE;
-                g_pl.use_t = def->speed / 30.0f;
-                audio_sfx(SFX_PLACE, 0.8f);
+        /* background walls: B paints the targeted gap (the cursor already sits
+         * on the first missing cell and hops onward as you fill). Removal
+         * moved to the AXE. */
+        {   /* dev trace */
+            static int on = -1; static float t;
+            if (on < 0) on = getenv("TERRA_DBG") != 0;
+            t += dt;
+            if (on && t > 0.5f) {
+                t = 0;
+                char b[96];
+                snprintf(b, sizeof b, "dbg wall ret=%d,%d place=%d cnt=%d py=%d fgS=%d fgW=%d fgE=%d bwS=%d",
+                         g_ret_c, g_ret_r, wall_placeable(g_ret_c, g_ret_r),
+                         held->count, (int)g_pl.y,
+                         fg_at(g_ret_c, g_ret_r + 1), fg_at(g_ret_c - 1, g_ret_r),
+                         fg_at(g_ret_c + 1, g_ret_r), BG_WALL(bg_at(g_ret_c, g_ret_r + 1)));
+                mote->log(b);
             }
         }
+        if (g_pl.use_t > 0 || !held->count) break;
+        int c = g_ret_c, r = g_ret_r;
+        if (!wall_placeable(c, r)) break;
+        net_wall_op(c, r, def->place);
+        held->count--;
+        if (!held->count) held->item = I_NONE;
+        g_pl.use_t = def->speed / 30.0f;
+        audio_sfx(SFX_PLACE, 0.8f);
         break;
     }
     case IK_SWORD:

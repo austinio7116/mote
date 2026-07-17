@@ -280,6 +280,7 @@ int  world_explored(int c, int r);    /* tile coords */
 void world_explore_view(void);        /* reveal the camera view (call per play frame) */
 int  world_biome(int c);              /* 0 forest 1 snow 2 desert 3 corruption */
 void world_rebuild_caches(void);      /* surface cache — REQUIRED after loading planes */
+void world_backfill_walls(void);      /* biome walls behind everything below the natural line */
 void world_mine_tile(int c, int r);   /* break + drop */
 int  world_place_tile(int c, int r, uint8_t tile);
 int  world_hit_tree(int c, int r);    /* chop: fells trunk above, drops wood */
