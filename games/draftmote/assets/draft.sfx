@@ -1,5 +1,7 @@
-# room card placed — solid thunk + rising confirm
+# room stamped onto the blueprint — wood thunk + confirm ding
 wave 0
-freq 0.32 0 0.09 0
-duty 0.4 0
-env 0 0.06 0.2 0.14
+freq 0.2 0 0.05 0
+duty 0.32 0
+env 0 0.05 0.35 0.14
+arp 0.5 0.3
+lpf 0.85 0 0

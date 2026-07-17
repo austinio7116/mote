@@ -81,7 +81,8 @@ HW, HHH = 277, 326
 FRONT = [(23, 57), (598, 57)]
 BACK  = [(1270, 56), (1845, 57)]
 SIDE  = [((4690, 56), 0),      # R3: standing (also the idle frame)
-         ((2797, 57), 1),      # L1: stride A, faces left -> flip
+         ((2797, 57), 0),      # L1: stride A — ALREADY right-facing (flipping it
+                               #     made frame 2 walk backwards vs the other 3)
          ((2505, 57), 1),      # L0: passing, faces left -> flip
          ((4102, 56), 0)]      # R1: stride B, already right-facing
 

@@ -1,6 +1,7 @@
-# gold coin pickup
+# gold pickup — classic two-note chime, softened
 wave 0
-freq 0.55 0 0 0
-duty 0.5 0
-env 0 0.05 0.35 0.22
-arp 0.42 0.35
+freq 0.5 0 0 0
+duty 0.38 0
+env 0 0.05 0.3 0.18
+arp 0.4 0.32
+lpf 0.9 0 0

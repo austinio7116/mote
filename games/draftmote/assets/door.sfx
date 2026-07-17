@@ -1,5 +1,5 @@
-# walk through a doorway
-wave 0
-freq 0.2 0 0.04 0
-duty 0.3 0
-env 0 0.03 0.1 0.07
+# doorway — soft wood shut
+wave 3
+freq 0.13 0 -0.07 0
+env 0 0.035 0.18 0.09
+lpf 0.32 -0.06 0.12

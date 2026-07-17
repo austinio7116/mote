@@ -1,5 +1,6 @@
-# key turns in a lock — clunk then bright click
+# key turns — click then rising sweep
 wave 0
-freq 0.24 0 0.22 0
-duty 0.35 0
-env 0 0.04 0.25 0.12
+freq 0.18 0 0.22 0
+duty 0.3 0
+env 0 0.03 0.3 0.12
+lpf 0.8 0 0

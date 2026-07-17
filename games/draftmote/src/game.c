@@ -103,7 +103,8 @@ static int g_shop_sel, g_shop_kind;         /* 0 commissary, 1 locksmith */
 static int g_pause_sel;
 static float g_result_t;
 
-static char  g_toast[40];
+static char  g_toast[3][40];               /* small queue: combos + entry effects stack up */
+static int   g_toast_n;
 static float g_toast_t;
 
 /* current room's furniture, parsed from its template */
@@ -120,8 +121,30 @@ static uint8_t g_no_locks;                  /* DRAFT_LOCKS=0 test hook */
 static uint8_t g_all_locks;                 /* DRAFT_LOCKS=2 test hook */
 static const char *g_force_rooms;           /* DRAFT_ROOMS test hook */
 
-static void toast(const char *msg) { snprintf(g_toast, sizeof g_toast, "%s", msg); g_toast_t = 2.2f; }
-static void toastf(const char *fmt, int v) { snprintf(g_toast, sizeof g_toast, fmt, v); g_toast_t = 2.2f; }
+static void toast(const char *msg) {
+    if (g_toast_n >= 3) {                              /* full: drop the oldest */
+        memmove(g_toast[0], g_toast[1], sizeof g_toast[0] * 2);
+        g_toast_n = 2;
+        g_toast_t = 1.4f;
+    }
+    snprintf(g_toast[g_toast_n], sizeof g_toast[0], "%s", msg);
+    if (g_toast_n == 0) g_toast_t = 1.6f;
+    g_toast_n++;
+}
+static void toastf(const char *fmt, int v) {
+    char b[40];
+    snprintf(b, sizeof b, fmt, v);
+    toast(b);
+}
+static void toast_tick(float dt) {
+    if (!g_toast_n) return;
+    g_toast_t -= dt;
+    if (g_toast_t <= 0) {
+        memmove(g_toast[0], g_toast[1], sizeof g_toast[0] * 2);
+        g_toast_n--;
+        g_toast_t = 1.4f;
+    }
+}
 
 static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img };
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
@@ -143,6 +166,63 @@ static int prop_of_char(char ch) {
     case 'w': return P_WORKBENCH;  case 'p': return P_PLANT;
     }
     return -1;
+}
+
+/* ------------------------------------------------------- combos + goals ----- */
+/* room tags: adjacent pairs of complementary tags score a combo on placement */
+enum { TAG_NONE = 0, TAG_FOOD, TAG_REST, TAG_BATH, TAG_BOOK, TAG_DRINK, TAG_GRAND };
+static const uint8_t k_tag[R_COUNT] = {
+    [R_KITCHEN] = TAG_FOOD, [R_DINING] = TAG_FOOD, [R_PANTRY] = TAG_FOOD,
+    [R_BEDROOM] = TAG_REST, [R_SUITE] = TAG_REST, [R_GUEST] = TAG_REST, [R_LOUNGE] = TAG_REST,
+    [R_WASHROOM] = TAG_BATH, [R_LAUNDRY] = TAG_BATH,
+    [R_LIBRARY] = TAG_BOOK, [R_STUDY] = TAG_BOOK, [R_DRAFTING] = TAG_BOOK,
+    [R_WINECELLAR] = TAG_DRINK, [R_CELLAR] = TAG_DRINK, [R_HEARTH] = TAG_DRINK,
+    [R_GREATHALL] = TAG_GRAND, [R_CHAPEL] = TAG_GRAND, [R_FOYER] = TAG_GRAND,
+};
+typedef struct { uint8_t a, b; uint8_t pts; const char *name; } ComboDef;
+static const ComboDef k_combos[] = {
+    { TAG_FOOD, TAG_FOOD,   30, "SERVICE WING +30" },
+    { TAG_REST, TAG_BATH,   30, "EN-SUITE +30" },
+    { TAG_BOOK, TAG_BOOK,   30, "THE ARCHIVE +30" },
+    { TAG_DRINK, TAG_FOOD,  25, "WELL STOCKED +25" },
+    { TAG_DRINK, TAG_DRINK, 30, "CELLARAGE +30" },
+    { TAG_GRAND, TAG_GRAND, 40, "PROCESSION +40" },
+    { TAG_REST, TAG_REST,   20, "QUIET WING +20" },
+};
+
+/* two goals a day, dealt from the day seed */
+typedef struct { const char *name; uint8_t target; uint16_t pts; } GoalDef;
+enum { GO_GREENS, GO_CHESTS, GO_ROOMS, GO_SWEEPS, GO_COMBOS, GO_RANKS, GO_GOLD, GO_KEYS, GO_N };
+static const GoalDef k_goals[GO_N] = {
+    [GO_GREENS] = { "GREENS", 3, 150 },
+    [GO_CHESTS] = { "CHESTS", 3, 100 },
+    [GO_ROOMS]  = { "ROOMS", 10, 100 },
+    [GO_SWEEPS] = { "SWEEPS", 4, 120 },
+    [GO_COMBOS] = { "COMBOS", 2, 120 },
+    [GO_RANKS]  = { "RANKS", 2, 150 },
+    [GO_GOLD]   = { "GOLD HELD", 25, 100 },
+    [GO_KEYS]   = { "KEYS HELD", 4, 100 },
+};
+static uint8_t g_goal[2], g_goal_prog[2], g_goal_done[2];
+
+static void goal_progress(int kind, int value, int absolute) {
+    for (int i = 0; i < 2; i++) {
+        if (g_goal[i] != kind || g_goal_done[i]) continue;
+        int p = absolute ? value : g_goal_prog[i] + value;
+        g_goal_prog[i] = (uint8_t)mote_clampi(p, 0, 255);
+        if (g_goal_prog[i] >= k_goals[kind].target) {
+            g_goal_done[i] = 1;
+            g_score += k_goals[kind].pts;
+            char buf[40];
+            snprintf(buf, sizeof buf, "GOAL! %s +%d", k_goals[kind].name, k_goals[kind].pts);
+            toast(buf);
+            mote->audio_play_sfx(&row_sfx, 1.0f);
+        }
+    }
+}
+static void goal_check_held(void) {
+    goal_progress(GO_GOLD, g_gold, 1);
+    goal_progress(GO_KEYS, g_keys, 1);
 }
 
 /* room blurbs for draft cards */
@@ -467,6 +547,8 @@ static void place_card(int slot) {
     g_rooms_placed++;
     g_score += 10u * (d->rarity + 1);
     mote->audio_play_sfx(&draft_sfx, 0.9f);
+    goal_progress(GO_ROOMS, 1, 0);
+    if (d->flags & RF_GREEN) goal_progress(GO_GREENS, 1, 0);
     /* green adjacency bonus */
     if (d->flags & RF_GREEN) {
         int n = 0;
@@ -476,11 +558,45 @@ static void place_card(int slot) {
         }
         if (n) { g_score += 25u * n; toastf("GARDEN BONUS +%d", 25 * n); mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
+    /* tag combos with the neighbours (service wing, en-suite, the archive...) */
+    uint8_t mytag = k_tag[id];
+    if (mytag) {
+        for (int s = 0; s < 4; s++) {
+            int ni = neighbor(g_draft_gi, s);
+            if (ni < 0 || g_grid[ni].room == 0xFF) continue;
+            uint8_t nt = k_tag[g_grid[ni].room];
+            if (!nt) continue;
+            for (unsigned k = 0; k < sizeof k_combos / sizeof k_combos[0]; k++) {
+                if ((k_combos[k].a == mytag && k_combos[k].b == nt) ||
+                    (k_combos[k].a == nt && k_combos[k].b == mytag)) {
+                    g_score += k_combos[k].pts;
+                    toast(k_combos[k].name);
+                    mote->audio_play_sfx(&star_sfx, 0.9f);
+                    goal_progress(GO_COMBOS, 1, 0);
+                    break;
+                }
+            }
+        }
+    }
+    /* matched wings: the mirror cell across the centre column holds the same room */
+    {
+        int mc = (GRID_W - 1) - gi_col(g_draft_gi);
+        int mi = gi_row(g_draft_gi) * GRID_W + mc;
+        if (mc != gi_col(g_draft_gi) && g_grid[mi].room == id) {
+            g_score += 50;
+            toast("MATCHED WINGS +50");
+            mote->audio_play_sfx(&star_sfx, 1.0f);
+            goal_progress(GO_COMBOS, 1, 0);
+        }
+    }
     /* rank complete bonus */
     int r = gi_row(g_draft_gi), full = 1;
     for (int c = 0; c < GRID_W; c++)
         if (g_grid[r * GRID_W + c].room == 0xFF) full = 0;
-    if (full) { g_score += 100; toast("RANK COMPLETE +100"); mote->audio_play_sfx(&row_sfx, 1.0f); }
+    if (full) {
+        g_score += 100; toast("RANK COMPLETE +100"); mote->audio_play_sfx(&row_sfx, 1.0f);
+        goal_progress(GO_RANKS, 1, 0);
+    }
     g_state = GS_PLAY;
     enter_room(g_draft_gi, g_draft_entry);
 }
@@ -575,6 +691,8 @@ static void chest_try(int i) {
     mote->audio_play_sfx(&coin_sfx, 0.9f);
     snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);
     toast(buf);
+    goal_progress(GO_CHESTS, 1, 0);
+    goal_check_held();
 }
 
 /* ------------------------------------------------------------------ pickups -- */
@@ -605,7 +723,9 @@ static void pickups_tick(void) {
     }
     if (n && all && !cl->swept) {
         cl->swept = 1; g_score += 20; toast("ROOM SWEPT +20");
+        goal_progress(GO_SWEEPS, 1, 0);
     }
+    goal_check_held();
 }
 
 /* ------------------------------------------------------------------- shops --- */
@@ -634,6 +754,7 @@ static void shop_buy(void) {
         if (g_shop_sel == 0) { g_keys++; toast("BOUGHT A KEY"); }
         else { g_master = 1; toast("THE MASTER KEY!"); }
     }
+    goal_check_held();
 }
 
 /* ------------------------------------------------------------------ new day --- */
@@ -653,8 +774,16 @@ static void day_start(void) {
     g_score = 0; g_master = 0; g_compass = 0; g_spyglass = 0;
     g_won = 0; g_rooms_placed = 0;
     g_new_best = 0;
-    g_toast_t = 0;
+    g_toast_n = 0; g_toast_t = 0;
     g_day_seed = mote_rand();
+    /* two distinct goals for the day */
+    {
+        uint32_t r = hash32(g_day_seed ^ 0x60A15u);
+        g_goal[0] = (uint8_t)(r % GO_N);
+        g_goal[1] = (uint8_t)((g_goal[0] + 1 + (r >> 8) % (GO_N - 1)) % GO_N);
+        g_goal_prog[0] = g_goal_prog[1] = 0;
+        g_goal_done[0] = g_goal_done[1] = 0;
+    }
 
     const char *e;
     if ((e = getenv("DRAFT_GIVE"))) {          /* keys:gems:gold:steps */
@@ -851,10 +980,10 @@ static void hud_draw(uint16_t *fb) {
 }
 
 static void toast_draw(uint16_t *fb) {
-    if (g_toast_t <= 0) return;
+    if (!g_toast_n) return;
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote->draw_rect(fb, 0, 98, 128, 14, rgb(10, 12, 26), 1, 0, 128);
-    mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), g_toast);
+    mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), g_toast[0]);
 }
 
 /* one estate cell on a blueprint panel */
@@ -954,23 +1083,23 @@ static const char *k_rarity_name[3] = { "COMMON", "UNCOMMON", "RARE" };
 static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote->text_font(fb, f, "DRAFT", 8, 6, rgb(210, 224, 250));
-    estate_map(fb, 10, 24, 8, g_draft_gi);
+    mote->text_font(fb, f, "DRAFT", 8, 3, rgb(210, 224, 250));
+    estate_map(fb, 10, 18, 8, g_draft_gi);
 
     /* dossier for the selected card */
     const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
     int afford = card_affordable(g_cards[g_draft_sel]);
-    mote->draw_rect(fb, 56, 20, 68, 62, rgb(16, 25, 58), 1, 0, 128);
-    mote->draw_rect(fb, 56, 20, 68, 62, rgb(70, 100, 170), 0, 0, 128);
-    mote->text_font(fb, f, d->name, 60, 23, afford ? rgb(250, 250, 255) : rgb(120, 120, 132));
-    mote->text_font(fb, f, k_rarity_name[d->rarity], 60, 36, k_rarity_col[d->rarity]);
+    mote->draw_rect(fb, 56, 15, 68, 65, rgb(16, 25, 58), 1, 0, 128);
+    mote->draw_rect(fb, 56, 15, 68, 65, rgb(70, 100, 170), 0, 0, 128);
+    mote->text_font(fb, f, d->name, 60, 18, afford ? rgb(250, 250, 255) : rgb(120, 120, 132));
+    mote->text_font(fb, f, k_rarity_name[d->rarity], 60, 31, k_rarity_col[d->rarity]);
     if (k_blurb[g_cards[g_draft_sel]])
-        mote->text_font(fb, f, k_blurb[g_cards[g_draft_sel]], 60, 50,
+        mote->text_font(fb, f, k_blurb[g_cards[g_draft_sel]], 60, 47,
                         afford ? rgb(165, 190, 235) : rgb(100, 100, 112));
     int cx = 60;
-    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, 66, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, 66, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
-    if (!afford) mote->text_font(fb, f, "!", cx + 2, 65, rgb(255, 110, 90));
+    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, 64, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, 64, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
+    if (!afford) mote->text_font(fb, f, "!", cx + 2, 63, rgb(255, 110, 90));
 
     /* the hand: every option's SHAPE always on show */
     int tw = 26, total = g_draft_n * tw - 2;
@@ -1055,13 +1184,27 @@ static void draft_tick(void) {
 static void map_draw(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    char buf[32];
+    char buf[40];
     snprintf(buf, sizeof buf, "DAY %d", g_days + 1);
-    mote->text_font(fb, f, buf, 8, 6, rgb(200, 210, 240));
+    mote->text_font(fb, f, buf, 8, 3, rgb(200, 210, 240));
     snprintf(buf, sizeof buf, "%u", (unsigned)g_score);
-    mote->text_font(fb, f, buf, 92, 6, rgb(250, 240, 190));
-    estate_map(fb, 34, 19, 12, -1);
-    mote_ftextc(mote, fb, f, 64, 116, rgb(220, 225, 245), k_rooms[g_grid[g_cur].room].name);
+    mote->text_font(fb, f, buf, 92, 3, rgb(250, 240, 190));
+    estate_map(fb, 39, 14, 10, -1);
+    /* the day's goals */
+    for (int i = 0; i < 2; i++) {
+        const GoalDef *gd = &k_goals[g_goal[i]];
+        int y = 98 + i * 13;
+        if (g_goal_done[i]) {
+            snprintf(buf, sizeof buf, "%s  DONE", gd->name);
+            mote->text_font(fb, f, buf, 8, y, rgb(250, 220, 110));
+        } else {
+            snprintf(buf, sizeof buf, "%s %d/%d", gd->name,
+                     g_goal_prog[i] > gd->target ? gd->target : g_goal_prog[i], gd->target);
+            mote->text_font(fb, f, buf, 8, y, rgb(190, 205, 240));
+            snprintf(buf, sizeof buf, "+%d", gd->pts);
+            mote->text_font(fb, f, buf, 102, y, rgb(150, 165, 205));
+        }
+    }
 }
 
 static void shop_draw(uint16_t *fb) {
@@ -1196,7 +1339,7 @@ static void g_init(void) {
 }
 
 static void g_update(float dt) {
-    g_toast_t -= dt;
+    toast_tick(dt);
     g_result_t += dt;
     mote->scene_set_background(rgb(8, 10, 20));
 

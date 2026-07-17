@@ -1,6 +1,7 @@
-# key pickup — bright double blip
+# key pickup — bright latch double-click
 wave 0
-freq 0.5 0 0.06 0
-duty 0.45 0
-env 0 0.05 0.25 0.12
-arp 0.3 0.5
+freq 0.42 0 0.04 0
+duty 0.28 0
+env 0 0.04 0.25 0.1
+arp 0.3 0.4
+lpf 0.9 0 0

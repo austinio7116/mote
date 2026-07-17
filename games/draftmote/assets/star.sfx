@@ -1,6 +1,5 @@
-# score star — sparkly rising arp
-wave 0
-freq 0.52 0 0.14 0
-duty 0.5 0
-env 0 0.1 0.3 0.25
-arp 0.34 0.4
+# score star — rising sine twinkle
+wave 2
+freq 0.38 0 0.1 0
+env 0 0.1 0.3 0.2
+arp 0.28 0.32
