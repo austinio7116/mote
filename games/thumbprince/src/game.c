@@ -20,9 +20,9 @@ MOTE_MODULE_HEADER();
 #include "rooms.h"
 #include "props_meta.h"
 #include "floors.h"
-#include "walls_stone.tiles.h"
-#include "walls_red.tiles.h"
-#include "walls_dark.tiles.h"
+#include "walls_stone.h"
+#include "walls_red.h"
+#include "walls_dark.h"
 #include "doors.h"
 #include "props_sheet.h"
 #include "props_auth.h"
@@ -85,6 +85,7 @@ static uint32_t g_score;
 static uint8_t g_master;                    /* master key held */
 static uint8_t g_compass;                   /* rotate draft offers (LB/RB) */
 static uint8_t g_spyglass;                  /* 4-card draft offers */
+static uint8_t g_pencil;                    /* redraw offers for a gem (B) */
 static uint8_t g_won;
 static int    g_rooms_placed;
 static uint32_t g_day_seed;
@@ -148,7 +149,7 @@ static void toast_tick(float dt) {
 }
 
 static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img };
-static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
+static const MoteImage *k_walls[3] = { &walls_stone_img, &walls_red_img, &walls_dark_img };
 static const uint8_t k_item_cell[10] = { 0, 0, 1, 2, 3, 4, 5, 5, 9, 12 };  /* IT_* -> items cell */
 
 /* template letter -> prop id ('c'/'x' chests are parsed separately) */
@@ -237,7 +238,7 @@ static const char *k_blurb[R_COUNT] = {
     [R_KITCHEN] = "+4, FOOD",       [R_PANTRY] = "+4, FOOD",
     [R_BEDROOM] = "+6 STEPS",       [R_SUITE] = "+12, +1 KEY",
     [R_WASHROOM] = "+4 STEPS",      [R_LIBRARY] = "BIG STAR",
-    [R_STUDY] = "+50, +1 GEM",      [R_DRAFTING] = "THE COMPASS",
+    [R_STUDY] = "THE PENCIL",      [R_DRAFTING] = "THE COMPASS",
     [R_LAUNDRY] = "A KEY INSIDE",   [R_STORE] = "COINS+STAR",
     [R_CELLAR] = "2 KEYS",          [R_LOCKSMITH] = "KEY SHOP",
     [R_COMMISSARY] = "SHOP",        [R_HEARTH] = "+8 STEPS",
@@ -445,6 +446,11 @@ static void apply_entry_effects(int gi) {
         g_compass = 1;
         mote->audio_play_sfx(&star_sfx, 1.0f);
         toast("THE COMPASS! LB/RB TURNS DRAFTS");
+    }
+    if ((d->flags & RF_PENCIL) && !g_pencil) {
+        g_pencil = 1;
+        mote->audio_play_sfx(&star_sfx, 1.0f);
+        toast("THE PENCIL! B REDRAWS OFFERS");
     }
 }
 
@@ -779,7 +785,7 @@ static void day_start(void) {
     g_face = DIR_N;
     parse_room_props(g_cur);
     g_steps = START_STEPS; g_keys = 1; g_gems = 2; g_gold = 0;
-    g_score = 0; g_master = 0; g_compass = 0; g_spyglass = 0;
+    g_score = 0; g_master = 0; g_compass = 0; g_spyglass = 0; g_pencil = 0;
     g_won = 0; g_rooms_placed = 0;
     g_new_best = 0;
     g_toast_n = 0; g_toast_t = 0;
@@ -800,7 +806,7 @@ static void day_start(void) {
             g_keys = k; g_gems = gm; g_gold = go; g_steps = st;
         }
     }
-    if (getenv("DRAFT_TOOLS")) { g_compass = 1; g_spyglass = 1; }
+    if (getenv("DRAFT_TOOLS")) { g_compass = 1; g_spyglass = 1; g_pencil = 1; }
     g_state = GS_PLAY;
     toast("FIND THE ANTECHAMBER");
 }
@@ -875,7 +881,7 @@ static void add_spr(const MoteImage *img, int x, int y, int fx, int fy, int fw, 
 static void room_draw(void) {
     const Cell *cl = &g_grid[g_cur];
     const RoomDef *rd = &k_rooms[cl->room];
-    const MoteAutotile *wall = k_walls[rd->wall];
+    const MoteImage *wall = k_walls[rd->wall];
 
     /* floor everywhere (16px texture tiles, variant hash-picked per tile so
      * the grain doesn't grid up), thin wall band painted over the rim */
@@ -883,11 +889,13 @@ static void room_draw(void) {
         for (int tx = 0; tx < ROOM_T; tx++)
             add_spr(&floors_img, tx * TILE, ty * TILE,
                     rd->floor * TILE, ((tx * 7 + ty * 13) & 1) * TILE, TILE, TILE, 0, 0);
+    /* band-sized wall sprites: cell A (0,0) 16x8 horizontal, cell B (16,0)
+     * 8x16 vertical — drawn whole, never sliced from larger art */
     for (int i = 0; i < ROOM_T; i++) {
-        add_spr(wall->sheet, i * TILE, 0, 0, 0, TILE, WALL_PX, 1, 0);
-        add_spr(wall->sheet, i * TILE, ROOM_PX - WALL_PX, 0, TILE - WALL_PX, TILE, WALL_PX, 1, 0);
-        add_spr(wall->sheet, 0, i * TILE, 0, 0, WALL_PX, TILE, 1, 0);
-        add_spr(wall->sheet, ROOM_PX - WALL_PX, i * TILE, TILE - WALL_PX, 0, WALL_PX, TILE, 1, 0);
+        add_spr(wall, i * TILE, 0, 0, 0, TILE, WALL_PX, 1, 0);
+        add_spr(wall, i * TILE, ROOM_PX - WALL_PX, 0, 0, TILE, WALL_PX, 1, 0);
+        add_spr(wall, 0, i * TILE, TILE, 0, WALL_PX, TILE, 1, 0);
+        add_spr(wall, ROOM_PX - WALL_PX, i * TILE, TILE, 0, WALL_PX, TILE, 1, 0);
     }
 
     /* door overlays at the four mid-edges (nothing drawn for sealed walls) */
@@ -981,7 +989,8 @@ static void hud_draw(uint16_t *fb) {
     int ix = 128 - 12;
     if (g_master)   { mote->blit(fb, &items_img, ix, 2, 6 * 12, 0, 12, 12, 0, 0, 128); ix -= 11; }
     if (g_compass)  { mote->blit(fb, &items_img, ix, 2, 10 * 12, 0, 12, 12, 0, 0, 128); ix -= 11; }
-    if (g_spyglass) { mote->blit(fb, &items_img, ix, 2, 11 * 12, 0, 12, 12, 0, 0, 128); }
+    if (g_spyglass) { mote->blit(fb, &items_img, ix, 2, 11 * 12, 0, 12, 12, 0, 0, 128); ix -= 11; }
+    if (g_pencil)   { mote->blit(fb, &items_img, ix, 2, 13 * 12, 0, 12, 12, 0, 0, 128); }
 }
 
 static void toast_draw(uint16_t *fb) {
@@ -996,7 +1005,7 @@ static void toast_draw(uint16_t *fb) {
     }
     /* wrap at the last space that fits the screen */
     int cut = 19;
-    for (int i = 19; i > 8; i--)
+    for (int i = 19; i > 0; i--)
         if (s[i] == ' ') { cut = i; break; }
     char l1[40], l2[40];
     snprintf(l1, sizeof l1, "%.*s", cut, s);
@@ -1118,8 +1127,9 @@ static void draft_footer(uint16_t *fb, const MoteFont *f) {
     snprintf(buf, sizeof buf, "%d", g_gems);
     mote->blit(fb, &items_img, 6, 115, 2 * 12, 0, 12, 12, 0, 0, 128);
     mote->text_font(fb, f, buf, 19, 115, rgb(140, 240, 220));
-    const char *hint = g_compass ? (g_gems > 0 ? "B RD  LB/RB TURN" : "LB/RB TURN")
-                                 : (g_gems > 0 ? "B REROLL" : "A PLACE");
+    int can_rd = g_pencil && g_gems > 0;
+    const char *hint = g_compass ? (can_rd ? "B RD  LB/RB TURN" : "LB/RB TURN")
+                                 : (can_rd ? "B REROLL" : "A PLACE");
     mote->text_font(fb, f, hint, 36, 115, rgb(150, 165, 205));
 }
 
@@ -1224,7 +1234,8 @@ static void draft_tick(void) {
         else { toast("CAN'T AFFORD THAT ROOM"); mote->audio_play_sfx(&locked_sfx, 0.8f); }
     }
     if (mote_just_pressed(in, MOTE_BTN_B)) {
-        if (g_gems > 0) { g_gems--; deal_cards(); g_draft_sel = 0; mote->audio_play_sfx(&gem_sfx, 0.8f); }
+        if (!g_pencil) { toast("REDRAWS NEED THE PENCIL"); mote->audio_play_sfx(&locked_sfx, 0.8f); }
+        else if (g_gems > 0) { g_gems--; deal_cards(); g_draft_sel = 0; mote->audio_play_sfx(&gem_sfx, 0.8f); }
         else { toast("NO GEMS TO REROLL"); mote->audio_play_sfx(&locked_sfx, 0.8f); }
     }
 }

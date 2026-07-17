@@ -2,10 +2,9 @@
 """ThumbPrince authored structure art — walls and doors, drawn at pixel level
 (downscaled swatches turned to mush at band scale, so these are hand-made).
 
-  walls_stone/red/dark.png  4x4 edge16 sheets (16px cells). Every cell carries
-      the same authored pattern: 4px brick courses with staggered joints and a
-      top highlight, so the game's 8px wall band shows two crisp courses no
-      matter which slice it takes. tilesets/walls_*.tileset regenerated too.
+  walls_stone/red/dark.png  24x16: cell A (0,0) 16x8 horizontal band, cell B
+      (16,0) 8x16 vertical band — sprites AT band size, bricks 8x4, nothing
+      sliced from larger tiles.
 
   doors.png  16x16 x6: h_closed h_open v_closed v_open gold_closed gold_open
       Content is 16w x 8h anchored to the top of the cell: the door sits FLUSH
@@ -25,55 +24,39 @@ def snap(c):
     return ((c[0] >> 3) << 3, (c[1] >> 2) << 2, (c[2] >> 3) << 3, 255)
 
 # ------------------------------------------------------------------- walls ---
-# palette per style: brick light / brick mid / brick dark / mortar
+# DEDICATED band-sized sprites — nothing gets sliced from a bigger tile:
+#   walls_*.png is 24x16: cell A (0,0) 16x8 = the horizontal band,
+#   cell B (16,0) 8x16 = the vertical band. Bricks are 8x4 so complete
+#   bricks fit the 8px band; the horizontal band is running bond whose
+#   half-bricks continue seamlessly across adjacent strips.
 WALLS = {
     "stone": ((126, 128, 140), (104, 106, 118), (84, 86, 98),  (56, 58, 68)),
     "red":   ((178, 92, 60),   (150, 72, 46),   (122, 56, 38), (78, 40, 30)),
     "dark":  ((96, 88, 100),   (78, 72, 84),    (62, 56, 68),  (40, 36, 46)),
 }
 
-def wall_cell(pal):
-    """16x16: four 4px brick courses, joints staggered per course"""
+def brick_px(x, y, pal, joints):
     li, mid, dk, mortar = pal
-    im = Image.new("RGBA", (16, 16))
-    for y in range(16):
-        course = y // 4
+    row = y % 4
+    if row == 3 or (x % 8) in joints[(y // 4) % 2]:
+        return mortar
+    if row == 0:
+        return li
+    return mid if (x * 3 + y * 7) % 11 else dk
+
+def wall_sheet(pal):
+    im = Image.new("RGB", (24, 16), (0, 0, 0))
+    for y in range(8):                       # A: horizontal band, running bond
         for x in range(16):
-            row = y % 4
-            joint = (x + (8 if course % 2 else 0)) % 16 == 0
-            if row == 3 or joint:
-                c = mortar
-            elif row == 0:
-                c = li
-            elif row == 1:
-                c = mid
-            else:
-                c = mid if (x + course * 5) % 7 else dk   # speckle
-            im.putpixel((x, y), snap(c))
+            im.putpixel((x, y), snap(brick_px(x, y, pal, ((0,), (4,))))[:3])
+    for y in range(16):                      # B: vertical band, stacked blocks
+        for x in range(8):
+            im.putpixel((16 + x, y), snap(brick_px(x, y, pal, ((), ())))[:3])
     return im
 
 for name, pal in WALLS.items():
-    cell = wall_cell(pal)
-    sheet = Image.new("RGBA", (64, 64))
-    for i in range(16):
-        sheet.paste(cell, ((i % 4) * 16, (i // 4) * 16))
-    sheet.convert("RGB").save(os.path.join(HERE, "walls_%s.png" % name))
-    lut = []
-    for m in range(256):
-        c = 0
-        if m & 1: c |= 1
-        if m & 4: c |= 2
-        if m & 16: c |= 4
-        if m & 64: c |= 8
-        lut.append(c)
-    os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
-    with open(os.path.join(GAME, "tilesets", "walls_%s.tileset" % name), "w") as f:
-        f.write("sheet assets/walls_%s.png\n" % name)
-        f.write("tile 16\ntype 1\nedge 1\nnvar 1\ncols 4\nrows 4\n")
-        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
-        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
-        f.write("vweight 1 1 1 1 1 1 1 1\n")
-print("wrote walls_stone/red/dark.png + tilesets (authored brickwork)")
+    wall_sheet(pal).save(os.path.join(HERE, "walls_%s.png" % name))
+print("wrote walls_stone/red/dark.png (band-sized sprites)")
 
 # ------------------------------------------------------------------- doors ---
 FRAME  = (52, 40, 34)

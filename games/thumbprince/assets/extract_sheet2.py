@@ -4,8 +4,8 @@
 
 Writes the editable game sheets under assets/:
   hero.png    16x20 x8 : front0 front1 back0 back1 left0 left1 (right = HFLIP)
-  items.png   12x12 x13: coin key gem food star bigstar masterkey padlock boot
-                         potion compass spyglass pouch  (boot/compass/spyglass authored)
+  items.png   12x12 x14: coin key gem food star bigstar masterkey padlock boot
+                         potion compass spyglass pouch pencil (boot/compass/spyglass/pencil authored)
   floors.png  32x32 macro-tiles (2x2 game tiles):
               wood wood_dark stone_tile red_carpet blue_carpet grass
               white_checker autumn grass_leafy
@@ -98,7 +98,7 @@ hero.save(os.path.join(HERE, "hero.png"))
 print("wrote hero.png (2 front, 2 back, 4 side)")
 
 # ------------------------------------------------------------------ items ----
-IT = Image.new("RGBA", (13 * 12, 12), (0, 0, 0, 0))
+IT = Image.new("RGBA", (14 * 12, 12), (0, 0, 0, 0))
 def item(cell, box, size=12, thresh=40):
     IT.paste(fit(keyed(box, thresh=thresh), size, size), (cell * 12 + (12 - size) // 2, 0))
 
@@ -147,6 +147,12 @@ for i2 in range(6):
     px(11, 2 + i2, 9 - i2, (190, 150, 70)); px(11, 3 + i2, 9 - i2, (150, 110, 50))
 px(11, 8, 2, (110, 170, 210)); px(11, 9, 2, (110, 170, 210)); px(11, 8, 3, (80, 130, 170))
 px(11, 1, 10, (90, 70, 40))
+
+# pencil (authored): yellow draftsman's pencil, diagonal
+for i2 in range(7):
+    px(13, 2 + i2, 10 - i2, (232, 186, 60)); px(13, 3 + i2, 10 - i2, (190, 146, 44))
+px(13, 1, 11, (222, 170, 160)); px(13, 2, 11, (222, 170, 160))   # eraser
+px(13, 9, 2, (150, 120, 90)); px(13, 10, 1, (60, 56, 60))        # tip + lead
 
 IT.save(os.path.join(HERE, "items.png"))
 print("wrote items.png")

@@ -33,6 +33,7 @@ enum {
     RF_SHOP_LOCK = 8,    /* locksmith stock */
     RF_LOCKED = 16,      /* costs 1 key to draft (the Vault) */
     RF_COMPASS = 32,     /* first entry grants the Compass (rotate drafts) */
+    RF_PENCIL = 64,      /* first entry grants the Pencil (gem rerolls) */
 };
 
 enum {                   /* loot pickup types */
@@ -221,7 +222,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_STAR2, IT_COIN, 0 } },
 
-    [R_STUDY] = { "STUDY", SH_L, 1, 0, FL_WOOD, WL_STONE, C565(64, 120, 84), 0, 0, 0, 1, 50,
+    [R_STUDY] = { "STUDY", SH_L, 1, 0, FL_WOOD, WL_STONE, C565(64, 120, 84), RF_PENCIL, 0, 0, 1, 50,
         "#######"
         "#d...l#"
         "#.....#"
@@ -437,7 +438,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_ATELIER] = { "ATELIER", SH_DEAD, 2, 1, FL_WOOD, WL_STONE, C565(210, 160, 190), RF_UNIQUE, 0, 0, 1, 0,
+    [R_ATELIER] = { "ATELIER", SH_DEAD, 2, 1, FL_WOOD, WL_STONE, C565(210, 160, 190), RF_UNIQUE | RF_PENCIL, 0, 0, 1, 0,
         "#######"
         "#d...p#"
         "#.....#"
