@@ -118,7 +118,9 @@ def render(name, zoom=8):
     for i in imgs:
         out.alpha_composite(i, (pad, y))
         y += i.height + pad
-    path = os.path.join(HERE, "_test_%s.png" % name)
+    outdir = os.path.join(HERE, "build")        # bake skips build/ — keep test
+    os.makedirs(outdir, exist_ok=True)          # renders out of the asset scan
+    path = os.path.join(outdir, "_test_%s.png" % name)
     out.convert("RGB").save(path)
     print("wrote", path, out.size)
 
