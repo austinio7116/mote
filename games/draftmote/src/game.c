@@ -681,14 +681,14 @@ static void chest_try(int i) {
     char buf[40];
     const char *extra = "";
     if (g_chests[i].locked) {
-        if (roll < 30)      { g_gems++; extra = " +GEM"; }
+        if (roll < 25)      { g_gems++; extra = " +GEM"; }
         else if (roll < 55) { g_keys++; extra = " +KEY"; }
         else if (roll < 78) { g_score += 75; extra = " +75!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
         else                { g_gold += 3; gold += 3; }
     } else {
-        if (roll < 22)      { g_gems++; extra = " +GEM"; }
-        else if (roll < 40) { g_keys++; extra = " +KEY"; }
-        else if (roll < 52) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
+        if (roll < 18)      { g_gems++; extra = " +GEM"; }
+        else if (roll < 45) { g_keys++; extra = " +KEY"; }
+        else if (roll < 57) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
     mote->audio_play_sfx(&coin_sfx, 0.9f);
     snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);

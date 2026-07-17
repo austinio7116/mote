@@ -83,7 +83,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#.....#"
         "#.....#"
-        "#######", { IT_COIN, 0 } },
+        "#######", { IT_KEY, IT_COIN, 0 } },
 
     [R_ANTE] = { "ANTECHAMBER", SH_X, 2, 0, FL_RED, WL_STONE, C565(236, 198, 96), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
@@ -128,7 +128,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#h....#"
         "#.....#"
-        "#######", { IT_COIN, IT_COIN, 0 } },
+        "#######", { IT_COIN, IT_KEY, 0 } },
 
     [R_GREATHALL] = { "GREAT HALL", SH_X, 2, 2, FL_RED, WL_STONE, C565(190, 150, 96), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
@@ -254,7 +254,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#r..c.#"
         "#.....#"
-        "#######", { IT_COIN, IT_COIN, IT_STAR, 0 } },
+        "#######", { IT_COIN, IT_KEY, IT_STAR, 0 } },
 
     [R_CELLAR] = { "CELLAR", SH_R, 1, 1, FL_STONE, WL_DARK, C565(120, 124, 136), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
@@ -290,7 +290,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#..C..#"
         "#.....#"
         "#.....#"
-        "#######", { 0 } },
+        "#######", { IT_KEY, 0 } },
 
     [R_STILLROOM] = { "STILL ROOM", SH_DEAD, 2, 2, FL_WOOD_DARK, WL_DARK, C565(52, 64, 120), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
