@@ -537,6 +537,7 @@ void npc_tick(float dt) {
 }
 
 void npc_draw(void) {
+    drops_draw();                         /* item drops render with the scene */
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_en[i];
         if (!e->kind) continue;

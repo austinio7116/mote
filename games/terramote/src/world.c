@@ -611,6 +611,18 @@ int world_gen_step(void) {
         return 90;
     }
     case 7: {                                           /* spawn area */
+        /* no floating trees: every trunk base must sit on SOLID ground —
+         * remove any trunk column whose footing was carved/settled away */
+        for (int c = 1; c < WCOLS - 1; c++)
+            for (int r = 1; r < WROWS - 2; r++) {
+                if (fg_at(c, r) != T_TRUNK) continue;
+                if (fg_at(c, r - 1) == T_TRUNK) continue;        /* not the top */
+                int base = r;
+                while (fg_at(c, base + 1) == T_TRUNK) base++;    /* walk to the base */
+                if (g_tiles[fg_at(c, base + 1)].solid != 1)
+                    for (int rr = base; rr >= r; rr--) world_set_fg(c, rr, T_AIR);
+                r = base;                                        /* skip past this tree */
+            }
         spawn_c = WCOLS / 2;
         /* make sure spawn ground is safe + flat-ish */
         int r = g_surf[spawn_c];
