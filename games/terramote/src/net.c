@@ -71,6 +71,12 @@ static void tx_pump(void) {
         int run = (int)sizeof s_txr - t;
         int have = (uint16_t)(s_txh - s_txt);
         if (run > have) run = have;
+        /* KEEP CALLS SMALL. Over a lobby link the OS netshim is all-or-nothing
+         * per link_send: a message is accepted only if its WHOLE length fits
+         * the 512B carry, else 0. Offering the ring's full run (up to 2KB)
+         * returns 0 forever once the run outgrows the carry — the world
+         * transfer wedges on its first chunks. 128B always fits eventually. */
+        if (run > 128) run = 128;
         int w = mote->link_send(s_txr + t, run);
         if (w <= 0) return;
         s_txt = (uint16_t)(s_txt + w);
@@ -209,6 +215,12 @@ static void world_rx_section(void) {
 }
 
 static void net_fail(const char *msg) {
+    if (getenv("TERRA_DBG")) {
+        char b[80];
+        snprintf(b, sizeof b, "net FAIL: %s (link=%d health=%d ns=%d)",
+                 msg, mote->link_status(), mote->net_health(), s_ns);
+        mote->log(b);
+    }
     ui_toast(msg);
     s_ns = NS_FAILED;
 }
