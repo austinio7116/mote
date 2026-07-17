@@ -865,11 +865,10 @@ def classify_roof(m):
     ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
     if not n and not w and e and s: return 0                  # NW corner -> '/'
     if not n and not e and w and s: return 1                  # NE corner -> '\'
+    if not n and not w and not s and e and ne: return 0       # left eave tip: taper the end
+    if not n and not e and not s and w and nw: return 1       # right eave tip
     if not s and not e and n and w and sw: return 2  # SE underside (needs SW: solid bases stay square)
     if not s and not w and n and e and se: return 3  # SW underside (needs SE)
-    if not (n or e or s or w):
-        if (ne or sw) and not (nw or se): return 4            # thin '/' run
-        if (nw or se) and not (ne or sw): return 5            # thin '\' run
     return None
 
 def classify_wall(m):

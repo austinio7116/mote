@@ -72,6 +72,15 @@ PATTERNS = [
     ("diamond", [".#.",
                  "#.#",
                  ".#."]),
+    ("aframe eaves", ["....##....",
+                      "...####...",
+                      "..##..##..",
+                      ".##....##.",
+                      "##......##"]),
+    ("pavilion", ["...####...",
+                  "..######..",
+                  ".##....##.",
+                  "##########"]),
 ]
 
 def mask_at(grid, x, y):
@@ -113,5 +122,21 @@ def render(name, zoom=8):
     out.convert("RGB").save(path)
     print("wrote", path, out.size)
 
+def dump(name, pattern_label):
+    """Print each cell's mask + chosen sheet cell for one pattern."""
+    _, lut, _, _ = load_tileset(name)
+    NAMES = [("N",N),("NE",NE),("E",E),("SE",SE),("S",S),("SW",SW),("W",W),("NW",NW)]
+    for label, grid in PATTERNS:
+        if label != pattern_label: continue
+        for y, row in enumerate(grid):
+            for x, ch in enumerate(row):
+                if ch != '#': continue
+                m = mask_at(grid, x, y)
+                bits = "+".join(nm for nm,b in NAMES if m & b) or "-"
+                print(f"({x},{y}) mask[{bits}] -> cell {lut[m]}")
+
 if __name__ == "__main__":
-    render(sys.argv[1] if len(sys.argv) > 1 else "tiles_roof")
+    if len(sys.argv) > 2 and sys.argv[2].startswith("dump="):
+        dump(sys.argv[1], sys.argv[2][5:])
+    else:
+        render(sys.argv[1] if len(sys.argv) > 1 else "tiles_roof")
