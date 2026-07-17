@@ -192,6 +192,19 @@ p.px(17, 3, (216, 180, 80)); p.px(20, 2, (196, 198, 208)); p.px(23, 3, (196, 198
 p.rect(2, 13, 4, 15, WOOD_DD); p.rect(25, 13, 27, 15, WOOD_DD)
 add("workbench", p)
 
+# ---- open treasure chest (20x16), matches the sheet chest's palette ----
+p = P(20, 16)
+p.rect(2, 1, 17, 5, (120, 78, 40))                                # lid, thrown back
+p.hl(3, 16, 1, (160, 108, 58))
+p.rect(2, 6, 17, 14, (146, 96, 50))                               # body
+p.rect(4, 7, 15, 11, (52, 36, 24))                                # dark interior
+p.rect(5, 9, 14, 11, (216, 176, 62))                              # gold inside
+p.px(7, 8, (255, 232, 130)); p.px(12, 8, (255, 232, 130))
+p.rect(2, 13, 17, 14, (104, 66, 34))
+p.vl(2, 6, 14, (104, 66, 34)); p.vl(17, 6, 14, (104, 66, 34))
+p.rect(8, 5, 11, 6, (196, 198, 208))                              # clasp
+add("chest_open", p)
+
 # ---- potted plant (12x16) ----
 p = P(12, 16)
 p.rect(3, 10, 8, 14, (166, 106, 62)); p.hl(3, 8, 10, (196, 130, 80))

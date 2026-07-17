@@ -65,6 +65,7 @@ typedef struct {
     uint8_t lock_roll;   /* sides whose lock has been rolled */
     uint8_t lock_on;     /* sides currently locked */
     uint8_t looted;      /* loot slot bits */
+    uint8_t chests;      /* opened-chest bits */
     uint8_t entered;     /* first-entry effect given */
     uint8_t swept;       /* sweep bonus given */
 } Cell;
@@ -110,6 +111,11 @@ typedef struct { uint8_t prop; uint8_t x, y; } RoomProp;
 static RoomProp g_props_cur[MAX_ROOM_PROPS];
 static int g_nprops;
 
+/* current room's treasure chests (interactive: bump to open) */
+typedef struct { uint8_t x, y, locked; } RoomChest;
+static RoomChest g_chests[4];
+static int g_nchests;
+
 static uint8_t g_no_locks;                  /* DRAFT_LOCKS=0 test hook */
 static uint8_t g_all_locks;                 /* DRAFT_LOCKS=2 test hook */
 static const char *g_force_rooms;           /* DRAFT_ROOMS test hook */
@@ -119,12 +125,12 @@ static void toastf(const char *fmt, int v) { snprintf(g_toast, sizeof g_toast, f
 
 static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img };
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
-static const uint8_t k_item_cell[9] = { 0, 0, 1, 2, 3, 4, 5, 5, 9 };  /* IT_* -> items cell */
+static const uint8_t k_item_cell[10] = { 0, 0, 1, 2, 3, 4, 5, 5, 9, 12 };  /* IT_* -> items cell */
 
-/* template letter -> prop id */
+/* template letter -> prop id ('c'/'x' chests are parsed separately) */
 static int prop_of_char(char ch) {
     switch (ch) {
-    case 'u': return P_BUSH;       case 'c': return P_CHEST;
+    case 'u': return P_BUSH;
     case 'C': return P_CAMPFIRE;   case 'L': return P_SHELF_BIG;
     case 'l': return P_SHELF_SMALL;
     case 'b': return P_BED_BLUE;   case 'B': return P_BED_RED;
@@ -154,7 +160,10 @@ static const char *k_blurb[R_COUNT] = {
     [R_COMMISSARY] = "SHOP",        [R_HEARTH] = "+8 STEPS",
     [R_STILLROOM] = "TONICS",       [R_TERRACE] = "GREEN +1GEM",
     [R_GARDEN] = "GREEN +1GEM",     [R_SUNROOM] = "GREEN +2GEM",
-    [R_VAULT] = "GOLD HOARD",
+    [R_VAULT] = "GOLD HOARD",       [R_GUEST] = "+4, CHEST",
+    [R_CHAPEL] = "BIG STAR",        [R_ARMORY] = "KEYS, CHEST",
+    [R_WINECELLAR] = "TONIC, GOLD", [R_ORCHARD] = "GREEN, FOOD",
+    [R_TREASURY] = "2 CHESTS",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -225,11 +234,20 @@ static int door_state(int gi, int side) {
 /* --------------------------------------------------------- room furniture --- */
 static void parse_room_props(int gi) {
     g_nprops = 0;
+    g_nchests = 0;
     const char *t = k_rooms[g_grid[gi].room].tmpl;
-    for (int ty = 0; ty < ROOM_T && g_nprops < MAX_ROOM_PROPS; ty++)
-        for (int tx = 0; tx < ROOM_T && g_nprops < MAX_ROOM_PROPS; tx++) {
-            int p = prop_of_char(t[ty * ROOM_T + tx]);
-            if (p >= 0) {
+    for (int ty = 0; ty < ROOM_T; ty++)
+        for (int tx = 0; tx < ROOM_T; tx++) {
+            char ch = t[ty * ROOM_T + tx];
+            if ((ch == 'c' || ch == 'x') && g_nchests < 4) {
+                g_chests[g_nchests].x = (uint8_t)(tx * TILE);
+                g_chests[g_nchests].y = (uint8_t)(ty * TILE);
+                g_chests[g_nchests].locked = ch == 'x';
+                g_nchests++;
+                continue;
+            }
+            int p = prop_of_char(ch);
+            if (p >= 0 && g_nprops < MAX_ROOM_PROPS) {
                 g_props_cur[g_nprops].prop = (uint8_t)p;
                 g_props_cur[g_nprops].x = (uint8_t)(tx * TILE);
                 g_props_cur[g_nprops].y = (uint8_t)(ty * TILE);
@@ -248,7 +266,20 @@ static int box_solid(float x, float y) {
         if (x + 4 > px0 && x - 4 < px0 + d->fw && y + 4 > py0 && y - 4 < py0 + d->fh)
             return 1;
     }
+    for (int i = 0; i < g_nchests; i++)
+        if (x + 4 > g_chests[i].x && x - 4 < g_chests[i].x + 20 &&
+            y + 4 > g_chests[i].y && y - 4 < g_chests[i].y + 16)
+            return 1;
     return 0;
+}
+
+/* which chest a blocked probe point is pushing on, or -1 */
+static int chest_at_px(float x, float y) {
+    for (int i = 0; i < g_nchests; i++)
+        if (x >= g_chests[i].x - 2 && x < g_chests[i].x + 22 &&
+            y >= g_chests[i].y - 2 && y < g_chests[i].y + 18)
+            return i;
+    return -1;
 }
 
 /* which door a blocked probe point is pushing on, or -1 */
@@ -283,6 +314,10 @@ static int pt_in_props(float x, float y, float pad) {
             y > g_props_cur[i].y - pad && y < g_props_cur[i].y + d->fh + pad)
             return 1;
     }
+    for (int i = 0; i < g_nchests; i++)
+        if (x > g_chests[i].x - pad && x < g_chests[i].x + 20 + pad &&
+            y > g_chests[i].y - pad && y < g_chests[i].y + 16 + pad)
+            return 1;
     return 0;
 }
 
@@ -486,7 +521,7 @@ static void door_try(int side) {
     /* DS_CLOSED: an undrafted cell — roll the lock, then draft */
     if (!(cl->lock_roll & DBIT(side))) {
         cl->lock_roll |= DBIT(side);
-        int p = g_no_locks ? 0 : g_all_locks ? 100 : 8 + 5 * (7 - gi_row(n));
+        int p = g_no_locks ? 0 : g_all_locks ? 100 : 5 + 7 * (7 - gi_row(n));
         if ((int)(mote_rand() % 100u) < p) {
             cl->lock_on |= DBIT(side);
             toast("LOCKED - NEED A KEY");
@@ -509,6 +544,39 @@ static void door_try(int side) {
     g_state = GS_DRAFT;
 }
 
+/* ------------------------------------------------------------------ chests --- */
+static void chest_try(int i) {
+    Cell *cl = &g_grid[g_cur];
+    if (cl->chests & (1 << i)) return;                 /* already opened */
+    if (g_chests[i].locked && !g_master) {
+        if (g_keys > 0) { g_keys--; toast("UNLOCKED THE CHEST  -1 KEY"); }
+        else { toast("PADLOCKED - NEED A KEY"); mote->audio_play_sfx(&locked_sfx, 0.9f); return; }
+    }
+    cl->chests |= (uint8_t)(1 << i);
+    mote->audio_play_sfx(&unlock_sfx, 1.0f);
+    g_score += 10;
+    /* seeded contents; padlocked chests hold more */
+    uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 2654435761u) ^ (0xC0FFEEu + (uint32_t)i));
+    int gold = g_chests[i].locked ? 4 + (int)(r % 4u) : 2 + (int)(r % 3u);
+    g_gold += gold;
+    int roll = (int)((r >> 8) % 100u);
+    char buf[40];
+    const char *extra = "";
+    if (g_chests[i].locked) {
+        if (roll < 30)      { g_gems++; extra = " +GEM"; }
+        else if (roll < 55) { g_keys++; extra = " +KEY"; }
+        else if (roll < 78) { g_score += 75; extra = " +75!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
+        else                { g_gold += 3; gold += 3; }
+    } else {
+        if (roll < 22)      { g_gems++; extra = " +GEM"; }
+        else if (roll < 40) { g_keys++; extra = " +KEY"; }
+        else if (roll < 52) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
+    }
+    mote->audio_play_sfx(&coin_sfx, 0.9f);
+    snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);
+    toast(buf);
+}
+
 /* ------------------------------------------------------------------ pickups -- */
 static void pickups_tick(void) {
     Cell *cl = &g_grid[g_cur];
@@ -527,6 +595,7 @@ static void pickups_tick(void) {
             case IT_GEM:  g_gems++; mote->audio_play_sfx(&gem_sfx, 0.9f); break;
             case IT_FOOD: g_steps += 6; mote->audio_play_sfx(&food_sfx, 0.8f); toast("+6 STEPS"); break;
             case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
+            case IT_POUCH: g_gold += 3; g_score += 5; mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
             case IT_STAR: g_score += 25; mote->audio_play_sfx(&star_sfx, 0.9f); toast("+25"); break;
             case IT_STAR2: g_score += 75; mote->audio_play_sfx(&star_sfx, 1.0f); toast("+75!"); break;
             case IT_STAR3: g_score += 100; mote->audio_play_sfx(&star_sfx, 1.0f); toast("+100!"); break;
@@ -631,9 +700,13 @@ static void player_tick(float dt) {
         }
     }
     g_bump_cd -= dt;
-    if (bumped_side >= 0 && g_bump_cd <= 0) {
-        g_bump_cd = 0.35f;
-        door_try(bumped_side);
+    if (g_bump_cd <= 0) {
+        /* pushing on a chest? (checked before doors: chests sit inside) */
+        float fx = g_px + (g_face == DIR_E ? 7 : g_face == DIR_W ? -7 : 0);
+        float fy = g_py + (g_face == DIR_S ? 7 : g_face == DIR_N ? -7 : 0);
+        int ci = g_moving ? chest_at_px(fx, fy) : -1;
+        if (ci >= 0) { g_bump_cd = 0.4f; chest_try(ci); }
+        else if (bumped_side >= 0) { g_bump_cd = 0.35f; door_try(bumped_side); }
     }
     pickups_tick();
 
@@ -713,6 +786,17 @@ static void room_draw(void) {
                 d->fx, d->fy, d->fw, d->fh, layer, 0);
     }
 
+    /* treasure chests (closed / padlocked / open) */
+    for (int i = 0; i < g_nchests; i++) {
+        int open = (cl->chests >> i) & 1;
+        const PropDef *d = &k_props[open ? P_CHEST_OPEN : P_CHEST];
+        int layer = 3 + ((g_chests[i].y + 16) >> 3);
+        add_spr(k_prop_sheets[d->sheet], g_chests[i].x, g_chests[i].y,
+                d->fx, d->fy, d->fw, d->fh, layer, 0);
+        if (!open && g_chests[i].locked)
+            add_spr(&items_img, g_chests[i].x + 4, g_chests[i].y + 5, 7 * 12, 0, 12, 12, layer, 0);
+    }
+
     /* pickups */
     uint8_t pos[MAX_LOOT][2];
     int n = loot_positions(g_cur, pos);
@@ -721,12 +805,14 @@ static void room_draw(void) {
             add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
                     k_item_cell[rd->loot[i]] * 12, 0, 12, 12, 3 + ((pos[i][1] + 6) >> 3), 0);
 
-    /* player (16x20 sprite, feet at py+6) */
-    int frame = g_moving ? ((int)(g_walk_t * 6.0f) & 1) : 0;
+    /* player (16x20 sprite, feet at py+6; side walk is a 4-frame cycle) */
     int cell; uint8_t fl = 0;
-    if (g_face == DIR_S) cell = 0 + frame;
-    else if (g_face == DIR_N) cell = 2 + frame;
-    else { cell = 4 + frame; if (g_face == DIR_E) fl = MOTE_SPR_HFLIP; }
+    if (g_face == DIR_S) cell = 0 + (g_moving ? ((int)(g_walk_t * 6.0f) & 1) : 0);
+    else if (g_face == DIR_N) cell = 2 + (g_moving ? ((int)(g_walk_t * 6.0f) & 1) : 0);
+    else {
+        cell = 4 + (g_moving ? ((int)(g_walk_t * 8.0f) & 3) : 0);
+        if (g_face == DIR_W) fl = MOTE_SPR_HFLIP;    /* sheet cells face right */
+    }
     add_spr(&hero_img, (int)g_px - 8, (int)g_py - 14, cell * 16, 0, 16, 20,
             3 + (((int)g_py + 6) >> 3), fl);
 }
@@ -790,23 +876,50 @@ static void bp_cell(uint16_t *fb, int x, int y, int cs, int gi, int hilite) {
         mote->draw_rect(fb, x - 1, y - 1, cs + 1, cs + 1, rgb(255, 255, 255), 0, 0, 128);
 }
 
-/* THE key screen: the whole blueprint on the left, the cards on the right,
- * the selected card's doors previewed live in the target cell. */
-static void draft_draw(uint16_t *fb) {
-    dim(fb);
-    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    int cs = 10, ox = 6, oy = 22;                       /* 5x8 cells of 10px */
-    mote->draw_rect(fb, ox - 4, oy - 4, 5 * cs + 7, 8 * cs + 7, rgb(12, 20, 48), 1, 0, 128);
-    mote->draw_rect(fb, ox - 4, oy - 4, 5 * cs + 7, 8 * cs + 7, rgb(110, 150, 220), 0, 0, 128);
+/* full-screen blueprint paper backdrop */
+static void paper(uint16_t *fb) {
+    mote->draw_rect(fb, 0, 0, 128, 128, rgb(13, 21, 50), 1, 0, 128);
+    for (int v = 8; v < 128; v += 8) {
+        uint16_t c = (v & 31) ? rgb(18, 28, 64) : rgb(25, 40, 88);
+        mote->draw_rect(fb, v, 0, 1, 128, c, 1, 0, 128);
+        mote->draw_rect(fb, 0, v, 128, 1, c, 1, 0, 128);
+    }
+    mote->draw_rect(fb, 1, 1, 126, 126, rgb(96, 136, 210), 0, 0, 128);
+    mote->draw_rect(fb, 3, 3, 122, 122, rgb(44, 66, 124), 0, 0, 128);
+}
+
+/* textured mini-blueprint of a room: real floor texture, wall ring, door gaps */
+static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t mask, int bright) {
+    const RoomDef *d = &k_rooms[room];
+    float sc = (float)(s - 4) / 16.0f;
+    mote->blit_ex(fb, &floors_img, x + s / 2, y + s / 2,
+                  d->floor * 32, 0, 16, 16, 0.0f, sc, MOTE_BLEND_NONE, 0, 128);
+    uint16_t wc = bright ? rgb(180, 190, 214) : rgb(110, 120, 148);
+    mote->draw_rect(fb, x, y, s, 2, wc, 1, 0, 128);
+    mote->draw_rect(fb, x, y + s - 2, s, 2, wc, 1, 0, 128);
+    mote->draw_rect(fb, x, y, 2, s, wc, 1, 0, 128);
+    mote->draw_rect(fb, x + s - 2, y, 2, s, wc, 1, 0, 128);
+    mote->draw_rect(fb, x + 2, y + 2, s - 4, s - 4, rgb(20, 24, 40), 0, 0, 128);
+    uint16_t dc = bright ? rgb(255, 235, 150) : rgb(250, 252, 255);
+    int m = s / 2 - 3, g = 6;
+    if (mask & DBIT(DIR_N)) mote->draw_rect(fb, x + m, y, g, 3, dc, 1, 0, 128);
+    if (mask & DBIT(DIR_S)) mote->draw_rect(fb, x + m, y + s - 3, g, 3, dc, 1, 0, 128);
+    if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + m, 3, g, dc, 1, 0, 128);
+    if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + s - 3, y + m, 3, g, dc, 1, 0, 128);
+}
+
+/* the estate blueprint, with the draft target previewed live (target_gi < 0: none) */
+static void estate_map(uint16_t *fb, int ox, int oy, int cs, int target_gi) {
+    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cs + 5, GRID_H * cs + 5, rgb(10, 17, 42), 1, 0, 128);
+    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cs + 5, GRID_H * cs + 5, rgb(110, 150, 220), 0, 0, 128);
     for (int r = 0; r < GRID_H; r++)
         for (int c = 0; c < GRID_W; c++) {
             int gi = r * GRID_W + c;
-            if (gi == g_draft_gi) continue;             /* drawn last, on top */
+            if (gi == target_gi) continue;
             bp_cell(fb, ox + c * cs, oy + r * cs, cs, gi, gi == g_cur);
         }
-    /* target cell: the selected room previewed in place, blinking */
-    {
-        int c = gi_col(g_draft_gi), r = gi_row(g_draft_gi);
+    if (target_gi >= 0) {
+        int c = gi_col(target_gi), r = gi_row(target_gi);
         int x = ox + c * cs, y = oy + r * cs;
         const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
         uint8_t mask = orient_mask(d->shape, g_draft_entry, g_rot[g_draft_sel]);
@@ -821,36 +934,96 @@ static void draft_draw(uint16_t *fb) {
         if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + cs - 3, y + m, 2, 2, pip, 1, 0, 128);
         mote->draw_rect(fb, x - 1, y - 1, cs + 1, cs + 1, rgb(255, 230, 120), 0, 0, 128);
     }
-    mote->text_font(fb, f, "DRAFT", ox - 2, 4, rgb(200, 215, 250));
+}
 
-    /* the cards */
-    int ch = g_draft_n == 4 ? 23 : 31;
-    for (int i = 0; i < g_draft_n; i++) {
-        const RoomDef *d = &k_rooms[g_cards[i]];
-        int x = 62, y = 18 + i * (ch + 1), w = 62;
-        int sel = i == g_draft_sel;
-        int afford = card_affordable(g_cards[i]);
-        static const uint16_t rar[3] = { 0x8410, 0x2E9F, 0xFD00 };
-        mote->draw_rect(fb, x, y, w, ch, sel ? rgb(38, 48, 88) : rgb(18, 22, 44), 1, 0, 128);
-        if (sel) mote->draw_rect(fb, x, y, w, ch, rgb(150, 180, 255), 0, 0, 128);
-        mote->draw_rect(fb, x, y, 2, ch, rar[d->rarity], 1, 0, 128);
-        uint16_t nc = afford ? rgb(250, 250, 255) : rgb(110, 110, 122);
-        mote->text_font(fb, f, d->name, x + 5, y + 1, nc);
-        if (k_blurb[g_cards[i]])
-            mote->text_font(fb, f, k_blurb[g_cards[i]], x + 5, y + (ch == 23 ? 11 : 14),
-                            afford ? rgb(165, 185, 225) : rgb(95, 95, 108));
-        int cx = x + w - 12;
-        for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, y + 1, 2 * 12, 0, 12, 12, 0, 0, 128); cx -= 8; }
-        if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, y + 1, 7 * 12, 0, 12, 12, 0, 0, 128); }
-    }
-    /* footer: gems + hints */
+static void draft_footer(uint16_t *fb, const MoteFont *f) {
     char buf[8];
     snprintf(buf, sizeof buf, "%d", g_gems);
-    mote->blit(fb, &items_img, 4, 114, 2 * 12, 0, 12, 12, 0, 0, 128);
-    mote->text_font(fb, f, buf, 17, 114, rgb(140, 240, 220));
+    mote->blit(fb, &items_img, 6, 115, 2 * 12, 0, 12, 12, 0, 0, 128);
+    mote->text_font(fb, f, buf, 19, 115, rgb(140, 240, 220));
     const char *hint = g_compass ? (g_gems > 0 ? "B RD  LB/RB TURN" : "LB/RB TURN")
                                  : (g_gems > 0 ? "B REROLL" : "A PLACE");
-    mote->text_font(fb, f, hint, 34, 114, rgb(160, 170, 200));
+    mote->text_font(fb, f, hint, 36, 115, rgb(150, 165, 205));
+}
+
+static const uint16_t k_rarity_col[3] = { 0x8410, 0x2E9F, 0xFD00 };
+static const char *k_rarity_name[3] = { "COMMON", "UNCOMMON", "RARE" };
+
+/* Layout A "drafting desk": blueprint left, selected card's dossier right,
+ * the hand of room shapes along the bottom. */
+static void draft_draw_a(uint16_t *fb) {
+    paper(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote->text_font(fb, f, "DRAFT", 8, 6, rgb(210, 224, 250));
+    estate_map(fb, 10, 24, 8, g_draft_gi);
+
+    /* dossier for the selected card */
+    const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
+    int afford = card_affordable(g_cards[g_draft_sel]);
+    mote->draw_rect(fb, 56, 20, 68, 62, rgb(16, 25, 58), 1, 0, 128);
+    mote->draw_rect(fb, 56, 20, 68, 62, rgb(70, 100, 170), 0, 0, 128);
+    mote->text_font(fb, f, d->name, 60, 23, afford ? rgb(250, 250, 255) : rgb(120, 120, 132));
+    mote->text_font(fb, f, k_rarity_name[d->rarity], 60, 36, k_rarity_col[d->rarity]);
+    if (k_blurb[g_cards[g_draft_sel]])
+        mote->text_font(fb, f, k_blurb[g_cards[g_draft_sel]], 60, 50,
+                        afford ? rgb(165, 190, 235) : rgb(100, 100, 112));
+    int cx = 60;
+    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, 66, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, 66, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
+    if (!afford) mote->text_font(fb, f, "!", cx + 2, 65, rgb(255, 110, 90));
+
+    /* the hand: every option's SHAPE always on show */
+    int tw = 26, total = g_draft_n * tw - 2;
+    int hx = (128 - total) / 2, hy = 90;
+    for (int i = 0; i < g_draft_n; i++) {
+        const RoomDef *cd = &k_rooms[g_cards[i]];
+        uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
+        int sel = i == g_draft_sel;
+        int x = hx + i * tw, y = hy - (sel ? 4 : 0);
+        if (sel) mote->draw_rect(fb, x - 2, y - 2, 28, 28, rgb(255, 230, 120), 0, 0, 128);
+        room_icon(fb, x, y, 24, g_cards[i], mask, sel);
+        if (!card_affordable(g_cards[i]))
+            mote->blit(fb, &items_img, x + 6, y + 6, 7 * 12, 0, 12, 12, 0, 0, 128);
+        mote->draw_rect(fb, x, y + 24, 24, 2, k_rarity_col[cd->rarity], 1, 0, 128);
+    }
+    draft_footer(fb, f);
+}
+
+/* Layout B "ledger": card list left with shape icons, blueprint right. */
+static void draft_draw_b(uint16_t *fb) {
+    paper(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote->text_font(fb, f, "DRAFT", 8, 6, rgb(210, 224, 250));
+    estate_map(fb, 86, 24, 8, g_draft_gi);
+
+    int ch = g_draft_n == 4 ? 23 : 29;
+    for (int i = 0; i < g_draft_n; i++) {
+        const RoomDef *d = &k_rooms[g_cards[i]];
+        uint8_t mask = orient_mask(d->shape, g_draft_entry, g_rot[i]);
+        int x = 6, y = 20 + i * (ch + 2), w = 74;
+        int sel = i == g_draft_sel;
+        int afford = card_affordable(g_cards[i]);
+        mote->draw_rect(fb, x, y, w, ch, sel ? rgb(24, 36, 78) : rgb(15, 23, 54), 1, 0, 128);
+        mote->draw_rect(fb, x, y, w, ch, sel ? rgb(255, 230, 120) : rgb(52, 74, 130), 0, 0, 128);
+        room_icon(fb, x + 2, y + (ch - 20) / 2, 20, g_cards[i], mask, sel);
+        uint16_t nc = afford ? rgb(250, 250, 255) : rgb(110, 110, 122);
+        mote->text_font(fb, f, d->name, x + 24, y + 1, nc);
+        if (ch > 24 && k_blurb[g_cards[i]])
+            mote->text_font(fb, f, k_blurb[g_cards[i]], x + 24, y + 15,
+                            afford ? rgb(165, 190, 235) : rgb(95, 95, 108));
+        int cx = x + w - 11;
+        int cy2 = y + 1;
+        for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, cy2, 2 * 12, 0, 12, 12, 0, 0, 128); cy2 += 8; }
+        if (d->flags & RF_LOCKED) mote->blit(fb, &items_img, cx, cy2, 7 * 12, 0, 12, 12, 0, 0, 128);
+    }
+    draft_footer(fb, f);
+}
+
+static uint8_t g_draft_ui;                 /* DRAFT_UI=b -> layout B */
+
+static void draft_draw(uint16_t *fb) {
+    if (g_draft_ui) draft_draw_b(fb);
+    else draft_draw_a(fb);
 }
 
 static int card_orientations(uint8_t id) {
@@ -860,8 +1033,10 @@ static int card_orientations(uint8_t id) {
 
 static void draft_tick(void) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_UP))   { g_draft_sel = (g_draft_sel + g_draft_n - 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_DOWN)) { g_draft_sel = (g_draft_sel + 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_LEFT))
+        { g_draft_sel = (g_draft_sel + g_draft_n - 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_DOWN) || mote_just_pressed(in, MOTE_BTN_RIGHT))
+        { g_draft_sel = (g_draft_sel + 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
     if (g_compass) {
         int n = card_orientations(g_cards[g_draft_sel]);
         if (mote_just_pressed(in, MOTE_BTN_RB)) { g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + 1) % n); mote->audio_play_sfx(&tick_sfx, 0.7f); }
@@ -878,20 +1053,14 @@ static void draft_tick(void) {
 }
 
 static void map_draw(uint16_t *fb) {
-    dim(fb);
+    paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     char buf[32];
     snprintf(buf, sizeof buf, "DAY %d", g_days + 1);
-    mote->text_font(fb, f, buf, 4, 2, rgb(200, 210, 240));
+    mote->text_font(fb, f, buf, 8, 6, rgb(200, 210, 240));
     snprintf(buf, sizeof buf, "%u", (unsigned)g_score);
-    mote->text_font(fb, f, buf, 90, 2, rgb(250, 240, 190));
-    int ox = 34, oy = 17, cs = 12;
-    for (int r = 0; r < GRID_H; r++)
-        for (int c = 0; c < GRID_W; c++) {
-            int gi = r * GRID_W + c;
-            bp_cell(fb, ox + c * cs, oy + r * cs, cs, gi,
-                    gi == g_cur && ((int)(g_result_t * 3) & 1) == 0);
-        }
+    mote->text_font(fb, f, buf, 92, 6, rgb(250, 240, 190));
+    estate_map(fb, 34, 19, 12, -1);
     mote_ftextc(mote, fb, f, 64, 116, rgb(220, 225, 245), k_rooms[g_grid[g_cur].room].name);
 }
 
@@ -1021,6 +1190,7 @@ static void g_init(void) {
         else if (*e == '2') g_all_locks = 1;
     }
     g_force_rooms = getenv("DRAFT_ROOMS");
+    if ((e = getenv("DRAFT_UI")) && *e == 'b') g_draft_ui = 1;
     if (getenv("DRAFT_SKIP")) day_start();
     mote->log("draftmote up");
 }

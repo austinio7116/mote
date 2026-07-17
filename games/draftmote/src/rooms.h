@@ -7,10 +7,11 @@
  *
  * Template chars:
  *   '#' wall ring    '.' floor
- *   props: u bush  c chest  C campfire  L shelf_big  l shelf_small
+ *   props: u bush  C campfire  L shelf_big  l shelf_small
  *          b bed_blue  B bed_red  t table  h chair  s sofa  K counter
  *          S stove  U tub  T toilet  d desk  m map_table  W washer
  *          r barrel  g gold_pile  w workbench  p plant
+ *   chests (interactive, bump to open): c chest  x PADLOCKED chest (1 key)
  * Every template must keep the four door approaches walkable:
  * tiles (3,1) (5,3) (3,5) (1,3) — any side can be the entry.
  */
@@ -37,6 +38,7 @@ enum {
 enum {                   /* loot pickup types */
     IT_NONE = 0, IT_COIN, IT_KEY, IT_GEM, IT_FOOD, IT_STAR, IT_STAR2, IT_STAR3,
     IT_POTION,           /* tonic: +10 steps */
+    IT_POUCH,            /* gold pouch: +3 gold */
 };
 
 /* floors.png macro-tile columns */
@@ -67,6 +69,7 @@ enum {
     R_LAUNDRY, R_STORE, R_CELLAR, R_LOCKSMITH, R_COMMISSARY,
     R_HEARTH, R_STILLROOM,
     R_TERRACE, R_GARDEN, R_SUNROOM, R_VAULT,
+    R_GUEST, R_CHAPEL, R_ARMORY, R_WINECELLAR, R_ORCHARD, R_TREASURY,
     R_COUNT,
 };
 
@@ -258,7 +261,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#r...r#"
         "#.....#"
         "#.....#"
-        "#c....#"
+        "#x....#"
         "#.....#"
         "#######", { IT_KEY, IT_KEY, 0 } },
 
@@ -328,11 +331,65 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_VAULT] = { "VAULT", SH_DEAD, 2, 2, FL_STONE, WL_DARK, C565(240, 205, 80), RF_UNIQUE | RF_LOCKED, 0, 0, 0, 0,
         "#######"
         "#g...g#"
-        "#..c..#"
+        "#..x..#"
         "#.....#"
         "#g...g#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_STAR } },
+
+    [R_GUEST] = { "GUEST ROOM", SH_DEAD, 0, 0, FL_BLUE, WL_STONE, C565(110, 140, 196), 0, 4, 0, 0, 0,
+        "#######"
+        "#b....#"
+        "#.....#"
+        "#.....#"
+        "#c...p#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_CHAPEL] = { "CHAPEL", SH_STR, 1, 0, FL_BLUE, WL_STONE, C565(120, 110, 200), 0, 0, 0, 0, 0,
+        "#######"
+        "#C...C#"
+        "#..t..#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_STAR2, IT_COIN, 0 } },
+
+    [R_ARMORY] = { "ARMORY", SH_R, 1, 1, FL_STONE, WL_DARK, C565(140, 140, 156), 0, 0, 1, 0, 0,
+        "#######"
+        "#w...r#"
+        "#.....#"
+        "#.....#"
+        "#x....#"
+        "#.....#"
+        "#######", { IT_KEY, IT_COIN, 0 } },
+
+    [R_WINECELLAR] = { "WINE STORE", SH_DEAD, 1, 0, FL_WOOD_DARK, WL_DARK, C565(140, 70, 110), 0, 0, 0, 0, 0,
+        "#######"
+        "#r...r#"
+        "#.....#"
+        "#.....#"
+        "#r...r#"
+        "#.....#"
+        "#######", { IT_POTION, IT_POUCH, IT_COIN, 0 } },
+
+    [R_ORCHARD] = { "ORCHARD", SH_L, 1, 0, FL_LEAFY, WL_STONE, C565(120, 160, 54), RF_GREEN, 0, 0, 1, 0,
+        "#######"
+        "#u...u#"
+        "#.....#"
+        "#.....#"
+        "#....u#"
+        "#.....#"
+        "#######", { IT_FOOD, IT_GEM, 0 } },
+
+    [R_TREASURY] = { "TREASURY", SH_DEAD, 2, 2, FL_RED, WL_DARK, C565(230, 170, 60), RF_UNIQUE, 0, 0, 0, 0,
+        "#######"
+        "#x...x#"
+        "#.....#"
+        "#.....#"
+        "#..g..#"
+        "#.....#"
+        "#######", { IT_POUCH, IT_COIN, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

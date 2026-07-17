@@ -4,8 +4,8 @@
 
 Writes the editable game sheets under assets/:
   hero.png    16x20 x8 : front0 front1 back0 back1 left0 left1 (right = HFLIP)
-  items.png   12x12 x12: coin key gem food star bigstar masterkey padlock boot
-                         potion compass spyglass   (last three authored)
+  items.png   12x12 x13: coin key gem food star bigstar masterkey padlock boot
+                         potion compass spyglass pouch  (boot/compass/spyglass authored)
   floors.png  32x32 macro-tiles (2x2 game tiles):
               wood wood_dark stone_tile red_carpet blue_carpet grass
               white_checker autumn grass_leafy
@@ -34,8 +34,11 @@ def snap565(img):
     return Image.fromarray(a.astype(np.uint8))
 
 def keyed(box, pad=8, thresh=40, margin=12):
-    """crop + alpha out the backdrop. The boxes are tight sprite bounds, so
-    expand by `margin` first — the corner samples must land on background."""
+    """crop + alpha out the backdrop, keeping the sprite's MAIN ISLAND.
+    Every sprite on the sheet is a single connected blob, so: colour-key,
+    bridge small gaps, take the largest connected component, then fill its
+    holes — grey clothing that matched the grey backdrop comes back."""
+    from scipy import ndimage
     x0, y0, x1, y1 = box
     x0 = max(0, x0 - margin); y0 = max(0, y0 - margin)
     x1 = min(A.shape[1], x1 + margin); y1 = min(A.shape[0], y1 + margin)
@@ -48,12 +51,15 @@ def keyed(box, pad=8, thresh=40, margin=12):
     for c in pal:
         d = np.minimum(d, np.abs(a - c).sum(axis=2))
     m = d > thresh
-    from scipy import ndimage
     m = ndimage.binary_opening(m, np.ones((2, 2)))
+    m = ndimage.binary_closing(m, np.ones((5, 5)))     # bridge outline gaps
+    lab, n = ndimage.label(m)
+    if n == 0:
+        raise SystemExit("empty key crop %s" % (box,))
+    sizes = ndimage.sum(m, lab, range(1, n + 1))
+    m = lab == (int(np.argmax(sizes)) + 1)
     m = ndimage.binary_fill_holes(m)
     ys, xs = np.where(m)
-    if len(xs) == 0:
-        raise SystemExit("empty key crop %s" % (box,))
     bb = (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)
     rgba = np.dstack([a.astype(np.uint8), (m * 255).astype(np.uint8)])
     return Image.fromarray(rgba, "RGBA").crop(bb)
@@ -67,26 +73,35 @@ def fit(img, w, h):
     return cell
 
 # ------------------------------------------------------------------- hero ----
-# walk frames (front 4, back 4, left 4); we use frames 0+2 of each cycle
-CHAR = {
-    "front": [(23, 57), (598, 57)],
-    "back":  [(1270, 56), (1845, 57)],
-    "left":  [(2505, 57), (3094, 56)],
-}
+# cells: 0-1 front walk · 2-3 back walk · 4-7 SIDE walk, right-facing
+# (game flips for left). The sheet's side frames are a jumble — two of the
+# "left" frames face right — so the 4-frame cycle is hand-picked:
+#   stand(R3) -> stride A (L1 flipped) -> passing (L0 flipped) -> stride B (R1)
 HW, HHH = 277, 326
-hero = Image.new("RGBA", (6 * 16, 20), (0, 0, 0, 0))
+FRONT = [(23, 57), (598, 57)]
+BACK  = [(1270, 56), (1845, 57)]
+SIDE  = [((4690, 56), 0),      # R3: standing (also the idle frame)
+         ((2797, 57), 1),      # L1: stride A, faces left -> flip
+         ((2505, 57), 1),      # L0: passing, faces left -> flip
+         ((4102, 56), 0)]      # R1: stride B, already right-facing
+
+hero = Image.new("RGBA", (10 * 16, 20), (0, 0, 0, 0))
+def hero_cell(i, x, y, flip):
+    c = keyed((x, y, x + HW, y + HHH), pad=24, thresh=40)   # dotted cell backdrop
+    if flip:
+        c = c.transpose(Image.FLIP_LEFT_RIGHT)
+    hero.paste(fit(c, 16, 20), (i * 16, 0))
+
 i = 0
-for dirn in ("front", "back", "left"):
-    for (x, y) in CHAR[dirn]:
-        c = keyed((x, y, x + HW, y + HHH), pad=24, thresh=40)   # pad wide: the cell
-                                                                # backdrop is dotted
-        hero.paste(fit(c, 16, 20), (i * 16, 0))
-        i += 1
+for (x, y) in FRONT + BACK:
+    hero_cell(i, x, y, 0); i += 1
+for ((x, y), fl) in SIDE:
+    hero_cell(i, x, y, fl); i += 1
 hero.save(os.path.join(HERE, "hero.png"))
-print("wrote hero.png")
+print("wrote hero.png (2 front, 2 back, 4 side)")
 
 # ------------------------------------------------------------------ items ----
-IT = Image.new("RGBA", (12 * 12, 12), (0, 0, 0, 0))
+IT = Image.new("RGBA", (13 * 12, 12), (0, 0, 0, 0))
 def item(cell, box, size=12, thresh=40):
     IT.paste(fit(keyed(box, thresh=thresh), size, size), (cell * 12 + (12 - size) // 2, 0))
 
@@ -98,6 +113,7 @@ item(4, (2587, 547, 2760, 745), size=10)   # star (without the long trail)
 item(5, (2587, 547, 2900, 745))            # big star, trail and all
 item(7, (2961, 534, 3105, 746))            # padlock
 item(9, (3176, 541, 3321, 750))            # potion
+item(12, (1530, 720, 1610, 800))           # sack = gold pouch
 
 # master key: the key, gilded
 key = np.asarray(IT.crop((12, 0, 24, 12))).astype(np.int32)
