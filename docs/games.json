@@ -1,16 +1,16 @@
 {
  "schema": 1,
- "generated": "2026-07-17T18:02:21+00:00",
+ "generated": "2026-07-17T20:43:34+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
    "id": "terramote",
    "name": "TerraMote",
    "author": "austinio7116",
-   "version": "1.3.1",
+   "version": "1.3.2",
    "abi": 47,
-   "size": 710372,
-   "sha256": "612dcedc9bba4aeada2105e7d7561eacbc0ac69001f44796ee423e7aba381035",
+   "size": 710420,
+   "sha256": "2c1a24342ebb5e227abd9a1092a3b7162b445ebe2057e011c5b6bd9faab9f9dc",
    "file": "games/TerraMote.mote",
    "icon": "img/gallery/terramote-icon.png",
    "thumb": "img/gallery/terramote-1.png",
