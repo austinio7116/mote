@@ -213,7 +213,7 @@ function select(g,scroll){
   [...dots.children].forEach((d,i)=>d.onclick=()=>{show(i);restart();});
   document.getElementById('m-icon').src=`img/gallery/${g.id}-icon.png`;
   document.getElementById('m-name').textContent=g.name;
-  document.getElementById('m-by').textContent=`by ${g.by} · ${g.tag}${g.mp?' · 2-player (USB / LAN / internet)':''}`;
+  document.getElementById('m-by').textContent=`by ${g.by}${g.ver?` · v${g.ver}`:''} · ${g.tag}${g.mp?' · 2-player (USB / LAN / internet)':''}`;
   document.getElementById('m-desc').textContent=g.desc;
   const dl=document.getElementById('m-dl');
   dl.href=`games/${g.file}`; dl.setAttribute('download',g.file);
@@ -233,6 +233,14 @@ GAMES.forEach(g=>{
   grid.appendChild(c);
 });
 select(GAMES[0],false);
+/* live versions come from games.json — the machine manifest regenerated with
+ * every release (embedded module version, so it can never drift from the .mote) */
+fetch('games.json').then(r=>r.json()).then(m=>{
+  const v={}; (m.games||[]).forEach(g=>v[g.id]=g.version);
+  GAMES.forEach(g=>{ if(v[g.id]) g.ver=v[g.id]; });
+  if(cur) document.getElementById('m-by').textContent=
+    `by ${cur.by}${cur.ver?` · v${cur.ver}`:''} · ${cur.tag}${cur.mp?' · 2-player (USB / LAN / internet)':''}`;
+}).catch(()=>{});
 window.addEventListener('load',()=>{                 /* warm the cache: all shots, gently */
   const q=[];
   GAMES.forEach(g=>{ const n=g.n||3; for(let i=1;i<=n;i++) q.push(`img/gallery/${g.id}-${i}.png`); });
