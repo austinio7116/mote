@@ -871,11 +871,12 @@ static void room_draw(void) {
     const RoomDef *rd = &k_rooms[cl->room];
     const MoteAutotile *wall = k_walls[rd->wall];
 
-    /* floor everywhere (2x2 macro-tiles), thin wall band painted over the rim */
+    /* floor everywhere (16px texture tiles, variant hash-picked per tile so
+     * the grain doesn't grid up), thin wall band painted over the rim */
     for (int ty = 0; ty < ROOM_T; ty++)
         for (int tx = 0; tx < ROOM_T; tx++)
             add_spr(&floors_img, tx * TILE, ty * TILE,
-                    rd->floor * 32 + (tx & 1) * TILE, (ty & 1) * TILE, TILE, TILE, 0, 0);
+                    rd->floor * TILE, ((tx * 7 + ty * 13) & 1) * TILE, TILE, TILE, 0, 0);
     for (int i = 0; i < ROOM_T; i++) {
         add_spr(wall->sheet, i * TILE, 0, 0, 0, TILE, WALL_PX, 1, 0);
         add_spr(wall->sheet, i * TILE, ROOM_PX - WALL_PX, 0, TILE - WALL_PX, TILE, WALL_PX, 1, 0);
@@ -1019,9 +1020,13 @@ static void paper(uint16_t *fb) {
  * the room's own furniture blitted at miniature scale */
 static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t mask, int bright) {
     const RoomDef *d = &k_rooms[room];
-    float sc = (float)(s - 4) / 32.0f;
-    mote->blit_ex(fb, &floors_img, x + s / 2, y + s / 2,
-                  d->floor * 32, 0, 32, 32, 0.0f, sc, MOTE_BLEND_NONE, 0, 128);
+    /* floor tiled at true texture scale */
+    int inner = s - 4;
+    for (int oy = 0; oy < inner; oy += TILE)
+        for (int ox = 0; ox < inner; ox += TILE)
+            mote->blit(fb, &floors_img, x + 2 + ox, y + 2 + oy, d->floor * TILE, 0,
+                       inner - ox < TILE ? inner - ox : TILE,
+                       inner - oy < TILE ? inner - oy : TILE, 0, 0, 128);
     /* the template's furniture + chests, scaled into the interior */
     float ps = (float)(s - 4) / (float)ROOM_PX;
     for (int ty = 0; ty < ROOM_T; ty++)

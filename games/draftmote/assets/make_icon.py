@@ -34,7 +34,7 @@ for v in range(0, W, 10):
 # three drafted rooms (floor swatches) climbing toward the gold door
 rooms = [(4, 38, 0), (22, 21, 3), (40, 4, 2)]     # wood, blue carpet, red carpet
 for (x, y, fl) in rooms:
-    icon.paste(floors.crop((fl * 32, 0, fl * 32 + 16, 16)), (x, y))
+    icon.paste(floors.crop((fl * 16, 0, fl * 16 + 16, 16)), (x, y))
     for i in range(-1, 17):
         for (ox, oy) in ((x + i, y - 1), (x + i, y + 16), (x - 1, y + i), (x + 16, y + i)):
             if 0 <= ox < W and 0 <= oy < H:

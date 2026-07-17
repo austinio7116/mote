@@ -168,15 +168,18 @@ def blend_seams(img):
         a[:, i] = a[:, i] * w + a[:, n - 1 - i] * (1 - w)
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
 
-FS = Image.new("RGB", (len(FLOOR_ORDER) * 32, 32), (0, 0, 0))
+# ONE art scale everywhere: a full ~176px swatch is one 16px game tile (11:1),
+# floors AND walls alike — planks ~3px, bricks ~4px, checker ~3px.
+# Two variants per floor (rows), hash-picked per tile so knots don't grid up.
+FS = Image.new("RGB", (len(FLOOR_ORDER) * 16, 32), (0, 0, 0))
 for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
-    # the FULL swatch -> one 32px macro (2x2 game tiles): fine, dense grain
-    x = 22 + int(cx * 176.3) + 6
-    y = 462 + cy * 179 + 6
-    sw = im.crop((x, y, x + 164, y + 164)).resize((32, 32), Image.LANCZOS)
-    FS.paste(snap565(blend_seams(sw)), (i * 32, 0))
+    x = 22 + int(cx * 176.3)
+    y = 462 + cy * 179
+    for v, (ox, oy) in enumerate(((6, 6), (14, 10))):
+        sw = im.crop((x + ox, y + oy, x + ox + 160, y + oy + 160)).resize((16, 16), Image.LANCZOS)
+        FS.paste(snap565(blend_seams(sw)), (i * 16, v * 16))
 FS.save(os.path.join(HERE, "floors.png"))
-print("wrote floors.png:", " ".join(n for n, _, _ in FLOOR_ORDER))
+print("wrote floors.png (16px tiles, 2 variants):", " ".join(n for n, _, _ in FLOOR_ORDER))
 
 # ------------------------------------------------------------------ walls ----
 # AUTHORED edge16 rule sheets over the sheet's masonry swatches: the exposed
@@ -184,9 +187,11 @@ print("wrote floors.png:", " ".join(n for n, _, _ in FLOOR_ORDER))
 WALL_SRC = { "stone": (1, 1), "red": (2, 1), "dark": (3, 1) }
 
 def wall_base(cx, cy):
-    x = 22 + int(cx * 176.3) + 24
-    y = 462 + cy * 179 + 24
-    return np.asarray(im.crop((x, y, x + 128, y + 128)).resize((16, 16), Image.LANCZOS)).astype(np.int32)
+    # same 11:1 scale as the floors: whole swatch -> 16px, brick rows ~4px so
+    # the 8px in-game wall band shows two complete courses
+    x = 22 + int(cx * 176.3) + 6
+    y = 462 + cy * 179 + 6
+    return np.asarray(im.crop((x, y, x + 164, y + 164)).resize((16, 16), Image.LANCZOS)).astype(np.int32)
 
 def shade(base, mask_bits):
     t = base.copy()
