@@ -467,8 +467,10 @@ static void use_item(float dt) {
             if (mote_just_pressed(in, MOTE_BTN_B)) {
                 uint8_t old = BG_WALL(b);
                 world_set_wall(c, r, W_NONE);
-                if (old == W_WOOD)  drops_add(I_WALL_WOOD, 1, c * TILE + 4, r * TILE + 4);
-                if (old == W_STONE) drops_add(I_WALL_STONE, 1, c * TILE + 4, r * TILE + 4);
+                uint8_t back = old == W_WOOD ? I_WALL_WOOD : old == W_STONE ? I_WALL_STONE
+                             : old == W_GLASS ? I_WALL_GLASS : old == W_CLAYBRICK ? I_WALL_CLAYBRICK
+                             : old == W_STONEBRICK ? I_WALL_STONEBRICK : I_NONE;
+                if (back) drops_add(back, 1, c * TILE + 4, r * TILE + 4);
                 part_burst(c * TILE + 4, r * TILE + 4, rgb(120, 100, 70), 4, 40);
                 g_pl.use_t = def->speed / 30.0f;
                 audio_sfx(SFX_DIG, 0.7f);

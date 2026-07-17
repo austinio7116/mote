@@ -9,10 +9,14 @@
 #include "wall_ebon.tiles.h"
 #include "wall_ash.tiles.h"
 #include "wall_snow.tiles.h"
+#include "wall_glass.tiles.h"
+#include "wall_clay_brick.tiles.h"
+#include "wall_stone_brick.tiles.h"
 
 static const MoteAutotile *k_walls[W_COUNT] = {
     0, &wall_dirt_at, &wall_stone_at, &wall_wood_at,
-    &wall_ebon_at, &wall_ash_at, &wall_snow_at
+    &wall_ebon_at, &wall_ash_at, &wall_snow_at,
+    &wall_glass_at, &wall_clay_brick_at, &wall_stone_brick_at
 };
 
 Part  g_part[MAX_PART];
@@ -55,7 +59,7 @@ void fx_light_update(void) {
                 uint8_t b = bg_at(c, r);
                 v = g_tiles[t].light;
                 if (BG_IS_LAVA(b) && BG_LIQ(b)) { int lv = 8 + BG_LIQ(b); if (lv > v) v = lv; }
-                if (r < world_surface_row(c) && !BG_WALL(b)) { if (sun > v) v = sun; }
+                if (r < world_surface_row(c) && (!BG_WALL(b) || BG_WALL(b) == W_GLASS)) { if (sun > v) v = sun; }
                 else if (r <= world_surface_row(c) && r >= world_surface_row(c) - 1 && sun > v && !g_tiles[t].solid)
                     v = sun;                    /* the surface cell itself */
                 if (r >= ROW_HELL - 6) { if (v < 3) v = 3; }   /* hell ambient glow */
@@ -215,7 +219,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int16_t hill_back[MOTE_FB_W];
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
-        srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
+        /* the backdrop line is the NATURAL terrain — built structures draw
+         * over the painted sky/hills instead of clipping them */
+        srow_px[x] = (int16_t)(world_surface_row_natural(c) * TILE);
         hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
         hill_back[x] = (int16_t)(hb - 12 - hill_h(x, 2));   /* back range peeks higher */
         hill_near[x] = (int16_t)(hb - hill_h(x, 1));

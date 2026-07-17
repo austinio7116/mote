@@ -555,7 +555,7 @@ def make_weapons():
             roster.append((cell, ov[0] if ov else tools_idx, item_id, ov[1] if ov else None))
     except Exception as e:
         print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
-    maxid = max(max(r[2] for r in roster), 161)   # + wall/roof/beam building icons
+    maxid = max(max(r[2] for r in roster), 166)   # + building-set icons
     # in-hand sheet: row0 right-facing, row1 mirrored
     ncell = max(r[0] for r in roster) + 1
     wb = Image.new("RGBA", (32 * ncell, 64), (0, 0, 0, 0))
@@ -604,6 +604,23 @@ def make_weapons():
                 c.putpixel((x, y), ((150, 104, 58) if x in (7, 8) else (104, 68, 38)) + (255,))
         for x in range(3, 13):
             c.putpixel((x, 1), (104, 68, 38, 255)); c.putpixel((x, 2), (150, 104, 58, 255))
+    def brick_icon(c, base, mortar):
+        for y in range(3, 13):
+            for x in range(2, 14):
+                col = mortar if (y % 3 == 2 or (x + (y // 3) * 4) % 8 == 0) else base
+                c.putpixel((x, y), col + (255,))
+    def glass_icon(c):
+        for y in range(3, 13):
+            for x in range(2, 14):
+                if x in (2, 13) or y in (3, 12): col = (70, 82, 96)
+                elif (x + y) % 5 == 0: col = (168, 196, 216)
+                else: col = (110, 136, 160)
+                c.putpixel((x, y), col + (255,))
+    paint_icon(162, lambda c: brick_icon(c, (178, 102, 64), (128, 68, 42)))
+    paint_icon(163, lambda c: brick_icon(c, (124, 124, 132), (86, 86, 96)))
+    paint_icon(164, lambda c: brick_icon(c, (134, 77, 48), (96, 51, 32)))
+    paint_icon(165, lambda c: brick_icon(c, (93, 93, 99), (65, 65, 72)))
+    paint_icon(166, glass_icon)
     paint_icon(161, beam_icon)
     paint_icon(158, wall_wood_icon)
     paint_icon(159, wall_stone_icon)
