@@ -9,8 +9,6 @@ Writes the editable game sheets under assets/:
   floors.png  32x32 macro-tiles (2x2 game tiles):
               wood wood_dark stone_tile red_carpet blue_carpet grass
               white_checker autumn grass_leafy
-  doors.png   16x16 x8 : h_closed h_open v_closed v_open gold_closed gold_open
-                         brick_sealed white_sealed
   props_sheet.png + prop boxes printed: bush chest campfire shelf_big shelf_small
                          book sack   (authored furniture comes from make_props.py)
   walls_*.png + tilesets/wall_*.tileset : edge16 rule sheets AUTHORED over the
@@ -160,12 +158,23 @@ print("wrote items.png")
 FLOOR_ORDER = [("wood", 0, 0), ("stone_tile", 1, 0), ("red_carpet", 2, 0),
                ("blue_carpet", 3, 0), ("grass", 4, 0), ("white_checker", 5, 0),
                ("wood_dark", 0, 1), ("grass_leafy", 4, 1), ("autumn", 5, 1)]
+def blend_seams(img):
+    """cross-fade a macro-tile's borders so it tiles without hard seams"""
+    a = np.asarray(img).astype(np.float32)
+    n = a.shape[0]
+    for i in range(2):
+        w = (i + 1) / 3.0
+        a[i, :] = a[i, :] * w + a[n - 1 - i, :] * (1 - w)
+        a[:, i] = a[:, i] * w + a[:, n - 1 - i] * (1 - w)
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
 FS = Image.new("RGB", (len(FLOOR_ORDER) * 32, 32), (0, 0, 0))
 for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
-    x = 22 + int(cx * 176.3) + 20
-    y = 462 + cy * 179 + 20
-    sw = im.crop((x, y, x + 136, y + 136)).resize((32, 32), Image.LANCZOS)
-    FS.paste(snap565(sw), (i * 32, 0))
+    # the FULL swatch -> one 32px macro (2x2 game tiles): fine, dense grain
+    x = 22 + int(cx * 176.3) + 6
+    y = 462 + cy * 179 + 6
+    sw = im.crop((x, y, x + 164, y + 164)).resize((32, 32), Image.LANCZOS)
+    FS.paste(snap565(blend_seams(sw)), (i * 32, 0))
 FS.save(os.path.join(HERE, "floors.png"))
 print("wrote floors.png:", " ".join(n for n, _, _ in FLOOR_ORDER))
 
@@ -212,36 +221,6 @@ for wname, (cx, cy) in WALL_SRC.items():
         f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
         f.write("vweight 1 1 1 1 1 1 1 1\n")
 print("wrote walls_stone/red/dark + tilesets")
-
-# ------------------------------------------------------------------ doors ----
-D = Image.new("RGBA", (8 * 16, 16), (0, 0, 0, 0))
-def door(cell, box, rot=0):
-    """doors are solid rectangles — crop + downscale, no keying"""
-    x0, y0, x1, y1 = box
-    d = snap565(im.crop((x0, y0, x1, y1)).resize((14, 16), Image.LANCZOS)).convert("RGBA")
-    c = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
-    c.paste(d, (1, 0))
-    if rot: c = c.transpose(Image.ROTATE_90)
-    D.paste(c, (cell * 16, 0))
-
-door(0, (3794, 464, 4058, 788))            # ornate closed
-door(1, (3492, 464, 3758, 788))            # iron gate = open
-door(2, (3794, 464, 4058, 788), rot=1)
-door(3, (3492, 464, 3758, 788), rot=1)
-# gold door: ornate, gilded
-g = np.asarray(D.crop((0, 0, 16, 16))).astype(np.int32)
-g[..., 0] = np.clip(g[..., 0] * 1.35 + 44, 0, 255)
-g[..., 1] = np.clip(g[..., 1] * 1.18 + 26, 0, 255)
-g[..., 2] = (g[..., 2] * 0.4).astype(np.int32)
-gold = Image.fromarray(g.astype(np.uint8))
-D.paste(gold, (4 * 16, 0))
-go = np.asarray(gold).copy(); go[3:16, 4:12] = (255, 246, 214, 255)
-D.paste(Image.fromarray(go), (5 * 16, 0))
-# sealed variants: red brick + white door
-D.paste(snap565(im.crop((4750, 520, 4878, 648)).resize((16, 16), Image.LANCZOS)).convert("RGBA"), (6 * 16, 0))
-door(7, (4421, 464, 4644, 789))
-D.save(os.path.join(HERE, "doors.png"))
-print("wrote doors.png")
 
 # ------------------------------------------------------------- sheet props ---
 # lifted straight off the sheet at half-art scale, packed left to right

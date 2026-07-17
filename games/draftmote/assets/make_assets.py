@@ -1,166 +1,76 @@
 #!/usr/bin/env python3
-"""DraftMote sprite generator — writes the editable PNGs under assets/.
+"""DraftMote door tiles — original pixel art (the extracted sheet doors read
+poorly at 16px, so these are authored to match the thin-wall look).
 
-  hero.png   6x1 grid of 16x16: down0 down1 up0 up1 left0 left1  (right = HFLIP)
-  items.png  9x1 grid of 12x12: coin key gem food star bigstar masterkey padlock boot
+  doors.png  16x16 x6: h_closed h_open v_closed v_open gold_closed gold_open
 
-Room interiors + door overlays come from the art pipeline instead:
-extract_rooms.py -> gen_rooms.py (see art_sources/ref/).
+An h door hangs from the top wall band: dark frame posts, plank leaf with a
+handle, drawn 16px tall so it stands proud of the 8px wall (S doors VFLIP,
+E/W use the rotated v cells). Open = dark passage with a lit threshold.
 
-Bake: `mote bake games/draftmote` (Studio Save does the same).
+Hero + items + floors + walls come from extract_sheet2.py; furniture from
+make_props.py. Bake: `mote bake games/draftmote`.
 """
 import os
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+FRAME  = (52, 40, 34)
+FRAME_L = (78, 62, 50)
+PLANK  = (146, 96, 50)
+PLANK_L = (172, 120, 66)
+PLANK_D = (108, 68, 36)
+SEAM   = (86, 54, 30)
+HANDLE = (222, 186, 92)
+DARK   = (16, 13, 12)
+GLOW   = (64, 50, 34)
+
 def snap(c):
-    return ((c[0] >> 3) << 3, (c[1] >> 2) << 2, (c[2] >> 3) << 3)
+    return ((c[0] >> 3) << 3, (c[1] >> 2) << 2, (c[2] >> 3) << 3, 255)
 
-class Sheet:
-    def __init__(self, cols, rows, cell):
-        self.cell = cell
-        self.im = Image.new("RGBA", (cols * cell, rows * cell), (0, 0, 0, 0))
-        self.ox = self.oy = 0
-    def at(self, col, row):
-        self.ox, self.oy = col * self.cell, row * self.cell
-        return self
-    def px(self, x, y, c):
-        if c is None: return
-        x += self.ox; y += self.oy
-        if 0 <= x < self.im.width and 0 <= y < self.im.height:
-            s = snap(c); self.im.putpixel((x, y), (s[0], s[1], s[2], 255))
-    def rect(self, x0, y0, x1, y1, c):
-        for y in range(y0, y1 + 1):
-            for x in range(x0, x1 + 1):
-                self.px(x, y, c)
-    def hline(self, x0, x1, y, c):
-        self.rect(x0, y, x1, y, c)
-    def vline(self, x, y0, y1, c):
-        self.rect(x, y0, x, y1, c)
-    def save(self, name):
-        p = os.path.join(HERE, name)
-        self.im.save(p)
-        print("wrote", p)
+D = Image.new("RGBA", (6 * 16, 16), (0, 0, 0, 0))
 
-# ------------------------------------------------------------------- hero ----
-H = Sheet(6, 1, 16)
-SKIN = (232, 190, 150); HAIR = (60, 42, 30); COAT = (46, 84, 170); COATD = (32, 60, 130)
-LEG = (40, 40, 52); SHOE = (30, 26, 30); EYE = (24, 24, 32)
+def px(cell, x, y, c):
+    if 0 <= x < 16 and 0 <= y < 16 and c is not None:
+        D.putpixel((cell * 16 + x, y), snap(c))
 
-def hero(cell, facing, step):
-    """facing: 0 down, 1 up, 2 left. step: 0/1 walk frame."""
-    H.at(cell, 0)
-    if step == 0:
-        H.rect(6, 12, 7, 14, LEG); H.rect(8, 12, 9, 14, LEG)
-        H.rect(6, 15, 7, 15, SHOE); H.rect(8, 15, 9, 15, SHOE)
+def rect(cell, x0, y0, x1, y1, c):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            px(cell, x, y, c)
+
+def h_door(cell, opened, gold=False):
+    pl, pll, pld, sm, hd = PLANK, PLANK_L, PLANK_D, SEAM, HANDLE
+    if gold:
+        pl, pll, pld, sm = (196, 158, 62), (232, 198, 96), (150, 116, 44), (128, 96, 36)
+        hd = (255, 244, 190)
+    rect(cell, 1, 0, 2, 14, FRAME); px(cell, 1, 0, FRAME_L); px(cell, 2, 0, FRAME_L)
+    rect(cell, 13, 0, 14, 14, FRAME); px(cell, 13, 0, FRAME_L); px(cell, 14, 0, FRAME_L)
+    rect(cell, 1, 0, 14, 1, FRAME_L)                      # lintel
+    if opened:
+        rect(cell, 3, 1, 12, 13, DARK)
+        rect(cell, 3, 12, 12, 13, GLOW)                    # lit threshold
+        px(cell, 5, 10, (40, 32, 24)); px(cell, 10, 9, (40, 32, 24))
     else:
-        H.rect(5, 12, 6, 14, LEG); H.rect(9, 12, 10, 14, LEG)
-        H.rect(5, 15, 6, 15, SHOE); H.rect(9, 15, 10, 15, SHOE)
-    H.rect(4, 7, 11, 12, COAT)
-    H.hline(4, 11, 12, COATD)
-    H.vline(4, 7, 12, COATD); H.vline(11, 7, 12, COATD)
-    if facing == 0:
-        H.vline(7, 8, 11, COATD)
-        H.px(7, 8, (216, 190, 90))
-    H.rect(3, 8, 3, 11, COATD); H.rect(12, 8, 12, 11, COATD)
-    H.rect(4, 1, 11, 6, SKIN)
-    if facing == 1:
-        H.rect(4, 1, 11, 6, HAIR)
-        H.hline(4, 11, 6, (44, 30, 22))
-    else:
-        H.rect(4, 1, 11, 2, HAIR)
-        H.px(4, 3, HAIR); H.px(11, 3, HAIR)
-        if facing == 0:
-            H.px(6, 4, EYE); H.px(9, 4, EYE)
-        else:
-            H.px(5, 4, EYE)
-            H.rect(9, 1, 11, 6, HAIR)
+        rect(cell, 3, 1, 12, 13, pl)
+        for x in (6, 9):
+            for y in range(1, 14):
+                px(cell, x, y, sm)                        # plank seams
+        rect(cell, 3, 1, 12, 1, pll)                      # top catch
+        rect(cell, 3, 13, 12, 13, pld)
+        px(cell, 11, 7, hd); px(cell, 11, 8, (150, 116, 44) if not gold else (190, 150, 60))
+    # feet shadow
+    px(cell, 2, 15, (30, 24, 20)); px(cell, 13, 15, (30, 24, 20))
 
-hero(0, 0, 0); hero(1, 0, 1)
-hero(2, 1, 0); hero(3, 1, 1)
-hero(4, 2, 0); hero(5, 2, 1)
-H.save("hero.png")
+h_door(0, 0)
+h_door(1, 1)
+h_door(4, 0, gold=True)
+h_door(5, 1, gold=True)
+# v doors = rotated h doors (E wall; game HFLIPs for W)
+for (src, dst) in ((0, 2), (1, 3)):
+    cellim = D.crop((src * 16, 0, src * 16 + 16, 16)).transpose(Image.ROTATE_90)
+    D.paste(cellim, (dst * 16, 0))
 
-# ------------------------------------------------------------------ items ----
-I = Sheet(9, 1, 12)
-
-# coin
-I.at(0, 0)
-I.rect(3, 2, 8, 9, (230, 190, 60))
-I.px(3, 2, None); I.px(8, 2, None); I.px(3, 9, None); I.px(8, 9, None)
-I.vline(3, 3, 8, (250, 220, 110)); I.hline(4, 7, 2, (250, 220, 110))
-I.vline(8, 3, 8, (170, 130, 40)); I.hline(4, 7, 9, (170, 130, 40))
-I.rect(5, 4, 6, 7, (200, 160, 50))
-
-# key
-I.at(1, 0)
-I.rect(3, 2, 6, 5, (220, 180, 70))
-I.px(4, 3, (120, 90, 30)); I.px(5, 4, (120, 90, 30))
-I.vline(5, 6, 10, (220, 180, 70))
-I.px(6, 8, (220, 180, 70)); I.px(6, 10, (220, 180, 70)); I.px(7, 10, (220, 180, 70))
-I.px(3, 2, (250, 225, 120))
-
-# gem
-I.at(2, 0)
-I.hline(4, 7, 2, (110, 220, 200))
-I.rect(3, 3, 8, 5, (80, 190, 170))
-for i in range(3):
-    I.hline(4 + i, 7 - i, 6 + i, (60, 160, 140))
-I.px(5, 3, (200, 250, 240)); I.px(4, 4, (150, 235, 215))
-
-# food (sandwich)
-I.at(3, 0)
-I.rect(2, 4, 9, 5, (218, 168, 92))
-I.rect(2, 6, 9, 6, (110, 180, 70))
-I.rect(2, 7, 9, 7, (230, 120, 100))
-I.rect(2, 8, 9, 9, (196, 146, 76))
-I.hline(3, 8, 3, (236, 192, 120))
-
-# star
-I.at(4, 0)
-S = (255, 220, 80); Sd = (200, 160, 40)
-I.px(5, 1, S); I.px(6, 1, S)
-I.rect(4, 3, 7, 4, S); I.hline(1, 10, 4, S)
-I.rect(3, 5, 8, 6, S)
-I.rect(2, 7, 4, 9, S); I.rect(7, 7, 9, 9, S)
-I.px(5, 7, S); I.px(6, 7, S)
-I.px(5, 2, (255, 245, 170))
-I.px(9, 9, Sd); I.px(2, 9, Sd)
-
-# big star
-I.at(5, 0)
-I.px(5, 0, S); I.px(6, 0, S)
-I.rect(4, 2, 7, 3, S); I.hline(0, 11, 3, S)
-I.rect(3, 4, 8, 5, S)
-I.rect(1, 6, 4, 8, S); I.rect(7, 6, 10, 8, S)
-I.rect(5, 6, 6, 6, S)
-I.px(5, 1, (255, 250, 200)); I.px(0, 10, (255, 245, 170)); I.px(11, 0, (255, 245, 170))
-
-# master key
-I.at(6, 0)
-I.rect(2, 1, 7, 6, (250, 215, 90))
-I.rect(3, 2, 6, 5, (140, 105, 30))
-I.rect(4, 3, 5, 4, (250, 215, 90))
-I.vline(4, 7, 10, (250, 215, 90)); I.vline(5, 7, 10, (250, 215, 90))
-I.px(6, 8, (250, 215, 90)); I.rect(6, 10, 8, 10, (250, 215, 90))
-I.px(2, 1, (255, 245, 180))
-
-# padlock
-I.at(7, 0)
-I.rect(3, 5, 8, 10, (200, 170, 60))
-I.hline(3, 8, 5, (230, 205, 100))
-I.px(5, 7, (110, 85, 25)); I.px(6, 7, (110, 85, 25)); I.px(5, 8, (110, 85, 25)); I.px(6, 8, (110, 85, 25))
-I.vline(3, 2, 4, (160, 160, 170)); I.vline(8, 2, 4, (160, 160, 170))
-I.hline(4, 7, 1, (160, 160, 170))
-
-# boot (steps HUD icon)
-I.at(8, 0)
-I.rect(4, 1, 7, 6, (150, 100, 55))
-I.rect(4, 7, 9, 9, (150, 100, 55))
-I.hline(4, 9, 9, (100, 64, 34))
-I.hline(4, 7, 1, (180, 128, 74))
-I.px(9, 7, (180, 128, 74))
-I.rect(4, 10, 9, 10, (60, 50, 46))
-
-I.save("items.png")
+D.save(os.path.join(HERE, "doors.png"))
+print("wrote doors.png (authored)")

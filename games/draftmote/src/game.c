@@ -337,8 +337,10 @@ static void parse_room_props(int gi) {
 }
 
 /* ------------------------------------------------------------- collisions --- */
+#define WALL_PX 8                           /* thin painted wall band */
+
 static int box_solid(float x, float y) {
-    if (x - 4 < TILE || x + 4 > ROOM_PX - TILE || y - 4 < TILE || y + 4 > ROOM_PX - TILE)
+    if (x - 4 < WALL_PX || x + 4 > ROOM_PX - WALL_PX || y - 4 < WALL_PX || y + 4 > ROOM_PX - WALL_PX)
         return 1;
     for (int i = 0; i < g_nprops; i++) {
         const PropDef *d = &k_props[g_props_cur[i].prop];
@@ -365,12 +367,12 @@ static int chest_at_px(float x, float y) {
 /* which door a blocked probe point is pushing on, or -1 */
 static int door_side_of_px(float x, float y) {
     if (x >= 46 && x < 66) {
-        if (y < TILE) return DIR_N;
-        if (y >= ROOM_PX - TILE) return DIR_S;
+        if (y < WALL_PX + 4) return DIR_N;
+        if (y >= ROOM_PX - WALL_PX - 4) return DIR_S;
     }
     if (y >= 46 && y < 66) {
-        if (x < TILE) return DIR_W;
-        if (x >= ROOM_PX - TILE) return DIR_E;
+        if (x < WALL_PX + 4) return DIR_W;
+        if (x >= ROOM_PX - WALL_PX - 4) return DIR_E;
     }
     return -1;
 }
@@ -864,31 +866,22 @@ static void add_spr(const MoteImage *img, int x, int y, int fx, int fy, int fw, 
     mote->scene2d_add(&s);
 }
 
-static int is_ring(int tx, int ty) {
-    return tx == 0 || tx == ROOM_T - 1 || ty == 0 || ty == ROOM_T - 1;
-}
-
 static void room_draw(void) {
     const Cell *cl = &g_grid[g_cur];
     const RoomDef *rd = &k_rooms[cl->room];
     const MoteAutotile *wall = k_walls[rd->wall];
 
+    /* floor everywhere (2x2 macro-tiles), thin wall band painted over the rim */
     for (int ty = 0; ty < ROOM_T; ty++)
-        for (int tx = 0; tx < ROOM_T; tx++) {
-            if (is_ring(tx, ty)) {
-                /* same-terrain neighbour bits (off-map counts as same) */
-                int m = 0;
-                if (ty == 0 || is_ring(tx, ty - 1)) m |= 1;
-                if (tx == ROOM_T - 1 || is_ring(tx + 1, ty)) m |= 2;
-                if (ty == ROOM_T - 1 || is_ring(tx, ty + 1)) m |= 4;
-                if (tx == 0 || is_ring(tx - 1, ty)) m |= 8;
-                add_spr(wall->sheet, tx * TILE, ty * TILE,
-                        (m % 4) * TILE, (m / 4) * TILE, TILE, TILE, 1, 0);
-            } else {
-                add_spr(&floors_img, tx * TILE, ty * TILE,
-                        rd->floor * 32 + (tx & 1) * TILE, (ty & 1) * TILE, TILE, TILE, 0, 0);
-            }
-        }
+        for (int tx = 0; tx < ROOM_T; tx++)
+            add_spr(&floors_img, tx * TILE, ty * TILE,
+                    rd->floor * 32 + (tx & 1) * TILE, (ty & 1) * TILE, TILE, TILE, 0, 0);
+    for (int i = 0; i < ROOM_T; i++) {
+        add_spr(wall->sheet, i * TILE, 0, 0, 0, TILE, WALL_PX, 1, 0);
+        add_spr(wall->sheet, i * TILE, ROOM_PX - WALL_PX, 0, TILE - WALL_PX, TILE, WALL_PX, 1, 0);
+        add_spr(wall->sheet, 0, i * TILE, 0, 0, WALL_PX, TILE, 1, 0);
+        add_spr(wall->sheet, ROOM_PX - WALL_PX, i * TILE, TILE - WALL_PX, 0, WALL_PX, TILE, 1, 0);
+    }
 
     /* door overlays at the four mid-edges (nothing drawn for sealed walls) */
     static const int8_t k_door_px[4][2] = { { 48, 0 }, { 96, 48 }, { 48, 96 }, { 0, 48 } };
@@ -897,11 +890,16 @@ static void room_draw(void) {
         if (st == DS_NONE || st == DS_SEALED) continue;
         int vert = (s == DIR_E || s == DIR_W);
         int cell; uint8_t fl = 0;
-        if (st == DS_GOLD) { cell = 4; if (vert) fl = MOTE_SPR_ROT90; }
+        /* h doors hang from the top wall; v cells are CCW-rotated (lintel left
+         * = a W-wall door), so the E side mirrors */
+        if (st == DS_GOLD) {
+            cell = 4;
+            if (vert) { fl = MOTE_SPR_ROT90; if (s == DIR_W) fl |= MOTE_SPR_HFLIP; }
+        }
         else if (st == DS_OPEN) cell = vert ? 3 : 1;
         else cell = vert ? 2 : 0;
         if (!vert && s == DIR_S) fl |= MOTE_SPR_VFLIP;
-        if (vert && s == DIR_W) fl |= MOTE_SPR_HFLIP;
+        if (vert && s == DIR_E && st != DS_GOLD) fl |= MOTE_SPR_HFLIP;
         add_spr(&doors_img, k_door_px[s][0], k_door_px[s][1], cell * TILE, 0, TILE, TILE, 2, fl);
         if (st == DS_LOCKED)
             add_spr(&items_img, k_door_px[s][0] + 2, k_door_px[s][1] + 2, 7 * 12, 0, 12, 12, 30, 0);
@@ -1017,12 +1015,31 @@ static void paper(uint16_t *fb) {
     mote->draw_rect(fb, 3, 3, 122, 122, rgb(44, 66, 124), 0, 0, 128);
 }
 
-/* textured mini-blueprint of a room: real floor texture, wall ring, door gaps */
+/* miniature render of a room: real floor texture, wall ring, door gaps, and
+ * the room's own furniture blitted at miniature scale */
 static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t mask, int bright) {
     const RoomDef *d = &k_rooms[room];
-    float sc = (float)(s - 4) / 16.0f;
+    float sc = (float)(s - 4) / 32.0f;
     mote->blit_ex(fb, &floors_img, x + s / 2, y + s / 2,
-                  d->floor * 32, 0, 16, 16, 0.0f, sc, MOTE_BLEND_NONE, 0, 128);
+                  d->floor * 32, 0, 32, 32, 0.0f, sc, MOTE_BLEND_NONE, 0, 128);
+    /* the template's furniture + chests, scaled into the interior */
+    float ps = (float)(s - 4) / (float)ROOM_PX;
+    for (int ty = 0; ty < ROOM_T; ty++)
+        for (int tx = 0; tx < ROOM_T; tx++) {
+            char ch = d->tmpl[ty * ROOM_T + tx];
+            const PropDef *pd;
+            if (ch == 'c' || ch == 'x') pd = &k_props[P_CHEST];
+            else {
+                int p = prop_of_char(ch);
+                if (p < 0) continue;
+                pd = &k_props[p];
+            }
+            int cx = x + 2 + (int)((tx * TILE + pd->fw * 0.5f) * ps);
+            int cy = y + 2 + (int)((ty * TILE + pd->fh * 0.5f) * ps);
+            float pscale = ps * 1.4f;              /* nudge up so tiny props survive */
+            mote->blit_ex(fb, k_prop_sheets[pd->sheet], cx, cy,
+                          pd->fx, pd->fy, pd->fw, pd->fh, 0.0f, pscale, MOTE_BLEND_NONE, 0, 128);
+        }
     uint16_t wc = bright ? rgb(180, 190, 214) : rgb(110, 120, 148);
     mote->draw_rect(fb, x, y, s, 2, wc, 1, 0, 128);
     mote->draw_rect(fb, x, y + s - 2, s, 2, wc, 1, 0, 128);
@@ -1386,13 +1403,18 @@ static void g_overlay(uint16_t *fb) {
     case GS_RESULTS: results_draw(fb); return;
     case GS_SHOP:    hud_draw(fb); shop_draw(fb); return;
     case GS_PAUSE:   hud_draw(fb); pause_draw(fb); return;
-    default:         hud_draw(fb); toast_draw(fb); return;
+    default:
+        /* crisp inner edge on the thin wall band */
+        mote->draw_rect(fb, ORG_X + WALL_PX - 1, ORG_Y + WALL_PX - 1,
+                        ROOM_PX - 2 * WALL_PX + 2, ROOM_PX - 2 * WALL_PX + 2,
+                        rgb(28, 22, 24), 0, 0, 128);
+        hud_draw(fb); toast_draw(fb); return;
     }
 }
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_sprites = 96 },
+    .config = { .max_sprites = 128 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
