@@ -34,6 +34,16 @@ void audio_sfx(int id, float gain) {
     mote->audio_play_sfx(k_sfx[id], gain);
 }
 
+/* a sound with a world position: quieter the further it is from OUR player
+ * (co-op: the friend's actions are audible nearby, silent across the map) */
+void audio_sfx_at(int id, float gain, float x, float y) {
+    float dx = x - g_pl.x, dy = y - g_pl.y;
+    float d2 = dx * dx + dy * dy;
+    float g = 1.0f - d2 / (220.0f * 220.0f);
+    if (g <= 0.05f) return;
+    audio_sfx(id, gain * g);
+}
+
 /* Music was tried and removed — it grated on the small speaker. SFX only. */
 void audio_music_tick(void) { }
 

@@ -2,6 +2,9 @@
  * Dig, build, craft, fight. See DESIGN.md. */
 #define TERRA_MAIN
 #include "terra.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 MOTE_GAME_MODULE();
 #ifdef MOTE_MODULE_BUILD
@@ -110,6 +113,10 @@ void player_draw_rope(uint16_t *fb);
 void proj_draw(uint16_t *fb);
 void fx_draw_particles(uint16_t *fb);
 void parts_tick(float dt);
+void net_enter_play(void);            /* net.c sync -> play transition helpers */
+void net_apply_meta(void);
+void net_guest_spawn(int *c, int *r);
+void fx_draw_ftext(uint16_t *fb);
 
 static int   s_gen_pct;
 static int   s_gen_started, s_gen_hold;
@@ -160,6 +167,7 @@ static void draw_grass_caps(void) {
 
 static int s_dev_c = -1, s_dev_r = -1;   /* TERRA_POS dev spawn override */
 static uint32_t s_dev_seed = 0;          /* TERRA_SEED dev override (0 = use clock) */
+static float s_dev_time = -1.0f;         /* TERRA_TIME dev override */
 
 /* Mix the raw microsecond clock into a well-distributed 32-bit seed, so worlds
  * differ strongly even when micros() values are small or close together. */
@@ -244,6 +252,39 @@ void game_continue(void) {
     }
 }
 
+/* ---- co-op entries (title menu sets g_net_pending; we run them from the
+ * update path because net_begin blocks inside the engine lobby modal) -------- */
+int g_net_pending;                     /* 0 none · 1 host · 2 join */
+
+static void back_to_title(void) {
+    npc_reset();
+    world_title_scene();
+    g_time = 0.30f;
+    g_cam_x = (WCOLS / 2) * TILE - MOTE_FB_W / 2;
+    g_cam_y = world_surface_row(WCOLS / 2) * TILE - 86;
+    g_state = GS_TITLE;
+}
+
+static void game_host_coop(void) {
+    if (!(load_world() && load_player())) {
+        ui_toast("SAVE DAMAGED");
+        return;
+    }
+    player_build_palette();
+    npc_reset();
+    if (s_dev_time >= 0) g_time = s_dev_time;   /* TERRA_TIME works in co-op too */
+    if (getenv("TERRA_NET")) net_begin_direct(1);
+    else net_begin(1);                 /* blocking lobby; sets GS_NET_SYNC or returns to title */
+}
+
+static void game_join_coop(void) {
+    /* bring YOUR character into their world (fresh explorer if none saved) */
+    if (load_player()) player_build_palette();
+    npc_reset();
+    if (getenv("TERRA_NET")) net_begin_direct(0);
+    else net_begin(0);
+}
+
 /* pause is a game STATE (not a blocking mote->menu modal), so the OS loop —
  * and with it the engine menu's 3s MENU hold — keeps working while paused. */
 static int s_pause_row;
@@ -272,14 +313,19 @@ static void pause_tick(void) {
         g_state = GS_PLAY;
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         if (s_pause_row == 0) g_state = GS_PLAY;
-        else if (s_pause_row == 1) { save_world(); ui_toast("WORLD SAVED"); g_state = GS_PLAY; }
-        else { save_world(); mote->exit_to_launcher(); }
+        else if (s_pause_row == 1) {
+            if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
+            else { save_world(); ui_toast("WORLD SAVED"); }
+            g_state = GS_PLAY;
+        } else {
+            if (net_guest()) save_player_coop(); else save_world();
+            net_stop(1);               /* wave goodbye before leaving */
+            mote->exit_to_launcher();
+        }
     }
 }
 
 /* ------------------------------------------------------------------- init --- */
-#include <stdlib.h>
-static float s_dev_time = -1.0f;
 static void dev_hooks(void) {
     /* host-testing hooks (harmless on device: getenv returns NULL) */
     const char *e;
@@ -301,6 +347,12 @@ static void dev_hooks(void) {
         if (*p == ':') s_dev_r = (int)strtol(p + 1, &p, 10);
     }
     if (getenv("TERRA_SKIP")) game_new_world();      /* skip title+creator */
+    /* TERRA_NET=host|join — co-op over the raw socket/USB link, no lobby UI
+     * (two headless instances with the same MOTE_LINK_SOCK pair up) */
+    if ((e = getenv("TERRA_NET"))) {
+        if (e[0] == 'h') game_host_coop();
+        else game_join_coop();
+    }
 }
 
 /* TERRA_BUILD="f:c:r:tile,w:c:r:wall,..." — stamp tiles/walls post-gen (tests) */
@@ -329,6 +381,7 @@ static void g_init(void) {
     g_fgm = (uint8_t *)mote->alloc(WCOLS * WROWS);
     g_bgm = (uint8_t *)mote->alloc(WCOLS * WROWS);
     player_alloc();
+    player_net_alloc();
     save_alloc();
     fx_init();
     audio_init();
@@ -344,24 +397,51 @@ static void g_init(void) {
 }
 
 /* ------------------------------------------------------------------ update -- */
-static void play_tick(float dt) {
-    g_time += dt / DAY_SECONDS;
+/* the world simulation shared by open play and (in co-op) the menu states —
+ * with a friend connected the world can never freeze under a menu */
+static void sim_tick(float dt, int with_player) {
+    int authority = !net_active() || net_is_host();   /* guest: host owns the world sim */
+
+    g_time += dt / DAY_SECONDS;                        /* guest drift corrected by 'S' */
     if (g_time >= 1.0f) g_time -= 1.0f;
 
-    player_tick(dt);
+    if (with_player) player_tick(dt);
     npc_tick(dt);
     parts_tick(dt);
 
     s_liq_flip ^= 1;
-    if (s_liq_flip) world_liquid_tick();
-    s_grow_t += dt;
-    if (s_grow_t > 0.5f) { s_grow_t = 0; world_grow_tick(); }
-    s_autosave_t += dt;
-    if (s_autosave_t > 118.5f && s_autosave_t < 119.0f) {
-        ui_toast("AUTOSAVING...");               /* warn BEFORE the save hitch */
-        s_autosave_t = 119.0f;
+    if (s_liq_flip) {
+        if (authority) world_liquid_tick();
+    } else if (net_is_host()) {
+        float px, py;                                  /* liquids also flow at the friend */
+        if (net_peer_pos(&px, &py)) world_liquid_tick_at((int)px, (int)py);
     }
-    if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_world(); ui_toast("AUTOSAVED"); }
+    s_grow_t += dt;
+    if (s_grow_t > 0.5f) { s_grow_t = 0; if (authority) world_grow_tick(); }
+    s_autosave_t += dt;
+    if (net_guest()) {
+        if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_player_coop(); }
+    } else {
+        if (s_autosave_t > 118.5f && s_autosave_t < 119.0f) {
+            ui_toast("AUTOSAVING...");                 /* warn BEFORE the save hitch */
+            s_autosave_t = 119.0f;
+        }
+        if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_world(); ui_toast("AUTOSAVED"); }
+    }
+    net_tick(dt);
+}
+
+/* co-op: keep the world + link alive under menus; the player reads no input */
+static void coop_menu_tick(float dt, int with_player) {
+    if (!net_active()) return;
+    g_pl_freeze = 1;
+    sim_tick(dt, with_player);
+    g_pl_freeze = 0;
+    if (net_failed()) { net_stop(0); back_to_title(); }
+}
+
+static void play_tick(float dt) {
+    sim_tick(dt, 1);
 
     const MoteInput *in = mote->input();
     /* MENU opens the tabbed menu (Items / Craft / Game); LB+RB are the hotbar
@@ -376,6 +456,7 @@ static void world_submit(void) {
     draw_grass_caps();
     draw_trees();
     if (g_state != GS_TITLE) player_draw();        /* nobody stands in the vista */
+    net_draw_remote();                             /* the co-op friend */
     npc_draw();
 }
 
@@ -383,12 +464,35 @@ uint8_t g_ui_fresh;      /* 1 on the first overlay after a state change: UI skip
 
 static void g_update(float dt) {
     g_dt = dt;
+    {   /* the OS resets the fps limit after init — re-arm once from update so
+         * the cap actually holds (and 2-instance link tests pace in real time) */
+        static uint8_t s_fps_set;
+        if (!s_fps_set) { s_fps_set = 1; mote->set_fps_limit(30); }
+    }
+    {   /* dev: trace state flips (TERRA_DBG) */
+        static int s_dbg_on = -1; static uint8_t prev = 255; static int frame;
+        if (s_dbg_on < 0) s_dbg_on = getenv("TERRA_DBG") != 0;
+        frame++;
+        if (s_dbg_on && g_state != prev) {
+            char b[48];
+            snprintf(b, sizeof b, "dbg state %d->%d f=%d", prev, g_state, frame);
+            mote->log(b);
+            prev = g_state;
+        }
+    }
     ui_tick(dt);
     audio_music_tick();
     fx_light_update();
 
     switch (g_state) {
     case GS_TITLE: {
+        if (g_net_pending) {                       /* co-op picked on the menu */
+            int host = g_net_pending == 1;
+            g_net_pending = 0;
+            if (host) game_host_coop();
+            else game_join_coop();
+            break;
+        }
         /* live world render behind the menu: slow pan across the title forest */
         static float drift;
         drift += dt * 6.0f;
@@ -438,28 +542,65 @@ static void g_update(float dt) {
     case GS_PLAY:
         mote->set_background_cb(fx_background);
         play_tick(dt);
+        if (net_failed()) {            /* dropped mid-game (guest): save + bail out */
+            save_player_coop();
+            net_stop(0);
+            back_to_title();
+            break;
+        }
         world_explore_view();          /* fog of war: reveal what you can see */
         if (g_state == GS_DEAD) g_dead_t = 3.0f;
         world_submit();
         break;
     case GS_INV:
     case GS_CHEST:
-        /* world frozen, still rendered */
+        /* solo: world frozen, still rendered · co-op: it keeps running */
+        coop_menu_tick(dt, 1);
         world_submit();
         break;
     case GS_PAUSE:
+        coop_menu_tick(dt, 1);
         pause_tick();
         world_submit();
         break;
     case GS_DEAD:
         g_dead_t -= dt;
+        coop_menu_tick(dt, 0);         /* co-op: the world doesn't wait for a corpse */
         parts_tick(dt);
         world_submit();
         if (g_dead_t <= 0) {
             player_reset(0);
-            npc_clear_mobs();          /* the boss (if any) stays on the hunt */
+            if (!net_guest()) npc_clear_mobs();   /* the boss (if any) stays on the hunt */
             g_pl.iframes = 4.0f;       /* respawn protection — time to run or gear up */
             g_state = GS_PLAY;
+        }
+        break;
+    case GS_NET_SYNC:
+        mote->set_background_cb(0);
+        mote->scene_set_background(MOTE_RGB565(16, 14, 22));
+        net_tick(dt);
+        if (net_failed()) {
+            net_stop(0);
+            back_to_title();
+            break;
+        }
+        if (net_ready()) {
+            net_enter_play();
+            int host = net_is_host();
+            if (!host) {
+                net_apply_meta();
+                int sc, sr;
+                net_guest_spawn(&sc, &sr);
+                g_pl.spawn_c = (int16_t)sc;
+                g_pl.spawn_r = (int16_t)sr;
+                memset(g_explored, 0, sizeof(g_explored));   /* your own fog of war */
+                player_reset(0);
+            }
+            npc_reset();
+            g_state = GS_PLAY;
+            camera_update();
+            mote->set_background_cb(fx_background);
+            ui_toast(host ? "YOUR FRIEND IS HERE!" : "WELCOME, FRIEND!");
         }
         break;
     }
@@ -479,6 +620,13 @@ static void g_overlay(uint16_t *fb) {
         mote_ui_bar(fb, 24, 66, 80, 6, s_gen_pct / 100.0f, rgb(90, 200, 80), rgb(30, 34, 30));
         return;
     }
+    case GS_NET_SYNC: {
+        const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 44, rgb(235, 230, 215), "CO-OP");
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 58, rgb(170, 200, 235), net_phase_text());
+        mote_ui_bar(fb, 24, 74, 80, 6, net_progress() / 100.0f, rgb(90, 160, 235), rgb(28, 30, 38));
+        return;
+    }
     default: break;
     }
     /* world states: flames, then particles BEHIND the held weapon, then the
@@ -487,6 +635,7 @@ static void g_overlay(uint16_t *fb) {
     player_draw_rope(fb);
     fx_draw_particles(fb);
     player_draw_swing(fb);
+    net_draw_remote_overlay(fb);       /* the friend's swing + rope */
     proj_draw(fb);
     fx_overlay_world(fb);
     fx_draw_ftext(fb);

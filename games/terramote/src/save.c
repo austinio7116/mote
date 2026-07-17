@@ -16,6 +16,9 @@ void save_alloc(void) {
     s_scratch = (uint8_t *)mote->alloc(BAND_BYTES * 2 + 16);
 }
 
+/* net.c streams the world with this exact codec + buffer (no save runs mid-transfer) */
+uint8_t *save_scratch(void) { return s_scratch; }
+
 static int rle_pack(const uint8_t *src, int n, uint8_t *dst, int max) {
     int o = 0, i = 0;
     while (i < n) {
@@ -37,6 +40,8 @@ static int rle_unpack(const uint8_t *src, int n, uint8_t *dst, int max) {
     }
     return o;
 }
+int save_rle_pack(const uint8_t *src, int n, uint8_t *dst, int max) { return rle_pack(src, n, dst, max); }
+int save_rle_unpack(const uint8_t *src, int n, uint8_t *dst, int max) { return rle_unpack(src, n, dst, max); }
 
 typedef struct {
     uint32_t magic;
@@ -111,6 +116,20 @@ int load_world(void) {
 
 void save_player(void) {
     PlayerBlob b = { SAVE_MAGIC, g_pl };
+    mote->kv_save("plr", &b, sizeof(b));
+}
+
+/* guest in co-op: persist the CHARACTER (inventory, armor, hp, looks) but keep
+ * the position/spawn of THEIR OWN world — the coords here are the host's map */
+void save_player_coop(void) {
+    PlayerBlob b;
+    Player p = g_pl;
+    if (mote->kv_load("plr", &b, sizeof(b)) == (int)sizeof(b) && b.magic == SAVE_MAGIC) {
+        p.x = b.pl.x; p.y = b.pl.y;
+        p.spawn_c = b.pl.spawn_c; p.spawn_r = b.pl.spawn_r;
+    }
+    b.magic = SAVE_MAGIC;
+    b.pl = p;
     mote->kv_save("plr", &b, sizeof(b));
 }
 

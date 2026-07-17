@@ -191,10 +191,11 @@ extern Enemy g_en[MAX_ENEMIES];
 /* ---- drops / projectiles / particles / floating text ----------------------- */
 #define MAX_DROPS 32
 typedef struct { uint8_t item, count; float x, y, vx, vy, t; } Drop;
-extern Drop g_drops[MAX_DROPS];
+extern Drop g_drops[MAX_DROPS];   /* in co-op ALL drops are host-owned; the guest mirrors by slot */
 
 #define MAX_PROJ 12
-typedef struct { uint8_t kind; float x, y, vx, vy, t; int16_t dmg; uint8_t hostile; uint8_t element; } Proj;
+typedef struct { uint8_t kind; float x, y, vx, vy, t; int16_t dmg; uint8_t hostile; uint8_t element;
+                 uint8_t net; } Proj;   /* net=1: peer's arrow, cosmetic only */
 enum { PR_NONE = 0, PR_ARROW, PR_ARROW_FLAME, PR_LASER };
 extern Proj g_proj[MAX_PROJ];
 
@@ -225,7 +226,8 @@ typedef struct { int16_t c, r; Slot s[CHEST_SLOTS]; } Chest;   /* c<0 = free */
 extern Chest g_chests[MAX_CHESTS];
 
 /* ---- game state ---------------------------------------------------------------- */
-enum { GS_TITLE = 0, GS_CREATE, GS_GENERATING, GS_PLAY, GS_INV, GS_CHEST, GS_DEAD, GS_PAUSE };
+enum { GS_TITLE = 0, GS_CREATE, GS_GENERATING, GS_PLAY, GS_INV, GS_CHEST, GS_DEAD, GS_PAUSE,
+       GS_NET_SYNC };   /* co-op: link handshake + world transfer */
 extern uint8_t g_state;
 extern float   g_time;           /* 0..1 day fraction (0.25 = noon, 0.75 = midnight) */
 extern uint8_t g_boss_down;      /* EoC killed */
@@ -281,6 +283,9 @@ void world_rebuild_caches(void);      /* surface cache — REQUIRED after loadin
 void world_mine_tile(int c, int r);   /* break + drop */
 int  world_place_tile(int c, int r, uint8_t tile);
 int  world_hit_tree(int c, int r);    /* chop: fells trunk above, drops wood */
+void world_wall_op(int c, int r, uint8_t w);         /* place / remove-with-refund */
+void world_set_liq_raw(int c, int r, uint8_t packed);/* net apply: (lv&7)|lava<<3 */
+void world_liquid_tick_at(int px, int py);           /* flow window around a point */
 Chest *world_chest_at(int c, int r);
 Chest *world_chest_create(int c, int r);
 void world_chest_remove(int c, int r);
@@ -290,6 +295,22 @@ void player_reset(int full);          /* full=1 new character */
 void player_tick(float dt);
 void player_draw(void);               /* submit sprites */
 void player_damage(int dmg, float kx);
+void toggle_door(int c, int r);       /* 3-cell door flip (crush-safe) */
+extern uint8_t g_pl_freeze;           /* co-op menus: player reads no input, physics runs */
+float  player_aim(void);              /* current aim angle (net state) */
+uint8_t player_clip_id(void);         /* 0 idle 1 walk 2 jump 3 swing */
+/* remote player: same body/hair renderer, second recolour buffer */
+typedef struct {
+    float x, y, aim;
+    int8_t facing;
+    uint8_t clip, item, grap, hidden;
+    float use_t;
+    float gx, gy;                     /* grapple anchor */
+} NetPeerDraw;
+void player_net_alloc(void);
+void player_net_palette(const uint8_t *app);  /* hair_style,hair_col,skin,shirt,pants,armor[3] */
+void player_draw_net(const NetPeerDraw *v);   /* scene sprites (body+hair) */
+void player_draw_net_overlay(uint16_t *fb, const NetPeerDraw *v);  /* swing + rope */
 int  inv_add(uint8_t item, int n);    /* returns leftover */
 int  inv_count(uint8_t item);
 void inv_take(uint8_t item, int n);
@@ -311,6 +332,10 @@ uint16_t element_color(uint8_t el);   /* particle/FX colour for an EL_* */
 void drops_add(uint8_t item, int n, float x, float y);
 void drops_add_v(uint8_t item, int n, float x, float y, float vx, float vy); /* custom pop velocity */
 void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element);
+void proj_add_net(uint8_t kind, float x, float y, float vx, float vy, uint8_t element); /* peer's arrow, cosmetic */
+void npc_net_snapshot_begin(void);                     /* guest: mark-and-sweep enemy mirror */
+void npc_net_apply(int idx, uint8_t kind, float x, float y, int hp, uint8_t flags);
+void npc_net_snapshot_end(void);
 void part_burst(float x, float y, uint16_t col, int n, float speed);
 void part_spark(float x, float y, float vx, float vy, float life, uint16_t col, int fx_mode);
 int  element_pfx(uint8_t el);                       /* EL_* -> its PFX_* behaviour */
@@ -340,13 +365,60 @@ int  save_world_exists(void);
 void save_world(void);
 int  load_world(void);
 void save_player(void);
+void save_player_coop(void);          /* guest: character only, home-world position kept */
 int  load_player(void);
+/* shared by net.c for the world stream (same RLE as saves) */
+uint8_t *save_scratch(void);
+int  save_rle_pack(const uint8_t *src, int n, uint8_t *dst, int max);
+int  save_rle_unpack(const uint8_t *src, int n, uint8_t *dst, int max);
+
+/* ---- co-op module (net.c) ----------------------------------------------------------------
+ * Collaborative 2-player: the HOST invites a friend into their SAVED world.
+ * Host is authoritative for the world sim (enemies, drops, liquids, growth,
+ * clock); each device is authoritative for its OWN player (victim-side damage).
+ * Guest actions go up as semantic ops; world state comes down as raw deltas. */
+enum { NOP_MINE = 1, NOP_PLACE, NOP_WALL, NOP_DOOR };
+int  net_active(void);
+int  net_is_host(void);
+int  net_guest(void);
+void net_begin(int host);             /* engine lobby (blocking) -> GS_NET_SYNC */
+void net_begin_direct(int host);      /* dev/test: raw link_start, no lobby UI */
+void net_stop(int notify);
+void net_tick(float dt);
+int  net_ready(void);                 /* handshake+transfer done: enter play */
+int  net_failed(void);
+int  net_progress(void);              /* 0..100 while syncing */
+const char *net_phase_text(void);
+int  net_peer_pos(float *x, float *y);
+void net_draw_remote(void);                    /* scene sprites */
+void net_draw_remote_overlay(uint16_t *fb);    /* swing arc + rope */
+/* player-action wrappers: solo/host apply directly; guest predicts + sends */
+void net_mine_tile(int c, int r);
+int  net_place_tile(int c, int r, uint8_t tile);
+void net_wall_op(int c, int r, uint8_t w);
+void net_toggle_door(int c, int r);
+void net_ev_dmg(float x, float y, float hw, float hh, int dmg, float kx, uint8_t el);
+void net_ev_proj(uint8_t kind, float x, float y, float vx, float vy, uint8_t el);
+void net_ev_chest(int c, int r, int slot, uint8_t item, uint8_t count);
+void net_ev_boss_req(void);
+void net_ev_boss_state(int what);     /* host: 0 awoken 1 defeated 2 fled */
+void net_ev_drop_req(uint8_t item, int n, float x, float y);
+/* capture hooks (no-op unless co-op host) */
+void net_raw_fg(int c, int r, uint8_t t);
+void net_raw_wall(int c, int r, uint8_t w);
+void net_raw_liq(int c, int r, uint8_t packed);
+void net_chest_created(int c, int r);
+void net_chest_removed(int c, int r);
+void net_drop_spawned(int slot);
+void net_drop_taken(int slot, int by_peer);
+extern uint8_t g_net_nodrops;         /* guest prediction: suppress drop spawns */
 
 /* ---- audio (audio.c) ---------------------------------------------------------------------- */
 enum { SFX_DIG, SFX_DIG_STONE, SFX_PLACE, SFX_CHOP, SFX_SWING, SFX_HURT, SFX_KILL,
        SFX_JUMP, SFX_COIN, SFX_CRAFT, SFX_EAT, SFX_SHOOT, SFX_SPLASH, SFX_ROAR,
        SFX_DOOR, SFX_TICK, SFX_COUNT };
 void audio_sfx(int id, float gain);
+void audio_sfx_at(int id, float gain, float x, float y);  /* gain falls off with distance */
 void audio_music_tick(void);          /* pick track by context */
 void audio_init(void);
 

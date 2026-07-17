@@ -14,6 +14,14 @@ const MoteImage *g_items_sheet = &items_img;
 
 Player g_pl;
 
+/* co-op: while a menu is open the world keeps running — the player ticks with
+ * physics but reads NO input (a zeroed state) so they just stand/fall */
+uint8_t g_pl_freeze;
+static const MoteInput *pin(void) {
+    static const MoteInput k_zero;
+    return g_pl_freeze ? &k_zero : mote->input();
+}
+
 /* reticle: the affected TILE + the precise crosshair point (drawn by ui) */
 int   g_ret_c, g_ret_r;
 float g_aim_x, g_aim_y;
@@ -76,15 +84,19 @@ static uint16_t armor_col(uint8_t item) {
     return 0;
 }
 
-void player_build_palette(void) {
-    /* colour remap table applied over the baked atlas pixels */
-    uint16_t skin  = g_skin_opts[g_pl.skin_col & 3];
-    uint16_t hair  = g_hair_opts[g_pl.hair_col & 7];
-    uint16_t shirt = g_cloth_opts[g_pl.shirt_col & 7];
-    uint16_t pants = g_cloth_opts[g_pl.pants_col & 7];
-    if (g_pl.armor[0]) hair  = armor_col(g_pl.armor[0]);
-    if (g_pl.armor[1]) shirt = armor_col(g_pl.armor[1]);
-    if (g_pl.armor[2]) pants = armor_col(g_pl.armor[2]);
+/* colour remap over the baked atlas pixels, into a caller-owned buffer pair —
+ * the local player and the co-op friend each keep their own recoloured copy */
+static void build_palette_into(uint16_t *body_px, uint16_t *hair_px,
+                               uint8_t skin_col, uint8_t hair_col,
+                               uint8_t shirt_col, uint8_t pants_col,
+                               const uint8_t *armor) {
+    uint16_t skin  = g_skin_opts[skin_col & 3];
+    uint16_t hair  = g_hair_opts[hair_col & 7];
+    uint16_t shirt = g_cloth_opts[shirt_col & 7];
+    uint16_t pants = g_cloth_opts[pants_col & 7];
+    if (armor[0]) hair  = armor_col(armor[0]);
+    if (armor[1]) shirt = armor_col(armor[1]);
+    if (armor[2]) pants = armor_col(armor[2]);
     const uint16_t from[8] = { C_SKIN, C_SKIN_SH, C_HAIR, C_HAIR_SH,
                                C_SHIRT, C_SHIRT_SH, C_PANTS, C_PANTS_SH };
     const uint16_t to[8]   = { skin, shade565(skin, 2, 3), hair, shade565(hair, 2, 3),
@@ -94,15 +106,20 @@ void player_build_palette(void) {
         uint16_t px = player_img.format ? mote_img_texel(&player_img, i % player_img.w, i / player_img.w)
                                         : player_img.pixels[i];
         for (int k = 0; k < 8; k++) if (px == from[k]) { px = to[k]; break; }
-        s_body_px[i] = px;
+        body_px[i] = px;
     }
     n = hair_img.w * hair_img.h;
     for (int i = 0; i < n; i++) {
         uint16_t px = hair_img.format ? mote_img_texel(&hair_img, i % hair_img.w, i / hair_img.w)
                                       : hair_img.pixels[i];
         for (int k = 0; k < 8; k++) if (px == from[k]) { px = to[k]; break; }
-        s_hair_px[i] = px;
+        hair_px[i] = px;
     }
+}
+
+void player_build_palette(void) {
+    build_palette_into(s_body_px, s_hair_px,
+                       g_pl.skin_col, g_pl.hair_col, g_pl.shirt_col, g_pl.pants_col, g_pl.armor);
     s_body_img = (MoteImage){ s_body_px, player_img.w, player_img.h, MOTE_KEY_MAGENTA, 0 };
     s_hair_img = (MoteImage){ s_hair_px, hair_img.w, hair_img.h, MOTE_KEY_MAGENTA, 0 };
 }
@@ -131,6 +148,25 @@ void player_alloc(void);
 void player_alloc(void) {
     s_body_px = (uint16_t *)mote->alloc(player_img.w * player_img.h * 2);
     s_hair_px = (uint16_t *)mote->alloc(hair_img.w * hair_img.h * 2);
+}
+
+/* ---- co-op friend: second recolour + its own animation player ------------- */
+static uint16_t *s_body2_px, *s_hair2_px;
+static MoteImage s_body2_img, s_hair2_img;
+static MoteAnimPlayer s_anim2;
+static const MoteAnimClip *s_clip2;
+static uint8_t s_net_hair_style = 255;
+
+void player_net_alloc(void) {
+    s_body2_px = (uint16_t *)mote->alloc(player_img.w * player_img.h * 2);
+    s_hair2_px = (uint16_t *)mote->alloc(hair_img.w * hair_img.h * 2);
+}
+
+void player_net_palette(const uint8_t *app) {   /* hair_style,hair_col,skin,shirt,pants,armor[3] */
+    s_net_hair_style = app[0];
+    build_palette_into(s_body2_px, s_hair2_px, app[2], app[1], app[3], app[4], app + 5);
+    s_body2_img = (MoteImage){ s_body2_px, player_img.w, player_img.h, MOTE_KEY_MAGENTA, 0 };
+    s_hair2_img = (MoteImage){ s_hair2_px, hair_img.w, hair_img.h, MOTE_KEY_MAGENTA, 0 };
 }
 
 /* ------------------------------------------------------------- inventory ---- */
@@ -322,19 +358,26 @@ static int interactable(uint8_t t) {
 }
 extern Chest *g_open_chest;
 
-static void toggle_door(int c, int r) {
+void toggle_door(int c, int r) {                 /* shared with net.c: remote ops apply here */
     uint8_t t = fg_at(c, r);
+    if (t != T_DOOR_C && t != T_DOOR_O) return;
     uint8_t nt = (t == T_DOOR_C) ? T_DOOR_O : T_DOOR_C;
     /* find the door's 3 cells (scan up/down) */
     int r0 = r; while (fg_at(c, r0 - 1) == t) r0--;
-    /* opening is fine; closing must not crush the player */
+    /* opening is fine; closing must not crush a player (either of them) */
     if (nt == T_DOOR_C) {
         int pc = px_c(g_pl.x);
         int prf = ((int)g_pl.y - 1) / TILE, prh = ((int)g_pl.y - P_BH + 2) / TILE;
         if (pc == c && prf >= r0 && prh <= r0 + 2) return;
+        float qx, qy;
+        if (net_peer_pos(&qx, &qy)) {
+            int qc = px_c(qx);
+            int qrf = ((int)qy - 1) / TILE, qrh = ((int)qy - P_BH + 2) / TILE;
+            if (qc == c && qrf >= r0 && qrh <= r0 + 2) return;
+        }
     }
     for (int k = 0; k < 3; k++) world_set_fg(c, r0 + k, nt);
-    audio_sfx(SFX_DOOR, 1.0f);
+    audio_sfx_at(SFX_DOOR, 1.0f, c * TILE + 4, r0 * TILE + 8);
 }
 
 /* one melee swing arc, applying the weapon's element/knockback/reach + lifesteal */
@@ -386,7 +429,7 @@ static void melee_hit(uint8_t item, const ItemDef *def) {
 }
 
 static void use_item(float dt) {
-    const MoteInput *in = mote->input();
+    const MoteInput *in = pin();
     Slot *held = &g_pl.inv[g_pl.hot];
     const ItemDef *def = &g_items[held->item];
     uint8_t rt = fg_at(g_ret_c, g_ret_r);
@@ -398,7 +441,7 @@ static void use_item(float dt) {
         if (!interactable(it)) {                     /* also try the cell we stand before */
             ic = px_c(g_pl.x) + g_pl.facing; ir = ((int)g_pl.y - 9) / TILE; it = fg_at(ic, ir);
         }
-        if (it == T_DOOR_C || it == T_DOOR_O) { toggle_door(ic, ir); return; }
+        if (it == T_DOOR_C || it == T_DOOR_O) { net_toggle_door(ic, ir); return; }
         if (it == T_CHEST) {
             Chest *ch = world_chest_at(ic, ir);
             if (ch) { g_open_chest = ch; g_state = GS_CHEST; audio_sfx(SFX_DOOR, 0.7f); return; }
@@ -433,7 +476,7 @@ static void use_item(float dt) {
         g_pl.mine_t += dt * (float)def->power;
         float need = (float)td->hardness * 8.0f;
         if (g_pl.mine_t >= need) {
-            world_mine_tile(g_ret_c, g_ret_r);
+            net_mine_tile(g_ret_c, g_ret_r);        /* solo/host: direct; guest: predict+send */
             g_pl.mine_t = 0;
         }
         break;
@@ -448,7 +491,7 @@ static void use_item(float dt) {
             if (g_ret_c == pc && g_ret_r <= prf && g_ret_r >= prh) break;
             if (g_ret_c == pc && g_ret_r == prf + 0) break;
         }
-        if (world_place_tile(g_ret_c, g_ret_r, place)) {
+        if (net_place_tile(g_ret_c, g_ret_r, place)) {
             held->count--;
             if (!held->count) held->item = I_NONE;
             g_pl.use_t = def->speed / 30.0f;
@@ -465,13 +508,7 @@ static void use_item(float dt) {
         uint8_t b = bg_at(c, r);
         if (BG_WALL(b)) {
             if (mote_just_pressed(in, MOTE_BTN_B)) {
-                uint8_t old = BG_WALL(b);
-                world_set_wall(c, r, W_NONE);
-                uint8_t back = old == W_WOOD ? I_WALL_WOOD : old == W_STONE ? I_WALL_STONE
-                             : old == W_GLASS ? I_WALL_GLASS : old == W_CLAYBRICK ? I_WALL_CLAYBRICK
-                             : old == W_STONEBRICK ? I_WALL_STONEBRICK : I_NONE;
-                if (back) drops_add(back, 1, c * TILE + 4, r * TILE + 4);
-                part_burst(c * TILE + 4, r * TILE + 4, rgb(120, 100, 70), 4, 40);
+                net_wall_op(c, r, W_NONE);           /* knock out + refund (world_wall_op) */
                 g_pl.use_t = def->speed / 30.0f;
                 audio_sfx(SFX_DIG, 0.7f);
             }
@@ -484,7 +521,7 @@ static void use_item(float dt) {
                 if (BG_WALL(bg_at(cc, rr)) || g_tiles[fg_at(cc, rr)].solid == 1) ok = 1;
             }
             if (ok) {
-                world_set_wall(c, r, def->place);
+                net_wall_op(c, r, def->place);
                 held->count--;
                 if (!held->count) held->item = I_NONE;
                 g_pl.use_t = def->speed / 30.0f;
@@ -519,6 +556,7 @@ static void use_item(float dt) {
                 float vx = cosf(a) * 195.0f;
                 float vy = sinf(a) * 195.0f + (fabsf(dy) < 0.02f ? -18.0f : 0.0f);
                 proj_add(pk, g_pl.x + dx * 6, g_pl.y - 10, vx, vy, admg, 0, el);
+                net_ev_proj(pk, g_pl.x + dx * 6, g_pl.y - 10, vx, vy, el);  /* friend sees it fly */
             }
             audio_sfx(SFX_SHOOT, 0.9f);
         }
@@ -545,7 +583,8 @@ static void use_item(float dt) {
                 if (!IS_NIGHT()) ui_toast("THE EYE SLEEPS BY DAY");
                 else {
                     held->count--; if (!held->count) held->item = I_NONE;
-                    npc_spawn_boss();
+                    if (net_guest()) net_ev_boss_req();   /* the host awakens it */
+                    else npc_spawn_boss();
                 }
             }
         }
@@ -559,7 +598,7 @@ static void use_item(float dt) {
  * rope) plus a steady auto-reel that hauls you toward the anchor, so it both
  * swings AND pulls you up to a ledge. UP climbs faster, DOWN pays out line. */
 static void grapple_fire_fly(float dt) {
-    const MoteInput *in = mote->input();
+    const MoteInput *in = pin();
     int has = g_items[g_pl.inv[g_pl.hot].item].kind == IK_GRAPPLE;
     if (!has && g_pl.grap) g_pl.grap = 0;                  /* switched item: drop rope */
 
@@ -604,7 +643,7 @@ static void grapple_fire_fly(float dt) {
 /* Swing/reel movement while hooked. Returns 1 if it owned the frame's motion. */
 static int grapple_move(float dt) {
     if (g_pl.grap != 2) return 0;
-    const MoteInput *in = mote->input();
+    const MoteInput *in = pin();
 
     /* detach with a jump hop */
     if (mote_just_pressed(in, MOTE_BTN_A)) { g_pl.grap = 0; g_pl.vy -= 120.0f; return 1; }
@@ -659,7 +698,7 @@ static int grapple_move(float dt) {
 
 /* ------------------------------------------------------------------ tick ---- */
 void player_tick(float dt) {
-    const MoteInput *in = mote->input();
+    const MoteInput *in = pin();
     if (dt > 0.05f) dt = 0.05f;
     if (g_pl.iframes > 0) g_pl.iframes -= dt;
     if (g_pl.use_t > 0) {
@@ -843,27 +882,27 @@ static int big_cell(uint8_t item) {
 /* held item swing drawn in screen space, rotating around the GRIP (the art
  * points up-right at 45 deg with the handle at its lower-left; row 1 of
  * weapons_big is pre-mirrored for left-facing swings). Runs in overlay()
- * BEFORE the darkness pass. */
-void player_draw_swing(uint16_t *fb);
-void player_draw_swing(uint16_t *fb) {
-    Slot *held = &g_pl.inv[g_pl.hot];
-    const ItemDef *def = &g_items[held->item];
-    if (!held->item || g_pl.use_t <= 0) return;
+ * BEFORE the darkness pass. Shared by the local player and the co-op friend. */
+static void swing_draw_core(uint16_t *fb, uint8_t item, float use_t,
+                            int8_t facing, float wx, float wy, float aim) {
+    const ItemDef *def = &g_items[item];
+    if (!item || use_t <= 0) return;
     int kind = def->kind;
-    int cell = big_cell(held->item);
+    int cell = big_cell(item);
     if (cell < 0 && kind != IK_PICK && kind != IK_AXE && kind != IK_SWORD && kind != IK_BOW) return;
     const MoteImage *img = cell >= 0 ? &weapons_big_img : &items_img;
-    int right = g_pl.facing > 0;
+    int right = facing > 0;
     int cs = cell >= 0 ? 32 : 16;                        /* big in-hand sheet is 32px */
-    int fx = cell >= 0 ? cell * 32 : (held->item % 8) * 16;
-    int fy = cell >= 0 ? (right ? 0 : 32) : (held->item / 8) * 16;
+    int fx = cell >= 0 ? cell * 32 : (item % 8) * 16;
+    int fy = cell >= 0 ? (right ? 0 : 32) : (item / 8) * 16;
     float sc = cell >= 0 ? 0.62f : 0.9f;
     /* hand position on the body */
-    float hxf = g_pl.x - g_cam_x + g_pl.facing * 2.0f;
-    float hyf = g_pl.y - 9.0f - g_cam_y;
+    float hxf = wx - g_cam_x + facing * 2.0f;
+    float hyf = wy - 9.0f - g_cam_y;
     if (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD) {
         float dur = def->speed / 30.0f;
-        float ph = 1.0f - (g_pl.use_t / dur);                /* 0..1 through the swing */
+        float ph = 1.0f - (use_t / dur);                     /* 0..1 through the swing */
+        if (ph < 0) ph = 0; else if (ph > 1) ph = 1;
         /* blade direction (screen-clockwise angle from +x) sweeps over the head
          * and down in front; mirrored when facing left */
         float d0 = -2.35f, d1 = 0.45f;                       /* radians */
@@ -879,26 +918,84 @@ void player_draw_swing(uint16_t *fb) {
         mote->blit_ex(fb, img, cx, cy, fx, fy, cs, cs, ang, sc,
                       MOTE_BLEND_NONE, 0, MOTE_FB_H);
     } else if (kind == IK_BOW) {
-        float dx, dy; aim_dir(&dx, &dy);
+        float dx = facing * cosf(aim), dy = -sinf(aim);
         float delta = atan2f(dy, dx);
         /* bow art fires +x unrotated; mirrored row fires -x */
         float ang = right ? delta : (delta - 3.14159f);
-        mote->blit_ex(fb, img, hxf + g_pl.facing * 4.0f, hyf - 1.0f, fx, fy, cs, cs,
+        mote->blit_ex(fb, img, hxf + facing * 4.0f, hyf - 1.0f, fx, fy, cs, cs,
                       ang, sc, MOTE_BLEND_NONE, 0, MOTE_FB_H);
     }
 }
 
+void player_draw_swing(uint16_t *fb);
+void player_draw_swing(uint16_t *fb) {
+    swing_draw_core(fb, g_pl.inv[g_pl.hot].item, g_pl.use_t,
+                    g_pl.facing, g_pl.x, g_pl.y, s_aim_ang);
+}
+
 /* the rope + claw, screen space (overlay, before darkness) */
-void player_draw_rope(uint16_t *fb);
-void player_draw_rope(uint16_t *fb) {
-    if (!g_pl.grap) return;
-    int hx = (int)g_pl.x - g_cam_x, hy = (int)g_pl.y - 9 - g_cam_y;
-    int gx = (int)g_pl.grap_x - g_cam_x, gy = (int)g_pl.grap_y - g_cam_y;
+static void rope_draw_core(uint16_t *fb, float px, float py, uint8_t grap, float grx, float gry) {
+    if (!grap) return;
+    int hx = (int)px - g_cam_x, hy = (int)py - 9 - g_cam_y;
+    int gx = (int)grx - g_cam_x, gy = (int)gry - g_cam_y;
     mote->draw_line(fb, hx, hy, gx, gy, rgb(120, 92, 54), 0, MOTE_FB_H);
     mote->draw_line(fb, hx, hy - 1, gx, gy - 1, rgb(90, 66, 38), 0, MOTE_FB_H);
     /* claw */
-    uint16_t iron = g_pl.grap == 2 ? rgb(210, 212, 220) : rgb(180, 182, 190);
+    uint16_t iron = grap == 2 ? rgb(210, 212, 220) : rgb(180, 182, 190);
     mote->draw_rect(fb, gx - 1, gy - 1, 3, 3, iron, 1, 0, MOTE_FB_H);
     mote->draw_pixel(fb, gx - 2, gy - 2, iron);
     mote->draw_pixel(fb, gx + 2, gy - 2, iron);
+}
+
+void player_draw_rope(uint16_t *fb);
+void player_draw_rope(uint16_t *fb) {
+    rope_draw_core(fb, g_pl.x, g_pl.y, g_pl.grap, g_pl.grap_x, g_pl.grap_y);
+}
+
+/* ---- co-op friend rendering ------------------------------------------------ */
+float player_aim(void) { return s_aim_ang; }
+
+uint8_t player_clip_id(void) {
+    if (s_clip == &player_walk) return 1;
+    if (s_clip == &player_jump) return 2;
+    if (s_clip == &player_swing) return 3;
+    return 0;
+}
+
+void player_draw_net(const NetPeerDraw *v) {
+    if (v->hidden || !s_body2_px) return;
+    static const MoteAnimClip *k_clips[4];
+    k_clips[0] = &player_idle; k_clips[1] = &player_walk;
+    k_clips[2] = &player_jump; k_clips[3] = &player_swing;
+    const MoteAnimClip *c = k_clips[v->clip & 3];
+    if (s_clip2 != c) { s_clip2 = c; mote_anim_play(&s_anim2, c); }
+    mote_anim_tick(&s_anim2, g_dt);
+    int cell = mote_anim_cell(&s_anim2);
+    int sx = (int)v->x - 6, sy = (int)v->y - 16;
+    uint8_t flip = v->facing < 0 ? MOTE_SPR_HFLIP : 0;
+    MoteSprite body = {
+        .img = &s_body2_img, .x = (int16_t)sx, .y = (int16_t)sy,
+        .fx = (uint16_t)mote_anim_fx(&s_anim2, &player_sheet),
+        .fy = (uint16_t)mote_anim_fy(&s_anim2, &player_sheet),
+        .fw = player_sheet.tile_w, .fh = player_sheet.tile_h,
+        .layer = 10, .flags = flip,
+    };
+    mote->scene2d_add(&body);
+    if (s_net_hair_style < 13) {
+        int dx = 0, dy = 0;
+        if (cell < PLAYER_FRAMES) { dx = player_head_dx[cell]; dy = player_head_dy[cell]; }
+        if (flip) dx = -dx;
+        MoteSprite hair = {
+            .img = &s_hair2_img, .x = (int16_t)(sx + dx), .y = (int16_t)(sy + dy),
+            .fx = (uint16_t)(s_net_hair_style * 12), .fy = 0, .fw = 12, .fh = 10,
+            .layer = 11, .flags = flip,
+        };
+        mote->scene2d_add(&hair);
+    }
+}
+
+void player_draw_net_overlay(uint16_t *fb, const NetPeerDraw *v) {
+    if (v->hidden) return;
+    rope_draw_core(fb, v->x, v->y, v->grap, v->gx, v->gy);
+    swing_draw_core(fb, v->item, v->use_t, v->facing, v->x, v->y, v->aim);
 }

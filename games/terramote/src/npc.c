@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 /* Enemy animation clips — authored in anims/<name>.anims, editable in Studio's
  * Anim tab, driven here by a MoteAnimPlayer per enemy (like the player). */
@@ -70,6 +71,24 @@ static const MoteAnimClip *edef_clip(const Enemy *e) {
 static float s_spawn_t;
 static int s_boss_idx = -1;
 
+/* co-op: enemies chase / spawn around whichever player is CLOSER (the host
+ * sims for both; solo this collapses to the local player) */
+static void nearest_pos(float ex, float ey, float *ox, float *oy) {
+    float ax = g_pl.x, ay = g_pl.y;
+    float px, py;
+    if (net_peer_pos(&px, &py)) {
+        float a2 = (ax - ex) * (ax - ex) + ((ay - 8) - ey) * ((ay - 8) - ey);
+        float b2 = (px - ex) * (px - ex) + ((py - 8) - ey) * ((py - 8) - ey);
+        if (b2 < a2) { ax = px; ay = py; }
+    }
+    *ox = ax; *oy = ay;
+}
+static void nearest_pl(float ex, float ey, float *dx, float *dy) {
+    float x, y;
+    nearest_pos(ex, ey, &x, &y);
+    *dx = x - ex; *dy = (y - 8) - ey;
+}
+
 void npc_clear_mobs(void) {
     for (int i = 0; i < MAX_ENEMIES; i++)
         if (g_en[i].kind && g_en[i].kind != E_BOSS_EOC) g_en[i].kind = E_NONE;
@@ -83,12 +102,20 @@ void npc_reset(void) {
     s_spawn_t = 2.0f;
 }
 
-/* ------------------------------------------------------------------ drops ---- */
+/* ------------------------------------------------------------------ drops ----
+ * In co-op every drop is HOST-owned: the guest's spawns become requests (its
+ * world-op predictions suppress them entirely — the host's echo is the truth),
+ * and every host spawn replicates to the guest's mirror slot. */
 void drops_add_v(uint8_t item, int n, float x, float y, float vx, float vy) {
     if (!item || n <= 0) return;
+    if (net_guest()) {
+        if (!g_net_nodrops) net_ev_drop_req(item, n, x, y);
+        return;
+    }
     for (int i = 0; i < MAX_DROPS; i++) {
         if (g_drops[i].item) continue;
         g_drops[i] = (Drop){ item, (uint8_t)(n > 99 ? 99 : n), x, y, vx, vy, 0 };
+        net_drop_spawned(i);
         return;
     }
 }
@@ -97,13 +124,23 @@ void drops_add(uint8_t item, int n, float x, float y) {
 }
 
 static void drops_tick(float dt) {
+    int guest = net_guest();
+    float qx = 0, qy = 0;
+    int have_peer = net_peer_pos(&qx, &qy);
     for (int i = 0; i < MAX_DROPS; i++) {
         Drop *d = &g_drops[i];
         if (!d->item) continue;
         d->t += dt;
+        /* magnet + collection track the NEAREST player (host arbitrates) */
         float px = g_pl.x, py = g_pl.y - 10;
+        int peer_closer = 0;
         float dx = px - d->x, dy = py - d->y;
         float dist2 = dx * dx + dy * dy;
+        if (have_peer) {
+            float bx = qx - d->x, by = (qy - 10) - d->y;
+            float b2 = bx * bx + by * by;
+            if (b2 < dist2) { dx = bx; dy = by; dist2 = b2; peer_closer = 1; }
+        }
         if (d->t > 1.1f && dist2 < 26 * 26) {            /* magnet (after a beat, so drops are SEEN) */
             float inv = 1.0f / sqrtf(dist2 + 1.0f);
             d->vx = dx * inv * 130.0f; d->vy = dy * inv * 130.0f;
@@ -117,13 +154,19 @@ static void drops_tick(float dt) {
         float nx = d->x + d->vx * dt, ny2 = d->y + d->vy * dt;
         if (!world_solid_px((int)nx, (int)d->y)) d->x = nx;
         if (!world_solid_px((int)d->x, (int)ny2)) d->y = ny2;
+        if (guest) continue;                             /* mirror only: host resolves pickups */
         if (d->t > 0.4f && dist2 < 9 * 9) {              /* collect */
+            if (peer_closer) {                           /* the friend picked it up */
+                net_drop_taken(i, 1);
+                d->item = I_NONE;
+                continue;
+            }
             int left = inv_add(d->item, d->count);
             audio_sfx(d->item == I_COIN ? SFX_COIN : SFX_TICK, d->item == I_COIN ? 0.9f : 0.45f);
             if (left) d->count = (uint8_t)left;
-            else d->item = I_NONE;
+            else { d->item = I_NONE; net_drop_taken(i, 0); }
         }
-        if (d->t > 90.0f) d->item = I_NONE;              /* eventually despawns */
+        if (d->t > 90.0f) { d->item = I_NONE; net_drop_taken(i, 0); }
     }
 }
 
@@ -144,7 +187,17 @@ static void drops_draw(void) {
 void proj_add(uint8_t kind, float x, float y, float vx, float vy, int dmg, int hostile, uint8_t element) {
     for (int i = 0; i < MAX_PROJ; i++) {
         if (g_proj[i].kind) continue;
-        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, (int16_t)dmg, (uint8_t)hostile, element };
+        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, (int16_t)dmg, (uint8_t)hostile, element, 0 };
+        return;
+    }
+}
+
+/* the FRIEND's arrow: flies and sparkles here, but the damage happens on the
+ * shooter's own sim (melee/arrows are sender-authoritative via 'd') */
+void proj_add_net(uint8_t kind, float x, float y, float vx, float vy, uint8_t element) {
+    for (int i = 0; i < MAX_PROJ; i++) {
+        if (g_proj[i].kind) continue;
+        g_proj[i] = (Proj){ kind, x, y, vx, vy, 0, 0, 0, element, 1 };
         return;
     }
 }
@@ -157,7 +210,7 @@ static void proj_tick(float dt) {
         p->vy += 240.0f * dt;
         p->x += p->vx * dt; p->y += p->vy * dt;
         if (p->t > 4.0f || world_solid_px((int)p->x, (int)p->y)) {
-            if (!p->hostile && (mote_rand() & 1))
+            if (!p->hostile && !p->net && (mote_rand() & 1))
                 drops_add(p->kind == PR_ARROW_FLAME ? I_ARROW_FLAME : I_ARROW, 1, p->x - p->vx * dt, p->y - p->vy * dt);
             part_burst(p->x, p->y, rgb(180, 170, 150), 3, 30);
             p->kind = PR_NONE;
@@ -167,6 +220,7 @@ static void proj_tick(float dt) {
             part_burst(p->x, p->y, rgb(255, 150, 40), 1, 8);
         else if (p->element && (mote_rand() % 2) == 0)          /* elemental arrow trail */
             part_element(p->x, p->y, p->element, 1, 12);
+        if (p->net) continue;                                   /* peer's arrow: cosmetic */
         if (p->hostile) {
             if (fabsf(p->x - g_pl.x) < 5 && fabsf(p->y - (g_pl.y - 10)) < 11) {
                 player_damage(p->dmg, p->vx > 0 ? 80.0f : -80.0f);
@@ -227,6 +281,22 @@ uint16_t element_color(uint8_t el) {
 }
 
 int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8_t element) {
+    if (net_guest()) {
+        /* enemies live on the host: flash the hit locally, send the strike up */
+        int hits = 0;
+        for (int i = 0; i < MAX_ENEMIES; i++) {
+            Enemy *e = &g_en[i];
+            if (!e->kind) continue;
+            const EnemyDef *d = &k_edef[e->kind];
+            if (fabsf(x - e->x) > hw + d->hw || fabsf(y - e->y) > hh + d->hh) continue;
+            e->hurt_t = 0.15f;
+            ftext_add(e->x, e->y - d->hh - 6, dmg, rgb(255, 200, 90));   /* optimistic number */
+            if (element) part_element(e->x, e->y - 2, element, 6, 55);
+            hits++;
+        }
+        net_ev_dmg(x, y, hw, hh, dmg, kx, element);
+        return hits;
+    }
     int hits = 0;
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_en[i];
@@ -268,6 +338,7 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
                 s_boss_idx = -1;
                 ui_toast("THE EYE OF CTHULHU IS DEFEATED");
                 audio_sfx(SFX_ROAR, 1.0f);
+                net_ev_boss_state(1);
                 break;
             }
             if (ed->coins) drops_add(I_COIN, ed->coins + (int)(mote_rand() % (ed->coins + 1)), e->x, e->y - 4);
@@ -332,6 +403,7 @@ void npc_spawn_boss(void) {
     ui_toast("THE EYE OF CTHULHU HAS AWOKEN!");
     audio_sfx(SFX_ROAR, 1.0f);
     mote->rumble(0.8f, 400);
+    net_ev_boss_state(0);
 }
 
 int npc_boss_hp(int *max);
@@ -350,11 +422,18 @@ static void spawn_try(void) {
         if (cap > 6) cap = 6;
     }
     if (en_count() >= cap) return;
+    /* co-op: half the spawns happen around the friend instead */
+    float ax = g_pl.x, ay = g_pl.y;
+    int peer_anchor = 0;
+    {
+        float px, py;
+        if (net_peer_pos(&px, &py) && (mote_rand() & 1)) { ax = px; ay = py; peer_anchor = 1; }
+    }
     int side = (mote_rand() & 1) ? 1 : -1;
-    int pc = px_c(g_pl.x);
+    int pc = px_c(ax);
     int c = pc + side * (18 + (int)(mote_rand() % 8));
     if ((unsigned)c >= WCOLS - 2 || c < 2) return;
-    int pr = (int)g_pl.y / TILE;
+    int pr = (int)ay / TILE;
     int r = pr + (int)(mote_rand() % 13) - 6;
     if ((unsigned)r >= WROWS - 3) return;
     /* find a free 2-tall air spot near, with ground below (fliers skip the
@@ -383,12 +462,75 @@ static void spawn_try(void) {
         if (BG_LIQ(bg_at(c, r)) >= 4) return;
         if (night) kind = (mote_rand() % 3 == 0) ? E_EYE : E_ZOMBIE;
         else kind = (mote_rand() % 4 == 0) ? E_SLIME_BLUE : E_SLIME_GREEN;
-        /* day surface slimes only in the open */
-        if (!night && fx_light_at(c, r) < 6) kind = E_BAT;
+        /* day surface slimes only in the open (the light window only covers
+         * OUR camera, so skip the check for spawns anchored on the friend) */
+        if (!night && !peer_anchor && fx_light_at(c, r) < 6) kind = E_BAT;
     }
     if (!ok && kind != E_EYE && kind != E_BAT) return;   /* walkers need a floor */
     if (kind == E_EYE || kind == E_BAT) y -= 8;
     en_spawn(kind, x, y);
+}
+
+/* ---- guest side: enemies are PUPPETS driven by the host's 'E' snapshots ----
+ * We smooth toward the reported positions, run animation locally, and decide
+ * our own contact damage (victim-authoritative, matching the link convention). */
+static float   s_ptx[MAX_ENEMIES], s_pty[MAX_ENEMIES];
+static uint8_t s_seen[MAX_ENEMIES];
+
+void npc_net_snapshot_begin(void) { memset(s_seen, 0, sizeof s_seen); }
+
+void npc_net_apply(int idx, uint8_t kind, float x, float y, int hp, uint8_t flags) {
+    if ((unsigned)idx >= MAX_ENEMIES || !kind || kind >= E_COUNT) return;
+    Enemy *e = &g_en[idx];
+    s_seen[idx] = 1;
+    if (e->kind != kind) {
+        memset(e, 0, sizeof *e);
+        e->kind = kind;
+        e->x = x; e->y = y;
+        mote_anim_play(&e->anim, edef_clip(e));
+        if (kind == E_BOSS_EOC) s_boss_idx = idx;            /* boss hp bar */
+    }
+    s_ptx[idx] = x; s_pty[idx] = y;
+    if (fabsf(x - e->x) > 48 || fabsf(y - e->y) > 48) { e->x = x; e->y = y; }
+    e->hp = (int16_t)hp;
+    e->facing = (flags & 1) ? -1 : 1;
+    e->on_ground = (uint8_t)((flags >> 1) & 1);
+    e->phase = (uint8_t)((flags >> 2) & 1);
+    if ((flags & 8) && e->hurt_t <= 0) e->hurt_t = 0.12f;
+}
+
+void npc_net_snapshot_end(void) {
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_en[i];
+        if (!e->kind || s_seen[i]) continue;
+        /* gone on the host — a kill if it happened in our view */
+        if (fabsf(e->x - g_pl.x) < 100 && fabsf(e->y - g_pl.y) < 100) {
+            part_burst(e->x, e->y, rgb(180, 40, 50), 10, 70);
+            audio_sfx(SFX_KILL, 0.7f);
+        }
+        if (e->kind == E_BOSS_EOC) s_boss_idx = -1;
+        e->kind = E_NONE;
+    }
+}
+
+static void npc_guest_tick(float dt) {
+    drops_tick(dt);                    /* mirror physics; the host resolves pickups */
+    proj_tick(dt);                     /* own arrows: hits go up as 'd' events */
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_en[i];
+        if (!e->kind) continue;
+        const EnemyDef *d = &k_edef[e->kind];
+        if (e->hurt_t > 0) e->hurt_t -= dt;
+        float k = mote_clampf(dt * 10.0f, 0, 1);
+        e->x += (s_ptx[i] - e->x) * k;
+        e->y += (s_pty[i] - e->y) * k;
+        const MoteAnimClip *clip = edef_clip(e);
+        if (e->anim.clip != clip) mote_anim_play(&e->anim, clip);
+        mote_anim_tick(&e->anim, dt);
+        /* contact damage: OUR device decides when WE get hit */
+        if (fabsf(e->x - g_pl.x) < d->hw + 4 && fabsf(e->y - (g_pl.y - 8)) < d->hh + 7)
+            player_damage(d->dmg, (g_pl.x > e->x ? 1 : -1) * 120.0f);
+    }
 }
 
 void npc_tick(float dt) {
@@ -405,6 +547,7 @@ void npc_tick(float dt) {
             mote->log(b);
         }
     }
+    if (net_guest()) { npc_guest_tick(dt); return; }
     s_spawn_t -= dt;
     if (s_spawn_t <= 0) {
         /* spawn cadence ramps through the night: 2.6s at dusk -> 1.2s deep night */
@@ -437,7 +580,8 @@ void npc_tick(float dt) {
                 part_burst(e->x, e->y, e->status_el == EL_NATURE ? rgb(120, 220, 80) : rgb(150, 220, 255), 1, 10);
         }
         if (e->dot_t <= 0 && e->slow_t <= 0) e->status_el = EL_NONE;
-        float dx = g_pl.x - e->x, dy = (g_pl.y - 8) - e->y;
+        float dx, dy;
+        nearest_pl(e->x, e->y, &dx, &dy);
         float dist = sqrtf(dx * dx + dy * dy) + 0.01f;
 
         /* despawn far away (never on screen) */
@@ -497,9 +641,11 @@ void npc_tick(float dt) {
             float cycle = ph2 ? 2.2f : 3.2f;
             float tt = fmodf(e->t, cycle);
             if (tt < cycle - 1.1f) {
-                /* hover above-left/right of the player, keeping its distance */
-                float hx = g_pl.x + (e->x > g_pl.x ? 95 : -95);
-                float hy = g_pl.y - 85;
+                /* hover above-left/right of the (nearest) player, keeping its distance */
+                float txp, typ;
+                nearest_pos(e->x, e->y, &txp, &typ);
+                float hx = txp + (e->x > txp ? 95 : -95);
+                float hy = typ - 85;
                 e->vx += (hx - e->x) * 4.5f * dt; e->vy += (hy - e->y) * 4.5f * dt;
                 e->vx *= 0.94f; e->vy *= 0.94f;
             } else if (tt - dt < cycle - 1.1f) {
@@ -513,7 +659,7 @@ void npc_tick(float dt) {
             /* flees at dawn */
             if (!IS_NIGHT()) {
                 e->vy = -160; e->y += e->vy * dt;
-                if (e->t > 6.0f || e->y < -80) { e->kind = E_NONE; s_boss_idx = -1; ui_toast("THE EYE FLEES..."); }
+                if (e->t > 6.0f || e->y < -80) { e->kind = E_NONE; s_boss_idx = -1; ui_toast("THE EYE FLEES..."); net_ev_boss_state(2); }
             }
             break;
         }

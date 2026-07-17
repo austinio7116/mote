@@ -28,6 +28,7 @@ static uint8_t s_inv_on_pager; /* cursor is up on the filter pager row */
 static int   s_chest_cur;      /* 0..7 chest, 8..39 inventory */
 static int   s_title_cur;
 static int   s_create_cur;
+static uint8_t s_create_join;   /* creator BEGIN! -> join co-op instead of a new world */
 static float s_ui_t;
 
 void ui_toast(const char *msg) {
@@ -504,8 +505,15 @@ void ui_inventory(uint16_t *fb) {
         if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
         if (mote_just_pressed(in, MOTE_BTN_A)) {
             if (s_game_cur == 0) g_state = GS_PLAY;
-            else if (s_game_cur == 1) { save_world(); ui_toast("WORLD SAVED"); g_state = GS_PLAY; }
-            else { save_world(); mote->exit_to_launcher(); }
+            else if (s_game_cur == 1) {
+                if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
+                else { save_world(); ui_toast("WORLD SAVED"); }
+                g_state = GS_PLAY;
+            } else {
+                if (net_guest()) save_player_coop(); else save_world();
+                net_stop(1);
+                mote->exit_to_launcher();
+            }
         }
     }
 }
@@ -514,7 +522,11 @@ void ui_inventory(uint16_t *fb) {
 void ui_chest(uint16_t *fb) {
     const MoteInput *in = mote->input();
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    if (!g_open_chest) { g_state = GS_PLAY; return; }
+    if (!g_open_chest || g_open_chest->c < 0) {   /* c<0: the friend mined it under us */
+        g_open_chest = 0;
+        g_state = GS_PLAY;
+        return;
+    }
     int no_input = g_ui_fresh;
     mote_dim_box(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, 4);
     mote->text_font(fb, f, "CHEST", 6, 2, rgb(255, 220, 120));
@@ -538,6 +550,8 @@ void ui_chest(uint16_t *fb) {
     s_chest_cur = row == 0 ? col : CHEST_SLOTS + (row - 1) * 8 + col;
 
     if (mote_just_pressed(in, MOTE_BTN_A)) {
+        Slot before[CHEST_SLOTS];
+        memcpy(before, g_open_chest->s, sizeof before);   /* co-op: diff -> 'C' events */
         if (s_chest_cur < CHEST_SLOTS) {
             Slot *sl = &g_open_chest->s[s_chest_cur];
             if (sl->item) {
@@ -567,6 +581,10 @@ void ui_chest(uint16_t *fb) {
                 audio_sfx(SFX_TICK, 0.6f);
             }
         }
+        for (int i = 0; i < CHEST_SLOTS; i++)
+            if (before[i].item != g_open_chest->s[i].item || before[i].count != g_open_chest->s[i].count)
+                net_ev_chest(g_open_chest->c, g_open_chest->r, i,
+                             g_open_chest->s[i].item, g_open_chest->s[i].count);
     }
     if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_RB)) {
         g_open_chest = 0;
@@ -585,29 +603,56 @@ void ui_title(uint16_t *fb) {
     mote_ftextc(mote, fb, fl, MOTE_FB_W / 2, 18, rgb(90, 200, 80), "TERRAMOTE");
     mote_ftextc(mote, fb, fl, MOTE_FB_W / 2, 17, rgb(255, 240, 190), "TERRAMOTE");
     int has_save = save_world_exists();
-    const char *items[2] = { "NEW WORLD", "CONTINUE" };
-    int n = has_save ? 2 : 1;
+    /* NEW WORLD · CONTINUE · HOST CO-OP (both need a save) · JOIN CO-OP */
+    const char *items[4];
+    uint8_t ids[4];
+    int n = 0;
+    items[n] = "NEW WORLD"; ids[n++] = 0;
+    if (has_save) {
+        items[n] = "CONTINUE";   ids[n++] = 1;
+        items[n] = "HOST CO-OP"; ids[n++] = 2;
+    }
+    items[n] = "JOIN CO-OP"; ids[n++] = 3;
     if (s_title_cur >= n) s_title_cur = 0;
     for (int i = 0; i < n; i++) {
         uint16_t col = i == s_title_cur ? rgb(255, 235, 160) : rgb(230, 226, 216);
-        mote_ftextc(mote, fb, f, MOTE_FB_W / 2 + 1, 57 + i * 15, rgb(20, 34, 22), items[i]); /* shadow */
-        mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 56 + i * 15, col, items[i]);
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2 + 1, 55 + i * 14, rgb(20, 34, 22), items[i]); /* shadow */
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 54 + i * 14, col, items[i]);
         if (i == s_title_cur) {
             int w = mote_fontw(f, items[i]);
-            mote->text_font(fb, f, ">", MOTE_FB_W / 2 - w / 2 - 10, 56 + i * 15, col);
+            mote->text_font(fb, f, ">", MOTE_FB_W / 2 - w / 2 - 10, 54 + i * 14, col);
         }
     }
-    mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 112, rgb(255, 246, 225), "A SELECT");
+    mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 114, rgb(255, 246, 225), "A SELECT");
     if (mote_just_pressed(in, MOTE_BTN_UP))   s_title_cur = (s_title_cur + n - 1) % n;
     if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_title_cur = (s_title_cur + 1) % n;
     if (mote_just_pressed(in, MOTE_BTN_A)) {
+        extern int g_net_pending;
         audio_sfx(SFX_TICK, 0.7f);
-        if (s_title_cur == 1 && has_save) {
+        switch (ids[s_title_cur]) {
+        case 0:
+            player_reset(1);
+            s_create_join = 0;
+            g_state = GS_CREATE;
+            break;
+        case 1: {
             extern void game_continue(void);
             game_continue();
-        } else {
-            player_reset(1);
-            g_state = GS_CREATE;
+            break;
+        }
+        case 2:
+            g_net_pending = 1;                   /* game.c runs the lobby from update() */
+            break;
+        case 3:
+            if (load_player()) {                 /* bring your saved character along */
+                player_build_palette();
+                g_net_pending = 2;
+            } else {                             /* no character yet: create one first */
+                player_reset(1);
+                s_create_join = 1;
+                g_state = GS_CREATE;
+            }
+            break;
         }
     }
 }
@@ -663,8 +708,15 @@ void ui_create(uint16_t *fb) {
         }
     }
     if (mote_just_pressed(in, MOTE_BTN_A) && s_create_cur == 5) {
-        extern void game_new_world(void);
-        game_new_world();
+        if (s_create_join) {
+            extern int g_net_pending;
+            s_create_join = 0;
+            g_net_pending = 2;         /* fresh explorer, straight into the friend's world */
+            g_state = GS_TITLE;        /* the title update path runs the lobby */
+        } else {
+            extern void game_new_world(void);
+            game_new_world();
+        }
     }
     if (mote_just_pressed(in, MOTE_BTN_A) && s_create_cur < 5) {
         s_create_cur++;

@@ -95,6 +95,7 @@ void world_set_fg(int c, int r, uint8_t t) {
     if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return;
     g_fgm[r * WCOLS + c] = t;
     if (r <= g_surf[c] + 1) surf_update_col(c);
+    net_raw_fg(c, r, t);              /* co-op host: every fg change replicates */
 }
 static void set_bg_wall(int c, int r, uint8_t w) {
     if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return;
@@ -104,11 +105,34 @@ static void set_bg_wall(int c, int r, uint8_t w) {
 void world_set_wall(int c, int r, uint8_t wall);
 void world_set_wall(int c, int r, uint8_t wall) {   /* player wall place/remove */
     set_bg_wall(c, r, wall);
+    net_raw_wall(c, r, wall);
 }
 static void set_liq(int c, int r, int level, int lava) {
     if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return;
     uint8_t b = g_bgm[r * WCOLS + c];
-    g_bgm[r * WCOLS + c] = (uint8_t)((b & 0x0F) | ((level & 7) << 4) | (lava && level ? 0x80 : 0));
+    uint8_t nb = (uint8_t)((b & 0x0F) | ((level & 7) << 4) | (lava && level ? 0x80 : 0));
+    if (nb == b) return;
+    g_bgm[r * WCOLS + c] = nb;
+    net_raw_liq(c, r, (uint8_t)((level & 7) | (lava && level ? 8 : 0)));
+}
+void world_set_liq_raw(int c, int r, uint8_t packed) {      /* guest: apply 'L' delta */
+    if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return;
+    uint8_t b = g_bgm[r * WCOLS + c];
+    int lv = packed & 7, lava = (packed >> 3) & 1;
+    g_bgm[r * WCOLS + c] = (uint8_t)((b & 0x0F) | (lv << 4) | (lava && lv ? 0x80 : 0));
+}
+/* wall op shared by local play + remote application: W_NONE knocks the wall
+ * out with an item refund, anything else paints it */
+void world_wall_op(int c, int r, uint8_t w) {
+    if (w != W_NONE) { world_set_wall(c, r, w); return; }
+    uint8_t old = BG_WALL(bg_at(c, r));
+    if (!old) return;
+    world_set_wall(c, r, W_NONE);
+    uint8_t back = old == W_WOOD ? I_WALL_WOOD : old == W_STONE ? I_WALL_STONE
+                 : old == W_GLASS ? I_WALL_GLASS : old == W_CLAYBRICK ? I_WALL_CLAYBRICK
+                 : old == W_STONEBRICK ? I_WALL_STONEBRICK : I_NONE;
+    if (back) drops_add(back, 1, c * TILE + 4, r * TILE + 4);
+    part_burst(c * TILE + 4, r * TILE + 4, rgb(120, 100, 70), 4, 40);
 }
 
 int world_solid_px(int wx, int wy) {
@@ -144,6 +168,7 @@ Chest *world_chest_create(int c, int r) {
         if (g_chests[i].c < 0) {
             g_chests[i].c = (int16_t)c; g_chests[i].r = (int16_t)r;
             for (int s = 0; s < CHEST_SLOTS; s++) g_chests[i].s[s] = (Slot){ 0, 0 };
+            net_chest_created(c, r);
             return &g_chests[i];
         }
     }
@@ -151,7 +176,7 @@ Chest *world_chest_create(int c, int r) {
 }
 void world_chest_remove(int c, int r) {
     Chest *ch = world_chest_at(c, r);
-    if (ch) ch->c = -1;
+    if (ch) { ch->c = -1; net_chest_removed(c, r); }
 }
 
 /* -------------------------------------------------------------- mining ---- */
@@ -179,7 +204,8 @@ void world_mine_tile(int c, int r) {
     uint8_t t = fg_at(c, r);
     if (t == T_AIR || g_tiles[t].hardness == 0) return;
     if (r >= WROWS - 2) return;                          /* bedrock floor */
-    audio_sfx(t == T_STONE || t >= T_COPPER ? SFX_DIG_STONE : SFX_DIG, 0.9f);
+    audio_sfx_at(t == T_STONE || t >= T_COPPER ? SFX_DIG_STONE : SFX_DIG, 0.9f,
+                 c * TILE + 4, r * TILE + 4);
     part_burst(c * TILE + 4, r * TILE + 4, rgb(150, 110, 70), 5, 40);
     if (t == T_TRUNK) { world_hit_tree(c, r); return; }
     if (t == T_CHEST) {
@@ -190,6 +216,7 @@ void world_mine_tile(int c, int r) {
                     drops_add(ch->s[s].item, ch->s[s].count, c * TILE, r * TILE);
             int ac = ch->c, ar = ch->r;
             ch->c = -1;
+            net_chest_removed(ac, ar);
             remove_piece(ac, ar, T_CHEST);
         }
         drops_add(I_CHEST, 1, c * TILE + 4, r * TILE + 4);
@@ -235,7 +262,7 @@ int world_hit_tree(int c, int r) {
                 if ((wrand() % 12) == 0) drops_add(I_ACORN, 1, cc * TILE + 4, rr * TILE + 4);
             }
     if ((wrand() % 5) < 3) drops_add(I_ACORN, 1 + (int)(wrand() % 2), c * TILE + 4, top * TILE);
-    audio_sfx(SFX_CHOP, 1.0f);
+    audio_sfx_at(SFX_CHOP, 1.0f, c * TILE + 4, r * TILE + 4);
     return wood;
 }
 
@@ -706,6 +733,15 @@ void world_liquid_tick(void) {
     int c1 = mote_clampi(g_cam_x / TILE + 38, 1, WCOLS - 2);
     int r0 = mote_clampi(g_cam_y / TILE - 20, 1, WROWS - 3);
     int r1 = mote_clampi(g_cam_y / TILE + 36, 1, WROWS - 3);
+    liquid_pass(c0, c1, r0, r1);
+}
+
+/* co-op host: liquids also flow around the FRIEND's position */
+void world_liquid_tick_at(int px, int py) {
+    int c0 = mote_clampi(px / TILE - 30, 1, WCOLS - 2);
+    int c1 = mote_clampi(px / TILE + 30, 1, WCOLS - 2);
+    int r0 = mote_clampi(py / TILE - 28, 1, WROWS - 3);
+    int r1 = mote_clampi(py / TILE + 28, 1, WROWS - 3);
     liquid_pass(c0, c1, r0, r1);
 }
 
