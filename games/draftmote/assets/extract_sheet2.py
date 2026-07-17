@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""DraftMote asset extractor for the character/texture sheet
+(art_sources/ref/sheet2.png — hero walks, texture swatches, items, doors).
+
+Writes the editable game sheets under assets/:
+  hero.png    16x20 x8 : front0 front1 back0 back1 left0 left1 (right = HFLIP)
+  items.png   12x12 x12: coin key gem food star bigstar masterkey padlock boot
+                         potion compass spyglass   (last three authored)
+  floors.png  32x32 macro-tiles (2x2 game tiles):
+              wood wood_dark stone_tile red_carpet blue_carpet grass
+              white_checker autumn grass_leafy
+  doors.png   16x16 x8 : h_closed h_open v_closed v_open gold_closed gold_open
+                         brick_sealed white_sealed
+  props_sheet.png + prop boxes printed: bush chest campfire shelf_big shelf_small
+                         book sack   (authored furniture comes from make_props.py)
+  walls_*.png + tilesets/wall_*.tileset : edge16 rule sheets AUTHORED over the
+                         sheet's brick/stone textures (stone, red, dark)
+"""
+import os
+import numpy as np
+from PIL import Image
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REF = os.path.join(os.path.dirname(HERE), "art_sources", "ref")
+GAME = os.path.dirname(HERE)
+SRC = os.path.join(REF, "sheet2.png")
+
+im = Image.open(SRC).convert("RGB")
+A = np.asarray(im).astype(np.int32)
+
+def snap565(img):
+    a = np.asarray(img).astype(np.uint16)
+    a = np.stack(((a[..., 0] >> 3) << 3, (a[..., 1] >> 2) << 2, (a[..., 2] >> 3) << 3), axis=-1)
+    return Image.fromarray(a.astype(np.uint8))
+
+def keyed(box, pad=8, thresh=40, margin=12):
+    """crop + alpha out the backdrop. The boxes are tight sprite bounds, so
+    expand by `margin` first — the corner samples must land on background."""
+    x0, y0, x1, y1 = box
+    x0 = max(0, x0 - margin); y0 = max(0, y0 - margin)
+    x1 = min(A.shape[1], x1 + margin); y1 = min(A.shape[0], y1 + margin)
+    a = A[y0:y1, x0:x1]
+    h, w = a.shape[:2]
+    corners = np.concatenate([a[:pad, :pad].reshape(-1, 3), a[:pad, -pad:].reshape(-1, 3),
+                              a[-pad:, :pad].reshape(-1, 3), a[-pad:, -pad:].reshape(-1, 3)])
+    pal = np.unique(corners // 10, axis=0) * 10 + 5
+    d = np.full((h, w), 1e9)
+    for c in pal:
+        d = np.minimum(d, np.abs(a - c).sum(axis=2))
+    m = d > thresh
+    from scipy import ndimage
+    m = ndimage.binary_opening(m, np.ones((2, 2)))
+    m = ndimage.binary_fill_holes(m)
+    ys, xs = np.where(m)
+    if len(xs) == 0:
+        raise SystemExit("empty key crop %s" % (box,))
+    bb = (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)
+    rgba = np.dstack([a.astype(np.uint8), (m * 255).astype(np.uint8)])
+    return Image.fromarray(rgba, "RGBA").crop(bb)
+
+def fit(img, w, h):
+    """scale keeping aspect to fit w x h, centred on a transparent cell"""
+    s = min(w / img.width, h / img.height)
+    t = img.resize((max(1, round(img.width * s)), max(1, round(img.height * s))), Image.LANCZOS)
+    cell = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cell.paste(t, ((w - t.width) // 2, h - t.height), t)   # feet on the baseline
+    return cell
+
+# ------------------------------------------------------------------- hero ----
+# walk frames (front 4, back 4, left 4); we use frames 0+2 of each cycle
+CHAR = {
+    "front": [(23, 57), (598, 57)],
+    "back":  [(1270, 56), (1845, 57)],
+    "left":  [(2505, 57), (3094, 56)],
+}
+HW, HHH = 277, 326
+hero = Image.new("RGBA", (6 * 16, 20), (0, 0, 0, 0))
+i = 0
+for dirn in ("front", "back", "left"):
+    for (x, y) in CHAR[dirn]:
+        c = keyed((x, y, x + HW, y + HHH), pad=24, thresh=40)   # pad wide: the cell
+                                                                # backdrop is dotted
+        hero.paste(fit(c, 16, 20), (i * 16, 0))
+        i += 1
+hero.save(os.path.join(HERE, "hero.png"))
+print("wrote hero.png")
+
+# ------------------------------------------------------------------ items ----
+IT = Image.new("RGBA", (12 * 12, 12), (0, 0, 0, 0))
+def item(cell, box, size=12, thresh=40):
+    IT.paste(fit(keyed(box, thresh=thresh), size, size), (cell * 12 + (12 - size) // 2, 0))
+
+item(0, (1712, 563, 1847, 727))            # gold nugget = coin
+item(1, (1929, 540, 2025, 750))            # key
+item(2, (2110, 569, 2285, 720))            # gem
+item(3, (2333, 556, 2532, 730))            # sandwich
+item(4, (2587, 547, 2760, 745), size=10)   # star (without the long trail)
+item(5, (2587, 547, 2900, 745))            # big star, trail and all
+item(7, (2961, 534, 3105, 746))            # padlock
+item(9, (3176, 541, 3321, 750))            # potion
+
+# master key: the key, gilded
+key = np.asarray(IT.crop((12, 0, 24, 12))).astype(np.int32)
+mk = key.copy()
+mk[..., 0] = np.clip(key[..., 0] * 1.5 + 50, 0, 255)
+mk[..., 1] = np.clip(key[..., 1] * 1.2 + 25, 0, 255)
+mk[..., 2] = (key[..., 2] * 0.35).astype(np.int32)
+IT.paste(Image.fromarray(mk.astype(np.uint8)), (6 * 12, 0))
+
+def px(cell, x, y, c):
+    if 0 <= x < 12 and 0 <= y < 12:
+        IT.putpixel((cell * 12 + x, y), c + (255,))
+
+# boot (authored)
+for (x0, y0, x1, y1, c) in ((4, 1, 7, 6, (150, 100, 55)), (4, 7, 9, 9, (150, 100, 55)),
+                            (4, 10, 9, 10, (60, 50, 46))):
+    for yy in range(y0, y1 + 1):
+        for xx in range(x0, x1 + 1):
+            px(8, xx, yy, c)
+for xx in range(4, 8): px(8, xx, 1, (180, 128, 74))
+for xx in range(4, 10): px(8, xx, 9, (100, 64, 34))
+
+# compass (authored): gold ring, red/white needle
+for a in range(0, 360, 12):
+    import math
+    x = 5.5 + 4.6 * math.cos(math.radians(a)); y = 5.5 + 4.6 * math.sin(math.radians(a))
+    px(10, int(round(x)), int(round(y)), (216, 180, 80))
+for i2 in range(4):
+    px(10, 5, 2 + i2, (220, 60, 50)); px(10, 6, 5 + i2, (235, 235, 240))
+px(10, 5, 6, (235, 235, 240)); px(10, 6, 4, (220, 60, 50))
+
+# spyglass (authored): brass telescope diagonal
+for i2 in range(6):
+    px(11, 2 + i2, 9 - i2, (190, 150, 70)); px(11, 3 + i2, 9 - i2, (150, 110, 50))
+px(11, 8, 2, (110, 170, 210)); px(11, 9, 2, (110, 170, 210)); px(11, 8, 3, (80, 130, 170))
+px(11, 1, 10, (90, 70, 40))
+
+IT.save(os.path.join(HERE, "items.png"))
+print("wrote items.png")
+
+# ----------------------------------------------------------------- floors ----
+# swatch grid: 6 cols x 2 rows at (22,462), cell ~176x178
+FLOOR_ORDER = [("wood", 0, 0), ("stone_tile", 1, 0), ("red_carpet", 2, 0),
+               ("blue_carpet", 3, 0), ("grass", 4, 0), ("white_checker", 5, 0),
+               ("wood_dark", 0, 1), ("grass_leafy", 4, 1), ("autumn", 5, 1)]
+FS = Image.new("RGB", (len(FLOOR_ORDER) * 32, 32), (0, 0, 0))
+for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
+    x = 22 + int(cx * 176.3) + 20
+    y = 462 + cy * 179 + 20
+    sw = im.crop((x, y, x + 136, y + 136)).resize((32, 32), Image.LANCZOS)
+    FS.paste(snap565(sw), (i * 32, 0))
+FS.save(os.path.join(HERE, "floors.png"))
+print("wrote floors.png:", " ".join(n for n, _, _ in FLOOR_ORDER))
+
+# ------------------------------------------------------------------ walls ----
+# AUTHORED edge16 rule sheets over the sheet's masonry swatches: the exposed
+# sides get a bright top-catch, dark outline and inner shadow, our own rules.
+WALL_SRC = { "stone": (1, 1), "red": (2, 1), "dark": (3, 1) }
+
+def wall_base(cx, cy):
+    x = 22 + int(cx * 176.3) + 24
+    y = 462 + cy * 179 + 24
+    return np.asarray(im.crop((x, y, x + 128, y + 128)).resize((16, 16), Image.LANCZOS)).astype(np.int32)
+
+def shade(base, mask_bits):
+    t = base.copy()
+    N, E, S, W = (mask_bits & 1), (mask_bits & 2), (mask_bits & 4), (mask_bits & 8)
+    def lighten(sl, f, add): t[sl] = np.clip(t[sl] * f + add, 0, 255)
+    if not N: lighten(np.s_[0:1, :], 1.35, 26); lighten(np.s_[1:2, :], 1.15, 10)
+    if not S: lighten(np.s_[15:16, :], 0.45, 0); lighten(np.s_[14:15, :], 0.7, 0)
+    if not W: lighten(np.s_[:, 0:1], 1.2, 14)
+    if not E: lighten(np.s_[:, 15:16], 0.55, 0)
+    return t
+
+for wname, (cx, cy) in WALL_SRC.items():
+    base = wall_base(cx, cy)
+    sheet = Image.new("RGB", (4 * 16, 4 * 16), (0, 0, 0))
+    for idx in range(16):
+        cell = Image.fromarray(np.clip(shade(base, idx), 0, 255).astype(np.uint8))
+        sheet.paste(snap565(cell), ((idx % 4) * 16, (idx // 4) * 16))
+    sheet.save(os.path.join(HERE, "walls_%s.png" % wname))
+    lut = []
+    for m in range(256):
+        c = 0
+        if m & 1: c |= 1
+        if m & 4: c |= 2
+        if m & 16: c |= 4
+        if m & 64: c |= 8
+        lut.append(c)
+    os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
+    with open(os.path.join(GAME, "tilesets", "walls_%s.tileset" % wname), "w") as f:
+        f.write("sheet assets/walls_%s.png\n" % wname)
+        f.write("tile 16\ntype 1\nedge 1\nnvar 1\ncols 4\nrows 4\n")
+        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
+        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("vweight 1 1 1 1 1 1 1 1\n")
+print("wrote walls_stone/red/dark + tilesets")
+
+# ------------------------------------------------------------------ doors ----
+D = Image.new("RGBA", (8 * 16, 16), (0, 0, 0, 0))
+def door(cell, box, rot=0):
+    """doors are solid rectangles — crop + downscale, no keying"""
+    x0, y0, x1, y1 = box
+    d = snap565(im.crop((x0, y0, x1, y1)).resize((14, 16), Image.LANCZOS)).convert("RGBA")
+    c = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    c.paste(d, (1, 0))
+    if rot: c = c.transpose(Image.ROTATE_90)
+    D.paste(c, (cell * 16, 0))
+
+door(0, (3794, 464, 4058, 788))            # ornate closed
+door(1, (3492, 464, 3758, 788))            # iron gate = open
+door(2, (3794, 464, 4058, 788), rot=1)
+door(3, (3492, 464, 3758, 788), rot=1)
+# gold door: ornate, gilded
+g = np.asarray(D.crop((0, 0, 16, 16))).astype(np.int32)
+g[..., 0] = np.clip(g[..., 0] * 1.35 + 44, 0, 255)
+g[..., 1] = np.clip(g[..., 1] * 1.18 + 26, 0, 255)
+g[..., 2] = (g[..., 2] * 0.4).astype(np.int32)
+gold = Image.fromarray(g.astype(np.uint8))
+D.paste(gold, (4 * 16, 0))
+go = np.asarray(gold).copy(); go[3:16, 4:12] = (255, 246, 214, 255)
+D.paste(Image.fromarray(go), (5 * 16, 0))
+# sealed variants: red brick + white door
+D.paste(snap565(im.crop((4750, 520, 4878, 648)).resize((16, 16), Image.LANCZOS)).convert("RGBA"), (6 * 16, 0))
+door(7, (4421, 464, 4644, 789))
+D.save(os.path.join(HERE, "doors.png"))
+print("wrote doors.png")
+
+# ------------------------------------------------------------- sheet props ---
+# lifted straight off the sheet at half-art scale, packed left to right
+PROPS = [
+    ("bush",        (1080, 465, 1245, 635), 24, 24),
+    ("chest",       (1075, 655, 1250, 815), 20, 16),
+    ("campfire",    (1255, 650, 1440, 820), 20, 20),
+    ("shelf_big",   (1255, 460, 1440, 640), 32, 26),
+    ("shelf_small", (1440, 465, 1615, 635), 30, 26),
+    ("book",        (1450, 645, 1535, 740), 10, 10),
+    ("sack",        (1530, 720, 1610, 800), 12, 12),
+]
+total_w = sum(w for (_, _, w, _) in PROPS)
+PS = Image.new("RGBA", (total_w, 32), (0, 0, 0, 0))
+x = 0
+meta = []
+for (name, box, w, h) in PROPS:
+    p = fit(keyed(box, thresh=30), w, h)
+    PS.paste(p, (x, 32 - h))
+    meta.append((name, x, 32 - h, w, h))
+    x += w
+PS.save(os.path.join(HERE, "props_sheet.png"))
+print("props_sheet.png cells:")
+for m in meta:
+    print("   %-12s x=%3d y=%2d w=%2d h=%2d" % m)
