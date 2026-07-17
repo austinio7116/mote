@@ -692,7 +692,7 @@ def make_walls():
         def body(c, rng): speckle(c, bs, ds, ls, density, rng)
         blob_sheet(name,
                    lambda m, s: mat_cell(m, bs, ds, ls, shade(dark, f * 0.7), density, seed=s),
-                   extra=diag_cut_cells(body, ls, ds), classify=classify_slope)
+                   extra=diag_cut_cells(body, ls, ds), classify=classify_wall)
     wall("wall_dirt",  (128, 84, 50), (100, 62, 36), (150, 104, 66))
     wall("wall_stone", (116, 116, 124), (86, 86, 96), (140, 140, 148))
     wall("wall_wood",  (168, 122, 68), (136, 96, 50), (188, 144, 86), 0.12)
@@ -703,11 +703,11 @@ def make_walls():
     blob_sheet("wall_clay_brick", lambda m, s: brick_cell(m, CLAY_BRICK, 0.52, s),
                extra=diag_cut_cells(lambda c, r: brick_body(c, r, CLAY_BRICK, 0.52),
                                     shade(CLAY_BRICK[2], 0.52), shade(CLAY_BRICK[1], 0.52)),
-               classify=classify_slope)
+               classify=classify_wall)
     blob_sheet("wall_stone_brick", lambda m, s: brick_cell(m, STONE_BRICK, 0.52, s),
                extra=diag_cut_cells(lambda c, r: brick_body(c, r, STONE_BRICK, 0.52),
                                     shade(STONE_BRICK[2], 0.52), shade(STONE_BRICK[1], 0.52)),
-               classify=classify_slope)
+               classify=classify_wall)
     # glass: mostly TRANSPARENT (the sky/backdrop shows through) with a frame
     # on exposed edges and a diagonal sheen
     def glass_cell(mask, seed=0):
@@ -734,7 +734,7 @@ def make_walls():
             c.put(k, (k + 6) % TS, SHEEN2)
     blob_sheet("wall_glass", glass_cell,
                extra=diag_cut_cells(glass_body, (70, 82, 96), (70, 82, 96)),
-               classify=classify_slope)
+               classify=classify_wall)
 
 
 
@@ -784,8 +784,16 @@ def make_grass_caps():
 
 # ---------------------------------------------------------------- tree crowns
 def make_bricks():
-    blob_sheet("tiles_brick_clay", lambda m, s: brick_cell(m, CLAY_BRICK, 1.0, s), nvar=2)
-    blob_sheet("tiles_brick_stone", lambda m, s: brick_cell(m, STONE_BRICK, 1.0, s), nvar=2)
+    # single-variant so the sheets carry the six diagonal cut cells (extras
+    # need nvar=1) — the SOLID bricks slope exactly like the back walls
+    blob_sheet("tiles_brick_clay", lambda m, s: brick_cell(m, CLAY_BRICK, 1.0, s),
+               extra=diag_cut_cells(lambda c, r: brick_body(c, r, CLAY_BRICK, 1.0),
+                                    CLAY_BRICK[2], CLAY_BRICK[1]),
+               classify=classify_wall)
+    blob_sheet("tiles_brick_stone", lambda m, s: brick_cell(m, STONE_BRICK, 1.0, s),
+               extra=diag_cut_cells(lambda c, r: brick_body(c, r, STONE_BRICK, 1.0),
+                                    STONE_BRICK[2], STONE_BRICK[1]),
+               classify=classify_wall)
 
 ROOF_BASE = (134, 60, 44); ROOF_DARK = (94, 40, 30); ROOF_LITE = (170, 90, 58); ROOF_CAP = (204, 128, 78)
 
@@ -849,7 +857,9 @@ def diag_cut_cells(body_fn, hi, lo, seed=4000):
         out.append(c)
     return out
 
-def classify_slope(m):
+def classify_roof(m):
+    """ROOF slopes: diagonal faces + undersides on CONTINUING runs only —
+    apex and run-end cells stay square CORNERS (strict: both diagonals)."""
     n, e, s, w = m & N, m & E, m & S, m & W
     ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
     if not n and not w and e and s and ne and sw: return 0    # '/' outer face
@@ -861,10 +871,24 @@ def classify_slope(m):
         if (nw or se) and not (ne or sw): return 5            # thin '\' run
     return None
 
+def classify_wall(m):
+    """BACK WALL / masonry slopes: relaxed faces — a single continuing
+    diagonal is enough, so staircase edges AND inner corners chamfer."""
+    n, e, s, w = m & N, m & E, m & S, m & W
+    ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
+    if not n and not w and e and s and sw: return 0           # '/' edge
+    if not n and not e and w and s and se: return 1           # '\' edge
+    if not s and not e and n and w and ne: return 2           # underside SE
+    if not s and not w and n and e and nw: return 3           # underside SW
+    if not (n or e or s or w):
+        if (ne or sw) and not (nw or se): return 4            # thin '/' run
+        if (nw or se) and not (ne or sw): return 5            # thin '\' run
+    return None
+
 def make_roof():
     blob_sheet("tiles_roof", roof_cell, nvar=1,
                extra=diag_cut_cells(_roof_body, ROOF_CAP, ROOF_DARK),
-               classify=classify_slope)
+               classify=classify_roof)
 
 def make_canopy():
     """Proper tree crowns (assets/canopy.png): 3 leafy variants + 1 snowy,
