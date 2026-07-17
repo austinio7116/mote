@@ -219,7 +219,9 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int16_t hill_back[MOTE_FB_W];
     for (int x = 0; x < MOTE_FB_W; x++) {
         int c = (x + g_cam_x) / TILE;
-        srow_px[x] = (int16_t)(world_surface_row(c) * TILE);
+        /* the backdrop line is the NATURAL terrain — built structures draw
+         * over the painted sky/hills instead of clipping them */
+        srow_px[x] = (int16_t)(world_surface_row_natural(c) * TILE);
         hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
         hill_back[x] = (int16_t)(hb - 12 - hill_h(x, 2));   /* back range peeks higher */
         hill_near[x] = (int16_t)(hb - hill_h(x, 1));
@@ -242,18 +244,7 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         else if (rr >= ROW_DIRT_END) cavec = rgb(18, 16, 20);
         else cavec = rgb(30, 20, 14);
         for (int x = 0; x < MOTE_FB_W; x++) {
-            /* open air keeps the SKY backdrop: below the first solid of a
-             * column (a roof overhang, a bridge) unwalled near-surface air
-             * must NOT flip to the cave backdrop — that read as black shafts
-             * under every overhang. Caves keep it via their natural walls. */
-            int open_air = wy < srow_px[x];
-            if (!open_air && rr < ROW_DIRT_END) {
-                int cc = (x + g_cam_x) / TILE;
-                uint8_t bgb = ((unsigned)cc < WCOLS && (unsigned)rr < WROWS)
-                              ? g_bgm[rr * WCOLS + cc] : 0;
-                if (!BG_WALL(bgb)) open_air = 1;
-            }
-            if (open_air) {
+            if (wy < srow_px[x]) {
                 uint16_t col = sky;
                 if (stars) {
                     /* sparse fixed starfield, gentle parallax (deepest layer) */

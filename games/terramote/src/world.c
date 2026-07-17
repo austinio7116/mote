@@ -40,10 +40,26 @@ static float fbm2(float x, float y, uint32_t s, int oct) {
 }
 
 /* ------------------------------------------------------------- accessors ---- */
+static uint8_t g_surf_nat[WCOLS];      /* first NATURAL solid per column: ignores
+                                          player-structural tiles, so the sky/hills
+                                          backdrop paints behind built roofs/walls */
+static int natural_solid(uint8_t t) {
+    if (g_tiles[t].solid != 1) return 0;
+    if (t == T_WOOD || t == T_ROOF || t == T_BRICK_CLAY || t == T_BRICK_STONE) return 0;
+    if (t == T_CHEST || t == T_DOOR_C || t == T_WORKBENCH || t == T_ANVIL) return 0;
+    return t <= T_OBSIDIAN;               /* dirt..obsidian terrain family */
+}
 static void surf_update_col(int c) {
     int r = 0;
     while (r < WROWS - 1 && !g_tiles[g_fgm[r * WCOLS + c]].solid) r++;
     g_surf[c] = (uint8_t)r;
+    r = 0;
+    while (r < WROWS - 1 && !natural_solid(g_fgm[r * WCOLS + c])) r++;
+    g_surf_nat[c] = (uint8_t)r;
+}
+int world_surface_row_natural(int c) {
+    if ((unsigned)c >= WCOLS) return ROW_SURFACE_MAX;
+    return g_surf_nat[c];
 }
 /* ---- fog of war -------------------------------------------------------- */
 uint8_t g_explored[(EXP_W * EXP_H + 7) / 8];

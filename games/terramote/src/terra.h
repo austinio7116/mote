@@ -268,6 +268,7 @@ int  world_branch_stand(int wx, int wy, float vy, float feet_y); /* branch top (
 void world_title_scene(void);         /* build a real surface strip for the title */
 void world_grow_tick(void);           /* grass spread, saplings, flowers */
 int  world_surface_row(int c);        /* cached first-solid row per column */
+int  world_surface_row_natural(int c); /* ...ignoring player-built structure (backdrop line) */
 
 /* fog of war: the map only shows where you've been (2x2-tile chunks) */
 #define EXP_W (WCOLS / 2)
