@@ -28,6 +28,7 @@ MOTE_MODULE_HEADER();
 #include "props_auth.h"
 #include "hero.h"
 #include "items.h"
+#include "title_bg.h"       /* crowned-thumbprint title backdrop (make_title.py) */
 #include "tick.sfx.h"
 #include "draft.sfx.h"
 #include "door.sfx.h"
@@ -1269,30 +1270,26 @@ static void shop_tick(void) {
 }
 
 static void title_draw(uint16_t *fb) {
-    for (int y = 0; y < 128; y++) {
-        uint16_t c = y < 64 ? rgb(14, 20, 44 + y / 4) : rgb(14, 20, 60 - (y - 64) / 4);
-        mote->draw_rect(fb, 0, y, 128, 1, c, 1, 0, 128);
-    }
-    for (int v = 0; v < 128; v += 16) {
-        for (int y = 0; y < 128; y += 2) mote->draw_pixel(fb, v, y, rgb(30, 44, 90));
-        for (int x = 0; x < 128; x += 2) mote->draw_pixel(fb, x, v, rgb(30, 44, 90));
-    }
-    mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 18, rgb(250, 250, 255), "THUMBPRINCE");
+    /* the crowned-thumbprint mark (spiral whorl + chalk crown on blueprint) —
+     * pre-drawn by assets/make_title.py; text goes over its calm bands */
+    mote->blit(fb, &title_bg_img, 0, 0, 0, 0, 128, 128, 0, 0, 128);
+    mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 7, rgb(10, 16, 36), "THUMBPRINCE");
+    mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), 64, 6, rgb(250, 250, 255), "THUMBPRINCE");
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote_ftextc(mote, fb, f, 64, 38, rgb(150, 180, 240), "LEAVE YOUR MARK");
-    mote->blit(fb, &doors_img, 46, 56, 4 * 16, 0, 16, 16, 0, 0, 128);
-    mote->blit(fb, &hero_img, 66, 54, 0, 0, 16, 20, 0, 0, 128);
-    char buf[32];
-    if (g_hi) {
-        snprintf(buf, sizeof buf, "BEST %u", (unsigned)g_hi);
-        mote_ftextc(mote, fb, f, 64, 82, rgb(250, 240, 190), buf);
+    mote_ftextc(mote, fb, f, 64, 21, rgb(10, 16, 36), "LEAVE YOUR MARK");
+    mote_ftextc(mote, fb, f, 64, 20, rgb(160, 190, 245), "LEAVE YOUR MARK");
+    char buf[40];
+    if (((int)(g_result_t * 2) & 1) == 0) {
+        mote_ftextc(mote, fb, f, 64, 105, rgb(10, 16, 36), "A - ENTER THE ESTATE");
+        mote_ftextc(mote, fb, f, 64, 104, rgb(240, 240, 250), "A - ENTER THE ESTATE");
     }
-    if (g_wins) {
-        snprintf(buf, sizeof buf, "WINS %u / %u DAYS", (unsigned)g_wins, (unsigned)g_days);
-        mote_ftextc(mote, fb, f, 64, 96, rgb(160, 170, 200), buf);
+    if (g_hi || g_wins) {                        /* one stats line in the bottom band */
+        if (g_wins) snprintf(buf, sizeof buf, "BEST %u  WINS %u/%u",
+                             (unsigned)g_hi, (unsigned)g_wins, (unsigned)g_days);
+        else snprintf(buf, sizeof buf, "BEST %u", (unsigned)g_hi);
+        mote_ftextc(mote, fb, f, 64, 119, rgb(10, 16, 36), buf);
+        mote_ftextc(mote, fb, f, 64, 118, rgb(250, 240, 190), buf);
     }
-    if (((int)(g_result_t * 2) & 1) == 0)
-        mote_ftextc(mote, fb, f, 64, 112, rgb(240, 240, 250), "A - ENTER THE ESTATE");
 }
 
 static void results_draw(uint16_t *fb) {
