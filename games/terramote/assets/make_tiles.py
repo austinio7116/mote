@@ -858,31 +858,27 @@ def diag_cut_cells(body_fn, hi, lo, seed=4000):
     return out
 
 def classify_roof(m):
-    """ROOF slopes: diagonal faces + undersides on CONTINUING runs only —
-    apex and run-end cells stay square CORNERS (strict: both diagonals)."""
+    """ROOF: diagonals wherever the geometry allows — every exposed convex
+    corner chamfers (no continuation conditions). Apex/ridge and the very
+    end cells stay square naturally (they lack the adjacent edges)."""
     n, e, s, w = m & N, m & E, m & S, m & W
     ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
-    if not n and not w and e and s and ne and sw: return 0    # '/' outer face
-    if not n and not e and w and s and nw and se: return 1    # '\' outer face
-    if not s and not e and n and w and ne and sw: return 2    # underside SE
-    if not s and not w and n and e and nw and se: return 3    # underside SW
+    if not n and not w and e and s: return 0                  # NW corner -> '/'
+    if not n and not e and w and s: return 1                  # NE corner -> '\'
+    if not s and not e and n and w: return 2                  # SE corner (underside)
+    if not s and not w and n and e: return 3                  # SW corner (underside)
     if not (n or e or s or w):
         if (ne or sw) and not (nw or se): return 4            # thin '/' run
         if (nw or se) and not (ne or sw): return 5            # thin '\' run
     return None
 
 def classify_wall(m):
-    """BACK WALL / masonry slopes: relaxed faces — a single continuing
-    diagonal is enough, so staircase edges AND inner corners chamfer."""
+    """BACK WALL / masonry: ONLY the under-L inner-corner cuts (a cell tucked
+    under an L: covered above + one side, open below + the other side) —
+    unconditional, nothing else slopes."""
     n, e, s, w = m & N, m & E, m & S, m & W
-    ne, se, sw, nw = m & NE, m & SE, m & SW, m & NW
-    if not n and not w and e and s and sw: return 0           # '/' edge
-    if not n and not e and w and s and se: return 1           # '\' edge
-    if not s and not e and n and w and ne: return 2           # underside SE
-    if not s and not w and n and e and nw: return 3           # underside SW
-    if not (n or e or s or w):
-        if (ne or sw) and not (nw or se): return 4            # thin '/' run
-        if (nw or se) and not (ne or sw): return 5            # thin '\' run
+    if not s and not e and n and w: return 2                  # under-L, cut SE
+    if not s and not w and n and e: return 3                  # under-L, cut SW
     return None
 
 def make_roof():
