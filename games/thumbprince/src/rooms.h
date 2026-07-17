@@ -34,6 +34,7 @@ enum {
     RF_LOCKED = 16,      /* costs 1 key to draft (the Vault) */
     RF_COMPASS = 32,     /* first entry grants the Compass (rotate drafts) */
     RF_PENCIL = 64,      /* first entry grants the Pencil (gem rerolls) */
+    RF_SEAL = 128,       /* cursed: the door seals behind you on entry */
 };
 
 enum {                   /* loot pickup types */
@@ -72,6 +73,7 @@ enum {
     R_TERRACE, R_GARDEN, R_SUNROOM, R_VAULT,
     R_GUEST, R_CHAPEL, R_ARMORY, R_WINECELLAR, R_ORCHARD, R_TREASURY,
     R_NOOK, R_SCULLERY, R_SOLARIUM, R_GAMES, R_BUNK, R_ATELIER,
+    R_CRYPT, R_TRICKHALL,
     R_COUNT,
 };
 
@@ -446,6 +448,24 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#..m..#"
         "#.....#"
         "#######", { IT_STAR2, IT_GEM, 0 } },
+
+    [R_CRYPT] = { "CRYPT", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(90, 70, 110), 0, -4, 0, 0, 0,
+        "#######"
+        "#g...g#"
+        "#.....#"
+        "#.....#"
+        "#C....#"
+        "#.....#"
+        "#######", { IT_STAR2, IT_GEM, IT_GEM, IT_POUCH, 0 } },
+
+    [R_TRICKHALL] = { "TRICK HALL", SH_STR, 2, 0, FL_WOOD_DARK, WL_DARK, C565(150, 90, 150), RF_SEAL, 0, 0, 0, 0,
+        "#######"
+        "#r...r#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_STAR2, IT_POUCH, IT_KEY, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

@@ -69,6 +69,7 @@ typedef struct {
     uint8_t chests;      /* opened-chest bits */
     uint8_t entered;     /* first-entry effect given */
     uint8_t swept;       /* sweep bonus given */
+    uint8_t extra;       /* bit0 dig done, bit1 note taken */
 } Cell;
 
 static Cell   g_grid[GRID_W * GRID_H];
@@ -86,6 +87,8 @@ static uint8_t g_master;                    /* master key held */
 static uint8_t g_compass;                   /* rotate draft offers (LB/RB) */
 static uint8_t g_spyglass;                  /* 4-card draft offers */
 static uint8_t g_pencil;                    /* redraw offers for a gem (B) */
+static uint8_t g_chain;                     /* placement bonus chain (mult = 1+chain) */
+static uint8_t g_cond;                      /* today's condition */
 static uint8_t g_won;
 static int    g_rooms_placed;
 static uint32_t g_day_seed;
@@ -119,9 +122,21 @@ typedef struct { uint8_t x, y, locked; } RoomChest;
 static RoomChest g_chests[4];
 static int g_nchests;
 
+/* dig spot + riddle note in the current room (positions seeded per day) */
+static uint8_t g_dig_on, g_dig_x, g_dig_y;
+static uint8_t g_note_on, g_note_x, g_note_y;
+static int8_t  g_cache_gi = -1;             /* riddle target cell (-1 none) */
+static uint8_t g_cache_x, g_cache_y;
+static char    g_riddle[24];
+
+/* score appraisal */
+static uint16_t g_sc_rooms, g_sc_loot, g_sc_bonus, g_sc_goal;
+static uint32_t g_sc_win;
+
 static uint8_t g_no_locks;                  /* DRAFT_LOCKS=0 test hook */
 static uint8_t g_all_locks;                 /* DRAFT_LOCKS=2 test hook */
 static const char *g_force_rooms;           /* DRAFT_ROOMS test hook */
+static uint8_t g_force_dig;                 /* DRAFT_DIG=1: digs+notes everywhere */
 
 static void toast(const char *msg) {
     if (g_toast_n >= 3) {                              /* full: drop the oldest */
@@ -194,6 +209,10 @@ static const ComboDef k_combos[] = {
     { TAG_REST, TAG_REST,   20, "QUIET WING +20" },
 };
 
+/* scored points, itemised for the appraisal */
+enum { SC_ROOMS, SC_LOOT, SC_BONUS, SC_GOAL, SC_WIN };
+static void score_add(int cat, uint32_t pts);
+
 /* two goals a day, dealt from the day seed */
 typedef struct { const char *name; uint8_t target; uint16_t pts; } GoalDef;
 enum { GO_GREENS, GO_CHESTS, GO_ROOMS, GO_SWEEPS, GO_COMBOS, GO_RANKS, GO_GOLD, GO_KEYS, GO_N };
@@ -216,7 +235,7 @@ static void goal_progress(int kind, int value, int absolute) {
         g_goal_prog[i] = (uint8_t)mote_clampi(p, 0, 255);
         if (g_goal_prog[i] >= k_goals[kind].target) {
             g_goal_done[i] = 1;
-            g_score += k_goals[kind].pts;
+            score_add(SC_GOAL, k_goals[kind].pts);
             char buf[40];
             snprintf(buf, sizeof buf, "GOAL! %s +%d", k_goals[kind].name, k_goals[kind].pts);
             toast(buf);
@@ -227,6 +246,30 @@ static void goal_progress(int kind, int value, int absolute) {
 static void goal_check_held(void) {
     goal_progress(GO_GOLD, g_gold, 1);
     goal_progress(GO_KEYS, g_keys, 1);
+}
+
+/* one estate condition per day, dealt at dawn */
+enum { CD_FROSTY, CD_CREAKY, CD_GENEROUS, CD_MARKET, CD_BRIGHT, CD_RESTFUL, CD_MISER, CD_LUCKY, CD_N };
+static const struct { const char *name; const char *desc; } k_conds[CD_N] = {
+    [CD_FROSTY]   = { "FROSTY",     "GREENS +1 GEM" },
+    [CD_CREAKY]   = { "CREAKY",     "MORE LOCKS" },
+    [CD_GENEROUS] = { "GENEROUS",   "RICHER CHESTS" },
+    [CD_MARKET]   = { "MARKET", "CHEAP SHOPS" },
+    [CD_BRIGHT]   = { "BRIGHT",     "RANKS +125" },
+    [CD_RESTFUL]  = { "RESTFUL",    "REST +2 STEPS" },
+    [CD_MISER]    = { "MISER", "COINS +10 PTS" },
+    [CD_LUCKY]    = { "LUCKY",      "MORE DIG SPOTS" },
+};
+
+static void score_add(int cat, uint32_t pts) {
+    g_score += pts;
+    switch (cat) {
+    case SC_ROOMS: g_sc_rooms += pts; break;
+    case SC_LOOT:  g_sc_loot += pts; break;
+    case SC_BONUS: g_sc_bonus += pts; break;
+    case SC_GOAL:  g_sc_goal += pts; break;
+    default:       g_sc_win += pts; break;
+    }
 }
 
 /* room blurbs for draft cards */
@@ -319,6 +362,8 @@ static int door_state(int gi, int side) {
 }
 
 /* --------------------------------------------------------- room furniture --- */
+static void roll_room_finds(int gi);
+
 static void parse_room_props(int gi) {
     g_nprops = 0;
     g_nchests = 0;
@@ -341,6 +386,42 @@ static void parse_room_props(int gi) {
                 g_nprops++;
             }
         }
+    roll_room_finds(gi);
+}
+
+/* dig spots + riddle notes: seeded per day+room, positioned on open floor */
+static uint32_t hash32(uint32_t x);
+static int pt_in_props(float x, float y, float pad);
+
+static int seeded_spot(int gi, uint32_t salt, uint8_t *ox, uint8_t *oy) {
+    uint32_t r = hash32(g_day_seed ^ (uint32_t)(gi * 2654435761u) ^ salt);
+    for (int t = 0; t < 60; t++) {
+        r = hash32(r + t);
+        float x = 26 + (float)(r % 60u), y = 26 + (float)((r >> 11) % 60u);
+        if (pt_in_props(x, y, 8)) continue;
+        *ox = (uint8_t)x; *oy = (uint8_t)y;
+        return 1;
+    }
+    return 0;
+}
+
+static void roll_room_finds(int gi) {
+    const Cell *cl = &g_grid[gi];
+    int dig_pct = g_force_dig ? 100 : (g_cond == CD_LUCKY ? 55 : 30);
+    int note_pct = g_force_dig ? 100 : 18;
+    g_dig_on = !(cl->extra & 1) && cl->room != R_ANTE &&
+               (int)(hash32(g_day_seed ^ (uint32_t)(gi * 40503u) ^ 0xD16D16u) % 100u) < dig_pct &&
+               seeded_spot(gi, 0xD16u, &g_dig_x, &g_dig_y);
+    g_note_on = !(cl->extra & 2) && cl->room != R_ANTE && gi != START_GI &&
+                (int)(hash32(g_day_seed ^ (uint32_t)(gi * 69069u) ^ 0x407E3u) % 100u) < note_pct &&
+                seeded_spot(gi, 0x407Eu, &g_note_x, &g_note_y);
+    if (g_cache_gi == gi)
+        seeded_spot(gi, 0xCAC4Eu, &g_cache_x, &g_cache_y);
+    if (g_force_dig && g_dig_on) {
+        char b[32];
+        snprintf(b, sizeof b, "dig at %d,%d", g_dig_x, g_dig_y);
+        mote->log(b);
+    }
 }
 
 /* ------------------------------------------------------------- collisions --- */
@@ -438,10 +519,17 @@ static void apply_entry_effects(int gi) {
     if (cl->entered) return;
     cl->entered = 1;
     const RoomDef *d = &k_rooms[cl->room];
-    if (d->steps) { g_steps += d->steps; mote->audio_play_sfx(&food_sfx, 0.7f); toastf("+%d STEPS", d->steps); }
+    int steps = d->steps;
+    if (g_cond == CD_RESTFUL && steps > 0) steps += 2;
+    int gems = d->gemsg + ((g_cond == CD_FROSTY && (d->flags & RF_GREEN)) ? 1 : 0);
+    if (steps) {
+        g_steps += steps;
+        mote->audio_play_sfx(steps > 0 ? &food_sfx : &locked_sfx, steps > 0 ? 0.7f : 0.9f);
+        toastf("%+d STEPS", steps);
+    }
     if (d->keys)  { g_keys += d->keys; mote->audio_play_sfx(&key_sfx, 0.9f); toastf("+%d KEYS", d->keys); }
-    if (d->gemsg) { g_gems += d->gemsg; mote->audio_play_sfx(&gem_sfx, 0.9f); toastf("+%d GEMS", d->gemsg); }
-    if (d->pts)   { g_score += d->pts; mote->audio_play_sfx(&star_sfx, 0.9f); toastf("+%d PTS", d->pts); }
+    if (gems)     { g_gems += gems; mote->audio_play_sfx(&gem_sfx, 0.9f); toastf("+%d GEMS", gems); }
+    if (d->pts)   { score_add(SC_ROOMS, d->pts); mote->audio_play_sfx(&star_sfx, 0.9f); toastf("+%d PTS", d->pts); }
     if ((d->flags & RF_COMPASS) && !g_compass) {
         g_compass = 1;
         mote->audio_play_sfx(&star_sfx, 1.0f);
@@ -460,7 +548,7 @@ static void end_day(int won) {
     if (won) {
         uint32_t bonus = 500 + (uint32_t)g_steps * 10 + (uint32_t)g_keys * 25
                        + (uint32_t)g_gems * 15 + (uint32_t)g_gold * 2;
-        g_score += bonus;
+        score_add(SC_WIN, bonus);
         g_wins++;
         mote->audio_play_sfx(&win_sfx, 1.0f);
     } else {
@@ -486,6 +574,11 @@ static void enter_room(int gi, int entry_side) {
     default:    g_px = 24; g_py = 56; break;
     }
     if (g_grid[gi].room == R_ANTE) { end_day(1); return; }
+    if ((k_rooms[g_grid[gi].room].flags & RF_SEAL) && !g_grid[gi].entered) {
+        g_grid[gi].doors &= (uint8_t)~DBIT(entry_side);
+        toast("THE DOOR SEALS BEHIND YOU!");
+        mote->audio_play_sfx(&locked_sfx, 1.0f);
+    }
     apply_entry_effects(gi);
     if (g_steps <= 0) { g_steps = 0; end_day(0); return; }
     if (g_steps == 5) toast("5 STEPS LEFT!");
@@ -559,10 +652,14 @@ static void place_card(int slot) {
     cl->room = id;
     cl->doors = orient_mask(d->shape, g_draft_entry, g_rot[slot]);
     g_rooms_placed++;
-    g_score += 10u * (d->rarity + 1);
+    score_add(SC_ROOMS, 10u * (d->rarity + 1));
     mote->audio_play_sfx(&draft_sfx, 0.9f);
     goal_progress(GO_ROOMS, 1, 0);
     if (d->flags & RF_GREEN) goal_progress(GO_GREENS, 1, 0);
+    /* placement bonuses accumulate, then the chain multiplier pays them out */
+    uint32_t bonus = 0;
+    int hits = 0;
+    int mult = 1 + g_chain;
     /* green adjacency bonus */
     if (d->flags & RF_GREEN) {
         int n = 0;
@@ -570,7 +667,7 @@ static void place_card(int slot) {
             int ni = neighbor(g_draft_gi, s);
             if (ni >= 0 && g_grid[ni].room != 0xFF && (k_rooms[g_grid[ni].room].flags & RF_GREEN)) n++;
         }
-        if (n) { g_score += 25u * n; toastf("GARDEN BONUS +%d", 25 * n); mote->audio_play_sfx(&star_sfx, 0.9f); }
+        if (n) { bonus += 25u * n; hits++; toastf("GARDEN BONUS +%d", 25 * n); mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
     /* tag combos with the neighbours (service wing, en-suite, the archive...) */
     uint8_t mytag = k_tag[id];
@@ -583,7 +680,8 @@ static void place_card(int slot) {
             for (unsigned k = 0; k < sizeof k_combos / sizeof k_combos[0]; k++) {
                 if ((k_combos[k].a == mytag && k_combos[k].b == nt) ||
                     (k_combos[k].a == nt && k_combos[k].b == mytag)) {
-                    g_score += k_combos[k].pts;
+                    bonus += k_combos[k].pts;
+                    hits++;
                     toast(k_combos[k].name);
                     mote->audio_play_sfx(&star_sfx, 0.9f);
                     goal_progress(GO_COMBOS, 1, 0);
@@ -597,7 +695,8 @@ static void place_card(int slot) {
         int mc = (GRID_W - 1) - gi_col(g_draft_gi);
         int mi = gi_row(g_draft_gi) * GRID_W + mc;
         if (mc != gi_col(g_draft_gi) && g_grid[mi].room == id) {
-            g_score += 50;
+            bonus += 50;
+            hits++;
             toast("MATCHED WINGS +50");
             mote->audio_play_sfx(&star_sfx, 1.0f);
             goal_progress(GO_COMBOS, 1, 0);
@@ -608,8 +707,24 @@ static void place_card(int slot) {
     for (int c = 0; c < GRID_W; c++)
         if (g_grid[r * GRID_W + c].room == 0xFF) full = 0;
     if (full) {
-        g_score += 100; toast("RANK COMPLETE +100"); mote->audio_play_sfx(&row_sfx, 1.0f);
+        int rank_pts = g_cond == CD_BRIGHT ? 125 : 100;
+        bonus += rank_pts;
+        hits++;
+        toastf("RANK COMPLETE +%d", rank_pts);
+        mote->audio_play_sfx(&row_sfx, 1.0f);
         goal_progress(GO_RANKS, 1, 0);
+    }
+    /* chain: bonus placements build the multiplier, dry ones break it */
+    if (hits) {
+        score_add(SC_BONUS, bonus * (uint32_t)mult);
+        if (mult > 1) toastf("CHAIN PAYS x%d!", mult);
+        if (g_chain < 3) {
+            g_chain++;
+            toastf("CHAIN x%d", 1 + g_chain);
+        }
+    } else if (g_chain) {
+        g_chain = 0;
+        toast("CHAIN BROKEN");
     }
     g_state = GS_PLAY;
     enter_room(g_draft_gi, g_draft_entry);
@@ -651,7 +766,8 @@ static void door_try(int side) {
     /* DS_CLOSED: an undrafted cell — roll the lock, then draft */
     if (!(cl->lock_roll & DBIT(side))) {
         cl->lock_roll |= DBIT(side);
-        int p = g_no_locks ? 0 : g_all_locks ? 100 : 5 + 7 * (7 - gi_row(n));
+        int p = g_no_locks ? 0 : g_all_locks ? 100 : 5 + 7 * (7 - gi_row(n))
+              + (g_cond == CD_CREAKY ? 12 : 0);
         if ((int)(mote_rand() % 100u) < p) {
             cl->lock_on |= DBIT(side);
             toast("LOCKED - NEED A KEY");
@@ -684,10 +800,11 @@ static void chest_try(int i) {
     }
     cl->chests |= (uint8_t)(1 << i);
     mote->audio_play_sfx(&unlock_sfx, 1.0f);
-    g_score += 10;
+    score_add(SC_LOOT, 10);
     /* seeded contents; padlocked chests hold more */
     uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 2654435761u) ^ (0xC0FFEEu + (uint32_t)i));
     int gold = g_chests[i].locked ? 4 + (int)(r % 4u) : 2 + (int)(r % 3u);
+    if (g_cond == CD_GENEROUS) gold += 2;
     g_gold += gold;
     int roll = (int)((r >> 8) % 100u);
     char buf[40];
@@ -695,18 +812,76 @@ static void chest_try(int i) {
     if (g_chests[i].locked) {
         if (roll < 25)      { g_gems++; extra = " +GEM"; }
         else if (roll < 55) { g_keys++; extra = " +KEY"; }
-        else if (roll < 78) { g_score += 75; extra = " +75!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
+        else if (roll < 78) { score_add(SC_LOOT, 75); extra = " +75!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
         else                { g_gold += 3; gold += 3; }
     } else {
         if (roll < 18)      { g_gems++; extra = " +GEM"; }
         else if (roll < 32) { g_keys++; extra = " +KEY"; }
-        else if (roll < 48) { g_score += 25; extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
+        else if (roll < 48) { score_add(SC_LOOT, 25); extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
     mote->audio_play_sfx(&coin_sfx, 0.9f);
     snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);
     toast(buf);
     goal_progress(GO_CHESTS, 1, 0);
     goal_check_held();
+}
+
+/* dig up a sparkling spot */
+static void dig_here(void) {
+    Cell *cl = &g_grid[g_cur];
+    cl->extra |= 1;
+    g_dig_on = 0;
+    score_add(SC_LOOT, 5);
+    uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 48271u) ^ 0xD1DDu);
+    int roll = (int)(r % 100u);
+    char buf[40];
+    if (roll < 40) {
+        int gold = 2 + (int)((r >> 8) % 3u);
+        g_gold += gold;
+        snprintf(buf, sizeof buf, "DUG UP %d GOLD", gold);
+        mote->audio_play_sfx(&coin_sfx, 0.9f);
+    } else if (roll < 60) {
+        g_gems++; snprintf(buf, sizeof buf, "DUG UP A GEM");
+        mote->audio_play_sfx(&gem_sfx, 0.9f);
+    } else if (roll < 75) {
+        g_keys++; snprintf(buf, sizeof buf, "DUG UP A KEY");
+        mote->audio_play_sfx(&key_sfx, 0.9f);
+    } else if (roll < 90) {
+        score_add(SC_LOOT, 25); snprintf(buf, sizeof buf, "DUG UP A STAR +25");
+        mote->audio_play_sfx(&star_sfx, 0.9f);
+    } else {
+        g_steps += 4; snprintf(buf, sizeof buf, "DUG UP A SNACK +4");
+        mote->audio_play_sfx(&food_sfx, 0.9f);
+    }
+    toast(buf);
+    goal_check_held();
+}
+
+/* read a crumpled note: aim its riddle at a cell next to a drafted room */
+static const char *k_dirname[4] = { "N", "E", "S", "W" };
+static void read_note(void) {
+    Cell *cl = &g_grid[g_cur];
+    cl->extra |= 2;
+    g_note_on = 0;
+    uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 30269u) ^ 0x2071u);
+    for (int t = 0; t < 40; t++) {
+        r = hash32(r + t);
+        int gi = (int)(r % (GRID_W * GRID_H));
+        int d = (int)((r >> 9) % 4u);
+        int n = neighbor(gi, d);
+        if (g_grid[gi].room == 0xFF || gi == g_cur || n < 0 || n == ANTE_GI) continue;
+        if (g_grid[gi].room == R_ANTE) continue;
+        g_cache_gi = (int8_t)n;
+        snprintf(g_riddle, sizeof g_riddle, "%s OF %s", k_dirname[d], k_rooms[g_grid[gi].room].name);
+        toast("A NOTE: SOMETHING GLINTS");
+        toast(g_riddle);
+        mote->audio_play_sfx(&tick_sfx, 0.9f);
+        if (g_cache_gi == g_cur)
+            seeded_spot(g_cur, 0xCAC4Eu, &g_cache_x, &g_cache_y);
+        return;
+    }
+    score_add(SC_LOOT, 10);
+    toast("THE NOTE IS FADED +10");
 }
 
 /* ------------------------------------------------------------------ pickups -- */
@@ -722,22 +897,34 @@ static void pickups_tick(void) {
         if (g_px - 5 < ix + 6 && g_px + 5 > ix - 6 && g_py - 5 < iy + 6 && g_py + 5 > iy - 6) {
             cl->looted |= (uint8_t)(1 << i);
             switch (d->loot[i]) {
-            case IT_COIN: g_gold++; g_score += 5; mote->audio_play_sfx(&coin_sfx, 0.8f); break;
+            case IT_COIN: g_gold++; score_add(SC_LOOT, g_cond == CD_MISER ? 10 : 5); mote->audio_play_sfx(&coin_sfx, 0.8f); break;
             case IT_KEY:  g_keys++; mote->audio_play_sfx(&key_sfx, 0.9f); toast("A KEY!"); break;
             case IT_GEM:  g_gems++; mote->audio_play_sfx(&gem_sfx, 0.9f); break;
             case IT_FOOD: g_steps += 6; mote->audio_play_sfx(&food_sfx, 0.8f); toast("+6 STEPS"); break;
             case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
-            case IT_POUCH: g_gold += 3; g_score += 5; mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
-            case IT_STAR: g_score += 25; mote->audio_play_sfx(&star_sfx, 0.9f); toast("+25"); break;
-            case IT_STAR2: g_score += 75; mote->audio_play_sfx(&star_sfx, 1.0f); toast("+75!"); break;
-            case IT_STAR3: g_score += 100; mote->audio_play_sfx(&star_sfx, 1.0f); toast("+100!"); break;
+            case IT_POUCH: g_gold += 3; score_add(SC_LOOT, 5); mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
+            case IT_STAR: score_add(SC_LOOT, 25); mote->audio_play_sfx(&star_sfx, 0.9f); toast("+25"); break;
+            case IT_STAR2: score_add(SC_LOOT, 75); mote->audio_play_sfx(&star_sfx, 1.0f); toast("+75!"); break;
+            case IT_STAR3: score_add(SC_LOOT, 100); mote->audio_play_sfx(&star_sfx, 1.0f); toast("+100!"); break;
             }
         }
         if (!(cl->looted & (1 << i))) all = 0;
     }
     if (n && all && !cl->swept) {
-        cl->swept = 1; g_score += 20; toast("ROOM SWEPT +20");
+        cl->swept = 1; score_add(SC_LOOT, 20); toast("ROOM SWEPT +20");
         goal_progress(GO_SWEEPS, 1, 0);
+    }
+    /* the riddle note + the glinting cache are walk-over pickups too */
+    if (g_note_on && g_px - 5 < g_note_x + 6 && g_px + 5 > g_note_x - 6 &&
+        g_py - 5 < g_note_y + 6 && g_py + 5 > g_note_y - 6)
+        read_note();
+    if (g_cache_gi == g_cur && g_px - 5 < g_cache_x + 7 && g_px + 5 > g_cache_x - 7 &&
+        g_py - 5 < g_cache_y + 7 && g_py + 5 > g_cache_y - 7) {
+        g_cache_gi = -1;
+        score_add(SC_LOOT, 75);
+        g_gold += 3;
+        mote->audio_play_sfx(&star_sfx, 1.0f);
+        toast("THE GLINT! +75, +3 GOLD");
     }
     goal_check_held();
 }
@@ -753,11 +940,18 @@ static int shop_sold_out(int kind, int i) {
     return 0;
 }
 
+static int shop_price(const ShopItem *it) {
+    int p = it->price;
+    if (g_cond == CD_MARKET) p = p > 2 ? p - 2 : 1;
+    return p;
+}
+
 static void shop_buy(void) {
     const ShopItem *it = g_shop_kind ? &k_shop_lock[g_shop_sel] : &k_shop_com[g_shop_sel];
     if (shop_sold_out(g_shop_kind, g_shop_sel)) { toast("SOLD OUT"); return; }
-    if (g_gold < it->price) { toast("NOT ENOUGH GOLD"); mote->audio_play_sfx(&locked_sfx, 0.8f); return; }
-    g_gold -= it->price;
+    int price = shop_price(it);
+    if (g_gold < price) { toast("NOT ENOUGH GOLD"); mote->audio_play_sfx(&locked_sfx, 0.8f); return; }
+    g_gold -= price;
     mote->audio_play_sfx(&buy_sfx, 0.9f);
     if (!g_shop_kind) {
         if (g_shop_sel == 0) { g_keys++; toast("BOUGHT A KEY"); }
@@ -786,6 +980,8 @@ static void day_start(void) {
     parse_room_props(g_cur);
     g_steps = START_STEPS; g_keys = 1; g_gems = 2; g_gold = 0;
     g_score = 0; g_master = 0; g_compass = 0; g_spyglass = 0; g_pencil = 0;
+    g_chain = 0; g_cache_gi = -1;
+    g_sc_rooms = g_sc_loot = g_sc_bonus = g_sc_goal = 0; g_sc_win = 0;
     g_won = 0; g_rooms_placed = 0;
     g_new_best = 0;
     g_toast_n = 0; g_toast_t = 0;
@@ -807,6 +1003,16 @@ static void day_start(void) {
         }
     }
     if (getenv("DRAFT_TOOLS")) { g_compass = 1; g_spyglass = 1; g_pencil = 1; }
+    /* the day's condition, announced at dawn */
+    g_cond = (uint8_t)(hash32(g_day_seed ^ 0xC02D5u) % CD_N);
+    {
+        const char *e2 = getenv("DRAFT_COND");
+        if (e2) g_cond = (uint8_t)(atoi(e2) % CD_N);
+        char buf[40];
+        snprintf(buf, sizeof buf, "%s: %s", k_conds[g_cond].name, k_conds[g_cond].desc);
+        toast(buf);
+    }
+    parse_room_props(g_cur);                /* re-roll finds now the seed is set */
     g_state = GS_PLAY;
     toast("FIND THE ANTECHAMBER");
 }
@@ -856,10 +1062,13 @@ static void player_tick(float dt) {
     if (mote_just_pressed(in, MOTE_BTN_RB)) { g_state = GS_MAP; mote->audio_play_sfx(&tick_sfx, 0.7f); }
     if (mote_just_pressed(in, MOTE_BTN_MENU)) { g_pause_sel = 0; g_state = GS_PAUSE; }
 
-    /* shops: A opens the counter menu anywhere in the room */
+    /* A: dig a sparkling spot underfoot, else open a shop counter */
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         const RoomDef *d = &k_rooms[g_grid[g_cur].room];
-        if (d->flags & (RF_SHOP_COM | RF_SHOP_LOCK)) {
+        float ddx = g_px - g_dig_x, ddy = g_py - g_dig_y;
+        if (g_dig_on && ddx * ddx + ddy * ddy < 10 * 10) {
+            dig_here();
+        } else if (d->flags & (RF_SHOP_COM | RF_SHOP_LOCK)) {
             g_shop_kind = (d->flags & RF_SHOP_LOCK) ? 1 : 0;
             g_shop_sel = 0;
             g_state = GS_SHOP;
@@ -946,6 +1155,14 @@ static void room_draw(void) {
         if (!(cl->looted & (1 << i)))
             add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
                     k_item_cell[rd->loot[i]] * 12, 0, 12, 12, 3 + ((pos[i][1] + 6) >> 3), 0);
+
+    /* riddle note + the glinting cache */
+    if (g_note_on)
+        add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12,
+                3 + ((g_note_y + 6) >> 3), 0);
+    if (g_cache_gi == g_cur)
+        add_spr(&items_img, g_cache_x - 6, g_cache_y - 6, 5 * 12, 0, 12, 12,
+                3 + ((g_cache_y + 6) >> 3), 0);
 
     /* player (16x20 sprite, feet at py+6; side walk is a 4-frame cycle) */
     int cell; uint8_t fl = 0;
@@ -1142,6 +1359,11 @@ static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote->text_font(fb, f, "DRAFT", 8, 3, rgb(210, 224, 250));
+    if (g_chain) {
+        char cb[8];
+        snprintf(cb, sizeof cb, "x%d", 1 + g_chain);
+        mote->text_font(fb, f, cb, 44, 3, rgb(255, 220, 90));
+    }
     estate_map(fb, 10, 18, 8, g_draft_gi);
 
     /* dossier for the selected card */
@@ -1246,13 +1468,19 @@ static void map_draw(uint16_t *fb) {
     char buf[40];
     snprintf(buf, sizeof buf, "DAY %d", g_days + 1);
     mote->text_font(fb, f, buf, 8, 3, rgb(200, 210, 240));
+    mote_ftextc(mote, fb, f, 64, 3, rgb(170, 200, 250), k_conds[g_cond].name);
     snprintf(buf, sizeof buf, "%u", (unsigned)g_score);
-    mote->text_font(fb, f, buf, 92, 3, rgb(250, 240, 190));
+    mote->text_font(fb, f, buf, 100, 3, rgb(250, 240, 190));
     estate_map(fb, 39, 14, 10, -1);
+    /* the active riddle */
+    if (g_cache_gi >= 0) {
+        snprintf(buf, sizeof buf, "GLINT %s", g_riddle);
+        mote->text_font(fb, f, buf, 8, 92, rgb(250, 220, 130));
+    }
     /* the day's goals */
     for (int i = 0; i < 2; i++) {
         const GoalDef *gd = &k_goals[g_goal[i]];
-        int y = 98 + i * 13;
+        int y = 103 + i * 12;
         if (g_goal_done[i]) {
             snprintf(buf, sizeof buf, "%s  DONE", gd->name);
             mote->text_font(fb, f, buf, 8, y, rgb(250, 220, 110));
@@ -1280,9 +1508,9 @@ static void shop_draw(uint16_t *fb) {
         if (i == g_shop_sel) mote->draw_rect(fb, 12, y - 1, 104, 14, rgb(40, 50, 90), 1, 0, 128);
         int sold = shop_sold_out(g_shop_kind, i);
         snprintf(buf, sizeof buf, "%s", sold ? "SOLD OUT" : it->name);
-        mote->text_font(fb, f, buf, 16, y, g_gold >= it->price && !sold ? rgb(240, 240, 250) : rgb(120, 120, 130));
+        mote->text_font(fb, f, buf, 16, y, g_gold >= shop_price(it) && !sold ? rgb(240, 240, 250) : rgb(120, 120, 130));
         if (!sold) {
-            snprintf(buf, sizeof buf, "%d", it->price);
+            snprintf(buf, sizeof buf, "%d", shop_price(it));
             mote->blit(fb, &items_img, 92, y, 0, 0, 12, 12, 0, 0, 128);
             mote->text_font(fb, f, buf, 105, y, rgb(250, 210, 110));
         }
@@ -1328,24 +1556,31 @@ static void results_draw(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote->draw_rect(fb, 8, 14, 112, 100, rgb(14, 16, 32), 1, 0, 128);
     mote->draw_rect(fb, 8, 14, 112, 100, g_won ? rgb(240, 205, 90) : rgb(120, 140, 200), 0, 0, 128);
-    mote_ftextc(mote, fb, f, 64, 18,
+    mote_ftextc(mote, fb, f, 64, 17,
                 g_won ? rgb(250, 220, 110) : rgb(230, 230, 245),
                 g_won ? "THE ANTECHAMBER!" : "OUT OF STEPS");
+    /* the estate appraisal: where the points came from */
     char buf[32];
-    snprintf(buf, sizeof buf, "DAY %u", (unsigned)g_days);
-    mote->text_font(fb, f, buf, 16, 36, rgb(160, 170, 200));
-    snprintf(buf, sizeof buf, "ROOMS %d", g_rooms_placed);
-    mote->text_font(fb, f, buf, 16, 50, rgb(200, 210, 240));
+    static const char *cat[5] = { "ROOMS", "LOOT", "BONUSES", "GOALS", "THE WIN" };
+    uint32_t vals[5] = { g_sc_rooms, g_sc_loot, g_sc_bonus, g_sc_goal, g_sc_win };
+    int y = 31;
+    for (int i = 0; i < 5; i++) {
+        if (!vals[i]) continue;
+        mote->text_font(fb, f, cat[i], 16, y, rgb(170, 185, 220));
+        snprintf(buf, sizeof buf, "%u", (unsigned)vals[i]);
+        mote->text_font(fb, f, buf, 82, y, rgb(220, 225, 245));
+        y += 11;
+    }
     snprintf(buf, sizeof buf, "SCORE %u", (unsigned)g_score);
-    mote->text_font(fb, f, buf, 16, 64, rgb(250, 240, 190));
+    mote->text_font(fb, f, buf, 16, y + 3, rgb(250, 240, 190));
     if (g_new_best && ((int)(g_result_t * 3) & 1) == 0)
-        mote->text_font(fb, f, "NEW BEST!", 16, 78, rgb(255, 120, 80));
+        mote->text_font(fb, f, "NEW BEST!", 16, y + 15, rgb(255, 120, 80));
     else if (!g_new_best) {
         snprintf(buf, sizeof buf, "BEST %u", (unsigned)g_hi);
-        mote->text_font(fb, f, buf, 16, 78, rgb(150, 160, 190));
+        mote->text_font(fb, f, buf, 16, y + 15, rgb(150, 160, 190));
     }
     if (g_result_t > 1.0f)
-        mote_ftextc(mote, fb, f, 64, 96, rgb(240, 240, 250), "A - NEW DAY");
+        mote_ftextc(mote, fb, f, 64, 100, rgb(240, 240, 250), "A - NEW DAY");
 }
 
 static void pause_draw(uint16_t *fb) {
@@ -1388,6 +1623,7 @@ static void g_init(void) {
         else if (*e == '2') g_all_locks = 1;
     }
     g_force_rooms = getenv("DRAFT_ROOMS");
+    if (getenv("DRAFT_DIG")) g_force_dig = 1;
     if ((e = getenv("DRAFT_UI")) && *e == 'b') g_draft_ui = 1;
     if (getenv("DRAFT_SKIP")) day_start();
     mote->log("thumbprince up");
@@ -1446,6 +1682,14 @@ static void g_overlay(uint16_t *fb) {
         mote->draw_rect(fb, ORG_X + WALL_PX - 1, ORG_Y + WALL_PX - 1,
                         ROOM_PX - 2 * WALL_PX + 2, ROOM_PX - 2 * WALL_PX + 2,
                         rgb(28, 22, 24), 0, 0, 128);
+        /* dig spot: a pulsing twinkle on the floor */
+        if (g_dig_on) {
+            int ph = (int)(g_result_t * 5) % 3;
+            int x = ORG_X + g_dig_x, y = ORG_Y + g_dig_y;
+            uint16_t c = ph == 0 ? rgb(255, 250, 200) : ph == 1 ? rgb(240, 210, 110) : rgb(180, 150, 80);
+            mote->draw_rect(fb, x - 1 - ph, y, 3 + 2 * ph, 1, c, 1, 0, 128);
+            mote->draw_rect(fb, x, y - 1 - ph, 1, 3 + 2 * ph, c, 1, 0, 128);
+        }
         hud_draw(fb); toast_draw(fb); return;
     }
 }

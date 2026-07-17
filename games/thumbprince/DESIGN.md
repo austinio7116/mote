@@ -109,6 +109,24 @@ counter — stand at it, press A, buy from a menu. RB toggles the **estate map**
 - Dev hooks (host only): `DRAFT_SEED`, `DRAFT_SKIP` (skip title),
   `DRAFT_GIVE=keys:gems:gold:steps`, `DRAFT_ROOMS=id,id,id` (force offer).
 
+## In-run texture & scoring depth (v0.5)
+
+- **Dig spots**: seeded per day+room (~30%, LUCKY days 55%), a pulsing twinkle on
+  open floor; stand on it and press A — gold/gem/key/star/snack.
+- **Riddle notes** (~18% of rooms): walk-over pickup that aims a riddle at a cell
+  next to a drafted room ("GLINT: W OF KITCHEN", shown on the map); visit it and
+  the glinting cache pays +75 and +3 gold.
+- **Day conditions**, dealt at dawn and shown on the map: FROSTY (+1 gem greens),
+  CREAKY (locks +12%), GENEROUS (chests +2 gold), MARKET (shops -2), BRIGHT
+  (ranks +125), RESTFUL (rest rooms +2), MISER (coins +10 pts), LUCKY (more digs).
+- **Cursed rooms**: the CRYPT (rich loot, -4 steps on entry) and the TRICK HALL
+  (rich corridor whose entry door seals behind you).
+- **Chain multiplier**: every placement that scores any bonus (combo, garden,
+  matched wings, rank) raises the chain x2-x4 (shown on the draft desk); bonus
+  points pay multiplied; a bonus-less placement breaks the chain.
+- **Estate appraisal**: the results screen itemises ROOMS / LOOT / BONUSES /
+  GOALS / THE WIN.
+
 ## States
 
 TITLE → PLAY ⇄ (DRAFT | MAP | SHOP | PAUSE) → RESULTS(win/exhausted) → TITLE
