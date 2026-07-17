@@ -226,7 +226,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_STUDY] = { "STUDY", SH_L, 1, 0, FL_WOOD, WL_STONE, C565(64, 120, 84), RF_PENCIL, 0, 0, 1, 50,
         "#######"
-        "#d...l#"
+        "#d..l.#"
         "#.....#"
         "#.....#"
         "#....p#"
@@ -271,7 +271,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_LOCKSMITH] = { "LOCKSMITH", SH_DEAD, 1, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
         "#######"
-        "#w...l#"
+        "#w..l.#"
         "#.....#"
         "#.....#"
         "#....r#"
@@ -280,7 +280,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_COMMISSARY] = { "COMMISSARY", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
         "#######"
-        "#K...l#"
+        "#K..l.#"
         "#.....#"
         "#.....#"
         "#....p#"
@@ -397,7 +397,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_NOOK] = { "NOOK", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(150, 110, 70), 0, 0, 0, 0, 25,
         "#######"
-        "#h...l#"
+        "#h..l.#"
         "#.....#"
         "#.....#"
         "#....p#"
@@ -406,7 +406,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_SCULLERY] = { "SCULLERY", SH_R, 0, 0, FL_CHECKER, WL_STONE, C565(190, 198, 206), 0, 2, 0, 0, 0,
         "#######"
-        "#W...K#"
+        "#W..K.#"
         "#.....#"
         "#.....#"
         "#r....#"
