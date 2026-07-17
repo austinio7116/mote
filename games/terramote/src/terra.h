@@ -82,13 +82,15 @@ enum {
     I_WALL_WOOD, I_WALL_STONE, I_ROOF, I_BEAM,           /* building set (append only) */
     I_BRICK_CLAY, I_BRICK_STONE,
     I_WALL_CLAYBRICK, I_WALL_STONEBRICK, I_WALL_GLASS,
+    I_HAMMER_WOOD, I_HAMMER_IRON,                        /* wall-removal tools */
     I_COUNT
 };
 
 /* item kinds */
 enum { IK_NONE = 0, IK_BLOCK, IK_MATERIAL, IK_PICK, IK_AXE, IK_SWORD, IK_BOW,
        IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME, IK_GRAPPLE,
-       IK_WALL };   /* background wall: place on air, tap to remove */
+       IK_WALL,     /* background wall item: paints the first gap on the aim line */
+       IK_HAMMER }; /* knocks back walls out (the axe stays a tree/furniture tool) */
 
 /* weapon elements — drive on-hit status effects + hit tint */
 enum { EL_NONE = 0, EL_FIRE, EL_ICE, EL_POISON, EL_HOLY, EL_DEMONIC, EL_ARCANE, EL_BLOOD, EL_NATURE };

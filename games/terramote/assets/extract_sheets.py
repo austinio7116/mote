@@ -555,7 +555,7 @@ def make_weapons():
             roster.append((cell, ov[0] if ov else tools_idx, item_id, ov[1] if ov else None))
     except Exception as e:
         print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
-    maxid = max(max(r[2] for r in roster), 166)   # + building-set icons
+    maxid = max(max(r[2] for r in roster), 168)   # + building-set icons + hammers
     # in-hand sheet: row0 right-facing, row1 mirrored
     ncell = max(r[0] for r in roster) + 1
     wb = Image.new("RGBA", (32 * ncell, 64), (0, 0, 0, 0))
@@ -616,6 +616,18 @@ def make_weapons():
                 elif (x + y) % 5 == 0: col = (168, 196, 216)
                 else: col = (110, 136, 160)
                 c.putpixel((x, y), col + (255,))
+    def hammer_icon(c, head, dark):
+        # a square-headed mallet on a diagonal handle (the WALL tool)
+        for i in range(7):
+            c.putpixel((3 + i, 13 - i), (150, 108, 60, 255))     # handle '/'
+            if i < 6: c.putpixel((4 + i, 13 - i), (104, 76, 46, 255))
+        for y in range(2, 8):                                     # head block
+            for x in range(7, 14):
+                c.putpixel((x, y), (dark if y >= 6 or x >= 13 else head) + (255,))
+        for x in range(7, 13):                                    # top light
+            c.putpixel((x, 2), tuple(min(255, int(k * 1.3)) for k in head) + (255,))
+    paint_icon(167, lambda c: hammer_icon(c, (150, 108, 60), (104, 68, 38)))
+    paint_icon(168, lambda c: hammer_icon(c, (176, 176, 186), (112, 114, 126)))
     paint_icon(162, lambda c: brick_icon(c, (178, 102, 64), (128, 68, 42)))
     paint_icon(163, lambda c: brick_icon(c, (124, 124, 132), (86, 86, 96)))
     paint_icon(164, lambda c: brick_icon(c, (134, 77, 48), (96, 51, 32)))

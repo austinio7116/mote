@@ -93,6 +93,9 @@ const ItemDef g_items[I_COUNT] = {
     [I_WALL_CLAYBRICK] = { "CLAY BRICK BACK WALL", IK_WALL, IC(I_WALL_CLAYBRICK), W_CLAYBRICK, 0, 0, 99, 6 },
     [I_WALL_STONEBRICK]= { "STONE BRICK BACK WALL",IK_WALL, IC(I_WALL_STONEBRICK),W_STONEBRICK,0, 0, 99, 6 },
     [I_WALL_GLASS]     = { "GLASS BACK WALL",    IK_WALL,  IC(I_WALL_GLASS), W_GLASS,    0, 0, 99, 6 },
+    /* hammers: THE back-wall removal tool (power = chop rate, light melee too) */
+    [I_HAMMER_WOOD]    = { "WOOD HAMMER",   IK_HAMMER, IC(I_HAMMER_WOOD), 0, 35, 5, 1, 18 },
+    [I_HAMMER_IRON]    = { "IRON HAMMER",   IK_HAMMER, IC(I_HAMMER_IRON), 0, 85, 8, 1, 13 },
 #include "weapon_defs.inc"                              /* GENERATED weapon variants */
 };
 
@@ -223,6 +226,8 @@ const Recipe g_recipes[] = {
     { ST_WORKBENCH, I_WALL_CLAYBRICK,  4, { { I_BRICK_CLAY, 1 } } },
     { ST_WORKBENCH, I_WALL_STONEBRICK, 4, { { I_BRICK_STONE, 1 } } },
     { ST_FURNACE, I_WALL_GLASS,   4, { { I_SAND, 1 } } },
+    { ST_WORKBENCH, I_HAMMER_WOOD, 1, { { I_WOOD, 8 } } },
+    { ST_ANVIL, I_HAMMER_IRON, 1,  { { I_IRON_BAR, 6 },    { I_WOOD, 3 } } },
 #include "weapon_recipes.inc"                            /* GENERATED weapon variants */
 };
 const int g_nrecipes = (int)(sizeof(g_recipes) / sizeof(g_recipes[0]));

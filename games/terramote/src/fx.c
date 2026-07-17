@@ -224,7 +224,10 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         int c = (x + g_cam_x) / TILE;
         /* the backdrop line is the NATURAL terrain — built structures draw
          * over the painted sky/hills instead of clipping them */
-        srow_px[x] = (int16_t)(world_surface_row_natural(c) * TILE);
+        /* sky/hills reach one row INTO the surface tile: its carved notches
+         * (and the sky-backed surface row has no wall) must show the backdrop,
+         * not the cave side. Everything deeper is wall-backed. */
+        srow_px[x] = (int16_t)((world_surface_row_natural(c) + 1) * TILE);
         hill_far[x]  = (int16_t)(hb - 6 - hill_h(x, 0));
         hill_back[x] = (int16_t)(hb - 12 - hill_h(x, 2));   /* back range peeks higher */
         hill_near[x] = (int16_t)(hb - hill_h(x, 1));
@@ -358,6 +361,7 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int band_r0 = (y0 + g_cam_y) / TILE, band_r1 = (y1 - 1 + g_cam_y) / TILE;
     if (band_r0 > r0) r0 = band_r0;
     if (band_r1 < r1) r1 = band_r1;
+    static const int8_t nb[8][2] = { {0,-1},{1,-1},{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1} };
     for (int r = r0; r <= r1; r++) {
         if ((unsigned)r >= WROWS) continue;
         for (int c = c0; c <= c1; c++) {
@@ -365,11 +369,26 @@ void fx_background(uint16_t *fb, int y0, int y1) {
             uint8_t w = BG_WALL(g_bgm[r * WCOLS + c]);
             if (!w || w >= W_COUNT) continue;
             uint8_t t = g_fgm[r * WCOLS + c];
-            if (g_tiles[t].solid == 1 && t != T_DOOR_C) continue;   /* hidden */
+            if (g_tiles[t].solid == 1 && t != T_DOOR_C) {
+                /* carved terrain lets the backdrop peek through its edge
+                 * notches, so the wall behind must still be drawn there.
+                 * Only skip truly covered cells: square built materials, and
+                 * terrain cells with all 8 neighbours the SAME tile (interior
+                 * cells are the uncarved full-square art). */
+                int covered = 1;
+                if (t <= T_OBSIDIAN) {
+                    for (int k = 0; k < 8 && covered; k++) {
+                        int cc = c + nb[k][0], rr2 = r + nb[k][1];
+                        uint8_t nt = ((unsigned)cc < WCOLS && (unsigned)rr2 < WROWS)
+                                     ? g_fgm[rr2 * WCOLS + cc] : t;
+                        if (nt != t) covered = 0;
+                    }
+                }
+                if (covered) continue;
+            }
             const MoteAutotile *at = k_walls[w];
             /* wall mask: any wall OR solid fg counts as connected (seamless) */
             int m = 0;
-            static const int8_t nb[8][2] = { {0,-1},{1,-1},{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1} };
             for (int k = 0; k < 8; k++) {
                 int cc = c + nb[k][0], rr2 = r + nb[k][1];
                 int same = 1;

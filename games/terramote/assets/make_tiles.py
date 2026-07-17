@@ -228,14 +228,18 @@ def carve_edges(cell, mask, top_hi=None, seed=0, depth=2, corner=3):
     side = shade(base, 0.55)
     sd = (mask * 7 + seed * 131) & 0xFFFF
     # full carve depth only when the OPPOSITE face is connected terrain —
-    # 1-thick strips and lone blocks nibble 1px instead of being eaten hollow
-    dn = depth if (mask & S) else 1
+    # 1-thick strips and lone blocks nibble 1px instead of being eaten hollow.
+    # The TOP face always stays subtle (1px): floors must read walkable and
+    # houses built on soil shouldn't hover over notches — the curvature lives
+    # on the sides and undersides (cliffs, overhangs, cave ceilings).
+    dn = 1
     ds = depth if (mask & N) else 1
     dw = depth if (mask & E) else 1
     de = depth if (mask & W) else 1
     ncard = bool(mask & N) + bool(mask & S) + bool(mask & E) + bool(mask & W)
     if ncard <= 1:
         corner = min(corner, 2)
+    top_corner = min(corner, 2)                 # gentler shoulders on surfaces
     pn = edge_profile(sd + 1, dn); ps = edge_profile(sd + 2, ds)
     pw = edge_profile(sd + 3, dw); pe = edge_profile(sd + 4, de)
     solid = [[True] * TS for _ in range(TS)]
@@ -250,8 +254,8 @@ def carve_edges(cell, mask, top_hi=None, seed=0, depth=2, corner=3):
             for x in range(pe[i]): solid[i][TS - 1 - x] = False
     for y in range(TS):
         for x in range(TS):
-            if not (mask & N) and not (mask & W) and x + y < corner: solid[y][x] = False
-            if not (mask & N) and not (mask & E) and (TS - 1 - x) + y < corner: solid[y][x] = False
+            if not (mask & N) and not (mask & W) and x + y < top_corner: solid[y][x] = False
+            if not (mask & N) and not (mask & E) and (TS - 1 - x) + y < top_corner: solid[y][x] = False
             if not (mask & S) and not (mask & W) and x + (TS - 1 - y) < corner: solid[y][x] = False
             if not (mask & S) and not (mask & E) and (TS - 1 - x) + (TS - 1 - y) < corner: solid[y][x] = False
     for y in range(TS):

@@ -369,11 +369,11 @@ static void pick_target(void) {
         lc = cc; lr = rr;
         uint8_t t = fg_at(cc, rr);
         /* the axe locks onto choppable wood (tree trunks/leaves/furniture are
-         * non-solid, so a plain solid check would pass straight through them)
-         * — and onto bare BACK WALLS, which the axe now removes */
-        int blocking = (kind == IK_AXE) ? (g_tiles[t].axe || g_tiles[t].solid == 1 ||
-                                           BG_WALL(bg_at(cc, rr)))
-                                        : (g_tiles[t].solid == 1);
+         * non-solid, so a plain solid check would pass straight through them);
+         * the HAMMER locks onto back walls (its whole job) */
+        int blocking = (kind == IK_AXE)    ? (g_tiles[t].axe || g_tiles[t].solid == 1)
+                     : (kind == IK_HAMMER) ? (g_tiles[t].solid == 1 || BG_WALL(bg_at(cc, rr)))
+                                           : (g_tiles[t].solid == 1);
         if (blocking) { hitc = cc; hitr = rr; break; }
         ac = cc; ar = rr;                                     /* last empty cell */
     }
@@ -495,21 +495,6 @@ static void use_item(float dt) {
             g_pl.use_t = def->speed / 30.0f;
             audio_sfx(SFX_SWING, 0.8f);
         }
-        if (def->kind == IK_AXE && g_tiles[rt].solid != 1 && !g_tiles[rt].axe &&
-            BG_WALL(bg_at(g_ret_c, g_ret_r))) {
-            /* chop out the BACK WALL — the axe is the wall-removal tool */
-            if (g_pl.mine_c != g_ret_c || g_pl.mine_r != g_ret_r) {
-                g_pl.mine_c = (int16_t)g_ret_c; g_pl.mine_r = (int16_t)g_ret_r; g_pl.mine_t = 0;
-            }
-            if (g_pl.use_t <= 0) g_pl.use_t = def->speed / 30.0f;
-            g_pl.mine_t += dt * (float)def->power;
-            if (g_pl.mine_t >= 8.0f) {                       /* soft: walls clear fast */
-                net_wall_op(g_ret_c, g_ret_r, W_NONE);
-                audio_sfx(SFX_CHOP, 0.7f);
-                g_pl.mine_t = 0;
-            }
-            break;
-        }
         const TileDef *td = &g_tiles[rt];
         int is_axe_tile = td->axe;
         if (rt == T_AIR || td->hardness == 0) { g_pl.mine_c = -1; break; }
@@ -577,6 +562,29 @@ static void use_item(float dt) {
         if (!held->count) held->item = I_NONE;
         g_pl.use_t = def->speed / 30.0f;
         audio_sfx(SFX_PLACE, 0.8f);
+        break;
+    }
+    case IK_HAMMER: {
+        /* the wall tool: hold B on a back wall to knock it out (with refund) */
+        if (g_pl.use_t <= 0) {
+            melee_hit(held->item, def);              /* a light whack, why not */
+            g_pl.use_t = def->speed / 30.0f;
+            audio_sfx(SFX_SWING, 0.7f);
+        }
+        int c = g_ret_c, r = g_ret_r;
+        if (g_tiles[fg_at(c, r)].solid == 1 || !BG_WALL(bg_at(c, r))) {
+            g_pl.mine_c = -1;
+            break;
+        }
+        if (g_pl.mine_c != c || g_pl.mine_r != r) {
+            g_pl.mine_c = (int16_t)c; g_pl.mine_r = (int16_t)r; g_pl.mine_t = 0;
+        }
+        g_pl.mine_t += dt * (float)def->power;
+        if (g_pl.mine_t >= 8.0f) {                   /* soft as dirt: walls clear fast */
+            net_wall_op(c, r, W_NONE);
+            audio_sfx(SFX_CHOP, 0.7f);
+            g_pl.mine_t = 0;
+        }
         break;
     }
     case IK_SWORD:
@@ -938,7 +946,7 @@ static void swing_draw_core(uint16_t *fb, uint8_t item, float use_t,
     if (!item || use_t <= 0) return;
     int kind = def->kind;
     int cell = big_cell(item);
-    if (cell < 0 && kind != IK_PICK && kind != IK_AXE && kind != IK_SWORD && kind != IK_BOW) return;
+    if (cell < 0 && kind != IK_PICK && kind != IK_AXE && kind != IK_SWORD && kind != IK_BOW && kind != IK_HAMMER) return;
     const MoteImage *img = cell >= 0 ? &weapons_big_img : &items_img;
     int right = facing > 0;
     int cs = cell >= 0 ? 32 : 16;                        /* big in-hand sheet is 32px */
@@ -948,7 +956,7 @@ static void swing_draw_core(uint16_t *fb, uint8_t item, float use_t,
     /* hand position on the body */
     float hxf = wx - g_cam_x + facing * 2.0f;
     float hyf = wy - 9.0f - g_cam_y;
-    if (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD) {
+    if (kind == IK_PICK || kind == IK_AXE || kind == IK_SWORD || kind == IK_HAMMER) {
         float dur = def->speed / 30.0f;
         float ph = 1.0f - (use_t / dur);                     /* 0..1 through the swing */
         if (ph < 0) ph = 0; else if (ph > 1) ph = 1;
