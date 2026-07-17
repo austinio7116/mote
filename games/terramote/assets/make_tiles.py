@@ -310,6 +310,46 @@ def leaf_cell(mask, seed=0):
             if rng.random() < 0.5: c.px[y][TS - 1] = None
     return c
 
+def roof_cell(mask, seed=0):
+    """Sloped shingles: horizontal shingle courses, and the exposed upper
+    corners are cut DIAGONALLY — a staircase of roof tiles renders as a smooth
+    45-degree roof face automatically."""
+    BASE = (134, 60, 44); DARK = (94, 40, 30); LITE = (170, 90, 58); CAP = (204, 128, 78)
+    rng = random.Random((mask * 419 + 9 + seed) & 0x7FFFFFFF)
+    c = Cell()
+    c.fill(BASE)
+    for y in range(TS):                          # shingle courses every 3 rows
+        for x in range(TS):
+            if y % 3 == 2: c.put(x, y, DARK)
+            elif (x + (y // 3) * 4) % 8 == 0: c.put(x, y, DARK)   # staggered joints
+            elif y % 3 == 0 and rng.random() < 0.18: c.put(x, y, LITE)
+    up, dn = not (mask & N), not (mask & S)
+    lf, rt = not (mask & W), not (mask & E)
+    if up and lf:                                 # '/' face: cut the NW triangle
+        for y in range(TS):
+            for x in range(TS):
+                if x + y < TS - 1: c.px[y][x] = None
+        for k in range(TS):                       # sunlit cap along the slope
+            c.put(k, TS - 1 - k, CAP)
+            if TS - k < TS: c.put(k, TS - k, LITE)
+    elif up and rt:                               # '\' face: cut the NE triangle
+        for y in range(TS):
+            for x in range(TS):
+                if x > y: c.px[y][x] = None
+        for k in range(TS):
+            c.put(k, k, CAP)
+            if k + 1 < TS: c.put(k, k + 1, LITE)
+    elif up:                                      # flat ridge: bright cap rows
+        for x in range(TS): c.put(x, 0, CAP)
+        for x in range(TS): c.put(x, 1, LITE)
+    if dn and not (up and (lf or rt)):            # eave shadow
+        for x in range(TS): c.put(x, TS - 1, DARK)
+    if lf and not up:
+        for y in range(TS): c.put(0, y, DARK)
+    if rt and not up:
+        for y in range(TS): c.put(TS - 1, y, DARK)
+    return c
+
 def blob_sheet(name, cellfn, nvar=1):
     _, order = blob47_order()
     sheets = []
@@ -471,10 +511,11 @@ def anvil_cells():
     return slip_cells("anvil.png", 2, 1)
 
 def furnace_cells():
-    # SlipPixel Furnace.png: 3 frames of 16x16 (idle .. lit). Use the lit frame
+    # SlipPixel Furnace.png: TWO 24x16 frames (off | on), 24px pitch. Use the
+    # ON frame as the placed art — a furnace is lit. 24x16 = 3x2 tiles.
     # (2) so the station reads as hot, like the old art. Row-major 2x2 =
     # TL,TR,BL,BR, matching lut22.
-    return slip_cells("Furnace.png", 2, 2, x0=2 * 16)
+    return slip_cells("Furnace.png", 3, 2, x0=24)
 
 def chest_cells():
     # SlipPixel Oak Wood Chest.png: 16x16, row-major 2x2 = TL,TR,BL,BR (lut22).
@@ -555,13 +596,33 @@ def lantern_cells():
     return slip_cells("Lantern.png", 1, 2)
 
 def fireplace_cells():
-    # SlipPixel Fireplace.png is a single WIDE hearth (48x16, fire in the centre) —
+    # SlipPixel Fireplace.png: TWO 24x16 frames (off | on), no gap. ON frame —
     # not 3 frames. Rescale the whole thing to 24x16 so it's a 3-wide (3x2)
     # furniture whose left/mid/right columns are distinguishable by lut3x2.
-    return slip_cells_scaled("Fireplace.png", (0, 0, 48, 16), 3, 2)
+    return slip_cells("Fireplace.png", 3, 2, x0=24)
 
 def chain_cell():
     return slip_cells("Chain.png", 1, 1)[0]
+
+
+def beam_cells():
+    """Wooden support beam (Terraria-style): a warm post with side brackets at
+    the top when nothing continues above, a plain shaft, and a footing."""
+    POST = (150, 104, 58); DARK = (104, 68, 38); LITE = (182, 134, 78)
+    def body(c):
+        for y in range(TS):
+            for x in range(2, 6):
+                c.put(x, y, POST if x in (3, 4) else DARK)
+        for y in range(0, TS, 3): c.put(3, y, LITE)      # grain
+    cap = Cell(); body(cap)
+    for x in range(0, TS):                                # header brace
+        cap.put(x, 0, DARK); cap.put(x, 1, POST)
+    cap.put(0, 2, DARK); cap.put(TS - 1, 2, DARK)
+    shaft = Cell(); body(shaft)
+    foot = Cell(); body(foot)
+    for x in range(1, 7): foot.put(x, TS - 1, DARK)       # footing
+    foot.put(1, TS - 2, DARK); foot.put(6, TS - 2, DARK)
+    return [cap, shaft, foot]
 
 def make_furniture():
     single = lut_from(lambda m: 0)
@@ -572,7 +633,6 @@ def make_furniture():
     custom_sheet("tiles_workbench", bench_cells((176, 128, 72), (128, 90, 48)), 2, lut2w)
     custom_sheet("tiles_anvil", anvil_cells(), 2, lut2w)
     lut22 = lut_from(lambda m: (0 if (m & S) else 2) + (1 if (m & W) else 0))
-    custom_sheet("tiles_furnace", furnace_cells(), 2, lut22)
     custom_sheet("tiles_chest", chest_cells(), 2, lut22)
     custom_sheet("tiles_altar", altar_cells(), 2, lut22)
     lut13 = lut_from(lambda m: 1 if (m & N and m & S) else (0 if (m & S) else 2))
@@ -590,8 +650,11 @@ def make_furniture():
     custom_sheet("tiles_table", table_cells(), 3, lut3x2)
     custom_sheet("tiles_chair", chair_cells(), 1, lut1x2)
     custom_sheet("tiles_lantern", lantern_cells(), 1, lut1x2)
+    custom_sheet("tiles_furnace", furnace_cells(), 3, lut3x2)
     custom_sheet("tiles_fireplace", fireplace_cells(), 3, lut3x2)
     custom_sheet("tiles_chain", [chain_cell()], 1, single)
+    lut_beam = lut_from(lambda m: 0 if not (m & N) else (2 if (m & S) == 0 else 1))
+    custom_sheet("tiles_beam", beam_cells(), 1, lut_beam)
 
 # ---------------------------------------------------------------- walls
 def make_walls():
@@ -655,6 +718,9 @@ def make_grass_caps():
 
 
 # ---------------------------------------------------------------- tree crowns
+def make_roof():
+    blob_sheet("tiles_roof", roof_cell, nvar=1)
+
 def make_canopy():
     """Proper tree crowns (assets/canopy.png): 3 leafy variants + 1 snowy,
     40x28 cells, drawn as sprites on trunk tops. Branch stubs in branch.png
@@ -793,6 +859,7 @@ if __name__ == "__main__":
     make_furniture()
     make_walls()
     make_grass_caps()
+    make_roof()
     make_canopy()
     print("done")
     _normalize_sheets()

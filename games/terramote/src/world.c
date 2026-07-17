@@ -85,6 +85,10 @@ static void set_bg_wall(int c, int r, uint8_t w) {
     uint8_t b = g_bgm[r * WCOLS + c];
     g_bgm[r * WCOLS + c] = (uint8_t)((b & 0xF0) | (w & 0x0F));
 }
+void world_set_wall(int c, int r, uint8_t wall);
+void world_set_wall(int c, int r, uint8_t wall) {   /* player wall place/remove */
+    set_bg_wall(c, r, wall);
+}
 static void set_liq(int c, int r, int level, int lava) {
     if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS) return;
     uint8_t b = g_bgm[r * WCOLS + c];
@@ -185,6 +189,7 @@ void world_mine_tile(int c, int r) {
     world_set_fg(c, r, T_AIR);
     if (t == T_GRASS) t = T_DIRT;                       /* drops dirt */
     drop_tile_item(c, r, t);
+    if (fg_at(c, r - 1) == T_TRUNK) world_hit_tree(c, r - 1);   /* no floating trees */
     /* breaking support drops decor sitting on top */
     uint8_t up = fg_at(c, r - 1);
     if (up == T_FLOWER || up == T_MUSH || up == T_SAPLING || up == T_TORCH) {
@@ -227,7 +232,7 @@ int world_place_tile(int c, int r, uint8_t tile) {
         world_set_fg(c, r, tile); world_set_fg(c + 1, r, tile);
         return 1;
     }
-    if (tile == T_TABLE || tile == T_FIREPLACE) {        /* 3 wide x 2 tall */
+    if (tile == T_TABLE || tile == T_FIREPLACE || tile == T_FURNACE) {   /* 3 wide x 2 tall */
         for (int dc = 0; dc < 3; dc++)
             if (fg_at(c + dc, r) || fg_at(c + dc, r - 1)) return 0;
         for (int dc = 0; dc < 3; dc++)
@@ -241,7 +246,7 @@ int world_place_tile(int c, int r, uint8_t tile) {
         world_set_fg(c, r, tile); world_set_fg(c, r - 1, tile);
         return 1;
     }
-    if (tile == T_FURNACE || tile == T_CHEST) {
+    if (tile == T_CHEST) {
         if (fg_at(c, r) || fg_at(c + 1, r) || fg_at(c, r - 1) || fg_at(c + 1, r - 1)) return 0;
         if (g_tiles[fg_at(c, r + 1)].solid != 1 || g_tiles[fg_at(c + 1, r + 1)].solid != 1) return 0;
         if (tile == T_CHEST && !world_chest_create(c, r - 1)) return 0;
@@ -312,9 +317,19 @@ static void gen_biomes(void) {
         int cnt = z == 0 ? nleft : 3 - nleft;
         if (cnt <= 0) continue;
         int zs = zone[z][0], ze = zone[z][1], gap = 6;
+        /* corruption always hugs the WORLD EDGE: order it outermost in its
+         * zone, and pin that zone's pack against the edge */
+        int kz[3], has_corr = 0;
+        for (int k = 0; k < cnt; k++) kz[k] = kinds[idx + k];
+        for (int k = 0; k < cnt; k++)
+            if (kz[k] == 3) {
+                int want = z == 0 ? 0 : cnt - 1;
+                int t2 = kz[want]; kz[want] = kz[k]; kz[k] = t2;
+                has_corr = 1;
+            }
         int pref[3], sum = 0;
         for (int k = 0; k < cnt; k++) {
-            int kind = kinds[idx + k];
+            int kind = kz[k];
             pref[k] = kind == 1 ? 86 : kind == 2 ? 72 : 96;   /* snow/desert/corruption */
             sum += pref[k];
         }
@@ -326,8 +341,9 @@ static void gen_biomes(void) {
         int slack = (ze - zs) - gap * (cnt + 1) - used;
         if (slack < 0) slack = 0;
         int pos = zs + gap + (slack ? (int)(wrand() % (uint32_t)slack) : 0);
+        if (has_corr) pos = z == 0 ? zs + gap : zs + gap + slack;   /* pin to edge */
         for (int k = 0; k < cnt; k++) {
-            int kind = kinds[idx + k], w = pref[k];
+            int kind = kz[k], w = pref[k];
             if (w >= 24) {
                 g_bstart[g_nbands] = (int16_t)pos; g_bend[g_nbands] = (int16_t)(pos + w);
                 g_bkind[g_nbands] = (uint8_t)kind;

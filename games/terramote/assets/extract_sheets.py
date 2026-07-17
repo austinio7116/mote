@@ -555,7 +555,7 @@ def make_weapons():
             roster.append((cell, ov[0] if ov else tools_idx, item_id, ov[1] if ov else None))
     except Exception as e:
         print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
-    maxid = max(r[2] for r in roster)
+    maxid = max(max(r[2] for r in roster), 161)   # + wall/roof/beam building icons
     # in-hand sheet: row0 right-facing, row1 mirrored
     ncell = max(r[0] for r in roster) + 1
     wb = Image.new("RGBA", (32 * ncell, 64), (0, 0, 0, 0))
@@ -572,14 +572,54 @@ def make_weapons():
         ox, oy = (item_id % 8) * 16, (item_id // 8) * 16
         items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
         items.paste(s, (ox, oy), s)
-    rgb565ify(items).save(os.path.join(HERE, "items.png"))
+    # items.png accumulated 3000+ colours from the AI icons -> raw RGB565 (82KB
+    # in flash). Quantize to <=254 + alpha so it bakes 8bpp indexed (41KB).
+    # building-set icons (ids 158..160): wood wall, stone wall, roof wedge
+    def paint_icon(item_id, fn):
+        ox, oy = (item_id % 8) * 16, (item_id // 8) * 16
+        cell = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        fn(cell)
+        items.paste(Image.new("RGBA", (16, 16), (0, 0, 0, 0)), (ox, oy))
+        items.paste(cell, (ox, oy), cell)
+    def wall_wood_icon(c):
+        for y in range(3, 13):
+            for x in range(2, 14):
+                col = (104, 76, 46) if (y % 4 == 2 or (x + (y // 4) * 6) % 12 == 0) else (134, 100, 62)
+                c.putpixel((x, y), col + (255,))
+    def wall_stone_icon(c):
+        for y in range(3, 13):
+            for x in range(2, 14):
+                col = (74, 74, 84) if (y % 4 == 2 or (x + (y // 4) * 5) % 10 == 0) else (104, 104, 114)
+                c.putpixel((x, y), col + (255,))
+    def roof_icon(c):
+        for y in range(2, 14):
+            for x in range(2, 14):
+                if x + (13 - y) <= 13:                       # '/' wedge
+                    col = (94, 40, 30) if y % 3 == 1 else (134, 60, 44)
+                    if x + (13 - y) >= 12: col = (204, 128, 78)   # slope cap
+                    c.putpixel((x, y), col + (255,))
+    def beam_icon(c):
+        for y in range(1, 15):
+            for x in range(6, 10):
+                c.putpixel((x, y), ((150, 104, 58) if x in (7, 8) else (104, 68, 38)) + (255,))
+        for x in range(3, 13):
+            c.putpixel((x, 1), (104, 68, 38, 255)); c.putpixel((x, 2), (150, 104, 58, 255))
+    paint_icon(161, beam_icon)
+    paint_icon(158, wall_wood_icon)
+    paint_icon(159, wall_stone_icon)
+    paint_icon(160, roof_icon)
+    iarr = np.array(items)
+    iq = np.array(Image.fromarray(iarr[..., :3]).quantize(colors=254).convert("RGB"))
+    ialpha = np.where(iarr[..., 3] < 128, 0, 255).astype(np.uint8)
+    iq[ialpha == 0] = 0                       # keyed-out pixels: keep the palette clean
+    Image.fromarray(np.dstack([iq, ialpha]), "RGBA").save(os.path.join(HERE, "items.png"))
     # quantize the big in-hand sheet to <=256 colours so `mote bake` emits it
     # 8bpp palette-indexed — HALF the flash of RGB565 (it's ~half the .mote)
-    flat = Image.new("RGBA", wb.size, (255, 0, 255, 255)); flat.alpha_composite(wb)
-    q = np.array(flat.convert("RGB").quantize(colors=254).convert("RGB"))
-    alpha = np.where(np.array(wb)[..., 3] < 128, 0, 255).astype(np.uint8)
-    out = np.dstack([q, alpha])                               # alpha carries the key
-    Image.fromarray(out, "RGBA").save(os.path.join(HERE, "weapons_big.png"))
+    warr = np.array(wb)
+    q = np.array(Image.fromarray(warr[..., :3]).quantize(colors=254).convert("RGB"))
+    alpha = np.where(warr[..., 3] < 128, 0, 255).astype(np.uint8)
+    q[alpha == 0] = 0
+    Image.fromarray(np.dstack([q, alpha]), "RGBA").save(os.path.join(HERE, "weapons_big.png"))
     open(os.path.join(HERE, "weapons_big.sheet"), "w").write("cell 32 32\n")
     print("[extract] %d weapons: weapons_big.png (%d cells) + icons up to id %d" % (len(roster), ncell, maxid))
 

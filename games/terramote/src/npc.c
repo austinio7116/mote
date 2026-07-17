@@ -343,11 +343,11 @@ int npc_boss_hp(int *max) {
 
 static void spawn_try(void) {
     /* the night RAMPS: dusk starts gentle (cap 3), deep night packs up to 8 */
-    int cap = 5;
+    int cap = 3;                                   /* day: a sparse world */
     if (IS_NIGHT()) {
         float np = (g_time - 0.60f) / 0.40f;
-        cap = 3 + (int)(np * 5.0f + 0.5f);
-        if (cap > 8) cap = 8;
+        cap = 2 + (int)(np * 4.0f + 0.5f);         /* dusk 2 -> deep night 6 */
+        if (cap > 6) cap = 6;
     }
     if (en_count() >= cap) return;
     int side = (mote_rand() & 1) ? 1 : -1;
@@ -409,7 +409,7 @@ void npc_tick(float dt) {
     if (s_spawn_t <= 0) {
         /* spawn cadence ramps through the night: 2.6s at dusk -> 1.2s deep night */
         float np = IS_NIGHT() ? (g_time - 0.60f) / 0.40f : 0.0f;
-        s_spawn_t = IS_NIGHT() ? (2.6f - 1.4f * np) : 1.4f;
+        s_spawn_t = IS_NIGHT() ? (3.4f - 1.6f * np) : 2.4f;   /* longer breathers */
         spawn_try();
     }
     drops_tick(dt);

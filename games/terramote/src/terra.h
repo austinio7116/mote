@@ -35,6 +35,8 @@ enum {
     T_DOOR_C, T_DOOR_O, T_PLATFORM, T_ALTAR,
     T_MUSH, T_FLOWER, T_SAPLING,
     T_TABLE, T_CHAIR, T_LANTERN, T_FIREPLACE, T_CHAIN,   /* SlipPixel furniture (append only) */
+    T_ROOF,                                              /* sloped shingles (diagonal autotile) */
+    T_BEAM,                                              /* wooden support post (non-solid) */
     T_COUNT
 };
 
@@ -75,12 +77,14 @@ enum {
     I_GRAPPLE,                   /* append only — id maps 1:1 to its icon cell */
     I_TABLE, I_CHAIR, I_LANTERN, I_FIREPLACE, I_CHAIN,   /* SlipPixel furniture */
 #include "weapon_ids.inc"                                /* GENERATED weapon variants (gen_weapons.py) */
+    I_WALL_WOOD, I_WALL_STONE, I_ROOF, I_BEAM,           /* building set (append only) */
     I_COUNT
 };
 
 /* item kinds */
 enum { IK_NONE = 0, IK_BLOCK, IK_MATERIAL, IK_PICK, IK_AXE, IK_SWORD, IK_BOW,
-       IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME, IK_GRAPPLE };
+       IK_AMMO, IK_ARMOR_HEAD, IK_ARMOR_BODY, IK_ARMOR_LEGS, IK_CONSUME, IK_GRAPPLE,
+       IK_WALL };   /* background wall: place on air, tap to remove */
 
 /* weapon elements — drive on-hit status effects + hit tint */
 enum { EL_NONE = 0, EL_FIRE, EL_ICE, EL_POISON, EL_HOLY, EL_DEMONIC, EL_ARCANE, EL_BLOOD, EL_NATURE };
@@ -252,6 +256,7 @@ int  world_solid_px(int wx, int wy);  /* solid at world pixel (platforms exclude
 int  world_stand_px(int wx, int wy, float vy, float feet_y); /* incl. one-way platforms */
 void world_liquid_tick(void);
 void world_settle_liquids(void);      /* gen-time: run flow world-wide to rest */
+void world_set_wall(int c, int r, uint8_t w);        /* player wall place/remove */
 int  world_branch_px(int wx, int wy);                            /* on a tree branch (grapple) */
 int  world_canopy_px(int wx, int wy);                            /* in a tree crown (grapple) */
 int  world_canopy_stand(int wx, int wy, float vy, float feet_y); /* crown top (one-way stand) */

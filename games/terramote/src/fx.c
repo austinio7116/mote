@@ -381,14 +381,12 @@ void fx_background(uint16_t *fb, int y0, int y1) {
  * The static autotiles stay; a small overlay re-blits the FLAME art frames on
  * top so torches flicker, furnaces pulse, and fireplaces shed embers. */
 #include "Torch.h"      /* 4 frames, 8x8: f0 full torch, f1-3 flame wisps */
-#include "Furnace.h"    /* 3 frames, 16x16: unlit / mid / lit */
 
 void fx_draw_flames(uint16_t *fb) {
     float ft = g_time * DAY_SECONDS;              /* absolute in-day seconds */
     int r0 = g_cam_y / TILE, r1 = (g_cam_y + MOTE_FB_H - 1) / TILE;
     int c0 = g_cam_x / TILE, c1 = (g_cam_x + MOTE_FB_W - 1) / TILE;
     int tf = 1 + ((int)(ft * 7.0f) % 3);          /* torch wisp frame 1..3 */
-    int ff = 1 + ((int)(ft * 4.0f) & 1);          /* furnace fire frame 1..2 */
     for (int r = r0; r <= r1; r++) {
         if ((unsigned)r >= WROWS) continue;
         for (int c = c0; c <= c1; c++) {
@@ -398,9 +396,11 @@ void fx_draw_flames(uint16_t *fb) {
             if (t == T_TORCH) {
                 mote->blit(fb, &Torch_img, sx, sy, tf * 8, 0, 8, 8, 0, 0, MOTE_FB_H);
             } else if (t == T_FURNACE) {
-                /* anchor = top-left of the 2x2 */
-                if (fg_at(c - 1, r) != T_FURNACE && fg_at(c, r - 1) != T_FURNACE)
-                    mote->blit(fb, &Furnace_img, sx, sy, ff * 16, 0, 16, 16, 0, 0, MOTE_FB_H);
+                /* lit art is baked into the tiles; embers rise from the mouth */
+                if (fg_at(c - 1, r) != T_FURNACE && fg_at(c, r - 1) != T_FURNACE &&
+                    (mote_rand() % 12) == 0)
+                    part_burst(c * TILE + 12, r * TILE + 12,
+                               (mote_rand() & 1) ? rgb(255, 170, 50) : rgb(255, 120, 30), 1, 10);
             } else if (t == T_FIREPLACE) {
                 /* anchor = top-left of the 3x2: embers rise from the hearth */
                 if (fg_at(c - 1, r) != T_FIREPLACE && fg_at(c, r - 1) != T_FIREPLACE &&
