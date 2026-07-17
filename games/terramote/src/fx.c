@@ -227,11 +227,6 @@ void fx_background(uint16_t *fb, int y0, int y1) {
     int night = IS_NIGHT();
     uint16_t far_c  = night ? rgb(10, 20, 26) : rgb(52, 118, 84);
     uint16_t near_c = night ? rgb(14, 26, 20) : rgb(38, 92, 44);
-    /* per-pixel open-air flags: every pixel whose backdrop is the SKY — above
-     * the terrain, under overhangs/roofs with no back wall, or behind GLASS.
-     * The hills/mist passes paint exactly these pixels, so cut tile corners
-     * and windows pass through to the REAL background, not flat sky colour. */
-    static uint8_t s_open[MOTE_FB_H][MOTE_FB_W / 8];
     /* star density fades in as the sun goes down */
     float t = g_time;
     int stars = (t > 0.58f && t < 0.98f);
@@ -256,10 +251,8 @@ void fx_background(uint16_t *fb, int y0, int y1) {
                 int cc = (x + g_cam_x) / TILE;
                 uint8_t bgb = ((unsigned)cc < WCOLS && (unsigned)rr < WROWS)
                               ? g_bgm[rr * WCOLS + cc] : 0;
-                if (!BG_WALL(bgb) || BG_WALL(bgb) == W_GLASS) open_air = 1;   /* glass = window */
+                if (!BG_WALL(bgb)) open_air = 1;
             }
-            if (open_air) s_open[y][x >> 3] |= (uint8_t)(1 << (x & 7));
-            else          s_open[y][x >> 3] &= (uint8_t)~(1 << (x & 7));
             if (open_air) {
                 uint16_t col = sky;
                 if (stars) {
@@ -300,14 +293,15 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         uint16_t lit = night ? rgb(30, 48, 56) : rgb(96, 138, 116);
         uint16_t dk  = night ? rgb(6, 12, 16)  : rgb(34, 74, 60);
         for (int x = 0; x < MOTE_FB_W; x++) {
+            int real_bot = srow_px[x] - g_cam_y;
+            int bot = real_bot > y1 ? y1 : real_bot;
             int fl = hill_far[x], bl = hill_back[x];
             int top = (fl < bl ? fl : bl); if (top < y0) top = y0;
             float slf = hill_hf(x + 2, 0) - hill_hf(x - 2, 0);
             float slb = hill_hf(x + 2, 2) - hill_hf(x - 2, 2);
             uint16_t ft = slf >= 1.1f ? lit : slf <= -1.1f ? dk : far_c;
             uint16_t bt = slb >= 1.1f ? lit : slb <= -1.1f ? dk : far_c;
-            for (int y = top; y < y1; y++) {
-                if (!(s_open[y][x >> 3] & (1 << (x & 7)))) continue;   /* sky pixels only */
+            for (int y = top; y < bot; y++) {
                 uint16_t c2;
                 if (y >= fl)      c2 = mix565(ft, skyrow[y], 1);   /* front range */
                 else if (y >= bl) c2 = mix565(bt, skyrow[y], 2);   /* back range: lighter */
@@ -354,13 +348,14 @@ void fx_background(uint16_t *fb, int y0, int y1) {
         uint16_t lit = night ? rgb(22, 38, 28) : rgb(80, 148, 72);
         uint16_t dk  = night ? rgb(7, 14, 10)  : rgb(26, 66, 30);
         for (int x = 0; x < MOTE_FB_W; x++) {
+            int real_bot = srow_px[x] - g_cam_y;
+            int bot = real_bot > y1 ? y1 : real_bot;
             int hn = hill_near[x], top = hn < y0 ? y0 : hn;
             float sl = hill_hf(x + 2, 1) - hill_hf(x - 2, 1);
             uint16_t tone = sl >= 1.1f ? lit : sl <= -1.1f ? dk : near_c;
-            for (int y = top; y < y1; y++)           /* nearest layer: full colour,
+            for (int y = top; y < bot; y++)          /* nearest layer: full colour,
                 no mist — the haze belongs to the distant ranges only */
-                if (s_open[y][x >> 3] & (1 << (x & 7)))
-                    fb[y * MOTE_FB_W + x] = tone;
+                fb[y * MOTE_FB_W + x] = tone;
         }
     }
     /* wall tiles (autotiled, art pre-darkened) */
