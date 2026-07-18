@@ -2280,8 +2280,8 @@ static void shop_draw(uint16_t *fb) {
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     const ShopDef *s = &k_shops[g_shop_kind];
     int n = s->n;
-    mote->draw_rect(fb, 10, 22, 108, 26 + n * 15, rgb(16, 20, 40), 1, 0, 128);
-    mote->draw_rect(fb, 10, 22, 108, 26 + n * 15, rgb(120, 140, 200), 0, 0, 128);
+    mote->draw_rect(fb, 10, 22, 108, 20 + n * 15, rgb(16, 20, 40), 1, 0, 128);
+    mote->draw_rect(fb, 10, 22, 108, 20 + n * 15, rgb(120, 140, 200), 0, 0, 128);
     mote_ftextc(mote, fb, f, 64, 24, rgb(250, 230, 150), s->title);
     char buf[32];
     for (int i = 0; i < n; i++) {
@@ -2297,8 +2297,6 @@ static void shop_draw(uint16_t *fb) {
             mote->text_font(fb, f, buf, 105, y, rgb(250, 210, 110));
         }
     }
-    snprintf(buf, sizeof buf, "GOLD %d", g_gold);
-    mote_ftextc(mote, fb, f, 64, 41 + n * 15, rgb(250, 210, 110), buf);
 }
 
 static void shop_tick(void) {
