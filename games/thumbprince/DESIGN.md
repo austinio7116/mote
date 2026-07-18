@@ -109,6 +109,17 @@ counter — stand at it, press A, buy from a menu. RB toggles the **estate map**
 - Dev hooks (host only): `DRAFT_SEED`, `DRAFT_SKIP` (skip title),
   `DRAFT_GIVE=keys:gems:gold:steps`, `DRAFT_ROOMS=id,id,id` (force offer).
 
+## Interiors (v0.7)
+
+- **Corridor rooms** (Hallway, the Walks, Crossroads, Landing, Servants' Hall,
+  Trick Hall, Cloister): walled interiors with one-tile passages carved toward
+  their actual doors on the shared 8px wall grid — real corridors, not open
+  squares. No digs/notes inside; loot lands in the passage.
+- **Decor set**: woven rugs (walkable), paintings + windows hung on the wall
+  band, floor lamps, crates, benches, candle stands — every non-corridor room
+  dressed with 4-6 pieces. Template chars: R rug, P painting, O window, M lamp,
+  q crate, n bench, i candle.
+
 ## In-run texture & scoring depth (v0.5)
 
 - **Dig spots**: seeded per day+room (~30%, LUCKY days 55%), a pulsing twinkle on

@@ -130,6 +130,10 @@ typedef struct { uint8_t prop; uint8_t x, y; } RoomProp;
 static RoomProp g_props_cur[MAX_ROOM_PROPS];
 static int g_nprops;
 
+/* the room's 8px wall grid: ring + (corridors) carved interior walls */
+#define WGRID 14
+static uint8_t g_wgrid[WGRID][WGRID];
+
 /* current room's treasure chests (interactive: bump to open) */
 typedef struct { uint8_t x, y, locked; } RoomChest;
 static RoomChest g_chests[4];
@@ -177,6 +181,9 @@ static void toast_tick(float dt) {
 }
 
 static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img };
+/* decor with no footprint: the rug is walked on, wall pieces hang above */
+static int prop_no_collide(int p) { return p == P_RUG || p == P_PAINTING || p == P_WINDOW; }
+static int prop_wall_mounted(int p) { return p == P_PAINTING || p == P_WINDOW; }
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
 static const MoteAutotile *k_floors[9] = {
     &floor_wood_at, &floor_stone_tile_at, &floor_red_carpet_at, &floor_blue_carpet_at,
@@ -204,6 +211,10 @@ static int prop_of_char(char ch) {
     case 'r': return P_BARREL;     case 'g': return P_GOLD_PILE;
     case 'w': return P_WORKBENCH;  case 'p': return P_PLANT;
     case 'e': return P_TERMINAL;   case 'v': return P_BREAKER;
+    case 'R': return P_RUG;        case 'P': return P_PAINTING;
+    case 'O': return P_WINDOW;     case 'M': return P_LAMP;
+    case 'q': return P_CRATE;      case 'n': return P_BENCH;
+    case 'i': return P_CANDLE;
     }
     return -1;
 }
@@ -420,6 +431,26 @@ static void parse_room_props(int gi) {
                 g_nprops++;
             }
         }
+    /* the wall grid: ring always; corridor rooms wall the interior and
+     * carve one-tile passages toward their actual doors */
+    memset(g_wgrid, 0, sizeof g_wgrid);
+    for (int i = 0; i < WGRID; i++)
+        g_wgrid[0][i] = g_wgrid[WGRID - 1][i] = g_wgrid[i][0] = g_wgrid[i][WGRID - 1] = 1;
+    if (k_rooms[g_grid[gi].room].flags & RF_CORRIDOR) {
+        for (int cy = 1; cy < WGRID - 1; cy++)
+            for (int cx = 1; cx < WGRID - 1; cx++)
+                g_wgrid[cy][cx] = 1;
+        uint8_t doors = g_grid[gi].doors;
+        for (int cy = 6; cy <= 7; cy++)                       /* the crossing */
+            for (int cx = 6; cx <= 7; cx++)
+                g_wgrid[cy][cx] = 0;
+        for (int v = 1; v <= 7; v++) {
+            if (doors & DBIT(DIR_N)) g_wgrid[v][6] = g_wgrid[v][7] = 0;
+            if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 1 - v][6] = g_wgrid[WGRID - 1 - v][7] = 0;
+            if (doors & DBIT(DIR_W)) g_wgrid[6][v] = g_wgrid[7][v] = 0;
+            if (doors & DBIT(DIR_E)) g_wgrid[6][WGRID - 1 - v] = g_wgrid[7][WGRID - 1 - v] = 0;
+        }
+    }
     roll_room_finds(gi);
 }
 
@@ -443,10 +474,11 @@ static void roll_room_finds(int gi) {
     const Cell *cl = &g_grid[gi];
     int dig_pct = g_force_dig ? 100 : (g_cond == CD_LUCKY ? 55 : 30);
     int note_pct = g_force_dig ? 100 : 18;
-    g_dig_on = !(cl->extra & 1) && cl->room != R_ANTE &&
+    int corridor = (k_rooms[cl->room].flags & RF_CORRIDOR) != 0;
+    g_dig_on = !corridor && !(cl->extra & 1) && cl->room != R_ANTE &&
                (int)(hash32(g_day_seed ^ (uint32_t)(gi * 40503u) ^ 0xD16D16u) % 100u) < dig_pct &&
                seeded_spot(gi, 0xD16u, &g_dig_x, &g_dig_y);
-    g_note_on = !(cl->extra & 2) && cl->room != R_ANTE && gi != START_GI &&
+    g_note_on = !corridor && !(cl->extra & 2) && cl->room != R_ANTE && gi != START_GI &&
                 (int)(hash32(g_day_seed ^ (uint32_t)(gi * 69069u) ^ 0x407E3u) % 100u) < note_pct &&
                 seeded_spot(gi, 0x407Eu, &g_note_x, &g_note_y);
     if (g_cache_gi == gi)
@@ -461,10 +493,18 @@ static void roll_room_finds(int gi) {
 /* ------------------------------------------------------------- collisions --- */
 #define WALL_PX 8                           /* thin painted wall band */
 
+static int wall_at(float x, float y) {
+    int cx = (int)x >> 3, cy = (int)y >> 3;
+    if (cx < 0 || cx >= WGRID || cy < 0 || cy >= WGRID) return 1;
+    return g_wgrid[cy][cx];
+}
+
 static int box_solid(float x, float y) {
-    if (x - 4 < WALL_PX || x + 4 > ROOM_PX - WALL_PX || y - 4 < WALL_PX || y + 4 > ROOM_PX - WALL_PX)
+    if (wall_at(x - 4, y - 4) || wall_at(x + 4, y - 4) ||
+        wall_at(x - 4, y + 4) || wall_at(x + 4, y + 4))
         return 1;
     for (int i = 0; i < g_nprops; i++) {
+        if (prop_no_collide(g_props_cur[i].prop)) continue;
         const PropDef *d = &k_props[g_props_cur[i].prop];
         float px0 = g_props_cur[i].x, py0 = g_props_cur[i].y;
         if (x + 4 > px0 && x - 4 < px0 + d->fw && y + 4 > py0 && y - 4 < py0 + d->fh)
@@ -512,7 +552,11 @@ static int loot_count(const RoomDef *d) {
 }
 
 static int pt_in_props(float x, float y, float pad) {
+    if (wall_at(x, y) || wall_at(x - pad, y) || wall_at(x + pad, y) ||
+        wall_at(x, y - pad) || wall_at(x, y + pad))
+        return 1;
     for (int i = 0; i < g_nprops; i++) {
+        if (prop_no_collide(g_props_cur[i].prop)) continue;
         const PropDef *d = &k_props[g_props_cur[i].prop];
         if (x > g_props_cur[i].x - pad && x < g_props_cur[i].x + d->fw + pad &&
             y > g_props_cur[i].y - pad && y < g_props_cur[i].y + d->fh + pad)
@@ -1205,23 +1249,19 @@ static void room_draw(void) {
     floor_set[0] = k_floors[rd->floor];
     mote->scene2d_set_autotiles(k_room_terrain, ROOM_T, ROOM_T, floor_set, 1);
 
-    /* wall ring: 8x8 rule tiles, one tile thick — cell picked by the
-     * EDGE16 neighbour mask over the ring, exactly like the tileset rules */
-    {
-        const int GT = ROOM_PX / 8;                    /* 14x14 grid of 8px tiles */
-        for (int gy = 0; gy < GT; gy++)
-            for (int gx = 0; gx < GT; gx++) {
-                int ring = gx == 0 || gx == GT - 1 || gy == 0 || gy == GT - 1;
-                if (!ring) continue;
-                int m = 0;
-                if (gy > 0 && (gx == 0 || gx == GT - 1 || gy - 1 == 0)) m |= 1;         /* N */
-                if (gx < GT - 1 && (gy == 0 || gy == GT - 1 || gx + 1 == GT - 1)) m |= 2; /* E */
-                if (gy < GT - 1 && (gx == 0 || gx == GT - 1 || gy + 1 == GT - 1)) m |= 4; /* S */
-                if (gx > 0 && (gy == 0 || gy == GT - 1 || gx - 1 == 0)) m |= 8;          /* W */
-                add_spr(wall->sheet, gx * 8, gy * 8,
-                        (m % 4) * 8, (m / 4) * 8, 8, 8, 1, 0);
-            }
-    }
+    /* walls: 8x8 rule tiles over the whole wall grid (ring + any carved
+     * corridor interior), cell picked by the EDGE16 neighbour mask */
+    for (int gy = 0; gy < WGRID; gy++)
+        for (int gx = 0; gx < WGRID; gx++) {
+            if (!g_wgrid[gy][gx]) continue;
+            int m = 0;
+            if (gy > 0 && g_wgrid[gy - 1][gx]) m |= 1;
+            if (gx < WGRID - 1 && g_wgrid[gy][gx + 1]) m |= 2;
+            if (gy < WGRID - 1 && g_wgrid[gy + 1][gx]) m |= 4;
+            if (gx > 0 && g_wgrid[gy][gx - 1]) m |= 8;
+            add_spr(wall->sheet, gx * 8, gy * 8,
+                    (m % 4) * 8, (m / 4) * 8, 8, 8, 1, 0);
+        }
 
     /* door overlays at the four mid-edges (nothing drawn for sealed walls) */
     static const int8_t k_door_px[4][2] = { { 48, 0 }, { 96, 48 }, { 48, 96 }, { 0, 48 } };
@@ -1247,11 +1287,16 @@ static void room_draw(void) {
             add_spr(&items_img, k_door_px[s][0] + 2, k_door_px[s][1] + 2, 15 * 12, 0, 12, 12, 30, 0);
     }
 
-    /* furniture, painter-ordered by base line */
+    /* furniture, painter-ordered by base line; the rug lies flat, wall
+     * pieces hang up on the band */
     for (int i = 0; i < g_nprops; i++) {
-        const PropDef *d = &k_props[g_props_cur[i].prop];
-        int layer = 3 + ((g_props_cur[i].y + d->fh) >> 3);
-        add_spr(k_prop_sheets[d->sheet], g_props_cur[i].x, g_props_cur[i].y,
+        int pid = g_props_cur[i].prop;
+        const PropDef *d = &k_props[pid];
+        int y = g_props_cur[i].y;
+        int layer = 3 + ((y + d->fh) >> 3);
+        if (pid == P_RUG) layer = 2;
+        if (prop_wall_mounted(pid)) { y -= 13; layer = 2; }
+        add_spr(k_prop_sheets[d->sheet], g_props_cur[i].x, y,
                 d->fx, d->fy, d->fw, d->fh, layer, 0);
     }
 

@@ -7,7 +7,7 @@
 typedef struct { uint8_t sheet; uint16_t fx; uint8_t fy, fw, fh; } PropDef;
 
 enum {
-    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_PLANT, P_COUNT
+    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_RUG, P_PAINTING, P_WINDOW, P_LAMP, P_CRATE, P_BENCH, P_CANDLE, P_PLANT, P_COUNT
 };
 
 static const PropDef k_props[P_COUNT] = {
@@ -34,7 +34,14 @@ static const PropDef k_props[P_COUNT] = {
     { 1, 364, 16, 20, 16 },  /* chest_open */
     { 1, 384, 14, 16, 18 },  /* terminal */
     { 1, 400, 14, 14, 18 },  /* breaker */
-    { 1, 414, 16, 12, 16 },  /* plant */
+    { 1, 414, 12, 28, 20 },  /* rug */
+    { 1, 442, 20, 14, 12 },  /* painting */
+    { 1, 456, 20, 12, 12 },  /* window */
+    { 1, 468, 10, 10, 22 },  /* lamp */
+    { 1, 478, 18, 14, 14 },  /* crate */
+    { 1, 492, 20, 24, 12 },  /* bench */
+    { 1, 516, 16,  8, 16 },  /* candle */
+    { 1, 524, 16, 12, 16 },  /* plant */
 };
 
 #endif

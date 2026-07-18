@@ -35,8 +35,9 @@ enum {
     RF_COMPASS = 32,     /* first entry grants the Compass (rotate drafts) */
     RF_PENCIL = 64,      /* first entry grants the Pencil (gem rerolls) */
     RF_SEAL = 128,       /* cursed: the door seals behind you on entry */
-    RF_KEYCARD = 256,    /* drafting needs the keycard / an override / no power */
+    RF_KEYCARD = 256,    /* (unused: keycard readers gate doors, not drafts) */
     RF_SPADE = 512,      /* first entry grants the Spade (dig spots) */
+    RF_CORRIDOR = 1024,  /* walled interior with carved passages to the doors */
 };
 
 enum {                   /* loot pickup types */
@@ -86,9 +87,9 @@ enum {
 static const RoomDef k_rooms[R_COUNT] = {
     [R_ENTRANCE] = { "ENTRANCE", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(96, 122, 176), 0, 0, 0, 0, 0,
         "#######"
-        "#p...p#"
+        "#pP.Op#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#.....#"
         "#.....#"
         "#######", { IT_KEY, IT_COIN, 0 } },
@@ -102,27 +103,27 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { 0 } },
 
-    [R_HALLWAY] = { "HALLWAY", SH_STR, 0, 0, FL_WOOD, WL_STONE, C565(168, 126, 80), 0, 0, 0, 0, 0,
+    [R_HALLWAY] = { "HALLWAY", SH_STR, 0, 0, FL_WOOD, WL_STONE, C565(168, 126, 80), RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
         "#.....#"
-        "#.....#"
-        "#.....#"
-        "#p....#"
-        "#.....#"
-        "#######", { IT_COIN, 0 } },
-
-    [R_WPASS] = { "WEST WALK", SH_L, 0, 0, FL_WOOD, WL_STONE, C565(156, 116, 74), 0, 0, 0, 0, 0,
-        "#######"
-        "#....p#"
         "#.....#"
         "#.....#"
         "#.....#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_EPASS] = { "EAST WALK", SH_R, 0, 0, FL_WOOD, WL_STONE, C565(156, 116, 74), 0, 0, 0, 0, 0,
+    [R_WPASS] = { "WEST WALK", SH_L, 0, 0, FL_WOOD, WL_STONE, C565(156, 116, 74), RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
-        "#p....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_EPASS] = { "EAST WALK", SH_R, 0, 0, FL_WOOD, WL_STONE, C565(156, 116, 74), RF_CORRIDOR, 0, 0, 0, 0,
+        "#######"
+        "#.....#"
         "#.....#"
         "#.....#"
         "#.....#"
@@ -131,45 +132,45 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_FOYER] = { "FOYER", SH_T, 1, 1, FL_WOOD, WL_STONE, C565(146, 104, 66), 0, 0, 0, 0, 0,
         "#######"
-        "#p...p#"
+        "#pP.Pp#"
         "#.....#"
         "#.....#"
-        "#h....#"
+        "#.n..p#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, 0 } },
 
     [R_GREATHALL] = { "GREAT HALL", SH_X, 2, 2, FL_RED, WL_STONE, C565(190, 150, 96), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
-        "#p...p#"
+        "#iP.Pi#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#p...p#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, 0 } },
 
     [R_LOUNGE] = { "LOUNGE", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(170, 62, 58), 0, 6, 0, 0, 0,
         "#######"
-        "#s....#"
+        "#s..P.#"
         "#.....#"
-        "#.....#"
-        "#t...p#"
+        "#.R...#"
+        "#t...M#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_DRAWING] = { "DRAWING RM", SH_L, 1, 0, FL_BLUE, WL_STONE, C565(96, 150, 96), 0, 0, 0, 1, 25,
         "#######"
-        "#l...p#"
+        "#l..O.#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#s....#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_DINING] = { "DINING RM", SH_STR, 0, 0, FL_WOOD, WL_STONE, C565(80, 110, 170), 0, 4, 0, 0, 0,
         "#######"
-        "#.....#"
+        "#Oi.iO#"
         "#ht..h#"
-        "#.....#"
+        "#.R...#"
         "#.....#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
@@ -179,40 +180,40 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#K...S#"
         "#.....#"
         "#.....#"
-        "#....p#"
+        "#...qp#"
         "#.....#"
         "#######", { IT_FOOD, 0 } },
 
     [R_PANTRY] = { "PANTRY", SH_DEAD, 0, 0, FL_WOOD_DARK, WL_RED, C565(108, 108, 124), 0, 4, 0, 0, 0,
         "#######"
-        "#l...r#"
+        "#l..qr#"
         "#.....#"
         "#.....#"
+        "#q...r#"
         "#.....#"
-        "#r...r#"
         "#######", { IT_FOOD, IT_COIN, 0 } },
 
     [R_BEDROOM] = { "BEDROOM", SH_DEAD, 0, 0, FL_BLUE, WL_STONE, C565(90, 128, 186), 0, 6, 0, 0, 0,
         "#######"
-        "#b...p#"
+        "#b..Oi#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#....h#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_SUITE] = { "SUITE", SH_DEAD, 2, 1, FL_RED, WL_STONE, C565(150, 96, 190), 0, 12, 1, 0, 0,
         "#######"
-        "#B...c#"
+        "#B.P.c#"
         "#.....#"
-        "#.....#"
-        "#....p#"
+        "#.R...#"
+        "#i...p#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
     [R_WASHROOM] = { "WASHROOM", SH_DEAD, 0, 0, FL_CHECKER, WL_STONE, C565(140, 190, 226), 0, 4, 0, 0, 0,
         "#######"
-        "#p...T#"
+        "#pO..T#"
         "#.....#"
         "#.....#"
         "#U....#"
@@ -224,13 +225,13 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#L..l.#"
         "#.....#"
         "#.....#"
-        "#.....#"
+        "#.n..i#"
         "#.....#"
         "#######", { IT_STAR2, IT_COIN, 0 } },
 
     [R_STUDY] = { "STUDY", SH_L, 1, 0, FL_WOOD, WL_STONE, C565(64, 120, 84), RF_PENCIL, 0, 0, 1, 50,
         "#######"
-        "#d..l.#"
+        "#d.Pl.#"
         "#.....#"
         "#.....#"
         "#....p#"
@@ -239,65 +240,65 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_DRAFTING] = { "DRAFT ROOM", SH_DEAD, 1, 1, FL_WOOD, WL_STONE, C565(214, 190, 150), RF_UNIQUE | RF_COMPASS, 0, 0, 2, 0,
         "#######"
-        "#l....#"
+        "#l..O.#"
         "#..m..#"
         "#.....#"
-        "#p....#"
+        "#p...i#"
         "#.....#"
         "#######", { IT_GEM, 0 } },
 
     [R_LAUNDRY] = { "LAUNDRY", SH_DEAD, 0, 0, FL_STONE, WL_STONE, C565(214, 218, 226), 0, 0, 0, 0, 0,
         "#######"
-        "#W...W#"
+        "#W.OW.#"
         "#.....#"
         "#.....#"
-        "#r....#"
+        "#q...r#"
         "#.....#"
         "#######", { IT_KEY, 0 } },
 
     [R_STORE] = { "STOREROOM", SH_DEAD, 1, 1, FL_WOOD_DARK, WL_RED, C565(160, 60, 66), 0, 0, 0, 0, 0,
         "#######"
-        "#c...r#"
+        "#c..qr#"
         "#.....#"
         "#.....#"
-        "#r..c.#"
+        "#qr..q#"
         "#.....#"
         "#######", { IT_COIN, IT_KEY, IT_STAR, 0 } },
 
     [R_CELLAR] = { "CELLAR", SH_R, 1, 1, FL_STONE, WL_DARK, C565(120, 124, 136), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
-        "#r...r#"
+        "#ri..r#"
         "#.....#"
         "#.....#"
-        "#x....#"
+        "#x..q.#"
         "#.....#"
         "#######", { IT_KEY, IT_KEY, 0 } },
 
     [R_LOCKSMITH] = { "LOCKSMITH", SH_DEAD, 1, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
         "#######"
-        "#w..l.#"
+        "#w.Pl.#"
         "#.....#"
         "#.....#"
-        "#....r#"
+        "#q...r#"
         "#.....#"
         "#######", { IT_KEY, 0 } },
 
     [R_COMMISSARY] = { "COMMISSARY", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
         "#######"
-        "#K..l.#"
+        "#K.Ol.#"
         "#.....#"
         "#.....#"
-        "#....p#"
+        "#q..qp#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_HEARTH] = { "HEARTH", SH_STR, 1, 0, FL_WOOD, WL_RED, C565(226, 130, 54), 0, 8, 0, 0, 0,
         "#######"
-        "#s....#"
+        "#s..P.#"
         "#.....#"
-        "#..C..#"
+        "#.RC..#"
         "#.....#"
-        "#.....#"
+        "#n....#"
         "#######", { 0 } },
 
     [R_STILLROOM] = { "STILL ROOM", SH_DEAD, 2, 2, FL_WOOD_DARK, WL_DARK, C565(52, 64, 120), RF_UNIQUE, 0, 0, 0, 0,
@@ -305,7 +306,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#l...r#"
         "#.....#"
         "#.....#"
-        "#..t..#"
+        "#i.t.q#"
         "#.....#"
         "#######", { IT_POTION, IT_POTION, IT_STAR, 0 } },
 
@@ -314,7 +315,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#u....#"
         "#.....#"
         "#.....#"
-        "#....u#"
+        "#n...u#"
         "#.....#"
         "#######", { IT_GEM, 0 } },
 
@@ -323,7 +324,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#u...u#"
         "#.....#"
         "#.....#"
-        "#p....#"
+        "#p...u#"
         "#.....#"
         "#######", { IT_GEM, IT_COIN, 0 } },
 
@@ -331,7 +332,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#######"
         "#u...u#"
         "#.....#"
-        "#.....#"
+        "#.n...#"
         "#p...p#"
         "#.....#"
         "#######", { IT_GEM, IT_GEM, 0 } },
@@ -341,15 +342,15 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#g...g#"
         "#..x..#"
         "#.....#"
-        "#g...g#"
+        "#g.i.g#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_STAR } },
 
     [R_GUEST] = { "GUEST ROOM", SH_DEAD, 0, 0, FL_BLUE, WL_STONE, C565(110, 140, 196), 0, 4, 0, 0, 0,
         "#######"
-        "#b....#"
+        "#b..O.#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#c...p#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
@@ -358,24 +359,24 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#######"
         "#C...C#"
         "#..t..#"
-        "#.....#"
-        "#.....#"
+        "#.R...#"
+        "#i...i#"
         "#.....#"
         "#######", { IT_STAR2, IT_COIN, 0 } },
 
     [R_ARMORY] = { "ARMORY", SH_R, 1, 1, FL_STONE, WL_DARK, C565(140, 140, 156), 0, 0, 1, 0, 0,
         "#######"
-        "#w...r#"
+        "#w.P.r#"
         "#.....#"
         "#.....#"
-        "#x....#"
+        "#x..q.#"
         "#.....#"
         "#######", { IT_KEY, IT_COIN, 0 } },
 
     [R_WINECELLAR] = { "WINE STORE", SH_DEAD, 1, 0, FL_WOOD_DARK, WL_DARK, C565(140, 70, 110), 0, 0, 0, 0, 0,
         "#######"
         "#r...r#"
-        "#.....#"
+        "#..q..#"
         "#.....#"
         "#r...r#"
         "#.....#"
@@ -386,7 +387,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#u...u#"
         "#.....#"
         "#.....#"
-        "#....u#"
+        "#u....#"
         "#.....#"
         "#######", { IT_FOOD, IT_GEM, 0 } },
 
@@ -395,7 +396,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#x...x#"
         "#.....#"
         "#.....#"
-        "#..g..#"
+        "#.qg..#"
         "#.....#"
         "#######", { IT_POUCH, IT_COIN, 0 } },
 
@@ -403,23 +404,23 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#######"
         "#h..l.#"
         "#.....#"
-        "#.....#"
-        "#....p#"
+        "#.R...#"
+        "#i...p#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_SCULLERY] = { "SCULLERY", SH_R, 0, 0, FL_CHECKER, WL_STONE, C565(190, 198, 206), 0, 2, 0, 0, 0,
         "#######"
-        "#W..K.#"
+        "#W.OK.#"
         "#.....#"
         "#.....#"
-        "#r....#"
+        "#q...r#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_SOLARIUM] = { "SOLARIUM", SH_STR, 1, 0, FL_GRASS, WL_STONE, C565(110, 170, 90), RF_GREEN, 0, 0, 1, 0,
         "#######"
-        "#p...p#"
+        "#p.O.p#"
         "#.....#"
         "#.....#"
         "#s....#"
@@ -428,10 +429,10 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_GAMES] = { "GAMES ROOM", SH_L, 1, 0, FL_RED, WL_STONE, C565(180, 120, 60), 0, 0, 0, 0, 25,
         "#######"
-        "#h...h#"
+        "#h.P.h#"
         "#..t..#"
-        "#.....#"
-        "#.....#"
+        "#.R...#"
+        "#....M#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
@@ -440,31 +441,31 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#b...b#"
         "#.....#"
         "#.....#"
-        "#....r#"
+        "#q...r#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_ATELIER] = { "ATELIER", SH_DEAD, 2, 1, FL_WOOD, WL_STONE, C565(210, 160, 190), RF_UNIQUE | RF_PENCIL, 0, 0, 1, 0,
         "#######"
-        "#d...p#"
+        "#d.P.p#"
         "#.....#"
         "#.....#"
-        "#..m..#"
+        "#..m.i#"
         "#.....#"
         "#######", { IT_STAR2, IT_GEM, 0 } },
 
     [R_CRYPT] = { "CRYPT", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(90, 70, 110), 0, -4, 0, 0, 0,
         "#######"
         "#g...g#"
+        "#.i.i.#"
         "#.....#"
-        "#.....#"
-        "#C....#"
+        "#C...q#"
         "#.....#"
         "#######", { IT_STAR2, IT_GEM, IT_GEM, IT_POUCH, 0 } },
 
-    [R_TRICKHALL] = { "TRICK HALL", SH_STR, 2, 0, FL_WOOD_DARK, WL_DARK, C565(150, 90, 150), RF_SEAL, 0, 0, 0, 0,
+    [R_TRICKHALL] = { "TRICK HALL", SH_STR, 2, 0, FL_WOOD_DARK, WL_DARK, C565(150, 90, 150), RF_SEAL | RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
-        "#r...r#"
+        "#.....#"
         "#.....#"
         "#.....#"
         "#.....#"
@@ -473,41 +474,41 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_SECURITY] = { "SECURITY", SH_R, 1, 0, FL_STONE, WL_DARK, C565(110, 150, 170), 0, 0, 0, 0, 0,
         "#######"
-        "#e...l#"
+        "#e.Ol.#"
         "#.....#"
         "#.....#"
-        "#....r#"
+        "#q...r#"
         "#.....#"
         "#######", { IT_KEY, IT_COIN, 0 } },
 
     [R_POWER] = { "POWER ROOM", SH_DEAD, 1, 0, FL_STONE, WL_DARK, C565(200, 180, 60), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
-        "#v...r#"
+        "#v.P.r#"
         "#.....#"
         "#.....#"
-        "#W....#"
+        "#W..q.#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
     [R_LABORATORY] = { "LABORATORY", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
-        "#W...l#"
+        "#W.Ol.#"
         "#.....#"
         "#.....#"
-        "#..t..#"
+        "#i.t..#"
         "#.....#"
         "#######", { IT_POTION, IT_POTION, IT_STAR3, IT_GEM, 0 } },
 
     [R_STRONGROOM] = { "STRONGROOM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#x...x#"
-        "#.....#"
+        "#..q..#"
         "#.....#"
         "#g...g#"
         "#.....#"
         "#######", { IT_POUCH, IT_POUCH, IT_COIN, 0 } },
 
-    [R_CROSSROADS] = { "CROSSROADS", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(178, 136, 90), 0, 0, 0, 0, 0,
+    [R_CROSSROADS] = { "CROSSROADS", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(178, 136, 90), RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
         "#.....#"
         "#.....#"
@@ -516,47 +517,47 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_LANDING] = { "LANDING", SH_T, 0, 0, FL_WOOD, WL_STONE, C565(160, 122, 80), 0, 0, 0, 0, 0,
+    [R_LANDING] = { "LANDING", SH_T, 0, 0, FL_WOOD, WL_STONE, C565(160, 122, 80), RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
-        "#p....#"
+        "#.....#"
         "#.....#"
         "#.....#"
         "#.....#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_SERVHALL] = { "SERVANTS", SH_T, 0, 0, FL_WOOD_DARK, WL_STONE, C565(126, 104, 78), 0, 2, 0, 0, 0,
+    [R_SERVHALL] = { "SERVANTS", SH_T, 0, 0, FL_WOOD_DARK, WL_STONE, C565(126, 104, 78), RF_CORRIDOR, 2, 0, 0, 0,
         "#######"
         "#.....#"
         "#.....#"
         "#.....#"
-        "#r....#"
+        "#.....#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_CLOISTER] = { "CLOISTER", SH_T, 1, 0, FL_GRASS, WL_STONE, C565(88, 152, 84), RF_GREEN, 0, 0, 1, 0,
+    [R_CLOISTER] = { "CLOISTER", SH_T, 1, 0, FL_GRASS, WL_STONE, C565(88, 152, 84), RF_GREEN | RF_CORRIDOR, 0, 0, 1, 0,
         "#######"
-        "#u....#"
         "#.....#"
         "#.....#"
-        "#....p#"
+        "#.....#"
+        "#.....#"
         "#.....#"
         "#######", { IT_GEM, 0 } },
 
     [R_BANQUET] = { "BANQUET", SH_T, 1, 0, FL_RED, WL_STONE, C565(200, 110, 70), 0, 4, 0, 0, 0,
         "#######"
-        "#.....#"
+        "#i.P.i#"
         "#ht..h#"
-        "#.....#"
+        "#.R...#"
         "#.....#"
         "#.....#"
         "#######", { IT_FOOD, IT_COIN, 0 } },
 
     [R_ROTUNDA] = { "ROTUNDA", SH_X, 2, 1, FL_STONE, WL_STONE, C565(210, 190, 150), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
-        "#p...p#"
+        "#pi.ip#"
         "#.....#"
-        "#.....#"
+        "#.R...#"
         "#p...p#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
