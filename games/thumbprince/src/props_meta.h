@@ -7,7 +7,7 @@
 typedef struct { uint8_t sheet; uint16_t fx; uint8_t fy, fw, fh; } PropDef;
 
 enum {
-    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_RUG, P_PAINTING, P_PAINTING_V, P_WINDOW, P_WINDOW_V, P_LAMP, P_CRATE, P_BENCH, P_CANDLE, P_PLANT, P_COUNT
+    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_RUG, P_PAINTING, P_PAINTING_V, P_WINDOW, P_WINDOW_V, P_LAMP, P_CRATE, P_BENCH, P_CANDLE, P_PLANT, P_SAFE, P_KEYPAD, P_CLOCK, P_GLOBE, P_PIANO, P_LECTERN, P_WINERACK, P_CHESSBOARD, P_SLOTS, P_STATUE, P_PLATE, P_SCALES, P_LEVER, P_COUNT
 };
 
 static const PropDef k_props[P_COUNT] = {
@@ -44,6 +44,19 @@ static const PropDef k_props[P_COUNT] = {
     { 1, 506, 20, 24, 12 },  /* bench */
     { 1, 530, 16,  8, 16 },  /* candle */
     { 1, 538, 16, 12, 16 },  /* plant */
+    { 1, 550, 16, 16, 16 },  /* safe */
+    { 1, 566, 16, 14, 16 },  /* keypad */
+    { 1, 580,  4, 14, 28 },  /* clock */
+    { 1, 594, 14, 14, 18 },  /* globe */
+    { 1, 608, 12, 28, 20 },  /* piano */
+    { 1, 636, 16, 14, 16 },  /* lectern */
+    { 1, 650, 14, 20, 18 },  /* winerack */
+    { 1, 670, 16, 18, 16 },  /* chessboard */
+    { 1, 688,  8, 18, 24 },  /* slots */
+    { 1, 706, 12, 12, 20 },  /* statue */
+    { 1, 718, 22, 12, 10 },  /* plate */
+    { 1, 730, 18, 16, 14 },  /* scales */
+    { 1, 746, 16, 12, 16 },  /* lever */
 };
 
 #endif

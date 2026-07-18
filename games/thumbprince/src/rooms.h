@@ -81,7 +81,7 @@ enum {
     R_CRYPT, R_TRICKHALL,
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
-    R_APOTHECARY,
+    R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR,
     R_COUNT,
 };
 
@@ -135,7 +135,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_FOYER] = { "FOYER", SH_T, 1, 1, FL_WOOD, WL_STONE, C565(146, 104, 66), 0, 0, 0, 0, 0,
         "#######"
-        "#pP.Pp#"
+        "#kP.Pp#"
         "#.....#"
         "#.....#"
         "#.n..p#"
@@ -145,9 +145,9 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_GREATHALL] = { "GREAT HALL", SH_X, 2, 2, FL_RED, WL_STONE, C565(190, 150, 96), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
         "#iP.Pi#"
-        "#.....#"
-        "#.R...#"
-        "#p...p#"
+        "#..o..#"
+        "#oR..o#"
+        "#p.o.p#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, 0 } },
 
@@ -165,7 +165,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#l..O.#"
         "#.....#"
         "#.R...#"
-        "#s....#"
+        "#s...G#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
@@ -189,7 +189,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_PANTRY] = { "PANTRY", SH_DEAD, 0, 0, FL_WOOD_DARK, WL_RED, C565(108, 108, 124), 0, 4, 0, 0, 0,
         "#######"
-        "#l..qr#"
+        "#a..qr#"
         "#.....#"
         "#.....#"
         "#q...r#"
@@ -237,7 +237,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#d.Pl.#"
         "#.....#"
         "#.....#"
-        "#....p#"
+        "#f...p#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
@@ -361,7 +361,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_CHAPEL] = { "CHAPEL", SH_STR, 1, 0, FL_BLUE, WL_STONE, C565(120, 110, 200), 0, 0, 0, 0, 0,
         "#######"
         "#C...C#"
-        "#..t..#"
+        "#i.t.i#"
         "#.R...#"
         "#i...i#"
         "#.....#"
@@ -379,7 +379,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_WINECELLAR] = { "WINE STORE", SH_DEAD, 1, 0, FL_WOOD_DARK, WL_DARK, C565(140, 70, 110), 0, 0, 0, 0, 0,
         "#######"
         "#r...r#"
-        "#..q..#"
+        "#..y..#"
         "#.....#"
         "#r...r#"
         "#.....#"
@@ -405,7 +405,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_NOOK] = { "NOOK", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(150, 110, 70), 0, 0, 0, 0, 25,
         "#######"
-        "#h..l.#"
+        "#h..N.#"
         "#.....#"
         "#.R...#"
         "#i...p#"
@@ -433,7 +433,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_GAMES] = { "GAMES ROOM", SH_L, 1, 0, FL_RED, WL_STONE, C565(180, 120, 60), 0, 0, 0, 0, 25,
         "#######"
         "#h.P.h#"
-        "#..t..#"
+        "#..H..#"
         "#.R...#"
         "#....M#"
         "#.....#"
@@ -498,7 +498,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#W.Ol.#"
         "#.....#"
         "#.....#"
-        "#i...q#"
+        "#j...q#"
         "#.....#"
         "#######", { IT_POTION, IT_POTION, IT_STAR3, IT_GEM, 0 } },
 
@@ -558,10 +558,10 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_ROTUNDA] = { "ROTUNDA", SH_X, 2, 1, FL_STONE, WL_STONE, C565(210, 190, 150), RF_UNIQUE, 0, 0, 0, 50,
         "#######"
-        "#pi.ip#"
+        "#Yi.iY#"
         "#.....#"
         "#.R...#"
-        "#p...p#"
+        "#Y...Y#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
@@ -573,6 +573,33 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#r..qp#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
+
+    [R_MUSIC] = { "MUSIC ROOM", SH_STR, 1, 0, FL_RED, WL_RED, C565(196, 120, 170), RF_UNIQUE, 0, 0, 0, 25,
+        "#######"
+        "#J...i#"
+        "#.....#"
+        "#.R...#"
+        "#n....#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_GALLERY] = { "GALLERY", SH_STR, 1, 0, FL_WOOD_DARK, WL_RED, C565(170, 140, 190), RF_UNIQUE, 0, 0, 0, 25,
+        "#######"
+        "#P.P.P#"
+        "#.....#"
+        "#.N...#"
+        "#P...P#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_PARLOR] = { "PARLOR", SH_DEAD, 2, 0, FL_RED, WL_RED, C565(230, 90, 120), RF_UNIQUE, 0, 0, 0, 0,
+        "#######"
+        "#Z.P.M#"
+        "#.....#"
+        "#.R...#"
+        "#q...n#"
+        "#.....#"
+        "#######", { IT_COIN, IT_COIN, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

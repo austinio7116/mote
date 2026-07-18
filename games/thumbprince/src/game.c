@@ -53,7 +53,8 @@ MOTE_MODULE_HEADER();
 #include "lose.sfx.h"
 
 /* ------------------------------------------------------------------ state --- */
-enum { GS_TITLE, GS_PLAY, GS_DRAFT, GS_SHOP, GS_MAP, GS_PAUSE, GS_RESULTS };
+enum { GS_TITLE, GS_PLAY, GS_DRAFT, GS_SHOP, GS_MAP, GS_PAUSE, GS_RESULTS,
+       GS_PUZZLE, GS_SLOTS, GS_CASE };
 
 #define GRID_W 5
 #define GRID_H 8
@@ -139,12 +140,40 @@ typedef struct { uint8_t x, y, locked; } RoomChest;
 static RoomChest g_chests[4];
 static int g_nchests;
 
-/* dig spot + riddle note in the current room (positions seeded per day) */
+/* dig spot + crumpled clue note in the current room (positions seeded per day) */
 static uint8_t g_dig_on, g_dig_x, g_dig_y;
 static uint8_t g_note_on, g_note_x, g_note_y;
-static int8_t  g_cache_gi = -1;             /* riddle target cell (-1 none) */
-static uint8_t g_cache_x, g_cache_y;
-static char    g_riddle[24];
+
+/* ---- the investigation: in-room puzzles, fed by clues from notes ---------- */
+enum { PZ_SAFE, PZ_KEYPAD, PZ_CLOCK, PZ_GLOBE, PZ_PIANO, PZ_CANDLES, PZ_TILES,
+       PZ_STATUES, PZ_BOOK, PZ_PORTRAIT, PZ_WINE, PZ_SCALES, PZ_CENSUS, PZ_CHESS, PZ_N };
+static uint16_t g_pz_solved, g_pz_clue;     /* per-type bits, reset each day */
+static uint8_t  g_pz_sec[PZ_N][4];          /* seeded per-day secrets */
+static uint8_t  g_pz_active, g_pz_stage;    /* GS_PUZZLE overlay */
+static uint8_t  g_pz_dval[4], g_pz_dsel;
+static uint8_t  g_seq_n, g_seq_lit;         /* candle/plate order progress */
+static uint8_t  g_statue_face[4];
+static int8_t   g_plate_under = -1;
+static uint8_t  g_census_room = 0xFF, g_census_kind, g_census_count;
+static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook */
+
+/* the Parlor's one-armed bandit */
+static uint8_t g_slot_sym[3], g_slot_spinning, g_slot_done, g_slot_pulls;
+static float   g_slot_t;
+static char    g_slot_msg[24];
+
+/* seal days: the golden door needs three thrown levers instead of 3 keys */
+static uint8_t g_seal_day, g_seal_thrown;
+static int8_t  g_lever_gi[3];
+static uint8_t g_lever_ord[3], g_lever_x[3], g_lever_y[3];
+
+/* the case: one story fragment recovered per win, kept across days */
+#define NFRAG 8
+static uint8_t g_frags, g_frag_new;
+
+/* secret passages (bookshelf puzzle): door bits that cost no step */
+static uint8_t g_secret[GRID_W * GRID_H];
+static uint8_t g_free_move;
 
 /* score appraisal */
 static uint16_t g_sc_rooms, g_sc_loot, g_sc_bonus, g_sc_goal;
@@ -184,7 +213,7 @@ static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img }
 /* decor with no footprint: the rug is walked on, wall pieces sit in the band */
 static int prop_no_collide(int p) {
     return p == P_RUG || p == P_PAINTING || p == P_WINDOW ||
-           p == P_PAINTING_V || p == P_WINDOW_V;
+           p == P_PAINTING_V || p == P_WINDOW_V || p == P_PLATE;
 }
 static int prop_wall_mounted(int p) {
     return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V;
@@ -217,6 +246,12 @@ static int prop_of_char(char ch) {
     case 'O': return P_WINDOW;     case 'M': return P_LAMP;
     case 'q': return P_CRATE;      case 'n': return P_BENCH;
     case 'i': return P_CANDLE;
+    case 'f': return P_SAFE;       case 'j': return P_KEYPAD;
+    case 'k': return P_CLOCK;      case 'G': return P_GLOBE;
+    case 'J': return P_PIANO;      case 'N': return P_LECTERN;
+    case 'y': return P_WINERACK;   case 'a': return P_SCALES;
+    case 'H': return P_CHESSBOARD; case 'Z': return P_SLOTS;
+    case 'Y': return P_STATUE;     case 'o': return P_PLATE;
     }
     return -1;
 }
@@ -252,7 +287,8 @@ static void score_add(int cat, uint32_t pts);
 
 /* two goals a day, dealt from the day seed */
 typedef struct { const char *name; uint8_t target; uint16_t pts; } GoalDef;
-enum { GO_GREENS, GO_CHESTS, GO_ROOMS, GO_SWEEPS, GO_COMBOS, GO_RANKS, GO_GOLD, GO_KEYS, GO_N };
+enum { GO_GREENS, GO_CHESTS, GO_ROOMS, GO_SWEEPS, GO_COMBOS, GO_RANKS, GO_GOLD, GO_KEYS,
+       GO_PUZZLES, GO_N };
 static const GoalDef k_goals[GO_N] = {
     [GO_GREENS] = { "GREENS", 3, 150 },
     [GO_CHESTS] = { "CHESTS", 3, 100 },
@@ -262,6 +298,7 @@ static const GoalDef k_goals[GO_N] = {
     [GO_RANKS]  = { "RANKS", 2, 150 },
     [GO_GOLD]   = { "GOLD HELD", 25, 100 },
     [GO_KEYS]   = { "KEYS HELD", 4, 100 },
+    [GO_PUZZLES] = { "PUZZLES", 2, 150 },
 };
 static uint8_t g_goal[2], g_goal_prog[2], g_goal_done[2];
 
@@ -337,21 +374,23 @@ static const char *k_blurb[R_COUNT] = {
     [R_CROSSROADS] = "4 DOORS",     [R_LANDING] = "3 DOORS",
     [R_SERVHALL] = "3 DOORS +2",    [R_CLOISTER] = "GREEN, 3 DR",
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
-    [R_APOTHECARY] = "TONIC SHOP",
+    [R_APOTHECARY] = "TONIC SHOP",  [R_MUSIC] = "THE PIANO",
+    [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
 };
 
 /* ------------------------------------------------------------------- save --- */
-typedef struct { uint32_t magic; uint16_t hi, days, wins, pad; } SaveBlob;
+/* frags rides in what used to be the pad word, so old saves read back cleanly */
+typedef struct { uint32_t magic; uint16_t hi, days, wins; uint8_t frags, pad; } SaveBlob;
 #define SAVE_MAGIC 0x54465244u  /* 'DRFT' */
 
 static void save_progress(void) {
-    SaveBlob b = { SAVE_MAGIC, g_hi, g_days, g_wins, 0 };
+    SaveBlob b = { SAVE_MAGIC, g_hi, g_days, g_wins, g_frags, 0 };
     mote->save(0, &b, sizeof b);
 }
 static void load_progress(void) {
     SaveBlob b;
     if (mote->load(0, &b, sizeof b) == sizeof b && b.magic == SAVE_MAGIC) {
-        g_hi = b.hi; g_days = b.days; g_wins = b.wins;
+        g_hi = b.hi; g_days = b.days; g_wins = b.wins; g_frags = b.frags;
     }
 }
 
@@ -496,7 +535,7 @@ static int seeded_spot(int gi, uint32_t salt, uint8_t *ox, uint8_t *oy) {
 static void roll_room_finds(int gi) {
     const Cell *cl = &g_grid[gi];
     int dig_pct = g_force_dig ? 100 : (g_cond == CD_LUCKY ? 55 : 30);
-    int note_pct = g_force_dig ? 100 : 18;
+    int note_pct = g_force_dig ? 100 : 30;
     int corridor = (k_rooms[cl->room].flags & RF_CORRIDOR) != 0;
     g_dig_on = !corridor && !(cl->extra & 1) && cl->room != R_ANTE &&
                (int)(hash32(g_day_seed ^ (uint32_t)(gi * 40503u) ^ 0xD16D16u) % 100u) < dig_pct &&
@@ -504,11 +543,32 @@ static void roll_room_finds(int gi) {
     g_note_on = !corridor && !(cl->extra & 2) && cl->room != R_ANTE && gi != START_GI &&
                 (int)(hash32(g_day_seed ^ (uint32_t)(gi * 69069u) ^ 0x407E3u) % 100u) < note_pct &&
                 seeded_spot(gi, 0x407Eu, &g_note_x, &g_note_y);
-    if (g_cache_gi == gi)
-        seeded_spot(gi, 0xCAC4Eu, &g_cache_x, &g_cache_y);
+    /* in-room puzzle scratch state resets on every room entry */
+    g_seq_n = 0; g_seq_lit = 0; g_plate_under = -1;
+    {
+        uint32_t sr = hash32(g_day_seed ^ (uint32_t)(gi * 7919u) ^ 0x57A7u);
+        for (int i = 0; i < 4; i++)          /* statues start turned off-solution */
+            g_statue_face[i] = (uint8_t)((g_pz_sec[PZ_STATUES][i] + 1 + ((sr >> (i * 4)) & 1)) % 4);
+    }
+    for (int k = 0; k < 3; k++)              /* a seal lever hides in this cell? */
+        if (g_lever_gi[k] == gi) {
+            int ok = seeded_spot(gi, 0x1E7E4u + (uint32_t)k, &g_lever_x[k], &g_lever_y[k]);
+            if (!ok) { g_lever_x[k] = 56; g_lever_y[k] = 56; }   /* centre fallback */
+            if (getenv("DRAFT_PUZ")) {
+                char lb[40];
+                snprintf(lb, sizeof lb, "lever %d in cell %d at %d,%d ok=%d",
+                         k, gi, g_lever_x[k], g_lever_y[k], ok);
+                mote->log(lb);
+            }
+        }
     if (g_force_dig && g_dig_on) {
         char b[32];
         snprintf(b, sizeof b, "dig at %d,%d", g_dig_x, g_dig_y);
+        mote->log(b);
+    }
+    if (g_force_dig && g_note_on) {
+        char b[32];
+        snprintf(b, sizeof b, "note at %d,%d", g_note_x, g_note_y);
         mote->log(b);
     }
 }
@@ -656,6 +716,12 @@ static void end_day(int won) {
                        + (uint32_t)g_gems * 15 + (uint32_t)g_gold * 2;
         score_add(SC_WIN, bonus);
         g_wins++;
+        for (int i = 0; i < NFRAG; i++)        /* one case fragment per win */
+            if (!(g_frags & (1 << i))) {
+                g_frags |= (uint8_t)(1 << i);
+                g_frag_new = (uint8_t)(i + 1);
+                break;
+            }
         mote->audio_play_sfx(&win_sfx, 1.0f);
     } else {
         mote->audio_play_sfx(&lose_sfx, 0.9f);
@@ -670,7 +736,8 @@ static void end_day(int won) {
 /* ------------------------------------------------------------- transitions --- */
 static void enter_room(int gi, int entry_side) {
     g_cur = gi;
-    g_steps--;
+    if (g_free_move) g_free_move = 0;          /* secret passages cost nothing */
+    else g_steps--;
     parse_room_props(gi);
     mote->audio_play_sfx(&door_sfx, 0.8f);
     switch (entry_side) {
@@ -758,6 +825,10 @@ static void place_card(int slot) {
     cl->room = id;
     cl->doors = orient_mask(d->shape, g_draft_entry, g_rot[slot]);
     g_rooms_placed++;
+    if (g_seal_day)                            /* seal levers ride set placement ordinals */
+        for (int k = 0; k < 3; k++)
+            if (g_lever_gi[k] < 0 && g_rooms_placed == g_lever_ord[k])
+                g_lever_gi[k] = (int8_t)g_draft_gi;
     score_add(SC_ROOMS, 10u * (d->rarity + 1));
     mote->audio_play_sfx(&draft_sfx, 0.9f);
     goal_progress(GO_ROOMS, 1, 0);
@@ -845,6 +916,14 @@ static void door_try(int side) {
 
     if (st == DS_GOLD) {                       /* the Antechamber */
         if (g_master) { toast("THE MASTER KEY TURNS..."); enter_room(n, side ^ 2); }
+        else if (g_seal_day) {
+            if (g_seal_thrown == 7) { mote->audio_play_sfx(&unlock_sfx, 1.0f); enter_room(n, side ^ 2); }
+            else {
+                int c = (g_seal_thrown & 1) + ((g_seal_thrown >> 1) & 1) + ((g_seal_thrown >> 2) & 1);
+                toastf("SEALED - LEVERS THROWN %d/3", c);
+                mote->audio_play_sfx(&locked_sfx, 0.9f);
+            }
+        }
         else if (g_keys >= 3) { g_keys -= 3; mote->audio_play_sfx(&unlock_sfx, 1.0f); enter_room(n, side ^ 2); }
         else { toastf("TRIPLE LOCKED - NEED 3 KEYS (%d)", g_keys); mote->audio_play_sfx(&locked_sfx, 0.9f); }
         return;
@@ -883,7 +962,11 @@ static void door_try(int side) {
         if (st == DS_OPEN) { enter_room(n, side ^ 2); return; }
     }
 
-    if (st == DS_OPEN) { enter_room(n, side ^ 2); return; }
+    if (st == DS_OPEN) {
+        if ((g_secret[g_cur] >> side) & 1) g_free_move = 1;
+        enter_room(n, side ^ 2);
+        return;
+    }
 
     /* DS_CLOSED: an undrafted cell — roll the lock, then draft */
     if (!(cl->lock_roll & DBIT(side))) {
@@ -990,31 +1073,251 @@ static void dig_here(void) {
     goal_check_held();
 }
 
-/* read a crumpled note: aim its riddle at a cell next to a drafted room */
+/* -------------------------------------------------------------- puzzles ----- */
+/* each puzzle lives in one host room; a crumpled note reveals one puzzle's
+ * secret into the notebook; solving without the clue costs a step per guess */
 static const char *k_dirname[4] = { "N", "E", "S", "W" };
+static const uint8_t k_pz_room[PZ_N] = {
+    [PZ_SAFE] = R_STUDY,      [PZ_KEYPAD] = R_LABORATORY, [PZ_CLOCK] = R_FOYER,
+    [PZ_GLOBE] = R_DRAWING,   [PZ_PIANO] = R_MUSIC,       [PZ_CANDLES] = R_CHAPEL,
+    [PZ_TILES] = R_GREATHALL, [PZ_STATUES] = R_ROTUNDA,   [PZ_BOOK] = R_LIBRARY,
+    [PZ_PORTRAIT] = R_GALLERY, [PZ_WINE] = R_WINECELLAR,  [PZ_SCALES] = R_PANTRY,
+    [PZ_CENSUS] = R_NOOK,     [PZ_CHESS] = R_GAMES,
+};
+static const char *k_pz_name[PZ_N] = {
+    "THE SAFE", "THE KEYPAD", "THE CLOCK", "THE GLOBE", "THE PIANO",
+    "THE CANDLES", "THE PLATES", "THE STATUES", "THE BOOKSHELF", "THE PORTRAITS",
+    "THE WINE RACK", "THE SCALES", "THE CENSUS", "THE CHESSBOARD",
+};
+static const char *k_head8[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+static const char *k_books[4] = { "RED", "BLUE", "GREEN", "GOLD" };
+static const char *k_faces[4] = { "THE LORD", "THE LADY", "THE HEIR", "THE COUSIN" };
+static const char *k_wines[4] = { "'61", "'74", "'88", "'99" };
+static const char *k_weighs[3] = { "A KEY", "A GEM", "A COIN" };
+static const char *k_pieces[4] = { "KNIGHT", "ROOK", "BISHOP", "QUEEN" };
+static const char *k_squares[4] = { "RED", "GOLD", "BLACK", "WHITE" };
+static const char *k_census_nm[5] = { "WINDOWS", "PAINTINGS", "PLANTS", "CANDLES", "CRATES" };
+static const char  k_census_ch[5] = { 'O', 'P', 'p', 'i', 'q' };
+
+static int puzzle_of_room(uint8_t room) {
+    for (int i = 0; i < PZ_N; i++)
+        if (k_pz_room[i] == room) return i;
+    return -1;
+}
+
+static void perm4(uint8_t *out, uint32_t r) {
+    out[0] = 0; out[1] = 1; out[2] = 2; out[3] = 3;
+    for (int i = 3; i > 0; i--) {
+        r = hash32(r + (uint32_t)i);
+        int j = (int)(r % (uint32_t)(i + 1));
+        uint8_t t = out[i]; out[i] = out[j]; out[j] = t;
+    }
+}
+
+static void puzzles_deal(void) {
+    g_pz_solved = 0; g_pz_clue = 0;
+    g_census_room = 0xFF;
+    uint32_t r = hash32(g_day_seed ^ 0x9E3779B9u);
+    for (int i = 0; i < PZ_N; i++)
+        for (int k = 0; k < 4; k++) {
+            r = hash32(r + 17u);
+            g_pz_sec[i][k] = (uint8_t)(r % 251u);
+        }
+    for (int k = 0; k < 3; k++) g_pz_sec[PZ_SAFE][k] %= 10;
+    for (int k = 0; k < 4; k++) g_pz_sec[PZ_KEYPAD][k] %= 10;
+    g_pz_sec[PZ_CLOCK][0] = (uint8_t)(1 + g_pz_sec[PZ_CLOCK][0] % 12);
+    g_pz_sec[PZ_GLOBE][0] %= 8;
+    for (int k = 0; k < 4; k++) g_pz_sec[PZ_PIANO][k] %= 4;
+    perm4(g_pz_sec[PZ_CANDLES], hash32(g_day_seed ^ 0xCA9D1Eu));
+    perm4(g_pz_sec[PZ_TILES], hash32(g_day_seed ^ 0x71E5u));
+    for (int k = 0; k < 4; k++) g_pz_sec[PZ_STATUES][k] %= 4;
+    g_pz_sec[PZ_BOOK][0] %= 4;
+    g_pz_sec[PZ_PORTRAIT][0] %= 4;
+    g_pz_sec[PZ_WINE][0] %= 4;
+    g_pz_sec[PZ_SCALES][0] %= 3;
+    g_pz_sec[PZ_CHESS][0] %= 4; g_pz_sec[PZ_CHESS][1] %= 4;
+}
+
+static void pz_clue_text(int i, char *b, int cap) {
+    const uint8_t *s = g_pz_sec[i];
+    switch (i) {
+    case PZ_SAFE:    snprintf(b, cap, "SAFE: %d-%d-%d", s[0], s[1], s[2]); break;
+    case PZ_KEYPAD:  snprintf(b, cap, "KEYPAD: %d %d %d %d", s[0], s[1], s[2], s[3]); break;
+    case PZ_CLOCK:   snprintf(b, cap, "CLOCK: STRIKE %d", s[0]); break;
+    case PZ_GLOBE:   snprintf(b, cap, "GLOBE: SPIN TO %s", k_head8[s[0]]); break;
+    case PZ_PIANO:   snprintf(b, cap, "PIANO: %c %c %c %c",
+                              "LMHT"[s[0]], "LMHT"[s[1]], "LMHT"[s[2]], "LMHT"[s[3]]); break;
+    case PZ_CANDLES: snprintf(b, cap, "CANDLES: %d %d %d %d",
+                              s[0] + 1, s[1] + 1, s[2] + 1, s[3] + 1); break;
+    case PZ_TILES:   snprintf(b, cap, "PLATES: %s %s %s %s", k_dirname[s[0]],
+                              k_dirname[s[1]], k_dirname[s[2]], k_dirname[s[3]]); break;
+    case PZ_STATUES: snprintf(b, cap, "STATUES: %s %s %s %s", k_dirname[s[0]],
+                              k_dirname[s[1]], k_dirname[s[2]], k_dirname[s[3]]); break;
+    case PZ_BOOK:    snprintf(b, cap, "PULL THE %s BOOK", k_books[s[0]]); break;
+    case PZ_PORTRAIT: snprintf(b, cap, "ACCUSE %s", k_faces[s[0]]); break;
+    case PZ_WINE:    snprintf(b, cap, "DRAW THE %s", k_wines[s[0]]); break;
+    case PZ_SCALES:  snprintf(b, cap, "WEIGH %s", k_weighs[s[0]]); break;
+    case PZ_CHESS:   snprintf(b, cap, "%s TO %s", k_pieces[s[0]], k_squares[s[1]]); break;
+    default:         snprintf(b, cap, "THE ESTATE IS THE CLUE"); break;
+    }
+}
+
+/* count a template char in a room's interior */
+static int tmpl_count(uint8_t room, char ch) {
+    int n = 0;
+    for (const char *t = k_rooms[room].tmpl; *t; t++)
+        if (*t == ch) n++;
+    return n;
+}
+
+/* the census ledger asks for a head-count in a room you've already drafted */
+static int census_pick(void) {
+    if (g_census_room != 0xFF) return 1;
+    uint32_t r = hash32(g_day_seed ^ 0xCE9505u);
+    int seen = 0, kind = 0, count = 0;
+    uint8_t room = 0xFF;
+    for (int gi = 0; gi < GRID_W * GRID_H; gi++) {
+        if (g_grid[gi].room == 0xFF || gi == g_cur || gi == START_GI || gi == ANTE_GI)
+            continue;
+        for (int k = 0; k < 5; k++) {
+            int c = tmpl_count(g_grid[gi].room, k_census_ch[k]);
+            if (!c) continue;
+            seen++;
+            r = hash32(r + (uint32_t)(gi * 5 + k));
+            if ((int)(r % (uint32_t)seen) == 0) { room = g_grid[gi].room; kind = k; count = c; }
+        }
+    }
+    if (room == 0xFF) return 0;
+    g_census_room = room;
+    g_census_kind = (uint8_t)kind;
+    g_census_count = (uint8_t)count;
+    return 1;
+}
+
+/* dial layout of the overlay puzzles; the value's display text goes in b */
+static void pz_dials(int pz, int *n, uint8_t *dmax) {
+    switch (pz) {
+    case PZ_SAFE:    *n = 3; dmax[0] = dmax[1] = dmax[2] = 10; break;
+    case PZ_KEYPAD:  *n = 4; dmax[0] = dmax[1] = dmax[2] = dmax[3] = 10; break;
+    case PZ_CLOCK:   *n = 1; dmax[0] = 12; break;
+    case PZ_GLOBE:   *n = 1; dmax[0] = 8; break;
+    case PZ_CENSUS:  *n = 1; dmax[0] = 13; break;
+    case PZ_BOOK: case PZ_PORTRAIT: case PZ_WINE:
+                     *n = 1; dmax[0] = 4; break;
+    case PZ_SCALES:  *n = 1; dmax[0] = 3; break;
+    case PZ_CHESS:   *n = 2; dmax[0] = dmax[1] = 4; break;
+    default:         *n = 0; break;
+    }
+}
+static void pz_dial_text(int pz, int dial, int val, char *b, int cap) {
+    switch (pz) {
+    case PZ_CLOCK:   snprintf(b, cap, "%d", val + 1); break;
+    case PZ_GLOBE:   snprintf(b, cap, "%s", k_head8[val]); break;
+    case PZ_BOOK:    snprintf(b, cap, "%s", k_books[val]); break;
+    case PZ_PORTRAIT: snprintf(b, cap, "%s", k_faces[val] + 4); break;   /* drop "THE " */
+    case PZ_WINE:    snprintf(b, cap, "%s", k_wines[val]); break;
+    case PZ_SCALES:  snprintf(b, cap, "%s", k_weighs[val] + 2); break;   /* drop "A " */
+    case PZ_CHESS:   snprintf(b, cap, "%s", dial ? k_squares[val] : k_pieces[val]); break;
+    default:         snprintf(b, cap, "%d", val); break;
+    }
+}
+
+/* does the dial state match the day's secret? */
+static int pz_dials_right(int pz) {
+    const uint8_t *s = g_pz_sec[pz];
+    switch (pz) {
+    case PZ_SAFE:   return g_pz_dval[0] == s[0] && g_pz_dval[1] == s[1] && g_pz_dval[2] == s[2];
+    case PZ_KEYPAD: return !memcmp(g_pz_dval, s, 4);
+    case PZ_CLOCK:  return g_pz_dval[0] + 1 == s[0];
+    case PZ_CENSUS: return g_pz_dval[0] == g_census_count;
+    case PZ_CHESS:  return g_pz_dval[0] == s[0] && g_pz_dval[1] == s[1];
+    default:        return g_pz_dval[0] == s[0];
+    }
+}
+
+static void book_passage(void);
+
+static void pz_solve(int pz) {
+    g_pz_solved |= (uint16_t)(1 << pz);
+    mote->audio_play_sfx(&star_sfx, 1.0f);
+    switch (pz) {
+    case PZ_SAFE:    g_gold += 6; g_gems++; score_add(SC_BONUS, 100);
+                     toast("THE SAFE SWINGS OPEN +100"); toast("+6 GOLD +1 GEM"); break;
+    case PZ_KEYPAD:  score_add(SC_BONUS, 75);
+                     if (!g_keycard) { g_keycard = 1; toast("THE CLOSET: A KEYCARD! +75"); }
+                     else { g_gold += 8; toast("THE CLOSET: +8 GOLD +75"); } break;
+    case PZ_CLOCK:   g_gold += 4; score_add(SC_BONUS, 75);
+                     toast("THE CLOCK CHIMES +75"); toast("A PANEL DROPS: +4 GOLD"); break;
+    case PZ_GLOBE:   g_keys++; score_add(SC_BONUS, 50);
+                     toast("THE GLOBE CLICKS: A KEY +50"); break;
+    case PZ_PIANO:   g_gems++; score_add(SC_BONUS, 100);
+                     toast("THE CHORD RINGS TRUE +100"); toast("+1 GEM"); break;
+    case PZ_CANDLES: g_keys++; score_add(SC_BONUS, 100);
+                     toast("THE ALTAR OPENS +100"); toast("+1 KEY"); break;
+    case PZ_TILES:   g_gold += 5; score_add(SC_BONUS, 100);
+                     toast("THE FLOOR RUMBLES +100"); toast("+5 GOLD"); break;
+    case PZ_STATUES: g_gems++; score_add(SC_BONUS, 125);
+                     toast("THE STATUES BOW +125"); toast("+1 GEM"); break;
+    case PZ_BOOK:    score_add(SC_BONUS, 75); book_passage(); break;
+    case PZ_PORTRAIT: g_gold += 5; score_add(SC_BONUS, 100);
+                     toast("THE GUILTY REVEALED +100"); toast("+5 GOLD"); break;
+    case PZ_WINE:    g_steps += 10; score_add(SC_BONUS, 50);
+                     toast("A FINE VINTAGE +50"); toast("+10 STEPS"); break;
+    case PZ_SCALES:  score_add(SC_BONUS, 50);
+                     if (g_pz_sec[PZ_SCALES][0] == 0) { g_keys++; toast("THE SCALES TIP: A KEY +50"); }
+                     else if (g_pz_sec[PZ_SCALES][0] == 1) { g_gems++; toast("THE SCALES TIP: A GEM +50"); }
+                     else { g_gold += 6; toast("THE SCALES TIP: +6 GOLD +50"); } break;
+    case PZ_CENSUS:  g_gold += 3; score_add(SC_BONUS, 100);
+                     toast("THE LEDGER BALANCES +100"); toast("+3 GOLD"); break;
+    case PZ_CHESS:   g_gems++; score_add(SC_BONUS, 100);
+                     toast("CHECKMATE +100"); toast("+1 GEM"); break;
+    }
+    goal_progress(GO_PUZZLES, 1, 0);
+    goal_check_held();
+}
+
+/* a wrong overlay guess without the clue: the estate takes a step */
+static void pz_penalty(void) {
+    toast("WRONG - THE HOUSE CREAKS -1");
+    mote->audio_play_sfx(&locked_sfx, 0.9f);
+    g_steps--;
+    if (g_steps <= 0) { g_steps = 0; g_state = GS_PLAY; end_day(0); }
+}
+
+/* read a crumpled note: it names one puzzle's secret (drafted rooms first) */
 static void read_note(void) {
     Cell *cl = &g_grid[g_cur];
     cl->extra |= 2;
     g_note_on = 0;
     uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 30269u) ^ 0x2071u);
-    for (int t = 0; t < 40; t++) {
-        r = hash32(r + t);
-        int gi = (int)(r % (GRID_W * GRID_H));
-        int d = (int)((r >> 9) % 4u);
-        int n = neighbor(gi, d);
-        if (g_grid[gi].room == 0xFF || gi == g_cur || n < 0 || n == ANTE_GI) continue;
-        if (g_grid[gi].room == R_ANTE) continue;
-        g_cache_gi = (int8_t)n;
-        snprintf(g_riddle, sizeof g_riddle, "%s OF %s", k_dirname[d], k_rooms[g_grid[gi].room].name);
-        toast("A NOTE: SOMETHING GLINTS");
-        toast(g_riddle);
-        mote->audio_play_sfx(&tick_sfx, 0.9f);
-        if (g_cache_gi == g_cur)
-            seeded_spot(g_cur, 0xCAC4Eu, &g_cache_x, &g_cache_y);
+    int pick = -1, seen = 0;
+    for (int pass = 0; pass < 2 && pick < 0; pass++) {
+        seen = 0;
+        for (int i = 0; i < PZ_N; i++) {
+            if (i == PZ_CENSUS || (g_pz_solved & (1 << i)) || (g_pz_clue & (1 << i)))
+                continue;
+            if (pass == 0) {                      /* prefer puzzles already on the map */
+                int drafted = 0;
+                for (int gi = 0; gi < GRID_W * GRID_H; gi++)
+                    if (g_grid[gi].room == k_pz_room[i]) drafted = 1;
+                if (!drafted) continue;
+            }
+            seen++;
+            r = hash32(r + (uint32_t)i);
+            if ((int)(r % (uint32_t)seen) == 0) pick = i;
+        }
+    }
+    if (pick < 0) {
+        score_add(SC_LOOT, 10);
+        toast("THE NOTE IS FADED +10");
         return;
     }
-    score_add(SC_LOOT, 10);
-    toast("THE NOTE IS FADED +10");
+    g_pz_clue |= (uint16_t)(1 << pick);
+    char b[40];
+    pz_clue_text(pick, b, sizeof b);
+    toast("A CLUE FOR THE NOTEBOOK:");
+    toast(b);
+    mote->audio_play_sfx(&tick_sfx, 0.9f);
 }
 
 /* ------------------------------------------------------------------ pickups -- */
@@ -1047,17 +1350,44 @@ static void pickups_tick(void) {
         cl->swept = 1; score_add(SC_LOOT, 20); toast("ROOM SWEPT +20");
         goal_progress(GO_SWEEPS, 1, 0);
     }
-    /* the riddle note + the glinting cache are walk-over pickups too */
+    /* the crumpled note is a walk-over pickup too */
     if (g_note_on && g_px - 5 < g_note_x + 6 && g_px + 5 > g_note_x - 6 &&
         g_py - 5 < g_note_y + 6 && g_py + 5 > g_note_y - 6)
         read_note();
-    if (g_cache_gi == g_cur && g_px - 5 < g_cache_x + 7 && g_px + 5 > g_cache_x - 7 &&
-        g_py - 5 < g_cache_y + 7 && g_py + 5 > g_cache_y - 7) {
-        g_cache_gi = -1;
-        score_add(SC_LOOT, 75);
-        g_gold += 3;
-        mote->audio_play_sfx(&star_sfx, 1.0f);
-        toast("THE GLINT! +75, +3 GOLD");
+    /* pressure plates: the Great Hall's step-order puzzle */
+    if (g_grid[g_cur].room == R_GREATHALL && !(g_pz_solved & (1 << PZ_TILES))) {
+        int under = -1, nth = 0;
+        for (int i = 0; i < g_nprops; i++) {
+            if (g_props_cur[i].prop != P_PLATE) continue;
+            float cx = g_props_cur[i].x + 6, cy = g_props_cur[i].y + 5;
+            if (g_px > cx - 8 && g_px < cx + 8 && g_py > cy - 7 && g_py < cy + 7) under = nth;
+            nth++;
+        }
+        if (under >= 0 && under != g_plate_under) {
+            /* classify the plate by its compass position in the room */
+            int dir = DIR_N, nth2 = 0;
+            for (int i = 0; i < g_nprops; i++) {
+                if (g_props_cur[i].prop != P_PLATE) continue;
+                if (nth2++ != under) continue;
+                float dx = g_props_cur[i].x + 6 - 56, dy = g_props_cur[i].y + 5 - 56;
+                dir = (dx * dx > dy * dy) ? (dx > 0 ? DIR_E : DIR_W) : (dy > 0 ? DIR_S : DIR_N);
+            }
+            if (g_seq_lit & (1 << under)) {
+                /* already sunk: harmless */
+            } else if (dir == g_pz_sec[PZ_TILES][g_seq_n]) {
+                g_seq_lit |= (uint8_t)(1 << under);
+                g_seq_n++;
+                mote->audio_note(262.0f + 88.0f * g_seq_n, 0.5f);
+                if (g_seq_n >= 4) pz_solve(PZ_TILES);
+            } else if (g_seq_n) {
+                g_seq_n = 0; g_seq_lit = 0;
+                toast("THE PLATES RESET");
+                mote->audio_play_sfx(&locked_sfx, 0.7f);
+            } else {
+                mote->audio_play_sfx(&locked_sfx, 0.5f);
+            }
+        }
+        g_plate_under = (int8_t)under;
     }
     goal_check_held();
 }
@@ -1137,13 +1467,28 @@ static void day_start(void) {
     parse_room_props(g_cur);
     g_steps = START_STEPS; g_keys = 1; g_gems = 2; g_gold = 0;
     g_score = 0; g_master = 0; g_compass = 0; g_spyglass = 0; g_pencil = 0;
-    g_chain = 0; g_cache_gi = -1;
+    g_chain = 0;
     g_spade = 0; g_keycard = 0; g_override = 0; g_power_off = 0;
     g_sc_rooms = g_sc_loot = g_sc_bonus = g_sc_goal = 0; g_sc_win = 0;
     g_won = 0; g_rooms_placed = 0;
-    g_new_best = 0;
+    g_new_best = 0; g_frag_new = 0;
     g_toast_n = 0; g_toast_t = 0;
+    memset(g_secret, 0, sizeof g_secret);
+    g_map_page = 0; g_slot_pulls = 0; g_slot_spinning = 0; g_slot_done = 0;
     g_day_seed = mote_rand();
+    puzzles_deal();
+    /* one day in three, the golden door is sealed by three hidden levers */
+    g_seal_day = (hash32(g_day_seed ^ 0x5EA15u) % 3u) == 0;
+    {
+        const char *es = getenv("DRAFT_SEAL");
+        if (es) g_seal_day = (uint8_t)(*es != '0');
+    }
+    g_seal_thrown = 0;
+    for (int k = 0; k < 3; k++) {
+        g_lever_gi[k] = -1;
+        static const uint8_t base[3] = { 2, 5, 8 };
+        g_lever_ord[k] = (uint8_t)(base[k] + (hash32(g_day_seed ^ (0x1EAFu + (uint32_t)k)) & 1u));
+    }
     /* two distinct goals for the day */
     {
         uint32_t r = hash32(g_day_seed ^ 0x60A15u);
@@ -1172,7 +1517,124 @@ static void day_start(void) {
     }
     parse_room_props(g_cur);                /* re-roll finds now the seed is set */
     g_state = GS_PLAY;
+    if (g_seal_day) toast("THE GOLD DOOR BEARS 3 SEALS");
     toast("FIND THE ANTECHAMBER");
+    if (getenv("DRAFT_PUZ")) {              /* test hook: log the day's secrets */
+        char b[48];
+        for (int i = 0; i < PZ_N; i++) {
+            char c[40];
+            pz_clue_text(i, c, sizeof c);
+            snprintf(b, sizeof b, "pz %d %s", i, c);
+            mote->log(b);
+        }
+        snprintf(b, sizeof b, "seal_day %d ords %d %d %d", g_seal_day,
+                 g_lever_ord[0], g_lever_ord[1], g_lever_ord[2]);
+        mote->log(b);
+    }
+}
+
+/* ------------------------------------------------- puzzle interactions ------ */
+/* the bookshelf puzzle knocks a free passage through to a drafted neighbour */
+static void book_passage(void) {
+    Cell *cl = &g_grid[g_cur];
+    for (int s = 0; s < 4; s++) {
+        int n = neighbor(g_cur, s);
+        if (n < 0 || g_grid[n].room == 0xFF || n == ANTE_GI) continue;
+        if (cl->doors & DBIT(s)) continue;
+        cl->doors |= (uint8_t)DBIT(s);
+        g_grid[n].doors |= (uint8_t)DBIT(s ^ 2);
+        g_secret[g_cur] |= (uint8_t)DBIT(s);
+        g_secret[n] |= (uint8_t)DBIT(s ^ 2);
+        char b[40];
+        snprintf(b, sizeof b, "A SHELF SWINGS OPEN: %s! +75", k_dirname[s]);
+        toast(b);
+        toast("SECRET DOORS COST NO STEPS");
+        return;
+    }
+    g_keys++;
+    toast("BEHIND THE BOOKS: A KEY +75");
+}
+
+/* nth prop of a kind near the player (returns its ordinal, or -1) */
+static int prop_near_nth(int prop_id, float range) {
+    int nth = 0;
+    for (int i = 0; i < g_nprops; i++) {
+        if (g_props_cur[i].prop != prop_id) continue;
+        const PropDef *d = &k_props[prop_id];
+        float cx = g_props_cur[i].x + d->fw * 0.5f, cy = g_props_cur[i].y + d->fh * 0.5f;
+        float dx = g_px - cx, dy = g_py - cy;
+        if (dx * dx + dy * dy < range * range) return nth;
+        nth++;
+    }
+    return -1;
+}
+
+static void pz_open(int pz) {
+    g_pz_active = (uint8_t)pz;
+    g_pz_stage = 0;
+    g_pz_dsel = 0;
+    memset(g_pz_dval, 0, sizeof g_pz_dval);
+    g_seq_n = 0;
+    g_state = GS_PUZZLE;
+    mote->audio_play_sfx(&tick_sfx, 0.8f);
+}
+
+/* A pressed in a room: try its puzzle furniture; 1 if something answered */
+static int puzzle_interact(void) {
+    /* the slot machine isn't a puzzle, but it answers A the same way */
+    if (g_grid[g_cur].room == R_PARLOR && prop_near_nth(P_SLOTS, 26) >= 0) {
+        g_slot_spinning = 0; g_slot_done = 0; g_slot_msg[0] = 0;
+        g_state = GS_SLOTS;
+        mote->audio_play_sfx(&tick_sfx, 0.8f);
+        return 1;
+    }
+    int pz = puzzle_of_room(g_grid[g_cur].room);
+    if (pz < 0) return 0;
+    int solved = (g_pz_solved >> pz) & 1;
+
+    if (pz == PZ_CANDLES) {
+        int c = prop_near_nth(P_CANDLE, 16);
+        if (c < 0) return 0;
+        if (solved) { toast("THE FLAMES BURN STEADY"); return 1; }
+        if (g_seq_lit & (1 << c)) { toast("IT ALREADY BURNS"); return 1; }
+        if (c == g_pz_sec[PZ_CANDLES][g_seq_n]) {
+            g_seq_lit |= (uint8_t)(1 << c);
+            g_seq_n++;
+            mote->audio_note(392.0f + 60.0f * g_seq_n, 0.5f);
+            if (g_seq_n >= 4) pz_solve(PZ_CANDLES);
+        } else {
+            g_seq_n = 0; g_seq_lit = 0;
+            toast("THE FLAMES GUTTER OUT");
+            mote->audio_play_sfx(&locked_sfx, 0.7f);
+        }
+        return 1;
+    }
+    if (pz == PZ_STATUES) {
+        int c = prop_near_nth(P_STATUE, 18);
+        if (c < 0) return 0;
+        if (solved) { toast("THE STATUES REST"); return 1; }
+        g_statue_face[c] = (uint8_t)((g_statue_face[c] + 1) % 4);
+        mote->audio_play_sfx(&tick_sfx, 0.8f);
+        if (!memcmp(g_statue_face, g_pz_sec[PZ_STATUES], 4)) pz_solve(PZ_STATUES);
+        return 1;
+    }
+    if (pz == PZ_TILES) return 0;              /* stepped, not pressed */
+
+    /* overlay puzzles hang off one anchor prop each */
+    static const uint8_t k_anchor[PZ_N] = {
+        [PZ_SAFE] = P_SAFE, [PZ_KEYPAD] = P_KEYPAD, [PZ_CLOCK] = P_CLOCK,
+        [PZ_GLOBE] = P_GLOBE, [PZ_PIANO] = P_PIANO, [PZ_BOOK] = P_SHELF_BIG,
+        [PZ_PORTRAIT] = P_LECTERN, [PZ_WINE] = P_WINERACK, [PZ_SCALES] = P_SCALES,
+        [PZ_CENSUS] = P_LECTERN, [PZ_CHESS] = P_CHESSBOARD,
+    };
+    if (prop_near_nth(k_anchor[pz], 24) < 0) return 0;
+    if (solved) { toast("NOTHING MORE HERE"); return 1; }
+    if (pz == PZ_CENSUS && !census_pick()) {
+        toast("THE LEDGER NEEDS MORE ROOMS");
+        return 1;
+    }
+    pz_open(pz);
+    return 1;
 }
 
 /* ------------------------------------------------------------------ movement -- */
@@ -1262,6 +1724,23 @@ static void player_tick(float dt) {
             }
             used = 1;
         }
+        /* seal levers */
+        for (int k = 0; !used && k < 3; k++) {
+            if (g_lever_gi[k] != g_cur) continue;
+            float dx2 = g_px - g_lever_x[k], dy2 = g_py - g_lever_y[k];
+            if (dx2 * dx2 + dy2 * dy2 > 18 * 18) continue;
+            used = 1;
+            if (g_seal_thrown & (1 << k)) { toast("THE LEVER IS THROWN"); continue; }
+            g_seal_thrown |= (uint8_t)(1 << k);
+            mote->audio_play_sfx(&unlock_sfx, 1.0f);
+            int c = (g_seal_thrown & 1) + ((g_seal_thrown >> 1) & 1) + ((g_seal_thrown >> 2) & 1);
+            toastf("A SEAL RELEASES  %d/3", c);
+            if (g_seal_thrown == 7) {
+                toast("THE GOLDEN DOOR UNSEALS!");
+                mote->audio_play_sfx(&star_sfx, 1.0f);
+            }
+        }
+        if (!used) used = puzzle_interact();
         if (!used && (d->flags & RF_ANY_SHOP)) {
             g_shop_kind = (d->flags & RF_SHOP_LOCK) ? 1 : (d->flags & RF_SHOP_APO) ? 2 : 0;
             g_shop_sel = 0;
@@ -1364,13 +1843,19 @@ static void room_draw(void) {
             add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
                     k_item_cell[rd->loot[i]] * 12, 0, 12, 12, 3 + ((pos[i][1] + 6) >> 3), 0);
 
-    /* riddle note + the glinting cache */
+    /* crumpled clue note */
     if (g_note_on)
         add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12,
                 3 + ((g_note_y + 6) >> 3), 0);
-    if (g_cache_gi == g_cur)
-        add_spr(&items_img, g_cache_x - 6, g_cache_y - 6, 5 * 12, 0, 12, 12,
-                3 + ((g_cache_y + 6) >> 3), 0);
+    /* seal levers (thrown ones flip over) */
+    for (int k = 0; k < 3; k++)
+        if (g_lever_gi[k] == g_cur) {
+            const PropDef *ld = &k_props[P_LEVER];
+            add_spr(k_prop_sheets[ld->sheet], g_lever_x[k] - 6, g_lever_y[k] - 8,
+                    ld->fx, ld->fy, ld->fw, ld->fh,
+                    3 + (((int)g_lever_y[k] + 8) >> 3),
+                    (g_seal_thrown & (1 << k)) ? MOTE_SPR_VFLIP : 0);
+        }
 
     /* player (16x20 sprite, feet at py+6; side walk is a 4-frame cycle) */
     int cell; uint8_t fl = 0;
@@ -1709,7 +2194,10 @@ static void draft_tick(void) {
     }
 }
 
+static void notebook_draw(uint16_t *fb);
+
 static void map_draw(uint16_t *fb) {
+    if (g_map_page) { notebook_draw(fb); return; }
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     char buf[40];
@@ -1720,11 +2208,15 @@ static void map_draw(uint16_t *fb) {
     mote->text_font(fb, f, buf, 100, 3, rgb(250, 240, 190));
     estate_map(fb, 39, 14, 10, -1);
     tools_draw(fb, 106, 18);
-    /* the active riddle */
-    if (g_cache_gi >= 0) {
-        snprintf(buf, sizeof buf, "GLINT %s", g_riddle);
-        mote->text_font(fb, f, buf, 8, 92, rgb(250, 220, 130));
+    /* seal days: lever pips beside the map */
+    if (g_seal_day) {
+        for (int k = 0; k < 3; k++)
+            mote->draw_rect(fb, 8, 20 + k * 8, 6, 6,
+                            (g_seal_thrown & (1 << k)) ? rgb(255, 230, 120) : rgb(50, 66, 110),
+                            1, 0, 128);
+        mote->text(fb, "SEALS", 4, 46, rgb(250, 220, 130));
     }
+    mote->text(fb, "NOTES >", 96, 92, rgb(150, 165, 205));
     /* the day's goals */
     for (int i = 0; i < 2; i++) {
         const GoalDef *gd = &k_goals[g_goal[i]];
@@ -1777,6 +2269,321 @@ static void shop_tick(void) {
     if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU)) g_state = GS_PLAY;
 }
 
+/* ------------------------------------------------------- puzzle overlay ----- */
+static void puzzle_tick(void) {
+    const MoteInput *in = mote->input();
+    int pz = g_pz_active;
+    if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU)) {
+        g_state = GS_PLAY;
+        return;
+    }
+    if (pz == PZ_PIANO) {
+        static const float k_freq[4] = { 262.0f, 330.0f, 392.0f, 523.0f };
+        int note = -1;
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  note = 0;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))  note = 1;
+        if (mote_just_pressed(in, MOTE_BTN_UP))    note = 2;
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) note = 3;
+        if (note >= 0) {
+            mote->audio_note(k_freq[note], 0.5f);
+            g_pz_dval[g_seq_n++] = (uint8_t)note;
+            if (g_seq_n >= 4) {
+                if (!memcmp(g_pz_dval, g_pz_sec[PZ_PIANO], 4)) {
+                    pz_solve(PZ_PIANO);
+                    g_state = GS_PLAY;
+                } else {
+                    toast("...DISCORD");
+                    g_seq_n = 0;
+                }
+            }
+        }
+        return;
+    }
+    int n = 1; uint8_t dmax[4] = { 1, 1, 1, 1 };
+    pz_dials(pz, &n, dmax);
+    if (n > 1 && mote_just_pressed(in, MOTE_BTN_LEFT))
+        { g_pz_dsel = (uint8_t)((g_pz_dsel + n - 1) % n); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (n > 1 && mote_just_pressed(in, MOTE_BTN_RIGHT))
+        { g_pz_dsel = (uint8_t)((g_pz_dsel + 1) % n); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_UP))
+        { g_pz_dval[g_pz_dsel] = (uint8_t)((g_pz_dval[g_pz_dsel] + 1) % dmax[g_pz_dsel]); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_DOWN))
+        { g_pz_dval[g_pz_dsel] = (uint8_t)((g_pz_dval[g_pz_dsel] + dmax[g_pz_dsel] - 1) % dmax[g_pz_dsel]); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (pz_dials_right(pz)) {
+            pz_solve(pz);
+            g_state = GS_PLAY;
+        } else if (g_pz_clue & (1 << pz)) {
+            toast("THAT'S NOT IT");                /* you hold the clue: typos are free */
+            mote->audio_play_sfx(&locked_sfx, 0.7f);
+        } else {
+            pz_penalty();
+        }
+    }
+}
+
+static void puzzle_draw(uint16_t *fb) {
+    dim(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    int pz = g_pz_active;
+    mote->draw_rect(fb, 8, 18, 112, 88, rgb(16, 20, 40), 1, 0, 128);
+    mote->draw_rect(fb, 8, 18, 112, 88, rgb(120, 140, 200), 0, 0, 128);
+    mote_ftextc(mote, fb, f, 64, 21, rgb(250, 230, 150), k_pz_name[pz]);
+    char b[40];
+    if (pz == PZ_CENSUS) {
+        snprintf(b, sizeof b, "COUNT %s", k_census_nm[g_census_kind]);
+        mote->text(fb, b, 14, 36, rgb(190, 205, 240));
+        snprintf(b, sizeof b, "IN THE %s", k_rooms[g_census_room].name);
+        mote->text(fb, b, 14, 45, rgb(190, 205, 240));
+    }
+    if (pz == PZ_PIANO) {
+        /* four keys, dpad-labelled; the played sequence dots in below */
+        static const char *keys = "LMHT";
+        static const char *glyph[4] = { "<", "v", "^", ">" };
+        for (int i = 0; i < 4; i++) {
+            int x = 20 + i * 24;
+            mote->draw_rect(fb, x, 38, 18, 26, rgb(236, 236, 240), 1, 0, 128);
+            mote->draw_rect(fb, x, 38, 18, 26, rgb(60, 60, 80), 0, 0, 128);
+            char kb[2] = { keys[i], 0 };
+            mote->text_font(fb, f, kb, x + 6, 42, rgb(30, 30, 44));
+            mote->text(fb, glyph[i], x + 7, 55, rgb(90, 90, 110));
+        }
+        for (int i = 0; i < (int)g_seq_n; i++)
+            mote->draw_rect(fb, 50 + i * 8, 70, 5, 5, rgb(250, 220, 110), 1, 0, 128);
+    } else {
+        int n = 1; uint8_t dmax[4] = { 1, 1, 1, 1 };
+        pz_dials(pz, &n, dmax);
+        int bw = n > 2 ? 22 : 34;
+        int total = n * bw + (n - 1) * 6;
+        int x0 = 64 - total / 2;
+        for (int i = 0; i < n; i++) {
+            int x = x0 + i * (bw + 6);
+            int sel = i == g_pz_dsel;
+            mote->draw_rect(fb, x, 42, bw, 18, sel ? rgb(40, 50, 90) : rgb(24, 30, 58), 1, 0, 128);
+            mote->draw_rect(fb, x, 42, bw, 18, sel ? rgb(255, 230, 120) : rgb(70, 90, 150), 0, 0, 128);
+            pz_dial_text(pz, i, g_pz_dval[i], b, sizeof b);
+            mote_ftextc(mote, fb, f, x + bw / 2, 46, rgb(240, 240, 250), b);
+            if (sel) {
+                mote_ftextc(mote, fb, f, x + bw / 2, 32, rgb(150, 165, 205), "^");
+                mote_ftextc(mote, fb, f, x + bw / 2, 61, rgb(150, 165, 205), "v");
+            }
+        }
+    }
+    /* the clue, if the notebook holds it */
+    if (g_pz_clue & (1 << pz)) {
+        pz_clue_text(pz, b, sizeof b);
+        mote_ftextc(mote, fb, f, 64, 78, rgb(250, 220, 130), b);
+    } else if (pz != PZ_CENSUS) {
+        mote->text(fb, "NO CLUE: GUESS -1 STEP", 16, 81, rgb(150, 150, 170));
+    } else {
+        mote->text(fb, "THE ESTATE IS THE CLUE", 16, 81, rgb(150, 150, 170));
+    }
+    mote_ftextc(mote, fb, f, 64, 93, rgb(150, 165, 205),
+                pz == PZ_PIANO ? "DPAD PLAY   B LEAVE" : "A TRY   B LEAVE");
+}
+
+/* ---------------------------------------------------------- slot machine ---- */
+enum { SY_COIN, SY_BOOT, SY_GEM, SY_KEY, SY_CROWN };
+static const uint8_t k_sym_cell[5] = { 0, 8, 2, 1, 4 };
+
+static uint8_t slot_pick(void) {
+    static const uint8_t wn[5] = { 34, 26, 16, 14, 10 };
+    static const uint8_t wl[5] = { 30, 22, 17, 15, 16 };
+    const uint8_t *w = g_cond == CD_LUCKY ? wl : wn;
+    int roll = (int)(mote_rand() % 100u);
+    for (int i = 0; i < 5; i++) {
+        roll -= w[i];
+        if (roll < 0) return (uint8_t)i;
+    }
+    return SY_COIN;
+}
+
+static void slot_eval(void) {
+    int a = g_slot_sym[0], b = g_slot_sym[1], c = g_slot_sym[2];
+    if (a == b && b == c) {
+        switch (a) {
+        case SY_COIN:  g_gold += 12; snprintf(g_slot_msg, sizeof g_slot_msg, "3 COINS! +12 GOLD"); break;
+        case SY_BOOT:  g_steps += 8; snprintf(g_slot_msg, sizeof g_slot_msg, "3 BOOTS! +8 STEPS"); break;
+        case SY_GEM:   g_gems++; g_gold += 6; snprintf(g_slot_msg, sizeof g_slot_msg, "3 GEMS! +GEM +6G"); break;
+        case SY_KEY:   g_keys++; g_gold += 4; snprintf(g_slot_msg, sizeof g_slot_msg, "3 KEYS! +KEY +4G"); break;
+        default:       g_gold += 30; score_add(SC_LOOT, 100);
+                       snprintf(g_slot_msg, sizeof g_slot_msg, "JACKPOT! +30G +100");
+                       toast("CROWNS! THE HOUSE PAYS OUT");
+                       break;
+        }
+        mote->audio_play_sfx(a == SY_CROWN ? &win_sfx : &star_sfx, 1.0f);
+    } else if (a == b || b == c || a == c) {
+        int p = g_cond == CD_LUCKY ? 5 : 4;
+        g_gold += p;
+        snprintf(g_slot_msg, sizeof g_slot_msg, "A PAIR  +%d GOLD", p);
+        mote->audio_play_sfx(&coin_sfx, 0.9f);
+    } else {
+        snprintf(g_slot_msg, sizeof g_slot_msg, "NO LUCK");
+        mote->audio_play_sfx(&locked_sfx, 0.6f);
+    }
+    goal_check_held();
+}
+
+static void slots_tick(float dt) {
+    const MoteInput *in = mote->input();
+    if (g_slot_spinning) {
+        g_slot_t += dt;
+        int stopped = g_slot_t > 1.3f ? 3 : g_slot_t > 0.9f ? 2 : g_slot_t > 0.5f ? 1 : 0;
+        if (stopped > g_slot_done) {
+            g_slot_done = (uint8_t)stopped;
+            mote->audio_play_sfx(&tick_sfx, 0.8f);
+        }
+        if (stopped == 3) {
+            g_slot_spinning = 0;
+            slot_eval();
+        }
+        return;
+    }
+    if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU)) {
+        g_state = GS_PLAY;
+        return;
+    }
+    if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (g_slot_pulls >= 6) {
+            snprintf(g_slot_msg, sizeof g_slot_msg, "THE MACHINE JAMS");
+            mote->audio_play_sfx(&locked_sfx, 0.8f);
+        } else if (g_gold < 3) {
+            snprintf(g_slot_msg, sizeof g_slot_msg, "NEED 3 GOLD");
+            mote->audio_play_sfx(&locked_sfx, 0.8f);
+        } else {
+            g_gold -= 3;
+            g_slot_pulls++;
+            for (int i = 0; i < 3; i++) g_slot_sym[i] = slot_pick();
+            g_slot_spinning = 1;
+            g_slot_done = 0;
+            g_slot_t = 0;
+            g_slot_msg[0] = 0;
+            mote->audio_play_sfx(&coin_sfx, 0.8f);
+        }
+    }
+}
+
+static void slots_draw(uint16_t *fb) {
+    dim(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote->draw_rect(fb, 16, 20, 96, 86, rgb(70, 22, 22), 1, 0, 128);
+    mote->draw_rect(fb, 16, 20, 96, 86, rgb(240, 205, 90), 0, 0, 128);
+    mote_ftextc(mote, fb, f, 64, 23, rgb(255, 236, 140), "LUCKY CROWNS");
+    /* three reel windows */
+    for (int i = 0; i < 3; i++) {
+        int x = 32 + i * 24;
+        mote->draw_rect(fb, x, 38, 20, 20, rgb(20, 16, 20), 1, 0, 128);
+        mote->draw_rect(fb, x, 38, 20, 20, rgb(150, 120, 60), 0, 0, 128);
+        int sym = g_slot_sym[i];
+        if (g_slot_spinning && (int)g_slot_done <= i)
+            sym = (int)(g_slot_t * 16.0f + i * 2) % 5;   /* blur through the drum */
+        mote->blit(fb, &items_img, x + 4, 42, k_sym_cell[sym] * 12, 0, 12, 12, 0, 0, 128);
+    }
+    char b[24];
+    if (g_slot_msg[0]) mote_ftextc(mote, fb, f, 64, 63, rgb(255, 236, 140), g_slot_msg);
+    snprintf(b, sizeof b, "PULLS LEFT %d", 6 - g_slot_pulls);
+    mote->text(fb, b, 24, 78, rgb(230, 200, 160));
+    snprintf(b, sizeof b, "GOLD %d", g_gold);
+    mote->text(fb, b, 86, 78, rgb(255, 220, 120));
+    mote_ftextc(mote, fb, f, 64, 92, rgb(230, 200, 160), "A PULL 3G  B LEAVE");
+}
+
+/* ------------------------------------------------------------- case board --- */
+static const char *k_frag[NFRAG][2] = {
+    { "NO BODY. NO WILL.",     "ONLY THE HOUSE." },
+    { "THE HALLS REDRAW",      "THEMSELVES AT DAWN." },
+    { "HIS PRINTS SIT ON",     "DOORS NEVER BUILT." },
+    { "THE STAFF ALL LEFT",    "THE SAME MORNING." },
+    { "EVERY SAFE GUARDS A",   "COPY OF ONE LETTER." },
+    { "THE LETTER NAMES NO",   "HEIR. IT SETS A TEST." },
+    { "THE ANTECHAMBER IS",    "OLDER THAN THE HOUSE." },
+    { "THE FINAL CLUE BEARS",  "MY OWN THUMBPRINT." },
+};
+static int g_case_page;
+
+static void case_draw(uint16_t *fb) {
+    paper(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    int found = 0;
+    for (int i = 0; i < NFRAG; i++) found += (g_frags >> i) & 1;
+    mote_ftextc(mote, fb, f, 64, 6, rgb(250, 240, 190), "THE CASE");
+    char b[40];
+    snprintf(b, sizeof b, "FRAGMENTS %d/%d", found, NFRAG);
+    mote_ftextc(mote, fb, f, 64, 19, rgb(170, 200, 250), b);
+    int i = g_case_page;
+    snprintf(b, sizeof b, "FRAGMENT %d", i + 1);
+    mote_ftextc(mote, fb, f, 64, 44, rgb(210, 220, 245), b);
+    if ((g_frags >> i) & 1) {
+        mote_ftextc(mote, fb, f, 64, 60, rgb(250, 250, 255), k_frag[i][0]);
+        mote_ftextc(mote, fb, f, 64, 72, rgb(250, 250, 255), k_frag[i][1]);
+    } else {
+        mote_ftextc(mote, fb, f, 64, 60, rgb(120, 130, 160), "SEALED");
+        mote_ftextc(mote, fb, f, 64, 72, rgb(120, 130, 160), "WIN A DAY TO UNSEAL");
+    }
+    if (found == NFRAG) {
+        mote_ftextc(mote, fb, f, 64, 90, rgb(250, 220, 110), "CASE CLOSED: THE HOUSE");
+        mote_ftextc(mote, fb, f, 64, 101, rgb(250, 220, 110), "WAS BUILT TO FIND ME.");
+    }
+    /* page dots */
+    for (int k = 0; k < NFRAG; k++)
+        mote->draw_rect(fb, 40 + k * 6, 110, 4, 4,
+                        k == g_case_page ? rgb(255, 230, 120)
+                        : ((g_frags >> k) & 1) ? rgb(170, 200, 250) : rgb(50, 66, 110),
+                        1, 0, 128);
+    mote_ftextc(mote, fb, f, 64, 117, rgb(150, 165, 205), "< >  B BACK");
+}
+
+static void case_tick(void) {
+    const MoteInput *in = mote->input();
+    if (mote_just_pressed(in, MOTE_BTN_LEFT))
+        { g_case_page = (g_case_page + NFRAG - 1) % NFRAG; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_RIGHT))
+        { g_case_page = (g_case_page + 1) % NFRAG; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A)
+        || mote_just_pressed(in, MOTE_BTN_MENU))
+        g_state = GS_TITLE;
+}
+
+/* --------------------------------------------------------------- notebook --- */
+static void notebook_draw(uint16_t *fb) {
+    paper(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ftextc(mote, fb, f, 64, 3, rgb(250, 240, 190), "NOTEBOOK");
+    char b[44];
+    int y = 17;
+    if (g_seal_day) {
+        int c = (g_seal_thrown & 1) + ((g_seal_thrown >> 1) & 1) + ((g_seal_thrown >> 2) & 1);
+        snprintf(b, sizeof b, "DOOR SEALS THROWN %d/3", c);
+        mote->text_font(fb, f, b, 8, y, rgb(250, 220, 130));
+        y += 13;
+    }
+    int shown = 0, solved = 0;
+    for (int i = 0; i < PZ_N; i++) {
+        if ((g_pz_solved >> i) & 1) { solved++; continue; }
+        if (!((g_pz_clue >> i) & 1)) continue;
+        char c[40];
+        pz_clue_text(i, c, sizeof c);
+        snprintf(b, sizeof b, "- %s", c);
+        mote->text(fb, b, 8, y, rgb(210, 220, 245));
+        y += 9;
+        shown++;
+    }
+    if (g_census_room != 0xFF && !((g_pz_solved >> PZ_CENSUS) & 1)) {
+        snprintf(b, sizeof b, "- LEDGER: %s IN %s", k_census_nm[g_census_kind],
+                 k_rooms[g_census_room].name);
+        mote->text(fb, b, 8, y, rgb(210, 220, 245));
+        y += 9;
+        shown++;
+    }
+    if (!shown) {
+        mote->text(fb, "CRUMPLED NOTES HOLD CLUES.", 8, y, rgb(150, 165, 205));
+        mote->text(fb, "PUZZLES WAIT IN THE ROOMS.", 8, y + 9, rgb(150, 165, 205));
+    }
+    snprintf(b, sizeof b, "PUZZLES SOLVED %d/%d", solved, PZ_N);
+    mote->text_font(fb, f, b, 8, 104, rgb(190, 205, 240));
+    mote->text_font(fb, f, "< MAP", 8, 116, rgb(150, 165, 205));
+}
+
 static void title_draw(uint16_t *fb) {
     /* the crowned-thumbprint mark (spiral whorl + chalk crown on blueprint) —
      * pre-drawn by assets/make_title.py; text goes over its calm bands */
@@ -1791,6 +2598,8 @@ static void title_draw(uint16_t *fb) {
         mote_ftextc(mote, fb, f, 64, 105, rgb(10, 16, 36), "A - ENTER THE ESTATE");
         mote_ftextc(mote, fb, f, 64, 104, rgb(240, 240, 250), "A - ENTER THE ESTATE");
     }
+    mote_ftextc(mote, fb, f, 64, 92, rgb(10, 16, 36), "B - THE CASE");
+    mote_ftextc(mote, fb, f, 64, 91, rgb(170, 200, 250), "B - THE CASE");
     if (g_hi || g_wins) {                        /* one stats line in the bottom band */
         if (g_wins) snprintf(buf, sizeof buf, "BEST %u  WINS %u/%u",
                              (unsigned)g_hi, (unsigned)g_wins, (unsigned)g_days);
@@ -1807,12 +2616,16 @@ static void results_draw(uint16_t *fb) {
     mote->draw_rect(fb, 8, 14, 112, 100, g_won ? rgb(240, 205, 90) : rgb(120, 140, 200), 0, 0, 128);
     mote_ftextc(mote, fb, f, 64, 17,
                 g_won ? rgb(250, 220, 110) : rgb(230, 230, 245),
-                g_won ? "THE ANTECHAMBER!" : "OUT OF STEPS");
-    /* the estate appraisal: where the points came from */
+                g_won ? "EVIDENCE RECOVERED!" : "OUT OF STEPS");
+    /* the case report: where the points came from */
     char buf[32];
+    if (g_won && g_frag_new) {
+        snprintf(buf, sizeof buf, "CASE FRAGMENT %d/%d", g_frag_new, NFRAG);
+        mote->text(fb, buf, 34, 29, rgb(170, 200, 250));
+    }
     static const char *cat[5] = { "ROOMS", "LOOT", "BONUSES", "GOALS", "THE WIN" };
     uint32_t vals[5] = { g_sc_rooms, g_sc_loot, g_sc_bonus, g_sc_goal, g_sc_win };
-    int y = 31;
+    int y = g_won && g_frag_new ? 38 : 31;
     for (int i = 0; i < 5; i++) {
         if (!vals[i]) continue;
         mote->text_font(fb, f, cat[i], 16, y, rgb(170, 185, 220));
@@ -1888,19 +2701,29 @@ static void g_update(float dt) {
     case GS_TITLE: {
         const MoteInput *in = mote->input();
         if (mote_just_pressed(in, MOTE_BTN_A)) day_start();
+        if (mote_just_pressed(in, MOTE_BTN_B)) { g_case_page = 0; g_state = GS_CASE; }
         break;
     }
+    case GS_CASE:
+        case_tick();
+        break;
     case GS_PLAY:
     case GS_DRAFT:
     case GS_SHOP:
     case GS_MAP:
     case GS_PAUSE:
+    case GS_PUZZLE:
+    case GS_SLOTS:
         if (st == GS_PLAY) player_tick(dt);
         else if (st == GS_DRAFT) draft_tick();
         else if (st == GS_SHOP) shop_tick();
         else if (st == GS_PAUSE) pause_tick();
+        else if (st == GS_PUZZLE) puzzle_tick();
+        else if (st == GS_SLOTS) slots_tick(dt);
         else {
             const MoteInput *in = mote->input();
+            if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT))
+                { g_map_page ^= 1; mote->audio_play_sfx(&tick_sfx, 0.6f); }
             if (mote_just_pressed(in, MOTE_BTN_RB) || mote_just_pressed(in, MOTE_BTN_B)
                 || mote_just_pressed(in, MOTE_BTN_A))
                 g_state = GS_PLAY;
@@ -1926,11 +2749,55 @@ static void g_overlay(uint16_t *fb) {
     case GS_RESULTS: results_draw(fb); return;
     case GS_SHOP:    hud_draw(fb); shop_draw(fb); return;
     case GS_PAUSE:   hud_draw(fb); pause_draw(fb); return;
+    case GS_PUZZLE:  hud_draw(fb); puzzle_draw(fb); return;
+    case GS_SLOTS:   hud_draw(fb); slots_draw(fb); return;
+    case GS_CASE:    case_draw(fb); return;
     default:
         /* crisp inner edge on the thin wall band */
         mote->draw_rect(fb, ORG_X + WALL_PX - 1, ORG_Y + WALL_PX - 1,
                         ROOM_PX - 2 * WALL_PX + 2, ROOM_PX - 2 * WALL_PX + 2,
                         rgb(28, 22, 24), 0, 0, 128);
+        /* unsolved sequence puzzles wear their markings */
+        {
+            int room = g_grid[g_cur].room;
+            char nb[2] = { 0, 0 };
+            if (room == R_CHAPEL && !(g_pz_solved & (1 << PZ_CANDLES))) {
+                int nth = 0;
+                for (int i = 0; i < g_nprops; i++) {
+                    if (g_props_cur[i].prop != P_CANDLE) continue;
+                    int x = ORG_X + g_props_cur[i].x, y = ORG_Y + g_props_cur[i].y;
+                    if (g_seq_lit & (1 << nth))
+                        mote->draw_rect(fb, x + 1, y - 3, 6, 6, rgb(255, 220, 110), 0, 0, 128);
+                    nb[0] = (char)('1' + nth);
+                    mote->text(fb, nb, x + 2, y - 11, rgb(250, 240, 190));
+                    nth++;
+                }
+            }
+            if (room == R_ROTUNDA && !(g_pz_solved & (1 << PZ_STATUES))) {
+                int nth = 0;
+                for (int i = 0; i < g_nprops; i++) {
+                    if (g_props_cur[i].prop != P_STATUE) continue;
+                    int x = ORG_X + g_props_cur[i].x, y = ORG_Y + g_props_cur[i].y;
+                    mote->text(fb, k_dirname[g_statue_face[nth]], x + 4, y - 8, rgb(190, 205, 240));
+                    nth++;
+                }
+            }
+            if (room == R_GREATHALL && !(g_pz_solved & (1 << PZ_TILES))) {
+                int nth = 0;
+                for (int i = 0; i < g_nprops; i++) {
+                    if (g_props_cur[i].prop != P_PLATE) continue;
+                    float dx = g_props_cur[i].x + 6 - 56, dy = g_props_cur[i].y + 5 - 56;
+                    int dir = (dx * dx > dy * dy) ? (dx > 0 ? DIR_E : DIR_W)
+                                                  : (dy > 0 ? DIR_S : DIR_N);
+                    int x = ORG_X + g_props_cur[i].x, y = ORG_Y + g_props_cur[i].y;
+                    if (g_seq_lit & (1 << nth))
+                        mote->draw_rect(fb, x, y - 1, 12, 12, rgb(255, 220, 110), 0, 0, 128);
+                    mote->text(fb, k_dirname[dir], x + 4, y + 2,
+                               (g_seq_lit & (1 << nth)) ? rgb(255, 236, 140) : rgb(220, 225, 245));
+                    nth++;
+                }
+            }
+        }
         /* dig spot: a pulsing twinkle on the floor */
         if (g_dig_on) {
             int ph = (int)(g_result_t * 5) % 3;
@@ -1950,4 +2817,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("ThumbPrince", "austinio7116");
-MOTE_GAME_VERSION("1.0.0");
+MOTE_GAME_VERSION("1.1.0");

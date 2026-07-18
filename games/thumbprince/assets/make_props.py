@@ -305,6 +305,152 @@ for (x, y) in ((5, 2), (3, 4), (8, 3), (2, 6), (9, 6), (5, 5), (7, 7), (4, 8), (
     p.px(x, y, (74, 138, 58)); p.px(x + 1, y, (96, 164, 74))
 add("plant", p)
 
+# ---- wall safe (16x16) — the Study's combination puzzle ----
+p = P(16, 16)
+p.rect(1, 1, 14, 14, (104, 108, 120))
+p.hl(2, 13, 1, (140, 144, 158))
+p.rect(3, 3, 12, 12, (78, 82, 94))
+p.rect(6, 5, 9, 8, (58, 60, 72))                                   # dial plate
+p.px(7, 6, (210, 210, 220)); p.px(8, 7, (210, 210, 220))           # dial marks
+p.rect(11, 10, 12, 11, (216, 180, 80))                             # handle
+add("safe", p)
+
+# ---- keypad console (14x16) — the Lab's code lock ----
+p = P(14, 16)
+p.rect(1, 1, 12, 14, (58, 60, 72))
+p.hl(2, 11, 1, (88, 90, 104))
+p.rect(3, 3, 10, 5, (200, 150, 40))                                # amber readout
+p.px(4, 4, (255, 220, 120)); p.px(6, 4, (255, 220, 120))
+for yy in (7, 9, 11):
+    for xx in (4, 7, 10):
+        p.px(xx, yy, (170, 174, 190)); p.px(xx + 1, yy, (130, 134, 150))
+add("keypad", p)
+
+# ---- grandfather clock (14x28) — the Foyer ----
+p = P(14, 28)
+p.rect(2, 0, 11, 26, WOOD_D)
+p.hl(2, 11, 0, WOOD_L); p.vl(2, 0, 26, WOOD_DD)
+p.rect(4, 2, 9, 8, (232, 228, 210))                                # face
+p.px(6, 4, (60, 50, 44)); p.px(7, 4, (60, 50, 44))                 # hands
+p.px(6, 5, (60, 50, 44))
+p.rect(4, 11, 9, 21, (52, 38, 26))                                 # case window
+p.vl(6, 12, 17, (216, 180, 80))                                    # pendulum rod
+p.rect(5, 17, 7, 19, (240, 205, 90))                               # bob
+p.rect(1, 26, 12, 27, WOOD_DD)
+add("clock", p)
+
+# ---- globe (14x18) — the Drawing Room ----
+p = P(14, 18)
+p.rect(4, 2, 9, 9, (66, 106, 176))                                 # ocean
+p.px(4, 2, (0,0,0,0)) if False else None
+p.rect(5, 3, 7, 5, (96, 164, 74)); p.rect(8, 6, 9, 8, (96, 164, 74))  # land
+p.px(9, 3, (140, 200, 240))
+p.vl(11, 3, 8, (216, 180, 80))                                     # meridian arm
+p.rect(6, 10, 7, 12, (120, 110, 100))                              # stem
+p.rect(3, 13, 10, 15, WOOD_D); p.hl(3, 10, 13, WOOD_L)             # base
+add("globe", p)
+
+# ---- upright piano (28x20) — the Music Room ----
+p = P(28, 20)
+p.rect(1, 1, 26, 16, (60, 42, 32))                                 # body
+p.hl(2, 25, 1, (96, 68, 48))
+p.rect(3, 3, 24, 6, (78, 54, 40))                                  # music stand band
+p.rect(11, 4, 16, 5, (232, 228, 210))                              # sheet
+p.rect(2, 9, 25, 13, (236, 236, 240))                              # keys
+for x in range(4, 25, 3):
+    p.vl(x, 9, 11, (34, 24, 28))                                   # black keys
+p.hl(2, 25, 13, (196, 198, 208))
+p.rect(2, 17, 4, 18, WOOD_DD); p.rect(23, 17, 25, 18, WOOD_DD)
+add("piano", p)
+
+# ---- lectern (14x16) — census ledger / gallery docent stand ----
+p = P(14, 16)
+p.rect(2, 2, 11, 6, (232, 228, 210))                               # open book
+p.vl(6, 2, 6, (196, 192, 176)); p.vl(7, 2, 6, (196, 192, 176))
+p.hl(3, 5, 3, (150, 150, 160)); p.hl(8, 10, 4, (150, 150, 160))    # script
+p.rect(3, 7, 10, 8, WOOD_D)
+p.rect(5, 9, 8, 12, WOOD_DD)                                       # column
+p.rect(3, 13, 10, 14, WOOD_D); p.hl(3, 10, 13, WOOD_L)
+add("lectern", p)
+
+# ---- wine rack (20x18) — the Wine Store's vintage puzzle ----
+p = P(20, 18)
+p.rect(1, 1, 18, 16, (114, 74, 42))
+p.hl(2, 17, 1, (150, 104, 58))
+for yy in (5, 10, 15):
+    p.hl(1, 18, yy, (84, 52, 30))
+for (xx, yy) in ((3, 2), (9, 2), (15, 2), (6, 6), (12, 6), (3, 11), (9, 11), (15, 11)):
+    p.rect(xx, yy + 1, xx + 2, yy + 2, (54, 96, 60))               # bottle bellies
+    p.px(xx + 1, yy, (100, 150, 100))                              # necks out
+add("winerack", p)
+
+# ---- chess table (18x16) — the Games Room ----
+p = P(18, 16)
+p.rect(1, 2, 16, 11, WOOD)
+p.hl(2, 15, 2, WOOD_L)
+for yy in range(3, 10, 2):
+    for xx in range(3, 15, 4):
+        off = 2 if (yy // 2) % 2 else 0
+        p.rect(xx + off, yy, xx + off + 1, yy, (52, 38, 26))       # dark squares
+        p.rect(xx + off - 2 if xx + off - 2 > 2 else 3, yy, xx + off - 1, yy, (226, 214, 170))
+    p.hl(3, 14, yy + 1, (226, 214, 170))
+p.px(5, 1, (236, 236, 240)); p.px(12, 1, (60, 50, 44))             # two pieces
+p.rect(2, 12, 4, 14, WOOD_DD); p.rect(13, 12, 15, 14, WOOD_DD)
+add("chessboard", p)
+
+# ---- slot machine (18x24) — the Parlor ----
+p = P(18, 24)
+p.rect(1, 1, 14, 22, (150, 52, 48))                                # cabinet
+p.hl(2, 13, 1, (196, 86, 76))
+p.rect(3, 3, 12, 6, (240, 205, 90))                                # marquee
+p.px(5, 4, (255, 120, 80)); p.px(8, 4, (255, 236, 140)); p.px(11, 4, (255, 120, 80))
+p.rect(3, 8, 12, 13, (34, 24, 28))                                 # reel window
+for xx in (4, 7, 10):
+    p.rect(xx, 9, xx + 1, 12, (236, 236, 240))                     # reels
+p.rect(3, 15, 12, 18, (120, 40, 38))                               # tray
+p.rect(5, 16, 10, 17, (216, 176, 62))                              # coins
+p.vl(15, 4, 10, (150, 152, 166))                                   # the arm
+p.rect(15, 3, 16, 4, (220, 70, 60))                                # red knob
+add("slots", p)
+
+# ---- statue (12x20) — the Rotunda's turning figures ----
+p = P(12, 20)
+p.rect(4, 1, 7, 4, (170, 174, 186))                                # head
+p.px(4, 1, (140, 144, 158))
+p.rect(3, 5, 8, 12, (150, 154, 168))                               # robe
+p.vl(5, 5, 12, (130, 134, 148))
+p.rect(2, 13, 9, 14, (120, 124, 138))                              # plinth cap
+p.rect(3, 15, 8, 18, (104, 108, 120))
+p.hl(3, 8, 15, (140, 144, 158))
+add("statue", p)
+
+# ---- pressure plate (12x10) — walkable floor slab ----
+p = P(12, 10)
+p.rect(1, 1, 10, 8, (120, 116, 108))
+p.hl(2, 9, 1, (150, 146, 136))
+p.rect(3, 3, 8, 6, (96, 92, 86))
+p.px(5, 4, (150, 146, 136)); p.px(6, 5, (150, 146, 136))
+add("plate", p)
+
+# ---- balance scales (16x14) — the Pantry's weighing puzzle ----
+p = P(16, 14)
+p.hl(3, 12, 2, (216, 180, 80))                                     # beam
+p.vl(7, 2, 8, (190, 156, 64)); p.vl(8, 2, 8, (216, 180, 80))       # column
+p.px(3, 3, (150, 130, 60)); p.px(12, 3, (150, 130, 60))            # chains
+p.rect(1, 4, 5, 5, (170, 174, 186)); p.hl(2, 4, 4, (210, 214, 226))    # left pan
+p.rect(10, 4, 14, 5, (170, 174, 186)); p.hl(11, 13, 4, (210, 214, 226))
+p.rect(4, 9, 11, 11, WOOD_D); p.hl(4, 11, 9, WOOD_L)               # base
+add("scales", p)
+
+# ---- seal lever (12x16) — thrown with A on seal days ----
+p = P(12, 16)
+p.rect(2, 11, 9, 14, (104, 108, 120))                              # base
+p.hl(2, 9, 11, (140, 144, 158))
+p.vl(5, 3, 10, (150, 152, 166)); p.vl(6, 3, 10, (110, 112, 126))   # shaft
+p.rect(4, 1, 7, 3, (220, 70, 60))                                  # knob
+p.px(4, 1, (255, 120, 90))
+add("lever", p)
+
 # ------------------------------------------------------------------- pack ----
 total = sum(p.w for (_, p, _) in props)
 sheet = Image.new("RGBA", (total, OUT_H), (0, 0, 0, 0))
