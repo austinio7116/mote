@@ -274,7 +274,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_KEY, IT_KEY, 0 } },
 
-    [R_LOCKSMITH] = { "LOCKSMITH", SH_DEAD, 1, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
+    [R_LOCKSMITH] = { "KEY SMITH", SH_DEAD, 1, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
         "#######"
         "#w.Pl.#"
         "#.....#"
@@ -283,7 +283,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_KEY, 0 } },
 
-    [R_COMMISSARY] = { "COMMISSARY", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
+    [R_COMMISSARY] = { "TUCK SHOP", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
         "#######"
         "#K.Ol.#"
         "#.....#"
@@ -490,7 +490,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_LABORATORY] = { "LABORATORY", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE, 0, 0, 0, 0,
+    [R_LABORATORY] = { "THE LAB", SH_DEAD, 2, 0, FL_CHECKER, WL_DARK, C565(90, 210, 230), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#W.Ol.#"
         "#.....#"
@@ -499,7 +499,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_POTION, IT_POTION, IT_STAR3, IT_GEM, 0 } },
 
-    [R_STRONGROOM] = { "STRONGROOM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE, 0, 0, 0, 0,
+    [R_STRONGROOM] = { "STRONG RM", SH_DEAD, 2, 0, FL_STONE, WL_DARK, C565(60, 190, 210), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#x...x#"
         "#..q..#"
@@ -508,7 +508,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_POUCH, IT_POUCH, IT_COIN, 0 } },
 
-    [R_CROSSROADS] = { "CROSSROADS", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(178, 136, 90), RF_CORRIDOR, 0, 0, 0, 0,
+    [R_CROSSROADS] = { "CROSS HALL", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(178, 136, 90), RF_CORRIDOR, 0, 0, 0, 0,
         "#######"
         "#.....#"
         "#.....#"
@@ -526,7 +526,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
-    [R_SERVHALL] = { "SERVANTS", SH_T, 0, 0, FL_WOOD_DARK, WL_STONE, C565(126, 104, 78), RF_CORRIDOR, 2, 0, 0, 0,
+    [R_SERVHALL] = { "SERV HALL", SH_T, 0, 0, FL_WOOD_DARK, WL_STONE, C565(126, 104, 78), RF_CORRIDOR, 2, 0, 0, 0,
         "#######"
         "#.....#"
         "#.....#"

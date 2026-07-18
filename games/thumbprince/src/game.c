@@ -181,9 +181,14 @@ static void toast_tick(float dt) {
 }
 
 static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img };
-/* decor with no footprint: the rug is walked on, wall pieces hang above */
-static int prop_no_collide(int p) { return p == P_RUG || p == P_PAINTING || p == P_WINDOW; }
-static int prop_wall_mounted(int p) { return p == P_PAINTING || p == P_WINDOW; }
+/* decor with no footprint: the rug is walked on, wall pieces sit in the band */
+static int prop_no_collide(int p) {
+    return p == P_RUG || p == P_PAINTING || p == P_WINDOW ||
+           p == P_PAINTING_V || p == P_WINDOW_V;
+}
+static int prop_wall_mounted(int p) {
+    return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V;
+}
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
 static const MoteAutotile *k_floors[9] = {
     &floor_wood_at, &floor_stone_tile_at, &floor_red_carpet_at, &floor_blue_carpet_at,
@@ -422,9 +427,20 @@ static void parse_room_props(int gi) {
             }
             int p = prop_of_char(ch);
             if (p >= 0 && g_nprops < MAX_ROOM_PROPS) {
+                int px = tx * TILE, py = ty * TILE;
+                if (prop_wall_mounted(p)) {
+                    /* 16x8 band sprites: snap into the nearest wall band,
+                     * rotated variant on the side walls */
+                    if (ty == 1)      py = 0;
+                    else if (ty == ROOM_T - 2) py = ROOM_PX - 8;
+                    else if (tx == 1) { px = 0;
+                        p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
+                    else if (tx == ROOM_T - 2) { px = ROOM_PX - 8;
+                        p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
+                }
                 g_props_cur[g_nprops].prop = (uint8_t)p;
-                g_props_cur[g_nprops].x = (uint8_t)(tx * TILE);
-                g_props_cur[g_nprops].y = (uint8_t)(ty * TILE);
+                g_props_cur[g_nprops].x = (uint8_t)px;
+                g_props_cur[g_nprops].y = (uint8_t)py;
                 g_nprops++;
             }
         }
@@ -1295,7 +1311,7 @@ static void room_draw(void) {
         int y = g_props_cur[i].y;
         int layer = 3 + ((y + d->fh) >> 3);
         if (pid == P_RUG) layer = 2;
-        if (prop_wall_mounted(pid)) { y -= 14; layer = 2; }
+        if (prop_wall_mounted(pid)) layer = 2;
         add_spr(k_prop_sheets[d->sheet], g_props_cur[i].x, y,
                 d->fx, d->fy, d->fw, d->fh, layer, 0);
     }
@@ -1523,49 +1539,64 @@ static void draft_footer(uint16_t *fb, const MoteFont *f) {
 static const uint16_t k_rarity_col[3] = { 0x8410, 0x2E9F, 0xFD00 };
 static const char *k_rarity_name[3] = { "COMMON", "UNCOMMON", "RARE" };
 
-/* Layout A "drafting desk": blueprint left, selected card's dossier right,
- * the hand of room shapes along the bottom. */
+/* split a string onto two short lines (prefer a space break) */
+static void wrap2(const char *src, int maxc, char *l1, char *l2, int cap) {
+    int len = (int)strlen(src);
+    if (len <= maxc) { snprintf(l1, cap, "%s", src); l2[0] = 0; return; }
+    int cut = maxc;
+    for (int i = maxc; i > 2; i--)
+        if (src[i] == ' ') { cut = i; break; }
+    snprintf(l1, cap, "%.*s", cut, src);
+    snprintf(l2, cap, "%.*s", maxc, src + cut + (src[cut] == ' ' ? 1 : 0));
+}
+
+/* Layout A "drafting desk": the blueprint takes the full height of the left
+ * side; a narrow dossier top-right; the room choices as a small grid of
+ * miniatures bottom-right. */
 static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote->text_font(fb, f, "DRAFT", 8, 3, rgb(210, 224, 250));
-    if (g_chain) {
-        char cb[8];
-        snprintf(cb, sizeof cb, "x%d", 1 + g_chain);
-        mote->text_font(fb, f, cb, 44, 3, rgb(255, 220, 90));
-    }
-    estate_map(fb, 10, 18, 8, g_draft_gi);
+    estate_map(fb, 8, 10, 14, g_draft_gi);
 
-    /* dossier for the selected card */
+    /* dossier: narrow column, names wrapped */
     const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
     int afford = card_affordable(g_cards[g_draft_sel]);
-    mote->draw_rect(fb, 56, 15, 68, 65, rgb(16, 25, 58), 1, 0, 128);
-    mote->draw_rect(fb, 56, 15, 68, 65, rgb(70, 100, 170), 0, 0, 128);
-    mote->text_font(fb, f, d->name, 60, 18, afford ? rgb(250, 250, 255) : rgb(120, 120, 132));
-    mote->text_font(fb, f, k_rarity_name[d->rarity], 60, 31, k_rarity_col[d->rarity]);
-    if (k_blurb[g_cards[g_draft_sel]])
-        mote->text_font(fb, f, k_blurb[g_cards[g_draft_sel]], 60, 47,
-                        afford ? rgb(165, 190, 235) : rgb(100, 100, 112));
-    int cx = 60;
-    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, 64, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, 64, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
-    if (!afford) mote->text_font(fb, f, "!", cx + 2, 63, rgb(255, 110, 90));
+    char l1[12], l2[12];
+    uint16_t nc = afford ? rgb(250, 250, 255) : rgb(120, 120, 132);
+    wrap2(d->name, 7, l1, l2, sizeof l1);
+    int ty = 6;
+    mote->text_font(fb, f, l1, 84, ty, nc); ty += 11;
+    if (l2[0]) { mote->text_font(fb, f, l2, 84, ty, nc); ty += 11; }
+    mote->text_font(fb, f, k_rarity_name[d->rarity], 84, ty, k_rarity_col[d->rarity]); ty += 12;
+    if (k_blurb[g_cards[g_draft_sel]] && ty <= 40) {
+        wrap2(k_blurb[g_cards[g_draft_sel]], 7, l1, l2, sizeof l1);
+        uint16_t bc = afford ? rgb(165, 190, 235) : rgb(100, 100, 112);
+        mote->text_font(fb, f, l1, 84, ty, bc); ty += 11;
+        if (l2[0] && ty <= 51) { mote->text_font(fb, f, l2, 84, ty, bc); ty += 11; }
+    }
+    int cx = 84;
+    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, ty, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, ty, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
+    if (!afford) mote->text_font(fb, f, "!", cx + 2, ty - 1, rgb(255, 110, 90));
 
-    /* the hand: every option's SHAPE always on show */
-    int tw = 26, total = g_draft_n * tw - 2;
-    int hx = (128 - total) / 2, hy = 90;
+    /* the gem purse, above the hand */
+    char buf[8];
+    snprintf(buf, sizeof buf, "%d", g_gems);
+    mote->blit(fb, &items_img, 84, 64, 2 * 12, 0, 12, 12, 0, 0, 128);
+    mote->text_font(fb, f, buf, 97, 64, rgb(140, 240, 220));
+
+    /* the hand: 2x2 grid of small miniatures, bottom right */
     for (int i = 0; i < g_draft_n; i++) {
         const RoomDef *cd = &k_rooms[g_cards[i]];
         uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
         int sel = i == g_draft_sel;
-        int x = hx + i * tw, y = hy - (sel ? 4 : 0);
-        if (sel) mote->draw_rect(fb, x - 2, y - 2, 28, 28, rgb(255, 230, 120), 0, 0, 128);
-        room_icon(fb, x, y, 24, g_cards[i], mask, sel);
+        int x = 82 + (i % 2) * 22, y = 78 + (i / 2) * 23 - (sel ? 2 : 0);
+        if (sel) mote->draw_rect(fb, x - 2, y - 2, 24, 24, rgb(255, 230, 120), 0, 0, 128);
+        room_icon(fb, x, y, 20, g_cards[i], mask, sel);
         if (!card_affordable(g_cards[i]))
-            mote->blit(fb, &items_img, x + 6, y + 6, 7 * 12, 0, 12, 12, 0, 0, 128);
-        mote->draw_rect(fb, x, y + 24, 24, 2, k_rarity_col[cd->rarity], 1, 0, 128);
+            mote->blit(fb, &items_img, x + 4, y + 4, 7 * 12, 0, 12, 12, 0, 0, 128);
+        mote->draw_rect(fb, x, y + 20, 20, 2, k_rarity_col[cd->rarity], 1, 0, 128);
     }
-    draft_footer(fb, f);
 }
 
 /* Layout B "ledger": card list left with shape icons, blueprint right. */
@@ -1612,10 +1643,14 @@ static int card_orientations(uint8_t id) {
 
 static void draft_tick(void) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_LEFT))
+    if (mote_just_pressed(in, MOTE_BTN_LEFT))
         { g_draft_sel = (g_draft_sel + g_draft_n - 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_DOWN) || mote_just_pressed(in, MOTE_BTN_RIGHT))
+    if (mote_just_pressed(in, MOTE_BTN_RIGHT))
         { g_draft_sel = (g_draft_sel + 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN)) {
+        int nsel = g_draft_sel ^ 2;                       /* the grid's other row */
+        if (nsel < g_draft_n) { g_draft_sel = nsel; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+    }
     if (g_compass) {
         int n = card_orientations(g_cards[g_draft_sel]);
         if (mote_just_pressed(in, MOTE_BTN_RB)) { g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + 1) % n); mote->audio_play_sfx(&tick_sfx, 0.7f); }

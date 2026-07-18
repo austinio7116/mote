@@ -242,24 +242,27 @@ for x in range(2, 26, 4):
     p.px(x, 1, (196, 110, 90)); p.px(x + 1, 18, (196, 110, 90))
 add("rug", p)
 
-# ---- painting (12x10, hangs on the 8px wall band) ----
-p = P(12, 10)
-p.rect(0, 0, 11, 9, (110, 74, 42))
-p.hl(1, 10, 0, (150, 104, 58))
-p.rect(2, 2, 9, 7, (70, 100, 150))
-p.rect(3, 5, 8, 7, (70, 130, 80))             # hills
-p.px(4, 3, (240, 235, 200)); p.px(8, 3, (226, 200, 120))
+# ---- painting (16x8: exactly two wall tiles, IN the band; _v = side walls) ----
+p = P(16, 8)
+p.rect(0, 0, 15, 7, (110, 74, 42))
+p.hl(1, 14, 0, (150, 104, 58))
+p.rect(2, 2, 13, 5, (86, 120, 170))            # sky
+p.rect(2, 4, 13, 5, (70, 130, 80))             # hills
+p.px(4, 2, (240, 235, 200)); p.px(11, 3, (226, 200, 120))
 add("painting", p)
+pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
+add("painting_v", pv)
 
-# ---- window (10x10, hangs on the 8px wall band) ----
-p = P(10, 10)
-p.rect(0, 0, 9, 9, (86, 66, 44))
-p.rect(2, 2, 7, 7, (120, 170, 210))
-p.rect(2, 6, 7, 7, (90, 130, 170))
-p.vl(4, 2, 7, (60, 46, 32)); p.vl(5, 2, 7, (60, 46, 32))
-p.hl(2, 7, 4, (60, 46, 32))
-p.px(3, 3, (200, 230, 250))
+# ---- window (16x8: two wall tiles; _v = side walls) ----
+p = P(16, 8)
+p.rect(0, 0, 15, 7, (86, 66, 44))
+p.rect(2, 2, 6, 5, (120, 170, 210))
+p.rect(9, 2, 13, 5, (120, 170, 210))
+p.px(3, 2, (200, 230, 250)); p.px(10, 2, (200, 230, 250))
+p.hl(2, 6, 5, (90, 130, 170)); p.hl(9, 13, 5, (90, 130, 170))
 add("window", p)
+pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
+add("window_v", pv)
 
 # ---- floor lamp (10x22) ----
 p = P(10, 22)
