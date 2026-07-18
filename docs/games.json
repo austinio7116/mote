@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-18T18:29:09+00:00",
+ "generated": "2026-07-18T18:35:07+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -93,8 +93,8 @@
    "author": "austinio7116",
    "version": "1.3.0",
    "abi": 47,
-   "size": 203056,
-   "sha256": "b48d7207901f0331ae032db124087fb91ae86b02dd40eed75c0d28ed96f43088",
+   "size": 203600,
+   "sha256": "1bbbbd2d1bea12a13e01ca8c189552e154a62c90bf6b48bb05a9214525b97beb",
    "file": "games/ThumbPrince.mote",
    "icon": "img/gallery/thumbprince-icon.png",
    "thumb": "img/gallery/thumbprince-1.png",

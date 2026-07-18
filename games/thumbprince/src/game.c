@@ -159,7 +159,7 @@ static int8_t   g_plate_under = -1;
 static uint8_t  g_census_room = 0xFF, g_census_kind, g_census_count;
 static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook, 2 satchel */
 /* the Classroom's pattern lessons */
-typedef struct { uint8_t shape, size, fill, count, rot; } IqCell;
+typedef struct { uint8_t shape, size, fill, count, rot, sat; } IqCell;
 static IqCell  g_iq_seq[3], g_iq_opt[4];
 static uint8_t g_iq_answer, g_iq_round, g_iq_attempt, g_iq_sel, g_iq_failed;
 /* solved puzzles open a floor hatch; the prizes wait beside it */
@@ -1240,18 +1240,18 @@ static void puzzles_deal(void) {
 }
 
 /* one Classroom lesson, 11+ style: a 4-term sequence where SEVERAL
- * attributes progress at once - quantity (count or size), form (shape
- * cycle or triangle spin), fill parity. Question 1 runs two rules,
- * questions 2-3 run all three. Every wrong option is a FULL step wrong
- * in some attribute - never a near-miss - and no two options may read
- * the same on screen. */
+ * attributes progress at once. Axes: quantity (count or size, either
+ * direction), form (shape cycle over all four shapes / triangle spin by
+ * 90 or 180 / a satellite dot orbiting the corners / two shapes
+ * alternating ABAB), fill parity. Question 1 runs two rules, questions
+ * 2-3 run all three. Every wrong option is a FULL visible step wrong and
+ * no two options may read the same. */
 
-/* do two cells LOOK the same? (rotation only shows on triangles; fill
- * only shows on single shapes big enough for a hole) */
 static int iq_vis_eq(const IqCell *a, const IqCell *b) {
     if (a->shape != b->shape || a->count != b->count) return 0;
     if (a->count == 1 && a->size != b->size) return 0;
     if (a->shape == 2 && (a->rot & 3) != (b->rot & 3)) return 0;
+    if (a->sat != b->sat) return 0;
     if (a->count == 1 && a->size >= 1 && a->shape != 3 && a->fill != b->fill) return 0;
     return 1;
 }
@@ -1263,39 +1263,55 @@ static void iq_gen(void) {
     if (nrules == 2) use[r % 3u] = 0;
     int q_is_count = (int)((r >> 2) & 1u);
     if (use[2] && use[0]) q_is_count = 0;        /* fill is unreadable on counted minis */
-    int f_is_rot   = (int)((r >> 3) & 1u);
-    if (use[2]) f_is_rot = 1;                    /* fill + shape-cycle is unfair: the
-                                                  * cross is barred from fill questions,
-                                                  * so the cycle would wrap invisibly */
     int dir_q = (int)((r >> 4) & 1u), dir_f = (int)((r >> 5) & 1u);
     int s0 = (int)((r >> 6) % 4u);
-    int f0 = use[2] ? (int)((r >> 8) & 1u) : 1;   /* outline styling only when fill IS the rule */
+    int f0 = use[2] ? (int)((r >> 8) & 1u) : 1;  /* outline styling only when fill IS the rule */
     int r0 = (int)((r >> 9) % 4u), sz0 = 1 + (int)((r >> 11) & 1u);
     int lo = use[2] ? 1 : 0;                     /* fill needs a visible hole: size >= 1 */
-    int smod = use[2] ? 3 : 4;                   /* no outline cross: fill skips shape 3 */
+    int smod = use[2] ? 3 : 4;                   /* no outline cross in fill questions */
     if (use[2]) s0 %= 3;
+    /* the form rule: 0 cycle, 1 spin, 2 satellite, 3 alternate.
+     * cycle needs all four shapes (no fill); satellite needs the cell to
+     * itself (no quantity axis). */
+    int frule = 1;
+    if (use[1]) {                                /* even draw over the legal forms */
+        int pool[6], np = 0;
+        pool[np++] = 1;                          /* spin: always legal */
+        if (!use[2]) { pool[np++] = 0; pool[np++] = 0; }   /* cycle: rare window, weight up */
+        if (!use[0]) { pool[np++] = 2; pool[np++] = 2; }   /* satellite: same */
+        pool[np++] = 3;                          /* alternate */
+        frule = pool[(r >> 3) % (uint32_t)np];
+    }
+    int spin_step = ((r >> 20) & 1u) ? 2 : 1;    /* quarter or half turns */
+    int sA = s0, sB = (s0 + 1 + (int)((r >> 21) % (uint32_t)(smod - 1))) % smod;
     IqCell t[4];
     for (int i = 0; i < 4; i++) {
         IqCell *c = &t[i];
-        c->count = 1; c->size = (uint8_t)sz0; c->fill = (uint8_t)f0; c->rot = 0;
-        c->shape = (uint8_t)((use[1] && f_is_rot) ? 2 : s0);
+        c->count = 1; c->size = (uint8_t)sz0; c->fill = (uint8_t)f0;
+        c->rot = 0; c->sat = 0;
+        c->shape = (uint8_t)((use[1] && frule == 1) ? 2 : s0);
         if (use[0]) {
             if (q_is_count) { c->count = (uint8_t)(dir_q ? 1 + i : 4 - i); c->size = 0; }
             else            c->size = (uint8_t)(lo + (dir_q ? i : 3 - i));
         }
         if (use[1]) {
-            if (f_is_rot) c->rot = (uint8_t)((r0 + (dir_f ? i : 4 - i)) % 4);
-            else          c->shape = (uint8_t)((s0 + (dir_f ? i : 4 - i)) % smod);
+            int step = dir_f ? i : 4 - i;
+            switch (frule) {
+            case 0: c->shape = (uint8_t)((s0 + step) % 4); break;
+            case 1: c->rot = (uint8_t)((r0 + step * spin_step) % 4); break;
+            case 2: c->sat = (uint8_t)(1 + (r0 + step) % 4); c->size = 1; break;
+            default: c->shape = (uint8_t)((i & 1) ? sB : sA); break;
+            }
         }
         if (use[2]) c->fill = (uint8_t)((f0 + i) & 1);
-        if (c->count > 1) c->fill = 1;           /* minis are always solid */
+        if (c->count > 1) c->fill = 1;
     }
     memcpy(g_iq_seq, t, sizeof g_iq_seq);
     /* wrong answers: clearly wrong, pairwise distinct on screen */
     IqCell a = t[3];
-    IqCell cand[8];
+    IqCell cand[10];
     int nc = 0;
-    if (use[0]) {                                /* quantity two / three steps off */
+    if (use[0]) {
         cand[nc] = a;
         if (q_is_count) { cand[nc].count = t[1].count; cand[nc].size = 0; }
         else cand[nc].size = t[1].size;
@@ -1305,10 +1321,22 @@ static void iq_gen(void) {
         else cand[nc].size = t[0].size;
         nc++;
     }
-    if (use[1] && f_is_rot) { cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++; }
+    if (use[1] && frule == 1) {
+        cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++;
+        cand[nc] = a; cand[nc].rot = t[2].rot; nc++;
+    }
+    if (use[1] && frule == 2) {
+        cand[nc] = a; cand[nc].sat = t[2].sat; nc++;
+        cand[nc] = a; cand[nc].sat = (uint8_t)(1 + (a.sat - 1 + 2) % 4); nc++;
+    }
+    if (use[1] && frule == 3) {
+        cand[nc] = a; cand[nc].shape = (uint8_t)sA; nc++;   /* wrong parity */
+        for (int s = 0; s < smod; s++)
+            if (s != sA && s != sB) { cand[nc] = a; cand[nc].shape = (uint8_t)s; nc++; break; }
+    }
     if (a.count == 1 && a.size >= 1 && a.shape != 3)
         { cand[nc] = a; cand[nc].fill = (uint8_t)!a.fill; nc++; }
-    for (int k = 1; k <= 3; k++) {               /* a different shape is always wrong */
+    for (int k = 1; k <= 3 && nc < 10; k++) {    /* a different shape is always wrong */
         cand[nc] = a;
         cand[nc].shape = (uint8_t)((a.shape + k) % (a.fill ? 4 : 3));
         nc++;
@@ -2786,6 +2814,11 @@ static void iq_cell_draw(uint16_t *fb, int cx, int cy, const IqCell *c) {
         iq_shape(fb, cx, cy, c->shape, s, c->rot, col);
         if (!c->fill && c->shape != 3 && s - 4 >= 1)
             iq_shape(fb, cx, cy, c->shape, s - 4, c->rot, bg);
+        if (c->sat) {                              /* the orbiting satellite */
+            static const int8_t so[4][2] = { { 6, -6 }, { 6, 6 }, { -6, 6 }, { -6, -6 } };
+            mote->draw_rect(fb, cx + so[c->sat - 1][0] - 1, cy + so[c->sat - 1][1] - 1,
+                            3, 3, col, 1, 0, 128);
+        }
     } else {
         static const int8_t o[4][4][2] = {
             { { 0, 0 } },
