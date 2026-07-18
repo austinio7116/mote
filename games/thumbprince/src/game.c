@@ -1291,18 +1291,26 @@ static int iq_can_hollow(const IqCell *c) {
     return c->count == 1 && c->size >= 1 && c->shape != 3;
 }
 
-static void iq_deal(const IqCell *a, const IqCell *cand, int nc, uint32_t r) {
+static void iq_deal(const IqCell *a, const IqCell *cand, const uint8_t *grp,
+                    int nc, uint32_t r) {
     IqCell d[3];
+    uint8_t dg[3] = { 0, 0, 0 };
     int nd = 0, from = (int)((r >> 16) % (uint32_t)nc);
-    for (int k = 0; k < nc && nd < 3; k++) {
-        const IqCell *c = &cand[(from + k) % nc];
-        if (c->fill == 2 && !iq_can_hollow(c)) continue;
-        if (iq_vis_eq(c, a)) continue;
-        int dup = 0;
-        for (int j = 0; j < nd; j++)
-            if (iq_vis_eq(c, &d[j])) dup = 1;
-        if (!dup) d[nd++] = *c;
-    }
+    /* pass 1 takes at most one distractor per attribute, so the three wrong
+     * answers are each wrong in a DIFFERENT way - nothing dies to a glance */
+    for (int pass = 0; pass < 2 && nd < 3; pass++)
+        for (int k = 0; k < nc && nd < 3; k++) {
+            const IqCell *c = &cand[(from + k) % nc];
+            uint8_t cg = grp[(from + k) % nc];
+            if (c->fill == 2 && !iq_can_hollow(c)) continue;
+            if (iq_vis_eq(c, a)) continue;
+            int dup = 0;
+            for (int j = 0; j < nd; j++) {
+                if (iq_vis_eq(c, &d[j])) dup = 1;
+                if (pass == 0 && dg[j] == cg) dup = 1;
+            }
+            if (!dup) { dg[nd] = cg; d[nd++] = *c; }
+        }
     for (int k = 1; nd < 3 && k <= 6; k++) {     /* dedup-aware safety net */
         IqCell c2 = *a;
         if (k <= 3)      c2.shape = (uint8_t)((a->shape + k) % (a->fill == 2 ? 3 : 4));
@@ -1373,28 +1381,29 @@ static void iq_gen(void) {
         }
         memcpy(g_iq_seq, t, sizeof g_iq_seq);
         IqCell a = t[3], cand[12];
+        uint8_t grp[12];
         int nc = 0;
-        cand[nc] = a; cand[nc].opos = t[2].opos; cand[nc].twin = t[2].twin; nc++;
-        cand[nc] = a; cand[nc].opos = (uint8_t)(1 + ((a.opos - 1 + 2) % 8)); nc++;
-        cand[nc] = a; cand[nc].opos = (uint8_t)(1 + ((a.opos - 1 + 5) % 8)); nc++;
+        grp[nc] = 1; cand[nc] = a; cand[nc].opos = t[2].opos; cand[nc].twin = t[2].twin; nc++;
+        grp[nc] = 1; cand[nc] = a; cand[nc].opos = (uint8_t)(1 + ((a.opos - 1 + 2) % 8)); nc++;
+        grp[nc] = 1; cand[nc] = a; cand[nc].opos = (uint8_t)(1 + ((a.opos - 1 + 5) % 8)); nc++;
         if (m[0]) {
-            cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++;
-            cand[nc] = a; cand[nc].rot = t[2].rot; nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].rot = t[2].rot; nc++;
         }
         if (m[1]) {
-            cand[nc] = a; cand[nc].orot = (uint8_t)((a.orot + 2) % 4); nc++;
-            cand[nc] = a; cand[nc].orot = t[2].orot; nc++;
+            grp[nc] = 3; cand[nc] = a; cand[nc].orot = (uint8_t)((a.orot + 2) % 4); nc++;
+            grp[nc] = 3; cand[nc] = a; cand[nc].orot = t[2].orot; nc++;
         }
         if (m[2] && smode != 3) {
-            cand[nc] = a; cand[nc].fill = t[2].fill; nc++;
+            grp[nc] = 4; cand[nc] = a; cand[nc].fill = t[2].fill; nc++;
             for (int s = 0; s < 3; s++)
                 if (s != a.fill && s != t[2].fill)
-                    { cand[nc] = a; cand[nc].fill = (uint8_t)s; nc++; break; }
+                    { grp[nc] = 4; cand[nc] = a; cand[nc].fill = (uint8_t)s; nc++; break; }
         }
-        if (m[3]) { cand[nc] = a; cand[nc].twin = 0; nc++; }
-        cand[nc] = a; cand[nc].osh = (uint8_t)((a.osh + 1) % 4); nc++;
-        cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 1 + ((r >> 30) & 1u)) % 4); nc++;
-        iq_deal(&a, cand, nc, r);
+        if (m[3]) { grp[nc] = 5; cand[nc] = a; cand[nc].twin = 0; nc++; }
+        grp[nc] = 6; cand[nc] = a; cand[nc].osh = (uint8_t)((a.osh + 1) % 4); nc++;
+        grp[nc] = 7; cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 1 + ((r >> 30) & 1u)) % 4); nc++;
+        iq_deal(&a, cand, grp, nc, r);
         return;
     }
     int nrules = g_iq_round == 0 ? 2 : 3;
@@ -1424,7 +1433,6 @@ static void iq_gen(void) {
         frule = pool[(r >> 3) % (uint32_t)np];
     }
     int spin_step = ((r >> 20) & 1u) ? 2 : 1;
-    int sA = s0, sB = (s0 + 1 + (int)((r >> 21) % (uint32_t)(alpha - 1))) % alpha;
     IqCell t[4];
     for (int i = 0; i < 4; i++) {
         IqCell *c = &t[i];
@@ -1443,7 +1451,6 @@ static void iq_gen(void) {
             case 0:  c->shape = (uint8_t)((s0 + step) % 4); break;
             case 1:  c->rot = (uint8_t)((r0 + step * spin_step) % 4); break;
             case 2:  c->sat = (uint8_t)(1 + (r0 + step) % 4); c->size = 1; break;
-            case 3:  c->shape = (uint8_t)((i & 1) ? sB : sA); break;
             case 4:  c->rot = (uint8_t)((r0 + step * spin_step) % 4); break;
             default: c->pos = (uint8_t)(1 + (r0 + step) % 4); c->size = 1; break;
             }
@@ -1459,13 +1466,14 @@ static void iq_gen(void) {
     memcpy(g_iq_seq, t, sizeof g_iq_seq);
     IqCell a = t[3];
     IqCell cand[12];
+    uint8_t grp[12];
     int nc = 0;
     if (use[0]) {
-        cand[nc] = a;
+        grp[nc] = 1; cand[nc] = a;
         if (q_is_count) { cand[nc].count = t[1].count; cand[nc].size = 0; }
         else cand[nc].size = t[1].size;
         nc++;
-        cand[nc] = a;
+        grp[nc] = 1; cand[nc] = a;
         if (q_is_count) { cand[nc].count = t[0].count; cand[nc].size = 0; }
         else cand[nc].size = t[0].size;
         nc++;
@@ -1473,46 +1481,48 @@ static void iq_gen(void) {
     if (use[1]) {
         switch (frule) {
         case 1: case 4:
-            cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++;
-            cand[nc] = a; cand[nc].rot = t[2].rot; nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].rot = t[2].rot; nc++;
             break;
         case 2:
-            cand[nc] = a; cand[nc].sat = t[2].sat; nc++;
-            cand[nc] = a; cand[nc].sat = (uint8_t)(1 + (a.sat - 1 + 2) % 4); nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].sat = t[2].sat; nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].sat = (uint8_t)(1 + (a.sat - 1 + 2) % 4); nc++;
             break;
         case 5:
-            cand[nc] = a; cand[nc].pos = t[2].pos; nc++;
-            cand[nc] = a; cand[nc].pos = (uint8_t)(1 + (a.pos - 1 + 2) % 4); nc++;
-            break;
-        case 3:
-            cand[nc] = a; cand[nc].shape = (uint8_t)sA; nc++;
-            for (int s = 0; s < alpha; s++)
-                if (s != sA && s != sB) { cand[nc] = a; cand[nc].shape = (uint8_t)s; nc++; break; }
+            grp[nc] = 2; cand[nc] = a; cand[nc].pos = t[2].pos; nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].pos = (uint8_t)(1 + (a.pos - 1 + 2) % 4); nc++;
             break;
         default:
-            cand[nc] = a; cand[nc].shape = t[2].shape; nc++;
-            cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 2) % 4); nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].shape = t[2].shape; nc++;
+            grp[nc] = 2; cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 2) % 4); nc++;
             break;
         }
     }
     if (!use[0] && a.count == 1) {               /* size wobble: wrong when idle */
-        cand[nc] = a;
+        grp[nc] = 3; cand[nc] = a;
         cand[nc].size = (uint8_t)(a.size == 1 ? 2 : 1);
+        nc++;
+    }
+    if (!use[2]) {                               /* grey wobble: wrong when shades idle */
+        grp[nc] = 6; cand[nc] = a;
+        cand[nc].fill = (uint8_t)(a.fill == 1 ? 0 : 1);
         nc++;
     }
     /* shade near-misses — banned for the 3-part cycle so the ping-pong
      * reading never appears among the options */
     if (use[2] && smode != 3) {
-        cand[nc] = a; cand[nc].fill = t[2].fill; nc++;
+        grp[nc] = 4; cand[nc] = a; cand[nc].fill = t[2].fill; nc++;
         for (int s = 0; s < 3; s++)
-            if (s != a.fill && s != t[2].fill) { cand[nc] = a; cand[nc].fill = (uint8_t)s; nc++; break; }
+            if (s != a.fill && s != t[2].fill)
+                { grp[nc] = 4; cand[nc] = a; cand[nc].fill = (uint8_t)s; nc++; break; }
     }
     for (int k = 1; k <= 3 && nc < 12; k++) {    /* a different shape is always wrong */
+        grp[nc] = (uint8_t)((use[1] && frule == 0) ? 2 : 5);
         cand[nc] = a;
         cand[nc].shape = (uint8_t)((a.shape + k) % (uint32_t)alpha);
         nc++;
     }
-    iq_deal(&a, cand, nc, r);
+    iq_deal(&a, cand, grp, nc, r);
 }
 
 /* the rack's sum: balls score their snooker worth, red 1 .. black 7 */
