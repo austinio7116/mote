@@ -125,8 +125,8 @@ inner = disc - edge
 rim = {p for p in inner
        if any(q in edge for q in ((p[0]+1, p[1]), (p[0]-1, p[1]),
                                   (p[0], p[1]+1), (p[0], p[1]-1)))}
-# clean concentric coin: dark edge, bright ring, flat gold face — no
-# directional shine or shadow
+# clean concentric coin: dark edge, bright ring, flat gold face, and a
+# small two-pixel glint top-left
 for (xx, yy) in disc:
     if (xx, yy) in edge:
         c = (124, 82, 22)
@@ -135,6 +135,9 @@ for (xx, yy) in disc:
     else:
         c = (236, 190, 58)
     IT.putpixel((xx, yy), c + (255,))
+IT.putpixel((4, 4), (255, 248, 208, 255))
+IT.putpixel((5, 4), (255, 236, 150, 255))
+IT.putpixel((4, 5), (255, 236, 150, 255))
 
 # master key: the key, gilded
 key = np.asarray(IT.crop((12, 0, 24, 12))).astype(np.int32)
