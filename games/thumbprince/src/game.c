@@ -1610,7 +1610,7 @@ static void draft_draw_a(uint16_t *fb) {
             const RoomDef *cd = &k_rooms[g_cards[i]];
             uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
             int sel = i == g_draft_sel;
-            int x = 78, y = y0 + i * step;
+            int x = 74, y = y0 + i * step;
             if (sel) mote->draw_rect(fb, x - 2, y - 2, ts + 4, ts + 4, rgb(255, 230, 120), 0, 0, 128);
             room_icon(fb, x, y, ts, g_cards[i], mask, sel);
             mote->draw_rect(fb, x + ts, y, 2, ts, k_rarity_col[cd->rarity], 1, 0, 128);
