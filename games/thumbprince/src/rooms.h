@@ -148,7 +148,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#iP.Pi#"
         "#..o..#"
         "#oR..o#"
-        "#p.o.p#"
+        "#p.on.#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, 0 } },
 
@@ -217,7 +217,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_WASHROOM] = { "WASHROOM", SH_DEAD, 0, 0, FL_CHECKER, WL_STONE, C565(140, 190, 226), 0, 4, 0, 0, 0,
         "#######"
-        "#pO..T#"
+        "#lO..T#"
         "#.....#"
         "#.....#"
         "#U...I#"
@@ -326,7 +326,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_GARDEN] = { "GARDEN", SH_DEAD, 1, 0, FL_LEAFY, WL_STONE, C565(80, 150, 60), RF_GREEN | RF_SPADE, 0, 0, 1, 0,
         "#######"
         "#u...u#"
-        "#.....#"
+        "#...n.#"
         "#.....#"
         "#z...u#"
         "#.....#"
@@ -345,7 +345,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#######"
         "#g...g#"
         "#..x..#"
-        "#.....#"
+        "#...q.#"
         "#gi..g#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_COIN, IT_STAR } },
@@ -389,7 +389,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_ORCHARD] = { "ORCHARD", SH_L, 1, 0, FL_LEAFY, WL_STONE, C565(120, 160, 54), RF_GREEN, 0, 0, 1, 0,
         "#######"
         "#u...u#"
-        "#.....#"
+        "#.n...#"
         "#.....#"
         "#u...z#"
         "#.....#"
@@ -563,7 +563,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#.R...#"
         "#Y...Y#"
-        "#.....#"
+        "#n....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
     [R_APOTHECARY] = { "APOTHECARY", SH_R, 0, 0, FL_CHECKER, WL_RED, C565(120, 190, 130), RF_UNIQUE | RF_SHOP_APO, 0, 0, 0, 0,
@@ -587,7 +587,7 @@ static const RoomDef k_rooms[R_COUNT] = {
     [R_GALLERY] = { "GALLERY", SH_STR, 1, 0, FL_WOOD_DARK, WL_RED, C565(170, 140, 190), RF_UNIQUE, 0, 0, 0, 25,
         "#######"
         "#P.P.P#"
-        "#.....#"
+        "#...n.#"
         "#.N...#"
         "#PE..P#"
         "#.....#"

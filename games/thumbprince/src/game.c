@@ -143,7 +143,7 @@ static int g_nchests;
 
 /* dig spot + crumpled clue note in the current room (positions seeded per day) */
 static uint8_t g_dig_on, g_dig_x, g_dig_y;
-static uint8_t g_note_on, g_note_x, g_note_y;
+static uint8_t g_note_on, g_note_x, g_note_y, g_note_furn;
 
 /* ---- the investigation: in-room puzzles, fed by clues from notes ---------- */
 enum { PZ_SAFE, PZ_KEYPAD, PZ_CLOCK, PZ_GLOBE, PZ_PIANO, PZ_CANDLES, PZ_TILES,
@@ -159,7 +159,7 @@ static int8_t   g_plate_under = -1;
 static uint8_t  g_census_room = 0xFF, g_census_kind, g_census_count;
 static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook, 2 satchel */
 /* the Classroom's pattern lessons */
-typedef struct { uint8_t shape, size, fill, count, rot, sat; } IqCell;
+typedef struct { uint8_t shape, size, fill, count, rot, sat, outer, osize; } IqCell;
 static IqCell  g_iq_seq[3], g_iq_opt[4];
 static uint8_t g_iq_answer, g_iq_round, g_iq_attempt, g_iq_sel, g_iq_failed;
 /* solved puzzles open a floor hatch; the prizes wait beside it */
@@ -240,7 +240,8 @@ static int prop_surface(int p) {
     return p == P_TABLE || p == P_DESK || p == P_COUNTER || p == P_BED_BLUE ||
            p == P_BED_RED || p == P_SHELF_BIG || p == P_SHELF_SMALL ||
            p == P_WORKBENCH || p == P_MAP_TABLE || p == P_BENCH || p == P_CRATE ||
-           p == P_BARREL;
+           p == P_BARREL || p == P_SOFA || p == P_CHAIR || p == P_ARMCHAIR ||
+           p == P_SNOOKER;
 }
 
 static int prop_wall_mounted(int p) {
@@ -604,6 +605,24 @@ static void roll_room_finds(int gi) {
     g_note_on = !corridor && !(cl->extra & 2) && cl->room != R_ANTE && gi != START_GI &&
                 (int)(hash32(g_day_seed ^ (uint32_t)(gi * 69069u) ^ 0x407E3u) % 100u) < note_pct &&
                 seeded_spot(gi, 0x407Eu, &g_note_x, &g_note_y);
+    g_note_furn = 0;
+    if (g_note_on) {                         /* the note would rather sit on furniture */
+        int surf[MAX_ROOM_PROPS], nsurf = 0;
+        for (int i = 0; i < g_nprops && nsurf < MAX_ROOM_PROPS; i++)
+            if (prop_surface(g_props_cur[i].prop)) surf[nsurf++] = i;
+        if (nsurf) {
+            int n_ev = 0;                    /* evidence claims surfaces first */
+            const RoomDef *rd2 = &k_rooms[cl->room];
+            for (int i = 0; i < MAX_LOOT && rd2->loot[i] != IT_NONE; i++)
+                if (rd2->loot[i] == IT_STAR || rd2->loot[i] == IT_STAR2 || rd2->loot[i] == IT_STAR3)
+                    n_ev++;
+            const RoomProp *pr = &g_props_cur[surf[n_ev % nsurf]];
+            const PropDef *pd = &k_props[pr->prop];
+            g_note_x = (uint8_t)(pr->x + pd->fw / 2 - (n_ev >= nsurf ? 9 : 0));
+            g_note_y = (uint8_t)(pr->y + pd->fh - 10);
+            g_note_furn = 1;
+        }
+    }
     /* in-room puzzle scratch state resets on every room entry */
     g_seq_n = 0; g_seq_lit = 0; g_plate_under = -1;
     {
@@ -1248,6 +1267,12 @@ static void puzzles_deal(void) {
  * no two options may read the same. */
 
 static int iq_vis_eq(const IqCell *a, const IqCell *b) {
+    if (a->outer != b->outer) return 0;
+    if (a->outer) {                              /* container cells */
+        if (a->osize != b->osize || a->shape != b->shape) return 0;
+        if (a->shape == 2 && (a->rot & 3) != (b->rot & 3)) return 0;
+        return 1;
+    }
     if (a->shape != b->shape || a->count != b->count) return 0;
     if (a->count == 1 && a->size != b->size) return 0;
     if (a->shape == 2 && (a->rot & 3) != (b->rot & 3)) return 0;
@@ -1256,8 +1281,71 @@ static int iq_vis_eq(const IqCell *a, const IqCell *b) {
     return 1;
 }
 
+static void iq_deal(const IqCell *a, const IqCell *cand, int nc, uint32_t r) {
+    IqCell d[3];
+    int nd = 0, from = (int)((r >> 16) % (uint32_t)nc);
+    for (int k = 0; k < nc && nd < 3; k++) {
+        const IqCell *c = &cand[(from + k) % nc];
+        if (iq_vis_eq(c, a)) continue;
+        int dup = 0;
+        for (int j = 0; j < nd; j++)
+            if (iq_vis_eq(c, &d[j])) dup = 1;
+        if (!dup) d[nd++] = *c;
+    }
+    while (nd < 3) {                             /* near-unreachable safety net */
+        d[nd] = *a;
+        d[nd].shape = (uint8_t)((a->shape + nd + 1) % ((a->outer || a->fill) ? 4 : 3));
+        if (!a->outer) d[nd].fill = 1;
+        nd++;
+    }
+    g_iq_answer = (uint8_t)((r >> 13) % 4u);
+    int di = 0;
+    for (int i = 0; i < 4; i++)
+        g_iq_opt[i] = i == (int)g_iq_answer ? *a : d[di++];
+    g_iq_sel = 0;
+}
+
 static void iq_gen(void) {
     uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_iq_attempt * 977u + g_iq_round * 131u) ^ 0x1C0DEu);
+    /* half of questions 2-3: COMPOSITE cells - a hollow container whose
+     * shape and size move independently around an inner glyph with its own
+     * rule. Two moving parts on question 2, three on question 3. */
+    if (g_iq_round > 0 && ((r >> 22) & 1u)) {
+        int irule = (int)((r >> 2) % 3u);        /* inner: 0 cycle, 1 alternate, 2 spin */
+        int in0 = (int)((r >> 6) % 4u);
+        int inB = (in0 + 1 + (int)((r >> 21) % 3u)) % 4;
+        int dirI = (int)((r >> 5) & 1u);
+        int spin2 = ((r >> 20) & 1u) ? 2 : 1;
+        int ir0 = (int)((r >> 9) % 4u);
+        int out0 = 1 + (int)((r >> 8) & 1u);     /* 1 square box, 2 diamond box */
+        int alt_out, alt_sz;
+        if (g_iq_round == 1) { alt_out = (int)((r >> 11) & 1u); alt_sz = !alt_out; }
+        else { alt_out = 1; alt_sz = 1; }
+        IqCell t[4];
+        for (int i = 0; i < 4; i++) {
+            IqCell *c = &t[i];
+            c->count = 1; c->size = 1; c->fill = 1; c->rot = 0; c->sat = 0;
+            c->outer = (uint8_t)(alt_out ? ((i & 1) ? 3 - out0 : out0) : out0);
+            c->osize = (uint8_t)(alt_sz ? (i & 1) : 0);
+            int step = dirI ? i : 4 - i;
+            if (irule == 0)      c->shape = (uint8_t)((in0 + step) % 4);
+            else if (irule == 1) c->shape = (uint8_t)((i & 1) ? inB : in0);
+            else { c->shape = 2; c->rot = (uint8_t)((ir0 + step * spin2) % 4); }
+        }
+        memcpy(g_iq_seq, t, sizeof g_iq_seq);
+        IqCell a = t[3], cand[8];
+        int nc = 0;
+        cand[nc] = a; cand[nc].shape = t[2].shape; cand[nc].rot = t[2].rot; nc++;
+        if (irule == 2) { cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++; }
+        else            { cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 2) % 4); nc++; }
+        if (alt_out) { cand[nc] = a; cand[nc].outer = t[2].outer; nc++; }
+        else         { cand[nc] = a; cand[nc].outer = (uint8_t)(3 - a.outer); nc++; }
+        if (alt_sz)  { cand[nc] = a; cand[nc].osize = (uint8_t)!a.osize; nc++; }
+        cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 1) % 4); nc++;
+        cand[nc] = a; cand[nc].shape = (uint8_t)((a.shape + 3) % 4); nc++;
+        iq_deal(&a, cand, nc, r);
+        return;
+    }
     int nrules = g_iq_round == 0 ? 2 : 3;
     uint8_t use[3] = { 1, 1, 1 };                /* quantity, form, fill */
     if (nrules == 2) use[r % 3u] = 0;
@@ -1288,7 +1376,7 @@ static void iq_gen(void) {
     for (int i = 0; i < 4; i++) {
         IqCell *c = &t[i];
         c->count = 1; c->size = (uint8_t)sz0; c->fill = (uint8_t)f0;
-        c->rot = 0; c->sat = 0;
+        c->rot = 0; c->sat = 0; c->outer = 0; c->osize = 0;
         c->shape = (uint8_t)((use[1] && frule == 1) ? 2 : s0);
         if (use[0]) {
             if (q_is_count) { c->count = (uint8_t)(dir_q ? 1 + i : 4 - i); c->size = 0; }
@@ -1341,27 +1429,7 @@ static void iq_gen(void) {
         cand[nc].shape = (uint8_t)((a.shape + k) % (a.fill ? 4 : 3));
         nc++;
     }
-    IqCell d[3];
-    int nd = 0, from = (int)((r >> 16) % (uint32_t)nc);
-    for (int k = 0; k < nc && nd < 3; k++) {
-        IqCell *c = &cand[(from + k) % nc];
-        if (iq_vis_eq(c, &a)) continue;
-        int dup = 0;
-        for (int j = 0; j < nd; j++)
-            if (iq_vis_eq(c, &d[j])) dup = 1;
-        if (!dup) d[nd++] = *c;
-    }
-    while (nd < 3) {                             /* near-unreachable safety net */
-        d[nd] = a;
-        d[nd].shape = (uint8_t)((a.shape + nd + 1) % (a.fill ? 4 : 3));
-        d[nd].fill = 1;
-        nd++;
-    }
-    g_iq_answer = (uint8_t)((r >> 13) % 4u);
-    int di = 0;
-    for (int i = 0; i < 4; i++)
-        g_iq_opt[i] = i == (int)g_iq_answer ? t[3] : d[di++];
-    g_iq_sel = 0;
+    iq_deal(&a, cand, nc, r);
 }
 
 /* the rack's sum: balls score their snooker worth, red 1 .. black 7 */
@@ -1663,8 +1731,8 @@ static void pickups_tick(void) {
             }
         }
     }
-    /* the crumpled note is a walk-over pickup too */
-    if (g_note_on && g_px - 5 < g_note_x + 6 && g_px + 5 > g_note_x - 6 &&
+    /* floor notes are walk-over; furniture notes want an A nearby */
+    if (g_note_on && !g_note_furn && g_px - 5 < g_note_x + 6 && g_px + 5 > g_note_x - 6 &&
         g_py - 5 < g_note_y + 6 && g_py + 5 > g_note_y - 6)
         read_note();
     /* pressure plates: the Great Hall's step-order puzzle */
@@ -2074,6 +2142,11 @@ static void player_tick(float dt) {
                 used = 1;
             }
         }
+        /* a crumpled note on the furniture */
+        if (!used && g_note_on && g_note_furn) {
+            float dxn = g_px - g_note_x, dyn = g_py - g_note_y;
+            if (dxn * dxn + dyn * dyn <= 26 * 26) { read_note(); used = 1; }
+        }
         /* seal levers */
         for (int k = 0; !used && k < 3; k++) {
             if (g_lever_gi[k] != g_cur) continue;
@@ -2227,10 +2300,21 @@ static void room_draw(void) {
             }
         }
     }
-    /* crumpled clue note */
-    if (g_note_on)
-        add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12,
-                3 + ((g_note_y + 6) >> 3), 0);
+    /* crumpled clue note (furniture notes draw above their prop) */
+    if (g_note_on) {
+        int nl = 3 + ((g_note_y + 6) >> 3);
+        if (g_note_furn)
+            for (int k = 0; k < g_nprops; k++) {
+                const PropDef *pd = &k_props[g_props_cur[k].prop];
+                if (!prop_surface(g_props_cur[k].prop)) continue;
+                if (g_note_x >= g_props_cur[k].x && g_note_x < g_props_cur[k].x + pd->fw &&
+                    g_note_y >= g_props_cur[k].y && g_note_y < g_props_cur[k].y + pd->fh) {
+                    nl = 3 + ((g_props_cur[k].y + pd->fh) >> 3) + 1;
+                    break;
+                }
+            }
+        add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12, nl, 0);
+    }
     /* seal levers (thrown = handle laid over, lamp goes green) */
     for (int k = 0; k < 3; k++)
         if (g_lever_gi[k] == g_cur) {
@@ -2809,6 +2893,14 @@ static void iq_shape(uint16_t *fb, int cx, int cy, int shape, int s, int rot, ui
 
 static void iq_cell_draw(uint16_t *fb, int cx, int cy, const IqCell *c) {
     uint16_t col = rgb(240, 240, 250), bg = rgb(24, 30, 58);
+    if (c->outer) {                              /* hollow container + inner glyph */
+        int s = 11 + 2 * c->osize;
+        int osh = c->outer == 1 ? 0 : 1;
+        iq_shape(fb, cx, cy, osh, s, 0, col);
+        iq_shape(fb, cx, cy, osh, s - 4, 0, bg);
+        iq_shape(fb, cx, cy, c->shape, 5, c->rot, col);
+        return;
+    }
     if (c->count == 1) {
         int s = 5 + 2 * c->size;
         iq_shape(fb, cx, cy, c->shape, s, c->rot, col);
@@ -3142,8 +3234,9 @@ static void notebook_draw(uint16_t *fb) {
         shown++;
     }
     if (!shown) {
-        mote->text(fb, "CRUMPLED NOTES HOLD CLUES.", 8, 44, rgb(150, 165, 205));
-        mote->text(fb, "PUZZLES WAIT IN THE ROOMS.", 8, 54, rgb(150, 165, 205));
+        mote->text(fb, "NO CLUES YET.", 8, 44, rgb(150, 165, 205));
+        mote->text(fb, "LOOK FOR CRUMPLED NOTES", 8, 56, rgb(150, 165, 205));
+        mote->text(fb, "LEFT ON THE FURNITURE.", 8, 66, rgb(150, 165, 205));
     }
     snprintf(b, sizeof b, "PUZZLES SOLVED %d/%d", solved, PZ_N);
     mote_ftextc(mote, fb, f, 64, 114, rgb(190, 205, 240), b);
