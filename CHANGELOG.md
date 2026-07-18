@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.19-alpha — author your own autotile rules · TerraMote co-op
+
+**The Studio's Tiles tab can now author rules beyond blob-47.** When a tileset carries
+raw-mask rules the 47-cell template can't express — diagonal roof slopes, wall corner
+cuts — the rules panel shows them under a **"Blob 47+"** tab: each extra rule's 3×3
+neighbour conditions (require / forbid / any) can be viewed, edited by clicking through
+the states, and **"+ rule"** adds a new rule onto a free sheet cell. This is the same
+mechanism TerraMote's self-shaping roofs use — now editable for any game, entirely in
+the sidecar (no engine change).
+
+**Big projects list fully.** Three hard caps that silently truncated listings are gone:
+the file-explorer tree (300 rows — TerraMote alone has 304 files, so `tilesets/` cut off
+mid-list), per-folder scanning (128 entries), and the Tiles tab's open-picker (12
+tilesets). Now 1200 / 512 / 64.
+
+**TerraMote 1.3.3 — collaborative co-op.** Invite a friend into **your saved world**
+over USB cable, LAN or internet: the whole map streams to them in seconds, they bring
+their own character, and you mine, build and fight the night together — shared drops,
+shared chests, enemies that hunt whichever of you is closer. Since 0.18 TerraMote also
+gained the full **house-building set** (back walls, glass windows, self-shaping roof
+slopes, beams, bricks — plus wood/iron **hammers** to unbuild), ScrapWing-style
+**rounded terrain**, per-world mountain skylines, hitchless incremental saving with an
+autosave setting, and a stack of fixes (doors, backdrop, drops).
+
+**ThumbPrince joins the bundle in source (in development)** — a Blue Prince-style
+room-drafting roguelike wearing a crowned-thumbprint mark. Draft rooms, manage steps,
+find the key, reach the Antechamber.
+
 ## 0.18-alpha — Studio fits small screens
 
 **Mote Studio now starts maximized, filling the screen** instead of opening a fixed
