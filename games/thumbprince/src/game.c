@@ -146,7 +146,8 @@ static uint8_t g_note_on, g_note_x, g_note_y;
 
 /* ---- the investigation: in-room puzzles, fed by clues from notes ---------- */
 enum { PZ_SAFE, PZ_KEYPAD, PZ_CLOCK, PZ_GLOBE, PZ_PIANO, PZ_CANDLES, PZ_TILES,
-       PZ_STATUES, PZ_BOOK, PZ_PORTRAIT, PZ_WINE, PZ_SCALES, PZ_CENSUS, PZ_CHESS, PZ_N };
+       PZ_STATUES, PZ_BOOK, PZ_PORTRAIT, PZ_WINE, PZ_SCALES, PZ_CENSUS, PZ_CHESS,
+       PZ_SNOOKER, PZ_N };
 static uint16_t g_pz_solved, g_pz_clue;     /* per-type bits, reset each day */
 static uint8_t  g_pz_sec[PZ_N][4];          /* seeded per-day secrets */
 static uint8_t  g_pz_active, g_pz_stage;    /* GS_PUZZLE overlay */
@@ -216,11 +217,11 @@ static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img }
 static int prop_no_collide(int p) {
     return p == P_RUG || p == P_PAINTING || p == P_WINDOW ||
            p == P_PAINTING_V || p == P_WINDOW_V || p == P_PLATE ||
-           p == P_BANNER || p == P_BANNER_V;
+           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V;
 }
 static int prop_wall_mounted(int p) {
     return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V ||
-           p == P_BANNER || p == P_BANNER_V;
+           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V;
 }
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
 static const MoteAutotile *k_floors[9] = {
@@ -261,6 +262,7 @@ static int prop_of_char(char ch) {
     case 'Q': return P_HARP;       case 'V': return P_BANNER;
     case 'z': return P_FERN;       case 'E': return P_PEDESTAL;
     case 'X': return P_BOOKSTACK;  case '1': return P_SNOOKER;
+    case '2': return P_RACK;
     }
     return -1;
 }
@@ -479,6 +481,10 @@ static void parse_room_props(int gi) {
             int p = prop_of_char(ch);
             if (p >= 0 && g_nprops < MAX_ROOM_PROPS) {
                 int px = tx * TILE, py = ty * TILE;
+                if (p == P_SNOOKER) {          /* the table owns the room: centred */
+                    px = (ROOM_PX - k_props[p].fw) / 2;
+                    py = (ROOM_PX - k_props[p].fh) / 2;
+                }
                 if (prop_wall_mounted(p)) {
                     /* 16x8 band sprites: snap into the nearest wall band,
                      * rotated variant on the side walls — and never over
@@ -487,7 +493,8 @@ static void parse_room_props(int gi) {
                     else if (ty == ROOM_T - 2) py = ROOM_PX - 8;
                     else if (tx == 1) { px = 0;
                         p = p == P_PAINTING ? P_PAINTING_V
-                          : p == P_BANNER ? P_BANNER_V : P_WINDOW_V; }
+                          : p == P_BANNER ? P_BANNER_V
+                          : p == P_RACK ? P_RACK_V : P_WINDOW_V; }
                     else if (tx == ROOM_T - 2) { px = ROOM_PX - 8;
                         p = p == P_PAINTING ? P_PAINTING_V
                           : p == P_BANNER ? P_BANNER_V : P_WINDOW_V; }
@@ -1095,12 +1102,12 @@ static const uint8_t k_pz_room[PZ_N] = {
     [PZ_GLOBE] = R_DRAWING,   [PZ_PIANO] = R_MUSIC,       [PZ_CANDLES] = R_CHAPEL,
     [PZ_TILES] = R_GREATHALL, [PZ_STATUES] = R_ROTUNDA,   [PZ_BOOK] = R_LIBRARY,
     [PZ_PORTRAIT] = R_GALLERY, [PZ_WINE] = R_WINECELLAR,  [PZ_SCALES] = R_PANTRY,
-    [PZ_CENSUS] = R_NOOK,     [PZ_CHESS] = R_GAMES,
+    [PZ_CENSUS] = R_NOOK,     [PZ_CHESS] = R_GAMES,   [PZ_SNOOKER] = R_BILLIARDS,
 };
 static const char *k_pz_name[PZ_N] = {
     "THE SAFE", "THE KEYPAD", "THE CLOCK", "THE GLOBE", "THE PIANO",
     "THE CANDLES", "THE PLATES", "THE STATUES", "THE BOOKSHELF", "THE PORTRAITS",
-    "THE WINE RACK", "THE SCALES", "THE CENSUS", "THE CHESSBOARD",
+    "THE WINE RACK", "THE SCALES", "THE CENSUS", "THE CHESSBOARD", "THE BALL RACK",
 };
 static const char *k_head8[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
 static const char *k_books[4] = { "RED", "BLUE", "GREEN", "GOLD" };
@@ -1149,6 +1156,19 @@ static void puzzles_deal(void) {
     g_pz_sec[PZ_SCALES][0] %= 3;
     g_pz_sec[PZ_CHESS][0] %= 4;                                /* piece */
     g_pz_sec[PZ_CHESS][1] %= 8; g_pz_sec[PZ_CHESS][2] %= 8;    /* file A-H, rank 1-8 */
+    g_pz_sec[PZ_SNOOKER][0] %= 7;                              /* ball, ball, op */
+    g_pz_sec[PZ_SNOOKER][1] %= 3;
+    g_pz_sec[PZ_SNOOKER][2] %= 7;
+}
+
+/* the rack's sum: balls score their snooker worth, red 1 .. black 7 */
+static int snooker_answer(void) {
+    int a = g_pz_sec[PZ_SNOOKER][0] + 1, b = g_pz_sec[PZ_SNOOKER][2] + 1;
+    switch (g_pz_sec[PZ_SNOOKER][1]) {
+    case 0:  return a + b;
+    case 1:  return a > b ? a - b : b - a;
+    default: return a * b;
+    }
 }
 
 static void pz_clue_text(int i, char *b, int cap) {
@@ -1172,6 +1192,7 @@ static void pz_clue_text(int i, char *b, int cap) {
     case PZ_WINE:    snprintf(b, cap, "DRAW THE %s", k_wines[s[0]]); break;
     case PZ_SCALES:  snprintf(b, cap, "WEIGH %s", k_weighs[s[0]]); break;
     case PZ_CHESS:   snprintf(b, cap, "%s TO %c%d", k_pieces[s[0]], 'A' + s[1], s[2] + 1); break;
+    case PZ_SNOOKER: snprintf(b, cap, "RED IS 1 BLACK IS 7"); break;
     default:         snprintf(b, cap, "THE ESTATE IS THE CLUE"); break;
     }
 }
@@ -1220,6 +1241,7 @@ static void pz_dials(int pz, int *n, uint8_t *dmax) {
                      *n = 1; dmax[0] = 4; break;
     case PZ_SCALES:  *n = 1; dmax[0] = 3; break;
     case PZ_CHESS:   *n = 3; dmax[0] = 4; dmax[1] = dmax[2] = 8; break;
+    case PZ_SNOOKER: *n = 2; dmax[0] = 5; dmax[1] = 10; break;
     default:         *n = 0; break;
     }
 }
@@ -1248,6 +1270,7 @@ static int pz_dials_right(int pz) {
     case PZ_CLOCK:  return g_pz_dval[0] + 1 == s[0];
     case PZ_CENSUS: return g_pz_dval[0] == g_census_count;
     case PZ_CHESS:  return g_pz_dval[0] == s[0] && g_pz_dval[1] == s[1] && g_pz_dval[2] == s[2];
+    case PZ_SNOOKER: return g_pz_dval[0] * 10 + g_pz_dval[1] == snooker_answer();
     default:        return g_pz_dval[0] == s[0];
     }
 }
@@ -1288,6 +1311,8 @@ static void pz_solve(int pz) {
                      toast("THE LEDGER BALANCES +100"); toast("+3 GOLD"); break;
     case PZ_CHESS:   g_gems++; score_add(SC_BONUS, 100);
                      toast("CHECKMATE +100"); toast("+1 GEM"); break;
+    case PZ_SNOOKER: g_gold += 5; score_add(SC_BONUS, 100);
+                     toast("THE RACK CLICKS OPEN +100"); toast("+5 GOLD"); break;
     }
     goal_progress(GO_PUZZLES, 1, 0);
     goal_check_held();
@@ -1642,7 +1667,7 @@ static int puzzle_interact(void) {
         [PZ_SAFE] = P_SAFE, [PZ_KEYPAD] = P_KEYPAD, [PZ_CLOCK] = P_CLOCK,
         [PZ_GLOBE] = P_GLOBE, [PZ_PIANO] = P_PIANO, [PZ_BOOK] = P_SHELF_BIG,
         [PZ_PORTRAIT] = P_LECTERN, [PZ_WINE] = P_WINERACK, [PZ_SCALES] = P_SCALES,
-        [PZ_CENSUS] = P_LECTERN, [PZ_CHESS] = P_CHESSBOARD,
+        [PZ_CENSUS] = P_LECTERN, [PZ_CHESS] = P_CHESSBOARD, [PZ_SNOOKER] = P_RACK,
     };
     if (prop_near_nth(k_anchor[pz], 24) < 0) return 0;
     if (solved) { toast("NOTHING MORE HERE"); return 1; }
@@ -2408,6 +2433,29 @@ static void puzzle_draw(uint16_t *fb) {
             mote_ftextc(mote, fb, f, 64, 31, rgb(190, 205, 240), b);
             snprintf(b, sizeof b, "IN THE %s", k_rooms[g_census_room].name);
             mote_ftextc(mote, fb, f, 64, 42, rgb(190, 205, 240), b);
+            dy = 56;
+        }
+        if (pz == PZ_SNOOKER) {                      /* the rack's sum, in balls */
+            static const uint16_t k_ball[7] = {
+                MOTE_RGB565(200, 40, 34),  MOTE_RGB565(232, 202, 54),
+                MOTE_RGB565(64, 182, 84),  MOTE_RGB565(150, 90, 45),
+                MOTE_RGB565(70, 120, 220), MOTE_RGB565(242, 142, 172),
+                MOTE_RGB565(26, 22, 26),
+            };
+            static const uint8_t k_ball_row[7][2] = {
+                { 2, 3 }, { 1, 5 }, { 0, 7 }, { 0, 7 }, { 0, 7 }, { 1, 5 }, { 2, 3 } };
+            static const char *k_op[3] = { "+", "-", "X" };
+            const uint8_t *sc = g_pz_sec[PZ_SNOOKER];
+            int bxs[2] = { 30, 58 }, bi[2] = { sc[0], sc[2] };
+            for (int k = 0; k < 2; k++) {
+                mote->draw_rect(fb, bxs[k], 30, 12, 12, rgb(24, 74, 44), 1, 0, 128);
+                for (int ry = 0; ry < 7; ry++)
+                    mote->draw_rect(fb, bxs[k] + 2 + k_ball_row[ry][0], 32 + ry,
+                                    k_ball_row[ry][1], 1, k_ball[bi[k]], 1, 0, 128);
+            }
+            mote_ftextc(mote, fb, f, 50, 32, rgb(240, 240, 250), k_op[sc[1]]);
+            mote_ftextc(mote, fb, f, 78, 32, rgb(240, 240, 250), "=");
+            mote_ftextc(mote, fb, f, 92, 32, rgb(150, 165, 205), "?");
             dy = 56;
         }
         int bw = n > 2 ? 24 : 34;

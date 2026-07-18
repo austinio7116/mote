@@ -603,10 +603,10 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_BILLIARDS] = { "SNOOKER RM", SH_L, 1, 0, FL_WOOD_DARK, WL_RED, C565(44, 150, 84), 0, 0, 0, 0, 25,
         "#######"
-        "#M...i#"
-        "#1....#"
+        "#.2...#"
+        "#.1...#"
         "#.....#"
-        "#.R..n#"
+        "#.....#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 };

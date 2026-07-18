@@ -546,20 +546,45 @@ p.rect(3, 10, 6, 14, (140, 144, 158))                              # column
 p.rect(2, 15, 7, 16, (104, 108, 120))
 add("pedestal", p)
 
-# ---- snooker table (28x16) — green baize, mahogany rails ----
-p = P(28, 16)
-p.rect(1, 1, 26, 12, (96, 62, 34))                                 # rails
-p.hl(2, 25, 1, (128, 86, 48))
-p.rect(3, 3, 24, 10, (34, 118, 62))                                # baize
-p.hl(4, 23, 3, (44, 140, 76))
-for (cx, cy) in ((2, 2), (25, 2), (2, 11), (25, 11), (13, 2), (13, 11)):
-    p.px(cx, cy, (24, 18, 16)); p.px(cx + (1 if cx < 14 else -1), cy, (24, 18, 16))  # pockets
-p.px(8, 7, (236, 236, 240))                                        # cue ball
-for (bx, by) in ((17, 6), (18, 7), (17, 8), (19, 6), (19, 8)):
-    p.px(bx, by, (190, 40, 34))                                    # reds
-p.px(18, 5, (30, 26, 30))                                          # the black
-p.rect(2, 13, 4, 14, (70, 44, 24)); p.rect(23, 13, 25, 14, (70, 44, 24))
+# ---- snooker table (56x32) — full-size centrepiece, true ball layout:
+# baulk colours on the line, blue on centre spot, pink, 6-red triangle,
+# black on its spot ----
+p = P(56, 32)
+p.rect(0, 0, 55, 29, (96, 62, 34))                                 # mahogany body
+p.hl(1, 54, 0, (128, 86, 48))
+p.rect(3, 3, 52, 26, (34, 118, 62))                                # baize
+p.hl(4, 51, 3, (44, 140, 76))
+for (cx, cy) in ((3, 3), (51, 3), (3, 25), (51, 25)):              # corner pockets
+    p.rect(cx, cy, cx + 1, cy + 1, (20, 16, 14))
+p.rect(27, 3, 28, 3, (20, 16, 14))                                 # middle pockets
+p.rect(27, 26, 28, 26, (20, 16, 14))
+p.vl(14, 4, 25, (56, 152, 84))                                     # baulk line
+for (dx, dy) in ((12, 12), (11, 14), (11, 15), (12, 17)):          # the D
+    p.px(dx, dy, (56, 152, 84))
+p.px(14, 10, (232, 202, 54))                                       # yellow
+p.px(14, 19, (64, 182, 84))                                        # green
+p.px(14, 14, (150, 90, 45))                                        # brown
+p.px(28, 14, (70, 120, 220))                                       # blue, centre spot
+p.px(38, 14, (242, 142, 172))                                      # pink
+for (bx, by) in ((41, 14), (43, 13), (43, 15), (45, 12), (45, 14), (45, 16)):
+    p.px(bx, by, (200, 40, 34))                                    # 6 reds, triangle
+p.px(49, 14, (26, 22, 26))                                         # black on its spot
+p.px(9, 13, (240, 240, 245))                                       # cue ball in the D
+p.rect(2, 30, 5, 31, (70, 44, 24)); p.rect(50, 30, 53, 31, (70, 44, 24))
 add("snooker", p)
+
+# ---- snooker ball rack (16x8 wall band): the seven balls on a shelf ----
+p = P(16, 8)
+p.rect(0, 0, 15, 7, (110, 74, 42))
+p.hl(1, 14, 0, (150, 104, 58))
+p.hl(1, 14, 6, (84, 52, 30))
+BALLS = [(200, 40, 34), (232, 202, 54), (64, 182, 84), (150, 90, 45),
+         (70, 120, 220), (242, 142, 172), (26, 22, 26)]
+for i, c in enumerate(BALLS):
+    p.px(1 + i * 2, 3, c); p.px(1 + i * 2, 4, c)
+add("rack", p)
+pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
+add("rack_v", pv)
 
 # ---- stack of books (12x10) ----
 p = P(12, 10)
