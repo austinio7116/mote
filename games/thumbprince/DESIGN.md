@@ -10,7 +10,7 @@ before you run out of steps — with arcade scoring all the way.
 - **Estate grid: 5 × 8 cells.** Entrance Hall pre-placed bottom-centre (2,7).
   The **Antechamber** is pre-marked top-centre (2,0) behind a **triple-locked
   gold door** (3 keys at once, or the Master Key). Entering it WINS the day.
-- **Steps = the clock.** You start with 50. Every doorway you walk through
+- **Steps = the clock.** You start with 20 — every doorway counts. Every doorway you walk through
   costs 1 step. 0 steps → the day ends where you stand (results screen).
   Food and rest rooms restore steps.
 - Run ends → score tally → new day, fresh empty grid, fresh resources.

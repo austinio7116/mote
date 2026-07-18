@@ -64,7 +64,7 @@ enum { GS_TITLE, GS_PLAY, GS_DRAFT, GS_SHOP, GS_MAP, GS_PAUSE, GS_RESULTS };
 #define ROOM_PX (ROOM_T * TILE)             /* 112 */
 #define ORG_X 8                             /* interior position on screen */
 #define ORG_Y 16
-#define START_STEPS 50
+#define START_STEPS 20
 #define MAX_LOOT 6
 #define MAX_ROOM_PROPS 10
 
