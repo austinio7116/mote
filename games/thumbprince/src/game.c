@@ -441,15 +441,16 @@ static void parse_room_props(int gi) {
             for (int cx = 1; cx < WGRID - 1; cx++)
                 g_wgrid[cy][cx] = 1;
         uint8_t doors = g_grid[gi].doors;
-        for (int cy = 6; cy <= 7; cy++)                       /* the crossing */
-            for (int cx = 6; cx <= 7; cx++)
+        for (int cy = 4; cy <= 9; cy++)                       /* the crossing */
+            for (int cx = 4; cx <= 9; cx++)
                 g_wgrid[cy][cx] = 0;
-        for (int v = 1; v <= 7; v++) {
-            if (doors & DBIT(DIR_N)) g_wgrid[v][6] = g_wgrid[v][7] = 0;
-            if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 1 - v][6] = g_wgrid[WGRID - 1 - v][7] = 0;
-            if (doors & DBIT(DIR_W)) g_wgrid[6][v] = g_wgrid[7][v] = 0;
-            if (doors & DBIT(DIR_E)) g_wgrid[6][WGRID - 1 - v] = g_wgrid[7][WGRID - 1 - v] = 0;
-        }
+        for (int v = 1; v <= 9; v++)                          /* 3-tile-wide walks */
+            for (int w = 4; w <= 9; w++) {
+                if (doors & DBIT(DIR_N)) g_wgrid[v][w] = 0;
+                if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 1 - v][w] = 0;
+                if (doors & DBIT(DIR_W)) g_wgrid[w][v] = 0;
+                if (doors & DBIT(DIR_E)) g_wgrid[w][WGRID - 1 - v] = 0;
+            }
     }
     roll_room_finds(gi);
 }
