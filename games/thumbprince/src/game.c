@@ -1574,28 +1574,37 @@ static void draft_draw_a(uint16_t *fb) {
         mote->text(fb, l1, 74, ty + 1, bc); ty += 8;
         if (l2[0]) { mote->text(fb, l2, 74, ty + 1, bc); ty += 8; }
     }
-    int cx = 74;
-    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, ty + 2, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, ty + 2, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
-    if (!afford) mote->text_font(fb, f, "!", cx + 2, ty + 1, rgb(255, 110, 90));
+    if (!afford) mote->text_font(fb, f, "!", 118, 6, rgb(255, 110, 90));
 
-    /* the gem purse, above the hand */
-    char buf[8];
-    snprintf(buf, sizeof buf, "%d", g_gems);
-    mote->blit(fb, &items_img, 76, 64, 2 * 12, 0, 12, 12, 0, 0, 128);
-    mote->text_font(fb, f, buf, 89, 62, rgb(140, 240, 220));
+    /* resources, bottom left under the map */
+    {
+        char buf[8];
+        static const uint8_t rc[3] = { 1, 2, 0 };          /* key, gem, gold */
+        int vals[3] = { g_keys, g_gems, g_gold };
+        int x = 6;
+        for (int i = 0; i < 3; i++) {
+            mote->blit(fb, &items_img, x, 115, rc[i] * 12, 0, 12, 12, 0, 0, 128);
+            snprintf(buf, sizeof buf, "%d", vals[i]);
+            x = mote->text_font(fb, f, buf, x + 13, 114,
+                                i == 0 ? rgb(240, 220, 140) : i == 1 ? rgb(140, 240, 220)
+                                       : rgb(250, 210, 110)) + 8;
+        }
+    }
 
-    /* the hand: 2x2 grid of small miniatures, bottom right */
+    /* the hand: a vertical list of miniatures, each cost to its right */
     for (int i = 0; i < g_draft_n; i++) {
         const RoomDef *cd = &k_rooms[g_cards[i]];
         uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
         int sel = i == g_draft_sel;
-        int x = 78 + (i % 2) * 24, y = 78 + (i / 2) * 23 - (sel ? 2 : 0);
-        if (sel) mote->draw_rect(fb, x - 2, y - 2, 24, 24, rgb(255, 230, 120), 0, 0, 128);
-        room_icon(fb, x, y, 20, g_cards[i], mask, sel);
+        int x = 78, y = 46 + i * 20;
+        if (sel) mote->draw_rect(fb, x - 2, y - 2, 22, 22, rgb(255, 230, 120), 0, 0, 128);
+        room_icon(fb, x, y, 18, g_cards[i], mask, sel);
+        mote->draw_rect(fb, x + 18, y, 2, 18, k_rarity_col[cd->rarity], 1, 0, 128);
+        int cx = x + 24;
+        for (int c = 0; c < cd->gems; c++) { mote->blit(fb, &items_img, cx, y + 3, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+        if (cd->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, y + 3, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
         if (!card_affordable(g_cards[i]))
-            mote->blit(fb, &items_img, x + 4, y + 4, 7 * 12, 0, 12, 12, 0, 0, 128);
-        mote->draw_rect(fb, x, y + 20, 20, 2, k_rarity_col[cd->rarity], 1, 0, 128);
+            mote->blit(fb, &items_img, x + 3, y + 3, 7 * 12, 0, 12, 12, 0, 0, 128);
     }
 }
 
@@ -1643,14 +1652,10 @@ static int card_orientations(uint8_t id) {
 
 static void draft_tick(void) {
     const MoteInput *in = mote->input();
-    if (mote_just_pressed(in, MOTE_BTN_LEFT))
+    if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_LEFT))
         { g_draft_sel = (g_draft_sel + g_draft_n - 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_RIGHT))
+    if (mote_just_pressed(in, MOTE_BTN_DOWN) || mote_just_pressed(in, MOTE_BTN_RIGHT))
         { g_draft_sel = (g_draft_sel + 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-    if (mote_just_pressed(in, MOTE_BTN_UP) || mote_just_pressed(in, MOTE_BTN_DOWN)) {
-        int nsel = g_draft_sel ^ 2;                       /* the grid's other row */
-        if (nsel < g_draft_n) { g_draft_sel = nsel; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-    }
     if (g_compass) {
         int n = card_orientations(g_cards[g_draft_sel]);
         if (mote_just_pressed(in, MOTE_BTN_RB)) { g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + 1) % n); mote->audio_play_sfx(&tick_sfx, 0.7f); }
