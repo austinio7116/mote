@@ -109,21 +109,32 @@ item(7, (2961, 534, 3105, 746))            # padlock
 item(9, (3176, 541, 3321, 750))            # potion
 item(12, (1530, 720, 1610, 800))           # sack = gold pouch
 
-# a clean shiny coin replaces the lumpy nugget crop (cell 0)
+# a clean shiny coin replaces the lumpy nugget crop (cell 0) — hand-tuned
+# circle spans (radius cutoffs read octagonal at this size)
 IT.paste(Image.new("RGBA", (12, 12), (0, 0, 0, 0)), (0, 0))
-for yy in range(12):
-    for xx in range(12):
-        dx, dy = xx - 5.5, yy - 5.5
-        r2 = dx * dx + dy * dy
-        if r2 > 33:
-            continue
-        if r2 > 24:
-            IT.putpixel((xx, yy), (124, 82, 22, 255))          # dark edge
-        elif r2 > 15:
-            c = (255, 232, 140) if (dx + dy) < -1.5 else (196, 144, 40)
-            IT.putpixel((xx, yy), c + (255,))                  # rim: lit / shaded
-        else:
-            IT.putpixel((xx, yy), (240, 198, 70, 255))         # face
+SPANS = [(4, 7), (2, 9), (1, 10), (1, 10), (0, 11), (0, 11),
+         (0, 11), (0, 11), (1, 10), (1, 10), (2, 9), (4, 7)]
+disc = set()
+for yy, (x0, x1) in enumerate(SPANS):
+    for xx in range(x0, x1 + 1):
+        disc.add((xx, yy))
+edge = {p for p in disc
+        if any(q not in disc for q in ((p[0]+1, p[1]), (p[0]-1, p[1]),
+                                       (p[0], p[1]+1), (p[0], p[1]-1)))}
+inner = disc - edge
+rim = {p for p in inner
+       if any(q in edge for q in ((p[0]+1, p[1]), (p[0]-1, p[1]),
+                                  (p[0], p[1]+1), (p[0], p[1]-1),
+                                  (p[0]+1, p[1]+1), (p[0]-1, p[1]-1),
+                                  (p[0]+1, p[1]-1), (p[0]-1, p[1]+1)))}
+for (xx, yy) in disc:
+    if (xx, yy) in edge:
+        c = (124, 82, 22)                                      # dark edge
+    elif (xx, yy) in rim:
+        c = (255, 232, 140) if (xx + yy) < 10 else (196, 144, 40)   # lit / shaded rim
+    else:
+        c = (240, 198, 70)                                     # face
+    IT.putpixel((xx, yy), c + (255,))
 for (sx, sy) in ((4, 3), (3, 4), (4, 4)):                      # glint
     IT.putpixel((sx, sy), (255, 246, 190, 255))
 for (sx, sy) in ((7, 8), (8, 7)):                              # under-shade

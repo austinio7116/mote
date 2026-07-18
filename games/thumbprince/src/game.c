@@ -2010,6 +2010,9 @@ static void paper(uint16_t *fb) {
     mote->draw_rect(fb, 3, 3, 122, 122, rgb(44, 66, 124), 0, 0, 128);
 }
 
+static const uint16_t k_rarity_col[3] = { 0x8410, 0x2E9F, 0xFD00 };
+static const char *k_rarity_name[3] = { "COMMON", "UNCOMMON", "RARE" };
+
 /* miniature render of a room: real floor texture, wall ring, door gaps, and
  * the room's own furniture blitted at miniature scale */
 static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t mask, int bright) {
@@ -2040,7 +2043,9 @@ static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t m
             mote->blit_ex(fb, k_prop_sheets[pd->sheet], cx, cy,
                           pd->fx, pd->fy, pd->fw, pd->fh, 0.0f, pscale, MOTE_BLEND_NONE, 0, 128);
         }
-    uint16_t wc = bright ? rgb(180, 190, 214) : rgb(110, 120, 148);
+    /* the wall ring wears the rarity colour (dimmed when unselected) */
+    uint16_t wc = k_rarity_col[d->rarity];
+    if (!bright) wc = (uint16_t)((wc >> 1) & 0x7BEF);
     mote->draw_rect(fb, x, y, s, 2, wc, 1, 0, 128);
     mote->draw_rect(fb, x, y + s - 2, s, 2, wc, 1, 0, 128);
     mote->draw_rect(fb, x, y, 2, s, wc, 1, 0, 128);
@@ -2099,8 +2104,6 @@ static void draft_footer(uint16_t *fb, const MoteFont *f) {
     mote->text_font(fb, f, hint, 36, 115, rgb(150, 165, 205));
 }
 
-static const uint16_t k_rarity_col[3] = { 0x8410, 0x2E9F, 0xFD00 };
-static const char *k_rarity_name[3] = { "COMMON", "UNCOMMON", "RARE" };
 
 /* split a string onto two short lines (prefer a space break) */
 static void wrap2(const char *src, int maxc, char *l1, char *l2, int cap) {
@@ -2168,7 +2171,6 @@ static void draft_draw_a(uint16_t *fb) {
             int x = 74, y = y0 + i * step;
             if (sel) mote->draw_rect(fb, x - 2, y - 2, ts + 4, ts + 4, rgb(255, 230, 120), 0, 0, 128);
             room_icon(fb, x, y, ts, g_cards[i], mask, sel);
-            mote->draw_rect(fb, x + ts, y, 2, ts, k_rarity_col[cd->rarity], 1, 0, 128);
             int cx = x + ts + 6;
             int cy = y + (ts - 12) / 2;
             for (int c = 0; c < cd->gems; c++) { mote->blit(fb, &items_img, cx, cy, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
