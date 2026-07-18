@@ -430,13 +430,21 @@ static void parse_room_props(int gi) {
                 int px = tx * TILE, py = ty * TILE;
                 if (prop_wall_mounted(p)) {
                     /* 16x8 band sprites: snap into the nearest wall band,
-                     * rotated variant on the side walls */
+                     * rotated variant on the side walls — and never over
+                     * the door strip at the band's centre */
                     if (ty == 1)      py = 0;
                     else if (ty == ROOM_T - 2) py = ROOM_PX - 8;
                     else if (tx == 1) { px = 0;
                         p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
                     else if (tx == ROOM_T - 2) { px = ROOM_PX - 8;
                         p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
+                    if (py == 0 || py == ROOM_PX - 8) {
+                        if (px > 32 && px < 64) px = 32;
+                        else if (px >= 64 && px < 80) px = 64 + 16;
+                    } else {
+                        if (py > 32 && py < 64) py = 32;
+                        else if (py >= 64 && py < 80) py = 64 + 16;
+                    }
                 }
                 g_props_cur[g_nprops].prop = (uint8_t)p;
                 g_props_cur[g_nprops].x = (uint8_t)px;
@@ -1585,9 +1593,9 @@ static void draft_draw_a(uint16_t *fb) {
         for (int i = 0; i < 3; i++) {
             mote->blit(fb, &items_img, x, 109, rc[i] * 12, 0, 12, 12, 0, 0, 128);
             snprintf(buf, sizeof buf, "%d", vals[i]);
-            x = mote->text_font(fb, f, buf, x + 13, 108,
+            x = mote->text_font(fb, f, buf, x + 12, 108,
                                 i == 0 ? rgb(240, 220, 140) : i == 1 ? rgb(140, 240, 220)
-                                       : rgb(250, 210, 110)) + 8;
+                                       : rgb(250, 210, 110)) + 3;
         }
     }
 
