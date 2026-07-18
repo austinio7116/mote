@@ -350,14 +350,32 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
             case E_ZOMBIE: if ((mote_rand() % 5) == 0) drops_add(I_LENS, 1, e->x, e->y); break;
             case E_EYE:    drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y); break;
             case E_SKELETON: if ((mote_rand() % 4) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y); break;
-            case E_SLIME_SAND: drops_add(I_GEL, 1 + (mote_rand() % 2), e->x, e->y);
-                               if ((mote_rand() % 6) == 0) drops_add(I_SAND, 1, e->x, e->y); break;
-            case E_HORNET: if ((mote_rand() % 3) == 0) drops_add(I_GEL, 1, e->x, e->y); break;
-            case E_CRAWLER: if ((mote_rand() % 4) == 0) drops_add(I_LENS, 1, e->x, e->y); break;
-            case E_EATER:  if ((mote_rand() % 2) == 0) drops_add(I_LENS, 1, e->x, e->y);
-                           if ((mote_rand() % 8) == 0) drops_add(I_DEMONITE_ORE, 1, e->x, e->y); break;
-            case E_WRAITH: if ((mote_rand() % 3) == 0) drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y);
-                           if ((mote_rand() % 10) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y); break;
+            /* the new enemies each pay out a THEMED haul worth seeking, not the
+             * basic gel/lens of the starter mobs */
+            case E_SLIME_SAND:                                  /* desert: gel + sand + a little copper */
+                drops_add(I_GEL, 2 + (mote_rand() % 3), e->x, e->y);
+                drops_add(I_SAND, 1 + (mote_rand() % 2), e->x, e->y);
+                if ((mote_rand() % 5) == 0) drops_add(I_COPPER_ORE, 1, e->x, e->y);
+                break;
+            case E_HORNET:                                      /* fast pest: heals + a quiver of arrows */
+                drops_add(I_ARROW, 2 + (mote_rand() % 4), e->x, e->y);
+                if ((mote_rand() % 2) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y);
+                break;
+            case E_CRAWLER:                                     /* cave beetle: a mining supplement */
+                if ((mote_rand() % 3) == 0) drops_add(I_IRON_ORE, 1 + (mote_rand() % 2), e->x, e->y);
+                if ((mote_rand() % 6) == 0) drops_add(I_GOLD_ORE, 1, e->x, e->y);
+                if ((mote_rand() % 3) == 0) drops_add(I_GEL, 1, e->x, e->y);
+                break;
+            case E_EATER:                                       /* corruption guardian: lenses + demonite */
+                drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y);
+                if ((mote_rand() % 2) == 0) drops_add(I_DEMONITE_ORE, 1 + (mote_rand() % 2), e->x, e->y);
+                break;
+            case E_WRAITH:                                      /* deep prize: gold, heals, rare life crystal */
+                drops_add(I_GOLD_ORE, 1 + (mote_rand() % 3), e->x, e->y);
+                if ((mote_rand() % 2) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y);
+                if ((mote_rand() % 5) == 0) drops_add(I_GOLD_BAR, 1, e->x, e->y);
+                if ((mote_rand() % 16) == 0) drops_add(I_LIFE_CRYSTAL, 1, e->x, e->y);
+                break;
             case E_BOSS_EOC:
                 drops_add(I_DEMONITE_ORE, 28 + (mote_rand() % 8), e->x, e->y);
                 drops_add(I_LENS, 4, e->x - 10, e->y);
