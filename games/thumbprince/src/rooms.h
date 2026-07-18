@@ -53,7 +53,7 @@ enum {
     FL_WOOD = 0, FL_STONE, FL_RED, FL_BLUE, FL_GRASS, FL_CHECKER,
     FL_WOOD_DARK, FL_LEAFY, FL_AUTUMN,
 };
-enum { WL_STONE = 0, WL_RED, WL_DARK };      /* walls_* rule sheets */
+enum { WL_STONE = 0, WL_RED, WL_DARK, WL_HEDGE };  /* walls_* rule sheets */
 
 typedef struct {
     const char *name;               /* fits the draft card: keep <= 11 chars */
@@ -82,6 +82,7 @@ enum {
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
     R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR, R_BILLIARDS, R_CLASSROOM,
+    R_DARKROOM, R_MAZE,
     R_COUNT,
 };
 
@@ -618,6 +619,24 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#n..n.#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_DARKROOM] = { "DARK ROOM", SH_X, 1, 0, FL_WOOD_DARK, WL_DARK, C565(52, 36, 62), 0, 0, 0, 0, 0,
+        "#######"
+        "#w...r#"
+        "#.....#"
+        "#.....#"
+        "#q....#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_MAZE] = { "MAZE GARDEN", SH_T, 1, 0, FL_GRASS, WL_HEDGE, C565(70, 160, 60), RF_GREEN | RF_CORRIDOR, 0, 0, 1, 0,
+        "#######"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#.....#"
+        "#######", { IT_GEM, IT_COIN, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

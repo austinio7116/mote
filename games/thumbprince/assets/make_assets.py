@@ -117,6 +117,7 @@ WALLS = {
     "stone": ((126, 128, 140), (104, 106, 118), (84, 86, 98),  (56, 58, 68)),
     "red":   ((178, 92, 60),   (150, 72, 46),   (122, 56, 38), (78, 40, 30)),
     "dark":  ((96, 88, 100),   (78, 72, 84),    (62, 56, 68),  (40, 36, 46)),
+    "hedge": ((124, 186, 96),  (86, 148, 70),   (62, 116, 54), (38, 78, 40)),
 }
 
 def brick8(pal):
@@ -136,9 +137,20 @@ def brick8(pal):
             t.putpixel((x, y), snap(c)[:3])
     return t
 
-def wall_sheet8(pal):
+def leaf8(pal):
+    """dense clipped hedge: leaf clusters in four greens, no courses"""
+    li, mid, dk, deep = pal
+    t = Image.new("RGB", (8, 8))
+    for y in range(8):
+        for x in range(8):
+            h = (x * 7 + y * 13 + ((x * y) % 5)) % 9
+            c = li if h == 0 else mid if h < 4 else dk if h < 7 else deep
+            t.putpixel((x, y), snap(c)[:3])
+    return t
+
+def wall_sheet8(pal, leafy=False):
     li, mid, dk, mortar = pal
-    base = brick8(pal)
+    base = leaf8(pal) if leafy else brick8(pal)
     sheet = Image.new("RGB", (32, 32))
     for m in range(16):                    # cell = neighbour mask N|E<<1|S<<2|W<<3
         cell = base.copy()
@@ -165,7 +177,7 @@ for m in range(256):
     if m & W: c |= 8
     lut.append(c)
 for name, pal in WALLS.items():
-    wall_sheet8(pal).save(os.path.join(HERE, "walls_%s.png" % name))
+    wall_sheet8(pal, leafy=(name == "hedge")).save(os.path.join(HERE, "walls_%s.png" % name))
     with open(os.path.join(TILESETS, "walls_%s.tileset" % name), "w") as f:
         f.write("sheet assets/walls_%s.png\n" % name)
         f.write("tile 8\ntype 1\nedge 0\nnvar 1\ncols 4\nrows 4\n")

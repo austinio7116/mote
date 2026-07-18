@@ -31,6 +31,7 @@ MOTE_MODULE_HEADER();
 #include "walls_stone.tiles.h"
 #include "walls_red.tiles.h"
 #include "walls_dark.tiles.h"
+#include "walls_hedge.tiles.h"
 #include "doors.h"
 #include "props_sheet.h"
 #include "props_auth.h"
@@ -176,6 +177,7 @@ static float   g_slot_t;
 static char    g_slot_msg[24];
 
 /* seal days: the golden door needs three thrown levers instead of 3 keys */
+static uint8_t g_blind_draft;               /* darkroom flash: next offer is face-down */
 static uint8_t g_seal_day, g_seal_thrown;
 static int8_t  g_lever_gi[3];
 static uint8_t g_lever_ord[3], g_lever_x[3], g_lever_y[3];
@@ -198,6 +200,7 @@ static const char *g_force_rooms;           /* DRAFT_ROOMS test hook */
 static uint8_t g_force_dig;                 /* DRAFT_DIG=1: digs+notes everywhere */
 
 static int puzzle_of_room(uint8_t room);
+static int reveal_clue(uint32_t r);
 
 static void toast(const char *msg) {
     if (g_toast_n >= 3) {                              /* full: drop the oldest */
@@ -237,7 +240,7 @@ static int prop_wall_mounted(int p) {
            p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V ||
            p == P_BLACKBOARD || p == P_BLACKBOARD_V;
 }
-static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
+static const MoteAutotile *k_walls[4] = { &walls_stone_at, &walls_red_at, &walls_dark_at, &walls_hedge_at };
 static const MoteAutotile *k_floors[9] = {
     &floor_wood_at, &floor_stone_tile_at, &floor_red_carpet_at, &floor_blue_carpet_at,
     &floor_grass_at, &floor_white_checker_at, &floor_wood_dark_at, &floor_grass_leafy_at,
@@ -403,6 +406,7 @@ static const char *k_blurb[R_COUNT] = {
     [R_APOTHECARY] = "TONIC SHOP",  [R_MUSIC] = "THE PIANO",
     [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
     [R_BILLIARDS] = "+25, STAR",    [R_CLASSROOM] = "THE IQ TEST",
+    [R_DARKROOM] = "CLUE + BLIND",  [R_MAZE] = "GREEN MAZE",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -537,16 +541,30 @@ static void parse_room_props(int gi) {
             for (int cx = 1; cx < WGRID - 1; cx++)
                 g_wgrid[cy][cx] = 1;
         uint8_t doors = g_grid[gi].doors;
-        for (int cy = 4; cy <= 9; cy++)                       /* the crossing */
-            for (int cx = 4; cx <= 9; cx++)
-                g_wgrid[cy][cx] = 0;
-        for (int v = 1; v <= 9; v++)                          /* 3-tile-wide walks */
-            for (int w = 4; w <= 9; w++) {
-                if (doors & DBIT(DIR_N)) g_wgrid[v][w] = 0;
-                if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 1 - v][w] = 0;
-                if (doors & DBIT(DIR_W)) g_wgrid[w][v] = 0;
-                if (doors & DBIT(DIR_E)) g_wgrid[w][WGRID - 1 - v] = 0;
+        if (g_grid[gi].room == R_MAZE) {
+            /* hedge maze: a ring walk looping a clipped hedge island */
+            for (int cy = 2; cy <= 11; cy++)
+                for (int cx = 2; cx <= 11; cx++)
+                    if (!(cx >= 5 && cx <= 8 && cy >= 5 && cy <= 8))
+                        g_wgrid[cy][cx] = 0;
+            for (int w = 5; w <= 8; w++) {
+                if (doors & DBIT(DIR_N)) g_wgrid[1][w] = 0;
+                if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 2][w] = 0;
+                if (doors & DBIT(DIR_W)) g_wgrid[w][1] = 0;
+                if (doors & DBIT(DIR_E)) g_wgrid[w][WGRID - 2] = 0;
             }
+        } else {
+            for (int cy = 4; cy <= 9; cy++)                   /* the crossing */
+                for (int cx = 4; cx <= 9; cx++)
+                    g_wgrid[cy][cx] = 0;
+            for (int v = 1; v <= 9; v++)                      /* 3-tile-wide walks */
+                for (int w = 4; w <= 9; w++) {
+                    if (doors & DBIT(DIR_N)) g_wgrid[v][w] = 0;
+                    if (doors & DBIT(DIR_S)) g_wgrid[WGRID - 1 - v][w] = 0;
+                    if (doors & DBIT(DIR_W)) g_wgrid[w][v] = 0;
+                    if (doors & DBIT(DIR_E)) g_wgrid[w][WGRID - 1 - v] = 0;
+                }
+        }
     }
     roll_room_finds(gi);
 }
@@ -746,6 +764,14 @@ static void apply_entry_effects(int gi) {
         mote->audio_play_sfx(&star_sfx, 1.0f);
         toast("A SPADE! DIG THE SPARKLES");
     }
+    if (cl->room == R_DARKROOM) {
+        /* groping in the dark turns up a clue - but your eyes pay for it */
+        if (!reveal_clue(hash32(g_day_seed ^ 0xDA2C00u)))
+            { score_add(SC_LOOT, 25); toast("SOMETHING IN THE DARK +25"); }
+        g_blind_draft = 1;
+        toast("DAZZLED: NEXT DRAFT BLIND");
+        mote->audio_play_sfx(&locked_sfx, 0.8f);
+    }
 }
 
 static void end_day(int won) {
@@ -943,6 +969,7 @@ static void place_card(int slot) {
         g_chain = 0;
         toast("CHAIN BROKEN");
     }
+    g_blind_draft = 0;
     g_state = GS_PLAY;
     enter_room(g_draft_gi, g_draft_entry);
 }
@@ -1450,12 +1477,9 @@ static void pz_penalty(void) {
     if (g_steps <= 0) { g_steps = 0; g_state = GS_PLAY; end_day(0); }
 }
 
-/* read a crumpled note: it names one puzzle's secret (drafted rooms first) */
-static void read_note(void) {
-    Cell *cl = &g_grid[g_cur];
-    cl->extra |= 2;
-    g_note_on = 0;
-    uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_cur * 30269u) ^ 0x2071u);
+/* reveal one unsolved puzzle's secret into the notebook (drafted rooms
+ * first); 0 if every clue is already out */
+static int reveal_clue(uint32_t r) {
     int pick = -1, seen = 0;
     for (int pass = 0; pass < 2 && pick < 0; pass++) {
         seen = 0;
@@ -1473,17 +1497,25 @@ static void read_note(void) {
             if ((int)(r % (uint32_t)seen) == 0) pick = i;
         }
     }
-    if (pick < 0) {
-        score_add(SC_LOOT, 10);
-        toast("THE NOTE IS FADED +10");
-        return;
-    }
+    if (pick < 0) return 0;
     g_pz_clue |= (uint16_t)(1 << pick);
     char b[40];
     pz_clue_text(pick, b, sizeof b);
     toast("A CLUE FOR THE NOTEBOOK:");
     toast(b);
     mote->audio_play_sfx(&tick_sfx, 0.9f);
+    return 1;
+}
+
+/* read a crumpled note */
+static void read_note(void) {
+    Cell *cl = &g_grid[g_cur];
+    cl->extra |= 2;
+    g_note_on = 0;
+    if (!reveal_clue(hash32(g_day_seed ^ (uint32_t)(g_cur * 30269u) ^ 0x2071u))) {
+        score_add(SC_LOOT, 10);
+        toast("THE NOTE IS FADED +10");
+    }
 }
 
 /* ------------------------------------------------------------------ pickups -- */
@@ -1658,7 +1690,7 @@ static void day_start(void) {
     memset(g_secret, 0, sizeof g_secret);
     memset(g_prize_item, 0, sizeof g_prize_item);
     memset(g_prize_left, 0, sizeof g_prize_left);
-    g_hatch_t = 99; g_iq_attempt = 0;
+    g_hatch_t = 99; g_iq_attempt = 0; g_blind_draft = 0;
     g_map_page = 0; g_slot_pulls = 0; g_slot_spinning = 0; g_slot_done = 0;
     g_day_seed = mote_rand();
     puzzles_deal();
@@ -2287,8 +2319,10 @@ static void estate_map(uint16_t *fb, int ox, int oy, int cw, int ch, int target_
         const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
         uint8_t mask = orient_mask(d->shape, g_draft_entry, g_rot[g_draft_sel]);
         int on = ((int)(g_result_t * 3) & 1) == 0;
+        if (g_blind_draft) mask = 0;             /* the flash hides doors too */
         mote->draw_rect(fb, x + 1, y + 1, cw - 3, ch - 3,
-                        on ? d->map_col : rgb(40, 56, 100), 1, 0, 128);
+                        g_blind_draft ? rgb(56, 66, 96) : on ? d->map_col : rgb(40, 56, 100),
+                        1, 0, 128);
         uint16_t pip = rgb(255, 255, 255);
         int mx = cw / 2 - 1, my = ch / 2 - 1;
         if (mask & DBIT(DIR_N)) mote->draw_rect(fb, x + mx, y, 2, 2, pip, 1, 0, 128);
@@ -2335,6 +2369,11 @@ static void draft_draw_a(uint16_t *fb) {
     int afford = card_affordable(g_cards[g_draft_sel]);
     char l1[14], l2[14];
     uint16_t nc = afford ? rgb(250, 250, 255) : rgb(120, 120, 132);
+    if (g_blind_draft) {
+        mote->text_font(fb, f, "? ? ?", 74, 6, rgb(150, 165, 205));
+        mote->text(fb, "EYES STILL", 74, 20, rgb(120, 135, 175));
+        mote->text(fb, "ADJUSTING", 74, 29, rgb(120, 135, 175));
+    } else {
     wrap2(d->name, 8, l1, l2, sizeof l1);
     int ty = 6;
     mote->text_font(fb, f, l1, 74, ty, nc); ty += 11;
@@ -2345,6 +2384,7 @@ static void draft_draw_a(uint16_t *fb) {
         uint16_t bc = afford ? rgb(180, 200, 240) : rgb(110, 110, 122);
         mote->text(fb, l1, 74, ty + 1, bc); ty += 8;
         if (l2[0]) { mote->text(fb, l2, 74, ty + 1, bc); ty += 8; }
+    }
     }
     if (!afford) mote->text_font(fb, f, "!", 118, 6, rgb(255, 110, 90));
 
@@ -2376,7 +2416,14 @@ static void draft_draw_a(uint16_t *fb) {
             int sel = i == g_draft_sel;
             int x = 74, y = y0 + i * step;
             if (sel) mote->draw_rect(fb, x - 2, y - 2, ts + 4, ts + 4, rgb(255, 230, 120), 0, 0, 128);
-            room_icon(fb, x, y, ts, g_cards[i], mask, sel);
+            if (g_blind_draft) {
+                mote->draw_rect(fb, x, y, ts, ts, rgb(26, 34, 66), 1, 0, 128);
+                mote->draw_rect(fb, x, y, ts, ts, sel ? rgb(150, 165, 205) : rgb(52, 74, 130), 0, 0, 128);
+                mote->draw_rect(fb, x + 3, y + 3, ts - 6, ts - 6, rgb(38, 50, 92), 0, 0, 128);
+                mote_ftextc(mote, fb, f, x + ts / 2, y + (ts - 10) / 2, rgb(150, 165, 205), "?");
+            } else {
+                room_icon(fb, x, y, ts, g_cards[i], mask, sel);
+            }
             int cx = x + ts + 6;
             int cy = y + (ts - 12) / 2;
             for (int c = 0; c < cd->gems; c++) { mote->blit(fb, &items_img, cx, cy, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
@@ -2403,9 +2450,14 @@ static void draft_draw_b(uint16_t *fb) {
         int afford = card_affordable(g_cards[i]);
         mote->draw_rect(fb, x, y, w, ch, sel ? rgb(24, 36, 78) : rgb(15, 23, 54), 1, 0, 128);
         mote->draw_rect(fb, x, y, w, ch, sel ? rgb(255, 230, 120) : rgb(52, 74, 130), 0, 0, 128);
-        room_icon(fb, x + 2, y + (ch - 20) / 2, 20, g_cards[i], mask, sel);
+        if (g_blind_draft) {
+            mote->draw_rect(fb, x + 2, y + (ch - 20) / 2, 20, 20, rgb(26, 34, 66), 1, 0, 128);
+            mote_ftextc(mote, fb, f, x + 12, y + (ch - 20) / 2 + 5, rgb(150, 165, 205), "?");
+        } else {
+            room_icon(fb, x + 2, y + (ch - 20) / 2, 20, g_cards[i], mask, sel);
+        }
         uint16_t nc = afford ? rgb(250, 250, 255) : rgb(110, 110, 122);
-        mote->text_font(fb, f, d->name, x + 24, y + 1, nc);
+        mote->text_font(fb, f, g_blind_draft ? "? ? ?" : d->name, x + 24, y + 1, nc);
         if (ch > 24 && k_blurb[g_cards[i]])
             mote->text_font(fb, f, k_blurb[g_cards[i]], x + 24, y + 15,
                             afford ? rgb(165, 190, 235) : rgb(95, 95, 108));
@@ -2725,10 +2777,13 @@ static void puzzle_draw(uint16_t *fb) {
             const uint8_t *sc = g_pz_sec[PZ_SNOOKER];
             int bxs[2] = { 30, 58 }, bi[2] = { sc[0], sc[2] };
             for (int k = 0; k < 2; k++) {
-                mote->draw_rect(fb, bxs[k], 30, 12, 12, rgb(24, 74, 44), 1, 0, 128);
+                uint16_t c = k_ball[bi[k]];
+                uint16_t shade = (uint16_t)(((c >> 1) & 0x7BEF) + ((c >> 2) & 0x39E7));
                 for (int ry = 0; ry < 7; ry++)
                     mote->draw_rect(fb, bxs[k] + 2 + k_ball_row[ry][0], 32 + ry,
-                                    k_ball_row[ry][1], 1, k_ball[bi[k]], 1, 0, 128);
+                                    k_ball_row[ry][1], 1, ry >= 5 ? shade : c, 1, 0, 128);
+                mote->draw_rect(fb, bxs[k] + 4, 33, 1, 1, rgb(255, 255, 255), 1, 0, 128);
+                mote->draw_rect(fb, bxs[k] + 5, 34, 1, 1, rgb(255, 255, 255), 1, 0, 128);
             }
             mote_ftextc(mote, fb, f, 50, 32, rgb(240, 240, 250), k_op[sc[1]]);
             mote_ftextc(mote, fb, f, 78, 32, rgb(240, 240, 250), "=");
@@ -3240,6 +3295,21 @@ static void g_overlay(uint16_t *fb) {
     case GS_SLOTS:   hud_draw(fb); slots_draw(fb); return;
     case GS_CASE:    case_draw(fb); return;
     default:
+        /* the Dark Room: a narrow ring of sight, pitch black past it */
+        if (g_grid[g_cur].room == R_DARKROOM) {
+            int pcx = ORG_X + (int)g_px, pcy = ORG_Y + (int)g_py;
+            for (int y = ORG_Y; y < 128; y++)
+                for (int x = 0; x < 128; x++) {
+                    int dx = x - pcx, dy = y - pcy;
+                    int d2 = dx * dx + dy * dy;
+                    if (d2 <= 24 * 24) continue;
+                    uint16_t p = fb[y * 128 + x];
+                    p = (uint16_t)((p >> 1) & 0x7BEF);
+                    if (d2 > 34 * 34) p = (uint16_t)((p >> 2) & 0x39E7);
+                    else if (d2 > 28 * 28) p = (uint16_t)((p >> 1) & 0x7BEF);
+                    fb[y * 128 + x] = p;
+                }
+        }
         /* unsolved sequence puzzles wear their markings */
         {
             int room = g_grid[g_cur].room;
