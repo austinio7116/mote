@@ -179,6 +179,7 @@ static char    g_slot_msg[24];
 
 /* seal days: the golden door needs three thrown levers instead of 3 keys */
 static uint8_t g_blind_draft;               /* darkroom flash: next offer is face-down */
+static uint8_t g_survey;                    /* 0 none, 1 half, 2 grand, 3 full */
 static uint8_t g_seal_day, g_seal_thrown;
 static int8_t  g_lever_gi[3];
 static uint8_t g_lever_ord[3], g_lever_x[3], g_lever_y[3];
@@ -308,6 +309,7 @@ static const uint8_t k_tag[R_COUNT] = {
     [R_SCULLERY] = TAG_FOOD, [R_BUNK] = TAG_REST, [R_GAMES] = TAG_REST,
     [R_BANQUET] = TAG_FOOD, [R_ROTUNDA] = TAG_GRAND,
     [R_BILLIARDS] = TAG_REST, [R_MUSIC] = TAG_GRAND, [R_CLASSROOM] = TAG_BOOK,
+    [R_BUTLER] = TAG_FOOD, [R_LINEN] = TAG_BATH, [R_SPA] = TAG_BATH,
 };
 typedef struct { uint8_t a, b; uint8_t pts; const char *name; } ComboDef;
 static const ComboDef k_combos[] = {
@@ -417,6 +419,8 @@ static const char *k_blurb[R_COUNT] = {
     [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
     [R_BILLIARDS] = "+25, PROOF",    [R_CLASSROOM] = "THE IQ TEST",
     [R_DARKROOM] = "CLUE + BLIND",  [R_MAZE] = "GREEN MAZE",
+    [R_BUTLER] = "KEY/SERVANT",     [R_LINEN] = "+3ST/BEDRM",
+    [R_SPA] = "REST TO 40",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -813,6 +817,40 @@ static void apply_entry_effects(int gi) {
         mote->audio_play_sfx(&star_sfx, 1.0f);
         toast("A SPADE! DIG THE SPARKLES");
     }
+    if (cl->room == R_BUTLER) {
+        /* the butler knows the staff: a key for every servant room drafted */
+        static const uint8_t k_servants[6] = { R_KITCHEN, R_PANTRY, R_SCULLERY,
+                                               R_LAUNDRY, R_SERVHALL, R_BUNK };
+        int n = 0;
+        for (int i = 0; i < GRID_W * GRID_H; i++)
+            for (int k = 0; k < 6; k++)
+                if (g_grid[i].room == k_servants[k]) n++;
+        if (n) {
+            g_keys += n;
+            mote->audio_play_sfx(&key_sfx, 1.0f);
+            toastf("THE BUTLER: +%d KEYS", n);
+        } else toast("THE BUTLER FINDS NO STAFF");
+    }
+    if (cl->room == R_LINEN) {
+        /* fresh sheets: +3 steps for every bedroom on the blueprint */
+        static const uint8_t k_beds[4] = { R_BEDROOM, R_SUITE, R_GUEST, R_BUNK };
+        int n = 0;
+        for (int i = 0; i < GRID_W * GRID_H; i++)
+            for (int k = 0; k < 4; k++)
+                if (g_grid[i].room == k_beds[k]) n++;
+        if (n) {
+            g_steps += 3 * n;
+            mote->audio_play_sfx(&food_sfx, 0.9f);
+            toastf("FRESH LINEN: +%d STEPS", 3 * n);
+        } else toast("NO BEDS TO MAKE");
+    }
+    if (cl->room == R_SPA) {
+        if (g_steps < 40) {
+            g_steps = 40;
+            mote->audio_play_sfx(&food_sfx, 1.0f);
+            toast("A LONG SOAK: 40 STEPS");
+        } else toast("ALREADY WELL RESTED");
+    }
     if (cl->room == R_DARKROOM) {
         /* groping in the dark turns up a clue - but your eyes pay for it */
         if (!reveal_clue(hash32(g_day_seed ^ 0xDA2C00u)))
@@ -1006,6 +1044,18 @@ static void place_card(int slot) {
         mote->audio_play_sfx(&row_sfx, 1.0f);
         goal_progress(GO_RANKS, 1, 0);
     }
+    /* file complete: a full column, the whole climb */
+    {
+        int cc = gi_col(g_draft_gi), colfull = 1;
+        for (int rr = 0; rr < GRID_H; rr++)
+            if (g_grid[rr * GRID_W + cc].room == 0xFF) colfull = 0;
+        if (colfull) {
+            bonus += 250;
+            hits++;
+            toast("FILE COMPLETE +250");
+            mote->audio_play_sfx(&row_sfx, 1.0f);
+        }
+    }
     /* chain: bonus placements build the multiplier, dry ones break it */
     if (hits) {
         score_add(SC_BONUS, bonus * (uint32_t)mult);
@@ -1017,6 +1067,13 @@ static void place_card(int slot) {
     } else if (g_chain) {
         g_chain = 0;
         toast("CHAIN BROKEN");
+    }
+    /* survey milestones: cells filled out of 40 */
+    {
+        int filled = g_rooms_placed + 2;
+        if (filled == 20)      { g_survey = 1; score_add(SC_BONUS, 200); toast("HALF SURVEY +200"); mote->audio_play_sfx(&star_sfx, 1.0f); }
+        else if (filled == 30) { g_survey = 2; score_add(SC_BONUS, 500); toast("GRAND SURVEY +500"); mote->audio_play_sfx(&star_sfx, 1.0f); }
+        else if (filled == 40) { g_survey = 3; score_add(SC_BONUS, 1500); toast("FULL SURVEY +1500!"); mote->audio_play_sfx(&win_sfx, 1.0f); }
     }
     g_blind_draft = 0;
     g_state = GS_PLAY;
@@ -1944,7 +2001,7 @@ static void day_start(void) {
     g_chain = 0;
     g_spade = 0; g_keycard = 0; g_override = 0; g_power_off = 0;
     g_sc_rooms = g_sc_loot = g_sc_bonus = g_sc_goal = 0; g_sc_win = 0;
-    g_won = 0; g_rooms_placed = 0;
+    g_won = 0; g_rooms_placed = 0; g_survey = 0;
     g_new_best = 0; g_frag_new = 0;
     g_toast_n = 0; g_toast_t = 0;
     memset(g_secret, 0, sizeof g_secret);
@@ -3492,6 +3549,11 @@ static void results_draw(uint16_t *fb) {
         mote->text_font(fb, f, cat[i], 16, y, rgb(170, 185, 220));
         snprintf(buf, sizeof buf, "%u", (unsigned)vals[i]);
         mote->text_font(fb, f, buf, 82, y, rgb(220, 225, 245));
+        y += 11;
+    }
+    if (g_survey) {
+        static const char *k_sv[4] = { "", "HALF SURVEY", "GRAND SURVEY", "FULL SURVEY" };
+        mote->text_font(fb, f, k_sv[g_survey], 16, y, rgb(250, 220, 110));
         y += 11;
     }
     snprintf(buf, sizeof buf, "SCORE %u", (unsigned)g_score);

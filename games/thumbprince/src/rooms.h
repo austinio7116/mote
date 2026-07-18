@@ -82,7 +82,7 @@ enum {
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
     R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR, R_BILLIARDS, R_CLASSROOM,
-    R_DARKROOM, R_MAZE,
+    R_DARKROOM, R_MAZE, R_BUTLER, R_LINEN, R_SPA,
     R_COUNT,
 };
 
@@ -637,6 +637,33 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#.....#"
         "#######", { IT_GEM, IT_COIN, 0 } },
+
+    [R_BUTLER] = { "BUTLERS RM", SH_STR, 1, 0, FL_WOOD_DARK, WL_STONE, C565(120, 100, 150), 0, 0, 0, 0, 0,
+        "#######"
+        "#K...l#"
+        "#.....#"
+        "#.....#"
+        "#q...n#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
+
+    [R_LINEN] = { "LINEN ROOM", SH_DEAD, 1, 0, FL_CHECKER, WL_STONE, C565(200, 200, 220), 0, 0, 0, 0, 0,
+        "#######"
+        "#L...W#"
+        "#.....#"
+        "#.....#"
+        "#l....#"
+        "#.....#"
+        "#######", { IT_FOOD, IT_COIN, 0 } },
+
+    [R_SPA] = { "THE SPA", SH_DEAD, 2, 1, FL_CHECKER, WL_STONE, C565(110, 200, 220), RF_UNIQUE, 0, 0, 0, 0,
+        "#######"
+        "#U..U.#"
+        "#.....#"
+        "#.R...#"
+        "#i...i#"
+        "#.....#"
+        "#######", { IT_POTION, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */
