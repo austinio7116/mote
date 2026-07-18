@@ -2537,15 +2537,17 @@ static void slots_draw(uint16_t *fb) {
 }
 
 /* ------------------------------------------------------------- case board --- */
+/* the case, one fragment per win: someone was here before you — the house
+ * knows you — it was always you */
 static const char *k_frag[NFRAG][2] = {
-    { "NO BODY. NO WILL.",     "ONLY THE HOUSE." },
-    { "THE HALLS REDRAW",      "THEMSELVES AT DAWN." },
-    { "HIS PRINTS SIT ON",     "DOORS NEVER BUILT." },
-    { "THE STAFF ALL LEFT",    "THE SAME MORNING." },
-    { "EVERY SAFE GUARDS A",   "COPY OF ONE LETTER." },
-    { "THE LETTER NAMES NO",   "HEIR. IT SETS A TEST." },
-    { "THE ANTECHAMBER IS",    "OLDER THAN THE HOUSE." },
-    { "THE FINAL CLUE BEARS",  "MY OWN THUMBPRINT." },
+    { "THE EVIDENCE WAS",    "HANDLED BEFORE ME." },
+    { "SECURITY LOGS ONE",   "VISITOR. EVERY DAY." },
+    { "EVERY ANSWER FEELS",  "LIKE A MEMORY." },
+    { "THE SPADE TURNS UP",  "THINGS I BURIED." },
+    { "THE CRUMPLED NOTES",  "ARE IN MY OWN HAND." },
+    { "NOTHING REDRAWS",     "AT DAWN BUT ME." },
+    { "I SET THE THREE",     "SEALS MYSELF." },
+    { "THE MISSING MAN'S",   "PRINT IS MY OWN." },
 };
 static int g_case_page;
 
@@ -2569,8 +2571,8 @@ static void case_draw(uint16_t *fb) {
         mote_ftextc(mote, fb, f, 64, 72, rgb(120, 130, 160), "WIN A DAY TO UNSEAL");
     }
     if (found == NFRAG) {
-        mote_ftextc(mote, fb, f, 64, 90, rgb(250, 220, 110), "CASE CLOSED: THE HOUSE");
-        mote_ftextc(mote, fb, f, 64, 101, rgb(250, 220, 110), "WAS BUILT TO FIND ME.");
+        mote_ftextc(mote, fb, f, 64, 90, rgb(250, 220, 110), "I LEFT MY MARK ON");
+        mote_ftextc(mote, fb, f, 64, 101, rgb(250, 220, 110), "EVERY ROOM. AGAIN.");
     }
     /* page dots */
     for (int k = 0; k < NFRAG; k++)
