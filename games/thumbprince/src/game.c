@@ -155,7 +155,9 @@ static uint8_t  g_seq_n, g_seq_lit;         /* candle/plate order progress */
 static uint8_t  g_statue_face[4];
 static int8_t   g_plate_under = -1;
 static uint8_t  g_census_room = 0xFF, g_census_kind, g_census_count;
-static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook */
+static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook, 2 satchel */
+static uint8_t  g_map_cur;                  /* map-page cursor (grid index) */
+static uint8_t  g_item_cur;                 /* satchel-page cursor */
 
 /* the Parlor's one-armed bandit */
 static uint8_t g_slot_sym[3], g_slot_spinning, g_slot_done, g_slot_pulls;
@@ -1104,7 +1106,6 @@ static const char *k_faces[4] = { "THE LORD", "THE LADY", "THE HEIR", "THE COUSI
 static const char *k_wines[4] = { "'61", "'74", "'88", "'99" };
 static const char *k_weighs[3] = { "A KEY", "A GEM", "A COIN" };
 static const char *k_pieces[4] = { "KNIGHT", "ROOK", "BISHOP", "QUEEN" };
-static const char *k_squares[4] = { "RED", "GOLD", "BLACK", "WHITE" };
 static const char *k_census_nm[5] = { "WINDOWS", "PAINTINGS", "PLANTS", "CANDLES", "CRATES" };
 static const char  k_census_ch[5] = { 'O', 'P', 'p', 'i', 'q' };
 
@@ -1136,7 +1137,7 @@ static void puzzles_deal(void) {
     for (int k = 0; k < 4; k++) g_pz_sec[PZ_KEYPAD][k] %= 10;
     g_pz_sec[PZ_CLOCK][0] = (uint8_t)(1 + g_pz_sec[PZ_CLOCK][0] % 12);
     g_pz_sec[PZ_GLOBE][0] %= 8;
-    for (int k = 0; k < 4; k++) g_pz_sec[PZ_PIANO][k] %= 4;
+    for (int k = 0; k < 4; k++) g_pz_sec[PZ_PIANO][k] %= 7;   /* C D E F G A B */
     perm4(g_pz_sec[PZ_CANDLES], hash32(g_day_seed ^ 0xCA9D1Eu));
     perm4(g_pz_sec[PZ_TILES], hash32(g_day_seed ^ 0x71E5u));
     for (int k = 0; k < 4; k++) g_pz_sec[PZ_STATUES][k] %= 4;
@@ -1144,7 +1145,8 @@ static void puzzles_deal(void) {
     g_pz_sec[PZ_PORTRAIT][0] %= 4;
     g_pz_sec[PZ_WINE][0] %= 4;
     g_pz_sec[PZ_SCALES][0] %= 3;
-    g_pz_sec[PZ_CHESS][0] %= 4; g_pz_sec[PZ_CHESS][1] %= 4;
+    g_pz_sec[PZ_CHESS][0] %= 4;                                /* piece */
+    g_pz_sec[PZ_CHESS][1] %= 8; g_pz_sec[PZ_CHESS][2] %= 8;    /* file A-H, rank 1-8 */
 }
 
 static void pz_clue_text(int i, char *b, int cap) {
@@ -1155,7 +1157,8 @@ static void pz_clue_text(int i, char *b, int cap) {
     case PZ_CLOCK:   snprintf(b, cap, "CLOCK: STRIKE %d", s[0]); break;
     case PZ_GLOBE:   snprintf(b, cap, "GLOBE: SPIN TO %s", k_head8[s[0]]); break;
     case PZ_PIANO:   snprintf(b, cap, "PIANO: %c %c %c %c",
-                              "LMHT"[s[0]], "LMHT"[s[1]], "LMHT"[s[2]], "LMHT"[s[3]]); break;
+                              "CDEFGAB"[s[0]], "CDEFGAB"[s[1]],
+                              "CDEFGAB"[s[2]], "CDEFGAB"[s[3]]); break;
     case PZ_CANDLES: snprintf(b, cap, "CANDLES: %d %d %d %d",
                               s[0] + 1, s[1] + 1, s[2] + 1, s[3] + 1); break;
     case PZ_TILES:   snprintf(b, cap, "PLATES: %s %s %s %s", k_dirname[s[0]],
@@ -1166,7 +1169,7 @@ static void pz_clue_text(int i, char *b, int cap) {
     case PZ_PORTRAIT: snprintf(b, cap, "ACCUSE %s", k_faces[s[0]]); break;
     case PZ_WINE:    snprintf(b, cap, "DRAW THE %s", k_wines[s[0]]); break;
     case PZ_SCALES:  snprintf(b, cap, "WEIGH %s", k_weighs[s[0]]); break;
-    case PZ_CHESS:   snprintf(b, cap, "%s TO %s", k_pieces[s[0]], k_squares[s[1]]); break;
+    case PZ_CHESS:   snprintf(b, cap, "%s TO %c%d", k_pieces[s[0]], 'A' + s[1], s[2] + 1); break;
     default:         snprintf(b, cap, "THE ESTATE IS THE CLUE"); break;
     }
 }
@@ -1214,7 +1217,7 @@ static void pz_dials(int pz, int *n, uint8_t *dmax) {
     case PZ_BOOK: case PZ_PORTRAIT: case PZ_WINE:
                      *n = 1; dmax[0] = 4; break;
     case PZ_SCALES:  *n = 1; dmax[0] = 3; break;
-    case PZ_CHESS:   *n = 2; dmax[0] = dmax[1] = 4; break;
+    case PZ_CHESS:   *n = 3; dmax[0] = 4; dmax[1] = dmax[2] = 8; break;
     default:         *n = 0; break;
     }
 }
@@ -1226,7 +1229,10 @@ static void pz_dial_text(int pz, int dial, int val, char *b, int cap) {
     case PZ_PORTRAIT: snprintf(b, cap, "%s", k_faces[val] + 4); break;   /* drop "THE " */
     case PZ_WINE:    snprintf(b, cap, "%s", k_wines[val]); break;
     case PZ_SCALES:  snprintf(b, cap, "%s", k_weighs[val] + 2); break;   /* drop "A " */
-    case PZ_CHESS:   snprintf(b, cap, "%s", dial ? k_squares[val] : k_pieces[val]); break;
+    case PZ_CHESS:   if (dial == 0) snprintf(b, cap, "%s", k_pieces[val]);
+                     else if (dial == 1) snprintf(b, cap, "%c", 'A' + val);
+                     else snprintf(b, cap, "%d", val + 1);
+                     break;
     default:         snprintf(b, cap, "%d", val); break;
     }
 }
@@ -1239,7 +1245,7 @@ static int pz_dials_right(int pz) {
     case PZ_KEYPAD: return !memcmp(g_pz_dval, s, 4);
     case PZ_CLOCK:  return g_pz_dval[0] + 1 == s[0];
     case PZ_CENSUS: return g_pz_dval[0] == g_census_count;
-    case PZ_CHESS:  return g_pz_dval[0] == s[0] && g_pz_dval[1] == s[1];
+    case PZ_CHESS:  return g_pz_dval[0] == s[0] && g_pz_dval[1] == s[1] && g_pz_dval[2] == s[2];
     default:        return g_pz_dval[0] == s[0];
     }
 }
@@ -1688,7 +1694,12 @@ static void player_tick(float dt) {
     }
     pickups_tick();
 
-    if (mote_just_pressed(in, MOTE_BTN_RB)) { g_state = GS_MAP; mote->audio_play_sfx(&tick_sfx, 0.7f); }
+    if (mote_just_pressed(in, MOTE_BTN_RB)) {
+        g_state = GS_MAP;
+        g_map_page = 0;
+        g_map_cur = (uint8_t)g_cur;
+        mote->audio_play_sfx(&tick_sfx, 0.7f);
+    }
     if (mote_just_pressed(in, MOTE_BTN_MENU)) { g_pause_sel = 0; g_state = GS_PAUSE; }
 
     /* A: dig a sparkling spot underfoot, else open a shop counter */
@@ -1856,14 +1867,13 @@ static void room_draw(void) {
     if (g_note_on)
         add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12,
                 3 + ((g_note_y + 6) >> 3), 0);
-    /* seal levers (thrown ones flip over) */
+    /* seal levers (thrown = handle laid over, lamp goes green) */
     for (int k = 0; k < 3; k++)
         if (g_lever_gi[k] == g_cur) {
-            const PropDef *ld = &k_props[P_LEVER];
+            const PropDef *ld = &k_props[(g_seal_thrown & (1 << k)) ? P_LEVER_ON : P_LEVER];
             add_spr(k_prop_sheets[ld->sheet], g_lever_x[k] - 6, g_lever_y[k] - 8,
                     ld->fx, ld->fy, ld->fw, ld->fh,
-                    3 + (((int)g_lever_y[k] + 8) >> 3),
-                    (g_seal_thrown & (1 << k)) ? MOTE_SPR_VFLIP : 0);
+                    3 + (((int)g_lever_y[k] + 8) >> 3), 0);
         }
 
     /* player (16x20 sprite, feet at py+6; side walk is a 4-frame cycle) */
@@ -1883,6 +1893,29 @@ static uint16_t rgb(int r, int g, int b) { return MOTE_RGB565(r, g, b); }
 
 static void dim(uint16_t *fb) {
     for (int i = 0; i < 128 * 128; i++) fb[i] = (uint16_t)((fb[i] >> 1) & 0x7BEF);
+}
+
+/* darken a horizontal band to a quarter — translucent backdrop for text */
+static void dim_band(uint16_t *fb, int y0, int y1) {
+    for (int y = y0; y < y1; y++)
+        for (int x = 0; x < 128; x++) {
+            uint16_t p = fb[y * 128 + x];
+            p = (uint16_t)((p >> 1) & 0x7BEF);
+            fb[y * 128 + x] = (uint16_t)((p >> 1) & 0x7BEF);
+        }
+}
+
+/* chunky pixel arrowhead, tip at (x,y), pointing DIR_N/E/S/W */
+static void draw_arrow(uint16_t *fb, int x, int y, int dir, uint16_t c) {
+    for (int i = 0; i < 3; i++) {
+        int w = 1 + 2 * i;
+        switch (dir) {
+        case DIR_N: mote->draw_rect(fb, x - i, y + i, w, 1, c, 1, 0, 128); break;
+        case DIR_S: mote->draw_rect(fb, x - i, y - i, w, 1, c, 1, 0, 128); break;
+        case DIR_W: mote->draw_rect(fb, x + i, y - i, 1, w, c, 1, 0, 128); break;
+        default:    mote->draw_rect(fb, x - i, y - i, 1, w, c, 1, 0, 128); break;
+        }
+    }
 }
 
 static void hud_draw(uint16_t *fb) {
@@ -1924,7 +1957,7 @@ static void toast_draw(uint16_t *fb) {
     const char *s = g_toast[0];
     int len = (int)strlen(s);
     if (len <= 19) {
-        mote->draw_rect(fb, 0, 98, 128, 14, rgb(10, 12, 26), 1, 0, 128);
+        dim_band(fb, 97, 112);
         mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), s);
         return;
     }
@@ -1935,33 +1968,34 @@ static void toast_draw(uint16_t *fb) {
     char l1[40], l2[40];
     snprintf(l1, sizeof l1, "%.*s", cut, s);
     snprintf(l2, sizeof l2, "%s", s + cut + (s[cut] == ' ' ? 1 : 0));
-    mote->draw_rect(fb, 0, 86, 128, 26, rgb(10, 12, 26), 1, 0, 128);
+    dim_band(fb, 85, 112);
     mote_ftextc(mote, fb, f, 64, 87, rgb(250, 240, 190), l1);
     mote_ftextc(mote, fb, f, 64, 99, rgb(250, 240, 190), l2);
 }
 
 /* one estate cell on a blueprint panel */
-static void bp_cell(uint16_t *fb, int x, int y, int cs, int gi, int hilite) {
+/* one estate cell, cw x ch (the big map page uses wide cells) */
+static void bp_cell(uint16_t *fb, int x, int y, int cw, int ch, int gi, int hilite) {
     const Cell *cl = &g_grid[gi];
-    mote->draw_rect(fb, x, y, cs - 1, cs - 1, rgb(20, 30, 62), 1, 0, 128);
+    mote->draw_rect(fb, x, y, cw - 1, ch - 1, rgb(20, 30, 62), 1, 0, 128);
     if (cl->room != 0xFF) {
-        mote->draw_rect(fb, x + 1, y + 1, cs - 3, cs - 3, k_rooms[cl->room].map_col, 1, 0, 128);
+        mote->draw_rect(fb, x + 1, y + 1, cw - 3, ch - 3, k_rooms[cl->room].map_col, 1, 0, 128);
         /* doors as WHITE notches (dark backing keeps them visible on pale fills) */
         uint16_t pip = rgb(255, 255, 255), bk = rgb(14, 18, 34);
-        int m = cs / 2 - 1;
-        if (cl->doors & DBIT(DIR_N)) { mote->draw_rect(fb, x + m - 1, y, 4, 3, bk, 1, 0, 128);
-                                       mote->draw_rect(fb, x + m, y, 2, 2, pip, 1, 0, 128); }
-        if (cl->doors & DBIT(DIR_S)) { mote->draw_rect(fb, x + m - 1, y + cs - 4, 4, 3, bk, 1, 0, 128);
-                                       mote->draw_rect(fb, x + m, y + cs - 3, 2, 2, pip, 1, 0, 128); }
-        if (cl->doors & DBIT(DIR_W)) { mote->draw_rect(fb, x, y + m - 1, 3, 4, bk, 1, 0, 128);
-                                       mote->draw_rect(fb, x, y + m, 2, 2, pip, 1, 0, 128); }
-        if (cl->doors & DBIT(DIR_E)) { mote->draw_rect(fb, x + cs - 4, y + m - 1, 3, 4, bk, 1, 0, 128);
-                                       mote->draw_rect(fb, x + cs - 3, y + m, 2, 2, pip, 1, 0, 128); }
+        int mx = cw / 2 - 1, my = ch / 2 - 1;
+        if (cl->doors & DBIT(DIR_N)) { mote->draw_rect(fb, x + mx - 1, y, 4, 3, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + mx, y, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_S)) { mote->draw_rect(fb, x + mx - 1, y + ch - 4, 4, 3, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + mx, y + ch - 3, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_W)) { mote->draw_rect(fb, x, y + my - 1, 3, 4, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x, y + my, 2, 2, pip, 1, 0, 128); }
+        if (cl->doors & DBIT(DIR_E)) { mote->draw_rect(fb, x + cw - 4, y + my - 1, 3, 4, bk, 1, 0, 128);
+                                       mote->draw_rect(fb, x + cw - 3, y + my, 2, 2, pip, 1, 0, 128); }
     }
-    if (gi == ANTE_GI && cs >= 8)
-        mote->blit(fb, &items_img, x + (cs - 12) / 2, y + (cs - 12) / 2, 4 * 12, 0, 12, 12, 0, 0, 128);
+    if (gi == ANTE_GI && ch >= 8)
+        mote->blit(fb, &items_img, x + (cw - 12) / 2, y + (ch - 12) / 2, 4 * 12, 0, 12, 12, 0, 0, 128);
     if (hilite)
-        mote->draw_rect(fb, x - 1, y - 1, cs + 1, cs + 1, rgb(255, 255, 255), 0, 0, 128);
+        mote->draw_rect(fb, x - 1, y - 1, cw + 1, ch + 1, rgb(255, 255, 255), 0, 0, 128);
 }
 
 /* full-screen blueprint paper backdrop */
@@ -2021,30 +2055,30 @@ static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t m
 }
 
 /* the estate blueprint, with the draft target previewed live (target_gi < 0: none) */
-static void estate_map(uint16_t *fb, int ox, int oy, int cs, int target_gi) {
-    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cs + 5, GRID_H * cs + 5, rgb(10, 17, 42), 1, 0, 128);
-    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cs + 5, GRID_H * cs + 5, rgb(110, 150, 220), 0, 0, 128);
+static void estate_map(uint16_t *fb, int ox, int oy, int cw, int ch, int target_gi) {
+    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cw + 5, GRID_H * ch + 5, rgb(10, 17, 42), 1, 0, 128);
+    mote->draw_rect(fb, ox - 3, oy - 3, GRID_W * cw + 5, GRID_H * ch + 5, rgb(110, 150, 220), 0, 0, 128);
     for (int r = 0; r < GRID_H; r++)
         for (int c = 0; c < GRID_W; c++) {
             int gi = r * GRID_W + c;
             if (gi == target_gi) continue;
-            bp_cell(fb, ox + c * cs, oy + r * cs, cs, gi, gi == g_cur);
+            bp_cell(fb, ox + c * cw, oy + r * ch, cw, ch, gi, gi == g_cur);
         }
     if (target_gi >= 0) {
         int c = gi_col(target_gi), r = gi_row(target_gi);
-        int x = ox + c * cs, y = oy + r * cs;
+        int x = ox + c * cw, y = oy + r * ch;
         const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
         uint8_t mask = orient_mask(d->shape, g_draft_entry, g_rot[g_draft_sel]);
         int on = ((int)(g_result_t * 3) & 1) == 0;
-        mote->draw_rect(fb, x + 1, y + 1, cs - 3, cs - 3,
+        mote->draw_rect(fb, x + 1, y + 1, cw - 3, ch - 3,
                         on ? d->map_col : rgb(40, 56, 100), 1, 0, 128);
         uint16_t pip = rgb(255, 255, 255);
-        int m = cs / 2 - 1;
-        if (mask & DBIT(DIR_N)) mote->draw_rect(fb, x + m, y, 2, 2, pip, 1, 0, 128);
-        if (mask & DBIT(DIR_S)) mote->draw_rect(fb, x + m, y + cs - 3, 2, 2, pip, 1, 0, 128);
-        if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + m, 2, 2, pip, 1, 0, 128);
-        if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + cs - 3, y + m, 2, 2, pip, 1, 0, 128);
-        mote->draw_rect(fb, x - 1, y - 1, cs + 1, cs + 1, rgb(255, 230, 120), 0, 0, 128);
+        int mx = cw / 2 - 1, my = ch / 2 - 1;
+        if (mask & DBIT(DIR_N)) mote->draw_rect(fb, x + mx, y, 2, 2, pip, 1, 0, 128);
+        if (mask & DBIT(DIR_S)) mote->draw_rect(fb, x + mx, y + ch - 3, 2, 2, pip, 1, 0, 128);
+        if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + my, 2, 2, pip, 1, 0, 128);
+        if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + cw - 3, y + my, 2, 2, pip, 1, 0, 128);
+        mote->draw_rect(fb, x - 1, y - 1, cw + 1, ch + 1, rgb(255, 230, 120), 0, 0, 128);
     }
 }
 
@@ -2079,7 +2113,7 @@ static void wrap2(const char *src, int maxc, char *l1, char *l2, int cap) {
 static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    estate_map(fb, 8, 8, 12, g_draft_gi);
+    estate_map(fb, 8, 8, 12, 12, g_draft_gi);
 
     /* dossier: name in the readable font, details in the small one */
     const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
@@ -2144,7 +2178,7 @@ static void draft_draw_b(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
     mote->text_font(fb, f, "DRAFT", 8, 6, rgb(210, 224, 250));
-    estate_map(fb, 86, 24, 8, g_draft_gi);
+    estate_map(fb, 86, 24, 8, 8, g_draft_gi);
 
     int ch = g_draft_n == 4 ? 23 : 29;
     for (int i = 0; i < g_draft_n; i++) {
@@ -2204,42 +2238,40 @@ static void draft_tick(void) {
 }
 
 static void notebook_draw(uint16_t *fb);
+static void satchel_draw(uint16_t *fb);
+
+/* shared page furniture: LB/RB arrows + the page title */
+static void page_header(uint16_t *fb, const char *title) {
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    mote_ftextc(mote, fb, f, 64, 3, rgb(250, 240, 190), title);
+    draw_arrow(fb, 6, 8, DIR_W, rgb(150, 165, 205));
+    draw_arrow(fb, 121, 8, DIR_E, rgb(150, 165, 205));
+}
 
 static void map_draw(uint16_t *fb) {
-    if (g_map_page) { notebook_draw(fb); return; }
+    if (g_map_page == 1) { notebook_draw(fb); return; }
+    if (g_map_page == 2) { satchel_draw(fb); return; }
     paper(fb);
-    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    char buf[40];
-    snprintf(buf, sizeof buf, "DAY %d", g_days + 1);
-    mote->text_font(fb, f, buf, 8, 3, rgb(200, 210, 240));
-    mote_ftextc(mote, fb, f, 64, 3, rgb(170, 200, 250), k_conds[g_cond].name);
-    snprintf(buf, sizeof buf, "%u", (unsigned)g_score);
-    mote->text_font(fb, f, buf, 100, 3, rgb(250, 240, 190));
-    estate_map(fb, 39, 14, 10, -1);
-    tools_draw(fb, 106, 18);
-    /* seal days: lever pips beside the map */
-    if (g_seal_day) {
-        for (int k = 0; k < 3; k++)
-            mote->draw_rect(fb, 8, 20 + k * 8, 6, 6,
-                            (g_seal_thrown & (1 << k)) ? rgb(255, 230, 120) : rgb(50, 66, 110),
-                            1, 0, 128);
-        mote->text(fb, "SEALS", 4, 46, rgb(250, 220, 130));
+    page_header(fb, "THE ESTATE");
+    estate_map(fb, 19, 17, 18, 12, -1);
+    /* the browse cursor */
+    {
+        int c = gi_col(g_map_cur), r = gi_row(g_map_cur);
+        int x = 19 + c * 18, y = 17 + r * 12;
+        mote->draw_rect(fb, x - 1, y - 1, 19, 13, rgb(255, 230, 120), 0, 0, 128);
     }
-    mote->text(fb, "NOTES >", 96, 92, rgb(150, 165, 205));
-    /* the day's goals */
-    for (int i = 0; i < 2; i++) {
-        const GoalDef *gd = &k_goals[g_goal[i]];
-        int y = 103 + i * 12;
-        if (g_goal_done[i]) {
-            snprintf(buf, sizeof buf, "%s  DONE", gd->name);
-            mote->text_font(fb, f, buf, 8, y, rgb(250, 220, 110));
-        } else {
-            snprintf(buf, sizeof buf, "%s %d/%d", gd->name,
-                     g_goal_prog[i] > gd->target ? gd->target : g_goal_prog[i], gd->target);
-            mote->text_font(fb, f, buf, 8, y, rgb(190, 205, 240));
-            snprintf(buf, sizeof buf, "+%d", gd->pts);
-            mote->text_font(fb, f, buf, 102, y, rgb(150, 165, 205));
-        }
+    /* the single name line: what the cursor rests on */
+    {
+        const Cell *cl = &g_grid[g_map_cur];
+        char buf[32];
+        if (cl->room == 0xFF)
+            snprintf(buf, sizeof buf, "UNDRAFTED");
+        else if (g_map_cur == g_cur)
+            snprintf(buf, sizeof buf, "%s - HERE", k_rooms[cl->room].name);
+        else
+            snprintf(buf, sizeof buf, "%s", k_rooms[cl->room].name);
+        mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_MED), 64, 117,
+                    cl->room == 0xFF ? rgb(120, 135, 175) : rgb(240, 240, 250), buf);
     }
 }
 
@@ -2287,15 +2319,15 @@ static void puzzle_tick(void) {
         return;
     }
     if (pz == PZ_PIANO) {
-        static const float k_freq[4] = { 262.0f, 330.0f, 392.0f, 523.0f };
-        int note = -1;
-        if (mote_just_pressed(in, MOTE_BTN_LEFT))  note = 0;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN))  note = 1;
-        if (mote_just_pressed(in, MOTE_BTN_UP))    note = 2;
-        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) note = 3;
-        if (note >= 0) {
-            mote->audio_note(k_freq[note], 0.5f);
-            g_pz_dval[g_seq_n++] = (uint8_t)note;
+        /* seven real keys, C major octave; walk the keyboard and strike with A */
+        static const float k_freq[7] = { 261.6f, 293.7f, 329.6f, 349.2f, 392.0f, 440.0f, 493.9f };
+        if (mote_just_pressed(in, MOTE_BTN_LEFT) && g_pz_dsel > 0)
+            { g_pz_dsel--; mote->audio_play_sfx(&tick_sfx, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT) && g_pz_dsel < 6)
+            { g_pz_dsel++; mote->audio_play_sfx(&tick_sfx, 0.5f); }
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            mote->audio_note(k_freq[g_pz_dsel], 0.5f);
+            g_pz_dval[g_seq_n++] = g_pz_dsel;
             if (g_seq_n >= 4) {
                 if (!memcmp(g_pz_dval, g_pz_sec[PZ_PIANO], 4)) {
                     pz_solve(PZ_PIANO);
@@ -2339,43 +2371,54 @@ static void puzzle_draw(uint16_t *fb) {
     mote->draw_rect(fb, 8, 18, 112, 88, rgb(120, 140, 200), 0, 0, 128);
     mote_ftextc(mote, fb, f, 64, 21, rgb(250, 230, 150), k_pz_name[pz]);
     char b[40];
-    if (pz == PZ_CENSUS) {
-        snprintf(b, sizeof b, "COUNT %s", k_census_nm[g_census_kind]);
-        mote->text(fb, b, 14, 36, rgb(190, 205, 240));
-        snprintf(b, sizeof b, "IN THE %s", k_rooms[g_census_room].name);
-        mote->text(fb, b, 14, 45, rgb(190, 205, 240));
-    }
     if (pz == PZ_PIANO) {
-        /* four keys, dpad-labelled; the played sequence dots in below */
-        static const char *keys = "LMHT";
-        static const char *glyph[4] = { "<", "v", "^", ">" };
-        for (int i = 0; i < 4; i++) {
-            int x = 20 + i * 24;
-            mote->draw_rect(fb, x, 38, 18, 26, rgb(236, 236, 240), 1, 0, 128);
-            mote->draw_rect(fb, x, 38, 18, 26, rgb(60, 60, 80), 0, 0, 128);
-            char kb[2] = { keys[i], 0 };
-            mote->text_font(fb, f, kb, x + 6, 42, rgb(30, 30, 44));
-            mote->text(fb, glyph[i], x + 7, 55, rgb(90, 90, 110));
+        /* a real keyboard: C D E F G A B, cursor walks it, A strikes */
+        for (int i = 0; i < 7; i++) {
+            int x = 12 + i * 15;
+            int sel = i == g_pz_dsel;
+            mote->draw_rect(fb, x, 38, 13, 28, sel ? rgb(255, 244, 200) : rgb(236, 236, 240), 1, 0, 128);
+            mote->draw_rect(fb, x, 38, 13, 28, sel ? rgb(255, 230, 120) : rgb(60, 60, 80), 0, 0, 128);
+            if (i != 2 && i != 6)                    /* black-key notches (none at E-F, B-C) */
+                mote->draw_rect(fb, x + 9, 38, 7, 12, rgb(30, 30, 44), 1, 0, 128);
+            char kb[2] = { "CDEFGAB"[i], 0 };
+            mote->text_font(fb, f, kb, x + 3, 54, rgb(30, 30, 44));
+            if (sel) draw_arrow(fb, x + 6, 32, DIR_N, rgb(255, 230, 120));
         }
-        for (int i = 0; i < (int)g_seq_n; i++)
-            mote->draw_rect(fb, 50 + i * 8, 70, 5, 5, rgb(250, 220, 110), 1, 0, 128);
+        for (int i = 0; i < 4; i++) {                /* the four-note staff below */
+            int x = 46 + i * 10;
+            if (i < (int)g_seq_n)
+                mote->draw_rect(fb, x, 72, 6, 6, rgb(250, 220, 110), 1, 0, 128);
+            else
+                mote->draw_rect(fb, x, 72, 6, 6, rgb(60, 74, 120), 0, 0, 128);
+        }
     } else {
         int n = 1; uint8_t dmax[4] = { 1, 1, 1, 1 };
         pz_dials(pz, &n, dmax);
-        int bw = n > 2 ? 22 : 34;
-        int total = n * bw + (n - 1) * 6;
+        int dy = 42;
+        if (pz == PZ_CENSUS) {                       /* the question sits above the dial */
+            snprintf(b, sizeof b, "COUNT %s", k_census_nm[g_census_kind]);
+            mote_ftextc(mote, fb, f, 64, 31, rgb(190, 205, 240), b);
+            snprintf(b, sizeof b, "IN THE %s", k_rooms[g_census_room].name);
+            mote_ftextc(mote, fb, f, 64, 42, rgb(190, 205, 240), b);
+            dy = 56;
+        }
+        int bw = n > 2 ? 24 : 34;
+        if (pz == PZ_CHESS) bw = 0;                  /* mixed widths: piece wide, coords slim */
+        int total = pz == PZ_CHESS ? 46 + 6 + 18 + 6 + 18 : n * bw + (n - 1) * 6;
         int x0 = 64 - total / 2;
+        int x = x0;
         for (int i = 0; i < n; i++) {
-            int x = x0 + i * (bw + 6);
+            int w = pz == PZ_CHESS ? (i == 0 ? 46 : 18) : bw;
             int sel = i == g_pz_dsel;
-            mote->draw_rect(fb, x, 42, bw, 18, sel ? rgb(40, 50, 90) : rgb(24, 30, 58), 1, 0, 128);
-            mote->draw_rect(fb, x, 42, bw, 18, sel ? rgb(255, 230, 120) : rgb(70, 90, 150), 0, 0, 128);
+            mote->draw_rect(fb, x, dy, w, 18, sel ? rgb(40, 50, 90) : rgb(24, 30, 58), 1, 0, 128);
+            mote->draw_rect(fb, x, dy, w, 18, sel ? rgb(255, 230, 120) : rgb(70, 90, 150), 0, 0, 128);
             pz_dial_text(pz, i, g_pz_dval[i], b, sizeof b);
-            mote_ftextc(mote, fb, f, x + bw / 2, 46, rgb(240, 240, 250), b);
+            mote_ftextc(mote, fb, f, x + w / 2, dy + 4, rgb(240, 240, 250), b);
             if (sel) {
-                mote_ftextc(mote, fb, f, x + bw / 2, 32, rgb(150, 165, 205), "^");
-                mote_ftextc(mote, fb, f, x + bw / 2, 61, rgb(150, 165, 205), "v");
+                draw_arrow(fb, x + w / 2, dy - 6, DIR_N, rgb(255, 230, 120));
+                draw_arrow(fb, x + w / 2, dy + 23, DIR_S, rgb(255, 230, 120));
             }
+            x += w + 6;
         }
     }
     /* the clue, if the notebook holds it */
@@ -2388,7 +2431,7 @@ static void puzzle_draw(uint16_t *fb) {
         mote->text(fb, "THE ESTATE IS THE CLUE", 16, 81, rgb(150, 150, 170));
     }
     mote_ftextc(mote, fb, f, 64, 93, rgb(150, 165, 205),
-                pz == PZ_PIANO ? "DPAD PLAY   B LEAVE" : "A TRY   B LEAVE");
+                pz == PZ_PIANO ? "A PLAY   B LEAVE" : "A TRY   B LEAVE");
 }
 
 /* ---------------------------------------------------------- slot machine ---- */
@@ -2557,40 +2600,127 @@ static void case_tick(void) {
 static void notebook_draw(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    mote_ftextc(mote, fb, f, 64, 3, rgb(250, 240, 190), "NOTEBOOK");
+    page_header(fb, "NOTEBOOK");
     char b[44];
-    int y = 17;
-    if (g_seal_day) {
-        int c = (g_seal_thrown & 1) + ((g_seal_thrown >> 1) & 1) + ((g_seal_thrown >> 2) & 1);
-        snprintf(b, sizeof b, "DOOR SEALS THROWN %d/3", c);
-        mote->text_font(fb, f, b, 8, y, rgb(250, 220, 130));
-        y += 13;
-    }
+    int y = 20;
     int shown = 0, solved = 0;
     for (int i = 0; i < PZ_N; i++) {
         if ((g_pz_solved >> i) & 1) { solved++; continue; }
         if (!((g_pz_clue >> i) & 1)) continue;
         char c[40];
         pz_clue_text(i, c, sizeof c);
-        snprintf(b, sizeof b, "- %s", c);
-        mote->text(fb, b, 8, y, rgb(210, 220, 245));
-        y += 9;
+        mote->draw_rect(fb, 6, y - 2, 116, 11, rgb(16, 26, 58), 1, 0, 128);
+        mote->draw_rect(fb, 8, y + 1, 3, 3, rgb(250, 220, 130), 1, 0, 128);
+        mote->text(fb, c, 15, y, rgb(220, 228, 250));
+        y += 12;
         shown++;
     }
     if (g_census_room != 0xFF && !((g_pz_solved >> PZ_CENSUS) & 1)) {
-        snprintf(b, sizeof b, "- LEDGER: %s IN %s", k_census_nm[g_census_kind],
+        snprintf(b, sizeof b, "LEDGER: %s IN %s", k_census_nm[g_census_kind],
                  k_rooms[g_census_room].name);
-        mote->text(fb, b, 8, y, rgb(210, 220, 245));
-        y += 9;
+        mote->draw_rect(fb, 6, y - 2, 116, 11, rgb(16, 26, 58), 1, 0, 128);
+        mote->draw_rect(fb, 8, y + 1, 3, 3, rgb(250, 220, 130), 1, 0, 128);
+        mote->text(fb, b, 15, y, rgb(220, 228, 250));
+        y += 12;
         shown++;
     }
     if (!shown) {
-        mote->text(fb, "CRUMPLED NOTES HOLD CLUES.", 8, y, rgb(150, 165, 205));
-        mote->text(fb, "PUZZLES WAIT IN THE ROOMS.", 8, y + 9, rgb(150, 165, 205));
+        mote->text(fb, "CRUMPLED NOTES HOLD CLUES.", 8, 44, rgb(150, 165, 205));
+        mote->text(fb, "PUZZLES WAIT IN THE ROOMS.", 8, 54, rgb(150, 165, 205));
     }
     snprintf(b, sizeof b, "PUZZLES SOLVED %d/%d", solved, PZ_N);
-    mote->text_font(fb, f, b, 8, 104, rgb(190, 205, 240));
-    mote->text_font(fb, f, "< MAP", 8, 116, rgb(150, 165, 205));
+    mote_ftextc(mote, fb, f, 64, 117, rgb(190, 205, 240), b);
+}
+
+/* ---------------------------------------------------------------- satchel --- */
+static const struct { const char *name, *desc; } k_tool_info[6] = {
+    { "MASTER KEY", "OPENS EVERY LOCK" },
+    { "COMPASS",    "LB/RB TURNS OFFERS" },
+    { "SPYGLASS",   "OFFERS DEAL 4 CARDS" },
+    { "PENCIL",     "B REDRAWS FOR 1 GEM" },
+    { "KEYCARD",    "OPENS EVERY READER" },
+    { "SPADE",      "DIGS SPARKLING SPOTS" },
+};
+static const uint8_t k_tool_cell[6] = { 6, 10, 11, 13, 15, 16 };
+
+static void satchel_draw(uint16_t *fb) {
+    paper(fb);
+    const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
+    page_header(fb, "SATCHEL");
+    char b[40];
+    uint8_t held[6] = { g_master, g_compass, g_spyglass, g_pencil, g_keycard, g_spade };
+    /* the toolkit, one slot per tool; the cursor reads each one */
+    for (int i = 0; i < 6; i++) {
+        int x = 7 + i * 20, y = 18;
+        mote->draw_rect(fb, x, y, 18, 18, rgb(16, 26, 58), 1, 0, 128);
+        mote->draw_rect(fb, x, y, 18, 18,
+                        i == g_item_cur ? rgb(255, 230, 120) : rgb(52, 74, 130), 0, 0, 128);
+        if (held[i])
+            mote->blit(fb, &items_img, x + 3, y + 3, k_tool_cell[i] * 12, 0, 12, 12, 0, 0, 128);
+        else
+            mote_ftextc(mote, fb, f, x + 9, y + 4, rgb(60, 76, 122), "?");
+    }
+    if (held[g_item_cur]) {
+        mote_ftextc(mote, fb, f, 64, 41, rgb(240, 240, 250), k_tool_info[g_item_cur].name);
+        mote->text(fb, k_tool_info[g_item_cur].desc,
+                   64 - (int)strlen(k_tool_info[g_item_cur].desc) * 3, 54, rgb(190, 205, 240));
+    } else {
+        mote_ftextc(mote, fb, f, 64, 41, rgb(120, 135, 175), k_tool_info[g_item_cur].name);
+        mote->text(fb, "NOT FOUND YET", 64 - 39, 54, rgb(120, 135, 175));
+    }
+    mote->draw_rect(fb, 6, 62, 116, 1, rgb(44, 66, 124), 1, 0, 128);
+    /* the day: number, condition, score */
+    snprintf(b, sizeof b, "DAY %d", g_days + 1);
+    mote->text_font(fb, f, b, 8, 66, rgb(200, 210, 240));
+    snprintf(b, sizeof b, "SCORE %u", (unsigned)g_score);
+    mote->text_font(fb, f, b, 70, 66, rgb(250, 240, 190));
+    snprintf(b, sizeof b, "%s: %s", k_conds[g_cond].name, k_conds[g_cond].desc);
+    mote->text(fb, b, 8, 79, rgb(170, 200, 250));
+    /* goals */
+    for (int i = 0; i < 2; i++) {
+        const GoalDef *gd = &k_goals[g_goal[i]];
+        int y = 89 + i * 9;
+        if (g_goal_done[i]) {
+            snprintf(b, sizeof b, "%s DONE +%d", gd->name, gd->pts);
+            mote->text(fb, b, 8, y, rgb(250, 220, 110));
+        } else {
+            snprintf(b, sizeof b, "%s %d/%d", gd->name,
+                     g_goal_prog[i] > gd->target ? gd->target : g_goal_prog[i], gd->target);
+            mote->text(fb, b, 8, y, rgb(190, 205, 240));
+            snprintf(b, sizeof b, "+%d", gd->pts);
+            mote->text(fb, b, 100, y, rgb(150, 165, 205));
+        }
+    }
+    /* ranks + seals, right-hand column beside the goals */
+    {
+        int ranks = 0;
+        for (int r = 0; r < GRID_H; r++) {
+            int full = 1;
+            for (int c = 0; c < GRID_W; c++)
+                if (g_grid[r * GRID_W + c].room == 0xFF) full = 0;
+            ranks += full;
+        }
+        snprintf(b, sizeof b, "RANKS %d", ranks);
+        mote->text(fb, b, 8, 107, rgb(190, 205, 240));
+        if (g_seal_day) {
+            mote->text(fb, "SEALS", 60, 107, rgb(250, 220, 130));
+            for (int k = 0; k < 3; k++)
+                mote->draw_rect(fb, 96 + k * 8, 107, 6, 6,
+                                (g_seal_thrown & (1 << k)) ? rgb(255, 230, 120) : rgb(50, 66, 110),
+                                1, 0, 128);
+        }
+    }
+    /* resources along the bottom */
+    {
+        static const uint8_t rc[4] = { 8, 1, 2, 0 };          /* steps, key, gem, gold */
+        int vals[4] = { g_steps, g_keys, g_gems, g_gold };
+        int x = 8;
+        for (int i = 0; i < 4; i++) {
+            mote->blit(fb, &items_img, x, 115, rc[i] * 12, 0, 12, 12, 0, 0, 128);
+            snprintf(b, sizeof b, "%d", vals[i]);
+            x = mote->text_font(fb, f, b, x + 13, 115, rgb(230, 235, 250)) + 8;
+        }
+    }
 }
 
 static void title_draw(uint16_t *fb) {
@@ -2731,10 +2861,25 @@ static void g_update(float dt) {
         else if (st == GS_SLOTS) slots_tick(dt);
         else {
             const MoteInput *in = mote->input();
-            if (mote_just_pressed(in, MOTE_BTN_LEFT) || mote_just_pressed(in, MOTE_BTN_RIGHT))
-                { g_map_page ^= 1; mote->audio_play_sfx(&tick_sfx, 0.6f); }
-            if (mote_just_pressed(in, MOTE_BTN_RB) || mote_just_pressed(in, MOTE_BTN_B)
-                || mote_just_pressed(in, MOTE_BTN_A))
+            if (mote_just_pressed(in, MOTE_BTN_RB))
+                { g_map_page = (uint8_t)((g_map_page + 1) % 3); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+            if (mote_just_pressed(in, MOTE_BTN_LB))
+                { g_map_page = (uint8_t)((g_map_page + 2) % 3); mote->audio_play_sfx(&tick_sfx, 0.6f); }
+            if (g_map_page == 0) {               /* browse the blueprint */
+                int c = gi_col(g_map_cur), r = gi_row(g_map_cur);
+                int moved = 0;
+                if (mote_just_pressed(in, MOTE_BTN_LEFT) && c > 0)  { c--; moved = 1; }
+                if (mote_just_pressed(in, MOTE_BTN_RIGHT) && c < GRID_W - 1) { c++; moved = 1; }
+                if (mote_just_pressed(in, MOTE_BTN_UP) && r > 0)    { r--; moved = 1; }
+                if (mote_just_pressed(in, MOTE_BTN_DOWN) && r < GRID_H - 1)  { r++; moved = 1; }
+                if (moved) { g_map_cur = (uint8_t)(r * GRID_W + c); mote->audio_play_sfx(&tick_sfx, 0.5f); }
+            } else if (g_map_page == 2) {        /* read the satchel */
+                if (mote_just_pressed(in, MOTE_BTN_LEFT) && g_item_cur > 0)
+                    { g_item_cur--; mote->audio_play_sfx(&tick_sfx, 0.5f); }
+                if (mote_just_pressed(in, MOTE_BTN_RIGHT) && g_item_cur < 5)
+                    { g_item_cur++; mote->audio_play_sfx(&tick_sfx, 0.5f); }
+            }
+            if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU))
                 g_state = GS_PLAY;
         }
         mote->scene2d_begin(-ORG_X, -ORG_Y);

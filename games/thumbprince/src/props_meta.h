@@ -7,7 +7,7 @@
 typedef struct { uint8_t sheet; uint16_t fx; uint8_t fy, fw, fh; } PropDef;
 
 enum {
-    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_RUG, P_PAINTING, P_PAINTING_V, P_WINDOW, P_WINDOW_V, P_LAMP, P_CRATE, P_BENCH, P_CANDLE, P_PLANT, P_SAFE, P_KEYPAD, P_CLOCK, P_GLOBE, P_PIANO, P_LECTERN, P_WINERACK, P_CHESSBOARD, P_SLOTS, P_STATUE, P_PLATE, P_SCALES, P_LEVER, P_ARMCHAIR, P_FIREPLACE, P_ARMOUR, P_MIRROR, P_HARP, P_BANNER, P_BANNER_V, P_FERN, P_PEDESTAL, P_BOOKSTACK, P_COUNT
+    P_BUSH, P_CHEST, P_CAMPFIRE, P_SHELF_BIG, P_SHELF_SMALL, P_BED_BLUE, P_BED_RED, P_TABLE, P_CHAIR, P_SOFA, P_COUNTER, P_STOVE, P_TUB, P_TOILET, P_DESK, P_MAP_TABLE, P_WASHER, P_BARREL, P_GOLD_PILE, P_WORKBENCH, P_CHEST_OPEN, P_TERMINAL, P_BREAKER, P_RUG, P_PAINTING, P_PAINTING_V, P_WINDOW, P_WINDOW_V, P_LAMP, P_CRATE, P_BENCH, P_CANDLE, P_PLANT, P_SAFE, P_KEYPAD, P_CLOCK, P_GLOBE, P_PIANO, P_LECTERN, P_WINERACK, P_CHESSBOARD, P_SLOTS, P_STATUE, P_PLATE, P_SCALES, P_LEVER, P_LEVER_ON, P_ARMCHAIR, P_FIREPLACE, P_ARMOUR, P_MIRROR, P_HARP, P_BANNER, P_BANNER_V, P_FERN, P_PEDESTAL, P_BOOKSTACK, P_COUNT
 };
 
 static const PropDef k_props[P_COUNT] = {
@@ -57,16 +57,17 @@ static const PropDef k_props[P_COUNT] = {
     { 1, 718, 22, 12, 10 },  /* plate */
     { 1, 730, 18, 16, 14 },  /* scales */
     { 1, 746, 16, 12, 16 },  /* lever */
-    { 1, 758, 16, 16, 16 },  /* armchair */
-    { 1, 774, 16, 24, 16 },  /* fireplace */
-    { 1, 798, 10, 14, 22 },  /* armour */
-    { 1, 812, 12, 12, 20 },  /* mirror */
-    { 1, 824, 12, 16, 20 },  /* harp */
-    { 1, 840, 24, 16,  8 },  /* banner */
-    { 1, 856, 16,  8, 16 },  /* banner_v */
-    { 1, 864, 14, 12, 18 },  /* fern */
-    { 1, 876, 14, 10, 18 },  /* pedestal */
-    { 1, 886, 22, 12, 10 },  /* bookstack */
+    { 1, 758, 16, 12, 16 },  /* lever_on */
+    { 1, 770, 16, 16, 16 },  /* armchair */
+    { 1, 786, 16, 24, 16 },  /* fireplace */
+    { 1, 810, 10, 14, 22 },  /* armour */
+    { 1, 824, 12, 12, 20 },  /* mirror */
+    { 1, 836, 12, 16, 20 },  /* harp */
+    { 1, 852, 24, 16,  8 },  /* banner */
+    { 1, 868, 16,  8, 16 },  /* banner_v */
+    { 1, 876, 14, 12, 18 },  /* fern */
+    { 1, 888, 14, 10, 18 },  /* pedestal */
+    { 1, 898, 22, 12, 10 },  /* bookstack */
 };
 
 #endif

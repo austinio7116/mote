@@ -442,14 +442,26 @@ p.rect(10, 4, 14, 5, (170, 174, 186)); p.hl(11, 13, 4, (210, 214, 226))
 p.rect(4, 9, 11, 11, WOOD_D); p.hl(4, 11, 9, WOOD_L)               # base
 add("scales", p)
 
-# ---- seal lever (12x16) — thrown with A on seal days ----
+# ---- seal lever (12x16) — upright, and a proper thrown frame ----
 p = P(12, 16)
 p.rect(2, 11, 9, 14, (104, 108, 120))                              # base
 p.hl(2, 9, 11, (140, 144, 158))
+p.px(3, 12, (220, 70, 60))                                         # red lamp: sealed
 p.vl(5, 3, 10, (150, 152, 166)); p.vl(6, 3, 10, (110, 112, 126))   # shaft
 p.rect(4, 1, 7, 3, (220, 70, 60))                                  # knob
 p.px(4, 1, (255, 120, 90))
 add("lever", p)
+
+p = P(12, 16)                                                       # thrown: handle laid over
+p.rect(2, 11, 9, 14, (104, 108, 120))
+p.hl(2, 9, 11, (140, 144, 158))
+p.px(3, 12, (90, 220, 120))                                        # green lamp: released
+for i in range(6):                                                  # diagonal shaft
+    p.px(5 + i // 2, 10 - i, (150, 152, 166))
+    p.px(6 + i // 2, 10 - i, (110, 112, 126))
+p.rect(8, 3, 11, 5, (220, 70, 60))                                  # knob swung right
+p.px(8, 3, (255, 120, 90))
+add("lever_on", p)
 
 # ---- armchair (16x16) — plush wingback ----
 p = P(16, 16)
