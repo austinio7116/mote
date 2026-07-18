@@ -1264,6 +1264,9 @@ static void iq_gen(void) {
     int q_is_count = (int)((r >> 2) & 1u);
     if (use[2] && use[0]) q_is_count = 0;        /* fill is unreadable on counted minis */
     int f_is_rot   = (int)((r >> 3) & 1u);
+    if (use[2]) f_is_rot = 1;                    /* fill + shape-cycle is unfair: the
+                                                  * cross is barred from fill questions,
+                                                  * so the cycle would wrap invisibly */
     int dir_q = (int)((r >> 4) & 1u), dir_f = (int)((r >> 5) & 1u);
     int s0 = (int)((r >> 6) % 4u);
     int f0 = use[2] ? (int)((r >> 8) & 1u) : 1;   /* outline styling only when fill IS the rule */
