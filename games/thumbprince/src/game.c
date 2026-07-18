@@ -1212,19 +1212,33 @@ static void puzzles_deal(void) {
 
 /* one Classroom lesson, 11+ style: a 4-term sequence where SEVERAL
  * attributes progress at once - quantity (count or size), form (shape
- * cycle or triangle spin), fill parity. Lesson 1 runs two rules, lessons
- * 2-3 run all three. Distractors are near-misses: right in every
- * attribute but one. */
+ * cycle or triangle spin), fill parity. Question 1 runs two rules,
+ * questions 2-3 run all three. Every wrong option is a FULL step wrong
+ * in some attribute - never a near-miss - and no two options may read
+ * the same on screen. */
+
+/* do two cells LOOK the same? (rotation only shows on triangles; fill
+ * only shows on single shapes big enough for a hole) */
+static int iq_vis_eq(const IqCell *a, const IqCell *b) {
+    if (a->shape != b->shape || a->count != b->count) return 0;
+    if (a->count == 1 && a->size != b->size) return 0;
+    if (a->shape == 2 && (a->rot & 3) != (b->rot & 3)) return 0;
+    if (a->count == 1 && a->size >= 1 && a->fill != b->fill) return 0;
+    return 1;
+}
+
 static void iq_gen(void) {
     uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_iq_attempt * 977u + g_iq_round * 131u) ^ 0x1C0DEu);
     int nrules = g_iq_round == 0 ? 2 : 3;
     uint8_t use[3] = { 1, 1, 1 };                /* quantity, form, fill */
     if (nrules == 2) use[r % 3u] = 0;
     int q_is_count = (int)((r >> 2) & 1u);
+    if (use[2] && use[0]) q_is_count = 0;        /* fill is unreadable on counted minis */
     int f_is_rot   = (int)((r >> 3) & 1u);
     int dir_q = (int)((r >> 4) & 1u), dir_f = (int)((r >> 5) & 1u);
     int s0 = (int)((r >> 6) % 4u), f0 = (int)((r >> 8) & 1u);
     int r0 = (int)((r >> 9) % 4u), sz0 = 1 + (int)((r >> 11) & 1u);
+    int lo = use[2] ? 1 : 0;                     /* fill needs a visible hole: size >= 1 */
     IqCell t[4];
     for (int i = 0; i < 4; i++) {
         IqCell *c = &t[i];
@@ -1232,35 +1246,50 @@ static void iq_gen(void) {
         c->shape = (uint8_t)((use[1] && f_is_rot) ? 2 : s0);
         if (use[0]) {
             if (q_is_count) { c->count = (uint8_t)(dir_q ? 1 + i : 4 - i); c->size = 0; }
-            else            c->size = (uint8_t)(dir_q ? i : 3 - i);
+            else            c->size = (uint8_t)(lo + (dir_q ? i : 3 - i));
         }
         if (use[1]) {
             if (f_is_rot) c->rot = (uint8_t)((r0 + (dir_f ? i : 4 - i)) % 4);
             else          c->shape = (uint8_t)((s0 + (dir_f ? i : 4 - i)) % 4);
         }
         if (use[2]) c->fill = (uint8_t)((f0 + i) & 1);
+        if (c->count > 1) c->fill = 1;           /* minis are always solid */
     }
     memcpy(g_iq_seq, t, sizeof g_iq_seq);
+    /* wrong answers: clearly wrong, pairwise distinct on screen */
+    IqCell a = t[3];
+    IqCell cand[8];
+    int nc = 0;
+    if (use[0]) {                                /* quantity two / three steps off */
+        cand[nc] = a;
+        if (q_is_count) { cand[nc].count = t[1].count; cand[nc].size = 0; }
+        else cand[nc].size = t[1].size;
+        nc++;
+        cand[nc] = a;
+        if (q_is_count) { cand[nc].count = t[0].count; cand[nc].size = 0; }
+        else cand[nc].size = t[0].size;
+        nc++;
+    }
+    if (use[1] && f_is_rot) { cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++; }
+    if (a.count == 1 && a.size >= 1) { cand[nc] = a; cand[nc].fill = (uint8_t)!a.fill; nc++; }
+    for (int k = 1; k <= 3; k++) {               /* a different shape is always wrong */
+        cand[nc] = a;
+        cand[nc].shape = (uint8_t)((a.shape + k) % 4);
+        nc++;
+    }
     IqCell d[3];
-    int nd = 0;
-    if (use[0]) {
-        d[nd] = t[3];
-        if (q_is_count) { d[nd].count = t[2].count; d[nd].size = 0; }
-        else d[nd].size = t[2].size;
-        nd++;
+    int nd = 0, from = (int)((r >> 16) % (uint32_t)nc);
+    for (int k = 0; k < nc && nd < 3; k++) {
+        IqCell *c = &cand[(from + k) % nc];
+        if (iq_vis_eq(c, &a)) continue;
+        int dup = 0;
+        for (int j = 0; j < nd; j++)
+            if (iq_vis_eq(c, &d[j])) dup = 1;
+        if (!dup) d[nd++] = *c;
     }
-    if (use[1]) {
-        d[nd] = t[3];
-        if (f_is_rot) d[nd].rot = t[2].rot;
-        else d[nd].shape = t[2].shape;
-        nd++;
-    }
-    if (use[2]) { d[nd] = t[3]; d[nd].fill = t[2].fill; nd++; }
-    if (nd < 3) {                                /* one axis idle: perturb it */
-        d[nd] = t[3];
-        if (!use[0])      d[nd].size = (uint8_t)((t[3].size + 2) % 4);
-        else if (!use[1]) d[nd].shape = (uint8_t)((t[3].shape + 1) % 4);
-        else              d[nd].fill = (uint8_t)!t[3].fill;
+    while (nd < 3) {                             /* unreachable: 3 shape swaps exist */
+        d[nd] = a;
+        d[nd].shape = (uint8_t)((a.shape + nd + 1) % 4);
         nd++;
     }
     g_iq_answer = (uint8_t)((r >> 13) % 4u);
@@ -2698,13 +2727,9 @@ static void iq_cell_draw(uint16_t *fb, int cx, int cy, const IqCell *c) {
             { { -4, -4 }, { 4, -4 }, { 0, 4 } },
             { { -4, -4 }, { 4, -4 }, { -4, 4 }, { 4, 4 } },
         };
-        for (int k = 0; k < c->count; k++) {
+        for (int k = 0; k < c->count; k++)
             iq_shape(fb, cx + o[c->count - 1][k][0], cy + o[c->count - 1][k][1],
                      c->shape, 5, c->rot, col);
-            if (!c->fill)
-                iq_shape(fb, cx + o[c->count - 1][k][0], cy + o[c->count - 1][k][1],
-                         c->shape, 1, c->rot, bg);
-        }
     }
 }
 
@@ -3375,4 +3400,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("ThumbPrince", "austinio7116");
-MOTE_GAME_VERSION("1.2.0");
+MOTE_GAME_VERSION("1.2.1");
