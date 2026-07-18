@@ -2270,7 +2270,7 @@ static void map_draw(uint16_t *fb) {
             snprintf(buf, sizeof buf, "%s - HERE", k_rooms[cl->room].name);
         else
             snprintf(buf, sizeof buf, "%s", k_rooms[cl->room].name);
-        mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_MED), 64, 117,
+        mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_MED), 64, 114,
                     cl->room == 0xFF ? rgb(120, 135, 175) : rgb(240, 240, 250), buf);
     }
 }
@@ -2629,7 +2629,7 @@ static void notebook_draw(uint16_t *fb) {
         mote->text(fb, "PUZZLES WAIT IN THE ROOMS.", 8, 54, rgb(150, 165, 205));
     }
     snprintf(b, sizeof b, "PUZZLES SOLVED %d/%d", solved, PZ_N);
-    mote_ftextc(mote, fb, f, 64, 117, rgb(190, 205, 240), b);
+    mote_ftextc(mote, fb, f, 64, 114, rgb(190, 205, 240), b);
 }
 
 /* ---------------------------------------------------------------- satchel --- */
@@ -2668,18 +2668,18 @@ static void satchel_draw(uint16_t *fb) {
         mote_ftextc(mote, fb, f, 64, 41, rgb(120, 135, 175), k_tool_info[g_item_cur].name);
         mote->text(fb, "NOT FOUND YET", 64 - 39, 54, rgb(120, 135, 175));
     }
-    mote->draw_rect(fb, 6, 62, 116, 1, rgb(44, 66, 124), 1, 0, 128);
+    mote->draw_rect(fb, 6, 59, 116, 1, rgb(44, 66, 124), 1, 0, 128);
     /* the day: number, condition, score */
     snprintf(b, sizeof b, "DAY %d", g_days + 1);
-    mote->text_font(fb, f, b, 8, 66, rgb(200, 210, 240));
+    mote->text_font(fb, f, b, 8, 63, rgb(200, 210, 240));
     snprintf(b, sizeof b, "SCORE %u", (unsigned)g_score);
-    mote->text_font(fb, f, b, 70, 66, rgb(250, 240, 190));
+    mote->text_font(fb, f, b, 70, 63, rgb(250, 240, 190));
     snprintf(b, sizeof b, "%s: %s", k_conds[g_cond].name, k_conds[g_cond].desc);
-    mote->text(fb, b, 8, 79, rgb(170, 200, 250));
+    mote->text(fb, b, 8, 76, rgb(170, 200, 250));
     /* goals */
     for (int i = 0; i < 2; i++) {
         const GoalDef *gd = &k_goals[g_goal[i]];
-        int y = 89 + i * 9;
+        int y = 86 + i * 9;
         if (g_goal_done[i]) {
             snprintf(b, sizeof b, "%s DONE +%d", gd->name, gd->pts);
             mote->text(fb, b, 8, y, rgb(250, 220, 110));
@@ -2701,11 +2701,11 @@ static void satchel_draw(uint16_t *fb) {
             ranks += full;
         }
         snprintf(b, sizeof b, "RANKS %d", ranks);
-        mote->text(fb, b, 8, 107, rgb(190, 205, 240));
+        mote->text(fb, b, 8, 104, rgb(190, 205, 240));
         if (g_seal_day) {
-            mote->text(fb, "SEALS", 60, 107, rgb(250, 220, 130));
+            mote->text(fb, "SEALS", 60, 104, rgb(250, 220, 130));
             for (int k = 0; k < 3; k++)
-                mote->draw_rect(fb, 96 + k * 8, 107, 6, 6,
+                mote->draw_rect(fb, 96 + k * 8, 104, 6, 6,
                                 (g_seal_thrown & (1 << k)) ? rgb(255, 230, 120) : rgb(50, 66, 110),
                                 1, 0, 128);
         }
@@ -2716,9 +2716,9 @@ static void satchel_draw(uint16_t *fb) {
         int vals[4] = { g_steps, g_keys, g_gems, g_gold };
         int x = 8;
         for (int i = 0; i < 4; i++) {
-            mote->blit(fb, &items_img, x, 115, rc[i] * 12, 0, 12, 12, 0, 0, 128);
+            mote->blit(fb, &items_img, x, 112, rc[i] * 12, 0, 12, 12, 0, 0, 128);
             snprintf(b, sizeof b, "%d", vals[i]);
-            x = mote->text_font(fb, f, b, x + 13, 115, rgb(230, 235, 250)) + 8;
+            x = mote->text_font(fb, f, b, x + 13, 112, rgb(230, 235, 250)) + 8;
         }
     }
 }
