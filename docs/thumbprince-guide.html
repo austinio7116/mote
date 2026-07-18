@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThumbPrince — Draftsman's Handbook</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121a33; --panel2:#182342; --ink:#d9e0f2;
+    --dim:#8892ab; --blue:#6f9be0; --gold:#e6cd6e; --green:#7fbf6a;
+    --line:#243258; --grid:#1a2547;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background-image:linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:32px 32px;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  header.hero{background:linear-gradient(180deg,#131c3a,#0b1020);
+    border-bottom:2px solid var(--blue);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--blue);border-radius:8px;
+    background:#0a0d18;flex:0 0 auto}
+  .htext h1{margin:0;font-size:2.4rem;letter-spacing:.06em;color:var(--gold);font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.1rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px}
+  section{padding:30px 0 8px;border-bottom:1px solid var(--line)}
+  h2{font-size:1.4rem;color:var(--gold);margin:0 0 6px}
+  h2::before{content:"▸ ";color:var(--blue)}
+  h3{color:var(--blue);margin:20px 0 6px;font-size:1.02rem}
+  p,ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:#fff}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+  .shots{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
+  .shots img{width:256px;border:2px solid var(--line);border-radius:6px}
+  table{border-collapse:collapse;margin:10px 0}
+  td,th{border:1px solid var(--line);padding:6px 12px;text-align:left;font-size:.92rem}
+  th{background:var(--panel2);color:var(--gold)}
+  .tip{background:var(--panel);border-left:3px solid var(--gold);padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:14px 0;max-width:74ch}
+  footer{padding:26px 0 40px;color:var(--dim);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<header class="hero"><div class="wrap">
+  <div class="hrow">
+    <img class="hicon" src="img/gallery/thumbprince-icon.png" alt="">
+    <div class="htext">
+      <h1>THUMBPRINCE</h1>
+      <div class="sub">Draft the estate. Reach the Antechamber. Leave your mark.</div>
+      <div class="by">by austinio7116 · single player · roguelike drafting</div>
+    </div>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<section id="day">
+  <h2>The Day</h2>
+  <p>The estate is a blank <b>5×8 blueprint</b>. You start each day in the Entrance
+  Hall at the bottom with <b>20 steps</b> — every doorway you pass through costs one.
+  The <b>Antechamber</b> waits at the top behind a <b>triple-locked golden door</b>
+  (three keys at once, or the Master Key). Enter it and the day is won; run out of
+  steps and the day ends where you stand. Either way, tomorrow the blueprint is
+  blank again — only your best score survives.</p>
+  <div class="shots">
+    <img src="img/gallery/thumbprince-1.png" alt="a drafted dining room">
+    <img src="img/gallery/thumbprince-2.png" alt="the drafting desk">
+  </div>
+</section>
+
+<section id="drafting">
+  <h2>Drafting</h2>
+  <p>Walk into a door that leads to an unexplored cell and the <b>drafting desk</b>
+  opens: the full blueprint on the left, a hand of room cards on the right. The
+  selected room is previewed <b>live in its cell</b> — doors and all — before you
+  commit. <b>A</b> places it and walks you in.</p>
+  <ul>
+    <li><b>Corridors</b> (Hallway, the Walks, Crossroads…) are cheap and open the
+      estate — real walled passages, not empty squares.</li>
+    <li><b>Dead-end rooms</b> carry the loot: steps, keys, gems, stars.</li>
+    <li><b>Green rooms</b> pay gems, and score +25 for each green neighbour.</li>
+    <li>Fancy rooms cost <b>gems</b>; the Vault costs a key to even draft.</li>
+    <li>Every offer is guaranteed at least one free pick.</li>
+  </ul>
+  <div class="tip">A drafted room's doors are placed <b>relative to where you came
+  in</b> — a dead end against the estate edge wastes nothing but the steps it took
+  to reach it. Watch the preview.</div>
+</section>
+
+<section id="doors">
+  <h2>Doors, Keys &amp; Keycards</h2>
+  <p>Locks get likelier the higher you climb. A plain <b>lock</b> takes one key —
+  found on floors, in chests, or sold by the Key Smith and Tuck Shop. Near the top,
+  some locks are <b>keycard readers</b> instead, and keys mean nothing to them:</p>
+  <ul>
+    <li>The rare <b>Keycard</b> (locked chests, or 18 gold at the Key Smith) reads green forever.</li>
+    <li>A <b>Security room terminal</b> arms a one-door override.</li>
+    <li>The <b>Power Room breaker</b> kills every reader for the day — but the
+      halls dim and ordinary locks stiffen.</li>
+  </ul>
+  <p><b>Treasure chests</b> open with a bump; padlocked ones take a key and pay
+  better — gold, gems, keys, stars, sometimes the Keycard itself.</p>
+</section>
+
+<section id="tools">
+  <h2>The Toolkit</h2>
+  <table>
+    <tr><th>Tool</th><th>Found</th><th>Does</th></tr>
+    <tr><td><b>Spade</b></td><td>Garden · Tuck Shop 10g</td><td>Dig the sparkling spots</td></tr>
+    <tr><td><b>Pencil</b></td><td>Study · Atelier</td><td><b>B</b> redraws a draft offer (1 gem)</td></tr>
+    <tr><td><b>Compass</b></td><td>Draft Room</td><td><b>LB/RB</b> rotates an offered room's doors</td></tr>
+    <tr><td><b>Spyglass</b></td><td>Tuck Shop 12g</td><td>Every offer deals 4 cards</td></tr>
+    <tr><td><b>Master Key</b></td><td>Key Smith 30g</td><td>Opens every lock, all day</td></tr>
+    <tr><td><b>Keycard</b></td><td>chests · Key Smith 18g</td><td>Opens every reader</td></tr>
+  </table>
+  <p>Your toolkit shows beside the estate map (<b>RB</b>).</p>
+</section>
+
+<section id="alive">
+  <h2>The Estate Lives</h2>
+  <ul>
+    <li><b>Dig spots</b> — a twinkle on the floor; stand on it and press <b>A</b>
+      (Spade required) for gold, gems, keys, stars or a snack.</li>
+    <li><b>Riddle notes</b> — crumpled paper pointing at a glinting cache near a
+      drafted room ("N OF KITCHEN", pinned to the map). Go there: +75 and gold.</li>
+    <li><b>Day conditions</b> — dealt at dawn: Frosty greens, Creaky locks,
+      Generous chests, Market prices, Bright ranks, Restful rooms, Miser coins,
+      Lucky digs.</li>
+    <li><b>Cursed rooms</b> — the Crypt drains four steps at the door; the Trick
+      Hall seals shut behind you.</li>
+  </ul>
+</section>
+
+<section id="scoring">
+  <h2>Scoring</h2>
+  <ul>
+    <li>Rooms score by rarity; coins, stars, sweeps and chests add up.</li>
+    <li><b>Adjacency combos</b>: Kitchen beside Dining is a Service Wing, bedroom
+      beside Washroom an En-Suite, Library beside Study the Archive — and placing
+      a room's twin mirrored across the centre column is Matched Wings.</li>
+    <li><b>The chain</b>: every placement that scores any bonus raises a ×2–×4
+      multiplier on placement bonuses; a dry placement breaks it.</li>
+    <li><b>Ranks</b>: complete a full row of five for +100.</li>
+    <li><b>Two daily goals</b> (on the map screen) pay 100–150 each.</li>
+    <li>Winning pays +500 and converts leftover steps, keys, gems and gold.
+      The results screen itemises where every point came from.</li>
+  </ul>
+  <div class="shots">
+    <img src="img/gallery/thumbprince-3.png" alt="the estate map with goals">
+  </div>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <table>
+    <tr><th>Input</th><th>In the halls</th><th>On the desk</th></tr>
+    <tr><td>D-pad</td><td>Walk (bump doors &amp; chests to use them)</td><td>Select a card</td></tr>
+    <tr><td>A</td><td>Dig · shop counter</td><td>Place the room</td></tr>
+    <tr><td>B</td><td>—</td><td>Redraw the offer (Pencil, 1 gem)</td></tr>
+    <tr><td>LB / RB</td><td>RB: estate map</td><td>Rotate the room (Compass)</td></tr>
+    <tr><td>MENU</td><td>Pause · end day · quit</td><td>—</td></tr>
+  </table>
+</section>
+
+</div>
+<footer><div class="wrap">ThumbPrince · a Mote game for the Thumby Color ·
+<a href="games.html">back to the gallery</a></div></footer>
+</body>
+</html>
