@@ -28,8 +28,13 @@ ING_NAME = {"I_HELL_BAR":"hellstone bar","I_MUSHROOM":"glowshroom"}
 # ingredient icons come from the game's items.png (cell index == item id)
 from extract_sheets import ITEM_IDS
 ITEMS_IMG = Image.open(os.path.join(HERE, "items.png")).convert("RGBA")
+# mob-drop materials live past the generated weapon-variant gap, so they aren't
+# in ITEM_IDS (which only maps the base items 0..70) — their icon cell == item id
+MAT_ID = {"STINGER": 169, "SOUL": 170, "CURSED_CHUNK": 171}
 def _icon_uri(item_name):
-    i = ITEM_IDS.index(item_name[2:] if item_name.startswith("I_") else item_name)
+    name = item_name[2:] if item_name.startswith("I_") else item_name
+    i = MAT_ID.get(name, None)
+    if i is None: i = ITEM_IDS.index(name)
     c = ITEMS_IMG.crop(((i % 8) * 16, (i // 8) * 16, (i % 8) * 16 + 16, (i // 8) * 16 + 16))
     b = io.BytesIO(); c.save(b, "PNG")
     return "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
