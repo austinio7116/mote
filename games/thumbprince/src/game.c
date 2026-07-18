@@ -147,7 +147,7 @@ static uint8_t g_note_on, g_note_x, g_note_y;
 /* ---- the investigation: in-room puzzles, fed by clues from notes ---------- */
 enum { PZ_SAFE, PZ_KEYPAD, PZ_CLOCK, PZ_GLOBE, PZ_PIANO, PZ_CANDLES, PZ_TILES,
        PZ_STATUES, PZ_BOOK, PZ_PORTRAIT, PZ_WINE, PZ_SCALES, PZ_CENSUS, PZ_CHESS,
-       PZ_SNOOKER, PZ_N };
+       PZ_SNOOKER, PZ_IQ, PZ_N };
 static uint16_t g_pz_solved, g_pz_clue;     /* per-type bits, reset each day */
 static uint8_t  g_pz_sec[PZ_N][4];          /* seeded per-day secrets */
 static uint8_t  g_pz_active, g_pz_stage;    /* GS_PUZZLE overlay */
@@ -157,6 +157,16 @@ static uint8_t  g_statue_face[4];
 static int8_t   g_plate_under = -1;
 static uint8_t  g_census_room = 0xFF, g_census_kind, g_census_count;
 static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook, 2 satchel */
+/* the Classroom's pattern lessons */
+typedef struct { uint8_t shape, size, fill, count, rot; } IqCell;
+static IqCell  g_iq_seq[3], g_iq_opt[4];
+static uint8_t g_iq_answer, g_iq_round, g_iq_attempt, g_iq_sel;
+/* solved puzzles open a floor hatch; the prizes wait beside it */
+#define PRIZE_KEYCARD 100
+static uint8_t g_prize_item[PZ_N][3];
+static uint8_t g_prize_left[PZ_N];
+static uint8_t g_hatch_x[PZ_N], g_hatch_y[PZ_N];
+static float   g_hatch_t;
 static uint8_t  g_map_cur;                  /* map-page cursor (grid index) */
 static uint8_t  g_item_cur;                 /* satchel-page cursor */
 
@@ -186,6 +196,8 @@ static uint8_t g_no_locks;                  /* DRAFT_LOCKS=0 test hook */
 static uint8_t g_all_locks;                 /* DRAFT_LOCKS=2 test hook */
 static const char *g_force_rooms;           /* DRAFT_ROOMS test hook */
 static uint8_t g_force_dig;                 /* DRAFT_DIG=1: digs+notes everywhere */
+
+static int puzzle_of_room(uint8_t room);
 
 static void toast(const char *msg) {
     if (g_toast_n >= 3) {                              /* full: drop the oldest */
@@ -217,11 +229,13 @@ static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img }
 static int prop_no_collide(int p) {
     return p == P_RUG || p == P_PAINTING || p == P_WINDOW ||
            p == P_PAINTING_V || p == P_WINDOW_V || p == P_PLATE ||
-           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V;
+           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V ||
+           p == P_BLACKBOARD || p == P_BLACKBOARD_V;
 }
 static int prop_wall_mounted(int p) {
     return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V ||
-           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V;
+           p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V ||
+           p == P_BLACKBOARD || p == P_BLACKBOARD_V;
 }
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
 static const MoteAutotile *k_floors[9] = {
@@ -262,7 +276,7 @@ static int prop_of_char(char ch) {
     case 'Q': return P_HARP;       case 'V': return P_BANNER;
     case 'z': return P_FERN;       case 'E': return P_PEDESTAL;
     case 'X': return P_BOOKSTACK;  case '1': return P_SNOOKER;
-    case '2': return P_RACK;
+    case '2': return P_RACK;      case '3': return P_BLACKBOARD;
     }
     return -1;
 }
@@ -280,7 +294,7 @@ static const uint8_t k_tag[R_COUNT] = {
     [R_NOOK] = TAG_BOOK, [R_ATELIER] = TAG_BOOK,
     [R_SCULLERY] = TAG_FOOD, [R_BUNK] = TAG_REST, [R_GAMES] = TAG_REST,
     [R_BANQUET] = TAG_FOOD, [R_ROTUNDA] = TAG_GRAND,
-    [R_BILLIARDS] = TAG_REST, [R_MUSIC] = TAG_GRAND,
+    [R_BILLIARDS] = TAG_REST, [R_MUSIC] = TAG_GRAND, [R_CLASSROOM] = TAG_BOOK,
 };
 typedef struct { uint8_t a, b; uint8_t pts; const char *name; } ComboDef;
 static const ComboDef k_combos[] = {
@@ -388,7 +402,7 @@ static const char *k_blurb[R_COUNT] = {
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
     [R_APOTHECARY] = "TONIC SHOP",  [R_MUSIC] = "THE PIANO",
     [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
-    [R_BILLIARDS] = "+25, STAR",
+    [R_BILLIARDS] = "+25, STAR",    [R_CLASSROOM] = "THE IQ TEST",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -494,7 +508,8 @@ static void parse_room_props(int gi) {
                     else if (tx == 1) { px = 0;
                         p = p == P_PAINTING ? P_PAINTING_V
                           : p == P_BANNER ? P_BANNER_V
-                          : p == P_RACK ? P_RACK_V : P_WINDOW_V; }
+                          : p == P_RACK ? P_RACK_V
+                          : p == P_BLACKBOARD ? P_BLACKBOARD_V : P_WINDOW_V; }
                     else if (tx == ROOM_T - 2) { px = ROOM_PX - 8;
                         p = p == P_PAINTING ? P_PAINTING_V
                           : p == P_BANNER ? P_BANNER_V : P_WINDOW_V; }
@@ -569,6 +584,11 @@ static void roll_room_finds(int gi) {
         uint32_t sr = hash32(g_day_seed ^ (uint32_t)(gi * 7919u) ^ 0x57A7u);
         for (int i = 0; i < 4; i++)          /* statues start turned off-solution */
             g_statue_face[i] = (uint8_t)((g_pz_sec[PZ_STATUES][i] + 1 + ((sr >> (i * 4)) & 1)) % 4);
+    }
+    {
+        int hpz = puzzle_of_room(cl->room);      /* reopen a solved room's hatch */
+        if (hpz >= 0 && (g_pz_solved & (1 << hpz)) && g_prize_left[hpz])
+            seeded_spot(gi, 0xA7C4u + (uint32_t)hpz, &g_hatch_x[hpz], &g_hatch_y[hpz]);
     }
     for (int k = 0; k < 3; k++)              /* a seal lever hides in this cell? */
         if (g_lever_gi[k] == gi) {
@@ -1103,11 +1123,13 @@ static const uint8_t k_pz_room[PZ_N] = {
     [PZ_TILES] = R_GREATHALL, [PZ_STATUES] = R_ROTUNDA,   [PZ_BOOK] = R_LIBRARY,
     [PZ_PORTRAIT] = R_GALLERY, [PZ_WINE] = R_WINECELLAR,  [PZ_SCALES] = R_PANTRY,
     [PZ_CENSUS] = R_NOOK,     [PZ_CHESS] = R_GAMES,   [PZ_SNOOKER] = R_BILLIARDS,
+    [PZ_IQ] = R_CLASSROOM,
 };
 static const char *k_pz_name[PZ_N] = {
     "THE SAFE", "THE KEYPAD", "THE CLOCK", "THE GLOBE", "THE PIANO",
     "THE CANDLES", "THE PLATES", "THE STATUES", "THE BOOKSHELF", "THE PORTRAITS",
     "THE WINE RACK", "THE SCALES", "THE CENSUS", "THE CHESSBOARD", "THE BALL RACK",
+    "THE TEST",
 };
 static const char *k_head8[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
 static const char *k_books[4] = { "RED", "BLUE", "GREEN", "GOLD" };
@@ -1159,6 +1181,66 @@ static void puzzles_deal(void) {
     g_pz_sec[PZ_SNOOKER][0] %= 7;                              /* ball, ball, op */
     g_pz_sec[PZ_SNOOKER][1] %= 3;
     g_pz_sec[PZ_SNOOKER][2] %= 7;
+}
+
+/* one Classroom lesson, 11+ style: a 4-term sequence where SEVERAL
+ * attributes progress at once - quantity (count or size), form (shape
+ * cycle or triangle spin), fill parity. Lesson 1 runs two rules, lessons
+ * 2-3 run all three. Distractors are near-misses: right in every
+ * attribute but one. */
+static void iq_gen(void) {
+    uint32_t r = hash32(g_day_seed ^ (uint32_t)(g_iq_attempt * 977u + g_iq_round * 131u) ^ 0x1C0DEu);
+    int nrules = g_iq_round == 0 ? 2 : 3;
+    uint8_t use[3] = { 1, 1, 1 };                /* quantity, form, fill */
+    if (nrules == 2) use[r % 3u] = 0;
+    int q_is_count = (int)((r >> 2) & 1u);
+    int f_is_rot   = (int)((r >> 3) & 1u);
+    int dir_q = (int)((r >> 4) & 1u), dir_f = (int)((r >> 5) & 1u);
+    int s0 = (int)((r >> 6) % 4u), f0 = (int)((r >> 8) & 1u);
+    int r0 = (int)((r >> 9) % 4u), sz0 = 1 + (int)((r >> 11) & 1u);
+    IqCell t[4];
+    for (int i = 0; i < 4; i++) {
+        IqCell *c = &t[i];
+        c->count = 1; c->size = (uint8_t)sz0; c->fill = (uint8_t)f0; c->rot = 0;
+        c->shape = (uint8_t)((use[1] && f_is_rot) ? 2 : s0);
+        if (use[0]) {
+            if (q_is_count) { c->count = (uint8_t)(dir_q ? 1 + i : 4 - i); c->size = 0; }
+            else            c->size = (uint8_t)(dir_q ? i : 3 - i);
+        }
+        if (use[1]) {
+            if (f_is_rot) c->rot = (uint8_t)((r0 + (dir_f ? i : 4 - i)) % 4);
+            else          c->shape = (uint8_t)((s0 + (dir_f ? i : 4 - i)) % 4);
+        }
+        if (use[2]) c->fill = (uint8_t)((f0 + i) & 1);
+    }
+    memcpy(g_iq_seq, t, sizeof g_iq_seq);
+    IqCell d[3];
+    int nd = 0;
+    if (use[0]) {
+        d[nd] = t[3];
+        if (q_is_count) { d[nd].count = t[2].count; d[nd].size = 0; }
+        else d[nd].size = t[2].size;
+        nd++;
+    }
+    if (use[1]) {
+        d[nd] = t[3];
+        if (f_is_rot) d[nd].rot = t[2].rot;
+        else d[nd].shape = t[2].shape;
+        nd++;
+    }
+    if (use[2]) { d[nd] = t[3]; d[nd].fill = t[2].fill; nd++; }
+    if (nd < 3) {                                /* one axis idle: perturb it */
+        d[nd] = t[3];
+        if (!use[0])      d[nd].size = (uint8_t)((t[3].size + 2) % 4);
+        else if (!use[1]) d[nd].shape = (uint8_t)((t[3].shape + 1) % 4);
+        else              d[nd].fill = (uint8_t)!t[3].fill;
+        nd++;
+    }
+    g_iq_answer = (uint8_t)((r >> 13) % 4u);
+    int di = 0;
+    for (int i = 0; i < 4; i++)
+        g_iq_opt[i] = i == (int)g_iq_answer ? t[3] : d[di++];
+    g_iq_sel = 0;
 }
 
 /* the rack's sum: balls score their snooker worth, red 1 .. black 7 */
@@ -1277,43 +1359,85 @@ static int pz_dials_right(int pz) {
 
 static void book_passage(void);
 
+/* what waits under the hatch, per puzzle */
+static void pz_prizes(int pz, uint8_t out[3]) {
+    out[0] = out[1] = out[2] = 0;
+    switch (pz) {
+    case PZ_SAFE:    out[0] = IT_POUCH; out[1] = IT_POUCH; out[2] = IT_GEM; break;
+    case PZ_KEYPAD:  if (!g_keycard) out[0] = PRIZE_KEYCARD;
+                     else { out[0] = IT_POUCH; out[1] = IT_POUCH; out[2] = IT_COIN; } break;
+    case PZ_CLOCK:   out[0] = IT_POUCH; out[1] = IT_COIN; break;
+    case PZ_GLOBE:   out[0] = IT_KEY; break;
+    case PZ_PIANO:   out[0] = IT_GEM; break;
+    case PZ_CANDLES: out[0] = IT_KEY; break;
+    case PZ_TILES:   out[0] = IT_POUCH; out[1] = IT_COIN; out[2] = IT_COIN; break;
+    case PZ_STATUES: out[0] = IT_GEM; break;
+    case PZ_PORTRAIT: out[0] = IT_POUCH; out[1] = IT_COIN; out[2] = IT_COIN; break;
+    case PZ_WINE:    out[0] = IT_POTION; break;
+    case PZ_SCALES:  if (g_pz_sec[PZ_SCALES][0] == 0) out[0] = IT_KEY;
+                     else if (g_pz_sec[PZ_SCALES][0] == 1) out[0] = IT_GEM;
+                     else { out[0] = IT_POUCH; out[1] = IT_POUCH; } break;
+    case PZ_CENSUS:  out[0] = IT_POUCH; break;
+    case PZ_CHESS:   out[0] = IT_GEM; break;
+    case PZ_SNOOKER: out[0] = IT_POUCH; out[1] = IT_COIN; out[2] = IT_COIN; break;
+    case PZ_IQ:      out[0] = IT_GEM; out[1] = IT_POUCH; break;
+    default: break;
+    }
+}
+
+static void apply_prize(uint8_t it) {
+    switch (it) {
+    case IT_COIN:   g_gold++; mote->audio_play_sfx(&coin_sfx, 0.8f); break;
+    case IT_POUCH:  g_gold += 3; mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
+    case IT_GEM:    g_gems++; mote->audio_play_sfx(&gem_sfx, 0.9f); break;
+    case IT_KEY:    g_keys++; mote->audio_play_sfx(&key_sfx, 0.9f); toast("A KEY!"); break;
+    case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
+    case PRIZE_KEYCARD: g_keycard = 1; mote->audio_play_sfx(&star_sfx, 1.0f); toast("THE KEYCARD!"); break;
+    }
+    goal_check_held();
+}
+
+/* the floor slides open by the solved puzzle; prizes wait on the boards */
+static void pz_spawn_prizes(int pz) {
+    uint8_t items[3];
+    pz_prizes(pz, items);
+    if (!items[0]) return;
+    if (g_grid[g_cur].room == k_pz_room[pz] &&
+        seeded_spot(g_cur, 0xA7C4u + (uint32_t)pz, &g_hatch_x[pz], &g_hatch_y[pz])) {
+        memcpy(g_prize_item[pz], items, 3);
+        g_prize_left[pz] = (uint8_t)((items[0] ? 1 : 0) | (items[1] ? 2 : 0) | (items[2] ? 4 : 0));
+        g_hatch_t = 0;
+        toast("THE FLOOR SLIDES OPEN");
+        mote->audio_play_sfx(&unlock_sfx, 0.9f);
+    } else {
+        for (int k = 0; k < 3; k++)              /* nowhere to open: hand it over */
+            if (items[k]) apply_prize(items[k]);
+    }
+}
+
 static void pz_solve(int pz) {
     g_pz_solved |= (uint16_t)(1 << pz);
     mote->audio_play_sfx(&star_sfx, 1.0f);
+    /* the flavour + points land now; the material prizes wait under the hatch */
     switch (pz) {
-    case PZ_SAFE:    g_gold += 6; g_gems++; score_add(SC_BONUS, 100);
-                     toast("THE SAFE SWINGS OPEN +100"); toast("+6 GOLD +1 GEM"); break;
-    case PZ_KEYPAD:  score_add(SC_BONUS, 75);
-                     if (!g_keycard) { g_keycard = 1; toast("THE CLOSET: A KEYCARD! +75"); }
-                     else { g_gold += 8; toast("THE CLOSET: +8 GOLD +75"); } break;
-    case PZ_CLOCK:   g_gold += 4; score_add(SC_BONUS, 75);
-                     toast("THE CLOCK CHIMES +75"); toast("A PANEL DROPS: +4 GOLD"); break;
-    case PZ_GLOBE:   g_keys++; score_add(SC_BONUS, 50);
-                     toast("THE GLOBE CLICKS: A KEY +50"); break;
-    case PZ_PIANO:   g_gems++; score_add(SC_BONUS, 100);
-                     toast("THE CHORD RINGS TRUE +100"); toast("+1 GEM"); break;
-    case PZ_CANDLES: g_keys++; score_add(SC_BONUS, 100);
-                     toast("THE ALTAR OPENS +100"); toast("+1 KEY"); break;
-    case PZ_TILES:   g_gold += 5; score_add(SC_BONUS, 100);
-                     toast("THE FLOOR RUMBLES +100"); toast("+5 GOLD"); break;
-    case PZ_STATUES: g_gems++; score_add(SC_BONUS, 125);
-                     toast("THE STATUES BOW +125"); toast("+1 GEM"); break;
-    case PZ_BOOK:    score_add(SC_BONUS, 75); book_passage(); break;
-    case PZ_PORTRAIT: g_gold += 5; score_add(SC_BONUS, 100);
-                     toast("THE GUILTY REVEALED +100"); toast("+5 GOLD"); break;
-    case PZ_WINE:    g_steps += 10; score_add(SC_BONUS, 50);
-                     toast("A FINE VINTAGE +50"); toast("+10 STEPS"); break;
-    case PZ_SCALES:  score_add(SC_BONUS, 50);
-                     if (g_pz_sec[PZ_SCALES][0] == 0) { g_keys++; toast("THE SCALES TIP: A KEY +50"); }
-                     else if (g_pz_sec[PZ_SCALES][0] == 1) { g_gems++; toast("THE SCALES TIP: A GEM +50"); }
-                     else { g_gold += 6; toast("THE SCALES TIP: +6 GOLD +50"); } break;
-    case PZ_CENSUS:  g_gold += 3; score_add(SC_BONUS, 100);
-                     toast("THE LEDGER BALANCES +100"); toast("+3 GOLD"); break;
-    case PZ_CHESS:   g_gems++; score_add(SC_BONUS, 100);
-                     toast("CHECKMATE +100"); toast("+1 GEM"); break;
-    case PZ_SNOOKER: g_gold += 5; score_add(SC_BONUS, 100);
-                     toast("THE RACK CLICKS OPEN +100"); toast("+5 GOLD"); break;
+    case PZ_SAFE:    score_add(SC_BONUS, 100); toast("THE SAFE SWINGS OPEN +100"); break;
+    case PZ_KEYPAD:  score_add(SC_BONUS, 75);  toast("THE CLOSET UNLOCKS +75"); break;
+    case PZ_CLOCK:   score_add(SC_BONUS, 75);  toast("THE CLOCK CHIMES +75"); break;
+    case PZ_GLOBE:   score_add(SC_BONUS, 50);  toast("THE GLOBE CLICKS +50"); break;
+    case PZ_PIANO:   score_add(SC_BONUS, 100); toast("THE CHORD RINGS TRUE +100"); break;
+    case PZ_CANDLES: score_add(SC_BONUS, 100); toast("THE ALTAR OPENS +100"); break;
+    case PZ_TILES:   score_add(SC_BONUS, 100); toast("THE FLOOR RUMBLES +100"); break;
+    case PZ_STATUES: score_add(SC_BONUS, 125); toast("THE STATUES BOW +125"); break;
+    case PZ_BOOK:    score_add(SC_BONUS, 75);  book_passage(); break;
+    case PZ_PORTRAIT: score_add(SC_BONUS, 100); toast("THE GUILTY REVEALED +100"); break;
+    case PZ_WINE:    score_add(SC_BONUS, 50);  toast("A FINE VINTAGE +50"); break;
+    case PZ_SCALES:  score_add(SC_BONUS, 50);  toast("THE SCALES TIP +50"); break;
+    case PZ_CENSUS:  score_add(SC_BONUS, 100); toast("THE LEDGER BALANCES +100"); break;
+    case PZ_CHESS:   score_add(SC_BONUS, 100); toast("CHECKMATE +100"); break;
+    case PZ_SNOOKER: score_add(SC_BONUS, 100); toast("THE RACK CLICKS OPEN +100"); break;
+    case PZ_IQ:      score_add(SC_BONUS, 125); toast("TOP OF THE CLASS +125"); break;
     }
+    if (pz != PZ_BOOK) pz_spawn_prizes(pz);
     goal_progress(GO_PUZZLES, 1, 0);
     goal_check_held();
 }
@@ -1336,7 +1460,7 @@ static void read_note(void) {
     for (int pass = 0; pass < 2 && pick < 0; pass++) {
         seen = 0;
         for (int i = 0; i < PZ_N; i++) {
-            if (i == PZ_CENSUS || (g_pz_solved & (1 << i)) || (g_pz_clue & (1 << i)))
+            if (i == PZ_CENSUS || i == PZ_IQ || (g_pz_solved & (1 << i)) || (g_pz_clue & (1 << i)))
                 continue;
             if (pass == 0) {                      /* prefer puzzles already on the map */
                 int drafted = 0;
@@ -1391,6 +1515,22 @@ static void pickups_tick(void) {
     if (n && all && !cl->swept) {
         cl->swept = 1; score_add(SC_LOOT, 20); toast("ROOM CLEARED +20");
         goal_progress(GO_SWEEPS, 1, 0);
+    }
+    /* hatch prizes are walk-over pickups once the lid has slid clear */
+    {
+        int hpz = puzzle_of_room(cl->room);
+        if (hpz >= 0 && g_prize_left[hpz] && g_hatch_t > 0.55f) {
+            static const int8_t k_poff[3][2] = { { 0, -10 }, { -12, 3 }, { 12, 3 } };
+            for (int k = 0; k < 3; k++) {
+                if (!(g_prize_left[hpz] & (1 << k))) continue;
+                float ix = g_hatch_x[hpz] + k_poff[k][0], iy = g_hatch_y[hpz] + k_poff[k][1];
+                if (g_px - 5 < ix + 6 && g_px + 5 > ix - 6 &&
+                    g_py - 5 < iy + 6 && g_py + 5 > iy - 6) {
+                    g_prize_left[hpz] &= (uint8_t)~(1 << k);
+                    apply_prize(g_prize_item[hpz][k]);
+                }
+            }
+        }
     }
     /* the crumpled note is a walk-over pickup too */
     if (g_note_on && g_px - 5 < g_note_x + 6 && g_px + 5 > g_note_x - 6 &&
@@ -1516,6 +1656,9 @@ static void day_start(void) {
     g_new_best = 0; g_frag_new = 0;
     g_toast_n = 0; g_toast_t = 0;
     memset(g_secret, 0, sizeof g_secret);
+    memset(g_prize_item, 0, sizeof g_prize_item);
+    memset(g_prize_left, 0, sizeof g_prize_left);
+    g_hatch_t = 99; g_iq_attempt = 0;
     g_map_page = 0; g_slot_pulls = 0; g_slot_spinning = 0; g_slot_done = 0;
     g_day_seed = mote_rand();
     puzzles_deal();
@@ -1593,8 +1736,19 @@ static void book_passage(void) {
         toast("SECRET DOORS COST NO STEPS");
         return;
     }
-    g_keys++;
-    toast("BEHIND THE BOOKS: A KEY +75");
+    /* no wall to open: the shelf floor gives instead */
+    if (g_grid[g_cur].room == R_LIBRARY &&
+        seeded_spot(g_cur, 0xA7C4u + (uint32_t)PZ_BOOK, &g_hatch_x[PZ_BOOK], &g_hatch_y[PZ_BOOK])) {
+        g_prize_item[PZ_BOOK][0] = IT_KEY;
+        g_prize_item[PZ_BOOK][1] = 0; g_prize_item[PZ_BOOK][2] = 0;
+        g_prize_left[PZ_BOOK] = 1;
+        g_hatch_t = 0;
+        toast("THE FLOOR SLIDES OPEN");
+        mote->audio_play_sfx(&unlock_sfx, 0.9f);
+    } else {
+        g_keys++;
+        toast("BEHIND THE BOOKS: A KEY +75");
+    }
 }
 
 /* nth prop of a kind near the player (returns its ordinal, or -1) */
@@ -1617,6 +1771,7 @@ static void pz_open(int pz) {
     g_pz_dsel = 0;
     memset(g_pz_dval, 0, sizeof g_pz_dval);
     g_seq_n = 0;
+    if (pz == PZ_IQ) { g_iq_round = 0; iq_gen(); }
     g_state = GS_PUZZLE;
     mote->audio_play_sfx(&tick_sfx, 0.8f);
 }
@@ -1668,6 +1823,7 @@ static int puzzle_interact(void) {
         [PZ_GLOBE] = P_GLOBE, [PZ_PIANO] = P_PIANO, [PZ_BOOK] = P_SHELF_BIG,
         [PZ_PORTRAIT] = P_LECTERN, [PZ_WINE] = P_WINERACK, [PZ_SCALES] = P_SCALES,
         [PZ_CENSUS] = P_LECTERN, [PZ_CHESS] = P_CHESSBOARD, [PZ_SNOOKER] = P_RACK,
+        [PZ_IQ] = P_BLACKBOARD,
     };
     if (prop_near_nth(k_anchor[pz], 24) < 0) return 0;
     if (solved) { toast("NOTHING MORE HERE"); return 1; }
@@ -1682,6 +1838,7 @@ static int puzzle_interact(void) {
 /* ------------------------------------------------------------------ movement -- */
 static void player_tick(float dt) {
     const MoteInput *in = mote->input();
+    if (g_hatch_t < 60.0f) g_hatch_t += dt;
     float sp = 58.0f * dt;
     float dx = 0, dy = 0;
     if (mote_pressed(in, MOTE_BTN_LEFT))  { dx -= sp; g_face = DIR_W; }
@@ -1890,6 +2047,28 @@ static void room_draw(void) {
             add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
                     k_item_cell[rd->loot[i]] * 12, 0, 12, 12, 3 + ((pos[i][1] + 6) >> 3), 0);
 
+    /* the opened prize hatch: pit, sliding lid, and what still waits inside */
+    {
+        int hpz = puzzle_of_room(cl->room);
+        if (hpz >= 0 && (g_pz_solved & (1 << hpz)) && g_prize_item[hpz][0]) {
+            const PropDef *pit = &k_props[P_HATCH_PIT], *lid = &k_props[P_HATCH_LID];
+            int hx = g_hatch_x[hpz] - 8, hy = g_hatch_y[hpz] - 7;
+            float sl = g_hatch_t * 2.2f;
+            if (sl > 1.0f) sl = 1.0f;
+            add_spr(k_prop_sheets[pit->sheet], hx, hy, pit->fx, pit->fy, pit->fw, pit->fh, 2, 0);
+            add_spr(k_prop_sheets[lid->sheet], hx + (int)(sl * 15.0f), hy,
+                    lid->fx, lid->fy, lid->fw, lid->fh, 2, 0);
+            static const int8_t k_poff[3][2] = { { 0, -10 }, { -12, 3 }, { 12, 3 } };
+            for (int k = 0; k < 3; k++) {
+                if (!(g_prize_left[hpz] & (1 << k))) continue;
+                uint8_t it = g_prize_item[hpz][k];
+                int cell2 = it == PRIZE_KEYCARD ? 15 : k_item_cell[it];
+                int ix = g_hatch_x[hpz] + k_poff[k][0], iy = g_hatch_y[hpz] + k_poff[k][1];
+                add_spr(&items_img, ix - 6, iy - 6, cell2 * 12, 0, 12, 12,
+                        3 + ((iy + 6) >> 3), 0);
+            }
+        }
+    }
     /* crumpled clue note */
     if (g_note_on)
         add_spr(&items_img, g_note_x - 6, g_note_y - 6, 14 * 12, 0, 12, 12,
@@ -2373,6 +2552,30 @@ static void puzzle_tick(void) {
         }
         return;
     }
+    if (pz == PZ_IQ) {
+        if (mote_just_pressed(in, MOTE_BTN_LEFT) && g_iq_sel > 0)
+            { g_iq_sel--; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT) && g_iq_sel < 3)
+            { g_iq_sel++; mote->audio_play_sfx(&tick_sfx, 0.6f); }
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            if (g_iq_sel == g_iq_answer) {
+                g_iq_round++;
+                mote->audio_note(392.0f + 88.0f * g_iq_round, 0.5f);
+                if (g_iq_round >= 3) {
+                    pz_solve(PZ_IQ);
+                    g_state = GS_PLAY;
+                } else {
+                    iq_gen();
+                }
+            } else {
+                g_iq_attempt++;
+                g_iq_round = 0;
+                iq_gen();
+                pz_penalty();
+            }
+        }
+        return;
+    }
     int n = 1; uint8_t dmax[4] = { 1, 1, 1, 1 };
     pz_dials(pz, &n, dmax);
     if (n > 1 && mote_just_pressed(in, MOTE_BTN_LEFT))
@@ -2396,6 +2599,58 @@ static void puzzle_tick(void) {
     }
 }
 
+/* one reasoning glyph: square / diamond / triangle (rotatable) / cross */
+static void iq_shape(uint16_t *fb, int cx, int cy, int shape, int s, int rot, uint16_t col) {
+    int h = s / 2;
+    if (shape == 0) {
+        mote->draw_rect(fb, cx - h, cy - h, s, s, col, 1, 0, 128);
+    } else if (shape == 1) {
+        for (int i = -h; i <= h; i++) {
+            int a = i < 0 ? -i : i, w = s - 2 * a;
+            mote->draw_rect(fb, cx - w / 2, cy + i, w, 1, col, 1, 0, 128);
+        }
+    } else if (shape == 2) {
+        for (int i = 0; i < s; i++) {
+            int w = i | 1;
+            if (w > s) w = s;
+            switch (rot) {
+            case 0: mote->draw_rect(fb, cx - w / 2, cy - h + i, w, 1, col, 1, 0, 128); break;
+            case 2: mote->draw_rect(fb, cx - w / 2, cy + h - i, w, 1, col, 1, 0, 128); break;
+            case 1: mote->draw_rect(fb, cx + h - i, cy - w / 2, 1, w, col, 1, 0, 128); break;
+            default: mote->draw_rect(fb, cx - h + i, cy - w / 2, 1, w, col, 1, 0, 128); break;
+            }
+        }
+    } else {
+        int bar = s >= 9 ? 3 : 2;
+        mote->draw_rect(fb, cx - h, cy - bar / 2, s, bar, col, 1, 0, 128);
+        mote->draw_rect(fb, cx - bar / 2, cy - h, bar, s, col, 1, 0, 128);
+    }
+}
+
+static void iq_cell_draw(uint16_t *fb, int cx, int cy, const IqCell *c) {
+    uint16_t col = rgb(240, 240, 250), bg = rgb(24, 30, 58);
+    if (c->count == 1) {
+        int s = 5 + 2 * c->size;
+        iq_shape(fb, cx, cy, c->shape, s, c->rot, col);
+        if (!c->fill && s - 4 >= 1)
+            iq_shape(fb, cx, cy, c->shape, s - 4, c->rot, bg);
+    } else {
+        static const int8_t o[4][4][2] = {
+            { { 0, 0 } },
+            { { -4, 0 }, { 4, 0 } },
+            { { -4, -4 }, { 4, -4 }, { 0, 4 } },
+            { { -4, -4 }, { 4, -4 }, { -4, 4 }, { 4, 4 } },
+        };
+        for (int k = 0; k < c->count; k++) {
+            iq_shape(fb, cx + o[c->count - 1][k][0], cy + o[c->count - 1][k][1],
+                     c->shape, 5, c->rot, col);
+            if (!c->fill)
+                iq_shape(fb, cx + o[c->count - 1][k][0], cy + o[c->count - 1][k][1],
+                         c->shape, 1, c->rot, bg);
+        }
+    }
+}
+
 static void puzzle_draw(uint16_t *fb) {
     dim(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
@@ -2404,6 +2659,28 @@ static void puzzle_draw(uint16_t *fb) {
     mote->draw_rect(fb, 8, 18, 112, 88, rgb(120, 140, 200), 0, 0, 128);
     mote_ftextc(mote, fb, f, 64, 21, rgb(250, 230, 150), k_pz_name[pz]);
     char b[40];
+    if (pz == PZ_IQ) {
+        /* the sequence, then the four candidates */
+        for (int i = 0; i < 4; i++) {
+            int x = 19 + i * 23;
+            mote->draw_rect(fb, x, 33, 18, 18, rgb(24, 30, 58), 1, 0, 128);
+            mote->draw_rect(fb, x, 33, 18, 18, rgb(70, 90, 150), 0, 0, 128);
+            if (i < 3) iq_cell_draw(fb, x + 9, 42, &g_iq_seq[i]);
+            else mote_ftextc(mote, fb, f, x + 9, 37, rgb(250, 220, 130), "?");
+        }
+        for (int i = 0; i < 4; i++) {
+            int x = 19 + i * 23;
+            int sel = i == (int)g_iq_sel;
+            mote->draw_rect(fb, x, 60, 18, 18, sel ? rgb(40, 50, 90) : rgb(24, 30, 58), 1, 0, 128);
+            mote->draw_rect(fb, x, 60, 18, 18, sel ? rgb(255, 230, 120) : rgb(70, 90, 150), 0, 0, 128);
+            iq_cell_draw(fb, x + 9, 69, &g_iq_opt[i]);
+            if (sel) draw_arrow(fb, x + 9, 55, DIR_N, rgb(255, 230, 120));
+        }
+        snprintf(b, sizeof b, "QUESTION %d OF 3", g_iq_round + 1);
+        mote_ftextc(mote, fb, f, 64, 82, rgb(190, 205, 240), b);
+        mote_ftextc(mote, fb, f, 64, 93, rgb(150, 165, 205), "A ANSWER   B LEAVE");
+        return;
+    }
     if (pz == PZ_PIANO) {
         /* a real keyboard: C D E F G A B, cursor walks it, A strikes */
         for (int i = 0; i < 7; i++) {

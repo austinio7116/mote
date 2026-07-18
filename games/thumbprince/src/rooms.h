@@ -81,7 +81,7 @@ enum {
     R_CRYPT, R_TRICKHALL,
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
-    R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR, R_BILLIARDS,
+    R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR, R_BILLIARDS, R_CLASSROOM,
     R_COUNT,
 };
 
@@ -607,6 +607,15 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.1...#"
         "#.....#"
         "#.....#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_CLASSROOM] = { "CLASSROOM", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(90, 170, 150), 0, 0, 0, 0, 25,
+        "#######"
+        "#.3..l#"
+        "#n..n.#"
+        "#.....#"
+        "#n..n.#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 };

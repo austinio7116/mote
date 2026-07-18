@@ -586,6 +586,33 @@ add("rack", p)
 pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
 add("rack_v", pv)
 
+# ---- blackboard (16x8 wall band): slate + chalk workings ----
+p = P(16, 8)
+p.rect(0, 0, 15, 7, (110, 74, 42))
+p.rect(1, 1, 14, 6, (34, 52, 44))
+p.hl(3, 6, 2, (216, 222, 214)); p.px(8, 2, (216, 222, 214))        # chalk line + dot
+p.hl(4, 9, 4, (170, 180, 172)); p.px(11, 4, (216, 222, 214))
+p.px(12, 5, (216, 222, 214))
+add("blackboard", p)
+pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
+add("blackboard_v", pv)
+
+# ---- floor hatch: the dark opening + the floor panel slid aside ----
+p = P(16, 14)
+p.rect(0, 0, 15, 13, (58, 44, 30))                                 # frame rim
+p.rect(1, 1, 14, 12, (24, 18, 16))                                 # the pit
+p.rect(2, 2, 13, 4, (12, 9, 8))                                    # deep shadow
+p.hl(1, 14, 12, (40, 30, 22))
+add("hatch_pit", p)
+
+p = P(16, 14)                                                      # wooden lid
+p.rect(0, 0, 15, 13, (150, 103, 58))
+p.hl(1, 14, 0, (178, 130, 78))
+for yy in (4, 9):
+    p.hl(1, 14, yy, (114, 74, 42))
+p.rect(7, 6, 8, 7, (84, 52, 30))                                   # ring handle
+add("hatch_lid", p)
+
 # ---- stack of books (12x10) ----
 p = P(12, 10)
 p.rect(2, 6, 10, 8, (150, 52, 48)); p.hl(2, 10, 6, (196, 86, 76))
