@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-18T07:50:05+00:00",
+ "generated": "2026-07-18T17:17:53+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -91,20 +91,22 @@
    "id": "thumbprince",
    "name": "ThumbPrince",
    "author": "austinio7116",
-   "version": "1.0.0",
+   "version": "1.2.0",
    "abi": 47,
-   "size": 154872,
-   "sha256": "9ab87bb7f24d9c4acef490b5a0b698ace82335c35a0ed72679b1b80b23ed0c23",
+   "size": 202008,
+   "sha256": "b49ad38861e064aed7bf87ff5940c1093d13e4a8ec6832125b7846ebcf97979a",
    "file": "games/ThumbPrince.mote",
    "icon": "img/gallery/thumbprince-icon.png",
    "thumb": "img/gallery/thumbprince-1.png",
    "screenshots": [
     "img/gallery/thumbprince-1.png",
     "img/gallery/thumbprince-2.png",
-    "img/gallery/thumbprince-3.png"
+    "img/gallery/thumbprince-3.png",
+    "img/gallery/thumbprince-4.png",
+    "img/gallery/thumbprince-5.png"
    ],
-   "tag": "Room-drafting estate roguelike",
-   "desc": "A Blue Prince-style drafting roguelike: the estate is a blank 5×8 blueprint, and every unexplored door deals you a hand of rooms — corridors for reach, gardens for gems, kitchens for steps, vaults for gold — with the whole map live on the drafting desk as you choose. Twenty steps a day, keys and keycard readers on the doors, security terminals and a power breaker to cheat them, dig spots, riddle notes, daily conditions and cursed rooms along the way. Chain placement combos into multipliers, clear the day's goals, and reach the triple-locked Antechamber before the steps run out.",
+   "tag": "Room-drafting mystery roguelike",
+   "desc": "A room-drafting mystery roguelike: the estate is a blank 5×8 blueprint, every unexplored door deals a hand of rooms, and the whole map sits live on the drafting desk as you choose. Twenty steps a day to reach the sealed Antechamber — past keys and keycard readers, seal-lever days, a slot-machine Parlor and a pitch-black room that blinds your next draft. Sixteen in-room puzzles wait in safes, pianos, statues, wine racks and a chessboard; crumpled notes reveal their secrets to your notebook, floors slide open over the prizes, and the Classroom sets a genuinely hard visual-reasoning TEST. Every win recovers a fragment of a case that is stranger than an inheritance.",
    "guide": "thumbprince-guide.html",
    "multiplayer": false
   },
@@ -147,7 +149,7 @@
    ],
    "tag": "Open-city crime sandbox",
    "desc": "A GTA-1-style top-down city — and every new game generates a brand-new one: fresh rivers, bridges, districts and parks each run. Steal cars, run missions from payphones, outdrive the police, and watch your wanted level climb until the army sends a tank (now hidden somewhere quiet). Real 2D rigid-body driving with tyre grip and traffic that fights back. 2P DEATHMATCH: same generated city on both units, shared traffic to steal, weapon caches, first to ten.",
-   "guide": null,
+   "guide": "grandthumbauto-guide.html",
    "multiplayer": true
   },
   {
