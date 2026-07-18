@@ -624,29 +624,15 @@ def altar_cells():
     return out
 
 def door_cells(open_):
-    # SlipPixel Oak Wood Door.png (40x24): col 0 is the 1-wide OPEN door (edge-on),
-    # cols 1-2 are a 2-wide CLOSED door. Our door footprint is 1 tile wide x 3 tall,
-    # so use col 0 for open, and nearest-scale the 2-wide closed door down to
-    # 8px wide for closed. Both slice into 3 cells (top/mid/bottom) for lut13.
+    # SlipPixel Oak Wood Door.png (40x24): col 0 is the 1-wide edge-on slab,
+    # cols 1-2 a 2-wide door FACE. SIDE-VIEW logic (user-corrected, twice):
+    #   CLOSED = the thin slab standing in its frame (a shut door seen from
+    #            the side is edge-on), centred, latch bar and all;
+    #   OPEN   = the door has swung round to face the camera — the full panel
+    #            face, which you walk past.
     if open_:
-        cells = slip_cells("Oak Wood Door.png", 1, 3, x0=0)
-        # OPEN must read as an EMPTY doorway. The source's edge-on slab sits at
-        # columns 2..5 with a full-width latch bar mid-door — centred, it looked
-        # like a SHUT door ("sprites feel swapped"). Rebuild: slab flush against
-        # the jamb, doorway clear, a latch knob poking off the slab's edge.
-        out = []
-        for c in cells:
-            c2 = Cell()
-            for y in range(TS):
-                for x in range(4):
-                    p = c.get(x + 2, y)
-                    if p:
-                        c2.put(x, y, p)
-            out.append(c2)
-        out[1].put(4, 3, (40, 40, 48))
-        out[1].put(4, 4, (40, 40, 48))
-        return out
-    return slip_cells_scaled("Oak Wood Door.png", (8, 0, 24, 24), 1, 3)
+        return slip_cells_scaled("Oak Wood Door.png", (8, 0, 24, 24), 1, 3)
+    return slip_cells("Oak Wood Door.png", 1, 3, x0=0)
 
 def mush_cell():
     c = Cell()

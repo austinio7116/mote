@@ -126,6 +126,18 @@ static int   s_gen_started, s_gen_hold;
 static float s_autosave_t;
 static float s_grow_t;
 static uint8_t s_liq_flip;
+static uint8_t s_save_manual, s_quit_after_save;
+
+/* manual world save: same incremental path as the autosave (no frame hitch,
+ * no link silence). quit_after=1 leaves for the launcher once the save lands. */
+void game_save_start(int quit_after) {
+    s_save_manual = 1;
+    if (quit_after) s_quit_after_save = 1;             /* even if a save is mid-flight */
+    if (save_world_busy()) return;
+    save_world_begin();
+    net_ev_saving(1);
+    ui_toast("SAVING WORLD...");
+}
 
 /* ------------------------------------------------------------------ camera -- */
 static void camera_update(void) {
@@ -318,12 +330,17 @@ static void pause_tick(void) {
         if (s_pause_row == 0) g_state = GS_PLAY;
         else if (s_pause_row == 1) {
             if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
-            else { net_ev_saving(1); save_world(); net_ev_saving(0); ui_toast("WORLD SAVED"); }
+            else game_save_start(0);                 /* incremental: no hitch, no link silence */
             g_state = GS_PLAY;
         } else {
-            if (net_guest()) save_player_coop(); else { net_ev_saving(1); save_world(); }
-            net_stop(1);               /* wave goodbye before leaving */
-            mote->exit_to_launcher();
+            if (net_guest()) {
+                save_player_coop();
+                net_stop(1);           /* wave goodbye before leaving */
+                mote->exit_to_launcher();
+            } else {
+                game_save_start(1);    /* incremental; quits when the last step lands */
+                g_state = GS_PLAY;
+            }
         }
     }
 }
@@ -428,18 +445,26 @@ static void sim_tick(float dt, int with_player) {
         if (net_guest()) {                             /* guest: character only */
             if (ivl > 0 && s_autosave_t > ivl) { s_autosave_t = 0; save_player_coop(); }
         } else {
-            /* INCREMENTAL autosave: one kv key per frame, so the frame never
-             * hitches and a co-op host never goes link-silent (the guest used
-             * to catch the engine's LINK STALLED banner during atomic saves) */
+            /* INCREMENTAL saving (auto AND manual): one kv key per frame, so
+             * the frame never hitches and a co-op host never goes link-silent
+             * (atomic saves tripped the engine's LINK STALLED banner on the
+             * guest — including manual ones, per the user's field test) */
             if (ivl > 0 && s_autosave_t > ivl && !save_world_busy()) {
                 s_autosave_t = 0;
+                s_save_manual = 0;
                 save_world_begin();
                 net_ev_saving(1);                      /* friend sees "HOST IS SAVING..." */
                 ui_toast("AUTOSAVING...");
             }
             if (save_world_busy() && !save_world_step()) {
-                ui_toast("AUTOSAVED");
+                ui_toast(s_save_manual ? "WORLD SAVED" : "AUTOSAVED");
                 net_ev_saving(0);
+                s_save_manual = 0;
+                if (s_quit_after_save) {
+                    s_quit_after_save = 0;
+                    net_stop(1);
+                    mote->exit_to_launcher();
+                }
             }
         }
     }

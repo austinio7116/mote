@@ -365,6 +365,7 @@ void ui_toast(const char *msg);
 void ui_tick(float dt);
 
 /* ---- save module (save.c) -------------------------------------------------------------- */
+void game_save_start(int quit_after);  /* game.c: incremental manual save (+ optional quit) */
 int  save_world_exists(void);
 void save_world(void);
 void save_world_begin(void);          /* incremental autosave: one step per frame */

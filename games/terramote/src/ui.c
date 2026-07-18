@@ -521,12 +521,12 @@ void ui_inventory(uint16_t *fb) {
             if (s_game_cur == 0) g_state = GS_PLAY;
             else if (s_game_cur == 2) {
                 if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
-                else { net_ev_saving(1); save_world(); net_ev_saving(0); ui_toast("WORLD SAVED"); }
+                else game_save_start(0);                 /* incremental: no hitch, no link silence */
                 g_state = GS_PLAY;
             } else {
-                if (net_guest()) save_player_coop(); else { net_ev_saving(1); save_world(); }
-                net_stop(1);
-                mote->exit_to_launcher();
+                if (net_guest()) { save_player_coop(); net_stop(1); mote->exit_to_launcher(); }
+                else game_save_start(1);          /* quits when the last step lands */
+                g_state = GS_PLAY;
             }
         }
     }
