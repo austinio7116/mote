@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThumbAtro — Player's Handbook</title>
+<style>
+  :root{
+    --bg:#0a140e; --panel:#102017; --panel2:#16291d; --ink:#e6e2d2;
+    --dim:#93a08c; --felt:#1f6b45; --feltl:#3fa46a; --gold:#e6cd6e; --red:#d8503f; --blue:#5aa0e0;
+    --line:#26402e; --grid:#16261b;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background-image:radial-gradient(120% 90% at 50% -10%, #16341f 0%, transparent 60%);}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  header.hero{background:linear-gradient(180deg,#123020,#0a140e);
+    border-bottom:2px solid var(--gold);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--gold);border-radius:8px;
+    background:#07100a;flex:0 0 auto}
+  .htext h1{margin:0;font-size:2.4rem;letter-spacing:.08em;color:var(--gold);font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.1rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px}
+  section{padding:30px 0 8px;border-bottom:1px solid var(--line)}
+  h2{font-size:1.4rem;color:var(--gold);margin:0 0 6px}
+  h2::before{content:"♠ ";color:var(--feltl)}
+  h3{color:var(--feltl);margin:20px 0 6px;font-size:1.02rem}
+  p,ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:#fff}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+  .shots{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
+  .shots img{width:256px;border:2px solid var(--line);border-radius:6px}
+  table{border-collapse:collapse;margin:10px 0;width:100%}
+  td,th{border:1px solid var(--line);padding:6px 12px;text-align:left;font-size:.92rem}
+  th{background:var(--panel2);color:var(--gold)}
+  td.n{text-align:right;color:var(--blue);font-variant-numeric:tabular-nums}
+  .tip{background:var(--panel);border-left:3px solid var(--gold);padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:14px 0;max-width:74ch}
+  footer{padding:26px 0 40px;color:var(--dim);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<header class="hero"><div class="wrap">
+  <div class="hrow">
+    <img class="hicon" src="img/gallery/thumbatro-icon.png" alt="">
+    <div class="htext">
+      <h1>THUMBATRO</h1>
+      <div class="sub">Play poker hands to beat the score. Warp your deck. Take one more round.</div>
+      <div class="by">by austinio7116 · single player · poker roguelike</div>
+    </div>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<section id="goal">
+  <h2>The Goal</h2>
+  <p>Each <b>round</b> sets a score to beat. You have <b>4 hands</b> and <b>4 discards</b>
+  to reach it by playing poker hands from a standard 52-card deck. Clear the target and
+  you open a <b>booster pack</b> to warp your deck, then the next round demands more. Miss
+  it and the run is over — your best single hand is your trophy.</p>
+  <ul>
+    <li>Round 1 target is <b>300</b>. Every round after adds <b>+500</b> (800, 1300, 1800…).</li>
+    <li>Hands and discards reset to <b>4</b> each new round, and the deck reshuffles.</li>
+    <li>Run out of hands below target — or run the deck dry — and it's <b>Game Over</b>
+      (press <b>A</b> to start again).</li>
+  </ul>
+  <div class="shots">
+    <img src="img/gallery/thumbatro-1.png" alt="">
+    <img src="img/gallery/thumbatro-2.png" alt="">
+  </div>
+</section>
+
+<section id="playing">
+  <h2>Playing a Hand</h2>
+  <p>You hold 8 cards. Move the pointer with <b>LEFT/RIGHT</b>, <b>UP</b> to select a card
+  and <b>DOWN</b> to deselect — up to <b>five</b>. Then:</p>
+  <ul>
+    <li><b>A — Play</b> the selected cards as a poker hand and bank the score.</li>
+    <li><b>B — Discard</b> the selected cards and draw replacements (costs one discard).</li>
+  </ul>
+  <p>Either way you redraw to refill the gap, so the deck thins as the round runs. The HUD
+  shows <b>score / target</b>, the current hand's <b>base</b> and <b>mult</b>, the hand type,
+  and your remaining <b>hands</b>, <b>discards</b> and <b>round</b>.</p>
+  <div class="tip">Discards are for fishing — dump three dead cards to chase the flush.
+  But every discard is one you can't get back, and the deck only holds what's left.</div>
+</section>
+
+<section id="scoring">
+  <h2>Scoring</h2>
+  <p>A hand scores <b>base × mult</b>. The poker rank sets the starting base and mult; then
+  every scoring card adds its rank value (Ace = 14, face = 11–13) plus any card modifiers,
+  and your jokers pile on. Bigger ranks pay more base:</p>
+  <table>
+    <tr><th>Hand</th><th class="n">Base</th><th class="n">Mult</th></tr>
+    <tr><td>High Card</td><td class="n">5</td><td class="n">×1</td></tr>
+    <tr><td>One Pair</td><td class="n">10</td><td class="n">×2</td></tr>
+    <tr><td>Two Pair</td><td class="n">20</td><td class="n">×2</td></tr>
+    <tr><td>Three of a Kind</td><td class="n">30</td><td class="n">×3</td></tr>
+    <tr><td>Straight</td><td class="n">30</td><td class="n">×4</td></tr>
+    <tr><td>Flush</td><td class="n">35</td><td class="n">×4</td></tr>
+    <tr><td>Full House</td><td class="n">40</td><td class="n">×4</td></tr>
+    <tr><td>Four of a Kind</td><td class="n">60</td><td class="n">×7</td></tr>
+    <tr><td>Straight Flush</td><td class="n">100</td><td class="n">×8</td></tr>
+    <tr><td>Royal Flush</td><td class="n">100</td><td class="n">×10</td></tr>
+    <tr><td>Five of a Kind</td><td class="n">120</td><td class="n">×12</td></tr>
+    <tr><td>Flush House</td><td class="n">140</td><td class="n">×14</td></tr>
+    <tr><td>Flush Five</td><td class="n">160</td><td class="n">×16</td></tr>
+  </table>
+  <p>The bottom three need duplicate cards or a full one-suit house — impossible with a plain
+  deck, but very much on the table once tarots start warping it.</p>
+</section>
+
+<section id="upgrades">
+  <h2>Warping the Deck</h2>
+  <p>Clear a round and the <b>booster pack</b> deals 4–7 cards face up. Take <b>one or two</b>
+  (<b>UP/DOWN</b> to pick, <b>A</b> to confirm). What you can find:</p>
+  <h3>Special cards (go into your deck)</h3>
+  <ul>
+    <li><b>Bonus</b> — a normal card that also adds flat chips, extra mult, or (rare, shiny) both.</li>
+    <li><b>Wild</b> — counts as any suit, so it slots into any flush.</li>
+    <li><b>Steel</b> — scores while it's just <b>held in hand</b>, even unplayed. Keep it, don't play it.</li>
+    <li><b>Coin</b> — playing it grows your <b>next</b> booster pack by a card.</li>
+  </ul>
+  <h3>Hand upgrades (planet-style)</h3>
+  <ul>
+    <li>Permanently level a specific poker hand: each level adds <b>+10 base and +1 mult</b>
+      to that hand every time you make it. Level your bread-and-butter hand and it snowballs.</li>
+  </ul>
+  <h3>Tarots (reshape the deck)</h3>
+  <ul>
+    <li><b>Rank tarot</b> — destroy 2 (or 4) cards of one rank.</li>
+    <li><b>Suit tarot</b> — destroy 2 (or 4) cards of one suit.</li>
+    <li><b>Uprank tarot</b> — bump cards of a rank up by one, nudging toward pairs and fives.</li>
+  </ul>
+  <div class="tip">Thinning the deck is a strategy: fewer, better cards means you draw your
+  scoring hand more often. Cut a suit you never flush, and every draw improves.</div>
+</section>
+
+<section id="jokers">
+  <h2>Jokers</h2>
+  <p>Jokers are passive scoring engines — you can hold <b>two</b>, and taking a third pushes
+  out the oldest. View them any time with <b>LB/RB</b>. Each carries one modifier:</p>
+  <ul>
+    <li><b>Conditional</b> — pays per selected card that matches its rule: <b>Even</b>, <b>Odd</b>,
+      <b>Fibonacci</b> (2·3·5·8·K), <b>Ace</b>, <b>Non-face</b> or <b>Face</b>. Common jokers add
+      chips per match; rarer ones add mult per match.</li>
+    <li><b>Flat</b> — a fixed <b>+chips</b>, <b>+mult</b>, or (rare) a big both, once per hand.</li>
+  </ul>
+  <p>Build a joker around the deck you're building: an Even-mult joker loves a deck you've
+  upranked into even ranks; a Face joker wants the paint left in.</p>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <table>
+    <tr><th>Input</th><th>Playing</th><th>Booster</th></tr>
+    <tr><td>LEFT / RIGHT</td><td>Move the pointer</td><td>Move the pointer</td></tr>
+    <tr><td>UP / DOWN</td><td>Select / deselect (max 5)</td><td>Select / deselect (max 2)</td></tr>
+    <tr><td>A</td><td>Play the hand</td><td>Confirm picks</td></tr>
+    <tr><td>B</td><td>Discard &amp; draw</td><td>—</td></tr>
+    <tr><td>LB / RB</td><td>View jokers</td><td>View jokers</td></tr>
+    <tr><td>MENU</td><td colspan="2">Toggle sound</td></tr>
+  </table>
+  <p>On the title screen, press <b>A</b> to deal in. After a Game Over, <b>A</b> starts a fresh run.</p>
+</section>
+
+</div>
+<footer><div class="wrap">ThumbAtro · a Mote game for the Thumby Color ·
+<a href="games.html">back to the gallery</a></div></footer>
+</body>
+</html>

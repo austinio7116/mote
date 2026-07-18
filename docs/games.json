@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-18T07:36:42+00:00",
+ "generated": "2026-07-18T07:50:05+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -209,7 +209,7 @@
    ],
    "tag": "Poker roguelike deckbuilder",
    "desc": "A Balatro-style deckbuilder: play poker hands to hit rising blinds, then warp your deck with jokers, planet cards and tarot upgrades. One more ante is always a mistake — take it anyway.",
-   "guide": null,
+   "guide": "thumbatro-guide.html",
    "multiplayer": false
   },
   {
