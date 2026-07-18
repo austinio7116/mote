@@ -174,7 +174,9 @@ extern Player g_pl;
 
 /* ---- enemies ---------------------------------------------------------------- */
 enum { E_NONE = 0, E_SLIME_GREEN, E_SLIME_BLUE, E_SLIME_LAVA, E_ZOMBIE,
-       E_EYE, E_BAT, E_SKELETON, E_BOSS_EOC, E_COUNT };
+       E_EYE, E_BAT, E_SKELETON, E_BOSS_EOC,
+       E_SLIME_SAND, E_HORNET, E_CRAWLER, E_EATER, E_WRAITH,   /* append only (net kind ids) */
+       E_COUNT };
 #define MAX_ENEMIES 20
 typedef struct {
     uint8_t kind;                /* E_NONE = free */

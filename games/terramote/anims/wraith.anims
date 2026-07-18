@@ -1,0 +1,6 @@
+sheet assets/wraith.png
+tile 16 16
+clips 1
+clip drift 1 4 0 0 2
+f 0 320 -
+f 1 320 -

@@ -15,6 +15,11 @@
 #include "eye.anim.h"          /* eye_sheet · eye_fly */
 #include "bat.anim.h"          /* bat_sheet · bat_fly */
 #include "eoc.anim.h"          /* eoc_sheet · eoc_p1 / eoc_p2 */
+#include "slime_sand.anim.h"   /* slime_sand_sheet · slime_sand_idle / _jump */
+#include "hornet.anim.h"       /* hornet_sheet · hornet_fly */
+#include "crawler.anim.h"      /* crawler_sheet · crawler_walk */
+#include "eater.anim.h"        /* eater_sheet · eater_fly */
+#include "wraith.anim.h"       /* wraith_sheet · wraith_drift */
 
 Enemy g_en[MAX_ENEMIES];
 Drop  g_drops[MAX_DROPS];
@@ -38,6 +43,12 @@ static const EnemyDef k_edef[E_COUNT] = {
     [E_BAT]         = { 0, 16, 10, 5, 3, 16, 11, 2 },
     [E_SKELETON]    = { 0, 12, 16, 4, 7, 70, 18, 5 },
     [E_BOSS_EOC]    = { 0, 40, 40, 14, 14, 1400, 15, 40 },
+    /*                 fw  fh  hw hh  hp  dmg coins */
+    [E_SLIME_SAND]  = { 0, 16, 12, 6, 4, 20,  7, 2 },   /* desert hopper */
+    [E_HORNET]      = { 0, 16, 12, 6, 4, 18, 10, 2 },   /* fast day darter */
+    [E_CRAWLER]     = { 0, 16, 12, 6, 5, 34, 12, 3 },   /* cave beetle, fast walker */
+    [E_EATER]       = { 0, 16, 14, 6, 5, 36, 13, 3 },   /* corruption flyer */
+    [E_WRAITH]      = { 0, 16, 16, 6, 7, 58, 20, 6 },   /* deep/night phantom, phases */
 };
 static const MoteAnimSheet *edef_sheet(uint8_t kind) {
     switch (kind) {
@@ -49,6 +60,11 @@ static const MoteAnimSheet *edef_sheet(uint8_t kind) {
     case E_BAT:         return &bat_sheet;
     case E_SKELETON:    return &skeleton_sheet;
     case E_BOSS_EOC:    return &eoc_sheet;
+    case E_SLIME_SAND:  return &slime_sand_sheet;
+    case E_HORNET:      return &hornet_sheet;
+    case E_CRAWLER:     return &crawler_sheet;
+    case E_EATER:       return &eater_sheet;
+    case E_WRAITH:      return &wraith_sheet;
     }
     return &slime_sheet;
 }
@@ -64,6 +80,11 @@ static const MoteAnimClip *edef_clip(const Enemy *e) {
     case E_EYE:         return &eye_fly;
     case E_BAT:         return &bat_fly;
     case E_BOSS_EOC:    return e->phase ? &eoc_p2 : &eoc_p1;
+    case E_SLIME_SAND:  return e->on_ground ? &slime_sand_idle : &slime_sand_jump;
+    case E_HORNET:      return &hornet_fly;
+    case E_CRAWLER:     return &crawler_walk;
+    case E_EATER:       return &eater_fly;
+    case E_WRAITH:      return &wraith_drift;
     }
     return &slime_idle;
 }
@@ -329,6 +350,14 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
             case E_ZOMBIE: if ((mote_rand() % 5) == 0) drops_add(I_LENS, 1, e->x, e->y); break;
             case E_EYE:    drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y); break;
             case E_SKELETON: if ((mote_rand() % 4) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y); break;
+            case E_SLIME_SAND: drops_add(I_GEL, 1 + (mote_rand() % 2), e->x, e->y);
+                               if ((mote_rand() % 6) == 0) drops_add(I_SAND, 1, e->x, e->y); break;
+            case E_HORNET: if ((mote_rand() % 3) == 0) drops_add(I_GEL, 1, e->x, e->y); break;
+            case E_CRAWLER: if ((mote_rand() % 4) == 0) drops_add(I_LENS, 1, e->x, e->y); break;
+            case E_EATER:  if ((mote_rand() % 2) == 0) drops_add(I_LENS, 1, e->x, e->y);
+                           if ((mote_rand() % 8) == 0) drops_add(I_DEMONITE_ORE, 1, e->x, e->y); break;
+            case E_WRAITH: if ((mote_rand() % 3) == 0) drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y);
+                           if ((mote_rand() % 10) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y); break;
             case E_BOSS_EOC:
                 drops_add(I_DEMONITE_ORE, 28 + (mote_rand() % 8), e->x, e->y);
                 drops_add(I_LENS, 4, e->x - 10, e->y);
@@ -434,6 +463,19 @@ static int spawn_sheltered(int c, int r) {
     return 0;
 }
 
+static int en_flyer(uint8_t k) {
+    return k == E_EYE || k == E_BAT || k == E_HORNET || k == E_EATER || k == E_WRAITH;
+}
+
+/* TERRA_MOBS=<kind>: dev/test — spawn one enemy of that E_* id beside the
+ * player each call (0 lines up one of the five new kinds). */
+void npc_dev_spawn(int kind);
+void npc_dev_spawn(int kind) {
+    if (kind > 0 && kind < E_COUNT) { en_spawn((uint8_t)kind, g_pl.x + 44, g_pl.y - 20); return; }
+    static const uint8_t row[] = { E_SLIME_SAND, E_HORNET, E_CRAWLER, E_EATER, E_WRAITH };
+    for (int i = 0; i < 5; i++) en_spawn(row[i], g_pl.x + 36 + i * 26, g_pl.y - 22);
+}
+
 static void spawn_try(void) {
     /* the night RAMPS: dusk starts gentle (cap 3), deep night packs up to 8 */
     int cap = 3;                                   /* day: a sparse world */
@@ -471,25 +513,43 @@ static void spawn_try(void) {
     if (spawn_sheltered(c, r)) return;      /* base walls / a lantern or fire keep it out */
     float x = c * TILE + 4.0f, y = r * TILE + 4.0f;
     int depth = r;
+    int bio = world_biome(c);            /* 0 forest · 1 snow · 2 desert · 3 corruption */
     uint8_t kind = 0;
     int night = IS_NIGHT();
     if (depth >= ROW_HELL - 6) {
         kind = E_SLIME_LAVA;
     } else if (depth > 150) {
-        kind = (mote_rand() % 3 == 0) ? E_BAT : ((mote_rand() & 1) ? E_SKELETON : E_SLIME_BLUE);
+        /* deep dark: wraiths haunt it, cave crawlers scuttle, old mix remains */
+        int roll = mote_rand() % 6;
+        kind = roll == 0 ? E_WRAITH : roll == 1 ? E_CRAWLER : roll == 2 ? E_BAT
+             : (mote_rand() & 1) ? E_SKELETON : E_SLIME_BLUE;
+        if (bio == 3 && (mote_rand() % 3) == 0) kind = E_EATER;   /* corruption caves */
     } else if (depth > ROW_DIRT_END) {
-        kind = (mote_rand() & 1) ? E_BAT : E_SLIME_BLUE;
+        /* shallow caves: crawlers join the bats + blue slimes */
+        int roll = mote_rand() % 4;
+        kind = roll == 0 ? E_CRAWLER : roll == 1 ? E_BAT : E_SLIME_BLUE;
+        if (bio == 3 && (mote_rand() % 3) == 0) kind = E_EATER;
     } else {
         /* surface-ish */
         if (BG_LIQ(bg_at(c, r)) >= 4) return;
-        if (night) kind = (mote_rand() % 3 == 0) ? E_EYE : E_ZOMBIE;
-        else kind = (mote_rand() % 4 == 0) ? E_SLIME_BLUE : E_SLIME_GREEN;
-        /* day surface slimes only in the open (the light window only covers
-         * OUR camera, so skip the check for spawns anchored on the friend) */
-        if (!night && !peer_anchor && fx_light_at(c, r) < 6) kind = E_BAT;
+        if (bio == 3) {                                  /* corruption: eaters roam */
+            kind = (mote_rand() & 1) ? E_EATER : (night ? E_ZOMBIE : E_SLIME_BLUE);
+        } else if (bio == 2) {                           /* desert: sand slimes */
+            kind = (night && (mote_rand() % 3) == 0) ? E_EYE : E_SLIME_SAND;
+        } else if (night) {
+            kind = (mote_rand() % 3 == 0) ? E_EYE : E_ZOMBIE;
+        } else if (bio == 0 && (mote_rand() % 4) == 0) {
+            kind = E_HORNET;                             /* forest day: hornets buzz out */
+        } else {
+            kind = (mote_rand() % 4 == 0) ? E_SLIME_BLUE : E_SLIME_GREEN;
+        }
+        /* day surface slimes only in the open (light window covers OUR camera
+         * only, so skip for friend-anchored + desert/corruption/hornet spawns) */
+        if (!night && bio == 0 && kind != E_HORNET && !peer_anchor && fx_light_at(c, r) < 6)
+            kind = E_BAT;
     }
-    if (!ok && kind != E_EYE && kind != E_BAT) return;   /* walkers need a floor */
-    if (kind == E_EYE || kind == E_BAT) y -= 8;
+    if (!ok && !en_flyer(kind)) return;   /* walkers need a floor; flyers/wraith don't */
+    if (en_flyer(kind)) y -= 8;
     en_spawn(kind, x, y);
 }
 
@@ -610,7 +670,7 @@ void npc_tick(float dt) {
         if (e->kind != E_BOSS_EOC && dist > 340.0f) { e->kind = E_NONE; continue; }
 
         switch (e->kind) {
-        case E_SLIME_GREEN: case E_SLIME_BLUE: case E_SLIME_LAVA:
+        case E_SLIME_GREEN: case E_SLIME_BLUE: case E_SLIME_LAVA: case E_SLIME_SAND:
             e->t += dt;
             if (e->on_ground) {
                 e->vx = 0;
@@ -624,8 +684,8 @@ void npc_tick(float dt) {
             }
             walker_phys(e, d, dt);
             break;
-        case E_ZOMBIE: case E_SKELETON: {
-            float sp = e->kind == E_SKELETON ? 33.0f : 26.0f;
+        case E_ZOMBIE: case E_SKELETON: case E_CRAWLER: {
+            float sp = e->kind == E_SKELETON ? 33.0f : e->kind == E_CRAWLER ? 44.0f : 26.0f;
             e->facing = dx > 0 ? 1 : -1;
             e->vx = e->facing * sp;
             walker_phys(e, d, dt);
@@ -634,11 +694,26 @@ void npc_tick(float dt) {
             if (e->kind == E_ZOMBIE && !IS_NIGHT() && dist > 150) e->kind = E_NONE;
             break;
         }
-        case E_EYE: case E_BAT: {
-            float sp = e->kind == E_EYE ? 55.0f : 42.0f;
+        case E_WRAITH: {
+            /* phases THROUGH terrain — a slow, relentless drift straight at the
+             * nearest player, ignoring walls entirely */
+            float sp = 30.0f;
+            e->vx += (dx / dist * sp - e->vx) * 2.0f * dt;
+            e->vy += (dy / dist * sp - e->vy) * 2.0f * dt;
+            e->x += e->vx * dt; e->y += e->vy * dt;
+            e->facing = e->vx > 0 ? 1 : -1;
+            e->t += dt;
+            break;                                             /* deep-cave dweller: only the far-despawn frees it */
+        }
+        case E_EYE: case E_BAT: case E_HORNET: case E_EATER: {
+            float sp = e->kind == E_EYE ? 55.0f : e->kind == E_HORNET ? 62.0f
+                     : e->kind == E_EATER ? 46.0f : 42.0f;
             float ax = dx / dist * sp * 2.2f, ay = dy / dist * sp * 2.2f;
-            if (e->kind == E_BAT) {
-                ax += mote_randf(-140, 140); ay += mote_randf(-140, 140);
+            if (e->kind == E_BAT || e->kind == E_EATER) {
+                float j = e->kind == E_EATER ? 90.0f : 140.0f;   /* eaters weave less */
+                ax += mote_randf(-j, j); ay += mote_randf(-j, j);
+            } else if (e->kind == E_HORNET) {
+                ay += sinf(e->t * 9.0f) * 40.0f;                 /* tight buzzing weave */
             } else {
                 ay += sinf(e->t * 5.0f) * 60.0f;
             }
@@ -653,7 +728,9 @@ void npc_tick(float dt) {
             if (world_solid_px((int)e->x, (int)(ny + (e->vy > 0 ? d->hh : -d->hh)))) e->vy = -e->vy * 0.7f;
             else e->y = ny;
             e->facing = e->vx > 0 ? 1 : -1;
-            if (e->kind == E_EYE && !IS_NIGHT() && dist > 150) e->kind = E_NONE;
+            /* hornets are day creatures — they flee at NIGHT; eyes/eaters flee by day */
+            if ((e->kind == E_EYE || e->kind == E_EATER) && !IS_NIGHT() && dist > 150) e->kind = E_NONE;
+            if (e->kind == E_HORNET && IS_NIGHT() && dist > 150) e->kind = E_NONE;
             break;
         }
         case E_BOSS_EOC: {
@@ -719,10 +796,10 @@ void npc_draw(void) {
             .fy = (uint16_t)mote_anim_fy(&e->anim, sh),
             .fw = d->fw, .fh = d->fh,
             .layer = 9,
-            .flags = e->facing < 0 ? 0 : MOTE_SPR_HFLIP,   /* art faces LEFT for eye/eoc */
+            .flags = e->facing < 0 ? 0 : MOTE_SPR_HFLIP,   /* art faces LEFT (eye/eoc/hornet) */
         };
-        /* humanoid + slime art faces RIGHT: flip the other way */
-        if (e->kind != E_EYE && e->kind != E_BOSS_EOC)
+        /* humanoid + slime + crawler art faces RIGHT: flip the other way */
+        if (e->kind != E_EYE && e->kind != E_BOSS_EOC && e->kind != E_HORNET)
             s.flags = e->facing < 0 ? MOTE_SPR_HFLIP : 0;
         if (e->hurt_t > 0 && ((int)(e->hurt_t * 30) & 1)) s.y -= 1;   /* hit shake */
         mote->scene2d_add(&s);

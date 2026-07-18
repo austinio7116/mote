@@ -1,0 +1,6 @@
+sheet assets/crawler.png
+tile 16 12
+clips 1
+clip walk 1 9 0 0 2
+f 0 110 -
+f 1 110 -

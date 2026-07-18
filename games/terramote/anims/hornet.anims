@@ -1,0 +1,6 @@
+sheet assets/hornet.png
+tile 16 12
+clips 1
+clip fly 1 14 0 0 2
+f 0 70 -
+f 1 70 -

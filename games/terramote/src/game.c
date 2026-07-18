@@ -481,6 +481,11 @@ static void coop_menu_tick(float dt, int with_player) {
 }
 
 static void play_tick(float dt) {
+    {   /* TERRA_MOBS=<kind> dev hook: spawn once, a beat after play starts */
+        static float t = -1.0f; const char *e = getenv("TERRA_MOBS");
+        if (e) { if (t < 0) t = 0; t += dt;
+            static int done; if (!done && t > 0.4f) { done = 1; void npc_dev_spawn(int); npc_dev_spawn(atoi(e)); } }
+    }
     sim_tick(dt, 1);
 
     const MoteInput *in = mote->input();

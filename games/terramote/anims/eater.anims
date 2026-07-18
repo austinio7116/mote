@@ -1,0 +1,6 @@
+sheet assets/eater.png
+tile 16 14
+clips 1
+clip fly 1 6 0 0 2
+f 0 220 -
+f 1 220 -
