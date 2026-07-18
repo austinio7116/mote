@@ -1556,7 +1556,7 @@ static void wrap2(const char *src, int maxc, char *l1, char *l2, int cap) {
 static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    estate_map(fb, 8, 12, 12, g_draft_gi);
+    estate_map(fb, 8, 8, 12, g_draft_gi);
 
     /* dossier: name in the readable font, details in the small one */
     const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
@@ -1583,28 +1583,36 @@ static void draft_draw_a(uint16_t *fb) {
         int vals[3] = { g_keys, g_gems, g_gold };
         int x = 6;
         for (int i = 0; i < 3; i++) {
-            mote->blit(fb, &items_img, x, 115, rc[i] * 12, 0, 12, 12, 0, 0, 128);
+            mote->blit(fb, &items_img, x, 109, rc[i] * 12, 0, 12, 12, 0, 0, 128);
             snprintf(buf, sizeof buf, "%d", vals[i]);
-            x = mote->text_font(fb, f, buf, x + 13, 114,
+            x = mote->text_font(fb, f, buf, x + 13, 108,
                                 i == 0 ? rgb(240, 220, 140) : i == 1 ? rgb(140, 240, 220)
                                        : rgb(250, 210, 110)) + 8;
         }
     }
 
-    /* the hand: a vertical list of miniatures, each cost to its right */
-    for (int i = 0; i < g_draft_n; i++) {
-        const RoomDef *cd = &k_rooms[g_cards[i]];
-        uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
-        int sel = i == g_draft_sel;
-        int x = 78, y = 46 + i * 20;
-        if (sel) mote->draw_rect(fb, x - 2, y - 2, 22, 22, rgb(255, 230, 120), 0, 0, 128);
-        room_icon(fb, x, y, 18, g_cards[i], mask, sel);
-        mote->draw_rect(fb, x + 18, y, 2, 18, k_rarity_col[cd->rarity], 1, 0, 128);
-        int cx = x + 24;
-        for (int c = 0; c < cd->gems; c++) { mote->blit(fb, &items_img, cx, y + 3, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-        if (cd->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, y + 3, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-        if (!card_affordable(g_cards[i]))
-            mote->blit(fb, &items_img, x + 3, y + 3, 7 * 12, 0, 12, 12, 0, 0, 128);
+    /* the hand: a vertical list of miniatures, each cost to its right
+     * (larger tiles when the offer is three; compact when the spyglass
+     * deals four) */
+    {
+        int ts = g_draft_n == 4 ? 18 : 22;
+        int y0 = g_draft_n == 4 ? 46 : 50;
+        int step = g_draft_n == 4 ? 20 : 25;
+        for (int i = 0; i < g_draft_n; i++) {
+            const RoomDef *cd = &k_rooms[g_cards[i]];
+            uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
+            int sel = i == g_draft_sel;
+            int x = 78, y = y0 + i * step;
+            if (sel) mote->draw_rect(fb, x - 2, y - 2, ts + 4, ts + 4, rgb(255, 230, 120), 0, 0, 128);
+            room_icon(fb, x, y, ts, g_cards[i], mask, sel);
+            mote->draw_rect(fb, x + ts, y, 2, ts, k_rarity_col[cd->rarity], 1, 0, 128);
+            int cx = x + ts + 6;
+            int cy = y + (ts - 12) / 2;
+            for (int c = 0; c < cd->gems; c++) { mote->blit(fb, &items_img, cx, cy, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+            if (cd->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, cy, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+            if (!card_affordable(g_cards[i]))
+                mote->blit(fb, &items_img, x + (ts - 12) / 2, cy, 7 * 12, 0, 12, 12, 0, 0, 128);
+        }
     }
 }
 
