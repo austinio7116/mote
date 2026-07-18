@@ -2427,8 +2427,6 @@ static void puzzle_draw(uint16_t *fb) {
         mote_ftextc(mote, fb, f, 64, 78, rgb(250, 220, 130), b);
     } else if (pz != PZ_CENSUS) {
         mote->text(fb, "NO CLUE: GUESS -1 STEP", 16, 81, rgb(150, 150, 170));
-    } else {
-        mote->text(fb, "THE ESTATE IS THE CLUE", 16, 81, rgb(150, 150, 170));
     }
     mote_ftextc(mote, fb, f, 64, 93, rgb(150, 165, 205),
                 pz == PZ_PIANO ? "A PLAY   B LEAVE" : "A TRY   B LEAVE");
