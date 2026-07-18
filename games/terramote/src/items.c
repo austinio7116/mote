@@ -96,6 +96,10 @@ const ItemDef g_items[I_COUNT] = {
     /* hammers: THE back-wall removal tool (power = chop rate, light melee too) */
     [I_HAMMER_WOOD]    = { "WOOD HAMMER",   IK_HAMMER, IC(I_HAMMER_WOOD), 0, 35, 5, 1, 18 },
     [I_HAMMER_IRON]    = { "IRON HAMMER",   IK_HAMMER, IC(I_HAMMER_IRON), 0, 85, 8, 1, 13 },
+    /* mob-drop crafting materials (gate the themed weapons) */
+    [I_STINGER]        = { "STINGER",       IK_MATERIAL, IC(I_STINGER),      0, 0, 0, 99, 0 },
+    [I_SOUL]           = { "SOUL",          IK_MATERIAL, IC(I_SOUL),         0, 0, 0, 99, 0 },
+    [I_CURSED_CHUNK]   = { "CURSED CHUNK",  IK_MATERIAL, IC(I_CURSED_CHUNK), 0, 0, 0, 99, 0 },
 #include "weapon_defs.inc"                              /* GENERATED weapon variants */
 };
 

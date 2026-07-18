@@ -83,6 +83,7 @@ enum {
     I_BRICK_CLAY, I_BRICK_STONE,
     I_WALL_CLAYBRICK, I_WALL_STONEBRICK, I_WALL_GLASS,
     I_HAMMER_WOOD, I_HAMMER_IRON,                        /* wall-removal tools */
+    I_STINGER, I_SOUL, I_CURSED_CHUNK,                   /* mob-drop weapon materials */
     I_COUNT
 };
 

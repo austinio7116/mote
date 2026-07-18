@@ -555,7 +555,7 @@ def make_weapons():
             roster.append((cell, ov[0] if ov else tools_idx, item_id, ov[1] if ov else None))
     except Exception as e:
         print("[extract] no weapon_variants.py yet (%s) — standard tiers only" % e)
-    maxid = max(max(r[2] for r in roster), 168)   # + building-set icons + hammers
+    maxid = max(max(r[2] for r in roster), 171)   # + building set + hammers + mob materials
     # in-hand sheet: row0 right-facing, row1 mirrored
     ncell = max(r[0] for r in roster) + 1
     wb = Image.new("RGBA", (32 * ncell, 64), (0, 0, 0, 0))
@@ -628,6 +628,37 @@ def make_weapons():
             c.putpixel((x, 2), tuple(min(255, int(k * 1.3)) for k in head) + (255,))
     paint_icon(167, lambda c: hammer_icon(c, (150, 108, 60), (104, 68, 38)))
     paint_icon(168, lambda c: hammer_icon(c, (176, 176, 186), (112, 114, 126)))
+    # mob-drop weapon materials -----------------------------------------------
+    def stinger_icon(c):
+        TAN = (232, 206, 120, 255); DK = (150, 118, 56, 255); TIP = (250, 246, 220, 255)
+        for i in range(9):                                # tapering spike, top-left -> point bottom-right
+            x = 4 + i; y = 3 + i
+            w = (9 - i) // 3
+            for k in range(-w, w + 1):
+                c.putpixel((x, y + k), TAN if k <= 0 else DK)
+        c.putpixel((13, 12), TIP); c.putpixel((12, 11), TIP)
+        c.putpixel((6, 4), DK); c.putpixel((5, 6), DK)    # barbs at the base
+    def soul_icon(c):
+        import math
+        CORE = (235, 250, 255, 255); GLOW = (150, 224, 245, 255); DIM = (96, 150, 200, 255)
+        for y in range(2, 12):                            # teardrop body
+            r = 4.2 - abs(y - 6) * 0.45
+            for x in range(8 - int(r), 8 + int(r) + 1):
+                d = math.hypot(x - 8, (y - 6) * 1.1)
+                c.putpixel((x, y), CORE if d < 1.6 else GLOW if d < 3.2 else DIM)
+        for i in range(3):                                # wispy tail
+            c.putpixel((8 + (1 if i % 2 else -1), 12 + i), GLOW if i < 2 else DIM)
+    def cursed_icon(c):
+        PUR = (128, 70, 168, 255); DK = (74, 36, 104, 255); GLO = (196, 120, 236, 255)
+        insets = {3: 6, 4: 4, 5: 3, 6: 2, 7: 2, 8: 3, 9: 3, 10: 4, 11: 5, 12: 6}
+        for y, inset in insets.items():                   # solid jagged lump
+            for x in range(inset, 16 - inset):
+                c.putpixel((x, y), DK if (x + y) % 4 == 0 else PUR)
+        for gx, gy in ((6, 6), (10, 8), (8, 10)):         # cursed glimmer
+            c.putpixel((gx, gy), GLO)
+    paint_icon(169, stinger_icon)
+    paint_icon(170, soul_icon)
+    paint_icon(171, cursed_icon)
     paint_icon(162, lambda c: brick_icon(c, (178, 102, 64), (128, 68, 42)))
     paint_icon(163, lambda c: brick_icon(c, (124, 124, 132), (86, 86, 96)))
     paint_icon(164, lambda c: brick_icon(c, (134, 77, 48), (96, 51, 32)))

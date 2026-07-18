@@ -27,7 +27,8 @@ EL = {"none":"EL_NONE","fire":"EL_FIRE","ice":"EL_ICE","poison":"EL_POISON","hol
 STATION = {"WORKBENCH":"ST_WORKBENCH","FURNACE":"ST_FURNACE","ANVIL":"ST_ANVIL","ALTAR":"ST_ALTAR"}
 ING = {"WOOD":"I_WOOD","STONE":"I_STONE","GEL":"I_GEL","LENS":"I_LENS","GLOWSHROOM":"I_MUSHROOM",
        "MUSHROOM":"I_MUSHROOM","COPPER_BAR":"I_COPPER_BAR","IRON_BAR":"I_IRON_BAR","GOLD_BAR":"I_GOLD_BAR",
-       "DEMONITE_BAR":"I_DEMONITE_BAR","HELL_BAR":"I_HELL_BAR","OBSIDIAN":"I_OBSIDIAN","HELLSTONE":"I_HELLSTONE"}
+       "DEMONITE_BAR":"I_DEMONITE_BAR","HELL_BAR":"I_HELL_BAR","OBSIDIAN":"I_OBSIDIAN","HELLSTONE":"I_HELLSTONE",
+       "STINGER":"I_STINGER","SOUL":"I_SOUL","CURSED_CHUNK":"I_CURSED_CHUNK"}
 
 # --- damage is EARNED, not rolled: it derives from the recipe's cost ----------
 # per-unit ingredient value (roughly: how hard is one of these to get?)
@@ -35,6 +36,8 @@ ING_VALUE = {
     "I_WOOD": 0.3, "I_STONE": 0.3, "I_GEL": 0.4, "I_MUSHROOM": 1.0, "I_LENS": 1.5,
     "I_COPPER_BAR": 1.0, "I_IRON_BAR": 1.5, "I_GOLD_BAR": 2.2,
     "I_OBSIDIAN": 2.0, "I_HELLSTONE": 2.5, "I_DEMONITE_BAR": 3.2, "I_HELL_BAR": 4.0,
+    # mob-drop materials: worth hunting for (value ≈ how dangerous the mob is)
+    "I_STINGER": 1.8, "I_CURSED_CHUNK": 2.6, "I_SOUL": 3.5,
 }
 STATION_MULT = {"ST_WORKBENCH": 1.0, "ST_FURNACE": 1.0, "ST_ANVIL": 1.0, "ST_ALTAR": 1.1}
 

@@ -1,1 +1,698 @@
-{"2": ["sword", "IK_SWORD", "early", "Iron Longblade", "none", "ANVIL: IRON_BAR x8"], "4": ["sword", "IK_SWORD", "hard", "Rose Reaver", "arcane", "ANVIL: DEMONITE_BAR x10 + GEL x5"], "7": ["boomerang", "IK_SWORD", "early", "Copper Fang", "none", "WORKBENCH: COPPER_BAR x6 + WOOD x3"], "9": ["axe", "IK_AXE", "prehard", "Twin Cleaver", "none", "ANVIL: IRON_BAR x10"], "11": ["hammer", "IK_SWORD", "early", "Ruby Maul", "none", "ANVIL: STONE x12 + COPPER_BAR x6"], "12": ["spear", "IK_SWORD", "prehard", "Verdant Pike", "nature", "ANVIL: GOLD_BAR x8 + GLOWSHROOM x4"], "13": ["spear", "IK_SWORD", "hard", "Seraph Lance", "holy", "ANVIL: GOLD_BAR x10 + LENS x4"], "14": ["sword", "IK_SWORD", "prehard", "Frostedge Blade", "ice", "ANVIL: IRON_BAR x10 + GOLD_BAR x4"], "15": ["staff", "IK_BOW", "hard", "Void Scepter", "arcane", "ALTAR: DEMONITE_BAR x10 + LENS x6"], "17": ["flail", "IK_SWORD", "hard", "Nebula Morningstar", "arcane", "ANVIL: DEMONITE_BAR x8 + OBSIDIAN x5"], "18": ["axe", "IK_AXE", "prehard", "Steel Bardiche", "none", "ANVIL: IRON_BAR x12"], "19": ["axe", "IK_AXE", "hard", "Embersplitter", "fire", "ANVIL: HELL_BAR x10 + HELLSTONE x4"], "20": ["axe", "IK_AXE", "prehard", "Silver Waraxe", "none", "ANVIL: GOLD_BAR x10"], "21": ["axe", "IK_AXE", "hard", "Gilded Reaper", "demonic", "ALTAR: DEMONITE_BAR x10 + GOLD_BAR x6"], "22": ["sword", "IK_SWORD", "end", "Celestial Edge", "holy", "ANVIL: HELL_BAR x12 + LENS x6"], "23": ["staff", "IK_BOW", "prehard", "Tide Scepter", "ice", "ANVIL: GOLD_BAR x8 + LENS x2"], "24": ["spear", "IK_SWORD", "prehard", "Sunfork Lance", "fire", "ANVIL: GOLD_BAR x10"], "25": ["spear", "IK_SWORD", "early", "Silver Pike", "none", "WORKBENCH: WOOD x6 + COPPER_BAR x3"], "26": ["staff", "IK_BOW", "hard", "Nebula Rod", "arcane", "ALTAR: DEMONITE_BAR x8 + LENS x4"], "28": ["sword", "IK_SWORD", "early", "Bronze Edge", "none", "ANVIL: COPPER_BAR x8"], "29": ["crossbow", "IK_BOW", "prehard", "Verdant Repeater", "nature", "ANVIL: IRON_BAR x10 + WOOD x4"], "30": ["gun", "IK_BOW", "hard", "Iron Onslaught", "none", "ANVIL: DEMONITE_BAR x10 + IRON_BAR x6"], "31": ["gun", "IK_BOW", "prehard", "Clockwork Blaster", "none", "ANVIL: IRON_BAR x12"], "32": ["sword", "IK_SWORD", "prehard", "Emerald Saber", "nature", "ANVIL: GOLD_BAR x8 + LENS x2"], "33": ["gun", "IK_BOW", "hard", "Void Pistol", "arcane", "ALTAR: DEMONITE_BAR x8 + OBSIDIAN x4"], "34": ["gun", "IK_BOW", "prehard", "Copperhand Revolver", "none", "ANVIL: COPPER_BAR x8 + IRON_BAR x4"], "35": ["gun", "IK_BOW", "end", "Hell Autocannon", "fire", "FURNACE: HELL_BAR x12 + OBSIDIAN x4"], "36": ["gun", "IK_BOW", "hard", "Obsidian Repeater", "demonic", "ANVIL: OBSIDIAN x10 + DEMONITE_BAR x4"], "37": ["staff", "IK_BOW", "hard", "Chaos Nova Staff", "arcane", "ALTAR: DEMONITE_BAR x8 + LENS x3"], "38": ["staff", "IK_BOW", "end", "Doombringer Wand", "demonic", "FURNACE: HELL_BAR x10 + LENS x4"], "39": ["sword", "IK_SWORD", "prehard", "Steel Broadsword", "none", "ANVIL: IRON_BAR x8 + WOOD x2"], "40": ["sword", "IK_SWORD", "prehard", "Frost Cleaver", "ice", "ANVIL: IRON_BAR x10 + LENS x2"], "41": ["sword", "IK_SWORD", "end", "Molten Greatblade", "fire", "FURNACE: HELL_BAR x8 + GEL x4"], "42": ["sword", "IK_SWORD", "hard", "Venom Blade", "poison", "ANVIL: DEMONITE_BAR x8 + GLOWSHROOM x4"], "43": ["spear", "IK_SWORD", "prehard", "Gilded Spear", "none", "ANVIL: GOLD_BAR x6 + WOOD x4"], "45": ["sword", "IK_SWORD", "end", "Inferno Blade", "fire", "FURNACE: HELL_BAR x10 + GEL x2"], "47": ["sword", "IK_SWORD", "hard", "Ember Saber", "fire", "ANVIL: OBSIDIAN x6 + GEL x6"], "49": ["spear", "IK_SWORD", "prehard", "Frost Lance", "ice", "ANVIL: GOLD_BAR x8 + LENS x2"], "57": ["staff", "IK_BOW", "hard", "Shadowbeam Staff", "demonic", "ALTAR: DEMONITE_BAR x10 + LENS x2"], "59": ["axe", "IK_AXE", "prehard", "Iron Battleaxe", "none", "ANVIL: IRON_BAR x12 + WOOD x4"], "61": ["pickaxe", "IK_PICK", "end", "Crystalbane Pick", "arcane", "ANVIL: DEMONITE_BAR x12 + LENS x4"], "63": ["axe", "IK_AXE", "prehard", "War Cleaver", "none", "ANVIL: IRON_BAR x14 + WOOD x4"], "65": ["sword", "IK_SWORD", "early", "Worn Longsword", "none", "ANVIL: IRON_BAR x8"], "66": ["sword", "IK_SWORD", "prehard", "Emberbrand", "fire", "ANVIL: IRON_BAR x8 + GEL x6"], "67": ["sword", "IK_SWORD", "hard", "Molten Edge", "fire", "ANVIL: HELL_BAR x10 + GEL x4"], "68": ["sword", "IK_SWORD", "hard", "Frostbite Blade", "ice", "ANVIL: DEMONITE_BAR x10 + LENS x4"], "69": ["axe", "IK_AXE", "early", "Copper Waraxe", "none", "WORKBENCH: COPPER_BAR x8 + WOOD x4"], "70": ["staff", "IK_BOW", "end", "Radiant Scepter", "holy", "ALTAR: GOLD_BAR x12 + LENS x6"], "71": ["staff", "IK_BOW", "hard", "Flamewand", "fire", "FURNACE: HELL_BAR x8 + GEL x6"], "72": ["staff", "IK_BOW", "end", "Inferno Staff", "fire", "FURNACE: HELLSTONE x12 + HELL_BAR x6"], "73": ["staff", "IK_BOW", "prehard", "Prism Scepter", "arcane", "ANVIL: GOLD_BAR x8 + LENS x2"], "74": ["staff", "IK_BOW", "prehard", "Amethyst Rod", "arcane", "ANVIL: IRON_BAR x8 + GLOWSHROOM x3"], "75": ["mace", "IK_SWORD", "early", "Slime Bludgeon", "poison", "WORKBENCH: WOOD x8 + GEL x12"], "76": ["gun", "IK_BOW", "prehard", "Hive Blaster", "nature", "ANVIL: GOLD_BAR x6 + GLOWSHROOM x5"], "77": ["staff", "IK_BOW", "hard", "Emberflame Staff", "fire", "ANVIL: OBSIDIAN x6 + DEMONITE_BAR x4"], "78": ["staff", "IK_BOW", "hard", "Nightshade Wand", "arcane", "ALTAR: DEMONITE_BAR x8 + LENS x3"], "79": ["flail", "IK_SWORD", "prehard", "Iron Morningstar", "none", "ANVIL: IRON_BAR x10 + WOOD x4"], "80": ["flail", "IK_SWORD", "hard", "Nebula Mace", "arcane", "ALTAR: DEMONITE_BAR x10 + LENS x4"], "81": ["bow", "IK_BOW", "hard", "Ossuary Bow", "demonic", "ALTAR: DEMONITE_BAR x8 + OBSIDIAN x4"], "82": ["sword", "IK_SWORD", "hard", "Cinder Blade", "fire", "ANVIL: HELL_BAR x8 + GEL x4"], "84": ["sword", "IK_SWORD", "hard", "Crimson Edge", "blood", "ALTAR: DEMONITE_BAR x10 + HELLSTONE x2"], "85": ["axe", "IK_AXE", "prehard", "Frost Hatchet", "ice", "ANVIL: IRON_BAR x8 + STONE x6"], "87": ["spear", "IK_SWORD", "prehard", "Glacier Lance", "ice", "ANVIL: GOLD_BAR x8 + LENS x2"], "88": ["staff", "IK_BOW", "end", "Sunfire Scepter", "fire", "FURNACE: HELL_BAR x10 + HELLSTONE x6"], "89": ["staff", "IK_BOW", "hard", "Vortex Wand", "arcane", "ALTAR: DEMONITE_BAR x8 + LENS x4"], "90": ["staff", "IK_BOW", "prehard", "Tidecaller Wand", "ice", "ANVIL: GOLD_BAR x7 + LENS x2"], "92": ["mace", "IK_SWORD", "prehard", "Frost Skull Mace", "ice", "ANVIL: IRON_BAR x10 + LENS x2"], "93": ["mace", "IK_SWORD", "prehard", "Gilded Bludgeon", "holy", "ANVIL: GOLD_BAR x12"], "94": ["spear", "IK_SWORD", "prehard", "Shadow Lance", "arcane", "ANVIL: IRON_BAR x10"], "95": ["hammer", "IK_SWORD", "hard", "Void Maul", "demonic", "ALTAR: DEMONITE_BAR x12"], "96": ["flail", "IK_SWORD", "hard", "Tempest Coil", "ice", "ANVIL: DEMONITE_BAR x10 + LENS x3"], "99": ["gun", "IK_BOW", "prehard", "Scattergun", "none", "ANVIL: IRON_BAR x10 + WOOD x6"], "100": ["gun", "IK_BOW", "hard", "Arcane Blaster", "arcane", "ANVIL: DEMONITE_BAR x12 + LENS x4"], "104": ["axe", "IK_AXE", "end", "Cinder Hatchet", "fire", "ANVIL: HELL_BAR x10"], "105": ["pickaxe", "IK_PICK", "end", "Molten Pickaxe", "fire", "ANVIL: HELL_BAR x12"], "107": ["axe", "IK_AXE", "end", "Inferno Waraxe", "fire", "ANVIL: HELL_BAR x14"], "109": ["axe", "IK_AXE", "hard", "Glacier Waraxe", "ice", "ANVIL: DEMONITE_BAR x14 + LENS x4"], "112": ["sword", "IK_SWORD", "prehard", "Verdant Edge", "nature", "ANVIL: GOLD_BAR x8 + IRON_BAR x4"], "113": ["staff", "IK_BOW", "prehard", "Sunburst Scepter", "holy", "ANVIL: GOLD_BAR x6 + LENS x2"], "114": ["spear", "IK_SWORD", "prehard", "Frostpiercer", "ice", "ANVIL: IRON_BAR x8 + WOOD x3"], "115": ["spear", "IK_SWORD", "hard", "Emerald Lance", "nature", "ANVIL: DEMONITE_BAR x8 + IRON_BAR x4"], "116": ["staff", "IK_BOW", "hard", "Crimson Focus", "blood", "ALTAR: DEMONITE_BAR x6 + LENS x2"], "119": ["mace", "IK_SWORD", "end", "Cinder Morningstar", "fire", "ANVIL: HELL_BAR x8 + GEL x4"], "120": ["axe", "IK_AXE", "hard", "Frostwing Cleaver", "ice", "ANVIL: DEMONITE_BAR x10 + IRON_BAR x4"], "122": ["mace", "IK_SWORD", "prehard", "Iron Morningstar", "none", "ANVIL: IRON_BAR x10"], "123": ["mace", "IK_SWORD", "hard", "Glacial Maul", "ice", "ANVIL: OBSIDIAN x8 + IRON_BAR x4"], "124": ["flail", "IK_SWORD", "hard", "Moonspike Flail", "arcane", "ANVIL: DEMONITE_BAR x10 + GOLD_BAR x4"]}
+{
+"2": [
+"sword",
+"IK_SWORD",
+"early",
+"Iron Longblade",
+"none",
+"ANVIL: IRON_BAR x8"
+],
+"4": [
+"sword",
+"IK_SWORD",
+"hard",
+"Rose Reaver",
+"arcane",
+"ANVIL: DEMONITE_BAR x10 + GEL x5"
+],
+"7": [
+"boomerang",
+"IK_SWORD",
+"early",
+"Copper Fang",
+"none",
+"WORKBENCH: COPPER_BAR x6 + WOOD x3"
+],
+"9": [
+"axe",
+"IK_AXE",
+"prehard",
+"Twin Cleaver",
+"none",
+"ANVIL: IRON_BAR x10"
+],
+"11": [
+"hammer",
+"IK_SWORD",
+"early",
+"Ruby Maul",
+"none",
+"ANVIL: STONE x12 + COPPER_BAR x6"
+],
+"12": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Verdant Pike",
+"nature",
+"ANVIL: GOLD_BAR x8 + GLOWSHROOM x4"
+],
+"13": [
+"spear",
+"IK_SWORD",
+"hard",
+"Seraph Lance",
+"holy",
+"ANVIL: GOLD_BAR x10 + LENS x4"
+],
+"14": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Frostedge Blade",
+"ice",
+"ANVIL: IRON_BAR x10 + GOLD_BAR x4"
+],
+"15": [
+"staff",
+"IK_BOW",
+"hard",
+"Void Scepter",
+"arcane",
+"ALTAR: DEMONITE_BAR x10 + LENS x6"
+],
+"17": [
+"flail",
+"IK_SWORD",
+"hard",
+"Nebula Morningstar",
+"arcane",
+"ANVIL: DEMONITE_BAR x8 + OBSIDIAN x5"
+],
+"18": [
+"axe",
+"IK_AXE",
+"prehard",
+"Steel Bardiche",
+"none",
+"ANVIL: IRON_BAR x12"
+],
+"19": [
+"axe",
+"IK_AXE",
+"hard",
+"Embersplitter",
+"fire",
+"ANVIL: HELL_BAR x10 + HELLSTONE x4"
+],
+"20": [
+"axe",
+"IK_AXE",
+"prehard",
+"Silver Waraxe",
+"none",
+"ANVIL: GOLD_BAR x10"
+],
+"21": [
+"axe",
+"IK_AXE",
+"hard",
+"Gilded Reaper",
+"demonic",
+"ALTAR: DEMONITE_BAR x10 + GOLD_BAR x6"
+],
+"22": [
+"sword",
+"IK_SWORD",
+"end",
+"Celestial Edge",
+"holy",
+"ANVIL: HELL_BAR x12 + LENS x6"
+],
+"23": [
+"staff",
+"IK_BOW",
+"prehard",
+"Tide Scepter",
+"ice",
+"ANVIL: GOLD_BAR x8 + LENS x2"
+],
+"24": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Sunfork Lance",
+"fire",
+"ANVIL: GOLD_BAR x10"
+],
+"25": [
+"spear",
+"IK_SWORD",
+"early",
+"Silver Pike",
+"none",
+"WORKBENCH: WOOD x6 + COPPER_BAR x3"
+],
+"26": [
+"staff",
+"IK_BOW",
+"hard",
+"Nebula Rod",
+"arcane",
+"ALTAR: DEMONITE_BAR x8 + LENS x4"
+],
+"28": [
+"sword",
+"IK_SWORD",
+"early",
+"Bronze Edge",
+"none",
+"ANVIL: COPPER_BAR x8"
+],
+"29": [
+"crossbow",
+"IK_BOW",
+"prehard",
+"Verdant Repeater",
+"nature",
+"ANVIL: IRON_BAR x10 + WOOD x4"
+],
+"30": [
+"gun",
+"IK_BOW",
+"hard",
+"Iron Onslaught",
+"none",
+"ANVIL: DEMONITE_BAR x10 + IRON_BAR x6"
+],
+"31": [
+"gun",
+"IK_BOW",
+"prehard",
+"Clockwork Blaster",
+"none",
+"ANVIL: IRON_BAR x12"
+],
+"32": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Emerald Saber",
+"nature",
+"ANVIL: GOLD_BAR x8 + LENS x2"
+],
+"33": [
+"gun",
+"IK_BOW",
+"hard",
+"Void Pistol",
+"arcane",
+"ALTAR: DEMONITE_BAR x8 + OBSIDIAN x4"
+],
+"34": [
+"gun",
+"IK_BOW",
+"prehard",
+"Copperhand Revolver",
+"none",
+"ANVIL: COPPER_BAR x8 + IRON_BAR x4"
+],
+"35": [
+"gun",
+"IK_BOW",
+"end",
+"Hell Autocannon",
+"fire",
+"FURNACE: HELL_BAR x12 + OBSIDIAN x4"
+],
+"36": [
+"gun",
+"IK_BOW",
+"hard",
+"Obsidian Repeater",
+"demonic",
+"ANVIL: OBSIDIAN x10 + DEMONITE_BAR x4"
+],
+"37": [
+"staff",
+"IK_BOW",
+"hard",
+"Chaos Nova Staff",
+"arcane",
+"ALTAR: DEMONITE_BAR x8 + LENS x3"
+],
+"38": [
+"staff",
+"IK_BOW",
+"end",
+"Doombringer Wand",
+"demonic",
+"FURNACE: HELL_BAR x10 + LENS x4"
+],
+"39": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Steel Broadsword",
+"none",
+"ANVIL: IRON_BAR x8 + WOOD x2"
+],
+"40": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Frost Cleaver",
+"ice",
+"ANVIL: IRON_BAR x10 + LENS x2"
+],
+"41": [
+"sword",
+"IK_SWORD",
+"end",
+"Molten Greatblade",
+"fire",
+"FURNACE: HELL_BAR x8 + GEL x4"
+],
+"42": [
+"sword",
+"IK_SWORD",
+"hard",
+"Venom Blade",
+"poison",
+"ANVIL: DEMONITE_BAR x8 + STINGER x4"
+],
+"43": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Gilded Spear",
+"none",
+"ANVIL: GOLD_BAR x6 + WOOD x4"
+],
+"45": [
+"sword",
+"IK_SWORD",
+"end",
+"Inferno Blade",
+"fire",
+"FURNACE: HELL_BAR x10 + GEL x2"
+],
+"47": [
+"sword",
+"IK_SWORD",
+"hard",
+"Ember Saber",
+"fire",
+"ANVIL: OBSIDIAN x6 + GEL x6"
+],
+"49": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Frost Lance",
+"ice",
+"ANVIL: GOLD_BAR x8 + LENS x2"
+],
+"57": [
+"staff",
+"IK_BOW",
+"hard",
+"Shadowbeam Staff",
+"demonic",
+"ALTAR: DEMONITE_BAR x10 + SOUL x4"
+],
+"59": [
+"axe",
+"IK_AXE",
+"prehard",
+"Iron Battleaxe",
+"none",
+"ANVIL: IRON_BAR x12 + WOOD x4"
+],
+"61": [
+"pickaxe",
+"IK_PICK",
+"end",
+"Crystalbane Pick",
+"arcane",
+"ANVIL: DEMONITE_BAR x12 + LENS x4"
+],
+"63": [
+"axe",
+"IK_AXE",
+"prehard",
+"War Cleaver",
+"none",
+"ANVIL: IRON_BAR x14 + WOOD x4"
+],
+"65": [
+"sword",
+"IK_SWORD",
+"early",
+"Worn Longsword",
+"none",
+"ANVIL: IRON_BAR x8"
+],
+"66": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Emberbrand",
+"fire",
+"ANVIL: IRON_BAR x8 + GEL x6"
+],
+"67": [
+"sword",
+"IK_SWORD",
+"hard",
+"Molten Edge",
+"fire",
+"ANVIL: HELL_BAR x10 + GEL x4"
+],
+"68": [
+"sword",
+"IK_SWORD",
+"hard",
+"Frostbite Blade",
+"ice",
+"ANVIL: DEMONITE_BAR x10 + LENS x4"
+],
+"69": [
+"axe",
+"IK_AXE",
+"early",
+"Copper Waraxe",
+"none",
+"WORKBENCH: COPPER_BAR x8 + WOOD x4"
+],
+"70": [
+"staff",
+"IK_BOW",
+"end",
+"Radiant Scepter",
+"holy",
+"ALTAR: GOLD_BAR x12 + LENS x6"
+],
+"71": [
+"staff",
+"IK_BOW",
+"hard",
+"Flamewand",
+"fire",
+"FURNACE: HELL_BAR x8 + GEL x6"
+],
+"72": [
+"staff",
+"IK_BOW",
+"end",
+"Inferno Staff",
+"fire",
+"FURNACE: HELLSTONE x12 + HELL_BAR x6"
+],
+"73": [
+"staff",
+"IK_BOW",
+"prehard",
+"Prism Scepter",
+"arcane",
+"ANVIL: GOLD_BAR x8 + LENS x2"
+],
+"74": [
+"staff",
+"IK_BOW",
+"prehard",
+"Amethyst Rod",
+"arcane",
+"ANVIL: IRON_BAR x8 + GLOWSHROOM x3"
+],
+"75": [
+"mace",
+"IK_SWORD",
+"early",
+"Slime Bludgeon",
+"poison",
+"WORKBENCH: WOOD x8 + GEL x12"
+],
+"76": [
+"gun",
+"IK_BOW",
+"prehard",
+"Hive Blaster",
+"nature",
+"ANVIL: GOLD_BAR x6 + STINGER x6"
+],
+"77": [
+"staff",
+"IK_BOW",
+"hard",
+"Emberflame Staff",
+"fire",
+"ANVIL: OBSIDIAN x6 + DEMONITE_BAR x4"
+],
+"78": [
+"staff",
+"IK_BOW",
+"hard",
+"Nightshade Wand",
+"arcane",
+"ALTAR: DEMONITE_BAR x8 + LENS x3"
+],
+"79": [
+"flail",
+"IK_SWORD",
+"prehard",
+"Iron Morningstar",
+"none",
+"ANVIL: IRON_BAR x10 + WOOD x4"
+],
+"80": [
+"flail",
+"IK_SWORD",
+"hard",
+"Nebula Mace",
+"arcane",
+"ALTAR: DEMONITE_BAR x10 + LENS x4"
+],
+"81": [
+"bow",
+"IK_BOW",
+"hard",
+"Ossuary Bow",
+"demonic",
+"ALTAR: DEMONITE_BAR x8 + SOUL x3"
+],
+"82": [
+"sword",
+"IK_SWORD",
+"hard",
+"Cinder Blade",
+"fire",
+"ANVIL: HELL_BAR x8 + GEL x4"
+],
+"84": [
+"sword",
+"IK_SWORD",
+"hard",
+"Crimson Edge",
+"blood",
+"ALTAR: DEMONITE_BAR x10 + CURSED_CHUNK x3"
+],
+"85": [
+"axe",
+"IK_AXE",
+"prehard",
+"Frost Hatchet",
+"ice",
+"ANVIL: IRON_BAR x8 + STONE x6"
+],
+"87": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Glacier Lance",
+"ice",
+"ANVIL: GOLD_BAR x8 + LENS x2"
+],
+"88": [
+"staff",
+"IK_BOW",
+"end",
+"Sunfire Scepter",
+"fire",
+"FURNACE: HELL_BAR x10 + HELLSTONE x6"
+],
+"89": [
+"staff",
+"IK_BOW",
+"hard",
+"Vortex Wand",
+"arcane",
+"ALTAR: DEMONITE_BAR x8 + LENS x4"
+],
+"90": [
+"staff",
+"IK_BOW",
+"prehard",
+"Tidecaller Wand",
+"ice",
+"ANVIL: GOLD_BAR x7 + LENS x2"
+],
+"92": [
+"mace",
+"IK_SWORD",
+"prehard",
+"Frost Skull Mace",
+"ice",
+"ANVIL: IRON_BAR x10 + LENS x2"
+],
+"93": [
+"mace",
+"IK_SWORD",
+"prehard",
+"Gilded Bludgeon",
+"holy",
+"ANVIL: GOLD_BAR x12"
+],
+"94": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Shadow Lance",
+"arcane",
+"ANVIL: IRON_BAR x10 + SOUL x2"
+],
+"95": [
+"hammer",
+"IK_SWORD",
+"hard",
+"Void Maul",
+"demonic",
+"ALTAR: DEMONITE_BAR x12 + CURSED_CHUNK x2"
+],
+"96": [
+"flail",
+"IK_SWORD",
+"hard",
+"Tempest Coil",
+"ice",
+"ANVIL: DEMONITE_BAR x10 + LENS x3"
+],
+"99": [
+"gun",
+"IK_BOW",
+"prehard",
+"Scattergun",
+"none",
+"ANVIL: IRON_BAR x10 + WOOD x6"
+],
+"100": [
+"gun",
+"IK_BOW",
+"hard",
+"Arcane Blaster",
+"arcane",
+"ANVIL: DEMONITE_BAR x12 + LENS x4"
+],
+"104": [
+"axe",
+"IK_AXE",
+"end",
+"Cinder Hatchet",
+"fire",
+"ANVIL: HELL_BAR x10"
+],
+"105": [
+"pickaxe",
+"IK_PICK",
+"end",
+"Molten Pickaxe",
+"fire",
+"ANVIL: HELL_BAR x12"
+],
+"107": [
+"axe",
+"IK_AXE",
+"end",
+"Inferno Waraxe",
+"fire",
+"ANVIL: HELL_BAR x14"
+],
+"109": [
+"axe",
+"IK_AXE",
+"hard",
+"Glacier Waraxe",
+"ice",
+"ANVIL: DEMONITE_BAR x14 + LENS x4"
+],
+"112": [
+"sword",
+"IK_SWORD",
+"prehard",
+"Verdant Edge",
+"nature",
+"ANVIL: GOLD_BAR x8 + IRON_BAR x4"
+],
+"113": [
+"staff",
+"IK_BOW",
+"prehard",
+"Sunburst Scepter",
+"holy",
+"ANVIL: GOLD_BAR x6 + LENS x2"
+],
+"114": [
+"spear",
+"IK_SWORD",
+"prehard",
+"Frostpiercer",
+"ice",
+"ANVIL: IRON_BAR x8 + WOOD x3"
+],
+"115": [
+"spear",
+"IK_SWORD",
+"hard",
+"Emerald Lance",
+"nature",
+"ANVIL: DEMONITE_BAR x8 + IRON_BAR x4"
+],
+"116": [
+"staff",
+"IK_BOW",
+"hard",
+"Crimson Focus",
+"blood",
+"ALTAR: DEMONITE_BAR x6 + CURSED_CHUNK x3"
+],
+"119": [
+"mace",
+"IK_SWORD",
+"end",
+"Cinder Morningstar",
+"fire",
+"ANVIL: HELL_BAR x8 + GEL x4"
+],
+"120": [
+"axe",
+"IK_AXE",
+"hard",
+"Frostwing Cleaver",
+"ice",
+"ANVIL: DEMONITE_BAR x10 + IRON_BAR x4"
+],
+"122": [
+"mace",
+"IK_SWORD",
+"prehard",
+"Iron Morningstar",
+"none",
+"ANVIL: IRON_BAR x10"
+],
+"123": [
+"mace",
+"IK_SWORD",
+"hard",
+"Glacial Maul",
+"ice",
+"ANVIL: OBSIDIAN x8 + IRON_BAR x4"
+],
+"124": [
+"flail",
+"IK_SWORD",
+"hard",
+"Moonspike Flail",
+"arcane",
+"ANVIL: DEMONITE_BAR x10 + GOLD_BAR x4"
+]
+}

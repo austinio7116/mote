@@ -357,7 +357,8 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
                 drops_add(I_SAND, 1 + (mote_rand() % 2), e->x, e->y);
                 if ((mote_rand() % 5) == 0) drops_add(I_COPPER_ORE, 1, e->x, e->y);
                 break;
-            case E_HORNET:                                      /* fast pest: heals + a quiver of arrows */
+            case E_HORNET:                                      /* fast pest: stingers + arrows + heals */
+                drops_add(I_STINGER, 1 + (mote_rand() % 2), e->x, e->y);   /* -> Venom Blade / Hive Blaster */
                 drops_add(I_ARROW, 2 + (mote_rand() % 4), e->x, e->y);
                 if ((mote_rand() % 2) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y);
                 break;
@@ -366,11 +367,14 @@ int npc_damage_at(float x, float y, float hw, float hh, int dmg, float kx, uint8
                 if ((mote_rand() % 6) == 0) drops_add(I_GOLD_ORE, 1, e->x, e->y);
                 if ((mote_rand() % 3) == 0) drops_add(I_GEL, 1, e->x, e->y);
                 break;
-            case E_EATER:                                       /* corruption guardian: lenses + demonite */
+            case E_EATER:                                       /* corruption guardian: cursed chunks + demonite */
                 drops_add(I_LENS, 1 + (mote_rand() % 2), e->x, e->y);
+                if ((mote_rand() % 5) < 3) drops_add(I_CURSED_CHUNK, 1 + (mote_rand() % 2), e->x, e->y); /* -> Crimson/Void */
                 if ((mote_rand() % 2) == 0) drops_add(I_DEMONITE_ORE, 1 + (mote_rand() % 2), e->x, e->y);
                 break;
-            case E_WRAITH:                                      /* deep prize: gold, heals, rare life crystal */
+            case E_WRAITH:                                      /* deep prize: souls, gold, rare life crystal */
+                drops_add(I_SOUL, 1, e->x, e->y);                            /* -> Shadowbeam / Ossuary / Shadow Lance */
+                if ((mote_rand() % 3) == 0) drops_add(I_SOUL, 1, e->x, e->y);
                 drops_add(I_GOLD_ORE, 1 + (mote_rand() % 3), e->x, e->y);
                 if ((mote_rand() % 2) == 0) drops_add(I_POTION_HEAL, 1, e->x, e->y);
                 if ((mote_rand() % 5) == 0) drops_add(I_GOLD_BAR, 1, e->x, e->y);
