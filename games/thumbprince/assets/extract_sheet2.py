@@ -109,6 +109,26 @@ item(7, (2961, 534, 3105, 746))            # padlock
 item(9, (3176, 541, 3321, 750))            # potion
 item(12, (1530, 720, 1610, 800))           # sack = gold pouch
 
+# a clean shiny coin replaces the lumpy nugget crop (cell 0)
+IT.paste(Image.new("RGBA", (12, 12), (0, 0, 0, 0)), (0, 0))
+for yy in range(12):
+    for xx in range(12):
+        dx, dy = xx - 5.5, yy - 5.5
+        r2 = dx * dx + dy * dy
+        if r2 > 33:
+            continue
+        if r2 > 24:
+            IT.putpixel((xx, yy), (124, 82, 22, 255))          # dark edge
+        elif r2 > 15:
+            c = (255, 232, 140) if (dx + dy) < -1.5 else (196, 144, 40)
+            IT.putpixel((xx, yy), c + (255,))                  # rim: lit / shaded
+        else:
+            IT.putpixel((xx, yy), (240, 198, 70, 255))         # face
+for (sx, sy) in ((4, 3), (3, 4), (4, 4)):                      # glint
+    IT.putpixel((sx, sy), (255, 246, 190, 255))
+for (sx, sy) in ((7, 8), (8, 7)):                              # under-shade
+    IT.putpixel((sx, sy), (208, 158, 48, 255))
+
 # master key: the key, gilded
 key = np.asarray(IT.crop((12, 0, 24, 12))).astype(np.int32)
 mk = key.copy()
