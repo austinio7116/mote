@@ -1252,7 +1252,7 @@ static int iq_vis_eq(const IqCell *a, const IqCell *b) {
     if (a->shape != b->shape || a->count != b->count) return 0;
     if (a->count == 1 && a->size != b->size) return 0;
     if (a->shape == 2 && (a->rot & 3) != (b->rot & 3)) return 0;
-    if (a->count == 1 && a->size >= 1 && a->fill != b->fill) return 0;
+    if (a->count == 1 && a->size >= 1 && a->shape != 3 && a->fill != b->fill) return 0;
     return 1;
 }
 
@@ -1265,9 +1265,12 @@ static void iq_gen(void) {
     if (use[2] && use[0]) q_is_count = 0;        /* fill is unreadable on counted minis */
     int f_is_rot   = (int)((r >> 3) & 1u);
     int dir_q = (int)((r >> 4) & 1u), dir_f = (int)((r >> 5) & 1u);
-    int s0 = (int)((r >> 6) % 4u), f0 = (int)((r >> 8) & 1u);
+    int s0 = (int)((r >> 6) % 4u);
+    int f0 = use[2] ? (int)((r >> 8) & 1u) : 1;   /* outline styling only when fill IS the rule */
     int r0 = (int)((r >> 9) % 4u), sz0 = 1 + (int)((r >> 11) & 1u);
     int lo = use[2] ? 1 : 0;                     /* fill needs a visible hole: size >= 1 */
+    int smod = use[2] ? 3 : 4;                   /* no outline cross: fill skips shape 3 */
+    if (use[2]) s0 %= 3;
     IqCell t[4];
     for (int i = 0; i < 4; i++) {
         IqCell *c = &t[i];
@@ -1279,7 +1282,7 @@ static void iq_gen(void) {
         }
         if (use[1]) {
             if (f_is_rot) c->rot = (uint8_t)((r0 + (dir_f ? i : 4 - i)) % 4);
-            else          c->shape = (uint8_t)((s0 + (dir_f ? i : 4 - i)) % 4);
+            else          c->shape = (uint8_t)((s0 + (dir_f ? i : 4 - i)) % smod);
         }
         if (use[2]) c->fill = (uint8_t)((f0 + i) & 1);
         if (c->count > 1) c->fill = 1;           /* minis are always solid */
@@ -1300,10 +1303,11 @@ static void iq_gen(void) {
         nc++;
     }
     if (use[1] && f_is_rot) { cand[nc] = a; cand[nc].rot = (uint8_t)((a.rot + 2) % 4); nc++; }
-    if (a.count == 1 && a.size >= 1) { cand[nc] = a; cand[nc].fill = (uint8_t)!a.fill; nc++; }
+    if (a.count == 1 && a.size >= 1 && a.shape != 3)
+        { cand[nc] = a; cand[nc].fill = (uint8_t)!a.fill; nc++; }
     for (int k = 1; k <= 3; k++) {               /* a different shape is always wrong */
         cand[nc] = a;
-        cand[nc].shape = (uint8_t)((a.shape + k) % 4);
+        cand[nc].shape = (uint8_t)((a.shape + k) % (a.fill ? 4 : 3));
         nc++;
     }
     IqCell d[3];
@@ -1316,9 +1320,10 @@ static void iq_gen(void) {
             if (iq_vis_eq(c, &d[j])) dup = 1;
         if (!dup) d[nd++] = *c;
     }
-    while (nd < 3) {                             /* unreachable: 3 shape swaps exist */
+    while (nd < 3) {                             /* near-unreachable safety net */
         d[nd] = a;
-        d[nd].shape = (uint8_t)((a.shape + nd + 1) % 4);
+        d[nd].shape = (uint8_t)((a.shape + nd + 1) % (a.fill ? 4 : 3));
+        d[nd].fill = 1;
         nd++;
     }
     g_iq_answer = (uint8_t)((r >> 13) % 4u);
@@ -2776,7 +2781,7 @@ static void iq_cell_draw(uint16_t *fb, int cx, int cy, const IqCell *c) {
     if (c->count == 1) {
         int s = 5 + 2 * c->size;
         iq_shape(fb, cx, cy, c->shape, s, c->rot, col);
-        if (!c->fill && s - 4 >= 1)
+        if (!c->fill && c->shape != 3 && s - 4 >= 1)
             iq_shape(fb, cx, cy, c->shape, s - 4, c->rot, bg);
     } else {
         static const int8_t o[4][4][2] = {
