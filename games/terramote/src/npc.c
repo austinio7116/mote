@@ -413,6 +413,27 @@ int npc_boss_hp(int *max) {
     return 0;
 }
 
+/* A spawn cell is SHELTERED (no enemy spawns there) when the player has made it
+ * safe — the Terraria-style reward for building. Two ways, TORCHES EXCLUDED:
+ *  - a player-built BACK WALL behind the cell (wood / brick / glass). Natural
+ *    cave walls (dirt/stone/ash/... incl. the below-surface backfill) do NOT
+ *    count, or every underground pocket would be safe and caves would go quiet.
+ *  - a LANTERN or FIREPLACE within a few tiles: a deliberate hearth, unlike the
+ *    cheap-and-everywhere torch. */
+#define SHELTER_R 6
+static int shelter_wall(uint8_t w) {
+    return w == W_WOOD || w == W_GLASS || w == W_CLAYBRICK || w == W_STONEBRICK;
+}
+static int spawn_sheltered(int c, int r) {
+    if (shelter_wall(BG_WALL(bg_at(c, r)))) return 1;
+    for (int dr = -SHELTER_R; dr <= SHELTER_R; dr++)
+        for (int dc = -SHELTER_R; dc <= SHELTER_R; dc++) {
+            uint8_t t = fg_at(c + dc, r + dr);
+            if (t == T_LANTERN || t == T_FIREPLACE) return 1;
+        }
+    return 0;
+}
+
 static void spawn_try(void) {
     /* the night RAMPS: dusk starts gentle (cap 3), deep night packs up to 8 */
     int cap = 3;                                   /* day: a sparse world */
@@ -447,6 +468,7 @@ static void spawn_try(void) {
         }
     }
     if (!ok && !air_ok) return;
+    if (spawn_sheltered(c, r)) return;      /* base walls / a lantern or fire keep it out */
     float x = c * TILE + 4.0f, y = r * TILE + 4.0f;
     int depth = r;
     uint8_t kind = 0;
