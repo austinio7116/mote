@@ -302,7 +302,7 @@ static const GoalDef k_goals[GO_N] = {
     [GO_GREENS] = { "GREENS", 3, 150 },
     [GO_CHESTS] = { "CHESTS", 3, 100 },
     [GO_ROOMS]  = { "ROOMS", 10, 100 },
-    [GO_SWEEPS] = { "SWEEPS", 4, 120 },
+    [GO_SWEEPS] = { "CLEAROUTS", 4, 120 },
     [GO_COMBOS] = { "COMBOS", 2, 120 },
     [GO_RANKS]  = { "RANKS", 2, 150 },
     [GO_GOLD]   = { "GOLD HELD", 25, 100 },
@@ -1362,7 +1362,7 @@ static void pickups_tick(void) {
         if (!(cl->looted & (1 << i))) all = 0;
     }
     if (n && all && !cl->swept) {
-        cl->swept = 1; score_add(SC_LOOT, 20); toast("ROOM SWEPT +20");
+        cl->swept = 1; score_add(SC_LOOT, 20); toast("ROOM CLEARED +20");
         goal_progress(GO_SWEEPS, 1, 0);
     }
     /* the crumpled note is a walk-over pickup too */
