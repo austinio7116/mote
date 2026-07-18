@@ -38,7 +38,9 @@ enum {
     RF_KEYCARD = 256,    /* (unused: keycard readers gate doors, not drafts) */
     RF_SPADE = 512,      /* first entry grants the Spade (dig spots) */
     RF_CORRIDOR = 1024,  /* walled interior with carved passages to the doors */
+    RF_SHOP_APO = 2048,  /* apothecary stock (tonics + fortune tools) */
 };
+#define RF_ANY_SHOP (RF_SHOP_COM | RF_SHOP_LOCK | RF_SHOP_APO)
 
 enum {                   /* loot pickup types */
     IT_NONE = 0, IT_COIN, IT_KEY, IT_GEM, IT_FOOD, IT_STAR, IT_STAR2, IT_STAR3,
@@ -79,6 +81,7 @@ enum {
     R_CRYPT, R_TRICKHALL,
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
+    R_APOTHECARY,
     R_COUNT,
 };
 
@@ -274,7 +277,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_KEY, IT_KEY, 0 } },
 
-    [R_LOCKSMITH] = { "KEY SMITH", SH_DEAD, 1, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
+    [R_LOCKSMITH] = { "KEY SMITH", SH_DEAD, 0, 0, FL_STONE, WL_STONE, C565(96, 100, 116), RF_UNIQUE | RF_SHOP_LOCK, 0, 0, 0, 0,
         "#######"
         "#w.Pl.#"
         "#.....#"
@@ -283,7 +286,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_KEY, 0 } },
 
-    [R_COMMISSARY] = { "TUCK SHOP", SH_STR, 1, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
+    [R_COMMISSARY] = { "TUCK SHOP", SH_STR, 0, 0, FL_WOOD, WL_STONE, C565(216, 168, 92), RF_UNIQUE | RF_SHOP_COM, 0, 0, 0, 0,
         "#######"
         "#K.Ol.#"
         "#.....#"
@@ -561,6 +564,15 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#p...p#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
+
+    [R_APOTHECARY] = { "APOTHECARY", SH_R, 0, 0, FL_CHECKER, WL_RED, C565(120, 190, 130), RF_UNIQUE | RF_SHOP_APO, 0, 0, 0, 0,
+        "#######"
+        "#K.Ol.#"
+        "#.....#"
+        "#.....#"
+        "#r..qp#"
+        "#.....#"
+        "#######", { IT_COIN, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

@@ -337,6 +337,7 @@ static const char *k_blurb[R_COUNT] = {
     [R_CROSSROADS] = "4 DOORS",     [R_LANDING] = "3 DOORS",
     [R_SERVHALL] = "3 DOORS +2",    [R_CLOISTER] = "GREEN, 3 DR",
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
+    [R_APOTHECARY] = "TONIC SHOP",
 };
 
 /* ------------------------------------------------------------------- save --- */
@@ -1062,16 +1063,35 @@ static void pickups_tick(void) {
 }
 
 /* ------------------------------------------------------------------- shops --- */
-typedef struct { const char *name; int price; } ShopItem;
-static const ShopItem k_shop_com[5]  = { { "KEY", 8 }, { "GEM", 5 }, { "SNACK +8", 6 }, { "SPYGLASS", 12 }, { "SPADE", 10 } };
-static const ShopItem k_shop_lock[3] = { { "KEY", 5 }, { "MASTER KEY", 30 }, { "KEYCARD", 18 } };
+enum { SI_KEY, SI_GEM, SI_SNACK, SI_TONIC, SI_SPADE, SI_SPYGLASS,
+       SI_COMPASS, SI_PENCIL, SI_MASTER, SI_KEYCARD };
+typedef struct { const char *name; uint8_t price, effect; } ShopItem;
+typedef struct { const char *title; const ShopItem *items; uint8_t n; } ShopDef;
 
-static int shop_sold_out(int kind, int i) {
-    if (kind == 1 && i == 1) return g_master;
-    if (kind == 1 && i == 2) return g_keycard;
-    if (kind == 0 && i == 3) return g_spyglass;
-    if (kind == 0 && i == 4) return g_spade;
-    return 0;
+static const ShopItem k_com_items[] = {
+    { "KEY", 8, SI_KEY }, { "GEM", 5, SI_GEM }, { "SNACK +8", 6, SI_SNACK }, { "SPADE", 10, SI_SPADE } };
+static const ShopItem k_lock_items[] = {
+    { "KEY", 5, SI_KEY }, { "MASTER KEY", 30, SI_MASTER }, { "KEYCARD", 18, SI_KEYCARD } };
+static const ShopItem k_apo_items[] = {
+    { "TONIC +10", 8, SI_TONIC }, { "GEM", 5, SI_GEM }, { "COMPASS", 14, SI_COMPASS },
+    { "PENCIL", 14, SI_PENCIL }, { "SPYGLASS", 12, SI_SPYGLASS } };
+static const ShopDef k_shops[3] = {
+    { "TUCK SHOP",  k_com_items,  4 },
+    { "KEY SMITH",  k_lock_items, 3 },
+    { "APOTHECARY", k_apo_items,  5 },
+};
+
+/* one-time tools show SOLD OUT once owned */
+static int shop_owned(uint8_t effect) {
+    switch (effect) {
+    case SI_MASTER:   return g_master;
+    case SI_KEYCARD:  return g_keycard;
+    case SI_SPYGLASS: return g_spyglass;
+    case SI_SPADE:    return g_spade;
+    case SI_COMPASS:  return g_compass;
+    case SI_PENCIL:   return g_pencil;
+    default:          return 0;
+    }
 }
 
 static int shop_price(const ShopItem *it) {
@@ -1081,22 +1101,23 @@ static int shop_price(const ShopItem *it) {
 }
 
 static void shop_buy(void) {
-    const ShopItem *it = g_shop_kind ? &k_shop_lock[g_shop_sel] : &k_shop_com[g_shop_sel];
-    if (shop_sold_out(g_shop_kind, g_shop_sel)) { toast("SOLD OUT"); return; }
+    const ShopItem *it = &k_shops[g_shop_kind].items[g_shop_sel];
+    if (shop_owned(it->effect)) { toast("SOLD OUT"); return; }
     int price = shop_price(it);
     if (g_gold < price) { toast("NOT ENOUGH GOLD"); mote->audio_play_sfx(&locked_sfx, 0.8f); return; }
     g_gold -= price;
     mote->audio_play_sfx(&buy_sfx, 0.9f);
-    if (!g_shop_kind) {
-        if (g_shop_sel == 0) { g_keys++; toast("BOUGHT A KEY"); }
-        else if (g_shop_sel == 1) { g_gems++; toast("BOUGHT A GEM"); }
-        else if (g_shop_sel == 2) { g_steps += 8; toast("+8 STEPS"); }
-        else if (g_shop_sel == 3) { g_spyglass = 1; toast("SPYGLASS: 4-CARD DRAFTS"); }
-        else { g_spade = 1; toast("A STURDY SPADE"); }
-    } else {
-        if (g_shop_sel == 0) { g_keys++; toast("BOUGHT A KEY"); }
-        else if (g_shop_sel == 1) { g_master = 1; toast("THE MASTER KEY!"); }
-        else { g_keycard = 1; toast("THE KEYCARD!"); }
+    switch (it->effect) {
+    case SI_KEY:      g_keys++;  toast("BOUGHT A KEY"); break;
+    case SI_GEM:      g_gems++;  toast("BOUGHT A GEM"); break;
+    case SI_SNACK:    g_steps += 8;  toast("+8 STEPS"); break;
+    case SI_TONIC:    g_steps += 10; toast("TONIC +10 STEPS"); break;
+    case SI_SPADE:    g_spade = 1;    toast("A STURDY SPADE"); break;
+    case SI_SPYGLASS: g_spyglass = 1; toast("SPYGLASS: 4-CARD DRAFTS"); break;
+    case SI_COMPASS:  g_compass = 1;  toast("THE COMPASS! LB/RB TURNS"); break;
+    case SI_PENCIL:   g_pencil = 1;   toast("THE PENCIL! B REDRAWS"); break;
+    case SI_MASTER:   g_master = 1;   toast("THE MASTER KEY!"); break;
+    case SI_KEYCARD:  g_keycard = 1;  toast("THE KEYCARD!"); break;
     }
     goal_check_held();
 }
@@ -1241,8 +1262,8 @@ static void player_tick(float dt) {
             }
             used = 1;
         }
-        if (!used && (d->flags & (RF_SHOP_COM | RF_SHOP_LOCK))) {
-            g_shop_kind = (d->flags & RF_SHOP_LOCK) ? 1 : 0;
+        if (!used && (d->flags & RF_ANY_SHOP)) {
+            g_shop_kind = (d->flags & RF_SHOP_LOCK) ? 1 : (d->flags & RF_SHOP_APO) ? 2 : 0;
             g_shop_sel = 0;
             g_state = GS_SHOP;
             mote->audio_play_sfx(&tick_sfx, 0.8f);
@@ -1724,16 +1745,17 @@ static void map_draw(uint16_t *fb) {
 static void shop_draw(uint16_t *fb) {
     dim(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    int n = g_shop_kind ? 3 : 5;
+    const ShopDef *s = &k_shops[g_shop_kind];
+    int n = s->n;
     mote->draw_rect(fb, 10, 22, 108, 26 + n * 15, rgb(16, 20, 40), 1, 0, 128);
     mote->draw_rect(fb, 10, 22, 108, 26 + n * 15, rgb(120, 140, 200), 0, 0, 128);
-    mote_ftextc(mote, fb, f, 64, 24, rgb(250, 230, 150), g_shop_kind ? "LOCKSMITH" : "COMMISSARY");
+    mote_ftextc(mote, fb, f, 64, 24, rgb(250, 230, 150), s->title);
     char buf[32];
     for (int i = 0; i < n; i++) {
-        const ShopItem *it = g_shop_kind ? &k_shop_lock[i] : &k_shop_com[i];
+        const ShopItem *it = &s->items[i];
         int y = 39 + i * 15;
         if (i == g_shop_sel) mote->draw_rect(fb, 12, y - 1, 104, 14, rgb(40, 50, 90), 1, 0, 128);
-        int sold = shop_sold_out(g_shop_kind, i);
+        int sold = shop_owned(it->effect);
         snprintf(buf, sizeof buf, "%s", sold ? "SOLD OUT" : it->name);
         mote->text_font(fb, f, buf, 16, y, g_gold >= shop_price(it) && !sold ? rgb(240, 240, 250) : rgb(120, 120, 130));
         if (!sold) {
@@ -1748,7 +1770,7 @@ static void shop_draw(uint16_t *fb) {
 
 static void shop_tick(void) {
     const MoteInput *in = mote->input();
-    int n = g_shop_kind ? 3 : 5;
+    int n = k_shops[g_shop_kind].n;
     if (mote_just_pressed(in, MOTE_BTN_UP))   { g_shop_sel = (g_shop_sel + n - 1) % n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
     if (mote_just_pressed(in, MOTE_BTN_DOWN)) { g_shop_sel = (g_shop_sel + 1) % n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
     if (mote_just_pressed(in, MOTE_BTN_A)) shop_buy();
