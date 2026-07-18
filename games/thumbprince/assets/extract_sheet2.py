@@ -95,7 +95,7 @@ hero.save(os.path.join(HERE, "hero.png"))
 print("wrote hero.png (2 front, 2 back, 4 side)")
 
 # ------------------------------------------------------------------ items ----
-IT = Image.new("RGBA", (17 * 12, 12), (0, 0, 0, 0))
+IT = Image.new("RGBA", (20 * 12, 12), (0, 0, 0, 0))
 def item(cell, box, size=12, thresh=40):
     IT.paste(fit(keyed(box, thresh=thresh), size, size), (cell * 12 + (12 - size) // 2, 0))
 
@@ -103,8 +103,67 @@ item(0, (1712, 563, 1847, 727))            # gold nugget = coin
 item(1, (1929, 540, 2025, 750))            # key
 item(2, (2110, 569, 2285, 720))            # gem
 item(3, (2333, 556, 2532, 730))            # sandwich
-item(4, (2587, 547, 2760, 745), size=10)   # star (without the long trail)
-item(5, (2587, 547, 2900, 745))            # big star, trail and all
+# evidence tier 1 (cell 4): a fingerprint card, +25
+def _card_px(x, y, c):
+    IT.putpixel((4 * 12 + x, y), c + (255,))
+for yy in range(1, 11):
+    for xx in range(2, 10):
+        _card_px(xx, yy, (236, 236, 240))
+for xx in range(2, 10):
+    _card_px(xx, 1, (196, 198, 208)); _card_px(xx, 10, (170, 172, 184))
+for (xx, yy) in ((4, 4), (5, 4), (6, 4), (3, 5), (7, 5), (3, 6), (7, 6),
+                 (4, 7), (5, 7), (6, 7), (5, 5), (4, 8), (6, 8)):
+    _card_px(xx, yy, (70, 62, 74))                       # the whorl
+
+# evidence tier 2 (cell 5): a torn photograph, +75
+def _pho_px(x, y, c):
+    IT.putpixel((5 * 12 + x, y), c + (255,))
+for yy in range(1, 11):
+    for xx in range(1, 11):
+        if xx - yy > 6:                                   # torn corner
+            continue
+        edge = xx == 1 or xx == 10 or yy == 1 or yy == 10 or xx - yy == 6
+        _pho_px(xx, yy, (226, 226, 232) if edge else (96, 146, 196))
+for yy in range(7, 10):
+    for xx in range(2, 10):
+        if xx - yy > 5:
+            continue
+        _pho_px(xx, yy, (76, 134, 84))                    # ground
+_pho_px(3, 3, (240, 235, 200)); _pho_px(4, 3, (240, 235, 200))   # a face in it
+
+# tiny floor coin (cell 17): easy to walk past
+def _tc_px(x, y, c):
+    IT.putpixel((17 * 12 + x, y), c + (255,))
+for (x0, w, yy) in ((5, 3, 4), (4, 5, 5), (4, 5, 6), (4, 5, 7), (5, 3, 8)):
+    for xx in range(x0, x0 + w):
+        _tc_px(xx, yy, (200, 158, 46) if yy == 8 else (236, 190, 58))
+_tc_px(5, 5, (255, 236, 150))
+
+# evidence tier 3 (cell 18): a sealed dossier, +100
+def _dos_px(x, y, c):
+    IT.putpixel((18 * 12 + x, y), c + (255,))
+for yy in range(2, 11):
+    for xx in range(1, 11):
+        _dos_px(xx, yy, (196, 160, 96))
+for xx in range(1, 6):
+    _dos_px(xx, 2, (216, 182, 118))                       # tab
+for xx in range(1, 11):
+    _dos_px(xx, 10, (150, 118, 66))
+for yy in range(2, 11):
+    _dos_px(5, yy, (170, 136, 76))                        # string
+for (xx, yy) in ((7, 5), (8, 5), (9, 5), (7, 6), (8, 6), (9, 6), (8, 7)):
+    _dos_px(xx, yy, (190, 50, 40))                        # wax seal
+_dos_px(7, 5, (226, 96, 80))
+
+# slots crown (cell 19)
+def _cr_px(x, y, c):
+    IT.putpixel((19 * 12 + x, y), c + (255,))
+for xx in range(3, 10):
+    _cr_px(xx, 7, (240, 205, 90)); _cr_px(xx, 8, (216, 180, 80))
+for (xx, y0) in ((3, 4), (6, 3), (9, 4)):
+    for yy in range(y0, 7):
+        _cr_px(xx, yy, (240, 205, 90))
+_cr_px(4, 8, (200, 60, 50)); _cr_px(8, 8, (60, 110, 200))
 item(7, (2961, 534, 3105, 746))            # padlock
 item(9, (3176, 541, 3321, 750))            # potion
 item(12, (1530, 720, 1610, 800))           # sack = gold pouch

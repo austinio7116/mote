@@ -98,7 +98,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#.....#"
         "#######", { IT_KEY, IT_COIN, 0 } },
 
-    [R_ANTE] = { "ANTECHAMBER", SH_X, 2, 0, FL_RED, WL_STONE, C565(236, 198, 96), RF_UNIQUE, 0, 0, 0, 0,
+    [R_ANTE] = { "ANTECHAMBER", SH_X, 2, 0, FL_RED, WL_STONE, C565(34, 28, 52), RF_UNIQUE, 0, 0, 0, 0,
         "#######"
         "#p...p#"
         "#.....#"

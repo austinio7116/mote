@@ -247,7 +247,7 @@ static const MoteAutotile *k_floors[9] = {
     &floor_autumn_at,
 };
 static uint8_t k_room_terrain[14 * 14];        /* all-floor 8px map, filled once */
-static const uint8_t k_item_cell[10] = { 0, 0, 1, 2, 3, 4, 5, 5, 9, 12 };  /* IT_* -> items cell */
+static const uint8_t k_item_cell[10] = { 0, 17, 1, 2, 3, 4, 5, 18, 9, 12 };  /* IT_* -> items cell */
 
 /* template letter -> prop id ('c'/'x' chests are parsed separately) */
 static int prop_of_char(char ch) {
@@ -383,29 +383,29 @@ static const char *k_blurb[R_COUNT] = {
     [R_DRAWING] = "+25, +1 GEM",    [R_DINING] = "+4 STEPS",
     [R_KITCHEN] = "+4, FOOD",       [R_PANTRY] = "+4, FOOD",
     [R_BEDROOM] = "+6 STEPS",       [R_SUITE] = "+12, +1 KEY",
-    [R_WASHROOM] = "+4 STEPS",      [R_LIBRARY] = "BIG STAR",
+    [R_WASHROOM] = "+4 STEPS",      [R_LIBRARY] = "A PHOTOGRAPH",
     [R_STUDY] = "THE PENCIL",      [R_DRAFTING] = "THE COMPASS",
-    [R_LAUNDRY] = "A KEY INSIDE",   [R_STORE] = "COINS+STAR",
+    [R_LAUNDRY] = "A KEY INSIDE",   [R_STORE] = "COINS+PROOF",
     [R_CELLAR] = "2 KEYS",          [R_LOCKSMITH] = "KEY SHOP",
     [R_COMMISSARY] = "SHOP",        [R_HEARTH] = "+8 STEPS",
     [R_STILLROOM] = "TONICS",       [R_TERRACE] = "GREEN +1GEM",
     [R_GARDEN] = "GREEN +1GEM",     [R_SUNROOM] = "GREEN +2GEM",
     [R_VAULT] = "GOLD HOARD",       [R_GUEST] = "+4, CHEST",
-    [R_CHAPEL] = "BIG STAR",        [R_ARMORY] = "KEYS, CHEST",
+    [R_CHAPEL] = "A PHOTOGRAPH",        [R_ARMORY] = "KEYS, CHEST",
     [R_WINECELLAR] = "TONIC, GOLD", [R_ORCHARD] = "GREEN, FOOD",
     [R_TREASURY] = "2 CHESTS",      [R_NOOK] = "+25 PTS",
     [R_SCULLERY] = "+2 STEPS",      [R_SOLARIUM] = "GREEN +1GEM",
-    [R_GAMES] = "+25, STAR",        [R_BUNK] = "+8 STEPS",
-    [R_ATELIER] = "STAR + GEM",     [R_CRYPT] = "RICH, -4 ST",
+    [R_GAMES] = "+25, PROOF",        [R_BUNK] = "+8 STEPS",
+    [R_ATELIER] = "PROOF + GEM",     [R_CRYPT] = "RICH, -4 ST",
     [R_TRICKHALL] = "SEALS SHUT",   [R_SECURITY] = "TERMINAL",
-    [R_POWER] = "THE BREAKER",      [R_LABORATORY] = "TONICS, STAR",
+    [R_POWER] = "THE BREAKER",      [R_LABORATORY] = "TONICS, PROOF",
     [R_STRONGROOM] = "GOLD, CHESTS",
     [R_CROSSROADS] = "4 DOORS",     [R_LANDING] = "3 DOORS",
     [R_SERVHALL] = "3 DOORS +2",    [R_CLOISTER] = "GREEN, 3 DR",
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
     [R_APOTHECARY] = "TONIC SHOP",  [R_MUSIC] = "THE PIANO",
     [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
-    [R_BILLIARDS] = "+25, STAR",    [R_CLASSROOM] = "THE IQ TEST",
+    [R_BILLIARDS] = "+25, PROOF",    [R_CLASSROOM] = "THE IQ TEST",
     [R_DARKROOM] = "CLUE + BLIND",  [R_MAZE] = "GREEN MAZE",
 };
 
@@ -1094,13 +1094,13 @@ static void chest_try(int i) {
     if (g_chests[i].locked) {
         if (roll < 25)      { g_gems++; extra = " +GEM"; }
         else if (roll < 55) { g_keys++; extra = " +KEY"; }
-        else if (roll < 72) { score_add(SC_LOOT, 75); extra = " +75!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
+        else if (roll < 72) { score_add(SC_LOOT, 75); extra = " +PHOTO 75"; mote->audio_play_sfx(&star_sfx, 1.0f); }
         else if (roll < 82 && !g_keycard) { g_keycard = 1; extra = " +KEYCARD!"; mote->audio_play_sfx(&star_sfx, 1.0f); }
         else                { g_gold += 3; gold += 3; }
     } else {
         if (roll < 18)      { g_gems++; extra = " +GEM"; }
         else if (roll < 32) { g_keys++; extra = " +KEY"; }
-        else if (roll < 48) { score_add(SC_LOOT, 25); extra = " +25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
+        else if (roll < 48) { score_add(SC_LOOT, 25); extra = " +EVIDENCE 25"; mote->audio_play_sfx(&star_sfx, 0.9f); }
     }
     mote->audio_play_sfx(&coin_sfx, 0.9f);
     snprintf(buf, sizeof buf, "CHEST: %d GOLD%s", gold, extra);
@@ -1130,7 +1130,7 @@ static void dig_here(void) {
         g_keys++; snprintf(buf, sizeof buf, "DUG UP A KEY");
         mote->audio_play_sfx(&key_sfx, 0.9f);
     } else if (roll < 90) {
-        score_add(SC_LOOT, 25); snprintf(buf, sizeof buf, "DUG UP A STAR +25");
+        score_add(SC_LOOT, 25); snprintf(buf, sizeof buf, "DUG UP EVIDENCE +25");
         mote->audio_play_sfx(&star_sfx, 0.9f);
     } else {
         g_steps += 4; snprintf(buf, sizeof buf, "DUG UP A SNACK +4");
@@ -1537,9 +1537,9 @@ static void pickups_tick(void) {
             case IT_FOOD: g_steps += 6; mote->audio_play_sfx(&food_sfx, 0.8f); toast("+6 STEPS"); break;
             case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
             case IT_POUCH: g_gold += 3; score_add(SC_LOOT, 5); mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
-            case IT_STAR: score_add(SC_LOOT, 25); mote->audio_play_sfx(&star_sfx, 0.9f); toast("+25"); break;
-            case IT_STAR2: score_add(SC_LOOT, 75); mote->audio_play_sfx(&star_sfx, 1.0f); toast("+75!"); break;
-            case IT_STAR3: score_add(SC_LOOT, 100); mote->audio_play_sfx(&star_sfx, 1.0f); toast("+100!"); break;
+            case IT_STAR: score_add(SC_LOOT, 25); mote->audio_play_sfx(&star_sfx, 0.9f); toast("EVIDENCE +25"); break;
+            case IT_STAR2: score_add(SC_LOOT, 75); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A PHOTOGRAPH +75"); break;
+            case IT_STAR3: score_add(SC_LOOT, 100); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A DOSSIER +100"); break;
             }
         }
         if (!(cl->looted & (1 << i))) all = 0;
@@ -2230,8 +2230,13 @@ static void bp_cell(uint16_t *fb, int x, int y, int cw, int ch, int gi, int hili
         if (cl->doors & DBIT(DIR_E)) { mote->draw_rect(fb, x + cw - 4, y + my - 1, 3, 4, bk, 1, 0, 128);
                                        mote->draw_rect(fb, x + cw - 3, y + my, 2, 2, pip, 1, 0, 128); }
     }
-    if (gi == ANTE_GI && ch >= 8)
-        mote->blit(fb, &items_img, x + (cw - 12) / 2, y + (ch - 12) / 2, 4 * 12, 0, 12, 12, 0, 0, 128);
+    if (gi == ANTE_GI && ch >= 8) {
+        uint16_t gold = ((int)(g_result_t * 2) & 1) ? rgb(240, 205, 90) : rgb(170, 140, 60);
+        int cx2 = x + cw / 2, cy2 = y + ch / 2 - 1;
+        mote->draw_rect(fb, cx2 - 1, cy2 - 2, 3, 3, gold, 1, 0, 128);   /* the eye */
+        mote->draw_rect(fb, cx2, cy2 + 1, 1, 1, gold, 1, 0, 128);       /* the flare */
+        mote->draw_rect(fb, cx2 - 1, cy2 + 2, 3, 1, gold, 1, 0, 128);
+    }
     if (hilite)
         mote->draw_rect(fb, x - 1, y - 1, cw + 1, ch + 1, rgb(255, 255, 255), 0, 0, 128);
 }
@@ -2822,7 +2827,7 @@ static void puzzle_draw(uint16_t *fb) {
 
 /* ---------------------------------------------------------- slot machine ---- */
 enum { SY_COIN, SY_BOOT, SY_GEM, SY_KEY, SY_CROWN };
-static const uint8_t k_sym_cell[5] = { 0, 8, 2, 1, 4 };
+static const uint8_t k_sym_cell[5] = { 0, 8, 2, 1, 19 };
 
 static uint8_t slot_pick(void) {
     static const uint8_t wn[5] = { 34, 26, 16, 14, 10 };
