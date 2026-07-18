@@ -361,8 +361,11 @@ static void pick_target(void) {
         g_aim_y = g_ret_r * TILE + TILE / 2;
         return;
     }
-    int hitc = -1, hitr = -1, ac = -1, ar = -1;
+    int hitc = -1, hitr = -1;
     int lc = px_c(hx), lr = (int)hy / TILE;
+    int ac = lc, ar = lr;      /* last empty cell — seed with the chest's own cell so
+                                  a blocker in the very next step (e.g. a platform you
+                                  stand on) still yields the air cell above it */
     for (int d = 6; d <= reach * TILE; d += 3) {
         int cc = px_c(hx + dx * d), rr = (int)(hy + dy * d) / TILE;
         if (cc == lc && rr == lr) continue;
@@ -370,9 +373,12 @@ static void pick_target(void) {
         uint8_t t = fg_at(cc, rr);
         /* the axe locks onto choppable wood (tree trunks/leaves/furniture are
          * non-solid, so a plain solid check would pass straight through them);
-         * the HAMMER locks onto back walls (its whole job) */
+         * the HAMMER locks onto back walls (its whole job); BLOCKS also stop on
+         * PLATFORMS, so the cursor lands on the cell just above a platform and
+         * you can build/place furniture on it (platforms as floors) */
         int blocking = (kind == IK_AXE)    ? (g_tiles[t].axe || g_tiles[t].solid == 1)
                      : (kind == IK_HAMMER) ? (g_tiles[t].solid == 1 || BG_WALL(bg_at(cc, rr)))
+                     : (kind == IK_BLOCK)  ? (g_tiles[t].solid != 0)
                                            : (g_tiles[t].solid == 1);
         if (blocking) { hitc = cc; hitr = rr; break; }
         ac = cc; ar = rr;                                     /* last empty cell */

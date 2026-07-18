@@ -266,12 +266,18 @@ int world_hit_tree(int c, int r) {
     return wood;
 }
 
+/* furniture floor: a real solid OR a platform, so platforms serve as floors */
+static int furn_floor(int c, int r) {
+    uint8_t s = g_tiles[fg_at(c, r)].solid;
+    return s == 1 || s == 2;
+}
+
 int world_place_tile(int c, int r, uint8_t tile) {
     if ((unsigned)c >= WCOLS || (unsigned)r >= WROWS - 2) return 0;
     /* multi-tile furniture */
     if (tile == T_WORKBENCH || tile == T_ANVIL) {
         if (fg_at(c, r) || fg_at(c + 1, r)) return 0;
-        if (g_tiles[fg_at(c, r + 1)].solid != 1 || g_tiles[fg_at(c + 1, r + 1)].solid != 1) return 0;
+        if (!furn_floor(c, r + 1) || !furn_floor(c + 1, r + 1)) return 0;
         world_set_fg(c, r, tile); world_set_fg(c + 1, r, tile);
         return 1;
     }
@@ -279,19 +285,19 @@ int world_place_tile(int c, int r, uint8_t tile) {
         for (int dc = 0; dc < 3; dc++)
             if (fg_at(c + dc, r) || fg_at(c + dc, r - 1)) return 0;
         for (int dc = 0; dc < 3; dc++)
-            if (g_tiles[fg_at(c + dc, r + 1)].solid != 1) return 0;
+            if (!furn_floor(c + dc, r + 1)) return 0;
         for (int dc = 0; dc < 3; dc++) { world_set_fg(c + dc, r, tile); world_set_fg(c + dc, r - 1, tile); }
         return 1;
     }
     if (tile == T_CHAIR || tile == T_LANTERN) {          /* 1 wide x 2 tall */
         if (fg_at(c, r) || fg_at(c, r - 1)) return 0;
-        if (g_tiles[fg_at(c, r + 1)].solid != 1) return 0;
+        if (!furn_floor(c, r + 1)) return 0;
         world_set_fg(c, r, tile); world_set_fg(c, r - 1, tile);
         return 1;
     }
     if (tile == T_CHEST) {
         if (fg_at(c, r) || fg_at(c + 1, r) || fg_at(c, r - 1) || fg_at(c + 1, r - 1)) return 0;
-        if (g_tiles[fg_at(c, r + 1)].solid != 1 || g_tiles[fg_at(c + 1, r + 1)].solid != 1) return 0;
+        if (!furn_floor(c, r + 1) || !furn_floor(c + 1, r + 1)) return 0;
         if (tile == T_CHEST && !world_chest_create(c, r - 1)) return 0;
         world_set_fg(c, r, tile); world_set_fg(c + 1, r, tile);
         world_set_fg(c, r - 1, tile); world_set_fg(c + 1, r - 1, tile);
@@ -299,7 +305,7 @@ int world_place_tile(int c, int r, uint8_t tile) {
     }
     if (tile == T_DOOR_C) {
         if (fg_at(c, r) || fg_at(c, r - 1) || fg_at(c, r - 2)) return 0;
-        if (g_tiles[fg_at(c, r + 1)].solid != 1) return 0;
+        if (!furn_floor(c, r + 1)) return 0;
         world_set_fg(c, r, tile); world_set_fg(c, r - 1, tile); world_set_fg(c, r - 2, tile);
         return 1;
     }
