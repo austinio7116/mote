@@ -2253,12 +2253,12 @@ static void map_draw(uint16_t *fb) {
     if (g_map_page == 2) { satchel_draw(fb); return; }
     paper(fb);
     page_header(fb, "THE ESTATE");
-    estate_map(fb, 19, 17, 18, 12, -1);
+    estate_map(fb, 34, 17, 12, 12, -1);
     /* the browse cursor */
     {
         int c = gi_col(g_map_cur), r = gi_row(g_map_cur);
-        int x = 19 + c * 18, y = 17 + r * 12;
-        mote->draw_rect(fb, x - 1, y - 1, 19, 13, rgb(255, 230, 120), 0, 0, 128);
+        int x = 34 + c * 12, y = 17 + r * 12;
+        mote->draw_rect(fb, x - 1, y - 1, 13, 13, rgb(255, 230, 120), 0, 0, 128);
     }
     /* the single name line: what the cursor rests on */
     {
@@ -2907,10 +2907,6 @@ static void g_overlay(uint16_t *fb) {
     case GS_SLOTS:   hud_draw(fb); slots_draw(fb); return;
     case GS_CASE:    case_draw(fb); return;
     default:
-        /* crisp inner edge on the thin wall band */
-        mote->draw_rect(fb, ORG_X + WALL_PX - 1, ORG_Y + WALL_PX - 1,
-                        ROOM_PX - 2 * WALL_PX + 2, ROOM_PX - 2 * WALL_PX + 2,
-                        rgb(28, 22, 24), 0, 0, 128);
         /* unsolved sequence puzzles wear their markings */
         {
             int room = g_grid[g_cur].room;
