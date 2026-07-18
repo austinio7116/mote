@@ -233,6 +233,7 @@ enum { GS_TITLE = 0, GS_CREATE, GS_GENERATING, GS_PLAY, GS_INV, GS_CHEST, GS_DEA
 extern uint8_t g_state;
 extern float   g_time;           /* 0..1 day fraction (0.25 = noon, 0.75 = midnight) */
 extern uint8_t g_boss_down;      /* EoC killed */
+extern uint8_t g_autosave_opt;   /* 0 OFF · 1 = 1min · 2 = 2min (default) · 3 = 5min — kept in the world save */
 extern uint32_t g_seed;
 extern const MoteApi *g_mote;
 extern float  g_dt;
@@ -366,6 +367,9 @@ void ui_tick(float dt);
 /* ---- save module (save.c) -------------------------------------------------------------- */
 int  save_world_exists(void);
 void save_world(void);
+void save_world_begin(void);          /* incremental autosave: one step per frame */
+int  save_world_step(void);           /* 1 = still saving, 0 = done/idle */
+int  save_world_busy(void);
 int  load_world(void);
 void save_player(void);
 void save_player_coop(void);          /* guest: character only, home-world position kept */
@@ -405,6 +409,7 @@ void net_ev_proj(uint8_t kind, float x, float y, float vx, float vy, uint8_t el)
 void net_ev_chest(int c, int r, int slot, uint8_t item, uint8_t count);
 void net_ev_boss_req(void);
 void net_ev_boss_state(int what);     /* host: 0 awoken 1 defeated 2 fled */
+void net_ev_saving(int on);           /* host: tell the friend a world save is running */
 void net_ev_drop_req(uint8_t item, int n, float x, float y);
 /* capture hooks (no-op unless co-op host) */
 void net_raw_fg(int c, int r, uint8_t t);

@@ -49,7 +49,8 @@ typedef struct {
     float    time;
     uint8_t  boss_down;
     uint8_t  wallsfix;   /* 1 = world has the below-surface wall backfill (upgrade once) */
-    uint8_t  pad[2];
+    uint8_t  autosave;   /* player's autosave option + 1 (0 = legacy save: default) */
+    uint8_t  pad[1];
     Chest    chests[MAX_CHESTS];
 } WorldMeta;
 
@@ -64,25 +65,49 @@ int save_world_exists(void) {
     return m.magic == SAVE_MAGIC;
 }
 
-void save_world(void) {
-    char key[8];
-    for (int b = 0; b < BANDS; b++) {
-        for (int plane = 0; plane < 2; plane++) {
-            const uint8_t *src = (plane ? g_bgm : g_fgm) + b * BAND_BYTES;
-            int n = rle_pack(src, BAND_BYTES, s_scratch, BAND_BYTES * 2 + 16);
-            key[0] = 'w'; key[1] = (char)('f' + plane * 2); key[2] = (char)('0' + b); key[3] = 0;
-            if (n > 0) mote->kv_save(key, s_scratch, n);
-        }
-    }
-    WorldMeta m = { SAVE_MAGIC, g_seed, g_time, g_boss_down, 1, {0}, {{0}} };
-    memcpy(m.chests, g_chests, sizeof(g_chests));
-    mote->kv_save("meta", &m, sizeof(m));
-    {   /* fog of war: RLE the explored bitmap under its own key (back-compat:
+/* One save step: 16 band-plane keys, then meta+chests, explored, player.
+ * The AUTOSAVE runs these one per frame (save_world_begin/step) so a co-op
+ * host never goes link-silent long enough to trip the engine's stall banner
+ * on the guest — and the host's own frame never hitches. Manual saves still
+ * run all steps back to back (save_world). */
+#define SAVE_STEPS (BANDS * 2 + 3)
+static int s_save_step = -1;
+
+static void save_one_step(int s) {
+    if (s < BANDS * 2) {
+        int b = s >> 1, plane = s & 1;
+        const uint8_t *src = (plane ? g_bgm : g_fgm) + b * BAND_BYTES;
+        int n = rle_pack(src, BAND_BYTES, s_scratch, BAND_BYTES * 2 + 16);
+        char key[8];
+        key[0] = 'w'; key[1] = (char)('f' + plane * 2); key[2] = (char)('0' + b); key[3] = 0;
+        if (n > 0) mote->kv_save(key, s_scratch, n);
+    } else if (s == BANDS * 2) {
+        WorldMeta m = { SAVE_MAGIC, g_seed, g_time, g_boss_down, 1,
+                        (uint8_t)(g_autosave_opt + 1), {0}, {{0}} };
+        memcpy(m.chests, g_chests, sizeof(g_chests));
+        mote->kv_save("meta", &m, sizeof(m));
+    } else if (s == BANDS * 2 + 1) {
+        /* fog of war: RLE the explored bitmap under its own key (back-compat:
          * old saves simply lack it and start unexplored) */
         int n = rle_pack(g_explored, sizeof(g_explored), s_scratch, BAND_BYTES * 2 + 16);
         if (n > 0) mote->kv_save("exp", s_scratch, n);
+    } else {
+        save_player();
     }
-    save_player();
+}
+
+void save_world_begin(void) { s_save_step = 0; }
+int save_world_step(void) {                    /* 1 = still saving, 0 = done/idle */
+    if (s_save_step < 0) return 0;
+    save_one_step(s_save_step++);
+    if (s_save_step >= SAVE_STEPS) { s_save_step = -1; return 0; }
+    return 1;
+}
+int save_world_busy(void) { return s_save_step >= 0; }
+
+void save_world(void) {
+    for (int s = 0; s < SAVE_STEPS; s++) save_one_step(s);
+    s_save_step = -1;
 }
 
 int load_world(void) {
@@ -106,6 +131,7 @@ int load_world(void) {
     g_seed = m.seed;
     g_time = m.time;
     g_boss_down = m.boss_down;
+    g_autosave_opt = m.autosave ? (uint8_t)((m.autosave - 1) & 3) : 2;
     memset(g_explored, 0, sizeof(g_explored));
     {   /* explored bitmap (optional key — pre-fog saves start unexplored) */
         int n = mote->kv_load("exp", s_scratch, BAND_BYTES * 2 + 16);

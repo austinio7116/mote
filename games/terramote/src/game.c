@@ -59,6 +59,9 @@ const MoteApi *g_mote;
 uint8_t g_state = GS_TITLE;
 float   g_time = 0.25f;
 uint8_t g_boss_down;
+uint8_t g_autosave_opt = 2;              /* 2 minutes, as it always was */
+static float s_dev_autosave = -1.0f;     /* TERRA_AUTOSAVE seconds override (tests) */
+static const float k_autosave_secs[4] = { 0, 60.0f, 120.0f, 300.0f };
 uint32_t g_seed;
 float   g_dt;
 int     g_cam_x, g_cam_y;
@@ -315,10 +318,10 @@ static void pause_tick(void) {
         if (s_pause_row == 0) g_state = GS_PLAY;
         else if (s_pause_row == 1) {
             if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
-            else { save_world(); ui_toast("WORLD SAVED"); }
+            else { net_ev_saving(1); save_world(); net_ev_saving(0); ui_toast("WORLD SAVED"); }
             g_state = GS_PLAY;
         } else {
-            if (net_guest()) save_player_coop(); else save_world();
+            if (net_guest()) save_player_coop(); else { net_ev_saving(1); save_world(); }
             net_stop(1);               /* wave goodbye before leaving */
             mote->exit_to_launcher();
         }
@@ -340,6 +343,7 @@ static void dev_hooks(void) {
     }
     if ((e = getenv("TERRA_HOT"))) g_pl.hot = (uint8_t)atoi(e);   /* preselect a hotbar slot */
     if ((e = getenv("TERRA_TIME"))) s_dev_time = (float)atof(e);
+    if ((e = getenv("TERRA_AUTOSAVE"))) s_dev_autosave = (float)atof(e);   /* seconds; tests */
     if ((e = getenv("TERRA_SEED"))) s_dev_seed = (uint32_t)strtoul(e, 0, 10);
     if ((e = getenv("TERRA_POS"))) {                 /* "col:row" spawn override */
         char *p = (char *)e;
@@ -419,14 +423,25 @@ static void sim_tick(float dt, int with_player) {
     s_grow_t += dt;
     if (s_grow_t > 0.5f) { s_grow_t = 0; if (authority) world_grow_tick(); }
     s_autosave_t += dt;
-    if (net_guest()) {
-        if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_player_coop(); }
-    } else {
-        if (s_autosave_t > 118.5f && s_autosave_t < 119.0f) {
-            ui_toast("AUTOSAVING...");                 /* warn BEFORE the save hitch */
-            s_autosave_t = 119.0f;
+    {
+        float ivl = s_dev_autosave >= 0 ? s_dev_autosave : k_autosave_secs[g_autosave_opt & 3];
+        if (net_guest()) {                             /* guest: character only */
+            if (ivl > 0 && s_autosave_t > ivl) { s_autosave_t = 0; save_player_coop(); }
+        } else {
+            /* INCREMENTAL autosave: one kv key per frame, so the frame never
+             * hitches and a co-op host never goes link-silent (the guest used
+             * to catch the engine's LINK STALLED banner during atomic saves) */
+            if (ivl > 0 && s_autosave_t > ivl && !save_world_busy()) {
+                s_autosave_t = 0;
+                save_world_begin();
+                net_ev_saving(1);                      /* friend sees "HOST IS SAVING..." */
+                ui_toast("AUTOSAVING...");
+            }
+            if (save_world_busy() && !save_world_step()) {
+                ui_toast("AUTOSAVED");
+                net_ev_saving(0);
+            }
         }
-        if (s_autosave_t > 120.0f) { s_autosave_t = 0; save_world(); ui_toast("AUTOSAVED"); }
     }
     net_tick(dt);
 }

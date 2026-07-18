@@ -491,26 +491,40 @@ void ui_inventory(uint16_t *fb) {
         mote->text(fb, "A CENTER", MOTE_FB_W - 35, MOTE_FB_H - 6, rgb(200, 195, 180));
         if (!no_input && mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
     } else {
-        /* GAME tab — resume / save / save + quit (folds in the old pause menu) */
-        static const char *GR[3] = { "RESUME", "SAVE WORLD", "SAVE + QUIT" };
-        for (int r = 0; r < 3; r++) {
-            int y = 40 + r * 18;
+        /* GAME tab — resume / autosave option / save / save + quit */
+        static const char *GR[4] = { "RESUME", "AUTOSAVE", "SAVE WORLD", "SAVE + QUIT" };
+        static const char *AS[4] = { "OFF", "1 MIN", "2 MIN", "5 MIN" };
+        for (int r = 0; r < 4; r++) {
+            int y = 36 + r * 16;
             if (r == s_game_cur) mote->draw_rect(fb, 8, y - 2, MOTE_FB_W - 16, 15, rgb(40, 36, 48), 1, 0, MOTE_FB_H);
             mote->text_font(fb, f, GR[r], 18, y, r == s_game_cur ? rgb(255, 255, 255) : rgb(170, 170, 185));
+            if (r == 1) {
+                char b[16]; snprintf(b, sizeof b, "< %s >", AS[g_autosave_opt & 3]);
+                mote->text_font(fb, f, b, 76, y, r == s_game_cur ? rgb(255, 235, 160) : rgb(150, 145, 135));
+            }
         }
         mote->text(fb, "UP/DOWN + A", 32, 104, rgb(120, 115, 105));
         if (no_input) return;
-        if (mote_just_pressed(in, MOTE_BTN_UP))   s_game_cur = (s_game_cur + 2) % 3;
-        if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_game_cur = (s_game_cur + 1) % 3;
+        if (mote_just_pressed(in, MOTE_BTN_UP))   s_game_cur = (s_game_cur + 3) % 4;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN)) s_game_cur = (s_game_cur + 1) % 4;
+        if (s_game_cur == 1) {                     /* the setting rides the world save */
+            int d = 0;
+            if (mote_just_pressed(in, MOTE_BTN_LEFT))  d = -1;
+            if (mote_just_pressed(in, MOTE_BTN_RIGHT) || mote_just_pressed(in, MOTE_BTN_A)) d = 1;
+            if (d) {
+                g_autosave_opt = (uint8_t)((g_autosave_opt + 4 + d) & 3);
+                audio_sfx(SFX_TICK, 0.5f);
+            }
+        }
         if (mote_just_pressed(in, MOTE_BTN_B)) g_state = GS_PLAY;
-        if (mote_just_pressed(in, MOTE_BTN_A)) {
+        if (mote_just_pressed(in, MOTE_BTN_A) && s_game_cur != 1) {
             if (s_game_cur == 0) g_state = GS_PLAY;
-            else if (s_game_cur == 1) {
+            else if (s_game_cur == 2) {
                 if (net_guest()) { save_player_coop(); ui_toast("CHARACTER SAVED"); }
-                else { save_world(); ui_toast("WORLD SAVED"); }
+                else { net_ev_saving(1); save_world(); net_ev_saving(0); ui_toast("WORLD SAVED"); }
                 g_state = GS_PLAY;
             } else {
-                if (net_guest()) save_player_coop(); else save_world();
+                if (net_guest()) save_player_coop(); else { net_ev_saving(1); save_world(); }
                 net_stop(1);
                 mote->exit_to_launcher();
             }

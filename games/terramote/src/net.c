@@ -558,6 +558,10 @@ static void handle_msg(const uint8_t *m, int len) {
         else if (m[2] == 1) { ui_toast("THE EYE OF CTHULHU IS DEFEATED"); audio_sfx(SFX_ROAR, 1.0f); }
         else ui_toast("THE EYE FLEES...");
         break;
+    case 'w':                                               /* host world save running */
+        if (s_host) break;
+        ui_toast(m[2] ? "HOST IS SAVING THE WORLD..." : "WORLD SAVED");
+        break;
     case 'p':                                               /* peer's arrow, cosmetic */
         proj_add_net(m[2], (float)get16(m + 3), (float)get16(m + 5),
                      (float)get16(m + 7), (float)get16(m + 9), m[11]);
@@ -593,6 +597,7 @@ static int want_len(const uint8_t *m, int have) {
     case 'C': return 9;
     case 'K': return 7;
     case 'B': return 3;
+    case 'w': return 3;
     case 'p': return 12;
     }
     return -1;
@@ -836,6 +841,16 @@ void net_ev_boss_state(int what) {
     if (s_ns != NS_PLAY || !s_host) return;
     uint8_t m[3] = { NET_MAGIC, 'B', (uint8_t)what };
     tx_send(m, 3);
+}
+
+/* the host is about to write the world to flash: warn the friend so any
+ * hiccup reads as "saving", not "disconnected". Flushed immediately — the
+ * quiet spell starts right after this. */
+void net_ev_saving(int on) {
+    if (s_ns != NS_PLAY || !s_host) return;
+    uint8_t m[3] = { NET_MAGIC, 'w', (uint8_t)(on ? 1 : 0) };
+    tx_send(m, 3);
+    tx_pump();
 }
 
 /* ---- player-action wrappers ---------------------------------------------- */
