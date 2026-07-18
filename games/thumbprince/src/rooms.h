@@ -81,7 +81,7 @@ enum {
     R_CRYPT, R_TRICKHALL,
     R_SECURITY, R_POWER, R_LABORATORY, R_STRONGROOM,
     R_CROSSROADS, R_LANDING, R_SERVHALL, R_CLOISTER, R_BANQUET, R_ROTUNDA,
-    R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR,
+    R_APOTHECARY, R_MUSIC, R_GALLERY, R_PARLOR, R_BILLIARDS,
     R_COUNT,
 };
 
@@ -600,6 +600,15 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#q...n#"
         "#.....#"
         "#######", { IT_COIN, IT_COIN, 0 } },
+
+    [R_BILLIARDS] = { "SNOOKER RM", SH_L, 1, 0, FL_WOOD_DARK, WL_RED, C565(44, 150, 84), 0, 0, 0, 0, 25,
+        "#######"
+        "#M...i#"
+        "#1....#"
+        "#.....#"
+        "#.R..n#"
+        "#.....#"
+        "#######", { IT_COIN, IT_STAR, 0 } },
 };
 
 /* draftable room ids (everything but the two fixed rooms) */

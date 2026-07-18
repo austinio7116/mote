@@ -260,7 +260,7 @@ static int prop_of_char(char ch) {
     case 'D': return P_ARMOUR;     case 'I': return P_MIRROR;
     case 'Q': return P_HARP;       case 'V': return P_BANNER;
     case 'z': return P_FERN;       case 'E': return P_PEDESTAL;
-    case 'X': return P_BOOKSTACK;
+    case 'X': return P_BOOKSTACK;  case '1': return P_SNOOKER;
     }
     return -1;
 }
@@ -278,6 +278,7 @@ static const uint8_t k_tag[R_COUNT] = {
     [R_NOOK] = TAG_BOOK, [R_ATELIER] = TAG_BOOK,
     [R_SCULLERY] = TAG_FOOD, [R_BUNK] = TAG_REST, [R_GAMES] = TAG_REST,
     [R_BANQUET] = TAG_FOOD, [R_ROTUNDA] = TAG_GRAND,
+    [R_BILLIARDS] = TAG_REST, [R_MUSIC] = TAG_GRAND,
 };
 typedef struct { uint8_t a, b; uint8_t pts; const char *name; } ComboDef;
 static const ComboDef k_combos[] = {
@@ -385,6 +386,7 @@ static const char *k_blurb[R_COUNT] = {
     [R_BANQUET] = "3 DR, +4 ST",    [R_ROTUNDA] = "4 DOORS +50",
     [R_APOTHECARY] = "TONIC SHOP",  [R_MUSIC] = "THE PIANO",
     [R_GALLERY] = "PORTRAITS",      [R_PARLOR] = "SLOT MACHINE",
+    [R_BILLIARDS] = "+25, STAR",
 };
 
 /* ------------------------------------------------------------------- save --- */
