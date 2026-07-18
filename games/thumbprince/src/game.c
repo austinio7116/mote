@@ -1556,41 +1556,41 @@ static void wrap2(const char *src, int maxc, char *l1, char *l2, int cap) {
 static void draft_draw_a(uint16_t *fb) {
     paper(fb);
     const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-    estate_map(fb, 8, 10, 14, g_draft_gi);
+    estate_map(fb, 8, 12, 12, g_draft_gi);
 
-    /* dossier: narrow column, names wrapped */
+    /* dossier: name in the readable font, details in the small one */
     const RoomDef *d = &k_rooms[g_cards[g_draft_sel]];
     int afford = card_affordable(g_cards[g_draft_sel]);
-    char l1[12], l2[12];
+    char l1[14], l2[14];
     uint16_t nc = afford ? rgb(250, 250, 255) : rgb(120, 120, 132);
-    wrap2(d->name, 7, l1, l2, sizeof l1);
+    wrap2(d->name, 8, l1, l2, sizeof l1);
     int ty = 6;
-    mote->text_font(fb, f, l1, 84, ty, nc); ty += 11;
-    if (l2[0]) { mote->text_font(fb, f, l2, 84, ty, nc); ty += 11; }
-    mote->text_font(fb, f, k_rarity_name[d->rarity], 84, ty, k_rarity_col[d->rarity]); ty += 12;
-    if (k_blurb[g_cards[g_draft_sel]] && ty <= 40) {
-        wrap2(k_blurb[g_cards[g_draft_sel]], 7, l1, l2, sizeof l1);
-        uint16_t bc = afford ? rgb(165, 190, 235) : rgb(100, 100, 112);
-        mote->text_font(fb, f, l1, 84, ty, bc); ty += 11;
-        if (l2[0] && ty <= 51) { mote->text_font(fb, f, l2, 84, ty, bc); ty += 11; }
+    mote->text_font(fb, f, l1, 74, ty, nc); ty += 11;
+    if (l2[0]) { mote->text_font(fb, f, l2, 74, ty, nc); ty += 11; }
+    mote->text(fb, k_rarity_name[d->rarity], 74, ty + 1, k_rarity_col[d->rarity]); ty += 9;
+    if (k_blurb[g_cards[g_draft_sel]]) {
+        wrap2(k_blurb[g_cards[g_draft_sel]], 12, l1, l2, sizeof l1);
+        uint16_t bc = afford ? rgb(180, 200, 240) : rgb(110, 110, 122);
+        mote->text(fb, l1, 74, ty + 1, bc); ty += 8;
+        if (l2[0]) { mote->text(fb, l2, 74, ty + 1, bc); ty += 8; }
     }
-    int cx = 84;
-    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, ty, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
-    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, ty, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
-    if (!afford) mote->text_font(fb, f, "!", cx + 2, ty - 1, rgb(255, 110, 90));
+    int cx = 74;
+    for (int c = 0; c < d->gems; c++) { mote->blit(fb, &items_img, cx, ty + 2, 2 * 12, 0, 12, 12, 0, 0, 128); cx += 10; }
+    if (d->flags & RF_LOCKED) { mote->blit(fb, &items_img, cx, ty + 2, 7 * 12, 0, 12, 12, 0, 0, 128); cx += 12; }
+    if (!afford) mote->text_font(fb, f, "!", cx + 2, ty + 1, rgb(255, 110, 90));
 
     /* the gem purse, above the hand */
     char buf[8];
     snprintf(buf, sizeof buf, "%d", g_gems);
-    mote->blit(fb, &items_img, 84, 64, 2 * 12, 0, 12, 12, 0, 0, 128);
-    mote->text_font(fb, f, buf, 97, 64, rgb(140, 240, 220));
+    mote->blit(fb, &items_img, 76, 64, 2 * 12, 0, 12, 12, 0, 0, 128);
+    mote->text_font(fb, f, buf, 89, 62, rgb(140, 240, 220));
 
     /* the hand: 2x2 grid of small miniatures, bottom right */
     for (int i = 0; i < g_draft_n; i++) {
         const RoomDef *cd = &k_rooms[g_cards[i]];
         uint8_t mask = orient_mask(cd->shape, g_draft_entry, g_rot[i]);
         int sel = i == g_draft_sel;
-        int x = 82 + (i % 2) * 22, y = 78 + (i / 2) * 23 - (sel ? 2 : 0);
+        int x = 78 + (i % 2) * 24, y = 78 + (i / 2) * 23 - (sel ? 2 : 0);
         if (sel) mote->draw_rect(fb, x - 2, y - 2, 24, 24, rgb(255, 230, 120), 0, 0, 128);
         room_icon(fb, x, y, 20, g_cards[i], mask, sel);
         if (!card_affordable(g_cards[i]))
