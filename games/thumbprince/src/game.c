@@ -2047,11 +2047,17 @@ static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t m
     mote->draw_rect(fb, x + s - 2, y, 2, s, wc, 1, 0, 128);
     mote->draw_rect(fb, x + 2, y + 2, s - 4, s - 4, rgb(20, 24, 40), 0, 0, 128);
     uint16_t dc = bright ? rgb(255, 235, 150) : rgb(250, 252, 255);
+    uint16_t db = rgb(0, 0, 0);
     int m = s / 2 - 3, g = 6;
-    if (mask & DBIT(DIR_N)) mote->draw_rect(fb, x + m, y, g, 3, dc, 1, 0, 128);
-    if (mask & DBIT(DIR_S)) mote->draw_rect(fb, x + m, y + s - 3, g, 3, dc, 1, 0, 128);
-    if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + m, 3, g, dc, 1, 0, 128);
-    if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + s - 3, y + m, 3, g, dc, 1, 0, 128);
+    /* 1px dark backing keeps the door blocks readable on pale walls */
+    if (mask & DBIT(DIR_N)) { mote->draw_rect(fb, x + m - 1, y, g + 2, 4, db, 1, 0, 128);
+                              mote->draw_rect(fb, x + m, y, g, 3, dc, 1, 0, 128); }
+    if (mask & DBIT(DIR_S)) { mote->draw_rect(fb, x + m - 1, y + s - 4, g + 2, 4, db, 1, 0, 128);
+                              mote->draw_rect(fb, x + m, y + s - 3, g, 3, dc, 1, 0, 128); }
+    if (mask & DBIT(DIR_W)) { mote->draw_rect(fb, x, y + m - 1, 4, g + 2, db, 1, 0, 128);
+                              mote->draw_rect(fb, x, y + m, 3, g, dc, 1, 0, 128); }
+    if (mask & DBIT(DIR_E)) { mote->draw_rect(fb, x + s - 4, y + m - 1, 4, g + 2, db, 1, 0, 128);
+                              mote->draw_rect(fb, x + s - 3, y + m, 3, g, dc, 1, 0, 128); }
 }
 
 /* the estate blueprint, with the draft target previewed live (target_gi < 0: none) */
