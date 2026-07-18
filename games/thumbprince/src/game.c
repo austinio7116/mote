@@ -2040,6 +2040,7 @@ static void day_start(void) {
         }
     }
     if (getenv("DRAFT_TOOLS")) { g_compass = 1; g_spyglass = 1; g_pencil = 1; g_spade = 1; g_keycard = 1; }
+    { const char *ec = getenv("DRAFT_CHAIN"); if (ec) g_chain = (uint8_t)mote_clampi(atoi(ec), 0, 3); }
     /* the day's condition, announced at dawn */
     g_cond = (uint8_t)(hash32(g_day_seed ^ 0xC02D5u) % CD_N);
     {
@@ -2750,9 +2751,9 @@ static void draft_draw_a(uint16_t *fb) {
     }
     if (!afford) mote->text_font(fb, f, "!", 118, 6, rgb(255, 110, 90));
 
-    /* resources, bottom left under the map */
+    /* resources, bottom left under the map; the live chain below them */
     {
-        char buf[8];
+        char buf[12];
         static const uint8_t rc[3] = { 1, 2, 0 };          /* key, gem, gold */
         int vals[3] = { g_keys, g_gems, g_gold };
         int x = 6;
@@ -2762,6 +2763,10 @@ static void draft_draw_a(uint16_t *fb) {
             x = mote->text_font(fb, f, buf, x + 12, 108,
                                 i == 0 ? rgb(240, 220, 140) : i == 1 ? rgb(140, 240, 220)
                                        : rgb(250, 210, 110)) + 3;
+        }
+        if (g_chain) {
+            snprintf(buf, sizeof buf, "CHAIN x%d", 1 + g_chain);
+            mote->text(fb, buf, 6, 121, rgb(255, 230, 120));
         }
     }
 
