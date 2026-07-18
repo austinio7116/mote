@@ -451,6 +451,96 @@ p.rect(4, 1, 7, 3, (220, 70, 60))                                  # knob
 p.px(4, 1, (255, 120, 90))
 add("lever", p)
 
+# ---- armchair (16x16) — plush wingback ----
+p = P(16, 16)
+p.rect(2, 1, 13, 6, (96, 60, 110))                                 # high back
+p.hl(3, 12, 1, (128, 84, 144))
+p.rect(1, 6, 4, 13, (96, 60, 110)); p.rect(11, 6, 14, 13, (96, 60, 110))  # wings
+p.rect(5, 7, 10, 12, (128, 84, 144))                               # cushion
+p.hl(5, 10, 7, (150, 104, 168))
+p.rect(2, 14, 4, 15, WOOD_DD); p.rect(11, 14, 13, 15, WOOD_DD)
+add("armchair", p)
+
+# ---- fireplace (24x16) — stone surround, live fire ----
+p = P(24, 16)
+p.rect(1, 1, 22, 14, (104, 108, 120))
+p.hl(2, 21, 1, (140, 144, 158))
+p.rect(4, 4, 19, 13, (40, 32, 34))                                 # firebox
+p.rect(6, 9, 17, 12, (232, 130, 40))                               # flames
+p.rect(8, 7, 15, 11, (255, 190, 80))
+p.px(10, 5, (255, 236, 140)); p.px(13, 6, (255, 236, 140))
+p.rect(2, 14, 21, 15, (84, 88, 100))                               # hearthstone
+add("fireplace", p)
+
+# ---- suit of armour (14x22) ----
+p = P(14, 22)
+p.rect(4, 1, 9, 5, (170, 174, 186))                                # helm
+p.hl(4, 9, 3, (60, 62, 72))                                        # visor slit
+p.px(6, 0, (216, 180, 80))                                         # plume base
+p.rect(3, 6, 10, 13, (150, 154, 168))                              # cuirass
+p.vl(6, 6, 13, (120, 124, 138))
+p.rect(1, 7, 2, 12, (130, 134, 148)); p.rect(11, 7, 12, 12, (130, 134, 148))  # arms
+p.rect(4, 14, 5, 17, (130, 134, 148)); p.rect(8, 14, 9, 17, (130, 134, 148))  # legs
+p.rect(2, 18, 11, 20, (104, 108, 120))                             # plinth
+p.hl(3, 10, 18, (140, 144, 158))
+add("armour", p)
+
+# ---- standing mirror (12x20) ----
+p = P(12, 20)
+p.rect(2, 1, 9, 14, WOOD_D)                                        # oval frame
+p.hl(3, 8, 1, WOOD_L)
+p.rect(3, 2, 8, 13, (140, 196, 224))                               # glass
+p.vl(4, 3, 11, (190, 230, 248))                                    # sheen
+p.px(6, 4, (230, 244, 252))
+p.rect(4, 15, 7, 17, WOOD_DD)                                      # stand
+p.rect(2, 18, 9, 19, WOOD_DD)
+add("mirror", p)
+
+# ---- harp (16x20) ----
+p = P(16, 20)
+p.vl(2, 2, 17, (216, 180, 80)); p.vl(3, 2, 17, (240, 205, 90))     # pillar
+p.hl(3, 13, 2, (240, 205, 90))                                     # neck
+p.rect(11, 3, 13, 17, (216, 180, 80))                              # soundboard
+for x in range(5, 11, 2):
+    p.vl(x, 4, 15, (236, 236, 240))                                # strings
+p.rect(1, 17, 14, 18, (190, 156, 64))                              # base
+add("harp", p)
+
+# ---- wall banner (16x8, band decor; _v = side walls) ----
+p = P(16, 8)
+p.rect(1, 0, 14, 6, (150, 52, 48))                                 # cloth
+p.hl(1, 14, 0, (216, 180, 80))                                     # rod
+p.rect(6, 2, 9, 4, (240, 205, 90))                                 # crest
+p.px(3, 7, (120, 40, 38)); p.px(7, 7, (120, 40, 38)); p.px(11, 7, (120, 40, 38))  # tails
+add("banner", p)
+pv = P(8, 16); pv.im = p.im.transpose(Image.ROTATE_270)
+add("banner_v", pv)
+
+# ---- tall fern (12x18) — leafier plant variant ----
+p = P(12, 18)
+p.rect(4, 12, 7, 16, (140, 90, 90))                                # glazed pot
+p.hl(4, 7, 12, (176, 120, 116))
+for (x, y) in ((5, 1), (3, 3), (8, 2), (1, 6), (10, 5), (5, 4), (2, 9), (9, 8), (6, 7), (4, 10), (7, 10)):
+    p.px(x, y, (58, 118, 48)); p.px(x + 1, y + 1, (96, 164, 74))
+add("fern", p)
+
+# ---- vase pedestal (10x18) ----
+p = P(10, 18)
+p.rect(3, 1, 6, 3, (96, 150, 170))                                 # vase mouth
+p.rect(2, 3, 7, 7, (120, 180, 200))                                # belly
+p.px(3, 4, (180, 220, 236))
+p.rect(3, 8, 6, 9, (104, 108, 120))                                # cap
+p.rect(3, 10, 6, 14, (140, 144, 158))                              # column
+p.rect(2, 15, 7, 16, (104, 108, 120))
+add("pedestal", p)
+
+# ---- stack of books (12x10) ----
+p = P(12, 10)
+p.rect(2, 6, 10, 8, (150, 52, 48)); p.hl(2, 10, 6, (196, 86, 76))
+p.rect(1, 3, 9, 5, (66, 106, 176)); p.hl(1, 9, 3, (110, 150, 210))
+p.rect(3, 0, 9, 2, (74, 138, 58)); p.hl(3, 9, 0, (110, 170, 90))
+add("bookstack", p)
+
 # ------------------------------------------------------------------- pack ----
 total = sum(p.w for (_, p, _) in props)
 sheet = Image.new("RGBA", (total, OUT_H), (0, 0, 0, 0))

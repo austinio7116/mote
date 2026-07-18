@@ -213,10 +213,12 @@ static const MoteImage *k_prop_sheets[2] = { &props_sheet_img, &props_auth_img }
 /* decor with no footprint: the rug is walked on, wall pieces sit in the band */
 static int prop_no_collide(int p) {
     return p == P_RUG || p == P_PAINTING || p == P_WINDOW ||
-           p == P_PAINTING_V || p == P_WINDOW_V || p == P_PLATE;
+           p == P_PAINTING_V || p == P_WINDOW_V || p == P_PLATE ||
+           p == P_BANNER || p == P_BANNER_V;
 }
 static int prop_wall_mounted(int p) {
-    return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V;
+    return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V ||
+           p == P_BANNER || p == P_BANNER_V;
 }
 static const MoteAutotile *k_walls[3] = { &walls_stone_at, &walls_red_at, &walls_dark_at };
 static const MoteAutotile *k_floors[9] = {
@@ -252,6 +254,11 @@ static int prop_of_char(char ch) {
     case 'y': return P_WINERACK;   case 'a': return P_SCALES;
     case 'H': return P_CHESSBOARD; case 'Z': return P_SLOTS;
     case 'Y': return P_STATUE;     case 'o': return P_PLATE;
+    case 'A': return P_ARMCHAIR;   case 'F': return P_FIREPLACE;
+    case 'D': return P_ARMOUR;     case 'I': return P_MIRROR;
+    case 'Q': return P_HARP;       case 'V': return P_BANNER;
+    case 'z': return P_FERN;       case 'E': return P_PEDESTAL;
+    case 'X': return P_BOOKSTACK;
     }
     return -1;
 }
@@ -475,9 +482,11 @@ static void parse_room_props(int gi) {
                     if (ty == 1)      py = 0;
                     else if (ty == ROOM_T - 2) py = ROOM_PX - 8;
                     else if (tx == 1) { px = 0;
-                        p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
+                        p = p == P_PAINTING ? P_PAINTING_V
+                          : p == P_BANNER ? P_BANNER_V : P_WINDOW_V; }
                     else if (tx == ROOM_T - 2) { px = ROOM_PX - 8;
-                        p = p == P_PAINTING ? P_PAINTING_V : P_WINDOW_V; }
+                        p = p == P_PAINTING ? P_PAINTING_V
+                          : p == P_BANNER ? P_BANNER_V : P_WINDOW_V; }
                     if (py == 0 || py == ROOM_PX - 8) {
                         if (px > 32 && px < 64) px = 32;
                         else if (px >= 64 && px < 80) px = 64 + 16;

@@ -90,7 +90,7 @@ enum {
 static const RoomDef k_rooms[R_COUNT] = {
     [R_ENTRANCE] = { "ENTRANCE", SH_X, 0, 0, FL_WOOD, WL_STONE, C565(96, 122, 176), 0, 0, 0, 0, 0,
         "#######"
-        "#pP.Op#"
+        "#DP.OD#"
         "#.....#"
         "#.R...#"
         "#.....#"
@@ -135,7 +135,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_FOYER] = { "FOYER", SH_T, 1, 1, FL_WOOD, WL_STONE, C565(146, 104, 66), 0, 0, 0, 0, 0,
         "#######"
-        "#kP.Pp#"
+        "#kP.PE#"
         "#.....#"
         "#.....#"
         "#.n..p#"
@@ -153,7 +153,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_LOUNGE] = { "LOUNGE", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(170, 62, 58), 0, 6, 0, 0, 0,
         "#######"
-        "#s..P.#"
+        "#s.P.F#"
         "#.....#"
         "#.R...#"
         "#t...M#"
@@ -210,7 +210,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#B.P.c#"
         "#.....#"
         "#.R...#"
-        "#i...p#"
+        "#i...I#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
@@ -219,7 +219,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#pO..T#"
         "#.....#"
         "#.....#"
-        "#U....#"
+        "#U...I#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
@@ -228,7 +228,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#L..l.#"
         "#.....#"
         "#.....#"
-        "#.n..i#"
+        "#.nX.i#"
         "#.....#"
         "#######", { IT_STAR2, IT_COIN, 0 } },
 
@@ -237,7 +237,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#d.Pl.#"
         "#.....#"
         "#.....#"
-        "#f...p#"
+        "#fA..p#"
         "#.....#"
         "#######", { IT_COIN, 0 } },
 
@@ -297,7 +297,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_HEARTH] = { "HEARTH", SH_STR, 1, 0, FL_WOOD, WL_RED, C565(226, 130, 54), 0, 8, 0, 0, 0,
         "#######"
-        "#s..P.#"
+        "#F..P.#"
         "#.....#"
         "#.RC..#"
         "#.....#"
@@ -327,7 +327,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#u...u#"
         "#.....#"
         "#.....#"
-        "#p...u#"
+        "#z...u#"
         "#.....#"
         "#######", { IT_GEM, IT_COIN, 0 } },
 
@@ -360,7 +360,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_CHAPEL] = { "CHAPEL", SH_STR, 1, 0, FL_BLUE, WL_STONE, C565(120, 110, 200), 0, 0, 0, 0, 0,
         "#######"
-        "#C...C#"
+        "#CV..C#"
         "#i.t.i#"
         "#.R...#"
         "#i...i#"
@@ -369,7 +369,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_ARMORY] = { "ARMORY", SH_R, 1, 1, FL_STONE, WL_DARK, C565(140, 140, 156), 0, 0, 1, 0, 0,
         "#######"
-        "#w.P.r#"
+        "#w.VDr#"
         "#.....#"
         "#.....#"
         "#x..q.#"
@@ -390,7 +390,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#u...u#"
         "#.....#"
         "#.....#"
-        "#u....#"
+        "#u...z#"
         "#.....#"
         "#######", { IT_FOOD, IT_GEM, 0 } },
 
@@ -405,7 +405,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_NOOK] = { "NOOK", SH_DEAD, 0, 0, FL_WOOD, WL_STONE, C565(150, 110, 70), 0, 0, 0, 0, 25,
         "#######"
-        "#h..N.#"
+        "#A..N.#"
         "#.....#"
         "#.R...#"
         "#i...p#"
@@ -549,7 +549,7 @@ static const RoomDef k_rooms[R_COUNT] = {
 
     [R_BANQUET] = { "BANQUET", SH_T, 1, 0, FL_RED, WL_STONE, C565(200, 110, 70), 0, 4, 0, 0, 0,
         "#######"
-        "#i.P.i#"
+        "#i.V.i#"
         "#ht..h#"
         "#.R...#"
         "#.....#"
@@ -579,7 +579,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#J...i#"
         "#.....#"
         "#.R...#"
-        "#n....#"
+        "#n...Q#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
@@ -588,7 +588,7 @@ static const RoomDef k_rooms[R_COUNT] = {
         "#P.P.P#"
         "#.....#"
         "#.N...#"
-        "#P...P#"
+        "#PE..P#"
         "#.....#"
         "#######", { IT_COIN, IT_STAR, 0 } },
 
