@@ -6,9 +6,6 @@ Writes the editable game sheets under assets/:
   hero.png    16x20 x8 : front0 front1 back0 back1 left0 left1 (right = HFLIP)
   items.png   12x12 x14: coin key gem food star bigstar masterkey padlock boot
                          potion compass spyglass pouch pencil (boot/compass/spyglass/pencil authored)
-  floors.png  32x32 macro-tiles (2x2 game tiles):
-              wood wood_dark stone_tile red_carpet blue_carpet grass
-              white_checker autumn grass_leafy
   props_sheet.png + prop boxes printed: bush chest campfire shelf_big shelf_small
                          book sack   (authored furniture comes from make_props.py)
 """
@@ -189,42 +186,6 @@ px(16, 10, 10, (110, 115, 130))
 
 IT.save(os.path.join(HERE, "items.png"))
 print("wrote items.png")
-
-# ----------------------------------------------------------------- floors ----
-# swatch grid: 6 cols x 2 rows at (22,462), cell ~176x178
-FLOOR_ORDER = [("wood", 0, 0), ("stone_tile", 1, 0), ("red_carpet", 2, 0),
-               ("blue_carpet", 3, 0), ("grass", 4, 0), ("white_checker", 5, 0),
-               ("wood_dark", 0, 1), ("grass_leafy", 4, 1), ("autumn", 5, 1)]
-def blend_seams(img):
-    """cross-fade a macro-tile's borders so it tiles without hard seams"""
-    a = np.asarray(img).astype(np.float32)
-    n = a.shape[0]
-    for i in range(2):
-        w = (i + 1) / 3.0
-        a[i, :] = a[i, :] * w + a[n - 1 - i, :] * (1 - w)
-        a[:, i] = a[:, i] * w + a[:, n - 1 - i] * (1 - w)
-    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
-
-# ONE art scale everywhere: a full ~176px swatch is one 16px game tile (11:1).
-# Each floor is its own RULE TILESET (Studio Tiles tab): sheet 16x32 = 2 variant
-# rows, the engine's nvar hash picks per tile so the grain doesn't grid up.
-TILESETS = os.path.join(GAME, "tilesets")
-os.makedirs(TILESETS, exist_ok=True)
-for i, (name, cx, cy) in enumerate(FLOOR_ORDER):
-    x = 22 + int(cx * 176.3)
-    y = 462 + cy * 179
-    sheet = Image.new("RGB", (16, 32), (0, 0, 0))
-    for v, (ox, oy) in enumerate(((6, 6), (14, 10))):
-        sw = im.crop((x + ox, y + oy, x + ox + 160, y + oy + 160)).resize((16, 16), Image.LANCZOS)
-        sheet.paste(snap565(blend_seams(sw)), (0, v * 16))
-    sheet.save(os.path.join(HERE, "floor_%s.png" % name))
-    with open(os.path.join(TILESETS, "floor_%s.tileset" % name), "w") as f:
-        f.write("sheet assets/floor_%s.png\n" % name)
-        f.write("tile 16\ntype 1\nedge 1\nnvar 2\ncols 1\nrows 2\n")
-        f.write("lut " + " ".join("0" for _ in range(256)) + "\n")
-        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
-        f.write("vweight 1 1 1 1 1 1 1 1\n")
-print("wrote floor_<name>.png + .tileset x", len(FLOOR_ORDER))
 
 # ------------------------------------------------------------- sheet props ---
 # lifted straight off the sheet at half-art scale, packed left to right

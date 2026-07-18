@@ -23,6 +23,91 @@ GAME = os.path.dirname(HERE)
 def snap(c):
     return ((c[0] >> 3) << 3, (c[1] >> 2) << 2, (c[2] >> 3) << 3, 255)
 
+# ------------------------------------------------------------------ floors ---
+# Authored 8x8 floor rule tilesets — SAME tile size as the walls. Patterns are
+# designed to tessellate at an 8px period (planks 4px courses with staggered
+# seams per variant row, 4px checks, speckled grass); the engine's nvar hash
+# mixes the variant rows so organic floors don't grid up.
+import random
+FLOORS = {
+    #        base          light          dark          seam         variants
+    "wood":          ((150,106,62), (178,132,82), (118,80,46), (92,60,34), 3),
+    "wood_dark":     ((104,74,44),  (128,94,58),  (82,56,34),  (60,40,26), 3),
+    "stone_tile":    ((108,108,118),(128,128,138),(88,88,98),  (70,70,80), 2),
+    "red_carpet":    ((142,48,44),  (162,62,54),  (116,36,36), (104,32,32),2),
+    "blue_carpet":   ((58,68,130),  (72,84,150),  (44,52,106), (40,46,96), 2),
+    "grass":         ((84,140,62),  (102,160,74), (64,112,50), (56,96,44), 3),
+    "white_checker": ((208,204,190),(224,220,208),(160,156,146),(140,136,128),1),
+    "grass_leafy":   ((74,128,56),  (96,150,66),  (120,150,60),(52,92,42), 3),
+    "autumn":        ((150,132,62), (180,158,80), (120,100,50),(100,84,42),3),
+}
+
+def floor_tile(name, pal, v):
+    base, li, dk, seam = pal
+    rng = random.Random(hash(name) & 0xffff | (v << 16))
+    t = Image.new("RGB", (8, 8))
+    for y in range(8):
+        for x in range(8):
+            t.putpixel((x, y), snap(base)[:3])
+    if name.startswith("wood"):
+        # long planks: thin seam lines between 4px boards, joints only on
+        # one variant row so boards run several tiles before breaking
+        for x in range(8):
+            t.putpixel((x, 3), snap(seam)[:3])
+            t.putpixel((x, 7), snap(seam)[:3])
+        gx = (v * 5 + 2) % 8
+        t.putpixel((gx, 1), snap(dk)[:3])            # grain fleck
+        t.putpixel(((gx + 4) % 8, 5), snap(li)[:3])
+        if v == 2:                                   # occasional plank end
+            end = 5
+            for yy in range(0, 3):
+                t.putpixel((end, yy), snap(seam)[:3])
+    elif name == "stone_tile":
+        for x in range(8):
+            t.putpixel((x, 7), snap(seam)[:3])
+            t.putpixel((x, 0), snap(li)[:3])
+        for y in range(8):
+            t.putpixel((7, y), snap(seam)[:3])
+        if v:
+            t.putpixel((3, 4), snap(dk)[:3]); t.putpixel((4, 3), snap(dk)[:3])
+    elif name.endswith("carpet"):
+        for y in range(8):
+            for x in range(8):
+                if (x + y) % 2 == 0:
+                    t.putpixel((x, y), snap(li if (x ^ y) & 2 else base)[:3])
+        for i in range(2 + v):
+            t.putpixel((rng.randrange(8), rng.randrange(8)), snap(dk)[:3])
+    elif name == "white_checker":
+        for y in range(8):
+            for x in range(8):
+                c = li if ((x // 4) + (y // 4)) % 2 == 0 else dk
+                t.putpixel((x, y), snap(c)[:3])
+    else:                                            # grasses + autumn
+        for i in range(7):
+            x, y = rng.randrange(8), rng.randrange(8)
+            t.putpixel((x, y), snap(li)[:3])
+        for i in range(4):
+            x, y = rng.randrange(8), rng.randrange(8)
+            t.putpixel((x, y), snap(dk)[:3])
+        if name in ("grass_leafy", "autumn"):
+            x, y = rng.randrange(8), rng.randrange(8)
+            t.putpixel((x, y), snap(seam)[:3])
+    return t
+
+for name, spec in FLOORS.items():
+    pal, nvar = spec[:4], spec[4]
+    sheet = Image.new("RGB", (8, 8 * nvar))
+    for v in range(nvar):
+        sheet.paste(floor_tile(name, pal, v), (0, v * 8))
+    sheet.save(os.path.join(HERE, "floor_%s.png" % name))
+    with open(os.path.join(GAME, "tilesets", "floor_%s.tileset" % name), "w") as f:
+        f.write("sheet assets/floor_%s.png\n" % name)
+        f.write("tile 8\ntype 1\nedge 1\nnvar %d\ncols 1\nrows %d\n" % (nvar, nvar))
+        f.write("lut " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
+        f.write("vweight 1 1 1 1 1 1 1 1\n")
+print("wrote 8px floor tilesets x", len(FLOORS))
+
 # ------------------------------------------------------------------- walls ---
 # A real 8x8 tilesheet: the wall band is 8px thick = ONE tile. EDGE16 rule
 # sheet (4x4 grid of 8x8 cells, cell index = N|E<<1|S<<2|W<<3 same-neighbour

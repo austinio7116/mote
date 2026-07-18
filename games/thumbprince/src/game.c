@@ -190,10 +190,7 @@ static const MoteAutotile *k_floors[9] = {
     &floor_grass_at, &floor_white_checker_at, &floor_wood_dark_at, &floor_grass_leafy_at,
     &floor_autumn_at,
 };
-static const uint8_t k_room_terrain[ROOM_T * ROOM_T] = {   /* all-floor map */
-    1,1,1,1,1,1,1, 1,1,1,1,1,1,1, 1,1,1,1,1,1,1, 1,1,1,1,1,1,1,
-    1,1,1,1,1,1,1, 1,1,1,1,1,1,1, 1,1,1,1,1,1,1,
-};
+static uint8_t k_room_terrain[14 * 14];        /* all-floor 8px map, filled once */
 static const uint8_t k_item_cell[10] = { 0, 0, 1, 2, 3, 4, 5, 5, 9, 12 };  /* IT_* -> items cell */
 
 /* template letter -> prop id ('c'/'x' chests are parsed separately) */
@@ -1248,7 +1245,9 @@ static void room_draw(void) {
      * (its nvar hash picks the variant row per tile) */
     static const MoteAutotile *floor_set[1];      /* engine reads this at raster time */
     floor_set[0] = k_floors[rd->floor];
-    mote->scene2d_set_autotiles(k_room_terrain, ROOM_T, ROOM_T, floor_set, 1);
+    if (!k_room_terrain[0])
+        memset(k_room_terrain, 1, sizeof k_room_terrain);
+    mote->scene2d_set_autotiles(k_room_terrain, 14, 14, floor_set, 1);
 
     /* walls: 8x8 rule tiles over the whole wall grid (ring + any carved
      * corridor interior), cell picked by the EDGE16 neighbour mask */
@@ -1296,7 +1295,7 @@ static void room_draw(void) {
         int y = g_props_cur[i].y;
         int layer = 3 + ((y + d->fh) >> 3);
         if (pid == P_RUG) layer = 2;
-        if (prop_wall_mounted(pid)) { y -= 13; layer = 2; }
+        if (prop_wall_mounted(pid)) { y -= 14; layer = 2; }
         add_spr(k_prop_sheets[d->sheet], g_props_cur[i].x, y,
                 d->fx, d->fy, d->fw, d->fh, layer, 0);
     }
@@ -1445,11 +1444,11 @@ static void room_icon(uint16_t *fb, int x, int y, int s, uint8_t room, uint8_t m
     /* floor tiled at true texture scale, from the floor rule tileset's sheet */
     const MoteImage *fl = k_floors[d->floor]->sheet;
     int inner = s - 4;
-    for (int oy = 0; oy < inner; oy += TILE)
-        for (int ox = 0; ox < inner; ox += TILE)
+    for (int oy = 0; oy < inner; oy += 8)
+        for (int ox = 0; ox < inner; ox += 8)
             mote->blit(fb, fl, x + 2 + ox, y + 2 + oy, 0, 0,
-                       inner - ox < TILE ? inner - ox : TILE,
-                       inner - oy < TILE ? inner - oy : TILE, 0, 0, 128);
+                       inner - ox < 8 ? inner - ox : 8,
+                       inner - oy < 8 ? inner - oy : 8, 0, 0, 128);
     /* the template's furniture + chests, scaled into the interior */
     float ps = (float)(s - 4) / (float)ROOM_PX;
     for (int ty = 0; ty < ROOM_T; ty++)
