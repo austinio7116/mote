@@ -161,7 +161,7 @@ static uint8_t  g_map_page;                 /* 0 estate map, 1 notebook, 2 satch
 /* the Classroom's pattern lessons */
 typedef struct { uint8_t shape, size, fill, count, rot; } IqCell;
 static IqCell  g_iq_seq[3], g_iq_opt[4];
-static uint8_t g_iq_answer, g_iq_round, g_iq_attempt, g_iq_sel;
+static uint8_t g_iq_answer, g_iq_round, g_iq_attempt, g_iq_sel, g_iq_failed;
 /* solved puzzles open a floor hatch; the prizes wait beside it */
 #define PRIZE_KEYCARD 100
 static uint8_t g_prize_item[PZ_N][3];
@@ -235,6 +235,14 @@ static int prop_no_collide(int p) {
            p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V ||
            p == P_BLACKBOARD || p == P_BLACKBOARD_V;
 }
+/* furniture with a usable top: evidence gets laid on these */
+static int prop_surface(int p) {
+    return p == P_TABLE || p == P_DESK || p == P_COUNTER || p == P_BED_BLUE ||
+           p == P_BED_RED || p == P_SHELF_BIG || p == P_SHELF_SMALL ||
+           p == P_WORKBENCH || p == P_MAP_TABLE || p == P_BENCH || p == P_CRATE ||
+           p == P_BARREL;
+}
+
 static int prop_wall_mounted(int p) {
     return p == P_PAINTING || p == P_WINDOW || p == P_PAINTING_V || p == P_WINDOW_V ||
            p == P_BANNER || p == P_BANNER_V || p == P_RACK || p == P_RACK_V ||
@@ -710,25 +718,46 @@ static int pt_in_props(float x, float y, float pad) {
     return 0;
 }
 
-/* deterministic per-day open-floor spots for the CURRENT room's pickups */
-static int loot_positions(int gi, uint8_t out[MAX_LOOT][2]) {
+/* deterministic per-day spots for the CURRENT room's pickups: evidence is
+ * laid out on furniture tops (collect with A); everything else on open
+ * floor (walked over). furn gets a bit per slot that sits on furniture. */
+static int loot_positions(int gi, uint8_t out[MAX_LOOT][2], uint8_t *furn) {
     const RoomDef *d = &k_rooms[g_grid[gi].room];
     int want = loot_count(d);
     uint32_t r = hash32(g_day_seed ^ (uint32_t)(gi * 2654435761u));
     int placed = 0;
-    for (int tries = 0; tries < 240 && placed < want; tries++) {
-        r = hash32(r + tries);
-        float x = 24 + (float)(r % 64u), y = 24 + (float)((r >> 12) % 64u);
-        if (pt_in_props(x, y, 7)) continue;
-        int ok = 1;
-        for (int i = 0; i < placed; i++) {
-            float dx = x - out[i][0], dy = y - out[i][1];
-            if (dx * dx + dy * dy < 16 * 16) ok = 0;
+    uint8_t fmask = 0;
+    int surf[MAX_ROOM_PROPS], nsurf = 0, si = 0;
+    for (int i = 0; i < g_nprops && nsurf < MAX_ROOM_PROPS; i++)
+        if (prop_surface(g_props_cur[i].prop)) surf[nsurf++] = i;
+    for (int slot = 0; slot < want; slot++) {
+        uint8_t it = d->loot[slot];
+        if (nsurf && (it == IT_STAR || it == IT_STAR2 || it == IT_STAR3)) {
+            const RoomProp *pr = &g_props_cur[surf[si % nsurf]];
+            const PropDef *pd = &k_props[pr->prop];
+            si++;
+            out[placed][0] = (uint8_t)(pr->x + pd->fw / 2);
+            out[placed][1] = (uint8_t)(pr->y + pd->fh - 10);   /* the front of the top */
+            fmask |= (uint8_t)(1 << placed);
+            placed++;
+            continue;
         }
-        if (!ok) continue;
-        out[placed][0] = (uint8_t)x; out[placed][1] = (uint8_t)y;
-        placed++;
+        for (int tries = 0; tries < 240; tries++) {
+            r = hash32(r + (uint32_t)tries);
+            float x = 24 + (float)(r % 64u), y = 24 + (float)((r >> 12) % 64u);
+            if (pt_in_props(x, y, 7)) continue;
+            int ok = 1;
+            for (int i = 0; i < placed; i++) {
+                float dx = x - out[i][0], dy = y - out[i][1];
+                if (dx * dx + dy * dy < 16 * 16) ok = 0;
+            }
+            if (!ok) continue;
+            out[placed][0] = (uint8_t)x; out[placed][1] = (uint8_t)y;
+            placed++;
+            break;
+        }
     }
+    if (furn) *furn = fmask;
     return placed;
 }
 
@@ -1436,7 +1465,7 @@ static void pz_prizes(int pz, uint8_t out[3]) {
     case PZ_CENSUS:  out[0] = IT_POUCH; break;
     case PZ_CHESS:   out[0] = IT_GEM; break;
     case PZ_SNOOKER: out[0] = IT_POUCH; out[1] = IT_COIN; out[2] = IT_COIN; break;
-    case PZ_IQ:      out[0] = IT_GEM; out[1] = IT_POUCH; break;
+    case PZ_IQ:      out[0] = IT_GEM; out[1] = IT_KEY; out[2] = IT_POUCH; break;
     default: break;
     }
 }
@@ -1548,28 +1577,33 @@ static void read_note(void) {
 }
 
 /* ------------------------------------------------------------------ pickups -- */
+static void loot_collect(uint8_t it) {
+    switch (it) {
+    case IT_COIN: g_gold++; score_add(SC_LOOT, g_cond == CD_MISER ? 10 : 5); mote->audio_play_sfx(&coin_sfx, 0.8f); break;
+    case IT_KEY:  g_keys++; mote->audio_play_sfx(&key_sfx, 0.9f); toast("A KEY!"); break;
+    case IT_GEM:  g_gems++; mote->audio_play_sfx(&gem_sfx, 0.9f); break;
+    case IT_FOOD: g_steps += 6; mote->audio_play_sfx(&food_sfx, 0.8f); toast("+6 STEPS"); break;
+    case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
+    case IT_POUCH: g_gold += 3; score_add(SC_LOOT, 5); mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
+    case IT_STAR: score_add(SC_LOOT, 25); mote->audio_play_sfx(&star_sfx, 0.9f); toast("EVIDENCE +25"); break;
+    case IT_STAR2: score_add(SC_LOOT, 75); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A PHOTOGRAPH +75"); break;
+    case IT_STAR3: score_add(SC_LOOT, 100); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A DOSSIER +100"); break;
+    }
+}
+
 static void pickups_tick(void) {
     Cell *cl = &g_grid[g_cur];
     const RoomDef *d = &k_rooms[cl->room];
-    uint8_t pos[MAX_LOOT][2];
-    int n = loot_positions(g_cur, pos);
+    uint8_t pos[MAX_LOOT][2], furn = 0;
+    int n = loot_positions(g_cur, pos, &furn);
     int all = 1;
     for (int i = 0; i < n; i++) {
         if (cl->looted & (1 << i)) continue;
+        if (furn & (1 << i)) { all = 0; continue; }    /* on furniture: A collects */
         float ix = pos[i][0], iy = pos[i][1];
         if (g_px - 5 < ix + 6 && g_px + 5 > ix - 6 && g_py - 5 < iy + 6 && g_py + 5 > iy - 6) {
             cl->looted |= (uint8_t)(1 << i);
-            switch (d->loot[i]) {
-            case IT_COIN: g_gold++; score_add(SC_LOOT, g_cond == CD_MISER ? 10 : 5); mote->audio_play_sfx(&coin_sfx, 0.8f); break;
-            case IT_KEY:  g_keys++; mote->audio_play_sfx(&key_sfx, 0.9f); toast("A KEY!"); break;
-            case IT_GEM:  g_gems++; mote->audio_play_sfx(&gem_sfx, 0.9f); break;
-            case IT_FOOD: g_steps += 6; mote->audio_play_sfx(&food_sfx, 0.8f); toast("+6 STEPS"); break;
-            case IT_POTION: g_steps += 10; mote->audio_play_sfx(&food_sfx, 0.9f); toast("TONIC! +10 STEPS"); break;
-            case IT_POUCH: g_gold += 3; score_add(SC_LOOT, 5); mote->audio_play_sfx(&coin_sfx, 0.9f); toast("POUCH: +3 GOLD"); break;
-            case IT_STAR: score_add(SC_LOOT, 25); mote->audio_play_sfx(&star_sfx, 0.9f); toast("EVIDENCE +25"); break;
-            case IT_STAR2: score_add(SC_LOOT, 75); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A PHOTOGRAPH +75"); break;
-            case IT_STAR3: score_add(SC_LOOT, 100); mote->audio_play_sfx(&star_sfx, 1.0f); toast("A DOSSIER +100"); break;
-            }
+            loot_collect(d->loot[i]);
         }
         if (!(cl->looted & (1 << i))) all = 0;
     }
@@ -1719,7 +1753,7 @@ static void day_start(void) {
     memset(g_secret, 0, sizeof g_secret);
     memset(g_prize_item, 0, sizeof g_prize_item);
     memset(g_prize_left, 0, sizeof g_prize_left);
-    g_hatch_t = 99; g_iq_attempt = 0; g_blind_draft = 0;
+    g_hatch_t = 99; g_iq_attempt = 0; g_iq_failed = 0; g_blind_draft = 0;
     g_map_page = 0; g_slot_pulls = 0; g_slot_spinning = 0; g_slot_done = 0;
     g_day_seed = mote_rand();
     puzzles_deal();
@@ -1888,6 +1922,7 @@ static int puzzle_interact(void) {
     };
     if (prop_near_nth(k_anchor[pz], 24) < 0) return 0;
     if (solved) { toast("NOTHING MORE HERE"); return 1; }
+    if (pz == PZ_IQ && g_iq_failed) { toast("CLASS IS DISMISSED"); return 1; }
     if (pz == PZ_CENSUS && !census_pick()) {
         toast("THE LEDGER NEEDS MORE ROOMS");
         return 1;
@@ -1988,6 +2023,20 @@ static void player_tick(float dt) {
                 }
             }
             used = 1;
+        }
+        /* evidence laid on furniture: step close and take it */
+        if (!used) {
+            uint8_t pos[MAX_LOOT][2], furn = 0;
+            int n = loot_positions(g_cur, pos, &furn);
+            Cell *clA = &g_grid[g_cur];
+            for (int i = 0; i < n && !used; i++) {
+                if (!(furn & (1 << i)) || (clA->looted & (1 << i))) continue;
+                float dx2 = g_px - pos[i][0], dy2 = g_py - pos[i][1];
+                if (dx2 * dx2 + dy2 * dy2 > 26 * 26) continue;
+                clA->looted |= (uint8_t)(1 << i);
+                loot_collect(k_rooms[clA->room].loot[i]);
+                used = 1;
+            }
         }
         /* seal levers */
         for (int k = 0; !used && k < 3; k++) {
@@ -2100,13 +2149,25 @@ static void room_draw(void) {
             add_spr(&items_img, g_chests[i].x + 4, g_chests[i].y + 5, 7 * 12, 0, 12, 12, layer, 0);
     }
 
-    /* pickups */
-    uint8_t pos[MAX_LOOT][2];
-    int n = loot_positions(g_cur, pos);
-    for (int i = 0; i < n; i++)
-        if (!(cl->looted & (1 << i)))
-            add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
-                    k_item_cell[rd->loot[i]] * 12, 0, 12, 12, 3 + ((pos[i][1] + 6) >> 3), 0);
+    /* pickups (evidence rests on furniture, above the prop's layer) */
+    uint8_t pos[MAX_LOOT][2], furn = 0;
+    int n = loot_positions(g_cur, pos, &furn);
+    for (int i = 0; i < n; i++) {
+        if (cl->looted & (1 << i)) continue;
+        int layer = 3 + ((pos[i][1] + 6) >> 3);
+        if (furn & (1 << i))
+            for (int k = 0; k < g_nprops; k++) {
+                const PropDef *pd = &k_props[g_props_cur[k].prop];
+                if (!prop_surface(g_props_cur[k].prop)) continue;
+                if (pos[i][0] >= g_props_cur[k].x && pos[i][0] < g_props_cur[k].x + pd->fw &&
+                    pos[i][1] >= g_props_cur[k].y && pos[i][1] < g_props_cur[k].y + pd->fh) {
+                    layer = 3 + ((g_props_cur[k].y + pd->fh) >> 3) + 1;
+                    break;
+                }
+            }
+        add_spr(&items_img, pos[i][0] - 6, pos[i][1] - 6,
+                k_item_cell[rd->loot[i]] * 12, 0, 12, 12, layer, 0);
+    }
 
     /* the opened prize hatch: pit, sliding lid, and what still waits inside */
     {
@@ -2162,14 +2223,11 @@ static void dim(uint16_t *fb) {
     for (int i = 0; i < 128 * 128; i++) fb[i] = (uint16_t)((fb[i] >> 1) & 0x7BEF);
 }
 
-/* darken a horizontal band to a quarter — translucent backdrop for text */
+/* halve a horizontal band's brightness — translucent backdrop for text */
 static void dim_band(uint16_t *fb, int y0, int y1) {
     for (int y = y0; y < y1; y++)
-        for (int x = 0; x < 128; x++) {
-            uint16_t p = fb[y * 128 + x];
-            p = (uint16_t)((p >> 1) & 0x7BEF);
-            fb[y * 128 + x] = (uint16_t)((p >> 1) & 0x7BEF);
-        }
+        for (int x = 0; x < 128; x++)
+            fb[y * 128 + x] = (uint16_t)((fb[y * 128 + x] >> 1) & 0x7BEF);
 }
 
 /* chunky pixel arrowhead, tip at (x,y), pointing DIR_N/E/S/W */
@@ -2654,10 +2712,10 @@ static void puzzle_tick(void) {
                     iq_gen();
                 }
             } else {
-                g_iq_attempt++;
-                g_iq_round = 0;
-                iq_gen();
-                pz_penalty();
+                g_iq_failed = 1;               /* one miss ends the test for the day */
+                toast("WRONG - CLASS DISMISSED");
+                mote->audio_play_sfx(&locked_sfx, 0.9f);
+                g_state = GS_PLAY;
             }
         }
         return;
@@ -3400,4 +3458,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("ThumbPrince", "austinio7116");
-MOTE_GAME_VERSION("1.2.1");
+MOTE_GAME_VERSION("1.3.0");
