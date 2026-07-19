@@ -333,6 +333,7 @@ static Door doors[2];
 
 static float cam_x, cam_y;
 static uint8_t zoom_out;          /* MENU toggles the half-res wide view */
+static uint8_t map_view;          /* LB toggles the floor-overview map (pauses) */
 
 /* global pickup spin animations (all pickups of a kind animate in sync) */
 static MoteAnimPlayer pk_ap[3];
@@ -1710,6 +1711,11 @@ static void g_update(float dt) {
         return;
 
     case G_PLAY:
+        if (mote_just_pressed(in, MOTE_BTN_LB)) map_view = !map_view;
+        if (map_view) {                    /* paused: world stays, logic halts */
+            draw_world();
+            return;
+        }
         if (mote_just_pressed(in, MOTE_BTN_MENU)) {
             /* zoom pivots on the king: he keeps his exact screen position at
              * the flip, then the camera lerp eases to the standard framing */
@@ -1791,6 +1797,41 @@ static void g_overlay(uint16_t *fb) {
         snprintf(t, sizeof t, "DIAMONDS %d", diamonds);
         mote->text_font(fb, f, t, 32, 70, MOTE_RGB565(150, 200, 255));
         mote->text_font(fb, f, "A: TRY AGAIN", 30, 96, MOTE_RGB565(255, 230, 150));
+        return;
+    }
+    if (map_view && gstate == G_PLAY) {
+        /* floor overview: 2px per tile, live positions (LB closes) */
+        mote_dim_box(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, 6);
+        int ox = (MOTE_FB_W - COLS * 2) / 2, oy = (MOTE_FB_H - ROWS * 2) / 2;
+        mote->draw_rect(fb, ox - 2, oy - 2, COLS * 2 + 4, ROWS * 2 + 4,
+                        MOTE_RGB565(20, 16, 30), 1, 0, MOTE_FB_H);
+        for (int r = 0; r < ROWS; r++)
+            for (int c = 0; c < COLS; c++) {
+                int m = map[r * COLS + c];
+                uint16_t col;
+                if (m & B_SOL)      col = MOTE_RGB565(196, 110, 90);
+                else if (m & B_PLT) col = MOTE_RGB565(226, 190, 130);
+                else if (m & B_BG)  col = MOTE_RGB565(120, 90, 96);
+                else continue;
+                mote->draw_rect(fb, ox + c * 2, oy + r * 2, 2, 2, col, 1, 0, MOTE_FB_H);
+            }
+        for (int i = 0; i < MAXPK; i++)
+            if (pk[i].on)
+                mote->draw_rect(fb, ox + (int)pk[i].x / TILE * 2, oy + (int)pk[i].y / TILE * 2,
+                                2, 2, pk[i].kind == PK_HBIG ? MOTE_RGB565(255, 90, 110)
+                                                            : MOTE_RGB565(90, 190, 255), 1, 0, MOTE_FB_H);
+        for (int i = 0; i < MAXE; i++)
+            if (en[i].on && en[i].state != ES_DEAD && en[i].state != ES_HIDDEN)
+                mote->draw_rect(fb, ox + (int)en[i].b.x / TILE * 2, oy + (int)en[i].b.y / TILE * 2 - 2,
+                                2, 2, en[i].type == E_BOSS ? MOTE_RGB565(255, 80, 255)
+                                                           : MOTE_RGB565(120, 230, 90), 1, 0, MOTE_FB_H);
+        mote->draw_rect(fb, ox + (int)doors[1].x / TILE * 2 - 1, oy + (int)doors[1].y / TILE * 2 - 3,
+                        4, 4, MOTE_RGB565(255, 220, 80), 0, 0, MOTE_FB_H);
+        if (((int)(g_t * 3) & 1) == 0)          /* the king blinks */
+            mote->draw_rect(fb, ox + (int)kb.x / TILE * 2 - 1, oy + (int)kb.y / TILE * 2 - 3,
+                            4, 4, MOTE_RGB565(255, 255, 255), 1, 0, MOTE_FB_H);
+        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), "LB: CLOSE MAP",
+                        28, MOTE_FB_H - 14, MOTE_RGB565(220, 210, 230));
         return;
     }
     hud_draw(fb);
