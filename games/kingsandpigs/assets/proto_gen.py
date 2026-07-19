@@ -147,7 +147,8 @@ def carve_opening(cv, pc, port):
     if kind == 'T':
         for c in range(a, b + 1): cv[y][x + c] = '.'
     elif kind == 'B':
-        for c in range(a, b + 1): cv[y + h - 1][x + c] = '.'
+        # leave a THIN PLANK across the drop at floor level (walk / drop through)
+        for c in range(a, b + 1): cv[y + h - 1][x + c] = '='
     elif kind == 'L':
         for r in range(a, b + 1): cv[y + r][x] = '.'
     elif kind == 'R':

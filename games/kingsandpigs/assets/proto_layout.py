@@ -379,7 +379,7 @@ def render(cv):
     spr = {
         "window": RR.sprite("assets/window.png"),
         "wray": Image.open(os.path.join(GAME, "assets/wray.png")).convert("RGBA"),
-        "banner": RR.sprite("assets/banner1.png"),
+        "banner": (lambda b: b.resize((b.size[0], 60)))(RR.sprite("assets/banner1.png")),
         "door": RR.sprite("anims/door.png", (0, 0, 48, 58)),
         "gem": RR.sprite("anims/pickups.png", (0, 0, 24, 14)),
         "heart": RR.sprite("anims/pickups.png", (48, 14, 72, 28)),
@@ -428,7 +428,7 @@ def render(cv):
                     base[oy:oy2, ox:ox2, :3] = np.clip(reg+add, 0, 255).astype('uint8')
                     out.paste(Image.fromarray(base))
             elif ch == 'F':
-                out.alpha_composite(spr["banner"], (X+1, Y+2))
+                out.alpha_composite(spr["banner"], (X+1, Y+1))
             elif ch in 'exdDhBbEC':
                 fr = feet(r, c); fy = (fr-y0)*TS; cx = X + TS//2
                 def g(im, cxx=cx, fyy=fy): out.alpha_composite(im, (cxx-im.size[0]//2, fyy-im.size[1]))

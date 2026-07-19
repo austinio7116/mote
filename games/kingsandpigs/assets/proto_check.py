@@ -83,7 +83,7 @@ def art_clear(cv, errs, x0=0, y0=0):
         for c in range(W):
             ch = cv[r][c]
             if ch == 'W': claim('W', [(r, c), (r, c+1), (r+1, c), (r+1, c+1)], r, c)
-            elif ch == 'F': claim('F', [(r, c), (r+1, c), (r+2, c)], r, c)
+            elif ch == 'F': claim('F', [(r, c), (r+1, c)], r, c)   # banner: 2 tall (top+bottom)
             elif ch in 'ex':
                 fr, _ = rest(cv, r, c)
                 claim(ch, [(fr, c-1), (fr, c), (fr, c+1), (fr-1, c-1), (fr-1, c), (fr-1, c+1)], r, c)
@@ -110,7 +110,7 @@ def _port_targets(cv, port):
     # standing cells (the solid you stand on) associated with a port
     h, w = len(cv), len(cv[0]); kind, a, b = port
     if kind == 'T': return [solid_below(cv, 0, c) for c in range(a, b+1)]
-    if kind == 'B': return [(h-1, c) for c in (a-1, b+1) if 0 <= c < w]
+    if kind == 'B': return [(h-1, c) for c in range(a, b+1)]   # stand on the drop plank
     if kind == 'L': return [(h-1, 1)]
     if kind == 'R': return [(h-1, w-2)]
     return []
@@ -131,7 +131,8 @@ def check_piece(rows):
         if b - a != 1: errs.append(f"port {k} not 2 wide/tall")
     def sub(s, to): return [list(r.replace('^',to).replace('v',to).replace('<',to).replace('>',to)) for r in s]
     art = sub(rows, '#')     # ports are wall for art clearance (no decor in a doorway)
-    grid = sub(rows, '.')    # ports are OPEN sky/doorway for movement
+    # movement grid: ceiling/door holes open; floor drop is a walkable thin plank
+    grid = [list(r.replace('^','.').replace('<','.').replace('>','.').replace('v','=')) for r in rows]
     art_clear(art, errs)
     # floor variety: the bottom interior row must not be one flat solid line
     floor_profile = [max((rr for rr in range(h) if art[rr][c] in SOLID or art[rr][c] in PLANK),
@@ -143,10 +144,10 @@ def check_piece(rows):
     # jump back up through it.
     for (k, a, b) in ps:
         if k == 'T':
-            for c in range(a, b + 1):
-                if solid_below(grid, 0, c)[0] > 2:
-                    errs.append(f"top hole @{c} not climbable (need a platform within 2 of the ceiling)")
-                    break
+            # need a foothold within 2 of the ceiling under AT LEAST ONE hole
+            # column, so you can stand there and jump up through the 2-wide hole
+            if all(solid_below(grid, 0, c)[0] > 2 for c in range(a, b + 1)):
+                errs.append(f"top hole @{a} not climbable (need a foothold within 2 of the ceiling)")
     # all ports are both entry and exit: from each, reach all others + all loot
     mk = markers(grid)
     for p in ps:

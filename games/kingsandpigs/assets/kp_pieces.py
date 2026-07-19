@@ -1,43 +1,73 @@
 #!/usr/bin/env python3
-"""Hand-authored room-piece library (starter set) for the Kings & Pigs floor
-generator. Every piece passes assets/proto_check.check_piece: two-way
-reachability (you can climb back up), art clearance, floor shape variety.
-
-Ports on edges:  ^ top hole   v bottom hole   < left door   > right door
-Interiors shaped with SOLID BRICK (# stairs/pillars/blocks) + planks (=-S) +
-markers (d D h b B E C W F e x). Doors are 2 tall at floor level; every top
-hole has a climb-ladder up to it.
-
-Run `python3 assets/kp_pieces.py` to validate the whole library.
-"""
+"""Kings & Pigs room-piece library (carve-authored, all pass proto_check)."""
 PIECES = {
- "start":       {"kind": "start", "rows": [
-    "#########","#.......#","#..--...#","#.d...d.#","#.e..##.#","####vv###"]},
- "exit":        {"kind": "exit", "rows": [
-    "####^^####","#...--...#","#..d.....#","#...##...#","#.##.E.x.#","##########"]},
- "spine_climb": {"kind": "side", "rows": [
-    "####^^####","#...--...#","#..d.....#","<....##..>","<.E..#..d>","####vv####"]},
- "cross_pit":   {"kind": "side", "rows": [
-    "####^^####","#....-...#","#..==....#","<...d..E.>","<.#....#.>","#####vv###"]},
- "twin_step":   {"kind": "side", "rows": [
-    "###^^#####","#..--....#","#.....d..#","<..#..##.>","<.dE.#..E>","####vv####"]},
- "ledge_hall":  {"kind": "side", "rows": [
-    "####^^####","#...--...#","#.d......#","<...##..d>","<.E..#..E>","#####vv###"]},
- "pillar_pit":  {"kind": "side", "rows": [
-    "####^^####","#...--...#","#......d.#","<..d.##..>","<.#E.#..E>","####vv####"]},
- "vault":       {"kind": "side", "rows": [
-    "########","#..dd..#","#.S..S.#","<...h..#","<.B..#.#","########"]},
- "vault_hi":    {"kind": "side", "rows": [
-    "#########","#.d...d.#","<..SS...#","<...h.##.","#..B..#d.","#########"]},
+    "start": {"kind":"start","rows":[
+        "###########",
+        "#.........#",
+        "#....#=#..#",
+        "#....#.#.=>",
+        "#.e.#...dE>",
+        "#####vv####"]},
+    "exit": {"kind":"exit","rows":[
+        "####^^####",
+        "#....=...#",
+        "#..d.....#",
+        "<...##.d.#",
+        "<.E.##.x.#",
+        "##########"]},
+    "pillar_hall": {"kind":"side","rows":[
+        "##^^#######",
+        "#....d.W..#",
+        "#.=.F##...#",
+        "#....##.d.#",
+        "<..=.##--.>",
+        "<..B##..E.>",
+        "######vv###"]},
+    "staircase": {"kind":"side","rows":[
+        "######^^##",
+        "#....F...#",
+        "#...d.=..#",
+        "#.d.#....#",
+        "<..##..=.>",
+        "<.###..hE>",
+        "######vv##"]},
+    "twin_pockets": {"kind":"side","rows":[
+        "########^^##",
+        "#....##....#",
+        "#.d-.##.=..#",
+        "<.......Wd.>",
+        "<.#d.....E.>",
+        "##vv########"]},
+    "arch_hall": {"kind":"side","rows":[
+        "#####^^#####",
+        "#.W......F.#",
+        "#....=.....#",
+        "#....dd...E#",
+        "<..#=..=#..>",
+        "<.B#....#..>",
+        "#####vv#####"]},
+    "alcove_vault": {"kind":"side","rows":[
+        "##########",
+        "#.dd.....#",
+        "#.===.hD.#",
+        "<....---.#",
+        "<.B..##.d#",
+        "##########"]},
+    "shaft_ledges": {"kind":"side","rows":[
+        "###^^####",
+        "#....W..#",
+        "#d.=....#",
+        "###..--E#",
+        "#...=.==#",
+        "#.......>",
+        "#.B..#d.>",
+        "#####vv##"]},
 }
 
-if __name__ == "__main__":
-    import os, sys
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if __name__=="__main__":
+    import sys,os; sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
     import proto_check as C
-    bad = 0
-    for n, d in PIECES.items():
-        e = C.check_piece(d["rows"])
-        print(f"[{n}]", "OK" if not e else f"{len(e)}: " + "; ".join(e[:3]))
-        bad += bool(e)
-    print("ALL OK" if not bad else f"{bad} pieces bad")
+    bad=0
+    for n,d in PIECES.items():
+        e=C.check_piece(d["rows"]); print(n,"OK" if not e else e[:2]); bad+=bool(e)
+    print("ALL OK" if not bad else f"{bad} bad")
