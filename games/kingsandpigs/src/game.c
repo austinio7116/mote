@@ -1702,6 +1702,7 @@ static void king_tick(float dt) {
 }
 
 static float cam_peek;      /* smooth UP/DOWN look-around offset */
+static float cam_lead;      /* falling look-ahead toward the landing zone */
 
 static void camera_tick(float dt) {
     /* hold UP/DOWN to peek — eases in and out, a big help with the tight FOV */
@@ -1714,9 +1715,20 @@ static void camera_tick(float dt) {
     float kp = 1.0f - expf(-3.5f * dt);
     cam_peek += (want - cam_peek) * kp;
 
+    /* while falling, lead the camera toward where the king is heading so the
+     * landing zone is visible before he gets there — predict, don't trail.
+     * Scales with fall speed; capped so he never leaves the top of screen. */
+    float lead_want = 0;
+    if (!kb.on_ground && kb.vy > 0) {
+        lead_want = kb.vy * 0.28f;
+        if (lead_want > 68.0f) lead_want = 68.0f;
+    }
+    float kl = 1.0f - expf((lead_want > cam_lead ? -9.0f : -5.0f) * dt);
+    cam_lead += (lead_want - cam_lead) * kl;
+
     int z = zoom_out ? 2 : 1;               /* MENU wide view: everything halves */
     float tx = kb.x + k_facing * 44 * z - MOTE_FB_W * z / 2;
-    float ty = kb.y - 96 * z + cam_peek * z; /* the king rides the lower third */
+    float ty = kb.y - 96 * z + (cam_peek + cam_lead) * z; /* king rides the lower third */
     tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W * z);
     ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H * z);
     float k = 1.0f - expf(-6.0f * dt);
