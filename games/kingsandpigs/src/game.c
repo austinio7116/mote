@@ -1733,14 +1733,18 @@ static float cam_peek;      /* smooth UP/DOWN look-around offset */
 static float cam_lead;      /* falling look-ahead toward the landing zone */
 
 static void camera_tick(float dt) {
-    /* hold UP/DOWN to peek — eases in and out, a big help with the tight FOV */
+    /* hold UP/DOWN to peek — eases in and out, a big help with the tight FOV.
+     * Zoomed in the view is tightest, so the peek reaches further and moves
+     * faster there; the wide view keeps the gentler sweep. */
     const MoteInput *in = mote->input();
+    float reach = zoom_out ? 48.0f : 72.0f;
+    float rate  = zoom_out ? 3.5f : 6.0f;
     float want = 0;
     if (gstate == G_PLAY && k_state != KS_DEAD) {
-        if (mote_pressed(in, MOTE_BTN_UP))        want = -48.0f;
-        else if (mote_pressed(in, MOTE_BTN_DOWN)) want = 48.0f;
+        if (mote_pressed(in, MOTE_BTN_UP))        want = -reach;
+        else if (mote_pressed(in, MOTE_BTN_DOWN)) want = reach;
     }
-    float kp = 1.0f - expf(-3.5f * dt);
+    float kp = 1.0f - expf(-rate * dt);
     cam_peek += (want - cam_peek) * kp;
 
     /* while falling, lead the camera toward where the king is heading so the
