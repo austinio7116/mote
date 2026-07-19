@@ -1888,5 +1888,5 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
-MOTE_GAME_META("Kings and Pigs", "pixelfrog+claude");
+MOTE_GAME_META("Kings and Pigs", "austinio7116");
 MOTE_GAME_VERSION("1.0.0");
