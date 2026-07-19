@@ -49,14 +49,27 @@ def bbox(img):
         return (0, 0, 1, 1)
     return (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
 
+def decimate2(img):
+    """Always-halving 2x decimation (the zoomed-out view's sprite path)."""
+    a = np.array(img)
+    return Image.fromarray(a[::2, ::2])
+
 def decimate(img):
     """Plain 2x decimation — tested against blended/palette-snap variants;
     keeps the art brightest and most readable at 128x128. Used for sprites."""
     if NATIVE:
         return img.copy()
-    a = np.array(img)
-    return Image.fromarray(a[::2, ::2])
+    return decimate2(img)
 
+
+def decimate_tile2(img):
+    """Always-halving seam-preserving downscale (zoomed-out tiles)."""
+    saved = globals()["NATIVE"]
+    globals()["NATIVE"] = False
+    try:
+        return decimate_tile(img)
+    finally:
+        globals()["NATIVE"] = saved
 
 def decimate_tile(img):
     """Seam-preserving 2x decimation for terrain/deco tiles: plain decimation
@@ -224,17 +237,22 @@ def pack_char(name, subdir, fw, flip, anchor_mode, clips):
     small = decimate(grid) if sc == 2 else grid
     small.save(os.path.join(ANIM, name + ".png"))
 
-    # .anims
+    def write_anims(nm, cw_, ch_):
+        lines = [f"sheet anims/{nm}.png", f"tile {cw_} {ch_}", f"clips {len(clips)}"]
+        fi = 0
+        for ci, (cname, fname, loop) in enumerate(clips):
+            n = sum(1 for c, _ in allfr if c == ci)
+            lines.append(f"clip {cname} {loop} {FPS} 0 0 {n}")
+            for k in range(n):
+                lines.append(f"f {fi} 0 -")
+                fi += 1
+        open(os.path.join(ANIM, nm + ".anims"), "w").write("\n".join(lines) + "\n")
+
     cw, ch = cw_nat // sc, ch_nat // sc
-    lines = [f"sheet anims/{name}.png", f"tile {cw} {ch}", f"clips {len(clips)}"]
-    fi = 0
-    for ci, (cname, fname, loop) in enumerate(clips):
-        n = sum(1 for c, _ in allfr if c == ci)
-        lines.append(f"clip {cname} {loop} {FPS} 0 0 {n}")
-        for k in range(n):
-            lines.append(f"f {fi} 0 -")
-            fi += 1
-    open(os.path.join(ANIM, name + ".anims"), "w").write("\n".join(lines) + "\n")
+    write_anims(name, cw, ch)
+    # half-res twin for the zoomed-out view (same cells, everything halved)
+    decimate2(small).save(os.path.join(ANIM, name + "h.png"))
+    write_anims(name + "h", cw // 2, ch // 2)
 
     # meta: cell size, anchor (cell-space), body box of the ref frame (downscaled)
     bw, bh = (x1 - x0) // sc, (y1 - y0) // sc
@@ -310,6 +328,7 @@ def build_ui():
         p = decimate(load(f"08-Box/Box Pieces {i + 1}.png"))
         ps.paste(p, (i * 5, 0), p)
     save_img(ps, "pieces")
+    save_img(decimate2(ps), "piecesh")
 
     # cannonball: tight crop, downscaled
     b = load("10-Cannon/Cannon Ball.png")
@@ -317,6 +336,7 @@ def build_ui():
     x0 -= x0 & 1; y0 -= y0 & 1
     ball = decimate(b.crop((x0, y0, x1 + (x1 & 1), y1 + (y1 & 1))))
     save_img(ball, "ball")
+    save_img(decimate2(ball), "ballh")
     META.append(f"#define KP_BALL_W {ball.size[0]}")
     META.append(f"#define KP_BALL_H {ball.size[1]}")
 
@@ -325,9 +345,12 @@ def build_deco():
     def cut(px0, py0, px1, py1):
         px0 -= px0 & 1; py0 -= py0 & 1
         return decimate_tile(deco.crop((px0, py0, px1 + (px1 & 1), py1 + (py1 & 1))))
-    save_img(cut(35, 32, 61, 121), "banner1")     # tall banner  -> 13x45
-    save_img(cut(35, 128, 61, 153), "banner2")    # short banner -> 13x13
-    save_img(cut(73, 103, 107, 146), "window")    # arched window + light shaft
+    def save_both(im, name):
+        save_img(im, name)
+        save_img(decimate2(im), name + "h")
+    save_both(cut(35, 32, 61, 121), "banner1")    # tall banner
+    save_both(cut(35, 128, 61, 153), "banner2")   # short banner
+    save_both(cut(73, 103, 107, 146), "window")   # arched window + light shaft
     # shelves: thin plank (7px tall) and metal-capped beam (15px tall), L/M/R
     # sections; each native 32px section -> one 16px cell
     thin = decimate_tile(deco.crop((64, 32, 192, 40)))
@@ -345,8 +368,8 @@ def _beam_lmr(beam8):   # sections 0,1,3 of the 64px-wide downscaled beam strip
 # ------------------------------------------------------------------- tiles
 NB_N, NB_NE, NB_E, NB_SE, NB_S, NB_SW, NB_W, NB_NW = (1, 2, 4, 8, 16, 32, 64, 128)
 
-def write_tileset(name, sheet_rel, edge, lut, xform=None):
-    lines = [f"sheet {sheet_rel}", f"tile {CS}", f"edge {edge}", "nvar 1",
+def write_tileset(name, sheet_rel, edge, lut, xform=None, half=False):
+    lines = [f"sheet {sheet_rel}", f"tile {CS // 2 if half else CS}", f"edge {edge}", "nvar 1",
              "lut " + " ".join(str(v) for v in lut),
              "xform " + " ".join(str(v) for v in (xform or [0] * 256)),
              "vweight 1 1 1 1 1 1 1 1"]
@@ -455,11 +478,16 @@ def build_tiles():
                 t = tile16(1 + sx, row0 + sy)
                 out.paste(t, (sx * CS, sy * CS))
         return out
-    save_img(wall_sheet(1), "solidt")    # bright-trim castle wall (source rows 1-5)
-    save_img(wall_sheet(7), "bgwall")    # pink brick background (source rows 7-11)
+    sheetS, sheetB = wall_sheet(1), wall_sheet(7)
+    save_img(sheetS, "solidt")           # bright-trim castle wall (source rows 1-5)
+    save_img(sheetB, "bgwall")           # pink brick background (source rows 7-11)
+    save_img(decimate_tile2(sheetS), "solidth")   # zoomed-out twins
+    save_img(decimate_tile2(sheetB), "bgwallh")
     lut = blob47_lut()
     write_tileset("solidt", "assets/solidt.png", 1, lut)
     write_tileset("bgwall", "assets/bgwall.png", 1, lut)
+    write_tileset("solidth", "assets/solidth.png", 1, lut, half=True)
+    write_tileset("bgwallh", "assets/bgwallh.png", 1, lut, half=True)
 
     # the two wooden platforms from the Decorations sheet: 4 sections of 32px
     # each (L, M, R, single) -> 4 cells of 16px
@@ -473,8 +501,13 @@ def build_tiles():
         save_img(out, name)
     plat_strip(32, 40, "platthin")       # thin plank (~4px)
     plat_strip(64, 80, "platthick")      # thick beam with metal ends (~8px)
+    for nm in ("platthin", "platthick"):
+        im = Image.open(os.path.join(HERE, nm + ".png")).convert("RGBA")
+        save_img(decimate_tile2(im), nm + "h")
     write_tileset("platthin",  "assets/platthin.png",  0, strip_lut_h())
     write_tileset("platthick", "assets/platthick.png", 0, strip_lut_h())
+    write_tileset("platthinh",  "assets/platthinh.png",  0, strip_lut_h(), half=True)
+    write_tileset("platthickh", "assets/platthickh.png", 0, strip_lut_h(), half=True)
 
 def main():
     os.makedirs(ANIM, exist_ok=True)

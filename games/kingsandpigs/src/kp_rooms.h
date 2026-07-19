@@ -15,7 +15,7 @@
  *   B  crate spot (stack 1-2 high, sometimes a bomb on top, sometimes a
  *      hiding pig from depth 2)     b  unlit bomb resting on the floor
  *   E  enemy spot (type scales with depth; may stay empty on early floors)
- *   C  cannon + match pig (only spawns from depth 3)
+ *   C  cannon + match pig (only spawns from depth 2)
  *   W  window            F  hanging banner (flag)
  *   e  entrance door     x  exit door
  *

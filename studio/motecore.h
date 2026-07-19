@@ -11,6 +11,8 @@
 enum { MC_TMPL_3D = 0, MC_TMPL_PHYS = 1, MC_TMPL_2D = 2 };
 
 int  mc_name(const char *dir, char *out, int n);    /* game.toml name= or dir basename */
+int  mc_filename(const char *dir, char *out, int n);/* protocol/filesystem-safe module name */
+void mc_sanitize(const char *in, char *out, int n);
 const char *mc_host_ext(void);                      /* "so" (Linux) / "dll" (Windows) */
 int  mc_build(const char *dir, int device, mote_log_fn log);  /* build/<name>.{so|dll} (+ .mote if device) */
 int  mc_new(const char *name, int kind, mote_log_fn log);     /* scaffold examples/<name> from an MC_TMPL_* */

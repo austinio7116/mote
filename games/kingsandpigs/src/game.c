@@ -51,12 +51,30 @@ MOTE_MODULE_HEADER();
 #include "cannon.anim.h"
 #include "door.anim.h"
 #include "pickups.anim.h"
+#include "kingh.anim.h"
+#include "kingatkh.anim.h"
+#include "kingpigh.anim.h"
+#include "pigh.anim.h"
+#include "pigboxh.anim.h"
+#include "pigbombh.anim.h"
+#include "pighideh.anim.h"
+#include "pigmatchh.anim.h"
+#include "boxh.anim.h"
+#include "bombh.anim.h"
+#include "boomh.anim.h"
+#include "cannonh.anim.h"
+#include "doorh.anim.h"
+#include "pickupsh.anim.h"
 
 /* autotile rulesets (tilesets/*.tileset -> Studio Tiles tab) */
 #include "solidt.tiles.h"
 #include "bgwall.tiles.h"
 #include "platthin.tiles.h"
 #include "platthick.tiles.h"
+#include "solidth.tiles.h"
+#include "bgwallh.tiles.h"
+#include "platthinh.tiles.h"
+#include "platthickh.tiles.h"
 
 /* plain images */
 #include "dialogue.h"
@@ -67,6 +85,11 @@ MOTE_MODULE_HEADER();
 #include "numbers.h"
 #include "logo.h"
 #include "window.h"
+#include "windowh.h"
+#include "banner1h.h"
+#include "banner2h.h"
+#include "ballh.h"
+#include "piecesh.h"
 #include "banner1.h"
 #include "banner2.h"
 #include "shelfa.h"
@@ -111,7 +134,8 @@ MOTE_MODULE_HEADER();
 #define B_PLT  (B_PLA | B_PLB)
 
 static uint8_t map[ROWS * COLS];
-static const MoteAutotile *s_layers[4] = { &bgwall_at, &platthin_at, &platthick_at, &solidt_at };
+static const MoteAutotile *s_layers[4]   = { &bgwall_at, &platthin_at, &platthick_at, &solidt_at };
+static const MoteAutotile *s_layers_h[4] = { &bgwallh_at, &platthinh_at, &platthickh_at, &solidth_at };
 
 /* ------------------------------------------------------------ king tuning */
 #define GRAV    1120.0f
@@ -308,6 +332,7 @@ typedef struct {
 static Door doors[2];
 
 static float cam_x, cam_y;
+static uint8_t zoom_out;          /* MENU toggles the half-res wide view */
 
 /* global pickup spin animations (all pickups of a kind animate in sync) */
 static MoteAnimPlayer pk_ap[3];
@@ -558,7 +583,7 @@ static void generate(void) {
                 }
                 break;
             case 'C':
-                if (depth >= 3) {
+                if (depth >= 2) {
                     int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
                     if (ci < MAXC) {
                         int dir = (c > KP_ROOM_W / 2) ? -1 : 1;   /* fire toward the room */
@@ -1060,11 +1085,14 @@ static void enemy_contact(Enemy *e) {
 }
 
 /* ---------------------------------------------------------------- drawing */
-static void draw_actor(const MoteAnimSheet *sh, const MoteAnimPlayer *ap,
+static void draw_actor(const MoteAnimSheet *sn, const MoteAnimSheet *shh,
+                       const MoteAnimPlayer *ap,
                        float x, float y, int ax, int ay, int facing, int layer) {
+    const MoteAnimSheet *sh = zoom_out ? shh : sn;
+    int z = zoom_out ? 2 : 1;
     MoteSprite s = {
         .img = sh->image,
-        .x = (int16_t)((int)x - ax), .y = (int16_t)((int)y - ay),
+        .x = (int16_t)((int)x / z - ax / z), .y = (int16_t)((int)y / z - ay / z),
         .fx = (uint16_t)mote_anim_fx(ap, sh), .fy = (uint16_t)mote_anim_fy(ap, sh),
         .fw = sh->tile_w, .fh = sh->tile_h,
         .layer = (uint8_t)layer,
@@ -1093,6 +1121,16 @@ static const MoteAnimSheet *enemy_sheet(const Enemy *e) {
         default:      return &pig_sheet;
     }
 }
+static const MoteAnimSheet *enemy_sheet_h(const Enemy *e) {
+    switch (e->type) {
+        case E_BOXP:  return &pigboxh_sheet;
+        case E_BOMBP: return &pigbombh_sheet;
+        case E_HIDE:  return &pighideh_sheet;
+        case E_MATCH: return &pigmatchh_sheet;
+        case E_BOSS:  return &kingpigh_sheet;
+        default:      return &pigh_sheet;
+    }
+}
 static void enemy_anchor(const Enemy *e, int *ax, int *ay) {
     switch (e->type) {
         case E_BOXP:  *ax = KP_PIGBOX_AX;  *ay = KP_PIGBOX_AY;  break;
@@ -1111,54 +1149,55 @@ static int on_screen(float x, float y, int m) {
 }
 
 static void draw_world(void) {
-    mote->scene2d_begin((int)cam_x, (int)cam_y);
-    mote->scene2d_set_autotile_layers(map, COLS, ROWS, s_layers, 4);
+    int z = zoom_out ? 2 : 1;
+    mote->scene2d_begin((int)cam_x / z, (int)cam_y / z);
+    mote->scene2d_set_autotile_layers(map, COLS, ROWS, zoom_out ? s_layers_h : s_layers, 4);
 
     /* decorations */
     for (int i = 0; i < MAXDC; i++) {
         if (!dc[i].on) continue;
         Deco *d = &dc[i];
-        if (!on_screen(d->x, d->y, 128)) continue;
-        switch (d->kind) {
-            case DC_WINDOW:  draw_img(&window_img, d->x, d->y, 0, 0, window_img.w, window_img.h, 1, 0); break;
-            case DC_BANNER1: draw_img(&banner1_img, d->x, d->y, 0, 0, banner1_img.w, banner1_img.h, 1, 0); break;
-            case DC_BANNER2: draw_img(&banner2_img, d->x, d->y, 0, 0, banner2_img.w, banner2_img.h, 1, 0); break;
-            case DC_SHELFA:  draw_img(&shelfa_img, d->x, d->y, 0, 0, 48, 4, 1, 0); break;
-            case DC_SHELFB:  draw_img(&shelfb_img, d->x, d->y, 0, 0, 48, 8, 1, 0); break;
-            case DC_FEAT:    draw_img(&wallfeat_img, d->x, d->y, (d->var & 7) * 32,
-                                      (d->var >> 3) * 32, 32, 32, 1, 0); break;
-        }
+        if (!on_screen(d->x, d->y, 128 * z)) continue;
+        const MoteImage *di =
+            d->kind == DC_WINDOW  ? (zoom_out ? &windowh_img : &window_img) :
+            d->kind == DC_BANNER1 ? (zoom_out ? &banner1h_img : &banner1_img) :
+            d->kind == DC_BANNER2 ? (zoom_out ? &banner2h_img : &banner2_img) : 0;
+        if (di) draw_img(di, d->x / z, d->y / z, 0, 0, di->w, di->h, 1, 0);
     }
 
     /* doors */
     for (int i = 0; i < 2; i++) {
         Door *d = &doors[i];
-        draw_actor(&door_sheet, &d->ap, d->x, d->y, KP_DOOR_AX, KP_DOOR_AY, 1, 3);
+        draw_actor(&door_sheet, &doorh_sheet, &d->ap, d->x, d->y, KP_DOOR_AX, KP_DOOR_AY, 1, 3);
     }
 
     /* cannons */
     for (int i = 0; i < MAXC; i++) {
         if (!cans[i].on) continue;
         /* native art faces LEFT: flip when facing right */
-        draw_actor(&cannon_sheet, &cans[i].ap, cans[i].x, cans[i].y,
+        draw_actor(&cannon_sheet, &cannonh_sheet, &cans[i].ap, cans[i].x, cans[i].y,
                    KP_CANNON_AX, KP_CANNON_AY, cans[i].facing > 0 ? -1 : 1, 4);
     }
 
     /* crates */
     for (int i = 0; i < MAXBX; i++) {
         if (!crates[i].on) continue;
-        draw_img(&box_img, (int)crates[i].x - KP_BOX_AX, (int)crates[i].y - KP_BOX_AY,
-                 0, 0, KP_BOX_CW, KP_BOX_CH, 5, 0);
+        const MoteAnimSheet *bs = zoom_out ? &boxh_sheet : &box_sheet;
+        draw_img(bs->image, (int)crates[i].x / z - KP_BOX_AX / z,
+                 (int)crates[i].y / z - KP_BOX_AY / z,
+                 0, 0, bs->tile_w, bs->tile_h, 5, 0);
     }
 
     /* resting bombs */
     for (int i = 0; i < MAXSB; i++) {
         if (!sbombs[i].on) continue;
+        const MoteAnimSheet *bs = zoom_out ? &bombh_sheet : &bomb_sheet;
         int cellc = bomb_off.frames[0].cell;
-        int colsn = mote_anim_cols(&bomb_sheet);
-        draw_img(&bomb_img, (int)sbombs[i].x - KP_BOMB_AX, (int)sbombs[i].y - KP_BOMB_CH,
-                 (cellc % colsn) * bomb_sheet.tile_w, (cellc / colsn) * bomb_sheet.tile_h,
-                 KP_BOMB_CW, KP_BOMB_CH, 5, 0);
+        int colsn = mote_anim_cols(bs);
+        draw_img(bs->image, (int)sbombs[i].x / z - KP_BOMB_AX / z,
+                 (int)sbombs[i].y / z - KP_BOMB_CH / z,
+                 (cellc % colsn) * bs->tile_w, (cellc / colsn) * bs->tile_h,
+                 bs->tile_w, bs->tile_h, 5, 0);
     }
 
     /* pickups */
@@ -1189,11 +1228,12 @@ static void draw_world(void) {
             fx = (cellc % colsn) * pickups_sheet.tile_w;
             fy = (cellc / colsn) * pickups_sheet.tile_h;
         }
-        MoteSprite s = { .img = pickups_sheet.image,
-                         .x = (int16_t)((int)p->x - KP_PICKUPS_AX),
-                         .y = (int16_t)((int)p->y - KP_PICKUPS_AY),
-                         .fx = (uint16_t)fx, .fy = (uint16_t)fy,
-                         .fw = pickups_sheet.tile_w, .fh = pickups_sheet.tile_h,
+        const MoteAnimSheet *ps = zoom_out ? &pickupsh_sheet : &pickups_sheet;
+        MoteSprite s = { .img = ps->image,
+                         .x = (int16_t)((int)p->x / z - KP_PICKUPS_AX / z),
+                         .y = (int16_t)((int)p->y / z - KP_PICKUPS_AY / z),
+                         .fx = (uint16_t)(fx / z), .fy = (uint16_t)(fy / z),
+                         .fw = ps->tile_w, .fh = ps->tile_h,
                          .layer = 5 };
         mote->scene2d_add(&s);
     }
@@ -1203,55 +1243,67 @@ static void draw_world(void) {
         if (!en[i].on) continue;
         Enemy *e = &en[i];
         if (e->state == ES_HIDDEN) {
-            draw_img(&box_img, (int)e->b.x - KP_BOX_AX, (int)e->b.y - KP_BOX_AY,
-                     0, 0, KP_BOX_CW, KP_BOX_CH, 5, 0);
+            const MoteAnimSheet *bs = zoom_out ? &boxh_sheet : &box_sheet;
+            draw_img(bs->image, (int)e->b.x / z - KP_BOX_AX / z,
+                     (int)e->b.y / z - KP_BOX_AY / z,
+                     0, 0, bs->tile_w, bs->tile_h, 5, 0);
             continue;
         }
         int ax, ay; enemy_anchor(e, &ax, &ay);
-        draw_actor(enemy_sheet(e), &e->ap, e->b.x, e->b.y, ax, ay, e->facing, 6);
-        dlg_draw(&e->dlg, e->b.x, e->b.y - ay - 2);
+        draw_actor(enemy_sheet(e), enemy_sheet_h(e), &e->ap, e->b.x, e->b.y, ax, ay, e->facing, 6);
+        dlg_draw(&e->dlg, e->b.x / z, (e->b.y - ay - 2) / z);
     }
 
     /* projectiles */
     for (int i = 0; i < MAXP; i++) {
         if (!pr[i].on) continue;
         Proj *p = &pr[i];
-        if (p->type == P_BALL)
-            draw_img(&ball_img, (int)p->x - KP_BALL_W / 2, (int)p->y - KP_BALL_H / 2,
-                     0, 0, KP_BALL_W, KP_BALL_H, 8, 0);
-        else if (p->type == P_BOX)
-            draw_img(&box_img, (int)p->x - KP_BOX_AX, (int)p->y - KP_BOX_AY + KP_BOX_BH / 2,
-                     0, 0, KP_BOX_CW, KP_BOX_CH, 8, 0);
-        else {  /* bomb: lit */
+        if (p->type == P_BALL) {
+            const MoteImage *bi = zoom_out ? &ballh_img : &ball_img;
+            draw_img(bi, (int)p->x / z - bi->w / 2, (int)p->y / z - bi->h / 2,
+                     0, 0, bi->w, bi->h, 8, 0);
+        } else if (p->type == P_BOX) {
+            const MoteAnimSheet *bs = zoom_out ? &boxh_sheet : &box_sheet;
+            draw_img(bs->image, (int)p->x / z - KP_BOX_AX / z,
+                     ((int)p->y + KP_BOX_BH / 2) / z - KP_BOX_AY / z,
+                     0, 0, bs->tile_w, bs->tile_h, 8, 0);
+        } else {  /* bomb: lit */
+            const MoteAnimSheet *bs = zoom_out ? &bombh_sheet : &bomb_sheet;
             int fr = ((int)(p->fuse * 10)) & 3;
             int cellc = bomb_on.frames[fr % bomb_on.count].cell;
-            int colsn = mote_anim_cols(&bomb_sheet);
-            draw_img(&bomb_img, (int)p->x - KP_BOMB_AX, (int)p->y - KP_BOMB_AY,
-                     (cellc % colsn) * bomb_sheet.tile_w, (cellc / colsn) * bomb_sheet.tile_h,
-                     KP_BOMB_CW, KP_BOMB_CH, 8, 0);
+            int colsn = mote_anim_cols(bs);
+            draw_img(bs->image, (int)p->x / z - KP_BOMB_AX / z, (int)p->y / z - KP_BOMB_AY / z,
+                     (cellc % colsn) * bs->tile_w, (cellc / colsn) * bs->tile_h,
+                     bs->tile_w, bs->tile_h, 8, 0);
         }
     }
 
     /* box pieces */
     for (int i = 0; i < MAXPT; i++) {
         if (!pts[i].on) continue;
-        draw_img(&pieces_img, (int)pts[i].x - 2, (int)pts[i].y - 2,
-                 pts[i].idx * 5, 0, 5, 5, 8, 0);
+        {
+            const MoteImage *pi = zoom_out ? &piecesh_img : &pieces_img;
+            int pw = pi->w / 4;
+            draw_img(pi, (int)pts[i].x / z - pw / 2, (int)pts[i].y / z - pw / 2,
+                     pts[i].idx * pw, 0, pw, pi->h, 8, 0);
+        }
     }
 
     /* the king (blink while invulnerable; the attack swing has its own sheet) */
     if (!(k_inv > 0 && ((int)(k_inv * 12) & 1))) {
         if (k_clip == &kingatk_attack)
-            draw_actor(&kingatk_sheet, &k_ap, kb.x, kb.y,
+            draw_actor(&kingatk_sheet, &kingatkh_sheet, &k_ap, kb.x, kb.y,
                        KP_KINGATK_AX, KP_KINGATK_AY, k_facing, 10);
         else
-            draw_actor(&king_sheet, &k_ap, kb.x, kb.y, KP_KING_AX, KP_KING_AY, k_facing, 10);
+            draw_actor(&king_sheet, &kingh_sheet, &k_ap, kb.x, kb.y,
+                       KP_KING_AX, KP_KING_AY, k_facing, 10);
     }
 
     /* explosions on top */
     for (int i = 0; i < MAXBM; i++) {
         if (!booms[i].on) continue;
-        draw_actor(&boom_sheet, &booms[i].ap, booms[i].x, booms[i].y + KP_BOOM_CH / 2 - KP_BOOM_AY,
+        draw_actor(&boom_sheet, &boomh_sheet, &booms[i].ap,
+                   booms[i].x, booms[i].y + KP_BOOM_CH / 2 - KP_BOOM_AY,
                    KP_BOOM_AX, KP_BOOM_CH / 2, 1, 12);
     }
 }
@@ -1527,10 +1579,11 @@ static void camera_tick(float dt) {
     float kp = 1.0f - expf(-3.5f * dt);
     cam_peek += (want - cam_peek) * kp;
 
-    float tx = kb.x + k_facing * 20 - MOTE_FB_W / 2;
-    float ty = kb.y - 96 + cam_peek;        /* the king rides the lower third */
-    tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W);
-    ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H);
+    int z = zoom_out ? 2 : 1;               /* MENU wide view: everything halves */
+    float tx = kb.x + k_facing * 20 * z - MOTE_FB_W * z / 2;
+    float ty = kb.y - 96 * z + cam_peek * z; /* the king rides the lower third */
+    tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W * z);
+    ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H * z);
     float k = 1.0f - expf(-6.0f * dt);
     cam_x += (tx - cam_x) * k;
     cam_y += (ty - cam_y) * k;
@@ -1659,6 +1712,16 @@ static void g_update(float dt) {
         return;
 
     case G_PLAY:
+        if (mote_just_pressed(in, MOTE_BTN_MENU)) {
+            /* zoom pivots on the king: he keeps his exact screen position at
+             * the flip, then the camera lerp eases to the standard framing */
+            int z0 = zoom_out ? 2 : 1;
+            zoom_out = !zoom_out;
+            int z1 = zoom_out ? 2 : 1;
+            float sx = (kb.x - cam_x) / z0, sy = (kb.y - cam_y) / z0;
+            cam_x = mote_clampf(kb.x - sx * z1, 0, WORLD_W - MOTE_FB_W * z1);
+            cam_y = mote_clampf(kb.y - sy * z1, 0, WORLD_H - MOTE_FB_H * z1);
+        }
         king_tick(dt);
         for (int i = 0; i < MAXE; i++) if (en[i].on) {
             enemy_tick(&en[i], dt);

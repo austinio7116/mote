@@ -585,7 +585,7 @@ static volatile int g_proxy_active;   /* auto-proxy holds the port now (tentativ
 static char g_jdir[300]; static int g_jkind;
 static int job_native(void*a){ (void)a; int k=g_jkind;
     if(k==0)mc_build(g_jdir,0,log_add); else if(k==1)mc_build(g_jdir,1,log_add); else if(k==2)mc_bake(g_jdir,log_add);
-    else if(k==3||k==4){ if(mc_build(g_jdir,1,log_add)==0){ char nm[80]; mc_name(g_jdir,nm,sizeof nm);
+    else if(k==3||k==4){ if(mc_build(g_jdir,1,log_add)==0){ char nm[80]; mc_filename(g_jdir,nm,sizeof nm);
         char mp[420]; snprintf(mp,sizeof mp,"%.300s/build/%.60s.mote",g_jdir,nm);
         proxy_yield(); mote_dev_push(mp,nm,k==4,log_add); proxy_resume(); } }
     snprintf(g_status,sizeof g_status,"done"); return 0; }
@@ -5704,7 +5704,9 @@ static int gal_install_thread(void*a){ int idx=(int)(intptr_t)a; GalGame *g=&g_g
     char path[512],base[64],fn[80],m[160];
     snprintf(m,sizeof m,"$ gallery: install %s v%s",g->name,g->version); log_add(""); log_add(m);
     if(gallery_ensure_mote(&g_gal,g,path,sizeof path)!=0){ log_add(g_gal.err); g_gal_inst_id[0]=0; g_gal_busy=0; return 0; }
-    gal_base(g->file,base,sizeof base); snprintf(fn,sizeof fn,"%s.mote",base);
+    gal_base(g->file,base,sizeof base);
+    { char sb[64]; mc_sanitize(base,sb,sizeof sb); if(sb[0]) snprintf(base,sizeof base,"%s",sb); }
+    snprintf(fn,sizeof fn,"%s.mote",base);
     proxy_yield();
     mote_dev_push(path,fn,0,log_add);
     g_ncat=mote_dev_catalog(g_cat,GAL_MAX,&g_dev_abi); if(g_ncat<0)g_ncat=0;

@@ -1,0 +1,32 @@
+sheet anims/pigbombh.png
+tile 14 14
+clips 4
+clip idle 1 10 0 0 10
+f 0 0 -
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -
+f 5 0 -
+f 6 0 -
+f 7 0 -
+f 8 0 -
+f 9 0 -
+clip pick 0 10 0 0 4
+f 10 0 -
+f 11 0 -
+f 12 0 -
+f 13 0 -
+clip run 1 10 0 0 6
+f 14 0 -
+f 15 0 -
+f 16 0 -
+f 17 0 -
+f 18 0 -
+f 19 0 -
+clip throw 0 10 0 0 5
+f 20 0 -
+f 21 0 -
+f 22 0 -
+f 23 0 -
+f 24 0 -

@@ -3,6 +3,7 @@
 #include "third_party/stb_image.h"   /* declarations; implementation lives in main.c */
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <dirent.h>
@@ -45,6 +46,20 @@ int mc_name(const char *dir, char *out, int n){
         if(q){ char *e=strchr(q+1,'"'); if(e){ int l=(int)(e-q-1); if(l>=n)l=n-1; memcpy(out,q+1,l); out[l]=0; fclose(f); return 1; } } } } fclose(f); }
     const char *b=strrchr(dir,'/'); snprintf(out,n,"%s",b?b+1:dir); return 1; }
 
+void mc_sanitize(const char *in, char *out, int n){ int o=0;
+    for(const char *p=in; *p && o<n-1; p++)
+        if(isalnum((unsigned char)*p)||*p=='-'||*p=='_') out[o++]=*p;
+    out[o]=0; }
+
+int mc_filename(const char *dir, char *out, int n){
+    /* Filesystem/protocol-safe module name: the serial PUT protocol is
+     * space-delimited, so the .mote FILENAME strips anything risky from the
+     * display name (which keeps its spaces in MOTE_GAME_META/the launcher). */
+    char nm[80]; mc_name(dir,nm,sizeof nm);
+    mc_sanitize(nm,out,n);
+    if(!out[0]){ const char *b=strrchr(dir,'/'); snprintf(out,n,"%s",b?b+1:dir); }
+    return 1; }
+
 static int run_logged(const char *cmd, mote_log_fn log){ FILE *p=PIPE(cmd); if(!p){ log("could not run compiler"); return -1; }
     char ln[400]; while(fgets(ln,sizeof ln,p)){ ln[strcspn(ln,"\n")]=0; if(ln[0])log(ln); } return PCLOSE(p); }
 
@@ -61,6 +76,7 @@ static void mc_read_cflags(const char *dir, char *out, int n){ out[0]=0;
 
 int mc_build(const char *dir, int device, mote_log_fn log){
     char name[80]; mc_name(dir,name,sizeof name);
+    char fname[80]; mc_filename(dir,fname,sizeof fname);   /* artifact/protocol-safe */
     /* The HOST .so is an internal artifact the Studio loads by FOLDER name, so
      * name it after the folder — not MOTE_GAME_META (which can differ from the
      * folder, and may contain spaces). The device .mote keeps the display name. */
@@ -99,13 +115,12 @@ int mc_build(const char *dir, int device, mote_log_fn log){
       snprintf(cmd,sizeof cmd,"%sgcc %s %s -c sdk/mote_syscalls.c -o %s 2>&1",ARM,arch,base,so);
       if(run_logged(cmd,log)!=0){ log("syscall-stub compile FAILED"); return -1; }
       strncat(objs,so,sizeof objs-strlen(objs)-2); strncat(objs," ",sizeof objs-strlen(objs)-1); }
-    /* QUOTE the elf/.mote paths — MOTE_GAME_META names may contain spaces ("Red Mote") */
-    char elf[600]; snprintf(elf,sizeof elf,"%.320s/build/%s.elf",dir,name);
+    char elf[600]; snprintf(elf,sizeof elf,"%.320s/build/%s.elf",dir,fname);
     snprintf(cmd,sizeof cmd,"%sgcc %s -nostartfiles -T sdk/game.ld -Wl,--gc-sections %s -lm -lgcc -o \"%s\" 2>&1",ARM,arch,objs,elf);
     if(run_logged(cmd,log)!=0){ log("device link FAILED"); return -1; }
-    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data -j .ramtext \"%s\" \"%.320s/build/%s.mote\" 2>&1",ARM,elf,dir,name);
+    snprintf(cmd,sizeof cmd,"%sobjcopy -O binary -j .mote -j .data -j .ramtext \"%s\" \"%.320s/build/%s.mote\" 2>&1",ARM,elf,dir,fname);
     if(run_logged(cmd,log)!=0){ log("objcopy FAILED"); return -1; }
-    { char m[120]; snprintf(m,sizeof m,"device module built: build/%s.mote",name); log(m); }
+    { char m[120]; snprintf(m,sizeof m,"device module built: build/%s.mote",fname); log(m); }
     return 0; }
 
 static const char *TMPL_TOML = "[game]\nname = \"%s\"\nauthor = \"you\"\n";
