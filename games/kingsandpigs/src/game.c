@@ -1488,11 +1488,16 @@ static void king_attack_hits(void) {
             sfx(&hitpig_sfx, 0.6f);
         }
     }
-    /* light a resting bomb */
+    /* whack a resting bomb: it lights AND flies forward like a returned throw */
     for (int i = 0; i < MAXSB; i++)
         if (sbombs[i].on && fabsf(sbombs[i].x - hx) < 24 &&
-            fabsf((sbombs[i].y - 8) - hy) < 24)
-            light_sbomb(i);
+            fabsf((sbombs[i].y - 8) - hy) < 24) {
+            spawn_proj(P_BOMB, sbombs[i].x, sbombs[i].y - 8,
+                       k_facing * 220.0f, -180.0f);
+            sbombs[i].on = 0;
+            sfx(&fuse_sfx, 0.7f);
+            sfx(&hitpig_sfx, 0.6f);
+        }
 }
 
 static void king_tick(float dt) {
