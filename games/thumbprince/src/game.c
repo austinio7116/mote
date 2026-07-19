@@ -2693,6 +2693,16 @@ static void estate_map(uint16_t *fb, int ox, int oy, int cw, int ch, int target_
         if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + my, 2, 2, pip, 1, 0, 128);
         if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + cw - 3, y + my, 2, 2, pip, 1, 0, 128);
         mote->draw_rect(fb, x - 1, y - 1, cw + 1, ch + 1, rgb(255, 230, 120), 0, 0, 128);
+        /* the live chain: a small hanging chain on the target room, one link
+         * per level (x2 = 1 link .. x4 = 3), so you see the multiplier this
+         * placement will pay before you commit */
+        if (g_chain) {
+            for (int k = 0; k < g_chain; k++) {
+                int ly = y + 2 + k * 3;
+                mote->draw_rect(fb, x + 1, ly, 2, 3, rgb(30, 22, 10), 1, 0, 128);   /* backing */
+                mote->draw_rect(fb, x + 1, ly, 2, 2, rgb(255, 216, 96), 1, 0, 128); /* link */
+            }
+        }
     }
 }
 
@@ -2751,9 +2761,9 @@ static void draft_draw_a(uint16_t *fb) {
     }
     if (!afford) mote->text_font(fb, f, "!", 118, 6, rgb(255, 110, 90));
 
-    /* resources, bottom left under the map; the live chain below them */
+    /* resources, bottom left under the map */
     {
-        char buf[12];
+        char buf[8];
         static const uint8_t rc[3] = { 1, 2, 0 };          /* key, gem, gold */
         int vals[3] = { g_keys, g_gems, g_gold };
         int x = 6;
@@ -2763,10 +2773,6 @@ static void draft_draw_a(uint16_t *fb) {
             x = mote->text_font(fb, f, buf, x + 12, 108,
                                 i == 0 ? rgb(240, 220, 140) : i == 1 ? rgb(140, 240, 220)
                                        : rgb(250, 210, 110)) + 3;
-        }
-        if (g_chain) {
-            snprintf(buf, sizeof buf, "CHAIN x%d", 1 + g_chain);
-            mote->text(fb, buf, 6, 121, rgb(255, 230, 120));
         }
     }
 
