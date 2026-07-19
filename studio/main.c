@@ -5488,13 +5488,114 @@ static void proxy_splice(Chan*c,const char*tag){
     link_net_stop(); g_room_code[0]=0;
 }
 
+/* ---- ThumbyCraft bridge --------------------------------------------------
+ * A docked ThumbyCraft in link mode (ThumbyOne Craft slot or standalone;
+ * VID:PID CAFE:5443) speaks no MN1 — it immediately repeats its own binary
+ * hello [0xC7 'H' proto role] on the CDC pipe. We sniff the ROLE from that
+ * hello, perform the matching relay room action ourselves (device hosting ->
+ * open a public room; device joining -> take the oldest open room), then
+ * raw-splice with the same proxy_splice the Mote path uses — its "MN1 ..."
+ * ASCII asides are invisible to craft's 0xC7-framed parser, and the craft
+ * firmware keepalives at 2 Hz from the hello stage on, so the splice's
+ * silence detection works unchanged. Fully additive: a Mote device always
+ * wins the port scan first, and nothing in the Mote flow changes. */
+#define CRAFT_ROOM_LABEL "ThumbyCraft"
+
+/* Sniff the device's role from its hello. -1 device gone, 0 silent (link
+ * screen not up / mid role-flip), 1 = joining (guest), 2 = hosting. */
+static int craft_sniff_role(void *h){
+    unsigned char b; int idle=0, st=0;
+    while(!proxy_paused()){
+        int r=mote_dev_raw_read(h,&b,1);
+        if(r<0)return -1;
+        if(r==0){ if(++idle>30)return 0; continue; }    /* ~3s of silence */
+        idle=0;
+        if(st==0)      st=(b==0xC7)?1:0;
+        else if(st==1) st=(b=='H')?2:((b==0xC7)?1:0);
+        else if(st==2) st=3;                             /* proto byte (peers verify it themselves) */
+        else           return b?2:1;                     /* role byte */
+    }
+    return 0;
+}
+
+/* Wait for the relay to pair, draining (and discarding) the device's hello
+ * retries so CDC never backs up. 1 = paired, 0 = failed/cancelled/gone. */
+static int craft_await_pair(void *h){
+    char junk[64];
+    while(!proxy_paused()){
+        int st=link_net_status();
+        if(st==LINK_NET_CONNECTED)return 1;
+        if(st==LINK_NET_OFF)return 0;
+        int r=mote_dev_raw_read(h,junk,sizeof junk);     /* ~100ms pacing */
+        if(r<0){ link_net_stop(); g_room_code[0]=0;
+                 log_add("thumbycraft: device unplugged - dropping the room"); return 0; }
+    }
+    return 0;
+}
+
+static void craft_proxy_session(void *h){
+    int role=craft_sniff_role(h);
+    if(role<=0)return;                                   /* silent or gone: cycle the port */
+    if(!g_relay_cfg[0]){ log_add("thumbycraft: no relay configured (ONLINE panel)"); SDL_Delay(1500); return; }
+    g_proxy_busy=1;
+    link_net_relay_game(fnv32(CRAFT_ROOM_LABEL));
+    if(role==2){                                         /* device HOSTING: open a public room */
+        gen_room_code();
+        link_net_relay_host(g_room_code,1,CRAFT_ROOM_LABEL);
+        { char m[96]; snprintf(m,sizeof m,"thumbycraft: device is hosting - opened room %s, waiting for a friend",g_room_code); log_add(m); }
+        if(!craft_await_pair(h))return;
+    } else {                                             /* device JOINING: take the oldest room */
+        log_add("thumbycraft: device is joining - searching for a room...");
+        int said_none=0;
+        for(;;){
+            if(proxy_paused())return;
+            char rooms[256]; int rn=link_net_list(rooms,sizeof rooms);
+            if(rn>0){
+                char code[10]={0};
+                for(int i=0;i<8&&rooms[i]&&rooms[i]!=' '&&rooms[i]!='\n';i++)code[i]=rooms[i];
+                snprintf(g_room_code,sizeof g_room_code,"%s",code);
+                link_net_relay_join(code);
+                { char m[64]; snprintf(m,sizeof m,"thumbycraft: joining room %s",code); log_add(m); }
+                if(craft_await_pair(h))break;
+                if(proxy_paused()||link_net_status()==LINK_NET_CONNECTED)break;
+                /* room vanished under us (raced another joiner): keep searching */
+            } else if(rn==0&&!said_none){
+                said_none=1; log_add("thumbycraft: no rooms open yet - waiting for a host...");
+            } else if(rn<0){
+                log_add("thumbycraft: relay unreachable"); SDL_Delay(2000);
+            }
+            for(int i=0;i<10;i++){                       /* ~1s: drain hellos, detect unplug */
+                char junk[64];
+                if(mote_dev_raw_read(h,junk,sizeof junk)<0){
+                    link_net_stop(); g_room_code[0]=0; return;
+                }
+            }
+        }
+        if(link_net_status()!=LINK_NET_CONNECTED)return;
+    }
+    Chan uc={h,usb_rd,usb_wr};
+    proxy_splice(&uc,"thumbycraft");                     /* stops link_net when done */
+}
+
 static int netproxy_thread(void*a){ (void)a; char buf[512];
     for(;;){
         /* Stand down while the preview proxy owns link_net (a preview game is playing
          * online): the two never share the relay/LAN pipe. */
         if(proxy_paused()||mote_studio_pvlink_active()){ SDL_Delay(100); continue; }
         void*h=mote_dev_open_raw();                          /* only succeeds when the device is in link mode */
-        if(!h){ SDL_Delay(400); continue; }
+        if(!h){
+            /* No Mote device — a docked ThumbyCraft in link mode? */
+            void*ch=craft_dev_open_raw();
+            if(ch){
+                g_proxy_active=1;
+                craft_proxy_session(ch);
+                mote_dev_close_raw(ch);
+                g_proxy_active=0; g_proxy_busy=0;
+                SDL_Delay(600);
+                continue;
+            }
+            SDL_Delay(400); continue;
+        }
         g_proxy_active=1;
         Chan uc={h,usb_rd,usb_wr};
         char line[96];

@@ -32,4 +32,11 @@ int   mote_dev_raw_read(void *h, void *buf, int n);  /* <=~100ms block; 0 = noth
 int   mote_dev_raw_write(void *h, const void *buf, int n);
 void  mote_dev_close_raw(void *h);
 
+/* Same raw pipe for a docked THUMBYCRAFT in link mode (VID:PID CAFE:5443 —
+ * a ThumbyOne Craft slot or standalone ThumbyCraft whose 2P link is
+ * searching). Asserts DTR+RTS explicitly: the craft transport relies on DTR
+ * for honest partial CDC writes. CRAFT_DEV_PORT env overrides discovery
+ * (a pty path for tests; set-but-empty = never touch real hardware). */
+void *craft_dev_open_raw(void);                      /* NULL if no device */
+
 #endif

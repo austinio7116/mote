@@ -6,7 +6,8 @@
 #include <errno.h>
 
 #define MVID 0xCAFE
-#define MPID 0x4D01
+#define MPID 0x4D01          /* Mote device (runner/OS CDC channel) */
+#define CPID 0x5443          /* ThumbyCraft 2P link ('TC') — craft_link_usb.c */
 
 #ifdef _WIN32
   #define INITGUID
@@ -17,9 +18,9 @@
   typedef HANDLE shandle;
   #define SBAD INVALID_HANDLE_VALUE
   static long now_ms(void){ return (long)GetTickCount(); }
-  static int find_port(char *out,int n){ HDEVINFO di=SetupDiGetClassDevs(&GUID_DEVCLASS_PORTS,0,0,DIGCF_PRESENT);
+  static int find_port_pid(char *out,int n,unsigned pid){ HDEVINFO di=SetupDiGetClassDevs(&GUID_DEVCLASS_PORTS,0,0,DIGCF_PRESENT);
       if(di==INVALID_HANDLE_VALUE)return 0; SP_DEVINFO_DATA dd; dd.cbSize=sizeof dd; int found=0; char want[32];
-      snprintf(want,sizeof want,"VID_%04X&PID_%04X",MVID,MPID);
+      snprintf(want,sizeof want,"VID_%04X&PID_%04X",MVID,pid);
       for(DWORD i=0;SetupDiEnumDeviceInfo(di,i,&dd)&&!found;i++){ char hw[256]={0};
           if(SetupDiGetDeviceRegistryPropertyA(di,&dd,SPDRP_HARDWAREID,0,(BYTE*)hw,sizeof hw,0)&&strstr(hw,want)){
               HKEY k=SetupDiOpenDevRegKey(di,&dd,DICS_FLAG_GLOBAL,0,DIREG_DEV,KEY_READ);
@@ -27,14 +28,23 @@
                   if(RegQueryValueExA(k,"PortName",0,&ty,(BYTE*)pn,&sz)==ERROR_SUCCESS){ snprintf(out,n,"\\\\.\\%s",pn); found=1; }
                   RegCloseKey(k); } } }
       SetupDiDestroyDeviceInfoList(di); return found; }
-  static shandle ser_open(void){ char port[32]; if(!find_port(port,sizeof port))return SBAD;
+  static int find_port(char *out,int n){ return find_port_pid(out,n,MPID); }
+  static shandle ser_open_port(const char*port,int assert_dtr){
       HANDLE h=CreateFileA(port,GENERIC_READ|GENERIC_WRITE,0,0,OPEN_EXISTING,0,0); if(h==INVALID_HANDLE_VALUE)return SBAD;
       DCB dcb; memset(&dcb,0,sizeof dcb); dcb.DCBlength=sizeof dcb; GetCommState(h,&dcb);
-      dcb.BaudRate=115200; dcb.ByteSize=8; dcb.Parity=NOPARITY; dcb.StopBits=ONESTOPBIT; SetCommState(h,&dcb);
+      dcb.BaudRate=115200; dcb.ByteSize=8; dcb.Parity=NOPARITY; dcb.StopBits=ONESTOPBIT;
+      if(assert_dtr){ dcb.fDtrControl=DTR_CONTROL_ENABLE; dcb.fRtsControl=RTS_CONTROL_ENABLE; }
+      SetCommState(h,&dcb);
       COMMTIMEOUTS to; memset(&to,0,sizeof to); to.ReadIntervalTimeout=MAXDWORD; to.ReadTotalTimeoutConstant=30;
       to.WriteTotalTimeoutConstant=2000;   /* a device that stops draining CDC must NOT freeze us forever */
       SetCommTimeouts(h,&to);
       PurgeComm(h,PURGE_RXCLEAR|PURGE_TXCLEAR); return h; }
+  static shandle ser_open(void){ char port[32]; if(!find_port(port,sizeof port))return SBAD;
+      return ser_open_port(port,0); }
+  static shandle ser_open_craft(void){ char port[64]; const char*ov=getenv("CRAFT_DEV_PORT");
+      if(ov){ if(!ov[0])return SBAD; snprintf(port,sizeof port,"%.63s",ov); }
+      else if(!find_port_pid(port,sizeof port,CPID))return SBAD;
+      return ser_open_port(port,1); }
   static int ser_write(shandle h,const void*b,int n){ DWORD w=0; return WriteFile(h,b,n,&w,0)?(int)w:0; }
   /* -1 = the DEVICE IS GONE (unplugged / re-enumerated), 0 = just no data yet.
    * Quitting a Mote game re-enumerates USB, so long-lived readers (the proxy
@@ -51,7 +61,8 @@
   typedef int shandle;
   #define SBAD (-1)
   static long now_ms(void){ struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec*1000+t.tv_nsec/1000000; }
-  static int find_port(char *out,int n){ DIR *d=opendir("/sys/class/tty"); if(!d)return 0; struct dirent *e; int found=0;
+  #include <sys/ioctl.h>
+  static int find_port_pid(char *out,int n,unsigned want_pid){ DIR *d=opendir("/sys/class/tty"); if(!d)return 0; struct dirent *e; int found=0;
       /* idVendor/idProduct live on the USB *device* (device/..), not the hub above it.
        * Walk a few levels up to be robust across sysfs layouts. */
       const char *ups[]={ "device/..", "device/../..", "device/../../.." };
@@ -59,14 +70,10 @@
           for(int u=0;u<3&&!found;u++){ char p[360]; unsigned vid=0,pid=0; FILE *f;
               snprintf(p,sizeof p,"/sys/class/tty/%s/%s/idVendor",e->d_name,ups[u]); if(!(f=fopen(p,"r")))continue; if(fscanf(f,"%x",&vid)!=1)vid=0; fclose(f);
               snprintf(p,sizeof p,"/sys/class/tty/%s/%s/idProduct",e->d_name,ups[u]); if((f=fopen(p,"r"))){ if(fscanf(f,"%x",&pid)!=1)pid=0; fclose(f); }
-              if(vid==MVID&&pid==MPID){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } } }
+              if(vid==MVID&&pid==want_pid){ snprintf(out,n,"/dev/%.50s",e->d_name); found=1; } } }
       closedir(d); return found; }
-  static shandle ser_open(void){ char port[64]; const char*ov=getenv("MOTE_DEV_PORT");   /* test override: a pty/tty path */
-      if(ov){ if(!ov[0])return SBAD;                       /* SET but empty = never touch real hardware
-                                                              (a test harness with a broken pty once fell
-                                                              back to the REAL device and ate its replies) */
-              snprintf(port,sizeof port,"%.63s",ov); }
-      else if(!find_port(port,sizeof port))return SBAD;
+  static int find_port(char *out,int n){ return find_port_pid(out,n,MPID); }
+  static shandle ser_open_port(const char*port,int assert_dtr){
       int fd=open(port,O_RDWR|O_NOCTTY); if(fd<0)return SBAD;
       /* EXCLUSIVE: flock is the same advisory lock pyserial's exclusive=True takes,
        * so the Studio and the mote CLI can never silently interleave on one port —
@@ -74,7 +81,20 @@
       if(flock(fd,LOCK_EX|LOCK_NB)!=0){ close(fd); return SBAD; }
       struct termios t; if(tcgetattr(fd,&t)){ close(fd); return SBAD; } cfmakeraw(&t);
       cfsetispeed(&t,B115200); cfsetospeed(&t,B115200); t.c_cc[VMIN]=0; t.c_cc[VTIME]=1;   /* 0.1s read timeout */
-      tcsetattr(fd,TCSANOW,&t); tcflush(fd,TCIOFLUSH); return fd; }
+      tcsetattr(fd,TCSANOW,&t); tcflush(fd,TCIOFLUSH);
+      if(assert_dtr){ int m=TIOCM_DTR|TIOCM_RTS; ioctl(fd,TIOCMBIS,&m); }   /* no-op on ptys */
+      return fd; }
+  static shandle ser_open(void){ char port[64]; const char*ov=getenv("MOTE_DEV_PORT");   /* test override: a pty/tty path */
+      if(ov){ if(!ov[0])return SBAD;                       /* SET but empty = never touch real hardware
+                                                              (a test harness with a broken pty once fell
+                                                              back to the REAL device and ate its replies) */
+              snprintf(port,sizeof port,"%.63s",ov); }
+      else if(!find_port(port,sizeof port))return SBAD;
+      return ser_open_port(port,0); }
+  static shandle ser_open_craft(void){ char port[64]; const char*ov=getenv("CRAFT_DEV_PORT");
+      if(ov){ if(!ov[0])return SBAD; snprintf(port,sizeof port,"%.63s",ov); }
+      else if(!find_port_pid(port,sizeof port,CPID))return SBAD;
+      return ser_open_port(port,1); }
   static int ser_write(shandle h,const void*b,int n){ int r=(int)write(h,b,n); return r<0?0:r; }
   static int ser_read(shandle h,void*b,int n){ int r=(int)read(h,b,n);
       if(r<0) return (errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)?0:-1;   /* -1 = port died */
@@ -156,6 +176,8 @@ int mote_dev_logs(int seconds,mote_log_fn log,volatile int *stop){ shandle h=ser
 struct mote_dev_raw { shandle h; };
 void *mote_dev_open_raw(void){ shandle h=ser_open(); if(h==SBAD)return 0;
     static struct mote_dev_raw r; r.h=h; return &r; }
+void *craft_dev_open_raw(void){ shandle h=ser_open_craft(); if(h==SBAD)return 0;
+    static struct mote_dev_raw rc; rc.h=h; return &rc; }
 int  mote_dev_raw_read (void *p, void *b, int n){ return ser_read (((struct mote_dev_raw*)p)->h, b, n); }
 int  mote_dev_raw_write(void *p, const void *b, int n){ return ser_write(((struct mote_dev_raw*)p)->h, b, n); }
 void mote_dev_close_raw(void *p){ ser_close(((struct mote_dev_raw*)p)->h); }

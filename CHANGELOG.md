@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**ThumbyCraft internet play (Studio bridge).** A docked ThumbyCraft in link mode —
+the ThumbyOne Craft slot or standalone, in-game "Invite friend" or the title screen's
+"Join Friend" — is now picked up by the Studio's online auto-proxy, exactly like a
+docked Mote game: the Studio reads whether the device is hosting or joining, does the
+relay room matching itself (hosts open a public ThumbyCraft room; joiners take the
+oldest open one), and splices the bytes. Zero clicks in the Studio; nothing changes
+for Mote devices, which keep first claim on the port scan.
+
 ## 0.19-alpha — author your own autotile rules · TerraMote co-op
 
 **The Studio's Tiles tab can now author rules beyond blob-47.** When a tileset carries
