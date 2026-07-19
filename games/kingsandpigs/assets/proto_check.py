@@ -159,4 +159,11 @@ def check_piece(rows):
             if e == p: continue
             if not any(t in seen for t in _port_targets(grid, e)):
                 errs.append(f"from {p[0]}: port {e[0]} unreachable")
+    # escapability: nowhere you can reach may be a one-way trap — from every
+    # reachable standing cell you must be able to climb back to a port
+    seeds = [t for p in ps for t in _port_targets(grid, p)]
+    portset = set(seeds)
+    for cell in sorted(flood(grid, seeds)):
+        if not (flood(grid, [cell]) & portset):
+            errs.append(f"trap at {cell[0]},{cell[1]} (can't climb back out)")
     return errs

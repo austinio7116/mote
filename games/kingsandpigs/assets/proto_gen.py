@@ -174,6 +174,11 @@ def seal_port(cv, pc, port):
     kind, a, b = port; x, y = pc["x"], pc["y"]
     if kind == 'T':
         for c in range(a, b + 1): cv[y][x + c] = '#'
+        # remove the now-orphaned climb foothold that led up to this hole
+        # (a ledge stuck under the ceiling with nowhere to go)
+        for r in (y + 1, y + 2):
+            for c in range(max(0, x + a - 1), min(CW, x + b + 2)):
+                if cv[r][c] in '=-': cv[r][c] = '.'
     elif kind == 'B':
         for c in range(a, b + 1): cv[y + h - 1][x + c] = '#'
     elif kind == 'L':

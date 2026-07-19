@@ -208,14 +208,14 @@ PIECES = {
         "###^^####",
         "#..=..d.#",
         "#.#.##..#",
-        "#.#..=.##",
+        "#=#..=.##",
         "#B#.d.E.#",
         "###vv####"]},
     "spine_pit": {"kind":"side","rows":[
         "####^^####",
         "#....=...#",
         "#.d.###.d#",
-        "#.#.#.#.E#",
+        "#.#.#.#=E#",
         "#.#...#.B#",
         "####vv####"]},
     "spine_terrace": {"kind":"side","rows":[
@@ -259,7 +259,7 @@ PIECES = {
         "####^^####",
         "#...==...#",
         "#.#.d..#.#",
-        "#.#.##.#.#",
+        "#=#.##.#=#",
         "#h#.EE.#h#",
         "####vv####"]},
     "spine_perch": {"kind":"side","rows":[
@@ -267,7 +267,7 @@ PIECES = {
         "#..=....#",
         "#.d.##..#",
         "#.#..=.d>",
-        "#.#...#E>",
+        "#=#...#E>",
         "#B#..#..#",
         "###vv####"]},
     "spine_arches": {"kind":"side","rows":[
@@ -503,7 +503,7 @@ PIECES = {
     "exit_belfry": {"kind":"exit","rows":[
         "####^^####",
         "#...==...#",
-        "#..F.....#",
+        "#..F.=...#",
         "#.d....#.#",
         "#.E..x.#.#",
         "##########"]},
@@ -528,6 +528,6 @@ if __name__=="__main__":
     import sys,os; sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
     import proto_check as C; bad=0
     for n,d in PIECES.items():
-        e=C.check_piece(d["rows"]);
+        e=C.check_piece(d["rows"])
         if e: print(n,e[:2]); bad+=1
     print(f"{len(PIECES)} pieces, {bad} bad")
