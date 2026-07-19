@@ -107,11 +107,26 @@ REF3 = [       # room with a notched corner + side alcove (ref3)
     "                 ",
 ]
 
+JUNCTIONS = [   # torture test: T-junctions, stubs, thick blobs, diagonal touches
+    "                    ",
+    "  ....   .......    ",
+    "  ....   ..   ..    ",
+    "  .............. .. ",
+    "     ...      .. .. ",
+    "  .. ... ....... .. ",
+    "  .. ... ..         ",
+    "  ..........  ...   ",
+    "        ....  ...   ",
+    "  ....  .... ...    ",
+    "  ....       ...    ",
+    "                    ",
+]
+
 def main():
     out_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/kp_refs_test.png"
     tilesets = {n: load_tileset(n) for n in ("bgwall", "solidt")}
     bits = {"bg": 1, "sol": 8}
-    imgs = [render(m, tilesets, bits) for m in (REF1, REF2, REF3)]
+    imgs = [render(m, tilesets, bits) for m in (REF1, REF2, REF3, JUNCTIONS)]
     W = max(i.size[0] for i in imgs)
     H = sum(i.size[1] + 8 for i in imgs)
     out = Image.new("RGBA", (W, H), (20, 18, 28, 255))

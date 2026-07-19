@@ -510,17 +510,17 @@ static void generate(void) {
             case 'F': add_deco(rndi(3) == 0 ? DC_BANNER2 : DC_BANNER1, 0,
                                mc * TILE + 1, mr * TILE); break;
             case 'S': {
-                int metal = rnd() & 1;
-                add_deco(metal ? DC_SHELFB : DC_SHELFA, 0,
-                         mc * TILE - 16, mr * TILE + (metal ? 8 : 12));
-                float sy = mr * TILE + (metal ? 8.0f : 12.0f);
+                /* standable 3-wide metal shelf with loot on top (the side
+                 * cells get their plank bit in the post-pass below) */
+                v = B_BG | B_PLB;
+                float sy = mr * (float)TILE;
                 if (rndi(3) == 0) {
                     for (int j = 0; j < MAXSB; j++) if (!sbombs[j].on) {
                         sbombs[j] = (SBomb){ 1, wx, sy }; break;
                     }
                 } else {
-                    spawn_pickup(PK_DSMALL, wx - 8, sy - 5, 0);
-                    spawn_pickup(PK_DSMALL, wx + 8, sy - 5, 0);
+                    spawn_pickup(PK_DSMALL, wx - 8, sy - 6, 0);
+                    spawn_pickup(PK_DSMALL, wx + 8, sy - 6, 0);
                 }
                 break; }
             case 'e': doors[0].x = wx; doors[0].y = wy; break;
@@ -530,6 +530,13 @@ static void generate(void) {
             /* markers leave their own cell as interior */
             map[mr * COLS + mc] = v;
         }
+        /* widen 'S' shelves to 3 cells (their neighbours were stamped plain) */
+        for (int r = 0; r < KP_ROOM_H; r++)
+        for (int c = 0; c < KP_ROOM_W; c++)
+            if (tpl->r[r][c] == 'S') {
+                if (c > 0)              map[(r0 + r) * COLS + c0 + c - 1] |= B_PLB;
+                if (c < KP_ROOM_W - 1)  map[(r0 + r) * COLS + c0 + c + 1] |= B_PLB;
+            }
     }
 
     /* punch the drop holes through the room-below's ceiling row (done after

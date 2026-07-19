@@ -342,61 +342,74 @@ def reduce_mask(m):
     if (m & NB_NW) and N and W: r |= NB_NW
     return r
 
-# xform bits (mirror MOTE_SPR_*)
-XF_H, XF_V, XF_R90, XF_R270 = 1, 2, 4, 12
+# The packed wall sheet keeps the SOURCE terrain layout (cols 1-17, rows 1-5 of
+# the 32px sheet -> a 17x5 cell grid), so every cell is recognisable in the
+# Studio Tiles tab. Cell index for source tile (sx, sy):
+def _cell(sx, sy):
+    return (sy - 1) * 17 + (sx - 1)
 
-def blob_lut(diag_nubs):
-    """Blob47-style wall ruleset over the 5x5 sheet laid out by wall_sheet():
-
-         0 TL     1 T      2 TR     3 colT   4 nub-TL (single)
-         5 L      6 FILL   7 R      8 colM   9 nub-top pair (TL+TR)
-        10 BL    11 B     12 BR    13 colB  14 nub-triple (all but BR)
-        15 beamL 16 beamM 17 beamR 18 block 19 nub-diag (TL+BR)
-        20 nub-diag (TR+BL)        21 nub-quad (all four)
-
-    Cardinal-open configs pick edge/strip cells; fully-enclosed cells pick an
-    inner-corner nub cell by which DIAGONALS are open, using flips/rotations so
-    the few pack tiles cover every orientation. diag_nubs=False (the bg wall,
-    which has no nub art) sends all enclosed configs to the plain fill."""
-    lut = [0] * 256; xf = [0] * 256
+def blob47_lut():
+    """The pack IS a complete 47-piece blob set — every neighbour configuration
+    has real art (verified by trim-nub measurement of every tile):
+      nine-slice (1,1)-(3,3) · column (5,1)-(5,3) · beam (1,5)-(3,5) · single (5,5)
+      inner corners: singles (7,1)-(8,2) · adjacent pairs (10,1)-(11,2) ·
+      triples (13,1)-(14,2) · opposites (16,2),(17,2) · quad (16,1)
+      edge+diag (7,4)-(11,5) · edge+both diags (13,4)-(14,5) · corner+diag (16,4)-(17,5)
+    """
+    lut = [0] * 256
     for m in range(256):
         rm = reduce_mask(m)
         N, E, S, W = bool(rm & NB_N), bool(rm & NB_E), bool(rm & NB_S), bool(rm & NB_W)
-        if not (N or E or S or W):
-            c, x = 18, 0
-        elif not N and not S:                          # 1-tall beam
-            c = 15 if not W else (16 if E else 17); x = 0
-        elif not W and not E:                          # 1-wide column
-            c = 3 if not N else (8 if S else 13); x = 0
-        elif not (N and E and S and W):                # outer edge / corner
-            col = 0 if (not W and E) else (2 if (W and not E) else 1)
-            row = 0 if (not N and S) else (2 if (N and not S) else 1)
-            c = row * 5 + col; x = 0
-        else:                                          # enclosed: inner corners
-            TL, TR = not (rm & NB_NW), not (rm & NB_NE)
-            BR, BL = not (rm & NB_SE), not (rm & NB_SW)
-            n = TL + TR + BR + BL
-            if not diag_nubs or n == 0:
-                c, x = 6, 0
+        # open diagonals, only where both adjacent cardinals are solid
+        NWo = N and W and not (rm & NB_NW)
+        NEo = N and E and not (rm & NB_NE)
+        SEo = S and E and not (rm & NB_SE)
+        SWo = S and W and not (rm & NB_SW)
+        nC = N + E + S + W
+        if nC == 0:
+            c = _cell(5, 5)                                    # isolated block
+        elif nC == 1:
+            if E:   c = _cell(1, 5)                            # beam left end
+            elif W: c = _cell(3, 5)                            # beam right end
+            elif S: c = _cell(5, 1)                            # column top
+            else:   c = _cell(5, 3)                            # column bottom
+        elif nC == 2 and N and S:
+            c = _cell(5, 2)                                    # column middle
+        elif nC == 2 and E and W:
+            c = _cell(2, 5)                                    # beam middle
+        elif nC == 2:                                          # corner (+diag)
+            if S and E:   c = _cell(16, 4) if SEo else _cell(1, 1)   # TL corner
+            elif S and W: c = _cell(17, 4) if SWo else _cell(3, 1)   # TR corner
+            elif N and E: c = _cell(16, 5) if NEo else _cell(1, 3)   # BL corner
+            else:         c = _cell(17, 5) if NWo else _cell(3, 3)   # BR corner
+        elif nC == 3:                                          # edge (+diags)
+            if not N:      # top edge: SE/SW relevant
+                c = _cell(13, 4) if (SEo and SWo) else                     _cell(7, 4) if SEo else _cell(8, 4) if SWo else _cell(2, 1)
+            elif not S:    # bottom edge: NE/NW relevant
+                c = _cell(14, 5) if (NEo and NWo) else                     _cell(7, 5) if NEo else _cell(8, 5) if NWo else _cell(2, 3)
+            elif not W:    # left edge: NE/SE relevant
+                c = _cell(13, 5) if (NEo and SEo) else                     _cell(10, 5) if NEo else _cell(10, 4) if SEo else _cell(1, 2)
+            else:          # right edge: NW/SW relevant
+                c = _cell(14, 4) if (NWo and SWo) else                     _cell(11, 5) if NWo else _cell(11, 4) if SWo else _cell(3, 2)
+        else:                                                  # enclosed
+            D = (NWo, NEo, SEo, SWo)
+            n = sum(D)
+            if n == 0:   c = _cell(2, 2)                       # plain fill
             elif n == 1:
-                c = 4
-                x = 0 if TL else (XF_H if TR else (XF_V if BL else XF_H | XF_V))
+                c = _cell(8, 2) if NWo else _cell(7, 2) if NEo else                     _cell(7, 1) if SEo else _cell(8, 1)
             elif n == 2:
-                if TL and TR:   c, x = 9, 0
-                elif BL and BR: c, x = 9, XF_V
-                elif TL and BL: c, x = 9, XF_R270
-                elif TR and BR: c, x = 9, XF_R90
-                elif TL and BR: c, x = 19, 0
-                else:           c, x = 20, 0
+                if NWo and NEo:   c = _cell(11, 1)             # top pair
+                elif SWo and SEo: c = _cell(10, 2)             # bottom pair
+                elif NWo and SWo: c = _cell(10, 1)             # left pair
+                elif NEo and SEo: c = _cell(11, 2)             # right pair
+                elif NEo and SWo: c = _cell(16, 2)
+                else:             c = _cell(17, 2)             # NW+SE
             elif n == 3:
-                if not BR:   c, x = 14, 0
-                elif not BL: c, x = 14, XF_H
-                elif not TR: c, x = 14, XF_V
-                else:        c, x = 14, XF_H | XF_V
+                c = _cell(13, 1) if not NWo else _cell(14, 1) if not NEo else                     _cell(13, 2) if not SWo else _cell(14, 2)
             else:
-                c, x = 21, 0
-        lut[m] = c; xf[m] = x
-    return lut, xf
+                c = _cell(16, 1)                               # all four
+        lut[m] = c
+    return lut
 
 def strip_lut_h():      # [L, M, R, single] by W/E
     lut = [0] * 256
@@ -407,70 +420,24 @@ def strip_lut_h():      # [L, M, R, single] by W/E
 
 def build_tiles():
     terr = load("14-TileSets/Terrain (32x32).png")
-    def nat(tx, ty):
-        return terr.crop((tx * 32, ty * 32, tx * 32 + 32, ty * 32 + 32)).copy()
     def tile16(tx, ty):
-        return decimate_tile(nat(tx, ty))
+        return decimate_tile(terr.crop((tx * 32, ty * 32, tx * 32 + 32, ty * 32 + 32)))
 
-    def nub_patch(fill, quad, corners):
-        """Compose an inner-corner tile: the plain fill plus the bright trim nub
-        art lifted (mask-based) from the pack's quad-nub tile at chosen corners."""
-        out = fill.copy()
-        qa = np.array(quad).astype(int)
-        lum = qa[..., 0] * 3 + qa[..., 1] * 6 + qa[..., 2]
-        pos = {"TL": (0, 0), "TR": (20, 0), "BL": (0, 20), "BR": (20, 20)}
-        for cn in corners:
-            x0, y0 = pos[cn]
-            reg = np.zeros((32, 32), dtype=bool)
-            reg[y0:y0 + 12, x0:x0 + 12] = True
-            m = reg & (lum > 1400) & (qa[..., 3] >= 128)
-            oa = np.array(out)
-            oa[m] = np.array(quad)[m]
-            out = Image.fromarray(oa)
+    # Pack the COMPLETE solid + bg wall sets, keeping the source sheet layout
+    # (a 17x5 grid of 16px cells) so every tile is where you expect it in the
+    # Studio Tiles tab. blob47_lut() assigns all 47 pieces.
+    def wall_sheet(row0):
+        out = Image.new("RGBA", (17 * 16, 5 * 16), (0, 0, 0, 0))
+        for sy in range(5):
+            for sx in range(17):
+                t = tile16(1 + sx, row0 + sy)
+                out.paste(t, (sx * 16, sy * 16))
         return out
-
-    def wall_sheet(nine, col, beam, single, Lgroup, diag_nubs):
-        """The 5x5 blob sheet (see blob_lut). Lgroup = ((quad),(diagTLBR),(diagTRBL))
-        native tile coords, or None for a wall with no nub art (cells fall back to
-        fill)."""
-        fill_n = nat(nine[0] + 1, nine[1] + 1)
-        cells = {}
-        for r in range(3):
-            for c in range(3):
-                cells[r * 5 + c] = nat(nine[0] + c, nine[1] + r)
-            cells[r * 5 + 3] = nat(col[0], col[1] + r)
-        for c in range(3):
-            cells[15 + c] = nat(beam[0] + c, beam[1])
-        cells[18] = nat(*single)
-        if Lgroup:
-            # solid wall: deep interior is NOT drawn (transparent fill) so the
-            # world reads as thin wall bands against flat void, exactly like the
-            # pack's example level; the nub tiles keep only their corner bricks.
-            clear = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
-            quad = nat(*Lgroup[0])
-            cells[6]  = clear
-            cells[4]  = nub_patch(clear, quad, ["TL"])
-            cells[9]  = nub_patch(clear, quad, ["TL", "TR"])
-            cells[14] = nub_patch(clear, quad, ["TL", "TR", "BL"])
-            cells[19] = nub_patch(clear, quad, ["TL", "BR"])
-            cells[20] = nub_patch(clear, quad, ["TR", "BL"])
-            cells[21] = nub_patch(clear, quad, ["TL", "TR", "BL", "BR"])
-        else:
-            for i in (4, 9, 14, 19, 20, 21):
-                cells[i] = fill_n
-        out = Image.new("RGBA", (5 * 16, 5 * 16), (0, 0, 0, 0))
-        for idx, im in cells.items():
-            out.paste(decimate_tile(im), ((idx % 5) * 16, (idx // 5) * 16))
-        return out
-
-    # solid: bright-trim wall with inner-corner nubs; bg: pink brick, soft edges
-    save_img(wall_sheet((1, 1), (5, 1), (1, 5), (5, 5),
-                        ((16, 1), (17, 2), (16, 2)), True), "solidt")
-    save_img(wall_sheet((1, 7), (5, 7), (1, 11), (5, 11), None, False), "bgwall")
-    lutS, xfS = blob_lut(True)
-    lutB, xfB = blob_lut(False)
-    write_tileset("solidt", "assets/solidt.png", 1, lutS, xfS)
-    write_tileset("bgwall", "assets/bgwall.png", 1, lutB, xfB)
+    save_img(wall_sheet(1), "solidt")    # bright-trim castle wall (source rows 1-5)
+    save_img(wall_sheet(7), "bgwall")    # pink brick background (source rows 7-11)
+    lut = blob47_lut()
+    write_tileset("solidt", "assets/solidt.png", 1, lut)
+    write_tileset("bgwall", "assets/bgwall.png", 1, lut)
 
     # the two wooden platforms from the Decorations sheet: 4 sections of 32px
     # each (L, M, R, single) -> 4 cells of 16px
@@ -486,21 +453,6 @@ def build_tiles():
     plat_strip(64, 80, "platthick")      # thick beam with metal ends (~8px)
     write_tileset("platthin",  "assets/platthin.png",  0, strip_lut_h())
     write_tileset("platthick", "assets/platthick.png", 0, strip_lut_h())
-
-    # 2x2-tile decorative wall features (32x32 cells downscaled):
-    # row 0 = solid-wall styles (ring/scatter/dense/trim variants),
-    # row 1 = bg-brick styles. The solid L-group lives in the ruleset now.
-    feats_solid = [(7, 1), (10, 1), (13, 1), (7, 4), (10, 4), (13, 4), (16, 4), (16, 4)]
-    feats_bg    = [(7, 7), (10, 7), (13, 7), (16, 7), (7, 10), (10, 10), (13, 10), (16, 10)]
-    sheet = Image.new("RGBA", (8 * 32, 2 * 32), (0, 0, 0, 0))
-    for i, (tx, ty) in enumerate(feats_solid):
-        f = decimate_tile(terr.crop((tx * 32, ty * 32, tx * 32 + 64, ty * 32 + 64)))
-        sheet.paste(f, (i * 32, 0))
-    for i, (tx, ty) in enumerate(feats_bg):
-        f = decimate_tile(terr.crop((tx * 32, ty * 32, tx * 32 + 64, ty * 32 + 64)))
-        sheet.paste(f, (i * 32, 32))
-    save_img(sheet, "wallfeat")
-    META.append("/* wallfeat.png: 32x32 cells; row 0 = solid-wall features, row 1 = bg features */")
 
 def main():
     os.makedirs(ANIM, exist_ok=True)

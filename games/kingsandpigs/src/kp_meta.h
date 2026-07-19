@@ -114,5 +114,4 @@
 /* numbers.png: 6x8 digits in order 1234567890 (digit d -> col d? d-1 : 9) */
 #define KP_BALL_W 7
 #define KP_BALL_H 7
-/* wallfeat.png: 32x32 cells; row 0 = solid-wall features, row 1 = bg features */
 #endif
