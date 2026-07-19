@@ -116,16 +116,21 @@ uint8_t fx_light_at(int c, int r) {
 /* --------------------------------------------------------------- sky ------- */
 static uint16_t sky_col(int wy) {
     float t = g_time;
-    /* day sky gradient; night: deep blue; dawn/dusk warm */
+    /* day sky gradient; night: deep blue; dawn/dusk warm.
+     * Dawn STRADDLES the midnight wrap (predawn 0.96..1.0, then dawn 0..0.04),
+     * so ramp it as TWO halves meeting at 0.5 across the seam — a single ramp
+     * per band would brighten the sky, snap back to night at the wrap, and
+     * brighten again. */
     float day;                       /* 1 = full day */
-    if (t < 0.04f) day = t / 0.04f;
+    if (t < 0.04f) day = 0.5f + 0.5f * (t / 0.04f);       /* dawn, 2nd half: 0.5 -> 1 */
     else if (t < 0.56f) day = 1.0f;
     else if (t < 0.62f) day = 1.0f - (t - 0.56f) / 0.06f;
     else if (t < 0.96f) day = 0.0f;
-    else day = (t - 0.96f) / 0.04f;
+    else day = 0.5f * ((t - 0.96f) / 0.04f);              /* dawn, 1st half: 0 -> 0.5 */
     float dusk = 0.0f;
-    if (t > 0.52f && t < 0.66f) dusk = 1.0f - fabsf((t - 0.59f) / 0.07f);
-    if (t < 0.06f) dusk = 1.0f - fabsf((t - 0.02f) / 0.045f);
+    if (t > 0.52f && t < 0.66f) dusk = 1.0f - fabsf((t - 0.59f) / 0.07f);  /* sunset */
+    if (t > 0.955f)      dusk = (t - 0.955f) / 0.045f;    /* sunrise glow, rising into the wrap */
+    else if (t < 0.045f) dusk = 1.0f - t / 0.045f;        /* ...and falling out of it (crest at wrap) */
     if (dusk < 0) dusk = 0;
     float depth = (float)wy / (float)(ROW_SURFACE_MAX * TILE);
     if (depth < 0) depth = 0; if (depth > 1) depth = 1;
