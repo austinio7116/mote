@@ -1,0 +1,5 @@
+# box breaks — dry crunch
+wave 3
+freq 0.30 0 -0.24 0
+env 0 0.05 0.3 0.14
+lpf 0.6 -0.12 0.1

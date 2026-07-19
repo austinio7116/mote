@@ -1,0 +1,6 @@
+# hammer swing — airy whoosh
+wave 3
+freq 0.42 0 -0.30 0
+env 0 0.04 0 0.10
+lpf 0.55 -0.1 0.1
+hpf 0.1 0

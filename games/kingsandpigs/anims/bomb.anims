@@ -1,0 +1,10 @@
+sheet anims/bomb.png
+tile 12 11
+clips 2
+clip off 1 10 0 0 1
+f 0 0 -
+clip on 1 10 0 0 4
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -

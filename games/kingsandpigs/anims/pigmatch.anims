@@ -1,0 +1,15 @@
+sheet anims/pigmatch.png
+tile 14 10
+clips 3
+clip matchon 1 10 0 0 3
+f 0 0 -
+f 1 0 -
+f 2 0 -
+clip light 0 10 0 0 3
+f 3 0 -
+f 4 0 -
+f 5 0 -
+clip fire 0 10 0 0 3
+f 6 0 -
+f 7 0 -
+f 8 0 -

@@ -1,0 +1,6 @@
+# next floor — little ascending fanfare
+wave 0
+freq 0.30 0 0.10 0
+duty 0.45 0
+env 0 0.18 0.3 0.20
+arp 0.28 0.09

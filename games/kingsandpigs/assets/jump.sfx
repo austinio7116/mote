@@ -1,0 +1,6 @@
+# king jump — quick rising blip
+wave 0
+freq 0.32 0 0.18 0
+duty 0.4 0
+env 0 0.06 0.2 0.10
+lpf 0.9 0 0

@@ -1,0 +1,10 @@
+sheet anims/boom.png
+tile 26 28
+clips 1
+clip go 0 10 0 0 6
+f 0 0 -
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -
+f 5 0 -

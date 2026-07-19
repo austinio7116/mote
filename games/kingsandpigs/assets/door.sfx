@@ -1,0 +1,6 @@
+# door creaks open
+wave 1
+freq 0.11 0 0.06 0
+vib 0.25 0.30
+env 0.05 0.20 0 0.22
+lpf 0.55 0 0.1

@@ -1,0 +1,5 @@
+# game over — long sad descent
+wave 1
+freq 0.30 0.06 -0.16 -0.04
+env 0 0.25 0.2 0.45
+lpf 0.7 -0.05 0.1

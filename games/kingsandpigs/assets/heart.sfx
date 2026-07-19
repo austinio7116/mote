@@ -1,0 +1,4 @@
+# heart pickup — warm rising chime
+wave 2
+freq 0.42 0 0.22 0
+env 0 0.10 0.2 0.24

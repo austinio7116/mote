@@ -1,0 +1,15 @@
+sheet anims/door.png
+tile 24 29
+clips 3
+clip idle 1 10 0 0 1
+f 0 0 -
+clip open 0 10 0 0 5
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -
+f 5 0 -
+clip close 0 10 0 0 3
+f 6 0 -
+f 7 0 -
+f 8 0 -

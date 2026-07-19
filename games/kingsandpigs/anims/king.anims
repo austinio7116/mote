@@ -1,0 +1,60 @@
+sheet anims/king.png
+tile 52 29
+clips 10
+clip idle 1 10 0 0 11
+f 0 0 -
+f 1 0 -
+f 2 0 -
+f 3 0 -
+f 4 0 -
+f 5 0 -
+f 6 0 -
+f 7 0 -
+f 8 0 -
+f 9 0 -
+f 10 0 -
+clip run 1 10 0 0 8
+f 11 0 -
+f 12 0 -
+f 13 0 -
+f 14 0 -
+f 15 0 -
+f 16 0 -
+f 17 0 -
+f 18 0 -
+clip attack 0 10 0 0 3
+f 19 0 -
+f 20 0 -
+f 21 0 -
+clip dead 0 10 0 0 4
+f 22 0 -
+f 23 0 -
+f 24 0 -
+f 25 0 -
+clip doorin 0 10 0 0 8
+f 26 0 -
+f 27 0 -
+f 28 0 -
+f 29 0 -
+f 30 0 -
+f 31 0 -
+f 32 0 -
+f 33 0 -
+clip doorout 0 10 0 0 8
+f 34 0 -
+f 35 0 -
+f 36 0 -
+f 37 0 -
+f 38 0 -
+f 39 0 -
+f 40 0 -
+f 41 0 -
+clip fall 1 10 0 0 1
+f 42 0 -
+clip ground 0 10 0 0 1
+f 43 0 -
+clip hit 0 10 0 0 2
+f 44 0 -
+f 45 0 -
+clip jump 1 10 0 0 1
+f 46 0 -

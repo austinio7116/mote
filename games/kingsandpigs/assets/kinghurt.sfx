@@ -1,0 +1,6 @@
+# king takes a hit — low descending buzz
+wave 0
+freq 0.20 0 -0.26 0
+duty 0.3 0
+env 0 0.08 0.4 0.20
+lpf 0.75 0 0

@@ -1,0 +1,5 @@
+# diamond pickup — bright two-tone chime
+wave 2
+freq 0.58 0 0 0
+env 0 0.05 0.4 0.18
+arp 0.35 0.05
