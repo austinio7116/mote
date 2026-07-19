@@ -34,7 +34,7 @@ MOTE_MODULE_HEADER();
 #endif
 
 #include "kp_meta.h"
-#include "kp_rooms.h"
+#include "kp_floorgen.h"
 
 /* packed animation atlases (anims/*.anims -> Studio Anim tab) */
 #include "king.anim.h"
@@ -118,14 +118,10 @@ MOTE_MODULE_HEADER();
 
 /* ------------------------------------------------------------- world grid */
 #define TILE      32
-#define ROOMS_X    5
-#define ROOMS_Y    4
-#define ROOM_W    12            /* must match KP_ROOM_W (kp_rooms.h) */
-#define ROOM_H     6            /* must match KP_ROOM_H (kp_rooms.h) */
-#define COLS   (ROOMS_X * ROOM_W)          /* 60  */
-#define ROWS   (ROOMS_Y * ROOM_H)          /* 24  */
-#define WORLD_W (COLS * TILE)              /* 1920 */
-#define WORLD_H (ROWS * TILE)              /* 768  */
+#define COLS   KP_CW                        /* 60 — the piece-graph canvas */
+#define ROWS   KP_CH                        /* 44 */
+#define WORLD_W (COLS * TILE)               /* 1920 */
+#define WORLD_H (ROWS * TILE)               /* 1408 */
 
 /* map layer bits (autotile layers draw bottom-up in this order) */
 #define B_BG   1u    /* pink brick background wall            */
@@ -432,336 +428,100 @@ static void add_enemy(int type, float x, float y, float home) {
     }
 }
 
-static int floor_row_y(int gy) { return (gy * ROOM_H + ROOM_H - 1) * TILE; }
-
 static void generate(void) {
     mote_rand_seed(s_seed);
-    for (int i = 0; i < ROWS * COLS; i++) map[i] = B_SOL;
-    for (int i = 0; i < MAXE; i++) en[i].on = 0;
-    for (int i = 0; i < MAXP; i++) pr[i].on = 0;
+    for (int i = 0; i < ROWS * COLS; i++) map[i] = 0;       /* void by default */
+    for (int i = 0; i < MAXE; i++)  en[i].on = 0;
+    for (int i = 0; i < MAXP; i++)  pr[i].on = 0;
     for (int i = 0; i < MAXBM; i++) booms[i].on = 0;
     for (int i = 0; i < MAXPT; i++) pts[i].on = 0;
     for (int i = 0; i < MAXBX; i++) crates[i].on = 0;
     for (int i = 0; i < MAXSB; i++) sbombs[i].on = 0;
     for (int i = 0; i < MAXPK; i++) pk[i].on = 0;
     for (int i = 0; i < MAXDC; i++) dc[i].on = 0;
-    for (int i = 0; i < MAXC; i++) cans[i].on = 0;
+    for (int i = 0; i < MAXC; i++)  cans[i].on = 0;
 
     boss_floor = (depth % 3 == 0);
     boss_alive = 0;
+    doors[0].x = doors[0].y = 0.0f;
+    doors[1].x = doors[1].y = 0.0f;
 
-    /* --- solution path: snake sideways, drop down --- */
-    uint8_t path[ROOMS_Y * ROOMS_X] = {0};
-    uint8_t drop[ROOMS_Y * ROOMS_X] = {0};
-    int rx = rndi(ROOMS_X), ry = 0;
-    int start_rx = rx;
-    path[0 * ROOMS_X + rx] = 1;
-    while (ry < ROOMS_Y - 1) {
-        int moved = 0;
-        if (rndi(5) < 3) {
-            int dir = (rnd() & 1) ? 1 : -1;
-            int nx = rx + dir;
-            if (nx >= 0 && nx < ROOMS_X && !path[ry * ROOMS_X + nx]) {
-                rx = nx; path[ry * ROOMS_X + rx] = 1; moved = 1;
-            }
-        }
-        if (!moved) { drop[ry * ROOMS_X + rx] = 1; ry++; path[ry * ROOMS_X + rx] = 1; }
-    }
-    int exit_rx = rx, exit_ry = ry;
+    kp_gen();                              /* piece-graph floor into kg_cv[][] */
 
-    /* --- stamp one hand-authored chunk (kp_rooms.h) per path room --- */
     int enemy_budget = 3 + depth; if (enemy_budget > 12) enemy_budget = 12;
     if (boss_floor) enemy_budget = 1 + depth / 3;
-    const KpRoom *tpl_of[ROOMS_Y * ROOMS_X] = {0};
 
-    /* every grid cell becomes a room — the path rooms guarantee the critical
-     * route, everything else is optional side content reachable through the
-     * shared corridor mouths (alternate paths). A few off-path cells stay
-     * solid so floor silhouettes vary. */
-    uint8_t roomvoid[ROOMS_Y * ROOMS_X];
-    uint8_t hasdrop[ROOMS_Y * ROOMS_X];
-    for (int i = 0; i < ROOMS_Y * ROOMS_X; i++)
-        roomvoid[i] = !path[i] && rndi(4) == 0;
-
-    /* choose a chunk for every surviving room up front */
-    for (int gy = 0; gy < ROOMS_Y; gy++)
-    for (int gx = 0; gx < ROOMS_X; gx++) {
-        int i = gy * ROOMS_X + gx;
-        hasdrop[i] = 0;
-        if (roomvoid[i]) continue;
-        int is_start = (gy == 0 && gx == start_rx);
-        int is_exit  = (gy == exit_ry && gx == exit_rx);
-        int is_drop  = drop[i] ||
-                       (!path[i] && gy < ROOMS_Y - 1 &&
-                        !roomvoid[(gy + 1) * ROOMS_X + gx] && rndi(3) == 0);
-        if (is_start)          tpl_of[i] = &kp_start[rndi(KP_NSTART)];
-        else if (is_exit)      tpl_of[i] = boss_floor ? &kp_bossexit[rndi(KP_NBOSSEXIT)] : &kp_exit[rndi(KP_NEXIT)];
-        else if (is_drop)      tpl_of[i] = &kp_drop[rndi(KP_NDROP)];
-        else                   tpl_of[i] = &kp_side[rndi(KP_NSIDE)];
-        hasdrop[i] = is_drop;
-    }
-
-    /* room-graph reachability: mouths join side-by-side rooms both ways, drop
-     * holes go down only. Every room must be reachable FROM the entrance AND
-     * able to reach the exit — anything else is an island or a one-way trap,
-     * so it turns to void. Iterate to a fixpoint (voiding removes edges). */
-    for (int pass = 0; pass < ROOMS_Y * ROOMS_X; pass++) {
-        uint8_t fwd[ROOMS_Y * ROOMS_X] = {0}, bwd[ROOMS_Y * ROOMS_X] = {0};
-        fwd[start_rx] = 1;                                  /* entrance room (gy 0) */
-        bwd[exit_ry * ROOMS_X + exit_rx] = 1;
-        for (int it = 0; it < ROOMS_Y * ROOMS_X; it++)
-            for (int gy = 0; gy < ROOMS_Y; gy++)
-            for (int gx = 0; gx < ROOMS_X; gx++) {
-                int i = gy * ROOMS_X + gx;
-                if (roomvoid[i] || !tpl_of[i]) continue;
-                int dn = (gy + 1) * ROOMS_X + gx;
-                if (gx > 0 && !roomvoid[i - 1] && tpl_of[i - 1]) {
-                    if (fwd[i - 1]) fwd[i] = 1;
-                    if (fwd[i]) fwd[i - 1] = 1;
-                    if (bwd[i - 1]) bwd[i] = 1;
-                    if (bwd[i]) bwd[i - 1] = 1;
-                }
-                if (gy < ROOMS_Y - 1 && hasdrop[i] && !roomvoid[dn] && tpl_of[dn]) {
-                    if (fwd[i]) fwd[dn] = 1;                /* fall down */
-                    if (bwd[dn]) bwd[i] = 1;                /* exit lies below */
-                }
-            }
-        int changed = 0;
-        for (int i = 0; i < ROOMS_Y * ROOMS_X; i++) {
-            if (path[i] || roomvoid[i] || !tpl_of[i]) continue;
-            if (!fwd[i] || !bwd[i]) { roomvoid[i] = 1; tpl_of[i] = 0; changed = 1; }
+    for (int r = 0; r < ROWS; r++)
+    for (int c = 0; c < COLS; c++) {
+        char ch = kg_cv[r][c];
+        uint8_t v;
+        switch (ch) {
+        case '#': v = B_SOL; break;
+        case '=': v = B_BG | B_PLA; break;
+        case '-': case 'S': v = B_BG | B_PLB; break;
+        case ' ': v = 0; break;
+        default:  v = B_BG; break;         /* '.' and every marker sit on interior */
         }
-        if (!changed) break;
-    }
+        map[r * COLS + c] = v;
+        if (ch=='.'||ch=='#'||ch==' '||ch=='='||ch=='-'||ch=='S') continue;
 
-    for (int gy = 0; gy < ROOMS_Y; gy++)
-    for (int gx = 0; gx < ROOMS_X; gx++) {
-        if (!tpl_of[gy * ROOMS_X + gx]) continue;
-        int c0 = gx * ROOM_W, r0 = gy * ROOM_H;
-        int is_start = (gy == 0 && gx == start_rx);
-        const KpRoom *tpl = tpl_of[gy * ROOMS_X + gx];
-
-        for (int r = 0; r < KP_ROOM_H; r++)
-        for (int c = 0; c < KP_ROOM_W; c++) {
-            int mr = r0 + r, mc = c0 + c;
-            char ch = tpl->r[r][c];
-            float wx = mc * TILE + 16.0f;
-            /* feet rest on the first wall/platform below the marker */
-            int rr = r + 1;
-            while (rr < KP_ROOM_H - 1) {
-                char below = tpl->r[rr][c];
-                if (below == '#' || below == '=' || below == '-') break;
-                rr++;
+        float wx = c * TILE + 16.0f;
+        int rr = r + 1;                    /* feet rest on the first surface below */
+        while (rr < ROWS) { char b = kg_cv[rr][c];
+            if (b=='#'||b=='='||b=='-'||b=='S') break; rr++; }
+        float wy = (float)(rr * TILE);
+        switch (ch) {
+        case 'd': spawn_pickup(PK_DBIG, wx, wy - 12.0f, 0); break;
+        case 'D': spawn_pickup(PK_DBIG, wx - 20, wy - 12.0f, 0);
+                  spawn_pickup(PK_DBIG, wx,      wy - 20.0f, 0);
+                  spawn_pickup(PK_DBIG, wx + 20, wy - 12.0f, 0); break;
+        case 'h': spawn_pickup(PK_HBIG, wx, wy - 12.0f, 0); break;
+        case 'b': for (int j=0;j<MAXSB;j++) if(!sbombs[j].on){ sbombs[j]=(SBomb){1,wx,wy}; break; } break;
+        case 'B':
+            if (depth >= 2 && rndi(6) == 0) add_enemy(E_HIDE, wx, wy, wx);
+            else {
+                int hgt = 1 + rndi(2);
+                for (int s=0;s<hgt;s++) for(int j=0;j<MAXBX;j++) if(!crates[j].on){
+                    crates[j]=(Crate){1,wx,wy - s*(KP_BOX_BH+1)}; break; }
+                if (rndi(3)==0) for(int j=0;j<MAXSB;j++) if(!sbombs[j].on){
+                    sbombs[j]=(SBomb){1,wx,wy - hgt*(KP_BOX_BH+1)}; break; }
             }
-            float wy = (float)((r0 + rr) * TILE);
-            uint8_t v = B_BG;
-            switch (ch) {
-            case '#': v = B_SOL; break;
-            case '=': v = B_BG | B_PLA; break;
-            case '-': v = B_BG | B_PLB; break;
-            case 'O': v = B_BG; break;   /* the lower half is punched after stamping */
-            case 'd': spawn_pickup(PK_DBIG, wx, wy - 12.0f, 0); break;
-            case 'D':                                     /* a little gem cluster */
-                spawn_pickup(PK_DBIG, wx - 20, wy - 12.0f, 0);
-                spawn_pickup(PK_DBIG, wx, wy - 20.0f, 0);
-                spawn_pickup(PK_DBIG, wx + 20, wy - 12.0f, 0);
-                break;
-            case 'h': spawn_pickup(PK_HBIG, wx, wy - 12.0f, 0); break;
-            case 'b':
-                for (int j = 0; j < MAXSB; j++) if (!sbombs[j].on) {
-                    sbombs[j] = (SBomb){ 1, wx, wy }; break;
-                }
-                break;
-            case 'B':
-                if (depth >= 2 && rndi(6) == 0) {
-                    add_enemy(E_HIDE, wx, wy, wx);
-                } else {
-                    int hgt = 1 + rndi(2);
-                    for (int s = 0; s < hgt; s++)
-                        for (int j = 0; j < MAXBX; j++) if (!crates[j].on) {
-                            crates[j] = (Crate){ 1, wx, wy - s * (KP_BOX_BH + 1) };
-                            break;
-                        }
-                    if (rndi(3) == 0)              /* a bomb resting on the stack */
-                        for (int j = 0; j < MAXSB; j++) if (!sbombs[j].on) {
-                            sbombs[j] = (SBomb){ 1, wx, wy - hgt * (KP_BOX_BH + 1) }; break;
-                        }
-                }
-                break;
-            case 'E':
-                if (enemy_budget > 0 && !(depth == 1 && is_start)) {
-                    int maxt = (depth >= 3) ? 3 : (depth >= 2) ? 2 : 1;
-                    int t = rndi(maxt + 1);
-                    /* markers that sank to the room floor climb onto a random
-                     * platform/beam top most of the time, so patrols guard the
-                     * upper routes instead of all pacing the floor */
-                    if (rr == KP_ROOM_H - 1 && rndi(3) != 0) {
-                        int picked = 0, seen_n = 0;
-                        for (int pr = 1; pr < KP_ROOM_H - 1; pr++)
-                        for (int pc = 1; pc < KP_ROOM_W - 1; pc++) {
-                            char pch = tpl->r[pr][pc];
-                            if ((pch == '=' || pch == '-' || pch == 'S' || pch == '#') &&
-                                tpl->r[pr - 1][pc] == '.' &&
-                                (pr == 1 || tpl->r[pr - 2][pc] == '.')) {
-                                seen_n++;
-                                if (rndi(seen_n) == 0) picked = pr * KP_ROOM_W + pc;
-                            }
-                        }
-                        if (seen_n) {
-                            wx = (c0 + picked % KP_ROOM_W) * TILE + 16.0f;
-                            wy = (float)((r0 + picked / KP_ROOM_W) * TILE);
-                        }
-                    }
-                    add_enemy(t == 0 ? E_PIG : t == 1 ? E_BOXP : t == 2 ? E_BOMBP : E_HIDE,
-                              wx, wy, wx);
-                    enemy_budget--;
-                }
-                break;
-            case 'C':
-                if (depth >= 2) {
-                    int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
-                    if (ci < MAXC) {
-                        int dir = (c > KP_ROOM_W / 2) ? -1 : 1;   /* fire toward the room */
-                        cans[ci] = (Cannon){ 1, (int8_t)dir, wx, wy, 0 };
-                        cans[ci].clip = &cannon_idle; mote_anim_play(&cans[ci].ap, &cannon_idle);
-                        add_enemy(E_MATCH, wx - dir * 28, wy, wx - dir * 28);
-                        for (int j = 0; j < MAXE; j++)
-                            if (en[j].on && en[j].type == E_MATCH && en[j].cannon < 0) {
-                                en[j].cannon = (int8_t)ci; en[j].facing = (int8_t)dir;
-                            }
-                    }
-                }
-                break;
-            case 'W': add_deco(DC_WINDOW, 0, mc * TILE - 1, mr * TILE + 4); break;
-            case 'F': add_deco(rndi(3) == 0 ? DC_BANNER2 : DC_BANNER1, 0,
-                               mc * TILE + 1, mr * TILE + 2); break;
-            case 'S': {
-                /* standable 3-wide metal shelf with loot on top (the side
-                 * cells get their plank bit in the post-pass below) */
-                v = B_BG | B_PLB;
-                float sy = mr * (float)TILE;
-                if (rndi(3) == 0) {
-                    for (int j = 0; j < MAXSB; j++) if (!sbombs[j].on) {
-                        sbombs[j] = (SBomb){ 1, wx, sy }; break;
-                    }
-                } else {
-                    spawn_pickup(PK_DBIG, wx - 16, sy - 12, 0);
-                    spawn_pickup(PK_DBIG, wx + 16, sy - 12, 0);
-                }
-                break; }
-            case 'e': doors[0].x = wx; doors[0].y = wy; break;
-            case 'x': doors[1].x = wx; doors[1].y = wy; break;
-            default: break;                                /* '.' plain interior */
+            break;
+        case 'E':
+            if (enemy_budget > 0) {
+                int maxt = (depth>=3)?3:(depth>=2)?2:1;
+                int t = rndi(maxt+1);
+                add_enemy(t==0?E_PIG:t==1?E_BOXP:t==2?E_BOMBP:E_HIDE, wx, wy, wx);
+                enemy_budget--;
             }
-            /* markers leave their own cell as interior */
-            map[mr * COLS + mc] = v;
-        }
-        /* widen 'S' shelves to 3 cells (their neighbours were stamped plain) */
-        for (int r = 0; r < KP_ROOM_H; r++)
-        for (int c = 0; c < KP_ROOM_W; c++)
-            if (tpl->r[r][c] == 'S') {
-                if (c > 0)              map[(r0 + r) * COLS + c0 + c - 1] |= B_PLB;
-                if (c < KP_ROOM_W - 1)  map[(r0 + r) * COLS + c0 + c + 1] |= B_PLB;
-            }
-    }
-
-    /* punch the drop holes through the room-below's ceiling row (done after
-     * stamping so the lower room's own template can't refill them). A drop
-     * room whose template has no 'O' (start/exit chunks) gets a hole punched
-     * at a random spot clear of the doors — the descent is guaranteed. */
-    for (int gy = 0; gy < ROOMS_Y; gy++)
-    for (int gx = 0; gx < ROOMS_X; gx++) {
-        const KpRoom *tpl = tpl_of[gy * ROOMS_X + gx];
-        if (!tpl) continue;
-        int mr = gy * ROOM_H + KP_ROOM_H - 1;
-        int punched = 0;
-        for (int c = 0; c < KP_ROOM_W; c++)
-            if (tpl->r[KP_ROOM_H - 1][c] == 'O' && mr + 1 < ROWS - 1) {
-                int mc = gx * ROOM_W + c;
-                /* only open the hole where the king can actually fall through
-                 * — if the room below has terrain hard against its ceiling
-                 * here the drop would dead-end in a notch, so keep the floor
-                 * closed at this column instead */
-                if (map[(mr + 2) * COLS + mc] & B_SOL) {
-                    map[mr * COLS + mc] = B_SOL;
-                    continue;
+            break;
+        case 'C':
+            if (depth >= 2) {
+                int ci; for (ci=0; ci<MAXC && cans[ci].on; ci++) {}
+                if (ci < MAXC) {
+                    int dir = (c > COLS/2) ? -1 : 1;
+                    cans[ci] = (Cannon){1,(int8_t)dir,wx,wy,0};
+                    cans[ci].clip=&cannon_idle; mote_anim_play(&cans[ci].ap,&cannon_idle);
+                    add_enemy(E_MATCH, wx - dir*28, wy, wx - dir*28);
+                    for (int j=0;j<MAXE;j++)
+                        if(en[j].on && en[j].type==E_MATCH && en[j].cannon<0){
+                            en[j].cannon=(int8_t)ci; en[j].facing=(int8_t)dir; }
                 }
-                map[(mr + 1) * COLS + mc] = B_BG;
-                punched = 1;
             }
-        if (!hasdrop[gy * ROOMS_X + gx]) continue;
-        if (!punched && mr + 2 < ROWS) {
-            /* no usable template hole — punch a 2-wide one at the best
-             * column pair: enterable from above, open below (drilling
-             * through a thin blockage if it must), away from the doors */
-            int lowfloor = (gy + 2) * ROOM_H - 1;
-            int best = -1, bestcost = 999;
-            for (int c = gx * ROOM_W + 1; c <= gx * ROOM_W + KP_ROOM_W - 3; c++) {
-                int cost = 0, bad = 0;
-                for (int k = 0; k < 2; k++) {
-                    int cc = c + k;
-                    if (map[(mr - 1) * COLS + cc] & B_SOL) { bad = 1; break; }
-                    int r2 = mr + 2;
-                    while (r2 < lowfloor && (map[r2 * COLS + cc] & B_SOL)) r2++;
-                    if (r2 >= lowfloor) { bad = 1; break; }   /* solid shaft */
-                    if (r2 - (mr + 2) > cost) cost = r2 - (mr + 2);
-                }
-                if (bad) continue;
-                float hx = c * TILE + 16.0f;
-                if (fabsf(hx - doors[0].x) <= 56 || fabsf(hx - doors[1].x) <= 56)
-                    cost += 100;
-                if (cost < bestcost) { bestcost = cost; best = c; }
-            }
-            if (best >= 0)
-                for (int k = 0; k < 2; k++) {
-                    int cc = best + k, r2 = mr + 2;
-                    map[mr * COLS + cc] = B_BG;
-                    map[(mr + 1) * COLS + cc] = B_BG;
-                    while (r2 < lowfloor && (map[r2 * COLS + cc] & B_SOL))
-                        map[r2++ * COLS + cc] = B_BG;
-                }
-        }
-    }
-
-    /* break pass-through shafts: when the drop hole from the band above lines
-     * up with this band's own floor hole through an open column, a fall would
-     * skip the band entirely and it could become unreachable. A catch beam
-     * just above the lower hole lands the king inside the band; stepping off
-     * it beside the hole continues the descent. */
-    for (int gy = 1; gy < ROOMS_Y; gy++) {
-        int top = gy * ROOM_H;                 /* this band's ceiling row */
-        int bot = top + KP_ROOM_H - 1;         /* this band's floor row */
-        for (int c = 1; c < COLS - 1; c++) {
-            if ((map[top * COLS + c] & B_SOL) || (map[(top - 1) * COLS + c] & B_SOL))
-                continue;                      /* no hole from above here */
-            int r = top + 1;
-            while (r < bot && !(map[r * COLS + c] & (B_SOL | B_PLT))) r++;
-            if (r < bot || (map[bot * COLS + c] & B_SOL))
-                continue;                      /* the fall lands inside the band */
-            map[(bot - 1) * COLS + c] |= B_PLB;
-        }
-    }
-
-    /* seal corridor mouths that face the world edge or a void cell, so the
-     * castle silhouette closes cleanly instead of opening into nothing */
-    for (int gy = 0; gy < ROOMS_Y; gy++)
-    for (int gx = 0; gx < ROOMS_X; gx++) {
-        if (!tpl_of[gy * ROOMS_X + gx]) continue;
-        int r0 = gy * ROOM_H;
-        int voidL = gx == 0 || roomvoid[gy * ROOMS_X + gx - 1];
-        int voidR = gx == ROOMS_X - 1 || roomvoid[gy * ROOMS_X + gx + 1];
-        for (int r = KP_ROOM_H - 4; r <= KP_ROOM_H - 2; r++) {
-            if (voidL) map[(r0 + r) * COLS + gx * ROOM_W] = B_SOL;
-            if (voidR) map[(r0 + r) * COLS + gx * ROOM_W + KP_ROOM_W - 1] = B_SOL;
+            break;
+        case 'W': add_deco(DC_WINDOW, 0, c*TILE - 1, r*TILE + 4); break;
+        case 'F': add_deco(rndi(3)==0?DC_BANNER2:DC_BANNER1, 0, c*TILE + 1, r*TILE + 2); break;
+        case 'e': doors[0].x = wx; doors[0].y = wy; break;
+        case 'x': doors[1].x = wx; doors[1].y = wy; break;
+        default: break;
         }
     }
 
     doors[0].clip = &door_idle; mote_anim_play(&doors[0].ap, &door_idle);
     doors[1].clip = &door_idle; mote_anim_play(&doors[1].ap, &door_idle);
 
-    if (boss_floor) {
-        add_enemy(E_BOSS, (exit_rx * ROOM_W + ROOM_W / 2) * TILE + 16.0f,
-                  (float)floor_row_y(exit_ry), 0);
+    if (boss_floor && doors[1].x > 0.0f) {
+        add_enemy(E_BOSS, doors[1].x, doors[1].y, doors[1].x);
         boss_alive = 1;
     }
 
@@ -769,10 +529,7 @@ static void generate(void) {
     if (getenv("KP_DUMP")) {
         for (int r = 0; r < ROWS; r++) {
             char line[COLS + 1];
-            for (int c = 0; c < COLS; c++) {
-                int m = map[r * COLS + c];
-                line[c] = (m & B_SOL) ? '#' : (m & B_PLT) ? '=' : (m & B_BG) ? '.' : ' ';
-            }
+            for (int c = 0; c < COLS; c++) line[c] = kg_cv[r][c];  /* raw, with markers */
             line[COLS] = 0;
             fprintf(stderr, "%2d %s\n", r, line);
         }
