@@ -39,9 +39,10 @@ def ports(name):
 OPP = {'T': 'B', 'B': 'T', 'L': 'R', 'R': 'L'}
 
 # ============================================================ generator
-CW, CH = 54, 74
+CW, CH = 60, 44
+VEXTENT = 30               # HARD cap on total height (top-most..bottom-most): ~4-5 rooms
 
-def gen(seed, target=16, tries_cap=600):
+def gen(seed, target=14, tries_cap=600):
     rng = random.Random(seed)
     cv = [[' '] * CW for _ in range(CH)]
     occ = []        # placed piece rects (x,y,w,h)
@@ -99,16 +100,28 @@ def gen(seed, target=16, tries_cap=600):
                     return bn, bx, by, bp
         return None
 
+    def vextent(extra=None):
+        ys = [(p["y"], p["y"] + len(PIECES[p["name"]]["rows"])) for p in placed]
+        if extra: ys.append(extra)
+        return max(b for _, b in ys) - min(a for a, _ in ys)
+
     t = 0
     while frontier and len(placed) < target and t < tries_cap:
         t += 1
-        # prefer descending: pick a bottom port if available, else random
-        bops = [i for i, (pi, p) in enumerate(frontier) if p[0] == 'B']
-        fi = rng.choice(bops) if (bops and rng.random() < 0.7) else rng.randrange(len(frontier))
+        # once we're near the height cap, stop growing vertically and spread
+        near_cap = vextent() >= VEXTENT - 6
+        want_down = (not near_cap) and rng.random() < 0.4
+        pool = [i for i, (pi, p) in enumerate(frontier)
+                if (p[0] in 'TB') == want_down] or list(range(len(frontier)))
+        fi = rng.choice(pool)
         pi, port = frontier.pop(fi)
         res = attach(pi, port, list(side_names))
         if not res: continue
         bn, bx, by, bp = res
+        # HARD height cap: reject any placement (up or down) that grows the
+        # top-to-bottom extent past ~5 rooms
+        if vextent((by, by + len(PIECES[bn]["rows"]))) > VEXTENT:
+            continue
         bi = len(placed)
         placed.append({"name": bn, "x": bx, "y": by, "used": [bp]})
         placed[pi]["used"].append(port)
@@ -142,12 +155,14 @@ def gen(seed, target=16, tries_cap=600):
     return cv, placed, exit_ok
 
 def carve_opening(cv, pc, port):
+    # Vertical connections (T/B) share ONE row between the two abutting rooms;
+    # it stays a THIN PLANK (stand on it from above, jump up through from below).
+    # Horizontal doors (L/R) open fully.
     rows = PIECES[pc["name"]]["rows"]; h = len(rows); w = len(rows[0])
     kind, a, b = port; x, y = pc["x"], pc["y"]
     if kind == 'T':
-        for c in range(a, b + 1): cv[y][x + c] = '.'
+        for c in range(a, b + 1): cv[y][x + c] = '='
     elif kind == 'B':
-        # leave a THIN PLANK across the drop at floor level (walk / drop through)
         for c in range(a, b + 1): cv[y + h - 1][x + c] = '='
     elif kind == 'L':
         for r in range(a, b + 1): cv[y + r][x] = '.'
