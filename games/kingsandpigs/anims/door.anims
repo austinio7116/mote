@@ -1,5 +1,5 @@
 sheet anims/door.png
-tile 24 29
+tile 48 58
 clips 3
 clip idle 1 10 0 0 1
 f 0 0 -

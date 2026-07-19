@@ -3,13 +3,13 @@
 #define MOTE_IMG_shelfa_H
 #include "mote_2d.h"
 
-static const uint16_t shelfa_pal[5] = { 0x39ca,0x6acc,0xa26d,0xbb0d,0xf81f };
+static const uint16_t shelfa_pal[7] = { 0x39ca,0xa26d,0xbb0d,0xd490,0xe5b3,0xeef7,0xf81f };
 static const uint8_t shelfa_idx[96] = {
-  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,51,51,51,51,51,51,51,
-  51,51,51,51,51,51,51,51,51,51,51,51,51,51,51,50,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,0,0,0,0,0,0,0,68,68,4,68,68,68,68,68,68,68,68,68,68,68,68,68,68,68,68,68,68,64,68,68,
+  96,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,69,69,85,84,84,68,68,
+  68,69,85,69,68,68,68,68,68,69,85,84,84,68,68,85,1,34,34,34,34,34,34,34,34,34,34,34,34,34,34,34,
+  34,34,34,34,34,34,34,34,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 };
-static const MoteImage shelfa_img = { 0, 48, 4, 0xF81F, 0, 1, shelfa_idx, shelfa_pal };  /* 4bpp indexed, 5 colours */
+static const MoteImage shelfa_img = { 0, 48, 4, 0xF81F, 0, 1, shelfa_idx, shelfa_pal };  /* 4bpp indexed, 7 colours */
 #define shelfa_W 48
 #define shelfa_H 4
 

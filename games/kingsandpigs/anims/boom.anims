@@ -1,5 +1,5 @@
 sheet anims/boom.png
-tile 26 28
+tile 52 56
 clips 1
 clip go 0 10 0 0 6
 f 0 0 -

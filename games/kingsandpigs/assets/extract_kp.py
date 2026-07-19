@@ -33,6 +33,8 @@ META = []
 
 LOOP, ONCE, PP = 1, 0, 2
 FPS = 10          # the whole pack is authored at 10 fps / 100 ms
+NATIVE = True     # 1x original pixels (32px tiles); False = the old 2x downscale
+CS = 32 if NATIVE else 16      # tile cell size
 
 def load(path):
     return Image.open(os.path.join(SRC, path)).convert("RGBA")
@@ -50,6 +52,8 @@ def bbox(img):
 def decimate(img):
     """Plain 2x decimation — tested against blended/palette-snap variants;
     keeps the art brightest and most readable at 128x128. Used for sprites."""
+    if NATIVE:
+        return img.copy()
     a = np.array(img)
     return Image.fromarray(a[::2, ::2])
 
@@ -60,6 +64,8 @@ def decimate_tile(img):
     wide featureless planks. Here a 2x2 block that contains a 'seam' pixel
     (clearly darker than the tile's typical brightness) keeps its darkest
     pixel, so every mortar line survives and the walls still read as bricks."""
+    if NATIVE:
+        return img.copy()
     a = np.array(img).astype(np.int32)
     lum = a[..., 0] * 3 + a[..., 1] * 6 + a[..., 2]
     op = a[..., 3] >= 128
@@ -89,7 +95,6 @@ CHARS = [
     ("king", "01-King Human", 78, True if 0 else False, "feet", [
         ("idle",    "Idle (78x58).png",     LOOP),
         ("run",     "Run (78x58).png",      LOOP),
-        ("attack",  "Attack (78x58).png",   ONCE),
         ("dead",    "Dead (78x58).png",     ONCE),
         ("doorin",  "Door In (78x58).png",  ONCE),
         ("doorout", "Door Out (78x58).png", ONCE),
@@ -97,6 +102,9 @@ CHARS = [
         ("ground",  "Ground (78x58).png",   ONCE),
         ("hit",     "Hit (78x58).png",      ONCE),
         ("jump",    "Jump (78x58).png",     LOOP),
+    ]),
+    ("kingatk", "01-King Human", 78, False, "feet", [
+        ("attack",  "Attack (78x58).png",   ONCE),
     ]),
     ("kingpig", "02-King Pig", 38, True, "feet", [
         ("idle",   "Idle (38x28).png",   LOOP),
@@ -175,7 +183,7 @@ CHARS = [
 ]
 
 def pack_char(name, subdir, fw, flip, anchor_mode, clips):
-    sc = 1 if anchor_mode.endswith("1x") else 2      # native-res sheets keep UI art readable
+    sc = 1 if (NATIVE or anchor_mode.endswith("1x")) else 2      # native-res sheets keep UI art readable
     anchor_mode = anchor_mode.replace("1x", "")
     # load all frames
     allfr = []          # (clip_i, PIL frame)
@@ -325,7 +333,7 @@ def _beam_lmr(beam8):   # sections 0,1,3 of the 64px-wide downscaled beam strip
 NB_N, NB_NE, NB_E, NB_SE, NB_S, NB_SW, NB_W, NB_NW = (1, 2, 4, 8, 16, 32, 64, 128)
 
 def write_tileset(name, sheet_rel, edge, lut, xform=None):
-    lines = [f"sheet {sheet_rel}", "tile 16", f"edge {edge}", "nvar 1",
+    lines = [f"sheet {sheet_rel}", f"tile {CS}", f"edge {edge}", "nvar 1",
              "lut " + " ".join(str(v) for v in lut),
              "xform " + " ".join(str(v) for v in (xform or [0] * 256)),
              "vweight 1 1 1 1 1 1 1 1"]
@@ -422,16 +430,17 @@ def build_tiles():
     terr = load("14-TileSets/Terrain (32x32).png")
     def tile16(tx, ty):
         return decimate_tile(terr.crop((tx * 32, ty * 32, tx * 32 + 32, ty * 32 + 32)))
+    (void_ref,) = (tile16,)   # keep name; cells are CS px in NATIVE mode
 
     # Pack the COMPLETE solid + bg wall sets, keeping the source sheet layout
     # (a 17x5 grid of 16px cells) so every tile is where you expect it in the
     # Studio Tiles tab. blob47_lut() assigns all 47 pieces.
     def wall_sheet(row0):
-        out = Image.new("RGBA", (17 * 16, 5 * 16), (0, 0, 0, 0))
+        out = Image.new("RGBA", (17 * CS, 5 * CS), (0, 0, 0, 0))
         for sy in range(5):
             for sx in range(17):
                 t = tile16(1 + sx, row0 + sy)
-                out.paste(t, (sx * 16, sy * 16))
+                out.paste(t, (sx * CS, sy * CS))
         return out
     save_img(wall_sheet(1), "solidt")    # bright-trim castle wall (source rows 1-5)
     save_img(wall_sheet(7), "bgwall")    # pink brick background (source rows 7-11)
@@ -445,9 +454,9 @@ def build_tiles():
     def plat_strip(y0, y1, name):
         strip = decimate_tile(deco.crop((64, y0, 192, y1)))
         h = strip.size[1]
-        out = Image.new("RGBA", (64, 16), (0, 0, 0, 0))
+        out = Image.new("RGBA", (4 * CS, CS), (0, 0, 0, 0))
         for i in range(4):
-            out.paste(strip.crop((i * 16, 0, i * 16 + 16, h)), (i * 16, 0))
+            out.paste(strip.crop((i * CS, 0, i * CS + CS, h)), (i * CS, 0))
         save_img(out, name)
     plat_strip(32, 40, "platthin")       # thin plank (~4px)
     plat_strip(64, 80, "platthick")      # thick beam with metal ends (~8px)

@@ -1,5 +1,5 @@
 sheet anims/pig.png
-tile 20 15
+tile 40 30
 clips 8
 clip idle 1 10 0 0 11
 f 0 0 -

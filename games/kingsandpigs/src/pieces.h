@@ -3,12 +3,12 @@
 #define MOTE_IMG_pieces_H
 #include "mote_2d.h"
 
-static const uint16_t pieces_pal[7] = { 0x39ca,0xa26d,0xbb0d,0xd42f,0xdcf1,0xe5b3,0xf81f };
+static const uint16_t pieces_pal[6] = { 0x39ca,0xd42f,0xdcf1,0xe5b3,0xeef7,0xf81f };
 static const uint8_t pieces_idx[50] = {
-  102,102,102,0,0,102,102,102,102,102,5,0,96,85,85,102,102,102,102,102,5,48,96,48,0,3,67,70,0,19,0,0,
-  0,83,0,0,0,0,0,0,4,69,0,80,6,96,1,48,51,34,
+  85,85,85,0,0,0,0,85,85,85,0,0,0,68,52,4,68,5,85,85,2,48,0,51,51,51,51,5,85,85,3,48,
+  32,0,0,0,0,0,0,0,3,48,16,17,0,4,17,32,16,0,
 };
-static const MoteImage pieces_img = { 0, 20, 5, 0xF81F, 0, 1, pieces_idx, pieces_pal };  /* 4bpp indexed, 7 colours */
+static const MoteImage pieces_img = { 0, 20, 5, 0xF81F, 0, 1, pieces_idx, pieces_pal };  /* 4bpp indexed, 6 colours */
 #define pieces_W 20
 #define pieces_H 5
 

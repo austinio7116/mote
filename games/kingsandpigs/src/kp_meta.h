@@ -2,90 +2,97 @@
  * Regenerate with: python3 assets/extract_kp.py (then mote bake). */
 #ifndef KP_META_H
 #define KP_META_H
-/* king: cell 52x29, anchor=(26,22), ref body 18x13 */
-#define KP_KING_CW   52
-#define KP_KING_CH   29
-#define KP_KING_AX   26
-#define KP_KING_AY   22
-#define KP_KING_BW   18
-#define KP_KING_BH   13
-/* kingpig: cell 20x15, anchor=(10,14), ref body 9x10 */
-#define KP_KINGPIG_CW   20
-#define KP_KINGPIG_CH   15
-#define KP_KINGPIG_AX   10
-#define KP_KINGPIG_AY   14
-#define KP_KINGPIG_BW   9
-#define KP_KINGPIG_BH   10
-/* pig: cell 20x15, anchor=(10,14), ref body 9x8 */
-#define KP_PIG_CW   20
-#define KP_PIG_CH   15
-#define KP_PIG_AX   10
-#define KP_PIG_AY   14
-#define KP_PIG_BW   9
-#define KP_PIG_BH   8
-/* pigbox: cell 16x16, anchor=(8,15), ref body 10x13 */
-#define KP_PIGBOX_CW   16
-#define KP_PIGBOX_CH   16
-#define KP_PIGBOX_AX   8
-#define KP_PIGBOX_AY   15
-#define KP_PIGBOX_BW   10
-#define KP_PIGBOX_BH   13
-/* pigbomb: cell 14x14, anchor=(7,13), ref body 11x10 */
-#define KP_PIGBOMB_CW   14
-#define KP_PIGBOMB_CH   14
-#define KP_PIGBOMB_AX   7
-#define KP_PIGBOMB_AY   13
-#define KP_PIGBOMB_BW   11
-#define KP_PIGBOMB_BH   10
-/* pighide: cell 14x11, anchor=(7,10), ref body 9x8 */
-#define KP_PIGHIDE_CW   14
-#define KP_PIGHIDE_CH   11
-#define KP_PIGHIDE_AX   7
-#define KP_PIGHIDE_AY   10
-#define KP_PIGHIDE_BW   9
-#define KP_PIGHIDE_BH   8
-/* pigmatch: cell 14x10, anchor=(7,9), ref body 10x8 */
-#define KP_PIGMATCH_CW   14
-#define KP_PIGMATCH_CH   10
-#define KP_PIGMATCH_AX   7
-#define KP_PIGMATCH_AY   9
-#define KP_PIGMATCH_BW   10
-#define KP_PIGMATCH_BH   8
-/* box: cell 12x9, anchor=(6,8), ref body 10x8 */
-#define KP_BOX_CW   12
-#define KP_BOX_CH   9
-#define KP_BOX_AX   6
-#define KP_BOX_AY   8
-#define KP_BOX_BW   10
-#define KP_BOX_BH   8
-/* bomb: cell 12x11, anchor=(6,7), ref body 6x8 */
-#define KP_BOMB_CW   12
-#define KP_BOMB_CH   11
-#define KP_BOMB_AX   6
-#define KP_BOMB_AY   7
-#define KP_BOMB_BW   6
-#define KP_BOMB_BH   8
-/* boom: cell 26x28, anchor=(13,15), ref body 11x11 */
-#define KP_BOOM_CW   26
-#define KP_BOOM_CH   28
-#define KP_BOOM_AX   13
-#define KP_BOOM_AY   15
-#define KP_BOOM_BW   11
-#define KP_BOOM_BH   11
-/* cannon: cell 28x15, anchor=(14,13), ref body 12x9 */
-#define KP_CANNON_CW   28
-#define KP_CANNON_CH   15
-#define KP_CANNON_AX   14
-#define KP_CANNON_AY   13
-#define KP_CANNON_BW   12
-#define KP_CANNON_BH   9
-/* door: cell 24x29, anchor=(12,28), ref body 23x28 */
-#define KP_DOOR_CW   24
-#define KP_DOOR_CH   29
-#define KP_DOOR_AX   12
-#define KP_DOOR_AY   28
-#define KP_DOOR_BW   23
-#define KP_DOOR_BH   28
+/* king: cell 56x50, anchor=(28,44), ref body 37x26 */
+#define KP_KING_CW   56
+#define KP_KING_CH   50
+#define KP_KING_AX   28
+#define KP_KING_AY   44
+#define KP_KING_BW   37
+#define KP_KING_BH   26
+/* kingatk: cell 80x60, anchor=(40,58), ref body 59x58 */
+#define KP_KINGATK_CW   80
+#define KP_KINGATK_CH   60
+#define KP_KINGATK_AX   40
+#define KP_KINGATK_AY   58
+#define KP_KINGATK_BW   59
+#define KP_KINGATK_BH   58
+/* kingpig: cell 40x30, anchor=(20,28), ref body 18x20 */
+#define KP_KINGPIG_CW   40
+#define KP_KINGPIG_CH   30
+#define KP_KINGPIG_AX   20
+#define KP_KINGPIG_AY   28
+#define KP_KINGPIG_BW   18
+#define KP_KINGPIG_BH   20
+/* pig: cell 40x30, anchor=(20,28), ref body 18x17 */
+#define KP_PIG_CW   40
+#define KP_PIG_CH   30
+#define KP_PIG_AX   20
+#define KP_PIG_AY   28
+#define KP_PIG_BW   18
+#define KP_PIG_BH   17
+/* pigbox: cell 32x32, anchor=(16,30), ref body 21x27 */
+#define KP_PIGBOX_CW   32
+#define KP_PIGBOX_CH   32
+#define KP_PIGBOX_AX   16
+#define KP_PIGBOX_AY   30
+#define KP_PIGBOX_BW   21
+#define KP_PIGBOX_BH   27
+/* pigbomb: cell 28x28, anchor=(14,26), ref body 22x21 */
+#define KP_PIGBOMB_CW   28
+#define KP_PIGBOMB_CH   28
+#define KP_PIGBOMB_AX   14
+#define KP_PIGBOMB_AY   26
+#define KP_PIGBOMB_BW   22
+#define KP_PIGBOMB_BH   21
+/* pighide: cell 28x22, anchor=(14,20), ref body 19x17 */
+#define KP_PIGHIDE_CW   28
+#define KP_PIGHIDE_CH   22
+#define KP_PIGHIDE_AX   14
+#define KP_PIGHIDE_AY   20
+#define KP_PIGHIDE_BW   19
+#define KP_PIGHIDE_BH   17
+/* pigmatch: cell 28x20, anchor=(14,18), ref body 21x17 */
+#define KP_PIGMATCH_CW   28
+#define KP_PIGMATCH_CH   20
+#define KP_PIGMATCH_AX   14
+#define KP_PIGMATCH_AY   18
+#define KP_PIGMATCH_BW   21
+#define KP_PIGMATCH_BH   17
+/* box: cell 24x18, anchor=(12,16), ref body 21x16 */
+#define KP_BOX_CW   24
+#define KP_BOX_CH   18
+#define KP_BOX_AX   12
+#define KP_BOX_AY   16
+#define KP_BOX_BW   21
+#define KP_BOX_BH   16
+/* bomb: cell 24x22, anchor=(12,14), ref body 13x16 */
+#define KP_BOMB_CW   24
+#define KP_BOMB_CH   22
+#define KP_BOMB_AX   12
+#define KP_BOMB_AY   14
+#define KP_BOMB_BW   13
+#define KP_BOMB_BH   16
+/* boom: cell 52x56, anchor=(26,30), ref body 22x22 */
+#define KP_BOOM_CW   52
+#define KP_BOOM_CH   56
+#define KP_BOOM_AX   26
+#define KP_BOOM_AY   30
+#define KP_BOOM_BW   22
+#define KP_BOOM_BH   22
+/* cannon: cell 56x30, anchor=(28,26), ref body 24x18 */
+#define KP_CANNON_CW   56
+#define KP_CANNON_CH   30
+#define KP_CANNON_AX   28
+#define KP_CANNON_AY   26
+#define KP_CANNON_BW   24
+#define KP_CANNON_BH   18
+/* door: cell 48x58, anchor=(24,56), ref body 46x56 */
+#define KP_DOOR_CW   48
+#define KP_DOOR_CH   58
+#define KP_DOOR_AX   24
+#define KP_DOOR_AY   56
+#define KP_DOOR_BW   46
+#define KP_DOOR_BH   56
 /* pickups: cell 24x14, anchor=(12,6), ref body 12x10 */
 #define KP_PICKUPS_CW   24
 #define KP_PICKUPS_CH   14
@@ -112,6 +119,6 @@
 #define KP_LB_HX2 44
 #define KP_LB_HY2 17
 /* numbers.png: 6x8 digits in order 1234567890 (digit d -> col d? d-1 : 9) */
-#define KP_BALL_W 7
-#define KP_BALL_H 7
+#define KP_BALL_W 14
+#define KP_BALL_H 14
 #endif

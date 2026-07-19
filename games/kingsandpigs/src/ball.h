@@ -3,12 +3,15 @@
 #define MOTE_IMG_ball_H
 #include "mote_2d.h"
 
-static const uint16_t ball_pal[7] = { 0x39ca,0x5331,0x6c53,0x8515,0x8d56,0xc6fa,0xf81f };
-static const uint8_t ball_idx[25] = {
-  102,102,102,102,99,66,6,98,84,66,6,36,68,32,97,52,33,6,1,33,6,102,0,6,96,
+static const uint16_t ball_pal[8] = { 0x39ca,0x5331,0x6c53,0x8515,0x8d56,0xa638,0xc6fa,0xf81f };
+static const uint8_t ball_idx[98] = {
+  119,119,119,119,119,119,119,119,119,0,0,0,119,119,119,112,52,67,33,7,119,119,2,86,68,50,16,119,112,35,101,68,
+  66,32,7,112,36,68,68,66,32,7,112,36,68,68,66,32,7,112,35,68,68,50,32,7,112,18,52,67,34,16,7,112,
+  1,34,34,33,0,7,119,0,18,34,16,0,119,119,112,0,0,0,7,119,119,119,0,0,0,119,119,119,119,119,119,119,
+  119,119,
 };
-static const MoteImage ball_img = { 0, 7, 7, 0xF81F, 0, 1, ball_idx, ball_pal };  /* 4bpp indexed, 7 colours */
-#define ball_W 7
-#define ball_H 7
+static const MoteImage ball_img = { 0, 14, 14, 0xF81F, 0, 1, ball_idx, ball_pal };  /* 4bpp indexed, 8 colours */
+#define ball_W 14
+#define ball_H 14
 
 #endif

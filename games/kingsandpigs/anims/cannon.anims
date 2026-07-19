@@ -1,5 +1,5 @@
 sheet anims/cannon.png
-tile 28 15
+tile 56 30
 clips 2
 clip idle 1 10 0 0 1
 f 0 0 -

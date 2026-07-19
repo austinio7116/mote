@@ -1,5 +1,5 @@
 sheet anims/pigbomb.png
-tile 14 14
+tile 28 28
 clips 4
 clip idle 1 10 0 0 10
 f 0 0 -

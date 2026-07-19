@@ -1,5 +1,5 @@
 sheet anims/pigmatch.png
-tile 14 10
+tile 28 20
 clips 3
 clip matchon 1 10 0 0 3
 f 0 0 -

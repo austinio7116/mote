@@ -4748,9 +4748,18 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
         text(R,"+",g_extraadd.x+6,g_extraadd.y+3,1,C_TXT,C_BTN);
         exy+=20;
         for(int i=0;i<g_nextras;i++){ int gx=rx+(i%per)*bw, gyy=exy+(i/per)*(bw+2);
-            g_extrarect[i]=(SDL_Rect){gx,gyy,bw-2,bw-2};
-            rrect(R,gx-1,gyy-1,bw,bw,3, g_extras[i]==g_extra_cell?C_SEL:C_LINE);
-            blit_cell_x(R,ct,g_extras[i],0,gx+3,gyy+2,bw-8); }
+            g_extrarect[i]=(SDL_Rect){gx,gyy,bw-2,bw+4};
+            rrect(R,gx-1,gyy-1,bw,bw+6,3, g_extras[i]==g_extra_cell?C_SEL:C_LINE);
+            blit_cell_x(R,ct,g_extras[i],0,gx+3,gyy+2,bw-8);
+            /* mini rule dots like the template rules: green = need, red = empty */
+            uint8_t xr=0xFF,xf2=0xFF; int nm3=0;
+            for(int m=0;m<256;m++)if(ct->lut[m]==g_extras[i]){ xr&=(uint8_t)m; xf2&=(uint8_t)~m; nm3++; }
+            if(nm3)for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
+                Col dc2=(Col){54,56,66};
+                if(dx==0&&dy==0)dc2=(Col){210,200,120};
+                else { uint8_t bit=(uint8_t)nb_bit_for(dx,dy);
+                       if(xr&bit)dc2=(Col){96,180,96}; else if(xf2&bit)dc2=(Col){200,86,86}; }
+                plain(R,gx+(bw-8)/2-1+(dx+1)*3,gyy+bw-4+(dy+1)*3,2,2,dc2); } }
         if(g_extra_cell>=ct->ncell&&g_extra_cell<sn){ int cell=g_extra_cell;
             uint8_t req=0xFF,forb=0xFF; int nm2=0;
             for(int m=0;m<256;m++)if(ct->lut[m]==cell){ req&=(uint8_t)m; forb&=(uint8_t)~m; nm2++; }
@@ -4775,9 +4784,24 @@ static void draw_tiles(SDL_Renderer*R,int ox,int oy,int w,int h){ int mx,my; SDL
       g_tl_xf[1]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&1)?C_SEL:C_BTN); text(R,"H",bx+7,ey2+5,1,(xf&1)?C_HDR:C_TXT,(xf&1)?C_SEL:C_BTN); bx+=26;
       g_tl_xf[2]=(SDL_Rect){bx,ey2,22,19}; rrect(R,bx,ey2,22,19,4,(xf&2)?C_SEL:C_BTN); text(R,"V",bx+7,ey2+5,1,(xf&2)?C_HDR:C_TXT,(xf&2)?C_SEL:C_BTN); }
     int DW=3*ts; g_dr_cv=realloc(g_dr_cv,(size_t)DW*DW*2); for(int i=0;i<DW*DW;i++)g_dr_cv[i]=TLRGB(20,18,28);
-    uint8_t rm=ct->rep[g_rulesel]; int W2=ct->scols*ts; uint8_t cxf=ct->xform[rm];   /* the selected rule's transform — shown on the centre cell */
+    /* the selected EXTRA rule shows ITS OWN neighbour config (need = neighbour
+     * drawn, empty = blank, any = faint checker) so the grid means what the
+     * rule means; template rules keep the rep-mask preview. */
+    int isx=(g_extra_cell>=ct->ncell&&g_extra_cell<sn);
+    uint8_t xreq=0,xforb=0;
+    if(isx){ uint8_t r2=0xFF,f2=0xFF; int nm4=0;
+        for(int m=0;m<256;m++)if(ct->lut[m]==g_extra_cell){ r2&=(uint8_t)m; f2&=(uint8_t)~m; nm4++; }
+        if(nm4){ xreq=r2; xforb=f2; } }
+    uint8_t rm=isx?xreq:ct->rep[g_rulesel]; int W2=ct->scols*ts;
+    uint8_t cxf=isx?0:ct->xform[ct->rep[g_rulesel]];   /* the selected rule's transform — shown on the centre cell */
     for(int py=0;py<3;py++)for(int px=0;px<3;px++){ int cell=-1,dim=0; uint8_t xf=0;
-        if(px==1&&py==1){ cell=g_cellsel; xf=cxf; } else if(rm&nb_bit_for(px-1,py-1)){ cell=recon_nbcell(ct,rm,px-1,py-1); dim=1; }
+        if(px==1&&py==1){ cell=isx?g_extra_cell:g_cellsel; xf=cxf; }
+        else { uint8_t bit=(uint8_t)nb_bit_for(px-1,py-1);
+            if(rm&bit){ cell=recon_nbcell(ct,rm,px-1,py-1); dim=1; }
+            else if(isx&&!(xforb&bit)){          /* 'any': faint checker */
+                for(int y=0;y<ts;y++)for(int x=0;x<ts;x++)
+                    if(((x>>2)^(y>>2))&1)g_dr_cv[(py*ts+y)*DW+(px*ts+x)]=TLRGB(38,36,50);
+                continue; } }
         if(cell<0||cell>=sn)continue; int cx=(cell%ct->scols)*ts,cyy=(cell/ct->scols)*ts;
         for(int y=0;y<ts;y++)for(int x=0;x<ts;x++){ int sx,sy; xform_src(x,y,ts,xf,&sx,&sy); uint16_t p=ct->sheet[(cyy+sy)*W2+cx+sx]; if(p==KEY565)continue; if(dim)p=dimc(p); g_dr_cv[(py*ts+y)*DW+(px*ts+x)]=p; } }
     if(!g_dr_tex||g_dr_texw!=DW){ if(g_dr_tex)SDL_DestroyTexture(g_dr_tex); g_dr_tex=SDL_CreateTexture(R,SDL_PIXELFORMAT_RGB565,SDL_TEXTUREACCESS_STREAMING,DW,DW); SDL_SetTextureScaleMode(g_dr_tex,SDL_ScaleModeNearest); g_dr_texw=DW; g_dr_texh=DW; }

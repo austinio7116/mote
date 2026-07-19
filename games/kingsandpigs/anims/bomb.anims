@@ -1,5 +1,5 @@
 sheet anims/bomb.png
-tile 12 11
+tile 24 22
 clips 2
 clip off 1 10 0 0 1
 f 0 0 -

@@ -38,6 +38,7 @@ MOTE_MODULE_HEADER();
 
 /* packed animation atlases (anims/*.anims -> Studio Anim tab) */
 #include "king.anim.h"
+#include "kingatk.anim.h"
 #include "kingpig.anim.h"
 #include "pig.anim.h"
 #include "pigbox.anim.h"
@@ -92,7 +93,7 @@ MOTE_MODULE_HEADER();
 #include "bosshit.sfx.h"
 
 /* ------------------------------------------------------------- world grid */
-#define TILE      16
+#define TILE      32
 #define ROOMS_X    4
 #define ROOMS_Y    3
 #define ROOM_W    16
@@ -113,12 +114,12 @@ static uint8_t map[ROWS * COLS];
 static const MoteAutotile *s_layers[4] = { &bgwall_at, &platthin_at, &platthick_at, &solidt_at };
 
 /* ------------------------------------------------------------ king tuning */
-#define GRAV     560.0f
-#define MOVE      58.0f
-#define JUMP_V (-215.0f)
-#define MAXFALL  260.0f
-#define K_HW       4          /* collision half-width */
-#define K_BH      12          /* collision height, feet -> head */
+#define GRAV    1120.0f
+#define MOVE     116.0f
+#define JUMP_V (-430.0f)
+#define MAXFALL  520.0f
+#define K_HW       8          /* collision half-width */
+#define K_BH      24          /* collision height, feet -> head */
 
 /* ---------------------------------------------------------------- helpers */
 static uint32_t s_seed;
@@ -332,8 +333,8 @@ static void spawn_pickup(int kind, float x, float y, float vy) {
 static void spawn_piece(float x, float y) {
     for (int k = 0; k < 4; k++)
         for (int i = 0; i < MAXPT; i++) if (!pts[i].on) {
-            pts[i] = (Piece){ 1, (uint8_t)k, x, y - 4,
-                              (float)(rndi(90) - 45), (float)(-60 - rndi(70)), 0 };
+            pts[i] = (Piece){ 1, (uint8_t)k, x, y - 8,
+                              (float)(rndi(180) - 90), (float)(-120 - rndi(140)), 0 };
             break;
         }
 }
@@ -347,8 +348,8 @@ static void spawn_proj(int type, float x, float y, float vx, float vy) {
 static void light_sbomb(int i) {
     if (!sbombs[i].on) return;
     sbombs[i].on = 0;
-    spawn_proj(P_BOMB, sbombs[i].x, sbombs[i].y - 4,
-               (float)(rndi(40) - 20), -50.0f);
+    spawn_proj(P_BOMB, sbombs[i].x, sbombs[i].y - 8,
+               (float)(rndi(80) - 40), -100.0f);
     sfx(&fuse_sfx, 0.7f);
 }
 
@@ -443,7 +444,7 @@ static void generate(void) {
         for (int c = 0; c < KP_ROOM_W; c++) {
             int mr = r0 + r, mc = c0 + c;
             char ch = tpl->r[r][c];
-            float wx = mc * TILE + 8.0f;
+            float wx = mc * TILE + 16.0f;
             /* feet rest on the first wall/platform below the marker */
             int rr = r + 1;
             while (rr < KP_ROOM_H - 1) {
@@ -458,9 +459,13 @@ static void generate(void) {
             case '=': v = B_BG | B_PLA; break;
             case '-': v = B_BG | B_PLB; break;
             case 'O': v = B_BG; break;   /* the lower half is punched after stamping */
-            case 'd': spawn_pickup(PK_DSMALL, wx, wy - 6.0f, 0); break;
-            case 'D': spawn_pickup(PK_DBIG, wx, wy - 6.0f, 0); break;
-            case 'h': spawn_pickup(PK_HBIG, wx, wy - 6.0f, 0); break;
+            case 'd': spawn_pickup(PK_DBIG, wx, wy - 12.0f, 0); break;
+            case 'D':                                     /* a little gem cluster */
+                spawn_pickup(PK_DBIG, wx - 20, wy - 12.0f, 0);
+                spawn_pickup(PK_DBIG, wx, wy - 20.0f, 0);
+                spawn_pickup(PK_DBIG, wx + 20, wy - 12.0f, 0);
+                break;
+            case 'h': spawn_pickup(PK_HBIG, wx, wy - 12.0f, 0); break;
             case 'b':
                 for (int j = 0; j < MAXSB; j++) if (!sbombs[j].on) {
                     sbombs[j] = (SBomb){ 1, wx, wy }; break;
@@ -498,7 +503,7 @@ static void generate(void) {
                         int dir = (c > KP_ROOM_W / 2) ? -1 : 1;   /* fire toward the room */
                         cans[ci] = (Cannon){ 1, (int8_t)dir, wx, wy, 0 };
                         cans[ci].clip = &cannon_idle; mote_anim_play(&cans[ci].ap, &cannon_idle);
-                        add_enemy(E_MATCH, wx - dir * 14, wy, wx - dir * 14);
+                        add_enemy(E_MATCH, wx - dir * 28, wy, wx - dir * 28);
                         for (int j = 0; j < MAXE; j++)
                             if (en[j].on && en[j].type == E_MATCH && en[j].cannon < 0) {
                                 en[j].cannon = (int8_t)ci; en[j].facing = (int8_t)dir;
@@ -506,7 +511,7 @@ static void generate(void) {
                     }
                 }
                 break;
-            case 'W': add_deco(DC_WINDOW, 0, mc * TILE - 1, mr * TILE - 3); break;
+            case 'W': add_deco(DC_WINDOW, 0, mc * TILE - 1, mr * TILE - 5); break;
             case 'F': add_deco(rndi(3) == 0 ? DC_BANNER2 : DC_BANNER1, 0,
                                mc * TILE + 1, mr * TILE); break;
             case 'S': {
@@ -519,8 +524,8 @@ static void generate(void) {
                         sbombs[j] = (SBomb){ 1, wx, sy }; break;
                     }
                 } else {
-                    spawn_pickup(PK_DSMALL, wx - 8, sy - 6, 0);
-                    spawn_pickup(PK_DSMALL, wx + 8, sy - 6, 0);
+                    spawn_pickup(PK_DBIG, wx - 16, sy - 12, 0);
+                    spawn_pickup(PK_DBIG, wx + 16, sy - 12, 0);
                 }
                 break; }
             case 'e': doors[0].x = wx; doors[0].y = wy; break;
@@ -558,8 +563,8 @@ static void generate(void) {
             int hc;
             for (int tries = 0; tries < 16; tries++) {
                 hc = gx * ROOM_W + 3 + rndi(KP_ROOM_W - 7);
-                float hx = hc * TILE + 8.0f;
-                if (fabsf(hx - doors[0].x) > 28 && fabsf(hx - doors[1].x) > 28) break;
+                float hx = hc * TILE + 16.0f;
+                if (fabsf(hx - doors[0].x) > 56 && fabsf(hx - doors[1].x) > 56) break;
             }
             for (int k = 0; k < 2; k++) {
                 map[mr * COLS + hc + k] = B_BG;
@@ -572,7 +577,7 @@ static void generate(void) {
     doors[1].clip = &door_idle; mote_anim_play(&doors[1].ap, &door_idle);
 
     if (boss_floor) {
-        add_enemy(E_BOSS, (exit_rx * ROOM_W + ROOM_W / 2) * TILE + 8.0f,
+        add_enemy(E_BOSS, (exit_rx * ROOM_W + ROOM_W / 2) * TILE + 16.0f,
                   (float)floor_row_y(exit_ry), 0);
         boss_alive = 1;
     }
@@ -609,7 +614,7 @@ static void generate(void) {
     doors[0].clip = &door_open; mote_anim_play(&doors[0].ap, &door_open);
     sfx(&door_sfx, 0.7f);
     if (getenv("KP_TP")) {                     /* host-testing: start at the exit */
-        kb.x = doors[1].x - 16; kb.y = doors[1].y;
+        kb.x = doors[1].x - 32; kb.y = doors[1].y;
     }
 }
 
@@ -620,8 +625,8 @@ static void hurt_king(float from_x) {
     k_hp--;
     if (k_hp < 3) hud_hit_t[k_hp] = 0.30f;
     k_inv = 1.2f;
-    kb.vx = (kb.x < from_x) ? -50.0f : 50.0f;
-    kb.vy = -70.0f;
+    kb.vx = (kb.x < from_x) ? -100.0f : 100.0f;
+    kb.vy = -140.0f;
     mote->rumble(0.6f, 120);
     sfx(&kinghurt_sfx, 0.9f);
     if (k_hp == 0) {
@@ -662,13 +667,13 @@ static void hurt_enemy(Enemy *e, int dmg, float from_x) {
         /* loot */
         if (e->type == E_BOSS) {
             for (int d = 0; d < 3; d++)
-                spawn_pickup(PK_DBIG, e->b.x + (d - 1) * 10, e->b.y - 8, -60);
-            spawn_pickup(PK_HBIG, e->b.x, e->b.y - 14, -80);
+                spawn_pickup(PK_DBIG, e->b.x + (d - 1) * 20, e->b.y - 16, -120);
+            spawn_pickup(PK_HBIG, e->b.x, e->b.y - 28, -160);
             boss_alive = 0;
             sfx(&floorup_sfx, 0.9f);
             if (getenv("KP_DUMP")) fprintf(stderr, "BOSS DEAD\n");
         } else if (rndi(3) == 0) {
-            spawn_pickup(PK_DSMALL, e->b.x, e->b.y - 6, -60);
+            spawn_pickup(PK_DBIG, e->b.x, e->b.y - 12, -120);
         }
     } else {
         e->hp -= dmg;
@@ -695,28 +700,27 @@ static void spawn_boom(float x, float y) {
     mote->rumble(0.8f, 160);
     sfx(&boom_sfx, 1.0f);
     /* blast damage: the king ... */
-    if (fabsf(kb.x - x) < 22 && fabsf((kb.y - K_BH / 2) - y) < 22)
+    if (fabsf(kb.x - x) < 44 && fabsf((kb.y - K_BH / 2) - y) < 44)
         hurt_king(x);
     /* ... and any pig */
     for (int i = 0; i < MAXE; i++) {
         Enemy *e = &en[i];
         if (!e->on || e->state == ES_DEAD || e->state == ES_HIDDEN) continue;
-        if (fabsf(e->b.x - x) < 22 && fabsf((e->b.y - e->b.bh / 2) - y) < 22)
+        if (fabsf(e->b.x - x) < 44 && fabsf((e->b.y - e->b.bh / 2) - y) < 44)
             hurt_enemy(e, 2, x);
     }
     /* ... and crates */
     for (int i = 0; i < MAXBX; i++)
-        if (crates[i].on && fabsf(crates[i].x - x) < 24 &&
-            fabsf(crates[i].y - 4 - y) < 24) {
+        if (crates[i].on && fabsf(crates[i].x - x) < 48 &&
+            fabsf(crates[i].y - 8 - y) < 48) {
             crates[i].on = 0;
             spawn_piece(crates[i].x, crates[i].y);
-            if (rndi(2) == 0) spawn_pickup(rndi(5) == 0 ? PK_DBIG : PK_DSMALL,
-                                           crates[i].x, crates[i].y - 4, -50);
+            if (rndi(2) == 0) spawn_pickup(PK_DBIG, crates[i].x, crates[i].y - 8, -100);
         }
     /* ... and chain-light resting bombs */
     for (int i = 0; i < MAXSB; i++)
-        if (sbombs[i].on && fabsf(sbombs[i].x - x) < 26 &&
-            fabsf(sbombs[i].y - 4 - y) < 26)
+        if (sbombs[i].on && fabsf(sbombs[i].x - x) < 52 &&
+            fabsf(sbombs[i].y - 8 - y) < 52)
             light_sbomb(i);
 }
 
@@ -724,7 +728,7 @@ static void spawn_boom(float x, float y) {
 static int king_visible(Enemy *e, float rng) {
     if (k_state == KS_DEAD || gstate != G_PLAY) return 0;
     float dx = kb.x - e->b.x, dy = kb.y - e->b.y;
-    return fabsf(dx) < rng && fabsf(dy) < 28.0f;
+    return fabsf(dx) < rng && fabsf(dy) < 56.0f;
 }
 
 static void enemy_tick(Enemy *e, float dt) {
@@ -756,7 +760,7 @@ static void enemy_tick(Enemy *e, float dt) {
         return;
 
     case ES_HIDDEN:                                    /* E_HIDE: looks like a crate */
-        if (king_visible(e, 30.0f)) {
+        if (king_visible(e, 60.0f)) {
             e->state = ES_PEEK; e->t = 0;
             e_clip(e, &pighide_peek);
             dlg_show(&e->dlg, DLG_EXCLAIM, 0.5f);
@@ -772,7 +776,7 @@ static void enemy_tick(Enemy *e, float dt) {
         if (e->t > 0.25f) {
             e->state = ES_LEAP; e->t = 0;
             e->facing = (int8_t)dirk;
-            b->vx = dirk * 72.0f; b->vy = -150.0f;
+            b->vx = dirk * 144.0f; b->vy = -300.0f;
             e_clip(e, &pighide_jump);
         }
         return;
@@ -793,17 +797,17 @@ static void enemy_tick(Enemy *e, float dt) {
             Cannon *cn = &cans[e->cannon];
             cn->cd -= dt;
             float cdx = kb.x - cn->x;
-            int infront = (cn->facing > 0) ? (cdx > 10) : (cdx < -10);
-            if (cn->cd <= 0 && infront && fabsf(cdx) < 110 &&
-                fabsf(kb.y - cn->y) < 20 && e->clip == &pigmatch_matchon) {
+            int infront = (cn->facing > 0) ? (cdx > 20) : (cdx < -20);
+            if (cn->cd <= 0 && infront && fabsf(cdx) < 220 &&
+                fabsf(kb.y - cn->y) < 40 && e->clip == &pigmatch_matchon) {
                 e_clip(e, &pigmatch_light); e->clip = &pigmatch_light;
                 e->t = 0;
             }
             if (e->clip == &pigmatch_light && e->ap.done) {
                 e_clip(e, &pigmatch_fire);
                 cn->clip = &cannon_shoot; mote_anim_play(&cn->ap, &cannon_shoot);
-                spawn_proj(P_BALL, cn->x + cn->facing * 14, cn->y - 7,
-                           cn->facing * 130.0f, 0);
+                spawn_proj(P_BALL, cn->x + cn->facing * 28, cn->y - 14,
+                           cn->facing * 260.0f, 0);
                 cn->cd = 2.4f;
                 sfx(&cannon_sfx, 0.9f);
             }
@@ -813,12 +817,12 @@ static void enemy_tick(Enemy *e, float dt) {
         return;
 
     case ES_PATROL: {
-        float spd = is_boss ? 0.0f : 16.0f;
+        float spd = is_boss ? 0.0f : 32.0f;
         if (e->t > 2.5f + (rnd() % 100) * 0.01f) { e->t = 0; if (rndi(3) == 0) e->facing = -e->facing; }
         b->vx = e->facing * spd;
-        int ahead = (int)b->x + e->facing * (b->hw + 3);
-        if (solid_px(ahead, (int)b->y - 4) ||
-            (!solid_px(ahead, (int)b->y + 2) && !plank_px(ahead, (int)b->y + 2)))
+        int ahead = (int)b->x + e->facing * (b->hw + 6);
+        if (solid_px(ahead, (int)b->y - 8) ||
+            (!solid_px(ahead, (int)b->y + 4) && !plank_px(ahead, (int)b->y + 4)))
             e->facing = -e->facing;
         body_step(b, dt);
         const MoteAnimClip *walk =
@@ -836,9 +840,9 @@ static void enemy_tick(Enemy *e, float dt) {
                 dlg_show(&e->dlg, (rnd() & 1) ? DLG_HELLO : DLG_HI, 0.8f);
         }
         /* spot the king */
-        float rng = is_boss ? 100.0f : 56.0f;
+        float rng = is_boss ? 200.0f : 112.0f;
         if (king_visible(e, rng)) {
-            int facing_king = (dirk == e->facing) || fabsf(dx) < 24;
+            int facing_king = (dirk == e->facing) || fabsf(dx) < 48;
             if (facing_king) {
                 e->state = ES_ALERT; e->t = 0;
                 e->facing = (int8_t)dirk;
@@ -858,7 +862,7 @@ static void enemy_tick(Enemy *e, float dt) {
         return;
 
     case ES_CHASE: {
-        if (!king_visible(e, is_boss ? 130.0f : 90.0f)) {
+        if (!king_visible(e, is_boss ? 260.0f : 180.0f)) {
             e->t += dt;
             if (e->t > 1.6f) {
                 e->state = ES_PATROL; e->t = 0;
@@ -871,12 +875,12 @@ static void enemy_tick(Enemy *e, float dt) {
         if (e->type == E_BOXP || e->type == E_BOMBP) {
             /* throwers keep distance */
             float ad = fabsf(dx);
-            if (ad < 26) {                              /* too close: flee */
-                b->vx = -dirk * 42.0f;
+            if (ad < 52) {                              /* too close: flee */
+                b->vx = -dirk * 84.0f;
                 e_clip(e, e->type == E_BOXP ? &pigbox_run : &pigbomb_run);
                 if (e->dlg.type < 0 && rndi(40) == 0) dlg_show(&e->dlg, DLG_NO, 0.6f);
-            } else if (ad > 80) {
-                b->vx = dirk * 34.0f;
+            } else if (ad > 160) {
+                b->vx = dirk * 68.0f;
                 e_clip(e, e->type == E_BOXP ? &pigbox_run : &pigbomb_run);
             } else {
                 b->vx = 0;
@@ -891,7 +895,7 @@ static void enemy_tick(Enemy *e, float dt) {
         if (e->type == E_HIDE) {                        /* hop-chaser */
             if (b->on_ground) {
                 if (e->cd <= 0) {
-                    b->vx = dirk * 64.0f; b->vy = -130.0f;
+                    b->vx = dirk * 128.0f; b->vy = -260.0f;
                     e->cd = 0.55f;
                     e_clip(e, &pighide_prep);
                 } else b->vx = 0;
@@ -903,19 +907,19 @@ static void enemy_tick(Enemy *e, float dt) {
         }
 
         /* melee pig / boss: run at the king, hop over walls */
-        float spd = is_boss ? 44.0f : 38.0f;
+        float spd = is_boss ? 88.0f : 76.0f;
         b->vx = dirk * spd;
         int ahead = (int)b->x + dirk * (b->hw + 3);
-        if (b->on_ground && solid_px(ahead, (int)b->y - 4))
-            b->vy = -150.0f;
-        if (b->on_ground && kb.y < b->y - 24 && rndi(60) == 0)
-            b->vy = -170.0f;                            /* jump up toward a high king */
+        if (b->on_ground && solid_px(ahead, (int)b->y - 8))
+            b->vy = -300.0f;
+        if (b->on_ground && kb.y < b->y - 48 && rndi(60) == 0)
+            b->vy = -340.0f;                            /* jump up toward a high king */
         body_step(b, dt);
         e_clip(e, b->on_ground ? (is_boss ? &kingpig_run : &pig_run)
                                : (b->vy < 0 ? (is_boss ? &kingpig_jump : &pig_jump)
                                             : (is_boss ? &kingpig_fall : &pig_fall)));
         mote_anim_tick(&e->ap, dt);
-        if (fabsf(dx) < (is_boss ? 18 : 13) && fabsf(kb.y - b->y) < 14 && e->cd <= 0) {
+        if (fabsf(dx) < (is_boss ? 36 : 26) && fabsf(kb.y - b->y) < 28 && e->cd <= 0) {
             e->state = ES_ATTACK; e->t = 0; b->vx = 0;
             e_clip(e, is_boss ? &kingpig_attack : &pig_attack);
             if (e->dlg.type < 0 && rndi(3) == 0) dlg_show(&e->dlg, DLG_ATTACK, 0.5f);
@@ -927,8 +931,8 @@ static void enemy_tick(Enemy *e, float dt) {
         mote_anim_tick(&e->ap, dt);
         float win0 = 0.15f, win1 = 0.35f;
         if (e->t > win0 && e->t < win1) {
-            float hx = b->x + e->facing * (is_boss ? 10 : 8);
-            if (fabsf(kb.x - hx) < 10 && fabsf((kb.y - K_BH / 2) - (b->y - b->bh / 2)) < 12)
+            float hx = b->x + e->facing * (is_boss ? 20 : 16);
+            if (fabsf(kb.x - hx) < 20 && fabsf((kb.y - K_BH / 2) - (b->y - b->bh / 2)) < 24)
                 hurt_king(b->x);
         }
         if (e->ap.done) { e->state = ES_CHASE; e->t = 0; e->cd = is_boss ? 0.7f : 0.9f; }
@@ -946,9 +950,9 @@ static void enemy_tick(Enemy *e, float dt) {
             e_clip(e, thr);
             if (e->type == E_BOMBP) { dlg_show(&e->dlg, DLG_BOOM, 0.7f); sfx(&fuse_sfx, 0.6f); }
             float ad = fabsf(dx);
-            float vx = e->facing * (40.0f + ad * 0.9f);
+            float vx = e->facing * (80.0f + ad * 0.9f);
             spawn_proj(e->type == E_BOXP ? P_BOX : P_BOMB,
-                       b->x + e->facing * 6, b->y - b->bh, vx, -110.0f);
+                       b->x + e->facing * 12, b->y - b->bh, vx, -220.0f);
         }
         if (e->clip == thr && e->ap.done) {
             e->state = ES_CHASE; e->t = 0;
@@ -1026,7 +1030,7 @@ static void draw_world(void) {
     for (int i = 0; i < MAXDC; i++) {
         if (!dc[i].on) continue;
         Deco *d = &dc[i];
-        if (!on_screen(d->x, d->y, 64)) continue;
+        if (!on_screen(d->x, d->y, 128)) continue;
         switch (d->kind) {
             case DC_WINDOW:  draw_img(&window_img, d->x, d->y, 0, 0, window_img.w, window_img.h, 1, 0); break;
             case DC_BANNER1: draw_img(&banner1_img, d->x, d->y, 0, 0, banner1_img.w, banner1_img.h, 1, 0); break;
@@ -1147,9 +1151,14 @@ static void draw_world(void) {
                  pts[i].idx * 5, 0, 5, 5, 8, 0);
     }
 
-    /* the king (blink while invulnerable) */
-    if (!(k_inv > 0 && ((int)(k_inv * 12) & 1)))
-        draw_actor(&king_sheet, &k_ap, kb.x, kb.y, KP_KING_AX, KP_KING_AY, k_facing, 10);
+    /* the king (blink while invulnerable; the attack swing has its own sheet) */
+    if (!(k_inv > 0 && ((int)(k_inv * 12) & 1))) {
+        if (k_clip == &kingatk_attack)
+            draw_actor(&kingatk_sheet, &k_ap, kb.x, kb.y,
+                       KP_KINGATK_AX, KP_KINGATK_AY, k_facing, 10);
+        else
+            draw_actor(&king_sheet, &k_ap, kb.x, kb.y, KP_KING_AX, KP_KING_AY, k_facing, 10);
+    }
 
     /* explosions on top */
     for (int i = 0; i < MAXBM; i++) {
@@ -1224,18 +1233,17 @@ static void pickups_tick(float dt) {
         if (p->vy != 0) {                              /* dropped loot settles */
             p->vy += GRAV * 0.6f * dt;
             float ny = p->y + p->vy * dt;
-            if (p->vy > 0 && (solid_px((int)p->x, (int)ny + 3) || plank_px((int)p->x, (int)ny + 3))) {
+            if (p->vy > 0 && (solid_px((int)p->x, (int)ny + 6) || plank_px((int)p->x, (int)ny + 6))) {
                 p->vy = 0;
-                ny = (float)((((int)ny + 3) / TILE) * TILE) - 3.0f;
+                ny = (float)((((int)ny + 6) / TILE) * TILE) - 6.0f;
             }
             p->y = ny;
             if (p->y > WORLD_H) { p->on = 0; continue; }
         }
         if (gstate == G_PLAY &&
-            fabsf(kb.x - p->x) < 10 && fabsf((kb.y - K_BH / 2) - p->y) < 12) {
+            fabsf(kb.x - p->x) < 20 && fabsf((kb.y - K_BH / 2) - p->y) < 24) {
             p->taking = 1; p->t = 0;
-            if (p->kind == PK_DSMALL) { diamonds += 1; sfx(&coin_sfx, 0.7f); }
-            else if (p->kind == PK_DBIG) { diamonds += 5; sfx(&coin_sfx, 0.9f); }
+            if (p->kind != PK_HBIG) { diamonds += 1; sfx(&coin_sfx, 0.8f); }
             else {
                 if (k_hp < 3) k_hp++;
                 sfx(&heart_sfx, 0.9f);
@@ -1254,10 +1262,10 @@ static void proj_tick(float dt) {
         if (p->type == P_BOMB) {
             p->fuse -= dt;
             /* bounce on ground */
-            if (p->vy > 0 && solid_px((int)p->x, (int)p->y + 4)) {
-                p->y = (float)((((int)p->y + 4) / TILE) * TILE) - 4.0f;
+            if (p->vy > 0 && solid_px((int)p->x, (int)p->y + 8)) {
+                p->y = (float)((((int)p->y + 8) / TILE) * TILE) - 8.0f;
                 p->vy *= -0.4f; p->vx *= 0.7f;
-                if (fabsf(p->vy) < 30) p->vy = 0;
+                if (fabsf(p->vy) < 60) p->vy = 0;
             }
             if (p->fuse <= 0) { p->on = 0; spawn_boom(p->x, p->y); continue; }
         } else {
@@ -1272,7 +1280,7 @@ static void proj_tick(float dt) {
 
         /* hit the king */
         if (gstate == G_PLAY && k_inv <= 0 &&
-            fabsf(kb.x - p->x) < 7 && fabsf((kb.y - K_BH / 2) - p->y) < 9) {
+            fabsf(kb.x - p->x) < 14 && fabsf((kb.y - K_BH / 2) - p->y) < 18) {
             if (p->type == P_BOMB) { p->on = 0; spawn_boom(p->x, p->y); }
             else {
                 if (p->type == P_BOX) spawn_piece(p->x, p->y);
@@ -1304,47 +1312,46 @@ static void proj_tick(float dt) {
 }
 
 static void king_attack_hits(void) {
-    float hx = kb.x + k_facing * 12.0f;
+    float hx = kb.x + k_facing * 24.0f;
     float hy = kb.y - K_BH / 2;
     for (int i = 0; i < MAXE; i++) {
         Enemy *e = &en[i];
         if (!e->on || e->state == ES_DEAD) continue;
         if (e->state == ES_HIDDEN) {
-            if (fabsf(e->b.x - hx) < 11 && fabsf((e->b.y - 4) - hy) < 11) {
+            if (fabsf(e->b.x - hx) < 22 && fabsf((e->b.y - 8) - hy) < 22) {
                 e->state = ES_PEEK; e->t = 0;
                 e_clip(e, &pighide_peek);
                 dlg_show(&e->dlg, DLG_NO, 0.5f);
             }
             continue;
         }
-        if (fabsf(e->b.x - hx) < 11 + e->b.hw &&
-            fabsf((e->b.y - e->b.bh / 2) - hy) < 12)
+        if (fabsf(e->b.x - hx) < 22 + e->b.hw &&
+            fabsf((e->b.y - e->b.bh / 2) - hy) < 24)
             hurt_enemy(e, 1, kb.x);
     }
     for (int i = 0; i < MAXBX; i++) {
         if (!crates[i].on) continue;
-        if (fabsf(crates[i].x - hx) < 12 && fabsf((crates[i].y - 4) - hy) < 12) {
+        if (fabsf(crates[i].x - hx) < 24 && fabsf((crates[i].y - 8) - hy) < 24) {
             crates[i].on = 0;
             spawn_piece(crates[i].x, crates[i].y);
             sfx(&break_sfx, 0.8f);
             int roll = rndi(10);
-            if (roll < 4) spawn_pickup(PK_DSMALL, crates[i].x, crates[i].y - 4, -60);
-            else if (roll < 5) spawn_pickup(PK_DBIG, crates[i].x, crates[i].y - 4, -60);
-            else if (roll < 6) spawn_pickup(PK_HBIG, crates[i].x, crates[i].y - 4, -60);
+            if (roll < 5) spawn_pickup(PK_DBIG, crates[i].x, crates[i].y - 8, -120);
+            else if (roll < 6) spawn_pickup(PK_HBIG, crates[i].x, crates[i].y - 8, -120);
         }
     }
     /* whack a lit bomb back where it came from */
     for (int i = 0; i < MAXP; i++) {
         if (!pr[i].on || pr[i].type != P_BOMB) continue;
-        if (fabsf(pr[i].x - hx) < 12 && fabsf(pr[i].y - hy) < 12) {
-            pr[i].vx = k_facing * 110.0f; pr[i].vy = -90.0f;
+        if (fabsf(pr[i].x - hx) < 24 && fabsf(pr[i].y - hy) < 24) {
+            pr[i].vx = k_facing * 220.0f; pr[i].vy = -180.0f;
             sfx(&hitpig_sfx, 0.6f);
         }
     }
     /* light a resting bomb */
     for (int i = 0; i < MAXSB; i++)
-        if (sbombs[i].on && fabsf(sbombs[i].x - hx) < 12 &&
-            fabsf((sbombs[i].y - 4) - hy) < 12)
+        if (sbombs[i].on && fabsf(sbombs[i].x - hx) < 24 &&
+            fabsf((sbombs[i].y - 8) - hy) < 24)
             light_sbomb(i);
 }
 
@@ -1373,16 +1380,16 @@ static void king_tick(float dt) {
     if (mote_pressed(in, MOTE_BTN_RIGHT)) { mv =  MOVE; k_facing =  1; }
     kb.vx = mv;
 
-    if (kb.on_ground && mote_just_pressed(in, MOTE_BTN_B)) {
+    if (kb.on_ground && mote_just_pressed(in, MOTE_BTN_A)) {
         if (mote_pressed(in, MOTE_BTN_DOWN)) kb.drop = 0.18f;   /* drop through planks */
         else { kb.vy = JUMP_V; sfx(&jump_sfx, 0.5f); }
     }
     /* variable jump height */
-    if (kb.vy < -60 && !mote_pressed(in, MOTE_BTN_B)) kb.vy = -60;
+    if (kb.vy < -120 && !mote_pressed(in, MOTE_BTN_A)) kb.vy = -120;
 
-    if (mote_just_pressed(in, MOTE_BTN_A) && k_atkcd <= 0 && k_state == KS_NORM) {
+    if (mote_just_pressed(in, MOTE_BTN_B) && k_atkcd <= 0 && k_state == KS_NORM) {
         k_state = KS_ATTACK; k_t = 0; k_atkcd = 0.42f; k_swung = 0;
-        k_set(&king_attack);
+        k_set(&kingatk_attack);
         sfx(&swing_sfx, 0.6f);
     }
 
@@ -1399,7 +1406,7 @@ static void king_tick(float dt) {
     /* enter the exit door */
     if (gstate == G_PLAY && !boss_alive &&
         mote_pressed(in, MOTE_BTN_UP) && kb.on_ground &&
-        fabsf(kb.x - doors[1].x) < 8 && fabsf(kb.y - doors[1].y) < 6) {
+        fabsf(kb.x - doors[1].x) < 16 && fabsf(kb.y - doors[1].y) < 12) {
         gstate = G_EXIT; g_t = 0;
         k_state = KS_DOOR;
         kb.x = doors[1].x; kb.vx = 0;
@@ -1420,7 +1427,7 @@ static void king_tick(float dt) {
 }
 
 static void camera_tick(float dt) {
-    float tx = kb.x + k_facing * 10 - MOTE_FB_W / 2;
+    float tx = kb.x + k_facing * 20 - MOTE_FB_W / 2;
     float ty = kb.y - 76;
     tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W);
     ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H);
