@@ -592,6 +592,26 @@ static void generate(void) {
                 if (enemy_budget > 0 && !(depth == 1 && is_start)) {
                     int maxt = (depth >= 3) ? 3 : (depth >= 2) ? 2 : 1;
                     int t = rndi(maxt + 1);
+                    /* markers that sank to the room floor climb onto a random
+                     * platform/beam top most of the time, so patrols guard the
+                     * upper routes instead of all pacing the floor */
+                    if (rr == KP_ROOM_H - 1 && rndi(3) != 0) {
+                        int picked = 0, seen_n = 0;
+                        for (int pr = 1; pr < KP_ROOM_H - 1; pr++)
+                        for (int pc = 1; pc < KP_ROOM_W - 1; pc++) {
+                            char pch = tpl->r[pr][pc];
+                            if ((pch == '=' || pch == '-' || pch == 'S' || pch == '#') &&
+                                tpl->r[pr - 1][pc] == '.' &&
+                                (pr == 1 || tpl->r[pr - 2][pc] == '.')) {
+                                seen_n++;
+                                if (rndi(seen_n) == 0) picked = pr * KP_ROOM_W + pc;
+                            }
+                        }
+                        if (seen_n) {
+                            wx = (c0 + picked % KP_ROOM_W) * TILE + 16.0f;
+                            wy = (float)((r0 + picked / KP_ROOM_W) * TILE);
+                        }
+                    }
                     add_enemy(t == 0 ? E_PIG : t == 1 ? E_BOXP : t == 2 ? E_BOMBP : E_HIDE,
                               wx, wy, wx);
                     enemy_budget--;
@@ -672,6 +692,25 @@ static void generate(void) {
                 map[mr * COLS + hc + k] = B_BG;
                 if (mr + 1 < ROWS - 1) map[(mr + 1) * COLS + hc + k] = B_BG;
             }
+        }
+    }
+
+    /* break pass-through shafts: when the drop hole from the band above lines
+     * up with this band's own floor hole through an open column, a fall would
+     * skip the band entirely and it could become unreachable. A catch beam
+     * just above the lower hole lands the king inside the band; stepping off
+     * it beside the hole continues the descent. */
+    for (int gy = 1; gy < ROOMS_Y; gy++) {
+        int top = gy * ROOM_H;                 /* this band's ceiling row */
+        int bot = top + KP_ROOM_H - 1;         /* this band's floor row */
+        for (int c = 1; c < COLS - 1; c++) {
+            if ((map[top * COLS + c] & B_SOL) || (map[(top - 1) * COLS + c] & B_SOL))
+                continue;                      /* no hole from above here */
+            int r = top + 1;
+            while (r < bot && !(map[r * COLS + c] & (B_SOL | B_PLT))) r++;
+            if (r < bot || (map[bot * COLS + c] & B_SOL))
+                continue;                      /* the fall lands inside the band */
+            map[(bot - 1) * COLS + c] |= B_PLB;
         }
     }
 

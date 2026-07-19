@@ -44,24 +44,52 @@ def reachable_set(rows, seeds):
     while todo:
         r, c = todo.pop()
         cand = set()
+        # headroom above the LAUNCH point: a jump is only possible if the
+        # king can actually rise there (standing at (r,c) his head is in
+        # r-1; gaining dr tiles needs r-2..r-1-dr open above him)
+        def headroom(n):
+            for rr in range(r - 1 - n, r - 1):
+                if rr >= 0 and rows[rr][c] in SOLID:
+                    return False
+            return True
+        def arc_clear(cc2):
+            """the jump arc passes over the intermediate columns ~2 tiles up"""
+            step = 1 if cc2 > c else -1
+            for ci in range(c + step, cc2, step):
+                for rr2 in (r - 1, r - 2):
+                    if rr2 >= 0 and rows[rr2][ci] in SOLID:
+                        return False
+            return True
         for dc in range(-2, 3):
             cc = c + dc
             if not (0 <= cc < W):
                 continue
-            for rr in range(max(1, r - 2), r + 1):     # same level / step / 2-tile jump
-                if (rr, cc) in stands:
+            for rr in range(max(1, r - 2), r + 1):     # same level / step / jump
+                if (rr, cc) in stands and headroom(r - rr) and arc_clear(cc):
                     cand.add((rr, cc))
-            for rr in range(r + 1, H):                 # step off and fall
-                if (rr, cc) in stands:
-                    cand.add((rr, cc))
-                    break
-        for dc in (-3, 3):     # long flat jump (clears a 2-wide gap)
-            cc = c + dc
-            if 0 <= cc < W:
-                for rr in range(r, H):
+            if dc == 0 or rows[r][cc] not in SOLID:    # can actually step off there
+                for rr in range(r + 1, H):             # step off and fall
                     if (rr, cc) in stands:
                         cand.add((rr, cc))
                         break
+                    if rows[rr][cc] in SOLID:          # never fall through solid
+                        break
+        for dc in (-3, 3):     # long flat jump (clears a 2-wide gap)
+            cc = c + dc
+            if not (0 <= cc < W) or not headroom(1):
+                continue
+            if not arc_clear(cc):
+                continue
+            if rows[r][cc] in SOLID:                   # land on it, or it blocks
+                if (r, cc) in stands:
+                    cand.add((r, cc))
+                continue
+            for rr in range(r, H):
+                if (rr, cc) in stands:
+                    cand.add((rr, cc))
+                    break
+                if rows[rr][cc] in SOLID:
+                    break
         for s in cand:
             if s not in seen:
                 seen.add(s)

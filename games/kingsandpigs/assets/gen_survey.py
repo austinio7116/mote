@@ -74,24 +74,47 @@ def flood(g, seeds):
     while todo:
         r, c = todo.pop()
         cand = set()
+        def headroom(n):
+            for rr in range(r - 1 - n, r - 1):
+                if rr >= 0 and solid(g, rr, c):
+                    return False
+            return True
+        def arc_clear(cc2):
+            step = 1 if cc2 > c else -1
+            for ci in range(c + step, cc2, step):
+                for rr2 in (r - 1, r - 2):
+                    if rr2 >= 0 and solid(g, rr2, ci):
+                        return False
+            return True
         for dc in range(-2, 3):
             cc = c + dc
             if not (0 <= cc < COLS):
                 continue
-            for rr in range(max(1, r - 2), r + 1):     # same level / step / 2-tile jump
-                if (rr, cc) in stands:
+            for rr in range(max(1, r - 2), r + 1):     # same level / step / jump
+                if (rr, cc) in stands and headroom(r - rr) and arc_clear(cc):
                     cand.add((rr, cc))
-            for rr in range(r + 1, ROWS):              # step off and fall
-                if (rr, cc) in stands:
-                    cand.add((rr, cc))
-                    break
+            if dc == 0 or not solid(g, r, cc):         # can actually step off there
+                for rr in range(r + 1, ROWS):          # step off and fall
+                    if (rr, cc) in stands:
+                        cand.add((rr, cc))
+                        break
+                    if solid(g, rr, cc):               # never fall through solid
+                        break
         for dc in (-3, 3):     # long flat jump (clears a 2-wide gap) / air-steered fall
             cc = c + dc
-            if not (0 <= cc < COLS):
+            if not (0 <= cc < COLS) or not headroom(1):
+                continue
+            if not arc_clear(cc):
+                continue
+            if solid(g, r, cc):                        # land on it, or it blocks
+                if (r, cc) in stands:
+                    cand.add((r, cc))
                 continue
             for rr in range(r, ROWS):
                 if (rr, cc) in stands:
                     cand.add((rr, cc))
+                    break
+                if solid(g, rr, cc):
                     break
         for s in cand:
             if s not in seen:
