@@ -2517,7 +2517,7 @@ static void apply_order(int team, const uint8_t *mask, int tx, int ty, int wpmod
             u->order = O_HARV; u->hstate = H_SEEK; u->oret = t; u->slot = 0xFFFF; u->wpn = 0;
         } else if (u->type == U_HARV && bmap[t] != 0xFF && bl[bmap[t]].team == team && bl[bmap[t]].type == B_REF){
             u->order = O_HARV; u->hstate = H_RET; u->slot = 0xFFFF; u->wpn = 0;
-        } else if (wpmode || u->wpn){
+        } else if (wpmode){
             /* stack onto the path (dedupe repeats of the queue tail) */
             int last = u->wpn ? (int)u->wp[u->wpn - 1] : -1;
             if (last != t && u->wpn < 6) u->wp[u->wpn++] = (uint16_t)t;
@@ -2653,19 +2653,11 @@ static void mp_poll(void){
     if (i > 0){ memmove(mp_rx, mp_rx + i, mp_rxn - i); mp_rxn -= i; }
 }
 
-static void cmd_at(float wx, float wy, int wpmode){
+/* dispatch an order for a CAPTURED unit mask (deferred taps use the mask
+ * captured at press time, so a deselect during the window can't eat the order) */
+static void cmd_at_mask(const uint8_t *mask, float wx, float wy, int wpmode){
     int tx = (int)wx >> 3, ty = (int)wy >> 3;
     if (!tin(tx, ty)) return;
-    uint8_t mask[(MAXU + 7) / 8]; memset(mask, 0, sizeof mask);
-    int any = 0;
-    for (int i = 0; i < MAXU; i++)
-        if (un[i].alive && un[i].sel && un[i].team == MY_TEAM){ mp_bitset(mask, i); any = 1; }
-    if (!any) return;
-    /* local feedback only — the order itself is one shared deterministic path */
-    Part *pp = part(PK_RING, wx, wy);
-    if (pp){ pp->max = pp->life = 0.35f; pp->x2 = wpmode ? 3 : 5; }
-    sfx(&ack_sfx, wpmode ? 0.35f : 0.45f, 7, 0.06f);
-    if (wpmode) toastf("WAYPOINT SET");
     if (mp_active){                              /* MP: via lockstep */
         MpCmd c; memset(&c, 0, sizeof c);
         c.type = MPC_ORDER; c.a = (uint8_t)tx; c.b = (uint8_t)ty; c.c = (uint8_t)wpmode;
@@ -2675,6 +2667,70 @@ static void cmd_at(float wx, float wy, int wpmode){
     }
     apply_order(MY_TEAM, mask, tx, ty, wpmode);
 }
+static int sel_mask(uint8_t *mask){
+    memset(mask, 0, (MAXU + 7) / 8);
+    int any = 0;
+    for (int i = 0; i < MAXU; i++)
+        if (un[i].alive && un[i].sel && un[i].team == MY_TEAM){ mp_bitset(mask, i); any = 1; }
+    return any;
+}
+static void cmd_at(float wx, float wy, int wpmode){
+    uint8_t mask[(MAXU + 7) / 8];
+    if (sel_mask(mask)) cmd_at_mask(mask, wx, wy, wpmode);
+}
+
+/* is there an attackable (visible) enemy under this point? */
+static int hostile_at(float wx, float wy){
+    for (int i = 0; i < MAXU; i++) if (un[i].alive && un[i].team == FOE_TEAM){
+        float dx = un[i].x - wx, dy = un[i].y - wy;
+        if (dx * dx + dy * dy < 25 && tile_vis(tidx((int)un[i].x >> 3, (int)un[i].y >> 3))) return 1;
+    }
+    int tx = (int)wx >> 3, ty = (int)wy >> 3;
+    if (tin(tx, ty)){
+        int bi = bmap[tidx(tx, ty)];
+        if (bi != 0xFF && bl[bi].team == FOE_TEAM && (vism[tidx(tx, ty)] & 2)) return 1;
+    }
+    return 0;
+}
+
+/* ---- deferred ground taps: resolve single-vs-double so a double-tap's first
+ * press can't wipe the path it is trying to extend. Feedback plays INSTANTLY
+ * on the press; only the order dispatch waits out the window. ---- */
+#define WP_WINDOW 0.30f
+static uint8_t pend_mask[(MAXU + 7) / 8];
+static int pend_on; static float pend_t, pend_wx, pend_wy;
+static void pend_flush(void){                    /* window over: it was a single */
+    if (!pend_on) return;
+    pend_on = 0;
+    cmd_at_mask(pend_mask, pend_wx, pend_wy, 0); /* clear path + set destination */
+}
+static void ground_tap(float wx, float wy){
+    if (hostile_at(wx, wy)){                     /* attacks resolve immediately */
+        pend_on = 0;
+        cmd_at(wx, wy, 0);
+        Part *p = part(PK_RING, wx, wy);
+        if (p){ p->max = p->life = 0.35f; p->x2 = 4; }
+        sfx(&ack_sfx, 0.5f, 7, 0.06f);
+        return;
+    }
+    if (pend_on && gtime - pend_t < WP_WINDOW
+        && fabsf(wx - pend_wx) < 6 && fabsf(wy - pend_wy) < 6){
+        pend_on = 0;                             /* DOUBLE: append a waypoint */
+        cmd_at_mask(pend_mask, wx, wy, 1);
+        Part *p = part(PK_RING, wx, wy);
+        if (p){ p->max = p->life = 0.35f; p->x2 = 3; }
+        sfx(&ack_sfx, 0.35f, 7, 0.06f);
+        toastf("WAYPOINT SET");
+        return;
+    }
+    if (pend_on) pend_flush();                   /* new spot: fire the older single */
+    if (!sel_mask(pend_mask)) return;
+    pend_on = 1; pend_t = gtime; pend_wx = wx; pend_wy = wy;
+    Part *p = part(PK_RING, wx, wy);             /* instant feel, deferred dispatch */
+    if (p){ p->max = p->life = 0.35f; p->x2 = 5; }
+    sfx(&ack_sfx, 0.45f, 7, 0.06f);
+}
+
 static void select_at(float wx, float wy){
     int found = -1;
     float bd2 = 30;
@@ -2726,6 +2782,8 @@ static void select_at(float wx, float wy){
 static void input_play(float dt){
     const MoteInput *in = mote->input();
     float wx = camx + curx, wy = camy + cury;
+
+    if (pend_on && gtime - pend_t >= WP_WINDOW) pend_flush();   /* single tap resolved */
 
     /* pause: a game STATE, not a blocking modal — the OS loop keeps running,
      * so the engine menu (3s MENU hold) stays reachable on top of it. In MP the
@@ -2839,11 +2897,6 @@ static void input_play(float dt){
         return;
     }
 
-    /* ground double-tap = waypoint: same spot (±6px) within 0.45s */
-    static float wp_lt; static float wp_lx, wp_ly;
-    #define WP_TAP() (gtime - wp_lt < 0.45f && fabsf(curx - wp_lx) < 6 && fabsf(cury - wp_ly) < 6)
-    #define WP_MARK() do { wp_lt = gtime; wp_lx = curx; wp_ly = cury; } while (0)
-
     /* minimap click: while the radar map is up (RB held), A over the map issues
      * orders to the MAP location — or recenters the view if nothing is selected */
     int mm_show = rb_t > 0.001f && (m_free_radar || ((owned[MY_TEAM] & (1u << B_RADAR)) && power_ok(MY_TEAM)));
@@ -2851,7 +2904,7 @@ static void input_play(float dt){
         && curx >= 16 && curx < 16 + MW && cury >= 16 && cury < 16 + MH){
         int mtx = (int)curx - 16, mty = (int)cury - 16;
         if (tin(mtx, mty)){
-            if (sel_count()){ cmd_at(mtx * TILE + 4.0f, mty * TILE + 4.0f, WP_TAP()); WP_MARK(); }
+            if (sel_count()) ground_tap(mtx * TILE + 4.0f, mty * TILE + 4.0f);
             else {
                 camx = mtx * TILE - 64; camy = mty * TILE - 64;
                 if (camx < 0) camx = 0; if (camx > WPX - 128) camx = WPX - 128;
@@ -2898,7 +2951,7 @@ static void input_play(float dt){
             int tx = (int)wx >> 3, ty = (int)wy >> 3;
             int ownb = tin(tx, ty) && bmap[tidx(tx, ty)] != 0xFF && bl[bmap[tidx(tx, ty)]].team == MY_TEAM;
             if (own) select_at(wx, wy);
-            else if (sel_count()){ cmd_at(wx, wy, WP_TAP()); WP_MARK(); }
+            else if (sel_count()) ground_tap(wx, wy);
             else if (ownb) select_at(wx, wy);
             else if (bsel >= 0 && bl[bsel].alive){
                 /* set rally for production buildings */

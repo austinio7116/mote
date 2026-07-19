@@ -13,7 +13,7 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.dirname(HERE)
-W, H, TS = 16, 8, 32
+W, H, TS = 12, 6, 32
 NB = [(0, -1, 1), (1, -1, 2), (1, 0, 4), (1, 1, 8),
       (0, 1, 16), (-1, 1, 32), (-1, 0, 64), (-1, -1, 128)]
 

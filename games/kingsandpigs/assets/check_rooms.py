@@ -8,8 +8,8 @@ gives a ~2.6-tile apex; 2 is the safe gameplay bound), and can fall any depth.
 A horizontal jump clears a 2-tile gap.
 
 Checks per template:
-  - every row exactly 16 chars; row 0 solid; floor row only '#'/'O'
-  - corridor mouths (rows H-4..H-2) open at cols 0 and 15
+  - every row exactly 12 chars; row 0 solid; floor row only '#'/'O'
+  - corridor mouths (rows H-4..H-2, i.e. 2-4) open at cols 0 and 11
   - every item/marker (d D h b B E C S e x) reachable from the room's mouths
     (and from the entrance door for start rooms)
 Exit code 1 if anything fails — run after editing kp_rooms.h.
@@ -27,7 +27,7 @@ MARKERS = set("dDhbBECSex")
 
 def standable(rows, r, c):
     """Can the king stand with feet on top of cell (r,c)? (cell below feet)"""
-    H, W = len(rows), 16
+    H, W = len(rows), 12
     if r >= H or rows[r][c] in ("O",):
         return False
     if rows[r][c] not in SOLID | PLANK and rows[r][c] != "S":
@@ -37,7 +37,7 @@ def standable(rows, r, c):
 
 def reachable_set(rows, seeds):
     """Flood over standing positions: (r,c) = feet-on-top-of-cell(r,c)."""
-    H, W = len(rows), 16
+    H, W = len(rows), 12
     stands = {(r, c) for r in range(H) for c in range(W) if standable(rows, r, c)}
     seen = set(s for s in seeds if s in stands)
     todo = list(seen)
@@ -108,7 +108,7 @@ REQUIRED = {"start": "e", "exit": "x", "bossexit": "x", "drop": "O"}
 
 def check(name, idx, rows):
     errs = []
-    H, W = len(rows), 16
+    H, W = len(rows), 12
     req = REQUIRED.get(name)
     if req and sum(row.count(req) for row in rows) < 1:
         errs.append(f"missing required '{req}' marker")
@@ -116,19 +116,19 @@ def check(name, idx, rows):
         errs.append("stray 'e' marker")
     if name in ("start", "side", "drop") and any("x" in row for row in rows):
         errs.append("stray 'x' marker")
-    if H != 8:
-        errs.append(f"{H} rows (want 8)")
+    if H != 6:
+        errs.append(f"{H} rows (want 6)")
         return errs
     for i, row in enumerate(rows):
-        if len(row) != 16:
+        if len(row) != 12:
             errs.append(f"row {i} len {len(row)}")
             return errs
-    if rows[0] != "#" * 16:
+    if rows[0] != "#" * 12:
         errs.append("ceiling not solid")
     if set(rows[H - 1]) - set("#O"):
         errs.append(f"floor has {set(rows[H-1]) - set('#O')}")
     for i in (H - 4, H - 3, H - 2):
-        if rows[i][0] != "." or rows[i][15] != ".":
+        if rows[i][0] != "." or rows[i][11] != ".":
             errs.append(f"mouth blocked at row {i}")
 
     # simulate the game's shelf widening: 'S' becomes a 3-wide beam
@@ -174,7 +174,7 @@ def check(name, idx, rows):
 
     # accessibility from EACH corridor mouth independently — a floor may
     # connect a room from only one side, so both entries must reach everything
-    for side, cols in (("left", (0, 1)), ("right", (14, 15))):
+    for side, cols in (("left", (0, 1)), ("right", (10, 11))):
         seen = reachable_set(sim, [marker_pos(sim, H - 2, c) for c in cols])
         for r in range(H):
             for c in range(W):

@@ -22,7 +22,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.dirname(HERE)
 ROOT = os.path.dirname(os.path.dirname(GAME))
-COLS, ROWS = 64, 24
+COLS, ROWS = 60, 24
 
 # ---------------------------------------------------------------- run + parse
 def run_floor(seed, depth):

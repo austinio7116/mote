@@ -118,14 +118,14 @@ MOTE_MODULE_HEADER();
 
 /* ------------------------------------------------------------- world grid */
 #define TILE      32
-#define ROOMS_X    4
-#define ROOMS_Y    3
-#define ROOM_W    16
-#define ROOM_H     8            /* must match KP_ROOM_H (kp_rooms.h) */
-#define COLS   (ROOMS_X * ROOM_W)          /* 64  */
-#define ROWS   (ROOMS_Y * ROOM_H)          /* 30  */
-#define WORLD_W (COLS * TILE)              /* 1024 */
-#define WORLD_H (ROWS * TILE)              /* 480  */
+#define ROOMS_X    5
+#define ROOMS_Y    4
+#define ROOM_W    12            /* must match KP_ROOM_W (kp_rooms.h) */
+#define ROOM_H     6            /* must match KP_ROOM_H (kp_rooms.h) */
+#define COLS   (ROOMS_X * ROOM_W)          /* 60  */
+#define ROWS   (ROOMS_Y * ROOM_H)          /* 24  */
+#define WORLD_W (COLS * TILE)              /* 1920 */
+#define WORLD_H (ROWS * TILE)              /* 768  */
 
 /* map layer bits (autotile layers draw bottom-up in this order) */
 #define B_BG   1u    /* pink brick background wall            */
@@ -1516,24 +1516,75 @@ static void pickups_tick(float dt) {
     }
 }
 
+/* projectile tile collision: a small AABB (half-extent PR_HR) swept per axis
+ * so bombs and whacked cannonballs bounce off walls, ceilings and floors —
+ * not just the ground. solid_px samples the tilemap the same way body_step
+ * does for actors, so a projectile and the king agree on what's solid. */
+#define PR_HR 6
+static int proj_solid(int x, int y) {
+    return solid_px(x - PR_HR, y - PR_HR) || solid_px(x + PR_HR, y - PR_HR) ||
+           solid_px(x - PR_HR, y + PR_HR) || solid_px(x + PR_HR, y + PR_HR);
+}
+/* advance one projectile through the tilemap with per-axis reflection.
+ * rest = how much speed survives a bounce; the surface it slides along loses
+ * a little to friction. Returns 1 if it bounced off anything this step. */
+static int proj_move(Proj *p, float dt, float rest) {
+    int hit = 0;
+    float nx = p->x + p->vx * dt;
+    if (proj_solid((int)nx, (int)p->y)) {
+        p->vx = -p->vx * rest; p->vy *= 0.92f; hit = 1;   /* wall / side */
+    } else p->x = nx;
+    float ny = p->y + p->vy * dt;
+    if (proj_solid((int)p->x, (int)ny)) {
+        p->vx *= 0.8f; p->vy = -p->vy * rest; hit = 1;    /* floor / ceiling */
+    } else p->y = ny;
+    return hit;
+}
+
 static void proj_tick(float dt) {
+    /* bombs and bouncing balls shove each other apart so a whacked cluster
+     * scatters instead of stacking (a light elastic nudge along the join) */
+    for (int i = 0; i < MAXP; i++) {
+        if (!pr[i].on || (pr[i].type != P_BOMB &&
+                          !(pr[i].type == P_BALL && pr[i].fuse > 0.5f))) continue;
+        for (int j = i + 1; j < MAXP; j++) {
+            if (!pr[j].on || (pr[j].type != P_BOMB &&
+                              !(pr[j].type == P_BALL && pr[j].fuse > 0.5f))) continue;
+            float dx = pr[j].x - pr[i].x, dy = pr[j].y - pr[i].y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 > 1.0f && d2 < (2 * PR_HR) * (2 * PR_HR)) {
+                float d = sqrtf(d2), nxn = dx / d, nyn = dy / d;
+                float sep = (2 * PR_HR - d) * 0.5f;
+                pr[i].x -= nxn * sep; pr[i].y -= nyn * sep;
+                pr[j].x += nxn * sep; pr[j].y += nyn * sep;
+                float rel = (pr[j].vx - pr[i].vx) * nxn + (pr[j].vy - pr[i].vy) * nyn;
+                if (rel < 0) {
+                    pr[i].vx += rel * nxn; pr[i].vy += rel * nyn;
+                    pr[j].vx -= rel * nxn; pr[j].vy -= rel * nyn;
+                }
+            }
+        }
+    }
     for (int i = 0; i < MAXP; i++) {
         if (!pr[i].on) continue;
         Proj *p = &pr[i];
-        if (p->type != P_BALL) p->vy += GRAV * 0.8f * dt;
-        p->x += p->vx * dt; p->y += p->vy * dt;
+        int bounces = (p->type == P_BOMB) || (p->type == P_BALL && p->fuse > 0.5f);
 
-        if (p->type == P_BOMB) {
-            p->fuse -= dt;
-            /* bounce on ground */
-            if (p->vy > 0 && solid_px((int)p->x, (int)p->y + 8)) {
-                p->y = (float)((((int)p->y + 8) / TILE) * TILE) - 8.0f;
-                p->vy *= -0.4f; p->vx *= 0.7f;
-                if (fabsf(p->vy) < 60) p->vy = 0;
+        if (bounces) {
+            if (p->type != P_BALL) p->vy += GRAV * 0.8f * dt;
+            int hit = proj_move(p, dt, p->type == P_BOMB ? 0.5f : 0.62f);
+            if (hit && (fabsf(p->vx) > 40 || fabsf(p->vy) > 40))
+                sfx(&break_sfx, 0.2f);
+            if (hit && p->type == P_BOMB && fabsf(p->vy) < 60 &&
+                solid_px((int)p->x, (int)p->y + PR_HR + 2)) p->vy = 0;
+            if (p->type == P_BOMB) {
+                p->fuse -= dt;
+                if (p->fuse <= 0) { p->on = 0; spawn_boom(p->x, p->y); continue; }
             }
-            if (p->fuse <= 0) { p->on = 0; spawn_boom(p->x, p->y); continue; }
         } else {
-            /* box and ball shatter on solids */
+            if (p->type != P_BALL) p->vy += GRAV * 0.8f * dt;
+            p->x += p->vx * dt; p->y += p->vy * dt;
+            /* enemy-fired ball / thrown box shatters on the first solid it meets */
             if (solid_px((int)p->x, (int)p->y)) {
                 if (p->type == P_BOX) spawn_piece(p->x, p->y + 4);
                 else spawn_boom(p->x, p->y);
@@ -1624,7 +1675,7 @@ static void king_attack_hits(void) {
     for (int i = 0; i < MAXP; i++) {
         if (!pr[i].on || pr[i].type != P_BOMB) continue;
         if (fabsf(pr[i].x - hx) < 24 && fabsf(pr[i].y - hy) < 24) {
-            pr[i].vx = k_facing * 220.0f; pr[i].vy = -180.0f;
+            pr[i].vx = k_facing * 140.0f; pr[i].vy = -120.0f;
             sfx(&hitpig_sfx, 0.6f);
         }
     }
@@ -1644,7 +1695,7 @@ static void king_attack_hits(void) {
         if (sbombs[i].on && fabsf(sbombs[i].x - hx) < 24 &&
             fabsf((sbombs[i].y - 8) - hy) < 24) {
             spawn_proj(P_BOMB, sbombs[i].x, sbombs[i].y - 8,
-                       k_facing * 220.0f, -180.0f);
+                       k_facing * 140.0f, -120.0f);
             sbombs[i].on = 0;
             sfx(&fuse_sfx, 0.7f);
             sfx(&hitpig_sfx, 0.6f);
