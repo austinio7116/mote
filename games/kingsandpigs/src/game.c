@@ -1347,13 +1347,6 @@ static void hud_draw(uint16_t *fb) {
                    pickups_sheet.tile_w, pickups_sheet.tile_h, 0, 0, MOTE_FB_H);
         draw_digits(fb, diamonds, MOTE_FB_W - 20, 4);
     }
-    /* floor number, under the diamonds */
-    {
-        char t[12];
-        snprintf(t, sizeof t, "F%d", depth);
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_MED), t, MOTE_FB_W - 26, 16,
-                        MOTE_RGB565(255, 220, 140));
-    }
 }
 
 /* --------------------------------------------------------------- updates --- */
