@@ -376,7 +376,8 @@ static void spawn_piece(float x, float y) {
 static void spawn_boom(float x, float y);
 static void spawn_proj(int type, float x, float y, float vx, float vy) {
     for (int i = 0; i < MAXP; i++) if (!pr[i].on) {
-        pr[i] = (Proj){ 1, (uint8_t)type, x, y, vx, vy, 1.8f };
+        pr[i] = (Proj){ 1, (uint8_t)type, x, y, vx, vy,
+                        type == P_BALL ? 0.0f : 1.8f };
         return;
     }
 }
@@ -916,12 +917,26 @@ static void enemy_tick(Enemy *e, float dt) {
         }
         return;
 
-    case ES_IDLE:                                      /* E_MATCH by its cannon */
+    case ES_IDLE:                                      /* E_MATCH crews its cannon */
         mote_anim_tick(&e->ap, dt);
         if (e->cannon >= 0 && cans[e->cannon].on) {
             Cannon *cn = &cans[e->cannon];
             cn->cd -= dt;
             float cdx = kb.x - cn->x;
+            /* aim at the king (hysteresis so it doesn't jitter astride him),
+             * but never mid light/fire */
+            if (e->clip == &pigmatch_matchon && fabsf(cdx) > 30) {
+                int want = cdx > 0 ? 1 : -1;
+                if (want != cn->facing) cn->facing = (int8_t)want;
+            }
+            /* the gunner stays at the breech (opposite the muzzle) */
+            {
+                float post = cn->x - cn->facing * 26.0f;
+                float pd = post - b->x;
+                b->vx = (fabsf(pd) > 4) ? (pd > 0 ? 40.0f : -40.0f) : 0;
+                e->facing = cn->facing;
+                body_step(b, dt);
+            }
             int infront = (cn->facing > 0) ? (cdx > 20) : (cdx < -20);
             if (cn->cd <= 0 && infront && fabsf(cdx) < 220 &&
                 fabsf(kb.y - cn->y) < 40 && e->clip == &pigmatch_matchon) {
@@ -942,7 +957,24 @@ static void enemy_tick(Enemy *e, float dt) {
         return;
 
     case ES_PATROL: {
-        float spd = is_boss ? 0.0f : 32.0f;
+        if (is_boss) {                          /* guard stance: hold the door */
+            float gd = doors[1].x - b->x;
+            b->vx = (fabsf(gd) > 24) ? (gd > 0 ? 44.0f : -44.0f) : 0;
+            if (b->vx == 0) e->facing = (int8_t)dirk;      /* watch the king */
+            else e->facing = b->vx > 0 ? 1 : -1;
+            body_step(b, dt);
+            e_clip(e, b->vx != 0 ? &kingpig_run : &kingpig_idle);
+            mote_anim_tick(&e->ap, dt);
+            float rng = 200.0f;
+            if (king_visible(e, rng)) {
+                e->state = ES_ALERT; e->t = 0;
+                e->facing = (int8_t)dirk;
+                b->vx = 0;
+                dlg_show(&e->dlg, DLG_EXCLAIM, 0.45f);
+            }
+            return;
+        }
+        float spd = 32.0f;
         if (e->t > 2.5f + (rnd() % 100) * 0.01f) { e->t = 0; if (rndi(3) == 0) e->facing = -e->facing; }
         b->vx = e->facing * spd;
         int ahead = (int)b->x + e->facing * (b->hw + 6);
@@ -1031,6 +1063,12 @@ static void enemy_tick(Enemy *e, float dt) {
             return;
         }
 
+        /* the boss never strays far from his door */
+        if (is_boss && fabsf(b->x - doors[1].x) > 180.0f) {
+            e->state = ES_PATROL; e->t = 0;
+            if (e->dlg.type < 0) dlg_show(&e->dlg, DLG_LOSER, 1.0f);
+            return;
+        }
         /* melee pig / boss: run at the king, hop over walls */
         float spd = is_boss ? 88.0f : 76.0f;
         b->vx = dirk * spd;
@@ -1423,8 +1461,23 @@ static void proj_tick(float dt) {
         }
         if (p->x < 0 || p->x > WORLD_W || p->y > WORLD_H) { p->on = 0; continue; }
 
+        /* a returned ball hunts the pigs instead */
+        if (p->type == P_BALL && p->fuse > 0.5f) {
+            for (int j = 0; j < MAXE; j++) {
+                Enemy *e = &en[j];
+                if (!e->on || e->state == ES_DEAD || e->state == ES_HIDDEN) continue;
+                if (fabsf(e->b.x - p->x) < e->b.hw + 10 &&
+                    fabsf((e->b.y - e->b.bh / 2) - p->y) < e->b.bh) {
+                    hurt_enemy(e, 2, p->x - p->vx);
+                    p->on = 0;
+                    break;
+                }
+            }
+            if (!p->on) continue;
+        }
+
         /* hit the king */
-        if (gstate == G_PLAY && k_inv <= 0 &&
+        if (gstate == G_PLAY && k_inv <= 0 && !(p->type == P_BALL && p->fuse > 0.5f) &&
             fabsf(kb.x - p->x) < 14 && fabsf((kb.y - K_BH / 2) - p->y) < 18) {
             if (p->type == P_BOMB) { p->on = 0; spawn_boom(p->x, p->y); }
             else {
@@ -1494,6 +1547,17 @@ static void king_attack_hits(void) {
             sfx(&hitpig_sfx, 0.6f);
         }
     }
+    /* return a cannonball: it flies back as the king's shot */
+    for (int i = 0; i < MAXP; i++) {
+        if (!pr[i].on || pr[i].type != P_BALL) continue;
+        if (fabsf(pr[i].x - hx) < 26 && fabsf(pr[i].y - hy) < 26) {
+            pr[i].vx = k_facing * 280.0f;
+            pr[i].fuse = 1.0f;                 /* now the king's projectile */
+            sfx(&hitpig_sfx, 0.8f);
+            mote->rumble(0.4f, 80);
+        }
+    }
+
     /* whack a resting bomb: it lights AND flies forward like a returned throw */
     for (int i = 0; i < MAXSB; i++)
         if (sbombs[i].on && fabsf(sbombs[i].x - hx) < 24 &&
@@ -1723,6 +1787,23 @@ static void g_update(float dt) {
         return;
 
     case G_PLAY:
+        /* host-testing: KP_STAT=1 prints cannon aim/gunner/boss state each second */
+        if (getenv("KP_STAT")) {
+            static float stat_t; stat_t += dt;
+            if (stat_t > 1.0f) {
+                stat_t = 0;
+                for (int i = 0; i < MAXC; i++)
+                    if (cans[i].on)
+                        fprintf(stderr, "STAT cannon%d face=%d x=%d king=%d\n",
+                                i, cans[i].facing, (int)cans[i].x, (int)kb.x);
+                for (int i = 0; i < MAXE; i++)
+                    if (en[i].on && en[i].type == E_MATCH)
+                        fprintf(stderr, "STAT gunner x=%d st=%d\n", (int)en[i].b.x, en[i].state);
+                    else if (en[i].on && en[i].type == E_BOSS)
+                        fprintf(stderr, "STAT boss x=%d door=%d st=%d\n",
+                                (int)en[i].b.x, (int)doors[1].x, en[i].state);
+            }
+        }
         if (mote_just_pressed(in, MOTE_BTN_LB)) map_view = !map_view;
         if (map_view) {                    /* paused: world stays, logic halts */
             draw_world();
