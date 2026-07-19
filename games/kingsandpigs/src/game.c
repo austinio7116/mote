@@ -677,21 +677,49 @@ static void generate(void) {
         int punched = 0;
         for (int c = 0; c < KP_ROOM_W; c++)
             if (tpl->r[KP_ROOM_H - 1][c] == 'O' && mr + 1 < ROWS - 1) {
-                map[(mr + 1) * COLS + gx * ROOM_W + c] = B_BG;
+                int mc = gx * ROOM_W + c;
+                /* only open the hole where the king can actually fall through
+                 * — if the room below has terrain hard against its ceiling
+                 * here the drop would dead-end in a notch, so keep the floor
+                 * closed at this column instead */
+                if (map[(mr + 2) * COLS + mc] & B_SOL) {
+                    map[mr * COLS + mc] = B_SOL;
+                    continue;
+                }
+                map[(mr + 1) * COLS + mc] = B_BG;
                 punched = 1;
             }
         if (!hasdrop[gy * ROOMS_X + gx]) continue;
-        if (!punched) {
-            int hc;
-            for (int tries = 0; tries < 16; tries++) {
-                hc = gx * ROOM_W + 3 + rndi(KP_ROOM_W - 7);
-                float hx = hc * TILE + 16.0f;
-                if (fabsf(hx - doors[0].x) > 56 && fabsf(hx - doors[1].x) > 56) break;
+        if (!punched && mr + 2 < ROWS) {
+            /* no usable template hole — punch a 2-wide one at the best
+             * column pair: enterable from above, open below (drilling
+             * through a thin blockage if it must), away from the doors */
+            int lowfloor = (gy + 2) * ROOM_H - 1;
+            int best = -1, bestcost = 999;
+            for (int c = gx * ROOM_W + 1; c <= gx * ROOM_W + KP_ROOM_W - 3; c++) {
+                int cost = 0, bad = 0;
+                for (int k = 0; k < 2; k++) {
+                    int cc = c + k;
+                    if (map[(mr - 1) * COLS + cc] & B_SOL) { bad = 1; break; }
+                    int r2 = mr + 2;
+                    while (r2 < lowfloor && (map[r2 * COLS + cc] & B_SOL)) r2++;
+                    if (r2 >= lowfloor) { bad = 1; break; }   /* solid shaft */
+                    if (r2 - (mr + 2) > cost) cost = r2 - (mr + 2);
+                }
+                if (bad) continue;
+                float hx = c * TILE + 16.0f;
+                if (fabsf(hx - doors[0].x) <= 56 || fabsf(hx - doors[1].x) <= 56)
+                    cost += 100;
+                if (cost < bestcost) { bestcost = cost; best = c; }
             }
-            for (int k = 0; k < 2; k++) {
-                map[mr * COLS + hc + k] = B_BG;
-                if (mr + 1 < ROWS - 1) map[(mr + 1) * COLS + hc + k] = B_BG;
-            }
+            if (best >= 0)
+                for (int k = 0; k < 2; k++) {
+                    int cc = best + k, r2 = mr + 2;
+                    map[mr * COLS + cc] = B_BG;
+                    map[(mr + 1) * COLS + cc] = B_BG;
+                    while (r2 < lowfloor && (map[r2 * COLS + cc] & B_SOL))
+                        map[r2++ * COLS + cc] = B_BG;
+                }
         }
     }
 
@@ -1984,17 +2012,18 @@ static void g_overlay(uint16_t *fb) {
         return;
     }
     if (gstate == G_OVER) {
-        mote->draw_rect(fb, 8, 34, MOTE_FB_W - 16, 60, MOTE_RGB565(10, 8, 16), 1, 0, MOTE_FB_H);
-        mote->draw_rect(fb, 8, 34, MOTE_FB_W - 16, 60, MOTE_RGB565(120, 80, 140), 0, 0, MOTE_FB_H);
+        /* translucent full-screen dim — no solid panel, and every line sits
+         * on the darkened scene so it all stays readable */
+        mote_dim_box(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, 5);
         const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-        mote->text_font(fb, mote->ui_font(MOTE_FONT_LARGE), "THE PIGS WIN", 18, 40,
-                        MOTE_RGB565(255, 120, 120));
-        char t[32];
-        snprintf(t, sizeof t, "FLOOR %d", depth);
-        mote->text_font(fb, f, t, 44, 58, MOTE_RGB565(230, 220, 240));
-        snprintf(t, sizeof t, "DIAMONDS %d", diamonds);
-        mote->text_font(fb, f, t, 32, 70, MOTE_RGB565(150, 200, 255));
-        mote->text_font(fb, f, "A: TRY AGAIN", 30, 96, MOTE_RGB565(255, 230, 150));
+        mote_ftextc(mote, fb, mote->ui_font(MOTE_FONT_LARGE), MOTE_FB_W / 2, 40,
+                    MOTE_RGB565(255, 120, 120), "THE PIGS WIN");
+        mote_ftextfc(mote, fb, f, MOTE_FB_W / 2, 58,
+                     MOTE_RGB565(230, 220, 240), "FLOOR %d", depth);
+        mote_ftextfc(mote, fb, f, MOTE_FB_W / 2, 70,
+                     MOTE_RGB565(150, 200, 255), "DIAMONDS %d", diamonds);
+        mote_ftextc(mote, fb, f, MOTE_FB_W / 2, 96,
+                    MOTE_RGB565(255, 230, 150), "A: TRY AGAIN");
         return;
     }
     if (map_view && gstate == G_PLAY) {
