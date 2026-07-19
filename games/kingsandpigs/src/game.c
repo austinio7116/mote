@@ -1350,14 +1350,17 @@ static void proj_tick(float dt) {
         }
         if (p->x < 0 || p->x > WORLD_W || p->y > WORLD_H) { p->on = 0; continue; }
 
-        /* a returned ball hunts the pigs instead */
+        /* a returned ball explodes on the first pig it reaches (it flies at
+         * cannon-muzzle height, above the pig's centre, so the window reaches
+         * from the feet up past the head to muzzle height) */
         if (p->type == P_BALL && p->fuse > 0.5f) {
             for (int j = 0; j < MAXE; j++) {
                 Enemy *e = &en[j];
                 if (!e->on || e->state == ES_DEAD || e->state == ES_HIDDEN) continue;
-                if (fabsf(e->b.x - p->x) < e->b.hw + 10 &&
-                    fabsf((e->b.y - e->b.bh / 2) - p->y) < e->b.bh) {
+                if (fabsf(e->b.x - p->x) < e->b.hw + 12 &&
+                    p->y > e->b.y - e->b.bh - 16 && p->y < e->b.y + 6) {
                     hurt_enemy(e, 2, p->x - p->vx);
+                    spawn_boom(p->x, p->y);              /* explode on impact */
                     p->on = 0;
                     break;
                 }
