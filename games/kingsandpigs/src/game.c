@@ -338,15 +338,14 @@ static uint8_t map_view;          /* LB toggles the floor-overview map (pauses) 
 /* global pickup spin animations (all pickups of a kind animate in sync) */
 static MoteAnimPlayer pk_ap[3];
 
-/* "PRESS A TO START" pre-rendered once against black (the AA font needs a real
- * background to blend into), then the black is keyed away — the blended edge
- * pixels survive as a natural dark outline. Scale-pulsed with blit_ex. */
-#define PROMPT_W 128
-#define PROMPT_H 16
+/* "PRESS A / TO START" pre-rendered once in the logo's PIGS green with its
+ * dark outline (the AA font needs a real background, so it renders on white,
+ * which is then keyed away and re-inked). Drawn static, left of the door. */
+#define PROMPT_W 128           /* text_font writes at framebuffer stride */
+#define PROMPT_H 30
 static uint16_t prompt_px[PROMPT_W * PROMPT_H];
 static MoteImage prompt_img = { prompt_px, PROMPT_W, PROMPT_H, 0xF81F, 0 };
 static uint8_t prompt_ready;
-static int prompt_tw;
 
 /* ------------------------------------------------------------------- sfx */
 static void sfx(const MoteSfx *s, float gain) { mote->audio_play_sfx(s, gain); }
@@ -1768,22 +1767,33 @@ static void g_overlay(uint16_t *fb) {
         mote->blit(fb, &logo_img, x0, 30, KP_LOGO_W1_X0, 0, aw, logo_img.h, 0, 0, MOTE_FB_H);
         mote->blit(fb, &logo_img, x0 + aw + 7, 30, KP_LOGO_W2_X0, 0, pw, logo_img.h, 0, 0, MOTE_FB_H);
 
-        if (!prompt_ready) {                    /* black text, keyed background */
+        if (!prompt_ready) {
             prompt_ready = 1;
             for (int i = 0; i < PROMPT_W * PROMPT_H; i++) prompt_px[i] = 0xFFFF;
-            prompt_tw = mote_fontw(f, "PRESS A TO START") + 10;
-            mote_ftextc(mote, prompt_px, f, PROMPT_W / 2, 2,
-                        MOTE_RGB565(12, 10, 18), "PRESS A TO START");
+            mote_ftextc(mote, prompt_px, f, PROMPT_W / 2, 1,
+                        MOTE_RGB565(20, 20, 20), "PRESS A");
+            mote_ftextc(mote, prompt_px, f, PROMPT_W / 2, 15,
+                        MOTE_RGB565(20, 20, 20), "TO START");
             for (int i = 0; i < PROMPT_W * PROMPT_H; i++) {
                 uint16_t c = prompt_px[i];
                 int lum = ((c >> 11) & 31) * 3 + ((c >> 5) & 63) * 3 + (c & 31) * 3;
-                prompt_px[i] = (lum > 220) ? 0xF81F : MOTE_RGB565(12, 10, 18);
+                prompt_px[i] = (lum > 220) ? 0xF81F : MOTE_RGB565(72, 195, 138);
             }
+            for (int y = 0; y < PROMPT_H; y++)          /* dark logo-style outline */
+                for (int x = 0; x < PROMPT_W; x++) {
+                    if (prompt_px[y * PROMPT_W + x] != 0xF81F) continue;
+                    int hit = 0;
+                    for (int dy = -1; dy <= 1 && !hit; dy++)
+                        for (int dx = -1; dx <= 1 && !hit; dx++) {
+                            int xx = x + dx, yy = y + dy;
+                            if (xx < 0 || xx >= PROMPT_W || yy < 0 || yy >= PROMPT_H) continue;
+                            if (prompt_px[yy * PROMPT_W + xx] == MOTE_RGB565(72, 195, 138)) hit = 1;
+                        }
+                    if (hit) prompt_px[y * PROMPT_W + x] = MOTE_RGB565(63, 56, 81);
+                }
         }
-        float pulse = 1.0f + 0.08f * sinf(g_t * 5.0f);
-        mote->blit_ex(fb, &prompt_img, MOTE_FB_W / 2, 62,
-                      (PROMPT_W - prompt_tw) / 2, 0, prompt_tw, PROMPT_H,
-                      0, pulse, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+        mote->blit(fb, &prompt_img, 4, 66, PROMPT_W / 2 - 36, 0, 72, PROMPT_H,
+                   0, 0, MOTE_FB_H);
 
         if (best_depth > 0) {
             /* "BEST FLOOR n" + the pack's diamond-x counter, centred as one unit */
