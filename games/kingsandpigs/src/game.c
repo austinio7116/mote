@@ -338,12 +338,13 @@ static uint8_t map_view;          /* LB toggles the floor-overview map (pauses) 
 /* global pickup spin animations (all pickups of a kind animate in sync) */
 static MoteAnimPlayer pk_ap[3];
 
-/* "PRESS A TO START" pre-rendered once as an opaque dark badge (the AA font
- * must blend against its real background), then scale-pulsed with blit_ex */
+/* "PRESS A TO START" pre-rendered once against black (the AA font needs a real
+ * background to blend into), then the black is keyed away — the blended edge
+ * pixels survive as a natural dark outline. Scale-pulsed with blit_ex. */
 #define PROMPT_W 128
 #define PROMPT_H 16
 static uint16_t prompt_px[PROMPT_W * PROMPT_H];
-static MoteImage prompt_img = { prompt_px, PROMPT_W, PROMPT_H, 0xF81F, 1 };
+static MoteImage prompt_img = { prompt_px, PROMPT_W, PROMPT_H, 0xF81F, 0 };
 static uint8_t prompt_ready;
 static int prompt_tw;
 
@@ -380,6 +381,16 @@ static void spawn_proj(int type, float x, float y, float vx, float vy) {
         return;
     }
 }
+/* a crate at (x, y feet) just broke: any bomb resting on that stack lights
+ * and drops */
+static void light_sbomb(int i);
+static void crate_broke(float x, float y) {
+    for (int i = 0; i < MAXSB; i++)
+        if (sbombs[i].on && fabsf(sbombs[i].x - x) < 16 &&
+            sbombs[i].y < y + 4 && sbombs[i].y > y - 3 * (KP_BOX_BH + 2))
+            light_sbomb(i);
+}
+
 static void light_sbomb(int i) {
     if (!sbombs[i].on) return;
     sbombs[i].on = 0;
@@ -829,6 +840,7 @@ static void spawn_boom(float x, float y) {
             fabsf(crates[i].y - 8 - y) < 48) {
             crates[i].on = 0;
             spawn_piece(crates[i].x, crates[i].y);
+            crate_broke(crates[i].x, crates[i].y);
             if (rndi(2) == 0) spawn_pickup(PK_DBIG, crates[i].x, crates[i].y - 8, -100);
         }
     /* ... and chain-light resting bombs */
@@ -1468,6 +1480,7 @@ static void king_attack_hits(void) {
         if (fabsf(crates[i].x - hx) < 24 && fabsf((crates[i].y - 8) - hy) < 24) {
             crates[i].on = 0;
             spawn_piece(crates[i].x, crates[i].y);
+            crate_broke(crates[i].x, crates[i].y);
             sfx(&break_sfx, 0.8f);
             int roll = rndi(10);
             if (roll < 5) spawn_pickup(PK_DBIG, crates[i].x, crates[i].y - 8, -120);
@@ -1745,8 +1758,8 @@ static void g_update(float dt) {
 static void g_overlay(uint16_t *fb) {
     if (gstate == G_TITLE) {
         const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-        /* the logo stacked as "KINGS" / "AND PIGS" over a soft translucent dim */
-        mote_dim_box(fb, 0, 6, MOTE_FB_W, 46, 5);
+        /* the logo stacked as "KINGS" / "AND PIGS" straight over the scene
+         * (its own white outline carries it) */
         int kw = KP_LOGO_W0_X1 - KP_LOGO_W0_X0;
         mote->blit(fb, &logo_img, (MOTE_FB_W - kw) / 2, 11,
                    KP_LOGO_W0_X0, 0, kw, logo_img.h, 0, 0, MOTE_FB_H);
@@ -1755,15 +1768,20 @@ static void g_overlay(uint16_t *fb) {
         mote->blit(fb, &logo_img, x0, 30, KP_LOGO_W1_X0, 0, aw, logo_img.h, 0, 0, MOTE_FB_H);
         mote->blit(fb, &logo_img, x0 + aw + 7, 30, KP_LOGO_W2_X0, 0, pw, logo_img.h, 0, 0, MOTE_FB_H);
 
-        if (!prompt_ready) {                    /* render the badge once */
+        if (!prompt_ready) {                    /* black text, keyed background */
             prompt_ready = 1;
-            for (int i = 0; i < PROMPT_W * PROMPT_H; i++) prompt_px[i] = MOTE_RGB565(16, 13, 24);
+            for (int i = 0; i < PROMPT_W * PROMPT_H; i++) prompt_px[i] = 0xFFFF;
             prompt_tw = mote_fontw(f, "PRESS A TO START") + 10;
             mote_ftextc(mote, prompt_px, f, PROMPT_W / 2, 2,
-                        MOTE_RGB565(255, 230, 150), "PRESS A TO START");
+                        MOTE_RGB565(12, 10, 18), "PRESS A TO START");
+            for (int i = 0; i < PROMPT_W * PROMPT_H; i++) {
+                uint16_t c = prompt_px[i];
+                int lum = ((c >> 11) & 31) * 3 + ((c >> 5) & 63) * 3 + (c & 31) * 3;
+                prompt_px[i] = (lum > 220) ? 0xF81F : MOTE_RGB565(12, 10, 18);
+            }
         }
         float pulse = 1.0f + 0.08f * sinf(g_t * 5.0f);
-        mote->blit_ex(fb, &prompt_img, MOTE_FB_W / 2, 71,
+        mote->blit_ex(fb, &prompt_img, MOTE_FB_W / 2, 62,
                       (PROMPT_W - prompt_tw) / 2, 0, prompt_tw, PROMPT_H,
                       0, pulse, MOTE_BLEND_NONE, 0, MOTE_FB_H);
 
