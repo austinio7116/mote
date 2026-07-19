@@ -46,6 +46,7 @@ static MoteImage s_body_img, s_hair_img;
 static MoteAnimPlayer s_anim;
 static const MoteAnimClip *s_clip;
 static float s_drop_t;                   /* platform drop-through timer */
+static float s_knock_t;                  /* knockback slide lock (NOT the long spawn i-frames) */
 static float s_heal_cd;
 
 /* reserved palette slots as baked (must match make_sprites.py) */
@@ -285,6 +286,7 @@ void player_reset(int full) {
     g_pl.vx = g_pl.vy = 0;
     g_pl.facing = 1;
     g_pl.iframes = 2.0f;
+    s_knock_t = 0;                       /* spawn free to move — no leftover knockback lock */
     g_pl.use_t = 0; g_pl.mine_c = -1; g_pl.breath = 8.0f;
     s_clip = 0;
     mote_anim_play(&s_anim, &player_idle);
@@ -304,6 +306,7 @@ void player_damage(int dmg, float kx) {
     g_pl.hp -= dmg;
     g_pl.iframes = 0.9f;
     g_pl.vx = kx; g_pl.vy = -90.0f;
+    s_knock_t = 0.45f;                    /* lock movement to the knockback slide, briefly */
     ftext_add(g_pl.x, g_pl.y - 24, dmg, rgb(255, 80, 60));
     part_burst(g_pl.x, g_pl.y - 10, rgb(200, 40, 40), 5, 60);
     audio_sfx(SFX_HURT, 1.0f);
@@ -764,6 +767,7 @@ void player_tick(float dt) {
     const MoteInput *in = pin();
     if (dt > 0.05f) dt = 0.05f;
     if (g_pl.iframes > 0) g_pl.iframes -= dt;
+    if (s_knock_t > 0) s_knock_t -= dt;
     if (g_pl.use_t > 0) {
         g_pl.use_t -= dt;
         Slot *sw = &g_pl.inv[g_pl.hot];                  /* blade trail every swing frame */
@@ -813,7 +817,7 @@ void player_tick(float dt) {
     if (mote_pressed(in, MOTE_BTN_LEFT))  { want = -move; g_pl.facing = -1; }
     if (mote_pressed(in, MOTE_BTN_RIGHT)) { want = move;  g_pl.facing = 1; }
     /* knockback decays into control */
-    if (g_pl.iframes > 0.45f) want = g_pl.vx;
+    if (s_knock_t > 0) want = g_pl.vx;   /* knockback slide — NOT during spawn i-frames */
     g_pl.vx = want;
     if (g_pl.vx != 0) {
         float nx = g_pl.x + g_pl.vx * dt;
