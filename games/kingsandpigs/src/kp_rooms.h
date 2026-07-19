@@ -15,7 +15,7 @@
  *   B  crate spot (stack 1-2 high, sometimes a bomb on top, sometimes a
  *      hiding pig from depth 2)     b  unlit bomb resting on the floor
  *   E  enemy spot (type scales with depth; may stay empty on early floors)
- *   C  cannon + match pig (only spawns from depth 4)
+ *   C  cannon + match pig (only spawns from depth 3)
  *   W  window            F  hanging banner (flag)
  *   e  entrance door     x  exit door
  *
@@ -31,6 +31,8 @@
 #define KP_ROOM_H 8
 
 typedef struct { const char *r[KP_ROOM_H]; } KpRoom;
+
+#define KP_NSIDE 12    /* entries in kp_side[] */
 
 static const KpRoom kp_start[] = {
     {{ "################",
@@ -146,6 +148,39 @@ static const KpRoom kp_side[] = {
        ".---...SS...---.",
        "....E.....E...B.",
        "################" }},
+
+    {{ "################",
+       "#.....##.......#",
+       "#..W..##...W...#",
+       "#..d..##..d....#",
+       "......##........",
+       "......##....=...",
+       "....E......B....",
+       "################" }},
+    {{ "################",
+       "#######........#",
+       "#######....W...#",
+       "#..............#",
+       "..dd............",
+       ".====....----...",
+       "......E.....B...",
+       "################" }},
+    {{ "################",
+       "#..W........F..#",
+       "#..............#",
+       "#..............#",
+       "..........d.d...",
+       "..####....===...",
+       "..####..E.....b.",
+       "################" }},
+    {{ "################",
+       "#..F...........#",
+       "#..........dd..#",
+       "#..........---.#",
+       "................",
+       "........##......",
+       "...E....##..B...",
+       "################" }},
 };
 
 static const KpRoom kp_drop[] = {
@@ -161,9 +196,9 @@ static const KpRoom kp_drop[] = {
        "#..F.......W...#",
        "#..............#",
        "#..............#",
-       "...d...d....S...",
+       "...d...d..S.....",
        "...-----........",
-       "....B..E........",
+       "....B..E.....C..",
        "#########OO#####" }},
     {{ "################",
        "#......W.......#",

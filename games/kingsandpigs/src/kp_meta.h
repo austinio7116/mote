@@ -118,6 +118,13 @@
 #define KP_LB_HY1 17
 #define KP_LB_HX2 44
 #define KP_LB_HY2 17
+/* logo.png word bounds: KINGS / AND / PIGS */
+#define KP_LOGO_W0_X0 0
+#define KP_LOGO_W0_X1 50
+#define KP_LOGO_W1_X0 56
+#define KP_LOGO_W1_X1 89
+#define KP_LOGO_W2_X0 95
+#define KP_LOGO_W2_X1 134
 /* numbers.png: 6x8 digits in order 1234567890 (digit d -> col d? d-1 : 9) */
 #define KP_BALL_W 14
 #define KP_BALL_H 14

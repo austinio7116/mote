@@ -219,7 +219,7 @@ enum { ES_PATROL, ES_ALERT, ES_CHASE, ES_ATTACK, ES_THROW, ES_FLEE,
        ES_HIDDEN, ES_PEEK, ES_PREP, ES_LEAP,
        ES_HIT, ES_DEAD, ES_IDLE };
 
-#define MAXE 14
+#define MAXE 18
 typedef struct {
     uint8_t on, type, state, hp;
     int8_t facing;                 /* +1 right, -1 left */
@@ -258,23 +258,23 @@ typedef struct { uint8_t on, idx; float x, y, vx, vy, t; } Piece;
 static Piece pts[MAXPT];
 
 /* breakable boxes */
-#define MAXBX 14
+#define MAXBX 24
 typedef struct { uint8_t on; float x, y; } Crate;
 static Crate crates[MAXBX];
 
 /* unlit bombs resting in the world (shelves / crate stacks) — whack to light */
-#define MAXSB 8
+#define MAXSB 12
 typedef struct { uint8_t on; float x, y; } SBomb;
 static SBomb sbombs[MAXSB];
 
 /* pickups */
 enum { PK_DSMALL, PK_DBIG, PK_HBIG };
-#define MAXPK 24
+#define MAXPK 48
 typedef struct { uint8_t on, kind, taking; float x, y, vy, t; } Pickup;
 static Pickup pk[MAXPK];
 
 /* decorations */
-#define MAXDC 40
+#define MAXDC 56
 enum { DC_WINDOW, DC_BANNER1, DC_BANNER2, DC_SHELFA, DC_SHELFB, DC_FEAT };
 typedef struct { uint8_t on, kind, var; int16_t x, y; } Deco;
 static Deco dc[MAXDC];
@@ -311,6 +311,15 @@ static float cam_x, cam_y;
 
 /* global pickup spin animations (all pickups of a kind animate in sync) */
 static MoteAnimPlayer pk_ap[3];
+
+/* "PRESS A TO START" pre-rendered once as an opaque dark badge (the AA font
+ * must blend against its real background), then scale-pulsed with blit_ex */
+#define PROMPT_W 128
+#define PROMPT_H 16
+static uint16_t prompt_px[PROMPT_W * PROMPT_H];
+static MoteImage prompt_img = { prompt_px, PROMPT_W, PROMPT_H, 0xF81F, 1 };
+static uint8_t prompt_ready;
+static int prompt_tw;
 
 /* ------------------------------------------------------------------- sfx */
 static void sfx(const MoteSfx *s, float gain) { mote->audio_play_sfx(s, gain); }
@@ -421,24 +430,76 @@ static void generate(void) {
     int exit_rx = rx, exit_ry = ry;
 
     /* --- stamp one hand-authored chunk (kp_rooms.h) per path room --- */
-    int enemy_budget = 2 + depth; if (enemy_budget > 9) enemy_budget = 9;
+    int enemy_budget = 3 + depth; if (enemy_budget > 12) enemy_budget = 12;
     if (boss_floor) enemy_budget = 1 + depth / 3;
     const KpRoom *tpl_of[ROOMS_Y * ROOMS_X] = {0};
 
+    /* every grid cell becomes a room — the path rooms guarantee the critical
+     * route, everything else is optional side content reachable through the
+     * shared corridor mouths (alternate paths). A few off-path cells stay
+     * solid so floor silhouettes vary. */
+    uint8_t roomvoid[ROOMS_Y * ROOMS_X];
+    uint8_t hasdrop[ROOMS_Y * ROOMS_X];
+    for (int i = 0; i < ROOMS_Y * ROOMS_X; i++)
+        roomvoid[i] = !path[i] && rndi(4) == 0;
+
+    /* choose a chunk for every surviving room up front */
     for (int gy = 0; gy < ROOMS_Y; gy++)
     for (int gx = 0; gx < ROOMS_X; gx++) {
-        if (!path[gy * ROOMS_X + gx]) continue;
-        int c0 = gx * ROOM_W, r0 = gy * ROOM_H;
+        int i = gy * ROOMS_X + gx;
+        hasdrop[i] = 0;
+        if (roomvoid[i]) continue;
         int is_start = (gy == 0 && gx == start_rx);
         int is_exit  = (gy == exit_ry && gx == exit_rx);
-        int is_drop  = drop[gy * ROOMS_X + gx];
+        int is_drop  = drop[i] ||
+                       (!path[i] && gy < ROOMS_Y - 1 &&
+                        !roomvoid[(gy + 1) * ROOMS_X + gx] && rndi(3) == 0);
+        if (is_start)          tpl_of[i] = &kp_start[rndi(2)];
+        else if (is_exit)      tpl_of[i] = boss_floor ? &kp_bossexit[0] : &kp_exit[rndi(2)];
+        else if (is_drop)      tpl_of[i] = &kp_drop[rndi(3)];
+        else                   tpl_of[i] = &kp_side[rndi(KP_NSIDE)];
+        hasdrop[i] = is_drop;
+    }
 
-        const KpRoom *tpl;
-        if (is_start)          tpl = &kp_start[rndi(2)];
-        else if (is_exit)      tpl = boss_floor ? &kp_bossexit[0] : &kp_exit[rndi(2)];
-        else if (is_drop)      tpl = &kp_drop[rndi(3)];
-        else                   tpl = &kp_side[rndi(8)];
-        tpl_of[gy * ROOMS_X + gx] = tpl;
+    /* room-graph reachability: mouths join side-by-side rooms both ways, drop
+     * holes go down only. Every room must be reachable FROM the entrance AND
+     * able to reach the exit — anything else is an island or a one-way trap,
+     * so it turns to void. Iterate to a fixpoint (voiding removes edges). */
+    for (int pass = 0; pass < ROOMS_Y * ROOMS_X; pass++) {
+        uint8_t fwd[ROOMS_Y * ROOMS_X] = {0}, bwd[ROOMS_Y * ROOMS_X] = {0};
+        fwd[start_rx] = 1;                                  /* entrance room (gy 0) */
+        bwd[exit_ry * ROOMS_X + exit_rx] = 1;
+        for (int it = 0; it < ROOMS_Y * ROOMS_X; it++)
+            for (int gy = 0; gy < ROOMS_Y; gy++)
+            for (int gx = 0; gx < ROOMS_X; gx++) {
+                int i = gy * ROOMS_X + gx;
+                if (roomvoid[i] || !tpl_of[i]) continue;
+                int dn = (gy + 1) * ROOMS_X + gx;
+                if (gx > 0 && !roomvoid[i - 1] && tpl_of[i - 1]) {
+                    if (fwd[i - 1]) fwd[i] = 1;
+                    if (fwd[i]) fwd[i - 1] = 1;
+                    if (bwd[i - 1]) bwd[i] = 1;
+                    if (bwd[i]) bwd[i - 1] = 1;
+                }
+                if (gy < ROOMS_Y - 1 && hasdrop[i] && !roomvoid[dn] && tpl_of[dn]) {
+                    if (fwd[i]) fwd[dn] = 1;                /* fall down */
+                    if (bwd[dn]) bwd[i] = 1;                /* exit lies below */
+                }
+            }
+        int changed = 0;
+        for (int i = 0; i < ROOMS_Y * ROOMS_X; i++) {
+            if (path[i] || roomvoid[i] || !tpl_of[i]) continue;
+            if (!fwd[i] || !bwd[i]) { roomvoid[i] = 1; tpl_of[i] = 0; changed = 1; }
+        }
+        if (!changed) break;
+    }
+
+    for (int gy = 0; gy < ROOMS_Y; gy++)
+    for (int gx = 0; gx < ROOMS_X; gx++) {
+        if (!tpl_of[gy * ROOMS_X + gx]) continue;
+        int c0 = gx * ROOM_W, r0 = gy * ROOM_H;
+        int is_start = (gy == 0 && gx == start_rx);
+        const KpRoom *tpl = tpl_of[gy * ROOMS_X + gx];
 
         for (int r = 0; r < KP_ROOM_H; r++)
         for (int c = 0; c < KP_ROOM_W; c++) {
@@ -472,7 +533,7 @@ static void generate(void) {
                 }
                 break;
             case 'B':
-                if (depth >= 2 && rndi(4) == 0) {
+                if (depth >= 2 && rndi(6) == 0) {
                     add_enemy(E_HIDE, wx, wy, wx);
                 } else {
                     int hgt = 1 + rndi(2);
@@ -497,7 +558,7 @@ static void generate(void) {
                 }
                 break;
             case 'C':
-                if (depth >= 4) {
+                if (depth >= 3) {
                     int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
                     if (ci < MAXC) {
                         int dir = (c > KP_ROOM_W / 2) ? -1 : 1;   /* fire toward the room */
@@ -551,7 +612,7 @@ static void generate(void) {
     for (int gy = 0; gy < ROOMS_Y; gy++)
     for (int gx = 0; gx < ROOMS_X; gx++) {
         const KpRoom *tpl = tpl_of[gy * ROOMS_X + gx];
-        if (!tpl || !drop[gy * ROOMS_X + gx]) continue;
+        if (!tpl) continue;
         int mr = gy * ROOM_H + KP_ROOM_H - 1;
         int punched = 0;
         for (int c = 0; c < KP_ROOM_W; c++)
@@ -559,6 +620,7 @@ static void generate(void) {
                 map[(mr + 1) * COLS + gx * ROOM_W + c] = B_BG;
                 punched = 1;
             }
+        if (!hasdrop[gy * ROOMS_X + gx]) continue;
         if (!punched) {
             int hc;
             for (int tries = 0; tries < 16; tries++) {
@@ -570,6 +632,20 @@ static void generate(void) {
                 map[mr * COLS + hc + k] = B_BG;
                 if (mr + 1 < ROWS - 1) map[(mr + 1) * COLS + hc + k] = B_BG;
             }
+        }
+    }
+
+    /* seal corridor mouths that face the world edge or a void cell, so the
+     * castle silhouette closes cleanly instead of opening into nothing */
+    for (int gy = 0; gy < ROOMS_Y; gy++)
+    for (int gx = 0; gx < ROOMS_X; gx++) {
+        if (!tpl_of[gy * ROOMS_X + gx]) continue;
+        int r0 = gy * ROOM_H;
+        int voidL = gx == 0 || roomvoid[gy * ROOMS_X + gx - 1];
+        int voidR = gx == ROOMS_X - 1 || roomvoid[gy * ROOMS_X + gx + 1];
+        for (int r = KP_ROOM_H - 4; r <= KP_ROOM_H - 2; r++) {
+            if (voidL) map[(r0 + r) * COLS + gx * ROOM_W] = B_SOL;
+            if (voidR) map[(r0 + r) * COLS + gx * ROOM_W + KP_ROOM_W - 1] = B_SOL;
         }
     }
 
@@ -602,6 +678,18 @@ static void generate(void) {
             if (cans[i].on)
                 fprintf(stderr, "CANNON facing %d at tile %d,%d\n", cans[i].facing,
                         (int)cans[i].x / TILE, (int)cans[i].y / TILE);
+        for (int i = 0; i < MAXPK; i++)
+            if (pk[i].on)
+                fprintf(stderr, "PICKUP %d at tile %d,%d\n", pk[i].kind,
+                        (int)pk[i].x / TILE, (int)pk[i].y / TILE);
+        for (int i = 0; i < MAXSB; i++)
+            if (sbombs[i].on)
+                fprintf(stderr, "SBOMB at tile %d,%d\n",
+                        (int)sbombs[i].x / TILE, (int)sbombs[i].y / TILE);
+        for (int i = 0; i < MAXBX; i++)
+            if (crates[i].on)
+                fprintf(stderr, "CRATE at tile %d,%d\n",
+                        (int)crates[i].x / TILE, (int)crates[i].y / TILE);
         fprintf(stderr, "DOORS in %d,%d out %d,%d boss=%d\n",
                 (int)doors[0].x / TILE, (int)doors[0].y / TILE,
                 (int)doors[1].x / TILE, (int)doors[1].y / TILE, boss_floor);
@@ -1426,9 +1514,21 @@ static void king_tick(float dt) {
     mote_anim_tick(&k_ap, dt);
 }
 
+static float cam_peek;      /* smooth UP/DOWN look-around offset */
+
 static void camera_tick(float dt) {
+    /* hold UP/DOWN to peek — eases in and out, a big help with the tight FOV */
+    const MoteInput *in = mote->input();
+    float want = 0;
+    if (gstate == G_PLAY && k_state != KS_DEAD) {
+        if (mote_pressed(in, MOTE_BTN_UP))        want = -48.0f;
+        else if (mote_pressed(in, MOTE_BTN_DOWN)) want = 48.0f;
+    }
+    float kp = 1.0f - expf(-3.5f * dt);
+    cam_peek += (want - cam_peek) * kp;
+
     float tx = kb.x + k_facing * 20 - MOTE_FB_W / 2;
-    float ty = kb.y - 76;
+    float ty = kb.y - 96 + cam_peek;        /* the king rides the lower third */
     tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W);
     ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H);
     float k = 1.0f - expf(-6.0f * dt);
@@ -1458,8 +1558,8 @@ static void g_init(void) {
     if ((e = getenv("KP_DEPTH"))) depth = atoi(e);
     gstate = G_TITLE; g_t = 0;
     generate();
-    cam_x = mote_clampf(kb.x - 64, 0, WORLD_W - MOTE_FB_W);
-    cam_y = mote_clampf(kb.y - 76, 0, WORLD_H - MOTE_FB_H);
+    cam_x = mote_clampf(kb.x - 100, 0, WORLD_W - MOTE_FB_W);
+    cam_y = mote_clampf(kb.y - 108, 0, WORLD_H - MOTE_FB_H);
 }
 
 static void new_run(void) {
@@ -1471,7 +1571,7 @@ static void new_run(void) {
     generate();
     gstate = G_ENTER; g_t = 0;
     cam_x = mote_clampf(kb.x - 64, 0, WORLD_W - MOTE_FB_W);
-    cam_y = mote_clampf(kb.y - 76, 0, WORLD_H - MOTE_FB_H);
+    cam_y = mote_clampf(kb.y - 96, 0, WORLD_H - MOTE_FB_H);
 }
 
 static void next_floor(void) {
@@ -1481,7 +1581,7 @@ static void next_floor(void) {
     generate();
     gstate = G_ENTER; g_t = 0;
     cam_x = mote_clampf(kb.x - 64, 0, WORLD_W - MOTE_FB_W);
-    cam_y = mote_clampf(kb.y - 76, 0, WORLD_H - MOTE_FB_H);
+    cam_y = mote_clampf(kb.y - 96, 0, WORLD_H - MOTE_FB_H);
     sfx(&floorup_sfx, 0.8f);
 }
 
@@ -1553,6 +1653,8 @@ static void g_update(float dt) {
             s_seed = (uint32_t)mote->micros() | 1u;
             depth = 1; diamonds = 0; k_hp = 3;
             generate();
+            cam_x = mote_clampf(kb.x - 100, 0, WORLD_W - MOTE_FB_W);
+            cam_y = mote_clampf(kb.y - 108, 0, WORLD_H - MOTE_FB_H);
         }
         return;
 
@@ -1575,22 +1677,44 @@ static void g_update(float dt) {
 /* ---------------------------------------------------------------- overlay */
 static void g_overlay(uint16_t *fb) {
     if (gstate == G_TITLE) {
-        /* dim panel + the pack's logo at native res (134px: 3px clips each side
-         * beat an unreadable rescale) */
-        mote->draw_rect(fb, 0, 16, MOTE_FB_W, 36, MOTE_RGB565(10, 8, 16), 1, 0, MOTE_FB_H);
-        mote->blit(fb, &logo_img, (MOTE_FB_W - logo_img.w) / 2, 22,
-                   0, 0, logo_img.w, logo_img.h, 0, 0, MOTE_FB_H);
         const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
-        mote->text_font(fb, f, "ROGUELIKE PLATFORMER", 6, 40, MOTE_RGB565(200, 180, 220));
-        if (((int)(g_t * 2) & 1) == 0) {
-            mote->draw_rect(fb, 14, 93, 100, 13, MOTE_RGB565(10, 8, 16), 1, 0, MOTE_FB_H);
-            mote->text_font(fb, f, "PRESS A TO START", 20, 95, MOTE_RGB565(255, 230, 150));
+        /* the logo stacked as "KINGS" / "AND PIGS" over a soft translucent dim */
+        mote_dim_box(fb, 0, 6, MOTE_FB_W, 46, 5);
+        int kw = KP_LOGO_W0_X1 - KP_LOGO_W0_X0;
+        mote->blit(fb, &logo_img, (MOTE_FB_W - kw) / 2, 11,
+                   KP_LOGO_W0_X0, 0, kw, logo_img.h, 0, 0, MOTE_FB_H);
+        int aw = KP_LOGO_W1_X1 - KP_LOGO_W1_X0, pw = KP_LOGO_W2_X1 - KP_LOGO_W2_X0;
+        int x0 = (MOTE_FB_W - (aw + 7 + pw)) / 2;
+        mote->blit(fb, &logo_img, x0, 30, KP_LOGO_W1_X0, 0, aw, logo_img.h, 0, 0, MOTE_FB_H);
+        mote->blit(fb, &logo_img, x0 + aw + 7, 30, KP_LOGO_W2_X0, 0, pw, logo_img.h, 0, 0, MOTE_FB_H);
+
+        if (!prompt_ready) {                    /* render the badge once */
+            prompt_ready = 1;
+            for (int i = 0; i < PROMPT_W * PROMPT_H; i++) prompt_px[i] = MOTE_RGB565(16, 13, 24);
+            prompt_tw = mote_fontw(f, "PRESS A TO START") + 10;
+            mote_ftextc(mote, prompt_px, f, PROMPT_W / 2, 2,
+                        MOTE_RGB565(255, 230, 150), "PRESS A TO START");
         }
+        float pulse = 1.0f + 0.08f * sinf(g_t * 5.0f);
+        mote->blit_ex(fb, &prompt_img, MOTE_FB_W / 2, 71,
+                      (PROMPT_W - prompt_tw) / 2, 0, prompt_tw, PROMPT_H,
+                      0, pulse, MOTE_BLEND_NONE, 0, MOTE_FB_H);
+
         if (best_depth > 0) {
-            char t[40];
-            snprintf(t, sizeof t, "BEST FLOOR %d (%d GEMS)", best_depth, best_diamonds);
-            mote->draw_rect(fb, 0, 112, MOTE_FB_W, 13, MOTE_RGB565(10, 8, 16), 1, 0, MOTE_FB_H);
-            mote->text_font(fb, f, t, 8, 114, MOTE_RGB565(150, 200, 255));
+            /* "BEST FLOOR n" + the pack's diamond-x counter, centred as one unit */
+            char t[24];
+            snprintf(t, sizeof t, "BEST FLOOR %d", best_depth);
+            int tw = mote_fontw(f, t);
+            int nd = best_diamonds >= 100 ? 3 : best_diamonds >= 10 ? 2 : 1;
+            int total = tw + 6 + 22 + nd * 7;
+            int bx = (MOTE_FB_W - total) / 2;
+            mote_dim_box(fb, 0, 108, MOTE_FB_W, 18, 5);
+            mote->text_font(fb, f, t, bx, 112, MOTE_RGB565(150, 200, 255));
+            int fx = mote_anim_fx(&pk_ap[PK_DSMALL], &pickups_sheet);
+            int fy = mote_anim_fy(&pk_ap[PK_DSMALL], &pickups_sheet);
+            mote->blit(fb, pickups_sheet.image, bx + tw + 6, 111, fx, fy,
+                       pickups_sheet.tile_w, pickups_sheet.tile_h, 0, 0, MOTE_FB_H);
+            draw_digits(fb, best_diamonds, bx + tw + 6 + 24, 114);
         }
         return;
     }
@@ -1613,7 +1737,7 @@ static void g_overlay(uint16_t *fb) {
 
 static const MoteGameVtbl k_vtbl = {
     .init = g_init, .update = g_update, .overlay = g_overlay,
-    .config = { .max_sprites = 160 },
+    .config = { .max_sprites = 224 },
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 

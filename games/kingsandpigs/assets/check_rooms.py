@@ -44,28 +44,21 @@ def reachable_set(rows, seeds):
     while todo:
         r, c = todo.pop()
         cand = set()
-        # walk / hop 1 (auto step-up covered by jump)
-        for dc in (-1, 1):
-            cc = c + dc
-            if 0 <= cc < W:
-                # same level, or step up 1, or down any (fall straight)
-                for rr in range(max(1, r - 2), H):
-                    if (rr, cc) in stands:
-                        if rr >= r or r - rr <= 2:
-                            cand.add((rr, cc))
-                        break
-        # jump up to 2 tiles, reach up to 2 sideways
         for dc in range(-2, 3):
             cc = c + dc
-            if 0 <= cc < W:
-                for dr in (1, 2):
-                    if (r - dr, cc) in stands:
-                        cand.add((r - dr, cc))
-        # fall from ledge edges up to 2 sideways
-        for dc in range(-2, 3):
+            if not (0 <= cc < W):
+                continue
+            for rr in range(max(1, r - 2), r + 1):     # same level / step / 2-tile jump
+                if (rr, cc) in stands:
+                    cand.add((rr, cc))
+            for rr in range(r + 1, H):                 # step off and fall
+                if (rr, cc) in stands:
+                    cand.add((rr, cc))
+                    break
+        for dc in (-3, 3):     # long flat jump (clears a 2-wide gap)
             cc = c + dc
             if 0 <= cc < W:
-                for rr in range(r + 1, H):
+                for rr in range(r, H):
                     if (rr, cc) in stands:
                         cand.add((rr, cc))
                         break
@@ -101,19 +94,30 @@ def check(name, idx, rows):
         if rows[i][0] != "." or rows[i][15] != ".":
             errs.append(f"mouth blocked at row {i}")
 
+    # simulate the game's shelf widening: 'S' becomes a 3-wide beam
+    sim = [list(row) for row in rows]
+    for r in range(H):
+        for c in range(W):
+            if rows[r][c] == "S":
+                sim[r][c] = "-"
+                for cc in (c - 1, c + 1):
+                    if 0 <= cc < W and rows[r][cc] == ".":
+                        sim[r][cc] = "-"
+    sim = ["".join(row) for row in sim]
+
     # accessibility from the corridor mouths (standing just inside each side)
     seeds = []
     for c in (0, 1, 14, 15):
-        seeds.append(marker_pos(rows, H - 2, c))
-    seen = reachable_set(rows, seeds)
+        seeds.append(marker_pos(sim, H - 2, c))
+    seen = reachable_set(sim, seeds)
     for r in range(H):
         for c in range(W):
             ch = rows[r][c]
             if ch in MARKERS:
-                p = marker_pos(rows, r, c)
+                p = (r, c) if ch == "S" else marker_pos(sim, r, c)
                 if p not in seen:
                     errs.append(f"marker '{ch}' at {r},{c} unreachable (feet {p})")
-            if ch in PLANK and standable(rows, r, c) and (r, c) not in seen:
+            if sim[r][c] in PLANK and standable(sim, r, c) and (r, c) not in seen:
                 errs.append(f"plank at {r},{c} unreachable")
     return errs
 

@@ -288,7 +288,20 @@ def build_ui():
         META.append(f"#define KP_LB_HX{i} {sx}")
         META.append(f"#define KP_LB_HY{i} {sy}")
     save_img(load("12-Live and Coins/Numbers (6x8).png"), "numbers")   # digits 1..9,0
-    save_img(load("Kings and Pigs.png"), "logo")
+    logo = load("Kings and Pigs.png")
+    save_img(logo, "logo")
+    # word bounds (alpha column runs) so the title can stack "KINGS" / "AND PIGS"
+    la = np.array(logo.getchannel("A")) >= 128
+    cols = la.any(axis=0)
+    runs, s = [], None
+    for x, v in enumerate(cols):
+        if v and s is None: s = x
+        if not v and s is not None: runs.append((s, x)); s = None
+    if s is not None: runs.append((s, len(cols)))
+    META.append("/* logo.png word bounds: KINGS / AND / PIGS */")
+    for i, (x0, x1) in enumerate(runs[:3]):
+        META.append(f"#define KP_LOGO_W{i}_X0 {x0}")
+        META.append(f"#define KP_LOGO_W{i}_X1 {x1}")
     META.append("/* numbers.png: 6x8 digits in order 1234567890 (digit d -> col d? d-1 : 9) */")
 
     # box debris pieces: 4 cells of 5x5 (downscaled 10x10)
