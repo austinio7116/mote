@@ -350,7 +350,34 @@ def build_deco():
         save_img(decimate2(im), name + "h")
     save_both(cut(35, 32, 61, 121), "banner1")    # tall banner
     save_both(cut(35, 128, 61, 153), "banner2")   # short banner
-    save_both(cut(73, 103, 107, 146), "window")   # arched window + light shaft
+    # window: the OPAQUE frame+glass is a normal sprite; the TRANSLUCENT light
+    # shaft is baked separately at full colour and alpha-blended at draw time
+    # (blit_ex MOTE_BLEND_ALPHA) — the pack's real translucency, no tricks.
+    win = deco.crop((73, 103, 128, 160))
+    wa = np.array(win)
+    opq = wa[..., 3] >= 128
+    semi = (wa[..., 3] >= 16) & ~opq
+    fa = wa.copy(); fa[..., 3] = np.where(opq, 255, 0)
+    # the shaft draws with ADDITIVE blend, so bake it PREMULTIPLIED by its own
+    # alpha (scaled subtle): the source gradient becomes the light falloff and
+    # the tail fades to nothing — no visible edge
+    ra = wa.copy()
+    ramp = (wa[..., 3].astype(np.float32) / 255.0) * 0.5
+    for ch in range(3):
+        ra[..., ch] = (wa[..., ch] * ramp).astype(np.uint8)
+    ra[..., 3] = np.where(semi, 255, 0)
+    def crop_a(arr):
+        ys, xs = np.nonzero(arr[..., 3])
+        x0, y0 = int(xs.min()) & ~1, int(ys.min()) & ~1
+        x1 = int(xs.max()) + 1; y1 = int(ys.max()) + 1
+        return Image.fromarray(arr[y0:y1 + (y1 & 1), x0:x1 + (x1 & 1)]), x0, y0
+    frame, fx0, fy0 = crop_a(fa)
+    ray, rx0, ry0 = crop_a(ra)
+    save_both(frame, "window")
+    save_both(ray, "wray")
+    META.append("/* window light shaft offset, relative to the window sprite */")
+    META.append(f"#define KP_WRAY_DX {rx0 - fx0}")
+    META.append(f"#define KP_WRAY_DY {ry0 - fy0}")
     # shelves: thin plank (7px tall) and metal-capped beam (15px tall), L/M/R
     # sections; each native 32px section -> one 16px cell
     thin = decimate_tile(deco.crop((64, 32, 192, 40)))

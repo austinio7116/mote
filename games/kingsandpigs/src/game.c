@@ -86,6 +86,7 @@ MOTE_MODULE_HEADER();
 #include "logo.h"
 #include "window.h"
 #include "windowh.h"
+#include "wray.h"
 #include "banner1h.h"
 #include "banner2h.h"
 #include "ballh.h"
@@ -248,6 +249,7 @@ typedef struct {
     uint8_t on, type, state, hp;
     int8_t facing;                 /* +1 right, -1 left */
     Body b;
+    float land;                    /* landing (Ground clip) timer */
     float t, cd, chat;             /* state timer, attack cooldown, chatter timer */
     float home;
     MoteAnimPlayer ap;
@@ -306,6 +308,7 @@ static Deco dc[MAXDC];
 /* --------------------------------------------------------------- the king */
 enum { KS_NORM, KS_ATTACK, KS_HIT, KS_DEAD, KS_DOOR };
 static Body kb;
+static float k_land;              /* plays the Ground (landing) clip briefly */
 static int8_t k_facing = 1;
 static uint8_t k_state, k_hp, k_swung;   /* k_swung: this swing already dealt damage */
 static float k_t, k_inv, k_atkcd;
@@ -491,9 +494,9 @@ static void generate(void) {
         int is_drop  = drop[i] ||
                        (!path[i] && gy < ROOMS_Y - 1 &&
                         !roomvoid[(gy + 1) * ROOMS_X + gx] && rndi(3) == 0);
-        if (is_start)          tpl_of[i] = &kp_start[rndi(2)];
-        else if (is_exit)      tpl_of[i] = boss_floor ? &kp_bossexit[0] : &kp_exit[rndi(2)];
-        else if (is_drop)      tpl_of[i] = &kp_drop[rndi(3)];
+        if (is_start)          tpl_of[i] = &kp_start[rndi(KP_NSTART)];
+        else if (is_exit)      tpl_of[i] = boss_floor ? &kp_bossexit[rndi(KP_NBOSSEXIT)] : &kp_exit[rndi(KP_NEXIT)];
+        else if (is_drop)      tpl_of[i] = &kp_drop[rndi(KP_NDROP)];
         else                   tpl_of[i] = &kp_side[rndi(KP_NSIDE)];
         hasdrop[i] = is_drop;
     }
@@ -609,9 +612,9 @@ static void generate(void) {
                     }
                 }
                 break;
-            case 'W': add_deco(DC_WINDOW, 0, mc * TILE - 1, mr * TILE - 5); break;
+            case 'W': add_deco(DC_WINDOW, 0, mc * TILE - 1, mr * TILE + 4); break;
             case 'F': add_deco(rndi(3) == 0 ? DC_BANNER2 : DC_BANNER1, 0,
-                               mc * TILE + 1, mr * TILE); break;
+                               mc * TILE + 1, mr * TILE + 2); break;
             case 'S': {
                 /* standable 3-wide metal shelf with loot on top (the side
                  * cells get their plank bit in the post-pass below) */
@@ -772,13 +775,18 @@ static void hurt_enemy(Enemy *e, int dmg, float from_x) {
         e->hp = 0;
         e->state = ES_DEAD; e->t = 0;
         e->b.vx = 0;
-        switch (e->type) {
-            case E_BOSS: e_clip(e, &kingpig_dead); break;
-            case E_BOXP: e_clip(e, &pigbox_idle); break;      /* no dead clip: fall over */
-            case E_BOMBP: e_clip(e, &pigbomb_idle); break;
-            case E_HIDE: e_clip(e, &pighide_ground); break;
-            case E_MATCH: e_clip(e, &pigmatch_matchon); break;
-            default: e_clip(e, &pig_dead); break;
+        /* the variant pigs have no dead art in the pack: they drop their gear
+         * (crate pieces / a lit bomb) and die AS a plain pig — the type swap
+         * keeps clip, sheet and anchors from the same atlas */
+        if (e->type == E_BOXP) spawn_piece(e->b.x, e->b.y);
+        if (e->type == E_BOMBP)
+            spawn_proj(P_BOMB, e->b.x, e->b.y - e->b.bh, (float)(rndi(60) - 30), -80.0f);
+        if (e->type == E_BOSS) {
+            e_clip(e, &kingpig_dead);
+        } else {
+            e->type = E_PIG;
+            e->clip = 0;                       /* force a clean replay */
+            e_clip(e, &pig_dead);
         }
         sfx(&pigdie_sfx, 0.8f);
         dlg_show(&e->dlg, DLG_DEAD, 0.6f);
@@ -803,8 +811,8 @@ static void hurt_enemy(Enemy *e, int dmg, float from_x) {
     } else {
         e->hp -= dmg;
         e->state = ES_HIT; e->t = 0;
-        e->b.vx = (e->b.x < from_x) ? -60.0f : 60.0f;
-        e->b.vy = -50.0f;
+        e->b.vx = (e->b.x < from_x) ? -40.0f : 40.0f;
+        e->b.vy = -40.0f;
         switch (e->type) {
             case E_BOSS: e_clip(e, &kingpig_hit); sfx(&bosshit_sfx, 0.9f); break;
             case E_HIDE: e_clip(e, &pighide_fall); sfx(&hitpig_sfx, 0.8f); break;
@@ -947,7 +955,7 @@ static void enemy_tick(Enemy *e, float dt) {
                 e_clip(e, &pigmatch_fire);
                 cn->clip = &cannon_shoot; mote_anim_play(&cn->ap, &cannon_shoot);
                 spawn_proj(P_BALL, cn->x + cn->facing * 28, cn->y - 14,
-                           cn->facing * 260.0f, 0);
+                           cn->facing * 230.0f, 0);
                 cn->cd = 2.4f;
                 sfx(&cannon_sfx, 0.9f);
             }
@@ -1036,7 +1044,7 @@ static void enemy_tick(Enemy *e, float dt) {
                 b->vx = -dirk * 84.0f;
                 e_clip(e, e->type == E_BOXP ? &pigbox_run : &pigbomb_run);
                 if (e->dlg.type < 0 && rndi(40) == 0) dlg_show(&e->dlg, DLG_NO, 0.6f);
-            } else if (ad > 160) {
+            } else if (ad > 120) {
                 b->vx = dirk * 68.0f;
                 e_clip(e, e->type == E_BOXP ? &pigbox_run : &pigbomb_run);
             } else {
@@ -1077,8 +1085,14 @@ static void enemy_tick(Enemy *e, float dt) {
             b->vy = -300.0f;
         if (b->on_ground && kb.y < b->y - 48 && rndi(60) == 0)
             b->vy = -340.0f;                            /* jump up toward a high king */
-        body_step(b, dt);
-        e_clip(e, b->on_ground ? (is_boss ? &kingpig_run : &pig_run)
+        {
+            float pvy = b->vy;
+            body_step(b, dt);
+            if (b->on_ground && pvy > 240) e->land = 0.2f;
+        }
+        if (e->land > 0) e->land -= dt;
+        e_clip(e, b->on_ground ? (e->land > 0 ? (is_boss ? &kingpig_ground : &pig_ground)
+                                              : (is_boss ? &kingpig_run : &pig_run))
                                : (b->vy < 0 ? (is_boss ? &kingpig_jump : &pig_jump)
                                             : (is_boss ? &kingpig_fall : &pig_fall)));
         mote_anim_tick(&e->ap, dt);
@@ -1113,9 +1127,9 @@ static void enemy_tick(Enemy *e, float dt) {
             e_clip(e, thr);
             if (e->type == E_BOMBP) { dlg_show(&e->dlg, DLG_BOOM, 0.7f); sfx(&fuse_sfx, 0.6f); }
             float ad = fabsf(dx);
-            float vx = e->facing * (80.0f + ad * 0.9f);
+            float vx = e->facing * (55.0f + ad * 0.55f);
             spawn_proj(e->type == E_BOXP ? P_BOX : P_BOMB,
-                       b->x + e->facing * 12, b->y - b->bh, vx, -220.0f);
+                       b->x + e->facing * 12, b->y - b->bh, vx, -190.0f);
         }
         if (e->clip == thr && e->ap.done) {
             e->state = ES_CHASE; e->t = 0;
@@ -1608,7 +1622,12 @@ static void king_tick(float dt) {
         sfx(&swing_sfx, 0.6f);
     }
 
-    body_step(&kb, dt);
+    {
+        float pvy = kb.vy;
+        body_step(&kb, dt);
+        if (kb.on_ground && pvy > 260) { k_land = 0.22f; sfx(&hitpig_sfx, 0.25f); }
+    }
+    if (k_land > 0) k_land -= dt;
 
     if (k_state == KS_ATTACK) {
         k_t += dt;
@@ -1634,6 +1653,8 @@ static void king_tick(float dt) {
     /* animation state machine */
     if (!kb.on_ground)
         k_set(kb.vy < 0 ? &king_jump : &king_fall);
+    else if (k_land > 0 && mv == 0)
+        k_set(&king_ground);
     else if (mv != 0)
         k_set(&king_run);
     else
@@ -1655,7 +1676,7 @@ static void camera_tick(float dt) {
     cam_peek += (want - cam_peek) * kp;
 
     int z = zoom_out ? 2 : 1;               /* MENU wide view: everything halves */
-    float tx = kb.x + k_facing * 20 * z - MOTE_FB_W * z / 2;
+    float tx = kb.x + k_facing * 44 * z - MOTE_FB_W * z / 2;
     float ty = kb.y - 96 * z + cam_peek * z; /* the king rides the lower third */
     tx = mote_clampf(tx, 0, WORLD_W - MOTE_FB_W * z);
     ty = mote_clampf(ty, 0, WORLD_H - MOTE_FB_H * z);
@@ -1835,7 +1856,24 @@ static void g_update(float dt) {
 }
 
 /* ---------------------------------------------------------------- overlay */
+/* the windows' translucent light shafts — the scene raster has no per-sprite
+ * blending, so they alpha-blend here in screen space at the camera transform */
+static void draw_window_rays(uint16_t *fb) {
+    int z = zoom_out ? 2 : 1;
+    for (int i = 0; i < MAXDC; i++) {
+        if (!dc[i].on || dc[i].kind != DC_WINDOW) continue;
+        if (!on_screen(dc[i].x, dc[i].y, 128 * z)) continue;
+        int sx = (dc[i].x + KP_WRAY_DX) / z - (int)cam_x / z;
+        int sy = (dc[i].y + KP_WRAY_DY) / z - (int)cam_y / z;
+        mote->blit_ex(fb, &wray_img,
+                      sx + wray_img.w / (2 * z), sy + wray_img.h / (2 * z),
+                      0, 0, wray_img.w, wray_img.h,
+                      0, 1.0f / z, MOTE_BLEND_ADD, 0, MOTE_FB_H);
+    }
+}
+
 static void g_overlay(uint16_t *fb) {
+    draw_window_rays(fb);
     if (gstate == G_TITLE) {
         const MoteFont *f = mote->ui_font(MOTE_FONT_MED);
         /* the logo stacked as "KINGS" / "AND PIGS" straight over the scene

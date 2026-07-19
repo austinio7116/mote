@@ -128,4 +128,7 @@
 /* numbers.png: 6x8 digits in order 1234567890 (digit d -> col d? d-1 : 9) */
 #define KP_BALL_W 14
 #define KP_BALL_H 14
+/* window light shaft offset, relative to the window sprite */
+#define KP_WRAY_DX 10
+#define KP_WRAY_DY 12
 #endif

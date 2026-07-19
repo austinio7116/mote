@@ -76,9 +76,18 @@ def marker_pos(rows, r, c):
             return (rr, c)
     return (H - 1, c)
 
+REQUIRED = {"start": "e", "exit": "x", "bossexit": "x", "drop": "O"}
+
 def check(name, idx, rows):
     errs = []
     H, W = len(rows), 16
+    req = REQUIRED.get(name)
+    if req and sum(row.count(req) for row in rows) < 1:
+        errs.append(f"missing required '{req}' marker")
+    if name not in ("start",) and any("e" in row for row in rows):
+        errs.append("stray 'e' marker")
+    if name in ("start", "side", "drop") and any("x" in row for row in rows):
+        errs.append("stray 'x' marker")
     if H != 8:
         errs.append(f"{H} rows (want 8)")
         return errs
@@ -105,20 +114,49 @@ def check(name, idx, rows):
                         sim[r][cc] = "-"
     sim = ["".join(row) for row in sim]
 
-    # accessibility from the corridor mouths (standing just inside each side)
-    seeds = []
-    for c in (0, 1, 14, 15):
-        seeds.append(marker_pos(sim, H - 2, c))
-    seen = reachable_set(sim, seeds)
+    # ---- art clearance: windows/banners/doors have real pixel footprints;
+    # they must sit on clear background and never overlap walls, platforms,
+    # or each other's art ----
+    claimed = {}
+    def claim(kind, r0, c0, r1, c1, mark_r, mark_c):
+        for rr in range(r0, r1 + 1):
+            for cc in range(c0, c1 + 1):
+                if rr < 1 or rr > H - 2 or cc < 0 or cc >= W:
+                    errs.append(f"'{kind}' at {mark_r},{mark_c}: art leaves the room")
+                    return
+                if sim[rr][cc] in "#=-":
+                    errs.append(f"'{kind}' at {mark_r},{mark_c}: art overlaps terrain at {rr},{cc}")
+                    return
+                if (rr, cc) in claimed:
+                    errs.append(f"'{kind}' at {mark_r},{mark_c}: art overlaps '{claimed[(rr,cc)]}'")
+                    return
+        for rr in range(r0, r1 + 1):
+            for cc in range(c0, c1 + 1):
+                claimed[(rr, cc)] = kind
     for r in range(H):
         for c in range(W):
             ch = rows[r][c]
-            if ch in MARKERS:
-                p = (r, c) if ch == "S" else marker_pos(sim, r, c)
-                if p not in seen:
-                    errs.append(f"marker '{ch}' at {r},{c} unreachable (feet {p})")
-            if sim[r][c] in PLANK and standable(sim, r, c) and (r, c) not in seen:
-                errs.append(f"plank at {r},{c} unreachable")
+            if ch == "W":                       # window frame: ~2x2 tiles
+                claim("W", r, c, r + 1, c + 1, r, c)
+            elif ch == "F":                     # banner: 1 wide, up to 3 tall
+                claim("F", r, c, r + 2, c, r, c)
+            elif ch in "ex":                    # door: 3 wide x 2 tall above its feet
+                fr = marker_pos(sim, r, c)[0]
+                claim(ch, fr - 2, c - 1, fr - 1, c + 1, r, c)
+
+    # accessibility from EACH corridor mouth independently — a floor may
+    # connect a room from only one side, so both entries must reach everything
+    for side, cols in (("left", (0, 1)), ("right", (14, 15))):
+        seen = reachable_set(sim, [marker_pos(sim, H - 2, c) for c in cols])
+        for r in range(H):
+            for c in range(W):
+                ch = rows[r][c]
+                if ch in MARKERS:
+                    p = (r, c) if ch == "S" else marker_pos(sim, r, c)
+                    if p not in seen:
+                        errs.append(f"marker '{ch}' at {r},{c} unreachable from {side}")
+                if sim[r][c] in PLANK and standable(sim, r, c) and (r, c) not in seen:
+                    errs.append(f"plank at {r},{c} unreachable from {side}")
     return errs
 
 def main():
