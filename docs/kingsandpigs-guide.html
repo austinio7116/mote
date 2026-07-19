@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kings and Pigs — Raider's Handbook</title>
+<style>
+  :root{
+    --void:#2c2540; --void2:#221c33; --brick:#b07b7b; --brickd:#8f6161;
+    --peach:#f3c79a; --peachd:#e0a06e; --trim:#f0b784; --orange:#e07c50;
+    --ink:#f6e7d4; --dim:#c7a9a0; --gold:#f2cd6a; --green:#8fd07a; --red:#e46a5c;
+    --line:#4a3d5e; --panel:#3a3050; --panel2:#453a5e;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;color:var(--ink);
+    font:16px/1.65 "Segoe UI",-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    background:var(--void2);
+    background-image:url("img/guide/kingsandpigs-brick.png");
+    background-size:96px 96px; image-rendering:pixelated;}
+  body::before{content:"";position:fixed;inset:0;background:rgba(28,22,44,.72);z-index:-1}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges}
+  a{color:var(--gold);text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:900px;margin:0 auto;padding:0 18px}
+
+  /* ---- hero ---- */
+  header.hero{padding:44px 0 30px;text-align:center;
+    background:linear-gradient(180deg,rgba(58,48,80,.85),rgba(34,28,51,.4));
+    border-bottom:5px solid var(--peachd);
+    box-shadow:inset 0 -9px 0 var(--brickd);}
+  .hicon{width:104px;height:104px;image-rendering:pixelated;
+    border:4px solid var(--peach);border-radius:6px;
+    box-shadow:0 0 0 4px var(--brickd), 0 6px 0 rgba(0,0,0,.35)}
+  header.hero h1{margin:16px 0 2px;font-size:2.7rem;letter-spacing:.08em;
+    color:var(--gold);font-weight:900;
+    text-shadow:0 3px 0 var(--brickd), 0 4px 0 rgba(0,0,0,.4)}
+  header.hero .sub{color:var(--ink);font-size:1.15rem}
+  header.hero .by{color:var(--dim);font-size:.9rem;margin-top:10px}
+  .pill{display:inline-block;background:var(--orange);color:#3a2416;
+    font-weight:700;font-size:.78rem;padding:3px 11px;border-radius:20px;
+    margin:0 4px;box-shadow:0 2px 0 rgba(0,0,0,.3)}
+
+  /* ---- panels ---- */
+  section{padding:30px 0 10px}
+  .panel{background:var(--panel);border:3px solid var(--peachd);border-radius:10px;
+    padding:20px 22px;margin:14px 0;
+    box-shadow:0 4px 0 var(--void), inset 0 0 0 2px var(--brickd)}
+  h2{font-size:1.5rem;color:var(--gold);margin:6px 0 12px;letter-spacing:.02em;
+    text-shadow:0 2px 0 var(--brickd)}
+  h2 .em{font-size:1.2em;vertical-align:-2px}
+  h3{color:var(--peach);margin:18px 0 6px;font-size:1.05rem}
+  p,ul{max-width:76ch} li{margin:5px 0} b,strong{color:#fff}
+  code,kbd{background:var(--void);border:1px solid var(--line);border-radius:5px;
+    padding:1px 7px;font-size:.86em;color:var(--gold);font-weight:700}
+  kbd{box-shadow:0 2px 0 rgba(0,0,0,.4);color:var(--peach)}
+
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+  .shots img{width:100%;border:3px solid var(--peachd);border-radius:6px;
+    background:#000;box-shadow:0 3px 0 var(--void)}
+  figure{margin:0} figcaption{color:var(--dim);font-size:.82rem;text-align:center;margin-top:5px}
+
+  /* ---- bestiary ---- */
+  .mob{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;
+    background:var(--panel2);border:2px solid var(--line);border-radius:8px;
+    padding:12px 16px;margin:10px 0}
+  .mob img{width:104px;border:3px solid var(--brickd);border-radius:5px;background:#00000033}
+  .mob h3{margin:0 0 3px;color:var(--green)} .mob.boss h3{color:var(--red)}
+  .mob p{margin:0;font-size:.95rem;color:var(--ink)}
+  .kicker{color:var(--peach);font-weight:700}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.two{grid-template-columns:1fr}}
+  .ctrl{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .ctrl b{color:var(--peach)}
+  footer{padding:26px 0 60px;color:var(--dim);font-size:.85rem;text-align:center}
+  .divider{height:6px;margin:6px 0;border-radius:3px;
+    background:repeating-linear-gradient(90deg,var(--peachd) 0 14px,var(--brickd) 14px 28px)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <img class="hicon" src="img/gallery/kingsandpigs-icon.png" alt="Kings and Pigs icon">
+    <h1>KINGS AND PIGS</h1>
+    <div class="sub">Raid the pig-held castle, floor after floor, hammer in hand.</div>
+    <div class="by">An original roguelike for the Thumby Color, built with Pixel Frog's <i>Kings &amp; Pigs</i> art pack · v1.0.0</div>
+    <div style="margin-top:12px">
+      <span class="pill">Roguelike</span>
+      <span class="pill">Platformer</span>
+      <span class="pill">Procedural castle</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <div class="panel">
+    <h2><span class="em">🏰</span> The Raid</h2>
+    <p>The pigs have taken the castle. You are the <b>King</b> — bearded, furious, and
+    armed with a hammer far too big for a throne room. Descend through the keep floor
+    by floor, smashing every pig between you and the exit door, and drop to the next
+    level. Go as deep as you dare; the run ends when your three hearts run out.</p>
+    <p>No two raids are the same. <b>Every floor is carved fresh</b> — a winding stone
+    descent stitched together from <b>69 hand-authored rooms</b>: pillared halls,
+    staircases, arch galleries, treasure vaults and cannon nests, all wrapped in the
+    pack's real brickwork with sunlight pouring through the arched windows.</p>
+    <div class="shots">
+      <figure><img src="img/gallery/kingsandpigs-2.png" alt="gameplay"><figcaption>Hammer in hand</figcaption></figure>
+      <figure><img src="img/gallery/kingsandpigs-3.png" alt="a carved chamber"><figcaption>A carved chamber</figcaption></figure>
+      <figure><img src="img/gallery/kingsandpigs-4.png" alt="loot and pigs"><figcaption>Loot &amp; lurking pigs</figcaption></figure>
+      <figure><img src="img/gallery/kingsandpigs-5.png" alt="window light"><figcaption>Light through the walls</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="panel">
+    <h2><span class="em">🎮</span> Controls</h2>
+    <div class="two">
+      <div>
+        <div class="ctrl"><span>Move</span><b>D-Pad ◀ ▶</b></div>
+        <div class="ctrl"><span>Jump</span><b>A</b></div>
+        <div class="ctrl"><span>Hammer swing</span><b>B</b></div>
+        <div class="ctrl"><span>Drop through a plank</span><b>▼ + A</b></div>
+      </div>
+      <div>
+        <div class="ctrl"><span>Peek the camera</span><b>▲ / ▼ (hold)</b></div>
+        <div class="ctrl"><span>Zoom the view out</span><b>MENU</b></div>
+        <div class="ctrl"><span>Map the whole floor</span><b>LB</b></div>
+        <div class="ctrl"><span>Enter a door</span><b>▲ at the exit</b></div>
+      </div>
+    </div>
+    <p style="margin-top:14px">The hammer is your everything: it kills pigs, smashes
+    crates, and — crucially — <b>bats things back</b>. Time a swing at a thrown box, a
+    lit bomb or a cannonball and it flies the other way, back into whatever threw it.</p>
+  </div>
+</section>
+
+<section>
+  <div class="panel">
+    <h2><span class="em">🐷</span> The Pigs</h2>
+    <p>The garrison is a menagerie of green pigs, each with its own trick. Learn them —
+    most can be turned against each other.</p>
+
+    <div class="mob">
+      <img src="img/guide/kingsandpigs-pig.gif" alt="pig">
+      <div><h3>Pig</h3><p>The rank-and-file guard. Patrols its ledge and charges when
+      it spots you. One clean hammer swing puts it down — but they rarely come alone.</p></div>
+    </div>
+
+    <div class="mob">
+      <img src="img/guide/kingsandpigs-boxpig.gif" alt="box pig">
+      <div><h3>Box Pig <span class="kicker">— thrower</span></h3><p>Lobs wooden boxes across
+      the room. Swing at an incoming box to send it straight back and knock the thrower flat.</p></div>
+    </div>
+
+    <div class="mob">
+      <img src="img/guide/kingsandpigs-bombpig.gif" alt="bomb pig">
+      <div><h3>Bomb Pig <span class="kicker">— thrower</span></h3><p>Hurls <b>lit</b> bombs.
+      Bat one back for a bigger bang — or just get clear before the fuse burns down. Whacked
+      bombs bounce off walls, so mind the ricochet.</p></div>
+    </div>
+
+    <div class="mob">
+      <img src="img/guide/kingsandpigs-hidepig.gif" alt="hide pig">
+      <div><h3>Box Ambusher <span class="kicker">— hidden</span></h3><p>Sits disguised as a
+      harmless crate until you wander close, then pops the lid and lunges. Smash suspicious
+      boxes from a safe distance.</p></div>
+    </div>
+
+    <div class="mob">
+      <img src="img/guide/kingsandpigs-matchpig.gif" alt="match pig">
+      <div><h3>Cannon Gunner <span class="kicker">— from Floor 2</span></h3><p>Crews the
+      wall-mounted cannons, striking a match to fire a heavy iron ball down the hall. Swing at
+      the ball to <b>return it straight into the gunner who lit it</b> — the sweetest kill in the keep.</p></div>
+    </div>
+
+    <div class="mob boss">
+      <img src="img/guide/kingsandpigs-kingpig.gif" alt="king pig">
+      <div><h3>The King Pig <span class="kicker">— boss</span></h3><p>Guards the exit on
+      <b>every third floor</b> and will not stray far from it. He takes eight hits and hits hard —
+      bait his lunge, punish the recovery, and swing back anything he throws your way.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="panel">
+    <h2><span class="em">💎</span> The Descent</h2>
+    <div class="two">
+      <div>
+        <h3>Loot</h3>
+        <ul>
+          <li><b>Diamonds</b> — the score. Sweep every chamber; the deeper vaults are richer.</li>
+          <li><b>Hearts</b> — restore a life. Rare, so don't take needless hits.</li>
+          <li><b>Crates</b> — smash for a chance at loot… or an ambusher.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Getting around</h3>
+        <ul>
+          <li><b>Plank bridges</b> lie across every floor drop — walk over them, press
+          <kbd>▼</kbd> to fall through, or jump back up through them.</li>
+          <li><b>Arched windows</b> light the rooms but are just scenery — the real routes
+          are the doors, drops and staircases.</li>
+          <li>Lost? <kbd>LB</kbd> pulls up the floor map; the door out is at the bottom.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <p><span class="kicker">Tip:</span> when a floor gets crowded, retreat to a doorway and
+    let the pigs funnel to you — then bat their own bombs and boxes back down the line.</p>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <img src="img/guide/kingsandpigs-king.gif" alt="the king" style="height:96px;margin-bottom:8px">
+    <div>Art from <a href="https://pixelfrog-assets.itch.io/kings-and-pigs">Pixel Frog's Kings &amp; Pigs</a> asset pack ·
+    an original game for the <b>Thumby Color</b>, built with the Mote engine.</div>
+  </div>
+</footer>
+
+</body>
+</html>

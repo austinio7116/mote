@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-19T19:49:53+00:00",
+ "generated": "2026-07-19T22:51:45+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -108,6 +108,29 @@
    "tag": "Room-drafting mystery roguelike",
    "desc": "A room-drafting mystery roguelike: the estate is a blank 5×8 blueprint, every unexplored door deals a hand of rooms, and the whole map sits live on the drafting desk as you choose. Twenty steps a day to reach the sealed Antechamber — past keys and keycard readers, seal-lever days, a slot-machine Parlor and a pitch-black room that blinds your next draft. Sixteen in-room puzzles wait in safes, pianos, statues, wine racks and a chessboard; crumpled notes reveal their secrets to your notebook, floors slide open over the prizes, and the Classroom sets a genuinely hard visual-reasoning TEST. Every win recovers a fragment of a case that is stranger than an inheritance.",
    "guide": "thumbprince-guide.html",
+   "multiplayer": false
+  },
+  {
+   "id": "kingsandpigs",
+   "name": "Kings and Pigs",
+   "author": "pixelfrog+claude",
+   "version": "1.0.0",
+   "abi": 47,
+   "size": 599536,
+   "sha256": "3bc50aedd4c1402813e5d8628f34da42d2eb114beaf559d3523a3b59c70ff68b",
+   "file": "games/KingsandPigs.mote",
+   "icon": "img/gallery/kingsandpigs-icon.png",
+   "thumb": "img/gallery/kingsandpigs-1.png",
+   "screenshots": [
+    "img/gallery/kingsandpigs-1.png",
+    "img/gallery/kingsandpigs-2.png",
+    "img/gallery/kingsandpigs-3.png",
+    "img/gallery/kingsandpigs-4.png",
+    "img/gallery/kingsandpigs-5.png"
+   ],
+   "tag": "Castle-raiding roguelike platformer",
+   "desc": "A castle-raiding roguelike platformer built with Pixel Frog's free <i>Kings &amp; Pigs</i> art pack: raid a pig-held castle floor after floor, hammer in hand. Every level is carved fresh — a winding stone descent stitched from 69 hand-authored rooms so no two runs are alike — with real light pouring through arched windows and thin plank bridges over every drop that you fall through or climb back up. The pigs fight dirty: they throw boxes and lit bombs, hide inside crates to ambush you, and crew wall-mounted cannons — but you can bat everything straight back, whacking a cannonball into the very gunner who fired it. The King Pig himself guards every third exit. A/B swap jump and hammer, MENU pulls the camera back, LB maps the whole floor.",
+   "guide": "kingsandpigs-guide.html",
    "multiplayer": false
   },
   {
