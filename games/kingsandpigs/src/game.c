@@ -1737,12 +1737,15 @@ static void camera_tick(float dt) {
      * Zoomed in the view is tightest, so the peek reaches further and moves
      * faster there; the wide view keeps the gentler sweep. */
     const MoteInput *in = mote->input();
-    float reach = zoom_out ? 48.0f : 72.0f;
+    /* asymmetric reach: the king rides the lower third, so there's less
+     * headroom to give when looking up and more to gain looking down */
+    float reach_up   = 48.0f;
+    float reach_down = zoom_out ? 48.0f : 88.0f;
     float rate  = zoom_out ? 3.5f : 6.0f;
     float want = 0;
     if (gstate == G_PLAY && k_state != KS_DEAD) {
-        if (mote_pressed(in, MOTE_BTN_UP))        want = -reach;
-        else if (mote_pressed(in, MOTE_BTN_DOWN)) want = reach;
+        if (mote_pressed(in, MOTE_BTN_UP))        want = -reach_up;
+        else if (mote_pressed(in, MOTE_BTN_DOWN)) want = reach_down;
     }
     float kp = 1.0f - expf(-rate * dt);
     cam_peek += (want - cam_peek) * kp;
