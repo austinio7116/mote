@@ -3786,4 +3786,4 @@ static const MoteGameVtbl k_vtbl = {
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
 MOTE_GAME_META("ThumbPrince", "austinio7116");
-MOTE_GAME_VERSION("1.3.1");
+MOTE_GAME_VERSION("1.3.2");

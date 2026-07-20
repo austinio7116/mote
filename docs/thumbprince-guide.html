@@ -182,7 +182,7 @@
     <tr><th>Tool</th><th>Found</th><th>Does</th></tr>
     <tr><td><b>Spade</b></td><td>Garden · Tuck Shop 10g</td><td>Dig the sparkling spots</td></tr>
     <tr><td><b>Pencil</b></td><td>Study · Atelier · Apothecary 14g</td><td><b>B</b> redraws a draft offer (1 gem)</td></tr>
-    <tr><td><b>Compass</b></td><td>Draft Room · Apothecary 14g</td><td><b>LB/RB</b> rotates an offered room's doors</td></tr>
+    <tr><td><b>Compass</b></td><td>Draft Room · Apothecary 14g</td><td><b>LB/RB</b> turns a corner or T room (a gem per offer; corners stay corners)</td></tr>
     <tr><td><b>Spyglass</b></td><td>Apothecary 12g</td><td>Every offer deals 4 cards</td></tr>
     <tr><td><b>Master Key</b></td><td>Key Smith 30g</td><td>Opens every lock and seal, all day</td></tr>
     <tr><td><b>Keycard</b></td><td>chests · Key Smith 18g</td><td>Opens every reader</td></tr>
@@ -214,13 +214,8 @@
   <h2>Scoring</h2>
   <ul>
     <li>Rooms score by rarity; coins, evidence, clearouts and chests add up.</li>
-    <li><b>Adjacency combos</b>: Kitchen beside Dining is a Service Wing, Bedroom
-      beside Washroom an En-Suite, Library beside Study the Archive — and placing
-      a room's twin mirrored across the centre column is Matched Wings.</li>
-    <li><b>The chain</b>: every placement that scores any bonus raises a ×2–×4
-      multiplier on placement bonuses; a dry placement breaks it.</li>
     <li><b>Ranks &amp; files</b>: a full row of five pays +100; a full column of
-      eight — the whole climb — pays +250. Both ride the chain.</li>
+      eight — the whole climb — pays +250.</li>
     <li><b>Surveys</b>: fill 20 cells for HALF SURVEY +200, 30 for GRAND SURVEY
       +500, all 40 for the legendary FULL SURVEY +1500.</li>
     <li><b>Two daily goals</b> (in the Satchel) pay 100–150 each — including
@@ -228,6 +223,47 @@
     <li>Winning pays +500, converts leftover steps, keys, gems and gold, and
       recovers a case fragment. The results screen itemises every point.</li>
   </ul>
+
+  <h3>Combos — matching classes side by side</h3>
+  <p>Every room belongs to a hidden <b>class</b>. The instant you place a room, if
+  it shares a wall (N/S/E/W, not diagonal) with an already-placed room and the two
+  classes pair up, you score a <b>combo</b> — once per matching neighbour, right at
+  placement. Corridors, gardens, shops and puzzle rooms have no class and combo
+  with nothing.</p>
+  <table>
+    <tr><th>Class</th><th>Rooms</th></tr>
+    <tr><td><b>Food</b></td><td>Kitchen, Dining, Pantry, Scullery, Banquet, Butler's</td></tr>
+    <tr><td><b>Rest</b></td><td>Bedroom, Suite, Guest, Lounge, Bunk, Games, Snooker</td></tr>
+    <tr><td><b>Bath</b></td><td>Washroom, Laundry, Linen, Spa</td></tr>
+    <tr><td><b>Book</b></td><td>Library, Study, Draft Room, Nook, Atelier, Classroom</td></tr>
+    <tr><td><b>Drink</b></td><td>Wine Store, Cellar, Hearth</td></tr>
+    <tr><td><b>Grand</b></td><td>Great Hall, Chapel, Foyer, Rotunda, Music Room</td></tr>
+  </table>
+  <table>
+    <tr><th>Combo</th><th>Pairing</th><th>Bonus</th></tr>
+    <tr><td>Service Wing</td><td>Food + Food</td><td>+30</td></tr>
+    <tr><td>The Archive</td><td>Book + Book</td><td>+30</td></tr>
+    <tr><td>Cellarage</td><td>Drink + Drink</td><td>+30</td></tr>
+    <tr><td>En-Suite</td><td>Rest + Bath</td><td>+30</td></tr>
+    <tr><td>Well Stocked</td><td>Drink + Food</td><td>+25</td></tr>
+    <tr><td>Quiet Wing</td><td>Rest + Rest</td><td>+20</td></tr>
+    <tr><td>Procession</td><td>Grand + Grand</td><td>+40</td></tr>
+  </table>
+  <p>Two other placement bonuses count the same way: a <b>green room</b> scores +25
+  per adjacent green, and <b>Matched Wings</b> (+50) is a room's twin mirrored
+  across the centre column. Group rooms of a kind into adjacent clusters and the
+  bonuses stack.</p>
+
+  <h3>The chain</h3>
+  <p>The <b>chain</b> is a streak, not a pairing. Any placement that scores a bonus
+  of <em>any</em> kind — a combo, a green-adjacency, Matched Wings, a completed
+  rank or a completed file — bumps a running multiplier: <b>×2, then ×3, then ×4</b>.
+  Score a bonus on consecutive placements and it climbs; place a room that scores
+  <b>nothing</b> and the chain snaps back to ×1.</p>
+  <div class="tip">The multiplier scales <b>only the placement bonus</b> on each
+  turn — a Procession (+40) laid down at ×3 pays 120. It doesn't touch loot,
+  puzzles or the win. The trick to a big day is never wasting a placement: keep
+  earning <em>some</em> bonus every time you draft, and let the multiplier ride.</div>
 </section>
 
 <section id="controls">
