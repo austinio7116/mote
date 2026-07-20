@@ -448,8 +448,8 @@ static void generate(void) {
 
     kp_gen();                              /* piece-graph floor into kg_cv[][] */
 
-    int enemy_budget = 3 + depth; if (enemy_budget > 12) enemy_budget = 12;
-    if (boss_floor) enemy_budget = 1 + depth / 3;
+    int enemy_budget = 6 + depth * 2; if (enemy_budget > 22) enemy_budget = 22;
+    if (boss_floor) enemy_budget = 5 + depth;   /* boss floors stay populated too */
 
     for (int r = 0; r < ROWS; r++)
     for (int c = 0; c < COLS; c++) {
@@ -523,6 +523,39 @@ static void generate(void) {
     if (boss_floor && doors[1].x > 0.0f) {
         add_enemy(E_BOSS, doors[1].x, doors[1].y, doors[1].x);
         boss_alive = 1;
+        /* a cannon pig covers the approach from a ledge above the boss: scan
+         * the upper rows of the exit room for a standable perch near the door */
+        int ec = (int)(doors[1].x / TILE), er = (int)(doors[1].y / TILE);
+        int pr = -1, pc = -1, bestd = 999;
+        for (int r = er - 4; r <= er - 2; r++) {
+            if (r < 1) continue;
+            for (int dc = -5; dc <= 5; dc++) {
+                int c = ec + dc;
+                if (c < 1 || c >= COLS - 1) continue;
+                if ((cell(c, r) & (B_SOL | B_PLT)) && !(cell(c, r - 1) & B_SOL)
+                    && !(cell(c, r - 2) & B_SOL)) {              /* headroom for the gunner */
+                    int d = dc * dc + (er - r) * (er - r);
+                    if (d < bestd) { bestd = d; pr = r; pc = c; }
+                }
+            }
+        }
+        int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
+        if (pr > 0 && ci < MAXC) {
+            int openL = 0, openR = 0;                            /* aim into the open */
+            for (int k = 1; k <= 5; k++) {
+                if (!(cell(pc - k, pr - 1) & B_SOL)) openL++;
+                if (!(cell(pc + k, pr - 1) & B_SOL)) openR++;
+            }
+            int dir = (openR >= openL) ? 1 : -1;
+            float cwx = pc * TILE + 16.0f, cwy = (float)(pr * TILE);
+            cans[ci] = (Cannon){ 1, (int8_t)dir, cwx, cwy, 0 };
+            cans[ci].clip = &cannon_idle; mote_anim_play(&cans[ci].ap, &cannon_idle);
+            add_enemy(E_MATCH, cwx - dir * 26, cwy, cwx - dir * 26);
+            for (int j = 0; j < MAXE; j++)
+                if (en[j].on && en[j].type == E_MATCH && en[j].cannon < 0) {
+                    en[j].cannon = (int8_t)ci; en[j].facing = (int8_t)dir;
+                }
+        }
     }
 
     /* host-testing: KP_DUMP=1 prints the generated map to stderr */
@@ -797,7 +830,7 @@ static void enemy_tick(Enemy *e, float dt) {
             body_step(b, dt);
             e_clip(e, b->vx != 0 ? &kingpig_run : &kingpig_idle);
             mote_anim_tick(&e->ap, dt);
-            float rng = 200.0f;
+            float rng = 300.0f;
             if (king_visible(e, rng)) {
                 e->state = ES_ALERT; e->t = 0;
                 e->facing = (int8_t)dirk;
@@ -851,7 +884,7 @@ static void enemy_tick(Enemy *e, float dt) {
         return;
 
     case ES_CHASE: {
-        if (!king_visible(e, is_boss ? 260.0f : 180.0f)) {
+        if (!king_visible(e, is_boss ? 340.0f : 180.0f)) {
             e->t += dt;
             if (e->t > 1.6f) {
                 e->state = ES_PATROL; e->t = 0;
@@ -895,14 +928,14 @@ static void enemy_tick(Enemy *e, float dt) {
             return;
         }
 
-        /* the boss never strays far from his door */
-        if (is_boss && fabsf(b->x - doors[1].x) > 180.0f) {
+        /* the boss guards his door but pursues hard within a wide leash */
+        if (is_boss && fabsf(b->x - doors[1].x) > 300.0f) {
             e->state = ES_PATROL; e->t = 0;
             if (e->dlg.type < 0) dlg_show(&e->dlg, DLG_LOSER, 1.0f);
             return;
         }
         /* melee pig / boss: run at the king, hop over walls */
-        float spd = is_boss ? 88.0f : 76.0f;
+        float spd = is_boss ? 108.0f : 76.0f;
         b->vx = dirk * spd;
         int ahead = (int)b->x + dirk * (b->hw + 3);
         if (b->on_ground && solid_px(ahead, (int)b->y - 8))
@@ -936,7 +969,7 @@ static void enemy_tick(Enemy *e, float dt) {
             if (fabsf(kb.x - hx) < 20 && fabsf((kb.y - K_BH / 2) - (b->y - b->bh / 2)) < 24)
                 hurt_king(b->x);
         }
-        if (e->ap.done) { e->state = ES_CHASE; e->t = 0; e->cd = is_boss ? 0.7f : 0.9f; }
+        if (e->ap.done) { e->state = ES_CHASE; e->t = 0; e->cd = is_boss ? 0.45f : 0.9f; }
         return; }
 
     case ES_THROW: {
