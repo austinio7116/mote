@@ -58,8 +58,8 @@ enum {
 
 /* lava heat thresholds */
 #define LAVA_HOT   255
-#define LAVA_MOVE  96      /* below this the crust is too stiff to creep */
-#define LAVA_FREEZE 22     /* below this it hardens to obsidian */
+#define LAVA_MOVE  40      /* below this the crust is too stiff to creep */
+#define LAVA_FREEZE 16     /* below this it hardens to obsidian */
 
 enum { T_DIG = 0, T_DAM, T_COOL };
 enum { ST_TITLE = 0, ST_PLAY, ST_WIN, ST_LOSE };
@@ -210,19 +210,19 @@ static void ca_step(void){
             int below=i+W;
             if(mat[below]==M_DRAIN){ drained++; mat[i]=M_EMPTY; heat[i]=0; continue; }
 
-            /* stiff crust barely moves */
+            /* only a frozen crust stops moving */
             if(heat[i] < LAVA_MOVE) continue;
 
-            /* gravity: fall if unsupported (still viscous — not every step) */
-            if(air(below) && (rnd()&1)){ mat[below]=M_LAVA; heat[below]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[below]=1; continue; }
-            int dl=below-1,dr=below+1,d1=dir?dr:dl,d2=dir?dl:dr;
-            if(air(d1)&&(rnd()&3)==0){mat[d1]=M_LAVA;heat[d1]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[d1]=1;continue;}
-            if(air(d2)&&(rnd()&3)==0){mat[d2]=M_LAVA;heat[d2]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[d2]=1;continue;}
-            /* lateral ooze — lets pools spread, thicken and overflow while hot */
-            if(heat[i] > 130 && (rnd()&3)==0){
-                int s1=dir?i+1:i-1,s2=dir?i-1:i+1;
-                if(air(s1)){mat[s1]=M_LAVA;heat[s1]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[s1]=1;continue;}
-                if(air(s2)){mat[s2]=M_LAVA;heat[s2]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[s2]=1;continue;}
+            /* fall RELIABLY — this cohesion is what reads as a liquid, not a spray */
+            if(air(below)){ mat[below]=M_LAVA; heat[below]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[below]=1; continue; }
+            int d1=dir?below+1:below-1, d2=dir?below-1:below+1;
+            if(air(d1)){ mat[d1]=M_LAVA; heat[d1]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[d1]=1; continue; }
+            if(air(d2)){ mat[d2]=M_LAVA; heat[d2]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[d2]=1; continue; }
+            /* viscous lateral spread: fills pools + overflows, every other step */
+            if((framestep&1)==0){
+                int s1=dir?i+1:i-1, s2=dir?i-1:i+1;
+                if(air(s1)){ mat[s1]=M_LAVA; heat[s1]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[s1]=1; continue; }
+                if(air(s2)){ mat[s2]=M_LAVA; heat[s2]=heat[i]; mat[i]=M_EMPTY; heat[i]=0; moved[s2]=1; continue; }
             }
         }
     }
@@ -243,8 +243,8 @@ static void ca_step(void){
              * where exposed to air. Conduction lets a connected body share heat
              * so the live flow keeps glowing while the still trail hardens. */
             int exposed = air(i-1)+air(i+1)+air(i-W)+air(i+W);
-            int cool = (framestep&1) ? 1 : 0;                 /* ~0.5/step: stays molten seconds */
-            if(exposed && (framestep&3)==0) cool++;            /* exposed skin cools a touch faster */
+            int cool = (framestep%3==0) ? 1 : 0;              /* stays molten far longer */
+            if(exposed>=3 && (framestep&7)==0) cool++;         /* only very exposed skin cools faster */
             int nh=0;                       /* hottest lava neighbour */
             if(mat[i-1]==M_LAVA&&heat[i-1]>nh)nh=heat[i-1];
             if(mat[i+1]==M_LAVA&&heat[i+1]>nh)nh=heat[i+1];
@@ -259,12 +259,12 @@ static void ca_step(void){
         }
     }
 
-    /* surface embers off the hottest exposed lava */
-    if((framestep&1)==0){
-        for(int t=0;t<32;t++){
+    /* a FEW gentle embers off the very hottest exposed lava (no spray) */
+    if((framestep&3)==0){
+        for(int t=0;t<6;t++){
             int i=W+(int)(rnd()%(N-2*W));
-            if(mat[i]==M_LAVA && heat[i]>190 && mat[i-W]==M_EMPTY){
-                spawn_part(i%W+0.5f, i/W-0.5f, (rndf()-0.5f)*14, -22-rndf()*24, 0.5f+rndf()*0.7f, 0);
+            if(mat[i]==M_LAVA && heat[i]>215 && mat[i-W]==M_EMPTY){
+                spawn_part(i%W+0.5f, i/W-0.5f, (rndf()-0.5f)*8, -12-rndf()*12, 0.4f+rndf()*0.4f, 0);
             }
         }
     }
@@ -300,19 +300,24 @@ static void build_light(void){
 }
 
 /* ========================================================= landscape === */
-static void fill_column_solid(int x, int top){
-    for(int y=top;y<H;y++){
-        if(x<1||x>=W-1||y>=H-1){ if(y>=H-1) mat[y*W+x]=M_ROCK; continue; }
-        /* deep = bedrock, shallow = diggable earth, with rocky veins */
-        int depth=y-top;
-        uint8_t m = (depth>26) ? M_ROCK : M_DIRT;
-        if(depth>6 && vnoise(x*0.18f, y*0.18f, 99)>0.74f) m=M_ROCK;
-        mat[y*W+x]=m;
+static void carve_ellipse(int cx,int cy,int rx,int ry){
+    if(rx<1)rx=1; if(ry<1)ry=1;
+    for(int y=cy-ry;y<=cy+ry;y++)for(int x=cx-rx;x<=cx+rx;x++){
+        if(x<2||x>=W-2||y<2||y>=H-2)continue;
+        float dx=(float)(x-cx)/rx, dy=(float)(y-cy)/ry;
+        if(dx*dx+dy*dy<=1.0f) mat[y*W+x]=M_EMPTY;
     }
+}
+static void carve_line(int x0,int y0,int x1,int y1,int r){
+    int adx=x1-x0; if(adx<0)adx=-adx; int ady=y1-y0; if(ady<0)ady=-ady;
+    int steps=(adx>ady?adx:ady)+1;
+    for(int s=0;s<=steps;s++){ float t=(float)s/steps;
+        carve_ellipse((int)(x0+(x1-x0)*t),(int)(y0+(y1-y0)*t),r,r); }
 }
 
 static void gen_level(void){
-    for(int i=0;i<N;i++){ mat[i]=M_EMPTY; heat[i]=0; }
+    memset(mat,M_EMPTY,N); memset(heat,0,N);
+    uint32_t seed = (uint32_t)(level*2654435761u) ^ (rng|1u);
 
     /* crack veins in basalt (static, organic iso-lines of value noise) */
     for(int y=0;y<H;y++)for(int x=0;x<W;x++){
@@ -321,88 +326,87 @@ static void gen_level(void){
         crackmap[y*W+x] = (fabsf(f-0.5f)<0.11f) ? 255 : 0;
     }
 
-    /* --- heightfield: the vent sits on the PEAK at the left; the hillside then
-     * descends steadily to the right (toward the ravine and the town) with only
-     * gentle rolling bumps, so the lava reliably oozes downhill across the whole
-     * landscape. (height = surface row; larger y = lower elevation.) --- */
-    int height[W];
-    int ventx = 12 + (int)(rndf()*6);
-    int peak  = 28;
-    for(int x=0;x<W;x++){
-        float base;
-        if(x <= ventx) base = peak - (ventx - x)*1.2f;          /* a CLIFF rising to the left */
-        else           base = peak + (x - ventx)*0.52f;         /* long downhill to the right */
-        float bumps = (vnoise(x*0.07f, 3, 11)-0.5f)*3.0f;       /* subtle rolling texture */
-        int h=(int)(base+bumps); height[x]=mote_clampi(h,14,H-14);
-    }
-    /* town terrace: flatten a stretch on the lower-right */
-    int townx = 84 + (int)(rndf()*8), townw = 34;
-    int towny = height[townx];
-    for(int x=townx-2;x<townx+townw+2 && x<W-1;x++) if(x>0) height[x]=towny;
-    /* spillway: guarantee the columns just right of the vent never rise, so the
-     * flow always starts downhill (no basin at the source). */
-    for(int x=ventx+1;x<ventx+16 && x<W-1;x++)
-        if(height[x] < height[x-1]) height[x] = height[x-1];
-
-    for(int x=0;x<W;x++) fill_column_solid(x, height[x]);
-    /* the left cliff backing the vent is solid bedrock (no leftward escape) */
-    for(int x=1;x<ventx;x++) for(int y=height[x];y<height[x]+10 && y<H-1;y++) mat[y*W+x]=M_ROCK;
-    for(int x=0;x<W;x++){ mat[(H-1)*W+x]=M_ROCK; }
-    for(int y=0;y<H;y++){ mat[y*W]=M_ROCK; mat[y*W+W-1]=M_ROCK; }
-
-    /* --- lava fissures on the ridge --- */
-    nsrc = 1 + (level>2?1:0);
-    if(nsrc>MAXSRC) nsrc=MAXSRC;
-    for(int s=0;s<nsrc;s++){
-        int sx = ventx + s*6;
-        sx=mote_clampi(sx,4,W-5);
-        src_x[s]=sx; src_y[s]=height[sx]-1;
-        /* a small chimney ABOVE the surface only — never a pit that traps lava */
-        for(int y=height[sx]-3;y<height[sx];y++)for(int dx=-1;dx<=1;dx++){
-            int xx=sx+dx; if(xx>0&&xx<W-1&&y>0&&y<H-1) mat[y*W+xx]=M_EMPTY; }
+    /* --- Noita-style ENCLOSED cave: fill the world SOLID, then carve open
+     * chambers. Lava pours in at the top and cascades down through the cavern. */
+    for(int y=0;y<H;y++)for(int x=0;x<W;x++){
+        uint8_t m = M_DIRT;
+        if(vnoise(x*0.16f, y*0.16f, seed^3) > 0.72f) m = M_ROCK;     /* rock veins */
+        if(x<2||x>=W-2||y<2||y>=H-2) m = M_ROCK;                     /* enclosing shell */
+        mat[y*W+x]=m;
     }
 
-    /* --- a ravine (drain) between the vent and the town, capped by a thin
-     * diggable DIRT LID so the surface stays continuous: by default the lava
-     * flows straight OVER it toward the town, and the player must dig the lid to
-     * tip the flow down into the ravine (where it drains away safely). --- */
-    int ravx = 50 + (int)(rndf()*12);
-    for(int x=ravx-3;x<=ravx+3;x++){ if(x<1||x>=W-1)continue;
-        for(int y=height[x]+3;y<H-1;y++) mat[y*W+x]=M_EMPTY;   /* open shaft below the lid */
-        mat[(H-2)*W+x]=M_DRAIN; }
-    for(int x=ravx-4;x<=ravx+4;x++) if(x>0&&x<W-1) mat[(H-2)*W+x]=M_DRAIN;
+    /* --- NATURAL organic cave: carve open space from a biased fractal-noise
+     * field, then relax it with cellular-automata smoothing passes so the walls
+     * read as natural rock (no circles or lines). A wandering vertical "spine"
+     * bias keeps a connected descending path for the lava. --- */
+    int floory=H-15;
+    float spine[H];
+    for(int y=0;y<H;y++) spine[y]=W*0.5f + (vnoise(y*0.055f,0.0f,seed^11)-0.5f)*52.0f;
+    for(int y=4;y<H-4;y++)for(int x=3;x<W-3;x++){
+        float n = vnoise(x*0.075f,y*0.075f,seed)*0.55f
+                + vnoise(x*0.155f,y*0.155f,seed^5)*0.30f
+                + vnoise(x*0.31f, y*0.31f, seed^9)*0.15f;      /* fbm */
+        float dxs=x-spine[y]; if(dxs<0)dxs=-dxs;
+        float bias=1.0f-dxs/23.0f; if(bias<0)bias=0;           /* open near the spine */
+        if(n + bias*0.42f > 0.60f) mat[y*W+x]=M_EMPTY;
+    }
+    for(int pass=0;pass<4;pass++){                             /* CA smoothing */
+        for(int y=2;y<H-2;y++)for(int x=2;x<W-2;x++){
+            int solid=0; for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++) if(mat[(y+dy)*W+(x+dx)]!=M_EMPTY) solid++;
+            moved[y*W+x]=(solid>=5)?1:0;
+        }
+        for(int y=2;y<H-2;y++)for(int x=2;x<W-2;x++){
+            if(moved[y*W+x]){ if(mat[y*W+x]==M_EMPTY) mat[y*W+x]=(vnoise(x*0.16f,y*0.16f,seed^3)>0.72f)?M_ROCK:M_DIRT; }
+            else mat[y*W+x]=M_EMPTY;
+        }
+    }
+    for(int x=0;x<W;x++){ mat[x]=mat[W+x]=M_ROCK; mat[(H-1)*W+x]=mat[(H-2)*W+x]=M_ROCK; }
+    for(int y=0;y<H;y++){ mat[y*W]=mat[y*W+1]=M_ROCK; mat[y*W+W-1]=mat[y*W+W-2]=M_ROCK; }
 
-    /* --- the town: buildings on the terrace = the safe zone --- */
+    /* --- vent(s) at the top of the spine --- */
+    nsrc = 1 + (level>3?1:0); if(nsrc>MAXSRC)nsrc=MAXSRC;
+    for(int s=0;s<nsrc;s++){ int sx=mote_clampi((int)spine[15]+(s-nsrc/2)*10,6,W-6);
+        src_x[s]=sx; src_y[s]=15; carve_ellipse(sx,15,4,4); }
+
+    /* --- town platform (safe zone) on a solid shelf, with an open bay above so
+     * the cascade reaches it and the engineer can stand there --- */
+    int platx = W/2-16, platy = floory+2;
+    for(int y=floory-15;y<platy;y++)for(int x=platx-4;x<platx+36;x++)
+        if(x>2&&x<W-2&&y>2) mat[y*W+x]=M_EMPTY;
+    for(int y=platy;y<platy+3;y++)for(int x=platx;x<platx+32;x++)
+        if(x>2&&x<W-2&&y<H-2) mat[y*W+x]=M_ROCK;
     nbld=0; town_int=100;
-    int bx=townx, bw=townw;
-    int nb = 3 + (level>1?1:0) + (level>3?1:0);
-    int step=bw/nb;
+    int nb = 3 + (level>1?1:0);
     for(int b=0;b<nb && nbld<MAXBLD;b++){
-        int w = 5 + (int)(rndf()*4);
-        int hh = 8 + (int)(rndf()*8);
-        int px = bx + b*step + 1;
-        int py = towny - hh;
-        if(px+w>=W-1) continue;
-        for(int y=py;y<towny;y++)for(int x=px;x<px+w;x++)
-            if(x>0&&x<W-1&&y>0&&y<H-1) mat[y*W+x]=M_BUILD;
-        bld_x[nbld]=px; bld_y[nbld]=py; bld_w[nbld]=w; bld_h[nbld]=hh; nbld++;
+        int w=5+(int)(rndf()*3), hh=7+(int)(rndf()*5);
+        int bx=platx+2+b*(30/nb), by=platy-hh;
+        for(int y=by;y<platy;y++)for(int x=bx;x<bx+w;x++) if(x>2&&x<W-2&&y>2) mat[y*W+x]=M_BUILD;
+        bld_x[nbld]=bx; bld_y[nbld]=by; bld_w[nbld]=w; bld_h[nbld]=hh; nbld++;
     }
 
-    /* --- a reservoir the player can tap: a small water pocket uphill --- */
-    for(int k=0;k<1+level/3;k++){
-        int cx=30+(int)(rndf()*40), cy=height[mote_clampi(cx,1,W-2)]+8+(int)(rndf()*20);
-        for(int y=cy-2;y<=cy+2;y++)for(int x=cx-3;x<=cx+3;x++)
-            if(x>0&&x<W-1&&y>0&&y<H-1 && (x-cx)*(x-cx)/2+(y-cy)*(y-cy)<=6){
-                if(mat[y*W+x]!=M_ROCK) mat[y*W+x]=M_WATER; }
+    /* --- side drains at the bottom corners (route the flow here to win) --- */
+    carve_ellipse(12, floory+2, 9, 9); carve_ellipse(W-14, floory+2, 9, 9);
+    for(int x=4;x<22;x++)     mat[(H-3)*W+x]=M_DRAIN;
+    for(int x=W-22;x<W-4;x++) mat[(H-3)*W+x]=M_DRAIN;
+
+    /* --- water pockets to tap for coolant --- */
+    for(int k=0;k<2+level/2;k++){
+        int wx=12+(int)(rndf()*(W-24)), wy=42+(int)(rndf()*(H-70));
+        if(mat[wy*W+wx]==M_DIRT || mat[wy*W+wx]==M_ROCK){
+            carve_ellipse(wx,wy,4,3);
+            for(int y=wy-3;y<=wy+3;y++)for(int x=wx-4;x<=wx+4;x++)
+                if(x>2&&x<W-2&&y>2&&y<H-2 && mat[y*W+x]==M_EMPTY &&
+                   (x-wx)*(x-wx)+(y-wy)*(y-wy)*2<=16) mat[y*W+x]=M_WATER;
+        }
     }
 
-    /* engineer spawns a little clear of the vent's downhill path */
-    mx = ventx+12; my = height[mote_clampi(ventx+12,1,W-2)]-MH_-1; mvx=mvy=0;
-    if(test_mode){ mx = 2; my = H-MH_-2; }   /* park in the corner for flow capture */
+    /* engineer spawns on the town platform, clear of the buildings */
+    mx = platx+28; my = platy-MH_-1; mvx=mvy=0;
+    if(test_mode){ mx = 4; my = floory-MH_; }
 
-    surge_max = surge_left = 2400 + level*400;
-    coolant     = 300 + level*20;
-    dam_charges = 160 + level*10;
+    surge_max = surge_left = 12000 + level*2500;   /* ~5x the volume — a thick torrent */
+    coolant     = 600 + level*40;
+    dam_charges = 320 + level*20;
     drained=0; src_acc=0; np=0;
     tool=T_DIG; tool_cd=0; facing=1; aim=0;
 }
@@ -447,17 +451,16 @@ static void move_miner(float dt){
 }
 
 /* ============================================================== flow === */
-static void emit_sources(float dt){
+/* Emit ONE wide row of lava per simulation step (called from inside the CA loop).
+ * Feeding the vent every step — instead of in bursts on a slower timer — keeps the
+ * falling column continuously topped up, so it stays a solid stream instead of
+ * breaking into stripes as it falls. */
+static void emit_sources(void){
     if(surge_left<=0) return;
-    src_acc+=dt; const float rate=0.03f;
-    while(src_acc>=rate && surge_left>0){ src_acc-=rate;
-        for(int s=0;s<nsrc&&surge_left>0;s++){
-            /* fatten the stream: a couple of cells across the mouth */
-            for(int k=0;k<2 && surge_left>0;k++){
-                int sx=src_x[s]+(int)((rndf()-0.5f)*4);
-                int i=(src_y[s])*W+mote_clampi(sx,1,W-2);
-                if(mat[i]==M_EMPTY){ mat[i]=M_LAVA; heat[i]=LAVA_HOT; surge_left--; }
-            }
+    for(int s=0;s<nsrc && surge_left>0;s++){
+        for(int dx=-4;dx<=4 && surge_left>0;dx++){
+            int i=(src_y[s])*W+mote_clampi(src_x[s]+dx,1,W-2);
+            if(mat[i]==M_EMPTY){ mat[i]=M_LAVA; heat[i]=LAVA_HOT; surge_left--; }
         }
     }
 }
@@ -486,9 +489,8 @@ static void g_init(void){
 }
 
 static void step_sim(float dt){
-    emit_sources(dt);
     ca_acc+=dt; int st=0;
-    while(ca_acc>=(1.0f/75.0f) && st<4){ ca_step(); ca_acc-=1.0f/75.0f; st++; }
+    while(ca_acc>=(1.0f/45.0f) && st<3){ emit_sources(); ca_step(); ca_acc-=1.0f/45.0f; st++; }
     tick_particles(dt);
     /* occasional ash from the vent */
     if((framestep&7)==0 && nsrc>0){
@@ -530,7 +532,7 @@ static void render_band(uint16_t*fb,int y0,int y1){
     for(int y=y0;y<y1;y++){
         int ly=y>>1;
         const uint8_t*mr=&mat[y*W]; const uint8_t*hr=&heat[y*W]; const uint8_t*ck=&crackmap[y*W];
-        uint16_t*fr=&fb[y*W]; uint16_t sky=sky_lut[y];
+        uint16_t*fr=&fb[y*W];
         for(int x=0;x<W;x++){
             uint8_t m=mr[x]; uint16_t base; int emissive=0;
 
@@ -549,7 +551,7 @@ static void render_band(uint16_t*fb,int y0,int y1){
             }
 
             switch(m){
-                case M_EMPTY: base=sky; break;
+                case M_EMPTY: base=MOTE_RGB565(7,6,11); break;   /* dark cave air */
                 case M_ROCK:  base=((x^y)&3)?MOTE_RGB565(30,28,40):MOTE_RGB565(38,34,48); break;
                 case M_DIRT:  base=((x+y)&3)?MOTE_RGB565(52,40,30):MOTE_RGB565(44,32,24); break;
                 case M_WALL:  base=((x^y)&1)?MOTE_RGB565(96,84,66):MOTE_RGB565(78,68,54); break;  /* earth berm */
@@ -557,17 +559,12 @@ static void render_band(uint16_t*fb,int y0,int y1){
                 case M_DRAIN: base=(x&1)?MOTE_RGB565(6,5,10):MOTE_RGB565(18,14,22); break;
                 case M_BUILD: base=MOTE_RGB565(60,58,74); break;   /* recoloured below */
                 case M_WATER: base=((x+y+(int)state_t)&3)?MOTE_RGB565(24,72,120):MOTE_RGB565(34,100,150); break;
-                default:      base=sky; break;
+                default:      base=MOTE_RGB565(7,6,11); break;
             }
 
-            /* terrain surface highlight: a lit rim where solid meets sky above */
-            if((m==M_DIRT||m==M_ROCK) && y>0 && mr[x-0] && mat[(y-1)*W+x]==M_EMPTY)
+            /* cave-wall rim: a faint lit edge where rock meets open air above */
+            if((m==M_DIRT||m==M_ROCK) && y>0 && mat[(y-1)*W+x]==M_EMPTY)
                 base=add565(base,4,3,2);
-
-            /* sky stars up high */
-            if(m==M_EMPTY && y<46){
-                uint32_t hsh=(x*73856093u)^(y*19349663u); if((hsh&1023)<3) base=add565(base,8,8,10);
-            }
 
             /* warm flowing light */
             int L=light[ly*LW+(x>>1)];
