@@ -116,6 +116,7 @@ static uint8_t g_new_best;
 static int g_draft_gi, g_draft_entry, g_draft_sel, g_draft_n;
 static uint8_t g_cards[4];
 static uint8_t g_rot[4];
+static uint8_t g_rot_paid;                   /* compass gem paid for this offer */
 
 /* shop */
 static int g_shop_sel, g_shop_kind;         /* 0 commissary, 1 locksmith */
@@ -456,17 +457,20 @@ static int neighbor(int gi, int side) {
 static uint8_t orient_mask(uint8_t shape, int entry, int rot) {
     int fwd = entry ^ 2, left = (fwd + 3) & 3, right = (fwd + 1) & 3;
     int opts[3];
+    (void)opts;
     switch (shape) {
     case SH_DEAD: return DBIT(entry);
     case SH_X:    return 0xF;
-    case SH_STR: case SH_L: case SH_R: {
-        opts[0] = fwd; opts[1] = left; opts[2] = right;
-        int base = shape == SH_STR ? 0 : shape == SH_L ? 1 : 2;
-        return DBIT(entry) | DBIT(opts[(base + rot) % 3]);
+    /* a through-room is always entry+opposite: it CANNOT be reshaped into a
+     * corner, and a corner can never straighten out */
+    case SH_STR:  return DBIT(entry) | DBIT(fwd);
+    /* a corner keeps its 90 degrees; rotation only swings it left or right */
+    case SH_L:    return DBIT(entry) | DBIT((rot & 1) ? right : left);
+    case SH_R:    return DBIT(entry) | DBIT((rot & 1) ? left : right);
+    default: {    /* SH_T: three doors; rotation picks which side stays walled */
+        int o[3] = { fwd, left, right };
+        return (uint8_t)(0xF & ~DBIT(o[rot % 3]));
     }
-    default: /* SH_T */
-        opts[0] = fwd; opts[1] = left; opts[2] = right;   /* which stays walled */
-        return (uint8_t)(0xF & ~DBIT(opts[rot % 3]));
     }
 }
 
@@ -937,6 +941,7 @@ static uint8_t pick_room(uint8_t e0, uint8_t e1, uint8_t e2) {
 static void deal_cards(void) {
     g_draft_n = g_spyglass ? 4 : 3;
     memset(g_rot, 0, sizeof g_rot);
+    g_rot_paid = 0;
     if (g_force_rooms) {                              /* DRAFT_ROOMS=a,b,c (every offer) */
         int a, b, c;
         if (sscanf(g_force_rooms, "%d,%d,%d", &a, &b, &c) == 3) {
@@ -2693,16 +2698,6 @@ static void estate_map(uint16_t *fb, int ox, int oy, int cw, int ch, int target_
         if (mask & DBIT(DIR_W)) mote->draw_rect(fb, x, y + my, 2, 2, pip, 1, 0, 128);
         if (mask & DBIT(DIR_E)) mote->draw_rect(fb, x + cw - 3, y + my, 2, 2, pip, 1, 0, 128);
         mote->draw_rect(fb, x - 1, y - 1, cw + 1, ch + 1, rgb(255, 230, 120), 0, 0, 128);
-        /* the live chain: a small hanging chain on the target room, one link
-         * per level (x2 = 1 link .. x4 = 3), so you see the multiplier this
-         * placement will pay before you commit */
-        if (g_chain) {
-            for (int k = 0; k < g_chain; k++) {
-                int ly = y + 2 + k * 3;
-                mote->draw_rect(fb, x + 1, ly, 2, 3, rgb(30, 22, 10), 1, 0, 128);   /* backing */
-                mote->draw_rect(fb, x + 1, ly, 2, 2, rgb(255, 216, 96), 1, 0, 128); /* link */
-            }
-        }
     }
 }
 
@@ -2851,7 +2846,9 @@ static void draft_draw(uint16_t *fb) {
 
 static int card_orientations(uint8_t id) {
     uint8_t sh = k_rooms[id].shape;
-    return (sh == SH_STR || sh == SH_L || sh == SH_R || sh == SH_T) ? 3 : 1;
+    if (sh == SH_L || sh == SH_R) return 2;   /* corner: swing left/right */
+    if (sh == SH_T) return 3;                 /* which side stays walled */
+    return 1;                                 /* through / dead-end / cross: fixed */
 }
 
 static void draft_tick(void) {
@@ -2862,8 +2859,20 @@ static void draft_tick(void) {
         { g_draft_sel = (g_draft_sel + 1) % g_draft_n; mote->audio_play_sfx(&tick_sfx, 0.6f); }
     if (g_compass) {
         int n = card_orientations(g_cards[g_draft_sel]);
-        if (mote_just_pressed(in, MOTE_BTN_RB)) { g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + 1) % n); mote->audio_play_sfx(&tick_sfx, 0.7f); }
-        if (mote_just_pressed(in, MOTE_BTN_LB)) { g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + n - 1) % n); mote->audio_play_sfx(&tick_sfx, 0.7f); }
+        int turn = 0;
+        if (n > 1 && mote_just_pressed(in, MOTE_BTN_RB)) turn = 1;
+        if (n > 1 && mote_just_pressed(in, MOTE_BTN_LB)) turn = n - 1;
+        if (turn) {
+            /* the compass costs a gem to use on an offer; once paid, turn freely */
+            if (!g_rot_paid && g_gems <= 0) {
+                toast("COMPASS NEEDS A GEM");
+                mote->audio_play_sfx(&locked_sfx, 0.8f);
+            } else {
+                if (!g_rot_paid) { g_gems--; g_rot_paid = 1; }
+                g_rot[g_draft_sel] = (uint8_t)((g_rot[g_draft_sel] + turn) % n);
+                mote->audio_play_sfx(&tick_sfx, 0.7f);
+            }
+        }
     }
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         if (card_affordable(g_cards[g_draft_sel])) place_card(g_draft_sel);
