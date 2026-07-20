@@ -240,7 +240,7 @@ enum { ES_PATROL, ES_ALERT, ES_CHASE, ES_ATTACK, ES_THROW, ES_FLEE,
        ES_HIDDEN, ES_PEEK, ES_PREP, ES_LEAP,
        ES_HIT, ES_DEAD, ES_IDLE };
 
-#define MAXE 18
+#define MAXE 26
 typedef struct {
     uint8_t on, type, state, hp;
     int8_t facing;                 /* +1 right, -1 left */
@@ -255,7 +255,7 @@ typedef struct {
 } Enemy;
 static Enemy en[MAXE];
 
-#define MAXC 3
+#define MAXC 6
 typedef struct {
     uint8_t on; int8_t facing;
     float x, y, cd;
@@ -428,6 +428,31 @@ static void add_enemy(int type, float x, float y, float home) {
     }
 }
 
+/* Place a crewed cannon at tile (cc, fr = the surface row it rests on), only
+ * where the gunner has a solid tile to stand on at the breech AND the muzzle
+ * has open space to fire. Returns 1 on success. Prefers dir_pref, else flips. */
+static int try_cannon(int cc, int fr, int dir_pref) {
+    for (int t = 0; t < 2; t++) {
+        int dir = t ? -dir_pref : dir_pref;
+        int gcol = cc - dir, mcol = cc + dir;          /* gunner behind, muzzle ahead */
+        if (gcol < 1 || gcol >= COLS - 1 || mcol < 1 || mcol >= COLS - 1) continue;
+        int gstand = (cell(gcol, fr) & (B_SOL | B_PLT)) && !(cell(gcol, fr - 1) & B_SOL);
+        int mopen  = !(cell(mcol, fr - 1) & B_SOL);    /* room to shoot */
+        if (!gstand || !mopen) continue;
+        int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
+        if (ci >= MAXC) return 0;
+        float wx = cc * TILE + 16.0f, wy = (float)(fr * TILE);
+        cans[ci] = (Cannon){ 1, (int8_t)dir, wx, wy, 0 };
+        cans[ci].clip = &cannon_idle; mote_anim_play(&cans[ci].ap, &cannon_idle);
+        add_enemy(E_MATCH, wx - dir * 26, wy, wx - dir * 26);
+        for (int j = 0; j < MAXE; j++)
+            if (en[j].on && en[j].type == E_MATCH && en[j].cannon < 0)
+                { en[j].cannon = (int8_t)ci; en[j].facing = (int8_t)dir; }
+        return 1;
+    }
+    return 0;
+}
+
 static void generate(void) {
     mote_rand_seed(s_seed);
     for (int i = 0; i < ROWS * COLS; i++) map[i] = 0;       /* void by default */
@@ -489,25 +514,24 @@ static void generate(void) {
             break;
         case 'E':
             if (enemy_budget > 0) {
-                int maxt = (depth>=3)?3:(depth>=2)?2:1;
-                int t = rndi(maxt+1);
-                add_enemy(t==0?E_PIG:t==1?E_BOXP:t==2?E_BOMBP:E_HIDE, wx, wy, wx);
+                /* floors 2-3 favour cannon and bomb pigs over plain guards */
+                if (depth >= 2 && rndi(100) < 22 &&
+                    try_cannon(c, rr, (c > COLS / 2) ? -1 : 1)) {
+                    /* a cannon emplacement took this slot */
+                } else {
+                    int r2 = rndi(100), type;
+                    if (depth <= 1)      type = r2 < 72 ? E_PIG : E_BOXP;
+                    else if (depth == 2) type = r2 < 28 ? E_PIG : r2 < 66 ? E_BOMBP : E_BOXP;
+                    else                 type = r2 < 20 ? E_PIG : r2 < 55 ? E_BOMBP :
+                                                r2 < 78 ? E_BOXP : E_HIDE;
+                    add_enemy(type, wx, wy, wx);
+                }
                 enemy_budget--;
             }
             break;
         case 'C':
-            if (depth >= 2) {
-                int ci; for (ci=0; ci<MAXC && cans[ci].on; ci++) {}
-                if (ci < MAXC) {
-                    int dir = (c > COLS/2) ? -1 : 1;
-                    cans[ci] = (Cannon){1,(int8_t)dir,wx,wy,0};
-                    cans[ci].clip=&cannon_idle; mote_anim_play(&cans[ci].ap,&cannon_idle);
-                    add_enemy(E_MATCH, wx - dir*28, wy, wx - dir*28);
-                    for (int j=0;j<MAXE;j++)
-                        if(en[j].on && en[j].type==E_MATCH && en[j].cannon<0){
-                            en[j].cannon=(int8_t)ci; en[j].facing=(int8_t)dir; }
-                }
-            }
+            if (depth >= 2 && !try_cannon(c, rr, (c > COLS / 2) ? -1 : 1))
+                add_enemy(E_BOMBP, wx, wy, wx);   /* fallback if it can't be crewed */
             break;
         case 'W': add_deco(DC_WINDOW, 0, c*TILE - 1, r*TILE + 4); break;
         case 'F': add_deco(rndi(3)==0?DC_BANNER2:DC_BANNER1, 0, c*TILE + 1, r*TILE + 2); break;
@@ -524,37 +548,39 @@ static void generate(void) {
         add_enemy(E_BOSS, doors[1].x, doors[1].y, doors[1].x);
         boss_alive = 1;
         /* a cannon pig covers the approach from a ledge above the boss: scan
-         * the upper rows of the exit room for a standable perch near the door */
+         * the upper rows of the exit room for a perch where the gunner can
+         * stand and the muzzle has room to fire (try_cannon verifies both) */
         int ec = (int)(doors[1].x / TILE), er = (int)(doors[1].y / TILE);
-        int pr = -1, pc = -1, bestd = 999;
+        int bestd = 999, pr = -1, pc = -1;
         for (int r = er - 4; r <= er - 2; r++) {
             if (r < 1) continue;
             for (int dc = -5; dc <= 5; dc++) {
                 int c = ec + dc;
                 if (c < 1 || c >= COLS - 1) continue;
-                if ((cell(c, r) & (B_SOL | B_PLT)) && !(cell(c, r - 1) & B_SOL)
-                    && !(cell(c, r - 2) & B_SOL)) {              /* headroom for the gunner */
+                if ((cell(c, r) & (B_SOL | B_PLT)) && !(cell(c, r - 1) & B_SOL)) {
                     int d = dc * dc + (er - r) * (er - r);
                     if (d < bestd) { bestd = d; pr = r; pc = c; }
                 }
             }
         }
-        int ci; for (ci = 0; ci < MAXC && cans[ci].on; ci++) {}
-        if (pr > 0 && ci < MAXC) {
-            int openL = 0, openR = 0;                            /* aim into the open */
-            for (int k = 1; k <= 5; k++) {
-                if (!(cell(pc - k, pr - 1) & B_SOL)) openL++;
-                if (!(cell(pc + k, pr - 1) & B_SOL)) openR++;
-            }
-            int dir = (openR >= openL) ? 1 : -1;
-            float cwx = pc * TILE + 16.0f, cwy = (float)(pr * TILE);
-            cans[ci] = (Cannon){ 1, (int8_t)dir, cwx, cwy, 0 };
-            cans[ci].clip = &cannon_idle; mote_anim_play(&cans[ci].ap, &cannon_idle);
-            add_enemy(E_MATCH, cwx - dir * 26, cwy, cwx - dir * 26);
-            for (int j = 0; j < MAXE; j++)
-                if (en[j].on && en[j].type == E_MATCH && en[j].cannon < 0) {
-                    en[j].cannon = (int8_t)ci; en[j].facing = (int8_t)dir;
-                }
+        if (pr > 0) try_cannon(pc, pr, (ec > pc) ? 1 : -1);   /* aim toward the door */
+    }
+
+    /* guarantee a few crewed cannons on deeper floors so the halls aren't
+     * quiet — scan random floor tiles for a spot the gunner can actually man */
+    if (depth >= 2) {
+        int have = 0; for (int i = 0; i < MAXC; i++) if (cans[i].on) have++;
+        int want = 1 + depth / 2; if (want > MAXC - 1) want = MAXC - 1;
+        for (int tries = 0; tries < 240 && have < want; tries++) {
+            int c = 2 + rndi(COLS - 4), r = 2 + rndi(ROWS - 4);
+            if (!(cell(c, r) & (B_SOL | B_PLT)) || (cell(c, r - 1) & B_SOL)) continue;
+            if (fabsf((float)(c * TILE) - doors[0].x) < 56 ||
+                fabsf((float)(c * TILE) - doors[1].x) < 56) continue;
+            int near = 0;
+            for (int j = 0; j < MAXC; j++)
+                if (cans[j].on && fabsf(cans[j].x - (c * TILE + 16)) < 96 &&
+                    fabsf(cans[j].y - (float)(r * TILE)) < 48) near = 1;
+            if (!near && try_cannon(c, r, (rnd() & 1) ? 1 : -1)) have++;
         }
     }
 
@@ -794,16 +820,17 @@ static void enemy_tick(Enemy *e, float dt) {
                 int want = cdx > 0 ? 1 : -1;
                 if (want != cn->facing) cn->facing = (int8_t)want;
             }
-            /* the gunner stays at the breech (opposite the muzzle) */
-            {
-                float post = cn->x - cn->facing * 26.0f;
-                float pd = post - b->x;
-                b->vx = (fabsf(pd) > 4) ? (pd > 0 ? 40.0f : -40.0f) : 0;
-                e->facing = cn->facing;
-                body_step(b, dt);
-            }
+            /* the gunner walks to the breech (opposite the muzzle) */
+            float post = cn->x - cn->facing * 26.0f;
+            float pd = post - b->x;
+            b->vx = (fabsf(pd) > 4) ? (pd > 0 ? 40.0f : -40.0f) : 0;
+            e->facing = cn->facing;
+            body_step(b, dt);
+            /* the cannon fires ONLY while the gunner is actually manning the
+             * breech — it never fires by itself */
+            int manned = fabsf(post - b->x) < 10.0f;
             int infront = (cn->facing > 0) ? (cdx > 20) : (cdx < -20);
-            if (cn->cd <= 0 && infront && fabsf(cdx) < 220 &&
+            if (cn->cd <= 0 && manned && infront && fabsf(cdx) < 220 &&
                 fabsf(kb.y - cn->y) < 40 && e->clip == &pigmatch_matchon) {
                 e_clip(e, &pigmatch_light); e->clip = &pigmatch_light;
                 e->t = 0;
