@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-21T21:54:51+00:00",
+ "generated": "2026-07-21T22:13:07+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -541,10 +541,10 @@
    "id": "thumboxels",
    "name": "Thumboxels",
    "author": "Prevolve",
-   "version": "0",
+   "version": "1.0.0",
    "abi": 47,
-   "size": 57728,
-   "sha256": "0ce87b8c213b84c95c1576574f99efde3dfcaae16b2b0234061c049fe4e4f969",
+   "size": 57744,
+   "sha256": "93313e0cda2878613a9b6c81863cb5660fc88577feff8906e85a60fa43d30157",
    "file": "games/Thumboxels.mote",
    "icon": "img/gallery/thumboxels-icon.png",
    "thumb": "img/gallery/thumboxels-1.png",
