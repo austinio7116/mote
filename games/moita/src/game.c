@@ -64,7 +64,7 @@ enum { SP_NONE=0,
        SP_COUNT };
 #define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_PRISM)
 
-enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT };
+enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
 
 /* ============================================================== world === */
 /* the three 32KB world grids live in the engine arena (mote->alloc at init) —
@@ -74,6 +74,7 @@ static uint8_t *mat, *heat, *moved;
 static uint16_t lightR[LW*LH], lightG[LW*LH], lightB[LW*LH];  /* RGB light field */
 static uint8_t  light2[LW*LH];     /* scratch: per-cell solid count for the light sweep */
 static uint8_t  seen[LW*(WH/2)];   /* fog-of-war memory: max visibility ever, half-res */
+static int tvx[4],tvy[4],ntv=0; static uint8_t tvt[4];   /* title-screen pour vents */
 static uint16_t lava_lut[256], fire_lut[256];
 
 static float cam_y = 0;
@@ -128,7 +129,7 @@ static Enemy enemy[MAXENEMY]; static int nenemy=0;
 
 /* wand pickups */
 #define MAXPICK 6
-typedef struct { float x,y; uint8_t alive; uint8_t price; Wand w; } Pickup;
+typedef struct { float x,y; uint8_t alive; Wand w; } Pickup;
 static Pickup pick[MAXPICK]; static int npick=0;
 
 /* =============================================================== utils === */
@@ -236,11 +237,28 @@ static void ca_step(void){
                 int dl=b-1,dr=b+1,d1=dir?dr:dl,d2=dir?dl:dr;
                 if(air(d1)){mat[d1]=m;heat[d1]=v;mat[i]=M_EMPTY;heat[i]=0;moved[d1]=1;continue;}
                 if(air(d2)){mat[d2]=m;heat[d2]=v;mat[i]=M_EMPTY;heat[i]=0;moved[d2]=1;continue;}
-                int s1=dir?i+1:i-1,s2=dir?i-1:i+1;
-                int visc = (m==M_LAVA);
-                if(!visc || (rnd()&1)){
-                    if(air(s1)){mat[s1]=m;heat[s1]=v;mat[i]=M_EMPTY;heat[i]=0;moved[s1]=1;continue;}
-                    if(air(s2)){mat[s2]=m;heat[s2]=v;mat[i]=M_EMPTY;heat[i]=0;moved[s2]=1;continue;}
+                if(m==M_LAVA){                    /* gloopy: slow single-cell creep */
+                    int s1=dir?i+1:i-1,s2=dir?i-1:i+1;
+                    if(rnd()&1){
+                        if(air(s1)){mat[s1]=m;heat[s1]=v;mat[i]=M_EMPTY;heat[i]=0;moved[s1]=1;continue;}
+                        if(air(s2)){mat[s2]=m;heat[s2]=v;mat[i]=M_EMPTY;heat[i]=0;moved[s2]=1;continue;}
+                    }
+                    continue;
+                }
+                /* thin fluids DISPERSE: run up to 5 cells along the surface and
+                 * drop over the first edge found — pools settle flat instead of
+                 * piling into sand-like pyramids */
+                { int stp=dir?1:-1, dst=0, near1=0;
+                  for(int t2=0;t2<2&&!dst;t2++,stp=-stp){
+                      for(int r2=1;r2<=5;r2++){
+                          int xx=x+stp*r2; if(xx<1||xx>=WW-1)break;
+                          int cand=i+stp*r2; if(!air(cand))break;
+                          if(t2==0&&r2==1)near1=cand;
+                          if(air(cand+WW)){ dst=cand; break; }
+                      }
+                  }
+                  if(!dst)dst=near1;              /* level surface: gentle slosh */
+                  if(dst){mat[dst]=m;heat[dst]=v;mat[i]=M_EMPTY;heat[i]=0;moved[dst]=1;}
                 }
                 continue;
             }
@@ -318,7 +336,8 @@ static void build_light(void){
     memset(lightR,0,sizeof lightR); memset(lightG,0,sizeof lightG); memset(lightB,0,sizeof lightB);
     memset(light2,0,sizeof light2);
     int cy=(int)cam_y;
-    for(int sy=TOP;sy<VH;sy++){ int wyy=cy+sy-TOP; if(wyy<0||wyy>=WH)continue; int ly=sy>>1;
+    int tp=(state==ST_TITLE)?0:TOP;
+    for(int sy=tp;sy<VH;sy++){ int wyy=cy+sy-tp; if(wyy<0||wyy>=WH)continue; int ly=sy>>1;
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
         for(int x=1;x<WW-1;x++){ uint8_t m=mr[x];
             if(m==M_LAVA) seed_rgb(ly*LW+(x>>1),26+(hr[x]>>1),lava_lut[hr[x]]);
@@ -328,38 +347,45 @@ static void build_light(void){
         }
     }
     for(int i=0;i<LW*LH;i++) lsolid[i]=(light2[i]>=2);   /* majority of the 2x2 block */
-    for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x, sy=(int)(proj[i].y-cam_y)+TOP;
-        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
+    for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x, sy=(int)(proj[i].y-cam_y)+tp;
+        if(sx<1||sx>=WW-1||sy<tp+1||sy>=VH-1)continue;
         int seed=400; uint8_t t=proj[i].type;
         if(proj[i].glow) seed+=500;
         if(t==SP_ORB||t==SP_METEOR||t==SP_VOID||t==SP_PRISM) seed+=400;
         seed_rgb((sy>>1)*LW+(sx>>1),seed,proj_col(t,0.8f)); }
     for(int e=0;e<nenemy;e++) if(enemy[e].alive&&enemy[e].type==3){   /* wisps burn */
-        int sx=(int)enemy[e].x, sy=(int)(enemy[e].y-cam_y)+TOP;
-        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
+        int sx=(int)enemy[e].x, sy=(int)(enemy[e].y-cam_y)+tp;
+        if(sx<1||sx>=WW-1||sy<tp+1||sy>=VH-1)continue;
         seed_rgb((sy>>1)*LW+(sx>>1),450,fire_lut[220]); }
     for(int i=0;i<npick;i++) if(pick[i].alive){                       /* wands shine */
-        int sx=(int)pick[i].x, sy=(int)(pick[i].y-cam_y)+TOP;
-        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
+        int sx=(int)pick[i].x, sy=(int)(pick[i].y-cam_y)+tp;
+        if(sx<1||sx>=WW-1||sy<tp+1||sy>=VH-1)continue;
         seed_rgb((sy>>1)*LW+(sx>>1),420,pick[i].w.col); }
-    for(int it=0;it<2;it++){
-        for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ int li=y*LW+x, k=lsolid[li]?92:206, b,v;
-            b=0; if(x>0&&lightR[li-1]>b)b=lightR[li-1]; if(y>0&&lightR[li-LW]>b)b=lightR[li-LW];
-            v=b*k>>8; if(v>lightR[li])lightR[li]=(uint16_t)v;
-            b=0; if(x>0&&lightG[li-1]>b)b=lightG[li-1]; if(y>0&&lightG[li-LW]>b)b=lightG[li-LW];
-            v=b*k>>8; if(v>lightG[li])lightG[li]=(uint16_t)v;
-            b=0; if(x>0&&lightB[li-1]>b)b=lightB[li-1]; if(y>0&&lightB[li-LW]>b)b=lightB[li-LW];
-            v=b*k>>8; if(v>lightB[li])lightB[li]=(uint16_t)v; }
-        for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ int li=y*LW+x, k=lsolid[li]?92:206, b,v;
-            b=0; if(x<LW-1&&lightR[li+1]>b)b=lightR[li+1]; if(y<LH-1&&lightR[li+LW]>b)b=lightR[li+LW];
-            v=b*k>>8; if(v>lightR[li])lightR[li]=(uint16_t)v;
-            b=0; if(x<LW-1&&lightG[li+1]>b)b=lightG[li+1]; if(y<LH-1&&lightG[li+LW]>b)b=lightG[li+LW];
-            v=b*k>>8; if(v>lightG[li])lightG[li]=(uint16_t)v;
-            b=0; if(x<LW-1&&lightB[li+1]>b)b=lightB[li+1]; if(y<LH-1&&lightB[li+LW]>b)b=lightB[li+LW];
-            v=b*k>>8; if(v>lightB[li])lightB[li]=(uint16_t)v; }
-    }
-    /* reveal the fog-of-war memory: sight radius around the wizard + live glow */
-    { int pwx=(int)(wx+PW*0.5f), pwy=(int)(wy+PH*0.5f);
+    /* sweeps include DIAGONAL taps at k^1.41 so falloff is octagonal (reads as
+     * round), not the diamond a pure orthogonal max-propagation produces */
+    { uint16_t*ch[3]={lightR,lightG,lightB};
+      for(int c=0;c<3;c++){ uint16_t*L=ch[c];
+        for(int it=0;it<2;it++){
+            for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ int li=y*LW+x;
+                int s=lsolid[li], k=s?92:206, kd=s?60:188, b=0,bd=0;
+                if(x>0&&L[li-1]>b)b=L[li-1];
+                if(y>0){ if(L[li-LW]>b)b=L[li-LW];
+                    if(x>0&&L[li-LW-1]>bd)bd=L[li-LW-1];
+                    if(x<LW-1&&L[li-LW+1]>bd)bd=L[li-LW+1]; }
+                int v=b*k>>8, vd=bd*kd>>8; if(vd>v)v=vd;
+                if(v>L[li])L[li]=(uint16_t)v; }
+            for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ int li=y*LW+x;
+                int s=lsolid[li], k=s?92:206, kd=s?60:188, b=0,bd=0;
+                if(x<LW-1&&L[li+1]>b)b=L[li+1];
+                if(y<LH-1){ if(L[li+LW]>b)b=L[li+LW];
+                    if(x<LW-1&&L[li+LW+1]>bd)bd=L[li+LW+1];
+                    if(x>0&&L[li+LW-1]>bd)bd=L[li+LW-1]; }
+                int v=b*k>>8, vd=bd*kd>>8; if(vd>v)v=vd;
+                if(v>L[li])L[li]=(uint16_t)v; }
+        } } }
+    /* reveal the fog-of-war memory: sight radius around the wizard + live glow
+     * (never during the title pan — the run must start unexplored) */
+    if(state!=ST_TITLE){ int pwx=(int)(wx+PW*0.5f), pwy=(int)(wy+PH*0.5f);
       for(int sy=TOP;sy<VH;sy++){ int wyy=cy+sy-TOP;
         if((unsigned)wyy>=(unsigned)WH || (wyy&1)) continue;
         int ly=sy>>1, dy2=(wyy-pwy)*(wyy-pwy);
@@ -935,8 +961,7 @@ static void gen_level(void){
     /* wand pickups in reachable chambers */
     int nw=1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
-        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level);
-        p->price=(uint8_t)(4+level*3+rnd()%5); }
+        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
 
     /* pre-settle all fluids, then purge anything still airborne so frame 0 is
      * completely still — no falling streams, no stripes collecting at the bottom */
@@ -948,9 +973,23 @@ static void gen_level(void){
             if(inb(x,y)&&mat[y*WW+x]==M_EMPTY) mat[y*WW+x]=M_WATER; }
     memset(seen,0,sizeof seen); necho=0;   /* fresh fog + no pending echoes */
     memset(coin,0,sizeof coin);
+    /* title-screen vents: spots where lava/water pour while the title shows */
+    ntv=0;
+    for(int k=0;k<4&&ntv<4;k++){ int x=16+k*30+(int)(rnd()%10); if(x>=WW-4)break;
+        for(int y=6;y<WH/2;y++) if(mat[y*WW+x]==M_EMPTY){
+            tvx[ntv]=x; tvy[ntv]=y; tvt[ntv]=(k&1)?M_WATER:M_LAVA; ntv++; break; } }
+}
+/* pour the title-screen streams and drain the world floor so they cycle */
+static void title_emit(void){
+    for(int k=0;k<ntv;k++) for(int dx=-1;dx<=1;dx++){
+        int i=tvy[k]*WW+tvx[k]+dx;
+        if(mat[i]==M_EMPTY){ mat[i]=tvt[k]; heat[i]=(tvt[k]==M_LAVA)?255:0; } }
+    for(int x=2;x<WW-2;x++){ int i=(WH-3)*WW+x;
+        if(IS_FLUID(mat[i])){ mat[i]=M_EMPTY; heat[i]=0; } }
 }
 
 /* ============================================================= wizard === */
+static void open_shop(void);
 static int solid_at(float x,float y){ int ix=(int)x,iy=(int)y; if(!inb(ix,iy))return 1; return IS_SOLID(mat[iy*WW+ix]); }
 static int box_hits(float px,float py){ for(int yy=0;yy<PH;yy++)for(int xx=0;xx<PW;xx++) if(solid_at(px+xx,py+yy))return 1; return 0; }
 
@@ -1007,14 +1046,14 @@ static void wizard_update(float dt){
     if(mote_just_pressed(in,MOTE_BTN_LB)) cur_wand=(cur_wand+1)%nwand;
 
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; float dx=pick[i].x-(wx+PW*0.5f),dy=pick[i].y-(wy+PH*0.5f);
-        if(dx*dx+dy*dy<40 && gold>=pick[i].price){ pick[i].alive=0; gold-=pick[i].price;
+        if(dx*dx+dy*dy<40){ pick[i].alive=0;   /* found wands are free */
             if(nwand<MAXWAND) wand[nwand++]=pick[i].w; else wand[cur_wand]=pick[i].w;
             for(int k=0;k<16;k++) spawn_part(pick[i].x,pick[i].y,rr(-60,60),rr(-60,60),0.5f,pick[i].w.col,1); } }
 
     float tgt=clampf(wy-VIEWH*0.45f,0,WH-VIEWH); cam_y+=(tgt-cam_y)*clampf(dt*6,0,1);
-    /* level ends at the portal itself, not just at depth */
+    /* level ends at the portal: spend your gold before descending */
     { float ex=(wx+PW*0.5f)-exit_x, ey=(wy+PH*0.5f)-(WH-8);
-      if(ex*ex+ey*ey<64){ level++; gen_level(); } }
+      if(ex*ex+ey*ey<64){ open_shop(); return; } }
     if(hp<=0){ state=ST_DEAD; state_t=0; }
 }
 
@@ -1093,6 +1132,42 @@ static void edit_update(const MoteInput*in){
         state=ST_PLAY; }
 }
 
+/* ===================================================== end-level shop === */
+/* wands found in the caves are free; the shop between levels is where gold
+ * goes — three wands and three loose modifier cards, restocked each descent */
+static struct { Wand w; uint8_t price,sold; } shop_w[3];
+static struct { uint8_t sp,price,sold; } shop_c[3];
+static int shop_sel=0;
+static void open_shop(void){
+    for(int i=0;i<3;i++){ shop_w[i].w=random_wand(level+1); shop_w[i].sold=0;
+        shop_w[i].price=(uint8_t)(8+level*4+rnd()%6); }
+    static const uint8_t pool[]={SP_DMG,SP_SPREAD,SP_SPREAD5,SP_TWIN,SP_BOUNCE,SP_HOMING,
+        SP_BOOM,SP_SPEED,SP_HEAVY,SP_PIERCE,SP_TRAILF,SP_TRAILS,SP_CRIT,SP_LEECH,
+        SP_ECHO,SP_WAVE,SP_GLOW,SP_MANAR};
+    for(int i=0;i<3;i++){ shop_c[i].sp=pool[rnd()%(sizeof pool)]; shop_c[i].sold=0;
+        shop_c[i].price=(uint8_t)(3+rnd()%4); }
+    shop_sel=0; state=ST_SHOP;
+}
+static int card_home(void){   /* wand with a free slot, current wand first */
+    for(int k=0;k<nwand;k++){ int i=(cur_wand+k)%nwand; if(wand[i].n<WAND_SLOTS) return i; }
+    return -1;
+}
+static void shop_update(const MoteInput*in){
+    if(mote_just_pressed(in,MOTE_BTN_LEFT))  shop_sel=(shop_sel+5)%6;
+    if(mote_just_pressed(in,MOTE_BTN_RIGHT)) shop_sel=(shop_sel+1)%6;
+    if(mote_just_pressed(in,MOTE_BTN_UP)||mote_just_pressed(in,MOTE_BTN_DOWN)) shop_sel=(shop_sel+3)%6;
+    if(mote_just_pressed(in,MOTE_BTN_A)){
+        if(shop_sel<3){ if(!shop_w[shop_sel].sold && gold>=shop_w[shop_sel].price){
+            gold-=shop_w[shop_sel].price; shop_w[shop_sel].sold=1;
+            if(nwand<MAXWAND) wand[nwand++]=shop_w[shop_sel].w; else wand[cur_wand]=shop_w[shop_sel].w; } }
+        else { int s=shop_sel-3, h=card_home();
+            if(!shop_c[s].sold && h>=0 && gold>=shop_c[s].price){
+                gold-=shop_c[s].price; shop_c[s].sold=1;
+                wand[h].spell[wand[h].n++]=shop_c[s].sp; } } }
+    if(mote_just_pressed(in,MOTE_BTN_B)||mote_just_pressed(in,MOTE_BTN_MENU)){
+        level++; gen_level(); state=ST_PLAY; }
+}
+
 /* ============================================================= init === */
 static void reset_run(void){
     hp=hp_max=100; mana_fly=mana_fly_max=2.4f;
@@ -1111,7 +1186,8 @@ static void g_init(void){
             while(*ws&&*ws!=',')ws++; if(*ws==',')ws++; }
         if(n){ w.n=n; w.delay=0.2f; w.mana=w.mana_max=999; w.recharge=300;
                w.col=MOTE_RGB565(255,255,255); wand[0]=w; } } }
-    gen_level(); build_light(); state=ST_TITLE;
+    if(getenv("MOITA_SHOP")){ gold=20; open_shop(); }   /* test hook */
+    { int keep=state; gen_level(); build_light(); state=(keep==ST_SHOP)?ST_SHOP:ST_TITLE; }
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
@@ -1120,9 +1196,16 @@ static void step_sim(float dt){
 }
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
-    if(state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){state=ST_PLAY;state_t=0;} build_light(); return; }
+    if(state==ST_TITLE){
+        /* cinematic backdrop: pan the caves while lava and water pour */
+        float ph=fmodf(state_t*0.045f,2.0f), u=ph<1?ph:2-ph;
+        cam_y=u*(WH-VH);
+        title_emit(); step_sim(dt); build_light();
+        if(mote_just_pressed(in,MOTE_BTN_A)){ gen_level(); state=ST_PLAY; state_t=0; }
+        return; }
     if(state==ST_DEAD){ step_sim(dt); build_light();
         if(mote_just_pressed(in,MOTE_BTN_A)){ reset_run(); gen_level(); state=ST_PLAY; state_t=0; } return; }
+    if(state==ST_SHOP){ shop_update(in); return; }
     if(state==ST_EDIT){ edit_update(in); return; }   /* world pauses while editing */
     if(mote_just_pressed(in,MOTE_BTN_MENU)){ state=ST_EDIT; ed_wi=cur_wand; ed_si=0; ed_carry=SP_NONE; return; }
     wizard_update(dt); step_sim(dt); build_light();
@@ -1180,9 +1263,10 @@ static inline uint16_t scale565(uint16_t c,int k){
 }
 static void render_band(uint16_t*fb,int y0,int y1){
     int cy=(int)cam_y;
+    int tp=(state==ST_TITLE)?0:TOP;    /* title: the caves fill the whole screen */
     for(int sy=y0;sy<y1;sy++){ uint16_t*fr=&fb[sy*WW];
-        if(sy<TOP){ for(int x=0;x<WW;x++) fr[x]=PANEL_BG; continue; }
-        int wyy=cy+sy-TOP; int ly=sy>>1;
+        if(sy<tp){ for(int x=0;x<WW;x++) fr[x]=PANEL_BG; continue; }
+        int wyy=cy+sy-tp; int ly=sy>>1;
         if(wyy<0||wyy>=WH){ for(int x=0;x<WW;x++) fr[x]=MOTE_RGB565(4,4,8); continue; }
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
         const uint8_t*sr=&seen[(wyy>>1)*LW];
@@ -1199,7 +1283,7 @@ static void render_band(uint16_t*fb,int y0,int y1){
             int LR=(9*R0[lx]+3*R0[lxn]+3*R1[lx]+R1[lxn])>>4;
             int LG=(9*G0[lx]+3*G0[lxn]+3*G1[lx]+G1[lxn])>>4;
             int LB=(9*B0[lx]+3*B0[lxn]+3*B1[lx]+B1[lxn])>>4;
-            int vis=sr[x>>1]+((LR+LG+LB)/3>>4);  /* permanent memory + live glow */
+            int vis=(tp?sr[x>>1]:236)+((LR+LG+LB)/3>>4);  /* memory + live glow (no fog on title) */
             if(vis>256)vis=256; if(vis<16)vis=16;
             uint16_t base=scale565(mat_col(m,hr[x],x,wyy),vis);
             if(LR|LG|LB) base=add565(base,LR>>5,LG>>4,LB>>5);
@@ -1339,13 +1423,22 @@ static void draw_world_wand(uint16_t*fb,int sx,int sy,const Pickup*p){
 static void g_overlay(uint16_t*fb){
     const MoteFont*fmed=(mote->abi_version>=47)?mote->ui_font(MOTE_FONT_MED):0;
     if(state==ST_TITLE){
-        mote_dim_box(fb,0,0,128,128,0);
-        if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"MOITA",38,24,MOTE_RGB565(160,140,255));
-            mote->text_font(fb,fmed,"A fly  B cast",26,50,MOTE_RGB565(220,220,230));
-            mote->text_font(fb,fmed,"U/D aim  LB wand",16,64,MOTE_RGB565(160,200,220));
-            mote->text_font(fb,fmed,"MENU: edit wands",20,78,MOTE_RGB565(200,170,255));
-            mote->text_font(fb,fmed,"A: start",42,104,MOTE_RGB565(255,220,120)); }
-        else mote->text_2x(fb,"MOITA",38,40,MOTE_RGB565(160,140,255));
+        /* the caves, pouring lava and water live behind the title */
+        const MoteFont*fl=mote->ui_font(MOTE_FONT_LARGE);
+        mote_dim_box(fb,0,16,128,26,7);
+        if(fmed){
+            uint16_t deep=MOTE_RGB565(66,38,124);
+            mote->text_font(fb,fl,"MOITA",37,22,deep); mote->text_font(fb,fl,"MOITA",39,22,deep);
+            mote->text_font(fb,fl,"MOITA",37,24,deep); mote->text_font(fb,fl,"MOITA",39,24,deep);
+            float pu=0.72f+0.28f*sinf(state_t*2.2f);
+            mote->text_font(fb,fl,"MOITA",38,23,lerp565(MOTE_RGB565(130,100,210),MOTE_RGB565(228,205,255),pu));
+            mote_dim_box(fb,10,60,108,42,7);
+            mote->text_font(fb,fmed,"A fly  B cast",26,62,MOTE_RGB565(224,224,234));
+            mote->text_font(fb,fmed,"U/D aim  LB wand",16,74,MOTE_RGB565(165,205,225));
+            mote->text_font(fb,fmed,"MENU: edit wands",18,86,MOTE_RGB565(202,172,255));
+            float g=0.55f+0.45f*sinf(state_t*3);
+            mote->text_font(fb,fmed,"A: start",42,108,lerp565(MOTE_RGB565(150,118,44),MOTE_RGB565(255,224,124),g));
+        } else mote->text_2x(fb,"MOITA",38,40,MOTE_RGB565(160,140,255));
         return;
     }
     int cy=(int)cam_y-TOP; char buf[24];   /* screen y = world y - cy (dashboard offset baked in) */
@@ -1358,10 +1451,7 @@ static void g_overlay(uint16_t*fb){
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; int sx=(int)pick[i].x,sy=(int)pick[i].y-cy;
         if(sy<-4||sy>132)continue; int bob=(int)(sinf(state_t*3+i)*2);
         if(seen[(((int)pick[i].y)>>1)*LW+((((int)pick[i].x)&127)>>1)]<90) continue;  /* still in fog */
-        draw_world_wand(fb,sx,sy+bob,&pick[i]);
-        { char pb[6]; snprintf(pb,sizeof pb,"%d",pick[i].price);      /* price tag */
-          tiny_text(fb,sx-(pick[i].price>9?4:2),sy-11+bob,pb,
-                    gold>=pick[i].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); } }
+        draw_world_wand(fb,sx,sy+bob,&pick[i]); }
     for(int i=0;i<MAXCOIN;i++){ if(!coin[i].alive)continue;           /* gold */
         int sx=(int)coin[i].x,sy=(int)coin[i].y-cy; if(sy<TOP-2||sy>130)continue;
         mote->draw_rect(fb,sx-1,sy-1,2,2,MOTE_RGB565(255,210,70),1,0,128);
@@ -1435,6 +1525,33 @@ static void g_overlay(uint16_t*fb){
     ui_fbar(fb,70,10,56,5,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
     snprintf(buf,sizeof buf,"D%d",level);
     tiny_text(fb,115,2,buf,MOTE_RGB565(225,218,255));
+
+    if(state==ST_SHOP){
+        mote_dim_box(fb,0,TOP,128,VH-TOP,3);
+        if(fmed){ mote->text_font(fb,fmed,"SHOP",4,21,MOTE_RGB565(255,224,124));
+            ui_icon(fb,98,22,ic_coin,MOTE_RGB565(255,210,70));
+            snprintf(buf,sizeof buf,"%d",gold);
+            tiny_text(fb,106,22,buf,MOTE_RGB565(255,230,140));
+            mote->text_font(fb,fmed,"A buy   B onward",4,31,MOTE_RGB565(170,160,205)); }
+        for(int i=0;i<6;i++){
+            int row=i>=3, s=row?i-3:i;
+            int bx=8+s*40, by=row?82:46, bh=row?20:28, cur=(i==shop_sel);
+            mote_ui_panel(fb,bx,by,32,bh, cur?MOTE_RGB565(52,46,82):MOTE_RGB565(16,15,24),
+                          cur?MOTE_RGB565(255,214,110):MOTE_RGB565(54,50,76));
+            char pb[6];
+            if(!row){
+                if(shop_w[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+9,MOTE_RGB565(90,90,110)); }
+                else { draw_wand_icon(fb,bx+11,by+3,&shop_w[s].w,0);
+                    snprintf(pb,sizeof pb,"%d",shop_w[s].price);
+                    tiny_text(fb,bx+13,by+16,pb,gold>=shop_w[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
+            } else {
+                if(shop_c[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+5,MOTE_RGB565(90,90,110)); }
+                else { if(fmed)mote->text_font(fb,fmed,sp_code[shop_c[s].sp],bx+9,by+3,sp_colr(shop_c[s].sp));
+                    snprintf(pb,sizeof pb,"%d",shop_c[s].price);
+                    tiny_text(fb,bx+13,by+13,pb,gold>=shop_c[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
+            }
+        }
+    }
 
     if(state==ST_EDIT){
         mote_dim_box(fb,0,TOP,128,VH-TOP,3);
