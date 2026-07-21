@@ -31,8 +31,10 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 
+#include "blonde_man.h"       /* player sprite sheet (32x32 cells, baked) */
+
 MOTE_GAME_META("Sluice", "austinio7116");
-MOTE_GAME_VERSION("0.1.0");
+MOTE_GAME_VERSION("0.3.0");
 
 /* ============================================================ constants === */
 #define W  128
@@ -43,26 +45,31 @@ MOTE_GAME_VERSION("0.1.0");
 #define LN (LW * LH)
 
 enum {
-    M_EMPTY = 0,   /* sky / air */
-    M_ROCK,        /* bedrock — undiggable */
-    M_DIRT,        /* earth — diggable */
-    M_WALL,        /* player berm */
+    M_EMPTY = 0,   /* cave air */
+    M_ROCK,        /* bedrock */
+    M_DIRT,        /* earth */
+    M_WALL,        /* (unused reserve) */
     M_OBSID,       /* hardened lava — solid rock */
-    M_DRAIN,       /* ravine floor — swallows lava */
+    M_DRAIN,       /* pit floor — swallows lava */
     M_BUILD,       /* town building — protect it */
+    M_LOG,         /* player-placed wooden deflector plank */
+    M_SAND,        /* player-placed sandbag pile — granular, bakes to rock */
     M_LAVA,        /* thick molten/crusting lava */
-    M_WATER        /* coolant */
+    M_WATER        /* water */
 };
-#define IS_SOLID(m)    ((m)==M_ROCK||(m)==M_DIRT||(m)==M_WALL||(m)==M_OBSID||(m)==M_BUILD)
-#define IS_DIGGABLE(m) ((m)==M_DIRT||(m)==M_OBSID)
+#define IS_SOLID(m)    ((m)==M_ROCK||(m)==M_DIRT||(m)==M_WALL||(m)==M_OBSID||(m)==M_BUILD||(m)==M_LOG||(m)==M_SAND)
 
 /* lava heat thresholds */
 #define LAVA_HOT   255
 #define LAVA_MOVE  40      /* below this the crust is too stiff to creep */
 #define LAVA_FREEZE 16     /* below this it hardens to obsidian */
 
-enum { T_DIG = 0, T_DAM, T_COOL };
-enum { ST_TITLE = 0, ST_PLAY, ST_WIN, ST_LOSE };
+/* timed round */
+#define READY_TIME 20.0f   /* planning countdown before the lava starts */
+#define FLOW_TIME  16.0f   /* how long the lava pours once it starts */
+
+enum { T_WATER = 0, T_LOG, T_DIG, T_SAND, T_BLAST, T_NTOOLS };
+enum { ST_TITLE = 0, ST_READY, ST_PLAY, ST_WIN, ST_LOSE };
 
 /* ============================================================== globals === */
 static uint8_t  mat[N];
@@ -88,16 +95,32 @@ typedef struct { float x, y, vx, vy, life, max; uint8_t kind; } Part; /* 0 ember
 static Part parts[MAXP];
 static int  np = 0;
 
-/* engineer */
+/* player (the little man) */
 static float mx, my, mvx, mvy;
-#define MW_ 5
-#define MH_ 8
-static int   grounded = 0, facing = 1, aim = 0, tool = T_DIG;
-static float tool_cd = 0;
+#define MW_ 8
+#define MH_ 13
+static int   grounded = 0, facing = 1, tool = T_WATER, anim_frame = 0;
+static float anim_t = 0;
+static float place_cd = 0;
+static float log_angle = 0.35f;       /* radians — log placement angle */
+static float aimx = 1, aimy = 0;      /* aim unit vector (grapple + log) */
 
-static float coolant, dam_charges;
-static int   surge_left, surge_max, drained;
-static float src_acc;
+/* grappling hook (Liero/Noita rope) */
+static int   grap_state = 0;          /* 0 idle, 1 flying, 2 anchored */
+static float grap_x, grap_y, grap_vx, grap_vy, rope_len;
+#define GRAP_SPEED 300.0f
+#define GRAP_MAX   96.0f
+#define GRAP_REEL  40.0f
+
+/* tool budgets + placed water sources */
+static int   water_left, log_left, sand_left, blast_left;
+#define MAXWSRC 8
+static int   wsrc_x[MAXWSRC], wsrc_y[MAXWSRC], nwsrc = 0;
+
+/* timed round */
+static float phase_t = 0;             /* READY: counts down to 0 */
+static float flow_t  = 0;             /* PLAY: lava pours while > 0 */
+static int   drained;
 static int   level = 1, state = ST_TITLE;
 static float state_t = 0;
 
@@ -205,6 +228,14 @@ static void ca_step(void){
                 if(air(s2)){mat[s2]=M_WATER;mat[i]=M_EMPTY;moved[s2]=1;continue;}
                 continue;
             }
+            if(m==M_SAND){                          /* granular: falls + piles, no spread */
+                int below=i+W;
+                if(air(below)){ mat[below]=M_SAND; mat[i]=M_EMPTY; moved[below]=1; continue; }
+                int dl=below-1,dr=below+1,d1=dir?dr:dl,d2=dir?dl:dr;
+                if(air(d1)){mat[d1]=M_SAND;mat[i]=M_EMPTY;moved[d1]=1;continue;}
+                if(air(d2)){mat[d2]=M_SAND;mat[i]=M_EMPTY;moved[d2]=1;continue;}
+                continue;
+            }
             if(m!=M_LAVA) continue;
 
             int below=i+W;
@@ -256,6 +287,10 @@ static void ca_step(void){
             else heat[i]=(uint8_t)(nv>255?255:nv);
         } else if(m==M_OBSID && heat[i]>0){
             heat[i] -= (heat[i]>2?1:heat[i]);   /* residual glow fades slowly */
+        } else if(m==M_SAND){                   /* sand touching lava bakes to rock */
+            if((mat[i-1]==M_LAVA||mat[i+1]==M_LAVA||mat[i-W]==M_LAVA||mat[i+W]==M_LAVA) && (rnd()&3)==0){
+                mat[i]=M_OBSID; heat[i]=120;
+            }
         }
     }
 
@@ -280,12 +315,6 @@ static void build_light(void){
             else if(m==M_OBSID && hr[x]>40) add=(hr[x]-40)>>2;
             if(add){ uint16_t*L=&light[ly*LW+(x>>1)]; int v=*L+add; *L=(uint16_t)(v>4000?4000:v); }
         }
-    }
-    { /* headlamp */
-        int lx=((int)(mx+MW_*0.5f+facing*4))>>1, ly=((int)(my+2))>>1;
-        for(int dy=-3;dy<=3;dy++)for(int dx=-3;dx<=3;dx++){ int gx=lx+dx,gy=ly+dy;
-            if(gx<0||gx>=LW||gy<0||gy>=LH)continue; int d2=dx*dx+dy*dy; if(d2>12)continue;
-            uint16_t*L=&light[gy*LW+gx]; int v=*L+(1400-d2*100); *L=(uint16_t)(v>4000?4000:v); }
     }
     for(int i=0;i<np;i++){ if(parts[i].kind!=0)continue;
         int gx=(int)parts[i].x>>1,gy=(int)parts[i].y>>1;
@@ -348,7 +377,7 @@ static void gen_level(void){
                 + vnoise(x*0.31f, y*0.31f, seed^9)*0.15f;      /* fbm */
         float dxs=x-spine[y]; if(dxs<0)dxs=-dxs;
         float bias=1.0f-dxs/23.0f; if(bias<0)bias=0;           /* open near the spine */
-        if(n + bias*0.42f > 0.60f) mat[y*W+x]=M_EMPTY;
+        if(n + bias*0.42f > 0.55f) mat[y*W+x]=M_EMPTY;
     }
     for(int pass=0;pass<4;pass++){                             /* CA smoothing */
         for(int y=2;y<H-2;y++)for(int x=2;x<W-2;x++){
@@ -363,16 +392,37 @@ static void gen_level(void){
     for(int x=0;x<W;x++){ mat[x]=mat[W+x]=M_ROCK; mat[(H-1)*W+x]=mat[(H-2)*W+x]=M_ROCK; }
     for(int y=0;y<H;y++){ mat[y*W]=mat[y*W+1]=M_ROCK; mat[y*W+W-1]=mat[y*W+W-2]=M_ROCK; }
 
-    /* --- vent(s) at the top of the spine --- */
-    nsrc = 1 + (level>3?1:0); if(nsrc>MAXSRC)nsrc=MAXSRC;
-    for(int s=0;s<nsrc;s++){ int sx=mote_clampi((int)spine[15]+(s-nsrc/2)*10,6,W-6);
-        src_x[s]=sx; src_y[s]=15; carve_ellipse(sx,15,4,4); }
+    /* --- wide, connected bottom cavern (holds the town + both drains) --- */
+    carve_ellipse(W/2, floory+1, 56, 10);
 
-    /* --- town platform (safe zone) on a solid shelf, with an open bay above so
-     * the cascade reaches it and the engineer can stand there --- */
+    /* --- a single lava SOURCE at a point on the TOP edge --- */
+    nsrc = 1;
+    int sx = mote_clampi((int)spine[6] + (int)((rndf()-0.5f)*40), 18, W-18);
+    src_x[0]=sx; src_y[0]=3;
+    /* just open the top a little at the source so it pours in (the channel below
+     * connects it into the cave) — no carved starting box */
+    for(int y=2;y<7;y++)for(int dx=-1;dx<=1;dx++){ int x=sx+dx; if(x>1&&x<W-1) mat[y*W+x]=M_EMPTY; }
+
+    /* --- a guaranteed descending channel from the source down to the bottom
+     * cavern, curving toward centre, organic radius so it blends with the cave.
+     * This ensures the lava can ALWAYS pass down the main channel. --- */
+    for(int y=6;y<floory-6;y++){
+        float t=(float)(y-6)/(floory-12);
+        float cx = sx + (W*0.5f - sx)*t*t + (vnoise(y*0.14f,2,seed)-0.5f)*12;
+        int r = 4 + (int)(vnoise(y*0.2f,4,seed)*3);
+        for(int dx=-r;dx<=r;dx++){ int x=(int)cx+dx; if(x>2&&x<W-2) mat[y*W+x]=M_EMPTY; }
+    }
+
+    /* --- a big open ARENA in the middle where the player starts --- */
+    int mcx=W/2, mcy=H/2;
+    for(int y=mcy-18;y<=mcy+14;y++)for(int x=mcx-25;x<=mcx+25;x++){
+        if(x<3||x>=W-3||y<3||y>=H-3)continue;
+        float ex=(x-mcx)/25.0f, ey=(y-mcy)/17.0f;
+        if(ex*ex+ey*ey<=1.0f && mat[y*W+x]!=M_BUILD) mat[y*W+x]=M_EMPTY;
+    }
+
+    /* --- town platform + buildings (safe zone) --- */
     int platx = W/2-16, platy = floory+2;
-    for(int y=floory-15;y<platy;y++)for(int x=platx-4;x<platx+36;x++)
-        if(x>2&&x<W-2&&y>2) mat[y*W+x]=M_EMPTY;
     for(int y=platy;y<platy+3;y++)for(int x=platx;x<platx+32;x++)
         if(x>2&&x<W-2&&y<H-2) mat[y*W+x]=M_ROCK;
     nbld=0; town_int=100;
@@ -384,46 +434,109 @@ static void gen_level(void){
         bld_x[nbld]=bx; bld_y[nbld]=by; bld_w[nbld]=w; bld_h[nbld]=hh; nbld++;
     }
 
-    /* --- side drains at the bottom corners (route the flow here to win) --- */
-    carve_ellipse(12, floory+2, 9, 9); carve_ellipse(W-14, floory+2, 9, 9);
+    /* --- drains at the bottom corners (route the flow here to win) --- */
     for(int x=4;x<22;x++)     mat[(H-3)*W+x]=M_DRAIN;
     for(int x=W-22;x<W-4;x++) mat[(H-3)*W+x]=M_DRAIN;
 
-    /* --- water pockets to tap for coolant --- */
-    for(int k=0;k<2+level/2;k++){
-        int wx=12+(int)(rndf()*(W-24)), wy=42+(int)(rndf()*(H-70));
-        if(mat[wy*W+wx]==M_DIRT || mat[wy*W+wx]==M_ROCK){
-            carve_ellipse(wx,wy,4,3);
-            for(int y=wy-3;y<=wy+3;y++)for(int x=wx-4;x<=wx+4;x++)
-                if(x>2&&x<W-2&&y>2&&y<H-2 && mat[y*W+x]==M_EMPTY &&
-                   (x-wx)*(x-wx)+(y-wy)*(y-wy)*2<=16) mat[y*W+x]=M_WATER;
-        }
+    /* --- CONNECTIVITY: flood-fill the open space reachable from the source, then
+     * solidify every pocket that isn't reachable — so all open holes connect. --- */
+    memset(moved,0,N);
+    moved[(src_y[0]+3)*W+sx]=1;
+    for(int pass=0;pass<300;pass++){ int changed=0;
+        for(int i=W;i<N-W;i++){ if(moved[i]||mat[i]!=M_EMPTY)continue;
+            if(moved[i-1]||moved[i+1]||moved[i-W]||moved[i+W]){moved[i]=1;changed=1;} }
+        for(int i=N-W-1;i>=W;i--){ if(moved[i]||mat[i]!=M_EMPTY)continue;
+            if(moved[i-1]||moved[i+1]||moved[i-W]||moved[i+W]){moved[i]=1;changed=1;} }
+        if(!changed) break;
     }
+    for(int i=0;i<N;i++) if(mat[i]==M_EMPTY && !moved[i]) mat[i]=M_DIRT;
 
-    /* engineer spawns on the town platform, clear of the buildings */
-    mx = platx+28; my = platy-MH_-1; mvx=mvy=0;
-    if(test_mode){ mx = 4; my = floory-MH_; }
+    /* drop the player in the middle of the arena */
+    mx = mcx - MW_/2; my = mcy - 4;
+    if(test_mode){ mx=6; my=floory-MH_; }
+    mvx=mvy=0; grap_state=0;
 
-    surge_max = surge_left = 12000 + level*2500;   /* ~5x the volume — a thick torrent */
-    coolant     = 600 + level*40;
-    dam_charges = 320 + level*20;
-    drained=0; src_acc=0; np=0;
-    tool=T_DIG; tool_cd=0; facing=1; aim=0;
+    nwsrc=0; drained=0; np=0;
+    water_left = 4 + level;               /* placeable water sources */
+    log_left   = 8 + level;               /* placeable logs */
+    sand_left  = 6 + level;               /* sandbag drops */
+    blast_left = 2 + level/2;             /* blast charges */
+    phase_t = READY_TIME; flow_t = FLOW_TIME;
+    tool = T_WATER; place_cd = 0; facing = 1; log_angle = 0.35f;
 }
 
 /* ============================================================== tools === */
-static void apply_brush(int dig,int dam,int cool){
-    float cx=mx+MW_*0.5f, cy=my+MH_*0.5f; int bx,by;
-    if(aim>0){ bx=(int)cx; by=(int)my+MH_+4; } else { bx=(int)cx+facing*5; by=(int)cy; }
-    int r=3;
-    for(int y=by-r;y<=by+r;y++)for(int x=bx-r;x<=bx+r;x++){
-        if(x<1||x>=W-1||y<1||y>=H-1)continue;
-        int dx=x-bx,dy=y-by; if(dx*dx+dy*dy>r*r)continue;
-        int i=y*W+x; uint8_t m=mat[i];
-        if(dig && IS_DIGGABLE(m)) mat[i]=M_EMPTY;
-        else if(dam && m==M_EMPTY && dam_charges>0){ mat[i]=M_WALL; dam_charges-=1; }
-        else if(cool && m==M_EMPTY && coolant>0){ mat[i]=M_WATER; coolant-=1; }
+/* the placement reticle: a spot in front of the man, at foot height */
+static void reticle(int *rx,int *ry){
+    *rx = (int)(mx + MW_*0.5f) + facing*10;
+    *ry = (int)(my + MH_) - 3;
+}
+/* never drop a solid cell on the player (would trap them) */
+static int cell_in_player(int x,int y){
+    return x>=(int)mx-1 && x<=(int)mx+MW_ && y>=(int)my-1 && y<=(int)my+MH_;
+}
+static void place_water(void){
+    if(water_left<=0 || nwsrc>=MAXWSRC) return;
+    int rx,ry; reticle(&rx,&ry);
+    rx=mote_clampi(rx,2,W-3); ry=mote_clampi(ry,2,H-3);
+    wsrc_x[nwsrc]=rx; wsrc_y[nwsrc]=ry; nwsrc++;
+    water_left--;
+}
+/* stamp a thick angled plank of M_LOG centred on the reticle */
+static void place_log(void){
+    if(log_left<=0) return;
+    int rx,ry; reticle(&rx,&ry);
+    float ca=cosf(log_angle), sa=sinf(log_angle);
+    int placed=0, HALF=10;
+    for(int t=-HALF;t<=HALF;t++){
+        int lx=(int)(rx+ca*t), ly=(int)(ry+sa*t);
+        for(int th=-2;th<=2;th++){                 /* 5px thick, perpendicular */
+            int px=(int)(lx - sa*th), py=(int)(ly + ca*th);
+            if(px<2||px>=W-2||py<2||py>=H-2)continue;
+            if(cell_in_player(px,py)) continue;
+            uint8_t m=mat[py*W+px];
+            if(m==M_EMPTY||m==M_WATER){ mat[py*W+px]=M_LOG; placed=1; }
+        }
     }
+    if(placed) log_left--;
+}
+/* pickaxe: carve diggable terrain (earth / hardened lava / logs / sand) at the
+ * reticle — cut channels to steer the flow. Bedrock (M_ROCK) is too hard. */
+static void dig_brush(void){
+    int rx,ry; reticle(&rx,&ry); int r=3;
+    for(int dy=-r;dy<=r;dy++)for(int dx=-r;dx<=r;dx++){
+        int x=rx+dx, y=ry+dy; if(x<2||x>=W-2||y<2||y>=H-2)continue;
+        if(dx*dx+dy*dy>r*r)continue; uint8_t m=mat[y*W+x];
+        if(m==M_DIRT||m==M_OBSID||m==M_LOG||m==M_SAND) mat[y*W+x]=M_EMPTY;
+    }
+}
+/* sandbags: drop a blob of granular sand — it falls and piles, dams the flow, and
+ * bakes to solid rock where the lava touches it. */
+static void place_sand(void){
+    if(sand_left<=0) return;
+    int rx,ry; reticle(&rx,&ry); int placed=0;
+    for(int dy=-2;dy<=2;dy++)for(int dx=-2;dx<=2;dx++){
+        int x=rx+dx, y=ry+dy; if(x<2||x>=W-2||y<2||y>=H-2)continue;
+        if(dx*dx+dy*dy>5)continue;
+        if(cell_in_player(x,y)) continue;
+        if(mat[y*W+x]==M_EMPTY){ mat[y*W+x]=M_SAND; placed=1; }
+    }
+    if(placed) sand_left--;
+}
+/* blast charge: an explosion that craters even BEDROCK — open a new channel or
+ * blow a pit for the lava to drain into. Spares the town buildings. */
+static void place_blast(void){
+    if(blast_left<=0) return;
+    int rx,ry; reticle(&rx,&ry); int r=8;
+    for(int dy=-r;dy<=r;dy++)for(int dx=-r;dx<=r;dx++){
+        int x=rx+dx, y=ry+dy; if(x<2||x>=W-2||y<2||y>=H-2)continue;
+        if(dx*dx+dy*dy>r*r)continue;
+        if(mat[y*W+x]!=M_BUILD){ mat[y*W+x]=M_EMPTY; heat[y*W+x]=0; }
+    }
+    for(int k=0;k<26;k++){ float a=k/26.0f*6.2831853f, sp=20+rndf()*40;
+        spawn_part(rx+0.5f, ry+0.5f, cosf(a)*sp, sinf(a)*sp-10, 0.4f+rndf()*0.5f, k&1); }
+    blast_left--;
+    mote->rumble(0.9f, 220);
 }
 static int pred_solid(int m){ return IS_SOLID(m); }
 static int pred_lava(int m){ return m==M_LAVA; }
@@ -433,35 +546,88 @@ static int aabb_hits(float px,float py,int(*pred)(int)){
         if(x<0||x>=W||y<0||y>=H)return 1; if(pred(mat[y*W+x]))return 1; }
     return 0;
 }
-static void move_miner(float dt){
+static inline float pcx(void){ return mx+MW_*0.5f; }
+static inline float pcy(void){ return my+MH_*0.5f; }
+
+static void player_update(float dt){
     const MoteInput*in=mote->input();
-    float ax=0;
-    if(mote_pressed(in,MOTE_BTN_LEFT)){ax-=1;facing=-1;}
-    if(mote_pressed(in,MOTE_BTN_RIGHT)){ax+=1;facing=1;}
-    mvx+=ax*520*dt; mvx*=0.80f; if(mvx>62)mvx=62; if(mvx<-62)mvx=-62;
-    aim = mote_pressed(in,MOTE_BTN_DOWN)?1:0;
-    if(grounded && mote_just_pressed(in,MOTE_BTN_UP)){ mvy=-155; grounded=0; }
-    else if(mote_pressed(in,MOTE_BTN_UP)&&!grounded&&mvy<0) mvy-=120*dt;
-    mvy+=470*dt; if(mvy>210)mvy=210;
+    /* --- aim from the d-pad (drives grapple + log angle) --- */
+    float dax=0,day=0;
+    if(mote_pressed(in,MOTE_BTN_LEFT)) { dax-=1; facing=-1; }
+    if(mote_pressed(in,MOTE_BTN_RIGHT)){ dax+=1; facing= 1; }
+    if(tool==T_LOG){
+        /* UP/DOWN simply dial the log's angle (LEFT/RIGHT still walk) */
+        if(mote_pressed(in,MOTE_BTN_UP))   log_angle -= 2.2f*dt;
+        if(mote_pressed(in,MOTE_BTN_DOWN)) log_angle += 2.2f*dt;
+        aimx=facing; aimy=-0.9f;
+    } else {
+        if(mote_pressed(in,MOTE_BTN_UP))   day-=1;
+        if(mote_pressed(in,MOTE_BTN_DOWN)) day+=1;
+        if(dax||day){ aimx=dax; aimy=day; } else { aimx=facing; aimy=-0.9f; }
+    }
+    { float l=sqrtf(aimx*aimx+aimy*aimy); if(l>0.001f){ aimx/=l; aimy/=l; } }
+
+    /* --- fast, snappy horizontal movement --- */
+    if(dax!=0){ anim_t+=dt*9; anim_frame=((int)anim_t)&3; } else anim_frame=0;
+    mvx += dax*1000*dt; mvx*=0.82f; if(mvx>98)mvx=98; if(mvx<-98)mvx=-98;
+
+    /* --- jump on A (variable height) --- */
+    if(grounded && mote_just_pressed(in,MOTE_BTN_A)){ mvy=-178; grounded=0; }
+    else if(mote_pressed(in,MOTE_BTN_A)&&!grounded&&mvy<0) mvy-=150*dt;
+    mvy += 540*dt; if(mvy>250)mvy=250;
+
+    /* --- grappling hook (RB) --- */
+    if(mote_just_pressed(in,MOTE_BTN_RB) && grap_state==0){
+        grap_x=pcx(); grap_y=pcy(); grap_vx=aimx*GRAP_SPEED; grap_vy=aimy*GRAP_SPEED; grap_state=1;
+    }
+    if(grap_state && !mote_pressed(in,MOTE_BTN_RB)) grap_state=0;   /* release lets go */
+    if(grap_state==1){                                             /* hook in flight */
+        for(int s=0;s<8 && grap_state==1;s++){
+            grap_x+=grap_vx*dt/8; grap_y+=grap_vy*dt/8;
+            int gx=(int)grap_x, gy=(int)grap_y;
+            if(gx<1||gx>=W-1||gy<1||gy>=H-1){ grap_state=0; break; }
+            if(IS_SOLID(mat[gy*W+gx])){ grap_state=2;
+                rope_len=sqrtf((grap_x-pcx())*(grap_x-pcx())+(grap_y-pcy())*(grap_y-pcy())); break; }
+            float ddx=grap_x-pcx(), ddy=grap_y-pcy();
+            if(ddx*ddx+ddy*ddy > GRAP_MAX*GRAP_MAX){ grap_state=0; break; }
+        }
+    }
+
+    /* --- integrate with terrain collision --- */
     float nx=mx+mvx*dt; if(!aabb_hits(nx,my,pred_solid))mx=nx; else mvx=0;
     float ny=my+mvy*dt; if(!aabb_hits(mx,ny,pred_solid))my=ny; else mvy=0;
+
+    /* --- rope constraint: pendulum swing + reel-in while held --- */
+    if(grap_state==2){
+        rope_len -= GRAP_REEL*dt; if(rope_len<7)rope_len=7;
+        float dx=pcx()-grap_x, dy=pcy()-grap_y, d=sqrtf(dx*dx+dy*dy);
+        if(d>rope_len && d>0.01f){
+            float k=(d-rope_len)/d, nmx=mx-dx*k, nmy=my-dy*k;
+            if(!aabb_hits(nmx,my,pred_solid)) mx=nmx;
+            if(!aabb_hits(mx,nmy,pred_solid)) my=nmy;
+            float ux=dx/d, uy=dy/d, vd=mvx*ux+mvy*uy; if(vd>0){ mvx-=ux*vd; mvy-=uy*vd; }
+        }
+    }
+
     grounded = aabb_hits(mx,my+1.0f,pred_solid)&&!aabb_hits(mx,my,pred_solid);
     if(mx<1){mx=1;mvx=0;} if(mx>W-1-MW_){mx=W-1-MW_;mvx=0;} if(my<1){my=1;mvy=0;}
-    if(!test_mode && aabb_hits(mx,my,pred_lava)){ state=ST_LOSE; lose_cooked=1; state_t=0; mote->rumble(0.8f,300); }
+    if(!test_mode && aabb_hits(mx,my,pred_lava)){ state=ST_LOSE; lose_cooked=1; state_t=0; mote->rumble(0.8f,300); grap_state=0; }
 }
 
 /* ============================================================== flow === */
-/* Emit ONE wide row of lava per simulation step (called from inside the CA loop).
- * Feeding the vent every step — instead of in bursts on a slower timer — keeps the
- * falling column continuously topped up, so it stays a solid stream instead of
- * breaking into stripes as it falls. */
-static void emit_sources(void){
-    if(surge_left<=0) return;
-    for(int s=0;s<nsrc && surge_left>0;s++){
-        for(int dx=-4;dx<=4 && surge_left>0;dx++){
-            int i=(src_y[s])*W+mote_clampi(src_x[s]+dx,1,W-2);
-            if(mat[i]==M_EMPTY){ mat[i]=M_LAVA; heat[i]=LAVA_HOT; surge_left--; }
-        }
+/* Emit one row of lava at the single top source each sim step (continuous feed =
+ * a solid stream, no stripes). Gated by the caller so it only runs while pouring. */
+static void emit_lava(void){
+    for(int dx=-4;dx<=4;dx++){                      /* 9-wide thick stream (as before); pours for FLOW_TIME */
+        int i=src_y[0]*W+mote_clampi(src_x[0]+dx,1,W-2);
+        if(mat[i]==M_EMPTY){ mat[i]=M_LAVA; heat[i]=LAVA_HOT; }
+    }
+}
+/* each placed water source drips water every sim step */
+static void emit_water(void){
+    for(int s=0;s<nwsrc;s++){
+        int i=wsrc_y[s]*W+wsrc_x[s];
+        if(mat[i]==M_EMPTY) mat[i]=M_WATER;
     }
 }
 static void check_town(float dt){
@@ -489,38 +655,51 @@ static void g_init(void){
 }
 
 static void step_sim(float dt){
+    int pour = (state==ST_PLAY && flow_t>0);
     ca_acc+=dt; int st=0;
-    while(ca_acc>=(1.0f/45.0f) && st<3){ emit_sources(); ca_step(); ca_acc-=1.0f/45.0f; st++; }
-    tick_particles(dt);
-    /* occasional ash from the vent */
-    if((framestep&7)==0 && nsrc>0){
-        int s=rnd()%nsrc;
-        spawn_part(src_x[s]+(rndf()-0.5f)*4, src_y[s]-2, (rndf()-0.5f)*8, -14-rndf()*10, 2.0f+rndf()*2, 2);
+    while(ca_acc>=(1.0f/45.0f) && st<3){
+        if(pour) emit_lava();
+        if(state==ST_PLAY) emit_water();     /* water releases WITH the lava, not during planning */
+        ca_step(); ca_acc-=1.0f/45.0f; st++;
     }
+    tick_particles(dt);
+    if(pour && (framestep&7)==0)
+        spawn_part(src_x[0]+(rndf()-0.5f)*4, src_y[0]-1, (rndf()-0.5f)*8, -14-rndf()*10, 1.5f+rndf()*2, 2);
 }
 
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f;
     const MoteInput*in=mote->input(); state_t+=dt;
 
-    if(state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){state=ST_PLAY;state_t=0;} build_light(); return; }
+    if(state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){state=ST_READY;state_t=0;} build_light(); return; }
     if(state==ST_WIN||state==ST_LOSE){
         step_sim(dt); build_light();
-        if(mote_just_pressed(in,MOTE_BTN_A)){ if(state==ST_WIN)level++; gen_level(); state=ST_PLAY; state_t=0; }
+        if(mote_just_pressed(in,MOTE_BTN_A)){ if(state==ST_WIN)level++; gen_level(); state=ST_READY; state_t=0; }
         return;
     }
-    /* ST_PLAY */
-    if(mote_just_pressed(in,MOTE_BTN_LB)) tool=(tool+2)%3;
-    if(mote_just_pressed(in,MOTE_BTN_RB)) tool=(tool+1)%3;
-    move_miner(dt);
-    tool_cd-=dt;
-    if(mote_pressed(in,MOTE_BTN_A)){
-        if(tool==T_DIG) apply_brush(1,0,0);
-        else if(tool_cd<=0){ if(tool==T_DAM){apply_brush(0,1,0);tool_cd=0.03f;} else {apply_brush(0,0,1);tool_cd=0.02f;} }
+
+    /* ---- ST_READY (planning countdown) or ST_PLAY (lava pouring) ---- */
+    if(mote_just_pressed(in,MOTE_BTN_LB)) tool = (tool+1)%T_NTOOLS;  /* LB cycles: WATER>LOG>DIG */
+    player_update(dt);
+    place_cd-=dt;
+    if(tool==T_DIG){ if(mote_pressed(in,MOTE_BTN_B)) dig_brush(); }        /* continuous */
+    else if(tool==T_BLAST){ if(mote_just_pressed(in,MOTE_BTN_B)) place_blast(); }  /* one-shot */
+    else if(mote_pressed(in,MOTE_BTN_B) && place_cd<=0){                   /* rate-limited place */
+        if(tool==T_WATER) place_water();
+        else if(tool==T_LOG) place_log();
+        else place_sand();
+        place_cd = 0.14f;
     }
-    if(mote_pressed(in,MOTE_BTN_B)) apply_brush(1,0,0);
-    step_sim(dt); check_town(dt); build_light();
-    if(state==ST_PLAY && surge_left<=0 && !lava_alive()){ state=ST_WIN; state_t=0; }
+
+    if(state==ST_READY){ phase_t-=dt; if(phase_t<=0){ state=ST_PLAY; state_t=0; } }
+    else if(flow_t>0)  { flow_t-=dt; }
+
+    step_sim(dt);
+    if(state==ST_PLAY) check_town(dt);
+    build_light();
+
+    /* survived the whole pour with the town still standing -> win */
+    if(state==ST_PLAY && flow_t<=0 && !lava_alive()){ state=ST_WIN; state_t=0; }
 }
 
 /* ============================================================= render === */
@@ -557,6 +736,12 @@ static void render_band(uint16_t*fb,int y0,int y1){
                 case M_WALL:  base=((x^y)&1)?MOTE_RGB565(96,84,66):MOTE_RGB565(78,68,54); break;  /* earth berm */
                 case M_OBSID: base=obs_lut[hr[x]]; if(ck[x]&&hr[x]>20) base=lerp565(base,lava_lut[mote_clampi(hr[x]+60,0,255)],0.4f*(hr[x]/150.0f)); break;
                 case M_DRAIN: base=(x&1)?MOTE_RGB565(6,5,10):MOTE_RGB565(18,14,22); break;
+                case M_SAND:  base=((x*3+y*5)&3)==0?MOTE_RGB565(210,180,110):(((x+y)&1)?MOTE_RGB565(190,158,96):MOTE_RGB565(170,140,84)); break; /* sandbags */
+                case M_LOG: {   /* wooden log: dark bark rim + grain interior */
+                    int bark = (mat[y*W+x-1]!=M_LOG)||(mat[y*W+x+1]!=M_LOG)||(mat[(y-1)*W+x]!=M_LOG)||(mat[(y+1)*W+x]!=M_LOG);
+                    base = bark ? MOTE_RGB565(66,40,20)
+                                : (((x+y)&3)==0 ? MOTE_RGB565(150,104,56) : MOTE_RGB565(120,80,42));
+                    break; }
                 case M_BUILD: base=MOTE_RGB565(60,58,74); break;   /* recoloured below */
                 case M_WATER: base=((x+y+(int)state_t)&3)?MOTE_RGB565(24,72,120):MOTE_RGB565(34,100,150); break;
                 default:      base=MOTE_RGB565(7,6,11); break;
@@ -597,50 +782,115 @@ static void render_band(uint16_t*fb,int y0,int y1){
         else { int e=(int)(f*5); px_add(fb,x,y,y0,y1,e,e-1,e); }   /* ash: dim grey */
     }
 
-    /* --- engineer --- */
-    {
-        int px=(int)mx,py=(int)my;
-        uint16_t body=MOTE_RGB565(70,130,180), head=MOTE_RGB565(210,180,150), helm=MOTE_RGB565(240,210,80);
-        for(int yy=0;yy<MH_;yy++){ int y=py+yy; if(y<y0||y>=y1)continue;
-            for(int xx=0;xx<MW_;xx++){ int x=px+xx; if(x<0||x>=W)continue;
-                uint16_t c = (yy<2)?helm : (yy<4)?head : body; fb[y*W+x]=c; } }
-        int hx=px+(facing>0?MW_-1:0), hy=py+1;
-        if(hy>=y0&&hy<y1&&hx>=0&&hx<W) fb[hy*W+hx]=MOTE_RGB565(255,245,180);
-    }
+    /* the player sprite + reticle are drawn in overlay() (on top, unclipped) */
 }
 
 /* ============================================================ overlay === */
-static const char*tool_name[3]={"DIG","BERM","COOL"};
+static const char*tool_name[T_NTOOLS]={"WATER","LOG","DIG"};
+
+static void draw_player(uint16_t*fb){
+    float cx=mx+MW_*0.5f, cy=my+MH_*0.5f;
+    mote->blit_ex(fb,&blonde_man_img, cx,cy, anim_frame*32,0, 32,32, 0.0f, 0.5f, MOTE_BLEND_NONE, 0,128);
+}
+static void draw_reticle(uint16_t*fb){
+    int rx,ry; reticle(&rx,&ry);
+    if(tool==T_WATER){
+        uint16_t c=MOTE_RGB565(80,200,255);
+        mote->draw_line(fb,rx-2,ry,rx+2,ry,c,0,128); mote->draw_line(fb,rx,ry-2,rx,ry+2,c,0,128);
+    } else if(tool==T_LOG){
+        float ca=cosf(log_angle), sa=sinf(log_angle); uint16_t c=MOTE_RGB565(220,180,120);
+        mote->draw_line(fb,(int)(rx-ca*10),(int)(ry-sa*10),(int)(rx+ca*10),(int)(ry+sa*10),c,0,128);
+    } else if(tool==T_DIG){
+        mote->draw_circle(fb,rx,ry,3,MOTE_RGB565(200,200,210),0,0,128);
+    } else if(tool==T_SAND){
+        mote->draw_circle(fb,rx,ry,2,MOTE_RGB565(220,190,120),0,0,128);
+    } else { /* BLAST radius */
+        mote->draw_circle(fb,rx,ry,8,MOTE_RGB565(255,110,40),0,0,128);
+    }
+}
+static void draw_rope(uint16_t*fb){
+    if(!grap_state) return;
+    int px=(int)(mx+MW_*0.5f), py=(int)(my+MH_*0.5f);
+    mote->draw_line(fb,px,py,(int)grap_x,(int)grap_y,MOTE_RGB565(170,150,110),0,128);
+    uint16_t c = grap_state==2?MOTE_RGB565(230,230,240):MOTE_RGB565(200,180,120);
+    mote->draw_rect(fb,(int)grap_x-1,(int)grap_y-1,2,2,c,1,0,128);
+}
+static void draw_water_marks(uint16_t*fb){
+    for(int s=0;s<nwsrc;s++){
+        int x=wsrc_x[s], y=wsrc_y[s];
+        mote->draw_rect(fb,x-1,y-2,2,2,MOTE_RGB565(90,200,255),1,0,128);   /* nozzle */
+        mote->draw_pixel(fb,x,y,MOTE_RGB565(150,230,255));
+    }
+}
+static void draw_toolbar(uint16_t*fb,const MoteFont*f){
+    static const char*sh[T_NTOOLS]={"WATER","LOG","DIG","SAND","BLAST"};
+    static const char lt[T_NTOOLS]={'W','L','D','S','B'};
+    uint16_t ic[T_NTOOLS]={MOTE_RGB565(70,180,255),MOTE_RGB565(150,100,50),MOTE_RGB565(170,175,185),
+                           MOTE_RGB565(220,190,120),MOTE_RGB565(255,110,40)};
+    int cnt[T_NTOOLS]={water_left,log_left,-1,sand_left,blast_left};
+    /* 5 compact icon slots; the active tool's full name shown above the bar */
+    for(int i=0;i<T_NTOOLS;i++){
+        int bx=2+i*25, by=117, sel=(i==tool);
+        mote_ui_panel(fb,bx,by,23,10, sel?MOTE_RGB565(48,48,66):MOTE_RGB565(16,16,24),
+                      sel?MOTE_RGB565(255,214,110):MOTE_RGB565(48,48,62));
+        mote->draw_rect(fb,bx+2,by+3,4,4,ic[i],1,0,128);
+        char b[8];
+        if(cnt[i]>=0) snprintf(b,sizeof b,"%c%d",lt[i],cnt[i]); else snprintf(b,sizeof b,"%c",lt[i]);
+        mote->text(fb,b,bx+8,by+2, sel?MOTE_RGB565(255,240,190):MOTE_RGB565(150,150,165));
+    }
+    if(f) mote->text_font(fb,f,sh[tool],3,104,MOTE_RGB565(255,230,150));
+}
+static void draw_source_arrow(uint16_t*fb){
+    if(((int)(state_t*3))&1) return;                  /* blink */
+    int ax=src_x[0]; uint16_t o=MOTE_RGB565(255,150,30);
+    mote->draw_pixel(fb,ax,2,o);                      /* small UP arrow at the top edge */
+    for(int k=1;k<4;k++){ mote->draw_pixel(fb,ax-k,2+k,o); mote->draw_pixel(fb,ax+k,2+k,o); }
+    mote->draw_rect(fb,ax-1,5,3,5,o,1,0,128);         /* short stem */
+}
+
 static void g_overlay(uint16_t*fb){
     const MoteFont*fmed=(mote->abi_version>=47)?mote->ui_font(MOTE_FONT_MED):0;
     if(state==ST_TITLE){
         mote_dim_box(fb,0,0,128,128,0);
         if(fmed){
-            mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"SLUICE",34,26,MOTE_RGB565(255,150,40));
-            mote->text_font(fb,fmed,"The lava is coming.",14,54,MOTE_RGB565(230,220,225));
-            mote->text_font(fb,fmed,"Divert it. Save",22,70,MOTE_RGB565(150,200,210));
-            mote->text_font(fb,fmed,"the town.",40,82,MOTE_RGB565(150,200,210));
+            mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"SLUICE",34,22,MOTE_RGB565(255,150,40));
+            mote->text_font(fb,fmed,"Lava is coming.",22,50,MOTE_RGB565(230,220,225));
+            mote->text_font(fb,fmed,"Place water + logs",12,66,MOTE_RGB565(150,200,210));
+            mote->text_font(fb,fmed,"to steer it away.",16,78,MOTE_RGB565(150,200,210));
             mote->text_font(fb,fmed,"A: start",42,104,MOTE_RGB565(255,220,120));
-        } else { mote->text_2x(fb,"SLUICE",34,40,MOTE_RGB565(255,150,40)); mote->text(fb,"A:START",44,80,MOTE_RGB565(255,220,120)); }
+        } else { mote->text_2x(fb,"SLUICE",34,40,MOTE_RGB565(255,150,40)); }
         return;
     }
+
+    draw_water_marks(fb);
+    draw_rope(fb);
+    draw_player(fb);
+    if(state==ST_READY) draw_source_arrow(fb);
+    if(state==ST_READY||state==ST_PLAY) draw_reticle(fb);
+
+    /* HUD bars: flow/countdown (left) + town integrity (right) */
     char buf[32];
-    float sf=surge_max?(float)surge_left/surge_max:0;
-    mote_ui_bar(fb,2,2,60,4,sf,MOTE_RGB565(255,120,20),MOTE_RGB565(40,20,10));
+    if(state==ST_READY){
+        int secs=(int)phase_t+1; if(secs<0)secs=0;
+        uint16_t c=MOTE_RGB565(255,180,60);
+        if(fmed){ snprintf(buf,sizeof buf,"LAVA IN %d",secs);
+                  mote->text_font(fb,fmed,buf,20,2,c); }
+        else mote->text(fb,"READY",2,2,c);
+    } else {
+        float ff=flow_t/FLOW_TIME; if(ff<0)ff=0;
+        mote_ui_bar(fb,2,2,60,4,ff,MOTE_RGB565(255,120,20),MOTE_RGB565(40,20,10));
+    }
     mote_ui_bar(fb,66,2,60,4,town_int/100.0f, town_int>40?MOTE_RGB565(120,220,140):MOTE_RGB565(230,60,40),MOTE_RGB565(20,30,24));
-    if(fmed){
-        mote->text_font(fb,fmed,tool_name[tool],3,115,MOTE_RGB565(255,230,140));
-        snprintf(buf,sizeof buf,"C%d B%d",(int)coolant,(int)dam_charges);
-        mote->text_font(fb,fmed,buf,72,115,MOTE_RGB565(150,200,210));
-    } else mote->text(fb,tool_name[tool],3,118,MOTE_RGB565(255,230,140));
+
+    draw_toolbar(fb,fmed);
 
     if(state==ST_WIN||state==ST_LOSE){
         mote_dim_box(fb,0,44,128,40,0);
-        const char*t=state==ST_WIN?"TOWN SAVED":(lose_cooked?"MELTED":"BURNED");
+        const char*t=state==ST_WIN?"TOWN SAVED":(lose_cooked?"YOU DIED":"BURNED");
         uint16_t c=state==ST_WIN?MOTE_RGB565(80,240,160):MOTE_RGB565(255,80,50);
-        if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),t,26,52,c);
+        if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),t,24,52,c);
                   mote->text_font(fb,fmed,"A: continue",34,72,MOTE_RGB565(230,230,240)); }
-        else mote->text_2x(fb,t,26,54,c);
+        else mote->text_2x(fb,t,24,54,c);
     }
 }
 
