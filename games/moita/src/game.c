@@ -73,11 +73,12 @@ static int   test_mode = 0;
 
 /* ============================================================= wizard === */
 static float wx, wy, wvx, wvy;
-#define PW 5
-#define PH 8
+#define PW 4
+#define PH 6
 static int   exit_x = WW/2;
 static int   w_ground=0, w_face=1, w_anim=0; static float w_anim_t=0;
-static float aimx=1, aimy=0;
+static float aimx=1, aimy=0, aim_ang=0;    /* TerraMote-style persistent aim angle */
+static float cross_x, cross_y;             /* crosshair world position */
 static float hp, hp_max, mana_fly, mana_fly_max;
 static float hurt_t=0;
 
@@ -397,7 +398,7 @@ static void tick_proj(float dt){
         uint8_t mm=mat[iy*WW+ix];
         int hitsolid = IS_SOLID(mm);
         int hite=-1; if(!p->foe){ for(int e=0;e<nenemy;e++) if(enemy[e].alive){
-            float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<16){ hite=e; break; } } }
+            float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<9){ hite=e; break; } } }
         if(hite>=0){ enemy[hite].hp-=(int)p->dmg;
             for(int k=0;k<6;k++) spawn_part(nx,ny,rr(-50,50),rr(-50,50),0.3f,MOTE_RGB565(255,60,60),1);
             proj_impact(p); proj[i]=proj[--nproj]; continue; }
@@ -431,7 +432,7 @@ static void tick_enemies(float dt){
         float nx=en->x+en->vx*dt, ny=en->y+en->vy*dt;
         if(inb((int)nx,(int)en->y) && !IS_SOLID(mat[(int)en->y*WW+(int)nx])) en->x=nx; else en->vx*=-0.5f;
         if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=-0.5f;
-        if(d<8 && hurt_t<=0){ hp-=5; hurt_t=0.9f; wvx+=(dx<0?70:-70); wvy-=45; }
+        if(d<5 && hurt_t<=0){ hp-=5; hurt_t=0.9f; wvx+=(dx<0?70:-70); wvy-=45; }
         int ix=(int)en->x,iy=(int)en->y; if(inb(ix,iy)){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
     }
 }
@@ -441,21 +442,61 @@ static void carve_disc(int cx,int cy,int r,uint8_t m){
     for(int y=cy-r;y<=cy+r;y++)for(int x=cx-r;x<=cx+r;x++){ if(!inb(x,y))continue;
         int dx=x-cx,dy=y-cy; if(dx*dx+dy*dy<=r*r) mat[y*WW+x]=m; }
 }
+static void carve_line(int x0,int y0,int x1,int y1,int r){
+    int adx=x1-x0; if(adx<0)adx=-adx; int ady=y1-y0; if(ady<0)ady=-ady;
+    int steps=(adx>ady?adx:ady)+1;
+    for(int s=0;s<=steps;s++){ float t=(float)s/steps;
+        carve_disc((int)(x0+(x1-x0)*t),(int)(y0+(y1-y0)*t),r,M_EMPTY); }
+}
+/* flood-fill the open space reachable from a seed cell into moved[] */
+static void flood_open(int seed_i){
+    memset(moved,0,WN);
+    if(mat[seed_i]!=M_EMPTY) return;
+    moved[seed_i]=1;
+    for(int pass=0;pass<600;pass++){ int ch=0;
+        for(int i=WW;i<WN-WW;i++){ if(moved[i]||mat[i]!=M_EMPTY)continue;
+            if(moved[i-1]||moved[i+1]||moved[i-WW]||moved[i+WW]){moved[i]=1;ch=1;} }
+        for(int i=WN-WW-1;i>=WW;i--){ if(moved[i]||mat[i]!=M_EMPTY)continue;
+            if(moved[i-1]||moved[i+1]||moved[i-WW]||moved[i+WW]){moved[i]=1;ch=1;} }
+        if(!ch) break;
+    }
+}
+/* find a random REACHABLE open cell in a y range (optionally needing a floor below) */
+static int rand_open(int ylo,int yhi,int need_floor){
+    for(int t=0;t<250;t++){ int x=6+rnd()%(WW-12), y=ylo+rnd()%(yhi-ylo>1?yhi-ylo:1);
+        int i=y*WW+x; if(mat[i]!=M_EMPTY||!moved[i])continue;
+        if(need_floor && (y>=WH-2 || !IS_SOLID(mat[(y+1)*WW+x]))) continue;
+        return i; }
+    return -1;
+}
+
+static float spx[3][WH];
 static void gen_level(void){
     memset(mat,M_EMPTY,WN); memset(heat,0,WN);
     nproj=npart=nenemy=npick=0;
     uint32_t seed=level*2654435761u ^ (rng|1u);
     int biome=(level-1)%3;
 
+    /* solid world (dirt + rocky veins + rock shell) */
     for(int y=0;y<WH;y++)for(int x=0;x<WW;x++){
         uint8_t m=M_DIRT;
-        if(vnoise(x*0.17f,y*0.17f,seed^3)>0.72f) m=M_ROCK;
-        if(x<2||x>=WW-2||y<2) m=M_ROCK;
+        if(vnoise(x*0.12f,y*0.12f,seed^3)>0.64f) m=M_ROCK;
+        if(x<2||x>=WW-2||y<2||y>=WH-2) m=M_ROCK;
         mat[y*WW+x]=m;
     }
+    if(biome==1) for(int k=0;k<30;k++){ int cx=8+rnd()%(WW-16),cy=20+rnd()%(WH-40);
+        if(mat[cy*WW+cx]==M_DIRT) carve_disc(cx,cy,2+rnd()%2,M_WOOD); }
+
+    /* --- ORGANIC SHAPELY CAVES with THREE wandering open corridors, so there are
+     * multiple connected routes down (Sluice-style fbm + cellular smoothing). --- */
+    float basex[3]={WW*0.27f, WW*0.5f, WW*0.73f};
+    for(int k=0;k<3;k++)for(int y=0;y<WH;y++)
+        spx[k][y]=basex[k]+(vnoise(y*0.035f,k*7+3,seed)-0.5f)*44.0f;
     for(int y=3;y<WH-3;y++)for(int x=3;x<WW-3;x++){
-        float n=vnoise(x*0.08f,y*0.08f,seed)*0.55f+vnoise(x*0.17f,y*0.17f,seed^5)*0.3f+vnoise(x*0.34f,y*0.34f,seed^9)*0.15f;
-        if(n>0.52f) mat[y*WW+x]=M_EMPTY;
+        float n=vnoise(x*0.07f,y*0.07f,seed)*0.55f+vnoise(x*0.15f,y*0.15f,seed^5)*0.30f+vnoise(x*0.30f,y*0.30f,seed^9)*0.15f;
+        float bias=0; for(int k=0;k<3;k++){ float dxs=x-spx[k][y]; if(dxs<0)dxs=-dxs;
+            float b=1.0f-dxs/18.0f; if(b>bias)bias=b; }
+        if(n + bias*0.36f > 0.58f) mat[y*WW+x]=M_EMPTY;
     }
     for(int pass=0;pass<3;pass++){
         for(int y=2;y<WH-2;y++)for(int x=2;x<WW-2;x++){ int s=0;
@@ -465,55 +506,57 @@ static void gen_level(void){
             if(moved[y*WW+x]){ if(mat[y*WW+x]==M_EMPTY) mat[y*WW+x]=(vnoise(x*0.16f,y*0.16f,seed^3)>0.72f)?M_ROCK:M_DIRT; }
             else mat[y*WW+x]=M_EMPTY; }
     }
-    for(int x=0;x<WW;x++){ mat[x]=mat[WW+x]=M_ROCK; }
+    for(int x=0;x<WW;x++){ mat[x]=mat[WW+x]=M_ROCK; mat[(WH-1)*WW+x]=mat[(WH-2)*WW+x]=M_ROCK; }
     for(int y=0;y<WH;y++){ mat[y*WW]=mat[y*WW+1]=M_ROCK; mat[y*WW+WW-1]=mat[y*WW+WW-2]=M_ROCK; }
-    if(biome==1) for(int k=0;k<24;k++){ int cx=8+rnd()%(WW-16),cy=20+rnd()%(WH-40);
-        if(mat[cy*WW+cx]==M_DIRT) carve_disc(cx,cy,2+rnd()%2,M_WOOD); }
 
-    /* --- a guaranteed winding DESCENT PATH from the top down to the exit, so
-     * there is always a route deeper; it blends with the organic caves. --- */
-    int shaftx = (int)clampf(WW*0.5f + (vnoise(1.0f,1.0f,seed)-0.5f)*40, 20, WW-20);
-    int path_top_x = shaftx;
-    for(int y=6;y<WH-6;y++){                        /* STRAIGHT vertical shaft with
-                                                    * organic width — falling straight
-                                                    * always descends it. */
-        int r = 8 + (int)(vnoise(y*0.11f,7.0f,seed)*5);   /* radius 8..13 (16..26 wide) */
-        for(int dx=-r;dx<=r;dx++){ int x=shaftx+dx; if(x>2&&x<WW-2) mat[y*WW+x]=M_EMPTY; }
+    /* spawn + exit chambers on corridors */
+    int spawnx=clampi((int)spx[1][14],10,WW-10); carve_disc(spawnx,14,8,M_EMPTY);
+    int spawn_i=14*WW+spawnx;
+    exit_x=clampi((int)spx[2][WH-16],10,WW-10); carve_disc(exit_x,WH-14,10,M_EMPTY);
+
+    /* --- CONNECTIVITY: drill short organic connectors from the deepest reachable
+     * point toward open chambers below until the descent reaches the bottom. --- */
+    for(int iter=0;iter<6;iter++){
+        flood_open(spawn_i);
+        int besty=-1,bestx=spawnx;
+        for(int i=WN-WW;i>=WW;i--){ if(moved[i]&&mat[i]==M_EMPTY){ besty=i/WW; bestx=i%WW; break; } }
+        if(besty<0||besty>=WH-18) break;
+        int ty=-1,tx=bestx;
+        for(int yy=besty+2; yy<WH-4 && ty<0; yy++)
+            for(int d=0; d<54 && ty<0; d++) for(int s=-1;s<=1;s+=2){ int xx=bestx+d*s; if(xx<4||xx>=WW-4)continue;
+                if(mat[yy*WW+xx]==M_EMPTY && !moved[yy*WW+xx]){ ty=yy; tx=xx; break; } }
+        if(ty<0){ ty=besty+18<WH-6?besty+18:WH-6; tx=bestx; }
+        carve_line(bestx,besty,tx,ty,3);
     }
-    exit_x = shaftx;
-    carve_disc(shaftx, 12, 10, M_EMPTY);           /* spawn chamber */
-    carve_disc(shaftx, WH-10, 12, M_EMPTY);        /* exit chamber */
+    /* final connectivity: solidify isolated pockets so the whole cave connects */
+    flood_open(spawn_i);
+    for(int i=0;i<WN;i++) if(mat[i]==M_EMPTY && !moved[i]) mat[i]=M_DIRT;
 
-    int npool=14+level*2;
-    for(int k=0;k<npool;k++){
-        int cx=8+rnd()%(WW-16), cy=24+rnd()%(WH-40);
-        if(mat[cy*WW+cx]!=M_EMPTY) continue;
-        uint8_t fluid; float r=rndf();
-        if(biome==0) fluid = r<0.7f?M_WATER:M_OIL;
-        else if(biome==1) fluid = r<0.55f?M_OIL:(r<0.8f?M_WATER:M_ACID);
-        else fluid = r<0.5f?M_LAVA:(r<0.8f?M_ACID:M_WATER);
-        int rr2=3+rnd()%4;
-        for(int y=cy-rr2;y<=cy+rr2;y++)for(int x=cx-rr2;x<=cx+rr2;x++){ if(!inb(x,y))continue;
-            if((x-cx)*(x-cx)+(y-cy)*(y-cy)<=rr2*rr2 && mat[y*WW+x]==M_EMPTY){
-                mat[y*WW+x]=fluid; if(fluid==M_LAVA) heat[y*WW+x]=255; } }
+    wx=spawnx-PW/2; wy=14; wvx=wvy=0; cam_y=clampf(wy-VH*0.4f,0,WH-VH);
+
+    /* --- deeper POOL basins in reachable chamber floors --- */
+    int npool=9+level*2;
+    for(int k=0;k<npool;k++){ int i=rand_open(30,WH-16,1); if(i<0)continue;
+        int cx=i%WW, cy=i/WW; uint8_t fluid; float rp=rndf();
+        if(biome==0) fluid=rp<0.78f?M_WATER:M_OIL;
+        else if(biome==1) fluid=rp<0.5f?M_OIL:(rp<0.82f?M_WATER:M_ACID);
+        else fluid=rp<0.5f?M_LAVA:(rp<0.82f?M_ACID:M_WATER);
+        int pr=3+rnd()%4;
+        for(int yy=cy;yy<=cy+pr;yy++)for(int xx=cx-pr;xx<=cx+pr;xx++){ if(!inb(xx,yy))continue;
+            int dx=xx-cx,dy=yy-cy; if(dx*dx+dy*dy*2<=pr*pr*2 && mat[yy*WW+xx]==M_EMPTY){
+                mat[yy*WW+xx]=fluid; if(fluid==M_LAVA) heat[yy*WW+xx]=255; } }
     }
 
-    wx=path_top_x-PW/2; wy=10;                     /* spawn at the top of the path */
-    wvx=wvy=0; cam_y=clampf(wy-VH*0.4f,0,WH-VH);
+    /* enemies scattered through reachable chambers below the entrance */
+    int ne=test_mode?0:6+level*2;
+    for(int k=0;k<ne && nenemy<MAXENEMY;k++){ int i=rand_open(60,WH-14,0); if(i<0)continue;
+        Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=i%WW; e->y=i/WW; e->alive=1;
+        e->type=(rnd()&3)==0?1:0; e->hpmax=e->hp=e->type?22:12; e->t=rndf()*3; }
 
-    int ne=test_mode?0:7+level*2;
-    for(int k=0;k<ne && nenemy<MAXENEMY;k++){
-        int cx=10+rnd()%(WW-20), cy=95+rnd()%(WH-115);   /* not right at the spawn */
-        if(mat[cy*WW+cx]!=M_EMPTY) continue;
-        Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=cx; e->y=cy; e->alive=1;
-        e->type=(rnd()&3)==0?1:0; e->hpmax=e->hp=e->type?26:16; e->t=rndf()*3;
-    }
+    /* wand pickups in reachable chambers */
     int nw=1+(level%2);
-    for(int k=0;k<nw && npick<MAXPICK;k++){
-        int cx=12+rnd()%(WW-24), cy=50+rnd()%(WH-90);
-        carve_disc(cx,cy,4,M_EMPTY);
-        Pickup*p=&pick[npick++]; p->x=cx; p->y=cy; p->alive=1; p->w=random_wand(level);
-    }
+    for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
+        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
 }
 
 /* ============================================================= wizard === */
@@ -522,13 +565,15 @@ static int box_hits(float px,float py){ for(int yy=0;yy<PH;yy++)for(int xx=0;xx<
 
 static void wizard_update(float dt){
     const MoteInput*in=mote->input();
-    float dax=0,day=0;
-    if(mote_pressed(in,MOTE_BTN_LEFT)){dax-=1;w_face=-1;}
-    if(mote_pressed(in,MOTE_BTN_RIGHT)){dax+=1;w_face=1;}
-    if(mote_pressed(in,MOTE_BTN_UP))day-=1;
-    if(mote_pressed(in,MOTE_BTN_DOWN))day+=1;
-    if(dax||day){ float l=sqrtf(dax*dax+day*day); aimx=dax/l; aimy=day/l; }
-    else { aimx=w_face; aimy=0; }
+    float dax=0;
+    if(mote_pressed(in,MOTE_BTN_LEFT)) { dax-=1; w_face=-1; }
+    if(mote_pressed(in,MOTE_BTN_RIGHT)){ dax+=1; w_face= 1; }
+    /* UP/DOWN rotate a persistent aim elevation; facing flips it horizontally */
+    if(mote_pressed(in,MOTE_BTN_UP))   aim_ang -= 2.4f*dt;
+    if(mote_pressed(in,MOTE_BTN_DOWN)) aim_ang += 2.4f*dt;
+    aim_ang = clampf(aim_ang, -1.55f, 1.55f);
+    aimx = cosf(aim_ang)*w_face; aimy = sinf(aim_ang);
+    cross_x = wx+PW*0.5f + aimx*15; cross_y = wy+PH*0.5f + aimy*15;
     if(dax!=0){ w_anim_t+=dt*10; w_anim=((int)w_anim_t)&3; } else w_anim=0;
 
     wvx += dax*640*dt; wvx*=0.84f; wvx=clampf(wvx,-70,70);
@@ -598,22 +643,38 @@ static void g_update(float dt){
 }
 
 /* ============================================================= render === */
-static inline uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
+static inline uint32_t hh2(int x,int y){ uint32_t h=(uint32_t)(x*374761393u+y*668265263u);
+    h=(h^(h>>13))*1274126177u; return h; }
+/* richer per-pixel textures: rocky/muddy surfaces, lit top edges, deep-shaded water */
+static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
+    uint32_t hs=hh2(x,y); int v=hs&7;
+    int up_air=(y>0 && mat[(y-1)*WW+x]==M_EMPTY);
     switch(m){
-        case M_EMPTY: return MOTE_RGB565(6,6,11);
-        case M_ROCK:  return ((x^y)&3)?MOTE_RGB565(30,28,40):MOTE_RGB565(40,36,52);
-        case M_DIRT:  return ((x+y)&3)?MOTE_RGB565(54,42,30):MOTE_RGB565(44,34,24);
-        case M_SAND:  return ((x*3+y)&3)?MOTE_RGB565(200,175,110):MOTE_RGB565(180,150,90);
-        case M_WOOD:  return ((x+y)&1)?MOTE_RGB565(110,72,38):MOTE_RGB565(88,56,28);
+        case M_EMPTY: return MOTE_RGB565(7,6,12);
+        case M_ROCK: { uint16_t c=MOTE_RGB565(24+v*2,22+v*2,34+v*2);
+            if(((hs>>3)&31)==0) c=MOTE_RGB565(14,12,22);              /* dark crack */
+            if(up_air) c=add565(c,7,7,8);                            /* lit ledge */
+            return c; }
+        case M_DIRT: { uint16_t c=MOTE_RGB565(48+v*3,36+v*2,24+v);
+            if(((hs>>4)&7)==0) c=MOTE_RGB565(34,24,15);              /* muddy specks */
+            if(up_air) c=MOTE_RGB565(66+v*2,58+v,34);               /* mossy cap */
+            return c; }
+        case M_SAND:  return (hs&3)?MOTE_RGB565(200,175,110):MOTE_RGB565(178,150,88);
+        case M_WOOD: { uint16_t c=((x+y)&1)?MOTE_RGB565(112,72,38):MOTE_RGB565(88,56,28);
+            if(((hs>>2)&7)==0)c=MOTE_RGB565(70,46,24); return c; }
         case M_OBSID: return h>20?lerp565(MOTE_RGB565(30,20,34),lava_lut[clampi(h+40,0,255)],0.4f*(h/180.0f)):MOTE_RGB565(28,20,34);
-        case M_WATER: return ((x+y+(int)state_t)&3)?MOTE_RGB565(30,90,180):MOTE_RGB565(50,120,210);
-        case M_OIL:   return ((x+y)&3)?MOTE_RGB565(40,32,20):MOTE_RGB565(28,22,14);
-        case M_ACID:  return ((x*2+y)&3)?MOTE_RGB565(120,220,60):MOTE_RGB565(150,255,90);
+        case M_WATER: {
+            if(up_air){ int w=(((x+(int)(state_t*6))>>1)&3)<2; return w?MOTE_RGB565(150,205,250):MOTE_RGB565(70,150,230); }
+            int d=(y>2&&mat[(y-2)*WW+x]==M_WATER)+(y>5&&mat[(y-5)*WW+x]==M_WATER)+(y>9&&mat[(y-9)*WW+x]==M_WATER);
+            return lerp565(MOTE_RGB565(40,112,200),MOTE_RGB565(12,42,104),d/3.0f); }
+        case M_OIL: { uint16_t c=(hs&3)?MOTE_RGB565(38,30,20):MOTE_RGB565(26,20,12);
+            if(up_air) c=MOTE_RGB565(58,50,34); return c; }
+        case M_ACID: { int w=(((x*2+y+(int)(state_t*4)))&5)<2; return w?MOTE_RGB565(150,255,90):MOTE_RGB565(96,196,50); }
         case M_LAVA:  return lava_lut[h];
         case M_FIRE:  return fire_lut[h<255?h:255];
-        case M_STEAM: return MOTE_RGB565(120,120,130);
+        case M_STEAM: return MOTE_RGB565(110,110,124);
     }
-    return MOTE_RGB565(6,6,11);
+    return MOTE_RGB565(7,6,12);
 }
 static void render_band(uint16_t*fb,int y0,int y1){
     int cy=(int)cam_y;
@@ -637,9 +698,9 @@ static void g_overlay(uint16_t*fb){
     if(state==ST_TITLE){
         mote_dim_box(fb,0,0,128,128,0);
         if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"MOITA",38,24,MOTE_RGB565(160,140,255));
-            mote->text_font(fb,fmed,"A fly   B cast",24,54,MOTE_RGB565(220,220,230));
-            mote->text_font(fb,fmed,"LB swap wand",24,68,MOTE_RGB565(160,200,220));
-            mote->text_font(fb,fmed,"Combine spells!",20,82,MOTE_RGB565(200,170,255));
+            mote->text_font(fb,fmed,"A fly  B cast",26,50,MOTE_RGB565(220,220,230));
+            mote->text_font(fb,fmed,"U/D aim  LB wand",16,64,MOTE_RGB565(160,200,220));
+            mote->text_font(fb,fmed,"Combine spells!",22,78,MOTE_RGB565(200,170,255));
             mote->text_font(fb,fmed,"A: start",42,104,MOTE_RGB565(255,220,120)); }
         else mote->text_2x(fb,"MOITA",38,40,MOTE_RGB565(160,140,255));
         return;
@@ -655,9 +716,9 @@ static void g_overlay(uint16_t*fb){
         mote->draw_rect(fb,sx-3,sy-1+bob,6,3,pick[i].w.col,1,0,128);
         mote->draw_pixel(fb,sx,sy-3+bob,MOTE_RGB565(255,240,180)); }
     for(int e=0;e<nenemy;e++){ if(!enemy[e].alive)continue; int sx=(int)enemy[e].x,sy=(int)enemy[e].y-cy;
-        if(sy<-6||sy>134)continue;
-        uint16_t body=enemy[e].type?MOTE_RGB565(180,60,200):MOTE_RGB565(210,70,60);
-        mote->draw_circle(fb,sx,sy,3,body,1,0,128);
+        if(sy<-4||sy>132)continue;
+        uint16_t body=enemy[e].type?MOTE_RGB565(190,60,210):MOTE_RGB565(220,70,60);  /* tiny critters */
+        mote->draw_rect(fb,sx-1,sy-1,3,3,body,1,0,128);
         mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(255,240,240)); mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(255,240,240)); }
     for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x,sy=(int)proj[i].y-cy; if((unsigned)sx>=128||(unsigned)sy>=128)continue;
         float f=proj[i].life/1.4f; uint16_t c=proj_col(proj[i].type,f); fb[sy*128+sx]=c;
@@ -669,8 +730,15 @@ static void g_overlay(uint16_t*fb){
         if(part[i].add){ int a=(int)(f*18); fb[sy*128+sx]=add565(fb[sy*128+sx],a,a*2/3,a/3); }
         else fb[sy*128+sx]=part[i].col; }
     { float cx=wx+PW*0.5f, cyy=wy+PH*0.5f-cam_y;
-      mote->blit_ex(fb,&wizard_img, cx,cyy, w_anim*16+3,1, 13,15, 0.0f, (float)PH/15.0f, MOTE_BLEND_NONE, 0,128);
-      if(hurt_t>0 && ((int)(state_t*20)&1)) mote_dim_box(fb,(int)cx-6,(int)cyy-7,12,14,0); }
+      int fx = (w_face<0 ? (4+w_anim)*16+0 : w_anim*16+5);   /* left frames are mirrored */
+      mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, (float)PH/13.0f, MOTE_BLEND_NONE, 0,128);
+      if(hurt_t>0 && ((int)(state_t*20)&1)) mote_dim_box(fb,(int)cx-4,(int)cyy-4,9,9,0); }
+    /* crosshair (aims spells) */
+    { int sx=(int)cross_x, sy=(int)cross_y-cy; uint16_t c=MOTE_RGB565(255,240,150);
+      if((unsigned)sx<128 && (unsigned)(sy)<128){
+        mote->draw_pixel(fb,sx-2,sy,c); mote->draw_pixel(fb,sx+2,sy,c);
+        mote->draw_pixel(fb,sx,sy-2,c); mote->draw_pixel(fb,sx,sy+2,c);
+        mote->draw_pixel(fb,sx,sy,MOTE_RGB565(255,255,255)); } }
 
     mote_ui_bar(fb,2,2,50,4,hp/hp_max,MOTE_RGB565(230,60,60),MOTE_RGB565(50,16,16));
     mote_ui_bar(fb,2,7,50,3,mana_fly/mana_fly_max,MOTE_RGB565(90,140,255),MOTE_RGB565(16,20,50));
