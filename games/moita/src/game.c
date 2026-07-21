@@ -36,7 +36,7 @@ MOTE_GAME_VERSION("0.1.0");
 
 /* ============================================================ constants === */
 #define WW 128
-#define WH 384                 /* a tall multi-screen column; the camera scrolls */
+#define WH 256                 /* 2-screen column (fits device GAME_RAM); camera scrolls */
 #define WN (WW*WH)
 #define VH 128                 /* visible height */
 #define LW 64
@@ -70,6 +70,7 @@ static uint32_t rng = 0x2b1df00d;
 static float sim_acc = 0;
 static uint32_t framestep = 0;
 static int   test_mode = 0;
+static int   settling = 0;   /* true while pre-settling fluids at level gen */
 
 /* ============================================================= wizard === */
 static float wx, wy, wvx, wvy;
@@ -234,7 +235,7 @@ static void ca_step(void){
             }
         } else if(m==M_OBSID && heat[i]>0){ heat[i]-=(heat[i]>2?1:heat[i]); }
     }
-    if((framestep&1)==0) for(int k=0;k<26;k++){
+    if(!settling && (framestep&1)==0) for(int k=0;k<26;k++){
         int i=WW+(int)(rnd()%(WN-2*WW)); uint8_t m=mat[i];
         if((m==M_FIRE||(m==M_LAVA&&heat[i]>150)) && mat[i-WW]==M_EMPTY){
             spawn_part(i%WW+0.5f,i/WW-0.5f,rr(-8,8),-20-rndf()*20,0.4f+rndf()*0.4f,
@@ -563,6 +564,10 @@ static void gen_level(void){
     int nw=1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
         Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
+
+    /* pre-settle all fluids so pools rest in place and there are NO mid-air blobs
+     * when the level loads (any basin leak drains to the floor before frame 0) */
+    settling=1; for(int s=0;s<70;s++) ca_step(); settling=0; npart=0;
 }
 
 /* ============================================================= wizard === */
@@ -754,20 +759,21 @@ static void g_overlay(uint16_t*fb){
         mote->draw_pixel(fb,sx,sy-2,c); mote->draw_pixel(fb,sx,sy+2,c);
         mote->draw_pixel(fb,sx,sy,MOTE_RGB565(255,255,255)); } }
 
+    /* --- all HUD at the TOP --- */
     mote_ui_bar(fb,2,2,50,4,hp/hp_max,MOTE_RGB565(230,60,60),MOTE_RGB565(50,16,16));
     mote_ui_bar(fb,2,7,50,3,mana_fly/mana_fly_max,MOTE_RGB565(90,140,255),MOTE_RGB565(16,20,50));
     snprintf(buf,sizeof buf,"D%d",level);
-    if(fmed) mote->text_font(fb,fmed,buf,108,2,MOTE_RGB565(200,200,220));
+    if(fmed) mote->text_font(fb,fmed,buf,108,1,MOTE_RGB565(200,200,220));
+    if(nwand>1){ char wb[8]; snprintf(wb,sizeof wb,"W%d/%d",cur_wand+1,nwand);
+        if(fmed) mote->text_font(fb,fmed,wb,58,1,MOTE_RGB565(200,200,220)); }
 
     Wand*w=&wand[cur_wand];
-    for(int i=0;i<w->n && i<6;i++){ int bx=2+i*21, by=116, hot=(i==w->cast_i);
+    for(int i=0;i<w->n && i<6;i++){ int bx=2+i*21, by=12, hot=(i==w->cast_i);
         mote_ui_panel(fb,bx,by,19,11, hot?MOTE_RGB565(60,55,80):MOTE_RGB565(22,20,30),
                       hot?MOTE_RGB565(255,220,120):MOTE_RGB565(50,46,64));
         if(fmed) mote->text_font(fb,fmed,spell_name(w->spell[i]),bx+1,by+1,
                  IS_PROJ(w->spell[i])?MOTE_RGB565(180,200,255):MOTE_RGB565(200,160,255)); }
-    mote_ui_bar(fb,2,112,124,2,w->mana/w->mana_max,w->col,MOTE_RGB565(20,20,28));
-    if(nwand>1){ char wb[8]; snprintf(wb,sizeof wb,"W%d/%d",cur_wand+1,nwand);
-        if(fmed) mote->text_font(fb,fmed,wb,92,104,MOTE_RGB565(200,200,220)); }
+    mote_ui_bar(fb,2,24,124,2,w->mana/w->mana_max,w->col,MOTE_RGB565(20,20,28));
 
     if(state==ST_DEAD){ mote_dim_box(fb,0,44,128,40,0); uint16_t c=MOTE_RGB565(255,80,60);
         if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"YOU DIED",22,52,c);

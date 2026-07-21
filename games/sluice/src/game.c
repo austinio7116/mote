@@ -846,9 +846,10 @@ static void draw_toolbar(uint16_t*fb,const MoteFont*f){
     uint16_t ic[T_NTOOLS]={MOTE_RGB565(70,180,255),MOTE_RGB565(150,100,50),MOTE_RGB565(170,175,185),
                            MOTE_RGB565(220,190,120),MOTE_RGB565(255,110,40)};
     int cnt[T_NTOOLS]={water_left,log_left,-1,sand_left,blast_left};
-    /* 5 compact icon slots; the active tool's full name shown above the bar */
+    /* 5 compact icon slots at the TOP (below the surge/countdown row) */
+    (void)sh; (void)f;
     for(int i=0;i<T_NTOOLS;i++){
-        int bx=2+i*25, by=117, sel=(i==tool);
+        int bx=2+i*25, by=15, sel=(i==tool);
         mote_ui_panel(fb,bx,by,23,10, sel?MOTE_RGB565(48,48,66):MOTE_RGB565(16,16,24),
                       sel?MOTE_RGB565(255,214,110):MOTE_RGB565(48,48,62));
         mote->draw_rect(fb,bx+2,by+3,4,4,ic[i],1,0,128);
@@ -856,7 +857,6 @@ static void draw_toolbar(uint16_t*fb,const MoteFont*f){
         if(cnt[i]>=0) snprintf(b,sizeof b,"%c%d",lt[i],cnt[i]); else snprintf(b,sizeof b,"%c",lt[i]);
         mote->text(fb,b,bx+8,by+2, sel?MOTE_RGB565(255,240,190):MOTE_RGB565(150,150,165));
     }
-    if(f) mote->text_font(fb,f,sh[tool],3,104,MOTE_RGB565(255,230,150));
 }
 static void draw_source_arrow(uint16_t*fb){
     if(((int)(state_t*3))&1) return;                  /* blink */
