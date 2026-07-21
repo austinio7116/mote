@@ -840,18 +840,32 @@ static void draw_water_marks(uint16_t*fb){
         mote->draw_pixel(fb,x,y,MOTE_RGB565(150,230,255));
     }
 }
+/* --- dashboard widgets (Moita's style, volcanic palette) --- */
+static void ui_fbar(uint16_t*fb,int x,int y,int w,int h,float frac,uint16_t fill,uint16_t hi){
+    mote_ui_panel(fb,x,y,w,h,MOTE_RGB565(30,24,20),MOTE_RGB565(102,76,50));
+    if(frac<0)frac=0; if(frac>1)frac=1;
+    int fw=(int)(frac*(w-2)+0.5f);
+    if(fw>0){ mote_ui_rect(fb,x+1,y+1,fw,h-2,fill);
+        mote_ui_rect(fb,x+1,y+1,fw,1,hi); }
+}
+static void ui_icon(uint16_t*fb,int x,int y,const uint8_t rows[5],uint16_t c){
+    for(int r=0;r<5;r++)for(int b=0;b<5;b++)
+        if(rows[r]&(1<<(4-b))) mote->draw_pixel(fb,x+b,y+r,c);
+}
+static const uint8_t ic_flame[5]={0x04,0x0C,0x0E,0x1F,0x0E};
+static const uint8_t ic_house[5]={0x04,0x0E,0x1F,0x11,0x1B};
+
 static void draw_toolbar(uint16_t*fb,const MoteFont*f){
-    static const char*sh[T_NTOOLS]={"WATER","LOG","DIG","SAND","BLAST"};
     static const char lt[T_NTOOLS]={'W','L','D','S','B'};
     uint16_t ic[T_NTOOLS]={MOTE_RGB565(70,180,255),MOTE_RGB565(150,100,50),MOTE_RGB565(170,175,185),
                            MOTE_RGB565(220,190,120),MOTE_RGB565(255,110,40)};
     int cnt[T_NTOOLS]={water_left,log_left,-1,sand_left,blast_left};
-    /* 5 compact icon slots at the TOP (below the surge/countdown row) */
-    (void)sh; (void)f;
+    (void)f;
     for(int i=0;i<T_NTOOLS;i++){
-        int bx=2+i*25, by=15, sel=(i==tool);
-        mote_ui_panel(fb,bx,by,23,10, sel?MOTE_RGB565(48,48,66):MOTE_RGB565(16,16,24),
-                      sel?MOTE_RGB565(255,214,110):MOTE_RGB565(48,48,62));
+        int bx=2+i*25, by=10, sel=(i==tool);
+        mote_ui_panel(fb,bx,by,23,10, sel?MOTE_RGB565(58,46,68):MOTE_RGB565(18,15,14),
+                      sel?MOTE_RGB565(255,214,110):MOTE_RGB565(70,56,44));
+        if(sel) mote_ui_rect(fb,bx+1,by+1,21,1,MOTE_RGB565(120,96,70));
         mote->draw_rect(fb,bx+2,by+3,4,4,ic[i],1,0,128);
         char b[8];
         if(cnt[i]>=0) snprintf(b,sizeof b,"%c%d",lt[i],cnt[i]); else snprintf(b,sizeof b,"%c",lt[i]);
@@ -861,9 +875,9 @@ static void draw_toolbar(uint16_t*fb,const MoteFont*f){
 static void draw_source_arrow(uint16_t*fb){
     if(((int)(state_t*3))&1) return;                  /* blink */
     int ax=src_x[0]; uint16_t o=MOTE_RGB565(255,150,30);
-    mote->draw_pixel(fb,ax,2,o);                      /* small UP arrow at the top edge */
-    for(int k=1;k<4;k++){ mote->draw_pixel(fb,ax-k,2+k,o); mote->draw_pixel(fb,ax+k,2+k,o); }
-    mote->draw_rect(fb,ax-1,5,3,5,o,1,0,128);         /* short stem */
+    mote->draw_pixel(fb,ax,24,o);                     /* small UP arrow under the dashboard */
+    for(int k=1;k<4;k++){ mote->draw_pixel(fb,ax-k,24+k,o); mote->draw_pixel(fb,ax+k,24+k,o); }
+    mote->draw_rect(fb,ax-1,27,3,5,o,1,0,128);        /* short stem */
 }
 
 static void g_overlay(uint16_t*fb){
@@ -886,19 +900,27 @@ static void g_overlay(uint16_t*fb){
     if(state==ST_READY) draw_source_arrow(fb);
     if(state==ST_READY||state==ST_PLAY) draw_reticle(fb);
 
-    /* HUD bars: flow/countdown (left) + town integrity (right) */
+    /* --- top dashboard: smoked-glass strip, ember bottom edge --- */
+    mote_dim_box(fb,0,0,128,21,4);
+    mote_ui_rect(fb,0,21,128,1,MOTE_RGB565(168,108,52));
+    mote_ui_rect(fb,0,22,128,1,MOTE_RGB565(28,18,12));
+
     char buf[32];
     if(state==ST_READY){
         int secs=(int)phase_t+1; if(secs<0)secs=0;
         uint16_t c=MOTE_RGB565(255,180,60);
+        ui_icon(fb,2,2,ic_flame,c);
         if(fmed){ snprintf(buf,sizeof buf,"LAVA IN %d",secs);
-                  mote->text_font(fb,fmed,buf,20,2,c); }
-        else mote->text(fb,"READY",2,2,c);
+                  mote->text_font(fb,fmed,buf,10,1,c); }
+        else mote->text(fb,"READY",10,2,c);
     } else {
         float ff=flow_t/FLOW_TIME; if(ff<0)ff=0;
-        mote_ui_bar(fb,2,2,60,4,ff,MOTE_RGB565(255,120,20),MOTE_RGB565(40,20,10));
+        ui_icon(fb,2,2,ic_flame,MOTE_RGB565(255,150,50));
+        ui_fbar(fb,9,2,52,6,ff,MOTE_RGB565(240,105,20),MOTE_RGB565(255,190,90));
     }
-    mote_ui_bar(fb,66,2,60,4,town_int/100.0f, town_int>40?MOTE_RGB565(120,220,140):MOTE_RGB565(230,60,40),MOTE_RGB565(20,30,24));
+    uint16_t tc=town_int>40?MOTE_RGB565(110,215,130):MOTE_RGB565(235,70,45);
+    ui_icon(fb,66,2,ic_house,tc);
+    ui_fbar(fb,73,2,53,6,town_int/100.0f,tc,town_int>40?MOTE_RGB565(180,255,190):MOTE_RGB565(255,150,130));
 
     draw_toolbar(fb,fmed);
 
