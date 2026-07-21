@@ -1,5 +1,5 @@
 /*
- * SLUICE — a lava-diversion puzzle for the Thumby Color.
+ * LAVAFLOW — a lava-diversion puzzle for the Thumby Color.
  *
  * A fissure has opened on the ridge above a town. Thick, glowing lava oozes
  * down the hillside toward the houses. You are an engineer with a headlamp:
@@ -34,12 +34,13 @@ MOTE_MODULE_HEADER();
 
 #include "blonde_man.h"       /* player sprite sheet (32x32 cells, baked) */
 
-MOTE_GAME_META("Sluice", "austinio7116");
+MOTE_GAME_META("LavaFlow", "austinio7116");
 MOTE_GAME_VERSION("0.3.0");
 
 /* ============================================================ constants === */
 #define W  128
-#define H  128
+#define H  105                 /* world rows: the screen minus the dashboard strip */
+#define TOPD 23                /* dashboard height — world renders below it */
 #define N  (W * H)
 #define LW 64
 #define LH 64
@@ -131,7 +132,7 @@ static uint32_t rng = 0x1234abcd;
 static float    ca_acc = 0;
 static uint32_t framestep = 0;
 static int      lose_cooked = 0;   /* 0 = town burned, 1 = engineer melted */
-static int      test_mode = 0;     /* SLUICE_TEST: park engineer, no death (flow capture) */
+static int      test_mode = 0;     /* LAVAFLOW_TEST: park engineer, no death (flow capture) */
 
 /* =============================================================== utils === */
 static inline uint32_t rnd(void){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
@@ -468,7 +469,7 @@ static void gen_level(void){
     mx = mcx - MW_/2; my = mcy - 4;
     if(test_mode){ mx=6; my=floory-MH_; }
     mvx=mvy=0; grap_state=0;
-    if(getenv("SLUICE_DUNK")){   /* test hook: flood the arena below the spawn */
+    if(getenv("LAVAFLOW_DUNK")){   /* test hook: flood the arena below the spawn */
         for(int y=(int)my-2;y<=(int)my+34;y++)for(int x=(int)mx-11;x<=(int)mx+11;x++)
             if(x>1&&x<W-2&&y>1&&y<H-2&&mat[y*W+x]==M_EMPTY) mat[y*W+x]=M_WATER; }
 
@@ -678,7 +679,7 @@ static int lava_alive(void){ for(int i=0;i<N;i++) if(mat[i]==M_LAVA) return 1; r
 #include <stdlib.h>
 static void g_init(void){
     rng=(uint32_t)mote->micros()|1u;
-    test_mode = getenv("SLUICE_TEST") != 0;
+    test_mode = getenv("LAVAFLOW_TEST") != 0;
     build_luts(); mote->set_fps_limit(60);
     state=ST_TITLE; state_t=0; gen_level(); build_light();
 }
@@ -736,10 +737,12 @@ static inline void px_add(uint16_t*fb,int x,int y,int y0,int y1,int ar,int ag,in
 }
 
 static void render_band(uint16_t*fb,int y0,int y1){
-    for(int y=y0;y<y1;y++){
+    for(int sy=y0;sy<y1;sy++){
+        uint16_t*fr=&fb[sy*W];
+        if(sy<TOPD){ for(int x=0;x<W;x++) fr[x]=MOTE_RGB565(16,13,12); continue; }
+        int y=sy-TOPD;
         int ly=y>>1;
         const uint8_t*mr=&mat[y*W]; const uint8_t*hr=&heat[y*W]; const uint8_t*ck=&crackmap[y*W];
-        uint16_t*fr=&fb[y*W];
         for(int x=0;x<W;x++){
             uint8_t m=mr[x]; uint16_t base; int emissive=0;
 
@@ -792,18 +795,18 @@ static void render_band(uint16_t*fb,int y0,int y1){
         uint16_t wall = town_int>30?MOTE_RGB565(58,54,72):MOTE_RGB565(70,44,44);
         uint16_t roof = town_int>30?MOTE_RGB565(120,60,54):MOTE_RGB565(90,40,38);
         uint16_t win  = town_int>30?MOTE_RGB565(255,210,110):MOTE_RGB565(120,60,30);
-        for(int y=py;y<py+hh;y++){ if(y<y0||y>=y1)continue;
+        for(int y=py;y<py+hh;y++){ int sy=y+TOPD; if(sy<y0||sy>=y1)continue;
             for(int x=px;x<px+w;x++){ if(x<0||x>=W)continue; if(mat[y*W+x]!=M_BUILD)continue;
                 uint16_t c = (y<py+2)?roof:wall;
                 /* windows */
                 if(y>=py+3 && ((x-px)&1)==0 && ((y-py)&1)==0 && x>px && x<px+w-1) c=win;
-                fb[y*W+x]=c;
+                fb[sy*W+x]=c;
             }
         }
     }
 
     /* --- particles --- */
-    for(int i=0;i<np;i++){ Part*p=&parts[i]; int x=(int)p->x,y=(int)p->y;
+    for(int i=0;i<np;i++){ Part*p=&parts[i]; int x=(int)p->x,y=(int)p->y+TOPD;
         if(y<y0||y>=y1)continue; float f=p->life/p->max;
         if(p->kind==0){ int e=(int)(f*28); px_add(fb,x,y,y0,y1,e,e*2/3,e/6); }
         else if(p->kind==1){ int e=(int)(f*12); px_add(fb,x,y,y0,y1,e,e,e+2); }
@@ -818,24 +821,25 @@ static const char*tool_name[T_NTOOLS]={"WATER","LOG","DIG"};
 
 /* liquids translucently veil anything drawn inside them (call after a blit) */
 static void fluid_veil(uint16_t*fb,int x0,int y0,int x1,int y1){
-    for(int y=y0;y<=y1;y++){ if((unsigned)y>=128)continue;
+    for(int sy=y0;sy<=y1;sy++){ if((unsigned)sy>=128)continue;
+        int y=sy-TOPD; if((unsigned)y>=(unsigned)H)continue;
         for(int x=x0;x<=x1;x++){ if((unsigned)x>=128)continue;
             uint8_t m=mat[y*W+x]; uint16_t c;
             if(m==M_WATER) c=((x+y+(int)state_t)&3)?MOTE_RGB565(24,72,120):MOTE_RGB565(34,100,150);
             else if(m==M_LAVA) c=lava_lut[heat[y*W+x]];
             else continue;
-            fb[y*128+x]=lerp565(fb[y*128+x],c,0.55f); } }
+            fb[sy*128+x]=lerp565(fb[sy*128+x],c,0.55f); } }
 }
 static void draw_player(uint16_t*fb){
     /* Crop to the CHARACTER inside the 32x32 cell (opaque x9..23, y13..31) and
      * scale it to the collision box so head=box top, feet=box bottom — the sprite
      * fits the player's pixels exactly (no dead space above the head). */
-    float cx=mx+MW_*0.5f, cy=my+MH_*0.5f;
+    float cx=mx+MW_*0.5f, cy=my+MH_*0.5f+TOPD;
     mote->blit_ex(fb,&blonde_man_img, cx,cy, anim_frame*32+9,13, 14,18, 0.0f, (float)MH_/18.0f, MOTE_BLEND_NONE, 0,128);
     fluid_veil(fb,(int)cx-5,(int)cy-7,(int)cx+5,(int)cy+7);
 }
 static void draw_reticle(uint16_t*fb){
-    int rx,ry; reticle(&rx,&ry);
+    int rx,ry; reticle(&rx,&ry); ry+=TOPD;
     if(tool==T_WATER){
         uint16_t c=MOTE_RGB565(80,200,255);
         mote->draw_line(fb,rx-2,ry,rx+2,ry,c,0,128); mote->draw_line(fb,rx,ry-2,rx,ry+2,c,0,128);
@@ -852,14 +856,14 @@ static void draw_reticle(uint16_t*fb){
 }
 static void draw_rope(uint16_t*fb){
     if(!grap_state) return;
-    int px=(int)(mx+MW_*0.5f), py=(int)(my+MH_*0.5f);
-    mote->draw_line(fb,px,py,(int)grap_x,(int)grap_y,MOTE_RGB565(170,150,110),0,128);
+    int px=(int)(mx+MW_*0.5f), py=(int)(my+MH_*0.5f)+TOPD;
+    mote->draw_line(fb,px,py,(int)grap_x,(int)grap_y+TOPD,MOTE_RGB565(170,150,110),0,128);
     uint16_t c = grap_state==2?MOTE_RGB565(230,230,240):MOTE_RGB565(200,180,120);
-    mote->draw_rect(fb,(int)grap_x-1,(int)grap_y-1,2,2,c,1,0,128);
+    mote->draw_rect(fb,(int)grap_x-1,(int)grap_y-1+TOPD,2,2,c,1,0,128);
 }
 static void draw_water_marks(uint16_t*fb){
     for(int s=0;s<nwsrc;s++){
-        int x=wsrc_x[s], y=wsrc_y[s];
+        int x=wsrc_x[s], y=wsrc_y[s]+TOPD;
         mote->draw_rect(fb,x-1,y-2,2,2,MOTE_RGB565(90,200,255),1,0,128);   /* nozzle */
         mote->draw_pixel(fb,x,y,MOTE_RGB565(150,230,255));
     }
@@ -899,9 +903,9 @@ static void draw_toolbar(uint16_t*fb,const MoteFont*f){
 static void draw_source_arrow(uint16_t*fb){
     if(((int)(state_t*3))&1) return;                  /* blink */
     int ax=src_x[0]; uint16_t o=MOTE_RGB565(255,150,30);
-    mote->draw_pixel(fb,ax,24,o);                     /* small UP arrow under the dashboard */
-    for(int k=1;k<4;k++){ mote->draw_pixel(fb,ax-k,24+k,o); mote->draw_pixel(fb,ax+k,24+k,o); }
-    mote->draw_rect(fb,ax-1,27,3,5,o,1,0,128);        /* short stem */
+    mote->draw_pixel(fb,ax,TOPD+2,o);                 /* small UP arrow under the dashboard */
+    for(int k=1;k<4;k++){ mote->draw_pixel(fb,ax-k,TOPD+2+k,o); mote->draw_pixel(fb,ax+k,TOPD+2+k,o); }
+    mote->draw_rect(fb,ax-1,TOPD+5,3,5,o,1,0,128);    /* short stem */
 }
 
 static void g_overlay(uint16_t*fb){
@@ -909,12 +913,12 @@ static void g_overlay(uint16_t*fb){
     if(state==ST_TITLE){
         mote_dim_box(fb,0,0,128,128,0);
         if(fmed){
-            mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"SLUICE",34,22,MOTE_RGB565(255,150,40));
+            mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"LAVAFLOW",17,22,MOTE_RGB565(255,150,40));
             mote->text_font(fb,fmed,"Lava is coming.",22,50,MOTE_RGB565(230,220,225));
             mote->text_font(fb,fmed,"Place water + logs",12,66,MOTE_RGB565(150,200,210));
             mote->text_font(fb,fmed,"to steer it away.",16,78,MOTE_RGB565(150,200,210));
             mote->text_font(fb,fmed,"A: start",42,104,MOTE_RGB565(255,220,120));
-        } else { mote->text_2x(fb,"SLUICE",34,40,MOTE_RGB565(255,150,40)); }
+        } else { mote->text_2x(fb,"LAVAFLOW",17,40,MOTE_RGB565(255,150,40)); }
         return;
     }
 
@@ -924,19 +928,17 @@ static void g_overlay(uint16_t*fb){
     if(state==ST_READY) draw_source_arrow(fb);
     if(state==ST_READY||state==ST_PLAY) draw_reticle(fb);
 
-    /* --- top dashboard: smoked-glass strip, ember bottom edge --- */
-    mote_dim_box(fb,0,0,128,21,4);
+    /* --- top dashboard: solid panel, ember bottom edge (world sits below) --- */
+    mote_ui_rect(fb,0,0,128,21,MOTE_RGB565(16,13,12));
     mote_ui_rect(fb,0,21,128,1,MOTE_RGB565(168,108,52));
     mote_ui_rect(fb,0,22,128,1,MOTE_RGB565(28,18,12));
 
-    char buf[32];
+    /* one lava gauge: fills UP to the release, then drains through the flow */
     if(state==ST_READY){
-        int secs=(int)phase_t+1; if(secs<0)secs=0;
-        uint16_t c=MOTE_RGB565(255,180,60);
-        ui_icon(fb,2,2,ic_flame,c);
-        if(fmed){ snprintf(buf,sizeof buf,"LAVA IN %d",secs);
-                  mote->text_font(fb,fmed,buf,10,1,c); }
-        else mote->text(fb,"READY",10,2,c);
+        float cu=1.0f-phase_t/READY_TIME; if(cu<0)cu=0;
+        int hot=(phase_t<5.0f)&&(((int)(state_t*4))&1);       /* urgent flicker */
+        ui_icon(fb,2,2,ic_flame,hot?MOTE_RGB565(255,230,120):MOTE_RGB565(255,180,60));
+        ui_fbar(fb,9,2,52,6,cu,MOTE_RGB565(255,165,35),MOTE_RGB565(255,220,120));
     } else {
         float ff=flow_t/FLOW_TIME; if(ff<0)ff=0;
         ui_icon(fb,2,2,ic_flame,MOTE_RGB565(255,150,50));
