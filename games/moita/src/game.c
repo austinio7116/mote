@@ -67,9 +67,10 @@ enum { SP_NONE=0,
 enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT };
 
 /* ============================================================== world === */
-static uint8_t  mat[WN];
-static uint8_t  heat[WN];
-static uint8_t  moved[WN];
+/* the three 32KB world grids live in the engine arena (mote->alloc at init) —
+ * Moita declares almost no engine pools, so the arena slack is ours and
+ * GAME_RAM keeps ~96KB of headroom for code + the smaller statics */
+static uint8_t *mat, *heat, *moved;
 static uint16_t light[LW*LH];
 static uint8_t  light2[LW*LH];     /* scratch: per-cell solid count for the light sweep */
 #define SW_ (LW/2)
@@ -196,7 +197,6 @@ static void ca_step(void){
             }
             if(IS_FLUID(m)){
                 int b=i+WW; uint8_t v=heat[i];
-                if(m==M_LAVA && heat[i]<40){ mat[i]=M_OBSID; heat[i]=120; continue; }
                 if(air(b)){mat[b]=m;heat[b]=v;mat[i]=M_EMPTY;heat[i]=0;moved[b]=1;continue;}
                 int dl=b-1,dr=b+1,d1=dir?dr:dl,d2=dir?dl:dr;
                 if(air(d1)){mat[d1]=m;heat[d1]=v;mat[i]=M_EMPTY;heat[i]=0;moved[d1]=1;continue;}
@@ -230,7 +230,8 @@ static void ca_step(void){
             if(ignitable(mat[R])){mat[R]=M_FIRE;heat[R]=70;}
             if(ignitable(mat[U])){mat[U]=M_FIRE;heat[U]=70;}
             if(ignitable(mat[D])){mat[D]=M_FIRE;heat[D]=70;}
-            int t=heat[i]-((mat[i-WW]==M_LAVA)?0:1); if(t<0)t=0; heat[i]=(uint8_t)t;
+            /* Noita lava never hardens on its own — heat floors at molten-glow */
+            int t=heat[i]-((mat[i-WW]==M_LAVA)?0:1); if(t<110)t=110; heat[i]=(uint8_t)t;
         } else if(m==M_FIRE){
             int L=i-1,R=i+1,U=i-WW,D=i+WW;
             if(mat[L]==M_WATER||mat[R]==M_WATER||mat[U]==M_WATER||mat[D]==M_WATER){ mat[i]=M_STEAM; heat[i]=40; continue; }
@@ -971,6 +972,7 @@ static void reset_run(void){
 }
 static void g_init(void){
     rng=(uint32_t)mote->micros()|1u; test_mode=getenv("MOITA_TEST")!=0;
+    mat=(uint8_t*)mote->alloc(WN); heat=(uint8_t*)mote->alloc(WN); moved=(uint8_t*)mote->alloc(WN);
     build_luts(); mote->scene_set_background(MOTE_RGB565(4,4,8)); mote->set_fps_limit(30);
     reset_run();
     { const char*lv=getenv("MOITA_LEVEL"); if(lv){ int v=atoi(lv); if(v>0)level=v; } } /* test hook */
