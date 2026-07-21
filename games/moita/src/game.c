@@ -246,7 +246,11 @@ static void ca_step(void){
 
 /* ============================================================= light === */
 static void build_light(void){
-    memset(light,0,sizeof light);
+    /* Occlusion-aware glow: seed emissive cells, then sweep-propagate with a
+     * heavy attenuation inside solid cells so light rims wall faces but never
+     * leaks through to the far side. (light2 doubles as the solidity map.) */
+    static uint8_t lsolid[LW*LH];
+    memset(light,0,sizeof light); memset(light2,0,sizeof light2);
     int cy=(int)cam_y;
     for(int sy=0;sy<VH;sy++){ int wyy=cy+sy; if(wyy<0||wyy>=WH)continue; int ly=sy>>1;
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
@@ -255,24 +259,26 @@ static void build_light(void){
             else if(m==M_FIRE) add=30+(hr[x]>>1);
             else if(m==M_OBSID&&hr[x]>40) add=(hr[x]-40)>>2;
             if(add){ uint16_t*Lp=&light[ly*LW+(x>>1)]; int v=*Lp+add; *Lp=(uint16_t)(v>4000?4000:v); }
+            if(IS_SOLID(m)) light2[ly*LW+(x>>1)]++;
         }
     }
+    for(int i=0;i<LW*LH;i++) lsolid[i]=(light2[i]>=2);   /* majority of the 2x2 block */
     for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x, sy=(int)(proj[i].y-cam_y);
         if(sx<1||sx>=WW-1||sy<1||sy>=VH-1)continue; int gx=sx>>1,gy=sy>>1;
         uint16_t*Lp=&light[gy*LW+gx]; int v=*Lp+400; *Lp=(uint16_t)(v>4000?4000:v); }
-    for(int pass=0;pass<2;pass++){ uint16_t*s=pass?light2:light,*d=pass?light:light2;
-        for(int y=0;y<LH;y++){int y0=y>0?y-1:0,y1=y<LH-1?y+1:LH-1;
-            for(int x=0;x<LW;x++){int x0=x>0?x-1:0,x1=x<LW-1?x+1:LW-1;
-                int t=s[y0*LW+x0]+s[y0*LW+x]+s[y0*LW+x1]+s[y*LW+x0]+s[y*LW+x]+s[y*LW+x1]
-                     +s[y1*LW+x0]+s[y1*LW+x]+s[y1*LW+x1]; d[y*LW+x]=(uint16_t)(t/9);}}}
+    for(int it=0;it<2;it++){
+        for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ uint16_t*Lp=&light[y*LW+x];
+            int b=0; if(x>0&&light[y*LW+x-1]>b)b=light[y*LW+x-1];
+            if(y>0&&light[(y-1)*LW+x]>b)b=light[(y-1)*LW+x];
+            int k=lsolid[y*LW+x]?92:206, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
+        for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ uint16_t*Lp=&light[y*LW+x];
+            int b=0; if(x<LW-1&&light[y*LW+x+1]>b)b=light[y*LW+x+1];
+            if(y<LH-1&&light[(y+1)*LW+x]>b)b=light[(y+1)*LW+x];
+            int k=lsolid[y*LW+x]?92:206, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
+    }
 }
 
 /* ============================================================= wands === */
-static const char* spell_name(int s){   /* short codes to fit the wand slots */
-    static const char*n[SP_COUNT]={"-","SPK","BLT","FIR","WTR","ACD","DIG","BMB",
-        "DMG","SPR","BNC","HOM","BM","SPD"};
-    return n[s];
-}
 static Wand make_wand(const uint8_t*spells,int n,float delay,float mana_max,uint16_t col){
     Wand w={0}; for(int i=0;i<n&&i<WAND_SLOTS;i++) w.spell[i]=spells[i]; w.n=n;
     w.delay=delay; w.mana=w.mana_max=mana_max; w.recharge=mana_max*0.6f; w.col=col; return w;
@@ -646,7 +652,9 @@ static void reset_run(void){
 static void g_init(void){
     rng=(uint32_t)mote->micros()|1u; test_mode=getenv("MOITA_TEST")!=0;
     build_luts(); mote->scene_set_background(MOTE_RGB565(4,4,8)); mote->set_fps_limit(30);
-    reset_run(); gen_level(); build_light(); state=ST_TITLE;
+    reset_run();
+    { const char*lv=getenv("MOITA_LEVEL"); if(lv){ int v=atoi(lv); if(v>0)level=v; } } /* test hook */
+    gen_level(); build_light(); state=ST_TITLE;
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
@@ -712,6 +720,58 @@ static void render_band(uint16_t*fb,int y0,int y1){
 }
 
 /* ============================================================= overlay === */
+/* --- dashboard widgets: framed bars, 5x5 icons, shadowed text --- */
+static void ui_fbar(uint16_t*fb,int x,int y,int w,int h,float frac,uint16_t fill,uint16_t hi){
+    mote_ui_panel(fb,x,y,w,h,MOTE_RGB565(24,22,34),MOTE_RGB565(72,66,102));
+    if(frac<0)frac=0; if(frac>1)frac=1;
+    int fw=(int)(frac*(w-2)+0.5f);
+    if(fw>0){ mote_ui_rect(fb,x+1,y+1,fw,h-2,fill);
+        mote_ui_rect(fb,x+1,y+1,fw,1,hi); }
+}
+static void ui_icon(uint16_t*fb,int x,int y,const uint8_t rows[5],uint16_t c){
+    for(int r=0;r<5;r++)for(int b=0;b<5;b++)
+        if(rows[r]&(1<<(4-b))) mote->draw_pixel(fb,x+b,y+r,c);
+}
+static const uint8_t ic_heart[5]={0x0A,0x1F,0x1F,0x0E,0x04};
+static const uint8_t ic_bolt[5] ={0x02,0x04,0x0E,0x04,0x08};
+/* tiny 3x5 digits (+ 'D') for compact dashboard labels */
+static const uint8_t tiny3x5[11][5]={
+    {7,5,5,5,7},{2,6,2,2,7},{7,1,7,4,7},{7,1,7,1,7},{5,5,7,1,1},
+    {7,4,7,1,7},{7,4,7,5,7},{7,1,2,2,2},{7,5,7,5,7},{7,5,7,1,7},{6,5,5,5,6}};
+static void tiny_text(uint16_t*fb,int x,int y,const char*s,uint16_t c){
+    for(;*s;s++){ int g=-1;
+        if(*s>='0'&&*s<='9')g=*s-'0'; else if(*s=='D')g=10;
+        if(g>=0)for(int r=0;r<5;r++)for(int b=0;b<3;b++)
+            if(tiny3x5[g][r]&(4>>b)){ mote->draw_pixel(fb,x+b+1,y+r+1,MOTE_RGB565(8,8,14));
+                                      mote->draw_pixel(fb,x+b,y+r,c); }
+        x+=4; }
+}
+/* 9x9 procedural wand icon: stick shape/wood from a hash of the deck, gem in
+ * the wand's colour, sparkles per modifier count — every wand looks distinct */
+static uint32_t wand_hash(const Wand*w){
+    uint32_t h=2166136261u;
+    for(int i=0;i<w->n;i++){ h^=w->spell[i]; h*=16777619u; }
+    h^=w->col; h*=16777619u; return h;
+}
+static void draw_wand_icon(uint16_t*fb,int x,int y,const Wand*w,int hot){
+    uint32_t h=wand_hash(w);
+    static const uint16_t wood[4]={MOTE_RGB565(150,102,56),MOTE_RGB565(104,78,60),
+                                   MOTE_RGB565(148,140,152),MOTE_RGB565(126,92,168)};
+    uint16_t stick=wood[h&3];
+    mote_ui_panel(fb,x,y,9,9, hot?MOTE_RGB565(52,46,82):MOTE_RGB565(16,15,24),
+                  hot?MOTE_RGB565(255,214,110):MOTE_RGB565(54,50,76));
+    int bend=(h>>2)&1, thick=(h>>3)&1;
+    for(int i=0;i<4;i++){ int px=x+2+i, py=y+6-i+((bend&&i==1)?1:0);
+        mote->draw_pixel(fb,px,py,stick);
+        if(thick) mote->draw_pixel(fb,px,py+1,MOTE_RGB565(56,40,28)); }
+    mote->draw_pixel(fb,x+6,y+2,w->col); mote->draw_pixel(fb,x+7,y+2,w->col);
+    mote->draw_pixel(fb,x+6,y+1,w->col); mote->draw_pixel(fb,x+7,y+1,MOTE_RGB565(255,255,230));
+    int nmod=0; for(int i=0;i<w->n;i++) if(!IS_PROJ(w->spell[i])&&w->spell[i]!=SP_NONE) nmod++;
+    static const int8_t sp[3][2]={{4,1},{1,3},{6,5}};
+    for(int i=0;i<nmod&&i<3;i++){ int j=(i+(int)(h>>4))%3;
+        mote->draw_pixel(fb,x+sp[j][0],y+sp[j][1],MOTE_RGB565(255,244,200)); }
+}
+
 static void g_overlay(uint16_t*fb){
     const MoteFont*fmed=(mote->abi_version>=47)?mote->ui_font(MOTE_FONT_MED):0;
     if(state==ST_TITLE){
@@ -759,21 +819,22 @@ static void g_overlay(uint16_t*fb){
         mote->draw_pixel(fb,sx,sy-2,c); mote->draw_pixel(fb,sx,sy+2,c);
         mote->draw_pixel(fb,sx,sy,MOTE_RGB565(255,255,255)); } }
 
-    /* --- all HUD at the TOP --- */
-    mote_ui_bar(fb,2,2,50,4,hp/hp_max,MOTE_RGB565(230,60,60),MOTE_RGB565(50,16,16));
-    mote_ui_bar(fb,2,7,50,3,mana_fly/mana_fly_max,MOTE_RGB565(90,140,255),MOTE_RGB565(16,20,50));
-    snprintf(buf,sizeof buf,"D%d",level);
-    if(fmed) mote->text_font(fb,fmed,buf,112,1,MOTE_RGB565(200,200,220));
-    if(nwand>1){ char wb[8]; snprintf(wb,sizeof wb,"W%d/%d",cur_wand+1,nwand);
-        if(fmed) mote->text_font(fb,fmed,wb,82,1,MOTE_RGB565(200,200,220)); }
+    /* --- top dashboard: smoked-glass strip, arcane bottom edge --- */
+    mote_dim_box(fb,0,0,128,16,4);
+    mote_ui_rect(fb,0,16,128,1,MOTE_RGB565(104,90,150));
+    mote_ui_rect(fb,0,17,128,1,MOTE_RGB565(18,14,30));
 
+    ui_icon(fb,2,2,ic_heart,MOTE_RGB565(240,90,90));
+    ui_fbar(fb,9,2,54,6,hp/hp_max,MOTE_RGB565(210,52,52),MOTE_RGB565(255,130,120));
+    ui_icon(fb,2,10,ic_bolt,MOTE_RGB565(150,190,255));
+    ui_fbar(fb,9,10,54,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+
+    /* wand icons (current highlighted) above the wand mana bar */
     Wand*w=&wand[cur_wand];
-    for(int i=0;i<w->n && i<6;i++){ int bx=2+i*21, by=12, hot=(i==w->cast_i);
-        mote_ui_panel(fb,bx,by,19,11, hot?MOTE_RGB565(60,55,80):MOTE_RGB565(22,20,30),
-                      hot?MOTE_RGB565(255,220,120):MOTE_RGB565(50,46,64));
-        if(fmed) mote->text_font(fb,fmed,spell_name(w->spell[i]),bx+1,by+1,
-                 IS_PROJ(w->spell[i])?MOTE_RGB565(180,200,255):MOTE_RGB565(200,160,255)); }
-    mote_ui_bar(fb,82,8,44,3,w->mana/w->mana_max,w->col,MOTE_RGB565(20,20,28));
+    for(int i=0;i<nwand&&i<4;i++) draw_wand_icon(fb,70+i*10,0,&wand[i],i==cur_wand);
+    ui_fbar(fb,70,10,56,5,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
+    snprintf(buf,sizeof buf,"D%d",level);
+    tiny_text(fb,115,2,buf,MOTE_RGB565(225,218,255));
 
     if(state==ST_DEAD){ mote_dim_box(fb,0,44,128,40,0); uint16_t c=MOTE_RGB565(255,80,60);
         if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"YOU DIED",22,52,c);
