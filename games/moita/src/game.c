@@ -36,7 +36,7 @@ MOTE_GAME_VERSION("0.1.0");
 
 /* ============================================================ constants === */
 #define WW 128
-#define WH 256                 /* world is a tall column, camera scrolls */
+#define WH 384                 /* a tall multi-screen column; the camera scrolls */
 #define WN (WW*WH)
 #define VH 128                 /* visible height */
 #define LW 64
@@ -73,8 +73,9 @@ static int   test_mode = 0;
 
 /* ============================================================= wizard === */
 static float wx, wy, wvx, wvy;
-#define PW 8
-#define PH 12
+#define PW 5
+#define PH 8
+static int   exit_x = WW/2;
 static int   w_ground=0, w_face=1, w_anim=0; static float w_anim_t=0;
 static float aimx=1, aimy=0;
 static float hp, hp_max, mana_fly, mana_fly_max;
@@ -421,16 +422,16 @@ static void tick_enemies(float dt){
     for(int e=0;e<nenemy;e++){ Enemy*en=&enemy[e]; if(!en->alive)continue; en->t+=dt;
         if(en->hp<=0){ en->alive=0; for(int k=0;k<14;k++) spawn_part(en->x,en->y,rr(-70,70),rr(-70,40),rr(0.3f,0.7f),MOTE_RGB565(200,40,40),1); continue; }
         float dx=wx-en->x, dy=wy-en->y, d=sqrtf(dx*dx+dy*dy)+0.01f;
-        if(en->type==0){ en->vx+=dx/d*40*dt; en->vy+=dy/d*40*dt;
-            en->vx=clampf(en->vx,-38,38); en->vy=clampf(en->vy,-38,38);
-        } else { en->vx+=dx/d*22*dt; en->vy+=(dy/d*18+sinf(en->t*2)*10)*dt;
-            en->vx=clampf(en->vx,-26,26); en->vy=clampf(en->vy,-26,26);
-            if(d<90 && fmodf(en->t,1.4f)<dt){ float a=atan2f(dy,dx); Mods mm={0}; mm.speed=1; mm.spread=1;
+        if(en->type==0){ en->vx+=dx/d*30*dt; en->vy+=dy/d*30*dt;
+            en->vx=clampf(en->vx,-30,30); en->vy=clampf(en->vy,-30,30);
+        } else { en->vx+=dx/d*18*dt; en->vy+=(dy/d*15+sinf(en->t*2)*10)*dt;
+            en->vx=clampf(en->vx,-22,22); en->vy=clampf(en->vy,-22,22);
+            if(d<88 && fmodf(en->t,1.9f)<dt){ float a=atan2f(dy,dx); Mods mm={0}; mm.speed=1; mm.spread=1;
                 spawn_proj(SP_BOLT,en->x,en->y,a,&mm,1); } }
         float nx=en->x+en->vx*dt, ny=en->y+en->vy*dt;
         if(inb((int)nx,(int)en->y) && !IS_SOLID(mat[(int)en->y*WW+(int)nx])) en->x=nx; else en->vx*=-0.5f;
         if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=-0.5f;
-        if(d<9 && hurt_t<=0){ hp-=8; hurt_t=0.7f; wvx+=(dx<0?60:-60); wvy-=40; }
+        if(d<8 && hurt_t<=0){ hp-=5; hurt_t=0.9f; wvx+=(dx<0?70:-70); wvy-=45; }
         int ix=(int)en->x,iy=(int)en->y; if(inb(ix,iy)){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
     }
 }
@@ -469,7 +470,21 @@ static void gen_level(void){
     if(biome==1) for(int k=0;k<24;k++){ int cx=8+rnd()%(WW-16),cy=20+rnd()%(WH-40);
         if(mat[cy*WW+cx]==M_DIRT) carve_disc(cx,cy,2+rnd()%2,M_WOOD); }
 
-    int npool=10+level*2;
+    /* --- a guaranteed winding DESCENT PATH from the top down to the exit, so
+     * there is always a route deeper; it blends with the organic caves. --- */
+    int shaftx = (int)clampf(WW*0.5f + (vnoise(1.0f,1.0f,seed)-0.5f)*40, 20, WW-20);
+    int path_top_x = shaftx;
+    for(int y=6;y<WH-6;y++){                        /* STRAIGHT vertical shaft with
+                                                    * organic width — falling straight
+                                                    * always descends it. */
+        int r = 8 + (int)(vnoise(y*0.11f,7.0f,seed)*5);   /* radius 8..13 (16..26 wide) */
+        for(int dx=-r;dx<=r;dx++){ int x=shaftx+dx; if(x>2&&x<WW-2) mat[y*WW+x]=M_EMPTY; }
+    }
+    exit_x = shaftx;
+    carve_disc(shaftx, 12, 10, M_EMPTY);           /* spawn chamber */
+    carve_disc(shaftx, WH-10, 12, M_EMPTY);        /* exit chamber */
+
+    int npool=14+level*2;
     for(int k=0;k<npool;k++){
         int cx=8+rnd()%(WW-16), cy=24+rnd()%(WH-40);
         if(mat[cy*WW+cx]!=M_EMPTY) continue;
@@ -483,16 +498,12 @@ static void gen_level(void){
                 mat[y*WW+x]=fluid; if(fluid==M_LAVA) heat[y*WW+x]=255; } }
     }
 
-    wx=WW/2; wy=16;
-    for(int y=10;y<60;y++){ int found=0; for(int x=20;x<WW-20;x++){
-        int ok=1; for(int yy=0;yy<PH&&ok;yy++)for(int xx=0;xx<PW;xx++) if(mat[(y+yy)*WW+x+xx]!=M_EMPTY){ok=0;break;}
-        if(ok){ wx=x; wy=y; found=1; break; } } if(found)break; }
-    carve_disc((int)wx+PW/2,(int)wy+PH/2,8,M_EMPTY);
+    wx=path_top_x-PW/2; wy=10;                     /* spawn at the top of the path */
     wvx=wvy=0; cam_y=clampf(wy-VH*0.4f,0,WH-VH);
 
-    int ne=4+level;
+    int ne=test_mode?0:7+level*2;
     for(int k=0;k<ne && nenemy<MAXENEMY;k++){
-        int cx=10+rnd()%(WW-20), cy=60+rnd()%(WH-80);
+        int cx=10+rnd()%(WW-20), cy=95+rnd()%(WH-115);   /* not right at the spawn */
         if(mat[cy*WW+cx]!=M_EMPTY) continue;
         Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=cx; e->y=cy; e->alive=1;
         e->type=(rnd()&3)==0?1:0; e->hpmax=e->hp=e->type?26:16; e->t=rndf()*3;
@@ -503,7 +514,6 @@ static void gen_level(void){
         carve_disc(cx,cy,4,M_EMPTY);
         Pickup*p=&pick[npick++]; p->x=cx; p->y=cy; p->alive=1; p->w=random_wand(level);
     }
-    carve_disc(WW/2, WH-8, 9, M_EMPTY);
 }
 
 /* ============================================================= wizard === */
@@ -635,6 +645,11 @@ static void g_overlay(uint16_t*fb){
         return;
     }
     int cy=(int)cam_y; char buf[24];
+    /* exit portal (the way down) */
+    { int sx=exit_x, sy=(WH-6)-cy; if(sy>-14 && sy<142){
+        for(int a=0;a<3;a++){ int rr2=4+a*3+(int)(sinf(state_t*4)*1.5f);
+            mote->draw_circle(fb,sx,sy,rr2,MOTE_RGB565(150,80,255),0,0,128); }
+        mote->draw_circle(fb,sx,sy,2,MOTE_RGB565(230,190,255),1,0,128); } }
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; int sx=(int)pick[i].x,sy=(int)pick[i].y-cy;
         if(sy<-4||sy>132)continue; int bob=(int)(sinf(state_t*3+i)*2);
         mote->draw_rect(fb,sx-3,sy-1+bob,6,3,pick[i].w.col,1,0,128);
