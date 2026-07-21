@@ -310,25 +310,35 @@ static void ca_step(void){
 
 /* ============================================================ lighting === */
 static void build_light(void){
-    memset(light,0,sizeof light);
+    /* Occlusion-aware glow (as in Moita): seed emissive cells, then sweep-propagate
+     * with heavy attenuation inside solid cells — lava light floods open caves and
+     * rims wall faces, but never leaks through to the far side of a wall. */
+    static uint8_t lsolid[LN];
+    memset(light,0,sizeof light); memset(light2,0,sizeof light2);
     for(int y=1;y<H-1;y++){ int ly=y>>1;
         const uint8_t*mr=&mat[y*W]; const uint8_t*hr=&heat[y*W];
         for(int x=1;x<W-1;x++){ uint8_t m=mr[x]; int add=0;
-            if(m==M_LAVA) add = 30 + (hr[x]>>1);
+            if(m==M_LAVA) add = 40 + (hr[x]>>1);
             else if(m==M_OBSID && hr[x]>40) add=(hr[x]-40)>>2;
             if(add){ uint16_t*L=&light[ly*LW+(x>>1)]; int v=*L+add; *L=(uint16_t)(v>4000?4000:v); }
+            if(IS_SOLID(m)) light2[ly*LW+(x>>1)]++;
         }
     }
+    for(int i=0;i<LN;i++) lsolid[i]=(light2[i]>=2);   /* majority of the 2x2 block */
     for(int i=0;i<np;i++){ if(parts[i].kind!=0)continue;
         int gx=(int)parts[i].x>>1,gy=(int)parts[i].y>>1;
         if(gx<1||gx>=LW-1||gy<1||gy>=LH-1)continue;
-        uint16_t*L=&light[gy*LW+gx]; int v=*L+260; *L=(uint16_t)(v>4000?4000:v); }
-    for(int pass=0;pass<2;pass++){ uint16_t*s=pass?light2:light,*d=pass?light:light2;
-        for(int y=0;y<LH;y++){ int y0=y>0?y-1:0,y1=y<LH-1?y+1:LH-1;
-            for(int x=0;x<LW;x++){ int x0=x>0?x-1:0,x1=x<LW-1?x+1:LW-1;
-                int t=s[y0*LW+x0]+s[y0*LW+x]+s[y0*LW+x1]+s[y*LW+x0]+s[y*LW+x]+s[y*LW+x1]
-                     +s[y1*LW+x0]+s[y1*LW+x]+s[y1*LW+x1];
-                d[y*LW+x]=(uint16_t)(t/9); } } }
+        uint16_t*L=&light[gy*LW+gx]; int v=*L+340; *L=(uint16_t)(v>4000?4000:v); }
+    for(int it=0;it<2;it++){
+        for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ uint16_t*Lp=&light[y*LW+x];
+            int b=0; if(x>0&&light[y*LW+x-1]>b)b=light[y*LW+x-1];
+            if(y>0&&light[(y-1)*LW+x]>b)b=light[(y-1)*LW+x];
+            int k=lsolid[y*LW+x]?92:216, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
+        for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ uint16_t*Lp=&light[y*LW+x];
+            int b=0; if(x<LW-1&&light[y*LW+x+1]>b)b=light[y*LW+x+1];
+            if(y<LH-1&&light[(y+1)*LW+x]>b)b=light[(y+1)*LW+x];
+            int k=lsolid[y*LW+x]?92:216, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
+    }
 }
 
 /* ========================================================= landscape === */
