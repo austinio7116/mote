@@ -98,8 +98,9 @@ static int  np = 0;
 
 /* player (the little man) */
 static float mx, my, mvx, mvy;
-#define MW_ 8
-#define MH_ 13
+/* tiny collision box — the sprite overhangs it, so you squeeze through gaps */
+#define MW_ 4
+#define MH_ 10
 static int   grounded = 0, facing = 1, tool = T_WATER, anim_frame = 0;
 static float anim_t = 0;
 static float coyote_t = 0, jbuf_t = 0;   /* jump feel: coyote time + input buffer */
@@ -601,7 +602,12 @@ static void player_update(float dt){
      * (a single whole-velocity AABB test would stop a frame-step short — the
      * "block-based" feel + clipped jumps). --- */
     { float d=mvx*dt, st=d<0?-1.0f:1.0f, r=d<0?-d:d;
-      while(r>=1.0f){ if(aabb_hits(mx+st,my,pred_solid)){ mvx=0; break; } mx+=st; r-=1.0f; }
+      while(r>=1.0f){
+        if(!aabb_hits(mx+st,my,pred_solid)){ mx+=st; r-=1.0f; continue; }
+        int up=0; if(grounded) for(up=1;up<=3;up++){ if(!aabb_hits(mx+st,my-up,pred_solid)){ my-=up; mx+=st; break; } }
+        if(up>=1 && up<=3){ r-=1.0f; continue; }        /* step up over small bumps = smooth walking */
+        mvx=0; break;
+      }
       if(r>0 && mvx!=0){ float f=st*r; if(!aabb_hits(mx+f,my,pred_solid)) mx+=f; else mvx=0; } }
     { float d=mvy*dt, st=d<0?-1.0f:1.0f, r=d<0?-d:d;
       while(r>=1.0f){ if(aabb_hits(mx,my+st,pred_solid)){ mvy=0; break; } my+=st; r-=1.0f; }

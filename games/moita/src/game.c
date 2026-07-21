@@ -73,8 +73,8 @@ static int   test_mode = 0;
 
 /* ============================================================= wizard === */
 static float wx, wy, wvx, wvy;
-#define PW 4
-#define PH 6
+#define PW 3     /* tiny collision box; the sprite is drawn larger (feet-aligned) */
+#define PH 5
 static int   exit_x = WW/2;
 static int   w_ground=0, w_face=1, w_anim=0; static float w_anim_t=0;
 static float aimx=1, aimy=0, aim_ang=0;    /* TerraMote-style persistent aim angle */
@@ -534,21 +534,27 @@ static void gen_level(void){
 
     wx=spawnx-PW/2; wy=14; wvx=wvy=0; cam_y=clampf(wy-VH*0.4f,0,WH-VH);
 
-    /* --- deeper POOL basins in reachable chamber floors --- */
-    int npool=9+level*2;
-    for(int k=0;k<npool;k++){ int i=rand_open(30,WH-16,1); if(i<0)continue;
-        int cx=i%WW, cy=i/WW; uint8_t fluid; float rp=rndf();
-        if(biome==0) fluid=rp<0.78f?M_WATER:M_OIL;
-        else if(biome==1) fluid=rp<0.5f?M_OIL:(rp<0.82f?M_WATER:M_ACID);
-        else fluid=rp<0.5f?M_LAVA:(rp<0.82f?M_ACID:M_WATER);
-        int pr=3+rnd()%4;
-        for(int yy=cy;yy<=cy+pr;yy++)for(int xx=cx-pr;xx<=cx+pr;xx++){ if(!inb(xx,yy))continue;
-            int dx=xx-cx,dy=yy-cy; if(dx*dx+dy*dy*2<=pr*pr*2 && mat[yy*WW+xx]==M_EMPTY){
-                mat[yy*WW+xx]=fluid; if(fluid==M_LAVA) heat[yy*WW+xx]=255; } }
+    /* --- pre-placed POOLS: carve an enclosed basin DOWN into the solid ground at a
+     * chamber floor and fill it with liquid, so it rests as a settled pool from the
+     * start (surrounded by solid — it never scatters). --- */
+    int npool=13+level*2;
+    for(int k=0;k<npool;k++){ int i=rand_open(28,WH-16,1); if(i<0)continue;
+        int cx=i%WW, cy=i/WW;                          /* cy open, cy+1 is the floor */
+        uint8_t fluid; float rp=rndf();
+        if(biome==0) fluid=rp<0.80f?M_WATER:M_OIL;
+        else if(biome==1) fluid=rp<0.5f?M_OIL:(rp<0.85f?M_WATER:M_ACID);
+        else fluid=rp<0.45f?M_LAVA:(rp<0.8f?M_ACID:M_WATER);
+        int pr=6+rnd()%7;                              /* big pools */
+        for(int d=0; d<=pr; d++){
+            int w=(int)sqrtf((float)(pr*pr - (d-0)*(d-0)));   /* hemispherical bowl */
+            int yy=cy+1+d; if(yy>=WH-1)break;
+            for(int xx=cx-w; xx<=cx+w; xx++){ if(xx<2||xx>=WW-2)continue;
+                if(IS_SOLID(mat[yy*WW+xx])){ mat[yy*WW+xx]=fluid; if(fluid==M_LAVA) heat[yy*WW+xx]=255; } }
+        }
     }
 
-    /* enemies scattered through reachable chambers below the entrance */
-    int ne=test_mode?0:6+level*2;
+    /* a handful of enemies scattered through reachable chambers */
+    int ne=test_mode?0:3+level;
     for(int k=0;k<ne && nenemy<MAXENEMY;k++){ int i=rand_open(60,WH-14,0); if(i<0)continue;
         Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=i%WW; e->y=i/WW; e->alive=1;
         e->type=(rnd()&3)==0?1:0; e->hpmax=e->hp=e->type?22:12; e->t=rndf()*3; }
@@ -576,16 +582,24 @@ static void wizard_update(float dt){
     cross_x = wx+PW*0.5f + aimx*15; cross_y = wy+PH*0.5f + aimy*15;
     if(dax!=0){ w_anim_t+=dt*10; w_anim=((int)w_anim_t)&3; } else w_anim=0;
 
-    wvx += dax*640*dt; wvx*=0.84f; wvx=clampf(wvx,-70,70);
+    wvx += dax*520*dt; wvx*=0.85f; wvx=clampf(wvx,-62,62);
+    /* GENTLE, smooth flight: soft gravity, a soft upward thrust that eases in */
     int flying=0;
-    if(mote_pressed(in,MOTE_BTN_A) && mana_fly>0){ wvy-=620*dt; mana_fly-=dt; flying=1;
-        if((framestep&1)==0) spawn_part(wx+PW*0.5f+rr(-2,2),wy+PH,rr(-10,10),rr(30,70),0.25f,MOTE_RGB565(150,180,255),1); }
-    wvy += 460*dt; wvy=clampf(wvy,-150,190);
-    if(w_ground && !flying) mana_fly=clampf(mana_fly+dt*1.5f,0,mana_fly_max);
-    else if(!flying) mana_fly=clampf(mana_fly+dt*0.4f,0,mana_fly_max);
+    if(mote_pressed(in,MOTE_BTN_A) && mana_fly>0){ wvy-=400*dt; mana_fly-=dt; flying=1;
+        if((framestep&3)==0) spawn_part(wx+PW*0.5f+rr(-2,2),wy+PH,rr(-8,8),rr(24,56),0.25f,MOTE_RGB565(150,180,255),1); }
+    wvy += 230*dt;                                   /* soft gravity */
+    wvy = clampf(wvy, -80, 150);                     /* gentle rise, gentle fall */
+    if(w_ground && !flying) mana_fly=clampf(mana_fly+dt*1.6f,0,mana_fly_max);
+    else if(!flying) mana_fly=clampf(mana_fly+dt*0.45f,0,mana_fly_max);
 
+    /* X: step up over small bumps so walking bumpy terrain is smooth */
     { float d=wvx*dt,st=d<0?-1.f:1.f,r=d<0?-d:d;
-      while(r>=1){ if(box_hits(wx+st,wy)){wvx=0;break;} wx+=st; r-=1; }
+      while(r>=1){
+        if(!box_hits(wx+st,wy)){ wx+=st; r-=1; continue; }
+        int up=0; if(w_ground) for(up=1;up<=2;up++){ if(!box_hits(wx+st,wy-up)){ wy-=up; wx+=st; break; } }
+        if(up>=1&&up<=2){ r-=1; continue; }
+        wvx=0; break;
+      }
       if(r>0&&wvx!=0){ float f=st*r; if(!box_hits(wx+f,wy))wx+=f; else wvx=0; } }
     { float d=wvy*dt,st=d<0?-1.f:1.f,r=d<0?-d:d;
       while(r>=1){ if(box_hits(wx,wy+st)){wvy=0;break;} wy+=st; r-=1; }
@@ -729,10 +743,10 @@ static void g_overlay(uint16_t*fb){
         float f=part[i].life/part[i].max;
         if(part[i].add){ int a=(int)(f*18); fb[sy*128+sx]=add565(fb[sy*128+sx],a,a*2/3,a/3); }
         else fb[sy*128+sx]=part[i].col; }
-    { float cx=wx+PW*0.5f, cyy=wy+PH*0.5f-cam_y;
+    { const float VISH=9.0f, sc=VISH/13.0f;                  /* sprite bigger than the hitbox */
+      float cx=wx+PW*0.5f, cyy=(wy+PH) - VISH*0.5f - cam_y;   /* feet-aligned */
       int fx = (w_face<0 ? (4+w_anim)*16+0 : w_anim*16+5);   /* left frames are mirrored */
-      mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, (float)PH/13.0f, MOTE_BLEND_NONE, 0,128);
-      if(hurt_t>0 && ((int)(state_t*20)&1)) mote_dim_box(fb,(int)cx-4,(int)cyy-4,9,9,0); }
+      mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128); }
     /* crosshair (aims spells) */
     { int sx=(int)cross_x, sy=(int)cross_y-cy; uint16_t c=MOTE_RGB565(255,240,150);
       if((unsigned)sx<128 && (unsigned)(sy)<128){
