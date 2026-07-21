@@ -468,6 +468,9 @@ static void gen_level(void){
     mx = mcx - MW_/2; my = mcy - 4;
     if(test_mode){ mx=6; my=floory-MH_; }
     mvx=mvy=0; grap_state=0;
+    if(getenv("SLUICE_DUNK")){   /* test hook: flood the arena below the spawn */
+        for(int y=(int)my-2;y<=(int)my+34;y++)for(int x=(int)mx-11;x<=(int)mx+11;x++)
+            if(x>1&&x<W-2&&y>1&&y<H-2&&mat[y*W+x]==M_EMPTY) mat[y*W+x]=M_WATER; }
 
     nwsrc=0; drained=0; np=0;
     water_left = 4 + level;               /* placeable water sources */
@@ -813,12 +816,23 @@ static void render_band(uint16_t*fb,int y0,int y1){
 /* ============================================================ overlay === */
 static const char*tool_name[T_NTOOLS]={"WATER","LOG","DIG"};
 
+/* liquids translucently veil anything drawn inside them (call after a blit) */
+static void fluid_veil(uint16_t*fb,int x0,int y0,int x1,int y1){
+    for(int y=y0;y<=y1;y++){ if((unsigned)y>=128)continue;
+        for(int x=x0;x<=x1;x++){ if((unsigned)x>=128)continue;
+            uint8_t m=mat[y*W+x]; uint16_t c;
+            if(m==M_WATER) c=((x+y+(int)state_t)&3)?MOTE_RGB565(24,72,120):MOTE_RGB565(34,100,150);
+            else if(m==M_LAVA) c=lava_lut[heat[y*W+x]];
+            else continue;
+            fb[y*128+x]=lerp565(fb[y*128+x],c,0.55f); } }
+}
 static void draw_player(uint16_t*fb){
     /* Crop to the CHARACTER inside the 32x32 cell (opaque x9..23, y13..31) and
      * scale it to the collision box so head=box top, feet=box bottom — the sprite
      * fits the player's pixels exactly (no dead space above the head). */
     float cx=mx+MW_*0.5f, cy=my+MH_*0.5f;
     mote->blit_ex(fb,&blonde_man_img, cx,cy, anim_frame*32+9,13, 14,18, 0.0f, (float)MH_/18.0f, MOTE_BLEND_NONE, 0,128);
+    fluid_veil(fb,(int)cx-5,(int)cy-7,(int)cx+5,(int)cy+7);
 }
 static void draw_reticle(uint16_t*fb){
     int rx,ry; reticle(&rx,&ry);
