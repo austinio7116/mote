@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-20T16:10:58+00:00",
+ "generated": "2026-07-21T21:54:51+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -534,6 +534,27 @@
    ],
    "tag": "Physics castle-smasher",
    "desc": "Angry-Birds-style fort demolition in side-view 3D: charge the fling, arc your bird into the tower, and let real rigid-body physics topple the pigs. Every fort is freshly generated.",
+   "guide": null,
+   "multiplayer": false
+  },
+  {
+   "id": "thumboxels",
+   "name": "Thumboxels",
+   "author": "Prevolve",
+   "version": "0",
+   "abi": 47,
+   "size": 57728,
+   "sha256": "0ce87b8c213b84c95c1576574f99efde3dfcaae16b2b0234061c049fe4e4f969",
+   "file": "games/Thumboxels.mote",
+   "icon": "img/gallery/thumboxels-icon.png",
+   "thumb": "img/gallery/thumboxels-1.png",
+   "screenshots": [
+    "img/gallery/thumboxels-1.png",
+    "img/gallery/thumboxels-2.png",
+    "img/gallery/thumboxels-3.png"
+   ],
+   "tag": "Falling-sand physics sandbox",
+   "desc": "A Powder-Toy-style falling-sand sandbox in the palm of your hand: paint 40+ elements across land, liquid, life, solid, energy, powder, gas and weapons, then watch them interact. Sand and gravel pile and slump, water and oil and mercury layer by density, lava sets wood alight and flashes water to steam, acid eats through metal, seeds sprout into climbing plants and vines, and mold creeps over the wreckage. Drop a bomb or a firework, tear space open with a black hole, or wire two portals together and pour matter through. A resizable circular or square brush (up to full-screen), a mirror mode and a line tool for building; multiple save slots with thumbnails plus optional autosave keep your worlds. Pure sandbox — no score, no timer, just cause and effect.",
    "guide": null,
    "multiplayer": false
   }
