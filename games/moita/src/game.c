@@ -36,7 +36,7 @@ MOTE_GAME_VERSION("0.1.0");
 
 /* ============================================================ constants === */
 #define WW 128
-#define WH 256                 /* 2-screen column (fits device GAME_RAM); camera scrolls */
+#define WH 320                 /* 2.5-screen column (world grids live in the arena) */
 #define WN (WW*WH)
 #define VH 128                 /* screen height */
 #define TOP 18                 /* dashboard strip — the world renders only below it */
@@ -47,9 +47,9 @@ MOTE_GAME_VERSION("0.1.0");
 #define LH 64                  /* light field: half-res of the visible window */
 
 enum { M_EMPTY=0, M_ROCK, M_DIRT, M_SAND, M_WOOD, M_OBSID,
-       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE };
+       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE, M_BLOOD };
 #define IS_SOLID(m)  ((m)==M_ROCK||(m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
-#define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA)
+#define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD)
 #define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
 
 enum { SP_NONE=0,
@@ -71,10 +71,9 @@ enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT };
  * Moita declares almost no engine pools, so the arena slack is ours and
  * GAME_RAM keeps ~96KB of headroom for code + the smaller statics */
 static uint8_t *mat, *heat, *moved;
-static uint16_t light[LW*LH];
+static uint16_t lightR[LW*LH], lightG[LW*LH], lightB[LW*LH];  /* RGB light field */
 static uint8_t  light2[LW*LH];     /* scratch: per-cell solid count for the light sweep */
-#define SW_ (LW/2)
-static uint8_t  seen[SW_*(WH/4)];  /* fog-of-war memory: max visibility ever, quarter-res */
+static uint8_t  seen[LW*(WH/2)];   /* fog-of-war memory: max visibility ever, half-res */
 static uint16_t lava_lut[256], fire_lut[256];
 
 static float cam_y = 0;
@@ -122,12 +121,14 @@ static Part part[MAXPART]; static int npart=0;
 
 /* enemies */
 #define MAXENEMY 28
-typedef struct { float x,y,vx,vy; int hp,hpmax; uint8_t type,alive; float t,slow_t; } Enemy;
+/* enemy types: 0 bat, 1 spitter, 2 slime, 3 wisp, 4 crystal, 5 ghost */
+typedef struct { float x,y,vx,vy; int hp,hpmax; uint8_t type,alive,size; float t,slow_t,atk_t; } Enemy;
+static const uint8_t enemy_blood[6]={0,2,1,255,4,3};   /* gore hue per type (255 = none) */
 static Enemy enemy[MAXENEMY]; static int nenemy=0;
 
 /* wand pickups */
 #define MAXPICK 6
-typedef struct { float x,y; uint8_t alive; Wand w; } Pickup;
+typedef struct { float x,y; uint8_t alive; uint8_t price; Wand w; } Pickup;
 static Pickup pick[MAXPICK]; static int npick=0;
 
 /* =============================================================== utils === */
@@ -170,6 +171,40 @@ static void spawn_part(float x,float y,float vx,float vy,float life,uint16_t col
     if(npart>=MAXPART){ int w=0; float wl=1e9f; for(int i=0;i<npart;i++) if(part[i].life<wl){wl=part[i].life;w=i;}
         part[w]=(Part){x,y,vx,vy,life,life,col,(uint8_t)add}; return; }
     part[npart++]=(Part){x,y,vx,vy,life,life,col,(uint8_t)add};
+}
+/* gore: splash n pixels of a creature's blood (hue 255 = bloodless) into the
+ * world as real fluid, plus matching spray particles */
+static const uint16_t blood_col[5]={MOTE_RGB565(200,30,30),MOTE_RGB565(96,200,60),
+    MOTE_RGB565(160,60,210),MOTE_RGB565(215,215,230),MOTE_RGB565(150,200,240)};
+static void spawn_blood(float x,float y,int hue,int n){
+    if(hue>4) return;
+    for(int k=0;k<n;k++){ int bx=(int)x+(int)(rnd()%5)-2, by=(int)y+(int)(rnd()%4)-2;
+        if(inb(bx,by)&&mat[by*WW+bx]==M_EMPTY){ mat[by*WW+bx]=M_BLOOD; heat[by*WW+bx]=(uint8_t)hue; } }
+    for(int k=0;k<n;k++) spawn_part(x,y,rr(-60,60),rr(-70,20),rr(0.25f,0.6f),blood_col[hue],0);
+}
+/* coins: physical gold dropped by enemies, magnet to the wizard, buy wands */
+#define MAXCOIN 48
+static struct { float x,y,vx,vy; uint8_t alive; } coin[MAXCOIN];
+static int gold=0;
+static void spawn_coins(float x,float y,int n){
+    for(int k=0;k<n;k++) for(int i=0;i<MAXCOIN;i++) if(!coin[i].alive){
+        coin[i]=(typeof(coin[0])){x,y,rr(-45,45),rr(-80,-25),1}; break; }
+}
+static void tick_coins(float dt){
+    for(int i=0;i<MAXCOIN;i++){ if(!coin[i].alive)continue;
+        float dx=(wx+PW*0.5f)-coin[i].x, dy=(wy+PH*0.5f)-coin[i].y, d2=dx*dx+dy*dy;
+        if(d2<12){ coin[i].alive=0; gold++;
+            for(int k=0;k<5;k++) spawn_part(coin[i].x,coin[i].y,rr(-40,40),rr(-50,10),0.3f,MOTE_RGB565(255,220,90),1);
+            continue; }
+        if(d2<260){ float d=sqrtf(d2); coin[i].vx+=dx/d*380*dt; coin[i].vy+=dy/d*380*dt; }
+        else coin[i].vy+=200*dt;
+        float nx=coin[i].x+coin[i].vx*dt, ny=coin[i].y+coin[i].vy*dt;
+        int ix=(int)nx, iy=(int)ny;
+        if(!inb(ix,iy)){ coin[i].alive=0; continue; }
+        if(IS_SOLID(mat[iy*WW+ix])){ coin[i].vx*=0.5f; coin[i].vy=0; }
+        else { coin[i].x=nx; coin[i].y=ny; }
+        coin[i].vx*=0.995f;
+    }
 }
 static void tick_parts(float dt){
     for(int i=0;i<npart;){ Part*p=&part[i]; p->life-=dt;
@@ -266,49 +301,72 @@ static void ca_step(void){
 }
 
 /* ============================================================= light === */
+static uint16_t proj_col(int type,float f);
+/* split an RGB565 colour into channel seeds of overall strength `add` */
+static inline void seed_rgb(int li,int add,uint16_t c){
+    int r=(add*((c>>11)&31))>>5, g=(add*((c>>5)&63))>>6, b=(add*(c&31))>>5;
+    int v;
+    v=lightR[li]+r; lightR[li]=(uint16_t)(v>4000?4000:v);
+    v=lightG[li]+g; lightG[li]=(uint16_t)(v>4000?4000:v);
+    v=lightB[li]+b; lightB[li]=(uint16_t)(v>4000?4000:v);
+}
 static void build_light(void){
-    /* Occlusion-aware glow: seed emissive cells, then sweep-propagate with a
-     * heavy attenuation inside solid cells so light rims wall faces but never
-     * leaks through to the far side. (light2 doubles as the solidity map.) */
+    /* Occlusion-aware COLOURED glow: emissive cells seed the RGB light field in
+     * their own hue, then each channel sweep-propagates with heavy attenuation
+     * inside solid cells so light rims wall faces but never leaks through. */
     static uint8_t lsolid[LW*LH];
-    memset(light,0,sizeof light); memset(light2,0,sizeof light2);
+    memset(lightR,0,sizeof lightR); memset(lightG,0,sizeof lightG); memset(lightB,0,sizeof lightB);
+    memset(light2,0,sizeof light2);
     int cy=(int)cam_y;
     for(int sy=TOP;sy<VH;sy++){ int wyy=cy+sy-TOP; if(wyy<0||wyy>=WH)continue; int ly=sy>>1;
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
-        for(int x=1;x<WW-1;x++){ uint8_t m=mr[x]; int add=0;
-            if(m==M_LAVA) add=26+(hr[x]>>1);
-            else if(m==M_FIRE) add=30+(hr[x]>>1);
-            else if(m==M_OBSID&&hr[x]>40) add=(hr[x]-40)>>2;
-            if(add){ uint16_t*Lp=&light[ly*LW+(x>>1)]; int v=*Lp+add; *Lp=(uint16_t)(v>4000?4000:v); }
+        for(int x=1;x<WW-1;x++){ uint8_t m=mr[x];
+            if(m==M_LAVA) seed_rgb(ly*LW+(x>>1),26+(hr[x]>>1),lava_lut[hr[x]]);
+            else if(m==M_FIRE) seed_rgb(ly*LW+(x>>1),30+(hr[x]>>1),fire_lut[hr[x]<255?hr[x]:255]);
+            else if(m==M_OBSID&&hr[x]>40) seed_rgb(ly*LW+(x>>1),(hr[x]-40)>>2,MOTE_RGB565(255,120,40));
             if(IS_SOLID(m)) light2[ly*LW+(x>>1)]++;
         }
     }
     for(int i=0;i<LW*LH;i++) lsolid[i]=(light2[i]>=2);   /* majority of the 2x2 block */
     for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x, sy=(int)(proj[i].y-cam_y)+TOP;
-        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue; int gx=sx>>1,gy=sy>>1;
+        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
         int seed=400; uint8_t t=proj[i].type;
         if(proj[i].glow) seed+=500;
         if(t==SP_ORB||t==SP_METEOR||t==SP_VOID||t==SP_PRISM) seed+=400;
-        uint16_t*Lp=&light[gy*LW+gx]; int v=*Lp+seed; *Lp=(uint16_t)(v>4000?4000:v); }
+        seed_rgb((sy>>1)*LW+(sx>>1),seed,proj_col(t,0.8f)); }
+    for(int e=0;e<nenemy;e++) if(enemy[e].alive&&enemy[e].type==3){   /* wisps burn */
+        int sx=(int)enemy[e].x, sy=(int)(enemy[e].y-cam_y)+TOP;
+        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
+        seed_rgb((sy>>1)*LW+(sx>>1),450,fire_lut[220]); }
+    for(int i=0;i<npick;i++) if(pick[i].alive){                       /* wands shine */
+        int sx=(int)pick[i].x, sy=(int)(pick[i].y-cam_y)+TOP;
+        if(sx<1||sx>=WW-1||sy<TOP+1||sy>=VH-1)continue;
+        seed_rgb((sy>>1)*LW+(sx>>1),420,pick[i].w.col); }
     for(int it=0;it<2;it++){
-        for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ uint16_t*Lp=&light[y*LW+x];
-            int b=0; if(x>0&&light[y*LW+x-1]>b)b=light[y*LW+x-1];
-            if(y>0&&light[(y-1)*LW+x]>b)b=light[(y-1)*LW+x];
-            int k=lsolid[y*LW+x]?92:206, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
-        for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ uint16_t*Lp=&light[y*LW+x];
-            int b=0; if(x<LW-1&&light[y*LW+x+1]>b)b=light[y*LW+x+1];
-            if(y<LH-1&&light[(y+1)*LW+x]>b)b=light[(y+1)*LW+x];
-            int k=lsolid[y*LW+x]?92:206, v=b*k>>8; if(v>*Lp)*Lp=(uint16_t)v; }
+        for(int y=0;y<LH;y++)for(int x=0;x<LW;x++){ int li=y*LW+x, k=lsolid[li]?92:206, b,v;
+            b=0; if(x>0&&lightR[li-1]>b)b=lightR[li-1]; if(y>0&&lightR[li-LW]>b)b=lightR[li-LW];
+            v=b*k>>8; if(v>lightR[li])lightR[li]=(uint16_t)v;
+            b=0; if(x>0&&lightG[li-1]>b)b=lightG[li-1]; if(y>0&&lightG[li-LW]>b)b=lightG[li-LW];
+            v=b*k>>8; if(v>lightG[li])lightG[li]=(uint16_t)v;
+            b=0; if(x>0&&lightB[li-1]>b)b=lightB[li-1]; if(y>0&&lightB[li-LW]>b)b=lightB[li-LW];
+            v=b*k>>8; if(v>lightB[li])lightB[li]=(uint16_t)v; }
+        for(int y=LH-1;y>=0;y--)for(int x=LW-1;x>=0;x--){ int li=y*LW+x, k=lsolid[li]?92:206, b,v;
+            b=0; if(x<LW-1&&lightR[li+1]>b)b=lightR[li+1]; if(y<LH-1&&lightR[li+LW]>b)b=lightR[li+LW];
+            v=b*k>>8; if(v>lightR[li])lightR[li]=(uint16_t)v;
+            b=0; if(x<LW-1&&lightG[li+1]>b)b=lightG[li+1]; if(y<LH-1&&lightG[li+LW]>b)b=lightG[li+LW];
+            v=b*k>>8; if(v>lightG[li])lightG[li]=(uint16_t)v;
+            b=0; if(x<LW-1&&lightB[li+1]>b)b=lightB[li+1]; if(y<LH-1&&lightB[li+LW]>b)b=lightB[li+LW];
+            v=b*k>>8; if(v>lightB[li])lightB[li]=(uint16_t)v; }
     }
     /* reveal the fog-of-war memory: sight radius around the wizard + live glow */
     { int pwx=(int)(wx+PW*0.5f), pwy=(int)(wy+PH*0.5f);
       for(int sy=TOP;sy<VH;sy++){ int wyy=cy+sy-TOP;
-        if((unsigned)wyy>=(unsigned)WH || (wyy&3)) continue;
-        int ly=sy>>1, dy2=(wyy+2-pwy)*(wyy+2-pwy);
-        uint8_t*sr=&seen[(wyy>>2)*SW_];
-        for(int lx=0;lx<SW_;lx++){ int dx=lx*4+2-pwx;
+        if((unsigned)wyy>=(unsigned)WH || (wyy&1)) continue;
+        int ly=sy>>1, dy2=(wyy-pwy)*(wyy-pwy);
+        uint8_t*sr=&seen[(wyy>>1)*LW];
+        for(int lx=0;lx<LW;lx++){ int dx=lx*2+1-pwx, li=ly*LW+lx;
             int v=256-((dx*dx+dy2)*FOG_K>>16); if(v<0)v=0;
-            v+=light[ly*LW+lx*2]>>4; if(v>255)v=255;
+            v+=(lightR[li]+lightG[li]+lightB[li])/3>>4; if(v>255)v=255;
             if(v>sr[lx]) sr[lx]=(uint8_t)v; } } }
 }
 
@@ -597,6 +655,7 @@ static void tick_proj(float dt){
                 if(p->crit&&(rnd()&3)==0){ dd*=3;      /* crit: white flash */
                     for(int k=0;k<8;k++) spawn_part(nx,ny,rr(-80,80),rr(-80,80),0.3f,MOTE_RGB565(255,255,255),1); }
                 enemy[hite].hp-=(int)dd;
+                spawn_blood(nx,ny,enemy_blood[enemy[hite].type],3);
                 if(p->leech){ hp+=3; if(hp>hp_max)hp=hp_max;
                     spawn_part(wx+PW*0.5f,wy,rr(-10,10),-20,0.4f,MOTE_RGB565(120,255,140),1); }
                 if(p->manaref){ Wand*cw=&wand[cur_wand]; cw->mana+=6; if(cw->mana>cw->mana_max)cw->mana=cw->mana_max; }
@@ -640,22 +699,83 @@ static void tick_proj(float dt){
 }
 
 /* =========================================================== enemies === */
+static void enemy_die(Enemy*en){
+    en->alive=0;
+    int hue=enemy_blood[en->type];
+    spawn_blood(en->x,en->y,hue,10);
+    spawn_coins(en->x,en->y,1+(int)(rnd()%3));
+    if(en->type==3){                                    /* wisp: dies in fire */
+        for(int k=0;k<16;k++) spawn_part(en->x,en->y,rr(-80,80),rr(-90,30),rr(0.3f,0.7f),fire_lut[180+(rnd()&63)],1);
+        int ix=(int)en->x,iy=(int)en->y;
+        for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++) if(inb(ix+x,iy+y)&&mat[(iy+y)*WW+ix+x]==M_EMPTY){
+            mat[(iy+y)*WW+ix+x]=M_FIRE; heat[(iy+y)*WW+ix+x]=55; }
+    } else if(en->type==2 && en->size>0 && nenemy<MAXENEMY-1){   /* slime splits */
+        for(int k=0;k<2;k++){ Enemy*c=&enemy[nenemy++]; *c=(Enemy){0};
+            c->x=en->x+rr(-2,2); c->y=en->y-2; c->vx=rr(-40,40); c->vy=-50;
+            c->alive=1; c->type=2; c->size=0; c->hpmax=c->hp=5; c->t=rndf()*3; }
+    } else for(int k=0;k<12;k++)
+        spawn_part(en->x,en->y,rr(-70,70),rr(-70,40),rr(0.3f,0.7f),
+                   hue<=4?blood_col[hue]:MOTE_RGB565(200,200,210),1);
+}
 static void tick_enemies(float dt){
-    for(int e=0;e<nenemy;e++){ Enemy*en=&enemy[e]; if(!en->alive)continue; en->t+=dt;
-        if(en->hp<=0){ en->alive=0; for(int k=0;k<14;k++) spawn_part(en->x,en->y,rr(-70,70),rr(-70,40),rr(0.3f,0.7f),MOTE_RGB565(200,40,40),1); continue; }
-        float dx=wx-en->x, dy=wy-en->y, d=sqrtf(dx*dx+dy*dy)+0.01f;
-        if(en->type==0){ en->vx+=dx/d*30*dt; en->vy+=dy/d*30*dt;
-            en->vx=clampf(en->vx,-30,30); en->vy=clampf(en->vy,-30,30);
-        } else { en->vx+=dx/d*18*dt; en->vy+=(dy/d*15+sinf(en->t*2)*10)*dt;
-            en->vx=clampf(en->vx,-22,22); en->vy=clampf(en->vy,-22,22);
-            if(d<88 && fmodf(en->t,1.9f)<dt){ float a=atan2f(dy,dx); Mods mm={0}; mm.speed=1; mm.spread=1;
-                spawn_proj(SP_BOLT,en->x,en->y,a,&mm,1); } }
+    float pcx=wx+PW*0.5f, pcy=wy+PH*0.5f;
+    for(int e=0;e<nenemy;e++){ Enemy*en=&enemy[e]; if(!en->alive)continue; en->t+=dt; en->atk_t+=dt;
+        if(en->hp<=0){ enemy_die(en); continue; }
+        float dx=pcx-en->x, dy=pcy-en->y, d=sqrtf(dx*dx+dy*dy)+0.01f;
+        int fly=0, ghosty=0;
+        switch(en->type){
+            case 0:  /* BAT: hovers on a sine, swoops in a burst every few seconds */
+                fly=1;
+                en->vx+=dx/d*26*dt; en->vy+=(dy/d*20+sinf(en->t*4)*22)*dt;
+                if(d<80 && en->atk_t>2.8f){ en->atk_t=0; en->vx=dx/d*130; en->vy=dy/d*130; }
+                en->vx=clampf(en->vx,-70,70); en->vy=clampf(en->vy,-70,70);
+                en->vx*=0.985f; en->vy*=0.985f;
+                break;
+            case 1:  /* SPITTER: rooted plant, lobs acid globs in an arc */
+                en->vx*=0.6f; en->vy+=120*dt;
+                if(d<86 && en->atk_t>2.2f){ en->atk_t=0;
+                    float a=atan2f(dy,dx)-0.35f; Mods mm={0}; mm.speed=0.8f; mm.spread=1;
+                    spawn_proj(SP_ACID,en->x,en->y-1,a,&mm,1);
+                    if(nproj>0) proj[nproj-1].grav=150;
+                    for(int k=0;k<4;k++) spawn_part(en->x,en->y-1,rr(-20,20),rr(-40,-10),0.3f,MOTE_RGB565(150,255,90),1); }
+                break;
+            case 2:  /* SLIME: hops toward the wizard */
+                en->vx*=0.8f; en->vy+=170*dt;
+                if(en->atk_t>1.4f){ int gnd=inb((int)en->x,(int)en->y+2)&&IS_SOLID(mat[((int)en->y+2)*WW+(int)en->x]);
+                    if(gnd){ en->atk_t=0; en->vy=-75; en->vx=(dx<0?-1:1)*(28+rndf()*22); } }
+                break;
+            case 3:  /* WISP: burning mote, weaves in, ignites on touch */
+                fly=1;
+                en->vx+=dx/d*34*dt; en->vy+=(dy/d*30+cosf(en->t*5)*26)*dt;
+                en->vx=clampf(en->vx,-44,44); en->vy=clampf(en->vy,-44,44);
+                if((framestep&3)==0) spawn_part(en->x,en->y,rr(-10,10),rr(-16,4),0.3f,fire_lut[200+(rnd()&31)],1);
+                break;
+            case 4:  /* CRYSTAL: slow ground crawler, fires freezing shards */
+                en->vx=clampf(en->vx+(dx<0?-8:8)*dt,-12,12); en->vy+=150*dt;
+                if(d<70 && en->atk_t>3.0f){ en->atk_t=0;
+                    Mods mm={0}; mm.speed=0.9f; mm.spread=1;
+                    spawn_proj(SP_ICEs,en->x,en->y-1,atan2f(dy,dx),&mm,1); }
+                break;
+            case 5:  /* GHOST: drifts through rock, fades in and out */
+                fly=1; ghosty=1;
+                en->vx+=dx/d*16*dt; en->vy+=dy/d*16*dt;
+                en->vx=clampf(en->vx,-20,20); en->vy=clampf(en->vy,-20,20);
+                break;
+        }
         float sm=1.0f; if(en->slow_t>0){ en->slow_t-=dt; sm=0.35f; }
         float nx=en->x+en->vx*sm*dt, ny=en->y+en->vy*sm*dt;
-        if(inb((int)nx,(int)en->y) && !IS_SOLID(mat[(int)en->y*WW+(int)nx])) en->x=nx; else en->vx*=-0.5f;
-        if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=-0.5f;
-        if(d<5 && hurt_t<=0){ hp-=5; hurt_t=0.9f; wvx+=(dx<0?70:-70); wvy-=45; }
-        int ix=(int)en->x,iy=(int)en->y; if(inb(ix,iy)){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
+        if(ghosty){ if(inb((int)nx,(int)ny)){ en->x=nx; en->y=ny; } }
+        else {
+            if(inb((int)nx,(int)en->y) && !IS_SOLID(mat[(int)en->y*WW+(int)nx])) en->x=nx; else en->vx*=-0.5f;
+            if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=(fly?-0.5f:0);
+        }
+        if(d<5 && hurt_t<=0){
+            int dmg=en->type==5?3:5;
+            hp-=dmg; hurt_t=en->type==5?0.5f:0.9f; wvx+=(dx<0?70:-70); wvy-=45;
+            if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
+                if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=45; } } }
+        int ix=(int)en->x,iy=(int)en->y;
+        if(inb(ix,iy) && en->type!=3){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
     }
 }
 
@@ -798,16 +918,25 @@ static void gen_level(void){
         made++;
     }
 
-    /* a handful of enemies scattered through reachable chambers */
-    int ne=test_mode?0:3+level;
+    /* the menagerie: deeper levels unlock nastier types */
+    int ne=test_mode?0:4+level*2;
     for(int k=0;k<ne && nenemy<MAXENEMY;k++){ int i=rand_open(60,WH-14,0); if(i<0)continue;
         Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=i%WW; e->y=i/WW; e->alive=1;
-        e->type=(rnd()&3)==0?1:0; e->hpmax=e->hp=e->type?22:12; e->t=rndf()*3; }
+        int r=(int)(rnd()%100);
+        if(level>=3&&r<12)      e->type=5;             /* ghost   */
+        else if(level>=2&&r<26) e->type=3;             /* wisp    */
+        else if(level>=2&&r<40) e->type=4;             /* crystal */
+        else if(r<58)           e->type=0;             /* bat     */
+        else if(r<80)           e->type=2;             /* slime   */
+        else                    e->type=1;             /* spitter */
+        static const uint8_t ehp[6]={10,14,12,8,18,14};
+        e->hpmax=e->hp=ehp[e->type]; e->size=1; e->t=rndf()*3; e->atk_t=rndf(); }
 
     /* wand pickups in reachable chambers */
     int nw=1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
-        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
+        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level);
+        p->price=(uint8_t)(4+level*3+rnd()%5); }
 
     /* pre-settle all fluids, then purge anything still airborne so frame 0 is
      * completely still — no falling streams, no stripes collecting at the bottom */
@@ -818,6 +947,7 @@ static void gen_level(void){
         for(int y=(int)wy-6;y<=(int)wy+PH+1;y++)for(int x=(int)wx-9;x<=(int)wx+9;x++)
             if(inb(x,y)&&mat[y*WW+x]==M_EMPTY) mat[y*WW+x]=M_WATER; }
     memset(seen,0,sizeof seen); necho=0;   /* fresh fog + no pending echoes */
+    memset(coin,0,sizeof coin);
 }
 
 /* ============================================================= wizard === */
@@ -877,7 +1007,7 @@ static void wizard_update(float dt){
     if(mote_just_pressed(in,MOTE_BTN_LB)) cur_wand=(cur_wand+1)%nwand;
 
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; float dx=pick[i].x-(wx+PW*0.5f),dy=pick[i].y-(wy+PH*0.5f);
-        if(dx*dx+dy*dy<40){ pick[i].alive=0;
+        if(dx*dx+dy*dy<40 && gold>=pick[i].price){ pick[i].alive=0; gold-=pick[i].price;
             if(nwand<MAXWAND) wand[nwand++]=pick[i].w; else wand[cur_wand]=pick[i].w;
             for(int k=0;k<16;k++) spawn_part(pick[i].x,pick[i].y,rr(-60,60),rr(-60,60),0.5f,pick[i].w.col,1); } }
 
@@ -968,7 +1098,7 @@ static void reset_run(void){
     hp=hp_max=100; mana_fly=mana_fly_max=2.4f;
     static const uint8_t start[]={SP_SPARK,SP_SPARK};
     wand[0]=make_wand(start,2,0.16f,50,MOTE_RGB565(200,200,220));
-    nwand=1; cur_wand=0; level=1;
+    nwand=1; cur_wand=0; level=1; gold=0;
 }
 static void g_init(void){
     rng=(uint32_t)mote->micros()|1u; test_mode=getenv("MOITA_TEST")!=0;
@@ -986,7 +1116,7 @@ static void g_init(void){
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
     while(sim_acc>=(1.0f/45.0f)&&n<3){ ca_step(); sim_acc-=1.0f/45.0f; n++; }
-    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_enemies(dt);
+    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_enemies(dt); tick_coins(dt);
 }
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
@@ -1032,6 +1162,14 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
         case M_ICE: { uint16_t c=((hs>>2)&3)?MOTE_RGB565(140,190,235):MOTE_RGB565(170,215,250);
             if(((hs>>5)&15)==0) c=MOTE_RGB565(230,245,255);          /* glints */
             if(up_air) c=MOTE_RGB565(210,235,255); return c; }
+        case M_BLOOD: {          /* hue lives in heat[]: per-creature gore colours */
+            static const uint16_t bl[5][2]={
+                {MOTE_RGB565(190,26,26),MOTE_RGB565(140,16,20)},   /* 0 red    */
+                {MOTE_RGB565(96,200,60),MOTE_RGB565(60,150,40)},   /* 1 goo    */
+                {MOTE_RGB565(160,60,210),MOTE_RGB565(110,40,150)}, /* 2 ichor  */
+                {MOTE_RGB565(215,215,230),MOTE_RGB565(160,165,190)},/* 3 ecto  */
+                {MOTE_RGB565(150,200,240),MOTE_RGB565(110,150,200)}};/* 4 frost */
+            int hu=h<5?h:0; return bl[hu][(hs>>3)&1]; }
     }
     return MOTE_RGB565(7,6,12);
 }
@@ -1047,16 +1185,24 @@ static void render_band(uint16_t*fb,int y0,int y1){
         int wyy=cy+sy-TOP; int ly=sy>>1;
         if(wyy<0||wyy>=WH){ for(int x=0;x<WW;x++) fr[x]=MOTE_RGB565(4,4,8); continue; }
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
-        const uint8_t*sr=&seen[(wyy>>2)*SW_];
+        const uint8_t*sr=&seen[(wyy>>1)*LW];
+        int lyn=ly+((sy&1)?1:-1); if(lyn<0)lyn=0; if(lyn>=LH)lyn=LH-1;
+        const uint16_t*R0=&lightR[ly*LW],*R1=&lightR[lyn*LW];
+        const uint16_t*G0=&lightG[ly*LW],*G1=&lightG[lyn*LW];
+        const uint16_t*B0=&lightB[ly*LW],*B1=&lightB[lyn*LW];
         for(int x=0;x<WW;x++){
             uint8_t m=mr[x];
             if(m==M_LAVA){ fr[x]=lava_lut[hr[x]]; continue; }        /* emissive */
             if(m==M_FIRE){ fr[x]=fire_lut[hr[x]<255?hr[x]:255]; continue; }
-            int L=light[ly*LW+(x>>1)];
-            int vis=sr[x>>2]+(L>>4);            /* permanent memory + live glow */
+            int lx=x>>1, lxn=lx+((x&1)?1:-1); if(lxn<0)lxn=0; if(lxn>=LW)lxn=LW-1;
+            /* bilinear-filtered RGB light (3/4-1/4 taps across the half-res grid) */
+            int LR=(9*R0[lx]+3*R0[lxn]+3*R1[lx]+R1[lxn])>>4;
+            int LG=(9*G0[lx]+3*G0[lxn]+3*G1[lx]+G1[lxn])>>4;
+            int LB=(9*B0[lx]+3*B0[lxn]+3*B1[lx]+B1[lxn])>>4;
+            int vis=sr[x>>1]+((LR+LG+LB)/3>>4);  /* permanent memory + live glow */
             if(vis>256)vis=256; if(vis<16)vis=16;
             uint16_t base=scale565(mat_col(m,hr[x],x,wyy),vis);
-            if(L>0) base=add565(base,L>>5,L>>6,L>>8);
+            if(LR|LG|LB) base=add565(base,LR>>5,LG>>4,LB>>5);
             fr[x]=base;
         }
     }
@@ -1077,6 +1223,7 @@ static void ui_icon(uint16_t*fb,int x,int y,const uint8_t rows[5],uint16_t c){
 }
 static const uint8_t ic_heart[5]={0x0A,0x1F,0x1F,0x0E,0x04};
 static const uint8_t ic_bolt[5] ={0x02,0x04,0x0E,0x04,0x08};
+static const uint8_t ic_coin[5] ={0x0E,0x1B,0x15,0x1B,0x0E};
 /* liquids translucently veil anything drawn inside them (call after a blit) */
 static void fluid_veil(uint16_t*fb,int x0,int y0,int x1,int y1,int cy){
     for(int sy=y0;sy<=y1;sy++){ if((unsigned)sy>=128)continue; int wyy=sy+cy; if((unsigned)wyy>=(unsigned)WH)continue;
@@ -1122,6 +1269,73 @@ static void draw_wand_icon(uint16_t*fb,int x,int y,const Wand*w,int hot){
         mote->draw_pixel(fb,x+sp[j][0],y+sp[j][1],MOTE_RGB565(255,244,200)); }
 }
 
+/* tiny animated enemy sprites, one per type, all under 5x4 px */
+static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
+    float t=en->t;
+    switch(en->type){
+        case 0:{ /* BAT: flapping wings */
+            int fl=(sinf(t*14)>0);
+            uint16_t b=MOTE_RGB565(96,62,120), w=MOTE_RGB565(150,105,170);
+            mote->draw_pixel(fb,sx,sy,b); mote->draw_pixel(fb,sx,sy-1,b);
+            mote->draw_pixel(fb,sx-1,sy-fl,w); mote->draw_pixel(fb,sx-2,sy+(fl?-2:0),w);
+            mote->draw_pixel(fb,sx+1,sy-fl,w); mote->draw_pixel(fb,sx+2,sy+(fl?-2:0),w);
+            mote->draw_pixel(fb,sx,sy-2,MOTE_RGB565(255,80,80)); break; }
+        case 1:{ /* SPITTER: rooted maw on a stem */
+            mote->draw_pixel(fb,sx,sy+1,MOTE_RGB565(50,110,40));
+            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(80,160,60));
+            mote->draw_rect(fb,sx-1,sy-2,3,2,MOTE_RGB565(150,60,190),1,0,128);
+            mote->draw_pixel(fb,sx,sy-1,en->atk_t<0.3f?MOTE_RGB565(180,255,90):MOTE_RGB565(90,30,120));
+            break; }
+        case 2:{ /* SLIME: squashy hopper */
+            int air=(en->vy<-15||en->vy>25);
+            uint16_t g=MOTE_RGB565(90,205,70);
+            if(en->size==0){ mote->draw_rect(fb,sx,sy,2,2,g,1,0,128);
+                mote->draw_pixel(fb,sx,sy,MOTE_RGB565(170,255,150)); break; }
+            if(air) mote->draw_rect(fb,sx-1,sy-1,2,3,g,1,0,128);
+            else    mote->draw_rect(fb,sx-2,sy,4,2,g,1,0,128);
+            mote->draw_pixel(fb,sx-1,sy-(air?1:0),MOTE_RGB565(170,255,150));
+            mote->draw_pixel(fb,sx+(air?0:1),sy,MOTE_RGB565(20,60,20)); break; }
+        case 3:{ /* WISP: living ember with an orbiting spark */
+            uint16_t c=fire_lut[235];
+            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(255,255,220));
+            for(int k=0;k<4;k++){ static const int8_t o[4][2]={{1,0},{-1,0},{0,1},{0,-1}};
+                int xx=sx+o[k][0],yy=sy+o[k][1];
+                if((unsigned)xx<128u&&(unsigned)yy<128u) fb[yy*128+xx]=lerp565(fb[yy*128+xx],c,0.6f); }
+            int ox=(int)(cosf(t*7)*2.5f), oy=(int)(sinf(t*7)*2.5f);
+            mote->draw_pixel(fb,sx+ox,sy+oy,fire_lut[210]); break; }
+        case 4:{ /* CRYSTAL: glinting shard-beast */
+            uint16_t c1=MOTE_RGB565(140,190,235), c2=MOTE_RGB565(205,235,255);
+            mote->draw_pixel(fb,sx,sy-1,c2);
+            mote->draw_pixel(fb,sx-1,sy,c1); mote->draw_pixel(fb,sx,sy,c2); mote->draw_pixel(fb,sx+1,sy,c1);
+            mote->draw_pixel(fb,sx-1,sy+1,MOTE_RGB565(60,90,130)); mote->draw_pixel(fb,sx+1,sy+1,MOTE_RGB565(60,90,130));
+            if((framestep&15)<2) mote->draw_pixel(fb,sx,sy-1,MOTE_RGB565(255,255,255)); break; }
+        case 5:{ /* GHOST: translucent, wavy hem, fades in and out */
+            float a=0.30f+0.28f*sinf(t*2.6f);
+            uint16_t c=MOTE_RGB565(210,215,235);
+            for(int yy=-2;yy<=1;yy++)for(int xx=-1;xx<=1;xx++){
+                int px=sx+xx, py=sy+yy+((yy==1&&((xx+(int)(t*6))&1))?1:0);
+                if((unsigned)px<128u&&(unsigned)py<128u)
+                    fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
+            mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
+            mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
+    }
+}
+/* a wand lying in the world: its own little sprite inside a rotating starburst */
+static void draw_world_wand(uint16_t*fb,int sx,int sy,const Pickup*p){
+    uint32_t h=wand_hash(&p->w);
+    static const uint16_t wood[4]={MOTE_RGB565(150,102,56),MOTE_RGB565(104,78,60),
+                                   MOTE_RGB565(148,140,152),MOTE_RGB565(126,92,168)};
+    for(int k=0;k<8;k++){                        /* starburst rays, slowly wheeling */
+        float a=state_t*0.9f+k*0.7854f;
+        float len=4.0f+2.6f*sinf(state_t*2.6f+k*1.3f);
+        int ex=sx+(int)(cosf(a)*len), ey=sy+(int)(sinf(a)*len);
+        mote->draw_line(fb,sx,sy,ex,ey,(k&1)?p->w.col:MOTE_RGB565(255,255,240),0,46);
+    }
+    for(int i=0;i<4;i++) mote->draw_pixel(fb,sx-2+i,sy+2-i,wood[h&3]);
+    mote->draw_pixel(fb,sx+2,sy-2,p->w.col);
+    mote->draw_pixel(fb,sx+3,sy-2,MOTE_RGB565(255,255,235));
+    if((rnd()&15)==0) spawn_part(p->x+rr(-4,4),p->y+rr(-4,4),0,-7,0.4f,p->w.col,1);
+}
 static void g_overlay(uint16_t*fb){
     const MoteFont*fmed=(mote->abi_version>=47)?mote->ui_font(MOTE_FONT_MED):0;
     if(state==ST_TITLE){
@@ -1143,13 +1357,21 @@ static void g_overlay(uint16_t*fb){
     int pwx=(int)(wx+PW*0.5f), pwy=(int)(wy+PH*0.5f);
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; int sx=(int)pick[i].x,sy=(int)pick[i].y-cy;
         if(sy<-4||sy>132)continue; int bob=(int)(sinf(state_t*3+i)*2);
-        if(seen[(((int)pick[i].y)>>2)*SW_+((((int)pick[i].x)&127)>>2)]<90) continue;  /* still in fog */
-        mote->draw_rect(fb,sx-3,sy-1+bob,6,3,pick[i].w.col,1,0,128);
-        mote->draw_pixel(fb,sx,sy-3+bob,MOTE_RGB565(255,240,180)); }
+        if(seen[(((int)pick[i].y)>>1)*LW+((((int)pick[i].x)&127)>>1)]<90) continue;  /* still in fog */
+        draw_world_wand(fb,sx,sy+bob,&pick[i]);
+        { char pb[6]; snprintf(pb,sizeof pb,"%d",pick[i].price);      /* price tag */
+          tiny_text(fb,sx-(pick[i].price>9?4:2),sy-11+bob,pb,
+                    gold>=pick[i].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); } }
+    for(int i=0;i<MAXCOIN;i++){ if(!coin[i].alive)continue;           /* gold */
+        int sx=(int)coin[i].x,sy=(int)coin[i].y-cy; if(sy<TOP-2||sy>130)continue;
+        mote->draw_rect(fb,sx-1,sy-1,2,2,MOTE_RGB565(255,210,70),1,0,128);
+        mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(255,250,200));
+        if(((framestep+i*7)&31)==0) spawn_part(coin[i].x,coin[i].y,0,-8,0.3f,MOTE_RGB565(255,240,150),1); }
     for(int e=0;e<nenemy;e++){ if(!enemy[e].alive)continue; int sx=(int)enemy[e].x,sy=(int)enemy[e].y-cy;
         if(sy<-4||sy>132)continue;
         int dx=(int)enemy[e].x-pwx, dyw=(int)enemy[e].y-pwy;
-        int L=((unsigned)sy<128u)?light[(sy>>1)*LW+((sx&127)>>1)]:0;
+        int L=0; if((unsigned)sy<128u){ int li=(sy>>1)*LW+((sx&127)>>1);
+            L=(lightR[li]+lightG[li]+lightB[li])/3; }
         int vis=256-((dx*dx+dyw*dyw)*FOG_K>>16); if(vis<0)vis=0; vis+=L>>4;
         if(vis<60){                                   /* in the fog: glowing eyes only */
             uint16_t eye=MOTE_RGB565(255,70,50);
@@ -1158,10 +1380,11 @@ static void g_overlay(uint16_t*fb){
             if((unsigned)sy<127u&&(unsigned)(sx-1)<127u){
                 fb[(sy-1)*128+sx]=add565(fb[(sy-1)*128+sx],gl,gl>>2,0); }
             continue; }
-        uint16_t body=enemy[e].type?MOTE_RGB565(190,60,210):MOTE_RGB565(220,70,60);  /* tiny critters */
-        if(enemy[e].slow_t>0) body=lerp565(body,MOTE_RGB565(150,210,255),0.55f);     /* frosted */
-        mote->draw_rect(fb,sx-1,sy-1,3,3,body,1,0,128);
-        mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(255,240,240)); mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(255,240,240));
+        draw_enemy(fb,&enemy[e],sx,sy);
+        if(enemy[e].slow_t>0){                                        /* frost coat */
+            for(int yy=-1;yy<=1;yy++)for(int xx=-1;xx<=1;xx++){
+                int px=sx+xx,py=sy+yy; if((unsigned)px<128u&&(unsigned)py<128u)
+                    fb[py*128+px]=lerp565(fb[py*128+px],MOTE_RGB565(150,210,255),0.3f); } }
         fluid_veil(fb,sx-2,sy-2,sx+2,sy+2,cy); }
     for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x,sy=(int)proj[i].y-cy; if((unsigned)sx>=128||(unsigned)sy>=128)continue;
         float f=proj[i].life/1.4f; uint16_t c=proj_col(proj[i].type,f);
@@ -1199,9 +1422,12 @@ static void g_overlay(uint16_t*fb){
     mote_ui_rect(fb,0,17,128,1,MOTE_RGB565(18,14,30));
 
     ui_icon(fb,2,2,ic_heart,MOTE_RGB565(240,90,90));
-    ui_fbar(fb,9,2,54,6,hp/hp_max,MOTE_RGB565(210,52,52),MOTE_RGB565(255,130,120));
+    ui_fbar(fb,9,2,44,6,hp/hp_max,MOTE_RGB565(210,52,52),MOTE_RGB565(255,130,120));
     ui_icon(fb,2,10,ic_bolt,MOTE_RGB565(150,190,255));
-    ui_fbar(fb,9,10,54,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+    ui_fbar(fb,9,10,44,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+    ui_icon(fb,56,2,ic_coin,MOTE_RGB565(255,210,70));
+    snprintf(buf,sizeof buf,"%d",gold);
+    tiny_text(fb,56,9,buf,MOTE_RGB565(255,230,140));
 
     /* wand icons (current highlighted) above the wand mana bar */
     Wand*w=&wand[cur_wand];
