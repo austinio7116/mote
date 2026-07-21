@@ -763,9 +763,9 @@ static void g_overlay(uint16_t*fb){
     mote_ui_bar(fb,2,2,50,4,hp/hp_max,MOTE_RGB565(230,60,60),MOTE_RGB565(50,16,16));
     mote_ui_bar(fb,2,7,50,3,mana_fly/mana_fly_max,MOTE_RGB565(90,140,255),MOTE_RGB565(16,20,50));
     snprintf(buf,sizeof buf,"D%d",level);
-    if(fmed) mote->text_font(fb,fmed,buf,108,1,MOTE_RGB565(200,200,220));
+    if(fmed) mote->text_font(fb,fmed,buf,112,1,MOTE_RGB565(200,200,220));
     if(nwand>1){ char wb[8]; snprintf(wb,sizeof wb,"W%d/%d",cur_wand+1,nwand);
-        if(fmed) mote->text_font(fb,fmed,wb,58,1,MOTE_RGB565(200,200,220)); }
+        if(fmed) mote->text_font(fb,fmed,wb,82,1,MOTE_RGB565(200,200,220)); }
 
     Wand*w=&wand[cur_wand];
     for(int i=0;i<w->n && i<6;i++){ int bx=2+i*21, by=12, hot=(i==w->cast_i);
@@ -773,7 +773,7 @@ static void g_overlay(uint16_t*fb){
                       hot?MOTE_RGB565(255,220,120):MOTE_RGB565(50,46,64));
         if(fmed) mote->text_font(fb,fmed,spell_name(w->spell[i]),bx+1,by+1,
                  IS_PROJ(w->spell[i])?MOTE_RGB565(180,200,255):MOTE_RGB565(200,160,255)); }
-    mote_ui_bar(fb,2,24,124,2,w->mana/w->mana_max,w->col,MOTE_RGB565(20,20,28));
+    mote_ui_bar(fb,82,8,44,3,w->mana/w->mana_max,w->col,MOTE_RGB565(20,20,28));
 
     if(state==ST_DEAD){ mote_dim_box(fb,0,44,128,40,0); uint16_t c=MOTE_RGB565(255,80,60);
         if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"YOU DIED",22,52,c);
