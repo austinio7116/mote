@@ -23,6 +23,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 MOTE_GAME_MODULE();
 
@@ -101,6 +102,7 @@ static float mx, my, mvx, mvy;
 #define MH_ 13
 static int   grounded = 0, facing = 1, tool = T_WATER, anim_frame = 0;
 static float anim_t = 0;
+static float coyote_t = 0, jbuf_t = 0;   /* jump feel: coyote time + input buffer */
 static float place_cd = 0;
 static float log_angle = 0.35f;       /* radians — log placement angle */
 static float aimx = 1, aimy = 0;      /* aim unit vector (grapple + log) */
@@ -571,9 +573,11 @@ static void player_update(float dt){
     if(dax!=0){ anim_t+=dt*9; anim_frame=((int)anim_t)&3; } else anim_frame=0;
     mvx += dax*1000*dt; mvx*=0.82f; if(mvx>98)mvx=98; if(mvx<-98)mvx=-98;
 
-    /* --- jump on A (variable height) --- */
-    if(grounded && mote_just_pressed(in,MOTE_BTN_A)){ mvy=-178; grounded=0; }
-    else if(mote_pressed(in,MOTE_BTN_A)&&!grounded&&mvy<0) mvy-=150*dt;
+    /* --- jump: coyote time + input buffer + release-to-shorten = consistent feel --- */
+    if(grounded) coyote_t=0.09f; else if(coyote_t>0) coyote_t-=dt;
+    if(mote_just_pressed(in,MOTE_BTN_A)) jbuf_t=0.10f; else if(jbuf_t>0) jbuf_t-=dt;
+    if(jbuf_t>0 && coyote_t>0){ mvy=-205; grounded=0; coyote_t=0; jbuf_t=0; }   /* always full jump */
+    if(!mote_pressed(in,MOTE_BTN_A) && mvy<-80) mvy=-80;                        /* release early = short hop */
     mvy += 540*dt; if(mvy>250)mvy=250;
 
     /* --- grappling hook (RB) --- */
@@ -593,9 +597,15 @@ static void player_update(float dt){
         }
     }
 
-    /* --- integrate with terrain collision --- */
-    float nx=mx+mvx*dt; if(!aabb_hits(nx,my,pred_solid))mx=nx; else mvx=0;
-    float ny=my+mvy*dt; if(!aabb_hits(mx,ny,pred_solid))my=ny; else mvy=0;
+    /* --- integrate, PIXEL-STEPPED so the player slides flush to walls/ceilings
+     * (a single whole-velocity AABB test would stop a frame-step short — the
+     * "block-based" feel + clipped jumps). --- */
+    { float d=mvx*dt, st=d<0?-1.0f:1.0f, r=d<0?-d:d;
+      while(r>=1.0f){ if(aabb_hits(mx+st,my,pred_solid)){ mvx=0; break; } mx+=st; r-=1.0f; }
+      if(r>0 && mvx!=0){ float f=st*r; if(!aabb_hits(mx+f,my,pred_solid)) mx+=f; else mvx=0; } }
+    { float d=mvy*dt, st=d<0?-1.0f:1.0f, r=d<0?-d:d;
+      while(r>=1.0f){ if(aabb_hits(mx,my+st,pred_solid)){ mvy=0; break; } my+=st; r-=1.0f; }
+      if(r>0 && mvy!=0){ float f=st*r; if(!aabb_hits(mx,my+f,pred_solid)) my+=f; else mvy=0; } }
 
     /* --- rope constraint: pendulum swing + reel-in while held --- */
     if(grap_state==2){
@@ -670,8 +680,7 @@ static void step_sim(float dt){
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f;
     const MoteInput*in=mote->input(); state_t+=dt;
-
-    if(state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){state=ST_READY;state_t=0;} build_light(); return; }
+    if(state==ST_TITLE){ if(mote_just_pressed(in,MOTE_BTN_A)){ state=ST_READY; state_t=0; } build_light(); return; }
     if(state==ST_WIN||state==ST_LOSE){
         step_sim(dt); build_light();
         if(mote_just_pressed(in,MOTE_BTN_A)){ if(state==ST_WIN)level++; gen_level(); state=ST_READY; state_t=0; }
@@ -789,8 +798,11 @@ static void render_band(uint16_t*fb,int y0,int y1){
 static const char*tool_name[T_NTOOLS]={"WATER","LOG","DIG"};
 
 static void draw_player(uint16_t*fb){
+    /* Crop to the CHARACTER inside the 32x32 cell (opaque x9..23, y13..31) and
+     * scale it to the collision box so head=box top, feet=box bottom — the sprite
+     * fits the player's pixels exactly (no dead space above the head). */
     float cx=mx+MW_*0.5f, cy=my+MH_*0.5f;
-    mote->blit_ex(fb,&blonde_man_img, cx,cy, anim_frame*32,0, 32,32, 0.0f, 0.5f, MOTE_BLEND_NONE, 0,128);
+    mote->blit_ex(fb,&blonde_man_img, cx,cy, anim_frame*32+9,13, 14,18, 0.0f, (float)MH_/18.0f, MOTE_BLEND_NONE, 0,128);
 }
 static void draw_reticle(uint16_t*fb){
     int rx,ry; reticle(&rx,&ry);
