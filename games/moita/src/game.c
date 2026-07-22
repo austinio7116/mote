@@ -1444,7 +1444,7 @@ static void gen_level(void){
         if(level>=3&&r<12)      e->type=5;             /* ghost   */
         else if(level>=2&&r<26) e->type=3;             /* wisp    */
         else if(level>=2&&r<40) e->type=4;             /* crystal */
-        else if(r<58)           e->type=0;             /* bat     */
+        else if(level>=2&&r<58) e->type=0;             /* bat (fliers join at level 2) */
         else if(r<80)           e->type=2;             /* slime   */
         else                    e->type=1;             /* spitter */
         static const uint8_t ehp[6]={10,14,12,8,18,14};
