@@ -970,6 +970,13 @@ static void proj_impact(Proj*p){
                 spawn_part(p->x+cosf(a)*6,p->y+sinf(a)*6,-cosf(a)*70,-sinf(a)*70,0.3f,MOTE_RGB565(160,90,230),1); } break;
     }
     if(p->genes) apply_gene_impact(cx,cy,p->genes);      /* the emergent elemental brew */
+    /* kinetic shots (plain bolts/arc/orbs) chip through soft ground — this is how you
+     * tunnel with the starter wand. Element-placers and structural shots don't dig. */
+    uint16_t elem = p->genes & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_DIG|G_BOOM);
+    int placer = (p->type==SP_VINE||p->type==SP_WEB||p->type==SP_BOULDER);
+    if(!elem && !placer)
+        for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){ if(x*x+y*y>4)continue;
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY; }
     if(p->boom && !(p->genes&G_BOOM)) explode(p->x,p->y,5,(p->genes&(G_BURN|G_MOLTEN))?1:0);
     for(int k=0;k<4;k++) spawn_part(p->x,p->y,rr(-40,40),rr(-40,40),0.25f,
         p->genes?gene_color(p->genes):proj_col(p->type,0.5f),1);
@@ -1748,20 +1755,22 @@ static void g_init(void){
         wx=96; wy=60; wvx=wvy=0; state=ST_PLAY;
         cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
     }
-    if(getenv("MOITA_GUIDE")){    /* guide capture in a REAL cave: drop the wizard into
-                                   * the widest natural open lane so shots fly visibly */
-        int bestlen=0,bx=0,by=0;
-        for(int y=32;y<WH-32;y++){ int run=0,rs=0;
-            for(int x=4;x<WW-4;x++){ if(mat[y*WW+x]==M_EMPTY){ if(run==0)rs=x; run++;
-                    if(run>bestlen){ bestlen=run; bx=rs; by=y; } } else run=0; } }
-        if(bestlen>=26){
-            wx=bx+3; wy=by-PH; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0;
-            int fx=(int)wx, fy=(int)wy+PH;               /* a small natural nub to stand on */
-            if(inb(fx,fy)&&!IS_SOLID(mat[fy*WW+fx])) for(int x=-1;x<=3;x++){
-                if(inb(fx+x,fy))mat[fy*WW+fx+x]=M_ROCK; if(inb(fx+x,fy+1))mat[(fy+1)*WW+fx+x]=M_ROCK; }
+    if(getenv("MOITA_GUIDE")){    /* guide capture in a REAL cave: find a floor with a clear
+                                   * corridor at FIRING height, so shots fly fully visible */
+        int best=0,bx=0,by=0;
+        for(int y=34;y<WH-34;y++) for(int x=6;x<WW-42;x++){
+            if(!IS_SOLID(mat[(y+1)*WW+x])) continue;      /* need a floor to stand on */
+            int run=0;                                    /* clear 3px-tall lane to the right at firing height */
+            while(x+run<WW-4 && mat[(y-2)*WW+x+run]==M_EMPTY && mat[(y-3)*WW+x+run]==M_EMPTY
+                             && mat[(y-4)*WW+x+run]==M_EMPTY) run++;
+            if(run>best){ best=run; bx=x; by=y; } }
+        if(best>=34){
+            wx=bx; wy=by-PH+1; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0;   /* feet on the floor */
             cam_y=clampf(wy-VIEWH*0.5f,0,WH-VIEWH); state=ST_PLAY;
+            memset(seen,255,sizeof seen);                 /* clear the fog for the capture */
             if(getenv("MOITA_BIG")){ nenemy=0; int bt=atoi(getenv("MOITA_BIG")); if(bt<6||bt>9)bt=6;
-                Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=bx+bestlen-8; e->y=by-2; e->alive=1; e->size=2;
+                int boxx=bx+(best<38?best-4:38);          /* down the corridor, in view */
+                Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=boxx; e->y=by-3; e->alive=1; e->size=2;
                 e->type=(uint8_t)bt; e->hpmax=e->hp=400; e->t=rndf()*3;
                 for(int s=0;s<WHIST;s++){ whist[0][s][0]=e->x; whist[0][s][1]=e->y; } whpos[0]=0; }
         }
@@ -2038,6 +2047,31 @@ static void draw_barrel(uint16_t*fb,int sx,int sy,const Barrel*ba){
     if((unsigned)(sy-8)<128) fb[(sy-8)*128+sx]=dark;   /* cap */
     if((unsigned)(sy-4)<128) fb[(sy-4)*128+sx-1]=lerp565(body,MOTE_RGB565(255,255,255),0.4f); /* sheen */
 }
+/* hand-drawn pixel-art sprites for the big monsters (a char grid beats blobby circles) */
+static uint16_t moncol(char c){
+    switch(c){
+        case 'K':return MOTE_RGB565(58,22,10);   case 'k':return MOTE_RGB565(112,46,18);  /* magmaw crust */
+        case 'o':return MOTE_RGB565(236,92,20);   case 'y':return MOTE_RGB565(255,180,58);
+        case 'w':return MOTE_RGB565(255,244,200);  case 'e':return MOTE_RGB565(255,255,235);
+        case 'D':return MOTE_RGB565(40,110,35);   case 'd':return MOTE_RGB565(28,78,24);   /* brood slime */
+        case 'g':return MOTE_RGB565(92,200,68);   case 'l':return MOTE_RGB565(150,240,120);
+        case 'h':return MOTE_RGB565(205,255,186);  case 'E':return MOTE_RGB565(16,50,16);
+    }
+    return 0;
+}
+static const char*const MAGMAW_SPR[12]={
+    "....kkkkk....", "..kkKKKKKkk..", ".kKoooooooKk.", ".koyyyyyyyok.",
+    "koyyeyyyeyyok", "koyywwwwwyyok", "koyywwwwwyyok", ".koyywwwyyok.",
+    ".kKoyyyyyoKk.", "..kKoooooKk..", "...kK.o.Kk...", "...K.....K..."};
+static const char*const BROOD_SPR[11]={   /* shaded dome: light upper-left -> dark lower-right */
+    "...lgg..ggD...", "..lhlggggggDd.", ".lhhlgggggggDd", "lhhllggggggggD",
+    "lhlllgEgggEgDD", "llllggggggggDD", "lgggggggggggDd", "gggggggggggddd",
+    "DggggggggggdD.", ".DDgggggggDD..", "..dDD.DD.DDd.."};
+static void blit_mon(uint16_t*fb,int sx,int sy,const char*const*g,int w,int h){
+    for(int r=0;r<h;r++)for(int c=0;c<w;c++){ char ch=g[r][c]; if(ch=='.')continue;
+        uint16_t col=moncol(ch); if(!col)continue; int px=sx-w/2+c, py=sy-h/2+r;
+        if((unsigned)px<128u&&(unsigned)py<128u) fb[py*128+px]=col; }
+}
 static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
     float t=en->t;
     switch(en->type){
@@ -2086,14 +2120,9 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
                     fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
             mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
             mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
-        case 6:{ /* MAGMAW: molten brute — dark crust over a glowing core, white-hot eyes */
-            uint16_t k=MOTE_RGB565(64,24,12);
-            mote->draw_circle(fb,sx,sy,6,k,0,0,128);
-            mote->draw_circle(fb,sx,sy,5,fire_lut[200+(framestep&40)],1,0,128);
-            mote->draw_circle(fb,sx,sy,3,fire_lut[240],1,0,128);
-            static const int8_t cr[6][2]={{-3,-3},{2,-4},{4,0},{-4,1},{0,4},{3,3}};   /* crust patches */
-            for(int q=0;q<6;q++) mote->draw_pixel(fb,sx+cr[q][0],sy+cr[q][1],k);
-            mote->draw_pixel(fb,sx-2,sy-1,MOTE_RGB565(255,255,220)); mote->draw_pixel(fb,sx+2,sy-1,MOTE_RGB565(255,255,220));
+        case 6:{ /* MAGMAW: molten golem sprite, crust shell + glowing core */
+            blit_mon(fb,sx,sy,MAGMAW_SPR,13,12);
+            if((framestep&3)==0){ int cx=sx+((rnd()&3)-1); mote->draw_pixel(fb,cx,sy,fire_lut[250]); } /* core flicker */
             break; }
         case 7:{ /* DEVOURER: void sphere, violet ring + eye, orbiting motes */
             mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
@@ -2116,12 +2145,11 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
             mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215));       /* fangs */
             mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
             break; }
-        case 9:{ /* BROOD-MOTHER: fat slime queen, pulsing belly */
-            uint16_t g=MOTE_RGB565(95,205,70),gd=MOTE_RGB565(58,140,42),hl=MOTE_RGB565(170,255,150);
-            mote->draw_circle(fb,sx,sy,6,g,1,0,128); mote->draw_circle(fb,sx,sy,6,gd,0,0,128);
-            mote->draw_circle(fb,sx-1,sy-2,2,hl,1,0,128);
-            mote->draw_pixel(fb,sx-2,sy,MOTE_RGB565(20,60,20)); mote->draw_pixel(fb,sx+2,sy,MOTE_RGB565(20,60,20));
-            if(en->atk_t>1.6f) mote->draw_circle(fb,sx,sy+2,2,MOTE_RGB565(185,255,140),1,0,128); break; }
+        case 9:{ /* BROOD-MOTHER: fat slime-queen sprite, egg-bumps + pulsing belly */
+            blit_mon(fb,sx,sy,BROOD_SPR,14,11);
+            if(en->atk_t>1.6f){ uint16_t p=MOTE_RGB565(190,255,150);   /* belly glows before a birth */
+                mote->draw_pixel(fb,sx,sy+2,p); mote->draw_pixel(fb,sx-1,sy+3,p); mote->draw_pixel(fb,sx+1,sy+3,p); }
+            break; }
     }
 }
 /* a wand lying in the world: its own little sprite inside a rotating starburst */
