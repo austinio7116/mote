@@ -1591,10 +1591,12 @@ static void gen_level(void){
     memset(seen,0,sizeof seen); necho=0;   /* fresh fog + no pending echoes */
     memset(coin,0,sizeof coin);
     if(mp_on){    /* deathmatch: wizard 0 at the top chamber, wizard 1 at the bottom */
-        int bx=clampi(exit_x,10,WW-10), by=WH-16;
-        while(by>20 && !IS_SOLID(mat[(by+1)*WW+bx])) by--;      /* settle onto floor */
-        pstate[0].x=spawnx-PW/2; pstate[0].y=14;
-        pstate[1].x=bx-PW/2;     pstate[1].y=by-PH;
+        int bx=clampi(exit_x,10,WW-10);
+        /* carve a guaranteed-open pocket at each spawn so neither wizard starts embedded */
+        carve_disc(spawnx,16,7,M_EMPTY);
+        carve_disc(bx,WH-18,7,M_EMPTY);
+        pstate[0].x=spawnx-PW/2; pstate[0].y=16-PH;      /* mid-pocket; physics settles onto the floor */
+        pstate[1].x=bx-PW/2;     pstate[1].y=WH-18-PH;
         for(int j=0;j<2;j++){ PState*p=&pstate[j];
             p->vx=p->vy=0; p->grnd=0; p->anim=0; p->anim_t=0;
             p->face=(j==0)?1:-1; p->ax=p->face; p->ay=0; p->aa=0;
@@ -2004,7 +2006,7 @@ static void mp_poll(void){
     int p=0;
     while(p+2<=mp_rxn){
         if(mp_rx[p]!=0xA5){ p++; continue; }
-        uint8_t ty=mp_rx[p+1]; int need = ty==1?6 : ty==2?7 : ty==3?5 : ty==4?31 : 2;
+        uint8_t ty=mp_rx[p+1]; int need = ty==1?6 : ty==2?7 : ty==3?5 : ty==4?30 : 2;
         if(p+need>mp_rxn) break;
         const uint8_t*pl=&mp_rx[p+2];
         if(ty==1){ mp_peer_nonce=((uint32_t)pl[0]<<24)|(pl[1]<<16)|(pl[2]<<8)|pl[3]; mp_hello_ok=1; }
@@ -2042,7 +2044,9 @@ static void mp_step_frame(const MoteInput*in){
     cast_owner=0; load_player(0); wizard_update(dt,&i0); save_player(0);
     cast_owner=1; load_player(1); wizard_update(dt,&i1); save_player(1);
     cast_owner=255;
-    step_sim(dt); build_light(); framestep++;
+    step_sim(dt);
+    load_player(localp); build_light();   /* reveal fog + light around OUR wizard, not whoever saved last */
+    framestep++;
     cam_y += (clampf(pstate[localp].y-VIEWH*0.45f,0,WH-VIEWH)-cam_y)*clampf(dt*6,0,1);
     /* schedule my own input for frame f+MP_DELAY and announce it */
     { uint8_t mask=0;
@@ -2058,6 +2062,7 @@ static void mp_step_frame(const MoteInput*in){
         h^=(uint32_t)(pstate[0].x*8)^((uint32_t)(pstate[0].y*8)<<8)^((uint32_t)(pstate[1].x*8)<<16)^((uint32_t)(pstate[1].y*8)<<24);
         fprintf(stderr,"MPHASH f=%d h=%08x p0=%.1f,%.1f p1=%.1f,%.1f m0=%d m1=%d lp=%d\n",
             mp_frame,h,pstate[0].x,pstate[0].y,pstate[1].x,pstate[1].y,m0,m1,localp); }
+    { const char*sv=getenv("MOITA_MP_SUICIDE"); if(sv && mp_frame==atoi(sv)) pstate[0].life=0; }  /* test hook */
     for(int j=0;j<2;j++) if(pstate[j].alive && pstate[j].life<=0){ pstate[j].alive=0;
         if(mote->abi_version>=37) mote->audio_play_sfx(&boom_big_sfx,0.8f); }
     if(!pstate[0].alive || !pstate[1].alive){
@@ -2066,6 +2071,7 @@ static void mp_step_frame(const MoteInput*in){
         if(mp_score[0]>=MP_WIN||mp_score[1]>=MP_WIN){ mp_phase=MPP_OVER; }
         else { mp_phase=MPP_EDIT; mp_ready[0]=mp_ready[1]=0; ed_wi=0; ed_si=0; ed_carry=SP_NONE; }
         state_t=0;
+        if(getenv("MOITA_MP_HASH")) fprintf(stderr,"ROUNDEND f=%d phase=%d score=%d-%d lp=%d\n",mp_frame,mp_phase,mp_score[0],mp_score[1],localp);
     }
 }
 static void mp_edit_update(const MoteInput*in){
@@ -2078,15 +2084,18 @@ static void mp_edit_update(const MoteInput*in){
         if(mote_just_pressed(in,MOTE_BTN_A)){ uint8_t*sl=&wand[ed_wi].spell[ed_si]; int t=*sl; *sl=(uint8_t)ed_carry; ed_carry=t; }
         if(mote_just_pressed(in,MOTE_BTN_LB)) cur_wand=(cur_wand+1)%nwand;
         save_player(localp);
-        if(mote_just_pressed(in,MOTE_BTN_RB)){         /* ready up */
+        int ready_now = mote_just_pressed(in,MOTE_BTN_RB) || (getenv("MOITA_MP_AUTOREADY") && state_t>0.6f);
+        if(ready_now){                                 /* ready up */
             if(ed_carry!=SP_NONE){ load_player(localp);
                 for(int k=0;k<nwand&&ed_carry!=SP_NONE;k++){ Wand*w=&wand[(ed_wi+k)%nwand];
                     for(int i=0;i<WAND_SLOTS;i++) if(w->spell[i]==SP_NONE){w->spell[i]=(uint8_t)ed_carry;ed_carry=SP_NONE;break;} }
                 for(int i=0;i<nwand;i++) wand_compact(&wand[i]); save_player(localp); }
             uint8_t buf[32]; int n=deck_ser(localp,buf); mp_send(4,buf,n); mp_ready[localp]=1;
+            if(getenv("MOITA_MP_HASH")) fprintf(stderr,"READYUP lp=%d r0=%d r1=%d\n",localp,mp_ready[0],mp_ready[1]);
         }
     }
     if(localp==0 && mp_ready[0] && mp_ready[1] && !mp_seed_go){
+        if(getenv("MOITA_MP_HASH")) fprintf(stderr,"HOST ADVANCE round=%d\n",mp_round+1);
         mp_seed=(mp_seed*1664525u+1013904223u)|1u; mp_round++; mp_bcast_seed(); }
 }
 static void mp_enter(void){
@@ -2625,7 +2634,7 @@ static void g_overlay(uint16_t*fb){
             for(int yy=0;yy<bh;yy++)for(int xx=0;xx<bw;xx++) bak[yy*bw+xx]=fb[(y0+yy)*128+x0+xx];
             mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128);
             for(int yy=0;yy<bh;yy++)for(int xx=0;xx<bw;xx++){ int idx=(y0+yy)*128+x0+xx;
-                if(fb[idx]!=bak[yy*bw+xx]){ float amt=(yy>bh/2)?0.5f:0.28f;   /* robe (lower) tinted harder */
+                if(fb[idx]!=bak[yy*bw+xx]){ float amt=(yy>bh/2)?0.85f:0.5f;   /* robe (lower) strongly team-coloured */
                     fb[idx]=lerp565(fb[idx],MP_TEAM[wi],amt); } }
         } else mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128);
         fluid_veil(fb,(int)cx-6,(int)cyy-6,(int)cx+6,(int)cyy+6,cy);
@@ -2645,19 +2654,21 @@ static void g_overlay(uint16_t*fb){
     mote_ui_rect(fb,0,16,128,1,MOTE_RGB565(104,90,150));
     mote_ui_rect(fb,0,17,128,1,MOTE_RGB565(18,14,30));
 
-    if(mp_on){    /* deathmatch HUD: YOUR team-coloured bars left, round score centre, foe bar right */
+    if(mp_on){    /* deathmatch HUD: YOUR bars left · wands (selected lit) centre · score+foe right */
         uint16_t you=MP_TEAM[localp], foe=MP_TEAM[1-localp];
         uint16_t youh=lerp565(you,MOTE_RGB565(255,255,255),0.45f), foeh=lerp565(foe,MOTE_RGB565(255,255,255),0.45f);
-        ui_icon(fb,2,2,ic_heart,you);
-        ui_fbar(fb,9,2,38,6,hp/hp_max,you,youh);
-        ui_icon(fb,2,10,ic_bolt,MOTE_RGB565(150,190,255));
-        ui_fbar(fb,9,10,38,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+        ui_icon(fb,1,2,ic_heart,you);
+        ui_fbar(fb,8,2,32,6,hp/hp_max,you,youh);
+        ui_icon(fb,1,10,ic_bolt,MOTE_RGB565(150,190,255));
+        ui_fbar(fb,8,10,32,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+        /* wand row — the SELECTED wand gets a gold frame (draw_wand_icon hot) */
+        for(int i=0;i<nwand&&i<3;i++) draw_wand_icon(fb,43+i*10,1,&wand[i],i==cur_wand);
         Wand*w=&wand[cur_wand];
-        ui_fbar(fb,9,15,38,1,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
+        ui_fbar(fb,43,11,29,3,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
         snprintf(buf,sizeof buf,"%d-%d",mp_score[localp],mp_score[1-localp]);
-        if(fmed) mote->text_font(fb,fmed,buf,54,3,MOTE_RGB565(255,236,180));
-        ui_icon(fb,82,4,ic_heart,foe);
-        ui_fbar(fb,89,4,37,7,clampf(pstate[1-localp].life/100.0f,0,1),foe,foeh);
+        if(fmed) mote->text_font(fb,fmed,buf,77,1,MOTE_RGB565(255,236,180));
+        ui_icon(fb,77,10,ic_heart,foe);
+        ui_fbar(fb,84,10,42,5,clampf(pstate[1-localp].life/100.0f,0,1),foe,foeh);
     } else {
     ui_icon(fb,2,2,ic_heart,MOTE_RGB565(240,90,90));
     ui_fbar(fb,9,2,44,6,hp/hp_max,MOTE_RGB565(210,52,52),MOTE_RGB565(255,130,120));
