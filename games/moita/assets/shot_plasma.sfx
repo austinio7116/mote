@@ -1,0 +1,10 @@
+# plasma bolt — liquid saw
+wave 1
+freq 0.30 0 -0.08 0
+duty 0.5 0
+vib 0.12 0.45
+env 0 0.07 0.2 0.15
+lpf 0.45 -0.05 0.3
+hpf 0 0
+pha 0.1 -0.01
+arp 0 0

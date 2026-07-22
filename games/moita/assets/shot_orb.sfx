@@ -1,0 +1,10 @@
+# orb launcher — deep energy sphere
+wave 2
+freq 0.15 0 -0.10 0
+duty 0.5 0
+vib 0 0
+env 0 0.04 0.7 0.20
+lpf 0.6 0 0
+hpf 0 0
+pha 0 0
+arp 0 0

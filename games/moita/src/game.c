@@ -31,6 +31,21 @@ MOTE_MODULE_HEADER();
 #endif
 #include "wizard.h"          /* wizard_img: 16x16 cells, 4 bob frames */
 
+/* SFX recipes (shared with Scrapwing's weapon rack) — streamed, ~88 bytes each */
+#include "shot_pulse.sfx.h"
+#include "shot_plasma.sfx.h"
+#include "shot_fire.sfx.h"
+#include "shot_venom.sfx.h"
+#include "shot_void.sfx.h"
+#include "shot_rail.sfx.h"
+#include "shot_orb.sfx.h"
+#include "boom_small.sfx.h"
+#include "boom_big.sfx.h"
+#include "hurt.sfx.h"
+#include "pickup.sfx.h"
+#include "gate.sfx.h"
+#include "denied.sfx.h"
+
 MOTE_GAME_META("Moita", "austinio7116");
 MOTE_GAME_VERSION("0.1.0");
 
@@ -195,6 +210,7 @@ static void tick_coins(float dt){
     for(int i=0;i<MAXCOIN;i++){ if(!coin[i].alive)continue;
         float dx=(wx+PW*0.5f)-coin[i].x, dy=(wy+PH*0.5f)-coin[i].y, d2=dx*dx+dy*dy;
         if(d2<12){ coin[i].alive=0; gold++;
+            if(mote->abi_version>=37) mote->audio_play_sfx(&pickup_sfx,0.4f);
             for(int k=0;k<5;k++) spawn_part(coin[i].x,coin[i].y,rr(-40,40),rr(-50,10),0.3f,MOTE_RGB565(255,220,90),1);
             continue; }
         if(d2<260){ float d=sqrtf(d2); coin[i].vx+=dx/d*380*dt; coin[i].vy+=dy/d*380*dt; }
@@ -478,6 +494,21 @@ static void tick_echo(float dt){
         i++;
     }
 }
+/* --- SFX: one voice per cast/impact, drawn from the shared recipe rack.
+ * Each projectile type maps to the shot that best fits its character. */
+static const MoteSfx* proj_sfx(int type){
+    switch(type){
+        case SP_SPARK:  case SP_NOVA:               return &shot_pulse_sfx;
+        case SP_BOLT:   case SP_CHAIN: case SP_ZAP:  return &shot_plasma_sfx;
+        case SP_FIRE:   case SP_LAVAB: case SP_METEOR: return &shot_fire_sfx;
+        case SP_ACID:   case SP_OILB:  case SP_WATER: return &shot_venom_sfx;
+        case SP_VOID:   case SP_PRISM:               return &shot_void_sfx;
+        case SP_NEEDLE: case SP_DIG:                 return &shot_rail_sfx;
+        case SP_ORB:    case SP_SWARM: case SP_VINE:
+        case SP_ICEs:   case SP_BOMB:                return &shot_orb_sfx;
+    }
+    return &shot_pulse_sfx;
+}
 static void cast_zap(float px,float py,float ang,Mods*m);
 static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     if(w->delay_t>0 || w->n<=0) return;
@@ -541,6 +572,19 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     if(m.echo && necho<8){ echoq[necho].type=(uint8_t)projspell; echoq[necho].x=px; echoq[necho].y=py;
         echoq[necho].ang=base; echoq[necho].m=m; echoq[necho].m.echo=0; echoq[necho].t=0.35f; necho++; }
     for(int k=0;k<5;k++) spawn_part(px,py,cosf(base)*rr(20,60),sinf(base)*rr(20,60),0.2f,w->col,1);
+    if(mote->abi_version>=37){                         /* the cast's voice */
+        float g=0.5f + (m.spread>1?0.1f:0) + (m.boom?0.15f:0);
+        mote->audio_play_sfx(proj_sfx(projspell), g>0.9f?0.9f:g);
+    }
+}
+
+/* world-positioned SFX: full on-screen, fading out ~a screen below the view so
+ * distant impacts don't shout over the wizard (world scrolls vertically) */
+static void sfx_at(const MoteSfx*s,float gain,float wy_world){
+    if(mote->abi_version<37) return;
+    float d=wy_world-(cam_y+VIEWH*0.5f); if(d<0)d=-d;
+    float f=d<=70?1.0f:1.0f-(d-70)/120.0f;
+    if(f>0.03f) mote->audio_play_sfx(s,gain*f);
 }
 
 /* ======================================================== projectiles === */
@@ -555,6 +599,7 @@ static void explode(float fx,float fy,int r,int fire){
     for(int k=0;k<20;k++) spawn_part(fx,fy,rr(-90,90),rr(-90,60),rr(0.3f,0.7f),fire_lut[rnd()&255],1);
     for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-fx,dy=enemy[e].y-fy;
         if(dx*dx+dy*dy < (r+2)*(r+2)) enemy[e].hp-=24; }
+    sfx_at(r>=7?&boom_big_sfx:&boom_small_sfx, 0.7f, fy);
 }
 static void grow_vine(int gx,int gy){
     /* living wood: 3 wobbly shoots reach upward from the impact point */
@@ -701,6 +746,7 @@ static void tick_proj(float dt){
             } else if(p->pierce){ p->x=nx; p->y=ny; i++; continue; }
             proj_impact(p); proj[i]=proj[--nproj]; continue; }
         if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=6; hurt_t=0.6f;
+            if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
             proj[i]=proj[--nproj]; continue; } }
         if(hitsolid){
             if(p->bounce){ int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]);
@@ -730,6 +776,7 @@ static void enemy_die(Enemy*en){
     int hue=enemy_blood[en->type];
     spawn_blood(en->x,en->y,hue,10);
     spawn_coins(en->x,en->y,1+(int)(rnd()%3));
+    sfx_at(&boom_small_sfx, 0.55f, en->y);
     if(en->type==3){                                    /* wisp: dies in fire */
         for(int k=0;k<16;k++) spawn_part(en->x,en->y,rr(-80,80),rr(-90,30),rr(0.3f,0.7f),fire_lut[180+(rnd()&63)],1);
         int ix=(int)en->x,iy=(int)en->y;
@@ -763,6 +810,7 @@ static void tick_enemies(float dt){
                     float a=atan2f(dy,dx)-0.35f; Mods mm={0}; mm.speed=0.8f; mm.spread=1;
                     spawn_proj(SP_ACID,en->x,en->y-1,a,&mm,1);
                     if(nproj>0) proj[nproj-1].grav=150;
+                    sfx_at(&shot_venom_sfx, 0.45f, en->y);
                     for(int k=0;k<4;k++) spawn_part(en->x,en->y-1,rr(-20,20),rr(-40,-10),0.3f,MOTE_RGB565(150,255,90),1); }
                 break;
             case 2:  /* SLIME: hops toward the wizard */
@@ -780,7 +828,8 @@ static void tick_enemies(float dt){
                 en->vx=clampf(en->vx+(dx<0?-8:8)*dt,-12,12); en->vy+=150*dt;
                 if(d<70 && en->atk_t>3.0f){ en->atk_t=0;
                     Mods mm={0}; mm.speed=0.9f; mm.spread=1;
-                    spawn_proj(SP_ICEs,en->x,en->y-1,atan2f(dy,dx),&mm,1); }
+                    spawn_proj(SP_ICEs,en->x,en->y-1,atan2f(dy,dx),&mm,1);
+                    sfx_at(&shot_orb_sfx, 0.45f, en->y); }
                 break;
             case 5:  /* GHOST: drifts through rock, fades in and out */
                 fly=1; ghosty=1;
@@ -798,6 +847,7 @@ static void tick_enemies(float dt){
         if(d<5 && hurt_t<=0){
             int dmg=en->type==5?3:5;
             hp-=dmg; hurt_t=en->type==5?0.5f:0.9f; wvx+=(dx<0?70:-70); wvy-=45;
+            if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
             if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
                 if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=45; } } }
         int ix=(int)en->x,iy=(int)en->y;
@@ -1048,13 +1098,15 @@ static void wizard_update(float dt){
     for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; float dx=pick[i].x-(wx+PW*0.5f),dy=pick[i].y-(wy+PH*0.5f);
         if(dx*dx+dy*dy<40){ pick[i].alive=0;   /* found wands are free */
             if(nwand<MAXWAND) wand[nwand++]=pick[i].w; else wand[cur_wand]=pick[i].w;
+            if(mote->abi_version>=37) mote->audio_play_sfx(&gate_sfx,0.8f);
             for(int k=0;k<16;k++) spawn_part(pick[i].x,pick[i].y,rr(-60,60),rr(-60,60),0.5f,pick[i].w.col,1); } }
 
     float tgt=clampf(wy-VIEWH*0.45f,0,WH-VIEWH); cam_y+=(tgt-cam_y)*clampf(dt*6,0,1);
     /* level ends at the portal: spend your gold before descending */
     { float ex=(wx+PW*0.5f)-exit_x, ey=(wy+PH*0.5f)-(WH-8);
       if(ex*ex+ey*ey<64){ open_shop(); return; } }
-    if(hp<=0){ state=ST_DEAD; state_t=0; }
+    if(hp<=0){ state=ST_DEAD; state_t=0;
+        if(mote->abi_version>=37) mote->audio_play_sfx(&boom_big_sfx,0.85f); }
 }
 
 /* ===================================================== wand editor === */
@@ -1157,13 +1209,15 @@ static void shop_update(const MoteInput*in){
     if(mote_just_pressed(in,MOTE_BTN_RIGHT)) shop_sel=(shop_sel+1)%6;
     if(mote_just_pressed(in,MOTE_BTN_UP)||mote_just_pressed(in,MOTE_BTN_DOWN)) shop_sel=(shop_sel+3)%6;
     if(mote_just_pressed(in,MOTE_BTN_A)){
+        int bought=0;
         if(shop_sel<3){ if(!shop_w[shop_sel].sold && gold>=shop_w[shop_sel].price){
-            gold-=shop_w[shop_sel].price; shop_w[shop_sel].sold=1;
+            gold-=shop_w[shop_sel].price; shop_w[shop_sel].sold=1; bought=1;
             if(nwand<MAXWAND) wand[nwand++]=shop_w[shop_sel].w; else wand[cur_wand]=shop_w[shop_sel].w; } }
         else { int s=shop_sel-3, h=card_home();
             if(!shop_c[s].sold && h>=0 && gold>=shop_c[s].price){
-                gold-=shop_c[s].price; shop_c[s].sold=1;
-                wand[h].spell[wand[h].n++]=shop_c[s].sp; } } }
+                gold-=shop_c[s].price; shop_c[s].sold=1; bought=1;
+                wand[h].spell[wand[h].n++]=shop_c[s].sp; } }
+        if(mote->abi_version>=37) mote->audio_play_sfx(bought?&gate_sfx:&denied_sfx, 0.8f); }
     if(mote_just_pressed(in,MOTE_BTN_B)||mote_just_pressed(in,MOTE_BTN_MENU)){
         level++; gen_level(); state=ST_PLAY; }
 }
