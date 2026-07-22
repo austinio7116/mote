@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.2.0");
+MOTE_GAME_VERSION("0.2.1");
 
 /* ============================================================ constants === */
 #define WW 128
@@ -63,9 +63,9 @@ MOTE_GAME_VERSION("0.2.0");
 #define LH 64                  /* light field: half-res of the visible window */
 
 enum { M_EMPTY=0, M_ROCK, M_DIRT, M_SAND, M_WOOD, M_OBSID,
-       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE, M_BLOOD, M_WEB, M_SPORE };
+       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE, M_BLOOD, M_WEB, M_SPORE, M_NAPALM };
 #define IS_SOLID(m)  ((m)==M_ROCK||(m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
-#define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD)
+#define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD||(m)==M_NAPALM)
 #define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE||(m)==M_WEB)
 #define FIRE_HOT 210           /* ignite heat: fire renders bright, then decays down */
 
@@ -74,14 +74,14 @@ enum { SP_NONE=0,
        SP_SPARK, SP_BOLT, SP_FIRE, SP_WATER, SP_ACID, SP_DIG, SP_BOMB,
        SP_ZAP, SP_ICEs, SP_VINE, SP_ORB, SP_NOVA, SP_LAVAB, SP_OILB, SP_NEEDLE,
        SP_CHAIN, SP_METEOR, SP_SWARM, SP_VOID, SP_PRISM,
-       SP_STORM, SP_SEEK, SP_BOULDER, SP_WEB, SP_FROST, SP_SPORE, SP_MIRROR,
+       SP_STORM, SP_SEEK, SP_BOULDER, SP_WEB, SP_FROST, SP_SPORE, SP_MIRROR, SP_NAPALM,
        /* modifiers */
        SP_DMG, SP_SPREAD, SP_SPREAD5, SP_TWIN, SP_BOUNCE, SP_HOMING, SP_BOOM,
        SP_SPEED, SP_SLOWM, SP_HEAVY, SP_FLOATM, SP_PIERCE, SP_TRAILF, SP_TRAILS,
        SP_TRAILA, SP_CRIT, SP_LEECH, SP_ECHO, SP_WAVE, SP_GLOW, SP_MANAR,
        SP_FORK, SP_RICO, SP_POISON, SP_GIANT, SP_CHAOS, SP_SPLIT,
        SP_COUNT };
-#define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_MIRROR)
+#define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_NAPALM)
 
 enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
 
@@ -346,6 +346,15 @@ static void ca_step(void){
             if(mat[i-1]==M_FIRE||mat[i+1]==M_FIRE||mat[i-WW]==M_FIRE||mat[i+WW]==M_FIRE||
                mat[i-1]==M_LAVA||mat[i+1]==M_LAVA||mat[i-WW]==M_LAVA||mat[i+WW]==M_LAVA){
                 mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
+        } else if(m==M_NAPALM){       /* pre-lit sticky liquid: flows AND burns */
+            int U=i-WW,D=i+WW,L=i-1,R=i+1;
+            if(mat[U]==M_WATER||mat[D]==M_WATER||mat[L]==M_WATER||mat[R]==M_WATER){ mat[i]=M_STEAM; heat[i]=40; continue; }
+            if(mat[U]==M_EMPTY && (rnd()&3)==0){ mat[U]=M_FIRE; heat[U]=190; }   /* licking flames */
+            if(ignitable(mat[L])&&(rnd()&1)){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}
+            if(ignitable(mat[R])&&(rnd()&1)){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
+            if(ignitable(mat[U])&&(rnd()&1)){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
+            if(ignitable(mat[D])&&(rnd()&1)){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
+            if(heat[i]<=3){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]-=2;
         } else if(m==M_ACID){
             int nb[4]={i-1,i+1,i-WW,i+WW};
             for(int k=0;k<4;k++){ uint8_t nm=mat[nb[k]];
@@ -400,7 +409,7 @@ static void build_light(void){
         const uint8_t*mr=&mat[wyy*WW]; const uint8_t*hr=&heat[wyy*WW];
         for(int x=1;x<WW-1;x++){ uint8_t m=mr[x];
             if(m==M_LAVA) seed_rgb(ly*LW+(x>>1),26+(hr[x]>>1),lava_lut[hr[x]]);
-            else if(m==M_FIRE) seed_rgb(ly*LW+(x>>1),30+(hr[x]>>1),fire_lut[hr[x]<255?hr[x]:255]);
+            else if(m==M_FIRE||m==M_NAPALM) seed_rgb(ly*LW+(x>>1),30+(hr[x]>>1),fire_lut[hr[x]<255?hr[x]:255]);
             else if(m==M_OBSID&&hr[x]>40) seed_rgb(ly*LW+(x>>1),(hr[x]-40)>>2,MOTE_RGB565(255,120,40));
             if(IS_SOLID(m)) light2[ly*LW+(x>>1)]++;
         }
@@ -466,7 +475,7 @@ static Wand random_wand(int lvl){
     static const uint8_t pp[]={SP_SPARK,SP_BOLT,SP_FIRE,SP_WATER,SP_ACID,SP_DIG,SP_BOMB,
         SP_ZAP,SP_ICEs,SP_VINE,SP_ORB,SP_NOVA,SP_LAVAB,SP_OILB,SP_NEEDLE,
         SP_CHAIN,SP_METEOR,SP_SWARM,SP_VOID,SP_PRISM,
-        SP_STORM,SP_SEEK,SP_BOULDER,SP_WEB,SP_FROST,SP_SPORE,SP_MIRROR};
+        SP_STORM,SP_SEEK,SP_BOULDER,SP_WEB,SP_FROST,SP_SPORE,SP_MIRROR,SP_NAPALM};
     static const uint8_t mp[]={SP_DMG,SP_SPREAD,SP_SPREAD5,SP_TWIN,SP_BOUNCE,SP_HOMING,
         SP_BOOM,SP_SPEED,SP_SLOWM,SP_HEAVY,SP_FLOATM,SP_PIERCE,SP_TRAILF,SP_TRAILS,
         SP_TRAILA,SP_CRIT,SP_LEECH,SP_ECHO,SP_WAVE,SP_GLOW,SP_MANAR,
@@ -517,6 +526,7 @@ static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
         case SP_WEB:   sp=110; dmg=2;  life=1.3f; break;
         case SP_SPORE: sp=100; dmg=3;  life=1.4f; break;
         case SP_MIRROR:sp=175; dmg=7;  life=1.7f; break;
+        case SP_NAPALM:sp=115; dmg=5;  life=1.6f; grav=150; break;   /* lobbed molotov */
         default: sp=150; dmg=8; break;
     }
     uint8_t bnc=m?m->bounce:0,hom=m?m->homing:0,bm=m?m->boom:0;
@@ -667,6 +677,11 @@ static void explode(float fx,float fy,int r,int fire){
         int i=wyp*WW+wxp; uint8_t mm=mat[i];
         if(IS_SOLID(mm)||IS_FLUID(mm)){ mat[i]=M_EMPTY; heat[i]=0; }
     }
+    if(fire){                                           /* a few residual embers, not a fire disc */
+        for(int k=0;k<r+2;k++){ int ex=cx+(int)(rnd()%(2*r+1))-r, ey=cy+(int)(rnd()%(2*r+1))-r;
+            if((ex-cx)*(ex-cx)+(ey-cy)*(ey-cy)>r*r)continue;
+            if(inb(ex,ey)&&mat[ey*WW+ex]==M_EMPTY){ mat[ey*WW+ex]=M_FIRE; heat[ey*WW+ex]=FIRE_HOT; } }
+    }
     /* debris flung outward from the centre, fast and hot */
     int ns=14+r*3;
     for(int k=0;k<ns;k++){ float a=rndf()*6.2832f, sp=55+rndf()*(r*18.0f);
@@ -686,13 +701,6 @@ static void tick_booms(float dt){
     for(int b=0;b<nboom;){
         Boom*bo=&boom[b]; float p0=bo->age/bo->dur; bo->age+=dt;
         float p=bo->age/bo->dur; if(p>1)p=1;
-        int cx=(int)bo->x, cy=(int)bo->y;
-        /* fireball blooms outward from the core with a roiling, noisy edge */
-        if(bo->fire){ float fr=p*bo->maxr; int ri=(int)fr+1;
-            for(int y=-ri;y<=ri;y++)for(int x=-ri;x<=ri;x++){
-                float edge=fr-(float)(rnd()&3); if(edge<0)continue;
-                if((float)(x*x+y*y)>edge*edge)continue; int wxp=cx+x,wyp=cy+y; if(!inb(wxp,wyp))continue;
-                int i=wyp*WW+wxp; if(mat[i]==M_EMPTY||ignitable(mat[i])){ mat[i]=M_FIRE; heat[i]=(uint8_t)(FIRE_HOT+(rnd()&30)); } } }
         /* expanding shockwave ring of bright sparks */
         float sr=p*bo->maxr*1.3f; int nring=6+bo->maxr;
         for(int k=0;k<nring;k++){ float a=rndf()*6.2832f;
@@ -815,6 +823,7 @@ static uint16_t proj_col(int type,float f){
         case SP_WEB:   return MOTE_RGB565(210,235,195);
         case SP_SPORE: return lerp565(MOTE_RGB565(180,240,140),MOTE_RGB565(110,190,90),1-f);
         case SP_MIRROR:return (rnd()&1)?MOTE_RGB565(240,250,255):MOTE_RGB565(160,200,230);
+        case SP_NAPALM:return fire_lut[180+(rnd()&60)];
     }
     return MOTE_RGB565(255,255,255);
 }
@@ -837,6 +846,10 @@ static void proj_impact(Proj*p){
                 if(dx*dx+dy*dy<36) enemy[e].hp-=18; } break;
         case SP_SEEK:  explode(p->x,p->y,5,1); break;
         case SP_MIRROR:for(int k=0;k<5;k++) spawn_part(p->x,p->y,rr(-50,50),rr(-50,50),0.2f,MOTE_RGB565(220,240,255),1); break;
+        case SP_NAPALM: for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* burning splash */
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_NAPALM;heat[i]=200+(rnd()&40);}}
+            for(int k=0;k<14;k++){ float a=rndf()*6.2832f,s=20+rndf()*55;
+                spawn_part(p->x,p->y,cosf(a)*s,sinf(a)*s-20,0.4f,fire_lut[200+(rnd()&50)],1); } break;
         case SP_ICEs: {
             for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;
                 int i=(cy+y)*WW+cx+x; if(!inb(cx+x,cy+y))continue;
@@ -1069,7 +1082,7 @@ static void tick_enemies(float dt){
             if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
                 if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=130; } } }
         int ix=(int)en->x,iy=(int)en->y;
-        if(inb(ix,iy) && en->type!=3){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
+        if(inb(ix,iy) && en->type!=3){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA||mm==M_NAPALM) en->hp-=2; }
     }
 }
 
@@ -1307,7 +1320,7 @@ static void wizard_update(float dt){
 
     int burn=0,acid=0;
     for(int yy=0;yy<PH;yy++)for(int xx=0;xx<PW;xx++){ int ix=(int)wx+xx,iy=(int)wy+yy; if(!inb(ix,iy))continue;
-        uint8_t m=mat[iy*WW+ix]; if(m==M_LAVA||m==M_FIRE)burn=1; else if(m==M_ACID)acid=1; }
+        uint8_t m=mat[iy*WW+ix]; if(m==M_LAVA||m==M_FIRE||m==M_NAPALM)burn=1; else if(m==M_ACID)acid=1; }
     if(hurt_t>0) hurt_t-=dt;
     if((burn||acid) && hurt_t<=0){ hp-=burn?10:6; hurt_t=0.5f; }
 
@@ -1339,14 +1352,14 @@ static void wizard_update(float dt){
 static int ed_wi=0, ed_si=0, ed_carry=SP_NONE;
 static const char*sp_code[SP_COUNT]={"",
     "SP","BL","FI","WT","AC","DG","BM","ZP","IC","VN","OR","NV","LV","OL","NE","CH","MT","SW","VD","RB",
-    "ST","SK","BO","WB","FR","SO","MR",
+    "ST","SK","BO","WB","FR","SO","MR","NP",
     "D+","3X","5X","TW","BN","HM","BX","V+","V-","GR","FL","PC","TF","TS","TA","CR","LF","EC","WV","GL","MN",
     "FK","RC","PO","GI","CX","SL"};
 /* full name + one-line effect, shown in the detail panel */
 static const char*sp_name[SP_COUNT]={"",
     "Spark","Bolt","Fire","Water","Acid","Dig","Bomb","Zap","Ice Shard","Vine Seed",
     "Arcane Orb","Nova","Lava Ball","Oil Blob","Needle","Chain Bolt","Meteor","Swarm","Void Orb","Prism",
-    "Storm","Seeker","Boulder","Web","Frost Beam","Spore","Mirror",
+    "Storm","Seeker","Boulder","Web","Frost Beam","Spore","Mirror","Napalm",
     "Damage+","Spread x3","Spread x5","Twin","Bounce","Homing","Boom","Speed+","Slow","Gravity",
     "Float","Pierce","Fire Trail","Sparkle Trail","Acid Trail","Crit","Leech","Echo","Wave","Glow","Mana Refund",
     "Fork","Ricochet+","Poison","Giant","Chaos","Split End"};
@@ -1357,7 +1370,7 @@ static const char*sp_desc[SP_COUNT]={"",
     "Splats molten lava","Splats oil to ignite","Railgun-fast, pierces","Arcs between enemies",
     "Falling fiery blast","Four homing motes","Eats land, pulls foes","Rainbow ricochet",
     "Bolts rain from above","Locks on, accelerates","Crushing falling rock","Sticky slowing goo",
-    "Freezing short cone","Drifting poison cloud","Splits on wall hit",
+    "Freezing short cone","Drifting poison cloud","Splits on wall hit","Sticky burning liquid",
     "+9 damage (stacks)","Fires 3 in a fan","Fires 5 in a fan","Duplicates the volley",
     "Ricochets off walls","Steers toward enemies","Explodes on impact","x1.7 velocity",
     "Slower, hits harder","Shot arcs downward","Anti-gravity drift","Passes through foes",
@@ -1394,6 +1407,7 @@ static uint16_t sp_colr(int s){
         case SP_FROST: return MOTE_RGB565(180,230,255);
         case SP_SPORE: return MOTE_RGB565(150,220,120);
         case SP_MIRROR:return MOTE_RGB565(210,230,240);
+        case SP_NAPALM:return MOTE_RGB565(255,120,40);
         case SP_FORK:  return MOTE_RGB565(200,220,255);
         case SP_RICO:  return MOTE_RGB565(140,230,210);
         case SP_POISON:return MOTE_RGB565(150,220,110);
@@ -1612,6 +1626,7 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
             return strand?MOTE_RGB565(210,235,200):MOTE_RGB565(120,150,120); }
         case M_SPORE: { int w=(((x+y+(int)(state_t*5))>>1)&3)<2;    /* roiling gas */
             return w?MOTE_RGB565(150,220,120):MOTE_RGB565(96,168,84); }
+        case M_NAPALM: return fire_lut[h<255?h:255];
     }
     return MOTE_RGB565(7,6,12);
 }
@@ -1636,7 +1651,7 @@ static void render_band(uint16_t*fb,int y0,int y1){
         for(int x=0;x<WW;x++){
             uint8_t m=mr[x];
             if(m==M_LAVA){ fr[x]=lava_lut[hr[x]]; continue; }        /* emissive */
-            if(m==M_FIRE){ int fl=(int)(hh2(x*5+framestep*2,wyy*3+framestep)&47)-18;  /* live flicker */
+            if(m==M_FIRE||m==M_NAPALM){ int fl=(int)(hh2(x*5+framestep*2,wyy*3+framestep)&47)-18;  /* live flicker */
                 int fh=hr[x]+fl; if(fh<0)fh=0; else if(fh>255)fh=255; fr[x]=fire_lut[fh]; continue; }
             int lx=x>>1, lxn=lx+((x&1)?1:-1); if(lxn<0)lxn=0; if(lxn>=LW)lxn=LW-1;
             /* bilinear-filtered RGB light (3/4-1/4 taps across the half-res grid) */
