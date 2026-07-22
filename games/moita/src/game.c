@@ -191,8 +191,24 @@ static Enemy enemy[MAXENEMY]; static int nenemy=0;
 
 /* wand pickups */
 #define MAXPICK 6
-typedef struct { float x,y; uint8_t alive; Wand w; } Pickup;
+typedef struct { float x,y; uint8_t alive; float cd; Wand w; } Pickup;
 static Pickup pick[MAXPICK]; static int npick=0;
+
+/* absorb a found/bought wand for free: fill an empty belt slot; if the belt is full,
+ * SWAP it into the least-invested wand you are NOT currently wielding (your held wand is
+ * always safe) and DROP the displaced one so you can pick it back up again */
+static void give_wand(Wand nw, float dropx, float dropy){
+    if(nwand<MAXWAND){ wand[nwand++]=nw; return; }
+    int victim=-1;
+    for(int i=0;i<nwand;i++){ if(i==cur_wand) continue;
+        if(victim<0 || wand[i].n<wand[victim].n) victim=i; }
+    if(victim<0) victim=cur_wand;                 /* only one wand — nothing else to give up */
+    int slot=-1; for(int i=0;i<npick;i++) if(!pick[i].alive){ slot=i; break; }
+    if(slot<0 && npick<MAXPICK) slot=npick++;
+    if(slot>=0){ pick[slot].x=dropx; pick[slot].y=dropy; pick[slot].alive=1;
+                 pick[slot].cd=1.0f; pick[slot].w=wand[victim]; }   /* cd: don't instantly re-grab */
+    wand[victim]=nw;
+}
 
 /* =============================================================== utils === */
 static inline uint32_t rnd(void){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
@@ -1518,7 +1534,7 @@ static void gen_level(void){
     /* wand pickups in reachable chambers */
     int nw=1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
-        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
+        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->cd=0; p->w=random_wand(level); }
 
     /* scatter destructible barrels on floors — oil kegs and powder kegs */
     nbarrel=0; int nb2=3+(int)(rnd()%4);
@@ -1608,11 +1624,13 @@ static void wizard_update(float dt){
     }
     if(mote_just_pressed(in,MOTE_BTN_LB)) cur_wand=(cur_wand+1)%nwand;
 
-    for(int i=0;i<npick;i++){ if(!pick[i].alive)continue; float dx=pick[i].x-(wx+PW*0.5f),dy=pick[i].y-(wy+PH*0.5f);
-        if(dx*dx+dy*dy<40){ pick[i].alive=0;   /* found wands are free */
-            if(nwand<MAXWAND) wand[nwand++]=pick[i].w; else wand[cur_wand]=pick[i].w;
+    for(int i=0;i<npick;i++){ if(!pick[i].alive)continue;
+        if(pick[i].cd>0){ pick[i].cd-=dt; continue; }   /* freshly dropped — let the wizard step off first */
+        float dx=pick[i].x-(wx+PW*0.5f),dy=pick[i].y-(wy+PH*0.5f);
+        if(dx*dx+dy*dy<40){ Wand got=pick[i].w; float gx=pick[i].x,gy=pick[i].y; pick[i].alive=0;
+            give_wand(got,gx,gy);              /* free: fills a slot, else swaps the least-used spare */
             if(mote->abi_version>=37) mote->audio_play_sfx(&gate_sfx,0.8f);
-            for(int k=0;k<16;k++) spawn_part(pick[i].x,pick[i].y,rr(-60,60),rr(-60,60),0.5f,pick[i].w.col,1); } }
+            for(int k=0;k<16;k++) spawn_part(gx,gy,rr(-60,60),rr(-60,60),0.5f,got.col,1); } }
 
     float tgt=clampf(wy-VIEWH*0.45f,0,WH-VIEWH); cam_y+=(tgt-cam_y)*clampf(dt*6,0,1);
     /* level ends at the portal: spend your gold before descending */
@@ -1780,7 +1798,7 @@ static void shop_update(const MoteInput*in){
         int bought=0;
         if(shop_sel<3){ if(!shop_w[shop_sel].sold && gold>=shop_w[shop_sel].price){
             gold-=shop_w[shop_sel].price; shop_w[shop_sel].sold=1; bought=1;
-            if(nwand<MAXWAND) wand[nwand++]=shop_w[shop_sel].w; else wand[cur_wand]=shop_w[shop_sel].w; } }
+            give_wand(shop_w[shop_sel].w, wx+PW*0.5f, wy+PH*0.5f); } }
         else { int s=shop_sel-3, h=card_home();
             if(!shop_c[s].sold && h>=0 && gold>=shop_c[s].price){
                 gold-=shop_c[s].price; shop_c[s].sold=1; bought=1;
