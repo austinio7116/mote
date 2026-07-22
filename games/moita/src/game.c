@@ -120,6 +120,7 @@ static float sim_acc = 0;
 static uint32_t framestep = 0;
 static int   test_mode = 0;
 static int   settling = 0;   /* true while pre-settling fluids at level gen */
+static int   cur_biome = 0;  /* 0 verdant · 1 fungal · 2 scorched — drives cave decor */
 
 /* ============================================================= wizard === */
 static float wx, wy, wvx, wvy;
@@ -1291,7 +1292,7 @@ static void gen_level(void){
     memset(mat,M_EMPTY,WN); memset(heat,0,WN);
     nproj=npart=nenemy=npick=0;
     uint32_t seed=level*2654435761u ^ (rng|1u);
-    int biome=(level-1)%3;
+    int biome=(level-1)%3; cur_biome=biome;
 
     /* solid world (dirt + rocky veins + rock shell) */
     for(int y=0;y<WH;y++)for(int x=0;x<WW;x++){
@@ -1711,6 +1712,7 @@ static void g_init(void){
     build_luts(); mote->scene_set_background(MOTE_RGB565(4,4,8)); mote->set_fps_limit(30);
     reset_run();
     { const char*lv=getenv("MOITA_LEVEL"); if(lv){ int v=atoi(lv); if(v>0)level=v; } } /* test hook */
+    { const char*sd=getenv("MOITA_SEED"); if(sd) rng=(uint32_t)atoi(sd)|1u; }   /* reproducible gen */
     { const char*ws=getenv("MOITA_WAND"); if(ws){ Wand w={0}; int n=0;   /* test hook: deck by ids */
         while(*ws&&n<WAND_SLOTS){ int v=atoi(ws); if(v>0&&v<SP_COUNT) w.spell[n++]=(uint8_t)v;
             while(*ws&&*ws!=',')ws++; if(*ws==',')ws++; }
@@ -1745,6 +1747,24 @@ static void g_init(void){
         barrel[0].fuse=0.1f;                            /* ignite the first */
         wx=96; wy=60; wvx=wvy=0; state=ST_PLAY;
         cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
+    }
+    if(getenv("MOITA_GUIDE")){    /* guide capture in a REAL cave: drop the wizard into
+                                   * the widest natural open lane so shots fly visibly */
+        int bestlen=0,bx=0,by=0;
+        for(int y=32;y<WH-32;y++){ int run=0,rs=0;
+            for(int x=4;x<WW-4;x++){ if(mat[y*WW+x]==M_EMPTY){ if(run==0)rs=x; run++;
+                    if(run>bestlen){ bestlen=run; bx=rs; by=y; } } else run=0; } }
+        if(bestlen>=26){
+            wx=bx+3; wy=by-PH; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0;
+            int fx=(int)wx, fy=(int)wy+PH;               /* a small natural nub to stand on */
+            if(inb(fx,fy)&&!IS_SOLID(mat[fy*WW+fx])) for(int x=-1;x<=3;x++){
+                if(inb(fx+x,fy))mat[fy*WW+fx+x]=M_ROCK; if(inb(fx+x,fy+1))mat[(fy+1)*WW+fx+x]=M_ROCK; }
+            cam_y=clampf(wy-VIEWH*0.5f,0,WH-VIEWH); state=ST_PLAY;
+            if(getenv("MOITA_BIG")){ nenemy=0; int bt=atoi(getenv("MOITA_BIG")); if(bt<6||bt>9)bt=6;
+                Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=bx+bestlen-8; e->y=by-2; e->alive=1; e->size=2;
+                e->type=(uint8_t)bt; e->hpmax=e->hp=400; e->t=rndf()*3;
+                for(int s=0;s<WHIST;s++){ whist[0][s][0]=e->x; whist[0][s][1]=e->y; } whpos[0]=0; }
+        }
     }
     if(getenv("MOITA_ARENA")){    /* guide capture: open corridor, wizard fires right */
         for(int y=38;y<98;y++)for(int x=2;x<126;x++) mat[y*WW+x]=M_EMPTY;
@@ -1791,6 +1811,20 @@ static void g_update(float dt){
 static inline uint32_t hh2(int x,int y){ uint32_t h=(uint32_t)(x*374761393u+y*668265263u);
     h=(h^(h>>13))*1274126177u; return h; }
 /* richer per-pixel textures: rocky/muddy surfaces, lit top edges, deep-shaded water */
+/* drooping moss: recolours the TOP pixels of solid ground, hanging down a
+ * hash-varied amount per column (so the ledge silhouette stays readable and the
+ * moss droops INTO the rock rather than sticking up). Biome 2 chars the top. */
+static uint16_t moss_top(uint16_t rock,int x,int y){
+    if(y<3) return rock;
+    int td = (mat[(y-1)*WW+x]==M_EMPTY)?0 : (mat[(y-2)*WW+x]==M_EMPTY)?1 : (mat[(y-3)*WW+x]==M_EMPTY)?2 : 99;
+    if(td>=99) return rock;
+    if(cur_biome==2){ if(td==0) rock=lerp565(rock,MOTE_RGB565(98,44,26),0.45f); return rock; }
+    uint32_t mh=hh2(x,5);
+    int md = (cur_biome==0) ? (1+(int)(mh%4)) : (int)(mh%3);   /* droop depth per column */
+    if(td<=md){ uint16_t moss = (cur_biome==0)?MOTE_RGB565(70,112,52):MOTE_RGB565(96,104,74);
+        rock = lerp565(moss,rock,td*0.30f); }              /* darker/rockier further down */
+    return rock;
+}
 static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
     uint32_t hs=hh2(x,y); int v=hs&7;
     int up_air=(y>0 && mat[(y-1)*WW+x]==M_EMPTY);
@@ -1798,12 +1832,10 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
         case M_EMPTY: return MOTE_RGB565(7,6,12);
         case M_ROCK: { uint16_t c=MOTE_RGB565(24+v*2,22+v*2,34+v*2);
             if(((hs>>3)&31)==0) c=MOTE_RGB565(14,12,22);              /* dark crack */
-            if(up_air) c=add565(c,7,7,8);                            /* lit ledge */
-            return c; }
+            return moss_top(c,x,y); }
         case M_DIRT: { uint16_t c=MOTE_RGB565(48+v*3,36+v*2,24+v);
             if(((hs>>4)&7)==0) c=MOTE_RGB565(34,24,15);              /* muddy specks */
-            if(up_air) c=MOTE_RGB565(66+v*2,58+v,34);               /* mossy cap */
-            return c; }
+            return moss_top(c,x,y); }
         case M_SAND:  return (hs&3)?MOTE_RGB565(200,175,110):MOTE_RGB565(178,150,88);
         case M_WOOD: { uint16_t c=((x+y)&1)?MOTE_RGB565(112,72,38):MOTE_RGB565(88,56,28);
             if(((hs>>2)&7)==0)c=MOTE_RGB565(70,46,24); return c; }
@@ -1837,6 +1869,22 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
     }
     return MOTE_RGB565(7,6,12);
 }
+/* procedural flora growing from a surface into the empty cell at (x,wyy):
+ * verdant grass & flowers up top, fungus in the mid caves, embers deep down.
+ * returns 0 for bare air. */
+static uint16_t deco_at(int x,int wyy){
+    if(wyy<3||wyy>=WH-4) return 0;
+    /* fine strands drooping from an overhang above (moss / fungal roots) */
+    int hu = IS_SOLID(mat[(wyy-1)*WW+x])?1 : IS_SOLID(mat[(wyy-2)*WW+x])?2 : IS_SOLID(mat[(wyy-3)*WW+x])?3 : 0;
+    if(hu){ uint32_t h=hh2(x*2+1,9);
+        if(cur_biome==0 && (h%6)==0){ int L=1+((h>>3)&3); if(hu<=L) return (hu==L)?MOTE_RGB565(84,140,64):MOTE_RGB565(58,98,46); }
+        else if(cur_biome==1 && (h%7)==0){ int L=1+((h>>3)&2); if(hu<=L) return MOTE_RGB565(120,110,142); }
+    }
+    /* the odd flower poking up from a mossy floor (verdant only, rare) */
+    if(cur_biome==0 && IS_SOLID(mat[(wyy+1)*WW+x])){ uint32_t h=hh2(x*3+5,2);
+        if((h&31)==0) return ((h>>6)&1)?MOTE_RGB565(240,120,180):MOTE_RGB565(245,220,110); }
+    return 0;
+}
 /* fog of war: multiply toward black by 0..256 visibility */
 static inline uint16_t scale565(uint16_t c,int k){
     int r=(((c>>11)&31)*k)>>8, g=(((c>>5)&63)*k)>>8, b=((c&31)*k)>>8;
@@ -1867,7 +1915,9 @@ static void render_band(uint16_t*fb,int y0,int y1){
             int LB=(9*B0[lx]+3*B0[lxn]+3*B1[lx]+B1[lxn])>>4;
             int vis=(tp?sr[x>>1]:236)+((LR+LG+LB)/3>>4);  /* memory + live glow (no fog on title) */
             if(vis>256)vis=256; if(vis<16)vis=16;
-            uint16_t base=scale565(mat_col(m,hr[x],x,wyy),vis);
+            uint16_t mc=mat_col(m,hr[x],x,wyy);
+            if(m==M_EMPTY){ uint16_t dc=deco_at(x,wyy); if(dc)mc=dc; }   /* flora on the ledges */
+            uint16_t base=scale565(mc,vis);
             if(LR|LG|LB) base=add565(base,LR>>5,LG>>4,LB>>5);
             fr[x]=base;
         }
@@ -2028,12 +2078,14 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
                     fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
             mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
             mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
-        case 6:{ /* MAGMAW: molten brute, crust cracks, white-hot eyes */
-            mote->draw_circle(fb,sx,sy,6,MOTE_RGB565(70,22,10),0,0,128);
-            mote->draw_circle(fb,sx,sy,5,fire_lut[205+(framestep&40)],1,0,128);
+        case 6:{ /* MAGMAW: molten brute — dark crust over a glowing core, white-hot eyes */
+            uint16_t k=MOTE_RGB565(64,24,12);
+            mote->draw_circle(fb,sx,sy,6,k,0,0,128);
+            mote->draw_circle(fb,sx,sy,5,fire_lut[200+(framestep&40)],1,0,128);
             mote->draw_circle(fb,sx,sy,3,fire_lut[240],1,0,128);
+            static const int8_t cr[6][2]={{-3,-3},{2,-4},{4,0},{-4,1},{0,4},{3,3}};   /* crust patches */
+            for(int q=0;q<6;q++) mote->draw_pixel(fb,sx+cr[q][0],sy+cr[q][1],k);
             mote->draw_pixel(fb,sx-2,sy-1,MOTE_RGB565(255,255,220)); mote->draw_pixel(fb,sx+2,sy-1,MOTE_RGB565(255,255,220));
-            if(framestep&2){ mote->draw_pixel(fb,sx-1,sy+3,MOTE_RGB565(70,22,10)); mote->draw_pixel(fb,sx+3,sy+1,MOTE_RGB565(70,22,10)); }
             break; }
         case 7:{ /* DEVOURER: void sphere, violet ring + eye, orbiting motes */
             mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
@@ -2050,7 +2102,11 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
                 if((unsigned)bx>=128u||(unsigned)by>=128u)continue;
                 mote->draw_circle(fb,bx,by,(s<=6)?2:1,g,1,0,128); mote->draw_pixel(fb,bx,by-1,hl); }
             mote->draw_circle(fb,sx,sy,3,g,1,0,128); mote->draw_circle(fb,sx,sy,3,gd,0,0,128);
-            mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(255,220,80)); mote->draw_pixel(fb,sx+1,sy+1,MOTE_RGB565(255,220,80));
+            int fd=en->vx>=0?1:-1;                        /* head faces its heading */
+            mote->draw_pixel(fb,sx+fd,sy-1,MOTE_RGB565(255,220,80)); mote->draw_pixel(fb,sx+fd,sy+1,MOTE_RGB565(255,220,80));
+            mote->draw_pixel(fb,sx+fd*3,sy,MOTE_RGB565(70,110,50));           /* snout */
+            mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215));       /* fangs */
+            mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
             break; }
         case 9:{ /* BROOD-MOTHER: fat slime queen, pulsing belly */
             uint16_t g=MOTE_RGB565(95,205,70),gd=MOTE_RGB565(58,140,42),hl=MOTE_RGB565(170,255,150);
