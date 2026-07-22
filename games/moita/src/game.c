@@ -1219,8 +1219,13 @@ static void tick_enemies(float dt){
                 en->vx=clampf(en->vx,-46,46); en->vy=clampf(en->vy,-46,46);
                 if(d<110 && en->atk_t>2.4f){ en->atk_t=0; en->vx=dx/d*150; en->vy=dy/d*150; } /* lunge */
                 break;
-            case 9:  /* BROOD-MOTHER: lumbers in, births slimes, splits on death */
+            case 9:  /* BROOD-MOTHER: lumbers in, births slimes, oozes constantly */
                 en->vx=clampf(en->vx+(dx<0?-10:10)*dt,-16,16); en->vy+=160*dt;
+                /* constantly weeps goo — dribbling droplets and pooling slime beneath */
+                spawn_part(en->x+rr(-6,6),en->y+rr(1,5),rr(-5,5),rr(4,26),0.4f+rndf()*0.5f,
+                           (rnd()&1)?MOTE_RGB565(96,205,72):MOTE_RGB565(66,150,48),0);
+                if((rnd()&3)==0){ int gx=(int)en->x+(int)(rnd()%11)-5, gy=(int)en->y+5;
+                    if(inb(gx,gy)&&mat[gy*WW+gx]==M_EMPTY){ mat[gy*WW+gx]=M_BLOOD; heat[gy*WW+gx]=1; } } /* green goo */
                 if(en->atk_t>2.0f && nenemy<MAXENEMY-1){ en->atk_t=0;   /* spawn a slime */
                     Enemy*c=&enemy[nenemy++]; *c=(Enemy){0}; c->x=en->x+rr(-4,4); c->y=en->y-3;
                     c->vx=rr(-40,40); c->vy=-60; c->alive=1; c->type=2; c->size=1; c->hpmax=c->hp=8; c->t=rndf()*3;
