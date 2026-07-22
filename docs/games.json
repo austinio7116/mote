@@ -1,16 +1,16 @@
 {
  "schema": 1,
- "generated": "2026-07-22T11:36:28+00:00",
+ "generated": "2026-07-22T12:01:01+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
    "id": "moita",
    "name": "Moita",
    "author": "austinio7116",
-   "version": "0.2.1",
+   "version": "0.3.0",
    "abi": 47,
-   "size": 109232,
-   "sha256": "dd84f1accf04adb8471cba010e02fd6093e3ae1c84e9da1c469202276c249b97",
+   "size": 111232,
+   "sha256": "57658621368e9bb9fd0bc282d3767fe8288b829382f9cdc9c7f6ebb547ecb069",
    "file": "games/Moita.mote",
    "icon": "img/gallery/moita-icon.png",
    "thumb": "img/gallery/moita-1.png",

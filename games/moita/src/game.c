@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.2.1");
+MOTE_GAME_VERSION("0.3.0");
 
 /* ============================================================ constants === */
 #define WW 128
@@ -80,8 +80,24 @@ enum { SP_NONE=0,
        SP_SPEED, SP_SLOWM, SP_HEAVY, SP_FLOATM, SP_PIERCE, SP_TRAILF, SP_TRAILS,
        SP_TRAILA, SP_CRIT, SP_LEECH, SP_ECHO, SP_WAVE, SP_GLOW, SP_MANAR,
        SP_FORK, SP_RICO, SP_POISON, SP_GIANT, SP_CHAOS, SP_SPLIT,
+       SP_TRIG_HIT, SP_TRIG_TIMER, SP_TRIG_DEATH,
        SP_COUNT };
+#define IS_TRIG(s) ((s)==SP_TRIG_HIT||(s)==SP_TRIG_TIMER||(s)==SP_TRIG_DEATH)
 #define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_NAPALM)
+
+/* elemental "genes": adjacent projectile cards fuse their genes into one carrier,
+ * and gene pairs brew emergent effects on impact (fire+water=steam, etc.) */
+#define G_BURN   0x001
+#define G_COLD   0x002
+#define G_WET    0x004
+#define G_MOLTEN 0x008
+#define G_ACID   0x010
+#define G_ARC    0x020
+#define G_TOXIC  0x040
+#define G_VOID   0x080
+#define G_OIL    0x100
+#define G_DIG    0x200
+#define G_BOOM   0x400
 
 enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
 
@@ -132,7 +148,8 @@ static Wand wand[MAXWAND]; static int nwand=1, cur_wand=0;
 #define MAXPROJ 96
 typedef struct { float x,y,vx,vy; uint8_t type; float life,dmg; uint8_t bounce,homing,boom,foe;
     float grav,phase,forkt,spd; uint8_t pierce,crit,leech,wave,glow,trail,manaref,jumps,lasthit;
-    uint8_t fork,smartbnc,poison,big,split; } Proj;
+    uint8_t fork,smartbnc,poison,big,split; uint16_t genes,plgenes;
+    uint8_t trig,npl,pl[4]; float trigt; } Proj;   /* trig: 0 none 1 impact 2 timer 3 death */
 static Proj proj[MAXPROJ]; static int nproj=0;
 
 /* particles */
@@ -479,7 +496,8 @@ static Wand random_wand(int lvl){
     static const uint8_t mp[]={SP_DMG,SP_SPREAD,SP_SPREAD5,SP_TWIN,SP_BOUNCE,SP_HOMING,
         SP_BOOM,SP_SPEED,SP_SLOWM,SP_HEAVY,SP_FLOATM,SP_PIERCE,SP_TRAILF,SP_TRAILS,
         SP_TRAILA,SP_CRIT,SP_LEECH,SP_ECHO,SP_WAVE,SP_GLOW,SP_MANAR,
-        SP_FORK,SP_RICO,SP_POISON,SP_GIANT,SP_CHAOS,SP_SPLIT};
+        SP_FORK,SP_RICO,SP_POISON,SP_GIANT,SP_CHAOS,SP_SPLIT,
+        SP_TRIG_HIT,SP_TRIG_TIMER,SP_TRIG_DEATH};
     Wand w={0}; int n=2+(int)(rnd()%4); if(n>WAND_SLOTS)n=WAND_SLOTS;
     int havep=0;
     for(int i=0;i<n;i++){
@@ -498,6 +516,7 @@ typedef struct { float dmg; int spread; int bounce,homing,boom; float speed;
     float grav; uint8_t pierce,twin,crit,leech,echo,wave,glow,manaref,trail;
     uint8_t fork,smartbnc,poison,big,chaos,split; } Mods;
 
+static uint16_t gene_of(int t);
 static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(nproj>=MAXPROJ) return;
     float sp,dmg,life=1.4f,grav=0;
@@ -536,7 +555,7 @@ static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(m){ sp*=m->speed; dmg+=m->dmg; grav+=m->grav; }
     Proj p={0}; p.x=x; p.y=y; p.vx=cosf(ang)*sp; p.vy=sinf(ang)*sp; p.type=(uint8_t)type;
     p.life=life; p.dmg=dmg; p.bounce=bnc; p.homing=hom; p.boom=bm; p.foe=(uint8_t)foe;
-    p.grav=grav; p.lasthit=255; p.spd=sp;
+    p.grav=grav; p.lasthit=255; p.spd=sp; p.genes=(uint16_t)gene_of(type);
     if(m){ p.pierce=m->pierce; p.crit=m->crit; p.leech=m->leech; p.wave=m->wave;
            p.glow=m->glow; p.trail=m->trail; p.manaref=m->manaref;
            p.smartbnc=m->smartbnc; p.poison=m->poison; p.big=m->big; p.split=m->split;
@@ -578,86 +597,116 @@ static const MoteSfx* proj_sfx(int type){
 static void cast_zap(float px,float py,float ang,Mods*m);
 static void cast_frost(float px,float py,float ang,Mods*m);
 static void cast_storm(float tx,float ty,Mods*m);
+/* --- the wand compiler: genes fuse, modifiers are global, a trigger nests the
+ * rest as a payload; the whole deck comes together into one compound cast --- */
+static uint16_t gene_of(int t){
+    switch(t){
+        case SP_SPARK: case SP_BOLT: case SP_NEEDLE: case SP_CHAIN: return G_ARC;
+        case SP_FIRE:   return G_BURN;
+        case SP_WATER:  return G_WET;
+        case SP_ACID:   return G_ACID;
+        case SP_DIG:    return G_DIG;
+        case SP_BOMB:   return G_BOOM;
+        case SP_ICEs:   return G_COLD;
+        case SP_LAVAB:  return G_MOLTEN|G_BURN;
+        case SP_OILB:   return G_OIL;
+        case SP_METEOR: return G_MOLTEN|G_BURN|G_BOOM;
+        case SP_VOID:   return G_VOID;
+        case SP_NAPALM: return G_BURN|G_OIL;
+        case SP_SPORE:  return G_TOXIC;
+    }
+    return 0;   /* ORB, VINE, PRISM, MIRROR, SEEK: structural — no elemental gene */
+}
+static int is_special(int t){ return t==SP_ZAP||t==SP_NOVA||t==SP_STORM||t==SP_FROST||t==SP_SWARM; }
+static void apply_mod(Mods*m,int s){
+    switch(s){
+        case SP_DMG:    m->dmg+=9; break;
+        case SP_SPREAD: if(m->spread<3)m->spread=3; break;
+        case SP_SPREAD5:m->spread=5; break;
+        case SP_TWIN:   m->twin++; break;
+        case SP_BOUNCE: m->bounce=1; break;
+        case SP_HOMING: m->homing=1; break;
+        case SP_BOOM:   m->boom=1; break;
+        case SP_SPEED:  m->speed*=1.7f; break;
+        case SP_SLOWM:  m->speed*=0.55f; m->dmg+=4; break;
+        case SP_HEAVY:  m->grav+=240; m->dmg+=3; break;
+        case SP_FLOATM: m->grav-=180; break;
+        case SP_PIERCE: m->pierce=1; break;
+        case SP_TRAILF: m->trail|=1; break;
+        case SP_TRAILS: m->trail|=2; break;
+        case SP_TRAILA: m->trail|=4; break;
+        case SP_CRIT:   m->crit=1; break;
+        case SP_LEECH:  m->leech=1; break;
+        case SP_ECHO:   m->echo=1; break;
+        case SP_WAVE:   m->wave=1; break;
+        case SP_GLOW:   m->glow=1; m->dmg+=2; break;
+        case SP_MANAR:  m->manaref=1; break;
+        case SP_FORK:   m->fork=1; break;
+        case SP_RICO:   m->smartbnc=1; break;
+        case SP_POISON: m->poison=1; break;
+        case SP_GIANT:  m->big=1; break;
+        case SP_CHAOS:  m->chaos=1; break;
+        case SP_SPLIT:  m->split=1; break;
+    }
+}
+static int random_proj(void){ static const uint8_t pool[]={SP_SPARK,SP_BOLT,SP_FIRE,SP_ACID,SP_BOMB,
+    SP_ICEs,SP_ORB,SP_NEEDLE,SP_CHAIN,SP_METEOR,SP_VOID,SP_PRISM,SP_BOULDER,SP_WEB,SP_SPORE,
+    SP_MIRROR,SP_NAPALM,SP_LAVAB,SP_OILB,SP_WATER}; return pool[rnd()%(sizeof pool)]; }
 static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     if(w->delay_t>0 || w->n<=0) return;
+    /* 1) trigger split: cards after the first trigger operator become the payload */
+    int trigpos=-1, trigmode=0;
+    for(int i=0;i<w->n;i++){ int s=w->spell[i]; if(IS_TRIG(s)){ trigpos=i;
+        trigmode=(s==SP_TRIG_HIT)?1:(s==SP_TRIG_TIMER)?2:3; break; } }
+    int mainend=(trigpos>=0)?trigpos:w->n;
+    /* 2) every modifier in the WHOLE deck applies to the whole cast */
     Mods m={0}; m.speed=1.0f; m.spread=1;
-    int guard=0, projspell=-1;
-    while(guard++<w->n){
-        int s=w->spell[w->cast_i]; w->cast_i=(w->cast_i+1)%w->n;
-        if(IS_PROJ(s)){ projspell=s; break; }
-        switch(s){
-            case SP_DMG:    m.dmg+=9; break;
-            case SP_SPREAD: m.spread=3; break;
-            case SP_SPREAD5:m.spread=5; break;
-            case SP_TWIN:   m.twin++; break;
-            case SP_BOUNCE: m.bounce=1; break;
-            case SP_HOMING: m.homing=1; break;
-            case SP_BOOM:   m.boom=1; break;
-            case SP_SPEED:  m.speed*=1.7f; break;
-            case SP_SLOWM:  m.speed*=0.55f; m.dmg+=4; break;
-            case SP_HEAVY:  m.grav+=240; m.dmg+=3; break;
-            case SP_FLOATM: m.grav-=180; break;
-            case SP_PIERCE: m.pierce=1; break;
-            case SP_TRAILF: m.trail|=1; break;
-            case SP_TRAILS: m.trail|=2; break;
-            case SP_TRAILA: m.trail|=4; break;
-            case SP_CRIT:   m.crit=1; break;
-            case SP_LEECH:  m.leech=1; break;
-            case SP_ECHO:   m.echo=1; break;
-            case SP_WAVE:   m.wave=1; break;
-            case SP_GLOW:   m.glow=1; m.dmg+=2; break;
-            case SP_MANAR:  m.manaref=1; break;
-            case SP_FORK:   m.fork=1; break;
-            case SP_RICO:   m.smartbnc=1; break;
-            case SP_POISON: m.poison=1; break;
-            case SP_GIANT:  m.big=1; break;
-            case SP_CHAOS:  m.chaos=1; break;
-            case SP_SPLIT:  m.split=1; break;
-        }
+    for(int i=0;i<w->n;i++){ int s=w->spell[i]; if(!IS_PROJ(s)&&!IS_TRIG(s)&&s!=SP_NONE) apply_mod(&m,s); }
+    /* 3) compile the payload (region after the trigger) into a small fused volley */
+    uint8_t pl[4]; int npl=0; uint16_t plg=0;
+    if(trigpos>=0) for(int i=trigpos+1;i<w->n && npl<4;i++){ int s=w->spell[i];
+        if(IS_PROJ(s)&&!is_special(s)){ if(m.chaos)s=random_proj(); pl[npl++]=(uint8_t)s; plg|=gene_of(s); } }
+    /* 4) compile the main shots: adjacent projectiles FUSE their genes into one carrier */
+    struct{ uint8_t type; uint16_t genes; } sh[8]; int nsh=0;
+    int prevproj=0, have=0, curtype=0; uint16_t curg=0;
+    for(int i=0;i<mainend;i++){ int s=w->spell[i]; if(s==SP_NONE) continue;
+        if(!IS_PROJ(s)){ prevproj=0; continue; }        /* modifier breaks the fusion run */
+        if(m.chaos) s=random_proj();
+        if(is_special(s)){ if(have){sh[nsh].type=curtype;sh[nsh].genes=curg;nsh++;have=0;}
+            if(nsh<8){sh[nsh].type=(uint8_t)s;sh[nsh].genes=0;nsh++;} prevproj=0; continue; }
+        if(prevproj && have){ curg|=gene_of(s); }        /* fuse into the current carrier */
+        else { if(have&&nsh<8){sh[nsh].type=curtype;sh[nsh].genes=curg;nsh++;} curtype=s; curg=gene_of(s); have=1; }
+        prevproj=1;
     }
-    if(projspell<0) return;
-    if(m.chaos){ static const uint8_t pool[]={SP_SPARK,SP_BOLT,SP_FIRE,SP_ACID,SP_BOMB,SP_ZAP,
-        SP_ICEs,SP_ORB,SP_NOVA,SP_NEEDLE,SP_CHAIN,SP_METEOR,SP_SWARM,SP_VOID,SP_PRISM,
-        SP_SEEK,SP_BOULDER,SP_WEB,SP_SPORE,SP_MIRROR}; projspell=pool[rnd()%(sizeof pool)]; }
-    float tc=0;
-    switch(projspell){
-        case SP_ORB: tc=8; break;  case SP_METEOR: tc=12; break; case SP_VOID: tc=10; break;
-        case SP_ZAP: tc=6; break;  case SP_SWARM:  tc=6;  break; case SP_NOVA: tc=8;  break;
-        case SP_CHAIN: tc=4; break;case SP_PRISM:  tc=4;  break;
-    }
-    switch(projspell){ case SP_STORM: tc=12; break; case SP_FROST: tc=8; break;
-        case SP_SEEK: tc=8; break; case SP_BOULDER: tc=9; break; case SP_MIRROR: tc=4; break; }
-    float cost = 6 + m.dmg*0.3f + (m.spread-1)*4 + (m.boom?6:0) + m.twin*5
-               + (m.pierce?3:0) + (m.echo?4:0) + (m.fork?4:0) + (m.big?5:0) + tc;
+    if(have&&nsh<8){ sh[nsh].type=curtype; sh[nsh].genes=curg; nsh++; }
+    if(nsh==0) return;
+    /* 5) mana cost — the whole recipe */
+    float cost=5 + m.dmg*0.3f + (m.spread-1)*4 + (m.boom?6:0) + m.twin*5 + (m.pierce?3:0)
+             + (m.echo?4:0) + (m.fork?4:0) + (m.big?5:0) + nsh*3 + (trigpos>=0?4+npl*2:0);
     if(w->mana < cost) return;
     w->mana -= cost; w->delay_t = w->delay;
-    float base=atan2f(ay,ax);
-    int volleys=1+m.twin;
-    if(projspell==SP_STORM){ cast_storm(cross_x,cross_y,&m);
-    } else if(projspell==SP_FROST){
-        for(int k=0;k<m.spread;k++) cast_frost(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.25f:0),&m);
-    } else if(projspell==SP_ZAP){
-        for(int k=0;k<m.spread;k++)
-            cast_zap(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.2f:0),&m);
-    } else if(projspell==SP_NOVA){
-        for(int k=0;k<12;k++) spawn_proj(SP_NOVA,px,py,k*0.5236f,&m,0);
-    } else if(projspell==SP_SWARM){
-        for(int v=0;v<volleys;v++)
-            for(int k=0;k<4;k++) spawn_proj(SP_SWARM,px,py,base+(k-1.5f)*0.28f+rr(-0.05f,0.05f),&m,0);
-    } else {
-        for(int v=0;v<volleys;v++)
-            for(int k=0;k<m.spread;k++){
-                float a = base + (m.spread>1 ? (k-(m.spread-1)*0.5f)*0.34f : 0) + rr(-0.03f,0.03f) + (v?rr(-0.08f,0.08f):0);
-                spawn_proj(projspell, px, py, a, &m, 0);
-            }
+    /* 6) fire every compiled shot; normal shots carry their fused genes + payload */
+    float base=atan2f(ay,ax); int volleys=1+m.twin;
+    for(int si=0;si<nsh;si++){ int t=sh[si].type; uint16_t g=sh[si].genes;
+        if(t==SP_STORM){ cast_storm(cross_x,cross_y,&m); continue; }
+        if(t==SP_FROST){ for(int k=0;k<m.spread;k++) cast_frost(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.25f:0),&m); continue; }
+        if(t==SP_ZAP){ for(int k=0;k<m.spread;k++) cast_zap(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.2f:0),&m); continue; }
+        if(t==SP_NOVA){ for(int k=0;k<12;k++) spawn_proj(SP_NOVA,px,py,k*0.5236f,&m,0); continue; }
+        if(t==SP_SWARM){ for(int v=0;v<volleys;v++)for(int k=0;k<4;k++) spawn_proj(SP_SWARM,px,py,base+(k-1.5f)*0.28f+rr(-0.05f,0.05f),&m,0); continue; }
+        for(int v=0;v<volleys;v++)for(int k=0;k<m.spread;k++){
+            float a=base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.34f:0)+rr(-0.03f,0.03f)+(v?rr(-0.08f,0.08f):0);
+            int before=nproj; spawn_proj(t,px,py,a,&m,0);
+            if(nproj>before){ Proj*pp=&proj[nproj-1]; pp->genes=g;
+                if(trigpos>=0 && npl>0){ pp->trig=(uint8_t)trigmode; pp->npl=(uint8_t)npl;
+                    for(int q=0;q<npl;q++) pp->pl[q]=pl[q]; pp->plgenes=plg;
+                    if(trigmode==2) pp->trigt=0.35f; } }
+        }
     }
-    if(m.echo && necho<8){ echoq[necho].type=(uint8_t)projspell; echoq[necho].x=px; echoq[necho].y=py;
+    if(m.echo && necho<8){ echoq[necho].type=(uint8_t)sh[0].type; echoq[necho].x=px; echoq[necho].y=py;
         echoq[necho].ang=base; echoq[necho].m=m; echoq[necho].m.echo=0; echoq[necho].t=0.35f; necho++; }
     for(int k=0;k<5;k++) spawn_part(px,py,cosf(base)*rr(20,60),sinf(base)*rr(20,60),0.2f,w->col,1);
-    if(mote->abi_version>=37){                         /* the cast's voice */
-        float g=0.5f + (m.spread>1?0.1f:0) + (m.boom?0.15f:0);
-        mote->audio_play_sfx(proj_sfx(projspell), g>0.9f?0.9f:g);
-    }
+    if(mote->abi_version>=37){ float g=0.5f+(m.spread>1?0.1f:0)+(m.boom?0.15f:0);
+        mote->audio_play_sfx(proj_sfx(sh[0].type), g>0.9f?0.9f:g); }
 }
 
 /* world-positioned SFX: full on-screen, fading out ~a screen below the view so
@@ -794,6 +843,76 @@ static void cast_storm(float tx,float ty,Mods*m){
     }
     for(int k=0;k<10;k++) spawn_part(tx+rr(-10,10),ty-rr(0,40),rr(-8,8),40,0.2f,MOTE_RGB565(200,225,255),1);
 }
+/* dominant-gene tint for a fused shot's body + trail */
+static uint16_t gene_color(uint16_t g){
+    if(g&G_MOLTEN) return MOTE_RGB565(255,120,30);
+    if(g&G_BURN)   return MOTE_RGB565(255,150,50);
+    if(g&G_COLD)   return MOTE_RGB565(170,225,255);
+    if(g&G_ACID)   return MOTE_RGB565(150,240,80);
+    if(g&G_TOXIC)  return MOTE_RGB565(150,220,120);
+    if(g&G_VOID)   return MOTE_RGB565(150,80,220);
+    if(g&G_ARC)    return MOTE_RGB565(180,215,255);
+    if(g&G_WET)    return MOTE_RGB565(80,160,255);
+    if(g&G_OIL)    return MOTE_RGB565(120,100,70);
+    return MOTE_RGB565(255,255,255);
+}
+static void fill_disc(int cx,int cy,int r,uint8_t mm,uint8_t hv,int only_empty){
+    for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){ if(x*x+y*y>r*r)continue; if(!inb(cx+x,cy+y))continue;
+        int i=(cy+y)*WW+cx+x; if(only_empty? mat[i]==M_EMPTY : (mat[i]==M_EMPTY||ignitable(mat[i]))){ mat[i]=mm; heat[i]=hv; } }
+}
+/* the emergent brew: apply a fused shot's genes at an impact point — gene PAIRS
+ * make the magic (fire+water=steam, lava+water=obsidian shrapnel, ...) */
+static void apply_gene_impact(int cx,int cy,uint16_t g){
+    int burn=(g&(G_BURN|G_MOLTEN)),wet=(g&G_WET),cold=(g&G_COLD),molten=(g&G_MOLTEN),
+        acid=(g&G_ACID),toxic=(g&G_TOXIC),voidg=(g&G_VOID),oil=(g&G_OIL),dig=(g&G_DIG),boom=(g&G_BOOM),arc=(g&G_ARC);
+    if(burn && wet){                                    /* STEAM BURST — blinding, knockback */
+        fill_disc(cx,cy,6,M_STEAM,60,1);
+        for(int y=-6;y<=6;y++)for(int x=-6;x<=6;x++){ if(x*x+y*y>36)continue; int i=(cy+y)*WW+cx+x;
+            if(inb(cx+x,cy+y)&&mat[i]==M_FIRE){mat[i]=M_EMPTY;heat[i]=0;} }
+        for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
+            if(d2<120){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*180; enemy[e].vy+=dy/d*180-60; enemy[e].hp-=6; } }
+        for(int k=0;k<18;k++) spawn_part(cx,cy,rr(-70,70),rr(-70,20),0.5f+rndf()*0.5f,MOTE_RGB565(220,225,235),1);
+    } else if(molten && wet){                           /* OBSIDIAN SHRAPNEL */
+        fill_disc(cx,cy,4,M_OBSID,120,1);
+        for(int k=0;k<22;k++){ float a=rndf()*6.2832f,sp=60+rndf()*90;
+            spawn_part(cx,cy,cosf(a)*sp,sinf(a)*sp,0.4f,MOTE_RGB565(60,50,70),0); }
+        for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
+            if(dx*dx+dy*dy<90) enemy[e].hp-=14; }
+    } else if(burn && (oil||acid)){                     /* NAPALM splash */
+        fill_disc(cx,cy,5,M_NAPALM,210,1);
+    } else if(toxic && burn){                            /* FUEL-AIR blast */
+        explode(cx,cy,7,1); fill_disc(cx,cy,7,M_SPORE,80,1);
+    } else {
+        if(boom) explode(cx,cy, molten?9:7, burn);
+        if(burn && !boom) fill_disc(cx,cy,4,molten?M_LAVA:M_FIRE,molten?255:FIRE_HOT,0);
+        if(wet)  fill_disc(cx,cy,3,M_WATER,0,1);
+        if(acid) fill_disc(cx,cy,3,M_ACID,0,1);
+        if(toxic)fill_disc(cx,cy,5,M_SPORE,80,1);
+        if(cold){ for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue; int i=(cy+y)*WW+cx+x;
+                if(inb(cx+x,cy+y)&&mat[i]==M_WATER){mat[i]=M_ICE;heat[i]=0;} }
+            for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
+                if(dx*dx+dy*dy<100) enemy[e].slow_t=2.6f; } }
+        if(voidg) for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x;
+                if(inb(cx+x,cy+y)&&mat[i]!=M_OBSID&&mat[i]!=M_EMPTY){mat[i]=M_EMPTY;heat[i]=0;} }
+        if(dig) for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x;
+                if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY; }
+    }
+    if(arc){ int bi=-1; float best=60*60;               /* a little lightning to the nearest foe */
+        for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
+            if(d2<best){best=d2;bi=e;} }
+        if(bi>=0){ enemy[bi].hp-=6; for(int s=0;s<8;s++) spawn_part(cx+(enemy[bi].x-cx)*s/8,cy+(enemy[bi].y-cy)*s/8,
+            rr(-8,8),rr(-8,8),0.12f,MOTE_RGB565(210,235,255),1); } }
+}
+/* fire a projectile's trigger payload as a small fused volley at (x,y) */
+static void fire_payload(Proj*p,float x,float y){
+    if(!p->npl) return;
+    Mods pm={0}; pm.speed=1.0f; pm.spread=1;
+    float base=(p->trig==2)?atan2f(p->vy,p->vx):rndf()*6.2832f;
+    for(int q=0;q<p->npl;q++){ float a=base+(q-(p->npl-1)*0.5f)*0.5f+rr(-0.1f,0.1f);
+        int before=nproj; spawn_proj(p->pl[q],x,y,a,&pm,0);
+        if(nproj>before) proj[nproj-1].genes=p->plgenes; }
+    for(int k=0;k<6;k++) spawn_part(x,y,rr(-50,50),rr(-50,50),0.2f,gene_color(p->plgenes),1);
+}
 static uint16_t proj_col(int type,float f){
     switch(type){
         case SP_SPARK: return lerp565(MOTE_RGB565(255,255,150),MOTE_RGB565(255,180,40),1-f);
@@ -829,50 +948,27 @@ static uint16_t proj_col(int type,float f){
 }
 static void proj_impact(Proj*p){
     int cx=(int)p->x,cy=(int)p->y;
-    switch(p->type){
-        case SP_FIRE: for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* a real fireball */
-            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_FIRE;heat[i]=FIRE_HOT;}} break;
-        case SP_WATER: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WATER;} break;
-        case SP_ACID:  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_ACID;} break;
-        case SP_DIG:   for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY;} break;
-        case SP_BOMB:  explode(p->x,p->y,8,1); break;
-        case SP_WEB:   for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* sticky slick */
+    switch(p->type){                                    /* structural (motion/shape) effects */
+        case SP_WEB:   for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;
             int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WEB;} break;
-        case SP_SPORE: for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;  /* gas cloud */
-            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY){mat[i]=M_SPORE;heat[i]=60+(rnd()&40);}} break;
-        case SP_BOULDER: for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue;  /* lands as rock */
+        case SP_BOULDER: for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue;
             int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||IS_FLUID(mat[i])))mat[i]=M_ROCK;}
             for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y;
                 if(dx*dx+dy*dy<36) enemy[e].hp-=18; } break;
         case SP_SEEK:  explode(p->x,p->y,5,1); break;
         case SP_MIRROR:for(int k=0;k<5;k++) spawn_part(p->x,p->y,rr(-50,50),rr(-50,50),0.2f,MOTE_RGB565(220,240,255),1); break;
-        case SP_NAPALM: for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* burning splash */
-            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_NAPALM;heat[i]=200+(rnd()&40);}}
-            for(int k=0;k<14;k++){ float a=rndf()*6.2832f,s=20+rndf()*55;
-                spawn_part(p->x,p->y,cosf(a)*s,sinf(a)*s-20,0.4f,fire_lut[200+(rnd()&50)],1); } break;
-        case SP_ICEs: {
-            for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;
-                int i=(cy+y)*WW+cx+x; if(!inb(cx+x,cy+y))continue;
-                if(mat[i]==M_WATER){ mat[i]=M_ICE; heat[i]=0; } }
-            for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y;
-                if(dx*dx+dy*dy<100) enemy[e].slow_t=2.2f; }
-            for(int k=0;k<10;k++) spawn_part(p->x,p->y,rr(-70,70),rr(-70,20),rr(0.2f,0.5f),MOTE_RGB565(210,240,255),1);
-            break; }
         case SP_VINE:  grow_vine(cx,cy); break;
-        case SP_LAVAB: for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>10)continue;
-                int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&!IS_SOLID(mat[i])){mat[i]=M_LAVA;heat[i]=255;} } break;
-        case SP_OILB:  for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;  /* a big slick */
-                int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_OIL; } break;
-        case SP_METEOR:explode(p->x,p->y,9,1); break;
         case SP_ORB:   explode(p->x,p->y,4,0);
             for(int k=0;k<14;k++){ float a=k*0.449f;
                 spawn_part(p->x,p->y,cosf(a)*80,sinf(a)*80,0.35f,MOTE_RGB565(210,150,255),1); } break;
         case SP_VOID:  for(int k=0;k<16;k++){ float a=rndf()*6.2832f;
                 spawn_part(p->x+cosf(a)*6,p->y+sinf(a)*6,-cosf(a)*70,-sinf(a)*70,0.3f,MOTE_RGB565(160,90,230),1); } break;
-        default: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY;} break;
     }
-    if(p->boom && p->type!=SP_BOMB) explode(p->x,p->y,5,p->type==SP_FIRE);
-    for(int k=0;k<4;k++) spawn_part(p->x,p->y,rr(-40,40),rr(-40,40),0.25f,proj_col(p->type,0.5f),1);
+    if(p->genes) apply_gene_impact(cx,cy,p->genes);      /* the emergent elemental brew */
+    if(p->boom && !(p->genes&G_BOOM)) explode(p->x,p->y,5,(p->genes&(G_BURN|G_MOLTEN))?1:0);
+    for(int k=0;k<4;k++) spawn_part(p->x,p->y,rr(-40,40),rr(-40,40),0.25f,
+        p->genes?gene_color(p->genes):proj_col(p->type,0.5f),1);
+    if(p->trig==1||p->trig==3) fire_payload(p,p->x,p->y);   /* impact / death payload */
 }
 static void tick_proj(float dt){
     for(int i=0;i<nproj;){ Proj*p=&proj[i]; p->life-=dt;
@@ -901,6 +997,7 @@ static void tick_proj(float dt){
                 float a2=a+s*0.42f; c.vx=cosf(a2)*sp; c.vy=sinf(a2)*sp; c.dmg*=0.7f; c.lasthit=255;
                 proj[nproj++]=c; }
             p=&proj[i]; } }                               /* array may have moved; refetch */
+        if(p->trig==2){ p->trigt-=dt; if(p->trigt<=0){ fire_payload(p,p->x,p->y); p->trig=0; } }  /* timer */
         p->vy+=p->grav*dt;
         if(p->wave){ p->phase+=dt*9; float wa=sinf(p->phase)*3.2f*dt;
             float c=cosf(wa),s=sinf(wa),vx=p->vx; p->vx=vx*c-p->vy*s; p->vy=vx*s+p->vy*c; }
@@ -932,7 +1029,10 @@ static void tick_proj(float dt){
                     if(p->crit&&(rnd()&3)==0){ dd*=3;      /* crit: white flash */
                         for(int k=0;k<8;k++) spawn_part(nx,ny,rr(-80,80),rr(-80,80),0.3f,MOTE_RGB565(255,255,255),1); }
                     enemy[hite].hp-=(int)dd;
-                    if(p->poison) enemy[hite].poison_t=2.6f;
+                    if(p->poison||( p->genes&G_TOXIC)) enemy[hite].poison_t=2.6f;
+                    if(p->genes&G_COLD) enemy[hite].slow_t=2.6f;         /* fused genes bite too */
+                    if((p->genes&(G_BURN|G_MOLTEN))&&(p->genes&G_COLD)) enemy[hite].hp-=10;  /* thermal shatter */
+                    if(p->genes&G_ACID) enemy[hite].hp-=4;
                     spawn_blood(nx,ny,enemy_blood[enemy[hite].type],3);
                     if(p->leech){ hp+=3; if(hp>hp_max)hp=hp_max;
                         spawn_part(wx+PW*0.5f,wy,rr(-10,10),-20,0.4f,MOTE_RGB565(120,255,140),1); }
@@ -990,8 +1090,9 @@ static void tick_proj(float dt){
                                       (rnd()&1)?MOTE_RGB565(255,240,170):MOTE_RGB565(255,255,255),1);
             if((p->trail&4)&&(rnd()&15)==0&&inb(tx,ty+1)&&mat[(ty+1)*WW+tx]==M_EMPTY) mat[(ty+1)*WW+tx]=M_ACID;
         }
-        if(p->glow&&(framestep&1)) spawn_part(p->x+rr(-2,2),p->y+rr(-2,2),rr(-8,8),rr(-8,8),0.25f,proj_col(p->type,0.8f),1);
-        spawn_part(p->x,p->y,0,0,0.18f,proj_col(p->type,0.3f),1);
+        uint16_t tc=(p->genes && (p->genes&(p->genes-1)))?gene_color(p->genes):proj_col(p->type,0.3f); /* fused shots trail their blend */
+        if(p->glow&&(framestep&1)) spawn_part(p->x+rr(-2,2),p->y+rr(-2,2),rr(-8,8),rr(-8,8),0.25f,tc,1);
+        spawn_part(p->x,p->y,0,0,0.18f,tc,1);
         i++;
     }
 }
@@ -1354,7 +1455,7 @@ static const char*sp_code[SP_COUNT]={"",
     "SP","BL","FI","WT","AC","DG","BM","ZP","IC","VN","OR","NV","LV","OL","NE","CH","MT","SW","VD","RB",
     "ST","SK","BO","WB","FR","SO","MR","NP",
     "D+","3X","5X","TW","BN","HM","BX","V+","V-","GR","FL","PC","TF","TS","TA","CR","LF","EC","WV","GL","MN",
-    "FK","RC","PO","GI","CX","SL"};
+    "FK","RC","PO","GI","CX","SL",">I",">T",">D"};
 /* full name + one-line effect, shown in the detail panel */
 static const char*sp_name[SP_COUNT]={"",
     "Spark","Bolt","Fire","Water","Acid","Dig","Bomb","Zap","Ice Shard","Vine Seed",
@@ -1362,7 +1463,8 @@ static const char*sp_name[SP_COUNT]={"",
     "Storm","Seeker","Boulder","Web","Frost Beam","Spore","Mirror","Napalm",
     "Damage+","Spread x3","Spread x5","Twin","Bounce","Homing","Boom","Speed+","Slow","Gravity",
     "Float","Pierce","Fire Trail","Sparkle Trail","Acid Trail","Crit","Leech","Echo","Wave","Glow","Mana Refund",
-    "Fork","Ricochet+","Poison","Giant","Chaos","Split End"};
+    "Fork","Ricochet+","Poison","Giant","Chaos","Split End",
+    "On Impact","On Timer","On Death"};
 static const char*sp_desc[SP_COUNT]={"",
     "Fast cheap magic bolt","Heavy straight bolt","Ignites oil & wood","Douses fire & lava",
     "Dissolves terrain","Tunnels soft ground","Slow lob, big blast","Instant lightning ray",
@@ -1377,7 +1479,8 @@ static const char*sp_desc[SP_COUNT]={"",
     "Leaves burning air","Sheds gold glitter","Drips acid trail","25% triple damage",
     "Hits heal you","Recasts a beat later","Serpentine flight","Becomes a light (+2)","Hits refund mana",
     "Splits mid-flight","Bounces foe to foe","Poisons over time","Bigger harder slower",
-    "Random spell each cast","Bursts when it ends"};
+    "Random spell each cast","Bursts when it ends",
+    "Rest fires on impact","Rest fires mid-air","Rest fires on death"};
 static uint16_t sp_colr(int s){
     switch(s){
         case SP_SPARK: return MOTE_RGB565(255,240,120);
@@ -1414,6 +1517,9 @@ static uint16_t sp_colr(int s){
         case SP_GIANT: return MOTE_RGB565(255,180,120);
         case SP_CHAOS: return MOTE_RGB565(230,140,255);
         case SP_SPLIT: return MOTE_RGB565(255,200,150);
+        case SP_TRIG_HIT:  return MOTE_RGB565(255,240,140);
+        case SP_TRIG_TIMER:return MOTE_RGB565(255,220,110);
+        case SP_TRIG_DEATH:return MOTE_RGB565(220,200,150);
         case SP_DMG:   return MOTE_RGB565(255,110,200);
         case SP_SPREAD:return MOTE_RGB565(255,210,110);
         case SP_SPREAD5:return MOTE_RGB565(255,190,80);
