@@ -784,7 +784,15 @@ static void tick_barrels(float dt){
             if((framestep&1)==0) spawn_part(ba->x+rr(-2,2),ba->y-4,rr(-8,8),-22,0.25f,
                 ba->type==BAR_BOMB?MOTE_RGB565(255,140,60):MOTE_RGB565(150,230,140),1);
             if(ba->fuse<=0){ ba->alive=0;
-                if(ba->type==BAR_BOMB) explode(ba->x,ba->y,11,1);
+                if(ba->type==BAR_BOMB){                 /* napalm keg: a blast that sprays burning liquid */
+                    explode(ba->x,ba->y,7,1);
+                    int r=8; for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){ if(x*x+y*y>r*r)continue;
+                        if(!inb(ix+x,iy+y))continue; int i=(iy+y)*WW+ix+x;
+                        if(mat[i]==M_EMPTY||ignitable(mat[i])){ mat[i]=M_NAPALM; heat[i]=210+(rnd()&40); } }
+                    for(int k=0;k<26;k++){ float a=rndf()*6.2832f,sp=40+rndf()*80;
+                        spawn_part(ba->x,ba->y,cosf(a)*sp,sinf(a)*sp-20,0.4f+rndf()*0.4f,fire_lut[200+(rnd()&50)],1); }
+                    sfx_at(&boom_big_sfx,0.7f,ba->y);
+                }
                 else {                                  /* oil keg bursts a big slick + splash */
                     int r=6; for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){ if(x*x+y*y>r*r)continue;
                         if(!inb(ix+x,iy+y))continue; int i=(iy+y)*WW+ix+x; if(mat[i]==M_EMPTY) mat[i]=M_OIL; }
