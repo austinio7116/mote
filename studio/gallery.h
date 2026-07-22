@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-#define GAL_MAX      64
+#define GAL_MAX      128
 #define GAL_IDLEN    32
 #define GAL_NAMELEN  40
 #define GAL_HEXLEN   65
