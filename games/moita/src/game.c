@@ -67,7 +67,7 @@ enum { M_EMPTY=0, M_ROCK, M_DIRT, M_SAND, M_WOOD, M_OBSID,
 #define IS_SOLID(m)  ((m)==M_ROCK||(m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
 #define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD)
 #define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
-#define FIRE_HOT 190           /* ignite heat: fire renders bright, then decays down */
+#define FIRE_HOT 210           /* ignite heat: fire renders bright, then decays down */
 
 enum { SP_NONE=0,
        /* projectiles */
@@ -297,26 +297,35 @@ static void ca_step(void){
                 int wn=mat[L]==M_WATER?L:mat[R]==M_WATER?R:mat[U]==M_WATER?U:D;
                 mat[wn]=M_STEAM; heat[wn]=40; mat[i]=M_OBSID; heat[i]=180; continue;
             }
-            if(ignitable(mat[L])){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}
-            if(ignitable(mat[R])){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
-            if(ignitable(mat[U])){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
-            if(ignitable(mat[D])){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
+            if(mat[L]==M_WOOD){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}   /* oil catches via its own burn */
+            if(mat[R]==M_WOOD){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
+            if(mat[U]==M_WOOD){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
+            if(mat[D]==M_WOOD){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
             /* Noita lava never hardens on its own — heat floors at molten-glow */
             int t=heat[i]-((mat[i-WW]==M_LAVA)?0:1); if(t<110)t=110; heat[i]=(uint8_t)t;
         } else if(m==M_FIRE){
-            int L=i-1,R=i+1,U=i-WW,D=i+WW;
+            int L=i-1,R=i+1,U=i-WW,D=i+WW,nb[4]={L,R,U,D};
             if(mat[L]==M_WATER||mat[R]==M_WATER||mat[U]==M_WATER||mat[D]==M_WATER){ mat[i]=M_STEAM; heat[i]=40; continue; }
-            if(ignitable(mat[L])&&(rnd()&3)==0){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}
-            if(ignitable(mat[R])&&(rnd()&3)==0){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
-            if(ignitable(mat[U])&&(rnd()&3)==0){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
-            if(ignitable(mat[D])&&(rnd()&3)==0){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
-            int onfuel = ignitable(mat[L])||ignitable(mat[R])||ignitable(mat[U])||ignitable(mat[D]);
+            int onfuel=0;                               /* wood carries the flame; oil burns on its own (below) */
+            for(int q=0;q<4;q++){ uint8_t nm=mat[nb[q]];
+                if(nm==M_WOOD){ onfuel=1; if(rnd()&1){ mat[nb[q]]=M_FIRE; heat[nb[q]]=FIRE_HOT; } }
+                else if(nm==M_OIL) onfuel=1; }
             /* flames dance upward — tall, hot tongues that flicker and die */
             if(mat[U]==M_EMPTY && heat[i]>70 && (rnd()&1)){ mat[U]=M_FIRE; heat[U]=(uint8_t)(heat[i]-45); }
             if(heat[i]>110 && (rnd()&7)==0){ int uu=(rnd()&1)?U-1:U+1;   /* diagonal lick for width */
                 if(mat[uu]==M_EMPTY){ mat[uu]=M_FIRE; heat[uu]=(uint8_t)(heat[i]-95); } }
             int dec = onfuel?2:5;                       /* bare fire burns out fast; fuel keeps it lit */
             if(heat[i]<=dec){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]-=dec;
+        } else if(m==M_OIL){
+            /* a lit oil pool roars: flames leap off the surface and the oil is
+             * slowly consumed, so a big puddle burns long and hot */
+            int U=i-WW,D=i+WW,L=i-1,R=i+1;
+            int lit=(mat[U]==M_FIRE||mat[D]==M_FIRE||mat[L]==M_FIRE||mat[R]==M_FIRE||
+                     mat[U]==M_LAVA||mat[D]==M_LAVA||mat[L]==M_LAVA||mat[R]==M_LAVA);
+            if(lit){
+                if(mat[U]==M_EMPTY && (rnd()&1)){ mat[U]=M_FIRE; heat[U]=235; }
+                if((rnd()&15)==0){ mat[i]=M_FIRE; heat[i]=235; }
+            }
         } else if(m==M_STEAM){
             if(heat[i]<=1){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]--;
         } else if(m==M_ACID){
@@ -690,7 +699,8 @@ static uint16_t proj_col(int type,float f){
 static void proj_impact(Proj*p){
     int cx=(int)p->x,cy=(int)p->y;
     switch(p->type){
-        case SP_FIRE: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_FIRE;heat[i]=FIRE_HOT;}} break;
+        case SP_FIRE: for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* a real fireball */
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_FIRE;heat[i]=FIRE_HOT;}} break;
         case SP_WATER: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WATER;} break;
         case SP_ACID:  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_ACID;} break;
         case SP_DIG:   for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY;} break;
@@ -704,9 +714,9 @@ static void proj_impact(Proj*p){
             for(int k=0;k<10;k++) spawn_part(p->x,p->y,rr(-70,70),rr(-70,20),rr(0.2f,0.5f),MOTE_RGB565(210,240,255),1);
             break; }
         case SP_VINE:  grow_vine(cx,cy); break;
-        case SP_LAVAB: for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){ if(x*x+y*y>5)continue;
+        case SP_LAVAB: for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>10)continue;
                 int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&!IS_SOLID(mat[i])){mat[i]=M_LAVA;heat[i]=255;} } break;
-        case SP_OILB:  for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){ if(x*x+y*y>5)continue;
+        case SP_OILB:  for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;  /* a big slick */
                 int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_OIL; } break;
         case SP_METEOR:explode(p->x,p->y,9,1); break;
         case SP_ORB:   explode(p->x,p->y,4,0);
