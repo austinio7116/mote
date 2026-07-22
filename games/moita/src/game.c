@@ -1453,6 +1453,33 @@ static void draw_wand_icon(uint16_t*fb,int x,int y,const Wand*w,int hot){
     for(int i=0;i<nmod&&i<3;i++){ int j=(i+(int)(h>>4))%3;
         mote->draw_pixel(fb,x+sp[j][0],y+sp[j][1],MOTE_RGB565(255,244,200)); }
 }
+/* a handsome ~13px wand centred at (cx,cy) for the shop: a diagonal wood shaft,
+ * a glowing gem in the wand's colour with a soft halo + starburst, and one
+ * sparkle per modifier card — each wand still looks distinct (hashed) */
+static void draw_wand_art(uint16_t*fb,int cx,int cy,const Wand*w){
+    uint32_t h=wand_hash(w);
+    static const uint16_t wood[4]={MOTE_RGB565(156,106,58),MOTE_RGB565(120,86,58),
+                                   MOTE_RGB565(150,142,156),MOTE_RGB565(128,94,170)};
+    uint16_t sh=wood[h&3], shd=lerp565(sh,MOTE_RGB565(24,16,10),0.55f);
+    for(int t=0;t<10;t++){ int x=cx-5+t, y=cy+5-t;              /* shaft, 2px thick */
+        if((unsigned)x<128&&(unsigned)y<128) fb[y*128+x]=sh;
+        if((unsigned)x<128&&(unsigned)(y+1)<128) fb[(y+1)*128+x]=shd; }
+    mote->draw_pixel(fb,cx-5,cy+5,MOTE_RGB565(72,52,34));       /* handle butt */
+    mote->draw_pixel(fb,cx-4,cy+6,MOTE_RGB565(72,52,34));
+    int gx=cx+5, gy=cy-5; uint16_t gc=w->col;                  /* gem + halo */
+    for(int yy=-2;yy<=2;yy++)for(int xx=-2;xx<=2;xx++){ if(xx*xx+yy*yy>4)continue;
+        int px=gx+xx,py=gy+yy; if((unsigned)px<128&&(unsigned)py<128)
+            fb[py*128+px]=lerp565(fb[py*128+px],gc,0.45f); }
+    for(int k=0;k<4;k++){ static const int8_t r[4][2]={{0,-3},{0,3},{-3,0},{3,0}};
+        int px=gx+r[k][0],py=gy+r[k][1];                       /* faint starburst */
+        if((unsigned)px<128&&(unsigned)py<128) fb[py*128+px]=lerp565(fb[py*128+px],gc,0.6f); }
+    mote->draw_rect(fb,gx-1,gy-1,3,3,gc,1,0,128);
+    mote->draw_pixel(fb,gx,gy,MOTE_RGB565(255,255,255));
+    int nmod=0; for(int i=0;i<w->n;i++) if(!IS_PROJ(w->spell[i])&&w->spell[i]!=SP_NONE) nmod++;
+    static const int8_t sp[4][2]={{-4,-2},{3,3},{-2,-7},{6,-2}};
+    for(int i=0;i<nmod&&i<4;i++){ int px=gx+sp[i][0],py=gy+sp[i][1];
+        if((unsigned)px<128&&(unsigned)py<128) mote->draw_pixel(fb,px,py,MOTE_RGB565(255,250,225)); }
+}
 
 /* tiny animated enemy sprites, one per type, all under 5x4 px */
 static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
@@ -1628,29 +1655,33 @@ static void g_overlay(uint16_t*fb){
     tiny_text(fb,115,2,buf,MOTE_RGB565(225,218,255));
 
     if(state==ST_SHOP){
-        mote_dim_box(fb,0,TOP,128,VH-TOP,3);
-        if(fmed){ mote->text_font(fb,fmed,"SHOP",4,21,MOTE_RGB565(255,224,124));
-            ui_icon(fb,98,22,ic_coin,MOTE_RGB565(255,210,70));
-            snprintf(buf,sizeof buf,"%d",gold);
-            tiny_text(fb,106,22,buf,MOTE_RGB565(255,230,140));
-            mote->text_font(fb,fmed,"A buy   B onward",4,31,MOTE_RGB565(170,160,205)); }
+        mote_dim_box(fb,0,TOP,128,VH-TOP,2);
+        /* shop sign board */
+        mote_ui_rect(fb,0,TOP,128,13,MOTE_RGB565(42,28,58));
+        mote_ui_rect(fb,0,TOP,128,1,MOTE_RGB565(120,96,160));
+        mote_ui_rect(fb,0,TOP+13,128,1,MOTE_RGB565(150,110,205));
+        mote_ui_rect(fb,0,TOP+14,128,1,MOTE_RGB565(30,20,42));
+        if(fmed) mote->text_font(fb,fmed,"WAND SHOP",4,19,MOTE_RGB565(255,224,124));
+        ui_icon(fb,90,19,ic_coin,MOTE_RGB565(255,210,70));
+        snprintf(buf,sizeof buf,"%d",gold); tiny_text(fb,99,20,buf,MOTE_RGB565(255,234,150));
         for(int i=0;i<6;i++){
             int row=i>=3, s=row?i-3:i;
-            int bx=8+s*40, by=row?72:42, bh=row?18:26, cur=(i==shop_sel);
-            mote_ui_panel(fb,bx,by,32,bh, cur?MOTE_RGB565(52,46,82):MOTE_RGB565(16,15,24),
-                          cur?MOTE_RGB565(255,214,110):MOTE_RGB565(54,50,76));
-            char pb[6];
-            if(!row){
-                if(shop_w[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+8,MOTE_RGB565(90,90,110)); }
-                else { draw_wand_icon(fb,bx+11,by+3,&shop_w[s].w,0);
-                    snprintf(pb,sizeof pb,"%d",shop_w[s].price);
-                    tiny_text(fb,bx+13,by+15,pb,gold>=shop_w[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
-            } else {
-                if(shop_c[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+5,MOTE_RGB565(90,90,110)); }
-                else { if(fmed)mote->text_font(fb,fmed,sp_code[shop_c[s].sp],bx+9,by+3,sp_colr(shop_c[s].sp));
-                    snprintf(pb,sizeof pb,"%d",shop_c[s].price);
-                    tiny_text(fb,bx+13,by+13,pb,gold>=shop_c[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
-            }
+            int x=5+s*41, y=row?66:34, w=38, hh=row?27:30, cur=(i==shop_sel);
+            int sold = row?shop_c[s].sold:shop_w[s].sold;
+            /* framed slot: soft base, lit top edge, gold border + shelf when picked */
+            mote_ui_panel(fb,x,y,w,hh, cur?MOTE_RGB565(48,40,74):MOTE_RGB565(22,18,34),
+                          cur?MOTE_RGB565(255,214,110):MOTE_RGB565(66,56,96));
+            mote_ui_rect(fb,x+1,y+1,w-2,1, cur?MOTE_RGB565(96,82,138):MOTE_RGB565(40,34,58));
+            mote_ui_rect(fb,x+2,y+hh-2,w-4,1, cur?MOTE_RGB565(150,110,60):MOTE_RGB565(34,28,48)); /* shelf */
+            int cxp=x+w/2;
+            char pb[6]; uint16_t pc; int price = row?shop_c[s].price:shop_w[s].price;
+            if(sold){ if(fmed) mote->text_font(fb,fmed,"SOLD",cxp-11,y+hh/2-4,MOTE_RGB565(96,92,112)); continue; }
+            if(!row) draw_wand_art(fb,cxp,y+12,&shop_w[s].w);
+            else { const char*cd=sp_code[shop_c[s].sp];
+                mote->text_2x(fb,cd,cxp-(int)strlen(cd)*5,y+5,sp_colr(shop_c[s].sp)); }
+            snprintf(pb,sizeof pb,"%dg",price);
+            pc = gold>=price?MOTE_RGB565(255,226,120):MOTE_RGB565(255,120,100);
+            mote->text(fb,pb,cxp-(int)strlen(pb)*3,y+hh-8,pc);
         }
         /* detail of the selected slot */
         if(shop_sel<3){ int s=shop_sel;
