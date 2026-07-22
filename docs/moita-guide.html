@@ -64,6 +64,13 @@
   .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
   .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
 
+  figure.gif{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px;text-align:center}
+  figure.gif img{width:100%;max-width:300px;border-radius:6px;border:1px solid var(--grid)}
+  figure.gif figcaption{color:var(--dim);font-size:.82rem;margin-top:8px}
+  figure.gif .recipe{color:var(--violetl);font-weight:700;font-size:.92rem;
+    font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:6px;display:block}
+
   .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
   table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
   th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
@@ -72,9 +79,9 @@
   tbody tr:hover{background:var(--panel)}
   td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
   td.role{color:var(--dim);font-size:.86rem}
+  td.rec{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--violetl);white-space:nowrap}
 
-  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
-    max-width:74ch}
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;max-width:74ch}
   .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
     border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
     white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
@@ -82,6 +89,7 @@
   .sp{display:inline-block;padding:1px 8px;border-radius:12px;font-size:.8rem;font-weight:700}
   .sp.proj{background:#1a2440;color:#9fd8ff}
   .sp.mod{background:#2a1a3e;color:#d0a8ff}
+  .sp.trig{background:#3a3216;color:#ffe08a}
 
   .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
     border-radius:8px;padding:12px 16px;margin:10px 0;max-width:74ch}
@@ -100,12 +108,12 @@
       <img class="hicon" src="img/gallery/moita-icon.png" alt="Moita icon">
       <div class="htext">
         <h1>MOITA</h1>
-        <div class="sub">A tiny Noita — every pixel simulated, every wand yours to build</div>
+        <div class="sub">A tiny Noita — every pixel simulated, every wand yours to <em>brew</em></div>
         <div class="by">by austinio7116 · for the Thumby Color</div>
         <div class="badges">
           <span class="badge">PER-PIXEL WORLD</span>
-          <span class="badge">41 SPELL CARDS</span>
-          <span class="badge">PROCEDURAL WANDS</span>
+          <span class="badge">55 SPELL CARDS</span>
+          <span class="badge">FUSION + TRIGGERS</span>
           <span class="badge">FOG OF WAR</span>
           <span class="badge">RGB LIGHTING</span>
         </div>
@@ -115,13 +123,16 @@
 </header>
 
 <nav class="toc"><div class="wrap">
-  <a href="#start">Getting started</a>
+  <a href="#start">Start</a>
   <a href="#controls">Controls</a>
   <a href="#dash">Dashboard</a>
+  <a href="#casting">How casting works</a>
+  <a href="#fusion">Fusion</a>
+  <a href="#triggers">Triggers</a>
+  <a href="#recipes">Recipes</a>
+  <a href="#projectiles">Projectiles</a>
+  <a href="#modifiers">Modifiers</a>
   <a href="#world">The caves</a>
-  <a href="#wands">Wands</a>
-  <a href="#spells">Spell reference</a>
-  <a href="#editor">Wand editor</a>
   <a href="#shop">Gold &amp; shop</a>
   <a href="#bestiary">Bestiary</a>
   <a href="#tips">Tips</a>
@@ -133,212 +144,285 @@
   <h2>Getting started</h2>
   <p class="lede">You are a very small wizard at the top of a very deep cave.
   Somewhere below is a portal. Between you and it: rock, water, oil, acid,
-  molten lava — and things with glowing eyes.</p>
+  molten lava — and things with glowing eyes. Everything is simulated pixel by
+  pixel, and your wands don't just fire spells — they <b>brew</b> them.</p>
   <div class="grid g3">
     <div><img class="shot" src="img/gallery/moita-1.png" alt="Title"><div class="shotcap">Lava and water pour behind the living title</div></div>
-    <div><img class="shot" src="img/gallery/moita-2.png" alt="Deep caves"><div class="shotcap">Depth 3: lava-lit caverns beyond your sight radius</div></div>
-    <div><img class="shot" src="img/gallery/moita-3.png" alt="Casting"><div class="shotcap">Sparks fly — every projectile lights the cave in its own colour</div></div>
+    <div><img class="shot" src="img/gallery/moita-2.png" alt="Deep caves"><div class="shotcap">Fog-shrouded caverns lit only by your magic and the lava</div></div>
+    <div><img class="shot" src="img/gallery/moita-3.png" alt="Casting"><div class="shotcap">Every projectile lights the cave in its own colour</div></div>
   </div>
-  <p>Each <b>depth</b> is a fresh, procedurally carved cave system with several
-  winding routes down. Reach the pulsing purple <b>portal</b> at the bottom to
-  visit the shop and descend. Deeper levels change biome — more oil, then acid,
-  then open lava — and spawn nastier creatures. Death sends you back to depth 1,
-  so spend your gold while you can.</p>
+  <p>Reach the pulsing purple <b>portal</b> at the bottom of each depth to visit
+  the shop and descend. Deeper levels change biome and spawn nastier creatures.
+  Death sends you back to depth 1 — so spend your gold while you have it.</p>
 </section>
 
 <section id="controls">
   <h2>Controls</h2>
   <div class="keys">
     <span class="kb">◀ ▶</span><span>Walk (the wizard steps smoothly over rough ground)</span>
-    <span class="kb">A</span><span><b>Fly</b> — hold to thrust upward; drains the blue flight-mana bar, which refills on the ground</span>
-    <span class="kb">B</span><span><b>Cast</b> — fires the current wand along the crosshair; hold to keep casting</span>
-    <span class="kb">▲ ▼</span><span>Rotate the aim crosshair up / down (it sticks where you leave it, and flips when you turn)</span>
+    <span class="kb">A</span><span><b>Fly</b> — hold to thrust upward; drains the blue flight bar, refills on the ground</span>
+    <span class="kb">B</span><span><b>Cast</b> — fires the current wand's whole recipe; hold to keep casting</span>
+    <span class="kb">▲ ▼</span><span>Rotate the aim crosshair (it sticks where you leave it, flips when you turn)</span>
     <span class="kb">LB</span><span>Cycle to your next wand</span>
-    <span class="kb">MENU</span><span>Open the <a href="#editor">wand editor</a> (the world pauses)</span>
+    <span class="kb">MENU</span><span>Open the wand editor (world pauses)</span>
   </div>
 </section>
 
 <section id="dash">
   <h2>The dashboard</h2>
-  <p class="lede">Everything you need lives in the strip across the top — the
-  world scrolls beneath it, never behind it.</p>
+  <p class="lede">Everything lives in the strip across the top — the world scrolls beneath it.</p>
   <ul>
-    <li><b>♥ Health bar</b> — you have 100 HP. Enemy contact, enemy bolts, fire and lava all hurt.</li>
-    <li><b>⚡ Flight mana</b> — the blue bar under it. Empties as you fly, refills when you land.</li>
-    <li><b>Coin counter</b> — gold collected this run (see <a href="#shop">the shop</a>).</li>
-    <li><b>Wand icons</b> — one tiny procedural icon per wand you carry; the gold frame marks the active one. Every icon is generated from the wand's actual deck, so no two look alike.</li>
-    <li><b>Wand mana bar</b> — the active wand's charge, in the wand's own colour. Each cast costs mana; wands recharge on their own.</li>
-    <li><b>D-number</b> — your current depth.</li>
+    <li><b>♥ Health</b> — 100 HP. Enemy contact, enemy shots, fire, lava and acid all hurt.</li>
+    <li><b>⚡ Flight mana</b> — the blue bar; empties as you fly, refills when you land.</li>
+    <li><b>Coins</b> — gold this run, spent at the shop.</li>
+    <li><b>Wand icons</b> — one procedural icon per wand; the gold frame marks the active one.</li>
+    <li><b>Wand mana</b> — the active wand's charge, in its own colour. Each cast costs mana.</li>
   </ul>
+</section>
+
+<section id="casting">
+  <h2>How casting works</h2>
+  <p class="lede">A wand is not a list of separate shots — it is a <b>recipe</b>.
+  Pull the trigger and the whole deck compiles into one compound spell.</p>
+  <p>Three rules govern the brew, and all three turn on <b>the order of your cards</b>:</p>
+  <ol style="max-width:74ch">
+    <li><b>Every modifier applies to the whole cast.</b> A single <span class="sp mod">Damage+</span> anywhere boosts everything you fire.</li>
+    <li><b>Adjacent projectile cards fuse.</b> Two projectiles next to each other merge into one carrier that blends their elements (see <a href="#fusion">Fusion</a>). A modifier placed <i>between</i> them breaks the fusion, so they fire as separate shots instead.</li>
+    <li><b>A trigger nests the rest as a payload.</b> The first <span class="sp trig">trigger</span> card splits the deck — everything after it becomes a payload that fires later (see <a href="#triggers">Triggers</a>).</li>
+  </ol>
+  <div class="tip"><b>Order is everything.</b> <code>Fire Water Bolt</code> fuses all
+  three into a steam-brewing bolt. <code>Fire Bolt Water</code> fires a burning
+  bolt <i>and</i> a separate water shot. Same three cards — completely different spell.</div>
+</section>
+
+<section id="fusion">
+  <h2>Fusion — the DNA of a shot</h2>
+  <p class="lede">When projectile cards sit side by side, their elemental
+  "genes" merge into one carrier. Certain gene <b>pairs</b> brew emergent
+  effects on impact — this is where the magic lives.</p>
+  <div class="grid g3">
+    <figure class="gif"><img src="img/gallery/moita-steam.gif" alt="Steam burst">
+      <span class="recipe">Fire + Water</span>
+      <figcaption><b>Steam Burst</b> — a blinding cloud that knocks enemies back and douses flame</figcaption></figure>
+    <figure class="gif"><img src="img/gallery/moita-obsidian.gif" alt="Obsidian shrapnel">
+      <span class="recipe">Lava + Water</span>
+      <figcaption><b>Obsidian Shrapnel</b> — the quench flings razor fragments outward</figcaption></figure>
+    <figure class="gif"><img src="img/gallery/moita-electro.gif" alt="Electrocute">
+      <span class="recipe">Spark + Water</span>
+      <figcaption><b>Electrocute</b> — arc through the wet, chaining to every foe in the pool</figcaption></figure>
+  </div>
+  <h3>Gene pairs</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Combine</th><th>Brews</th></tr></thead>
+    <tbody>
+      <tr><td class="rec">Fire + Water</td><td>Steam burst (cloud, knockback, douses fire)</td></tr>
+      <tr><td class="rec">Lava + Water</td><td>Obsidian shrapnel (hard fragments + damage)</td></tr>
+      <tr><td class="rec">Fire + Ice</td><td>Thermal shatter (big bonus damage on the hit)</td></tr>
+      <tr><td class="rec">Fire + Oil / Fire + Acid</td><td>Napalm splash (sticky burning liquid)</td></tr>
+      <tr><td class="rec">Spore + Fire</td><td>Fuel-air blast (explosion + lingering gas)</td></tr>
+      <tr><td class="rec">Spark/Bolt + Water</td><td>Electrocute (chains through the wet)</td></tr>
+    </tbody>
+  </table></div>
+  <p>Any projectiles fuse — the carrier's <i>motion</i> comes from the first
+  card in the run, the <i>effects</i> from all of them. So a Fire+Ice
+  <b>Needle</b> is a fast railgun that thermal-shatters, while Fire+Ice
+  <b>Bomb</b> lobs and shatters on landing.</p>
+</section>
+
+<section id="triggers">
+  <h2>Triggers — spells inside spells</h2>
+  <p class="lede">A trigger card splits your deck. Everything after it stops
+  being part of the main shot and becomes a <b>payload</b> — its own little
+  fused volley — fired when the carrier reaches its moment.</p>
+  <div class="grid g2">
+    <figure class="gif"><img src="img/gallery/moita-cluster.gif" alt="Cluster bomb">
+      <span class="recipe">Bomb ▸Impact Spark Spark Spark</span>
+      <figcaption><b>Cluster bomb</b> — the bomb bursts, then sprays a fan of sparks from the crater</figcaption></figure>
+    <figure class="gif"><img src="img/gallery/moita-nova.gif" alt="Nova ring">
+      <span class="recipe">Nova</span>
+      <figcaption><b>Nova</b> — a 12-way ring straight off the wand; wrap it in a trigger for a delayed burst</figcaption></figure>
+  </div>
+  <div class="tw"><table>
+    <thead><tr><th>Operator</th><th>Fires the payload…</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">▸ On Impact</td><td>where the carrier hits terrain or an enemy</td></tr>
+      <tr><td class="nm">▸ On Timer</td><td>mid-air, a fraction of a second after launch (airbursts)</td></tr>
+      <tr><td class="nm">▸ On Death</td><td>when the carrier expires or is destroyed (radial burst)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tip"><b>Payloads fuse too.</b> The cards after a trigger follow the
+  same fusion rules, so <code>Bolt ▸Impact Fire Water</code> throws a bolt that
+  releases a <i>steam burst</i> where it lands.</div>
+</section>
+
+<section id="recipes">
+  <h2>Recipe book</h2>
+  <p class="lede">Build these in the wand editor (MENU), or grab wands and cards
+  from the shop. Read them left to right.</p>
+  <div class="grid g2">
+    <figure class="gif"><img src="img/gallery/moita-napalm.gif" alt="Napalm">
+      <span class="recipe">Napalm</span>
+      <figcaption><b>Molotov</b> — a lobbed flask of pre-lit liquid fire that pools and spreads</figcaption></figure>
+    <div class="card"><h3>Reading a recipe</h3>
+      <p style="margin:0">Cards resolve in order. Adjacent projectiles fuse; a
+      modifier between them keeps them apart; the first ▸ trigger sends the rest
+      as a payload. Modifiers always apply to everything.</p></div>
+  </div>
+  <div class="tw"><table>
+    <thead><tr><th>Recipe</th><th>What you get</th></tr></thead>
+    <tbody>
+      <tr><td class="rec">Spark</td><td>The humble starter — fast, cheap, honest</td></tr>
+      <tr><td class="rec">Damage+ Bolt</td><td>A heavy bolt that hits noticeably harder</td></tr>
+      <tr><td class="rec">Fire Water</td><td>Steam burst — crowd control + douse</td></tr>
+      <tr><td class="rec">Lava Water</td><td>Obsidian shrapnel — a shotgun of fragments</td></tr>
+      <tr><td class="rec">Fire Ice</td><td>Thermal shatter — huge single-target damage</td></tr>
+      <tr><td class="rec">Acid Fire</td><td>Napalm — clings and burns; melt + torch in one</td></tr>
+      <tr><td class="rec">Spread Fire Water</td><td>A fan of three steam bursts</td></tr>
+      <tr><td class="rec">Spark Water</td><td>Electrocuting shot; devastating over a pool</td></tr>
+      <tr><td class="rec">Nova</td><td>A 12-way ring — point-blank panic button</td></tr>
+      <tr><td class="rec">Fork Bolt Spark</td><td>Bolts that split into arcs mid-flight</td></tr>
+      <tr><td class="rec">Homing Acid Fire</td><td>Napalm globs that chase your enemies</td></tr>
+      <tr><td class="rec">Pierce Needle</td><td>A railgun line that skewers a whole row</td></tr>
+      <tr><td class="rec">Twin Meteor</td><td>Two falling meteors, each a fiery crater</td></tr>
+      <tr><td class="rec">Prism</td><td>Rainbow shot that ricochets around a chamber</td></tr>
+      <tr><td class="rec">Bomb ▸Impact Spark Spark Spark</td><td>Cluster bomb — bursts into a spark fan</td></tr>
+      <tr><td class="rec">Seeker ▸Death Nova</td><td>Homing missile that blooms a nova when it dies</td></tr>
+      <tr><td class="rec">Bomb ▸Timer Bomb</td><td>Airburst — drops a second bomb mid-flight</td></tr>
+      <tr><td class="rec">Giant Lava Water ▸Impact Spore</td><td>Giant obsidian shell that vents poison gas on hit</td></tr>
+      <tr><td class="rec">Chaos Spark</td><td>Gamble — a random projectile every cast</td></tr>
+      <tr><td class="rec">Leech Homing Bolt</td><td>Homing bolts that heal you on every hit</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="projectiles">
+  <h2>Projectiles <span style="color:var(--dim);font-weight:400;font-size:.85rem">(28)</span></h2>
+  <p class="lede">The carriers. Their motion shapes the shot; their element joins the brew.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Card</th><th>Element</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Spark</td><td class="role">arc</td><td>Fast cheap magic bolt</td></tr>
+      <tr><td class="nm">Bolt</td><td class="role">arc</td><td>Heavy straight bolt</td></tr>
+      <tr><td class="nm">Fire</td><td class="role">burn</td><td>Fireball — ignites oil &amp; wood</td></tr>
+      <tr><td class="nm">Water</td><td class="role">wet</td><td>Douses fire, quenches lava</td></tr>
+      <tr><td class="nm">Acid</td><td class="role">acid</td><td>Dissolves terrain</td></tr>
+      <tr><td class="nm">Dig</td><td class="role">earth</td><td>Tunnels through soft ground</td></tr>
+      <tr><td class="nm">Bomb</td><td class="role">boom</td><td>Slow lob, big blast</td></tr>
+      <tr><td class="nm">Zap</td><td class="role">arc</td><td>Instant jagged lightning ray</td></tr>
+      <tr><td class="nm">Ice Shard</td><td class="role">cold</td><td>Freezes water; chills foes</td></tr>
+      <tr><td class="nm">Vine Seed</td><td class="role">—</td><td>Grows living wood shoots (bridges)</td></tr>
+      <tr><td class="nm">Arcane Orb</td><td class="role">—</td><td>Slow pulsing heavyweight; bursts</td></tr>
+      <tr><td class="nm">Nova</td><td class="role">—</td><td>12-way ring burst</td></tr>
+      <tr><td class="nm">Lava Ball</td><td class="role">molten</td><td>Splats molten lava</td></tr>
+      <tr><td class="nm">Oil Blob</td><td class="role">oil</td><td>Splats a flammable slick</td></tr>
+      <tr><td class="nm">Needle</td><td class="role">arc</td><td>Railgun-fast, pierces</td></tr>
+      <tr><td class="nm">Chain Bolt</td><td class="role">arc</td><td>Arcs between enemies</td></tr>
+      <tr><td class="nm">Meteor</td><td class="role">molten/boom</td><td>Falling arc, huge fiery blast</td></tr>
+      <tr><td class="nm">Swarm</td><td class="role">—</td><td>Four homing motes</td></tr>
+      <tr><td class="nm">Void Orb</td><td class="role">void</td><td>Eats terrain, pulls foes in</td></tr>
+      <tr><td class="nm">Prism</td><td class="role">—</td><td>Rainbow multi-bounce ricochet</td></tr>
+      <tr><td class="nm">Storm</td><td class="role">arc</td><td>Bolts rain from above the crosshair</td></tr>
+      <tr><td class="nm">Seeker</td><td class="role">—</td><td>Locks on, then accelerates hard</td></tr>
+      <tr><td class="nm">Boulder</td><td class="role">earth</td><td>Crushing rock; lands as terrain</td></tr>
+      <tr><td class="nm">Web</td><td class="role">—</td><td>Sticky slick that mires enemies</td></tr>
+      <tr><td class="nm">Frost Beam</td><td class="role">cold</td><td>A freezing short-range cone</td></tr>
+      <tr><td class="nm">Spore</td><td class="role">toxic</td><td>Drifting poison gas cloud</td></tr>
+      <tr><td class="nm">Mirror</td><td class="role">—</td><td>Splits into two on the first wall hit</td></tr>
+      <tr><td class="nm">Napalm</td><td class="role">burn/oil</td><td>Molotov — sticky burning liquid</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="modifiers">
+  <h2>Modifiers &amp; triggers <span style="color:var(--dim);font-weight:400;font-size:.85rem">(27 + 3)</span></h2>
+  <p class="lede">Modifiers apply to the whole cast. Triggers nest the rest as a payload.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Card</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Damage+</td><td>+9 damage (stacks)</td></tr>
+      <tr><td class="nm">Spread ×3 / ×5</td><td>Fires 3 / 5 in a fan</td></tr>
+      <tr><td class="nm">Twin</td><td>Duplicates the whole volley</td></tr>
+      <tr><td class="nm">Bounce</td><td>Ricochets off walls</td></tr>
+      <tr><td class="nm">Homing</td><td>Steers toward enemies</td></tr>
+      <tr><td class="nm">Boom</td><td>Explodes on impact</td></tr>
+      <tr><td class="nm">Speed+ / Slow</td><td>Faster / slower-but-harder</td></tr>
+      <tr><td class="nm">Gravity / Float</td><td>Arcs down / drifts up</td></tr>
+      <tr><td class="nm">Pierce</td><td>Passes through foes</td></tr>
+      <tr><td class="nm">Fire / Sparkle / Acid Trail</td><td>Leaves a trail as it flies</td></tr>
+      <tr><td class="nm">Crit</td><td>25% chance of triple damage</td></tr>
+      <tr><td class="nm">Leech</td><td>Hits heal you</td></tr>
+      <tr><td class="nm">Echo</td><td>The cast repeats a beat later</td></tr>
+      <tr><td class="nm">Wave</td><td>Serpentine flight</td></tr>
+      <tr><td class="nm">Glow</td><td>Projectile becomes a light source</td></tr>
+      <tr><td class="nm">Mana Refund</td><td>Hits give mana back</td></tr>
+      <tr><td class="nm">Fork</td><td>Splits mid-flight into two</td></tr>
+      <tr><td class="nm">Ricochet+</td><td>Bounces redirect toward foes</td></tr>
+      <tr><td class="nm">Poison</td><td>Damage-over-time</td></tr>
+      <tr><td class="nm">Giant</td><td>Bigger, harder, slower; larger hitbox</td></tr>
+      <tr><td class="nm">Chaos</td><td>Randomizes the projectile each cast</td></tr>
+      <tr><td class="nm">Split End</td><td>Bursts into sparks when it expires</td></tr>
+      <tr><td class="nm">▸ On Impact / Timer / Death</td><td>Nest the rest of the deck as a payload</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <section id="world">
   <h2>The caves</h2>
-  <p class="lede">The whole world is a falling-sand simulation. Nothing is
-  scenery — everything reacts.</p>
-  <h3>Materials</h3>
+  <p class="lede">Every material is part of the simulation — and part of your arsenal.</p>
   <div class="tw"><table>
     <thead><tr><th>Material</th><th>Behaviour</th></tr></thead>
     <tbody>
-      <tr><td class="nm">Water</td><td>Flows, pools flat, douses fire, quenches lava into obsidian</td></tr>
-      <tr><td class="nm">Oil</td><td>Pools like water — until something ignites it</td></tr>
+      <tr><td class="nm">Water</td><td>Flows, pools flat, douses fire, quenches lava to obsidian</td></tr>
+      <tr><td class="nm">Oil / Napalm</td><td>Flammable slicks; napalm arrives pre-lit and flows while it burns</td></tr>
       <tr><td class="nm">Acid</td><td>Eats through rock, dirt, wood and obsidian</td></tr>
-      <tr><td class="nm">Lava</td><td>Glows, creeps slowly, never cools on its own — only water stops it. Sets everything alight</td></tr>
-      <tr><td class="nm">Fire &amp; steam</td><td>Fire climbs and spreads through oil and wood; steam rises and fades</td></tr>
-      <tr><td class="nm">Ice</td><td>Made by freezing water with an Ice Shard. Solid, walkable, melts near heat</td></tr>
-      <tr><td class="nm">Wood</td><td>Grows from Vine seeds; flammable; diggable</td></tr>
-      <tr><td class="nm">Blood</td><td>Every creature bleeds in its own colour — it drips, runs and pools like any other liquid</td></tr>
+      <tr><td class="nm">Lava</td><td>Glows, creeps, never cools on its own — only water stops it</td></tr>
+      <tr><td class="nm">Fire &amp; steam</td><td>Fire climbs through fuel and rises in tongues; steam and smoke drift up</td></tr>
+      <tr><td class="nm">Ice</td><td>Frozen water — walkable, melts near heat</td></tr>
+      <tr><td class="nm">Web / Spore</td><td>Sticky webbing mires enemies (burns away); spore gas poisons</td></tr>
+      <tr><td class="nm">Blood</td><td>Every creature bleeds its own colour — it drips and pools</td></tr>
     </tbody>
   </table></div>
-  <h3>Fog of war</h3>
-  <p>The caves start dark. Your sight radius — plus any glowing thing: lava,
-  fire, a burning wisp, your own projectiles, wands lying in the world — reveals
-  the map <b>permanently</b>. Enemies lurking in unexplored darkness show only
-  as pulsing red eyes. Wands hidden in fog stay hidden until you light the way.</p>
-  <div class="tip"><b>Light is a tool.</b> A glowing spell fired down a dark
-  shaft is the cheapest scouting you'll ever do.</div>
-</section>
-
-<section id="wands">
-  <h2>Wands &amp; casting</h2>
-  <p class="lede">Wands are decks of spell cards, cast in order. The whole
-  system is built for combining.</p>
-  <p>Every wand has a <b>deck</b> (up to 8 cards), a <b>cast delay</b>, and a
-  <b>mana pool</b> with its own recharge rate. When you cast, the wand reads its
-  deck left to right from a moving cursor: <span class="sp mod">modifier</span>
-  cards are consumed and accumulated until the first
-  <span class="sp proj">projectile</span> card — which fires with <b>all</b> of
-  the accumulated modifiers applied. The cursor then moves on, wrapping at the
-  end.</p>
-  <ul>
-    <li><code>D+ 3X FI</code> — every cast fires a triple fan of boosted fireballs.</li>
-    <li><code>SP D+ SP</code> — alternates a plain spark and a damage-boosted spark.</li>
-    <li><code>TW EC 5X MT</code> — a twin, echoing, five-way meteor storm. Mind the mana bill.</li>
-  </ul>
-  <p>Mana cost scales with what you stack — damage, extra shots, explosions and
-  pierce all add up. A greedy combo can outrun its wand's recharge.</p>
-  <p>Wands found lying in the caves — marked by a slowly wheeling
-  <b>starburst</b> in the wand's colour — are free. Walk into one to take it
-  (you carry up to three).</p>
-</section>
-
-<section id="spells">
-  <h2>Spell reference</h2>
-  <p class="lede">20 projectiles × 21 stackable modifiers. The combinations are
-  effectively endless.</p>
-  <h3><span class="sp proj">Projectiles</span></h3>
-  <div class="tw"><table>
-    <thead><tr><th>Card</th><th>Code</th><th>Effect</th></tr></thead>
-    <tbody>
-      <tr><td class="nm">Spark</td><td>SP</td><td>Fast, cheap magic bolt</td></tr>
-      <tr><td class="nm">Bolt</td><td>BL</td><td>Heavy straight bolt, solid damage</td></tr>
-      <tr><td class="nm">Fire</td><td>FI</td><td>Fireball — ignites oil, wood and creatures</td></tr>
-      <tr><td class="nm">Water</td><td>WT</td><td>Splashes real water: douses fire, quenches lava</td></tr>
-      <tr><td class="nm">Acid</td><td>AC</td><td>Splats acid that dissolves terrain</td></tr>
-      <tr><td class="nm">Dig</td><td>DG</td><td>Tunnels through diggable ground</td></tr>
-      <tr><td class="nm">Bomb</td><td>BM</td><td>Slow lob, big terrain-tearing blast</td></tr>
-      <tr><td class="nm">Zap</td><td>ZP</td><td>Instant jagged lightning ray — fries and ignites on contact</td></tr>
-      <tr><td class="nm">Ice Shard</td><td>IC</td><td>Freezes water to walkable ice; chills enemies to a crawl</td></tr>
-      <tr><td class="nm">Vine Seed</td><td>VN</td><td>Grows living wood shoots where it lands — instant bridges</td></tr>
-      <tr><td class="nm">Arcane Orb</td><td>OR</td><td>Slow pulsing violet heavyweight; bursts on impact</td></tr>
-      <tr><td class="nm">Nova</td><td>NV</td><td>A 12-way ring of sparks from the cast point</td></tr>
-      <tr><td class="nm">Lava Ball</td><td>LV</td><td>Splats molten lava into the world</td></tr>
-      <tr><td class="nm">Oil Blob</td><td>OL</td><td>Splats oil — lay a trap, then ignite it</td></tr>
-      <tr><td class="nm">Needle</td><td>NE</td><td>Railgun-fast, pierces straight through enemies</td></tr>
-      <tr><td class="nm">Chain Bolt</td><td>CH</td><td>Arcs from enemy to enemy, up to three jumps</td></tr>
-      <tr><td class="nm">Meteor</td><td>MT</td><td>Heavy falling arc; huge fiery explosion</td></tr>
-      <tr><td class="nm">Swarm</td><td>SW</td><td>Four tiny homing motes seek the nearest target</td></tr>
-      <tr><td class="nm">Void Orb</td><td>VD</td><td>Devours terrain and drags enemies into itself</td></tr>
-      <tr><td class="nm">Prism</td><td>RB</td><td>Rainbow-cycling multi-bounce ricochet</td></tr>
-    </tbody>
-  </table></div>
-  <h3><span class="sp mod">Modifiers</span> <span style="color:var(--dim);font-weight:400;font-size:.85rem">(apply to the next projectile card; they stack)</span></h3>
-  <div class="tw"><table>
-    <thead><tr><th>Card</th><th>Code</th><th>Effect</th></tr></thead>
-    <tbody>
-      <tr><td class="nm">Damage+</td><td>D+</td><td>+9 damage (two D+ = +18)</td></tr>
-      <tr><td class="nm">Spread ×3</td><td>3X</td><td>Fires 3 projectiles in a fan</td></tr>
-      <tr><td class="nm">Spread ×5</td><td>5X</td><td>Fires 5 in a wider fan</td></tr>
-      <tr><td class="nm">Twin</td><td>TW</td><td>Duplicates the whole volley (stacks with spread)</td></tr>
-      <tr><td class="nm">Bounce</td><td>BN</td><td>Projectile ricochets off walls</td></tr>
-      <tr><td class="nm">Homing</td><td>HM</td><td>Projectile steers toward enemies</td></tr>
-      <tr><td class="nm">Boom</td><td>BX</td><td>Adds an explosion on impact</td></tr>
-      <tr><td class="nm">Speed+</td><td>V+</td><td>×1.7 projectile velocity (multiplies if stacked)</td></tr>
-      <tr><td class="nm">Slow</td><td>V−</td><td>Slower but harder-hitting; good for lobs</td></tr>
-      <tr><td class="nm">Gravity</td><td>GR</td><td>The shot arcs downward — mortar fire</td></tr>
-      <tr><td class="nm">Float</td><td>FL</td><td>Anti-gravity drift</td></tr>
-      <tr><td class="nm">Pierce</td><td>PC</td><td>Passes through enemies instead of stopping</td></tr>
-      <tr><td class="nm">Fire Trail</td><td>TF</td><td>Leaves burning air in its wake</td></tr>
-      <tr><td class="nm">Sparkle Trail</td><td>TS</td><td>Sheds gold glitter as it flies</td></tr>
-      <tr><td class="nm">Acid Trail</td><td>TA</td><td>Drips acid along the flight path</td></tr>
-      <tr><td class="nm">Crit</td><td>CR</td><td>25% chance of triple damage with a white flash</td></tr>
-      <tr><td class="nm">Leech</td><td>LF</td><td>Hits heal the wizard</td></tr>
-      <tr><td class="nm">Echo</td><td>EC</td><td>The cast repeats itself a beat later</td></tr>
-      <tr><td class="nm">Wave</td><td>WV</td><td>Serpentine flight path</td></tr>
-      <tr><td class="nm">Glow</td><td>GL</td><td>The projectile becomes a bright light source (+2 dmg)</td></tr>
-      <tr><td class="nm">Mana Refund</td><td>MN</td><td>Hits give mana back to the wand</td></tr>
-    </tbody>
-  </table></div>
-</section>
-
-<section id="editor">
-  <h2>The wand editor</h2>
-  <p class="lede">Press <b>MENU</b> at any time — the world freezes while you
-  work.</p>
-  <ul>
-    <li><span class="kb">▲ ▼</span> choose a wand, <span class="kb">◀ ▶</span> choose a slot.</li>
-    <li><span class="kb">A</span> picks up the card under the cursor, drops a carried card, or swaps the two — move cards freely <b>between</b> wands to build combos.</li>
-    <li><span class="kb">MENU</span> / <span class="kb">B</span> closes the editor. Decks compact automatically and a card in hand is always re-homed — nothing is ever lost.</li>
-  </ul>
-  <div class="tip"><b>Order matters.</b> Modifiers only affect the projectile
-  that comes <i>after</i> them in the deck. Front-load your modifiers.</div>
+  <h3>Fog of war &amp; barrels</h3>
+  <p>Caves start dark. Your sight and any glowing thing reveal the map
+  <b>permanently</b>; enemies in unexplored dark show only as glowing eyes.
+  Scattered <b>oil kegs</b> and <b>powder kegs</b> detonate when shot, burned, or
+  caught in a blast — and chain-react into each other.</p>
 </section>
 
 <section id="shop">
   <h2>Gold &amp; the shop</h2>
-  <p class="lede">Enemies burst into coins. Coins magnet to you. Gold does
-  nothing — until the portal.</p>
-  <p>Touching the portal opens the <b>between-levels shop</b>: three fresh wands
-  (shown as their icons) and three loose spell cards, each priced in gold.
-  Prices show gold when you can afford them, red when you can't.</p>
-  <div class="keys">
-    <span class="kb">◀ ▶ ▲ ▼</span><span>Browse the six slots</span>
-    <span class="kb">A</span><span>Buy — cards slot into your current wand's free space</span>
-    <span class="kb">B</span><span>Done — descend to the next depth</span>
-  </div>
-  <div class="tip warn"><b>Spend it.</b> Gold doesn't survive death. A run that
-  dies rich died twice.</div>
+  <p class="lede">Enemies burst into coins that magnet to you. Gold is spent at the portal.</p>
+  <p>Touching the portal opens the <b>Wand Shop</b>: three wands and three loose
+  spell cards, each priced. Buy wands to expand your loadout and cards to feed
+  your recipes, then descend. Wands found lying in the caves (inside a wheeling
+  starburst) are <b>free</b>.</p>
+  <div class="tip warn"><b>Spend it.</b> Gold doesn't survive death.</div>
 </section>
 
 <section id="bestiary">
   <h2>Bestiary</h2>
-  <p class="lede">Six creatures, unlocking by depth. Every one of them bleeds
-  differently.</p>
   <div class="tw"><table>
     <thead><tr><th>Creature</th><th>From</th><th>Habits</th><th>Gore</th></tr></thead>
     <tbody>
-      <tr><td class="nm">Bat</td><td>D1</td><td>Hovers on a sine wave, then swoops in a sudden burst</td><td class="role">red blood</td></tr>
-      <tr><td class="nm">Slime</td><td>D1</td><td>Squash-and-stretch hops; splits into two minis when killed</td><td class="role">green goo</td></tr>
-      <tr><td class="nm">Spitter</td><td>D1</td><td>Rooted maw that lobs arcing acid globs — its mouth flashes before it fires</td><td class="role">purple ichor</td></tr>
-      <tr><td class="nm">Wisp</td><td>D2</td><td>A living ember. Lights its own way, singes on contact, dies in a burst of fire. Immune to lava</td><td class="role">none — only embers</td></tr>
-      <tr><td class="nm">Crystal Crawler</td><td>D2</td><td>Slow, tough shard-beast; fires freezing bolts that slow <i>you know who</i></td><td class="role">frost spray</td></tr>
-      <tr><td class="nm">Ghost</td><td>D3</td><td>Fades in and out, drifts straight through rock, drains on touch</td><td class="role">white ectoplasm</td></tr>
+      <tr><td class="nm">Bat</td><td>D1</td><td>Hovers, then swoops in a burst</td><td class="role">red blood</td></tr>
+      <tr><td class="nm">Slime</td><td>D1</td><td>Squash-hops; splits into minis when killed</td><td class="role">green goo</td></tr>
+      <tr><td class="nm">Spitter</td><td>D1</td><td>Rooted maw lobbing arcing acid</td><td class="role">purple ichor</td></tr>
+      <tr><td class="nm">Wisp</td><td>D2</td><td>Living ember — lights its way, singes, dies in fire</td><td class="role">embers</td></tr>
+      <tr><td class="nm">Crystal Crawler</td><td>D2</td><td>Slow tank firing freezing bolts</td><td class="role">frost</td></tr>
+      <tr><td class="nm">Ghost</td><td>D3</td><td>Fades in and out, drifts through rock</td><td class="role">ectoplasm</td></tr>
     </tbody>
   </table></div>
-  <p>Enemies in unexplored fog appear only as glowing red eyes. Ice-slowed
-  creatures frost over and crawl at a third speed.</p>
 </section>
 
 <section id="tips">
   <h2>Field notes</h2>
   <ul>
-    <li><b>Water beats lava.</b> One Water card turns a molten lake into a walkable obsidian bridge.</li>
-    <li><b>Oil is a weapon.</b> Splat an Oil Blob under a chokepoint, retreat, and flick a Spark at it.</li>
-    <li><b>Dig is mobility.</b> A Dig wand tunnels routes the cave never offered — and drops enemies into hazards below.</li>
-    <li><b>Vine up, ice across.</b> Vine Seed grows climbable wood; Ice Shard freezes a pond into a floor.</li>
-    <li><b>The Void Orb eats walls.</b> Fired at the ground it digs a pit; fired at a crowd it <i>collects</i> them first.</li>
-    <li><b>Leech + Swarm</b> is a health plan. <b>Mana Refund + Spark</b> is an economy plan.</li>
-    <li>Flight mana only refills on the ground. Don't hover over acid with an empty bar.</li>
+    <li><b>Think in pairs.</b> Two elements next to each other almost always brew something better than either alone.</li>
+    <li><b>A modifier is also a divider.</b> Slip one between two projectiles to keep them as separate shots instead of fusing.</li>
+    <li><b>Water is a weapon and a shield.</b> Fire+Water clouds blind and knock back; Spark+Water over a pool wipes a room.</li>
+    <li><b>Lay traps.</b> Oil Blob or Napalm on a chokepoint, then a Fire shot — or an On-Timer airburst overhead.</li>
+    <li><b>Triggers multiply everything.</b> A cheap carrier with a fat payload out-damages a fat carrier.</li>
+    <li><b>Flight mana only refills on the ground</b> — don't hover over lava with an empty bar.</li>
   </ul>
 </section>
 

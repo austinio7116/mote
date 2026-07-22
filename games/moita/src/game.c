@@ -1662,6 +1662,19 @@ static void g_init(void){
         wx=96; wy=60; wvx=wvy=0; state=ST_PLAY;
         cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
     }
+    if(getenv("MOITA_ARENA")){    /* guide capture: open corridor, wizard fires right */
+        for(int y=38;y<98;y++)for(int x=2;x<126;x++) mat[y*WW+x]=M_EMPTY;
+        for(int x=2;x<126;x++){ mat[90*WW+x]=M_ROCK; mat[91*WW+x]=M_ROCK; mat[92*WW+x]=M_ROCK; }
+        for(int y=38;y<41;y++)for(int x=2;x<126;x++) mat[y*WW+x]=M_ROCK;   /* ceiling */
+        for(int y=54;y<90;y++)for(int x=108;x<114;x++) mat[y*WW+x]=M_ROCK;  /* far target wall */
+        if(getenv("MOITA_ARENA_WATER"))                 /* a pool for water-fusion demos */
+            for(int y=86;y<90;y++)for(int x=60;x<104;x++) mat[y*WW+x]=M_WATER;
+        if(getenv("MOITA_ARENA_FOE")){ nenemy=0;         /* a couple of dummies to zap */
+            for(int k=0;k<3;k++){ Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=70+k*14; e->y=84;
+                e->alive=1; e->type=2; e->hpmax=e->hp=60; e->t=rndf()*3; } }
+        wx=12; wy=84; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0; state=ST_PLAY;
+        cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
+    }
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
