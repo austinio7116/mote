@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moita — Wizard's Grimoire</title>
+<style>
+  :root{
+    --bg:#0a0c16; --panel:#121627; --panel2:#181d33; --ink:#d6dcef;
+    --dim:#8890a8; --violet:#c7a6ff; --violetl:#e6d6ff; --gold:#ffd76e; --steel:#7f8aa8;
+    --cyan:#9fd8ff; --green:#8ee39a; --red:#ef7b66; --amber:#ffb070;
+    --line:#252c48; --grid:#1c2238;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+  header.hero{background:
+      radial-gradient(120% 140% at 80% -20%, #2a1a44 0%, transparent 55%),
+      radial-gradient(90% 110% at 10% -30%, #301410 0%, transparent 60%),
+      linear-gradient(180deg,#141028,#0a0c16);
+    border-bottom:2px solid var(--violet);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--steel);border-radius:8px;
+    background:#06070d;flex:0 0 auto;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .htext h1{margin:0;font-size:2.6rem;letter-spacing:.06em;color:var(--violet);
+    text-shadow:0 2px 0 #3a2260;font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.15rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 10px;border-radius:20px;letter-spacing:.04em}
+
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(10,12,22,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:34px 0 8px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.5rem;color:var(--gold);margin:0 0 4px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--violet);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 20px;max-width:70ch}
+  h3{color:var(--violet);margin:22px 0 8px;font-size:1.05rem}
+  p{max-width:74ch}
+  ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:var(--ink)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .card h3{margin-top:0}
+  .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+
+  .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{color:var(--gold);font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:2px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
+  td.role{color:var(--dim);font-size:.86rem}
+
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
+    max-width:74ch}
+  .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
+    border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
+    white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
+
+  .sp{display:inline-block;padding:1px 8px;border-radius:12px;font-size:.8rem;font-weight:700}
+  .sp.proj{background:#1a2440;color:#9fd8ff}
+  .sp.mod{background:#2a1a3e;color:#d0a8ff}
+
+  .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:12px 16px;margin:10px 0;max-width:74ch}
+  .tip b{color:var(--gold)}
+  .warn{border-left-color:var(--red)}
+  .warn b{color:var(--red)}
+
+  footer{padding:28px 0 44px;color:var(--dim);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hrow">
+      <img class="hicon" src="img/gallery/moita-icon.png" alt="Moita icon">
+      <div class="htext">
+        <h1>MOITA</h1>
+        <div class="sub">A tiny Noita — every pixel simulated, every wand yours to build</div>
+        <div class="by">by austinio7116 · for the Thumby Color</div>
+        <div class="badges">
+          <span class="badge">PER-PIXEL WORLD</span>
+          <span class="badge">41 SPELL CARDS</span>
+          <span class="badge">PROCEDURAL WANDS</span>
+          <span class="badge">FOG OF WAR</span>
+          <span class="badge">RGB LIGHTING</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#start">Getting started</a>
+  <a href="#controls">Controls</a>
+  <a href="#dash">Dashboard</a>
+  <a href="#world">The caves</a>
+  <a href="#wands">Wands</a>
+  <a href="#spells">Spell reference</a>
+  <a href="#editor">Wand editor</a>
+  <a href="#shop">Gold &amp; shop</a>
+  <a href="#bestiary">Bestiary</a>
+  <a href="#tips">Tips</a>
+</div></nav>
+
+<main class="wrap">
+
+<section id="start">
+  <h2>Getting started</h2>
+  <p class="lede">You are a very small wizard at the top of a very deep cave.
+  Somewhere below is a portal. Between you and it: rock, water, oil, acid,
+  molten lava — and things with glowing eyes.</p>
+  <div class="grid g3">
+    <div><img class="shot" src="img/gallery/moita-1.png" alt="Title"><div class="shotcap">Lava and water pour behind the living title</div></div>
+    <div><img class="shot" src="img/gallery/moita-2.png" alt="Deep caves"><div class="shotcap">Depth 3: lava-lit caverns beyond your sight radius</div></div>
+    <div><img class="shot" src="img/gallery/moita-3.png" alt="Casting"><div class="shotcap">Sparks fly — every projectile lights the cave in its own colour</div></div>
+  </div>
+  <p>Each <b>depth</b> is a fresh, procedurally carved cave system with several
+  winding routes down. Reach the pulsing purple <b>portal</b> at the bottom to
+  visit the shop and descend. Deeper levels change biome — more oil, then acid,
+  then open lava — and spawn nastier creatures. Death sends you back to depth 1,
+  so spend your gold while you can.</p>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <div class="keys">
+    <span class="kb">◀ ▶</span><span>Walk (the wizard steps smoothly over rough ground)</span>
+    <span class="kb">A</span><span><b>Fly</b> — hold to thrust upward; drains the blue flight-mana bar, which refills on the ground</span>
+    <span class="kb">B</span><span><b>Cast</b> — fires the current wand along the crosshair; hold to keep casting</span>
+    <span class="kb">▲ ▼</span><span>Rotate the aim crosshair up / down (it sticks where you leave it, and flips when you turn)</span>
+    <span class="kb">LB</span><span>Cycle to your next wand</span>
+    <span class="kb">MENU</span><span>Open the <a href="#editor">wand editor</a> (the world pauses)</span>
+  </div>
+</section>
+
+<section id="dash">
+  <h2>The dashboard</h2>
+  <p class="lede">Everything you need lives in the strip across the top — the
+  world scrolls beneath it, never behind it.</p>
+  <ul>
+    <li><b>♥ Health bar</b> — you have 100 HP. Enemy contact, enemy bolts, fire and lava all hurt.</li>
+    <li><b>⚡ Flight mana</b> — the blue bar under it. Empties as you fly, refills when you land.</li>
+    <li><b>Coin counter</b> — gold collected this run (see <a href="#shop">the shop</a>).</li>
+    <li><b>Wand icons</b> — one tiny procedural icon per wand you carry; the gold frame marks the active one. Every icon is generated from the wand's actual deck, so no two look alike.</li>
+    <li><b>Wand mana bar</b> — the active wand's charge, in the wand's own colour. Each cast costs mana; wands recharge on their own.</li>
+    <li><b>D-number</b> — your current depth.</li>
+  </ul>
+</section>
+
+<section id="world">
+  <h2>The caves</h2>
+  <p class="lede">The whole world is a falling-sand simulation. Nothing is
+  scenery — everything reacts.</p>
+  <h3>Materials</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Material</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Water</td><td>Flows, pools flat, douses fire, quenches lava into obsidian</td></tr>
+      <tr><td class="nm">Oil</td><td>Pools like water — until something ignites it</td></tr>
+      <tr><td class="nm">Acid</td><td>Eats through rock, dirt, wood and obsidian</td></tr>
+      <tr><td class="nm">Lava</td><td>Glows, creeps slowly, never cools on its own — only water stops it. Sets everything alight</td></tr>
+      <tr><td class="nm">Fire &amp; steam</td><td>Fire climbs and spreads through oil and wood; steam rises and fades</td></tr>
+      <tr><td class="nm">Ice</td><td>Made by freezing water with an Ice Shard. Solid, walkable, melts near heat</td></tr>
+      <tr><td class="nm">Wood</td><td>Grows from Vine seeds; flammable; diggable</td></tr>
+      <tr><td class="nm">Blood</td><td>Every creature bleeds in its own colour — it drips, runs and pools like any other liquid</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Fog of war</h3>
+  <p>The caves start dark. Your sight radius — plus any glowing thing: lava,
+  fire, a burning wisp, your own projectiles, wands lying in the world — reveals
+  the map <b>permanently</b>. Enemies lurking in unexplored darkness show only
+  as pulsing red eyes. Wands hidden in fog stay hidden until you light the way.</p>
+  <div class="tip"><b>Light is a tool.</b> A glowing spell fired down a dark
+  shaft is the cheapest scouting you'll ever do.</div>
+</section>
+
+<section id="wands">
+  <h2>Wands &amp; casting</h2>
+  <p class="lede">Wands are decks of spell cards, cast in order. The whole
+  system is built for combining.</p>
+  <p>Every wand has a <b>deck</b> (up to 8 cards), a <b>cast delay</b>, and a
+  <b>mana pool</b> with its own recharge rate. When you cast, the wand reads its
+  deck left to right from a moving cursor: <span class="sp mod">modifier</span>
+  cards are consumed and accumulated until the first
+  <span class="sp proj">projectile</span> card — which fires with <b>all</b> of
+  the accumulated modifiers applied. The cursor then moves on, wrapping at the
+  end.</p>
+  <ul>
+    <li><code>D+ 3X FI</code> — every cast fires a triple fan of boosted fireballs.</li>
+    <li><code>SP D+ SP</code> — alternates a plain spark and a damage-boosted spark.</li>
+    <li><code>TW EC 5X MT</code> — a twin, echoing, five-way meteor storm. Mind the mana bill.</li>
+  </ul>
+  <p>Mana cost scales with what you stack — damage, extra shots, explosions and
+  pierce all add up. A greedy combo can outrun its wand's recharge.</p>
+  <p>Wands found lying in the caves — marked by a slowly wheeling
+  <b>starburst</b> in the wand's colour — are free. Walk into one to take it
+  (you carry up to three).</p>
+</section>
+
+<section id="spells">
+  <h2>Spell reference</h2>
+  <p class="lede">20 projectiles × 21 stackable modifiers. The combinations are
+  effectively endless.</p>
+  <h3><span class="sp proj">Projectiles</span></h3>
+  <div class="tw"><table>
+    <thead><tr><th>Card</th><th>Code</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Spark</td><td>SP</td><td>Fast, cheap magic bolt</td></tr>
+      <tr><td class="nm">Bolt</td><td>BL</td><td>Heavy straight bolt, solid damage</td></tr>
+      <tr><td class="nm">Fire</td><td>FI</td><td>Fireball — ignites oil, wood and creatures</td></tr>
+      <tr><td class="nm">Water</td><td>WT</td><td>Splashes real water: douses fire, quenches lava</td></tr>
+      <tr><td class="nm">Acid</td><td>AC</td><td>Splats acid that dissolves terrain</td></tr>
+      <tr><td class="nm">Dig</td><td>DG</td><td>Tunnels through diggable ground</td></tr>
+      <tr><td class="nm">Bomb</td><td>BM</td><td>Slow lob, big terrain-tearing blast</td></tr>
+      <tr><td class="nm">Zap</td><td>ZP</td><td>Instant jagged lightning ray — fries and ignites on contact</td></tr>
+      <tr><td class="nm">Ice Shard</td><td>IC</td><td>Freezes water to walkable ice; chills enemies to a crawl</td></tr>
+      <tr><td class="nm">Vine Seed</td><td>VN</td><td>Grows living wood shoots where it lands — instant bridges</td></tr>
+      <tr><td class="nm">Arcane Orb</td><td>OR</td><td>Slow pulsing violet heavyweight; bursts on impact</td></tr>
+      <tr><td class="nm">Nova</td><td>NV</td><td>A 12-way ring of sparks from the cast point</td></tr>
+      <tr><td class="nm">Lava Ball</td><td>LV</td><td>Splats molten lava into the world</td></tr>
+      <tr><td class="nm">Oil Blob</td><td>OL</td><td>Splats oil — lay a trap, then ignite it</td></tr>
+      <tr><td class="nm">Needle</td><td>NE</td><td>Railgun-fast, pierces straight through enemies</td></tr>
+      <tr><td class="nm">Chain Bolt</td><td>CH</td><td>Arcs from enemy to enemy, up to three jumps</td></tr>
+      <tr><td class="nm">Meteor</td><td>MT</td><td>Heavy falling arc; huge fiery explosion</td></tr>
+      <tr><td class="nm">Swarm</td><td>SW</td><td>Four tiny homing motes seek the nearest target</td></tr>
+      <tr><td class="nm">Void Orb</td><td>VD</td><td>Devours terrain and drags enemies into itself</td></tr>
+      <tr><td class="nm">Prism</td><td>RB</td><td>Rainbow-cycling multi-bounce ricochet</td></tr>
+    </tbody>
+  </table></div>
+  <h3><span class="sp mod">Modifiers</span> <span style="color:var(--dim);font-weight:400;font-size:.85rem">(apply to the next projectile card; they stack)</span></h3>
+  <div class="tw"><table>
+    <thead><tr><th>Card</th><th>Code</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Damage+</td><td>D+</td><td>+9 damage (two D+ = +18)</td></tr>
+      <tr><td class="nm">Spread ×3</td><td>3X</td><td>Fires 3 projectiles in a fan</td></tr>
+      <tr><td class="nm">Spread ×5</td><td>5X</td><td>Fires 5 in a wider fan</td></tr>
+      <tr><td class="nm">Twin</td><td>TW</td><td>Duplicates the whole volley (stacks with spread)</td></tr>
+      <tr><td class="nm">Bounce</td><td>BN</td><td>Projectile ricochets off walls</td></tr>
+      <tr><td class="nm">Homing</td><td>HM</td><td>Projectile steers toward enemies</td></tr>
+      <tr><td class="nm">Boom</td><td>BX</td><td>Adds an explosion on impact</td></tr>
+      <tr><td class="nm">Speed+</td><td>V+</td><td>×1.7 projectile velocity (multiplies if stacked)</td></tr>
+      <tr><td class="nm">Slow</td><td>V−</td><td>Slower but harder-hitting; good for lobs</td></tr>
+      <tr><td class="nm">Gravity</td><td>GR</td><td>The shot arcs downward — mortar fire</td></tr>
+      <tr><td class="nm">Float</td><td>FL</td><td>Anti-gravity drift</td></tr>
+      <tr><td class="nm">Pierce</td><td>PC</td><td>Passes through enemies instead of stopping</td></tr>
+      <tr><td class="nm">Fire Trail</td><td>TF</td><td>Leaves burning air in its wake</td></tr>
+      <tr><td class="nm">Sparkle Trail</td><td>TS</td><td>Sheds gold glitter as it flies</td></tr>
+      <tr><td class="nm">Acid Trail</td><td>TA</td><td>Drips acid along the flight path</td></tr>
+      <tr><td class="nm">Crit</td><td>CR</td><td>25% chance of triple damage with a white flash</td></tr>
+      <tr><td class="nm">Leech</td><td>LF</td><td>Hits heal the wizard</td></tr>
+      <tr><td class="nm">Echo</td><td>EC</td><td>The cast repeats itself a beat later</td></tr>
+      <tr><td class="nm">Wave</td><td>WV</td><td>Serpentine flight path</td></tr>
+      <tr><td class="nm">Glow</td><td>GL</td><td>The projectile becomes a bright light source (+2 dmg)</td></tr>
+      <tr><td class="nm">Mana Refund</td><td>MN</td><td>Hits give mana back to the wand</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="editor">
+  <h2>The wand editor</h2>
+  <p class="lede">Press <b>MENU</b> at any time — the world freezes while you
+  work.</p>
+  <ul>
+    <li><span class="kb">▲ ▼</span> choose a wand, <span class="kb">◀ ▶</span> choose a slot.</li>
+    <li><span class="kb">A</span> picks up the card under the cursor, drops a carried card, or swaps the two — move cards freely <b>between</b> wands to build combos.</li>
+    <li><span class="kb">MENU</span> / <span class="kb">B</span> closes the editor. Decks compact automatically and a card in hand is always re-homed — nothing is ever lost.</li>
+  </ul>
+  <div class="tip"><b>Order matters.</b> Modifiers only affect the projectile
+  that comes <i>after</i> them in the deck. Front-load your modifiers.</div>
+</section>
+
+<section id="shop">
+  <h2>Gold &amp; the shop</h2>
+  <p class="lede">Enemies burst into coins. Coins magnet to you. Gold does
+  nothing — until the portal.</p>
+  <p>Touching the portal opens the <b>between-levels shop</b>: three fresh wands
+  (shown as their icons) and three loose spell cards, each priced in gold.
+  Prices show gold when you can afford them, red when you can't.</p>
+  <div class="keys">
+    <span class="kb">◀ ▶ ▲ ▼</span><span>Browse the six slots</span>
+    <span class="kb">A</span><span>Buy — cards slot into your current wand's free space</span>
+    <span class="kb">B</span><span>Done — descend to the next depth</span>
+  </div>
+  <div class="tip warn"><b>Spend it.</b> Gold doesn't survive death. A run that
+  dies rich died twice.</div>
+</section>
+
+<section id="bestiary">
+  <h2>Bestiary</h2>
+  <p class="lede">Six creatures, unlocking by depth. Every one of them bleeds
+  differently.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Creature</th><th>From</th><th>Habits</th><th>Gore</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Bat</td><td>D1</td><td>Hovers on a sine wave, then swoops in a sudden burst</td><td class="role">red blood</td></tr>
+      <tr><td class="nm">Slime</td><td>D1</td><td>Squash-and-stretch hops; splits into two minis when killed</td><td class="role">green goo</td></tr>
+      <tr><td class="nm">Spitter</td><td>D1</td><td>Rooted maw that lobs arcing acid globs — its mouth flashes before it fires</td><td class="role">purple ichor</td></tr>
+      <tr><td class="nm">Wisp</td><td>D2</td><td>A living ember. Lights its own way, singes on contact, dies in a burst of fire. Immune to lava</td><td class="role">none — only embers</td></tr>
+      <tr><td class="nm">Crystal Crawler</td><td>D2</td><td>Slow, tough shard-beast; fires freezing bolts that slow <i>you know who</i></td><td class="role">frost spray</td></tr>
+      <tr><td class="nm">Ghost</td><td>D3</td><td>Fades in and out, drifts straight through rock, drains on touch</td><td class="role">white ectoplasm</td></tr>
+    </tbody>
+  </table></div>
+  <p>Enemies in unexplored fog appear only as glowing red eyes. Ice-slowed
+  creatures frost over and crawl at a third speed.</p>
+</section>
+
+<section id="tips">
+  <h2>Field notes</h2>
+  <ul>
+    <li><b>Water beats lava.</b> One Water card turns a molten lake into a walkable obsidian bridge.</li>
+    <li><b>Oil is a weapon.</b> Splat an Oil Blob under a chokepoint, retreat, and flick a Spark at it.</li>
+    <li><b>Dig is mobility.</b> A Dig wand tunnels routes the cave never offered — and drops enemies into hazards below.</li>
+    <li><b>Vine up, ice across.</b> Vine Seed grows climbable wood; Ice Shard freezes a pond into a floor.</li>
+    <li><b>The Void Orb eats walls.</b> Fired at the ground it digs a pit; fired at a crowd it <i>collects</i> them first.</li>
+    <li><b>Leech + Swarm</b> is a health plan. <b>Mana Refund + Spark</b> is an economy plan.</li>
+    <li>Flight mana only refills on the ground. Don't hover over acid with an empty bar.</li>
+  </ul>
+</section>
+
+</main>
+<footer><div class="wrap">Moita · by austinio7116 · a Mote engine game for the Thumby Color</div></footer>
+</body>
+</html>

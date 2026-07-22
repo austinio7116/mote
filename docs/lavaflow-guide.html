@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LavaFlow — Engineer's Handbook</title>
+<style>
+  :root{
+    --bg:#0c0a08; --panel:#171310; --panel2:#1f1914; --ink:#e8ded2;
+    --dim:#a3968a; --amber:#ffb051; --amberl:#ffd9a8; --gold:#ffd76e; --steel:#8a7f74;
+    --cyan:#8fd2ff; --green:#96e0a0; --red:#ef7b66;
+    --line:#37291e; --grid:#241c14;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  img{max-width:100%;image-rendering:pixelated;image-rendering:crisp-edges;}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+  header.hero{background:
+      radial-gradient(120% 140% at 80% -20%, #40200a 0%, transparent 55%),
+      radial-gradient(90% 110% at 10% -30%, #241016 0%, transparent 60%),
+      linear-gradient(180deg,#1d130c,#0c0a08);
+    border-bottom:2px solid var(--amber);padding:38px 0 30px;}
+  .hrow{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+  .hicon{width:96px;height:96px;border:2px solid var(--steel);border-radius:8px;
+    background:#0a0705;flex:0 0 auto;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .htext h1{margin:0;font-size:2.6rem;letter-spacing:.06em;color:var(--amber);
+    text-shadow:0 2px 0 #5a2d0a;font-weight:800}
+  .htext .sub{color:var(--ink);font-size:1.15rem;margin-top:2px}
+  .htext .by{color:var(--dim);font-size:.9rem;margin-top:8px;letter-spacing:.04em}
+  .badges{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--line);color:var(--gold);
+    font-size:.78rem;padding:4px 10px;border-radius:20px;letter-spacing:.04em}
+
+  nav.toc{position:sticky;top:0;z-index:5;background:rgba(12,10,8,.94);
+    backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:4px;flex-wrap:wrap;padding:8px 20px}
+  nav.toc a{color:var(--dim);font-size:.82rem;padding:5px 10px;border-radius:6px}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);text-decoration:none}
+
+  section{padding:34px 0 8px;border-bottom:1px solid var(--grid)}
+  h2{font-size:1.5rem;color:var(--gold);margin:0 0 4px;letter-spacing:.03em;
+    display:flex;align-items:baseline;gap:10px}
+  h2::before{content:"▸";color:var(--amber);font-size:1rem}
+  .lede{color:var(--dim);margin:0 0 20px;max-width:70ch}
+  h3{color:var(--amber);margin:22px 0 8px;font-size:1.05rem}
+  p{max-width:74ch}
+  ul{max-width:74ch}
+  li{margin:4px 0}
+  b,strong{color:var(--ink)}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:var(--gold)}
+
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g3{grid-template-columns:1fr}}
+  .shot{border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .shotcap{color:var(--dim);font-size:.82rem;text-align:center;margin-top:6px}
+
+  .tw{overflow-x:auto;margin:6px 0 4px;-webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{color:var(--gold);font-size:.76rem;text-transform:uppercase;letter-spacing:.06em;
+    border-bottom:2px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:var(--panel)}
+  td.nm{font-weight:600;color:var(--ink);white-space:nowrap}
+  td.role{color:var(--dim);font-size:.86rem}
+
+  .keys{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:start;
+    max-width:74ch}
+  .kb{background:var(--panel2);border:1px solid var(--steel);border-bottom-width:3px;
+    border-radius:6px;padding:3px 10px;font-weight:700;color:var(--gold);font-size:.85rem;
+    white-space:nowrap;justify-self:start;text-align:center;min-width:44px}
+
+  .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:12px 16px;margin:10px 0;max-width:74ch}
+  .tip b{color:var(--gold)}
+  .warn{border-left-color:var(--red)}
+  .warn b{color:var(--red)}
+
+  footer{padding:28px 0 44px;color:var(--dim);font-size:.85rem}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hrow">
+      <img class="hicon" src="img/gallery/lavaflow-icon.png" alt="LavaFlow icon">
+      <div class="htext">
+        <h1>LAVAFLOW</h1>
+        <div class="sub">The volcano is awake. The town is asleep. You have one gauge of time.</div>
+        <div class="by">by austinio7116 · for the Thumby Color</div>
+        <div class="badges">
+          <span class="badge">PER-PIXEL LAVA</span>
+          <span class="badge">PUZZLE / ACTION</span>
+          <span class="badge">5 TOOLS</span>
+          <span class="badge">GRAPPLING HOOK</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#start">The job</a>
+  <a href="#controls">Controls</a>
+  <a href="#phases">The two phases</a>
+  <a href="#tools">Tools</a>
+  <a href="#lava">Reading the lava</a>
+  <a href="#tips">Tips</a>
+</div></nav>
+
+<main class="wrap">
+
+<section id="start">
+  <h2>The job</h2>
+  <p class="lede">A blinking arrow marks a vent at the top of the cave. When the
+  gauge fills, lava pours — thick, gloopy, glowing, and headed for the town at
+  the bottom. Divert it. Outlast the flow. Save the houses.</p>
+  <div class="grid g3">
+    <div><img class="shot" src="img/gallery/lavaflow-1.png" alt="Planning"><div class="shotcap">Planning phase: the arrow marks the vent, the town sleeps below</div></div>
+    <div><img class="shot" src="img/gallery/lavaflow-2.png" alt="The flow"><div class="shotcap">The flow: molten rock pours and the cave lights up</div></div>
+    <div><img class="shot" src="img/gallery/lavaflow-3.png" alt="Burned"><div class="shotcap">What failure looks like</div></div>
+  </div>
+  <p>Every level is a freshly carved organic cave. The lava always has a route
+  to the bottom — your job is to make sure that route isn't <i>through the
+  town</i>. You win when the flow ends with the town standing; you lose if the
+  town burns, or you do.</p>
+</section>
+
+<section id="controls">
+  <h2>Controls</h2>
+  <div class="keys">
+    <span class="kb">◀ ▶</span><span>Run (smoothly, over rough ground)</span>
+    <span class="kb">A</span><span><b>Jump</b> — hold longer to jump higher</span>
+    <span class="kb">B</span><span><b>Use the current tool</b> at the reticle in front of you</span>
+    <span class="kb">▲ ▼</span><span>With the Log selected: rotate its placement angle</span>
+    <span class="kb">LB</span><span>Cycle tools</span>
+    <span class="kb">RB</span><span><b>Grappling hook</b> — fire at the ceiling, swing, reel in. Your fastest way around</span>
+  </div>
+  <h3>The dashboard</h3>
+  <ul>
+    <li><b>🔥 Lava gauge</b> — fills UP while you prepare (the flame flickers in the final seconds), then drains DOWN while the lava flows. When it empties with the town alive, you've won.</li>
+    <li><b>🏠 Town bar</b> — the town's integrity. Green is healthy; red is a barbecue.</li>
+    <li><b>Tool slots</b> — your five tools with remaining stock. The gold frame is selected.</li>
+  </ul>
+</section>
+
+<section id="phases">
+  <h2>The two phases</h2>
+  <h3>1 · Planning</h3>
+  <p>The gauge fills. Scout the cave, pick the channel you want the lava to
+  take, and spend your stock: carve with the pickaxe, angle logs into
+  deflectors, wall off with sandbags, pre-place water sources. Nothing flows
+  yet — but the clock does.</p>
+  <h3>2 · The flow</h3>
+  <p>Lava pours from the vent and every water source you placed starts running.
+  Now it's triage: blast new channels, drop emergency sandbags, dig relief
+  routes — while staying out of the melt yourself. The flow runs for a fixed
+  time; survive it and keep the town standing.</p>
+  <div class="tip warn"><b>You are flammable.</b> Touching lava ends your run —
+  and the town's.</div>
+</section>
+
+<section id="tools">
+  <h2>Tools</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Tool</th><th>Stock</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td class="nm">Water Source</td><td>limited</td><td>Places a nozzle that pours water for the whole flow phase. Water quenches lava into solid obsidian on contact — a wall that builds itself</td></tr>
+      <tr><td class="nm">Log</td><td>limited</td><td>An angled timber deflector. ▲▼ rotates before placing. Lava rides along it — until it burns through, so don't lean on one log forever</td></tr>
+      <tr><td class="nm">Pickaxe</td><td>∞</td><td>Digs through dirt and rock. Carve channels, drop floors, open relief routes</td></tr>
+      <tr><td class="nm">Sandbags</td><td>limited</td><td>A quick pile of sand — instant dam, and lava bakes it hard</td></tr>
+      <tr><td class="nm">Blast Charge</td><td>scarce</td><td>Blows a crater. The fastest way to open a new channel — or to ruin a good one. Aim carefully</td></tr>
+    </tbody>
+  </table></div>
+  <p>Placements will never trap you — the game refuses to seal a block over
+  your own pixels.</p>
+</section>
+
+<section id="lava">
+  <h2>Reading the lava</h2>
+  <ul>
+    <li><b>It's thick.</b> Lava creeps, mounds, and leans on obstacles before it spills — you have more time than you think, but less than you'd like.</li>
+    <li><b>It cools at the edges.</b> Slowed lava crusts into dark basalt with glowing cracks; the crust itself can dam later flow.</li>
+    <li><b>Water is your concrete.</b> Where a stream of water meets the melt, it flashes to steam and leaves obsidian. A well-placed source casts a wall exactly where the lava insists on going.</li>
+    <li><b>Light tells the truth.</b> The glow reaches around corners but not through walls — if a passage is lighting up, lava is coming down it.</li>
+  </ul>
+</section>
+
+<section id="tips">
+  <h2>Field notes</h2>
+  <ul>
+    <li>Spend the planning phase <b>below</b> the vent, not beside it — walk the route the lava will take.</li>
+    <li>A log angled just under the vent splits the stream early; two logs make a zigzag that bleeds its momentum.</li>
+    <li>Dig your relief channel <b>before</b> placing sandbags — bags redirect pressure, and pressure needs somewhere to go.</li>
+    <li>Keep one blast charge for the endgame. A late surge through a crusted channel is what it's for.</li>
+    <li>The grapple swings faster than your legs run. When the flow starts, travel by ceiling.</li>
+  </ul>
+</section>
+
+</main>
+<footer><div class="wrap">LavaFlow · by austinio7116 · a Mote engine game for the Thumby Color</div></footer>
+</body>
+</html>
