@@ -714,50 +714,58 @@ static void tick_proj(float dt){
             if((framestep&1)==0){ float a=rndf()*6.2832f;
                 spawn_part(p->x+cosf(a)*5,p->y+sinf(a)*5,-cosf(a)*50,-sinf(a)*50,0.25f,MOTE_RGB565(150,80,220),1); }
         }
-        float nx=p->x+p->vx*dt, ny=p->y+p->vy*dt;
-        int ix=(int)nx, iy=(int)ny;
-        if(!inb(ix,iy)){ proj[i]=proj[--nproj]; continue; }
-        uint8_t mm=mat[iy*WW+ix];
-        int hitsolid = IS_SOLID(mm);
-        int hite=-1; if(!p->foe){ for(int e=0;e<nenemy;e++) if(enemy[e].alive){
-            float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<9){ hite=e; break; } } }
-        if(hite>=0){
-            if(p->lasthit!=(uint8_t)hite){
-                float dd=p->dmg;
-                if(p->crit&&(rnd()&3)==0){ dd*=3;      /* crit: white flash */
-                    for(int k=0;k<8;k++) spawn_part(nx,ny,rr(-80,80),rr(-80,80),0.3f,MOTE_RGB565(255,255,255),1); }
-                enemy[hite].hp-=(int)dd;
-                spawn_blood(nx,ny,enemy_blood[enemy[hite].type],3);
-                if(p->leech){ hp+=3; if(hp>hp_max)hp=hp_max;
-                    spawn_part(wx+PW*0.5f,wy,rr(-10,10),-20,0.4f,MOTE_RGB565(120,255,140),1); }
-                if(p->manaref){ Wand*cw=&wand[cur_wand]; cw->mana+=6; if(cw->mana>cw->mana_max)cw->mana=cw->mana_max; }
-                for(int k=0;k<6;k++) spawn_part(nx,ny,rr(-50,50),rr(-50,50),0.3f,MOTE_RGB565(255,60,60),1);
-                p->lasthit=(uint8_t)hite;
-                if(p->type==SP_CHAIN && p->jumps>0){   /* arc to the next foe */
-                    int bi=-1; float best=70*70;
-                    for(int e2=0;e2<nenemy;e2++) if(enemy[e2].alive&&e2!=hite){
-                        float dx=enemy[e2].x-nx,dy=enemy[e2].y-ny,d2=dx*dx+dy*dy; if(d2<best){best=d2;bi=e2;} }
-                    if(bi>=0){ float dx=enemy[bi].x-nx,dy=enemy[bi].y-ny,d=sqrtf(dx*dx+dy*dy)+0.01f;
-                        float sp2=sqrtf(p->vx*p->vx+p->vy*p->vy);
-                        p->vx=dx/d*sp2; p->vy=dy/d*sp2; p->jumps--; p->dmg*=0.8f;
-                        for(int k=0;k<6;k++) spawn_part(nx,ny,rr(-40,40),rr(-40,40),0.15f,MOTE_RGB565(180,220,255),1);
-                        p->x=nx; p->y=ny; i++; continue; }
+        /* --- swept (hitscan) motion: march ~1px at a time from here to the next
+         * position so fast shots can't tunnel through thin walls or skip enemies --- */
+        float dxs=p->vx*dt, dys=p->vy*dt;
+        float dist=sqrtf(dxs*dxs+dys*dys);
+        int steps=(int)dist+1; float stx=dxs/steps, sty=dys/steps;
+        int outcome=0;                         /* 0 advanced · 1 removed · 2 kept (bounce/chain) */
+        for(int s2=0;s2<steps;s2++){
+            float nx=p->x+stx, ny=p->y+sty;
+            int ix=(int)nx, iy=(int)ny;
+            if(!inb(ix,iy)){ proj[i]=proj[--nproj]; outcome=1; break; }
+            int hite=-1; if(!p->foe){ for(int e=0;e<nenemy;e++) if(enemy[e].alive){
+                float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<9){ hite=e; break; } } }
+            if(hite>=0){
+                if(p->lasthit!=(uint8_t)hite){
+                    float dd=p->dmg;
+                    if(p->crit&&(rnd()&3)==0){ dd*=3;      /* crit: white flash */
+                        for(int k=0;k<8;k++) spawn_part(nx,ny,rr(-80,80),rr(-80,80),0.3f,MOTE_RGB565(255,255,255),1); }
+                    enemy[hite].hp-=(int)dd;
+                    spawn_blood(nx,ny,enemy_blood[enemy[hite].type],3);
+                    if(p->leech){ hp+=3; if(hp>hp_max)hp=hp_max;
+                        spawn_part(wx+PW*0.5f,wy,rr(-10,10),-20,0.4f,MOTE_RGB565(120,255,140),1); }
+                    if(p->manaref){ Wand*cw=&wand[cur_wand]; cw->mana+=6; if(cw->mana>cw->mana_max)cw->mana=cw->mana_max; }
+                    for(int k=0;k<6;k++) spawn_part(nx,ny,rr(-50,50),rr(-50,50),0.3f,MOTE_RGB565(255,60,60),1);
+                    p->lasthit=(uint8_t)hite;
+                    if(p->type==SP_CHAIN && p->jumps>0){   /* arc to the next foe */
+                        int bi=-1; float best=70*70;
+                        for(int e2=0;e2<nenemy;e2++) if(enemy[e2].alive&&e2!=hite){
+                            float dx=enemy[e2].x-nx,dy=enemy[e2].y-ny,d2=dx*dx+dy*dy; if(d2<best){best=d2;bi=e2;} }
+                        if(bi>=0){ float dx=enemy[bi].x-nx,dy=enemy[bi].y-ny,d=sqrtf(dx*dx+dy*dy)+0.01f;
+                            float sp2=sqrtf(p->vx*p->vx+p->vy*p->vy);
+                            p->vx=dx/d*sp2; p->vy=dy/d*sp2; p->jumps--; p->dmg*=0.8f;
+                            for(int k=0;k<6;k++) spawn_part(nx,ny,rr(-40,40),rr(-40,40),0.15f,MOTE_RGB565(180,220,255),1);
+                            p->x=nx; p->y=ny; outcome=2; break; }
+                    }
+                    if(p->pierce){ p->x=nx; p->y=ny; continue; }   /* bore on through */
+                } else if(p->pierce){ p->x=nx; p->y=ny; continue; }
+                proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; }
+            if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=6; hurt_t=0.6f;
+                if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
+                proj[i]=proj[--nproj]; outcome=1; break; } }
+            if(IS_SOLID(mat[iy*WW+ix])){
+                if(p->bounce){ int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]);
+                    if(sx) p->vy=-p->vy; else p->vx=-p->vx; p->bounce--; p->life-=0.1f;
+                    for(int k=0;k<3;k++) spawn_part(nx,ny,rr(-30,30),rr(-30,30),0.2f,proj_col(p->type,.5f),1);
+                    outcome=2; break;
                 }
-                if(p->pierce){ p->x=nx; p->y=ny; i++; continue; }
-            } else if(p->pierce){ p->x=nx; p->y=ny; i++; continue; }
-            proj_impact(p); proj[i]=proj[--nproj]; continue; }
-        if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=6; hurt_t=0.6f;
-            if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
-            proj[i]=proj[--nproj]; continue; } }
-        if(hitsolid){
-            if(p->bounce){ int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]);
-                if(sx) p->vy=-p->vy; else p->vx=-p->vx; p->bounce--; p->life-=0.1f;
-                for(int k=0;k<3;k++) spawn_part(nx,ny,rr(-30,30),rr(-30,30),0.2f,proj_col(p->type,.5f),1);
-                i++; continue;
+                proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break;
             }
-            proj_impact(p); proj[i]=proj[--nproj]; continue;
+            p->x=nx; p->y=ny;                  /* substep clear — keep marching */
         }
-        p->x=nx; p->y=ny;
+        if(outcome==1) continue;               /* removed: reprocess this slot */
+        if(outcome==2){ i++; continue; }        /* bounced / chained: hold here */
         if(p->trail){                                   /* modifier trails */
             int tx=(int)p->x,ty=(int)p->y;
             if((p->trail&1)&&(rnd()&7)==0&&inb(tx,ty)&&mat[ty*WW+tx]==M_EMPTY){ mat[ty*WW+tx]=M_FIRE; heat[ty*WW+tx]=36; }
@@ -1243,6 +1251,16 @@ static void g_init(void){
                w.col=MOTE_RGB565(255,255,255); wand[0]=w; } } }
     if(getenv("MOITA_SHOP")){ gold=20; open_shop(); }   /* test hook */
     { int keep=state; gen_level(); build_light(); state=(keep==ST_SHOP)?ST_SHOP:ST_TITLE; }
+    if(getenv("MOITA_SWEEP_TEST")){    /* fast shot must not tunnel through a thin wall */
+        for(int y=40;y<60;y++)for(int x=10;x<118;x++) mat[y*WW+x]=M_EMPTY;
+        int wallx=64; for(int y=40;y<60;y++){ mat[y*WW+wallx]=M_DIRT; mat[y*WW+wallx+1]=M_DIRT; }
+        int before=0; for(int y=48;y<52;y++) before+=(mat[y*WW+wallx]==M_DIRT)+(mat[y*WW+wallx+1]==M_DIRT);
+        nproj=0; Mods m={0}; m.speed=3.0f; m.spread=1;   /* 420 px/s -> ~14 px/frame */
+        spawn_proj(SP_DIG,12,50,0.0f,&m,0);
+        for(int f=0;f<12;f++) tick_proj(1.0f/30.0f);
+        int after=0; for(int y=48;y<52;y++) after+=(mat[y*WW+wallx]==M_DIRT)+(mat[y*WW+wallx+1]==M_DIRT);
+        fprintf(stderr,"MOITA_SWEEP_TEST wall_before=%d wall_after=%d breached=%d\n",before,after,after<before);
+    }
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
