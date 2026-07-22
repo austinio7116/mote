@@ -2075,16 +2075,19 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
         return; }
     static const int8_t rowmap[10]={0,1,2,3,4,-1,6,-1,-1,7};   /* type -> sheet row (5 ghost is procedural) */
     int row=rowmap[ty]; if(row<0)return;
-    int fr;
+    int fr, blend=MOTE_BLEND_NONE;
     switch(ty){
         case 0: fr=(framestep>>2)&3; break;              /* bat flap */
-        case 1: fr=(en->atk_t<0.4f)?1:0; break;          /* spitter mouth */
-        case 3: fr=(framestep/3)&3; break;               /* wisp orbit */
+        case 1: fr=(en->atk_t<0.4f)?1:0; break;          /* spitter mouth (attack tell) */
+        case 2: fr=(en->vy<-15||en->vy>25)?0:1; break;   /* slime: stretch in air, squash grounded */
+        case 3: fr=(framestep/3)&3; blend=MOTE_BLEND_ADD; break; /* wisp: additive fiery glow */
         case 4: fr=(framestep>>3)&3; break;              /* crystal glint */
-        default:fr=((int)(en->t*6.0f))&3; break;         /* slime/ghost/magmaw/brood cycle */
+        default:fr=((int)(en->t*6.0f))&3; break;         /* magmaw/brood cycle */
     }
     float sc=(ty==2&&en->size==0)?0.55f:1.0f;            /* baby slimes are small */
-    mote->blit_ex(fb,&mobs_img,sx,sy,fr*16,row*16,16,16,0.0f,sc,MOTE_BLEND_NONE,0,128);
+    mote->blit_ex(fb,&mobs_img,sx,sy,fr*16,row*16,16,16,0.0f,sc,blend,0,128);
+    if(ty==9 && en->atk_t>1.6f){ uint16_t p=MOTE_RGB565(190,255,150);   /* brood belly glows before a birth */
+        mote->draw_pixel(fb,sx,sy+2,p); mote->draw_pixel(fb,sx-1,sy+3,p); mote->draw_pixel(fb,sx+1,sy+3,p); }
 }
 /* a wand lying in the world: its own little sprite inside a rotating starburst */
 static void draw_world_wand(uint16_t*fb,int sx,int sy,const Pickup*p){
