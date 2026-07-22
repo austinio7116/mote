@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contribute a game · Mote</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#12151d; --panel2:#171b26; --line:#232837;
+    --text:#dfe4f0; --dim:#8b93a8; --accent:#7c5cff; --accent2:#37d67a; --gold:#f5cd46;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  main{max-width:820px;margin:0 auto;padding:0 20px 60px}
+  header{display:flex;justify-content:space-between;align-items:baseline;
+    padding:26px 0 10px;flex-wrap:wrap;gap:10px}
+  header h1{margin:0;font-size:1.8rem;letter-spacing:.01em}
+  header h1 span{color:var(--accent)}
+  header nav a{color:var(--dim);margin-left:18px;font-size:.92rem}
+  .lede{color:var(--dim);font-size:1.02rem;margin:6px 0 26px;max-width:66ch}
+  h2{font-size:1.15rem;margin:34px 0 6px;color:var(--text);
+    padding-top:14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:.85rem;font-weight:700;flex:0 0 auto}
+  h3{font-size:1rem;margin:18px 0 4px;color:var(--gold)}
+  p{max-width:70ch}
+  ul,ol{max-width:70ch}
+  li{margin:5px 0}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;
+    padding:1px 6px;font-size:.88em;color:#c9b7ff}
+  pre{background:#0a0c11;border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:13px 15px;overflow-x:auto;margin:10px 0}
+  pre code{background:none;border:0;padding:0;color:#d3dbe8;font-size:.86rem;line-height:1.55}
+  .muted{color:var(--dim)}
+  .tip{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:8px;padding:12px 15px;margin:12px 0;max-width:70ch}
+  .tip b{color:var(--gold)}
+  .warn{border-left-color:#ef7b66}
+  .warn b{color:#ef7b66}
+  .files{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:12px 16px;margin:12px 0;max-width:70ch}
+  .files code{background:none;border:0;padding:0;color:#9fe6bb}
+  footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);
+    color:var(--dim);font-size:.88rem}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;
+    border-radius:4px;padding:1px 6px;font-size:.82em;color:var(--gold)}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Contribute a <span>Mote game</span></h1>
+  <nav>
+    <a href="games.html">Gallery</a>
+    <a href="index.html">Engine docs</a>
+    <a href="https://github.com/austinio7116/mote">GitHub</a>
+  </nav>
+</header>
+
+<p class="lede">Built a game on the Mote engine and want it in the gallery? Here's the
+whole path — fork, build, add your game to the listing, and open a pull request for
+review. It takes about ten minutes once your game is finished.</p>
+
+<div class="tip"><b>Before you start:</b> your game should already build and play in the
+emulator. If you're still writing it, see the <a href="https://github.com/austinio7116/mote/blob/main/README.md">README</a>
+for the full engine + build setup. This page is only about <i>submitting</i> a finished game.</div>
+
+<h2><span class="n">1</span> Fork &amp; clone</h2>
+<p>Fork <a href="https://github.com/austinio7116/mote">austinio7116/mote</a> on GitHub
+(the <b>Fork</b> button, top-right), then clone your fork and make a branch:</p>
+<pre><code>git clone https://github.com/&lt;you&gt;/mote.git
+cd mote
+git checkout -b add-mygame</code></pre>
+
+<h2><span class="n">2</span> Add your game to <code>games/</code></h2>
+<p>Each game is a self-contained folder under <code>games/</code>. Drop yours in as
+<code>games/mygame/</code> with this shape:</p>
+<div class="files">
+  <code>games/mygame/</code><br>
+  &nbsp;&nbsp;├─ <code>src/game.c</code> &nbsp;<span class="muted">— your game (+ any baked <code>.h</code> asset headers)</span><br>
+  &nbsp;&nbsp;├─ <code>assets/</code> &nbsp;<span class="muted">— editable source art / audio / levels</span><br>
+  &nbsp;&nbsp;├─ <code>icon.png</code> &nbsp;<span class="muted">— 60×60 launcher icon (required)</span><br>
+  &nbsp;&nbsp;└─ <code>arcade_description.txt</code> &nbsp;<span class="muted">— one-line blurb</span>
+</div>
+<p>Two macros in <code>game.c</code> are the source of truth for your listing — make sure
+they're set:</p>
+<pre><code>MOTE_GAME_META("My Game", "yourname");   // name + author
+MOTE_GAME_VERSION("1.0.0");              // bump this every release</code></pre>
+<div class="tip warn"><b>Credit honestly.</b> Put your own name as the author. If you used
+an art or audio pack, credit it in <code>arcade_description.txt</code> or a comment.</div>
+
+<h2><span class="n">3</span> Build the <code>.mote</code> for the gallery</h2>
+<p>Build the device binary and copy it into <code>docs/games/</code> (this is the file
+players download):</p>
+<pre><code># from the repo root
+./tools/mote build games/mygame --device
+cp games/mygame/build/MyGame.mote docs/games/MyGame.mote</code></pre>
+<p class="muted">The <code>.mote</code> filename is your game's name from <code>MOTE_GAME_META</code>
+with spaces removed (e.g. <code>My Game</code> → <code>MyGame.mote</code>). Run
+<code>./tools/mote build games/mygame</code> once first to see the exact name it prints.</p>
+
+<h2><span class="n">4</span> Add your entry to the listing</h2>
+<p>The gallery is driven by a <code>GAMES</code> array in <code>docs/games.html</code>.
+Open it, scroll to the end of that array, and add your game as the <b>last</b> entry
+(keep the trailing comma tidy):</p>
+<pre><code>{id:"mygame", file:"MyGame.mote", name:"My Game", by:"yourname", kb:64,
+ guide:"mygame-guide.html",          // optional — omit if you have no guide page
+ mp:1,                               // optional — include ONLY if it's 2-player
+ tag:"One-line hook for the hero card",
+ desc:"A paragraph describing the game — what you do, what's special, the modes."},</code></pre>
+<ul>
+  <li><code>id</code> — lowercase, no spaces (matches your folder name).</li>
+  <li><code>file</code> — must match the <code>.mote</code> you copied into <code>docs/games/</code>.</li>
+  <li><code>kb</code> — rough download size in KB (the build step prints the byte size; divide by 1024).</li>
+  <li><code>tag</code> — the short hook shown on the card. <code>desc</code> — the longer blurb on the hero panel.</li>
+  <li><code>mp:1</code> — add this <i>only</i> for multiplayer games; it shows the <b>2P</b> badge.</li>
+  <li><code>guide</code> — only if you also add a <code>docs/&lt;id&gt;-guide.html</code> page. Otherwise leave it out.</li>
+</ul>
+
+<h2><span class="n">5</span> Regenerate <code>games.json</code></h2>
+<p>Don't hand-edit <code>docs/games.json</code> — it's generated. Run the tool, which
+reads your <code>games.html</code> entry and your <code>.mote</code> (pulling out the
+embedded version, ABI, size and checksum):</p>
+<pre><code>python3 tools/gen_gallery.py</code></pre>
+<p>You should see your game printed in the summary, and <code>docs/games.json</code> will
+now include it. <span class="muted">This is the manifest the in-Studio and on-device
+galleries read, so it has to be regenerated whenever a <code>.mote</code> or listing changes.</span></p>
+
+<h2><span class="n">6</span> Commit</h2>
+<p>Commit your game code, the built <code>.mote</code>, and the two generated/edited
+listing files together:</p>
+<pre><code>git add games/mygame \
+        docs/games/MyGame.mote \
+        docs/games.html \
+        docs/games.json
+git commit -m "Add My Game to the gallery"</code></pre>
+<p class="muted">If you added a guide page or gallery images, include those too
+(<code>docs/mygame-guide.html</code>, <code>docs/img/gallery/mygame-*.png</code>).</p>
+
+<h2><span class="n">7</span> Push &amp; open a pull request</h2>
+<pre><code>git push origin add-mygame</code></pre>
+<p>Then on GitHub, open your fork and click <b>Compare &amp; pull request</b> (or the
+<b>Contribute</b> button) targeting <code>austinio7116/mote</code> · <code>main</code>.
+In the PR description, a few lines help the review:</p>
+<ul>
+  <li>What the game is, in a sentence or two.</li>
+  <li>Confirm it builds and plays in the emulator (and on a device, if you tested one).</li>
+  <li>Credit any art/audio/code you didn't make yourself.</li>
+</ul>
+<p>That's it — the PR will be reviewed for inclusion. Thanks for building on Mote!</p>
+
+<div class="tip"><b>Quick checklist</b><br>
+☐ <code>games/mygame/</code> with <code>game.c</code>, <code>assets/</code>, <code>icon.png</code><br>
+☐ <code>MOTE_GAME_META</code> + <code>MOTE_GAME_VERSION</code> set<br>
+☐ <code>docs/games/MyGame.mote</code> built with <code>--device</code><br>
+☐ entry added at the <b>end</b> of the <code>GAMES</code> array in <code>docs/games.html</code><br>
+☐ <code>python3 tools/gen_gallery.py</code> run<br>
+☐ all four files committed, branch pushed, PR opened</div>
+
+<footer>
+  Part of the <a href="games.html">Mote gallery</a> · engine + build docs in the
+  <a href="https://github.com/austinio7116/mote/blob/main/README.md">README</a>.
+</footer>
+
+</main>
+</body>
+</html>

@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-22T18:51:17+00:00",
+ "generated": "2026-07-22T22:12:15+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -20,9 +20,9 @@
     "img/gallery/moita-3.png"
    ],
    "tag": "Tiny Noita: per-pixel magic roguelite",
-   "desc": "A very small wizard, a very deep cave, and a world where every pixel is simulated. Descend through fog-shrouded caverns lit only by your own magic and the glow of molten rock — water pools and quenches, oil ignites, acid eats the walls, and lava never sleeps. Build your arsenal Noita-style from 41 spell cards: 20 projectiles (lightning, meteors, void orbs, freezing shards, rainbow prisms) combined with 21 stackable modifiers (spread, homing, echo, trails, crits, leech) into wands you edit card-by-card in a pause-time editor. Six creatures with their own attacks and gore — bats swoop, slimes split, wisps burn, ghosts walk through rock — burst into coins you spend at the between-level shop. Permanent fog-of-war memory, coloured RGB lighting, procedural wand icons, and a living title screen where the caves pour before your eyes.",
+   "desc": "A very small wizard, a very deep cave, and a world where every pixel is simulated. Descend through fog-shrouded caverns lit only by your own magic and the glow of molten rock — water pools and quenches, oil ignites, acid eats the walls, and lava never sleeps. Build wands Noita-style from 58 spell cards (28 projectiles, 27 modifiers, 3 trigger operators), but the real magic is in the DNA: adjacent cards FUSE their elemental genes into one carrier — Fire+Water brews a blinding steam burst, Lava+Water flings obsidian shrapnel, Spark+Water forks lightning, Spore+Fire detonates — a trigger nests the rest of the deck as a payload, and even structural cards (web, vine, boulder, mirror, seek, prism) layer their own traits. Edit every wand card-by-card in a pause-time editor and carry up to three, swapping out your least-used spare when you grab a fourth. Bats, slimes, wisps, ghosts and crystals give way in the deep to four hulking dwellers — the molten Magmaw, the void Devourer, the phasing Cave Wyrm and the acid-weeping Brood-Mother — all bursting into coins for the end-of-level wand shop, over permanent fog-of-war and coloured RGB lighting. 2P DEATHMATCH: link two units for a 1v1 in one shared, fully-simulated cave — spawn top and bottom, grab wands off the ground, and after every kill edit your loadout and ready up for a fresh level; wands carry between rounds, first to five wins.",
    "guide": "moita-guide.html",
-   "multiplayer": false
+   "multiplayer": true
   },
   {
    "id": "terramote",
