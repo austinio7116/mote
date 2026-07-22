@@ -170,7 +170,12 @@ static Barrel barrel[MAXBARREL]; static int nbarrel=0;
 #define MAXENEMY 28
 /* enemy types: 0 bat, 1 spitter, 2 slime, 3 wisp, 4 crystal, 5 ghost */
 typedef struct { float x,y,vx,vy; int hp,hpmax; uint8_t type,alive,size; float t,slow_t,atk_t,poison_t; } Enemy;
-static const uint8_t enemy_blood[6]={0,2,1,255,4,3};   /* gore hue per type (255 = none) */
+/* types: 0 bat 1 spitter 2 slime 3 wisp 4 crystal 5 ghost
+ *        6 MAGMAW 7 DEVOURER 8 CAVE WYRM 9 BROOD-MOTHER */
+static const uint8_t enemy_blood[10]={0,2,1,255,4,3, 255,255,1,1};  /* gore hue (255 = none) */
+#define IS_BIG(t) ((t)>=6)
+#define WHIST 24               /* wyrm head-position history (for trailing segments) */
+static float whist[MAXENEMY][WHIST][2]; static uint8_t whpos[MAXENEMY];
 static Enemy enemy[MAXENEMY]; static int nenemy=0;
 
 /* wand pickups */
@@ -1100,9 +1105,25 @@ static void tick_proj(float dt){
 static void enemy_die(Enemy*en){
     en->alive=0;
     int hue=enemy_blood[en->type];
-    spawn_blood(en->x,en->y,hue,10);
-    spawn_coins(en->x,en->y,1+(int)(rnd()%3));
-    sfx_at(&splat_sfx, 0.4f, en->y);
+    spawn_blood(en->x,en->y,hue,IS_BIG(en->type)?18:10);
+    spawn_coins(en->x,en->y,IS_BIG(en->type)?(6+(int)(rnd()%6)):(1+(int)(rnd()%3)));
+    sfx_at(IS_BIG(en->type)?&boom_big_sfx:&splat_sfx, IS_BIG(en->type)?0.7f:0.4f, en->y);
+    int cx=(int)en->x,cy=(int)en->y;
+    if(en->type==6){                                    /* MAGMAW: obsidian husk + lava splash */
+        for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue; int i=(cy+y)*WW+cx+x;
+            if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY) mat[i]=(x*x+y*y<6)?M_LAVA:M_OBSID; if(mat[i]==M_LAVA)heat[i]=255; }
+        for(int k=0;k<24;k++) spawn_part(en->x,en->y,rr(-90,90),rr(-90,30),rr(0.3f,0.7f),fire_lut[200+(rnd()&55)],1);
+        return;
+    }
+    if(en->type==7){ explode(en->x,en->y,12,0);          /* DEVOURER: implode then blast */
+        for(int k=0;k<30;k++){ float a=rndf()*6.2832f;
+            spawn_part(en->x,en->y,cosf(a)*rr(30,120),sinf(a)*rr(30,120),rr(0.3f,0.6f),MOTE_RGB565(180,120,240),1); }
+        return;
+    }
+    if(en->type==9 && nenemy<MAXENEMY-4){                /* BROOD-MOTHER: bursts into slimes */
+        for(int k=0;k<4;k++){ Enemy*c=&enemy[nenemy++]; *c=(Enemy){0}; c->x=en->x+rr(-4,4); c->y=en->y-2;
+            c->vx=rr(-60,60); c->vy=-60; c->alive=1; c->type=2; c->size=1; c->hpmax=c->hp=8; c->t=rndf()*3; }
+    }
     if(en->type==3){                                    /* wisp: dies in fire */
         for(int k=0;k<16;k++) spawn_part(en->x,en->y,rr(-80,80),rr(-90,30),rr(0.3f,0.7f),fire_lut[180+(rnd()&63)],1);
         int ix=(int)en->x,iy=(int)en->y;
@@ -1162,7 +1183,45 @@ static void tick_enemies(float dt){
                 en->vx+=dx/d*16*dt; en->vy+=dy/d*16*dt;
                 en->vx=clampf(en->vx,-20,20); en->vy=clampf(en->vy,-20,20);
                 break;
+            case 6:  /* MAGMAW: molten brute — wades in, trails lava, lobs globs */
+                en->vx=clampf(en->vx+(dx<0?-9:9)*dt,-14,14); en->vy+=150*dt;
+                { int ix=(int)en->x,iy=(int)en->y+3;      /* leaves lava at its feet */
+                  if(inb(ix,iy)&&mat[iy*WW+ix]==M_EMPTY&&(rnd()&3)==0){ mat[iy*WW+ix]=M_LAVA; heat[iy*WW+ix]=255; } }
+                for(int q=0;q<4;q++){ int ix=(int)en->x+(q&1?2:-2),iy=(int)en->y+(q<2?-2:2);
+                    if(inb(ix,iy)&&ignitable(mat[iy*WW+ix])){mat[iy*WW+ix]=M_FIRE;heat[iy*WW+ix]=FIRE_HOT;} }
+                if((framestep&3)==0) spawn_part(en->x+rr(-4,4),en->y-4,rr(-8,8),-20,0.4f,fire_lut[210+(rnd()&40)],1);
+                if(d<95 && en->atk_t>2.6f){ en->atk_t=0;   /* lob a lava glob */
+                    Mods mm={0}; mm.speed=1; mm.spread=1;
+                    spawn_proj(SP_LAVAB,en->x,en->y-2,atan2f(dy,dx)-0.3f,&mm,1);
+                    if(nproj>0){ proj[nproj-1].grav=140; proj[nproj-1].genes=G_MOLTEN|G_BURN; }
+                    sfx_at(&shot_fire_sfx,0.5f,en->y); }
+                break;
+            case 7:  /* DEVOURER: void maw — drags you in, eats shots, floats through rock */
+                fly=1; ghosty=1;
+                en->vx+=dx/d*12*dt; en->vy+=dy/d*12*dt;
+                en->vx=clampf(en->vx,-16,16); en->vy=clampf(en->vy,-16,16);
+                if(d<95){ float pull=1600.0f/(d+8); wvx-=dx/d*pull*dt; wvy-=dy/d*pull*dt; } /* suck the wizard */
+                for(int q=0;q<nproj;q++){ float px2=proj[q].x-en->x,py2=proj[q].y-en->y,pd=px2*px2+py2*py2;
+                    if(pd<900){ float pl=sqrtf(pd)+1; proj[q].vx+=(-px2/pl)*220*dt; proj[q].vy+=(-py2/pl)*220*dt; } } /* warps shots inward */
+                { float a=rndf()*6.2832f; spawn_part(en->x+cosf(a)*10,en->y+sinf(a)*10,-cosf(a)*90,-sinf(a)*90,0.3f,MOTE_RGB565(160,90,230),1); }
+                break;
+            case 8:  /* CAVE WYRM: burrows through terrain, lunges; a trailing body */
+                fly=1; ghosty=1;
+                en->vx+=dx/d*30*dt; en->vy+=(dy/d*26+sinf(en->t*3)*18)*dt;
+                en->vx=clampf(en->vx,-46,46); en->vy=clampf(en->vy,-46,46);
+                if(d<110 && en->atk_t>2.4f){ en->atk_t=0; en->vx=dx/d*150; en->vy=dy/d*150; } /* lunge */
+                break;
+            case 9:  /* BROOD-MOTHER: lumbers in, births slimes, splits on death */
+                en->vx=clampf(en->vx+(dx<0?-10:10)*dt,-16,16); en->vy+=160*dt;
+                if(en->atk_t>2.0f && nenemy<MAXENEMY-1){ en->atk_t=0;   /* spawn a slime */
+                    Enemy*c=&enemy[nenemy++]; *c=(Enemy){0}; c->x=en->x+rr(-4,4); c->y=en->y-3;
+                    c->vx=rr(-40,40); c->vy=-60; c->alive=1; c->type=2; c->size=1; c->hpmax=c->hp=8; c->t=rndf()*3;
+                    for(int k=0;k<6;k++) spawn_part(en->x,en->y,rr(-40,40),rr(-50,10),0.3f,MOTE_RGB565(120,230,90),1); }
+                break;
         }
+        if(en->type==8){                                 /* record the wyrm's trail */
+            int e2=(int)(en-enemy); whpos[e2]=(whpos[e2]+1)%WHIST;
+            whist[e2][whpos[e2]][0]=en->x; whist[e2][whpos[e2]][1]=en->y; }
         float sm=1.0f; if(en->slow_t>0){ en->slow_t-=dt; sm=0.35f; }
         { int ci=(int)en->y*WW+(int)en->x; if(inb((int)en->x,(int)en->y)){
             if(mat[ci]==M_WEB) sm*=0.4f;                  /* mired in webbing */
@@ -1175,14 +1234,22 @@ static void tick_enemies(float dt){
             if(inb((int)nx,(int)en->y) && !IS_SOLID(mat[(int)en->y*WW+(int)nx])) en->x=nx; else en->vx*=-0.5f;
             if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=(fly?-0.5f:0);
         }
-        if(d<5 && hurt_t<=0){
-            int dmg=en->type==5?8:12;
-            hp-=dmg; hurt_t=en->type==5?0.5f:0.9f; wvx+=(dx<0?70:-70); wvy-=45;
+        float tr=IS_BIG(en->type)?(en->type==7?9.0f:8.0f):5.0f;
+        if(d<tr && hurt_t<=0){
+            int dmg=en->type==5?8:(en->type==6?16:(en->type==7?14:(IS_BIG(en->type)?13:12)));
+            hp-=dmg; hurt_t=en->type==5?0.5f:0.8f; wvx+=(dx<0?90:-90); wvy-=45;
             if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
-            if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
+            if(en->type==3||en->type==6){ int ix=(int)pcx,iy=(int)pcy;   /* wisp/magmaw singe */
                 if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=130; } } }
-        int ix=(int)en->x,iy=(int)en->y;
-        if(inb(ix,iy) && en->type!=3){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA||mm==M_NAPALM) en->hp-=2; }
+        /* the wyrm's whole body is a contact hazard */
+        if(en->type==8){ int e2=(int)(en-enemy);
+            for(int s=3;s<WHIST;s+=3){ int hi=(whpos[e2]-s+WHIST*2)%WHIST;
+                float bx=whist[e2][hi][0]-pcx,by=whist[e2][hi][1]-pcy;
+                if(bx*bx+by*by<20 && hurt_t<=0){ hp-=11; hurt_t=0.8f; wvx+=(bx>0?-80:80); wvy-=40;
+                    if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.6f); break; } } }
+        int ix=(int)en->x,iy=(int)en->y;                 /* fire/lava hurts — but Magmaw & Devourer are immune */
+        if(inb(ix,iy) && en->type!=3 && en->type!=6 && en->type!=7){ uint8_t mm=mat[iy*WW+ix];
+            if(mm==M_FIRE||mm==M_LAVA||mm==M_NAPALM) en->hp-=2; }
     }
 }
 
@@ -1340,6 +1407,21 @@ static void gen_level(void){
         else                    e->type=1;             /* spitter */
         static const uint8_t ehp[6]={10,14,12,8,18,14};
         e->hpmax=e->hp=ehp[e->type]; e->size=1; e->t=rndf()*3; e->atk_t=rndf(); }
+    /* --- deep dwellers: bigger monsters that arrive further down --- */
+    if(!test_mode){
+        int nbig=(level>=3)+(level>=6);               /* 0 shallow, 1 mid, 2 deep */
+        for(int k=0;k<nbig && nenemy<MAXENEMY;k++){ int i=rand_open(70,WH-16,0); if(i<0)continue;
+            Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; int e2=(int)(e-enemy);
+            e->x=i%WW; e->y=i/WW; e->alive=1; e->size=2; e->t=rndf()*3; e->atk_t=rndf();
+            int r=(int)(rnd()%100);
+            if(level>=6 && r<20)      e->type=7;       /* Devourer (deep mini-boss) */
+            else if(level>=5 && r<45) e->type=8;       /* Cave Wyrm */
+            else if(r<55)             e->type=9;       /* Brood-Mother */
+            else                      e->type=6;       /* Magmaw */
+            static const int bhp[4]={110,190,90,140};  /* magmaw,devourer,wyrm,brood */
+            e->hpmax=e->hp=bhp[e->type-6]+level*8;
+            for(int s=0;s<WHIST;s++){ whist[e2][s][0]=e->x; whist[e2][s][1]=e->y; } whpos[e2]=0; }
+    }
 
     /* wand pickups in reachable chambers */
     int nw=1+(level%2);
@@ -1674,6 +1756,11 @@ static void g_init(void){
         if(getenv("MOITA_ARENA_FOE")){ nenemy=0;         /* a couple of dummies to zap */
             for(int k=0;k<3;k++){ Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=70+k*14; e->y=84;
                 e->alive=1; e->type=2; e->hpmax=e->hp=60; e->t=rndf()*3; } }
+        if(getenv("MOITA_BIG")){ nenemy=0;               /* spawn one big monster to preview */
+            int bt=atoi(getenv("MOITA_BIG")); if(bt<6||bt>9)bt=6;
+            Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=84; e->y=80; e->alive=1; e->size=2;
+            e->type=(uint8_t)bt; e->hpmax=e->hp=400; e->t=rndf()*3;
+            for(int s=0;s<WHIST;s++){ whist[0][s][0]=e->x; whist[0][s][1]=e->y; } whpos[0]=0; }
         wx=12; wy=84; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0; state=ST_PLAY;
         cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
     }
@@ -1941,6 +2028,36 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
                     fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
             mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
             mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
+        case 6:{ /* MAGMAW: molten brute, crust cracks, white-hot eyes */
+            mote->draw_circle(fb,sx,sy,6,MOTE_RGB565(70,22,10),0,0,128);
+            mote->draw_circle(fb,sx,sy,5,fire_lut[205+(framestep&40)],1,0,128);
+            mote->draw_circle(fb,sx,sy,3,fire_lut[240],1,0,128);
+            mote->draw_pixel(fb,sx-2,sy-1,MOTE_RGB565(255,255,220)); mote->draw_pixel(fb,sx+2,sy-1,MOTE_RGB565(255,255,220));
+            if(framestep&2){ mote->draw_pixel(fb,sx-1,sy+3,MOTE_RGB565(70,22,10)); mote->draw_pixel(fb,sx+3,sy+1,MOTE_RGB565(70,22,10)); }
+            break; }
+        case 7:{ /* DEVOURER: void sphere, violet ring + eye, orbiting motes */
+            mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
+            mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(120,60,185),0,0,128);
+            mote->draw_circle(fb,sx,sy,3,MOTE_RGB565(70,30,120),1,0,128);
+            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(235,195,255));
+            for(int k=0;k<3;k++){ float a=t*4+k*2.09f; int ox=(int)(cosf(a)*9),oy=(int)(sinf(a)*9);
+                mote->draw_pixel(fb,sx+ox,sy+oy,MOTE_RGB565(185,120,245)); } break; }
+        case 8:{ /* CAVE WYRM: trailing body from the head's history */
+            int e2=(int)(en-enemy), cyoff=(int)en->y-sy;
+            uint16_t g=MOTE_RGB565(118,158,88),gd=MOTE_RGB565(70,104,52),hl=MOTE_RGB565(170,210,120);
+            for(int s=WHIST-3;s>=3;s-=3){ int hi=(whpos[e2]-s+WHIST*2)%WHIST;
+                int bx=(int)whist[e2][hi][0], by=(int)whist[e2][hi][1]-cyoff;
+                if((unsigned)bx>=128u||(unsigned)by>=128u)continue;
+                mote->draw_circle(fb,bx,by,(s<=6)?2:1,g,1,0,128); mote->draw_pixel(fb,bx,by-1,hl); }
+            mote->draw_circle(fb,sx,sy,3,g,1,0,128); mote->draw_circle(fb,sx,sy,3,gd,0,0,128);
+            mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(255,220,80)); mote->draw_pixel(fb,sx+1,sy+1,MOTE_RGB565(255,220,80));
+            break; }
+        case 9:{ /* BROOD-MOTHER: fat slime queen, pulsing belly */
+            uint16_t g=MOTE_RGB565(95,205,70),gd=MOTE_RGB565(58,140,42),hl=MOTE_RGB565(170,255,150);
+            mote->draw_circle(fb,sx,sy,6,g,1,0,128); mote->draw_circle(fb,sx,sy,6,gd,0,0,128);
+            mote->draw_circle(fb,sx-1,sy-2,2,hl,1,0,128);
+            mote->draw_pixel(fb,sx-2,sy,MOTE_RGB565(20,60,20)); mote->draw_pixel(fb,sx+2,sy,MOTE_RGB565(20,60,20));
+            if(en->atk_t>1.6f) mote->draw_circle(fb,sx,sy+2,2,MOTE_RGB565(185,255,140),1,0,128); break; }
     }
 }
 /* a wand lying in the world: its own little sprite inside a rotating starburst */
