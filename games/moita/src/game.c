@@ -140,6 +140,11 @@ static Part part[MAXPART]; static int npart=0;
 #define MAXBOOM 16
 typedef struct { float x,y,age,dur; int maxr; uint8_t fire; } Boom;
 static Boom boom[MAXBOOM]; static int nboom=0;
+/* destructible terrain props: oil barrels spill a slick, powder kegs detonate */
+#define MAXBARREL 14
+enum { BAR_OIL=0, BAR_BOMB };
+typedef struct { float x,y; uint8_t type,alive; float fuse; } Barrel;
+static Barrel barrel[MAXBARREL]; static int nbarrel=0;
 
 /* enemies */
 #define MAXENEMY 28
@@ -631,6 +636,9 @@ static void explode(float fx,float fy,int r,int fire){
                    fire?fire_lut[172+(rnd()&83)]:MOTE_RGB565(255,235,190),1); }
     for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-fx,dy=enemy[e].y-fy;
         if(dx*dx+dy*dy < (r+2)*(r+2)) enemy[e].hp-=24; }
+    for(int bi=0;bi<nbarrel;bi++) if(barrel[bi].alive && barrel[bi].fuse<=0){  /* chain-detonate */
+        float dx=barrel[bi].x-fx,dy=barrel[bi].y-fy;
+        if(dx*dx+dy*dy < (r+3)*(r+3)) barrel[bi].fuse=0.05f+rndf()*0.06f; }
     /* the fireball, shockwave and smoke play out over the next fraction of a second */
     if(nboom<MAXBOOM){ boom[nboom].x=fx; boom[nboom].y=fy; boom[nboom].age=0;
         boom[nboom].dur=0.26f; boom[nboom].maxr=r; boom[nboom].fire=(uint8_t)fire; nboom++; }
@@ -661,6 +669,30 @@ static void tick_booms(float dt){
                        1.0f+rndf()*0.8f,MOTE_RGB565(98,86,80),1);
         if(bo->age>=bo->dur){ boom[b]=boom[--nboom]; continue; }
         b++;
+    }
+}
+static void tick_barrels(float dt){
+    for(int b=0;b<nbarrel;b++){ Barrel*ba=&barrel[b]; if(!ba->alive)continue;
+        int ix=(int)ba->x, iy=(int)ba->y;
+        if(ba->fuse<=0){                                /* catches from nearby fire or lava */
+            for(int y=-1;y<=1&&ba->fuse<=0;y++)for(int x=-1;x<=1;x++){ if(!inb(ix+x,iy+y))continue;
+                uint8_t m=mat[(iy+y)*WW+ix+x]; if(m==M_FIRE||m==M_LAVA){ ba->fuse=0.06f+rndf()*0.06f; break; } }
+        }
+        if(ba->fuse>0){
+            ba->fuse-=dt;
+            if((framestep&1)==0) spawn_part(ba->x+rr(-2,2),ba->y-4,rr(-8,8),-22,0.25f,
+                ba->type==BAR_BOMB?MOTE_RGB565(255,140,60):MOTE_RGB565(150,230,140),1);
+            if(ba->fuse<=0){ ba->alive=0;
+                if(ba->type==BAR_BOMB) explode(ba->x,ba->y,11,1);
+                else {                                  /* oil keg bursts a big slick + splash */
+                    int r=6; for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){ if(x*x+y*y>r*r)continue;
+                        if(!inb(ix+x,iy+y))continue; int i=(iy+y)*WW+ix+x; if(mat[i]==M_EMPTY) mat[i]=M_OIL; }
+                    for(int k=0;k<22;k++){ float a=rndf()*6.2832f,sp=25+rndf()*55;
+                        spawn_part(ba->x,ba->y-2,cosf(a)*sp,sinf(a)*sp-24,0.4f+rndf()*0.4f,MOTE_RGB565(58,48,32),0); }
+                    sfx_at(&shot_venom_sfx,0.6f,ba->y);
+                }
+            }
+        }
     }
 }
 static void grow_vine(int gx,int gy){
@@ -816,6 +848,10 @@ static void tick_proj(float dt){
             if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=13; hurt_t=0.6f;
                 if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
                 proj[i]=proj[--nproj]; outcome=1; break; } }
+            if(!p->foe){ int bh=-1; for(int bi=0;bi<nbarrel;bi++) if(barrel[bi].alive){   /* pop a barrel */
+                    float dx=barrel[bi].x-nx,dy=barrel[bi].y-ny; if(dx*dx+dy*dy<14){ bh=bi; break; } }
+                if(bh>=0){ if(barrel[bh].fuse<=0) barrel[bh].fuse=0.04f;
+                    proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; } }
             if(IS_SOLID(mat[iy*WW+ix])){
                 if(p->bounce){ int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]);
                     if(sx) p->vy=-p->vy; else p->vx=-p->vx; p->bounce--; p->life-=0.1f;
@@ -1083,6 +1119,12 @@ static void gen_level(void){
     int nw=1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
         Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->w=random_wand(level); }
+
+    /* scatter destructible barrels on floors — oil kegs and powder kegs */
+    nbarrel=0; int nb2=3+(int)(rnd()%4);
+    for(int k=0;k<nb2 && nbarrel<MAXBARREL;k++){ int i=rand_open(30,WH-14,1); if(i<0)continue;
+        Barrel*ba=&barrel[nbarrel++]; ba->x=i%WW; ba->y=i/WW; ba->alive=1; ba->fuse=0;
+        ba->type=(rnd()&1)?BAR_BOMB:BAR_OIL; }
 
     /* pre-settle all fluids, then purge anything still airborne so frame 0 is
      * completely still — no falling streams, no stripes collecting at the bottom */
@@ -1359,11 +1401,21 @@ static void g_init(void){
         wx=100; wy=56; wvx=wvy=0; state=ST_PLAY;
         cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
     }
+    if(getenv("MOITA_BARREL_TEST")){   /* a row of barrels; light the left one -> chain */
+        for(int y=40;y<80;y++)for(int x=6;x<122;x++) if(!IS_SOLID(mat[y*WW+x])) mat[y*WW+x]=M_EMPTY;
+        for(int x=10;x<118;x++){ mat[72*WW+x]=M_ROCK; mat[73*WW+x]=M_ROCK; }
+        nbarrel=0;
+        for(int k=0;k<6;k++){ Barrel*ba=&barrel[nbarrel++]; ba->x=30+k*12; ba->y=71; ba->alive=1;
+            ba->fuse=0; ba->type=(k&1)?BAR_OIL:BAR_BOMB; }
+        barrel[0].fuse=0.1f;                            /* ignite the first */
+        wx=96; wy=60; wvx=wvy=0; state=ST_PLAY;
+        cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
+    }
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
     while(sim_acc>=(1.0f/45.0f)&&n<3){ ca_step(); sim_acc-=1.0f/45.0f; n++; }
-    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_booms(dt); tick_enemies(dt); tick_coins(dt);
+    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_booms(dt); tick_barrels(dt); tick_enemies(dt); tick_coins(dt);
 }
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
@@ -1553,6 +1605,23 @@ static void draw_wand_art(uint16_t*fb,int cx,int cy,const Wand*w){
 }
 
 /* tiny animated enemy sprites, one per type, all under 5x4 px */
+/* a 5x8 barrel sitting on the floor (bottom at sy); flashes while its fuse burns */
+static void draw_barrel(uint16_t*fb,int sx,int sy,const Barrel*ba){
+    int bomb=ba->type==BAR_BOMB;
+    uint16_t body=bomb?MOTE_RGB565(150,44,38):MOTE_RGB565(70,78,48);
+    uint16_t hoop=bomb?MOTE_RGB565(236,196,72):MOTE_RGB565(122,130,88);
+    uint16_t dark=bomb?MOTE_RGB565(78,22,20):MOTE_RGB565(40,46,28);
+    if(ba->fuse>0){ float f=0.5f+0.5f*sinf(state_t*40); body=lerp565(body,MOTE_RGB565(255,240,180),f*0.7f); }
+    for(int y=-7;y<=0;y++)for(int x=-2;x<=2;x++){ int px=sx+x,py=sy+y;
+        if((unsigned)px>=128||(unsigned)py>=128)continue;
+        uint16_t c=body; if(x==-2||x==2||y==-7||y==0)c=dark;
+        fb[py*128+px]=c; }
+    for(int x=-2;x<=2;x++){ int px=sx+x;
+        if((unsigned)px<128){ if((unsigned)(sy-5)<128)fb[(sy-5)*128+px]=hoop;
+                              if((unsigned)(sy-2)<128)fb[(sy-2)*128+px]=hoop; } }
+    if((unsigned)(sy-8)<128) fb[(sy-8)*128+sx]=dark;   /* cap */
+    if((unsigned)(sy-4)<128) fb[(sy-4)*128+sx-1]=lerp565(body,MOTE_RGB565(255,255,255),0.4f); /* sheen */
+}
 static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
     float t=en->t;
     switch(en->type){
@@ -1651,6 +1720,10 @@ static void g_overlay(uint16_t*fb){
         if(sy<-4||sy>132)continue; int bob=(int)(sinf(state_t*3+i)*2);
         if(seen[(((int)pick[i].y)>>1)*LW+((((int)pick[i].x)&127)>>1)]<90) continue;  /* still in fog */
         draw_world_wand(fb,sx,sy+bob,&pick[i]); }
+    for(int b=0;b<nbarrel;b++){ if(!barrel[b].alive)continue;         /* barrels (hidden in fog) */
+        int sx=(int)barrel[b].x,sy=(int)barrel[b].y-cy; if(sy<0||sy>134)continue;
+        if(seen[(((int)barrel[b].y)>>1)*LW+((((int)barrel[b].x)&127)>>1)]<80) continue;
+        draw_barrel(fb,sx,sy,&barrel[b]); }
     for(int i=0;i<MAXCOIN;i++){ if(!coin[i].alive)continue;           /* gold */
         int sx=(int)coin[i].x,sy=(int)coin[i].y-cy; if(sy<TOP-2||sy>130)continue;
         mote->draw_rect(fb,sx-1,sy-1,2,2,MOTE_RGB565(255,210,70),1,0,128);
