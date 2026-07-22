@@ -109,7 +109,7 @@ enum { SP_NONE=0,
 #define G_PRISM   0x20000
 #define G_STRUCT  (G_WEB|G_BOULDER|G_VINE|G_MIRROR|G_SEEK|G_ORB|G_PRISM)
 
-enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
+enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP, ST_MP };
 
 /* ============================================================== world === */
 /* the three 32KB world grids live in the engine arena (mote->alloc at init) —
@@ -127,6 +127,7 @@ static int   level = 1, state = ST_TITLE;
 static float state_t = 0;
 static uint32_t rng = 0x2b1df00d;    /* SIM rng — lockstep-synced in multiplayer */
 static uint32_t vrng = 0x9e3779b9;   /* COSMETIC rng — local only (draw-path flicker, decor) */
+static uint8_t  spawn_owner = 255;   /* MP: stamps spawn_proj() output with the casting player */
 static float sim_acc = 0;
 static uint32_t framestep = 0;
 static int   test_mode = 0;
@@ -156,12 +157,34 @@ typedef struct {
 } Wand;
 static Wand wand[MAXWAND]; static int nwand=1, cur_wand=0;
 
+/* ---- multiplayer: each wizard's state is swapped through the globals above so the
+ *      whole single-player sim runs unchanged, once per player, in a shared level ---- */
+typedef struct {
+    float x,y,vx,vy; int grnd,face,anim; float anim_t;
+    float ax,ay,aa, crx,cry, life,lifem,mf,mfm, hurt;
+    Wand deck[MAXWAND]; int nw,cw; uint8_t alive;
+} PState;
+static PState pstate[2];
+static int   mp_on=0;         /* multiplayer deathmatch active */
+static int   localp=0;        /* which wizard THIS unit controls (camera/HUD/input) */
+static uint8_t cast_owner=255;/* whose cast is running right now (set around wizard_update) */
+static void save_player(int i){ PState*p=&pstate[i];
+    p->x=wx;p->y=wy;p->vx=wvx;p->vy=wvy; p->grnd=w_ground;p->face=w_face;p->anim=w_anim;p->anim_t=w_anim_t;
+    p->ax=aimx;p->ay=aimy;p->aa=aim_ang; p->crx=cross_x;p->cry=cross_y;
+    p->life=hp;p->lifem=hp_max;p->mf=mana_fly;p->mfm=mana_fly_max;p->hurt=hurt_t;
+    memcpy(p->deck,wand,sizeof wand); p->nw=nwand;p->cw=cur_wand; }
+static void load_player(int i){ PState*p=&pstate[i];
+    wx=p->x;wy=p->y;wvx=p->vx;wvy=p->vy; w_ground=p->grnd;w_face=p->face;w_anim=p->anim;w_anim_t=p->anim_t;
+    aimx=p->ax;aimy=p->ay;aim_ang=p->aa; cross_x=p->crx;cross_y=p->cry;
+    hp=p->life;hp_max=p->lifem;mana_fly=p->mf;mana_fly_max=p->mfm;hurt_t=p->hurt;
+    memcpy(wand,p->deck,sizeof wand); nwand=p->nw;cur_wand=p->cw; }
+
 /* projectiles */
 #define MAXPROJ 96
 typedef struct { float x,y,vx,vy; uint8_t type; float life,dmg; uint8_t bounce,homing,boom,foe;
     float grav,phase,forkt,spd; uint8_t pierce,crit,leech,wave,glow,trail,manaref,jumps,lasthit;
     uint8_t fork,smartbnc,poison,big,split; uint32_t genes,plgenes;
-    uint8_t trig,npl,pl[4]; float trigt; } Proj;   /* trig: 0 none 1 impact 2 timer 3 death */
+    uint8_t trig,npl,pl[4]; float trigt; uint8_t owner; } Proj;   /* owner: 255 none, else player idx (MP) */
 static Proj proj[MAXPROJ]; static int nproj=0;
 
 /* particles */
@@ -592,7 +615,7 @@ static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(m){ sp*=m->speed; dmg+=m->dmg; grav+=m->grav; }
     Proj p={0}; p.x=x; p.y=y; p.vx=cosf(ang)*sp; p.vy=sinf(ang)*sp; p.type=(uint8_t)type;
     p.life=life; p.dmg=dmg; p.bounce=bnc; p.homing=hom; p.boom=bm; p.foe=(uint8_t)foe;
-    p.grav=grav; p.lasthit=255; p.spd=sp; p.genes=(uint32_t)gene_of(type);
+    p.grav=grav; p.lasthit=255; p.spd=sp; p.genes=(uint32_t)gene_of(type); p.owner=spawn_owner;
     if(m){ p.pierce=m->pierce; p.crit=m->crit; p.leech=m->leech; p.wave=m->wave;
            p.glow=m->glow; p.trail=m->trail; p.manaref=m->manaref;
            p.smartbnc=m->smartbnc; p.poison=m->poison; p.big=m->big; p.split=m->split;
@@ -735,6 +758,7 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     if(w->mana < cost) return;
     w->mana -= cost; w->delay_t = w->delay;
     /* 6) fire every compiled shot; normal shots carry their fused genes + payload */
+    spawn_owner=cast_owner;   /* MP: every projectile this cast makes belongs to the caster */
     float base=atan2f(ay,ax); int volleys=1+m.twin;
     for(int si=0;si<nsh;si++){ int t=sh[si].type; uint32_t g=sh[si].genes;
         if(t==SP_STORM){ cast_storm(cross_x,cross_y,&m); continue; }
@@ -764,6 +788,7 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     for(int k=0;k<5;k++) spawn_part(px,py,cosf(base)*rr(20,60),sinf(base)*rr(20,60),0.2f,w->col,1);
     if(mote->abi_version>=37){ float g=0.5f+(m.spread>1?0.1f:0)+(m.boom?0.15f:0);
         mote->audio_play_sfx(proj_sfx(sh[0].type), g>0.9f?0.9f:g); }
+    spawn_owner=255;
 }
 
 /* world-positioned SFX: full on-screen, fading out ~a screen below the view so
@@ -990,11 +1015,13 @@ static void apply_gene_impact(int cx,int cy,uint32_t g){
 static void fire_payload(Proj*p,float x,float y){
     if(!p->npl) return;
     Mods pm={0}; pm.speed=1.0f; pm.spread=1;
+    uint8_t save_so=spawn_owner; spawn_owner=p->owner;   /* payload belongs to the carrier's caster */
     float base=(p->trig==2)?atan2f(p->vy,p->vx):rndf()*6.2832f;
     for(int q=0;q<p->npl;q++){ float a=base+(q-(p->npl-1)*0.5f)*0.5f+rr(-0.1f,0.1f);
         int before=nproj; spawn_proj(p->pl[q],x,y,a,&pm,0);
         if(nproj>before) proj[nproj-1].genes=p->plgenes; }
     for(int k=0;k<6;k++) spawn_part(x,y,rr(-50,50),rr(-50,50),0.2f,gene_color(p->plgenes),1);
+    spawn_owner=save_so;
 }
 static uint16_t proj_col(int type,float f){
     switch(type){
@@ -1164,7 +1191,13 @@ static void tick_proj(float dt){
                     if(p->pierce){ p->x=nx; p->y=ny; continue; }   /* bore on through */
                 } else if(p->pierce){ p->x=nx; p->y=ny; continue; }
                 proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; }
-            if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=13; hurt_t=0.6f;
+            if(mp_on){                              /* MP: your shots hurt the OTHER wizard */
+                int hitp=-1; for(int j=0;j<2;j++){ if(j==p->owner||!pstate[j].alive)continue;
+                    float dx=pstate[j].x+PW*0.5f-nx,dy=pstate[j].y+PH*0.5f-ny; if(dx*dx+dy*dy<20){ hitp=j; break; } }
+                if(hitp>=0 && pstate[hitp].hurt<=0){ float dmg=p->dmg>0?p->dmg:8; pstate[hitp].life-=dmg; pstate[hitp].hurt=0.5f;
+                    if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
+                    proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; } }
+            else if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=13; hurt_t=0.6f;
                 if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
                 proj[i]=proj[--nproj]; outcome=1; break; } }
             if(!p->foe){ int bh=-1; for(int bi=0;bi<nbarrel;bi++) if(barrel[bi].alive){   /* pop a barrel */
@@ -1507,8 +1540,8 @@ static void gen_level(void){
         made++;
     }
 
-    /* the menagerie: deeper levels unlock nastier types */
-    int ne=test_mode?0:4+level*2;
+    /* the menagerie: deeper levels unlock nastier types (none in multiplayer) */
+    int ne=(test_mode||mp_on)?0:4+level*2;
     for(int k=0;k<ne && nenemy<MAXENEMY;k++){ int i=rand_open(60,WH-14,0); if(i<0)continue;
         Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=i%WW; e->y=i/WW; e->alive=1;
         int r=(int)(rnd()%100);
@@ -1520,8 +1553,8 @@ static void gen_level(void){
         else                    e->type=1;             /* spitter */
         static const uint8_t ehp[6]={10,14,12,8,18,14};
         e->hpmax=e->hp=ehp[e->type]; e->size=1; e->t=rndf()*3; e->atk_t=rndf(); }
-    /* --- deep dwellers: bigger monsters that arrive further down --- */
-    if(!test_mode){
+    /* --- deep dwellers: bigger monsters that arrive further down (none in multiplayer) --- */
+    if(!test_mode && !mp_on){
         int nbig=(level>=3)+(level>=6);               /* 0 shallow, 1 mid, 2 deep */
         for(int k=0;k<nbig && nenemy<MAXENEMY;k++){ int i=rand_open(70,WH-16,0); if(i<0)continue;
             Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; int e2=(int)(e-enemy);
@@ -1536,10 +1569,10 @@ static void gen_level(void){
             for(int s=0;s<WHIST;s++){ whist[e2][s][0]=e->x; whist[e2][s][1]=e->y; } whpos[e2]=0; }
     }
 
-    /* wand pickups in reachable chambers */
-    int nw=1+(level%2);
+    /* wand pickups in reachable chambers (deathmatch litters the level with them) */
+    int nw=mp_on?5:1+(level%2);
     for(int k=0;k<nw && npick<MAXPICK;k++){ int i=rand_open(50,WH-20,0); if(i<0)continue;
-        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->cd=0; p->w=random_wand(level); }
+        Pickup*p=&pick[npick++]; p->x=i%WW; p->y=i/WW; p->alive=1; p->cd=0; p->w=random_wand(mp_on?1+(int)(rnd()%4):level); }
 
     /* scatter destructible barrels on floors — oil kegs and powder kegs */
     nbarrel=0; int nb2=3+(int)(rnd()%4);
@@ -1557,6 +1590,17 @@ static void gen_level(void){
             if(inb(x,y)&&mat[y*WW+x]==M_EMPTY) mat[y*WW+x]=M_WATER; }
     memset(seen,0,sizeof seen); necho=0;   /* fresh fog + no pending echoes */
     memset(coin,0,sizeof coin);
+    if(mp_on){    /* deathmatch: wizard 0 at the top chamber, wizard 1 at the bottom */
+        int bx=clampi(exit_x,10,WW-10), by=WH-16;
+        while(by>20 && !IS_SOLID(mat[(by+1)*WW+bx])) by--;      /* settle onto floor */
+        pstate[0].x=spawnx-PW/2; pstate[0].y=14;
+        pstate[1].x=bx-PW/2;     pstate[1].y=by-PH;
+        for(int j=0;j<2;j++){ PState*p=&pstate[j];
+            p->vx=p->vy=0; p->grnd=0; p->anim=0; p->anim_t=0;
+            p->face=(j==0)?1:-1; p->ax=p->face; p->ay=0; p->aa=0;
+            p->life=p->lifem=100; p->mf=p->mfm=2.4f; p->hurt=0; p->alive=1; p->cw=0; }
+        cam_y=clampf(pstate[localp].y-VIEWH*0.45f,0,WH-VIEWH);
+    }
     /* title-screen vents: spots where lava/water pour while the title shows */
     ntv=0;
     for(int k=0;k<4&&ntv<4;k++){ int x=16+k*30+(int)(rnd()%10); if(x>=WW-4)break;
@@ -1577,8 +1621,7 @@ static void open_shop(void);
 static int solid_at(float x,float y){ int ix=(int)x,iy=(int)y; if(!inb(ix,iy))return 1; return IS_SOLID(mat[iy*WW+ix]); }
 static int box_hits(float px,float py){ for(int yy=0;yy<PH;yy++)for(int xx=0;xx<PW;xx++) if(solid_at(px+xx,py+yy))return 1; return 0; }
 
-static void wizard_update(float dt){
-    const MoteInput*in=mote->input();
+static void wizard_update(float dt, const MoteInput*in){
     float dax=0;
     if(mote_pressed(in,MOTE_BTN_LEFT)) { dax-=1; w_face=-1; }
     if(mote_pressed(in,MOTE_BTN_RIGHT)){ dax+=1; w_face= 1; }
@@ -1637,12 +1680,14 @@ static void wizard_update(float dt){
             if(mote->abi_version>=37) mote->audio_play_sfx(&gate_sfx,0.8f);
             for(int k=0;k<16;k++) spawn_part(gx,gy,rr(-60,60),rr(-60,60),0.5f,got.col,1); } }
 
-    float tgt=clampf(wy-VIEWH*0.45f,0,WH-VIEWH); cam_y+=(tgt-cam_y)*clampf(dt*6,0,1);
-    /* level ends at the portal: spend your gold before descending */
-    { float ex=(wx+PW*0.5f)-exit_x, ey=(wy+PH*0.5f)-(WH-8);
-      if(ex*ex+ey*ey<64){ open_shop(); return; } }
-    if(hp<=0){ state=ST_DEAD; state_t=0;
-        if(mote->abi_version>=37) mote->audio_play_sfx(&boom_big_sfx,0.85f); }
+    if(!mp_on){    /* single-player only: local camera follows this wizard; portal + death */
+        float tgt=clampf(wy-VIEWH*0.45f,0,WH-VIEWH); cam_y+=(tgt-cam_y)*clampf(dt*6,0,1);
+        /* level ends at the portal: spend your gold before descending */
+        { float ex=(wx+PW*0.5f)-exit_x, ey=(wy+PH*0.5f)-(WH-8);
+          if(ex*ex+ey*ey<64){ open_shop(); return; } }
+        if(hp<=0){ state=ST_DEAD; state_t=0;
+            if(mote->abi_version>=37) mote->audio_play_sfx(&boom_big_sfx,0.85f); }
+    }
 }
 
 /* ===================================================== wand editor === */
@@ -1918,21 +1963,194 @@ static void step_sim(float dt){
     while(sim_acc>=(1.0f/45.0f)&&n<3){ ca_step(); sim_acc-=1.0f/45.0f; n++; }
     tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_booms(dt); tick_barrels(dt); tick_enemies(dt); tick_coins(dt);
 }
+/* ================================================ multiplayer 1v1 === */
+/* Deterministic lockstep: both units run the identical sim and exchange only
+ * inputs + a few framed events over the v43 link. Player 0 (higher hello nonce)
+ * hosts the seed + round flow; the sim itself is symmetric on both machines. */
+enum { MPP_LOBBY=0, MPP_PLAY, MPP_EDIT, MPP_OVER };
+#define MP_WIN   5
+#define MP_DELAY 2
+#define MP_RING  64
+static int      mp_phase=MPP_LOBBY, mp_score[2]={0,0}, mp_round=0;
+static uint32_t mp_nonce=0, mp_peer_nonce=0, mp_seed=0;
+static int      mp_hello_ok=0, mp_hello_sent=0, mp_role_set=0, mp_seed_go=0;
+static int      mp_frame=0, mp_peer_frame=-1, mp_ready[2]={0,0};
+static float    mp_acc=0;
+static uint8_t  mp_in[2][MP_RING], mp_prevmask[2]={0,0};
+static uint8_t  mp_rx[256]; static int mp_rxn=0;
+static const uint16_t MP_TEAM[2]={ MOTE_RGB565(70,140,255), MOTE_RGB565(255,120,60) };  /* p0 azure · p1 ember */
+
+static void mp_send(uint8_t type, const uint8_t*p, int n){
+    uint8_t b[40]; b[0]=0xA5; b[1]=type; for(int i=0;i<n&&i<38;i++) b[2+i]=p[i];
+    mote->link_send(b, 2+n);
+}
+static void mk_input(MoteInput*o, uint8_t cur, uint8_t prev){
+    memset(o,0,sizeof *o);
+    for(int b=0;b<7;b++){ int h=(cur>>b)&1, pp=(prev>>b)&1;
+        o->held[b]=h; o->just_pressed[b]=h&&!pp; o->just_released[b]=!h&&pp; }
+}
+static int  deck_ser(int pi, uint8_t*o){ o[0]=(uint8_t)pstate[pi].nw; int n=1;
+    for(int i=0;i<MAXWAND;i++){ o[n++]=(uint8_t)pstate[pi].deck[i].n;
+        for(int s=0;s<WAND_SLOTS;s++) o[n++]=pstate[pi].deck[i].spell[s]; } return n; }
+static void deck_deser(int pi, const uint8_t*d){ int nw=d[0]; nw=nw<1?1:(nw>MAXWAND?MAXWAND:nw);
+    pstate[pi].nw=nw; int n=1;
+    for(int i=0;i<MAXWAND;i++){ pstate[pi].deck[i].n=d[n++];
+        for(int s=0;s<WAND_SLOTS;s++) pstate[pi].deck[i].spell[s]=d[n++]; } }
+
+static void mp_poll(void){
+    uint8_t tmp[128]; int n;
+    while((n=mote->link_recv(tmp,sizeof tmp))>0)
+        for(int i=0;i<n && mp_rxn<(int)sizeof mp_rx;i++) mp_rx[mp_rxn++]=tmp[i];
+    int p=0;
+    while(p+2<=mp_rxn){
+        if(mp_rx[p]!=0xA5){ p++; continue; }
+        uint8_t ty=mp_rx[p+1]; int need = ty==1?6 : ty==2?7 : ty==3?5 : ty==4?31 : 2;
+        if(p+need>mp_rxn) break;
+        const uint8_t*pl=&mp_rx[p+2];
+        if(ty==1){ mp_peer_nonce=((uint32_t)pl[0]<<24)|(pl[1]<<16)|(pl[2]<<8)|pl[3]; mp_hello_ok=1; }
+        else if(ty==2){ mp_seed=((uint32_t)pl[0]<<24)|(pl[1]<<16)|(pl[2]<<8)|pl[3]; mp_round=pl[4]; mp_seed_go=1;
+            if(!mp_role_set){ localp=1; mp_role_set=1; } }   /* the peer hosts the seed → I'm the client */
+        else if(ty==3){ int fr=(pl[0]<<8)|pl[1]; mp_in[(1-localp)&1][fr&(MP_RING-1)]=pl[2]; if(fr>mp_peer_frame)mp_peer_frame=fr; }
+        else if(ty==4){ deck_deser(1-localp,pl); mp_ready[1-localp]=1; }
+        p+=need;
+    }
+    if(p>0){ memmove(mp_rx,mp_rx+p,mp_rxn-p); mp_rxn-=p; }
+}
+static void mp_bcast_seed(void){ uint8_t pl[5]={(uint8_t)(mp_seed>>24),(uint8_t)(mp_seed>>16),
+    (uint8_t)(mp_seed>>8),(uint8_t)mp_seed,(uint8_t)mp_round}; mp_send(2,pl,5); mp_seed_go=1; }
+static void mp_start_round(void){
+    mp_seed_go=0;
+    if(mp_round==0){ mp_score[0]=mp_score[1]=0;
+        static const uint8_t st[]={SP_SPARK,SP_SPARK};
+        for(int j=0;j<2;j++){ pstate[j].deck[0]=make_wand(st,2,0.16f,50,MOTE_RGB565(200,200,220));
+            for(int i=1;i<MAXWAND;i++) pstate[j].deck[i]=(Wand){0};
+            pstate[j].nw=1; pstate[j].cw=0; } }
+    rng=mp_seed|1u; level=2+(mp_round%3);
+    gen_level();                       /* mp_on → two spawns, no enemies, litter of wands */
+    build_light();
+    mp_frame=0; mp_acc=0; mp_prevmask[0]=mp_prevmask[1]=0; mp_peer_frame=-1;
+    for(int f=0;f<MP_DELAY;f++){ mp_in[0][f]=mp_in[1][f]=0;
+        uint8_t pld[3]={(uint8_t)(f>>8),(uint8_t)f,0}; mp_send(3,pld,3); }
+    mp_phase=MPP_PLAY; state=ST_MP; state_t=0;
+}
+static void mp_step_frame(const MoteInput*in){
+    int f=mp_frame;
+    uint8_t m0=mp_in[0][f&(MP_RING-1)], m1=mp_in[1][f&(MP_RING-1)];
+    MoteInput i0,i1; mk_input(&i0,m0,mp_prevmask[0]); mk_input(&i1,m1,mp_prevmask[1]);
+    mp_prevmask[0]=m0; mp_prevmask[1]=m1;
+    const float dt=1.0f/30.0f;
+    cast_owner=0; load_player(0); wizard_update(dt,&i0); save_player(0);
+    cast_owner=1; load_player(1); wizard_update(dt,&i1); save_player(1);
+    cast_owner=255;
+    step_sim(dt); build_light(); framestep++;
+    cam_y += (clampf(pstate[localp].y-VIEWH*0.45f,0,WH-VIEWH)-cam_y)*clampf(dt*6,0,1);
+    /* schedule my own input for frame f+MP_DELAY and announce it */
+    { uint8_t mask=0;
+      if(mote_pressed(in,MOTE_BTN_UP))mask|=1;   if(mote_pressed(in,MOTE_BTN_DOWN))mask|=2;
+      if(mote_pressed(in,MOTE_BTN_LEFT))mask|=4; if(mote_pressed(in,MOTE_BTN_RIGHT))mask|=8;
+      if(mote_pressed(in,MOTE_BTN_A))mask|=16;   if(mote_pressed(in,MOTE_BTN_B))mask|=32;
+      if(mote_pressed(in,MOTE_BTN_LB))mask|=64;
+      int nf=f+MP_DELAY; mp_in[localp&1][nf&(MP_RING-1)]=mask;
+      uint8_t pld[3]={(uint8_t)(nf>>8),(uint8_t)nf,mask}; mp_send(3,pld,3); }
+    mp_frame++;
+    if(getenv("MOITA_MP_HASH") && (mp_frame%30)==0){   /* determinism probe: hashes must match on both units */
+        uint32_t h=2166136261u; for(int i=0;i<WN;i+=7) h=(h^mat[i])*16777619u;
+        h^=(uint32_t)(pstate[0].x*8)^((uint32_t)(pstate[0].y*8)<<8)^((uint32_t)(pstate[1].x*8)<<16)^((uint32_t)(pstate[1].y*8)<<24);
+        fprintf(stderr,"MPHASH f=%d h=%08x p0=%.1f,%.1f p1=%.1f,%.1f m0=%d m1=%d lp=%d\n",
+            mp_frame,h,pstate[0].x,pstate[0].y,pstate[1].x,pstate[1].y,m0,m1,localp); }
+    for(int j=0;j<2;j++) if(pstate[j].alive && pstate[j].life<=0){ pstate[j].alive=0;
+        if(mote->abi_version>=37) mote->audio_play_sfx(&boom_big_sfx,0.8f); }
+    if(!pstate[0].alive || !pstate[1].alive){
+        int w=(pstate[0].alive&&!pstate[1].alive)?0:(pstate[1].alive&&!pstate[0].alive)?1:-1;
+        if(w>=0) mp_score[w]++;
+        if(mp_score[0]>=MP_WIN||mp_score[1]>=MP_WIN){ mp_phase=MPP_OVER; }
+        else { mp_phase=MPP_EDIT; mp_ready[0]=mp_ready[1]=0; ed_wi=0; ed_si=0; ed_carry=SP_NONE; }
+        state_t=0;
+    }
+}
+static void mp_edit_update(const MoteInput*in){
+    if(!mp_ready[localp]){
+        load_player(localp);
+        if(mote_just_pressed(in,MOTE_BTN_LEFT))  ed_si=(ed_si+WAND_SLOTS-1)%WAND_SLOTS;
+        if(mote_just_pressed(in,MOTE_BTN_RIGHT)) ed_si=(ed_si+1)%WAND_SLOTS;
+        if(mote_just_pressed(in,MOTE_BTN_UP))    ed_wi=(ed_wi+nwand-1)%nwand;
+        if(mote_just_pressed(in,MOTE_BTN_DOWN))  ed_wi=(ed_wi+1)%nwand;
+        if(mote_just_pressed(in,MOTE_BTN_A)){ uint8_t*sl=&wand[ed_wi].spell[ed_si]; int t=*sl; *sl=(uint8_t)ed_carry; ed_carry=t; }
+        if(mote_just_pressed(in,MOTE_BTN_LB)) cur_wand=(cur_wand+1)%nwand;
+        save_player(localp);
+        if(mote_just_pressed(in,MOTE_BTN_RB)){         /* ready up */
+            if(ed_carry!=SP_NONE){ load_player(localp);
+                for(int k=0;k<nwand&&ed_carry!=SP_NONE;k++){ Wand*w=&wand[(ed_wi+k)%nwand];
+                    for(int i=0;i<WAND_SLOTS;i++) if(w->spell[i]==SP_NONE){w->spell[i]=(uint8_t)ed_carry;ed_carry=SP_NONE;break;} }
+                for(int i=0;i<nwand;i++) wand_compact(&wand[i]); save_player(localp); }
+            uint8_t buf[32]; int n=deck_ser(localp,buf); mp_send(4,buf,n); mp_ready[localp]=1;
+        }
+    }
+    if(localp==0 && mp_ready[0] && mp_ready[1] && !mp_seed_go){
+        mp_seed=(mp_seed*1664525u+1013904223u)|1u; mp_round++; mp_bcast_seed(); }
+}
+static void mp_enter(void){
+    mote->link_start(); mp_on=1; mp_phase=MPP_LOBBY; state=ST_MP; state_t=0;
+    mp_nonce=0;   /* computed once the link is up (needs link_is_host) */
+    mp_hello_ok=mp_hello_sent=mp_role_set=mp_seed_go=0; mp_peer_frame=-1; mp_rxn=0;
+    mp_score[0]=mp_score[1]=0; mp_round=0; localp=0;
+}
+static void mp_exit(void){ mote->link_stop(); mp_on=0; state=ST_TITLE; state_t=0; reset_run(); }
+static void mp_update(float dt){
+    const MoteInput*in=mote->input();
+    mp_poll();
+    if(mp_seed_go && (mp_phase==MPP_LOBBY||mp_phase==MPP_EDIT)) mp_start_round();
+    if(mp_phase==MPP_LOBBY){
+        if(mote_just_pressed(in,MOTE_BTN_MENU)){ mp_exit(); return; }
+        if(mote->link_status()==MOTE_LINK_CONNECTED){
+            if(mp_nonce==0){    /* top bit = transport role (host emu/USB always differ); low bits = clock+ASLR for the LAN-bridge case */
+                uint32_t base=(((uint32_t)mote->micros())^((uint32_t)(uintptr_t)&mp_rxn))&0x7fffffffu;
+                mp_nonce=(mote->link_is_host()?0x80000000u:0u)|base|1u; }
+            mp_hello_sent++; if(mp_hello_sent%8==1){ uint8_t pl[4]={(uint8_t)(mp_nonce>>24),
+                (uint8_t)(mp_nonce>>16),(uint8_t)(mp_nonce>>8),(uint8_t)mp_nonce}; mp_send(1,pl,4); }
+            if(mp_hello_ok && !mp_role_set){
+                if(mp_nonce!=mp_peer_nonce) localp=(mp_nonce>mp_peer_nonce)?0:1;
+                else localp=mote->link_is_host()?0:1;   /* identical nonce → fall back to transport host/client */
+                mp_role_set=1;
+                if(getenv("MOITA_MP_HASH")) fprintf(stderr,"ROLE lp=%d nonce=%08x peer=%08x ishost=%d\n",localp,mp_nonce,mp_peer_nonce,mote->link_is_host());
+                if(localp==0){ mp_round=0; mp_seed=((uint32_t)mote->micros())|1u; mp_bcast_seed(); } }
+        }
+        return;
+    }
+    if(mp_phase==MPP_PLAY){
+        mp_acc+=dt; int guard=0;
+        while(mp_acc>=1.0f/30.0f && guard++<4){
+            if(mp_peer_frame<mp_frame) break;      /* stall until peer input arrives */
+            mp_step_frame(in); mp_acc-=1.0f/30.0f;
+            if(mp_phase!=MPP_PLAY) break;
+        }
+        return;
+    }
+    if(mp_phase==MPP_EDIT){ mp_edit_update(in); return; }
+    if(mp_phase==MPP_OVER){
+        if(localp==0 && mote_just_pressed(in,MOTE_BTN_A)){ mp_round=0;
+            mp_seed=(mp_seed*1664525u+1013904223u)|1u; mp_bcast_seed(); }
+        if(mote_just_pressed(in,MOTE_BTN_MENU)) mp_exit();
+        return;
+    }
+}
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
+    if(state==ST_MP){ mp_update(dt); return; }
     if(state==ST_TITLE){
         /* cinematic backdrop: pan the caves while lava and water pour */
         float ph=fmodf(state_t*0.045f,2.0f), u=ph<1?ph:2-ph;
         cam_y=u*(WH-VH);
         title_emit(); step_sim(dt); build_light();
         if(mote_just_pressed(in,MOTE_BTN_A)){ gen_level(); state=ST_PLAY; state_t=0; }
+        if(mote_just_pressed(in,MOTE_BTN_B)){ mp_enter(); return; }   /* B: 2-player link */
         return; }
     if(state==ST_DEAD){ step_sim(dt); build_light();
         if(mote_just_pressed(in,MOTE_BTN_A)){ reset_run(); gen_level(); state=ST_PLAY; state_t=0; } return; }
     if(state==ST_SHOP){ shop_update(in); return; }
     if(state==ST_EDIT){ edit_update(in); return; }   /* world pauses while editing */
     if(mote_just_pressed(in,MOTE_BTN_MENU)){ state=ST_EDIT; ed_wi=cur_wand; ed_si=0; ed_carry=SP_NONE; return; }
-    wizard_update(dt); step_sim(dt); build_light();
+    wizard_update(dt, mote->input()); step_sim(dt); build_light();
 }
 
 /* ============================================================= render === */
@@ -2312,13 +2530,33 @@ static void g_overlay(uint16_t*fb){
             mote->text_font(fb,fmed,"U/D aim  LB wand",16,74,MOTE_RGB565(165,205,225));
             mote->text_font(fb,fmed,"MENU: edit wands",18,86,MOTE_RGB565(202,172,255));
             float g=0.55f+0.45f*sinf(state_t*3);
-            mote->text_font(fb,fmed,"A: start",42,108,lerp565(MOTE_RGB565(150,118,44),MOTE_RGB565(255,224,124),g));
+            mote->text_font(fb,fmed,"A: start",14,108,lerp565(MOTE_RGB565(150,118,44),MOTE_RGB565(255,224,124),g));
+            mote->text_font(fb,fmed,"B: 2P link",66,108,MOTE_RGB565(150,200,255));
         } else mote->text_2x(fb,"MOITA",38,40,MOTE_RGB565(160,140,255));
         return;
     }
     int cy=(int)cam_y-TOP; char buf[24];   /* screen y = world y - cy (dashboard offset baked in) */
-    /* exit portal (the way down) */
-    { int sx=exit_x, sy=(WH-6)-cy; if(sy>-14 && sy<142){
+    if(state==ST_MP && mp_phase==MPP_LOBBY){
+        mote_dim_box(fb,0,0,128,128,1);
+        const char*msg=(mote->link_status()==MOTE_LINK_CONNECTED)?"LINKING WANDS...":"SEARCHING FOR A LINK";
+        if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),"1 v 1",44,34,MOTE_RGB565(228,205,255));
+                  mote->text_font(fb,fmed,msg,12,58,MOTE_RGB565(210,210,235));
+                  mote->text_font(fb,fmed,"MENU: cancel",32,74,MOTE_RGB565(150,150,180)); }
+        return;
+    }
+    if(state==ST_MP && mp_phase==MPP_OVER){
+        mote_dim_box(fb,0,38,128,52,0);
+        int iwin=mp_score[0]>=MP_WIN?0:1;
+        const char*t=(iwin==localp)?"YOU WIN!":"YOU LOSE";
+        uint16_t c=(iwin==localp)?MOTE_RGB565(120,255,140):MOTE_RGB565(255,90,70);
+        if(fmed){ mote->text_font(fb,mote->ui_font(MOTE_FONT_LARGE),t,28,44,c);
+            snprintf(buf,sizeof buf,"%d - %d",mp_score[localp],mp_score[1-localp]);
+            mote->text_font(fb,fmed,buf,52,64,MOTE_RGB565(230,230,240));
+            mote->text_font(fb,fmed,localp==0?"A: rematch":"waiting...",38,76,MOTE_RGB565(255,224,124)); }
+        return;
+    }
+    /* exit portal (the way down) — single-player only */
+    if(!mp_on){ int sx=exit_x, sy=(WH-6)-cy; if(sy>-14 && sy<142){
         for(int a=0;a<3;a++){ int rr2=4+a*3+(int)(sinf(state_t*4)*1.5f);
             mote->draw_circle(fb,sx,sy,rr2,MOTE_RGB565(150,80,255),0,0,128); }
         mote->draw_circle(fb,sx,sy,2,MOTE_RGB565(230,190,255),1,0,128); } }
@@ -2375,11 +2613,27 @@ static void g_overlay(uint16_t*fb){
             fb[sy*128+sx]=add565(fb[sy*128+sx],ar,ag,ab); }
         else fb[sy*128+sx]=part[i].col; }
     { const float VISH=9.0f, sc=VISH/13.0f;                  /* sprite bigger than the hitbox */
-      float cx=wx+PW*0.5f, cyy=(wy+PH) - VISH*0.5f - cam_y + TOP;   /* feet-aligned */
-      int fx = (w_face<0 ? (4+w_anim)*16+0 : w_anim*16+5);   /* left frames are mirrored */
-      mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128);
-      fluid_veil(fb,(int)cx-6,(int)cyy-6,(int)cx+6,(int)cyy+6,cy); }
-    /* crosshair (aims spells) */
+      int np=mp_on?2:1;
+      for(int wi=0; wi<np; wi++){
+        if(mp_on){ if(!pstate[wi].alive) continue; load_player(wi); }
+        float cx=wx+PW*0.5f, cyy=(wy+PH) - VISH*0.5f - cam_y + TOP;   /* feet-aligned */
+        int fx = (w_face<0 ? (4+w_anim)*16+0 : w_anim*16+5);   /* left frames are mirrored */
+        if(mp_on){    /* tint only the sprite's own pixels toward the team colour (robe stronger than head) */
+            int x0=(int)cx-6,y0=(int)cyy-2,x1=(int)cx+6,y1=(int)cyy+9;
+            if(x0<0)x0=0; if(y0<0)y0=0; if(x1>127)x1=127; if(y1>127)y1=127;
+            static uint16_t bak[18*18]; int bw=x1-x0+1,bh=y1-y0+1;
+            for(int yy=0;yy<bh;yy++)for(int xx=0;xx<bw;xx++) bak[yy*bw+xx]=fb[(y0+yy)*128+x0+xx];
+            mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128);
+            for(int yy=0;yy<bh;yy++)for(int xx=0;xx<bw;xx++){ int idx=(y0+yy)*128+x0+xx;
+                if(fb[idx]!=bak[yy*bw+xx]){ float amt=(yy>bh/2)?0.5f:0.28f;   /* robe (lower) tinted harder */
+                    fb[idx]=lerp565(fb[idx],MP_TEAM[wi],amt); } }
+        } else mote->blit_ex(fb,&wizard_img, cx,cyy, fx,3, 11,13, 0.0f, sc, MOTE_BLEND_NONE, 0,128);
+        fluid_veil(fb,(int)cx-6,(int)cyy-6,(int)cx+6,(int)cyy+6,cy);
+      }
+      if(mp_on) load_player(localp);   /* restore for the crosshair + HUD */
+    }
+    /* crosshair (aims spells) — only while actively fighting */
+    if(state==ST_PLAY || (state==ST_MP && mp_phase==MPP_PLAY))
     { int sx=(int)cross_x, sy=(int)cross_y-cy; uint16_t c=MOTE_RGB565(255,240,150);
       if((unsigned)sx<128 && (unsigned)(sy)<128){
         mote->draw_pixel(fb,sx-2,sy,c); mote->draw_pixel(fb,sx+2,sy,c);
@@ -2391,6 +2645,20 @@ static void g_overlay(uint16_t*fb){
     mote_ui_rect(fb,0,16,128,1,MOTE_RGB565(104,90,150));
     mote_ui_rect(fb,0,17,128,1,MOTE_RGB565(18,14,30));
 
+    if(mp_on){    /* deathmatch HUD: YOUR team-coloured bars left, round score centre, foe bar right */
+        uint16_t you=MP_TEAM[localp], foe=MP_TEAM[1-localp];
+        uint16_t youh=lerp565(you,MOTE_RGB565(255,255,255),0.45f), foeh=lerp565(foe,MOTE_RGB565(255,255,255),0.45f);
+        ui_icon(fb,2,2,ic_heart,you);
+        ui_fbar(fb,9,2,38,6,hp/hp_max,you,youh);
+        ui_icon(fb,2,10,ic_bolt,MOTE_RGB565(150,190,255));
+        ui_fbar(fb,9,10,38,5,mana_fly/mana_fly_max,MOTE_RGB565(70,120,235),MOTE_RGB565(150,190,255));
+        Wand*w=&wand[cur_wand];
+        ui_fbar(fb,9,15,38,1,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
+        snprintf(buf,sizeof buf,"%d-%d",mp_score[localp],mp_score[1-localp]);
+        if(fmed) mote->text_font(fb,fmed,buf,54,3,MOTE_RGB565(255,236,180));
+        ui_icon(fb,82,4,ic_heart,foe);
+        ui_fbar(fb,89,4,37,7,clampf(pstate[1-localp].life/100.0f,0,1),foe,foeh);
+    } else {
     ui_icon(fb,2,2,ic_heart,MOTE_RGB565(240,90,90));
     ui_fbar(fb,9,2,44,6,hp/hp_max,MOTE_RGB565(210,52,52),MOTE_RGB565(255,130,120));
     ui_icon(fb,2,10,ic_bolt,MOTE_RGB565(150,190,255));
@@ -2405,6 +2673,7 @@ static void g_overlay(uint16_t*fb){
     ui_fbar(fb,70,10,56,5,w->mana/w->mana_max,w->col,MOTE_RGB565(235,225,255));
     snprintf(buf,sizeof buf,"D%d",level);
     tiny_text(fb,115,2,buf,MOTE_RGB565(225,218,255));
+    }
 
     if(state==ST_SHOP){
         mote_dim_box(fb,0,TOP,128,VH-TOP,2);
@@ -2448,10 +2717,14 @@ static void g_overlay(uint16_t*fb){
         }
     }
 
-    if(state==ST_EDIT){
+    if(state==ST_EDIT || (state==ST_MP && mp_phase==MPP_EDIT)){
+        int mpedit=(state==ST_MP);
+        if(mpedit) load_player(localp);
         mote_dim_box(fb,0,TOP,128,VH-TOP,3);
-        if(fmed){ mote->text_font(fb,fmed,"WANDS",4,20,MOTE_RGB565(235,225,255));
-                  mote->text_font(fb,fmed,"A:take/put  MENU:done",4,30,MOTE_RGB565(170,160,205)); }
+        if(fmed){ mote->text_font(fb,fmed,mpedit?"WAND EDIT — RB:ready":"WANDS",4,20,MOTE_RGB565(235,225,255));
+                  mote->text_font(fb,fmed,mpedit?"A:take/put  LB:wand":"A:take/put  MENU:done",4,30,MOTE_RGB565(170,160,205)); }
+        if(mpedit && mp_ready[localp]){ if(fmed) mote->text_font(fb,fmed,
+            mp_ready[1-localp]?"both ready...":"waiting for opponent",8,42,MOTE_RGB565(255,224,124)); }
         if(ed_carry!=SP_NONE){                         /* the card in hand — top-right chip */
             mote_ui_panel(fb,104,19,20,11,MOTE_RGB565(44,40,66),MOTE_RGB565(240,240,255));
             if(fmed) mote->text_font(fb,fmed,sp_code[ed_carry],106,20,sp_colr(ed_carry)); }
