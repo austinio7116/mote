@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.4.0");
+MOTE_GAME_VERSION("0.5.0");
 
 /* ============================================================ constants === */
 #define WW 128
@@ -98,6 +98,16 @@ enum { SP_NONE=0,
 #define G_OIL    0x100
 #define G_DIG    0x200
 #define G_BOOM   0x400
+/* structural genes: a structural card fused BEHIND another carrier layers a scaled-down
+ * version of its signature onto the carrier's impact (or motion), instead of being wasted */
+#define G_WEB     0x00800
+#define G_BOULDER 0x01000
+#define G_VINE    0x02000
+#define G_MIRROR  0x04000
+#define G_SEEK    0x08000
+#define G_ORB     0x10000
+#define G_PRISM   0x20000
+#define G_STRUCT  (G_WEB|G_BOULDER|G_VINE|G_MIRROR|G_SEEK|G_ORB|G_PRISM)
 
 enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
 
@@ -149,7 +159,7 @@ static Wand wand[MAXWAND]; static int nwand=1, cur_wand=0;
 #define MAXPROJ 96
 typedef struct { float x,y,vx,vy; uint8_t type; float life,dmg; uint8_t bounce,homing,boom,foe;
     float grav,phase,forkt,spd; uint8_t pierce,crit,leech,wave,glow,trail,manaref,jumps,lasthit;
-    uint8_t fork,smartbnc,poison,big,split; uint16_t genes,plgenes;
+    uint8_t fork,smartbnc,poison,big,split; uint32_t genes,plgenes;
     uint8_t trig,npl,pl[4]; float trigt; } Proj;   /* trig: 0 none 1 impact 2 timer 3 death */
 static Proj proj[MAXPROJ]; static int nproj=0;
 
@@ -522,7 +532,7 @@ typedef struct { float dmg; int spread; int bounce,homing,boom; float speed;
     float grav; uint8_t pierce,twin,crit,leech,echo,wave,glow,manaref,trail;
     uint8_t fork,smartbnc,poison,big,chaos,split; } Mods;
 
-static uint16_t gene_of(int t);
+static uint32_t gene_of(int t);
 static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(nproj>=MAXPROJ) return;
     float sp,dmg,life=1.4f,grav=0;
@@ -561,7 +571,7 @@ static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(m){ sp*=m->speed; dmg+=m->dmg; grav+=m->grav; }
     Proj p={0}; p.x=x; p.y=y; p.vx=cosf(ang)*sp; p.vy=sinf(ang)*sp; p.type=(uint8_t)type;
     p.life=life; p.dmg=dmg; p.bounce=bnc; p.homing=hom; p.boom=bm; p.foe=(uint8_t)foe;
-    p.grav=grav; p.lasthit=255; p.spd=sp; p.genes=(uint16_t)gene_of(type);
+    p.grav=grav; p.lasthit=255; p.spd=sp; p.genes=(uint32_t)gene_of(type);
     if(m){ p.pierce=m->pierce; p.crit=m->crit; p.leech=m->leech; p.wave=m->wave;
            p.glow=m->glow; p.trail=m->trail; p.manaref=m->manaref;
            p.smartbnc=m->smartbnc; p.poison=m->poison; p.big=m->big; p.split=m->split;
@@ -605,7 +615,7 @@ static void cast_frost(float px,float py,float ang,Mods*m);
 static void cast_storm(float tx,float ty,Mods*m);
 /* --- the wand compiler: genes fuse, modifiers are global, a trigger nests the
  * rest as a payload; the whole deck comes together into one compound cast --- */
-static uint16_t gene_of(int t){
+static uint32_t gene_of(int t){
     switch(t){
         case SP_SPARK: case SP_BOLT: case SP_NEEDLE: case SP_CHAIN: return G_ARC;
         case SP_FIRE:   return G_BURN;
@@ -620,8 +630,16 @@ static uint16_t gene_of(int t){
         case SP_VOID:   return G_VOID;
         case SP_NAPALM: return G_BURN|G_OIL;
         case SP_SPORE:  return G_TOXIC;
+        /* structural genes — a fused structural card still contributes its signature */
+        case SP_WEB:    return G_WEB;
+        case SP_BOULDER:return G_BOULDER;
+        case SP_VINE:   return G_VINE;
+        case SP_MIRROR: return G_MIRROR;
+        case SP_SEEK:   return G_SEEK;
+        case SP_ORB:    return G_ORB;
+        case SP_PRISM:  return G_PRISM;
     }
-    return 0;   /* ORB, VINE, PRISM, MIRROR, SEEK: structural — no elemental gene */
+    return 0;
 }
 static int is_special(int t){ return t==SP_ZAP||t==SP_NOVA||t==SP_STORM||t==SP_FROST||t==SP_SWARM; }
 static void apply_mod(Mods*m,int s){
@@ -669,12 +687,12 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     Mods m={0}; m.speed=1.0f; m.spread=1;
     for(int i=0;i<w->n;i++){ int s=w->spell[i]; if(!IS_PROJ(s)&&!IS_TRIG(s)&&s!=SP_NONE) apply_mod(&m,s); }
     /* 3) compile the payload (region after the trigger) into a small fused volley */
-    uint8_t pl[4]; int npl=0; uint16_t plg=0;
+    uint8_t pl[4]; int npl=0; uint32_t plg=0;
     if(trigpos>=0) for(int i=trigpos+1;i<w->n && npl<4;i++){ int s=w->spell[i];
         if(IS_PROJ(s)&&!is_special(s)){ if(m.chaos)s=random_proj(); pl[npl++]=(uint8_t)s; plg|=gene_of(s); } }
     /* 4) compile the main shots: adjacent projectiles FUSE their genes into one carrier */
-    struct{ uint8_t type; uint16_t genes; } sh[8]; int nsh=0;
-    int prevproj=0, have=0, curtype=0; uint16_t curg=0;
+    struct{ uint8_t type; uint32_t genes; } sh[8]; int nsh=0;
+    int prevproj=0, have=0, curtype=0; uint32_t curg=0;
     for(int i=0;i<mainend;i++){ int s=w->spell[i]; if(s==SP_NONE) continue;
         if(!IS_PROJ(s)){ prevproj=0; continue; }        /* modifier breaks the fusion run */
         if(m.chaos) s=random_proj();
@@ -686,14 +704,18 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     }
     if(have&&nsh<8){ sh[nsh].type=curtype; sh[nsh].genes=curg; nsh++; }
     if(nsh==0) return;
-    /* 5) mana cost — the whole recipe */
+    /* 5) mana cost — the whole recipe (+2 per fused structural gene as a brake) */
+    int structbonus=0;
+    for(int si=0;si<nsh;si++){ uint32_t sgb=sh[si].genes & G_STRUCT & ~gene_of(sh[si].type);
+        while(sgb){ structbonus++; sgb&=sgb-1; } }
     float cost=5 + m.dmg*0.3f + (m.spread-1)*4 + (m.boom?6:0) + m.twin*5 + (m.pierce?3:0)
-             + (m.echo?4:0) + (m.fork?4:0) + (m.big?5:0) + nsh*3 + (trigpos>=0?4+npl*2:0);
+             + (m.echo?4:0) + (m.fork?4:0) + (m.big?5:0) + nsh*3 + (trigpos>=0?4+npl*2:0)
+             + structbonus*2;
     if(w->mana < cost) return;
     w->mana -= cost; w->delay_t = w->delay;
     /* 6) fire every compiled shot; normal shots carry their fused genes + payload */
     float base=atan2f(ay,ax); int volleys=1+m.twin;
-    for(int si=0;si<nsh;si++){ int t=sh[si].type; uint16_t g=sh[si].genes;
+    for(int si=0;si<nsh;si++){ int t=sh[si].type; uint32_t g=sh[si].genes;
         if(t==SP_STORM){ cast_storm(cross_x,cross_y,&m); continue; }
         if(t==SP_FROST){ for(int k=0;k<m.spread;k++) cast_frost(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.25f:0),&m); continue; }
         if(t==SP_ZAP){ for(int k=0;k<m.spread;k++) cast_zap(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.2f:0),&m); continue; }
@@ -701,7 +723,7 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
         if(t==SP_SWARM){ for(int v=0;v<volleys;v++)for(int k=0;k<4;k++) spawn_proj(SP_SWARM,px,py,base+(k-1.5f)*0.28f+rr(-0.05f,0.05f),&m,0); continue; }
         /* diggers fire from the BODY CENTRE (not the muzzle 6px ahead) so a shot fired
          * while jammed against a wall tunnels you free instead of starting inside the rock */
-        uint16_t blockdig = g & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_BOOM);
+        uint32_t blockdig = g & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_BOOM);
         int placer=(t==SP_VINE||t==SP_WEB||t==SP_BOULDER);
         int digs=(g&G_DIG)||(!blockdig&&!placer);
         float ox=digs?(wx+PW*0.5f):px, oy=digs?(wy+PH*0.5f):py;
@@ -709,6 +731,8 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
             float a=base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.34f:0)+rr(-0.03f,0.03f)+(v?rr(-0.08f,0.08f):0);
             int before=nproj; spawn_proj(t,ox,oy,a,&m,0);
             if(nproj>before){ Proj*pp=&proj[nproj-1]; pp->genes=g;
+                if((g&G_MIRROR)&&t!=SP_MIRROR&&pp->bounce<1) pp->bounce=1; /* fused mirror: ricochet once */
+                if((g&G_SEEK)&&t!=SP_SEEK) pp->homing=1;                   /* fused seek: mild homing */
                 if(trigpos>=0 && npl>0){ pp->trig=(uint8_t)trigmode; pp->npl=(uint8_t)npl;
                     for(int q=0;q<npl;q++) pp->pl[q]=pl[q]; pp->plgenes=plg;
                     if(trigmode==2) pp->trigt=0.35f; } }
@@ -864,7 +888,7 @@ static void cast_storm(float tx,float ty,Mods*m){
     for(int k=0;k<10;k++) spawn_part(tx+rr(-10,10),ty-rr(0,40),rr(-8,8),40,0.2f,MOTE_RGB565(200,225,255),1);
 }
 /* dominant-gene tint for a fused shot's body + trail */
-static uint16_t gene_color(uint16_t g){
+static uint16_t gene_color(uint32_t g){
     if(g&G_MOLTEN) return MOTE_RGB565(255,120,30);
     if(g&G_BURN)   return MOTE_RGB565(255,150,50);
     if(g&G_COLD)   return MOTE_RGB565(170,225,255);
@@ -874,6 +898,10 @@ static uint16_t gene_color(uint16_t g){
     if(g&G_ARC)    return MOTE_RGB565(180,215,255);
     if(g&G_WET)    return MOTE_RGB565(80,160,255);
     if(g&G_OIL)    return MOTE_RGB565(120,100,70);
+    if(g&G_ORB)    return MOTE_RGB565(210,150,255);
+    if(g&G_VINE)   return MOTE_RGB565(110,220,90);
+    if(g&G_WEB)    return MOTE_RGB565(210,235,195);
+    if(g&G_PRISM)  return MOTE_RGB565(230,110,255);
     return MOTE_RGB565(255,255,255);
 }
 static void fill_disc(int cx,int cy,int r,uint8_t mm,uint8_t hv,int only_empty){
@@ -882,7 +910,7 @@ static void fill_disc(int cx,int cy,int r,uint8_t mm,uint8_t hv,int only_empty){
 }
 /* the emergent brew: apply a fused shot's genes at an impact point — gene PAIRS
  * make the magic (fire+water=steam, lava+water=obsidian shrapnel, ...) */
-static void apply_gene_impact(int cx,int cy,uint16_t g){
+static void apply_gene_impact(int cx,int cy,uint32_t g){
     int burn=(g&(G_BURN|G_MOLTEN)),wet=(g&G_WET),cold=(g&G_COLD),molten=(g&G_MOLTEN),
         acid=(g&G_ACID),toxic=(g&G_TOXIC),voidg=(g&G_VOID),oil=(g&G_OIL),dig=(g&G_DIG),boom=(g&G_BOOM),arc=(g&G_ARC);
     if(burn && wet){                                    /* STEAM BURST — a billowing blinding cloud */
@@ -1001,12 +1029,34 @@ static void proj_impact(Proj*p){
     if(p->genes) apply_gene_impact(cx,cy,p->genes);      /* the emergent elemental brew */
     /* kinetic shots (plain bolts/arc/orbs) chip through soft ground — this is how you
      * tunnel with the starter wand. Element-placers and structural shots don't dig. */
-    uint16_t elem = p->genes & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_DIG|G_BOOM);
+    uint32_t elem = p->genes & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_DIG|G_BOOM);
     int placer = (p->type==SP_VINE||p->type==SP_WEB||p->type==SP_BOULDER);
     if(!elem && !placer)
         for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){ if(x*x+y*y>4)continue;
             int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY; }
     if(p->boom && !(p->genes&G_BOOM)) explode(p->x,p->y,5,(p->genes&(G_BURN|G_MOLTEN))?1:0);
+    /* fused STRUCTURAL genes: a scaled-down version of that card's signature layers onto
+     * the impact (skip the carrier's own type — its full effect already ran in the switch) */
+    uint32_t sg = p->genes & G_STRUCT & ~gene_of(p->type);
+    if(sg){
+        if(sg&G_WEB)                                     /* spin a small web patch */
+            for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){ if(x*x+y*y>4)continue;
+                int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WEB; }
+        if(sg&G_VINE) grow_vine(cx,cy);                  /* sprout a short vine */
+        if(sg&G_BOULDER){                                /* a tiny rock nub + light knockback */
+            for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){ int i=(cy+y)*WW+cx+x;
+                if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||IS_FLUID(mat[i])))mat[i]=M_ROCK; }
+            for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
+                if(d2<64){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*150; enemy[e].vy+=dy/d*150-40; } } }
+        if(sg&G_ORB){                                    /* a small 6-way spark micro-burst */
+            for(int k=0;k<6;k++){ float a=k*1.047f; spawn_part(cx,cy,cosf(a)*75,sinf(a)*75,0.3f,MOTE_RGB565(210,150,255),1); }
+            for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
+                if(dx*dx+dy*dy<49) enemy[e].hp-=5; } }
+        if(sg&G_PRISM){                                  /* split into 3 short colored fragments */
+            Mods pm={0}; pm.speed=1.0f; pm.spread=1; float base=atan2f(p->vy,p->vx);
+            for(int k=-1;k<=1;k++){ int before=nproj; spawn_proj(SP_NEEDLE,(float)cx,(float)cy,base+k*0.5f,&pm,p->foe);
+                if(nproj>before){ proj[nproj-1].dmg=4; proj[nproj-1].life=0.5f; proj[nproj-1].genes=0; } } }
+    }
     for(int k=0;k<4;k++) spawn_part(p->x,p->y,rr(-40,40),rr(-40,40),0.25f,
         p->genes?gene_color(p->genes):proj_col(p->type,0.5f),1);
     if(p->trig==1||p->trig==3) fire_payload(p,p->x,p->y);   /* impact / death payload */
