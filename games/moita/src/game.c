@@ -880,26 +880,40 @@ static void apply_gene_impact(int cx,int cy,uint16_t g){
     int burn=(g&(G_BURN|G_MOLTEN)),wet=(g&G_WET),cold=(g&G_COLD),molten=(g&G_MOLTEN),
         acid=(g&G_ACID),toxic=(g&G_TOXIC),voidg=(g&G_VOID),oil=(g&G_OIL),dig=(g&G_DIG),boom=(g&G_BOOM),arc=(g&G_ARC);
     if(burn && wet){                                    /* STEAM BURST — blinding, knockback */
-        fill_disc(cx,cy,6,M_STEAM,60,1);
-        for(int y=-6;y<=6;y++)for(int x=-6;x<=6;x++){ if(x*x+y*y>36)continue; int i=(cy+y)*WW+cx+x;
+        fill_disc(cx,cy,8,M_STEAM,60,1);
+        for(int y=-8;y<=8;y++)for(int x=-8;x<=8;x++){ if(x*x+y*y>64)continue; int i=(cy+y)*WW+cx+x;
             if(inb(cx+x,cy+y)&&mat[i]==M_FIRE){mat[i]=M_EMPTY;heat[i]=0;} }
         for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
-            if(d2<120){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*180; enemy[e].vy+=dy/d*180-60; enemy[e].hp-=6; } }
-        for(int k=0;k<18;k++) spawn_part(cx,cy,rr(-70,70),rr(-70,20),0.5f+rndf()*0.5f,MOTE_RGB565(220,225,235),1);
+            if(d2<200){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*200; enemy[e].vy+=dy/d*200-60; enemy[e].hp-=6; } }
+        for(int k=0;k<32;k++) spawn_part(cx,cy,rr(-80,80),rr(-95,20),0.5f+rndf()*0.6f,
+            (k&3)?MOTE_RGB565(225,230,240):MOTE_RGB565(255,255,255),1);
     } else if(molten && wet){                           /* OBSIDIAN SHRAPNEL */
-        fill_disc(cx,cy,4,M_OBSID,120,1);
-        for(int k=0;k<22;k++){ float a=rndf()*6.2832f,sp=60+rndf()*90;
-            spawn_part(cx,cy,cosf(a)*sp,sinf(a)*sp,0.4f,MOTE_RGB565(60,50,70),0); }
+        fill_disc(cx,cy,5,M_OBSID,120,1);
+        for(int k=0;k<32;k++){ float a=rndf()*6.2832f,sp=60+rndf()*100;
+            spawn_part(cx,cy,cosf(a)*sp,sinf(a)*sp,0.4f,(k&3)?MOTE_RGB565(60,50,70):MOTE_RGB565(255,150,80),0); }
+        for(int k=0;k<10;k++) spawn_part(cx,cy,rr(-40,40),rr(-70,-10),0.4f,MOTE_RGB565(230,235,245),1);
         for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
-            if(dx*dx+dy*dy<90) enemy[e].hp-=14; }
+            if(dx*dx+dy*dy<120) enemy[e].hp-=14; }
     } else if(burn && (oil||acid)){                     /* NAPALM splash */
         fill_disc(cx,cy,5,M_NAPALM,210,1);
-    } else if(toxic && burn){                            /* FUEL-AIR blast */
+    } else if(toxic && burn){                            /* FUEL-AIR — spore cloud detonation */
         explode(cx,cy,7,1); fill_disc(cx,cy,7,M_SPORE,80,1);
-    } else if(arc && wet){                               /* ELECTROCUTE — arcs through the wet */
+        for(int k=0;k<20;k++){ float a=rndf()*6.2832f,sp=70+rndf()*90;
+            spawn_part(cx,cy,cosf(a)*sp,sinf(a)*sp,0.35f,(k&1)?MOTE_RGB565(190,255,120):MOTE_RGB565(255,220,120),1); }
+    } else if(arc && wet){                               /* ELECTROCUTE — lightning crackles through the wet */
+        fill_disc(cx,cy,3,M_STEAM,50,1);                 /* a little vapor where it earths */
+        for(int k=0;k<14;k++) spawn_part(cx,cy,rr(-30,30),rr(-30,30),0.14f,MOTE_RGB565(255,255,255),1);  /* core flash */
+        for(int b=0;b<9;b++){ float a=rndf()*6.2832f,len=14+rndf()*18;   /* branching bolts, drawn as dense */
+            float px=cx,py=cy; int seg=6+(rnd()&3);                       /* near-stationary point chains */
+            for(int s=1;s<=seg;s++){ float nx=cx+cosf(a)*len*s/seg+rr(-3,3),
+                                            ny=cy+sinf(a)*len*s/seg+rr(-3,3);
+                for(int u=1;u<=3;u++){ float t=u/3.0f;
+                    spawn_part(px+(nx-px)*t,py+(ny-py)*t,rr(-2,2),rr(-2,2),0.20f,
+                        (rnd()&1)?MOTE_RGB565(240,250,255):MOTE_RGB565(160,210,255),1); }
+                px=nx; py=ny; } }
         for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
-            if(dx*dx+dy*dy<420){ enemy[e].hp-=12; enemy[e].slow_t=1.0f;
-                for(int s=0;s<6;s++) spawn_part(cx+(enemy[e].x-cx)*s/6,cy+(enemy[e].y-cy)*s/6,rr(-6,6),rr(-6,6),0.12f,MOTE_RGB565(210,235,255),1); } }
+            if(dx*dx+dy*dy<520){ enemy[e].hp-=12; enemy[e].slow_t=1.0f;
+                for(int s=0;s<8;s++) spawn_part(cx+dx*s/8,cy+dy*s/8,rr(-8,8),rr(-8,8),0.12f,MOTE_RGB565(210,235,255),1); } }
     } else {
         if(boom) explode(cx,cy, molten?9:7, burn);
         if(burn && !boom) fill_disc(cx,cy,4,molten?M_LAVA:M_FIRE,molten?255:FIRE_HOT,0);
@@ -1781,9 +1795,25 @@ static void g_init(void){
             wx=bx; wy=by-PH+1; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0;   /* feet on the floor */
             cam_y=clampf(wy-VIEWH*0.5f,0,WH-VIEWH); state=ST_PLAY;
             memset(seen,255,sizeof seen);                 /* clear the fog for the capture */
+            if(getenv("MOITA_GUIDE_POOL")){    /* an open lit cavern + a sealed pool so fusion bursts read big */
+                int cxp=bx+(best>46?34:best-12), cyp=by-4;
+                for(int y=cyp-11;y<=cyp+13;y++)for(int x=cxp-14;x<=cxp+14;x++){ if(!inb(x,y))continue;
+                    int dx=x-cxp,dy=y-cyp; if(dx*dx+dy*dy>200)continue;
+                    mat[y*WW+x]=(y>=cyp+6)?M_ROCK:M_EMPTY; }                       /* open dome over a rock floor */
+                for(int x=cxp-9;x<=cxp+9;x++) if(inb(x,cyp+10)) mat[(cyp+10)*WW+x]=M_ROCK;             /* tub floor */
+                for(int y=cyp+5;y<=cyp+10;y++){ if(inb(cxp-9,y))mat[y*WW+cxp-9]=M_ROCK;
+                                                if(inb(cxp+9,y))mat[y*WW+cxp+9]=M_ROCK; }              /* tub walls */
+                for(int y=cyp+5;y<=cyp+9;y++)for(int x=cxp-8;x<=cxp+8;x++) if(inb(x,y)) mat[y*WW+x]=M_WATER;
+                nenemy=0; }
             if(getenv("MOITA_BIG")){ nenemy=0; int bt=atoi(getenv("MOITA_BIG")); if(bt<6||bt>9)bt=6;
-                int boxx=bx+(best<38?best-4:38);          /* down the corridor, in view */
-                Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=boxx; e->y=by-3; e->alive=1; e->size=2;
+                int boxx=bx+(best<38?best-4:38), boy=by-3;   /* down the corridor, in view */
+                /* ground the boss: carve an open pocket + a rock ledge so gravity-bound
+                 * bosses (Magmaw, Brood) rest in view instead of falling out of frame */
+                for(int y=boy-9;y<=boy+2;y++)for(int x=boxx-11;x<=boxx+11;x++){ if(!inb(x,y))continue;
+                    int dx=x-boxx,dy=y-boy; if(dx*dx+dy*dy<=121) mat[y*WW+x]=M_EMPTY; }
+                for(int y=boy+3;y<=boy+7;y++)for(int x=boxx-13;x<=boxx+13;x++){ if(!inb(x,y))continue;
+                    int dx=x-boxx; if((y-(boy+3))>=(dx*dx)/26) mat[y*WW+x]=M_ROCK; }
+                Enemy*e=&enemy[nenemy++]; *e=(Enemy){0}; e->x=boxx; e->y=boy; e->alive=1; e->size=2;
                 e->type=(uint8_t)bt; e->hpmax=e->hp=400; e->t=rndf()*3;
                 for(int s=0;s<WHIST;s++){ whist[0][s][0]=e->x; whist[0][s][1]=e->y; } whpos[0]=0; }
         }
