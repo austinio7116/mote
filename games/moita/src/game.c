@@ -2067,10 +2067,29 @@ static const char*const BROOD_SPR[11]={   /* shaded dome: light upper-left -> da
     "...lgg..ggD...", "..lhlggggggDd.", ".lhhlgggggggDd", "lhhllggggggggD",
     "lhlllgEgggEgDD", "llllggggggggDD", "lgggggggggggDd", "gggggggggggddd",
     "DggggggggggdD.", ".DDgggggggDD..", "..dDD.DD.DDd.."};
-static void blit_mon(uint16_t*fb,int sx,int sy,const char*const*g,int w,int h){
-    for(int r=0;r<h;r++)for(int c=0;c<w;c++){ char ch=g[r][c]; if(ch=='.')continue;
-        uint16_t col=moncol(ch); if(!col)continue; int px=sx-w/2+c, py=sy-h/2+r;
-        if((unsigned)px<128u&&(unsigned)py<128u) fb[py*128+px]=col; }
+/* MAGMAW animates by churning its molten interior + a slow breathe + eye blink */
+static void draw_magmaw(uint16_t*fb,int sx,int sy){
+    const int w=13,h=12; int bob=(int)(sinf(framestep*0.14f)*0.6f);
+    for(int r=0;r<h;r++)for(int c=0;c<w;c++){ char ch=MAGMAW_SPR[r][c]; if(ch=='.')continue;
+        int px=sx-w/2+c, py=sy-h/2+r+bob; if((unsigned)px>=128u||(unsigned)py>=128u)continue;
+        uint16_t col;
+        if(ch=='K'||ch=='k') col=moncol(ch);
+        else if(ch=='e') col=((framestep%110)<5)?moncol('k'):moncol('e');      /* blink */
+        else { int base=(ch=='w')?238:(ch=='y')?196:150;                        /* lava churn */
+            int fl=(int)(sinf(framestep*0.3f+px*0.7f+py*0.9f)*30); int idx=base+fl;
+            if(idx<70)idx=70; else if(idx>255)idx=255; col=fire_lut[idx]; }
+        fb[py*128+px]=col; }
+}
+/* BROOD-MOTHER wobbles like jelly — rows sway (top more than base), gloss glint */
+static void draw_brood(uint16_t*fb,int sx,int sy,Enemy*en){
+    const int w=14,h=11; float ph=en->t;
+    for(int r=0;r<h;r++){ int off=(int)(sinf(ph*4.0f+r*0.55f)*1.5f*(1.0f-(float)r/h));
+        for(int c=0;c<w;c++){ char ch=BROOD_SPR[r][c]; if(ch=='.')continue;
+            int px=sx-w/2+c+off, py=sy-h/2+r; if((unsigned)px>=128u||(unsigned)py>=128u)continue;
+            fb[py*128+px]=moncol(ch); } }
+    mote->draw_pixel(fb,sx-4,sy-4,MOTE_RGB565(232,255,222));                     /* wet gloss */
+    if(en->atk_t>1.6f){ uint16_t p=MOTE_RGB565(190,255,150);                     /* belly glows before a birth */
+        mote->draw_pixel(fb,sx,sy+2,p); mote->draw_pixel(fb,sx-1,sy+3,p); mote->draw_pixel(fb,sx+1,sy+3,p); }
 }
 static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
     float t=en->t;
@@ -2120,10 +2139,7 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
                     fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
             mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
             mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
-        case 6:{ /* MAGMAW: molten golem sprite, crust shell + glowing core */
-            blit_mon(fb,sx,sy,MAGMAW_SPR,13,12);
-            if((framestep&3)==0){ int cx=sx+((rnd()&3)-1); mote->draw_pixel(fb,cx,sy,fire_lut[250]); } /* core flicker */
-            break; }
+        case 6:{ draw_magmaw(fb,sx,sy); break; }        /* molten golem, churning core */
         case 7:{ /* DEVOURER: void sphere, violet ring + eye, orbiting motes */
             mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
             mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(120,60,185),0,0,128);
@@ -2145,11 +2161,7 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
             mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215));       /* fangs */
             mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
             break; }
-        case 9:{ /* BROOD-MOTHER: fat slime-queen sprite, egg-bumps + pulsing belly */
-            blit_mon(fb,sx,sy,BROOD_SPR,14,11);
-            if(en->atk_t>1.6f){ uint16_t p=MOTE_RGB565(190,255,150);   /* belly glows before a birth */
-                mote->draw_pixel(fb,sx,sy+2,p); mote->draw_pixel(fb,sx-1,sy+3,p); mote->draw_pixel(fb,sx+1,sy+3,p); }
-            break; }
+        case 9:{ draw_brood(fb,sx,sy,en); break; }       /* wobbling slime queen */
     }
 }
 /* a wand lying in the world: its own little sprite inside a rotating starburst */
