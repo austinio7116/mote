@@ -63,10 +63,10 @@ MOTE_GAME_VERSION("0.1.0");
 #define LH 64                  /* light field: half-res of the visible window */
 
 enum { M_EMPTY=0, M_ROCK, M_DIRT, M_SAND, M_WOOD, M_OBSID,
-       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE, M_BLOOD };
+       M_WATER, M_OIL, M_ACID, M_LAVA, M_FIRE, M_STEAM, M_ICE, M_BLOOD, M_WEB, M_SPORE };
 #define IS_SOLID(m)  ((m)==M_ROCK||(m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
 #define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD)
-#define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
+#define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE||(m)==M_WEB)
 #define FIRE_HOT 210           /* ignite heat: fire renders bright, then decays down */
 
 enum { SP_NONE=0,
@@ -74,12 +74,14 @@ enum { SP_NONE=0,
        SP_SPARK, SP_BOLT, SP_FIRE, SP_WATER, SP_ACID, SP_DIG, SP_BOMB,
        SP_ZAP, SP_ICEs, SP_VINE, SP_ORB, SP_NOVA, SP_LAVAB, SP_OILB, SP_NEEDLE,
        SP_CHAIN, SP_METEOR, SP_SWARM, SP_VOID, SP_PRISM,
+       SP_STORM, SP_SEEK, SP_BOULDER, SP_WEB, SP_FROST, SP_SPORE, SP_MIRROR,
        /* modifiers */
        SP_DMG, SP_SPREAD, SP_SPREAD5, SP_TWIN, SP_BOUNCE, SP_HOMING, SP_BOOM,
        SP_SPEED, SP_SLOWM, SP_HEAVY, SP_FLOATM, SP_PIERCE, SP_TRAILF, SP_TRAILS,
        SP_TRAILA, SP_CRIT, SP_LEECH, SP_ECHO, SP_WAVE, SP_GLOW, SP_MANAR,
+       SP_FORK, SP_RICO, SP_POISON, SP_GIANT, SP_CHAOS, SP_SPLIT,
        SP_COUNT };
-#define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_PRISM)
+#define IS_PROJ(s) ((s)>=SP_SPARK && (s)<=SP_MIRROR)
 
 enum { ST_TITLE=0, ST_PLAY, ST_DEAD, ST_EDIT, ST_SHOP };
 
@@ -129,7 +131,8 @@ static Wand wand[MAXWAND]; static int nwand=1, cur_wand=0;
 /* projectiles */
 #define MAXPROJ 96
 typedef struct { float x,y,vx,vy; uint8_t type; float life,dmg; uint8_t bounce,homing,boom,foe;
-    float grav,phase; uint8_t pierce,crit,leech,wave,glow,trail,manaref,jumps,lasthit; } Proj;
+    float grav,phase,forkt,spd; uint8_t pierce,crit,leech,wave,glow,trail,manaref,jumps,lasthit;
+    uint8_t fork,smartbnc,poison,big,split; } Proj;
 static Proj proj[MAXPROJ]; static int nproj=0;
 
 /* particles */
@@ -149,7 +152,7 @@ static Barrel barrel[MAXBARREL]; static int nbarrel=0;
 /* enemies */
 #define MAXENEMY 28
 /* enemy types: 0 bat, 1 spitter, 2 slime, 3 wisp, 4 crystal, 5 ghost */
-typedef struct { float x,y,vx,vy; int hp,hpmax; uint8_t type,alive,size; float t,slow_t,atk_t; } Enemy;
+typedef struct { float x,y,vx,vy; int hp,hpmax; uint8_t type,alive,size; float t,slow_t,atk_t,poison_t; } Enemy;
 static const uint8_t enemy_blood[6]={0,2,1,255,4,3};   /* gore hue per type (255 = none) */
 static Enemy enemy[MAXENEMY]; static int nenemy=0;
 
@@ -242,7 +245,7 @@ static void tick_parts(float dt){
 
 /* =========================================================== material CA === */
 static inline int air(int t){ return mat[t]==M_EMPTY; }
-static inline int ignitable(int m){ return m==M_OIL||m==M_WOOD; }
+static inline int ignitable(int m){ return m==M_OIL||m==M_WOOD||m==M_WEB; }
 
 static void ca_step(void){
     int dir=framestep&1; framestep++;
@@ -289,7 +292,7 @@ static void ca_step(void){
                 }
                 continue;
             }
-            if(m==M_STEAM){    /* only steam/smoke drifts up; fire clings to its fuel */
+            if(m==M_STEAM||m==M_SPORE){    /* gases drift up; fire clings to its fuel */
                 int u=i-WW; if(air(u)){mat[u]=m;heat[u]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[u]=1;continue;}
                 int ul=u-1,ur=u+1,d1=dir?ur:ul,d2=dir?ul:ur;
                 if(air(d1)){mat[d1]=m;heat[d1]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[d1]=1;continue;}
@@ -337,6 +340,12 @@ static void ca_step(void){
             }
         } else if(m==M_STEAM){
             if(heat[i]<=1){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]--;
+        } else if(m==M_SPORE){        /* poison gas thins out over time */
+            if(heat[i]<=1){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]-= (framestep&1);
+        } else if(m==M_WEB){          /* webbing burns away when it meets flame */
+            if(mat[i-1]==M_FIRE||mat[i+1]==M_FIRE||mat[i-WW]==M_FIRE||mat[i+WW]==M_FIRE||
+               mat[i-1]==M_LAVA||mat[i+1]==M_LAVA||mat[i-WW]==M_LAVA||mat[i+WW]==M_LAVA){
+                mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
         } else if(m==M_ACID){
             int nb[4]={i-1,i+1,i-WW,i+WW};
             for(int k=0;k<4;k++){ uint8_t nm=mat[nb[k]];
@@ -456,10 +465,12 @@ static Wand random_wand(int lvl){
     /* fully procedural decks: any mix of 20 projectiles and 21 modifiers */
     static const uint8_t pp[]={SP_SPARK,SP_BOLT,SP_FIRE,SP_WATER,SP_ACID,SP_DIG,SP_BOMB,
         SP_ZAP,SP_ICEs,SP_VINE,SP_ORB,SP_NOVA,SP_LAVAB,SP_OILB,SP_NEEDLE,
-        SP_CHAIN,SP_METEOR,SP_SWARM,SP_VOID,SP_PRISM};
+        SP_CHAIN,SP_METEOR,SP_SWARM,SP_VOID,SP_PRISM,
+        SP_STORM,SP_SEEK,SP_BOULDER,SP_WEB,SP_FROST,SP_SPORE,SP_MIRROR};
     static const uint8_t mp[]={SP_DMG,SP_SPREAD,SP_SPREAD5,SP_TWIN,SP_BOUNCE,SP_HOMING,
         SP_BOOM,SP_SPEED,SP_SLOWM,SP_HEAVY,SP_FLOATM,SP_PIERCE,SP_TRAILF,SP_TRAILS,
-        SP_TRAILA,SP_CRIT,SP_LEECH,SP_ECHO,SP_WAVE,SP_GLOW,SP_MANAR};
+        SP_TRAILA,SP_CRIT,SP_LEECH,SP_ECHO,SP_WAVE,SP_GLOW,SP_MANAR,
+        SP_FORK,SP_RICO,SP_POISON,SP_GIANT,SP_CHAOS,SP_SPLIT};
     Wand w={0}; int n=2+(int)(rnd()%4); if(n>WAND_SLOTS)n=WAND_SLOTS;
     int havep=0;
     for(int i=0;i<n;i++){
@@ -475,7 +486,8 @@ static Wand random_wand(int lvl){
 }
 
 typedef struct { float dmg; int spread; int bounce,homing,boom; float speed;
-    float grav; uint8_t pierce,twin,crit,leech,echo,wave,glow,manaref,trail; } Mods;
+    float grav; uint8_t pierce,twin,crit,leech,echo,wave,glow,manaref,trail;
+    uint8_t fork,smartbnc,poison,big,chaos,split; } Mods;
 
 static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
     if(nproj>=MAXPROJ) return;
@@ -500,19 +512,29 @@ static void spawn_proj(int type,float x,float y,float ang,Mods*m,int foe){
         case SP_SWARM: sp=120; dmg=4;  life=2.0f; break;
         case SP_VOID:  sp=45;  dmg=6;  life=2.4f; break;
         case SP_PRISM: sp=160; dmg=8;  life=2.2f; break;
+        case SP_SEEK:  sp=70;  dmg=15; life=2.2f; break;
+        case SP_BOULDER:sp=95; dmg=18; life=2.6f; grav=210; break;
+        case SP_WEB:   sp=110; dmg=2;  life=1.3f; break;
+        case SP_SPORE: sp=100; dmg=3;  life=1.4f; break;
+        case SP_MIRROR:sp=175; dmg=7;  life=1.7f; break;
         default: sp=150; dmg=8; break;
     }
     uint8_t bnc=m?m->bounce:0,hom=m?m->homing:0,bm=m?m->boom:0;
     if(type==SP_PRISM) bnc=(uint8_t)(bnc+4);
     if(type==SP_SWARM) hom=1;
+    if(m && m->big){ dmg+=8; sp*=0.7f; }               /* Giant: bigger, harder, slower */
     if(m){ sp*=m->speed; dmg+=m->dmg; grav+=m->grav; }
     Proj p={0}; p.x=x; p.y=y; p.vx=cosf(ang)*sp; p.vy=sinf(ang)*sp; p.type=(uint8_t)type;
     p.life=life; p.dmg=dmg; p.bounce=bnc; p.homing=hom; p.boom=bm; p.foe=(uint8_t)foe;
-    p.grav=grav; p.lasthit=255;
+    p.grav=grav; p.lasthit=255; p.spd=sp;
     if(m){ p.pierce=m->pierce; p.crit=m->crit; p.leech=m->leech; p.wave=m->wave;
-           p.glow=m->glow; p.trail=m->trail; p.manaref=m->manaref; }
+           p.glow=m->glow; p.trail=m->trail; p.manaref=m->manaref;
+           p.smartbnc=m->smartbnc; p.poison=m->poison; p.big=m->big; p.split=m->split;
+           if(m->fork){ p.fork=1; p.forkt=0.12f; } }
     if(type==SP_NEEDLE) p.pierce=1;
+    if(type==SP_BOULDER)p.pierce=1;                     /* crushes through enemies */
     if(type==SP_CHAIN) p.jumps=3;
+    if(m && m->smartbnc && !bnc) p.bounce=(uint8_t)(p.bounce+2);
     proj[nproj++]=p;
 }
 /* delayed re-casts from the ECHO modifier */
@@ -544,6 +566,8 @@ static const MoteSfx* proj_sfx(int type){
     return &shot_pulse_sfx;
 }
 static void cast_zap(float px,float py,float ang,Mods*m);
+static void cast_frost(float px,float py,float ang,Mods*m);
+static void cast_storm(float tx,float ty,Mods*m);
 static void wand_cast(Wand*w,float px,float py,float ax,float ay){
     if(w->delay_t>0 || w->n<=0) return;
     Mods m={0}; m.speed=1.0f; m.spread=1;
@@ -573,22 +597,36 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
             case SP_WAVE:   m.wave=1; break;
             case SP_GLOW:   m.glow=1; m.dmg+=2; break;
             case SP_MANAR:  m.manaref=1; break;
+            case SP_FORK:   m.fork=1; break;
+            case SP_RICO:   m.smartbnc=1; break;
+            case SP_POISON: m.poison=1; break;
+            case SP_GIANT:  m.big=1; break;
+            case SP_CHAOS:  m.chaos=1; break;
+            case SP_SPLIT:  m.split=1; break;
         }
     }
     if(projspell<0) return;
+    if(m.chaos){ static const uint8_t pool[]={SP_SPARK,SP_BOLT,SP_FIRE,SP_ACID,SP_BOMB,SP_ZAP,
+        SP_ICEs,SP_ORB,SP_NOVA,SP_NEEDLE,SP_CHAIN,SP_METEOR,SP_SWARM,SP_VOID,SP_PRISM,
+        SP_SEEK,SP_BOULDER,SP_WEB,SP_SPORE,SP_MIRROR}; projspell=pool[rnd()%(sizeof pool)]; }
     float tc=0;
     switch(projspell){
         case SP_ORB: tc=8; break;  case SP_METEOR: tc=12; break; case SP_VOID: tc=10; break;
         case SP_ZAP: tc=6; break;  case SP_SWARM:  tc=6;  break; case SP_NOVA: tc=8;  break;
         case SP_CHAIN: tc=4; break;case SP_PRISM:  tc=4;  break;
     }
+    switch(projspell){ case SP_STORM: tc=12; break; case SP_FROST: tc=8; break;
+        case SP_SEEK: tc=8; break; case SP_BOULDER: tc=9; break; case SP_MIRROR: tc=4; break; }
     float cost = 6 + m.dmg*0.3f + (m.spread-1)*4 + (m.boom?6:0) + m.twin*5
-               + (m.pierce?3:0) + (m.echo?4:0) + tc;
+               + (m.pierce?3:0) + (m.echo?4:0) + (m.fork?4:0) + (m.big?5:0) + tc;
     if(w->mana < cost) return;
     w->mana -= cost; w->delay_t = w->delay;
     float base=atan2f(ay,ax);
     int volleys=1+m.twin;
-    if(projspell==SP_ZAP){
+    if(projspell==SP_STORM){ cast_storm(cross_x,cross_y,&m);
+    } else if(projspell==SP_FROST){
+        for(int k=0;k<m.spread;k++) cast_frost(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.25f:0),&m);
+    } else if(projspell==SP_ZAP){
         for(int k=0;k<m.spread;k++)
             cast_zap(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.2f:0),&m);
     } else if(projspell==SP_NOVA){
@@ -727,6 +765,27 @@ static void cast_zap(float px,float py,float ang,Mods*m){
             break; }
     }
 }
+/* Frost Beam: a short freezing cone in the aim direction */
+static void cast_frost(float px,float py,float ang,Mods*m){
+    for(int r=2;r<=22;r++){ float spread=r*0.16f;
+        for(int s=-2;s<=2;s++){ float a=ang+s*spread*0.14f;
+            int x=(int)(px+cosf(a)*r), y=(int)(py+sinf(a)*r); if(!inb(x,y))continue;
+            uint8_t mm=mat[y*WW+x]; if(IS_SOLID(mm))continue;
+            if(mm==M_WATER){ mat[y*WW+x]=M_ICE; heat[y*WW+x]=0; }
+            if((rnd()&3)==0) spawn_part(x,y,cosf(a)*30,sinf(a)*30,0.2f+rndf()*0.2f,
+                (rnd()&1)?MOTE_RGB565(220,245,255):MOTE_RGB565(150,205,245),1); } }
+    for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float ex=enemy[e].x-px,ey=enemy[e].y-py;
+        float d=sqrtf(ex*ex+ey*ey); if(d<24){ float dot=(ex*cosf(ang)+ey*sinf(ang))/(d+0.01f);
+            if(dot>0.4f){ enemy[e].slow_t=2.6f; enemy[e].hp-=(int)(3+m->dmg*0.5f); } } }
+}
+/* Lightning Storm: bolts hammer down from above onto the aim point */
+static void cast_storm(float tx,float ty,Mods*m){
+    int n=3+(rnd()&1);
+    for(int k=0;k<n;k++){ float sx=tx+rr(-12,12);
+        cast_zap(sx,ty-46,tx-sx>0?1.35f:1.79f,m);      /* start high, angle down toward target */
+    }
+    for(int k=0;k<10;k++) spawn_part(tx+rr(-10,10),ty-rr(0,40),rr(-8,8),40,0.2f,MOTE_RGB565(200,225,255),1);
+}
 static uint16_t proj_col(int type,float f){
     switch(type){
         case SP_SPARK: return lerp565(MOTE_RGB565(255,255,150),MOTE_RGB565(255,180,40),1-f);
@@ -751,6 +810,11 @@ static uint16_t proj_col(int type,float f){
         case SP_PRISM: { static const uint16_t rb[6]={MOTE_RGB565(255,80,80),MOTE_RGB565(255,200,60),
                 MOTE_RGB565(120,255,90),MOTE_RGB565(80,220,255),MOTE_RGB565(110,110,255),MOTE_RGB565(230,110,255)};
             int seg=(int)(f*18); return rb[((seg%6)+6)%6]; }
+        case SP_SEEK:  return lerp565(MOTE_RGB565(255,230,150),MOTE_RGB565(255,120,40),1-f);
+        case SP_BOULDER:return ((int)(f*20)&1)?MOTE_RGB565(150,132,112):MOTE_RGB565(112,98,82);
+        case SP_WEB:   return MOTE_RGB565(210,235,195);
+        case SP_SPORE: return lerp565(MOTE_RGB565(180,240,140),MOTE_RGB565(110,190,90),1-f);
+        case SP_MIRROR:return (rnd()&1)?MOTE_RGB565(240,250,255):MOTE_RGB565(160,200,230);
     }
     return MOTE_RGB565(255,255,255);
 }
@@ -763,6 +827,16 @@ static void proj_impact(Proj*p){
         case SP_ACID:  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_ACID;} break;
         case SP_DIG:   for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY;} break;
         case SP_BOMB:  explode(p->x,p->y,8,1); break;
+        case SP_WEB:   for(int y=-4;y<=4;y++)for(int x=-4;x<=4;x++){ if(x*x+y*y>16)continue;  /* sticky slick */
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WEB;} break;
+        case SP_SPORE: for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;  /* gas cloud */
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY){mat[i]=M_SPORE;heat[i]=60+(rnd()&40);}} break;
+        case SP_BOULDER: for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue;  /* lands as rock */
+            int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||IS_FLUID(mat[i])))mat[i]=M_ROCK;}
+            for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y;
+                if(dx*dx+dy*dy<36) enemy[e].hp-=18; } break;
+        case SP_SEEK:  explode(p->x,p->y,5,1); break;
+        case SP_MIRROR:for(int k=0;k<5;k++) spawn_part(p->x,p->y,rr(-50,50),rr(-50,50),0.2f,MOTE_RGB565(220,240,255),1); break;
         case SP_ICEs: {
             for(int y=-5;y<=5;y++)for(int x=-5;x<=5;x++){ if(x*x+y*y>25)continue;
                 int i=(cy+y)*WW+cx+x; if(!inb(cx+x,cy+y))continue;
@@ -789,12 +863,31 @@ static void proj_impact(Proj*p){
 }
 static void tick_proj(float dt){
     for(int i=0;i<nproj;){ Proj*p=&proj[i]; p->life-=dt;
-        if(p->life<=0){ proj_impact(p); proj[i]=proj[--nproj]; continue; }
+        if(p->life<=0){
+            if(p->split) for(int k=0;k<8;k++){ if(nproj>=MAXPROJ)break; Proj c={0};
+                float a=k*0.7854f; c.x=p->x; c.y=p->y; c.type=SP_SPARK; c.spd=150;
+                c.vx=cosf(a)*150; c.vy=sinf(a)*150; c.life=0.5f; c.dmg=p->dmg*0.4f; c.lasthit=255;
+                proj[nproj++]=c; }
+            proj_impact(p); proj[i]=proj[--nproj]; continue; }
         if(p->homing){ float best=1e9f; int bi=-1; for(int e=0;e<nenemy;e++) if(enemy[e].alive){
                 float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y,d=dx*dx+dy*dy; if(d<best){best=d;bi=e;}}
             if(bi>=0){ float dx=enemy[bi].x-p->x,dy=enemy[bi].y-p->y,d=sqrtf(dx*dx+dy*dy)+0.01f;
                 float sp=sqrtf(p->vx*p->vx+p->vy*p->vy); p->vx+=dx/d*sp*3*dt; p->vy+=dy/d*sp*3*dt;
                 float s2=sqrtf(p->vx*p->vx+p->vy*p->vy)+0.01f; p->vx=p->vx/s2*sp; p->vy=p->vy/s2*sp; } }
+        if(p->type==SP_SEEK){                             /* locks on and accelerates hard */
+            float best=1e9f; int bi=-1; for(int e=0;e<nenemy;e++) if(enemy[e].alive){
+                float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y,d=dx*dx+dy*dy; if(d<best){best=d;bi=e;}}
+            p->spd+=200*dt; if(p->spd>320)p->spd=320;
+            float cur=atan2f(p->vy,p->vx);
+            float tgt=(bi>=0)?atan2f(enemy[bi].y-p->y,enemy[bi].x-p->x):cur;
+            float da=tgt-cur; while(da>3.14159f)da-=6.2832f; while(da<-3.14159f)da+=6.2832f;
+            cur+=clampf(da,-4.5f*dt,4.5f*dt); p->vx=cosf(cur)*p->spd; p->vy=sinf(cur)*p->spd; }
+        if(p->fork){ p->forkt-=dt; if(p->forkt<=0){ p->fork=0;
+            float a=atan2f(p->vy,p->vx), sp=sqrtf(p->vx*p->vx+p->vy*p->vy);
+            for(int s=-1;s<=1;s+=2){ if(nproj>=MAXPROJ)break; Proj c=*p; c.fork=0; c.split=0;
+                float a2=a+s*0.42f; c.vx=cosf(a2)*sp; c.vy=sinf(a2)*sp; c.dmg*=0.7f; c.lasthit=255;
+                proj[nproj++]=c; }
+            p=&proj[i]; } }                               /* array may have moved; refetch */
         p->vy+=p->grav*dt;
         if(p->wave){ p->phase+=dt*9; float wa=sinf(p->phase)*3.2f*dt;
             float c=cosf(wa),s=sinf(wa),vx=p->vx; p->vx=vx*c-p->vy*s; p->vy=vx*s+p->vy*c; }
@@ -818,14 +911,15 @@ static void tick_proj(float dt){
             float nx=p->x+stx, ny=p->y+sty;
             int ix=(int)nx, iy=(int)ny;
             if(!inb(ix,iy)){ proj[i]=proj[--nproj]; outcome=1; break; }
-            int hite=-1; if(!p->foe){ for(int e=0;e<nenemy;e++) if(enemy[e].alive){
-                float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<9){ hite=e; break; } } }
+            int hite=-1; float hitr=p->big?22.0f:9.0f; if(!p->foe){ for(int e=0;e<nenemy;e++) if(enemy[e].alive){
+                float dx=enemy[e].x-nx,dy=enemy[e].y-ny; if(dx*dx+dy*dy<hitr){ hite=e; break; } } }
             if(hite>=0){
                 if(p->lasthit!=(uint8_t)hite){
                     float dd=p->dmg;
                     if(p->crit&&(rnd()&3)==0){ dd*=3;      /* crit: white flash */
                         for(int k=0;k<8;k++) spawn_part(nx,ny,rr(-80,80),rr(-80,80),0.3f,MOTE_RGB565(255,255,255),1); }
                     enemy[hite].hp-=(int)dd;
+                    if(p->poison) enemy[hite].poison_t=2.6f;
                     spawn_blood(nx,ny,enemy_blood[enemy[hite].type],3);
                     if(p->leech){ hp+=3; if(hp>hp_max)hp=hp_max;
                         spawn_part(wx+PW*0.5f,wy,rr(-10,10),-20,0.4f,MOTE_RGB565(120,255,140),1); }
@@ -853,8 +947,20 @@ static void tick_proj(float dt){
                 if(bh>=0){ if(barrel[bh].fuse<=0) barrel[bh].fuse=0.04f;
                     proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; } }
             if(IS_SOLID(mat[iy*WW+ix])){
-                if(p->bounce){ int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]);
-                    if(sx) p->vy=-p->vy; else p->vx=-p->vx; p->bounce--; p->life-=0.1f;
+                if(p->type==SP_MIRROR && p->jumps==0){    /* splits into 2 on first wall hit */
+                    float a=atan2f(p->vy,p->vx)+3.14159f, sp=sqrtf(p->vx*p->vx+p->vy*p->vy);
+                    for(int s=-1;s<=1;s+=2){ if(nproj>=MAXPROJ)break; Proj c=*p; float a2=a+s*0.5f;
+                        c.vx=cosf(a2)*sp; c.vy=sinf(a2)*sp; c.dmg*=0.6f; c.jumps=1; c.lasthit=255; proj[nproj++]=c; }
+                    proj_impact(&proj[i]); proj[i]=proj[--nproj]; outcome=1; break;
+                }
+                if(p->bounce){
+                    if(p->smartbnc){ int bi=-1; float best=1e9f; for(int e=0;e<nenemy;e++) if(enemy[e].alive){
+                            float dx=enemy[e].x-p->x,dy=enemy[e].y-p->y,d=dx*dx+dy*dy; if(d<best){best=d;bi=e;}}
+                        float sp=sqrtf(p->vx*p->vx+p->vy*p->vy);
+                        if(bi>=0){ float a=atan2f(enemy[bi].y-p->y,enemy[bi].x-p->x); p->vx=cosf(a)*sp; p->vy=sinf(a)*sp; }
+                        else { p->vx=-p->vx; p->vy=-p->vy; } }
+                    else { int sx=IS_SOLID(mat[iy*WW+clampi((int)p->x,0,WW-1)]); if(sx) p->vy=-p->vy; else p->vx=-p->vx; }
+                    p->bounce--; p->life-=0.1f;
                     for(int k=0;k<3;k++) spawn_part(nx,ny,rr(-30,30),rr(-30,30),0.2f,proj_col(p->type,.5f),1);
                     outcome=2; break;
                 }
@@ -945,6 +1051,11 @@ static void tick_enemies(float dt){
                 break;
         }
         float sm=1.0f; if(en->slow_t>0){ en->slow_t-=dt; sm=0.35f; }
+        { int ci=(int)en->y*WW+(int)en->x; if(inb((int)en->x,(int)en->y)){
+            if(mat[ci]==M_WEB) sm*=0.4f;                  /* mired in webbing */
+            if(mat[ci]==M_SPORE) en->poison_t=1.2f; } }   /* breathing spores */
+        if(en->poison_t>0){ en->poison_t-=dt; if((framestep&15)==0){ en->hp-=2;
+            spawn_part(en->x,en->y-2,rr(-6,6),-14,0.3f,MOTE_RGB565(150,220,110),1); } }
         float nx=en->x+en->vx*sm*dt, ny=en->y+en->vy*sm*dt;
         if(ghosty){ if(inb((int)nx,(int)ny)){ en->x=nx; en->y=ny; } }
         else {
@@ -1228,24 +1339,32 @@ static void wizard_update(float dt){
 static int ed_wi=0, ed_si=0, ed_carry=SP_NONE;
 static const char*sp_code[SP_COUNT]={"",
     "SP","BL","FI","WT","AC","DG","BM","ZP","IC","VN","OR","NV","LV","OL","NE","CH","MT","SW","VD","RB",
-    "D+","3X","5X","TW","BN","HM","BX","V+","V-","GR","FL","PC","TF","TS","TA","CR","LF","EC","WV","GL","MN"};
+    "ST","SK","BO","WB","FR","SO","MR",
+    "D+","3X","5X","TW","BN","HM","BX","V+","V-","GR","FL","PC","TF","TS","TA","CR","LF","EC","WV","GL","MN",
+    "FK","RC","PO","GI","CX","SL"};
 /* full name + one-line effect, shown in the detail panel */
 static const char*sp_name[SP_COUNT]={"",
     "Spark","Bolt","Fire","Water","Acid","Dig","Bomb","Zap","Ice Shard","Vine Seed",
     "Arcane Orb","Nova","Lava Ball","Oil Blob","Needle","Chain Bolt","Meteor","Swarm","Void Orb","Prism",
+    "Storm","Seeker","Boulder","Web","Frost Beam","Spore","Mirror",
     "Damage+","Spread x3","Spread x5","Twin","Bounce","Homing","Boom","Speed+","Slow","Gravity",
-    "Float","Pierce","Fire Trail","Sparkle Trail","Acid Trail","Crit","Leech","Echo","Wave","Glow","Mana Refund"};
+    "Float","Pierce","Fire Trail","Sparkle Trail","Acid Trail","Crit","Leech","Echo","Wave","Glow","Mana Refund",
+    "Fork","Ricochet+","Poison","Giant","Chaos","Split End"};
 static const char*sp_desc[SP_COUNT]={"",
     "Fast cheap magic bolt","Heavy straight bolt","Ignites oil & wood","Douses fire & lava",
     "Dissolves terrain","Tunnels soft ground","Slow lob, big blast","Instant lightning ray",
     "Freezes water, slows","Grows wood shoots","Slow heavy orb","12-way ring burst",
     "Splats molten lava","Splats oil to ignite","Railgun-fast, pierces","Arcs between enemies",
     "Falling fiery blast","Four homing motes","Eats land, pulls foes","Rainbow ricochet",
+    "Bolts rain from above","Locks on, accelerates","Crushing falling rock","Sticky slowing goo",
+    "Freezing short cone","Drifting poison cloud","Splits on wall hit",
     "+9 damage (stacks)","Fires 3 in a fan","Fires 5 in a fan","Duplicates the volley",
     "Ricochets off walls","Steers toward enemies","Explodes on impact","x1.7 velocity",
     "Slower, hits harder","Shot arcs downward","Anti-gravity drift","Passes through foes",
     "Leaves burning air","Sheds gold glitter","Drips acid trail","25% triple damage",
-    "Hits heal you","Recasts a beat later","Serpentine flight","Becomes a light (+2)","Hits refund mana"};
+    "Hits heal you","Recasts a beat later","Serpentine flight","Becomes a light (+2)","Hits refund mana",
+    "Splits mid-flight","Bounces foe to foe","Poisons over time","Bigger harder slower",
+    "Random spell each cast","Bursts when it ends"};
 static uint16_t sp_colr(int s){
     switch(s){
         case SP_SPARK: return MOTE_RGB565(255,240,120);
@@ -1268,6 +1387,19 @@ static uint16_t sp_colr(int s){
         case SP_SWARM: return MOTE_RGB565(255,140,230);
         case SP_VOID:  return MOTE_RGB565(140,80,210);
         case SP_PRISM: return MOTE_RGB565(255,180,220);
+        case SP_STORM: return MOTE_RGB565(170,210,255);
+        case SP_SEEK:  return MOTE_RGB565(255,150,90);
+        case SP_BOULDER:return MOTE_RGB565(150,130,110);
+        case SP_WEB:   return MOTE_RGB565(200,230,180);
+        case SP_FROST: return MOTE_RGB565(180,230,255);
+        case SP_SPORE: return MOTE_RGB565(150,220,120);
+        case SP_MIRROR:return MOTE_RGB565(210,230,240);
+        case SP_FORK:  return MOTE_RGB565(200,220,255);
+        case SP_RICO:  return MOTE_RGB565(140,230,210);
+        case SP_POISON:return MOTE_RGB565(150,220,110);
+        case SP_GIANT: return MOTE_RGB565(255,180,120);
+        case SP_CHAOS: return MOTE_RGB565(230,140,255);
+        case SP_SPLIT: return MOTE_RGB565(255,200,150);
         case SP_DMG:   return MOTE_RGB565(255,110,200);
         case SP_SPREAD:return MOTE_RGB565(255,210,110);
         case SP_SPREAD5:return MOTE_RGB565(255,190,80);
@@ -1476,6 +1608,10 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
                 {MOTE_RGB565(215,215,230),MOTE_RGB565(160,165,190)},/* 3 ecto  */
                 {MOTE_RGB565(150,200,240),MOTE_RGB565(110,150,200)}};/* 4 frost */
             int hu=h<5?h:0; return bl[hu][(hs>>3)&1]; }
+        case M_WEB: { int strand=(((x+y)&3)==0)||(((x-y)&3)==0);   /* sticky lattice */
+            return strand?MOTE_RGB565(210,235,200):MOTE_RGB565(120,150,120); }
+        case M_SPORE: { int w=(((x+y+(int)(state_t*5))>>1)&3)<2;    /* roiling gas */
+            return w?MOTE_RGB565(150,220,120):MOTE_RGB565(96,168,84); }
     }
     return MOTE_RGB565(7,6,12);
 }
@@ -1751,9 +1887,10 @@ static void g_overlay(uint16_t*fb){
     for(int i=0;i<nproj;i++){ int sx=(int)proj[i].x,sy=(int)proj[i].y-cy; if((unsigned)sx>=128||(unsigned)sy>=128)continue;
         float f=proj[i].life/1.4f; uint16_t c=proj_col(proj[i].type,f);
         { uint8_t t=proj[i].type;                       /* heavy spells get a body */
-          if(t==SP_ORB||t==SP_METEOR||t==SP_VOID){
-            for(int dy2=-1;dy2<=1;dy2++)for(int dx2=-1;dx2<=1;dx2++){
-                int xx=sx+dx2,yy=sy+dy2;
+          if(t==SP_ORB||t==SP_METEOR||t==SP_VOID||t==SP_BOULDER||proj[i].big){
+            int rr2=proj[i].big?2:1;
+            for(int dy2=-rr2;dy2<=rr2;dy2++)for(int dx2=-rr2;dx2<=rr2;dx2++){
+                int xx=sx+dx2,yy=sy+dy2; if(dx2*dx2+dy2*dy2>rr2*rr2)continue;
                 if((unsigned)xx<128u&&(unsigned)yy<128u&&(dx2||dy2))
                     fb[yy*128+xx]=lerp565(fb[yy*128+xx],c,0.55f); } } }
         fb[sy*128+sx]=c;
