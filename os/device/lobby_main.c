@@ -172,7 +172,7 @@ static void rebuild(MoteCatalog *c) {
  * device does its own installed-vs-available diff and writes installs in place
  * through the same journal the USB push uses. Runs while RB is pressed in the
  * launcher; B returns. */
-#define GG_MAX 96      /* on-device gallery cap: sized well past the ~57-game catalogue */
+#define GG_MAX 128      /* on-device gallery cap: sized well past the ~57-game catalogue */
 static struct { char fname[40]; char name[36]; char author[24]; char ver[16]; long size; int abi, mp, nshots, state; } g_gg[GG_MAX];
 static int g_ngg;
 /* Two 64x64 thumbnail slots: one is shown, the other preloads the NEXT screenshot

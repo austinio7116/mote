@@ -41,6 +41,7 @@ MOTE_MODULE_HEADER();
 #include "shot_orb.sfx.h"
 #include "boom_small.sfx.h"
 #include "boom_big.sfx.h"
+#include "splat.sfx.h"
 #include "hurt.sfx.h"
 #include "pickup.sfx.h"
 #include "gate.sfx.h"
@@ -776,7 +777,7 @@ static void enemy_die(Enemy*en){
     int hue=enemy_blood[en->type];
     spawn_blood(en->x,en->y,hue,10);
     spawn_coins(en->x,en->y,1+(int)(rnd()%3));
-    sfx_at(&boom_small_sfx, 0.55f, en->y);
+    sfx_at(&splat_sfx, 0.4f, en->y);
     if(en->type==3){                                    /* wisp: dies in fire */
         for(int k=0;k<16;k++) spawn_part(en->x,en->y,rr(-80,80),rr(-90,30),rr(0.3f,0.7f),fire_lut[180+(rnd()&63)],1);
         int ix=(int)en->x,iy=(int)en->y;
