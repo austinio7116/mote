@@ -699,9 +699,15 @@ static void wand_cast(Wand*w,float px,float py,float ax,float ay){
         if(t==SP_ZAP){ for(int k=0;k<m.spread;k++) cast_zap(px,py,base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.2f:0),&m); continue; }
         if(t==SP_NOVA){ for(int k=0;k<12;k++) spawn_proj(SP_NOVA,px,py,k*0.5236f,&m,0); continue; }
         if(t==SP_SWARM){ for(int v=0;v<volleys;v++)for(int k=0;k<4;k++) spawn_proj(SP_SWARM,px,py,base+(k-1.5f)*0.28f+rr(-0.05f,0.05f),&m,0); continue; }
+        /* diggers fire from the BODY CENTRE (not the muzzle 6px ahead) so a shot fired
+         * while jammed against a wall tunnels you free instead of starting inside the rock */
+        uint16_t blockdig = g & (G_BURN|G_WET|G_COLD|G_MOLTEN|G_ACID|G_TOXIC|G_VOID|G_OIL|G_BOOM);
+        int placer=(t==SP_VINE||t==SP_WEB||t==SP_BOULDER);
+        int digs=(g&G_DIG)||(!blockdig&&!placer);
+        float ox=digs?(wx+PW*0.5f):px, oy=digs?(wy+PH*0.5f):py;
         for(int v=0;v<volleys;v++)for(int k=0;k<m.spread;k++){
             float a=base+(m.spread>1?(k-(m.spread-1)*0.5f)*0.34f:0)+rr(-0.03f,0.03f)+(v?rr(-0.08f,0.08f):0);
-            int before=nproj; spawn_proj(t,px,py,a,&m,0);
+            int before=nproj; spawn_proj(t,ox,oy,a,&m,0);
             if(nproj>before){ Proj*pp=&proj[nproj-1]; pp->genes=g;
                 if(trigpos>=0 && npl>0){ pp->trig=(uint8_t)trigmode; pp->npl=(uint8_t)npl;
                     for(int q=0;q<npl;q++) pp->pl[q]=pl[q]; pp->plgenes=plg;
@@ -879,14 +885,15 @@ static void fill_disc(int cx,int cy,int r,uint8_t mm,uint8_t hv,int only_empty){
 static void apply_gene_impact(int cx,int cy,uint16_t g){
     int burn=(g&(G_BURN|G_MOLTEN)),wet=(g&G_WET),cold=(g&G_COLD),molten=(g&G_MOLTEN),
         acid=(g&G_ACID),toxic=(g&G_TOXIC),voidg=(g&G_VOID),oil=(g&G_OIL),dig=(g&G_DIG),boom=(g&G_BOOM),arc=(g&G_ARC);
-    if(burn && wet){                                    /* STEAM BURST — blinding, knockback */
-        fill_disc(cx,cy,8,M_STEAM,60,1);
-        for(int y=-8;y<=8;y++)for(int x=-8;x<=8;x++){ if(x*x+y*y>64)continue; int i=(cy+y)*WW+cx+x;
+    if(burn && wet){                                    /* STEAM BURST — a billowing blinding cloud */
+        fill_disc(cx,cy,10,M_STEAM,60,1);
+        for(int y=-10;y<=10;y++)for(int x=-10;x<=10;x++){ if(x*x+y*y>100)continue; int i=(cy+y)*WW+cx+x;
             if(inb(cx+x,cy+y)&&mat[i]==M_FIRE){mat[i]=M_EMPTY;heat[i]=0;} }
         for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
-            if(d2<200){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*200; enemy[e].vy+=dy/d*200-60; enemy[e].hp-=6; } }
-        for(int k=0;k<32;k++) spawn_part(cx,cy,rr(-80,80),rr(-95,20),0.5f+rndf()*0.6f,
-            (k&3)?MOTE_RGB565(225,230,240):MOTE_RGB565(255,255,255),1);
+            if(d2<240){ float d=sqrtf(d2)+0.01f; enemy[e].vx+=dx/d*200; enemy[e].vy+=dy/d*200-60; enemy[e].hp-=6; } }
+        for(int k=0;k<44;k++){ float a=rndf()*6.2832f,sp=rndf()*70;   /* rolling, rising billows */
+            spawn_part(cx+cosf(a)*4,cy+sinf(a)*4,cosf(a)*sp,sinf(a)*sp*0.5f-55,0.6f+rndf()*0.7f,
+                (k&3)?MOTE_RGB565(210,220,235):MOTE_RGB565(255,255,255),1); }
     } else if(molten && wet){                           /* OBSIDIAN SHRAPNEL */
         fill_disc(cx,cy,5,M_OBSID,120,1);
         for(int k=0;k<32;k++){ float a=rndf()*6.2832f,sp=60+rndf()*100;
@@ -1795,15 +1802,11 @@ static void g_init(void){
             wx=bx; wy=by-PH+1; wvx=wvy=0; aim_ang=0; aimx=1; aimy=0;   /* feet on the floor */
             cam_y=clampf(wy-VIEWH*0.5f,0,WH-VIEWH); state=ST_PLAY;
             memset(seen,255,sizeof seen);                 /* clear the fog for the capture */
-            if(getenv("MOITA_GUIDE_POOL")){    /* an open lit cavern + a sealed pool so fusion bursts read big */
+            if(getenv("MOITA_GUIDE_POOL")){    /* an open lit cavern so fusion bursts read big in the air */
                 int cxp=bx+(best>46?34:best-12), cyp=by-4;
                 for(int y=cyp-11;y<=cyp+13;y++)for(int x=cxp-14;x<=cxp+14;x++){ if(!inb(x,y))continue;
                     int dx=x-cxp,dy=y-cyp; if(dx*dx+dy*dy>200)continue;
                     mat[y*WW+x]=(y>=cyp+6)?M_ROCK:M_EMPTY; }                       /* open dome over a rock floor */
-                for(int x=cxp-9;x<=cxp+9;x++) if(inb(x,cyp+10)) mat[(cyp+10)*WW+x]=M_ROCK;             /* tub floor */
-                for(int y=cyp+5;y<=cyp+10;y++){ if(inb(cxp-9,y))mat[y*WW+cxp-9]=M_ROCK;
-                                                if(inb(cxp+9,y))mat[y*WW+cxp+9]=M_ROCK; }              /* tub walls */
-                for(int y=cyp+5;y<=cyp+9;y++)for(int x=cxp-8;x<=cxp+8;x++) if(inb(x,y)) mat[y*WW+x]=M_WATER;
                 nenemy=0; }
             if(getenv("MOITA_BIG")){ nenemy=0; int bt=atoi(getenv("MOITA_BIG")); if(bt<6||bt>9)bt=6;
                 int boxx=bx+(best<38?best-4:38), boy=by-3;   /* down the corridor, in view */
