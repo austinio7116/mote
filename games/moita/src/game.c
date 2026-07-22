@@ -311,9 +311,11 @@ static void ca_step(void){
             if(ignitable(mat[U])&&(rnd()&3)==0){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
             if(ignitable(mat[D])&&(rnd()&3)==0){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
             int onfuel = ignitable(mat[L])||ignitable(mat[R])||ignitable(mat[U])||ignitable(mat[D]);
-            /* flames lick upward into open air — cooler tongues that flicker & die */
-            if(mat[U]==M_EMPTY && heat[i]>90 && (rnd()&3)==0){ mat[U]=M_FIRE; heat[U]=(uint8_t)(heat[i]-80); }
-            int dec = onfuel?2:6;                       /* bare fire burns out fast; fuel keeps it lit */
+            /* flames dance upward — tall, hot tongues that flicker and die */
+            if(mat[U]==M_EMPTY && heat[i]>70 && (rnd()&1)){ mat[U]=M_FIRE; heat[U]=(uint8_t)(heat[i]-45); }
+            if(heat[i]>110 && (rnd()&7)==0){ int uu=(rnd()&1)?U-1:U+1;   /* diagonal lick for width */
+                if(mat[uu]==M_EMPTY){ mat[uu]=M_FIRE; heat[uu]=(uint8_t)(heat[i]-95); } }
+            int dec = onfuel?2:5;                       /* bare fire burns out fast; fuel keeps it lit */
             if(heat[i]<=dec){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]-=dec;
         } else if(m==M_STEAM){
             if(heat[i]<=1){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]--;
@@ -606,11 +608,22 @@ static void explode(float fx,float fy,int r,int fire){
     int cx=(int)fx,cy=(int)fy;
     for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){
         if(x*x+y*y>r*r)continue; int wxp=cx+x,wyp=cy+y; if(!inb(wxp,wyp))continue;
-        int i=wyp*WW+wxp; uint8_t mm=mat[i];
+        int i=wyp*WW+wxp; uint8_t mm=mat[i]; float d2=(float)(x*x+y*y);
         if(IS_SOLID(mm)||IS_FLUID(mm)){ mat[i]=M_EMPTY; heat[i]=0; }
-        if(fire && (rnd()&2)==0 && mat[i]==M_EMPTY){ mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
+        /* a fiery blast fills its heart with flame, thinning to embers at the rim */
+        if(fire && mat[i]==M_EMPTY && d2 < r*r*(0.35f+0.4f*rndf())){ mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
     }
-    for(int k=0;k<20;k++) spawn_part(fx,fy,rr(-90,90),rr(-90,60),rr(0.3f,0.7f),fire_lut[rnd()&255],1);
+    /* bright central flash */
+    for(int k=0;k<10;k++) spawn_part(fx+rr(-1.5f,1.5f),fy+rr(-1.5f,1.5f),rr(-25,25),rr(-25,25),
+        0.10f+rndf()*0.12f,MOTE_RGB565(255,250,225),1);
+    /* radial shrapnel — flies OUTWARD from the centre, fast and hot (scales with r) */
+    int ns=16+r*3;
+    for(int k=0;k<ns;k++){ float a=rndf()*6.2832f, sp=45+rndf()*(r*16.0f);
+        spawn_part(fx,fy,cosf(a)*sp,sinf(a)*sp-18,0.28f+rndf()*0.4f,
+                   fire?fire_lut[172+(rnd()&83)]:MOTE_RGB565(255,235,190),1); }
+    /* smoke puffs rising off the blast */
+    for(int k=0;k<5+r;k++) spawn_part(fx+rr(-3,3),fy+rr(-2,2),rr(-12,12),-22-rndf()*22,
+        0.9f+rndf()*0.7f,MOTE_RGB565(98,86,80),1);
     for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-fx,dy=enemy[e].y-fy;
         if(dx*dx+dy*dy < (r+2)*(r+2)) enemy[e].hp-=24; }
     sfx_at(r>=7?&boom_big_sfx:&boom_small_sfx, 0.7f, fy);
@@ -1399,7 +1412,7 @@ static void render_band(uint16_t*fb,int y0,int y1){
         for(int x=0;x<WW;x++){
             uint8_t m=mr[x];
             if(m==M_LAVA){ fr[x]=lava_lut[hr[x]]; continue; }        /* emissive */
-            if(m==M_FIRE){ int fl=(int)(hh2(x*7+framestep,wyy*3+framestep)&31)-13;  /* live flicker */
+            if(m==M_FIRE){ int fl=(int)(hh2(x*5+framestep*2,wyy*3+framestep)&47)-18;  /* live flicker */
                 int fh=hr[x]+fl; if(fh<0)fh=0; else if(fh>255)fh=255; fr[x]=fire_lut[fh]; continue; }
             int lx=x>>1, lxn=lx+((x&1)?1:-1); if(lxn<0)lxn=0; if(lxn>=LW)lxn=LW-1;
             /* bilinear-filtered RGB light (3/4-1/4 taps across the half-res grid) */
