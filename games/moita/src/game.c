@@ -2065,7 +2065,15 @@ static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
         mote->draw_pixel(fb,sx+fd*3,sy,MOTE_RGB565(70,110,50));
         mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215)); mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
         return; }
-    static const int8_t rowmap[10]={0,1,2,3,4,5,6,-1,-1,7};   /* type -> sheet row */
+    if(ty==5){ /* GHOST: translucent, wavy hem, fades in and out (needs alpha — procedural) */
+        float a=0.30f+0.28f*sinf(t*2.6f); uint16_t c=MOTE_RGB565(210,215,235);
+        for(int yy=-2;yy<=1;yy++)for(int xx=-1;xx<=1;xx++){
+            int px=sx+xx, py=sy+yy+((yy==1&&((xx+(int)(t*6))&1))?1:0);
+            if((unsigned)px<128u&&(unsigned)py<128u) fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
+        mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
+        mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90));
+        return; }
+    static const int8_t rowmap[10]={0,1,2,3,4,-1,6,-1,-1,7};   /* type -> sheet row (5 ghost is procedural) */
     int row=rowmap[ty]; if(row<0)return;
     int fr;
     switch(ty){
