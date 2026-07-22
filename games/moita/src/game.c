@@ -751,7 +751,7 @@ static void tick_proj(float dt){
                     if(p->pierce){ p->x=nx; p->y=ny; continue; }   /* bore on through */
                 } else if(p->pierce){ p->x=nx; p->y=ny; continue; }
                 proj_impact(p); proj[i]=proj[--nproj]; outcome=1; break; }
-            if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=6; hurt_t=0.6f;
+            if(p->foe){ float dx=wx+PW*0.5f-nx,dy=wy+PH*0.5f-ny; if(dx*dx+dy*dy<20 && hurt_t<=0){ hp-=13; hurt_t=0.6f;
                 if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
                 proj[i]=proj[--nproj]; outcome=1; break; } }
             if(IS_SOLID(mat[iy*WW+ix])){
@@ -854,7 +854,7 @@ static void tick_enemies(float dt){
             if(inb((int)en->x,(int)ny) && !IS_SOLID(mat[(int)ny*WW+(int)en->x])) en->y=ny; else en->vy*=(fly?-0.5f:0);
         }
         if(d<5 && hurt_t<=0){
-            int dmg=en->type==5?3:5;
+            int dmg=en->type==5?8:12;
             hp-=dmg; hurt_t=en->type==5?0.5f:0.9f; wvx+=(dx<0?70:-70); wvy-=45;
             if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
             if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
@@ -1125,6 +1125,23 @@ static int ed_wi=0, ed_si=0, ed_carry=SP_NONE;
 static const char*sp_code[SP_COUNT]={"",
     "SP","BL","FI","WT","AC","DG","BM","ZP","IC","VN","OR","NV","LV","OL","NE","CH","MT","SW","VD","RB",
     "D+","3X","5X","TW","BN","HM","BX","V+","V-","GR","FL","PC","TF","TS","TA","CR","LF","EC","WV","GL","MN"};
+/* full name + one-line effect, shown in the detail panel */
+static const char*sp_name[SP_COUNT]={"",
+    "Spark","Bolt","Fire","Water","Acid","Dig","Bomb","Zap","Ice Shard","Vine Seed",
+    "Arcane Orb","Nova","Lava Ball","Oil Blob","Needle","Chain Bolt","Meteor","Swarm","Void Orb","Prism",
+    "Damage+","Spread x3","Spread x5","Twin","Bounce","Homing","Boom","Speed+","Slow","Gravity",
+    "Float","Pierce","Fire Trail","Sparkle Trail","Acid Trail","Crit","Leech","Echo","Wave","Glow","Mana Refund"};
+static const char*sp_desc[SP_COUNT]={"",
+    "Fast cheap magic bolt","Heavy straight bolt","Ignites oil & wood","Douses fire & lava",
+    "Dissolves terrain","Tunnels soft ground","Slow lob, big blast","Instant lightning ray",
+    "Freezes water, slows","Grows wood shoots","Slow heavy orb","12-way ring burst",
+    "Splats molten lava","Splats oil to ignite","Railgun-fast, pierces","Arcs between enemies",
+    "Falling fiery blast","Four homing motes","Eats land, pulls foes","Rainbow ricochet",
+    "+9 damage (stacks)","Fires 3 in a fan","Fires 5 in a fan","Duplicates the volley",
+    "Ricochets off walls","Steers toward enemies","Explodes on impact","x1.7 velocity",
+    "Slower, hits harder","Shot arcs downward","Anti-gravity drift","Passes through foes",
+    "Leaves burning air","Sheds gold glitter","Drips acid trail","25% triple damage",
+    "Hits heal you","Recasts a beat later","Serpentine flight","Becomes a light (+2)","Hits refund mana"};
 static uint16_t sp_colr(int s){
     switch(s){
         case SP_SPARK: return MOTE_RGB565(255,240,120);
@@ -1170,6 +1187,17 @@ static uint16_t sp_colr(int s){
         case SP_MANAR: return MOTE_RGB565(120,180,255);
     }
     return MOTE_RGB565(120,120,140);
+}
+/* bottom detail panel: selected item's name + one-line effect (+ optional price) */
+static void detail_panel(uint16_t*fb,const MoteFont*f,const char*name,uint16_t nc,const char*desc,int price){
+    mote_ui_rect(fb,0,97,128,31,MOTE_RGB565(18,15,28));
+    mote_ui_rect(fb,0,97,128,1,MOTE_RGB565(96,84,140));
+    if(!f) return;
+    mote->text_font(fb,f,name,4,100,nc);
+    if(price>=0){ char pb[10]; snprintf(pb,sizeof pb,"%dg",price);
+        mote->text_font(fb,f,pb,124-(int)strlen(pb)*6,100,
+                        gold>=price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
+    mote->text_font(fb,f,desc,4,112,MOTE_RGB565(195,195,215));
 }
 static void wand_compact(Wand*w){
     int m=0;
@@ -1608,15 +1636,15 @@ static void g_overlay(uint16_t*fb){
             mote->text_font(fb,fmed,"A buy   B onward",4,31,MOTE_RGB565(170,160,205)); }
         for(int i=0;i<6;i++){
             int row=i>=3, s=row?i-3:i;
-            int bx=8+s*40, by=row?82:46, bh=row?20:28, cur=(i==shop_sel);
+            int bx=8+s*40, by=row?72:42, bh=row?18:26, cur=(i==shop_sel);
             mote_ui_panel(fb,bx,by,32,bh, cur?MOTE_RGB565(52,46,82):MOTE_RGB565(16,15,24),
                           cur?MOTE_RGB565(255,214,110):MOTE_RGB565(54,50,76));
             char pb[6];
             if(!row){
-                if(shop_w[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+9,MOTE_RGB565(90,90,110)); }
+                if(shop_w[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+8,MOTE_RGB565(90,90,110)); }
                 else { draw_wand_icon(fb,bx+11,by+3,&shop_w[s].w,0);
                     snprintf(pb,sizeof pb,"%d",shop_w[s].price);
-                    tiny_text(fb,bx+13,by+16,pb,gold>=shop_w[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
+                    tiny_text(fb,bx+13,by+15,pb,gold>=shop_w[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
             } else {
                 if(shop_c[s].sold){ if(fmed)mote->text_font(fb,fmed,"-",bx+14,by+5,MOTE_RGB565(90,90,110)); }
                 else { if(fmed)mote->text_font(fb,fmed,sp_code[shop_c[s].sp],bx+9,by+3,sp_colr(shop_c[s].sp));
@@ -1624,13 +1652,27 @@ static void g_overlay(uint16_t*fb){
                     tiny_text(fb,bx+13,by+13,pb,gold>=shop_c[s].price?MOTE_RGB565(255,225,110):MOTE_RGB565(255,110,90)); }
             }
         }
+        /* detail of the selected slot */
+        if(shop_sel<3){ int s=shop_sel;
+            if(shop_w[s].sold) detail_panel(fb,fmed,"Sold",MOTE_RGB565(120,120,140),"",-1);
+            else { Wand*w=&shop_w[s].w; static char db[40]; db[0]=0;
+                for(int k=0;k<w->n&&k<8;k++){ if(k)strcat(db," "); strcat(db,sp_code[w->spell[k]]); }
+                detail_panel(fb,fmed,"Wand",w->col,db,shop_w[s].price); }
+        } else { int s=shop_sel-3;
+            if(shop_c[s].sold) detail_panel(fb,fmed,"Sold",MOTE_RGB565(120,120,140),"",-1);
+            else detail_panel(fb,fmed,sp_name[shop_c[s].sp],sp_colr(shop_c[s].sp),
+                              sp_desc[shop_c[s].sp],shop_c[s].price);
+        }
     }
 
     if(state==ST_EDIT){
         mote_dim_box(fb,0,TOP,128,VH-TOP,3);
-        if(fmed){ mote->text_font(fb,fmed,"WANDS",4,21,MOTE_RGB565(235,225,255));
-                  mote->text_font(fb,fmed,"A:take/put  MENU:done",4,31,MOTE_RGB565(170,160,205)); }
-        for(int i=0;i<nwand;i++){ int ry=58+i*22;
+        if(fmed){ mote->text_font(fb,fmed,"WANDS",4,20,MOTE_RGB565(235,225,255));
+                  mote->text_font(fb,fmed,"A:take/put  MENU:done",4,30,MOTE_RGB565(170,160,205)); }
+        if(ed_carry!=SP_NONE){                         /* the card in hand — top-right chip */
+            mote_ui_panel(fb,104,19,20,11,MOTE_RGB565(44,40,66),MOTE_RGB565(240,240,255));
+            if(fmed) mote->text_font(fb,fmed,sp_code[ed_carry],106,20,sp_colr(ed_carry)); }
+        for(int i=0;i<nwand;i++){ int ry=46+i*18;
             draw_wand_icon(fb,3,ry,&wand[i],i==ed_wi);
             for(int s=0;s<WAND_SLOTS;s++){ int bx=15+s*14, cur=(i==ed_wi&&s==ed_si);
                 int sp=wand[i].spell[s];
@@ -1638,9 +1680,11 @@ static void g_overlay(uint16_t*fb){
                               cur?MOTE_RGB565(255,214,110):MOTE_RGB565(54,50,76));
                 if(sp!=SP_NONE) mote->text(fb,sp_code[sp],bx+2,ry+1,sp_colr(sp)); }
         }
-        if(ed_carry!=SP_NONE){ int bx=15+ed_si*14, ry=58+ed_wi*22-13;   /* card in hand */
-            mote_ui_panel(fb,bx,ry,13,11,MOTE_RGB565(44,40,66),MOTE_RGB565(240,240,255));
-            mote->text(fb,sp_code[ed_carry],bx+2,ry+2,sp_colr(ed_carry)); }
+        /* detail of the held card, else the card under the cursor */
+        { int sp = ed_carry!=SP_NONE ? ed_carry : wand[ed_wi].spell[ed_si];
+          if(sp==SP_NONE) detail_panel(fb,fmed,"Empty slot",MOTE_RGB565(120,120,140),
+                                       ed_carry!=SP_NONE?"":"move here with A",-1);
+          else detail_panel(fb,fmed,sp_name[sp],sp_colr(sp),sp_desc[sp],-1); }
     }
 
     if(state==ST_DEAD){ mote_dim_box(fb,0,44,128,40,0); uint16_t c=MOTE_RGB565(255,80,60);
