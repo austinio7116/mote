@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.20-alpha — show your whole library · three new games
+
+**Large catalogues are no longer clipped.** As the gallery passed ~57 games, three
+fixed count caps silently dropped the newest ones: the on-device **installed-games
+launcher** stopped at 56 entries (your latest install never appeared), the **on-device
+gallery** stopped at 40, and the **Studio gallery** stopped at 64. All three are raised
+to **128**, so the launcher grid, the handheld gallery and the Studio all show the whole
+collection. The launcher/gallery caps live in the ThumbyOne lobby-slot firmware, so this
+needs the matching **ThumbyOne 1.35.0** firmware to take effect on-device; the Studio
+side ships in this Studio build. Engine ABI is unchanged (**v47**) — every installed
+game keeps working untouched.
+
+**Three new games in the gallery.** **Thumboxels** — a Powder-Toy-style falling-sand
+sandbox with 40+ interacting elements across land, liquid, life, energy, gas and
+weapons, a resizable brush, portals and a black hole, and thumbnail save slots (by
+Prevolve). **Moita** — a pocket Noita: a per-pixel magic roguelite with a wand editor,
+fog-of-war memory and a 41-card spell system. **LavaFlow** — timed lava-diversion
+puzzling (formerly Sluice). Plus gallery updates to **Kings and Pigs** and **ThumbPrince**.
+
 **ThumbyCraft internet play (Studio bridge).** A docked ThumbyCraft in link mode —
 the ThumbyOne Craft slot or standalone, in-game "Invite friend" or the title screen's
 "Join Friend" — is now picked up by the Studio's online auto-proxy, exactly like a

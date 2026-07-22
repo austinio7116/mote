@@ -54,7 +54,7 @@
 #include "motecore.h"   /* native build/new/bake (no Python) */
 
 /* layout is RUNTIME — window resizable, separators draggable */
-#define MOTE_STUDIO_VERSION "0.19-alpha"   /* shown in Help ▸ About; bump when cutting a release */
+#define MOTE_STUDIO_VERSION "0.20-alpha"   /* shown in Help ▸ About; bump when cutting a release */
 static int WIN_W=1380, WIN_H=920;
 static int LEFT_W=224, RIGHT_W=300, BOTTOM_H=410;   /* emulator 1x up top; dock + side panels both get room */
 #define MENU_H  26
