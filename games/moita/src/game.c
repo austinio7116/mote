@@ -882,6 +882,10 @@ static void apply_gene_impact(int cx,int cy,uint16_t g){
         fill_disc(cx,cy,5,M_NAPALM,210,1);
     } else if(toxic && burn){                            /* FUEL-AIR blast */
         explode(cx,cy,7,1); fill_disc(cx,cy,7,M_SPORE,80,1);
+    } else if(arc && wet){                               /* ELECTROCUTE — arcs through the wet */
+        for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy;
+            if(dx*dx+dy*dy<420){ enemy[e].hp-=12; enemy[e].slow_t=1.0f;
+                for(int s=0;s<6;s++) spawn_part(cx+(enemy[e].x-cx)*s/6,cy+(enemy[e].y-cy)*s/6,rr(-6,6),rr(-6,6),0.12f,MOTE_RGB565(210,235,255),1); } }
     } else {
         if(boom) explode(cx,cy, molten?9:7, burn);
         if(burn && !boom) fill_disc(cx,cy,4,molten?M_LAVA:M_FIRE,molten?255:FIRE_HOT,0);
@@ -897,11 +901,6 @@ static void apply_gene_impact(int cx,int cy,uint16_t g){
         if(dig) for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x;
                 if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY; }
     }
-    if(arc){ int bi=-1; float best=60*60;               /* a little lightning to the nearest foe */
-        for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-cx,dy=enemy[e].y-cy,d2=dx*dx+dy*dy;
-            if(d2<best){best=d2;bi=e;} }
-        if(bi>=0){ enemy[bi].hp-=6; for(int s=0;s<8;s++) spawn_part(cx+(enemy[bi].x-cx)*s/8,cy+(enemy[bi].y-cy)*s/8,
-            rr(-8,8),rr(-8,8),0.12f,MOTE_RGB565(210,235,255),1); } }
 }
 /* fire a projectile's trigger payload as a small fused volley at (x,y) */
 static void fire_payload(Proj*p,float x,float y){
