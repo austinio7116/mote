@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.3.0");
+MOTE_GAME_VERSION("0.4.0");
 
 /* ============================================================ constants === */
 #define WW 128
