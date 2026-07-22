@@ -48,7 +48,7 @@ MOTE_MODULE_HEADER();
 #include "denied.sfx.h"
 
 MOTE_GAME_META("Moita", "austinio7116");
-MOTE_GAME_VERSION("0.5.0");
+MOTE_GAME_VERSION("0.6.0");
 
 /* ============================================================ constants === */
 #define WW 128
@@ -156,6 +156,7 @@ typedef struct {
     uint16_t col;
 } Wand;
 static Wand wand[MAXWAND]; static int nwand=1, cur_wand=0;
+static int cast_block=0;   /* suppress a held B (cast) after a menu closes, until it's released */
 
 /* ---- multiplayer: each wizard's state is swapped through the globals above so the
  *      whole single-player sim runs unchanged, once per player, in a shared level ---- */
@@ -1668,7 +1669,8 @@ static void wizard_update(float dt, const MoteInput*in){
 
     for(int i=0;i<nwand;i++){ if(wand[i].delay_t>0) wand[i].delay_t-=dt;
         wand[i].mana=clampf(wand[i].mana+wand[i].recharge*dt,0,wand[i].mana_max); }
-    if(mote_pressed(in,MOTE_BTN_B)){
+    if(!mote_pressed(in,MOTE_BTN_B)) cast_block=0;   /* B released — casting re-armed */
+    if(mote_pressed(in,MOTE_BTN_B) && !cast_block){
         float hx=wx+PW*0.5f+aimx*6, hy=wy+PH*0.4f+aimy*6;
         wand_cast(&wand[cur_wand],hx,hy,aimx,aimy);
     }
@@ -1819,7 +1821,7 @@ static void edit_update(const MoteInput*in){
             for(int k=0;k<nwand&&ed_carry!=SP_NONE;k++){ Wand*w=&wand[(ed_wi+k)%nwand];
                 for(int i=0;i<WAND_SLOTS;i++) if(w->spell[i]==SP_NONE){ w->spell[i]=(uint8_t)ed_carry; ed_carry=SP_NONE; break; } } }
         for(int i=0;i<nwand;i++) wand_compact(&wand[i]);
-        state=ST_PLAY; }
+        state=ST_PLAY; cast_block=1; }   /* don't let the closing B press fire the wand */
 }
 
 /* ===================================================== end-level shop === */
@@ -1857,7 +1859,7 @@ static void shop_update(const MoteInput*in){
                 wand[h].spell[wand[h].n++]=shop_c[s].sp; } }
         if(mote->abi_version>=37) mote->audio_play_sfx(bought?&gate_sfx:&denied_sfx, 0.8f); }
     if(mote_just_pressed(in,MOTE_BTN_B)||mote_just_pressed(in,MOTE_BTN_MENU)){
-        level++; gen_level(); state=ST_PLAY; }
+        level++; gen_level(); state=ST_PLAY; cast_block=1; }   /* B-to-continue must not fire a wand */
 }
 
 /* ============================================================= init === */
@@ -2033,7 +2035,7 @@ static void mp_start_round(void){
     mp_frame=0; mp_acc=0; mp_prevmask[0]=mp_prevmask[1]=0; mp_peer_frame=-1;
     for(int f=0;f<MP_DELAY;f++){ mp_in[0][f]=mp_in[1][f]=0;
         uint8_t pld[3]={(uint8_t)(f>>8),(uint8_t)f,0}; mp_send(3,pld,3); }
-    mp_phase=MPP_PLAY; state=ST_MP; state_t=0;
+    cast_block=0; mp_phase=MPP_PLAY; state=ST_MP; state_t=0;
 }
 static void mp_step_frame(const MoteInput*in){
     int f=mp_frame;
@@ -2147,7 +2149,9 @@ static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
     if(state==ST_MP){ mp_update(dt); return; }
     if(state==ST_TITLE){
-        /* cinematic backdrop: pan the caves while lava and water pour */
+        /* cinematic backdrop: pan the caves while lava and water pour — but keep it
+         * calm: no barrels to blow up and no wand pickups glinting on the title */
+        nbarrel=0; npick=0;
         float ph=fmodf(state_t*0.045f,2.0f), u=ph<1?ph:2-ph;
         cam_y=u*(WH-VH);
         title_emit(); step_sim(dt); build_light();

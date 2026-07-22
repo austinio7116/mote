@@ -70,14 +70,41 @@ review. It takes about ten minutes once your game is finished.</p>
 emulator. If you're still writing it, see the <a href="https://github.com/austinio7116/mote/blob/main/README.md">README</a>
 for the full engine + build setup. This page is only about <i>submitting</i> a finished game.</div>
 
-<h2><span class="n">1</span> Fork &amp; clone</h2>
-<p>Fork <a href="https://github.com/austinio7116/mote">austinio7116/mote</a> on GitHub
-(the <b>Fork</b> button, top-right), then clone your fork and make a branch:</p>
-<pre><code>git clone https://github.com/&lt;you&gt;/mote.git
-cd mote
-git checkout -b add-mygame</code></pre>
+<div class="tip"><b>New to GitHub?</b> No problem — every step below spells out exactly
+what to click and type. You'll need a free <a href="https://github.com/signup">GitHub
+account</a> and <a href="https://git-scm.com/downloads">Git installed</a> on your
+computer. That's it.</div>
 
-<h2><span class="n">2</span> Add your game to <code>games/</code></h2>
+<h2><span class="n">1</span> Fork the repository</h2>
+<p>A <b>fork</b> is your own personal copy of the project on GitHub, where you're free
+to make changes without affecting the original.</p>
+<ol>
+  <li>Go to <a href="https://github.com/austinio7116/mote">github.com/austinio7116/mote</a>.</li>
+  <li>Click the <b>Fork</b> button near the top-right of the page.</li>
+  <li>On the next screen, leave everything as-is and click <b>Create fork</b>.</li>
+  <li>After a moment you'll land on <b>your</b> copy — the URL now reads
+    <code>github.com/<b>&lt;your-username&gt;</b>/mote</code>. Keep this tab open.</li>
+</ol>
+
+<h2><span class="n">2</span> Clone your fork to your computer</h2>
+<p><b>Cloning</b> downloads your fork so you can work on it locally.</p>
+<ol>
+  <li>On your fork's page, click the green <b>&lt;&gt; Code</b> button, make sure
+    <b>HTTPS</b> is selected, and copy the URL it shows
+    (<code>https://github.com/&lt;your-username&gt;/mote.git</code>).</li>
+  <li>Open a terminal (macOS/Linux: <b>Terminal</b>; Windows: <b>Git Bash</b>, installed
+    with Git) and run — replacing <code>&lt;your-username&gt;</code> with yours:</li>
+</ol>
+<pre><code>git clone https://github.com/&lt;your-username&gt;/mote.git
+cd mote</code></pre>
+<p>Now make a <b>branch</b> — a named workspace for your change, so your <code>main</code>
+stays clean:</p>
+<pre><code>git checkout -b add-mygame</code></pre>
+<p class="muted">The name after <code>-b</code> is up to you; something like
+<code>add-<i>yourgame</i></code> is clear. <code>git checkout -b</code> creates it and
+switches to it in one go.</p>
+
+<h2><span class="n">3</span> Add your game to <code>games/</code></h2>
 <p>Each game is a self-contained folder under <code>games/</code>. Drop yours in as
 <code>games/mygame/</code> with this shape:</p>
 <div class="files">
@@ -94,7 +121,7 @@ MOTE_GAME_VERSION("1.0.0");              // bump this every release</code></pre>
 <div class="tip warn"><b>Credit honestly.</b> Put your own name as the author. If you used
 an art or audio pack, credit it in <code>arcade_description.txt</code> or a comment.</div>
 
-<h2><span class="n">3</span> Build the <code>.mote</code> for the gallery</h2>
+<h2><span class="n">4</span> Build the <code>.mote</code> for the gallery</h2>
 <p>Build the device binary and copy it into <code>docs/games/</code> (this is the file
 players download):</p>
 <pre><code># from the repo root
@@ -104,7 +131,7 @@ cp games/mygame/build/MyGame.mote docs/games/MyGame.mote</code></pre>
 with spaces removed (e.g. <code>My Game</code> → <code>MyGame.mote</code>). Run
 <code>./tools/mote build games/mygame</code> once first to see the exact name it prints.</p>
 
-<h2><span class="n">4</span> Add your entry to the listing</h2>
+<h2><span class="n">5</span> Add your entry to the listing</h2>
 <p>The gallery is driven by a <code>GAMES</code> array in <code>docs/games.html</code>.
 Open it, scroll to the end of that array, and add your game as the <b>last</b> entry
 (keep the trailing comma tidy):</p>
@@ -122,7 +149,7 @@ Open it, scroll to the end of that array, and add your game as the <b>last</b> e
   <li><code>guide</code> — only if you also add a <code>docs/&lt;id&gt;-guide.html</code> page. Otherwise leave it out.</li>
 </ul>
 
-<h2><span class="n">5</span> Regenerate <code>games.json</code></h2>
+<h2><span class="n">6</span> Regenerate <code>games.json</code></h2>
 <p>Don't hand-edit <code>docs/games.json</code> — it's generated. Run the tool, which
 reads your <code>games.html</code> entry and your <code>.mote</code> (pulling out the
 embedded version, ABI, size and checksum):</p>
@@ -131,36 +158,59 @@ embedded version, ABI, size and checksum):</p>
 now include it. <span class="muted">This is the manifest the in-Studio and on-device
 galleries read, so it has to be regenerated whenever a <code>.mote</code> or listing changes.</span></p>
 
-<h2><span class="n">6</span> Commit</h2>
-<p>Commit your game code, the built <code>.mote</code>, and the two generated/edited
-listing files together:</p>
+<h2><span class="n">7</span> Commit your work</h2>
+<p>A <b>commit</b> is a saved snapshot of your changes. Save your game code, the built
+<code>.mote</code>, and the two listing files together:</p>
 <pre><code>git add games/mygame \
         docs/games/MyGame.mote \
         docs/games.html \
         docs/games.json
 git commit -m "Add My Game to the gallery"</code></pre>
-<p class="muted">If you added a guide page or gallery images, include those too
-(<code>docs/mygame-guide.html</code>, <code>docs/img/gallery/mygame-*.png</code>).</p>
+<p><code>git add</code> stages the files you want to include; <code>git commit -m "…"</code>
+saves them with a short message describing the change.</p>
+<p class="muted">If you added a guide page or gallery images, include those in the
+<code>git add</code> too (<code>docs/mygame-guide.html</code>,
+<code>docs/img/gallery/mygame-*.png</code>).</p>
 
-<h2><span class="n">7</span> Push &amp; open a pull request</h2>
+<h2><span class="n">8</span> Push &amp; open a pull request</h2>
+<p><b>Pushing</b> uploads your commit to your fork on GitHub. A <b>pull request</b> (PR)
+then asks the original project to pull in your change.</p>
+<h3>Push your branch</h3>
 <pre><code>git push origin add-mygame</code></pre>
-<p>Then on GitHub, open your fork and click <b>Compare &amp; pull request</b> (or the
-<b>Contribute</b> button) targeting <code>austinio7116/mote</code> · <code>main</code>.
-In the PR description, a few lines help the review:</p>
-<ul>
-  <li>What the game is, in a sentence or two.</li>
-  <li>Confirm it builds and plays in the emulator (and on a device, if you tested one).</li>
-  <li>Credit any art/audio/code you didn't make yourself.</li>
-</ul>
-<p>That's it — the PR will be reviewed for inclusion. Thanks for building on Mote!</p>
+<p class="muted">Use the same branch name you created in step 2. If Git asks you to sign
+in, use your GitHub username and a <a href="https://github.com/settings/tokens">personal
+access token</a> as the password (GitHub no longer accepts your account password here).</p>
+<h3>Open the pull request</h3>
+<ol>
+  <li>Go to your fork on GitHub (<code>github.com/&lt;your-username&gt;/mote</code>).
+    A yellow banner usually appears — <b>"add-mygame had recent pushes"</b> — with a
+    <b>Compare &amp; pull request</b> button. Click it. <span class="muted">(No banner?
+    Click the <b>Contribute</b> button, then <b>Open pull request</b>.)</span></li>
+  <li>Check the boxes at the top read: base repository <code>austinio7116/mote</code>
+    base <code>main</code> ← head repository <code>&lt;your-username&gt;/mote</code>
+    compare <code>add-mygame</code>. That means "merge my branch into the main project."</li>
+  <li>Give it a clear title (e.g. <i>"Add My Game to the gallery"</i>) and, in the
+    description, a few lines that help the review:
+    <ul>
+      <li>What the game is, in a sentence or two.</li>
+      <li>Confirm it builds and plays in the emulator (and on a device, if you tested one).</li>
+      <li>Credit any art, audio, or code you didn't make yourself.</li>
+    </ul>
+  </li>
+  <li>Click <b>Create pull request</b>. Done!</li>
+</ol>
+<p>Your PR will show up on the main project for review. If changes are requested, just
+commit and <code>git push</code> again on the same branch — the PR updates automatically.
+Thanks for building on Mote!</p>
 
 <div class="tip"><b>Quick checklist</b><br>
+☐ forked the repo and cloned your fork, on a new branch<br>
 ☐ <code>games/mygame/</code> with <code>game.c</code>, <code>assets/</code>, <code>icon.png</code><br>
 ☐ <code>MOTE_GAME_META</code> + <code>MOTE_GAME_VERSION</code> set<br>
 ☐ <code>docs/games/MyGame.mote</code> built with <code>--device</code><br>
 ☐ entry added at the <b>end</b> of the <code>GAMES</code> array in <code>docs/games.html</code><br>
 ☐ <code>python3 tools/gen_gallery.py</code> run<br>
-☐ all four files committed, branch pushed, PR opened</div>
+☐ all files committed, branch pushed, pull request opened</div>
 
 <footer>
   Part of the <a href="games.html">Mote gallery</a> · engine + build docs in the
