@@ -125,7 +125,8 @@ static uint16_t lava_lut[256], fire_lut[256];
 static float cam_y = 0;
 static int   level = 1, state = ST_TITLE;
 static float state_t = 0;
-static uint32_t rng = 0x2b1df00d;
+static uint32_t rng = 0x2b1df00d;    /* SIM rng — lockstep-synced in multiplayer */
+static uint32_t vrng = 0x9e3779b9;   /* COSMETIC rng — local only (draw-path flicker, decor) */
 static float sim_acc = 0;
 static uint32_t framestep = 0;
 static int   test_mode = 0;
@@ -214,6 +215,10 @@ static void give_wand(Wand nw, float dropx, float dropy){
 static inline uint32_t rnd(void){ rng^=rng<<13; rng^=rng>>17; rng^=rng<<5; return rng; }
 static inline float rndf(void){ return (float)(rnd()&0xFFFFFF)/(float)0x1000000; }
 static inline float rr(float a,float b){ return a+(b-a)*rndf(); }
+/* cosmetic stream: draw-path randomness that must NOT perturb the lockstep sim */
+static inline uint32_t vrnd(void){ vrng^=vrng<<13; vrng^=vrng>>17; vrng^=vrng<<5; return vrng; }
+static inline float vrndf(void){ return (float)(vrnd()&0xFFFFFF)/(float)0x1000000; }
+static inline float vrr(float a,float b){ return a+(b-a)*vrndf(); }
 static inline float clampf(float v,float a,float b){ return v<a?a:(v>b?b:v); }
 static inline int   clampi(int v,int a,int b){ return v<a?a:(v>b?b:v); }
 static inline int   inb(int x,int y){ return x>=0&&x<WW&&y>=0&&y<WH; }
@@ -2288,7 +2293,7 @@ static void draw_world_wand(uint16_t*fb,int sx,int sy,const Pickup*p){
     for(int i=0;i<4;i++) mote->draw_pixel(fb,sx-2+i,sy+2-i,wood[h&3]);
     mote->draw_pixel(fb,sx+2,sy-2,p->w.col);
     mote->draw_pixel(fb,sx+3,sy-2,MOTE_RGB565(255,255,235));
-    if((rnd()&15)==0) spawn_part(p->x+rr(-4,4),p->y+rr(-4,4),0,-7,0.4f,p->w.col,1);
+    if((vrnd()&15)==0) spawn_part(p->x+vrr(-4,4),p->y+vrr(-4,4),0,-7,0.4f,p->w.col,1);
 }
 static void g_overlay(uint16_t*fb){
     const MoteFont*fmed=(mote->abi_version>=47)?mote->ui_font(MOTE_FONT_MED):0;
