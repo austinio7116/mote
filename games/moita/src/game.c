@@ -30,6 +30,7 @@ MOTE_GAME_MODULE();
 MOTE_MODULE_HEADER();
 #endif
 #include "wizard.h"          /* wizard_img: 16x16 cells, 4 bob frames */
+#include "mobs.h"            /* mobs_img: 16x16 cells, 4 anim frames/row (fixed-shape creatures + kegs) */
 
 /* SFX recipes (shared with Scrapwing's weapon rack) — streamed, ~88 bytes each */
 #include "shot_pulse.sfx.h"
@@ -2034,140 +2035,48 @@ static void draw_wand_art(uint16_t*fb,int cx,int cy,const Wand*w){
         if((unsigned)px<128&&(unsigned)py<128) mote->draw_pixel(fb,px,py,MOTE_RGB565(255,250,225)); }
 }
 
-/* tiny animated enemy sprites, one per type, all under 5x4 px */
-/* a 5x8 barrel sitting on the floor (bottom at sy); flashes while its fuse burns */
+/* barrels: baked keg sprites (row 8 oil, row 9 powder), fuse-lit flash frames */
 static void draw_barrel(uint16_t*fb,int sx,int sy,const Barrel*ba){
-    int bomb=ba->type==BAR_BOMB;
-    uint16_t body=bomb?MOTE_RGB565(150,44,38):MOTE_RGB565(70,78,48);
-    uint16_t hoop=bomb?MOTE_RGB565(236,196,72):MOTE_RGB565(122,130,88);
-    uint16_t dark=bomb?MOTE_RGB565(78,22,20):MOTE_RGB565(40,46,28);
-    if(ba->fuse>0){ float f=0.5f+0.5f*sinf(state_t*40); body=lerp565(body,MOTE_RGB565(255,240,180),f*0.7f); }
-    for(int y=-7;y<=0;y++)for(int x=-2;x<=2;x++){ int px=sx+x,py=sy+y;
-        if((unsigned)px>=128||(unsigned)py>=128)continue;
-        uint16_t c=body; if(x==-2||x==2||y==-7||y==0)c=dark;
-        fb[py*128+px]=c; }
-    for(int x=-2;x<=2;x++){ int px=sx+x;
-        if((unsigned)px<128){ if((unsigned)(sy-5)<128)fb[(sy-5)*128+px]=hoop;
-                              if((unsigned)(sy-2)<128)fb[(sy-2)*128+px]=hoop; } }
-    if((unsigned)(sy-8)<128) fb[(sy-8)*128+sx]=dark;   /* cap */
-    if((unsigned)(sy-4)<128) fb[(sy-4)*128+sx-1]=lerp565(body,MOTE_RGB565(255,255,255),0.4f); /* sheen */
+    int row=(ba->type==BAR_BOMB)?9:8;
+    int fr=(ba->fuse>0)?(2+((framestep>>2)&1)):0;      /* flash while the fuse burns */
+    mote->blit_ex(fb,&mobs_img,sx,sy,fr*16,row*16,16,16,0.0f,1.0f,MOTE_BLEND_NONE,0,128);
 }
-/* hand-drawn pixel-art sprites for the big monsters (a char grid beats blobby circles) */
-static uint16_t moncol(char c){
-    switch(c){
-        case 'K':return MOTE_RGB565(58,22,10);   case 'k':return MOTE_RGB565(112,46,18);  /* magmaw crust */
-        case 'o':return MOTE_RGB565(236,92,20);   case 'y':return MOTE_RGB565(255,180,58);
-        case 'w':return MOTE_RGB565(255,244,200);  case 'e':return MOTE_RGB565(255,255,235);
-        case 'D':return MOTE_RGB565(40,110,35);   case 'd':return MOTE_RGB565(28,78,24);   /* brood slime */
-        case 'g':return MOTE_RGB565(92,200,68);   case 'l':return MOTE_RGB565(150,240,120);
-        case 'h':return MOTE_RGB565(205,255,186);  case 'E':return MOTE_RGB565(16,50,16);
-    }
-    return 0;
-}
-static const char*const MAGMAW_SPR[12]={
-    "....kkkkk....", "..kkKKKKKkk..", ".kKoooooooKk.", ".koyyyyyyyok.",
-    "koyyeyyyeyyok", "koyywwwwwyyok", "koyywwwwwyyok", ".koyywwwyyok.",
-    ".kKoyyyyyoKk.", "..kKoooooKk..", "...kK.o.Kk...", "...K.....K..."};
-static const char*const BROOD_SPR[11]={   /* shaded dome: light upper-left -> dark lower-right */
-    "...lgg..ggD...", "..lhlggggggDd.", ".lhhlgggggggDd", "lhhllggggggggD",
-    "lhlllgEgggEgDD", "llllggggggggDD", "lgggggggggggDd", "gggggggggggddd",
-    "DggggggggggdD.", ".DDgggggggDD..", "..dDD.DD.DDd.."};
-/* MAGMAW animates by churning its molten interior + a slow breathe + eye blink */
-static void draw_magmaw(uint16_t*fb,int sx,int sy){
-    const int w=13,h=12; int bob=(int)(sinf(framestep*0.14f)*0.6f);
-    for(int r=0;r<h;r++)for(int c=0;c<w;c++){ char ch=MAGMAW_SPR[r][c]; if(ch=='.')continue;
-        int px=sx-w/2+c, py=sy-h/2+r+bob; if((unsigned)px>=128u||(unsigned)py>=128u)continue;
-        uint16_t col;
-        if(ch=='K'||ch=='k') col=moncol(ch);
-        else if(ch=='e') col=((framestep%110)<5)?moncol('k'):moncol('e');      /* blink */
-        else { int base=(ch=='w')?238:(ch=='y')?196:150;                        /* lava churn */
-            int fl=(int)(sinf(framestep*0.3f+px*0.7f+py*0.9f)*30); int idx=base+fl;
-            if(idx<70)idx=70; else if(idx>255)idx=255; col=fire_lut[idx]; }
-        fb[py*128+px]=col; }
-}
-/* BROOD-MOTHER wobbles like jelly — rows sway (top more than base), gloss glint */
-static void draw_brood(uint16_t*fb,int sx,int sy,Enemy*en){
-    const int w=14,h=11; float ph=en->t;
-    for(int r=0;r<h;r++){ int off=(int)(sinf(ph*4.0f+r*0.55f)*1.5f*(1.0f-(float)r/h));
-        for(int c=0;c<w;c++){ char ch=BROOD_SPR[r][c]; if(ch=='.')continue;
-            int px=sx-w/2+c+off, py=sy-h/2+r; if((unsigned)px>=128u||(unsigned)py>=128u)continue;
-            fb[py*128+px]=moncol(ch); } }
-    mote->draw_pixel(fb,sx-4,sy-4,MOTE_RGB565(232,255,222));                     /* wet gloss */
-    if(en->atk_t>1.6f){ uint16_t p=MOTE_RGB565(190,255,150);                     /* belly glows before a birth */
-        mote->draw_pixel(fb,sx,sy+2,p); mote->draw_pixel(fb,sx-1,sy+3,p); mote->draw_pixel(fb,sx+1,sy+3,p); }
-}
+/* fixed-shape creatures are baked frames in mobs_img; Wyrm & Devourer stay procedural */
 static void draw_enemy(uint16_t*fb,Enemy*en,int sx,int sy){
-    float t=en->t;
-    switch(en->type){
-        case 0:{ /* BAT: flapping wings */
-            int fl=(sinf(t*14)>0);
-            uint16_t b=MOTE_RGB565(96,62,120), w=MOTE_RGB565(150,105,170);
-            mote->draw_pixel(fb,sx,sy,b); mote->draw_pixel(fb,sx,sy-1,b);
-            mote->draw_pixel(fb,sx-1,sy-fl,w); mote->draw_pixel(fb,sx-2,sy+(fl?-2:0),w);
-            mote->draw_pixel(fb,sx+1,sy-fl,w); mote->draw_pixel(fb,sx+2,sy+(fl?-2:0),w);
-            mote->draw_pixel(fb,sx,sy-2,MOTE_RGB565(255,80,80)); break; }
-        case 1:{ /* SPITTER: rooted maw on a stem */
-            mote->draw_pixel(fb,sx,sy+1,MOTE_RGB565(50,110,40));
-            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(80,160,60));
-            mote->draw_rect(fb,sx-1,sy-2,3,2,MOTE_RGB565(150,60,190),1,0,128);
-            mote->draw_pixel(fb,sx,sy-1,en->atk_t<0.3f?MOTE_RGB565(180,255,90):MOTE_RGB565(90,30,120));
-            break; }
-        case 2:{ /* SLIME: squashy hopper */
-            int air=(en->vy<-15||en->vy>25);
-            uint16_t g=MOTE_RGB565(90,205,70);
-            if(en->size==0){ mote->draw_rect(fb,sx,sy,2,2,g,1,0,128);
-                mote->draw_pixel(fb,sx,sy,MOTE_RGB565(170,255,150)); break; }
-            if(air) mote->draw_rect(fb,sx-1,sy-1,2,3,g,1,0,128);
-            else    mote->draw_rect(fb,sx-2,sy,4,2,g,1,0,128);
-            mote->draw_pixel(fb,sx-1,sy-(air?1:0),MOTE_RGB565(170,255,150));
-            mote->draw_pixel(fb,sx+(air?0:1),sy,MOTE_RGB565(20,60,20)); break; }
-        case 3:{ /* WISP: living ember with an orbiting spark */
-            uint16_t c=fire_lut[235];
-            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(255,255,220));
-            for(int k=0;k<4;k++){ static const int8_t o[4][2]={{1,0},{-1,0},{0,1},{0,-1}};
-                int xx=sx+o[k][0],yy=sy+o[k][1];
-                if((unsigned)xx<128u&&(unsigned)yy<128u) fb[yy*128+xx]=lerp565(fb[yy*128+xx],c,0.6f); }
-            int ox=(int)(cosf(t*7)*2.5f), oy=(int)(sinf(t*7)*2.5f);
-            mote->draw_pixel(fb,sx+ox,sy+oy,fire_lut[210]); break; }
-        case 4:{ /* CRYSTAL: glinting shard-beast */
-            uint16_t c1=MOTE_RGB565(140,190,235), c2=MOTE_RGB565(205,235,255);
-            mote->draw_pixel(fb,sx,sy-1,c2);
-            mote->draw_pixel(fb,sx-1,sy,c1); mote->draw_pixel(fb,sx,sy,c2); mote->draw_pixel(fb,sx+1,sy,c1);
-            mote->draw_pixel(fb,sx-1,sy+1,MOTE_RGB565(60,90,130)); mote->draw_pixel(fb,sx+1,sy+1,MOTE_RGB565(60,90,130));
-            if((framestep&15)<2) mote->draw_pixel(fb,sx,sy-1,MOTE_RGB565(255,255,255)); break; }
-        case 5:{ /* GHOST: translucent, wavy hem, fades in and out */
-            float a=0.30f+0.28f*sinf(t*2.6f);
-            uint16_t c=MOTE_RGB565(210,215,235);
-            for(int yy=-2;yy<=1;yy++)for(int xx=-1;xx<=1;xx++){
-                int px=sx+xx, py=sy+yy+((yy==1&&((xx+(int)(t*6))&1))?1:0);
-                if((unsigned)px<128u&&(unsigned)py<128u)
-                    fb[py*128+px]=lerp565(fb[py*128+px],c,a); }
-            mote->draw_pixel(fb,sx-1,sy-1,MOTE_RGB565(40,50,90));
-            mote->draw_pixel(fb,sx+1,sy-1,MOTE_RGB565(40,50,90)); break; }
-        case 6:{ draw_magmaw(fb,sx,sy); break; }        /* molten golem, churning core */
-        case 7:{ /* DEVOURER: void sphere, violet ring + eye, orbiting motes */
-            mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
-            mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(120,60,185),0,0,128);
-            mote->draw_circle(fb,sx,sy,3,MOTE_RGB565(70,30,120),1,0,128);
-            mote->draw_pixel(fb,sx,sy,MOTE_RGB565(235,195,255));
-            for(int k=0;k<3;k++){ float a=t*4+k*2.09f; int ox=(int)(cosf(a)*9),oy=(int)(sinf(a)*9);
-                mote->draw_pixel(fb,sx+ox,sy+oy,MOTE_RGB565(185,120,245)); } break; }
-        case 8:{ /* CAVE WYRM: trailing body from the head's history */
-            int e2=(int)(en-enemy), cyoff=(int)en->y-sy;
-            uint16_t g=MOTE_RGB565(118,158,88),gd=MOTE_RGB565(70,104,52),hl=MOTE_RGB565(170,210,120);
-            for(int s=WHIST-3;s>=3;s-=3){ int hi=(whpos[e2]-s+WHIST*2)%WHIST;
-                int bx=(int)whist[e2][hi][0], by=(int)whist[e2][hi][1]-cyoff;
-                if((unsigned)bx>=128u||(unsigned)by>=128u)continue;
-                mote->draw_circle(fb,bx,by,(s<=6)?2:1,g,1,0,128); mote->draw_pixel(fb,bx,by-1,hl); }
-            mote->draw_circle(fb,sx,sy,3,g,1,0,128); mote->draw_circle(fb,sx,sy,3,gd,0,0,128);
-            int fd=en->vx>=0?1:-1;                        /* head faces its heading */
-            mote->draw_pixel(fb,sx+fd,sy-1,MOTE_RGB565(255,220,80)); mote->draw_pixel(fb,sx+fd,sy+1,MOTE_RGB565(255,220,80));
-            mote->draw_pixel(fb,sx+fd*3,sy,MOTE_RGB565(70,110,50));           /* snout */
-            mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215));       /* fangs */
-            mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
-            break; }
-        case 9:{ draw_brood(fb,sx,sy,en); break; }       /* wobbling slime queen */
+    float t=en->t; int ty=en->type;
+    if(ty==7){ /* DEVOURER: void sphere, violet ring + eye, orbiting motes (procedural) */
+        mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(26,15,42),1,0,128);
+        mote->draw_circle(fb,sx,sy,7,MOTE_RGB565(120,60,185),0,0,128);
+        mote->draw_circle(fb,sx,sy,3,MOTE_RGB565(70,30,120),1,0,128);
+        mote->draw_pixel(fb,sx,sy,MOTE_RGB565(235,195,255));
+        for(int k=0;k<3;k++){ float a=t*4+k*2.09f; int ox=(int)(cosf(a)*9),oy=(int)(sinf(a)*9);
+            mote->draw_pixel(fb,sx+ox,sy+oy,MOTE_RGB565(185,120,245)); }
+        return; }
+    if(ty==8){ /* CAVE WYRM: trailing body from the head's history (procedural) */
+        int e2=(int)(en-enemy), cyoff=(int)en->y-sy;
+        uint16_t g=MOTE_RGB565(118,158,88),gd=MOTE_RGB565(70,104,52),hl=MOTE_RGB565(170,210,120);
+        for(int s=WHIST-3;s>=3;s-=3){ int hi=(whpos[e2]-s+WHIST*2)%WHIST;
+            int bx=(int)whist[e2][hi][0], by=(int)whist[e2][hi][1]-cyoff;
+            if((unsigned)bx>=128u||(unsigned)by>=128u)continue;
+            mote->draw_circle(fb,bx,by,(s<=6)?2:1,g,1,0,128); mote->draw_pixel(fb,bx,by-1,hl); }
+        mote->draw_circle(fb,sx,sy,3,g,1,0,128); mote->draw_circle(fb,sx,sy,3,gd,0,0,128);
+        int fd=en->vx>=0?1:-1;
+        mote->draw_pixel(fb,sx+fd,sy-1,MOTE_RGB565(255,220,80)); mote->draw_pixel(fb,sx+fd,sy+1,MOTE_RGB565(255,220,80));
+        mote->draw_pixel(fb,sx+fd*3,sy,MOTE_RGB565(70,110,50));
+        mote->draw_pixel(fb,sx+fd*3,sy-1,MOTE_RGB565(235,235,215)); mote->draw_pixel(fb,sx+fd*3,sy+1,MOTE_RGB565(235,235,215));
+        return; }
+    static const int8_t rowmap[10]={0,1,2,3,4,5,6,-1,-1,7};   /* type -> sheet row */
+    int row=rowmap[ty]; if(row<0)return;
+    int fr;
+    switch(ty){
+        case 0: fr=(framestep>>2)&3; break;              /* bat flap */
+        case 1: fr=(en->atk_t<0.4f)?1:0; break;          /* spitter mouth */
+        case 3: fr=(framestep/3)&3; break;               /* wisp orbit */
+        case 4: fr=(framestep>>3)&3; break;              /* crystal glint */
+        default:fr=((int)(en->t*6.0f))&3; break;         /* slime/ghost/magmaw/brood cycle */
     }
+    float sc=(ty==2&&en->size==0)?0.55f:1.0f;            /* baby slimes are small */
+    mote->blit_ex(fb,&mobs_img,sx,sy,fr*16,row*16,16,16,0.0f,sc,MOTE_BLEND_NONE,0,128);
 }
 /* a wand lying in the world: its own little sprite inside a rotating starburst */
 static void draw_world_wand(uint16_t*fb,int sx,int sy,const Pickup*p){
