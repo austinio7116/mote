@@ -1873,12 +1873,20 @@ static uint16_t mat_col(uint8_t m,uint8_t h,int x,int y){
  * verdant grass & flowers up top, fungus in the mid caves, embers deep down.
  * returns 0 for bare air. */
 static uint16_t deco_at(int x,int wyy){
-    if(wyy<3||wyy>=WH-4) return 0;
-    /* fine strands drooping from an overhang above (moss / fungal roots) */
-    int hu = IS_SOLID(mat[(wyy-1)*WW+x])?1 : IS_SOLID(mat[(wyy-2)*WW+x])?2 : IS_SOLID(mat[(wyy-3)*WW+x])?3 : 0;
-    if(hu){ uint32_t h=hh2(x*2+1,9);
-        if(cur_biome==0 && (h%6)==0){ int L=1+((h>>3)&3); if(hu<=L) return (hu==L)?MOTE_RGB565(84,140,64):MOTE_RGB565(58,98,46); }
-        else if(cur_biome==1 && (h%7)==0){ int L=1+((h>>3)&2); if(hu<=L) return MOTE_RGB565(120,110,142); }
+    if(wyy<3||wyy>=WH-5) return 0;
+    int hu=0; for(int u=1;u<=6;u++){ if(IS_SOLID(mat[(wyy-u)*WW+x])){ hu=u; break; } }  /* depth under an overhang */
+    if(hu && cur_biome!=2){
+        /* parabolic vine arches draped under the overhang — a thin hanging curve */
+        int P=20, b=(x>=0?x:x-P+1)/P; uint32_t ah=hh2(b*13+(wyy/24)*7,41);
+        if((ah%3)==0){ int span=10+((ah>>2)&7), ax0=b*P+((ah>>5)&3), mid=ax0+span/2;
+            if(x>=ax0 && x<=ax0+span){ int D=2+((ah>>7)&3);
+                float r=(float)(x-mid)/(span*0.5f+0.01f); int dip=1+(int)(D*(1.0f-r*r));
+                if(hu==dip) return (cur_biome==0)?MOTE_RGB565(80,150,66):MOTE_RGB565(112,120,142);
+                if(hu==dip+1 && (x==mid||x==mid-1)) return (cur_biome==0)?MOTE_RGB565(120,190,90):MOTE_RGB565(150,120,180); } } /* leaf at the low point */
+        /* a few fine straight strands too */
+        uint32_t h=hh2(x*2+1,9);
+        if(cur_biome==0 && (h%7)==0){ int L=1+((h>>3)&2); if(hu<=L) return (hu==L)?MOTE_RGB565(84,140,64):MOTE_RGB565(58,98,46); }
+        else if(cur_biome==1 && (h%9)==0 && hu<=2) return MOTE_RGB565(118,108,140);
     }
     /* the odd flower poking up from a mossy floor (verdant only, rare) */
     if(cur_biome==0 && IS_SOLID(mat[(wyy+1)*WW+x])){ uint32_t h=hh2(x*3+5,2);
