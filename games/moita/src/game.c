@@ -136,6 +136,10 @@ static Proj proj[MAXPROJ]; static int nproj=0;
 #define MAXPART 200
 typedef struct { float x,y,vx,vy,life,max; uint16_t col; uint8_t add; } Part;
 static Part part[MAXPART]; static int npart=0;
+/* animated explosions: flash -> expanding fireball + shockwave -> smoke */
+#define MAXBOOM 16
+typedef struct { float x,y,age,dur; int maxr; uint8_t fire; } Boom;
+static Boom boom[MAXBOOM]; static int nboom=0;
 
 /* enemies */
 #define MAXENEMY 28
@@ -615,27 +619,49 @@ static void sfx_at(const MoteSfx*s,float gain,float wy_world){
 /* ======================================================== projectiles === */
 static void explode(float fx,float fy,int r,int fire){
     int cx=(int)fx,cy=(int)fy;
-    for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){
+    for(int y=-r;y<=r;y++)for(int x=-r;x<=r;x++){       /* the blast clears terrain at once */
         if(x*x+y*y>r*r)continue; int wxp=cx+x,wyp=cy+y; if(!inb(wxp,wyp))continue;
-        int i=wyp*WW+wxp; uint8_t mm=mat[i]; float d2=(float)(x*x+y*y);
+        int i=wyp*WW+wxp; uint8_t mm=mat[i];
         if(IS_SOLID(mm)||IS_FLUID(mm)){ mat[i]=M_EMPTY; heat[i]=0; }
-        /* a fiery blast fills its heart with flame, thinning to embers at the rim */
-        if(fire && mat[i]==M_EMPTY && d2 < r*r*(0.35f+0.4f*rndf())){ mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
     }
-    /* bright central flash */
-    for(int k=0;k<10;k++) spawn_part(fx+rr(-1.5f,1.5f),fy+rr(-1.5f,1.5f),rr(-25,25),rr(-25,25),
-        0.10f+rndf()*0.12f,MOTE_RGB565(255,250,225),1);
-    /* radial shrapnel — flies OUTWARD from the centre, fast and hot (scales with r) */
-    int ns=16+r*3;
-    for(int k=0;k<ns;k++){ float a=rndf()*6.2832f, sp=45+rndf()*(r*16.0f);
-        spawn_part(fx,fy,cosf(a)*sp,sinf(a)*sp-18,0.28f+rndf()*0.4f,
+    /* debris flung outward from the centre, fast and hot */
+    int ns=14+r*3;
+    for(int k=0;k<ns;k++){ float a=rndf()*6.2832f, sp=55+rndf()*(r*18.0f);
+        spawn_part(fx,fy,cosf(a)*sp,sinf(a)*sp-18,0.28f+rndf()*0.45f,
                    fire?fire_lut[172+(rnd()&83)]:MOTE_RGB565(255,235,190),1); }
-    /* smoke puffs rising off the blast */
-    for(int k=0;k<5+r;k++) spawn_part(fx+rr(-3,3),fy+rr(-2,2),rr(-12,12),-22-rndf()*22,
-        0.9f+rndf()*0.7f,MOTE_RGB565(98,86,80),1);
     for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-fx,dy=enemy[e].y-fy;
         if(dx*dx+dy*dy < (r+2)*(r+2)) enemy[e].hp-=24; }
+    /* the fireball, shockwave and smoke play out over the next fraction of a second */
+    if(nboom<MAXBOOM){ boom[nboom].x=fx; boom[nboom].y=fy; boom[nboom].age=0;
+        boom[nboom].dur=0.26f; boom[nboom].maxr=r; boom[nboom].fire=(uint8_t)fire; nboom++; }
     sfx_at(r>=7?&boom_big_sfx:&boom_small_sfx, 0.7f, fy);
+}
+static void tick_booms(float dt){
+    for(int b=0;b<nboom;){
+        Boom*bo=&boom[b]; float p0=bo->age/bo->dur; bo->age+=dt;
+        float p=bo->age/bo->dur; if(p>1)p=1;
+        int cx=(int)bo->x, cy=(int)bo->y;
+        /* fireball blooms outward from the core with a roiling, noisy edge */
+        if(bo->fire){ float fr=p*bo->maxr; int ri=(int)fr+1;
+            for(int y=-ri;y<=ri;y++)for(int x=-ri;x<=ri;x++){
+                float edge=fr-(float)(rnd()&3); if(edge<0)continue;
+                if((float)(x*x+y*y)>edge*edge)continue; int wxp=cx+x,wyp=cy+y; if(!inb(wxp,wyp))continue;
+                int i=wyp*WW+wxp; if(mat[i]==M_EMPTY||ignitable(mat[i])){ mat[i]=M_FIRE; heat[i]=(uint8_t)(FIRE_HOT+(rnd()&30)); } } }
+        /* expanding shockwave ring of bright sparks */
+        float sr=p*bo->maxr*1.3f; int nring=6+bo->maxr;
+        for(int k=0;k<nring;k++){ float a=rndf()*6.2832f;
+            spawn_part(bo->x+cosf(a)*sr, bo->y+sinf(a)*sr, cosf(a)*34, sinf(a)*34,
+                       0.12f+rndf()*0.1f, bo->fire?fire_lut[208+(rnd()&47)]:MOTE_RGB565(228,234,255),1); }
+        /* white-hot core flash, only at the very start */
+        if(p<0.4f) for(int k=0;k<7;k++) spawn_part(bo->x+rr(-2,2),bo->y+rr(-2,2),rr(-16,16),rr(-16,16),
+                        0.07f+rndf()*0.06f,MOTE_RGB565(255,252,238),1);
+        /* then it rolls up into rising smoke */
+        if(p0<0.55f && p>=0.55f) for(int k=0;k<4+bo->maxr;k++)
+            spawn_part(bo->x+rr(-3,3),bo->y+rr(-2,2),rr(-14,14),-24-rndf()*22,
+                       1.0f+rndf()*0.8f,MOTE_RGB565(98,86,80),1);
+        if(bo->age>=bo->dur){ boom[b]=boom[--nboom]; continue; }
+        b++;
+    }
 }
 static void grow_vine(int gx,int gy){
     /* living wood: 3 wobbly shoots reach upward from the impact point */
@@ -1060,7 +1086,7 @@ static void gen_level(void){
 
     /* pre-settle all fluids, then purge anything still airborne so frame 0 is
      * completely still — no falling streams, no stripes collecting at the bottom */
-    settling=1; for(int s=0;s<70;s++) ca_step(); settling=0; npart=0;
+    settling=1; for(int s=0;s<70;s++) ca_step(); settling=0; npart=0; nboom=0;
     for(int y=WH-3;y>=2;y--)for(int x=2;x<WW-2;x++){ int i=y*WW+x;
         if(IS_FLUID(mat[i]) && mat[i+WW]==M_EMPTY){ mat[i]=M_EMPTY; heat[i]=0; } }
     if(getenv("MOITA_DUNK")){    /* test hook: flood the spawn chamber */
@@ -1337,7 +1363,7 @@ static void g_init(void){
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
     while(sim_acc>=(1.0f/45.0f)&&n<3){ ca_step(); sim_acc-=1.0f/45.0f; n++; }
-    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_enemies(dt); tick_coins(dt);
+    tick_parts(dt); tick_proj(dt); tick_echo(dt); tick_booms(dt); tick_enemies(dt); tick_coins(dt);
 }
 static void g_update(float dt){
     if(dt>0.05f)dt=0.05f; const MoteInput*in=mote->input(); state_t+=dt;
