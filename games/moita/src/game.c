@@ -1297,13 +1297,15 @@ static void gen_level(void){
      * chamber floor and fill it with liquid, so it rests as a settled pool from the
      * start (surrounded by solid — it never scatters). --- */
     int npool=13+level*2;
+    float lavaP=clampf((level-1)*0.06f,0,0.62f);       /* the deeper you go, the more molten */
     for(int k=0,made=0; k<npool*3 && made<npool; k++){ int i=rand_open(28,WH-16,1); if(i<0)continue;
         int cx=i%WW, cy=i/WW;                          /* cy open, cy+1 is the floor */
         uint8_t fluid; float rp=rndf();
-        if(biome==0) fluid=rp<0.80f?M_WATER:M_OIL;
-        else if(biome==1) fluid=rp<0.5f?M_OIL:(rp<0.85f?M_WATER:M_ACID);
-        else fluid=rp<0.45f?M_LAVA:(rp<0.8f?M_ACID:M_WATER);
-        int pr=6+rnd()%7;                              /* big pools */
+        if(rp<lavaP) fluid=M_LAVA;                     /* lava creeps in with depth, all biomes */
+        else if(biome==0) fluid=rndf()<0.78f?M_WATER:M_OIL;
+        else if(biome==1) fluid=rndf()<0.5f?M_OIL:(rndf()<0.7f?M_WATER:M_ACID);
+        else fluid=rndf()<0.5f?M_ACID:M_WATER;
+        int pr=6+rnd()%7; if(fluid==M_LAVA) pr+=level/2;  /* lava lakes grow deeper down */
         /* the bowl's shell (the ring just outside the fill) must be solid all the
          * way round — a bowl that clips another cave would drain through it, so
          * skip leaky spots instead of spilling */
