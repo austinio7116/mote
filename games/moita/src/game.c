@@ -67,6 +67,7 @@ enum { M_EMPTY=0, M_ROCK, M_DIRT, M_SAND, M_WOOD, M_OBSID,
 #define IS_SOLID(m)  ((m)==M_ROCK||(m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
 #define IS_FLUID(m)  ((m)==M_WATER||(m)==M_OIL||(m)==M_ACID||(m)==M_LAVA||(m)==M_BLOOD)
 #define DIGGABLE(m)  ((m)==M_DIRT||(m)==M_SAND||(m)==M_WOOD||(m)==M_OBSID||(m)==M_ICE)
+#define FIRE_HOT 190           /* ignite heat: fire renders bright, then decays down */
 
 enum { SP_NONE=0,
        /* projectiles */
@@ -177,8 +178,8 @@ static void build_luts(void){
         {170,MOTE_RGB565(255,140,30)},{220,MOTE_RGB565(255,200,90)},{255,MOTE_RGB565(255,245,200)}};
     for(int h=0;h<256;h++){int s=0;while(s<3&&h>lk[s+1].at)s++;int a=lk[s].at,b=lk[s+1].at;
         float t=(b>a)?(float)(h-a)/(b-a):0; lava_lut[h]=lerp565(lk[s].c,lk[s+1].c,t);}
-    struct{int at;uint16_t c;} fk[]={{0,MOTE_RGB565(90,10,0)},{90,MOTE_RGB565(230,60,0)},
-        {160,MOTE_RGB565(255,140,20)},{220,MOTE_RGB565(255,210,80)},{255,MOTE_RGB565(255,250,210)}};
+    struct{int at;uint16_t c;} fk[]={{0,MOTE_RGB565(70,8,0)},{75,MOTE_RGB565(210,45,0)},
+        {140,MOTE_RGB565(255,110,18)},{205,MOTE_RGB565(255,190,70)},{255,MOTE_RGB565(255,250,222)}};
     for(int h=0;h<256;h++){int s=0;while(s<3&&h>fk[s+1].at)s++;int a=fk[s].at,b=fk[s+1].at;
         float t=(b>a)?(float)(h-a)/(b-a):0; fire_lut[h]=lerp565(fk[s].c,fk[s+1].c,t);}
 }
@@ -279,7 +280,7 @@ static void ca_step(void){
                 }
                 continue;
             }
-            if(m==M_FIRE||m==M_STEAM){
+            if(m==M_STEAM){    /* only steam/smoke drifts up; fire clings to its fuel */
                 int u=i-WW; if(air(u)){mat[u]=m;heat[u]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[u]=1;continue;}
                 int ul=u-1,ur=u+1,d1=dir?ur:ul,d2=dir?ul:ur;
                 if(air(d1)){mat[d1]=m;heat[d1]=heat[i];mat[i]=M_EMPTY;heat[i]=0;moved[d1]=1;continue;}
@@ -296,20 +297,24 @@ static void ca_step(void){
                 int wn=mat[L]==M_WATER?L:mat[R]==M_WATER?R:mat[U]==M_WATER?U:D;
                 mat[wn]=M_STEAM; heat[wn]=40; mat[i]=M_OBSID; heat[i]=180; continue;
             }
-            if(ignitable(mat[L])){mat[L]=M_FIRE;heat[L]=70;}
-            if(ignitable(mat[R])){mat[R]=M_FIRE;heat[R]=70;}
-            if(ignitable(mat[U])){mat[U]=M_FIRE;heat[U]=70;}
-            if(ignitable(mat[D])){mat[D]=M_FIRE;heat[D]=70;}
+            if(ignitable(mat[L])){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}
+            if(ignitable(mat[R])){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
+            if(ignitable(mat[U])){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
+            if(ignitable(mat[D])){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
             /* Noita lava never hardens on its own — heat floors at molten-glow */
             int t=heat[i]-((mat[i-WW]==M_LAVA)?0:1); if(t<110)t=110; heat[i]=(uint8_t)t;
         } else if(m==M_FIRE){
             int L=i-1,R=i+1,U=i-WW,D=i+WW;
             if(mat[L]==M_WATER||mat[R]==M_WATER||mat[U]==M_WATER||mat[D]==M_WATER){ mat[i]=M_STEAM; heat[i]=40; continue; }
-            if(ignitable(mat[L])&&(rnd()&3)==0){mat[L]=M_FIRE;heat[L]=70;}
-            if(ignitable(mat[R])&&(rnd()&3)==0){mat[R]=M_FIRE;heat[R]=70;}
-            if(ignitable(mat[U])&&(rnd()&3)==0){mat[U]=M_FIRE;heat[U]=70;}
-            if(ignitable(mat[D])&&(rnd()&3)==0){mat[D]=M_FIRE;heat[D]=70;}
-            if(heat[i]<=2){ mat[i]=(rnd()&3)?M_EMPTY:M_STEAM; heat[i]=30; } else heat[i]-=2;
+            if(ignitable(mat[L])&&(rnd()&3)==0){mat[L]=M_FIRE;heat[L]=FIRE_HOT;}
+            if(ignitable(mat[R])&&(rnd()&3)==0){mat[R]=M_FIRE;heat[R]=FIRE_HOT;}
+            if(ignitable(mat[U])&&(rnd()&3)==0){mat[U]=M_FIRE;heat[U]=FIRE_HOT;}
+            if(ignitable(mat[D])&&(rnd()&3)==0){mat[D]=M_FIRE;heat[D]=FIRE_HOT;}
+            int onfuel = ignitable(mat[L])||ignitable(mat[R])||ignitable(mat[U])||ignitable(mat[D]);
+            /* flames lick upward into open air — cooler tongues that flicker & die */
+            if(mat[U]==M_EMPTY && heat[i]>90 && (rnd()&3)==0){ mat[U]=M_FIRE; heat[U]=(uint8_t)(heat[i]-80); }
+            int dec = onfuel?2:6;                       /* bare fire burns out fast; fuel keeps it lit */
+            if(heat[i]<=dec){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]-=dec;
         } else if(m==M_STEAM){
             if(heat[i]<=1){ mat[i]=M_EMPTY; heat[i]=0; } else heat[i]--;
         } else if(m==M_ACID){
@@ -326,11 +331,19 @@ static void ca_step(void){
                 mat[i]=M_WATER; heat[i]=0; }
         }
     }
-    if(!settling && (framestep&1)==0) for(int k=0;k<26;k++){
+    if(!settling && (framestep&1)==0) for(int k=0;k<34;k++){
         int i=WW+(int)(rnd()%(WN-2*WW)); uint8_t m=mat[i];
-        if((m==M_FIRE||(m==M_LAVA&&heat[i]>150)) && mat[i-WW]==M_EMPTY){
-            spawn_part(i%WW+0.5f,i/WW-0.5f,rr(-8,8),-20-rndf()*20,0.4f+rndf()*0.4f,
-                       m==M_FIRE?fire_lut[200]:lava_lut[220],1);
+        if(mat[i-WW]!=M_EMPTY) continue;               /* only vent upward from a surface */
+        float px=i%WW+0.5f, py=i/WW-0.5f;
+        if(m==M_FIRE){
+            int r=rnd()&7;
+            if(r<2)                                     /* bright ember spark, fast + short */
+                spawn_part(px,py,rr(-7,7),-32-rndf()*24,0.25f+rndf()*0.2f,fire_lut[224+(rnd()&31)],1);
+            else if(r<5)                                /* smoke: warm dim grey, slow rise, fades */
+                spawn_part(px+rr(-1,1),py-1,rr(-4,4),-13-rndf()*10,0.8f+rndf()*0.7f,
+                           MOTE_RGB565(98,86,80),1);
+        } else if(m==M_LAVA && heat[i]>150){
+            spawn_part(px,py,rr(-8,8),-20-rndf()*20,0.4f+rndf()*0.4f,lava_lut[220],1);
         }
     }
 }
@@ -595,7 +608,7 @@ static void explode(float fx,float fy,int r,int fire){
         if(x*x+y*y>r*r)continue; int wxp=cx+x,wyp=cy+y; if(!inb(wxp,wyp))continue;
         int i=wyp*WW+wxp; uint8_t mm=mat[i];
         if(IS_SOLID(mm)||IS_FLUID(mm)){ mat[i]=M_EMPTY; heat[i]=0; }
-        if(fire && (rnd()&2)==0 && mat[i]==M_EMPTY){ mat[i]=M_FIRE; heat[i]=60; }
+        if(fire && (rnd()&2)==0 && mat[i]==M_EMPTY){ mat[i]=M_FIRE; heat[i]=FIRE_HOT; }
     }
     for(int k=0;k<20;k++) spawn_part(fx,fy,rr(-90,90),rr(-90,60),rr(0.3f,0.7f),fire_lut[rnd()&255],1);
     for(int e=0;e<nenemy;e++) if(enemy[e].alive){ float dx=enemy[e].x-fx,dy=enemy[e].y-fy;
@@ -629,7 +642,7 @@ static void cast_zap(float px,float py,float ang,Mods*m){
         uint8_t mm=mat[iy*WW+ix];
         if(IS_SOLID(mm)){
             if(m->boom) explode(x,y,5,1);
-            if(ignitable(mm)){ mat[iy*WW+ix]=M_FIRE; heat[iy*WW+ix]=70; }
+            if(ignitable(mm)){ mat[iy*WW+ix]=M_FIRE; heat[iy*WW+ix]=FIRE_HOT; }
             for(int k=0;k<5;k++) spawn_part(x,y,rr(-40,40),rr(-40,10),0.2f,MOTE_RGB565(220,240,255),1);
             break; }
     }
@@ -664,7 +677,7 @@ static uint16_t proj_col(int type,float f){
 static void proj_impact(Proj*p){
     int cx=(int)p->x,cy=(int)p->y;
     switch(p->type){
-        case SP_FIRE: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_FIRE;heat[i]=60;}} break;
+        case SP_FIRE: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&(mat[i]==M_EMPTY||ignitable(mat[i]))){mat[i]=M_FIRE;heat[i]=FIRE_HOT;}} break;
         case SP_WATER: for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_WATER;} break;
         case SP_ACID:  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&mat[i]==M_EMPTY)mat[i]=M_ACID;} break;
         case SP_DIG:   for(int y=-3;y<=3;y++)for(int x=-3;x<=3;x++){ if(x*x+y*y>9)continue; int i=(cy+y)*WW+cx+x; if(inb(cx+x,cy+y)&&DIGGABLE(mat[i]))mat[i]=M_EMPTY;} break;
@@ -768,7 +781,7 @@ static void tick_proj(float dt){
         if(outcome==2){ i++; continue; }        /* bounced / chained: hold here */
         if(p->trail){                                   /* modifier trails */
             int tx=(int)p->x,ty=(int)p->y;
-            if((p->trail&1)&&(rnd()&7)==0&&inb(tx,ty)&&mat[ty*WW+tx]==M_EMPTY){ mat[ty*WW+tx]=M_FIRE; heat[ty*WW+tx]=36; }
+            if((p->trail&1)&&(rnd()&7)==0&&inb(tx,ty)&&mat[ty*WW+tx]==M_EMPTY){ mat[ty*WW+tx]=M_FIRE; heat[ty*WW+tx]=130; }
             if(p->trail&2) spawn_part(p->x+rr(-1,1),p->y+rr(-1,1),rr(-12,12),rr(-12,12),0.3f,
                                       (rnd()&1)?MOTE_RGB565(255,240,170):MOTE_RGB565(255,255,255),1);
             if((p->trail&4)&&(rnd()&15)==0&&inb(tx,ty+1)&&mat[(ty+1)*WW+tx]==M_EMPTY) mat[(ty+1)*WW+tx]=M_ACID;
@@ -790,7 +803,7 @@ static void enemy_die(Enemy*en){
         for(int k=0;k<16;k++) spawn_part(en->x,en->y,rr(-80,80),rr(-90,30),rr(0.3f,0.7f),fire_lut[180+(rnd()&63)],1);
         int ix=(int)en->x,iy=(int)en->y;
         for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++) if(inb(ix+x,iy+y)&&mat[(iy+y)*WW+ix+x]==M_EMPTY){
-            mat[(iy+y)*WW+ix+x]=M_FIRE; heat[(iy+y)*WW+ix+x]=55; }
+            mat[(iy+y)*WW+ix+x]=M_FIRE; heat[(iy+y)*WW+ix+x]=150; }
     } else if(en->type==2 && en->size>0 && nenemy<MAXENEMY-1){   /* slime splits */
         for(int k=0;k<2;k++){ Enemy*c=&enemy[nenemy++]; *c=(Enemy){0};
             c->x=en->x+rr(-2,2); c->y=en->y-2; c->vx=rr(-40,40); c->vy=-50;
@@ -858,7 +871,7 @@ static void tick_enemies(float dt){
             hp-=dmg; hurt_t=en->type==5?0.5f:0.9f; wvx+=(dx<0?70:-70); wvy-=45;
             if(mote->abi_version>=37) mote->audio_play_sfx(&hurt_sfx,0.7f);
             if(en->type==3){ int ix=(int)pcx,iy=(int)pcy;   /* wisp singes */
-                if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=45; } } }
+                if(inb(ix,iy-1)&&mat[(iy-1)*WW+ix]==M_EMPTY){ mat[(iy-1)*WW+ix]=M_FIRE; heat[(iy-1)*WW+ix]=130; } } }
         int ix=(int)en->x,iy=(int)en->y;
         if(inb(ix,iy) && en->type!=3){ uint8_t mm=mat[iy*WW+ix]; if(mm==M_FIRE||mm==M_LAVA) en->hp-=2; }
     }
@@ -1289,6 +1302,14 @@ static void g_init(void){
         int after=0; for(int y=48;y<52;y++) after+=(mat[y*WW+wallx]==M_DIRT)+(mat[y*WW+wallx+1]==M_DIRT);
         fprintf(stderr,"MOITA_SWEEP_TEST wall_before=%d wall_after=%d breached=%d\n",before,after,after<before);
     }
+    if(getenv("MOITA_FIRE_TEST")){     /* lay an oil+wood shelf and set one end alight */
+        for(int y=30;y<96;y++)for(int x=6;x<122;x++) if(!IS_SOLID(mat[y*WW+x])) mat[y*WW+x]=M_EMPTY;
+        for(int x=20;x<108;x++){ mat[70*WW+x]=M_WOOD; mat[71*WW+x]=M_WOOD; mat[72*WW+x]=M_ROCK; }
+        for(int x=30;x<70;x++)for(int y=66;y<70;y++) mat[y*WW+x]=M_OIL;
+        for(int y=64;y<70;y++){ mat[y*WW+22]=M_FIRE; heat[y*WW+22]=FIRE_HOT; }
+        wx=100; wy=56; wvx=wvy=0; state=ST_PLAY;
+        cam_y=clampf(66-VIEWH*0.5f,0,WH-VIEWH);
+    }
 }
 static void step_sim(float dt){
     sim_acc+=dt; int n=0;
@@ -1378,7 +1399,8 @@ static void render_band(uint16_t*fb,int y0,int y1){
         for(int x=0;x<WW;x++){
             uint8_t m=mr[x];
             if(m==M_LAVA){ fr[x]=lava_lut[hr[x]]; continue; }        /* emissive */
-            if(m==M_FIRE){ fr[x]=fire_lut[hr[x]<255?hr[x]:255]; continue; }
+            if(m==M_FIRE){ int fl=(int)(hh2(x*7+framestep,wyy*3+framestep)&31)-13;  /* live flicker */
+                int fh=hr[x]+fl; if(fh<0)fh=0; else if(fh>255)fh=255; fr[x]=fire_lut[fh]; continue; }
             int lx=x>>1, lxn=lx+((x&1)?1:-1); if(lxn<0)lxn=0; if(lxn>=LW)lxn=LW-1;
             /* bilinear-filtered RGB light (3/4-1/4 taps across the half-res grid) */
             int LR=(9*R0[lx]+3*R0[lxn]+3*R1[lx]+R1[lxn])>>4;
