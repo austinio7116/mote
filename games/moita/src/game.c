@@ -1243,11 +1243,11 @@ static void tick_enemies(float dt){
                 break;
             case 9:  /* BROOD-MOTHER: lumbers in, births slimes, oozes constantly */
                 en->vx=clampf(en->vx+(dx<0?-10:10)*dt,-16,16); en->vy+=160*dt;
-                /* constantly weeps goo — dribbling droplets and pooling slime beneath */
-                spawn_part(en->x+rr(-6,6),en->y+rr(1,5),rr(-5,5),rr(4,26),0.4f+rndf()*0.5f,
-                           (rnd()&1)?MOTE_RGB565(96,205,72):MOTE_RGB565(66,150,48),0);
-                if((rnd()&3)==0){ int gx=(int)en->x+(int)(rnd()%11)-5, gy=(int)en->y+5;
-                    if(inb(gx,gy)&&mat[gy*WW+gx]==M_EMPTY){ mat[gy*WW+gx]=M_BLOOD; heat[gy*WW+gx]=1; } } /* green goo */
+                /* constantly weeps REAL acid — it dribbles from the belly, pools and eats the floor */
+                for(int k=0;k<2;k++){ int gx=(int)en->x+rr(-6,6), gy=(int)en->y+rr(3,7);
+                    if(inb(gx,gy)&&mat[gy*WW+gx]==M_EMPTY){ mat[gy*WW+gx]=M_ACID; heat[gy*WW+gx]=0; } }
+                if((rnd()&1)==0) spawn_part(en->x+rr(-6,6),en->y+rr(1,4),rr(-4,4),rr(12,30),0.35f,
+                           (rnd()&1)?MOTE_RGB565(150,255,90):MOTE_RGB565(96,196,50),0);  /* dribble sheen */
                 if(en->atk_t>2.0f && nenemy<MAXENEMY-1){ en->atk_t=0;   /* spawn a slime */
                     Enemy*c=&enemy[nenemy++]; *c=(Enemy){0}; c->x=en->x+rr(-4,4); c->y=en->y-3;
                     c->vx=rr(-40,40); c->vy=-60; c->alive=1; c->type=2; c->size=1; c->hpmax=c->hp=8; c->t=rndf()*3;
