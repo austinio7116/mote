@@ -40,10 +40,14 @@ SEC_CAT = {
 }
 
 def build():
-    # agent identifications (batches/out_*.json merged) override my earlier guesses
-    ai = {}
-    ap = os.path.join(os.path.dirname(os.path.abspath(__file__)), "labels_ai.json")
+    # agent identifications (batches/out_*.json merged) override my earlier guesses,
+    # and human corrections (apply_labels.py -> labels_human.json) override those.
+    here = os.path.dirname(os.path.abspath(__file__))
+    ai, human = {}, {}
+    ap = os.path.join(here, "labels_ai.json")
+    hp = os.path.join(here, "labels_human.json")
     if os.path.exists(ap): ai = json.load(open(ap))
+    if os.path.exists(hp): human = json.load(open(hp))
     tiles = []          # flat, in section order
     sections = []       # {title, blurb, ids:[...]}
     for (c0,r0,c1,r1,title,blurb,use,labeler) in gc.SECTIONS:
@@ -61,8 +65,14 @@ def build():
                 a = ai.get(f"{c},{r}")
                 if a:                              # prefer the agent label
                     cat = a.get("cat", cat); name = a.get("name") or name; conf = a.get("conf","")
+                rv = 0
+                hu = human.get(f"{c},{r}")
+                if hu:                             # a human decision outranks everything
+                    cat = hu.get("cat", cat); name = hu.get("name") or name
+                    conf = "user" if hu.get("by") == "user" else "propagated"
+                    rv = 1
                 ids.append(len(tiles))
-                tiles.append({"c":c,"r":r,"u":uri,"cat":cat,"name":name,"conf":conf})
+                tiles.append({"c":c,"r":r,"u":uri,"cat":cat,"name":name,"conf":conf,"rv":rv})
         if ids: sections.append({"t":title,"b":blurb,"ids":ids})
     # font glyphs individually (so they can be named too, but default font)
     fids=[]
@@ -71,7 +81,7 @@ def build():
         uri, ink = gc.tile_datauri(cc,rr)
         if not ink and i!=32: continue
         fids.append(len(tiles))
-        tiles.append({"c":cc,"r":rr,"u":uri,"cat":"font","name":f"CP437 #{i}" + (" (space)" if i==32 else ""),"conf":"high"})
+        tiles.append({"c":cc,"r":rr,"u":uri,"cat":"font","name":f"CP437 #{i}" + (" (space)" if i==32 else ""),"conf":"high","rv":0})
     if fids: sections.append({"t":"CP437 font","b":"256-glyph 8x8 CP437 font (codepoint = row*16 + col-48).","ids":fids})
 
     payload = {"cats":[[c[0],c[1],c[2],c[3]] for c in CATS],
@@ -140,6 +150,10 @@ section{margin-top:24px;scroll-margin-top:180px}
 .thumb img{width:74%;height:74%;object-fit:contain;image-rendering:pixelated}
 .meta{padding:5px 6px 7px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line)}
 .coord{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--gold-ink)}
+.bdg{font-weight:700;cursor:help}
+.bdg.user{color:var(--cyan)}
+.bdg.propagated{color:var(--gold)}
+.bdg.low{color:var(--torch)}
 .card select{width:100%;font-size:11px;padding:2px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
 .card input.nm{width:100%;font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
 .card input.nm:focus,.card select:focus{outline:2px solid var(--sel);outline-offset:-1px}
@@ -246,9 +260,16 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
 <details class="help" style="max-width:1250px;margin:10px auto;padding:0 16px">
  <summary style="cursor:pointer;padding:6px 0">How this works</summary>
  <p style="margin:4px 0 0">
- Every label is a <b>detailed identification pass by vision agents</b> (each studied one zoomed
- section). A <b style="color:var(--torch)">?</b> after a coordinate = <b>low confidence</b> &mdash;
- skim those first. Everything autosaves in your browser; hit <b>Export</b> when done.
+ Labels start as a <b>detailed identification pass by vision agents</b> (each studied one zoomed
+ section), with your own corrections layered on top. The mark after a coordinate says where a label
+ came from: <b style="color:var(--torch)">?</b> the agent was unsure &mdash; check these first;
+ <b style="color:var(--gold)">≈</b> carried over from a colour sibling you corrected;
+ <b style="color:var(--cyan)">✓</b> you named it. Everything autosaves in your browser; hit
+ <b>Export</b> when done.
+ </p>
+ <p style="margin:8px 0 0">
+ A few tiles sit in two overlapping subsheets and so appear on <b>two cards</b> (the editor tells you
+ when). Editing either one now updates both, so a stale twin can't overwrite your work on export.
  </p>
  <p style="margin:8px 0 0">
  <b>On a phone:</b> tap any sprite to open the editor. Tap a category to stamp it (that also marks it
@@ -296,14 +317,24 @@ const KEY="roguemote_annot_v1";
 const CATBY={}; APP.cats.forEach(c=>CATBY[c[0]]=c);
 const HOTKEY={}; APP.cats.forEach(c=>HOTKEY[c[2]]=c[0]);
 // state: per tile {cat,name,rev}. seed from APP.tiles then overlay saved.
-let ST = APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:false}));
+let ST = APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:!!t.rv}));
 try{const s=JSON.parse(localStorage.getItem(KEY)||"null");
  if(s&&s.length===ST.length) ST=s;}catch(e){}
 let anchor=0; const sel=new Set();
+// Overlapping subsheets (props x trinkets, grass x temple) show the SAME (c,r)
+// tile on two cards. Edits have to hit every card for a tile or the twin keeps
+// a stale label and silently wins on export.
+const TWINS={}; APP.tiles.forEach((t,i)=>{const k=t.c+','+t.r;(TWINS[k]=TWINS[k]||[]).push(i);});
+function withTwins(ids){const o=new Set();
+  ids.forEach(i=>TWINS[APP.tiles[i].c+','+APP.tiles[i].r].forEach(j=>o.add(j)));return [...o];}
 
 const main=document.getElementById('main');
 const cardEl=[]; // index -> element
 function catHue(id){return CATBY[id]?CATBY[id][3]:0;}
+// provenance marker: yours, carried to a colour sibling, or still a guess
+const BADGE={user:['✓','you named this'],propagated:['≈','carried over from a colour sibling — check it'],
+             low:['?','agent was unsure — check it first']};
+function badge(conf){const b=BADGE[conf];return b?` <span class="bdg ${conf}" title="${b[1]}">${b[0]}</span>`:'';}
 APP.sections.forEach((s,si)=>{
   const sec=document.createElement('section'); sec.id='s'+si;
   sec.innerHTML=`<div class="sh"><div><h2>${s.t}</h2><div class="b">${s.b}</div></div>
@@ -314,16 +345,15 @@ APP.sections.forEach((s,si)=>{
     const fig=document.createElement('figure'); fig.className='card'; fig.dataset.id=id;
     fig.style.setProperty('--h',catHue(st.cat));
     fig.innerHTML=`<div class="thumb"><img src="${t.u}" alt=""></div>
-      <div class="meta"><span class="coord">${t.c},${t.r}</span>
+      <div class="meta"><span class="coord">${t.c},${t.r}${badge(t.conf)}</span>
       <select class="catsel">${APP.cats.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('')}</select>
       <input class="nm" type="text" value=""></div>`;
-    if(t.conf==='low') fig.classList.add('q');
     g.appendChild(fig); cardEl[id]=fig;
     fig.querySelector('.catsel').value=st.cat;
     fig.querySelector('.nm').value=st.name;
     fig.querySelector('.thumb').addEventListener('mousedown',e=>{e.preventDefault();pick(id,e);});
     fig.querySelector('.catsel').addEventListener('change',e=>{setCat([id],e.target.value);});
-    fig.querySelector('.nm').addEventListener('input',e=>{ST[id].name=e.target.value;ST[id].rev=true;save();});
+    fig.querySelector('.nm').addEventListener('input',e=>{setName([id],e.target.value);});
     fig.querySelector('.nm').addEventListener('keydown',e=>{
       if(e.key==='Enter'){e.preventDefault();ST[id].rev=true;const nx=id+1;if(cardEl[nx]){pick(nx);cardEl[nx].querySelector('.nm').focus();}}
       if(e.key==='Escape'){e.target.blur();}
@@ -350,9 +380,14 @@ function pick(id,e){
   else {sel.clear();sel.add(id);anchor=id;}
   render();
 }
-function setCat(ids,cat){ids.forEach(i=>{ST[i].cat=cat;ST[i].rev=true;cardEl[i].style.setProperty('--h',catHue(cat));cardEl[i].querySelector('.catsel').value=cat;});save();render();toast(ids.length+' → '+CATBY[cat][1]);}
+function setCat(ids,cat){const n=ids.length;
+  withTwins(ids).forEach(i=>{ST[i].cat=cat;ST[i].rev=true;cardEl[i].style.setProperty('--h',catHue(cat));cardEl[i].querySelector('.catsel').value=cat;});
+  save();render();toast(n+' → '+CATBY[cat][1]);}
+function setName(ids,nm){withTwins(ids).forEach(i=>{ST[i].name=nm;ST[i].rev=true;
+  const el=cardEl[i].querySelector('.nm');           // don't fight the field being typed in
+  if(el!==document.activeElement) el.value=nm;});save();}
 function applyName(){const pat=document.getElementById('bulkname').value;const ids=selArr();if(!ids.length||!pat)return;
-  ids.forEach((i,k)=>{const nm=pat.replace('{i}',k+1);ST[i].name=nm;ST[i].rev=true;cardEl[i].querySelector('.nm').value=nm;});save();render();toast('named '+ids.length);}
+  ids.forEach((i,k)=>setName([i],pat.replace('{i}',k+1)));render();toast('named '+ids.length);}
 
 function render(){
   const only=document.getElementById('onlyunrev').checked;
@@ -420,8 +455,8 @@ document.getElementById('iook').onclick=()=>{try{const o=JSON.parse(document.get
   APP.tiles.forEach((t,i)=>{const k=by[t.c+','+t.r];if(k){ST[i].cat=k.cat;ST[i].name=k.name;ST[i].rev=k.rev;
     cardEl[i].querySelector('.catsel').value=k.cat;cardEl[i].querySelector('.nm').value=k.name;cardEl[i].style.setProperty('--h',catHue(k.cat));}});
   save();render();dlg.close();toast('imported');}catch(e){alert('Bad JSON: '+e.message);}};
-document.getElementById('reset').onclick=()=>{if(confirm('Discard all your edits and restore my original guesses?')){
-  ST=APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:false}));localStorage.removeItem(KEY);
+document.getElementById('reset').onclick=()=>{if(confirm('Discard edits made in this browser and go back to the labels baked into the page?')){
+  ST=APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:!!t.rv}));localStorage.removeItem(KEY);
   APP.tiles.forEach((t,i)=>{cardEl[i].querySelector('.catsel').value=ST[i].cat;cardEl[i].querySelector('.nm').value=ST[i].name;cardEl[i].style.setProperty('--h',catHue(ST[i].cat));});closeSheet();render();}};
 
 // --- touch layout: header drawer + sheet jump menu ---------------------------
@@ -450,23 +485,25 @@ function fillSheet(){
   if(sheetId==null)return;
   const t=APP.tiles[sheetId], st=ST[sheetId];
   document.getElementById('shimg').src=t.u;
+  const NOTE={user:'you named this',propagated:'carried over from a colour sibling — check it',
+              low:'<span class="lo">agent was unsure</span>',med:'agent: medium confidence',
+              high:'agent: high confidence'};
+  const twins=TWINS[t.c+','+t.r].length;
   document.getElementById('shcoord').innerHTML='tile '+t.c+','+t.r
-    +(t.conf==='low'?' · <span class="lo">? low confidence</span>':(t.conf?' · '+t.conf+' confidence':''))
-    +(st.rev?' · reviewed':'');
+    +(NOTE[t.conf]?' · '+NOTE[t.conf]:'')+(st.rev?' · reviewed':'')
+    +(twins>1?' · <b>shown on '+twins+' cards</b> (edits sync)':'');
   if(document.activeElement!==shName) shName.value=st.name;   // don't clobber live typing
   [...shCats.children].forEach(el=>el.classList.toggle('on',el.dataset.cat===st.cat));
 }
 function sheetGo(id){if(!cardEl[id])return;sheetId=id;anchor=id;sel.clear();sel.add(id);
   fillSheet();render();cardEl[id].scrollIntoView({block:'center'});}
-shName.addEventListener('input',()=>{if(sheetId==null)return;
-  ST[sheetId].name=shName.value;ST[sheetId].rev=true;
-  cardEl[sheetId].querySelector('.nm').value=shName.value;save();render();});
+shName.addEventListener('input',()=>{if(sheetId==null)return;setName([sheetId],shName.value);render();});
 shName.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();shName.blur();}});
 document.getElementById('shclose').onclick=closeSheet;
 document.getElementById('shprev').onclick=()=>sheetGo(sheetId-1);
 document.getElementById('shnext').onclick=()=>sheetGo(sheetId+1);
 document.getElementById('shok').onclick=()=>{if(sheetId==null)return;
-  ST[sheetId].rev=true;save();
+  withTwins([sheetId]).forEach(i=>ST[i].rev=true);save();
   if(cardEl[sheetId+1])sheetGo(sheetId+1);else{render();toast('end of the list');}};
 document.getElementById('shunrev').onclick=()=>{
   const from=sheetId==null?-1:sheetId;

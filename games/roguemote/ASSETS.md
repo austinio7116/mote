@@ -11,11 +11,32 @@ The authoring pipeline lives in `authoring/` and is fully reproducible:
 python3 authoring/extract.py       # source_tileset.png -> assets/sheets, assets/font, tilesets/
 ../../tools/mote bake .            # -> src/*.h  (or Studio Save)
 python3 authoring/gen_catalogue.py # -> /tmp/roguemote_sprites.html (review page)
+python3 authoring/gen_annotator.py # -> /tmp/roguemote_annotator.html (correction tool)
+python3 authoring/apply_labels.py <export.json>   # fold a correction pass back in
 ```
 
 - `authoring/source_tileset.png` — the CC0 master (not baked; lives outside `assets/`).
 - `authoring/CATALOGUE.md` — full zone map of the source grid.
 - `authoring/catalogue/*.png` — labelled zoom crops used while cataloguing.
+
+### Tile labels — who decided what
+
+Labels live in two layers, so regenerating the agent pass never destroys a human call:
+
+| File | Source | Precedence |
+|---|---|---|
+| `labels_ai.json` | `merge_labels.py` over `batches/out_*.json` (vision-agent pass) | base |
+| `labels_human.json` | `apply_labels.py` over an annotator export | **wins** |
+
+`apply_labels.py` also propagates each correction two ways:
+
+- **Twins** — 61 tiles fall inside two overlapping subsheet regions, so the annotator
+  draws them on two cards. Correcting one has to fix the other (same 8×8 tile), and
+  the annotator now syncs twin cards live so a stale twin can't win on export.
+- **Colour blocks** — most families are one column repeated down five colour rows
+  (red / blue / gold / green / grey-white), so a fix on one row carries to the rest with
+  the colour word swapped. `COLOUR_BLOCKS` in `apply_labels.py` is a hand-verified
+  table, *not* inference — look at the block in the source sheet before adding one.
 
 ## Sprite subsheets — `assets/sheets/*.png` → `src/<name>.h` (`<name>_img`)
 
@@ -57,8 +78,12 @@ rendering headless on ABI v47.
 ## TODO before this becomes a real game
 - ~~Author `icon.png` (60×60) in the game root.~~ Done — `assets/gen_icon.py`
   composites the source tileset's `@` glyph + open chest tile.
-- Fold the user's catalogue corrections back into `authoring/extract.py`.
-  Run `python3 authoring/gen_annotator.py` and review `/tmp/roguemote_annotator.html`
-  (or the shared Artifact) — export corrected categories/names, then use them to
-  fix any misclassified regions in `SPRITE_SHEETS` / `TERRAIN_RAW`.
+- Finish the correction pass. 38 of 1494 tiles are human-decided so far
+  (`apply_labels.py --report`); the rest are still agent guesses, 393 of them
+  low-confidence. Review in the annotator, export, `apply_labels.py <export>`.
+- Once labels settle, re-cut any region the corrections proved wrong: row 8
+  cols 0–5 are train track (the agent read them as fence/rope) and cols 11–14
+  rows 1–5 are door-closed / door-open / house / house-extend (read as
+  gems and banners), so `SPRITE_SHEETS`' `props_light` and `doors_gems_banners`
+  rectangles are named for the wrong contents.
 </content>

@@ -1,0 +1,192 @@
+{
+"0,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track up"
+},
+"0,9": {
+"by": "user",
+"cat": "furniture",
+"name": "bed"
+},
+"1,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track sideways"
+},
+"1,9": {
+"by": "user",
+"cat": "feature",
+"name": "house"
+},
+"12,1": {
+"by": "user",
+"cat": "door",
+"name": "open door red"
+},
+"12,2": {
+"by": "propagated from 12,1",
+"cat": "door",
+"name": "open door blue"
+},
+"12,3": {
+"by": "propagated from 12,1",
+"cat": "door",
+"name": "open door gold"
+},
+"12,4": {
+"by": "propagated from 12,1",
+"cat": "door",
+"name": "open door green"
+},
+"12,5": {
+"by": "propagated from 12,1",
+"cat": "door",
+"name": "open door grey/white"
+},
+"13,1": {
+"by": "user",
+"cat": "feature",
+"name": "house/shop (pink/red)"
+},
+"13,2": {
+"by": "propagated from 13,1",
+"cat": "feature",
+"name": "house/shop (blue)"
+},
+"13,3": {
+"by": "propagated from 13,1",
+"cat": "feature",
+"name": "house/shop (gold)"
+},
+"13,4": {
+"by": "propagated from 13,1",
+"cat": "feature",
+"name": "house/shop (green)"
+},
+"13,5": {
+"by": "propagated from 13,1",
+"cat": "feature",
+"name": "house/shop (grey/white)"
+},
+"14,1": {
+"by": "user",
+"cat": "feature",
+"name": "house extend"
+},
+"14,2": {
+"by": "propagated from 14,1",
+"cat": "feature",
+"name": "house extend"
+},
+"14,3": {
+"by": "propagated from 14,1",
+"cat": "feature",
+"name": "house extend"
+},
+"14,4": {
+"by": "propagated from 14,1",
+"cat": "feature",
+"name": "house extend"
+},
+"14,5": {
+"by": "propagated from 14,1",
+"cat": "feature",
+"name": "house extend"
+},
+"2,7": {
+"by": "user",
+"cat": "prop",
+"name": "wooden sign"
+},
+"2,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track corner"
+},
+"2,9": {
+"by": "user",
+"cat": "feature",
+"name": "stone tower"
+},
+"3,7": {
+"by": "user",
+"cat": "prop",
+"name": "wooden sign"
+},
+"3,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track corner"
+},
+"3,9": {
+"by": "user",
+"cat": "prop",
+"name": "hay"
+},
+"4,7": {
+"by": "user",
+"cat": "prop",
+"name": "double sign"
+},
+"4,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track corner"
+},
+"4,9": {
+"by": "user",
+"cat": "furniture",
+"name": "throne"
+},
+"5,7": {
+"by": "user",
+"cat": "prop",
+"name": "wooden sign (solid)"
+},
+"5,8": {
+"by": "user",
+"cat": "floor",
+"name": "train track corner"
+},
+"6,7": {
+"by": "user",
+"cat": "prop",
+"name": "wooden sign with text"
+},
+"6,8": {
+"by": "user",
+"cat": "feature",
+"name": "station/shop"
+},
+"7,7": {
+"by": "user",
+"cat": "furniture",
+"name": "wooden barrel"
+},
+"7,8": {
+"by": "user",
+"cat": "prop",
+"name": "lit torch"
+},
+"8,7": {
+"by": "user",
+"cat": "container",
+"name": "wooden barrel with red liquid"
+},
+"8,8": {
+"by": "user",
+"cat": "prop",
+"name": "lit torch"
+},
+"9,7": {
+"by": "user",
+"cat": "container",
+"name": "wooden barrel with blue liquid"
+},
+"9,8": {
+"by": "user",
+"cat": "prop",
+"name": "lit torch"
+}
+}
