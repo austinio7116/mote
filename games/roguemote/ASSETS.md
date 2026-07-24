@@ -71,8 +71,10 @@ for any terrain added later.
 ```bash
 python3 authoring/find_nineslice.py   # which source regions can back an autotile at all
 python3 authoring/gen_terrain.py      # -> tilesets/{wall_brick,hedge}.{png,tileset}
-python3 authoring/verify_terrain.py   # 9 groups of checks, exhaustive
+python3 authoring/verify_terrain.py   # 10 groups of checks, 43 assertions
 python3 authoring/preview_terrain.py  # -> /tmp/roguemote_terrain/*.png evidence
+python3 authoring/mutate_terrain.py      # prove the checks can actually fail
+cc -I../../sdk -I../../engine/render -o /tmp/ct authoring/ctest_blob47.c && /tmp/ct  # vs the real C
 python3 authoring/gen_terrain_report.py  # -> a single review page of all of it
 ```
 
@@ -116,7 +118,7 @@ confirms the ruleset.
 ## TODO before this becomes a real game
 - ~~Author `icon.png` (60×60) in the game root.~~ Done — `assets/gen_icon.py`
   composites the source tileset's `@` glyph + open chest tile.
-- Finish the correction pass. 38 of 1494 tiles are human-decided so far
+- Finish the correction pass. 50 of 1494 tiles are human-decided so far
   (`apply_labels.py --report`); the rest are still agent guesses, 393 of them
   low-confidence. Review in the annotator, export, `apply_labels.py <export>`.
 - Once labels settle, re-cut any region the corrections proved wrong: row 8

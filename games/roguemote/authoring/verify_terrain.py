@@ -155,15 +155,37 @@ def check_borders(name, spec, variants, mets):
     for v, blk in enumerate(spec["blocks"]):
         ns, m, grids = gt.load_nineslice(*blk), mets[v], variants[v]
         bad = []
+        ir = m["inner"]
         for i, mask in enumerate(blob47.CANON):
             has = border_sides(grids[i], ns, m)
             for bit, side in ((N, "N"), (E, "E"), (S, "S"), (W, "W")):
                 open_ = not (mask & bit)
                 if open_ and not has[side]:
                     bad.append(f"cell {i} (mask {mask}) missing {side} border")
-                # a closed side may still show art from a concave corner that
-                # reaches into that band, so only flag a FULL border
-        check(not bad, f"variant {v}: every open side draws its border",
+            # And the other direction: a CLOSED side must carry no border of its
+            # own. Two things legitimately intrude into that side's band and must
+            # be excluded first, or the check reports art that belongs to a
+            # neighbouring feature: a concave notch (inner_radius), and the
+            # border of a PERPENDICULAR side that is open -- with hedge's 3px
+            # borders the left band reaches well into the top band.
+            C = ns["C"]
+            oN_, oE_ = not (mask & N), not (mask & E)
+            oS_, oW_ = not (mask & S), not (mask & W)
+            x_lo = m["left"] if oW_ else ir
+            x_hi = TS - (m["right"] if oE_ else ir)
+            y_lo = m["top"] if oN_ else ir
+            y_hi = TS - (m["bottom"] if oS_ else ir)
+            spans = {
+                "N": [(x, y) for y in range(m["top"]) for x in range(x_lo, x_hi)],
+                "S": [(x, y) for y in range(TS - m["bottom"], TS) for x in range(x_lo, x_hi)],
+                "W": [(x, y) for x in range(m["left"]) for y in range(y_lo, y_hi)],
+                "E": [(x, y) for x in range(TS - m["right"], TS) for y in range(y_lo, y_hi)],
+            }
+            for bit, side in ((N, "N"), (E, "E"), (S, "S"), (W, "W")):
+                if mask & bit:      # this side is same-terrain: no border allowed
+                    if any(grids[i][y][x] != C[y][x] for x, y in spans[side]):
+                        bad.append(f"cell {i} (mask {mask}) has a {side} border it should not")
+        check(not bad, f"variant {v}: borders on open sides only, none on closed sides",
               "; ".join(bad[:4]) + (" ..." if len(bad) > 4 else ""))
 
     print(f"\n5. concave (inner) corners - {name}")
@@ -276,8 +298,64 @@ def check_baked(name, spec, nvar):
     check(int(mm.group(5)) == nvar, f"baked nvar == {nvar}")
 
 
+def check_against_c():
+    """Compile sdk/mote_tile.h for real and ask it directly.
+
+    Every other check re-derives the contract from a second transcription of the
+    C -- but a transcription can be wrong the same way twice. This one compares
+    against the header the engine actually compiles.
+    """
+    import subprocess, os
+    print("\n10. cross-check against the compiled C header")
+    root = os.path.dirname(os.path.dirname(gt.GAME))
+    src = os.path.join(gt.HERE, "ctest_blob47.c")
+    exe = "/tmp/ctest_blob47"
+    r = subprocess.run(["cc", "-I" + os.path.join(root, "sdk"),
+                        "-I" + os.path.join(root, "engine", "render"),
+                        "-o", exe, src], capture_output=True, text=True)
+    if r.returncode:
+        check(False, "ctest_blob47.c compiles against sdk/mote_tile.h", r.stderr[:200])
+        return
+    out = subprocess.run([exe], capture_output=True, text=True).stdout
+    kv = {}
+    for line in out.split("\n"):
+        k, _, v = line.partition(":")
+        kv[k.strip()] = v.strip()
+
+    clut = [int(x) for x in kv.get("template_lut", "").split()]
+    check(clut == blob47.LUT,
+          "engine's own mote_autotile_template(BLOB47) produces our exact LUT")
+    cred = [int(x) for x in kv.get("reduce", "").split()]
+    check(cred == [blob47.reduce_mask(m) for m in range(256)],
+          "C mote__at_reduce agrees for all 256 masks")
+
+    import preview_terrain as pv
+    cmask = [int(x) for x in kv.get("masks", "").split()]
+    py = []
+    for p in range(256):
+        t = [0] * 9; t[4] = 1
+        for b, (dx, dy) in enumerate([(0, -1), (1, -1), (1, 0), (1, 1),
+                                      (0, 1), (-1, 1), (-1, 0), (-1, -1)]):
+            if p & (1 << b):
+                t[(1 + dy) * 3 + (1 + dx)] = 1
+        py.append(pv.neighbour_mask(t, 3, 3, 1, 1, 1, 0))
+    check(cmask == py, "C mote_autotile_mask agrees for all 256 neighbourhoods")
+
+    el = [l for l in out.split("\n") if l.startswith("edge0")]
+    if el:
+        p = el[0].split()
+        check((int(p[1]), int(p[3])) == (pv.neighbour_mask([1], 1, 1, 0, 0, 1, 0),
+                                         pv.neighbour_mask([1], 1, 1, 0, 0, 1, 1)),
+              "C edge_is_solid handling agrees")
+    cv = [int(x) for x in kv.get("variants", "").split()]
+    check(cv == [pv.variant_of(3, [1, 1, 2, 0, 0, 0, 0, 0], x, y)
+                 for y in range(8) for x in range(8)],
+          "C mote__at_variant (weighted) agrees for 64 cells")
+
+
 def main():
     check_lut()
+    check_against_c()
     for name, spec in gt.TERRAINS.items():
         sheet, variants, mets = gt.build(name, spec)
         check_geometry(name, sheet, len(variants))

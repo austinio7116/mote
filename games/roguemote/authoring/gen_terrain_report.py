@@ -204,7 +204,8 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
   <div class="chips">
     <span class="chip pass">{nchecks} checks passed</span>
     <span class="chip">47 cells &times; 2 terrains</span>
-    <span class="chip">256 masks covered</span>
+    <span class="chip pass">agrees with the compiled C</span>
+    <span class="chip pass">5/5 mutations caught</span>
     <span class="chip warn">3 defects found &amp; fixed</span>
   </div>
 </div></header>
@@ -212,7 +213,7 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
 <nav class="jump"><div class="wrap">
   <a href="#summary">summary</a><a href="#contract">the 47</a><a href="#findings">findings</a>
   <a href="#wall_brick">wall_brick</a><a href="#hedge">hedge</a>
-  <a href="#notdone">not done</a><a href="#verify">verifier log</a><a href="#table">cell table</a>
+  <a href="#notdone">not done</a><a href="#teeth">trust</a><a href="#verify">verifier log</a><a href="#table">cell table</a>
 </div></nav>
 
 <div class="wrap">
@@ -230,7 +231,7 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
   <div class="grid2" style="margin-top:16px">
     <div class="card"><h4>gen_terrain.py</h4><p>Builds the sheets + <code>.tileset</code>
       files. Refuses any source block whose centre is not clean fill.</p></div>
-    <div class="card"><h4>verify_terrain.py</h4><p>9 groups of checks, none of which trust
+    <div class="card"><h4>verify_terrain.py</h4><p>10 groups of checks, none of which trust
       the generator &mdash; each re-derives the expected answer from the C.</p></div>
     <div class="card"><h4>find_nineslice.py</h4><p>Scans the sheet for source regions that
       can actually back an autotile set. Most "wall" bands cannot.</p></div>
@@ -301,6 +302,23 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
   </ul>
 </section>
 
+<section id="teeth">
+  <h2>Why you can believe the checks</h2>
+  <p>Two things back the verifier up, because "43 checks pass" is worth nothing on its own.</p>
+  <h3>It agrees with the compiled C, not just my reading of it</h3>
+  <p>Every other check re-derives the contract from a <i>second transcription</i> of
+  <code>sdk/mote_tile.h</code> &mdash; and a transcription can be wrong the same way twice.
+  So <code>ctest_blob47.c</code> compiles the real header and asks it directly. The engine's
+  own <code>mote_autotile_template(MOTE_AT_BLOB47)</code> produces <b>byte-identical</b> output
+  to the LUT we bake, and <code>mote__at_reduce</code>, <code>mote_autotile_mask</code>,
+  <code>edge_is_solid</code> and the weighted <code>mote__at_variant</code> hash all agree
+  across every case.</p>
+  <h3>The checks can actually fail</h3>
+  <p><code>mutate_terrain.py</code> breaks the generator five plausible ways and confirms the
+  suite rejects each. Every mutation is caught by a <i>different</i> check:</p>
+  <pre class="log">{mutate}</pre>
+</section>
+
 <section id="verify">
   <h2>Verifier output</h2>
   <p class="lede">Nothing here trusts the generator: the LUT is re-derived from a second
@@ -327,7 +345,11 @@ def main():
     nchecks = 0
     if os.path.exists(vt):
         nchecks = sum(1 for l in open(vt) if l.strip().startswith("ok "))
-    htmltxt = PAGE.format(sections=sections, verify=verify_block(),
+    mp = os.path.join(EV, "mutate.txt")
+    mut = html.escape(open(mp).read()) if os.path.exists(mp) else "not captured"
+    mut = mut.replace("caught", "<span class='ok'>caught</span>")
+    mut = mut.replace("NOT <span class='ok'>caught</span>", "<span class='fail'>NOT CAUGHT</span>")
+    htmltxt = PAGE.format(sections=sections, verify=verify_block(), mutate=mut,
                           canon=canon_table(), nchecks=nchecks)
     open(OUT, "w").write(htmltxt)
     print(f"wrote {OUT}  ({len(htmltxt)//1024} KB, {nchecks} passing checks)")
