@@ -1,0 +1,7838 @@
+{
+"32,8": {
+"cat": "animal",
+"name": "brown dog",
+"conf": "high",
+"src": "animals"
+},
+"33,8": {
+"cat": "animal",
+"name": "brown dog",
+"conf": "high",
+"src": "animals"
+},
+"34,8": {
+"cat": "animal",
+"name": "brown dog (large)",
+"conf": "med",
+"src": "animals"
+},
+"35,8": {
+"cat": "animal",
+"name": "brown deer",
+"conf": "med",
+"src": "animals"
+},
+"36,8": {
+"cat": "animal",
+"name": "brown deer",
+"conf": "med",
+"src": "animals"
+},
+"37,8": {
+"cat": "animal",
+"name": "pink pig",
+"conf": "high",
+"src": "animals"
+},
+"38,8": {
+"cat": "animal",
+"name": "pink pig",
+"conf": "high",
+"src": "animals"
+},
+"39,8": {
+"cat": "animal",
+"name": "yellow chick",
+"conf": "high",
+"src": "animals"
+},
+"40,8": {
+"cat": "animal",
+"name": "white chicken (hen)",
+"conf": "high",
+"src": "animals"
+},
+"41,8": {
+"cat": "animal",
+"name": "white lamb",
+"conf": "high",
+"src": "animals"
+},
+"42,8": {
+"cat": "animal",
+"name": "white sheep",
+"conf": "high",
+"src": "animals"
+},
+"43,8": {
+"cat": "animal",
+"name": "brown dog",
+"conf": "med",
+"src": "animals"
+},
+"44,8": {
+"cat": "animal",
+"name": "yellow duckling",
+"conf": "high",
+"src": "animals"
+},
+"45,8": {
+"cat": "animal",
+"name": "white duck",
+"conf": "high",
+"src": "animals"
+},
+"46,8": {
+"cat": "animal",
+"name": "white goose",
+"conf": "med",
+"src": "animals"
+},
+"47,8": {
+"cat": "animal",
+"name": "orange cat",
+"conf": "high",
+"src": "animals"
+},
+"32,9": {
+"cat": "animal",
+"name": "orange spider",
+"conf": "high",
+"src": "animals"
+},
+"33,9": {
+"cat": "animal",
+"name": "orange spider",
+"conf": "high",
+"src": "animals"
+},
+"34,9": {
+"cat": "animal",
+"name": "orange spider",
+"conf": "high",
+"src": "animals"
+},
+"35,9": {
+"cat": "animal",
+"name": "green snake",
+"conf": "high",
+"src": "animals"
+},
+"36,9": {
+"cat": "animal",
+"name": "grey mouse",
+"conf": "high",
+"src": "animals"
+},
+"37,9": {
+"cat": "animal",
+"name": "bat",
+"conf": "high",
+"src": "animals"
+},
+"38,9": {
+"cat": "animal",
+"name": "yellow chick",
+"conf": "high",
+"src": "animals"
+},
+"39,9": {
+"cat": "animal",
+"name": "white rooster",
+"conf": "high",
+"src": "animals"
+},
+"40,9": {
+"cat": "animal",
+"name": "white rooster",
+"conf": "high",
+"src": "animals"
+},
+"41,9": {
+"cat": "animal",
+"name": "brown rat",
+"conf": "med",
+"src": "animals"
+},
+"42,9": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "med",
+"src": "animals"
+},
+"43,9": {
+"cat": "animal",
+"name": "brown rat",
+"conf": "med",
+"src": "animals"
+},
+"44,9": {
+"cat": "animal",
+"name": "maroon spider",
+"conf": "med",
+"src": "animals"
+},
+"45,9": {
+"cat": "animal",
+"name": "maroon spider",
+"conf": "high",
+"src": "animals"
+},
+"46,9": {
+"cat": "animal",
+"name": "maroon spider",
+"conf": "high",
+"src": "animals"
+},
+"47,9": {
+"cat": "animal",
+"name": "fire spider",
+"conf": "low",
+"src": "animals"
+},
+"32,10": {
+"cat": "animal",
+"name": "yellow snail",
+"conf": "med",
+"src": "animals"
+},
+"33,10": {
+"cat": "animal",
+"name": "pink snail",
+"conf": "med",
+"src": "animals"
+},
+"34,10": {
+"cat": "animal",
+"name": "white snail",
+"conf": "med",
+"src": "animals"
+},
+"35,10": {
+"cat": "animal",
+"name": "rodent in burrow",
+"conf": "low",
+"src": "animals"
+},
+"36,10": {
+"cat": "animal",
+"name": "mole in burrow",
+"conf": "low",
+"src": "animals"
+},
+"37,10": {
+"cat": "animal",
+"name": "pink rodent in burrow",
+"conf": "low",
+"src": "animals"
+},
+"38,10": {
+"cat": "animal",
+"name": "grey rodent in burrow",
+"conf": "low",
+"src": "animals"
+},
+"39,10": {
+"cat": "animal",
+"name": "grey rodent in burrow",
+"conf": "low",
+"src": "animals"
+},
+"40,10": {
+"cat": "animal",
+"name": "purple critter",
+"conf": "low",
+"src": "animals"
+},
+"41,10": {
+"cat": "animal",
+"name": "green frog",
+"conf": "med",
+"src": "animals"
+},
+"42,10": {
+"cat": "animal",
+"name": "green frog",
+"conf": "med",
+"src": "animals"
+},
+"43,10": {
+"cat": "animal",
+"name": "pink snake",
+"conf": "med",
+"src": "animals"
+},
+"44,10": {
+"cat": "animal",
+"name": "pink snake",
+"conf": "med",
+"src": "animals"
+},
+"45,10": {
+"cat": "animal",
+"name": "brown dog",
+"conf": "med",
+"src": "animals"
+},
+"46,10": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "med",
+"src": "animals"
+},
+"47,10": {
+"cat": "animal",
+"name": "brown rat",
+"conf": "low",
+"src": "animals"
+},
+"32,11": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "high",
+"src": "animals"
+},
+"33,11": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "high",
+"src": "animals"
+},
+"34,11": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "high",
+"src": "animals"
+},
+"35,11": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "high",
+"src": "animals"
+},
+"36,11": {
+"cat": "animal",
+"name": "white mouse",
+"conf": "med",
+"src": "animals"
+},
+"37,11": {
+"cat": "animal",
+"name": "white mouse",
+"conf": "med",
+"src": "animals"
+},
+"38,11": {
+"cat": "animal",
+"name": "purple spider",
+"conf": "med",
+"src": "animals"
+},
+"39,11": {
+"cat": "animal",
+"name": "brown lizard",
+"conf": "low",
+"src": "animals"
+},
+"40,11": {
+"cat": "animal",
+"name": "tan snake",
+"conf": "low",
+"src": "animals"
+},
+"41,11": {
+"cat": "animal",
+"name": "green snake",
+"conf": "high",
+"src": "animals"
+},
+"42,11": {
+"cat": "animal",
+"name": "green snake",
+"conf": "high",
+"src": "animals"
+},
+"43,11": {
+"cat": "animal",
+"name": "owl",
+"conf": "med",
+"src": "animals"
+},
+"44,11": {
+"cat": "animal",
+"name": "brown rat",
+"conf": "low",
+"src": "animals"
+},
+"45,11": {
+"cat": "animal",
+"name": "white cat",
+"conf": "low",
+"src": "animals"
+},
+"46,11": {
+"cat": "animal",
+"name": "grey rat",
+"conf": "low",
+"src": "animals"
+},
+"47,11": {
+"cat": "animal",
+"name": "navy wolf",
+"conf": "low",
+"src": "animals"
+},
+"32,12": {
+"cat": "animal",
+"name": "yellow-green frog",
+"conf": "high",
+"src": "animals"
+},
+"33,12": {
+"cat": "animal",
+"name": "yellow-red frog",
+"conf": "high",
+"src": "animals"
+},
+"34,12": {
+"cat": "animal",
+"name": "yellow-orange frog",
+"conf": "high",
+"src": "animals"
+},
+"35,12": {
+"cat": "animal",
+"name": "yellow-purple frog",
+"conf": "high",
+"src": "animals"
+},
+"36,12": {
+"cat": "animal",
+"name": "blue frog",
+"conf": "med",
+"src": "animals"
+},
+"37,12": {
+"cat": "animal",
+"name": "pink frog",
+"conf": "med",
+"src": "animals"
+},
+"38,12": {
+"cat": "animal",
+"name": "green frog",
+"conf": "high",
+"src": "animals"
+},
+"39,12": {
+"cat": "animal",
+"name": "green frog",
+"conf": "high",
+"src": "animals"
+},
+"32,14": {
+"cat": "animal",
+"name": "brown mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"33,14": {
+"cat": "animal",
+"name": "brown mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"34,14": {
+"cat": "animal",
+"name": "red mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"35,14": {
+"cat": "animal",
+"name": "red mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"36,14": {
+"cat": "animal",
+"name": "purple mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"37,14": {
+"cat": "animal",
+"name": "purple mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"38,14": {
+"cat": "animal",
+"name": "green mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"39,14": {
+"cat": "animal",
+"name": "green mushroom critter",
+"conf": "high",
+"src": "animals"
+},
+"40,14": {
+"cat": "animal",
+"name": "red flower plant",
+"conf": "low",
+"src": "animals"
+},
+"41,14": {
+"cat": "animal",
+"name": "red flower plant",
+"conf": "low",
+"src": "animals"
+},
+"42,14": {
+"cat": "animal",
+"name": "green vine plant",
+"conf": "low",
+"src": "animals"
+},
+"32,33": {
+"cat": "boss",
+"name": "winged red demon boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,33": {
+"cat": "boss",
+"name": "winged red demon boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,33": {
+"cat": "boss",
+"name": "armored knight / skeleton warrior boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,33": {
+"cat": "boss",
+"name": "armored knight / skeleton warrior boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,33": {
+"cat": "boss",
+"name": "pink brain/maw monster boss (top-left)",
+"conf": "low",
+"src": "bosses"
+},
+"37,33": {
+"cat": "boss",
+"name": "pink brain/maw monster boss (top-right)",
+"conf": "low",
+"src": "bosses"
+},
+"38,33": {
+"cat": "boss",
+"name": "giant eyeball boss (top-left)",
+"conf": "high",
+"src": "bosses"
+},
+"39,33": {
+"cat": "boss",
+"name": "giant eyeball boss (top-right)",
+"conf": "high",
+"src": "bosses"
+},
+"40,33": {
+"cat": "boss",
+"name": "green medusa boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"41,33": {
+"cat": "boss",
+"name": "green medusa boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"42,33": {
+"cat": "boss",
+"name": "skeleton warrior boss (top-left)",
+"conf": "high",
+"src": "bosses"
+},
+"43,33": {
+"cat": "boss",
+"name": "skeleton warrior boss (top-right)",
+"conf": "high",
+"src": "bosses"
+},
+"44,33": {
+"cat": "boss",
+"name": "red demon warrior boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"45,33": {
+"cat": "boss",
+"name": "red demon warrior boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"46,33": {
+"cat": "boss",
+"name": "giant skull boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"47,33": {
+"cat": "boss",
+"name": "giant skull boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"32,34": {
+"cat": "boss",
+"name": "winged red demon boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,34": {
+"cat": "boss",
+"name": "winged red demon boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,34": {
+"cat": "boss",
+"name": "armored knight / skeleton warrior boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,34": {
+"cat": "boss",
+"name": "armored knight / skeleton warrior boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,34": {
+"cat": "boss",
+"name": "pink brain/maw monster boss (bottom-left)",
+"conf": "low",
+"src": "bosses"
+},
+"37,34": {
+"cat": "boss",
+"name": "pink brain/maw monster boss (bottom-right)",
+"conf": "low",
+"src": "bosses"
+},
+"38,34": {
+"cat": "boss",
+"name": "giant eyeball boss (bottom-left)",
+"conf": "high",
+"src": "bosses"
+},
+"39,34": {
+"cat": "boss",
+"name": "giant eyeball boss (bottom-right)",
+"conf": "high",
+"src": "bosses"
+},
+"40,34": {
+"cat": "boss",
+"name": "green medusa boss (upper-left)",
+"conf": "med",
+"src": "bosses"
+},
+"41,34": {
+"cat": "boss",
+"name": "green medusa boss (upper-right)",
+"conf": "med",
+"src": "bosses"
+},
+"42,34": {
+"cat": "boss",
+"name": "skeleton warrior boss (bottom-left)",
+"conf": "high",
+"src": "bosses"
+},
+"43,34": {
+"cat": "boss",
+"name": "skeleton warrior boss (bottom-right)",
+"conf": "high",
+"src": "bosses"
+},
+"44,34": {
+"cat": "boss",
+"name": "red demon warrior boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"45,34": {
+"cat": "boss",
+"name": "red demon warrior boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"46,34": {
+"cat": "boss",
+"name": "giant skull boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"47,34": {
+"cat": "boss",
+"name": "giant skull boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"32,35": {
+"cat": "boss",
+"name": "piranha plant / carnivorous plant boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,35": {
+"cat": "boss",
+"name": "piranha plant / carnivorous plant boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,35": {
+"cat": "boss",
+"name": "fire elemental boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,35": {
+"cat": "boss",
+"name": "fire elemental boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,35": {
+"cat": "boss",
+"name": "dark wizard / lich boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"37,35": {
+"cat": "boss",
+"name": "dark wizard / lich boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"38,35": {
+"cat": "boss",
+"name": "crimson spider/demon boss (top-left)",
+"conf": "low",
+"src": "bosses"
+},
+"39,35": {
+"cat": "boss",
+"name": "crimson spider/demon boss (top-right)",
+"conf": "low",
+"src": "bosses"
+},
+"40,35": {
+"cat": "boss",
+"name": "green medusa boss (lower-left)",
+"conf": "med",
+"src": "bosses"
+},
+"41,35": {
+"cat": "boss",
+"name": "green medusa boss (lower-right)",
+"conf": "med",
+"src": "bosses"
+},
+"32,36": {
+"cat": "boss",
+"name": "piranha plant / carnivorous plant boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,36": {
+"cat": "boss",
+"name": "piranha plant / carnivorous plant boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,36": {
+"cat": "boss",
+"name": "fire elemental boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,36": {
+"cat": "boss",
+"name": "fire elemental boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,36": {
+"cat": "boss",
+"name": "dark wizard / lich boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"37,36": {
+"cat": "boss",
+"name": "dark wizard / lich boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"38,36": {
+"cat": "boss",
+"name": "crimson spider/demon boss (bottom-left)",
+"conf": "low",
+"src": "bosses"
+},
+"39,36": {
+"cat": "boss",
+"name": "crimson spider/demon boss (bottom-right)",
+"conf": "low",
+"src": "bosses"
+},
+"40,36": {
+"cat": "boss",
+"name": "green medusa boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"41,36": {
+"cat": "boss",
+"name": "green medusa boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"32,37": {
+"cat": "boss",
+"name": "angel / valkyrie boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,37": {
+"cat": "boss",
+"name": "angel / valkyrie boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,37": {
+"cat": "boss",
+"name": "octopus / kraken boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,37": {
+"cat": "boss",
+"name": "octopus / kraken boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,37": {
+"cat": "boss",
+"name": "angel / valkyrie boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"37,37": {
+"cat": "boss",
+"name": "angel / valkyrie boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"38,37": {
+"cat": "boss",
+"name": "crimson octopus / kraken boss (top-left)",
+"conf": "med",
+"src": "bosses"
+},
+"39,37": {
+"cat": "boss",
+"name": "crimson octopus / kraken boss (top-right)",
+"conf": "med",
+"src": "bosses"
+},
+"32,38": {
+"cat": "boss",
+"name": "angel / valkyrie boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"33,38": {
+"cat": "boss",
+"name": "angel / valkyrie boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"34,38": {
+"cat": "boss",
+"name": "octopus / kraken boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"35,38": {
+"cat": "boss",
+"name": "octopus / kraken boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"36,38": {
+"cat": "boss",
+"name": "angel / valkyrie boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"37,38": {
+"cat": "boss",
+"name": "angel / valkyrie boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"38,38": {
+"cat": "boss",
+"name": "crimson octopus / kraken boss (bottom-left)",
+"conf": "med",
+"src": "bosses"
+},
+"39,38": {
+"cat": "boss",
+"name": "crimson octopus / kraken boss (bottom-right)",
+"conf": "med",
+"src": "bosses"
+},
+"24,0": {
+"cat": "npc",
+"name": "large portrait (dark-haired man) top-left quadrant",
+"conf": "high",
+"src": "characters"
+},
+"25,0": {
+"cat": "npc",
+"name": "large portrait (dark-haired man) top-right quadrant",
+"conf": "high",
+"src": "characters"
+},
+"24,1": {
+"cat": "npc",
+"name": "large portrait (dark-haired man) bottom-left quadrant",
+"conf": "high",
+"src": "characters"
+},
+"25,1": {
+"cat": "npc",
+"name": "large portrait (dark-haired man) bottom-right quadrant",
+"conf": "high",
+"src": "characters"
+},
+"32,0": {
+"cat": "player",
+"name": "@ player glyph",
+"conf": "high",
+"src": "characters"
+},
+"33,0": {
+"cat": "player",
+"name": "adventurer (blue hair)",
+"conf": "med",
+"src": "characters"
+},
+"34,0": {
+"cat": "player",
+"name": "adventurer (dark hair, maroon cap)",
+"conf": "med",
+"src": "characters"
+},
+"35,0": {
+"cat": "player",
+"name": "knight (gold/navy armour)",
+"conf": "med",
+"src": "characters"
+},
+"36,0": {
+"cat": "player",
+"name": "knight (navy/silver armour)",
+"conf": "med",
+"src": "characters"
+},
+"37,0": {
+"cat": "player",
+"name": "rogue/ninja (navy hood)",
+"conf": "med",
+"src": "characters"
+},
+"38,0": {
+"cat": "player",
+"name": "wizard (white beard, red robe)",
+"conf": "med",
+"src": "characters"
+},
+"39,0": {
+"cat": "player",
+"name": "ranger (navy/green)",
+"conf": "low",
+"src": "characters"
+},
+"40,0": {
+"cat": "npc",
+"name": "princess (pink/white)",
+"conf": "low",
+"src": "characters"
+},
+"41,0": {
+"cat": "player",
+"name": "mage (green robe)",
+"conf": "med",
+"src": "characters"
+},
+"42,0": {
+"cat": "player",
+"name": "mage (green robe variant)",
+"conf": "low",
+"src": "characters"
+},
+"43,0": {
+"cat": "enemy",
+"name": "white creature (green eyes)",
+"conf": "low",
+"src": "characters"
+},
+"44,0": {
+"cat": "enemy",
+"name": "robot/automaton (purple)",
+"conf": "low",
+"src": "characters"
+},
+"45,0": {
+"cat": "enemy",
+"name": "robot/automaton (purple)",
+"conf": "low",
+"src": "characters"
+},
+"46,0": {
+"cat": "npc",
+"name": "villager (blonde)",
+"conf": "med",
+"src": "characters"
+},
+"47,0": {
+"cat": "npc",
+"name": "villager (blonde)",
+"conf": "med",
+"src": "characters"
+},
+"32,1": {
+"cat": "player",
+"name": "adventurer (brown tunic)",
+"conf": "low",
+"src": "characters"
+},
+"33,1": {
+"cat": "player",
+"name": "druid/elf (green tunic, red flower)",
+"conf": "med",
+"src": "characters"
+},
+"34,1": {
+"cat": "npc",
+"name": "king (gold crown)",
+"conf": "med",
+"src": "characters"
+},
+"35,1": {
+"cat": "player",
+"name": "rogue (navy cloak, green)",
+"conf": "low",
+"src": "characters"
+},
+"36,1": {
+"cat": "npc",
+"name": "villager (blonde)",
+"conf": "med",
+"src": "characters"
+},
+"37,1": {
+"cat": "npc",
+"name": "villager (brown/grey hair)",
+"conf": "med",
+"src": "characters"
+},
+"38,1": {
+"cat": "npc",
+"name": "villager (brown hair)",
+"conf": "med",
+"src": "characters"
+},
+"39,1": {
+"cat": "npc",
+"name": "villager (blonde, orange tunic)",
+"conf": "low",
+"src": "characters"
+},
+"40,1": {
+"cat": "player",
+"name": "green-hooded ranger (orange accents)",
+"conf": "med",
+"src": "characters"
+},
+"32,3": {
+"cat": "player",
+"name": "adventurer (brown hair, green tunic)",
+"conf": "med",
+"src": "characters"
+},
+"33,3": {
+"cat": "player",
+"name": "adventurer (dark hair, green tunic)",
+"conf": "med",
+"src": "characters"
+},
+"34,3": {
+"cat": "player",
+"name": "adventurer (brown hair, green tunic)",
+"conf": "med",
+"src": "characters"
+},
+"35,3": {
+"cat": "npc",
+"name": "sage/old man (grey hair, brown robe)",
+"conf": "med",
+"src": "characters"
+},
+"36,3": {
+"cat": "player",
+"name": "adventurer (blonde, green tunic)",
+"conf": "med",
+"src": "characters"
+},
+"37,3": {
+"cat": "player",
+"name": "adventurer (navy)",
+"conf": "low",
+"src": "characters"
+},
+"38,3": {
+"cat": "npc",
+"name": "villager (brown hat)",
+"conf": "low",
+"src": "characters"
+},
+"39,3": {
+"cat": "player",
+"name": "green-hooded ranger (pointed hat)",
+"conf": "med",
+"src": "characters"
+},
+"40,3": {
+"cat": "player",
+"name": "adventurer (orange hair, green tunic)",
+"conf": "med",
+"src": "characters"
+},
+"41,3": {
+"cat": "player",
+"name": "adventurer (orange hair, orange tunic)",
+"conf": "med",
+"src": "characters"
+},
+"42,3": {
+"cat": "npc",
+"name": "old man/villager (white beard)",
+"conf": "low",
+"src": "characters"
+},
+"43,3": {
+"cat": "player",
+"name": "mage casting (green/purple robe)",
+"conf": "low",
+"src": "characters"
+},
+"44,3": {
+"cat": "player",
+"name": "witch/mage casting (purple)",
+"conf": "low",
+"src": "characters"
+},
+"45,3": {
+"cat": "npc",
+"name": "royal mage casting (gold crown)",
+"conf": "low",
+"src": "characters"
+},
+"46,3": {
+"cat": "player",
+"name": "wizard casting (blue robe)",
+"conf": "med",
+"src": "characters"
+},
+"47,3": {
+"cat": "player",
+"name": "wizard casting (blue robe)",
+"conf": "med",
+"src": "characters"
+},
+"32,4": {
+"cat": "npc",
+"name": "mage (blue robe) portrait",
+"conf": "low",
+"src": "characters"
+},
+"33,4": {
+"cat": "npc",
+"name": "mage (blue robe) portrait",
+"conf": "low",
+"src": "characters"
+},
+"34,4": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "characters"
+},
+"35,4": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "characters"
+},
+"36,4": {
+"cat": "npc",
+"name": "red mage (maroon robe) portrait",
+"conf": "low",
+"src": "characters"
+},
+"37,4": {
+"cat": "npc",
+"name": "red mage (maroon robe) portrait",
+"conf": "low",
+"src": "characters"
+},
+"38,4": {
+"cat": "npc",
+"name": "elf/druid (white hair, green) portrait",
+"conf": "low",
+"src": "characters"
+},
+"39,4": {
+"cat": "npc",
+"name": "royal/knight (gold) portrait",
+"conf": "low",
+"src": "characters"
+},
+"40,4": {
+"cat": "npc",
+"name": "mage (pink hair) portrait",
+"conf": "low",
+"src": "characters"
+},
+"41,4": {
+"cat": "npc",
+"name": "adventurer (navy hair) portrait",
+"conf": "low",
+"src": "characters"
+},
+"42,4": {
+"cat": "npc",
+"name": "adventurer (orange hair) portrait",
+"conf": "low",
+"src": "characters"
+},
+"43,4": {
+"cat": "npc",
+"name": "ranger (green) portrait",
+"conf": "low",
+"src": "characters"
+},
+"44,4": {
+"cat": "npc",
+"name": "mage (pink) portrait",
+"conf": "low",
+"src": "characters"
+},
+"45,4": {
+"cat": "npc",
+"name": "adventurer (navy) portrait",
+"conf": "low",
+"src": "characters"
+},
+"46,4": {
+"cat": "npc",
+"name": "adventurer (orange) portrait",
+"conf": "low",
+"src": "characters"
+},
+"47,4": {
+"cat": "npc",
+"name": "ranger (green) portrait",
+"conf": "low",
+"src": "characters"
+},
+"32,5": {
+"cat": "npc",
+"name": "knight (brown helm) portrait",
+"conf": "med",
+"src": "characters"
+},
+"33,5": {
+"cat": "npc",
+"name": "guard (silver helm, jewels) portrait",
+"conf": "med",
+"src": "characters"
+},
+"34,5": {
+"cat": "npc",
+"name": "knight (silver helm, jewels) portrait",
+"conf": "med",
+"src": "characters"
+},
+"35,5": {
+"cat": "npc",
+"name": "king (gold crown, jewels) portrait",
+"conf": "med",
+"src": "characters"
+},
+"36,5": {
+"cat": "npc",
+"name": "guard (navy helm) portrait",
+"conf": "med",
+"src": "characters"
+},
+"37,5": {
+"cat": "npc",
+"name": "guard (navy helm) portrait",
+"conf": "med",
+"src": "characters"
+},
+"38,5": {
+"cat": "npc",
+"name": "guard (navy helm) portrait",
+"conf": "med",
+"src": "characters"
+},
+"39,5": {
+"cat": "player",
+"name": "hero/elf (green cap, orange hair)",
+"conf": "low",
+"src": "characters"
+},
+"40,5": {
+"cat": "enemy",
+"name": "wraith/cultist (navy hood, red eyes)",
+"conf": "med",
+"src": "characters"
+},
+"41,5": {
+"cat": "enemy",
+"name": "mind flayer (purple, tentacle face)",
+"conf": "low",
+"src": "characters"
+},
+"42,5": {
+"cat": "npc",
+"name": "villager (male, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"43,5": {
+"cat": "npc",
+"name": "villager (male, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"44,5": {
+"cat": "npc",
+"name": "villager (male, beard) portrait",
+"conf": "med",
+"src": "characters"
+},
+"45,5": {
+"cat": "npc",
+"name": "villager (male, navy hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"46,5": {
+"cat": "npc",
+"name": "ninja/assassin (green hood, blue mask)",
+"conf": "med",
+"src": "characters"
+},
+"47,5": {
+"cat": "enemy",
+"name": "ghost (pale, blue eyes)",
+"conf": "low",
+"src": "characters"
+},
+"32,6": {
+"cat": "npc",
+"name": "villager (child, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"33,6": {
+"cat": "npc",
+"name": "villager (male, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"34,6": {
+"cat": "npc",
+"name": "villager (male, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"35,6": {
+"cat": "npc",
+"name": "old man (grey beard) portrait",
+"conf": "med",
+"src": "characters"
+},
+"36,6": {
+"cat": "npc",
+"name": "villager (female, pink hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"37,6": {
+"cat": "npc",
+"name": "villager (female, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"38,6": {
+"cat": "npc",
+"name": "old woman (grey hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"39,6": {
+"cat": "npc",
+"name": "old person (grey hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"40,6": {
+"cat": "npc",
+"name": "wizard/sage (navy hat, white beard) portrait",
+"conf": "med",
+"src": "characters"
+},
+"41,6": {
+"cat": "npc",
+"name": "queen (gold crown, pink gown)",
+"conf": "high",
+"src": "characters"
+},
+"42,6": {
+"cat": "npc",
+"name": "villager (male, brown hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"43,6": {
+"cat": "npc",
+"name": "villager (blue hair) portrait",
+"conf": "med",
+"src": "characters"
+},
+"0,1": {
+"cat": "container",
+"name": "chest (red, closed)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"1,1": {
+"cat": "container",
+"name": "chest (red, open)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"0,2": {
+"cat": "container",
+"name": "chest (blue, closed)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"1,2": {
+"cat": "container",
+"name": "chest (blue, open)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"0,3": {
+"cat": "container",
+"name": "chest (gold, closed)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"1,3": {
+"cat": "container",
+"name": "chest (gold, open)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"0,4": {
+"cat": "container",
+"name": "chest (green, closed)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"1,4": {
+"cat": "container",
+"name": "chest (green, open)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"0,5": {
+"cat": "container",
+"name": "chest (silver/white, closed)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"1,5": {
+"cat": "container",
+"name": "chest (grey, open)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"2,1": {
+"cat": "prop",
+"name": "lever (red, left)",
+"conf": "high",
+"src": "user"
+},
+"3,1": {
+"cat": "prop",
+"name": "lever (red, up)",
+"conf": "high",
+"src": "user"
+},
+"4,1": {
+"cat": "prop",
+"name": "lever (red, right)",
+"conf": "high",
+"src": "user"
+},
+"2,2": {
+"cat": "prop",
+"name": "lever (blue, left)",
+"conf": "high",
+"src": "user"
+},
+"3,2": {
+"cat": "prop",
+"name": "lever (blue, up)",
+"conf": "high",
+"src": "user"
+},
+"4,2": {
+"cat": "prop",
+"name": "lever (blue, right)",
+"conf": "high",
+"src": "user"
+},
+"2,3": {
+"cat": "prop",
+"name": "lever (gold, left)",
+"conf": "high",
+"src": "user"
+},
+"3,3": {
+"cat": "prop",
+"name": "lever (gold, up)",
+"conf": "high",
+"src": "user"
+},
+"4,3": {
+"cat": "prop",
+"name": "lever (gold, right)",
+"conf": "high",
+"src": "user"
+},
+"2,4": {
+"cat": "prop",
+"name": "lever (green, left)",
+"conf": "high",
+"src": "user"
+},
+"3,4": {
+"cat": "prop",
+"name": "lever (green, up)",
+"conf": "high",
+"src": "user"
+},
+"4,4": {
+"cat": "prop",
+"name": "lever (green, right)",
+"conf": "high",
+"src": "user"
+},
+"2,5": {
+"cat": "prop",
+"name": "lever (grey, left)",
+"conf": "high",
+"src": "user"
+},
+"3,5": {
+"cat": "prop",
+"name": "lever (grey, up)",
+"conf": "high",
+"src": "user"
+},
+"4,5": {
+"cat": "prop",
+"name": "lever (grey, right)",
+"conf": "high",
+"src": "user"
+},
+"11,0": {
+"cat": "feature",
+"name": "wooden ladder",
+"conf": "med",
+"src": "containers_furniture"
+},
+"12,0": {
+"cat": "feature",
+"name": "wooden ladder",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,0": {
+"cat": "feature",
+"name": "wooden ladder",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,0": {
+"cat": "prop",
+"name": "grey hatch with slot",
+"conf": "low",
+"src": "containers_furniture"
+},
+"11,1": {
+"cat": "door",
+"name": "wooden door (red)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"12,1": {
+"cat": "treasure",
+"name": "gem (red)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,1": {
+"cat": "prop",
+"name": "hanging banner (pink/red)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,1": {
+"cat": "treasure",
+"name": "small gem (red)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"11,2": {
+"cat": "door",
+"name": "wooden door (blue)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"12,2": {
+"cat": "treasure",
+"name": "gem (blue)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,2": {
+"cat": "prop",
+"name": "hanging banner (blue)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,2": {
+"cat": "treasure",
+"name": "small gem (blue)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"11,3": {
+"cat": "door",
+"name": "wooden door (gold/yellow)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"12,3": {
+"cat": "treasure",
+"name": "gem (yellow)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,3": {
+"cat": "prop",
+"name": "hanging banner (yellow)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,3": {
+"cat": "treasure",
+"name": "small gem (green)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"11,4": {
+"cat": "door",
+"name": "wooden door (green)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"12,4": {
+"cat": "treasure",
+"name": "gem (green)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,4": {
+"cat": "prop",
+"name": "hanging banner (green)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,4": {
+"cat": "treasure",
+"name": "small gem (green)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"11,5": {
+"cat": "door",
+"name": "wooden door (grey/white)",
+"conf": "high",
+"src": "containers_furniture"
+},
+"12,5": {
+"cat": "treasure",
+"name": "gem (navy)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"13,5": {
+"cat": "prop",
+"name": "hanging banner (navy)",
+"conf": "med",
+"src": "containers_furniture"
+},
+"14,5": {
+"cat": "treasure",
+"name": "small gem (navy)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"0,53": {
+"cat": "furniture",
+"name": "white bed/table section (top-down, posts)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"1,53": {
+"cat": "furniture",
+"name": "white bed/table section (top-down, post)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"2,53": {
+"cat": "furniture",
+"name": "white bed/table section (top-down, posts)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"3,53": {
+"cat": "furniture",
+"name": "white bed (top-down, grey pillow)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"4,53": {
+"cat": "furniture",
+"name": "white bed (top-down, grey blanket)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"5,53": {
+"cat": "furniture",
+"name": "white bed (top-down, grey blanket)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"0,54": {
+"cat": "furniture",
+"name": "white table section (top-down, posts)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"1,54": {
+"cat": "furniture",
+"name": "white table section (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"2,54": {
+"cat": "furniture",
+"name": "white table section (top-down, posts)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"3,54": {
+"cat": "furniture",
+"name": "white nightstand / bed foot (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"4,54": {
+"cat": "furniture",
+"name": "white table top (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"5,54": {
+"cat": "furniture",
+"name": "white dresser / corner (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"0,55": {
+"cat": "furniture",
+"name": "white table/counter front edge (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"1,55": {
+"cat": "furniture",
+"name": "white table/counter (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"2,55": {
+"cat": "furniture",
+"name": "white table/counter (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"3,55": {
+"cat": "furniture",
+"name": "white bed/table piece (top-down)",
+"conf": "low",
+"src": "containers_furniture"
+},
+"16,8": {
+"cat": "consumable",
+"name": "striped candy",
+"conf": "low",
+"src": "food"
+},
+"17,8": {
+"cat": "consumable",
+"name": "cabbage/lettuce",
+"conf": "low",
+"src": "food"
+},
+"18,8": {
+"cat": "consumable",
+"name": "bread bun (pale)",
+"conf": "low",
+"src": "food"
+},
+"19,8": {
+"cat": "consumable",
+"name": "bread bun (grey)",
+"conf": "low",
+"src": "food"
+},
+"20,8": {
+"cat": "consumable",
+"name": "bread loaf (brown)",
+"conf": "low",
+"src": "food"
+},
+"21,8": {
+"cat": "consumable",
+"name": "cheese wheel",
+"conf": "low",
+"src": "food"
+},
+"22,8": {
+"cat": "consumable",
+"name": "fried egg",
+"conf": "high",
+"src": "food"
+},
+"23,8": {
+"cat": "consumable",
+"name": "roast meat on plate",
+"conf": "low",
+"src": "food"
+},
+"24,8": {
+"cat": "prop",
+"name": "bone",
+"conf": "med",
+"src": "food"
+},
+"25,8": {
+"cat": "consumable",
+"name": "fish",
+"conf": "low",
+"src": "food"
+},
+"26,8": {
+"cat": "prop",
+"name": "fish bones",
+"conf": "low",
+"src": "food"
+},
+"27,8": {
+"cat": "consumable",
+"name": "grilled meat leg",
+"conf": "low",
+"src": "food"
+},
+"16,9": {
+"cat": "consumable",
+"name": "red apple",
+"conf": "med",
+"src": "food"
+},
+"17,9": {
+"cat": "consumable",
+"name": "berries sprig",
+"conf": "low",
+"src": "food"
+},
+"18,9": {
+"cat": "consumable",
+"name": "red apple",
+"conf": "med",
+"src": "food"
+},
+"19,9": {
+"cat": "consumable",
+"name": "cherries",
+"conf": "low",
+"src": "food"
+},
+"20,9": {
+"cat": "consumable",
+"name": "bananas",
+"conf": "low",
+"src": "food"
+},
+"21,9": {
+"cat": "consumable",
+"name": "watermelon slice",
+"conf": "high",
+"src": "food"
+},
+"22,9": {
+"cat": "consumable",
+"name": "orange fruit",
+"conf": "low",
+"src": "food"
+},
+"23,9": {
+"cat": "consumable",
+"name": "green pepper",
+"conf": "low",
+"src": "food"
+},
+"24,9": {
+"cat": "consumable",
+"name": "fried drumstick",
+"conf": "low",
+"src": "food"
+},
+"16,10": {
+"cat": "consumable",
+"name": "meat leg (ham on bone)",
+"conf": "med",
+"src": "food"
+},
+"17,10": {
+"cat": "consumable",
+"name": "raw meat/ham",
+"conf": "low",
+"src": "food"
+},
+"18,10": {
+"cat": "consumable",
+"name": "eggplant",
+"conf": "med",
+"src": "food"
+},
+"19,10": {
+"cat": "consumable",
+"name": "carrot",
+"conf": "high",
+"src": "food"
+},
+"20,10": {
+"cat": "consumable",
+"name": "radish/beet",
+"conf": "med",
+"src": "food"
+},
+"16,11": {
+"cat": "consumable",
+"name": "hamburger",
+"conf": "high",
+"src": "food"
+},
+"17,11": {
+"cat": "consumable",
+"name": "raw meat/steak",
+"conf": "low",
+"src": "food"
+},
+"18,11": {
+"cat": "consumable",
+"name": "cheese wedge",
+"conf": "high",
+"src": "food"
+},
+"16,12": {
+"cat": "consumable",
+"name": "bread loaf/meat",
+"conf": "low",
+"src": "food"
+},
+"17,12": {
+"cat": "consumable",
+"name": "pie",
+"conf": "med",
+"src": "food"
+},
+"18,12": {
+"cat": "consumable",
+"name": "cheese wedge/banana",
+"conf": "low",
+"src": "food"
+},
+"19,12": {
+"cat": "consumable",
+"name": "pie/cake on plate",
+"conf": "low",
+"src": "food"
+},
+"20,12": {
+"cat": "consumable",
+"name": "sandwich/wrap",
+"conf": "low",
+"src": "food"
+},
+"16,13": {
+"cat": "consumable",
+"name": "fish on plate",
+"conf": "low",
+"src": "food"
+},
+"17,13": {
+"cat": "consumable",
+"name": "wrapped candy",
+"conf": "med",
+"src": "food"
+},
+"5,1": {
+"cat": "prop",
+"name": "creature face/mask (red)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"6,1": {
+"cat": "prop",
+"name": "skull (red)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"7,1": {
+"cat": "key",
+"name": "key (red)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"5,2": {
+"cat": "prop",
+"name": "creature face/mask (blue)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"6,2": {
+"cat": "prop",
+"name": "skull (blue)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"7,2": {
+"cat": "key",
+"name": "key (blue)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"5,3": {
+"cat": "prop",
+"name": "creature face/mask (yellow)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"6,3": {
+"cat": "prop",
+"name": "skull (yellow)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"7,3": {
+"cat": "key",
+"name": "key (gold/yellow)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"5,4": {
+"cat": "prop",
+"name": "creature face/mask (green)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"6,4": {
+"cat": "prop",
+"name": "skull (green)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"7,4": {
+"cat": "key",
+"name": "key (green)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"5,5": {
+"cat": "prop",
+"name": "creature face/mask (white/bone)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"6,5": {
+"cat": "prop",
+"name": "skull (white/bone)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"7,5": {
+"cat": "key",
+"name": "key (white/bone)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"8,1": {
+"cat": "prop",
+"name": "rune glyph 'A' (pink)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"9,1": {
+"cat": "prop",
+"name": "rune glyph (pink)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"10,1": {
+"cat": "prop",
+"name": "rune glyph 'T' (pink)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"8,2": {
+"cat": "prop",
+"name": "rune glyph 'A' (blue)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"9,2": {
+"cat": "prop",
+"name": "rune glyph (blue)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"10,2": {
+"cat": "prop",
+"name": "rune glyph 'T' (blue)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"8,3": {
+"cat": "prop",
+"name": "rune glyph 'A' (yellow)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"9,3": {
+"cat": "prop",
+"name": "rune glyph (yellow)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"10,3": {
+"cat": "prop",
+"name": "rune glyph 'T' (yellow)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"8,4": {
+"cat": "prop",
+"name": "rune glyph 'A' (green)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"9,4": {
+"cat": "prop",
+"name": "rune glyph (green)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"10,4": {
+"cat": "prop",
+"name": "rune glyph 'T' (green)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"48,32": {
+"cat": "prop",
+"name": "male/mars symbol (blue)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"49,32": {
+"cat": "prop",
+"name": "female/venus symbol (red)",
+"conf": "high",
+"src": "keys_runes_symbols"
+},
+"50,32": {
+"cat": "prop",
+"name": "gender/alchemy symbol (purple)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"51,32": {
+"cat": "prop",
+"name": "hand mirror (silver)",
+"conf": "med",
+"src": "keys_runes_symbols"
+},
+"32,16": {
+"cat": "animal",
+"name": "cow/ox (brown)",
+"conf": "low",
+"src": "monsters"
+},
+"33,16": {
+"cat": "animal",
+"name": "cow/ox (brown)",
+"conf": "low",
+"src": "monsters"
+},
+"34,16": {
+"cat": "enemy",
+"name": "red imp",
+"conf": "low",
+"src": "monsters"
+},
+"35,16": {
+"cat": "enemy",
+"name": "purple slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"36,16": {
+"cat": "enemy",
+"name": "purple slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"37,16": {
+"cat": "enemy",
+"name": "blue bat",
+"conf": "low",
+"src": "monsters"
+},
+"38,16": {
+"cat": "enemy",
+"name": "fire imp",
+"conf": "low",
+"src": "monsters"
+},
+"39,16": {
+"cat": "enemy",
+"name": "purple slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"40,16": {
+"cat": "enemy",
+"name": "brown creature",
+"conf": "low",
+"src": "monsters"
+},
+"41,16": {
+"cat": "enemy",
+"name": "red slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"42,16": {
+"cat": "enemy",
+"name": "green slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"43,16": {
+"cat": "enemy",
+"name": "pink slime/blob",
+"conf": "low",
+"src": "monsters"
+},
+"44,16": {
+"cat": "enemy",
+"name": "green elemental spirit",
+"conf": "low",
+"src": "monsters"
+},
+"45,16": {
+"cat": "enemy",
+"name": "orange elemental spirit",
+"conf": "low",
+"src": "monsters"
+},
+"46,16": {
+"cat": "enemy",
+"name": "red elemental spirit",
+"conf": "low",
+"src": "monsters"
+},
+"47,16": {
+"cat": "enemy",
+"name": "purple elemental spirit",
+"conf": "low",
+"src": "monsters"
+},
+"32,17": {
+"cat": "enemy",
+"name": "blue elemental spirit",
+"conf": "low",
+"src": "monsters"
+},
+"33,17": {
+"cat": "enemy",
+"name": "fire elemental",
+"conf": "low",
+"src": "monsters"
+},
+"34,17": {
+"cat": "enemy",
+"name": "brown troll/ogre",
+"conf": "low",
+"src": "monsters"
+},
+"32,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"33,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"34,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"35,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"36,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"37,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"38,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"39,19": {
+"cat": "enemy",
+"name": "ghost (white)",
+"conf": "high",
+"src": "monsters"
+},
+"40,19": {
+"cat": "enemy",
+"name": "flaming spirit / will-o-wisp",
+"conf": "med",
+"src": "monsters"
+},
+"41,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"42,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"43,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"44,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"45,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"46,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"47,19": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"32,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"33,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"34,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"35,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"36,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"37,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"38,20": {
+"cat": "animal",
+"name": "goat (yellow)",
+"conf": "med",
+"src": "monsters"
+},
+"39,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"40,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"41,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"42,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"43,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"44,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"45,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"46,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"47,20": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"32,21": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"33,21": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"34,21": {
+"cat": "enemy",
+"name": "goblin (green)",
+"conf": "med",
+"src": "monsters"
+},
+"35,21": {
+"cat": "enemy",
+"name": "ghost (large, framed)",
+"conf": "high",
+"src": "monsters"
+},
+"36,21": {
+"cat": "enemy",
+"name": "grey imp/slime",
+"conf": "low",
+"src": "monsters"
+},
+"32,23": {
+"cat": "enemy",
+"name": "red imp",
+"conf": "med",
+"src": "monsters"
+},
+"33,23": {
+"cat": "enemy",
+"name": "red imp",
+"conf": "med",
+"src": "monsters"
+},
+"34,23": {
+"cat": "enemy",
+"name": "red imp",
+"conf": "med",
+"src": "monsters"
+},
+"35,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"36,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"37,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"38,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"39,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"40,23": {
+"cat": "enemy",
+"name": "red demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"41,23": {
+"cat": "enemy",
+"name": "dark bat/imp (blue)",
+"conf": "low",
+"src": "monsters"
+},
+"42,23": {
+"cat": "enemy",
+"name": "hooded figure (dark cultist)",
+"conf": "low",
+"src": "monsters"
+},
+"43,23": {
+"cat": "enemy",
+"name": "hooded figure (dark cultist)",
+"conf": "low",
+"src": "monsters"
+},
+"44,23": {
+"cat": "enemy",
+"name": "purple demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"45,23": {
+"cat": "enemy",
+"name": "purple demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"46,23": {
+"cat": "enemy",
+"name": "purple demon (horned)",
+"conf": "med",
+"src": "monsters"
+},
+"47,23": {
+"cat": "enemy",
+"name": "brown beast/spider",
+"conf": "low",
+"src": "monsters"
+},
+"0,7": {
+"cat": "prop",
+"name": "computer terminal (blue screen)",
+"conf": "high",
+"src": "props_structures"
+},
+"1,7": {
+"cat": "prop",
+"name": "computer terminal (green screen)",
+"conf": "high",
+"src": "props_structures"
+},
+"2,7": {
+"cat": "prop",
+"name": "wooden log / beam",
+"conf": "med",
+"src": "props_structures"
+},
+"3,7": {
+"cat": "prop",
+"name": "wooden log / beam",
+"conf": "med",
+"src": "props_structures"
+},
+"4,7": {
+"cat": "prop",
+"name": "wooden planks",
+"conf": "med",
+"src": "props_structures"
+},
+"5,7": {
+"cat": "prop",
+"name": "wooden plank (solid)",
+"conf": "med",
+"src": "props_structures"
+},
+"6,7": {
+"cat": "furniture",
+"name": "wooden cabinet / shelf",
+"conf": "low",
+"src": "props_structures"
+},
+"7,7": {
+"cat": "furniture",
+"name": "wooden wall rack (empty)",
+"conf": "low",
+"src": "props_structures"
+},
+"8,7": {
+"cat": "furniture",
+"name": "wall rack with red coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"9,7": {
+"cat": "furniture",
+"name": "wall rack with cyan coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"0,8": {
+"cat": "prop",
+"name": "wooden fence (posts)",
+"conf": "low",
+"src": "props_structures"
+},
+"1,8": {
+"cat": "furniture",
+"name": "bookshelf",
+"conf": "med",
+"src": "props_structures"
+},
+"2,8": {
+"cat": "tool",
+"name": "coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"3,8": {
+"cat": "tool",
+"name": "coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"4,8": {
+"cat": "tool",
+"name": "coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"5,8": {
+"cat": "tool",
+"name": "coiled rope",
+"conf": "low",
+"src": "props_structures"
+},
+"6,8": {
+"cat": "prop",
+"name": "computer console / machine",
+"conf": "low",
+"src": "props_structures"
+},
+"7,8": {
+"cat": "prop",
+"name": "lit torch",
+"conf": "high",
+"src": "props_structures"
+},
+"8,8": {
+"cat": "prop",
+"name": "lit torch",
+"conf": "high",
+"src": "props_structures"
+},
+"9,8": {
+"cat": "prop",
+"name": "lit torch",
+"conf": "high",
+"src": "props_structures"
+},
+"0,9": {
+"cat": "furniture",
+"name": "bed",
+"conf": "med",
+"src": "props_structures"
+},
+"1,9": {
+"cat": "prop",
+"name": "red mushroom",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"2,9": {
+"cat": "feature",
+"name": "igloo",
+"conf": "low",
+"src": "props_structures"
+},
+"3,9": {
+"cat": "prop",
+"name": "campfire",
+"conf": "low",
+"src": "props_structures"
+},
+"4,9": {
+"cat": "prop",
+"name": "red book / spellbook",
+"conf": "med",
+"src": "props_structures"
+},
+"5,25": {
+"cat": "feature",
+"name": "grey boulder (top-left)",
+"conf": "high",
+"src": "terrain_a"
+},
+"6,25": {
+"cat": "feature",
+"name": "grey boulder (top-right)",
+"conf": "high",
+"src": "terrain_a"
+},
+"7,25": {
+"cat": "feature",
+"name": "grey boulder on cliff (top-left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,25": {
+"cat": "feature",
+"name": "grey boulder on cliff (top-right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,25": {
+"cat": "feature",
+"name": "snow-capped mountain peak (left)",
+"conf": "high",
+"src": "terrain_a"
+},
+"10,25": {
+"cat": "feature",
+"name": "snow-capped mountain peak (right)",
+"conf": "high",
+"src": "terrain_a"
+},
+"5,26": {
+"cat": "feature",
+"name": "grey boulder (mid-left fill)",
+"conf": "high",
+"src": "terrain_a"
+},
+"6,26": {
+"cat": "feature",
+"name": "grey boulder (mid-right fill)",
+"conf": "high",
+"src": "terrain_a"
+},
+"7,26": {
+"cat": "feature",
+"name": "grey boulder on cliff (mid-left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,26": {
+"cat": "feature",
+"name": "grey boulder on cliff (mid-right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,26": {
+"cat": "feature",
+"name": "mountain slope (left)",
+"conf": "high",
+"src": "terrain_a"
+},
+"10,26": {
+"cat": "feature",
+"name": "mountain slope (right)",
+"conf": "high",
+"src": "terrain_a"
+},
+"5,27": {
+"cat": "feature",
+"name": "grey boulder (bottom-left)",
+"conf": "high",
+"src": "terrain_a"
+},
+"6,27": {
+"cat": "feature",
+"name": "grey boulder (bottom-right)",
+"conf": "high",
+"src": "terrain_a"
+},
+"7,27": {
+"cat": "feature",
+"name": "grey boulder on cliff (bottom-left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,27": {
+"cat": "feature",
+"name": "grey boulder on cliff (bottom-right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,27": {
+"cat": "feature",
+"name": "mountain slope (right side)",
+"conf": "high",
+"src": "terrain_a"
+},
+"10,27": {
+"cat": "feature",
+"name": "mountain slope (right)",
+"conf": "high",
+"src": "terrain_a"
+},
+"5,28": {
+"cat": "feature",
+"name": "rock rubble (left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,28": {
+"cat": "feature",
+"name": "rock rubble (right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,28": {
+"cat": "feature",
+"name": "mountain base / snowline (left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,28": {
+"cat": "feature",
+"name": "mountain base / snowline (right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,20": {
+"cat": "wall",
+"name": "green panel (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,20": {
+"cat": "wall",
+"name": "green panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,20": {
+"cat": "wall",
+"name": "green panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,20": {
+"cat": "wall",
+"name": "green panel (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,20": {
+"cat": "wall",
+"name": "pink panel (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,20": {
+"cat": "wall",
+"name": "pink panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,20": {
+"cat": "wall",
+"name": "pink panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,20": {
+"cat": "wall",
+"name": "pink panel (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,20": {
+"cat": "wall",
+"name": "blue panel (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,20": {
+"cat": "wall",
+"name": "blue panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,20": {
+"cat": "wall",
+"name": "blue panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,20": {
+"cat": "wall",
+"name": "blue panel (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,20": {
+"cat": "wall",
+"name": "yellow panel (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,20": {
+"cat": "wall",
+"name": "yellow panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,20": {
+"cat": "wall",
+"name": "yellow panel (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,20": {
+"cat": "wall",
+"name": "yellow panel (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,21": {
+"cat": "wall",
+"name": "green panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,21": {
+"cat": "wall",
+"name": "green panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,21": {
+"cat": "wall",
+"name": "green panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,21": {
+"cat": "wall",
+"name": "green panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,21": {
+"cat": "wall",
+"name": "pink panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,21": {
+"cat": "wall",
+"name": "pink panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,21": {
+"cat": "wall",
+"name": "pink panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,21": {
+"cat": "wall",
+"name": "pink panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,21": {
+"cat": "wall",
+"name": "blue panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,21": {
+"cat": "wall",
+"name": "blue panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,21": {
+"cat": "wall",
+"name": "blue panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,21": {
+"cat": "wall",
+"name": "blue panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,21": {
+"cat": "wall",
+"name": "yellow panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,21": {
+"cat": "wall",
+"name": "yellow panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,21": {
+"cat": "wall",
+"name": "yellow panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,21": {
+"cat": "wall",
+"name": "yellow panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,22": {
+"cat": "wall",
+"name": "green panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,22": {
+"cat": "wall",
+"name": "green panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,22": {
+"cat": "wall",
+"name": "green panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,22": {
+"cat": "wall",
+"name": "green panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,22": {
+"cat": "wall",
+"name": "pink panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,22": {
+"cat": "wall",
+"name": "pink panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,22": {
+"cat": "wall",
+"name": "pink panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,22": {
+"cat": "wall",
+"name": "pink panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,22": {
+"cat": "wall",
+"name": "blue panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,22": {
+"cat": "wall",
+"name": "blue panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,22": {
+"cat": "wall",
+"name": "blue panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,22": {
+"cat": "wall",
+"name": "blue panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,22": {
+"cat": "wall",
+"name": "yellow panel (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,22": {
+"cat": "wall",
+"name": "yellow panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,22": {
+"cat": "wall",
+"name": "yellow panel (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,22": {
+"cat": "wall",
+"name": "yellow panel (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,23": {
+"cat": "wall",
+"name": "green panel (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,23": {
+"cat": "wall",
+"name": "green panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,23": {
+"cat": "wall",
+"name": "green panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,23": {
+"cat": "wall",
+"name": "green panel (bottom-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,23": {
+"cat": "wall",
+"name": "pink panel (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,23": {
+"cat": "wall",
+"name": "pink panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,23": {
+"cat": "wall",
+"name": "pink panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,23": {
+"cat": "wall",
+"name": "pink panel (bottom-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,23": {
+"cat": "wall",
+"name": "blue panel (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,23": {
+"cat": "wall",
+"name": "blue panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,23": {
+"cat": "wall",
+"name": "blue panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,23": {
+"cat": "wall",
+"name": "blue panel (bottom-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,23": {
+"cat": "wall",
+"name": "yellow panel (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,23": {
+"cat": "wall",
+"name": "yellow panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,23": {
+"cat": "wall",
+"name": "yellow panel (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,23": {
+"cat": "wall",
+"name": "yellow panel (bottom-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,16": {
+"cat": "wall",
+"name": "purple brick wall (oval opening)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,16": {
+"cat": "wall",
+"name": "purple brick wall (oval ring window)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,16": {
+"cat": "wall",
+"name": "purple brick wall (peephole)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,16": {
+"cat": "wall",
+"name": "purple brick wall (recessed opening)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,16": {
+"cat": "wall",
+"name": "purple brick wall (eye niche)",
+"conf": "low",
+"src": "terrain_a"
+},
+"5,16": {
+"cat": "wall",
+"name": "purple brick wall (fill)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,16": {
+"cat": "wall",
+"name": "purple brick wall (column/edge)",
+"conf": "low",
+"src": "terrain_a"
+},
+"7,16": {
+"cat": "wall",
+"name": "purple brick wall (arched top)",
+"conf": "low",
+"src": "terrain_a"
+},
+"0,17": {
+"cat": "wall",
+"name": "purple brick wall (X cross detail)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,17": {
+"cat": "wall",
+"name": "purple brick wall (X cross detail)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,17": {
+"cat": "wall",
+"name": "purple brick wall (X cross detail)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,17": {
+"cat": "wall",
+"name": "purple brick wall (detail)",
+"conf": "low",
+"src": "terrain_a"
+},
+"4,17": {
+"cat": "feature",
+"name": "eye peephole (recessed)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge, recess)",
+"conf": "low",
+"src": "terrain_a"
+},
+"11,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,35": {
+"cat": "wall",
+"name": "stone-brick wall (top edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,35": {
+"cat": "wall",
+"name": "stone-brick wall (top-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,36": {
+"cat": "wall",
+"name": "stone-brick wall (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,36": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,36": {
+"cat": "wall",
+"name": "stone-brick wall (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,36": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,36": {
+"cat": "feature",
+"name": "stone-brick wall window",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,36": {
+"cat": "wall",
+"name": "stone-brick wall (recess)",
+"conf": "low",
+"src": "terrain_a"
+},
+"11,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,36": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,36": {
+"cat": "wall",
+"name": "stone-brick wall (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,36": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"15,36": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,37": {
+"cat": "wall",
+"name": "stone-brick wall (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"1,37": {
+"cat": "wall",
+"name": "stone-brick wall (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"2,37": {
+"cat": "wall",
+"name": "stone-brick wall (bottom-right corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"3,37": {
+"cat": "wall",
+"name": "stone-brick wall (left edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,37": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"10,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,37": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"12,37": {
+"cat": "wall",
+"name": "stone-brick wall (right edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"13,37": {
+"cat": "wall",
+"name": "stone-brick wall (bottom-left corner)",
+"conf": "med",
+"src": "terrain_a"
+},
+"14,37": {
+"cat": "wall",
+"name": "stone-brick wall (bottom edge)",
+"conf": "med",
+"src": "terrain_a"
+},
+"0,38": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"1,38": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"2,38": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"3,38": {
+"cat": "wall",
+"name": "stone-brick wall (arch left jamb)",
+"conf": "med",
+"src": "terrain_a"
+},
+"4,38": {
+"cat": "door",
+"name": "brick archway (top-left)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,38": {
+"cat": "door",
+"name": "brick archway (top-right)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,38": {
+"cat": "wall",
+"name": "stone-brick wall (arch right jamb)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,38": {
+"cat": "feature",
+"name": "gargoyle face (upper)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,38": {
+"cat": "feature",
+"name": "gargoyle face (upper)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,38": {
+"cat": "wall",
+"name": "stone-brick wall (pillar)",
+"conf": "low",
+"src": "terrain_a"
+},
+"10,38": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,38": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"12,38": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"13,38": {
+"cat": "wall",
+"name": "stone-brick wall (bottom edge)",
+"conf": "low",
+"src": "terrain_a"
+},
+"14,38": {
+"cat": "wall",
+"name": "stone-brick wall (bottom-right corner)",
+"conf": "low",
+"src": "terrain_a"
+},
+"15,38": {
+"cat": "wall",
+"name": "stone-brick wall base (window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"0,39": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"1,39": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"2,39": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"3,39": {
+"cat": "wall",
+"name": "stone-brick wall (arch left jamb base)",
+"conf": "med",
+"src": "terrain_a"
+},
+"5,39": {
+"cat": "door",
+"name": "brick archway (right jamb base)",
+"conf": "med",
+"src": "terrain_a"
+},
+"6,39": {
+"cat": "wall",
+"name": "stone-brick wall (arch right jamb base)",
+"conf": "med",
+"src": "terrain_a"
+},
+"7,39": {
+"cat": "feature",
+"name": "gargoyle face (lower)",
+"conf": "med",
+"src": "terrain_a"
+},
+"8,39": {
+"cat": "feature",
+"name": "gargoyle face (lower)",
+"conf": "med",
+"src": "terrain_a"
+},
+"9,39": {
+"cat": "wall",
+"name": "stone-brick wall (pillar base)",
+"conf": "low",
+"src": "terrain_a"
+},
+"10,39": {
+"cat": "wall",
+"name": "stone-brick wall (fill/center)",
+"conf": "med",
+"src": "terrain_a"
+},
+"11,39": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"12,39": {
+"cat": "wall",
+"name": "stone-brick wall base (merlon/window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"13,39": {
+"cat": "wall",
+"name": "stone-brick wall (bottom edge)",
+"conf": "low",
+"src": "terrain_a"
+},
+"14,39": {
+"cat": "wall",
+"name": "stone-brick wall base (window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"15,39": {
+"cat": "wall",
+"name": "stone-brick wall base (window)",
+"conf": "low",
+"src": "terrain_a"
+},
+"0,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,44": {
+"cat": "wall",
+"name": "temple wall (tiki column)",
+"conf": "med",
+"src": "terrain_b"
+},
+"4,44": {
+"cat": "wall",
+"name": "temple wall (frame top-left)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,44": {
+"cat": "wall",
+"name": "temple wall (frame top-right)",
+"conf": "med",
+"src": "terrain_b"
+},
+"6,44": {
+"cat": "feature",
+"name": "tiki idol face (top-left)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,44": {
+"cat": "feature",
+"name": "tiki idol face (top eyes)",
+"conf": "med",
+"src": "terrain_b"
+},
+"8,44": {
+"cat": "feature",
+"name": "tiki idol face (top eyes)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,44": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"10,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"11,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,44": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"13,44": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"14,44": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"15,44": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,45": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,45": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,45": {
+"cat": "wall",
+"name": "temple wall (tiki totem edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,45": {
+"cat": "wall",
+"name": "temple wall (tiki column)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,45": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"6,45": {
+"cat": "feature",
+"name": "tiki idol face (mid-left)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,45": {
+"cat": "feature",
+"name": "tiki idol face (mouth)",
+"conf": "med",
+"src": "terrain_b"
+},
+"8,45": {
+"cat": "feature",
+"name": "tiki idol face (mid-right)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,45": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"10,45": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"11,45": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,45": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"13,45": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"14,45": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"15,45": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,46": {
+"cat": "wall",
+"name": "temple wall (gold band base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,46": {
+"cat": "wall",
+"name": "temple wall (gold band base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,46": {
+"cat": "wall",
+"name": "temple wall (gold band base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,46": {
+"cat": "wall",
+"name": "temple wall (tiki column base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"4,46": {
+"cat": "wall",
+"name": "temple wall (gold band base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,46": {
+"cat": "wall",
+"name": "temple wall (gold band base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"6,46": {
+"cat": "feature",
+"name": "tiki idol face (base-left)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,46": {
+"cat": "feature",
+"name": "tiki idol face (base)",
+"conf": "med",
+"src": "terrain_b"
+},
+"8,46": {
+"cat": "feature",
+"name": "tiki idol face (base-right)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,46": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"10,46": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"11,46": {
+"cat": "wall",
+"name": "temple wall (gold band)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,46": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"13,46": {
+"cat": "wall",
+"name": "temple wall (fill)",
+"conf": "low",
+"src": "terrain_b"
+},
+"14,46": {
+"cat": "wall",
+"name": "temple wall (tiki totem)",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"1,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"2,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"3,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"4,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"5,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"6,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"7,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"8,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"9,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"10,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"11,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"12,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"13,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"14,40": {
+"cat": "wall",
+"name": "jungle frieze (top border)",
+"conf": "low",
+"src": "terrain_b"
+},
+"0,41": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,41": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"4,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,41": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"6,41": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"8,41": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"10,41": {
+"cat": "floor",
+"name": "jungle grass (tiki column)",
+"conf": "med",
+"src": "terrain_b"
+},
+"11,41": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,41": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"13,41": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"14,41": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"15,41": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,42": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,42": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,42": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,42": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"4,42": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,42": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"6,42": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,42": {
+"cat": "feature",
+"name": "pink flower",
+"conf": "high",
+"src": "terrain_b"
+},
+"8,42": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,42": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"10,42": {
+"cat": "floor",
+"name": "jungle grass (tiki column)",
+"conf": "med",
+"src": "terrain_b"
+},
+"11,42": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,42": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"13,42": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"14,42": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"15,42": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,43": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"1,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"2,43": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"3,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"4,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"5,43": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"6,43": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"7,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"8,43": {
+"cat": "floor",
+"name": "jungle grass (tiki column edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"9,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"10,43": {
+"cat": "floor",
+"name": "jungle grass (tiki column)",
+"conf": "med",
+"src": "terrain_b"
+},
+"11,43": {
+"cat": "floor",
+"name": "jungle grass (fill)",
+"conf": "med",
+"src": "terrain_b"
+},
+"12,43": {
+"cat": "floor",
+"name": "jungle grass (edge)",
+"conf": "med",
+"src": "terrain_b"
+},
+"13,43": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"14,43": {
+"cat": "floor",
+"name": "gold step band",
+"conf": "med",
+"src": "terrain_b"
+},
+"0,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"1,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"2,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"3,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"4,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"5,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"6,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"7,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"8,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"9,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"10,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"11,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"12,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"13,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"14,47": {
+"cat": "floor",
+"name": "stone rubble border",
+"conf": "low",
+"src": "terrain_b"
+},
+"0,25": {
+"cat": "floor",
+"name": "cobblestone floor (cream)",
+"conf": "high",
+"src": "terrain_b"
+},
+"1,25": {
+"cat": "floor",
+"name": "cobblestone floor (grey)",
+"conf": "high",
+"src": "terrain_b"
+},
+"2,25": {
+"cat": "floor",
+"name": "cobblestone floor (brown)",
+"conf": "high",
+"src": "terrain_b"
+},
+"3,25": {
+"cat": "floor",
+"name": "cobblestone floor (navy)",
+"conf": "high",
+"src": "terrain_b"
+},
+"0,26": {
+"cat": "floor",
+"name": "cobblestone floor (cream)",
+"conf": "high",
+"src": "terrain_b"
+},
+"1,26": {
+"cat": "floor",
+"name": "cobblestone floor (grey)",
+"conf": "high",
+"src": "terrain_b"
+},
+"2,26": {
+"cat": "floor",
+"name": "cobblestone floor (brown)",
+"conf": "high",
+"src": "terrain_b"
+},
+"3,26": {
+"cat": "floor",
+"name": "cobblestone floor (navy)",
+"conf": "high",
+"src": "terrain_b"
+},
+"4,26": {
+"cat": "floor",
+"name": "cobblestone floor (black)",
+"conf": "high",
+"src": "terrain_b"
+},
+"0,27": {
+"cat": "floor",
+"name": "cobblestone floor (cream)",
+"conf": "high",
+"src": "terrain_b"
+},
+"1,27": {
+"cat": "floor",
+"name": "cobblestone floor (grey)",
+"conf": "high",
+"src": "terrain_b"
+},
+"2,27": {
+"cat": "floor",
+"name": "cobblestone floor (brown)",
+"conf": "high",
+"src": "terrain_b"
+},
+"3,27": {
+"cat": "floor",
+"name": "cobblestone floor (navy)",
+"conf": "high",
+"src": "terrain_b"
+},
+"4,27": {
+"cat": "floor",
+"name": "cobblestone floor (black)",
+"conf": "high",
+"src": "terrain_b"
+},
+"0,28": {
+"cat": "floor",
+"name": "cobblestone floor (cream)",
+"conf": "high",
+"src": "terrain_b"
+},
+"1,28": {
+"cat": "floor",
+"name": "cobblestone floor (grey)",
+"conf": "high",
+"src": "terrain_b"
+},
+"2,28": {
+"cat": "floor",
+"name": "cobblestone floor (brown)",
+"conf": "high",
+"src": "terrain_b"
+},
+"3,28": {
+"cat": "floor",
+"name": "cobblestone floor (navy)",
+"conf": "high",
+"src": "terrain_b"
+},
+"4,28": {
+"cat": "floor",
+"name": "cobblestone floor (black)",
+"conf": "high",
+"src": "terrain_b"
+},
+"48,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"49,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"50,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"51,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"52,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"53,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"54,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"55,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"56,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"57,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"58,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"59,34": {
+"cat": "fx",
+"name": "spell ring / swirl",
+"conf": "low",
+"src": "user-block"
+},
+"60,34": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,34": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,34": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"63,34": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"48,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"49,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"50,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"51,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"52,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"53,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"54,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"55,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"56,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"57,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"58,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"59,35": {
+"cat": "fx",
+"name": "energy wave / arc",
+"conf": "low",
+"src": "user-block"
+},
+"60,35": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,35": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,35": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"63,35": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"48,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"49,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"50,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"51,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"52,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"53,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"54,36": {
+"cat": "fx",
+"name": "magic bolt",
+"conf": "low",
+"src": "user-block"
+},
+"55,36": {
+"cat": "fx",
+"name": "ward / barrier ring",
+"conf": "low",
+"src": "user-block"
+},
+"56,36": {
+"cat": "fx",
+"name": "ward / barrier ring",
+"conf": "low",
+"src": "user-block"
+},
+"57,36": {
+"cat": "fx",
+"name": "ward / barrier ring",
+"conf": "low",
+"src": "user-block"
+},
+"58,36": {
+"cat": "fx",
+"name": "ward / barrier ring",
+"conf": "low",
+"src": "user-block"
+},
+"59,36": {
+"cat": "fx",
+"name": "ward / barrier ring",
+"conf": "low",
+"src": "user-block"
+},
+"60,36": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,36": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,36": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"63,36": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"48,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"49,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"50,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"51,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"52,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"53,37": {
+"cat": "fx",
+"name": "magic bolt / streak",
+"conf": "low",
+"src": "user-block"
+},
+"60,37": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,37": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,37": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"63,37": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"48,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"49,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"50,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"51,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"52,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"53,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"54,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"55,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"56,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"57,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"58,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"59,38": {
+"cat": "fx",
+"name": "spell burst / spark",
+"conf": "low",
+"src": "user-block"
+},
+"60,38": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,38": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,38": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"54,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"55,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"56,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"57,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"58,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"59,39": {
+"cat": "fx",
+"name": "shockwave ring / orb",
+"conf": "low",
+"src": "user-block"
+},
+"60,39": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"61,39": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"62,39": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"63,39": {
+"cat": "fx",
+"name": "sparkle / particle",
+"conf": "low",
+"src": "user-block"
+},
+"24,28": {
+"cat": "weapon",
+"name": "wand (amber/gold tip)",
+"conf": "low",
+"src": "tools"
+},
+"29,28": {
+"cat": "weapon",
+"name": "wand (green tip)",
+"conf": "med",
+"src": "tools"
+},
+"16,29": {
+"cat": "tool",
+"name": "iron pickaxe",
+"conf": "med",
+"src": "tools"
+},
+"17,29": {
+"cat": "tool",
+"name": "gold pickaxe",
+"conf": "low",
+"src": "tools"
+},
+"24,29": {
+"cat": "tool",
+"name": "iron pickaxe",
+"conf": "low",
+"src": "tools"
+},
+"25,29": {
+"cat": "tool",
+"name": "silver war hammer",
+"conf": "low",
+"src": "tools"
+},
+"26,29": {
+"cat": "tool",
+"name": "silver war hammer",
+"conf": "low",
+"src": "tools"
+},
+"27,29": {
+"cat": "tool",
+"name": "iron war hammer",
+"conf": "low",
+"src": "tools"
+},
+"28,29": {
+"cat": "tool",
+"name": "iron war hammer",
+"conf": "low",
+"src": "tools"
+},
+"29,29": {
+"cat": "tool",
+"name": "gold pickaxe",
+"conf": "low",
+"src": "tools"
+},
+"30,29": {
+"cat": "tool",
+"name": "wooden staff (white tip)",
+"conf": "low",
+"src": "tools"
+},
+"16,30": {
+"cat": "tool",
+"name": "silver axe",
+"conf": "low",
+"src": "tools"
+},
+"17,30": {
+"cat": "tool",
+"name": "iron hatchet (navy grip)",
+"conf": "low",
+"src": "tools"
+},
+"18,30": {
+"cat": "tool",
+"name": "silver axe (navy grip)",
+"conf": "low",
+"src": "tools"
+},
+"19,30": {
+"cat": "tool",
+"name": "iron pickaxe",
+"conf": "med",
+"src": "tools"
+},
+"20,30": {
+"cat": "weapon",
+"name": "wand (purple gem)",
+"conf": "med",
+"src": "tools"
+},
+"21,30": {
+"cat": "weapon",
+"name": "wand (purple gem)",
+"conf": "med",
+"src": "tools"
+},
+"22,30": {
+"cat": "tool",
+"name": "iron pickaxe (gold head)",
+"conf": "low",
+"src": "tools"
+},
+"23,30": {
+"cat": "tool",
+"name": "silver mace",
+"conf": "low",
+"src": "tools"
+},
+"24,30": {
+"cat": "tool",
+"name": "iron maul",
+"conf": "med",
+"src": "tools"
+},
+"29,30": {
+"cat": "weapon",
+"name": "magic wand (pink tip)",
+"conf": "high",
+"src": "tools"
+},
+"16,31": {
+"cat": "weapon",
+"name": "gold scepter (green gem)",
+"conf": "med",
+"src": "tools"
+},
+"17,31": {
+"cat": "weapon",
+"name": "gold wand (green tip)",
+"conf": "med",
+"src": "tools"
+},
+"18,31": {
+"cat": "tool",
+"name": "gold staff",
+"conf": "low",
+"src": "tools"
+},
+"19,31": {
+"cat": "tool",
+"name": "gold pickaxe (navy handle)",
+"conf": "med",
+"src": "tools"
+},
+"20,31": {
+"cat": "tool",
+"name": "gold axe",
+"conf": "low",
+"src": "tools"
+},
+"21,31": {
+"cat": "tool",
+"name": "gold pickaxe",
+"conf": "low",
+"src": "tools"
+},
+"22,31": {
+"cat": "tool",
+"name": "gold pickaxe (navy handle)",
+"conf": "med",
+"src": "tools"
+},
+"23,31": {
+"cat": "tool",
+"name": "gold mace",
+"conf": "med",
+"src": "tools"
+},
+"24,31": {
+"cat": "tool",
+"name": "gold maul",
+"conf": "med",
+"src": "tools"
+},
+"25,31": {
+"cat": "tool",
+"name": "silver pickaxe",
+"conf": "low",
+"src": "tools"
+},
+"26,31": {
+"cat": "tool",
+"name": "war hammer (gold/silver head)",
+"conf": "low",
+"src": "tools"
+},
+"27,31": {
+"cat": "tool",
+"name": "iron war hammer (gold trim)",
+"conf": "low",
+"src": "tools"
+},
+"28,31": {
+"cat": "tool",
+"name": "iron war hammer",
+"conf": "low",
+"src": "tools"
+},
+"29,31": {
+"cat": "weapon",
+"name": "magic wand (pink tip)",
+"conf": "high",
+"src": "tools"
+},
+"16,16": {
+"cat": "treasure",
+"name": "gold nugget pile (small)",
+"conf": "high",
+"src": "treasure"
+},
+"17,16": {
+"cat": "treasure",
+"name": "gold nugget pile (medium)",
+"conf": "high",
+"src": "treasure"
+},
+"18,16": {
+"cat": "treasure",
+"name": "gold nugget pile (large)",
+"conf": "high",
+"src": "treasure"
+},
+"19,16": {
+"cat": "treasure",
+"name": "gold coin/ingot with G emblem",
+"conf": "med",
+"src": "treasure"
+},
+"20,16": {
+"cat": "treasure",
+"name": "gold nugget (single)",
+"conf": "high",
+"src": "treasure"
+},
+"21,16": {
+"cat": "treasure",
+"name": "gold nugget pile (few)",
+"conf": "high",
+"src": "treasure"
+},
+"23,16": {
+"cat": "treasure",
+"name": "silver ingot/bar",
+"conf": "med",
+"src": "treasure"
+},
+"24,16": {
+"cat": "treasure",
+"name": "blue gem in silver setting",
+"conf": "med",
+"src": "treasure"
+},
+"25,16": {
+"cat": "treasure",
+"name": "green gem/orb",
+"conf": "med",
+"src": "treasure"
+},
+"26,16": {
+"cat": "treasure",
+"name": "pink/red gem/orb",
+"conf": "med",
+"src": "treasure"
+},
+"27,16": {
+"cat": "treasure",
+"name": "gold shooting star",
+"conf": "med",
+"src": "treasure"
+},
+"16,17": {
+"cat": "treasure",
+"name": "silver ore pile (small)",
+"conf": "high",
+"src": "treasure"
+},
+"17,17": {
+"cat": "treasure",
+"name": "silver ore pile (medium)",
+"conf": "high",
+"src": "treasure"
+},
+"18,17": {
+"cat": "treasure",
+"name": "silver ore pile (large)",
+"conf": "high",
+"src": "treasure"
+},
+"20,17": {
+"cat": "treasure",
+"name": "silver nugget (single)",
+"conf": "high",
+"src": "treasure"
+},
+"21,17": {
+"cat": "treasure",
+"name": "silver nugget pile (few)",
+"conf": "high",
+"src": "treasure"
+},
+"25,17": {
+"cat": "treasure",
+"name": "green gem shard",
+"conf": "low",
+"src": "treasure"
+},
+"27,17": {
+"cat": "treasure",
+"name": "gold star",
+"conf": "med",
+"src": "treasure"
+},
+"16,18": {
+"cat": "treasure",
+"name": "copper ore pile (small)",
+"conf": "high",
+"src": "treasure"
+},
+"17,18": {
+"cat": "treasure",
+"name": "copper ore pile (medium)",
+"conf": "high",
+"src": "treasure"
+},
+"18,18": {
+"cat": "treasure",
+"name": "copper ore pile (large)",
+"conf": "high",
+"src": "treasure"
+},
+"20,18": {
+"cat": "treasure",
+"name": "copper nugget (single)",
+"conf": "high",
+"src": "treasure"
+},
+"21,18": {
+"cat": "treasure",
+"name": "copper nugget pile (few)",
+"conf": "high",
+"src": "treasure"
+},
+"25,18": {
+"cat": "treasure",
+"name": "green gem shard",
+"conf": "low",
+"src": "treasure"
+},
+"16,19": {
+"cat": "armor",
+"name": "white/silver helmet",
+"conf": "med",
+"src": "treasure"
+},
+"17,19": {
+"cat": "armor",
+"name": "dark/navy helmet",
+"conf": "med",
+"src": "treasure"
+},
+"18,19": {
+"cat": "armor",
+"name": "pink helmet",
+"conf": "med",
+"src": "treasure"
+},
+"19,19": {
+"cat": "armor",
+"name": "magenta/red helmet",
+"conf": "med",
+"src": "treasure"
+},
+"20,19": {
+"cat": "armor",
+"name": "orange helmet",
+"conf": "med",
+"src": "treasure"
+},
+"21,19": {
+"cat": "armor",
+"name": "gold helmet",
+"conf": "med",
+"src": "treasure"
+},
+"22,19": {
+"cat": "armor",
+"name": "yellow helmet",
+"conf": "med",
+"src": "treasure"
+},
+"23,19": {
+"cat": "armor",
+"name": "dark green helmet",
+"conf": "med",
+"src": "treasure"
+},
+"24,19": {
+"cat": "armor",
+"name": "green helmet",
+"conf": "med",
+"src": "treasure"
+},
+"25,19": {
+"cat": "armor",
+"name": "blue helmet",
+"conf": "med",
+"src": "treasure"
+},
+"26,19": {
+"cat": "armor",
+"name": "grey/lavender helmet",
+"conf": "med",
+"src": "treasure"
+},
+"16,21": {
+"cat": "furniture",
+"name": "wooden table",
+"conf": "med",
+"src": "treasure"
+},
+"22,21": {
+"cat": "container",
+"name": "wooden barrel",
+"conf": "high",
+"src": "treasure"
+},
+"16,22": {
+"cat": "container",
+"name": "wooden barrel/keg",
+"conf": "med",
+"src": "treasure"
+},
+"17,22": {
+"cat": "treasure",
+"name": "silver chalice/goblet",
+"conf": "med",
+"src": "treasure"
+},
+"19,22": {
+"cat": "prop",
+"name": "bones (dark ribs)",
+"conf": "med",
+"src": "treasure"
+},
+"20,22": {
+"cat": "prop",
+"name": "bones/skull (dark)",
+"conf": "med",
+"src": "treasure"
+},
+"22,22": {
+"cat": "prop",
+"name": "bones (dark)",
+"conf": "low",
+"src": "treasure"
+},
+"23,22": {
+"cat": "armor",
+"name": "round shield (navy)",
+"conf": "med",
+"src": "treasure"
+},
+"24,22": {
+"cat": "armor",
+"name": "round shield (brown, gold boss)",
+"conf": "high",
+"src": "treasure"
+},
+"16,23": {
+"cat": "treasure",
+"name": "chalice/goblet (white)",
+"conf": "low",
+"src": "treasure"
+},
+"17,23": {
+"cat": "furniture",
+"name": "gold-topped table/altar",
+"conf": "low",
+"src": "treasure"
+},
+"19,23": {
+"cat": "prop",
+"name": "bones (pale scattered)",
+"conf": "med",
+"src": "treasure"
+},
+"20,23": {
+"cat": "prop",
+"name": "bones/skull (pale)",
+"conf": "med",
+"src": "treasure"
+},
+"22,23": {
+"cat": "prop",
+"name": "bones (pale)",
+"conf": "low",
+"src": "treasure"
+},
+"23,23": {
+"cat": "prop",
+"name": "bones/shield fragment (pale)",
+"conf": "low",
+"src": "treasure"
+},
+"24,23": {
+"cat": "armor",
+"name": "round shield (navy, boss)",
+"conf": "med",
+"src": "treasure"
+},
+"32,25": {
+"cat": "npc",
+"name": "king head with gold crown",
+"conf": "low",
+"src": "treasure"
+},
+"33,25": {
+"cat": "npc",
+"name": "red-hooded figure head",
+"conf": "low",
+"src": "treasure"
+},
+"32,27": {
+"cat": "armor",
+"name": "white plate armor (chestplate)",
+"conf": "med",
+"src": "treasure"
+},
+"33,27": {
+"cat": "armor",
+"name": "white/grey armor",
+"conf": "low",
+"src": "treasure"
+},
+"34,27": {
+"cat": "armor",
+"name": "brown/maroon hooded robe",
+"conf": "med",
+"src": "treasure"
+},
+"35,27": {
+"cat": "armor",
+"name": "grey hood/ghost",
+"conf": "low",
+"src": "treasure"
+},
+"32,29": {
+"cat": "treasure",
+"name": "green crown",
+"conf": "high",
+"src": "treasure"
+},
+"33,29": {
+"cat": "treasure",
+"name": "gold/yellow crown",
+"conf": "high",
+"src": "treasure"
+},
+"34,29": {
+"cat": "treasure",
+"name": "red/pink crown",
+"conf": "high",
+"src": "treasure"
+},
+"35,29": {
+"cat": "treasure",
+"name": "purple crown",
+"conf": "high",
+"src": "treasure"
+},
+"36,29": {
+"cat": "treasure",
+"name": "blue crown",
+"conf": "high",
+"src": "treasure"
+},
+"37,29": {
+"cat": "treasure",
+"name": "brown crown",
+"conf": "med",
+"src": "treasure"
+},
+"38,29": {
+"cat": "treasure",
+"name": "maroon/purple crown",
+"conf": "med",
+"src": "treasure"
+},
+"39,29": {
+"cat": "treasure",
+"name": "dark green crown",
+"conf": "high",
+"src": "treasure"
+},
+"32,31": {
+"cat": "fx",
+"name": "white smoke/cloud puff",
+"conf": "med",
+"src": "treasure"
+},
+"33,31": {
+"cat": "enemy",
+"name": "grey/purple slime",
+"conf": "med",
+"src": "treasure"
+},
+"34,31": {
+"cat": "enemy",
+"name": "green slime",
+"conf": "med",
+"src": "treasure"
+},
+"35,31": {
+"cat": "fx",
+"name": "white smoke swirl",
+"conf": "med",
+"src": "treasure"
+},
+"36,31": {
+"cat": "fx",
+"name": "fire/explosion frame",
+"conf": "high",
+"src": "treasure"
+},
+"37,31": {
+"cat": "fx",
+"name": "explosion sparkle frame",
+"conf": "high",
+"src": "treasure"
+},
+"38,31": {
+"cat": "fx",
+"name": "fire/explosion frame",
+"conf": "high",
+"src": "treasure"
+},
+"39,31": {
+"cat": "fx",
+"name": "blue splash/slime",
+"conf": "low",
+"src": "treasure"
+},
+"40,31": {
+"cat": "prop",
+"name": "green bush with red berries",
+"conf": "low",
+"src": "treasure"
+},
+"10,8": {
+"cat": "furniture",
+"name": "bookshelf",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"11,8": {
+"cat": "prop",
+"name": "stone pillars/columns",
+"conf": "low",
+"src": "trinkets_nature"
+},
+"12,8": {
+"cat": "prop",
+"name": "fountain/well",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"13,8": {
+"cat": "prop",
+"name": "fountain",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"14,8": {
+"cat": "prop",
+"name": "candelabra",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"15,8": {
+"cat": "prop",
+"name": "skull",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"0,10": {
+"cat": "prop",
+"name": "red slime puddle (large)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"1,10": {
+"cat": "prop",
+"name": "red slime puddle (medium)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"2,10": {
+"cat": "prop",
+"name": "red slime puddle (small)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"3,10": {
+"cat": "prop",
+"name": "blue slime puddle (large)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"4,10": {
+"cat": "prop",
+"name": "blue slime puddle (medium)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"5,10": {
+"cat": "prop",
+"name": "blue slime puddle (small)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"6,10": {
+"cat": "prop",
+"name": "purple slime puddle (large)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"7,10": {
+"cat": "prop",
+"name": "purple slime puddle (medium)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"8,10": {
+"cat": "prop",
+"name": "purple slime puddle (small)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"9,10": {
+"cat": "prop",
+"name": "green slime puddle (large)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"10,10": {
+"cat": "prop",
+"name": "green slime puddle (medium)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"11,10": {
+"cat": "prop",
+"name": "green slime puddle (small)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"0,11": {
+"cat": "prop",
+"name": "pink flower",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"1,11": {
+"cat": "prop",
+"name": "pink flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"2,11": {
+"cat": "prop",
+"name": "pink flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"3,11": {
+"cat": "prop",
+"name": "orange flower",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"4,11": {
+"cat": "prop",
+"name": "orange flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"5,11": {
+"cat": "prop",
+"name": "orange flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"6,11": {
+"cat": "prop",
+"name": "blue flower",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"7,11": {
+"cat": "prop",
+"name": "blue flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"8,11": {
+"cat": "prop",
+"name": "blue flowers",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"9,11": {
+"cat": "animal",
+"name": "green snake",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"10,11": {
+"cat": "animal",
+"name": "red snake",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"0,12": {
+"cat": "prop",
+"name": "white cloud",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"1,12": {
+"cat": "prop",
+"name": "grey cloud",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"2,12": {
+"cat": "prop",
+"name": "grass tuft",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"3,12": {
+"cat": "prop",
+"name": "grass sprig",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"4,12": {
+"cat": "prop",
+"name": "green bush",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"5,12": {
+"cat": "prop",
+"name": "brown rock/boulder",
+"conf": "med",
+"src": "trinkets_nature"
+},
+"6,12": {
+"cat": "prop",
+"name": "tree (foliage on trunk)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"7,12": {
+"cat": "prop",
+"name": "tree (foliage on trunk)",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"8,12": {
+"cat": "prop",
+"name": "tree trunk/dead tree",
+"conf": "low",
+"src": "trinkets_nature"
+},
+"9,12": {
+"cat": "animal",
+"name": "green snake",
+"conf": "high",
+"src": "trinkets_nature"
+},
+"10,12": {
+"cat": "prop",
+"name": "grey rock/cloud",
+"conf": "low",
+"src": "trinkets_nature"
+},
+"0,14": {
+"cat": "ui",
+"name": "heart icon (purple)",
+"conf": "low",
+"src": "ui_a"
+},
+"1,14": {
+"cat": "ui",
+"name": "leaf/clover icon (green)",
+"conf": "low",
+"src": "ui_a"
+},
+"2,14": {
+"cat": "ui",
+"name": "spiral/swirl icon (purple)",
+"conf": "low",
+"src": "ui_a"
+},
+"3,14": {
+"cat": "ui",
+"name": "star/sparkle icon (yellow)",
+"conf": "high",
+"src": "ui_a"
+},
+"4,14": {
+"cat": "ui",
+"name": "lightning/zigzag icon (green)",
+"conf": "low",
+"src": "ui_a"
+},
+"5,14": {
+"cat": "ui",
+"name": "faint glyph",
+"conf": "low",
+"src": "ui_a"
+},
+"6,14": {
+"cat": "ui",
+"name": "rock/droplet blob (grey)",
+"conf": "low",
+"src": "ui_a"
+},
+"7,14": {
+"cat": "ui",
+"name": "snowflake icon (blue)",
+"conf": "high",
+"src": "ui_a"
+},
+"8,14": {
+"cat": "ui",
+"name": "water droplet icon (blue)",
+"conf": "high",
+"src": "ui_a"
+},
+"9,14": {
+"cat": "ui",
+"name": "flame icon (blue)",
+"conf": "med",
+"src": "ui_a"
+},
+"10,14": {
+"cat": "ui",
+"name": "flame/droplet icon (red)",
+"conf": "med",
+"src": "ui_a"
+},
+"11,14": {
+"cat": "ui",
+"name": "flame/fire icon (orange)",
+"conf": "med",
+"src": "ui_a"
+},
+"12,14": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"13,14": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"14,14": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"15,14": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"0,15": {
+"cat": "ui",
+"name": "heart glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"1,15": {
+"cat": "ui",
+"name": "eye icon",
+"conf": "high",
+"src": "ui_a"
+},
+"2,15": {
+"cat": "ui",
+"name": "mouth/smile icon",
+"conf": "med",
+"src": "ui_a"
+},
+"3,15": {
+"cat": "ui",
+"name": "eye icon (red tear)",
+"conf": "med",
+"src": "ui_a"
+},
+"4,15": {
+"cat": "ui",
+"name": "mouth/smile icon",
+"conf": "med",
+"src": "ui_a"
+},
+"5,15": {
+"cat": "ui",
+"name": "eye icon (blue tear)",
+"conf": "med",
+"src": "ui_a"
+},
+"6,15": {
+"cat": "ui",
+"name": "mouth/smile icon",
+"conf": "med",
+"src": "ui_a"
+},
+"7,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"8,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"9,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"10,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"11,15": {
+"cat": "ui",
+"name": "blank/transparent",
+"conf": "low",
+"src": "ui_a"
+},
+"12,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"13,15": {
+"cat": "ui",
+"name": "letter/note glyph (maroon)",
+"conf": "low",
+"src": "ui_a"
+},
+"14,15": {
+"cat": "ui",
+"name": "blank/transparent",
+"conf": "low",
+"src": "ui_a"
+},
+"15,15": {
+"cat": "ui",
+"name": "letter P glyph (green)",
+"conf": "high",
+"src": "ui_a"
+},
+"48,17": {
+"cat": "ui",
+"name": "arrow (up-left, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"49,17": {
+"cat": "ui",
+"name": "arrow (up, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"50,17": {
+"cat": "ui",
+"name": "arrow (up-right, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"51,17": {
+"cat": "ui",
+"name": "arrow (up-left, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"52,17": {
+"cat": "ui",
+"name": "arrow (up, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"53,17": {
+"cat": "ui",
+"name": "arrow (up-right, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"54,17": {
+"cat": "ui",
+"name": "indicator light (pink)",
+"conf": "med",
+"src": "ui_a"
+},
+"55,17": {
+"cat": "ui",
+"name": "level gauge bars (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"56,17": {
+"cat": "ui",
+"name": "level gauge bars (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"57,17": {
+"cat": "ui",
+"name": "level gauge bars (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"58,17": {
+"cat": "ui",
+"name": "level gauge bars (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"59,17": {
+"cat": "ui",
+"name": "level gauge bars (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"48,18": {
+"cat": "ui",
+"name": "arrow (left, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"49,18": {
+"cat": "ui",
+"name": "ring/target icon (cream)",
+"conf": "low",
+"src": "ui_a"
+},
+"50,18": {
+"cat": "ui",
+"name": "arrow (right, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"51,18": {
+"cat": "ui",
+"name": "arrow (left, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"52,18": {
+"cat": "ui",
+"name": "ring/target icon (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"53,18": {
+"cat": "ui",
+"name": "arrow (right, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"54,18": {
+"cat": "ui",
+"name": "green screen/monitor",
+"conf": "med",
+"src": "ui_a"
+},
+"55,18": {
+"cat": "ui",
+"name": "green screen/monitor",
+"conf": "med",
+"src": "ui_a"
+},
+"56,18": {
+"cat": "ui",
+"name": "green screen/monitor (bar)",
+"conf": "med",
+"src": "ui_a"
+},
+"57,18": {
+"cat": "ui",
+"name": "green screen/monitor",
+"conf": "med",
+"src": "ui_a"
+},
+"58,18": {
+"cat": "ui",
+"name": "green screen/monitor",
+"conf": "med",
+"src": "ui_a"
+},
+"48,19": {
+"cat": "ui",
+"name": "arrow (down-left, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"49,19": {
+"cat": "ui",
+"name": "arrow (down, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"50,19": {
+"cat": "ui",
+"name": "arrow (down-right, cream)",
+"conf": "high",
+"src": "ui_a"
+},
+"51,19": {
+"cat": "ui",
+"name": "arrow (down-left, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"52,19": {
+"cat": "ui",
+"name": "arrow (down, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"53,19": {
+"cat": "ui",
+"name": "arrow (down-right, grey)",
+"conf": "high",
+"src": "ui_a"
+},
+"54,19": {
+"cat": "ui",
+"name": "signal bars gauge (blue)",
+"conf": "med",
+"src": "ui_a"
+},
+"55,19": {
+"cat": "ui",
+"name": "signal bars gauge (blue)",
+"conf": "med",
+"src": "ui_a"
+},
+"56,19": {
+"cat": "ui",
+"name": "signal bars gauge (blue)",
+"conf": "med",
+"src": "ui_a"
+},
+"57,19": {
+"cat": "ui",
+"name": "signal bars gauge (purple)",
+"conf": "med",
+"src": "ui_a"
+},
+"58,19": {
+"cat": "ui",
+"name": "signal bars gauge (purple)",
+"conf": "med",
+"src": "ui_a"
+},
+"48,20": {
+"cat": "ui",
+"name": "button circle (pink)",
+"conf": "high",
+"src": "ui_a"
+},
+"49,20": {
+"cat": "ui",
+"name": "button circle (orange)",
+"conf": "high",
+"src": "ui_a"
+},
+"50,20": {
+"cat": "ui",
+"name": "button circle (blue)",
+"conf": "high",
+"src": "ui_a"
+},
+"51,20": {
+"cat": "ui",
+"name": "button circle (green)",
+"conf": "high",
+"src": "ui_a"
+},
+"52,20": {
+"cat": "ui",
+"name": "A button (red)",
+"conf": "high",
+"src": "ui_a"
+},
+"53,20": {
+"cat": "ui",
+"name": "B button (orange)",
+"conf": "high",
+"src": "ui_a"
+},
+"54,20": {
+"cat": "ui",
+"name": "X button (blue)",
+"conf": "high",
+"src": "ui_a"
+},
+"55,20": {
+"cat": "ui",
+"name": "Y button (green)",
+"conf": "high",
+"src": "ui_a"
+},
+"56,20": {
+"cat": "ui",
+"name": "B button (red)",
+"conf": "med",
+"src": "ui_a"
+},
+"57,20": {
+"cat": "ui",
+"name": "A button (green)",
+"conf": "med",
+"src": "ui_a"
+},
+"58,20": {
+"cat": "ui",
+"name": "Y button (orange)",
+"conf": "med",
+"src": "ui_a"
+},
+"60,20": {
+"cat": "ui",
+"name": "O face button (pink circle)",
+"conf": "high",
+"src": "ui_a"
+},
+"61,20": {
+"cat": "ui",
+"name": "X face button (blue cross)",
+"conf": "high",
+"src": "ui_a"
+},
+"62,20": {
+"cat": "ui",
+"name": "triangle face button (green)",
+"conf": "med",
+"src": "ui_a"
+},
+"63,20": {
+"cat": "ui",
+"name": "square/O face button (purple)",
+"conf": "med",
+"src": "ui_a"
+},
+"48,21": {
+"cat": "ui",
+"name": "button circle (dark red)",
+"conf": "high",
+"src": "ui_a"
+},
+"49,21": {
+"cat": "ui",
+"name": "button circle (orange)",
+"conf": "high",
+"src": "ui_a"
+},
+"50,21": {
+"cat": "ui",
+"name": "button circle (purple)",
+"conf": "high",
+"src": "ui_a"
+},
+"51,21": {
+"cat": "ui",
+"name": "button circle (green)",
+"conf": "high",
+"src": "ui_a"
+},
+"52,21": {
+"cat": "ui",
+"name": "A button (dark red)",
+"conf": "high",
+"src": "ui_a"
+},
+"53,21": {
+"cat": "ui",
+"name": "B button (dark)",
+"conf": "med",
+"src": "ui_a"
+},
+"54,21": {
+"cat": "ui",
+"name": "X button (purple)",
+"conf": "high",
+"src": "ui_a"
+},
+"55,21": {
+"cat": "ui",
+"name": "Y button (green)",
+"conf": "high",
+"src": "ui_a"
+},
+"56,21": {
+"cat": "ui",
+"name": "B button (dark red)",
+"conf": "med",
+"src": "ui_a"
+},
+"57,21": {
+"cat": "ui",
+"name": "A button (green)",
+"conf": "med",
+"src": "ui_a"
+},
+"58,21": {
+"cat": "ui",
+"name": "Y button (orange)",
+"conf": "med",
+"src": "ui_a"
+},
+"60,21": {
+"cat": "ui",
+"name": "O face button (red circle)",
+"conf": "high",
+"src": "ui_a"
+},
+"61,21": {
+"cat": "ui",
+"name": "X face button (dark blue cross)",
+"conf": "high",
+"src": "ui_a"
+},
+"62,21": {
+"cat": "ui",
+"name": "triangle face button (green)",
+"conf": "med",
+"src": "ui_a"
+},
+"63,21": {
+"cat": "ui",
+"name": "square/O face button (purple)",
+"conf": "med",
+"src": "ui_a"
+},
+"48,22": {
+"cat": "ui",
+"name": "blank button (white)",
+"conf": "med",
+"src": "ui_a"
+},
+"60,22": {
+"cat": "ui",
+"name": "O face button (dark)",
+"conf": "high",
+"src": "ui_a"
+},
+"61,22": {
+"cat": "ui",
+"name": "X face button (dark)",
+"conf": "high",
+"src": "ui_a"
+},
+"48,23": {
+"cat": "ui",
+"name": "blank button (grey)",
+"conf": "med",
+"src": "ui_a"
+},
+"60,23": {
+"cat": "ui",
+"name": "O face button (navy)",
+"conf": "high",
+"src": "ui_a"
+},
+"48,24": {
+"cat": "ui",
+"name": "speech bubble (blank panel)",
+"conf": "low",
+"src": "ui_b"
+},
+"49,24": {
+"cat": "ui",
+"name": "speech bubble (exclamation !)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,24": {
+"cat": "ui",
+"name": "speech bubble (dots/question)",
+"conf": "low",
+"src": "ui_b"
+},
+"51,24": {
+"cat": "ui",
+"name": "speech bubble (ellipsis ...)",
+"conf": "med",
+"src": "ui_b"
+},
+"52,24": {
+"cat": "ui",
+"name": "green checkmark",
+"conf": "high",
+"src": "ui_b"
+},
+"53,24": {
+"cat": "ui",
+"name": "green box/checkbox (filled)",
+"conf": "med",
+"src": "ui_b"
+},
+"54,24": {
+"cat": "ui",
+"name": "red cross (X)",
+"conf": "high",
+"src": "ui_b"
+},
+"55,24": {
+"cat": "ui",
+"name": "grey/purple circle icon",
+"conf": "low",
+"src": "ui_b"
+},
+"56,24": {
+"cat": "ui",
+"name": "happy face emote",
+"conf": "high",
+"src": "ui_b"
+},
+"57,24": {
+"cat": "ui",
+"name": "sad face emote",
+"conf": "high",
+"src": "ui_b"
+},
+"58,24": {
+"cat": "ui",
+"name": "neutral face emote",
+"conf": "high",
+"src": "ui_b"
+},
+"59,24": {
+"cat": "ui",
+"name": "rune/glyph icon (blue)",
+"conf": "low",
+"src": "ui_b"
+},
+"49,25": {
+"cat": "ui",
+"name": "exclamation mark (white)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,25": {
+"cat": "ui",
+"name": "question mark (?)",
+"conf": "high",
+"src": "ui_b"
+},
+"51,25": {
+"cat": "ui",
+"name": "empty rounded frame/box (grey)",
+"conf": "med",
+"src": "ui_b"
+},
+"53,25": {
+"cat": "ui",
+"name": "green checkbox (outline + check)",
+"conf": "high",
+"src": "ui_b"
+},
+"54,25": {
+"cat": "ui",
+"name": "red no/prohibited box (cancel)",
+"conf": "high",
+"src": "ui_b"
+},
+"55,25": {
+"cat": "ui",
+"name": "grey/purple disabled box",
+"conf": "med",
+"src": "ui_b"
+},
+"56,25": {
+"cat": "ui",
+"name": "happy face (yellow smiley)",
+"conf": "high",
+"src": "ui_b"
+},
+"57,25": {
+"cat": "ui",
+"name": "sad face (yellow)",
+"conf": "high",
+"src": "ui_b"
+},
+"58,25": {
+"cat": "ui",
+"name": "neutral face (yellow)",
+"conf": "high",
+"src": "ui_b"
+},
+"59,25": {
+"cat": "ui",
+"name": "skull icon (white)",
+"conf": "high",
+"src": "ui_b"
+},
+"48,26": {
+"cat": "ui",
+"name": "clover/leaf icon (purple)",
+"conf": "med",
+"src": "ui_b"
+},
+"49,26": {
+"cat": "ui",
+"name": "clover/leaf icon (green)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,26": {
+"cat": "ui",
+"name": "spiral/swirl icon (pink)",
+"conf": "med",
+"src": "ui_b"
+},
+"51,26": {
+"cat": "ui",
+"name": "spark/lightning icon (yellow)",
+"conf": "low",
+"src": "ui_b"
+},
+"52,26": {
+"cat": "ui",
+"name": "spark/leaf icon (yellow)",
+"conf": "low",
+"src": "ui_b"
+},
+"53,26": {
+"cat": "ui",
+"name": "orb/sphere icon (grey)",
+"conf": "low",
+"src": "ui_b"
+},
+"54,26": {
+"cat": "ui",
+"name": "snowflake icon (blue)",
+"conf": "high",
+"src": "ui_b"
+},
+"55,26": {
+"cat": "ui",
+"name": "snowflake/flower icon (blue)",
+"conf": "med",
+"src": "ui_b"
+},
+"56,26": {
+"cat": "ui",
+"name": "water droplet icon (blue)",
+"conf": "med",
+"src": "ui_b"
+},
+"57,26": {
+"cat": "ui",
+"name": "droplet icon (pink/red)",
+"conf": "med",
+"src": "ui_b"
+},
+"58,26": {
+"cat": "fx",
+"name": "fire/flame icon",
+"conf": "med",
+"src": "ui_b"
+},
+"59,26": {
+"cat": "ui",
+"name": "ghost icon (grey)",
+"conf": "med",
+"src": "ui_b"
+},
+"60,26": {
+"cat": "ui",
+"name": "medical cross/plus (red)",
+"conf": "high",
+"src": "ui_b"
+},
+"61,26": {
+"cat": "ui",
+"name": "log/branch icon (brown)",
+"conf": "low",
+"src": "ui_b"
+},
+"62,26": {
+"cat": "ui",
+"name": "heart icon (pink)",
+"conf": "med",
+"src": "ui_b"
+},
+"63,26": {
+"cat": "ui",
+"name": "heart icon (red)",
+"conf": "med",
+"src": "ui_b"
+},
+"48,27": {
+"cat": "ui",
+"name": "clover/leaf icon (purple, large)",
+"conf": "med",
+"src": "ui_b"
+},
+"49,27": {
+"cat": "ui",
+"name": "clover/leaf icon (green, large)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,27": {
+"cat": "ui",
+"name": "spiral/swirl icon (pink, large)",
+"conf": "med",
+"src": "ui_b"
+},
+"51,27": {
+"cat": "ui",
+"name": "lightning bolt (yellow)",
+"conf": "med",
+"src": "ui_b"
+},
+"52,27": {
+"cat": "ui",
+"name": "lightning bolt (grey/purple)",
+"conf": "low",
+"src": "ui_b"
+},
+"53,27": {
+"cat": "ui",
+"name": "orb/rock icon (grey-brown)",
+"conf": "low",
+"src": "ui_b"
+},
+"54,27": {
+"cat": "ui",
+"name": "snowflake icon (blue, large)",
+"conf": "high",
+"src": "ui_b"
+},
+"55,27": {
+"cat": "ui",
+"name": "water splash icon (blue)",
+"conf": "med",
+"src": "ui_b"
+},
+"56,27": {
+"cat": "ui",
+"name": "water droplet icon (blue, large)",
+"conf": "med",
+"src": "ui_b"
+},
+"57,27": {
+"cat": "fx",
+"name": "flame/droplet icon (pink-red)",
+"conf": "low",
+"src": "ui_b"
+},
+"58,27": {
+"cat": "fx",
+"name": "fire/flame icon (large)",
+"conf": "high",
+"src": "ui_b"
+},
+"59,27": {
+"cat": "ui",
+"name": "ghost icon (grey, large)",
+"conf": "med",
+"src": "ui_b"
+},
+"60,27": {
+"cat": "ui",
+"name": "cross/plus burst (red)",
+"conf": "med",
+"src": "ui_b"
+},
+"63,27": {
+"cat": "ui",
+"name": "maple-leaf/heart icon (red)",
+"conf": "low",
+"src": "ui_b"
+},
+"48,29": {
+"cat": "ui",
+"name": "green plus/clover on panel (x1)",
+"conf": "med",
+"src": "ui_b"
+},
+"49,29": {
+"cat": "ui",
+"name": "green clovers on panel (x2)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,29": {
+"cat": "ui",
+"name": "green clovers on panel (x3)",
+"conf": "med",
+"src": "ui_b"
+},
+"51,29": {
+"cat": "ui",
+"name": "green clover/leaf (large)",
+"conf": "med",
+"src": "ui_b"
+},
+"52,29": {
+"cat": "unknown",
+"name": "flesh arm/fist fragment",
+"conf": "low",
+"src": "ui_b"
+},
+"53,29": {
+"cat": "unknown",
+"name": "white dice/eyes fragment",
+"conf": "low",
+"src": "ui_b"
+},
+"54,29": {
+"cat": "unknown",
+"name": "boot/shoe fragment",
+"conf": "low",
+"src": "ui_b"
+},
+"55,29": {
+"cat": "unknown",
+"name": "grey die/stone block",
+"conf": "low",
+"src": "ui_b"
+},
+"56,29": {
+"cat": "unknown",
+"name": "dice + box fragment",
+"conf": "low",
+"src": "ui_b"
+},
+"57,29": {
+"cat": "ui",
+"name": "four-leaf clover (green)",
+"conf": "med",
+"src": "ui_b"
+},
+"58,29": {
+"cat": "ui",
+"name": "four-leaf clover with stem (green)",
+"conf": "med",
+"src": "ui_b"
+},
+"59,29": {
+"cat": "ui",
+"name": "mushroom icon (pink)",
+"conf": "med",
+"src": "ui_b"
+},
+"48,30": {
+"cat": "ui",
+"name": "red health pip/dash on panel (x1)",
+"conf": "low",
+"src": "ui_b"
+},
+"49,30": {
+"cat": "ui",
+"name": "red health pips on panel (x2)",
+"conf": "low",
+"src": "ui_b"
+},
+"50,30": {
+"cat": "ui",
+"name": "red health pips on panel (x3)",
+"conf": "low",
+"src": "ui_b"
+},
+"51,30": {
+"cat": "ui",
+"name": "full heart (crimson)",
+"conf": "high",
+"src": "ui_b"
+},
+"48,31": {
+"cat": "ui",
+"name": "full heart (red)",
+"conf": "high",
+"src": "ui_b"
+},
+"49,31": {
+"cat": "ui",
+"name": "heart (mostly full)",
+"conf": "med",
+"src": "ui_b"
+},
+"50,31": {
+"cat": "ui",
+"name": "half heart",
+"conf": "med",
+"src": "ui_b"
+},
+"51,31": {
+"cat": "ui",
+"name": "heart (low/quarter)",
+"conf": "med",
+"src": "ui_b"
+},
+"52,31": {
+"cat": "ui",
+"name": "empty heart",
+"conf": "med",
+"src": "ui_b"
+},
+"53,31": {
+"cat": "ui",
+"name": "health bar (full, green)",
+"conf": "high",
+"src": "ui_b"
+},
+"54,31": {
+"cat": "ui",
+"name": "health bar (green, near full)",
+"conf": "med",
+"src": "ui_b"
+},
+"55,31": {
+"cat": "ui",
+"name": "health bar (half, yellow)",
+"conf": "med",
+"src": "ui_b"
+},
+"56,31": {
+"cat": "ui",
+"name": "health bar (yellow, stepped)",
+"conf": "med",
+"src": "ui_b"
+},
+"57,31": {
+"cat": "ui",
+"name": "health bar (orange)",
+"conf": "med",
+"src": "ui_b"
+},
+"58,31": {
+"cat": "ui",
+"name": "health bar (orange, low)",
+"conf": "med",
+"src": "ui_b"
+},
+"59,31": {
+"cat": "ui",
+"name": "health bar (red, low)",
+"conf": "med",
+"src": "ui_b"
+},
+"60,31": {
+"cat": "ui",
+"name": "health bar (red, lower)",
+"conf": "med",
+"src": "ui_b"
+},
+"61,31": {
+"cat": "ui",
+"name": "health bar (near empty, red sliver)",
+"conf": "med",
+"src": "ui_b"
+},
+"62,31": {
+"cat": "ui",
+"name": "health bar (empty, navy)",
+"conf": "med",
+"src": "ui_b"
+},
+"0,50": {
+"cat": "ui",
+"name": "blueprint wall (T-junction/corner)",
+"conf": "med",
+"src": "ui_b"
+},
+"1,50": {
+"cat": "ui",
+"name": "blueprint wall (T-junction, down)",
+"conf": "med",
+"src": "ui_b"
+},
+"2,50": {
+"cat": "ui",
+"name": "blueprint wall (corner)",
+"conf": "med",
+"src": "ui_b"
+},
+"3,50": {
+"cat": "ui",
+"name": "blueprint wall (stub)",
+"conf": "low",
+"src": "ui_b"
+},
+"4,50": {
+"cat": "ui",
+"name": "blueprint wall (horizontal)",
+"conf": "med",
+"src": "ui_b"
+},
+"5,50": {
+"cat": "ui",
+"name": "blueprint wall (horizontal)",
+"conf": "med",
+"src": "ui_b"
+},
+"6,50": {
+"cat": "ui",
+"name": "blueprint room corner (top-left)",
+"conf": "med",
+"src": "ui_b"
+},
+"7,50": {
+"cat": "ui",
+"name": "blueprint room wall (top)",
+"conf": "med",
+"src": "ui_b"
+},
+"8,50": {
+"cat": "ui",
+"name": "blueprint room corner (top-right)",
+"conf": "med",
+"src": "ui_b"
+},
+"9,50": {
+"cat": "ui",
+"name": "blueprint room (corner/spiral)",
+"conf": "low",
+"src": "ui_b"
+},
+"10,50": {
+"cat": "ui",
+"name": "blueprint wall (horizontal)",
+"conf": "med",
+"src": "ui_b"
+},
+"11,50": {
+"cat": "ui",
+"name": "blueprint wall (horizontal/corner)",
+"conf": "med",
+"src": "ui_b"
+},
+"0,51": {
+"cat": "ui",
+"name": "blueprint wall (vertical)",
+"conf": "med",
+"src": "ui_b"
+},
+"1,51": {
+"cat": "ui",
+"name": "blueprint wall (cross junction +)",
+"conf": "med",
+"src": "ui_b"
+},
+"2,51": {
+"cat": "ui",
+"name": "blueprint wall (T-junction)",
+"conf": "med",
+"src": "ui_b"
+},
+"3,51": {
+"cat": "ui",
+"name": "blueprint wall (vertical stub)",
+"conf": "low",
+"src": "ui_b"
+},
+"4,51": {
+"cat": "ui",
+"name": "blueprint wall (vertical)",
+"conf": "med",
+"src": "ui_b"
+},
+"5,51": {
+"cat": "ui",
+"name": "blueprint wall (corner)",
+"conf": "med",
+"src": "ui_b"
+},
+"6,51": {
+"cat": "ui",
+"name": "blueprint room (nested corner)",
+"conf": "low",
+"src": "ui_b"
+},
+"7,51": {
+"cat": "ui",
+"name": "blueprint wall (junction)",
+"conf": "low",
+"src": "ui_b"
+},
+"8,51": {
+"cat": "ui",
+"name": "blueprint wall (corner)",
+"conf": "low",
+"src": "ui_b"
+},
+"9,51": {
+"cat": "ui",
+"name": "blueprint room (inner walls)",
+"conf": "low",
+"src": "ui_b"
+},
+"10,51": {
+"cat": "ui",
+"name": "blueprint wall (parallel/vertical)",
+"conf": "med",
+"src": "ui_b"
+},
+"11,51": {
+"cat": "ui",
+"name": "blueprint wall (corner)",
+"conf": "med",
+"src": "ui_b"
+},
+"0,52": {
+"cat": "ui",
+"name": "blueprint wall corner (bottom-left)",
+"conf": "med",
+"src": "ui_b"
+},
+"1,52": {
+"cat": "ui",
+"name": "blueprint wall (bottom junction/U)",
+"conf": "med",
+"src": "ui_b"
+},
+"2,52": {
+"cat": "ui",
+"name": "blueprint wall corner (bottom-right)",
+"conf": "med",
+"src": "ui_b"
+},
+"3,52": {
+"cat": "ui",
+"name": "blueprint room (small/single cell)",
+"conf": "med",
+"src": "ui_b"
+},
+"4,52": {
+"cat": "ui",
+"name": "blueprint room (small room)",
+"conf": "med",
+"src": "ui_b"
+},
+"5,52": {
+"cat": "ui",
+"name": "blueprint room (spiral)",
+"conf": "low",
+"src": "ui_b"
+},
+"6,52": {
+"cat": "ui",
+"name": "blueprint room corner (bottom-left)",
+"conf": "med",
+"src": "ui_b"
+},
+"7,52": {
+"cat": "ui",
+"name": "blueprint room wall (bottom)",
+"conf": "med",
+"src": "ui_b"
+},
+"8,52": {
+"cat": "ui",
+"name": "blueprint room corner (bottom-right)",
+"conf": "med",
+"src": "ui_b"
+},
+"9,52": {
+"cat": "ui",
+"name": "blueprint room (concentric squares)",
+"conf": "med",
+"src": "ui_b"
+},
+"16,0": {
+"cat": "weapon",
+"name": "red dagger",
+"conf": "med",
+"src": "weapons"
+},
+"17,0": {
+"cat": "consumable",
+"name": "red flask",
+"conf": "high",
+"src": "weapons"
+},
+"18,0": {
+"cat": "consumable",
+"name": "red potion",
+"conf": "high",
+"src": "weapons"
+},
+"19,0": {
+"cat": "consumable",
+"name": "red potion (large)",
+"conf": "high",
+"src": "weapons"
+},
+"20,0": {
+"cat": "consumable",
+"name": "red potion (large flask)",
+"conf": "high",
+"src": "weapons"
+},
+"21,0": {
+"cat": "consumable",
+"name": "red potion (small)",
+"conf": "high",
+"src": "weapons"
+},
+"22,0": {
+"cat": "consumable",
+"name": "medkit",
+"conf": "high",
+"src": "weapons"
+},
+"16,1": {
+"cat": "weapon",
+"name": "blue dagger",
+"conf": "med",
+"src": "weapons"
+},
+"17,1": {
+"cat": "consumable",
+"name": "blue flask",
+"conf": "high",
+"src": "weapons"
+},
+"18,1": {
+"cat": "consumable",
+"name": "blue potion",
+"conf": "high",
+"src": "weapons"
+},
+"19,1": {
+"cat": "consumable",
+"name": "blue potion (large)",
+"conf": "high",
+"src": "weapons"
+},
+"20,1": {
+"cat": "consumable",
+"name": "blue potion (large flask)",
+"conf": "high",
+"src": "weapons"
+},
+"21,1": {
+"cat": "consumable",
+"name": "blue potion (small)",
+"conf": "high",
+"src": "weapons"
+},
+"16,2": {
+"cat": "weapon",
+"name": "green dagger",
+"conf": "med",
+"src": "weapons"
+},
+"17,2": {
+"cat": "consumable",
+"name": "green flask",
+"conf": "high",
+"src": "weapons"
+},
+"18,2": {
+"cat": "consumable",
+"name": "green potion",
+"conf": "high",
+"src": "weapons"
+},
+"19,2": {
+"cat": "consumable",
+"name": "green potion (large)",
+"conf": "high",
+"src": "weapons"
+},
+"20,2": {
+"cat": "consumable",
+"name": "green potion (large flask)",
+"conf": "high",
+"src": "weapons"
+},
+"21,2": {
+"cat": "consumable",
+"name": "green potion (small)",
+"conf": "high",
+"src": "weapons"
+},
+"16,3": {
+"cat": "weapon",
+"name": "iron dagger",
+"conf": "med",
+"src": "weapons"
+},
+"17,3": {
+"cat": "consumable",
+"name": "empty flask",
+"conf": "med",
+"src": "weapons"
+},
+"18,3": {
+"cat": "consumable",
+"name": "empty potion",
+"conf": "med",
+"src": "weapons"
+},
+"19,3": {
+"cat": "consumable",
+"name": "empty potion (large)",
+"conf": "med",
+"src": "weapons"
+},
+"20,3": {
+"cat": "consumable",
+"name": "empty potion (large flask)",
+"conf": "med",
+"src": "weapons"
+},
+"16,5": {
+"cat": "container",
+"name": "wooden chest/box",
+"conf": "low",
+"src": "weapons"
+},
+"17,5": {
+"cat": "container",
+"name": "wooden chest/box",
+"conf": "low",
+"src": "weapons"
+},
+"18,5": {
+"cat": "weapon",
+"name": "crossbow",
+"conf": "low",
+"src": "weapons"
+},
+"19,5": {
+"cat": "weapon",
+"name": "bone club",
+"conf": "low",
+"src": "weapons"
+},
+"20,5": {
+"cat": "fx",
+"name": "gold lightning bolt",
+"conf": "low",
+"src": "weapons"
+},
+"21,5": {
+"cat": "tool",
+"name": "gear/cog artifact",
+"conf": "low",
+"src": "weapons"
+},
+"22,5": {
+"cat": "weapon",
+"name": "ammo belt/rack",
+"conf": "low",
+"src": "weapons"
+},
+"23,5": {
+"cat": "consumable",
+"name": "dynamite",
+"conf": "low",
+"src": "weapons"
+},
+"16,32": {
+"cat": "weapon",
+"name": "ice sword",
+"conf": "med",
+"src": "weapons"
+},
+"17,32": {
+"cat": "weapon",
+"name": "ice dagger",
+"conf": "med",
+"src": "weapons"
+},
+"18,32": {
+"cat": "weapon",
+"name": "ice sword",
+"conf": "med",
+"src": "weapons"
+},
+"19,32": {
+"cat": "weapon",
+"name": "ice axe",
+"conf": "low",
+"src": "weapons"
+},
+"20,32": {
+"cat": "weapon",
+"name": "ice spear",
+"conf": "low",
+"src": "weapons"
+},
+"21,32": {
+"cat": "weapon",
+"name": "ice sword",
+"conf": "low",
+"src": "weapons"
+},
+"22,32": {
+"cat": "weapon",
+"name": "ice mace",
+"conf": "low",
+"src": "weapons"
+},
+"23,32": {
+"cat": "weapon",
+"name": "ice shard",
+"conf": "low",
+"src": "weapons"
+},
+"24,32": {
+"cat": "weapon",
+"name": "ice maul",
+"conf": "low",
+"src": "weapons"
+},
+"25,32": {
+"cat": "weapon",
+"name": "ice sword",
+"conf": "low",
+"src": "weapons"
+},
+"26,32": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"27,32": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"28,32": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"29,32": {
+"cat": "weapon",
+"name": "elemental sword",
+"conf": "low",
+"src": "weapons"
+},
+"16,33": {
+"cat": "weapon",
+"name": "fire sword",
+"conf": "med",
+"src": "weapons"
+},
+"17,33": {
+"cat": "weapon",
+"name": "fire dagger",
+"conf": "med",
+"src": "weapons"
+},
+"18,33": {
+"cat": "weapon",
+"name": "fire sword",
+"conf": "med",
+"src": "weapons"
+},
+"19,33": {
+"cat": "weapon",
+"name": "fire axe",
+"conf": "low",
+"src": "weapons"
+},
+"20,33": {
+"cat": "weapon",
+"name": "fire spear",
+"conf": "low",
+"src": "weapons"
+},
+"21,33": {
+"cat": "weapon",
+"name": "fire sword",
+"conf": "low",
+"src": "weapons"
+},
+"22,33": {
+"cat": "weapon",
+"name": "fire mace",
+"conf": "low",
+"src": "weapons"
+},
+"23,33": {
+"cat": "weapon",
+"name": "fire shard",
+"conf": "low",
+"src": "weapons"
+},
+"24,33": {
+"cat": "weapon",
+"name": "fire maul",
+"conf": "low",
+"src": "weapons"
+},
+"25,33": {
+"cat": "weapon",
+"name": "fire sword",
+"conf": "low",
+"src": "weapons"
+},
+"26,33": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"27,33": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"28,33": {
+"cat": "weapon",
+"name": "bronze sword",
+"conf": "low",
+"src": "weapons"
+},
+"29,33": {
+"cat": "weapon",
+"name": "fire sword",
+"conf": "low",
+"src": "weapons"
+},
+"30,33": {
+"cat": "weapon",
+"name": "steel sword",
+"conf": "low",
+"src": "weapons"
+},
+"16,35": {
+"cat": "weapon",
+"name": "pistol",
+"conf": "med",
+"src": "weapons"
+},
+"17,35": {
+"cat": "weapon",
+"name": "pistol",
+"conf": "med",
+"src": "weapons"
+},
+"18,35": {
+"cat": "weapon",
+"name": "rifle (scoped)",
+"conf": "med",
+"src": "weapons"
+},
+"19,35": {
+"cat": "weapon",
+"name": "rifle",
+"conf": "med",
+"src": "weapons"
+},
+"20,35": {
+"cat": "weapon",
+"name": "rifle",
+"conf": "med",
+"src": "weapons"
+},
+"21,35": {
+"cat": "weapon",
+"name": "rifle",
+"conf": "med",
+"src": "weapons"
+},
+"22,35": {
+"cat": "weapon",
+"name": "pistol",
+"conf": "low",
+"src": "weapons"
+}
+}
