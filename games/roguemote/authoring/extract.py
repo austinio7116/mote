@@ -137,19 +137,6 @@ def build_sprites():
 # turns it (+ its sheet) into src/<name>.tiles.h. The engine reads lut[mask]
 # as a linear atlas cell index; variants stack vertically (nvar blocks).
 # ---------------------------------------------------------------------------
-NB_N, NB_E, NB_S, NB_W = 1 << 0, 1 << 2, 1 << 4, 1 << 6
-
-def nineslice_lut():
-    """Replicates mote_autotile_template(MOTE_AT_NINESLICE): mask -> cell 0..8."""
-    lut = [0]*256
-    for m in range(256):
-        W, E = bool(m & NB_W), bool(m & NB_E)
-        N, S = bool(m & NB_N), bool(m & NB_S)
-        col = 0 if (not W and E) else (2 if (W and not E) else 1)
-        row = 0 if (not N and S) else (2 if (N and not S) else 1)
-        lut[m] = row*3 + col
-    return lut
-
 def floor_lut():
     return [0]*256   # a fill: every config uses cell 0; variety comes from nvar rows
 
@@ -171,14 +158,6 @@ def write_tileset_sheet(name, img):
     p = os.path.join(d, name + ".png"); img.save(p)
     print(f"[tileset] {name:14s} sheet {img.width//TS}x{img.height//TS} -> {p}")
 
-def nineslice_sheet(cells, keep_black=True):
-    """cells: 9 (col,row) tuples in reading order TL,T,TR,L,C,R,BL,B,BR."""
-    out = Image.new("RGBA", (3*TS, 3*TS))
-    f = tile_opaque if keep_black else tile_img
-    for i, (c, r) in enumerate(cells):
-        out.paste(f(c, r), ((i % 3)*TS, (i // 3)*TS))
-    return out
-
 def stacked_variants(cells_per_var, cols, keep_black=True):
     """cells_per_var: list of variant blocks, each a flat list of (col,row).
        Produces a sheet `cols` wide and len*rows_per_block tall."""
@@ -191,22 +170,16 @@ def stacked_variants(cells_per_var, cols, keep_black=True):
             out.paste(f(c, r), (x, y))
     return out
 
-# nine-slice piece maps (TL,T,TR, L,C,R, BL,B,BR)
-WALL_BRICK = [(3,35),(4,35),(5,35), (3,36),(4,36),(5,36), (3,37),(4,37),(5,37)]
-HEDGE      = [(0,29),(1,29),(2,29), (0,30),(1,30),(2,30), (0,31),(1,31),(2,31)]
-
 # floor fills: each entry is one variant tile (col,row); stacked as 1-wide sheet
 FLOOR_COBBLE = [[(1,26)],[(1,27)]]          # grey cobble: patterned + plain
 FLOOR_GRASS  = [[(4,42)],[(5,42)]]          # clean dark jungle-grass centres
 WATER        = [[(51,35)],[(52,35)]]        # blue ripple bands (no flat water in source)
 
 def build_terrain():
-    # nine-slice walls / hedges
-    write_tileset_sheet("wall_brick", nineslice_sheet(WALL_BRICK))
-    write_tileset("wall_brick", nineslice_lut(), edge=1, nvar=1)
-    write_tileset_sheet("hedge", nineslice_sheet(HEDGE, keep_black=False))
-    write_tileset("hedge", nineslice_lut(), edge=0, nvar=1)
-    # floor fills (nvar variants, single logical cell)
+    """Floor fills only. The bordered terrains (wall_brick, hedge) are blob47
+    sets owned by gen_terrain.py -- they write the SAME tilesets/<name>.png, so
+    they must not be generated here as nine-slices too or whichever ran last
+    would win. main() calls that generator after this one."""
     for name, blocks, edge in [("floor_cobble", FLOOR_COBBLE, 1),
                                ("floor_grass",  FLOOR_GRASS, 1),
                                ("water",        WATER, 1)]:
@@ -236,4 +209,6 @@ if __name__ == "__main__":
     build_terrain_raw()
     build_terrain()
     build_font()
+    import gen_terrain                 # blob47 walls/hedges (47-cell sheets)
+    gen_terrain.main()
     print("done")

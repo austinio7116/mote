@@ -29,22 +29,37 @@ MOTE_MODULE_HEADER();
 static uint8_t g_map[COLS * ROWS];   /* bit0 = floor, bit1 = wall */
 static const MoteAutotile *g_tiles[2];
 
+/* The wall layer is laid out to exercise the blob47 cases a nine-slice gets
+ * wrong, so a glance at the device confirms the ruleset: inner corners on the
+ * L and T junctions, a 1-tile-wide spur (borders on BOTH sides at once), a
+ * free-standing single tile, a hole inside a solid block, and two blocks that
+ * touch only at a diagonal. '#' = wall, '.' = floor. */
+static const char *const G_WALLS[ROWS] = {
+    "................",
+    ".##############.",
+    ".#............#.",
+    ".#..###...#...#.",
+    ".#..#.....#...#.",
+    ".#..#..##.#...#.",
+    ".#.....##.....#.",
+    ".#...####.....#.",
+    ".#...#..#..#..#.",
+    ".#...####.....#.",
+    ".#..........###.",
+    ".#..#.....###.#.",
+    ".#.###......#.#.",
+    ".#............#.",
+    ".##############.",
+    "................",
+};
+
 static void g_init(void) {
     mote->scene_set_background(MOTE_RGB565(18, 16, 28));
     g_tiles[0] = &floor_cobble_at;
     g_tiles[1] = &wall_brick_at;
-    /* a little dungeon: floor everywhere, a bordered room with a door gap and
-     * a free-standing pillar block. */
     for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++) {
-            uint8_t v = 1;                                  /* floor */
-            int border = (r == 2 || r == 12 || c == 1 || c == 14);
-            int inside = (r >= 2 && r <= 12 && c >= 1 && c <= 14);
-            if (inside && border) v |= 2;                   /* room wall */
-            if (r == 12 && (c == 7 || c == 8)) v = 1;        /* door gap */
-            if ((r == 6 || r == 7) && (c == 5 || c == 6)) v |= 2; /* pillar */
-            g_map[r * COLS + c] = v;
-        }
+        for (int c = 0; c < COLS; c++)
+            g_map[r * COLS + c] = (uint8_t)(1 | (G_WALLS[r][c] == '#' ? 2 : 0));
 }
 
 static void g_update(float dt) {

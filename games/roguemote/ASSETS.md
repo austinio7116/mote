@@ -48,20 +48,52 @@ crowns/FX, UI icons, arrows, button prompts, status/emotes, symbols, portraits.
 
 ## Autotile rulesets — `tilesets/*.tileset` (+ sheet) → `src/<name>.tiles.h` (`<name>_at`)
 
-Full rule files, verified against the engine raster (`authoring/preview_autotile.py`):
-
 | Ruleset | Template | Notes |
 |---|---|---|
-| `wall_brick` | nine-slice | Dungeon stone-brick walls; `edge=1` (seamless map border). **Verified.** |
-| `hedge` | nine-slice | Garden hedge maze; `edge=0`. **Verified.** |
+| `wall_brick` | **blob47** | Dungeon stone-brick walls; `edge=1` (seamless map border). |
+| `hedge` | **blob47** | Garden hedge maze; `edge=0` (draws its own outer rim). |
 | `floor_cobble` | fill (nvar 2) | Grey cobblestone floor, 2 variants. |
 | `floor_grass` | fill (nvar 2) | Dark jungle-grass floor. |
 | `water` | fill (nvar 2) | Blue ripple bands (source has no flat water tile). |
 
-Decorative terrain that isn't a clean autotile is shipped as **raw subsheets** instead
-(`panels_colour`, `wall_purple`, `wall_stonebrick`, `wall_temple`, `grass_garden`,
-`cobble_floors`, `terrain_edges`) — author a rule for these in the Studio Tiles tab if a
-game needs one.
+### blob47
+
+The two bordered terrains are full **47-cell blob autotiles**, covering all 256 neighbour
+masks. They were nine-slices, which can only express **16 of the 47** configurations — a
+nine-slice has no inner corners and no cell with borders on opposite sides, so inner
+corners and 1-tile-wide walls drew wrong.
+
+The source art has no 47-cell set, so `authoring/gen_terrain.py` **composites all 47 cells
+per pixel** from the nine source tiles. Border depths and corner radius are *measured off
+the art* (diffing each edge tile against the centre), not hardcoded, so the generator works
+for any terrain added later.
+
+```bash
+python3 authoring/find_nineslice.py   # which source regions can back an autotile at all
+python3 authoring/gen_terrain.py      # -> tilesets/{wall_brick,hedge}.{png,tileset}
+python3 authoring/verify_terrain.py   # 9 groups of checks, exhaustive
+python3 authoring/preview_terrain.py  # -> /tmp/roguemote_terrain/*.png evidence
+python3 authoring/gen_terrain_report.py  # -> a single review page of all of it
+```
+
+`gen_terrain.py` is invoked by `extract.py`, so the one-command pipeline still holds. It
+must not be duplicated as a nine-slice there — both write the same `tilesets/<name>.png`.
+
+Two source blocks that *look* like free variant rows — (0,35) for brick, (0,29) for hedge —
+are deliberately **not** used. Both draw a bright post in every corner of their centre tile
+(and the hedge one is see-through), and since the engine picks a variant row per cell by
+position hash, either would scatter stray dots through solid walls. `fill_is_clean()` rejects
+them; they are separate decorative terrains, not variants.
+
+### What can't be autotiled
+
+A scan of every 3×3 window in the 512×512 sheet finds only **6** well-formed nine-slices,
+covering 3 terrains. Several regions CATALOGUE.md calls autotile sets are not: `wall_purple`
+is pink decorative pieces, `wall_temple` is ornate facade panels, and the "grey stone wall"
+is a 5-shade cobblestone *floor*. These ship as **raw subsheets** (`panels_colour`,
+`wall_purple`, `wall_stonebrick`, `wall_temple`, `grass_garden`, `cobble_floors`,
+`terrain_edges`) — author a rule in the Studio Tiles tab if a game needs one. The blueprint
+line-art at (0,50)/(6,50) does pass the scan and could get a blob47 set.
 
 ## Font — `assets/font/rogue8_glyphs.png` + `.gsheet` → `src/rogue8.font.h`
 
@@ -71,9 +103,15 @@ Complete **CP437** 8×8 font, baked two ways:
 
 ## Verification harness — `src/game.c`
 
-Not a game yet: renders a slice of every asset group (autotiled dungeon room, sprites,
-both fonts, heart meter) to prove the whole pipeline bakes, compiles and draws. Confirmed
+Not a game yet: renders a slice of every asset group (autotiled dungeon, sprites, both
+fonts, heart meter) to prove the whole pipeline bakes, compiles and draws. Confirmed
 rendering headless on ABI v47.
+
+Its wall layer is laid out to exercise the blob47 cases a nine-slice gets wrong — L and T
+junctions (inner corners), a 1-tile-wide spur (borders on both sides at once), a
+free-standing tile, a hole inside a block, and two blocks touching only at a diagonal. It
+hits **19 of the 47 cells, 8 of them inner-corner cells**, so one look at the device
+confirms the ruleset.
 
 ## TODO before this becomes a real game
 - ~~Author `icon.png` (60×60) in the game root.~~ Done — `assets/gen_icon.py`
