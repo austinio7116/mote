@@ -145,50 +145,149 @@ section{margin-top:24px;scroll-margin-top:180px}
 .card input.nm:focus,.card select:focus{outline:2px solid var(--sel);outline-offset:-1px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 .toast.show{opacity:.95}
+.sheet.open ~ .toast{bottom:auto;top:96px}   /* keep toasts clear of the open editor */
 .help{color:var(--muted);font-size:12px;max-width:80ch;margin:14px 0 0}
 .help kbd{font-family:ui-monospace,Menlo,monospace;background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
 dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;max-width:640px;width:92%}
 dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:8px}
+.menu{display:none}
+.jump{display:none;width:100%;margin-top:8px;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:var(--panel2)}
+
+/* --- tap-to-edit bottom sheet (the mobile workhorse) --------------------- */
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--panel);
+ border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:12px 14px calc(16px + env(safe-area-inset-bottom));
+ box-shadow:0 -10px 34px rgba(0,0,0,.34);max-height:86vh;overflow-y:auto;
+ transform:translateY(115%);transition:transform .22s ease;visibility:hidden}
+.sheet.open{transform:none;visibility:visible}
+@media (prefers-reduced-motion:reduce){.sheet{transition:none}}
+.shead{display:flex;gap:12px;align-items:flex-start}
+.shimg{width:76px;height:76px;flex:none;object-fit:contain;image-rendering:pixelated;border-radius:8px;
+ background-image:conic-gradient(var(--chk-a) 25%,var(--chk-b) 0 50%,var(--chk-a) 0 75%,var(--chk-b) 0);background-size:16px 16px}
+.sinfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.scoord{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--gold-ink)}
+.scoord .lo{color:var(--torch);font-weight:700}
+.snm{width:100%;font-size:16px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.shx{flex:none;min-width:40px;min-height:40px;font-size:15px;line-height:1}
+.scats{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px;margin-top:12px}
+.scat{--h:0;font-size:12.5px;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;
+ border:1px solid hsl(var(--h) 55% var(--catL));color:hsl(var(--h) 60% var(--catL));
+ background:hsl(var(--h) 55% var(--catL)/.12);border-radius:8px;padding:4px 6px;cursor:pointer;user-select:none}
+.scat.on{background:hsl(var(--h) 60% var(--catL));color:var(--panel);font-weight:600;border-color:transparent}
+.snav{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:8px;margin-top:12px}
+.snav .btn,.wide{min-height:44px}
+.wide{width:100%;margin-top:8px}
+
+/* --- phones / narrow tablets --------------------------------------------- */
+@media (max-width:720px){
+  header.top{padding:8px 10px}
+  h1{font-size:14px;white-space:nowrap}
+  .wideonly{display:none}
+  .row1{gap:8px;flex-wrap:nowrap}
+  .progwrap{min-width:0}
+  .pnum{font-size:11px;white-space:nowrap}
+  .sh .selall{display:none}          /* Tools ▸ Select ▸ sheet covers this */
+  .menu{display:inline-block}
+  .drawer{display:none}
+  .drawer.open{display:block}
+  nav.secs{display:none}
+  .jump{display:block}
+  .tools{gap:6px}
+  .tools input[type=text]{width:120px}
+  .btn{min-height:36px;padding:6px 10px}
+  /* re-state after .btn: same specificity, so source order has to win here */
+  .snav .btn,.wide{min-height:44px}
+  .scat{min-height:44px}
+  .cat{min-height:34px;display:inline-flex;align-items:center;padding:2px 11px}
+  .cat kbd{display:none}             /* no keyboard here */
+  main{max-width:none;padding:6px 10px 96px}
+  section{scroll-margin-top:104px}
+  .sh{flex-direction:column;gap:6px}
+  .sh .selall{align-self:flex-start}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+  /* the card becomes a tap target: edit happens in the sheet, not inline */
+  .card select{display:none}
+  .card input.nm{pointer-events:none;border:0;background:transparent;padding:1px 0;font-size:11px;
+   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thumb{pointer-events:none}
+  .meta{padding:4px 5px 5px;gap:1px}
+  .coord{font-size:10px}
+  .help{padding:0 10px}
+  dialog{width:96%}
+  dialog textarea{height:160px}
+}
 </style>
 
 <header class="top">
  <div class="row1">
-   <h1><b>Roguemote</b> sprite annotator</h1>
+   <h1><b>Roguemote</b><span class="wideonly"> sprite annotator</span></h1>
    <div class="progwrap"><div class="prog" id="prog"></div></div>
    <span class="pnum" id="pnum">0 / 0 reviewed</span>
-   <button class="btn pri" id="export">Export JSON</button>
-   <button class="btn" id="import">Import</button>
-   <button class="btn" id="reset">Reset</button>
+   <button class="btn pri" id="export">Export</button>
+   <button class="btn menu" id="menu" aria-expanded="false">Tools</button>
  </div>
- <div class="tools">
-   <span class="selinfo">Selected: <b id="selcount">0</b></span>
-   <div class="grp"><label>Name selection</label><input type="text" id="bulkname" placeholder="e.g. skeleton {i}"><button class="btn" id="applyname">Apply</button></div>
-   <div class="grp"><label>Select</label>
-     <button class="btn" id="selrow">row</button>
-     <button class="btn" id="selcol">col</button>
-     <button class="btn" id="selsheet">sheet</button>
-     <button class="btn" id="selnone">none</button></div>
-   <label><input type="checkbox" id="onlyunrev"> only unreviewed</label>
+ <div class="drawer" id="drawer">
+   <div class="tools">
+     <span class="selinfo">Selected: <b id="selcount">0</b></span>
+     <div class="grp"><label>Name selection</label><input type="text" id="bulkname" placeholder="e.g. skeleton {i}"><button class="btn" id="applyname">Apply</button></div>
+     <div class="grp"><label>Select</label>
+       <button class="btn" id="selrow">row</button>
+       <button class="btn" id="selcol">col</button>
+       <button class="btn" id="selsheet">sheet</button>
+       <button class="btn" id="selnone">none</button></div>
+     <label><input type="checkbox" id="onlyunrev"> only unreviewed</label>
+     <div class="grp"><button class="btn" id="import">Import</button><button class="btn" id="reset">Reset</button></div>
+   </div>
+   <div class="cats" id="cats"></div>
+   <nav class="secs" id="secnav"></nav>
+   <select class="jump" id="jump"><option value="">Jump to a sheet…</option></select>
  </div>
- <div class="cats" id="cats"></div>
- <nav class="secs" id="secnav"></nav>
 </header>
 <main id="main"></main>
-<p class="help" style="max-width:1250px;margin:10px auto;padding:0 16px">
- Every label below is a <b>detailed identification pass by vision agents</b> (each studied one
- zoomed section). A <b style="color:var(--torch)">?</b> after a coordinate = the agent marked it
- <b>low confidence</b> &mdash; skim those first. <b>How to drive it fast:</b> click a sprite to select it (the <b style="color:var(--gold)">gold</b> anchor);
+<details class="help" style="max-width:1250px;margin:10px auto;padding:0 16px">
+ <summary style="cursor:pointer;padding:6px 0">How this works</summary>
+ <p style="margin:4px 0 0">
+ Every label is a <b>detailed identification pass by vision agents</b> (each studied one zoomed
+ section). A <b style="color:var(--torch)">?</b> after a coordinate = <b>low confidence</b> &mdash;
+ skim those first. Everything autosaves in your browser; hit <b>Export</b> when done.
+ </p>
+ <p style="margin:8px 0 0">
+ <b>On a phone:</b> tap any sprite to open the editor. Tap a category to stamp it (that also marks it
+ reviewed), or <b>✓ Looks right</b> to accept the guess as-is and move on. <b>Prev/Next</b> walk the
+ sheet in order; <b>Skip to next unreviewed</b> jumps ahead. <b>Tools</b> (top right) opens bulk
+ select/name, the sheet jump menu, and Import/Reset.
+ </p>
+ <p style="margin:8px 0 0">
+ <b>On a desktop:</b> click a sprite to select it (the <b style="color:var(--gold)">gold</b> anchor);
  <kbd>&larr;&uarr;&darr;&rarr;</kbd> move · <kbd>Shift</kbd>+click or <kbd>Shift</kbd>+arrows range-select ·
- press a category <b>hotkey</b> (shown on each chip) to stamp the selection · <kbd>Enter</kbd> edit the name,
+ press a category <b>hotkey</b> to stamp the selection · <kbd>Enter</kbd> edit the name,
  <kbd>Enter</kbd> again jumps to the next · <kbd>N</kbd> next unreviewed. Use <b>Select row/col/sheet</b> +
  a category chip or the <b>Name selection</b> box (<span class="mono">{i}</span> = auto-number) for whole
- families at once. Everything autosaves in your browser — <b>Export JSON</b> when done and paste it back to me.
-</p>
+ families at once.
+ </p>
+</details>
+<div class="sheet" id="sheet" role="dialog" aria-label="Edit sprite">
+ <div class="shead">
+   <img class="shimg" id="shimg" alt="">
+   <div class="sinfo">
+     <div class="scoord" id="shcoord"></div>
+     <input class="snm" id="shname" type="text" placeholder="name" autocomplete="off" autocapitalize="off">
+   </div>
+   <button class="btn shx" id="shclose" aria-label="Close editor">&#10005;</button>
+ </div>
+ <div class="scats" id="shcats"></div>
+ <div class="snav">
+   <button class="btn" id="shprev">&lsaquo; Prev</button>
+   <button class="btn pri" id="shok">&#10003; Looks right</button>
+   <button class="btn" id="shnext">Next &rsaquo;</button>
+ </div>
+ <button class="btn wide" id="shunrev">Skip to next unreviewed</button>
+</div>
 <div class="toast" id="toast"></div>
 <dialog id="iodlg"><form method="dialog"><h3 id="iotitle" style="margin:0 0 8px"></h3>
  <textarea id="iotext"></textarea>
- <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+ <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
    <button class="btn" value="cancel">Close</button>
+   <button class="btn" id="iocopy" type="button">Copy to clipboard</button>
    <button class="btn pri" id="iook" value="ok" type="button">Load</button></div></form></dialog>
 
 <script>
@@ -229,6 +328,8 @@ APP.sections.forEach((s,si)=>{
       if(e.key==='Enter'){e.preventDefault();ST[id].rev=true;const nx=id+1;if(cardEl[nx]){pick(nx);cardEl[nx].querySelector('.nm').focus();}}
       if(e.key==='Escape'){e.target.blur();}
     });
+    // touch layout: the whole card is one tap target, editing happens in the sheet
+    fig.addEventListener('click',e=>{if(isMobile()){e.preventDefault();openSheet(id);}});
   });
   sec.appendChild(g); main.appendChild(sec);
 });
@@ -260,7 +361,8 @@ function render(){
   document.getElementById('selcount').textContent=sel.size||(anchor!=null?1:0);
   const rev=ST.filter(s=>s.rev).length;
   document.getElementById('prog').style.width=(100*rev/ST.length)+'%';
-  document.getElementById('pnum').textContent=rev+' / '+ST.length+' reviewed';
+  document.getElementById('pnum').textContent=isMobile()?rev+'/'+ST.length:rev+' / '+ST.length+' reviewed';
+  if(sheetId!=null) fillSheet();          // keep the open editor in step with bulk edits
 }
 let saveT; function save(){clearTimeout(saveT);saveT=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(ST)),250);}
 let toastT;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1200);}
@@ -299,15 +401,20 @@ document.getElementById('export').onclick=()=>{
   const out={version:1,source:"simple-roguelike-tileset v0.16 CC0",
     tiles:APP.tiles.map((t,i)=>({c:t.c,r:t.r,cat:ST[i].cat,name:ST[i].name,rev:ST[i].rev}))};
   const txt=JSON.stringify(out,null,1);
-  document.getElementById('iotitle').textContent="Export — copy this, or it downloads automatically";
+  document.getElementById('iotitle').textContent="Export — tap Copy, or paste this back to me";
   document.getElementById('iotext').value=txt;document.getElementById('iook').style.display='none';
+  document.getElementById('iocopy').style.display='';closeSheet();
   try{const b=new Blob([txt],{type:'application/json'});const a=document.createElement('a');
     a.href=URL.createObjectURL(b);a.download='roguemote_labels.json';a.click();}catch(e){}
-  try{navigator.clipboard.writeText(txt);toast('copied to clipboard');}catch(e){}
   dlg.showModal();
 };
+document.getElementById('iocopy').onclick=()=>{const ta=document.getElementById('iotext');
+  ta.select();ta.setSelectionRange(0,ta.value.length);      // iOS needs the explicit range
+  navigator.clipboard.writeText(ta.value).then(()=>toast('copied to clipboard'),
+    ()=>{try{document.execCommand('copy');toast('copied');}catch(e){toast('select the text and copy');}});};
 document.getElementById('import').onclick=()=>{document.getElementById('iotitle').textContent="Import — paste a previously exported JSON";
-  document.getElementById('iotext').value='';document.getElementById('iook').style.display='';dlg.showModal();};
+  document.getElementById('iotext').value='';document.getElementById('iook').style.display='';
+  document.getElementById('iocopy').style.display='none';closeSheet();dlg.showModal();};
 document.getElementById('iook').onclick=()=>{try{const o=JSON.parse(document.getElementById('iotext').value);
   const by={};(o.tiles||o).forEach(t=>by[t.c+','+t.r]={cat:t.cat,name:t.name,rev:t.rev!==false});
   APP.tiles.forEach((t,i)=>{const k=by[t.c+','+t.r];if(k){ST[i].cat=k.cat;ST[i].name=k.name;ST[i].rev=k.rev;
@@ -315,7 +422,56 @@ document.getElementById('iook').onclick=()=>{try{const o=JSON.parse(document.get
   save();render();dlg.close();toast('imported');}catch(e){alert('Bad JSON: '+e.message);}};
 document.getElementById('reset').onclick=()=>{if(confirm('Discard all your edits and restore my original guesses?')){
   ST=APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:false}));localStorage.removeItem(KEY);
-  APP.tiles.forEach((t,i)=>{cardEl[i].querySelector('.catsel').value=ST[i].cat;cardEl[i].querySelector('.nm').value=ST[i].name;cardEl[i].style.setProperty('--h',catHue(ST[i].cat));});render();}};
+  APP.tiles.forEach((t,i)=>{cardEl[i].querySelector('.catsel').value=ST[i].cat;cardEl[i].querySelector('.nm').value=ST[i].name;cardEl[i].style.setProperty('--h',catHue(ST[i].cat));});closeSheet();render();}};
+
+// --- touch layout: header drawer + sheet jump menu ---------------------------
+function isMobile(){return window.matchMedia('(max-width:720px)').matches;}
+window.matchMedia('(max-width:720px)').addEventListener('change',()=>render());   // rotation
+const drawer=document.getElementById('drawer'), menuBtn=document.getElementById('menu');
+menuBtn.onclick=()=>{const on=drawer.classList.toggle('open');menuBtn.setAttribute('aria-expanded',on);};
+const jump=document.getElementById('jump');
+APP.sections.forEach((s,si)=>{const o=document.createElement('option');o.value='s'+si;o.textContent=s.t;jump.appendChild(o);});
+jump.onchange=()=>{const el=document.getElementById(jump.value);if(el)el.scrollIntoView({block:'start'});
+  jump.value='';drawer.classList.remove('open');menuBtn.setAttribute('aria-expanded',false);};
+
+// --- tap-to-edit sheet -------------------------------------------------------
+let sheetId=null;
+const sheetEl=document.getElementById('sheet'), shName=document.getElementById('shname');
+const shCats=document.getElementById('shcats');
+APP.cats.forEach(c=>{const b=document.createElement('span');b.className='scat';b.dataset.cat=c[0];
+  b.style.setProperty('--h',c[3]);b.textContent=c[1];
+  b.addEventListener('click',()=>{if(sheetId==null)return;setCat([sheetId],c[0]);fillSheet();});
+  shCats.appendChild(b);});
+
+function openSheet(id){sheetId=id;anchor=id;sel.clear();sel.add(id);
+  sheetEl.classList.add('open');fillSheet();render();}
+function closeSheet(){sheetId=null;sheetEl.classList.remove('open');}
+function fillSheet(){
+  if(sheetId==null)return;
+  const t=APP.tiles[sheetId], st=ST[sheetId];
+  document.getElementById('shimg').src=t.u;
+  document.getElementById('shcoord').innerHTML='tile '+t.c+','+t.r
+    +(t.conf==='low'?' · <span class="lo">? low confidence</span>':(t.conf?' · '+t.conf+' confidence':''))
+    +(st.rev?' · reviewed':'');
+  if(document.activeElement!==shName) shName.value=st.name;   // don't clobber live typing
+  [...shCats.children].forEach(el=>el.classList.toggle('on',el.dataset.cat===st.cat));
+}
+function sheetGo(id){if(!cardEl[id])return;sheetId=id;anchor=id;sel.clear();sel.add(id);
+  fillSheet();render();cardEl[id].scrollIntoView({block:'center'});}
+shName.addEventListener('input',()=>{if(sheetId==null)return;
+  ST[sheetId].name=shName.value;ST[sheetId].rev=true;
+  cardEl[sheetId].querySelector('.nm').value=shName.value;save();render();});
+shName.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();shName.blur();}});
+document.getElementById('shclose').onclick=closeSheet;
+document.getElementById('shprev').onclick=()=>sheetGo(sheetId-1);
+document.getElementById('shnext').onclick=()=>sheetGo(sheetId+1);
+document.getElementById('shok').onclick=()=>{if(sheetId==null)return;
+  ST[sheetId].rev=true;save();
+  if(cardEl[sheetId+1])sheetGo(sheetId+1);else{render();toast('end of the list');}};
+document.getElementById('shunrev').onclick=()=>{
+  const from=sheetId==null?-1:sheetId;
+  let j=ST.findIndex((s,i)=>!s.rev&&i>from); if(j<0) j=ST.findIndex(s=>!s.rev);
+  if(j<0){toast('everything reviewed');return;} sheetGo(j);};
 
 render();
 </script>
