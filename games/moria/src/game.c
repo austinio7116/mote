@@ -112,8 +112,8 @@ static const char KB[] =
 static int s_kb_sel;
 /* movement / direction poll (with 1-frame coalesce so diagonals register) */
 static int s_dp_prev, s_dp_settle, s_dp_hold;
-#define REP_DELAY 20   /* frames before hold-to-move repeats (~0.66s; tap=1 step) */
-#define REP_INT   8    /* frames between repeats while held (~4 steps/sec)        */
+#define REP_DELAY 26   /* frames before hold-to-move repeats (~0.85s; tap=1 step) */
+#define REP_INT   10   /* frames between repeats while held (~3 steps/sec)        */
 
 /* ---- input helpers ------------------------------------------------------- */
 static int dpad_mask(const MoteInput *in)
