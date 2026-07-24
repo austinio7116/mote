@@ -162,12 +162,16 @@ section(16,35,22,35, "Guns",
         "Pistols and rifles (grey/sci-fi styling).",
         "Ranged weapons for a modern/sci-fi roguelike.", lab_gun)
 
-# 15. Hero portrait ---------------------------------------------------------
-def lab_port(c, r):
-    return L("Large NPC portrait", "2x2 face portrait for dialogue/shopkeeper.", q=True)
-section(24,0,25,1, "Large portrait",
-        "A single 2x2 detailed face (dark-haired man).",
-        "Dialogue portrait, shopkeeper, quest-giver.", lab_port)
+# 15. Scroll / arrow / bombs -------------------------------------------------
+# Was catalogued as a "2x2 large NPC portrait (dark-haired man)" -- wrong. At 20x
+# it is four unrelated items; the scroll's parchment reads as a face at 8x8.
+def lab_scrollbomb(c, r):
+    return L({(24,0):"Scroll", (25,0):"Arrow",
+              (24,1):"Bomb (small)", (25,1):"Bomb (large)"}.get((c,r), "?"),
+             "Pickup item.")
+section(24,0,25,1, "Scroll · arrow · bombs",
+        "Four separate items, not one sprite: scroll, arrow, small and large bomb.",
+        "Consumables and ammo pickups.", lab_scrollbomb)
 
 # 16. Characters ------------------------------------------------------------
 def lab_char(c, r):

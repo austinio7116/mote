@@ -52,13 +52,17 @@ def load(p, default):
     return json.load(open(p)) if os.path.exists(p) else default
 
 def twin_map():
-    """(c,r) -> how many annotator cards show it. Needs the catalogue sections."""
+    """(c,r) -> how many annotator cards show it. Needs the catalogue sections.
+    Multi-tile sprites draw on their anchor's card only, so members count 0."""
     import gen_catalogue as gc
+    from gen_annotator import GRP_AT
     from collections import defaultdict
     seen = defaultdict(int)
     for (c0, r0, c1, r1, title, blurb, use, labeler) in gc.SECTIONS:
         for r in range(r0, r1 + 1):
             for c in range(c0, c1 + 1):
+                g = GRP_AT.get((c, r))
+                if g and (c, r) != (g[0], g[1]): continue     # drawn by its anchor
                 if not gc.tile_datauri(c, r)[1]: continue
                 if labeler(c, r) is None: continue
                 seen[(c, r)] += 1

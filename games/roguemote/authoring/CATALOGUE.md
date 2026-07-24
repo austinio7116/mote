@@ -25,7 +25,8 @@
 - **(8–10, 1–4)** Colour rune/letter glyphs (A/M/Z style).
 - **(11–14, 0–5)** Doors, big colour gems/slimes, banners; row 0 = ladders & curtain tops.
 - **(16–23, 0–5)** Weapons (swords, spears, bows) + potions/flasks (colour).
-- **(24–25, 0–1)** Large NPC portrait (dark-haired man).
+- **(24–25, 0–1)** Scroll, arrow, small bomb, large bomb — **four separate items**, not the
+  "2×2 NPC portrait" this was first catalogued as (the scroll's parchment reads as a face at 8×8).
 - **(24–31, 5–7)** Torches, banners, barrels, goblet/trophy (gold), armour, books, food.
 - **(32, 0)** `@` player glyph. **(32–47, 0–7)** Character heads/portraits + full-body
   adventurers (warrior/mage/rogue/ranger), villager heads, ghost/skull.
@@ -71,7 +72,9 @@
 - **(0–15, 35–39)** Dungeon **stone-brick wall** autotile (navy/grey + light mortar, arch/doorway).
 - **(16–30, 32–34)** Elemental weapons (ice/fire swords, colour).
 - **(16–22, 35)** **Guns** (pistols/rifles, sci-fi).
-- **(32–47, 32–39)** **Boss monsters** (2×2): demons, golems, dragon/hydra, skeletons, wizards.
+- **(32–47, 32–39)** **Boss monsters** — 17 sprites, every one **2×2**, on rows 33–38 only.
+  Cols 32–39 fill all three bands; cols 40–47 only the top band, plus a giant green insect at
+  (40–41, 35–36). Note (40–41, 33–36) is *two* bosses (medusa above, insect below), not one tall one.
 - **(48–51, 32)** Gender/alchemy symbols.
 - **(48–63, 33–39)** Terrain edges: **water/waves**, **clouds/snow**, **rocks/boulders**.
 

@@ -109,6 +109,26 @@
 "cat": "feature",
 "name": "stone tower"
 },
+"24,0": {
+"by": "user",
+"cat": "consumable",
+"name": "scroll"
+},
+"24,1": {
+"by": "user",
+"cat": "consumable",
+"name": "bomb (small)"
+},
+"25,0": {
+"by": "user",
+"cat": "weapon",
+"name": "arrow"
+},
+"25,1": {
+"by": "user",
+"cat": "consumable",
+"name": "bomb (large)"
+},
 "3,7": {
 "by": "user",
 "cat": "prop",
@@ -138,6 +158,46 @@
 "by": "user",
 "cat": "furniture",
 "name": "throne"
+},
+"40,33": {
+"by": "user",
+"cat": "boss",
+"name": "medusa"
+},
+"40,34": {
+"by": "user",
+"cat": "boss",
+"name": "medusa"
+},
+"40,35": {
+"by": "user",
+"cat": "boss",
+"name": "giant green insect"
+},
+"40,36": {
+"by": "user",
+"cat": "boss",
+"name": "giant green insect"
+},
+"41,33": {
+"by": "user",
+"cat": "boss",
+"name": "medusa"
+},
+"41,34": {
+"by": "user",
+"cat": "boss",
+"name": "medusa"
+},
+"41,35": {
+"by": "user",
+"cat": "boss",
+"name": "giant green insect"
+},
+"41,36": {
+"by": "user",
+"cat": "boss",
+"name": "giant green insect"
 },
 "5,7": {
 "by": "user",

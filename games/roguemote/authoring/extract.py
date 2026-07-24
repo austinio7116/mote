@@ -85,7 +85,7 @@ SPRITE_SHEETS = {
     "weapons_elemental": (16, 32, 30, 34), # ice/fire/colour swords & staves
     "guns":              (16, 35, 22, 35), # pistols/rifles
     # --- characters & monsters (cols 32-47) ---
-    "portrait_hero":     (24, 0, 25, 1),   # the large NPC portrait
+    "items_scroll_bomb": (24, 0, 25, 1),   # scroll, arrow, small bomb, large bomb
     "characters":        (32, 0, 47, 7),   # @, portraits, adventurers, villagers
     "animals":           (32, 8, 47, 15),  # beasts, vermin, birds, frogs
     "monsters":          (32, 16, 47, 23), # cows, goblins, demons, ghosts

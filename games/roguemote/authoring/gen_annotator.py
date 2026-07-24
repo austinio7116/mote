@@ -22,13 +22,36 @@ CATS = [
     ("ui","UI / HUD","o",300), ("fx","FX / effect","p",340),
     ("font","Font glyph","[",200), ("unknown","Unknown","\\",0),
 ]
+# --- multi-tile sprites -----------------------------------------------------
+# Some sprites span several 8x8 tiles, so showing one card per tile makes you
+# name the same creature four times (and lets the halves drift apart). Each
+# entry is (col, row, w, h) of the TOP-LEFT tile; the annotator draws the whole
+# block as one card and expands it back to per-tile rows on export.
+# Every entry below was checked at 13x against source_tileset.png. Do NOT derive
+# groups from the agent labels repeating across tiles -- that is how (40,33) got
+# merged into a bogus 2x4: the agent called all 8 tiles "green medusa", but it is
+# a medusa at rows 33-34 and a separate giant green insect at rows 35-36.
+def _boss_groups():
+    """All 17 bosses are 2x2; the region is a uniform grid over its inked tiles."""
+    g = [(c, r, 2, 2) for r in (33, 35, 37) for c in (32, 34, 36, 38)]  # 4 wide x 3 bands
+    g += [(c, 33, 2, 2) for c in (40, 42, 44, 46)]                      # top band only
+    g += [(40, 35, 2, 2)]                                               # giant green insect
+    return g
+
+# NOTE: (24,0)-(25,1) is NOT a group. CATALOGUE.md calls it a "large NPC portrait"
+# but it is four unrelated items -- scroll, arrow, small bomb, large bomb.
+GROUPS = _boss_groups()
+# every member tile -> its group, so non-anchor members can be skipped
+GRP_AT = {(c + dx, r + dy): (c, r, w, h)
+          for (c, r, w, h) in GROUPS for dy in range(h) for dx in range(w)}
+
 # default category per section title (first token before " (")
 SEC_CAT = {
     "Chests":"container","Stone furniture":"furniture","Faces · skulls · keys":"key",
     "Runes":"prop","Doors · gems · banners":"door","Light props & structures":"prop",
     "Trinkets & small nature":"prop","Weapons & potions":"weapon","Food":"consumable",
     "Treasure & ore":"treasure","Loot furniture & bones":"prop","Tools & wands":"tool",
-    "Elemental weapons":"weapon","Guns":"weapon","Large portrait":"npc","Characters":"npc",
+    "Elemental weapons":"weapon","Guns":"weapon","Scroll · arrow · bombs":"consumable","Characters":"npc",
     "Animals & vermin":"animal","Monsters":"enemy","Crowns · armour · FX":"treasure",
     "Bosses":"boss","Boulders & mountains":"feature","Tiny UI icons (magenta strip)":"ui",
     "Arrows & gauges":"ui","Button prompts":"ui","Status · emotes · elements":"ui",
@@ -55,7 +78,11 @@ def build():
         ids = []
         for r in range(r0,r1+1):
             for c in range(c0,c1+1):
-                uri, ink = gc.tile_datauri(c,r)
+                grp = GRP_AT.get((c,r))
+                if grp and (c,r) != (grp[0],grp[1]):
+                    continue                       # a member; its anchor draws the whole sprite
+                w, h = (grp[2], grp[3]) if grp else (1, 1)
+                uri, ink = gc.tile_datauri(c,r,w,h)
                 if not ink: continue
                 res = labeler(c,r)
                 if res is None: continue
@@ -71,8 +98,14 @@ def build():
                     cat = hu.get("cat", cat); name = hu.get("name") or name
                     conf = "user" if hu.get("by") == "user" else "propagated"
                     rv = 1
+                t = {"c":c,"r":r,"u":uri,"cat":cat,"name":name,"conf":conf,"rv":rv}
+                if grp:
+                    # only inked members get a row on export -- no labelling blank tiles
+                    t["m"] = [[c+dx, r+dy] for dy in range(h) for dx in range(w)
+                              if gc.tile_datauri(c+dx, r+dy)[1]]
+                    t["w"], t["h"] = w, h
                 ids.append(len(tiles))
-                tiles.append({"c":c,"r":r,"u":uri,"cat":cat,"name":name,"conf":conf,"rv":rv})
+                tiles.append(t)
         if ids: sections.append({"t":title,"b":blurb,"ids":ids})
     # font glyphs individually (so they can be named too, but default font)
     fids=[]
@@ -150,6 +183,8 @@ section{margin-top:24px;scroll-margin-top:180px}
 .thumb img{width:74%;height:74%;object-fit:contain;image-rendering:pixelated}
 .meta{padding:5px 6px 7px;display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line)}
 .coord{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--gold-ink)}
+.spn{color:var(--cyan);font-weight:700}          /* multi-tile sprite, drawn as one card */
+.card.grp .thumb img{width:90%;height:90%}       /* give the bigger sprites more room */
 .bdg{font-weight:700;cursor:help}
 .bdg.user{color:var(--cyan)}
 .bdg.propagated{color:var(--gold)}
@@ -342,10 +377,10 @@ APP.sections.forEach((s,si)=>{
   const g=document.createElement('div'); g.className='grid';
   s.ids.forEach(id=>{
     const t=APP.tiles[id], st=ST[id];
-    const fig=document.createElement('figure'); fig.className='card'; fig.dataset.id=id;
+    const fig=document.createElement('figure'); fig.className='card'+(t.w?' grp':''); fig.dataset.id=id;
     fig.style.setProperty('--h',catHue(st.cat));
     fig.innerHTML=`<div class="thumb"><img src="${t.u}" alt=""></div>
-      <div class="meta"><span class="coord">${t.c},${t.r}${badge(t.conf)}</span>
+      <div class="meta"><span class="coord">${t.c},${t.r}${t.w?` <span class="spn">${t.w}×${t.h}</span>`:''}${badge(t.conf)}</span>
       <select class="catsel">${APP.cats.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('')}</select>
       <input class="nm" type="text" value=""></div>`;
     g.appendChild(fig); cardEl[id]=fig;
@@ -433,8 +468,12 @@ function colsPerRow(){const g=cardEl[anchor]?cardEl[anchor].parentElement:main.q
 // export / import / reset
 const dlg=document.getElementById('iodlg');
 document.getElementById('export').onclick=()=>{
-  const out={version:1,source:"simple-roguelike-tileset v0.16 CC0",
-    tiles:APP.tiles.map((t,i)=>({c:t.c,r:t.r,cat:ST[i].cat,name:ST[i].name,rev:ST[i].rev}))};
+  // a multi-tile sprite is ONE card here but expands back to one row per 8x8
+  // tile, so labels_ai/labels_human stay keyed by "c,r" and nothing downstream
+  // has to know groups exist.
+  const out={version:1,source:"simple-roguelike-tileset v0.16 CC0",tiles:[]};
+  APP.tiles.forEach((t,i)=>{(t.m||[[t.c,t.r]]).forEach(m=>
+    out.tiles.push({c:m[0],r:m[1],cat:ST[i].cat,name:ST[i].name,rev:ST[i].rev}));});
   const txt=JSON.stringify(out,null,1);
   document.getElementById('iotitle').textContent="Export — tap Copy, or paste this back to me";
   document.getElementById('iotext').value=txt;document.getElementById('iook').style.display='none';
@@ -489,7 +528,8 @@ function fillSheet(){
               low:'<span class="lo">agent was unsure</span>',med:'agent: medium confidence',
               high:'agent: high confidence'};
   const twins=TWINS[t.c+','+t.r].length;
-  document.getElementById('shcoord').innerHTML='tile '+t.c+','+t.r
+  document.getElementById('shcoord').innerHTML=(t.w?'sprite ':'tile ')+t.c+','+t.r
+    +(t.w?' · <span class="spn">'+t.w+'×'+t.h+' tiles</span> ('+t.m.length+' rows on export)':'')
     +(NOTE[t.conf]?' · '+NOTE[t.conf]:'')+(st.rev?' · reviewed':'')
     +(twins>1?' · <b>shown on '+twins+' cards</b> (edits sync)':'');
   if(document.activeElement!==shName) shName.value=st.name;   // don't clobber live typing
