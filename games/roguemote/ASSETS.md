@@ -55,6 +55,10 @@ both fonts, heart meter) to prove the whole pipeline bakes, compiles and draws. 
 rendering headless on ABI v47.
 
 ## TODO before this becomes a real game
-- Author `icon.png` (60×60) in the game root.
+- ~~Author `icon.png` (60×60) in the game root.~~ Done — `assets/gen_icon.py`
+  composites the source tileset's `@` glyph + open chest tile.
 - Fold the user's catalogue corrections back into `authoring/extract.py`.
+  Run `python3 authoring/gen_annotator.py` and review `/tmp/roguemote_annotator.html`
+  (or the shared Artifact) — export corrected categories/names, then use them to
+  fix any misclassified regions in `SPRITE_SHEETS` / `TERRAIN_RAW`.
 </content>
