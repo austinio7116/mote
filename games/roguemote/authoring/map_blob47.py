@@ -212,3 +212,35 @@ def band_report(c0, r0):
     t = band_tiles(c0, r0)
     blank = [cell for cell, g in t.items() if all(v == 0 for row in g for v in row)]
     return len(t) - len(blank), blank
+
+
+# --- EDGE16: 4-cardinal connection tiles ---------------------------------
+# Some bands are line art -- bars, corners, T-junctions, crosses, ends -- which
+# is not a blob47 terrain at all but the engine's MOTE_AT_EDGE16 template: a
+# tile connects to its N/E/S/W neighbours and the cell index is those four bits.
+# sdk/mote_tile.h: c = N | E<<1 | S<<2 | W<<3, laid out on a 4x4 sheet.
+
+EDGE16_LUT = [((1 if m & N else 0) | (2 if m & E else 0) |
+               (4 if m & S else 0) | (8 if m & W else 0)) for m in range(256)]
+
+
+def connections(t):
+    """Which tile edges a line touches -> EDGE16 cell index, or None if blank."""
+    if all(v == TRANSPARENT for row in t for v in row):
+        return None
+    mid = range(TS // 2 - 1, TS // 2 + 1)
+    col = lambda x: [t[y][x] for y in range(TS)]
+    ink = lambda line: any(line[i] != TRANSPARENT for i in mid)
+    return ((1 if ink(t[0]) else 0) | (2 if ink(col(TS - 1)) else 0) |
+            (4 if ink(t[TS - 1]) else 0) | (8 if ink(col(0)) else 0))
+
+
+def edge16_tiles(c0, r0, w=6, h=3):
+    """-> {cell index: 8x8 grid}, first occurrence wins."""
+    out = {}
+    for r in range(r0, r0 + h):
+        for c in range(c0, c0 + w):
+            v = connections(tile(c, r))
+            if v is not None and v not in out:
+                out[v] = tile(c, r)
+    return out

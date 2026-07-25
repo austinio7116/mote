@@ -56,6 +56,8 @@ crowns/FX, UI icons, arrows, button prompts, status/emotes, symbols, portraits.
 | `wall_marble` | **blob47** | White marble with navy trim; `edge=1`. 46/47, hollow interior. |
 | `floor_jungle` | **blob47** | Jungle grass, dirt sides, gold steps; `edge=0`. 47/47. |
 | `wall_aztec` | **blob47** | Aztec temple facade; `edge=1`. 46/47, hollow interior. |
+| `wall_blueprint` | **EDGE16** | Thin white floor-plan lines; `edge=0`. 16/16. |
+| `wall_plaster` | **EDGE16** | Thick white wall with drop shadow; `edge=0`. 15/16, no isolated-tile cell. |
 | `floor_cobble` | fill (nvar 2) | Grey cobblestone floor, 2 variants. |
 | `floor_grass` | fill (nvar 2) | Dark jungle-grass floor. |
 | `water` | fill (nvar 2) | Blue ripple bands (source has no flat water tile). |
@@ -89,9 +91,15 @@ test works on it. The shared layout sidesteps the problem entirely.
 `build()` refuses to emit a sheet if the band has any blank cell not declared in `holes`, so a
 wrong band start is a hard error rather than an atlas full of gaps.
 
-The **monochrome bands below** (rows 46–55: white dither, blueprint line-art, top-down
-furniture) do *not* use this layout — the best fit is 43/47 and they render as scattered
-fragments. They stay raw subsheets.
+### The monochrome bands are EDGE16, not blob47
+
+Rows 50–52 and 53–55 are **line art** — bars, corners, T-junctions, crosses, ends — which is
+the engine's `MOTE_AT_EDGE16` template, not a filled terrain. A tile connects to its N/E/S/W
+neighbours and the cell index is those four bits (`c = N | E<<1 | S<<2 | W<<3`) on a 4×4 sheet.
+`map_blob47.connections()` reads which edges a line touches; both bands map cleanly.
+
+Rows 47–49 are a **dither/noise texture**, not an autotile: it scores 12/16 as EDGE16 and
+renders as speckle. It stays a raw subsheet, as do the top-down furniture sprites.
 
 ```bash
 python3 authoring/map_blob47.py       # which config each source tile draws

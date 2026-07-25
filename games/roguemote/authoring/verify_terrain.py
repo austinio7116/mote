@@ -250,7 +250,9 @@ def check_baked(name, spec, nvar):
         check(False, "can parse the baked MoteAutotile"); return
     vals = [int(x) for x in mm.group(3).replace("\n", "").split(",") if x.strip()]
     check(int(mm.group(1)) == TS and int(mm.group(2)) == TS, "baked tile size is 8x8")
-    check(vals == blob47.LUT, "baked LUT is byte-identical to the canonical blob47 LUT")
+    want = mp.EDGE16_LUT if spec.get("kind") == "edge16" else blob47.LUT
+    check(vals == want, "baked LUT is byte-identical to the canonical "
+          + ("EDGE16" if spec.get("kind") == "edge16" else "blob47") + " LUT")
     check(int(mm.group(4)) == spec["edge"], f"baked edge_is_solid == {spec['edge']}")
     check(int(mm.group(5)) == nvar, f"baked nvar == {nvar}")
 
@@ -314,10 +316,50 @@ def check_against_c():
           "C mote__at_variant (weighted) agrees for 64 cells")
 
 
+def check_edge16(name, spec):
+    """EDGE16 bands: the sheet is 4x4, the LUT is the engine's cardinal-bits
+    rule, and each tile's drawn connections must match the cell it is filed
+    under -- a bar filed as a corner would fail here."""
+    print(f"\n2. EDGE16 set - {name}")
+    c0, r0 = spec["at"]
+    sheet, cells, missing = gt.build_edge16(name, spec)
+    holes = set(spec.get("holes", ()))
+    check(sheet.size == (4 * TS, 4 * TS), "sheet is a 4x4 atlas", f"got {sheet.size}")
+    check(set(missing) <= holes, "every missing cell is declared",
+          f"undeclared {sorted(set(missing) - holes)}")
+    check(len(cells) == 16 - len(holes), f"{len(cells)} of 16 cells present")
+    # the LUT must be the engine's own EDGE16 template
+    ref = [((1 if m & N else 0) | (2 if m & E else 0) |
+            (4 if m & S else 0) | (8 if m & W else 0)) for m in range(256)]
+    check(mp.EDGE16_LUT == ref, "EDGE16 LUT matches the C rule for all 256 masks")
+    # Round-trip, using an INDEPENDENT reading of the art rather than
+    # mp.connections(): if the check called the same function the builder did, a
+    # bug in it would agree with itself and pass. Written from the C rule.
+    def reads(g):
+        mid = range(TS // 2 - 1, TS // 2 + 1)
+        col = lambda x: [g[y][x] for y in range(TS)]
+        on = lambda line: any(line[i] != gt.TRANSPARENT for i in mid)
+        return ((1 if on(g[0]) else 0) | (2 if on(col(TS - 1)) else 0) |
+                (4 if on(g[TS - 1]) else 0) | (8 if on(col(0)) else 0))
+    bad = [f"cell {v}: art draws {reads(g)}" for v, g in cells.items() if reads(g) != v]
+    check(not bad, "every cell's art draws exactly its own connections",
+          "; ".join(bad[:3]))
+    # a cell's connections must be consistent: cell 15 touches all four edges,
+    # cell 0 touches none
+    if 15 in cells:
+        check(reads(cells[15]) == 15, "the cross cell touches all four edges")
+    if 0 in cells:
+        check(reads(cells[0]) == 0, "the isolated cell touches no edge")
+
+
 def main():
     check_lut()
     check_against_c()
     for name, spec in gt.TERRAINS.items():
+        if spec.get("kind") == "edge16":
+            check_edge16(name, spec)
+            check_baked(name, spec, 1)
+            continue
         sheet, grids, where = gt.build(name, spec)
         check_geometry(name, sheet)
         check_mapping(name, spec, where)

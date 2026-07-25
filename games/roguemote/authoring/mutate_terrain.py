@@ -79,6 +79,19 @@ def m_wipeborder():
     return lambda: setattr(mp, "tile", orig)
 
 
+@mutant("edge16: file a bar under the cross cell")
+def m_edge16():
+    orig = mp.connections
+
+    def patched(t):
+        v = orig(t)
+        if v == 10: return 15          # E|W bar filed as the 4-way cross
+        if v == 15: return 10
+        return v
+    mp.connections = patched
+    return lambda: setattr(mp, "connections", orig)
+
+
 def run_verifier():
     """-> (passed?, failure labels). Silences the verifier's own output."""
     vt.FAILS = []
@@ -87,6 +100,9 @@ def run_verifier():
         with contextlib.redirect_stdout(buf):
             vt.check_lut()
             for name, spec in gt.TERRAINS.items():
+                if spec.get("kind") == "edge16":
+                    vt.check_edge16(name, spec)
+                    continue
                 sheet, grids, where = gt.build(name, spec)
                 vt.check_geometry(name, sheet)
                 vt.check_mapping(name, spec, where)

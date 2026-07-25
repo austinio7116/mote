@@ -44,6 +44,15 @@ TERRAINS = {
                          note="jungle grass with dirt sides and gold steps"),
     "wall_aztec":   dict(at=(0, 44), edge=1, holes=(46,),
                          note="aztec temple facade; hollow interior"),
+
+    # The monochrome bands are line art, not filled terrain, so they are EDGE16
+    # (4-cardinal connections: bars, corners, T-junctions, crosses, ends) rather
+    # than blob47. 16 cells on a 4x4 sheet.
+    "wall_blueprint": dict(at=(0, 50), edge=0, kind="edge16", holes=(),
+                           note="thin white floor-plan lines; 16/16"),
+    "wall_plaster":   dict(at=(0, 53), edge=0, kind="edge16", holes=(0,),
+                           note="thick white wall with drop shadow; no isolated-tile "
+                                "cell in the source, so a lone tile draws nothing"),
 }
 # The monochrome bands below (rows 46-55: dither, blueprint, white furniture) do
 # NOT use this layout -- best fit is 43/47 and they render as scattered
@@ -58,6 +67,22 @@ def to_rgba(grid):
             i = grid[y][x]
             px[x, y] = (0, 0, 0, 0) if i == TRANSPARENT else (PAL[i*3], PAL[i*3+1], PAL[i*3+2], 255)
     return im
+
+
+def build_edge16(name, spec):
+    """-> (4x4 sheet, {cell: grid}, {cell: (c,r)}) for a line-art band."""
+    c0, r0 = spec["at"]
+    cells = mp.edge16_tiles(c0, r0)
+    missing = sorted(set(range(16)) - set(cells))
+    undeclared = sorted(set(missing) - set(spec.get("holes", ())))
+    if undeclared:
+        raise SystemExit(
+            f"{name}: EDGE16 band at {(c0, r0)} is missing cell(s) {undeclared}. "
+            f"Either the band start is wrong or these belong in holes=().")
+    sheet = Image.new("RGBA", (4 * TS, 4 * TS))
+    for v, g in cells.items():
+        sheet.paste(to_rgba(g), ((v % 4) * TS, (v // 4) * TS))
+    return sheet, cells, missing
 
 
 def build(name, spec):
@@ -92,15 +117,26 @@ def write_tileset(name, spec, nvar=1):
         f.write("tile 8\n")
         f.write(f"edge {spec['edge']}\n")
         f.write(f"nvar {nvar}\n")
-        f.write("lut " + " ".join(str(v) for v in blob47.LUT) + "\n")
+        lut = mp.EDGE16_LUT if spec.get("kind") == "edge16" else blob47.LUT
+        f.write("lut " + " ".join(str(v) for v in lut) + "\n")
         f.write("xform " + " ".join("0" for _ in range(256)) + "\n")
         f.write("vweight " + " ".join("1" for _ in range(8)) + "\n")
 
 
 def main(write=True):
     for name, spec in TERRAINS.items():
-        sheet, grids, where = build(name, spec)
         c0, r0 = spec["at"]
+        if spec.get("kind") == "edge16":
+            sheet, cells, missing = build_edge16(name, spec)
+            if write:
+                os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
+                sheet.save(os.path.join(GAME, "tilesets", name + ".png"))
+                write_tileset(name, spec)
+            print(f"[edge16] {name:15s} {len(cells)}/16 cells from source art at "
+                  f"cols {c0}-{c0+5} rows {r0}-{r0+2}  edge={spec['edge']}"
+                  + (f"  ({len(missing)} declared hole)" if missing else ""))
+            continue
+        sheet, grids, where = build(name, spec)
         if write:
             os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
             sheet.save(os.path.join(GAME, "tilesets", name + ".png"))
