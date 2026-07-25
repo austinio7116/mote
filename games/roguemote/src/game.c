@@ -22,8 +22,8 @@ MOTE_MODULE_HEADER();
 #include "rogue8.font.h"
 
 /* --- game state --------------------------------------------------------- */
-enum { ST_TITLE, ST_CLASS, ST_PLAY, ST_INV, ST_CAST, ST_TOWN, ST_SHOP,
-       ST_SELL, ST_CHAR, ST_MAP, ST_DEAD };
+enum { ST_TITLE, ST_CLASS, ST_PLAY, ST_INV, ST_GEAR, ST_GEARPICK, ST_CAST,
+       ST_TOWN, ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_DEAD };
 static int s_state = ST_TITLE;
 static int s_want_turn;
 static uint32_t s_entropy;          /* free-running until the player commits */
@@ -31,6 +31,7 @@ static uint32_t s_entropy;          /* free-running until the player commits */
 static int s_menu;                  /* highlighted row in whatever menu is up */
 static int s_menu_top;              /* first visible row (list scrolling) */
 static int s_shop;                  /* which shop ST_SHOP/ST_SELL is showing */
+static int s_gear;                  /* the slot ST_GEARPICK is filling */
 static int s_have_save;
 
 /* Repeat-move: hold a direction and you keep walking, after an initial delay,
@@ -85,12 +86,11 @@ static void new_game(int cls) {
     g_pl.speed = SPEED_NORMAL;
     g_pl.energy = 0;
     g_pl.food = 3000;
-    g_pl.light = 4;
     g_pl.depth = 0;
     g_pl.haste = 0;
     g_pl.kills = 0; g_pl.deepest = 0; g_pl.bosses_slain = 0;
     g_pl.wx = g_pl.wy = 0;
-    g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = -1;
+    g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
     g_turn = 0;
 
     /* Flavours are shuffled from the world seed, not the live RNG, so a save
@@ -109,6 +109,8 @@ static void new_game(int cls) {
     rl_inv_add(&it);
     rl_make_item_kind(&it, 27, 0); it.qty = 3;     /* cure light wounds */
     rl_inv_add(&it);
+    rl_make_item_kind(&it, 62, 0);                 /* torch: the light slot */
+    g_pl.inv_light = (int8_t)rl_inv_add(&it);
 
     rl_gen_overworld();
     rl_shop_restock();
@@ -204,6 +206,18 @@ static void menu_clamp(int n, int rows) {
     if (s_menu < s_menu_top) s_menu_top = s_menu;
     if (s_menu >= s_menu_top + rows) s_menu_top = s_menu - rows + 1;
     if (s_menu_top < 0) s_menu_top = 0;
+}
+
+/* Pack indices that could go in `slot`, in pack order. */
+static int gear_candidates(int slot, int8_t *out) {
+    int n = 0;
+    for (int i = 0; i < INV_N; i++) {
+        if (!g_pl.inv[i].qty) continue;
+        if (!rl_slot_accepts(slot, g_item_kind[g_pl.inv[i].kind].tv)) continue;
+        if (*rl_slot_ptr(slot) == i) continue;          /* already worn there */
+        out[n++] = (int8_t)i;
+    }
+    return n;
 }
 
 /* Inventory slots are sparse (a used-up potion leaves a hole), so menus walk a
@@ -315,8 +329,42 @@ static void g_update(float dt) {
             run_energy();
         }
         if (n && mote_just_pressed(in, MOTE_BTN_RB)) rl_drop(slot[s_menu]);
+        if (mote_just_pressed(in, MOTE_BTN_MENU)) { s_state = ST_GEAR; s_menu = 0; return; }
+        if (mote_just_pressed(in, MOTE_BTN_B)) { rl_save(); s_have_save = 1; s_state = ST_PLAY; }
+        rl_draw_scene();
+        return;
+    }
+
+    case ST_GEAR:
+        s_menu += menu_step(in, dt_ms);
+        if (s_menu < 0) s_menu = EQ_N - 1;
+        if (s_menu >= EQ_N) s_menu = 0;
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            s_gear = s_menu; s_state = ST_GEARPICK; s_menu = 0; s_menu_top = 0;
+        }
+        /* RB takes the slot off, which is the only way to go back to bare
+         * hands or to shed a light before selling it */
+        if (mote_just_pressed(in, MOTE_BTN_RB)) rl_unequip(s_menu);
         if (mote_just_pressed(in, MOTE_BTN_MENU)) { s_state = ST_CHAR; return; }
         if (mote_just_pressed(in, MOTE_BTN_B)) { rl_save(); s_have_save = 1; s_state = ST_PLAY; }
+        rl_draw_scene();
+        return;
+
+    case ST_GEARPICK: {
+        int8_t cand[INV_N];
+        int n = gear_candidates(s_gear, cand);
+        s_menu += menu_step(in, dt_ms);
+        menu_clamp(n, ROWS);
+        if (n && mote_just_pressed(in, MOTE_BTN_A)) {
+            /* equipping is a turn, the same as it is from the pack */
+            if (rl_equip(s_gear, cand[s_menu])) {
+                s_state = ST_PLAY;
+                if (g_pl.energy >= 100) g_pl.energy = (int16_t)(g_pl.energy - 100);
+                run_energy();
+                return;
+            }
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B)) { s_state = ST_GEAR; s_menu = s_gear; }
         rl_draw_scene();
         return;
     }
@@ -488,7 +536,105 @@ static void draw_inv(uint16_t *fb) {
         else if (slot[i] == g_pl.inv_ring) tag = "r";
         if (tag) rl_text(fb, tag, 122, y + 2, COL_GOLD);
     }
-    footer(fb, "A use  RB drop  MENU more  B out");
+    footer(fb, "A use  RB drop  MENU gear");
+}
+
+/* Wield / wear. Four slots down the page, each showing what is in it and what
+ * it contributes, then the totals those four add up to -- the point of the
+ * screen is that you can see the effect of a swap without arithmetic. */
+static void draw_gear(uint16_t *fb) {
+    panel(fb, "WIELD / WEAR");
+    rl_blit_cell(fb, SH_CHARACTERS, g_class[g_pl.cls].cell, 116, 2);
+
+    for (int i = 0; i < EQ_N; i++) {
+        int y = 15 + i * 19;
+        if (i == s_menu)
+            mote->draw_rect(fb, 0, y, MOTE_FB_W, 19, COL_SEL, 1, 0, MOTE_FB_H);
+        rl_text(fb, rl_slot_name(i), 14, y + 2, COL_GOLD);
+
+        int idx = *rl_slot_ptr(i);
+        if (idx < 0 || !g_pl.inv[idx].qty) {
+            rl_text(fb, "- empty -", 14, y + 10, COL_DIM);
+            continue;
+        }
+        const Item *it = &g_pl.inv[idx];
+        const ItemKind *ik = &g_item_kind[it->kind];
+        rl_blit_cell(fb, ik->sheet, ik->cell, 3, y + 5);
+        char nm[26]; rl_item_name(it, nm, sizeof nm);
+        rl_text(fb, nm, 14, y + 10,
+                (it->flags & IF_CURSED) ? MOTE_RGB565(220, 90, 90) : COL_TEXT);
+
+        /* what this one piece is worth, on the right */
+        if (i == EQ_WIELD) {
+            rl_num(fb, ik->dice_d, 100, y + 2, COL_DIM);
+            rl_text(fb, "d", 105, y + 2, COL_DIM);
+            rl_num(fb, ik->dice_s, 110, y + 2, COL_DIM);
+        } else if (i == EQ_BODY) {
+            rl_text(fb, "+", 104, y + 2, COL_DIM);
+            rl_num(fb, ik->ac + it->to_ac, 109, y + 2, COL_DIM);
+        } else if (i == EQ_LIGHT) {
+            rl_text(fb, "r", 104, y + 2, COL_DIM);
+            rl_num(fb, ik->ac, 109, y + 2, COL_DIM);
+        }
+    }
+
+    /* the totals: this is the number a swap is actually about */
+    int yy = 15 + EQ_N * 19 + 2;
+    mote->draw_line(fb, 0, yy - 2, MOTE_FB_W - 1, yy - 2, COL_EDGE, 0, MOTE_FB_H);
+    int d, sd, b; rl_player_weapon_dice(&d, &sd, &b);
+    rl_text(fb, "Blow", 3, yy, COL_DIM);
+    rl_num(fb, d, 26, yy, COL_TEXT);
+    rl_text(fb, "d", 32, yy, COL_DIM);
+    rl_num(fb, sd, 38, yy, COL_TEXT);
+    rl_text(fb, "+", 48, yy, COL_DIM);
+    rl_num(fb, b + g_pl.stat[0] / 4, 54, yy, COL_TEXT);
+    rl_text(fb, "AC", 74, yy, COL_DIM);
+    rl_num(fb, rl_player_ac(), 88, yy, COL_TEXT);
+    rl_text(fb, "Lit", 100, yy, COL_DIM);
+    rl_num(fb, rl_player_light(), 117, yy, COL_TEXT);
+
+    footer(fb, "A change  RB remove  MENU char");
+}
+
+static void draw_gearpick(uint16_t *fb) {
+    char title[20]; int o = 0;
+    const char *sn = rl_slot_name(s_gear);
+    while (sn[o] && o < 14) { title[o] = sn[o]; o++; }
+    title[o] = 0;
+    panel(fb, title);
+
+    int8_t cand[INV_N];
+    int n = gear_candidates(s_gear, cand);
+    if (!n) {
+        /* the list deliberately omits what is already in the slot, so say which
+         * of the two empty cases this is */
+        rl_text(fb, *rl_slot_ptr(s_gear) >= 0 ? "Nothing else fits this slot."
+                                              : "Nothing in the pack fits.",
+                6, 18, COL_DIM);
+        rl_text(fb, "RB on the gear screen removes.", 6, 28, COL_DIM);
+    }
+    for (int i = s_menu_top; i < n && i < s_menu_top + ROWS; i++) {
+        int y = ROW_Y0 + (i - s_menu_top) * ROW_H;
+        row(fb, i, s_menu);
+        const Item *it = &g_pl.inv[cand[i]];
+        const ItemKind *ik = &g_item_kind[it->kind];
+        rl_blit_cell(fb, ik->sheet, ik->cell, 2, y + 1);
+        char nm[26]; rl_item_name(it, nm, sizeof nm);
+        rl_text(fb, nm, 12, y + 2,
+                (it->flags & IF_CURSED) ? MOTE_RGB565(220, 90, 90) : COL_TEXT);
+        if (s_gear == EQ_WIELD) {
+            rl_num(fb, ik->dice_d, 100, y + 2, COL_DIM);
+            rl_text(fb, "d", 105, y + 2, COL_DIM);
+            rl_num(fb, ik->dice_s, 110, y + 2, COL_DIM);
+        } else if (s_gear == EQ_BODY) {
+            rl_text(fb, "+", 104, y + 2, COL_DIM);
+            rl_num(fb, ik->ac + it->to_ac, 109, y + 2, COL_DIM);
+        } else if (s_gear == EQ_LIGHT) {
+            rl_text(fb, "r", 104, y + 2, COL_DIM);
+            rl_num(fb, ik->ac, 109, y + 2, COL_DIM);
+        }
+    }
+    footer(fb, "A equip   B back");
 }
 
 static void draw_cast(uint16_t *fb) {
@@ -647,6 +793,8 @@ static void g_overlay(uint16_t *fb) {
     case ST_TITLE: draw_title(fb); return;
     case ST_CLASS: draw_class(fb); return;
     case ST_INV:   draw_inv(fb);   return;
+    case ST_GEAR:  draw_gear(fb);  return;
+    case ST_GEARPICK: draw_gearpick(fb); return;
     case ST_CAST:  draw_cast(fb);  return;
     case ST_TOWN:  draw_town(fb);  return;
     case ST_SHOP:  draw_shop(fb);  return;

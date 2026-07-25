@@ -1,0 +1,731 @@
+<title>Roguemote &mdash; item sprite review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  color-scheme:light dark;
+  --ground:#0a0910; --panel:#14121e; --raised:#221e33; --rule:#3e3856;
+  --ink:#e2ded2; --mute:#8b85a6; --gold:#ffc850; --used:#00e436;
+}
+@media (prefers-color-scheme:light){
+  :root{--ground:#e3e1e8; --panel:#faf9fc; --raised:#eeecf3; --rule:#bfbbcb;
+        --ink:#16141f; --mute:#57536b; --gold:#8a5c00; --used:#007a3d}
+}
+:root[data-theme="dark"]{--ground:#0a0910; --panel:#14121e; --raised:#221e33;
+  --rule:#3e3856; --ink:#e2ded2; --mute:#8b85a6; --gold:#ffc850; --used:#00e436}
+:root[data-theme="light"]{--ground:#e3e1e8; --panel:#faf9fc; --raised:#eeecf3;
+  --rule:#bfbbcb; --ink:#16141f; --mute:#57536b; --gold:#8a5c00; --used:#007a3d}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font:400 16px/1.6 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif}
+code,.src,.cell span{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  font-variant-numeric:tabular-nums}
+.wrap{max-width:64rem;margin:0 auto;padding:0 1rem 5rem}
+header{border-bottom:1px solid var(--rule);background:var(--panel);
+  margin-bottom:2rem;padding:2rem 0}
+h1{margin:0 0 .6rem;font-size:1.9rem;color:var(--gold);text-wrap:balance}
+header p{margin:0;max-width:36rem;color:var(--mute)}
+h2{font-size:1.05rem;margin:2.25rem 0 .75rem;color:var(--gold);
+  border-bottom:1px solid var(--rule);padding-bottom:.4rem}
+h2 .dim{color:var(--mute);font-weight:400;font-size:.72rem;letter-spacing:.06em}
+.lede{max-width:36rem}
+
+.spr{display:inline-block;vertical-align:middle;
+  width:calc(8px * var(--s));height:calc(8px * var(--s));
+  background-repeat:no-repeat;
+  background-size:calc(var(--sw) * var(--s) * 1px) calc(var(--sh) * var(--s) * 1px);
+  background-position:calc(var(--x) * -8px * var(--s)) calc(var(--y) * -8px * var(--s));
+  image-rendering:pixelated;image-rendering:crisp-edges;flex:none}
+
+ul.items{list-style:none;margin:0;padding:0;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));
+  background:var(--panel);border:1px solid var(--rule);border-width:1px 0 0 1px}
+ul.items li{display:flex;gap:.7rem;align-items:center;padding:.6rem .7rem;
+  border:0 solid var(--rule);border-width:0 1px 1px 0}
+.art{width:48px;height:48px;display:grid;place-items:center;background:#000;
+  border:1px solid var(--rule);flex:none}
+.meta{display:flex;flex-direction:column;gap:.05rem;min-width:0}
+.meta b{font-weight:400;font-size:.92rem}
+.det{font-size:.76rem;color:var(--mute)}
+.meta code{font-size:.68rem;color:var(--mute)}
+.meta code.src{color:var(--gold)}
+
+.plate .grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);
+  background:var(--panel);border:1px solid var(--rule);border-width:1px 0 0 1px;
+  overflow-x:auto}
+.cell{border:0 solid var(--rule);border-width:0 1px 1px 0;padding:.25rem;
+  display:flex;flex-direction:column;align-items:center;gap:.15rem;
+  min-width:0;background:var(--panel)}
+.cell.blank{background:repeating-linear-gradient(45deg,transparent 0 4px,
+  color-mix(in srgb,var(--rule) 40%, transparent) 4px 5px)}
+.cell.used{background:var(--raised);box-shadow:inset 0 0 0 1px var(--used)}
+.cell span{font-size:.58rem;color:var(--mute);white-space:nowrap}
+.cell.used span{color:var(--used)}
+.key{display:flex;gap:1.25rem;flex-wrap:wrap;margin:.75rem 0 0;
+  font-size:.78rem;color:var(--mute)}
+.key i{display:inline-block;width:.8rem;height:.8rem;vertical-align:-1px;
+  margin-right:.35rem;border:1px solid var(--rule)}
+.key .u{background:var(--raised);box-shadow:inset 0 0 0 1px var(--used)}
+.key .b{background:repeating-linear-gradient(45deg,transparent 0 4px,
+  color-mix(in srgb,var(--rule) 40%, transparent) 4px 5px)}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+</style>
+
+<header><div class="wrap">
+  <h1>Item sprite review</h1>
+  <p class="lede">Every item kind and the cell it currently draws. The gold
+    coordinate is the position in <code>source_tileset.png</code> &mdash; quote
+    that back to change one. Second half is every sheet the item table draws
+    from, with each cell labelled and the ones already in use ringed in green.</p>
+  <p class="lede" style="margin-top:.6rem">Corrections in the form
+    <code>iron helm &rarr; (38,19)</code>; anything not listed stays as it is.</p>
+</div></header>
+
+<div class="wrap">
+<section><h2>Armour</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:4;--y:3"></i></div>
+        <div class="meta">
+          <b>leather cap</b>
+          <span class="det">+3 ac</span>
+          <code>O(40)</code>
+          <code class="src">(20,19)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:1;--y:3"></i></div>
+        <div class="meta">
+          <b>iron helm</b>
+          <span class="det">+5 ac</span>
+          <code>O(37)</code>
+          <code class="src">(17,19)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:0;--y:3"></i></div>
+        <div class="meta">
+          <b>steel helm</b>
+          <span class="det">+7 ac</span>
+          <code>O(36)</code>
+          <code class="src">(16,19)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-crowns_fx" style="--s:6;--x:1;--y:5"></i></div>
+        <div class="meta">
+          <b>golden crown</b>
+          <span class="det">+9 ac</span>
+          <code>G(46)</code>
+          <code class="src">(33,29)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-crowns_fx" style="--s:6;--x:2;--y:3"></i></div>
+        <div class="meta">
+          <b>soft leather</b>
+          <span class="det">+4 ac</span>
+          <code>G(29)</code>
+          <code class="src">(34,27)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-crowns_fx" style="--s:6;--x:3;--y:3"></i></div>
+        <div class="meta">
+          <b>chain mail</b>
+          <span class="det">+14 ac</span>
+          <code>G(30)</code>
+          <code class="src">(35,27)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-crowns_fx" style="--s:6;--x:0;--y:3"></i></div>
+        <div class="meta">
+          <b>plate mail</b>
+          <span class="det">+24 ac</span>
+          <code>G(27)</code>
+          <code class="src">(32,27)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-crowns_fx" style="--s:6;--x:1;--y:3"></i></div>
+        <div class="meta">
+          <b>bone armour</b>
+          <span class="det">+18 ac</span>
+          <code>G(28)</code>
+          <code class="src">(33,27)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-loot_furniture" style="--s:6;--x:8;--y:2"></i></div>
+        <div class="meta">
+          <b>leather shield</b>
+          <span class="det">+4 ac</span>
+          <code>L(26)</code>
+          <code class="src">(24,22)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-loot_furniture" style="--s:6;--x:8;--y:3"></i></div>
+        <div class="meta">
+          <b>iron shield</b>
+          <span class="det">+7 ac</span>
+          <code>L(35)</code>
+          <code class="src">(24,23)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Weapons</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:1;--y:1"></i></div>
+        <div class="meta">
+          <b>dagger</b>
+          <span class="det">1d4</span>
+          <code>T(17)</code>
+          <code class="src">(17,29)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:0;--y:3"></i></div>
+        <div class="meta">
+          <b>short sword</b>
+          <span class="det">1d7</span>
+          <code>W(24)</code>
+          <code class="src">(16,3)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:2;--y:2"></i></div>
+        <div class="meta">
+          <b>long sword</b>
+          <span class="det">2d5</span>
+          <code>T(34)</code>
+          <code class="src">(18,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:0;--y:0"></i></div>
+        <div class="meta">
+          <b>broad sword</b>
+          <span class="det">2d6</span>
+          <code>W(0)</code>
+          <code class="src">(16,0)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:6;--y:3"></i></div>
+        <div class="meta">
+          <b>great axe</b>
+          <span class="det">4d4</span>
+          <code>T(54)</code>
+          <code class="src">(22,31)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:0;--y:2"></i></div>
+        <div class="meta">
+          <b>war hammer</b>
+          <span class="det">3d3</span>
+          <code>T(32)</code>
+          <code class="src">(16,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:10;--y:1"></i></div>
+        <div class="meta">
+          <b>battle axe</b>
+          <span class="det">2d8</span>
+          <code>T(26)</code>
+          <code class="src">(26,29)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:7;--y:2"></i></div>
+        <div class="meta">
+          <b>morning star</b>
+          <span class="det">2d6</span>
+          <code>T(39)</code>
+          <code class="src">(23,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:8;--y:2"></i></div>
+        <div class="meta">
+          <b>mace</b>
+          <span class="det">2d4</span>
+          <code>T(40)</code>
+          <code class="src">(24,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:4;--y:0"></i></div>
+        <div class="meta">
+          <b>spear</b>
+          <span class="det">1d6</span>
+          <code>E(4)</code>
+          <code class="src">(20,32)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:2;--y:3"></i></div>
+        <div class="meta">
+          <b>gilded blade</b>
+          <span class="det">2d7</span>
+          <code>T(50)</code>
+          <code class="src">(18,31)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:8;--y:0"></i></div>
+        <div class="meta">
+          <b>trident</b>
+          <span class="det">2d7</span>
+          <code>E(8)</code>
+          <code class="src">(24,32)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:3;--y:2"></i></div>
+        <div class="meta">
+          <b>pick-axe</b>
+          <span class="det">1d6</span>
+          <code>T(35)</code>
+          <code class="src">(19,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:0;--y:0"></i></div>
+        <div class="meta">
+          <b>Frost Brand</b>
+          <span class="det">3d5</span>
+          <code>E(0)</code>
+          <code class="src">(16,32)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:0;--y:1"></i></div>
+        <div class="meta">
+          <b>Flame Tongue</b>
+          <span class="det">3d5</span>
+          <code>E(15)</code>
+          <code class="src">(16,33)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:13;--y:1"></i></div>
+        <div class="meta">
+          <b>Blade of Chaos</b>
+          <span class="det">6d5</span>
+          <code>E(28)</code>
+          <code class="src">(29,33)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_elemental" style="--s:6;--x:7;--y:0"></i></div>
+        <div class="meta">
+          <b>throwing star</b>
+          <span class="det">1d5</span>
+          <code>E(7)</code>
+          <code class="src">(23,32)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Rings & amulets</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:7;--y:0"></i></div>
+        <div class="meta">
+          <b>ring</b>
+          <span class="det">r prot</span>
+          <code>O(7)</code>
+          <code class="src">(23,16)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:8;--y:0"></i></div>
+        <div class="meta">
+          <b>ring</b>
+          <span class="det">r int</span>
+          <code>O(8)</code>
+          <code class="src">(24,16)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:9;--y:0"></i></div>
+        <div class="meta">
+          <b>ring</b>
+          <span class="det">r str</span>
+          <code>O(9)</code>
+          <code class="src">(25,16)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:10;--y:0"></i></div>
+        <div class="meta">
+          <b>ring</b>
+          <span class="det">r regen</span>
+          <code>O(10)</code>
+          <code class="src">(26,16)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:11;--y:1"></i></div>
+        <div class="meta">
+          <b>amulet</b>
+          <span class="det">r speed</span>
+          <code>O(23)</code>
+          <code class="src">(27,17)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-treasure_ore" style="--s:6;--x:11;--y:0"></i></div>
+        <div class="meta">
+          <b>amulet</b>
+          <span class="det">r prot</span>
+          <code>O(11)</code>
+          <code class="src">(27,16)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Light</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-trinkets" style="--s:6;--x:7;--y:0"></i></div>
+        <div class="meta">
+          <b>torch</b>
+          <span class="det">radius 4</span>
+          <code>K(7)</code>
+          <code class="src">(7,8)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-trinkets" style="--s:6;--x:12;--y:0"></i></div>
+        <div class="meta">
+          <b>lantern</b>
+          <span class="det">radius 7</span>
+          <code>K(12)</code>
+          <code class="src">(12,8)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Wands</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:13;--y:0"></i></div>
+        <div class="meta">
+          <b>wand</b>
+          <span class="det">w missile</span>
+          <code>T(13)</code>
+          <code class="src">(29,28)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:13;--y:1"></i></div>
+        <div class="meta">
+          <b>wand</b>
+          <span class="det">w fire</span>
+          <code>T(29)</code>
+          <code class="src">(29,29)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:13;--y:2"></i></div>
+        <div class="meta">
+          <b>wand</b>
+          <span class="det">w frost</span>
+          <code>T(45)</code>
+          <code class="src">(29,30)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-tools_wands" style="--s:6;--x:13;--y:3"></i></div>
+        <div class="meta">
+          <b>wand</b>
+          <span class="det">w drain</span>
+          <code>T(61)</code>
+          <code class="src">(29,31)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Potions</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:3;--y:0"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">cure light</span>
+          <code>W(3)</code>
+          <code class="src">(19,0)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:4;--y:0"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">cure serious</span>
+          <code>W(4)</code>
+          <code class="src">(20,0)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:2;--y:0"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">full heal</span>
+          <code>W(2)</code>
+          <code class="src">(18,0)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:3;--y:1"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">mana</span>
+          <code>W(11)</code>
+          <code class="src">(19,1)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:4;--y:1"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">speed</span>
+          <code>W(12)</code>
+          <code class="src">(20,1)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:4;--y:2"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">heroism</span>
+          <code>W(20)</code>
+          <code class="src">(20,2)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:3;--y:2"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">poison</span>
+          <code>W(19)</code>
+          <code class="src">(19,2)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-weapons_potions" style="--s:6;--x:2;--y:1"></i></div>
+        <div class="meta">
+          <b>potion</b>
+          <span class="det">xp</span>
+          <code>W(10)</code>
+          <code class="src">(18,1)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Scrolls</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:0;--y:0"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">map</span>
+          <code>R(0)</code>
+          <code class="src">(8,1)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:1;--y:0"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">teleport</span>
+          <code>R(1)</code>
+          <code class="src">(9,1)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:2;--y:0"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">identify</span>
+          <code>R(2)</code>
+          <code class="src">(10,1)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:0;--y:1"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">enchant w</span>
+          <code>R(3)</code>
+          <code class="src">(8,2)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:1;--y:1"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">enchant a</span>
+          <code>R(4)</code>
+          <code class="src">(9,2)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:2;--y:1"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">deep descent</span>
+          <code>R(5)</code>
+          <code class="src">(10,2)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:0;--y:2"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">light</span>
+          <code>R(6)</code>
+          <code class="src">(8,3)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:1;--y:2"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">remove curse</span>
+          <code>R(7)</code>
+          <code class="src">(9,3)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-runes" style="--s:6;--x:2;--y:2"></i></div>
+        <div class="meta">
+          <b>scroll</b>
+          <span class="det">summon</span>
+          <code>R(8)</code>
+          <code class="src">(10,3)</code>
+        </div>
+      </li></ul></section>
+<section><h2>Food</h2><ul class="items">
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:0;--y:4"></i></div>
+        <div class="meta">
+          <b>ration</b>
+          <span class="det">none</span>
+          <code>F(48)</code>
+          <code class="src">(16,12)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:2;--y:0"></i></div>
+        <div class="meta">
+          <b>bread</b>
+          <span class="det">none</span>
+          <code>F(2)</code>
+          <code class="src">(18,8)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:2;--y:3"></i></div>
+        <div class="meta">
+          <b>cheese</b>
+          <span class="det">none</span>
+          <code>F(38)</code>
+          <code class="src">(18,11)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:2;--y:1"></i></div>
+        <div class="meta">
+          <b>apple</b>
+          <span class="det">none</span>
+          <code>F(14)</code>
+          <code class="src">(18,9)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:1;--y:2"></i></div>
+        <div class="meta">
+          <b>mushroom</b>
+          <span class="det">none</span>
+          <code>F(25)</code>
+          <code class="src">(17,10)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:1;--y:4"></i></div>
+        <div class="meta">
+          <b>meat pie</b>
+          <span class="det">none</span>
+          <code>F(49)</code>
+          <code class="src">(17,12)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:7;--y:0"></i></div>
+        <div class="meta">
+          <b>roast</b>
+          <span class="det">none</span>
+          <code>F(7)</code>
+          <code class="src">(23,8)</code>
+        </div>
+      </li>
+      <li>
+        <div class="art"><i class="spr sh-food" style="--s:6;--x:0;--y:3"></i></div>
+        <div class="meta">
+          <b>waybread</b>
+          <span class="det">none</span>
+          <code>F(36)</code>
+          <code class="src">(16,11)</code>
+        </div>
+      </li></ul></section>
+
+<h2 style="margin-top:3rem">The sheets</h2>
+<p class="lede">Cells ringed in green are already referenced by an item.
+  Hatched cells are empty in the source.</p>
+<div class="key">
+  <span><i class="u"></i>in use</span>
+  <span><i class="b"></i>empty</span>
+</div>
+
+  <section class="plate">
+    <h2>crowns_fx <span class="dim">source (32,24) &middot; 9&#215;8 cells</span></h2>
+    <div class="grid" style="--cols:9"><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:0;--y:1"></i><span>32,25</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:1;--y:1"></i><span>33,25</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-crowns_fx" style="--s:5;--x:0;--y:3"></i><span>32,27</span></div><div class="cell used"><i class="spr sh-crowns_fx" style="--s:5;--x:1;--y:3"></i><span>33,27</span></div><div class="cell used"><i class="spr sh-crowns_fx" style="--s:5;--x:2;--y:3"></i><span>34,27</span></div><div class="cell used"><i class="spr sh-crowns_fx" style="--s:5;--x:3;--y:3"></i><span>35,27</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:0;--y:5"></i><span>32,29</span></div><div class="cell used"><i class="spr sh-crowns_fx" style="--s:5;--x:1;--y:5"></i><span>33,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:2;--y:5"></i><span>34,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:3;--y:5"></i><span>35,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:4;--y:5"></i><span>36,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:5;--y:5"></i><span>37,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:6;--y:5"></i><span>38,29</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:7;--y:5"></i><span>39,29</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:0;--y:7"></i><span>32,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:1;--y:7"></i><span>33,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:2;--y:7"></i><span>34,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:3;--y:7"></i><span>35,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:4;--y:7"></i><span>36,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:5;--y:7"></i><span>37,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:6;--y:7"></i><span>38,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:7;--y:7"></i><span>39,31</span></div><div class="cell"><i class="spr sh-crowns_fx" style="--s:5;--x:8;--y:7"></i><span>40,31</span></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>food <span class="dim">source (16,8) &middot; 12&#215;6 cells</span></h2>
+    <div class="grid" style="--cols:12"><div class="cell"><i class="spr sh-food" style="--s:5;--x:0;--y:0"></i><span>16,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:1;--y:0"></i><span>17,8</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:2;--y:0"></i><span>18,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:3;--y:0"></i><span>19,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:4;--y:0"></i><span>20,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:5;--y:0"></i><span>21,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:6;--y:0"></i><span>22,8</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:7;--y:0"></i><span>23,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:8;--y:0"></i><span>24,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:9;--y:0"></i><span>25,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:10;--y:0"></i><span>26,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:11;--y:0"></i><span>27,8</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:0;--y:1"></i><span>16,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:1;--y:1"></i><span>17,9</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:2;--y:1"></i><span>18,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:3;--y:1"></i><span>19,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:4;--y:1"></i><span>20,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:5;--y:1"></i><span>21,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:6;--y:1"></i><span>22,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:7;--y:1"></i><span>23,9</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:8;--y:1"></i><span>24,9</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:0;--y:2"></i><span>16,10</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:1;--y:2"></i><span>17,10</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:2;--y:2"></i><span>18,10</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:3;--y:2"></i><span>19,10</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:4;--y:2"></i><span>20,10</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:0;--y:3"></i><span>16,11</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:1;--y:3"></i><span>17,11</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:2;--y:3"></i><span>18,11</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:0;--y:4"></i><span>16,12</span></div><div class="cell used"><i class="spr sh-food" style="--s:5;--x:1;--y:4"></i><span>17,12</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:2;--y:4"></i><span>18,12</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:3;--y:4"></i><span>19,12</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:4;--y:4"></i><span>20,12</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:0;--y:5"></i><span>16,13</span></div><div class="cell"><i class="spr sh-food" style="--s:5;--x:1;--y:5"></i><span>17,13</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>loot_furniture <span class="dim">source (16,20) &middot; 9&#215;4 cells</span></h2>
+    <div class="grid" style="--cols:9"><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:0;--y:1"></i><span>16,21</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:6;--y:1"></i><span>22,21</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:0;--y:2"></i><span>16,22</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:1;--y:2"></i><span>17,22</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:3;--y:2"></i><span>19,22</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:4;--y:2"></i><span>20,22</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:6;--y:2"></i><span>22,22</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:7;--y:2"></i><span>23,22</span></div><div class="cell used"><i class="spr sh-loot_furniture" style="--s:5;--x:8;--y:2"></i><span>24,22</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:0;--y:3"></i><span>16,23</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:1;--y:3"></i><span>17,23</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:3;--y:3"></i><span>19,23</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:4;--y:3"></i><span>20,23</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:6;--y:3"></i><span>22,23</span></div><div class="cell"><i class="spr sh-loot_furniture" style="--s:5;--x:7;--y:3"></i><span>23,23</span></div><div class="cell used"><i class="spr sh-loot_furniture" style="--s:5;--x:8;--y:3"></i><span>24,23</span></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>runes <span class="dim">source (8,1) &middot; 3&#215;4 cells</span></h2>
+    <div class="grid" style="--cols:3"><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:0;--y:0"></i><span>8,1</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:1;--y:0"></i><span>9,1</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:2;--y:0"></i><span>10,1</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:0;--y:1"></i><span>8,2</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:1;--y:1"></i><span>9,2</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:2;--y:1"></i><span>10,2</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:0;--y:2"></i><span>8,3</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:1;--y:2"></i><span>9,3</span></div><div class="cell used"><i class="spr sh-runes" style="--s:5;--x:2;--y:2"></i><span>10,3</span></div><div class="cell"><i class="spr sh-runes" style="--s:5;--x:0;--y:3"></i><span>8,4</span></div><div class="cell"><i class="spr sh-runes" style="--s:5;--x:1;--y:3"></i><span>9,4</span></div><div class="cell"><i class="spr sh-runes" style="--s:5;--x:2;--y:3"></i><span>10,4</span></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>tools_wands <span class="dim">source (16,28) &middot; 16&#215;4 cells</span></h2>
+    <div class="grid" style="--cols:16"><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:8;--y:0"></i><span>24,28</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:13;--y:0"></i><span>29,28</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:0;--y:1"></i><span>16,29</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:1;--y:1"></i><span>17,29</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:8;--y:1"></i><span>24,29</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:9;--y:1"></i><span>25,29</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:10;--y:1"></i><span>26,29</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:11;--y:1"></i><span>27,29</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:12;--y:1"></i><span>28,29</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:13;--y:1"></i><span>29,29</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:14;--y:1"></i><span>30,29</span></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:0;--y:2"></i><span>16,30</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:1;--y:2"></i><span>17,30</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:2;--y:2"></i><span>18,30</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:3;--y:2"></i><span>19,30</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:4;--y:2"></i><span>20,30</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:5;--y:2"></i><span>21,30</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:6;--y:2"></i><span>22,30</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:7;--y:2"></i><span>23,30</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:8;--y:2"></i><span>24,30</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:13;--y:2"></i><span>29,30</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:0;--y:3"></i><span>16,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:1;--y:3"></i><span>17,31</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:2;--y:3"></i><span>18,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:3;--y:3"></i><span>19,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:4;--y:3"></i><span>20,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:5;--y:3"></i><span>21,31</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:6;--y:3"></i><span>22,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:7;--y:3"></i><span>23,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:8;--y:3"></i><span>24,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:9;--y:3"></i><span>25,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:10;--y:3"></i><span>26,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:11;--y:3"></i><span>27,31</span></div><div class="cell"><i class="spr sh-tools_wands" style="--s:5;--x:12;--y:3"></i><span>28,31</span></div><div class="cell used"><i class="spr sh-tools_wands" style="--s:5;--x:13;--y:3"></i><span>29,31</span></div><div class="cell blank"></div><div class="cell blank"></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>treasure_ore <span class="dim">source (16,16) &middot; 12&#215;4 cells</span></h2>
+    <div class="grid" style="--cols:12"><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:0;--y:0"></i><span>16,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:1;--y:0"></i><span>17,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:2;--y:0"></i><span>18,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:3;--y:0"></i><span>19,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:4;--y:0"></i><span>20,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:5;--y:0"></i><span>21,16</span></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:7;--y:0"></i><span>23,16</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:8;--y:0"></i><span>24,16</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:9;--y:0"></i><span>25,16</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:10;--y:0"></i><span>26,16</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:11;--y:0"></i><span>27,16</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:0;--y:1"></i><span>16,17</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:1;--y:1"></i><span>17,17</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:2;--y:1"></i><span>18,17</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:4;--y:1"></i><span>20,17</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:5;--y:1"></i><span>21,17</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:9;--y:1"></i><span>25,17</span></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:11;--y:1"></i><span>27,17</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:0;--y:2"></i><span>16,18</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:1;--y:2"></i><span>17,18</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:2;--y:2"></i><span>18,18</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:4;--y:2"></i><span>20,18</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:5;--y:2"></i><span>21,18</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:9;--y:2"></i><span>25,18</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:0;--y:3"></i><span>16,19</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:1;--y:3"></i><span>17,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:2;--y:3"></i><span>18,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:3;--y:3"></i><span>19,19</span></div><div class="cell used"><i class="spr sh-treasure_ore" style="--s:5;--x:4;--y:3"></i><span>20,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:5;--y:3"></i><span>21,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:6;--y:3"></i><span>22,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:7;--y:3"></i><span>23,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:8;--y:3"></i><span>24,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:9;--y:3"></i><span>25,19</span></div><div class="cell"><i class="spr sh-treasure_ore" style="--s:5;--x:10;--y:3"></i><span>26,19</span></div><div class="cell blank"></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>trinkets <span class="dim">source (0,8) &middot; 16&#215;6 cells</span></h2>
+    <div class="grid" style="--cols:16"><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:0;--y:0"></i><span>0,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:1;--y:0"></i><span>1,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:2;--y:0"></i><span>2,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:3;--y:0"></i><span>3,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:4;--y:0"></i><span>4,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:5;--y:0"></i><span>5,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:6;--y:0"></i><span>6,8</span></div><div class="cell used"><i class="spr sh-trinkets" style="--s:5;--x:7;--y:0"></i><span>7,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:8;--y:0"></i><span>8,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:9;--y:0"></i><span>9,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:10;--y:0"></i><span>10,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:11;--y:0"></i><span>11,8</span></div><div class="cell used"><i class="spr sh-trinkets" style="--s:5;--x:12;--y:0"></i><span>12,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:13;--y:0"></i><span>13,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:14;--y:0"></i><span>14,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:15;--y:0"></i><span>15,8</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:0;--y:1"></i><span>0,9</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:1;--y:1"></i><span>1,9</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:2;--y:1"></i><span>2,9</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:3;--y:1"></i><span>3,9</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:4;--y:1"></i><span>4,9</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:0;--y:2"></i><span>0,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:1;--y:2"></i><span>1,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:2;--y:2"></i><span>2,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:3;--y:2"></i><span>3,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:4;--y:2"></i><span>4,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:5;--y:2"></i><span>5,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:6;--y:2"></i><span>6,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:7;--y:2"></i><span>7,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:8;--y:2"></i><span>8,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:9;--y:2"></i><span>9,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:10;--y:2"></i><span>10,10</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:11;--y:2"></i><span>11,10</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:0;--y:3"></i><span>0,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:1;--y:3"></i><span>1,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:2;--y:3"></i><span>2,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:3;--y:3"></i><span>3,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:4;--y:3"></i><span>4,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:5;--y:3"></i><span>5,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:6;--y:3"></i><span>6,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:7;--y:3"></i><span>7,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:8;--y:3"></i><span>8,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:9;--y:3"></i><span>9,11</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:10;--y:3"></i><span>10,11</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:0;--y:4"></i><span>0,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:1;--y:4"></i><span>1,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:2;--y:4"></i><span>2,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:3;--y:4"></i><span>3,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:4;--y:4"></i><span>4,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:5;--y:4"></i><span>5,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:6;--y:4"></i><span>6,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:7;--y:4"></i><span>7,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:8;--y:4"></i><span>8,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:9;--y:4"></i><span>9,12</span></div><div class="cell"><i class="spr sh-trinkets" style="--s:5;--x:10;--y:4"></i><span>10,12</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>weapons_elemental <span class="dim">source (16,32) &middot; 15&#215;3 cells</span></h2>
+    <div class="grid" style="--cols:15"><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:0;--y:0"></i><span>16,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:1;--y:0"></i><span>17,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:2;--y:0"></i><span>18,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:3;--y:0"></i><span>19,32</span></div><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:4;--y:0"></i><span>20,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:5;--y:0"></i><span>21,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:6;--y:0"></i><span>22,32</span></div><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:7;--y:0"></i><span>23,32</span></div><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:8;--y:0"></i><span>24,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:9;--y:0"></i><span>25,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:10;--y:0"></i><span>26,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:11;--y:0"></i><span>27,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:12;--y:0"></i><span>28,32</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:13;--y:0"></i><span>29,32</span></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:0;--y:1"></i><span>16,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:1;--y:1"></i><span>17,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:2;--y:1"></i><span>18,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:3;--y:1"></i><span>19,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:4;--y:1"></i><span>20,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:5;--y:1"></i><span>21,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:6;--y:1"></i><span>22,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:7;--y:1"></i><span>23,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:8;--y:1"></i><span>24,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:9;--y:1"></i><span>25,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:10;--y:1"></i><span>26,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:11;--y:1"></i><span>27,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:12;--y:1"></i><span>28,33</span></div><div class="cell used"><i class="spr sh-weapons_elemental" style="--s:5;--x:13;--y:1"></i><span>29,33</span></div><div class="cell"><i class="spr sh-weapons_elemental" style="--s:5;--x:14;--y:1"></i><span>30,33</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div></div>
+  </section>
+
+  <section class="plate">
+    <h2>weapons_potions <span class="dim">source (16,0) &middot; 8&#215;6 cells</span></h2>
+    <div class="grid" style="--cols:8"><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:0;--y:0"></i><span>16,0</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:1;--y:0"></i><span>17,0</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:2;--y:0"></i><span>18,0</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:3;--y:0"></i><span>19,0</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:4;--y:0"></i><span>20,0</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:5;--y:0"></i><span>21,0</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:6;--y:0"></i><span>22,0</span></div><div class="cell blank"></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:0;--y:1"></i><span>16,1</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:1;--y:1"></i><span>17,1</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:2;--y:1"></i><span>18,1</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:3;--y:1"></i><span>19,1</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:4;--y:1"></i><span>20,1</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:5;--y:1"></i><span>21,1</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:0;--y:2"></i><span>16,2</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:1;--y:2"></i><span>17,2</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:2;--y:2"></i><span>18,2</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:3;--y:2"></i><span>19,2</span></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:4;--y:2"></i><span>20,2</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:5;--y:2"></i><span>21,2</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell used"><i class="spr sh-weapons_potions" style="--s:5;--x:0;--y:3"></i><span>16,3</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:1;--y:3"></i><span>17,3</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:2;--y:3"></i><span>18,3</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:3;--y:3"></i><span>19,3</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:4;--y:3"></i><span>20,3</span></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell blank"></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:0;--y:5"></i><span>16,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:1;--y:5"></i><span>17,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:2;--y:5"></i><span>18,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:3;--y:5"></i><span>19,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:4;--y:5"></i><span>20,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:5;--y:5"></i><span>21,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:6;--y:5"></i><span>22,5</span></div><div class="cell"><i class="spr sh-weapons_potions" style="--s:5;--x:7;--y:5"></i><span>23,5</span></div></div>
+  </section>
+</div>
+<style>.sh-weapons_potions{background-image:url(data:image/png;base64,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);--sw:64;--sh:48}
+.sh-tools_wands{background-image:url(data:image/png;base64,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);--sw:128;--sh:32}
+.sh-weapons_elemental{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAAYCAYAAAAxkDmIAAAE7klEQVR42u1ZPWgUQRR+I3JVwFJBT6stwplG5IKFFmIjcglmTyJYBBFsrGy8bo+chaYUtDAqUSRykltBothZJEVAxEZjiqvkUpzl4VUh+Czu3vj27czs7kVBYR8se3cz37yfb+bNewmAkPEQkT8wonBsseSj6UnCm/Tz3+TnJJtJp3y79PExsjvwfKNd3C/sdXFtfQNNeJrD13Hh/6jwQCWR4AokBUtuGJOjafUnkUtr3r712Go7zZN4wo6HiLdvPTbqId8CL0oyn4O9LhI5c7PTET2ECzwf52anY/jA81HiXT6k4WIfn8yN6QfVTCdLnhKSLV8peui3sUbLahDN6wdV6GyGSo6Rfr6etHfx7Ts4e3zXaFs/qMJYowX9oKpt5dh+UIUXk9eASP567ntkDW4TEcJtUQcOqdbVKQAAePbyteL4RnuA/XZiF4592g/FUhTfaIeqfvIGcLz0AWtN/OpPpT5s+8g5vlskuXID2MineWONFkgCJHkyWHwNE5b094Oqxrt2sSk4nc1QEbljjZbWL+3oB1VYfPtOE4a9bkRPox2qpQLAUiGud2WmjJdefVBP7t+FYslHjg88H4lckwSejxMTHfj8uQiEj2WwhWWoe4X0BHc2Q3X2+C48XXwIW5OTkWDwAPDdbiPGRS45kESuLehyY/C5W75S1y+c1/Ou7tizC9m25SvFA8jx0icTydy+tfUNxF4XiVy5wQhP5NJJlngit9EOldwEtLmPlgqwVLD7aC+ItssIdy5a8z5sl615n99fNh2B5y6s+L2XdZzuXKvtIkOZ8OMhItloK6Zk0VMs+cjJlZuAF1Nzs9M4Kp6uUVNxl4pcKgboLYng3+XY3Ox0rJj418hN0i19dgWTk0R3KJEjxzi5tF5W/J7IJYKkc1mqZ4nPSm6SrjTjo57crBUpJ5kwVO3yNydqbX3DmAnS4vdErkmw1kT+7GUd/RkqKJ8ko7HWRIQKOtcVn5NspvXkm+OdMXHYzsdlHyvxNIev48L/UYkQbAhwqjWgooMl1+OP6eTwuTKQieQO13X1wXqewFN/Kv2WpJNdkhxbH8zHbH0wzUnbB6fhhrAKa02EhWVQsKoiziwsDypAWFWmIKuFy8p1SqB2JTZHr89KfVlR0hp1r2AeM+gnHwAA6t7vKlPiuW3cP7mR5mcugY5Jr4vqwCElrx099+MDkOMrM2U8ePMenDl9KobnrdJ8eweg9wjk+MREBwgf87/XRfVjCvDIwRg3nNynL38O2iRyNLLjh7/FUhsjKCu5nBQXucWSjzbDESp49M2K1i+J4eTOt3dip0/BqtLk1q7oAEk76q9WtI22Pni+vTMgyNEHI1T21AfLU4q1JqofUwDPDztP7vsv+6O9MlVzsF22pmZT+oqlZZH6bAWZ7f5NU1ARVq5BaTnwfLTZknQH8xQaS8OCZO3zMJ1SNWzc8EM8r6a1nQIvx013tK0OoPjyu/x3ihv2wdYgb5etxGQh11Vtu8h1jdvIlfdfUkHH/84sA2zqgxEqzj6WF1OmPjgt3laTmO5cIljPxVpzwDp7S8ciO1mMUVv1L5Brq6bTkMvnmMg1kUwn0NTHSnJNfXAafBZyIxmZTjF9kacxy3+OkpT/7T7YpT+xHUvRsplIphiN2genxWcll8dk1C4ol1xyySWXXHLJJZdccskll1z+V/kFToHaMFj5euQAAAAASUVORK5CYII=);--sw:120;--sh:24}
+.sh-treasure_ore{background-image:url(data:image/png;base64,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);--sw:96;--sh:32}
+.sh-crowns_fx{background-image:url(data:image/png;base64,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);--sw:72;--sh:64}
+.sh-food{background-image:url(data:image/png;base64,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);--sw:96;--sh:48}
+.sh-runes{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAYAAAAIXrg4AAAC/ElEQVR42qWWP0gbYRjGfwmHk+BmBxF1ENvSoVOwYARLl4BgkQsiIuqihQ5SKFUcEpKhxNJFcKgBbYqE0uaqUAS3SnMFpVMHQZy0FRe3gJOUpsPd9+W+y3sueZcj97zP8z7v+/25xGYmxuql3kmkmD3/CECpdxJWyya4NGXiEfxY1T2sJ/d+mwJLUwC4oz0AJJOvyfa3kRtPk92pkBtPw2oZ113x8DDf13BHe7DU72x/m8Zyq2VdRGG58XSTQDCCfICc/7SMl75IdqeiE3T4DnNLUw23oysyN2DGkkQIu/FHo7pTbp9IJkLceFPbodabCknjihgTEFhkIfQit4Bbm+sFkp/+iQmb516DreAWwP0vX8WExOenKPw6YxtYe94x8Ch+rOoe1heuBg2B9rwDwEbnEQBTz94ydwOVgkN62aZScLjO2JTfvQQgzFcaG51HjV00d9MA32dsXURhlYLTJABHSHyAirRNlcjcsq0TVCiHyj0AfgdBrupQPAfhNoPkuWVbdxd2exs/Hm47OBqxkDCuqDHpc7BwNSgS1CK3gsdmJsbq344tMeHxg78AtIJbAH++H8v3+fO7aHz/1ARTAyYewfeuinuzpkBqwDvqJyXvpJ4/wtlNYBdrOPMd2MUa7J/i9h56eJjva7gnpcYucnYTGrP5qYsozC7WmgQ4AYkPYKdqzdtUiTjzCZ2gw3doFwcabnslbodhxpJEIOSmWMOZT+julNs7LxBMJG75HqQGjNGEwy7W5HFFjMnoIEiSBNS74NM9kXOMApvrBZKjp/J9vlfwdkkLuAUQG0mICTN7/nEfScB2lwlOX5p4BD9WdQ/rw32LpsD0JQDVszUAhn+8IbMVJ39wQWakm/zBBWx3UR165eFhvq9RPVtrrEFmq7Heebp0EYXlDy6aBDgDiQ+Qnxa2qRLJjHTrBB2+Q+UegKEIbsCMJYmEQ41GdafdDskmos/B9KUxGrGQNK6IMenvwXDfokjQi9wCHpuZGKt/eBiXt9kv7/9OK/h/GcOJPIHV7+QAAAAASUVORK5CYII=);--sw:24;--sh:32}
+.sh-loot_furniture{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAAAgCAYAAACxSj5wAAADp0lEQVR42u2YMWjbQBSG3xm5q8fYgyCdOjh0KgYN8pBZNNROyeAhgUJiaJeEDNm6ejCFgAtpwGAPGYybFhdDtwwWVJDRJEMmh3iIV88JXAf7qU+nkyzFqkOCfgjcnZS7d9+9e+/JALFixYoVK1asWLGerNqFHG8XctyrP4/Yc4CD7W4yAwAAxt2t/fz9j/O59qjIFopi4scQBUOBzaMEgukmM9BNZmBp99CeOCo3XaTQ9ijgAACwWRCegifJ9tBNZqDZ6sxtu/IUr9IsDxKv2lxX7LlltCjhPEtAUcWeR0/zarbIh5enbJHr0b64Nh+PuNkf2P28rjE7zbcLOS6SN+5u7QDNxyMOAEAnoJOEMQ4NG16eMgppc2ONn10onhuIEo4oPh7xre0dx/XsmRbP6xqzjZPVEM1Wh3nBqdcqAAAzM4XMOISDbRFOGEg0g+GBqtki//JqCAAAe1eqdD48HBkcyiDhl+bbhRw3+wNPOEE0vDxl1LCTo33Y3FhzrCmD85CYQz8x9q5UxzMv2GZ/YMNZPx7D+rtzdyVt3N06SAMA4AnkdY3J4kXYGIKeUq9VbCD/vMftVWq2yB8Sp8R9hNLvK/j+M+c4OMUr8kddT4jeghs/u1AccUl2Df3UbHWY4XEL6PXHuVZX7h1rUlE4yCQR9PSpsQ85WTVb5CKcqCQrdsV4Ix4QjuV1jS3tHrqcAyEymsWQOAbtKKrsWemVvoPPxH6U66MHifNjXBSfMVm6k2UmzGYAAF7vhBEfjzhLpRdWB1H7AQBwba8s7QjSYpHUMy1O6xzsU2GdENY4NIyl0oxC6pkW11+/dG3gf8ARtbW9I82mJ0f7kPD7555pcYRDAX74dABe4GYZh306LsIJsinRRvq+mi1y2ThLpRn+iZ4jKzXqtcrEg/AlLzfTr7VJ43raxxpi2Zr9LSO48uc3H11xQYQTRvVaBRrH31yfC6VyFVZX7kGfPvPzSIRz8+crmP0BlMpV9y+KpXIVTo72XW39WoOt7pqL8OrKPTQMLfhHXyo9yYQvJobgGHohPVVsLzpOmf3BtAhW7GCeoMRohYxj5rIFDaPjmqxhdAJ5kCgKB72HxiXaDjKfX7JotjqOK8XHI/vayeYvlatwdjGB4/Igv5LfXLbg5kADeDuaDPxKh4YjC9SR/SQxBYAeIBaCdG28zggpr2usZ1ocHQLh4ByK+AKN4H5ZLOjXvFd6FTcni1dhQHq9K65v9geumJfXNeZVB/0FsB+nzFaQgSUAAAAASUVORK5CYII=);--sw:72;--sh:32}
+.sh-trinkets{background-image:url(data:image/png;base64,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);--sw:128;--sh:48}</style>

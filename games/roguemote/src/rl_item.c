@@ -293,20 +293,82 @@ void rl_pickup(void) {
 
 void rl_drop(int slot) {
     if (slot < 0 || slot >= INV_N || !g_pl.inv[slot].qty) return;
-    if (g_pl.inv[slot].flags & IF_CURSED &&
-        (slot == g_pl.inv_wield || slot == g_pl.inv_body || slot == g_pl.inv_ring)) {
-        rl_msg("It will not come off!"); return;
-    }
+    for (int s2 = 0; s2 < EQ_N; s2++)
+        if (*rl_slot_ptr(s2) == slot && (g_pl.inv[slot].flags & IF_CURSED)) {
+            rl_msg("It will not come off!"); return;
+        }
     if (rl_item_at(g_pl.x, g_pl.y)) { rl_msg("No room here."); return; }
     if (g_lv.n_item >= MAX_ITEM) { rl_msg("The floor is full."); return; }
     Item *dst = &g_lv.item[g_lv.n_item++];
     *dst = g_pl.inv[slot];
     dst->x = g_pl.x; dst->y = g_pl.y;
     g_pl.inv[slot].qty = 0;
-    if (g_pl.inv_wield == slot) g_pl.inv_wield = -1;
-    if (g_pl.inv_body  == slot) g_pl.inv_body  = -1;
-    if (g_pl.inv_ring  == slot) g_pl.inv_ring  = -1;
+    for (int s2 = 0; s2 < EQ_N; s2++) if (*rl_slot_ptr(s2) == slot) *rl_slot_ptr(s2) = -1;
     rl_msg("Dropped.");
+}
+
+/* --- equipment ----------------------------------------------------------
+ * Four slots, each a single int8_t index into the pack. Handing back the
+ * pointer means the gear screen reads, sets and clears a slot without a switch
+ * repeated at every call site. */
+int8_t *rl_slot_ptr(int slot) {
+    switch (slot) {
+    case EQ_WIELD: return &g_pl.inv_wield;
+    case EQ_BODY:  return &g_pl.inv_body;
+    case EQ_RING:  return &g_pl.inv_ring;
+    default:       return &g_pl.inv_light;
+    }
+}
+
+int rl_slot_accepts(int slot, int tv) {
+    switch (slot) {
+    case EQ_WIELD: return tv == TV_WEAPON;
+    case EQ_BODY:  return tv == TV_ARMOUR;
+    case EQ_RING:  return tv == TV_RING;
+    default:       return tv == TV_LIGHT;
+    }
+}
+
+const char *rl_slot_name(int slot) {
+    static const char *const n[EQ_N] = { "WEAPON", "BODY", "RING", "LIGHT" };
+    return n[slot < 0 || slot >= EQ_N ? 0 : slot];
+}
+
+int rl_unequip(int slot) {
+    int8_t *p = rl_slot_ptr(slot);
+    if (*p < 0) return 0;
+    if (g_pl.inv[*p].flags & IF_CURSED) { rl_msg("It will not come off!"); return 0; }
+    *p = -1;
+    rl_msg("Removed.");
+    return 1;
+}
+
+int rl_equip(int slot, int idx) {
+    if (idx < 0 || idx >= INV_N || !g_pl.inv[idx].qty) return 0;
+    Item *it = &g_pl.inv[idx];
+    if (!rl_slot_accepts(slot, g_item_kind[it->kind].tv)) return 0;
+    int8_t *p = rl_slot_ptr(slot);
+    if (*p >= 0 && (g_pl.inv[*p].flags & IF_CURSED)) {
+        rl_msg("You cannot take it off!");
+        return 0;
+    }
+    *p = (int8_t)idx;
+    rl_item_learn(it->kind);
+    if (it->flags & IF_CURSED)      rl_msg("It bites!");
+    else if (slot == EQ_WIELD)      rl_msg("You wield it.");
+    else if (slot == EQ_LIGHT)      rl_msg("The dark draws back.");
+    else                            rl_msg("You put it on.");
+    return 1;
+}
+
+/* Light radius comes from what is in the light slot, not from a value stashed
+ * on the player. Setting g_pl.light directly (the first cut) meant a torch you
+ * had dropped, sold or burned still lit the room. Two is what you can see by
+ * with nothing at all. */
+int rl_player_light(void) {
+    if (g_pl.inv_light >= 0 && g_pl.inv[g_pl.inv_light].qty)
+        return g_item_kind[g_pl.inv[g_pl.inv_light].kind].ac;
+    return 2;
 }
 
 /* Total AC from what is worn -- read by combat. */
@@ -372,27 +434,13 @@ void rl_use_item(int slot) {
     int consumed = 0;
 
     switch (ik->tv) {
-    case TV_WEAPON:
-        if (g_pl.inv_wield >= 0 && (g_pl.inv[g_pl.inv_wield].flags & IF_CURSED)) {
-            rl_msg("Your weapon sticks!"); return;
-        }
-        g_pl.inv_wield = (int8_t)slot;
-        rl_msg(it->flags & IF_CURSED ? "It bites your hand!" : "You wield it.");
-        break;
-    case TV_ARMOUR:
-        if (g_pl.inv_body >= 0 && (g_pl.inv[g_pl.inv_body].flags & IF_CURSED)) {
-            rl_msg("Your armour sticks!"); return;
-        }
-        g_pl.inv_body = (int8_t)slot;
-        rl_msg(it->flags & IF_CURSED ? "It clamps shut!" : "You wear it.");
-        break;
-    case TV_LIGHT:
-        g_pl.light = ik->ac;
-        rl_msg("The dark draws back.");
-        break;
+    /* Equipment goes through rl_equip so the pack screen and the gear screen
+     * cannot drift apart on curse handling or on which slot a kind lands in. */
+    case TV_WEAPON: rl_equip(EQ_WIELD, slot); break;
+    case TV_ARMOUR: rl_equip(EQ_BODY,  slot); break;
+    case TV_LIGHT:  rl_equip(EQ_LIGHT, slot); break;
     case TV_RING:
-        g_pl.inv_ring = (int8_t)slot;
-        rl_item_learn(it->kind);
+        if (!rl_equip(EQ_RING, slot)) break;
         switch (ik->eff) {
         case EF_R_STR:   g_pl.stat[0] = (uint8_t)(g_pl.stat[0] + 2); rl_msg("You feel mighty."); break;
         case EF_R_INT:   g_pl.stat[1] = (uint8_t)(g_pl.stat[1] + 2); rl_msg("You feel clever."); break;
@@ -478,8 +526,6 @@ void rl_use_item(int slot) {
     }
 
     if (consumed && --it->qty == 0) {
-        if (g_pl.inv_wield == slot) g_pl.inv_wield = -1;
-        if (g_pl.inv_body  == slot) g_pl.inv_body  = -1;
-        if (g_pl.inv_ring  == slot) g_pl.inv_ring  = -1;
+        for (int s2 = 0; s2 < EQ_N; s2++) if (*rl_slot_ptr(s2) == slot) *rl_slot_ptr(s2) = -1;
     }
 }

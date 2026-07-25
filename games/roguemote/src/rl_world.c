@@ -297,9 +297,8 @@ int rl_shop_buy(int shop, int slot) {
 int rl_shop_sell(int slot) {
     if (slot < 0 || slot >= INV_N || !g_pl.inv[slot].qty) return 0;
     Item *it = &g_pl.inv[slot];
-    if (slot == g_pl.inv_wield || slot == g_pl.inv_body || slot == g_pl.inv_ring) {
-        rl_msg("Take it off first."); return 0;
-    }
+    for (int e = 0; e < EQ_N; e++)
+        if (*rl_slot_ptr(e) == slot) { rl_msg("Take it off first."); return 0; }
     int price = rl_shop_price(it, 0) / 3;        /* shops buy low */
     g_pl.gold += price;
     it->qty = 0;

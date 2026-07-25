@@ -7,13 +7,14 @@
  * depth is consistent with the rest of the game rather than a compromise.
  *
  * The blob carries a magic + version word so a save written by an older layout
- * is rejected instead of being read as garbage stats.
+ * is rejected instead of being read as garbage stats. Bump it whenever Player
+ * changes -- v4 added the light slot.
  */
 #include "rl.h"
 
 #define SAVE_KEY   "roguemote.sav"
 #define SCORE_KEY  "roguemote.hi"
-#define SAVE_MAGIC 0x524D5303u          /* 'RMS' + layout version 3 */
+#define SAVE_MAGIC 0x524D5304u          /* 'RMS' + layout version 4 */
 
 typedef struct {
     uint32_t magic;

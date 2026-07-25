@@ -236,7 +236,7 @@ static void cast_ray(int x0, int y0, int x1, int y1) {
 
 void rl_fov(void) {
     for (int i = 0; i < MW * MH; i++) g_lv.flags[i] &= (uint8_t)~CF_VISIBLE;
-    int r = g_pl.light;
+    int r = rl_player_light();
     if (r < 1) r = 1;
     int x0 = g_pl.x, y0 = g_pl.y;
     g_lv.flags[y0 * MW + x0] |= CF_KNOWN | CF_VISIBLE;

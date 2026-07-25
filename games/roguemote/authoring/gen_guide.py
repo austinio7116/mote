@@ -223,8 +223,8 @@ def shot(name):
 
 
 SHOT_NAMES = ["title", "class", "overworld", "worldmap", "town", "shop", "pack",
-              "character", "dungeon", "levelmap", "spells", "missile", "nova",
-              "fireball", "boss"]
+              "gear", "character", "dungeon", "levelmap", "spells", "missile",
+              "nova", "fireball", "boss"]
 shots = {n: shot(n) for n in SHOT_NAMES}
 missing = [n for n, v in shots.items() if not v]
 if missing:
@@ -340,8 +340,8 @@ def sec_controls():
               "up what is lying there, enter the town, enter a cave mouth."),
         ("B", "Wait one turn. Useful for letting something come to you in a corridor."),
         ("RB", "Open the spell list. Casting targets the nearest thing you can see."),
-        ("MENU", "Cycle Pack &rarr; Character &rarr; Map &rarr; back to play. "
-                 "<kbd>B</kbd> returns to play from anywhere."),
+        ("MENU", "Cycle Pack &rarr; Wield/Wear &rarr; Character &rarr; Map "
+                 "&rarr; back to play. <kbd>B</kbd> returns to play from anywhere."),
     ]
     body = "".join(
         '<div class="key"><kbd>%s</kbd><p>%s</p></div>' % (k, v) for k, v in keys)
@@ -548,7 +548,13 @@ def sec_items():
      chance at an ego &mdash; the same pipeline Moria used. Depth below is the
      shallowest floor a kind appears on; gold is its base price before
      enchantment and before the shopkeeper takes a view of your Charisma.</p>
-  %s
+  <div class="shots2">%s%s</div>
+  <p>Four things are worn rather than carried: a weapon, body armour, one ring
+     or amulet, and a light. The gear screen shows what each contributes and
+     what the four add up to, so you can judge a swap without doing the
+     arithmetic yourself. <kbd>RB</kbd> there takes a slot off &mdash; the only
+     way back to bare hands, and the only way to shed a light before selling it.
+     A cursed item will not come off at all.</p>
   %s
   <h3>Egos</h3>
   <p>Roughly one weapon or piece of armour in fifteen carries one, and the odds
@@ -559,9 +565,10 @@ def sec_items():
     <thead><tr><th>Ego</th><th class="n">Damage</th><th class="n">Enchant</th></tr></thead>
     <tbody>%s</tbody>
   </table></div>
-</section>""" % (plate(shots["pack"], "The pack holds sixteen kinds. "
-                       "<kbd>w</kbd>, <kbd>a</kbd> and <kbd>r</kbd> mark what is "
-                       "in use."), "".join(out), ego_rows)
+</section>""" % (plate(shots["pack"], "The pack holds sixteen kinds.", small=True),
+                 plate(shots["gear"], "Wield / wear. <kbd>MENU</kbd> from the "
+                       "pack.", small=True),
+                 "".join(out), ego_rows)
 
 
 def sec_magic():

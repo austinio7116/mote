@@ -95,8 +95,8 @@ typedef struct {
     uint8_t  stat[6];          /* STR INT WIS DEX CON CHA */
     int16_t  food;
     uint8_t  depth;            /* 0 = overworld, 1.. = dungeon */
-    uint8_t  light;
-    int8_t   inv_wield, inv_body, inv_ring;
+    uint8_t  light;            /* derived from inv_light; see rl_player_light */
+    int8_t   inv_wield, inv_body, inv_ring, inv_light;
     Item     inv[INV_N];
     int16_t  haste;            /* turns of speed potion left */
     uint8_t  wx, wy;           /* remembered overworld position */
@@ -201,6 +201,17 @@ void rl_use_item(int slot);
 int  rl_player_ac(void);
 void rl_player_weapon_dice(int *d, int *s, int *bonus);
 int  rl_inv_count(void);
+int  rl_player_light(void);
+
+/* --- equipment ----------------------------------------------------------
+ * Four slots. `rl_slot_ptr` hands back the int8_t the slot lives in, so the
+ * gear screen can read and clear a slot without a switch in three places. */
+enum { EQ_WIELD = 0, EQ_BODY, EQ_RING, EQ_LIGHT, EQ_N };
+int8_t *rl_slot_ptr(int slot);
+int  rl_slot_accepts(int slot, int tv);
+const char *rl_slot_name(int slot);
+int  rl_equip(int slot, int inv_index);   /* 1 if it took */
+int  rl_unequip(int slot);                /* 1 if it came off */
 
 /* --- magic -------------------------------------------------------------- */
 typedef struct {
