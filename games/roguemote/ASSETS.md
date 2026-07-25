@@ -64,15 +64,14 @@ crowns/FX, UI icons, arrows, button prompts, status/emotes, symbols, portraits.
 
 ### blob47
 
-The two bordered terrains are full **47-cell blob autotiles**, covering all 256 neighbour
-masks. They were nine-slices, which can only express **16 of the 47** configurations — a
-nine-slice has no inner corners and no cell with borders on opposite sides, so inner
-corners and 1-tile-wide walls drew wrong.
+Six terrains are full **47-cell blob autotiles**, covering all 256 neighbour masks. They
+began as nine-slices, which can only express **16 of the 47** configurations — a nine-slice
+has no inner corners and no cell with borders on opposite sides, so inner corners and
+1-tile-wide walls drew wrong.
 
-The source sheet **already draws a complete 47-tile blob set** for each of these two
-terrains — laid out as a row of blocks of mixed width (some 3×3, some 2×3) across
-16 columns × 3 rows: 48 cells, one blank, 47 tiles, every configuration drawn once by hand.
-Nothing is synthesised.
+The source sheet **already draws a complete 47-tile blob set** for each — laid out as a row
+of blocks of mixed width (some 3×3, some 2×3) across 16 columns × 3 rows: 48 cells, one
+blank, 47 tiles, every configuration drawn once by hand. Nothing is synthesised.
 
 The sheet stacks **six bands three rows apart** — rows 29, 32, 35, 38, 41 and 44 — alternating
 a solid-interior terrain with a hollow-interior one (an outline style whose middle is meant to
@@ -114,18 +113,15 @@ python3 authoring/gen_terrain_report.py  # -> a single review page of all of it
 `gen_terrain.py` is invoked by `extract.py`, so the one-command pipeline still holds. It must
 not be duplicated as a nine-slice there — both write the same `tilesets/<name>.png`.
 
-`build()` refuses to emit a sheet unless the band maps cleanly 47 ways, so a missing or
-double-booked configuration is a hard error rather than a silent hole in the atlas.
-
 ### What can't be autotiled
 
-Auto-detecting the fill/border palette for every candidate band and testing each for a clean
-47-way mapping finds complete blob47 sets for **only these two terrains**. Several regions CATALOGUE.md calls autotile sets are not: `wall_purple`
-is pink decorative pieces, `wall_temple` is ornate facade panels, and the "grey stone wall"
-is a 5-shade cobblestone *floor*. These ship as **raw subsheets** (`panels_colour`,
-`wall_purple`, `wall_stonebrick`, `wall_temple`, `grass_garden`, `cobble_floors`,
-`terrain_edges`) — author a rule in the Studio Tiles tab if a game needs one. The blueprint
-line-art at (0,50)/(6,50) has nine-slice-shaped blocks but no full 47 set either.
+Scanning every 3-row band at every column offset, only the six above hold the blob47 layout
+and only rows 50–52 / 53–55 are EDGE16. Several regions CATALOGUE.md calls autotile sets are
+not: `wall_purple` is pink decorative pieces, the "grey stone wall" is a 5-shade cobblestone
+*floor*, and the colour-block region is four colours × four columns (20 tiles each), which is
+neither template. These ship as **raw subsheets** (`panels_colour`, `wall_purple`,
+`wall_stonebrick`, `wall_temple`, `grass_garden`, `cobble_floors`, `terrain_edges`) — author
+a rule in the Studio Tiles tab if a game needs one.
 
 ## Font — `assets/font/rogue8_glyphs.png` + `.gsheet` → `src/rogue8.font.h`
 
