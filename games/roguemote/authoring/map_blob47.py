@@ -167,3 +167,48 @@ def autodetect(rect):
             if best is None or score > best[0]:
                 best = (score, fill, border, n, dup)
     return best
+
+
+# --- the canonical band layout -------------------------------------------
+# Every terrain in this sheet uses the SAME 16x3 arrangement: relative position
+# (col,row) within the band always holds the same blob47 configuration, with
+# (15,2) left blank. Verified: the brick and hedge bands agree at all 48
+# positions. Deriving the layout once and reusing it means a band does not have
+# to be colour-classified at all -- which matters, because some terrains use a
+# different border colour per edge (grass has a grassy top, dirt sides and a
+# gold bottom) and no single-border-colour test can read them.
+
+def derive_layout():
+    """-> {(dc,dr): cell index} from the two independently verified bands."""
+    maps = []
+    for name in ("wall_brick", "hedge"):
+        s = BANDS[name]
+        c0, r0, c1, r1 = s["rect"]
+        m = {}
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                t = tile(c, r)
+                if all(v == 0 for row in t for v in row):
+                    continue
+                mm, _ = classify(t, s["fill"], s["border"], s["extra_fill"])
+                m[(c - c0, r - r0)] = blob47.CANON.index(mm)
+        maps.append(m)
+    if maps[0] != maps[1]:
+        raise SystemExit("the two verified bands disagree on the layout")
+    return maps[0]
+
+
+LAYOUT = derive_layout()
+BLANK_SLOT = (15, 2)
+
+
+def band_tiles(c0, r0):
+    """-> {cell index: 8x8 grid} for a band at (c0,r0), using the fixed layout."""
+    return {cell: tile(c0 + dc, r0 + dr) for (dc, dr), cell in LAYOUT.items()}
+
+
+def band_report(c0, r0):
+    """-> (n filled cells, list of cell indices whose tile is blank)"""
+    t = band_tiles(c0, r0)
+    blank = [cell for cell, g in t.items() if all(v == 0 for row in g for v in row)]
+    return len(t) - len(blank), blank

@@ -52,6 +52,8 @@ crowns/FX, UI icons, arrows, button prompts, status/emotes, symbols, portraits.
 |---|---|---|
 | `wall_brick` | **blob47** | Dungeon stone-brick walls; `edge=1` (seamless map border). |
 | `hedge` | **blob47** | Garden hedge maze; `edge=0` (draws its own outer rim). |
+| `floor_jungle` | **blob47** | Jungle grass, dirt sides, gold steps; `edge=0`. |
+| `wall_aztec` | **blob47** | Temple facade; `edge=1`. 46/47 — the artist left the interior cell transparent, so a filled block shows through. |
 | `floor_cobble` | fill (nvar 2) | Grey cobblestone floor, 2 variants. |
 | `floor_grass` | fill (nvar 2) | Dark jungle-grass floor. |
 | `water` | fill (nvar 2) | Blue ripple bands (source has no flat water tile). |
@@ -68,11 +70,17 @@ terrains — laid out as a row of blocks of mixed width (some 3×3, some 2×3) a
 16 columns × 3 rows: 48 cells, one blank, 47 tiles, every configuration drawn once by hand.
 Nothing is synthesised.
 
-`map_blob47.py` recovers the mapping by classifying each source tile **from its own pixels**
-(which edges carry the border colour, which corners carry a concave mark) rather than trying
-to parse the block layout, which varies. The result is a clean bijection onto the 47 canonical
-cells — 0 missing, 0 duplicated — and the sheet is just those tiles reordered into cell order.
-That bijection is itself strong evidence the classifier is right: a misreading collides.
+**Every terrain band uses the same 16×3 layout**: relative position (col,row) always holds the
+same configuration, with (15,2) blank. `map_blob47.py` derives that layout once, by classifying
+the brick and hedge bands from their own pixels — those two agree at all 48 positions — and
+`gen_terrain.py` then reads any band through it. A terrain is just *where its band starts*.
+
+That matters because a colour-based classifier cannot read every band: `floor_jungle` uses a
+different border colour per edge (grassy top, dirt sides, gold bottom), so no single-border-colour
+test works on it. The shared layout sidesteps the problem entirely.
+
+`build()` refuses to emit a sheet if the band has any blank cell not declared in `holes`, so a
+wrong band start is a hard error rather than an atlas full of gaps.
 
 ```bash
 python3 authoring/map_blob47.py       # which config each source tile draws

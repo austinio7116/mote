@@ -27,11 +27,19 @@ TS = mp.TS
 PAL = mp.PAL
 TRANSPARENT = mp.TRANSPARENT
 
+# Every band uses the same 16x3 layout (see map_blob47.LAYOUT), so a terrain is
+# just where its band starts. `holes` lists cells the artist left blank, which
+# are allowed but must be declared -- an undeclared blank is a hard error.
 TERRAINS = {
-    "wall_brick": dict(band="wall_brick", edge=1,
-                       note="dungeon stone-brick; seamless at the map border"),
-    "hedge":      dict(band="hedge", edge=0,
-                       note="garden hedge maze; draws its own rim at the map border"),
+    "wall_brick":  dict(at=(0, 35), edge=1, holes=(),
+                        note="dungeon stone-brick; seamless at the map border"),
+    "hedge":       dict(at=(0, 29), edge=0, holes=(),
+                        note="garden hedge maze; draws its own rim at the map border"),
+    "floor_jungle": dict(at=(0, 41), edge=0, holes=(),
+                        note="jungle grass with dirt sides and gold steps"),
+    "wall_aztec":  dict(at=(0, 44), edge=1, holes=(46,),
+                        note="aztec temple facade; the artist left the interior "
+                             "cell transparent, so a filled block shows through"),
 }
 
 
@@ -48,22 +56,21 @@ def to_rgba(grid):
 def build(name, spec):
     """-> (sheet image, [47 pixel grids], mapping mask -> (c,r))
 
-    Raises if the band is not a clean bijection onto the 47 cells: a missing
-    config would leave a hole in the atlas, and a duplicated one means the
-    classifier is misreading the art.
+    Reads the band through the shared layout rather than re-classifying it. Any
+    blank cell the terrain has not declared in `holes` is a hard error, so a
+    mis-specified band start cannot silently ship an atlas full of gaps.
     """
-    band = mp.BANDS[spec["band"]]
-    found, blanks = mp.map_band(spec["band"], band)
-    missing = [m for m in blob47.CANON if m not in found]
-    dupes = {m: v for m, v in found.items() if len(v) > 1}
-    if missing or dupes:
+    c0, r0 = spec["at"]
+    tiles = mp.band_tiles(c0, r0)
+    blank = [cell for cell, g in tiles.items() if all(v == 0 for row in g for v in row)]
+    undeclared = sorted(set(blank) - set(spec.get("holes", ())))
+    if undeclared:
         raise SystemExit(
-            f"{name}: band is not a clean 47-way mapping -- "
-            f"{len(missing)} config(s) missing, {len(dupes)} drawn more than once. "
-            f"Do not ship this; fix the classifier or the band rect first.")
-
-    where = {m: found[m][0] for m in blob47.CANON}
-    grids = [mp.tile(*where[m]) for m in blob47.CANON]
+            f"{name}: band at {(c0, r0)} has {len(undeclared)} undeclared blank cell(s) "
+            f"{undeclared[:8]}. Either the band start is wrong or these belong in holes=().")
+    inv = {cell: pos for pos, cell in mp.LAYOUT.items()}
+    where = {m: (c0 + inv[i][0], r0 + inv[i][1]) for i, m in enumerate(blob47.CANON)}
+    grids = [tiles[i] for i in range(47)]
     sheet = Image.new("RGBA", (47 * TS, TS))
     for i, g in enumerate(grids):
         sheet.paste(to_rgba(g), (i * TS, 0))
@@ -86,14 +93,15 @@ def write_tileset(name, spec, nvar=1):
 def main(write=True):
     for name, spec in TERRAINS.items():
         sheet, grids, where = build(name, spec)
-        band = mp.BANDS[spec["band"]]
-        c0, r0, c1, r1 = band["rect"]
+        c0, r0 = spec["at"]
         if write:
             os.makedirs(os.path.join(GAME, "tilesets"), exist_ok=True)
             sheet.save(os.path.join(GAME, "tilesets", name + ".png"))
             write_tileset(name, spec)
-        print(f"[blob47] {name:11s} 47/47 cells from source art "
-              f"cols {c0}-{c1} rows {r0}-{r1}  edge={spec['edge']}")
+        holes = spec.get("holes", ())
+        print(f"[blob47] {name:13s} {47-len(holes)}/47 cells from source art at "
+              f"cols {c0}-{c0+15} rows {r0}-{r0+2}  edge={spec['edge']}"
+              + (f"  ({len(holes)} declared hole)" if holes else ""))
 
 
 if __name__ == "__main__":

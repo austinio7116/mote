@@ -58,12 +58,12 @@ def m_noinner():
     return lambda: setattr(mp, "classify", orig)
 
 
-@mutant("band: shift the source rect one column right")
+@mutant("band: start the source band one row down")
 def m_shift():
-    orig = dict(mp.BANDS["wall_brick"])
-    r = orig["rect"]
-    mp.BANDS["wall_brick"] = dict(orig, rect=(r[0] + 1, r[1], r[2] + 1, r[3]))
-    return lambda: mp.BANDS.__setitem__("wall_brick", orig)
+    orig = dict(gt.TERRAINS["wall_brick"])
+    c0, r0 = orig["at"]
+    gt.TERRAINS["wall_brick"] = dict(orig, at=(c0, r0 + 1))
+    return lambda: gt.TERRAINS.__setitem__("wall_brick", orig)
 
 
 @mutant("art: paint out the border on one cell's open edge")
