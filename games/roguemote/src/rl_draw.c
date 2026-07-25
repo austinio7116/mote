@@ -70,6 +70,10 @@ const MoteImage *rl_sheet(int id) {
  * coloured house/shop fronts the annotator pass identified. props_light 32 --
  * what the town used before -- is the igloo. */
 #define SPR_HOUSE        31     /* props_light (1,9): cottage */
+/* The inn is a bed, trinkets (0,9). props_light has no tavern, and of the two
+ * honest options -- a second cottage nobody can tell from a house, or the thing
+ * you actually go in for -- the bed is the one that reads at 8px. */
+#define SPR_INN          16     /* trinkets (0,9): bed */
 /* The mine mouth is the gold flight (4,0). Stone stairs vanish into a green
  * field; gold does not, and a landmark you have to hunt for on a 16x13 viewport
  * is a landmark that does not work. */
@@ -202,6 +206,11 @@ static void build_layers_overworld(void) {
         uint8_t t = g_lv.terrain[i], v = 1;
         if (t == T_HILL)     v |= 2;
         if (t == T_MOUNTAIN) v |= 2 | 4;
+        /* bit3 the town's brick wall, bit4 its cobbled streets. The streets run
+         * under the buildings too, so a shopfront stands ON the road rather than
+         * on a patch of grass the road happens to pass. */
+        if (t == T_TOWN_WALL) v |= 8;
+        if (t == T_ROAD || t == T_SHOP || t == T_INN || t == T_TOWN) v |= 16;
         g_lv.layer[i] = v;
     }
 }
@@ -257,14 +266,16 @@ void rl_draw_scene(void) {
     if (cx > MW * TS - VIEW_W * TS) cx = MW * TS - VIEW_W * TS;
     if (cy > MH * TS - VIEW_H * TS) cy = MH * TS - VIEW_H * TS;
 
-    static const MoteAutotile *tiles[3];
+    static const MoteAutotile *tiles[5];
     int n_layer;
     if (g_pl.depth == 0) {
         build_layers_overworld();
         tiles[0] = &floor_grass_at;
         tiles[1] = &floor_jungle_at;
         tiles[2] = &wall_aztec_at;
-        n_layer = 3;
+        tiles[3] = &wall_brick_at;      /* town wall */
+        tiles[4] = &floor_cobble_at;    /* streets */
+        n_layer = 5;
     } else {
         build_layers_dungeon();
         tiles[0] = floor_for_depth(g_pl.depth);
@@ -295,7 +306,13 @@ void rl_draw_scene(void) {
             case T_DOOR_OPEN:    cell = SPR_DOOR_OPEN;   break;
             case T_TREE:         sheet = SH_TRINKETS; cell = tree_cell(x, y); break;
             case T_TOWN:         sheet = SH_PROPS;    cell = SPR_HOUSE;      break;
-            case T_SHOP:         sheet = SH_DOORS;    cell = g_shop_cell[0]; break;
+            case T_INN:          sheet = SH_TRINKETS; cell = SPR_INN;        break;
+            case T_SHOP: {
+                int s = rl_shop_at(x, y);
+                if (s < 0) s = 0;
+                sheet = g_shop_sheet[s]; cell = g_shop_cell[s];
+                break;
+            }
             case T_DUNGEON_MOUTH:sheet = SH_STAIRS;   cell = SPR_CAVE_MOUTH; break;
             case T_CHEST:        sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 0); break;
             case T_CHEST_OPEN:   sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 1); break;
@@ -382,7 +399,10 @@ void rl_draw_hud(uint16_t *fb) {
     rl_text(fb, "L", 90, HUD_Y + 2, MOTE_RGB565(150, 146, 170));
     rl_num(fb, g_pl.level, 95, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
 
-    if (g_pl.depth == 0) rl_text(fb, "TOWN", 104, HUD_Y + 2, MOTE_RGB565(150, 220, 160));
+    /* the surface is two places, not one: inside the walls and everywhere else */
+    if (g_pl.depth == 0)
+        rl_text(fb, rl_in_town() ? "TOWN" : "WILD", 104, HUD_Y + 2,
+                rl_in_town() ? MOTE_RGB565(150, 220, 160) : MOTE_RGB565(190, 180, 120));
     else {
         rl_text(fb, "DL", 104, HUD_Y + 2, MOTE_RGB565(150, 146, 170));
         rl_num(fb, g_pl.depth, 113, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
@@ -409,7 +429,12 @@ void rl_draw_map(uint16_t *fb, int y0) {
             case T_TREE:          c = MOTE_RGB565(0, 105, 60);   break;
             case T_HILL:          c = MOTE_RGB565(110, 205, 105);break;
             case T_MOUNTAIN:      c = MOTE_RGB565(150, 110, 60); break;
-            case T_TOWN:          c = MOTE_RGB565(255, 210, 90); break;
+            case T_TOWN:
+            case T_INN:
+            case T_SHOP:          c = MOTE_RGB565(255, 210, 90); break;
+            case T_TOWN_WALL:     c = MOTE_RGB565(190, 190, 205); break;
+            case T_ROAD:          c = MOTE_RGB565(140, 120, 100); break;
+            case T_CHEST:         c = MOTE_RGB565(255, 160, 40); break;
             case T_DUNGEON_MOUTH: c = MOTE_RGB565(240, 90, 60);  break;
             case T_WALL:
             case T_RUBBLE:        c = MOTE_RGB565(64, 60, 84);   break;

@@ -26,6 +26,7 @@ int rl_walkable(int x, int y) {
     case T_TREE:  case T_HILL:      case T_TOWN:
     case T_DUNGEON_MOUTH: case T_SHOP:
     case T_CHEST: case T_CHEST_OPEN:
+    case T_ROAD:  case T_INN:
         return 1;
     default:
         return 0;
@@ -34,7 +35,8 @@ int rl_walkable(int x, int y) {
 
 int rl_opaque(int x, int y) {
     uint8_t t = rl_ter(x, y);
-    return t == T_WALL || t == T_DOOR_CLOSED || t == T_RUBBLE || t == T_MOUNTAIN;
+    return t == T_WALL || t == T_DOOR_CLOSED || t == T_RUBBLE || t == T_MOUNTAIN ||
+           t == T_TOWN_WALL;
 }
 
 Mon *rl_mon_at(int x, int y) {

@@ -23,7 +23,7 @@ MOTE_MODULE_HEADER();
 
 /* --- game state --------------------------------------------------------- */
 enum { ST_TITLE, ST_CLASS, ST_PLAY, ST_INV, ST_GEAR, ST_GEARPICK, ST_CAST,
-       ST_TOWN, ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_DEAD };
+       ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_DEAD };
 static int s_state = ST_TITLE;
 static int s_want_turn;
 static uint32_t s_entropy;          /* free-running until the player commits */
@@ -150,7 +150,22 @@ static void act_context(void) {
     switch (t) {
     case T_STAIR_DOWN:  enter_depth(g_pl.depth + 1); break;
     case T_STAIR_UP:    enter_depth(g_pl.depth - 1); break;
-    case T_TOWN:        s_state = ST_TOWN; s_menu = 0; break;
+    case T_TOWN:        rl_msg("A townsman's house."); break;
+    case T_ROAD:        rl_msg("The high street."); break;
+    case T_SHOP: {
+        int s = rl_shop_at(g_pl.x, g_pl.y);
+        if (s < 0) { rl_msg("The door is locked."); break; }
+        s_shop = s; s_state = ST_SHOP; s_menu = 0; s_menu_top = 0;
+        break;
+    }
+    case T_INN:
+        if (g_pl.gold >= 20) {
+            g_pl.gold -= 20;
+            g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp; g_pl.food = 5000;
+            rl_msg("You sleep well. (-20g)");
+            rl_save(); s_have_save = 1;
+        } else rl_msg("The inn wants 20 gold.");
+        break;
     case T_DUNGEON_MOUTH:
         /* re-enter at the deepest floor reached: after twenty floors, walking
          * back down is not a decision, it is a chore */
@@ -389,32 +404,16 @@ static void g_update(float dt) {
         return;
     }
 
-    case ST_TOWN:
-        s_menu += menu_step(in, dt_ms);
-        menu_clamp(SHOP_N + 1, ROWS);
-        if (mote_just_pressed(in, MOTE_BTN_A)) {
-            if (s_menu == SHOP_N) {                  /* rest at the inn */
-                if (g_pl.gold >= 20) {
-                    g_pl.gold -= 20;
-                    g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp; g_pl.food = 5000;
-                    rl_msg("You sleep well.");
-                    rl_save(); s_have_save = 1;
-                } else rl_msg("You cannot afford it.");
-            } else { s_shop = s_menu; s_state = ST_SHOP; s_menu = 0; s_menu_top = 0; }
-        }
-        if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU)) {
-            rl_save(); s_have_save = 1; s_state = ST_PLAY;
-        }
-        rl_draw_scene();
-        return;
-
     case ST_SHOP:
         s_menu += menu_step(in, dt_ms);
         menu_clamp(g_shop_n[s_shop], ROWS);
         if (g_shop_n[s_shop] && mote_just_pressed(in, MOTE_BTN_A))
             rl_shop_buy(s_shop, s_menu);
         if (mote_just_pressed(in, MOTE_BTN_RB)) { s_state = ST_SELL; s_menu = 0; s_menu_top = 0; }
-        if (mote_just_pressed(in, MOTE_BTN_B)) { s_state = ST_TOWN; s_menu = s_shop; }
+        if (mote_just_pressed(in, MOTE_BTN_B)) {
+            rl_save(); s_have_save = 1;
+            s_state = ST_PLAY; s_menu = 0; s_menu_top = 0;
+        }
         rl_draw_scene();
         return;
 
@@ -658,23 +657,6 @@ static void draw_cast(uint16_t *fb) {
     footer(fb, "A cast   B back");
 }
 
-static void draw_town(uint16_t *fb) {
-    panel(fb, "TOWN");
-    rl_num(fb, g_pl.gold, 104, 3, COL_GOLD);
-    for (int i = 0; i < SHOP_N + 1; i++) {
-        int y = ROW_Y0 + i * ROW_H;
-        row(fb, i, s_menu);
-        if (i < SHOP_N) {
-            rl_blit_cell(fb, g_shop_sheet[i], g_shop_cell[i], 2, y + 1);
-            rl_text(fb, g_shop_name[i], 12, y + 2, COL_TEXT);
-        } else {
-            rl_blit_cell(fb, SH_TRINKETS, 16, 2, y + 1);      /* the inn's bed */
-            rl_text(fb, "Inn (rest, 20g)", 12, y + 2, COL_TEXT);
-        }
-    }
-    footer(fb, "A enter   B leave");
-}
-
 static void draw_shop(uint16_t *fb) {
     panel(fb, g_shop_name[s_shop]);
     rl_num(fb, g_pl.gold, 104, 3, COL_GOLD);
@@ -798,7 +780,6 @@ static void g_overlay(uint16_t *fb) {
     case ST_GEAR:  draw_gear(fb);  return;
     case ST_GEARPICK: draw_gearpick(fb); return;
     case ST_CAST:  draw_cast(fb);  return;
-    case ST_TOWN:  draw_town(fb);  return;
     case ST_SHOP:  draw_shop(fb);  return;
     case ST_SELL:  draw_sell(fb);  return;
     case ST_CHAR:  draw_char(fb);  return;

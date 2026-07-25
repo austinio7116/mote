@@ -14,12 +14,22 @@
 
 uint32_t g_world_seed = 1;
 
-/* The town tile the player last stood on, so "am I in town?" is a lookup and
- * not a search over the whole map. */
-static uint8_t s_town_x, s_town_y;
+/* The town's bounding box, so "am I in town?" is a rectangle test and not a
+ * search over the whole map. */
+static uint8_t s_town_x, s_town_y;              /* centre */
+static uint8_t s_town_x0, s_town_y0, s_town_x1, s_town_y1;
+static uint8_t s_shop_x[SHOP_N], s_shop_y[SHOP_N];
 
 int rl_in_town(void) {
-    return g_pl.depth == 0 && g_pl.x == s_town_x && g_pl.y == s_town_y;
+    return g_pl.depth == 0 &&
+           g_pl.x >= s_town_x0 && g_pl.x <= s_town_x1 &&
+           g_pl.y >= s_town_y0 && g_pl.y <= s_town_y1;
+}
+
+int rl_shop_at(int x, int y) {
+    for (int i = 0; i < SHOP_N; i++)
+        if (s_shop_x[i] == x && s_shop_y[i] == y) return i;
+    return -1;
 }
 
 /* --- value noise -------------------------------------------------------- */
@@ -105,6 +115,81 @@ static void smooth_overworld(void) {
     for (int i = 0; i < MW * MH; i++) g_lv.terrain[i] = g_lv.layer[i];
 }
 
+/* --- the town ------------------------------------------------------------
+ *
+ * Not a menu. A walled compound stamped straight into the overworld, the way
+ * Moria's town is a place on the map rather than a screen you open: you walk in
+ * through the gate, up the street, and into the shop you want.
+ *
+ * TW x TH tiles of brick wall around a cobbled cross of streets. The six shops
+ * sit on the street front, three facing north and three facing south, so every
+ * door is one step off a road. The inn is on the crossroads. Gates are simply
+ * road tiles punched through the wall east and west, with a short approach road
+ * run out into the grass so the town is visible as a destination from a
+ * distance rather than as a wall you happen to bump into.
+ *
+ * The compound is levelled first -- forest and highland inside a town wall look
+ * like the generator lost an argument -- and the ring immediately outside is
+ * flattened to plain for the same reason. */
+#define TW 15
+#define TH 11
+
+static void build_town(int cx, int cy) {
+    int x0 = cx - TW / 2, y0 = cy - TH / 2;
+    if (x0 < 2) x0 = 2;
+    if (y0 < 2) y0 = 2;
+    if (x0 + TW > MW - 2) x0 = MW - 2 - TW;
+    if (y0 + TH > MH - 2) y0 = MH - 2 - TH;
+    int x1 = x0 + TW - 1, y1 = y0 + TH - 1;
+
+    s_town_x0 = (uint8_t)x0; s_town_y0 = (uint8_t)y0;
+    s_town_x1 = (uint8_t)x1; s_town_y1 = (uint8_t)y1;
+    s_town_x = (uint8_t)(x0 + TW / 2); s_town_y = (uint8_t)(y0 + TH / 2);
+
+    /* level the ground the town stands on, and a one-tile apron around it */
+    for (int y = y0 - 1; y <= y1 + 1; y++)
+        for (int x = x0 - 1; x <= x1 + 1; x++)
+            if (rl_in(x, y)) g_lv.terrain[y * MW + x] = T_FLOOR;
+
+    /* wall, then hollow it out */
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+            g_lv.terrain[y * MW + x] =
+                (x == x0 || x == x1 || y == y0 || y == y1) ? T_TOWN_WALL : T_FLOOR;
+
+    /* the streets: one east-west through the middle, one north-south */
+    int rx = x0 + TW / 2, ry = y0 + TH / 2;
+    for (int x = x0; x <= x1; x++) g_lv.terrain[ry * MW + x] = T_ROAD;
+    for (int y = y0; y <= y1; y++) g_lv.terrain[y * MW + rx] = T_ROAD;
+
+    /* gates east and west, with an approach road running out to the grass */
+    for (int i = 1; i <= 3; i++) {
+        if (rl_in(x0 - i, ry)) g_lv.terrain[ry * MW + x0 - i] = T_ROAD;
+        if (rl_in(x1 + i, ry)) g_lv.terrain[ry * MW + x1 + i] = T_ROAD;
+    }
+
+    /* Six shopfronts on the street. Two rows either side of the high street,
+     * skipping the crossroads column so the inn has the corner to itself. */
+    static const int8_t sx[SHOP_N] = { -5, -3, 3, -5, -3, 3 };
+    static const int8_t sy[SHOP_N] = { -1, -1, -1, 1, 1, 1 };
+    for (int i = 0; i < SHOP_N; i++) {
+        int x = rx + sx[i], y = ry + sy[i];
+        if (!rl_in(x, y) || x <= x0 || x >= x1 || y <= y0 || y >= y1) {
+            /* the clamp above can squeeze the compound; fall back to the
+             * nearest free interior tile rather than dropping a shop */
+            x = rx + (i % 3) - 1; y = ry + (i < 3 ? -1 : 1);
+        }
+        g_lv.terrain[y * MW + x] = T_SHOP;
+        s_shop_x[i] = (uint8_t)x; s_shop_y[i] = (uint8_t)y;
+    }
+
+    /* the inn, one step off the crossroads, and a few houses for the look */
+    g_lv.terrain[(ry - 1) * MW + rx + 1] = T_INN;
+    g_lv.terrain[(ry + 1) * MW + rx + 1] = T_TOWN;
+    if (rl_in(rx - 1, ry - 3)) g_lv.terrain[(ry - 3) * MW + rx - 1] = T_TOWN;
+    if (rl_in(rx + 2, ry + 3)) g_lv.terrain[(ry + 3) * MW + rx + 2] = T_TOWN;
+}
+
 void rl_gen_overworld(void) {
     uint32_t keep = g_seed;
     g_seed = g_world_seed ? g_world_seed : 1;
@@ -144,13 +229,13 @@ void rl_gen_overworld(void) {
         int x = 8 + rl_range(MW - 16), y = 6 + rl_range(MH - 12);
         if (g_lv.terrain[y * MW + x] == T_FLOOR) { tx = x; ty = y; break; }
     }
-    g_lv.terrain[ty * MW + tx] = T_TOWN;
-    s_town_x = (uint8_t)tx; s_town_y = (uint8_t)ty;
+    build_town(tx, ty);
+    tx = s_town_x; ty = s_town_y;              /* build_town may have clamped it */
 
     /* The Mines' own entrance, always within sight of the town. A 64x48
      * continent seen through a 16x13 window is a big place to hunt for a cave
      * you have never seen; the game should not open with that. */
-    for (int r = 2; r < 12; r++) {
+    for (int r = TW / 2 + 2; r < TW / 2 + 12; r++) {
         int done = 0;
         for (int j = -r; j <= r && !done; j++) {
             for (int i = -r; i <= r && !done; i++) {
@@ -196,6 +281,10 @@ void rl_gen_overworld(void) {
             int x = rl_range(MW), y = rl_range(MH);
             uint8_t t = g_lv.terrain[y * MW + x];
             if (t != T_FLOOR && t != T_TREE) continue;
+            /* nothing wanders the streets: a jackal inside the walls turns the
+             * shopping trip into a fight you did not choose */
+            if (x >= s_town_x0 - 1 && x <= s_town_x1 + 1 &&
+                y >= s_town_y0 - 1 && y <= s_town_y1 + 1) continue;
             int dx = x - g_pl.x, dy = y - g_pl.y;
             if (dx * dx + dy * dy < 64) continue;
             int k = 0;
