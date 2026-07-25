@@ -52,7 +52,7 @@ SHEET_FILES = [
     "tools_wands", "weapons_elemental", "treasure_ore", "crowns_fx", "food",
     "runes", "loot_furniture", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
-    "dungeon_mono",
+    "dungeon_mono", "stairs",
 ]
 # sheet id -> name, matching the SH_* enum in rl.h
 SH = {i: n for i, n in enumerate(SHEET_FILES)}
@@ -416,9 +416,12 @@ def sec_overworld():
          "escarpment along its lower edge."),
         ("Mountain", ("img", mount), "Impassable. The rim of rock around the "
          "continent is what makes it an island."),
-        ("Town", ("spr", ("props_light", 31)), "One per world. Six shops and an inn."),
-        ("Cave mouth", ("spr", ("dungeon_mono", 36)), "The way into the Mines. "
-         "Six of them, one always within sight of the town."),
+        ("Town", ("spr", ("props_light", 31)), "One per world: a walled compound "
+         "with gates, streets, six shops and an inn."),
+        ("Cave mouth", ("spr", ("stairs", 2)), "The way into the Mines. Six of "
+         "them, one always within sight of the town."),
+        ("Ruins", ("spr", ("trinkets", 69)), "A broken ring of stone with a chest "
+         "inside. Four to eight a continent."),
     ]
     rows = []
     for name, art, note in terrain:
@@ -448,7 +451,7 @@ def sec_overworld():
      the town, the red marks are cave mouths.</p>
 </section>""" % ("".join(rows),
                  plate(shots["overworld"], "Forest, plain and a terraced hill. The "
-                       "framed glyph on the left is a cave mouth."),
+                       "gold flight of steps is a cave mouth."),
                  plate(shots["worldmap"], "The continent. Brown is impassable rock, "
                        "dark green is forest, pale green is highland."))
 
@@ -473,6 +476,25 @@ def sec_mines():
      generates a new level at that depth. That is deliberate, and it is what
      makes going down feel one-way.</p>
   %s
+  <p>Not every room is a lit rectangle. Some have a corner bitten out, some are
+     halls full of pillars you can lose a monster behind, and some are
+     <strong>vaults</strong> &mdash; a sealed inner chamber behind one closed
+     door, holding chests and something awake that is standing over them. About
+     a third of floors come out as warrens of small cells rather than halls.
+     Deeper floors have more unlit rooms, which have to be walked by torchlight;
+     the room you arrive in is never one of them.</p>
+  <p>A level is a graph, not a line. Beyond the corridor that chains the rooms
+     together there are one to three extra links, so there is more than one way
+     round and somewhere to run to. <strong>Rubble</strong> blocks corridors and
+     blocks sight; walking into it clears it and costs you the turn.</p>
+  <p><strong>Chests</strong> come in five colours, poorest to richest: red,
+     blue, gold, green, white. The richer the chest the likelier it is trapped
+     &mdash; eight percent on a red, thirty-two on a white. Deep floors roll
+     high tiers more often, but a white chest on floor two is possible, and it
+     is possible on purpose.</p>
+  <p>Roughly one chest in six is a <strong>mimic</strong>. There is no way to
+     tell by looking: it draws itself as a real chest, in the colour that tile
+     would have had. It springs when you are within reach.</p>
   <p>The walls change as you descend, so the floor you are on is legible at a
      glance without reading the number.</p>
   <div class="tablewrap"><table class="bands">
@@ -640,11 +662,15 @@ def sec_town():
     return """
 <section id="town">
   <h2><span class="num">09</span>Town</h2>
-  <p>Stand on the town and press <kbd>A</kbd>. Six shops restock every time you
-     surface, and the inn restores health, mana and food for twenty gold &mdash;
-     and saves your game. Shops buy at a third of what they sell for, which is
-     the usual arrangement.</p>
+  <p>The town is a place, not a screen. It is a walled compound on the
+     overworld with gates east and west, a cobbled cross of streets, and six
+     shopfronts standing on the street. Walk onto a shopfront and you are in
+     that shop; walk onto the bed and you have slept. Nothing wild spawns
+     inside the walls.</p>
   <div class="shops">%s</div>
+  <p>Shops restock every time you surface, and the inn restores health, mana
+     and food for twenty gold &mdash; and saves your game. Shops buy at a third
+     of what they sell for, which is the usual arrangement.</p>
   <p>The Black Market carries things far out of depth at five times the price.
      It is a money sink and it is meant to be one, but it is also the only place
      a low-level character will ever see a wand of frost.</p>
