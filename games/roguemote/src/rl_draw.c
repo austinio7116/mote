@@ -297,6 +297,8 @@ void rl_draw_scene(void) {
             case T_TOWN:         sheet = SH_PROPS;    cell = SPR_HOUSE;      break;
             case T_SHOP:         sheet = SH_DOORS;    cell = g_shop_cell[0]; break;
             case T_DUNGEON_MOUTH:sheet = SH_STAIRS;   cell = SPR_CAVE_MOUTH; break;
+            case T_CHEST:        sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 0); break;
+            case T_CHEST_OPEN:   sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 1); break;
             case T_FLOOR:
                 if (g_pl.depth == 0) { sheet = SH_TRINKETS; cell = decor_cell(x, y); }
                 break;
@@ -334,7 +336,20 @@ void rl_draw_scene(void) {
             g_api->scene2d_add(&s);
         } else {
             const MonKind *mk = &g_mon_kind[m->kind];
-            add_cell(mk->sheet, mk->cell, m->x * TS, m->y * TS, 20);
+            int sheet = mk->sheet, cell = mk->cell;
+            if (mk->flags & MK_MIMIC) {
+                if (m->flags & MF_ASLEEP) {
+                    /* still pretending: a real chest, in the colour this tile
+                     * would have had if a chest had actually been put here */
+                    sheet = SH_CHESTS;
+                    cell = rl_chest_cell(m->x, m->y, 0);
+                } else {
+                    /* mk->cell is the shut frame; the next four are the lid
+                     * coming up on eyes, tongue, teeth and the full snarl */
+                    cell = mk->cell + 1 + (int)((g_turn >> 1) & 3);
+                }
+            }
+            add_cell(sheet, cell, m->x * TS, m->y * TS, 20);
         }
     }
 

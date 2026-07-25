@@ -156,6 +156,8 @@ static void act_context(void) {
          * back down is not a decision, it is a chore */
         enter_depth(g_pl.deepest > 0 ? g_pl.deepest : 1);
         break;
+    case T_CHEST:       rl_open_chest(g_pl.x, g_pl.y); break;
+    case T_CHEST_OPEN:  rl_msg("The chest is empty."); break;
     default: rl_msg("Nothing here."); break;
     }
 }

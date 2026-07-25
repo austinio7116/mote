@@ -179,9 +179,19 @@ void rl_mon_turn(Mon *m) {
     int mf = mon_flags(m);
 
     if (m->flags & MF_ASLEEP) {
-        /* noise wakes them: closer means likelier, and it is never certain */
         int dx = m->x - g_pl.x, dy = m->y - g_pl.y;
         int d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+        /* a mimic is not asleep, it is waiting, and it does not give itself away
+         * to a noise across the room -- it springs when you are within reach */
+        if (mf & MK_MIMIC) {
+            if (d <= 1) {
+                m->flags &= (uint8_t)~MF_ASLEEP;
+                rl_msg("The chest has teeth!");
+                rl_mon_attack_player(m);
+            }
+            return;
+        }
+        /* noise wakes them: closer means likelier, and it is never certain */
         if (d < 12 && rl_pct(30 - d * 2)) m->flags &= (uint8_t)~MF_ASLEEP;
         return;
     }

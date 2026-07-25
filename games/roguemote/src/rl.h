@@ -24,6 +24,7 @@ enum {
     T_WALL = 0, T_FLOOR, T_DOOR_CLOSED, T_DOOR_OPEN,
     T_STAIR_DOWN, T_STAIR_UP, T_RUBBLE,
     T_TREE, T_HILL, T_MOUNTAIN, T_TOWN, T_DUNGEON_MOUTH, T_SHOP,
+    T_CHEST, T_CHEST_OPEN,
     T_COUNT
 };
 enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
@@ -233,6 +234,9 @@ void rl_item_name(const Item *it, char *out, int max);
 void rl_make_item(Item *it, int depth);
 void rl_make_item_kind(Item *it, int kind, int depth);
 void rl_scatter_items(int depth);
+int  rl_chest_tier(int x, int y);
+int  rl_chest_cell(int x, int y, int open);
+void rl_open_chest(int x, int y);
 Item *rl_item_at(int x, int y);
 int  rl_inv_add(const Item *src);
 void rl_pickup(void);
@@ -298,7 +302,7 @@ typedef struct {
     uint8_t flags;
 } MonKind;
 enum { MK_ERRATIC = 1, MK_NEVER_MOVE = 2, MK_OPEN_DOOR = 4, MK_GROUP = 8,
-       MK_EVIL = 16, MK_UNDEAD = 32 };
+       MK_EVIL = 16, MK_UNDEAD = 32, MK_MIMIC = 64 };
 
 extern const MonKind g_mon_kind[];
 extern const int g_mon_kind_n;

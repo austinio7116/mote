@@ -277,6 +277,80 @@ void rl_scatter_items(int depth) {
     }
 }
 
+static void summon_around(void);
+
+/* --- chests --------------------------------------------------------------
+ *
+ * A chest is terrain, not an item: it does not go in the pack, it sits on the
+ * floor and you open it. Its colour is not stored -- one byte of terrain is all
+ * there is -- so it is derived from the tile's own coordinates and the depth,
+ * which makes it stable for as long as the level exists and costs nothing.
+ *
+ * Five colours in the sheet, so five tiers: red, blue, gold, green, white, in
+ * ascending order of what is inside. Deep floors roll high tiers more often, but
+ * a white chest on floor two is possible and is the point -- a treasure you are
+ * not yet equipped to survive collecting is a better memory than one you are. */
+int rl_chest_tier(int x, int y) {
+    uint32_t h = (uint32_t)(x * 73856093) ^ (uint32_t)(y * 19349663)
+               ^ (uint32_t)(g_pl.depth * 83492791);
+    h ^= h >> 13; h *= 0x9E3779B1u; h ^= h >> 16;
+    int roll = (int)(h % 100) + g_pl.depth;      /* deeper floors skew richer */
+    if (roll < 34) return 0;                     /* red    */
+    if (roll < 60) return 1;                     /* blue   */
+    if (roll < 80) return 2;                     /* gold   */
+    if (roll < 93) return 3;                     /* green  */
+    return 4;                                    /* white  */
+}
+
+/* Sheet cell for a chest tile: the chests sheet is two columns, closed then
+ * open, one row per colour. */
+int rl_chest_cell(int x, int y, int open) {
+    return rl_chest_tier(x, y) * 2 + (open ? 1 : 0);
+}
+
+/* Drop `n` items around (x,y), starting on the tile itself and spilling into
+ * whatever free floor is adjacent. Returns how many actually landed. */
+static int spill_items(int x, int y, int n, int depth) {
+    static const int8_t ox[9] = { 0, 1, -1, 0, 0, 1, -1, 1, -1 };
+    static const int8_t oy[9] = { 0, 0, 0, 1, -1, 1, -1, -1, 1 };
+    int placed = 0;
+    for (int i = 0; i < 9 && placed < n && g_lv.n_item < MAX_ITEM; i++) {
+        int tx = x + ox[i], ty = y + oy[i];
+        if (!rl_walkable(tx, ty) || rl_item_at(tx, ty)) continue;
+        Item *it = &g_lv.item[g_lv.n_item];
+        rl_make_item(it, depth);
+        it->x = (uint8_t)tx; it->y = (uint8_t)ty;
+        g_lv.n_item++;
+        placed++;
+    }
+    return placed;
+}
+
+/* Open the chest the player is standing on. Tier drives both the haul and the
+ * odds of a trap, so the gold chest that killed you was a choice you made. */
+void rl_open_chest(int x, int y) {
+    int tier = rl_chest_tier(x, y);
+    g_lv.terrain[y * MW + x] = T_CHEST_OPEN;
+
+    if (rl_pct(8 + tier * 6)) {                  /* trapped: 8% red .. 32% white */
+        if (rl_pct(50)) {
+            int dam = rl_dice(1 + tier, 6);
+            g_pl.hp = (int16_t)(g_pl.hp - dam);
+            rl_msgf("A needle! %d damage.", dam);
+        } else {
+            summon_around();
+            rl_msg("Something was guarding it!");
+        }
+    }
+
+    int32_t gold = (int32_t)(10 + tier * 25) * (1 + g_pl.depth / 3) + rl_range(20);
+    g_pl.gold += gold;
+    int n = 1 + (tier + 1) / 2 + (rl_pct(30 + tier * 10) ? 1 : 0);
+    int got = spill_items(x, y, n, g_pl.depth + tier * 3);
+    if (got) rl_msgf("Treasure! %d gold and loot.", (int)gold);
+    else     rl_msgf("Treasure! %d gold.", (int)gold);
+}
+
 Item *rl_item_at(int x, int y) {
     for (int i = 0; i < g_lv.n_item; i++)
         if (g_lv.item[i].qty && g_lv.item[i].x == x && g_lv.item[i].y == y)

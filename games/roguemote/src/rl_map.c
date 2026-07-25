@@ -25,6 +25,7 @@ int rl_walkable(int x, int y) {
     case T_FLOOR: case T_DOOR_OPEN: case T_STAIR_DOWN: case T_STAIR_UP:
     case T_TREE:  case T_HILL:      case T_TOWN:
     case T_DUNGEON_MOUTH: case T_SHOP:
+    case T_CHEST: case T_CHEST_OPEN:
         return 1;
     default:
         return 0;
@@ -110,9 +111,53 @@ static int pick_mon(int depth) {
     int best = 0;
     for (int tries = 0; tries < 20; tries++) {
         int k = rl_range(g_mon_kind_n);
+        /* mimics are placed by place_chests, never rolled -- one standing in
+         * the open with no chest under it gives the whole joke away */
+        if (g_mon_kind[k].flags & MK_MIMIC) continue;
         if (g_mon_kind[k].lvl <= eff) { best = k; if (rl_pct(60)) break; }
     }
     return best;
+}
+
+/* Chests, and the things that are pretending to be chests.
+ *
+ * One to four a floor, always inside a room, never on the stairs. Roughly one in
+ * six is a mimic instead: the monster is placed on the tile and the tile is left
+ * as an ordinary floor, so what you see is the mimic drawing itself as a shut
+ * chest. Walk up and open it and it opens you.
+ *
+ * The mimic kind is chosen by depth so the shallow floors get the weak one. */
+static void place_chests(int depth) {
+    int n = 1 + rl_range(3) + depth / 8;
+    if (n > 5) n = 5;
+    for (int i = 0; i < n; i++) {
+        for (int tries = 0; tries < 60; tries++) {
+            Room *r = &s_room[rl_range(s_nroom)];
+            int x = r->x + rl_range(r->w), y = r->y + rl_range(r->h);
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (rl_mon_at(x, y) || rl_item_at(x, y)) continue;
+            if (x == g_pl.x && y == g_pl.y) continue;
+
+            if (rl_pct(17) && g_lv.n_mon < MAX_MON) {
+                int k = -1;
+                for (int j = 0; j < g_mon_kind_n; j++)
+                    if ((g_mon_kind[j].flags & MK_MIMIC) &&
+                        (k < 0 || (g_mon_kind[j].lvl <= depth &&
+                                   g_mon_kind[j].lvl > g_mon_kind[k].lvl)))
+                        k = j;
+                const MonKind *mk = &g_mon_kind[k];
+                Mon *m = &g_lv.mon[g_lv.n_mon++];
+                m->x = (uint8_t)x; m->y = (uint8_t)y; m->kind = (uint8_t)k;
+                m->mhp = m->hp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
+                m->speed = mk->speed; m->energy = (int16_t)rl_range(100);
+                m->flags = MF_ASLEEP;              /* asleep == still disguised */
+                m->boss = 0;
+            } else {
+                g_lv.terrain[y * MW + x] = T_CHEST;
+            }
+            break;
+        }
+    }
 }
 
 static void spawn_monsters(int depth) {
@@ -211,6 +256,7 @@ void rl_gen_level(int depth) {
     spawn_monsters(depth);
     spawn_boss(depth);
     rl_scatter_items(depth);
+    place_chests(depth);
     rl_fov();
 }
 

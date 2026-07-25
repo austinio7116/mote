@@ -204,6 +204,16 @@ const MonKind g_mon_kind[] = {
   { "pale ooze",         G(63),   4, 105, 5, 6, 16, 1, 6,    12, 0 },
   { "violet ooze",       G(64),   9, 105,10, 7, 26, 2, 6,    52, 0 },
   { "acid ooze",         G(65),  12, 105,13, 8, 32, 3, 5,    98, 0 },
+/* --- mimics -------------------------------------------------------------
+ * animals cells 35-39 are one creature in five frames: a shut chest, then the
+ * lid cracking on a pair of red eyes, then a tongue, then teeth, then the full
+ * snarl. The cell here is the SHUT frame; rl_draw runs the rest while it is
+ * awake, and draws a real chest of the tile's own colour while it is not.
+ *
+ * They never wander -- a mimic that walks around is just a monster -- and they
+ * hit hard, because the whole trade is that you spent a turn opening it. */
+  { "mimic",             A(35),   5, 100, 7, 7, 26, 2, 6,    30, MK_MIMIC | STIL | EVIL },
+  { "greater mimic",     A(35),  14, 100,14, 9, 38, 3, 7,   190, MK_MIMIC | STIL | EVIL },
 };
 const int g_mon_kind_n = (int)(sizeof g_mon_kind / sizeof g_mon_kind[0]);
 
