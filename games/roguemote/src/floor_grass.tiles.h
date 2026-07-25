@@ -3,12 +3,11 @@
 #define MOTE_T_floor_grass_H
 #include "mote_tile.h"
 
-static const uint16_t floor_grass_pal[4] = { 0x042a,0x0726,0xaa86,0xfd00 };
-static const uint8_t floor_grass_idx[64] = {
+static const uint16_t floor_grass_pal[1] = { 0x042a };
+static const uint8_t floor_grass_idx[32] = {
   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-  0,17,16,50,0,1,18,50,0,17,18,18,1,17,16,50,0,17,17,2,0,1,16,50,0,17,18,50,1,17,17,2,
 };
-static const MoteImage floor_grass_img = { 0, 8, 16, 0xF81F, 0, 1, floor_grass_idx, floor_grass_pal };  /* 4bpp indexed, 4 colours */
+static const MoteImage floor_grass_img = { 0, 8, 8, 0xF81F, 0, 1, floor_grass_idx, floor_grass_pal };  /* 4bpp indexed, 1 colours */
 static const MoteAutotile floor_grass_at = { &floor_grass_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -26,7 +25,7 @@ static const MoteAutotile floor_grass_at = { &floor_grass_img, 8, 8, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-}, 1, 2, {
+}, 1, 1, {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

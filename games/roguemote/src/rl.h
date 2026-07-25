@@ -12,52 +12,75 @@
 #include "mote_api.h"
 
 /* --- geometry ----------------------------------------------------------- */
-#define TS       8                 /* tile size, px */
-#define MW       64                /* dungeon level width, tiles */
-#define MH       48                /* dungeon level height, tiles */
-#define VIEW_W   16                /* map viewport, tiles */
+#define TS       8
+#define MW       64
+#define MH       48
+#define VIEW_W   16
 #define VIEW_H   13
-#define HUD_Y    (VIEW_H * TS)     /* 104 — HUD occupies y 104..127 */
+#define HUD_Y    (VIEW_H * TS)
 
 /* --- terrain ------------------------------------------------------------ */
 enum {
     T_WALL = 0, T_FLOOR, T_DOOR_CLOSED, T_DOOR_OPEN,
-    T_STAIR_DOWN, T_STAIR_UP, T_RUBBLE, T_COUNT
+    T_STAIR_DOWN, T_STAIR_UP, T_RUBBLE,
+    T_TREE, T_HILL, T_MOUNTAIN, T_TOWN, T_DUNGEON_MOUTH, T_SHOP,
+    T_COUNT
+};
+enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
+
+/* --- sprite sheets referenced by content tables -------------------------
+ * Ids index s_sheet[] in rl_draw.c. Column counts differ per sheet, so a cell
+ * index is resolved with img->w/TS at draw time, never a shared constant. */
+enum {
+    SH_ANIMALS = 0,   /* animals             16x8 */
+    SH_MONSTERS,      /* monsters            16x8 */
+    SH_BOSSES,        /* bosses              16x8, sprites are 2x2 cells */
+    SH_CHARACTERS,    /* characters          16x8 */
+    SH_BLADES,        /* weapons_potions      8x6  swords + potions */
+    SH_TOOLS,         /* tools_wands         16x4  axes/hammers/picks + wands */
+    SH_ELEM,          /* weapons_elemental   15x3  artifact-tier blades */
+    SH_TREASURE,      /* treasure_ore        12x4  gold, gems, helmets */
+    SH_REGALIA,       /* crowns_fx            9x8  body armour, crowns, FX */
+    SH_FOOD,          /* food                12x6 */
+    SH_RUNES,         /* runes                3x4  scroll glyphs */
+    SH_LOOT,          /* loot_furniture       9x4  shields, chalices, barrels */
+    SH_TRINKETS,      /* trinkets            16x6  props, slimes, flora */
+    SH_PROPS,         /* props_light         10x4  torches, houses, benches */
+    SH_DOORS,         /* doors_gems_banners   4x6  ladders, doors, gems */
+    SH_CHESTS,        /* chests               2x5 */
+    SH_BOULDERS,      /* boulders_mountains   6x4 */
+    SH_FX,            /* fx_mono             16x8  spell effect strips */
+    SH_DUNGEON,       /* dungeon_mono        16x3  stairs, patterned floors */
+    SH_COUNT
 };
 
-/* per-cell flags */
-enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
+const MoteImage *rl_sheet(int id);
 
 /* --- actors ------------------------------------------------------------- */
 #define MAX_MON   64
-#define MAX_ITEM  64
-
-/* Energy: an actor acts when energy >= 100, then pays 100. speed 110 is
- * "normal" and gains 10 per tick, so +10 speed is exactly double actions --
- * the Moria/Angband model, which is what makes speed a real stat. */
+#define MAX_ITEM  48
+#define INV_N     16
 #define SPEED_NORMAL 110
 
 typedef struct {
     uint8_t  x, y;
-    uint8_t  kind;             /* index into the monster table */
+    uint8_t  kind;
     int16_t  hp, mhp;
     int16_t  energy;
     uint8_t  speed;
     uint8_t  flags;
-    uint8_t  seen;             /* player has ever seen it (for recall) */
+    uint8_t  boss;             /* index+1 into g_boss_kind; 0 = ordinary monster */
 } Mon;
-
 enum { MF_ASLEEP = 1, MF_HASTED = 2, MF_AFRAID = 4, MF_CONFUSED = 8 };
 
 typedef struct {
     uint8_t  x, y;
-    uint8_t  kind;             /* index into the item table */
+    uint8_t  kind;
     uint8_t  qty;
     int8_t   to_hit, to_dam, to_ac;
-    uint8_t  ego;              /* 0 = plain */
+    uint8_t  ego;
     uint8_t  flags;
 } Item;
-
 enum { IF_KNOWN = 1, IF_CURSED = 2 };
 
 typedef struct {
@@ -65,22 +88,27 @@ typedef struct {
     int16_t  hp, mhp, sp, msp;
     int16_t  energy;
     uint8_t  speed;
-    uint8_t  cls;              /* class index */
+    uint8_t  cls;
     uint8_t  level;
     int32_t  xp;
     int32_t  gold;
     uint8_t  stat[6];          /* STR INT WIS DEX CON CHA */
     int16_t  food;
-    uint8_t  depth;            /* current dungeon level, 0 = town/overworld */
-    uint8_t  light;            /* light radius */
-    int8_t   inv_wield, inv_body, inv_ring;   /* equipped slots, -1 = none */
+    uint8_t  depth;            /* 0 = overworld, 1.. = dungeon */
+    uint8_t  light;
+    int8_t   inv_wield, inv_body, inv_ring;
+    Item     inv[INV_N];
+    int16_t  haste;            /* turns of speed potion left */
+    uint8_t  wx, wy;           /* remembered overworld position */
+    uint16_t kills;
+    uint8_t  deepest;
+    uint8_t  bosses_slain;     /* bit per boss band cleared -- drives artifacts */
 } Player;
 
-/* --- level state -------------------------------------------------------- */
 typedef struct {
     uint8_t terrain[MW * MH];
     uint8_t flags[MW * MH];
-    uint8_t layer[MW * MH];    /* bit-packed autotile layers, rebuilt for draw */
+    uint8_t layer[MW * MH];
     Mon     mon[MAX_MON];
     Item    item[MAX_ITEM];
     uint8_t n_mon, n_item;
@@ -88,14 +116,14 @@ typedef struct {
 } Level;
 
 /* --- globals ------------------------------------------------------------ */
-extern const MoteApi *g_api;   /* MOTE_GAME_MODULE keeps its own file-static
-                                * `mote`, so shared units need their own handle */
+extern const MoteApi *g_api;
 extern Player  g_pl;
 extern Level   g_lv;
 extern uint32_t g_seed;
+extern uint32_t g_world_seed;
 extern uint32_t g_turn;
 
-/* --- rng (xorshift, deterministic per seed) ----------------------------- */
+/* --- rng ---------------------------------------------------------------- */
 uint32_t rl_rand(void);
 static inline int rl_range(int n) { return n > 0 ? (int)(rl_rand() % (uint32_t)n) : 0; }
 static inline int rl_dice(int n, int s) { int t = 0; while (n-- > 0) t += 1 + rl_range(s); return t; }
@@ -107,19 +135,94 @@ static inline uint8_t rl_ter(int x, int y) { return rl_in(x, y) ? g_lv.terrain[y
 int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
+void rl_gen_overworld(void);
 void rl_fov(void);
 Mon *rl_mon_at(int x, int y);
 
-/* --- turn engine -------------------------------------------------------- */
+/* --- turn engine + combat ----------------------------------------------- */
 int  rl_speed_gain(int speed);
 void rl_world_tick(void);
 void rl_mon_turn(Mon *m);
-
-/* --- combat ------------------------------------------------------------- */
 void rl_attack_mon(Mon *m);
 void rl_mon_attack_player(Mon *m);
 void rl_kill_mon(Mon *m);
 void rl_gain_xp(int32_t amount);
+int  rl_mon_hp_dice(const Mon *m, int *d, int *s);
+
+/* --- items -------------------------------------------------------------- */
+enum { TV_WEAPON = 0, TV_ARMOUR, TV_POTION, TV_SCROLL, TV_WAND, TV_RING, TV_FOOD, TV_LIGHT };
+enum { EGO_FIRE = 1, EGO_COLD = 2, EGO_ELEC = 4, EGO_XATTACK = 8,
+       EGO_SPEED = 16, EGO_SLAY_EVIL = 32, EGO_CURSED = 64 };
+
+/* `eff` is the effect selector -- what a potion/scroll/wand actually DOES.
+ * Keeping it separate from the sprite cell means art and mechanics can be
+ * re-pointed independently (a bug we already paid for once with monsters). */
+typedef struct {
+    const char *name;
+    uint8_t sheet, cell;
+    uint8_t tv;
+    uint8_t lvl;
+    uint16_t cost;
+    uint8_t dice_d, dice_s, ac;
+    uint8_t eff;
+} ItemKind;
+
+typedef struct { const char *name; int8_t mult, bonus; uint8_t flags; } EgoKind;
+
+/* potion effects */
+enum { EF_CURE_LIGHT = 0, EF_CURE_SERIOUS, EF_FULL_HEAL, EF_MANA, EF_SPEED,
+       EF_HEROISM, EF_POISON, EF_XP,
+/* scroll effects */
+       EF_MAP, EF_TELEPORT, EF_IDENTIFY, EF_ENCHANT_W, EF_ENCHANT_A,
+       EF_DEEP_DESCENT, EF_LIGHT, EF_REMOVE_CURSE, EF_SUMMON,
+/* wand effects */
+       EF_W_MISSILE, EF_W_FIRE, EF_W_FROST, EF_W_DRAIN,
+/* ring effects */
+       EF_R_PROT, EF_R_STR, EF_R_INT, EF_R_SPEED, EF_R_REGEN,
+       EF_NONE };
+
+extern const ItemKind g_item_kind[];
+extern const int g_item_kind_n;
+extern const EgoKind g_ego_kind[];
+extern const int g_ego_kind_n;
+
+void rl_item_init_flavours(void);
+int  rl_item_is_known(int kind);
+void rl_item_learn(int kind);
+void rl_item_name(const Item *it, char *out, int max);
+void rl_make_item(Item *it, int depth);
+void rl_make_item_kind(Item *it, int kind, int depth);
+void rl_scatter_items(int depth);
+Item *rl_item_at(int x, int y);
+int  rl_inv_add(const Item *src);
+void rl_pickup(void);
+void rl_drop(int slot);
+void rl_use_item(int slot);
+int  rl_player_ac(void);
+void rl_player_weapon_dice(int *d, int *s, int *bonus);
+int  rl_inv_count(void);
+
+/* --- magic -------------------------------------------------------------- */
+typedef struct {
+    const char *name;
+    uint8_t lvl, cost, fail;
+    uint8_t shape;     /* SP_* */
+    uint8_t power;
+} Spell;
+enum { SP_BOLT = 0, SP_BALL, SP_BEAM, SP_HEAL, SP_BUFF, SP_DETECT, SP_NOVA };
+
+extern const Spell g_spell[];
+extern const int g_spell_n;
+
+int  rl_cast(int idx);
+void rl_zap_wand(int eff);
+void rl_fx_tick(float dt);
+void rl_fx_draw(uint16_t *fb);
+int  rl_fx_busy(void);
+/* Spells this class knows, in table order. Fills `out` with g_spell[] indices
+ * and returns how many; a spell above the player's level is listed but greyed
+ * so the player can see what is coming. */
+int  rl_spell_list(uint8_t *out, int max);
 
 /* --- draw --------------------------------------------------------------- */
 void rl_draw_scene(void);
@@ -128,24 +231,79 @@ void rl_msg(const char *s);
 void rl_msgf(const char *fmt, int a);
 void rl_msg2(const char *a, const char *b);
 void rl_draw_msgs(uint16_t *fb);
+void rl_draw_map(uint16_t *fb, int y0);
+void rl_blit_cell(uint16_t *fb, int sheet, int cell, int x, int y);
+void rl_text(uint16_t *fb, const char *s, int x, int y, uint16_t col);
+void rl_text_big(uint16_t *fb, const char *s, int x, int y, uint16_t col);
+void rl_num(uint16_t *fb, int32_t v, int x, int y, uint16_t col);
 
-/* --- content tables ----------------------------------------------------- */
+/* --- content ------------------------------------------------------------ */
 typedef struct {
     const char *name;
-    uint8_t sheet;      /* which sprite sheet */
-    uint8_t cell;       /* cell index within it */
-    uint8_t lvl;        /* native depth */
-    uint8_t speed;
-    uint8_t hp_d, hp_s; /* hp = hp_d d hp_s */
-    uint8_t ac;
-    uint8_t dam_d, dam_s;
+    uint8_t sheet, cell;
+    uint8_t lvl, speed;
+    uint8_t hp_d, hp_s, ac, dam_d, dam_s;
     uint16_t xp;
     uint8_t flags;
 } MonKind;
-
-enum { MK_ERRATIC = 1, MK_NEVER_MOVE = 2, MK_OPEN_DOOR = 4, MK_GROUP = 8 };
+enum { MK_ERRATIC = 1, MK_NEVER_MOVE = 2, MK_OPEN_DOOR = 4, MK_GROUP = 8,
+       MK_EVIL = 16, MK_UNDEAD = 32 };
 
 extern const MonKind g_mon_kind[];
 extern const int g_mon_kind_n;
+
+/* Bosses live in their own table: they are 2x2 sprites, unique per game, and
+ * placed one per depth band rather than rolled from the ordinary spawn table. */
+typedef struct {
+    const char *name;
+    uint8_t cell;              /* top-left cell of the 2x2 block in `bosses` */
+    uint8_t depth;             /* the floor it guards */
+    uint8_t speed;
+    uint16_t hp;
+    uint8_t ac, dam_d, dam_s;
+    uint16_t xp;
+    uint8_t drop;              /* index into g_item_kind for its guaranteed drop */
+} BossKind;
+
+extern const BossKind g_boss_kind[];
+extern const int g_boss_kind_n;
+
+/* Player classes: the twelve full-body sprites from the `characters` sheet.
+ * `spells` is a bitmask over g_spell[] -- a window would force the table into
+ * an order that suits no class, and sixteen spells fit a uint16_t exactly. */
+typedef struct {
+    const char *name;
+    uint8_t cell;
+    uint8_t str, intl, wis, dex, con, cha;
+    uint8_t hp_bonus, sp_bonus;
+    uint16_t spells;
+    uint8_t start_weapon;           /* index into g_item_kind */
+} ClassKind;
+
+extern const ClassKind g_class[];
+extern const int g_class_n;
+
+/* --- overworld + shops -------------------------------------------------- */
+#define SHOP_N     6
+#define SHOP_SLOTS 8
+
+extern const char *const g_shop_name[SHOP_N];
+extern const uint8_t g_shop_sheet[SHOP_N];     /* SH_* of the shopfront art */
+extern const uint8_t g_shop_cell[SHOP_N];      /* cell within that sheet */
+extern Item g_shop_stock[SHOP_N][SHOP_SLOTS];
+extern uint8_t g_shop_n[SHOP_N];
+
+void rl_shop_restock(void);
+int  rl_shop_price(const Item *it, int shop);
+int  rl_shop_buy(int shop, int slot);
+int  rl_shop_sell(int slot);
+int  rl_in_town(void);
+
+/* --- save --------------------------------------------------------------- */
+void rl_save(void);
+int  rl_load(void);
+void rl_wipe_save(void);
+void rl_score_submit(void);
+int  rl_score_best(void);
 
 #endif /* RL_H */

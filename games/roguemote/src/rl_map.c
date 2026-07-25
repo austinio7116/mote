@@ -21,13 +21,19 @@ uint32_t rl_rand(void) {
 }
 
 int rl_walkable(int x, int y) {
-    uint8_t t = rl_ter(x, y);
-    return t == T_FLOOR || t == T_DOOR_OPEN || t == T_STAIR_DOWN || t == T_STAIR_UP;
+    switch (rl_ter(x, y)) {
+    case T_FLOOR: case T_DOOR_OPEN: case T_STAIR_DOWN: case T_STAIR_UP:
+    case T_TREE:  case T_HILL:      case T_TOWN:
+    case T_DUNGEON_MOUTH: case T_SHOP:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 int rl_opaque(int x, int y) {
     uint8_t t = rl_ter(x, y);
-    return t == T_WALL || t == T_DOOR_CLOSED || t == T_RUBBLE;
+    return t == T_WALL || t == T_DOOR_CLOSED || t == T_RUBBLE || t == T_MOUNTAIN;
 }
 
 Mon *rl_mon_at(int x, int y) {
@@ -126,10 +132,44 @@ static void spawn_monsters(int depth) {
             m->mhp = m->hp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
             m->speed = mk->speed; m->energy = (int16_t)rl_range(100);
             m->flags = rl_pct(60) ? MF_ASLEEP : 0;
-            m->seen = 0;
+            m->boss = 0;
             break;
         }
     }
+}
+
+/* The boss for this depth, if any. One boss per guarded floor, placed in the
+ * room furthest from the up-stair and awake -- it is the reason to come down,
+ * so it should not be something you can miss. */
+static void spawn_boss(int depth) {
+    int bi = -1;
+    for (int i = 0; i < g_boss_kind_n; i++) if (g_boss_kind[i].depth == depth) { bi = i; break; }
+    if (bi < 0 || g_lv.n_mon >= MAX_MON) return;
+
+    int best = 0, bestd = -1;
+    for (int i = 0; i < s_nroom; i++) {
+        int rx = s_room[i].x + s_room[i].w / 2, ry = s_room[i].y + s_room[i].h / 2;
+        int dx = rx - g_pl.x, dy = ry - g_pl.y;
+        int d = dx * dx + dy * dy;
+        if (d > bestd) { bestd = d; best = i; }
+    }
+    Room *r = &s_room[best];
+    /* the 2x2 sprite hangs up-and-left, so keep it off the room's top-left edge */
+    int x = r->x + 1 + rl_range(r->w > 2 ? r->w - 1 : 1);
+    int y = r->y + 1 + rl_range(r->h > 2 ? r->h - 1 : 1);
+    if (!rl_in(x, y) || g_lv.terrain[y * MW + x] != T_FLOOR) {
+        x = r->x + r->w / 2; y = r->y + r->h / 2;
+    }
+
+    const BossKind *bk = &g_boss_kind[bi];
+    Mon *m = &g_lv.mon[g_lv.n_mon++];
+    m->x = (uint8_t)x; m->y = (uint8_t)y;
+    m->kind = 0;                        /* unused for a boss; `boss` drives it */
+    m->boss = (uint8_t)(bi + 1);
+    m->mhp = m->hp = (int16_t)bk->hp;
+    m->speed = bk->speed;
+    m->energy = 0;
+    m->flags = 0;                       /* bosses do not sleep */
 }
 
 void rl_gen_level(int depth) {
@@ -169,6 +209,8 @@ void rl_gen_level(int depth) {
     g_pl.y = g_lv.up_y ? g_lv.up_y : (uint8_t)(s_room[0].y + s_room[0].h / 2);
 
     spawn_monsters(depth);
+    spawn_boss(depth);
+    rl_scatter_items(depth);
     rl_fov();
 }
 

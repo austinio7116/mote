@@ -99,6 +99,16 @@ SPRITE_SHEETS = {
     "ui_buttons":        (48, 20, 63, 23), # A/B/X/Y + O/X face buttons
     "ui_status_emotes":  (48, 24, 63, 31), # faces, check/x, element icons, hearts, speech bubbles
     "ui_symbols":        (48, 32, 51, 32), # gender/alchemy symbols
+    # Monochrome VFX: bolt streaks, slash arcs, expanding shockwave rings and
+    # sparkle bursts, each laid out left-to-right as an animation. This band was
+    # originally filed under terrain_edges as "water/cloud/rock edge tiles" --
+    # it is not terrain, it is the effect set the spell system needs.
+    "fx_mono":           (48, 36, 63, 43),
+    # Monochrome dungeon dressing: patterned floors, and at (4,49)/(5,49) a
+    # matched pair of top-down staircases -- descending and ascending steps
+    # inside a frame. The game used the doors sheet's ladders for stairs before
+    # these were spotted; these read as stairs at 8px, which ladders do not.
+    "dungeon_mono":      (0, 47, 15, 49),
     # --- white / blueprint set ---
     "furniture_white":   (0, 53, 5, 55),   # top-down beds/tables/dressers
     "blueprint":         (0, 50, 11, 52),  # floor-plan line art
@@ -172,8 +182,20 @@ def stacked_variants(cells_per_var, cols, keep_black=True):
 
 # floor fills: each entry is one variant tile (col,row); stacked as 1-wide sheet
 FLOOR_COBBLE = [[(1,26)],[(1,27)]]          # grey cobble: patterned + plain
-FLOOR_GRASS  = [[(4,42)],[(5,42)]]          # clean dark jungle-grass centres
-WATER        = [[(51,35)],[(52,35)]]        # blue ripple bands (no flat water in source)
+# Grass: the CENTRE cell of two of the jungle band's 3x3 blocks. (5,42) -- the
+# original second variant -- is a block RIGHT EDGE, a bright-green blob against
+# the gold step band, and tiling it as a fill stamped orange-flecked bars across
+# the whole overworld. Only centres are safe as fills.
+# (4,42) is the ONLY tile in the whole grass band (rows 40-47) made purely of
+# the two greens -- every other candidate carries a border or the gold step
+# band. So grass is a one-variant fill; the texture has to come from what is
+# scattered ON it, not from the ground itself.
+FLOOR_GRASS  = [[(4,42)]]
+# There is no water in this tileset. Rows 34-35 cols 48-63 are decorative
+# monochrome hole/wave tiles in four shades, not a terrain ruleset, and the
+# blob47 bands (rows 29-46, cols 0-15) contain no water either. Nothing is
+# generated for it -- the overworld uses rock for its impassable ground rather
+# than shipping invented art.
 
 def build_terrain():
     """Floor fills only. The bordered terrains (wall_brick, hedge) are blob47
@@ -181,8 +203,7 @@ def build_terrain():
     they must not be generated here as nine-slices too or whichever ran last
     would win. main() calls that generator after this one."""
     for name, blocks, edge in [("floor_cobble", FLOOR_COBBLE, 1),
-                               ("floor_grass",  FLOOR_GRASS, 1),
-                               ("water",        WATER, 1)]:
+                               ("floor_grass",  FLOOR_GRASS, 1)]:
         write_tileset_sheet(name, stacked_variants(blocks, cols=1))
         write_tileset(name, floor_lut(), edge=edge, nvar=len(blocks))
 
