@@ -27,20 +27,27 @@ TS = mp.TS
 PAL = mp.PAL
 TRANSPARENT = mp.TRANSPARENT
 
-# Every band uses the same 16x3 layout (see map_blob47.LAYOUT), so a terrain is
-# just where its band starts. `holes` lists cells the artist left blank, which
-# are allowed but must be declared -- an undeclared blank is a hard error.
 TERRAINS = {
-    "wall_brick":  dict(at=(0, 35), edge=1, holes=(),
-                        note="dungeon stone-brick; seamless at the map border"),
-    "hedge":       dict(at=(0, 29), edge=0, holes=(),
-                        note="garden hedge maze; draws its own rim at the map border"),
+    # The sheet stacks six bands three rows apart, alternating a solid-interior
+    # terrain with a hollow-interior one (an outline style whose middle is meant
+    # to show through). The hollow ones are 46/47: their interior cell is blank
+    # by design, declared here rather than shipped silently.
+    "hedge":        dict(at=(0, 29), edge=0, holes=(),
+                         note="garden hedge maze; draws its own rim at the map border"),
+    "wall_bone":    dict(at=(0, 32), edge=1, holes=(46,),
+                         note="cream/bone outline wall; hollow interior"),
+    "wall_brick":   dict(at=(0, 35), edge=1, holes=(),
+                         note="dungeon stone-brick; seamless at the map border"),
+    "wall_marble":  dict(at=(0, 38), edge=1, holes=(46,),
+                         note="white marble/temple wall with navy trim; hollow interior"),
     "floor_jungle": dict(at=(0, 41), edge=0, holes=(),
-                        note="jungle grass with dirt sides and gold steps"),
-    "wall_aztec":  dict(at=(0, 44), edge=1, holes=(46,),
-                        note="aztec temple facade; the artist left the interior "
-                             "cell transparent, so a filled block shows through"),
+                         note="jungle grass with dirt sides and gold steps"),
+    "wall_aztec":   dict(at=(0, 44), edge=1, holes=(46,),
+                         note="aztec temple facade; hollow interior"),
 }
+# The monochrome bands below (rows 46-55: dither, blueprint, white furniture) do
+# NOT use this layout -- best fit is 43/47 and they render as scattered
+# fragments. They stay raw subsheets.
 
 
 def to_rgba(grid):

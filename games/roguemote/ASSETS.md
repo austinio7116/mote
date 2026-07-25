@@ -50,10 +50,12 @@ crowns/FX, UI icons, arrows, button prompts, status/emotes, symbols, portraits.
 
 | Ruleset | Template | Notes |
 |---|---|---|
-| `wall_brick` | **blob47** | Dungeon stone-brick walls; `edge=1` (seamless map border). |
-| `hedge` | **blob47** | Garden hedge maze; `edge=0` (draws its own outer rim). |
-| `floor_jungle` | **blob47** | Jungle grass, dirt sides, gold steps; `edge=0`. |
-| `wall_aztec` | **blob47** | Temple facade; `edge=1`. 46/47 — the artist left the interior cell transparent, so a filled block shows through. |
+| `hedge` | **blob47** | Garden hedge maze; `edge=0`. 47/47. |
+| `wall_bone` | **blob47** | Cream/bone outline wall; `edge=1`. 46/47, hollow interior. |
+| `wall_brick` | **blob47** | Dungeon stone-brick; `edge=1` (seamless map border). 47/47. |
+| `wall_marble` | **blob47** | White marble with navy trim; `edge=1`. 46/47, hollow interior. |
+| `floor_jungle` | **blob47** | Jungle grass, dirt sides, gold steps; `edge=0`. 47/47. |
+| `wall_aztec` | **blob47** | Aztec temple facade; `edge=1`. 46/47, hollow interior. |
 | `floor_cobble` | fill (nvar 2) | Grey cobblestone floor, 2 variants. |
 | `floor_grass` | fill (nvar 2) | Dark jungle-grass floor. |
 | `water` | fill (nvar 2) | Blue ripple bands (source has no flat water tile). |
@@ -70,7 +72,12 @@ terrains — laid out as a row of blocks of mixed width (some 3×3, some 2×3) a
 16 columns × 3 rows: 48 cells, one blank, 47 tiles, every configuration drawn once by hand.
 Nothing is synthesised.
 
-**Every terrain band uses the same 16×3 layout**: relative position (col,row) always holds the
+The sheet stacks **six bands three rows apart** — rows 29, 32, 35, 38, 41 and 44 — alternating
+a solid-interior terrain with a hollow-interior one (an outline style whose middle is meant to
+show through). The hollow ones are 46/47: their interior cell is blank *by design*, declared as
+a hole rather than shipped silently.
+
+**Every band uses the same 16×3 layout**: relative position (col,row) always holds the
 same configuration, with (15,2) blank. `map_blob47.py` derives that layout once, by classifying
 the brick and hedge bands from their own pixels — those two agree at all 48 positions — and
 `gen_terrain.py` then reads any band through it. A terrain is just *where its band starts*.
@@ -81,6 +88,10 @@ test works on it. The shared layout sidesteps the problem entirely.
 
 `build()` refuses to emit a sheet if the band has any blank cell not declared in `holes`, so a
 wrong band start is a hard error rather than an atlas full of gaps.
+
+The **monochrome bands below** (rows 46–55: white dither, blueprint line-art, top-down
+furniture) do *not* use this layout — the best fit is 43/47 and they render as scattered
+fragments. They stay raw subsheets.
 
 ```bash
 python3 authoring/map_blob47.py       # which config each source tile draws
