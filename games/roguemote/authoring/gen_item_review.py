@@ -89,7 +89,14 @@ for i, m in enumerate(ITEM_RE.finditer(body)):
                       tv=tv, eff=eff, lvl=int(lvl), cost=int(cost),
                       dice=(int(d), int(s_)), ac=int(ac),
                       src=(ox + cell % cols, oy + cell // cols)))
-assert len(items) == 64, "expected 64 item kinds, parsed %d" % len(items)
+# The item table's length is pinned to enum ItemId by a _Static_assert in
+# rl_item.c, so read the expected count from the enum rather than freezing a
+# number here -- the table grows every time a mapping correction lands.
+_h = open(os.path.join(SRC, "rl.h"), encoding="utf-8").read()
+_enum = _h[_h.index("enum ItemId {"):]
+_enum = re.sub(r"/\*.*?\*/", " ", _enum[:_enum.index("};")], flags=re.S)
+ITM_N = len(set(re.findall(r"ITM_[A-Z0-9_]+", _enum))) - 1  # less ITM_N itself
+assert len(items) == ITM_N, "enum has %d item kinds, parsed %d" % (ITM_N, len(items))
 print("[review] %d items across %d sheets" % (len(items), len(sheets)))
 
 

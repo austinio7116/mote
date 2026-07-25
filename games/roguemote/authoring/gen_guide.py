@@ -137,10 +137,22 @@ def table(text, marker):
 data_c = read("rl_data.c")
 item_c = read("rl_item.c")
 magic_c = read("rl_magic.c")
+rl_h = read("rl.h")
+
+# --- item ids -----------------------------------------------------------
+# Bosses and classes name their reward through enum ItemId rather than by
+# position, so the guide has to resolve the name the same way the compiler
+# does: the enum's order is the item table's order.
+ITEM_ID = {}
+_enum = rl_h[rl_h.index("enum ItemId {"):]
+_enum = strip_comments(_enum[:_enum.index("};")])
+for _i, _n in enumerate(re.findall(r"ITM_[A-Z0-9_]+", _enum)):
+    ITEM_ID.setdefault(_n, _i)
 
 # --- monsters -----------------------------------------------------------
+MON_SHEET = {"A": "animals", "M": "monsters", "G": "crowns_fx"}
 MON_RE = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*([AM])\((\d+)\)\s*,'
+    r'\{\s*"([^"]+)"\s*,\s*([AMG])\((\d+)\)\s*,'
     + r"".join([r"\s*(\d+)\s*,"] * 8)
     + r"\s*([A-Z0-9_|\s]*?)\s*\}"
 )
@@ -148,31 +160,32 @@ monsters = []
 for m in MON_RE.finditer(table(data_c, "g_mon_kind[]")):
     name, sheet, cell, lvl, spd, hpd, hps, ac, damd, dams, xp, flags = m.groups()
     monsters.append(dict(
-        name=name, sheet="animals" if sheet == "A" else "monsters",
+        name=name, sheet=MON_SHEET[sheet],
         cell=int(cell), lvl=int(lvl), speed=int(spd),
         hp=(int(hpd), int(hps)), ac=int(ac), dam=(int(damd), int(dams)),
         xp=int(xp), flags=[f.strip() for f in flags.split("|") if f.strip() and f.strip() != "0"],
     ))
 
 # --- bosses -------------------------------------------------------------
-BOSS_RE = re.compile(r'\{\s*"([^"]+)"\s*,' + r"".join([r"\s*(\d+)\s*,"] * 8) + r"\s*(\d+)\s*\}")
+BOSS_RE = re.compile(r'\{\s*"([^"]+)"\s*,' + r"".join([r"\s*(\d+)\s*,"] * 8)
+                     + r"\s*(ITM_[A-Z0-9_]+)\s*\}")
 bosses = []
 for m in BOSS_RE.finditer(table(data_c, "g_boss_kind[]")):
     name, cell, depth, spd, hp, ac, damd, dams, xp, drop = m.groups()
     bosses.append(dict(name=name, cell=int(cell), depth=int(depth), speed=int(spd),
                        hp=int(hp), ac=int(ac), dam=(int(damd), int(dams)),
-                       xp=int(xp), drop=int(drop)))
+                       xp=int(xp), drop=ITEM_ID[drop]))
 
 # --- classes ------------------------------------------------------------
 CLS_RE = re.compile(r'\{\s*"([^"]+)"\s*,' + r"".join([r"\s*(\d+)\s*,"] * 9)
-                    + r"\s*(0x[0-9A-Fa-f]+)\s*,\s*(\d+)\s*\}")
+                    + r"\s*(0x[0-9A-Fa-f]+)\s*,\s*(ITM_[A-Z0-9_]+)\s*\}")
 classes = []
 for m in CLS_RE.finditer(table(data_c, "g_class[]")):
     g = m.groups()
     classes.append(dict(name=g[0], cell=int(g[1]),
                         stats=[int(x) for x in g[2:8]],
                         hp=int(g[8]), sp=int(g[9]),
-                        spells=int(g[10], 16), weapon=int(g[11])))
+                        spells=int(g[10], 16), weapon=ITEM_ID[g[11]]))
 
 # --- items --------------------------------------------------------------
 ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",

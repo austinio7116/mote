@@ -25,8 +25,11 @@
 #define K(c) SH_TRINKETS, (c)      /* trinkets:          torches            */
 
 const ItemKind g_item_kind[] = {
-/*  name           sheet,cell    tv         lvl  cost   d  s  ac  eff */
-  /* --- 0..16 weapons -------------------------------------------------- */
+/*  name           sheet,cell    tv         lvl  cost   d  s  ac  eff
+ *
+ *  For TV_FOOD the `ac` column carries nutrition in hundreds; for TV_LIGHT it
+ *  carries the light radius. Neither has an armour class to store there. */
+  /* --- weapons -------------------------------------------------------- */
   { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },
   { "short sword",    W(24), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },
   { "long sword",     T(34), TV_WEAPON,   8,  120, 2, 5,  0, EF_NONE },
@@ -45,19 +48,27 @@ const ItemKind g_item_kind[] = {
   { "Blade of Chaos", E(28), TV_WEAPON,  40, 4800, 6, 5,  0, EF_NONE },
   { "throwing star",  E(7),  TV_WEAPON,   6,   60, 1, 5,  0, EF_NONE },
 
-  /* --- 17..26 armour -------------------------------------------------- */
-  { "leather cap",    O(40), TV_ARMOUR,   2,   18, 0, 0,  3, EF_NONE },
-  { "iron helm",      O(37), TV_ARMOUR,   9,   75, 0, 0,  5, EF_NONE },
-  { "steel helm",     O(36), TV_ARMOUR,  14,  180, 0, 0,  7, EF_NONE },
-  { "golden crown",   G(46), TV_ARMOUR,  24,  900, 0, 0,  9, EF_NONE },
-  { "soft leather",   G(29), TV_ARMOUR,   2,   20, 0, 0,  4, EF_NONE },
-  { "chain mail",     G(30), TV_ARMOUR,  12,  300, 0, 0, 14, EF_NONE },
-  { "plate mail",     G(27), TV_ARMOUR,  22,  900, 0, 0, 24, EF_NONE },
-  { "bone armour",    G(28), TV_ARMOUR,  17,  520, 0, 0, 18, EF_NONE },
+  /* --- armour ---------------------------------------------------------
+   * All of it from loot_furniture, which is a proper armour set: helmets in
+   * cols 16-20, body in 22-23, shields in 24, tiered brown / navy / white down
+   * rows 21-23. The previous mapping had helmets coming out of treasure_ore
+   * row 19 (that row is GEMS) and body armour out of crowns_fx row 27 (those
+   * are training dummies). */
+  { "leather cap",    L(9),  TV_ARMOUR,   2,   18, 0, 0,  3, EF_NONE },
+  { "iron helm",      L(18), TV_ARMOUR,   8,   75, 0, 0,  5, EF_NONE },
+  { "horned helm",    L(21), TV_ARMOUR,  14,  180, 0, 0,  7, EF_NONE },
+  { "steel helm",     L(27), TV_ARMOUR,  20,  340, 0, 0,  9, EF_NONE },
+  { "great helm",     L(22), TV_ARMOUR,  24,  560, 0, 0, 11, EF_NONE },
+  { "golden helm",    L(28), TV_ARMOUR,  28,  900, 0, 0, 13, EF_NONE },
+  { "soft leather",   L(15), TV_ARMOUR,   2,   20, 0, 0,  4, EF_NONE },
+  { "studded leather",L(24), TV_ARMOUR,   7,   90, 0, 0,  8, EF_NONE },
+  { "chain mail",     L(25), TV_ARMOUR,  13,  300, 0, 0, 14, EF_NONE },
+  { "plate mail",     L(34), TV_ARMOUR,  22,  900, 0, 0, 24, EF_NONE },
+  { "mithril coat",   L(33), TV_ARMOUR,  30, 2400, 0, 0, 30, EF_NONE },
   { "leather shield", L(26), TV_ARMOUR,   5,   40, 0, 0,  4, EF_NONE },
   { "iron shield",    L(35), TV_ARMOUR,  12,  160, 0, 0,  7, EF_NONE },
 
-  /* --- 27..34 potions ------------------------------------------------- */
+  /* --- potions -------------------------------------------------------- */
   { "potion",         W(3),  TV_POTION,   1,   20, 0, 0,  0, EF_CURE_LIGHT },
   { "potion",         W(4),  TV_POTION,   6,   80, 0, 0,  0, EF_CURE_SERIOUS },
   { "potion",         W(2),  TV_POTION,  18,  400, 0, 0,  0, EF_FULL_HEAL },
@@ -67,7 +78,7 @@ const ItemKind g_item_kind[] = {
   { "potion",         W(19), TV_POTION,   4,   25, 0, 0,  0, EF_POISON },
   { "potion",         W(10), TV_POTION,  20,  600, 0, 0,  0, EF_XP },
 
-  /* --- 35..43 scrolls ------------------------------------------------- */
+  /* --- scrolls -------------------------------------------------------- */
   { "scroll",         R(0),  TV_SCROLL,   2,   30, 0, 0,  0, EF_MAP },
   { "scroll",         R(1),  TV_SCROLL,   5,   50, 0, 0,  0, EF_TELEPORT },
   { "scroll",         R(2),  TV_SCROLL,  10,  150, 0, 0,  0, EF_IDENTIFY },
@@ -78,13 +89,16 @@ const ItemKind g_item_kind[] = {
   { "scroll",         R(7),  TV_SCROLL,  12,  180, 0, 0,  0, EF_REMOVE_CURSE },
   { "scroll",         R(8),  TV_SCROLL,   6,   40, 0, 0,  0, EF_SUMMON },
 
-  /* --- 44..47 wands --------------------------------------------------- */
+  /* --- wands ---------------------------------------------------------- */
   { "wand",           T(13), TV_WAND,     8,  200, 0, 0,  0, EF_W_MISSILE },
   { "wand",           T(29), TV_WAND,    14,  400, 0, 0,  0, EF_W_FIRE },
   { "wand",           T(45), TV_WAND,    20,  700, 0, 0,  0, EF_W_FROST },
   { "wand",           T(61), TV_WAND,    26, 1100, 0, 0,  0, EF_W_DRAIN },
 
-  /* --- 48..53 rings and amulets --------------------------------------- */
+  /* --- rings and amulets ----------------------------------------------
+   * The four big cut gems at source (23..26,16), and the crescent and star at
+   * (27,16)/(27,17). treasure_ore row 19 is a colour run of eleven small gems
+   * and stays as scenery -- it is not armour, which is what it was doing. */
   { "ring",           O(7),  TV_RING,    10,  300, 0, 0,  0, EF_R_PROT },
   { "ring",           O(8),  TV_RING,    16,  700, 0, 0,  0, EF_R_INT },
   { "ring",           O(9),  TV_RING,    14,  600, 0, 0,  0, EF_R_STR },
@@ -92,21 +106,39 @@ const ItemKind g_item_kind[] = {
   { "amulet",         O(23), TV_RING,    26, 2000, 0, 0,  0, EF_R_SPEED },
   { "amulet",         O(11), TV_RING,    18,  900, 0, 0,  0, EF_R_PROT },
 
-  /* --- 54..61 food ---------------------------------------------------- */
-  { "ration",         F(48), TV_FOOD,     1,    4, 0, 0,  0, EF_NONE },
-  { "bread",          F(2),  TV_FOOD,     1,    3, 0, 0,  0, EF_NONE },
-  { "cheese",         F(38), TV_FOOD,     2,    6, 0, 0,  0, EF_NONE },
-  { "apple",          F(14), TV_FOOD,     1,    3, 0, 0,  0, EF_NONE },
-  { "mushroom",       F(25), TV_FOOD,     3,    8, 0, 0,  0, EF_NONE },
-  { "meat pie",       F(49), TV_FOOD,     2,    8, 0, 0,  0, EF_NONE },
-  { "roast",          F(7),  TV_FOOD,     3,   12, 0, 0,  0, EF_NONE },
-  { "waybread",       F(36), TV_FOOD,     5,   25, 0, 0,  0, EF_NONE },
+  /* --- food (ac = nutrition in hundreds) -------------------------------
+   * The sheet has thirty-six edible things in it and the table used eight.
+   * Nutrition scales with how much of a meal it looks like. */
+  { "ration",         F(48), TV_FOOD,     1,    5, 0, 0, 12, EF_NONE },
+  { "dumpling",       F(2),  TV_FOOD,     1,    4, 0, 0,  8, EF_NONE },
+  { "cheese",         F(38), TV_FOOD,     2,    7, 0, 0, 10, EF_NONE },
+  { "apple",          F(14), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },
+  { "peach",          F(12), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },
+  { "banana",         F(16), TV_FOOD,     1,    3, 0, 0,  5, EF_NONE },
+  { "melon slice",    F(17), TV_FOOD,     2,    4, 0, 0,  5, EF_NONE },
+  { "orange",         F(18), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },
+  { "mushroom",       F(24), TV_FOOD,     3,    6, 0, 0,  3, EF_NONE },
+  { "toadstool",      F(25), TV_FOOD,     3,    6, 0, 0,  0, EF_POISON },
+  { "carrot",         F(27), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },
+  { "aubergine",      F(26), TV_FOOD,     2,    5, 0, 0,  6, EF_NONE },
+  { "fried egg",      F(6),  TV_FOOD,     2,    6, 0, 0,  7, EF_NONE },
+  { "roast joint",    F(4),  TV_FOOD,     4,   14, 0, 0, 16, EF_NONE },
+  { "roast platter",  F(7),  TV_FOOD,     6,   22, 0, 0, 22, EF_NONE },
+  { "dried fish",     F(9),  TV_FOOD,     2,    6, 0, 0,  8, EF_NONE },
+  { "honey cake",     F(51), TV_FOOD,     5,   18, 0, 0, 14, EF_NONE },
+  { "meat pie",       F(49), TV_FOOD,     3,   10, 0, 0, 13, EF_NONE },
+  { "hearty meal",    F(36), TV_FOOD,     7,   28, 0, 0, 25, EF_NONE },
+  { "flask of milk",  F(60), TV_FOOD,     1,    4, 0, 0,  6, EF_NONE },
 
-  /* --- 62..63 light sources (ac field carries the radius) ------------- */
+  /* --- light sources (ac = radius) ------------------------------------ */
   { "torch",          K(7),  TV_LIGHT,    1,    8, 0, 0,  4, EF_NONE },
   { "lantern",        K(12), TV_LIGHT,   10,  120, 0, 0,  7, EF_NONE },
 };
 const int g_item_kind_n = (int)(sizeof g_item_kind / sizeof g_item_kind[0]);
+/* The enum in rl.h and this table must stay in lockstep -- everything else
+ * addresses items through the enum. */
+_Static_assert(sizeof g_item_kind / sizeof g_item_kind[0] == ITM_N,
+               "g_item_kind[] and enum ItemId disagree");
 
 /* --- ego types ---------------------------------------------------------- */
 /* Applied on top of a base weapon or armour. `mult` is a damage multiplier
@@ -450,9 +482,15 @@ void rl_use_item(int slot) {
         }
         break;
     case TV_FOOD:
-        g_pl.food = (int16_t)(g_pl.food + 900);
+        /* `ac` carries nutrition in hundreds for food. A toadstool carries
+         * none and an EF_POISON on top, which is the only reason to look at
+         * what you are about to eat. */
+        g_pl.food = (int16_t)(g_pl.food + ik->ac * 100);
         if (g_pl.food > 5000) g_pl.food = 5000;
-        rl_msg("That hits the spot.");
+        if (ik->eff == EF_POISON) { g_pl.hp -= 6; rl_msg("That was foul!"); }
+        else if (ik->ac >= 16)    rl_msg("A proper meal.");
+        else if (ik->ac <= 5)     rl_msg("Barely a mouthful.");
+        else                      rl_msg("That hits the spot.");
         consumed = 1;
         break;
     case TV_POTION:

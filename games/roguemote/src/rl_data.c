@@ -14,6 +14,7 @@
 
 #define A(c) SH_ANIMALS,  (c)
 #define M(c) SH_MONSTERS, (c)
+#define G(c) SH_REGALIA,  (c)   /* crowns_fx: dummies and blobs, not crowns */
 
 #define GRP  MK_GROUP
 #define ERR  MK_ERRATIC
@@ -182,6 +183,27 @@ const MonKind g_mon_kind[] = {
   { "night hag",         M(125), 20, 118,17,10, 46, 4, 8,   330, EVIL | ERR },
   { "shadow hag",        M(126), 22, 118,19,11, 50, 4, 9,   420, EVIL | ERR },
   { "dark troll",        M(127), 18, 108,20,10, 46, 4, 8,   250, EVIL | DOOR },
+
+/* --- the crowns_fx sheet ------------------------------------------------
+ * Filed under "crowns" by the extract pass and used as body armour by the item
+ * table, which was wrong twice over: source row 27 is a rank of training
+ * dummies and rows 29 and 31 are blob enemies. They are monsters, and this is
+ * where they belong. The dummies never move, which is what a dummy does. */
+  { "straw dummy",       G(27),   2, 100, 3, 6, 14, 1, 4,     4, STIL },
+  { "bone dummy",        G(28),   5, 100, 6, 7, 20, 1, 6,    16, STIL | UNDD },
+  { "leather dummy",     G(29),   3, 100, 4, 6, 16, 1, 5,     8, STIL },
+  { "iron dummy",        G(30),   8, 100, 9, 8, 30, 2, 5,    40, STIL },
+  { "green blob",        G(45),   3, 100, 4, 6, 14, 1, 5,     8, 0 },
+  { "gold blob",         G(46),   5, 100, 6, 6, 18, 1, 7,    18, 0 },
+  { "crimson blob",      G(47),   7, 100, 8, 7, 22, 2, 5,    32, 0 },
+  { "violet blob",       G(48),   9, 100,10, 7, 26, 2, 6,    52, 0 },
+  { "azure blob",        G(49),  11, 100,12, 8, 30, 2, 7,    76, 0 },
+  { "clay mound",        G(50),   6, 100, 9, 6, 24, 2, 4,    24, STIL },
+  { "shadow mound",      G(51),  10, 100,12, 7, 30, 2, 7,    64, STIL },
+  { "moss mound",        G(52),   8, 100,10, 7, 26, 2, 5,    40, STIL },
+  { "pale ooze",         G(63),   4, 105, 5, 6, 16, 1, 6,    12, 0 },
+  { "violet ooze",       G(64),   9, 105,10, 7, 26, 2, 6,    52, 0 },
+  { "acid ooze",         G(65),  12, 105,13, 8, 32, 3, 5,    98, 0 },
 };
 const int g_mon_kind_n = (int)(sizeof g_mon_kind / sizeof g_mon_kind[0]);
 
@@ -195,23 +217,23 @@ const int g_mon_kind_n = (int)(sizeof g_mon_kind / sizeof g_mon_kind[0]);
  * guaranteed item kind so the fight always pays. */
 const BossKind g_boss_kind[] = {
 /*  name                cell depth spd   hp   ac dam    xp   drop */
-  { "Grishnakh",         26,   3, 112,   40,  22, 2, 6,   120, 25 },   /* skeleton champion */
-  { "Bloat the Chief",   18,   5, 110,   65,  26, 2, 7,   240,  5 },   /* iron knight */
-  { "Wormtongue",        28,   7, 118,   85,  28, 2, 8,   400, 44 },   /* crimson spider */
-  { "Lagduf the Snaga",  22,   9, 110,  120,  32, 3, 6,   620, 18 },   /* floating horror */
-  { "Medusa",            24,  11, 114,  150,  34, 3, 7,   900, 48 },
-  { "Boldor of the Yeek",20,  13, 112,  185,  36, 3, 8,  1250, 22 },   /* the great maw */
-  { "Ulfast",            16,  15, 114,  225,  40, 4, 6,  1700,  6 },   /* crimson demon lord */
-  { "The Pale Shade",    30,  17, 122,  270,  42, 3,10,  2300, 45 },   /* great ghost */
-  { "Shagrat",           48,  19, 112,  330,  46, 4, 8,  3000, 10 },
-  { "Golfimbul",         50,  21, 112,  400,  50, 4, 9,  3900, 26 },   /* gold knight */
-  { "The Grim Reaper",   52,  23, 120,  480,  52, 4,10,  5000, 46 },   /* hooded reaper */
-  { "Khamul",            54,  25, 116,  580,  56, 5, 8,  6400, 23 },   /* demon-armour */
-  { "Shelob",            56,  27, 114,  700,  60, 5, 9,  8000, 13 },   /* giant insect */
-  { "The Seraph",        80,  29, 120,  850,  64, 5,10, 10000, 51 },
-  { "Ancalagon",         82,  31, 116, 1050,  70, 6, 9, 13000, 14 },
-  { "The Radiant One",   84,  33, 122, 1300,  74, 6,10, 16000, 52 },
-  { "Morgoth",           86,  35, 124, 1700,  82, 7,10, 25000, 15 },
+  { "Grishnakh",         26,   3, 112,   40,  22, 2, 6,   120, ITM_LEATHER_SHIELD }, /* skeleton champion */
+  { "Bloat the Chief",   18,   5, 110,   65,  26, 2, 7,   240, ITM_WAR_HAMMER },     /* iron knight */
+  { "Wormtongue",        28,   7, 118,   85,  28, 2, 8,   400, ITM_WAND_MISSILE },   /* crimson spider */
+  { "Lagduf the Snaga",  22,   9, 110,  120,  32, 3, 6,   620, ITM_IRON_HELM },      /* floating horror */
+  { "Medusa",            24,  11, 114,  150,  34, 3, 7,   900, ITM_RING_PROT },
+  { "Boldor of the Yeek",20,  13, 112,  185,  36, 3, 8,  1250, ITM_CHAIN_MAIL },     /* the great maw */
+  { "Ulfast",            16,  15, 114,  225,  40, 4, 6,  1700, ITM_BATTLE_AXE },     /* crimson demon lord */
+  { "The Pale Shade",    30,  17, 122,  270,  42, 3,10,  2300, ITM_WAND_FIRE },      /* great ghost */
+  { "Shagrat",           48,  19, 112,  330,  46, 4, 8,  3000, ITM_GILDED_BLADE },
+  { "Golfimbul",         50,  21, 112,  400,  50, 4, 9,  3900, ITM_IRON_SHIELD },    /* gold knight */
+  { "The Grim Reaper",   52,  23, 120,  480,  52, 4,10,  5000, ITM_WAND_FROST },     /* hooded reaper */
+  { "Khamul",            54,  25, 116,  580,  56, 5, 8,  6400, ITM_PLATE_MAIL },     /* demon-armour */
+  { "Shelob",            56,  27, 114,  700,  60, 5, 9,  8000, ITM_FROST_BRAND },    /* giant insect */
+  { "The Seraph",        80,  29, 120,  850,  64, 5,10, 10000, ITM_RING_REGEN },
+  { "Ancalagon",         82,  31, 116, 1050,  70, 6, 9, 13000, ITM_FLAME_TONGUE },
+  { "The Radiant One",   84,  33, 122, 1300,  74, 6,10, 16000, ITM_AMULET_SPEED },
+  { "Morgoth",           86,  35, 124, 1700,  82, 7,10, 25000, ITM_BLADE_OF_CHAOS },
 };
 const int g_boss_kind_n = (int)(sizeof g_boss_kind / sizeof g_boss_kind[0]);
 
@@ -226,19 +248,19 @@ const int g_boss_kind_n = (int)(sizeof g_boss_kind / sizeof g_boss_kind[0]);
  *               12 Chain Storm   13 Word of Pain 14 Annihilate  15 Mana Storm */
 const ClassKind g_class[] = {
 /*  name         cell  STR INT WIS DEX CON CHA  hp  sp  spells   weapon */
-  { "Warrior",     58,  17, 8,  9, 14, 16,  9,  8,  0, 0x0000,   1 },
-  { "Knight",      56,  16, 9, 11, 12, 16, 13,  7,  1, 0x0090,   1 },
-  { "Paladin",     57,  15,10, 14, 11, 15, 14,  6,  3, 0x02D8,   8 },
-  { "Ranger",      55,  14,11, 11, 17, 13, 10,  5,  2, 0x0425,   9 },
-  { "Rogue",       59,  12,13, 10, 18, 12, 12,  4,  2, 0x040B,   0 },
-  { "Mage",        62,   9,18,  9, 13, 10, 11,  2,  6, 0xDD6F,   0 },
-  { "Sorcerer",    60,   9,17, 10, 12, 10, 14,  2,  7, 0xF967,   0 },
-  { "Priest",      51,  11,10, 18, 10, 13, 13,  4,  5, 0x229A,   5 },
-  { "Druid",       66,  12,12, 16, 12, 13, 11,  4,  5, 0x0A9E,   8 },
-  { "Bard",        71,  11,14, 12, 15, 11, 18,  3,  4, 0x048B,   0 },
-  { "Monk",        48,  14,12, 15, 17, 14, 11,  6,  3, 0x2490,   0 },
+  { "Warrior",     58,  17, 8,  9, 14, 16,  9,  8,  0, 0x0000, ITM_SHORT_SWORD },
+  { "Knight",      56,  16, 9, 11, 12, 16, 13,  7,  1, 0x0090, ITM_SHORT_SWORD },
+  { "Paladin",     57,  15,10, 14, 11, 15, 14,  6,  3, 0x02D8, ITM_MACE },
+  { "Ranger",      55,  14,11, 11, 17, 13, 10,  5,  2, 0x0425, ITM_SPEAR },
+  { "Rogue",       59,  12,13, 10, 18, 12, 12,  4,  2, 0x040B, ITM_DAGGER },
+  { "Mage",        62,   9,18,  9, 13, 10, 11,  2,  6, 0xDD6F, ITM_DAGGER },
+  { "Sorcerer",    60,   9,17, 10, 12, 10, 14,  2,  7, 0xF967, ITM_DAGGER },
+  { "Priest",      51,  11,10, 18, 10, 13, 13,  4,  5, 0x229A, ITM_WAR_HAMMER },
+  { "Druid",       66,  12,12, 16, 12, 13, 11,  4,  5, 0x0A9E, ITM_MACE },
+  { "Bard",        71,  11,14, 12, 15, 11, 18,  3,  4, 0x048B, ITM_DAGGER },
+  { "Monk",        48,  14,12, 15, 17, 14, 11,  6,  3, 0x2490, ITM_DAGGER },
   /* "Berserk", not "Barbarian": the class grid gives a name 7 characters
    * before the third column runs off a 128px screen. */
-  { "Berserk",     76,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000,   5 },
+  { "Berserk",     76,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000, ITM_WAR_HAMMER },
 };
 const int g_class_n = (int)(sizeof g_class / sizeof g_class[0]);

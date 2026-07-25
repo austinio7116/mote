@@ -181,6 +181,45 @@ enum { EF_CURE_LIGHT = 0, EF_CURE_SERIOUS, EF_FULL_HEAL, EF_MANA, EF_SPEED,
        EF_R_PROT, EF_R_STR, EF_R_INT, EF_R_SPEED, EF_R_REGEN,
        EF_NONE };
 
+/* Item ids. Boss drops, class kits and the starting pack reference kinds BY
+ * NAME through this enum rather than by position, so inserting an item can no
+ * longer silently repoint a boss's reward at a mushroom -- which is exactly
+ * what a positional index did the first time the armour list changed length.
+ * The order here is the order of g_item_kind[]; ITM_N checks the two agree. */
+enum ItemId {
+    /* weapons */
+    ITM_DAGGER = 0, ITM_SHORT_SWORD, ITM_LONG_SWORD, ITM_BROAD_SWORD,
+    ITM_GREAT_AXE, ITM_WAR_HAMMER, ITM_BATTLE_AXE, ITM_MORNING_STAR,
+    ITM_MACE, ITM_SPEAR, ITM_GILDED_BLADE, ITM_TRIDENT, ITM_PICK_AXE,
+    ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS, ITM_THROWING_STAR,
+    /* armour */
+    ITM_LEATHER_CAP, ITM_IRON_HELM, ITM_HORNED_HELM, ITM_STEEL_HELM,
+    ITM_GREAT_HELM, ITM_GOLDEN_HELM,
+    ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_CHAIN_MAIL, ITM_PLATE_MAIL,
+    ITM_MITHRIL_COAT, ITM_LEATHER_SHIELD, ITM_IRON_SHIELD,
+    /* potions */
+    ITM_POT_CURE_LIGHT, ITM_POT_CURE_SERIOUS, ITM_POT_HEALING, ITM_POT_MANA,
+    ITM_POT_SPEED, ITM_POT_HEROISM, ITM_POT_POISON, ITM_POT_ENLIGHTEN,
+    /* scrolls */
+    ITM_SCR_MAPPING, ITM_SCR_TELEPORT, ITM_SCR_IDENTIFY, ITM_SCR_ENCHANT_W,
+    ITM_SCR_ENCHANT_A, ITM_SCR_DEEP_DESCENT, ITM_SCR_LIGHT,
+    ITM_SCR_REMOVE_CURSE, ITM_SCR_SUMMON,
+    /* wands */
+    ITM_WAND_MISSILE, ITM_WAND_FIRE, ITM_WAND_FROST, ITM_WAND_DRAIN,
+    /* rings and amulets */
+    ITM_RING_PROT, ITM_RING_INT, ITM_RING_STR, ITM_RING_REGEN,
+    ITM_AMULET_SPEED, ITM_AMULET_WARD,
+    /* food */
+    ITM_RATION, ITM_DUMPLING, ITM_CHEESE, ITM_APPLE, ITM_PEACH, ITM_BANANA,
+    ITM_MELON, ITM_ORANGE, ITM_MUSHROOM, ITM_TOADSTOOL, ITM_CARROT,
+    ITM_AUBERGINE, ITM_FRIED_EGG, ITM_ROAST_JOINT, ITM_ROAST_PLATTER,
+    ITM_DRIED_FISH, ITM_HONEY_CAKE, ITM_MEAT_PIE, ITM_HEARTY_MEAL,
+    ITM_FLASK_OF_MILK,
+    /* light */
+    ITM_TORCH, ITM_LANTERN,
+    ITM_N
+};
+
 extern const ItemKind g_item_kind[];
 extern const int g_item_kind_n;
 extern const EgoKind g_ego_kind[];

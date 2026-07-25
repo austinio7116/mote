@@ -103,13 +103,13 @@ static void new_game(int cls) {
     Item it;
     rl_make_item_kind(&it, ck->start_weapon, 0);
     g_pl.inv_wield = (int8_t)rl_inv_add(&it);
-    rl_make_item_kind(&it, 21, 0);                 /* soft leather */
+    rl_make_item_kind(&it, ITM_SOFT_LEATHER, 0);
     g_pl.inv_body = (int8_t)rl_inv_add(&it);
-    rl_make_item_kind(&it, 54, 0); it.qty = 4;     /* rations */
+    rl_make_item_kind(&it, ITM_RATION, 0); it.qty = 4;
     rl_inv_add(&it);
-    rl_make_item_kind(&it, 27, 0); it.qty = 3;     /* cure light wounds */
+    rl_make_item_kind(&it, ITM_POT_CURE_LIGHT, 0); it.qty = 3;
     rl_inv_add(&it);
-    rl_make_item_kind(&it, 62, 0);                 /* torch: the light slot */
+    rl_make_item_kind(&it, ITM_TORCH, 0);          /* the light slot */
     g_pl.inv_light = (int8_t)rl_inv_add(&it);
 
     rl_gen_overworld();
