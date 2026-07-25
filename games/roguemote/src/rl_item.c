@@ -262,7 +262,10 @@ void rl_make_item_kind(Item *it, int kind, int depth) {
 void rl_make_item(Item *it, int depth) { rl_make_item_kind(it, pick_item_kind(depth), depth); }
 
 void rl_scatter_items(int depth) {
-    int n = 3 + rl_range(5);
+    /* Floor loot thickens slowly with depth. Flat at 3-7 it meant floor thirty
+     * paid the same as floor one, so the only reason to keep descending was the
+     * bosses -- and the chests now carry the spikes, so this stays gentle. */
+    int n = 3 + rl_range(5) + depth / 6;
     for (int i = 0; i < n && g_lv.n_item < MAX_ITEM; i++) {
         for (int tries = 0; tries < 50; tries++) {
             int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);

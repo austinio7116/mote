@@ -74,6 +74,7 @@ const MoteImage *rl_sheet(int id) {
  * honest options -- a second cottage nobody can tell from a house, or the thing
  * you actually go in for -- the bed is the one that reads at 8px. */
 #define SPR_INN          16     /* trinkets (0,9): bed */
+#define SPR_RUBBLE       69     /* trinkets (5,12): the loose grey stone */
 /* The mine mouth is the gold flight (4,0). Stone stairs vanish into a green
  * field; gold does not, and a landmark you have to hunt for on a 16x13 viewport
  * is a landmark that does not work. */
@@ -314,6 +315,12 @@ void rl_draw_scene(void) {
                 break;
             }
             case T_DUNGEON_MOUTH:sheet = SH_STAIRS;   cell = SPR_CAVE_MOUTH; break;
+            /* Rubble gets its own stone on top of whatever it is standing on:
+             * underground the wall layer is drawn beneath it, on the surface it
+             * is a fallen block on grass. Either way it must not look like plain
+             * wall -- you can clear rubble, and the player has to be able to see
+             * which blockage is worth a turn. */
+            case T_RUBBLE:       sheet = SH_TRINKETS; cell = SPR_RUBBLE;        break;
             case T_CHEST:        sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 0); break;
             case T_CHEST_OPEN:   sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 1); break;
             case T_FLOOR:

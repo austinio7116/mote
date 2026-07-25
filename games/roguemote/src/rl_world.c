@@ -263,6 +263,35 @@ void rl_gen_overworld(void) {
         placed++;
     }
 
+    /* Ruins: a broken ring of stone with something left in it. Six cave mouths
+     * and a town was the whole of the surface, so crossing the continent was a
+     * walk with nothing on the way. A ruin is a reason to go and look, and the
+     * chest inside is worth the detour without being worth farming -- the tier
+     * hash reads depth, and on the surface depth is zero. */
+    for (int i = 0, ruins = 4 + rl_range(4); i < ruins; i++) {
+        for (int tries = 0; tries < 120; tries++) {
+            int x = 5 + rl_range(MW - 10), y = 5 + rl_range(MH - 10);
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            int dx = x - tx, dy = y - ty;
+            if (dx * dx + dy * dy < 120) continue;
+            int w = 3 + rl_range(3), h = 3 + rl_range(2);
+            int ok = 1;
+            for (int j = y; j < y + h && ok; j++)
+                for (int k = x; k < x + w && ok; k++)
+                    if (!rl_in(k, j) || g_lv.terrain[j * MW + k] != T_FLOOR) ok = 0;
+            if (!ok) continue;
+            for (int j = y; j < y + h; j++)
+                for (int k = x; k < x + w; k++) {
+                    int edge = (k == x || k == x + w - 1 || j == y || j == y + h - 1);
+                    /* a third of the wall has fallen, so it reads as a ruin
+                     * rather than as a shed, and you can always get inside */
+                    if (edge && rl_pct(66)) g_lv.terrain[j * MW + k] = T_RUBBLE;
+                }
+            g_lv.terrain[(y + h / 2) * MW + x + w / 2] = T_CHEST;
+            break;
+        }
+    }
+
     /* the player arrives where they left, or at the town on a new game */
     if (g_pl.wx && rl_in(g_pl.wx, g_pl.wy) && rl_walkable(g_pl.wx, g_pl.wy)) {
         g_pl.x = g_pl.wx; g_pl.y = g_pl.wy;
@@ -287,10 +316,17 @@ void rl_gen_overworld(void) {
                 y >= s_town_y0 - 1 && y <= s_town_y1 + 1) continue;
             int dx = x - g_pl.x, dy = y - g_pl.y;
             if (dx * dx + dy * dy < 64) continue;
+            /* The cap scales with how deep you have been. Fixed at 2 it meant
+             * that once you could survive floor ten the surface was an empty
+             * corridor between the town and the stairs -- nothing out here was
+             * ever a reason to be careful again. */
+            int cap = 2 + g_pl.deepest / 2;
+            if (cap > 14) cap = 14;
             int k = 0;
             for (int a = 0; a < 40; a++) {
                 int c = rl_range(g_mon_kind_n);
-                if (g_mon_kind[c].sheet == SH_ANIMALS && g_mon_kind[c].lvl <= 2) { k = c; break; }
+                if (g_mon_kind[c].flags & MK_MIMIC) continue;
+                if (g_mon_kind[c].sheet == SH_ANIMALS && g_mon_kind[c].lvl <= cap) { k = c; break; }
             }
             const MonKind *mk = &g_mon_kind[k];
             Mon *m = &g_lv.mon[g_lv.n_mon++];

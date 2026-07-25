@@ -127,6 +127,16 @@ static int try_move(int dir) {
         rl_msg("You open the door.");
         return 1;
     }
+    /* Rubble is cleared by walking into it, not tunnelled through with a pick.
+     * It costs the turn, which is the whole cost -- a passage that can be
+     * permanently sealed is a level that can strand you, and the generator has
+     * no way to prove it has not done that. */
+    if (rl_ter(nx, ny) == T_RUBBLE) {
+        g_lv.terrain[ny * MW + nx] = T_FLOOR;
+        rl_msg("You clear the rubble.");
+        rl_fov();
+        return 1;
+    }
     if (!rl_walkable(nx, ny)) return 0;
     g_pl.x = (uint8_t)nx; g_pl.y = (uint8_t)ny;
     if (g_pl.depth == 0) { g_pl.wx = g_pl.x; g_pl.wy = g_pl.y; }

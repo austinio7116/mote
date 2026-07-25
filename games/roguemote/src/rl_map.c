@@ -48,7 +48,8 @@ Mon *rl_mon_at(int x, int y) {
 
 /* --- generation --------------------------------------------------------- */
 #define MAX_ROOM 20
-typedef struct { uint8_t x, y, w, h; } Room;
+enum { RM_PLAIN = 0, RM_L, RM_PILLARED, RM_VAULT };
+typedef struct { uint8_t x, y, w, h, kind, dark; } Room;
 static Room  s_room[MAX_ROOM];
 static int   s_nroom;
 
@@ -67,8 +68,121 @@ static int room_overlaps(int x, int y, int w, int h) {
     return 0;
 }
 
+/* Room shapes. Rectangles-only was the single biggest reason one floor looked
+ * like the last: nine boxes, all lit, chained in a line. Four shapes now, rolled
+ * per room, with the odds shifting toward the awkward ones as you descend.
+ *
+ *   PLAIN     a rectangle, still the common case
+ *   L         a rectangle with a corner bitten out, so sightlines break
+ *   PILLARED  a hall with a grid of columns -- cover, and a monster you lose
+ *   VAULT     a room with a sealed inner chamber; see stock_vault below
+ */
+static int roll_room_kind(int depth) {
+    int r = rl_range(100);
+    if (r < 8 + depth)      return RM_VAULT;
+    if (r < 30 + depth)     return RM_PILLARED;
+    if (r < 55 + depth)     return RM_L;
+    return RM_PLAIN;
+}
+
+static void carve_room(Room *rm) {
+    carve_rect(rm->x, rm->y, rm->w, rm->h, T_FLOOR);
+    switch (rm->kind) {
+    case RM_L: {
+        /* bite a corner out, up to half the room in each axis */
+        int cw = 1 + rl_range(rm->w / 2), ch = 1 + rl_range(rm->h / 2);
+        int cx = rl_pct(50) ? rm->x : rm->x + rm->w - cw;
+        int cy = rl_pct(50) ? rm->y : rm->y + rm->h - ch;
+        carve_rect(cx, cy, cw, ch, T_WALL);
+        break;
+    }
+    case RM_PILLARED:
+        for (int j = rm->y + 1; j < rm->y + rm->h - 1; j += 2)
+            for (int i = rm->x + 1; i < rm->x + rm->w - 1; i += 2)
+                g_lv.terrain[j * MW + i] = T_WALL;
+        break;
+    case RM_VAULT: {
+        /* an inner chamber with one closed door -- what is in it is placed by
+         * stock_vault once the monsters and items exist */
+        int ix = rm->x + 1, iy = rm->y + 1, iw = rm->w - 2, ih = rm->h - 2;
+        if (iw < 3 || ih < 3) { rm->kind = RM_PLAIN; break; }
+        for (int j = iy; j < iy + ih; j++)
+            for (int i = ix; i < ix + iw; i++)
+                if (i == ix || i == ix + iw - 1 || j == iy || j == iy + ih - 1)
+                    g_lv.terrain[j * MW + i] = T_WALL;
+        /* the door, on a random side, never in a corner */
+        if (rl_pct(50)) g_lv.terrain[(rl_pct(50) ? iy : iy + ih - 1) * MW
+                                     + ix + 1 + rl_range(iw - 2)] = T_DOOR_CLOSED;
+        else            g_lv.terrain[(iy + 1 + rl_range(ih - 2)) * MW
+                                     + (rl_pct(50) ? ix : ix + iw - 1)] = T_DOOR_CLOSED;
+        break;
+    }
+    default: break;
+    }
+}
+
+/* Where a corridor should aim for when linking this room. Normally the centre;
+ * for a vault the centre is INSIDE the sealed chamber, and tunnel() converts
+ * wall to floor, so aiming there drills a second entrance and the vault stops
+ * being a vault. Aim at the outer ring instead. */
+static int link_x(const Room *r) { return r->kind == RM_VAULT ? r->x : r->x + r->w / 2; }
+static int link_y(const Room *r) { return r->kind == RM_VAULT ? r->y : r->y + r->h / 2; }
+
+static int in_any_room(int x, int y) {
+    for (int i = 0; i < s_nroom; i++) {
+        Room *r = &s_room[i];
+        if (x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h) return 1;
+    }
+    return 0;
+}
+
+/* A corridor cell that touches a room, with wall on both sides across the
+ * corridor's run, is a doorway. The tunnel() comment has claimed doors were
+ * punched here since the first commit; nothing ever punched them, so
+ * MK_OPEN_DOOR and the whole T_DOOR_CLOSED path were dead code. */
+static void place_doors(int depth) {
+    for (int y = 1; y < MH - 1; y++) {
+        for (int x = 1; x < MW - 1; x++) {
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (in_any_room(x, y)) continue;
+            int horiz = rl_ter(x - 1, y) == T_WALL && rl_ter(x + 1, y) == T_WALL;
+            int vert  = rl_ter(x, y - 1) == T_WALL && rl_ter(x, y + 1) == T_WALL;
+            if (!horiz && !vert) continue;
+            int touches = in_any_room(x - 1, y) || in_any_room(x + 1, y) ||
+                          in_any_room(x, y - 1) || in_any_room(x, y + 1);
+            if (touches && rl_pct(55 + depth)) g_lv.terrain[y * MW + x] = T_DOOR_CLOSED;
+        }
+    }
+}
+
+/* Fallen stone in the corridors. It blocks movement AND sight, so a passage you
+ * remember can stop being a passage -- which is the cheapest way to make the
+ * route back matter. Never in a room: a blocked room is a stuck player. */
+static void place_rubble(int depth) {
+    int n = depth / 2 + rl_range(4);
+    if (n > 14) n = 14;
+    for (int i = 0; i < n; i++) {
+        for (int tries = 0; tries < 40; tries++) {
+            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (in_any_room(x, y)) continue;
+            if (x == g_pl.x && y == g_pl.y) continue;
+            /* only where the corridor is one tile wide, so a rubble pile never
+             * seals the only route by filling a junction */
+            int open = 0;
+            if (rl_walkable(x - 1, y)) open++;
+            if (rl_walkable(x + 1, y)) open++;
+            if (rl_walkable(x, y - 1)) open++;
+            if (rl_walkable(x, y + 1)) open++;
+            if (open > 2) continue;
+            g_lv.terrain[y * MW + x] = T_RUBBLE;
+            break;
+        }
+    }
+}
+
 /* An L-shaped corridor: horizontal then vertical, or the reverse. Doors are
- * punched where a corridor meets a room wall. */
+ * punched afterwards by place_doors. */
 static void tunnel(int x0, int y0, int x1, int y1) {
     int x = x0, y = y0;
     int horiz_first = rl_pct(50);
@@ -162,25 +276,62 @@ static void place_chests(int depth) {
     }
 }
 
+/* Put one monster of kind `k` at (x,y). Returns 0 if the tile was no good. */
+static int put_mon(int k, int x, int y, int asleep) {
+    if (g_lv.n_mon >= MAX_MON) return 0;
+    if (!rl_in(x, y) || g_lv.terrain[y * MW + x] != T_FLOOR) return 0;
+    if (rl_mon_at(x, y)) return 0;
+    if (x == g_pl.x && y == g_pl.y) return 0;
+    const MonKind *mk = &g_mon_kind[k];
+    Mon *m = &g_lv.mon[g_lv.n_mon++];
+    m->x = (uint8_t)x; m->y = (uint8_t)y; m->kind = (uint8_t)k;
+    m->mhp = m->hp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
+    m->speed = mk->speed; m->energy = (int16_t)rl_range(100);
+    m->flags = (uint8_t)(asleep ? MF_ASLEEP : 0);
+    m->boss = 0;
+    return 1;
+}
+
 static void spawn_monsters(int depth) {
     int n = 10 + rl_range(8) + depth / 2;
     if (n > MAX_MON - 4) n = MAX_MON - 4;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n && g_lv.n_mon < MAX_MON - 4; i++) {
         for (int tries = 0; tries < 60; tries++) {
             Room *r = &s_room[rl_range(s_nroom)];
             int x = r->x + rl_range(r->w), y = r->y + rl_range(r->h);
-            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
-            if (rl_mon_at(x, y)) continue;
-            if (x == g_pl.x && y == g_pl.y) continue;
             int k = pick_mon(depth);
-            const MonKind *mk = &g_mon_kind[k];
-            Mon *m = &g_lv.mon[g_lv.n_mon++];
-            m->x = (uint8_t)x; m->y = (uint8_t)y; m->kind = (uint8_t)k;
-            m->mhp = m->hp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
-            m->speed = mk->speed; m->energy = (int16_t)rl_range(100);
-            m->flags = rl_pct(60) ? MF_ASLEEP : 0;
-            m->boss = 0;
+            int asleep = rl_pct(60);
+            if (!put_mon(k, x, y, asleep)) continue;
+            /* MK_GROUP has been on forty-five of the hundred and seventy-two
+             * kinds since the table was written and nothing has ever read it.
+             * Jackals come in packs; that is the entire point of a jackal. */
+            if (g_mon_kind[k].flags & MK_GROUP) {
+                int pack = 2 + rl_range(4);
+                for (int j = 0; j < pack; j++) {
+                    int ox = x + rl_range(5) - 2, oy = y + rl_range(5) - 2;
+                    put_mon(k, ox, oy, asleep);
+                }
+                i += pack;                    /* a pack counts against the budget */
+            }
             break;
+        }
+    }
+}
+
+/* What is behind the vault door: chests, and something awake standing over
+ * them. A sealed room you have to open, with a reason to open it. */
+static void stock_vaults(int depth) {
+    for (int i = 0; i < s_nroom; i++) {
+        Room *r = &s_room[i];
+        if (r->kind != RM_VAULT) continue;
+        int ix = r->x + 2, iy = r->y + 2, iw = r->w - 4, ih = r->h - 4;
+        if (iw < 1 || ih < 1) continue;
+        for (int j = iy; j < iy + ih; j++) {
+            for (int k = ix; k < ix + iw; k++) {
+                if (g_lv.terrain[j * MW + k] != T_FLOOR) continue;
+                if (rl_pct(45)) g_lv.terrain[j * MW + k] = T_CHEST;
+                else if (rl_pct(40)) put_mon(pick_mon(depth + 4), k, j, 0);
+            }
         }
     }
 }
@@ -224,31 +375,57 @@ void rl_gen_level(int depth) {
     g_lv.n_mon = 0; g_lv.n_item = 0;
     s_nroom = 0;
 
-    int want = 8 + rl_range(6);
-    for (int tries = 0; tries < 300 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
-        int w = 4 + rl_range(7), h = 3 + rl_range(5);
+    /* Room count and size vary by floor mood, so a level is a warren of little
+     * cells or a handful of halls rather than always the same nine boxes. */
+    int warren = rl_pct(30);
+    int want = warren ? 13 + rl_range(7) : 7 + rl_range(6);
+    for (int tries = 0; tries < 400 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
+        int w = warren ? 3 + rl_range(4) : 4 + rl_range(8);
+        int h = warren ? 3 + rl_range(3) : 3 + rl_range(6);
         int x = 1 + rl_range(MW - w - 2), y = 1 + rl_range(MH - h - 2);
         if (room_overlaps(x, y, w, h)) continue;
-        carve_rect(x, y, w, h, T_FLOOR);
-        s_room[s_nroom].x = (uint8_t)x; s_room[s_nroom].y = (uint8_t)y;
-        s_room[s_nroom].w = (uint8_t)w; s_room[s_nroom].h = (uint8_t)h;
+        Room *rm = &s_room[s_nroom];
+        rm->x = (uint8_t)x; rm->y = (uint8_t)y;
+        rm->w = (uint8_t)w; rm->h = (uint8_t)h;
+        rm->kind = (uint8_t)((w >= 6 && h >= 5) ? roll_room_kind(depth) : RM_PLAIN);
+        /* An unlit room has to be walked with a torch. Deeper floors have more
+         * of them, and the first room is always lit -- arriving blind on the
+         * up-stair reads as a bug, not as atmosphere. */
+        rm->dark = (uint8_t)(s_nroom > 0 && rl_pct(12 + depth * 2));
+        carve_room(rm);
         s_nroom++;
     }
     if (s_nroom == 0) {                       /* degenerate: one guaranteed room */
         carve_rect(MW / 2 - 4, MH / 2 - 3, 8, 6, T_FLOOR);
         s_room[0].x = (uint8_t)(MW / 2 - 4); s_room[0].y = (uint8_t)(MH / 2 - 3);
-        s_room[0].w = 8; s_room[0].h = 6; s_nroom = 1;
+        s_room[0].w = 8; s_room[0].h = 6;
+        s_room[0].kind = RM_PLAIN; s_room[0].dark = 0; s_nroom = 1;
     }
-    /* mark room cells so lit-room FOV can reveal a whole chamber at once */
-    for (int i = 0; i < s_nroom; i++)
+    /* mark lit room cells so lit-room FOV can reveal a whole chamber at once */
+    for (int i = 0; i < s_nroom; i++) {
+        if (s_room[i].dark) continue;
         for (int j = s_room[i].y; j < s_room[i].y + s_room[i].h; j++)
             for (int k = s_room[i].x; k < s_room[i].x + s_room[i].w; k++)
                 g_lv.flags[j * MW + k] |= CF_ROOM;
+    }
 
     for (int i = 1; i < s_nroom; i++)
-        tunnel(s_room[i - 1].x + s_room[i - 1].w / 2, s_room[i - 1].y + s_room[i - 1].h / 2,
-               s_room[i].x + s_room[i].w / 2,         s_room[i].y + s_room[i].h / 2);
+        tunnel(link_x(&s_room[i - 1]), link_y(&s_room[i - 1]),
+               link_x(&s_room[i]),     link_y(&s_room[i]));
 
+    /* Extra links between random pairs. The chain above makes the level a path:
+     * one way in, one way out, every room a dead end but two. A couple of loops
+     * turns "walk the corridor" into "which way round", and gives you somewhere
+     * to run to when the thing behind you is faster than you are. */
+    int loops = 1 + rl_range(3);
+    for (int i = 0; i < loops && s_nroom > 2; i++) {
+        int a = rl_range(s_nroom), b = rl_range(s_nroom);
+        if (a == b) continue;
+        tunnel(link_x(&s_room[a]), link_y(&s_room[a]),
+               link_x(&s_room[b]), link_y(&s_room[b]));
+    }
+
+    place_doors(depth);
     place_stairs();
 
     /* the player arrives on the up-stair (or the first room if it failed) */
@@ -259,6 +436,8 @@ void rl_gen_level(int depth) {
     spawn_boss(depth);
     rl_scatter_items(depth);
     place_chests(depth);
+    stock_vaults(depth);
+    place_rubble(depth);
     rl_fov();
 }
 
