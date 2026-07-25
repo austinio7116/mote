@@ -14,6 +14,7 @@
 #include "wall_aztec.tiles.h"
 #include "wall_plaster.tiles.h"
 #include "floor_cobble.tiles.h"
+#include "floor_cobble_dark.tiles.h"
 #include "floor_jungle.tiles.h"
 #include "floor_grass.tiles.h"
 
@@ -82,8 +83,12 @@ static const MoteAutotile *wall_for_depth(int d) {
     if (d <= 32) return &wall_aztec_at;
     return &wall_plaster_at;
 }
+/* Dungeon floors get darker with depth, and both shades are dark: the walls are
+ * navy brick and most sprites are pale, so a bright floor leaves a monster with
+ * nothing to read against. floor_jungle -- the old deep-floor pick -- is bright
+ * green, which is wrong underground for the same reason and then some. */
 static const MoteAutotile *floor_for_depth(int d) {
-    return (d <= 16) ? &floor_cobble_at : &floor_jungle_at;
+    return (d <= 16) ? &floor_cobble_at : &floor_cobble_dark_at;
 }
 
 /* --- tiny text helpers --------------------------------------------------
