@@ -221,13 +221,17 @@ static int tree_cell(int x, int y) {
 /* Ground detail on open plain. (4,42) is the ONLY tile in the source's grass
  * band made purely of the two greens, so the fill has exactly one variant and
  * an open plain is a flat colour field. The texture has to come from what is
- * scattered on it: flowers, tufts, reeds and stones from the trinkets sheet, at
- * about one tile in eight, chosen by position so it is stable frame to frame. */
+ * scattered on it, and it should read as grassland: trinkets 66 and 67 -- the
+ * blades and the short tufts sitting just left of the trees on source row 12 --
+ * carry thirteen of sixteen draws. A flower is an event, not a ground cover, so
+ * two entries between them; one stone for the rest. Density is one tile in four,
+ * chosen by position so the field is stable frame to frame. */
 static int decor_cell(int x, int y) {
-    static const uint8_t k[8] = { 48, 49, 52, 55, 57, 66, 67, 69 };
+    static const uint8_t k[16] = { 66, 67, 66, 67, 66, 67, 66, 67,
+                                   66, 67, 66, 67, 66, 48, 55, 69 };
     unsigned h = pos_hash(x, y);
-    if ((h & 7) != 0) return -1;              /* ~12% of open ground */
-    return k[(h >> 9) & 7];
+    if ((h & 3) != 0) return -1;              /* ~25% of open ground */
+    return k[(h >> 9) & 15];
 }
 
 static void build_layers_dungeon(void) {

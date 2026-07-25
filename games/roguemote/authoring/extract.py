@@ -138,9 +138,32 @@ def build_font():
         f.write("16 8 9 0 %d\n" % COUNT)   # cols cell line_h first count
     print(f"[font] rogue8_glyphs.png {16}x{rows} cells + .gsheet (first=0 count={COUNT})")
 
+# The tileset draws its two grass tufts -- source (2,12) and (3,12), the pair
+# sitting just left of the trees -- in the SAME green as the plain's fill tile
+# (4,42), which is a flat field of #008751 and nothing else. Scattered on the
+# overworld they were pixel-for-pixel invisible. Tint the blades to the palette's
+# other green so they read against the ground they sit on; nothing else in the
+# game draws these two cells.
+GRASS_TUFT_CELLS = ((2, 12), (3, 12))
+GRASS_DARK, GRASS_LIGHT = (0, 135, 81), (0, 228, 54)
+
+
+def tint_grass_tufts(sheet, c0, r0):
+    px = sheet.load()
+    for (c, r) in GRASS_TUFT_CELLS:
+        for y in range(TS):
+            for x in range(TS):
+                sx, sy = (c - c0)*TS + x, (r - r0)*TS + y
+                if px[sx, sy][:3] == GRASS_DARK and px[sx, sy][3]:
+                    px[sx, sy] = GRASS_LIGHT + (255,)
+
+
 def build_sprites():
     for name, (c0, r0, c1, r1) in SPRITE_SHEETS.items():
-        save_sheet(name, region(c0, r0, c1, r1))
+        sheet = region(c0, r0, c1, r1)
+        if name == "trinkets":
+            tint_grass_tufts(sheet, c0, r0)
+        save_sheet(name, sheet)
 
 # ---------------------------------------------------------------------------
 # Terrain autotile rulesets. `.tileset` is the editable source; `mote bake`
