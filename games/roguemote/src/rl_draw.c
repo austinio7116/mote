@@ -36,6 +36,7 @@
 #include "boulders_mountains.h"
 #include "fx_mono.h"
 #include "dungeon_mono.h"
+#include "stairs.h"
 #include "rogue8.font.h"
 
 /* Order must match the SH_* enum in rl.h. */
@@ -45,7 +46,7 @@ static const MoteImage *const s_sheet[SH_COUNT] = {
     &treasure_ore_img, &crowns_fx_img, &food_img, &runes_img,
     &loot_furniture_img, &trinkets_img, &props_light_img,
     &doors_gems_banners_img, &chests_img, &boulders_mountains_img,
-    &fx_mono_img, &dungeon_mono_img,
+    &fx_mono_img, &dungeon_mono_img, &stairs_img,
 };
 
 const MoteImage *rl_sheet(int id) {
@@ -54,12 +55,14 @@ const MoteImage *rl_sheet(int id) {
 
 /* Feature sprites, named so the intent survives a re-bake.
  *
- * Stairs come from the monochrome dungeon band: (4,49) is a frame around two
- * descending risers, (5,49) around three ascending ones. The doors sheet's
- * wooden ladders were standing in for these, and at 8px a ladder reads as a
- * fence, not as a way down. Doors stay in the doors sheet (source cols 11-14).*/
-#define SPR_STAIR_DOWN   36     /* dungeon_mono (4,49) */
-#define SPR_STAIR_UP     37     /* dungeon_mono (5,49) */
+ * Stairs are the four two-tile staircases on source row 0, cols 2-9 -- stone,
+ * gold, blue and pink, each drawn as a flight of risers with the treads left
+ * black so the floor shows through them. They replace the monochrome band's
+ * framed glyphs, which were a frame with a couple of lines in it. Stone descends
+ * and stone ascends read as the same material at different values; the gold
+ * flight is loud enough to find on grass, so it marks the mine mouth. */
+#define SPR_STAIR_DOWN    0     /* stairs (2,0): stone, dark risers */
+#define SPR_STAIR_UP      1     /* stairs (3,0): stone, pale treads */
 #define SPR_DOOR_CLOSED   4
 #define SPR_DOOR_OPEN     5
 /* The town marker and the shopfronts come from labels_human.json, not from a
@@ -67,11 +70,10 @@ const MoteImage *rl_sheet(int id) {
  * coloured house/shop fronts the annotator pass identified. props_light 32 --
  * what the town used before -- is the igloo. */
 #define SPR_HOUSE        31     /* props_light (1,9): cottage */
-/* The mine entrance is the same framed stairs-down glyph used underground.
- * boulders_mountains cell 6 -- what this was -- is one quadrant of a 2x3
- * boulder, which on its own is a flat grey square and reads as a bug. Reusing
- * the stairs glyph also means the player learns one symbol, not two. */
-#define SPR_CAVE_MOUTH   SPR_STAIR_DOWN
+/* The mine mouth is the gold flight (4,0). Stone stairs vanish into a green
+ * field; gold does not, and a landmark you have to hunt for on a 16x13 viewport
+ * is a landmark that does not work. */
+#define SPR_CAVE_MOUTH    2     /* stairs (4,0): gold */
 
 /* Wall identity per depth band -- descending should LOOK like descending.
  * See DESIGN.md section 3. */
@@ -287,14 +289,14 @@ void rl_draw_scene(void) {
             if (!(g_lv.flags[i] & CF_KNOWN)) continue;
             int sheet = SH_DOORS, cell = -1;
             switch (g_lv.terrain[i]) {
-            case T_STAIR_DOWN:   sheet = SH_DUNGEON; cell = SPR_STAIR_DOWN; break;
-            case T_STAIR_UP:     sheet = SH_DUNGEON; cell = SPR_STAIR_UP;   break;
+            case T_STAIR_DOWN:   sheet = SH_STAIRS;  cell = SPR_STAIR_DOWN; break;
+            case T_STAIR_UP:     sheet = SH_STAIRS;  cell = SPR_STAIR_UP;   break;
             case T_DOOR_CLOSED:  cell = SPR_DOOR_CLOSED; break;
             case T_DOOR_OPEN:    cell = SPR_DOOR_OPEN;   break;
             case T_TREE:         sheet = SH_TRINKETS; cell = tree_cell(x, y); break;
             case T_TOWN:         sheet = SH_PROPS;    cell = SPR_HOUSE;      break;
             case T_SHOP:         sheet = SH_DOORS;    cell = g_shop_cell[0]; break;
-            case T_DUNGEON_MOUTH:sheet = SH_DUNGEON;  cell = SPR_CAVE_MOUTH; break;
+            case T_DUNGEON_MOUTH:sheet = SH_STAIRS;   cell = SPR_CAVE_MOUTH; break;
             case T_FLOOR:
                 if (g_pl.depth == 0) { sheet = SH_TRINKETS; cell = decor_cell(x, y); }
                 break;

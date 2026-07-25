@@ -50,7 +50,8 @@ enum {
     SH_CHESTS,        /* chests               2x5 */
     SH_BOULDERS,      /* boulders_mountains   6x4 */
     SH_FX,            /* fx_mono             16x8  spell effect strips */
-    SH_DUNGEON,       /* dungeon_mono        16x3  stairs, patterned floors */
+    SH_DUNGEON,       /* dungeon_mono        16x3  patterned floors */
+    SH_STAIRS,        /* stairs               8x1  four colour staircases */
     SH_COUNT
 };
 

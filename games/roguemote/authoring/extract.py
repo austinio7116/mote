@@ -69,6 +69,7 @@ def save_sheet(name, img):
 # ---------------------------------------------------------------------------
 SPRITE_SHEETS = {
     # --- dungeon objects (cols 0-15) ---
+    "stairs":            (2, 0, 9, 0),     # four 2-tile staircases: stone, gold, blue, pink
     "chests":            (0, 1, 1, 5),     # closed / open x 5 colours
     "furniture_stone":   (2, 1, 4, 5),     # tables / altars / beds x 5 colours
     "faces_skulls_keys": (5, 1, 7, 5),     # creature face / skull / key x 5 colours
