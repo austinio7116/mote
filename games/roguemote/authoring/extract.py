@@ -183,14 +183,16 @@ def stacked_variants(cells_per_var, cols, keep_black=True):
 # floor fills: each entry is one variant tile (col,row); stacked as 1-wide sheet
 #
 # Cobblestone comes in five shades across cols 0-4 of rows 26-28. Column 1 (mean
-# luminance ~145) was the dungeon floor, and against navy brick walls and mostly
-# pale sprites it washed the whole screen out -- a monster standing on it was
-# nearly invisible. Column 2 (~67) is dark enough for sprites to read against and
-# still clearly lighter than unexplored ground, which is the scene background at
-# ~10. Column 3 (~23) is the deep-floor shade: darker again, but its navy mortar
-# keeps the tile grid legible where flat black would not.
-FLOOR_COBBLE      = [[(2,26)],[(2,27)]]     # standard dungeon floor
-FLOOR_COBBLE_DARK = [[(3,26)],[(3,27)]]     # the deep floors
+# luminance ~145) was the dungeon floor, and against the navy brick walls and
+# mostly pale sprites it washed the whole screen out. Column 2 (~67) was not
+# enough either: brick and floor sit too close in value, and both are busy
+# textures, so the room boundary never resolves.
+#
+# Column 3 (~23) is the one. It is dark enough that the busy brick reads as wall
+# and the floor reads as empty space, and its navy mortar still draws the tile
+# grid where a flat black would give nothing. One floor for the whole dungeon --
+# the wall changes with depth, and that is enough of a progression.
+FLOOR_COBBLE = [[(3,26)],[(3,27)]]
 # Grass: the CENTRE cell of two of the jungle band's 3x3 blocks. (5,42) -- the
 # original second variant -- is a block RIGHT EDGE, a bright-green blob against
 # the gold step band, and tiling it as a fill stamped orange-flecked bars across
@@ -211,9 +213,8 @@ def build_terrain():
     sets owned by gen_terrain.py -- they write the SAME tilesets/<name>.png, so
     they must not be generated here as nine-slices too or whichever ran last
     would win. main() calls that generator after this one."""
-    for name, blocks, edge in [("floor_cobble",      FLOOR_COBBLE, 1),
-                               ("floor_cobble_dark", FLOOR_COBBLE_DARK, 1),
-                               ("floor_grass",       FLOOR_GRASS, 1)]:
+    for name, blocks, edge in [("floor_cobble", FLOOR_COBBLE, 1),
+                               ("floor_grass",  FLOOR_GRASS, 1)]:
         write_tileset_sheet(name, stacked_variants(blocks, cols=1))
         write_tileset(name, floor_lut(), edge=edge, nvar=len(blocks))
 

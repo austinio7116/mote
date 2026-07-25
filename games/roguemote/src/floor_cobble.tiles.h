@@ -3,7 +3,7 @@
 #define MOTE_T_floor_cobble_H
 #include "mote_tile.h"
 
-static const uint16_t floor_cobble_pal[2] = { 0x194a,0x5aa9 };
+static const uint16_t floor_cobble_pal[2] = { 0x0000,0x194a };
 static const uint8_t floor_cobble_idx[64] = {
   17,1,17,1,17,1,17,1,0,0,0,0,1,17,1,17,1,17,1,17,1,17,1,17,0,0,0,0,17,1,17,1,
   0,0,0,0,0,17,17,0,1,17,17,16,1,17,17,16,1,17,17,16,1,17,17,16,0,17,17,0,0,0,0,0,
