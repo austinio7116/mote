@@ -113,7 +113,9 @@ const int g_item_kind_n = (int)(sizeof g_item_kind / sizeof g_item_kind[0]);
  * against the tagged monster class; `bonus` is a flat extra enchantment. */
 const EgoKind g_ego_kind[] = {
   { "",              0,  0, 0 },
-  { " of Slaying",   3,  2, 0 },
+  /* mult is applied as dam*mult/3, so 3 here would be exactly x1.0 -- a
+   * slaying weapon that does not slay. 5 puts it below Extra Attacks. */
+  { " of Slaying",   5,  2, 0 },
   { " (Fire)",       4,  0, EGO_FIRE },
   { " (Frost)",      4,  0, EGO_COLD },
   { " (Shock)",      5,  0, EGO_ELEC },

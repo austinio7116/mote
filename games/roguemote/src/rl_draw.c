@@ -351,8 +351,9 @@ void rl_draw_hud(uint16_t *fb) {
     bar(fb, 50, HUD_Y + 2, 22, g_pl.sp, g_pl.msp, MOTE_RGB565(60, 110, 220));
     rl_num(fb, g_pl.sp, 74, HUD_Y + 2, MOTE_RGB565(130, 170, 240));
 
-    rl_text(fb, "L", 86, HUD_Y + 2, MOTE_RGB565(150, 146, 170));
-    rl_num(fb, g_pl.level, 91, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
+    /* 90, not 86: a three-digit SP total reaches x=86 and collides with the L */
+    rl_text(fb, "L", 90, HUD_Y + 2, MOTE_RGB565(150, 146, 170));
+    rl_num(fb, g_pl.level, 95, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
 
     if (g_pl.depth == 0) rl_text(fb, "TOWN", 104, HUD_Y + 2, MOTE_RGB565(150, 220, 160));
     else {

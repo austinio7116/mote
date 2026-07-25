@@ -237,6 +237,8 @@ const ClassKind g_class[] = {
   { "Druid",       66,  12,12, 16, 12, 13, 11,  4,  5, 0x0A9E,   8 },
   { "Bard",        71,  11,14, 12, 15, 11, 18,  3,  4, 0x048B,   0 },
   { "Monk",        48,  14,12, 15, 17, 14, 11,  6,  3, 0x2490,   0 },
-  { "Barbarian",   76,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000,   5 },
+  /* "Berserk", not "Barbarian": the class grid gives a name 7 characters
+   * before the third column runs off a 128px screen. */
+  { "Berserk",     76,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000,   5 },
 };
 const int g_class_n = (int)(sizeof g_class / sizeof g_class[0]);

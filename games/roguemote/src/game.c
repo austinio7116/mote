@@ -446,7 +446,7 @@ static void draw_class(uint16_t *fb) {
     /* a 3x4 grid of the class sprites, each with its name under it -- the
      * sprite alone is not enough to tell a Rogue from a Druid at 8x8 */
     for (int i = 0; i < g_class_n; i++) {
-        int cx = 8 + (i % 3) * 42, cy = 17 + (i / 3) * 17;
+        int cx = 4 + (i % 3) * 42, cy = 17 + (i / 3) * 17;
         if (i == s_menu) mote->draw_rect(fb, cx - 4, cy - 2, 40, 13, COL_SEL, 1, 0, MOTE_FB_H);
         rl_blit_cell(fb, SH_CHARACTERS, g_class[i].cell, cx, cy);
         rl_text(fb, g_class[i].name, cx + 10, cy + 2, i == s_menu ? COL_TEXT : COL_DIM);
