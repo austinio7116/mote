@@ -72,33 +72,35 @@ def verify_block():
 
 
 TERRAIN_BLURB = {
-    "wall_brick": ("Dungeon stone-brick wall", "source 3&times;3 at (3,35)",
+    "wall_brick": ("Dungeon stone-brick wall",
                    "edge_is_solid=1 &mdash; off-map counts as more wall, so a map-edge wall "
                    "has no rim drawn along the screen border."),
-    "hedge": ("Garden hedge maze", "source 3&times;3 at (3,29)",
+    "hedge": ("Garden hedge maze",
               "edge_is_solid=0 &mdash; the maze draws its own outer rim, because you are "
               "meant to see the outside of the hedge."),
 }
 
 
 def terrain_section(name):
+    import map_blob47 as mp
     spec = gt.TERRAINS[name]
-    title, src, edgenote = TERRAIN_BLURB[name]
-    ns = gt.load_nineslice(*spec["blocks"][0])
-    m = gt.measure(ns)
+    title, edgenote = TERRAIN_BLURB[name]
+    band = mp.BANDS[spec["band"]]
+    c0, r0, c1, r1 = band["rect"]
+    found, blanks = mp.map_band(spec["band"], band)
     return f"""
 <section id="{name}">
   <h2>{title} <span class="tag mono">{name}</span></h2>
-  <p class="lede">{src}. Borders measured off the art:
-    top <b>{m['top']}px</b>, bottom <b>{m['bottom']}px</b>, left <b>{m['left']}px</b>,
-    right <b>{m['right']}px</b>; corner radius <b>{m['corner']}px</b>.
+  <p class="lede">Source art at cols <b>{c0}&ndash;{c1}</b>, rows <b>{r0}&ndash;{r1}</b> &mdash;
+    {(c1-c0+1)*(r1-r0+1)} cells, {len(blanks)} blank, <b>{len(found)} configurations</b>,
+    each drawn exactly once. Fill is palette index {band['fill']}, border {band['border']}.
     {edgenote}</p>
   {fig(f"{name}_configs.png", "All 47 configurations, each in its own 3&times;3 neighbourhood",
-       "The gold outline marks the cell under test; its neighbours are drawn so you can judge whether the border and corners actually fit what surrounds it.")}
+       "The gold outline marks the cell under test; its neighbours are drawn so the border and corners can be judged in context.")}
   {fig(f"{name}_fringe.png", "Fringe cases",
        "Isolated tiles, 1-wide spurs, diagonal-only contact, holes, T-junctions, staircases and combs. The spurs are the cases a nine-slice structurally cannot draw.")}
   {fig(f"{name}_atlas.png", "The baked 47-cell atlas",
-       "What actually ships in tilesets/" + name + ".png, cell index and mask under each.")}
+       "What ships in tilesets/" + name + ".png, cell index and mask under each.")}
   {fig(f"{name}_dungeon.png", "A full map",
        "Rendered through a port of the engine's own draw_autotile(), so this is what the device draws.")}
   {fig(f"{name}_edge.png", "edge_is_solid, both ways",
@@ -206,12 +208,12 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
     <span class="chip">47 cells &times; 2 terrains</span>
     <span class="chip pass">agrees with the compiled C</span>
     <span class="chip pass">5/5 mutations caught</span>
-    <span class="chip warn">3 defects found &amp; fixed</span>
+    <span class="chip warn">earlier synthesis retracted</span>
   </div>
 </div></header>
 
 <nav class="jump"><div class="wrap">
-  <a href="#summary">summary</a><a href="#contract">the 47</a><a href="#findings">findings</a>
+  <a href="#summary">summary</a><a href="#contract">the 47</a><a href="#findings">correction</a>
   <a href="#wall_brick">wall_brick</a><a href="#hedge">hedge</a>
   <a href="#notdone">not done</a><a href="#teeth">trust</a><a href="#verify">verifier log</a><a href="#table">cell table</a>
 </div></nav>
@@ -224,17 +226,14 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
   <b>16 of the 47</b> blob configurations &mdash; it has no inner corners, and no cell with
   borders on opposite sides, so a 1-tile-wide wall or the inside of an L-junction was drawn
   wrong. They are now <b>blob47</b>, covering all 256 neighbour masks.</p>
-  <p>The source sheet has no 47-cell art, so all 47 cells are <b>composited per pixel</b> from
-  the nine source tiles. Border depths and corner radius are <b>measured off the art</b>
-  (by diffing each edge tile against the centre) rather than hardcoded, so the same generator
-  works for any terrain added later.</p>
+  <p>All 47 cells come from the sheet's own hand-drawn art. The mapping from configuration to
+  source tile is recovered by classifying each tile's pixels, and is a clean bijection: every
+  config present exactly once.</p>
   <div class="grid2" style="margin-top:16px">
-    <div class="card"><h4>gen_terrain.py</h4><p>Builds the sheets + <code>.tileset</code>
-      files. Refuses any source block whose centre is not clean fill.</p></div>
+    <div class="card"><h4>gen_terrain.py</h4><p>Reorders the mapped source tiles into cell order. Refuses to emit unless the band maps cleanly 47 ways.</p></div>
     <div class="card"><h4>verify_terrain.py</h4><p>10 groups of checks, none of which trust
       the generator &mdash; each re-derives the expected answer from the C.</p></div>
-    <div class="card"><h4>find_nineslice.py</h4><p>Scans the sheet for source regions that
-      can actually back an autotile set. Most "wall" bands cannot.</p></div>
+    <div class="card"><h4>map_blob47.py</h4><p>Classifies each source tile by its own pixels to recover which of the 47 configs it draws.</p></div>
     <div class="card"><h4>blob47.py</h4><p>The canonical contract: the reduction rule and
       cell ordering, ported from <code>mote_tile.h</code>.</p></div>
   </div>
@@ -257,28 +256,37 @@ code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.92em
 </section>
 
 <section id="findings">
-  <h2>Defects found</h2>
-  <p>Three things were wrong, all found by checks rather than by eye. Listing them because
-  they change what you can trust elsewhere in the project.</p>
+  <h2>Correction: the art was already there</h2>
+  <p>An earlier version of this page claimed the source had only a nine-slice per terrain and
+  that all 47 cells had to be composited. <b>That was wrong.</b> The sheet already draws a
+  complete 47-tile blob set for both terrains &mdash; a row of blocks of mixed width (some
+  3&times;3, some 2&times;3) over 16 columns &times; 3 rows: 48 cells, one blank,
+  <b>47 tiles, every configuration drawn once by hand</b>. Nothing is synthesised any more.</p>
   <div class="grid2">
-    <div class="card bad"><h4>1. Two "variant" blocks would have speckled solid walls</h4>
-      <p>The sheet offers a near-twin block for each terrain &mdash; (0,35) for brick, 4% different,
-      and (0,29) for hedge, 19% different. Both look like free variant rows. Both draw a bright
-      post in <b>every corner of their centre tile</b>, and the engine picks variant rows per cell
-      by position hash, so both would scatter light dots through the middle of solid walls. The
-      brick one shipped in an earlier render before the check caught it. Both dropped;
-      <code>nvar=1</code>.</p></div>
-    <div class="card bad"><h4>2. Most "autotile" bands in the catalogue are not autotiles</h4>
-      <p>A scan of all 3844 possible 3&times;3 windows found only <b>6</b> well-formed nine-slices
-      in the entire 512&times;512 sheet, and they are just 3 terrains (each appearing twice).
-      The catalogue's "purple brick wall" is pink decorative pieces with an eye motif; the
-      "temple wall" is ornate facade panels; the "grey stone wall" is a 5-shade cobblestone
-      <b>floor</b>. None can back an autotile ruleset.</p></div>
-    <div class="card bad"><h4>3. My own inner-corner check was one-directional</h4>
-      <p>It verified that concave corners <b>are</b> notched but not that other corners are
-      <b>not</b> &mdash; so "notch every corner" would have passed. Tightened to an if-and-only-if;
-      still passes.</p></div>
+    <div class="card bad"><h4>What went wrong</h4>
+      <p>The scanner tested for a <i>plain</i> nine-slice &mdash; edges hugging their own side,
+      shallow borders. By construction that only ever matches the one block per row with no
+      inner corners. Every other block, precisely the ones holding the concave corners and the
+      spur cases, was rejected as "not an autotile set". It asked the wrong question, so it got
+      a confident wrong answer. Deleted.</p></div>
+    <div class="card bad"><h4>Retracted: the "speckled variants"</h4>
+      <p>I reported two blocks as defective variants that would scatter dots through solid
+      walls, because their centre tiles carry a mark in each corner. They are not variants:
+      they <b>are</b> the concave-corner cells. (1,36) is mask 85 &mdash; all four corners
+      concave. The guard was rejecting correct art for looking like what it is.</p></div>
+    <div class="card"><h4>Survives: which bands qualify</h4>
+      <p>Re-checked properly, by auto-detecting each band's fill/border palette and testing
+      every one for a clean 47-way mapping. Still only these two terrains have a complete set;
+      jungle grass, temple, purple and the cobblestone band do not. Same conclusion, but now on
+      evidence that actually bears on it.</p></div>
+    <div class="card"><h4>How it is mapped now</h4>
+      <p><code>map_blob47.py</code> classifies each source tile from its own pixels &mdash;
+      which edges carry the border colour, which corners carry a concave mark &mdash; so the
+      block layout never has to be parsed. Both bands come back as a clean bijection onto the
+      47 cells: <b>0 missing, 0 duplicated</b>. That is itself the evidence; a misreading
+      collides rather than tiling perfectly.</p></div>
   </div>
+</section>
 </section>
 {sections}
 

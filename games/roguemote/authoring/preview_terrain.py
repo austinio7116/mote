@@ -332,8 +332,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     written = []
     for name, spec in gt.TERRAINS.items():
-        sheet, variants, mets = gt.build(name, spec)
-        nvar, edge = len(variants), spec["edge"]
+        sheet, grids, where = gt.build(name, spec)
+        nvar, edge = 1, spec["edge"]      # the sheet is one row of 47 cells
         jobs = [
             (f"{name}_atlas.png", sheet_contact(name, sheet, nvar)),
             (f"{name}_configs.png", config_matrix(name, sheet, nvar, edge)),
