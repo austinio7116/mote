@@ -29,6 +29,7 @@ from PIL import Image
 
 import blob47
 import gen_terrain as gt
+import map_blob47 as mp
 from blob47 import N, NE, E, SE, S, SW, W, NW
 
 TS = gt.TS
@@ -108,166 +109,112 @@ def check_geometry(name, sheet, nvar):
         check(a != b, "variant rows are visually distinct")
 
 
-# --- 3. the nine configs a nine-slice can express ------------------------
-# For each, which source tile the composite must equal, pixel for pixel.
-NINESLICE_ANCHORS = {
-    28:  "TL",   # E+SE+S           - N,W open  -> top-left corner of a region
-    112: "TR",   # S+SW+W           - N,E open
-    7:   "BL",   # N+NE+E           - S,W open
-    193: "BR",   # N+W+NW           - S,E open
-    124: "T",    # E+SE+S+SW+W      - N open
-    199: "B",    # N+NE+E+W+NW      - S open
-    31:  "L",    # N+NE+E+SE+S      - W open
-    241: "R",    # N+S+SW+W+NW      - E open
-    255: "C",    # fully surrounded
-}
+
+# --- 3. the mapping is a clean bijection onto the 47 cells ---------------
+def check_mapping(name, spec, where):
+    print(f"\n3. source art covers all 47 configs exactly once - {name}")
+    band = mp.BANDS[spec["band"]]
+    found, blanks = mp.map_band(spec["band"], band)
+    missing = [m for m in blob47.CANON if m not in found]
+    dupes = {m: v for m, v in found.items() if len(v) > 1}
+    c0, r0, c1, r1 = band["rect"]
+    n = (c1 - c0 + 1) * (r1 - r0 + 1)
+    check(not missing, "every one of the 47 configs is present in the art",
+          f"{len(missing)} missing")
+    check(not dupes, "no config is drawn twice", f"{len(dupes)} duplicated")
+    check(len(found) + len(blanks) == n,
+          f"all {n} band tiles accounted for ({len(blanks)} blank)")
+    check(len(found) == 47, "exactly 47 distinct configs")
 
 
-def check_anchors(name, spec, variants):
-    print(f"\n3. nine-slice anchors composite back to the source art - {name}")
-    for v, blk in enumerate(spec["blocks"]):
-        ns = gt.load_nineslice(*blk)
-        grids = variants[v]
-        bad = []
-        for mask, key in NINESLICE_ANCHORS.items():
-            cell = blob47.LUT[mask]
-            if grids[cell] != ns[key]:
-                nd = sum(1 for y in range(TS) for x in range(TS)
-                         if grids[cell][y][x] != ns[key][y][x])
-                bad.append(f"mask {mask}->cell {cell} vs {key} ({nd}px)")
-        check(not bad, f"variant {v}: all 9 anchors are pixel-exact", "; ".join(bad))
+# --- 4. every cell's art really depicts the config it is filed under -----
+NINESLICE_ANCHORS = {28: "TL", 124: "T", 112: "TR", 31: "L", 255: "C",
+                     241: "R", 7: "BL", 199: "B", 193: "BR"}
 
 
-# --- 4/5/6. border + corner semantics ------------------------------------
-def border_sides(grid, ns, m):
-    """Which sides of this composed tile actually carry border art."""
-    C = ns["C"]
-    out = {}
-    out["N"] = any(grid[y][x] != C[y][x] for y in range(m["top"]) for x in range(TS))
-    out["S"] = any(grid[y][x] != C[y][x] for y in range(TS - m["bottom"], TS) for x in range(TS))
-    out["W"] = any(grid[y][x] != C[y][x] for x in range(m["left"]) for y in range(TS))
-    out["E"] = any(grid[y][x] != C[y][x] for x in range(TS - m["right"], TS) for y in range(TS))
-    return out
+def check_roundtrip(name, spec, grids, where):
+    """The tightest check available: re-classify the tile the generator picked
+    for each cell and require it to come back as that cell's mask. If the art in
+    cell i does not depict config i, this fails."""
+    print(f"\n4. classifier round-trip - {name}")
+    band = mp.BANDS[spec["band"]]
+    bad = []
+    for i, mask in enumerate(blob47.CANON):
+        got, _ = mp.classify(grids[i], band["fill"], band["border"], band["extra_fill"])
+        if got != mask:
+            bad.append(f"cell {i}: art at {where[mask]} classifies as {got}, not {mask}")
+    check(not bad, "all 47 cells re-classify to their own mask",
+          "; ".join(bad[:3]))
+
+    # and the nine configs whose source tiles were verified by hand
+    c0, r0 = band["rect"][0], band["rect"][1]
+    hand = {28: (c0+3, r0), 124: (c0+4, r0), 112: (c0+5, r0),
+            31: (c0+3, r0+1), 255: (c0+4, r0+1), 241: (c0+5, r0+1),
+            7: (c0+3, r0+2), 199: (c0+4, r0+2), 193: (c0+5, r0+2)}
+    bad = [f"{NINESLICE_ANCHORS[m]} -> {where[m]}, expected {t}"
+           for m, t in hand.items() if where[m] != t]
+    check(not bad, "the 9 nine-slice configs resolve to the hand-verified tiles",
+          "; ".join(bad[:3]))
 
 
-def check_borders(name, spec, variants, mets):
-    print(f"\n4. borders appear on exactly the open sides - {name}")
-    for v, blk in enumerate(spec["blocks"]):
-        ns, m, grids = gt.load_nineslice(*blk), mets[v], variants[v]
-        bad = []
-        ir = m["inner"]
-        for i, mask in enumerate(blob47.CANON):
-            has = border_sides(grids[i], ns, m)
-            for bit, side in ((N, "N"), (E, "E"), (S, "S"), (W, "W")):
-                open_ = not (mask & bit)
-                if open_ and not has[side]:
-                    bad.append(f"cell {i} (mask {mask}) missing {side} border")
-            # And the other direction: a CLOSED side must carry no border of its
-            # own. Two things legitimately intrude into that side's band and must
-            # be excluded first, or the check reports art that belongs to a
-            # neighbouring feature: a concave notch (inner_radius), and the
-            # border of a PERPENDICULAR side that is open -- with hedge's 3px
-            # borders the left band reaches well into the top band.
-            C = ns["C"]
-            oN_, oE_ = not (mask & N), not (mask & E)
-            oS_, oW_ = not (mask & S), not (mask & W)
-            x_lo = m["left"] if oW_ else ir
-            x_hi = TS - (m["right"] if oE_ else ir)
-            y_lo = m["top"] if oN_ else ir
-            y_hi = TS - (m["bottom"] if oS_ else ir)
-            spans = {
-                "N": [(x, y) for y in range(m["top"]) for x in range(x_lo, x_hi)],
-                "S": [(x, y) for y in range(TS - m["bottom"], TS) for x in range(x_lo, x_hi)],
-                "W": [(x, y) for x in range(m["left"]) for y in range(y_lo, y_hi)],
-                "E": [(x, y) for x in range(TS - m["right"], TS) for y in range(y_lo, y_hi)],
-            }
-            for bit, side in ((N, "N"), (E, "E"), (S, "S"), (W, "W")):
-                if mask & bit:      # this side is same-terrain: no border allowed
-                    if any(grids[i][y][x] != C[y][x] for x, y in spans[side]):
-                        bad.append(f"cell {i} (mask {mask}) has a {side} border it should not")
-        check(not bad, f"variant {v}: borders on open sides only, none on closed sides",
-              "; ".join(bad[:4]) + (" ..." if len(bad) > 4 else ""))
-
-    print(f"\n5. concave (inner) corners - {name}")
-    for v, blk in enumerate(spec["blocks"]):
-        ns, m, grids = gt.load_nineslice(*blk), mets[v], variants[v]
-        ir = m["inner"]
-        bad, n_inner = [], 0
-        for i, mask in enumerate(blob47.CANON):
-            # the same config with every corner filled in = no concave corners
-            plain = gt.compose(ns, m, mask | NE | SE | SW | NW, ir)
-            corners = {"NW": (NW, range(ir), range(ir)),
-                       "NE": (NE, range(TS - ir, TS), range(ir)),
-                       "SW": (SW, range(ir), range(TS - ir, TS)),
-                       "SE": (SE, range(TS - ir, TS), range(TS - ir, TS))}
-            for cname, (bit, xs, ys) in corners.items():
-                need = {"NW": (N, W), "NE": (N, E), "SW": (S, W), "SE": (S, E)}[cname]
-                concave = bool((mask & need[0]) and (mask & need[1]) and not (mask & bit))
-                differs = any(grids[i][y][x] != plain[y][x] for y in ys for x in xs)
-                # iff, not just if: a notch in a corner that is NOT concave is
-                # just as wrong as a missing one, and only checking one direction
-                # would let "notch every corner" pass.
-                if concave:
-                    n_inner += 1
-                    if not differs:
-                        bad.append(f"cell {i} mask {mask}: missing {cname} notch")
-                elif differs:
-                    bad.append(f"cell {i} mask {mask}: spurious {cname} notch")
-            outside = [(x, y) for y in range(TS) for x in range(TS)
-                       if grids[i][y][x] != plain[y][x]
-                       and not (min(x, TS-1-x) < ir and min(y, TS-1-y) < ir)]
-            if outside:
-                bad.append(f"cell {i} mask {mask}: changed {len(outside)}px outside corner boxes")
-        check(not bad, f"variant {v}: {n_inner} concave corners all notched, nothing else touched",
-              "; ".join(bad[:4]) + (" ..." if len(bad) > 4 else ""))
-
-    print(f"\n6. opposite-edge configs a nine-slice cannot express - {name}")
-    # 1-wide vertical spur: W and E both open. 1-wide horizontal: N and S both open.
-    for v, blk in enumerate(spec["blocks"]):
-        ns, m, grids = gt.load_nineslice(*blk), mets[v], variants[v]
-        cases = {
-            "isolated (no neighbours)":            0,
-            "vertical spur (N+S, no E/W)":         N | S,
-            "horizontal spur (E+W, no N/S)":       E | W,
-            "column top (S only)":                 S,
-            "column bottom (N only)":              N,
-            "row left end (E only)":               E,
-            "row right end (W only)":              W,
-        }
-        bad = []
-        for label, mask in cases.items():
-            g = grids[blob47.LUT[mask]]
-            has = border_sides(g, ns, m)
-            want = {"N": not (mask & N), "E": not (mask & E),
-                    "S": not (mask & S), "W": not (mask & W)}
-            for side in "NESW":
-                if want[side] and not has[side]:
-                    bad.append(f"{label}: no {side} border")
-        check(not bad, f"variant {v}: spurs and stubs carry every open border",
-              "; ".join(bad))
+# --- 5. border semantics of the artist's tiles ---------------------------
+def check_borders(name, spec, grids):
+    print(f"\n5. borders sit on exactly the open sides - {name}")
+    band = mp.BANDS[spec["band"]]
+    border = band["border"]
+    mid = range(TS // 2 - 1, TS // 2 + 1)
+    bad = []
+    for i, mask in enumerate(blob47.CANON):
+        t = grids[i]
+        col = lambda x: [t[y][x] for y in range(TS)]
+        def hit(lines):
+            return max(sum(1 for k in mid if l[k] == border) / len(list(mid)) for l in lines)
+        sides = {"N": hit([t[0], t[1]]), "S": hit([t[TS-1], t[TS-2]]),
+                 "W": hit([col(0), col(1)]), "E": hit([col(TS-1), col(TS-2)])}
+        for bit, s in ((N, "N"), (E, "E"), (S, "S"), (W, "W")):
+            open_ = not (mask & bit)
+            if open_ and sides[s] < 0.5:
+                bad.append(f"cell {i} (mask {mask}) has no {s} border but {s} is open")
+            if not open_ and sides[s] >= 0.5:
+                bad.append(f"cell {i} (mask {mask}) draws a {s} border but {s} is closed")
+    check(not bad, "all 47 cells: border iff the side is open", "; ".join(bad[:3]))
 
 
-# --- 7. determinism ------------------------------------------------------
-def check_interior(name, spec, variants):
-    """The fully-surrounded cell is drawn as the bare centre tile, so it must be
-    solid: no border colour, no transparency. This is the check that caught two
-    blocks whose centres carry a bright post in each corner -- they would have
-    scattered dots through solid walls."""
-    print(f"\n7. interior cells are clean fill - {name}")
-    interior = blob47.LUT[255]
-    for v, blk in enumerate(spec["blocks"]):
-        ns = gt.load_nineslice(*blk)
-        ok, bad = gt.fill_is_clean(ns)
-        check(ok, f"variant {v}: source centre tile is solid fill",
-              f"border colour {bad} found inside it")
-        g = variants[v][interior]
-        outline = set(ns["T"][0]) - {gt.TRANSPARENT}
-        stray = [(x, y) for y in range(TS) for x in range(TS) if g[y][x] in outline]
-        check(not stray, f"variant {v}: cell {interior} (mask 255) has no border pixels",
-              f"{len(stray)} stray px at {stray[:4]}")
-        holes = [(x, y) for y in range(TS) for x in range(TS) if g[y][x] == gt.TRANSPARENT]
-        check(not holes, f"variant {v}: cell {interior} is fully opaque",
-              f"{len(holes)} transparent px")
+# --- 6. concave corners --------------------------------------------------
+def check_inner(name, spec, grids):
+    print(f"\n6. concave corner marks - {name}")
+    band = mp.BANDS[spec["band"]]
+    border, box = band["border"], 3
+    bad, n = [], 0
+    for i, mask in enumerate(blob47.CANON):
+        t = grids[i]
+        for bit, (a, b), (xs, ys), nm in (
+                (NW, (N, W), (range(box), range(box)), "NW"),
+                (NE, (N, E), (range(TS-box, TS), range(box)), "NE"),
+                (SW, (S, W), (range(box), range(TS-box, TS)), "SW"),
+                (SE, (S, E), (range(TS-box, TS), range(TS-box, TS)), "SE")):
+            if not ((mask & a) and (mask & b)):
+                continue                     # corner irrelevant: a cardinal is open
+            concave = not (mask & bit)
+            marked = any(t[y][x] in (border, gt.TRANSPARENT) for y in ys for x in xs)
+            if concave:
+                n += 1
+                if not marked:
+                    bad.append(f"cell {i} mask {mask}: no {nm} mark")
+            elif marked:
+                bad.append(f"cell {i} mask {mask}: unexpected {nm} mark")
+    check(not bad, f"{n} concave corners marked, and only those", "; ".join(bad[:3]))
+
+
+# --- 7. interior cell is solid ------------------------------------------
+def check_interior(name, spec, grids):
+    print(f"\n7. interior cell is clean fill - {name}")
+    band = mp.BANDS[spec["band"]]
+    g = grids[blob47.LUT[255]]
+    stray = [(x, y) for y in range(TS) for x in range(TS) if g[y][x] == band["border"]]
+    holes = [(x, y) for y in range(TS) for x in range(TS) if g[y][x] == gt.TRANSPARENT]
+    check(not stray, "cell 46 (fully surrounded) has no border pixels", f"{len(stray)} px")
+    check(not holes, "cell 46 is fully opaque", f"{len(holes)} px")
 
 
 def check_determinism(name, spec):
@@ -278,8 +225,6 @@ def check_determinism(name, spec):
 
 
 def check_baked(name, spec, nvar):
-    """Close the loop: whatever `mote bake` wrote into src/<name>.tiles.h must
-    still be the canonical LUT. Catches a stale header or a bake-format change."""
     import re, os
     p = os.path.join(gt.GAME, "src", name + ".tiles.h")
     print(f"\n9. baked header round-trip - {name}")
@@ -289,8 +234,7 @@ def check_baked(name, spec, nvar):
     h = open(p).read()
     mm = re.search(r"_at = \{ &%s_img, (\d+), (\d+), \{(.*?)\}, (\d+), (\d+), \{" % name, h, re.S)
     if not mm:
-        check(False, "can parse the baked MoteAutotile")
-        return
+        check(False, "can parse the baked MoteAutotile"); return
     vals = [int(x) for x in mm.group(3).replace("\n", "").split(",") if x.strip()]
     check(int(mm.group(1)) == TS and int(mm.group(2)) == TS, "baked tile size is 8x8")
     check(vals == blob47.LUT, "baked LUT is byte-identical to the canonical blob47 LUT")
@@ -298,15 +242,24 @@ def check_baked(name, spec, nvar):
     check(int(mm.group(5)) == nvar, f"baked nvar == {nvar}")
 
 
+def check_geometry(name, sheet):
+    print(f"\n2. sheet geometry - {name}")
+    w, h = sheet.size
+    tpr = w // TS
+    check(tpr == 47, "atlas is exactly 47 cells wide (tpr=47)", f"got {tpr}")
+    check(h == TS, "atlas is one row tall", f"got {h}px")
+    check(all((c % tpr) * TS + TS <= w for c in range(47)),
+          "every cell index lands inside the atlas")
+
+
 def check_against_c():
     """Compile sdk/mote_tile.h for real and ask it directly.
 
     Every other check re-derives the contract from a second transcription of the
     C -- but a transcription can be wrong the same way twice. This one compares
-    against the header the engine actually compiles.
-    """
+    against the header the engine actually compiles."""
     import subprocess, os
-    print("\n10. cross-check against the compiled C header")
+    print("\n1b. cross-check against the compiled C header")
     root = os.path.dirname(os.path.dirname(gt.GAME))
     src = os.path.join(gt.HERE, "ctest_blob47.c")
     exe = "/tmp/ctest_blob47"
@@ -314,41 +267,36 @@ def check_against_c():
                         "-I" + os.path.join(root, "engine", "render"),
                         "-o", exe, src], capture_output=True, text=True)
     if r.returncode:
-        check(False, "ctest_blob47.c compiles against sdk/mote_tile.h", r.stderr[:200])
-        return
+        check(False, "ctest_blob47.c compiles against sdk/mote_tile.h", r.stderr[:200]); return
     out = subprocess.run([exe], capture_output=True, text=True).stdout
     kv = {}
     for line in out.split("\n"):
         k, _, v = line.partition(":")
         kv[k.strip()] = v.strip()
-
     clut = [int(x) for x in kv.get("template_lut", "").split()]
     check(clut == blob47.LUT,
           "engine's own mote_autotile_template(BLOB47) produces our exact LUT")
     cred = [int(x) for x in kv.get("reduce", "").split()]
     check(cred == [blob47.reduce_mask(m) for m in range(256)],
           "C mote__at_reduce agrees for all 256 masks")
-
     import preview_terrain as pv
     cmask = [int(x) for x in kv.get("masks", "").split()]
     py = []
-    for p in range(256):
+    for p_ in range(256):
         t = [0] * 9; t[4] = 1
-        for b, (dx, dy) in enumerate([(0, -1), (1, -1), (1, 0), (1, 1),
-                                      (0, 1), (-1, 1), (-1, 0), (-1, -1)]):
-            if p & (1 << b):
+        for b, (dx, dy) in enumerate([(0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1)]):
+            if p_ & (1 << b):
                 t[(1 + dy) * 3 + (1 + dx)] = 1
         py.append(pv.neighbour_mask(t, 3, 3, 1, 1, 1, 0))
     check(cmask == py, "C mote_autotile_mask agrees for all 256 neighbourhoods")
-
     el = [l for l in out.split("\n") if l.startswith("edge0")]
     if el:
-        p = el[0].split()
-        check((int(p[1]), int(p[3])) == (pv.neighbour_mask([1], 1, 1, 0, 0, 1, 0),
-                                         pv.neighbour_mask([1], 1, 1, 0, 0, 1, 1)),
+        q = el[0].split()
+        check((int(q[1]), int(q[3])) == (pv.neighbour_mask([1],1,1,0,0,1,0),
+                                         pv.neighbour_mask([1],1,1,0,0,1,1)),
               "C edge_is_solid handling agrees")
     cv = [int(x) for x in kv.get("variants", "").split()]
-    check(cv == [pv.variant_of(3, [1, 1, 2, 0, 0, 0, 0, 0], x, y)
+    check(cv == [pv.variant_of(3, [1,1,2,0,0,0,0,0], x, y)
                  for y in range(8) for x in range(8)],
           "C mote__at_variant (weighted) agrees for 64 cells")
 
@@ -357,13 +305,15 @@ def main():
     check_lut()
     check_against_c()
     for name, spec in gt.TERRAINS.items():
-        sheet, variants, mets = gt.build(name, spec)
-        check_geometry(name, sheet, len(variants))
-        check_anchors(name, spec, variants)
-        check_borders(name, spec, variants, mets)
-        check_interior(name, spec, variants)
+        sheet, grids, where = gt.build(name, spec)
+        check_geometry(name, sheet)
+        check_mapping(name, spec, where)
+        check_roundtrip(name, spec, grids, where)
+        check_borders(name, spec, grids)
+        check_inner(name, spec, grids)
+        check_interior(name, spec, grids)
         check_determinism(name, spec)
-        check_baked(name, spec, len(variants))
+        check_baked(name, spec, 1)
     print("\n" + "=" * 66)
     if FAILS:
         print(f"{len(FAILS)} CHECK(S) FAILED:")

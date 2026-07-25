@@ -63,39 +63,42 @@ masks. They were nine-slices, which can only express **16 of the 47** configurat
 nine-slice has no inner corners and no cell with borders on opposite sides, so inner
 corners and 1-tile-wide walls drew wrong.
 
-The source art has no 47-cell set, so `authoring/gen_terrain.py` **composites all 47 cells
-per pixel** from the nine source tiles. Border depths and corner radius are *measured off
-the art* (diffing each edge tile against the centre), not hardcoded, so the generator works
-for any terrain added later.
+The source sheet **already draws a complete 47-tile blob set** for each of these two
+terrains — laid out as a row of blocks of mixed width (some 3×3, some 2×3) across
+16 columns × 3 rows: 48 cells, one blank, 47 tiles, every configuration drawn once by hand.
+Nothing is synthesised.
+
+`map_blob47.py` recovers the mapping by classifying each source tile **from its own pixels**
+(which edges carry the border colour, which corners carry a concave mark) rather than trying
+to parse the block layout, which varies. The result is a clean bijection onto the 47 canonical
+cells — 0 missing, 0 duplicated — and the sheet is just those tiles reordered into cell order.
+That bijection is itself strong evidence the classifier is right: a misreading collides.
 
 ```bash
-python3 authoring/find_nineslice.py   # which source regions can back an autotile at all
+python3 authoring/map_blob47.py       # which config each source tile draws
 python3 authoring/gen_terrain.py      # -> tilesets/{wall_brick,hedge}.{png,tileset}
-python3 authoring/verify_terrain.py   # 10 groups of checks, 43 assertions
+python3 authoring/verify_terrain.py   # exhaustive checks, incl. a classifier round-trip
+python3 authoring/mutate_terrain.py   # prove the checks can actually fail
+cc -I../../sdk -I../../engine/render -o /tmp/ct authoring/ctest_blob47.c && /tmp/ct
 python3 authoring/preview_terrain.py  # -> /tmp/roguemote_terrain/*.png evidence
-python3 authoring/mutate_terrain.py      # prove the checks can actually fail
-cc -I../../sdk -I../../engine/render -o /tmp/ct authoring/ctest_blob47.c && /tmp/ct  # vs the real C
 python3 authoring/gen_terrain_report.py  # -> a single review page of all of it
 ```
 
-`gen_terrain.py` is invoked by `extract.py`, so the one-command pipeline still holds. It
-must not be duplicated as a nine-slice there — both write the same `tilesets/<name>.png`.
+`gen_terrain.py` is invoked by `extract.py`, so the one-command pipeline still holds. It must
+not be duplicated as a nine-slice there — both write the same `tilesets/<name>.png`.
 
-Two source blocks that *look* like free variant rows — (0,35) for brick, (0,29) for hedge —
-are deliberately **not** used. Both draw a bright post in every corner of their centre tile
-(and the hedge one is see-through), and since the engine picks a variant row per cell by
-position hash, either would scatter stray dots through solid walls. `fill_is_clean()` rejects
-them; they are separate decorative terrains, not variants.
+`build()` refuses to emit a sheet unless the band maps cleanly 47 ways, so a missing or
+double-booked configuration is a hard error rather than a silent hole in the atlas.
 
 ### What can't be autotiled
 
-A scan of every 3×3 window in the 512×512 sheet finds only **6** well-formed nine-slices,
-covering 3 terrains. Several regions CATALOGUE.md calls autotile sets are not: `wall_purple`
+Auto-detecting the fill/border palette for every candidate band and testing each for a clean
+47-way mapping finds complete blob47 sets for **only these two terrains**. Several regions CATALOGUE.md calls autotile sets are not: `wall_purple`
 is pink decorative pieces, `wall_temple` is ornate facade panels, and the "grey stone wall"
 is a 5-shade cobblestone *floor*. These ship as **raw subsheets** (`panels_colour`,
 `wall_purple`, `wall_stonebrick`, `wall_temple`, `grass_garden`, `cobble_floors`,
 `terrain_edges`) — author a rule in the Studio Tiles tab if a game needs one. The blueprint
-line-art at (0,50)/(6,50) does pass the scan and could get a blob47 set.
+line-art at (0,50)/(6,50) has nine-slice-shaped blocks but no full 47 set either.
 
 ## Font — `assets/font/rogue8_glyphs.png` + `.gsheet` → `src/rogue8.font.h`
 

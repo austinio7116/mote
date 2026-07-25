@@ -11,6 +11,7 @@ import sys, io, contextlib
 
 import blob47
 import gen_terrain as gt
+import map_blob47 as mp
 import verify_terrain as vt
 from blob47 import N, NE, E, SE, S, SW, W, NW
 
@@ -24,6 +25,7 @@ def mutant(label):
     return deco
 
 
+
 @mutant("LUT: swap the mapping of two masks")
 def m_lut():
     orig = list(blob47.LUT)
@@ -31,61 +33,50 @@ def m_lut():
     return lambda: blob47.LUT.__setitem__(slice(None), orig)
 
 
-@mutant("compose: never draw the concave (inner) corner notch")
-def m_inner():
-    orig = gt.compose
+@mutant("mapping: file two cells under each other's config")
+def m_swapcells():
+    orig = mp.classify
 
-    def patched(ns, m, mask, inner_radius):
-        # fill every corner bit first, so no corner is ever seen as concave
-        return orig(ns, m, mask | NE | SE | SW | NW, inner_radius)
-    gt.compose = patched
-    return lambda: setattr(gt, "compose", orig)
-
-
-@mutant("compose: nine-slice fallback, so opposite edges can't both draw")
-def m_opposite():
-    orig = gt.compose
-
-    def patched(ns, m, mask, inner_radius):
-        # classic nine-slice column/row pick: when BOTH sides are open it
-        # collapses to the middle, losing one of the two borders
-        oN, oE = not (mask & N), not (mask & E)
-        oS, oW = not (mask & S), not (mask & W)
-        if oW and oE:
-            mask |= W                      # pretend the left side is closed
-        if oN and oS:
-            mask |= N
-        return orig(ns, m, mask, inner_radius)
-    gt.compose = patched
-    return lambda: setattr(gt, "compose", orig)
+    def patched(t, fill, border, extra=()):
+        m, d = orig(t, fill, border, extra)
+        if m == 28: return 112, d          # TL art filed as TR
+        if m == 112: return 28, d
+        return m, d
+    mp.classify = patched
+    return lambda: setattr(mp, "classify", orig)
 
 
-@mutant("compose: put the notch in the wrong corner (NW <-> NE)")
-def m_swapcorner():
-    orig = gt.compose
+@mutant("classifier: ignore concave corner marks entirely")
+def m_noinner():
+    orig = mp.classify
 
-    def patched(ns, m, mask, inner_radius):
-        g = orig(ns, m, mask, inner_radius)
-        ir = inner_radius
-        for y in range(ir):                # mirror the two top corner boxes
-            for x in range(ir):
-                a, b = g[y][x], g[y][gt.TS - 1 - x]
-                g[y][x], g[y][gt.TS - 1 - x] = b, a
-        return g
-    gt.compose = patched
-    return lambda: setattr(gt, "compose", orig)
+    def patched(t, fill, border, extra=()):
+        m, d = orig(t, fill, border, extra)
+        if m is None: return m, d
+        return blob47.reduce_mask(m | NE | SE | SW | NW), d
+    mp.classify = patched
+    return lambda: setattr(mp, "classify", orig)
 
 
-@mutant("terrain: accept a block whose centre is not clean fill")
-def m_dirtyfill():
-    orig = dict(gt.TERRAINS["wall_brick"])
-    gt.TERRAINS["wall_brick"] = dict(orig, blocks=[(3, 35), (0, 35)])
-    ocheck = gt.fill_is_clean
-    gt.fill_is_clean = lambda ns: (True, [])      # disable the build-time guard
-    def restore():
-        gt.TERRAINS["wall_brick"] = orig
-        gt.fill_is_clean = ocheck
-    return restore
+@mutant("band: shift the source rect one column right")
+def m_shift():
+    orig = dict(mp.BANDS["wall_brick"])
+    r = orig["rect"]
+    mp.BANDS["wall_brick"] = dict(orig, rect=(r[0] + 1, r[1], r[2] + 1, r[3]))
+    return lambda: mp.BANDS.__setitem__("wall_brick", orig)
+
+
+@mutant("art: paint out the border on one cell's open edge")
+def m_wipeborder():
+    orig = mp.tile
+
+    def patched(c, r):
+        t = orig(c, r)
+        if (c, r) == (4, 35):              # the top-edge tile
+            t[0] = [mp.BANDS["wall_brick"]["fill"]] * mp.TS
+        return t
+    mp.tile = patched
+    return lambda: setattr(mp, "tile", orig)
 
 
 def run_verifier():
@@ -96,11 +87,13 @@ def run_verifier():
         with contextlib.redirect_stdout(buf):
             vt.check_lut()
             for name, spec in gt.TERRAINS.items():
-                sheet, variants, mets = gt.build(name, spec)
-                vt.check_geometry(name, sheet, len(variants))
-                vt.check_anchors(name, spec, variants)
-                vt.check_borders(name, spec, variants, mets)
-                vt.check_interior(name, spec, variants)
+                sheet, grids, where = gt.build(name, spec)
+                vt.check_geometry(name, sheet)
+                vt.check_mapping(name, spec, where)
+                vt.check_roundtrip(name, spec, grids, where)
+                vt.check_borders(name, spec, grids)
+                vt.check_inner(name, spec, grids)
+                vt.check_interior(name, spec, grids)
     except SystemExit as e:
         return False, [f"build refused: {e}"]
     except Exception as e:
