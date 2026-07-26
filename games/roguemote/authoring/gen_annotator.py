@@ -56,7 +56,7 @@ SEC_CAT = {
     "Animals & vermin":"animal","Monsters":"enemy","Crowns · armour · FX":"treasure",
     "Bosses":"boss","Boulders & mountains":"feature","Tiny UI icons (magenta strip)":"ui",
     "Arrows & gauges":"ui","Button prompts":"ui","Status · emotes · elements":"ui",
-    "Jewellery, chalices & regalia":"treasure",
+    "Rings, amulets & earrings":"treasure","Helms, hoods & shields":"armor",
     "Symbols":"ui","White furniture (top-down)":"furniture","Blueprint tiles":"ui",
     "Colour panels (terrain)":"ui","Purple brick wall (terrain)":"wall",
     "Stone-brick wall set (terrain)":"wall","Temple / aztec wall (terrain)":"wall",

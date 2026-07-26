@@ -72,7 +72,7 @@ SH_NAMES = [
     "tools_wands", "weapons_elemental", "treasure_ore", "crowns_fx", "food",
     "runes", "loot_furniture", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
-    "dungeon_mono", "stairs", "jewellery",
+    "dungeon_mono", "stairs", "jewellery", "helms_hoods",
 ]
 SH_BY_NAME = {n: i for i, n in enumerate(SH_NAMES)}
 

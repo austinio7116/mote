@@ -296,24 +296,37 @@ section(48,33,63,39, "Terrain edges (terrain)",
         "Rings/holes, wave bands, sticks, mounds, and round rocks/boulders.",
         "Water/foam bands, pits, pebbles, hill tops (edge/detail tiles).", lab_terr("Edge/detail tile"))
 
-# 36. Jewellery, chalices & regalia -----------------------------------------
+# 36. Rings, amulets & earrings ---------------------------------------------
 # This block was in NO section until now, which is exactly why the game has no
 # rings: the art was never surfaced to be labelled, so the ring items ended up
-# pointed at the big cut gems in treasure_ore instead. Four metal rows -- white,
-# gold, blue, red -- of goblets, torcs, medallions, plain bands and gemmed
-# bands, plus earrings, a pendant necklace and a jewelled ring on the top row.
+# pointed at the big cut gems in treasure_ore instead.
+#
+# Cols 25-29 ONLY. The first pass drew the box from col 16 and swept in the
+# helms and hoods next door, which at thumbnail size read as goblets and torcs
+# and are nothing of the kind. They are section 37.
 def lab_jewel(c, r):
     metal = {23: "silver", 24: "gold", 25: "blue", 26: "red"}.get(r, "?")
-    kind = {16: "goblet", 17: "chalice", 18: "?", 19: "crossed blades",
-            20: "crossed blades", 21: "?", 22: "torc / horn", 23: "torc (open)",
-            24: "medallion", 25: "plain band", 26: "gemmed band",
-            27: "earrings", 28: "pendant necklace", 29: "jewelled ring",
-            30: "?"}.get(c, "?")
-    return L(f"{metal} {kind}", "Ring / amulet / drinking vessel.", q=True)
-section(16,23,30,26, "Jewellery, chalices & regalia",
-        "Four metal rows of goblets, torcs, medallions, plain and gemmed bands, "
-        "plus earrings, a necklace and a jewelled ring.",
-        "Rings and amulets (TV_RING), and treasure props.", lab_jewel)
+    kind = {25: "plain band", 26: "gemmed band", 27: "earrings",
+            28: "pendant necklace", 29: "jewelled ring"}.get(c, "?")
+    return L(f"{metal} {kind}", "Ring or amulet (TV_RING).", q=True)
+section(25,23,29,26, "Rings, amulets & earrings",
+        "Plain and gemmed bands in four metals, plus earrings, a pendant "
+        "necklace and a jewelled ring on the top row.",
+        "Rings and amulets (TV_RING) -- the game has none mapped yet.", lab_jewel)
+
+# 37. Helms, hoods & shields -------------------------------------------------
+# The three colour rows below the loot sheet's bottom edge. loot_furniture stops
+# at row 23, so the game has only ever seen the top row of this run.
+def lab_helm(c, r):
+    colour = {24: "gold", 25: "blue", 26: "red"}.get(r, "?")
+    kind = {16: "nasal helm", 17: "banded great helm", 18: "?",
+            19: "hood (side)", 20: "hood (front)", 21: "?",
+            22: "cowl", 23: "cowl (open)", 24: "round shield"}.get(c, "?")
+    return L(f"{colour} {kind}", "Head armour / shield.", q=True)
+section(16,24,24,26, "Helms, hoods & shields",
+        "Helms with visor slits, hoods and cowls, and round shields, in three "
+        "colours below the loot sheet's bottom edge.",
+        "Armour (TV_ARMOUR) beyond the six helms already mapped.", lab_helm)
 
 def render_section(c0, r0, c1, r1, title, blurb, use, labeler):
     cards = []

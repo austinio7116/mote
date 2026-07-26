@@ -84,10 +84,15 @@ SPRITE_SHEETS = {
     "loot_furniture":    (16, 20, 24, 23), # table, barrels, chalice, bones, shield
     # Rows 23-26 were inside no subsheet AND no catalogue section, so the ring
     # art was never surfaced to be labelled and the ring items were pointed at
-    # the big cut gems in treasure_ore instead. Four metal rows of goblets,
-    # torcs, medallions, plain bands and gemmed bands, plus earrings, a pendant
-    # and a jewelled ring.
-    "jewellery":         (22, 23, 30, 26), # rings, amulets, torcs, chalices
+    # the big cut gems in treasure_ore instead.
+    #
+    # The jewellery is cols 25-29 ONLY: plain band, gemmed band, and on the top
+    # row a pair of earrings, a pendant necklace and a jewelled ring. Cols 16-24
+    # of the same rows look like jewellery at thumbnail size and are not -- they
+    # are helms with visor slits, hoods, and round shields, four colours deep.
+    # They get their own subsheet rather than being dragged in here.
+    "jewellery":         (25, 23, 29, 26), # plain and gemmed bands, earrings, necklace
+    "helms_hoods":       (16, 24, 24, 26), # helms, hoods, round shields x 3 colours
     "tools_wands":       (16, 28, 31, 31), # pickaxes, axes, hammers, staffs, wands
     "weapons_elemental": (16, 32, 30, 34), # ice/fire/colour swords & staves
     "guns":              (16, 35, 22, 35), # pistols/rifles
