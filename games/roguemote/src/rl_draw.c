@@ -205,6 +205,47 @@ void rl_draw_player_shadow(uint16_t *fb) {
     rl_blit_cell(fb, SH_CHARACTERS, g_class[g_pl.cls].cell, px, py);
 }
 
+/* Blit a sheet cell TINTED. The fx_mono strips are drawn in greyscale on
+ * purpose -- that is the whole reason they are grey -- so a frost bolt and a
+ * fireball can be the same six frames in two colours instead of two sets of
+ * art. Multiplying the source by the tint is exactly right for a grey source:
+ * the grey level survives as brightness and the hue comes entirely from `col`.
+ *
+ * Hand-written because there is no engine path for it: blit() is colour-keyed
+ * and copies pixels through unchanged. */
+void rl_blit_cell_tint(uint16_t *fb, int sheet, int cell, int x, int y,
+                       uint16_t col) {
+    const MoteImage *img = rl_sheet(sheet);
+    int cols = img->w / TS;
+    if (cols < 1) cols = 1;
+    int sx = (cell % cols) * TS, sy = (cell / cols) * TS;
+    int tr = (col >> 11) & 31, tg = (col >> 5) & 63, tb = col & 31;
+
+    for (int j = 0; j < TS; j++) {
+        int py = y + j;
+        if (py < 0 || py >= MOTE_FB_H) continue;
+        for (int i = 0; i < TS; i++) {
+            int px = x + i;
+            if (px < 0 || px >= MOTE_FB_W) continue;
+            /* the bake may hand back RGB565 or 4-/8-bit indexed, so sample
+             * through the format rather than assuming pixels[] */
+            int si = (sy + j) * img->w + sx + i;
+            uint16_t c;
+            if (img->format == 1)
+                c = img->palette[(img->indices[si >> 1] >> ((si & 1) ? 0 : 4)) & 15];
+            else if (img->format == 2)
+                c = img->palette[img->indices[si]];
+            else
+                c = img->pixels[si];
+            if (!img->opaque && c == img->key) continue;
+            int r = ((c >> 11) & 31) * tr / 31;
+            int g = ((c >> 5) & 63) * tg / 63;
+            int b = (c & 31) * tb / 31;
+            fb[py * MOTE_FB_W + px] = (uint16_t)((r << 11) | (g << 5) | b);
+        }
+    }
+}
+
 /* --- message log -------------------------------------------------------- */
 #define MSG_N 3
 #define MSG_LEN 31   /* the 3x5 font advances 4px, so ~31 chars span the screen */
@@ -337,8 +378,11 @@ void rl_draw_scene(void) {
     int cy = g_pl.y * TS + TS / 2 - (VIEW_H * TS) / 2;
     if (cx < 0) cx = 0;
     if (cy < 0) cy = 0;
-    if (cx > MW * TS - VIEW_W * TS) cx = MW * TS - VIEW_W * TS;
-    if (cy > MH * TS - VIEW_H * TS) cy = MH * TS - VIEW_H * TS;
+    /* clamp to the LEVEL, not the buffer -- a dungeon occupies the top-left
+     * 64x48 of it, and scrolling out into the unused rock is not a view */
+    int lw = rl_level_w() * TS, lh = rl_level_h() * TS;
+    if (cx > lw - VIEW_W * TS) cx = lw - VIEW_W * TS;
+    if (cy > lh - VIEW_H * TS) cy = lh - VIEW_H * TS;
     s_cam_x = cx; s_cam_y = cy;
 
     static const MoteAutotile *tiles[5];
@@ -530,8 +574,14 @@ void rl_draw_hud(uint16_t *fb) {
  * without walking the coastline; underground it is the classic full-level map,
  * showing only what you have seen. */
 void rl_draw_map(uint16_t *fb, int y0) {
-    for (int y = 0; y < MH; y++) {
-        for (int x = 0; x < MW; x++) {
+    /* Only the part of the buffer this level actually uses -- and at whatever
+     * scale fills the panel: the continent is 128 wide and takes one pixel a
+     * cell, a dungeon floor is 64 and takes two. */
+    int lw = rl_level_w(), lh = rl_level_h();
+    int px = MOTE_FB_W / lw;
+    if (px < 1) px = 1;
+    for (int y = 0; y < lh; y++) {
+        for (int x = 0; x < lw; x++) {
             int i = y * MW + x;
             uint16_t c;
             if (g_pl.depth && !(g_lv.flags[i] & CF_KNOWN)) continue;
@@ -562,16 +612,17 @@ void rl_draw_map(uint16_t *fb, int y0) {
             default: c = g_pl.depth ? MOTE_RGB565(150, 146, 160)
                                     : MOTE_RGB565(0, 135, 81);   break;
             }
-            g_api->draw_pixel(fb, x, y0 + y, c);
+            if (px == 1) g_api->draw_pixel(fb, x, y0 + y, c);
+            else g_api->draw_rect(fb, x * px, y0 + y * px, px, px, c, 1, 0, MOTE_FB_H);
         }
     }
     /* the player last, so nothing paints over it -- and as a cross rather than
      * a dot, because one white pixel in a 128x96 field is not findable */
-    int px = g_pl.x, py = y0 + g_pl.y;
+    int mx = g_pl.x * px, my = y0 + g_pl.y * px;
     uint16_t w = MOTE_RGB565(255, 255, 255);
     for (int d = -2; d <= 2; d++) {
-        if (px + d >= 0 && px + d < MOTE_FB_W) g_api->draw_pixel(fb, px + d, py, w);
-        if (py + d >= y0 && py + d < MOTE_FB_H) g_api->draw_pixel(fb, px, py + d, w);
+        if (mx + d >= 0 && mx + d < MOTE_FB_W) g_api->draw_pixel(fb, mx + d, my, w);
+        if (my + d >= y0 && my + d < MOTE_FB_H) g_api->draw_pixel(fb, mx, my + d, w);
     }
 }
 

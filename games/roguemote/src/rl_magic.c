@@ -123,11 +123,21 @@ static void cam_of(int *cx, int *cy) {
 
 static int s_camx, s_camy;
 
-/* Blit one fx cell at a TILE coordinate, clipped out of the HUD. */
+/* Blit one fx cell at a TILE coordinate, clipped out of the HUD, TINTED to the
+ * effect's own colour. The fx_mono strips are greyscale by design: one set of
+ * six frames serves the frost bolt, the fireball and the mana storm, and the
+ * hue is applied here. Drawing them untinted -- which is what the first cut
+ * did -- threw that away and made every spell in the game look the same. */
 static void fx_at(uint16_t *fb, int cell, int tx, int ty) {
     int sx = tx * TS - s_camx, sy = ty * TS - s_camy;
     if (sy < -TS || sy >= HUD_Y || sx < -TS || sx >= MOTE_FB_W) return;
-    rl_blit_cell(fb, SH_FX, cell, sx, sy);
+    rl_blit_cell_tint(fb, SH_FX, cell, sx, sy, s_fx.col);
+}
+
+/* the same, at a pixel coordinate already worked out by the caller */
+static void fx_px(uint16_t *fb, int cell, int px, int py) {
+    if (py < -TS || py >= HUD_Y || px < -TS || px >= MOTE_FB_W) return;
+    rl_blit_cell_tint(fb, SH_FX, cell, px, py, s_fx.col);
 }
 
 void rl_fx_draw(uint16_t *fb) {
@@ -145,9 +155,9 @@ void rl_fx_draw(uint16_t *fb) {
         float tail = t - 0.3f; if (tail < 0) tail = 0;
         int tx = sx + (int)((ex - sx) * tail), ty = sy + (int)((ey - sy) * tail);
         g_api->draw_line(fb, tx, ty, hx, hy, s_fx.col, 0, clip);
-        rl_blit_cell(fb, SH_FX, strip(FX_STAR_0, 4, t), hx - 4, hy - 4);
+        fx_px(fb, strip(FX_STAR_0, 4, t), hx - 4, hy - 4);
         if (t > 0.6f)
-            rl_blit_cell(fb, SH_FX, strip(FX_IMPACT_0, 6, (t - 0.6f) / 0.4f), ex - 4, ey - 4);
+            fx_px(fb, strip(FX_IMPACT_0, 6, (t - 0.6f) / 0.4f), ex - 4, ey - 4);
         break;
     }
     case SP_BEAM: {
@@ -163,7 +173,7 @@ void rl_fx_draw(uint16_t *fb) {
             int ty = s_fx.y0 + (n ? dy * i / n : 0);
             fx_at(fb, strip(FX_BEAM_0, 6, t), tx, ty);
         }
-        rl_blit_cell(fb, SH_FX, strip(FX_IMPACT_0, 6, t), ex - 4, ey - 4);
+        fx_px(fb, strip(FX_IMPACT_0, 6, t), ex - 4, ey - 4);
         break;
     }
     case SP_BALL:
@@ -192,10 +202,10 @@ void rl_fx_draw(uint16_t *fb) {
     case SP_BUFF: {
         int r = (int)((1.0f - t) * 12.0f) + 2;
         g_api->draw_circle(fb, sx, sy, r, s_fx.col, 0, 0, clip);
-        rl_blit_cell(fb, SH_FX,
-                     t < 0.5f ? strip(FX_STAR_0, 4, t / 0.5f)
-                              : strip(FX_FADE_0, 6, (t - 0.5f) / 0.5f),
-                     sx - 4, sy - 4);
+        rl_blit_cell_tint(fb, SH_FX,
+                          t < 0.5f ? strip(FX_STAR_0, 4, t / 0.5f)
+                                   : strip(FX_FADE_0, 6, (t - 0.5f) / 0.5f),
+                          sx - 4, sy - 4, s_fx.col);
         break;
     }
     case SP_DETECT: {

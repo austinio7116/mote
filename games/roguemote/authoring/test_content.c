@@ -29,6 +29,8 @@ void rl_msg2(const char *a, const char *b) { snprintf(s_last, sizeof s_last, "%s
 void rl_msgf(const char *fmt, int a) { snprintf(s_last, sizeof s_last, fmt, a); }
 const MoteImage *rl_sheet(int id) { (void)id; return 0; }
 void rl_blit_cell(uint16_t *fb, int sh, int c, int x, int y) { (void)fb;(void)sh;(void)c;(void)x;(void)y; }
+void rl_blit_cell_tint(uint16_t *a, int b, int c, int d, int e, uint16_t f)
+{ (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void rl_text(uint16_t *fb, const char *s, int x, int y, uint16_t c) { (void)fb;(void)s;(void)x;(void)y;(void)c; }
 void rl_text_big(uint16_t *fb, const char *s, int x, int y, uint16_t c) { (void)fb;(void)s;(void)x;(void)y;(void)c; }
 void rl_num(uint16_t *fb, int32_t v, int x, int y, uint16_t c) { (void)fb;(void)v;(void)x;(void)y;(void)c; }

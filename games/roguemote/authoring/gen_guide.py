@@ -659,6 +659,37 @@ def sec_ranged():
 </section>"""
 
 
+# Potions, scrolls, wands and rings are all NAMED for their kind in the item
+# table -- "potion", "scroll" -- because in play they are unidentified and the
+# flavour is shuffled per character. A reference guide is out-of-character, so a
+# column of eight rows all reading "potion" tells the reader nothing; here they
+# are titled by what they DO.
+EFF_LABEL = {
+    "CURE_LIGHT": "cure light wounds", "CURE_SERIOUS": "cure serious wounds",
+    "FULL_HEAL": "healing", "MANA": "restore mana", "SPEED": "speed",
+    "HEROISM": "heroism", "POISON": "poison", "XP": "enlightenment",
+    "MAP": "magic mapping", "TELEPORT": "teleportation",
+    "IDENTIFY": "identify", "ENCHANT_W": "enchant weapon",
+    "ENCHANT_A": "enchant armour", "DEEP_DESCENT": "deep descent",
+    "LIGHT": "light", "REMOVE_CURSE": "remove curse", "SUMMON": "summoning",
+    "W_MISSILE": "magic missile", "W_FIRE": "fire", "W_FROST": "frost",
+    "W_DRAIN": "drain life",
+    "R_PROT": "protection", "R_STR": "strength", "R_INT": "intellect",
+    "R_SPEED": "speed", "R_REGEN": "regeneration",
+    "DETECT": "detect life", "SCARE": "terror", "LULL": "sleep",
+    "UNLOCK": "lockpicking",
+}
+UNIDENTIFIED = ("POTION", "SCROLL", "WAND", "RING")
+
+
+def item_title(it):
+    """The name to print. For the unidentified kinds that is the effect, since
+    every one of them is called the same thing in the table."""
+    if it["tv"] in UNIDENTIFIED and it["eff"] in EFF_LABEL:
+        return "%s of %s" % (it["name"], EFF_LABEL[it["eff"]])
+    return it["name"]
+
+
 def sec_items():
     order = ["WEAPON", "ARMOUR", "POTION", "SCROLL", "WAND", "RING", "FOOD", "LIGHT"]
     out = []
@@ -679,7 +710,7 @@ def sec_items():
             rows.append(
                 '<tr><td class="ic">%s</td><td class="nm">%s</td>'
                 '<td class="ef">%s</td><td class="n">%d</td><td class="n">%d</td></tr>'
-                % (spr(it["sheet"], it["cell"], 3), esc(it["name"]), right,
+                % (spr(it["sheet"], it["cell"], 3), esc(item_title(it)), right,
                    it["lvl"], it["cost"]))
         out.append("""
   <article class="itemgroup">
@@ -715,6 +746,12 @@ def sec_items():
      an ego then multiplies the lot by its own worth, graded against measured
      power. A curse is worth almost nothing, and a shopkeeper's purse is finite
      &mdash; the best thing you ever find is worth more swung than sold.</p>
+  <p>The effect strips are drawn in <b>greyscale</b> on purpose, and tinted at
+     the moment of drawing: one set of six frames serves the frost bolt, the
+     fireball and the mana storm, and only the hue changes. Healing is green,
+     blessing gold, detection blue-violet; an attack takes its colour from its
+     power, so arcane, frost, lightning, fire and raw mana each read as
+     themselves.</p>
   <div class="shots2">%s%s</div>
   <p>Four things are worn rather than carried: a weapon, body armour, one ring
      or amulet, and a light. The gear screen shows what each contributes and
@@ -782,9 +819,9 @@ def sec_magic():
 </section>""" % (plate(shots["spells"], "The spell list. Greyed entries are ones "
                        "your level or mana cannot reach yet."),
                  rows, strip_html,
-                 plate(shots["missile"], "Magic Missile", small=True),
-                 plate(shots["nova"], "Light Room", small=True),
-                 plate(shots["fireball"], "Fireball", small=True))
+                 plate(shots["missile"], "Magic Missile &mdash; arcane violet", small=True),
+                 plate(shots["nova"], "Light Room &mdash; the nova, tinted", small=True),
+                 plate(shots["fireball"], "Fireball &mdash; the same frames in orange", small=True))
 
 
 def sec_town():

@@ -24,6 +24,18 @@
  * off the area now, or a bigger map is just a longer walk. */
 #define MW       128
 #define MH       96
+
+/* The DUNGEON is not the map array. The overworld wants a continent; a dungeon
+ * floor stretched to the same size is just a longer walk between the same
+ * rooms, which is boredom rather than depth -- so a floor is generated into the
+ * top-left 64x48 of the same buffer and the rest is left as solid rock.
+ *
+ * The row stride is always MW, so every index stays y * MW + x. Only the
+ * BOUNDS move: generation, the camera clamp and the map screen ask
+ * rl_level_w/h, which is a pure function of depth and therefore needs no extra
+ * state and no change to the save format. */
+#define DUN_W    64
+#define DUN_H    48
 #define VIEW_W   16
 #define VIEW_H   13
 #define HUD_Y    (VIEW_H * TS)
@@ -171,6 +183,8 @@ static inline int rl_pct(int p) { return rl_range(100) < p; }
 /* --- map ---------------------------------------------------------------- */
 static inline int rl_in(int x, int y) { return x >= 0 && x < MW && y >= 0 && y < MH; }
 static inline uint8_t rl_ter(int x, int y) { return rl_in(x, y) ? g_lv.terrain[y * MW + x] : T_WALL; }
+static inline int rl_level_w(void) { return g_pl.depth ? DUN_W : MW; }
+static inline int rl_level_h(void) { return g_pl.depth ? DUN_H : MH; }
 int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
@@ -407,6 +421,8 @@ void rl_msg2(const char *a, const char *b);
 void rl_draw_msgs(uint16_t *fb);
 void rl_draw_map(uint16_t *fb, int y0);
 void rl_blit_cell(uint16_t *fb, int sheet, int cell, int x, int y);
+void rl_blit_cell_tint(uint16_t *fb, int sheet, int cell, int x, int y,
+                       uint16_t col);
 void rl_text(uint16_t *fb, const char *s, int x, int y, uint16_t col);
 void rl_text_big(uint16_t *fb, const char *s, int x, int y, uint16_t col);
 void rl_num(uint16_t *fb, int32_t v, int x, int y, uint16_t col);

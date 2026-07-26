@@ -155,6 +155,7 @@ static void new_game(int cls) {
         const char *d = getenv("MOTE_RL_DEPTH");
         const char *l = getenv("MOTE_RL_LEVEL");
         const char *g = getenv("MOTE_RL_GEAR");
+        const char *rv = getenv("MOTE_RL_REVEAL");
         if (l) {
             int want = atoi(l);
             while (g_pl.level < want && g_pl.level < 50) rl_gain_xp(g_pl.xp + 20);
@@ -169,11 +170,13 @@ static void new_game(int cls) {
             rl_make_item_kind(&it, ITM_STEEL_ARROW, 10); it.qty = 40;
             g_pl.inv_ammo = (int8_t)rl_inv_add(&it);
         }
+        if (rv) for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
         if (d) {
             int depth = atoi(d);
             if (depth > 0) {
                 g_pl.deepest = (uint8_t)depth;
                 enter_depth(depth);
+                if (rv) for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
             }
         }
     }
@@ -426,7 +429,16 @@ static void g_update(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_DOWN))  s_menu += 3;
         if (s_menu < 0) s_menu += g_class_n;
         if (s_menu >= g_class_n) s_menu -= g_class_n;
-        if (mote_just_pressed(in, MOTE_BTN_A)) { new_game(s_menu); s_state = ST_PLAY; }
+        if (mote_just_pressed(in, MOTE_BTN_A)) {
+            int cls = s_menu;
+#if MOTE_HOST
+            /* MOTE_RL_CLASS=n picks the class, so a screenshot of the spell
+             * page does not depend on which row the cursor happened to be on */
+            { const char *c = getenv("MOTE_RL_CLASS");
+              if (c) { int v = atoi(c); if (v >= 0 && v < g_class_n) cls = v; } }
+#endif
+            new_game(cls); s_state = ST_PLAY;
+        }
         if (mote_just_pressed(in, MOTE_BTN_B)) s_state = ST_TITLE;
         return;
     }

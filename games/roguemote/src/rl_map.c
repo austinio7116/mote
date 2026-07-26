@@ -53,9 +53,7 @@ Mon *rl_mon_at(int x, int y) {
 }
 
 /* --- generation --------------------------------------------------------- */
-/* Scaled with the map. Twenty rooms in a 128x96 dungeon is a lot of rock and
- * very little floor. */
-#define MAX_ROOM 40
+#define MAX_ROOM 20
 enum { RM_PLAIN = 0, RM_L, RM_PILLARED, RM_VAULT };
 typedef struct { uint8_t x, y, w, h, kind, dark, bud; } Room;
 static Room  s_room[MAX_ROOM];
@@ -195,7 +193,7 @@ static int place_budded(Room *rm, int w, int h) {
         else if (side == 1) { x = o->x - w - 1; y = o->y - h + 2 + rl_range(o->h + h - 3); }
         else if (side == 2) { y = o->y + o->h + 1; x = o->x - w + 2 + rl_range(o->w + w - 3); }
         else                { y = o->y - h - 1;    x = o->x - w + 2 + rl_range(o->w + w - 3); }
-        if (x < 1 || y < 1 || x + w >= MW - 1 || y + h >= MH - 1) continue;
+        if (x < 1 || y < 1 || x + w >= DUN_W - 1 || y + h >= DUN_H - 1) continue;
         if (!room_free(x, y, w, h)) continue;
         rm->x = (uint8_t)x; rm->y = (uint8_t)y;
         rm->w = (uint8_t)w; rm->h = (uint8_t)h;
@@ -218,8 +216,8 @@ static int in_any_room(int x, int y) {
  * punched here since the first commit; nothing ever punched them, so
  * MK_OPEN_DOOR and the whole T_DOOR_CLOSED path were dead code. */
 static void place_doors(int depth) {
-    for (int y = 1; y < MH - 1; y++) {
-        for (int x = 1; x < MW - 1; x++) {
+    for (int y = 1; y < DUN_H - 1; y++) {
+        for (int x = 1; x < DUN_W - 1; x++) {
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             if (in_any_room(x, y)) continue;
             int horiz = rl_ter(x - 1, y) == T_WALL && rl_ter(x + 1, y) == T_WALL;
@@ -240,7 +238,7 @@ static void place_rubble(int depth) {
     if (n > 14) n = 14;
     for (int i = 0; i < n; i++) {
         for (int tries = 0; tries < 40; tries++) {
-            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            int x = 1 + rl_range(DUN_W - 2), y = 1 + rl_range(DUN_H - 2);
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             if (in_any_room(x, y)) continue;
             if (x == g_pl.x && y == g_pl.y) continue;
@@ -267,7 +265,7 @@ static void widen(int x, int y) {
     static const int8_t dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
     int d = rl_range(4);
     int nx = x + dx[d], ny = y + dy[d];
-    if (nx > 0 && nx < MW - 1 && ny > 0 && ny < MH - 1 &&
+    if (nx > 0 && nx < DUN_W - 1 && ny > 0 && ny < DUN_H - 1 &&
         g_lv.terrain[ny * MW + nx] == T_WALL)
         g_lv.terrain[ny * MW + nx] = T_FLOOR;
 }
@@ -524,7 +522,7 @@ static void place_levers(int depth) {
         int as_chest = rl_pct(50);
         int dx = -1, dy = -1;
         for (int t = 0; t < 900; t++) {
-            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            int x = 1 + rl_range(DUN_W - 2), y = 1 + rl_range(DUN_H - 2);
             if (as_chest) {
                 if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
                 if (!(g_lv.flags[y * MW + x] & CF_ROOM)) continue;
@@ -547,7 +545,7 @@ static void place_levers(int depth) {
 
         int lx = -1, ly = -1;
         for (int t = 0; t < 1500; t++) {
-            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            int x = 1 + rl_range(DUN_W - 2), y = 1 + rl_range(DUN_H - 2);
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             if (!(g_lv.flags[y * MW + x] & CF_ROOM)) continue;   /* in a room */
             if (!g_lv.layer[y * MW + x]) continue;               /* our side */
@@ -605,8 +603,8 @@ void rl_gen_level(int depth) {
     /* Room count and size vary by floor mood, so a level is a warren of little
      * cells or a handful of halls rather than always the same nine boxes. */
     int warren = rl_pct(30);
-    int want = warren ? 26 + rl_range(13) : 15 + rl_range(11);
-    for (int tries = 0; tries < 900 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
+    int want = warren ? 13 + rl_range(7) : 7 + rl_range(6);
+    for (int tries = 0; tries < 400 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
         int w = warren ? 3 + rl_range(4) : 4 + rl_range(8);
         int h = warren ? 3 + rl_range(3) : 3 + rl_range(6);
         Room *rm = &s_room[s_nroom];
@@ -616,7 +614,7 @@ void rl_gen_level(int depth) {
          * is the whole fix -- every room connected by its own corridor is what
          * made a floor read as a pipe network with chambers bolted on. */
         if (!(rl_pct(55) && place_budded(rm, w, h))) {
-            int x = 1 + rl_range(MW - w - 2), y = 1 + rl_range(MH - h - 2);
+            int x = 1 + rl_range(DUN_W - w - 2), y = 1 + rl_range(DUN_H - h - 2);
             if (room_overlaps(x, y, w, h)) continue;
             rm->x = (uint8_t)x; rm->y = (uint8_t)y;
             rm->w = (uint8_t)w; rm->h = (uint8_t)h;
