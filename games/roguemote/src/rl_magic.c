@@ -254,6 +254,89 @@ static void ball_at(int cx, int cy, int power, int radius) {
  * Returns 1 if the attempt consumed the turn (including a fumble), 0 if the
  * cast was rejected before it began -- the caller needs that to decide whether
  * the world should advance. */
+/* --- ranged combat -------------------------------------------------------
+ *
+ * This lives beside the spells rather than beside melee because everything it
+ * needs is already here: a target picker that respects the field of view, the
+ * bolt effect that draws the flight line, and the damage path that handles the
+ * kill. An arrow IS a bolt with a physical cost.
+ *
+ * Angband's damage model, which is worth copying exactly because it is what
+ * makes a launcher an investment rather than a flat bonus:
+ *
+ *     damage = (ammo dice + ammo to_dam + bow to_dam) * bow multiplier
+ *
+ * The multiplier is the whole point. A x4 arbalest turns a good bolt into a
+ * great one and a bad bolt into a mediocre one, so the launcher and the
+ * ammunition are two separate shopping decisions that multiply together.
+ *
+ * Thrown ammunition -- darts and throwing stars -- needs no launcher and gets
+ * a x2 for the throw, so a character with no bow still has something to do at
+ * range and something to spend early gold on. */
+#define THROW_MULT 2
+
+int rl_can_fire(void) {
+    if (g_pl.inv_ammo < 0 || !g_pl.inv[g_pl.inv_ammo].qty) return 0;
+    const ItemKind *am = &g_item_kind[g_pl.inv[g_pl.inv_ammo].kind];
+    if (am->tv != TV_AMMO) return 0;
+    if (!am->ac) return 1;                       /* thrown: no launcher wanted */
+    return g_pl.inv_bow >= 0 && g_pl.inv[g_pl.inv_bow].qty;
+}
+
+int rl_fire(void) {
+    if (g_pl.inv_ammo < 0 || !g_pl.inv[g_pl.inv_ammo].qty) {
+        rl_msg("Nothing to shoot."); return 0;
+    }
+    Item *ammo = &g_pl.inv[g_pl.inv_ammo];
+    const ItemKind *am = &g_item_kind[ammo->kind];
+    if (am->tv != TV_AMMO) { rl_msg("Nothing to shoot."); return 0; }
+
+    Item *bow = 0;
+    if (am->ac) {                                 /* this shot wants a launcher */
+        if (g_pl.inv_bow < 0 || !g_pl.inv[g_pl.inv_bow].qty) {
+            rl_msg2("You need a bow for ", am->name); return 0;
+        }
+        bow = &g_pl.inv[g_pl.inv_bow];
+    }
+
+    Mon *tgt = nearest_target();
+    if (!tgt) { rl_msg("No target in sight."); return 0; }
+
+    int mult   = bow ? g_item_kind[bow->kind].ac : THROW_MULT;
+    int to_hit = 32 + g_pl.level * 2 + rl_stat(3) + ammo->to_hit * 3
+               + (bow ? bow->to_hit * 3 : 0);
+
+    /* spend the shot whether or not it lands -- a miss costs an arrow */
+    if (--ammo->qty == 0) g_pl.inv_ammo = -1;
+
+    fx_start(SP_BOLT, 0, g_pl.x, g_pl.y, tgt->x, tgt->y,
+             MOTE_RGB565(235, 225, 200));
+
+    int roll = rl_range(100) + 1;
+    if (roll > to_hit - rl_mon_ac(tgt) * 2) {
+        rl_msg2(am->name, " goes wide.");
+    } else {
+        int dam = (rl_dice(am->dice_d, am->dice_s) + ammo->to_dam
+                   + (bow ? bow->to_dam : 0)) * mult;
+        if (dam < 1) dam = 1;
+        int alive = tgt->hp > dam;
+        rl_msgf("Hit for %d!", dam);
+        damage_mon(tgt, dam);
+        (void)alive;
+    }
+
+    /* Half of what you loose is recoverable, so the quiver is a thing you
+     * manage rather than a resource that only ever drains. It drops where the
+     * shot landed, which is also where you were already going. */
+    if (rl_pct(50) && g_lv.n_item < MAX_ITEM && !rl_item_at(tgt->x, tgt->y)) {
+        Item *drop = &g_lv.item[g_lv.n_item++];
+        *drop = *ammo;
+        drop->qty = 1;
+        drop->x = tgt->x; drop->y = tgt->y;
+    }
+    return 1;
+}
+
 int rl_cast(int idx) {
     if (idx < 0 || idx >= g_spell_n) return 0;
     const Spell *sp = &g_spell[idx];

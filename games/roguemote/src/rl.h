@@ -55,6 +55,8 @@ enum {
     SH_DUNGEON,       /* dungeon_mono        16x3  patterned floors */
     SH_STAIRS,        /* stairs               8x1  four colour staircases */
     SH_JEWEL,         /* jewellery            5x4  rings, amulets, earrings */
+    SH_AMMO,          /* ammo                 3x1  arrow, dart, throwing star */
+    SH_DEVICE,        /* devices              8x2  lamps, instruments, tools */
     SH_COUNT
 };
 
@@ -101,6 +103,7 @@ typedef struct {
     uint8_t  depth;            /* 0 = overworld, 1.. = dungeon */
     uint8_t  light;            /* derived from inv_light; see rl_player_light */
     int8_t   inv_wield, inv_body, inv_ring, inv_light;
+    int8_t   inv_bow, inv_ammo;      /* launcher and quiver; -1 when empty */
     Item     inv[INV_N];
     int16_t  haste;            /* turns of speed potion left */
     int16_t  bless;            /* turns of Bless/heroism left; see rl_player_ac */
@@ -153,9 +156,11 @@ void rl_mon_attack_player(Mon *m);
 void rl_kill_mon(Mon *m);
 void rl_gain_xp(int32_t amount);
 int  rl_mon_hp_dice(const Mon *m, int *d, int *s);
+int  rl_mon_ac(const Mon *m);
 
 /* --- items -------------------------------------------------------------- */
-enum { TV_WEAPON = 0, TV_ARMOUR, TV_POTION, TV_SCROLL, TV_WAND, TV_RING, TV_FOOD, TV_LIGHT };
+enum { TV_WEAPON = 0, TV_ARMOUR, TV_POTION, TV_SCROLL, TV_WAND, TV_RING, TV_FOOD,
+       TV_LIGHT, TV_BOW, TV_AMMO, TV_TOOL };
 
 /* Enchantment ceiling. Scrolls of enchantment are unlimited and priced off
  * the base item, so without a cap a stack of them on a costly weapon is a gold
@@ -209,6 +214,8 @@ enum { EF_CURE_LIGHT = 0, EF_CURE_SERIOUS, EF_FULL_HEAL, EF_MANA, EF_SPEED,
        EF_W_MISSILE, EF_W_FIRE, EF_W_FROST, EF_W_DRAIN,
 /* ring effects */
        EF_R_PROT, EF_R_STR, EF_R_INT, EF_R_SPEED, EF_R_REGEN,
+/* device effects -- the adventuring gear on source rows 5-6 */
+       EF_DETECT, EF_SCARE, EF_LULL, EF_UNLOCK,
        EF_NONE };
 
 /* Item ids. Boss drops, class kits and the starting pack reference kinds BY
@@ -222,6 +229,12 @@ enum ItemId {
     ITM_SPEAR, ITM_MACE, ITM_LONG_SWORD, ITM_WAR_HAMMER, ITM_MORNING_STAR,
     ITM_BROAD_SWORD, ITM_BATTLE_AXE, ITM_GILDED_BLADE, ITM_TRIDENT,
     ITM_GREAT_AXE, ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS,
+    /* launchers */
+    ITM_SHORT_BOW, ITM_LIGHT_XBOW, ITM_LONG_BOW, ITM_HEAVY_XBOW, ITM_ARBALEST,
+    ITM_BOW_FROST, ITM_BOW_FLAME,
+    /* ammunition */
+    ITM_ARROW, ITM_STEEL_ARROW, ITM_SEEKER_ARROW,
+    ITM_DART, ITM_SILVER_DART, ITM_THROWING_STAR, ITM_RAZOR_STAR,
     /* armour */
     ITM_LEATHER_CAP, ITM_IRON_HELM, ITM_KETTLE_HELM, ITM_STEEL_HELM,
     ITM_GREAT_HELM, ITM_GOLDEN_HELM,
@@ -246,7 +259,12 @@ enum ItemId {
     ITM_DRIED_FISH, ITM_HONEY_CAKE, ITM_MEAT_PIE, ITM_HEARTY_MEAL,
     ITM_FLASK_OF_MILK,
     /* light */
-    ITM_TORCH, ITM_LANTERN,
+    ITM_TORCH, ITM_LANTERN, ITM_BRASS_LAMP, ITM_EVER_LAMP,
+    /* devices: tools and the instrument family. THIS ORDER IS THE TABLE'S
+     * ORDER -- ITM_N only checks the two are the same LENGTH, so a name added
+     * here in the wrong place silently repoints every id after it. */
+    ITM_CRYSTAL_BALL, ITM_LOCKPICK, ITM_RADIO, ITM_HOURGLASS, ITM_CAMERA,
+    ITM_LOOKING_GLASS, ITM_HARP, ITM_BELL, ITM_BUGLE, ITM_DRUM, ITM_GRAPNEL,
     ITM_N
 };
 
@@ -266,6 +284,7 @@ void rl_starting_kit(int cls);     /* rolls a pack that suits the class */
 int  rl_chest_tier(int x, int y);
 int  rl_chest_cell(int x, int y, int open);
 void rl_open_chest(int x, int y);
+void rl_open_chest_safely(int x, int y);
 Item *rl_item_at(int x, int y);
 int  rl_inv_add(const Item *src);
 void rl_pickup(void);
@@ -283,12 +302,14 @@ int  rl_player_light(void);
  * screen equipped it -- because that path never went near rl_use_item. */
 int  rl_stat(int i);
 int  rl_player_speed(void);
+int  rl_fire(void);            /* loose one shot at the nearest thing in sight */
+int  rl_can_fire(void);        /* a launcher with matching ammo, or thrown ammo */
 int  rl_ego_flags(void);       /* OR of the ego powers on everything worn */
 
 /* --- equipment ----------------------------------------------------------
  * Four slots. `rl_slot_ptr` hands back the int8_t the slot lives in, so the
  * gear screen can read and clear a slot without a switch in three places. */
-enum { EQ_WIELD = 0, EQ_BODY, EQ_RING, EQ_LIGHT, EQ_N };
+enum { EQ_WIELD = 0, EQ_BODY, EQ_RING, EQ_LIGHT, EQ_BOW, EQ_AMMO, EQ_N };
 int8_t *rl_slot_ptr(int slot);
 int  rl_slot_accepts(int slot, int tv);
 const char *rl_slot_name(int slot);

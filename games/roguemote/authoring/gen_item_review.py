@@ -49,10 +49,12 @@ ORIGIN = {
     "armour_set":        (16, 21),
     "trinkets":          (0, 8),
     "jewellery":         (25, 23),
+    "ammo":              (25, 0),
+    "devices":           (24, 5),
 }
 MACRO = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",
          "O": "treasure_ore", "G": "crowns_fx", "F": "food", "R": "runes",
-         "L": "armour_set", "K": "trinkets", "J": "jewellery"}
+         "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices"}
 TV_LABEL = {"WEAPON": "Weapons", "ARMOUR": "Armour", "POTION": "Potions",
             "SCROLL": "Scrolls", "WAND": "Wands", "RING": "Rings",
             "FOOD": "Food", "LIGHT": "Light"}
@@ -76,7 +78,7 @@ body = item_c[item_c.index("g_item_kind[]"):item_c.index("};", item_c.index("g_i
 body = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
 
 ITEM_RE = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*TV_(\w+)\s*,'
+    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJAD])\((\d+)\)\s*,\s*TV_(\w+)\s*,'
     r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*EF_(\w+)\s*\}"
 )
 items = []

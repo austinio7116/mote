@@ -96,6 +96,8 @@ static const int DY[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
 #define ROW_Y0  14
 #define ROW_H   10
 #define ROWS    10
+/* the gear screen's own row pitch -- six slots have to fit above the totals */
+#define GEAR_H  17
 
 /* --- new game ----------------------------------------------------------- */
 static void enter_depth(int d);
@@ -123,6 +125,7 @@ static void new_game(int cls) {
     g_pl.kills = 0; g_pl.deepest = 0; g_pl.bosses_slain = 0;
     g_pl.wx = g_pl.wy = 0;
     g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
+    g_pl.inv_bow = g_pl.inv_ammo = -1;
     g_turn = 0;
 
     /* Flavours are shuffled from the world seed, not the live RNG, so a save
@@ -151,9 +154,20 @@ static void new_game(int cls) {
     {
         const char *d = getenv("MOTE_RL_DEPTH");
         const char *l = getenv("MOTE_RL_LEVEL");
+        const char *g = getenv("MOTE_RL_GEAR");
         if (l) {
             int want = atoi(l);
             while (g_pl.level < want && g_pl.level < 50) rl_gain_xp(g_pl.xp + 20);
+        }
+        /* MOTE_RL_GEAR=bow hands over a launcher and a quiver whatever the class
+         * rolled, so ranged combat can be exercised without playing a Ranger to
+         * the right floor first. */
+        if (g && g[0] == 'b') {
+            Item it;
+            rl_make_item_kind(&it, ITM_LONG_BOW, 10);   it.qty = 1;
+            g_pl.inv_bow  = (int8_t)rl_inv_add(&it);
+            rl_make_item_kind(&it, ITM_STEEL_ARROW, 10); it.qty = 40;
+            g_pl.inv_ammo = (int8_t)rl_inv_add(&it);
         }
         if (d) {
             int depth = atoi(d);
@@ -342,7 +356,15 @@ static void update_play(const MoteInput *in, uint32_t dt_ms) {
 
     if (mote_just_pressed(in, MOTE_BTN_B)) { s_want_turn = 1; dir = -1; }   /* wait */
     if (mote_just_pressed(in, MOTE_BTN_A)) { act_context(); s_want_turn = 0; }
-    if (mote_just_pressed(in, MOTE_BTN_RB) && !diag) { tab_go(2); return; }   /* SPELL */
+    /* RB looses a shot if you have something to shoot, and opens the spell page
+     * if you do not. Whether a character carries ammunition is a fact about the
+     * character rather than about the moment, so the button does not change
+     * meaning under you mid-fight -- and an archer needs this every turn, while
+     * the spell page is two presses away through the menu regardless. */
+    if (mote_just_pressed(in, MOTE_BTN_RB) && !diag) {
+        if (rl_can_fire()) { if (rl_fire()) s_want_turn = 1; }
+        else { tab_go(2); return; }
+    }
     /* MENU cycles PACK -> CHARACTER -> MAP -> play. A chord would be cheaper
      * in code and undiscoverable on a handheld with no manual. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
@@ -618,40 +640,49 @@ static void draw_gear(uint16_t *fb) {
     panel_tabs(fb);
     rl_blit_cell(fb, SH_CHARACTERS, g_class[g_pl.cls].cell, 116, 2);
 
+    /* Six slots on a 128px screen. At nineteen pixels a row the last one -- the
+     * quiver -- fell off the bottom edge, which is the slot an archer looks at
+     * most. Seventeen fits all six and still leaves the totals line room. */
     for (int i = 0; i < EQ_N; i++) {
-        int y = 15 + i * 19;
+        int y = 15 + i * GEAR_H;
         if (i == s_menu)
-            mote->draw_rect(fb, 0, y, MOTE_FB_W, 19, COL_SEL, 1, 0, MOTE_FB_H);
-        rl_text(fb, rl_slot_name(i), 14, y + 2, COL_GOLD);
+            mote->draw_rect(fb, 0, y, MOTE_FB_W, GEAR_H, COL_SEL, 1, 0, MOTE_FB_H);
+        rl_text(fb, rl_slot_name(i), 14, y + 1, COL_GOLD);
 
         int idx = *rl_slot_ptr(i);
         if (idx < 0 || !g_pl.inv[idx].qty) {
-            rl_text(fb, "- empty -", 14, y + 10, COL_DIM);
+            rl_text(fb, "- empty -", 14, y + 9, COL_DIM);
             continue;
         }
         const Item *it = &g_pl.inv[idx];
         const ItemKind *ik = &g_item_kind[it->kind];
-        rl_blit_cell(fb, ik->sheet, ik->cell, 3, y + 5);
+        rl_blit_cell(fb, ik->sheet, ik->cell, 3, y + 4);
         char nm[26]; rl_item_name(it, nm, sizeof nm);
-        rl_text(fb, nm, 14, y + 10,
+        rl_text(fb, nm, 14, y + 9,
                 (it->flags & IF_CURSED) ? MOTE_RGB565(220, 90, 90) : COL_TEXT);
 
         /* what this one piece is worth, on the right */
         if (i == EQ_WIELD) {
-            rl_num(fb, ik->dice_d, 100, y + 2, COL_DIM);
-            rl_text(fb, "d", 105, y + 2, COL_DIM);
-            rl_num(fb, ik->dice_s, 110, y + 2, COL_DIM);
+            rl_num(fb, ik->dice_d, 100, y + 1, COL_DIM);
+            rl_text(fb, "d", 105, y + 1, COL_DIM);
+            rl_num(fb, ik->dice_s, 110, y + 1, COL_DIM);
         } else if (i == EQ_BODY) {
-            rl_text(fb, "+", 104, y + 2, COL_DIM);
-            rl_num(fb, ik->ac + it->to_ac, 109, y + 2, COL_DIM);
+            rl_text(fb, "+", 104, y + 1, COL_DIM);
+            rl_num(fb, ik->ac + it->to_ac, 109, y + 1, COL_DIM);
         } else if (i == EQ_LIGHT) {
-            rl_text(fb, "r", 104, y + 2, COL_DIM);
-            rl_num(fb, ik->ac, 109, y + 2, COL_DIM);
+            rl_text(fb, "r", 104, y + 1, COL_DIM);
+            rl_num(fb, ik->ac, 109, y + 1, COL_DIM);
+        } else if (i == EQ_BOW) {
+            /* the multiplier, which is the whole reason one bow beats another */
+            rl_text(fb, "x", 104, y + 1, COL_DIM);
+            rl_num(fb, ik->ac, 109, y + 1, COL_DIM);
+        } else if (i == EQ_AMMO) {
+            rl_num(fb, it->qty, 104, y + 1, COL_GOLD);   /* shots left */
         }
     }
 
     /* the totals: this is the number a swap is actually about */
-    int yy = 15 + EQ_N * 19 + 2;
+    int yy = 15 + EQ_N * GEAR_H + 2;
     mote->draw_line(fb, 0, yy - 2, MOTE_FB_W - 1, yy - 2, COL_EDGE, 0, MOTE_FB_H);
     int d, sd, b; rl_player_weapon_dice(&d, &sd, &b);
     rl_text(fb, "Blow", 3, yy, COL_DIM);

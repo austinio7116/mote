@@ -78,7 +78,21 @@ SPRITE_SHEETS = {
     "props_light":       (0, 6, 9, 9),     # terminals, logs, planks, fences, bridges, house, igloo, torches
     "trinkets":          (0, 8, 15, 13),   # slimes, gems, mushrooms, snakes, rocks, clouds, bushes, books
     # --- items (cols 16-31) ---
-    "weapons_potions":   (16, 0, 23, 5),   # swords, spears, bows + potions/flasks
+    # Row 6 is included for the lantern at (18,6) -- the real one, a framed
+    # flame with a carry handle, sitting directly under the present box. The
+    # lantern used to point at trinkets (12,8), which is a goblet of water.
+    # Extending DOWN is safe: the sheet is row-major at a fixed width of 8, so
+    # every existing cell index is unchanged and row 6 becomes cells 48-55.
+    "weapons_potions":   (16, 0, 23, 6),   # swords, spears, bows + potions/flasks
+    # Ammunition. Three cells, and they are all there is: an arrow, a dart and a
+    # throwing star, sitting in the mixed-oddments row outside every other
+    # subsheet. The fletched things at (16,0)-(16,3) that look like arrows at
+    # thumbnail size are SYRINGES, and (30,29)/(30,33) are flails.
+    "ammo":              (25, 0, 27, 0),   # arrow, dart, throwing star
+    # Adventuring gear, two rows of it, in the mixed-oddments block: two lamps
+    # each drawn lit and unlit, then a crystal ball, lockpick, radio, hourglass,
+    # camera, looking glass, harp, bell, bugle, drum and grappling hook.
+    "devices":           (24, 5, 31, 6),   # lamps, instruments, tools
     "food":              (16, 8, 27, 13),  # meat, fruit, bread, pie, egg + chef
     "treasure_ore":      (16, 16, 27, 19), # gold/silver/copper ore, gems, crown, armour/helmets
     # ONE armour set: seven pieces across the columns (open helm, great helm,

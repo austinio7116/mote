@@ -39,6 +39,8 @@
 #include "dungeon_mono.h"
 #include "stairs.h"
 #include "jewellery.h"
+#include "ammo.h"
+#include "devices.h"
 #include "rogue8.font.h"
 
 /* Order must match the SH_* enum in rl.h. */
@@ -49,6 +51,7 @@ static const MoteImage *const s_sheet[SH_COUNT] = {
     &armour_set_img, &trinkets_img, &props_light_img,
     &doors_gems_banners_img, &chests_img, &boulders_mountains_img,
     &fx_mono_img, &dungeon_mono_img, &stairs_img, &jewellery_img,
+    &ammo_img, &devices_img,
 };
 
 const MoteImage *rl_sheet(int id) {

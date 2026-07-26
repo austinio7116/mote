@@ -72,7 +72,7 @@ SH_NAMES = [
     "tools_wands", "weapons_elemental", "treasure_ore", "crowns_fx", "food",
     "runes", "armour_set", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
-    "dungeon_mono", "stairs", "jewellery",
+    "dungeon_mono", "stairs", "jewellery", "ammo", "devices",
 ]
 SH_BY_NAME = {n: i for i, n in enumerate(SH_NAMES)}
 
@@ -118,8 +118,8 @@ def build():
     ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands",
                   "E": "weapons_elemental", "O": "treasure_ore",
                   "G": "crowns_fx", "F": "food", "R": "runes",
-                  "L": "armour_set", "K": "trinkets", "J": "jewellery"}
-    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*(TV_\w+)',
+                  "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices"}
+    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJAD])\((\d+)\)\s*,\s*(TV_\w+)',
                          table(item_c, "g_item_kind[]")):
         add(ITEM_SHEET[m.group(2)], int(m.group(3)),
             "item(%s): %s" % (m.group(4)[3:].lower(), m.group(1)))

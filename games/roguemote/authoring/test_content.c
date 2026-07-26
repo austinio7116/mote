@@ -89,6 +89,7 @@ static void fresh_player(void) {
     g_pl.stat[0] = 16; g_pl.stat[1] = 16; g_pl.stat[2] = 16;
     g_pl.stat[3] = 11; g_pl.stat[4] = 16; g_pl.stat[5] = 16;
     g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
+    g_pl.inv_bow = g_pl.inv_ammo = -1;
     arena();
 }
 
@@ -99,6 +100,20 @@ static int give(int kind, int qty) {
     it->kind = (uint8_t)kind;
     it->qty = (uint8_t)qty;
     return 0;
+}
+
+/* The same, into the first FREE slot. Ranged combat needs a launcher and a
+ * quiver held at once, and give() would drop the second on top of the first. */
+static int give_free(int kind, int qty) {
+    for (int i = 0; i < INV_N; i++) {
+        if (g_pl.inv[i].qty) continue;
+        Item *it = &g_pl.inv[i];
+        memset(it, 0, sizeof *it);
+        it->kind = (uint8_t)kind;
+        it->qty = (uint8_t)qty;
+        return i;
+    }
+    return -1;
 }
 
 static Mon *plant(int x, int y, int kind, int hp) {
@@ -121,8 +136,9 @@ static int mon_named(const char *n) {
     return -1;
 }
 static const char *tv_name(int tv) {
-    static const char *const n[] = { "weapon","armour","potion","scroll","wand","ring","food","light" };
-    return tv < 8 ? n[tv] : "?";
+    static const char *const n[] = { "weapon","armour","potion","scroll","wand","ring",
+                                     "food","light","bow","ammo","tool" };
+    return tv < (int)(sizeof n / sizeof n[0]) ? n[tv] : "?";
 }
 
 /* =========================================================================
@@ -137,7 +153,7 @@ static void test_table(void) {
         const ItemKind *k = &g_item_kind[i];
         CHECKF(k->name && k->name[0], "name present", "item %d", i);
         CHECKF(k->sheet < SH_COUNT, "sheet in range", "%s sheet=%d", k->name, k->sheet);
-        CHECKF(k->tv <= TV_LIGHT, "tv in range", "%s tv=%d", k->name, k->tv);
+        CHECKF(k->tv <= TV_TOOL, "tv in range", "%s tv=%d", k->name, k->tv);
         CHECKF(k->cost > 0, "cost is positive", "%s cost=%d", k->name, k->cost);
         CHECKF(k->lvl > 0, "level is positive", "%s lvl=%d", k->name, k->lvl);
 
@@ -180,11 +196,18 @@ static void test_table(void) {
         }
     }
 
-    /* Two items on one sprite is the failure that put the rings on cut gems. */
+    /* Two items on one sprite is the failure that put the rings on cut gems.
+     *
+     * Ammunition is the one exemption, and it is deliberate: the tileset holds
+     * exactly three ammo cells -- an arrow, a dart and a throwing star -- so
+     * the tiers are built on stats and names over shared art, the way Angband
+     * stacks arrow / seeker arrow / mithril arrow on one glyph. Everything
+     * else must own its cell. */
     for (int i = 0; i < g_item_kind_n; i++)
         for (int j = i + 1; j < g_item_kind_n; j++)
             if (g_item_kind[i].sheet == g_item_kind[j].sheet &&
-                g_item_kind[i].cell  == g_item_kind[j].cell)
+                g_item_kind[i].cell  == g_item_kind[j].cell &&
+                !(g_item_kind[i].tv == TV_AMMO && g_item_kind[j].tv == TV_AMMO))
                 CHECKF(0, "art is unique", "%s and %s share sheet %d cell %d",
                        g_item_kind[i].name, g_item_kind[j].name,
                        g_item_kind[i].sheet, g_item_kind[i].cell);
@@ -1125,9 +1148,9 @@ static int shop_wants_tv(int shop, int tv) {
     switch (shop) {
     case 0: return tv == TV_FOOD || tv == TV_LIGHT;
     case 1: return tv == TV_ARMOUR;
-    case 2: return tv == TV_WEAPON;
+    case 2: return tv == TV_WEAPON || tv == TV_BOW || tv == TV_AMMO;
     case 3: return tv == TV_POTION;
-    case 4: return tv == TV_SCROLL || tv == TV_WAND;
+    case 4: return tv == TV_SCROLL || tv == TV_WAND || tv == TV_TOOL;
     default: return tv == TV_RING || tv == TV_WAND;
     }
 }
@@ -1167,7 +1190,10 @@ static void test_shops(void) {
                     /* the enchantment must belong to THIS item: rl_make_item
                      * rolled a different kind and then had `kind` overwritten,
                      * so consumables arrived enchanted and cursed */
-                    if (ik->tv != TV_WEAPON && ik->tv != TV_ARMOUR)
+                    /* Launchers and ammunition enchant on purpose; what must
+                     * never enchant is a ration or a potion. */
+                    if (ik->tv != TV_WEAPON && ik->tv != TV_ARMOUR &&
+                        ik->tv != TV_BOW && ik->tv != TV_AMMO)
                         CHECKF(it->to_hit == 0 && it->to_dam == 0 && it->to_ac == 0 && it->ego == 0,
                                "a consumable carries no enchantment",
                                "%s in %s: +%d/+%d/+%d ego %d", ik->name, g_shop_name[s],
@@ -1335,6 +1361,167 @@ static void test_starting_kit(void) {
                "%s never drew its %s", ck->name, g_item_kind[ck->start_weapon].name);
         CHECKF(max_items > min_items, "the kit size varies",
                "%s always has %d items", ck->name, min_items);
+    }
+}
+
+/* =========================================================================
+ * 15. Ranged combat and devices
+ * ====================================================================== */
+static void test_ranged(void) {
+    group("ranged");
+
+    int n_bow = 0, n_ammo = 0, n_thrown = 0, n_tool = 0;
+    for (int i = 0; i < g_item_kind_n; i++) {
+        const ItemKind *k = &g_item_kind[i];
+        if (k->tv == TV_BOW) {
+            n_bow++;
+            CHECKF(k->ac >= 2 && k->ac <= 5, "a launcher has a sane multiplier",
+                   "%s x%d", k->name, k->ac);
+        }
+        if (k->tv == TV_AMMO) {
+            n_ammo++;
+            if (!k->ac) n_thrown++;
+            CHECKF(k->dice_d >= 1 && k->dice_s >= 1, "ammunition has damage dice",
+                   "%s %dd%d", k->name, k->dice_d, k->dice_s);
+        }
+        if (k->tv == TV_TOOL) n_tool++;
+    }
+    CHECKF(n_bow >= 4, "there is a range of launchers", "%d", n_bow);
+    CHECKF(n_ammo >= 6, "there is a range of ammunition", "%d", n_ammo);
+    CHECKF(n_thrown >= 2, "some ammunition needs no launcher", "%d", n_thrown);
+    CHECKF(n_tool >= 8, "there is a range of devices", "%d", n_tool);
+
+    /* --- what can and cannot be fired ---------------------------------- */
+    fresh_player();
+    CHECKF(!rl_can_fire(), "an empty quiver cannot fire", "-");
+    g_pl.inv_ammo = (int8_t)give_free(ITM_ARROW, 10);
+    CHECKF(!rl_can_fire(), "arrows without a bow cannot fire", "-");
+    g_pl.inv_bow = (int8_t)give_free(ITM_SHORT_BOW, 1);
+    CHECKF(rl_can_fire(), "arrows with a bow can fire", "-");
+
+    fresh_player();
+    g_pl.inv_ammo = (int8_t)give(ITM_DART, 10);
+    CHECKF(rl_can_fire(), "a thrown weapon needs no bow", "-");
+
+    /* --- firing spends the shot and can kill --------------------------- */
+    {
+        fresh_player();
+        g_pl.inv_bow  = (int8_t)give_free(ITM_ARBALEST, 1);
+        g_pl.inv_ammo = (int8_t)give_free(ITM_SEEKER_ARROW, 40);
+        g_seed = 8181;
+        int ammo_slot = g_pl.inv_ammo;
+        int before = g_pl.inv[ammo_slot].qty;
+        plant(g_pl.x + 4, g_pl.y, 0, 400);
+        CHECKF(rl_fire() == 1, "a shot at a visible target is taken", "%s", s_last);
+        CHECKF(g_pl.inv[ammo_slot].qty == before - 1 || g_pl.inv_ammo < 0,
+               "firing spends one shot", "%d from %d", g_pl.inv[ammo_slot].qty, before);
+
+        /* no target: the shot must NOT be spent */
+        fresh_player();
+        g_pl.inv_bow  = (int8_t)give_free(ITM_ARBALEST, 1);
+        g_pl.inv_ammo = (int8_t)give_free(ITM_ARROW, 5);
+        g_lv.n_mon = 0;
+        int q = g_pl.inv[g_pl.inv_ammo].qty;
+        CHECKF(rl_fire() == 0, "firing at nothing is refused", "%s", s_last);
+        CHECKF(g_pl.inv[g_pl.inv_ammo].qty == q, "a refused shot is not spent",
+               "%d from %d", g_pl.inv[g_pl.inv_ammo].qty, q);
+    }
+
+    /* --- the multiplier is what makes a launcher worth buying ---------- */
+    {
+        int64_t weak = 0, strong = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            fresh_player();
+            g_pl.inv_bow  = (int8_t)give_free(pass ? ITM_ARBALEST : ITM_SHORT_BOW, 1);
+            g_pl.inv_ammo = (int8_t)give_free(ITM_ARROW, 250);
+            g_seed = 4242;
+            Mon *m = plant(g_pl.x + 3, g_pl.y, 0, 30000);
+            int hp0 = m->hp;
+            for (int i = 0; i < 200; i++) { m->hp = (int16_t)hp0; rl_fire();
+                                            if (pass) strong += hp0 - m->hp;
+                                            else      weak   += hp0 - m->hp;
+                                            g_pl.inv[g_pl.inv_ammo].qty = 250; }
+        }
+        CHECKF(strong > weak, "a bigger launcher hits harder with the same arrow",
+               "arbalest %lld against short bow %lld", (long long)strong, (long long)weak);
+    }
+
+    /* --- ammunition stacks, and enchanted shots keep to their own pile -- */
+    {
+        fresh_player();
+        Item a; memset(&a, 0, sizeof a); a.kind = ITM_ARROW; a.qty = 20;
+        int s1 = rl_inv_add(&a);
+        int s2 = rl_inv_add(&a);
+        CHECKF(s1 == s2, "plain arrows stack", "slots %d and %d", s1, s2);
+        CHECKF(g_pl.inv[s1].qty == 40, "the stack adds up", "qty %d", g_pl.inv[s1].qty);
+        Item b = a; b.to_dam = 3;
+        int s3 = rl_inv_add(&b);
+        CHECKF(s3 != s1, "an enchanted arrow does not dilute the plain pile",
+               "both landed in slot %d", s3);
+    }
+
+    group("devices");
+
+    /* --- every device does something, and spends a charge -------------- */
+    for (int i = 0; i < g_item_kind_n; i++) {
+        const ItemKind *k = &g_item_kind[i];
+        if (k->tv != TV_TOOL) continue;
+        CHECKF(k->eff != EF_NONE, "a device has a trigger", "%s", k->name);
+
+        fresh_player();
+        g_pl.depth = 5;
+        g_seed = 5150 + (uint32_t)i;
+        int slot = give(i, 5);
+        s_last[0] = 0;
+        rl_use_item(slot);
+        CHECKF(s_last[0] != 0, "using a device says something", "%s", k->name);
+        /* the lockpick declines when there is no chest underfoot, and must not
+         * burn a charge doing it */
+        if (k->eff == EF_UNLOCK)
+            CHECKF(g_pl.inv[slot].qty == 5, "a lockpick with no chest keeps its charge",
+                   "qty %d", g_pl.inv[slot].qty);
+        else
+            CHECKF(g_pl.inv[slot].qty == 4, "a device spends one charge",
+                   "%s left %d of 5", k->name, g_pl.inv[slot].qty);
+    }
+
+    /* --- the instruments ----------------------------------------------- */
+    {
+        fresh_player();
+        g_seed = 909;
+        for (int i = 0; i < 6; i++) plant(g_pl.x + 2 + i, g_pl.y, 0, 40);
+        for (int i = 0; i < g_lv.n_mon; i++) g_lv.mon[i].flags = 0;
+        rl_use_item(give(ITM_HARP, 3));
+        int asleep = 0;
+        for (int i = 0; i < g_lv.n_mon; i++) if (g_lv.mon[i].flags & MF_ASLEEP) asleep++;
+        CHECKF(asleep > 0, "the harp lulls what is near", "%d of %d asleep",
+               asleep, g_lv.n_mon);
+
+        fresh_player();
+        g_seed = 910;
+        for (int i = 0; i < 6; i++) plant(g_pl.x + 2 + i, g_pl.y, 0, 40);
+        rl_use_item(give(ITM_DRUM, 3));
+        int afraid = 0;
+        for (int i = 0; i < g_lv.n_mon; i++) if (g_lv.mon[i].flags & MF_AFRAID) afraid++;
+        CHECKF(afraid > 0, "the drum breaks nerve", "%d of %d afraid", afraid, g_lv.n_mon);
+    }
+
+    /* --- the lockpick opens a chest without springing it --------------- */
+    {
+        int sprung = 0;
+        for (int t = 0; t < 400; t++) {
+            fresh_player();
+            g_seed = 7000u + (uint32_t)t;
+            g_pl.depth = 20;
+            g_lv.terrain[g_pl.y * MW + g_pl.x] = T_CHEST;
+            int hp0 = g_pl.hp;
+            rl_use_item(give(ITM_LOCKPICK, 3));
+            if (g_pl.hp < hp0) sprung++;
+            CHECKF(rl_ter(g_pl.x, g_pl.y) == T_CHEST_OPEN, "the lockpick opens the chest",
+                   "terrain %d", rl_ter(g_pl.x, g_pl.x));
+        }
+        CHECKF(sprung == 0, "a picked chest never springs its trap",
+               "%d of 400 sprang", sprung);
     }
 }
 
@@ -1915,6 +2102,7 @@ int main(int argc, char **argv) {
     test_shops();
     test_starting_kit();
     test_economy();
+    test_ranged();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);

@@ -24,6 +24,8 @@
 #define L(c) SH_ARMOUR,   (c)      /* armour_set:        the armour block    */
 #define K(c) SH_TRINKETS, (c)      /* trinkets:          torches            */
 #define J(c) SH_JEWEL,    (c)      /* jewellery:         rings                */
+#define A(c) SH_AMMO,     (c)      /* ammo:              arrow/dart/star     */
+#define D(c) SH_DEVICE,   (c)      /* devices:           lamps, tools, music */
 
 const ItemKind g_item_kind[] = {
 /*  name           sheet,cell    tv         lvl  cost   d  s  ac  eff
@@ -89,6 +91,40 @@ const ItemKind g_item_kind[] = {
   { "Frost Brand",    E(2),  TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,32 the long blade in ice */
   { "Flame Tongue",   E(17), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,33 the long blade in fire */
   { "Blade of Chaos", E(15), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 16,33 the broad blade in fire */
+
+  /* --- launchers and ammunition ----------------------------------------
+   * Cols 25-28 of the weapon block are the ranged set, four launchers across
+   * and the same wood / gold / ice / fire rows down, and col 29 is the staff
+   * column the wands already use.
+   *
+   * Ammunition is three cells and three cells only -- an arrow, a dart and a
+   * throwing star, sitting in the mixed-oddments row at (25,0)-(27,0) outside
+   * every other subsheet. The fletched things at (16,0)-(16,3) that read as
+   * arrows at thumbnail size are SYRINGES, and (30,29)/(30,33) are flails.
+   * So the range is built on stats and names over three sprites, the way
+   * Angband stacks arrow / seeker arrow / mithril arrow on one glyph.
+   *
+   * For TV_BOW the `ac` column carries the damage MULTIPLIER; for TV_AMMO it
+   * carries 1 if the shot needs a launcher and 0 if it is thrown by hand.
+   * Darts and throwing stars need no bow, which is what makes them worth
+   * carrying before you own one.
+   *
+   *   damage = (ammo dice + ammo to_dam + bow to_dam) * multiplier            */
+  { "short bow",      T(25), TV_BOW,      3,   50, 0, 0,  2, EF_NONE },  /* 25,29 wood  */
+  { "light crossbow", T(26), TV_BOW,      8,  140, 0, 0,  3, EF_NONE },  /* 26,29 wood  */
+  { "long bow",       T(57), TV_BOW,     14,  260, 0, 0,  3, EF_NONE },  /* 25,31 gold  */
+  { "heavy crossbow", T(59), TV_BOW,     20,  600, 0, 0,  4, EF_NONE },  /* 27,31 gold  */
+  { "arbalest",       T(60), TV_BOW,     28, 1200, 0, 0,  4, EF_NONE },  /* 28,31 gold  */
+  { "Bow of Frost",   E(9),  TV_BOW,     30, 2400, 0, 0,  5, EF_NONE },  /* 25,32 ice   */
+  { "Bow of Flame",   E(24), TV_BOW,     30, 2400, 0, 0,  5, EF_NONE },  /* 25,33 fire  */
+
+  { "arrow",          A(0),  TV_AMMO,     1,    1, 1, 4,  1, EF_NONE },  /* 25,0 */
+  { "steel arrow",    A(0),  TV_AMMO,    12,    5, 1, 6,  1, EF_NONE },
+  { "seeker arrow",   A(0),  TV_AMMO,    26,   18, 2, 5,  1, EF_NONE },
+  { "dart",           A(1),  TV_AMMO,     2,    2, 1, 5,  0, EF_NONE },  /* 26,0 thrown */
+  { "silver dart",    A(1),  TV_AMMO,    16,    9, 1, 8,  0, EF_NONE },
+  { "throwing star",  A(2),  TV_AMMO,     6,    4, 1, 7,  0, EF_NONE },  /* 27,0 thrown */
+  { "razor star",     A(2),  TV_AMMO,    24,   16, 2, 4,  0, EF_NONE },
 
   /* --- armour ----------------------------------------------------------
    * Source cols 16-24, rows 21-26 is ONE set and has to be read as one: seven
@@ -186,7 +222,37 @@ const ItemKind g_item_kind[] = {
 
   /* --- light sources (ac = radius) ------------------------------------ */
   { "torch",          K(7),  TV_LIGHT,    1,    8, 0, 0,  4, EF_NONE },
-  { "lantern",        K(12), TV_LIGHT,   10,  120, 0, 0,  7, EF_NONE },
+  { "lantern",        W(50), TV_LIGHT,   10,  120, 0, 0,  7, EF_NONE },  /* 18,6 */
+  /* The two lamps are drawn twice each, lit and unlit; the item takes the lit
+   * cell, because an item on the floor is a thing you want to notice. */
+  { "brass lamp",     D(1),  TV_LIGHT,   16,  380, 0, 0,  9, EF_NONE },  /* 25,5 */
+  { "everburning lamp",D(3), TV_LIGHT,   28, 1400, 0, 0, 11, EF_NONE },  /* 27,5 */
+
+  /* --- devices ---------------------------------------------------------
+   * Source cols 24-31, rows 5-6: adventuring gear, and the best-drawn block
+   * in the sheet. They work like Angband's staves -- a device with charges,
+   * spent one per use, rather than a one-shot or an at-will power. At-will is
+   * what breaks them: an hourglass you can turn every turn is permanent haste.
+   *
+   * Four of them are instruments, which is what finally gives the Bard class
+   * something only it does well:
+   *   harp   lulls what is near you to sleep
+   *   bell   rings out, and something answers
+   *   bugle  sounds the rally
+   *   drum   beats out a rhythm that breaks nerve
+   *
+   * cell = (row - 5) * 8 + (col - 24)                                      */
+  { "crystal ball",   D(4),  TV_TOOL,     8,  320, 0, 0,  0, EF_DETECT },   /* 28,5 */
+  { "lockpick",       D(5),  TV_TOOL,     5,  180, 0, 0,  0, EF_UNLOCK },   /* 29,5 */
+  { "radio",          D(6),  TV_TOOL,    11,  420, 0, 0,  0, EF_MAP },      /* 30,5 */
+  { "hourglass",      D(7),  TV_TOOL,    22,  980, 0, 0,  0, EF_SPEED },    /* 31,5 */
+  { "camera",         D(8),  TV_TOOL,     7,  260, 0, 0,  0, EF_LIGHT },    /* 24,6 flash */
+  { "looking glass",  D(9),  TV_TOOL,    13,  500, 0, 0,  0, EF_IDENTIFY }, /* 25,6 */
+  { "harp",           D(10), TV_TOOL,    15,  620, 0, 0,  0, EF_LULL },     /* 26,6 */
+  { "bell",           D(11), TV_TOOL,     4,   90, 0, 0,  0, EF_SUMMON },   /* 27,6 */
+  { "bugle",          D(12), TV_TOOL,     9,  340, 0, 0,  0, EF_HEROISM },  /* 28,6 */
+  { "drum",           D(13), TV_TOOL,    17,  700, 0, 0,  0, EF_SCARE },    /* 29,6 */
+  { "grappling hook", D(14), TV_TOOL,    20,  760, 0, 0,  0, EF_DEEP_DESCENT }, /* 30,6 */
 };
 const int g_item_kind_n = (int)(sizeof g_item_kind / sizeof g_item_kind[0]);
 /* The enum in rl.h and this table must stay in lockstep -- everything else
@@ -258,7 +324,11 @@ static int pick_ego(int depth, int for_armour) {
 
 /* --- flavours ----------------------------------------------------------- */
 /* Shuffled per seed so knowledge is per-character. */
-#define KIND_MAX 96
+/* Bound to the item table itself. A hardcoded 96 sat here while the table grew
+ * past it, and the guards in rl_item_learn/rl_item_is_known clamp rather than
+ * overflow -- so the last ten kinds could never be identified and nothing said
+ * so. The static assert below is what makes that a build error next time. */
+#define KIND_MAX ITM_N
 static const char *const s_flavour[] = {
     "red", "blue", "green", "grey", "gold", "black", "white", "azure",
     "murky", "clear", "smoky", "pink", "amber", "violet", "silver", "copper",
@@ -267,6 +337,7 @@ static const char *const s_flavour[] = {
 #define N_FLAVOUR ((int)(sizeof s_flavour / sizeof s_flavour[0]))
 static uint8_t s_flav_map[KIND_MAX];    /* item kind -> flavour index */
 static uint8_t s_known[KIND_MAX];       /* item kind -> player has identified it */
+_Static_assert(KIND_MAX >= ITM_N, "flavour tables must cover every item kind");
 
 void rl_item_init_flavours(void) {
     for (int i = 0; i < KIND_MAX; i++) { s_flav_map[i] = (uint8_t)(i % N_FLAVOUR); s_known[i] = 0; }
@@ -342,6 +413,18 @@ void rl_make_item_kind(Item *it, int kind, int depth) {
     it->to_hit = it->to_dam = it->to_ac = 0;
     it->ego = 0;
     it->flags = 0;
+
+    /* Launchers and ammunition enchant like everything else -- a +4 arbalest
+     * and a stack of +2 seeker arrows are what make the ranged tree worth
+     * shopping for. Neither takes an ego: the ego multipliers are written for
+     * a melee swing and would compound with the launcher multiplier. */
+    if (ik->tv == TV_BOW || ik->tv == TV_AMMO) {
+        int mag = 0;
+        int good = 25 + depth; if (good > 65) good = 65;
+        if (rl_pct(good)) mag = 1 + rl_range(1 + depth / 5);
+        it->to_hit = (int8_t)mag;
+        it->to_dam = (int8_t)mag;
+    }
 
     if (ik->tv == TV_WEAPON || ik->tv == TV_ARMOUR) {
         /* Three quality tiers, Angband's shape: most gear is plain, some is
@@ -454,11 +537,14 @@ static int spill_items(int x, int y, int n, int depth) {
 
 /* Open the chest the player is standing on. Tier drives both the haul and the
  * odds of a trap, so the gold chest that killed you was a choice you made. */
-void rl_open_chest(int x, int y) {
+/* `safe` skips the trap roll -- that is what a lockpick buys, and the reason
+ * the two paths share a body is so a picked chest and a forced one cannot drift
+ * apart on what they pay out. */
+static void open_chest(int x, int y, int safe) {
     int tier = rl_chest_tier(x, y);
     g_lv.terrain[y * MW + x] = T_CHEST_OPEN;
 
-    if (rl_pct(8 + tier * 6)) {                  /* trapped: 8% red .. 32% white */
+    if (!safe && rl_pct(8 + tier * 6)) {         /* trapped: 8% red .. 32% white */
         if (rl_pct(50)) {
             int dam = rl_dice(1 + tier, 6);
             g_pl.hp = (int16_t)(g_pl.hp - dam);
@@ -476,6 +562,9 @@ void rl_open_chest(int x, int y) {
     if (got) rl_msgf("Treasure! %d gold and loot.", (int)gold);
     else     rl_msgf("Treasure! %d gold.", (int)gold);
 }
+
+void rl_open_chest(int x, int y)        { open_chest(x, y, 0); }
+void rl_open_chest_safely(int x, int y) { open_chest(x, y, 1); }
 
 /* --- the starting kit ----------------------------------------------------
  * Rolled per character rather than fixed, so two Rangers do not open the same
@@ -537,6 +626,7 @@ void rl_starting_kit(int cls) {
 
     for (int i = 0; i < INV_N; i++) g_pl.inv[i].qty = 0;
     g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
+    g_pl.inv_bow = g_pl.inv_ammo = -1;
 
     /* weapon: the class anchor most of the time, a fitting sidearm otherwise */
     int w = rl_pct(55) ? g_class[cls].start_weapon
@@ -556,6 +646,17 @@ void rl_starting_kit(int cls) {
 
     /* a light, and occasionally a good one */
     g_pl.inv_light = (int8_t)kit_add(rl_pct(12) ? ITM_LANTERN : ITM_TORCH, 1);
+
+    /* Something to throw, and for a skirmisher usually something to shoot it
+     * with. Ranged combat that you can only reach by shopping is ranged combat
+     * most characters never try, so every archetype starts able to do it --
+     * darts need no launcher, which is exactly what they are for. */
+    if (ar == AR_SKIRMISHER) {
+        g_pl.inv_ammo = (int8_t)kit_add(ITM_ARROW, (uint8_t)(14 + rl_range(11)));
+        g_pl.inv_bow  = (int8_t)kit_add(rl_pct(25) ? ITM_LIGHT_XBOW : ITM_SHORT_BOW, 1);
+    } else if (rl_pct(45)) {
+        g_pl.inv_ammo = (int8_t)kit_add(ITM_DART, (uint8_t)(5 + rl_range(6)));
+    }
 
     /* and a small chance of the thing that defines the character: a wand for a
      * caster, a shield for a fighter, a second blade for a skirmisher */
@@ -583,11 +684,18 @@ int rl_inv_count(void) {
 
 int rl_inv_add(const Item *src) {
     const ItemKind *ik = &g_item_kind[src->kind];
-    int stacks = (ik->tv == TV_POTION || ik->tv == TV_SCROLL || ik->tv == TV_FOOD);
+    int stacks = (ik->tv == TV_POTION || ik->tv == TV_SCROLL || ik->tv == TV_FOOD ||
+                  ik->tv == TV_AMMO);
+    /* Ammo stacks deeper than the rest: a quiver that caps at sixty is fine,
+     * one that caps at six is not a quiver. Enchanted shots stack only with
+     * their own kind, so a +3 arrow never dilutes into a pile of plain ones. */
+    int cap = (ik->tv == TV_AMMO) ? 99 : 60;
     if (stacks) {
         for (int i = 0; i < INV_N; i++) {
             Item *d = &g_pl.inv[i];
-            if (d->qty && d->kind == src->kind && d->ego == src->ego && d->qty < 60) {
+            if (d->qty && d->kind == src->kind && d->ego == src->ego &&
+                d->to_hit == src->to_hit && d->to_dam == src->to_dam &&
+                d->qty + src->qty <= cap) {
                 d->qty = (uint8_t)(d->qty + src->qty);
                 return i;
             }
@@ -638,6 +746,8 @@ int8_t *rl_slot_ptr(int slot) {
     case EQ_WIELD: return &g_pl.inv_wield;
     case EQ_BODY:  return &g_pl.inv_body;
     case EQ_RING:  return &g_pl.inv_ring;
+    case EQ_BOW:   return &g_pl.inv_bow;
+    case EQ_AMMO:  return &g_pl.inv_ammo;
     default:       return &g_pl.inv_light;
     }
 }
@@ -647,12 +757,14 @@ int rl_slot_accepts(int slot, int tv) {
     case EQ_WIELD: return tv == TV_WEAPON;
     case EQ_BODY:  return tv == TV_ARMOUR;
     case EQ_RING:  return tv == TV_RING;
+    case EQ_BOW:   return tv == TV_BOW;
+    case EQ_AMMO:  return tv == TV_AMMO;
     default:       return tv == TV_LIGHT;
     }
 }
 
 const char *rl_slot_name(int slot) {
-    static const char *const n[EQ_N] = { "WEAPON", "BODY", "RING", "LIGHT" };
+    static const char *const n[EQ_N] = { "WEAPON", "BODY", "RING", "LIGHT", "BOW", "AMMO" };
     return n[slot < 0 || slot >= EQ_N ? 0 : slot];
 }
 
@@ -791,6 +903,63 @@ static void summon_around(void) {
 }
 
 /* Use whatever is in the slot: quaff, read, zap, eat, or wield/wear. */
+/* The scroll effects, factored out so a device can invoke the same behaviour.
+ * A radio that maps the level and a scroll of magic mapping must map it the
+ * same way -- two copies of this switch is two chances to drift. */
+static void use_effect(int eff) {
+    switch (eff) {
+        case EF_MAP:
+            for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
+            rl_msg("The map fills in."); break;
+        case EF_TELEPORT:  teleport_player(); rl_msg("You blink away."); break;
+        case EF_IDENTIFY:
+            for (int i = 0; i < g_item_kind_n; i++) rl_item_learn(i);
+            rl_msg("Knowledge floods in."); break;
+        /* Enchantment tops out. Uncapped, and with a price that scales off the
+         * base item, a stack of these scrolls on an expensive weapon was a gold
+         * printing press rather than an upgrade. */
+        case EF_ENCHANT_W:
+            if (g_pl.inv_wield < 0) { rl_msg("Nothing happens."); break; }
+            {
+                Item *w = &g_pl.inv[g_pl.inv_wield];
+                if (w->to_hit >= ENCHANT_MAX && w->to_dam >= ENCHANT_MAX) {
+                    rl_msg("The weapon resists."); break;
+                }
+                if (w->to_hit < ENCHANT_MAX) w->to_hit++;
+                if (w->to_dam < ENCHANT_MAX) w->to_dam++;
+                rl_msg("Your weapon glows.");
+            }
+            break;
+        case EF_ENCHANT_A:
+            if (g_pl.inv_body < 0) { rl_msg("Nothing happens."); break; }
+            if (g_pl.inv[g_pl.inv_body].to_ac >= ENCHANT_MAX) { rl_msg("The armour resists."); break; }
+            g_pl.inv[g_pl.inv_body].to_ac++;
+            rl_msg("Your mail hardens.");
+            break;
+        case EF_DEEP_DESCENT:
+            if (g_pl.depth == 0) { rl_msg("The ground holds."); break; }
+            g_pl.depth = (uint8_t)(g_pl.depth + 2);
+            if (g_pl.depth > g_pl.deepest) g_pl.deepest = g_pl.depth;
+            rl_gen_level(g_pl.depth);
+            rl_msg("The floor gives way!");
+            break;
+        case EF_LIGHT:
+            for (int y = -6; y <= 6; y++)
+                for (int x = -6; x <= 6; x++)
+                    if (rl_in(g_pl.x + x, g_pl.y + y))
+                        g_lv.flags[(g_pl.y + y) * MW + g_pl.x + x] |= CF_KNOWN;
+            rl_msg("Light floods out."); break;
+        case EF_REMOVE_CURSE:
+            for (int i = 0; i < INV_N; i++) {
+                g_pl.inv[i].flags &= (uint8_t)~IF_CURSED;
+                if (g_pl.inv[i].qty && g_ego_kind[g_pl.inv[i].ego].flags & EGO_CURSED)
+                    g_pl.inv[i].ego = 0;
+            }
+            rl_msg("A weight lifts."); break;
+        default: summon_around(); rl_msg("You are surrounded!"); break;
+        }
+}
+
 void rl_use_item(int slot) {
     if (slot < 0 || slot >= INV_N || !g_pl.inv[slot].qty) return;
     Item *it = &g_pl.inv[slot];
@@ -856,59 +1025,71 @@ void rl_use_item(int slot) {
         break;
     case TV_SCROLL:
         rl_item_learn(it->kind);
+        use_effect(ik->eff);
+        consumed = 1;
+        break;
+    /* A device spends a charge and stays in the pack. Angband's staves, and
+     * the reason these are not one-shots: a crystal ball you use once is a
+     * scroll with better art. */
+    case TV_TOOL:
+        if (ik->eff == EF_NONE) { rl_msg2("The ", ik->name); rl_msg("It has no trigger."); break; }
+        rl_item_learn(it->kind);
         switch (ik->eff) {
-        case EF_MAP:
-            for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
-            rl_msg("The map fills in."); break;
-        case EF_TELEPORT:  teleport_player(); rl_msg("You blink away."); break;
-        case EF_IDENTIFY:
-            for (int i = 0; i < g_item_kind_n; i++) rl_item_learn(i);
-            rl_msg("Knowledge floods in."); break;
-        /* Enchantment tops out. Uncapped, and with a price that scales off the
-         * base item, a stack of these scrolls on an expensive weapon was a gold
-         * printing press rather than an upgrade. */
-        case EF_ENCHANT_W:
-            if (g_pl.inv_wield < 0) { rl_msg("Nothing happens."); break; }
-            {
-                Item *w = &g_pl.inv[g_pl.inv_wield];
-                if (w->to_hit >= ENCHANT_MAX && w->to_dam >= ENCHANT_MAX) {
-                    rl_msg("The weapon resists."); break;
-                }
-                if (w->to_hit < ENCHANT_MAX) w->to_hit++;
-                if (w->to_dam < ENCHANT_MAX) w->to_dam++;
-                rl_msg("Your weapon glows.");
+        case EF_DETECT: {
+            int found = 0;
+            for (int i = 0; i < g_lv.n_mon; i++) {
+                Mon *m = &g_lv.mon[i];
+                if (m->hp <= 0) continue;
+                g_lv.flags[m->y * MW + m->x] |= CF_KNOWN | CF_VISIBLE;
+                found++;
             }
+            if (found) rl_msgf("You sense %d living things.", found);
+            else       rl_msg("Nothing lives here.");
             break;
-        case EF_ENCHANT_A:
-            if (g_pl.inv_body < 0) { rl_msg("Nothing happens."); break; }
-            if (g_pl.inv[g_pl.inv_body].to_ac >= ENCHANT_MAX) { rl_msg("The armour resists."); break; }
-            g_pl.inv[g_pl.inv_body].to_ac++;
-            rl_msg("Your mail hardens.");
-            break;
-        case EF_DEEP_DESCENT:
-            if (g_pl.depth == 0) { rl_msg("The ground holds."); break; }
-            g_pl.depth = (uint8_t)(g_pl.depth + 2);
-            if (g_pl.depth > g_pl.deepest) g_pl.deepest = g_pl.depth;
-            rl_gen_level(g_pl.depth);
-            rl_msg("The floor gives way!");
-            break;
-        case EF_LIGHT:
-            for (int y = -6; y <= 6; y++)
-                for (int x = -6; x <= 6; x++)
-                    if (rl_in(g_pl.x + x, g_pl.y + y))
-                        g_lv.flags[(g_pl.y + y) * MW + g_pl.x + x] |= CF_KNOWN;
-            rl_msg("Light floods out."); break;
-        case EF_REMOVE_CURSE:
-            for (int i = 0; i < INV_N; i++) {
-                g_pl.inv[i].flags &= (uint8_t)~IF_CURSED;
-                if (g_pl.inv[i].qty && g_ego_kind[g_pl.inv[i].ego].flags & EGO_CURSED)
-                    g_pl.inv[i].ego = 0;
+        }
+        case EF_SCARE: {
+            int n = 0;
+            for (int i = 0; i < g_lv.n_mon; i++) {
+                Mon *m = &g_lv.mon[i];
+                if (m->hp <= 0) continue;
+                int dx = m->x - g_pl.x, dy = m->y - g_pl.y;
+                if (dx * dx + dy * dy > 100) continue;      /* ten tiles */
+                m->flags = (uint8_t)((m->flags | MF_AFRAID) & ~MF_ASLEEP);
+                n++;
             }
-            rl_msg("A weight lifts."); break;
-        default: summon_around(); rl_msg("You are surrounded!"); break;
+            rl_msgf("The rhythm breaks %d nerves.", n);
+            break;
+        }
+        /* Picking a lock is a thing you DO, standing on the chest, and it is
+         * the whole reason to carry one: a chest opened this way cannot spring
+         * its trap. */
+        case EF_UNLOCK: {
+            int t = rl_ter(g_pl.x, g_pl.y);
+            if (t != T_CHEST) { rl_msg("Nothing here to pick."); return; }
+            rl_msg("The lock gives.");
+            rl_open_chest_safely(g_pl.x, g_pl.y);
+            break;
+        }
+        case EF_LULL: {
+            int n = 0;
+            for (int i = 0; i < g_lv.n_mon; i++) {
+                Mon *m = &g_lv.mon[i];
+                if (m->hp <= 0 || m->boss) continue;        /* a boss does not doze */
+                int dx = m->x - g_pl.x, dy = m->y - g_pl.y;
+                if (dx * dx + dy * dy > 64) continue;       /* eight tiles */
+                m->flags |= MF_ASLEEP;
+                n++;
+            }
+            rl_msgf("%d fall asleep to the tune.", n);
+            break;
+        }
+        default:
+            use_effect(ik->eff);
+            break;
         }
         consumed = 1;
         break;
+
     case TV_WAND:
         rl_item_learn(it->kind);
         /* A wand that found nothing to shoot at is not spent. Consuming it

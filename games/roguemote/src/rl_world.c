@@ -484,11 +484,11 @@ uint8_t g_shop_n[SHOP_N];
 
 static int shop_wants(int shop, const ItemKind *ik) {
     switch (shop) {
-    case 0: return ik->tv == TV_FOOD || ik->tv == TV_LIGHT;
+    case 0: return ik->tv == TV_FOOD || ik->tv == TV_LIGHT;   /* lamps included */
     case 1: return ik->tv == TV_ARMOUR;
-    case 2: return ik->tv == TV_WEAPON;
+    case 2: return ik->tv == TV_WEAPON || ik->tv == TV_BOW || ik->tv == TV_AMMO;
     case 3: return ik->tv == TV_POTION;
-    case 4: return ik->tv == TV_SCROLL || ik->tv == TV_WAND;
+    case 4: return ik->tv == TV_SCROLL || ik->tv == TV_WAND || ik->tv == TV_TOOL;
     default: return ik->tv == TV_RING || ik->tv == TV_WAND;   /* black market */
     }
 }
@@ -521,7 +521,9 @@ void rl_shop_restock(void) {
              * Morgul", while weapons that happened to follow a potion roll
              * arrived stubbornly plain. */
             rl_make_item_kind(it, k, depth);
-            it->qty = (ik->tv == TV_FOOD || ik->tv == TV_POTION || ik->tv == TV_SCROLL)
+            it->qty = (ik->tv == TV_TOOL) ? (uint8_t)(3 + rl_range(6))
+                    : (ik->tv == TV_AMMO) ? (uint8_t)(12 + rl_range(19))
+                    : (ik->tv == TV_FOOD || ik->tv == TV_POTION || ik->tv == TV_SCROLL)
                       ? (uint8_t)(2 + rl_range(3)) : 1;
             /* The five honest traders do not knowingly sell cursed goods. The
              * Black Market is called that for a reason. */

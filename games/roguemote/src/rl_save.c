@@ -14,7 +14,7 @@
 
 #define SAVE_KEY   "roguemote.sav"
 #define SCORE_KEY  "roguemote.hi"
-#define SAVE_MAGIC 0x524D5305u          /* 'RMS' + layout version 5 */
+#define SAVE_MAGIC 0x524D5306u          /* 'RMS' + layout version 6 */
 
 typedef struct {
     uint32_t magic;

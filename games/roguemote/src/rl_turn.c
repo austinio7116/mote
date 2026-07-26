@@ -32,6 +32,10 @@ static const char *mon_name(const Mon *m) {
 static int mon_ac(const Mon *m) {
     return m->boss ? g_boss_kind[m->boss - 1].ac : g_mon_kind[m->kind].ac;
 }
+/* Ranged combat rolls against the same armour class melee does, and it lives in
+ * another file, so the accessor is shared rather than copied -- a boss's AC
+ * comes from a different table and m->kind is meaningless for one. */
+int rl_mon_ac(const Mon *m) { return mon_ac(m); }
 static int mon_lvl(const Mon *m) {
     return m->boss ? g_boss_kind[m->boss - 1].depth : g_mon_kind[m->kind].lvl;
 }
