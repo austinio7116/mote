@@ -13,8 +13,17 @@
 
 /* --- geometry ----------------------------------------------------------- */
 #define TS       8
-#define MW       64
-#define MH       48
+/* 128x96 -- four times the old 64x48 continent, and 8x7.4 screens of it.
+ *
+ * The width is deliberately the framebuffer's: the world map screen draws one
+ * pixel per cell, so 128 cells span it exactly. It was two pixels per cell at
+ * the old size, which at this one would have run off the right edge.
+ *
+ * Dungeons share these bounds. Moria's are 198x66, so this is still modest for
+ * the genre -- but the room count and the overworld's feature counts both scale
+ * off the area now, or a bigger map is just a longer walk. */
+#define MW       128
+#define MH       96
 #define VIEW_W   16
 #define VIEW_H   13
 #define HUD_Y    (VIEW_H * TS)

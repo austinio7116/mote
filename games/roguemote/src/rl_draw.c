@@ -164,7 +164,7 @@ static int s_cam_x, s_cam_y;
  * The blend is done by hand. scene2d sprites are colour-keyed with no alpha and
  * draw_rect/draw_circle are solid fills, so there is no engine path that puts
  * translucent black over what has already been rastered. */
-#define SHADOW_R    10          /* radius in pixels; the tile is 8 across */
+#define SHADOW_R     6          /* radius in pixels; the tile is 8 across */
 #define SHADOW_DARK 112         /* brightness at the centre, out of 256 */
 
 static uint16_t dim565(uint16_t c, int num) {
@@ -356,7 +356,7 @@ void rl_draw_scene(void) {
     g_api->scene2d_begin(cx, cy);
     g_api->scene2d_set_autotile_layers(g_lv.layer, MW, MH, tiles, n_layer);
 
-    /* Only the visible window is worth walking: at 64x48 the full sweep is
+    /* Only the visible window is worth walking: over the full map the sweep is
      * 3072 cells per frame for at most 16x13 of visible output. */
     int x0 = cx / TS, y0 = cy / TS;
     int x1 = x0 + VIEW_W + 1, y1 = y0 + VIEW_H + 1;
@@ -495,9 +495,10 @@ void rl_draw_hud(uint16_t *fb) {
 }
 
 /* --- the map screen -----------------------------------------------------
- * The whole level at 2px a cell (64x48 -> 128x96). On the surface this is the
- * only way to find a cave mouth without walking the coastline; underground it
- * is the classic full-level map, showing only what you have seen. */
+ * The whole level at one pixel a cell -- 128x96, which is the framebuffer's
+ * width exactly. On the surface this is the only way to find a cave mouth
+ * without walking the coastline; underground it is the classic full-level map,
+ * showing only what you have seen. */
 void rl_draw_map(uint16_t *fb, int y0) {
     for (int y = 0; y < MH; y++) {
         for (int x = 0; x < MW; x++) {
@@ -524,12 +525,17 @@ void rl_draw_map(uint16_t *fb, int y0) {
             default: c = g_pl.depth ? MOTE_RGB565(150, 146, 160)
                                     : MOTE_RGB565(0, 135, 81);   break;
             }
-            g_api->draw_rect(fb, x * 2, y0 + y * 2, 2, 2, c, 1, 0, MOTE_FB_H);
+            g_api->draw_pixel(fb, x, y0 + y, c);
         }
     }
-    /* the player last, so nothing paints over it */
-    g_api->draw_rect(fb, g_pl.x * 2 - 1, y0 + g_pl.y * 2 - 1, 4, 4,
-                     MOTE_RGB565(255, 255, 255), 1, 0, MOTE_FB_H);
+    /* the player last, so nothing paints over it -- and as a cross rather than
+     * a dot, because one white pixel in a 128x96 field is not findable */
+    int px = g_pl.x, py = y0 + g_pl.y;
+    uint16_t w = MOTE_RGB565(255, 255, 255);
+    for (int d = -2; d <= 2; d++) {
+        if (px + d >= 0 && px + d < MOTE_FB_W) g_api->draw_pixel(fb, px + d, py, w);
+        if (py + d >= y0 && py + d < MOTE_FB_H) g_api->draw_pixel(fb, px, py + d, w);
+    }
 }
 
 void rl_draw_msgs(uint16_t *fb) {

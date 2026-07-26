@@ -47,7 +47,9 @@ Mon *rl_mon_at(int x, int y) {
 }
 
 /* --- generation --------------------------------------------------------- */
-#define MAX_ROOM 20
+/* Scaled with the map. Twenty rooms in a 128x96 dungeon is a lot of rock and
+ * very little floor. */
+#define MAX_ROOM 40
 enum { RM_PLAIN = 0, RM_L, RM_PILLARED, RM_VAULT };
 typedef struct { uint8_t x, y, w, h, kind, dark, bud; } Room;
 static Room  s_room[MAX_ROOM];
@@ -460,8 +462,8 @@ void rl_gen_level(int depth) {
     /* Room count and size vary by floor mood, so a level is a warren of little
      * cells or a handful of halls rather than always the same nine boxes. */
     int warren = rl_pct(30);
-    int want = warren ? 13 + rl_range(7) : 7 + rl_range(6);
-    for (int tries = 0; tries < 400 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
+    int want = warren ? 26 + rl_range(13) : 15 + rl_range(11);
+    for (int tries = 0; tries < 900 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
         int w = warren ? 3 + rl_range(4) : 4 + rl_range(8);
         int h = warren ? 3 + rl_range(3) : 3 + rl_range(6);
         Room *rm = &s_room[s_nroom];

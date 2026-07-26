@@ -39,8 +39,8 @@ static int noise2(int x, int y, uint32_t salt) {
     return (int)((h >> 16) & 0xFF);
 }
 
-/* bilinear-ish smoothing over a coarse lattice: cheap, and at 64x48 the
- * blockiness reads as terrain rather than as an artefact */
+/* bilinear-ish smoothing over a coarse lattice: cheap, and at this cell size
+ * the blockiness reads as terrain rather than as an artefact */
 static int height_at(int x, int y) {
     int s = 6;
     int gx = x / s, gy = y / s, fx = x % s, fy = y % s;
@@ -354,9 +354,9 @@ void rl_gen_overworld(void) {
     build_town(tx, ty);
     tx = s_town_x; ty = s_town_y;              /* build_town may have clamped it */
 
-    /* The Mines' own entrance, always within sight of the town. A 64x48
-     * continent seen through a 16x13 window is a big place to hunt for a cave
-     * you have never seen; the game should not open with that. */
+    /* The Mines' own entrance, always within sight of the town. A 128x96
+     * continent seen through a 16x13 window is nearly sixty screens to hunt a
+     * cave you have never seen in; the game must not open with that. */
     for (int r = TR_X + 3; r < TR_X + 13; r++) {
         int done = 0;
         for (int j = -r; j <= r && !done; j++) {
@@ -373,14 +373,17 @@ void rl_gen_overworld(void) {
         if (done) break;
     }
 
-    /* more mouths scattered further out, for the look of the thing */
-    int placed = 0;
-    for (int tries = 0; tries < 900 && placed < 5; tries++) {
+    /* More mouths scattered further out. The count is per-area rather than a
+     * fixed five: on the old 64x48 continent five was a mouth every other
+     * screen, and the same five spread over four times the ground would be a
+     * long walk between them. */
+    int placed = 0, want_mouths = 5 + (MW * MH) / 3000;
+    for (int tries = 0; tries < 2600 && placed < want_mouths; tries++) {
         int x = 4 + rl_range(MW - 8), y = 4 + rl_range(MH - 8);
         uint8_t t = g_lv.terrain[y * MW + x];
         if (t != T_FLOOR && t != T_TREE) continue;
         int dx = x - tx, dy = y - ty;
-        if (dx * dx + dy * dy < 200) continue;         /* not on the doorstep */
+        if (dx * dx + dy * dy < 260) continue;         /* not on the doorstep */
         g_lv.terrain[y * MW + x] = T_DUNGEON_MOUTH;
         placed++;
     }
@@ -390,8 +393,8 @@ void rl_gen_overworld(void) {
      * walk with nothing on the way. A ruin is a reason to go and look, and the
      * chest inside is worth the detour without being worth farming -- the tier
      * hash reads depth, and on the surface depth is zero. */
-    for (int i = 0, ruins = 4 + rl_range(4); i < ruins; i++) {
-        for (int tries = 0; tries < 120; tries++) {
+    for (int i = 0, ruins = 6 + (MW * MH) / 900 + rl_range(6); i < ruins; i++) {
+        for (int tries = 0; tries < 260; tries++) {
             int x = 5 + rl_range(MW - 10), y = 5 + rl_range(MH - 10);
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             int dx = x - tx, dy = y - ty;
@@ -414,6 +417,65 @@ void rl_gen_overworld(void) {
         }
     }
 
+    /* --- villages -------------------------------------------------------
+     * A four-times-bigger continent with one town on it is mostly emptiness.
+     * A village is a handful of cottages and an inn around a scrap of road --
+     * no shops, so it does not dilute the town, but somewhere to rest, and a
+     * landmark that means the far side of the map is somewhere rather than
+     * more grass. */
+    for (int v = 0, want = 2 + rl_range(3); v < want; v++) {
+        for (int tries = 0; tries < 300; tries++) {
+            int x = 8 + rl_range(MW - 16), y = 7 + rl_range(MH - 14);
+            int dx = x - tx, dy = y - ty;
+            if (dx * dx + dy * dy < 900) continue;      /* well clear of the town */
+            int ok = 1;
+            for (int j = y - 3; j <= y + 3 && ok; j++)
+                for (int k = x - 4; k <= x + 4 && ok; k++)
+                    if (!rl_in(k, j) || g_lv.terrain[j * MW + k] != T_FLOOR) ok = 0;
+            if (!ok) continue;
+
+            for (int k = x - 3; k <= x + 3; k++) g_lv.terrain[y * MW + k] = T_ROAD;
+            g_lv.terrain[y * MW + x] = T_INN;
+            for (int c = 0, huts = 3 + rl_range(3); c < huts; c++) {
+                int hx = x - 3 + rl_range(7);
+                int hy = y + (rl_pct(50) ? -1 : 1);
+                if (rl_in(hx, hy) && g_lv.terrain[hy * MW + hx] == T_FLOOR)
+                    g_lv.terrain[hy * MW + hx] = T_TOWN;
+            }
+            break;
+        }
+    }
+
+    /* --- roads ------------------------------------------------------------
+     * A dogleg of road from the town gate out to the nearest cave mouths. It is
+     * not pathfinding and does not need to be: the point is that stepping out
+     * of the gate you can SEE a way to go, instead of a featureless green field
+     * in every direction. Roads lay over grass and forest and stop at rock, so
+     * a road never carves through a mountain. */
+    for (int m = 0; m < 3; m++) {
+        int bx = -1, by = -1, bd = 1 << 30;
+        for (int y = 0; y < MH; y++)
+            for (int x = 0; x < MW; x++) {
+                if (g_lv.terrain[y * MW + x] != T_DUNGEON_MOUTH) continue;
+                int dx = x - tx, dy = y - ty, d = dx * dx + dy * dy;
+                if (d > 260 && d < bd && !(g_lv.flags[y * MW + x] & CF_ROOM)) {
+                    bd = d; bx = x; by = y;
+                }
+            }
+        if (bx < 0) break;
+        g_lv.flags[by * MW + bx] |= CF_ROOM;        /* mark it as already served */
+
+        int cx2 = tx, cy2 = ty;
+        for (int step = 0; step < MW + MH; step++) {
+            if (cx2 == bx && cy2 == by) break;
+            if (cx2 != bx && (cy2 == by || rl_pct(55))) cx2 += cx2 < bx ? 1 : -1;
+            else if (cy2 != by)                        cy2 += cy2 < by ? 1 : -1;
+            uint8_t t = g_lv.terrain[cy2 * MW + cx2];
+            if (t == T_FLOOR || t == T_TREE) g_lv.terrain[cy2 * MW + cx2] = T_ROAD;
+        }
+    }
+    for (int i = 0; i < MW * MH; i++) g_lv.flags[i] &= (uint8_t)~CF_ROOM;
+
     /* the player arrives where they left, or at the town on a new game */
     if (g_pl.wx && rl_in(g_pl.wx, g_pl.wy) && rl_walkable(g_pl.wx, g_pl.wy)) {
         g_pl.x = g_pl.wx; g_pl.y = g_pl.wy;
@@ -426,9 +488,9 @@ void rl_gen_overworld(void) {
      * happens to include a level-6 great elk -- which killed a fresh level-1
      * warrior on the overworld in the first playtest. */
     g_seed = keep;
-    int n = 6 + rl_range(6);
+    int n = 10 + (MW * MH) / 900 + rl_range(8);
     for (int i = 0; i < n && g_lv.n_mon < MAX_MON; i++) {
-        for (int tries = 0; tries < 60; tries++) {
+        for (int tries = 0; tries < 140; tries++) {
             int x = rl_range(MW), y = rl_range(MH);
             uint8_t t = g_lv.terrain[y * MW + x];
             if (t != T_FLOOR && t != T_TREE) continue;
