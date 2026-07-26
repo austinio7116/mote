@@ -65,8 +65,12 @@ const MoteImage *rl_sheet(int id) {
  * flight is loud enough to find on grass, so it marks the mine mouth. */
 #define SPR_STAIR_DOWN    0     /* stairs (2,0): stone, dark risers */
 #define SPR_STAIR_UP      1     /* stairs (3,0): stone, pale treads */
-#define SPR_DOOR_CLOSED   4
-#define SPR_DOOR_OPEN     5
+/* The grey/white door, source (11,5) and (12,5). The doors sheet is five
+ * colours and this was on the first row, which is hot pink -- against navy brick
+ * and a near-black floor that is the loudest thing on the screen and it is a
+ * door. Grey timber-and-stone reads at 8px against every wall band. */
+#define SPR_DOOR_CLOSED  20
+#define SPR_DOOR_OPEN    21
 /* The town marker and the shopfronts come from labels_human.json, not from a
  * guess: (1,9) is the mushroom-roofed cottage, and (13,1)..(13,5) are the five
  * coloured house/shop fronts the annotator pass identified. props_light 32 --
