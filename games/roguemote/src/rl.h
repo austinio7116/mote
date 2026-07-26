@@ -188,6 +188,9 @@ static inline int rl_level_h(void) { return g_pl.depth ? DUN_H : MH; }
 int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
+void rl_seen_store(int depth);   /* remember this floor's explored map */
+void rl_seen_load(int depth);
+void rl_seen_wipe(void);
 int  rl_pull_lever(int x, int y);
 const char *rl_hue_name(int hue);
 void rl_gen_overworld(void);

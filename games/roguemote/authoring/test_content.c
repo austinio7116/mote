@@ -1608,6 +1608,55 @@ static void test_persistence(void) {
                "only %d cells differ across worlds", diff);
     }
 
+    /* --- and what you have WALKED comes back with you ------------------ */
+    {
+        fresh_player();
+        rl_seen_wipe();
+        g_world_seed = 777; g_seed = 3;
+        g_pl.depth = 6;
+        rl_gen_level(6);
+
+        /* explore a patch: mark a block of the floor known */
+        int marked = 0;
+        for (int y = 4; y < 14; y++)
+            for (int x = 4; x < 20; x++)
+                if (rl_walkable(x, y)) { g_lv.flags[y * MW + x] |= CF_KNOWN; marked++; }
+        CHECKF(marked > 0, "there is somewhere to explore", "depth 6");
+        rl_seen_store(6);
+
+        /* leave for another floor, then come back */
+        rl_gen_level(3);
+        rl_gen_level(6);
+        int fogged = 0;
+        for (int y = 4; y < 14; y++)
+            for (int x = 4; x < 20; x++)
+                if (rl_walkable(x, y) && !(g_lv.flags[y * MW + x] & CF_KNOWN)) fogged++;
+        /* not ALL of it: rl_gen_level ends with a field-of-view pass, so the
+         * room you arrive in is legitimately lit. Most of the patch should be
+         * dark again though. */
+        CHECKF(fogged > marked / 2, "a fresh floor is mostly fogged",
+               "only %d of %d fogged before the map is restored", fogged, marked);
+
+        rl_seen_load(6);
+        int lost = 0;
+        for (int y = 4; y < 14; y++)
+            for (int x = 4; x < 20; x++)
+                if (rl_walkable(x, y) && !(g_lv.flags[y * MW + x] & CF_KNOWN)) lost++;
+        CHECKF(lost == 0, "returning to a floor remembers what you walked",
+               "%d of %d cells forgotten", lost, marked);
+
+        /* a floor you never visited is still dark */
+        rl_gen_level(7);
+        int before_load = 0;
+        for (int i = 0; i < MW * MH; i++) if (g_lv.flags[i] & CF_KNOWN) before_load++;
+        rl_seen_load(7);
+        int after_load = 0;
+        for (int i = 0; i < MW * MH; i++) if (g_lv.flags[i] & CF_KNOWN) after_load++;
+        CHECKF(after_load == before_load,
+               "a floor you have not been to gains nothing from the store",
+               "%d known became %d", before_load, after_load);
+    }
+
     /* and the contents DO change, or coming back is farming a cleared floor */
     {
         int varied = 0;

@@ -126,6 +126,7 @@ static void new_game(int cls) {
     g_pl.wx = g_pl.wy = 0;
     g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
     g_pl.inv_bow = g_pl.inv_ammo = -1;
+    rl_seen_wipe();      /* a new character has seen nothing */
     g_turn = 0;
 
     /* Flavours are shuffled from the world seed, not the live RNG, so a save
@@ -219,10 +220,19 @@ static int try_move(int dir) {
 }
 
 static void enter_depth(int d) {
+    /* bank what you had explored of the floor you are leaving, before the
+     * generator wipes the flags */
+    rl_seen_store(g_pl.depth);
+
     g_pl.depth = (uint8_t)d;
     if (d > g_pl.deepest) g_pl.deepest = (uint8_t)d;
     if (d == 0) { rl_gen_overworld(); rl_shop_restock(); rl_msg("You surface."); }
-    else        { rl_gen_level(d);    rl_msgf("Level %d.", d); }
+    else {
+        rl_gen_level(d);
+        rl_seen_load(d);          /* and give back what you had seen of this one */
+        rl_fov();
+        rl_msgf("Level %d.", d);
+    }
 }
 
 /* A: whatever the tile under you offers. One button, context-sensitive, is the

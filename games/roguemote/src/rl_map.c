@@ -481,7 +481,9 @@ static const int DIRY[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
  * free scratch during generation. */
 static void reach_from(int sx, int sy, int bx, int by) {
     for (int i = 0; i < MW * MH; i++) g_lv.layer[i] = 0;
-    static uint16_t q[MW * MH];
+    /* a dungeon is DUN_W x DUN_H of the buffer, so the queue only ever needs
+     * that many entries -- sized to MW * MH it was 24 KB of BSS doing nothing */
+    static uint16_t q[DUN_W * DUN_H];
     int head = 0, tail = 0;
     g_lv.layer[sy * MW + sx] = 1;
     q[tail++] = (uint16_t)(sy * MW + sx);
@@ -498,7 +500,7 @@ static void reach_from(int sx, int sy, int bx, int by) {
             if (!rl_walkable(nx, ny) && nt != T_DOOR_CLOSED && nt != T_RUBBLE)
                 continue;
             g_lv.layer[j] = 1;
-            q[tail++] = (uint16_t)j;
+            if (tail < (int)(sizeof q / sizeof q[0])) q[tail++] = (uint16_t)j;
         }
     }
 }
@@ -593,6 +595,47 @@ int rl_pull_lever(int x, int y) {
     else        rl_msg("It clunks. Nothing here.");
     rl_fov();
     return 1;
+}
+
+/* --- what you have seen ---------------------------------------------------
+ *
+ * The layout of a floor is reproducible from its seed, but what you have WALKED
+ * is not -- and a floor you have half-explored, left, and come back to should
+ * still be half-explored. Regenerating it handed you a fresh blanket of fog
+ * every time, which quietly undoes the point of the floor persisting at all.
+ *
+ * CF_KNOWN is one bit a cell, so a whole floor's exploration is 384 bytes and
+ * every floor in the game is eighteen kilobytes. That is cheap enough that
+ * there is no argument for not doing it. */
+#define SEEN_BYTES  ((DUN_W * DUN_H + 7) / 8)
+#define SEEN_DEPTHS 48
+static uint8_t s_seen[SEEN_DEPTHS][SEEN_BYTES];
+
+void rl_seen_wipe(void) {
+    for (int d = 0; d < SEEN_DEPTHS; d++)
+        for (int i = 0; i < SEEN_BYTES; i++) s_seen[d][i] = 0;
+}
+
+/* Fold the current floor's explored map into the store. OR rather than
+ * overwrite: arriving by a different stair should not forget the far end. */
+void rl_seen_store(int depth) {
+    if (depth <= 0 || depth >= SEEN_DEPTHS) return;
+    for (int y = 0; y < DUN_H; y++)
+        for (int x = 0; x < DUN_W; x++)
+            if (g_lv.flags[y * MW + x] & CF_KNOWN) {
+                int b = y * DUN_W + x;
+                s_seen[depth][b >> 3] |= (uint8_t)(1u << (b & 7));
+            }
+}
+
+void rl_seen_load(int depth) {
+    if (depth <= 0 || depth >= SEEN_DEPTHS) return;
+    for (int y = 0; y < DUN_H; y++)
+        for (int x = 0; x < DUN_W; x++) {
+            int b = y * DUN_W + x;
+            if (s_seen[depth][b >> 3] & (1u << (b & 7)))
+                g_lv.flags[y * MW + x] |= CF_KNOWN;
+        }
 }
 
 void rl_gen_level(int depth) {
