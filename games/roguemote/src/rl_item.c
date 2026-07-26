@@ -211,6 +211,22 @@ const ItemKind g_item_kind[] = {
   { "sapphire",       V(8),  TV_VALUABLE, 19, 1050, 0, 0, 0, EF_NONE },  /* 24,16 */
   { "ruby",           V(10), TV_VALUABLE, 23, 1700, 0, 0, 0, EF_NONE },  /* 26,16 */
   { "diamond",        V(36), TV_VALUABLE, 30, 3200, 0, 0, 0, EF_NONE },  /* 16,19 */
+  /* The rest of row 19. One cut gem in eleven colours -- the crown, the taper
+   * and the highlight are the same pixel for pixel across the whole row, and
+   * only the hue changes. Eight of them had been labelled "helmet", which is
+   * the one reading that makes the row look like something else entirely.
+   *
+   *   cell = 36 + (col - 16)                                                  */
+  { "amber",          V(41), TV_VALUABLE, 12,  700, 0, 0, 0, EF_NONE },  /* 21,19 */
+  { "citrine",        V(42), TV_VALUABLE, 14,  820, 0, 0, 0, EF_NONE },  /* 22,19 */
+  { "jade",           V(43), TV_VALUABLE, 16,  950, 0, 0, 0, EF_NONE },  /* 23,19 */
+  { "peridot",        V(44), TV_VALUABLE, 18, 1100, 0, 0, 0, EF_NONE },  /* 24,19 */
+  { "carnelian",      V(40), TV_VALUABLE, 20, 1250, 0, 0, 0, EF_NONE },  /* 20,19 */
+  { "amethyst",       V(46), TV_VALUABLE, 22, 1400, 0, 0, 0, EF_NONE },  /* 26,19 */
+  { "tourmaline",     V(38), TV_VALUABLE, 24, 1550, 0, 0, 0, EF_NONE },  /* 18,19 */
+  { "garnet",         V(39), TV_VALUABLE, 26, 1900, 0, 0, 0, EF_NONE },  /* 19,19 */
+  { "onyx",           V(37), TV_VALUABLE, 28, 2200, 0, 0, 0, EF_NONE },  /* 17,19 */
+  { "aquamarine",     V(45), TV_VALUABLE, 30, 2600, 0, 0, 0, EF_NONE },  /* 25,19 */
   { "gold star",      V(23), TV_VALUABLE, 26, 2100, 0, 0, 0, EF_NONE },  /* 27,17 */
   { "shooting star",  V(11), TV_VALUABLE, 34, 4600, 0, 0, 0, EF_NONE },  /* 27,16 */
 
