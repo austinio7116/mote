@@ -353,8 +353,13 @@ def sec_controls():
               "up what is lying there, enter the town, enter a cave mouth."),
         ("B", "Wait one turn. Useful for letting something come to you in a corridor."),
         ("RB", "Open the spell list. Casting targets the nearest thing you can see."),
-        ("MENU", "Cycle Pack &rarr; Wield/Wear &rarr; Character &rarr; Map "
-                 "&rarr; back to play. <kbd>B</kbd> returns to play from anywhere."),
+        ("MENU", "Open and close the book: <b>Pack</b>, <b>Gear</b>, <b>Spell</b>, "
+                 "<b>Char</b>, <b>Map</b>. Press it again from any page to get back "
+                 "to play."),
+        ("LB / RB", "Turn to the previous or next page. The tab strip at the top "
+                    "shows where you are."),
+        ("&larr;", "The second action on a page: drop from the Pack, take a slot "
+                   "off in Gear."),
     ]
     body = "".join(
         '<div class="key"><kbd>%s</kbd><p>%s</p></div>' % (k, v) for k, v in keys)
@@ -446,7 +451,7 @@ def sec_overworld():
   <div class="terr-grid">%s</div>
   %s
   %s
-  <p>Press <kbd>MENU</kbd> three times for the map. On a 64&#215;48 continent seen
+  <p><kbd>MENU</kbd> then <kbd>LB</kbd> for the map. On a 64&#215;48 continent seen
      through a sixteen-tile window it is not a luxury &mdash; the yellow mark is
      the town, the red marks are cave mouths.</p>
 </section>""" % ("".join(rows),
@@ -471,10 +476,14 @@ def sec_mines():
     return """
 <section id="mines">
   <h2><span class="num">05</span>The Mines</h2>
-  <p>Each floor is rooms placed at random, joined by L-shaped corridors, with a
-     staircase at each end. Floors are <em>not</em> persistent: climbing back up
-     generates a new level at that depth. That is deliberate, and it is what
-     makes going down feel one-way.</p>
+  <p>Each floor is rooms and corridors with a staircase at each end. Floors are
+     <em>not</em> persistent: climbing back up generates a new level at that
+     depth. That is deliberate, and it is what makes going down feel one-way.</p>
+  <p>Rather more than half the rooms <strong>bud straight off a neighbour</strong>
+     and are joined by a door through the shared wall, so a floor comes out as
+     clusters of connected chambers with corridors running between the clusters
+     &mdash; not one room per corridor. The corridors that remain are not pipes
+     either: they bulge and narrow as they run.</p>
   %s
   <p>Not every room is a lit rectangle. Some have a corner bitten out, some are
      halls full of pillars you can lose a monster behind, and some are
@@ -587,7 +596,7 @@ def sec_items():
   <p>Four things are worn rather than carried: a weapon, body armour, one ring
      or amulet, and a light. The gear screen shows what each contributes and
      what the four add up to, so you can judge a swap without doing the
-     arithmetic yourself. <kbd>RB</kbd> there takes a slot off &mdash; the only
+     arithmetic yourself. <kbd>&larr;</kbd> there takes a slot off &mdash; the only
      way back to bare hands, and the only way to shed a light before selling it.
      A cursed item will not come off at all.</p>
   %s
@@ -601,7 +610,7 @@ def sec_items():
     <tbody>%s</tbody>
   </table></div>
 </section>""" % (plate(shots["pack"], "The pack holds sixteen kinds.", small=True),
-                 plate(shots["gear"], "Wield / wear. <kbd>MENU</kbd> from the "
+                 plate(shots["gear"], "Wield / wear. <kbd>RB</kbd> from the "
                        "pack.", small=True),
                  "".join(out), ego_rows)
 

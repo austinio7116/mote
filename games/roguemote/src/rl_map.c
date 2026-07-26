@@ -49,7 +49,7 @@ Mon *rl_mon_at(int x, int y) {
 /* --- generation --------------------------------------------------------- */
 #define MAX_ROOM 20
 enum { RM_PLAIN = 0, RM_L, RM_PILLARED, RM_VAULT };
-typedef struct { uint8_t x, y, w, h, kind, dark; } Room;
+typedef struct { uint8_t x, y, w, h, kind, dark, bud; } Room;
 static Room  s_room[MAX_ROOM];
 static int   s_nroom;
 
@@ -128,6 +128,75 @@ static void carve_room(Room *rm) {
 static int link_x(const Room *r) { return r->kind == RM_VAULT ? r->x : r->x + r->w / 2; }
 static int link_y(const Room *r) { return r->kind == RM_VAULT ? r->y : r->y + r->h / 2; }
 
+/* Plain rectangle intersection. room_overlaps() inflates by one cell on every
+ * side, which is right for scattered rooms and wrong for a budded one: it is
+ * placed exactly one wall apart on purpose, and the fat test calls that a
+ * collision. */
+static int room_free(int x, int y, int w, int h) {
+    for (int i = 0; i < s_nroom; i++) {
+        Room *r = &s_room[i];
+        if (x < r->x + r->w && r->x < x + w &&
+            y < r->y + r->h && r->y < y + h) return 0;
+    }
+    return 1;
+}
+
+/* Two rooms with exactly one wall cell between them can be joined by knocking
+ * that cell through, which is a doorway rather than a corridor. WolfMote builds
+ * whole levels this way and has no corridors at all; here it is only ever some
+ * of the joins, because a corridor you walk down is still worth having -- it is
+ * the level made ENTIRELY of them that reads wrong.
+ *
+ * Returns 1 if the two share a wall and a door was punched. */
+static int bud_door(const Room *a, const Room *b) {
+    int lo, hi;
+    /* vertical shared wall: b to the right of a, or the reverse */
+    for (int k = 0; k < 2; k++) {
+        const Room *l = k ? b : a, *r = k ? a : b;
+        if (l->x + l->w != r->x - 1) continue;
+        lo = l->y > r->y ? l->y : r->y;
+        hi = (l->y + l->h < r->y + r->h ? l->y + l->h : r->y + r->h) - 1;
+        if (hi < lo) continue;
+        int y = lo + rl_range(hi - lo + 1);
+        g_lv.terrain[y * MW + l->x + l->w] = rl_pct(45) ? T_DOOR_CLOSED : T_FLOOR;
+        return 1;
+    }
+    /* horizontal shared wall */
+    for (int k = 0; k < 2; k++) {
+        const Room *t = k ? b : a, *u = k ? a : b;
+        if (t->y + t->h != u->y - 1) continue;
+        lo = t->x > u->x ? t->x : u->x;
+        hi = (t->x + t->w < u->x + u->w ? t->x + t->w : u->x + u->w) - 1;
+        if (hi < lo) continue;
+        int x = lo + rl_range(hi - lo + 1);
+        g_lv.terrain[(t->y + t->h) * MW + x] = rl_pct(45) ? T_DOOR_CLOSED : T_FLOOR;
+        return 1;
+    }
+    return 0;
+}
+
+/* Try to seat a room flush against an existing one, one wall cell apart, so it
+ * can be joined by a door instead of a corridor. Fills rm on success. */
+static int place_budded(Room *rm, int w, int h) {
+    if (!s_nroom) return 0;
+    for (int t = 0; t < 30; t++) {
+        int oi = rl_range(s_nroom);
+        const Room *o = &s_room[oi];
+        int side = rl_range(4), x, y;
+        if (side == 0) { x = o->x + o->w + 1;  y = o->y - h + 2 + rl_range(o->h + h - 3); }
+        else if (side == 1) { x = o->x - w - 1; y = o->y - h + 2 + rl_range(o->h + h - 3); }
+        else if (side == 2) { y = o->y + o->h + 1; x = o->x - w + 2 + rl_range(o->w + w - 3); }
+        else                { y = o->y - h - 1;    x = o->x - w + 2 + rl_range(o->w + w - 3); }
+        if (x < 1 || y < 1 || x + w >= MW - 1 || y + h >= MH - 1) continue;
+        if (!room_free(x, y, w, h)) continue;
+        rm->x = (uint8_t)x; rm->y = (uint8_t)y;
+        rm->w = (uint8_t)w; rm->h = (uint8_t)h;
+        rm->bud = (uint8_t)(oi + 1);
+        return 1;
+    }
+    return 0;
+}
+
 static int in_any_room(int x, int y) {
     for (int i = 0; i < s_nroom; i++) {
         Room *r = &s_room[i];
@@ -181,14 +250,27 @@ static void place_rubble(int depth) {
     }
 }
 
-/* An L-shaped corridor: horizontal then vertical, or the reverse. Doors are
- * punched afterwards by place_doors. */
+/* An L-shaped corridor, horizontal then vertical or the reverse -- but not a
+ * pipe. A one-tile-wide run of exactly equal width for its whole length is what
+ * makes a level read as corridors with rooms attached; every third cell or so
+ * gets a neighbour opened as well, so a passage bulges, narrows and occasionally
+ * runs two wide. Same topology, none of the drainpipe. */
+static void widen(int x, int y) {
+    static const int8_t dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+    int d = rl_range(4);
+    int nx = x + dx[d], ny = y + dy[d];
+    if (nx > 0 && nx < MW - 1 && ny > 0 && ny < MH - 1 &&
+        g_lv.terrain[ny * MW + nx] == T_WALL)
+        g_lv.terrain[ny * MW + nx] = T_FLOOR;
+}
+
 static void tunnel(int x0, int y0, int x1, int y1) {
     int x = x0, y = y0;
     int horiz_first = rl_pct(50);
     for (;;) {
         if (rl_in(x, y) && g_lv.terrain[y * MW + x] == T_WALL)
             g_lv.terrain[y * MW + x] = T_FLOOR;
+        if (rl_pct(34)) widen(x, y);
         if (x == x1 && y == y1) break;
         if (horiz_first) {
             if (x != x1) x += (x1 > x) ? 1 : -1;
@@ -382,11 +464,18 @@ void rl_gen_level(int depth) {
     for (int tries = 0; tries < 400 && s_nroom < want && s_nroom < MAX_ROOM; tries++) {
         int w = warren ? 3 + rl_range(4) : 4 + rl_range(8);
         int h = warren ? 3 + rl_range(3) : 3 + rl_range(6);
-        int x = 1 + rl_range(MW - w - 2), y = 1 + rl_range(MH - h - 2);
-        if (room_overlaps(x, y, w, h)) continue;
         Room *rm = &s_room[s_nroom];
-        rm->x = (uint8_t)x; rm->y = (uint8_t)y;
-        rm->w = (uint8_t)w; rm->h = (uint8_t)h;
+        rm->bud = 0;
+        /* Half the rooms bud straight off a neighbour and are joined by a
+         * doorway; the rest are scattered and reached by corridor. That ratio
+         * is the whole fix -- every room connected by its own corridor is what
+         * made a floor read as a pipe network with chambers bolted on. */
+        if (!(rl_pct(55) && place_budded(rm, w, h))) {
+            int x = 1 + rl_range(MW - w - 2), y = 1 + rl_range(MH - h - 2);
+            if (room_overlaps(x, y, w, h)) continue;
+            rm->x = (uint8_t)x; rm->y = (uint8_t)y;
+            rm->w = (uint8_t)w; rm->h = (uint8_t)h;
+        }
         rm->kind = (uint8_t)((w >= 6 && h >= 5) ? roll_room_kind(depth) : RM_PLAIN);
         /* An unlit room has to be walked with a torch. Deeper floors have more
          * of them, and the first room is always lit -- arriving blind on the
@@ -399,7 +488,7 @@ void rl_gen_level(int depth) {
         carve_rect(MW / 2 - 4, MH / 2 - 3, 8, 6, T_FLOOR);
         s_room[0].x = (uint8_t)(MW / 2 - 4); s_room[0].y = (uint8_t)(MH / 2 - 3);
         s_room[0].w = 8; s_room[0].h = 6;
-        s_room[0].kind = RM_PLAIN; s_room[0].dark = 0; s_nroom = 1;
+        s_room[0].kind = RM_PLAIN; s_room[0].dark = 0; s_room[0].bud = 0; s_nroom = 1;
     }
     /* mark lit room cells so lit-room FOV can reveal a whole chamber at once */
     for (int i = 0; i < s_nroom; i++) {
@@ -409,9 +498,15 @@ void rl_gen_level(int depth) {
                 g_lv.flags[j * MW + k] |= CF_ROOM;
     }
 
-    for (int i = 1; i < s_nroom; i++)
+    /* A budded room already touches its host, so it gets a door knocked through
+     * the shared wall. Everything else is chained by corridor as before. */
+    for (int i = 1; i < s_nroom; i++) {
+        Room *rm = &s_room[i];
+        if (rm->bud && rm->kind != RM_VAULT &&
+            bud_door(&s_room[rm->bud - 1], rm)) continue;
         tunnel(link_x(&s_room[i - 1]), link_y(&s_room[i - 1]),
-               link_x(&s_room[i]),     link_y(&s_room[i]));
+               link_x(rm),             link_y(rm));
+    }
 
     /* Extra links between random pairs. The chain above makes the level a path:
      * one way in, one way out, every room a dead end but two. A couple of loops

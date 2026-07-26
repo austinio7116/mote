@@ -34,6 +34,34 @@ static int s_shop;                  /* which shop ST_SHOP/ST_SELL is showing */
 static int s_gear;                  /* the slot ST_GEARPICK is filling */
 static int s_have_save;
 
+/* The MENU button opens a tabbed book and closes it again; LB and RB step
+ * between tabs. It used to be one button that cycled Pack -> Gear -> Character
+ * -> Map -> play, so reaching the map meant four presses and overshooting meant
+ * four more. */
+static const uint8_t TAB_STATE[] = { ST_INV, ST_GEAR, ST_CAST, ST_CHAR, ST_MAP };
+static const char *const TAB_NAME[] = { "PACK", "GEAR", "SPELL", "CHAR", "MAP" };
+#define TAB_N ((int)(sizeof TAB_STATE / sizeof TAB_STATE[0]))
+static int s_tab;
+
+static void tab_go(int t) {
+    s_tab = (t + TAB_N) % TAB_N;
+    s_state = TAB_STATE[s_tab];
+    s_menu = 0; s_menu_top = 0;
+}
+
+/* Every tab answers MENU and B with "close", and LB/RB with "next page".
+ * Returns 1 if it consumed the press and the caller should stop. */
+static int tab_input(const MoteInput *in) {
+    if (mote_just_pressed(in, MOTE_BTN_RB)) { tab_go(s_tab + 1); return 1; }
+    if (mote_just_pressed(in, MOTE_BTN_LB)) { tab_go(s_tab - 1); return 1; }
+    if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B)) {
+        rl_save(); s_have_save = 1;
+        s_state = ST_PLAY;
+        return 1;
+    }
+    return 0;
+}
+
 /* Repeat-move: hold a direction and you keep walking, after an initial delay,
  * because a roguelike where corridors cost one press per tile is miserable. */
 static uint32_t s_hold_ms;
@@ -293,13 +321,11 @@ static void update_play(const MoteInput *in, uint32_t dt_ms) {
 
     if (mote_just_pressed(in, MOTE_BTN_B)) { s_want_turn = 1; dir = -1; }   /* wait */
     if (mote_just_pressed(in, MOTE_BTN_A)) { act_context(); s_want_turn = 0; }
-    if (mote_just_pressed(in, MOTE_BTN_RB) && !diag) {
-        s_state = ST_CAST; s_menu = 0; s_menu_top = 0; return;
-    }
+    if (mote_just_pressed(in, MOTE_BTN_RB) && !diag) { tab_go(2); return; }   /* SPELL */
     /* MENU cycles PACK -> CHARACTER -> MAP -> play. A chord would be cheaper
      * in code and undiscoverable on a handheld with no manual. */
     if (mote_just_pressed(in, MOTE_BTN_MENU)) {
-        s_state = ST_INV; s_menu = 0; s_menu_top = 0;
+        tab_go(0);
         return;
     }
 
@@ -355,9 +381,10 @@ static void g_update(float dt) {
             if (g_pl.energy >= 100) g_pl.energy = (int16_t)(g_pl.energy - 100);
             run_energy();
         }
-        if (n && mote_just_pressed(in, MOTE_BTN_RB)) rl_drop(slot[s_menu]);
-        if (mote_just_pressed(in, MOTE_BTN_MENU)) { s_state = ST_GEAR; s_menu = 0; return; }
-        if (mote_just_pressed(in, MOTE_BTN_B)) { rl_save(); s_have_save = 1; s_state = ST_PLAY; }
+        /* LEFT drops. LB and RB are the page turners now, and a vertical list
+         * has nothing else to do with a sideways press. */
+        if (n && mote_just_pressed(in, MOTE_BTN_LEFT)) rl_drop(slot[s_menu]);
+        if (tab_input(in)) return;
         rl_draw_scene();
         return;
     }
@@ -369,11 +396,10 @@ static void g_update(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_A)) {
             s_gear = s_menu; s_state = ST_GEARPICK; s_menu = 0; s_menu_top = 0;
         }
-        /* RB takes the slot off, which is the only way to go back to bare
-         * hands or to shed a light before selling it */
-        if (mote_just_pressed(in, MOTE_BTN_RB)) rl_unequip(s_menu);
-        if (mote_just_pressed(in, MOTE_BTN_MENU)) { s_state = ST_CHAR; return; }
-        if (mote_just_pressed(in, MOTE_BTN_B)) { rl_save(); s_have_save = 1; s_state = ST_PLAY; }
+        /* LEFT takes the slot off, which is the only way back to bare hands or
+         * to shed a light before selling it */
+        if (mote_just_pressed(in, MOTE_BTN_LEFT)) rl_unequip(s_menu);
+        if (tab_input(in)) return;
         rl_draw_scene();
         return;
 
@@ -408,8 +434,7 @@ static void g_update(float dt) {
                 run_energy();
             }
         }
-        if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_RB))
-            s_state = ST_PLAY;
+        if (tab_input(in)) return;
         rl_draw_scene();
         return;
     }
@@ -441,16 +466,9 @@ static void g_update(float dt) {
     }
 
     case ST_CHAR:
-        if (mote_just_pressed(in, MOTE_BTN_MENU)) { s_state = ST_MAP; return; }
-        if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_A))
-            s_state = ST_PLAY;
-        rl_draw_scene();
-        return;
-
     case ST_MAP:
-        if (mote_just_pressed(in, MOTE_BTN_MENU) || mote_just_pressed(in, MOTE_BTN_B) ||
-            mote_just_pressed(in, MOTE_BTN_A))
-            s_state = ST_PLAY;
+        if (tab_input(in)) return;
+        if (mote_just_pressed(in, MOTE_BTN_A)) s_state = ST_PLAY;
         rl_draw_scene();
         return;
 
@@ -467,6 +485,28 @@ static void panel(uint16_t *fb, const char *title) {
     mote->draw_rect(fb, 0, 0, MOTE_FB_W, 12, MOTE_RGB565(38, 32, 58), 1, 0, MOTE_FB_H);
     mote->draw_line(fb, 0, 12, MOTE_FB_W - 1, 12, COL_EDGE, 0, MOTE_FB_H);
     rl_text_big(fb, title, 3, 1, COL_GOLD);
+}
+
+/* The tabbed pages share one header: the strip of five names IS the title, in
+ * the 3x5 font, which fits across 128px with room to spare. Which page you are
+ * on and which way the shoulders go are both visible instead of remembered, and
+ * it costs no vertical space -- the rows still start at ROW_Y0. */
+static void panel_tabs(uint16_t *fb) {
+    mote->draw_rect(fb, 0, 0, MOTE_FB_W, MOTE_FB_H, COL_PANEL, 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 0, 0, MOTE_FB_W, 12, MOTE_RGB565(38, 32, 58), 1, 0, MOTE_FB_H);
+    int x = 2;
+    for (int i = 0; i < TAB_N; i++) {
+        int w = 0;
+        for (const char *c = TAB_NAME[i]; *c; c++) w += 4;
+        if (i == s_tab) {
+            mote->draw_rect(fb, x - 2, 1, w + 3, 10, COL_SEL, 1, 0, MOTE_FB_H);
+            rl_text(fb, TAB_NAME[i], x, 4, COL_GOLD);
+        } else {
+            rl_text(fb, TAB_NAME[i], x, 4, COL_DIM);
+        }
+        x += w + 5;
+    }
+    mote->draw_line(fb, 0, 12, MOTE_FB_W - 1, 12, COL_EDGE, 0, MOTE_FB_H);
 }
 
 static void row(uint16_t *fb, int i, int sel) {
@@ -526,7 +566,7 @@ static void draw_class(uint16_t *fb) {
 }
 
 static void draw_inv(uint16_t *fb) {
-    panel(fb, "PACK");
+    panel_tabs(fb);
     rl_num(fb, g_pl.gold, 104, 3, COL_GOLD);
 
     int8_t slot[INV_N];
@@ -547,14 +587,14 @@ static void draw_inv(uint16_t *fb) {
         else if (slot[i] == g_pl.inv_ring) tag = "r";
         if (tag) rl_text(fb, tag, 122, y + 2, COL_GOLD);
     }
-    footer(fb, "A use  RB drop  MENU gear");
+    footer(fb, "A use   < drop   LB/RB page");
 }
 
 /* Wield / wear. Four slots down the page, each showing what is in it and what
  * it contributes, then the totals those four add up to -- the point of the
  * screen is that you can see the effect of a swap without arithmetic. */
 static void draw_gear(uint16_t *fb) {
-    panel(fb, "WIELD / WEAR");
+    panel_tabs(fb);
     rl_blit_cell(fb, SH_CHARACTERS, g_class[g_pl.cls].cell, 116, 2);
 
     for (int i = 0; i < EQ_N; i++) {
@@ -604,7 +644,7 @@ static void draw_gear(uint16_t *fb) {
     rl_text(fb, "Lit", 100, yy, COL_DIM);
     rl_num(fb, rl_player_light(), 117, yy, COL_TEXT);
 
-    footer(fb, "A change  RB remove  MENU char");
+    footer(fb, "A change  < remove  LB/RB page");
 }
 
 static void draw_gearpick(uint16_t *fb) {
@@ -649,7 +689,7 @@ static void draw_gearpick(uint16_t *fb) {
 }
 
 static void draw_cast(uint16_t *fb) {
-    panel(fb, "SPELLS");
+    panel_tabs(fb);
     rl_num(fb, g_pl.sp, 112, 3, MOTE_RGB565(120, 170, 255));
 
     uint8_t sp[16];
@@ -664,7 +704,7 @@ static void draw_cast(uint16_t *fb) {
         rl_num(fb, s->cost, 112, y + 2, usable ? MOTE_RGB565(120, 170, 255) : COL_DIM);
         if (g_pl.level < s->lvl) rl_num(fb, s->lvl, 96, y + 2, MOTE_RGB565(150, 90, 90));
     }
-    footer(fb, "A cast   B back");
+    footer(fb, "A cast   LB/RB page   MENU out");
 }
 
 static void draw_shop(uint16_t *fb) {
@@ -706,7 +746,7 @@ static void draw_sell(uint16_t *fb) {
 }
 
 static void draw_char(uint16_t *fb) {
-    panel(fb, "CHARACTER");
+    panel_tabs(fb);
     const ClassKind *ck = &g_class[g_pl.cls];
     rl_blit_cell(fb, SH_CHARACTERS, ck->cell, 4, 15);
     rl_text(fb, ck->name, 16, 15, COL_GOLD);
@@ -745,11 +785,11 @@ static void draw_char(uint16_t *fb) {
     rl_text(fb, "Bosses", 62, 103, COL_DIM);
     rl_num(fb, g_pl.bosses_slain, 104, 103, COL_TEXT);
 
-    footer(fb, "MENU map   B back");
+    footer(fb, "LB/RB page   MENU out");
 }
 
 static void draw_worldmap(uint16_t *fb) {
-    panel(fb, g_pl.depth ? "LEVEL MAP" : "THE CONTINENT");
+    panel_tabs(fb);
     rl_draw_map(fb, 16);
     /* a legend, because two-pixel dots need naming */
     mote->draw_rect(fb, 0, 114, MOTE_FB_W, 6, COL_PANEL, 1, 0, MOTE_FB_H);
@@ -764,7 +804,7 @@ static void draw_worldmap(uint16_t *fb) {
         mote->draw_rect(fb, 34, 115, 4, 4, MOTE_RGB565(240, 90, 60), 1, 0, MOTE_FB_H);
         rl_text(fb, "cave", 40, 115, COL_DIM);
     }
-    footer(fb, "B back");
+    footer(fb, "LB/RB page   MENU out");
 }
 
 static void draw_dead(uint16_t *fb) {
