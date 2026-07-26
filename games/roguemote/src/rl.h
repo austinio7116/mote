@@ -54,6 +54,7 @@ enum {
     SH_FX,            /* fx_mono             16x8  spell effect strips */
     SH_DUNGEON,       /* dungeon_mono        16x3  patterned floors */
     SH_STAIRS,        /* stairs               8x1  four colour staircases */
+    SH_JEWEL,         /* jewellery            9x4  rings, amulets, torcs */
     SH_COUNT
 };
 

@@ -82,6 +82,12 @@ SPRITE_SHEETS = {
     "food":              (16, 8, 27, 13),  # meat, fruit, bread, pie, egg + chef
     "treasure_ore":      (16, 16, 27, 19), # gold/silver/copper ore, gems, crown, armour/helmets
     "loot_furniture":    (16, 20, 24, 23), # table, barrels, chalice, bones, shield
+    # Rows 23-26 were inside no subsheet AND no catalogue section, so the ring
+    # art was never surfaced to be labelled and the ring items were pointed at
+    # the big cut gems in treasure_ore instead. Four metal rows of goblets,
+    # torcs, medallions, plain bands and gemmed bands, plus earrings, a pendant
+    # and a jewelled ring.
+    "jewellery":         (22, 23, 30, 26), # rings, amulets, torcs, chalices
     "tools_wands":       (16, 28, 31, 31), # pickaxes, axes, hammers, staffs, wands
     "weapons_elemental": (16, 32, 30, 34), # ice/fire/colour swords & staves
     "guns":              (16, 35, 22, 35), # pistols/rifles

@@ -296,6 +296,25 @@ section(48,33,63,39, "Terrain edges (terrain)",
         "Rings/holes, wave bands, sticks, mounds, and round rocks/boulders.",
         "Water/foam bands, pits, pebbles, hill tops (edge/detail tiles).", lab_terr("Edge/detail tile"))
 
+# 36. Jewellery, chalices & regalia -----------------------------------------
+# This block was in NO section until now, which is exactly why the game has no
+# rings: the art was never surfaced to be labelled, so the ring items ended up
+# pointed at the big cut gems in treasure_ore instead. Four metal rows -- white,
+# gold, blue, red -- of goblets, torcs, medallions, plain bands and gemmed
+# bands, plus earrings, a pendant necklace and a jewelled ring on the top row.
+def lab_jewel(c, r):
+    metal = {23: "silver", 24: "gold", 25: "blue", 26: "red"}.get(r, "?")
+    kind = {16: "goblet", 17: "chalice", 18: "?", 19: "crossed blades",
+            20: "crossed blades", 21: "?", 22: "torc / horn", 23: "torc (open)",
+            24: "medallion", 25: "plain band", 26: "gemmed band",
+            27: "earrings", 28: "pendant necklace", 29: "jewelled ring",
+            30: "?"}.get(c, "?")
+    return L(f"{metal} {kind}", "Ring / amulet / drinking vessel.", q=True)
+section(16,23,30,26, "Jewellery, chalices & regalia",
+        "Four metal rows of goblets, torcs, medallions, plain and gemmed bands, "
+        "plus earrings, a necklace and a jewelled ring.",
+        "Rings and amulets (TV_RING), and treasure props.", lab_jewel)
+
 def render_section(c0, r0, c1, r1, title, blurb, use, labeler):
     cards = []
     nq = 0

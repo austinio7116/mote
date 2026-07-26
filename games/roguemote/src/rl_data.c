@@ -61,11 +61,10 @@ const MonKind g_mon_kind[] = {
   { "sand crab",         A(32),   4, 105, 4, 6, 20, 1, 6,    12, 0 },
   { "carnivorous plant", A(33),   6, 110, 5, 7, 16, 2, 5,    24, STIL },
   { "floating eye",      A(34),   6, 100, 4, 7, 14, 1, 8,    26, STIL },
-  { "log worm",          A(35),   3, 100, 3, 5, 14, 1, 5,     7, 0 },
-  { "aurochs",           A(36),   6, 105, 6, 7, 20, 2, 6,    24, 0 },
-  { "brown cow",         A(37),   3, 100, 4, 6, 12, 1, 4,     6, 0 },
-  { "spotted cow",       A(38),   3, 100, 4, 6, 12, 1, 4,     6, 0 },
-  { "white bull",        A(39),   7, 110, 7, 7, 22, 2, 7,    34, 0 },
+/* animals 35-39 are NOT five animals. They are the five frames of one mimic --
+ * shut chest, eyes, tongue, teeth, snarl -- and were serving here as a log worm,
+ * an aurochs, two cows and a bull. The mimic kinds at the end of this table own
+ * them now; nothing else may point at 36-39. */
   { "grey mould",        A(40),   2, 110, 2, 6, 10, 1, 4,     3, STIL },
   { "swamp lizard",      A(41),   4, 110, 3, 6, 16, 1, 6,    12, 0 },
   { "giant gecko",       A(42),   5, 115, 4, 6, 18, 2, 4,    18, 0 },

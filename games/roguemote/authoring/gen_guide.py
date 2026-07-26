@@ -52,7 +52,7 @@ SHEET_FILES = [
     "tools_wands", "weapons_elemental", "treasure_ore", "crowns_fx", "food",
     "runes", "loot_furniture", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
-    "dungeon_mono", "stairs",
+    "dungeon_mono", "stairs", "jewellery",
 ]
 # sheet id -> name, matching the SH_* enum in rl.h
 SH = {i: n for i, n in enumerate(SHEET_FILES)}

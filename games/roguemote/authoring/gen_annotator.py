@@ -7,6 +7,7 @@ Exports a JSON blob that feeds back into extract.py.  Output: /tmp/roguemote_ann
 """
 import os, io, json, base64
 import gen_catalogue as gc          # SECTIONS, tile_datauri, COLORS
+import inuse                        # what the GAME currently draws each tile as
 
 # category id -> (label, hotkey, hue)
 CATS = [
@@ -55,6 +56,7 @@ SEC_CAT = {
     "Animals & vermin":"animal","Monsters":"enemy","Crowns · armour · FX":"treasure",
     "Bosses":"boss","Boulders & mountains":"feature","Tiny UI icons (magenta strip)":"ui",
     "Arrows & gauges":"ui","Button prompts":"ui","Status · emotes · elements":"ui",
+    "Jewellery, chalices & regalia":"treasure",
     "Symbols":"ui","White furniture (top-down)":"furniture","Blueprint tiles":"ui",
     "Colour panels (terrain)":"ui","Purple brick wall (terrain)":"wall",
     "Stone-brick wall set (terrain)":"wall","Temple / aztec wall (terrain)":"wall",
@@ -71,6 +73,7 @@ def build():
     hp = os.path.join(here, "labels_human.json")
     if os.path.exists(ap): ai = json.load(open(ap))
     if os.path.exists(hp): human = json.load(open(hp))
+    USES = inuse.build()
     tiles = []          # flat, in section order
     sections = []       # {title, blurb, ids:[...]}
     for (c0,r0,c1,r1,title,blurb,use,labeler) in gc.SECTIONS:
@@ -99,6 +102,13 @@ def build():
                     conf = "user" if hu.get("by") == "user" else "propagated"
                     rv = 1
                 t = {"c":c,"r":r,"u":uri,"cat":cat,"name":name,"conf":conf,"rv":rv}
+                # What the shipped game draws with this tile, so a wrong mapping
+                # is visible on the card instead of only in the running game.
+                inu = sorted(set(USES.get((c, r), [])))
+                if grp:
+                    inu = sorted({x for dy in range(h) for dx in range(w)
+                                  for x in USES.get((c + dx, r + dy), [])})
+                if inu: t["use"] = inu
                 if grp:
                     # only inked members get a row on export -- no labelling blank tiles
                     t["m"] = [[c+dx, r+dy] for dy in range(h) for dx in range(w)
@@ -191,6 +201,11 @@ section{margin-top:24px;scroll-margin-top:180px}
 .bdg.low{color:var(--torch)}
 .card select{width:100%;font-size:11px;padding:2px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
 .card input.nm{width:100%;font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.card .use{display:flex;flex-wrap:wrap;gap:2px;margin-top:3px}
+.card .use span{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:9.5px;line-height:1.35;
+  padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--gold) 16%,transparent);
+  color:var(--gold-ink);border:1px solid color-mix(in srgb,var(--gold) 32%,transparent)}
+.card.inuse::after{content:"";position:absolute;right:5px;top:5px;width:6px;height:6px;border-radius:50%;background:var(--gold)}
 .card input.nm:focus,.card select:focus{outline:2px solid var(--sel);outline-offset:-1px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;z-index:50;pointer-events:none}
 .toast.show{opacity:.95}
@@ -284,6 +299,8 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
        <button class="btn" id="selsheet">sheet</button>
        <button class="btn" id="selnone">none</button></div>
      <label><input type="checkbox" id="onlyunrev"> only unreviewed</label>
+     <label><input type="checkbox" id="onlyused"> only in-game</label>
+     <label><input type="checkbox" id="onlyfree"> only unused</label>
      <div class="grp"><button class="btn" id="import">Import</button><button class="btn" id="reset">Reset</button></div>
    </div>
    <div class="cats" id="cats"></div>
@@ -301,6 +318,16 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
  <b style="color:var(--gold)">≈</b> carried over from a colour sibling you corrected;
  <b style="color:var(--cyan)">✓</b> you named it. Everything autosaves in your browser; hit
  <b>Export</b> when done.
+ </p>
+ <p style="margin:8px 0 0">
+ <b>Gold chips</b> under a card are what the <b>shipped game currently draws with that tile</b>
+ &mdash; <span class="mono">CLASS:</span>, <span class="mono">monster:</span>,
+ <span class="mono">item(ring):</span>, <span class="mono">BOSS:</span>,
+ <span class="mono">shop:</span>, <span class="mono">terrain:</span> &mdash; read straight out of
+ the content tables in <span class="mono">src/</span>. A card with a gold dot is in use; a card
+ without one is art the game has never drawn. Use <b>only in-game</b> to audit what is mapped and
+ <b>only unused</b> to find something better to map it to. If a chip is wrong, the label you type
+ is the correction &mdash; the tile is what it is, and the table follows the tile.
  </p>
  <p style="margin:8px 0 0">
  A few tiles sit in two overlapping subsheets and so appear on <b>two cards</b> (the editor tells you
@@ -377,12 +404,13 @@ APP.sections.forEach((s,si)=>{
   const g=document.createElement('div'); g.className='grid';
   s.ids.forEach(id=>{
     const t=APP.tiles[id], st=ST[id];
-    const fig=document.createElement('figure'); fig.className='card'+(t.w?' grp':''); fig.dataset.id=id;
+    const fig=document.createElement('figure'); fig.className='card'+(t.w?' grp':'')+(t.use?' inuse':''); fig.dataset.id=id;
     fig.style.setProperty('--h',catHue(st.cat));
     fig.innerHTML=`<div class="thumb"><img src="${t.u}" alt=""></div>
       <div class="meta"><span class="coord">${t.c},${t.r}${t.w?` <span class="spn">${t.w}×${t.h}</span>`:''}${badge(t.conf)}</span>
       <select class="catsel">${APP.cats.map(c=>`<option value="${c[0]}">${c[1]}</option>`).join('')}</select>
-      <input class="nm" type="text" value=""></div>`;
+      <input class="nm" type="text" value="">
+      ${t.use?`<div class="use">${t.use.map(u=>`<span>${u.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>`).join('')}</div>`:''}</div>`;
     g.appendChild(fig); cardEl[id]=fig;
     fig.querySelector('.catsel').value=st.cat;
     fig.querySelector('.nm').value=st.name;
@@ -426,8 +454,11 @@ function applyName(){const pat=document.getElementById('bulkname').value;const i
 
 function render(){
   const only=document.getElementById('onlyunrev').checked;
+  const usedOnly=document.getElementById('onlyused').checked;
+  const freeOnly=document.getElementById('onlyfree').checked;
   cardEl.forEach((el,i)=>{el.classList.toggle('sel',sel.has(i));el.classList.toggle('anchor',i===anchor&&!sel.size||sel.size&&i===anchor);
-    el.classList.toggle('hide',only&&ST[i].rev);});
+    const used=!!APP.tiles[i].use;
+    el.classList.toggle('hide',(only&&ST[i].rev)||(usedOnly&&!used)||(freeOnly&&used));});
   document.getElementById('selcount').textContent=sel.size||(anchor!=null?1:0);
   const rev=ST.filter(s=>s.rev).length;
   document.getElementById('prog').style.width=(100*rev/ST.length)+'%';
@@ -447,6 +478,8 @@ document.getElementById('selsheet').onclick=()=>{if(anchor==null)return;const s=
 document.getElementById('selnone').onclick=()=>{sel.clear();render();};
 document.getElementById('applyname').onclick=applyName;
 document.getElementById('onlyunrev').onchange=render;
+document.getElementById('onlyused').onchange=render;
+document.getElementById('onlyfree').onchange=render;
 
 // keyboard
 document.addEventListener('keydown',e=>{
