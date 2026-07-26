@@ -46,13 +46,13 @@ ORIGIN = {
     "crowns_fx":         (32, 24),
     "food":              (16, 8),
     "runes":             (8, 1),
-    "loot_furniture":    (16, 20),
+    "armour_set":        (16, 21),
     "trinkets":          (0, 8),
     "jewellery":         (25, 23),
 }
 MACRO = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",
          "O": "treasure_ore", "G": "crowns_fx", "F": "food", "R": "runes",
-         "L": "loot_furniture", "K": "trinkets", "J": "jewellery"}
+         "L": "armour_set", "K": "trinkets", "J": "jewellery"}
 TV_LABEL = {"WEAPON": "Weapons", "ARMOUR": "Armour", "POTION": "Potions",
             "SCROLL": "Scrolls", "WAND": "Wands", "RING": "Rings",
             "FOOD": "Food", "LIGHT": "Light"}

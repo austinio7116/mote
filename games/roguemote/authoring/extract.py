@@ -81,7 +81,12 @@ SPRITE_SHEETS = {
     "weapons_potions":   (16, 0, 23, 5),   # swords, spears, bows + potions/flasks
     "food":              (16, 8, 27, 13),  # meat, fruit, bread, pie, egg + chef
     "treasure_ore":      (16, 16, 27, 19), # gold/silver/copper ore, gems, crown, armour/helmets
-    "loot_furniture":    (16, 20, 24, 23), # table, barrels, chalice, bones, shield
+    # ONE armour set: seven pieces across the columns (open helm, great helm,
+    # wizard hat, hood, cuirass, hauberk, round shield) and five colours down the
+    # rows, with cols 18 and 21 as empty gutters. It used to be cut in half at
+    # row 23 by loot_furniture and helms_hoods, which is why nobody read it as a
+    # set and the items landed on the wrong columns.
+    "armour_set":        (16, 21, 24, 26), # helms, hats, hoods, bodies, shields
     # Rows 23-26 were inside no subsheet AND no catalogue section, so the ring
     # art was never surfaced to be labelled and the ring items were pointed at
     # the big cut gems in treasure_ore instead.
@@ -92,7 +97,6 @@ SPRITE_SHEETS = {
     # are helms with visor slits, hoods, and round shields, four colours deep.
     # They get their own subsheet rather than being dragged in here.
     "jewellery":         (25, 23, 29, 26), # plain and gemmed bands, earrings, necklace
-    "helms_hoods":       (16, 24, 24, 26), # helms, hoods, round shields x 3 colours
     "tools_wands":       (16, 28, 31, 31), # pickaxes, axes, hammers, staffs, wands
     "weapons_elemental": (16, 32, 30, 34), # ice/fire/colour swords & staves
     "guns":              (16, 35, 22, 35), # pistols/rifles

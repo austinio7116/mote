@@ -41,8 +41,8 @@ COLUMN = {
     16: ("Open helm", "A helm seen face-on with a vertical nose guard."),
     17: ("Great helm", "Full helm with a banded brow and a visor slit. "
                        "Row 22 is a low brimmed cap instead."),
-    19: ("Mage hat", "Pointed, worn at an angle. You called (19,23) a white "
-                     "mage hat."),
+    19: ("Wizard hat", "Your call: this whole column is wizard hats. The "
+                       "horned helm was sitting on the brown one."),
     20: ("Hood", "Rounded, two dark eye holes. You called (20,23) a hood."),
     22: ("Cuirass", "Flared shoulders over a panelled chest plate. Row 21 is a "
                     "soft tunic with buttons."),
@@ -62,9 +62,9 @@ ROW = {
 PROPOSAL = [
     ("leather cap",     (16, 21), "the brimmed leather cap"),
     ("iron helm",       (16, 22), "the same helm in iron"),
-    ("horned helm",     (17, 22), "the low brimmed helm"),
+    ("kettle helm",     (17, 22), "the brimmed helm; was on a wizard hat"),
     ("steel helm",      (16, 23), "already correct -- you confirmed this one"),
-    ("great helm",      (17, 23), "the banded full helm"),
+    ("great helm",      (17, 23), "the banded full helm; was on a hood"),
     ("golden helm",     (17, 24), "the same helm in gold"),
     ("soft leather",    (22, 21), "the buttoned tunic"),
     ("studded leather", (22, 22), "the leather cuirass"),
@@ -75,8 +75,8 @@ PROPOSAL = [
     ("iron shield",     (24, 23), "the steel round shield"),
 ]
 
-SPARE = "Columns 19 and 20 -- the mage hats and hoods, five colours of each -- " \
-        "have no item on them at all. Ten unused pieces of head armour."
+SPARE = "Columns 19 and 20 -- the wizard hats and hoods, five colours of each -- " \
+        "still carry no item. Ten unused pieces of head armour."
 
 
 def b64(img):
@@ -142,7 +142,7 @@ tbl = inuse.table(item_c, "g_item_kind[]")
 now = {}
 for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*TV_ARMOUR', tbl):
     now[m.group(1)] = inuse.src_coord(
-        {"L": "loot_furniture", "O": "treasure_ore", "G": "crowns_fx"}[m.group(2)],
+        {"L": "armour_set", "O": "treasure_ore", "G": "crowns_fx"}[m.group(2)],
         int(m.group(3)))
 
 rows = []

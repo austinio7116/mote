@@ -50,9 +50,9 @@ def b64_png(path_or_img):
 SHEET_FILES = [
     "animals", "monsters", "bosses", "characters", "weapons_potions",
     "tools_wands", "weapons_elemental", "treasure_ore", "crowns_fx", "food",
-    "runes", "loot_furniture", "trinkets", "props_light",
+    "runes", "armour_set", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
-    "dungeon_mono", "stairs", "jewellery", "helms_hoods",
+    "dungeon_mono", "stairs", "jewellery",
 ]
 # sheet id -> name, matching the SH_* enum in rl.h
 SH = {i: n for i, n in enumerate(SHEET_FILES)}
@@ -190,7 +190,7 @@ for m in CLS_RE.finditer(table(data_c, "g_class[]")):
 # --- items --------------------------------------------------------------
 ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",
               "O": "treasure_ore", "G": "crowns_fx", "F": "food", "R": "runes",
-              "L": "loot_furniture", "K": "trinkets", "J": "jewellery"}
+              "L": "armour_set", "K": "trinkets", "J": "jewellery"}
 ITEM_RE = re.compile(
     r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*(TV_\w+)\s*,'
     r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(EF_\w+)\s*\}"

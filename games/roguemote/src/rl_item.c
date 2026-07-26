@@ -21,7 +21,7 @@
 #define G(c) SH_REGALIA,  (c)      /* crowns_fx:         body armour, crowns*/
 #define F(c) SH_FOOD,     (c)
 #define R(c) SH_RUNES,    (c)      /* runes:             scroll glyphs      */
-#define L(c) SH_LOOT,     (c)      /* loot_furniture:    shields            */
+#define L(c) SH_ARMOUR,   (c)      /* armour_set:        the armour block    */
 #define K(c) SH_TRINKETS, (c)      /* trinkets:          torches            */
 #define J(c) SH_JEWEL,    (c)      /* jewellery:         rings                */
 
@@ -49,25 +49,33 @@ const ItemKind g_item_kind[] = {
   { "Blade of Chaos", E(28), TV_WEAPON,  40, 4800, 6, 5,  0, EF_NONE },
   { "throwing star",  E(7),  TV_WEAPON,   6,   60, 1, 5,  0, EF_NONE },
 
-  /* --- armour ---------------------------------------------------------
-   * All of it from loot_furniture, which is a proper armour set: helmets in
-   * cols 16-20, body in 22-23, shields in 24, tiered brown / navy / white down
-   * rows 21-23. The previous mapping had helmets coming out of treasure_ore
-   * row 19 (that row is GEMS) and body armour out of crowns_fx row 27 (those
-   * are training dummies). */
-  { "leather cap",    L(9),  TV_ARMOUR,   2,   18, 0, 0,  3, EF_NONE },
-  { "iron helm",      L(18), TV_ARMOUR,   8,   75, 0, 0,  5, EF_NONE },
-  { "horned helm",    L(21), TV_ARMOUR,  14,  180, 0, 0,  7, EF_NONE },
-  { "steel helm",     L(27), TV_ARMOUR,  20,  340, 0, 0,  9, EF_NONE },
-  { "great helm",     L(22), TV_ARMOUR,  24,  560, 0, 0, 11, EF_NONE },
-  { "golden helm",    L(28), TV_ARMOUR,  28,  900, 0, 0, 13, EF_NONE },
-  { "soft leather",   L(15), TV_ARMOUR,   2,   20, 0, 0,  4, EF_NONE },
-  { "studded leather",L(24), TV_ARMOUR,   7,   90, 0, 0,  8, EF_NONE },
-  { "chain mail",     L(25), TV_ARMOUR,  13,  300, 0, 0, 14, EF_NONE },
-  { "plate mail",     L(34), TV_ARMOUR,  22,  900, 0, 0, 24, EF_NONE },
-  { "mithril coat",   L(33), TV_ARMOUR,  30, 2400, 0, 0, 30, EF_NONE },
-  { "leather shield", L(26), TV_ARMOUR,   5,   40, 0, 0,  4, EF_NONE },
-  { "iron shield",    L(35), TV_ARMOUR,  12,  160, 0, 0,  7, EF_NONE },
+  /* --- armour ----------------------------------------------------------
+   * Source cols 16-24, rows 21-26 is ONE set and has to be read as one: seven
+   * pieces across the columns and five colours down the rows, cols 18 and 21
+   * empty gutters. Two subsheets used to cut it in half at row 23, which is why
+   * the items were spread across the wrong columns -- the horned helm was on a
+   * wizard hat, the great helm on a hood, the mithril coat on a steel cuirass.
+   *
+   *        col 16  open helm      col 17  great helm
+   *        col 19  wizard hat     col 20  hood
+   *        col 22  cuirass        col 23  hauberk       col 24  round shield
+   *
+   *   cell = (row - 21) * 9 + (col - 16)
+   *
+   * Cols 19 and 20 -- ten wizard hats and hoods -- carry no item yet. */
+  { "leather cap",    L(0),  TV_ARMOUR,   2,   18, 0, 0,  3, EF_NONE },  /* 16,21 */
+  { "iron helm",      L(9),  TV_ARMOUR,   8,   75, 0, 0,  5, EF_NONE },  /* 16,22 */
+  { "kettle helm",    L(10), TV_ARMOUR,  14,  180, 0, 0,  7, EF_NONE },  /* 17,22 */
+  { "steel helm",     L(18), TV_ARMOUR,  20,  340, 0, 0,  9, EF_NONE },  /* 16,23 */
+  { "great helm",     L(19), TV_ARMOUR,  24,  560, 0, 0, 11, EF_NONE },  /* 17,23 */
+  { "golden helm",    L(28), TV_ARMOUR,  28,  900, 0, 0, 13, EF_NONE },  /* 17,24 */
+  { "soft leather",   L(6),  TV_ARMOUR,   2,   20, 0, 0,  4, EF_NONE },  /* 22,21 */
+  { "studded leather",L(15), TV_ARMOUR,   7,   90, 0, 0,  8, EF_NONE },  /* 22,22 */
+  { "chain mail",     L(25), TV_ARMOUR,  13,  300, 0, 0, 14, EF_NONE },  /* 23,23 */
+  { "plate mail",     L(24), TV_ARMOUR,  22,  900, 0, 0, 24, EF_NONE },  /* 22,23 */
+  { "mithril coat",   L(42), TV_ARMOUR,  30, 2400, 0, 0, 30, EF_NONE },  /* 22,25 */
+  { "leather shield", L(17), TV_ARMOUR,   5,   40, 0, 0,  4, EF_NONE },  /* 24,22 */
+  { "iron shield",    L(26), TV_ARMOUR,  12,  160, 0, 0,  7, EF_NONE },  /* 24,23 */
 
   /* --- potions -------------------------------------------------------- */
   { "potion",         W(3),  TV_POTION,   1,   20, 0, 0,  0, EF_CURE_LIGHT },

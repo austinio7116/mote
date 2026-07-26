@@ -45,7 +45,7 @@ enum {
     SH_REGALIA,       /* crowns_fx            9x8  body armour, crowns, FX */
     SH_FOOD,          /* food                12x6 */
     SH_RUNES,         /* runes                3x4  scroll glyphs */
-    SH_LOOT,          /* loot_furniture       9x4  shields, chalices, barrels */
+    SH_ARMOUR,        /* armour_set           9x6  the armour block, 7 pieces x 5 colours */
     SH_TRINKETS,      /* trinkets            16x6  props, slimes, flora */
     SH_PROPS,         /* props_light         10x4  torches, houses, benches */
     SH_DOORS,         /* doors_gems_banners   4x6  ladders, doors, gems */
@@ -55,7 +55,6 @@ enum {
     SH_DUNGEON,       /* dungeon_mono        16x3  patterned floors */
     SH_STAIRS,        /* stairs               8x1  four colour staircases */
     SH_JEWEL,         /* jewellery            5x4  rings, amulets, earrings */
-    SH_HELMS,         /* helms_hoods          9x3  helms, hoods, round shields */
     SH_COUNT
 };
 
@@ -198,7 +197,7 @@ enum ItemId {
     ITM_MACE, ITM_SPEAR, ITM_GILDED_BLADE, ITM_TRIDENT, ITM_PICK_AXE,
     ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS, ITM_THROWING_STAR,
     /* armour */
-    ITM_LEATHER_CAP, ITM_IRON_HELM, ITM_HORNED_HELM, ITM_STEEL_HELM,
+    ITM_LEATHER_CAP, ITM_IRON_HELM, ITM_KETTLE_HELM, ITM_STEEL_HELM,
     ITM_GREAT_HELM, ITM_GOLDEN_HELM,
     ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_CHAIN_MAIL, ITM_PLATE_MAIL,
     ITM_MITHRIL_COAT, ITM_LEATHER_SHIELD, ITM_IRON_SHIELD,
