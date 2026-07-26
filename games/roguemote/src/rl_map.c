@@ -611,6 +611,10 @@ int rl_pull_lever(int x, int y) {
 #define SEEN_DEPTHS 48
 static uint8_t s_seen[SEEN_DEPTHS][SEEN_BYTES];
 
+/* The store itself, so the save can carry it. It is a flat block of bits with
+ * no pointers, so it goes into the blob verbatim. */
+void *rl_seen_blob(int *bytes) { *bytes = (int)sizeof s_seen; return s_seen; }
+
 void rl_seen_wipe(void) {
     for (int d = 0; d < SEEN_DEPTHS; d++)
         for (int i = 0; i < SEEN_BYTES; i++) s_seen[d][i] = 0;

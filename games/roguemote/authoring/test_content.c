@@ -1657,6 +1657,46 @@ static void test_persistence(void) {
                "%d known became %d", before_load, after_load);
     }
 
+    /* --- and the store is serialisable ---------------------------------
+     * rl_save/rl_load themselves need the engine's key-value store, which this
+     * harness has no business linking -- so what is checked here is the part
+     * the save relies on: that the store is a flat block of the size it claims
+     * and survives being copied out and back. */
+    {
+        int n = 0;
+        uint8_t *store = (uint8_t *)rl_seen_blob(&n);
+        CHECKF(n > 0, "the exploration store has a size", "%d bytes", n);
+        CHECKF(n <= 20480, "the store fits the save blob", "%d bytes", n);
+
+        rl_seen_wipe();
+        int blank = 0;
+        for (int i = 0; i < n; i++) if (store[i]) blank++;
+        CHECKF(blank == 0, "wiping clears the store", "%d bytes left set", blank);
+
+        /* mark a floor, copy the block out, wipe, copy it back */
+        fresh_player();
+        g_world_seed = 5150; g_seed = 9;
+        g_pl.depth = 9;
+        rl_gen_level(9);
+        for (int y = 3; y < 12; y++)
+            for (int x = 3; x < 18; x++) g_lv.flags[y * MW + x] |= CF_KNOWN;
+        rl_seen_store(9);
+
+        static uint8_t blob[20480];
+        for (int i = 0; i < n; i++) blob[i] = store[i];
+        rl_seen_wipe();
+        for (int i = 0; i < n; i++) store[i] = blob[i];
+
+        rl_gen_level(9);
+        rl_seen_load(9);
+        int lost = 0;
+        for (int y = 3; y < 12; y++)
+            for (int x = 3; x < 18; x++)
+                if (!(g_lv.flags[y * MW + x] & CF_KNOWN)) lost++;
+        CHECKF(lost == 0, "the explored map survives a round trip through the blob",
+               "%d cells forgotten", lost);
+    }
+
     /* and the contents DO change, or coming back is farming a cleared floor */
     {
         int varied = 0;

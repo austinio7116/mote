@@ -191,6 +191,7 @@ void rl_gen_level(int depth);
 void rl_seen_store(int depth);   /* remember this floor's explored map */
 void rl_seen_load(int depth);
 void rl_seen_wipe(void);
+void *rl_seen_blob(int *bytes);
 int  rl_pull_lever(int x, int y);
 const char *rl_hue_name(int hue);
 void rl_gen_overworld(void);

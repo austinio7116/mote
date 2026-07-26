@@ -1,10 +1,11 @@
 /*
  * Save/restore and the high-score table.
  *
- * Only the Player struct and the two seeds are persisted. The level is NOT --
- * regenerating it from the depth is what a Moria-style game already does when
- * you take the stairs, so a reload landing you on a fresh floor of the same
- * depth is consistent with the rest of the game rather than a compromise.
+ * The Player, the two seeds, and the exploration maps. The level itself is NOT
+ * stored and does not need to be: a floor's layout is a function of the world
+ * seed and its depth, so reloading rebuilds the identical floor. What cannot be
+ * derived is what you WALKED, so that comes along -- one bit a cell, 384 bytes
+ * a floor, eighteen kilobytes for the lot.
  *
  * The blob carries a magic + version word so a save written by an older layout
  * is rejected instead of being read as garbage stats. Bump it whenever Player
@@ -14,12 +15,16 @@
 
 #define SAVE_KEY   "roguemote.sav"
 #define SCORE_KEY  "roguemote.hi"
-#define SAVE_MAGIC 0x524D5306u          /* 'RMS' + layout version 6 */
+#define SAVE_MAGIC 0x524D5307u          /* 'RMS' + layout version 7 */
+
+#define SEEN_MAX 20480          /* comfortably over the store's real size */
 
 typedef struct {
     uint32_t magic;
     uint32_t seed, world_seed, turn;
     Player   pl;
+    uint32_t seen_bytes;
+    uint8_t  seen[SEEN_MAX];
 } SaveBlob;
 
 typedef struct {
@@ -33,6 +38,17 @@ void rl_save(void) {
     b.magic = SAVE_MAGIC;
     b.seed = g_seed; b.world_seed = g_world_seed; b.turn = g_turn;
     b.pl = g_pl;
+
+    /* bank the floor being played before the map is written, or the level you
+     * are standing on is the one floor the save forgets */
+    rl_seen_store(g_pl.depth);
+    int n = 0;
+    const uint8_t *seen = (const uint8_t *)rl_seen_blob(&n);
+    if (n > SEEN_MAX) n = SEEN_MAX;
+    b.seen_bytes = (uint32_t)n;
+    for (int i = 0; i < n; i++) b.seen[i] = seen[i];
+    for (int i = n; i < SEEN_MAX; i++) b.seen[i] = 0;
+
     g_api->kv_save(SAVE_KEY, &b, (int)sizeof b);
 }
 
@@ -53,8 +69,20 @@ int rl_load(void) {
     rl_item_init_flavours();
     g_seed = keep;
 
+    /* restore the exploration maps before the level is built, so the arriving
+     * floor gets its own back straight away */
+    int sn = 0;
+    uint8_t *seen = (uint8_t *)rl_seen_blob(&sn);
+    rl_seen_wipe();
+    if ((int)b.seen_bytes < sn) sn = (int)b.seen_bytes;
+    for (int i = 0; i < sn; i++) seen[i] = b.seen[i];
+
     if (g_pl.depth == 0) rl_gen_overworld();
-    else                 rl_gen_level(g_pl.depth);
+    else {
+        rl_gen_level(g_pl.depth);
+        rl_seen_load(g_pl.depth);
+        rl_fov();
+    }
     return 1;
 }
 
