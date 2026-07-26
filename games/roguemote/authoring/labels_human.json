@@ -112,7 +112,17 @@
  "16,16": {
   "by": "user",
   "cat": "treasure",
-  "name": "gold coin"
+  "name": "gold one coin"
+ },
+ "16,17": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "silver one coin"
+ },
+ "16,18": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "copper one coin"
  },
  "16,19": {
   "by": "user",
@@ -132,7 +142,17 @@
  "17,16": {
   "by": "user",
   "cat": "treasure",
-  "name": "gold coins"
+  "name": "gold small pile (3)"
+ },
+ "17,17": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "silver small pile (3)"
+ },
+ "17,18": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "copper small pile (3)"
  },
  "17,19": {
   "by": "user",
@@ -149,6 +169,21 @@
   "cat": "consumable",
   "name": "green spotted egg"
  },
+ "18,16": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "gold large pile"
+ },
+ "18,17": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "silver large pile"
+ },
+ "18,18": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "copper large pile"
+ },
  "18,19": {
   "by": "user",
   "cat": "treasure",
@@ -163,6 +198,11 @@
   "by": "user",
   "cat": "consumable",
   "name": "egg"
+ },
+ "19,16": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "gold coin bag"
  },
  "19,19": {
   "by": "user",
@@ -199,6 +239,21 @@
   "cat": "feature",
   "name": "stone tower"
  },
+ "20,16": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "gold small bar"
+ },
+ "20,17": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "silver small bar"
+ },
+ "20,18": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "copper small bar"
+ },
  "20,19": {
   "by": "user",
   "cat": "treasure",
@@ -213,6 +268,21 @@
   "by": "user",
   "cat": "treasure",
   "name": "gold cross"
+ },
+ "21,16": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "gold nugget"
+ },
+ "21,17": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "silver nugget"
+ },
+ "21,18": {
+  "by": "user",
+  "cat": "treasure",
+  "name": "copper nugget"
  },
  "21,19": {
   "by": "user",

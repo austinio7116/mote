@@ -179,33 +179,39 @@ const ItemKind g_item_kind[] = {
   { "iron shield",    L(26), TV_ARMOUR,  12,  160, 0, 0,  7, EF_NONE },  /* 24,23 */
 
   /* --- valuables --------------------------------------------------------
-   * Source cols 16-27, rows 16-19: copper, silver and gold as single nuggets,
-   * small piles, ore heaps, coins and bars, then the cut stones. They have no
-   * effect and no slot -- a valuable is worth exactly what a shopkeeper pays
-   * for it, which is what makes hauling one back a decision about weight
-   * rather than about power.
+   * Source cols 16-21, rows 16-18. The COLUMN is the denomination and the ROW
+   * is the metal -- gold on 16, silver on 17, copper on 18:
    *
-   *   cell = (row - 16) * 12 + (col - 16)
+   *   col 16  one coin        col 17  small pile (three)
+   *   col 18  large pile      col 19  coin bag -- GOLD ONLY, and the stamped
+   *                                   sack that had been read as an ingot
+   *   col 20  small bar       col 21  nugget
    *
-   * The three metals ladder against each other, and the stones sit above all
-   * of them, so a ruby in a chest on floor twenty is a real event.            */
-  { "copper nugget",  V(28), TV_VALUABLE,  1,    9, 0, 0, 0, EF_NONE },  /* 20,18 */
-  { "copper pile",    V(29), TV_VALUABLE,  2,   24, 0, 0, 0, EF_NONE },  /* 21,18 */
-  { "copper ore",     V(24), TV_VALUABLE,  3,   45, 0, 0, 0, EF_NONE },  /* 16,18 */
-  { "copper seam",    V(25), TV_VALUABLE,  6,   85, 0, 0, 0, EF_NONE },  /* 17,18 */
-  { "copper lode",    V(26), TV_VALUABLE, 10,  150, 0, 0, 0, EF_NONE },  /* 18,18 */
-  { "silver nugget",  V(16), TV_VALUABLE,  4,   60, 0, 0, 0, EF_NONE },  /* 20,17 */
-  { "silver pile",    V(17), TV_VALUABLE,  7,  130, 0, 0, 0, EF_NONE },  /* 21,17 */
-  { "silver ore",     V(12), TV_VALUABLE,  9,  210, 0, 0, 0, EF_NONE },  /* 16,17 */
-  { "silver seam",    V(13), TV_VALUABLE, 13,  340, 0, 0, 0, EF_NONE },  /* 17,17 */
-  { "silver lode",    V(14), TV_VALUABLE, 17,  520, 0, 0, 0, EF_NONE },  /* 18,17 */
-  { "silver bar",     V(7),  TV_VALUABLE, 20,  760, 0, 0, 0, EF_NONE },  /* 23,16 */
-  { "gold coin",      V(0),  TV_VALUABLE,  2,   40, 0, 0, 0, EF_NONE },  /* 16,16 */
-  { "handful of gold",V(1),  TV_VALUABLE,  5,  110, 0, 0, 0, EF_NONE },  /* 17,16 */
-  { "gold nugget",    V(4),  TV_VALUABLE,  8,  190, 0, 0, 0, EF_NONE },  /* 20,16 */
-  { "gold pile",      V(5),  TV_VALUABLE, 12,  380, 0, 0, 0, EF_NONE },  /* 21,16 */
-  { "gold hoard",     V(2),  TV_VALUABLE, 18,  900, 0, 0, 0, EF_NONE },  /* 18,16 */
-  { "gold ingot",     V(3),  TV_VALUABLE, 24, 1500, 0, 0, 0, EF_NONE },  /* 19,16 */
+   * Col 20 is a BAR stood on end, not a nugget, and col 21 is the nugget. That
+   * pair was the wrong way round, and cols 16-18 were read as an ore ladder --
+   * "ore pile, seam, lode" -- which is mining rather than money.
+   *
+   * A valuable does nothing except be worth money, which is the point: it is
+   * treasure you haul back rather than treasure that changes how you fight.
+   *
+   *   cell = (row - 16) * 12 + (col - 16)                                     */
+  { "copper coin",    V(24), TV_VALUABLE,  1,    4, 0, 0, 0, EF_NONE },  /* 16,18 */
+  { "copper nugget",  V(29), TV_VALUABLE,  2,    9, 0, 0, 0, EF_NONE },  /* 21,18 */
+  { "pile of copper", V(25), TV_VALUABLE,  4,   16, 0, 0, 0, EF_NONE },  /* 17,18 */
+  { "heap of copper", V(26), TV_VALUABLE,  6,   34, 0, 0, 0, EF_NONE },  /* 18,18 */
+  { "copper bar",     V(28), TV_VALUABLE,  9,   62, 0, 0, 0, EF_NONE },  /* 20,18 */
+  { "silver coin",    V(12), TV_VALUABLE,  4,   26, 0, 0, 0, EF_NONE },  /* 16,17 */
+  { "silver nugget",  V(17), TV_VALUABLE,  6,   55, 0, 0, 0, EF_NONE },  /* 21,17 */
+  { "pile of silver", V(13), TV_VALUABLE,  9,   95, 0, 0, 0, EF_NONE },  /* 17,17 */
+  { "heap of silver", V(14), TV_VALUABLE, 12,  210, 0, 0, 0, EF_NONE },  /* 18,17 */
+  { "silver bar",     V(16), TV_VALUABLE, 15,  370, 0, 0, 0, EF_NONE },  /* 20,17 */
+  { "silver ingot",   V(7),  TV_VALUABLE, 19,  640, 0, 0, 0, EF_NONE },  /* 23,16 */
+  { "gold coin",      V(0),  TV_VALUABLE,  7,   85, 0, 0, 0, EF_NONE },  /* 16,16 */
+  { "gold nugget",    V(5),  TV_VALUABLE, 10,  175, 0, 0, 0, EF_NONE },  /* 21,16 */
+  { "pile of gold",   V(1),  TV_VALUABLE, 13,  290, 0, 0, 0, EF_NONE },  /* 17,16 */
+  { "heap of gold",   V(2),  TV_VALUABLE, 17,  600, 0, 0, 0, EF_NONE },  /* 18,16 */
+  { "gold bar",       V(4),  TV_VALUABLE, 21,  980, 0, 0, 0, EF_NONE },  /* 20,16 */
+  { "bag of gold",    V(3),  TV_VALUABLE, 25, 1500, 0, 0, 0, EF_NONE },  /* 19,16 */
   { "gem shard",      V(21), TV_VALUABLE,  6,   95, 0, 0, 0, EF_NONE },  /* 25,17 */
   { "emerald",        V(9),  TV_VALUABLE, 15,  650, 0, 0, 0, EF_NONE },  /* 25,16 */
   { "sapphire",       V(8),  TV_VALUABLE, 19, 1050, 0, 0, 0, EF_NONE },  /* 24,16 */

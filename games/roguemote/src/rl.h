@@ -274,12 +274,14 @@ enum ItemId {
     ITM_GREAT_HELM, ITM_GOLDEN_HELM,
     ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_CHAIN_MAIL, ITM_PLATE_MAIL,
     ITM_MITHRIL_COAT, ITM_LEATHER_SHIELD, ITM_IRON_SHIELD,
-    /* valuables: coin, ore and cut stones -- carried back and sold */
-    ITM_COPPER_NUGGET, ITM_COPPER_PILE, ITM_COPPER_ORE_S, ITM_COPPER_ORE_M,
-    ITM_COPPER_ORE_L, ITM_SILVER_NUGGET, ITM_SILVER_PILE, ITM_SILVER_ORE_S,
-    ITM_SILVER_ORE_M, ITM_SILVER_ORE_L, ITM_SILVER_BAR,
-    ITM_GOLD_COIN, ITM_GOLD_COINS, ITM_GOLD_NUGGET, ITM_GOLD_PILE,
-    ITM_GOLD_HOARD, ITM_GOLD_INGOT,
+    /* Valuables. The COLUMN is the denomination and the ROW is the metal:
+     *   16 one coin   17 small pile   18 large pile
+     *   19 coin bag (gold only)       20 small bar   21 nugget           */
+    ITM_CU_COIN, ITM_CU_NUGGET, ITM_CU_PILE, ITM_CU_HOARD, ITM_CU_BAR,
+    ITM_AG_COIN, ITM_AG_NUGGET, ITM_AG_PILE, ITM_AG_HOARD, ITM_AG_BAR,
+    ITM_AG_INGOT,
+    ITM_AU_COIN, ITM_AU_NUGGET, ITM_AU_PILE, ITM_AU_HOARD, ITM_AU_BAR,
+    ITM_AU_BAG,
     ITM_GEM_SHARD, ITM_GEM_EMERALD, ITM_GEM_SAPPHIRE, ITM_GEM_RUBY,
     ITM_GEM_DIAMOND,
     /* row 19 is one cut gem in eleven colours -- not the helmets it was
