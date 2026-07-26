@@ -110,7 +110,7 @@ const ItemKind g_item_kind[] = {
    * The sheet has thirty-six edible things in it and the table used eight.
    * Nutrition scales with how much of a meal it looks like. */
   { "ration",         F(48), TV_FOOD,     1,    5, 0, 0, 12, EF_NONE },
-  { "dumpling",       F(2),  TV_FOOD,     1,    4, 0, 0,  8, EF_NONE },
+  { "egg",            F(2),  TV_FOOD,     1,    4, 0, 0,  8, EF_NONE },
   { "cheese",         F(38), TV_FOOD,     2,    7, 0, 0, 10, EF_NONE },
   { "apple",          F(14), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },
   { "peach",          F(12), TV_FOOD,     1,    3, 0, 0,  4, EF_NONE },

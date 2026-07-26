@@ -51,6 +51,39 @@ COLOUR_BLOCKS = [
 def load(p, default):
     return json.load(open(p)) if os.path.exists(p) else default
 
+
+def read_export(path):
+    """An annotator export, in either format.
+
+    The full JSON export is one object per tile over fourteen hundred tiles and
+    does not survive being pasted into a chat message -- one arrived truncated a
+    third of the way through. The Corrections button emits the reviewed tiles
+    only, one line of "col,row|cat|name" each, which does. Both land here."""
+    txt = open(path, encoding="utf-8").read().lstrip()
+    if txt.startswith("{") or txt.startswith("["):
+        raw = json.loads(txt)
+        return raw.get("tiles", raw) if isinstance(raw, dict) else raw
+
+    tiles, bad = [], 0
+    for line in txt.splitlines():
+        line = line.strip()
+        if not line or line.startswith("ROGUEMOTE-CORRECTIONS"):
+            continue
+        parts = line.split("|")
+        if len(parts) < 3 or "," not in parts[0]:
+            bad += 1
+            continue
+        cr, cat, name = parts[0], parts[1].strip(), "|".join(parts[2:]).strip()
+        try:
+            c, r = (int(x) for x in cr.split(",", 1))
+        except ValueError:
+            bad += 1
+            continue
+        tiles.append({"c": c, "r": r, "cat": cat, "name": name, "rev": True})
+    if bad:
+        print(f"  ({bad} unparseable lines skipped)")
+    return tiles
+
 def twin_map():
     """(c,r) -> how many annotator cards show it. Needs the catalogue sections.
     Multi-tile sprites draw on their anchor's card only, so members count 0."""
@@ -119,8 +152,7 @@ def main():
         return
 
     if len(sys.argv) < 2: sys.exit(__doc__)
-    raw = json.load(open(sys.argv[1]))
-    tiles = raw.get("tiles", raw) if isinstance(raw, dict) else raw
+    tiles = read_export(sys.argv[1])
     # an export marks every human-touched tile rev=true; untouched ones are just
     # the agent guess coming back round, so they are not corrections.
     corr = [t for t in tiles if t.get("rev")] if any("rev" in t for t in tiles) else tiles

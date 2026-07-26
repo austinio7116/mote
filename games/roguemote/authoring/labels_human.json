@@ -1,4 +1,9 @@
 {
+"0,12": {
+"by": "user",
+"cat": "ui",
+"name": "crossed circle"
+},
 "0,8": {
 "by": "user",
 "cat": "floor",
@@ -25,22 +30,22 @@
 "name": "open door red"
 },
 "12,2": {
-"by": "propagated from 12,1",
+"by": "user",
 "cat": "door",
 "name": "open door blue"
 },
 "12,3": {
-"by": "propagated from 12,1",
+"by": "user",
 "cat": "door",
 "name": "open door gold"
 },
 "12,4": {
-"by": "propagated from 12,1",
+"by": "user",
 "cat": "door",
 "name": "open door green"
 },
 "12,5": {
-"by": "propagated from 12,1",
+"by": "user",
 "cat": "door",
 "name": "open door grey/white"
 },
@@ -50,22 +55,22 @@
 "name": "house/shop (pink/red)"
 },
 "13,2": {
-"by": "propagated from 13,1",
+"by": "user",
 "cat": "feature",
 "name": "house/shop (blue)"
 },
 "13,3": {
-"by": "propagated from 13,1",
+"by": "user",
 "cat": "feature",
 "name": "house/shop (gold)"
 },
 "13,4": {
-"by": "propagated from 13,1",
+"by": "user",
 "cat": "feature",
 "name": "house/shop (green)"
 },
 "13,5": {
-"by": "propagated from 13,1",
+"by": "user",
 "cat": "feature",
 "name": "house/shop (grey/white)"
 },
@@ -75,24 +80,49 @@
 "name": "house extend"
 },
 "14,2": {
-"by": "propagated from 14,1",
+"by": "user",
 "cat": "feature",
 "name": "house extend"
 },
 "14,3": {
-"by": "propagated from 14,1",
+"by": "user",
 "cat": "feature",
 "name": "house extend"
 },
 "14,4": {
-"by": "propagated from 14,1",
+"by": "user",
 "cat": "feature",
 "name": "house extend"
 },
 "14,5": {
-"by": "propagated from 14,1",
+"by": "user",
 "cat": "feature",
 "name": "house extend"
+},
+"15,8": {
+"by": "user",
+"cat": "prop",
+"name": "tombstone"
+},
+"17,8": {
+"by": "user",
+"cat": "consumable",
+"name": "green spotted egg"
+},
+"18,5": {
+"by": "user",
+"cat": "treasure",
+"name": "gift"
+},
+"18,8": {
+"by": "user",
+"cat": "consumable",
+"name": "egg"
+},
+"19,5": {
+"by": "user",
+"cat": "treasure",
+"name": "open gift"
 },
 "2,7": {
 "by": "user",
@@ -108,6 +138,26 @@
 "by": "user",
 "cat": "feature",
 "name": "stone tower"
+},
+"20,5": {
+"by": "user",
+"cat": "treasure",
+"name": "gold cross"
+},
+"21,5": {
+"by": "user",
+"cat": "tool",
+"name": "microchip"
+},
+"22,5": {
+"by": "user",
+"cat": "tool",
+"name": "memory chip"
+},
+"23,5": {
+"by": "user",
+"cat": "tool",
+"name": "resister"
 },
 "24,0": {
 "by": "user",
@@ -238,6 +288,16 @@
 "by": "user",
 "cat": "prop",
 "name": "lit torch"
+},
+"9,11": {
+"by": "user",
+"cat": "feature",
+"name": "reeds"
+},
+"9,12": {
+"by": "user",
+"cat": "feature",
+"name": "reeds"
 },
 "9,7": {
 "by": "user",

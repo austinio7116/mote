@@ -287,6 +287,7 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
    <div class="progwrap"><div class="prog" id="prog"></div></div>
    <span class="pnum" id="pnum">0 / 0 reviewed</span>
    <button class="btn pri" id="export">Export</button>
+   <button class="btn" id="expfix" title="Only the tiles you changed, one line each">Corrections</button>
    <button class="btn menu" id="menu" aria-expanded="false">Tools</button>
  </div>
  <div class="drawer" id="drawer">
@@ -370,18 +371,32 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
  <textarea id="iotext"></textarea>
  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
    <button class="btn" value="cancel">Close</button>
+   <button class="btn" id="iosave" type="button">Save file</button>
    <button class="btn" id="iocopy" type="button">Copy to clipboard</button>
    <button class="btn pri" id="iook" value="ok" type="button">Load</button></div></form></dialog>
 
 <script>
 /*__DATA__*/
-const KEY="roguemote_annot_v1";
+const KEY="roguemote_annot_v1";    // legacy: a positional array, one slot per card
+const KEY2="roguemote_annot_v2";   // current: keyed by "c,r"
 const CATBY={}; APP.cats.forEach(c=>CATBY[c[0]]=c);
 const HOTKEY={}; APP.cats.forEach(c=>HOTKEY[c[2]]=c[0]);
 // state: per tile {cat,name,rev}. seed from APP.tiles then overlay saved.
+//
+// v1 stored a flat array indexed by card, and loaded it only when the length
+// matched exactly. That made the save silently unreadable the moment a section
+// was added or resized -- an hour of labelling orphaned by a page rebuild. v2 is
+// keyed by the tile's own (col,row), which no section change can invalidate.
 let ST = APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:!!t.rv}));
-try{const s=JSON.parse(localStorage.getItem(KEY)||"null");
- if(s&&s.length===ST.length) ST=s;}catch(e){}
+let loaded=0;
+try{const s2=JSON.parse(localStorage.getItem(KEY2)||"null");
+ if(s2&&typeof s2==="object"&&!Array.isArray(s2)){
+   APP.tiles.forEach((t,i)=>{const v=s2[t.c+","+t.r];
+     if(v){ST[i]={cat:v.cat,name:v.name,rev:!!v.rev};loaded++;}});}}catch(e){}
+if(!loaded){                        // first run after the upgrade: read v1 across
+  try{const s=JSON.parse(localStorage.getItem(KEY)||"null");
+   if(s&&s.length===ST.length){ST=s;loaded=s.length;}}catch(e){}
+}
 let anchor=0; const sel=new Set();
 // Overlapping subsheets (props x trinkets, grass x temple) show the SAME (c,r)
 // tile on two cards. Edits have to hit every card for a tile or the twin keeps
@@ -465,7 +480,14 @@ function render(){
   document.getElementById('pnum').textContent=isMobile()?rev+'/'+ST.length:rev+' / '+ST.length+' reviewed';
   if(sheetId!=null) fillSheet();          // keep the open editor in step with bulk edits
 }
-let saveT; function save(){clearTimeout(saveT);saveT=setTimeout(()=>localStorage.setItem(KEY,JSON.stringify(ST)),250);}
+let saveT; function save(){clearTimeout(saveT);saveT=setTimeout(writeSave,250);}
+function writeSave(){
+  const o={};
+  APP.tiles.forEach((t,i)=>{(t.m||[[t.c,t.r]]).forEach(m=>{o[m[0]+","+m[1]]=ST[i];});});
+  try{localStorage.setItem(KEY2,JSON.stringify(o));
+      localStorage.setItem(KEY,JSON.stringify(ST));}catch(e){}
+}
+writeSave();   // mirror whatever we just loaded into v2 before any edit happens
 let toastT;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1200);}
 
 // section-local helpers
@@ -500,6 +522,58 @@ function colsPerRow(){const g=cardEl[anchor]?cardEl[anchor].parentElement:main.q
 
 // export / import / reset
 const dlg=document.getElementById('iodlg');
+/* The DIFF export: only tiles whose label no longer matches the one baked into
+ * this page, one line of "col,row|cat|name" each.
+ *
+ * The full JSON export is one object per tile over fourteen hundred tiles. It
+ * does not survive a phone clipboard and it did not survive being pasted into a
+ * chat message -- one arrived truncated a third of the way through. A diff of an
+ * afternoon's labelling is a few hundred lines. apply_labels.py reads both. */
+function changedTiles(){
+  const out={};
+  APP.tiles.forEach((t,i)=>{
+    const s=ST[i];
+    if(s.cat===t.cat && s.name===t.name) return;   // untouched, or confirmed as-is
+    (t.m||[[t.c,t.r]]).forEach(m=>{out[m[0]+','+m[1]]=s.cat+'|'+s.name;});
+  });
+  return out;
+}
+let ioFile=null;                                   // what "Save file" writes
+function showIO(title, text, filename){
+  ioFile={name:filename, text:text};
+  document.getElementById('iotitle').textContent=title;
+  document.getElementById('iotext').value=text;
+  document.getElementById('iook').style.display='none';
+  document.getElementById('iocopy').style.display='';
+  document.getElementById('iosave').style.display='';
+  closeSheet(); dlg.showModal();
+}
+document.getElementById('expfix').onclick=()=>{
+  const ch=changedTiles();
+  const keys=Object.keys(ch).sort((a,b)=>{const[x,y]=a.split(',').map(Number),[p,q]=b.split(',').map(Number);
+    return y-q||x-p;});
+  const rev=ST.filter(s=>s.rev).length;
+  const txt='ROGUEMOTE-DIFF v1 '+keys.length+' changed of '+rev+' reviewed\n'
+          + keys.map(k=>k+'|'+ch[k]).join('\n');
+  showIO('Changed labels ('+keys.length+') — Save file, or Copy', txt, 'roguemote_diff.txt');
+};
+/* Saving goes through the host, which shows the viewer a confirmation. An
+ * anchor with a Blob URL -- what this used to do -- is silently swallowed inside
+ * a sandboxed frame on a phone, which looks exactly like nothing happening. */
+document.getElementById('iosave').onclick=async ()=>{
+  if(!ioFile) return;
+  const dl = window.claude && window.claude.downloads;
+  if(dl){
+    try{ await dl.save({filename:ioFile.name, data:ioFile.text}); toast('saved '+ioFile.name); }
+    catch(e){ const c=e&&e.code;
+      toast(c==='declined'?'save cancelled':c==='too_large'?'file too large':'save failed ('+(c||'?')+')'); }
+    return;
+  }
+  try{ const b=new Blob([ioFile.text],{type:'text/plain'});
+       const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+       a.download=ioFile.name; a.click(); toast('saved'); }
+  catch(e){ toast('saving is not available here — use Copy'); }
+};
 document.getElementById('export').onclick=()=>{
   // a multi-tile sprite is ONE card here but expands back to one row per 8x8
   // tile, so labels_ai/labels_human stay keyed by "c,r" and nothing downstream
@@ -508,12 +582,7 @@ document.getElementById('export').onclick=()=>{
   APP.tiles.forEach((t,i)=>{(t.m||[[t.c,t.r]]).forEach(m=>
     out.tiles.push({c:m[0],r:m[1],cat:ST[i].cat,name:ST[i].name,rev:ST[i].rev}));});
   const txt=JSON.stringify(out,null,1);
-  document.getElementById('iotitle').textContent="Export — tap Copy, or paste this back to me";
-  document.getElementById('iotext').value=txt;document.getElementById('iook').style.display='none';
-  document.getElementById('iocopy').style.display='';closeSheet();
-  try{const b=new Blob([txt],{type:'application/json'});const a=document.createElement('a');
-    a.href=URL.createObjectURL(b);a.download='roguemote_labels.json';a.click();}catch(e){}
-  dlg.showModal();
+  showIO("Full export ("+out.tiles.length+" tiles) — Save file", txt, 'roguemote_labels.json');
 };
 document.getElementById('iocopy').onclick=()=>{const ta=document.getElementById('iotext');
   ta.select();ta.setSelectionRange(0,ta.value.length);      // iOS needs the explicit range
@@ -521,7 +590,8 @@ document.getElementById('iocopy').onclick=()=>{const ta=document.getElementById(
     ()=>{try{document.execCommand('copy');toast('copied');}catch(e){toast('select the text and copy');}});};
 document.getElementById('import').onclick=()=>{document.getElementById('iotitle').textContent="Import — paste a previously exported JSON";
   document.getElementById('iotext').value='';document.getElementById('iook').style.display='';
-  document.getElementById('iocopy').style.display='none';closeSheet();dlg.showModal();};
+  document.getElementById('iocopy').style.display='none';
+  document.getElementById('iosave').style.display='none';closeSheet();dlg.showModal();};
 document.getElementById('iook').onclick=()=>{try{const o=JSON.parse(document.getElementById('iotext').value);
   const by={};(o.tiles||o).forEach(t=>by[t.c+','+t.r]={cat:t.cat,name:t.name,rev:t.rev!==false});
   APP.tiles.forEach((t,i)=>{const k=by[t.c+','+t.r];if(k){ST[i].cat=k.cat;ST[i].name=k.name;ST[i].rev=k.rev;
