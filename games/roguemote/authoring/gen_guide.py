@@ -532,6 +532,11 @@ def sec_mines():
     return """
 <section id="mines">
   <h2><span class="num">05</span>The Mines</h2>
+  <p>You get into the Mines two ways. A <b>cave mouth</b> returns you to the
+     deepest floor you have earned; a <b>tower</b> drops you straight to a floor
+     set by how far out it stands, capped at six past your best. So a tower is a
+     shortcut you can buy with a walk, and the world map is worth reading before
+     you set out.</p>
   <p>Each floor is rooms and corridors with a staircase at each end. Floors are
      <em>not</em> persistent: climbing back up generates a new level at that
      depth. That is deliberate, and it is what makes going down feel one-way.</p>
@@ -574,10 +579,36 @@ def sec_mines():
                        "seen. Red is the way down, blue the way up."))
 
 
+def sec_levers():
+    return """
+<section id="levers">
+  <h2><span class="num">06</span>Levers</h2>
+  <p>Some floors carry a <b>coloured lever</b> and one thing it opens in the
+     same colour &mdash; either a door across a passage, or a strongbox sitting
+     where you can see it and cannot touch it. Stand on the lever and press
+     <kbd>A</kbd>. Every lock of that colour gives at once; a freed strongbox
+     becomes an ordinary chest, so you still walk to it, still open it, and it
+     still rolls its trap.</p>
+  <p>There is never more than <b>one pair on a floor</b>, and that is a safety
+     property rather than a matter of taste. Two pairs can interlock &mdash;
+     the red lever behind the blue door and the blue lever behind the red
+     &mdash; and no amount of checking each pair on its own would ever see it.
+     With one pair there is nothing to interlock with.</p>
+  <p>Two more rules keep a floor honest. A locked door only ever replaces a
+     door that was <em>already there</em>, so the generator has proved the
+     level connects through that cell before it locks it. And the lever is
+     placed by flooding the map from the up stair <em>with its own door
+     shut</em>, then dropped somewhere the flood actually reached &mdash; so a
+     lever is never behind the thing it opens.</p>
+  <p>The five are red, blue, gold, green and grey, and the lever band and the
+     strongbox band are drawn in that order, row for row.</p>
+</section>"""
+
+
 def sec_turns():
     return """
 <section id="turns">
-  <h2><span class="num">06</span>Turns, speed and combat</h2>
+  <h2><span class="num">07</span>Turns, speed and combat</h2>
   <p>Nothing moves until you do. Every actor accumulates energy each tick from
      its speed and acts when it reaches a hundred, which is Moria's model and
      has one consequence worth internalising: <strong>normal speed is 110, and
@@ -599,6 +630,32 @@ def sec_turns():
   <p>Monsters hunt on their own senses, not on yours. Something can be closing
      on you from down a corridor you have never seen, and if it is within
      fourteen tiles it already knows where you are.</p>
+</section>"""
+
+
+def sec_ranged():
+    return """
+<section id="ranged">
+  <h2><span class="num">08</span>Shooting</h2>
+  <p><kbd>RB</kbd> looses a shot at the nearest thing you can see, if you are
+     carrying something to shoot. The damage model is Angband's, and it is
+     worth stating plainly because it decides what to buy:</p>
+  <p class="formula">(ammunition dice + ammunition bonus + launcher bonus)
+     &#215; <b>the launcher's multiplier</b></p>
+  <p>The multiplier is the whole point. A &#215;4 arbalest turns a good bolt
+     into a great one and a poor bolt into a mediocre one, so the launcher and
+     the ammunition are two separate shopping decisions that <em>multiply</em>
+     rather than add. Seven launchers run from a &#215;2 short bow to a
+     &#215;5 Bow of Flame.</p>
+  <p>Darts and throwing stars need no launcher at all &mdash; they are thrown
+     by hand at &#215;2. That is what gives a character who owns no bow
+     something to do at range, and something to spend early gold on.</p>
+  <p>A miss still spends the shot. About half of what you loose survives and
+     drops where it landed, so the quiver is something you manage rather than
+     something that only ever drains &mdash; and the arrows are lying in the
+     direction you were already going.</p>
+  <p>The quiver and the launcher have their own equipment slots, so a bow is
+     never competing with the weapon in your hand.</p>
 </section>"""
 
 
@@ -647,7 +704,7 @@ def sec_items():
 
     return """
 <section id="items">
-  <h2><span class="num">07</span>What you find</h2>
+  <h2><span class="num">09</span>What you find</h2>
   <p>An item rolls a base kind weighted by depth, then an enchantment, then a
      chance at an ego &mdash; the same pipeline Moria used. Depth below is the
      shallowest floor a kind appears on; gold is its base price before
@@ -703,7 +760,7 @@ def sec_magic():
         for n, sh, cells in strips)
     return """
 <section id="magic">
-  <h2><span class="num">08</span>Magic</h2>
+  <h2><span class="num">10</span>Magic</h2>
   <p>Sixteen spells across seven shapes. Your class decides which of them you
      may learn and your level decides when; the failure chance falls as you gain
      levels and Intelligence, but never below five percent. <strong>A failed cast
@@ -737,12 +794,20 @@ def sec_town():
         for s in shops)
     return """
 <section id="town">
-  <h2><span class="num">09</span>Town</h2>
+  <h2><span class="num">11</span>Town</h2>
   <p>The town is a place, not a screen. It is a walled settlement on the
      overworld &mdash; an irregular wall two courses thick, wandering flagstone
      streets that punch out through it as gates, and shopfronts standing on the
      street front. Walk onto a shopfront and you are in that shop; walk onto the
-     bed and you have slept. Nothing wild spawns inside the walls.</p>
+     bed and you have slept. Nothing wild spawns inside the walls &mdash; but
+     <b>townsfolk do</b>. Villagers, a farmhand, a sage, a dwarf, a priest, a
+     child and the king wander their own streets and never come at you.</p>
+  <p>The walled town is the capital and keeps all six traders. Two to four more
+     settlements sit further out <b>without walls</b> &mdash; a street with
+     houses either side, an inn, and two or three of the same six traders
+     keeping a door. The trader is one shop with one stock list; the doorway is
+     a place, and the same trader can have a door in two towns. No town puts
+     the same trader behind two of its own doors.</p>
   <div class="shops">%s</div>
   <p>Shops restock every time you surface, and the inn restores health, mana
      and food for twenty gold &mdash; and saves your game. Shops buy at a third
@@ -759,6 +824,36 @@ def sec_town():
                        small=True))
 
 
+def sec_money():
+    return """
+<section id="money">
+  <h2><span class="num">12</span>Money</h2>
+  <p>Finding a great item, selling it, and buying the one you actually wanted
+     is the loop the rest of the game hangs off, so price answers to
+     <b>utility and rarity</b> together rather than to a flat rate.</p>
+  <p>Each point of enchantment is worth a slice <em>of the item</em>, and the
+     slices compound &mdash; so a +8 on a Blade of Chaos is a different object
+     from a +8 on a dagger, which a flat rate per point said it was not. An ego
+     then multiplies the lot by its own worth, and that worth is graded against
+     <em>measured</em> power: "of Attacks" buys a whole extra blow, so it is
+     dearer than a mod with a bigger printed multiplier and no second swing.</p>
+  <p>A curse is worth almost nothing. This is not flavour &mdash; under the
+     first pricing a cursed weapon was worth three times a plain one, and
+     farming curses was the best trade in the game.</p>
+  <p><b>A trader's purse is finite</b>, and grows as you go deeper. Uncapped,
+     one legendary find pays for every shop in the game for ever, and the best
+     thing you ever pulled out of a vault becomes a thing you sold rather than a
+     thing you fought with.</p>
+  <p>Enchantment tops out at +12. Scrolls of enchantment are unlimited and
+     priced off the base item, so without a ceiling a stack of them on a costly
+     weapon is a printing press rather than an upgrade.</p>
+  <p>Treasure proper &mdash; coin, bars, and the cut stones &mdash; does nothing
+     at all except be worth money. Denomination runs across the columns and
+     metal down the rows: one coin, a small pile, a large pile, a bar, a nugget,
+     and a stamped sack of gold. Eleven cut gems run from amber to diamond.</p>
+</section>"""
+
+
 def sec_bestiary():
     by_lvl = sorted(monsters, key=lambda m: (m["lvl"], m["name"]))
     cells = []
@@ -773,7 +868,7 @@ def sec_bestiary():
             % (title, spr(m["sheet"], m["cell"], 4), esc(m["name"]), m["lvl"]))
     return """
 <section id="bestiary">
-  <h2><span class="num">10</span>Bestiary</h2>
+  <h2><span class="num">13</span>Bestiary</h2>
   <p>%d kinds, ordered by the depth at which they start appearing. Anything can
      turn up out of depth &mdash; roughly one spawn in ten rolls deeper than the
      floor it is on, which is where most deaths come from.</p>
@@ -806,7 +901,7 @@ def sec_bosses():
                      spr(drop["sheet"], drop["cell"], 3), esc(drop["name"])))
     return """
 <section id="bosses">
-  <h2><span class="num">11</span>The seventeen</h2>
+  <h2><span class="num">14</span>The seventeen</h2>
   <p>Seventeen floors are guarded. The guardian is not rolled and cannot be
      missed by bad luck &mdash; when you take the stairs to its depth it is there,
      in the room furthest from where you arrived, awake. Each is a 16&#215;16
@@ -821,7 +916,7 @@ def sec_bosses():
 def sec_death():
     return """
 <section id="death">
-  <h2><span class="num">12</span>Dying</h2>
+  <h2><span class="num">15</span>Dying</h2>
   <p>Death is permanent and it deletes the save. The tombstone records your
      class, your level, the deepest floor you reached and your kills, and your
      score goes to the title screen if it beats the one already there.</p>
@@ -858,13 +953,17 @@ SHEET_CSS = "\n".join(
     ".sh-%s{background-image:url(%s);--sw:%d;--sh:%d}" % (n, s["uri"], s["w"], s["h"])
     for n, s in sheets.items())
 
-NAV = [("screen", "The screen"), ("controls", "Controls"), ("classes", "The twelve"),
-       ("overworld", "The continent"), ("mines", "The Mines"),
-       ("turns", "Turns & combat"), ("items", "What you find"), ("magic", "Magic"),
-       ("town", "Town"), ("bestiary", "Bestiary"), ("bosses", "The seventeen"),
-       ("death", "Dying")]
-nav_html = "".join('<li><a href="#%s"><span>%02d</span>%s</a></li>' % (i, n + 1, t)
-                   for n, (i, t) in enumerate(NAV))
+# The index is derived from the sections themselves, just after they are
+# assembled -- see below. Two hand-kept lists in the same order is one list
+# that will drift, and it had already drifted by three entries.
+NAV_TITLE = {
+    "screen": "The screen", "controls": "Controls", "classes": "The twelve",
+    "overworld": "The continent", "mines": "The Mines", "levers": "Levers",
+    "turns": "Turns &amp; combat", "ranged": "Shooting",
+    "items": "What you find", "magic": "Magic", "town": "Town",
+    "money": "Money", "bestiary": "Bestiary", "bosses": "The seventeen",
+    "death": "Dying",
+}
 
 FONT_FACE = ("""@font-face{font-family:Rogue8;src:url(data:font/woff2;base64,%s)
  format("woff2");font-display:block}""" % font_b64) if font_b64 else ""
@@ -1059,6 +1158,7 @@ code{font-size:.88em; color:var(--gold)}
 .terr p{margin:0; font-size:.85rem; color:var(--mute)}
 
 /* --- tables --- */
+.formula{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--gold);border-radius:8px;padding:11px 14px;margin:12px 0;font-size:15px;text-align:center}
 .tablewrap{overflow-x:auto; margin:1rem 0 1.5rem;
   border:1px solid var(--rule); background:var(--panel)}
 table{border-collapse:collapse; width:100%%; font-size:.85rem}
@@ -1172,9 +1272,18 @@ a{color:var(--gold)}
 cast = "".join(spr("characters", c["cell"], 4) for c in classes)
 body = "\n".join([
     sec_screen(), sec_controls(), sec_classes(), sec_overworld(), sec_mines(),
-    sec_turns(), sec_items(), sec_magic(), sec_town(), sec_bestiary(),
+    sec_levers(), sec_turns(), sec_ranged(), sec_items(), sec_magic(),
+    sec_town(), sec_money(),
+    sec_bestiary(),
     sec_bosses(), sec_death(),
 ])
+
+_nav_ids = re.findall(r'<section id="([a-z]+)"', body)
+_missing = [i for i in _nav_ids if i not in NAV_TITLE]
+assert not _missing, "sections with no index entry: %s" % _missing
+nav_html = "".join('<li><a href="#%s"><span>%02d</span>%s</a></li>'
+                   % (i, n + 1, NAV_TITLE[i])
+                   for n, i in enumerate(_nav_ids))
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 with open(OUT, "w", encoding="utf-8") as f:

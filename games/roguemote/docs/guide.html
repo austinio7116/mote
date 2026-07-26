@@ -189,6 +189,7 @@ code{font-size:.88em; color:var(--gold)}
 .terr p{margin:0; font-size:.85rem; color:var(--mute)}
 
 /* --- tables --- */
+.formula{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--gold);border-radius:8px;padding:11px 14px;margin:12px 0;font-size:15px;text-align:center}
 .tablewrap{overflow-x:auto; margin:1rem 0 1.5rem;
   border:1px solid var(--rule); background:var(--panel)}
 table{border-collapse:collapse; width:100%; font-size:.85rem}
@@ -309,7 +310,7 @@ a{color:var(--gold)}
 <div class="wrap layout">
   <nav class="index">
     <h2>Contents</h2>
-    <ol><li><a href="#screen"><span>01</span>The screen</a></li><li><a href="#controls"><span>02</span>Controls</a></li><li><a href="#classes"><span>03</span>The twelve</a></li><li><a href="#overworld"><span>04</span>The continent</a></li><li><a href="#mines"><span>05</span>The Mines</a></li><li><a href="#turns"><span>06</span>Turns & combat</a></li><li><a href="#items"><span>07</span>What you find</a></li><li><a href="#magic"><span>08</span>Magic</a></li><li><a href="#town"><span>09</span>Town</a></li><li><a href="#bestiary"><span>10</span>Bestiary</a></li><li><a href="#bosses"><span>11</span>The seventeen</a></li><li><a href="#death"><span>12</span>Dying</a></li></ol>
+    <ol><li><a href="#screen"><span>01</span>The screen</a></li><li><a href="#controls"><span>02</span>Controls</a></li><li><a href="#classes"><span>03</span>The twelve</a></li><li><a href="#overworld"><span>04</span>The continent</a></li><li><a href="#mines"><span>05</span>The Mines</a></li><li><a href="#levers"><span>06</span>Levers</a></li><li><a href="#turns"><span>07</span>Turns &amp; combat</a></li><li><a href="#ranged"><span>08</span>Shooting</a></li><li><a href="#items"><span>09</span>What you find</a></li><li><a href="#magic"><span>10</span>Magic</a></li><li><a href="#town"><span>11</span>Town</a></li><li><a href="#money"><span>12</span>Money</a></li><li><a href="#bestiary"><span>13</span>Bestiary</a></li><li><a href="#bosses"><span>14</span>The seventeen</a></li><li><a href="#death"><span>15</span>Dying</a></li></ol>
   </nav>
   <main>
 
@@ -434,6 +435,11 @@ a{color:var(--gold)}
 
 <section id="mines">
   <h2><span class="num">05</span>The Mines</h2>
+  <p>You get into the Mines two ways. A <b>cave mouth</b> returns you to the
+     deepest floor you have earned; a <b>tower</b> drops you straight to a floor
+     set by how far out it stands, capped at six past your best. So a tower is a
+     shortcut you can buy with a walk, and the world map is worth reading before
+     you set out.</p>
   <p>Each floor is rooms and corridors with a staircase at each end. Floors are
      <em>not</em> persistent: climbing back up generates a new level at that
      depth. That is deliberate, and it is what makes going down feel one-way.</p>
@@ -471,8 +477,31 @@ a{color:var(--gold)}
   <figure class="plate"><div class="screen"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAADnUlEQVR42u2cL5rbMBDFlX57AEPDwIAFBQUBBQsKAhcUBBoKFBTmCIEFBYaBAQWBAXuAHiHQMHCPsECpqvUf2bFlS1r/HsgnxZLszJs3M3ISL5bLtQD+8AkT+MWD2bkcU9VYba+lcfqQCTVMHdJTzG7rrNpzmSctHS29Y65fuoDqGSNQgOVC+32G4Qua1ixZtqmrV15trxY/CFEBA23qfJbp9XZzh2xixwSUAs6os+wBsPuhaEJQl4+ndV0b05sMXZ3V3ZRqYtN0y8rqUMjWb1RAR48zo+3lmFrcvHZW67miyKIuFdBP6RY/HbLgkJwx9ikcYsFGjI0YBACPSXj95Qkr+MwBSZJiBUIQBABfOeDzI2UoCoAAAAEQACAAAgAEQACAAAgAEDATPIR2Qc/fn3VbJnshRP66s4w//Tn1WLkfup8LBaAAFzB9P/ubCyEOa1ka8/PbVQhRJFJ76HBPJweggPBQ9X2FXy/qK9VTa6QOUxkowDMWT1/jiJgq1v/z97GqrzHqHBRADnABVeeYsZ6dMBhTAf1qhuljqCssX3MhhBApCkABFY82KwR7O2TYr7C4jZla0yggbAWYXtOl3S+LxJs5UMBcc4BdMaqiKBxF5+G12b3XE8dGTP7Y6nb++4gvT5oD2qJ5WltR3JsDhlRW79e873rIASjABap+7euO48ckgLg/LgH2uIwXkwPIAePD1NnY34ihABQQNlx9IxZa9kIBEAABgBwQH5ruU92bY1AAIQgCAARAAIilCvL1CzIUAHwrQFW+xa09tP4NrX5HASiA/aoPDaEAQhAEAAiIFTLZqwdaQMDsqyDzmQ1xVeL9oOqok1ipHgqYvQKqz2xo8v3Yf1Xn9m4YCmAnHBtUnnN1NwwFoIBQMU21hgLiUYCr6iWEfYD9Gqb8VyUKmFMOiGcHMN2/KlGAZ0AABMwb0Tw1EQUACIAAAAEQACAAAgAEQACAAAgAEAABAAIgAEAABAAIgAAAARAAIAACQGcskoQn/6AACAC+8P/n6cVmqdvLc+H2NJvzRbfPmxV276QAKXdS7qrd0qs5pjuqi/Rb54OHoDzfaxvl+d4+ZgiaFicH2PzXIebp/u9yQG3cNx3fIoJWVON+STezVcAiTUmJYSggy25PmjkccuziJwfUmj7LpOZGtVW31DYpBD0JyDLZ6v7mgMMh190uc0G7Amq92Hy/yc2b5oL7FFA7yHzfdHMzOgGqoDltxIArvAHfMX1820UorwAAAABJRU5ErkJggg==" alt="" width="128" height="128"></div><figcaption>The level map shows only what you have seen. Red is the way down, blue the way up.</figcaption></figure>
 </section>
 
+<section id="levers">
+  <h2><span class="num">06</span>Levers</h2>
+  <p>Some floors carry a <b>coloured lever</b> and one thing it opens in the
+     same colour &mdash; either a door across a passage, or a strongbox sitting
+     where you can see it and cannot touch it. Stand on the lever and press
+     <kbd>A</kbd>. Every lock of that colour gives at once; a freed strongbox
+     becomes an ordinary chest, so you still walk to it, still open it, and it
+     still rolls its trap.</p>
+  <p>There is never more than <b>one pair on a floor</b>, and that is a safety
+     property rather than a matter of taste. Two pairs can interlock &mdash;
+     the red lever behind the blue door and the blue lever behind the red
+     &mdash; and no amount of checking each pair on its own would ever see it.
+     With one pair there is nothing to interlock with.</p>
+  <p>Two more rules keep a floor honest. A locked door only ever replaces a
+     door that was <em>already there</em>, so the generator has proved the
+     level connects through that cell before it locks it. And the lever is
+     placed by flooding the map from the up stair <em>with its own door
+     shut</em>, then dropped somewhere the flood actually reached &mdash; so a
+     lever is never behind the thing it opens.</p>
+  <p>The five are red, blue, gold, green and grey, and the lever band and the
+     strongbox band are drawn in that order, row for row.</p>
+</section>
+
 <section id="turns">
-  <h2><span class="num">06</span>Turns, speed and combat</h2>
+  <h2><span class="num">07</span>Turns, speed and combat</h2>
   <p>Nothing moves until you do. Every actor accumulates energy each tick from
      its speed and acts when it reaches a hundred, which is Moria's model and
      has one consequence worth internalising: <strong>normal speed is 110, and
@@ -496,8 +525,31 @@ a{color:var(--gold)}
      fourteen tiles it already knows where you are.</p>
 </section>
 
+<section id="ranged">
+  <h2><span class="num">08</span>Shooting</h2>
+  <p><kbd>RB</kbd> looses a shot at the nearest thing you can see, if you are
+     carrying something to shoot. The damage model is Angband's, and it is
+     worth stating plainly because it decides what to buy:</p>
+  <p class="formula">(ammunition dice + ammunition bonus + launcher bonus)
+     &#215; <b>the launcher's multiplier</b></p>
+  <p>The multiplier is the whole point. A &#215;4 arbalest turns a good bolt
+     into a great one and a poor bolt into a mediocre one, so the launcher and
+     the ammunition are two separate shopping decisions that <em>multiply</em>
+     rather than add. Seven launchers run from a &#215;2 short bow to a
+     &#215;5 Bow of Flame.</p>
+  <p>Darts and throwing stars need no launcher at all &mdash; they are thrown
+     by hand at &#215;2. That is what gives a character who owns no bow
+     something to do at range, and something to spend early gold on.</p>
+  <p>A miss still spends the shot. About half of what you loose survives and
+     drops where it landed, so the quiver is something you manage rather than
+     something that only ever drains &mdash; and the arrows are lying in the
+     direction you were already going.</p>
+  <p>The quiver and the launcher have their own equipment slots, so a bow is
+     never competing with the weapon in your hand.</p>
+</section>
+
 <section id="items">
-  <h2><span class="num">07</span>What you find</h2>
+  <h2><span class="num">09</span>What you find</h2>
   <p>An item rolls a base kind weighted by depth, then an enchantment, then a
      chance at an ego &mdash; the same pipeline Moria used. Depth below is the
      shallowest floor a kind appears on; gold is its base price before
@@ -593,7 +645,7 @@ a{color:var(--gold)}
 </section>
 
 <section id="magic">
-  <h2><span class="num">08</span>Magic</h2>
+  <h2><span class="num">10</span>Magic</h2>
   <p>Sixteen spells across seven shapes. Your class decides which of them you
      may learn and your level decides when; the failure chance falls as you gain
      levels and Intelligence, but never below five percent. <strong>A failed cast
@@ -615,12 +667,20 @@ a{color:var(--gold)}
 </section>
 
 <section id="town">
-  <h2><span class="num">09</span>Town</h2>
+  <h2><span class="num">11</span>Town</h2>
   <p>The town is a place, not a screen. It is a walled settlement on the
      overworld &mdash; an irregular wall two courses thick, wandering flagstone
      streets that punch out through it as gates, and shopfronts standing on the
      street front. Walk onto a shopfront and you are in that shop; walk onto the
-     bed and you have slept. Nothing wild spawns inside the walls.</p>
+     bed and you have slept. Nothing wild spawns inside the walls &mdash; but
+     <b>townsfolk do</b>. Villagers, a farmhand, a sage, a dwarf, a priest, a
+     child and the king wander their own streets and never come at you.</p>
+  <p>The walled town is the capital and keeps all six traders. Two to four more
+     settlements sit further out <b>without walls</b> &mdash; a street with
+     houses either side, an inn, and two or three of the same six traders
+     keeping a door. The trader is one shop with one stock list; the doorway is
+     a place, and the same trader can have a door in two towns. No town puts
+     the same trader behind two of its own doors.</p>
   <div class="shops"><div class="shop"><i class="spr sh-doors_gems_banners" style="--s:5;--x:2;--y:3"></i><h4>General Store</h4></div><div class="shop"><i class="spr sh-doors_gems_banners" style="--s:5;--x:2;--y:5"></i><h4>Armoury</h4></div><div class="shop"><i class="spr sh-doors_gems_banners" style="--s:5;--x:2;--y:1"></i><h4>Weaponsmith</h4></div><div class="shop"><i class="spr sh-doors_gems_banners" style="--s:5;--x:2;--y:2"></i><h4>Alchemist</h4></div><div class="shop"><i class="spr sh-doors_gems_banners" style="--s:5;--x:2;--y:4"></i><h4>Magic Shop</h4></div><div class="shop"><i class="spr sh-props_light" style="--s:5;--x:6;--y:2"></i><h4>Black Market</h4></div></div>
   <p>Shops restock every time you surface, and the inn restores health, mana
      and food for twenty gold &mdash; and saves your game. Shops buy at a third
@@ -633,8 +693,35 @@ a{color:var(--gold)}
      Charisma does. Bards and Paladins get a real discount; Berserks do not.</p>
 </section>
 
+<section id="money">
+  <h2><span class="num">12</span>Money</h2>
+  <p>Finding a great item, selling it, and buying the one you actually wanted
+     is the loop the rest of the game hangs off, so price answers to
+     <b>utility and rarity</b> together rather than to a flat rate.</p>
+  <p>Each point of enchantment is worth a slice <em>of the item</em>, and the
+     slices compound &mdash; so a +8 on a Blade of Chaos is a different object
+     from a +8 on a dagger, which a flat rate per point said it was not. An ego
+     then multiplies the lot by its own worth, and that worth is graded against
+     <em>measured</em> power: "of Attacks" buys a whole extra blow, so it is
+     dearer than a mod with a bigger printed multiplier and no second swing.</p>
+  <p>A curse is worth almost nothing. This is not flavour &mdash; under the
+     first pricing a cursed weapon was worth three times a plain one, and
+     farming curses was the best trade in the game.</p>
+  <p><b>A trader's purse is finite</b>, and grows as you go deeper. Uncapped,
+     one legendary find pays for every shop in the game for ever, and the best
+     thing you ever pulled out of a vault becomes a thing you sold rather than a
+     thing you fought with.</p>
+  <p>Enchantment tops out at +12. Scrolls of enchantment are unlimited and
+     priced off the base item, so without a ceiling a stack of them on a costly
+     weapon is a printing press rather than an upgrade.</p>
+  <p>Treasure proper &mdash; coin, bars, and the cut stones &mdash; does nothing
+     at all except be worth money. Denomination runs across the columns and
+     metal down the rows: one coin, a small pile, a large pile, a bar, a nugget,
+     and a stamped sack of gold. Eleven cut gems run from amber to diamond.</p>
+</section>
+
 <section id="bestiary">
-  <h2><span class="num">10</span>Bestiary</h2>
+  <h2><span class="num">13</span>Bestiary</h2>
   <p>167 kinds, ordered by the depth at which they start appearing. Anything can
      turn up out of depth &mdash; roughly one spawn in ten rolls deeper than the
      floor it is on, which is where most deaths come from.</p>
@@ -642,7 +729,7 @@ a{color:var(--gold)}
 </section>
 
 <section id="bosses">
-  <h2><span class="num">11</span>The seventeen</h2>
+  <h2><span class="num">14</span>The seventeen</h2>
   <p>Seventeen floors are guarded. The guardian is not rolled and cannot be
      missed by bad luck &mdash; when you take the stairs to its depth it is there,
      in the room furthest from where you arrived, awake. Each is a 16&#215;16
@@ -908,7 +995,7 @@ a{color:var(--gold)}
 </section>
 
 <section id="death">
-  <h2><span class="num">12</span>Dying</h2>
+  <h2><span class="num">15</span>Dying</h2>
   <p>Death is permanent and it deletes the save. The tombstone records your
      class, your level, the deepest floor you reached and your kills, and your
      score goes to the title screen if it beats the one already there.</p>
