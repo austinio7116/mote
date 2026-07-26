@@ -232,6 +232,15 @@ def stacked_variants(cells_per_var, cols, keep_black=True):
 # grid where a flat black would give nothing. One floor for the whole dungeon --
 # the wall changes with depth, and that is enough of a progression.
 FLOOR_COBBLE = [[(3,26)],[(3,27)]]
+# The town street. The dungeon's near-black column 3 was standing in for this and
+# read as a hole cut in the grass. Column 2 is no good either: it is #5F574F over
+# #1D2B53, which is the SAME two colours wall_brick is mostly made of, so the
+# street and the town wall came out indistinguishable.
+#
+# Column 1 is the pale flagstone -- #C2C3C7 over #5F574F, mean luminance 148
+# against the wall's 70. Light paving against a dark wall against green grass:
+# three values, three readings.
+FLOOR_ROAD   = [[(1,26)],[(1,28)]]
 # Grass: the CENTRE cell of two of the jungle band's 3x3 blocks. (5,42) -- the
 # original second variant -- is a block RIGHT EDGE, a bright-green blob against
 # the gold step band, and tiling it as a fill stamped orange-flecked bars across
@@ -253,6 +262,7 @@ def build_terrain():
     they must not be generated here as nine-slices too or whichever ran last
     would win. main() calls that generator after this one."""
     for name, blocks, edge in [("floor_cobble", FLOOR_COBBLE, 1),
+                               ("floor_road",   FLOOR_ROAD, 1),
                                ("floor_grass",  FLOOR_GRASS, 1)]:
         write_tileset_sheet(name, stacked_variants(blocks, cols=1))
         write_tileset(name, floor_lut(), edge=edge, nvar=len(blocks))

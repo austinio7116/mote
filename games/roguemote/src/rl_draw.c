@@ -16,6 +16,7 @@
 #include "floor_cobble.tiles.h"
 #include "floor_jungle.tiles.h"
 #include "floor_grass.tiles.h"
+#include "floor_road.tiles.h"
 
 #include "animals.h"
 #include "monsters.h"
@@ -276,7 +277,9 @@ void rl_draw_scene(void) {
         tiles[1] = &floor_jungle_at;
         tiles[2] = &wall_aztec_at;
         tiles[3] = &wall_brick_at;      /* town wall */
-        tiles[4] = &floor_cobble_at;    /* streets */
+        tiles[4] = &floor_road_at;      /* streets: warm brown paving, not the
+                                           near-black dungeon floor, which read
+                                           as a hole cut in the grass */
         n_layer = 5;
     } else {
         build_layers_dungeon();

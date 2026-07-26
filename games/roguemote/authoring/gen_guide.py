@@ -671,11 +671,11 @@ def sec_town():
     return """
 <section id="town">
   <h2><span class="num">09</span>Town</h2>
-  <p>The town is a place, not a screen. It is a walled compound on the
-     overworld with gates east and west, a cobbled cross of streets, and six
-     shopfronts standing on the street. Walk onto a shopfront and you are in
-     that shop; walk onto the bed and you have slept. Nothing wild spawns
-     inside the walls.</p>
+  <p>The town is a place, not a screen. It is a walled settlement on the
+     overworld &mdash; an irregular wall two courses thick, wandering flagstone
+     streets that punch out through it as gates, and shopfronts standing on the
+     street front. Walk onto a shopfront and you are in that shop; walk onto the
+     bed and you have slept. Nothing wild spawns inside the walls.</p>
   <div class="shops">%s</div>
   <p>Shops restock every time you surface, and the inn restores health, mana
      and food for twenty gold &mdash; and saves your game. Shops buy at a third

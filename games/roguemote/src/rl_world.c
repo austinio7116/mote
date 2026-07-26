@@ -131,63 +131,185 @@ static void smooth_overworld(void) {
  * The compound is levelled first -- forest and highland inside a town wall look
  * like the generator lost an argument -- and the ring immediately outside is
  * flattened to plain for the same reason. */
-#define TW 15
-#define TH 11
+#define TR_X 11         /* footprint radii, before the wobble */
+#define TR_Y 8
+
+/* The footprint. A ring of radius (TR_X,TR_Y) pushed in and out by a hash on
+ * the ANGLE, so the wall bulges and tucks the way a wall built over generations
+ * does, then smoothed once so the boundary is a line rather than a fringe.
+ * Perturbing per-angle rather than per-cell is what keeps it a closed blob. */
+static uint8_t s_inside[MW * MH];
+
+static int town_r2(int cx, int cy, int x, int y) {
+    int dx = x - cx, dy = y - cy;
+    /* Quantise the DIRECTION into eight sectors and give each its own radius.
+     * It has to depend on angle alone: an earlier version folded (|dx|+|dy|)&1
+     * into the sector, which is distance parity, so the radius alternated ring
+     * by ring and the wall came out as scattered fragments instead of a line. */
+    int oct = 0;
+    if (dx || dy) {
+        int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
+        oct = (dx < 0 ? 4 : 0) + (dy < 0 ? 2 : 0) + (ax > ay ? 1 : 0);
+    }
+    int wob = (int)(noise2(oct, 0, g_world_seed ^ 0x51ed270bu) & 63) - 26;   /* -26..+37 */
+    /* normalised squared distance x1000, against 1000 plus the wobble */
+    int nx = dx * 1000 / TR_X, ny = dy * 1000 / TR_Y;
+    return (nx * nx + ny * ny) / 1000 - (1000 + wob * 12);
+}
 
 static void build_town(int cx, int cy) {
-    int x0 = cx - TW / 2, y0 = cy - TH / 2;
-    if (x0 < 2) x0 = 2;
-    if (y0 < 2) y0 = 2;
-    if (x0 + TW > MW - 2) x0 = MW - 2 - TW;
-    if (y0 + TH > MH - 2) y0 = MH - 2 - TH;
-    int x1 = x0 + TW - 1, y1 = y0 + TH - 1;
+    if (cx < TR_X + 3) cx = TR_X + 3;
+    if (cy < TR_Y + 3) cy = TR_Y + 3;
+    if (cx > MW - TR_X - 4) cx = MW - TR_X - 4;
+    if (cy > MH - TR_Y - 4) cy = MH - TR_Y - 4;
 
+    int x0 = cx - TR_X - 2, y0 = cy - TR_Y - 2;
+    int x1 = cx + TR_X + 2, y1 = cy + TR_Y + 2;
     s_town_x0 = (uint8_t)x0; s_town_y0 = (uint8_t)y0;
     s_town_x1 = (uint8_t)x1; s_town_y1 = (uint8_t)y1;
-    s_town_x = (uint8_t)(x0 + TW / 2); s_town_y = (uint8_t)(y0 + TH / 2);
+    s_town_x = (uint8_t)cx;  s_town_y = (uint8_t)cy;
 
-    /* level the ground the town stands on, and a one-tile apron around it */
+    for (int i = 0; i < MW * MH; i++) s_inside[i] = 0;
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+            if (rl_in(x, y) && town_r2(cx, cy, x, y) < 0) s_inside[y * MW + x] = 1;
+
+    /* one majority pass: a hash-perturbed edge is ragged at the pixel, and a
+     * town wall should read as built, not as eroded */
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (!rl_in(x, y)) continue;
+            int n = 0;
+            for (int j = -1; j <= 1; j++)
+                for (int i = -1; i <= 1; i++)
+                    if (rl_in(x + i, y + j) && s_inside[(y + j) * MW + x + i]) n++;
+            g_lv.layer[y * MW + x] = (uint8_t)(n >= 5);
+        }
+    }
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+            if (rl_in(x, y)) s_inside[y * MW + x] = g_lv.layer[y * MW + x];
+
+    /* level the ground the town stands on and a ring outside it */
     for (int y = y0 - 1; y <= y1 + 1; y++)
         for (int x = x0 - 1; x <= x1 + 1; x++)
             if (rl_in(x, y)) g_lv.terrain[y * MW + x] = T_FLOOR;
 
-    /* wall, then hollow it out */
+    /* The wall is TWO cells thick, and it has to be. blob47 resolves a tile from
+     * its eight neighbours, so a one-cell-thick ring that steps diagonally hands
+     * the ruleset nothing but isolated and end-cap cells -- it drew as a scatter
+     * of loose blocks rather than a wall. Two cells give the ruleset mass, and
+     * the rim reads as masonry all the way round.
+     *
+     * Pass one marks the cells touching outside; pass two marks the cells
+     * touching those. */
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (!rl_in(x, y) || !s_inside[y * MW + x]) continue;
+            int edge = !s_inside[y * MW + x - 1] || !s_inside[y * MW + x + 1] ||
+                       !s_inside[(y - 1) * MW + x] || !s_inside[(y + 1) * MW + x];
+            g_lv.terrain[y * MW + x] = edge ? T_TOWN_WALL : T_FLOOR;
+        }
+    }
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (!rl_in(x, y) || !s_inside[y * MW + x]) continue;
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (rl_ter(x - 1, y) == T_TOWN_WALL || rl_ter(x + 1, y) == T_TOWN_WALL ||
+                rl_ter(x, y - 1) == T_TOWN_WALL || rl_ter(x, y + 1) == T_TOWN_WALL)
+                g_lv.layer[y * MW + x] = 2;      /* stage it; see below */
+            else
+                g_lv.layer[y * MW + x] = 0;
+        }
+    }
     for (int y = y0; y <= y1; y++)
         for (int x = x0; x <= x1; x++)
-            g_lv.terrain[y * MW + x] =
-                (x == x0 || x == x1 || y == y0 || y == y1) ? T_TOWN_WALL : T_FLOOR;
+            if (rl_in(x, y) && s_inside[y * MW + x] && g_lv.layer[y * MW + x] == 2)
+                g_lv.terrain[y * MW + x] = T_TOWN_WALL;
 
-    /* the streets: one east-west through the middle, one north-south */
-    int rx = x0 + TW / 2, ry = y0 + TH / 2;
-    for (int x = x0; x <= x1; x++) g_lv.terrain[ry * MW + x] = T_ROAD;
-    for (int y = y0; y <= y1; y++) g_lv.terrain[y * MW + rx] = T_ROAD;
-
-    /* gates east and west, with an approach road running out to the grass */
-    for (int i = 1; i <= 3; i++) {
-        if (rl_in(x0 - i, ry)) g_lv.terrain[ry * MW + x0 - i] = T_ROAD;
-        if (rl_in(x1 + i, ry)) g_lv.terrain[ry * MW + x1 + i] = T_ROAD;
+    /* The high street wanders. A ruler-straight cross through a wall that is not
+     * a box looks like two different towns. Walk east-west through the centre,
+     * drifting a row at a time, and punch out through the wall at both ends. */
+    int ry = cy;
+    for (int x = cx; x <= x1 + 3; x++) {
+        if (!rl_in(x, ry)) break;
+        g_lv.terrain[ry * MW + x] = T_ROAD;
+        if (rl_pct(28) && ry < cy + 2 && s_inside[(ry + 1) * MW + x]) ry++;
+        else if (rl_pct(28) && ry > cy - 2 && s_inside[(ry - 1) * MW + x]) ry--;
+    }
+    ry = cy;
+    for (int x = cx; x >= x0 - 3; x--) {
+        if (!rl_in(x, ry)) break;
+        g_lv.terrain[ry * MW + x] = T_ROAD;
+        if (rl_pct(28) && ry < cy + 2 && s_inside[(ry + 1) * MW + x]) ry++;
+        else if (rl_pct(28) && ry > cy - 2 && s_inside[(ry - 1) * MW + x]) ry--;
+    }
+    /* a north-south lane off the middle, stopping at the wall */
+    int rx = cx;
+    for (int y = cy; y >= y0; y--) {
+        if (!rl_in(rx, y) || !s_inside[y * MW + rx]) break;
+        g_lv.terrain[y * MW + rx] = T_ROAD;
+        if (rl_pct(25) && s_inside[y * MW + rx + 1]) rx++;
+    }
+    rx = cx;
+    for (int y = cy; y <= y1; y++) {
+        if (!rl_in(rx, y) || !s_inside[y * MW + rx]) break;
+        g_lv.terrain[y * MW + rx] = T_ROAD;
+        if (rl_pct(25) && s_inside[y * MW + rx - 1]) rx--;
     }
 
-    /* Six shopfronts on the street. Two rows either side of the high street,
-     * skipping the crossroads column so the inn has the corner to itself. */
-    static const int8_t sx[SHOP_N] = { -5, -3, 3, -5, -3, 3 };
-    static const int8_t sy[SHOP_N] = { -1, -1, -1, 1, 1, 1 };
-    for (int i = 0; i < SHOP_N; i++) {
-        int x = rx + sx[i], y = ry + sy[i];
-        if (!rl_in(x, y) || x <= x0 || x >= x1 || y <= y0 || y >= y1) {
-            /* the clamp above can squeeze the compound; fall back to the
-             * nearest free interior tile rather than dropping a shop */
-            x = rx + (i % 3) - 1; y = ry + (i < 3 ? -1 : 1);
+    /* Buildings go on the street front: an interior tile that touches a road.
+     * Collected in scan order and taken with a spacing, so the six shops line
+     * the lanes instead of clumping at the crossroads. */
+    uint16_t front[128]; int nf = 0;
+    for (int y = y0; y <= y1 && nf < 128; y++) {
+        for (int x = x0; x <= x1 && nf < 128; x++) {
+            if (!rl_in(x, y) || g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (!s_inside[y * MW + x]) continue;
+            if (rl_ter(x - 1, y) != T_ROAD && rl_ter(x + 1, y) != T_ROAD &&
+                rl_ter(x, y - 1) != T_ROAD && rl_ter(x, y + 1) != T_ROAD) continue;
+            front[nf++] = (uint16_t)(y * MW + x);
         }
-        g_lv.terrain[y * MW + x] = T_SHOP;
-        s_shop_x[i] = (uint8_t)x; s_shop_y[i] = (uint8_t)y;
+    }
+    int placed = 0;
+    for (int step = 2; step >= 1 && placed < SHOP_N; step--) {
+        for (int i = 0; i < nf && placed < SHOP_N; i++) {
+            int p = front[i], x = p % MW, y = p / MW;
+            if (g_lv.terrain[p] != T_FLOOR) continue;
+            int near = 0;                       /* keep the fronts apart */
+            for (int k = 0; k < placed; k++) {
+                int dx = s_shop_x[k] - x, dy = s_shop_y[k] - y;
+                if (dx * dx + dy * dy < step * step * 4) { near = 1; break; }
+            }
+            if (near) continue;
+            g_lv.terrain[p] = T_SHOP;
+            s_shop_x[placed] = (uint8_t)x; s_shop_y[placed] = (uint8_t)y;
+            placed++;
+        }
+    }
+    /* A short street front must not cost a shop: rl_shop_at() would return -1
+     * for a door the player is standing on, and the sixth trader would simply
+     * not exist. Anything left over goes on the first interior floor going. */
+    for (int y = y0; y <= y1 && placed < SHOP_N; y++) {
+        for (int x = x0; x <= x1 && placed < SHOP_N; x++) {
+            if (!rl_in(x, y) || !s_inside[y * MW + x]) continue;
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            g_lv.terrain[y * MW + x] = T_SHOP;
+            s_shop_x[placed] = (uint8_t)x; s_shop_y[placed] = (uint8_t)y;
+            placed++;
+        }
     }
 
-    /* the inn, one step off the crossroads, and a few houses for the look */
-    g_lv.terrain[(ry - 1) * MW + rx + 1] = T_INN;
-    g_lv.terrain[(ry + 1) * MW + rx + 1] = T_TOWN;
-    if (rl_in(rx - 1, ry - 3)) g_lv.terrain[(ry - 3) * MW + rx - 1] = T_TOWN;
-    if (rl_in(rx + 2, ry + 3)) g_lv.terrain[(ry + 3) * MW + rx + 2] = T_TOWN;
+    /* the inn and a few houses fill the remaining street front */
+    int want_inn = 1, houses = 4;
+    for (int i = 0; i < nf && (want_inn || houses); i++) {
+        int p = front[i];
+        if (g_lv.terrain[p] != T_FLOOR) continue;
+        if (want_inn) { g_lv.terrain[p] = T_INN; want_inn = 0; continue; }
+        if (rl_pct(45)) { g_lv.terrain[p] = T_TOWN; houses--; }
+    }
+    /* the player arrives on the crossroads, which is road by construction */
+    g_lv.terrain[cy * MW + cx] = T_ROAD;
 }
 
 void rl_gen_overworld(void) {
@@ -235,7 +357,7 @@ void rl_gen_overworld(void) {
     /* The Mines' own entrance, always within sight of the town. A 64x48
      * continent seen through a 16x13 window is a big place to hunt for a cave
      * you have never seen; the game should not open with that. */
-    for (int r = TW / 2 + 2; r < TW / 2 + 12; r++) {
+    for (int r = TR_X + 3; r < TR_X + 13; r++) {
         int done = 0;
         for (int j = -r; j <= r && !done; j++) {
             for (int i = -r; i <= r && !done; i++) {
