@@ -49,10 +49,15 @@ COLUMN = {
                     "Read as a mace on the first pass, which is what put the "
                     "trident on a gold bow."),
     22: ("Battle axe", "Shaft with a big curved bit, backed in navy."),
-    23: ("Mace head", "A spiked ball on a short haft. The haft settles it: a "
-                      "mace, not a shuriken. There is no shuriken anywhere in "
-                      "the block."),
-    24: ("War hammer", "Chunky rectangular head."),
+    23: ("Morning star", "An eight-pointed star on a haft. The haft settles it: "
+                         "a morning star, not a shuriken. There is no shuriken "
+                         "anywhere in the block."),
+    24: ("Club / mace / hammer", "The one column that runs a FAMILY down its "
+                                "rows instead of one type in five metals: a "
+                                "plain wooden club, the same club studded -- "
+                                "which is a mace, not a small war hammer -- "
+                                "then blocky hammer heads in steel, gold and "
+                                "ice."),
 }
 RANGED = {
     25: ("Bow", "Curve and string."),
@@ -64,8 +69,8 @@ RANGED = {
     30: ("Arrow / bolt", "A bare shaft."),
 }
 ROW = {
-    28: ("(sparse)", "A wooden club and a green staff, nothing else."),
-    29: ("Wood / bronze", "Melee side is cols 16, 17 and 24 only: club, dagger, club."),
+    28: ("Wood", "The plain club, and a green staff. Nothing else."),
+    29: ("Wood / bronze", "Melee side is cols 16, 17 and 24 only."),
     30: ("Steel", "The full row -- the workhorse tier."),
     31: ("Gold", ""),
     32: ("Ice / blue", ""),
@@ -79,14 +84,14 @@ ROW = {
 # gold, and Frost Brand and Flame Tongue are the long sword in ice and fire.
 PROPOSAL = [
     ("dagger",         (17, 29), "the bronze dagger -- already correct"),
-    ("club",           (16, 29), "the wooden club; was 'throwing star' on a fire sword"),
+    ("club",           (24, 28), "the plain wooden club; was 'throwing star' on a fire sword"),
     ("pick-axe",       (19, 30), "the steel pick -- already correct"),
     ("short sword",    (17, 30), "the dagger blade in steel; was on a flask"),
     ("spear",          (20, 30), "the steel spear"),
-    ("mace",           (23, 30), "the steel mace head"),
+    ("mace",           (24, 29), "the STUDDED club -- a mace, one step up from the club"),
     ("long sword",     (18, 30), "the steel long blade -- already correct"),
     ("war hammer",     (24, 30), "the steel hammer; was on a broad blade"),
-    ("morning star",   (23, 31), "the mace head in gold, one tier up from the mace"),
+    ("morning star",   (23, 30), "the steel star head, which is what a morning star is"),
     ("broad sword",    (16, 30), "the steel broad blade; was on a potion"),
     ("battle axe",     (22, 30), "the steel axe; was on a crossbow"),
     ("gilded blade",   (18, 31), "the long blade in gold, which is its name"),
@@ -98,6 +103,8 @@ PROPOSAL = [
 ]
 
 QUESTIONS = [
+    "Col 16 row 29 is a wooden club too, in the broad-blade column. Nothing "
+    "points at it now that the club moved to col 24. Is it a greatclub?",
     "Are cols 26-28 really three crossbows? No bow or crossbow item exists yet, "
     "so nothing depends on it today -- but there could be, and the whole ranged "
     "column set is currently unused.",

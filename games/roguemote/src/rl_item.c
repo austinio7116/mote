@@ -40,19 +40,28 @@ const ItemKind g_item_kind[] = {
    *
    *   col 16  broad blade    col 17  dagger       col 18  long sword
    *   col 19  pick-axe       col 20  spear        col 21  TRIDENT
-   *   col 22  battle axe     col 23  mace head    col 24  war hammer
+   *   col 22  battle axe     col 23  morning star col 24  club/mace/hammer
    *
-   *   row 29  wood/bronze (cols 16,17,24 only)    row 30  steel
-   *   row 31  gold          row 32  ice           row 33  fire
+   *   row 28  wood (col 24 only)                   row 30  steel
+   *   row 29  wood/bronze (cols 16,17,24 only)     row 31  gold
+   *   row 32  ice                                  row 33  fire
    *
-   * Col 21 is three-pronged and col 23 has a haft: a trident and a mace, not
-   * the mace and the shuriken they were first read as. The material rows are
-   * what give each type a power tier without new art -- the mace and the
-   * morning star are one head in steel and gold, Frost Brand and Flame Tongue
-   * are the long sword in ice and fire.
+   * Col 21 is three-pronged and col 23 is a star on a haft: a trident and a
+   * morning star, not the mace and the shuriken they were first read as.
+   *
+   * Col 24 runs a whole family down its rows rather than one type in five
+   * metals: a plain wooden club at row 28, the SAME club studded at row 29 --
+   * which is a mace, not a small war hammer -- and blocky hammer heads in
+   * steel, gold and ice below. So the club, the mace and the war hammer are
+   * one column, and the progression is carved into the art.
+   *
+   * Elsewhere the material rows do the tiering, which is what buys a power
+   * ladder without new art: the dagger and the short sword are one blade in
+   * bronze and steel, Frost Brand and Flame Tongue the long sword in ice and
+   * fire.
    *
    * There is no shuriken anywhere in the block, so "throwing star" became the
-   * club that IS there at (16,29). The art decides the item.
+   * club that IS there at (24,28). The art decides the item.
    *
    *   tools_wands       cell = (row - 28) * 16 + (col - 16)
    *   weapons_elemental cell = (row - 32) * 15 + (col - 16)
@@ -64,20 +73,20 @@ const ItemKind g_item_kind[] = {
    *
    *   mean damage per blow = dice_d * (dice_s + 1) / 2 */
   { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },  /* 17,29 bronze dagger */
-  { "club",           T(16), TV_WEAPON,   2,   12, 1, 5,  0, EF_NONE },  /* 16,29 wooden club */
+  { "club",           T(8),  TV_WEAPON,   2,   12, 1, 5,  0, EF_NONE },  /* 24,28 plain wooden club */
   { "pick-axe",       T(35), TV_WEAPON,   2,   22, 1, 6,  0, EF_NONE },  /* 19,30 steel pick */
   { "short sword",    T(33), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },  /* 17,30 the dagger blade in steel */
   { "spear",          T(36), TV_WEAPON,   5,   45, 1, 8,  0, EF_NONE },  /* 20,30 steel spear */
-  { "mace",           T(39), TV_WEAPON,   7,  110, 2, 4,  0, EF_NONE },  /* 23,30 steel mace head */
+  { "mace",           T(24), TV_WEAPON,   7,  110, 2, 4,  0, EF_NONE },  /* 24,29 the studded club */
   { "long sword",     T(34), TV_WEAPON,   8,  150, 2, 5,  0, EF_NONE },  /* 18,30 steel long blade */
   { "war hammer",     T(40), TV_WEAPON,  10,  200, 2, 6,  0, EF_NONE },  /* 24,30 steel hammer */
-  { "morning star",   T(55), TV_WEAPON,  12,  260, 2, 7,  0, EF_NONE },  /* 23,31 the mace head in gold */
+  { "morning star",   T(39), TV_WEAPON,  12,  260, 2, 7,  0, EF_NONE },  /* 23,30 the steel star head */
   { "broad sword",    T(32), TV_WEAPON,  14,  300, 3, 5,  0, EF_NONE },  /* 16,30 steel broad blade */
   { "battle axe",     T(38), TV_WEAPON,  16,  380, 3, 6,  0, EF_NONE },  /* 22,30 steel axe */
   { "gilded blade",   T(50), TV_WEAPON,  18,  450, 3, 7,  0, EF_NONE },  /* 18,31 the long blade in gold */
   { "trident",        T(53), TV_WEAPON,  19,  500, 3, 8,  0, EF_NONE },  /* 21,31 the TRIDENT, in gold */
   { "great axe",      T(54), TV_WEAPON,  20,  600, 4, 7,  0, EF_NONE },  /* 22,31 the axe in gold */
-  { "Frost Brand",    E(2)  , TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,32 the long blade in ice */
+  { "Frost Brand",    E(2),  TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,32 the long blade in ice */
   { "Flame Tongue",   E(17), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,33 the long blade in fire */
   { "Blade of Chaos", E(15), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 16,33 the broad blade in fire */
 
