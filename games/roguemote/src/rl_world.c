@@ -533,15 +533,37 @@ void rl_shop_restock(void) {
     }
 }
 
+/* Price = utility x rarity, and both have to be read off the item itself.
+ *
+ * The first cut added a flat 45 gold per point of enchantment and a flat 300 per
+ * ego, which said three untrue things at once: that +8 was worth the same on a
+ * dagger as on a Blade of Chaos, that "of Attacks" (x1.33 AND an extra blow, so
+ * about x2.67 in practice) was worth less than "of Slaying" at x1.67, and that a
+ * cursed "of Morgul" was worth THREE TIMES a plain sword -- so the best trade in
+ * the game was farming curses.
+ *
+ * Now each plus is worth a slice OF THE ITEM and the slices compound, because
+ * high plusses are rare as well as strong; and the ego contributes a multiplier
+ * from its own `worth` column, which is graded against effective power. */
 int rl_shop_price(const Item *it, int shop) {
     const ItemKind *ik = &g_item_kind[it->kind];
-    int p = ik->cost;
-    p += (it->to_hit + it->to_dam + it->to_ac) * 45;
-    if (it->ego) p += 300 * (g_ego_kind[it->ego].bonus > 0 ? g_ego_kind[it->ego].bonus : 1);
+    int32_t base = ik->cost;
+
+    /* One enchantment scale for both: armour has a single to_ac, a weapon has
+     * two plusses that roll apart, so a weapon's is their average. Using the
+     * SUM put weapons on double armour's curve for the same quality of roll. */
+    int plus = (ik->tv == TV_ARMOUR) ? it->to_ac : (it->to_hit + it->to_dam + 1) / 2;
+    if (plus < 0) plus = 0;                      /* a penalty is not a discount you pay for */
+    if (plus > 24) plus = 24;                    /* keeps the quadratic in range */
+
+    int32_t p = base * (100 + plus * 15 + plus * plus) / 100 + plus * 30;
+    if (it->ego) p = p * (int32_t)g_ego_kind[it->ego].worth / 8;
+    if (it->flags & IF_CURSED) p /= 4;           /* and nobody wants it either */
+
     if (p < 2) p = 2;
-    if (shop == 5) p *= 5;                       /* the classic money sink */
+    if (shop == 5) p *= 3;                       /* the classic money sink */
     /* CHA shaves a little off, so the stat is not dead weight */
-    p = p * (130 - rl_stat(5)) / 120;
+    p = (int)((int64_t)p * (130 - rl_stat(5)) / 120);
     return p < 1 ? 1 : p;
 }
 
@@ -568,9 +590,21 @@ int rl_shop_sell(int slot) {
     Item *it = &g_pl.inv[slot];
     for (int e = 0; e < EQ_N; e++)
         if (*rl_slot_ptr(e) == slot) { rl_msg("Take it off first."); return 0; }
-    int price = rl_shop_price(it, 0) / 3;        /* shops buy low */
+    int32_t price = rl_shop_price(it, 0) / 3;    /* shops buy low */
+
+    /* A trader's purse is finite, and it has to be. Uncapped, one legendary
+     * find pays for every shop in the game for ever -- and the best thing you
+     * ever pulled out of a vault becomes something you sold rather than
+     * something you fought with. The purse grows as you go deeper, so the cap
+     * is a ceiling on early windfalls rather than a tax on late ones. */
+    int32_t purse = 400 + (int32_t)g_pl.deepest * 260;
+    int capped = price > purse;
+    if (capped) price = purse;
+
+    if (price < 1) price = 1;                    /* nothing sells for nothing */
     g_pl.gold += price;
     it->qty = 0;
-    rl_msgf("Sold for %d gold.", price);
+    if (capped) rl_msgf("That is all I can pay: %d.", (int)price);
+    else        rl_msgf("Sold for %d gold.", (int)price);
     return 1;
 }

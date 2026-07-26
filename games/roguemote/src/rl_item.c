@@ -160,24 +160,67 @@ const int g_item_kind_n = (int)(sizeof g_item_kind / sizeof g_item_kind[0]);
 _Static_assert(sizeof g_item_kind / sizeof g_item_kind[0] == ITM_N,
                "g_item_kind[] and enum ItemId disagree");
 
-/* --- ego types ---------------------------------------------------------- */
-/* Applied on top of a base weapon or armour. `mult` is a damage multiplier
- * against the tagged monster class; `bonus` is a flat extra enchantment. */
+/* --- ego types -----------------------------------------------------------
+ * The mods. This table is where shopping and treasure get their depth, so it
+ * carries rarity and price as first-class columns rather than leaving both to
+ * be guessed at the till.
+ *
+ * `mult` is applied as dam*mult/3, so 3 would be exactly x1.00 -- a slaying
+ * weapon that does not slay. Effective power has to account for what else the
+ * ego does: "of Attacks" at mult 4 is x1.33 but also buys a whole extra blow,
+ * so it lands around x2.67 in practice, which is why it is rarer and dearer
+ * than "of Slaying" at a nominal x1.67.
+ *
+ * Every ego was previously 1-in-9 at any depth, and (Holy) was as common on
+ * floor two as (Fire). `lvl` and `weight` are what make the deep floors worth
+ * walking to.
+ *
+ * name              mult bonus flags                        lvl  wgt worth slots  */
 const EgoKind g_ego_kind[] = {
-  { "",              0,  0, 0 },
-  /* mult is applied as dam*mult/3, so 3 here would be exactly x1.0 -- a
-   * slaying weapon that does not slay. 5 puts it below Extra Attacks. */
-  { " of Slaying",   5,  2, 0 },
-  { " (Fire)",       4,  0, EGO_FIRE },
-  { " (Frost)",      4,  0, EGO_COLD },
-  { " (Shock)",      5,  0, EGO_ELEC },
-  { " of Attacks",   6,  1, EGO_XATTACK },
-  { " of Westernes", 8,  3, EGO_SPEED },
-  { " (Holy)",       9,  4, EGO_SLAY_EVIL },
-  { " of Morgul",   -4, -3, EGO_CURSED },
-  { " of Weakness", -3, -2, EGO_CURSED },
+  { "",                 0,  0, 0,                              0,   0,   8, ES_BOTH },
+  /* --- weapon mods, common to legendary ------------------------------- */
+  { " of Slaying",      5,  2, 0,                              3, 100,  24, ES_WEAPON },
+  { " (Fire)",          4,  0, EGO_FIRE,                       6,  90,  20, ES_WEAPON },
+  { " (Frost)",         4,  0, EGO_COLD,                       6,  90,  20, ES_WEAPON },
+  { " of Sanctity",     6,  2, EGO_SLAY_UNDEAD,                8,  55,  28, ES_WEAPON },
+  { " (Shock)",         5,  0, EGO_ELEC,                      10,  60,  26, ES_WEAPON },
+  { " of Attacks",      4,  1, EGO_XATTACK,                   14,  30,  46, ES_WEAPON },
+  { " of Westernesse",  6,  3, EGO_SPEED,                     22,  14,  62, ES_WEAPON },
+  { " (Holy)",          9,  4, EGO_SLAY_EVIL,                 26,   8,  74, ES_WEAPON },
+  /* --- armour mods ---------------------------------------------------- */
+  { " of Protection",   0,  4, 0,                              3, 100,  22, ES_ARMOUR },
+  { " of Stealth",      0,  1, EGO_STEALTH,                    6,  70,  26, ES_ARMOUR },
+  { " of Resistance",   0,  2, EGO_RESIST,                    10,  60,  36, ES_ARMOUR },
+  { " of Regen",       0,  1, EGO_REGEN,                     14,  35,  40, ES_ARMOUR },
+  { " of the Hare",     0,  2, EGO_SPEED,                     24,  10,  66, ES_ARMOUR },
+  /* --- curses: cheap to find, worthless to sell, expensive to wear ----- */
+  { " of Morgul",      -4, -3, EGO_CURSED | EGO_AGGRAVATE,     2,  45,   2, ES_WEAPON },
+  { " of Weakness",    -3, -2, EGO_CURSED,                     2,  45,   2, ES_WEAPON },
+  { " of Sickliness",   0, -2, EGO_CURSED | EGO_AGGRAVATE,     2,  45,   2, ES_ARMOUR },
+  { " of Frailty",     0, -4, EGO_CURSED,                     2,  45,   2, ES_ARMOUR },
 };
 const int g_ego_kind_n = (int)(sizeof g_ego_kind / sizeof g_ego_kind[0]);
+
+/* Pick an ego by weight, from the ones legal at this depth for this base type.
+ * Uniform selection over the whole table (the first cut) meant the rarest and
+ * best mod in the game dropped as often as the cheapest. */
+static int pick_ego(int depth, int for_armour) {
+    int slot = for_armour ? ES_ARMOUR : ES_WEAPON;
+    int total = 0;
+    for (int e = 1; e < g_ego_kind_n; e++) {
+        const EgoKind *ek = &g_ego_kind[e];
+        if ((ek->slots & slot) && ek->lvl <= depth) total += ek->weight;
+    }
+    if (total <= 0) return 0;
+    int roll = rl_range(total);
+    for (int e = 1; e < g_ego_kind_n; e++) {
+        const EgoKind *ek = &g_ego_kind[e];
+        if (!(ek->slots & slot) || ek->lvl > depth) continue;
+        if (roll < ek->weight) return e;
+        roll -= ek->weight;
+    }
+    return 0;
+}
 
 /* --- flavours ----------------------------------------------------------- */
 /* Shuffled per seed so knowledge is per-character. */
@@ -228,12 +271,18 @@ void rl_item_name(const Item *it, char *out, int max) {
         PUT(ik->name);
     } else {
         PUT(ik->name);
-        if (it->ego) PUT(g_ego_kind[it->ego].name);
+        /* The enchantment comes BEFORE the ego name. Ego names run long ("of
+         * Regeneration"), and at 128px the tail of the string is what gets cut
+         * -- losing " of Regen..." tells you less than losing "+7". Weapons show
+         * both plusses when they differ, because they roll apart now and
+         * "+2,+6" is a different sword from "+6,+2". */
         if (ik->tv == TV_WEAPON && (it->to_hit || it->to_dam)) {
             PUT(" +"); PUTN(it->to_dam);
+            if (it->to_hit != it->to_dam) { PUT(","); PUTN(it->to_hit); }
         } else if (ik->tv == TV_ARMOUR && it->to_ac) {
             PUT(" +"); PUTN(it->to_ac);
         }
+        if (it->ego) PUT(g_ego_kind[it->ego].name);
     }
     out[o] = 0;
     #undef PUT
@@ -261,20 +310,40 @@ void rl_make_item_kind(Item *it, int kind, int depth) {
     it->flags = 0;
 
     if (ik->tv == TV_WEAPON || ik->tv == TV_ARMOUR) {
-        /* enchantment magnitude scales with depth; "great" rolls stay rare */
-        int mag = rl_range(1 + depth / 4);
-        if (rl_pct(12 + depth / 3)) mag += 2 + rl_range(3);
-        if (ik->tv == TV_WEAPON) { it->to_hit = (int8_t)mag; it->to_dam = (int8_t)mag; }
-        else                      it->to_ac  = (int8_t)mag;
+        /* Three quality tiers, Angband's shape: most gear is plain, some is
+         * enchanted, a little is enchanted AND carries an ego. The odds move
+         * with depth, so floor thirty is a different table rather than floor
+         * one with bigger numbers.
+         *
+         * An "excellent" roll can still land a curse -- that is the whole
+         * tension of picking up an unidentified sword that glows. */
+        int armour = (ik->tv == TV_ARMOUR);
+        int great  = 8 + depth / 2;   if (great > 40) great = 40;
+        int good   = 30 + depth;      if (good  > 72) good  = 72;
 
-        /* ego chance rises with depth; cursed egos are their own reward */
-        if (rl_pct(6 + depth / 2)) {
-            int e = 1 + rl_range(g_ego_kind_n - 1);
+        int mag = 0, e = 0;
+        if (rl_pct(great)) {
+            mag = 2 + rl_range(3 + depth / 3);
+            e = pick_ego(depth, armour);
+        } else if (rl_pct(good)) {
+            mag = 1 + rl_range(1 + depth / 5);
+        }
+
+        if (e) {
             it->ego = (uint8_t)e;
-            it->to_hit = (int8_t)(it->to_hit + g_ego_kind[e].bonus);
-            it->to_dam = (int8_t)(it->to_dam + g_ego_kind[e].bonus);
-            it->to_ac  = (int8_t)(it->to_ac  + (ik->tv == TV_ARMOUR ? g_ego_kind[e].bonus : 0));
+            mag += g_ego_kind[e].bonus;
             if (g_ego_kind[e].flags & EGO_CURSED) it->flags |= IF_CURSED;
+        }
+
+        if (armour) {
+            it->to_ac = (int8_t)mag;
+        } else {
+            /* to_hit and to_dam roll APART, so two +4 swords are not the same
+             * sword: one bites, the other lands. A single shared magnitude made
+             * every enchanted weapon a scalar. */
+            int split = mag > 1 ? rl_range(3) - 1 : 0;
+            it->to_hit = (int8_t)(mag + split);
+            it->to_dam = (int8_t)(mag - split);
         }
     }
 }
@@ -608,12 +677,26 @@ int rl_stat(int i) {
     return v;
 }
 
+/* The OR of the ego powers on everything equipped. One place to ask "am I
+ * wearing anything that does X", so a new ego power reaches combat, the turn
+ * loop and the AI without three separate lookups drifting apart. */
+int rl_ego_flags(void) {
+    int f = 0;
+    for (int s = 0; s < EQ_N; s++) {
+        int8_t idx = *rl_slot_ptr(s);
+        if (idx < 0 || !g_pl.inv[idx].qty) continue;
+        f |= g_ego_kind[g_pl.inv[idx].ego].flags;
+    }
+    return f;
+}
+
 /* Speed likewise: a ring of speed used to fake permanence with haste = 30000,
  * which meant quaffing a speed potion while wearing it CUT the ring's effect to
  * sixty turns and then took it away for good. */
 int rl_player_speed(void) {
     if (g_pl.inv_ring >= 0 && g_pl.inv[g_pl.inv_ring].qty &&
         g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_SPEED) return SPEED_NORMAL + 10;
+    if (rl_ego_flags() & EGO_SPEED) return SPEED_NORMAL + 10;
     return g_pl.haste > 0 ? SPEED_NORMAL + 10 : SPEED_NORMAL;
 }
 
@@ -747,16 +830,26 @@ void rl_use_item(int slot) {
         case EF_IDENTIFY:
             for (int i = 0; i < g_item_kind_n; i++) rl_item_learn(i);
             rl_msg("Knowledge floods in."); break;
+        /* Enchantment tops out. Uncapped, and with a price that scales off the
+         * base item, a stack of these scrolls on an expensive weapon was a gold
+         * printing press rather than an upgrade. */
         case EF_ENCHANT_W:
-            if (g_pl.inv_wield >= 0) {
-                g_pl.inv[g_pl.inv_wield].to_dam++;
-                g_pl.inv[g_pl.inv_wield].to_hit++;
+            if (g_pl.inv_wield < 0) { rl_msg("Nothing happens."); break; }
+            {
+                Item *w = &g_pl.inv[g_pl.inv_wield];
+                if (w->to_hit >= ENCHANT_MAX && w->to_dam >= ENCHANT_MAX) {
+                    rl_msg("The weapon resists."); break;
+                }
+                if (w->to_hit < ENCHANT_MAX) w->to_hit++;
+                if (w->to_dam < ENCHANT_MAX) w->to_dam++;
                 rl_msg("Your weapon glows.");
-            } else rl_msg("Nothing happens.");
+            }
             break;
         case EF_ENCHANT_A:
-            if (g_pl.inv_body >= 0) { g_pl.inv[g_pl.inv_body].to_ac++; rl_msg("Your mail hardens."); }
-            else rl_msg("Nothing happens.");
+            if (g_pl.inv_body < 0) { rl_msg("Nothing happens."); break; }
+            if (g_pl.inv[g_pl.inv_body].to_ac >= ENCHANT_MAX) { rl_msg("The armour resists."); break; }
+            g_pl.inv[g_pl.inv_body].to_ac++;
+            rl_msg("Your mail hardens.");
             break;
         case EF_DEEP_DESCENT:
             if (g_pl.depth == 0) { rl_msg("The ground holds."); break; }

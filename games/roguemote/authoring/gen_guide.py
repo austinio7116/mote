@@ -202,9 +202,29 @@ for m in ITEM_RE.finditer(table(item_c, "g_item_kind[]")):
                       lvl=int(lvl), cost=int(cost), dice=(int(d), int(s_)),
                       ac=int(ac), eff=eff[3:]))
 
-EGO_RE = re.compile(r'\{\s*"([^"]*)"\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*([A-Z0-9_|\s]+?)\s*\}')
-egos = [dict(name=m.group(1), mult=int(m.group(2)), bonus=int(m.group(3)))
+# name, mult, bonus, flags, lvl, weight, worth, slots
+EGO_RE = re.compile(r'\{\s*"([^"]*)"\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,'
+                    r'\s*([A-Z0-9_|\s]+?)\s*,\s*(\d+)\s*,\s*(\d+)\s*,'
+                    r'\s*(\d+)\s*,\s*(ES_\w+)\s*\}')
+egos = [dict(name=m.group(1), mult=int(m.group(2)), bonus=int(m.group(3)),
+             flags=m.group(4), lvl=int(m.group(5)), weight=int(m.group(6)),
+             worth=int(m.group(7)), slots=m.group(8)[3:])
         for m in EGO_RE.finditer(table(item_c, "g_ego_kind[]")) if m.group(1)]
+assert egos, "ego table parse failed"
+
+EGO_POWER = [
+    ("EGO_XATTACK",     "an extra blow every turn"),
+    ("EGO_SPEED",       "+10 speed &mdash; a second action every turn"),
+    ("EGO_RESIST",      "soaks a quarter of every blow that lands"),
+    ("EGO_REGEN",       "wounds close twice as fast"),
+    ("EGO_STEALTH",     "half the noise, so less wakes"),
+    ("EGO_SLAY_EVIL",   "applies to evil only"),
+    ("EGO_SLAY_UNDEAD", "applies to undead only"),
+    ("EGO_AGGRAVATE",   "wakes the floor around you"),
+    ("EGO_CURSED",      "halves your damage, and will not come off"),
+]
+def ego_power(flags):
+    return " &middot; ".join(t for f, t in EGO_POWER if f in flags) or "&mdash;"
 
 # --- spells -------------------------------------------------------------
 SPELL_RE = re.compile(r'\{\s*"([^"]+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,'
@@ -578,12 +598,16 @@ def sec_items():
     </table></div>
   </article>""" % (TV_LABEL[tv], TV_NOTE[tv], "".join(rows)))
 
+    # sorted the way a player meets them: by the floor they start appearing on
     ego_rows = "".join(
-        '<tr><td class="nm">%s</td><td class="n">%s</td><td class="n">%s</td></tr>'
+        '<tr><td class="nm">%s</td><td class="n">%s</td><td class="n">%s</td>'
+        '<td class="n">%s</td><td class="n">%s</td><td>%s</td></tr>'
         % (esc(e["name"].strip()),
-           ("&#215;%.2f" % (e["mult"] / 3.0)) if e["mult"] > 0 else "&#215;0.5",
-           "%+d" % e["bonus"])
-        for e in egos)
+           "armour" if e["slots"] == "ARMOUR" else "weapon",
+           ("&#215;%.2f" % (e["mult"] / 3.0)) if e["mult"] > 0 else
+           ("&#215;0.5" if "CURSED" in e["flags"] else "&mdash;"),
+           "%+d" % e["bonus"], e["lvl"], ego_power(e["flags"]))
+        for e in sorted(egos, key=lambda e: (e["slots"], e["lvl"], -e["weight"])))
 
     return """
 <section id="items">
@@ -592,6 +616,12 @@ def sec_items():
      chance at an ego &mdash; the same pipeline Moria used. Depth below is the
      shallowest floor a kind appears on; gold is its base price before
      enchantment and before the shopkeeper takes a view of your Charisma.</p>
+  <p>Price answers to <em>utility and rarity</em> together. Each point of
+     enchantment is worth a slice <em>of the item</em> and the slices compound,
+     so a +8 on a Blade of Chaos is a different object from a +8 on a dagger;
+     an ego then multiplies the lot by its own worth, graded against measured
+     power. A curse is worth almost nothing, and a shopkeeper's purse is finite
+     &mdash; the best thing you ever find is worth more swung than sold.</p>
   <div class="shots2">%s%s</div>
   <p>Four things are worn rather than carried: a weapon, body armour, one ring
      or amulet, and a light. The gear screen shows what each contributes and
@@ -606,7 +636,8 @@ def sec_items():
      &mdash; <em>Holy</em> only against evil, the elemental brands against
      everything. Two of the ten are curses, and a cursed item will not come off.</p>
   <div class="tablewrap"><table class="items ego">
-    <thead><tr><th>Ego</th><th class="n">Damage</th><th class="n">Enchant</th></tr></thead>
+    <thead><tr><th>Ego</th><th class="n">On</th><th class="n">Damage</th>
+      <th class="n">Enchant</th><th class="n">Depth</th><th>What it does</th></tr></thead>
     <tbody>%s</tbody>
   </table></div>
 </section>""" % (plate(shots["pack"], "The pack holds sixteen kinds.", small=True),

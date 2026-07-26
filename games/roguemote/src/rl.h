@@ -156,8 +156,21 @@ int  rl_mon_hp_dice(const Mon *m, int *d, int *s);
 
 /* --- items -------------------------------------------------------------- */
 enum { TV_WEAPON = 0, TV_ARMOUR, TV_POTION, TV_SCROLL, TV_WAND, TV_RING, TV_FOOD, TV_LIGHT };
-enum { EGO_FIRE = 1, EGO_COLD = 2, EGO_ELEC = 4, EGO_XATTACK = 8,
-       EGO_SPEED = 16, EGO_SLAY_EVIL = 32, EGO_CURSED = 64 };
+
+/* Enchantment ceiling. Scrolls of enchantment are unlimited and priced off
+ * the base item, so without a cap a stack of them on a costly weapon is a gold
+ * printing press rather than an upgrade. */
+#define ENCHANT_MAX 12
+
+/* Ego powers. Every one of these is READ somewhere -- EGO_SPEED spent a while
+ * declared, assigned to "of Westernesse" and never looked at, so the best
+ * non-artifact weapon in the game silently gave no speed at all. */
+enum { EGO_FIRE        = 0x001, EGO_COLD    = 0x002, EGO_ELEC   = 0x004,
+       EGO_XATTACK     = 0x008, EGO_SPEED   = 0x010, EGO_SLAY_EVIL = 0x020,
+       EGO_CURSED      = 0x040, EGO_RESIST  = 0x080, EGO_REGEN  = 0x100,
+       EGO_STEALTH     = 0x200, EGO_SLAY_UNDEAD = 0x400, EGO_AGGRAVATE = 0x800 };
+/* which base types an ego may land on */
+enum { ES_WEAPON = 1, ES_ARMOUR = 2, ES_BOTH = 3 };
 
 /* `eff` is the effect selector -- what a potion/scroll/wand actually DOES.
  * Keeping it separate from the sprite cell means art and mechanics can be
@@ -172,7 +185,19 @@ typedef struct {
     uint8_t eff;
 } ItemKind;
 
-typedef struct { const char *name; int8_t mult, bonus; uint8_t flags; } EgoKind;
+/* An ego is the "mod" on a base item, and it carries its own economics:
+ *   mult    damage multiplier against whatever it is for, applied as dam*mult/3
+ *   bonus   flat enchantment folded in when the item is generated
+ *   lvl     earliest depth it can appear -- (Holy) must not drop on floor two
+ *   weight  relative pick weight, so the good ones are RARE rather than 1-in-9
+ *   worth   price multiplier in eighths (8 == x1.00); a curse is worth ~nothing
+ *   slots   ES_WEAPON / ES_ARMOUR / ES_BOTH */
+typedef struct {
+    const char *name;
+    int8_t   mult, bonus;
+    uint16_t flags;
+    uint8_t  lvl, weight, worth, slots;
+} EgoKind;
 
 /* potion effects */
 enum { EF_CURE_LIGHT = 0, EF_CURE_SERIOUS, EF_FULL_HEAL, EF_MANA, EF_SPEED,
@@ -258,6 +283,7 @@ int  rl_player_light(void);
  * screen equipped it -- because that path never went near rl_use_item. */
 int  rl_stat(int i);
 int  rl_player_speed(void);
+int  rl_ego_flags(void);       /* OR of the ego powers on everything worn */
 
 /* --- equipment ----------------------------------------------------------
  * Four slots. `rl_slot_ptr` hands back the int8_t the slot lives in, so the

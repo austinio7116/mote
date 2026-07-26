@@ -69,8 +69,9 @@ static int player_damage(const Mon *m) {
             const EgoKind *e = &g_ego_kind[w->ego];
             int mf = mon_flags(m);
             int applies =
-                (e->flags & EGO_SLAY_EVIL) ? (mf & MK_EVIL) :
-                (e->flags & EGO_CURSED)    ? 1 :
+                (e->flags & EGO_SLAY_EVIL)   ? (mf & MK_EVIL) :
+                (e->flags & EGO_SLAY_UNDEAD) ? (mf & MK_UNDEAD) :
+                (e->flags & EGO_CURSED)      ? 1 :
                 (e->flags & (EGO_FIRE | EGO_COLD | EGO_ELEC)) ? 1 :
                 (e->mult > 0);
             if (applies && e->mult > 0) dam = dam * e->mult / 3;
@@ -153,6 +154,9 @@ void rl_mon_attack_player(Mon *m) {
     int dam = rl_dice(d, s);
     /* armour soaks a slice of every landed blow, so AC is never wasted */
     dam -= rl_player_ac() / 6;
+    /* ...and armour "of Resistance" soaks a quarter of what is left, which is
+     * what makes an armour ego worth carrying rather than just a name */
+    if (rl_ego_flags() & EGO_RESIST) dam -= dam / 4;
     if (dam < 1) dam = 1;
     g_pl.hp = (int16_t)(g_pl.hp - dam);
     rl_msgf("Hit for %d!", dam);
@@ -191,8 +195,14 @@ void rl_mon_turn(Mon *m) {
             }
             return;
         }
-        /* noise wakes them: closer means likelier, and it is never certain */
-        if (d < 12 && rl_pct(30 - d * 2)) m->flags &= (uint8_t)~MF_ASLEEP;
+        /* Noise wakes them: closer means likelier, and it is never certain.
+         * Stealth gear halves the noise you make; a cursed "of Morgul" or
+         * "of Sickliness" aggravates, and wakes the floor. */
+        int ef = rl_ego_flags();
+        int chance = 30 - d * 2;
+        if (ef & EGO_STEALTH)   chance /= 2;
+        if (ef & EGO_AGGRAVATE) chance = chance * 2 + 10;
+        if (d < 12 && rl_pct(chance)) m->flags &= (uint8_t)~MF_ASLEEP;
         return;
     }
     if (mf & MK_NEVER_MOVE) {
@@ -233,6 +243,7 @@ void rl_world_tick(void) {
     g_pl.speed = (uint8_t)rl_player_speed();
 
     int regen = 16;
+    if (rl_ego_flags() & EGO_REGEN) regen = 8;
     if (g_pl.inv_ring >= 0 && g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_REGEN) regen = 5;
     if ((g_turn % (uint32_t)regen) == 0) {
         if (g_pl.hp < g_pl.mhp) g_pl.hp++;

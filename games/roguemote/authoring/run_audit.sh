@@ -4,7 +4,8 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
-out=${1:-/tmp/roguemote_test_content}
+out=/tmp/roguemote_test_content
+if [ "$1" = "--out" ]; then out=$2; shift 2; fi
 
 gcc -O1 -g -DMOTE_HOST=1 \
     -I "$root/engine/core" -I "$root/engine/math" -I "$root/engine/render" \
@@ -20,4 +21,4 @@ gcc -O1 -g -DMOTE_HOST=1 \
     "$root/games/roguemote/src/rl_data.c" \
     -lm -o "$out"
 
-exec "$out"
+exec "$out" "$@"

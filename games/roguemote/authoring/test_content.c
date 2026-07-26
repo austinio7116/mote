@@ -362,9 +362,13 @@ static void test_scrolls(void) {
     for (int i = 0; i < MW * MH; i++) if (g_lv.flags[i] & CF_KNOWN) known++;
     CHECKF(known == 13 * 13, "light reveals a 13x13 block", "%d cells", known);
 
-    /* remove curse */
+    /* remove curse -- look the ego up by flag: nothing may hardcode an ego index,
+     * the table is reordered whenever a mod is added */
     fresh_player();
-    g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_LONG_SWORD, 1, 0, 0, 0, 8, IF_CURSED };  /* of Morgul */
+    int cursed_w = 0;
+    for (int e = 1; e < g_ego_kind_n; e++)
+        if ((g_ego_kind[e].flags & EGO_CURSED) && (g_ego_kind[e].slots & ES_WEAPON)) cursed_w = e;
+    g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_LONG_SWORD, 1, 0, 0, 0, (uint8_t)cursed_w, IF_CURSED };
     g_pl.inv_wield = 1;
     rl_use_item(give(ITM_SCR_REMOVE_CURSE, 1));
     CHECKF(!(g_pl.inv[1].flags & IF_CURSED), "remove curse clears the flag", "flags=%d", g_pl.inv[1].flags);
@@ -706,10 +710,19 @@ static void test_egos(void) {
 
     double plain = melee_mean(ITM_LONG_SWORD, 0, 0, jackal, N);
 
+    int undead_k = -1;
+    for (int i = 0; i < g_mon_kind_n; i++)
+        if (g_mon_kind[i].flags & MK_UNDEAD) { undead_k = i; break; }
+
     for (int e = 1; e < g_ego_kind_n; e++) {
         const EgoKind *ek = &g_ego_kind[e];
-        int target = (ek->flags & EGO_SLAY_EVIL) ? evil : jackal;
-        double base = (ek->flags & EGO_SLAY_EVIL) ? melee_mean(ITM_LONG_SWORD, 0, 0, evil, N) : plain;
+        /* Armour mods carry no damage multiplier -- they are measured in the
+         * egopower group, against the thing each one actually changes. */
+        if (!(ek->slots & ES_WEAPON)) continue;
+        /* Judge a slay mod against what it slays, or it measures as a no-op. */
+        int target = (ek->flags & EGO_SLAY_EVIL)   ? evil :
+                     (ek->flags & EGO_SLAY_UNDEAD) ? (undead_k < 0 ? jackal : undead_k) : jackal;
+        double base = target == jackal ? plain : melee_mean(ITM_LONG_SWORD, 0, 0, target, N);
         double got = melee_mean(ITM_LONG_SWORD, e, 0, target, N);
         double ratio = got / base;
 
@@ -841,7 +854,10 @@ static void test_armour(void) {
 
     /* cursed gear must refuse to come off */
     fresh_player();
-    g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_PLATE_MAIL, 1, 0, 0, 0, 8, IF_CURSED };
+    int cursed_a = 0;
+    for (int e = 1; e < g_ego_kind_n; e++)
+        if ((g_ego_kind[e].flags & EGO_CURSED) && (g_ego_kind[e].slots & ES_ARMOUR)) cursed_a = e;
+    g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_PLATE_MAIL, 1, 0, 0, 0, (uint8_t)cursed_a, IF_CURSED };
     g_pl.inv_body = 1;
     CHECKF(rl_unequip(EQ_BODY) == 0, "cursed armour will not come off", "%s", s_last);
     CHECKF(g_pl.inv_body == 1, "cursed armour stays equipped", "slot=%d", g_pl.inv_body);
@@ -1323,12 +1339,567 @@ static void test_starting_kit(void) {
 }
 
 /* =========================================================================
+ * 14. The economy: rarity, pricing, and mods that do something
+ * ====================================================================== */
+static int find_mon_with(int flag, int without) {
+    for (int i = 0; i < g_mon_kind_n; i++)
+        if ((g_mon_kind[i].flags & flag) && !(g_mon_kind[i].flags & without)) return i;
+    return -1;
+}
+
+/* Wear `ego` in the given slot on a base of the right type and return the flags. */
+static void wear_ego(int slot, int kind, int ego) {
+    g_pl.inv[3] = (Item){ 0, 0, (uint8_t)kind, 1, 0, 0, 0, (uint8_t)ego, 0 };
+    *rl_slot_ptr(slot) = 3;
+}
+
+static void test_economy(void) {
+    group("mods");
+
+    /* --- the table is coherent ------------------------------------------ */
+    for (int e = 1; e < g_ego_kind_n; e++) {
+        const EgoKind *ek = &g_ego_kind[e];
+        CHECKF(ek->name && ek->name[0], "ego has a name", "ego %d", e);
+        CHECKF(ek->weight > 0, "ego is reachable", "%s weight %d", ek->name, ek->weight);
+        CHECKF(ek->worth > 0, "ego has a price factor", "%s worth %d", ek->name, ek->worth);
+        CHECKF(ek->slots == ES_WEAPON || ek->slots == ES_ARMOUR,
+               "ego belongs to one base type", "%s slots %d", ek->name, ek->slots);
+        CHECKF(ek->lvl >= 1, "ego has a depth gate", "%s lvl %d", ek->name, ek->lvl);
+        /* a curse is a curse: it must cost you something and be worth nothing */
+        if (ek->flags & EGO_CURSED) {
+            CHECKF(ek->bonus < 0, "a curse carries a penalty", "%s bonus %d", ek->name, ek->bonus);
+            CHECKF(ek->worth <= 4, "a curse is nearly worthless", "%s worth %d", ek->name, ek->worth);
+        } else {
+            /* an ego earns its place through a multiplier, a power, or a plain
+             * enchantment -- "of Protection" is nothing but its +4 AC */
+            CHECKF(ek->mult > 3 || ek->flags || ek->bonus > 0, "a non-curse ego does something",
+                   "%s mult %d flags %d bonus %d", ek->name, ek->mult, ek->flags, ek->bonus);
+        }
+    }
+
+    /* --- depth gating and rarity --------------------------------------- */
+    {
+        int seen[64]; memset(seen, 0, sizeof seen);
+        int seen_below[64]; memset(seen_below, 0, sizeof seen_below);
+        for (int depth = 1; depth <= 40; depth++) {
+            fresh_player();
+            g_seed = 20000u + (uint32_t)depth * 7919u;
+            for (int i = 0; i < 4000; i++) {
+                Item it;
+                rl_make_item(&it, depth);
+                if (!it.ego) continue;
+                seen[it.ego]++;
+                if (depth < g_ego_kind[it.ego].lvl) seen_below[it.ego]++;
+            }
+        }
+        for (int e = 1; e < g_ego_kind_n; e++) {
+            CHECKF(seen_below[e] == 0, "an ego never appears above its depth",
+                   "%s (lvl %d) appeared %d times too shallow",
+                   g_ego_kind[e].name, g_ego_kind[e].lvl, seen_below[e]);
+            CHECKF(seen[e] > 0, "every ego actually drops", "%s never appeared",
+                   g_ego_kind[e].name);
+        }
+        /* the rare ones must be rarer: the best weapon mod cannot be as common
+         * as the cheapest, which is exactly what uniform selection gave */
+        int common = 0, rare = 0;
+        for (int e = 1; e < g_ego_kind_n; e++) {
+            if (g_ego_kind[e].slots != ES_WEAPON || (g_ego_kind[e].flags & EGO_CURSED)) continue;
+            if (g_ego_kind[e].weight >= 90) common += seen[e];
+            if (g_ego_kind[e].weight <= 14) rare   += seen[e];
+        }
+        CHECKF(common > rare * 3, "common mods are much commoner than rare ones",
+               "%d common vs %d rare drops", common, rare);
+    }
+
+    /* --- an ego only lands on a base type it is for --------------------- */
+    {
+        fresh_player();
+        g_seed = 99991;
+        for (int i = 0; i < 60000; i++) {
+            Item it;
+            rl_make_item(&it, 30);
+            if (!it.ego) continue;
+            int want = (g_item_kind[it.kind].tv == TV_ARMOUR) ? ES_ARMOUR : ES_WEAPON;
+            CHECKF(g_ego_kind[it.ego].slots & want, "an ego matches its base type",
+                   "%s on a %s", g_ego_kind[it.ego].name, g_item_kind[it.kind].name);
+        }
+    }
+
+    /* --- quality tiers all occur, and plain thins out with depth -------- */
+    {
+        int plain_shallow = 0, plain_deep = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            int depth = pass ? 35 : 3;
+            fresh_player();
+            g_seed = 606060u + (uint32_t)depth;
+            int tier[3] = { 0, 0, 0 }, n = 0, split = 0;
+            for (int i = 0; i < 20000; i++) {
+                Item it;
+                rl_make_item(&it, depth);
+                int tv = g_item_kind[it.kind].tv;
+                if (tv != TV_WEAPON && tv != TV_ARMOUR) continue;
+                n++;
+                int plus = (tv == TV_ARMOUR) ? it.to_ac : (it.to_hit + it.to_dam + 1) / 2;
+                if (it.ego)       tier[2]++;
+                else if (plus)    tier[1]++;
+                else              tier[0]++;
+                if (tv == TV_WEAPON && it.to_hit != it.to_dam) split++;
+            }
+            for (int t = 0; t < 3; t++)
+                CHECKF(tier[t] > 0, "every quality tier occurs", "depth %d tier %d", depth, t);
+            /* two +4 swords must not be the same sword */
+            CHECKF(split > 0, "to_hit and to_dam roll apart",
+                   "depth %d: no weapon had differing plusses", depth);
+            if (pass) plain_deep = tier[0] * 100 / n; else plain_shallow = tier[0] * 100 / n;
+        }
+        CHECKF(plain_deep < plain_shallow, "deep floors drop less plain gear",
+               "%d%% plain at depth 3, %d%% at depth 35", plain_shallow, plain_deep);
+    }
+
+    group("prices");
+
+    /* --- price rises with quality, always ------------------------------ */
+    for (int i = 0; i < g_item_kind_n; i++) {
+        const ItemKind *k = &g_item_kind[i];
+        if (k->tv != TV_WEAPON && k->tv != TV_ARMOUR) continue;
+        int prev = 0;
+        for (int plus = 0; plus <= ENCHANT_MAX; plus++) {
+            Item it; memset(&it, 0, sizeof it);
+            it.kind = (uint8_t)i; it.qty = 1;
+            if (k->tv == TV_ARMOUR) it.to_ac = (int8_t)plus;
+            else { it.to_hit = (int8_t)plus; it.to_dam = (int8_t)plus; }
+            int p = rl_shop_price(&it, 0);
+            CHECKF(p > prev, "price rises with every plus",
+                   "%s +%d prices %d, +%d priced %d", k->name, plus, p, plus - 1, prev);
+            prev = p;
+        }
+    }
+
+    /* --- a plus is worth more on a better item -------------------------- */
+    {
+        int cheap = ITM_DAGGER, dear = ITM_BLADE_OF_CHAOS;
+        for (int plus = 2; plus <= ENCHANT_MAX; plus += 2) {
+            Item a, b;
+            memset(&a, 0, sizeof a); a.kind = (uint8_t)cheap; a.qty = 1;
+            memset(&b, 0, sizeof b); b.kind = (uint8_t)dear;  b.qty = 1;
+            int a0 = rl_shop_price(&a, 0), b0 = rl_shop_price(&b, 0);
+            a.to_hit = a.to_dam = (int8_t)plus;
+            b.to_hit = b.to_dam = (int8_t)plus;
+            int da = rl_shop_price(&a, 0) - a0, db = rl_shop_price(&b, 0) - b0;
+            CHECKF(db > da * 3, "a plus is worth far more on a better base",
+                   "+%d adds %d to a dagger and %d to a Blade of Chaos", plus, da, db);
+        }
+    }
+
+    /* --- a curse is never an asset -------------------------------------- */
+    for (int e = 1; e < g_ego_kind_n; e++) {
+        if (!(g_ego_kind[e].flags & EGO_CURSED)) continue;
+        int base = (g_ego_kind[e].slots & ES_ARMOUR) ? ITM_PLATE_MAIL : ITM_LONG_SWORD;
+        Item plain, cursed;
+        memset(&plain, 0, sizeof plain);   plain.kind = (uint8_t)base;  plain.qty = 1;
+        memset(&cursed, 0, sizeof cursed); cursed.kind = (uint8_t)base; cursed.qty = 1;
+        cursed.ego = (uint8_t)e; cursed.flags = IF_CURSED;
+        CHECKF(rl_shop_price(&cursed, 0) < rl_shop_price(&plain, 0),
+               "a cursed item is worth less than a plain one",
+               "%s%s prices %d against %d plain", g_item_kind[base].name,
+               g_ego_kind[e].name, rl_shop_price(&cursed, 0), rl_shop_price(&plain, 0));
+    }
+
+    /* --- price tracks measured power, not the flavour text -------------- */
+    {
+        int evil = find_mon_with(MK_EVIL, MK_UNDEAD), undead = find_mon_with(MK_UNDEAD, 0);
+        CHECKF(evil >= 0, "there is an evil non-undead monster to test against", "-");
+        CHECKF(undead >= 0, "there is an undead monster to test against", "-");
+        double power[64]; int nw = 0; int idx[64];
+        for (int e = 1; e < g_ego_kind_n; e++) {
+            const EgoKind *ek = &g_ego_kind[e];
+            if (ek->slots != ES_WEAPON || (ek->flags & EGO_CURSED)) continue;
+            /* judge each mod against the thing it is FOR, and count the extra
+             * blow an "of Attacks" buys -- that is its real power */
+            int tgt = (ek->flags & EGO_SLAY_EVIL)   ? evil :
+                      (ek->flags & EGO_SLAY_UNDEAD) ? (undead < 0 ? 0 : undead) : 0;
+            double base = melee_mean(ITM_LONG_SWORD, 0, 0, tgt, 4000);
+            power[nw] = melee_mean(ITM_LONG_SWORD, e, 0, tgt, 4000) / base;
+            /* Damage per blow is not power. A mod granting speed buys extra
+             * ACTIONS, so its throughput is the damage multiplier times the
+             * energy ratio -- which is why "of Westernesse" outprices the
+             * harder-hitting "of Attacks". */
+            if (ek->flags & EGO_SPEED)
+                power[nw] *= (double)rl_speed_gain(SPEED_NORMAL + 10)
+                           / (double)rl_speed_gain(SPEED_NORMAL);
+            idx[nw] = e; nw++;
+        }
+        /* Price answers to utility AND rarity, so neither alone settles a pair.
+         * (Holy) hits x3.00 but only against evil and turns up a third as often
+         * as "of Westernesse", which hits x4.00 against anything -- the rarer
+         * one may fairly cost more. What must never happen is the inversion the
+         * flat 300-per-ego pricing produced: a mod that is at once STRONGER and
+         * COMMONER than another, and cheaper. */
+        for (int a = 0; a < nw; a++)
+            for (int b = 0; b < nw; b++) {
+                if (power[a] < power[b] * 1.15) continue;         /* clearly stronger */
+                /* weight is COMMONNESS. If A is the commoner of the two, B's
+                 * scarcity is a fair reason for B to cost more, so that pair
+                 * proves nothing -- skip it. What is left is A stronger and no
+                 * commoner than B, where A being cheaper is simply wrong. */
+                if (g_ego_kind[idx[a]].weight > g_ego_kind[idx[b]].weight) continue;
+                CHECKF(g_ego_kind[idx[a]].worth > g_ego_kind[idx[b]].worth,
+                       "a stronger, no-commoner mod is never cheaper",
+                       "%s x%.2f wgt %d priced %d, but %s x%.2f wgt %d priced %d",
+                       g_ego_kind[idx[a]].name, power[a], g_ego_kind[idx[a]].weight,
+                       g_ego_kind[idx[a]].worth,
+                       g_ego_kind[idx[b]].name, power[b], g_ego_kind[idx[b]].weight,
+                       g_ego_kind[idx[b]].worth);
+            }
+        /* ...and rarity must be priced in its own right: among mods of similar
+         * power, the scarcer one is the dearer one. */
+        for (int a = 0; a < nw; a++)
+            for (int b = 0; b < nw; b++) {
+                if (power[a] < power[b] * 0.9 || power[a] > power[b] * 1.1) continue;
+                if (g_ego_kind[idx[a]].weight >= g_ego_kind[idx[b]].weight) continue;
+                CHECKF(g_ego_kind[idx[a]].worth >= g_ego_kind[idx[b]].worth,
+                       "at equal power the rarer mod costs more",
+                       "%s wgt %d priced %d against %s wgt %d priced %d",
+                       g_ego_kind[idx[a]].name, g_ego_kind[idx[a]].weight,
+                       g_ego_kind[idx[a]].worth, g_ego_kind[idx[b]].name,
+                       g_ego_kind[idx[b]].weight, g_ego_kind[idx[b]].worth);
+            }
+    }
+
+    /* --- selling: bounded, never an arbitrage -------------------------- */
+    {
+        for (int deepest = 0; deepest <= 40; deepest += 8) {
+            fresh_player();
+            g_pl.deepest = (uint8_t)deepest;
+            g_seed = 4004u + (uint32_t)deepest;
+            int32_t purse = 400 + (int32_t)deepest * 260;
+            for (int i = 0; i < 3000; i++) {
+                Item it;
+                rl_make_item(&it, deepest + 1);
+                g_pl.inv[0] = it; g_pl.inv[0].qty = 1;
+                g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
+                int32_t gold0 = g_pl.gold;
+                int buy = rl_shop_price(&g_pl.inv[0], 0);
+                CHECKF(rl_shop_sell(0) == 1, "anything can be sold", "%s",
+                       g_item_kind[it.kind].name);
+                int32_t got = g_pl.gold - gold0;
+                CHECKF(got >= 1, "selling always pays something", "%s paid %d",
+                       g_item_kind[it.kind].name, (int)got);
+                CHECKF(got <= purse, "selling is bounded by the trader's purse",
+                       "%s paid %d over a purse of %d", g_item_kind[it.kind].name,
+                       (int)got, (int)purse);
+                CHECKF(got < buy || buy <= 3, "you never sell for more than the shelf price",
+                       "%s: sold %d, priced %d", g_item_kind[it.kind].name, (int)got, buy);
+            }
+        }
+        /* equipped gear must come off first */
+        fresh_player();
+        g_pl.inv[0] = (Item){ 0, 0, (uint8_t)ITM_LONG_SWORD, 1, 0, 0, 0, 0, 0 };
+        g_pl.inv_wield = 0;
+        CHECKF(rl_shop_sell(0) == 0, "you cannot sell what you are holding", "%s", s_last);
+    }
+
+    /* --- enchantment is capped, so scrolls are not a printing press ----- */
+    {
+        fresh_player();
+        g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_BLADE_OF_CHAOS, 1, 0, 0, 0, 0, 0 };
+        g_pl.inv_wield = 1;
+        for (int i = 0; i < 200; i++) { give(ITM_SCR_ENCHANT_W, 1); rl_use_item(0); }
+        CHECKF(g_pl.inv[1].to_dam <= ENCHANT_MAX && g_pl.inv[1].to_hit <= ENCHANT_MAX,
+               "enchant weapon stops at the cap", "reached +%d/+%d after 200 scrolls",
+               g_pl.inv[1].to_hit, g_pl.inv[1].to_dam);
+
+        fresh_player();
+        g_pl.inv[1] = (Item){ 0, 0, (uint8_t)ITM_MITHRIL_COAT, 1, 0, 0, 0, 0, 0 };
+        g_pl.inv_body = 1;
+        for (int i = 0; i < 200; i++) { give(ITM_SCR_ENCHANT_A, 1); rl_use_item(0); }
+        CHECKF(g_pl.inv[1].to_ac <= ENCHANT_MAX, "enchant armour stops at the cap",
+               "reached +%d after 200 scrolls", g_pl.inv[1].to_ac);
+
+        /* and the scrolls must cost more than the value they add */
+        Item it; memset(&it, 0, sizeof it);
+        it.kind = ITM_BLADE_OF_CHAOS; it.qty = 1;
+        int p0 = rl_shop_price(&it, 0);
+        it.to_hit = it.to_dam = ENCHANT_MAX;
+        int gain = (rl_shop_price(&it, 0) - p0) / 3;          /* what you'd get for it */
+        int cost = ENCHANT_MAX * g_item_kind[ITM_SCR_ENCHANT_W].cost;
+        CHECKF(gain < cost * 4, "enchanting is not a gold pump",
+               "%d scrolls cost %d and add %d of sale value", ENCHANT_MAX, cost, gain);
+    }
+
+    group("egopower");
+
+    /* --- every mod must be measurable in play --------------------------- */
+    {
+        int evil = find_mon_with(MK_EVIL, MK_UNDEAD), undead = find_mon_with(MK_UNDEAD, 0);
+        int beast = 0;
+
+        for (int e = 1; e < g_ego_kind_n; e++) {
+            const EgoKind *ek = &g_ego_kind[e];
+            int flags = ek->flags;
+
+            if (flags & EGO_SPEED) {
+                fresh_player();
+                int slot = (ek->slots & ES_ARMOUR) ? EQ_BODY : EQ_WIELD;
+                wear_ego(slot, (ek->slots & ES_ARMOUR) ? ITM_PLATE_MAIL : ITM_LONG_SWORD, e);
+                CHECKF(rl_player_speed() > SPEED_NORMAL, "a speed mod makes you faster",
+                       "%s left speed at %d", ek->name, rl_player_speed());
+                CHECKF(rl_ego_flags() & EGO_SPEED, "the mod is visible to rl_ego_flags",
+                       "%s", ek->name);
+            }
+            if (flags & EGO_RESIST) {
+                int taken[2];
+                for (int pass = 0; pass < 2; pass++) {
+                    fresh_player();
+                    g_pl.hp = g_pl.mhp = 30000;
+                    if (pass) wear_ego(EQ_BODY, ITM_PLATE_MAIL, e);
+                    g_seed = 1357;
+                    Mon *m = plant(33, 24, beast, 100);
+                    for (int i = 0; i < 4000; i++) rl_mon_attack_player(m);
+                    taken[pass] = 30000 - g_pl.hp;
+                }
+                CHECKF(taken[1] < taken[0], "a resistance mod reduces damage taken",
+                       "%s: %d with, %d without", ek->name, taken[1], taken[0]);
+            }
+            if (flags & EGO_REGEN) {
+                int healed[2];
+                for (int pass = 0; pass < 2; pass++) {
+                    fresh_player();
+                    g_pl.hp = 1;
+                    if (pass) wear_ego(EQ_BODY, ITM_PLATE_MAIL, e);
+                    g_turn = 0;
+                    for (int i = 0; i < 200; i++) rl_world_tick();
+                    healed[pass] = g_pl.hp;
+                }
+                CHECKF(healed[1] > healed[0], "a regeneration mod heals faster",
+                       "%s: %d hp with, %d without", ek->name, healed[1], healed[0]);
+            }
+            if (flags & (EGO_STEALTH | EGO_AGGRAVATE)) {
+                int woke[2];
+                for (int pass = 0; pass < 2; pass++) {
+                    fresh_player();
+                    if (pass) wear_ego((ek->slots & ES_ARMOUR) ? EQ_BODY : EQ_WIELD,
+                                       (ek->slots & ES_ARMOUR) ? ITM_PLATE_MAIL : ITM_LONG_SWORD, e);
+                    g_seed = 2468;
+                    woke[pass] = 0;
+                    for (int t = 0; t < 3000; t++) {
+                        g_lv.n_mon = 0;
+                        Mon *m = plant((int)g_pl.x + 5, g_pl.y, beast, 20);
+                        m->flags = MF_ASLEEP;
+                        rl_mon_turn(m);
+                        if (!(m->flags & MF_ASLEEP)) woke[pass]++;
+                    }
+                }
+                if (flags & EGO_STEALTH)
+                    CHECKF(woke[1] < woke[0], "a stealth mod wakes fewer monsters",
+                           "%s: %d woke with, %d without", ek->name, woke[1], woke[0]);
+                else
+                    CHECKF(woke[1] > woke[0], "an aggravating curse wakes more monsters",
+                           "%s: %d woke with, %d without", ek->name, woke[1], woke[0]);
+            }
+            if (flags & EGO_XATTACK) {
+                double one = melee_mean(ITM_LONG_SWORD, 0, 0, beast, 4000);
+                double two = melee_mean(ITM_LONG_SWORD, e, 0, beast, 4000);
+                CHECKF(two > one * (ek->mult / 3.0) * 1.5, "an extra-attack mod buys a blow",
+                       "%s: %.2f vs %.2f, multiplier alone gives %.2f", ek->name,
+                       two, one, one * ek->mult / 3.0);
+            }
+            if ((flags & EGO_SLAY_EVIL) && evil >= 0) {
+                double on = melee_mean(ITM_LONG_SWORD, e, 0, evil, 4000);
+                double off = melee_mean(ITM_LONG_SWORD, e, 0, beast, 4000);
+                CHECKF(on > off * 1.3, "a slay-evil mod fires on evil and not on beasts",
+                       "%s: %.2f on %s, %.2f on %s", ek->name, on, g_mon_kind[evil].name,
+                       off, g_mon_kind[beast].name);
+            }
+            if ((flags & EGO_SLAY_UNDEAD) && undead >= 0) {
+                double on = melee_mean(ITM_LONG_SWORD, e, 0, undead, 4000);
+                double off = melee_mean(ITM_LONG_SWORD, e, 0, beast, 4000);
+                CHECKF(on > off * 1.3, "a slay-undead mod fires on undead and not on beasts",
+                       "%s: %.2f on %s, %.2f on %s", ek->name, on, g_mon_kind[undead].name,
+                       off, g_mon_kind[beast].name);
+            }
+            if (flags & EGO_CURSED) {
+                double plainx = melee_mean(ITM_LONG_SWORD, 0, 0, beast, 4000);
+                if (ek->slots & ES_WEAPON) {
+                    double crs = melee_mean(ITM_LONG_SWORD, e, 0, beast, 4000);
+                    CHECKF(crs < plainx * 0.8, "a cursed weapon hits softer",
+                           "%s: %.2f against %.2f plain", ek->name, crs, plainx);
+                }
+                /* and it must actually stick to you */
+                fresh_player();
+                int slot = (ek->slots & ES_ARMOUR) ? EQ_BODY : EQ_WIELD;
+                g_pl.inv[3] = (Item){ 0, 0,
+                    (uint8_t)((ek->slots & ES_ARMOUR) ? ITM_PLATE_MAIL : ITM_LONG_SWORD),
+                    1, 0, 0, 0, (uint8_t)e, IF_CURSED };
+                *rl_slot_ptr(slot) = 3;
+                CHECKF(rl_unequip(slot) == 0, "cursed gear will not come off", "%s", ek->name);
+            }
+        }
+    }
+}
+
+/* =========================================================================
+ * The economy report  (run_audit.sh --econ)
+ *
+ * Not assertions -- a set of tables for tuning the thing the game is actually
+ * about: finding a great item, selling it, and buying the one you wanted. The
+ * numbers that matter are the SPREAD at each depth (is there anything to hope
+ * for?) and the ratio between what a floor pays and what the next tier costs
+ * (is shopping a decision or a formality?).
+ * ====================================================================== */
+static int cmp_i32(const void *a, const void *b) {
+    int32_t x = *(const int32_t *)a, y = *(const int32_t *)b;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* Measured effective damage multiplier of an ego, through the real attack path,
+ * against a target the ego does and does not apply to. */
+static double ego_effective(int ego, int target) {
+    double plain = melee_mean(ITM_LONG_SWORD, 0, 0, target, 4000);
+    return melee_mean(ITM_LONG_SWORD, ego, 0, target, 4000) / plain;
+}
+
+static void report_economy(void) {
+    printf("=== 1. what a floor drops, and what it is worth ===\n\n");
+    printf("depth |  plain  ench   ego  curse | sale value: med    p90     p99    best |"
+           " purse\n");
+    for (int d = 1; d <= 40; d += 3) {
+        fresh_player();
+        g_pl.deepest = (uint8_t)d;
+        g_seed = 7777u + (uint32_t)d * 31u;
+        const int N = 30000;
+        static int32_t val[30000];
+        int nv = 0, plain = 0, ench = 0, ego = 0, curse = 0;
+        for (int i = 0; i < N; i++) {
+            Item it;
+            rl_make_item(&it, d);
+            int tv = g_item_kind[it.kind].tv;
+            if (tv != TV_WEAPON && tv != TV_ARMOUR) continue;
+            int plus = (tv == TV_ARMOUR) ? it.to_ac : (it.to_hit + it.to_dam + 1) / 2;
+            if (it.flags & IF_CURSED) curse++;
+            else if (it.ego)          ego++;
+            else if (plus > 0)        ench++;
+            else                      plain++;
+            val[nv++] = rl_shop_price(&it, 0) / 3;
+        }
+        qsort(val, (size_t)nv, sizeof val[0], cmp_i32);
+        int tot = plain + ench + ego + curse;
+        printf("%5d | %5d%% %4d%% %5d%% %5d%% | %10d %6d %7d %7d | %5d\n", d,
+               plain * 100 / tot, ench * 100 / tot, ego * 100 / tot, curse * 100 / tot,
+               val[nv / 2], val[nv * 9 / 10], val[nv * 99 / 100], val[nv - 1],
+               400 + d * 260);
+    }
+
+    printf("\n=== 2. the mods: rarity, measured power, and price ===\n\n");
+    int evil = -1, undead = -1;
+    for (int i = 0; i < g_mon_kind_n; i++) {
+        if (undead < 0 && (g_mon_kind[i].flags & MK_UNDEAD)) undead = i;
+        if (evil < 0 && (g_mon_kind[i].flags & MK_EVIL) && !(g_mon_kind[i].flags & MK_UNDEAD))
+            evil = i;
+    }
+    if (evil < 0) evil = 0;
+    if (undead < 0) undead = 0;
+    printf("%-18s lvl  wgt   share@d40   measured dmg   worth  long sword  what else\n", "ego");
+    for (int slot = ES_WEAPON; slot <= ES_ARMOUR; slot++) {
+        printf("  -- %s --\n", slot == ES_WEAPON ? "weapons" : "armour");
+        int total = 0;
+        for (int e = 1; e < g_ego_kind_n; e++)
+            if ((g_ego_kind[e].slots & slot) && g_ego_kind[e].lvl <= 40) total += g_ego_kind[e].weight;
+        for (int e = 1; e < g_ego_kind_n; e++) {
+            const EgoKind *ek = &g_ego_kind[e];
+            if (!(ek->slots & slot)) continue;
+            Item it; memset(&it, 0, sizeof it);
+            it.kind = ITM_LONG_SWORD; it.qty = 1; it.ego = (uint8_t)e;
+            if (ek->flags & EGO_CURSED) it.flags |= IF_CURSED;
+
+            char power[24] = "-";
+            if (slot == ES_WEAPON) {
+                int tgt = (ek->flags & EGO_SLAY_EVIL)   ? evil :
+                          (ek->flags & EGO_SLAY_UNDEAD) ? undead : 0;
+                snprintf(power, sizeof power, "x%.2f%s", ego_effective(e, tgt),
+                         (ek->flags & EGO_SLAY_EVIL) ? " vs evil" :
+                         (ek->flags & EGO_SLAY_UNDEAD) ? " vs undd" : "");
+            }
+            const char *extra =
+                (ek->flags & EGO_XATTACK) ? "extra blow" :
+                (ek->flags & EGO_SPEED)   ? "+10 speed" :
+                (ek->flags & EGO_RESIST)  ? "-25% damage taken" :
+                (ek->flags & EGO_REGEN)   ? "regen 8 not 16" :
+                (ek->flags & EGO_STEALTH) ? "half the noise" :
+                (ek->flags & EGO_AGGRAVATE) ? "wakes the floor" : "";
+            printf("%-18s %3d %4d %8d%%   %14s %5d  %10d  %s\n",
+                   ek->name[0] ? ek->name + 1 : "(plain)", ek->lvl, ek->weight,
+                   ek->lvl <= 40 && total ? ek->weight * 100 / total : 0,
+                   power, ek->worth, rl_shop_price(&it, 0), extra);
+        }
+    }
+
+    printf("\n=== 3. does +X scale with the base item? ===\n\n");
+    int bases[4] = { ITM_DAGGER, ITM_LONG_SWORD, ITM_GREAT_AXE, ITM_BLADE_OF_CHAOS };
+    printf("%-16s", "base");
+    for (int x = 0; x <= 12; x += 3) printf("   +%-2d", x);
+    printf("\n");
+    for (int bi = 0; bi < 4; bi++) {
+        printf("%-16s", g_item_kind[bases[bi]].name);
+        for (int x = 0; x <= 12; x += 3) {
+            Item it; memset(&it, 0, sizeof it);
+            it.kind = (uint8_t)bases[bi]; it.qty = 1;
+            it.to_hit = it.to_dam = (int8_t)x;
+            printf(" %5d", rl_shop_price(&it, 0));
+        }
+        printf("\n");
+    }
+
+    printf("\n=== 4. the loop: can a floor's takings buy the next tier? ===\n\n");
+    printf("depth | floor takings (8 finds, median) | next weapon tier costs | floors to afford\n");
+    for (int d = 2; d <= 34; d += 4) {
+        fresh_player();
+        g_pl.deepest = (uint8_t)d;
+        g_seed = 31337u + (uint32_t)d;
+        long take = 0;
+        const int TRIALS = 400;
+        for (int t = 0; t < TRIALS; t++) {
+            long floor_take = 0;
+            for (int i = 0; i < 8; i++) {
+                Item it; rl_make_item(&it, d);
+                int32_t p = rl_shop_price(&it, 0) / 3;
+                int32_t purse = 400 + d * 260;
+                floor_take += p > purse ? purse : p;
+            }
+            take += floor_take;
+        }
+        int per_floor = (int)(take / TRIALS);
+        /* the cheapest weapon strictly better than what this depth hands out */
+        int best_here = 0, next_cost = 0; const char *next_name = "-";
+        for (int i = 0; i < g_item_kind_n; i++) {
+            const ItemKind *k = &g_item_kind[i];
+            if (k->tv != TV_WEAPON || k->lvl > d) continue;
+            int m = k->dice_d * (k->dice_s + 1) / 2;
+            if (m > best_here) best_here = m;
+        }
+        for (int i = 0; i < g_item_kind_n; i++) {
+            const ItemKind *k = &g_item_kind[i];
+            if (k->tv != TV_WEAPON) continue;
+            int m = k->dice_d * (k->dice_s + 1) / 2;
+            if (m > best_here && (!next_cost || k->cost < next_cost)) {
+                next_cost = k->cost; next_name = k->name;
+            }
+        }
+        printf("%5d | %31d | %10s %11d | %.1f\n", d, per_floor, next_name, next_cost,
+               per_floor ? (double)next_cost / per_floor : 0.0);
+    }
+    printf("\n");
+}
+
+/* =========================================================================
  * main
  * ====================================================================== */
-int main(void) {
+int main(int argc, char **argv) {
     g_seed = 1;
     g_world_seed = 1;
     rl_item_init_flavours();
+
+    if (argc > 1 && !strcmp(argv[1], "--econ")) { report_economy(); return 0; }
 
     test_table();
     test_potions();
@@ -1343,6 +1914,7 @@ int main(void) {
     test_generation();
     test_shops();
     test_starting_kit();
+    test_economy();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);
