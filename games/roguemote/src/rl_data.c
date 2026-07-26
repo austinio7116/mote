@@ -13,6 +13,7 @@
 #include "rl.h"
 
 #define A(c) SH_ANIMALS,  (c)
+#define P(c) SH_CHARACTERS, (c)   /* townsfolk: the villagers on rows 0-3 */
 #define M(c) SH_MONSTERS, (c)
 #define G(c) SH_REGALIA,  (c)   /* crowns_fx: dummies and blobs, not crowns */
 
@@ -213,6 +214,30 @@ const MonKind g_mon_kind[] = {
  * hit hard, because the whole trade is that you spent a turn opening it. */
   { "mimic",             A(35),   5, 100, 7, 7, 26, 2, 6,    30, MK_MIMIC | STIL | EVIL },
   { "greater mimic",     A(35),  14, 100,14, 9, 38, 3, 7,   190, MK_MIMIC | STIL | EVIL },
+
+/* --- townsfolk ------------------------------------------------------------
+ * Source cols 32-47, rows 0-3, which the labelling pass called villagers, a
+ * king, a priest, a sage, a dwarf. They are ordinary monsters carrying
+ * MK_PEACEFUL, so they need no second actor list and no second turn loop --
+ * rl_mon_turn sees the flag, wanders them a step, and returns before any of
+ * the hunting code runs.
+ *
+ * They have real hit points because they are attackable. Striking one is
+ * allowed; it is simply a thing you have chosen to do.
+ *
+ *   characters cell = row * 16 + (col - 32)                                  */
+  { "villager",          P(20),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 36,1 */
+  { "villager",          P(21),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 37,1 */
+  { "villager",          P(22),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 38,1 */
+  { "villager",          P(23),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 39,1 */
+  { "farmhand",          P(54),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 38,3 */
+  { "goodwife",          P(52),   1, 110, 3, 6, 14, 1, 2,     1, MK_PEACEFUL },  /* 36,3 */
+  { "old man",           P(58),   1, 105, 2, 6, 12, 1, 2,     1, MK_PEACEFUL },  /* 42,3 */
+  { "sage",              P(51),   4, 105, 4, 7, 18, 1, 3,     2, MK_PEACEFUL },  /* 35,3 */
+  { "dwarf",             P(53),   5, 110, 5, 8, 24, 1, 4,     3, MK_PEACEFUL },  /* 37,3 */
+  { "priest",            P(8),    6, 110, 5, 8, 26, 1, 4,     3, MK_PEACEFUL },  /* 40,0 */
+  { "child",             P(32),   1, 115, 2, 4,  8, 1, 1,     1, MK_PEACEFUL },  /* 32,3 */
+  { "the king",          P(18),  12, 110,10,10, 60, 2, 5,    10, MK_PEACEFUL },  /* 34,1 */
 };
 const int g_mon_kind_n = (int)(sizeof g_mon_kind / sizeof g_mon_kind[0]);
 

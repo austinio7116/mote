@@ -50,6 +50,9 @@ DRAW_SITES = {
     # trinkets: the inn's bed, the rubble, and the floor decor table
     "trinkets":           [16, 69, 66, 67, 48, 55],
     # every chest tier, closed and open -- rl_chest_cell covers the sheet
+    "chest_wood":         [0, 1],              # the closed and open chest
+    # every lever colour in every position -- the draw picks by state
+    "levers":             list(range(15)),
     "chests":             list(range(10)),
     # rl_magic.c animates six-frame strips from these starts
     "fx_mono":            ([0, 1, 2, 3, 4, 5] + [6, 7, 8, 9, 10, 11] +

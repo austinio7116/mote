@@ -534,6 +534,45 @@ void rl_gen_overworld(void) {
         if (bx >= 0) g_lv.terrain[by * MW + bx] = T_TOWER;
     }
 
+    /* --- townsfolk --------------------------------------------------------
+     * The towns were built and left empty. These wander their own streets and
+     * never come at you (MK_PEACEFUL, read in rl_mon_turn), so walking into a
+     * settlement finally looks like arriving somewhere rather than finding the
+     * scenery for one. */
+    {
+        int folk[24], nfolk = 0;
+        for (int k = 0; k < g_mon_kind_n && nfolk < 24; k++)
+            if (g_mon_kind[k].flags & MK_PEACEFUL) folk[nfolk++] = k;
+        if (nfolk) {
+            for (int i = 0; i < 26 && g_lv.n_mon < MAX_MON; i++) {
+                for (int t = 0; t < 200; t++) {
+                    int x = rl_range(MW), y = rl_range(MH);
+                    uint8_t ter = g_lv.terrain[y * MW + x];
+                    /* on a street or the ground inside a settlement */
+                    if (ter != T_ROAD && ter != T_FLOOR) continue;
+                    int in_capital = (x >= s_town_x0 && x <= s_town_x1 &&
+                                      y >= s_town_y0 && y <= s_town_y1);
+                    int near_street = 0;
+                    for (int j = -2; j <= 2 && !near_street; j++)
+                        for (int k = -2; k <= 2 && !near_street; k++)
+                            if (rl_in(x + k, y + j) &&
+                                g_lv.terrain[(y + j) * MW + x + k] == T_INN)
+                                near_street = 1;
+                    if (!in_capital && !near_street) continue;
+                    if (rl_mon_at(x, y)) continue;
+
+                    Mon *m = &g_lv.mon[g_lv.n_mon++];
+                    m->x = (uint8_t)x; m->y = (uint8_t)y;
+                    m->kind = (uint8_t)folk[rl_range(nfolk)];
+                    const MonKind *mk = &g_mon_kind[m->kind];
+                    m->hp = m->mhp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
+                    m->speed = mk->speed; m->energy = 0; m->flags = 0; m->boss = 0;
+                    break;
+                }
+            }
+        }
+    }
+
     /* --- roads ------------------------------------------------------------
      * A dogleg of road from the town gate out to the nearest cave mouths. It is
      * not pathfinding and does not need to be: the point is that stepping out
@@ -597,7 +636,7 @@ void rl_gen_overworld(void) {
             int k = 0;
             for (int a = 0; a < 40; a++) {
                 int c = rl_range(g_mon_kind_n);
-                if (g_mon_kind[c].flags & MK_MIMIC) continue;
+                if (g_mon_kind[c].flags & (MK_MIMIC | MK_PEACEFUL)) continue;
                 if (g_mon_kind[c].sheet == SH_ANIMALS && g_mon_kind[c].lvl <= cap) { k = c; break; }
             }
             const MonKind *mk = &g_mon_kind[k];
@@ -649,7 +688,11 @@ void rl_shop_restock(void) {
         int want = 4 + rl_range(4);
         if (want > SHOP_SLOTS) want = SHOP_SLOTS;
         int depth = (s == 5) ? 20 + g_pl.deepest : 4 + g_pl.deepest / 2;
-        for (int tries = 0; tries < 300 && g_shop_n[s] < want; tries++) {
+        /* The draw is a uniform pick over the WHOLE item table, and the
+         * table has grown past a hundred kinds -- most of which any one
+         * shop refuses. Three hundred tries stopped being enough to fill
+         * six slots and shops started opening half empty. */
+        for (int tries = 0; tries < 1500 && g_shop_n[s] < want; tries++) {
             int k = rl_range(g_item_kind_n);
             const ItemKind *ik = &g_item_kind[k];
             if (!shop_wants(s, ik)) continue;

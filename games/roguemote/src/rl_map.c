@@ -27,6 +27,9 @@ int rl_walkable(int x, int y) {
     case T_DUNGEON_MOUTH: case T_SHOP:
     case T_CHEST: case T_CHEST_OPEN:
     case T_ROAD:  case T_INN:  case T_TOWER:
+    /* a lever is stood on and pulled; a locked door is not walked through */
+    case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
+    case T_LEVER_Y: case T_LEVER_W:
         return 1;
     default:
         return 0;
@@ -313,7 +316,8 @@ static int pick_mon(int depth) {
         int k = rl_range(g_mon_kind_n);
         /* mimics are placed by place_chests, never rolled -- one standing in
          * the open with no chest under it gives the whole joke away */
-        if (g_mon_kind[k].flags & MK_MIMIC) continue;
+        /* a mimic is placed as a chest, and a villager belongs in a town */
+        if (g_mon_kind[k].flags & (MK_MIMIC | MK_PEACEFUL)) continue;
         if (g_mon_kind[k].lvl <= eff) { best = k; if (rl_pct(60)) break; }
     }
     return best;
@@ -454,6 +458,76 @@ static void spawn_boss(int depth) {
     m->flags = 0;                       /* bosses do not sleep */
 }
 
+/* --- coloured levers ------------------------------------------------------
+ *
+ * A lever and the door it opens are placed as a PAIR, always on the same floor,
+ * and the colour lives in the terrain id so neither half can lose track of the
+ * other. The door goes on a corridor cell that a room opens onto -- somewhere
+ * you will walk into and be stopped -- and the lever goes in a room far enough
+ * away that finding it is the puzzle.
+ *
+ * The rule that makes this safe: a locked door is only ever placed where an
+ * ordinary door already was. The generator has already proved the level
+ * connects through that cell, and if it were a chokepoint the lever behind it
+ * could seal the stairs away. Locking a door that was optional cannot strand
+ * anybody.
+ */
+static void place_levers(int depth) {
+    int pairs = 1 + (depth > 6) + (depth > 16 ? rl_range(2) : 0);
+    for (int p = 0; p < pairs && p < LEVER_N; p++) {
+        int hue = rl_range(LEVER_N);
+        /* do not reuse a colour already on this floor -- two red doors and one
+         * red lever is a puzzle with a wrong answer */
+        int clash = 0;
+        for (int i = 0; i < MW * MH && !clash; i++)
+            if (g_lv.terrain[i] == (uint8_t)(T_LOCK_R + hue)) clash = 1;
+        if (clash) continue;
+
+        int dx = -1, dy = -1;
+        for (int t = 0; t < 900; t++) {
+            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            if (g_lv.terrain[y * MW + x] != T_DOOR_CLOSED) continue;
+            dx = x; dy = y; break;
+        }
+        if (dx < 0) continue;
+
+        int lx = -1, ly = -1;
+        for (int t = 0; t < 900; t++) {
+            int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
+            if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+            if (!(g_lv.flags[y * MW + x] & CF_ROOM)) continue;   /* in a room */
+            int ax = x - dx, ay = y - dy;
+            if (ax * ax + ay * ay < 200) continue;               /* not beside it */
+            lx = x; ly = y; break;
+        }
+        if (lx < 0) continue;
+
+        g_lv.terrain[dy * MW + dx] = (uint8_t)(T_LOCK_R + hue);
+        g_lv.terrain[ly * MW + lx] = (uint8_t)(T_LEVER_R + hue);
+        g_lv.flags[ly * MW + lx] &= (uint8_t)~CF_ROOM;           /* unthrown */
+    }
+}
+
+/* Throw it: every door of that colour on the floor opens. Returns 0 if the
+ * lever has already been pulled, so the caller does not spend a turn twice. */
+int rl_pull_lever(int x, int y) {
+    uint8_t t = rl_ter(x, y);
+    if (!T_IS_LEVER(t)) return 0;
+    int i = y * MW + x;
+    if (g_lv.flags[i] & CF_ROOM) { rl_msg("It is already thrown."); return 0; }
+    g_lv.flags[i] |= CF_ROOM;
+
+    int opened = 0;
+    uint8_t want = (uint8_t)(T_LOCK_R + T_LEVER_HUE(t));
+    for (int k = 0; k < MW * MH; k++)
+        if (g_lv.terrain[k] == want) { g_lv.terrain[k] = T_DOOR_OPEN; opened++; }
+
+    if (opened) rl_msgf("Something opens. (%d)", opened);
+    else        rl_msg("It clunks. Nothing here.");
+    rl_fov();
+    return 1;
+}
+
 void rl_gen_level(int depth) {
     for (int i = 0; i < MW * MH; i++) { g_lv.terrain[i] = T_WALL; g_lv.flags[i] = 0; }
     g_lv.n_mon = 0; g_lv.n_item = 0;
@@ -535,6 +609,7 @@ void rl_gen_level(int depth) {
     place_chests(depth);
     stock_vaults(depth);
     place_rubble(depth);
+    place_levers(depth);
     rl_fov();
 }
 

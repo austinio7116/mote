@@ -137,7 +137,7 @@ static int mon_named(const char *n) {
 }
 static const char *tv_name(int tv) {
     static const char *const n[] = { "weapon","armour","potion","scroll","wand","ring",
-                                     "food","light","bow","ammo","tool" };
+                                     "food","light","bow","ammo","tool","valuable" };
     return tv < (int)(sizeof n / sizeof n[0]) ? n[tv] : "?";
 }
 
@@ -153,7 +153,7 @@ static void test_table(void) {
         const ItemKind *k = &g_item_kind[i];
         CHECKF(k->name && k->name[0], "name present", "item %d", i);
         CHECKF(k->sheet < SH_COUNT, "sheet in range", "%s sheet=%d", k->name, k->sheet);
-        CHECKF(k->tv <= TV_TOOL, "tv in range", "%s tv=%d", k->name, k->tv);
+        CHECKF(k->tv <= TV_VALUABLE, "tv in range", "%s tv=%d", k->name, k->tv);
         CHECKF(k->cost > 0, "cost is positive", "%s cost=%d", k->name, k->cost);
         CHECKF(k->lvl > 0, "level is positive", "%s lvl=%d", k->name, k->lvl);
 

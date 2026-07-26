@@ -35,8 +35,21 @@ enum {
     T_TREE, T_HILL, T_MOUNTAIN, T_TOWN, T_DUNGEON_MOUTH, T_SHOP,
     T_CHEST, T_CHEST_OPEN,
     T_TOWN_WALL, T_ROAD, T_INN, T_TOWER,
+    /* Coloured levers and the doors they open, five colours, always placed as
+     * matched pairs on the same floor. The colour lives in the terrain id
+     * rather than in a side table, so a saved level needs no extra bytes and a
+     * door can never lose track of which lever answers it. */
+    T_LEVER_R, T_LEVER_B, T_LEVER_G, T_LEVER_Y, T_LEVER_W,
+    T_LOCK_R,  T_LOCK_B,  T_LOCK_G,  T_LOCK_Y,  T_LOCK_W,
     T_COUNT
 };
+enum { LEVER_N = 5 };
+/* colour index 0..4 from either half of the pair, so a lever and its door
+ * compare without a switch at every call site */
+#define T_IS_LEVER(t) ((t) >= T_LEVER_R && (t) <= T_LEVER_W)
+#define T_IS_LOCK(t)  ((t) >= T_LOCK_R  && (t) <= T_LOCK_W)
+#define T_LEVER_HUE(t) ((t) - T_LEVER_R)
+#define T_LOCK_HUE(t)  ((t) - T_LOCK_R)
 enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
 
 /* --- sprite sheets referenced by content tables -------------------------
@@ -66,6 +79,8 @@ enum {
     SH_JEWEL,         /* jewellery            5x4  rings, amulets, earrings */
     SH_AMMO,          /* ammo                 3x1  arrow, dart, throwing star */
     SH_DEVICE,        /* devices              8x2  lamps, instruments, tools */
+    SH_CHESTWOOD,     /* chest_wood           2x1  closed, open */
+    SH_LEVERS,        /* levers               3x5  3 positions x 5 colours */
     SH_COUNT
 };
 
@@ -152,6 +167,7 @@ static inline uint8_t rl_ter(int x, int y) { return rl_in(x, y) ? g_lv.terrain[y
 int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
+int  rl_pull_lever(int x, int y);
 void rl_gen_overworld(void);
 void rl_fov(void);
 Mon *rl_mon_at(int x, int y);
@@ -169,7 +185,11 @@ int  rl_mon_ac(const Mon *m);
 
 /* --- items -------------------------------------------------------------- */
 enum { TV_WEAPON = 0, TV_ARMOUR, TV_POTION, TV_SCROLL, TV_WAND, TV_RING, TV_FOOD,
-       TV_LIGHT, TV_BOW, TV_AMMO, TV_TOOL };
+       TV_LIGHT, TV_BOW, TV_AMMO, TV_TOOL,
+/* Coin, ore and cut stones. A valuable does nothing at all except be worth
+ * money -- which is the point: it is treasure you carry back rather than
+ * treasure that changes how you fight. */
+       TV_VALUABLE };
 
 /* Enchantment ceiling. Scrolls of enchantment are unlimited and priced off
  * the base item, so without a cap a stack of them on a costly weapon is a gold
@@ -238,6 +258,11 @@ enum ItemId {
     ITM_SPEAR, ITM_MACE, ITM_LONG_SWORD, ITM_WAR_HAMMER, ITM_MORNING_STAR,
     ITM_BROAD_SWORD, ITM_BATTLE_AXE, ITM_GILDED_BLADE, ITM_TRIDENT,
     ITM_GREAT_AXE, ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS,
+    /* the same nine types in the materials the block already draws */
+    ITM_MAIN_GAUCHE, ITM_RAPIER, ITM_WAR_PICK, ITM_HALBERD, ITM_LANCE,
+    ITM_GLAIVE, ITM_FLAIL, ITM_GREAT_MAUL, ITM_EXECUTIONER,
+    ITM_ICE_PICK, ITM_FROST_SPEAR, ITM_RIME_AXE, ITM_EMBER_MACE,
+    ITM_ASHEN_TRIDENT, ITM_SUNDERER,
     /* launchers */
     ITM_SHORT_BOW, ITM_LIGHT_XBOW, ITM_LONG_BOW, ITM_HEAVY_XBOW, ITM_ARBALEST,
     ITM_BOW_FROST, ITM_BOW_FLAME,
@@ -249,6 +274,14 @@ enum ItemId {
     ITM_GREAT_HELM, ITM_GOLDEN_HELM,
     ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_CHAIN_MAIL, ITM_PLATE_MAIL,
     ITM_MITHRIL_COAT, ITM_LEATHER_SHIELD, ITM_IRON_SHIELD,
+    /* valuables: coin, ore and cut stones -- carried back and sold */
+    ITM_COPPER_NUGGET, ITM_COPPER_PILE, ITM_COPPER_ORE_S, ITM_COPPER_ORE_M,
+    ITM_COPPER_ORE_L, ITM_SILVER_NUGGET, ITM_SILVER_PILE, ITM_SILVER_ORE_S,
+    ITM_SILVER_ORE_M, ITM_SILVER_ORE_L, ITM_SILVER_BAR,
+    ITM_GOLD_COIN, ITM_GOLD_COINS, ITM_GOLD_NUGGET, ITM_GOLD_PILE,
+    ITM_GOLD_HOARD, ITM_GOLD_INGOT,
+    ITM_GEM_SHARD, ITM_GEM_EMERALD, ITM_GEM_SAPPHIRE, ITM_GEM_RUBY,
+    ITM_GEM_DIAMOND, ITM_STAR_GOLD, ITM_STAR_SHOOTING,
     /* potions */
     ITM_POT_CURE_LIGHT, ITM_POT_CURE_SERIOUS, ITM_POT_HEALING, ITM_POT_MANA,
     ITM_POT_SPEED, ITM_POT_HEROISM, ITM_POT_POISON, ITM_POT_ENLIGHTEN,
@@ -372,7 +405,11 @@ typedef struct {
     uint8_t flags;
 } MonKind;
 enum { MK_ERRATIC = 1, MK_NEVER_MOVE = 2, MK_OPEN_DOOR = 4, MK_GROUP = 8,
-       MK_EVIL = 16, MK_UNDEAD = 32, MK_MIMIC = 64 };
+       MK_EVIL = 16, MK_UNDEAD = 32, MK_MIMIC = 64,
+/* Townsfolk. Peaceful things wander, never close on you and never strike; the
+ * flag is read in rl_mon_turn, so a villager is an ordinary monster in every
+ * other respect and needs no second actor list. */
+       MK_PEACEFUL = 128 };
 
 extern const MonKind g_mon_kind[];
 extern const int g_mon_kind_n;

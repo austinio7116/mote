@@ -26,6 +26,7 @@
 #define J(c) SH_JEWEL,    (c)      /* jewellery:         rings                */
 #define A(c) SH_AMMO,     (c)      /* ammo:              arrow/dart/star     */
 #define D(c) SH_DEVICE,   (c)      /* devices:           lamps, tools, music */
+#define V(c) SH_TREASURE, (c)      /* treasure_ore:      coin, ore, gems     */
 
 const ItemKind g_item_kind[] = {
 /*  name           sheet,cell    tv         lvl  cost   d  s  ac  eff
@@ -92,6 +93,29 @@ const ItemKind g_item_kind[] = {
   { "Flame Tongue",   E(17), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,33 the long blade in fire */
   { "Blade of Chaos", E(15), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 16,33 the broad blade in fire */
 
+  /* The rest of the block. Every one of these is a cell the set already draws
+   * and nothing pointed at -- the same nine types in the materials the artist
+   * supplied, which is why they cost nothing but a table row. Gold is the tier
+   * above steel, ice and fire the two above that.
+   *
+   *   tools_wands       cell = (row - 28) * 16 + (col - 16)
+   *   weapons_elemental cell = (row - 32) * 15 + (col - 16)                   */
+  { "main gauche",    T(49), TV_WEAPON,  11,  170, 1,12,  0, EF_NONE },  /* 17,31 gold dagger   6.5 */
+  { "war pick",       T(51), TV_WEAPON,  15,  330, 1,18,  0, EF_NONE },  /* 19,31 gold pick     9.5 */
+  { "rapier",         E(1),  TV_WEAPON,  16,  360, 4, 4,  0, EF_NONE },  /* 17,32 ice dagger   10.0 */
+  { "lance",          T(52), TV_WEAPON,  17,  420, 2,10,  0, EF_NONE },  /* 20,31 gold spear   11.0 */
+  { "glaive",         E(5),  TV_WEAPON,  20,  560, 4, 6,  0, EF_NONE },  /* 21,32 ice trident  14.0 */
+  { "flail",          T(55), TV_WEAPON,  21,  700, 3,10,  0, EF_NONE },  /* 23,31 gold star    16.5 */
+  { "great maul",     T(56), TV_WEAPON,  23,  820, 5, 6,  0, EF_NONE },  /* 24,31 gold hammer  17.5 */
+  { "ice pick",       E(3),  TV_WEAPON,  24,  950, 4, 8,  0, EF_NONE },  /* 19,32 ice pick     18.0 */
+  { "executioner",    T(48), TV_WEAPON,  25, 1150, 2,18,  0, EF_NONE },  /* 16,31 gold broad   19.0 */
+  { "halberd",        E(20), TV_WEAPON,  27, 1400, 3,12,  0, EF_NONE },  /* 20,33 fire spear   19.5 */
+  { "frost spear",    E(4),  TV_WEAPON,  29, 2900, 3,13,  0, EF_NONE },  /* 20,32 ice spear    21.0 */
+  { "rime axe",       E(6),  TV_WEAPON,  31, 3300, 2,21,  0, EF_NONE },  /* 22,32 ice axe      22.0 */
+  { "ember mace",     E(23), TV_WEAPON,  33, 3550, 3,14,  0, EF_NONE },  /* 23,33 fire star    22.5 */
+  { "ashen trident",  E(21), TV_WEAPON,  35, 3800, 2,22,  0, EF_NONE },  /* 21,33 fire trident 23.0 */
+  { "Sunderer",       E(22), TV_WEAPON,  38, 6500, 3,17,  0, EF_NONE },  /* 22,33 fire axe     27.0 */
+
   /* --- launchers and ammunition ----------------------------------------
    * Cols 25-28 of the weapon block are the ranged set, four launchers across
    * and the same wood / gold / ice / fire rows down, and col 29 is the staff
@@ -153,6 +177,42 @@ const ItemKind g_item_kind[] = {
   { "mithril coat",   L(42), TV_ARMOUR,  30, 2400, 0, 0, 30, EF_NONE },  /* 22,25 */
   { "leather shield", L(17), TV_ARMOUR,   5,   40, 0, 0,  4, EF_NONE },  /* 24,22 */
   { "iron shield",    L(26), TV_ARMOUR,  12,  160, 0, 0,  7, EF_NONE },  /* 24,23 */
+
+  /* --- valuables --------------------------------------------------------
+   * Source cols 16-27, rows 16-19: copper, silver and gold as single nuggets,
+   * small piles, ore heaps, coins and bars, then the cut stones. They have no
+   * effect and no slot -- a valuable is worth exactly what a shopkeeper pays
+   * for it, which is what makes hauling one back a decision about weight
+   * rather than about power.
+   *
+   *   cell = (row - 16) * 12 + (col - 16)
+   *
+   * The three metals ladder against each other, and the stones sit above all
+   * of them, so a ruby in a chest on floor twenty is a real event.            */
+  { "copper nugget",  V(28), TV_VALUABLE,  1,    9, 0, 0, 0, EF_NONE },  /* 20,18 */
+  { "copper pile",    V(29), TV_VALUABLE,  2,   24, 0, 0, 0, EF_NONE },  /* 21,18 */
+  { "copper ore",     V(24), TV_VALUABLE,  3,   45, 0, 0, 0, EF_NONE },  /* 16,18 */
+  { "copper seam",    V(25), TV_VALUABLE,  6,   85, 0, 0, 0, EF_NONE },  /* 17,18 */
+  { "copper lode",    V(26), TV_VALUABLE, 10,  150, 0, 0, 0, EF_NONE },  /* 18,18 */
+  { "silver nugget",  V(16), TV_VALUABLE,  4,   60, 0, 0, 0, EF_NONE },  /* 20,17 */
+  { "silver pile",    V(17), TV_VALUABLE,  7,  130, 0, 0, 0, EF_NONE },  /* 21,17 */
+  { "silver ore",     V(12), TV_VALUABLE,  9,  210, 0, 0, 0, EF_NONE },  /* 16,17 */
+  { "silver seam",    V(13), TV_VALUABLE, 13,  340, 0, 0, 0, EF_NONE },  /* 17,17 */
+  { "silver lode",    V(14), TV_VALUABLE, 17,  520, 0, 0, 0, EF_NONE },  /* 18,17 */
+  { "silver bar",     V(7),  TV_VALUABLE, 20,  760, 0, 0, 0, EF_NONE },  /* 23,16 */
+  { "gold coin",      V(0),  TV_VALUABLE,  2,   40, 0, 0, 0, EF_NONE },  /* 16,16 */
+  { "handful of gold",V(1),  TV_VALUABLE,  5,  110, 0, 0, 0, EF_NONE },  /* 17,16 */
+  { "gold nugget",    V(4),  TV_VALUABLE,  8,  190, 0, 0, 0, EF_NONE },  /* 20,16 */
+  { "gold pile",      V(5),  TV_VALUABLE, 12,  380, 0, 0, 0, EF_NONE },  /* 21,16 */
+  { "gold hoard",     V(2),  TV_VALUABLE, 18,  900, 0, 0, 0, EF_NONE },  /* 18,16 */
+  { "gold ingot",     V(3),  TV_VALUABLE, 24, 1500, 0, 0, 0, EF_NONE },  /* 19,16 */
+  { "gem shard",      V(21), TV_VALUABLE,  6,   95, 0, 0, 0, EF_NONE },  /* 25,17 */
+  { "emerald",        V(9),  TV_VALUABLE, 15,  650, 0, 0, 0, EF_NONE },  /* 25,16 */
+  { "sapphire",       V(8),  TV_VALUABLE, 19, 1050, 0, 0, 0, EF_NONE },  /* 24,16 */
+  { "ruby",           V(10), TV_VALUABLE, 23, 1700, 0, 0, 0, EF_NONE },  /* 26,16 */
+  { "diamond",        V(36), TV_VALUABLE, 30, 3200, 0, 0, 0, EF_NONE },  /* 16,19 */
+  { "gold star",      V(23), TV_VALUABLE, 26, 2100, 0, 0, 0, EF_NONE },  /* 27,17 */
+  { "shooting star",  V(11), TV_VALUABLE, 34, 4600, 0, 0, 0, EF_NONE },  /* 27,16 */
 
   /* --- potions -------------------------------------------------------- */
   { "potion",         W(3),  TV_POTION,   1,   20, 0, 0,  0, EF_CURE_LIGHT },

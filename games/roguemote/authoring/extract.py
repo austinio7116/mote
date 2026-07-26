@@ -71,6 +71,14 @@ SPRITE_SHEETS = {
     # --- dungeon objects (cols 0-15) ---
     "stairs":            (2, 0, 9, 0),     # four 2-tile staircases: stone, gold, blue, pink
     "chests":            (0, 1, 1, 5),     # closed / open x 5 colours
+    # The wooden chest, closed and open -- (16,5) and (17,5), both labelled
+    # "wooden chest/box". The five-colour set above is a set of BOXES; this is
+    # the one that reads as treasure.
+    "chest_wood":        (16, 5, 17, 5),
+    # Coloured levers: three positions (left, up, right) across, five colours
+    # (red, blue, gold, green, grey) down. A lever and the door it opens are
+    # placed as a matched pair on the same floor.
+    "levers":            (2, 1, 4, 5),
     "furniture_stone":   (2, 1, 4, 5),     # tables / altars / beds x 5 colours
     "faces_skulls_keys": (5, 1, 7, 5),     # creature face / skull / key x 5 colours
     "runes":             (8, 1, 10, 4),    # colour rune glyphs

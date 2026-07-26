@@ -53,6 +53,7 @@ SHEET_FILES = [
     "runes", "armour_set", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
     "dungeon_mono", "stairs", "jewellery", "ammo", "devices",
+    "chest_wood", "levers",
 ]
 # sheet id -> name, matching the SH_* enum in rl.h
 SH = {i: n for i, n in enumerate(SHEET_FILES)}
@@ -190,9 +191,10 @@ for m in CLS_RE.finditer(table(data_c, "g_class[]")):
 # --- items --------------------------------------------------------------
 ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",
               "O": "treasure_ore", "G": "crowns_fx", "F": "food", "R": "runes",
-              "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices"}
+              "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices",
+              "V": "treasure_ore", "P": "characters"}
 ITEM_RE = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJAD])\((\d+)\)\s*,\s*(TV_\w+)\s*,'
+    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJADVP])\((\d+)\)\s*,\s*(TV_\w+)\s*,'
     r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(EF_\w+)\s*\}"
 )
 items = []

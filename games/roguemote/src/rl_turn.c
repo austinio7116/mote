@@ -166,6 +166,9 @@ void rl_mon_attack_player(Mon *m) {
     rl_msgf("Hit for %d!", dam);
 }
 
+static const int DIR_X[8] = { 0, 0, -1, 1, -1, 1, -1, 1 };
+static const int DIR_Y[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
+
 /* --- monster AI --------------------------------------------------------- */
 /* A monster hunts on its OWN senses. Keying this off the player's field of
  * view (the obvious shortcut) means a monster only advances while you can
@@ -185,6 +188,20 @@ static int step_toward(int from, int to) { return from < to ? 1 : (from > to ? -
 
 void rl_mon_turn(Mon *m) {
     int mf = mon_flags(m);
+
+    /* Townsfolk. They drift about their own business and never come at you --
+     * a village that fights you the moment you walk in is not a village. */
+    if (mf & MK_PEACEFUL) {
+        if (rl_pct(45)) {
+            int d = rl_range(8);
+            int nx = m->x + DIR_X[d], ny = m->y + DIR_Y[d];
+            if (rl_walkable(nx, ny) && !rl_mon_at(nx, ny) &&
+                !(nx == g_pl.x && ny == g_pl.y)) {
+                m->x = (uint8_t)nx; m->y = (uint8_t)ny;
+            }
+        }
+        return;
+    }
 
     if (m->flags & MF_ASLEEP) {
         int dx = m->x - g_pl.x, dy = m->y - g_pl.y;

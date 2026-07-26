@@ -185,6 +185,15 @@ static int try_move(int dir) {
     int nx = g_pl.x + DX[dir], ny = g_pl.y + DY[dir];
     Mon *m = rl_mon_at(nx, ny);
     if (m) { rl_attack_mon(m); return 1; }
+    /* A locked door names its colour, because the whole mechanic is "go and
+     * find the lever that matches" and a door that just refuses to open is a
+     * dead end rather than a puzzle. */
+    if (T_IS_LOCK(rl_ter(nx, ny))) {
+        static const char *const hue[LEVER_N] = { "red", "blue", "green",
+                                                  "gold", "white" };
+        rl_msg2("Locked. It needs the ", hue[T_LOCK_HUE(rl_ter(nx, ny))]);
+        return 0;
+    }
     if (rl_ter(nx, ny) == T_DOOR_CLOSED) {
         g_lv.terrain[ny * MW + nx] = T_DOOR_OPEN;
         rl_msg("You open the door.");
@@ -253,6 +262,10 @@ static void act_context(void) {
         enter_depth(d);
         break;
     }
+    case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
+    case T_LEVER_Y: case T_LEVER_W:
+        rl_pull_lever(g_pl.x, g_pl.y);
+        break;
     case T_CHEST:       rl_open_chest(g_pl.x, g_pl.y); break;
     case T_CHEST_OPEN:  rl_msg("The chest is empty."); break;
     default: rl_msg("Nothing here."); break;

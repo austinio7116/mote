@@ -41,6 +41,8 @@
 #include "jewellery.h"
 #include "ammo.h"
 #include "devices.h"
+#include "chest_wood.h"
+#include "levers.h"
 #include "rogue8.font.h"
 
 /* Order must match the SH_* enum in rl.h. */
@@ -51,7 +53,7 @@ static const MoteImage *const s_sheet[SH_COUNT] = {
     &armour_set_img, &trinkets_img, &props_light_img,
     &doors_gems_banners_img, &chests_img, &boulders_mountains_img,
     &fx_mono_img, &dungeon_mono_img, &stairs_img, &jewellery_img,
-    &ammo_img, &devices_img,
+    &ammo_img, &devices_img, &chest_wood_img, &levers_img,
 };
 
 const MoteImage *rl_sheet(int id) {
@@ -396,8 +398,23 @@ void rl_draw_scene(void) {
              * wall -- you can clear rubble, and the player has to be able to see
              * which blockage is worth a turn. */
             case T_RUBBLE:       sheet = SH_TRINKETS; cell = SPR_RUBBLE;        break;
-            case T_CHEST:        sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 0); break;
-            case T_CHEST_OPEN:   sheet = SH_CHESTS; cell = rl_chest_cell(x, y, 1); break;
+            /* One chest, drawn closed or open. The five-colour set this used
+             * to draw from is a set of BOXES; (16,5)/(17,5) is the one that
+             * reads as treasure. The tier still varies -- it decides the loot
+             * and the trap odds -- it just no longer changes the paint. */
+            case T_CHEST:        sheet = SH_CHESTWOOD; cell = 0; break;
+            case T_CHEST_OPEN:   sheet = SH_CHESTWOOD; cell = 1; break;
+            /* levers: three positions across, five colours down; a thrown lever
+             * shows its handle over, an unthrown one shows it back */
+            case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
+            case T_LEVER_Y: case T_LEVER_W:
+                sheet = SH_LEVERS;
+                cell = T_LEVER_HUE(g_lv.terrain[i]) * 3
+                     + ((g_lv.flags[i] & CF_ROOM) ? 2 : 0);
+                break;
+            case T_LOCK_R: case T_LOCK_B: case T_LOCK_G:
+            case T_LOCK_Y: case T_LOCK_W:
+                sheet = SH_DOORS; cell = SPR_DOOR_CLOSED; break;
             case T_FLOOR:
                 if (g_pl.depth == 0) { sheet = SH_TRINKETS; cell = decor_cell(x, y); }
                 break;
@@ -521,6 +538,10 @@ void rl_draw_map(uint16_t *fb, int y0) {
             case T_TOWN_WALL:     c = MOTE_RGB565(190, 190, 205); break;
             case T_ROAD:          c = MOTE_RGB565(140, 120, 100); break;
             case T_CHEST:         c = MOTE_RGB565(255, 160, 40); break;
+            case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
+            case T_LEVER_Y: case T_LEVER_W:  c = MOTE_RGB565(255, 120, 200); break;
+            case T_LOCK_R: case T_LOCK_B: case T_LOCK_G:
+            case T_LOCK_Y: case T_LOCK_W:    c = MOTE_RGB565(200, 60, 120); break;
             case T_DUNGEON_MOUTH: c = MOTE_RGB565(240, 90, 60);  break;
             /* cyan, and nothing else on the surface is: at one pixel a cell a
              * tower has to be findable by colour alone */

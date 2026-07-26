@@ -73,6 +73,7 @@ SH_NAMES = [
     "runes", "armour_set", "trinkets", "props_light",
     "doors_gems_banners", "chests", "boulders_mountains", "fx_mono",
     "dungeon_mono", "stairs", "jewellery", "ammo", "devices",
+    "chest_wood", "levers",
 ]
 SH_BY_NAME = {n: i for i, n in enumerate(SH_NAMES)}
 
@@ -98,9 +99,10 @@ def build():
     data_c, item_c, world_c, draw_c = (read("rl_data.c"), read("rl_item.c"),
                                        read("rl_world.c"), read("rl_draw.c"))
 
-    # --- monsters: A()/M()/G() macros ---
-    MON_SHEET = {"A": "animals", "M": "monsters", "G": "crowns_fx"}
-    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([AMG])\((\d+)\)',
+    # --- monsters: A()/M()/G()/P() macros; P is the townsfolk ---
+    MON_SHEET = {"A": "animals", "M": "monsters", "G": "crowns_fx",
+                 "P": "characters"}
+    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([AMGP])\((\d+)\)',
                          table(data_c, "g_mon_kind[]")):
         add(MON_SHEET[m.group(2)], int(m.group(3)), "monster: " + m.group(1))
 
@@ -118,8 +120,9 @@ def build():
     ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands",
                   "E": "weapons_elemental", "O": "treasure_ore",
                   "G": "crowns_fx", "F": "food", "R": "runes",
-                  "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices"}
-    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJAD])\((\d+)\)\s*,\s*(TV_\w+)',
+                  "L": "armour_set", "K": "trinkets", "J": "jewellery", "A": "ammo", "D": "devices",
+              "V": "treasure_ore", "P": "characters"}
+    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJADVP])\((\d+)\)\s*,\s*(TV_\w+)',
                          table(item_c, "g_item_kind[]")):
         add(ITEM_SHEET[m.group(2)], int(m.group(3)),
             "item(%s): %s" % (m.group(4)[3:].lower(), m.group(1)))
