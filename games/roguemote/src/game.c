@@ -224,11 +224,28 @@ static void enter_depth(int d) {
      * generator wipes the flags */
     rl_seen_store(g_pl.depth);
 
+    /* Which end of the stairs you come out of. rl_gen_level always stands you
+     * on the UP stair, which is right when you have just walked DOWN a
+     * staircase -- you are at the bottom of it. Climbing UP it put you on the
+     * far side of the floor, at the entrance rather than at the hole you had
+     * just come out of, which is wrong on its own and worse now that floors
+     * persist: you surfaced from a level you knew into the one part of the
+     * floor above you had already left behind.
+     *
+     * Angband calls this connected stairs, and it is the standard for the same
+     * reason it is obvious: a staircase has two ends and you arrive at the one
+     * you climbed to. */
+    int ascending = (d > 0 && d < (int)g_pl.depth);
+
     g_pl.depth = (uint8_t)d;
     if (d > g_pl.deepest) g_pl.deepest = (uint8_t)d;
     if (d == 0) { rl_gen_overworld(); rl_shop_restock(); rl_msg("You surface."); }
     else {
         rl_gen_level(d);
+        if (ascending && g_lv.down_x) {      /* out of the hole you climbed */
+            g_pl.x = g_lv.down_x;
+            g_pl.y = g_lv.down_y;
+        }
         rl_seen_load(d);          /* and give back what you had seen of this one */
         rl_fov();
         rl_msgf("Level %d.", d);
