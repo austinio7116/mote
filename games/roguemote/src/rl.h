@@ -39,10 +39,15 @@ enum {
      * matched pairs on the same floor. The colour lives in the terrain id
      * rather than in a side table, so a saved level needs no extra bytes and a
      * door can never lose track of which lever answers it. */
-    T_LEVER_R, T_LEVER_B, T_LEVER_G, T_LEVER_Y, T_LEVER_W,
-    T_LOCK_R,  T_LOCK_B,  T_LOCK_G,  T_LOCK_Y,  T_LOCK_W,
+    T_LEVER_R, T_LEVER_B, T_LEVER_D, T_LEVER_G, T_LEVER_W,
+    T_LOCK_R,  T_LOCK_B,  T_LOCK_D,  T_LOCK_G,  T_LOCK_W,
+    /* ...and locked chests, which a lever opens the same way it opens a door */
+    T_CBOX_R,  T_CBOX_B,  T_CBOX_D,  T_CBOX_G,  T_CBOX_W,
     T_COUNT
 };
+/* Both bands run the same five in the same order -- red, blue, gold, green,
+ * grey -- and the lever band agrees with the coloured chest band row for row,
+ * which is what lets one hue index drive both. */
 enum { LEVER_N = 5 };
 /* colour index 0..4 from either half of the pair, so a lever and its door
  * compare without a switch at every call site */
@@ -50,6 +55,8 @@ enum { LEVER_N = 5 };
 #define T_IS_LOCK(t)  ((t) >= T_LOCK_R  && (t) <= T_LOCK_W)
 #define T_LEVER_HUE(t) ((t) - T_LEVER_R)
 #define T_LOCK_HUE(t)  ((t) - T_LOCK_R)
+#define T_IS_CBOX(t)  ((t) >= T_CBOX_R && (t) <= T_CBOX_W)
+#define T_CBOX_HUE(t) ((t) - T_CBOX_R)
 enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
 
 /* --- sprite sheets referenced by content tables -------------------------
@@ -168,6 +175,7 @@ int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
 int  rl_pull_lever(int x, int y);
+const char *rl_hue_name(int hue);
 void rl_gen_overworld(void);
 void rl_fov(void);
 Mon *rl_mon_at(int x, int y);

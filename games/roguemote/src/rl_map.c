@@ -28,8 +28,11 @@ int rl_walkable(int x, int y) {
     case T_CHEST: case T_CHEST_OPEN:
     case T_ROAD:  case T_INN:  case T_TOWER:
     /* a lever is stood on and pulled; a locked door is not walked through */
-    case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
-    case T_LEVER_Y: case T_LEVER_W:
+    case T_LEVER_R: case T_LEVER_B: case T_LEVER_D:
+    case T_LEVER_G: case T_LEVER_W:
+    /* a locked chest is stood on, like any other chest */
+    case T_CBOX_R:  case T_CBOX_B:  case T_CBOX_D:
+    case T_CBOX_G:  case T_CBOX_W:
         return 1;
     default:
         return 0;
@@ -472,37 +475,90 @@ static void spawn_boss(int depth) {
  * could seal the stairs away. Locking a door that was optional cannot strand
  * anybody.
  */
-static void place_levers(int depth) {
-    int pairs = 1 + (depth > 6) + (depth > 16 ? rl_range(2) : 0);
-    for (int p = 0; p < pairs && p < LEVER_N; p++) {
-        int hue = rl_range(LEVER_N);
-        /* do not reuse a colour already on this floor -- two red doors and one
-         * red lever is a puzzle with a wrong answer */
-        int clash = 0;
-        for (int i = 0; i < MW * MH && !clash; i++)
-            if (g_lv.terrain[i] == (uint8_t)(T_LOCK_R + hue)) clash = 1;
-        if (clash) continue;
+static const int DIRX[8] = { 0, 0, -1, 1, -1, 1, -1, 1 };
+static const int DIRY[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
 
+/* Everything reachable from (sx,sy) without passing through `block`, staged in
+ * g_lv.layer -- which the draw code rebuilds from terrain every frame, so it is
+ * free scratch during generation. */
+static void reach_from(int sx, int sy, int bx, int by) {
+    for (int i = 0; i < MW * MH; i++) g_lv.layer[i] = 0;
+    static uint16_t q[MW * MH];
+    int head = 0, tail = 0;
+    g_lv.layer[sy * MW + sx] = 1;
+    q[tail++] = (uint16_t)(sy * MW + sx);
+    while (head < tail) {
+        int i = q[head++], x = i % MW, y = i / MW;
+        for (int d = 0; d < 8; d++) {
+            int nx = x + DIRX[d], ny = y + DIRY[d];
+            if (!rl_in(nx, ny)) continue;
+            if (nx == bx && ny == by) continue;          /* the shut door */
+            int j = ny * MW + nx;
+            uint8_t nt = g_lv.terrain[j];
+            if (g_lv.layer[j]) continue;
+            /* a shut door opens and rubble is cleared by walking into it */
+            if (!rl_walkable(nx, ny) && nt != T_DOOR_CLOSED && nt != T_RUBBLE)
+                continue;
+            g_lv.layer[j] = 1;
+            q[tail++] = (uint16_t)j;
+        }
+    }
+}
+
+/* At most ONE pair a floor, and not on every floor.
+ *
+ * The cap is a safety property, not a taste one. Two pairs can interlock -- the
+ * red lever behind the blue door and the blue lever behind the red -- and no
+ * amount of per-pair checking sees that, because each pair is fine on its own.
+ * With one pair there is nothing to interlock with, and a single reachability
+ * check settles it outright. */
+static void place_levers(int depth) {
+    if (!rl_pct(28 + depth)) return;
+    {
+        int hue = rl_range(LEVER_N);
+
+        /* Half the time the lever opens a CHEST rather than a door -- a
+         * strongbox in its own colour, sitting where you can see it and cannot
+         * touch it. A door is a route; a chest is a reward, and a floor that
+         * only ever locks routes makes the lever feel like an obstacle. */
+        int as_chest = rl_pct(50);
         int dx = -1, dy = -1;
         for (int t = 0; t < 900; t++) {
             int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
-            if (g_lv.terrain[y * MW + x] != T_DOOR_CLOSED) continue;
+            if (as_chest) {
+                if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
+                if (!(g_lv.flags[y * MW + x] & CF_ROOM)) continue;
+            } else if (g_lv.terrain[y * MW + x] != T_DOOR_CLOSED) continue;
             dx = x; dy = y; break;
         }
-        if (dx < 0) continue;
+        if (dx < 0) return;
+
+        /* The lever must be reachable WITHOUT passing the door it opens, or
+         * the floor locks itself. Flood from the up stair with the door shut
+         * and take a cell the flood actually touched -- guessing at distance
+         * (the first cut) puts the lever behind its own door often enough to
+         * matter.
+         *
+         * A chest blocks nothing, so there is no door to shut -- but the flood
+         * still runs, because a lever you cannot walk to is no better than one
+         * behind its own door. */
+        reach_from(g_lv.up_x, g_lv.up_y, as_chest ? -1 : dx,
+                                         as_chest ? -1 : dy);
 
         int lx = -1, ly = -1;
-        for (int t = 0; t < 900; t++) {
+        for (int t = 0; t < 1500; t++) {
             int x = 1 + rl_range(MW - 2), y = 1 + rl_range(MH - 2);
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             if (!(g_lv.flags[y * MW + x] & CF_ROOM)) continue;   /* in a room */
+            if (!g_lv.layer[y * MW + x]) continue;               /* our side */
             int ax = x - dx, ay = y - dy;
             if (ax * ax + ay * ay < 200) continue;               /* not beside it */
             lx = x; ly = y; break;
         }
-        if (lx < 0) continue;
+        if (lx < 0) return;
 
-        g_lv.terrain[dy * MW + dx] = (uint8_t)(T_LOCK_R + hue);
+        g_lv.terrain[dy * MW + dx] =
+            (uint8_t)((as_chest ? T_CBOX_R : T_LOCK_R) + hue);
         g_lv.terrain[ly * MW + lx] = (uint8_t)(T_LEVER_R + hue);
         g_lv.flags[ly * MW + lx] &= (uint8_t)~CF_ROOM;           /* unthrown */
     }
@@ -510,6 +566,15 @@ static void place_levers(int depth) {
 
 /* Throw it: every door of that colour on the floor opens. Returns 0 if the
  * lever has already been pulled, so the caller does not spend a turn twice. */
+/* The five, in the order both bands are drawn in. Read off the sheet, not
+ * guessed: index 2 is GOLD and index 3 is green, which is the way round the
+ * first cut had them swapped. */
+const char *rl_hue_name(int hue) {
+    static const char *const n[LEVER_N] = { "red", "blue", "gold",
+                                            "green", "grey" };
+    return n[hue < 0 || hue >= LEVER_N ? 0 : hue];
+}
+
 int rl_pull_lever(int x, int y) {
     uint8_t t = rl_ter(x, y);
     if (!T_IS_LEVER(t)) return 0;
@@ -517,10 +582,14 @@ int rl_pull_lever(int x, int y) {
     if (g_lv.flags[i] & CF_ROOM) { rl_msg("It is already thrown."); return 0; }
     g_lv.flags[i] |= CF_ROOM;
 
-    int opened = 0;
-    uint8_t want = (uint8_t)(T_LOCK_R + T_LEVER_HUE(t));
-    for (int k = 0; k < MW * MH; k++)
-        if (g_lv.terrain[k] == want) { g_lv.terrain[k] = T_DOOR_OPEN; opened++; }
+    int opened = 0, hue = T_LEVER_HUE(t);
+    uint8_t door = (uint8_t)(T_LOCK_R + hue), box = (uint8_t)(T_CBOX_R + hue);
+    for (int k = 0; k < MW * MH; k++) {
+        if (g_lv.terrain[k] == door) { g_lv.terrain[k] = T_DOOR_OPEN; opened++; }
+        /* a freed strongbox becomes an ordinary chest -- you still have to walk
+         * to it and open it, and it still rolls its trap */
+        else if (g_lv.terrain[k] == box) { g_lv.terrain[k] = T_CHEST; opened++; }
+    }
 
     if (opened) rl_msgf("Something opens. (%d)", opened);
     else        rl_msg("It clunks. Nothing here.");

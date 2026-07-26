@@ -282,6 +282,8 @@ TV_LABEL = {
     "WEAPON": "Weapons", "ARMOUR": "Armour", "POTION": "Potions",
     "SCROLL": "Scrolls", "WAND": "Wands", "RING": "Rings & amulets",
     "FOOD": "Food", "LIGHT": "Light",
+    "BOW": "Launchers", "AMMO": "Ammunition", "TOOL": "Devices",
+    "VALUABLE": "Treasure",
 }
 TV_NOTE = {
     "WEAPON": "Damage is the listed dice plus your enchantment plus a quarter "
@@ -297,6 +299,21 @@ TV_NOTE = {
             "scroll of remove curse says otherwise.",
     "FOOD": "The hunger clock is the reason you cannot simply rest off every "
             "wound. Regeneration burns it faster.",
+    "BOW": "The <b>ac</b> column is the multiplier, and it is the whole point: "
+           "damage is (ammo dice + ammo bonus + launcher bonus) &#215; that "
+           "number, so the launcher and the ammunition are two shopping "
+           "decisions that multiply together.",
+    "AMMO": "Arrows need a launcher; darts and throwing stars are thrown by "
+            "hand at &#215;2, which is what gives a character with no bow "
+            "something to do at range. Half of what you loose can be picked "
+            "up again where it landed.",
+    "TOOL": "A device with charges, spent one per use, in the shape of "
+            "Angband's staves. Four of them are instruments &mdash; the harp "
+            "lulls, the bell summons, the bugle rallies, the drum breaks "
+            "nerve &mdash; which is finally something only a Bard does well.",
+    "VALUABLE": "Coin, bars and cut stones. They do nothing whatever except "
+                "be worth money: treasure you haul back, rather than treasure "
+                "that changes how you fight.",
     "LIGHT": "Light radius decides how much of a room you see before it sees "
              "you. A lantern is worth more than most weapons.",
 }
@@ -371,10 +388,16 @@ def sec_controls():
         ("D-pad", "Move one tile. Walking into something attacks it. Hold a "
                   "direction to keep walking."),
         ("LB + D-pad", "Move diagonally. The Mines are eight-way; corridors are not."),
+        ("A", "Use what you are standing on: stairs, a shop door, an inn bed, a "
+              "chest, a cave mouth, a tower &mdash; or <b>pull a lever</b>."),
         ("A", "Whatever the tile under you offers &mdash; take the stairs, pick "
               "up what is lying there, enter the town, enter a cave mouth."),
         ("B", "Wait one turn. Useful for letting something come to you in a corridor."),
-        ("RB", "Open the spell list. Casting targets the nearest thing you can see."),
+        ("RB", "<b>Loose a shot</b> if you are carrying something to shoot, at "
+               "the nearest thing you can see; otherwise it opens the spell "
+               "list. Whether a character carries ammunition is a fact about "
+               "the character rather than about the moment, so the button does "
+               "not change meaning under you mid-fight."),
         ("MENU", "Open and close the book: <b>Pack</b>, <b>Gear</b>, <b>Spell</b>, "
                  "<b>Char</b>, <b>Map</b>. Press it again from any page to get back "
                  "to play."),
@@ -443,12 +466,23 @@ def sec_overworld():
          "escarpment along its lower edge."),
         ("Mountain", ("img", mount), "Impassable. The rim of rock around the "
          "continent is what makes it an island."),
-        ("Town", ("spr", ("props_light", 31)), "One per world: a walled compound "
-         "with gates, streets, six shops and an inn."),
-        ("Cave mouth", ("spr", ("stairs", 2)), "The way into the Mines. Six of "
-         "them, one always within sight of the town."),
+        ("The capital", ("spr", ("props_light", 31)), "One per world: a walled "
+         "compound with gates, streets, all six traders and an inn."),
+        ("Outlying towns", ("spr", ("trinkets", 16)), "Two to four more, without "
+         "walls &mdash; a street with houses either side, an inn, and two or "
+         "three of the same six traders keeping a door. A wall is a thing you "
+         "build when you are worth attacking."),
+        ("Cave mouth", ("spr", ("stairs", 2)), "The way into the Mines. Ten of "
+         "them, one always within sight of the capital."),
+        ("Tower", ("spr", ("props_light", 32)), "The other way underground, and "
+         "the one you can see coming. Its shaft goes <b>deeper the further out "
+         "it stands</b>, capped at six floors past your best &mdash; so the map "
+         "is a difficulty gradient and a tower is a shortcut, not a pit."),
+        ("Road", ("spr", ("trinkets", 66)), "Runs from the capital's gate out to "
+         "the three nearest cave mouths, so stepping outside you can see a way "
+         "to go instead of green in every direction."),
         ("Ruins", ("spr", ("trinkets", 69)), "A broken ring of stone with a chest "
-         "inside. Four to eight a continent."),
+         "inside. Around twenty a continent."),
     ]
     rows = []
     for name, art, note in terrain:

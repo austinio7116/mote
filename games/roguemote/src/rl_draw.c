@@ -406,15 +406,22 @@ void rl_draw_scene(void) {
             case T_CHEST_OPEN:   sheet = SH_CHESTWOOD; cell = 1; break;
             /* levers: three positions across, five colours down; a thrown lever
              * shows its handle over, an unthrown one shows it back */
-            case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
-            case T_LEVER_Y: case T_LEVER_W:
+            case T_LEVER_R: case T_LEVER_B: case T_LEVER_D:
+            case T_LEVER_G: case T_LEVER_W:
                 sheet = SH_LEVERS;
                 cell = T_LEVER_HUE(g_lv.terrain[i]) * 3
                      + ((g_lv.flags[i] & CF_ROOM) ? 2 : 0);
                 break;
-            case T_LOCK_R: case T_LOCK_B: case T_LOCK_G:
-            case T_LOCK_Y: case T_LOCK_W:
+            case T_LOCK_R: case T_LOCK_B: case T_LOCK_D:
+            case T_LOCK_G: case T_LOCK_W:
                 sheet = SH_DOORS; cell = SPR_DOOR_CLOSED; break;
+            /* A locked chest wears its colour, which is the whole clue. The
+             * five-colour box set the wooden chest replaced is exactly this,
+             * row for row against the lever band. */
+            case T_CBOX_R: case T_CBOX_B: case T_CBOX_D:
+            case T_CBOX_G: case T_CBOX_W:
+                sheet = SH_CHESTS;
+                cell = T_CBOX_HUE(g_lv.terrain[i]) * 2; break;
             case T_FLOOR:
                 if (g_pl.depth == 0) { sheet = SH_TRINKETS; cell = decor_cell(x, y); }
                 break;
@@ -538,10 +545,10 @@ void rl_draw_map(uint16_t *fb, int y0) {
             case T_TOWN_WALL:     c = MOTE_RGB565(190, 190, 205); break;
             case T_ROAD:          c = MOTE_RGB565(140, 120, 100); break;
             case T_CHEST:         c = MOTE_RGB565(255, 160, 40); break;
-            case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
-            case T_LEVER_Y: case T_LEVER_W:  c = MOTE_RGB565(255, 120, 200); break;
-            case T_LOCK_R: case T_LOCK_B: case T_LOCK_G:
-            case T_LOCK_Y: case T_LOCK_W:    c = MOTE_RGB565(200, 60, 120); break;
+            case T_LEVER_R: case T_LEVER_B: case T_LEVER_D:
+            case T_LEVER_G: case T_LEVER_W:  c = MOTE_RGB565(255, 120, 200); break;
+            case T_LOCK_R: case T_LOCK_B: case T_LOCK_D:
+            case T_LOCK_G: case T_LOCK_W:    c = MOTE_RGB565(200, 60, 120); break;
             case T_DUNGEON_MOUTH: c = MOTE_RGB565(240, 90, 60);  break;
             /* cyan, and nothing else on the surface is: at one pixel a cell a
              * tower has to be findable by colour alone */

@@ -1526,6 +1526,106 @@ static void test_ranged(void) {
 }
 
 /* =========================================================================
+ * 17. Levers, locked doors and locked chests
+ * ====================================================================== */
+static int lever_reach(int sx, int sy, uint8_t *seen, int block_locks) {
+    static uint16_t q[MW * MH];
+    memset(seen, 0, MW * MH);
+    int head = 0, tail = 0, n = 1;
+    seen[sy * MW + sx] = 1;
+    q[tail++] = (uint16_t)(sy * MW + sx);
+    static const int dx8[8] = { 0, 0, -1, 1, -1, 1, -1, 1 };
+    static const int dy8[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
+    while (head < tail) {
+        int i = q[head++], x = i % MW, y = i / MW;
+        for (int d = 0; d < 8; d++) {
+            int nx = x + dx8[d], ny = y + dy8[d];
+            if (!rl_in(nx, ny)) continue;
+            int j = ny * MW + nx;
+            if (seen[j]) continue;
+            uint8_t t = g_lv.terrain[j];
+            if (block_locks && T_IS_LOCK(t)) continue;   /* the door is shut */
+            /* A shut door opens and rubble is cleared by walking into it, so
+             * neither is a wall for the purposes of "can you get there". */
+            if (!rl_walkable(nx, ny) && t != T_DOOR_CLOSED && t != T_RUBBLE)
+                continue;
+            seen[j] = 1; n++;
+            q[tail++] = (uint16_t)j;
+        }
+    }
+    return n;
+}
+
+static void test_levers(void) {
+    group("levers");
+
+    static uint8_t seen[MW * MH];
+    int floors_with = 0, doors = 0, boxes = 0;
+
+    for (int seed = 1; seed <= 260; seed++) {
+        fresh_player();
+        g_seed = 90000u + (uint32_t)seed * 7919u;
+        int depth = 1 + (seed % 34);
+        g_pl.depth = (uint8_t)depth;
+        rl_gen_level(depth);
+
+        int nlev = 0, nlock = 0, nbox = 0, hue_lev = -1, hue_lock = -1;
+        for (int i = 0; i < MW * MH; i++) {
+            uint8_t t = g_lv.terrain[i];
+            if (T_IS_LEVER(t)) { nlev++;  hue_lev  = T_LEVER_HUE(t); }
+            if (T_IS_LOCK(t))  { nlock++; hue_lock = T_LOCK_HUE(t); }
+            if (T_IS_CBOX(t))  { nbox++;  hue_lock = T_CBOX_HUE(t); }
+        }
+
+        /* one pair a floor at most -- two can interlock, and no per-pair check
+         * can see that */
+        CHECKF(nlev <= 1, "at most one lever a floor", "seed %d had %d", seed, nlev);
+        CHECKF(nlock + nbox <= 1, "at most one lock a floor",
+               "seed %d had %d doors and %d chests", seed, nlock, nbox);
+        /* never one half of a pair on its own */
+        CHECKF(nlev == nlock + nbox, "a lever and its lock come as a pair",
+               "seed %d: %d levers, %d locks", seed, nlev, nlock + nbox);
+
+        if (!nlev) continue;
+        floors_with++;
+        doors += nlock; boxes += nbox;
+        CHECKF(hue_lev == hue_lock, "the pair share a colour",
+               "seed %d: lever %s, lock %s", seed,
+               rl_hue_name(hue_lev), rl_hue_name(hue_lock));
+
+        /* THE property: the lever is reachable from the up stair with its own
+         * door still shut, or the floor has locked itself */
+        lever_reach(g_lv.up_x, g_lv.up_y, seen, 1);
+        for (int i = 0; i < MW * MH; i++) {
+            if (!T_IS_LEVER(g_lv.terrain[i])) continue;
+            CHECKF(seen[i], "the lever is reachable without opening its own door",
+                   "seed %d depth %d: %s lever at %d,%d is walled off",
+                   seed, depth, rl_hue_name(T_LEVER_HUE(g_lv.terrain[i])),
+                   i % MW, i / MW);
+        }
+
+        /* and pulling it opens the thing it is for */
+        int lx = -1, ly = -1;
+        for (int i = 0; i < MW * MH; i++)
+            if (T_IS_LEVER(g_lv.terrain[i])) { lx = i % MW; ly = i / MW; }
+        CHECKF(rl_pull_lever(lx, ly) == 1, "the lever throws", "seed %d", seed);
+        int left = 0;
+        for (int i = 0; i < MW * MH; i++)
+            if (T_IS_LOCK(g_lv.terrain[i]) || T_IS_CBOX(g_lv.terrain[i])) left++;
+        CHECKF(left == 0, "throwing it opens every matching lock",
+               "seed %d left %d shut", seed, left);
+        CHECKF(rl_pull_lever(lx, ly) == 0, "a thrown lever does not throw twice",
+               "seed %d", seed);
+    }
+
+    CHECKF(floors_with > 20, "levers do turn up", "%d of 260 floors", floors_with);
+    CHECKF(floors_with < 240, "levers are not on every floor",
+           "%d of 260 floors", floors_with);
+    CHECKF(doors > 0 && boxes > 0, "levers open both doors and chests",
+           "%d doors, %d chests", doors, boxes);
+}
+
+/* =========================================================================
  * 16. The overworld
  * ====================================================================== */
 static void test_overworld(void) {
@@ -2183,6 +2283,7 @@ int main(int argc, char **argv) {
     test_economy();
     test_ranged();
     test_overworld();
+    test_levers();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);

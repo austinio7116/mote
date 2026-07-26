@@ -189,9 +189,7 @@ static int try_move(int dir) {
      * find the lever that matches" and a door that just refuses to open is a
      * dead end rather than a puzzle. */
     if (T_IS_LOCK(rl_ter(nx, ny))) {
-        static const char *const hue[LEVER_N] = { "red", "blue", "green",
-                                                  "gold", "white" };
-        rl_msg2("Locked. It needs the ", hue[T_LOCK_HUE(rl_ter(nx, ny))]);
+        rl_msg2("Locked. It needs the ", rl_hue_name(T_LOCK_HUE(rl_ter(nx, ny))));
         return 0;
     }
     if (rl_ter(nx, ny) == T_DOOR_CLOSED) {
@@ -262,9 +260,13 @@ static void act_context(void) {
         enter_depth(d);
         break;
     }
-    case T_LEVER_R: case T_LEVER_B: case T_LEVER_G:
-    case T_LEVER_Y: case T_LEVER_W:
+    case T_LEVER_R: case T_LEVER_B: case T_LEVER_D:
+    case T_LEVER_G: case T_LEVER_W:
         rl_pull_lever(g_pl.x, g_pl.y);
+        break;
+    case T_CBOX_R: case T_CBOX_B: case T_CBOX_D:
+    case T_CBOX_G: case T_CBOX_W:
+        rl_msg2("Locked. It needs the ", rl_hue_name(T_CBOX_HUE(t)));
         break;
     case T_CHEST:       rl_open_chest(g_pl.x, g_pl.y); break;
     case T_CHEST_OPEN:  rl_msg("The chest is empty."); break;
