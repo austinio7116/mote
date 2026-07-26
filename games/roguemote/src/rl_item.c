@@ -31,30 +31,55 @@ const ItemKind g_item_kind[] = {
  *  For TV_FOOD the `ac` column carries nutrition in hundreds; for TV_LIGHT it
  *  carries the light radius. Neither has an armour class to store there. */
   /* --- weapons ---------------------------------------------------------
+   * Source cols 16-24, rows 29-33 is ONE melee set, read the same way as the
+   * armour block: nine weapon types across the columns, materials down the
+   * rows. Three subsheets used to cut it up, so nobody read it as a set and
+   * the items landed on whatever tile -- the dagger and the pick-axe both on
+   * pickaxes, the long sword and the war hammer both on axes, the battle axe
+   * on a crossbow.
+   *
+   *   col 16  broad blade    col 17  dagger       col 18  long sword
+   *   col 19  pick-axe       col 20  spear        col 21  TRIDENT
+   *   col 22  battle axe     col 23  mace head    col 24  war hammer
+   *
+   *   row 29  wood/bronze (cols 16,17,24 only)    row 30  steel
+   *   row 31  gold          row 32  ice           row 33  fire
+   *
+   * Col 21 is three-pronged and col 23 has a haft: a trident and a mace, not
+   * the mace and the shuriken they were first read as. The material rows are
+   * what give each type a power tier without new art -- the mace and the
+   * morning star are one head in steel and gold, Frost Brand and Flame Tongue
+   * are the long sword in ice and fire.
+   *
+   * There is no shuriken anywhere in the block, so "throwing star" became the
+   * club that IS there at (16,29). The art decides the item.
+   *
+   *   tools_wands       cell = (row - 28) * 16 + (col - 16)
+   *   weapons_elemental cell = (row - 32) * 15 + (col - 16)
+   *
    * Sorted by price, and mean damage rises with it: ten of the seventeen used
    * to be STRICTLY DOMINATED -- something cheaper hit at least as hard -- so
-   * two thirds of the shop was a trap. Frost Brand cost 2600 gold to average
-   * less than a 500 gold great axe. authoring/test_content.c now fails the
+   * two thirds of the shop was a trap. authoring/test_content.c now fails the
    * build if that invariant breaks again.
    *
    *   mean damage per blow = dice_d * (dice_s + 1) / 2 */
-  { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },  /*  2.5 */
-  { "throwing star",  E(7),  TV_WEAPON,   2,   12, 1, 5,  0, EF_NONE },  /*  3.0 */
-  { "pick-axe",       T(35), TV_WEAPON,   2,   22, 1, 6,  0, EF_NONE },  /*  3.5 */
-  { "short sword",    W(24), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },  /*  4.0 */
-  { "spear",          E(4),  TV_WEAPON,   5,   45, 1, 8,  0, EF_NONE },  /*  4.5 */
-  { "mace",           T(40), TV_WEAPON,   7,  110, 2, 4,  0, EF_NONE },  /*  5.0 */
-  { "long sword",     T(34), TV_WEAPON,   8,  150, 2, 5,  0, EF_NONE },  /*  6.0 */
-  { "war hammer",     T(32), TV_WEAPON,  10,  200, 2, 6,  0, EF_NONE },  /*  7.0 */
-  { "morning star",   T(39), TV_WEAPON,  12,  260, 2, 7,  0, EF_NONE },  /*  8.0 */
-  { "broad sword",    W(0),  TV_WEAPON,  14,  300, 3, 5,  0, EF_NONE },  /*  9.0 */
-  { "battle axe",     T(26), TV_WEAPON,  16,  380, 3, 6,  0, EF_NONE },  /* 10.5 */
-  { "gilded blade",   T(50), TV_WEAPON,  18,  450, 3, 7,  0, EF_NONE },  /* 12.0 */
-  { "trident",        E(8),  TV_WEAPON,  19,  500, 3, 8,  0, EF_NONE },  /* 13.5 */
-  { "great axe",      T(54), TV_WEAPON,  20,  600, 4, 7,  0, EF_NONE },  /* 16.0 */
-  { "Frost Brand",    E(0),  TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 20.0 */
-  { "Flame Tongue",   E(15), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 20.0 */
-  { "Blade of Chaos", E(28), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 24.0 */
+  { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },  /* 17,29 bronze dagger */
+  { "club",           T(16), TV_WEAPON,   2,   12, 1, 5,  0, EF_NONE },  /* 16,29 wooden club */
+  { "pick-axe",       T(35), TV_WEAPON,   2,   22, 1, 6,  0, EF_NONE },  /* 19,30 steel pick */
+  { "short sword",    T(33), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },  /* 17,30 the dagger blade in steel */
+  { "spear",          T(36), TV_WEAPON,   5,   45, 1, 8,  0, EF_NONE },  /* 20,30 steel spear */
+  { "mace",           T(39), TV_WEAPON,   7,  110, 2, 4,  0, EF_NONE },  /* 23,30 steel mace head */
+  { "long sword",     T(34), TV_WEAPON,   8,  150, 2, 5,  0, EF_NONE },  /* 18,30 steel long blade */
+  { "war hammer",     T(40), TV_WEAPON,  10,  200, 2, 6,  0, EF_NONE },  /* 24,30 steel hammer */
+  { "morning star",   T(55), TV_WEAPON,  12,  260, 2, 7,  0, EF_NONE },  /* 23,31 the mace head in gold */
+  { "broad sword",    T(32), TV_WEAPON,  14,  300, 3, 5,  0, EF_NONE },  /* 16,30 steel broad blade */
+  { "battle axe",     T(38), TV_WEAPON,  16,  380, 3, 6,  0, EF_NONE },  /* 22,30 steel axe */
+  { "gilded blade",   T(50), TV_WEAPON,  18,  450, 3, 7,  0, EF_NONE },  /* 18,31 the long blade in gold */
+  { "trident",        T(53), TV_WEAPON,  19,  500, 3, 8,  0, EF_NONE },  /* 21,31 the TRIDENT, in gold */
+  { "great axe",      T(54), TV_WEAPON,  20,  600, 4, 7,  0, EF_NONE },  /* 22,31 the axe in gold */
+  { "Frost Brand",    E(2)  , TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,32 the long blade in ice */
+  { "Flame Tongue",   E(17), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 18,33 the long blade in fire */
+  { "Blade of Chaos", E(15), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 16,33 the broad blade in fire */
 
   /* --- armour ----------------------------------------------------------
    * Source cols 16-24, rows 21-26 is ONE set and has to be read as one: seven
@@ -472,8 +497,8 @@ static uint8_t class_archetype(int cls) {
 static const uint8_t s_kit_weapon[AR_N][3] = {
     { ITM_SHORT_SWORD, ITM_MACE,          ITM_SPEAR         },   /* fighter    */
     { ITM_MACE,        ITM_SHORT_SWORD,   ITM_SPEAR         },   /* holy       */
-    { ITM_DAGGER,      ITM_SHORT_SWORD,   ITM_THROWING_STAR },   /* skirmisher */
-    { ITM_DAGGER,      ITM_DAGGER,        ITM_THROWING_STAR },   /* arcane     */
+    { ITM_DAGGER,      ITM_SHORT_SWORD,   ITM_CLUB },   /* skirmisher */
+    { ITM_DAGGER,      ITM_DAGGER,        ITM_CLUB },   /* arcane     */
 };
 static const uint8_t s_kit_body[AR_N][3] = {
     { ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_SOFT_LEATHER },
@@ -527,7 +552,7 @@ void rl_starting_kit(int cls) {
      * caster, a shield for a fighter, a second blade for a skirmisher */
     if (rl_pct(20)) {
         static const uint8_t luxury[AR_N] = {
-            ITM_LEATHER_SHIELD, ITM_POT_CURE_SERIOUS, ITM_THROWING_STAR, ITM_WAND_MISSILE
+            ITM_LEATHER_SHIELD, ITM_POT_CURE_SERIOUS, ITM_CLUB, ITM_WAND_MISSILE
         };
         kit_add(luxury[ar], 1);
     }

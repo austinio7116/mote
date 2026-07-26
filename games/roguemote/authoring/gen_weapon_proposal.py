@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Build docs/weapon-proposal.html -- a proposal to be corrected, not a record.
+Build docs/weapon-proposal.html -- how the weapon block is read, and where the
+seventeen weapons sit because of it.
 
 The same story as the armour block. Source cols 16-24, rows 29-33 are ONE melee
-set: nine weapon types across the columns, five materials down the rows. Cols
-25-30 are the ranged set on the same rows. The game's seventeen weapons are
-scattered through it and land on the wrong types, because the block was cut up
-by three different subsheets and never read as a block -- the dagger and the
-pick-axe both sit on pickaxes, the long sword and the war hammer both sit on
-axes, and the battle axe is on a crossbow.
+set: nine weapon types across the columns, materials down the rows. Cols 25-30
+are the ranged set on the same rows. Three different subsheets cut the block up,
+so nobody read it as a block and the weapons landed on whatever tile -- the
+dagger and the pick-axe both on pickaxes, the long sword and the war hammer both
+on axes, the battle axe on a crossbow.
 
-This page shows the grid as a grid, every cell at 7x, with the column's proposed
-weapon type, the row's material, and what the game draws there today. Underneath,
-the seventeen weapons with the cell I propose moving each to.
+Two columns were then misread on the first pass at the set itself: col 21 is a
+TRIDENT (three prongs) and was taken for a mace, and col 23 is a mace head (it
+has a haft) and was taken for a shuriken. Both are fixed here, and this mapping
+is live in the game.
 
-Nothing here is applied. Correct the column names and the page regenerates.
+This page shows the grid as a grid, every cell at 7x, with the column's weapon
+type, the row's material, and what the game draws there. Correct a column name
+and the page regenerates.
 
 Usage:  python3 authoring/gen_weapon_proposal.py
 """
@@ -34,21 +37,21 @@ GAME = os.path.dirname(HERE)
 OUT = os.path.join(GAME, "docs", "weapon-proposal.html")
 TS = 8
 
-# What I think each column is. THIS IS THE PART TO CORRECT.
+# What each column is. THIS IS THE PART TO CORRECT.
 COLUMN = {
     16: ("Broad blade", "Wide, flared, gem at the base. Short for its width -- "
                         "a falchion or a great sword rather than a long one."),
     17: ("Dagger", "The same blade, small."),
     18: ("Long sword", "Long, straight, thin. The clearest column in the block."),
-    19: ("War pick", "Angled head on a brown haft. This is the column the dagger "
-                     "and the pick-axe are BOTH sitting on today."),
+    19: ("Pick-axe", "Angled head on a brown haft."),
     20: ("Spear", "Thin shaft, small leaf point."),
-    21: ("Mace", "Shaft with a compact spiked head."),
-    22: ("Battle axe", "Shaft with a big curved bit. The long sword and the war "
-                       "hammer are both on this column today."),
-    23: ("Star", "An eight-pointed burst, no shaft. Could be a thrown shuriken or "
-                 "a morning-star head -- I cannot tell at 8x8, and it changes "
-                 "which of the two items belongs here."),
+    21: ("Trident", "Three prongs -- two outer tines and a centre spike. "
+                    "Read as a mace on the first pass, which is what put the "
+                    "trident on a gold bow."),
+    22: ("Battle axe", "Shaft with a big curved bit, backed in navy."),
+    23: ("Mace head", "A spiked ball on a short haft. The haft settles it: a "
+                      "mace, not a shuriken. There is no shuriken anywhere in "
+                      "the block."),
     24: ("War hammer", "Chunky rectangular head."),
 }
 RANGED = {
@@ -61,48 +64,45 @@ RANGED = {
     30: ("Arrow / bolt", "A bare shaft."),
 }
 ROW = {
-    28: ("(sparse)", "Only two cells: a wooden club and a green staff."),
-    29: ("Wood / bronze", "Only cols 16-17 and the ranged columns exist here."),
+    28: ("(sparse)", "A wooden club and a green staff, nothing else."),
+    29: ("Wood / bronze", "Melee side is cols 16, 17 and 24 only: club, dagger, club."),
     30: ("Steel", "The full row -- the workhorse tier."),
     31: ("Gold", ""),
     32: ("Ice / blue", ""),
     33: ("Fire / red", ""),
 }
 
-# item name -> the cell I propose moving it to, and why.
+# item name -> the cell it now points at, and why.
 #
 # The materials are the point: they give every weapon type a power tier without
 # needing new art, so a mace and a morning star are the same head in steel and
 # gold, and Frost Brand and Flame Tongue are the long sword in ice and fire.
 PROPOSAL = [
-    ("dagger",         (17, 29), "the bronze dagger -- cheapest blade, cheapest metal"),
-    ("throwing star",  (23, 30), "the steel burst, IF that column is a shuriken"),
-    ("pick-axe",       (19, 30), "the steel pick; it is on this column already"),
-    ("short sword",    (17, 30), "the same blade as the dagger, in steel"),
+    ("dagger",         (17, 29), "the bronze dagger -- already correct"),
+    ("club",           (16, 29), "the wooden club; was 'throwing star' on a fire sword"),
+    ("pick-axe",       (19, 30), "the steel pick -- already correct"),
+    ("short sword",    (17, 30), "the dagger blade in steel; was on a flask"),
     ("spear",          (20, 30), "the steel spear"),
-    ("mace",           (21, 30), "the steel mace"),
-    ("long sword",     (18, 30), "the steel long blade; was on an axe"),
-    ("war hammer",     (24, 30), "the steel hammer; was on an axe"),
-    ("morning star",   (21, 31), "the mace head in gold -- one tier up from the mace"),
-    ("broad sword",    (16, 30), "the steel broad blade"),
+    ("mace",           (23, 30), "the steel mace head"),
+    ("long sword",     (18, 30), "the steel long blade -- already correct"),
+    ("war hammer",     (24, 30), "the steel hammer; was on a broad blade"),
+    ("morning star",   (23, 31), "the mace head in gold, one tier up from the mace"),
+    ("broad sword",    (16, 30), "the steel broad blade; was on a potion"),
     ("battle axe",     (22, 30), "the steel axe; was on a crossbow"),
     ("gilded blade",   (18, 31), "the long blade in gold, which is its name"),
-    ("trident",        (20, 31), "the spear in gold"),
-    ("great axe",      (22, 31), "the axe in gold"),
+    ("trident",        (21, 31), "the TRIDENT, in gold; was on a gold bow"),
+    ("great axe",      (22, 31), "the axe in gold -- already correct"),
     ("Frost Brand",    (18, 32), "the long blade in ice"),
     ("Flame Tongue",   (18, 33), "the long blade in fire"),
     ("Blade of Chaos", (16, 33), "the broad blade in fire -- the biggest weapon in the game"),
 ]
 
 QUESTIONS = [
-    "Is col 16 a broad sword or an axe? It reads wide and short to me, and the "
-    "Blade of Chaos hangs on the answer.",
-    "Is col 23 a thrown shuriken or a morning-star head? Whichever it is, the "
-    "other item needs somewhere else to go.",
-    "Are cols 26-28 really three crossbows? There is no bow or crossbow item in "
-    "the game yet, so nothing depends on it today -- but there could be.",
-    "Row 29 only fills cols 16-17 in the melee half. Is the bronze tier meant to "
-    "be blades only?",
+    "Are cols 26-28 really three crossbows? No bow or crossbow item exists yet, "
+    "so nothing depends on it today -- but there could be, and the whole ranged "
+    "column set is currently unused.",
+    "Row 29 fills only cols 16, 17 and 24 in the melee half -- club, dagger, "
+    "club. Is the wooden tier meant to be those three and nothing else?",
 ]
 
 
@@ -239,13 +239,13 @@ tr.same td.n::after{content:" (unchanged)";color:var(--good);font-size:11.5px}
 .note li{margin:5px 0}
 </style>
 <div class="wrap">
-<h1>The weapon block, <b>as I read it</b></h1>
+<h1>The weapon block, <b>read as a set</b></h1>
 <p class="lede">Source columns 16&ndash;24, rows 29&ndash;33 are one melee set:
 nine weapon types across, five materials down. Columns 25&ndash;30 are the ranged
 set on the same rows. The game&rsquo;s seventeen weapons are scattered through it
 and most landed on the wrong type, because three different subsheets cut the
-block up and nobody read it as a block. Everything below is a proposal &mdash;
-nothing is applied.</p>
+block up and nobody read it as a block. This mapping is now live in the
+game.</p>
 
 <h2>The melee set</h2>
 <p class="lede">Pink is what the game draws on that tile today. Green is a tile
@@ -260,16 +260,17 @@ __RANGED__
 <h2>What I think each column is</h2>
 <dl>__NOTES__</dl>
 
-<h2>Where I would move the seventeen</h2>
+<h2>Where the seventeen now sit</h2>
 <p class="lede">The materials do the work: they give each weapon type a power
 tier without needing new art, so the mace and the morning star are one head in
 steel and gold, and Frost Brand and Flame Tongue are the long sword in ice and
 fire.</p>
 <div class="scroll"><table class="prop"><tbody>__ROWS__</tbody></table></div>
 
-<div class="note"><b>What I am least sure of.</b><ol>__QS__</ol></div>
-<div class="note"><b>Not applied.</b> Correct the column names and I will redo
-the mapping in one pass, the way the armour block went.</div>
+<div class="note"><b>Still open.</b><ol>__QS__</ol></div>
+<div class="note"><b>Applied.</b> Columns 21 and 23 were corrected &mdash; the
+trident was read as a mace and the mace head as a shuriken &mdash; and all
+seventeen weapons are now pointed at the cells below.</div>
 </div>
 """
 
