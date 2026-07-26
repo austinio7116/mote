@@ -118,8 +118,8 @@ def build():
     ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands",
                   "E": "weapons_elemental", "O": "treasure_ore",
                   "G": "crowns_fx", "F": "food", "R": "runes",
-                  "L": "loot_furniture", "K": "trinkets"}
-    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLK])\((\d+)\)\s*,\s*(TV_\w+)',
+                  "L": "loot_furniture", "K": "trinkets", "J": "jewellery"}
+    for m in re.finditer(r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*(TV_\w+)',
                          table(item_c, "g_item_kind[]")):
         add(ITEM_SHEET[m.group(2)], int(m.group(3)),
             "item(%s): %s" % (m.group(4)[3:].lower(), m.group(1)))

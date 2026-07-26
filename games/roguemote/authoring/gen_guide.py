@@ -190,9 +190,9 @@ for m in CLS_RE.finditer(table(data_c, "g_class[]")):
 # --- items --------------------------------------------------------------
 ITEM_SHEET = {"W": "weapons_potions", "T": "tools_wands", "E": "weapons_elemental",
               "O": "treasure_ore", "G": "crowns_fx", "F": "food", "R": "runes",
-              "L": "loot_furniture", "K": "trinkets"}
+              "L": "loot_furniture", "K": "trinkets", "J": "jewellery"}
 ITEM_RE = re.compile(
-    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLK])\((\d+)\)\s*,\s*(TV_\w+)\s*,'
+    r'\{\s*"([^"]+)"\s*,\s*([WTEOGFRLKJ])\((\d+)\)\s*,\s*(TV_\w+)\s*,'
     r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(EF_\w+)\s*\}"
 )
 items = []

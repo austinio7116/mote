@@ -23,6 +23,7 @@
 #define R(c) SH_RUNES,    (c)      /* runes:             scroll glyphs      */
 #define L(c) SH_LOOT,     (c)      /* loot_furniture:    shields            */
 #define K(c) SH_TRINKETS, (c)      /* trinkets:          torches            */
+#define J(c) SH_JEWEL,    (c)      /* jewellery:         rings                */
 
 const ItemKind g_item_kind[] = {
 /*  name           sheet,cell    tv         lvl  cost   d  s  ac  eff
@@ -95,16 +96,20 @@ const ItemKind g_item_kind[] = {
   { "wand",           T(45), TV_WAND,    20,  700, 0, 0,  0, EF_W_FROST },
   { "wand",           T(61), TV_WAND,    26, 1100, 0, 0,  0, EF_W_DRAIN },
 
-  /* --- rings and amulets ----------------------------------------------
-   * The four big cut gems at source (23..26,16), and the crescent and star at
-   * (27,16)/(27,17). treasure_ore row 19 is a colour run of eleven small gems
-   * and stays as scenery -- it is not armour, which is what it was doing. */
-  { "ring",           O(7),  TV_RING,    10,  300, 0, 0,  0, EF_R_PROT },
-  { "ring",           O(8),  TV_RING,    16,  700, 0, 0,  0, EF_R_INT },
-  { "ring",           O(9),  TV_RING,    14,  600, 0, 0,  0, EF_R_STR },
-  { "ring",           O(10), TV_RING,    22, 1400, 0, 0,  0, EF_R_REGEN },
-  { "amulet",         O(23), TV_RING,    26, 2000, 0, 0,  0, EF_R_SPEED },
-  { "amulet",         O(11), TV_RING,    18,  900, 0, 0,  0, EF_R_PROT },
+  /* --- rings and amulets -----------------------------------------------
+   * Source rows 23-26, cols 25-29: plain bands and gemmed bands in silver,
+   * gold, blue and red, and on the top row earrings, a pendant necklace and a
+   * jewelled ring.
+   *
+   * These were the big cut gems in treasure_ore, because the jewellery was
+   * inside no subsheet and no catalogue section -- nobody had ever been shown
+   * it. The amulet is the necklace; the earrings at J(2) are spare. */
+  { "ring",           J(0),  TV_RING,    10,  300, 0, 0,  0, EF_R_PROT },
+  { "ring",           J(5),  TV_RING,    14,  600, 0, 0,  0, EF_R_STR },
+  { "ring",           J(1),  TV_RING,    16,  700, 0, 0,  0, EF_R_INT },
+  { "amulet",         J(3),  TV_RING,    18,  900, 0, 0,  0, EF_R_PROT },
+  { "ring",           J(11), TV_RING,    22, 1400, 0, 0,  0, EF_R_REGEN },
+  { "ring",           J(4),  TV_RING,    26, 2000, 0, 0,  0, EF_R_SPEED },
 
   /* --- food (ac = nutrition in hundreds) -------------------------------
    * The sheet has thirty-six edible things in it and the table used eight.
