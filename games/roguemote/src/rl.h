@@ -103,6 +103,7 @@ typedef struct {
     int8_t   inv_wield, inv_body, inv_ring, inv_light;
     Item     inv[INV_N];
     int16_t  haste;            /* turns of speed potion left */
+    int16_t  bless;            /* turns of Bless/heroism left; see rl_player_ac */
     uint8_t  wx, wy;           /* remembered overworld position */
     uint16_t kills;
     uint8_t  deepest;
@@ -191,11 +192,11 @@ enum { EF_CURE_LIGHT = 0, EF_CURE_SERIOUS, EF_FULL_HEAL, EF_MANA, EF_SPEED,
  * what a positional index did the first time the armour list changed length.
  * The order here is the order of g_item_kind[]; ITM_N checks the two agree. */
 enum ItemId {
-    /* weapons */
-    ITM_DAGGER = 0, ITM_SHORT_SWORD, ITM_LONG_SWORD, ITM_BROAD_SWORD,
-    ITM_GREAT_AXE, ITM_WAR_HAMMER, ITM_BATTLE_AXE, ITM_MORNING_STAR,
-    ITM_MACE, ITM_SPEAR, ITM_GILDED_BLADE, ITM_TRIDENT, ITM_PICK_AXE,
-    ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS, ITM_THROWING_STAR,
+    /* weapons -- in the table's order, which is by price */
+    ITM_DAGGER = 0, ITM_THROWING_STAR, ITM_PICK_AXE, ITM_SHORT_SWORD,
+    ITM_SPEAR, ITM_MACE, ITM_LONG_SWORD, ITM_WAR_HAMMER, ITM_MORNING_STAR,
+    ITM_BROAD_SWORD, ITM_BATTLE_AXE, ITM_GILDED_BLADE, ITM_TRIDENT,
+    ITM_GREAT_AXE, ITM_FROST_BRAND, ITM_FLAME_TONGUE, ITM_BLADE_OF_CHAOS,
     /* armour */
     ITM_LEATHER_CAP, ITM_IRON_HELM, ITM_KETTLE_HELM, ITM_STEEL_HELM,
     ITM_GREAT_HELM, ITM_GOLDEN_HELM,
@@ -236,6 +237,7 @@ void rl_item_name(const Item *it, char *out, int max);
 void rl_make_item(Item *it, int depth);
 void rl_make_item_kind(Item *it, int kind, int depth);
 void rl_scatter_items(int depth);
+void rl_starting_kit(int cls);     /* rolls a pack that suits the class */
 int  rl_chest_tier(int x, int y);
 int  rl_chest_cell(int x, int y, int open);
 void rl_open_chest(int x, int y);
@@ -248,6 +250,14 @@ int  rl_player_ac(void);
 void rl_player_weapon_dice(int *d, int *s, int *bonus);
 int  rl_inv_count(void);
 int  rl_player_light(void);
+
+/* Every stat and speed read that drives a mechanic goes through these two, so
+ * that a bonus belongs to the ITEM and not to the moment you put it on. Writing
+ * the bonus into g_pl.stat[] (the first cut) meant a ring of strength raised
+ * STR permanently, again on every re-wear, and did nothing at all when the gear
+ * screen equipped it -- because that path never went near rl_use_item. */
+int  rl_stat(int i);
+int  rl_player_speed(void);
 
 /* --- equipment ----------------------------------------------------------
  * Four slots. `rl_slot_ptr` hands back the int8_t the slot lives in, so the
@@ -272,7 +282,8 @@ extern const Spell g_spell[];
 extern const int g_spell_n;
 
 int  rl_cast(int idx);
-void rl_zap_wand(int eff);
+int  rl_zap_wand(int eff);         /* 1 if it fired -- a wand that found no
+                                    * target must not be spent */
 void rl_fx_tick(float dt);
 void rl_fx_draw(uint16_t *fb);
 int  rl_fx_busy(void);

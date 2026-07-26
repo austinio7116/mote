@@ -345,7 +345,52 @@ Each phase ends with something runnable on the device.
 
 ---
 
-## 14. Open dependencies
+## 14. Content audit
+
+`authoring/test_content.c` links the logic translation units (`rl_item`, `rl_magic`,
+`rl_turn`, `rl_map`, `rl_world`, `rl_data`) against stubs for `rl_draw.c` and `game.c`,
+then **drives the real entry points** — `rl_use_item`, `rl_equip`, `rl_attack_mon`,
+`rl_cast`, `rl_zap_wand` — from a known player state and asserts the specific field
+moved the way the table says it should. Run it with `authoring/run_audit.sh`; it is
+~18,000 checks and takes about a second.
+
+It exercises the code rather than reading it, which is the point. A mean damage figure
+over 4000 swings catches *of Slaying* multiplying by 3/3; reading the table does not.
+
+The invariants worth knowing about, because they encode decisions:
+
+- **A worn item's bonus is computed on every read, never written into the player.**
+  `rl_stat()` and `rl_player_speed()` are the only ways a mechanic may learn a stat or
+  a speed. Writing the ring bonus into `g_pl.stat[]` on equip caused three bugs at once:
+  it survived taking the ring off, it stacked on every re-wear, and it never applied at
+  all when the *gear screen* equipped the ring, because that path calls `rl_equip`
+  directly and never runs the effect switch in `rl_use_item`.
+- **No temporary effect may shorten a longer one.** A speed potion drunk over a ring of
+  speed used to replace permanence with sixty turns and then take it away for good.
+- **Nothing grants permanent max HP for a repeatable cost.** Bless was +1 max HP per cast
+  for four mana; the potion of heroism was +1 per quaff against a restocking apothecary.
+  Both buy the `g_pl.bless` timer now, which is +10 AC while it lasts.
+- **A consumable that could not act is not consumed.** A wand with nothing in range
+  printed "No target in sight." and destroyed a 1100 gold item.
+- **No weapon is strictly dominated** — nothing cheaper may hit at least as hard. Ten of
+  the seventeen were, so two thirds of the weaponsmith was a trap: Frost Brand cost 2600
+  gold to average less than a 500 gold great axe. Weapons are listed in price order with
+  their mean damage in a trailing comment, and the audit fails if the ladder breaks.
+- **No armour is dominated inside its family** (helms, body, shields are three ladders).
+
+Two findings the audit reports and does *not* assert, because the fix is a design call:
+
+- **Six of thirteen armours are dominated across families.** Every helm and shield
+  competes with body armour for the single `EQ_BODY` slot and loses — a golden helm is
+  900 gold for AC 13, plate mail is 900 for AC 24. The fix is an `EQ_HEAD` and an
+  `EQ_SHIELD` slot (which needs a sub-type on `ItemKind`, two more `int8_t` on `Player`,
+  a save bump, and two more rows on the gear screen).
+- **A ring of strength is a no-op about three times in four.** STR reaches damage only as
+  `STR/4`, so +2 changes nothing unless it crosses a multiple of four.
+
+---
+
+## 15. Open dependencies
 
 - **Sprite labels are 50/1494 human-verified.** The content tables in §4 are provisional
   and assume the agent labels are broadly right. The annotator pass

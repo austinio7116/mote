@@ -104,7 +104,6 @@ static void new_game(int cls) {
     if (!g_world_seed) g_world_seed = 1;
 
     const ClassKind *ck = &g_class[cls];
-    for (int i = 0; i < INV_N; i++) g_pl.inv[i].qty = 0;
     g_pl.cls = (uint8_t)cls;
     g_pl.level = 1; g_pl.xp = 0; g_pl.gold = 120;
     g_pl.stat[0] = ck->str; g_pl.stat[1] = ck->intl; g_pl.stat[2] = ck->wis;
@@ -128,17 +127,10 @@ static void new_game(int cls) {
     rl_item_init_flavours();
     g_seed = keep;
 
-    Item it;
-    rl_make_item_kind(&it, ck->start_weapon, 0);
-    g_pl.inv_wield = (int8_t)rl_inv_add(&it);
-    rl_make_item_kind(&it, ITM_SOFT_LEATHER, 0);
-    g_pl.inv_body = (int8_t)rl_inv_add(&it);
-    rl_make_item_kind(&it, ITM_RATION, 0); it.qty = 4;
-    rl_inv_add(&it);
-    rl_make_item_kind(&it, ITM_POT_CURE_LIGHT, 0); it.qty = 3;
-    rl_inv_add(&it);
-    rl_make_item_kind(&it, ITM_TORCH, 0);          /* the light slot */
-    g_pl.inv_light = (int8_t)rl_inv_add(&it);
+    /* The pack is rolled from the class's archetype rather than being the same
+     * five items every game -- see rl_starting_kit. It clears the pack and sets
+     * the equipment slots itself. */
+    rl_starting_kit(cls);
 
     rl_gen_overworld();
     rl_shop_restock();
@@ -220,7 +212,7 @@ static void act_context(void) {
 static void run_energy(void) {
     for (int guard = 0; guard < 400; guard++) {
         if (g_pl.energy >= 100) return;                 /* player's move */
-        g_pl.energy = (int16_t)(g_pl.energy + rl_speed_gain(g_pl.speed));
+        g_pl.energy = (int16_t)(g_pl.energy + rl_speed_gain(rl_player_speed()));
         for (int i = 0; i < g_lv.n_mon; i++) {
             Mon *m = &g_lv.mon[i];
             if (m->hp <= 0) continue;
@@ -638,7 +630,7 @@ static void draw_gear(uint16_t *fb) {
     rl_text(fb, "d", 32, yy, COL_DIM);
     rl_num(fb, sd, 38, yy, COL_TEXT);
     rl_text(fb, "+", 48, yy, COL_DIM);
-    rl_num(fb, b + g_pl.stat[0] / 4, 54, yy, COL_TEXT);
+    rl_num(fb, b + rl_stat(0) / 4, 54, yy, COL_TEXT);
     rl_text(fb, "AC", 74, yy, COL_DIM);
     rl_num(fb, rl_player_ac(), 88, yy, COL_TEXT);
     rl_text(fb, "Lit", 100, yy, COL_DIM);
@@ -755,7 +747,7 @@ static void draw_char(uint16_t *fb) {
     for (int i = 0; i < 6; i++) {
         int y = 28 + i * 10;
         rl_text(fb, lbl[i], 4, y, COL_DIM);
-        rl_num(fb, g_pl.stat[i], 28, y, COL_TEXT);
+        rl_num(fb, rl_stat(i), 28, y, COL_TEXT);
     }
 
     struct { const char *k; int32_t v; } r[6] = {
@@ -778,7 +770,7 @@ static void draw_char(uint16_t *fb) {
     rl_text(fb, "d", 36, 92, COL_DIM);
     rl_num(fb, s, 42, 92, COL_TEXT);
     rl_text(fb, "+", 54, 92, COL_DIM);
-    rl_num(fb, b + g_pl.stat[0] / 4, 60, 92, COL_TEXT);
+    rl_num(fb, b + rl_stat(0) / 4, 60, 92, COL_TEXT);
 
     rl_text(fb, "Food", 4, 103, COL_DIM);
     rl_num(fb, g_pl.food, 30, 103, g_pl.food < 200 ? MOTE_RGB565(230, 120, 60) : COL_TEXT);

@@ -8,13 +8,13 @@
  *
  * The blob carries a magic + version word so a save written by an older layout
  * is rejected instead of being read as garbage stats. Bump it whenever Player
- * changes -- v4 added the light slot.
+ * changes -- v4 added the light slot, v5 the blessing timer.
  */
 #include "rl.h"
 
 #define SAVE_KEY   "roguemote.sav"
 #define SCORE_KEY  "roguemote.hi"
-#define SAVE_MAGIC 0x524D5304u          /* 'RMS' + layout version 4 */
+#define SAVE_MAGIC 0x524D5305u          /* 'RMS' + layout version 5 */
 
 typedef struct {
     uint32_t magic;

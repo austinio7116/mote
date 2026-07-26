@@ -50,7 +50,7 @@ static int32_t mon_xp(const Mon *m) {
 
 /* --- combat ------------------------------------------------------------- */
 static int player_to_hit(void) {
-    int h = 30 + g_pl.level * 3 + g_pl.stat[3];
+    int h = 30 + g_pl.level * 3 + rl_stat(3);
     if (g_pl.inv_wield >= 0) h += g_pl.inv[g_pl.inv_wield].to_hit * 3;
     return h;
 }
@@ -61,7 +61,7 @@ static int player_to_hit(void) {
 static int player_damage(const Mon *m) {
     int d, s, bonus;
     rl_player_weapon_dice(&d, &s, &bonus);
-    int dam = rl_dice(d, s) + bonus + g_pl.stat[0] / 4;
+    int dam = rl_dice(d, s) + bonus + rl_stat(0) / 4;
 
     if (g_pl.inv_wield >= 0) {
         const Item *w = &g_pl.inv[g_pl.inv_wield];
@@ -82,7 +82,7 @@ static int player_damage(const Mon *m) {
 
 /* Number of blows per turn: DEX and an "of Attacks" ego buy extra swings. */
 static int player_blows(void) {
-    int n = 1 + g_pl.stat[3] / 12;
+    int n = 1 + rl_stat(3) / 12;
     if (g_pl.inv_wield >= 0 && (g_ego_kind[g_pl.inv[g_pl.inv_wield].ego].flags & EGO_XATTACK)) n++;
     return n > 4 ? 4 : n;
 }
@@ -97,8 +97,8 @@ void rl_gain_xp(int32_t amount) {
         int gained = lvl - g_pl.level;
         const ClassKind *ck = &g_class[g_pl.cls];
         g_pl.level = (uint8_t)lvl;
-        g_pl.mhp = (int16_t)(g_pl.mhp + gained * (ck->hp_bonus + g_pl.stat[4] / 4));
-        g_pl.msp = (int16_t)(g_pl.msp + gained * (ck->sp_bonus + g_pl.stat[1] / 6));
+        g_pl.mhp = (int16_t)(g_pl.mhp + gained * (ck->hp_bonus + rl_stat(4) / 4));
+        g_pl.msp = (int16_t)(g_pl.msp + gained * (ck->sp_bonus + rl_stat(1) / 6));
         g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp;
         rl_msgf("Welcome to level %d.", lvl);
     }
@@ -224,11 +224,13 @@ void rl_mon_turn(Mon *m) {
 void rl_world_tick(void) {
     g_turn++;
 
-    /* haste expires; a ring of speed sets haste absurdly high so it never does */
-    if (g_pl.haste > 0 && --g_pl.haste == 0) {
-        g_pl.speed = SPEED_NORMAL;
+    /* Timers run down here and speed is re-derived from what is left, so a ring
+     * of speed keeps working after a potion expires -- rl_player_speed is the
+     * only thing that decides how fast the player is. */
+    if (g_pl.haste > 0 && --g_pl.haste == 0 && rl_player_speed() == SPEED_NORMAL)
         rl_msg("You slow down.");
-    }
+    if (g_pl.bless > 0 && --g_pl.bless == 0) rl_msg("The blessing fades.");
+    g_pl.speed = (uint8_t)rl_player_speed();
 
     int regen = 16;
     if (g_pl.inv_ring >= 0 && g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_REGEN) regen = 5;

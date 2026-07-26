@@ -30,24 +30,31 @@ const ItemKind g_item_kind[] = {
  *
  *  For TV_FOOD the `ac` column carries nutrition in hundreds; for TV_LIGHT it
  *  carries the light radius. Neither has an armour class to store there. */
-  /* --- weapons -------------------------------------------------------- */
-  { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },
-  { "short sword",    W(24), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },
-  { "long sword",     T(34), TV_WEAPON,   8,  120, 2, 5,  0, EF_NONE },
-  { "broad sword",    W(0),  TV_WEAPON,  14,  255, 2, 6,  0, EF_NONE },
-  { "great axe",      T(54), TV_WEAPON,  20,  500, 4, 4,  0, EF_NONE },
-  { "war hammer",     T(32), TV_WEAPON,  10,  225, 3, 3,  0, EF_NONE },
-  { "battle axe",     T(26), TV_WEAPON,  16,  350, 2, 8,  0, EF_NONE },
-  { "morning star",   T(39), TV_WEAPON,  12,  260, 2, 6,  0, EF_NONE },
-  { "mace",           T(40), TV_WEAPON,   7,  130, 2, 4,  0, EF_NONE },
-  { "spear",          E(4),  TV_WEAPON,   5,   36, 1, 6,  0, EF_NONE },
-  { "gilded blade",   T(50), TV_WEAPON,  18,  420, 2, 7,  0, EF_NONE },
-  { "trident",        E(8),  TV_WEAPON,  18,  460, 2, 7,  0, EF_NONE },
-  { "pick-axe",       T(35), TV_WEAPON,   5,   50, 1, 6,  0, EF_NONE },
-  { "Frost Brand",    E(0),  TV_WEAPON,  26, 2600, 3, 5,  0, EF_NONE },
-  { "Flame Tongue",   E(15), TV_WEAPON,  26, 2600, 3, 5,  0, EF_NONE },
-  { "Blade of Chaos", E(28), TV_WEAPON,  40, 4800, 6, 5,  0, EF_NONE },
-  { "throwing star",  E(7),  TV_WEAPON,   6,   60, 1, 5,  0, EF_NONE },
+  /* --- weapons ---------------------------------------------------------
+   * Sorted by price, and mean damage rises with it: ten of the seventeen used
+   * to be STRICTLY DOMINATED -- something cheaper hit at least as hard -- so
+   * two thirds of the shop was a trap. Frost Brand cost 2600 gold to average
+   * less than a 500 gold great axe. authoring/test_content.c now fails the
+   * build if that invariant breaks again.
+   *
+   *   mean damage per blow = dice_d * (dice_s + 1) / 2 */
+  { "dagger",         T(17), TV_WEAPON,   1,   10, 1, 4,  0, EF_NONE },  /*  2.5 */
+  { "throwing star",  E(7),  TV_WEAPON,   2,   12, 1, 5,  0, EF_NONE },  /*  3.0 */
+  { "pick-axe",       T(35), TV_WEAPON,   2,   22, 1, 6,  0, EF_NONE },  /*  3.5 */
+  { "short sword",    W(24), TV_WEAPON,   3,   30, 1, 7,  0, EF_NONE },  /*  4.0 */
+  { "spear",          E(4),  TV_WEAPON,   5,   45, 1, 8,  0, EF_NONE },  /*  4.5 */
+  { "mace",           T(40), TV_WEAPON,   7,  110, 2, 4,  0, EF_NONE },  /*  5.0 */
+  { "long sword",     T(34), TV_WEAPON,   8,  150, 2, 5,  0, EF_NONE },  /*  6.0 */
+  { "war hammer",     T(32), TV_WEAPON,  10,  200, 2, 6,  0, EF_NONE },  /*  7.0 */
+  { "morning star",   T(39), TV_WEAPON,  12,  260, 2, 7,  0, EF_NONE },  /*  8.0 */
+  { "broad sword",    W(0),  TV_WEAPON,  14,  300, 3, 5,  0, EF_NONE },  /*  9.0 */
+  { "battle axe",     T(26), TV_WEAPON,  16,  380, 3, 6,  0, EF_NONE },  /* 10.5 */
+  { "gilded blade",   T(50), TV_WEAPON,  18,  450, 3, 7,  0, EF_NONE },  /* 12.0 */
+  { "trident",        E(8),  TV_WEAPON,  19,  500, 3, 8,  0, EF_NONE },  /* 13.5 */
+  { "great axe",      T(54), TV_WEAPON,  20,  600, 4, 7,  0, EF_NONE },  /* 16.0 */
+  { "Frost Brand",    E(0),  TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 20.0 */
+  { "Flame Tongue",   E(15), TV_WEAPON,  26, 2600, 4, 9,  0, EF_NONE },  /* 20.0 */
+  { "Blade of Chaos", E(28), TV_WEAPON,  40, 4800, 6, 7,  0, EF_NONE },  /* 24.0 */
 
   /* --- armour ----------------------------------------------------------
    * Source cols 16-24, rows 21-26 is ONE set and has to be read as one: seven
@@ -367,6 +374,96 @@ void rl_open_chest(int x, int y) {
     else     rl_msgf("Treasure! %d gold.", (int)gold);
 }
 
+/* --- the starting kit ----------------------------------------------------
+ * Rolled per character rather than fixed, so two Rangers do not open the same
+ * pack -- but drawn from pools chosen by ARCHETYPE, so a Mage never begins in
+ * studded leather with a war hammer and a Berserk never begins with a wand.
+ *
+ * The class's own `start_weapon` stays the anchor and comes up most of the time:
+ * a Priest is still a Priest with a hammer. The variation is in which sidearm
+ * turns up instead, what armour (if any) came with it, and which consumables --
+ * mana for the arcane, bandage-work for the holy, an escape for the skirmisher,
+ * more food for the ones who intend to walk into things.
+ *
+ * Everything here is capped at item level 12 and is never cursed: a character
+ * who cannot take their own gear off on turn one is not a fun start. */
+enum { AR_FIGHTER = 0, AR_HOLY, AR_SKIRMISHER, AR_ARCANE, AR_N };
+
+static uint8_t class_archetype(int cls) {
+    const ClassKind *ck = &g_class[cls];
+    if (ck->spells == 0)                    return AR_FIGHTER;      /* Warrior, Berserk */
+    if (ck->sp_bonus >= 6)                  return AR_ARCANE;       /* Mage, Sorcerer */
+    if (ck->wis >= 14)                      return AR_HOLY;         /* Paladin, Priest, Druid */
+    if (ck->str >= 16)                      return AR_FIGHTER;      /* Knight */
+    return AR_SKIRMISHER;                                           /* Ranger, Rogue, Bard, Monk */
+}
+
+/* Sidearms, body armour and consumables per archetype. ITM_N means "nothing" --
+ * an arcane caster genuinely may start with no armour at all. */
+static const uint8_t s_kit_weapon[AR_N][3] = {
+    { ITM_SHORT_SWORD, ITM_MACE,          ITM_SPEAR         },   /* fighter    */
+    { ITM_MACE,        ITM_SHORT_SWORD,   ITM_SPEAR         },   /* holy       */
+    { ITM_DAGGER,      ITM_SHORT_SWORD,   ITM_THROWING_STAR },   /* skirmisher */
+    { ITM_DAGGER,      ITM_DAGGER,        ITM_THROWING_STAR },   /* arcane     */
+};
+static const uint8_t s_kit_body[AR_N][3] = {
+    { ITM_SOFT_LEATHER, ITM_STUDDED_LEATHER, ITM_SOFT_LEATHER },
+    { ITM_SOFT_LEATHER, ITM_SOFT_LEATHER,    ITM_LEATHER_CAP  },
+    { ITM_SOFT_LEATHER, ITM_SOFT_LEATHER,    ITM_LEATHER_CAP  },
+    { ITM_SOFT_LEATHER, ITM_N,               ITM_N            },
+};
+static const uint8_t s_kit_extra[AR_N][3] = {
+    { ITM_POT_CURE_LIGHT, ITM_RATION,       ITM_POT_HEROISM   },
+    { ITM_POT_CURE_LIGHT, ITM_SCR_LIGHT,    ITM_POT_CURE_LIGHT},
+    { ITM_SCR_TELEPORT,   ITM_POT_CURE_LIGHT, ITM_SCR_MAPPING },
+    { ITM_POT_MANA,       ITM_SCR_MAPPING,  ITM_POT_MANA      },
+};
+
+/* Add `kind` with `qty`, lightly enchanted, and hand back the pack slot. */
+static int kit_add(int kind, int qty) {
+    Item it;
+    rl_make_item_kind(&it, kind, rl_range(3));      /* an occasional +1 */
+    it.qty = (uint8_t)qty;
+    it.flags &= (uint8_t)~IF_CURSED;
+    if (it.ego && (g_ego_kind[it.ego].flags & EGO_CURSED)) it.ego = 0;
+    return rl_inv_add(&it);
+}
+
+void rl_starting_kit(int cls) {
+    int ar = class_archetype(cls);
+
+    for (int i = 0; i < INV_N; i++) g_pl.inv[i].qty = 0;
+    g_pl.inv_wield = g_pl.inv_body = g_pl.inv_ring = g_pl.inv_light = -1;
+
+    /* weapon: the class anchor most of the time, a fitting sidearm otherwise */
+    int w = rl_pct(55) ? g_class[cls].start_weapon
+                       : s_kit_weapon[ar][rl_range(3)];
+    g_pl.inv_wield = (int8_t)kit_add(w, 1);
+
+    /* armour: the arcane pools carry ITM_N, which is "you own no armour" */
+    int b = s_kit_body[ar][rl_range(3)];
+    if (b != ITM_N) g_pl.inv_body = (int8_t)kit_add(b, 1);
+
+    /* food, always -- the hunger clock starts running immediately */
+    kit_add(ITM_RATION, (uint8_t)(3 + rl_range(3)));
+
+    /* one or two archetype consumables, plus a second helping half the time */
+    kit_add(s_kit_extra[ar][rl_range(3)], (uint8_t)(2 + rl_range(2)));
+    if (rl_pct(50)) kit_add(s_kit_extra[ar][rl_range(3)], (uint8_t)(1 + rl_range(2)));
+
+    /* a light, and occasionally a good one */
+    g_pl.inv_light = (int8_t)kit_add(rl_pct(12) ? ITM_LANTERN : ITM_TORCH, 1);
+
+    /* and a small chance of the thing that defines the character: a wand for a
+     * caster, a shield for a fighter, a second blade for a skirmisher */
+    if (rl_pct(20)) {
+        static const uint8_t luxury[AR_N] = {
+            ITM_LEATHER_SHIELD, ITM_POT_CURE_SERIOUS, ITM_THROWING_STAR, ITM_WAND_MISSILE
+        };
+        kit_add(luxury[ar], 1);
+    }
+}
+
 Item *rl_item_at(int x, int y) {
     for (int i = 0; i < g_lv.n_item; i++)
         if (g_lv.item[i].qty && g_lv.item[i].x == x && g_lv.item[i].y == y)
@@ -493,9 +590,37 @@ int rl_player_light(void) {
     return 2;
 }
 
+/* --- derived stats -------------------------------------------------------
+ * A worn ring's bonus is computed on every read rather than added to the
+ * player's stats when the ring goes on. That single change fixes three bugs the
+ * audit harness found at once: the bonus survived taking the ring off, it
+ * stacked on every re-wear, and it never applied when the ring was equipped
+ * from the gear screen (which calls rl_equip directly and so never ran the
+ * effect switch in rl_use_item). */
+int rl_stat(int i) {
+    if (i < 0 || i > 5) return 0;
+    int v = g_pl.stat[i];
+    if (g_pl.inv_ring >= 0 && g_pl.inv[g_pl.inv_ring].qty) {
+        int eff = g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff;
+        if (i == 0 && eff == EF_R_STR) v += 2;
+        if (i == 1 && eff == EF_R_INT) v += 2;
+    }
+    return v;
+}
+
+/* Speed likewise: a ring of speed used to fake permanence with haste = 30000,
+ * which meant quaffing a speed potion while wearing it CUT the ring's effect to
+ * sixty turns and then took it away for good. */
+int rl_player_speed(void) {
+    if (g_pl.inv_ring >= 0 && g_pl.inv[g_pl.inv_ring].qty &&
+        g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_SPEED) return SPEED_NORMAL + 10;
+    return g_pl.haste > 0 ? SPEED_NORMAL + 10 : SPEED_NORMAL;
+}
+
 /* Total AC from what is worn -- read by combat. */
 int rl_player_ac(void) {
-    int ac = g_pl.stat[3] / 4;                      /* DEX helps you not be hit */
+    int ac = rl_stat(3) / 4;                        /* DEX helps you not be hit */
+    if (g_pl.bless > 0) ac += 10;                   /* Bless / a potion of heroism */
     if (g_pl.inv_body >= 0) {
         Item *b = &g_pl.inv[g_pl.inv_body];
         ac += g_item_kind[b->kind].ac + b->to_ac;
@@ -562,11 +687,16 @@ void rl_use_item(int slot) {
     case TV_ARMOUR: rl_equip(EQ_BODY,  slot); break;
     case TV_LIGHT:  rl_equip(EQ_LIGHT, slot); break;
     case TV_RING:
+        /* The ring's BONUS is not applied here -- rl_stat, rl_player_speed,
+         * rl_player_ac and rl_world_tick all read it off the worn ring, so it
+         * arrives whichever screen put the ring on and leaves when it comes
+         * off. All that is left to do is say what happened. */
         if (!rl_equip(EQ_RING, slot)) break;
+        g_pl.speed = (uint8_t)rl_player_speed();
         switch (ik->eff) {
-        case EF_R_STR:   g_pl.stat[0] = (uint8_t)(g_pl.stat[0] + 2); rl_msg("You feel mighty."); break;
-        case EF_R_INT:   g_pl.stat[1] = (uint8_t)(g_pl.stat[1] + 2); rl_msg("You feel clever."); break;
-        case EF_R_SPEED: g_pl.speed = SPEED_NORMAL + 10; g_pl.haste = 30000; rl_msg("Time slows!"); break;
+        case EF_R_STR:   rl_msg("You feel mighty."); break;
+        case EF_R_INT:   rl_msg("You feel clever."); break;
+        case EF_R_SPEED: rl_msg("Time slows!"); break;
         case EF_R_REGEN: rl_msg("Your wounds itch."); break;
         default:         rl_msg("You feel guarded."); break;
         }
@@ -590,9 +720,16 @@ void rl_use_item(int slot) {
         case EF_CURE_SERIOUS: g_pl.hp += 40; rl_msg("Much better."); break;
         case EF_FULL_HEAL:    g_pl.hp = g_pl.mhp; rl_msg("You are whole!"); break;
         case EF_MANA:         g_pl.sp += 25; rl_msg("Your mind clears."); break;
-        case EF_SPEED:        g_pl.speed = SPEED_NORMAL + 10; g_pl.haste = 60;
+        /* never SHORTEN an existing haste -- a potion on top of a ring of speed
+         * used to replace permanence with sixty turns */
+        case EF_SPEED:        if (g_pl.haste < 60) g_pl.haste = 60;
+                              g_pl.speed = (uint8_t)rl_player_speed();
                               rl_msg("You feel fast!"); break;
-        case EF_HEROISM:      g_pl.hp += 10; g_pl.mhp += 1; rl_msg("You feel heroic."); break;
+        /* heroism was +1 max hp per quaff, which with a restocking apothecary is
+         * an unbounded max-hp pump for gold. It is a temporary blessing now. */
+        case EF_HEROISM:      g_pl.hp += 15;
+                              if (g_pl.bless < 60) g_pl.bless = 60;
+                              rl_msg("You feel heroic."); break;
         case EF_XP:           rl_gain_xp(g_pl.xp / 4 + 50); rl_msg("You feel wiser."); break;
         default:              g_pl.hp -= 8; rl_msg("That was poison!"); break;
         }
@@ -647,8 +784,10 @@ void rl_use_item(int slot) {
         break;
     case TV_WAND:
         rl_item_learn(it->kind);
-        rl_zap_wand(ik->eff);
-        consumed = 1;
+        /* A wand that found nothing to shoot at is not spent. Consuming it
+         * unconditionally meant a misjudged press destroyed a 1100 gold item and
+         * printed "No target in sight." as its only explanation. */
+        consumed = rl_zap_wand(ik->eff);
         break;
     default: rl_msg("Nothing happens."); break;
     }

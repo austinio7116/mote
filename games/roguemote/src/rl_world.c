@@ -497,16 +497,38 @@ void rl_shop_restock(void) {
     for (int s = 0; s < SHOP_N; s++) {
         g_shop_n[s] = 0;
         int want = 4 + rl_range(4);
+        if (want > SHOP_SLOTS) want = SHOP_SLOTS;
+        int depth = (s == 5) ? 20 + g_pl.deepest : 4 + g_pl.deepest / 2;
         for (int tries = 0; tries < 300 && g_shop_n[s] < want; tries++) {
             int k = rl_range(g_item_kind_n);
             const ItemKind *ik = &g_item_kind[k];
             if (!shop_wants(s, ik)) continue;
             /* the black market carries out-of-depth goods at a premium */
             if (s != 5 && ik->lvl > 12 + (int)g_pl.deepest) continue;
+
+            /* One of each kind. A four-slot window showing the same potion
+             * three times is a two-slot window, and with pools of six kinds
+             * that happened about a third of the time. */
+            int dup = 0;
+            for (int i = 0; i < g_shop_n[s]; i++)
+                if (g_shop_stock[s][i].kind == (uint8_t)k) { dup = 1; break; }
+            if (dup) continue;
+
             Item *it = &g_shop_stock[s][g_shop_n[s]++];
-            rl_make_item(it, s == 5 ? 20 + g_pl.deepest : 4 + g_pl.deepest / 2);
-            it->kind = (uint8_t)k;
-            it->qty = (ik->tv == TV_FOOD || ik->tv == TV_POTION) ? (uint8_t)(2 + rl_range(3)) : 1;
+            /* rl_make_item_kind, NOT rl_make_item: rolling a random kind and
+             * then overwriting `kind` handed this item the enchantment rolled
+             * for a different one. Rations arrived at +3 and cursed "of
+             * Morgul", while weapons that happened to follow a potion roll
+             * arrived stubbornly plain. */
+            rl_make_item_kind(it, k, depth);
+            it->qty = (ik->tv == TV_FOOD || ik->tv == TV_POTION || ik->tv == TV_SCROLL)
+                      ? (uint8_t)(2 + rl_range(3)) : 1;
+            /* The five honest traders do not knowingly sell cursed goods. The
+             * Black Market is called that for a reason. */
+            if (s != 5) {
+                it->flags &= (uint8_t)~IF_CURSED;
+                if (it->ego && (g_ego_kind[it->ego].flags & EGO_CURSED)) it->ego = 0;
+            }
         }
     }
 }
@@ -519,7 +541,7 @@ int rl_shop_price(const Item *it, int shop) {
     if (p < 2) p = 2;
     if (shop == 5) p *= 5;                       /* the classic money sink */
     /* CHA shaves a little off, so the stat is not dead weight */
-    p = p * (130 - g_pl.stat[5]) / 120;
+    p = p * (130 - rl_stat(5)) / 120;
     return p < 1 ? 1 : p;
 }
 

@@ -269,7 +269,7 @@ int rl_cast(int idx) {
 
     /* Moria's fail%: a failed cast still costs the turn and the mana, which is
      * what makes INT a real investment rather than a rounding error. */
-    int fail = sp->fail - g_pl.level - g_pl.stat[1] / 2;
+    int fail = sp->fail - g_pl.level - rl_stat(1) / 2;
     if (fail < 5) fail = 5;
     if (rl_pct(fail)) { rl_msg("You fail to cast."); return 1; }
 
@@ -300,15 +300,24 @@ int rl_cast(int idx) {
         break;
     case SP_HEAL:
         fx_start(SP_HEAL, 0, g_pl.x, g_pl.y, g_pl.x, g_pl.y, col);
-        g_pl.hp = (int16_t)(g_pl.hp + sp->power + g_pl.stat[2] / 2);
+        g_pl.hp = (int16_t)(g_pl.hp + sp->power + rl_stat(2) / 2);
         if (g_pl.hp > g_pl.mhp) g_pl.hp = g_pl.mhp;
         rl_msg("Wounds close.");
         break;
     case SP_BUFF:
         fx_start(SP_BUFF, 0, g_pl.x, g_pl.y, g_pl.x, g_pl.y, col);
-        if (sp->lvl >= 18) { g_pl.speed = SPEED_NORMAL + 10; g_pl.haste = 80;
-                             rl_msg("You speed up!"); }
-        else               { g_pl.hp += 8; g_pl.mhp += 1; rl_msg("You are blessed."); }
+        if (sp->lvl >= 18) {
+            if (g_pl.haste < 80) g_pl.haste = 80;    /* never shorten a longer one */
+            g_pl.speed = (uint8_t)rl_player_speed();
+            rl_msg("You speed up!");
+        } else {
+            /* Bless used to add +1 max hp per cast for four mana, which is an
+             * unbounded max-hp pump you can grind in a corridor. It buys armour
+             * for a while instead -- see rl_player_ac. */
+            g_pl.hp += 8;
+            if (g_pl.bless < 100) g_pl.bless = 100;
+            rl_msg("You are blessed.");
+        }
         if (g_pl.hp > g_pl.mhp) g_pl.hp = g_pl.mhp;
         break;
     case SP_NOVA:
@@ -338,10 +347,11 @@ int rl_cast(int idx) {
 }
 
 /* Wands map onto the same effect shapes, keyed by the item's EF_W_* selector --
- * so a wand is a spell you do not need the level for. */
-void rl_zap_wand(int eff) {
+ * so a wand is a spell you do not need the level for. Returns 1 if it fired;
+ * the caller uses that to decide whether the charge was spent. */
+int rl_zap_wand(int eff) {
     Mon *tgt = nearest_target();
-    if (!tgt) { rl_msg("No target in sight."); return; }
+    if (!tgt) { rl_msg("No target in sight."); return 0; }
     switch (eff) {
     case EF_W_MISSILE:
         fx_start(SP_BOLT, 0, g_pl.x, g_pl.y, tgt->x, tgt->y, shape_colour(SP_BOLT, 6));
@@ -369,4 +379,5 @@ void rl_zap_wand(int eff) {
         rl_msg("Frost bursts!");
         break;
     }
+    return 1;
 }

@@ -423,9 +423,12 @@ void rl_draw_hud(uint16_t *fb) {
         rl_num(fb, g_pl.depth, 113, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
     }
 
-    /* starvation and haste are the two states worth a glyph */
-    if (g_pl.food < 200)  rl_text(fb, "*", 124, HUD_Y + 2, MOTE_RGB565(230, 120, 60));
-    else if (g_pl.haste)  rl_text(fb, ">", 124, HUD_Y + 2, MOTE_RGB565(250, 220, 90));
+    /* starvation, haste and a blessing are the states worth a glyph. Haste is
+     * read from rl_player_speed, not from the timer -- a ring of speed sets no
+     * timer, so keying the glyph off g_pl.haste hid the one permanent source. */
+    if (g_pl.food < 200)                        rl_text(fb, "*", 124, HUD_Y + 2, MOTE_RGB565(230, 120, 60));
+    else if (rl_player_speed() > SPEED_NORMAL)  rl_text(fb, ">", 124, HUD_Y + 2, MOTE_RGB565(250, 220, 90));
+    else if (g_pl.bless > 0)                    rl_text(fb, "+", 124, HUD_Y + 2, MOTE_RGB565(140, 200, 255));
 
     rl_draw_msgs(fb);
 }
