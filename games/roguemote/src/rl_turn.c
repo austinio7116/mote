@@ -136,24 +136,112 @@ void rl_kill_mon(Mon *m) {
     }
 }
 
+/* --- the anatomy of a blow ------------------------------------------------
+ *
+ * Dwarf Fortress's trick is not that the simulation is deep -- it is that the
+ * REPORT is specific. "You hit for 12" is a number; "You cleave the ogre's leg
+ * (12)!" is a thing that happened. None of this changes the arithmetic: the
+ * damage is rolled exactly as before, and then described.
+ *
+ * Three pieces make the sentence:
+ *   part      where it landed, weighted so the torso is commonest
+ *   verb      how the weapon in your hand behaves -- an axe chops, a mace
+ *             crushes, a spear pierces, a bare fist punches
+ *   severity  the damage as a fraction of what the target can take, which is
+ *             why the same 12 is a scratch on a dragon and a killing blow on
+ *             a rat
+ */
+static const char *hit_part(void) {
+    /* 8 torso, 4 arm, 4 leg, 2 head, 1 each hand/foot/neck/back */
+    static const char *const p[16] = {
+        "torso", "torso", "torso", "torso", "torso", "torso", "torso", "torso",
+        "arm", "arm", "leg", "leg", "head", "head", "hand", "neck",
+    };
+    return p[rl_range(16)];
+}
+
+enum { WC_BLADE = 0, WC_AXE, WC_BLUNT, WC_PIERCE, WC_FIST };
+
+static int weapon_class(void) {
+    if (g_pl.inv_wield < 0 || !g_pl.inv[g_pl.inv_wield].qty) return WC_FIST;
+    const char *n = g_item_kind[g_pl.inv[g_pl.inv_wield].kind].name;
+    /* read off the name, so a new weapon inherits a sensible verb the day it
+     * is added rather than the day somebody remembers to classify it */
+    for (const char *p = n; *p; p++) {
+        if (p[0] == 'a' && p[1] == 'x' && p[2] == 'e') return WC_AXE;
+        if (p[0] == 'm' && p[1] == 'a' && p[2] == 'c') return WC_BLUNT;
+    }
+    if (n[0] == 's' && n[1] == 'p') return WC_PIERCE;          /* spear */
+    if (n[0] == 't' && n[1] == 'r') return WC_PIERCE;          /* trident */
+    if (n[0] == 'l' && n[1] == 'a') return WC_PIERCE;          /* lance */
+    if (n[0] == 'p' && n[1] == 'i') return WC_PIERCE;          /* pick */
+    if (n[0] == 'w' && n[1] == 'a') return WC_BLUNT;           /* war hammer */
+    if (n[0] == 'c' && n[1] == 'l') return WC_BLUNT;           /* club */
+    if (n[0] == 'm' && n[1] == 'o') return WC_BLUNT;           /* morning star */
+    if (n[0] == 'g' && n[1] == 'r' && n[2] == 'e') return WC_AXE;   /* great maul/axe */
+    if (n[0] == 'f' && n[1] == 'l') return WC_BLUNT;           /* flail */
+    if (n[0] == 'h' && n[1] == 'a') return WC_AXE;             /* halberd */
+    if (n[0] == 'g' && n[1] == 'l') return WC_AXE;             /* glaive */
+    return WC_BLADE;
+}
+
+/* sev: 0 graze, 1 ordinary, 2 hard, 3 savage */
+static const char *hit_verb(int wc, int sev) {
+    static const char *const v[5][4] = {
+        { "nick",  "slash",  "cut deep into", "cleave"  },   /* blade  */
+        { "graze", "chop",   "hack into",     "sunder"  },   /* axe    */
+        { "clip",  "bash",   "crush",         "shatter" },   /* blunt  */
+        { "prick", "pierce", "run through",   "impale"  },   /* pierce */
+        { "cuff",  "punch",  "pummel",        "batter"  },   /* fist   */
+    };
+    return v[wc][sev];
+}
+
+static int severity(int dam, int max_hp) {
+    if (max_hp < 1) max_hp = 1;
+    int pct = dam * 100 / max_hp;
+    if (pct < 8)  return 0;
+    if (pct < 25) return 1;
+    if (pct < 55) return 2;
+    return 3;
+}
+
 void rl_attack_mon(Mon *m) {
     m->flags &= (uint8_t)~MF_ASLEEP;
     int blows = player_blows(), hits = 0, total = 0;
+    const char *part = 0;
     for (int b = 0; b < blows && m->hp > 0; b++) {
         int roll = rl_range(100) + 1;
         if (roll > player_to_hit() - mon_ac(m) * 2) continue;
         int dam = player_damage(m);
+        part = hit_part();
         total += dam; hits++;
         m->hp = (int16_t)(m->hp - dam);
     }
-    if (!hits) { rl_msg("You miss."); return; }
-    if (m->hp <= 0) rl_kill_mon(m);
-    else            rl_msgf("You hit for %d.", total);
+    if (!hits) {
+        static const char *const whiff[3] = { "miss", "swing wide of",
+                                              "glance off" };
+        rl_msg_hit("You", whiff[rl_range(3)], mon_name(m), 0, -1, 0);
+        return;
+    }
+    if (m->hp <= 0) { rl_kill_mon(m); return; }
+
+    /* Describe the LAST blow that landed, with the turn's total damage -- one
+     * line a turn, because three blows would fill the log and push everything
+     * else off it. */
+    int sev = severity(total, m->mhp);
+    rl_msg_hit("You", hit_verb(weapon_class(), sev), mon_name(m),
+               part, total, sev >= 2);
 }
 
 void rl_mon_attack_player(Mon *m) {
     int roll = rl_range(100) + 1;
-    if (roll > 45 + mon_lvl(m) * 2 - rl_player_ac()) { rl_msg2(mon_name(m), " misses."); return; }
+    if (roll > 45 + mon_lvl(m) * 2 - rl_player_ac()) {
+        static const char *const whiff[3] = { "misses", "lunges wide",
+                                              "is parried" };
+        rl_msg_hit(mon_name(m), whiff[rl_range(3)], 0, 0, -1, 0);
+        return;
+    }
     int d, s; mon_dam_dice(m, &d, &s);
     int dam = rl_dice(d, s);
     /* armour soaks a slice of every landed blow, so AC is never wasted */
@@ -163,7 +251,17 @@ void rl_mon_attack_player(Mon *m) {
     if (rl_ego_flags() & EGO_RESIST) dam -= dam / 4;
     if (dam < 1) dam = 1;
     g_pl.hp = (int16_t)(g_pl.hp - dam);
-    rl_msgf("Hit for %d!", dam);
+
+    /* A monster's bite reads by ITS severity against YOUR health, which is what
+     * makes the same four damage terrifying at 9 hit points and a nuisance at
+     * 200. */
+    static const char *const bite[4] = { "grazes", "strikes", "tears into",
+                                         "savages" };
+    /* No body part on the incoming side: monster names run long and the line
+     * is 31 characters, so "Giant gecko savages your leg (12)!" loses its tail.
+     * Your own blows carry the anatomy, because "You" is three letters. */
+    int sv = severity(dam, g_pl.mhp);
+    rl_msg_hit(mon_name(m), bite[sv], "you", 0, dam, sv >= 2);
 }
 
 static const int DIR_X[8] = { 0, 0, -1, 1, -1, 1, -1, 1 };

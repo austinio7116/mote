@@ -596,6 +596,20 @@ int rl_pull_lever(int x, int y) {
 }
 
 void rl_gen_level(int depth) {
+    /* The LAYOUT is a function of the world and the depth, and nothing else, so
+     * floor seven is always the floor seven you remember: you can climb out,
+     * restock, and come back down to the same rooms, the same corridors and the
+     * same lever. Delving, surfacing and re-delving is the shape of the game,
+     * and it does not work if the map is new every time.
+     *
+     * What is NOT deterministic is what is standing in it. Monsters, floor loot
+     * and vault stock roll from the live sequence below, so returning is
+     * re-entering a place you know rather than re-running a fight you already
+     * won. */
+    uint32_t live = g_seed;
+    g_seed = g_world_seed * 2654435761u + (uint32_t)depth * 40503u + 17u;
+    if (!g_seed) g_seed = 1;
+
     for (int i = 0; i < MW * MH; i++) { g_lv.terrain[i] = T_WALL; g_lv.flags[i] = 0; }
     g_lv.n_mon = 0; g_lv.n_item = 0;
     s_nroom = 0;
@@ -670,13 +684,20 @@ void rl_gen_level(int depth) {
     g_pl.x = g_lv.up_x ? g_lv.up_x : (uint8_t)(s_room[0].x + s_room[0].w / 2);
     g_pl.y = g_lv.up_y ? g_lv.up_y : (uint8_t)(s_room[0].y + s_room[0].h / 2);
 
+    /* the rest of the architecture, still on the layout seed */
+    place_rubble(depth);
+    place_levers(depth);
+    place_chests(depth);          /* a mimic is furniture, and stays put */
+    stock_vaults(depth);          /* a vault's strongbox is part of the vault */
+
+    /* --- and from here, the living contents ----------------------------
+     * Nothing below this line may touch terrain. stock_vaults sat here at
+     * first and it lays chest TILES, so a handful of cells moved between
+     * visits and the floor was almost, but not quite, the one you left. */
+    g_seed = live;
     spawn_monsters(depth);
     spawn_boss(depth);
     rl_scatter_items(depth);
-    place_chests(depth);
-    stock_vaults(depth);
-    place_rubble(depth);
-    place_levers(depth);
     rl_fov();
 }
 

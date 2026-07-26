@@ -269,6 +269,44 @@ void rl_msg2(const char *a, const char *b) {
     rl_msg(buf);
 }
 
+/* Assemble a combat line: "<who> <verb> <whom>'s <part> (12)". Every piece is
+ * optional, so the same builder serves "You graze the rat's leg (2)." and
+ * "Your arrow punches the orc (14)!".
+ *
+ * Assembled rather than printf'd because there is no printf here, and because
+ * a 31-character line has to be TRUNCATED at a sensible place -- the damage is
+ * the part you must not lose, so it is written before the sentence is allowed
+ * to run out of room. */
+void rl_msg_hit(const char *who, const char *verb, const char *whom,
+                const char *part, int dam, int bang) {
+    char buf[MSG_LEN];
+    int o = 0;
+    #define ADD(str) do { const char *p_ = (str); \
+        while (p_ && *p_ && o < MSG_LEN - 8) buf[o++] = *p_++; } while (0)
+    ADD(who);
+    ADD(" "); ADD(verb);
+    if (whom) { ADD(" "); ADD(whom); }
+    /* "the orc's leg", but "your leg" -- a possessive noun takes the apostrophe
+     * and a possessive pronoun does not, and "your's" is what you get if the
+     * builder decides that for itself */
+    if (part) {
+        if (whom && whom[0] != 'y') ADD("'s");
+        ADD(" "); ADD(part);
+    }
+    if (dam >= 0) {
+        ADD(" ");
+        int v = dam, digits[6], n = 0;
+        do { digits[n++] = v % 10; v /= 10; } while (v && n < 6);
+        if (o < MSG_LEN - 3) buf[o++] = '(';
+        while (n-- > 0 && o < MSG_LEN - 2) buf[o++] = (char)('0' + digits[n]);
+        if (o < MSG_LEN - 2) buf[o++] = ')';
+    }
+    if (o < MSG_LEN - 1) buf[o++] = bang ? '!' : '.';
+    buf[o] = 0;
+    #undef ADD
+    rl_msg(buf);
+}
+
 /* tiny int-substituting formatter: the one '%d' in `fmt` is replaced by `a`.
  * Avoids pulling in printf for a handful of combat lines. */
 void rl_msgf(const char *fmt, int a) {

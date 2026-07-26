@@ -417,6 +417,8 @@ void rl_draw_player_shadow(uint16_t *fb);
 void rl_draw_hud(uint16_t *fb);
 void rl_msg(const char *s);
 void rl_msgf(const char *fmt, int a);
+void rl_msg_hit(const char *who, const char *verb, const char *whom,
+                const char *part, int dam, int bang);
 void rl_msg2(const char *a, const char *b);
 void rl_draw_msgs(uint16_t *fb);
 void rl_draw_map(uint16_t *fb, int y0);

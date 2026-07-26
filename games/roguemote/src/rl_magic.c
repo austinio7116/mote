@@ -285,6 +285,10 @@ static void ball_at(int cx, int cy, int power, int radius) {
  * range and something to spend early gold on. */
 #define THROW_MULT 2
 
+static const char *mon_name_of(const Mon *m) {
+    return m->boss ? g_boss_kind[m->boss - 1].name : g_mon_kind[m->kind].name;
+}
+
 int rl_can_fire(void) {
     if (g_pl.inv_ammo < 0 || !g_pl.inv[g_pl.inv_ammo].qty) return 0;
     const ItemKind *am = &g_item_kind[g_pl.inv[g_pl.inv_ammo].kind];
@@ -324,15 +328,21 @@ int rl_fire(void) {
 
     int roll = rl_range(100) + 1;
     if (roll > to_hit - rl_mon_ac(tgt) * 2) {
-        rl_msg2(am->name, " goes wide.");
+        rl_msg_hit("Your", am->name, "goes wide of", 0, -1, 0);
     } else {
         int dam = (rl_dice(am->dice_d, am->dice_s) + ammo->to_dam
                    + (bow ? bow->to_dam : 0)) * mult;
         if (dam < 1) dam = 1;
-        int alive = tgt->hp > dam;
-        rl_msgf("Hit for %d!", dam);
+        /* the shot names itself, so an arrow and a thrown star read apart */
+        static const char *const land[4] = { "grazes", "strikes", "sinks into",
+                                             "punches through" };
+        int pct = dam * 100 / (tgt->mhp < 1 ? 1 : tgt->mhp);
+        int sev = pct < 8 ? 0 : pct < 25 ? 1 : pct < 55 ? 2 : 3;
+        char shot[24]; int o = 0;
+        for (const char *p = am->name; *p && o < 22; p++) shot[o++] = *p;
+        shot[o] = 0;
+        rl_msg_hit(shot, land[sev], mon_name_of(tgt), 0, dam, sev >= 2);
         damage_mon(tgt, dam);
-        (void)alive;
     }
 
     /* Half of what you loose is recoverable, so the quiver is a thing you

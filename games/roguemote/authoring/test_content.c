@@ -29,6 +29,10 @@ void rl_msg2(const char *a, const char *b) { snprintf(s_last, sizeof s_last, "%s
 void rl_msgf(const char *fmt, int a) { snprintf(s_last, sizeof s_last, fmt, a); }
 const MoteImage *rl_sheet(int id) { (void)id; return 0; }
 void rl_blit_cell(uint16_t *fb, int sh, int c, int x, int y) { (void)fb;(void)sh;(void)c;(void)x;(void)y; }
+void rl_msg_hit(const char *a, const char *b, const char *c,
+                const char *d, int e, int f)
+{ snprintf(s_last, sizeof s_last, "%s %s %s %s %d%c", a, b,
+           c ? c : "", d ? d : "", e, f ? '!' : '.'); }
 void rl_blit_cell_tint(uint16_t *a, int b, int c, int d, int e, uint16_t f)
 { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void rl_text(uint16_t *fb, const char *s, int x, int y, uint16_t c) { (void)fb;(void)s;(void)x;(void)y;(void)c; }
@@ -1558,6 +1562,70 @@ static int lever_reach(int sx, int sy, uint8_t *seen, int block_locks) {
     return n;
 }
 
+/* The same floor, twice: layout identical, contents not. */
+static void test_persistence(void) {
+    group("floors");
+
+    static uint8_t first[MW * MH];
+    for (int depth = 1; depth <= 24; depth += 3) {
+        fresh_player();
+        g_world_seed = 31337;
+        g_seed = 11;
+        g_pl.depth = (uint8_t)depth;
+        rl_gen_level(depth);
+        memcpy(first, g_lv.terrain, sizeof first);
+        int mon1 = g_lv.n_mon, item1 = g_lv.n_item;
+
+        /* leave, wander, come back -- the live RNG has moved a long way on */
+        for (int i = 0; i < 5000; i++) (void)rl_rand();
+        rl_gen_level(depth);
+
+        int diff = 0;
+        for (int i = 0; i < MW * MH; i++) if (first[i] != g_lv.terrain[i]) diff++;
+        CHECKF(diff == 0, "the same floor regenerates identically",
+               "depth %d: %d cells differ on the second visit", depth, diff);
+        CHECKF(g_lv.up_x && g_lv.down_x, "the stairs are where they were",
+               "depth %d", depth);
+        (void)mon1; (void)item1;
+    }
+
+    /* ...but a DIFFERENT depth, and a different world, are different places */
+    {
+        fresh_player();
+        g_world_seed = 31337; g_seed = 11;
+        g_pl.depth = 5; rl_gen_level(5);
+        memcpy(first, g_lv.terrain, sizeof first);
+        g_pl.depth = 6; rl_gen_level(6);
+        int diff = 0;
+        for (int i = 0; i < MW * MH; i++) if (first[i] != g_lv.terrain[i]) diff++;
+        CHECKF(diff > 200, "a different floor is a different place",
+               "only %d cells differ between depth 5 and 6", diff);
+
+        g_world_seed = 900001; g_pl.depth = 5; rl_gen_level(5);
+        diff = 0;
+        for (int i = 0; i < MW * MH; i++) if (first[i] != g_lv.terrain[i]) diff++;
+        CHECKF(diff > 200, "a different world is a different place",
+               "only %d cells differ across worlds", diff);
+    }
+
+    /* and the contents DO change, or coming back is farming a cleared floor */
+    {
+        int varied = 0;
+        for (int t = 0; t < 12; t++) {
+            fresh_player();
+            g_world_seed = 4242; g_seed = 500u + (uint32_t)t * 977u;
+            g_pl.depth = 8;
+            rl_gen_level(8);
+            int sig = g_lv.n_mon * 1000 + g_lv.n_item;
+            static int prev; 
+            if (t && sig != prev) varied = 1;
+            prev = sig;
+        }
+        CHECKF(varied, "what stands in it is rolled fresh each visit",
+               "twelve visits produced identical contents");
+    }
+}
+
 static void test_levers(void) {
     group("levers");
 
@@ -2286,6 +2354,7 @@ int main(int argc, char **argv) {
     test_ranged();
     test_overworld();
     test_levers();
+    test_persistence();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);
