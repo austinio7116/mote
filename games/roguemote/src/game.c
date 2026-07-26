@@ -233,6 +233,13 @@ static void enter_depth(int d) {
         rl_fov();
         rl_msgf("Level %d.", d);
     }
+
+    /* The stairs are the checkpoint. Without this the game only reached disk
+     * when you happened to close the menu, leave a shop or pay for a bed --
+     * so descending five floors and putting the handheld down lost all five
+     * exploration maps, and the save still named a floor you had long left. */
+    rl_save();
+    s_have_save = 1;
 }
 
 /* A: whatever the tile under you offers. One button, context-sensitive, is the
