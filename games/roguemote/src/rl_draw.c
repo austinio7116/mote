@@ -88,12 +88,16 @@ const MoteImage *rl_sheet(int id) {
 
 /* Wall identity per depth band -- descending should LOOK like descending.
  * See DESIGN.md section 3. */
+/* Four filled blob47 sets across the forty floors. The fifth band used to be
+ * wall_plaster, which is EDGE16 line art -- sixteen cells of bars and junctions
+ * for drawing a floor plan, handed to a consumer indexing forty-seven. Below
+ * floor 33 the walls came out as unrelated fragments. A mass wall needs a mass
+ * tileset; plaster stays in the atlas for line work. */
 static const MoteAutotile *wall_for_depth(int d) {
-    if (d <= 8)  return &wall_brick_at;
-    if (d <= 16) return &wall_bone_at;
-    if (d <= 24) return &wall_marble_at;
-    if (d <= 32) return &wall_aztec_at;
-    return &wall_plaster_at;
+    if (d <= 10) return &wall_brick_at;
+    if (d <= 20) return &wall_bone_at;
+    if (d <= 30) return &wall_marble_at;
+    return &wall_aztec_at;
 }
 /* One floor for the whole dungeon, and a dark one. The walls are busy textures
  * at every depth, so anything but a near-black floor leaves the room boundary

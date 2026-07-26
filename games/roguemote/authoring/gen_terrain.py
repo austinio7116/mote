@@ -27,23 +27,37 @@ TS = mp.TS
 PAL = mp.PAL
 TRANSPARENT = mp.TRANSPARENT
 
+# The body colour poured under an outline band. PICO-8 grey-brown over navy is
+# exactly what wall_brick is made of, and brick is the one set that has always
+# read correctly against the near-black cobble floor -- so the outline walls
+# borrow its mass and keep their own trim.
+WALL_BODY = (95, 87, 79, 255)
+
 TERRAINS = {
     # The sheet stacks six bands three rows apart, alternating a solid-interior
-    # terrain with a hollow-interior one (an outline style whose middle is meant
-    # to show through). The hollow ones are 46/47: their interior cell is blank
-    # by design, declared here rather than shipped silently.
+    # terrain with an OUTLINE one -- line art whose middle is void.
+    #
+    # An outline band is fine for a hedge, and wrong for a dungeon wall. Left as
+    # drawn, wall_bone is 56% transparent, so a wall MASS renders as white pipes
+    # floating over the floor: the rim art is all there is, and the inside of the
+    # rock is a hole you can see the ground through. That is what floors 9-32
+    # looked like, and declaring cell 46 a "hole" only named the symptom -- every
+    # cell in those bands is hollow, not just the fully-surrounded one.
+    #
+    # `body` pours a fill under the whole band before the trim is composited, so
+    # the outline becomes the EDGE of a solid wall instead of the whole of it.
     "hedge":        dict(at=(0, 29), edge=0, holes=(),
                          note="garden hedge maze; draws its own rim at the map border"),
-    "wall_bone":    dict(at=(0, 32), edge=1, holes=(46,),
-                         note="cream/bone outline wall; hollow interior"),
+    "wall_bone":    dict(at=(0, 32), edge=1, holes=(), body=WALL_BODY,
+                         note="cream/bone trim on stone"),
     "wall_brick":   dict(at=(0, 35), edge=1, holes=(),
                          note="dungeon stone-brick; seamless at the map border"),
-    "wall_marble":  dict(at=(0, 38), edge=1, holes=(46,),
-                         note="white marble/temple wall with navy trim; hollow interior"),
+    "wall_marble":  dict(at=(0, 38), edge=1, holes=(), body=WALL_BODY,
+                         note="white marble/temple trim with navy inlay, on stone"),
     "floor_jungle": dict(at=(0, 41), edge=0, holes=(),
                          note="jungle grass with dirt sides and gold steps"),
-    "wall_aztec":   dict(at=(0, 44), edge=1, holes=(46,),
-                         note="aztec temple facade; hollow interior"),
+    "wall_aztec":   dict(at=(0, 44), edge=1, holes=(), body=WALL_BODY,
+                         note="aztec temple facade on stone"),
 
     # The monochrome bands are line art, not filled terrain, so they are EDGE16
     # (4-cardinal connections: bars, corners, T-junctions, crosses, ends) rather
@@ -95,7 +109,11 @@ def build(name, spec):
     c0, r0 = spec["at"]
     tiles = mp.band_tiles(c0, r0)
     blank = [cell for cell, g in tiles.items() if all(v == 0 for row in g for v in row)]
-    undeclared = sorted(set(blank) - set(spec.get("holes", ())))
+    # A declared body fills every blank cell with solid mass, which is precisely
+    # what the fully-surrounded interior cell wants -- so a body answers the
+    # blank-cell check the same way an explicit hole does.
+    undeclared = [] if spec.get("body") else \
+        sorted(set(blank) - set(spec.get("holes", ())))
     if undeclared:
         raise SystemExit(
             f"{name}: band at {(c0, r0)} has {len(undeclared)} undeclared blank cell(s) "
@@ -104,8 +122,15 @@ def build(name, spec):
     where = {m: (c0 + inv[i][0], r0 + inv[i][1]) for i, m in enumerate(blob47.CANON)}
     grids = [tiles[i] for i in range(47)]
     sheet = Image.new("RGBA", (47 * TS, TS))
+    body = spec.get("body")
     for i, g in enumerate(grids):
-        sheet.paste(to_rgba(g), (i * TS, 0))
+        cell = to_rgba(g)
+        if body:
+            # under, not over: the trim has to stay on top of its own mass
+            slab = Image.new("RGBA", (TS, TS), body)
+            slab.alpha_composite(cell)
+            cell = slab
+        sheet.paste(cell, (i * TS, 0))
     return sheet, grids, where
 
 

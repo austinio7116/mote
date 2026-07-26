@@ -18,6 +18,9 @@ MOTE_GAME_VERSION("0.4.0");
 MOTE_MODULE_HEADER();
 #endif
 
+#if MOTE_HOST
+#include <stdlib.h>      /* getenv/atoi, for the host-only depth hook */
+#endif
 #include "rl.h"
 #include "rogue8.font.h"
 
@@ -95,6 +98,8 @@ static const int DY[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
 #define ROWS    10
 
 /* --- new game ----------------------------------------------------------- */
+static void enter_depth(int d);
+
 static void new_game(int cls) {
     /* the title screen advances s_entropy every frame, so the moment the
      * player commits is itself the seed -- no clock API needed */
@@ -135,6 +140,30 @@ static void new_game(int cls) {
     rl_gen_overworld();
     rl_shop_restock();
     rl_msg2("A ", ck->name);
+
+#if MOTE_HOST
+    /* Host-only: MOTE_RL_DEPTH=n drops a new character straight onto floor n,
+     * and MOTE_RL_LEVEL=n starts them at experience level n so they survive
+     * long enough to look at it. There is no other way to see what floor 30
+     * renders like without playing to floor 30, which is why the hollow-wall
+     * bug on the deep tilesets went unlooked-at for so long. Never compiled
+     * into a device build. */
+    {
+        const char *d = getenv("MOTE_RL_DEPTH");
+        const char *l = getenv("MOTE_RL_LEVEL");
+        if (l) {
+            int want = atoi(l);
+            while (g_pl.level < want && g_pl.level < 50) rl_gain_xp(g_pl.xp + 20);
+        }
+        if (d) {
+            int depth = atoi(d);
+            if (depth > 0) {
+                g_pl.deepest = (uint8_t)depth;
+                enter_depth(depth);
+            }
+        }
+    }
+#endif
 }
 
 /* --- one player action --------------------------------------------------- */
