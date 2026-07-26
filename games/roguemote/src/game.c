@@ -244,6 +244,15 @@ static void act_context(void) {
          * back down is not a decision, it is a chore */
         enter_depth(g_pl.deepest > 0 ? g_pl.deepest : 1);
         break;
+    case T_TOWER: {
+        /* A tower is a shaft, not a slope: it drops you straight to a floor set
+         * by how far out it stands. A cave mouth returns you to the depth you
+         * earned; a tower sells you a head start on it. */
+        int d = rl_tower_depth(g_pl.x, g_pl.y);
+        rl_msgf("The shaft drops to floor %d.", d);
+        enter_depth(d);
+        break;
+    }
     case T_CHEST:       rl_open_chest(g_pl.x, g_pl.y); break;
     case T_CHEST_OPEN:  rl_msg("The chest is empty."); break;
     default: rl_msg("Nothing here."); break;
@@ -855,6 +864,8 @@ static void draw_worldmap(uint16_t *fb) {
         rl_text(fb, "town", 9, 115, COL_DIM);
         mote->draw_rect(fb, 34, 115, 4, 4, MOTE_RGB565(240, 90, 60), 1, 0, MOTE_FB_H);
         rl_text(fb, "cave", 40, 115, COL_DIM);
+        mote->draw_rect(fb, 65, 115, 4, 4, MOTE_RGB565(120, 230, 255), 1, 0, MOTE_FB_H);
+        rl_text(fb, "tower", 71, 115, COL_DIM);
     }
     footer(fb, "LB/RB page   MENU out");
 }

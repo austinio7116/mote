@@ -18,7 +18,21 @@ uint32_t g_world_seed = 1;
  * search over the whole map. */
 static uint8_t s_town_x, s_town_y;              /* centre */
 static uint8_t s_town_x0, s_town_y0, s_town_x1, s_town_y1;
-static uint8_t s_shop_x[SHOP_N], s_shop_y[SHOP_N];
+/* Shop DOORWAYS, not shops. The six traders are global -- one stock list each --
+ * but a door is a place, and now more than one settlement has them: the walled
+ * town keeps all six, and each outlying town puts two or three of the same
+ * traders on its street. So the map is (x, y) -> shop index, many to one. */
+#define SHOP_SITES 28
+static uint8_t s_site_x[SHOP_SITES], s_site_y[SHOP_SITES], s_site_shop[SHOP_SITES];
+static uint8_t s_n_site;
+
+static void add_shop_site(int x, int y, int shop) {
+    if (s_n_site >= SHOP_SITES) return;
+    s_site_x[s_n_site] = (uint8_t)x;
+    s_site_y[s_n_site] = (uint8_t)y;
+    s_site_shop[s_n_site] = (uint8_t)shop;
+    s_n_site++;
+}
 
 int rl_in_town(void) {
     return g_pl.depth == 0 &&
@@ -26,9 +40,24 @@ int rl_in_town(void) {
            g_pl.y >= s_town_y0 && g_pl.y <= s_town_y1;
 }
 
+/* How deep a tower's shaft goes: set by how far from town it stands, so the
+ * world map is worth reading before you set out and the geography IS the
+ * difficulty gradient. Capped to six floors past your best, which keeps a tower
+ * a shortcut rather than a way for a level-one character to walk somewhere
+ * pretty and fall thirty floors. */
+int rl_tower_depth(int x, int y) {
+    int dx = x - s_town_x, dy = y - s_town_y;
+    int d = (dx * dx + dy * dy) / 900;
+    if (d < 2) d = 2;
+    int cap = (int)g_pl.deepest + 6;
+    if (d > cap) d = cap;
+    if (d > 40) d = 40;
+    return d;
+}
+
 int rl_shop_at(int x, int y) {
-    for (int i = 0; i < SHOP_N; i++)
-        if (s_shop_x[i] == x && s_shop_y[i] == y) return i;
+    for (int i = 0; i < s_n_site; i++)
+        if (s_site_x[i] == x && s_site_y[i] == y) return s_site_shop[i];
     return -1;
 }
 
@@ -158,6 +187,15 @@ static int town_r2(int cx, int cy, int x, int y) {
 }
 
 static void build_town(int cx, int cy) {
+    /* The continent is rebuilt from the world seed every time you surface, so
+     * the shop table has to start empty each time. Left to accumulate it filled
+     * with the doorways of previous worlds after two or three trips, and then
+     * refused to register any more -- so the outlying towns silently stopped
+     * having shops and rl_shop_at() answered from a map that no longer existed.
+     * This is the first thing that registers a door, so it is where the reset
+     * belongs. */
+    s_n_site = 0;
+
     if (cx < TR_X + 3) cx = TR_X + 3;
     if (cy < TR_Y + 3) cy = TR_Y + 3;
     if (cx > MW - TR_X - 4) cx = MW - TR_X - 4;
@@ -278,12 +316,12 @@ static void build_town(int cx, int cy) {
             if (g_lv.terrain[p] != T_FLOOR) continue;
             int near = 0;                       /* keep the fronts apart */
             for (int k = 0; k < placed; k++) {
-                int dx = s_shop_x[k] - x, dy = s_shop_y[k] - y;
+                int dx = s_site_x[k] - x, dy = s_site_y[k] - y;
                 if (dx * dx + dy * dy < step * step * 4) { near = 1; break; }
             }
             if (near) continue;
             g_lv.terrain[p] = T_SHOP;
-            s_shop_x[placed] = (uint8_t)x; s_shop_y[placed] = (uint8_t)y;
+            add_shop_site(x, y, placed);
             placed++;
         }
     }
@@ -295,7 +333,7 @@ static void build_town(int cx, int cy) {
             if (!rl_in(x, y) || !s_inside[y * MW + x]) continue;
             if (g_lv.terrain[y * MW + x] != T_FLOOR) continue;
             g_lv.terrain[y * MW + x] = T_SHOP;
-            s_shop_x[placed] = (uint8_t)x; s_shop_y[placed] = (uint8_t)y;
+            add_shop_site(x, y, placed);
             placed++;
         }
     }
@@ -417,33 +455,83 @@ void rl_gen_overworld(void) {
         }
     }
 
-    /* --- villages -------------------------------------------------------
-     * A four-times-bigger continent with one town on it is mostly emptiness.
-     * A village is a handful of cottages and an inn around a scrap of road --
-     * no shops, so it does not dilute the town, but somewhere to rest, and a
-     * landmark that means the far side of the map is somewhere rather than
-     * more grass. */
+    /* --- outlying towns ---------------------------------------------------
+     * The walled town is the capital and keeps all six traders. These are the
+     * other places people live: no wall, because a wall is a thing you build
+     * when you are worth attacking, and these are a street with houses either
+     * side. Two or three of the same six traders keep a door here, so a town on
+     * the far side of the map is somewhere you can actually outfit from rather
+     * than a diorama.
+     *
+     * The shop table is many-to-one now: the trader is global, the doorway is a
+     * place, and the same trader can have a door in two towns. */
     for (int v = 0, want = 2 + rl_range(3); v < want; v++) {
-        for (int tries = 0; tries < 300; tries++) {
-            int x = 8 + rl_range(MW - 16), y = 7 + rl_range(MH - 14);
+        for (int tries = 0; tries < 400; tries++) {
+            int x = 10 + rl_range(MW - 20), y = 8 + rl_range(MH - 16);
             int dx = x - tx, dy = y - ty;
-            if (dx * dx + dy * dy < 900) continue;      /* well clear of the town */
+            if (dx * dx + dy * dy < 1100) continue;     /* well clear of the capital */
+            int half = 4 + rl_range(3);                 /* half the street's length */
             int ok = 1;
-            for (int j = y - 3; j <= y + 3 && ok; j++)
-                for (int k = x - 4; k <= x + 4 && ok; k++)
+            for (int j = y - 2; j <= y + 2 && ok; j++)
+                for (int k = x - half - 1; k <= x + half + 1 && ok; k++)
                     if (!rl_in(k, j) || g_lv.terrain[j * MW + k] != T_FLOOR) ok = 0;
             if (!ok) continue;
 
-            for (int k = x - 3; k <= x + 3; k++) g_lv.terrain[y * MW + k] = T_ROAD;
+            /* the street */
+            for (int k = x - half; k <= x + half; k++) g_lv.terrain[y * MW + k] = T_ROAD;
             g_lv.terrain[y * MW + x] = T_INN;
-            for (int c = 0, huts = 3 + rl_range(3); c < huts; c++) {
-                int hx = x - 3 + rl_range(7);
-                int hy = y + (rl_pct(50) ? -1 : 1);
-                if (rl_in(hx, hy) && g_lv.terrain[hy * MW + hx] == T_FLOOR)
-                    g_lv.terrain[hy * MW + hx] = T_TOWN;
+
+            /* Houses and shopfronts down both sides, every door on the road.
+             * `taken` keeps one town from putting the same trader behind two of
+             * its own doors -- three doors to the alchemist and none to the
+             * smith is a town with one shop and a decorating problem. */
+            int taken = 0;
+            for (int k = x - half; k <= x + half; k++) {
+                if (k == x) continue;
+                for (int side = -1; side <= 1; side += 2) {
+                    int hy = y + side;
+                    if (!rl_in(k, hy) || g_lv.terrain[hy * MW + k] != T_FLOOR) continue;
+                    if (rl_pct(14) && s_n_site < SHOP_SITES) {
+                        int shop = -1;
+                        for (int a = 0; a < 12 && shop < 0; a++) {
+                            int c = rl_range(SHOP_N);
+                            if (!(taken & (1 << c))) shop = c;
+                        }
+                        if (shop >= 0) {
+                            taken |= 1 << shop;
+                            g_lv.terrain[hy * MW + k] = T_SHOP;
+                            add_shop_site(k, hy, shop);
+                            continue;
+                        }
+                    }
+                    if (rl_pct(70)) g_lv.terrain[hy * MW + k] = T_TOWN;
+                }
             }
             break;
         }
+    }
+
+    /* --- towers -----------------------------------------------------------
+     * The other way underground, and the one you can see coming. A cave mouth
+     * is a hole in the ground that reads as scenery until you are on it; a
+     * tower is a landmark, and its shaft goes deeper the further out it stands
+     * (see rl_tower_depth), so the map has a difficulty gradient drawn on it.
+     * They stand on high ground where there is any -- a tower in a hollow is a
+     * tower nobody sees. */
+    for (int i = 0, towers = 3 + rl_range(3); i < towers; i++) {
+        int bx = -1, by = -1, best = -1;
+        for (int tries = 0; tries < 500; tries++) {
+            int x = 6 + rl_range(MW - 12), y = 6 + rl_range(MH - 12);
+            uint8_t t = g_lv.terrain[y * MW + x];
+            if (t != T_FLOOR && t != T_HILL) continue;
+            int dx = x - tx, dy = y - ty;
+            int d = dx * dx + dy * dy;
+            if (d < 700) continue;                      /* not on the doorstep */
+            /* prefer high ground, and prefer further out */
+            int score = d + (t == T_HILL ? 4000 : 0);
+            if (score > best) { best = score; bx = x; by = y; }
+        }
+        if (bx >= 0) g_lv.terrain[by * MW + bx] = T_TOWER;
     }
 
     /* --- roads ------------------------------------------------------------

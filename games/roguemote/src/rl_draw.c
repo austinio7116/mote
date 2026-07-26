@@ -88,6 +88,11 @@ const MoteImage *rl_sheet(int id) {
  * field; gold does not, and a landmark you have to hunt for on a 16x13 viewport
  * is a landmark that does not work. */
 #define SPR_CAVE_MOUTH    2     /* stairs (4,0): gold */
+/* A tower is the other way underground. props_light (2,9) -- battlements over a
+ * pale stone shaft with an archway cut in it -- reads as a doorway at 8px in a
+ * way a hole in the ground does not, and it is tall enough to be a landmark
+ * across a 128x96 continent. */
+#define SPR_TOWER        32     /* props_light (2,9): stone tower */
 
 /* Wall identity per depth band -- descending should LOOK like descending.
  * See DESIGN.md section 3. */
@@ -384,6 +389,7 @@ void rl_draw_scene(void) {
                 break;
             }
             case T_DUNGEON_MOUTH:sheet = SH_STAIRS;   cell = SPR_CAVE_MOUTH; break;
+            case T_TOWER:       sheet = SH_PROPS;    cell = SPR_TOWER;      break;
             /* Rubble gets its own stone on top of whatever it is standing on:
              * underground the wall layer is drawn beneath it, on the surface it
              * is a fallen block on grass. Either way it must not look like plain
@@ -516,6 +522,9 @@ void rl_draw_map(uint16_t *fb, int y0) {
             case T_ROAD:          c = MOTE_RGB565(140, 120, 100); break;
             case T_CHEST:         c = MOTE_RGB565(255, 160, 40); break;
             case T_DUNGEON_MOUTH: c = MOTE_RGB565(240, 90, 60);  break;
+            /* cyan, and nothing else on the surface is: at one pixel a cell a
+             * tower has to be findable by colour alone */
+            case T_TOWER:         c = MOTE_RGB565(120, 230, 255); break;
             case T_WALL:
             case T_RUBBLE:        c = MOTE_RGB565(64, 60, 84);   break;
             case T_STAIR_DOWN:    c = MOTE_RGB565(240, 90, 60);  break;

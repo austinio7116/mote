@@ -26,7 +26,7 @@ int rl_walkable(int x, int y) {
     case T_TREE:  case T_HILL:      case T_TOWN:
     case T_DUNGEON_MOUTH: case T_SHOP:
     case T_CHEST: case T_CHEST_OPEN:
-    case T_ROAD:  case T_INN:
+    case T_ROAD:  case T_INN:  case T_TOWER:
         return 1;
     default:
         return 0;

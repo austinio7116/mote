@@ -1526,6 +1526,85 @@ static void test_ranged(void) {
 }
 
 /* =========================================================================
+ * 16. The overworld
+ * ====================================================================== */
+static void test_overworld(void) {
+    group("world");
+
+    int min_mouth = 999, min_tower = 999, min_inn = 999, min_shop = 999;
+    for (int seed = 1; seed <= 30; seed++) {
+        fresh_player();
+        g_pl.depth = 0;
+        g_pl.wx = g_pl.wy = 0;
+        g_world_seed = 4000u + (uint32_t)seed * 131u;
+        g_seed = 77u + (uint32_t)seed;
+        rl_gen_overworld();
+
+        int n[T_COUNT];
+        memset(n, 0, sizeof n);
+        for (int i = 0; i < MW * MH; i++) n[g_lv.terrain[i]]++;
+
+        if (n[T_DUNGEON_MOUTH] < min_mouth) min_mouth = n[T_DUNGEON_MOUTH];
+        if (n[T_TOWER] < min_tower) min_tower = n[T_TOWER];
+        if (n[T_INN]   < min_inn)   min_inn   = n[T_INN];
+        if (n[T_SHOP]  < min_shop)  min_shop  = n[T_SHOP];
+
+        /* the player must arrive somewhere they can stand */
+        CHECKF(rl_walkable(g_pl.x, g_pl.y), "the arrival tile is walkable",
+               "seed %d put the player on terrain %d at %d,%d",
+               seed, rl_ter(g_pl.x, g_pl.y), g_pl.x, g_pl.y);
+
+        /* every shop doorway must answer, or a trader exists that cannot be
+         * reached -- which is what a stale site table did */
+        for (int y = 0; y < MH; y++)
+            for (int x = 0; x < MW; x++) {
+                if (g_lv.terrain[y * MW + x] != T_SHOP) continue;
+                int sh = rl_shop_at(x, y);
+                CHECKF(sh >= 0 && sh < SHOP_N, "a shop door names a real trader",
+                       "seed %d door at %d,%d answered %d", seed, x, y, sh);
+            }
+
+        /* towers: bounded, and never deeper than a shortcut */
+        for (int y = 0; y < MH; y++)
+            for (int x = 0; x < MW; x++) {
+                if (g_lv.terrain[y * MW + x] != T_TOWER) continue;
+                int d = rl_tower_depth(x, y);
+                CHECKF(d >= 2 && d <= 40, "a tower's shaft is a real depth",
+                       "seed %d tower at %d,%d goes to %d", seed, x, y, d);
+                CHECKF(d <= (int)g_pl.deepest + 6, "a tower is a shortcut, not a pit",
+                       "seed %d: depth %d against deepest %d", seed, d, g_pl.deepest);
+                CHECKF(rl_walkable(x, y), "a tower can be walked into", "seed %d", seed);
+            }
+    }
+
+    CHECKF(min_mouth >= 6, "every continent has cave mouths", "worst seed had %d", min_mouth);
+    CHECKF(min_tower >= 1, "every continent has a tower", "worst seed had %d", min_tower);
+    CHECKF(min_inn   >= 2, "every continent has inns", "worst seed had %d", min_inn);
+    CHECKF(min_shop  >= SHOP_N, "the capital's traders all have doors",
+           "worst seed had %d doors for %d traders", min_shop, SHOP_N);
+
+    /* A tower further from town goes deeper -- the geography IS the difficulty
+     * gradient, and if it is not monotone the world map says nothing. */
+    {
+        fresh_player();
+        g_pl.deepest = 40;                    /* lift the shortcut cap out of the way */
+        g_world_seed = 5150; g_seed = 21;
+        rl_gen_overworld();
+        int near_d = -1, far_d = -1, near_r = 1 << 30, far_r = -1;
+        for (int y = 0; y < MH; y++)
+            for (int x = 0; x < MW; x++) {
+                if (g_lv.terrain[y * MW + x] != T_TOWER) continue;
+                int dx = x - g_pl.x, dy = y - g_pl.y, r = dx * dx + dy * dy;
+                if (r < near_r) { near_r = r; near_d = rl_tower_depth(x, y); }
+                if (r > far_r)  { far_r = r;  far_d  = rl_tower_depth(x, y); }
+            }
+        if (near_d >= 0 && far_d >= 0 && near_r != far_r)
+            CHECKF(far_d >= near_d, "a further tower goes deeper",
+                   "nearest %d, furthest %d", near_d, far_d);
+    }
+}
+
+/* =========================================================================
  * 14. The economy: rarity, pricing, and mods that do something
  * ====================================================================== */
 static int find_mon_with(int flag, int without) {
@@ -2103,6 +2182,7 @@ int main(int argc, char **argv) {
     test_starting_kit();
     test_economy();
     test_ranged();
+    test_overworld();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);

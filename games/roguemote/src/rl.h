@@ -34,7 +34,7 @@ enum {
     T_STAIR_DOWN, T_STAIR_UP, T_RUBBLE,
     T_TREE, T_HILL, T_MOUNTAIN, T_TOWN, T_DUNGEON_MOUTH, T_SHOP,
     T_CHEST, T_CHEST_OPEN,
-    T_TOWN_WALL, T_ROAD, T_INN,
+    T_TOWN_WALL, T_ROAD, T_INN, T_TOWER,
     T_COUNT
 };
 enum { CF_KNOWN = 1, CF_VISIBLE = 2, CF_ROOM = 4 };
@@ -423,7 +423,8 @@ int  rl_shop_price(const Item *it, int shop);
 int  rl_shop_buy(int shop, int slot);
 int  rl_shop_sell(int slot);
 int  rl_in_town(void);
-int  rl_shop_at(int x, int y);        /* shop index on that tile, or -1 */
+int  rl_shop_at(int x, int y);
+int  rl_tower_depth(int x, int y);        /* shop index on that tile, or -1 */
 
 /* --- save --------------------------------------------------------------- */
 void rl_save(void);
