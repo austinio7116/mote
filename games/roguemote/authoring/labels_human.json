@@ -104,6 +104,41 @@
 "cat": "prop",
 "name": "tombstone"
 },
+"16,10": {
+"by": "user",
+"cat": "consumable",
+"name": "mushroom"
+},
+"16,16": {
+"by": "user",
+"cat": "treasure",
+"name": "gold coin"
+},
+"16,19": {
+"by": "user",
+"cat": "treasure",
+"name": "white cut gem"
+},
+"16,23": {
+"by": "user",
+"cat": "armor",
+"name": "steel helm"
+},
+"17,10": {
+"by": "user",
+"cat": "consumable",
+"name": "toadstool"
+},
+"17,16": {
+"by": "user",
+"cat": "treasure",
+"name": "gold coins"
+},
+"17,22": {
+"by": "user",
+"cat": "treasure",
+"name": "silver cap helmet"
+},
 "17,8": {
 "by": "user",
 "cat": "consumable",
@@ -119,10 +154,20 @@
 "cat": "consumable",
 "name": "egg"
 },
+"19,23": {
+"by": "user",
+"cat": "armor",
+"name": "white mage hat"
+},
 "19,5": {
 "by": "user",
 "cat": "treasure",
 "name": "open gift"
+},
+"19,9": {
+"by": "user",
+"cat": "consumable",
+"name": "apple core"
 },
 "2,7": {
 "by": "user",
@@ -138,6 +183,11 @@
 "by": "user",
 "cat": "feature",
 "name": "stone tower"
+},
+"20,23": {
+"by": "user",
+"cat": "armor",
+"name": "hood"
 },
 "20,5": {
 "by": "user",
@@ -179,6 +229,36 @@
 "cat": "consumable",
 "name": "bomb (large)"
 },
+"25,16": {
+"by": "user",
+"cat": "treasure",
+"name": "emerald"
+},
+"25,19": {
+"by": "user",
+"cat": "armor",
+"name": "blue cut gem"
+},
+"25,29": {
+"by": "user",
+"cat": "weapon",
+"name": "bow"
+},
+"26,16": {
+"by": "user",
+"cat": "treasure",
+"name": "ruby"
+},
+"26,29": {
+"by": "user",
+"cat": "weapon",
+"name": "crossbow"
+},
+"27,29": {
+"by": "user",
+"cat": "weapon",
+"name": "bow"
+},
 "3,7": {
 "by": "user",
 "cat": "prop",
@@ -194,6 +274,121 @@
 "cat": "prop",
 "name": "hay"
 },
+"30,29": {
+"by": "user",
+"cat": "weapon",
+"name": "flail"
+},
+"32,0": {
+"by": "user",
+"cat": "player",
+"name": "@ player glyph"
+},
+"32,1": {
+"by": "user",
+"cat": "player",
+"name": "barbarian"
+},
+"32,3": {
+"by": "user",
+"cat": "player",
+"name": "child"
+},
+"33,0": {
+"by": "user",
+"cat": "player",
+"name": "adventurer (blue hair)"
+},
+"33,1": {
+"by": "user",
+"cat": "player",
+"name": "druid/elf (green tunic, red flower)"
+},
+"33,3": {
+"by": "user",
+"cat": "player",
+"name": "teen"
+},
+"34,0": {
+"by": "user",
+"cat": "player",
+"name": "mage"
+},
+"34,1": {
+"by": "user",
+"cat": "npc",
+"name": "king (gold crown)"
+},
+"34,3": {
+"by": "user",
+"cat": "npc",
+"name": "adult"
+},
+"35,0": {
+"by": "user",
+"cat": "player",
+"name": "knight (gold/navy armour)"
+},
+"35,1": {
+"by": "user",
+"cat": "player",
+"name": "monk"
+},
+"35,3": {
+"by": "user",
+"cat": "npc",
+"name": "sage/old man (grey hair, brown robe)"
+},
+"36,0": {
+"by": "user",
+"cat": "player",
+"name": "knight (navy/silver armour)"
+},
+"36,1": {
+"by": "user",
+"cat": "npc",
+"name": "villager (blonde)"
+},
+"36,3": {
+"by": "user",
+"cat": "npc",
+"name": "adult (blonde, green tunic)"
+},
+"37,0": {
+"by": "user",
+"cat": "player",
+"name": "rogue/ninja (navy hood)"
+},
+"37,1": {
+"by": "user",
+"cat": "npc",
+"name": "villager (brown/grey hair)"
+},
+"37,3": {
+"by": "user",
+"cat": "npc",
+"name": "dwarf"
+},
+"38,0": {
+"by": "user",
+"cat": "player",
+"name": "bard"
+},
+"38,1": {
+"by": "user",
+"cat": "npc",
+"name": "villager (brown hair)"
+},
+"39,0": {
+"by": "user",
+"cat": "player",
+"name": "sorcerer"
+},
+"39,1": {
+"by": "user",
+"cat": "npc",
+"name": "villager (blonde, orange tunic)"
+},
 "4,7": {
 "by": "user",
 "cat": "prop",
@@ -208,6 +403,16 @@
 "by": "user",
 "cat": "furniture",
 "name": "throne"
+},
+"40,0": {
+"by": "user",
+"cat": "npc",
+"name": "priest"
+},
+"40,1": {
+"by": "user",
+"cat": "player",
+"name": "ranger"
 },
 "40,33": {
 "by": "user",
@@ -229,6 +434,11 @@
 "cat": "boss",
 "name": "giant green insect"
 },
+"41,0": {
+"by": "user",
+"cat": "player",
+"name": "green skin creature"
+},
 "41,33": {
 "by": "user",
 "cat": "boss",
@@ -248,6 +458,46 @@
 "by": "user",
 "cat": "boss",
 "name": "giant green insect"
+},
+"42,0": {
+"by": "user",
+"cat": "player",
+"name": "rogue"
+},
+"43,0": {
+"by": "user",
+"cat": "enemy",
+"name": "robot"
+},
+"44,0": {
+"by": "user",
+"cat": "enemy",
+"name": "robot/automaton (purple)"
+},
+"44,4": {
+"by": "user",
+"cat": "enemy",
+"name": "small red medusa"
+},
+"45,0": {
+"by": "user",
+"cat": "enemy",
+"name": "robot/automaton (purple)"
+},
+"46,0": {
+"by": "user",
+"cat": "npc",
+"name": "paladin"
+},
+"47,0": {
+"by": "user",
+"cat": "npc",
+"name": "paladin"
+},
+"47,4": {
+"by": "user",
+"cat": "enemy",
+"name": "small medusa"
 },
 "5,7": {
 "by": "user",

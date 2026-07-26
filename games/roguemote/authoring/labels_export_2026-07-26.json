@@ -1,0 +1,10688 @@
+{
+ "version": 1,
+ "source": "simple-roguelike-tileset v0.16 CC0",
+ "tiles": [
+  {
+   "c": 0,
+   "r": 1,
+   "cat": "container",
+   "name": "chest (red, closed)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 1,
+   "cat": "container",
+   "name": "chest (red, open)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 2,
+   "cat": "container",
+   "name": "chest (blue, closed)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 2,
+   "cat": "container",
+   "name": "chest (blue, open)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 3,
+   "cat": "container",
+   "name": "chest (gold, closed)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 3,
+   "cat": "container",
+   "name": "chest (gold, open)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 4,
+   "cat": "container",
+   "name": "chest (green, closed)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 4,
+   "cat": "container",
+   "name": "chest (green, open)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 5,
+   "cat": "container",
+   "name": "chest (silver/white, closed)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 5,
+   "cat": "container",
+   "name": "chest (grey, open)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 1,
+   "cat": "prop",
+   "name": "lever (red, left)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 1,
+   "cat": "prop",
+   "name": "lever (red, up)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 1,
+   "cat": "prop",
+   "name": "lever (red, right)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 2,
+   "cat": "prop",
+   "name": "lever (blue, left)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 2,
+   "cat": "prop",
+   "name": "lever (blue, up)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 2,
+   "cat": "prop",
+   "name": "lever (blue, right)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 3,
+   "cat": "prop",
+   "name": "lever (gold, left)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 3,
+   "cat": "prop",
+   "name": "lever (gold, up)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 3,
+   "cat": "prop",
+   "name": "lever (gold, right)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 4,
+   "cat": "prop",
+   "name": "lever (green, left)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 4,
+   "cat": "prop",
+   "name": "lever (green, up)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 4,
+   "cat": "prop",
+   "name": "lever (green, right)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 5,
+   "cat": "prop",
+   "name": "lever (grey, left)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 5,
+   "cat": "prop",
+   "name": "lever (grey, up)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 5,
+   "cat": "prop",
+   "name": "lever (grey, right)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 1,
+   "cat": "prop",
+   "name": "creature face/mask (red)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 1,
+   "cat": "prop",
+   "name": "skull (red)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 1,
+   "cat": "key",
+   "name": "key (red)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 2,
+   "cat": "prop",
+   "name": "creature face/mask (blue)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 2,
+   "cat": "prop",
+   "name": "skull (blue)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 2,
+   "cat": "key",
+   "name": "key (blue)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 3,
+   "cat": "prop",
+   "name": "creature face/mask (yellow)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 3,
+   "cat": "prop",
+   "name": "skull (yellow)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 3,
+   "cat": "key",
+   "name": "key (gold/yellow)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 4,
+   "cat": "prop",
+   "name": "creature face/mask (green)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 4,
+   "cat": "prop",
+   "name": "skull (green)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 4,
+   "cat": "key",
+   "name": "key (green)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 5,
+   "cat": "prop",
+   "name": "creature face/mask (white/bone)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 5,
+   "cat": "prop",
+   "name": "skull (white/bone)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 5,
+   "cat": "key",
+   "name": "key (white/bone)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 1,
+   "cat": "prop",
+   "name": "rune glyph 'A' (pink)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 1,
+   "cat": "prop",
+   "name": "rune glyph (pink)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 1,
+   "cat": "prop",
+   "name": "rune glyph 'T' (pink)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 2,
+   "cat": "prop",
+   "name": "rune glyph 'A' (blue)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 2,
+   "cat": "prop",
+   "name": "rune glyph (blue)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 2,
+   "cat": "prop",
+   "name": "rune glyph 'T' (blue)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 3,
+   "cat": "prop",
+   "name": "rune glyph 'A' (yellow)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 3,
+   "cat": "prop",
+   "name": "rune glyph (yellow)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 3,
+   "cat": "prop",
+   "name": "rune glyph 'T' (yellow)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 4,
+   "cat": "prop",
+   "name": "rune glyph 'A' (green)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 4,
+   "cat": "prop",
+   "name": "rune glyph (green)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 4,
+   "cat": "prop",
+   "name": "rune glyph 'T' (green)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 0,
+   "cat": "feature",
+   "name": "wooden ladder",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 0,
+   "cat": "feature",
+   "name": "wooden ladder",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 0,
+   "cat": "feature",
+   "name": "wooden ladder",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 0,
+   "cat": "prop",
+   "name": "grey hatch with slot",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 1,
+   "cat": "door",
+   "name": "wooden door (red)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 1,
+   "cat": "door",
+   "name": "open door red",
+   "rev": true
+  },
+  {
+   "c": 13,
+   "r": 1,
+   "cat": "feature",
+   "name": "house/shop (pink/red)",
+   "rev": true
+  },
+  {
+   "c": 14,
+   "r": 1,
+   "cat": "feature",
+   "name": "house extend",
+   "rev": true
+  },
+  {
+   "c": 11,
+   "r": 2,
+   "cat": "door",
+   "name": "wooden door (blue)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 2,
+   "cat": "door",
+   "name": "open door blue",
+   "rev": true
+  },
+  {
+   "c": 13,
+   "r": 2,
+   "cat": "feature",
+   "name": "house/shop (blue)",
+   "rev": true
+  },
+  {
+   "c": 14,
+   "r": 2,
+   "cat": "feature",
+   "name": "house extend",
+   "rev": true
+  },
+  {
+   "c": 11,
+   "r": 3,
+   "cat": "door",
+   "name": "wooden door (gold/yellow)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 3,
+   "cat": "door",
+   "name": "open door gold",
+   "rev": true
+  },
+  {
+   "c": 13,
+   "r": 3,
+   "cat": "feature",
+   "name": "house/shop (gold)",
+   "rev": true
+  },
+  {
+   "c": 14,
+   "r": 3,
+   "cat": "feature",
+   "name": "house extend",
+   "rev": true
+  },
+  {
+   "c": 11,
+   "r": 4,
+   "cat": "door",
+   "name": "wooden door (green)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 4,
+   "cat": "door",
+   "name": "open door green",
+   "rev": true
+  },
+  {
+   "c": 13,
+   "r": 4,
+   "cat": "feature",
+   "name": "house/shop (green)",
+   "rev": true
+  },
+  {
+   "c": 14,
+   "r": 4,
+   "cat": "feature",
+   "name": "house extend",
+   "rev": true
+  },
+  {
+   "c": 11,
+   "r": 5,
+   "cat": "door",
+   "name": "wooden door (grey/white)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 5,
+   "cat": "door",
+   "name": "open door grey/white",
+   "rev": true
+  },
+  {
+   "c": 13,
+   "r": 5,
+   "cat": "feature",
+   "name": "house/shop (grey/white)",
+   "rev": true
+  },
+  {
+   "c": 14,
+   "r": 5,
+   "cat": "feature",
+   "name": "house extend",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 7,
+   "cat": "prop",
+   "name": "computer terminal (blue screen)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 7,
+   "cat": "prop",
+   "name": "computer terminal (green screen)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 7,
+   "cat": "prop",
+   "name": "wooden sign",
+   "rev": true
+  },
+  {
+   "c": 3,
+   "r": 7,
+   "cat": "prop",
+   "name": "wooden sign",
+   "rev": true
+  },
+  {
+   "c": 4,
+   "r": 7,
+   "cat": "prop",
+   "name": "double sign",
+   "rev": true
+  },
+  {
+   "c": 5,
+   "r": 7,
+   "cat": "prop",
+   "name": "wooden sign (solid)",
+   "rev": true
+  },
+  {
+   "c": 6,
+   "r": 7,
+   "cat": "prop",
+   "name": "wooden sign with text",
+   "rev": true
+  },
+  {
+   "c": 7,
+   "r": 7,
+   "cat": "furniture",
+   "name": "wooden barrel",
+   "rev": true
+  },
+  {
+   "c": 8,
+   "r": 7,
+   "cat": "container",
+   "name": "wooden barrel with red liquid",
+   "rev": true
+  },
+  {
+   "c": 9,
+   "r": 7,
+   "cat": "container",
+   "name": "wooden barrel with blue liquid",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track up",
+   "rev": true
+  },
+  {
+   "c": 1,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track sideways",
+   "rev": true
+  },
+  {
+   "c": 2,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 3,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 4,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 5,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 6,
+   "r": 8,
+   "cat": "feature",
+   "name": "station/shop",
+   "rev": true
+  },
+  {
+   "c": 7,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 8,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 9,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 9,
+   "cat": "furniture",
+   "name": "bed",
+   "rev": true
+  },
+  {
+   "c": 1,
+   "r": 9,
+   "cat": "feature",
+   "name": "house",
+   "rev": true
+  },
+  {
+   "c": 2,
+   "r": 9,
+   "cat": "feature",
+   "name": "stone tower",
+   "rev": true
+  },
+  {
+   "c": 3,
+   "r": 9,
+   "cat": "prop",
+   "name": "hay",
+   "rev": true
+  },
+  {
+   "c": 4,
+   "r": 9,
+   "cat": "furniture",
+   "name": "throne",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track up",
+   "rev": true
+  },
+  {
+   "c": 1,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track sideways",
+   "rev": true
+  },
+  {
+   "c": 2,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 3,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 4,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 5,
+   "r": 8,
+   "cat": "floor",
+   "name": "train track corner",
+   "rev": true
+  },
+  {
+   "c": 6,
+   "r": 8,
+   "cat": "feature",
+   "name": "station/shop",
+   "rev": true
+  },
+  {
+   "c": 7,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 8,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 9,
+   "r": 8,
+   "cat": "prop",
+   "name": "lit torch",
+   "rev": true
+  },
+  {
+   "c": 10,
+   "r": 8,
+   "cat": "furniture",
+   "name": "bookshelf",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 8,
+   "cat": "prop",
+   "name": "stone pillars/columns",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 8,
+   "cat": "prop",
+   "name": "fountain/well",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 8,
+   "cat": "prop",
+   "name": "fountain",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 8,
+   "cat": "prop",
+   "name": "candelabra",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 8,
+   "cat": "prop",
+   "name": "tombstone",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 9,
+   "cat": "furniture",
+   "name": "bed",
+   "rev": true
+  },
+  {
+   "c": 1,
+   "r": 9,
+   "cat": "feature",
+   "name": "house",
+   "rev": true
+  },
+  {
+   "c": 2,
+   "r": 9,
+   "cat": "feature",
+   "name": "stone tower",
+   "rev": true
+  },
+  {
+   "c": 3,
+   "r": 9,
+   "cat": "prop",
+   "name": "hay",
+   "rev": true
+  },
+  {
+   "c": 4,
+   "r": 9,
+   "cat": "furniture",
+   "name": "throne",
+   "rev": true
+  },
+  {
+   "c": 0,
+   "r": 10,
+   "cat": "prop",
+   "name": "red slime puddle (large)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 10,
+   "cat": "prop",
+   "name": "red slime puddle (medium)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 10,
+   "cat": "prop",
+   "name": "red slime puddle (small)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 10,
+   "cat": "prop",
+   "name": "blue slime puddle (large)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 10,
+   "cat": "prop",
+   "name": "blue slime puddle (medium)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 10,
+   "cat": "prop",
+   "name": "blue slime puddle (small)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 10,
+   "cat": "prop",
+   "name": "purple slime puddle (large)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 10,
+   "cat": "prop",
+   "name": "purple slime puddle (medium)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 10,
+   "cat": "prop",
+   "name": "purple slime puddle (small)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 10,
+   "cat": "prop",
+   "name": "green slime puddle (large)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 10,
+   "cat": "prop",
+   "name": "green slime puddle (medium)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 10,
+   "cat": "prop",
+   "name": "green slime puddle (small)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 11,
+   "cat": "prop",
+   "name": "pink flower",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 11,
+   "cat": "prop",
+   "name": "pink flowers",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 11,
+   "cat": "prop",
+   "name": "pink flowers",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 11,
+   "cat": "prop",
+   "name": "orange flower",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 11,
+   "cat": "prop",
+   "name": "orange flowers",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 11,
+   "cat": "prop",
+   "name": "orange flowers",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 11,
+   "cat": "prop",
+   "name": "blue flower",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 11,
+   "cat": "prop",
+   "name": "blue flowers",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 11,
+   "cat": "prop",
+   "name": "blue flowers",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 11,
+   "cat": "feature",
+   "name": "reeds",
+   "rev": true
+  },
+  {
+   "c": 10,
+   "r": 11,
+   "cat": "animal",
+   "name": "red snake",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 12,
+   "cat": "ui",
+   "name": "crossed circle",
+   "rev": true
+  },
+  {
+   "c": 1,
+   "r": 12,
+   "cat": "prop",
+   "name": "grey cloud",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 12,
+   "cat": "prop",
+   "name": "grass tuft",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 12,
+   "cat": "prop",
+   "name": "grass sprig",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 12,
+   "cat": "prop",
+   "name": "green bush",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 12,
+   "cat": "prop",
+   "name": "brown rock/boulder",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 12,
+   "cat": "prop",
+   "name": "tree (foliage on trunk)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 12,
+   "cat": "prop",
+   "name": "tree (foliage on trunk)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 12,
+   "cat": "prop",
+   "name": "tree trunk/dead tree",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 12,
+   "cat": "feature",
+   "name": "reeds",
+   "rev": true
+  },
+  {
+   "c": 10,
+   "r": 12,
+   "cat": "prop",
+   "name": "grey rock/cloud",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 0,
+   "cat": "weapon",
+   "name": "red dagger",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 0,
+   "cat": "consumable",
+   "name": "red flask",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 0,
+   "cat": "consumable",
+   "name": "red potion",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 0,
+   "cat": "consumable",
+   "name": "red potion (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 0,
+   "cat": "consumable",
+   "name": "red potion (large flask)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 0,
+   "cat": "consumable",
+   "name": "red potion (small)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 0,
+   "cat": "consumable",
+   "name": "medkit",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 1,
+   "cat": "weapon",
+   "name": "blue dagger",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 1,
+   "cat": "consumable",
+   "name": "blue flask",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 1,
+   "cat": "consumable",
+   "name": "blue potion",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 1,
+   "cat": "consumable",
+   "name": "blue potion (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 1,
+   "cat": "consumable",
+   "name": "blue potion (large flask)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 1,
+   "cat": "consumable",
+   "name": "blue potion (small)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 2,
+   "cat": "weapon",
+   "name": "green dagger",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 2,
+   "cat": "consumable",
+   "name": "green flask",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 2,
+   "cat": "consumable",
+   "name": "green potion",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 2,
+   "cat": "consumable",
+   "name": "green potion (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 2,
+   "cat": "consumable",
+   "name": "green potion (large flask)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 2,
+   "cat": "consumable",
+   "name": "green potion (small)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 3,
+   "cat": "weapon",
+   "name": "iron dagger",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 3,
+   "cat": "consumable",
+   "name": "empty flask",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 3,
+   "cat": "consumable",
+   "name": "empty potion",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 3,
+   "cat": "consumable",
+   "name": "empty potion (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 3,
+   "cat": "consumable",
+   "name": "empty potion (large flask)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 5,
+   "cat": "container",
+   "name": "wooden chest/box",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 5,
+   "cat": "container",
+   "name": "wooden chest/box",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 5,
+   "cat": "treasure",
+   "name": "gift ",
+   "rev": true
+  },
+  {
+   "c": 19,
+   "r": 5,
+   "cat": "treasure",
+   "name": "open gift ",
+   "rev": true
+  },
+  {
+   "c": 20,
+   "r": 5,
+   "cat": "treasure",
+   "name": "gold cross",
+   "rev": true
+  },
+  {
+   "c": 21,
+   "r": 5,
+   "cat": "tool",
+   "name": "microchip",
+   "rev": true
+  },
+  {
+   "c": 22,
+   "r": 5,
+   "cat": "tool",
+   "name": "memory chip ",
+   "rev": true
+  },
+  {
+   "c": 23,
+   "r": 5,
+   "cat": "tool",
+   "name": "resister",
+   "rev": true
+  },
+  {
+   "c": 16,
+   "r": 8,
+   "cat": "consumable",
+   "name": "striped candy",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 8,
+   "cat": "consumable",
+   "name": "green spotted egg ",
+   "rev": true
+  },
+  {
+   "c": 18,
+   "r": 8,
+   "cat": "consumable",
+   "name": "egg",
+   "rev": true
+  },
+  {
+   "c": 19,
+   "r": 8,
+   "cat": "consumable",
+   "name": "bread bun (grey)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 8,
+   "cat": "consumable",
+   "name": "bread loaf (brown)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 8,
+   "cat": "consumable",
+   "name": "cheese wheel",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 8,
+   "cat": "consumable",
+   "name": "fried egg",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 8,
+   "cat": "consumable",
+   "name": "roast meat on plate",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 8,
+   "cat": "prop",
+   "name": "bone",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 8,
+   "cat": "consumable",
+   "name": "fish",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 8,
+   "cat": "prop",
+   "name": "fish bones",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 8,
+   "cat": "consumable",
+   "name": "grilled meat leg",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 9,
+   "cat": "consumable",
+   "name": "red apple",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 9,
+   "cat": "consumable",
+   "name": "berries sprig",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 9,
+   "cat": "consumable",
+   "name": "red apple",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 9,
+   "cat": "consumable",
+   "name": "apple core",
+   "rev": true
+  },
+  {
+   "c": 20,
+   "r": 9,
+   "cat": "consumable",
+   "name": "bananas",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 9,
+   "cat": "consumable",
+   "name": "watermelon slice",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 9,
+   "cat": "consumable",
+   "name": "orange fruit",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 9,
+   "cat": "consumable",
+   "name": "green pepper",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 9,
+   "cat": "consumable",
+   "name": "fried drumstick",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 10,
+   "cat": "consumable",
+   "name": "mushroom",
+   "rev": true
+  },
+  {
+   "c": 17,
+   "r": 10,
+   "cat": "consumable",
+   "name": "toadstool ",
+   "rev": true
+  },
+  {
+   "c": 18,
+   "r": 10,
+   "cat": "consumable",
+   "name": "eggplant",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 10,
+   "cat": "consumable",
+   "name": "carrot",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 10,
+   "cat": "consumable",
+   "name": "radish/beet",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 11,
+   "cat": "consumable",
+   "name": "hamburger",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 11,
+   "cat": "consumable",
+   "name": "raw meat/steak",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 11,
+   "cat": "consumable",
+   "name": "cheese wedge",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 12,
+   "cat": "consumable",
+   "name": "bread loaf/meat",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 12,
+   "cat": "consumable",
+   "name": "pie",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 12,
+   "cat": "consumable",
+   "name": "cheese wedge/banana",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 12,
+   "cat": "consumable",
+   "name": "pie/cake on plate",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 12,
+   "cat": "consumable",
+   "name": "sandwich/wrap",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 13,
+   "cat": "consumable",
+   "name": "fish on plate",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 13,
+   "cat": "consumable",
+   "name": "wrapped candy",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold coin",
+   "rev": true
+  },
+  {
+   "c": 17,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold coins",
+   "rev": true
+  },
+  {
+   "c": 18,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold nugget pile (large)",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold coin/ingot with G emblem",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold nugget (single)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold nugget pile (few)",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 16,
+   "cat": "treasure",
+   "name": "silver ingot/bar",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 16,
+   "cat": "treasure",
+   "name": "blue gem in silver setting",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 16,
+   "cat": "treasure",
+   "name": "emerald ",
+   "rev": true
+  },
+  {
+   "c": 26,
+   "r": 16,
+   "cat": "treasure",
+   "name": "ruby",
+   "rev": true
+  },
+  {
+   "c": 27,
+   "r": 16,
+   "cat": "treasure",
+   "name": "gold shooting star",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 17,
+   "cat": "treasure",
+   "name": "silver ore pile (small)",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 17,
+   "cat": "treasure",
+   "name": "silver ore pile (medium)",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 17,
+   "cat": "treasure",
+   "name": "silver ore pile (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 17,
+   "cat": "treasure",
+   "name": "silver nugget (single)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 17,
+   "cat": "treasure",
+   "name": "silver nugget pile (few)",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 17,
+   "cat": "treasure",
+   "name": "green gem shard",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 17,
+   "cat": "treasure",
+   "name": "gold star",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 18,
+   "cat": "treasure",
+   "name": "copper ore pile (small)",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 18,
+   "cat": "treasure",
+   "name": "copper ore pile (medium)",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 18,
+   "cat": "treasure",
+   "name": "copper ore pile (large)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 18,
+   "cat": "treasure",
+   "name": "copper nugget (single)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 18,
+   "cat": "treasure",
+   "name": "copper nugget pile (few)",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 18,
+   "cat": "treasure",
+   "name": "green gem shard",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 19,
+   "cat": "treasure",
+   "name": "white cut gem ",
+   "rev": true
+  },
+  {
+   "c": 17,
+   "r": 19,
+   "cat": "armor",
+   "name": "dark/navy helmet",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 19,
+   "cat": "armor",
+   "name": "pink helmet",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 19,
+   "cat": "armor",
+   "name": "magenta/red helmet",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 19,
+   "cat": "armor",
+   "name": "orange helmet",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 19,
+   "cat": "armor",
+   "name": "gold helmet",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 19,
+   "cat": "armor",
+   "name": "yellow helmet",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 19,
+   "cat": "armor",
+   "name": "dark green helmet",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 19,
+   "cat": "armor",
+   "name": "green helmet",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 19,
+   "cat": "armor",
+   "name": "blue cut gem",
+   "rev": true
+  },
+  {
+   "c": 26,
+   "r": 19,
+   "cat": "armor",
+   "name": "grey/lavender helmet",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 21,
+   "cat": "furniture",
+   "name": "wooden table",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 21,
+   "cat": "container",
+   "name": "wooden barrel",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 22,
+   "cat": "container",
+   "name": "wooden barrel/keg",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 22,
+   "cat": "treasure",
+   "name": "silver cap helmet",
+   "rev": true
+  },
+  {
+   "c": 19,
+   "r": 22,
+   "cat": "prop",
+   "name": "bones (dark ribs)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 22,
+   "cat": "prop",
+   "name": "bones/skull (dark)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 22,
+   "cat": "prop",
+   "name": "bones (dark)",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 22,
+   "cat": "armor",
+   "name": "round shield (navy)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 22,
+   "cat": "armor",
+   "name": "round shield (brown, gold boss)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 23,
+   "cat": "armor",
+   "name": "steel helm",
+   "rev": true
+  },
+  {
+   "c": 17,
+   "r": 23,
+   "cat": "furniture",
+   "name": "gold-topped table/altar",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 23,
+   "cat": "armor",
+   "name": "white mage hat",
+   "rev": true
+  },
+  {
+   "c": 20,
+   "r": 23,
+   "cat": "armor",
+   "name": "hood",
+   "rev": true
+  },
+  {
+   "c": 22,
+   "r": 23,
+   "cat": "prop",
+   "name": "bones (pale)",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 23,
+   "cat": "prop",
+   "name": "bones/shield fragment (pale)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 23,
+   "cat": "armor",
+   "name": "round shield (navy, boss)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 28,
+   "cat": "weapon",
+   "name": "wand (amber/gold tip)",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 28,
+   "cat": "weapon",
+   "name": "wand (green tip)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 29,
+   "cat": "tool",
+   "name": "iron pickaxe",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 29,
+   "cat": "tool",
+   "name": "gold pickaxe",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 29,
+   "cat": "tool",
+   "name": "iron pickaxe",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 29,
+   "cat": "weapon",
+   "name": "bow",
+   "rev": true
+  },
+  {
+   "c": 26,
+   "r": 29,
+   "cat": "weapon",
+   "name": "crossbow",
+   "rev": true
+  },
+  {
+   "c": 27,
+   "r": 29,
+   "cat": "weapon",
+   "name": "bow",
+   "rev": true
+  },
+  {
+   "c": 28,
+   "r": 29,
+   "cat": "tool",
+   "name": "iron war hammer",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 29,
+   "cat": "tool",
+   "name": "gold pickaxe",
+   "rev": false
+  },
+  {
+   "c": 30,
+   "r": 29,
+   "cat": "weapon",
+   "name": "flail",
+   "rev": true
+  },
+  {
+   "c": 16,
+   "r": 30,
+   "cat": "tool",
+   "name": "silver axe",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 30,
+   "cat": "tool",
+   "name": "iron hatchet (navy grip)",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 30,
+   "cat": "tool",
+   "name": "silver axe (navy grip)",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 30,
+   "cat": "tool",
+   "name": "iron pickaxe",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 30,
+   "cat": "weapon",
+   "name": "wand (purple gem)",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 30,
+   "cat": "weapon",
+   "name": "wand (purple gem)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 30,
+   "cat": "tool",
+   "name": "iron pickaxe (gold head)",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 30,
+   "cat": "tool",
+   "name": "silver mace",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 30,
+   "cat": "tool",
+   "name": "iron maul",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 30,
+   "cat": "weapon",
+   "name": "magic wand (pink tip)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 31,
+   "cat": "weapon",
+   "name": "gold scepter (green gem)",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 31,
+   "cat": "weapon",
+   "name": "gold wand (green tip)",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold staff",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold pickaxe (navy handle)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold axe",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold pickaxe",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold pickaxe (navy handle)",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold mace",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 31,
+   "cat": "tool",
+   "name": "gold maul",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 31,
+   "cat": "tool",
+   "name": "silver pickaxe",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 31,
+   "cat": "tool",
+   "name": "war hammer (gold/silver head)",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 31,
+   "cat": "tool",
+   "name": "iron war hammer (gold trim)",
+   "rev": false
+  },
+  {
+   "c": 28,
+   "r": 31,
+   "cat": "tool",
+   "name": "iron war hammer",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 31,
+   "cat": "weapon",
+   "name": "magic wand (pink tip)",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice sword",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice dagger",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice sword",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice axe",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice spear",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice sword",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice mace",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice shard",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice maul",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 32,
+   "cat": "weapon",
+   "name": "ice sword",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 32,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 32,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 28,
+   "r": 32,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 32,
+   "cat": "weapon",
+   "name": "elemental sword",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire sword",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire dagger",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire sword",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire axe",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire spear",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire sword",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire mace",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire shard",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire maul",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire sword",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 33,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 33,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 28,
+   "r": 33,
+   "cat": "weapon",
+   "name": "bronze sword",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 33,
+   "cat": "weapon",
+   "name": "fire sword",
+   "rev": false
+  },
+  {
+   "c": 30,
+   "r": 33,
+   "cat": "weapon",
+   "name": "steel sword",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 35,
+   "cat": "weapon",
+   "name": "pistol",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 35,
+   "cat": "weapon",
+   "name": "pistol",
+   "rev": false
+  },
+  {
+   "c": 18,
+   "r": 35,
+   "cat": "weapon",
+   "name": "rifle (scoped)",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 35,
+   "cat": "weapon",
+   "name": "rifle",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 35,
+   "cat": "weapon",
+   "name": "rifle",
+   "rev": false
+  },
+  {
+   "c": 21,
+   "r": 35,
+   "cat": "weapon",
+   "name": "rifle",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 35,
+   "cat": "weapon",
+   "name": "pistol",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 0,
+   "cat": "consumable",
+   "name": "scroll",
+   "rev": true
+  },
+  {
+   "c": 25,
+   "r": 0,
+   "cat": "weapon",
+   "name": "arrow",
+   "rev": true
+  },
+  {
+   "c": 24,
+   "r": 1,
+   "cat": "consumable",
+   "name": "bomb (small)",
+   "rev": true
+  },
+  {
+   "c": 25,
+   "r": 1,
+   "cat": "consumable",
+   "name": "bomb (large)",
+   "rev": true
+  },
+  {
+   "c": 32,
+   "r": 0,
+   "cat": "player",
+   "name": "@ player glyph",
+   "rev": true
+  },
+  {
+   "c": 33,
+   "r": 0,
+   "cat": "player",
+   "name": "adventurer (blue hair)",
+   "rev": true
+  },
+  {
+   "c": 34,
+   "r": 0,
+   "cat": "player",
+   "name": "mage",
+   "rev": true
+  },
+  {
+   "c": 35,
+   "r": 0,
+   "cat": "player",
+   "name": "knight (gold/navy armour)",
+   "rev": true
+  },
+  {
+   "c": 36,
+   "r": 0,
+   "cat": "player",
+   "name": "knight (navy/silver armour)",
+   "rev": true
+  },
+  {
+   "c": 37,
+   "r": 0,
+   "cat": "player",
+   "name": "rogue/ninja (navy hood)",
+   "rev": true
+  },
+  {
+   "c": 38,
+   "r": 0,
+   "cat": "player",
+   "name": "bard",
+   "rev": true
+  },
+  {
+   "c": 39,
+   "r": 0,
+   "cat": "player",
+   "name": "sorcerer ",
+   "rev": true
+  },
+  {
+   "c": 40,
+   "r": 0,
+   "cat": "npc",
+   "name": "priest",
+   "rev": true
+  },
+  {
+   "c": 41,
+   "r": 0,
+   "cat": "player",
+   "name": "green skin creature ",
+   "rev": true
+  },
+  {
+   "c": 42,
+   "r": 0,
+   "cat": "player",
+   "name": "rogue",
+   "rev": true
+  },
+  {
+   "c": 43,
+   "r": 0,
+   "cat": "enemy",
+   "name": "robot",
+   "rev": true
+  },
+  {
+   "c": 44,
+   "r": 0,
+   "cat": "enemy",
+   "name": "robot/automaton (purple)",
+   "rev": true
+  },
+  {
+   "c": 45,
+   "r": 0,
+   "cat": "enemy",
+   "name": "robot/automaton (purple)",
+   "rev": true
+  },
+  {
+   "c": 46,
+   "r": 0,
+   "cat": "npc",
+   "name": "paladin",
+   "rev": true
+  },
+  {
+   "c": 47,
+   "r": 0,
+   "cat": "npc",
+   "name": "paladin",
+   "rev": true
+  },
+  {
+   "c": 32,
+   "r": 1,
+   "cat": "player",
+   "name": "barbarian",
+   "rev": true
+  },
+  {
+   "c": 33,
+   "r": 1,
+   "cat": "player",
+   "name": "druid/elf (green tunic, red flower)",
+   "rev": true
+  },
+  {
+   "c": 34,
+   "r": 1,
+   "cat": "npc",
+   "name": "king (gold crown)",
+   "rev": true
+  },
+  {
+   "c": 35,
+   "r": 1,
+   "cat": "player",
+   "name": "monk",
+   "rev": true
+  },
+  {
+   "c": 36,
+   "r": 1,
+   "cat": "npc",
+   "name": "villager (blonde)",
+   "rev": true
+  },
+  {
+   "c": 37,
+   "r": 1,
+   "cat": "npc",
+   "name": "villager (brown/grey hair)",
+   "rev": true
+  },
+  {
+   "c": 38,
+   "r": 1,
+   "cat": "npc",
+   "name": "villager (brown hair)",
+   "rev": true
+  },
+  {
+   "c": 39,
+   "r": 1,
+   "cat": "npc",
+   "name": "villager (blonde, orange tunic)",
+   "rev": true
+  },
+  {
+   "c": 40,
+   "r": 1,
+   "cat": "player",
+   "name": "ranger",
+   "rev": true
+  },
+  {
+   "c": 32,
+   "r": 3,
+   "cat": "player",
+   "name": "child",
+   "rev": true
+  },
+  {
+   "c": 33,
+   "r": 3,
+   "cat": "player",
+   "name": "teen",
+   "rev": true
+  },
+  {
+   "c": 34,
+   "r": 3,
+   "cat": "npc",
+   "name": "adult",
+   "rev": true
+  },
+  {
+   "c": 35,
+   "r": 3,
+   "cat": "npc",
+   "name": "sage/old man (grey hair, brown robe)",
+   "rev": true
+  },
+  {
+   "c": 36,
+   "r": 3,
+   "cat": "npc",
+   "name": "adult (blonde, green tunic)",
+   "rev": true
+  },
+  {
+   "c": 37,
+   "r": 3,
+   "cat": "npc",
+   "name": "dwarf ",
+   "rev": true
+  },
+  {
+   "c": 38,
+   "r": 3,
+   "cat": "npc",
+   "name": "villager (brown hat)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 3,
+   "cat": "player",
+   "name": "green-hooded ranger (pointed hat)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 3,
+   "cat": "player",
+   "name": "adventurer (orange hair, green tunic)",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 3,
+   "cat": "player",
+   "name": "adventurer (orange hair, orange tunic)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 3,
+   "cat": "npc",
+   "name": "old man/villager (white beard)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 3,
+   "cat": "player",
+   "name": "mage casting (green/purple robe)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 3,
+   "cat": "player",
+   "name": "witch/mage casting (purple)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 3,
+   "cat": "npc",
+   "name": "royal mage casting (gold crown)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 3,
+   "cat": "player",
+   "name": "wizard casting (blue robe)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 3,
+   "cat": "player",
+   "name": "wizard casting (blue robe)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 4,
+   "cat": "npc",
+   "name": "mage (blue robe) portrait",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 4,
+   "cat": "npc",
+   "name": "mage (blue robe) portrait",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 4,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 4,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 4,
+   "cat": "npc",
+   "name": "red mage (maroon robe) portrait",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 4,
+   "cat": "npc",
+   "name": "red mage (maroon robe) portrait",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 4,
+   "cat": "npc",
+   "name": "elf/druid (white hair, green) portrait",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 4,
+   "cat": "npc",
+   "name": "royal/knight (gold) portrait",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 4,
+   "cat": "npc",
+   "name": "mage (pink hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 4,
+   "cat": "npc",
+   "name": "adventurer (navy hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 4,
+   "cat": "npc",
+   "name": "adventurer (orange hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 4,
+   "cat": "npc",
+   "name": "ranger (green) portrait",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 4,
+   "cat": "enemy",
+   "name": "small red medusa",
+   "rev": true
+  },
+  {
+   "c": 45,
+   "r": 4,
+   "cat": "npc",
+   "name": "adventurer (navy) portrait",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 4,
+   "cat": "npc",
+   "name": "adventurer (orange) portrait",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 4,
+   "cat": "enemy",
+   "name": "small medusa",
+   "rev": true
+  },
+  {
+   "c": 32,
+   "r": 5,
+   "cat": "npc",
+   "name": "knight (brown helm) portrait",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 5,
+   "cat": "npc",
+   "name": "guard (silver helm, jewels) portrait",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 5,
+   "cat": "npc",
+   "name": "knight (silver helm, jewels) portrait",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 5,
+   "cat": "npc",
+   "name": "king (gold crown, jewels) portrait",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 5,
+   "cat": "npc",
+   "name": "guard (navy helm) portrait",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 5,
+   "cat": "npc",
+   "name": "guard (navy helm) portrait",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 5,
+   "cat": "npc",
+   "name": "guard (navy helm) portrait",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 5,
+   "cat": "player",
+   "name": "hero/elf (green cap, orange hair)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 5,
+   "cat": "enemy",
+   "name": "wraith/cultist (navy hood, red eyes)",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 5,
+   "cat": "enemy",
+   "name": "mind flayer (purple, tentacle face)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 5,
+   "cat": "npc",
+   "name": "villager (male, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 5,
+   "cat": "npc",
+   "name": "villager (male, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 5,
+   "cat": "npc",
+   "name": "villager (male, beard) portrait",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 5,
+   "cat": "npc",
+   "name": "villager (male, navy hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 5,
+   "cat": "npc",
+   "name": "ninja/assassin (green hood, blue mask)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 5,
+   "cat": "enemy",
+   "name": "ghost (pale, blue eyes)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (child, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (male, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (male, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 6,
+   "cat": "npc",
+   "name": "old man (grey beard) portrait",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (female, pink hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (female, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 6,
+   "cat": "npc",
+   "name": "old woman (grey hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 6,
+   "cat": "npc",
+   "name": "old person (grey hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 6,
+   "cat": "npc",
+   "name": "wizard/sage (navy hat, white beard) portrait",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 6,
+   "cat": "npc",
+   "name": "queen (gold crown, pink gown)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (male, brown hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 6,
+   "cat": "npc",
+   "name": "villager (blue hair) portrait",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown dog",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown dog",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown dog (large)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown deer",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown deer",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 8,
+   "cat": "animal",
+   "name": "pink pig",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 8,
+   "cat": "animal",
+   "name": "pink pig",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 8,
+   "cat": "animal",
+   "name": "yellow chick",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 8,
+   "cat": "animal",
+   "name": "white chicken (hen)",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 8,
+   "cat": "animal",
+   "name": "white lamb",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 8,
+   "cat": "animal",
+   "name": "white sheep",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 8,
+   "cat": "animal",
+   "name": "brown dog",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 8,
+   "cat": "animal",
+   "name": "yellow duckling",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 8,
+   "cat": "animal",
+   "name": "white duck",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 8,
+   "cat": "animal",
+   "name": "white goose",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 8,
+   "cat": "animal",
+   "name": "orange cat",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 9,
+   "cat": "animal",
+   "name": "orange spider",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 9,
+   "cat": "animal",
+   "name": "orange spider",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 9,
+   "cat": "animal",
+   "name": "orange spider",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 9,
+   "cat": "animal",
+   "name": "green snake",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 9,
+   "cat": "animal",
+   "name": "grey mouse",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 9,
+   "cat": "animal",
+   "name": "bat",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 9,
+   "cat": "animal",
+   "name": "yellow chick",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 9,
+   "cat": "animal",
+   "name": "white rooster",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 9,
+   "cat": "animal",
+   "name": "white rooster",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 9,
+   "cat": "animal",
+   "name": "brown rat",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 9,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 9,
+   "cat": "animal",
+   "name": "brown rat",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 9,
+   "cat": "animal",
+   "name": "maroon spider",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 9,
+   "cat": "animal",
+   "name": "maroon spider",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 9,
+   "cat": "animal",
+   "name": "maroon spider",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 9,
+   "cat": "animal",
+   "name": "fire spider",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 10,
+   "cat": "animal",
+   "name": "yellow snail",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 10,
+   "cat": "animal",
+   "name": "pink snail",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 10,
+   "cat": "animal",
+   "name": "white snail",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 10,
+   "cat": "animal",
+   "name": "rodent in burrow",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 10,
+   "cat": "animal",
+   "name": "mole in burrow",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 10,
+   "cat": "animal",
+   "name": "pink rodent in burrow",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 10,
+   "cat": "animal",
+   "name": "grey rodent in burrow",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 10,
+   "cat": "animal",
+   "name": "grey rodent in burrow",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 10,
+   "cat": "animal",
+   "name": "purple critter",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 10,
+   "cat": "animal",
+   "name": "green frog",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 10,
+   "cat": "animal",
+   "name": "green frog",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 10,
+   "cat": "animal",
+   "name": "pink snake",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 10,
+   "cat": "animal",
+   "name": "pink snake",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 10,
+   "cat": "animal",
+   "name": "brown dog",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 10,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 10,
+   "cat": "animal",
+   "name": "brown rat",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 11,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 11,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 11,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 11,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 11,
+   "cat": "animal",
+   "name": "white mouse",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 11,
+   "cat": "animal",
+   "name": "white mouse",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 11,
+   "cat": "animal",
+   "name": "purple spider",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 11,
+   "cat": "animal",
+   "name": "brown lizard",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 11,
+   "cat": "animal",
+   "name": "tan snake",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 11,
+   "cat": "animal",
+   "name": "green snake",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 11,
+   "cat": "animal",
+   "name": "green snake",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 11,
+   "cat": "animal",
+   "name": "owl",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 11,
+   "cat": "animal",
+   "name": "brown rat",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 11,
+   "cat": "animal",
+   "name": "white cat",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 11,
+   "cat": "animal",
+   "name": "grey rat",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 11,
+   "cat": "animal",
+   "name": "navy wolf",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 12,
+   "cat": "animal",
+   "name": "yellow-green frog",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 12,
+   "cat": "animal",
+   "name": "yellow-red frog",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 12,
+   "cat": "animal",
+   "name": "yellow-orange frog",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 12,
+   "cat": "animal",
+   "name": "yellow-purple frog",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 12,
+   "cat": "animal",
+   "name": "blue frog",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 12,
+   "cat": "animal",
+   "name": "pink frog",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 12,
+   "cat": "animal",
+   "name": "green frog",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 12,
+   "cat": "animal",
+   "name": "green frog",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 14,
+   "cat": "animal",
+   "name": "brown mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 14,
+   "cat": "animal",
+   "name": "brown mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 14,
+   "cat": "animal",
+   "name": "red mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 14,
+   "cat": "animal",
+   "name": "red mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 14,
+   "cat": "animal",
+   "name": "purple mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 14,
+   "cat": "animal",
+   "name": "purple mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 14,
+   "cat": "animal",
+   "name": "green mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 14,
+   "cat": "animal",
+   "name": "green mushroom critter",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 14,
+   "cat": "animal",
+   "name": "red flower plant",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 14,
+   "cat": "animal",
+   "name": "red flower plant",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 14,
+   "cat": "animal",
+   "name": "green vine plant",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 16,
+   "cat": "animal",
+   "name": "cow/ox (brown)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 16,
+   "cat": "animal",
+   "name": "cow/ox (brown)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 16,
+   "cat": "enemy",
+   "name": "red imp",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 16,
+   "cat": "enemy",
+   "name": "purple slime/blob",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 16,
+   "cat": "enemy",
+   "name": "purple slime/blob",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 16,
+   "cat": "enemy",
+   "name": "blue bat",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 16,
+   "cat": "enemy",
+   "name": "fire imp",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 16,
+   "cat": "enemy",
+   "name": "purple slime/blob",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 16,
+   "cat": "enemy",
+   "name": "brown creature",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 16,
+   "cat": "enemy",
+   "name": "red slime/blob",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 16,
+   "cat": "enemy",
+   "name": "green slime/blob",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 16,
+   "cat": "enemy",
+   "name": "pink slime/blob",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 16,
+   "cat": "enemy",
+   "name": "green elemental spirit",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 16,
+   "cat": "enemy",
+   "name": "orange elemental spirit",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 16,
+   "cat": "enemy",
+   "name": "red elemental spirit",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 16,
+   "cat": "enemy",
+   "name": "purple elemental spirit",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 17,
+   "cat": "enemy",
+   "name": "blue elemental spirit",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 17,
+   "cat": "enemy",
+   "name": "fire elemental",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 17,
+   "cat": "enemy",
+   "name": "brown troll/ogre",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 19,
+   "cat": "enemy",
+   "name": "ghost (white)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 19,
+   "cat": "enemy",
+   "name": "flaming spirit / will-o-wisp",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 19,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 20,
+   "cat": "animal",
+   "name": "goat (yellow)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 20,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 21,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 21,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 21,
+   "cat": "enemy",
+   "name": "goblin (green)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 21,
+   "cat": "enemy",
+   "name": "ghost (large, framed)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 21,
+   "cat": "enemy",
+   "name": "grey imp/slime",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red imp",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red imp",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red imp",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 23,
+   "cat": "enemy",
+   "name": "red demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 41,
+   "r": 23,
+   "cat": "enemy",
+   "name": "dark bat/imp (blue)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 23,
+   "cat": "enemy",
+   "name": "hooded figure (dark cultist)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 23,
+   "cat": "enemy",
+   "name": "hooded figure (dark cultist)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 23,
+   "cat": "enemy",
+   "name": "purple demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 23,
+   "cat": "enemy",
+   "name": "purple demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 23,
+   "cat": "enemy",
+   "name": "purple demon (horned)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 23,
+   "cat": "enemy",
+   "name": "brown beast/spider",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 25,
+   "cat": "npc",
+   "name": "king head with gold crown",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 25,
+   "cat": "npc",
+   "name": "red-hooded figure head",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 27,
+   "cat": "armor",
+   "name": "white plate armor (chestplate)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 27,
+   "cat": "armor",
+   "name": "white/grey armor",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 27,
+   "cat": "armor",
+   "name": "brown/maroon hooded robe",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 27,
+   "cat": "armor",
+   "name": "grey hood/ghost",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 29,
+   "cat": "treasure",
+   "name": "green crown",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 29,
+   "cat": "treasure",
+   "name": "gold/yellow crown",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 29,
+   "cat": "treasure",
+   "name": "red/pink crown",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 29,
+   "cat": "treasure",
+   "name": "purple crown",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 29,
+   "cat": "treasure",
+   "name": "blue crown",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 29,
+   "cat": "treasure",
+   "name": "brown crown",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 29,
+   "cat": "treasure",
+   "name": "maroon/purple crown",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 29,
+   "cat": "treasure",
+   "name": "dark green crown",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 31,
+   "cat": "fx",
+   "name": "white smoke/cloud puff",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 31,
+   "cat": "enemy",
+   "name": "grey/purple slime",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 31,
+   "cat": "enemy",
+   "name": "green slime",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 31,
+   "cat": "fx",
+   "name": "white smoke swirl",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 31,
+   "cat": "fx",
+   "name": "fire/explosion frame",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 31,
+   "cat": "fx",
+   "name": "explosion sparkle frame",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 31,
+   "cat": "fx",
+   "name": "fire/explosion frame",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 31,
+   "cat": "fx",
+   "name": "blue splash/slime",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 31,
+   "cat": "prop",
+   "name": "green bush with red berries",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 33,
+   "cat": "boss",
+   "name": "winged red demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 33,
+   "cat": "boss",
+   "name": "winged red demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 34,
+   "cat": "boss",
+   "name": "winged red demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 34,
+   "cat": "boss",
+   "name": "winged red demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 33,
+   "cat": "boss",
+   "name": "armored knight / skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 33,
+   "cat": "boss",
+   "name": "armored knight / skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 34,
+   "cat": "boss",
+   "name": "armored knight / skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 34,
+   "cat": "boss",
+   "name": "armored knight / skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 33,
+   "cat": "boss",
+   "name": "pink brain/maw monster boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 33,
+   "cat": "boss",
+   "name": "pink brain/maw monster boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 34,
+   "cat": "boss",
+   "name": "pink brain/maw monster boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 34,
+   "cat": "boss",
+   "name": "pink brain/maw monster boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 33,
+   "cat": "boss",
+   "name": "giant eyeball boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 33,
+   "cat": "boss",
+   "name": "giant eyeball boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 34,
+   "cat": "boss",
+   "name": "giant eyeball boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 34,
+   "cat": "boss",
+   "name": "giant eyeball boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 33,
+   "cat": "boss",
+   "name": "medusa",
+   "rev": true
+  },
+  {
+   "c": 41,
+   "r": 33,
+   "cat": "boss",
+   "name": "medusa",
+   "rev": true
+  },
+  {
+   "c": 40,
+   "r": 34,
+   "cat": "boss",
+   "name": "medusa",
+   "rev": true
+  },
+  {
+   "c": 41,
+   "r": 34,
+   "cat": "boss",
+   "name": "medusa",
+   "rev": true
+  },
+  {
+   "c": 42,
+   "r": 33,
+   "cat": "boss",
+   "name": "skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 33,
+   "cat": "boss",
+   "name": "skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 42,
+   "r": 34,
+   "cat": "boss",
+   "name": "skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 43,
+   "r": 34,
+   "cat": "boss",
+   "name": "skeleton warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 33,
+   "cat": "boss",
+   "name": "red demon warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 33,
+   "cat": "boss",
+   "name": "red demon warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 44,
+   "r": 34,
+   "cat": "boss",
+   "name": "red demon warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 45,
+   "r": 34,
+   "cat": "boss",
+   "name": "red demon warrior boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 33,
+   "cat": "boss",
+   "name": "giant skull boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 33,
+   "cat": "boss",
+   "name": "giant skull boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 46,
+   "r": 34,
+   "cat": "boss",
+   "name": "giant skull boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 47,
+   "r": 34,
+   "cat": "boss",
+   "name": "giant skull boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 35,
+   "cat": "boss",
+   "name": "piranha plant / carnivorous plant boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 35,
+   "cat": "boss",
+   "name": "piranha plant / carnivorous plant boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 36,
+   "cat": "boss",
+   "name": "piranha plant / carnivorous plant boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 36,
+   "cat": "boss",
+   "name": "piranha plant / carnivorous plant boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 35,
+   "cat": "boss",
+   "name": "fire elemental boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 35,
+   "cat": "boss",
+   "name": "fire elemental boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 36,
+   "cat": "boss",
+   "name": "fire elemental boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 36,
+   "cat": "boss",
+   "name": "fire elemental boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 35,
+   "cat": "boss",
+   "name": "dark wizard / lich boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 35,
+   "cat": "boss",
+   "name": "dark wizard / lich boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 36,
+   "cat": "boss",
+   "name": "dark wizard / lich boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 36,
+   "cat": "boss",
+   "name": "dark wizard / lich boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 35,
+   "cat": "boss",
+   "name": "crimson spider/demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 35,
+   "cat": "boss",
+   "name": "crimson spider/demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 36,
+   "cat": "boss",
+   "name": "crimson spider/demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 36,
+   "cat": "boss",
+   "name": "crimson spider/demon boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 40,
+   "r": 35,
+   "cat": "boss",
+   "name": "giant green insect",
+   "rev": true
+  },
+  {
+   "c": 41,
+   "r": 35,
+   "cat": "boss",
+   "name": "giant green insect",
+   "rev": true
+  },
+  {
+   "c": 40,
+   "r": 36,
+   "cat": "boss",
+   "name": "giant green insect",
+   "rev": true
+  },
+  {
+   "c": 41,
+   "r": 36,
+   "cat": "boss",
+   "name": "giant green insect",
+   "rev": true
+  },
+  {
+   "c": 32,
+   "r": 37,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 37,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 32,
+   "r": 38,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 33,
+   "r": 38,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 37,
+   "cat": "boss",
+   "name": "octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 37,
+   "cat": "boss",
+   "name": "octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 34,
+   "r": 38,
+   "cat": "boss",
+   "name": "octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 35,
+   "r": 38,
+   "cat": "boss",
+   "name": "octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 37,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 37,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 36,
+   "r": 38,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 37,
+   "r": 38,
+   "cat": "boss",
+   "name": "angel / valkyrie boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 37,
+   "cat": "boss",
+   "name": "crimson octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 37,
+   "cat": "boss",
+   "name": "crimson octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 38,
+   "r": 38,
+   "cat": "boss",
+   "name": "crimson octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 39,
+   "r": 38,
+   "cat": "boss",
+   "name": "crimson octopus / kraken boss (top-left)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 25,
+   "cat": "feature",
+   "name": "grey boulder (top-left)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 25,
+   "cat": "feature",
+   "name": "grey boulder (top-right)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 25,
+   "cat": "feature",
+   "name": "grey boulder on cliff (top-left)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 25,
+   "cat": "feature",
+   "name": "grey boulder on cliff (top-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 25,
+   "cat": "feature",
+   "name": "snow-capped mountain peak (left)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 25,
+   "cat": "feature",
+   "name": "snow-capped mountain peak (right)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 26,
+   "cat": "feature",
+   "name": "grey boulder (mid-left fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 26,
+   "cat": "feature",
+   "name": "grey boulder (mid-right fill)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 26,
+   "cat": "feature",
+   "name": "grey boulder on cliff (mid-left)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 26,
+   "cat": "feature",
+   "name": "grey boulder on cliff (mid-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 26,
+   "cat": "feature",
+   "name": "mountain slope (left)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 26,
+   "cat": "feature",
+   "name": "mountain slope (right)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 27,
+   "cat": "feature",
+   "name": "grey boulder (bottom-left)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 27,
+   "cat": "feature",
+   "name": "grey boulder (bottom-right)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 27,
+   "cat": "feature",
+   "name": "grey boulder on cliff (bottom-left)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 27,
+   "cat": "feature",
+   "name": "grey boulder on cliff (bottom-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 27,
+   "cat": "feature",
+   "name": "mountain slope (right side)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 27,
+   "cat": "feature",
+   "name": "mountain slope (right)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 28,
+   "cat": "feature",
+   "name": "rock rubble (left)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 28,
+   "cat": "feature",
+   "name": "rock rubble (right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 28,
+   "cat": "feature",
+   "name": "mountain base / snowline (left)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 28,
+   "cat": "feature",
+   "name": "mountain base / snowline (right)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 14,
+   "cat": "ui",
+   "name": "heart icon (purple)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 14,
+   "cat": "ui",
+   "name": "leaf/clover icon (green)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 14,
+   "cat": "ui",
+   "name": "spiral/swirl icon (purple)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 14,
+   "cat": "ui",
+   "name": "star/sparkle icon (yellow)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 14,
+   "cat": "ui",
+   "name": "lightning/zigzag icon (green)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 14,
+   "cat": "ui",
+   "name": "faint glyph",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 14,
+   "cat": "ui",
+   "name": "rock/droplet blob (grey)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 14,
+   "cat": "ui",
+   "name": "snowflake icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 14,
+   "cat": "ui",
+   "name": "water droplet icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 14,
+   "cat": "ui",
+   "name": "flame icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 14,
+   "cat": "ui",
+   "name": "flame/droplet icon (red)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 14,
+   "cat": "ui",
+   "name": "flame/fire icon (orange)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 14,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 14,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 14,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 14,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 15,
+   "cat": "ui",
+   "name": "heart glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 15,
+   "cat": "ui",
+   "name": "eye icon",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 15,
+   "cat": "ui",
+   "name": "mouth/smile icon",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 15,
+   "cat": "ui",
+   "name": "eye icon (red tear)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 15,
+   "cat": "ui",
+   "name": "mouth/smile icon",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 15,
+   "cat": "ui",
+   "name": "eye icon (blue tear)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 15,
+   "cat": "ui",
+   "name": "mouth/smile icon",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 15,
+   "cat": "ui",
+   "name": "blank/transparent",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter/note glyph (maroon)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 15,
+   "cat": "ui",
+   "name": "blank/transparent",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 15,
+   "cat": "ui",
+   "name": "letter P glyph (green)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up-left, cream)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up, cream)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up-right, cream)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up-left, grey)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up, grey)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 17,
+   "cat": "ui",
+   "name": "arrow (up-right, grey)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 17,
+   "cat": "ui",
+   "name": "indicator light (pink)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 17,
+   "cat": "ui",
+   "name": "level gauge bars (grey)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 17,
+   "cat": "ui",
+   "name": "level gauge bars (grey)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 17,
+   "cat": "ui",
+   "name": "level gauge bars (grey)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 17,
+   "cat": "ui",
+   "name": "level gauge bars (grey)",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 17,
+   "cat": "ui",
+   "name": "level gauge bars (grey)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 18,
+   "cat": "ui",
+   "name": "arrow (left, cream)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 18,
+   "cat": "ui",
+   "name": "ring/target icon (cream)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 18,
+   "cat": "ui",
+   "name": "arrow (right, cream)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 18,
+   "cat": "ui",
+   "name": "arrow (left, grey)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 18,
+   "cat": "ui",
+   "name": "ring/target icon (grey)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 18,
+   "cat": "ui",
+   "name": "arrow (right, grey)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 18,
+   "cat": "ui",
+   "name": "green screen/monitor",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 18,
+   "cat": "ui",
+   "name": "green screen/monitor",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 18,
+   "cat": "ui",
+   "name": "green screen/monitor (bar)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 18,
+   "cat": "ui",
+   "name": "green screen/monitor",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 18,
+   "cat": "ui",
+   "name": "green screen/monitor",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down-left, cream)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down, cream)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down-right, cream)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down-left, grey)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down, grey)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 19,
+   "cat": "ui",
+   "name": "arrow (down-right, grey)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 19,
+   "cat": "ui",
+   "name": "signal bars gauge (blue)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 19,
+   "cat": "ui",
+   "name": "signal bars gauge (blue)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 19,
+   "cat": "ui",
+   "name": "signal bars gauge (blue)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 19,
+   "cat": "ui",
+   "name": "signal bars gauge (purple)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 19,
+   "cat": "ui",
+   "name": "signal bars gauge (purple)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 20,
+   "cat": "ui",
+   "name": "button circle (pink)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 20,
+   "cat": "ui",
+   "name": "button circle (orange)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 20,
+   "cat": "ui",
+   "name": "button circle (blue)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 20,
+   "cat": "ui",
+   "name": "button circle (green)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 20,
+   "cat": "ui",
+   "name": "A button (red)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 20,
+   "cat": "ui",
+   "name": "B button (orange)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 20,
+   "cat": "ui",
+   "name": "X button (blue)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 20,
+   "cat": "ui",
+   "name": "Y button (green)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 20,
+   "cat": "ui",
+   "name": "B button (red)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 20,
+   "cat": "ui",
+   "name": "A button (green)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 20,
+   "cat": "ui",
+   "name": "Y button (orange)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 20,
+   "cat": "ui",
+   "name": "O face button (pink circle)",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 20,
+   "cat": "ui",
+   "name": "X face button (blue cross)",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 20,
+   "cat": "ui",
+   "name": "triangle face button (green)",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 20,
+   "cat": "ui",
+   "name": "square/O face button (purple)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 21,
+   "cat": "ui",
+   "name": "button circle (dark red)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 21,
+   "cat": "ui",
+   "name": "button circle (orange)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 21,
+   "cat": "ui",
+   "name": "button circle (purple)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 21,
+   "cat": "ui",
+   "name": "button circle (green)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 21,
+   "cat": "ui",
+   "name": "A button (dark red)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 21,
+   "cat": "ui",
+   "name": "B button (dark)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 21,
+   "cat": "ui",
+   "name": "X button (purple)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 21,
+   "cat": "ui",
+   "name": "Y button (green)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 21,
+   "cat": "ui",
+   "name": "B button (dark red)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 21,
+   "cat": "ui",
+   "name": "A button (green)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 21,
+   "cat": "ui",
+   "name": "Y button (orange)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 21,
+   "cat": "ui",
+   "name": "O face button (red circle)",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 21,
+   "cat": "ui",
+   "name": "X face button (dark blue cross)",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 21,
+   "cat": "ui",
+   "name": "triangle face button (green)",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 21,
+   "cat": "ui",
+   "name": "square/O face button (purple)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 22,
+   "cat": "ui",
+   "name": "blank button (white)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 22,
+   "cat": "ui",
+   "name": "O face button (dark)",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 22,
+   "cat": "ui",
+   "name": "X face button (dark)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 23,
+   "cat": "ui",
+   "name": "blank button (grey)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 23,
+   "cat": "ui",
+   "name": "O face button (navy)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 24,
+   "cat": "ui",
+   "name": "speech bubble (blank panel)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 24,
+   "cat": "ui",
+   "name": "speech bubble (exclamation !)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 24,
+   "cat": "ui",
+   "name": "speech bubble (dots/question)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 24,
+   "cat": "ui",
+   "name": "speech bubble (ellipsis ...)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 24,
+   "cat": "ui",
+   "name": "green checkmark",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 24,
+   "cat": "ui",
+   "name": "green box/checkbox (filled)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 24,
+   "cat": "ui",
+   "name": "red cross (X)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 24,
+   "cat": "ui",
+   "name": "grey/purple circle icon",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 24,
+   "cat": "ui",
+   "name": "happy face emote",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 24,
+   "cat": "ui",
+   "name": "sad face emote",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 24,
+   "cat": "ui",
+   "name": "neutral face emote",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 24,
+   "cat": "ui",
+   "name": "rune/glyph icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 25,
+   "cat": "ui",
+   "name": "exclamation mark (white)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 25,
+   "cat": "ui",
+   "name": "question mark (?)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 25,
+   "cat": "ui",
+   "name": "empty rounded frame/box (grey)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 25,
+   "cat": "ui",
+   "name": "green checkbox (outline + check)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 25,
+   "cat": "ui",
+   "name": "red no/prohibited box (cancel)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 25,
+   "cat": "ui",
+   "name": "grey/purple disabled box",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 25,
+   "cat": "ui",
+   "name": "happy face (yellow smiley)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 25,
+   "cat": "ui",
+   "name": "sad face (yellow)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 25,
+   "cat": "ui",
+   "name": "neutral face (yellow)",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 25,
+   "cat": "ui",
+   "name": "skull icon (white)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 26,
+   "cat": "ui",
+   "name": "clover/leaf icon (purple)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 26,
+   "cat": "ui",
+   "name": "clover/leaf icon (green)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 26,
+   "cat": "ui",
+   "name": "spiral/swirl icon (pink)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 26,
+   "cat": "ui",
+   "name": "spark/lightning icon (yellow)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 26,
+   "cat": "ui",
+   "name": "spark/leaf icon (yellow)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 26,
+   "cat": "ui",
+   "name": "orb/sphere icon (grey)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 26,
+   "cat": "ui",
+   "name": "snowflake icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 26,
+   "cat": "ui",
+   "name": "snowflake/flower icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 26,
+   "cat": "ui",
+   "name": "water droplet icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 26,
+   "cat": "ui",
+   "name": "droplet icon (pink/red)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 26,
+   "cat": "fx",
+   "name": "fire/flame icon",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 26,
+   "cat": "ui",
+   "name": "ghost icon (grey)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 26,
+   "cat": "ui",
+   "name": "medical cross/plus (red)",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 26,
+   "cat": "ui",
+   "name": "log/branch icon (brown)",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 26,
+   "cat": "ui",
+   "name": "heart icon (pink)",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 26,
+   "cat": "ui",
+   "name": "heart icon (red)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 27,
+   "cat": "ui",
+   "name": "clover/leaf icon (purple, large)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 27,
+   "cat": "ui",
+   "name": "clover/leaf icon (green, large)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 27,
+   "cat": "ui",
+   "name": "spiral/swirl icon (pink, large)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 27,
+   "cat": "ui",
+   "name": "lightning bolt (yellow)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 27,
+   "cat": "ui",
+   "name": "lightning bolt (grey/purple)",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 27,
+   "cat": "ui",
+   "name": "orb/rock icon (grey-brown)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 27,
+   "cat": "ui",
+   "name": "snowflake icon (blue, large)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 27,
+   "cat": "ui",
+   "name": "water splash icon (blue)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 27,
+   "cat": "ui",
+   "name": "water droplet icon (blue, large)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 27,
+   "cat": "fx",
+   "name": "flame/droplet icon (pink-red)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 27,
+   "cat": "fx",
+   "name": "fire/flame icon (large)",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 27,
+   "cat": "ui",
+   "name": "ghost icon (grey, large)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 27,
+   "cat": "ui",
+   "name": "cross/plus burst (red)",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 27,
+   "cat": "ui",
+   "name": "maple-leaf/heart icon (red)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 29,
+   "cat": "ui",
+   "name": "green plus/clover on panel (x1)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 29,
+   "cat": "ui",
+   "name": "green clovers on panel (x2)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 29,
+   "cat": "ui",
+   "name": "green clovers on panel (x3)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 29,
+   "cat": "ui",
+   "name": "green clover/leaf (large)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 29,
+   "cat": "unknown",
+   "name": "flesh arm/fist fragment",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 29,
+   "cat": "unknown",
+   "name": "white dice/eyes fragment",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 29,
+   "cat": "unknown",
+   "name": "boot/shoe fragment",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 29,
+   "cat": "unknown",
+   "name": "grey die/stone block",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 29,
+   "cat": "unknown",
+   "name": "dice + box fragment",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 29,
+   "cat": "ui",
+   "name": "four-leaf clover (green)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 29,
+   "cat": "ui",
+   "name": "four-leaf clover with stem (green)",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 29,
+   "cat": "ui",
+   "name": "mushroom icon (pink)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 30,
+   "cat": "ui",
+   "name": "red health pip/dash on panel (x1)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 30,
+   "cat": "ui",
+   "name": "red health pips on panel (x2)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 30,
+   "cat": "ui",
+   "name": "red health pips on panel (x3)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 30,
+   "cat": "ui",
+   "name": "full heart (crimson)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 31,
+   "cat": "ui",
+   "name": "full heart (red)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 31,
+   "cat": "ui",
+   "name": "heart (mostly full)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 31,
+   "cat": "ui",
+   "name": "half heart",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 31,
+   "cat": "ui",
+   "name": "heart (low/quarter)",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 31,
+   "cat": "ui",
+   "name": "empty heart",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (full, green)",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (green, near full)",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (half, yellow)",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (yellow, stepped)",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (orange)",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (orange, low)",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (red, low)",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (red, lower)",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (near empty, red sliver)",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 31,
+   "cat": "ui",
+   "name": "health bar (empty, navy)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 32,
+   "cat": "prop",
+   "name": "male/mars symbol (blue)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 32,
+   "cat": "prop",
+   "name": "female/venus symbol (red)",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 32,
+   "cat": "prop",
+   "name": "gender/alchemy symbol (purple)",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 32,
+   "cat": "prop",
+   "name": "hand mirror (silver)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed/table section (top-down, posts)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed/table section (top-down, post)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed/table section (top-down, posts)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed (top-down, grey pillow)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed (top-down, grey blanket)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 53,
+   "cat": "furniture",
+   "name": "white bed (top-down, grey blanket)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white table section (top-down, posts)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white table section (top-down)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white table section (top-down, posts)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white nightstand / bed foot (top-down)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white table top (top-down)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 54,
+   "cat": "furniture",
+   "name": "white dresser / corner (top-down)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 55,
+   "cat": "furniture",
+   "name": "white table/counter front edge (top-down)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 55,
+   "cat": "furniture",
+   "name": "white table/counter (top-down)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 55,
+   "cat": "furniture",
+   "name": "white table/counter (top-down)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 55,
+   "cat": "furniture",
+   "name": "white bed/table piece (top-down)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (T-junction/corner)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (T-junction, down)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (corner)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (stub)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (horizontal)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (horizontal)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint room corner (top-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint room wall (top)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint room corner (top-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint room (corner/spiral)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (horizontal)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 50,
+   "cat": "ui",
+   "name": "blueprint wall (horizontal/corner)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (vertical)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (cross junction +)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (T-junction)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (vertical stub)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (vertical)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (corner)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint room (nested corner)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (junction)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (corner)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint room (inner walls)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (parallel/vertical)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 51,
+   "cat": "ui",
+   "name": "blueprint wall (corner)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint wall corner (bottom-left)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint wall (bottom junction/U)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint wall corner (bottom-right)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room (small/single cell)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room (small room)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room (spiral)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room corner (bottom-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room wall (bottom)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room corner (bottom-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 52,
+   "cat": "ui",
+   "name": "blueprint room (concentric squares)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 20,
+   "cat": "wall",
+   "name": "green panel (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 20,
+   "cat": "wall",
+   "name": "green panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 20,
+   "cat": "wall",
+   "name": "green panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 20,
+   "cat": "wall",
+   "name": "green panel (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 20,
+   "cat": "wall",
+   "name": "pink panel (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 20,
+   "cat": "wall",
+   "name": "pink panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 20,
+   "cat": "wall",
+   "name": "pink panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 20,
+   "cat": "wall",
+   "name": "pink panel (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 20,
+   "cat": "wall",
+   "name": "blue panel (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 20,
+   "cat": "wall",
+   "name": "blue panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 20,
+   "cat": "wall",
+   "name": "blue panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 20,
+   "cat": "wall",
+   "name": "blue panel (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 20,
+   "cat": "wall",
+   "name": "yellow panel (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 20,
+   "cat": "wall",
+   "name": "yellow panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 20,
+   "cat": "wall",
+   "name": "yellow panel (top edge)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 20,
+   "cat": "wall",
+   "name": "yellow panel (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 21,
+   "cat": "wall",
+   "name": "green panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 21,
+   "cat": "wall",
+   "name": "green panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 21,
+   "cat": "wall",
+   "name": "green panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 21,
+   "cat": "wall",
+   "name": "green panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 21,
+   "cat": "wall",
+   "name": "pink panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 21,
+   "cat": "wall",
+   "name": "pink panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 21,
+   "cat": "wall",
+   "name": "pink panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 21,
+   "cat": "wall",
+   "name": "pink panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 21,
+   "cat": "wall",
+   "name": "blue panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 21,
+   "cat": "wall",
+   "name": "blue panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 21,
+   "cat": "wall",
+   "name": "blue panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 21,
+   "cat": "wall",
+   "name": "blue panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 21,
+   "cat": "wall",
+   "name": "yellow panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 21,
+   "cat": "wall",
+   "name": "yellow panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 21,
+   "cat": "wall",
+   "name": "yellow panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 21,
+   "cat": "wall",
+   "name": "yellow panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 22,
+   "cat": "wall",
+   "name": "green panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 22,
+   "cat": "wall",
+   "name": "green panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 22,
+   "cat": "wall",
+   "name": "green panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 22,
+   "cat": "wall",
+   "name": "green panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 22,
+   "cat": "wall",
+   "name": "pink panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 22,
+   "cat": "wall",
+   "name": "pink panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 22,
+   "cat": "wall",
+   "name": "pink panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 22,
+   "cat": "wall",
+   "name": "pink panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 22,
+   "cat": "wall",
+   "name": "blue panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 22,
+   "cat": "wall",
+   "name": "blue panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 22,
+   "cat": "wall",
+   "name": "blue panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 22,
+   "cat": "wall",
+   "name": "blue panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 22,
+   "cat": "wall",
+   "name": "yellow panel (left edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 22,
+   "cat": "wall",
+   "name": "yellow panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 22,
+   "cat": "wall",
+   "name": "yellow panel (fill)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 22,
+   "cat": "wall",
+   "name": "yellow panel (right edge)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 23,
+   "cat": "wall",
+   "name": "green panel (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 23,
+   "cat": "wall",
+   "name": "green panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 23,
+   "cat": "wall",
+   "name": "green panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 23,
+   "cat": "wall",
+   "name": "green panel (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 23,
+   "cat": "wall",
+   "name": "pink panel (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 23,
+   "cat": "wall",
+   "name": "pink panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 23,
+   "cat": "wall",
+   "name": "pink panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 23,
+   "cat": "wall",
+   "name": "pink panel (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 23,
+   "cat": "wall",
+   "name": "blue panel (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 23,
+   "cat": "wall",
+   "name": "blue panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 23,
+   "cat": "wall",
+   "name": "blue panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 23,
+   "cat": "wall",
+   "name": "blue panel (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 23,
+   "cat": "wall",
+   "name": "yellow panel (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 23,
+   "cat": "wall",
+   "name": "yellow panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 23,
+   "cat": "wall",
+   "name": "yellow panel (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 23,
+   "cat": "wall",
+   "name": "yellow panel (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (oval opening)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (oval ring window)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (peephole)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (recessed opening)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (eye niche)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (column/edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 16,
+   "cat": "wall",
+   "name": "purple brick wall (arched top)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 17,
+   "cat": "wall",
+   "name": "purple brick wall (X cross detail)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 17,
+   "cat": "wall",
+   "name": "purple brick wall (X cross detail)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 17,
+   "cat": "wall",
+   "name": "purple brick wall (X cross detail)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 17,
+   "cat": "wall",
+   "name": "purple brick wall (detail)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 17,
+   "cat": "feature",
+   "name": "eye peephole (recessed)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge, recess)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-left corner)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top edge)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 35,
+   "cat": "wall",
+   "name": "stone-brick wall (top-right corner)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (left edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (left edge)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 36,
+   "cat": "feature",
+   "name": "stone-brick wall window",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (recess)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (left edge)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 36,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (left edge)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (right edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom-left corner)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 37,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (arch left jamb)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 38,
+   "cat": "door",
+   "name": "brick archway (top-left)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 38,
+   "cat": "door",
+   "name": "brick archway (top-right)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (arch right jamb)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 38,
+   "cat": "feature",
+   "name": "gargoyle face (upper)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 38,
+   "cat": "feature",
+   "name": "gargoyle face (upper)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (pillar)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom-right corner)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 38,
+   "cat": "wall",
+   "name": "stone-brick wall base (window)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall (arch left jamb base)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 39,
+   "cat": "door",
+   "name": "brick archway (right jamb base)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall (arch right jamb base)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 39,
+   "cat": "feature",
+   "name": "gargoyle face (lower)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 39,
+   "cat": "feature",
+   "name": "gargoyle face (lower)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall (pillar base)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall (fill/center)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (merlon/window)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall (bottom edge)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (window)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 39,
+   "cat": "wall",
+   "name": "stone-brick wall base (window)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (frame top-left)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (frame top-right)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top eyes)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top eyes)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mid-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mouth)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mid-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki column base)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 40,
+   "cat": "wall",
+   "name": "jungle frieze (top border)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 41,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 41,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 41,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 41,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 42,
+   "cat": "feature",
+   "name": "pink flower",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 42,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 42,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 42,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 42,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (tiki column edge)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (fill)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 43,
+   "cat": "floor",
+   "name": "jungle grass (edge)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 43,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 43,
+   "cat": "floor",
+   "name": "gold step band",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (frame top-left)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (frame top-right)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top eyes)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 44,
+   "cat": "feature",
+   "name": "tiki idol face (top eyes)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 44,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem edge)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki column)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mid-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mouth)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 45,
+   "cat": "feature",
+   "name": "tiki idol face (mid-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 15,
+   "r": 45,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki column base)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band base)",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base-left)",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base)",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 46,
+   "cat": "feature",
+   "name": "tiki idol face (base-right)",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (gold band)",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (fill)",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 46,
+   "cat": "wall",
+   "name": "temple wall (tiki totem)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 5,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 6,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 7,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 8,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 9,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 10,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 11,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 12,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 13,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 14,
+   "r": 47,
+   "cat": "floor",
+   "name": "stone rubble border",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 25,
+   "cat": "floor",
+   "name": "cobblestone floor (cream)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 25,
+   "cat": "floor",
+   "name": "cobblestone floor (grey)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 25,
+   "cat": "floor",
+   "name": "cobblestone floor (brown)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 25,
+   "cat": "floor",
+   "name": "cobblestone floor (navy)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 26,
+   "cat": "floor",
+   "name": "cobblestone floor (cream)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 26,
+   "cat": "floor",
+   "name": "cobblestone floor (grey)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 26,
+   "cat": "floor",
+   "name": "cobblestone floor (brown)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 26,
+   "cat": "floor",
+   "name": "cobblestone floor (navy)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 26,
+   "cat": "floor",
+   "name": "cobblestone floor (black)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 27,
+   "cat": "floor",
+   "name": "cobblestone floor (cream)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 27,
+   "cat": "floor",
+   "name": "cobblestone floor (grey)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 27,
+   "cat": "floor",
+   "name": "cobblestone floor (brown)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 27,
+   "cat": "floor",
+   "name": "cobblestone floor (navy)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 27,
+   "cat": "floor",
+   "name": "cobblestone floor (black)",
+   "rev": false
+  },
+  {
+   "c": 0,
+   "r": 28,
+   "cat": "floor",
+   "name": "cobblestone floor (cream)",
+   "rev": false
+  },
+  {
+   "c": 1,
+   "r": 28,
+   "cat": "floor",
+   "name": "cobblestone floor (grey)",
+   "rev": false
+  },
+  {
+   "c": 2,
+   "r": 28,
+   "cat": "floor",
+   "name": "cobblestone floor (brown)",
+   "rev": false
+  },
+  {
+   "c": 3,
+   "r": 28,
+   "cat": "floor",
+   "name": "cobblestone floor (navy)",
+   "rev": false
+  },
+  {
+   "c": 4,
+   "r": 28,
+   "cat": "floor",
+   "name": "cobblestone floor (black)",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 34,
+   "cat": "fx",
+   "name": "spell ring / swirl",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 34,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 34,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 34,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 34,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 35,
+   "cat": "fx",
+   "name": "energy wave / arc",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 35,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 35,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 35,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 35,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 36,
+   "cat": "fx",
+   "name": "magic bolt",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 36,
+   "cat": "fx",
+   "name": "ward / barrier ring",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 36,
+   "cat": "fx",
+   "name": "ward / barrier ring",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 36,
+   "cat": "fx",
+   "name": "ward / barrier ring",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 36,
+   "cat": "fx",
+   "name": "ward / barrier ring",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 36,
+   "cat": "fx",
+   "name": "ward / barrier ring",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 36,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 36,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 36,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 36,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 37,
+   "cat": "fx",
+   "name": "magic bolt / streak",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 37,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 37,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 37,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 37,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 38,
+   "cat": "fx",
+   "name": "spell burst / spark",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 38,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 38,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 38,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 39,
+   "cat": "fx",
+   "name": "shockwave ring / orb",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 39,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 39,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 39,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 39,
+   "cat": "fx",
+   "name": "sparkle / particle",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 23,
+   "cat": "treasure",
+   "name": "silver plain band",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 23,
+   "cat": "treasure",
+   "name": "silver gemmed band",
+   "rev": false
+  },
+  {
+   "c": 27,
+   "r": 23,
+   "cat": "treasure",
+   "name": "silver earrings",
+   "rev": false
+  },
+  {
+   "c": 28,
+   "r": 23,
+   "cat": "treasure",
+   "name": "silver pendant necklace",
+   "rev": false
+  },
+  {
+   "c": 29,
+   "r": 23,
+   "cat": "treasure",
+   "name": "silver jewelled ring",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 24,
+   "cat": "treasure",
+   "name": "gold plain band",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 24,
+   "cat": "treasure",
+   "name": "gold gemmed band",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 25,
+   "cat": "treasure",
+   "name": "blue plain band",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 25,
+   "cat": "treasure",
+   "name": "blue gemmed band",
+   "rev": false
+  },
+  {
+   "c": 25,
+   "r": 26,
+   "cat": "treasure",
+   "name": "red plain band",
+   "rev": false
+  },
+  {
+   "c": 26,
+   "r": 26,
+   "cat": "treasure",
+   "name": "red gemmed band",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold nasal helm",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold banded great helm",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold hood (side)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold hood (front)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold cowl",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold cowl (open)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 24,
+   "cat": "armor",
+   "name": "gold round shield",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue nasal helm",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue banded great helm",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue hood (side)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue hood (front)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue cowl",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue cowl (open)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 25,
+   "cat": "armor",
+   "name": "blue round shield",
+   "rev": false
+  },
+  {
+   "c": 16,
+   "r": 26,
+   "cat": "armor",
+   "name": "red nasal helm",
+   "rev": false
+  },
+  {
+   "c": 17,
+   "r": 26,
+   "cat": "armor",
+   "name": "red banded great helm",
+   "rev": false
+  },
+  {
+   "c": 19,
+   "r": 26,
+   "cat": "armor",
+   "name": "red hood (side)",
+   "rev": false
+  },
+  {
+   "c": 20,
+   "r": 26,
+   "cat": "armor",
+   "name": "red hood (front)",
+   "rev": false
+  },
+  {
+   "c": 22,
+   "r": 26,
+   "cat": "armor",
+   "name": "red cowl",
+   "rev": false
+  },
+  {
+   "c": 23,
+   "r": 26,
+   "cat": "armor",
+   "name": "red cowl (open)",
+   "rev": false
+  },
+  {
+   "c": 24,
+   "r": 26,
+   "cat": "armor",
+   "name": "red round shield",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #1",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #2",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #3",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #4",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #5",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #6",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #7",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #8",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #9",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #10",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #11",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #12",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #13",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #14",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 0,
+   "cat": "font",
+   "name": "CP437 #15",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #16",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #17",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #18",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #19",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #20",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #21",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #22",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #23",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #24",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #25",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #26",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #27",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #28",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #29",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #30",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 1,
+   "cat": "font",
+   "name": "CP437 #31",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #32 (space)",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #33",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #34",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #35",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #36",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #37",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #38",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #39",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #40",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #41",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #42",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #43",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #44",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #45",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #46",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 2,
+   "cat": "font",
+   "name": "CP437 #47",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #48",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #49",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #50",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #51",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #52",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #53",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #54",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #55",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #56",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #57",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #58",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #59",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #60",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #61",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #62",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 3,
+   "cat": "font",
+   "name": "CP437 #63",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #64",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #65",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #66",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #67",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #68",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #69",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #70",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #71",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #72",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #73",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #74",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #75",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #76",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #77",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #78",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 4,
+   "cat": "font",
+   "name": "CP437 #79",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #80",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #81",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #82",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #83",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #84",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #85",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #86",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #87",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #88",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #89",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #90",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #91",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #92",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #93",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #94",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 5,
+   "cat": "font",
+   "name": "CP437 #95",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #96",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #97",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #98",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #99",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #100",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #101",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #102",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #103",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #104",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #105",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #106",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #107",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #108",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #109",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #110",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 6,
+   "cat": "font",
+   "name": "CP437 #111",
+   "rev": false
+  },
+  {
+   "c": 48,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #112",
+   "rev": false
+  },
+  {
+   "c": 49,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #113",
+   "rev": false
+  },
+  {
+   "c": 50,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #114",
+   "rev": false
+  },
+  {
+   "c": 51,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #115",
+   "rev": false
+  },
+  {
+   "c": 52,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #116",
+   "rev": false
+  },
+  {
+   "c": 53,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #117",
+   "rev": false
+  },
+  {
+   "c": 54,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #118",
+   "rev": false
+  },
+  {
+   "c": 55,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #119",
+   "rev": false
+  },
+  {
+   "c": 56,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #120",
+   "rev": false
+  },
+  {
+   "c": 57,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #121",
+   "rev": false
+  },
+  {
+   "c": 58,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #122",
+   "rev": false
+  },
+  {
+   "c": 59,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #123",
+   "rev": false
+  },
+  {
+   "c": 60,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #124",
+   "rev": false
+  },
+  {
+   "c": 61,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #125",
+   "rev": false
+  },
+  {
+   "c": 62,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #126",
+   "rev": false
+  },
+  {
+   "c": 63,
+   "r": 7,
+   "cat": "font",
+   "name": "CP437 #127",
+   "rev": false
+  }
+ ]
+}

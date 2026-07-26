@@ -302,13 +302,18 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
      <label><input type="checkbox" id="onlyunrev"> only unreviewed</label>
      <label><input type="checkbox" id="onlyused"> only in-game</label>
      <label><input type="checkbox" id="onlyfree"> only unused</label>
-     <div class="grp"><button class="btn" id="import">Import</button><button class="btn" id="reset">Reset</button></div>
+     <div class="grp"><button class="btn" id="import">Import</button>
+     <button class="btn" id="rawdump" title="The untouched save this page found when it loaded">Raw backup</button>
+     <button class="btn" id="reset">Reset</button></div>
    </div>
    <div class="cats" id="cats"></div>
    <nav class="secs" id="secnav"></nav>
    <select class="jump" id="jump"><option value="">Jump to a sheet…</option></select>
  </div>
 </header>
+<div id="note" style="display:none;max-width:1250px;margin:10px auto 0;padding:10px 14px;
+ border:1px solid var(--gold);border-radius:8px;background:color-mix(in srgb,var(--gold) 12%,transparent);
+ color:var(--gold-ink);font-size:13px"></div>
 <main id="main"></main>
 <details class="help" style="max-width:1250px;margin:10px auto;padding:0 16px">
  <summary style="cursor:pointer;padding:6px 0">How this works</summary>
@@ -379,6 +384,7 @@ dialog textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);bo
 /*__DATA__*/
 const KEY="roguemote_annot_v1";    // legacy: a positional array, one slot per card
 const KEY2="roguemote_annot_v2";   // current: keyed by "c,r"
+const BACKUP="roguemote_annot_v1_backup";  // write-once copy of the legacy save
 const CATBY={}; APP.cats.forEach(c=>CATBY[c[0]]=c);
 const HOTKEY={}; APP.cats.forEach(c=>HOTKEY[c[2]]=c[0]);
 // state: per tile {cat,name,rev}. seed from APP.tiles then overlay saved.
@@ -388,16 +394,48 @@ const HOTKEY={}; APP.cats.forEach(c=>HOTKEY[c[2]]=c[0]);
 // was added or resized -- an hour of labelling orphaned by a page rebuild. v2 is
 // keyed by the tile's own (col,row), which no section change can invalidate.
 let ST = APP.tiles.map(t=>({cat:t.cat,name:t.name,rev:!!t.rv}));
-let loaded=0;
-try{const s2=JSON.parse(localStorage.getItem(KEY2)||"null");
- if(s2&&typeof s2==="object"&&!Array.isArray(s2)){
-   APP.tiles.forEach((t,i)=>{const v=s2[t.c+","+t.r];
-     if(v){ST[i]={cat:v.cat,name:v.name,rev:!!v.rev};loaded++;}});}}catch(e){}
-if(!loaded){                        // first run after the upgrade: read v1 across
-  try{const s=JSON.parse(localStorage.getItem(KEY)||"null");
-   if(s&&s.length===ST.length){ST=s;loaded=s.length;}}catch(e){}
+let loadNote="";
+
+/* NEVER destroy a save we could not read. The first thing that happens is an
+ * immutable, write-once copy of whatever v1 holds; every recovery path below
+ * reads from that and nothing overwrites it. An unreadable save is a save to be
+ * recovered later, not a slot to reuse. */
+let rawV1=null;
+try{ rawV1=localStorage.getItem(KEY);
+     if(rawV1 && !localStorage.getItem(BACKUP)) localStorage.setItem(BACKUP, rawV1);
+}catch(e){}
+
+function applyByCoord(map){
+  let n=0;
+  APP.tiles.forEach((t,i)=>{const v=map[t.c+","+t.r];
+    if(v){ST[i]={cat:v.cat,name:v.name,rev:!!v.rev};n++;}});
+  return n;
 }
-let anchor=0; const sel=new Set();
+
+let loaded=0, recovered=false;
+try{const s2=JSON.parse(localStorage.getItem(KEY2)||"null");
+ if(s2&&typeof s2==="object"&&!Array.isArray(s2)) loaded=applyByCoord(s2);
+}catch(e){}
+
+if(!loaded && rawV1){
+  let arr=null; try{arr=JSON.parse(rawV1);}catch(e){}
+  if(Array.isArray(arr)){
+    if(arr.length===ST.length){                 // same build: exact restore
+      ST=arr; loaded=ST.length;
+    }else{
+      /* A different build wrote this. Sections are only ever appended or
+       * resized, so card order is identical up to the first one that moved:
+       * restore the common prefix and say so rather than silently starting
+       * over. Anything past the seam is still in the backup. */
+      const n=Math.min(arr.length, ST.length);
+      for(let i=0;i<n;i++) if(arr[i]) ST[i]={cat:arr[i].cat,name:arr[i].name,rev:!!arr[i].rev};
+      loaded=n; recovered=true;
+      loadNote="Recovered "+n+" of "+arr.length+" labels from an earlier build of this page"
+             + " ("+ST.length+" cards now). Export a diff before editing further.";
+    }
+  }
+}
+if(loaded) writeSave();      // mirror into the coordinate-keyed storelet anchor=0; const sel=new Set();
 // Overlapping subsheets (props x trinkets, grass x temple) show the SAME (c,r)
 // tile on two cards. Edits have to hit every card for a tile or the twin keeps
 // a stale label and silently wins on export.
@@ -548,6 +586,17 @@ function showIO(title, text, filename){
   document.getElementById('iosave').style.display='';
   closeSheet(); dlg.showModal();
 }
+if(loadNote){const n=document.getElementById('note');n.textContent=loadNote;n.style.display='';}
+
+/* The legacy save, verbatim, whatever state this page managed to make of it.
+ * If every clever path above got it wrong, this is still the bytes the browser
+ * had, and it can be pasted or saved out unchanged. */
+document.getElementById('rawdump').onclick=()=>{
+  let raw=null; try{raw=localStorage.getItem(BACKUP)||localStorage.getItem(KEY);}catch(e){}
+  if(!raw){toast('no earlier save found in this browser');return;}
+  showIO('Raw backup ('+raw.length+' bytes) — Save file', raw, 'roguemote_rawsave.json');
+};
+
 document.getElementById('expfix').onclick=()=>{
   const ch=changedTiles();
   const keys=Object.keys(ch).sort((a,b)=>{const[x,y]=a.split(',').map(Number),[p,q]=b.split(',').map(Number);
