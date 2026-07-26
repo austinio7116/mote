@@ -255,21 +255,29 @@ const int g_boss_kind_n = (int)(sizeof g_boss_kind / sizeof g_boss_kind[0]);
  *                4 Cure Wounds    5 Lightning     6 Shock Ball   7 Bless
  *                8 Fireball       9 Great Heal   10 Haste Self  11 Ice Storm
  *               12 Chain Storm   13 Word of Pain 14 Annihilate  15 Mana Storm */
+/* Cells are rows 0-1 of the characters sheet, which the human labelling pass
+ * named class by class: mage, knight, rogue, bard, sorcerer, priest, paladin on
+ * row 0; barbarian, druid, monk, ranger on row 1.
+ *
+ * They used to be rows 3-4, which is not a class row at all -- it is a run of
+ * ages and bystanders. The Monk was a CHILD, the Priest an old man in a brown
+ * robe, and the Berserk a small red medusa. Nobody spotted it because a class
+ * portrait is only ever seen at 8px on the select screen. */
 const ClassKind g_class[] = {
 /*  name         cell  STR INT WIS DEX CON CHA  hp  sp  spells   weapon */
-  { "Warrior",     58,  17, 8,  9, 14, 16,  9,  8,  0, 0x0000, ITM_SHORT_SWORD },
-  { "Knight",      56,  16, 9, 11, 12, 16, 13,  7,  1, 0x0090, ITM_SHORT_SWORD },
-  { "Paladin",     57,  15,10, 14, 11, 15, 14,  6,  3, 0x02D8, ITM_MACE },
-  { "Ranger",      55,  14,11, 11, 17, 13, 10,  5,  2, 0x0425, ITM_SPEAR },
-  { "Rogue",       59,  12,13, 10, 18, 12, 12,  4,  2, 0x040B, ITM_DAGGER },
-  { "Mage",        62,   9,18,  9, 13, 10, 11,  2,  6, 0xDD6F, ITM_DAGGER },
-  { "Sorcerer",    60,   9,17, 10, 12, 10, 14,  2,  7, 0xF967, ITM_DAGGER },
-  { "Priest",      51,  11,10, 18, 10, 13, 13,  4,  5, 0x229A, ITM_WAR_HAMMER },
-  { "Druid",       66,  12,12, 16, 12, 13, 11,  4,  5, 0x0A9E, ITM_MACE },
-  { "Bard",        71,  11,14, 12, 15, 11, 18,  3,  4, 0x048B, ITM_DAGGER },
-  { "Monk",        48,  14,12, 15, 17, 14, 11,  6,  3, 0x2490, ITM_DAGGER },
+  { "Warrior",      4,  17, 8,  9, 14, 16,  9,  8,  0, 0x0000, ITM_SHORT_SWORD },
+  { "Knight",       3,  16, 9, 11, 12, 16, 13,  7,  1, 0x0090, ITM_SHORT_SWORD },
+  { "Paladin",     14,  15,10, 14, 11, 15, 14,  6,  3, 0x02D8, ITM_MACE },
+  { "Ranger",      24,  14,11, 11, 17, 13, 10,  5,  2, 0x0425, ITM_SPEAR },
+  { "Rogue",        5,  12,13, 10, 18, 12, 12,  4,  2, 0x040B, ITM_DAGGER },
+  { "Mage",         2,   9,18,  9, 13, 10, 11,  2,  6, 0xDD6F, ITM_DAGGER },
+  { "Sorcerer",     7,   9,17, 10, 12, 10, 14,  2,  7, 0xF967, ITM_DAGGER },
+  { "Priest",       8,  11,10, 18, 10, 13, 13,  4,  5, 0x229A, ITM_WAR_HAMMER },
+  { "Druid",       17,  12,12, 16, 12, 13, 11,  4,  5, 0x0A9E, ITM_MACE },
+  { "Bard",         6,  11,14, 12, 15, 11, 18,  3,  4, 0x048B, ITM_DAGGER },
+  { "Monk",        19,  14,12, 15, 17, 14, 11,  6,  3, 0x2490, ITM_DAGGER },
   /* "Berserk", not "Barbarian": the class grid gives a name 7 characters
    * before the third column runs off a 128px screen. */
-  { "Berserk",     76,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000, ITM_WAR_HAMMER },
+  { "Berserk",     16,  18, 7,  8, 13, 18,  8,  9,  0, 0x0000, ITM_WAR_HAMMER },
 };
 const int g_class_n = (int)(sizeof g_class / sizeof g_class[0]);
