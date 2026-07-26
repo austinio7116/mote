@@ -145,6 +145,59 @@ void rl_blit_cell(uint16_t *fb, int sheet, int cell, int x, int y) {
     g_api->blit(fb, img, x, y, (cell % cols) * TS, (cell / cols) * TS, TS, TS, 0, 0, MOTE_FB_H);
 }
 
+/* Where the camera ended up last frame, so the overlay pass can place the
+ * shadow under the player without recomputing the clamp and drifting from it. */
+static int s_cam_x, s_cam_y;
+
+/* --- the player's shadow -------------------------------------------------
+ *
+ * The character is one 8x8 cell drawn from the same sixteen colours as the
+ * floor it stands on, inside a viewport that is nothing but texture, and at
+ * 128x128 it simply vanishes -- especially on the busy deep wall bands.
+ *
+ * A pool of shadow under it, with the sprite re-drawn on top at full strength,
+ * gives the one thing the scene itself cannot: local contrast that travels with
+ * the player. It stays inside the player's own tile and a pixel or two beyond,
+ * so it darkens the ground the character stands on rather than dimming whatever
+ * is standing next to them.
+ *
+ * The blend is done by hand. scene2d sprites are colour-keyed with no alpha and
+ * draw_rect/draw_circle are solid fills, so there is no engine path that puts
+ * translucent black over what has already been rastered. */
+#define SHADOW_R    10          /* radius in pixels; the tile is 8 across */
+#define SHADOW_DARK 112         /* brightness at the centre, out of 256 */
+
+static uint16_t dim565(uint16_t c, int num) {
+    int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+    r = r * num >> 8; g = g * num >> 8; b = b * num >> 8;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+void rl_draw_player_shadow(uint16_t *fb) {
+    int px = g_pl.x * TS - s_cam_x;         /* top-left of the player's cell */
+    int py = g_pl.y * TS - s_cam_y;
+    int ox = px + TS / 2, oy = py + TS / 2; /* and its centre */
+
+    for (int y = oy - SHADOW_R; y <= oy + SHADOW_R; y++) {
+        if (y < 0 || y >= HUD_Y) continue;  /* never bleed into the HUD */
+        for (int x = ox - SHADOW_R; x <= ox + SHADOW_R; x++) {
+            if (x < 0 || x >= MOTE_FB_W) continue;
+            int dx = x - ox, dy = y - oy;
+            int d2 = dx * dx + dy * dy;
+            if (d2 > SHADOW_R * SHADOW_R) continue;
+            /* darkest at the centre, easing back to untouched at the rim, so
+             * the pool has no visible edge */
+            int t = d2 * 256 / (SHADOW_R * SHADOW_R);
+            int num = SHADOW_DARK + (256 - SHADOW_DARK) * t / 256;
+            uint16_t *p = &fb[y * MOTE_FB_W + x];
+            *p = dim565(*p, num);
+        }
+    }
+
+    /* and the character back over the top, undimmed */
+    rl_blit_cell(fb, SH_CHARACTERS, g_class[g_pl.cls].cell, px, py);
+}
+
 /* --- message log -------------------------------------------------------- */
 #define MSG_N 3
 #define MSG_LEN 31   /* the 3x5 font advances 4px, so ~31 chars span the screen */
@@ -279,6 +332,7 @@ void rl_draw_scene(void) {
     if (cy < 0) cy = 0;
     if (cx > MW * TS - VIEW_W * TS) cx = MW * TS - VIEW_W * TS;
     if (cy > MH * TS - VIEW_H * TS) cy = MH * TS - VIEW_H * TS;
+    s_cam_x = cx; s_cam_y = cy;
 
     static const MoteAutotile *tiles[5];
     int n_layer;

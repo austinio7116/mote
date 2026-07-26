@@ -341,6 +341,7 @@ int  rl_spell_list(uint8_t *out, int max);
 
 /* --- draw --------------------------------------------------------------- */
 void rl_draw_scene(void);
+void rl_draw_player_shadow(uint16_t *fb);
 void rl_draw_hud(uint16_t *fb);
 void rl_msg(const char *s);
 void rl_msgf(const char *fmt, int a);

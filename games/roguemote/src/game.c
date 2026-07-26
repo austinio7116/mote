@@ -888,6 +888,7 @@ static void g_overlay(uint16_t *fb) {
     case ST_MAP:   draw_worldmap(fb); return;
     default: break;
     }
+    rl_draw_player_shadow(fb);
     rl_fx_draw(fb);
     rl_draw_hud(fb);
     if (s_state == ST_DEAD) draw_dead(fb);
