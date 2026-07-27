@@ -651,6 +651,188 @@ void rl_gen_overworld(void) {
     rl_fov();
 }
 
+/* --- building interiors --------------------------------------------------
+ *
+ * A shop used to be a menu that opened when you pressed A on a doorstep, and an
+ * inn was a doorstep that took twenty gold. Both are rooms now: you walk in,
+ * you walk up to whoever is behind the counter, and you trade with a person
+ * standing in a place rather than with a tile.
+ *
+ * The layout is a pure function of the world seed and which building it is, the
+ * same contract dungeon floors have -- your local Armoury is the same shape
+ * every time you push the door, and no interior costs the save a single byte.
+ *
+ * The inn is two storeys because that is what an inn is: a bar downstairs and
+ * beds upstairs. They share a footprint (the shape is rolled before the storey
+ * is mixed in) so the building does not change size when you climb the stairs.
+ */
+
+/* Who stands behind each counter, named rather than indexed so that reordering
+ * the monster table cannot silently reassign who runs the Armoury. */
+static const char *const KEEPER_NAME[SHOP_N] = {
+    "goodwife",     /* General Store */
+    "dwarf",        /* Armoury */
+    "dwarf",        /* Weaponsmith */
+    "sage",         /* Alchemist */
+    "priest",       /* Magic Shop */
+    "old man",      /* Black Market */
+};
+
+static int same_str(const char *a, const char *b) {
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
+static int kind_named(const char *name) {
+    for (int i = 0; i < g_mon_kind_n; i++)
+        if (same_str(g_mon_kind[i].name, name)) return i;
+    return 0;
+}
+
+static Mon *put_npc(int x, int y, int kind, int flags) {
+    if (g_lv.n_mon >= MAX_MON) return 0;
+    Mon *m = &g_lv.mon[g_lv.n_mon++];
+    const MonKind *mk = &g_mon_kind[kind];
+    m->x = (uint8_t)x; m->y = (uint8_t)y;
+    m->kind = (uint8_t)kind;
+    m->hp = m->mhp = (int16_t)rl_dice(mk->hp_d, mk->hp_s);
+    m->speed = mk->speed;
+    m->energy = 0;
+    m->flags = (uint8_t)flags;
+    m->boss = 0;
+    return m;
+}
+
+/* Furniture goes down on empty floor only, so a table never lands on the
+ * doorway you came in by or on the gap a customer has to walk through. */
+static void furnish(int x, int y, int t) {
+    if (x < 1 || y < 1 || x >= INT_W - 1 || y >= INT_H - 1) return;
+    if (g_lv.terrain[y * MW + x] != T_FLOOR) return;
+    /* never on the tile you arrive on, or on the stairs */
+    if (x == g_lv.up_x && y == g_lv.up_y) return;
+    if (x == g_lv.down_x && y == g_lv.down_y) return;
+    g_lv.terrain[y * MW + x] = (uint8_t)t;
+}
+
+void rl_gen_interior(int what) {
+    uint32_t live = g_seed;
+    /* The two inn storeys roll their SHAPE from one seed so the building keeps
+     * its footprint on the way up; the storey is mixed in afterwards, once the
+     * walls are placed, so the furniture differs. */
+    int shape = (what == IN_INN_UP) ? IN_INN : what;
+    g_seed = g_world_seed * 2246822519u + (uint32_t)shape * 2654435761u + 101u;
+    if (!g_seed) g_seed = 1;
+
+    for (int y = 0; y < INT_H; y++)
+        for (int x = 0; x < INT_W; x++) {
+            g_lv.terrain[y * MW + x] = T_WALL;
+            g_lv.flags[y * MW + x] = 0;
+            g_lv.layer[y * MW + x] = 0;
+        }
+    g_lv.n_mon = 0;
+    g_lv.n_item = 0;
+
+    int w = 10 + rl_range(INT_W - 11);          /* 10..14 across */
+    int h = 7 + rl_range(INT_H - 8);            /* 7..11 down */
+    int x0 = (INT_W - w) / 2, y0 = (INT_H - h) / 2;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++)
+            g_lv.terrain[y * MW + x] = T_FLOOR;
+
+    /* the street door, in the bottom wall, and the tile you stand on inside it */
+    int ex = x0 + 2 + rl_range(w - 4);
+    g_lv.terrain[(y0 + h) * MW + ex] = T_EXIT;
+    g_lv.up_x = (uint8_t)ex;  g_lv.up_y = (uint8_t)(y0 + h - 1);
+    g_lv.down_x = 0; g_lv.down_y = 0;
+
+    /* torches on the back wall: the one thing that makes an interior read as
+     * lit from within rather than as a room with the lights off */
+    for (int x = x0 + 1; x < x0 + w - 1; x += 3 + rl_range(2))
+        g_lv.terrain[(y0 - 1) * MW + x] = T_TORCH;
+
+    g_seed ^= (what == IN_INN_UP) ? 0x9e3779b9u : 0x85ebca6bu;
+
+    if (what == IN_INN_UP) {
+        /* Bedrooms: a corridor along the front, and rooms off it behind a wall
+         * with a door each. Beds are the whole reason to climb the stairs, so
+         * every room gets one and they are the only place in the game a bed
+         * appears -- the inn on the street is a house from the outside. */
+        int cy = y0 + h - 1;                    /* the landing you walk along */
+        for (int x = x0; x < x0 + w; x++)
+            g_lv.terrain[(cy - 1) * MW + x] = T_WALL;
+
+        int rooms = 2 + rl_range(3);            /* 2..4 */
+        int step = w / rooms;
+        if (step < 4) { rooms = w / 4; step = w / (rooms ? rooms : 1); }
+        for (int i = 0; i < rooms; i++) {
+            int rx = x0 + i * step;
+            int rw = (i == rooms - 1) ? (x0 + w - rx) : step;
+            if (i)                              /* party wall */
+                for (int y = y0; y < cy - 1; y++)
+                    g_lv.terrain[y * MW + rx] = T_WALL;
+            int dx = rx + 1 + rl_range(rw - 2 > 0 ? rw - 2 : 1);
+            g_lv.terrain[(cy - 1) * MW + dx] = T_DOOR_OPEN;
+            /* the bed against the back wall, and a chest at its foot */
+            int bx = rx + 1 + rl_range(rw - 2 > 0 ? rw - 2 : 1);
+            g_lv.terrain[(y0 + 1) * MW + bx] = T_BED;
+            if (rl_pct(45) && bx + 1 < rx + rw - 1)
+                g_lv.terrain[(y0 + 1) * MW + bx + 1] = T_BARREL;
+        }
+        int sx = x0 + w - 2;
+        g_lv.terrain[cy * MW + sx] = T_STAIR_DOWN;
+        g_lv.down_x = (uint8_t)sx; g_lv.down_y = (uint8_t)cy;
+        /* the way out is DOWN the stairs, not through the wall */
+        g_lv.terrain[(y0 + h) * MW + ex] = T_WALL;
+        g_lv.up_x = (uint8_t)sx; g_lv.up_y = (uint8_t)cy;
+    } else {
+        /* A counter across the room with one gap in it, and whoever runs the
+         * place standing behind the gap. The gap matters: a counter you cannot
+         * reach round is a shopkeeper you cannot bump into. */
+        int cy = y0 + 2;
+        int gap = x0 + 1 + rl_range(w - 2);
+        for (int x = x0; x < x0 + w; x++)
+            if (x != gap) g_lv.terrain[cy * MW + x] = T_BARREL;
+
+        int keeper = (what == IN_INN) ? kind_named("villager")
+                                      : kind_named(KEEPER_NAME[what - IN_SHOP]);
+        put_npc(gap, cy - 1, keeper, MF_KEEPER);
+
+        if (what == IN_INN) {
+            /* the stairs to the beds, behind the bar's end of the room */
+            int sx = (gap > x0 + w / 2) ? x0 + 1 : x0 + w - 2;
+            g_lv.terrain[(y0 + h - 1) * MW + sx] = T_STAIR_UP;
+            g_lv.down_x = (uint8_t)sx; g_lv.down_y = (uint8_t)(y0 + h - 1);
+            /* tables, and drinkers to sit at them -- an empty bar is a warehouse */
+            for (int i = 0, n = 2 + rl_range(3); i < n; i++) {
+                int tx = x0 + 2 + rl_range(w - 4), ty = cy + 2 + rl_range(h - 5);
+                furnish(tx, ty, T_BARREL);
+                if (i == 0 || rl_pct(60)) {
+                    int px = tx + (rl_range(2) ? 1 : -1);
+                    if (px > 0 && px < INT_W && g_lv.terrain[ty * MW + px] == T_FLOOR &&
+                        !rl_mon_at(px, ty))
+                        put_npc(px, ty, kind_named("farmhand"), 0);
+                }
+            }
+        } else {
+            /* stock: shelving down the side walls, and crates on the floor */
+            for (int y = cy + 2; y < y0 + h - 1; y++) {
+                if (rl_pct(55)) furnish(x0, y, T_BARREL);
+                if (rl_pct(55)) furnish(x0 + w - 1, y, T_BARREL);
+            }
+            for (int i = 0, n = 1 + rl_range(4); i < n; i++)
+                furnish(x0 + 2 + rl_range(w - 4), cy + 2 + rl_range(h - 5), T_BARREL);
+        }
+    }
+
+    /* Indoors is lit. A shop you have to carry a lamp around to read is a
+     * lantern puzzle nobody asked for, and the room is one screen anyway. */
+    for (int y = 0; y < INT_H; y++)
+        for (int x = 0; x < INT_W; x++)
+            g_lv.flags[y * MW + x] |= CF_KNOWN | CF_VISIBLE;
+
+    g_seed = live;
+}
+
 /* --- shops -------------------------------------------------------------- */
 /* Six shops, Moria style. Stock is rolled from the item table filtered by the
  * shop's remit, restocked whenever you re-enter town. */

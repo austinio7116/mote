@@ -55,7 +55,21 @@ SHOTS = {
                     ENTER + " menu:26-29 rb:34-36 rb:41-43 a:50-53", 56),
     "fireball":    (dict(DEPTH="6",  LEVEL="30", CLASS="5"),
                     ENTER + " menu:26-29 rb:34-36 rb:41-43 down:48-72 a:78-81", 86),
-    "shop":        (dict(LEVEL="6"),                       ENTER + " a:30-33",           40),
+    # Buying is done at a counter now, so the shop shot has to WALK to one. Seed
+    # 1 pins the Armoury's layout: in at (4,10), the gap in the counter at x=11,
+    # the keeper behind it -- seven steps right, then up until you bump them.
+    "shop":        (dict(SEED="1", INSIDE="2", LEVEL="8"),
+                    ENTER + " right:30-31 right:34-35 right:38-39 right:42-43"
+                            " right:46-47 right:50-51 right:54-55"
+                            " up:58-59 up:62-63 up:66-67 up:70-71 up:74-75"
+                            " up:78-79 up:82-83 up:86-87",                              96),
+    "shopinside":  (dict(SEED="1", INSIDE="2", LEVEL="8"),  ENTER,                      30),
+    "innbar":      (dict(SEED="1", INSIDE="7", LEVEL="8"),  ENTER,                      30),
+    "innrooms":    (dict(SEED="1", INSIDE="8", LEVEL="8"),  ENTER,                      30),
+    # the level screen only exists at the moment of gaining one; the hook holds
+    # it open rather than clearing it the way the plain LEVEL hook does
+    "levelup":     (dict(SEED="1", LEVELUP="1", LEVEL="12", CLASS="5", DEPTH="3"),
+                    ENTER,                                                              30),
     # the action ring only opens on a tile with nothing to use, so walk off the
     # stairs you arrive on before pressing A
     "ring":        (dict(DEPTH="5",  LEVEL="12"),

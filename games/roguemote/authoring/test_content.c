@@ -1575,6 +1575,200 @@ static void ticks(int moves) {
     for (int i = 0; i < moves * TURN_TICKS; i++) rl_world_tick();
 }
 
+/* --- interiors ------------------------------------------------------------
+ *
+ * A building is a room you walk around in, so the failures are the ones a
+ * screenshot hides: a keeper walled in behind their own counter, a door that
+ * opens onto rock, a bed in the bar. Each is a graph question, so each is a
+ * flood fill.
+ */
+static uint8_t s_reach[MW * MH];
+
+static void flood_interior(int sx, int sy) {
+    for (int i = 0; i < MW * MH; i++) s_reach[i] = 0;
+    static uint16_t q[INT_W * INT_H];
+    int head = 0, tail = 0;
+    s_reach[sy * MW + sx] = 1;
+    q[tail++] = (uint16_t)(sy * MW + sx);
+    while (head < tail) {
+        int p = q[head++], x = p % MW, y = p / MW;
+        static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+        for (int d = 0; d < 4; d++) {
+            int nx = x + dx[d], ny = y + dy[d];
+            if (nx < 0 || ny < 0 || nx >= INT_W || ny >= INT_H) continue;
+            if (s_reach[ny * MW + nx]) continue;
+            if (!rl_walkable(nx, ny)) continue;
+            s_reach[ny * MW + nx] = 1;
+            q[tail++] = (uint16_t)(ny * MW + nx);
+        }
+    }
+}
+
+/* reachable if you can stand on it, or stand next to it -- a keeper is bumped
+ * into from the customer's side, not walked onto */
+static int touchable(int x, int y) {
+    if (s_reach[y * MW + x]) return 1;
+    static const int dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+    for (int d = 0; d < 4; d++) {
+        int nx = x + dx[d], ny = y + dy[d];
+        if (nx < 0 || ny < 0 || nx >= INT_W || ny >= INT_H) continue;
+        if (s_reach[ny * MW + nx]) return 1;
+    }
+    return 0;
+}
+
+static void test_interiors(void) {
+    group("interiors");
+
+    static uint8_t first[MW * MH];
+    for (int seed = 1; seed <= 40; seed++) {
+        g_world_seed = (uint32_t)seed * 2654435761u + 7u;
+        for (int what = IN_SHOP; what <= IN_INN_UP; what++) {
+            g_pl.inside = (uint8_t)what;
+            g_pl.depth = 0;
+            rl_gen_interior(what);
+
+            const char *tag = what >= IN_INN ? "inn" : "shop";
+            int beds = 0, exits = 0, keepers = 0, floors = 0, stairs = 0;
+            for (int y = 0; y < INT_H; y++)
+                for (int x = 0; x < INT_W; x++) {
+                    uint8_t t = g_lv.terrain[y * MW + x];
+                    if (t == T_BED)  beds++;
+                    if (t == T_EXIT) exits++;
+                    if (t == T_FLOOR) floors++;
+                    if (t == T_STAIR_UP || t == T_STAIR_DOWN) stairs++;
+                }
+            for (int i = 0; i < g_lv.n_mon; i++)
+                if (g_lv.mon[i].flags & MF_KEEPER) keepers++;
+
+            CHECKF(floors > 20, "the room has a floor", "%s %d floor cells", tag, floors);
+
+            /* the arrival tile is somewhere you can be */
+            CHECKF(g_lv.up_x < INT_W && g_lv.up_y < INT_H, "you arrive inside the building",
+                   "%s arrives at (%d,%d)", tag, g_lv.up_x, g_lv.up_y);
+            CHECKF(rl_walkable(g_lv.up_x, g_lv.up_y), "you arrive somewhere you can stand",
+                   "%s arrives on terrain %d", tag,
+                   g_lv.terrain[g_lv.up_y * MW + g_lv.up_x]);
+
+            flood_interior(g_lv.up_x, g_lv.up_y);
+
+            if (what == IN_INN_UP) {
+                /* beds are upstairs and NOWHERE else -- that is the whole point
+                 * of the inn being a house on the street rather than a bed */
+                CHECKF(beds >= 2, "the rooms have beds", "%d beds upstairs", beds);
+                CHECKF(stairs == 1, "one way back down", "%d stairs upstairs", stairs);
+                int slept = 0;
+                for (int y = 0; y < INT_H; y++)
+                    for (int x = 0; x < INT_W; x++)
+                        if (g_lv.terrain[y * MW + x] == T_BED && touchable(x, y)) slept++;
+                CHECKF(slept == beds, "every bed can be reached",
+                       "%d of %d beds reachable", slept, beds);
+            } else {
+                CHECKF(beds == 0, "no bed downstairs", "%s has %d beds", tag, beds);
+                CHECKF(exits == 1, "exactly one door to the street",
+                       "%s has %d exits", tag, exits);
+                CHECKF(keepers == 1, "one person behind the counter",
+                       "%s has %d keepers", tag, keepers);
+                for (int i = 0; i < g_lv.n_mon; i++) {
+                    if (!(g_lv.mon[i].flags & MF_KEEPER)) continue;
+                    CHECKF(touchable(g_lv.mon[i].x, g_lv.mon[i].y),
+                           "the keeper can be reached from the door",
+                           "%s keeper at (%d,%d) walled in", tag,
+                           g_lv.mon[i].x, g_lv.mon[i].y);
+                }
+                if (what == IN_INN)
+                    CHECKF(stairs == 1, "the bar has stairs to the rooms",
+                           "%d stairs in the bar", stairs);
+            }
+
+            /* nothing is written outside the building's own bounds */
+            int spill = 0;
+            for (int y = INT_H; y < INT_H + 4; y++)
+                for (int x = 0; x < INT_W; x++)
+                    if (g_lv.terrain[y * MW + x] == T_EXIT ||
+                        g_lv.terrain[y * MW + x] == T_BED) spill++;
+            CHECKF(spill == 0, "the building stays inside its own bounds",
+                   "%s spilled %d cells", tag, spill);
+
+            /* and it is the same building every time you walk in */
+            if (seed == 1 && what == IN_SHOP)
+                for (int i = 0; i < MW * MH; i++) first[i] = g_lv.terrain[i];
+        }
+    }
+
+    g_world_seed = 1 * 2654435761u + 7u;
+    g_pl.inside = IN_SHOP;
+    rl_gen_interior(IN_SHOP);
+    int drift = 0;
+    for (int i = 0; i < MW * MH; i++) if (g_lv.terrain[i] != first[i]) drift++;
+    CHECKF(drift == 0, "a shop is the same shop next time you push the door",
+           "%d cells moved", drift);
+
+    g_pl.inside = IN_NONE;
+    g_world_seed = 1;
+}
+
+/* --- levelling ------------------------------------------------------------
+ * The screen can only show what rl_gain_xp recorded, so what it recorded has to
+ * be what actually happened. */
+static void test_levelup(void) {
+    group("levels");
+
+    for (int cls = 0; cls < g_class_n; cls++) {
+        fresh_player();
+        g_pl.cls = (uint8_t)cls;
+        g_pl.level = 1; g_pl.xp = 0;
+        g_pl.mhp = 20; g_pl.msp = 10;
+        for (int i = 0; i < 6; i++) g_pl.stat[i] = 10;
+
+        int levels = 0;
+        for (int step = 0; step < 400 && g_pl.level < 40; step++) {
+            uint8_t was[6];
+            int was_lvl = g_pl.level, was_hp = g_pl.mhp, was_sp = g_pl.msp;
+            for (int i = 0; i < 6; i++) was[i] = g_pl.stat[i];
+            g_levelup.pending = 0;
+            rl_gain_xp(g_pl.xp / 3 + 60);
+            if (!g_levelup.pending) continue;
+            levels++;
+
+            CHECKF(g_levelup.from == was_lvl && g_levelup.to == g_pl.level,
+                   "the screen names the level you just reached",
+                   "%d->%d, really %d->%d", g_levelup.from, g_levelup.to,
+                   was_lvl, g_pl.level);
+            CHECKF(g_levelup.dhp == g_pl.mhp - was_hp, "the health gain is the real one",
+                   "said +%d, was +%d", g_levelup.dhp, g_pl.mhp - was_hp);
+            CHECKF(g_levelup.dsp == g_pl.msp - was_sp, "the mana gain is the real one",
+                   "said +%d, was +%d", g_levelup.dsp, g_pl.msp - was_sp);
+            for (int i = 0; i < 6; i++) {
+                CHECKF(g_levelup.dstat[i] == (int)g_pl.stat[i] - (int)was[i],
+                       "the stat gain is the real one",
+                       "stat %d said +%d, was +%d", i, g_levelup.dstat[i],
+                       (int)g_pl.stat[i] - (int)was[i]);
+                CHECKF(g_pl.stat[i] <= 24, "a stat stays inside its cap",
+                       "stat %d is %d", i, g_pl.stat[i]);
+            }
+            /* a spell is announced exactly when it becomes castable */
+            for (int i = 0; i < g_levelup.n_spell; i++) {
+                int sp = g_levelup.spell[i];
+                CHECKF(sp < g_spell_n, "an announced spell exists", "spell %d", sp);
+                CHECKF(g_class[cls].spells & (uint16_t)(1u << sp),
+                       "an announced spell belongs to the class",
+                       "%s got %s", g_class[cls].name, g_spell[sp].name);
+                CHECKF(g_spell[sp].lvl > was_lvl && g_spell[sp].lvl <= g_pl.level,
+                       "an announced spell became castable on this level",
+                       "%s needs level %d, gained at %d", g_spell[sp].name,
+                       g_spell[sp].lvl, g_pl.level);
+            }
+        }
+        CHECKF(levels > 10, "the class levels at all", "%s gained %d levels",
+               g_class[cls].name, levels);
+        /* growth has to be worth stopping the game for */
+        CHECKF(g_pl.mhp > 60, "health grows with level",
+               "%s has %d hp at level %d", g_class[cls].name, g_pl.mhp, g_pl.level);
+    }
+    g_levelup.pending = 0;
+}
+
 static void test_recovery(void) {
     group("recovery");
 
@@ -2372,6 +2566,55 @@ static double ego_effective(int ego, int target) {
     return melee_mean(ITM_LONG_SWORD, ego, 0, target, 4000) / plain;
 }
 
+/* An ASCII plan of every building, because an interior bug (a keeper walled in,
+ * a bed in the bar, a door that opens onto rock) is invisible in a screenshot
+ * and obvious in a grid. */
+static void report_interiors(void) {
+    /* where the doors are on the street, so a recorded run can be scripted to
+     * walk to one instead of wandering until it finds it */
+    g_pl.inside = IN_NONE; g_pl.depth = 0;
+    rl_gen_overworld();
+    printf("player starts at (%d,%d)\n", g_pl.x, g_pl.y);
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++) {
+            uint8_t t = g_lv.terrain[y * MW + x];
+            if (t == T_SHOP) printf("  shop %d door at (%d,%d)\n", rl_shop_at(x, y), x, y);
+            if (t == T_INN)  printf("  inn door at (%d,%d)\n", x, y);
+        }
+
+    static const char *const NAME[] = { "", "General Store", "Armoury",
+        "Weaponsmith", "Alchemist", "Magic Shop", "Black Market",
+        "Inn -- the bar", "Inn -- the rooms" };
+    for (int what = IN_SHOP; what <= IN_INN_UP; what++) {
+        g_pl.inside = (uint8_t)what;
+        rl_gen_interior(what);
+        printf("\n=== %s ===  in at (%d,%d)  stair (%d,%d)\n", NAME[what],
+               g_lv.up_x, g_lv.up_y, g_lv.down_x, g_lv.down_y);
+        for (int y = 0; y < INT_H; y++) {
+            for (int x = 0; x < INT_W; x++) {
+                Mon *m = rl_mon_at(x, y);
+                char c;
+                if (m) c = (m->flags & MF_KEEPER) ? '@' : 'p';
+                else switch (g_lv.terrain[y * MW + x]) {
+                    case T_WALL:   c = '#'; break;
+                    case T_FLOOR:  c = '.'; break;
+                    case T_EXIT:   c = '+'; break;
+                    case T_BED:    c = 'B'; break;
+                    case T_BARREL: c = 'o'; break;
+                    case T_TORCH:  c = '*'; break;
+                    case T_DOOR_OPEN:  c = '\''; break;
+                    case T_STAIR_UP:   c = '<'; break;
+                    case T_STAIR_DOWN: c = '>'; break;
+                    default: c = '?'; break;
+                }
+                putchar(c);
+            }
+            putchar('\n');
+        }
+    }
+    g_pl.inside = IN_NONE;
+}
+
 static void report_economy(void) {
     printf("=== 1. what a floor drops, and what it is worth ===\n\n");
     printf("depth |  plain  ench   ego  curse | sale value: med    p90     p99    best |"
@@ -2513,6 +2756,7 @@ int main(int argc, char **argv) {
     rl_item_init_flavours();
 
     if (argc > 1 && !strcmp(argv[1], "--econ")) { report_economy(); return 0; }
+    if (argc > 1 && !strcmp(argv[1], "--inside")) { report_interiors(); return 0; }
 
     test_table();
     test_potions();
@@ -2533,6 +2777,8 @@ int main(int argc, char **argv) {
     test_levers();
     test_persistence();
     test_recovery();
+    test_interiors();
+    test_levelup();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);

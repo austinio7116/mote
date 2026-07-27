@@ -33,6 +33,9 @@ int rl_walkable(int x, int y) {
     /* a locked chest is stood on, like any other chest */
     case T_CBOX_R:  case T_CBOX_B:  case T_CBOX_D:
     case T_CBOX_G:  case T_CBOX_W:
+    /* indoors: you stand in the doorway to leave and on the bed to sleep, but
+     * the counter and the torches are furniture */
+    case T_EXIT:  case T_BED:
         return 1;
     default:
         return 0;
@@ -770,6 +773,14 @@ static void cast_ray(int x0, int y0, int x1, int y1) {
 
 void rl_fov(void) {
     for (int i = 0; i < MW * MH; i++) g_lv.flags[i] &= (uint8_t)~CF_VISIBLE;
+    /* Indoors the whole room is lit. A shop you have to explore by lamplight is
+     * a lantern puzzle nobody asked for, and the building is one screen. */
+    if (g_pl.inside) {
+        for (int y = 0; y < INT_H; y++)
+            for (int x = 0; x < INT_W; x++)
+                g_lv.flags[y * MW + x] |= CF_KNOWN | CF_VISIBLE;
+        return;
+    }
     int r = rl_player_light();
     if (r < 1) r = 1;
     int x0 = g_pl.x, y0 = g_pl.y;

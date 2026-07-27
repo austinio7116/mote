@@ -55,6 +55,13 @@ enum {
     T_LOCK_R,  T_LOCK_B,  T_LOCK_D,  T_LOCK_G,  T_LOCK_W,
     /* ...and locked chests, which a lever opens the same way it opens a door */
     T_CBOX_R,  T_CBOX_B,  T_CBOX_D,  T_CBOX_G,  T_CBOX_W,
+    /* Building interiors. A shop used to be a menu that opened on the doorstep;
+     * it is a room now, so it needs a way out, something to sleep on, and
+     * furniture to be a room rather than an empty box. */
+    T_EXIT,            /* the way back out to the street */
+    T_BED,             /* an inn bed: sleep here */
+    T_BARREL,          /* counter, shelving, tables -- solid */
+    T_TORCH,           /* wall light -- solid, and the reason indoors reads warm */
     T_COUNT
 };
 /* Both bands run the same five in the same order -- red, blue, gold, green,
@@ -124,7 +131,11 @@ typedef struct {
     uint8_t  flags;
     uint8_t  boss;             /* index+1 into g_boss_kind; 0 = ordinary monster */
 } Mon;
-enum { MF_ASLEEP = 1, MF_HASTED = 2, MF_AFRAID = 4, MF_CONFUSED = 8 };
+/* MF_KEEPER is a shopkeeper or an innkeeper: bump into them to trade. They are
+ * the one actor that must not wander -- a counter you have to chase is a joke
+ * the second time. */
+enum { MF_ASLEEP = 1, MF_HASTED = 2, MF_AFRAID = 4, MF_CONFUSED = 8,
+       MF_KEEPER = 16 };
 
 typedef struct {
     uint8_t  x, y;
@@ -148,6 +159,7 @@ typedef struct {
     uint8_t  stat[6];          /* STR INT WIS DEX CON CHA */
     int16_t  food;
     uint8_t  depth;            /* 0 = overworld, 1.. = dungeon */
+    uint8_t  inside;           /* IN_NONE, or which building you are standing in */
     uint8_t  light;            /* derived from inv_light; see rl_player_light */
     int8_t   inv_wield, inv_body, inv_ring, inv_light;
     int8_t   inv_bow, inv_ammo;      /* launcher and quiver; -1 when empty */
@@ -159,6 +171,11 @@ typedef struct {
     uint8_t  deepest;
     uint8_t  bosses_slain;     /* bit per boss band cleared -- drives artifacts */
 } Player;
+
+/* What `inside` means. The value is the building, not the room: the inn's two
+ * storeys are two of them, because a storey is generated separately and the
+ * stairs between them have to lead somewhere the save can name. */
+enum { IN_NONE = 0, IN_SHOP = 1, IN_INN = IN_SHOP + 6, IN_INN_UP };
 
 typedef struct {
     uint8_t terrain[MW * MH];
@@ -187,8 +204,18 @@ static inline int rl_pct(int p) { return rl_range(100) < p; }
 /* --- map ---------------------------------------------------------------- */
 static inline int rl_in(int x, int y) { return x >= 0 && x < MW && y >= 0 && y < MH; }
 static inline uint8_t rl_ter(int x, int y) { return rl_in(x, y) ? g_lv.terrain[y * MW + x] : T_WALL; }
-static inline int rl_level_w(void) { return g_pl.depth ? DUN_W : MW; }
-static inline int rl_level_h(void) { return g_pl.depth ? DUN_H : MH; }
+/* Building interiors -- shops and inns are rooms you walk into rather than
+ * menus that open on a doorstep. They are small, a screen and a bit, and they
+ * live in the top-left of the same buffer a dungeon floor uses: the row stride
+ * is always MW, so only the bounds move. */
+/* Exactly the viewport. A shop you have to scroll is a shop where the keeper is
+ * off-screen when you walk in, and the whole point of putting a person behind
+ * the counter is that you can see them from the door. */
+#define INT_W 16
+#define INT_H 13
+
+static inline int rl_level_w(void) { return g_pl.inside ? INT_W : (g_pl.depth ? DUN_W : MW); }
+static inline int rl_level_h(void) { return g_pl.inside ? INT_H : (g_pl.depth ? DUN_H : MH); }
 int  rl_walkable(int x, int y);
 int  rl_opaque(int x, int y);
 void rl_gen_level(int depth);
@@ -210,6 +237,23 @@ void rl_attack_mon(Mon *m);
 void rl_mon_attack_player(Mon *m);
 void rl_kill_mon(Mon *m);
 void rl_gain_xp(int32_t amount);
+
+/* What a level cost the world to give you. rl_gain_xp fills this in and raises
+ * `pending`; the play loop turns that into a screen and lowers it again.
+ *
+ * It has to be recorded rather than recomputed, because by the time anything
+ * can draw it the old numbers are gone -- and a level that only said "Welcome
+ * to level 13" in a log line that scrolls away in two turns was the least
+ * legible thing that happened to a character. */
+typedef struct {
+    uint8_t pending;
+    uint8_t from, to;
+    int16_t dhp, dsp;
+    int8_t  dstat[6];
+    uint8_t spell[8];          /* g_spell[] indices that just became castable */
+    uint8_t n_spell;
+} LevelUp;
+extern LevelUp g_levelup;
 int  rl_mon_hp_dice(const Mon *m, int *d, int *s);
 int  rl_mon_ac(const Mon *m);
 
@@ -420,6 +464,11 @@ int  rl_fx_busy(void);
 int  rl_spell_list(uint8_t *out, int max);
 
 /* --- draw --------------------------------------------------------------- */
+/* Build the inside of a building into g_lv. `what` is an IN_* value; the layout
+ * is a pure function of it and the world seed, so a shop looks the same every
+ * time you walk in. */
+void rl_gen_interior(int what);
+
 void rl_draw_scene(void);
 void rl_draw_player_shadow(uint16_t *fb);
 void rl_describe(int x, int y);
@@ -494,6 +543,9 @@ extern const int g_class_n;
 
 /* --- overworld + shops -------------------------------------------------- */
 #define SHOP_N     6
+/* IN_INN sits above the shop ids and cannot be written in terms of SHOP_N up
+ * where Player lives, so it is checked here instead of trusted. */
+_Static_assert(IN_INN == IN_SHOP + SHOP_N, "interior ids must clear the shops");
 #define SHOP_SLOTS 8
 
 extern const char *const g_shop_name[SHOP_N];

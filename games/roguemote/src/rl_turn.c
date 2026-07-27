@@ -92,6 +92,20 @@ static int player_blows(void) {
     return n > 4 ? 4 : n;
 }
 
+LevelUp g_levelup;
+
+/* Which stat a class thickens. The starting spread already says what a class is
+ * about, so the prime is just its highest roll -- no second table to keep in
+ * agreement with the first. */
+static int prime_stat(const ClassKind *ck) {
+    const uint8_t v[6] = { ck->str, ck->intl, ck->wis, ck->dex, ck->con, ck->cha };
+    int best = 0;
+    for (int i = 1; i < 6; i++) if (v[i] > v[best]) best = i;
+    return best;
+}
+
+#define STAT_CAP 24
+
 void rl_gain_xp(int32_t amount) {
     g_pl.xp += amount;
     /* a simple compounding curve; deep enough to feel earned, cheap to evaluate */
@@ -101,10 +115,42 @@ void rl_gain_xp(int32_t amount) {
     if (lvl > g_pl.level) {
         int gained = lvl - g_pl.level;
         const ClassKind *ck = &g_class[g_pl.cls];
+        int was_hp = g_pl.mhp, was_sp = g_pl.msp, was_lvl = g_pl.level;
+
         g_pl.level = (uint8_t)lvl;
         g_pl.mhp = (int16_t)(g_pl.mhp + gained * (ck->hp_bonus + rl_stat(4) / 4));
         g_pl.msp = (int16_t)(g_pl.msp + gained * (ck->sp_bonus + rl_stat(1) / 6));
         g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp;
+
+        /* A level used to be two invisible numbers on two bars. It grows the
+         * character now: better than even odds of a point somewhere, weighted
+         * to what the class is for, so a warrior thickens and a mage sharpens
+         * without either being locked out of the rest. */
+        for (int i = 0; i < 6; i++) g_levelup.dstat[i] = 0;
+        for (int g = 0; g < gained; g++) {
+            if (!rl_pct(55)) continue;
+            int s = rl_pct(50) ? prime_stat(ck) : rl_range(6);
+            if (g_pl.stat[s] >= STAT_CAP) continue;
+            g_pl.stat[s]++;
+            g_levelup.dstat[s]++;
+        }
+
+        /* Spells arrive by level, so what just became castable is what sits in
+         * the class's mask between the old level and the new one. */
+        g_levelup.n_spell = 0;
+        uint16_t mask = ck->spells;
+        for (int i = 0; i < g_spell_n && g_levelup.n_spell < 8; i++) {
+            if (!(mask & (uint16_t)(1u << i))) continue;
+            if (g_spell[i].lvl > was_lvl && g_spell[i].lvl <= lvl)
+                g_levelup.spell[g_levelup.n_spell++] = (uint8_t)i;
+        }
+
+        g_levelup.from = (uint8_t)was_lvl;
+        g_levelup.to   = (uint8_t)lvl;
+        g_levelup.dhp  = (int16_t)(g_pl.mhp - was_hp);
+        g_levelup.dsp  = (int16_t)(g_pl.msp - was_sp);
+        g_levelup.pending = 1;
+
         rl_msgf("Welcome to level %d.", lvl);
     }
 }
@@ -286,6 +332,11 @@ static int step_toward(int from, int to) { return from < to ? 1 : (from > to ? -
 
 void rl_mon_turn(Mon *m) {
     int mf = mon_flags(m);
+
+    /* Whoever is behind the counter stays behind the counter. A shopkeeper who
+     * wanders off is a shop you have to chase round its own floor, which is
+     * funny exactly once. */
+    if (m->flags & MF_KEEPER) return;
 
     /* Townsfolk. They drift about their own business and never come at you --
      * a village that fights you the moment you walk in is not a village. */

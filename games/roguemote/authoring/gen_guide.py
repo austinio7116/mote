@@ -259,7 +259,8 @@ def shot(name):
 
 SHOT_NAMES = ["title", "class", "overworld", "worldmap", "town", "shop", "pack",
               "gear", "character", "dungeon", "levelmap", "spells", "missile",
-              "nova", "fireball", "boss", "ring"]
+              "nova", "fireball", "boss", "ring", "shopinside", "innbar",
+              "innrooms", "levelup"]
 shots = {n: shot(n) for n in SHOT_NAMES}
 missing = [n for n, v in shots.items() if not v]
 if missing:
@@ -367,8 +368,12 @@ def sec_screen():
                  "health &mdash; a point plus one per 32 of maximum. A big pool "
                  "is hundreds of turns from empty to full, so a fight is fought "
                  "with the mana you walked in with."),
-        ("Level", "Your character level, after <code>L</code>. Experience "
-                  "comes from kills, and each level raises health, mana and accuracy."),
+        ("Level", "Your character level, after <code>L</code>. Experience comes "
+                  "from kills. Every level raises maximum health and mana, and "
+                  "better than half the time it raises a stat as well &mdash; "
+                  "weighted to what the class is for, so a Warrior thickens and "
+                  "a Mage sharpens, but neither is locked out of the rest. Stats "
+                  "stop at 24."),
         ("Depth", "<code>TOWN</code> on the surface, <code>DL</code> and a "
                   "number below it. Depth is difficulty: everything scales with it."),
         ("State", "A <code>*</code> when you are close to starving, a "
@@ -386,8 +391,15 @@ def sec_screen():
      the only place the game tells you what just happened.</p>
   %s
   <dl class="kvlist">%s</dl>
+  <p>Levelling stops the game and shows you what it bought: the two bars, any
+     stat that moved, and any spell that just came within reach. It used to be a
+     single line in the log, which meant the most consequential thing that
+     happens to a character was also the least legible &mdash; two turns later
+     it had scrolled away.</p>
+  %s
 </section>""" % (plate(shots["dungeon"], "The map viewport, status strip and log. "
-                       "Walls, floor and every actor are 8&#215;8 tiles."), body)
+                       "Walls, floor and every actor are 8&#215;8 tiles."), body,
+                 plate(shots["levelup"], "+8 health, +18 mana, and Shock Ball."))
 
 
 def sec_controls():
@@ -395,8 +407,13 @@ def sec_controls():
         ("D-pad", "Move one tile. Walking into something attacks it. Hold a "
                   "direction to keep walking."),
         ("LB + D-pad", "Move diagonally. The Mines are eight-way; corridors are not."),
-        ("A", "Use what you are standing on: stairs, a shop door, an inn bed, a "
-              "chest, a cave mouth, a tower &mdash; or <b>pull a lever</b>."),
+        ("A", "Use what you are standing on: stairs, a shop door, an inn door, "
+              "a bed, a chest, a cave mouth, a tower &mdash; or <b>pull a "
+              "lever</b>."),
+        ("D-pad into a keeper", "Trade. A shopkeeper is a person standing behind "
+              "a counter, not a tile you step on, so you walk up and bump into "
+              "them the way you would anything else &mdash; and unlike anything "
+              "else, that opens their stock instead of hitting them."),
         ("A on bare ground", "Opens the <b>action ring</b>: four choices parked "
               "at the four compass points &mdash; <b>Look</b> above you, "
               "<b>Map</b> right, <b>Rest</b> below, <b>Pack</b> left. Tap a "
@@ -854,8 +871,9 @@ def sec_town():
   <p>The town is a place, not a screen. It is a walled settlement on the
      overworld &mdash; an irregular wall two courses thick, wandering flagstone
      streets that punch out through it as gates, and shopfronts standing on the
-     street front. Walk onto a shopfront and you are in that shop; walk onto the
-     bed and you have slept. Nothing wild spawns inside the walls &mdash; but
+     street front. Press <kbd>A</kbd> on a shopfront and you are <em>inside</em>
+     it &mdash; a room with a counter, shelves and a person behind them.
+     Nothing wild spawns inside the walls &mdash; but
      <b>townsfolk do</b>. Villagers, a farmhand, a sage, a dwarf, a priest, a
      child and the king wander their own streets and never come at you.</p>
   <p>The walled town is the capital and keeps all six traders. Two to four more
@@ -865,8 +883,23 @@ def sec_town():
      a place, and the same trader can have a door in two towns. No town puts
      the same trader behind two of its own doors.</p>
   <div class="shops">%s</div>
-  <p>Shops restock every time you surface, and the inn restores health, mana
-     and food for twenty gold &mdash; and saves your game. Shops buy at a third
+  <h3>Inside</h3>
+  <p>A shop is a room. The layout is generated from the world seed and which
+     trader it is, so your Armoury is the same shape every time you push its
+     door &mdash; a counter across the room with one gap in it, shelving down
+     the walls, torches on the back wall, and the trader standing behind the
+     gap. <b>Walk into them to trade.</b> Walk back out through the door to the
+     street; nothing restocks in between, so a shop cannot be rerolled by
+     stepping out and back in.</p>
+  <div class="shots2">%s%s</div>
+  <p>The inn is two storeys. Downstairs is the bar: the innkeeper, tables and
+     drinkers. Bump the innkeeper for a hot meal at five gold, which fills the
+     hunger clock. Upstairs is a landing with rooms off it, and each room has a
+     bed &mdash; twenty gold to sleep, which restores health, mana and food, and
+     saves your game. Beds appear <em>only</em> up there. The inn on the street
+     is a house with a torch by its door.</p>
+  <div class="shots2">%s%s</div>
+  <p>Shops restock every time you surface from the dungeon. They buy at a third
      of what they sell for, which is the usual arrangement.</p>
   <p>The Black Market carries things far out of depth at five times the price.
      It is a money sink and it is meant to be one, but it is also the only place
@@ -875,8 +908,17 @@ def sec_town():
   <p class="note">Charisma shaves the price a little, which is the only thing
      Charisma does. Bards and Paladins get a real discount; Berserks do not.</p>
 </section>""" % (cards,
-                 plate(shots["town"], "The six shops and the inn.", small=True),
-                 plate(shots["shop"], "Stock, with what you can afford in gold.",
+                 plate(shots["shopinside"], "The Armoury: counter, shelves, "
+                       "and a dwarf behind the gap.", small=True),
+                 plate(shots["shop"], "Bump the keeper and the stock opens, "
+                       "with what you can afford in gold.", small=True),
+                 plate(shots["innbar"], "The bar. The innkeeper sells a meal; "
+                       "the stairs go up.", small=True),
+                 plate(shots["innrooms"], "The rooms. One bed each, and the "
+                       "only beds in the game.", small=True),
+                 plate(shots["town"], "The street front: shopfronts either "
+                       "side, townsfolk in the road.", small=True),
+                 plate(shots["worldmap"], "The capital from the world map.",
                        small=True))
 
 

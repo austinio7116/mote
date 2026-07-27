@@ -9,13 +9,14 @@
  *
  * The blob carries a magic + version word so a save written by an older layout
  * is rejected instead of being read as garbage stats. Bump it whenever Player
- * changes -- v4 added the light slot, v5 the blessing timer.
+ * changes -- v4 added the light slot, v5 the blessing timer, v8 the building
+ * you are standing in.
  */
 #include "rl.h"
 
 #define SAVE_KEY   "roguemote.sav"
 #define SCORE_KEY  "roguemote.hi"
-#define SAVE_MAGIC 0x524D5307u          /* 'RMS' + layout version 7 */
+#define SAVE_MAGIC 0x524D5308u          /* 'RMS' + layout version 8 */
 
 #define SEEN_MAX 20480          /* comfortably over the store's real size */
 
@@ -77,7 +78,12 @@ int rl_load(void) {
     if ((int)b.seen_bytes < sn) sn = (int)b.seen_bytes;
     for (int i = 0; i < sn; i++) seen[i] = b.seen[i];
 
-    if (g_pl.depth == 0) rl_gen_overworld();
+    /* Interiors are derived the same way floors are, so the save carries which
+     * building you were in and nothing else about it. */
+    if (g_pl.inside) {
+        rl_gen_interior(g_pl.inside);
+        rl_fov();
+    } else if (g_pl.depth == 0) rl_gen_overworld();
     else {
         rl_gen_level(g_pl.depth);
         rl_seen_load(g_pl.depth);

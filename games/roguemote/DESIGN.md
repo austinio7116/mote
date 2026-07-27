@@ -288,14 +288,23 @@ Multi-tile boss rendering: 2×2 sprites blit as four 8×8 draws with a shared or
 
 ## 10. Shops (Moria style)
 
-Six shops + temple in the starting town, each an interior built from `furniture_white`,
-`furniture_stone`, `panels_colour`, `cobble_floors`:
+General Store · Armoury · Weaponsmith · Alchemist · Magic Shop · Black Market
 
-General Store · Armoury · Weaponsmith · Alchemist · Magic Shop · Black Market · Temple
+Each has a stock table, restocked whenever you surface from the dungeon, a haggle-free
+fixed price with a CHA modifier, and sells back at a third. The Black Market sells
+out-of-depth items at 5× — Moria's classic money sink and the reason gold matters late.
 
-Each has a stock table, a restock timer measured in game turns, a haggle-free fixed
-price with a CHA modifier, and a **buy-back** list. The Black Market sells out-of-depth
-items at 5× — Moria's classic money sink and the reason gold matters late.
+**Interiors.** A shop is a room you walk into, not a menu that opens on the doorstep:
+one screen exactly (`INT_W`×`INT_H` = the viewport), generated from the world seed and
+the building id, so a given trader's shop is the same shape every visit and costs the
+save nothing. A counter runs across it with one gap; the trader stands behind the gap
+and you **bump into them** to trade. Shelving down the walls, torches on the back wall,
+crates on the floor. The way out is the door in the front wall.
+
+The inn is two storeys sharing one footprint: a bar downstairs (innkeeper, tables,
+drinkers — a hot meal for 5g) and, up the stairs, a landing with bedrooms off it. A bed
+is 20g for full health, mana, food and a save. **Beds exist only up there** — on the
+street the inn is a house with a torch by the door.
 
 ---
 

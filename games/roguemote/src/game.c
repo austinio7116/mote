@@ -26,7 +26,8 @@ MOTE_MODULE_HEADER();
 
 /* --- game state --------------------------------------------------------- */
 enum { ST_TITLE, ST_CLASS, ST_PLAY, ST_INV, ST_GEAR, ST_GEARPICK, ST_CAST,
-       ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_ACTION, ST_LOOK, ST_DEAD };
+       ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_ACTION, ST_LOOK, ST_LEVELUP,
+       ST_DEAD };
 static uint8_t s_look_x, s_look_y;   /* the inspect cursor */
 
 /* The action ring. A list wants a cursor walked down it; four actions parked
@@ -115,6 +116,9 @@ static const int DY[8] = { -1, 1, 0, 0, -1, -1, 1, 1 };
 
 /* --- new game ----------------------------------------------------------- */
 static void enter_depth(int d);
+static void enter_inside(int what, int by_stair);
+static void leave_inside(void);
+static void talk_keeper(void);
 
 static void new_game(int cls) {
     /* the title screen advances s_entropy every frame, so the moment the
@@ -123,6 +127,13 @@ static void new_game(int cls) {
     if (!g_seed) g_seed = 1;
     g_world_seed = g_seed ^ 0x9E3779B9u;
     if (!g_world_seed) g_world_seed = 1;
+
+#if MOTE_HOST
+    /* MOTE_RL_SEED=n pins the world, so a recorded run and the audit's ASCII
+     * plan of the same building are the same building. */
+    { const char *sd = getenv("MOTE_RL_SEED");
+      if (sd) { g_world_seed = (uint32_t)atoi(sd); if (!g_world_seed) g_world_seed = 1; } }
+#endif
 
     const ClassKind *ck = &g_class[cls];
     g_pl.cls = (uint8_t)cls;
@@ -135,6 +146,7 @@ static void new_game(int cls) {
     g_pl.energy = 0;
     g_pl.food = 3000;
     g_pl.depth = 0;
+    g_pl.inside = IN_NONE;
     g_pl.haste = 0;
     g_pl.kills = 0; g_pl.deepest = 0; g_pl.bosses_slain = 0;
     g_pl.wx = g_pl.wy = 0;
@@ -175,9 +187,16 @@ static void new_game(int cls) {
          * one system you cannot photograph from a healthy character: a full bar
          * refilling instantly and a full bar not moving at all look identical. */
         const char *hu = getenv("MOTE_RL_HURT");
+        /* MOTE_RL_INSIDE=n opens the game inside building n (1..6 a shop, 7 the
+         * inn's bar, 8 its rooms), because walking to a shop door first makes
+         * every interior shot depend on where the town generator put it. */
+        const char *ins = getenv("MOTE_RL_INSIDE");
         if (l) {
             int want = atoi(l);
             while (g_pl.level < want && g_pl.level < 50) rl_gain_xp(g_pl.xp + 20);
+            /* the hook is not a level-up event -- unless you are photographing
+             * the level-up screen, which is the one case it has to be */
+            if (!getenv("MOTE_RL_LEVELUP")) g_levelup.pending = 0;
         }
         /* MOTE_RL_GEAR=bow hands over a launcher and a quiver whatever the class
          * rolled, so ranged combat can be exercised without playing a Ranger to
@@ -198,6 +217,10 @@ static void new_game(int cls) {
                 if (rv) for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
             }
         }
+        if (ins) {
+            int what = atoi(ins);
+            if (what > 0 && what <= IN_INN_UP) enter_inside(what, what == IN_INN_UP);
+        }
         if (hu) {                       /* last: enter_depth does not reset it */
             int pct = atoi(hu);
             if (pct < 1) pct = 1;
@@ -214,7 +237,14 @@ static void new_game(int cls) {
 static int try_move(int dir) {
     int nx = g_pl.x + DX[dir], ny = g_pl.y + DY[dir];
     Mon *m = rl_mon_at(nx, ny);
+    /* Walking into a shopkeeper is how you trade with them -- bump to talk is
+     * the roguelike idiom, and it is the only way a counter is worth walking
+     * up to. Everything else you walk into, you hit. */
+    if (m && (m->flags & MF_KEEPER)) { talk_keeper(); return 0; }
     if (m) { rl_attack_mon(m); return 1; }
+    /* the door out of a building: you leave by walking through it, not by
+     * standing in it and pressing a button */
+    if (g_pl.inside && rl_ter(nx, ny) == T_EXIT) { leave_inside(); return 1; }
     /* A locked door names its colour, because the whole mechanic is "go and
      * find the lever that matches" and a door that just refuses to open is a
      * dead end rather than a puzzle. */
@@ -239,7 +269,10 @@ static int try_move(int dir) {
     }
     if (!rl_walkable(nx, ny)) return 0;
     g_pl.x = (uint8_t)nx; g_pl.y = (uint8_t)ny;
-    if (g_pl.depth == 0) { g_pl.wx = g_pl.x; g_pl.wy = g_pl.y; }
+    /* wx/wy is the doorstep to come back to -- indoors the coordinates are the
+     * building's, and writing them over the street position would teleport you
+     * into the middle of the continent when you stepped out */
+    if (g_pl.depth == 0 && !g_pl.inside) { g_pl.wx = g_pl.x; g_pl.wy = g_pl.y; }
     rl_fov();
     if (rl_item_at(g_pl.x, g_pl.y)) rl_msg("Something lies here.");
     return 1;
@@ -249,6 +282,7 @@ static void enter_depth(int d) {
     /* bank what you had explored of the floor you are leaving, before the
      * generator wipes the flags */
     rl_seen_store(g_pl.depth);
+    g_pl.inside = IN_NONE;        /* stairs are never inside a building */
 
     /* Which end of the stairs you come out of. rl_gen_level always stands you
      * on the UP stair, which is right when you have just walked DOWN a
@@ -285,11 +319,82 @@ static void enter_depth(int d) {
     s_have_save = 1;
 }
 
+/* --- going indoors -------------------------------------------------------
+ *
+ * A shop was a menu that opened on the doorstep and an inn was a doorstep that
+ * charged twenty gold. Both are buildings you walk into now. The interior
+ * replaces the level buffer -- the same trade surfacing already makes, since
+ * the arena will not hold a continent and anything else at once -- so stepping
+ * back out rebuilds the overworld, which puts you back on the doorstep you left
+ * from because the surface always restores you to wx/wy.
+ */
+static void enter_inside(int what, int by_stair) {
+    g_pl.inside = (uint8_t)what;
+    rl_gen_interior(what);
+    /* arriving by stair puts you AT the stair, not at the front door: the inn's
+     * two storeys are one building and you did not go outside to change floor */
+    if (by_stair && (g_lv.down_x || g_lv.down_y)) {
+        g_pl.x = g_lv.down_x; g_pl.y = g_lv.down_y;
+    } else {
+        g_pl.x = g_lv.up_x; g_pl.y = g_lv.up_y;
+    }
+    rl_fov();
+    rl_save(); s_have_save = 1;
+}
+
+static void leave_inside(void) {
+    g_pl.inside = IN_NONE;
+    /* NOT rl_shop_restock(): that belongs to surfacing from the dungeon. A shop
+     * you can reroll by stepping out of the door and back in is a slot machine,
+     * not a shop. */
+    rl_gen_overworld();
+    rl_fov();
+    rl_msg("You step into the street.");
+    rl_save(); s_have_save = 1;
+}
+
+/* Trading with a person rather than with a tile. The building already says
+ * which trader this is, so the keeper carries no state of their own. */
+static void talk_keeper(void) {
+    if (g_pl.inside >= IN_INN) {
+        /* The bar is worth walking into for its own sake: a hot meal fills the
+         * hunger clock for a quarter of what a bed costs, which is the cheap
+         * half of what an inn is for. */
+        if (g_pl.food > 3800) { rl_msg("\"Rooms upstairs. 20 gold.\""); return; }
+        if (g_pl.gold < 5)    { rl_msg("\"No coin, no supper.\""); return; }
+        g_pl.gold -= 5;
+        g_pl.food = 5000;
+        rl_msg("You eat a hot meal. (-5g)");
+        return;
+    }
+    s_shop = g_pl.inside - IN_SHOP;
+    s_state = ST_SHOP; s_menu = 0; s_menu_top = 0;
+}
+
+static void sleep_in_bed(void) {
+    if (g_pl.gold < 20) { rl_msg("The innkeeper wants 20 gold."); return; }
+    g_pl.gold -= 20;
+    g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp; g_pl.food = 5000;
+    rl_msg("You sleep well. (-20g)");
+    rl_save(); s_have_save = 1;
+}
+
 /* A: whatever the tile under you offers. One button, context-sensitive, is the
  * only workable answer on nine physical buttons. */
 static void act_context(void) {
     uint8_t t = rl_ter(g_pl.x, g_pl.y);
     if (rl_item_at(g_pl.x, g_pl.y)) { rl_pickup(); return; }
+    /* Indoors, the stairs are the inn's own and go between its two storeys --
+     * they must never be read as the dungeon's. */
+    if (g_pl.inside) {
+        switch (t) {
+        case T_EXIT:       leave_inside(); return;
+        case T_STAIR_UP:   enter_inside(IN_INN_UP, 1); rl_msg("The rooms upstairs."); return;
+        case T_STAIR_DOWN: enter_inside(IN_INN, 1);    rl_msg("The bar."); return;
+        case T_BED:        sleep_in_bed(); return;
+        default: break;
+        }
+    }
     switch (t) {
     case T_STAIR_DOWN:  enter_depth(g_pl.depth + 1); break;
     case T_STAIR_UP:    enter_depth(g_pl.depth - 1); break;
@@ -298,16 +403,13 @@ static void act_context(void) {
     case T_SHOP: {
         int s = rl_shop_at(g_pl.x, g_pl.y);
         if (s < 0) { rl_msg("The door is locked."); break; }
-        s_shop = s; s_state = ST_SHOP; s_menu = 0; s_menu_top = 0;
+        enter_inside(IN_SHOP + s, 0);
+        rl_msg2("You enter the ", g_shop_name[s]);
         break;
     }
     case T_INN:
-        if (g_pl.gold >= 20) {
-            g_pl.gold -= 20;
-            g_pl.hp = g_pl.mhp; g_pl.sp = g_pl.msp; g_pl.food = 5000;
-            rl_msg("You sleep well. (-20g)");
-            rl_save(); s_have_save = 1;
-        } else rl_msg("The inn wants 20 gold.");
+        enter_inside(IN_INN, 0);
+        rl_msg("The bar is warm and loud.");
         break;
     case T_DUNGEON_MOUTH:
         /* re-enter at the deepest floor reached: after twenty floors, walking
@@ -510,7 +612,25 @@ static void g_update(float dt) {
 
     case ST_PLAY:
         if (rl_fx_busy()) { rl_draw_scene(); return; }   /* let the effect land */
+        /* A level can be earned from anywhere -- a kill, a scroll read in the
+         * pack, a potion of experience -- so the screen is raised here, on the
+         * way back to play, rather than at each of those call sites. */
+        if (g_levelup.pending) {
+            g_levelup.pending = 0;
+            s_state = ST_LEVELUP;
+            rl_draw_scene();
+            return;
+        }
         update_play(in, dt_ms);
+        rl_draw_scene();
+        return;
+
+    case ST_LEVELUP:
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B) ||
+            mote_just_pressed(in, MOTE_BTN_MENU)) {
+            s_state = ST_PLAY;
+            rl_save(); s_have_save = 1;      /* a level is worth a checkpoint */
+        }
         rl_draw_scene();
         return;
 
@@ -1091,6 +1211,62 @@ static void draw_radial(uint16_t *fb) {
     }
 }
 
+/* --- levelling up ---------------------------------------------------------
+ *
+ * A level used to be one log line that scrolled away in two turns, which made
+ * the single most consequential thing that happens to a character the least
+ * legible. It stops the game instead: what you gained, where, and what you can
+ * suddenly cast.
+ */
+static const char *const STAT_NAME[6] = { "STR", "INT", "WIS", "DEX", "CON", "CHA" };
+
+static void draw_levelup(uint16_t *fb) {
+    mote->draw_rect(fb, 6, 8, 116, 96, MOTE_RGB565(18, 22, 40), 1, 0, MOTE_FB_H);
+    mote->draw_rect(fb, 6, 8, 116, 96, COL_GOLD, 0, 0, MOTE_FB_H);
+
+    rl_text_big(fb, "LEVEL", 14, 13, COL_GOLD);
+    rl_num(fb, g_levelup.to, 62, 15, COL_GOLD);
+
+    int y = 30;
+    /* the two bars first: they are what the number on the HUD actually means */
+    rl_text(fb, "max health", 14, y, COL_DIM);
+    rl_text(fb, "+", 78, y, MOTE_RGB565(240, 120, 120));
+    rl_num(fb, g_levelup.dhp, 83, y, MOTE_RGB565(240, 120, 120));
+    y += 9;
+    if (g_pl.msp > 0) {
+        rl_text(fb, "max mana", 14, y, COL_DIM);
+        rl_text(fb, "+", 78, y, MOTE_RGB565(120, 170, 250));
+        rl_num(fb, g_levelup.dsp, 83, y, MOTE_RGB565(120, 170, 250));
+        y += 9;
+    }
+
+    /* stats: only the ones that moved, because a column of zeroes is noise */
+    int any = 0;
+    for (int i = 0; i < 6; i++) {
+        if (!g_levelup.dstat[i]) continue;
+        rl_text(fb, STAT_NAME[i], 14, y, COL_TEXT);
+        rl_text(fb, "+", 40, y, COL_GOLD);
+        rl_num(fb, g_levelup.dstat[i], 45, y, COL_GOLD);
+        rl_text(fb, "now", 58, y, COL_DIM);
+        rl_num(fb, g_pl.stat[i], 74, y, COL_TEXT);
+        y += 9;
+        any = 1;
+    }
+    if (!any) { rl_text(fb, "no gain in body or mind", 14, y, COL_DIM); y += 9; }
+
+    if (g_levelup.n_spell) {
+        y += 3;
+        rl_text(fb, "you have learned", 14, y, COL_DIM);
+        y += 9;
+        for (int i = 0; i < g_levelup.n_spell && y < 92; i++) {
+            const Spell *sp = &g_spell[g_levelup.spell[i]];
+            rl_text(fb, sp->name, 18, y, MOTE_RGB565(180, 150, 255));
+            y += 9;
+        }
+    }
+    rl_text(fb, "A: onward", 44, 95, COL_DIM);
+}
+
 static void draw_dead(uint16_t *fb) {
     mote->draw_rect(fb, 10, 30, 108, 62, MOTE_RGB565(22, 12, 16), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, 10, 30, 108, 62, MOTE_RGB565(180, 40, 60), 0, 0, MOTE_FB_H);
@@ -1128,6 +1304,7 @@ static void g_overlay(uint16_t *fb) {
         rl_draw_look(fb, s_look_x, s_look_y);
         rl_draw_hud(fb);
         return;
+    case ST_LEVELUP: draw_levelup(fb); return;
     default: break;
     }
     rl_draw_player_shadow(fb);

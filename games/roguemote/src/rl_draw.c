@@ -81,9 +81,10 @@ const MoteImage *rl_sheet(int id) {
  * coloured house/shop fronts the annotator pass identified. props_light 32 --
  * what the town used before -- is the igloo. */
 #define SPR_HOUSE        31     /* props_light (1,9): cottage */
-/* The inn is a bed, trinkets (0,9). props_light has no tavern, and of the two
- * honest options -- a second cottage nobody can tell from a house, or the thing
- * you actually go in for -- the bed is the one that reads at 8px. */
+/* The bed, trinkets (0,9). It used to be the INN's tile on the overworld, which
+ * meant the one piece of furniture in the game sat outdoors in a field. The inn
+ * is a house with a torch by the door now, and this sprite appears in exactly
+ * one place: upstairs, in the rooms you pay for. */
 #define SPR_INN          16     /* trinkets (0,9): bed */
 #define SPR_RUBBLE       69     /* trinkets (5,12): the loose grey stone */
 /* The mine mouth is the gold flight (4,0). Stone stairs vanish into a green
@@ -95,6 +96,8 @@ const MoteImage *rl_sheet(int id) {
  * way a hole in the ground does not, and it is tall enough to be a landmark
  * across a 128x96 continent. */
 #define SPR_TOWER        32     /* props_light (2,9): stone tower */
+#define SPR_BARREL       17     /* props_light (7,7): barrel, then red and blue */
+#define SPR_TORCH        27     /* props_light (7,8): three lit torches */
 
 /* Wall identity per depth band -- descending should LOOK like descending.
  * See DESIGN.md section 3. */
@@ -262,6 +265,7 @@ void rl_describe(int x, int y) {
         "a locked door", "a locked door", "a locked door", "a locked door",
         "a locked door",
         "a strongbox", "a strongbox", "a strongbox", "a strongbox", "a strongbox",
+        "the way out", "a bed", "a barrel", "a torch",
     };
     if (!rl_in(x, y) || !(g_lv.flags[y * MW + x] & CF_KNOWN)) {
         rl_msg("You have not seen there.");
@@ -483,7 +487,17 @@ void rl_draw_scene(void) {
 
     static const MoteAutotile *tiles[5];
     int n_layer;
-    if (g_pl.depth == 0) {
+    if (g_pl.inside) {
+        /* Brick walls and board floors. The interior is fully KNOWN the moment
+         * it is generated, so the dungeon layer builder does the right thing
+         * here without a third one: everything is lit, nothing is remembered. */
+        build_layers_dungeon();
+        tiles[0] = &floor_road_at;      /* warm brown boards, not cave cobble */
+        tiles[1] = &wall_bone_at;       /* cream plaster: brick over brown paving
+                                         * is two greys, and the room read as one
+                                         * flat texture with furniture on it */
+        n_layer = 2;
+    } else if (g_pl.depth == 0) {
         build_layers_overworld();
         tiles[0] = &floor_grass_at;
         tiles[1] = &floor_jungle_at;
@@ -523,7 +537,16 @@ void rl_draw_scene(void) {
             case T_DOOR_OPEN:    cell = SPR_DOOR_OPEN;   break;
             case T_TREE:         sheet = SH_TRINKETS; cell = tree_cell(x, y); break;
             case T_TOWN:         sheet = SH_PROPS;    cell = SPR_HOUSE;      break;
-            case T_INN:          sheet = SH_TRINKETS; cell = SPR_INN;        break;
+            /* The inn is a HOUSE on the street, with a torch by the door to
+             * tell it from the townsfolk's houses. It used to be drawn as a
+             * bed, which put a bed in the open air -- beds belong upstairs,
+             * inside, where the sprite now only ever appears. */
+            case T_INN:
+                /* the house on layer 8 with everything else, the torch above it
+                 * on 9 -- at the same layer the order would be the batch's */
+                add_cell(SH_PROPS, SPR_HOUSE, x * TS, y * TS, 8);
+                add_cell(SH_PROPS, SPR_TORCH, x * TS, y * TS, 9);
+                break;
             case T_SHOP: {
                 int s = rl_shop_at(x, y);
                 if (s < 0) s = 0;
@@ -562,8 +585,28 @@ void rl_draw_scene(void) {
             case T_CBOX_G: case T_CBOX_W:
                 sheet = SH_CHESTS;
                 cell = T_CBOX_HUE(g_lv.terrain[i]) * 2; break;
+            /* --- indoors ---------------------------------------------- */
+            case T_EXIT:         cell = SPR_DOOR_OPEN; break;
+            case T_BED:          sheet = SH_TRINKETS; cell = SPR_INN;  break;
+            /* Three barrels: plain, red-tapped, blue-tapped. A RUN of them is a
+             * counter and reads best as one length of timber; a lone one is a
+             * keg or a table and gets the tapped art. Which of the two tapped
+             * ones is fixed by position, so a bar looks stocked rather than
+             * stamped and does not shimmer as you walk past it. */
+            case T_BARREL: {
+                int run = (x > 0     && g_lv.terrain[i - 1] == T_BARREL) ||
+                          (x + 1 < MW && g_lv.terrain[i + 1] == T_BARREL);
+                sheet = SH_PROPS;
+                cell = run ? SPR_BARREL
+                           : SPR_BARREL + 1 + (int)(pos_hash(x, y) & 1);
+                break;
+            }
+            case T_TORCH:        sheet = SH_PROPS;
+                                 cell = SPR_TORCH + (int)(pos_hash(x, y) % 3); break;
             case T_FLOOR:
-                if (g_pl.depth == 0) { sheet = SH_TRINKETS; cell = decor_cell(x, y); }
+                if (g_pl.depth == 0 && !g_pl.inside) {
+                    sheet = SH_TRINKETS; cell = decor_cell(x, y);
+                }
                 break;
             default: break;
             }
@@ -646,7 +689,10 @@ void rl_draw_hud(uint16_t *fb) {
     rl_num(fb, g_pl.level, 95, HUD_Y + 2, MOTE_RGB565(220, 214, 200));
 
     /* the surface is two places, not one: inside the walls and everywhere else */
-    if (g_pl.depth == 0)
+    if (g_pl.inside)
+        rl_text(fb, g_pl.inside >= IN_INN ? "INN" : "SHOP", 104, HUD_Y + 2,
+                MOTE_RGB565(255, 205, 130));
+    else if (g_pl.depth == 0)
         rl_text(fb, rl_in_town() ? "TOWN" : "WILD", 104, HUD_Y + 2,
                 rl_in_town() ? MOTE_RGB565(150, 220, 160) : MOTE_RGB565(190, 180, 120));
     else {
@@ -680,7 +726,7 @@ void rl_draw_map(uint16_t *fb, int y0) {
         for (int x = 0; x < lw; x++) {
             int i = y * MW + x;
             uint16_t c;
-            if (g_pl.depth && !(g_lv.flags[i] & CF_KNOWN)) continue;
+            if ((g_pl.depth || g_pl.inside) && !(g_lv.flags[i] & CF_KNOWN)) continue;
             switch (g_lv.terrain[i]) {
             case T_TREE:          c = MOTE_RGB565(0, 105, 60);   break;
             case T_HILL:          c = MOTE_RGB565(110, 205, 105);break;
@@ -704,9 +750,13 @@ void rl_draw_map(uint16_t *fb, int y0) {
             case T_STAIR_DOWN:    c = MOTE_RGB565(240, 90, 60);  break;
             case T_STAIR_UP:      c = MOTE_RGB565(90, 200, 240); break;
             case T_DOOR_CLOSED:
-            case T_DOOR_OPEN:     c = MOTE_RGB565(180, 130, 60); break;
-            default: c = g_pl.depth ? MOTE_RGB565(150, 146, 160)
-                                    : MOTE_RGB565(0, 135, 81);   break;
+            case T_DOOR_OPEN:
+            case T_EXIT:          c = MOTE_RGB565(180, 130, 60); break;
+            case T_BED:           c = MOTE_RGB565(120, 170, 255); break;
+            case T_BARREL:
+            case T_TORCH:         c = MOTE_RGB565(150, 110, 60); break;
+            default: c = (g_pl.depth || g_pl.inside) ? MOTE_RGB565(150, 146, 160)
+                                                    : MOTE_RGB565(0, 135, 81); break;
             }
             if (px == 1) g_api->draw_pixel(fb, x, y0 + y, c);
             else g_api->draw_rect(fb, x * px, y0 + y * px, px, px, c, 1, 0, MOTE_FB_H);
