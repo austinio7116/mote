@@ -91,14 +91,10 @@ if [ ${#GAMES[@]} -eq 0 ]; then
     fi
 fi
 
-# moria's coroutine layer needs getcontext/swapcontext, which bionic doesn't
-# implement — it would build and then fail to dlopen. Keep it in step with
-# MOTE_GAME_SKIP in android/app/jni/games/Android.mk.
-if [ "$ABI" != host ]; then
-    filtered=()
-    for g in "${GAMES[@]}"; do [ "$g" = moria ] || filtered+=("$g"); done
-    GAMES=("${filtered[@]}")
-fi
+# (Nothing is filtered out for device ABIs. moria used to be: bionic really has
+# no getcontext/swapcontext, but its fiber now picks a pthread backend under
+# __ANDROID__ -- games/moria/src/mote_fiber.c. Keep in step with MOTE_GAME_SKIP
+# in android/app/jni/games/Android.mk.)
 
 fail=0
 for g in "${GAMES[@]}"; do

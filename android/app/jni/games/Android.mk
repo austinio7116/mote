@@ -29,9 +29,10 @@ MOTE_GAME_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
                     -Wno-implicit-function-declaration \
                     -Wno-deprecated-non-prototype
 
-# moria: the Umoria port's coroutine layer needs getcontext/makecontext/
-# swapcontext, which bionic does not implement. Everything else in games/ builds.
-MOTE_GAME_SKIP := moria
+# Nothing is skipped. (moria used to be: bionic really does not implement
+# getcontext/makecontext/swapcontext, but its fiber now has a pthread backend
+# for __ANDROID__ -- see games/moria/src/mote_fiber.c.)
+MOTE_GAME_SKIP :=
 
 # gradle may narrow the set via -PmoteGames (passed through as MOTE_GAMES).
 ifeq ($(strip $(MOTE_GAMES)),)

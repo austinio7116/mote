@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-27T20:40:16+00:00",
+ "generated": "2026-07-27T21:17:32+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -134,7 +134,14 @@
    "tag": "The 1983 original, whole",
    "desc": "Umoria 5.6.0 — the dungeon crawl that taught roguelikes how to have a town — running on the Thumby Color. Not a demake: this is the original C, its dungeon generator, its monsters, items and combat maths, unaltered. Make one of 8 races and 6 classes, outfit yourself in six shops, and descend toward the Balrog fifty levels down, where death is permanent and almost nobody arrives. Its 39 commands are reached through a menu built for nine buttons, with native screens for items, spells, shopping and your character sheet. Moria © 1989-2008 James E. Wilson, Robert A. Koeneke and David J. Grabiner; free software under the GNU GPL v3 or later, source in the Mote repository.",
    "guide": "moria-guide.html",
-   "multiplayer": false
+   "multiplayer": false,
+   "android": {
+    "arm64-v8a": {
+     "file": "games/android/arm64-v8a/libmg_moria.so",
+     "size": 508152,
+     "sha256": "5b860b522a234c1ca4c147f5829d2337a12a837ea684394bab752fe0db9ebe7d"
+    }
+   }
   },
   {
    "id": "wormote",

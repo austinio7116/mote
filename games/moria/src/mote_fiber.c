@@ -26,7 +26,113 @@
 
 #include "mote_fiber.h"
 
-#ifdef MOTE_HOST
+/* MOTE_FIBER_PTHREAD forces the thread backend on a desktop build, so it can be
+   exercised in the emulator without a phone in your hand. */
+#if defined(__ANDROID__) || defined(MOTE_FIBER_PTHREAD)
+
+/* Android: bionic ships <ucontext.h>, but it only defines the signal-handler
+   structures -- getcontext/makecontext/swapcontext are not implemented and are
+   exported by libc at no API level.  So the fiber is built out of a real thread
+   instead, with a strict baton pass: a mutex, a condition variable and a `turn`
+   flag mean exactly one of (engine, game) is ever runnable.  Nothing runs
+   concurrently, so the game keeps the single-threaded semantics the ucontext
+   and Cortex-M backends give it -- only the mechanism differs.
+
+   The handoff costs two context switches per yield, and Umoria yields once per
+   keystroke rather than once per frame, so the cost is irrelevant here. */
+
+#include <pthread.h>
+
+#define FIBER_STACK_BYTES (256 * 1024)   /* cave_gen is the deep one (~20 KB) */
+
+#define TURN_ENGINE 0
+#define TURN_GAME   1
+
+static pthread_t        s_thread;
+static pthread_mutex_t  s_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t   s_cv = PTHREAD_COND_INITIALIZER;
+static int              s_turn = TURN_ENGINE;
+static void           (*s_entry)(void);
+static int              s_started;
+static int              s_finished;
+
+/* Hand the baton to `to` and block until it comes back as `want`.
+   Caller must NOT hold the mutex. */
+static void fiber_handoff(int to, int want)
+{
+    pthread_mutex_lock(&s_mu);
+    s_turn = to;
+    pthread_cond_broadcast(&s_cv);
+    while (s_turn != want && !(want == TURN_GAME && s_finished))
+        pthread_cond_wait(&s_cv, &s_mu);
+    pthread_mutex_unlock(&s_mu);
+}
+
+static void *fiber_thread(void *arg)
+{
+    (void)arg;
+    pthread_mutex_lock(&s_mu);
+    while (s_turn != TURN_GAME) pthread_cond_wait(&s_cv, &s_mu);
+    pthread_mutex_unlock(&s_mu);
+
+    s_entry();
+
+    /* Entry returned normally (rare -- exit_game usually calls fiber_finish). */
+    pthread_mutex_lock(&s_mu);
+    s_finished = 1;
+    s_turn = TURN_ENGINE;
+    pthread_cond_broadcast(&s_cv);
+    pthread_mutex_unlock(&s_mu);
+    return 0;
+}
+
+void fiber_start(void (*entry)(void))
+{
+    s_entry = entry;
+    s_started = 0;
+    s_finished = 0;
+    s_turn = TURN_ENGINE;
+}
+
+void fiber_resume(void)
+{
+    if (s_finished)
+        return;
+    if (!s_started) {
+        pthread_attr_t at;
+        s_started = 1;
+        pthread_attr_init(&at);
+        pthread_attr_setstacksize(&at, FIBER_STACK_BYTES);
+        if (pthread_create(&s_thread, &at, fiber_thread, 0) != 0)
+            s_finished = 1;          /* no thread -> behave as a finished game */
+        pthread_attr_destroy(&at);
+        if (s_finished) return;
+    }
+    fiber_handoff(TURN_GAME, TURN_ENGINE);
+}
+
+void fiber_yield(void)
+{
+    fiber_handoff(TURN_ENGINE, TURN_GAME);
+}
+
+void fiber_finish(void)
+{
+    pthread_mutex_lock(&s_mu);
+    s_finished = 1;
+    s_turn = TURN_ENGINE;
+    pthread_cond_broadcast(&s_cv);
+    pthread_mutex_unlock(&s_mu);
+    pthread_exit(0);                 /* does not return */
+    for (;;) {}
+}
+
+int fiber_finished(void)
+{
+    return s_finished;
+}
+
+#elif defined(MOTE_HOST)
 
 #include <ucontext.h>
 

@@ -76,7 +76,7 @@ carries a notice under its original header.
 |---|---|
 | `game.c` | Mote game module: the controller-native UI, framebuffer renderer, button→keystroke mapping |
 | `curses.h`, `mote_term.c` | A small re-implementation of the ~30 curses primitives Umoria uses, backed by an in-memory 80×24 virtual terminal |
-| `mote_fiber.c`, `mote_fiber.h` | Runs Umoria's blocking `main()` on its own stack (host: `ucontext`; device: a hand-written Cortex-M33 context switch) so it can live under Mote's per-frame `update()` |
+| `mote_fiber.c`, `mote_fiber.h` | Runs Umoria's blocking `main()` on its own stack so it can live under Mote's per-frame `update()`. Three backends: `ucontext` on desktop, a hand-written Cortex-M33 context switch on the handheld, and a pthread baton-pass on Android (bionic implements no `ucontext` functions). Only one side is ever runnable, so all three behave identically |
 | `mote_glue.c` | Engine binding and device libc stubs |
 | `moria_ui.h` | The input-context flag (`moria_ui_mode`) the front-end reads to choose a native UI |
 | `moria_color.h` | A 16-colour palette (Umoria 5.6 is monochrome) |
