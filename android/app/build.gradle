@@ -1,0 +1,87 @@
+apply plugin: 'com.android.application'
+
+// Which ABIs and which games go in the APK. arm64-v8a alone keeps the APK to one
+// copy of ~30 game modules; add x86_64 for the emulator.
+def moteAbis  = (project.findProperty('moteAbis')  ?: 'arm64-v8a').split(',').collect { it.trim() }
+def moteGames = (project.findProperty('moteGames') ?: '').trim()
+
+android {
+    namespace 'us.thumby.mote'
+    compileSdk 35
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId 'us.thumby.mote'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+        externalNativeBuild {
+            ndkBuild {
+                arguments 'APP_PLATFORM=android-23'
+                if (moteGames) arguments += "MOTE_GAMES=${moteGames}".toString()
+                abiFilters(*moteAbis)
+            }
+        }
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path 'jni/Android.mk'
+        }
+    }
+
+    sourceSets.main {
+        // SDL ships its own Java glue with the source drop; use it in place
+        // rather than vendoring a second copy that can drift.
+        java.srcDirs += 'jni/SDL/android-project/app/src/main/java'
+        // The chassis photo + its calibration are staged out of studio/assets
+        // (see copyChassisAssets) rather than duplicated into the source tree.
+        assets.srcDirs += "${buildDir}/generated/moteAssets"
+    }
+
+    packaging {
+        jniLibs {
+            // The launcher enumerates game modules with opendir() on the app's
+            // native-library dir, so the modules must be real files on disk.
+            useLegacyPackaging = true
+        }
+    }
+
+    buildTypes {
+        release {
+            // Signed with the debug key: this is a sideloaded APK, not a Play
+            // Store upload, and a keystore would just be a build-time hurdle.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        // lintVital would otherwise race the asset staging below for no benefit
+        // to a sideloaded APK.
+        checkReleaseBuilds false
+    }
+}
+
+// The chassis photo, the see-through variant and the screen calibration come
+// straight from studio/assets, so the app and the Studio emulator can never
+// disagree about what the handheld looks like or where its LCD sits.
+task copyChassisAssets(type: Copy) {
+    from("${rootDir}/../studio/assets") {
+        include 'thumby_color.png'
+        include 'thumby_color_clear.png'
+        include 'screen.cfg'
+    }
+    into "${buildDir}/generated/moteAssets"
+}
+// Every variant task runs after preBuild, so this one hook orders the staging
+// ahead of asset merging, packaging and lint alike.
+tasks.named('preBuild').configure { dependsOn copyChassisAssets }

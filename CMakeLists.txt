@@ -89,6 +89,42 @@ if(MOTE_TARGET STREQUAL "host")
     target_link_libraries(mote_host PRIVATE mote_engine mote_plat_host ${CMAKE_DL_LIBS})
     endif()
 
+    # Mote shell: the Android app's UI (chassis photo + touch buttons + gamepad),
+    # built for the desktop so it can be developed and screenshotted without a
+    # phone. The APK builds these exact sources through android/app/jni.
+    # Game modules come from MOTE_GAME_DIR (default build_android/modules) —
+    # see android/tools/build_modules.sh.
+    if(NOT WIN32)
+    add_executable(mote_shell
+        platform/android/mote_shell.c
+        platform/android/mote_plat_android.c
+        platform/android/mote_link_android.c
+        studio/link_net.c
+        os/android/mote_android_os.c
+        os/mote_os.c
+        os/mote_launcher.c
+        os/mote_menu.c
+        os/mote_ui.c
+        os/mote_lobby.c
+        os/mote_netshim.c)
+    target_include_directories(mote_shell PRIVATE
+        ${MOTE_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/os/android
+        ${CMAKE_CURRENT_SOURCE_DIR}/platform/android
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio
+        ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
+    target_compile_definitions(mote_shell PRIVATE MOTE_HOST=1 MOTE_SHELL_DESKTOP=1)
+    target_compile_options(mote_shell PRIVATE -O2 -ffast-math -Wall -Wextra
+        -Wno-unused-parameter -Wno-format-truncation)
+    target_link_libraries(mote_shell PRIVATE mote_engine ${CMAKE_DL_LIBS})
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(mote_shell PRIVATE SDL2::SDL2)
+    else()
+        target_include_directories(mote_shell PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(mote_shell PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    endif()  # NOT WIN32 (desktop build of the Android shell)
+
     # Mote Studio: the bespoke IDE — embeds the engine via the studio platform
     # backend (offscreen present + Studio-fed buttons) and draws it in a device shell.
     add_executable(mote_studio

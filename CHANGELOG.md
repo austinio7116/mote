@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+**Mote for Android.** The whole engine and OS now build for Android as a
+sideloadable APK (`android/`), and the phone plays the library the same way the
+handheld does — the launcher, the engine menu, save slots, the multiplayer lobby
+and every game come from the unchanged shared sources, at 128×128 and 22 kHz. The
+screen is the real product photo with the Studio's own `screen.cfg` calibration,
+and the touch targets sit on the buttons you can see in it; game controllers are
+auto-detected (d-pad or left stick, A/B, L1/R1, Start = MENU) and take the rumble.
+Three new files carry the port: `platform/android/mote_plat_android.c`
+(`mote_platform.h` on bionic + SDL), `platform/android/mote_link_android.c`, and
+`platform/android/mote_shell.c` (the chassis UI). Engine ABI unchanged (**v47**).
+
+Each game becomes its own `libmg_<game>.so` — a module that links no engine code
+and reaches the engine only through the ABI it is handed, exactly like the `.mote`
+the handheld runs — so the whole published gallery ships in the APK and extra
+modules can be dropped into the app's external `games/` folder later. `moria` is
+the one exclusion: its coroutine layer needs `getcontext`/`swapcontext`, which
+bionic doesn't implement.
+
+Multiplayer works without a Studio anywhere in the loop:
+`platform/android/mote_link_android.c` answers the lobby's MN1 control protocol
+in process and drives the same `link_net` transport the Studio uses, so Internet
+(quick match / host / join / browse, over the same relay) and LAN both work, and a
+phone can share a relay room with a Studio-docked Thumby. With no cable to offer,
+the lobby's USB option becomes zero-config auto-pairing on the local network.
+
+The shell also builds for the desktop (`cmake --target mote_shell`) with mouse and
+keyboard, plus `MOTE_SHELL_SHOT`/`MOTE_SHELL_KEYS`/`MOTE_SHELL_AUTORUN` for
+headless capture — the same scripted-input workflow as the host emulator.
+
 ## 0.20-alpha — show your whole library
 
 **Large catalogues are no longer clipped.** As the library passed ~57 games, three
