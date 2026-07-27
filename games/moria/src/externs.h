@@ -31,11 +31,21 @@
    stack slack and nobody notices; here the Umoria fiber runs on a 24 KB stack
    with roughly 4 KB of headroom at the cave_gen peak, so the same overrun is a
    live stack smash.  Route every sprintf through snprintf with the
-   destination's real size.  __builtin_object_size yields (size_t)-1 when the
-   size is not known at compile time, in which case this behaves exactly as
-   sprintf did -- so it can only ever help.  -Mote port-  */
-#define sprintf(buf, ...) \
-	snprintf((buf), __builtin_object_size((buf), 1), __VA_ARGS__)
+   destination's real size.
+
+   CAREFUL: when the size is NOT known at compile time __builtin_object_size
+   yields (size_t)-1, and that must NOT be handed to snprintf.  size_t is 32-bit
+   on the handheld, so the sentinel arrives as 0xFFFFFFFF -- larger than INT_MAX,
+   which newlib's snprintf rejects outright, writing nothing at all and leaving
+   the caller's buffer as uninitialised stack.  cnv_stat() takes a bare char*,
+   so every stat on the character-creation screen came out as garbage that
+   changed each frame.  Where the size is unknown, call the real sprintf (the
+   parentheses round its name stop this macro expanding again) -- that is the
+   behaviour Umoria always had.  The test folds at compile time.  -Mote port- */
+#define sprintf(buf, ...)						\
+	(__builtin_object_size((buf), 1) == (__SIZE_TYPE__)-1		\
+	 ? (sprintf)((buf), __VA_ARGS__)				\
+	 : snprintf((buf), __builtin_object_size((buf), 1), __VA_ARGS__))
 #endif
 
 /* VMS requires that this be in externs.h, not files.c; this prevents a
