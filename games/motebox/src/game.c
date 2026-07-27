@@ -40,6 +40,9 @@ static float s_tick_acc;
 #if MOTE_HOST
 static int s_perf;                   /* MOTEBOX_PERF=1 */
 static int s_stat;                   /* MOTEBOX_STAT=1 */
+static char s_cast_script[160];       /* MOTEBOX_CAST=name@x,y;... */
+static int s_trace;                  /* MOTEBOX_TRACE=1 */
+static int s_frame;
 #endif
 
 /* --- view + cursor ------------------------------------------------------ */
@@ -48,6 +51,9 @@ static int s_cx = MW / 2, s_cy = MH / 2;
 static int s_cam_x, s_cam_y;
 static float s_hold;                 /* how long the d-pad has been held */
 static float s_move_acc;
+static float s_cast_cool;            /* brush cadence */
+static int   s_lb_was_wheel;         /* so releasing the wheel is not a speed tap */
+static uint32_t s_shake_ph = 1;      /* camera-shake jitter (render only) */
 
 /* --- HUD ---------------------------------------------------------------- */
 #define HUD_Y   VIEW_H
@@ -63,6 +69,7 @@ static const char *const B_NAME[B_N] = {
     "SWAMP", "HILL", "MOUNTAIN", "PEAK", "TUNDRA", "SNOW", "ASH", "SCORCHED",
     "LAVA", "ACID", "FARM", "RUBBLE", "MEADOW", "FOREST", "ROAD",
 };
+static const char *const FX_NAME[FX_N] = { "", "BURNING", "LAVA", "FLOOD", "ACID", "FROZEN" };
 static const char *const O_NAME[O_N] = {
     "", "tree", "tree", "dead tree", "bush", "grass", "rock", "cactus",
     "flower", "iron", "silver", "gold", "gems", "boulder", "crag",
@@ -101,12 +108,19 @@ static void g_init(void)
     if (e && *e) seed = (uint32_t)strtoul(e, 0, 0);
     e = getenv("MOTEBOX_PERF"); s_perf = (e && *e && *e != '0');
     e = getenv("MOTEBOX_STAT"); s_stat = (e && *e && *e != '0');
+    /* MOTEBOX_CAST="fire@70,60;meteor@64,40" — fired on frame 12, once, so a
+     * disaster can be tested where there is something for it to act on. */
+    e = getenv("MOTEBOX_TRACE"); s_trace = (e && *e && *e != '0');
+    e = getenv("MOTEBOX_CAST");
+    if (e && *e) snprintf(s_cast_script, sizeof s_cast_script, "%s", e);
 #endif
     g_api = mote;                 /* hand the api to the other TUs (see mb.h) */
     mote->set_fps_limit(30);
     mote->scene_set_background(C_HUDBG);
     mb_world_alloc();
     mb_world_gen(seed);
+    mb_flux_init();
+    mb_fx_init();
     mb_draw_init();
     mb_world_start(&s_cx, &s_cy);
 #if MOTE_HOST
@@ -119,7 +133,7 @@ static void g_update(float dt)
 {
     const MoteInput *in = mote->input();
 
-    /* --- clock --- */
+    /* --- clock: every tick is one pass of the world's rules --- */
     int tps = SPEED_TPS[s_speed];
     if (tps) {
         s_tick_acc += dt * (float)tps;
@@ -127,14 +141,46 @@ static void g_update(float dt)
         if (steps > 0) {
             if (steps > 8) steps = 8;          /* never let the sim eat the frame */
             s_tick_acc -= (float)steps;
-            mb_w.tick += steps;
+            for (int i = 0; i < steps; i++) {
+                mb_w.tick++; mb_flux_step();
+#if MOTE_HOST
+                if (s_trace) fprintf(stderr, "tick %d flux=%d\n", (int)mb_w.tick, mb_flux_count());
+#endif
+            }
         }
     }
+    mb_fx_step(dt);
+
+#if MOTE_HOST
+    /* the scripted cast, once, after the world has settled into a frame */
+    if (s_cast_script[0] && ++s_frame == 12) {
+        char *p = s_cast_script;
+        while (*p) {
+            char name[24]; int x = 0, y = 0, n = 0;
+            while (*p && *p != '@' && n < 23) name[n++] = *p++;
+            name[n] = 0;
+            if (*p == '@') p++;
+            while (*p >= '0' && *p <= '9') x = x * 10 + (*p++ - '0');
+            if (*p == ',') p++;
+            while (*p >= '0' && *p <= '9') y = y * 10 + (*p++ - '0');
+            if (!mb_power_cast_named(name, x, y))
+                fprintf(stderr, "MOTEBOX_CAST: no power named '%s'\n", name);
+            else
+                fprintf(stderr, "cast %s at %d,%d flux=%d (%s)\n", name, x, y, mb_flux_count(),
+                        B_NAME[mb_w.biome[AT(x, y)] < B_N ? mb_w.biome[AT(x, y)] : 0]);
+            if (*p == ';') p++; else break;
+        }
+    }
+#endif
+
+    /* --- the wheel gets first refusal on the d-pad: while LB is held the
+     * direction is choosing a power, not moving the cursor --- */
+    int wheel = mb_power_input(in);
 
     /* --- cursor: accelerates while held, so crossing the world is quick but a
      * single tap is still one tile --- */
-    int dx = mote_pressed(in, MOTE_BTN_RIGHT) - mote_pressed(in, MOTE_BTN_LEFT);
-    int dy = mote_pressed(in, MOTE_BTN_DOWN)  - mote_pressed(in, MOTE_BTN_UP);
+    int dx = wheel ? 0 : mote_pressed(in, MOTE_BTN_RIGHT) - mote_pressed(in, MOTE_BTN_LEFT);
+    int dy = wheel ? 0 : mote_pressed(in, MOTE_BTN_DOWN)  - mote_pressed(in, MOTE_BTN_UP);
     if (dx || dy) {
         int first = (s_hold == 0.0f);
         s_hold += dt;
@@ -151,12 +197,44 @@ static void g_update(float dt)
         s_hold = 0.0f; s_move_acc = 0.0f;
     }
 
-    /* --- LB tap cycles speed, RB tap toggles the zoom --- */
-    if (mote_just_pressed(in, MOTE_BTN_LB)) s_speed = (s_speed + 1) & 3;
-    if (mote_just_pressed(in, MOTE_BTN_RB)) view_set(!s_god);
+    /* --- A casts. A brush power keeps casting while held, on a fixed cadence so
+     * painting terrain feels like a brush rather than a machine gun; everything
+     * else fires once per press, because a meteor should cost a decision. --- */
+    if (!wheel) {
+        int fire = mb_power_brush()
+                 ? (mote_pressed(in, MOTE_BTN_A) && (s_cast_cool -= dt) <= 0.0f)
+                 : mote_just_pressed(in, MOTE_BTN_A);
+        if (fire) {
+            mb_power_cast(s_cx, s_cy);
+            s_cast_cool = 0.10f;
+        }
+        if (!mote_pressed(in, MOTE_BTN_A)) s_cast_cool = 0.0f;
+    }
 
-    if (!s_god) { cam_follow(); mb_draw_mortal(s_cam_x, s_cam_y); }
-    else        { mote->scene2d_begin(0, 0); }   /* nothing but the background */
+    /* --- LB TAP cycles speed (LB HOLD is the wheel, handled above); RB toggles
+     * the zoom, unless the wheel is up, where RB pages tabs --- */
+    if (!wheel && mote_just_released(in, MOTE_BTN_LB) && !s_lb_was_wheel)
+        s_speed = (s_speed + 1) & 3;
+    s_lb_was_wheel = wheel;
+    if (!wheel && mote_just_pressed(in, MOTE_BTN_RB)) view_set(!s_god);
+
+    if (!s_god) {
+        cam_follow();
+        /* shake offsets the CAMERA, which only exists in Mortal View; God's Eye
+         * spends the same impact on a frame flash instead (mb_fx) */
+        float sh = mb_fx_shake_amt();
+        if (sh > 0.0f) {
+            int amp = (int)(sh + 0.5f);
+            if (amp > 4) amp = 4;
+            s_shake_ph = (s_shake_ph * 1103515245u + 12345u);
+            s_cam_x += (int)((s_shake_ph >> 16) % (uint32_t)(2 * amp + 1)) - amp;
+            s_cam_y += (int)((s_shake_ph >> 24) % (uint32_t)(2 * amp + 1)) - amp;
+        }
+        mb_draw_mortal(s_cam_x, s_cam_y);
+        mb_fx_draw_mortal(s_cam_x, s_cam_y);
+    } else {
+        mote->scene2d_begin(0, 0);               /* nothing but the background */
+    }
 }
 
 static void g_overlay(uint16_t *fb)
@@ -184,12 +262,18 @@ static void g_overlay(uint16_t *fb)
         }
         if ((++n & 63) == 0) {
             uint32_t p[6]; mote->perf(p);
-            fprintf(stderr, "perf %s fps=%u raster=%uus update=%uus  god_band=%.1fus\n",
-                    s_god ? "GOD " : "LAND", p[0], p[2], p[1], (double)acc / 64.0);
+            fprintf(stderr, "perf %s fps=%u raster=%uus update=%uus god_band=%.1fus "
+                            "flux=%d agents=%d Y%d\n",
+                    s_god ? "GOD " : "LAND", p[0], p[2], p[1], (double)acc / 64.0,
+                    mb_flux_count(), mb_agent_count(), year);
             acc = 0;
         }
     }
 #endif
+
+    /* particles: one pixel each in God's Eye, drawn here because the world
+     * rasteriser is the background pass and has already run */
+    if (s_god) mb_fx_draw_god(fb);
 
     /* --- cursor ---
      * Drawn as a box AROUND the target so the tile itself still shows, and in
@@ -205,21 +289,38 @@ static void g_overlay(uint16_t *fb)
         mote->draw_rect(fb, px - 2, py - 2, TILE + 4, TILE + 4, C_DARK, 0, 0, VIEW_H);
         mote->draw_rect(fb, px - 1, py - 1, TILE + 2, TILE + 2, C_CURS, 0, 0, VIEW_H);
     }
+    /* the brush footprint, so an area power shows what it will take */
+    int br = mb_power_radius();
+    if (br > 0 && !mb_wheel_open()) {
+        if (s_god) mote->draw_circle(fb, s_cx, s_cy, br, C_CURS, 0, 0, VIEW_H);
+        else mote->draw_circle(fb, s_cx * TILE - s_cam_x + TILE / 2,
+                               s_cy * TILE - s_cam_y + TILE / 2,
+                               br * TILE, C_CURS, 0, 0, VIEW_H);
+    }
 
     /* --- HUD --- */
     mote->draw_rect(fb, 0, HUD_Y, 128, 128 - HUD_Y, C_HUDBG, 1, 0, 128);
     snprintf(buf, sizeof buf, "%s Y%d", SPEED_NAME[s_speed], year);
     mote->text_font(fb, &rogue8, buf, 1, HUD_Y, C_HI);
-    snprintf(buf, sizeof buf, "%s", s_god ? "GOD" : "LAND");
-    mote->text_font(fb, &rogue8, buf, 96, HUD_Y, C_TEXT);
+    mote->text_font(fb, &rogue8, s_god ? "EYE" : "GND", 108, HUD_Y, C_TEXT);
 
+    /* Row two is the cursor's own report: what is under it, or what is happening
+     * to it. A burning cell says so, because that is the more urgent fact. */
     uint8_t b = mb_w.biome[AT(s_cx, s_cy)];
     uint8_t o = mb_w.obj[AT(s_cx, s_cy)];
-    if (o && o < O_N && O_NAME[o][0])
+    uint8_t k = mb_fkind(mb_w.flux[AT(s_cx, s_cy)]);
+    if (k && k < FX_N)
+        snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], FX_NAME[k]);
+    else if (o && o < O_N && O_NAME[o][0])
         snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], O_NAME[o]);
     else
         snprintf(buf, sizeof buf, "%s %d,%d", B_NAME[b < B_N ? b : 0], s_cx, s_cy);
-    mote->text_font(fb, &rogue8, buf, 1, HUD_Y + 8, C_TEXT);
+    mote->text_font(fb, &rogue8, buf, 1, HUD_Y + 8, k ? C_WARN : C_TEXT);
+
+    /* the selected power sits where the thumb is looking: right of the year */
+    mote->text_font(fb, &rogue8, mb_power_name(), 42, HUD_Y, C_HI);
+
+    mb_power_draw_wheel(fb, &rogue8);
 
 }
 

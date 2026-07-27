@@ -140,9 +140,32 @@ Two of these are the whole answer to "how do you play a touch game with a d-pad"
 - **Tap/hold on one shoulder.** LB tap is the most-pressed verb in any sim (speed); LB hold is
   the most-varied (power choice). Same button, no chord, no modal state.
 
-**Power wheel**: 6 tabs × 8 slices = 48 powers. The wheel is drawn from `ui_arrows_gauges`
-(the ring) plus `ui_status_emotes` / `ui_icons_tiny` element icons, over a `panels_colour`
-backing panel. RB while the wheel is held pages tabs. Last-used power per tab is remembered.
+### The wheel: four arms, two stops each
+
+**The Thumby Color's d-pad reports only the four cardinals** — pressing UP and RIGHT together
+does not arrive as both — so an eight-slice radial selected by direction is unreachable on the
+hardware, however well it reads on screen. (This section originally specified exactly that.)
+
+So each of the four arms holds **two** powers, near and far:
+
+```
+                 [MOUNTAIN]        press UP    -> FIRE      (near, one press)
+                     |             press UP    -> LIGHTNING (far, press again)
+                  [RAISE]          press RIGHT -> METEOR    (jumps arms, near)
+ [DESERT]-[ROAD]     +     [FOREST]-[GRASS]
+                  [LOWER]
+                     |
+                  [WATER]
+```
+
+Pressing a direction selects that arm's **near** power; pressing the *same* direction again
+steps out to the **far** one; pressing a different direction jumps to that arm's near slot.
+Four powers are one press, four are two, and the spatial muscle memory survives. Selection is
+edge-triggered, so a held direction cannot oscillate between the two stops.
+
+Still 6 tabs × 8 = 48 powers, RB pages tabs while the wheel is up, last-used slot per tab is
+remembered, and the wheel dims the world with scanlines rather than hiding it — you are
+choosing *where* as much as *what*, and it is only up while LB is held.
 
 ---
 
@@ -420,18 +443,34 @@ columns, where ~24 characters per line is the difference between a sentence and 
 
 ## 10. Disasters — the flux field
 
-One mechanism, 22 faces. `flux[]` holds `kind:4 / intensity:4` per cell, stepped by a CA over
-an **active-cell ring buffer** (4096 entries) so a calm world costs nothing and a burning
-continent costs a bounded 2048 cells/tick.
+One mechanism, 22 faces. `flux[]` holds `kind:4 / intensity:4` per cell, stepped by one rule
+pass per tick, **double buffered** (read `flux[]`, write `next[]`, swap). The second buffer is
+not optional: with one, a fire races across the map in a single tick in the scan direction and
+crawls in the other, because a cell it just lit gets read again downstream.
 
-```c
-/* one rule table, one pass; every disaster is a row in it */
-struct FluxRule { uint8_t spread, decay, uphill, consumes, leaves, damage, sfx, fx; };
-```
+Three things Phase 2 changed from this section's first draft, each after building it:
 
-`spread` (probability into neighbours, wind-biased), `decay`, `uphill` (0 = flows downhill by
-`elev`, e.g. lava and water), `consumes` (which `obj`/`biome` it destroys), `leaves` (what
-`biome` it leaves behind), `damage` (per-tick to units), plus its FX and sound recipe.
+- **No active-cell ring.** The plan was a 4096-entry ring so a calm world cost nothing. The
+  whole-grid scan is 14336 loads of a byte that is almost always zero, at 8–64 ticks/s — the
+  ring would have bought a fraction of one percent of a core in exchange for a
+  duplicate-suppression structure and its bugs.
+- **Fire's intensity IS its remaining fuel**, set on arrival from the ground it lands on
+  (`fuel >> 5`, clamped 2–15): a forest cell with a tree burns 14 ticks, bare grass 4. The
+  first model gave every cell a flat 10 and decayed it, which made fire behave identically in
+  a rainforest and on a lawn.
+- **Spread chance depends on the neighbour's fuel and the wind, not on our intensity.** With
+  the old rule a cast blob's edge cells were its weakest, so the *front* was the weakest part
+  of the fire and it always guttered out after ten ticks. Now a front advancing into fresh
+  fuel does not weaken, and fires reliably run — while rivers, desert and rock remain natural
+  firebreaks, because fuel 0 cannot burn.
+
+Per-kind behaviour is a case in the switch: spread (wind-biased), decay, whether it flows
+downhill by `elev` (lava, flood), what `obj`/`biome` it consumes, what it leaves behind, and
+its FX. Water beats fire in the merge rule, which is how rain and flood put a firestorm out.
+
+**Disasters that walk** rather than spread — the tornado and the volcanic vent — are a
+six-entry agent array (kind, position, heading, countdown) stepped before the field pass, so
+they seed flux the pass then carries. The tsunami front and the kaiju reuse it.
 
 | # | Disaster | Rule | Look |
 |---|---|---|---|
@@ -668,11 +707,24 @@ structural. `authoring/audit_box.c` links the sim TUs against render stubs and r
 Env hooks for scripted runs, following the house convention:
 
 ```
-MOTEBOX_SEED=1234          MOTEBOX_YEARS=500        (fast-forward headless, dump metrics)
-MOTEBOX_DISASTER=meteor@64,40                       MOTEBOX_LAWS=nowar,noplague
-MOTEBOX_CHRON=1            (chronicle to stderr)    MOTEBOX_POP=1 (per-year counters)
+MOTEBOX_SEED=1234            the world                              (built)
+MOTEBOX_STAT=1               shape/climate/land%/biome histogram    (built)
+MOTEBOX_CAST=fire@50,60      cast by NAME at a cell, on frame 12    (built)
+MOTEBOX_TRACE=1              flux cell count every tick             (built)
+MOTEBOX_PERF=1               fps, raster us, god_band us, flux, agents (built)
+MOTEBOX_YEARS=500            fast-forward headless, dump metrics      (Phase 10)
+MOTEBOX_LAWS=nowar,noplague  world laws from the command line        (Phase 8)
+MOTEBOX_CHRON=1              chronicle to stderr                     (Phase 6)
 MOTE_AUTORUN=1 MOTE_DT_MS=33 MOTE_KEYS="..." MOTE_SHOT=/tmp/x.ppm MOTE_SHOT_FRAME=N
 ```
+
+`MOTEBOX_CAST` exists because the first fire test drove the wheel with scripted key presses
+and landed the fire on bare mountain, where there is nothing to burn: that tested the wheel,
+not the fire, and it could not aim. Casting by name at a named cell tests the disaster.
+
+**Note on `MOTE_DT_MS`:** the host's fixed-timestep mode freezes `micros()` to a constant
+within a frame, so every self-timing measurement reads 0. Capture runs want `MOTE_DT_MS`
+(deterministic frames); timing runs must omit it.
 
 ---
 
@@ -682,8 +734,8 @@ Each phase ends with something runnable on the device.
 
 | Phase | Deliverable |
 |---|---|
-| **1. World + views** | Worldgen, 5 layers, God's Eye band renderer, Mortal View autotiles, zoom toggle, cursor, HUD. **Measure the frame and tick budgets here.** |
-| **2. Flux** | The CA, fire/water/lava/acid, the active ring, the particle pool, screen shake, 6 recoloured FX sheets. Sandbox mode with 8 Wrath powers — playable and already fun. |
+| ~~**1. World + views**~~ | **DONE.** Worldgen (+ shape/climate rolls off the seed), 5 layers, God's Eye band renderer, Mortal View autotiles, zoom toggle, cursor, HUD. Measured on host, one core: God's Eye 20 us/frame, Mortal View 67-89 us. Device figures need hardware. |
+| ~~**2. Flux**~~ | **DONE.** The CA (fire/lava/flood/acid/frost + wind), walking agents (tornado, vent), the 192-particle pool drawn two ways, screen flash + shake + rumble, 6 recoloured FX sheets, and 16 powers in two tabs (LAND, WRATH) on the four-arm wheel. |
 | **3. Life** | Units, drives, utility brain, movement tiers, ecology, births/deaths, ageing, traits. |
 | **4. Villages** | Founding, the WorldBox build/resource ladder, lord brain, blueprint ghosts, houses in kingdom colours, claims + political tint. |
 | **5. Kingdoms** | Kings, diplomacy, war, armies, rally + march, loyalty, rebellion, secession. |

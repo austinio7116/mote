@@ -42,6 +42,9 @@
 #include "nature.h"
 #include "boulders.h"
 #include "treasure_ore.h"
+#include "crowns_fx.h"
+#include "fx_frost.h"
+#include "fx_acid.h"
 
 /* Ruleset per biome id. Index i is biome id i+1 — the engine reads
  * tiles[t-1] for cell value t, so this array's ORDER IS the B_* enum. */
@@ -101,6 +104,13 @@ static const uint16_t MB_OBJ_COL[O_N] = {
     0, 0,                    /* boulder, peak rock */
 };
 
+/* Flux colour in God's Eye, per kind. Fire and lava ALTERNATE between two stops
+ * on a parity of (tick + cell), so a burning front visibly crackles at one pixel
+ * per tile — the cheapest possible animation, and the thing that makes a fire
+ * read as alive rather than as a red stain. */
+static const uint16_t FLUX_HI[FX_N] = { 0, C_YELLOW, C_ORANGE, C_WHITE, C_GREEN,  C_WHITE };
+static const uint16_t FLUX_LO[FX_N] = { 0, C_RED,    C_RED,    C_BLUE,  C_YELLOW, C_BLUE  };
+
 uint16_t mb_biome_colour(uint8_t b) {
     return (b >= 1 && b <= B_COUNT) ? MB_COL[b - 1] : 0;
 }
@@ -135,11 +145,15 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
         }
         const uint8_t *brow = bio + y * MW;
         const uint8_t *orow = ob  + y * MW;
+        const uint8_t *frow = mb_w.flux + y * MW;
         for (int x = 0; x < MW; x++) {
             uint8_t b = brow[x];
             uint16_t c = (b >= 1 && b <= B_COUNT) ? MB_COL[b - 1] : 0;
             uint8_t o = orow[x];
             if (o && o < O_N) { uint16_t oc = MB_OBJ_COL[o]; if (oc) c = oc; }
+            uint8_t k = mb_fkind(frow[x]);
+            if (k && k < FX_N)
+                c = ((x + y + (int)mb_w.tick) & 1) ? FLUX_HI[k] : FLUX_LO[k];
             px_put(fb, x, y, c);
         }
     }
@@ -168,6 +182,18 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &boulders_img,      4, 1 },       /* snow peak */
 };
 
+/* One sprite per visible flux cell. Lava needs none — it IS the biome — so the
+ * table covers the kinds that sit ON the ground rather than replacing it. */
+typedef struct { const MoteImage *img; uint8_t cx, cy, frames; } FluxSpr;
+static const FluxSpr FLUX_SPR[FX_N] = {
+    { 0, 0, 0, 0 },                       /* none  */
+    { &crowns_fx_img,  6, 7, 1 },         /* fire  — the master's flame burst */
+    { 0, 0, 0, 0 },                       /* lava  — drawn as terrain */
+    { &fx_frost_img,  13, 3, 3 },         /* water — spray */
+    { &fx_acid_img,   13, 2, 3 },         /* acid  — hissing sparkle */
+    { &fx_frost_img,  12, 4, 3 },         /* frost — twinkle */
+};
+
 void mb_draw_mortal(int cam_x, int cam_y)
 {
     g_api->scene2d_begin(cam_x, cam_y);
@@ -194,5 +220,34 @@ void mb_draw_mortal(int cam_x, int cam_y)
             };
             g_api->scene2d_add(&spr);
         }
+    }
+
+    /* flux, on top of the ground it is consuming */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
+            if (!k || k >= FX_N || !FLUX_SPR[k].img) continue;
+            const FluxSpr *f = &FLUX_SPR[k];
+            int fr = f->frames > 1 ? (int)((mb_w.tick + c + r) % f->frames) : 0;
+            MoteSprite spr = {
+                f->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                (uint16_t)((f->cx + fr) * TILE), (uint16_t)(f->cy * TILE), TILE, TILE,
+                50, 0
+            };
+            g_api->scene2d_add(&spr);
+        }
+    }
+
+    /* the walking disasters: the master's smoke swirl for a tornado, its cone
+     * for a vent, lifted a tile so they stand above the ground they are wrecking */
+    for (int i = 0, n = mb_agent_max(); i < n; i++) {
+        int ax, ay, kind;
+        if (!mb_agent_get(i, &ax, &ay, &kind)) continue;
+        int cx = (kind == AG_TORNADO) ? 3 : 5, cy = (kind == AG_TORNADO) ? 7 : 5;
+        MoteSprite spr = { &crowns_fx_img, (int16_t)(ax * TILE), (int16_t)(ay * TILE - TILE),
+                           (uint16_t)(cx * TILE), (uint16_t)(cy * TILE), TILE, TILE, 70, 0 };
+        g_api->scene2d_add(&spr);
     }
 }
