@@ -1,0 +1,742 @@
+# Motebox — design
+
+A **god simulator** for the Thumby Color: a living pixel world you nudge, bless and ruin,
+built on the roguemote CC0 tile library. A demake of *WorldBox — God Simulator*, with the
+two things WorldBox is actually loved for turned up and the 374-power buffet cut down:
+
+1. **Civilisations that think.** Villagers with drives, lords who plan, kings who scheme,
+   and a chronicle that names the people it kills.
+2. **Disasters that are beautiful.** A cellular-automata `flux` field driving fire, lava,
+   flood, acid, frost and ash, drawn through a recoloured FX sheet at 1 px/tile where a
+   fire front actually *looks* like a fire front.
+
+The organising constraint is inherited from roguemote and kept deliberately: **every sprite
+in the library earns a place.** 1901 non-empty 8×8 tiles across 46 subsheets. Where a design
+choice below looks odd, it is usually the honest way to give a sheet a job.
+
+---
+
+## 1. Hard constraints
+
+Measured, not assumed.
+
+| | |
+|---|---|
+| Screen | **128×128 px** — 16×16 tiles at 8 px |
+| CPU | RP2350, dual Cortex-M33 **@ 280 MHz**, FPU; both cores rasterise |
+| Input | 9 buttons: D-pad, **A**, **B**, **LB**, **RB**, **MENU** (MENU long-hold reserved by the OS) |
+| ABI | v47 — runtime autotiles, `set_background_cb`, `kv_save`, `text_font`/`ui_font`, `blit_ex`, `link_*` |
+| Static module RAM | **134 KB** (`.data` + `.bss`) |
+| Load arena | **272 KB** (`MoteConfig` pools + `mote->alloc()`) |
+| Tiles | 8×8, palette index 0 = transparent; baked sheets are `const` → **flash, not SRAM** |
+
+Two ABI facts do most of the architectural work here:
+
+- **`scene2d_set_autotiles(terrain, cols, rows, …)` autotiles a *runtime* byte map with no
+  resolved tilemap buffer.** The only storage is the logical terrain array the sim already
+  owns. A world where fire turns forest to ash every tick costs nothing extra to draw. This
+  is why a god sim is even possible on this hardware.
+- **`set_background_cb(fn)` is a per-band pass on both cores, settable at runtime.** That is
+  the God's Eye view: a whole-world rasteriser that isn't the sprite pipeline, swapped in and
+  out by pressing a button (`NULL` restores the scene, and Mortal View takes over).
+
+---
+
+## 2. What WorldBox is — and what a demake keeps
+
+Research summary, with the design call on each system.
+
+| WorldBox system | What it does | Motebox |
+|---|---|---|
+| **Village founding** | units of a race settle; campfire + banner; a city zone must be filled land, island ≥300 tiles | **Keep**, scaled: a 6×6 buildable zone, island ≥120 tiles |
+| **Buildings** | town hall (3 tiers), houses (6 tiers), mine, windmill+farm, barracks, temple, library, docks, watchtower; caps of 1 mine / 1 windmill / 1 barracks per city | **Keep the set, keep the caps.** Tiers 1–3 for both hall and house |
+| **Resource economy** | villager collects 10 stone + 5 wood → mine; hall tier 2 = 10 wood/10 stone, tier 3 = +10 iron; houses 4 wood → … → 10 each of wood/stone/iron/gold | **Keep the ladder almost verbatim** — it is well-tuned and it makes stockpiles legible |
+| **Kings & lords** | king per kingdom, lord per village; Diplomacy / Stewardship / Warfare stats drive development | **Keep** — this is the cheapest way to make two villages feel different |
+| **Loyalty & rebellion** | distance from capital, weak king, ambitious lord → village breaks away hostile | **Keep** — the best story generator in the game |
+| **Diplomacy & war** | numeric peace/war/alliance likelihood, armies march, peace on exhaustion or conquest | **Keep**, with grudges read back out of the chronicle |
+| **Culture / knowledge** | knowledge points unlock weapons, ships, architecture, rare metallurgy | **Compress to 5 tech tiers** per kingdom, each visibly changing sprites |
+| **Ages** | 10 ages ≥30 years each: Hope, Sun (heatwaves), Chaos (rage clouds), Ash (DoT, no armies), Despair (ice monsters)… | **Keep 8 ages** as global sim modifiers + a palette shift |
+| **Traits** | 116 creature traits; ~29 non-random (Plague, Zombie, Blessed, Madness, Chosen One…) | **32 traits**, 8 of them god-granted only |
+| **Happiness** | −100..+100 per unit, drives everything | **Keep** as a signed byte; it is the utility AI's main input |
+| **Disasters** | toggleable Natural / Other; what can fire depends on population, city count and age | **Keep 22**, same gating philosophy, same World Laws toggles |
+| **Powers** | ~374 across 8 tabs | **48 across 6 tabs.** Curation is the whole job |
+| **374-power buffet, mod support, huge maps** | — | **Cut.** No d-pad UI survives 374 powers |
+
+The community's own account of why they play — *"create civilisations and nuke them, then
+repopulate"*, *"let it evolve naturally and watch diplomacy happen"*, *"roleplay and make
+your own stories"* — is the design brief. Motebox optimises for **watch → poke → story**, in
+that order, and adds one thing WorldBox lacks: a reason to nurture before you destroy (§11).
+
+Sources: [Civilizations, Kingdoms and Villages](https://worldbox-sandbox-god-simulator.fandom.com/wiki/Civilizations,_Kingdoms,_and_Villages) ·
+[How to grow civilizations](https://progameguides.com/worldbox-god-simulator/how-to-grow-civilizations-in-worldbox-god-simulator/) ·
+[City Building](https://the-official-worldbox-wiki.fandom.com/wiki/City_Building) ·
+[Nature and disaster powers](https://progameguides.com/worldbox-god-simulator/how-to-use-nature-and-disaster-powers-in-worldbox-god-simulator/) ·
+[Disasters](https://the-official-worldbox-wiki.fandom.com/wiki/Disasters) ·
+[Creature Traits](https://the-official-worldbox-wiki.fandom.com/wiki/Creature_Traits) ·
+[Unit Stats](https://the-official-worldbox-wiki.fandom.com/wiki/Unit_Stats) ·
+[Ages](https://gamerjournalist.com/how-the-new-ages-system-works-in-worldbox-god-simulator/) ·
+[World Laws](https://the-official-worldbox-wiki.fandom.com/wiki/World_Laws) ·
+[Races overview](https://en.namu.wiki/w/WorldBox%20-%20God%20Simulator)
+
+---
+
+## 3. The two views — the central UX invention
+
+WorldBox is a pinch-zoom touch game. There is no pinch and no touch here, so the zoom is
+**binary and exact**, and the world is sized so the zoomed-out view is pixel-perfect.
+
+**World = 128 × 112 tiles.** In God's Eye, **1 tile = 1 pixel** and the entire world is on
+screen with no scrolling, ever. The same 128×112 px region is the Mortal View camera area, so
+the two views share a frame and the toggle reads as a true zoom rather than a jump.
+
+```
+GOD'S EYE  (set_background_cb, both cores)      MORTAL VIEW  (scene2d + autotiles)
+┌────────────────────────────┐ 0                ┌────────────────────────────┐ 0
+│░░░▒▒▓▓███▓▓▒▒░░░░░░░░░░░░░░│                  │  ▓▓ 16 × 14 tiles at 8 px  │
+│░░▒▒▓▓█ the whole world  ░░░│  1 px per tile   │  trees, houses, banners,   │
+│░▒▓▓██  political tint,  ░░░│  128 × 112       │  villagers with mood        │
+│░░▒▓█   fire glow, unit  ░░░│                  │  emotes, blueprint ghosts   │
+│░░░▒▒▓▓ pixels, cursor   ░░░│                  │  of what a lord plans       │
+├────────────────────────────┤ 112              ├────────────────────────────┤ 112
+│⌛×3 Y412 ☀Hope  ✋Meteor 340│  16 px HUD       │⌛×3 Y412 ☀Hope  ✋Meteor 340│  same HUD
+└────────────────────────────┘ 128              └────────────────────────────┘ 128
+```
+
+**God's Eye is the default and the point.** It is where a god belongs: you see every war
+front, every fire, every border at once. Political tint (§6) makes it read as a living map.
+A 1 px unit is not a compromise — a crowd of 300 pixels streaming toward a border is more
+legible than 300 sprites would ever be at this resolution.
+
+**Mortal View is the reward.** Zoom in and the pixels become people with faces, mood emotes,
+coloured houses per kingdom, and — the detail that sells the AI — **blueprint ghosts** of the
+building a lord has decided to build but not yet paid for, drawn in the source sheet's
+white floor-plan line art.
+
+HUD (16 px, three fields left→right, always live): **⌛ speed · Y year · age glyph** ·
+**selected power + Faith**. A fourth slot flashes chronicle toasts (§9).
+
+---
+
+## 4. Controls
+
+Nine buttons, no chords, everything important one press away.
+
+| | God's Eye | Mortal View | Menus / wheel |
+|---|---|---|---|
+| **D-pad** | move cursor (accelerating: 1 → 6 tiles/frame after 0.4 s) | move cursor, camera follows at the edges | navigate |
+| **A** | cast selected power; **hold = brush** where the power allows | same | confirm |
+| **B** | **inspect** → Soul Card of the unit/building/tile under the cursor | same | back |
+| **LB tap** | cycle speed **PAUSE · ×1 · ×3 · ×8** | same | tab left |
+| **LB hold** | **power wheel** — 8 slices, D-pad selects, release commits | same | — |
+| **RB tap** | **zoom toggle** (cursor position preserved) | same | tab right |
+| **RB hold** | **seek** — jump the cursor to the next point of interest (war, fire, new village, dying king), 3/s while held | same | — |
+| **MENU** | **God Menu** — World Laws, Chronicle, Legends, Ages, Save, Options | same | close |
+
+Two of these are the whole answer to "how do you play a touch game with a d-pad":
+
+- **RB hold = seek.** Pixel-hunting a 1 px villager with a d-pad is misery. Seek walks a
+  priority queue of interesting places the sim maintains for free (it already knows where the
+  wars are). It also doubles as the "show me a story" button for passive play.
+- **Tap/hold on one shoulder.** LB tap is the most-pressed verb in any sim (speed); LB hold is
+  the most-varied (power choice). Same button, no chord, no modal state.
+
+**Power wheel**: 6 tabs × 8 slices = 48 powers. The wheel is drawn from `ui_arrows_gauges`
+(the ring) plus `ui_status_emotes` / `ui_icons_tiny` element icons, over a `panels_colour`
+backing panel. RB while the wheel is held pages tabs. Last-used power per tab is remembered.
+
+---
+
+## 5. Time, ages and determinism
+
+| | |
+|---|---|
+| Sim tick | **1 week**, fixed. 52 ticks = 1 year |
+| Nominal rate | 8 ticks/s at ×1 → **6.5 s per year** |
+| Speeds | PAUSE · ×1 · ×3 · ×8 (**0.8 s/year** at ×8 — a 250-year epic in ~3½ minutes) |
+| Render | 30 fps (`set_fps_limit(30)`), decoupled; ticks-per-frame budgeted with a `micros()` watchdog so a busy world drops sim rate, never frame rate |
+| Ages | 8, each ≥30 years, chosen by a weighted roll off world state (population, war intensity, ruin count) exactly as WorldBox gates its disasters |
+
+**The sim is integer-only and deterministic.** Fixed-point positions (1/16 tile), one
+explicit PRNG stream per subsystem, no `float` anywhere in `mb_sim` / `mb_civ` / `mb_flux`.
+Floats live only in FX and rendering. This is not purity for its own sake — it buys three
+things the design depends on: a world is reproducible from `(seed, tick)` so the headless
+audit in §17 means something; replays and the two-god link mode in §19 stay possible; and a
+save can store the seed plus a diff instead of the whole world.
+
+**The eight ages** (name · sim modifier · palette):
+
+| Age | Modifier | Look |
+|---|---|---|
+| **Hope** | fertility +30%, war appetite −40% | default |
+| **Sun** | dryness climbs; spontaneous fires; crops wilt | warm bias, hard shadows |
+| **Moon** | night-long; predators bolder; faith income +50% | blue-shift, dim |
+| **Iron** | tech +1 tier free; armies muster faster | neutral, cold metals |
+| **Chaos** | rage clouds drift; madness trait spreads | high-contrast, jittering tint |
+| **Ice** | frost flux at the poles; water freezes to ice | white-shift |
+| **Ash** | every unit takes a small DoT; no new armies muster | grey desaturate + ashfall |
+| **Despair** | Ice, plus dark, plus ice-monster spawns | near-monochrome |
+
+Age transitions are chronicle events and get a full-screen title card. They are the sim's
+seasons — the thing that stops a stable world from being a boring one.
+
+---
+
+## 6. The world
+
+### Layers (all `mote->alloc`, 128×112 = 14 336 B each)
+
+| Layer | Byte | Purpose |
+|---|---|---|
+| `biome[]` | terrain id 0–23 | drives the autotile pass directly — the engine reads *this array* |
+| `elev[]` | 0–255 | lava and water flow downhill; mountains gate settlement; coastline |
+| `obj[]` | object id | trees, rocks, ore, crops, buildings, ruins, graves, banners — one per cell |
+| `flux[]` | kind:4 / intensity:4 | **the disaster channel** — fire, lava, water, acid, ash, frost, gas, void |
+| `claim[]` | village id 0–63 + 2 bits development | political tint, territory, borders |
+
+**70 KB total.** Everything else is small (§16).
+
+### Biomes → tiles: what the CC0 sheet actually has
+
+*(Rewritten after Phase 0 measured the sheet. The first draft of this section claimed the
+colour-block region at source rows 20–23 was a flat-fill palette. It is not — every one of
+those 64 cells carries 3–4 colours, because they are rounded UI panels with a navy border and
+a white highlight. The real answer is better.)*
+
+The master has **no water tile** — roguemote's `extract.py` says so outright and ships nothing
+for it — and, measured across all 4096 cells, exactly **three pure single-colour cells**. So
+there is no ready-made flat terrain art anywhere in it.
+
+What it does have, in rows **35** and **47–49**, is about **forty hand-drawn monochrome
+textures that tile seamlessly**: chevron wave bands, brick courses, pebble grids, diagonal
+hatching, dashes, plough furrows, scale patterns. Each biome fill is therefore **one of those
+textures composited over a flat of a source palette colour**, with the texture's ink recoloured
+to a second palette colour. Base, ink and shape all come from the CC0 master; only the
+combination is ours, and it lives in one declarative table (`BIOMES` in
+`authoring/extract_box.py`) rather than being painted by hand.
+
+Two things Phase 0 learned the hard way, both now enforced in the script:
+
+- **Ink coverage must be 18–55% of the tile.** The master's wave band continues into *fully
+  opaque* body cells (row 35 cols 50–55, row 34 cols 58–63) that look like more chevrons at
+  thumbnail size and paint the ink over the entire tile. `flat()` refuses any cell outside the
+  band, which caught two bad recipes rather than shipping blotches.
+- **Flowing terrain gets `nvar=1`, still ground gets a plain variant plus two sparse ones.**
+  Mixing a plain cell with a full-width chevron cell produced hard-edged 8 px blocks — a
+  chevron has to meet another chevron to read as a surface. The wave cell is also a top-*edge*
+  band, so it is horizontally periodic but not vertically: rolling it in y lifts the line off
+  the seam. Ocean, sea, lava, acid and farmland are therefore one chevron line every 8 px,
+  which is what classic pixel-art water looks like anyway.
+
+Water is consequently real source art: the wave band over a flat of PICO-8 navy (ocean) or blue
+(sea), with sandbank foam for the shoals. That closes roguemote's one asset gap.
+
+Full biome table (24 ids, each an autotile ruleset or fill):
+
+`ocean · sea · shallow · ice · beach · dune · desert · savanna · grass · meadow · forest ·
+jungle · swamp · hill · mountain · peak · tundra · snow · ash · scorched · lava · acid ·
+farmland · road`
+
+Rulesets: **forest = `hedge` blob47** (the garden-maze set is a perfect canopy),
+**grass = `floor_jungle` blob47** (grass with dirt sides and gold steps),
+**road = `floor_road`/`floor_cobble`** (5 shades), **mountain = `boulders_mountains`** objects
+over rock fill, the rest flat/dithered fills with 2–3 variants. Per-culture city walls come
+free from roguemote's existing blob47 sets: `wall_brick` (human), `wall_marble` (elf),
+`wall_stonebrick` (dwarf), `wall_aztec` (orc), `wall_bone` (undead).
+
+### Political tint — why God's Eye reads as a map
+
+Each of ≤12 kingdoms owns one of the sheet's 5 banner colours plus variants. In God's Eye a
+claimed cell is drawn as `blend(biome_colour, kingdom_colour, 25%)` with a **2 px dither at
+the border** so frontiers shimmer. Cost: one blend per pixel in the background band pass.
+This single effect is what makes a 128×112 pixel grid look like a political map instead of
+noise — and it makes a war visible from across the room.
+
+### Worldgen
+
+Value noise → `elev`; a second octave → moisture; a Whittaker-style table → `biome`. Rivers
+descend the `elev` gradient to sea, carving `shallow`; basins fill as lakes. Ore/gold/gem
+veins seed in `mountain`/`hill`. Forests weight by moisture. 3–6 islands so sea powers and
+docks matter. Everything from a **32-bit seed shown on the world-select screen** — a world is
+a number you can write down and re-roll.
+
+---
+
+## 7. The AI — three brains
+
+This is the headline feature, so it gets the honest treatment: what each brain decides, what
+it costs, and how it is measured.
+
+### Tier 0 — movement: three tiers, no per-unit A*
+
+Following `redmote`, which holds 140 units at 30 fps on a 96×96 map with 8 cached BFS flow
+fields. A god sim needs more units and cheaper thinking, so movement splits by range:
+
+1. **Local commute field** — each village owns a **32×32 `uint8` cost-to-hall field** (1 KB),
+   rebuilt by BFS when its buildings change, one village per tick, amortised. 95% of all
+   movement is a villager inside its own territory following a gradient: *O(1) per unit*.
+2. **Region graph** — the world as **16×14 blocks** (224 nodes) with walkable/coastal flags.
+   Settler parties, armies and traders A* over blocks (≤224 nodes, cached per journey), then
+   steer locally. A cross-world march costs one small A* once, not per step.
+3. **Steering** — 8-direction greedy descent + wall slide + separation jitter. Crowds part
+   around obstacles instead of grinding.
+
+### Tier 1 — the unit brain (utility)
+
+Each unit carries seven **drives** as signed bytes: `hunger · fear · greed · duty · love ·
+faith · wander`. Every tick, **1/8 of the population** re-scores ~10 candidate actions and
+takes the argmax with hysteresis (the incumbent action gets a +12 bonus, so units don't
+dither). Score shape, with everything integer:
+
+```
+score(act) = base[act]
+           + drive[act.drive] * weight[act]        /* what I want */
+           + trait_bonus[act]                      /* who I am */
+           - distance_cost(field, act.target)      /* how far it is */
+           + village_need[act.job] * lord_push     /* what my lord asked for */
+           - danger(flux, threat_map, act.target)   /* what will kill me */
+           + age_modifier[act]                     /* what age it is */
+```
+
+Actions: `eat · gather wood · gather stone · mine · farm · build · fight · flee · court ·
+breed · worship · wander · flee-plague · bury`. Happiness (−100..+100, WorldBox's own range)
+feeds `duty` and `love` and decays toward the village's condition, so a starving unhappy
+village visibly stops working and starts leaving — emergent, not scripted.
+
+**Traits: 32**, drawn from WorldBox's set and cut to those that visibly change behaviour:
+`tough · fast · brave · coward · greedy · pious · fertile · barren · genius · stupid ·
+cannibal · vengeful · loyal · ambitious · immortal · regenerating` + 8 god-granted only
+(`blessed · cursed · chosen · marked · plague · madness · contagious · zombie`). Traits are
+inherited with mutation, which is what makes bloodlines interesting.
+
+**Ecology runs on the same brain**, cheaper: wildlife from `animals` (deer, boar, sheep,
+chicken, rabbit as prey; wolf, bear, snake, spider as predators; fish; bees as the swarm
+disaster; rats as the plague vector) with only `hunger · fear · breed`. Populations
+genuinely oscillate, and overhunting a region visibly empties it.
+
+### Tier 2 — the village brain (the lord)
+
+Every 8 ticks, one village evaluates one decision from a needs vector, weighted by its lord's
+`Stewardship / Diplomacy / Warfare`:
+
+```
+food_store < pop*2         -> farm / windmill      (cap 1 windmill)
+wood  < 20                 -> woodcutter camp
+stone < 20                 -> mine                 (cap 1 mine; costs 10 stone + 5 wood)
+pop   > housing            -> house (tier 1) or house upgrade
+threat_map[here] > 40      -> barracks (cap 1) / watchtower / wall segment
+happiness < -20            -> temple / tavern
+hall < 3 and stock allows  -> upgrade hall  (t2: 10w+10s · t3: 10w+10s+10i)
+pop > 24 and land nearby   -> SETTLER PARTY -> found a new village
+coastal and tech >= 2      -> docks (cap 5)
+```
+
+The chosen build appears immediately as a **blueprint ghost** in Mortal View and only becomes
+real when the stockpile pays for it. Watching a lord plan is a feature, and the sheet's
+floor-plan line art was waiting for a job.
+
+### Tier 3 — the kingdom brain (the king)
+
+Every 32 ticks per kingdom (≤12 kingdoms, so this is nothing):
+
+```
+for each known neighbour:
+    friction  = shared_border_len + contested_claims*3
+    strength  = my_army / (their_army + 1)
+    culture   = |tech - their_tech| + race_distance
+    grudge    = chronicle_grudge(them)        /* read straight out of §9 */
+    war_score = friction + strength*20 + grudge*5 - their_diplomacy*4 + age_war_bias
+    peace_score = exhaustion*3 + trade_value*2 + their_diplomacy*4
+```
+
+Highest score wins: **war** (pick a target village, muster an army at a rally point, march
+via the region graph), **peace** (treaty; exhaustion decays), **alliance** (join each other's
+wars), or **nothing**. Armies use soldier sprites whose weapon art steps with tech tier, so
+you can *see* a kingdom's technology on the battlefield.
+
+**Loyalty and rebellion**, straight from WorldBox because it is the best story engine in it:
+
+```
+loyalty = 60 - dist_to_capital/2 - lord_ambition*3 - war_exhaustion*2
+        + king_diplomacy*2 + happiness/4
+loyalty < 0 for 8 consecutive ticks -> the village secedes as a new hostile kingdom,
+                                       taking its lord as king and its own banner colour
+```
+
+Big empires therefore fracture on their own, and civil wars happen without the player. That,
+not the meteor button, is what makes a world worth watching.
+
+### Cost budget (to be confirmed in Phase 1, but sized deliberately)
+
+| Per tick at 8 Hz | Work | Est. cycles |
+|---|---|---|
+| Unit brains | 384/8 = 48 units × ~10 actions | ~120 k |
+| Unit movement | 384 × gradient step | ~60 k |
+| Flux CA | ≤2048 active cells | ~80 k |
+| One village field rebuild | 32×32 BFS | ~40 k |
+| Village brain | 1 village | ~5 k |
+| Kingdom brain | amortised | ~2 k |
+| **Total** | | **~310 k of 35 M cycles/tick** |
+
+Roughly **1%** of one core at ×1, ~7% at ×8. Headroom is deliberate: the CA and crowd sizes
+grow into it, and the frame budget belongs to rendering.
+
+---
+
+## 8. Population, families and legends
+
+- **384 units max** (28 B each). WorldBox's medium maps run a few hundred; 384 across
+  128×112 tiles is a comparable density and it is what the arena and the brain budget allow.
+- **64 families.** Every unit has a surname, two parents and a birth year. Marriage crosses
+  families; children inherit traits with mutation; a family with many kings becomes a
+  **dynasty** and gets a crown sprite from `crowns_fx` on its heads.
+- **Legends.** A unit that crosses a threshold (10 kills, king for 40 years, survives a
+  meteor, founds 3 villages, cures a plague) earns a **nickname** — *Kaeda the Unburnt* — is
+  written into the Legends screen, and stays there after death with its epitaph. This is the
+  score. It is also what makes losing a village hurt.
+
+---
+
+## 9. The Chronicle — the story engine
+
+The cheapest big win in the whole design, and the reason to keep playing.
+
+- A **ring buffer of 96 events × 12 B**: `type · year · actor · place · magnitude`.
+- Rendered to text at display time from ~60 templates plus a **syllable name generator**
+  (a 2 KB table, hashed from unit id, so every name is stable and free):
+  *"Y143 · Emberhold falls to the Green Horde."* ·
+  *"Y144 · Kaeda the Unburnt crowned in Stonewatch."* ·
+  *"Y151 · The Ashen Plague takes 40 souls."*
+- **Grudges** are just a query over this buffer, which is why kings remember who sacked what.
+- **Toasts**: a high-magnitude event slides a one-line banner into the HUD's fourth slot. With
+  **Follow History** on (a World Law), the camera also jumps there. That is the passive mode —
+  put it on ×8, watch it like a lava lamp, and it tells you stories.
+- MENU → Chronicle is the full scrollable log; MENU → Legends is the hall of names.
+
+Text: **`rogue8`** (roguemote's proportional CP437, 8 px) for dense chronicle/Soul Card
+columns, where ~24 characters per line is the difference between a sentence and a fragment;
+**`ui_font(MOTE_FONT_MED)`** for titles, toasts, menu chrome and the age cards.
+
+---
+
+## 10. Disasters — the flux field
+
+One mechanism, 22 faces. `flux[]` holds `kind:4 / intensity:4` per cell, stepped by a CA over
+an **active-cell ring buffer** (4096 entries) so a calm world costs nothing and a burning
+continent costs a bounded 2048 cells/tick.
+
+```c
+/* one rule table, one pass; every disaster is a row in it */
+struct FluxRule { uint8_t spread, decay, uphill, consumes, leaves, damage, sfx, fx; };
+```
+
+`spread` (probability into neighbours, wind-biased), `decay`, `uphill` (0 = flows downhill by
+`elev`, e.g. lava and water), `consumes` (which `obj`/`biome` it destroys), `leaves` (what
+`biome` it leaves behind), `damage` (per-tick to units), plus its FX and sound recipe.
+
+| # | Disaster | Rule | Look |
+|---|---|---|---|
+| 1 | **Fire** | spreads by wind × dryness through trees/crops/houses → ash | orange flicker in God's Eye; fire-burst sprite + recoloured spark speckle |
+| 2 | **Lightning storm** | wandering cloud, strikes ignite | bolt streak from `fx_mono`, 2-frame white flash, rumble |
+| 3 | **Volcano** | a `peak` becomes a vent; lava flows downhill, cools to rock; ash cloud chills the region | red lava front, ash-fall particles, cone sprite from `crowns_fx` |
+| 4 | **Meteor** | 8-frame incoming streak → crater, cleared radius, shockwave ring, firestorm | expanding rings (`fx_mono`), screen shake, rumble, camera flash |
+| 5 | **Earthquake** | Bresenham fissure; buildings on the line collapse to ruins | decaying camera shake, dust puffs, cracked-ground tiles |
+| 6 | **Tornado** | moving vortex; strips `obj`, scours biome, flings units (they orbit, then land hurt) | swirl sprite + 12 orbiting debris particles |
+| 7 | **Tsunami** | water wall sweeps from a coast, floods low `elev` for N ticks, recedes leaving sand and corpses | foam band tiles, blue splash bursts |
+| 8 | **Acid rain** | dissolves biome down a ladder: grass → dirt → rock → sea | green-recoloured drip particles, hissing sfx |
+| 9 | **Blizzard** | frost flux; water → ice; crops die; units seek shelter | drifting snow particles with wind |
+| 10 | **Heatwave** | global dryness climbs; grass → savanna → sand; spontaneous fire | heat shimmer via band offset, warm palette |
+| 11 | **Drought** | rivers shrink, farms fail, famine drives migration | dried riverbeds, wilted crop sprites |
+| 12 | **Plague** | unit-level SIR via proximity and trade routes; graves accumulate; **villages quarantine** — a real AI response | green spore emote over the sick, headstone objects |
+| 13 | **Undead rising** | corpses and graves in a radius rise as skeletons; their kills join them | white wisp sprites from `monsters`, bone-wall city ruins |
+| 14 | **Locust swarm** | 40-particle cloud eats farmland | bee sprites from `animals`, chittering sfx |
+| 15 | **Madness** | rage flux; units attack whoever is nearest | red-shift tint, spiral emote |
+| 16 | **Sinkhole** | growing void; swallows tiles and whatever stands on them | black fill, crumbling edge ring |
+| 17 | **Flood** | rain raises rivers; extinguishes fire; grows grass after | rising shallow water, blue dither |
+| 18 | **Kaiju** | summon one of the 17 `bosses` (2×2): it walks, wrecks buildings, eats units — **and kingdoms declare war on it** | 16×16 sprite, footstep shake, panic emotes |
+| 19 | **Divine wrath** | a light pillar smites the faithless, heals the faithful | white column, holy-recoloured sparkles, angel sprite |
+| 20 | **Fallout** | Iron-age unlock: flash, rings, everything in radius to ash, fallout flux mutates survivors | full white frame, triple ring, long rumble |
+| 21 | **Ashfall** | Age of Ash: world-wide grey drift, small DoT everywhere | ash particles on every band, desaturated palette |
+| 22 | **The Maw** | endgame: a slow void that consumes cells permanently and never stops | black growth with a shimmering rim |
+
+Availability is **gated like WorldBox's** — population, city count and current age decide
+what can fire naturally, and the World Laws let you switch Natural and Other disasters off
+independently.
+
+### The FX toolkit — and where "beautiful" comes from
+
+Four cheap layers, composited:
+
+1. **The flux field itself**, drawn in the biome pass. At 1 px/tile a spreading fire front is
+   a *shape*, and shapes are what read on a 128 px screen.
+2. **A 256-particle pool** (16 B each) sourced from `fx_mono` — 73 hand-drawn mono frames of
+   bolts, slash arcs, expanding rings, sparkle bursts, speckle clouds and wind swooshes.
+3. **`crowns_fx` impact sprites** — explosion, fire burst, water splash, smoke swirl.
+4. **Screen-level**: camera shake (decaying), full-frame flash via the background pass, palette
+   shift per age, and `rumble(intensity, ms)`.
+
+**The multiplier:** `fx_mono` is white line art, and `blit` is colour-keyed with no tint — so
+the extract step **palette-swaps the sheet into six elemental colours** (fire, frost, acid,
+ash, holy, void), writing six editable PNGs. 73 frames × 6 = **438 FX frames** from one CC0
+band, every one of them hand-drawn. That is where a 22-disaster range gets its variety without
+inventing art.
+
+---
+
+## 11. Powers, and the one thing WorldBox is missing
+
+**48 powers, 6 tabs of 8**, sized to the wheel:
+
+| Tab | Powers |
+|---|---|
+| **Land** | raise · lower · grass · forest · sand · mountain · water · road |
+| **Life** | human · elf · dwarf · orc · found village · animals · fish · plants |
+| **Bless** | rain · fertility · heal · inspire (tech) · peace · gold vein · sanctuary · resurrect |
+| **Curse** | plague · madness · curse · weaken · famine · barren · grudge · mark |
+| **Wrath** | fire · lightning · tornado · earthquake · meteor · volcano · acid rain · tsunami |
+| **Beasts** | skull titan · medusa · reaper · phoenix · golem · insect queen · the eye · angel |
+
+Each power has an icon, a brush size, a cooldown, a Faith cost and a chronicle verb (so *your*
+interventions are written into the history alongside everything else — you are a character in
+the log, and that is the joke).
+
+### Faith — the missing feedback loop
+
+WorldBox's honest weakness is aimlessness: every power is free, so the optimal play is
+meteor-spam and the civilisation is scenery. Motebox ships **two modes**:
+
+- **Sandbox** — everything free and unlocked. WorldBox as it is.
+- **Pantheon** (default) — powers cost **Faith**, and Faith is generated by *worshippers*:
+  `Σ (happiness × faith_trait)` over living units, plus temples, plus festivals, minus heresy.
+
+That one line changes the whole game. Rain costs 1. A meteor costs 120. A kaiju costs 500. To
+afford spectacle you must first grow a civilisation that loves you — so nurturing and
+destroying become a *trade-off* instead of two unrelated toys, and the growth sim you built
+becomes the resource engine for the disaster sim. Wiping out your worshippers really does
+bankrupt you.
+
+**Trials** (8, optional, medals saved to `kv`) give a handheld session a shape without walling
+off the sandbox: *Ashfall* — keep one kingdom alive 200 years through an Age of Ash · *Ark* —
+all four races alive at Y300 on one island · *Kingslayer* — end with exactly one village
+standing · *Shepherd* — reach 300 population with no disaster cast · *Pantheon* — bank 5000
+Faith · each with a par year count.
+
+---
+
+## 12. World Laws
+
+Cheap to build, disproportionately loved, and how a sandbox becomes personal. Toggles and
+sliders in the God Menu: `natural disasters · other disasters · war · rebellion · plague ·
+madness · ageing · breeding · monsters · tech progress · ages advance · follow history ·
+unit nameplates · political tint · mood emotes · autosave`, plus sliders for
+`breeding rate · aggression · disaster frequency · fertility`.
+
+---
+
+## 13. Sprite budget — every sheet earns a job
+
+The contract, as in roguemote §4. Counts are non-empty cells measured from the baked sheets
+(1901 total).
+
+### Actors
+
+| Sheet | n | Job |
+|---|---|---|
+| `characters` | 85 | 4 races × 5 roles (villager, farmer, miner, soldier, elder) + lords, kings, priests, prophets, rebels, bandits, children |
+| `animals` | 83 | the ecology: prey, predators, fish, birds, bees (swarm), rats (plague vector), mushroom-folk as a 5th race |
+| `monsters` | 72 | undead risings, goblin/orc raiders, demons (Age of Chaos), slimes/biomass, ice monsters (Age of Despair) |
+| `bosses` | 68 | 17 kaiju at 2×2 — 8 summonable, 9 age-spawned horrors |
+| `crowns_fx` | 23 | 5 dynasty crowns, volcano cones, explosion/fire/splash/smoke impacts |
+| `helms_hoods` · `armour_set` | 58 | soldier tech tiers, drawn on the Soul Card and the army banner |
+
+### World & buildings
+
+| Sheet | n | Job |
+|---|---|---|
+| `doors_gems_banners` | 24 | **5 kingdom colours × house + banner** — the political layer you can see |
+| `props_light` | 25 | campfire (the founding marker), torches, fences, bridges, docks, igloo (snow housing), log piles, late-age terminals |
+| `trinkets` | 55 | the vegetation layer: trees, bushes, cactus, mushrooms, rocks, flowers, plus blood/acid splats and drifting clouds |
+| `boulders_mountains` | 22 | mountain ranges, snow peaks, post-quake rubble |
+| `terrain_edges` | 112 | coast foam, cloud shadow, snow drift, debris scatter |
+| `grass_garden` | 128 | biome fringe, gold steps, snow ground (row 7) |
+| `cobble_floors` | 20 | roads and plazas in 5 shades — one per culture |
+| `wall_stonebrick` · `wall_temple` · `wall_purple` | 152 | per-culture architecture: arches, gates, windows, idols |
+| `furniture_white` · `furniture_stone` · `loot_furniture` | 47 | top-down village interiors seen from above: market stalls, granary, well, forge |
+| `treasure_ore` | 35 | ore/gold/gem deposits + **9 shields = kingdom heraldry in the HUD** |
+| `food` | 36 | crops by biome, market goods, the food-stockpile icon |
+| `chests` · `chest_wood` | 12 | village stockpiles, tribute, trade caravans |
+| `blueprint` | 34 | **the blueprint ghosts** — what a lord has decided to build |
+| `dungeon_mono` · `stairs` | 46 | temple and palace interiors, ziggurat wonders, the Pantheon screen |
+| `levers` · `devices` · `runes` · `guns` | 69 | late-age wonders and their icons: hourglass = time, crystal ball = prophecy, harp/bell/drum = festivals, guns = Age of Iron |
+| `weapons_potions` · `weapons_elemental` · `tools_wands` · `jewellery` · `ammo` | 115 | tech-tier iconography: the weapon a kingdom's soldiers carry, the tools its workers use |
+
+### UI
+
+| Sheet | n | Job |
+|---|---|---|
+| `fx_mono` | 73 ×6 = **438** | every disaster's particles, in six elemental recolours |
+| `ui_status_emotes` | 83 | mood faces over units, per-element disaster icons, hearts, meter segments |
+| `ui_icons_tiny` | 32 | HUD micro-icons, power-wheel glyphs |
+| `ui_arrows_gauges` | 34 | the power-wheel ring, meters, the seek compass |
+| `ui_buttons` | 35 | button prompts in the tutorial and the wheel |
+| `panels_colour` | 64 | Soul Card, Chronicle, Legends and God Menu panels in 4 colours |
+| `ui_symbols` | 4 | family/lineage marks on the Soul Card |
+| `font_cp437` + `rogue8` | 253 | all text |
+
+**Coverage discipline:** roguemote's `authoring/coverage.py` idea carries over — a script walks
+the content tables and reports any sheet cell no table references. Target: **0 unused**.
+
+---
+
+## 14. Assets to author
+
+The pipeline is roguemote's, extended. Everything stays an editable source file under
+`assets/` or `tilesets/` and is turned into `src/*.h` by `mote bake` / Studio Save.
+
+1. **`authoring/extract_box.py`** (new, alongside roguemote's `extract.py`):
+   - the **colour-block region** (source rows 20–23) → 12 biome fill tilesets (water ×3,
+     grass ×3, sand ×3, lava/scorched/acid ×3), each as `.tileset` + sheet;
+   - the **wave/foam band** (rows 34–35) → a coast edge ruleset;
+   - **six palette-swapped copies of `fx_mono`** → `fx_fire.png`, `fx_frost.png`,
+     `fx_acid.png`, `fx_ash.png`, `fx_holy.png`, `fx_void.png`;
+   - reuse roguemote's `hedge`, `floor_jungle`, `floor_road`, `floor_cobble` and the five
+     `wall_*` blob47 sets **unchanged** — same source, same generator, no forking.
+2. **`icon.png`** (60×60, game root): a globe of green/blue colour-block pixels with a fire
+   front and a god-hand cursor over it. Baked to `src/icon.h` by `mote bake`.
+3. **SFX** — authored in Studio's Audio tab as `.sfx` recipes (never hand-rolled in C):
+   `fire · rumble · thunder · impact · splash · wind · crumble · plague · chant · fanfare ·
+   birth · death · muster · build · toast`, plus per-age ambience.
+4. **Fonts** — `rogue8` reused as-is from roguemote.
+
+---
+
+## 15. Rendering
+
+| View | Path | Notes |
+|---|---|---|
+| **God's Eye** | `set_background_cb(world_band)` | dual-core per-band world rasteriser: biome colour → political tint blend → flux glow → `obj` dot → unit pixel → cursor. 14 336 px/frame, no sprite pool involved |
+| **Mortal View** | `set_background_cb(NULL)` + `scene2d_begin` + `scene2d_set_autotiles(biome, 128, 112, rules, n)` + sprites | the engine autotiles the *live* biome array; objects, units, particles and blueprint ghosts are sprites |
+| **HUD / cards / wheel** | `overlay(fb)` — `blit`, `draw_rect`, `draw_circle`, `text_font` | both views share it |
+
+`max_sprites = 320`: ~120 objects + ~40 on-screen units + ~60 particles + emotes and wheel,
+with headroom. Draw order is height order — shadows, units, buildings, canopies last — so
+villagers pass *under* trees.
+
+---
+
+## 16. Memory budget
+
+| Item | Bytes |
+|---|---|
+| 5 world layers @ 14 336 | 71 680 |
+| 48 village commute fields @ 1 024 | 49 152 |
+| Units 384 × 28 | 10 752 |
+| Flux active ring 4096 × 2, double | 16 384 |
+| Particles 256 × 16 | 4 096 |
+| BFS queue 1 024 × 2 | 2 048 |
+| Villages 48 × 64 · kingdoms 12 × 96 · families 64 × 12 | 5 100 |
+| Chronicle 96 × 12 · legends 32 × 24 | 1 920 |
+| Region graph 224 × 8 | 1 792 |
+| Sprite pool (engine, 320) | ~5 000 |
+| Save/RLE scratch | 8 192 |
+| **Arena total** | **≈ 176 KB of 272 KB** |
+
+Baked sheets and tables are `const` → flash. Static module RAM holds only small state, well
+inside 134 KB. ~96 KB of arena slack is deliberate: it is where a bigger crowd, a third view
+or a second world layer will go.
+
+---
+
+## 17. Testing — the Empire Audit
+
+roguemote's content audit exercises code rather than reading it; the equivalent here is a
+**headless soak** over the deterministic sim, because a god sim's bugs are statistical, not
+structural. `authoring/audit_box.c` links the sim TUs against render stubs and runs worlds:
+
+- **1000 years × 32 seeds**, asserting invariants:
+  - population never hits 0 in a peaceful world, and never exceeds the cap;
+  - kingdom count stays in 1..12 (rebellion doesn't explode or die out);
+  - every fire eventually extinguishes; no flux cell is stuck non-zero forever;
+  - no unit is stuck (position unchanged for 200 ticks while its goal is reachable);
+  - claimed cells always belong to a living village; no orphan claims;
+  - Faith income is non-negative in a world with happy worshippers;
+  - the same `(seed, tick)` reproduces byte-identically — the determinism guarantee.
+- **Balance curves** dumped as CSV: population, kingdom count, war ticks, average happiness,
+  tech tier and Faith over 1000 years, so tuning a weight is measured, not eyeballed.
+- **Disaster ledger**: fire every disaster 100× at random sites and assert each leaves the
+  world in a legal state (no illegal biome, no negative stock, no lost units).
+
+Env hooks for scripted runs, following the house convention:
+
+```
+MOTEBOX_SEED=1234          MOTEBOX_YEARS=500        (fast-forward headless, dump metrics)
+MOTEBOX_DISASTER=meteor@64,40                       MOTEBOX_LAWS=nowar,noplague
+MOTEBOX_CHRON=1            (chronicle to stderr)    MOTEBOX_POP=1 (per-year counters)
+MOTE_AUTORUN=1 MOTE_DT_MS=33 MOTE_KEYS="..." MOTE_SHOT=/tmp/x.ppm MOTE_SHOT_FRAME=N
+```
+
+---
+
+## 18. Build order
+
+Each phase ends with something runnable on the device.
+
+| Phase | Deliverable |
+|---|---|
+| **1. World + views** | Worldgen, 5 layers, God's Eye band renderer, Mortal View autotiles, zoom toggle, cursor, HUD. **Measure the frame and tick budgets here.** |
+| **2. Flux** | The CA, fire/water/lava/acid, the active ring, the particle pool, screen shake, 6 recoloured FX sheets. Sandbox mode with 8 Wrath powers — playable and already fun. |
+| **3. Life** | Units, drives, utility brain, movement tiers, ecology, births/deaths, ageing, traits. |
+| **4. Villages** | Founding, the WorldBox build/resource ladder, lord brain, blueprint ghosts, houses in kingdom colours, claims + political tint. |
+| **5. Kingdoms** | Kings, diplomacy, war, armies, rally + march, loyalty, rebellion, secession. |
+| **6. Chronicle** | Names, families, events, toasts, Legends, grudges feeding the king brain. |
+| **7. Powers** | All 48, the wheel, Faith economy, Pantheon vs Sandbox. |
+| **8. Ages & laws** | 8 ages with modifiers and palettes, age cards, World Laws menu. |
+| **9. Disasters in full** | All 22 including kaiju, undead, plague quarantine, the Maw. |
+| **10. Audit & polish** | Empire Audit to green, balance curves, coverage.py to 0 unused sprites, SFX, save/load, Trials, icon. |
+
+Source layout: `game.c` (vtbl, modes, input) · `mb_world.c` (gen, layers, tiles) ·
+`mb_sim.c` (units, drives, movement) · `mb_civ.c` (villages, kingdoms, war) ·
+`mb_flux.c` (the CA) · `mb_fx.c` (particles, shake, flash) · `mb_draw.c` (both views) ·
+`mb_ui.c` (wheel, Soul Card, menus) · `mb_chron.c` (names, events) · `mb_save.c`.
+
+---
+
+## 19. Stretch: two gods, one world
+
+The infrastructure exists — `link_*` (v43), the LAN/lobby layer, and `moita`'s deterministic
+lockstep as precedent. Because the sim is integer-only and seed-reproducible (§5), a second
+god is nearly free: exchange **power casts only** (8 bytes: tick, tab, power, x, y, brush) and
+both units step the identical world.
+
+Two modes worth having: **Covenant** (co-op — shared world, shared Faith pool, a Trial to
+beat together) and **Schism** (versus — each god's Faith comes only from *its own*
+worshippers, so you fight a proxy war through civilisations that don't know you exist).
+Deferred to after Phase 10, and it constrains nothing before then beyond the determinism rule
+already stated.
+
+---
+
+## 20. Open questions and risks
+
+- **Unit cap is a guess pending Phase 1.** 384 is what the arena and the cycle budget allow on
+  paper; `redmote`'s 140 units at 30 fps on a 96×96 map is the only measured precedent, and its
+  units do more per tick than a villager. If 384 misses, the honest lever is the *think
+  stagger* (1/8 → 1/16), not the crowd size, because crowd size is the look.
+- **Sprite labels are 50/1494 human-verified in roguemote** (393 flagged low-confidence). The
+  §13 assignments inherit that uncertainty. The correction pass matters most before Phase 4,
+  when building and race identity start carrying meaning. Two known-wrong cuts are already
+  documented and load-bearing here: `doors_gems_banners` is really **door/house/house-extend in
+  5 colours** (which is exactly what the kingdom-colour buildings need), and `props_light`
+  contains the **train track** rather than fencing.
+- **No water in the source sheet.** Resolved by the colour-block region + wave band (§6), but
+  the recolours must be reviewed on the device — flat fills that look fine at 6× zoom in a
+  preview can read as mud on the LCD.
+- **Political tint is doing a lot of work.** If a 25% blend over 24 biome colours turns out
+  muddy on the real panel, the fallback is border-only tint plus a banner pixel per village —
+  cheaper, less pretty, still legible. Decide with the device in hand, in Phase 4.
+- **Faith may need a floor.** If a player nukes their own worshippers to zero they are locked
+  out of every power. A small unconditional trickle (1/tick) keeps the world recoverable;
+  whether that undermines the trade-off is a tuning question for Phase 7.
+- **`ui_font` vs `rogue8`.** The engine's readable fonts are the house rule, but ~18 characters
+  per line at MED is too few for chronicle prose. The split in §9 is a deliberate exception,
+  and if the 8 px CP437 proves hard to read on the panel, the chronicle gets shorter templates
+  rather than a smaller font.
