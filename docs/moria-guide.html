@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moria — Delver's Handbook</title>
+<meta name="description" content="How to play Moria on the Thumby Color: the button map,
+ the six classes, the command menu, and how to survive the Mines of Moria. A port of
+ Umoria 5.6.0.">
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#0c0d12; --raise:#141620; --sink:#08090d; --panel:#191c28;
+    --ink:#e6e3da; --soft:#a8a496; --faint:#6f6c62; --line:#2a2e3d;
+    --lamp:#e8b647; --lamp-deep:#b8862a; --ember:#d4542c;
+    --moss:#6f9b5a; --rune:#7fa8d4; --blood:#b03a3a; --gold:#d9b04a;
+    --measure:36rem;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#efece3; --raise:#f8f6f0; --sink:#e3dfd3; --panel:#f8f6f0;
+      --ink:#1e1d1a; --soft:#55524a; --faint:#7d7a70; --line:#d2cdbe;
+      --lamp:#8a6410; --lamp-deep:#6b4d0c; --ember:#a83c18;
+      --moss:#456b32; --rune:#2d5b87; --blood:#8c2020; --gold:#8a6410;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg:#0c0d12; --raise:#141620; --sink:#08090d; --panel:#191c28;
+    --ink:#e6e3da; --soft:#a8a496; --faint:#6f6c62; --line:#2a2e3d;
+    --lamp:#e8b647; --lamp-deep:#b8862a; --ember:#d4542c;
+    --moss:#6f9b5a; --rune:#7fa8d4; --blood:#b03a3a; --gold:#d9b04a;
+  }
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg:#efece3; --raise:#f8f6f0; --sink:#e3dfd3; --panel:#f8f6f0;
+    --ink:#1e1d1a; --soft:#55524a; --faint:#7d7a70; --line:#d2cdbe;
+    --lamp:#8a6410; --lamp-deep:#6b4d0c; --ember:#a83c18;
+    --moss:#456b32; --rune:#2d5b87; --blood:#8c2020; --gold:#8a6410;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;
+    line-height:1.62; font-size:17px;
+  }
+  .mono{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+  .wrap{max-width:62rem;margin:0 auto;padding:0 22px}
+
+  /* ---- masthead: a lamp in the dark ---- */
+  header.mast{
+    background:
+      radial-gradient(60rem 26rem at 50% -8rem, color-mix(in srgb,var(--lamp) 16%,transparent), transparent 70%),
+      var(--sink);
+    border-bottom:1px solid var(--line);
+    padding:54px 0 40px;
+  }
+  header.mast h1{
+    margin:0; font-size:clamp(2.6rem,9vw,4.4rem); line-height:.92;
+    letter-spacing:.16em; font-weight:400; text-transform:uppercase;
+    color:var(--lamp); text-wrap:balance;
+  }
+  header.mast .rule{
+    height:1px;background:linear-gradient(90deg,transparent,var(--lamp-deep),transparent);
+    margin:18px 0;
+  }
+  header.mast p{margin:0;max-width:var(--measure);color:var(--soft);font-size:1.05rem}
+  .facts{display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:22px;
+    font-family:ui-monospace,Menlo,monospace;font-size:.74rem;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint)}
+  .facts b{color:var(--ink);font-weight:400}
+
+  main{padding:14px 0 90px}
+  section{margin-top:52px;scroll-margin-top:20px}
+  h2{
+    font-size:1.5rem;font-weight:400;letter-spacing:.02em;margin:0 0 4px;
+    color:var(--ink);text-wrap:balance;
+  }
+  h2 .num{
+    font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:var(--lamp);
+    letter-spacing:.18em;display:block;margin-bottom:8px;
+  }
+  h3{font-size:1.06rem;font-weight:400;letter-spacing:.03em;margin:30px 0 8px;color:var(--lamp)}
+  p{max-width:var(--measure)}
+  .lede{font-size:1.08rem;color:var(--soft);max-width:var(--measure)}
+  hr.sep{border:0;height:1px;background:var(--line);margin:0 0 22px}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.94rem}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:ui-monospace,Menlo,monospace;font-size:.7rem;letter-spacing:.13em;
+     text-transform:uppercase;color:var(--faint);font-weight:400}
+  td.k{font-family:ui-monospace,Menlo,monospace;color:var(--rune);white-space:nowrap}
+  td.c{font-family:ui-monospace,Menlo,monospace;color:var(--lamp);white-space:nowrap}
+  .scroll{overflow-x:auto}
+
+  .btn{display:inline-block;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;
+    border:1px solid var(--line);border-radius:5px;padding:1px 7px;background:var(--panel);
+    color:var(--ink);white-space:nowrap}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:14px;margin:18px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .card h4{margin:0 0 5px;font-size:1rem;font-weight:400;color:var(--lamp);letter-spacing:.02em}
+  .card p{margin:0;font-size:.9rem;color:var(--soft);max-width:none}
+
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:14px;margin:22px 0}
+  .shots figure{margin:0}
+  .shots img{width:100%;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;
+    background:#000;display:block}
+  .shots figcaption{font-size:.78rem;color:var(--faint);margin-top:6px}
+
+  blockquote{margin:18px 0;padding:12px 18px;border-left:2px solid var(--lamp-deep);
+    background:var(--raise);color:var(--soft);font-size:.95rem;max-width:var(--measure)}
+  blockquote p{margin:0;max-width:none}
+
+  .warn{border-left-color:var(--ember)}
+  .legal{font-size:.86rem;color:var(--soft)}
+  .legal a{color:var(--rune)}
+
+  footer{border-top:1px solid var(--line);margin-top:70px;padding:26px 0 60px;
+    color:var(--faint);font-size:.85rem}
+  footer a{color:var(--rune)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="mast">
+  <div class="wrap">
+    <h1>Moria</h1>
+    <div class="rule"></div>
+    <p>The 1983 dungeon crawl that taught roguelikes how to have a town, in your pocket.
+       This is <em>Umoria&nbsp;5.6.0</em> &mdash; the whole game, not a demake &mdash; with
+       its keyboard traded for nine buttons.</p>
+    <div class="facts">
+      <span><b>8</b> races</span>
+      <span><b>6</b> classes</span>
+      <span><b>50</b> levels to the Balrog</span>
+      <span><b>6</b> shops</span>
+      <span><b>39</b> commands</span>
+      <span><b>GPLv3</b></span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="what">
+  <h2><span class="num">01</span>What this is</h2>
+  <hr class="sep">
+  <p class="lede">Moria is the ancestor. Angband is its child; every "go down, get loot,
+    come back up" game owes it something.</p>
+  <p>You make a character, buy what you can afford in a small town, and walk down a
+    staircase. The dungeon is generated fresh each time and it does not care about you.
+    Death is permanent. The goal, fifty levels down, is the Balrog &mdash; almost nobody
+    gets there, and that is rather the point.</p>
+  <p>This is the real thing: the original C source, its dungeon generator, its monster
+    list, its item tables and its combat maths, compiled for the Thumby Color. Nothing
+    was simplified to fit. What changed is how you talk to it.</p>
+
+  <div class="shots">
+    <figure>
+      <img src="img/gallery/moria-1.png" alt="The command menu open over the town map">
+      <figcaption>The command menu &mdash; every verb, six categories.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/gallery/moria-2.png" alt="The character sheet showing stats">
+      <figcaption>A Human Warrior, freshly made.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/gallery/moria-3.png" alt="The in-game controls page">
+      <figcaption>The button map, in game.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="controls">
+  <h2><span class="num">02</span>The buttons</h2>
+  <hr class="sep">
+  <p>Moria has a verb for nearly everything and expects a keyboard. Rather than fake one,
+    the game tells the handheld what sort of answer it is waiting for, and you get a
+    screen built for that answer. You are never hunting for a letter.</p>
+
+  <h3>Walking around</h3>
+  <div class="scroll"><table>
+    <tr><th>Button</th><th>Does</th></tr>
+    <tr><td class="k">D-pad</td><td>Walk, eight ways. A tap is one step; hold to keep going.</td></tr>
+    <tr><td class="k">A</td><td>Open the command menu.</td></tr>
+    <tr><td class="k">MENU</td><td>Also the command menu.</td></tr>
+    <tr><td class="k">B</td><td>Take the staircase you are standing on.</td></tr>
+    <tr><td class="k">LB</td><td>Character sheet.</td></tr>
+    <tr><td class="k">RB</td><td>Inventory.</td></tr>
+  </table></div>
+
+  <h3>When the game asks you something</h3>
+  <div class="scroll"><table>
+    <tr><th>It wants</th><th>You get</th><th>Buttons</th></tr>
+    <tr><td>A command</td><td>Six categories of verbs</td>
+        <td class="k">LB/RB category &middot; D-pad move &middot; A pick &middot; B back</td></tr>
+    <tr><td>An item</td><td>Your actual inventory, by name</td>
+        <td class="k">D-pad &middot; A pick &middot; LB swaps worn/carried</td></tr>
+    <tr><td>A direction</td><td>A compass</td>
+        <td class="k">D-pad &middot; A for "here" &middot; B cancel</td></tr>
+    <tr><td>Yes or no</td><td>A prompt</td><td class="k">A yes &middot; B no</td></tr>
+    <tr><td>One of a list</td><td>Race, class, spell, shop stock</td>
+        <td class="k">D-pad + A &middot; hold RB to peek behind</td></tr>
+    <tr><td>Your name</td><td>An on-screen keyboard</td>
+        <td class="k">A type &middot; LB delete &middot; RB accept</td></tr>
+    <tr><td>You to read a message</td><td><span class="mono">-more-</span></td>
+        <td class="k">any button</td></tr>
+  </table></div>
+
+  <blockquote><p>All of this is in the game too, under
+    <span class="btn">Info</span> &rarr; <span class="btn">Controls</span>. You never need
+    this page at the table.</p></blockquote>
+</section>
+
+<section id="commands">
+  <h2><span class="num">03</span>The command menu</h2>
+  <hr class="sep">
+  <p>Thirty-nine verbs, sorted into six categories. <span class="btn">LB</span> and
+    <span class="btn">RB</span> move between categories.</p>
+
+  <div class="grid">
+    <div class="card"><h4>Magic</h4>
+      <p>Cast spell &middot; Pray &middot; Gain spell &middot; Browse book.
+         Mages cast, Priests pray, and both must learn from a book first.</p></div>
+    <div class="card"><h4>Use</h4>
+      <p>Eat &middot; Quaff &middot; Read &middot; Aim wand &middot; Use staff &middot;
+         Fuel light. Reading needs light and literacy; blind or confused, you cannot.</p></div>
+    <div class="card"><h4>Gear</h4>
+      <p>Wield/Wear &middot; Take off &middot; Drop &middot; Throw/Fire &middot;
+         Inventory &middot; Equipment &middot; Swap weapon &middot; Inscribe.</p></div>
+    <div class="card"><h4>Act</h4>
+      <p>Open &middot; Close &middot; Disarm &middot; Bash &middot; Tunnel &middot;
+         Spike door &middot; Search once &middot; Search mode &middot; Look &middot;
+         Identify symbol.</p></div>
+    <div class="card"><h4>Go</h4>
+      <p>Up stairs &middot; Down stairs &middot; Rest. Resting passes time to heal &mdash;
+         it is interrupted the moment anything appears.</p></div>
+    <div class="card"><h4>Info</h4>
+      <p>Character &middot; Controls &middot; Locate map &middot; Options &middot;
+         Licence &middot; Save game &middot; Quit.</p></div>
+  </div>
+
+  <blockquote class="warn"><p><strong>Careful:</strong> <em>Quit</em> sits in the same menu
+    as <em>Save game</em>, and in Moria quitting means your character dies for good. Read
+    the highlight before you press&nbsp;A.</p></blockquote>
+</section>
+
+<section id="character">
+  <h2><span class="num">04</span>Making someone</h2>
+  <hr class="sep">
+  <p>Pick a race, a sex, and a class; the game rolls six stats and you accept them or roll
+    again. Then you name them, and they are yours until something kills them.</p>
+
+  <h3>The eight races</h3>
+  <div class="scroll"><table>
+    <tr><th>Race</th><th>Roughly</th></tr>
+    <tr><td class="c">Human</td><td>No bonuses, no penalties, fastest to level. The honest choice.</td></tr>
+    <tr><td class="c">Half-Elf</td><td>A little quicker and wiser than a human, a little frailer.</td></tr>
+    <tr><td class="c">Elf</td><td>Clever and perceptive, physically slight. Good at magic.</td></tr>
+    <tr><td class="c">Halfling</td><td>Very dextrous, very stealthy, very weak. Superb rogues.</td></tr>
+    <tr><td class="c">Gnome</td><td>Smart and sneaky, poor fighters. Natural mages.</td></tr>
+    <tr><td class="c">Dwarf</td><td>Tough and strong, blunt of mind, cannot be blinded.</td></tr>
+    <tr><td class="c">Half-Orc</td><td>Strong, ugly, resilient. A blunt instrument.</td></tr>
+    <tr><td class="c">Half-Troll</td><td>Enormously strong and slow to learn. Enormous hit points.</td></tr>
+  </table></div>
+
+  <h3>The six classes</h3>
+  <div class="scroll"><table>
+    <tr><th>Class</th><th>Plays like</th></tr>
+    <tr><td class="c">Warrior</td><td>Hits things, survives being hit. No magic at all, and none needed
+        early. The right first character.</td></tr>
+    <tr><td class="c">Mage</td><td>Fragile, and the strongest thing in the game if it lives.
+        Magic Missile until it does not work, then something better.</td></tr>
+    <tr><td class="c">Priest</td><td>Prays rather than casts, heals itself, fights adequately.
+        The forgiving caster.</td></tr>
+    <tr><td class="c">Rogue</td><td>Stealth, traps, locks, and a little magic. Steals from
+        monsters and avoids fights it cannot win.</td></tr>
+    <tr><td class="c">Ranger</td><td>A fighter who shoots and casts a bit. Bows are quietly
+        one of the best things in Moria.</td></tr>
+    <tr><td class="c">Paladin</td><td>A warrior who prays. Slow to level, hard to kill.</td></tr>
+  </table></div>
+
+  <blockquote><p><strong>First time?</strong> Human Warrior. Accept the stats. Walk into the
+    General Store, buy Flasks of Oil, and throw them at anything frightening.</p></blockquote>
+</section>
+
+<section id="town">
+  <h2><span class="num">05</span>The town</h2>
+  <hr class="sep">
+  <p>You start above ground with a little gold. Six shops, each a numbered door you walk
+    into. Sell what you find, buy what keeps you alive.</p>
+  <div class="scroll"><table>
+    <tr><th>Shop</th><th>Worth your money</th></tr>
+    <tr><td class="c">General Store</td><td>Food, torches, oil flasks, cheap arrows. Never leave without food.</td></tr>
+    <tr><td class="c">Armory</td><td>Body armour, shields, helmets. Heavy armour slows a spellcaster.</td></tr>
+    <tr><td class="c">Weaponsmith</td><td>Blades, blunts, bows and ammunition.</td></tr>
+    <tr><td class="c">Temple</td><td>Priest books, healing potions, blunt weapons.</td></tr>
+    <tr><td class="c">Alchemy shop</td><td>Potions and scrolls. Cure Light Wounds, always.</td></tr>
+    <tr><td class="c">Magic Shop</td><td>Mage books, wands, staves, rings and amulets.</td></tr>
+  </table></div>
+  <blockquote><p>Shop stock rotates. If the thing you want is not there, go down a level,
+    come back, and look again.</p></blockquote>
+</section>
+
+<section id="surviving">
+  <h2><span class="num">06</span>Staying alive</h2>
+  <hr class="sep">
+
+  <h3>Light is everything</h3>
+  <p>Torches and lanterns burn down. In the dark you cannot read scrolls, you cannot see
+    what is hitting you, and you will die to something you never saw. Carry spares, and
+    <em>Fuel light</em> before it matters.</p>
+
+  <h3>Descend slowly</h3>
+  <p>Depth is difficulty. One level at a time, and clear it before you take the stairs.
+    The dungeon regenerates every time you change level, so there is no cost to being
+    thorough &mdash; only to being greedy.</p>
+
+  <h3>Run away</h3>
+  <p>Moria will happily generate something you cannot beat. Nothing forces you to fight;
+    stairs are an escape, and a scroll of Phase Door is cheaper than a funeral.</p>
+
+  <h3>Read the log</h3>
+  <p>Two lines under the map are the only place the game explains itself &mdash; what hit
+    you, for how much, what your spell did. Everything you need to make the next decision
+    is written there.</p>
+
+  <h3>Unknown things are dangerous</h3>
+  <p>An unidentified potion may heal you or may blind you in a corridor with something
+    hungry in it. Test unknowns in a cleared room, not mid-fight.</p>
+
+  <h3>Save often, but understand what saving is</h3>
+  <p><span class="btn">Info</span> &rarr; <span class="btn">Save game</span> stores your
+    character and closes the game; starting Moria again resumes exactly there. It is a
+    bookmark, not a checkpoint &mdash; if you die, the save dies too. That is the genre.</p>
+</section>
+
+<section id="credits">
+  <h2><span class="num">07</span>Whose game this is</h2>
+  <hr class="sep">
+  <div class="legal">
+    <p>Moria was written by <strong>Robert Alan Koeneke</strong> in 1983.
+      <strong>James E.&nbsp;Wilson</strong> made it portable as Umoria, and
+      <strong>David J.&nbsp;Grabiner</strong> maintained it and released 5.6.0.</p>
+    <p class="mono" style="font-size:.82rem;color:var(--faint)">
+      Copyright &copy; 1989&ndash;2008 James E. Wilson, Robert A. Koeneke, David J. Grabiner</p>
+    <p>Umoria is free software under the <strong>GNU General Public License, version 3 or
+      later</strong>, and so is this port, in whole. It comes with <strong>absolutely no
+      warranty</strong>. The licence is in the game under
+      <span class="btn">Info</span> &rarr; <span class="btn">Licence</span>, and in full at
+      <span class="mono">games/moria/COPYING</span>.</p>
+    <p>The complete corresponding source &mdash; the Umoria core and everything written to
+      put it on this handheld &mdash; is at
+      <a href="https://github.com/austinio7116/mote">github.com/austinio7116/mote</a>
+      under <span class="mono">games/moria/</span>. Upstream Umoria lives at
+      <a href="https://github.com/dungeons-of-moria/umoria">dungeons-of-moria/umoria</a>.</p>
+    <p>This port is not affiliated with or endorsed by the original authors. The port
+      itself &mdash; the controller-native interface, the virtual terminal, the fiber, the
+      colour &mdash; is by austinio7116.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    Moria &middot; Umoria 5.6.0 for the Thumby Color &middot; GPLv3 &middot;
+    <a href="games.html">back to the gallery</a>
+  </div>
+</footer>
+
+</body>
+</html>
