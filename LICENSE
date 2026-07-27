@@ -1,0 +1,53 @@
+MIT License
+
+Copyright (c) 2025-2026 austinio7116
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+Components under other licences
+================================================================================
+
+The MIT licence above covers the Mote engine, SDK, tools, Studio and the games
+written for it, EXCEPT for the following, which carry their own terms:
+
+* games/moria/
+    A port of Umoria 5.6.0, Copyright (C) 1989-2008 James E. Wilson,
+    Robert A. Koeneke, David J. Grabiner. Licensed under the GNU General Public
+    License, version 3 or later. The whole of games/moria/ -- including the
+    Mote-specific files written for the port -- is GPLv3, and any binary built
+    from it (Moria.mote) must be conveyed under the GPL.
+    See games/moria/COPYING and games/moria/README.md.
+
+* studio/third_party/
+    stb_image.h and stb_image_write.h by Sean Barrett -- public domain
+    (or MIT, at your option). See the licence block at the end of each file.
+
+Individual games may also incorporate third-party art or audio packs under
+their own terms; where that is the case it is credited in the game's directory
+and in its gallery description. Notably:
+
+* games/roguemote/ uses the "Simple Roguelike Tileset" by Ink_Slime --
+  CC0 / public domain. See games/roguemote/ASSETS.md.
+* games/kingsandpigs/ uses a free art pack by Pixel Frog.
+
+Because games/moria/ is GPLv3 and the rest of the repository is MIT, the two
+are compatible in one direction only: MIT-licensed engine and SDK code may be
+combined into the GPLv3 Moria binary, but Moria's GPL code may not be copied
+back into the MIT-licensed parts of the tree.

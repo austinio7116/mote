@@ -17,6 +17,10 @@
 
    You should have received a copy of the GNU General Public License 
    along with Umoria.  If not, see <http://www.gnu.org/licenses/>. */
+/* Modified 2026 by austinio7116 for the Mote port to the Thumby Color
+   handheld.  Changes are confined to platform support and presentation and are
+   marked `#ifdef MOTE`; no game rule, formula or table was altered.  See
+   games/moria/README.md for a summary and games/moria/COPYING for the licence. */
 
 #include "config.h"
 #include "constant.h"

@@ -17,6 +17,10 @@
 
    You should have received a copy of the GNU General Public License 
    along with Umoria.  If not, see <http://www.gnu.org/licenses/>. */
+/* Modified 2026 by austinio7116 for the Mote port to the Thumby Color
+   handheld.  Changes are confined to platform support and presentation and are
+   marked `#ifdef MOTE`; no game rule, formula or table was altered.  See
+   games/moria/README.md for a summary and games/moria/COPYING for the licence. */
 
 #include	<stdio.h>
 #include	<stdlib.h>
@@ -263,7 +267,10 @@ int store_num, start;
 	i_ptr->number = 1;
       objdes(out_val1, i_ptr, TRUE);
       i_ptr->number = x;
-      (void) sprintf(out_val2, "%c) %s", 'a'+i, out_val1);
+      /* snprintf: a full-length item name plus the "a) " prefix overflows a
+	 bigvtype.  Harmless upstream, a stack smash on the port's small fiber
+	 stack.  -Mote port-	*/
+      (void) snprintf(out_val2, sizeof out_val2, "%c) %s", 'a'+i, out_val1);
       prt(out_val2, i+5, 0);
       x = s_ptr->store_inven[start].scost;
       if (x <= 0)
@@ -963,8 +970,8 @@ int *cur_top;
 		  i = s_ptr->store_ctr;
 		  store_destroy(store_num, item_val, TRUE);
 		  objdes(tmp_str, &inventory[item_new], TRUE);
-		  (void) sprintf(out_val, "You have %s (%c)",
-				   tmp_str, item_new+'a');
+		  (void) snprintf(out_val, sizeof out_val, "You have %s (%c)",
+				   tmp_str, item_new+'a');	/* -Mote port- */
 		  prt(out_val, 0, 0);
 		  check_strength();
 		  if (*cur_top >= s_ptr->store_ctr)
@@ -1051,7 +1058,8 @@ int store_num, *cur_top;
     {
       take_one_item(&sold_obj, &inventory[item_val]);
       objdes(tmp_str, &sold_obj, TRUE);
-      (void) sprintf(out_val, "Selling %s (%c)", tmp_str, item_val+'a');
+      (void) snprintf(out_val, sizeof out_val, "Selling %s (%c)",
+		      tmp_str, item_val+'a');		/* -Mote port- */
       msg_print(out_val);
       if (store_check_num(&sold_obj, store_num))
 	{
@@ -1069,7 +1077,8 @@ int store_num, *cur_top;
 	      known2(&sold_obj);
 	      inven_destroy(item_val);
 	      objdes(tmp_str, &sold_obj, TRUE);
-	      (void) sprintf(out_val, "You've sold %s", tmp_str);
+	      (void) snprintf(out_val, sizeof out_val, "You've sold %s",
+			      tmp_str);			/* -Mote port- */
 	      msg_print(out_val);
 	      store_carry(store_num, &item_pos, &sold_obj);
 	      check_strength();

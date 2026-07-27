@@ -1,3 +1,23 @@
+/* games/moria/src/game.c: the Mote game module -- controller-native UI and renderer
+
+   Copyright (C) 2026 austinio7116
+
+   This file is part of the Mote port of Umoria to the Thumby Color, and is
+   distributed as part of that combined work.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+
 /*
  * Moria for the Thumby Color — a faithful port of Umoria 5.6.0 (GPLv3) to the
  * Mote engine.  The dungeon-crawler core is the original Umoria C, unchanged;
@@ -21,6 +41,9 @@
  * Files: mote_term.c (80x24 virtual terminal), mote_fiber.c (cooperative fiber),
  * mote_glue.c (platform), moria_ui.h / moria_color.h (UI + colour channels).
  */
+#include <stdio.h>              /* snprintf -- variadic, must be prototyped */
+#include <string.h>             /* strcmp / strncpy / memcpy                */
+
 #include "mote_api.h"
 #include "mote_build.h"
 #include "curses.h"
@@ -50,6 +73,67 @@ void mote_term_bell(void) { if (mote) mote->rumble(0.35f, 30); }
 #define K_RET '\r'
 #define K_BS  8      /* CTRL-H backspace */
 #define MK_SHEET 1   /* menu sentinel: open the native character sheet */
+#define MK_CONTROLS 2 /* menu sentinel: the button map (Umoria's ? is a file) */
+#define MK_LICENCE  3 /* menu sentinel: GPL notice (GPLv3 s5(d))              */
+
+/* Umoria's Help/Version/Scores read .hlp and scorefiles off disk, via paths
+   baked into config.h that point at the 2008 maintainer's home directory.  The
+   device has no filesystem and ships no such files, so those entries printed
+   `Can not find help file "/home/dgrabiner/..."` at the player.  They are
+   replaced with these two native pages, which is also how the port restores the
+   "view licence" notice GPLv3 s5(d) expects an interactive program to offer. */
+static const char *const PAGE_CONTROLS[] = {
+    "On the map",
+    " d-pad    walk (8 way)",
+    " A / MENU command menu",
+    " B        take stairs",
+    " LB       character sheet",
+    " RB       inventory",
+    "",
+    "Command menu",
+    " d-pad    move",
+    " LB / RB  change category",
+    " A pick   B back",
+    "",
+    "Choosing an item",
+    " d-pad    move cursor",
+    " A pick   B back",
+    " LB       inven / equip",
+    "",
+    "Other prompts",
+    " direction: d-pad, A here",
+    " yes / no : A yes, B no",
+    " lists    : hold RB to peek",
+    " typing   : A type, LB del,",
+    "            RB accept",
+    " -more-   : any button",
+};
+static const char *const PAGE_LICENCE[] = {
+    "MORIA",
+    "Umoria 5.6.0 for Thumby Color",
+    "",
+    "Copyright (C) 1989-2008",
+    " James E. Wilson,",
+    " Robert A. Koeneke,",
+    " David J. Grabiner",
+    "Original Moria (C) 1983",
+    " Robert Alan Koeneke",
+    "",
+    "Mote port (C) 2026",
+    " austinio7116",
+    "",
+    "Free software under the GNU",
+    "General Public License,",
+    "version 3 or later.",
+    "",
+    "There is NO WARRANTY, to the",
+    "extent permitted by law.",
+    "",
+    "Source, and the full licence,",
+    "are at:",
+    " github.com/austinio7116/mote",
+    " games/moria/COPYING",
+};
 
 /* ============================ command menu =============================== */
 /* Original-keyset command chars (config.h ROGUE_LIKE=FALSE); original_commands()
@@ -77,8 +161,9 @@ static const CmdItem CAT_GO[] = {
     {"Up stairs", '<'}, {"Down stairs", '>'}, {"Rest", 'R'},
 };
 static const CmdItem CAT_INFO[] = {
-    {"Character", MK_SHEET}, {"Locate map", 'L'}, {"Scores", 'V'}, {"Version", 'v'},
-    {"Help", '?'}, {"Options", '='}, {"Save game", 24 /*^X*/}, {"Quit", 'Q'},
+    {"Character", MK_SHEET}, {"Controls", MK_CONTROLS}, {"Locate map", 'L'},
+    {"Options", '='}, {"Licence", MK_LICENCE}, {"Save game", 24 /*^X*/},
+    {"Quit", 'Q'},
 };
 #define CAT(a) (a), (int)(sizeof(a)/sizeof((a)[0]))
 static const CmdCat MENU[] = {
@@ -94,6 +179,10 @@ static int s_choice_sel;
 static int s_item_sel;
 /* native character sheet (game.c overlay; doesn't touch the fiber) */
 static int s_show_sheet, s_sheet_scroll, s_sheet_n, s_sheet_hold;
+/* native text page (controls / licence): same overlay treatment as the sheet */
+static const char *const *s_page;           /* NULL = no page open */
+static int s_page_n, s_page_scroll, s_page_hold;
+static const char *s_page_title;
 static char s_sheet[28][MSHEET_W];
 static MoriaItemRow s_rows[26];
 static int s_nrows;
@@ -169,6 +258,15 @@ static void feed_menu(const MoteInput *in)
     if (mote_just_pressed(in, MOTE_BTN_A)) {
         int k = c->items[s_menu_item].key;
         if (k == MK_SHEET) s_show_sheet = 1;
+        else if (k == MK_CONTROLS) {
+            s_page = PAGE_CONTROLS; s_page_title = "Controls";
+            s_page_n = (int)(sizeof PAGE_CONTROLS / sizeof PAGE_CONTROLS[0]);
+            s_page_scroll = 0; s_page_hold = 0;
+        } else if (k == MK_LICENCE) {
+            s_page = PAGE_LICENCE; s_page_title = "Licence";
+            s_page_n = (int)(sizeof PAGE_LICENCE / sizeof PAGE_LICENCE[0]);
+            s_page_scroll = 0; s_page_hold = 0;
+        }
         else               mote_term_pushkey(k);
         s_menu_open = 0;
     }
@@ -299,6 +397,27 @@ static void g_update(float dt)
 
     if (fiber_finished()) {
         if (mote_just_pressed(in, MOTE_BTN_A)) start_game();
+        return;
+    }
+
+    if (s_page) {                               /* native text page: game paused */
+        const int vis = 17;
+        int dn = mote_pressed(in, MOTE_BTN_DOWN), up = mote_pressed(in, MOTE_BTN_UP);
+        int maxsc = s_page_n - vis; if (maxsc < 0) maxsc = 0;
+        if (dn || up) {
+            int tick = 0;
+            if (s_page_hold == 0)        { tick = 1; s_page_hold = REP_DELAY; }
+            else if (--s_page_hold == 0) { tick = 1; s_page_hold = REP_INT; }
+            if (tick) {
+                if (dn && s_page_scroll < maxsc) s_page_scroll++;
+                if (up && s_page_scroll > 0)     s_page_scroll--;
+            }
+        } else {
+            s_page_hold = 0;
+        }
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B) ||
+            mote_just_pressed(in, MOTE_BTN_MENU))
+            s_page = 0;
         return;
     }
 
@@ -493,6 +612,25 @@ static void draw_sheet(uint16_t *fb)
     mote->text(fb, "d-pad scroll   A close", 4, 121, MOTE_RGB565(140, 150, 175));
 }
 
+/* A scrolling page of fixed text (controls, licence) -- same treatment as the
+   character sheet, so the two read as one family of screens. */
+static void draw_page(uint16_t *fb)
+{
+    int i, y = 15;
+    const int VIS = 17;                 /* 18 would collide with the footer */
+    mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(8, 10, 20), 1, 0, 128);
+    mote->text(fb, s_page_title, 4, 1, MOTE_RGB565(235, 220, 120));
+    for (i = 0; i < VIS && s_page_scroll + i < s_page_n; i++) {
+        mote->text(fb, s_page[s_page_scroll + i], 4, y, MOTE_RGB565(200, 210, 225));
+        y += 6;
+    }
+    if (s_page_n > VIS) {
+        char c[8]; snprintf(c, sizeof c, "%d/%d", s_page_scroll + 1, s_page_n);
+        mote->text(fb, c, 104, 2, MOTE_RGB565(140, 150, 175));
+    }
+    mote->text(fb, "d-pad scroll   A close", 4, 121, MOTE_RGB565(140, 150, 175));
+}
+
 /* Native character summary shown behind the creation menus/keyboard (so you can
    read your rolled stats), instead of Umoria's 80-column sheet. */
 static void draw_creation_bg(uint16_t *fb, int maxy)
@@ -623,6 +761,7 @@ static void g_overlay(uint16_t *fb)
     g_w = mote_term_screen();
     mote->draw_rect(fb, 0, 0, 128, 128, COL_BG, 1, 0, 128);
 
+    if (s_page)       { draw_page(fb);  return; }
     if (s_show_sheet) { draw_sheet(fb); return; }
 
     if (!fiber_finished() && moria_in_creation()) {
@@ -670,14 +809,29 @@ static void g_overlay(uint16_t *fb)
     if (fiber_finished()) {
         MoriaStatus s;
         char buf[40];
+        /* Umoria ends the same way whether you died or saved -- a save sets
+           died_from to "(saved)" (dungeon.c) and unwinds.  Telling a player who
+           just saved that they have died is alarming, so split the two. */
+        int saved = !strcmp(moria_death_cause(), "(saved)");
         moria_get_status(&s);
-        mote->draw_rect(fb, 0, 0, 128, 128, MOTE_RGB565(20, 8, 10), 1, 0, 128);
-        mote->text(fb, "You have died", 14, 26,
-                        MOTE_RGB565(240, 90, 90));
+        mote->draw_rect(fb, 0, 0, 128, 128,
+                        saved ? MOTE_RGB565(10, 16, 24) : MOTE_RGB565(20, 8, 10),
+                        1, 0, 128);
+        mote->text(fb, saved ? "Game saved" : "You have died", 14, 26,
+                        saved ? MOTE_RGB565(120, 220, 235) : MOTE_RGB565(240, 90, 90));
+        if (saved) {
+            mote->text(fb, "Your progress is stored.", 6, 52,
+                            MOTE_RGB565(200, 205, 225));
+            mote->text(fb, "It will resume when you", 6, 60,
+                            MOTE_RGB565(200, 205, 225));
+            mote->text(fb, "next start Moria.", 6, 68,
+                            MOTE_RGB565(200, 205, 225));
+        } else {
         snprintf(buf, sizeof buf, "Slain by:");
         mote->text(fb, buf, 10, 52, MOTE_RGB565(200, 190, 160));
         snprintf(buf, sizeof buf, "%.31s", moria_death_cause());
         mote->text(fb, buf, 10, 60, MOTE_RGB565(235, 220, 170));
+        }
         snprintf(buf, sizeof buf, "Level %d", s.lev);
         mote->text(fb, buf, 10, 74, MOTE_RGB565(190, 200, 220));
         if (s.depth == 0) snprintf(buf, sizeof buf, "in the Town");
@@ -685,7 +839,8 @@ static void g_overlay(uint16_t *fb)
         mote->text(fb, buf, 10, 82, MOTE_RGB565(190, 200, 220));
         snprintf(buf, sizeof buf, "Gold %d", s.gold);
         mote->text(fb, buf, 10, 90, MOTE_RGB565(236, 216, 72));
-        mote->text(fb, "Press A to begin anew", 12, 114, MOTE_RGB565(200, 205, 225));
+        mote->text(fb, saved ? "Press A to exit" : "Press A to begin anew",
+                        12, 114, MOTE_RGB565(200, 205, 225));
         return;
     }
 
@@ -722,4 +877,8 @@ static const MoteGameVtbl k_vtbl = {
 };
 static const MoteGameVtbl *mote_game_vtbl(void) { return &k_vtbl; }
 
-MOTE_GAME_META("Moria", "austinio7116");
+/* GPLv3 requires the original authors keep their credit.  The full notice is in
+   games/moria/README.md, on the in-game Info > Licence page, and in the gallery
+   description; this is the short form the launcher shows. */
+MOTE_GAME_META("Moria", "Koeneke/Wilson, port austinio7116");
+MOTE_GAME_VERSION("0.9.0");

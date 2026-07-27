@@ -1,3 +1,23 @@
+/* games/moria/src/mote_term.c: an in-memory 80x24 virtual terminal behind the curses shim
+
+   Copyright (C) 2026 austinio7116
+
+   This file is part of the Mote port of Umoria to the Thumby Color, and is
+   distributed as part of that combined work.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+
 /* mote_term.c : the in-memory 80x24 virtual terminal that backs curses.h, plus
    the keystroke queue that feeds inkey()/getch().
 

@@ -17,6 +17,10 @@
 
    You should have received a copy of the GNU General Public License 
    along with Umoria.  If not, see <http://www.gnu.org/licenses/>. */
+/* Modified 2026 by austinio7116 for the Mote port to the Thumby Color
+   handheld.  Changes are confined to platform support and presentation and are
+   marked `#ifdef MOTE`; no game rule, formula or table was altered.  See
+   games/moria/README.md for a summary and games/moria/COPYING for the licence. */
 
 /* For debugging the savefile code on systems with broken compilers.  */
 #if 0
@@ -742,9 +746,12 @@ int *generate;
   *generate = TRUE;
   fd = -1;
 
-#ifndef MAC
+#if !defined(MAC) && !defined(MOTE)
   /* Not required for Mac, because the file name is obtained through a dialog.
      There is no way for a non existnat file to be specified.  -BS-	*/
+  /* Not required for MOTE either: there is no filesystem, the save lives in the
+     engine's key-value store, and access() is stubbed to always fail -- so this
+     guard would return before reaching the MOTE branch below.  -Mote port-	*/
   if (access(savefile, 0) != 0)
     {
       signals();
@@ -1524,7 +1531,7 @@ int16u *ptr;
 
   c = ms_get();
   s = c ^ xor_byte;
-  xor_byte = (getc(fileptr) & 0xFF);
+  xor_byte = ms_get();	/* -Mote port- */
   s |= (int16u)(c ^ xor_byte) << 8;
   *ptr = s;
   DEBUG(fprintf (logfile, "SHORT: %02X %02X = %d\n", (int) c, (int) xor_byte,\
@@ -1539,12 +1546,12 @@ int32u *ptr;
 
   c = ms_get();
   l = c ^ xor_byte;
-  xor_byte = (getc(fileptr) & 0xFF);
+  xor_byte = ms_get();	/* -Mote port- */
   l |= (int32u)(c ^ xor_byte) << 8;
   DEBUG(fprintf (logfile, "LONG:  %02X %02X ", (int) c, (int) xor_byte));
   c = ms_get();
   l |= (int32u)(c ^ xor_byte) << 16;
-  xor_byte = (getc(fileptr) & 0xFF);
+  xor_byte = ms_get();	/* -Mote port- */
   l |= (int32u)(c ^ xor_byte) << 24;
   *ptr = l;
   DEBUG(fprintf (logfile, "%02X %02X = %ld\n", (int) c, (int) xor_byte,\
@@ -1604,7 +1611,7 @@ register int count;
     {
       c = ms_get();
       s = c ^ xor_byte;
-      xor_byte = (getc(fileptr) & 0xFF);
+      xor_byte = ms_get();	/* -Mote port- */
       s |= (int16u)(c ^ xor_byte) << 8;
       *sptr++ = s;
       DEBUG(fprintf (logfile, "  %02X %02X = %d", (int) c, (int) xor_byte,\

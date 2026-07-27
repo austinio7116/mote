@@ -17,8 +17,26 @@
 
    You should have received a copy of the GNU General Public License 
    along with Umoria.  If not, see <http://www.gnu.org/licenses/>. */
+/* Modified 2026 by austinio7116 for the Mote port to the Thumby Color
+   handheld.  Changes are confined to platform support and presentation and are
+   marked `#ifdef MOTE`; no game rule, formula or table was altered.  See
+   games/moria/README.md for a summary and games/moria/COPYING for the licence. */
 
 #include<stdio.h>
+
+#ifdef MOTE
+/* Umoria routinely formats a 160-byte item name (objdes writes a whole
+   bigvtype) into another 160-byte buffer together with a prefix -- "You have
+   %s (%c)" and about sixty similar sites.  On a desktop the overrun lands in
+   stack slack and nobody notices; here the Umoria fiber runs on a 24 KB stack
+   with roughly 4 KB of headroom at the cave_gen peak, so the same overrun is a
+   live stack smash.  Route every sprintf through snprintf with the
+   destination's real size.  __builtin_object_size yields (size_t)-1 when the
+   size is not known at compile time, in which case this behaves exactly as
+   sprintf did -- so it can only ever help.  -Mote port-  */
+#define sprintf(buf, ...) \
+	snprintf((buf), __builtin_object_size((buf), 1), __VA_ARGS__)
+#endif
 
 /* VMS requires that this be in externs.h, not files.c; this prevents a
    'psect' error for the variable errno */

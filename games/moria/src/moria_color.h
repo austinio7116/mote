@@ -1,3 +1,23 @@
+/* games/moria/src/moria_color.h: 16-colour palette (Umoria 5.6 is monochrome)
+
+   Copyright (C) 2026 austinio7116
+
+   This file is part of the Mote port of Umoria to the Thumby Color, and is
+   distributed as part of that combined work.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+
 /* moria_color.h : the 16-colour palette indices + the shared draw-colour used
    by the Mote port to colourise Umoria's monochrome display.
 

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 austinio7116
+# Part of the Mote port of Umoria; GPLv3 or later.
+# See games/moria/COPYING and games/moria/README.md.
+
 """Generate games/moria/icon.png -- the launcher emblem for the Moria port.
 
 A bold, high-contrast dungeon motif that reads at launcher size: a stone

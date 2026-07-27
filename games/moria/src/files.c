@@ -5,6 +5,10 @@
    This software may be copied and distributed for educational, research, and
    not for profit purposes provided that this copyright and statement are
    included in all such copies. */
+/* Modified 2026 by austinio7116 for the Mote port to the Thumby Color
+   handheld.  Changes are confined to platform support and presentation and are
+   marked `#ifdef MOTE`; no game rule, formula or table was altered.  See
+   games/moria/README.md for a summary and games/moria/COPYING for the licence. */
 
 #include <stdio.h>
 
