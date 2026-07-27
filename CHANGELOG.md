@@ -20,6 +20,28 @@ modules can be dropped into the app's external `games/` folder later. `moria` is
 the one exclusion: its coroutine layer needs `getcontext`/`swapcontext`, which
 bionic doesn't implement.
 
+**The gallery is live on Android**, not just baked in. `games.json` now carries an
+optional per-game `android` block (module path, size, sha256 per ABI), staged by
+`android/tools/build_modules.sh --publish` and picked up by
+`tools/gen_gallery.py`; the block is additive, so `.mote` consumers ignore it. RB
+in the launcher opens a gallery screen that fetches the manifest over HTTPS
+itself — no Studio dock, which is what the handheld needs — shows GET / UPDATE /
+installed against the phone, and on install downloads the `.so`, verifies its
+sha256 and hands it to the launcher's catalogue immediately. Modules in the app's
+writable games dir now take precedence over the copies inside the APK, which is
+what makes an update mean anything. `os/mote_launcher.c` gained one guarded
+opt-in, `MOTE_LAUNCHER_GALLERY_KEY`, so a platform that serves its own gallery can
+have the RB key that was previously slot-build-only; device builds are unchanged.
+
+**Shell settings are touch-native.** Every row is a tap target, the relay editor
+moves clear of the soft keyboard and offers tappable OK / CANCEL (it used to
+advertise keys a phone doesn't have), and there is a **BACK TO GAMES** row so
+leaving a game doesn't depend on a three-second button hold. A new **FPS** row
+shows the engine's measured frame rate and cycles the on-LCD perf overlay when
+tapped — the touch equivalent of LB+RB. The engine's frame pacing was also
+genuinely wrong: a bare `nanosleep` returns early when a signal lands, so the
+present cap leaked a few frames a second past 60.
+
 Multiplayer works without a Studio anywhere in the loop:
 `platform/android/mote_link_android.c` answers the lobby's MN1 control protocol
 in process and drives the same `link_net` transport the Studio uses, so Internet

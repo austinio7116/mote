@@ -17,6 +17,7 @@
  * Runs on a worker thread; the SDL main thread owns the chassis UI.
  */
 #include "mote_os.h"
+#include "mote_android_os.h"
 #include "mote_launcher.h"
 #include "mote_platform.h"
 #include "mote_ui.h"
@@ -28,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>       /* strcasecmp */
+#include <unistd.h>        /* access */
 
 #define MAX_DIRS 4
 #define MOD_PREFIX "libmg_"
@@ -50,6 +52,23 @@ static int  s_ndir;
 void mote_android_os_add_dir(const char *dir) {
     if (!dir || !dir[0] || s_ndir >= MAX_DIRS) return;
     snprintf(s_dir[s_ndir++], sizeof s_dir[0], "%s", dir);
+}
+
+/* Gallery installs (and updates) go to the first writable dir — on Android that's
+ * the app's external games folder, which is deliberately scanned BEFORE the
+ * read-only copies inside the APK so an installed update wins. */
+const char *mote_android_os_install_dir(void) {
+    for (int i = 0; i < s_ndir; i++)
+        if (access(s_dir[i], W_OK) == 0) return s_dir[i];
+    return NULL;
+}
+
+const char *mote_android_os_installed_version(const char *id) {
+    if (!id || !id[0]) return NULL;
+    for (int i = 0; i < s_nmod; i++)
+        if (!strcasecmp(s_mod[i].stem, id))
+            return s_mod[i].version ? s_mod[i].version : "0";
+    return NULL;
 }
 
 /* Fallback display name from the module filename: libmg_thumbycraft.so -> thumbycraft */
@@ -115,6 +134,29 @@ static void scan(void) {
     mote_plat_log(m);
 }
 
+/* A gallery install lands a new (or newer) module while the launcher is up — the
+ * device equivalent is a game arriving over USB. Drop any existing entry with the
+ * same stem, probe the new file and re-sort, so the catalog the launcher rebuilds
+ * next frame already has it. */
+int mote_android_os_add_module(const char *path) {
+    if (!path || !path[0]) return -1;
+    const char *file = strrchr(path, '/');
+    file = file ? file + 1 : path;
+    if (strncmp(file, MOD_PREFIX, strlen(MOD_PREFIX)) != 0) return -1;
+
+    char stem[40]; name_from_file(file, stem, sizeof stem);
+    for (int i = 0; i < s_nmod; i++)
+        if (strcmp(s_mod[i].stem, stem) == 0) {
+            s_mod[i] = s_mod[--s_nmod];      /* order is restored by the sort below */
+            break;
+        }
+    int before = s_nmod;
+    probe(path, file);
+    if (s_nmod == before) return -1;          /* not a loadable game module */
+    if (s_nmod > 1) qsort(s_mod, (size_t)s_nmod, sizeof s_mod[0], by_name);
+    return 0;
+}
+
 /* The launcher re-reads the catalog every frame (games can appear at any time on
  * the device); here it's a fixed snapshot of the scan. */
 static void fill(MoteCatalog *c) {
@@ -155,41 +197,11 @@ static void run_game(const Mod *m) {
     mote_plat_audio_start();
     { char b[96]; snprintf(b, sizeof b, "[mote] launching %s (ABI v%u)", m->name, *abi);
       mote_plat_log(b); }
+    mote_shell_set_in_game(1);
     mote_os_run(&api, vt);                  /* returns on exit_to_launcher */
+    mote_shell_set_in_game(0);
+    mote_shell_take_exit_game();            /* the panel's BACK is not a real quit */
     dlclose(h);
-}
-
-/* RB in the launcher asks for the online gallery, which on the handheld is served
- * by a docked Studio over USB. There's no dock here — every gallery game is built
- * into the APK — so show what's installed and where extra modules go. */
-static void about_screen(void) {
-    uint16_t *fb = mote_launcher_fb();
-    MoteInput in; memset(&in, 0, sizeof in);
-    { MoteButtons r0; mote_plat_buttons(&r0); mote_input_arm(&in, &r0); }
-    uint64_t last = mote_plat_micros();
-    for (;;) {
-        uint64_t now = mote_plat_micros();
-        uint32_t dt = (uint32_t)((now - last) / 1000); last = now;
-        MoteButtons raw; mote_plat_buttons(&raw);
-        mote_input_update(&in, &raw, dt);
-        mote_plat_audio_pump();
-        if (mote_plat_should_quit()) return;
-        if (mote_just_pressed(&in, MOTE_BTN_A) || mote_just_pressed(&in, MOTE_BTN_B) ||
-            mote_just_pressed(&in, MOTE_BTN_RB)) return;
-
-        char l1[40], l2[40];
-        snprintf(l1, sizeof l1, "%d GAMES INSTALLED", s_nmod);
-        snprintf(l2, sizeof l2, "ENGINE ABI v%u", (unsigned)MOTE_ABI_VERSION);
-        mote_ui_ground(fb);
-        mote_ui_header(fb, "MOTE FOR ANDROID", -1, -1);
-        mote_ui_read(fb, l1, (128 - mote_ui_read_w(l1)) / 2, 30, MOTE_UI_GOLD);
-        mote_ui_text(fb, l2, (128 - mote_ui_text_w(l2)) / 2, 50, MOTE_UI_DIM);
-        mote_ui_text(fb, "the whole gallery ships", 4, 68, MOTE_UI_TEXT);
-        mote_ui_text(fb, "in this build. add more", 4, 80, MOTE_UI_TEXT);
-        mote_ui_text(fb, "in Android/data/.../games", 4, 92, MOTE_UI_TEXT);
-        mote_ui_footer(fb, "B BACK");
-        mote_plat_present(fb);
-    }
 }
 
 int mote_android_os_main(void) {
@@ -211,7 +223,8 @@ int mote_android_os_main(void) {
     }
     for (;;) {
         int idx = mote_launcher_run(fill);
-        if (idx == MOTE_LAUNCHER_GALLERY) { about_screen(); continue; }
+        if (mote_shell_take_exit_game()) continue;      /* stray BACK: stay in the list */
+        if (idx == MOTE_LAUNCHER_GALLERY) { mote_android_gallery_screen(); continue; }
         if (idx < 0) break;                            /* window closed / quit */
         if (idx < s_nmod) run_game(&s_mod[idx]);
     }

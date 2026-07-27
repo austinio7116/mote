@@ -44,10 +44,17 @@ static uint64_t   s_last_present;
 static int        s_present_cap = 60;      /* engine fps ceiling (0 = uncapped) */
 
 static volatile int s_paused;              /* app in the background */
+static volatile int s_exit_game;           /* panel asked to return to the game list */
+static volatile int s_in_game;
 
 void mote_shell_set_buttons(const MoteButtons *b) { if (b) s_btn = *b; }
 void mote_shell_request_quit(void) { s_quit = 1; }
 void mote_shell_set_present_cap(int fps) { s_present_cap = fps < 0 ? 0 : fps; }
+
+void mote_shell_request_exit_game(void) { if (s_in_game) s_exit_game = 1; }
+int  mote_shell_take_exit_game(void) { int v = s_exit_game; s_exit_game = 0; return v; }
+void mote_shell_set_in_game(int in_game) { s_in_game = in_game ? 1 : 0; }
+int  mote_shell_in_game(void) { return s_in_game; }
 
 void mote_shell_get_frame(uint16_t *out) {
     if (!out) return;
@@ -70,7 +77,10 @@ static void publish(const uint16_t *fb) {
     if (s_present_cap > 0) {
         uint64_t now = mote_plat_micros();
         uint64_t tgt = s_last_present + (uint64_t)(1000000 / s_present_cap);
-        if (s_last_present && now < tgt) {
+        /* Sleep in a loop: a bare nanosleep returns early when a signal lands
+         * (SDL's threads do generate them), which quietly let the engine run
+         * above the cap. */
+        while (s_last_present && now < tgt) {
             struct timespec ts = { 0, (long)((tgt - now) * 1000) };
             nanosleep(&ts, NULL);
             now = mote_plat_micros();
@@ -149,7 +159,7 @@ void mote_plat_sleep_us(uint32_t us) {
     nanosleep(&ts, NULL);
 }
 
-bool mote_plat_should_quit(void)    { return s_quit != 0; }
+bool mote_plat_should_quit(void)    { return s_quit != 0 || s_exit_game != 0; }
 int  mote_plat_pending_launch(void) { return -1; }
 
 void mote_plat_log(const char *s) {
@@ -170,11 +180,17 @@ void mote_plat_audio_pump(void)        { }              /* SDL pulls via the cal
 void mote_plat_audio_topup(void)       { }
 void mote_plat_audio_start(void)       { mote_audio_off(); }
 
-/* ---- rumble (Java Vibrator, wired by the shell) ------------------------- */
+/* ---- hooks the shell owns (Java / desktop equivalents) ------------------ */
 static void (*s_rumble_cb)(float, int);
 void mote_shell_set_rumble_cb(void (*cb)(float, int)) { s_rumble_cb = cb; }
 void mote_plat_rumble(float intensity, int ms) {
     if (s_rumble_cb) s_rumble_cb(intensity, ms);
+}
+
+static int (*s_http_cb)(const char *, const char *);
+void mote_shell_set_http_cb(int (*cb)(const char *, const char *)) { s_http_cb = cb; }
+int  mote_shell_http_get(const char *url, const char *dest) {
+    return s_http_cb ? s_http_cb(url, dest) : -1;
 }
 
 /* ---- per-slot save (files under <storage>/saves) ------------------------ */

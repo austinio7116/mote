@@ -161,7 +161,12 @@ int mote_launcher_run(MoteCatalogFn rebuild) {
         /* Hold MENU ~0.6 s to leave the Mote slot back to the ThumbyOne lobby. */
         if (in.held[MOTE_BTN_MENU] && in.hold_ms[MOTE_BTN_MENU] >= 600)
             return MOTE_LAUNCHER_QUIT;
-        /* RB opens the online gallery (install/update games; needs a Studio dock). */
+#endif
+#if defined(THUMBYONE_SLOT_MODE) || defined(MOTE_LAUNCHER_GALLERY_KEY)
+        /* RB opens the online gallery (install/update games). On the handheld the
+         * gallery is served by a docked Studio, so only the slot build offers it;
+         * a platform that serves its own — the Android shell fetches the manifest
+         * itself — opts in with MOTE_LAUNCHER_GALLERY_KEY. */
         if (mote_just_pressed(&in, MOTE_BTN_RB)) return MOTE_LAUNCHER_GALLERY;
 #endif
 

@@ -66,6 +66,29 @@ def mote_meta(path):
         "sha256": hashlib.sha256(data).hexdigest(),
     }
 
+# Android game modules, if any have been staged for publishing. A module is the
+# same game compiled for a phone (android/tools/build_modules.sh --publish), and
+# the block is purely additive: consumers that only know about .mote ignore it,
+# and a game with no module simply isn't offered to Android clients.
+ANDROID_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
+
+
+def android_modules(gid):
+    out = {}
+    for abi in ANDROID_ABIS:
+        rel = "games/android/%s/libmg_%s.so" % (abi, gid)
+        p = os.path.join(DOCS, rel)
+        if not os.path.isfile(p):
+            continue
+        data = open(p, "rb").read()
+        out[abi] = {
+            "file": rel,
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    return out
+
+
 def main():
     curated = parse_html_games()
     games = []
@@ -79,6 +102,7 @@ def main():
         icon  = "img/gallery/%s-icon.png" % gid
         thumb = "img/gallery/%s-1.png" % gid
         shots = ["img/gallery/%s-%d.png" % (gid, i) for i in range(1, g["shots"] + 1)]
+        droid = android_modules(gid)
         games.append({
             "id": gid,
             "name": g["name"],
@@ -95,8 +119,11 @@ def main():
             "desc": g["desc"],
             "guide": g["guide"],
             "multiplayer": g["multiplayer"],
+            **({"android": droid} if droid else {}),
         })
-        print("  %-16s v%-7s abi%d %7d B  %s" % (gid, meta["version"], meta["abi"], meta["size"], meta["sha256"][:12]))
+        print("  %-16s v%-7s abi%d %7d B  %s%s" % (
+            gid, meta["version"], meta["abi"], meta["size"], meta["sha256"][:12],
+            "  +android(%s)" % ",".join(sorted(droid)) if droid else ""))
     manifest = {
         "schema": 1,
         "generated": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat(),

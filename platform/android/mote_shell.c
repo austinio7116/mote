@@ -20,6 +20,7 @@
 #include "mote_plat_android.h"
 #include "mote_android_os.h"
 #include "mote_ui.h"
+#include "mote_perf.h"
 
 #include <SDL.h>
 #include <SDL_main.h>
@@ -257,6 +258,34 @@ static void shell_rumble(float intensity, int ms) {
 }
 
 static void tap_haptic(void) { if (cfg.haptics) jni_rumble(0.45f, 12); }
+
+/* ---- HTTPS for the gallery ---------------------------------------------- *
+ * No TLS in C here, so Java does it on Android (HttpsURLConnection) and curl
+ * does it on the desktop. Called from the gallery's worker thread. */
+#ifdef __ANDROID__
+static int shell_http_get(const char *url, const char *dest) {
+    if (!s_activity_cls) return -1;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    if (!env) return -1;
+    jmethodID mid = (*env)->GetStaticMethodID(env, s_activity_cls, "moteHttpGet",
+                                              "(Ljava/lang/String;Ljava/lang/String;)I");
+    if (!mid) { (*env)->ExceptionClear(env); return -1; }
+    jstring ju = (*env)->NewStringUTF(env, url);
+    jstring jd = (*env)->NewStringUTF(env, dest);
+    jint rc = (*env)->CallStaticIntMethod(env, s_activity_cls, mid, ju, jd);
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); rc = -1; }
+    (*env)->DeleteLocalRef(env, ju);
+    (*env)->DeleteLocalRef(env, jd);
+    return rc == 0 ? 0 : -1;
+}
+#else
+static int shell_http_get(const char *url, const char *dest) {
+    char cmd[900];
+    snprintf(cmd, sizeof cmd,
+             "curl -fsSL --max-time 120 -o '%s' '%s'", dest, url);
+    return system(cmd) == 0 ? 0 : -1;
+}
+#endif
 
 /* ====================================================================== *
  *  layout: where the chassis and its LCD land in the window
@@ -526,62 +555,135 @@ static void keys_read(int *out) {
  *  settings panel — drawn with the OS's own UI kit into a 128x128 buffer, so it
  *  looks like a Mote system screen and needs no second font.
  * ====================================================================== */
-enum { ROW_LAYOUT = 0, ROW_CHASSIS, ROW_HAPTIC, ROW_RELAY, ROW_CLOSE, ROW_N };
-static int  s_settings_open, s_sel;
+/* Every row is a tap target, and nothing in here depends on a key that a phone
+ * doesn't have. BACK TO GAMES only appears while a game is running; the relay
+ * editor swaps the list for a value + OK/CANCEL so the soft keyboard never hides
+ * the way out. */
+enum { ROW_LAYOUT = 0, ROW_CHASSIS, ROW_HAPTIC, ROW_FPS, ROW_RELAY, ROW_BACK, ROW_CLOSE, ROW_MAX };
+enum { ED_OK = 0, ED_CANCEL, ED_N };
+/* mirrors PERF_NAME in os/mote_menu.c */
+static const char *const PERF_LEVEL[4] = { "OFF", "FPS", "MINI", "FULL" };
+
+static int  s_settings_open, s_sel, s_top;
 static int  s_editing_relay;
 static char s_edit[80];
 static uint16_t s_uifb[MOTE_FB_W * MOTE_FB_H];
-static SDL_Rect s_row_rect[ROW_N];        /* window-space, for direct taps */
+static SDL_Rect s_row_rect[ROW_MAX];      /* window-space, for direct taps */
+static int      s_row_id[ROW_MAX];        /* which ROW_* each drawn slot is */
+static int      s_row_slots;              /* rows actually drawn this frame */
 static SDL_Rect s_gear_rect;
 
-static void settings_rows(char out[ROW_N][30]) {
-    snprintf(out[ROW_LAYOUT],  30, "LAYOUT  %s", cfg.layout == LAY_CHASSIS ? "CHASSIS" : "FILL");
-    snprintf(out[ROW_CHASSIS], 30, "SHELL   %s", cfg.clear ? "CLEAR" : "PHOTO");
-    snprintf(out[ROW_HAPTIC],  30, "HAPTICS %s", cfg.haptics ? "ON" : "OFF");
-    snprintf(out[ROW_RELAY],   30, "RELAY");        /* value goes on the status line */
-    snprintf(out[ROW_CLOSE],   30, "CLOSE");
+/* Which rows exist right now (BACK TO GAMES is conditional). */
+static int settings_ids(int *ids) {
+    int n = 0;
+    ids[n++] = ROW_LAYOUT;
+    ids[n++] = ROW_CHASSIS;
+    ids[n++] = ROW_HAPTIC;
+    ids[n++] = ROW_FPS;
+    ids[n++] = ROW_RELAY;
+    if (mote_shell_in_game()) ids[n++] = ROW_BACK;
+    ids[n++] = ROW_CLOSE;
+    return n;
 }
 
-static void settings_activate(int row) {
-    switch (row) {
+/* Engine frame rate, measured from the published-frame counter — so it reads
+ * correctly in the launcher and in games alike, and it is the rate the player
+ * actually sees rather than whatever the game thinks it is running at. */
+static int s_fps;
+static void fps_sample(void) {
+    static Uint32 t0; static uint32_t seq0;
+    Uint32 now = SDL_GetTicks();
+    uint32_t seq = mote_shell_frame_seq();
+    if (!t0) { t0 = now; seq0 = seq; return; }
+    if (now - t0 < 1000) return;      /* 1s window: ±1 fps, which is all this needs */
+    s_fps = (int)((seq - seq0) * 1000u / (now - t0));
+    t0 = now; seq0 = seq;
+}
+
+static void settings_row_label(int id, char *out, int cap) {
+    switch (id) {
+    case ROW_LAYOUT:  snprintf(out, cap, "LAYOUT  %s", cfg.layout == LAY_CHASSIS ? "CHASSIS" : "FILL"); break;
+    case ROW_CHASSIS: snprintf(out, cap, "SHELL   %s", cfg.clear ? "CLEAR" : "PHOTO"); break;
+    case ROW_HAPTIC:  snprintf(out, cap, "HAPTICS %s", cfg.haptics ? "ON" : "OFF"); break;
+    case ROW_FPS:     snprintf(out, cap, "FPS  %d   %s", s_fps, PERF_LEVEL[mote_perf_level() & 3]); break;
+    case ROW_RELAY:   snprintf(out, cap, "RELAY"); break;   /* value goes below the list */
+    case ROW_BACK:    snprintf(out, cap, "BACK TO GAMES"); break;
+    default:          snprintf(out, cap, "CLOSE"); break;
+    }
+}
+
+static void settings_activate(int id) {
+    switch (id) {
     case ROW_LAYOUT:  cfg.layout = !cfg.layout; layout(); break;
     case ROW_CHASSIS: cfg.clear = !cfg.clear; break;
     case ROW_HAPTIC:  cfg.haptics = !cfg.haptics; break;
+    case ROW_FPS:     mote_perf_toggle(); return;   /* cycles the on-LCD perf overlay */
     case ROW_RELAY:
-        s_editing_relay = 1;
+        s_editing_relay = 1; s_sel = ED_OK;
         snprintf(s_edit, sizeof s_edit, "%s", mote_shell_get_relay());
         SDL_StartTextInput();
         return;
-    case ROW_CLOSE:   s_settings_open = 0; break;
-    default: break;
+    case ROW_BACK:
+        mote_shell_request_exit_game();
+        s_settings_open = 0;
+        return;
+    default:          s_settings_open = 0; break;
     }
     cfg_save();
 }
 
-/* mote_ui_list geometry (os/mote_ui.c): rows are ROW_H=15 tall from y0. */
-#define UI_ROW_H 15
+static void relay_commit(int keep) {
+    if (keep) {
+        snprintf(cfg.relay, sizeof cfg.relay, "%s", s_edit);
+        mote_shell_set_relay(cfg.relay);
+        cfg_save();
+    }
+    s_editing_relay = 0; s_sel = ROW_RELAY;
+    SDL_StopTextInput();
+}
+
+/* mote_ui_list geometry (os/mote_ui.c): rows are ROW_H=15 tall from y0, and the
+ * list stops FTR_H=15 above the bottom. */
+#define UI_ROW_H  15
 #define UI_ROW_Y0 22
+#define UI_ROWS_VISIBLE ((MOTE_FB_H - 15 - UI_ROW_Y0) / UI_ROW_H)
 
 static void settings_draw(void) {
-    char rows[ROW_N][30];
-    settings_rows(rows);
-    const char *items[ROW_N];
-    for (int i = 0; i < ROW_N; i++) items[i] = rows[i];
+    char labels[ROW_MAX][30];
+    const char *items[ROW_MAX];
+    int ids[ROW_MAX], n;
 
-    mote_ui_ground(s_uifb);
-    mote_ui_header(s_uifb, "MOTE SHELL", s_sel + 1, ROW_N);
-    mote_ui_list(s_uifb, items, ROW_N, s_sel, 0, UI_ROW_Y0);
-    /* One status line under the list: the live relay edit, the link state while a
-     * match is up, otherwise the configured relay. */
-    char st[48];
-    const char *lk = mote_shell_link_info();
-    if (s_editing_relay)               snprintf(st, sizeof st, "%.22s_", s_edit);
-    else if (strncmp(lk, "off", 3))    snprintf(st, sizeof st, "%.26s", lk);
-    else                               snprintf(st, sizeof st, "%.26s", mote_shell_get_relay());
-    mote_ui_text(s_uifb, st, 4, UI_ROW_Y0 + ROW_N * UI_ROW_H + 1,
-                 s_editing_relay ? MOTE_UI_GOLD : MOTE_UI_DIM);
-    mote_ui_footer(s_uifb, s_editing_relay ? "TYPE   ENTER OK   B CANCEL"
-                                           : "TAP A ROW   B CLOSE");
+    if (s_editing_relay) {
+        /* The keyboard is about to cover the bottom of the screen, so the editor
+         * lives at the TOP of the panel: value, then OK / CANCEL. */
+        static const char *ED[ED_N] = { "OK", "CANCEL" };
+        n = ED_N;
+        for (int i = 0; i < n; i++) { ids[i] = i; items[i] = ED[i]; }
+        mote_ui_ground(s_uifb);
+        mote_ui_header(s_uifb, "RELAY", -1, -1);
+        { char v[40]; snprintf(v, sizeof v, "%.24s_", s_edit);
+          mote_ui_text(s_uifb, v, 4, UI_ROW_Y0, MOTE_UI_GOLD); }
+        mote_ui_list(s_uifb, items, n, s_sel, 0, UI_ROW_Y0 + UI_ROW_H);
+        mote_ui_footer(s_uifb, "host  or  host:port");
+    } else {
+        n = settings_ids(ids);
+        for (int i = 0; i < n; i++) {
+            settings_row_label(ids[i], labels[i], sizeof labels[i]);
+            items[i] = labels[i];
+        }
+        if (s_sel >= n) s_sel = n - 1;
+        mote_ui_ground(s_uifb);
+        mote_ui_header(s_uifb, "MOTE SHELL", s_sel + 1, n);
+        s_top = mote_ui_list(s_uifb, items, n, s_sel, s_top, UI_ROW_Y0);
+        /* The footer doubles as the selected row's detail line — that's where the
+         * relay address and the live link state go, since the list fills the panel. */
+        const char *lk = mote_shell_link_info();
+        char foot[48];
+        if (ids[s_sel] == ROW_RELAY)   snprintf(foot, sizeof foot, "%.30s", mote_shell_get_relay());
+        else if (strncmp(lk, "off", 3)) snprintf(foot, sizeof foot, "%.30s", lk);
+        else                            snprintf(foot, sizeof foot, "TAP A ROW TO CHANGE IT");
+        mote_ui_footer(s_uifb, foot);
+    }
 
     if (!tex_ui)
         tex_ui = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING,
@@ -590,22 +692,44 @@ static void settings_draw(void) {
     SDL_UpdateTexture(tex_ui, NULL, s_uifb, MOTE_FB_W * (int)sizeof(uint16_t));
     SDL_SetTextureScaleMode(tex_ui, SDL_ScaleModeNearest);
 
-    /* Panel: centred, integer-scaled, a little larger than the LCD so it reads. */
-    int n = 1;
-    while ((n + 1) * MOTE_FB_W <= (s_ow < s_oh ? s_ow : s_oh) * 8 / 10) n++;
-    int side = n * MOTE_FB_W;
-    SDL_Rect dst = { (s_ow - side) / 2, (s_oh - side) / 2, side, side };
+    /* Panel: integer-scaled, a little larger than the LCD so it reads. Centred
+     * normally; pinned near the top while the keyboard is up. */
+    int n2 = 1;
+    while ((n2 + 1) * MOTE_FB_W <= (s_ow < s_oh ? s_ow : s_oh) * 8 / 10) n2++;
+    int side = n2 * MOTE_FB_W;
+    SDL_Rect dst = { (s_ow - side) / 2,
+                     s_editing_relay ? s_oh / 40 : (s_oh - side) / 2, side, side };
     box(0, 0, s_ow, s_oh, 0, 0, 0, 170);
     SDL_RenderCopy(ren, tex_ui, NULL, &dst);
     box_outline(dst.x - 2, dst.y - 2, dst.w + 4, dst.h + 4, 2, 96, 176, 255, 255);
 
-    /* Row hit-boxes, in the panel's window space. */
+    /* Hit-boxes for the rows that were actually drawn (the list scrolls, so slot
+     * i shows ids[s_top + i]). */
     float sc = (float)side / (float)MOTE_FB_H;
-    for (int i = 0; i < ROW_N; i++) {
+    int y0 = s_editing_relay ? UI_ROW_Y0 + UI_ROW_H : UI_ROW_Y0;
+    int top = s_editing_relay ? 0 : s_top;
+    s_row_slots = 0;
+    for (int i = 0; i < UI_ROWS_VISIBLE && top + i < n; i++) {
         s_row_rect[i].x = dst.x;
-        s_row_rect[i].y = dst.y + (int)((UI_ROW_Y0 + i * UI_ROW_H) * sc);
+        s_row_rect[i].y = dst.y + (int)((y0 + i * UI_ROW_H) * sc);
         s_row_rect[i].w = dst.w;
         s_row_rect[i].h = (int)(UI_ROW_H * sc);
+        s_row_id[i] = ids[top + i];
+        s_row_slots++;
+    }
+}
+
+/* A tap anywhere in the panel: the row hit-boxes were laid out by the previous
+ * frame's draw, which is also what the player was looking at when they tapped. */
+static void panel_tap(int mx, int my) {
+    for (int i = 0; i < s_row_slots; i++) {
+        if (mx < s_row_rect[i].x || mx >= s_row_rect[i].x + s_row_rect[i].w) continue;
+        if (my < s_row_rect[i].y || my >= s_row_rect[i].y + s_row_rect[i].h) continue;
+        tap_haptic();
+        if (s_editing_relay) { s_sel = s_row_id[i]; relay_commit(s_row_id[i] == ED_OK); return; }
+        s_sel = i + s_top;
+        settings_activate(s_row_id[i]);
+        return;
     }
 }
 
@@ -636,13 +760,17 @@ static void dump_ppm(const char *path) {
     free(px);
 }
 
-/* MOTE_SHELL_KEYS="a:5-15 up:40-60" — hold a button over a frame range. */
+/* MOTE_SHELL_KEYS="a:5-15 up:40-60" — hold a button over a frame range.
+ * "panel:from-to" is a pseudo-button that holds the settings panel open, so the
+ * panel's own rows can be driven from a script too. */
+#define SCRIPT_PANEL EB_N
 static struct { int btn, from, to; } s_script[24];
 static int s_nscript = -1;
 static int script_name(const char *s, int n) {
     static const struct { const char *n; int b; } m[] = {
         {"up",EB_UP},{"down",EB_DOWN},{"left",EB_LEFT},{"right",EB_RIGHT},
-        {"a",EB_A},{"b",EB_B},{"lb",EB_LB},{"rb",EB_RB},{"menu",EB_MENU} };
+        {"a",EB_A},{"b",EB_B},{"lb",EB_LB},{"rb",EB_RB},{"menu",EB_MENU},
+        {"panel",SCRIPT_PANEL} };
     for (unsigned i = 0; i < sizeof m / sizeof m[0]; i++)
         if ((int)strlen(m[i].n) == n && !strncmp(m[i].n, s, (size_t)n)) return m[i].b;
     return -1;
@@ -667,9 +795,15 @@ static void script_parse(void) {
 }
 static void script_apply(int *down) {
     if (s_nscript < 0) script_parse();
-    for (int i = 0; i < s_nscript; i++)
-        if (s_frame_no >= s_script[i].from && s_frame_no <= s_script[i].to)
-            down[s_script[i].btn] = 1;
+    int has_panel = 0, want_panel = 0;
+    for (int i = 0; i < s_nscript; i++) {
+        int panel = (s_script[i].btn == SCRIPT_PANEL);
+        if (panel) has_panel = 1;
+        if (s_frame_no < s_script[i].from || s_frame_no > s_script[i].to) continue;
+        if (panel) want_panel = 1;
+        else       down[s_script[i].btn] = 1;
+    }
+    if (has_panel) s_settings_open = want_panel;   /* held open, not toggled */
 }
 
 /* ====================================================================== *
@@ -715,6 +849,8 @@ int main(int argc, char *argv[]) {
     else              snprintf(cfg.relay, sizeof cfg.relay, "%s", mote_shell_get_relay());
     jni_bind();
     mote_shell_set_rumble_cb(shell_rumble);
+    mote_shell_set_http_cb(shell_http_get);
+    mote_android_gallery_set_base(SDL_getenv("MOTE_GALLERY_BASE"));
 
     /* ---- where game modules live ----
      * MoteActivity.getArguments() hands us the APK's native-library dir (the
@@ -789,14 +925,8 @@ int main(int argc, char *argv[]) {
                 if (s_editing_relay) {
                     SDL_Keycode k = ev.key.keysym.sym;
                     if (k == SDLK_BACKSPACE) { size_t n = strlen(s_edit); if (n) s_edit[n - 1] = 0; }
-                    else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
-                        snprintf(cfg.relay, sizeof cfg.relay, "%s", s_edit);
-                        mote_shell_set_relay(cfg.relay);
-                        cfg_save();
-                        s_editing_relay = 0; SDL_StopTextInput();
-                    } else if (k == SDLK_ESCAPE || k == SDLK_AC_BACK) {
-                        s_editing_relay = 0; SDL_StopTextInput();
-                    }
+                    else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) relay_commit(1);
+                    else if (k == SDLK_ESCAPE || k == SDLK_AC_BACK)  relay_commit(0);
                     break;
                 }
                 if (ev.key.keysym.sym == SDLK_AC_BACK) {      /* Android back button */
@@ -813,14 +943,7 @@ int main(int argc, char *argv[]) {
                 s_last_touch_ms = SDL_GetTicks();
                 s_using_pad = 0;
                 int mx = (int)(ev.tfinger.x * s_ow), my = (int)(ev.tfinger.y * s_oh);
-                if (s_settings_open) {
-                    for (int i = 0; i < ROW_N; i++)
-                        if (mx >= s_row_rect[i].x && mx < s_row_rect[i].x + s_row_rect[i].w &&
-                            my >= s_row_rect[i].y && my < s_row_rect[i].y + s_row_rect[i].h) {
-                            s_sel = i; settings_activate(i); tap_haptic(); break;
-                        }
-                    break;
-                }
+                if (s_settings_open) { panel_tap(mx, my); break; }
                 if (mx >= s_gear_rect.x && mx < s_gear_rect.x + s_gear_rect.w &&
                     my >= s_gear_rect.y && my < s_gear_rect.y + s_gear_rect.h) {
                     s_settings_open = 1; s_sel = 0; tap_haptic(); break;
@@ -850,14 +973,7 @@ int main(int argc, char *argv[]) {
             /* Mouse stands in for a finger on the desktop dev build. */
             case SDL_MOUSEBUTTONDOWN: {
                 int mx = ev.button.x, my = ev.button.y;
-                if (s_settings_open) {
-                    for (int i = 0; i < ROW_N; i++)
-                        if (mx >= s_row_rect[i].x && mx < s_row_rect[i].x + s_row_rect[i].w &&
-                            my >= s_row_rect[i].y && my < s_row_rect[i].y + s_row_rect[i].h) {
-                            s_sel = i; settings_activate(i); break;
-                        }
-                    break;
-                }
+                if (s_settings_open) { panel_tap(mx, my); break; }
                 if (mx >= s_gear_rect.x && mx < s_gear_rect.x + s_gear_rect.w &&
                     my >= s_gear_rect.y && my < s_gear_rect.y + s_gear_rect.h) { s_settings_open = 1; break; }
                 Touch *t = touch_alloc();
@@ -902,17 +1018,28 @@ int main(int argc, char *argv[]) {
             btn.lb = s_down[EB_LB]; btn.rb = s_down[EB_RB];
             btn.menu = s_down[EB_MENU];
         } else {
-            /* ...but the handheld's own d-pad/A/B navigate it. */
+            /* ...but a controller (or the desktop keyboard) can still drive it. */
             static int prev[EB_N];
-            if (s_down[EB_DOWN] && !prev[EB_DOWN]) s_sel = (s_sel + 1) % ROW_N;
-            if (s_down[EB_UP]   && !prev[EB_UP])   s_sel = (s_sel + ROW_N - 1) % ROW_N;
-            if (s_down[EB_A]    && !prev[EB_A])    settings_activate(s_sel);
-            if (s_down[EB_B]    && !prev[EB_B])    { if (s_editing_relay) { s_editing_relay = 0; SDL_StopTextInput(); } else s_settings_open = 0; }
+            int ids[ROW_MAX];
+            int n = s_editing_relay ? ED_N : settings_ids(ids);
+            if (s_editing_relay) for (int i = 0; i < n; i++) ids[i] = i;
+            if (s_sel >= n) s_sel = n - 1;
+            if (s_down[EB_DOWN] && !prev[EB_DOWN]) s_sel = (s_sel + 1) % n;
+            if (s_down[EB_UP]   && !prev[EB_UP])   s_sel = (s_sel + n - 1) % n;
+            if (s_down[EB_A]    && !prev[EB_A]) {
+                if (s_editing_relay) relay_commit(s_sel == ED_OK);
+                else                 settings_activate(ids[s_sel]);
+            }
+            if (s_down[EB_B] && !prev[EB_B]) {
+                if (s_editing_relay) relay_commit(0);
+                else                 s_settings_open = 0;
+            }
             memcpy(prev, s_down, sizeof prev);
         }
         mote_shell_set_buttons(&btn);
 
         /* ---- present ---- */
+        fps_sample();
         uint32_t seq = mote_shell_frame_seq();
         if (seq != last_seq) {
             last_seq = seq;

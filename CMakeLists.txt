@@ -101,6 +101,7 @@ if(MOTE_TARGET STREQUAL "host")
         platform/android/mote_link_android.c
         studio/link_net.c
         os/android/mote_android_os.c
+        os/android/mote_android_gallery.c
         os/mote_os.c
         os/mote_launcher.c
         os/mote_menu.c
@@ -113,7 +114,8 @@ if(MOTE_TARGET STREQUAL "host")
         ${CMAKE_CURRENT_SOURCE_DIR}/platform/android
         ${CMAKE_CURRENT_SOURCE_DIR}/studio
         ${CMAKE_CURRENT_SOURCE_DIR}/studio/third_party)
-    target_compile_definitions(mote_shell PRIVATE MOTE_HOST=1 MOTE_SHELL_DESKTOP=1)
+    target_compile_definitions(mote_shell PRIVATE MOTE_HOST=1 MOTE_SHELL_DESKTOP=1
+        MOTE_LAUNCHER_GALLERY_KEY=1)
     target_compile_options(mote_shell PRIVATE -O2 -ffast-math -Wall -Wextra
         -Wno-unused-parameter -Wno-format-truncation)
     target_link_libraries(mote_shell PRIVATE mote_engine ${CMAKE_DL_LIBS})

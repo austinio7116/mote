@@ -40,23 +40,27 @@ highlights fade out while the pad is in use, and rumble goes to the pad instead 
 the phone.
 
 **System** — hold MENU alone for 3 s for the engine menu (brightness, volume,
-return to launcher), exactly as on the handheld. RB in the launcher opens the
-about/gallery screen. The Android back gesture opens the shell's own settings.
+return to launcher), exactly as on the handheld. **RB** in the launcher opens the
+online gallery. The Android back gesture opens the shell's own settings.
 
 ## Settings
 
-The pip in the top-right corner (or the back gesture) opens a panel drawn with the
-OS's own UI kit:
+The pip at the top-centre (or the back gesture) opens a panel drawn with the OS's
+own UI kit. Every row is a tap target and nothing in it needs a key the phone
+doesn't have:
 
 | Row | What it does |
 |-----|--------------|
 | `LAYOUT` | `CHASSIS` — the LCD is an exact integer multiple of 128, so the frame is pixel-perfect; the chassis is sized to match. `FILL` — chassis scaled to fill the screen (bigger, slightly soft). |
 | `SHELL` | the solid product photo, or the see-through chassis. |
 | `HAPTICS` | touch ticks + game rumble on/off. |
-| `RELAY` | the internet-relay address for multiplayer (`host` or `host:port`, default port 443). Tapping it opens the keyboard. |
+| `FPS` | the engine's measured frame rate. Tapping it cycles the on-LCD perf overlay (`OFF` / `FPS` / `MINI` / `FULL`) — the touch equivalent of the handheld's LB+RB. |
+| `RELAY` | the internet-relay address for multiplayer. Tapping it opens the keyboard *and* moves the panel clear of it, with tappable `OK` / `CANCEL`. |
+| `BACK TO GAMES` | leave the running game for the game list (only shown in a game). The handheld's 3-second MENU hold still works too. |
 
-Settings and saves live in the app's private storage, so an uninstall is the only
-thing that clears them.
+The footer doubles as the selected row's detail line — the relay address, or the
+live link state while a match is up. Settings and saves live in the app's private
+storage, so an uninstall is the only thing that clears them.
 
 ## Multiplayer
 
@@ -86,8 +90,9 @@ One exclusion: **moria**. The Umoria port's coroutine layer needs
 `getcontext`/`makecontext`/`swapcontext`, which bionic does not implement; it needs
 a thread- or `setjmp`-based fiber before it can ship here.
 
-To add a module after the fact — a new game, or one you're iterating on — build it
-standalone and drop it in:
+Modules are searched for in the app's writable games dir **first**, then the APK's
+native-library dir — so a downloaded or side-loaded module shadows the copy baked
+into the build, which is what makes updates possible. To side-load one directly:
 
 ```bash
 ./android/tools/build_modules.sh --abi arm64-v8a mygame
@@ -95,8 +100,35 @@ adb push build_android/modules/arm64-v8a/libmg_mygame.so \
     /sdcard/Android/data/us.thumby.mote/files/games/
 ```
 
-The launcher scans that directory after the bundled ones (bundled modules win a
-filename tie).
+## The online gallery
+
+**RB** in the launcher opens it. The screen fetches `games.json` straight from the
+gallery over HTTPS (no Studio in the loop — that's what the handheld needs a dock
+for), reads each game's module entry for this ABI, and shows `GET` / `UPDATE` /
+installed against what's already on the phone. Installing downloads the `.so`,
+verifies its sha256 against the manifest, drops it in the writable games dir and
+hands it to the launcher's catalogue immediately — no relaunch. `A` installs, `RB`
+re-fetches, `B` goes back.
+
+Publishing the modules is one command plus the usual manifest step:
+
+```bash
+./android/tools/build_modules.sh --abi arm64-v8a --publish   # -> docs/games/android/arm64-v8a/
+python3 tools/gen_gallery.py                                 # adds the "android" block
+```
+
+`--publish` builds only the ids the manifest lists, strips the symbol tables (the
+loader only needs the four ABI symbols), and skips moria. The manifest block is
+additive:
+
+```json
+"android": { "arm64-v8a": { "file": "games/android/arm64-v8a/libmg_moita.so",
+                            "size": 151296, "sha256": "…" } }
+```
+
+Consumers that only know about `.mote` ignore it, and a game published without one
+shows as "no module yet" rather than breaking the screen. `MOTE_GALLERY_BASE`
+overrides the gallery URL for testing.
 
 ## Building
 
@@ -157,9 +189,10 @@ MOTE_SHELL_SHOT=/tmp/shell.ppm MOTE_SHELL_SHOT_FRAME=200 \
 |----------|--------|
 | `MOTE_GAME_DIR` | where to find `libmg_*.so` (default `build_android/modules`) |
 | `MOTE_SHELL_AUTORUN` | boot straight into a module, skipping the launcher |
-| `MOTE_SHELL_KEYS` | `btn:from-to` frame windows, ~60 frames/s |
+| `MOTE_SHELL_KEYS` | `btn:from-to` frame windows, ~60 frames/s; `panel:from-to` holds the settings panel open so its rows can be scripted too |
 | `MOTE_SHELL_SHOT` / `_FRAME` | dump the composited window as a PPM, then quit |
 | `MOTE_SHELL_PANEL` | open the settings panel at start (for captures) |
+| `MOTE_GALLERY_BASE` | point the gallery at a local manifest (`python3 -m http.server` over a staging dir) |
 
 Two instances on one machine pair over LAN, which is how the multiplayer path is
 tested end-to-end.

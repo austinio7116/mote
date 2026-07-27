@@ -32,7 +32,8 @@ LOCAL_C_INCLUDES := \
 
 # MOTE_HOST=1: the non-device engine configuration (no XIP/IRAM placement, no
 # Cortex-M assumptions) — the same define the host and Studio builds use.
-LOCAL_CFLAGS := -DMOTE_HOST=1 -DNDEBUG -O2 -ffast-math -std=gnu11 \
+LOCAL_CFLAGS := -DMOTE_HOST=1 -DMOTE_LAUNCHER_GALLERY_KEY=1 -DNDEBUG \
+                -O2 -ffast-math -std=gnu11 \
                 -Wall -Wno-unused-parameter
 
 LOCAL_SRC_FILES := \
@@ -41,6 +42,7 @@ LOCAL_SRC_FILES := \
     $(MOTE_ROOT)/platform/android/mote_link_android.c \
     $(MOTE_ROOT)/studio/link_net.c \
     $(MOTE_ROOT)/os/android/mote_android_os.c \
+    $(MOTE_ROOT)/os/android/mote_android_gallery.c \
     $(MOTE_ROOT)/os/mote_os.c \
     $(MOTE_ROOT)/os/mote_launcher.c \
     $(MOTE_ROOT)/os/mote_menu.c \

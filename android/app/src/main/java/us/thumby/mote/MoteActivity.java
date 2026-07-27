@@ -9,6 +9,10 @@ import android.view.View;
 import android.view.WindowManager;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 import org.libsdl.app.SDLActivity;
 
@@ -57,15 +61,48 @@ public class MoteActivity extends SDLActivity {
 
     /**
      * Module search path, highest priority first — read by
-     * mote_android_os_add_dir() in argv order.
+     * mote_android_os_add_dir() in argv order. The writable games dir comes FIRST
+     * so a gallery install (or a side-loaded module) shadows the copy baked into
+     * the APK, which is what makes updates possible; it is also where the gallery
+     * writes.
      */
     @Override
     protected String[] getArguments() {
-        String libDir = getApplicationInfo().nativeLibraryDir;
         File games = new File(getExternalFilesDir(null), "games");
         //noinspection ResultOfMethodCallIgnored
         games.mkdirs();
-        return new String[] { libDir, games.getAbsolutePath() };
+        return new String[] { games.getAbsolutePath(), getApplicationInfo().nativeLibraryDir };
+    }
+
+    /**
+     * Blocking HTTPS GET to a file, for the gallery — the one thing the native
+     * side can't do here (no TLS in C). Called from the gallery's worker thread;
+     * returns 0 on success. Writes to a fresh file so a failed download can't be
+     * mistaken for a good one.
+     */
+    public static int moteHttpGet(String url, String dest) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "mote-android");
+            int code = conn.getResponseCode();
+            if (code / 100 != 2) return -1;
+            try (InputStream in = conn.getInputStream();
+                 FileOutputStream out = new FileOutputStream(dest)) {
+                byte[] buf = new byte[16384];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                out.flush();
+            }
+            return 0;
+        } catch (Exception e) {
+            new File(dest).delete();
+            return -1;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     /** Called from the native rumble hook (any thread). ms<=0 stops nothing — it just returns. */
