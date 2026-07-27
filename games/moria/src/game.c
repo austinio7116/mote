@@ -183,6 +183,7 @@ static int s_show_sheet, s_sheet_scroll, s_sheet_n, s_sheet_hold;
 static const char *const *s_page;           /* NULL = no page open */
 static int s_page_n, s_page_scroll, s_page_hold;
 static const char *s_page_title;
+static int s_peek;   /* hold RB while a menu/choice is up to see the screen behind */
 static char s_sheet[28][MSHEET_W];
 static MoriaItemRow s_rows[26];
 static int s_nrows;
@@ -375,11 +376,17 @@ static void start_game(void)
     s_item_sel = 0; s_nrows = 0; s_kb_sel = 0;
     s_text_col = 0; s_text_row = 0; s_prev_mode = -1;
     s_dp_prev = 0; s_dp_settle = 0; s_dp_hold = 0;
+    s_page = 0; s_show_sheet = 0; s_peek = 0;
+    /* A restart re-enters umoria_main() in the same process, so anything that
+       lives outside Umoria's own startup survives it.  Blank the virtual
+       terminal and put the pen back to the default colour, or the new game
+       begins on the dead one's leftovers -- stale glyphs behind the creation
+       screen, and whatever colour the last thing drawn happened to set. */
+    mt_clear();
+    mote_draw_color = MC_DEFAULT;
     mote_term_flush_keys();
     fiber_start(umoria_entry);
 }
-
-static int s_peek;   /* hold RB while a menu/choice is up to see the screen behind */
 
 static int text_view_mode(int mode, int more)
 {

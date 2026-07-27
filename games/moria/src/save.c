@@ -746,12 +746,28 @@ int *generate;
   *generate = TRUE;
   fd = -1;
 
-#if !defined(MAC) && !defined(MOTE)
+#if defined(MOTE)
+  /* The MOTE equivalent of the access() probe below.  There is no filesystem --
+     the save is a blob in the engine's key-value store, and access() is stubbed
+     to always fail -- so ask the store directly whether a save exists.
+
+     This early return is load-bearing.  main.c calls get_char() unconditionally
+     under MOTE (the generic path guards it with !access(savefile,0)), so
+     without a probe here "no save" walks past the restore block with ok still
+     FALSE and lands on the ok == FALSE fall-through at the end of this
+     function -- which calls exit_game().  That drops every brand-new character
+     straight onto the game-over screen, and the restart lands there again.
+     No message: on a fresh install there is simply no save yet.  -Mote port- */
+  if ((ms_buf = mote_save_buf(&ms_cap)) == 0 ||
+      (ms_len = mote_kv_get(MOTE_SAVE_KEY, ms_buf, ms_cap)) <= 0)
+    {
+      signals();
+      return FALSE;	/* no save: go and roll a new character */
+    }
+  ms_pos = 0;
+#elif !defined(MAC)
   /* Not required for Mac, because the file name is obtained through a dialog.
      There is no way for a non existnat file to be specified.  -BS-	*/
-  /* Not required for MOTE either: there is no filesystem, the save lives in the
-     engine's key-value store, and access() is stubbed to always fail -- so this
-     guard would return before reaching the MOTE branch below.  -Mote port-	*/
   if (access(savefile, 0) != 0)
     {
       signals();

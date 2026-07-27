@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "generated": "2026-07-27T21:17:32+00:00",
+ "generated": "2026-07-27T21:32:03+00:00",
  "min_firmware": "1.34.0",
  "games": [
   {
@@ -121,8 +121,8 @@
    "author": "Koeneke/Wilson, port austinio7116",
    "version": "0.9.0",
    "abi": 47,
-   "size": 314244,
-   "sha256": "8bf2a3f19e8342ef16cff0d9e87411073b6bef384793dddd4abd4f8fea80062d",
+   "size": 314260,
+   "sha256": "9053e50ad4b872adaf33e5b515a462c827a20c0c565a085df02a18e7090cb332",
    "file": "games/Moria.mote",
    "icon": "img/gallery/moria-icon.png",
    "thumb": "img/gallery/moria-1.png",
@@ -138,8 +138,8 @@
    "android": {
     "arm64-v8a": {
      "file": "games/android/arm64-v8a/libmg_moria.so",
-     "size": 508152,
-     "sha256": "5b860b522a234c1ca4c147f5829d2337a12a837ea684394bab752fe0db9ebe7d"
+     "size": 508232,
+     "sha256": "a349c312ba3d7efd76627be1c79514272a467b126c43e60ef5547a51b7fd6fbe"
     }
    }
   },
