@@ -418,6 +418,11 @@ int  rl_spell_list(uint8_t *out, int max);
 /* --- draw --------------------------------------------------------------- */
 void rl_draw_scene(void);
 void rl_draw_player_shadow(uint16_t *fb);
+void rl_describe(int x, int y);
+void rl_draw_look(uint16_t *fb, int lx, int ly);
+/* last frame's camera origin, so an overlay drawn elsewhere can find the
+ * player on screen without recomputing (and drifting from) the clamp */
+void rl_cam(int *x, int *y);
 void rl_draw_hud(uint16_t *fb);
 void rl_msg(const char *s);
 void rl_msgf(const char *fmt, int a);

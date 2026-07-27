@@ -259,7 +259,7 @@ def shot(name):
 
 SHOT_NAMES = ["title", "class", "overworld", "worldmap", "town", "shop", "pack",
               "gear", "character", "dungeon", "levelmap", "spells", "missile",
-              "nova", "fireball", "boss"]
+              "nova", "fireball", "boss", "ring"]
 shots = {n: shot(n) for n in SHOT_NAMES}
 missing = [n for n, v in shots.items() if not v]
 if missing:
@@ -390,8 +390,14 @@ def sec_controls():
         ("LB + D-pad", "Move diagonally. The Mines are eight-way; corridors are not."),
         ("A", "Use what you are standing on: stairs, a shop door, an inn bed, a "
               "chest, a cave mouth, a tower &mdash; or <b>pull a lever</b>."),
-        ("A", "Whatever the tile under you offers &mdash; take the stairs, pick "
-              "up what is lying there, enter the town, enter a cave mouth."),
+        ("A on bare ground", "Opens the <b>action ring</b>: four choices parked "
+              "at the four compass points &mdash; <b>Look</b> above you, "
+              "<b>Map</b> right, <b>Rest</b> below, <b>Pack</b> left. Tap a "
+              "direction to highlight it, tap the same direction again (or "
+              "<kbd>A</kbd>) to commit, so a stray press never rests you in "
+              "front of something. <b>Look</b> walks a cursor over anything you "
+              "have already seen and names it; <kbd>RB</kbd> jumps the cursor to "
+              "the next monster in sight."),
         ("B", "Wait one turn. Useful for letting something come to you in a corridor."),
         ("RB", "<b>Loose a shot</b> if you are carrying something to shoot, at "
                "the nearest thing you can see; otherwise it opens the spell "
@@ -413,10 +419,14 @@ def sec_controls():
   <h2><span class="num">02</span>Controls</h2>
   <p>Nine buttons, and a roguelike traditionally wants forty. The compromise is
      that <kbd>A</kbd> is context-sensitive: it does the one sensible thing
-     available where you are standing, and tells you in the log when there is
-     nothing.</p>
+     available where you are standing, and when there is nothing to use it hands
+     you the ring instead.</p>
+  %s
   <div class="keys">%s</div>
-</section>""" % body
+</section>""" % (plate(shots["ring"], "The action ring, opened on bare floor. It "
+                       "is drawn around the character rather than over the map, "
+                       "because the first thing on it is Look."),
+                 body)
 
 
 def sec_classes():
@@ -507,7 +517,7 @@ def sec_overworld():
   <div class="terr-grid">%s</div>
   %s
   %s
-  <p><kbd>MENU</kbd> then <kbd>LB</kbd> for the map. On a 64&#215;48 continent seen
+  <p><kbd>MENU</kbd> then <kbd>LB</kbd> for the map. On a 128&#215;96 continent seen
      through a sixteen-tile window it is not a luxury &mdash; the yellow mark is
      the town, the red marks are cave mouths.</p>
 </section>""" % ("".join(rows),

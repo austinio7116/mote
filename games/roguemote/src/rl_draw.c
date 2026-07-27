@@ -156,6 +156,8 @@ void rl_blit_cell(uint16_t *fb, int sheet, int cell, int x, int y) {
  * shadow under the player without recomputing the clamp and drifting from it. */
 static int s_cam_x, s_cam_y;
 
+void rl_cam(int *x, int *y) { if (x) *x = s_cam_x; if (y) *y = s_cam_y; }
+
 /* --- the player's shadow -------------------------------------------------
  *
  * The character is one 8x8 cell drawn from the same sixteen colours as the
@@ -244,6 +246,62 @@ void rl_blit_cell_tint(uint16_t *fb, int sheet, int cell, int x, int y,
             fb[py * MOTE_FB_W + px] = (uint16_t)((r << 11) | (g << 5) | b);
         }
     }
+}
+
+/* Describe a square. This is the whole point of a look command: at 8x8 a
+ * kobold and a jackal are two brown smudges, and the only way to know which one
+ * is about to reach you is to be told. */
+void rl_describe(int x, int y) {
+    static const char *const ter[T_COUNT] = {
+        "rock", "floor", "a closed door", "an open door",
+        "stairs down", "stairs up", "rubble",
+        "trees", "a hill", "a mountain", "a house", "a cave mouth", "a shop",
+        "a chest", "an opened chest",
+        "a town wall", "a road", "an inn", "a tower",
+        "a lever", "a lever", "a lever", "a lever", "a lever",
+        "a locked door", "a locked door", "a locked door", "a locked door",
+        "a locked door",
+        "a strongbox", "a strongbox", "a strongbox", "a strongbox", "a strongbox",
+    };
+    if (!rl_in(x, y) || !(g_lv.flags[y * MW + x] & CF_KNOWN)) {
+        rl_msg("You have not seen there.");
+        return;
+    }
+
+    /* A monster first, then loot, then the ground -- in the order that decides
+     * what you do next. */
+    Mon *m = rl_mon_at(x, y);
+    if (m && (g_lv.flags[y * MW + x] & CF_VISIBLE)) {
+        const char *n = m->boss ? g_boss_kind[m->boss - 1].name
+                                : g_mon_kind[m->kind].name;
+        int pct = m->mhp > 0 ? m->hp * 100 / m->mhp : 100;
+        const char *how = (m->flags & MF_ASLEEP) ? "asleep" :
+                          (m->flags & MF_AFRAID) ? "afraid" :
+                          pct >= 100 ? "unhurt" :
+                          pct >= 60  ? "scratched" :
+                          pct >= 30  ? "wounded" : "near death";
+        rl_msg_hit(n, "is", how, 0, -1, 0);
+        return;
+    }
+    Item *it = rl_item_at(x, y);
+    if (it) {
+        char nm[26];
+        rl_item_name(it, nm, sizeof nm);
+        rl_msg2("You see ", nm);
+        return;
+    }
+    uint8_t t = rl_ter(x, y);
+    rl_msg2("You see ", t < T_COUNT && ter[t] ? ter[t] : "something");
+}
+
+/* the look cursor: a hollow box on the tile, drawn over the scene */
+void rl_draw_look(uint16_t *fb, int lx, int ly) {
+    int x = lx * TS - s_cam_x, y = ly * TS - s_cam_y;
+    if (y < 0 || y >= HUD_Y) return;
+    uint16_t c = MOTE_RGB565(255, 230, 120);
+    g_api->draw_rect(fb, x, y, TS, TS, c, 0, 0, HUD_Y);
+    g_api->draw_rect(fb, x + 1, y + 1, TS - 2, TS - 2,
+                     MOTE_RGB565(60, 50, 20), 0, 0, HUD_Y);
 }
 
 /* --- message log -------------------------------------------------------- */

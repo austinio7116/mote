@@ -56,6 +56,10 @@ SHOTS = {
     "fireball":    (dict(DEPTH="6",  LEVEL="30", CLASS="5"),
                     ENTER + " menu:26-29 rb:34-36 rb:41-43 down:48-72 a:78-81", 86),
     "shop":        (dict(LEVEL="6"),                       ENTER + " a:30-33",           40),
+    # the action ring only opens on a tile with nothing to use, so walk off the
+    # stairs you arrive on before pressing A
+    "ring":        (dict(DEPTH="5",  LEVEL="12"),
+                    ENTER + " down:30-40 a:50-53",                                       58),
 }
 
 

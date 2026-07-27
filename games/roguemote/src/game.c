@@ -26,7 +26,18 @@ MOTE_MODULE_HEADER();
 
 /* --- game state --------------------------------------------------------- */
 enum { ST_TITLE, ST_CLASS, ST_PLAY, ST_INV, ST_GEAR, ST_GEARPICK, ST_CAST,
-       ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_DEAD };
+       ST_SHOP, ST_SELL, ST_CHAR, ST_MAP, ST_ACTION, ST_LOOK, ST_DEAD };
+static uint8_t s_look_x, s_look_y;   /* the inspect cursor */
+
+/* The action ring. A list wants a cursor walked down it; four actions parked
+ * at the four compass points want nothing but the d-pad you are already
+ * holding -- the direction IS the choice. Order is the compass order, so the
+ * tables below and the input read the same way round. */
+enum { ACT_LOOK, ACT_MAP, ACT_REST, ACT_PACK, ACT_N };
+static const char *const ACT_NAME[ACT_N] = { "Look", "Map", "Rest", "Pack" };
+static const int8_t ACT_DX[ACT_N] = {  0, 1, 0, -1 };
+static const int8_t ACT_DY[ACT_N] = { -1, 0, 1,  0 };
+
 static int s_state = ST_TITLE;
 static int s_want_turn;
 static uint32_t s_entropy;          /* free-running until the player commits */
@@ -307,7 +318,12 @@ static void act_context(void) {
         break;
     case T_CHEST:       rl_open_chest(g_pl.x, g_pl.y); break;
     case T_CHEST_OPEN:  rl_msg("The chest is empty."); break;
-    default: rl_msg("Nothing here."); break;
+    /* Nothing underfoot to use, so offer what is always available. "Nothing
+     * here." spent a whole button press on a refusal, and there was no way at
+     * all to ask what something across the room WAS. */
+    default:
+        s_state = ST_ACTION; s_menu = 0;
+        break;
     }
 }
 
@@ -574,6 +590,94 @@ static void g_update(float dt) {
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_RB)) {
             s_state = ST_SHOP; s_menu = 0; s_menu_top = 0;
         }
+        rl_draw_scene();
+        return;
+    }
+
+    case ST_ACTION: {
+        /* The ring answers the d-pad directly: a direction picks the action
+         * parked at that compass point. The first press only highlights, so a
+         * stray tap never rests you in front of something; pressing the same
+         * direction again -- or A -- commits. */
+        int pick = -1;
+        if (mote_just_pressed(in, MOTE_BTN_UP))    pick = ACT_LOOK;
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) pick = ACT_MAP;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))  pick = ACT_REST;
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  pick = ACT_PACK;
+        int go = mote_just_pressed(in, MOTE_BTN_A);
+        if (pick >= 0) {
+            if (pick == s_menu) go = 1;
+            else s_menu = pick;
+        }
+        if (go) {
+            if (s_menu == ACT_LOOK) {
+                s_look_x = g_pl.x; s_look_y = g_pl.y;
+                s_state = ST_LOOK;
+                rl_describe(s_look_x, s_look_y);
+            } else if (s_menu == ACT_MAP) {
+                tab_go(4);
+            } else if (s_menu == ACT_PACK) {
+                tab_go(0);
+            } else {                                 /* rest */
+                s_state = ST_PLAY;
+                for (int i = 0; i < 400 && g_pl.hp < g_pl.mhp; i++) {
+                    if (g_pl.energy >= 100) g_pl.energy = (int16_t)(g_pl.energy - 100);
+                    run_energy();
+                    if (g_pl.food <= 0) break;
+                    int seen = 0;
+                    for (int k = 0; k < g_lv.n_mon; k++) {
+                        Mon *m = &g_lv.mon[k];
+                        if (m->hp > 0 && !(m->flags & MF_ASLEEP) &&
+                            (g_lv.flags[m->y * MW + m->x] & CF_VISIBLE)) seen = 1;
+                    }
+                    if (seen) { rl_msg("You are interrupted."); break; }
+                }
+                if (g_pl.hp >= g_pl.mhp) rl_msg("You feel rested.");
+            }
+        }
+        if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU))
+            s_state = ST_PLAY;
+        rl_draw_scene();
+        return;
+    }
+
+    case ST_LOOK: {
+        /* The cursor walks the map and the log says what is under it. It is
+         * held to what you have SEEN -- a look command that reads through rock
+         * is a map you did not earn. */
+        int dx = 0, dy = 0;
+        if (mote_just_pressed(in, MOTE_BTN_UP))    dy = -1;
+        if (mote_just_pressed(in, MOTE_BTN_DOWN))  dy =  1;
+        if (mote_just_pressed(in, MOTE_BTN_LEFT))  dx = -1;
+        if (mote_just_pressed(in, MOTE_BTN_RIGHT)) dx =  1;
+        if (dx || dy) {
+            int nx = s_look_x + dx, ny = s_look_y + dy;
+            if (rl_in(nx, ny) && (g_lv.flags[ny * MW + nx] & CF_KNOWN)) {
+                s_look_x = (uint8_t)nx; s_look_y = (uint8_t)ny;
+                rl_describe(nx, ny);
+            }
+        }
+        /* RB jumps to the next thing in sight, because walking a cursor across
+         * a room one press at a time is not inspection, it is admin. */
+        if (mote_just_pressed(in, MOTE_BTN_RB)) {
+            Mon *best = 0; int bd = 1 << 30;
+            for (int k = 0; k < g_lv.n_mon; k++) {
+                Mon *m = &g_lv.mon[k];
+                if (m->hp <= 0) continue;
+                if (!(g_lv.flags[m->y * MW + m->x] & CF_VISIBLE)) continue;
+                if (m->x == s_look_x && m->y == s_look_y) continue;
+                int ax = m->x - g_pl.x, ay = m->y - g_pl.y;
+                int d = ax * ax + ay * ay;
+                if (d < bd) { bd = d; best = m; }
+            }
+            if (best) {
+                s_look_x = best->x; s_look_y = best->y;
+                rl_describe(s_look_x, s_look_y);
+            } else rl_msg("Nothing else in sight.");
+        }
+        if (mote_just_pressed(in, MOTE_BTN_A) || mote_just_pressed(in, MOTE_BTN_B) ||
+            mote_just_pressed(in, MOTE_BTN_MENU))
+            s_state = ST_PLAY;
         rl_draw_scene();
         return;
     }
@@ -931,6 +1035,34 @@ static void draw_worldmap(uint16_t *fb) {
     footer(fb, "LB/RB page   MENU out");
 }
 
+/* The ring itself, drawn around the player rather than over the map: the whole
+ * point of Look is that you can still see what you are looking at. Each label
+ * sits one short step out along its own direction, so where a pill IS tells you
+ * which way to press. */
+static void draw_radial(uint16_t *fb) {
+    int cx, cy;
+    rl_cam(&cx, &cy);
+    int ox = g_pl.x * TS - cx + TS / 2, oy = g_pl.y * TS - cy + TS / 2;
+    /* a hollow box on the player's own tile, so the ring has a visible hub */
+    mote->draw_rect(fb, ox - 5, oy - 5, 10, 10, COL_EDGE, 0, 0, HUD_Y);
+    for (int i = 0; i < ACT_N; i++) {
+        int w = 6;
+        for (const char *c = ACT_NAME[i]; *c; c++) w += 4;
+        int bx = ox + ACT_DX[i] * (14 + w / 2) - w / 2;
+        int by = oy + ACT_DY[i] * 15 - 5;
+        /* the ring travels with the player, so near a corner it would hang off
+         * the screen; slide it back in rather than clipping a label in half */
+        if (bx < 1) bx = 1;
+        if (bx + w > MOTE_FB_W - 1) bx = MOTE_FB_W - 1 - w;
+        if (by < 1) by = 1;
+        if (by + 10 > HUD_Y - 1) by = HUD_Y - 11;
+        int sel = (i == s_menu);
+        mote->draw_rect(fb, bx, by, w, 10, sel ? COL_SEL : COL_PANEL, 1, 0, HUD_Y);
+        mote->draw_rect(fb, bx, by, w, 10, sel ? COL_GOLD : COL_EDGE, 0, 0, HUD_Y);
+        rl_text(fb, ACT_NAME[i], bx + 3, by + 2, sel ? COL_GOLD : COL_DIM);
+    }
+}
+
 static void draw_dead(uint16_t *fb) {
     mote->draw_rect(fb, 10, 30, 108, 62, MOTE_RGB565(22, 12, 16), 1, 0, MOTE_FB_H);
     mote->draw_rect(fb, 10, 30, 108, 62, MOTE_RGB565(180, 40, 60), 0, 0, MOTE_FB_H);
@@ -958,6 +1090,16 @@ static void g_overlay(uint16_t *fb) {
     case ST_SELL:  draw_sell(fb);  return;
     case ST_CHAR:  draw_char(fb);  return;
     case ST_MAP:   draw_worldmap(fb); return;
+    case ST_ACTION:
+        rl_draw_player_shadow(fb);
+        draw_radial(fb);
+        rl_draw_hud(fb);
+        return;
+    case ST_LOOK:
+        rl_draw_player_shadow(fb);
+        rl_draw_look(fb, s_look_x, s_look_y);
+        rl_draw_hud(fb);
+        return;
     default: break;
     }
     rl_draw_player_shadow(fb);
