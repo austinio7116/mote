@@ -361,16 +361,38 @@ void rl_world_tick(void) {
     if (g_pl.bless > 0 && --g_pl.bless == 0) rl_msg("The blessing fades.");
     g_pl.speed = (uint8_t)rl_player_speed();
 
-    int regen = 16;
-    if (rl_ego_flags() & EGO_REGEN) regen = 8;
-    if (g_pl.inv_ring >= 0 && g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_REGEN) regen = 5;
+    /* Recovery is a rate per MOVE, so it has to be spelled out in ticks. It was
+     * not, and both bars refilled ten times too fast: a wound closed inside two
+     * steps and a mage's mana was back before the next fight, which made the
+     * blue bar decoration and healing potions shop clutter. */
+    int fast = 0;
+    int regen = 16 * TURN_TICKS;
+    if (rl_ego_flags() & EGO_REGEN) regen = 8 * TURN_TICKS;
+    if (g_pl.inv_ring >= 0 && g_item_kind[g_pl.inv[g_pl.inv_ring].kind].eff == EF_R_REGEN) {
+        regen = 5 * TURN_TICKS;
+        fast = 1;
+    }
     if ((g_turn % (uint32_t)regen) == 0) {
-        if (g_pl.hp < g_pl.mhp) g_pl.hp++;
-        if (g_pl.sp < g_pl.msp) g_pl.sp++;
+        /* A flat point would mean a character with four hundred hit points
+         * healing for six thousand turns, so the slice grows with the pool: the
+         * TIME to mend is roughly constant, and what changes with level is how
+         * much of it a single blow costs you. */
+        if (g_pl.hp < g_pl.mhp) {
+            g_pl.hp = (int16_t)(g_pl.hp + 1 + g_pl.mhp / 64);
+            if (g_pl.hp > g_pl.mhp) g_pl.hp = g_pl.mhp;
+        }
+        if (g_pl.sp < g_pl.msp) {
+            g_pl.sp = (int16_t)(g_pl.sp + 1 + g_pl.msp / 32);
+            if (g_pl.sp > g_pl.msp) g_pl.sp = g_pl.msp;
+        }
     }
 
-    /* hunger keeps the clock honest; regeneration burns food faster */
-    if ((g_turn & 7) == 0 && g_pl.food > 0) g_pl.food -= (regen == 5) ? 2 : 1;
+    /* Hunger keeps the clock honest, and a ring of regeneration burns food
+     * faster -- through `fast`, not through the interval, which is in ticks
+     * now and would never again have equalled the 5 this once compared to.
+     * These are tick rates, not per-move rates: a point every eight ticks is a
+     * little over one per step. */
+    if ((g_turn & 7) == 0 && g_pl.food > 0) g_pl.food -= fast ? 2 : 1;
     if (g_pl.food < 0) g_pl.food = 0;
     if (g_pl.food == 0 && (g_turn & 31) == 0) {
         g_pl.hp--;

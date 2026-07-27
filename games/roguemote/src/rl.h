@@ -110,6 +110,10 @@ const MoteImage *rl_sheet(int id);
 #define MAX_ITEM  48
 #define INV_N     16
 #define SPEED_NORMAL 110
+/* g_turn counts energy TICKS, not player moves: the world tick runs once per
+ * pass of the energy loop, and a normal-speed character needs this many passes
+ * to earn one move. Any rate written "per turn" has to be multiplied by it. */
+#define TURN_TICKS   10   /* == rl_speed_gain(SPEED_NORMAL) */
 
 typedef struct {
     uint8_t  x, y;

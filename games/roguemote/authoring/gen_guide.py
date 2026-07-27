@@ -356,10 +356,17 @@ def dice(d):
 # ---------------------------------------------------------------- sections
 def sec_screen():
     rows = [
-        ("Health", "The red bar and the number beside it. It regenerates one "
-                   "point every sixteen turns, and faster with a ring of regeneration."),
+        ("Health", "The red bar and the number beside it. It mends every "
+                   "sixteen turns &mdash; a point, plus another for every 64 "
+                   "points of maximum health, so mending a deep character takes "
+                   "about as long as mending a shallow one rather than ten times "
+                   "longer. A ring of regeneration shortens the interval to five "
+                   "turns and doubles what you eat."),
         ("Mana", "The blue bar. Every cast spends it whether or not the spell "
-                 "succeeds."),
+                 "succeeds, and it returns on the same sixteen-turn clock as "
+                 "health &mdash; a point plus one per 32 of maximum. A big pool "
+                 "is hundreds of turns from empty to full, so a fight is fought "
+                 "with the mana you walked in with."),
         ("Level", "Your character level, after <code>L</code>. Experience "
                   "comes from kills, and each level raises health, mana and accuracy."),
         ("Depth", "<code>TOWN</code> on the surface, <code>DL</code> and a "
@@ -397,7 +404,9 @@ def sec_controls():
               "<kbd>A</kbd>) to commit, so a stray press never rests you in "
               "front of something. <b>Look</b> walks a cursor over anything you "
               "have already seen and names it; <kbd>RB</kbd> jumps the cursor to "
-              "the next monster in sight."),
+              "the next monster in sight. <b>Rest</b> waits until both bars are "
+              "full, up to 600 turns &mdash; and stops the moment something "
+              "awake comes into view, or the food runs out."),
         ("B", "Wait one turn. Useful for letting something come to you in a corridor."),
         ("RB", "<b>Loose a shot</b> if you are carrying something to shoot, at "
                "the nearest thing you can see; otherwise it opens the spell "

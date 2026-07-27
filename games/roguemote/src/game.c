@@ -34,6 +34,9 @@ static uint8_t s_look_x, s_look_y;   /* the inspect cursor */
  * holding -- the direction IS the choice. Order is the compass order, so the
  * tables below and the input read the same way round. */
 enum { ACT_LOOK, ACT_MAP, ACT_REST, ACT_PACK, ACT_N };
+/* how many turns one Rest is worth: long enough to mend a real wound at the
+ * regeneration rate, short enough that the pause is not felt on the device */
+#define REST_MAX 600
 static const char *const ACT_NAME[ACT_N] = { "Look", "Map", "Rest", "Pack" };
 static const int8_t ACT_DX[ACT_N] = {  0, 1, 0, -1 };
 static const int8_t ACT_DY[ACT_N] = { -1, 0, 1,  0 };
@@ -168,6 +171,10 @@ static void new_game(int cls) {
         const char *l = getenv("MOTE_RL_LEVEL");
         const char *g = getenv("MOTE_RL_GEAR");
         const char *rv = getenv("MOTE_RL_REVEAL");
+        /* MOTE_RL_HURT=n starts you at n percent of both bars. Recovery is the
+         * one system you cannot photograph from a healthy character: a full bar
+         * refilling instantly and a full bar not moving at all look identical. */
+        const char *hu = getenv("MOTE_RL_HURT");
         if (l) {
             int want = atoi(l);
             while (g_pl.level < want && g_pl.level < 50) rl_gain_xp(g_pl.xp + 20);
@@ -190,6 +197,14 @@ static void new_game(int cls) {
                 enter_depth(depth);
                 if (rv) for (int i = 0; i < MW * MH; i++) g_lv.flags[i] |= CF_KNOWN;
             }
+        }
+        if (hu) {                       /* last: enter_depth does not reset it */
+            int pct = atoi(hu);
+            if (pct < 1) pct = 1;
+            if (pct > 100) pct = 100;
+            g_pl.hp = (int16_t)(g_pl.mhp * pct / 100);
+            g_pl.sp = (int16_t)(g_pl.msp * pct / 100);
+            if (g_pl.hp < 1) g_pl.hp = 1;
         }
     }
 #endif
@@ -620,19 +635,32 @@ static void g_update(float dt) {
                 tab_go(0);
             } else {                                 /* rest */
                 s_state = ST_PLAY;
-                for (int i = 0; i < 400 && g_pl.hp < g_pl.mhp; i++) {
+                /* Rest until BOTH bars are full, something wakes in view, or
+                 * the food runs out. Stopping at full health meant a mage with
+                 * an empty mana bar rested for exactly no turns and was told
+                 * they felt rested. */
+                int i = 0, broke = 0;
+                for (; i < REST_MAX && (g_pl.hp < g_pl.mhp || g_pl.sp < g_pl.msp); i++) {
                     if (g_pl.energy >= 100) g_pl.energy = (int16_t)(g_pl.energy - 100);
                     run_energy();
-                    if (g_pl.food <= 0) break;
+                    if (s_state == ST_DEAD) { broke = 1; break; }
+                    if (g_pl.food <= 0) {
+                        rl_msg("You are too hungry to rest."); broke = 1; break;
+                    }
                     int seen = 0;
                     for (int k = 0; k < g_lv.n_mon; k++) {
                         Mon *m = &g_lv.mon[k];
                         if (m->hp > 0 && !(m->flags & MF_ASLEEP) &&
                             (g_lv.flags[m->y * MW + m->x] & CF_VISIBLE)) seen = 1;
                     }
-                    if (seen) { rl_msg("You are interrupted."); break; }
+                    if (seen) { rl_msg("You are interrupted."); broke = 1; break; }
                 }
-                if (g_pl.hp >= g_pl.mhp) rl_msg("You feel rested.");
+                if (!broke) {
+                    if (g_pl.hp >= g_pl.mhp && g_pl.sp >= g_pl.msp)
+                        rl_msg("You feel rested.");
+                    else
+                        rl_msgf("You rest %d turns.", i);
+                }
             }
         }
         if (mote_just_pressed(in, MOTE_BTN_B) || mote_just_pressed(in, MOTE_BTN_MENU))

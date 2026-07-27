@@ -1563,6 +1563,94 @@ static int lever_reach(int sx, int sy, uint8_t *seen, int block_locks) {
 }
 
 /* The same floor, twice: layout identical, contents not. */
+/* --- recovery ------------------------------------------------------------
+ *
+ * g_turn counts energy TICKS and the regeneration interval is written in
+ * moves, so the two have to be reconciled with TURN_TICKS. They were not, and
+ * both bars refilled ten times too fast -- invisibly, because a bar that is
+ * always full looks like a bar that never moves. These checks are in MOVES, so
+ * they fail the moment somebody writes a tick count where a move count belongs.
+ */
+static void ticks(int moves) {
+    for (int i = 0; i < moves * TURN_TICKS; i++) rl_world_tick();
+}
+
+static void test_recovery(void) {
+    group("recovery");
+
+    /* --- health mends at the documented pace ----------------------------- */
+    fresh_player();
+    g_pl.hp = 1;
+    g_turn = 0;
+    ticks(15);
+    CHECKF(g_pl.hp == 1, "no healing before the sixteenth move", "hp %d", g_pl.hp);
+    ticks(1);
+    CHECKF(g_pl.hp > 1, "healed on the sixteenth move", "hp %d", g_pl.hp);
+
+    /* the slice grows with the pool, so mending TIME is roughly level-flat
+     * rather than an hour of resting for a deep character */
+    int small_hp, big_hp;
+    fresh_player();
+    g_pl.mhp = 64; g_pl.hp = 1; g_turn = 0;
+    ticks(16 * 20);
+    small_hp = g_pl.hp * 100 / g_pl.mhp;
+    fresh_player();
+    g_pl.mhp = 400; g_pl.hp = 1; g_turn = 0;
+    ticks(16 * 20);
+    big_hp = g_pl.hp * 100 / g_pl.mhp;
+    CHECKF(big_hp > small_hp / 2, "a big pool is not hopeless to mend",
+           "%d%% vs %d%% of full after 320 moves", big_hp, small_hp);
+
+    /* --- mana is a resource, not decoration ------------------------------ */
+    fresh_player();
+    g_pl.hp = g_pl.mhp;
+    g_pl.sp = 0;
+    g_turn = 0;
+    ticks(15);
+    CHECKF(g_pl.sp == 0, "no mana before the sixteenth move", "sp %d", g_pl.sp);
+    ticks(1);
+    CHECKF(g_pl.sp > 0, "mana returns on the sixteenth move", "sp %d", g_pl.sp);
+    /* a spell has to still cost something a hundred moves later: refilling a
+     * 50-point pool inside two fights is what made the blue bar look frozen */
+    fresh_player();
+    g_pl.sp = 0; g_turn = 0;
+    ticks(100);
+    CHECKF(g_pl.sp < g_pl.msp, "mana does not refill inside a hundred moves",
+           "sp %d/%d", g_pl.sp, g_pl.msp);
+
+    /* --- neither bar overshoots ------------------------------------------ */
+    fresh_player();
+    g_pl.hp = g_pl.mhp - 1; g_pl.sp = g_pl.msp - 1; g_turn = 0;
+    ticks(16 * 8);
+    CHECKF(g_pl.hp == g_pl.mhp, "health stops at full", "hp %d/%d", g_pl.hp, g_pl.mhp);
+    CHECKF(g_pl.sp == g_pl.msp, "mana stops at full", "sp %d/%d", g_pl.sp, g_pl.msp);
+
+    /* --- a ring of regeneration is worth wearing -------------------------- */
+    int plain, ringed;
+    fresh_player();
+    g_pl.hp = 1; g_turn = 0;
+    ticks(160);
+    plain = g_pl.hp;
+    fresh_player();
+    for (int k = 0; k < ITM_N; k++) {
+        if (g_item_kind[k].eff != EF_R_REGEN) continue;
+        give(k, 1);
+        g_pl.inv_ring = 0;
+        break;
+    }
+    CHECKF(g_pl.inv_ring == 0, "there is a ring of regeneration to test",
+           "inv_ring %d", g_pl.inv_ring);
+    g_pl.hp = 1; g_turn = 0;
+    int food0 = g_pl.food;
+    ticks(160);
+    ringed = g_pl.hp;
+    CHECKF(ringed > plain, "the ring mends you faster", "%d vs %d hp", ringed, plain);
+    /* and it eats: the penalty used to be keyed off the interval, which stopped
+     * matching the moment the interval was written in ticks */
+    CHECKF(food0 - g_pl.food > 160 * TURN_TICKS / 8,
+           "the ring burns food faster", "%d food over 160 moves", food0 - g_pl.food);
+}
+
 static void test_persistence(void) {
     group("floors");
 
@@ -2444,6 +2532,7 @@ int main(int argc, char **argv) {
     test_overworld();
     test_levers();
     test_persistence();
+    test_recovery();
 
     printf("\n=========================================================\n");
     printf("  %d checks, %d passed, %d FAILED\n", s_pass + s_fail, s_pass, s_fail);
