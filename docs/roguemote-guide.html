@@ -1,5 +1,12 @@
-<title>Roguemote &mdash; player's manual</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roguemote &mdash; player's manual</title>
+<meta name="description" content="The illustrated player's manual for Roguemote,
+ a turn-based roguelike for the Thumby Color: Moria-shaped dungeons under a
+ continent you walk across, in 128x128 pixels.">
 <style>
 @font-face{font-family:Rogue8;src:url(data:font/woff2;base64,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)
  format("woff2");font-display:block}
@@ -288,6 +295,8 @@ a{color:var(--gold)}
 .sh-chest_wood{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAICAYAAADwdn+XAAAA00lEQVR42pWQvQ4BURCFv5usZ2CL1WrU+wDqTSREFAqtTuxTbCFEQqlQCiFErbAJiVI0W0koUKpJroJ7/ROnmpmTOWfOwB+Qh52c+DN5PxOqUESz7gHQag8010nZEmAUMgFwjlsAMr25EEqZYYRu39bKo5BJqz0QnZQt3cB6e1EltsGY+LOXZe2STUqubp9gAES9NADraQN/sSJXKN+EYt//IvLZpFSZwqUazbqnM7qBRSJ+0v3zD9zAulygsK8Wcb64OW/iGOOlAXFTD8bLB01+8WcHKlQMcRajOAAAAABJRU5ErkJggg==);--sw:16;--sh:8}
 .sh-levers{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAoCAYAAADkDTpVAAABXUlEQVR42u2WsUvDQBjF3x2hq6NCzVikdg846H/QilZw6ODaP0Bwq6MKHR1cxCEWBA2OLtKhGQqOUgcnh3bI4BLq/hzKSUxTvZMeUsiDW/J9+fje8X5wgIGIKlulOk3+kSbNx6UCTCV5dEOiqrXVVWFyTNxKnHUAAG7FzPpPcit1KrciPbxzcfjVuLW5IQCgF/YJAI1m+1tPup7sAYDhSyBkemij2cbl+enUVslvs+rJ4Wrm1AZJZW1oWhcAwDjKbBBLK3Opa6sckKZhMOLgo7X3Bw7iiOWAc4to2q1cf1y2woFym3OwYBzQB293PXsc3N175pHi+xrpg7rx042zcivx8GqFA+U252DBOMDII0527HEAv2icKIdxRDGuAatPv9pxryf7DHXd+kVIMa5Z4UC5zTlYMA56YZ8H+9v2OMi6e6130aw7TKs7cNAdOEZuZfj8ZoUD5Tbn4P85+ATIpIu+ct46SwAAAABJRU5ErkJggg==);--sw:24;--sh:40}
 </style>
+</head>
+<body>
 
 <header class="mast">
   <div class="wrap">
@@ -1050,6 +1059,10 @@ a{color:var(--gold)}
         sheets, every table is parsed from its source, and the headings are set
         in the 8&#215;8 CP437 face the game renders with. Art is the CC0 Simple
         Roguelike Tileset; the engine is Mote.</p>
+      <p>Roguemote &#183; by austinio7116 &#183; a Mote game for the Thumby Color
+        &#183; <a href="games.html">back to the gallery</a></p>
     </footer>
   </main>
 </div>
+</body>
+</html>

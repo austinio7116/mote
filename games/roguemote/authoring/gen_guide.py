@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build docs/guide.html -- the illustrated player's manual.
+Build docs/roguemote-guide.html -- the illustrated player's manual.
 
 Everything in the page comes from the shipped game, not from a second copy of
 the design:
@@ -29,10 +29,13 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, HERE)
 GAME = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(GAME))          # the repo root
 SRC = os.path.join(GAME, "src")
 SHEETS = os.path.join(GAME, "assets", "sheets")
 SHOTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "guide_shots")
-OUT = os.path.join(GAME, "docs", "guide.html")
+# The gallery serves guides from the repo's docs/ as <game>-guide.html (same as
+# redmote/terramote/scrapwing); this IS the published page, so write it there.
+OUT = os.path.join(ROOT, "docs", "roguemote-guide.html")
 TS = 8
 
 
@@ -1066,8 +1069,15 @@ NAV_TITLE = {
 FONT_FACE = ("""@font-face{font-family:Rogue8;src:url(data:font/woff2;base64,%s)
  format("woff2");font-display:block}""" % font_b64) if font_b64 else ""
 
-HTML = """<title>Roguemote &mdash; player's manual</title>
+HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roguemote &mdash; player's manual</title>
+<meta name="description" content="The illustrated player's manual for Roguemote,
+ a turn-based roguelike for the Thumby Color: Moria-shaped dungeons under a
+ continent you walk across, in 128x128 pixels.">
 <style>
 %(font)s
 
@@ -1331,6 +1341,8 @@ a{color:var(--gold)}
   transition:none!important}}
 %(sheets)s
 </style>
+</head>
+<body>
 
 <header class="mast">
   <div class="wrap">
@@ -1362,9 +1374,13 @@ a{color:var(--gold)}
         sheets, every table is parsed from its source, and the headings are set
         in the 8&#215;8 CP437 face the game renders with. Art is the CC0 Simple
         Roguelike Tileset; the engine is Mote.</p>
+      <p>Roguemote &#183; by austinio7116 &#183; a Mote game for the Thumby Color
+        &#183; <a href="games.html">back to the gallery</a></p>
     </footer>
   </main>
 </div>
+</body>
+</html>
 """
 
 cast = "".join(spr("characters", c["cell"], 4) for c in classes)
