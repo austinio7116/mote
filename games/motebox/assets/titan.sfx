@@ -1,0 +1,5 @@
+# a titan walks — huge slow tone
+wave 2
+freq 0.10 0.01 -0.06 0.05
+env 0.06 0.45 0.30 0.70
+lpf 0.18 0 0.1

@@ -47,13 +47,25 @@ static inline int mb_land(uint8_t b) {
 }
 static inline int mb_water(uint8_t b) { return b >= B_OCEAN && b <= B_ICE; }
 
-/* --- objects: one per cell ---------------------------------------------- */
+/* --- objects: one per cell ----------------------------------------------
+ * Everything from a tuft of grass to a castle occupies the same byte, because a
+ * cell can only hold one thing and the alternative (a second layer) doubles the
+ * map's cost for a case that never comes up. Buildings sit above O_BUILD0 so
+ * "is this a building" is one comparison. */
 enum {
     O_NONE = 0,
     O_TREE, O_TREE2, O_DEAD, O_BUSH, O_TUFT, O_ROCK, O_CACTUS, O_FLOWER,
-    O_ORE, O_SILVER, O_GOLD, O_GEM, O_BOULDER, O_PEAKROCK,
+    O_ORE, O_SILVER, O_GOLD, O_GEM, O_BOULDER, O_PEAKROCK, O_GRAVE,
+    /* --- built things (Phase 4) --- */
+    O_BUILD0,
+    O_FIRE_PIT = O_BUILD0,   /* the founding marker */
+    O_HALL1, O_HALL2, O_HALL3,
+    O_HOUSE1, O_HOUSE2, O_HOUSE3,
+    O_FARM, O_MINE, O_WOODCUT, O_BARRACKS, O_TEMPLE, O_TOWER, O_DOCK, O_WALL,
+    O_PLAN,                  /* a blueprint ghost: decided, not yet paid for */
     O_N
 };
+static inline int mb_is_build(uint8_t o) { return o >= O_BUILD0 && o < O_N; }
 
 /* --- flux: the disaster channel ----------------------------------------
  * One byte per cell, kind:4 / intensity:4. Every disaster in DESIGN.md 10 is a
@@ -61,7 +73,11 @@ enum {
  * terrain consequences instead of each owning a system. */
 enum { FX_NONE = 0, FX_FIRE, FX_LAVA, FX_WATER, FX_ACID, FX_FROST, FX_N };
 /* disasters that WALK rather than spread: a place that keeps acting for a while */
-enum { AG_TORNADO = 0, AG_VENT, AG_N };
+enum { AG_TORNADO = 0, AG_VENT,
+       AG_KAIJU0, AG_TITAN = AG_KAIJU0, AG_MEDUSA, AG_REAPER, AG_PHOENIX,
+       AG_GOLEM, AG_EYE, AG_ANGEL,
+       AG_MAW,                       /* the endgame void: it never stops */
+       AG_N };
 static inline uint8_t mb_fkind(uint8_t f) { return (uint8_t)(f >> 4); }
 static inline uint8_t mb_fint(uint8_t f)  { return (uint8_t)(f & 15); }
 
@@ -69,6 +85,134 @@ static inline uint8_t mb_fint(uint8_t f)  { return (uint8_t)(f & 15); }
 enum { FXE_FIRE = 0, FXE_FROST, FXE_ACID, FXE_ASH, FXE_HOLY, FXE_VOID, FXE_N };
 /* particle shapes, each a cell run in those sheets */
 enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
+
+/* --- life ---------------------------------------------------------------
+ * One struct for villagers, kings, deer and wolves: they share the brain and
+ * differ by species and by which drives they carry. That is why the ecology cost
+ * nothing extra to build. */
+#define MAXU 384
+
+enum {
+    SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC, SP_MUSH,       /* can found villages */
+    SP_DEER, SP_BOAR, SP_SHEEP, SP_CHICKEN, SP_RABBIT,     /* prey */
+    SP_WOLF, SP_BEAR, SP_SNAKE, SP_SPIDER,                 /* predators */
+    SP_FISH, SP_BEE, SP_RAT,                               /* swarm and vector */
+    SP_SKELETON, SP_GHOST, SP_DEMON,                       /* what the world raises */
+    SP_N
+};
+#define SP_CIV_N SP_DEER                     /* species below this build things */
+
+enum { DIET_PLANT = 0, DIET_MEAT };
+enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */
+enum { JOB_IDLE = 0, JOB_WANDER, JOB_FORAGE, JOB_HUNT, JOB_FLEE, JOB_BREED,
+       JOB_WORK, JOB_FIGHT, JOB_N };
+enum { NEAR_PREY = 0, NEAR_MATE, NEAR_THREAT, NEAR_ENEMY };
+enum { CAUSE_AGE = 0, CAUSE_WOUNDS, CAUSE_EATEN, CAUSE_SLAIN, CAUSE_DISASTER,
+       CAUSE_PLAGUE, CAUSE_STARVED, CAUSE_N };
+
+/* Traits. The first TR_RANDOM_N can be rolled at birth or inherited; the rest
+ * are granted by the world or by the player and never appear at random — the
+ * same split WorldBox draws. */
+enum {
+    TR_TOUGH_B = 0, TR_FAST_B, TR_BRAVE_B, TR_COWARD_B, TR_GREEDY_B, TR_LOYAL_B,
+    TR_AMBITIOUS_B, TR_FERTILE_B, TR_BARREN_B, TR_GENIUS_B, TR_STUPID_B,
+    TR_PIOUS_B, TR_VENGEFUL_B, TR_REGEN_B,
+    TR_RANDOM_N,                                     /* --- above: inheritable */
+    TR_BLESSED_B = TR_RANDOM_N, TR_CURSED_B, TR_CHOSEN_B, TR_MARKED_B,
+    TR_PLAGUE_B, TR_MADNESS_B, TR_CONTAGIOUS_B, TR_ZOMBIE_B, TR_IMMORTAL_B,
+    TR_VETERAN_B, TR_N
+};
+#define TRB(n) ((uint32_t)1u << (n))
+#define TR_TOUGH     TRB(TR_TOUGH_B)
+#define TR_FAST      TRB(TR_FAST_B)
+#define TR_BRAVE     TRB(TR_BRAVE_B)
+#define TR_COWARD    TRB(TR_COWARD_B)
+#define TR_GREEDY    TRB(TR_GREEDY_B)
+#define TR_LOYAL     TRB(TR_LOYAL_B)
+#define TR_AMBITIOUS TRB(TR_AMBITIOUS_B)
+#define TR_FERTILE   TRB(TR_FERTILE_B)
+#define TR_BARREN    TRB(TR_BARREN_B)
+#define TR_GENIUS    TRB(TR_GENIUS_B)
+#define TR_STUPID    TRB(TR_STUPID_B)
+#define TR_PIOUS     TRB(TR_PIOUS_B)
+#define TR_VENGEFUL  TRB(TR_VENGEFUL_B)
+#define TR_REGEN     TRB(TR_REGEN_B)
+#define TR_BLESSED   TRB(TR_BLESSED_B)
+#define TR_CURSED    TRB(TR_CURSED_B)
+#define TR_CHOSEN    TRB(TR_CHOSEN_B)
+#define TR_MARKED    TRB(TR_MARKED_B)
+#define TR_PLAGUE    TRB(TR_PLAGUE_B)
+#define TR_MADNESS   TRB(TR_MADNESS_B)
+#define TR_CONTAGIOUS TRB(TR_CONTAGIOUS_B)
+#define TR_ZOMBIE    TRB(TR_ZOMBIE_B)
+#define TR_IMMORTAL  TRB(TR_IMMORTAL_B)
+#define TR_VETERAN   TRB(TR_VETERAN_B)
+
+typedef struct {
+    const char *name;
+    uint8_t sheet;          /* 0 characters, 1 monsters, 2 animals */
+    uint8_t cx, cy;         /* sprite cell in that sheet */
+    uint8_t speed;          /* 1/16 tile per tick */
+    uint8_t lifespan;       /* years */
+    uint8_t diet;           /* DIET_* */
+    uint8_t drives;         /* DRV_* */
+} MbSpecies;
+extern const MbSpecies MB_SP[SP_N];
+
+/* Positions are 1/16 tile in uint16: 128 tiles * 16 = 2048, so a whole world
+ * fits with sub-tile smoothness and no float anywhere in the sim. */
+typedef struct {
+    uint8_t  alive, sp, job, village;
+    uint16_t x, y;
+    int8_t   hp, happy;
+    uint8_t  age, hunger;
+    uint16_t target;        /* cell index, 0xFFFF = none */
+    uint16_t family;
+    uint32_t traits;
+    uint8_t  kills, carry, carry_kind;
+    uint8_t  sick;          /* ticks of plague left to run; 0 = well */
+} Unit;
+extern Unit *mb_u;
+extern int   mb_nu;         /* high-water mark; scans stop here */
+
+/* --- civilisation -------------------------------------------------------
+ * 48 villages and 12 kingdoms: enough for a continent to fragment several times
+ * over, small enough that the kingdom brain's diplomacy pass is free and a
+ * war_with bitmask fits in a uint32. */
+#define MAXV 48
+#define MAXK 12
+
+enum { CARRY_FOOD = 0, CARRY_WOOD, CARRY_STONE, CARRY_IRON, CARRY_GOLD };
+
+typedef struct {
+    uint8_t  alive, sp, x, y;
+    uint8_t  kingdom, hall, dirty, grace;
+    uint16_t pop, housing;
+    uint16_t food, wood, stone, iron, gold;
+    int8_t   happy, loyalty;
+    uint8_t  threat, exhaustion, unrest, mustering, soldiers;
+    uint8_t  lord_diplo, lord_stew, lord_war;   /* the lord's three stats */
+    uint32_t lord_traits;
+    uint8_t  plan_obj, plan_x, plan_y, plan_i;  /* the blueprint ghost */
+    int32_t  founded, last_settle;
+    uint16_t name;
+} Village;
+
+typedef struct {
+    uint8_t  alive, sp, colour, capital;
+    uint16_t pop;
+    uint32_t war_with;      /* bit per kingdom */
+    uint32_t ally_with;
+    uint8_t  exhaustion, tech, pad0, pad1;
+    uint16_t name;
+} Kingdom;
+
+extern Village mb_v[MAXV];
+extern Kingdom mb_k[MAXK];
+
+/* --- world laws (DESIGN.md 12) ------------------------------------------ */
+enum { LAW_DISASTER = 0, LAW_WAR, LAW_REBEL, LAW_PLAGUE, LAW_AGEING, LAW_BREED,
+       LAW_MONSTERS, LAW_AGES, LAW_FOLLOW, LAW_TINT, LAW_NAMES, LAW_N };
 
 /* --- the world ---------------------------------------------------------- */
 typedef struct {
@@ -96,9 +240,11 @@ void mb_world_start(int *x, int *y);   /* a sensible opening cursor cell */
 const char *mb_world_shape_name(void);
 const char *mb_world_climate_name(void);
 void mb_world_stats(void);            /* MOTEBOX_STAT=1 */
+void mb_grow_step(void);              /* regrowth, so a ruined world can heal */
 
 /* mb_flux.c */
 void mb_flux_init(void);
+void mb_flux_reset(void);
 void mb_flux_step(void);
 void mb_flux_add(int x, int y, int kind, int inten);
 void mb_flux_blob(int cx, int cy, int r, int kind, int inten);
@@ -110,6 +256,9 @@ void mb_agent_spawn(int kind, int x, int y);
 int  mb_agent_count(void);
 int  mb_agent_get(int i, int *x, int *y, int *kind);
 int  mb_agent_max(void);
+int  mb_agent_hurt(int x, int y, int dmg);
+int  mb_agent_hp(int i);
+void mb_flux_natural(void);
 
 /* mb_fx.c */
 void  mb_fx_init(void);
@@ -139,9 +288,133 @@ int         mb_power_radius(void);
 int         mb_power_brush(void);
 int         mb_wheel_open(void);
 
+/* mb_unit.c */
+void mb_unit_init(void);      /* allocs once */
+void mb_unit_reset(void);     /* a new world: no allocation, the arena has no free */
+void mb_unit_step(void);
+int  mb_unit_spawn(int sp, int x, int y);
+void mb_unit_kill(int i, int cause);
+int  mb_unit_passable(int sp, int x, int y);
+int  mb_unit_nearest(int self, int x, int y, int mode);
+void mb_unit_seed_wildlife(void);
+/* One pass over the units in a disc — the shape every unit-targeting power and
+ * every area effect needs, so none of them re-walks the array itself. */
+enum { UAP_HEAL = 0, UAP_HURT, UAP_TRAIT, UAP_UNTRAIT, UAP_STARVE, UAP_KILL,
+       UAP_HAPPY, UAP_RAGE };
+int  mb_unit_area(int cx, int cy, int r, int op, uint32_t arg);
+int  mb_unit_at(int x, int y);
+void mb_unit_plague_step(void);
+void mb_unit_madness_step(void);
+int  mb_unit_raise_dead(int cx, int cy, int r);
+void mb_unit_migrate(void);   /* a trickle from off-map: extinction must not be absorbing */
+void mb_unit_recount(void);   /* after a load: the counters live outside the array */
+int  mb_pop(int sp);
+int  mb_pop_civ(void);
+int  mb_pop_all(void);
+int  mb_pop_wild(void);
+int  mb_pop_class_full(int sp);
+int  mb_births(void);
+int  mb_deaths(void);
+int  mb_deaths_by(int cause);   /* civ deaths by CAUSE_*, for the audit */
+
+/* mb_civ.c */
+void mb_civ_init(void);
+void mb_civ_reset(void);
+void mb_civ_step(void);
+int  mb_civ_drop_village(int sp, int x, int y);
+int  mb_village_found(int sp, int x, int y, int kingdom);
+int  mb_village_need(int v, uint16_t *target);
+int  mb_village_resource(int v, int kind, int *ox, int *oy);
+void mb_village_work(int v, int ui);
+int  mb_village_mustering(int v);
+int  mb_village_step_home(int v, int x, int y, int *ox, int *oy);
+int  mb_village_count(void);
+int  mb_village_count_last(void);
+int  mb_kingdom_of(int v);
+int  mb_kingdom_count(void);
+int  mb_at_war(int a, int b);
+int  mb_border_len(int a, int b);
+
+/* mb_chron.c — names, events, legends: the story engine (DESIGN.md 9) */
+void        mb_chron_init(void);
+uint16_t    mb_name_place(uint32_t salt);
+uint16_t    mb_name_kingdom(uint32_t salt);
+uint16_t    mb_name_person(uint32_t salt);
+void        mb_name_str(char *out, int n, int kind, uint16_t id);
+void        mb_chron_found(int v);
+void        mb_chron_fall(int v);
+void        mb_chron_build(int v, const char *what);
+void        mb_chron_war(int a, int b);
+void        mb_chron_peace(int a, int b);
+void        mb_chron_rebel(int v, int from, int to);
+void        mb_chron_birth(int child, int parent);
+void        mb_chron_death(int u, int cause);
+void        mb_chron_legend(int u, int why);
+void        mb_chron_disaster(const char *what, int x, int y);
+void        mb_chron_age(const char *name);
+const char *mb_chron_word(int id);
+int         mb_chron_grudge(int a, int b);
+int         mb_chron_count(void);
+void        mb_chron_line(char *out, int n, int back, int *year);
+const char *mb_chron_toast(void);      /* NULL when none is showing */
+void        mb_chron_step(float dt);
+int         mb_chron_focus(int *x, int *y);   /* where the last big event was */
+enum { LEGEND_KILLS = 0, LEGEND_KING, LEGEND_SURVIVOR, LEGEND_FOUNDER, LEGEND_N };
+
+/* mb_age.c — the eight ages and the world laws */
+enum { AGE_HOPE = 0, AGE_SUN, AGE_MOON, AGE_IRON, AGE_CHAOS, AGE_ICE, AGE_ASH,
+       AGE_DESPAIR, AGE_N };
+void        mb_age_init(void);
+void        mb_age_step(void);
+const char *mb_age_name(void);
+int         mb_age_id(void);
+int         mb_age_war_bias(void);
+int         mb_age_allows_armies(void);
+int         mb_age_fertility(void);
+int         mb_age_dryness(void);
+int         mb_age_cold(void);
+int         mb_age_faith_mod(void);
+uint16_t    mb_age_tint(int *amt);
+int         mb_law(int which);
+void        mb_law_toggle(int which);
+uint16_t    mb_law_bits(void);
+void        mb_law_set_bits(uint16_t b);
+void        mb_age_set(int a);
+const char *mb_law_name(int which);
+
+/* mb_faith.c — Faith, and the two modes (DESIGN.md 11) */
+enum { MODE_PANTHEON = 0, MODE_SANDBOX };
+void mb_faith_init(void);
+void mb_faith_step(void);
+int  mb_faith(void);
+int  mb_faith_income(void);
+int  mb_faith_afford(int cost);
+void mb_faith_spend(int cost);
+void mb_faith_set(int v);
+int  mb_mode(void);
+void mb_mode_set(int m);
+
+/* mb_save.c */
+void mb_save_init(void);
+int  mb_save_write(int slot, int cx, int cy, int god);
+int  mb_save_read(int slot, int *cx, int *cy, int *god);
+int  mb_save_exists(int slot);
+
+/* mb_audio.c — restraint by design: only headline events make a noise, each
+ * rate-limited, because a world at x8 runs a year in under a second. */
+enum { SND_FIRE = 0, SND_BOOM, SND_QUAKE, SND_THUNDER, SND_SPLASH, SND_FREEZE,
+       SND_BUILD, SND_FOUND, SND_WAR, SND_FALL, SND_TITAN, SND_BLESS,
+       SND_CURSE, SND_DENY, SND_AGE, SND_N };
+void mb_audio_step(float dt);
+void mb_snd(int id);
+void mb_snd_at(int id, int x, int y, int cam_tx, int cam_ty, int radius);
+
 /* mb_draw.c */
 void mb_draw_init(void);
+void mb_draw_prepare(void);   /* rebuilds the tint LUT when an age or kingdom changes */
 void mb_god_band(uint16_t *fb, int y0, int y1);      /* set_background_cb target */
+void mb_god_units(uint16_t *fb, int y0, int y1);
+uint16_t mb_kingdom_colour(int k);
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

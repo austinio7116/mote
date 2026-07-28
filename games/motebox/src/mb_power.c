@@ -16,12 +16,27 @@
 #include "ui_gauges.h"
 #include "crowns_fx.h"
 #include "nature.h"
+#include "characters.h"
+#include "animals.h"
+#include "bosses.h"
+#include "buildings.h"
+#include "treasure_ore.h"
 
 /* --- what a power is ---------------------------------------------------- */
 
 enum {
+    /* LAND */
     PW_RAISE, PW_MOUNTAIN, PW_FOREST, PW_GRASS, PW_LOWER, PW_WATER, PW_DESERT, PW_ROAD,
-    PW_FIRE, PW_LIGHTNING, PW_METEOR, PW_VOLCANO, PW_QUAKE, PW_TORNADO, PW_ACID, PW_FREEZE
+    /* WRATH */
+    PW_FIRE, PW_LIGHTNING, PW_METEOR, PW_VOLCANO, PW_QUAKE, PW_TORNADO, PW_ACID, PW_FREEZE,
+    /* LIFE */
+    PW_HUMAN, PW_ELF, PW_DWARF, PW_ORC, PW_VILLAGE, PW_HERD, PW_WOLVES, PW_PLANTS,
+    /* BLESS */
+    PW_RAIN, PW_FERTILITY, PW_HEAL, PW_INSPIRE, PW_PEACE, PW_GOLDVEIN, PW_BLESS, PW_RESURRECT,
+    /* CURSE */
+    PW_PLAGUE, PW_MADNESS, PW_CURSE, PW_WEAKEN, PW_FAMINE, PW_BARREN, PW_GRUDGE, PW_MARK,
+    /* BEASTS */
+    PW_TITAN, PW_MEDUSA, PW_REAPER, PW_PHOENIX, PW_GOLEM, PW_SWARM, PW_EYE, PW_ANGEL
 };
 
 typedef struct {
@@ -68,8 +83,53 @@ static const Power P_WRATH[8] = {
     { PW_FREEZE,   "FREEZE",   &ui_status_img,  6, 3, 3, 1,  30 },
 };
 
+static const Power P_LIFE[8] = {
+    { PW_HUMAN,   "HUMANS",   &characters_img, 3, 3, 0, 0,  20 },
+    { PW_ELF,     "ELVES",    &characters_img, 5, 3, 0, 0,  20 },
+    { PW_DWARF,   "DWARVES",  &characters_img, 1, 6, 0, 0,  20 },
+    { PW_ORC,     "ORCS",     &characters_img, 7, 4, 0, 0,  20 },
+    { PW_VILLAGE, "VILLAGE",  &buildings_img,  2, 2, 0, 0,  90 },
+    { PW_HERD,    "HERD",     &animals_img,    0, 0, 1, 0,  10 },
+    { PW_WOLVES,  "WOLVES",   &animals_img,    3, 1, 0, 0,  10 },
+    { PW_PLANTS,  "PLANTS",   &nature_img,     4, 4, 3, 1,   4 },
+};
+static const Power P_BLESS[8] = {
+    { PW_RAIN,      "RAIN",      &ui_status_img,  8, 3, 4, 1,   6 },
+    { PW_FERTILITY, "FERTILITY", &ui_status_img,  9, 5, 4, 0,  25 },
+    { PW_HEAL,      "HEAL",      &ui_status_img, 12, 3, 3, 0,  15 },
+    { PW_INSPIRE,   "INSPIRE",   &ui_status_img,  3, 3, 0, 0,  60 },
+    { PW_PEACE,     "PEACE",     &ui_status_img,  5, 1, 0, 0, 100 },
+    { PW_GOLDVEIN,  "GOLD VEIN", &treasure_ore_img, 1, 0, 2, 0,  45 },
+    { PW_BLESS,     "BLESS",     &ui_status_img, 10, 1, 1, 0,  80 },
+    { PW_RESURRECT, "RESURRECT", &ui_status_img,  0, 5, 2, 0, 120 },
+};
+static const Power P_CURSE[8] = {
+    { PW_PLAGUE,  "PLAGUE",   &ui_status_img, 10, 5, 1, 0,  70 },
+    { PW_MADNESS, "MADNESS",  &ui_status_img,  2, 3, 2, 0,  55 },
+    { PW_CURSE,   "CURSE",    &ui_status_img, 11, 3, 1, 0,  40 },
+    { PW_WEAKEN,  "WEAKEN",   &ui_status_img,  4, 3, 2, 0,  25 },
+    { PW_FAMINE,  "FAMINE",   &ui_status_img,  6, 6, 3, 0,  60 },
+    { PW_BARREN,  "BARREN",   &ui_status_img, 15, 3, 3, 0,  45 },
+    { PW_GRUDGE,  "GRUDGE",   &ui_status_img,  9, 3, 0, 0,  35 },
+    { PW_MARK,    "MARK",     &ui_status_img, 11, 1, 0, 0,  30 },
+};
+/* The seventeen 2x2 kaiju live on the bosses sheet; eight are summonable. */
+static const Power P_BEASTS[8] = {
+    { PW_TITAN,   "SKULL TITAN", &bosses_img,  7, 1, 0, 0, 500 },
+    { PW_MEDUSA,  "MEDUSA",      &bosses_img,  4, 1, 0, 0, 380 },
+    { PW_REAPER,  "REAPER",      &bosses_img,  2, 3, 0, 0, 460 },
+    { PW_PHOENIX, "PHOENIX",     &bosses_img,  0, 3, 0, 0, 420 },
+    { PW_GOLEM,   "GOLEM",       &bosses_img,  1, 1, 0, 0, 300 },
+    { PW_SWARM,   "SWARM",       &animals_img, 0, 4, 2, 0, 200 },
+    { PW_EYE,     "THE EYE",     &bosses_img,  3, 1, 0, 0, 340 },
+    { PW_ANGEL,   "ANGEL",       &bosses_img,  0, 5, 0, 0, 550 },
+};
+
 typedef struct { const char *name; const Power *p; } Tab;
-static const Tab TABS[] = { { "LAND", P_LAND }, { "WRATH", P_WRATH } };
+static const Tab TABS[] = {
+    { "LAND", P_LAND }, { "LIFE", P_LIFE }, { "BLESS", P_BLESS },
+    { "CURSE", P_CURSE }, { "WRATH", P_WRATH }, { "BEASTS", P_BEASTS },
+};
 #define NTAB ((int)(sizeof TABS / sizeof TABS[0]))
 
 /* --- selection state ---------------------------------------------------- */
@@ -161,17 +221,20 @@ static void cast_at(int id, int r, int cx, int cy)
 
     /* --- WRATH ------------------------------------------------------- */
     case PW_FIRE:
+        mb_snd(SND_FIRE);
         mb_flux_ignite(cx, cy, r);
         mb_fx_burst((float)cx, (float)cy, 6, PK_SPARK, FXE_FIRE, 2.5f, 0.5f);
         break;
 
     case PW_LIGHTNING:
+        mb_snd(SND_THUNDER);
         mb_fx_spawn((float)cx, (float)cy - 3.0f, PK_BOLT, FXE_HOLY, 0.0f, 0.30f);
         mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 0.6f);
         mb_flux_ignite(cx, cy, 1);
         break;
 
     case PW_METEOR:
+        mb_snd(SND_BOOM);
         for (int y = cy - r - 2; y <= cy + r + 2; y++)
             for (int x = cx - r - 2; x <= cx + r + 2; x++) {
                 if (!mb_in(x, y)) continue;
@@ -189,6 +252,7 @@ static void cast_at(int id, int r, int cx, int cy)
         break;
 
     case PW_VOLCANO:
+        mb_snd(SND_BOOM);
         mb_agent_spawn(AG_VENT, cx, cy);
         mb_fx_impact((float)cx, (float)cy, FXE_FIRE, 1.1f);
         break;
@@ -221,18 +285,165 @@ static void cast_at(int id, int r, int cx, int cy)
     }
 
     case PW_TORNADO:
+        mb_snd(SND_QUAKE);
         mb_agent_spawn(AG_TORNADO, cx, cy);
         mb_fx_burst((float)cx, (float)cy, 10, PK_GUST, FXE_ASH, 3.0f, 0.8f);
         break;
 
     case PW_ACID:
+        mb_snd(SND_CURSE);
         mb_flux_blob(cx, cy, r, FX_ACID, 12);
         mb_fx_burst((float)cx, (float)cy, 8, PK_SPARK, FXE_ACID, 2.0f, 0.7f);
         break;
 
     case PW_FREEZE:
+        mb_snd(SND_FREEZE);
         mb_flux_blob(cx, cy, r, FX_FROST, 11);
         mb_fx_burst((float)cx, (float)cy, 10, PK_STAR, FXE_FROST, 1.8f, 0.9f);
+        break;
+
+    /* --- LIFE -------------------------------------------------------- */
+    case PW_HUMAN: case PW_ELF: case PW_DWARF: case PW_ORC: {
+        int sp = SP_HUMAN + (id - PW_HUMAN);
+        for (int i = 0; i < 4; i++) {
+            uint32_t rr = mb_rand((uint32_t)(i * 733u + (uint32_t)mb_w.tick));
+            mb_unit_spawn(sp, cx + (int)(rr % 5) - 2, cy + (int)((rr >> 5) % 5) - 2);
+        }
+        mb_fx_burst((float)cx, (float)cy, 8, PK_STAR, FXE_HOLY, 2.0f, 0.6f);
+        break;
+    }
+    case PW_VILLAGE:
+        /* A founding party. The ground has to allow it — WorldBox's own rule —
+         * so this can legitimately do nothing, and says so with a dud sparkle. */
+        if (mb_civ_drop_village(SP_HUMAN + (int)(mb_rand((uint32_t)mb_w.tick) % 4), cx, cy))
+            mb_fx_burst((float)cx, (float)cy, 14, PK_STAR, FXE_HOLY, 3.0f, 0.9f);
+        else
+            mb_fx_burst((float)cx, (float)cy, 4, PK_SMOKE, FXE_ASH, 1.0f, 0.5f);
+        break;
+    case PW_HERD:
+        for (int i = 0; i < 6; i++) {
+            uint32_t rr = mb_rand((uint32_t)(i * 911u + (uint32_t)mb_w.tick));
+            static const uint8_t HERD[4] = { SP_DEER, SP_SHEEP, SP_BOAR, SP_CHICKEN };
+            mb_unit_spawn(HERD[rr & 3], cx + (int)((rr >> 3) % 7) - 3, cy + (int)((rr >> 7) % 7) - 3);
+        }
+        break;
+    case PW_WOLVES:
+        for (int i = 0; i < 3; i++) {
+            uint32_t rr = mb_rand((uint32_t)(i * 313u + (uint32_t)mb_w.tick));
+            mb_unit_spawn((rr & 3) ? SP_WOLF : SP_BEAR, cx + (int)((rr >> 3) % 5) - 2,
+                          cy + (int)((rr >> 7) % 5) - 2);
+        }
+        break;
+    case PW_PLANTS:
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y) || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+                if (!mb_land(mb_w.biome[AT(x, y)]) || mb_w.obj[AT(x, y)]) continue;
+                uint32_t rr = mb_rand((uint32_t)AT(x, y) * 51u);
+                mb_w.obj[AT(x, y)] = (rr & 3) ? O_BUSH : ((rr & 4) ? O_TREE : O_TUFT);
+            }
+        break;
+
+    /* --- BLESS ------------------------------------------------------- */
+    case PW_RAIN:
+        mb_snd(SND_SPLASH);
+        /* water flux with a short life: extinguishes fire, greens the ground,
+         * and does not flood — the counter to a firestorm */
+        mb_flux_blob(cx, cy, r, FX_WATER, 4);
+        mb_fx_burst((float)cx, (float)cy, 12, PK_SMOKE, FXE_FROST, 1.5f, 1.0f);
+        break;
+    case PW_FERTILITY:
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y) || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+                uint8_t *b = &mb_w.biome[AT(x, y)];
+                if (*b == B_ASH || *b == B_SCORCHED || *b == B_RUBBLE) *b = B_GRASS;
+                else if (*b == B_GRASS || *b == B_SAVANNA) *b = B_MEADOW;
+                else if (*b == B_MEADOW) *b = B_FOREST;
+            }
+        mb_fx_burst((float)cx, (float)cy, 12, PK_STAR, FXE_ACID, 1.6f, 0.9f);
+        break;
+    case PW_HEAL:
+        mb_unit_area(cx, cy, r, UAP_HEAL, 0);
+        mb_fx_burst((float)cx, (float)cy, 10, PK_STAR, FXE_HOLY, 1.5f, 0.8f);
+        break;
+    case PW_INSPIRE: {
+        int v = mb_w.claim[AT(cx, cy)];
+        if (v) { mb_k[mb_kingdom_of(v)].tech++; mb_chron_disaster("inspiration", cx, cy); }
+        mb_fx_burst((float)cx, (float)cy, 10, PK_BOLT, FXE_HOLY, 2.0f, 0.6f);
+        break;
+    }
+    case PW_PEACE:
+        for (int a = 1; a < MAXK; a++) { mb_k[a].war_with = 0; mb_k[a].exhaustion = 0; }
+        for (int v = 1; v < MAXV; v++) mb_v[v].mustering = 0;
+        mb_chron_disaster("a great peace", cx, cy);
+        mb_fx_burst((float)cx, (float)cy, 16, PK_RING, FXE_HOLY, 0.5f, 1.2f);
+        break;
+    case PW_GOLDVEIN:
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y) || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+                if (!mb_land(mb_w.biome[AT(x, y)])) continue;
+                uint32_t rr = mb_rand((uint32_t)AT(x, y) * 97u);
+                mb_w.obj[AT(x, y)] = (rr & 1) ? O_GOLD : ((rr & 2) ? O_GEM : O_SILVER);
+            }
+        break;
+    case PW_BLESS:      mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BLESSED); break;
+    case PW_RESURRECT:
+        /* graves give their dead back, which is the one power that undoes a
+         * disaster after the fact */
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y) || mb_w.obj[AT(x, y)] != O_GRAVE) continue;
+                mb_w.obj[AT(x, y)] = O_NONE;
+                int u = mb_unit_spawn(SP_HUMAN, x, y);
+                if (u >= 0) mb_u[u].traits |= TR_BLESSED;
+            }
+        mb_fx_burst((float)cx, (float)cy, 14, PK_STAR, FXE_HOLY, 2.0f, 1.1f);
+        break;
+
+    /* --- CURSE ------------------------------------------------------- */
+    case PW_PLAGUE:   mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS); break;
+    case PW_MADNESS:  mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_MADNESS); break;
+    case PW_CURSE:    mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_CURSED); break;
+    case PW_WEAKEN:   mb_unit_area(cx, cy, r + 1, UAP_HURT, 40); break;
+    case PW_FAMINE:
+        for (int y = cy - r; y <= cy + r; y++)
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (!mb_in(x, y)) continue;
+                if (mb_w.biome[AT(x, y)] == B_FARM) mb_w.biome[AT(x, y)] = B_SAVANNA;
+                uint8_t *o = &mb_w.obj[AT(x, y)];
+                if (*o == O_BUSH || *o == O_FLOWER || *o == O_TUFT) *o = O_NONE;
+            }
+        mb_unit_area(cx, cy, r, UAP_STARVE, 90);
+        break;
+    case PW_BARREN:   mb_unit_area(cx, cy, r + 1, UAP_TRAIT, TR_BARREN); break;
+    case PW_GRUDGE: {
+        /* set two kingdoms at each other: the player as agent provocateur */
+        int v = mb_w.claim[AT(cx, cy)], k = mb_kingdom_of(v);
+        if (k) for (int o = 1; o < MAXK; o++)
+            if (o != k && mb_k[o].alive && mb_border_len(k, o)) {
+                mb_k[k].war_with |= (uint32_t)1u << o;
+                mb_k[o].war_with |= (uint32_t)1u << k;
+                mb_chron_war(k, o);
+                break;
+            }
+        break;
+    }
+    case PW_MARK:     mb_unit_area(cx, cy, 2, UAP_TRAIT, TR_MARKED); break;
+
+    /* --- BEASTS: the kaiju ------------------------------------------- */
+    case PW_TITAN: case PW_MEDUSA: case PW_REAPER: case PW_PHOENIX:
+    case PW_GOLEM: case PW_EYE:   case PW_ANGEL:
+        mb_agent_spawn(AG_KAIJU0 + (id - PW_TITAN), cx, cy);
+        mb_fx_impact((float)cx, (float)cy, FXE_VOID, 1.2f);
+        break;
+    case PW_SWARM:
+        for (int i = 0; i < 12; i++) {
+            uint32_t rr = mb_rand((uint32_t)(i * 577u + (uint32_t)mb_w.tick));
+            mb_unit_spawn(SP_BEE, cx + (int)(rr % 7) - 3, cy + (int)((rr >> 4) % 7) - 3);
+        }
+        mb_chron_disaster("a swarm", cx, cy);
         break;
 
     default: break;
@@ -242,6 +453,10 @@ static void cast_at(int id, int r, int cx, int cy)
 void mb_power_cast(int cx, int cy)
 {
     const Power *p = cur();
+    /* the blessings and the curses share two sounds; the disasters have their own */
+    if (p->id >= PW_RAIN && p->id <= PW_RESURRECT) mb_snd(SND_BLESS);
+    else if (p->id >= PW_PLAGUE && p->id <= PW_MARK) mb_snd(SND_CURSE);
+    else if (p->id >= PW_TITAN) mb_snd(SND_TITAN);
     cast_at(p->id, p->radius, cx, cy);
 }
 

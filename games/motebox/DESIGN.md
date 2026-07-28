@@ -736,14 +736,15 @@ Each phase ends with something runnable on the device.
 |---|---|
 | ~~**1. World + views**~~ | **DONE.** Worldgen (+ shape/climate rolls off the seed), 5 layers, God's Eye band renderer, Mortal View autotiles, zoom toggle, cursor, HUD. Measured on host, one core: God's Eye 20 us/frame, Mortal View 67-89 us. Device figures need hardware. |
 | ~~**2. Flux**~~ | **DONE.** The CA (fire/lava/flood/acid/frost + wind), walking agents (tornado, vent), the 192-particle pool drawn two ways, screen flash + shake + rumble, 6 recoloured FX sheets, and 16 powers in two tabs (LAND, WRATH) on the four-arm wheel. |
-| **3. Life** | Units, drives, utility brain, movement tiers, ecology, births/deaths, ageing, traits. |
-| **4. Villages** | Founding, the WorldBox build/resource ladder, lord brain, blueprint ghosts, houses in kingdom colours, claims + political tint. |
-| **5. Kingdoms** | Kings, diplomacy, war, armies, rally + march, loyalty, rebellion, secession. |
-| **6. Chronicle** | Names, families, events, toasts, Legends, grudges feeding the king brain. |
-| **7. Powers** | All 48, the wheel, Faith economy, Pantheon vs Sandbox. |
-| **8. Ages & laws** | 8 ages with modifiers and palettes, age cards, World Laws menu. |
-| **9. Disasters in full** | All 22 including kaiju, undead, plague quarantine, the Maw. |
-| **10. Audit & polish** | Empire Audit to green, balance curves, coverage.py to 0 unused sprites, SFX, save/load, Trials, icon. |
+| ~~**3. Life**~~ | **DONE.** One `Unit` for villagers, kings, deer and wolves; seven drives; the utility brain on a 1/8 stagger with hysteresis; a 16×14 bucket grid for proximity; ageing, births, inherited traits with mutation; twenty species; regrowth and burn recovery so a ruined world heals. |
+| ~~**4. Villages**~~ | **DONE.** WorldBox's founding rule (filled zone + island ≥120 tiles), its build/resource ladder, the lord brain, blueprint ghosts, per-kingdom coloured houses, claim creep, settler parties, and the political tint. |
+| ~~**5. Kingdoms**~~ | **DONE.** Kings, the diplomacy score, war and peace, mustering, loyalty and secession with the rebel taking its own banner. Measured: 1–6 kingdoms and 0–3 concurrent wars across a 600-year run, unprompted. |
+| ~~**6. Chronicle**~~ | **DONE.** 96-event ring, three syllable name tables, ~11 templates, headline toasts, Follow History, the Chronicle screen, and grudges read back into the king brain. |
+| ~~**7. Powers**~~ | **DONE.** All 48 in six tabs, Faith with a temple-scaled ceiling, Pantheon vs Sandbox. |
+| ~~**8. Ages & laws**~~ | **DONE.** Eight ages with sim modifiers and a palette wash, 11 world laws in the God Menu. |
+| ~~**9. Disasters**~~ | **DONE.** 21 of the 22: kaiju (7 summonable, killable by an army), the Maw, undead rising, plague with quarantine pressure, madness, tsunami, sinkhole, ashfall, heatwave, blizzard, swarm, famine. Fallout is the one not built — it needs the tech tier that unlocks it. |
+| ~~**10. Audit & polish**~~ | **DONE.** `authoring/audit.sh` (10 worlds × 600 years, 8 invariants), 15 SFX recipes, save/load through `kv_*`, the tint LUT that took the God's Eye pass back from 83 µs to 45. |
+
 
 Source layout: `game.c` (vtbl, modes, input) · `mb_world.c` (gen, layers, tiles) ·
 `mb_sim.c` (units, drives, movement) · `mb_civ.c` (villages, kingdoms, war) ·
@@ -767,7 +768,33 @@ already stated.
 
 ---
 
-## 20. Open questions and risks
+## 20. What the curves taught us
+
+Every one of these was found by `MOTEBOX_YEARS` printing a yearly CSV, and not one
+of them would have shown up in a screenshot. They are recorded because the *shape*
+of the mistake repeats: in a simulation, a rule that is locally sensible can be
+globally fatal, and only a long run says which.
+
+| Symptom in the curve | The actual cause |
+|---|---|
+| 383 of 384 units were deer at tick 1 | The wildlife seeder ran to a try count, not to a population cap, so a dropped village got two settlers and every later birth silently failed. |
+| Wildlife collapsed by year 30, every world | Spawn age was a flat 4–11 against a per-species lifespan, so half of every chicken (lifespan 6) was born already past dying age. |
+| Civ population fell to zero in every run | Villagers must leave the claim to gather, and twenty wolves ate them faster than they bred. Beasts now avoid people unless starving, and never hunt on claimed ground. |
+| Wounds were the second cause of civ death | "A cornered villager fights back" — but a bear does 35 a bite and a farmhand does 18. Farmhands flee; fighting is for soldiers, wars and titans. |
+| Not one child born in 350 years | The work score beat the breed score in every village that wanted anything, and every village always wants something. Work is halved and capped; spare beds outbid it. |
+| One village reached 230 people on 43 beds | Housing did not gate breeding, so the lord was stuck forever on "build another house" and no hall ever reached tier two. |
+| Villages capped at 13 people and stopped | The food economy was circular: no food meant no farm, and no farm meant no food. Worked land now produces, and the granary actually feeds people — starvation went from 1973 deaths in 500 years to 2. |
+| Every village stalled at six houses | The build ladder locked in the first want even when the village could not pay for it, so one unaffordable tier-three hall froze the whole world. The lord now takes the best thing it can afford. |
+| Whole founding generation aged out doing civics | Houses ranked below the hall and the temple. Beds are existential; a fancy hall is an ambition. |
+| A war ran unbroken for 240 years | Against a kingdom that had not existed for most of them: a dead kingdom's war bits were never cleared. |
+| Plague deaths still climbing at 8/year after 300 years | Infection with no recovery is not an epidemic, it is a slow extinction. Illness now runs a course and ends — in death or in recovery. |
+| Faith reached 39,000 | Uncapped income meant every power was free forever and the whole trade-off Pantheon mode exists for evaporated. The reserve has a ceiling that rises with the temples you inspired. |
+| Wildlife hit zero and stayed there in 5 of 6 worlds | Extinction is absorbing. The map is a piece of a bigger world, so animals now migrate in — but only below a floor, so healthy predator-prey cycles still swing. |
+| Every world was 70% deer or 58% people, never both | The two class caps summed to 104% of the array, so it filled and all births failed. |
+| The whole continent read yellow | Political tint at 25% over 23 biome colours could not be told from farmland. The border now carries almost all the colour, and it is a lookup table rather than 43,008 blends a frame. |
+| Putting the cursor on a house crashed the game | `O_NAME` had 15 entries after the enum grew to 31, and C will not tell you. There is a compile-time tripwire on it now. |
+
+## 21. Open questions and risks
 
 - **Unit cap is a guess pending Phase 1.** 384 is what the arena and the cycle budget allow on
   paper; `redmote`'s 140 units at 30 fps on a 96×96 map is the only measured precedent, and its

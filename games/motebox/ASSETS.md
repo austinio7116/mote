@@ -123,7 +123,22 @@ CP437 8×8 font as a proportional `MoteFont`. Used for dense in-world text (chro
 cards) where ~24 characters per line is the difference between a sentence and a fragment;
 `ui_font(MOTE_FONT_MED)` handles titles, toasts and menu chrome. See DESIGN.md §9.
 
-## 6. Icon — `icon.png` (60×60, game root) → `src/icon.h`
+## 6. Sound — `assets/*.sfx` → `src/*.sfx.h`
+
+Fifteen SFXR recipes, each ~88 bytes of flash and no RAM, streamed through
+`audio_play_sfx`. Deliberately few and deliberately quiet: a god sim is a thing you
+leave running, and at ×8 a year goes past in under a second, so a world that pinged
+every time a villager picked a berry would be unlistenable.
+
+`fire · boom · quake · thunder · splash · freeze · build · found · war · fall ·
+titan · bless · curse · deny · age`
+
+Two rules make it work: every sound is **rate-limited** (a firestorm lights hundreds
+of cells a second and should sound like one fire), and the headline sounds hang off
+the **chronicle** rather than off the code that causes them — a thing worth a
+headline is exactly a thing worth a noise, so the two can never drift apart.
+
+## 7. Icon — `icon.png` (60×60, game root) → `src/icon.h`
 
 The world as a **disc** with a meteor coming in: one bold silhouette that reads at launcher
 size. Composited from the game's own biome recipes plus the master's explosion cell, so the

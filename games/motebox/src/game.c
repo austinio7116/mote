@@ -54,6 +54,7 @@ static float s_move_acc;
 static float s_cast_cool;            /* brush cadence */
 static int   s_lb_was_wheel;         /* so releasing the wheel is not a speed tap */
 static uint32_t s_shake_ph = 1;      /* camera-shake jitter (render only) */
+static float s_denied;               /* 'not enough faith' message timer */
 
 /* --- HUD ---------------------------------------------------------------- */
 #define HUD_Y   VIEW_H
@@ -70,10 +71,20 @@ static const char *const B_NAME[B_N] = {
     "LAVA", "ACID", "FARM", "RUBBLE", "MEADOW", "FOREST", "ROAD",
 };
 static const char *const FX_NAME[FX_N] = { "", "BURNING", "LAVA", "FLOOD", "ACID", "FROZEN" };
+/* ONE ENTRY PER O_*, and the compiler will not tell you if it is short: the first
+ * version stopped at "crag" and every id after it read as a NULL pointer, so
+ * putting the cursor on a house crashed the game. Keep this in step with the enum. */
 static const char *const O_NAME[O_N] = {
     "", "tree", "tree", "dead tree", "bush", "grass", "rock", "cactus",
-    "flower", "iron", "silver", "gold", "gems", "boulder", "crag",
+    "flower", "iron", "silver", "gold", "gems", "boulder", "crag", "grave",
+    /* --- built --- */
+    "campfire", "hall", "great hall", "castle",
+    "house", "cottage", "manor",
+    "farm", "mine", "woodcutter", "barracks", "temple", "tower", "dock", "wall",
+    "plan",
 };
+/* A compile-time tripwire for exactly the mistake above. */
+typedef char mb_onames_complete[(sizeof O_NAME / sizeof O_NAME[0]) == O_N ? 1 : -1];
 
 /* --- helpers ----------------------------------------------------------- */
 
@@ -89,6 +100,8 @@ static void cam_follow(void)
     if (s_cam_y < 0) s_cam_y = 0; if (s_cam_y > maxy) s_cam_y = maxy;
 }
 
+static void god_menu(void);
+
 static void view_set(int god)
 {
     s_god = god;
@@ -97,6 +110,136 @@ static void view_set(int god)
     mote->set_background_cb(god ? mb_god_band : 0);
     if (!god) cam_follow();
 }
+
+/* --- the God Menu ------------------------------------------------------- */
+
+static void law_menu(void)
+{
+    for (;;) {
+        const char *items[LAW_N + 1];
+        static char rows[LAW_N][28];
+        for (int i = 0; i < LAW_N; i++) {
+            snprintf(rows[i], sizeof rows[i], "%s %s", mb_law(i) ? "ON " : "off", mb_law_name(i));
+            items[i] = rows[i];
+        }
+        items[LAW_N] = "BACK";
+        int c = mote->menu("WORLD LAWS", items, LAW_N + 1);
+        if (c < 0 || c == LAW_N) return;
+        mb_law_toggle(c);
+    }
+}
+
+static void chronicle_menu(void)
+{
+    /* The engine menu is a list, and a history IS a list — so the chronicle needs
+     * no screen of its own, and scrolls with the same buttons as everything else. */
+    int n = mb_chron_count();
+    if (n <= 0) {
+        const char *none[] = { "nothing has happened yet", "BACK" };
+        mote->menu("CHRONICLE", none, 2);
+        return;
+    }
+    if (n > 24) n = 24;
+    static char rows[25][34];
+    const char *items[25];
+    for (int i = 0; i < n; i++) {
+        int year = 0; char line[30];
+        mb_chron_line(line, sizeof line, i, &year);
+        snprintf(rows[i], sizeof rows[i], "Y%d %s", year, line);
+        items[i] = rows[i];
+    }
+    items[n] = "BACK";
+    mote->menu("CHRONICLE", items, n + 1);
+}
+
+static void god_menu(void)
+{
+    for (;;) {
+        static char st[4][30];
+        snprintf(st[0], sizeof st[0], "%s", mb_age_name());
+        snprintf(st[1], sizeof st[1], "FAITH %d  (+%d/yr)", mb_faith(), mb_faith_income());
+        snprintf(st[2], sizeof st[2], "MODE: %s", mb_mode() == MODE_SANDBOX ? "SANDBOX" : "PANTHEON");
+        snprintf(st[3], sizeof st[3], "pop %d  villages %d  kingdoms %d",
+                 mb_pop_civ(), mb_village_count(), mb_kingdom_count());
+        const char *items[] = { st[0], st[1], st[2], st[3],
+                                "CHRONICLE", "WORLD LAWS", "SAVE WORLD", "LOAD WORLD",
+                                "NEW WORLD", "CLOSE" };
+        int c = mote->menu("MOTEBOX", items, 10);
+        switch (c) {
+        case 2: mb_mode_set(mb_mode() == MODE_SANDBOX ? MODE_PANTHEON : MODE_SANDBOX); break;
+        case 4: chronicle_menu(); break;
+        case 5: law_menu(); break;
+        case 6: {
+            int ok = mb_save_write(0, s_cx, s_cy, s_god);
+            const char *m[] = { ok ? "saved" : "SAVE FAILED", "BACK" };
+            mote->menu("SAVE", m, 2);
+            break;
+        }
+        case 7: {
+            int cx = s_cx, cy = s_cy, god = s_god;
+            int ok = mb_save_read(0, &cx, &cy, &god);
+            if (ok) { s_cx = cx; s_cy = cy; view_set(god); }
+            const char *m[] = { ok ? "loaded" : "NO SAVE", "BACK" };
+            mote->menu("LOAD", m, 2);
+            break;
+        }
+        case 8: {
+            uint32_t ns = (uint32_t)mote->micros() ^ (mb_w.seed * 2654435761u);
+            mb_world_gen(ns);
+            /* RESET, not init: the arena is bump-only, so re-initialising would
+             * leak a whole world's worth of buffers per reroll. */
+            mb_unit_reset(); mb_civ_reset(); mb_flux_reset();
+            mb_chron_init(); mb_age_init(); mb_faith_init(); mb_fx_init();
+            mb_unit_seed_wildlife();
+            mb_world_start(&s_cx, &s_cy);
+            return;
+        }
+        default: return;
+        }
+    }
+}
+
+#if MOTE_HOST
+/* --- the fast-forward (MOTEBOX_YEARS=500) ------------------------------
+ * One sim tick has no rendering in it, so a headless run does not need frames at
+ * all: this spins the world forward as fast as the machine will go and prints a
+ * yearly CSV. It is what makes balance a measurement instead of an argument —
+ * every finding in this file's history came out of a curve, not a screenshot. */
+static void fast_forward(int years)
+{
+    fprintf(stderr, "year,pop,wild,villages,kingdoms,wars,faith,ruin,age,"
+                    "d_age,d_wound,d_eaten,d_slain,d_disaster,d_plague,d_starved\n");
+    for (int y = 0; y < years; y++) {
+        for (int t = 0; t < 52; t++) {
+            mb_w.tick++;
+            mb_flux_step();
+            mb_flux_natural();
+            mb_unit_step();
+            mb_unit_plague_step();
+            mb_unit_madness_step();
+            mb_unit_migrate();
+            mb_civ_step();
+            mb_grow_step();
+            mb_faith_step();
+            mb_age_step();
+        }
+        int wars = 0;
+        for (int k = 1; k < MAXK; k++) if (mb_k[k].alive && mb_k[k].war_with) wars++;
+        int ruin = 0;
+        for (int i = 0; i < NC; i += 7) {
+            uint8_t b = mb_w.biome[i];
+            if (b == B_ASH || b == B_SCORCHED || b == B_RUBBLE) ruin++;
+        }
+        fprintf(stderr, "%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d\n",
+                y, mb_pop_civ(), mb_pop_wild(), mb_village_count(), mb_kingdom_count(),
+                wars, mb_faith(), ruin * 700 / NC, mb_age_name(),
+                mb_deaths_by(CAUSE_AGE), mb_deaths_by(CAUSE_WOUNDS),
+                mb_deaths_by(CAUSE_EATEN), mb_deaths_by(CAUSE_SLAIN),
+                mb_deaths_by(CAUSE_DISASTER), mb_deaths_by(CAUSE_PLAGUE),
+                mb_deaths_by(CAUSE_STARVED));
+    }
+}
+#endif
 
 /* --- vtbl -------------------------------------------------------------- */
 
@@ -121,7 +264,33 @@ static void g_init(void)
     mb_world_gen(seed);
     mb_flux_init();
     mb_fx_init();
+    mb_unit_init();
+    mb_civ_init();
+    mb_chron_init();
+    mb_age_init();
+    mb_faith_init();
+    mb_save_init();
+    mb_unit_seed_wildlife();
     mb_draw_init();
+#if MOTE_HOST
+    {   /* MOTEBOX_SEEDV=x,y;x,y drops founding parties before the fast-forward,
+         * because a world with nobody in it has no history to measure. */
+        const char *sv = getenv("MOTEBOX_SEEDV");
+        if (sv) {
+            while (*sv) {
+                int x = 0, y = 0;
+                while (*sv >= '0' && *sv <= '9') x = x * 10 + (*sv++ - '0');
+                if (*sv == ',') sv++;
+                while (*sv >= '0' && *sv <= '9') y = y * 10 + (*sv++ - '0');
+                fprintf(stderr, "drop village at %d,%d -> %d\n", x, y,
+                        mb_civ_drop_village(SP_HUMAN, x, y));
+                if (*sv == ';') sv++; else break;
+            }
+        }
+        const char *yy = getenv("MOTEBOX_YEARS");
+        if (yy && *yy) fast_forward(atoi(yy));
+    }
+#endif
     mb_world_start(&s_cx, &s_cy);
 #if MOTE_HOST
     if (s_stat) mb_world_stats();
@@ -142,14 +311,44 @@ static void g_update(float dt)
             if (steps > 8) steps = 8;          /* never let the sim eat the frame */
             s_tick_acc -= (float)steps;
             for (int i = 0; i < steps; i++) {
-                mb_w.tick++; mb_flux_step();
+                mb_w.tick++;
+                /* ORDER MATTERS. The field pass runs first so a unit stepping onto
+                 * a burning cell this tick is hurt by it rather than a tick late;
+                 * the civ pass runs after the units so its census sees the day's
+                 * deaths; Faith and the age read the finished state. */
+                mb_flux_step();
+                mb_flux_natural();
+                mb_unit_step();
+                mb_unit_plague_step();
+                mb_unit_madness_step();
+                mb_unit_migrate();
+                mb_civ_step();
+                mb_grow_step();
+                mb_faith_step();
+                mb_age_step();
 #if MOTE_HOST
-                if (s_trace) fprintf(stderr, "tick %d flux=%d\n", (int)mb_w.tick, mb_flux_count());
+                if (s_trace)
+                    fprintf(stderr, "tick %d flux=%d pop=%d civ=%d v=%d k=%d faith=%d %s"
+                                    " wild=%d died a%d w%d e%d s%d d%d p%d f%d"
+                                    " V1[pop%d h%d hs%d f%d w%d s%d]\n",
+                            (int)mb_w.tick, mb_flux_count(), mb_pop_all(), mb_pop_civ(),
+                            mb_village_count(), mb_kingdom_count(), mb_faith(), mb_age_name(),
+                            mb_pop_wild(),
+                            mb_deaths_by(CAUSE_AGE), mb_deaths_by(CAUSE_WOUNDS),
+                            mb_deaths_by(CAUSE_EATEN), mb_deaths_by(CAUSE_SLAIN),
+                            mb_deaths_by(CAUSE_DISASTER), mb_deaths_by(CAUSE_PLAGUE),
+                            mb_deaths_by(CAUSE_STARVED),
+                            mb_v[1].pop, mb_v[1].hall, mb_v[1].housing,
+                            mb_v[1].food, mb_v[1].wood, mb_v[1].stone);
 #endif
             }
         }
     }
     mb_fx_step(dt);
+    mb_chron_step(dt);
+    mb_draw_prepare();
+    mb_audio_step(dt);
+    if (s_denied > 0.0f) s_denied -= dt;
 
 #if MOTE_HOST
     /* the scripted cast, once, after the world has settled into a frame */
@@ -197,6 +396,11 @@ static void g_update(float dt)
         s_hold = 0.0f; s_move_acc = 0.0f;
     }
 
+    /* MENU opens the God Menu: the laws, the chronicle, the legends, the save.
+     * A blocking engine menu is the right tool — it is a pause, and the sim
+     * genuinely should stop while you read a history. */
+    if (mote_just_pressed(in, MOTE_BTN_MENU) && !wheel) god_menu();
+
     /* --- A casts. A brush power keeps casting while held, on a fixed cadence so
      * painting terrain feels like a brush rather than a machine gun; everything
      * else fires once per press, because a meteor should cost a decision. --- */
@@ -205,10 +409,27 @@ static void g_update(float dt)
                  ? (mote_pressed(in, MOTE_BTN_A) && (s_cast_cool -= dt) <= 0.0f)
                  : mote_just_pressed(in, MOTE_BTN_A);
         if (fire) {
-            mb_power_cast(s_cx, s_cy);
-            s_cast_cool = 0.10f;
+            int cost = mb_power_cost();
+            if (mb_faith_afford(cost)) {
+                mb_faith_spend(cost);
+                mb_power_cast(s_cx, s_cy);
+                s_cast_cool = 0.10f;
+            } else {
+                /* no Faith: say so once rather than silently doing nothing, which
+                 * reads as a broken button */
+                s_denied = 0.7f;
+                mb_snd(SND_DENY);
+                s_cast_cool = 0.35f;
+            }
         }
         if (!mote_pressed(in, MOTE_BTN_A)) s_cast_cool = 0.0f;
+    }
+
+    /* FOLLOW HISTORY: the camera jumps to the last headline, which is what makes
+     * a paused-thumb session tell you stories instead of needing to be hunted. */
+    if (mb_law(LAW_FOLLOW) && !wheel) {
+        int fx2, fy2;
+        if (mb_chron_focus(&fx2, &fy2)) { s_cx = fx2; s_cy = fy2; }
     }
 
     /* --- LB TAP cycles speed (LB HOLD is the wheel, handled above); RB toggles
@@ -271,9 +492,10 @@ static void g_overlay(uint16_t *fb)
     }
 #endif
 
-    /* particles: one pixel each in God's Eye, drawn here because the world
-     * rasteriser is the background pass and has already run */
-    if (s_god) mb_fx_draw_god(fb);
+    /* Units and particles in God's Eye are drawn HERE rather than in the band
+     * pass, because both are lists the pass would have to filter per band. One
+     * pixel each, after the terrain, so they sit on top of it. */
+    if (s_god) { mb_god_units(fb, 0, VIEW_H); mb_fx_draw_god(fb); }
 
     /* --- cursor ---
      * Drawn as a box AROUND the target so the tile itself still shows, and in
@@ -317,8 +539,28 @@ static void g_overlay(uint16_t *fb)
         snprintf(buf, sizeof buf, "%s %d,%d", B_NAME[b < B_N ? b : 0], s_cx, s_cy);
     mote->text_font(fb, &rogue8, buf, 1, HUD_Y + 8, k ? C_WARN : C_TEXT);
 
-    /* the selected power sits where the thumb is looking: right of the year */
-    mote->text_font(fb, &rogue8, mb_power_name(), 42, HUD_Y, C_HI);
+    /* the selected power sits where the thumb is looking, with its price */
+    mote->text_font(fb, &rogue8, mb_power_name(), 40, HUD_Y, C_HI);
+    if (mb_mode() == MODE_PANTHEON) {
+        snprintf(buf, sizeof buf, "%d", mb_faith());
+        int w = (int)strlen(buf) * 6;
+        mote->text_font(fb, &rogue8, buf, 104 - w, HUD_Y + 8,
+                        mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN);
+    }
+
+    /* A HEADLINE takes the whole HUD for a few seconds. Interrupting the readout
+     * is the point: the story is more urgent than the coordinates. */
+    const char *toast = mb_chron_toast();
+    if (toast) {
+        /* The headline gets a LINE OF ITS OWN. Sharing row one with the year meant
+         * the two overlapped and the story was unreadable, which rather defeats it. */
+        mote->draw_rect(fb, 0, HUD_Y, 128, 128 - HUD_Y, C_DARK, 1, 0, 128);
+        snprintf(buf, sizeof buf, "Y%d %s", (int)(mb_w.tick / TPY), mb_age_name());
+        mote->text_font(fb, &rogue8, buf, 1, HUD_Y, C_TEXT);
+        mote->text_font(fb, &rogue8, toast, 1, HUD_Y + 8, C_CURS);
+    } else if (s_denied > 0.0f) {
+        mote->text_font(fb, &rogue8, "NOT ENOUGH FAITH", 1, HUD_Y + 8, C_WARN);
+    }
 
     mb_power_draw_wheel(fb, &rogue8);
 

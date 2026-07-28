@@ -1,0 +1,5 @@
+# earthquake — very low rumble
+wave 3
+freq 0.08 0 -0.05 0
+env 0.05 0.50 0.30 0.80
+lpf 0.12 0 0.1

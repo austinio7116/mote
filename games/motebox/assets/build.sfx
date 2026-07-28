@@ -1,0 +1,5 @@
+# a building goes up — two wooden knocks
+wave 0
+freq 0.34 -0.08 0 0
+env 0 0.05 0.03 0.10
+arp 0.40 0.06

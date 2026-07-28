@@ -1,0 +1,5 @@
+# meteor / bomb — deep hit with a long tail
+wave 3
+freq 0.14 -0.05 -0.4 0
+env 0 0.06 0.10 0.70
+lpf 0.22 -0.05 0.3

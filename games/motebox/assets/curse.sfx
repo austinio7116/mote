@@ -1,0 +1,5 @@
+# a curse — sour falling tone
+wave 2
+freq 0.28 -0.10 0 0.22
+env 0.02 0.22 0.14 0.40
+lpf 0.40 -0.1 0

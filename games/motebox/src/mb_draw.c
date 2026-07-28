@@ -45,6 +45,12 @@
 #include "crowns_fx.h"
 #include "fx_frost.h"
 #include "fx_acid.h"
+#include "characters.h"
+#include "animals.h"
+#include "monsters.h"
+#include "buildings.h"
+#include "props.h"
+#include "blueprint.h"
 
 /* Ruleset per biome id. Index i is biome id i+1 — the engine reads
  * tiles[t-1] for cell value t, so this array's ORDER IS the B_* enum. */
@@ -104,6 +110,32 @@ static const uint16_t MB_OBJ_COL[O_N] = {
     0, 0,                    /* boulder, peak rock */
 };
 
+/* The five banner colours the buildings sheet is drawn in — so a kingdom's tint
+ * on the political map is the SAME colour as its houses when you zoom in. */
+static const uint16_t KING_COL[5] = {
+    MOTE_RGB565(255, 119, 168),   /* pink   */
+    MOTE_RGB565( 41, 173, 255),   /* blue   */
+    MOTE_RGB565(255, 236,  39),   /* gold   */
+    MOTE_RGB565(  0, 228,  54),   /* green  */
+    MOTE_RGB565(194, 195, 199),   /* white  */
+};
+uint16_t mb_kingdom_colour(int k)
+{
+    return (k > 0 && k < MAXK && mb_k[k].alive) ? KING_COL[mb_k[k].colour % 5] : 0;
+}
+
+/* Blend two RGB565s by an 0-255 amount, channel-wise. Two shifts and a multiply
+ * per channel: cheap enough to run on every claimed pixel of the world. */
+static inline uint16_t blend565(uint16_t a, uint16_t b, int amt)
+{
+    int ar = (a >> 11) & 31, ag = (a >> 5) & 63, ab = a & 31;
+    int br = (b >> 11) & 31, bg = (b >> 5) & 63, bb = b & 31;
+    int r = ar + (((br - ar) * amt) >> 8);
+    int g = ag + (((bg - ag) * amt) >> 8);
+    int bl = ab + (((bb - ab) * amt) >> 8);
+    return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+
 /* Flux colour in God's Eye, per kind. Fire and lava ALTERNATE between two stops
  * on a parity of (tick + cell), so a burning front visibly crackles at one pixel
  * per tile — the cheapest possible animation, and the thing that makes a fire
@@ -115,7 +147,51 @@ uint16_t mb_biome_colour(uint8_t b) {
     return (b >= 1 && b <= B_COUNT) ? MB_COL[b - 1] : 0;
 }
 
-void mb_draw_init(void) { }
+/* --- the tint LUT -------------------------------------------------------
+ * The band pass used to blend per pixel: political tint, then the age wash, six
+ * shifts and three multiplies each, 14336 times a frame. Measured, that took the
+ * God's Eye pass from 20 us to 83 us on the host — a 4x cost for two colours that
+ * only change when a kingdom or an age does.
+ *
+ * So it is a table instead: for every (owner, biome) pair, the finished colour,
+ * once for the interior and once for a border cell. 13 x 23 x 2 entries is 1.2 KB
+ * of RAM and 598 blends per rebuild, against 43,008 per frame. */
+static uint16_t s_lut_in[MAXK + 1][B_COUNT];
+static uint16_t s_lut_edge[MAXK + 1][B_COUNT];
+static int      s_lut_age = -1, s_lut_tint = -1;
+static uint32_t s_lut_sig;
+/* village id -> kingdom id, so the border test is four array reads instead of four
+ * calls into mb_kingdom_of() with its bounds checks. Those four calls per claimed
+ * pixel were the whole remaining cost after the colour table went in. */
+static uint8_t  s_kof[MAXV];
+
+void mb_draw_prepare(void)
+{
+    int amt; uint16_t age_col = mb_age_tint(&amt);
+    int tint = mb_law(LAW_TINT);
+    /* a signature over what the table depends on, so it rebuilds only on a change */
+    uint32_t sig = (uint32_t)mb_age_id() * 131u + (uint32_t)tint * 7u;
+    for (int k = 1; k < MAXK; k++)
+        sig = sig * 31u + (uint32_t)(mb_k[k].alive ? (mb_k[k].colour + 1) : 0);
+    for (int v = 0; v < MAXV; v++)
+        s_kof[v] = (uint8_t)((v > 0 && mb_v[v].alive) ? mb_v[v].kingdom : 0);
+    if (sig == s_lut_sig && s_lut_age == mb_age_id() && s_lut_tint == tint) return;
+    s_lut_sig = sig; s_lut_age = mb_age_id(); s_lut_tint = tint;
+
+    for (int k = 0; k <= MAXK; k++) {
+        uint16_t kc = (k > 0) ? mb_kingdom_colour(k) : 0;
+        for (int b = 0; b < B_COUNT; b++) {
+            uint16_t base = MB_COL[b];
+            uint16_t in = base, ed = base;
+            if (tint && kc) { in = blend565(base, kc, 40); ed = blend565(base, kc, 210); }
+            if (amt) { in = blend565(in, age_col, amt); ed = blend565(ed, age_col, amt); }
+            s_lut_in[k][b] = in;
+            s_lut_edge[k][b] = ed;
+        }
+    }
+}
+
+void mb_draw_init(void) { s_lut_sig = 0; s_lut_age = -1; mb_draw_prepare(); }
 
 /* ------------------------------------------------------------ God's Eye ---
  * The engine hands us LOGICAL row bands; on device MOTE_SS == 1 so logical and
@@ -146,16 +222,63 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
         const uint8_t *brow = bio + y * MW;
         const uint8_t *orow = ob  + y * MW;
         const uint8_t *frow = mb_w.flux + y * MW;
+        const uint8_t *crow = mb_w.claim + y * MW;
         for (int x = 0; x < MW; x++) {
             uint8_t b = brow[x];
-            uint16_t c = (b >= 1 && b <= B_COUNT) ? MB_COL[b - 1] : 0;
+            if (b < 1 || b > B_COUNT) { px_put(fb, x, y, 0); continue; }
+
+            /* POLITICAL TINT — the single effect that turns a pixel grid into a map
+             * you can read a war off. Two table lookups: the owner's colour washed
+             * lightly through the interior and hard along the BORDER (a cell whose
+             * neighbour belongs to someone else), so frontiers draw themselves with
+             * no border-tracing pass and no per-pixel arithmetic. */
+            int k = s_kof[crow[x] < MAXV ? crow[x] : 0];
+            uint16_t c;
+            if (k) {
+                int edge = (x > 0      && s_kof[crow[x - 1]]  != k) ||
+                           (x < MW - 1 && s_kof[crow[x + 1]]  != k) ||
+                           (y > 0      && s_kof[crow[x - MW]] != k) ||
+                           (y < MH - 1 && s_kof[crow[x + MW]] != k);
+                c = edge ? s_lut_edge[k][b - 1] : s_lut_in[k][b - 1];
+            } else {
+                c = s_lut_in[0][b - 1];
+            }
+
             uint8_t o = orow[x];
-            if (o && o < O_N) { uint16_t oc = MB_OBJ_COL[o]; if (oc) c = oc; }
-            uint8_t k = mb_fkind(frow[x]);
-            if (k && k < FX_N)
-                c = ((x + y + (int)mb_w.tick) & 1) ? FLUX_HI[k] : FLUX_LO[k];
+            if (o && o < O_N) {
+                uint16_t oc = mb_is_build(o) ? mb_kingdom_colour(k) : MB_OBJ_COL[o];
+                if (mb_is_build(o) && !oc) oc = C_WHITE;   /* an unclaimed ruin */
+                if (oc) c = oc;
+            }
+
+            uint8_t fk = mb_fkind(frow[x]);
+            if (fk && fk < FX_N)
+                c = ((x + y + (int)mb_w.tick) & 1) ? FLUX_HI[fk] : FLUX_LO[fk];
+
             px_put(fb, x, y, c);
         }
+    }
+}
+
+/* Units in God's Eye: one pixel each, drawn AFTER the terrain band so they sit on
+ * top of it, and only for the rows this band owns. A crowd of three hundred
+ * pixels streaming toward a border is the whole argument for this view. */
+void mb_god_units(uint16_t *fb, int y0, int y1)
+{
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive) continue;
+        int x = u->x >> 4, y = u->y >> 4;
+        if (y < y0 || y >= y1 || y >= VIEW_H || x < 0 || x >= MW) continue;
+        uint16_t c;
+        if (u->sp < SP_CIV_N) {
+            /* people wear their kingdom, which is how you see an army move */
+            c = mb_kingdom_colour(mb_kingdom_of(u->village));
+            if (!c) c = C_WHITE;                   /* the unaligned: wanderers */
+        } else {
+            c = (MB_SP[u->sp].diet == DIET_MEAT) ? C_RED : C_BROWN;
+        }
+        px_put(fb, x, y, c);
     }
 }
 
@@ -192,6 +315,30 @@ static const FluxSpr FLUX_SPR[FX_N] = {
     { &fx_frost_img,  13, 3, 3 },         /* water — spray */
     { &fx_acid_img,   13, 2, 3 },         /* acid  — hissing sparkle */
     { &fx_frost_img,  12, 4, 3 },         /* frost — twinkle */
+};
+
+/* Buildings draw from the buildings sheet, whose ROW is the kingdom colour — the
+ * correction roguemote's ASSETS.md records (cols are door/open/house/extend, rows
+ * are five colours) is exactly the per-kingdom building set a civ sim needs. */
+typedef struct { uint8_t sheet, cx, cy; } BldSpr;
+enum { BS_BUILD = 0, BS_PROPS, BS_PLAN };
+static const BldSpr MB_BLD[O_N - O_BUILD0] = {
+    { BS_PROPS,  3, 3 },   /* fire pit: the master's bonfire */
+    { BS_BUILD,  2, 0 },   /* hall 1  */
+    { BS_BUILD,  2, 0 },   /* hall 2  */
+    { BS_BUILD,  3, 0 },   /* hall 3 (castle): the wide piece */
+    { BS_BUILD,  0, 0 },   /* house 1 */
+    { BS_BUILD,  0, 0 },   /* house 2 */
+    { BS_BUILD,  2, 0 },   /* house 3 */
+    { BS_PROPS,  5, 1 },   /* farm: planks read as a field frame */
+    { BS_PROPS,  6, 2 },   /* mine: the stone bench/anvil */
+    { BS_PROPS,  4, 1 },   /* woodcutter camp: cut planks */
+    { BS_PROPS,  0, 2 },   /* barracks: the gate */
+    { BS_PROPS,  2, 3 },   /* temple: the statue */
+    { BS_PROPS,  7, 2 },   /* tower: a lit torch on a post */
+    { BS_PROPS,  2, 2 },   /* dock: the stone arch over water */
+    { BS_PROPS,  0, 2 },   /* wall */
+    { BS_PLAN,   4, 1 },   /* the blueprint ghost */
 };
 
 void mb_draw_mortal(int cam_x, int cam_y)
@@ -238,6 +385,45 @@ void mb_draw_mortal(int cam_x, int cam_y)
             };
             g_api->scene2d_add(&spr);
         }
+    }
+
+    /* buildings, above the ground and below the people */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t o = mb_w.obj[AT(c, r)];
+            if (!mb_is_build(o)) continue;
+            const BldSpr *B = &MB_BLD[o - O_BUILD0];
+            const MoteImage *img = (B->sheet == BS_BUILD) ? &buildings_img
+                                 : (B->sheet == BS_PLAN)  ? &blueprint_img : &props_img;
+            /* the row IS the kingdom colour for the buildings sheet */
+            int row = B->cy;
+            if (B->sheet == BS_BUILD) {
+                int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
+                row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
+            }
+            MoteSprite spr = { img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(B->cx * TILE), (uint16_t)(row * TILE),
+                               TILE, TILE, 30, 0 };
+            g_api->scene2d_add(&spr);
+        }
+    }
+
+    /* people and beasts, above their buildings so a crowd is never hidden */
+    for (int i = 0; i < mb_nu; i++) {
+        const Unit *u = &mb_u[i];
+        if (!u->alive) continue;
+        int px = (u->x >> 4) * TILE, py = (u->y >> 4) * TILE;
+        if (px < cam_x - TILE || py < cam_y - TILE ||
+            px > cam_x + 128 || py > cam_y + VIEW_H) continue;
+        const MbSpecies *S = &MB_SP[u->sp];
+        const MoteImage *img = (S->sheet == 0) ? &characters_img
+                             : (S->sheet == 1) ? &monsters_img : &animals_img;
+        MoteSprite spr = { img, (int16_t)(u->x >> 4 << 3), (int16_t)(u->y >> 4 << 3),
+                           (uint16_t)(S->cx * TILE), (uint16_t)(S->cy * TILE),
+                           TILE, TILE, 40, 0 };
+        g_api->scene2d_add(&spr);
     }
 
     /* the walking disasters: the master's smoke swirl for a tornado, its cone

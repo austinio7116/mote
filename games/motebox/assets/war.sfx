@@ -1,0 +1,5 @@
+# war declared — a horn
+wave 2
+freq 0.22 0.02 0 0.12
+env 0.03 0.30 0.22 0.35
+lpf 0.60 0 0

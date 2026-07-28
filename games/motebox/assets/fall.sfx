@@ -1,0 +1,5 @@
+# a village is lost — a descending toll
+wave 1
+freq 0.30 -0.14 0 0
+env 0.01 0.24 0.20 0.60
+lpf 0.50 -0.1 0

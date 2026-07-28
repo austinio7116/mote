@@ -306,3 +306,70 @@ void mb_world_stats(void)
     }
 #endif
 }
+
+/* --- regrowth ------------------------------------------------------------
+ * Without this the world is one-way: every fire is permanent, every acid bay
+ * final, and after twenty minutes any world is grey. WorldBox regrows, and it is
+ * what makes a disaster something you can do TWICE.
+ *
+ * A sample of cells per tick rather than a sweep: 48 of 14336 is a full pass
+ * every 300 ticks (about six years), which is the right pace for a forest — and
+ * it costs the same whether the world is pristine or ruined.
+ */
+void mb_grow_step(void)
+{
+    for (int t = 0; t < 48; t++) {
+        uint32_t r = mb_rand((uint32_t)t * 2654435761u + 0x9e37u);
+        int x = (int)(r % MW), y = (int)((r >> 11) % MH);
+        int i = AT(x, y);
+        uint8_t b = mb_w.biome[i], o = mb_w.obj[i];
+        int roll = (int)((r >> 22) & 255);
+
+        /* 1. scarred ground heals up the ladder it was pushed down */
+        switch (b) {
+        case B_SCORCHED: if (roll < 40) mb_w.biome[i] = B_ASH;    continue;
+        case B_ASH:      if (roll < 30) mb_w.biome[i] = B_GRASS;  continue;
+        case B_RUBBLE:   if (roll < 25) mb_w.biome[i] = B_HILL;   continue;
+        case B_LAVA:     continue;                      /* only the CA cools lava */
+        default: break;
+        }
+
+        /* 2. vegetation returns, but only next to vegetation — so a burnt
+         * continent regrows inward from its surviving edges instead of sprouting
+         * evenly, which is both true and much better to watch */
+        if (o != O_NONE) continue;
+        int neigh = 0;
+        for (int k = 0; k < 4; k++) {
+            static const int8_t DX[4] = { 1, -1, 0, 0 };
+            static const int8_t DY[4] = { 0, 0, 1, -1 };
+            int nx = x + DX[k], ny = y + DY[k];
+            if (!mb_in(nx, ny)) continue;
+            uint8_t no = mb_w.obj[AT(nx, ny)];
+            if (no == O_TREE || no == O_TREE2 || no == O_BUSH) neigh++;
+        }
+        int fert = mb_age_fertility();
+        switch (b) {
+        case B_FOREST:
+            if (roll * 100 < 70 * fert && neigh) mb_w.obj[i] = (r & 1) ? O_TREE : O_TREE2;
+            break;
+        case B_MEADOW:
+            if (roll * 100 < 40 * fert) mb_w.obj[i] = neigh ? O_BUSH : O_TUFT;
+            break;
+        case B_GRASS:
+            if (roll * 100 < 25 * fert) mb_w.obj[i] = (roll & 1) ? O_TUFT : O_BUSH;
+            /* grass next to forest becomes forest: woodland advances */
+            if (neigh >= 2 && roll < 6) mb_w.biome[i] = B_FOREST;
+            break;
+        case B_SAVANNA:
+            if (roll * 100 < 18 * fert) mb_w.obj[i] = O_TUFT;
+            break;
+        case B_DESERT:
+            if (roll < 6) mb_w.obj[i] = O_CACTUS;
+            break;
+        case B_SWAMP:
+            if (roll * 100 < 30 * fert) mb_w.obj[i] = O_DEAD;
+            break;
+        default: break;
+        }
+    }
+}

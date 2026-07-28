@@ -1,0 +1,5 @@
+# a blessing — clean bright chime
+wave 1
+freq 0.55 0.08 0 0
+env 0.01 0.18 0.16 0.30
+arp 0.62 0.12

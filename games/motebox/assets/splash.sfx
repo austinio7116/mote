@@ -1,0 +1,5 @@
+# water / rain — soft wet burst
+wave 3
+freq 0.45 -0.12 0 0
+env 0.01 0.10 0.06 0.25
+lpf 0.45 -0.15 0.15

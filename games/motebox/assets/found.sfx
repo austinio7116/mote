@@ -1,0 +1,5 @@
+# a village is founded — a small rising fanfare
+wave 1
+freq 0.36 0.10 0 0
+env 0.01 0.14 0.14 0.22
+arp 0.55 0.10

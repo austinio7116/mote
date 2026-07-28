@@ -169,9 +169,11 @@ void mb_flux_ignite(int cx, int cy, int r)
 
 void mb_flux_init(void)
 {
-    s_next = (uint8_t *)g_api->alloc(NC);
-    memset(mb_w.flux, 0, NC);
+    s_next = (uint8_t *)g_api->alloc(NC);      /* once: the arena has no free */
+    mb_flux_reset();
 }
+
+void mb_flux_reset(void);
 
 /* --- the pass ----------------------------------------------------------- */
 
@@ -317,6 +319,7 @@ typedef struct {
     int16_t  x, y;
     int8_t   dx, dy;
     uint16_t life;        /* in ticks */
+    int16_t  hp;          /* kaiju only: an army can bring one down */
 } Agent;
 
 #define NAGENT 6
@@ -337,8 +340,35 @@ void mb_agent_spawn(int kind, int x, int y)
     a->dx = (int8_t)((int)(r & 3) - 1);
     a->dy = (int8_t)((int)((r >> 2) & 3) - 1);
     if (!a->dx && !a->dy) a->dx = 1;
-    a->life = (kind == AG_TORNADO) ? 90 : 40;
+    a->life = (kind == AG_TORNADO) ? 90 : (kind == AG_VENT ? 40 :
+              (kind == AG_MAW ? 60000 : 900));      /* the Maw never stops */
+    a->hp = (kind >= AG_KAIJU0 && kind < AG_MAW) ? 900 : 0;
+    if (kind >= AG_KAIJU0 && kind < AG_MAW) mb_chron_disaster("a titan walks", x, y);
+    if (kind == AG_MAW) mb_chron_disaster("the Maw opens", x, y);
 }
+
+/* An army fighting a kaiju: units call this when they are adjacent to one, which
+ * is how a kingdom can actually win. Returns 1 if the blow killed it. */
+int mb_agent_hurt(int x, int y, int dmg)
+{
+    for (int i = 0; i < NAGENT; i++) {
+        Agent *a = &s_ag[i];
+        if (!a->alive || a->kind < AG_KAIJU0 || a->kind >= AG_MAW) continue;
+        int dx = a->x - x, dy = a->y - y;
+        if (dx * dx + dy * dy > 6) continue;
+        a->hp -= (int16_t)dmg;
+        if (a->hp <= 0) {
+            a->alive = 0;
+            mb_chron_disaster("the titan falls", a->x, a->y);
+            mb_fx_impact((float)a->x, (float)a->y, FXE_VOID, 1.4f);
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+int mb_agent_hp(int i) { return (i >= 0 && i < NAGENT) ? s_ag[i].hp : 0; }
 
 int mb_agent_count(void)
 {
@@ -388,6 +418,64 @@ static void agent_step(void)
                 }
             mb_fx_burst((float)a->x, (float)a->y, 3, PK_GUST, FXE_ASH, 4.0f, 0.5f);
             mb_fx_shake(1.2f);
+        } else if (a->kind >= AG_KAIJU0 && a->kind < AG_MAW) {
+            /* A KAIJU walks toward the nearest village and wrecks it. It is the
+             * crowd-pleaser precisely because it has a GOAL: a monster that
+             * wandered would read as weather, and this reads as an attack. */
+            int tx = a->x, ty = a->y, bestd = 1 << 30;
+            for (int v = 1; v < MAXV; v++) {
+                if (!mb_v[v].alive) continue;
+                int dx = mb_v[v].x - a->x, dy = mb_v[v].y - a->y;
+                int d = dx * dx + dy * dy;
+                if (d < bestd) { bestd = d; tx = mb_v[v].x; ty = mb_v[v].y; }
+            }
+            if ((r & 3) != 3) {                      /* three ticks in four it moves */
+                a->x = (int16_t)(a->x + (tx > a->x ? 1 : (tx < a->x ? -1 : 0)));
+                a->y = (int16_t)(a->y + (ty > a->y ? 1 : (ty < a->y ? -1 : 0)));
+            }
+            /* the angel is the one that heals rather than harms: it smites the
+             * marked and the cursed, and blesses everyone else */
+            if (a->kind == AG_ANGEL) {
+                mb_unit_area(a->x, a->y, 3, UAP_HEAL, 0);
+                mb_unit_area(a->x, a->y, 3, UAP_UNTRAIT, TR_CURSED | TR_MADNESS);
+                mb_fx_burst((float)a->x, (float)a->y, 3, PK_STAR, FXE_HOLY, 2.0f, 0.8f);
+            } else {
+                mb_unit_area(a->x, a->y, 2, UAP_HURT, 60);
+                /* buildings in reach come down; a phoenix burns instead */
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int bx = a->x + dx, by = a->y + dy;
+                        if (!mb_in(bx, by)) continue;
+                        if (a->kind == AG_PHOENIX) { add_to(mb_w.flux, bx, by, FX_FIRE, 12); continue; }
+                        if (mb_is_build(mb_w.obj[AT(bx, by)])) {
+                            mb_w.obj[AT(bx, by)] = O_NONE;
+                            mb_w.biome[AT(bx, by)] = B_RUBBLE;
+                        }
+                    }
+                mb_fx_burst((float)a->x, (float)a->y, 2, PK_SMOKE, FXE_VOID, 1.5f, 0.9f);
+            }
+            mb_fx_shake(1.6f);
+        } else if (a->kind == AG_MAW) {
+            /* THE MAW: a void that eats the world and never stops. It grows
+             * outward one ring at a time, and nothing puts it back. */
+            int grow = 3 + (int)(r & 3);
+            for (int t = 0; t < grow; t++) {
+                uint32_t q = mb_rand((uint32_t)(i * 71u + t * 13u));
+                int rad = 1 + (int)(q % 3);
+                int ang = (int)((q >> 4) & 7);
+                static const int8_t DX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+                static const int8_t DY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+                int mx = a->x + DX[ang] * rad, my = a->y + DY[ang] * rad;
+                if (!mb_in(mx, my)) continue;
+                mb_w.biome[AT(mx, my)] = B_OCEAN;    /* the sea takes it back */
+                mb_w.obj[AT(mx, my)] = O_NONE;
+                mb_w.claim[AT(mx, my)] = 0;
+                mb_w.elev[AT(mx, my)] = 0;
+            }
+            mb_unit_area(a->x, a->y, 2, UAP_KILL, CAUSE_DISASTER);
+            /* it drifts, so it does not simply drill one hole */
+            if ((r & 7) == 0) { a->x = (int16_t)(a->x + a->dx); a->y = (int16_t)(a->y + a->dy); }
+            mb_fx_burst((float)a->x, (float)a->y, 2, PK_RING, FXE_VOID, 0.6f, 1.0f);
         } else {                                    /* AG_VENT */
             /* a volcano keeps erupting: lava every tick, so it builds a cone and
              * the flow finds its own drainage */
@@ -401,4 +489,107 @@ static void agent_step(void)
 
         if (!mb_in(a->x, a->y) || --a->life == 0) a->alive = 0;
     }
+}
+
+/* --- natural disasters --------------------------------------------------
+ * WorldBox gates what can fire naturally on the world's own state: population,
+ * city count and the age. Same philosophy here, and the age is most of it — the
+ * Age of Sun is a tinderbox, the Age of Ice freezes the sea, the Age of Ash
+ * falls on everyone. A world with nobody in it gets left alone, because a
+ * disaster nothing witnesses is just noise.
+ */
+void mb_flux_natural(void)
+{
+    if (!mb_law(LAW_DISASTER)) return;
+    if (mb_pop_civ() < 6) return;                     /* nobody to witness it */
+    uint32_t r = mb_rand(0x4a7fu);
+
+    int dry = mb_age_dryness(), cold = mb_age_cold();
+
+    /* HEATWAVE / spontaneous fire: dry ground ignites on its own */
+    if (dry > 100 && (r & 255) < (uint32_t)(dry >> 4)) {
+        int x = (int)((r >> 8) % MW), y = (int)((r >> 18) % MH);
+        mb_flux_ignite(x, y, 1);
+        if ((r & 7) == 0) mb_chron_disaster("a heatwave", x, y);
+    }
+
+    /* BLIZZARD: frost at the latitudes the climate already made cold */
+    if (cold > 100 && (r & 255) < (uint32_t)(cold >> 4)) {
+        int x = (int)((r >> 9) % MW);
+        int y = (r & 0x10000u) ? (int)((r >> 19) % 18) : MH - 1 - (int)((r >> 19) % 18);
+        mb_flux_blob(x, y, 2, FX_FROST, 7);
+        if ((r & 15) == 0) mb_chron_disaster("a blizzard", x, y);
+    }
+
+    /* ASHFALL: the Age of Ash on everyone, a little at a time. Deliberately weak
+     * — at 3 damage in a radius of 4, three times every four ticks, it wiped out
+     * every living thing on the map inside thirty years and the 300-year curve
+     * ended with pop 0, wild 0. An age should press on a world, not end it. */
+    if (mb_age_id() == AGE_ASH && (mb_w.tick % 16) == 0) {
+        uint32_t q = mb_rand(0x5a1fu);
+        int x = (int)(q % MW), y = (int)((q >> 10) % MH);
+        if (mb_land(mb_w.biome[AT(x, y)])) mb_unit_area(x, y, 3, UAP_HURT, 2);
+    }
+
+    /* PLAGUE: it starts somewhere, once in a long while, in the densest place */
+    if (mb_law(LAW_PLAGUE) && (r & 0xFFFu) == 0) {
+        int best = 0, bestp = 8;
+        for (int v = 1; v < MAXV; v++)
+            if (mb_v[v].alive && mb_v[v].pop > bestp) { bestp = mb_v[v].pop; best = v; }
+        if (best) {
+            mb_unit_area(mb_v[best].x, mb_v[best].y, 3, UAP_TRAIT, TR_PLAGUE | TR_CONTAGIOUS);
+            mb_chron_disaster("a plague", mb_v[best].x, mb_v[best].y);
+        }
+    }
+
+    /* TSUNAMI: rare, and it comes from the sea rather than from nowhere — a wall
+     * of water pushed inland from a random coast, which then recedes through the
+     * flood rule and leaves wet sand and drowned fields behind. */
+    if ((r & 0x1FFFu) == 0) {
+        int cx = (int)((r >> 13) % MW), cy = (int)((r >> 20) % MH);
+        /* walk out to the nearest deep water so it starts offshore */
+        for (int step = 0; step < 40 && mb_in(cx, cy); step++) {
+            if (mb_w.biome[AT(cx, cy)] == B_OCEAN || mb_w.biome[AT(cx, cy)] == B_SEA) break;
+            cx += (cx < MW / 2) ? -1 : 1;
+        }
+        if (mb_in(cx, cy) && mb_water(mb_w.biome[AT(cx, cy)])) {
+            for (int d = -8; d <= 8; d++) mb_flux_add(cx, cy + d, FX_WATER, 12);
+            mb_chron_disaster("a tsunami", cx, cy);
+        }
+    }
+
+    /* SINKHOLE: the ground simply goes. Small, permanent, and it takes whatever was
+     * standing on it — the cheapest disaster in the game and one of the nastiest,
+     * because there is no front to see coming. */
+    if ((r & 0xFFFu) == 1) {
+        int cx = (int)((r >> 12) % MW), cy = (int)((r >> 21) % MH);
+        if (mb_in(cx, cy) && mb_land(mb_w.biome[AT(cx, cy)])) {
+            int rad = 1 + (int)((r >> 6) & 1);
+            for (int y = cy - rad; y <= cy + rad; y++)
+                for (int x = cx - rad; x <= cx + rad; x++) {
+                    if (!mb_in(x, y)) continue;
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > rad * rad) continue;
+                    mb_w.biome[AT(x, y)] = B_RUBBLE;
+                    mb_w.obj[AT(x, y)] = O_NONE;
+                    mb_w.elev[AT(x, y)] = (uint8_t)(mb_w.elev[AT(x, y)] > 30
+                                                    ? mb_w.elev[AT(x, y)] - 30 : 0);
+                }
+            mb_unit_area(cx, cy, rad, UAP_KILL, CAUSE_DISASTER);
+            mb_chron_disaster("the ground opens", cx, cy);
+        }
+    }
+
+    /* THE UNDEAD: graveyards left by a war or a famine stand up on their own */
+    if (mb_law(LAW_MONSTERS) && (r & 0x7FFu) == 0) {
+        int gx = (int)((r >> 12) % MW), gy = (int)((r >> 22) % MH);
+        if (mb_unit_raise_dead(gx, gy, 5) > 0)
+            mb_chron_disaster("the dead rise", gx, gy);
+    }
+}
+
+void mb_flux_reset(void)
+{
+    memset(mb_w.flux, 0, NC);
+    for (int i = 0; i < NAGENT; i++) s_ag[i].alive = 0;
+    s_wind_phase = 2;
 }
