@@ -794,7 +794,29 @@ globally fatal, and only a long run says which.
 | The whole continent read yellow | Political tint at 25% over 23 biome colours could not be told from farmland. The border now carries almost all the colour, and it is a lookup table rather than 43,008 blends a frame. |
 | Putting the cursor on a house crashed the game | `O_NAME` had 15 entries after the enum grew to 31, and C will not tell you. There is a compile-time tripwire on it now. |
 
-## 21. Open questions and risks
+## 21. Where it stands
+
+Built, measured and committed. The device `.mote` cross-builds at 191 KB of flash;
+`authoring/audit.sh` passes 10 worlds × 600 years against 8 invariants; the God's
+Eye pass costs 45 µs and Mortal View 90 µs per frame on the host, one core.
+
+Not built, and honestly so:
+
+- **Fallout** — 21 of the 22 disasters are in. Fallout needs the tech tier that
+  unlocks it, and tech is a number on a kingdom that nothing yet spends.
+- **Trials** — the eight scenarios with par year counts and medals (§11). The Faith
+  economy and the audit's metrics are the machinery they need; nothing else is.
+- **Legends screen** — legends are earned and written to the chronicle, but there is
+  no hall of names to read them in.
+- **Soul Card** — B inspects a tile and reports it in the HUD; the full card (family,
+  traits, kills, faith) is not drawn.
+- **Two gods, one world** (§19) — the determinism rule it needs has been kept
+  throughout, so it remains available rather than foreclosed.
+- **Device verification.** Everything above is host-measured. The tundra-reads-purple
+  question, the political tint's legibility and the real frame cost all want the
+  actual panel.
+
+## 22. Open questions and risks
 
 - **Unit cap is a guess pending Phase 1.** 384 is what the arena and the cycle budget allow on
   paper; `redmote`'s 140 units at 30 fps on a 96×96 map is the only measured precedent, and its

@@ -558,10 +558,15 @@ void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
                     TILE, TILE, 0, 0, VIEW_H);
     }
 
-    /* hub: the tab, the picked power, and the one control that is not obvious */
+    /* LABELS AT THE EDGES, not in the hub. Three stacked 8 px lines through the
+     * middle overlapped each other AND sat exactly where the near icons on the east
+     * and west arms are, so half the wheel was unreadable. The frame has two empty
+     * strips and the wheel has none. */
     const char *tn = TABS[s_tab].name;
     const char *pn = tab[s_wheel_pick >= 0 ? s_wheel_pick : s_sel[s_tab]].name;
-    g_api->text_font(fb, font, tn, WCX - (int)strlen(tn) * 3, WCY - 13, rim);
-    g_api->text_font(fb, font, pn, WCX - (int)strlen(pn) * 3, WCY - 4, hi);
-    g_api->text_font(fb, font, "RB tab", WCX - 18, WCY + 5, rim);
+    g_api->draw_rect(fb, 0, 0, 128, 10, dim, 1, 0, VIEW_H);
+    g_api->draw_rect(fb, 0, VIEW_H - 10, 128, 10, dim, 1, 0, VIEW_H);
+    g_api->text_font(fb, font, tn, WCX - (int)strlen(tn) * 3, 1, rim);
+    g_api->text_font(fb, font, "RB", 112, 1, rim);
+    g_api->text_font(fb, font, pn, WCX - (int)strlen(pn) * 3, VIEW_H - 9, hi);
 }
