@@ -54,7 +54,7 @@ static inline int mb_water(uint8_t b) { return b >= B_OCEAN && b <= B_ICE; }
  * "is this a building" is one comparison. */
 enum {
     O_NONE = 0,
-    O_TREE, O_TREE2, O_DEAD, O_BUSH, O_TUFT, O_ROCK, O_CACTUS, O_FLOWER,
+    O_TREE, O_TREE2, O_DEAD, O_BUSH, O_TUFT, O_ROCK, O_REEDS, O_FLOWER,
     O_ORE, O_SILVER, O_GOLD, O_GEM, O_BOULDER, O_PEAKROCK, O_GRAVE,
     /* --- built things (Phase 4) --- */
     O_BUILD0,
@@ -93,16 +93,18 @@ enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
 #define MAXU 384
 
 enum {
-    /* FIVE HUMANOID PEOPLES, and they must stay first: `sp < SP_CIV_N` is the whole
-     * "can found a village" test. */
-    SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC, SP_TROLL,
+    /* FOUR HUMANOID PEOPLES, and they must stay first: `sp < SP_CIV_N` is the whole
+     * "can found a village" test. Four is also exactly what WorldBox has.
+     * There was a fifth, monsters[2,1], on a label of "brown troll/ogre" with LOW
+     * confidence. It is a scorpion. A low-confidence label is a hint, not an answer. */
+    SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC,
     SP_DEER, SP_BOAR, SP_SHEEP, SP_HEN, SP_GOAT,           /* grazers and prey */
     SP_WOLF, SP_DOG, SP_SNAKE, SP_SPIDER,                  /* predators */
     SP_FROG, SP_BAT, SP_RAT,                               /* water, swarm, vermin */
     SP_WIGHT, SP_GHOST, SP_DEMON,                          /* what the world raises */
     SP_N
 };
-#define SP_CIV_N SP_DEER          /* five races: human, elf, dwarf, orc, troll */                     /* species below this build things */
+#define SP_CIV_N SP_DEER          /* four races: human, elf, dwarf, orc */                     /* species below this build things */
 
 enum { DIET_PLANT = 0, DIET_MEAT };
 enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */
@@ -242,7 +244,8 @@ void mb_world_start(int *x, int *y);   /* a sensible opening cursor cell */
 const char *mb_world_shape_name(void);
 const char *mb_world_climate_name(void);
 void mb_world_stats(void);            /* MOTEBOX_STAT=1 */
-void mb_grow_step(void);              /* regrowth, so a ruined world can heal */
+void mb_grow_step(void);               /* regrowth, so a ruined world can heal */
+void mb_grave_step(void);              /* headstones weather, so peace clears them */
 
 /* mb_flux.c */
 void mb_flux_init(void);
@@ -324,6 +327,7 @@ void mb_civ_init(void);
 void mb_civ_reset(void);
 void mb_civ_step(void);
 int  mb_civ_drop_village(int sp, int x, int y);
+void mb_civ_rehome(void);              /* the homeless join a village or found one */
 int  mb_village_found(int sp, int x, int y, int kingdom);
 int  mb_village_need(int v, uint16_t *target);
 int  mb_village_resource(int v, int kind, int *ox, int *oy);
@@ -417,6 +421,7 @@ void mb_draw_prepare(void);   /* rebuilds the tint LUT when an age or kingdom ch
 void mb_god_band(uint16_t *fb, int y0, int y1);      /* set_background_cb target */
 void mb_god_units(uint16_t *fb, int y0, int y1);
 uint16_t mb_kingdom_colour(int k);
+void mb_dim_rect(uint16_t *fb, int x, int y, int w, int h, uint16_t toward, int amt);
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

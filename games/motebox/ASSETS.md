@@ -78,64 +78,86 @@ Every biome is a 47-cell blob47 autotile, generated. The mask→cell contract is
 one definition of "cell 23" in the repo. Layout is 8 × 6 = 48 cells (47 used) per
 variant block, stacked for `nvar`, matching how the engine steps variants.
 
-Three things had to be true before it stopped looking like squares, and each was
-learned by shipping the failure:
+### The geometry was READ OFF the artist's pixels, not guessed
 
-### 1. It has to actually be blob47 — with corners CUT
+Three versions of this got it wrong by reasoning about what a good tileset ought to
+be. The fourth dumped `hedge`'s cells as a colour map. That settles it:
 
-A rim around a square tile is not a blob47 set. Every convex corner stays a hard
-right angle, so a coastline is a staircase and a diagonal river is a flight of steps.
-Each cell now **chamfers its outside corners**: where two adjacent edges are both
-open, the corner pixel and one step along each edge are cut back to a darker tone, so
-the silhouette reads as a 45° bevel. That single change is what gives shapely coasts,
-round islands and diagonal rivers.
+```
+   body cell     N open      NW convex    island       inner NW
+   00000000      ........    ........     ........     .RR.....
+   00000000      RRRRRRRR    ..RRRRRR     .bRRRRb.     R.R.....    . = transparent
+   00000000      RRRRRRRR    .RbRRRRR     .bRbbRb.     RR......    R = BRIGHT rim
+   00000000      bbbbbbbb    .RRbbbbb     .bRbbRb.     ........    b = base
+```
 
-(The engine draws one terrain per cell with nothing beneath, so a cut cannot be
-transparent — it has to be a colour. A darker tone reads as cut, which is the trick
-hand-drawn sets use.)
+1. **The interior is FLAT.** One solid colour, every pixel — `hedge` and
+   `floor_jungle` both. All the character is in the edge cells. Earlier versions
+   spent everything on interior patterns and gave the edge a single-pixel line,
+   which is exactly backwards, and it is why large areas read as wallpaper.
+2. **The rim is 2 px thick and BRIGHTER than the base.** A 1 px line reads as an
+   outline; a 2 px band of a lighter tone reads as a *lit edge*, which is what makes
+   a patch look like a raised, shaped thing.
+3. **Corners round with a single pixel**, and the rim thins to 1 px where opposite
+   edges are both open. That is the whole secret of round islands, shapely coasts
+   and one-tile rivers — no chamfer, no three-pixel bevel.
 
-### 2. Interiors must have STRUCTURE, or be flat
+The one thing not copied is the transparency. `hedge` insets itself a pixel on every
+open side because it is an *overlay* on a floor; Motebox draws one terrain per cell
+with nothing underneath, so an inset would put a dark gap around every patch — two,
+where neighbours both contribute. So the rim runs to the tile edge and the corner
+rounding is done in base colour.
 
-Compare the artist's own sets: `wall_brick`'s interior is a **regular staggered
-course** of blocks and mortar; `hedge`'s is simply **flat** with a bright rim. Both
-read perfectly. What does not read is random scatter — grains and blades sprinkled at
-random look like litter dropped on a flat colour.
+### Only the south and east are lit on soft ground
 
-So the vocabulary is regular: `dashes` (offset courses — water, dunes, lava),
-`brickwork` (staggered courses — rock, strata), `specks` and `tufts` (a fixed
-lattice — grass, snow, ash), `stripes` (furrows — ploughed field), `capped` (light on
-the upper rows — peaks), `plain` (flat, and often the best answer), and `cracks` (the
-only irregular one, because a regular crack is a joint). Nothing is placed at random.
+Rimming all four sides of everything is a trap this fell into twice. When both
+neighbours rim the edge they share, that edge carries **two** bright bands, and a
+continent of grass, savanna and sand reads as a jigsaw of outlined pieces.
 
-Colour **pairs** matter as much as pattern: the sea was once drawn as SLATE — a mauve —
-on BLUE, which came out as pink zigzags on cyan. Water is two blues, or blue with
-white foam. Nothing else.
+So `sides="NSEW"` is for materials with a physically real edge all round — water has
+foam, rock has a cliff, lava has a hot line, a ploughed field has a boundary.
+Everything soft gets `sides="SE"`: one light direction, so exactly one of any two
+neighbours draws a band on their shared edge. Every patch still has a lit side and a
+shaped corner, and nothing is outlined.
 
-### 3. Only some biomes rim
+### Patterns must earn their place, and no pattern is masonry
 
-When every biome rimmed itself, every boundary carried **two** rims — one from each
-side — and the map read as outlined ribbons. Soft ground (grass, snow, sand, ash,
-hill, swamp, savanna, tundra, rubble) now has `rim=None` and simply stops; water,
-rock, peak, ice, lava and ploughed land keep theirs, because those edges are
-physically real. Everything still cuts its corners.
+`plain` is the default and nearly the only answer. A pattern is allowed only where
+the real surface has one: water and lava keep `dashes` (a liquid is a surface in
+motion), farmland keeps `stripes` (furrows, the one biome that *should* look
+man-made), and rubble/swamp/scorched carry a second variant.
 
-And a rim must survive a **one-tile-wide band**, which is entirely rim. Shallow water
-had a sand-coloured rim, so every river in the world rendered as a peach footpath.
+**`brickwork` is gone from the ground entirely.** Three versions used staggered
+courses for hill, mountain, peak and rubble on the argument that `wall_brick` is the
+most legible 8 px texture in the master. True, and beside the point — `wall_brick` is
+a **wall**. Laid over terrain it made a map with visible mortar: a red brick wall
+with villagers standing on it. Ground has no joints.
 
-| Biome | Rim | Reads as |
-|---|---|---|
-| sea | white | foam |
-| ocean | pale blue | deep water at the shore |
-| shallow | *none* | a one-tile river is still water |
-| lava | yellow | a hot edge glowing against what it eats |
-| rock, peak | light top + dark underside | a cliff |
-| farmland | dark grey | a ploughed boundary |
-| grass, sand, snow, ash… | *none* | the neighbour's edge is the edge |
+Colour **pairs** matter as much as geometry: base and rim come from the same family
+and the rim is the brighter one — DKGREEN rimmed GREEN (literally `hedge`'s pair),
+BROWN rimmed ORANGE, DKGREY rimmed LTGREY. A contrasting hue makes ribbons; a *dark*
+rim (NAVY, BLACK) is what "why does the grey texture have black outlines?" was
+looking at. Nothing rims dark. The sea was once drawn as SLATE — a mauve — on BLUE,
+which came out as pink zigzags on cyan; water is two blues, or blue with white foam.
+
+| Biome | Rim | Sides | Reads as |
+|---|---|---|---|
+| ocean / sea | pale blue / white | all | deep water, then foam |
+| shallow | white | all | a river — the rim thins to 1 px, so it stays water |
+| lava / acid | yellow | all | a hot edge glowing against what it eats |
+| mountain / peak / rubble | light grey / white | all | a cliff |
+| farmland | orange | all | a ploughed boundary |
+| grass, sand, snow, hill, ash… | brighter own hue | **SE** | a lit side, one sun |
 
 Check it with `python3 authoring/preview_terrain_map.py` — it renders a synthetic
 coastline, a diagonal river and a round island through the engine's own mask→cell
-logic. A preview that repeats one tile tells you nothing about a tileset whose entire
-job is edges, which is exactly how two versions of this shipped.
+logic, and it will also render the artist's 47×1 sheets for comparison. A preview
+that repeats one tile tells you nothing about a tileset whose entire job is edges,
+which is exactly how two versions of this shipped.
+
+**And `mote bake` is not optional.** `extract_box.py` writes `tilesets/*.png`; the
+game compiles `src/*.tiles.h`. Regenerating art without baking means the build keeps
+drawing the old tileset, which cost a full round of "this is still a brick wall".
 
 ## 3. Synced blob47 rulesets — `tilesets/{hedge,floor_*,wall_*}`
 

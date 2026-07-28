@@ -45,7 +45,7 @@ static uint8_t obj_fuel(uint8_t o)
     switch (o) {
     case O_DEAD:                return 255;   /* deadwood is tinder */
     case O_TREE: case O_TREE2:  return 220;
-    case O_BUSH: case O_CACTUS: return 150;
+    case O_BUSH: case O_REEDS: return 150;
     case O_TUFT: case O_FLOWER: return 110;
     default:                    return 0;
     }

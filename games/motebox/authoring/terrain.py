@@ -12,11 +12,43 @@ because they are 47-cell blob autotiles: the artist drew a different tile for ev
 arrangement of neighbours, so every boundary, corner and one-tile spur has art made
 for it. That is the standard this has to meet.
 
-So each biome here is a real 47-cell blob47 set, generated: the interior comes from
-the texture vocabulary (biomes.py), and every cell draws a RIM on the sides that
-face a different terrain, with the inner corners picked out. The neighbour-mask ->
-cell-index contract is imported from roguemote's blob47.py rather than reimplemented,
-so there is exactly one definition of "cell 23" in the whole repo.
+WHAT THE ARTIST ACTUALLY DOES. Three versions of this file guessed at the geometry
+and all three looked wrong, so the fourth went and read his pixels. Dumping hedge's
+cells as a colour map settles it completely:
+
+    body cell        N open          NW convex       island
+    00000000         ........        ........        ........
+    00000000         RRRRRRRR        ..RRRRRR        .bRRRRb.
+    00000000         RRRRRRRR        .RbRRRRR        .bRbbRb.   . = transparent
+    00000000         bbbbbbbb        .RRbbbbb        .bRbbRb.   R = BRIGHT rim
+    00000000         bbbbbbbb        .RRbbbbb        .bRbbRb.   b = base
+    ...              ...             ...             ...
+
+Three facts, none of which the earlier versions had:
+
+  1. THE INTERIOR IS FLAT. Not textured, not stippled — one solid colour, every
+     pixel. Both hedge and floor_jungle are like this. Every gram of character is
+     in the edge cells. Earlier versions spent all their effort on interior
+     patterns and gave the edge a single-pixel line, which is precisely backwards,
+     and it is why large areas read as wallpaper.
+  2. THE RIM IS TWO PIXELS THICK AND BRIGHTER THAN THE BASE. A 1 px line reads as
+     an outline; a 2 px band of a lighter tone reads as a lit edge, which is what
+     makes a patch look like a raised, shaped thing.
+  3. CORNERS ROUND WITH A SINGLE PIXEL, and the rim thins to 1 px when opposite
+     edges are both open. That is the entire secret of the round islands and the
+     shapely coasts: one base-coloured pixel at each convex corner, and no
+     three-pixel chamfer anywhere.
+
+The one thing not copied is the transparency: hedge insets itself a pixel on every
+open side, because it is an OVERLAY on a floor. Motebox draws one terrain per cell
+with nothing underneath, so an inset would put a dark gap around every patch in the
+world — and adjacent patches would each contribute one, making it two. So the rim
+runs to the tile edge here, and the corner rounding is done in base colour instead
+of by cutting away.
+
+The neighbour-mask -> cell-index contract is imported from roguemote's blob47.py
+rather than reimplemented, so there is exactly one definition of "cell 23" in the
+whole repo.
 
 Sheet layout is 8 columns x 6 rows = 48 cells (47 used, one spare) per variant
 block, stacked vertically for nvar. That matches how the engine steps variants:
@@ -43,92 +75,102 @@ _CORNERS = (("NW", "N", "W", (0, 0)),
             ("SE", "S", "E", (TS - 1, TS - 1)))
 
 
-def _rim_plan(mask):
-    """Which pixels of this cell are rim, and which are CUT.
+def build(base, interior_fn, rim, nvar=2, sides="NSEW"):
+    """A whole blob47 sheet, in the artist's own geometry (see the module docstring).
 
-    Open edge -> the whole one-pixel line along it.
+    base        -> the flat interior colour
+    interior_fn -> (variant) -> an 8x8 RGBA tile; normally a flat fill of `base`.
+                   Only a surface that genuinely has structure should pass anything
+                   else: moving water has ripples, a ploughed field has furrows.
+    rim         -> the 2 px edge colour. BRIGHTER than the base, or the patch reads
+                   as outlined rather than lit. May be None for a biome that should
+                   simply stop (its neighbours' rims are then the only edge).
+    sides       -> WHICH edges may carry the rim, and this is load-bearing.
 
-    OUTSIDE CORNER (both adjacent cardinals open) -> the corner is CHAMFERED: the
-    outermost pixel, and the two beside it, are cut back to a darker tone so the
-    silhouette reads as a 45-degree bevel instead of a right angle. This is the
-    difference between a coastline with shape and a staircase of squares, and it is
-    what makes a diagonal river read as a diagonal. Without it every patch in the
-    world has four hard corners no matter how good its texture is.
+                   "NSEW" is for a material with a physically real edge on every
+                   side: water has foam all round, rock has a cliff all round.
 
-    (The engine draws one terrain per cell with no layer beneath, so a cut cannot be
-    transparent — it has to be a colour. A darker tone at the corner reads as cut,
-    which is the same trick hand-drawn tilesets use.)
-
-    INNER corner (both cardinals same, the diagonal different) -> one pixel poked
-    into the inside of the join. Those eight cells are the entire reason a
-    nine-slice looks wrong and a blob47 does not.
+                   "SE" is for SOFT GROUND, and it exists because rimming all four
+                   sides of everything is a trap this file has now fallen into twice.
+                   When both neighbours rim the edge they share, that edge carries
+                   TWO bright bands, and a continent of grass, savanna and sand reads
+                   as a jigsaw of outlined pieces rather than as country. Lighting
+                   only the south and east means exactly one of any two neighbours
+                   draws a band on their shared edge — the same rule a painter uses,
+                   one light direction — so every patch still has a lit side and a
+                   shaped corner, and nothing is outlined.
     """
-    open_e = blob47.edges_open(mask)
-    rim, cut = set(), set()
-    if open_e["N"]:
-        for x in range(TS): rim.add((x, 0))
-    if open_e["S"]:
-        for x in range(TS): rim.add((x, TS - 1))
-    if open_e["W"]:
-        for y in range(TS): rim.add((0, y))
-    if open_e["E"]:
-        for y in range(TS): rim.add((TS - 1, y))
-
-    for name, a, b, (cx, cy) in _CORNERS:
-        if open_e[a] and open_e[b]:
-            dx = 1 if cx == 0 else -1
-            dy = 1 if cy == 0 else -1
-            cut.add((cx, cy))                      # the corner itself
-            cut.add((cx + dx, cy))                 # and a step along each edge,
-            cut.add((cx, cy + dy))                 # which is what makes it a bevel
-            rim.add((cx + dx, cy + dy))            # the new corner of the rim
-
-    for c in blob47.inner_corners(mask):
-        for name, a, b, p in _CORNERS:
-            if name == c:
-                rim.add(p)
-    return rim, cut, open_e
-
-
-def build(interior_fn, rim, rim_south=None, nvar=2, cut=None):
-    """A whole blob47 sheet.
-
-    interior_fn(variant) -> an 8x8 RGBA tile (the texture vocabulary supplies it)
-    rim                  -> the edge colour
-    rim_south            -> optional second colour for the bottom edge, which is what
-                            turns a flat patch into something with a lit top and a
-                            shadowed underside (rock, cliffs, ploughed land)
-    cut                  -> the colour of a chamfered outside corner. Defaults to
-                            rim_south, then to the rim, but a biome that sits in
-                            something (an island in the sea, a river in the grass)
-                            looks best cutting toward what it sits in.
-    """
-    # RIM MAY BE None. Every biome rimming itself means every boundary carries TWO
-    # rims — one from each side — and the whole map reads as outlined ribbons. Only
-    # materials with a real physical edge should draw one: water has foam, rock has a
-    # cliff, lava has a hot line, a ploughed field has a boundary. Soft ground (grass,
-    # snow, sand, ash) just stops, and the neighbour's rim is the edge.
-    cut = cut or rim_south or rim
     sheet = Image.new("RGBA", (COLS * TS, ROWS * TS * nvar))
     for v in range(nvar):
         for cell, mask in enumerate(blob47.CANON):
             tile = interior_fn(v).copy()
             px = tile.load()
-            rimpx, cutpx, open_e = _rim_plan(mask)
+            open_e = blob47.edges_open(mask)
             if rim is not None:
-                for (x, y) in rimpx:
-                    if (x, y) in cutpx:
-                        continue
-                    c = rim
-                    if rim_south and y == TS - 1 and open_e["S"]:
-                        c = rim_south
-                    px[x, y] = c + (255,)
-            if cut is not None:
-                for (x, y) in cutpx:
-                    px[x % TS, y % TS] = cut + (255,)
+                lit = {d: (open_e[d] and d in sides) for d in "NSEW"}
+                _paint_rim(px, base, rim, lit, mask, open_e)   # open_e sizes the band
             sheet.paste(tile, ((cell % COLS) * TS,
                                (cell // COLS) * TS + v * ROWS * TS))
     return sheet
+
+
+def _paint_rim(px, base, rim, open_e, mask, all_open=None):
+    R, B = rim + (255,), base + (255,)
+
+    # 1. THICKNESS. Two pixels, except where opposite edges are both open — an 8 px
+    #    tile cannot carry two 2 px bands and still be a tile, so it thins to one.
+    #    This is the artist's own rule and it is what makes a one-tile spur (a river,
+    #    an isthmus) still look like the material rather than like its own outline.
+    #
+    #    It is sized on `all_open` — whether the PATCH is narrow here — and not on
+    #    which sides happen to be lit. Reading it off the lit set meant an SE-lit
+    #    biome never thinned at all, so a single stray tile of ash left over from an
+    #    old fire drew a fat two-pixel band and a town two centuries after its fires
+    #    was dotted with hard grey squares.
+    wide = all_open if all_open is not None else open_e
+    tv = 1 if (wide["N"] and wide["S"]) else 2
+    th = 1 if (wide["W"] and wide["E"]) else 2
+
+    if open_e["N"]:
+        for y in range(tv):
+            for x in range(TS): px[x, y] = R
+    if open_e["S"]:
+        for y in range(TS - tv, TS):
+            for x in range(TS): px[x, y] = R
+    if open_e["W"]:
+        for x in range(th):
+            for y in range(TS): px[x, y] = R
+    if open_e["E"]:
+        for x in range(TS - th, TS):
+            for y in range(TS): px[x, y] = R
+
+    # 2. ROUND THE CONVEX CORNERS — one pixel, in base colour, at the outer corner,
+    #    plus one where the two rim bands meet on the inside. Two pixels per corner
+    #    is the whole of it: the earlier three-pixel chamfer was both heavier and
+    #    less round, and it is why coastlines still read as staircases.
+    for name, a, b, (cx, cy) in _CORNERS:
+        if not (open_e[a] and open_e[b]):
+            continue
+        px[cx, cy] = B
+        ix = th if cx == 0 else TS - 1 - th
+        iy = tv if cy == 0 else TS - 1 - tv
+        px[ix, iy] = B
+
+    # 3. INNER CORNERS get a small bright arc poking into the tile. These eight cells
+    #    are the entire reason a nine-slice looks wrong and a blob47 does not: without
+    #    them, the inside of every bend is square.
+    for c in blob47.inner_corners(mask):
+        for name, a, b, (cx, cy) in _CORNERS:
+            if name != c or not (open_e[a] or open_e[b]):
+                continue
+            dx = 1 if cx == 0 else -1
+            dy = 1 if cy == 0 else -1
+            px[cx, cy] = R
+            px[cx + dx, cy] = R
+            px[cx, cy + dy] = R
+            px[cx + dx, cy + dy] = B          # the notch that makes it an arc
+            px[cx + 2 * dx, cy] = R
+            px[cx, cy + 2 * dy] = R
 
 
 def write(tsets_dir, name, sheet, nvar, edge=1, vweight=None):

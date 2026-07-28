@@ -258,41 +258,45 @@ def build_biomes():
     """
     import biomes, terrain
 
-    # 1. WATER, LAVA, ACID: the artist's chevron band as the interior, with a foam or
-    #    hot rim on the sides facing land. The band is genuinely good flowing liquid;
-    #    only its edges were missing.
-    # WATER IS TWO BLUES. The master's chevron band was used for this and it came out
-    # as SLATE (a mauve) zigzagging on cyan — pink triangles on blue, which is what a
-    # sea must never look like. A regular dash course in a second tone of the SAME
-    # hue is what reads as water at eight pixels.
+    # 1. WATER, LAVA, ACID: a flat base with a regular ripple course, and a BRIGHT
+    #    2 px rim on the sides facing anything else. These four are the only biomes
+    #    that keep an interior pattern beyond a variant or two, because a liquid
+    #    genuinely is a surface in motion — everything else is flat, like hedge.
+    # WATER IS TWO BLUES. The master's chevron band was used for this once and it came
+    # out as SLATE (a mauve) zigzagging on cyan — pink triangles on blue, which is what
+    # a sea must never look like. A dash course in a second tone of the SAME hue is
+    # what reads as water at eight pixels.
     for name, base, ink, rim, step in (
             ("bio_ocean", NAVY,  BLUE,   BLUE,   3),   # dark water, paler ripples
             ("bio_sea",   BLUE,  WHITE,  WHITE,  4),   # bright water, white foam
             ("bio_lava",  RED,   ORANGE, YELLOW, 3),   # the same course, read as heat
             ("bio_acid",  GREEN, YELLOW, YELLOW, 3)):
         sheet = terrain.build(
+            base,
             lambda v, _b=base, _i=ink, _s=step: biomes.dashes(_b, _i, 7 + v, step=_s, run=3),
-            rim, nvar=2, cut=NAVY)          # water cuts toward the deep 
+            rim, nvar=2)
         terrain.write(TSETS, name, sheet, 2, vweight=[1, 1])
         print(f"[blob47]  {name:20s} nvar=2  rim={rim}")
 
-    # 2. the shallows: brighter water, denser foam, and a sand-coloured rim so a
-    #    coastline reads as wet sand rather than as another blue
-    # rim=None, because a river is usually ONE TILE WIDE and a one-tile band is
-    # entirely rim: with a sand-coloured rim every river in the world rendered as a
-    # peach footpath. The sand belongs to the beach biome, which worldgen puts beside
-    # real coasts.
-    sheet = terrain.build(lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4),
-                          None, nvar=2, cut=NAVY)
+    # 2. the shallows: brighter water, denser foam. It keeps a white rim now that the
+    #    generator thins the band to one pixel where opposite edges are both open —
+    #    which is exactly the one-tile river case. With a fixed 2 px rim a river was
+    #    entirely rim, and an earlier sand-coloured version rendered every river in the
+    #    world as a peach footpath.
+    sheet = terrain.build(BLUE,
+                          lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4),
+                          WHITE, nvar=2)
     terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[1, 1])
-    print(f"[blob47]  {'bio_shallow':20s} nvar=2")
+    print(f"[blob47]  {'bio_shallow':20s} nvar=2  rim=foam")
 
-    # 3. everything else, from the vocabulary
-    for name, base, builders, weights, rim, rim_s, cutc in biomes.recipes():
+    # 3. everything else, from the vocabulary — flat bases, bright rims
+    for rec in biomes.recipes():
+        name, base, builders, weights, rim = rec[:5]
+        sides = rec[5] if len(rec) > 5 else "NSEW"
         nvar = len(builders)
-        sheet = terrain.build(lambda v: builders[v](v), rim, rim_s, nvar=nvar, cut=cutc)
+        sheet = terrain.build(base, lambda v: builders[v](v), rim, nvar=nvar, sides=sides)
         terrain.write(TSETS, name, sheet, nvar, vweight=weights)
-        print(f"[blob47]  {name:20s} nvar={nvar} weights={weights} rim={rim}")
+        print(f"[blob47]  {name:20s} nvar={nvar} weights={weights} sides={sides}")
 
 
 def sync_terrain():

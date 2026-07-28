@@ -36,7 +36,10 @@
  *   elf    characters[7,3]  "green-hooded ranger (pointed hat)"
  *   dwarf  characters[5,3]  "dwarf"                      (human-labelled)
  *   orc    monsters  [7,4]  "goblin (green)"
- *   troll  monsters  [2,1]  "brown troll/ogre"
+ *
+ * There was a fifth on monsters[2,1], whose label reads "brown troll/ogre" at LOW
+ * confidence. Looked at, it is a scorpion. Four races it is — which is also exactly
+ * what WorldBox ships.
  *
  * THE WILDLIFE IS WILD FIRST. The animals sheet is genuinely farm-heavy — the labels
  * count dogs, pigs, chicks, hens, lambs, sheep, ducks and geese — so the wilderness
@@ -50,7 +53,6 @@ const MbSpecies MB_SP[SP_N] = {
     { "elf",       0,  7, 3, 11, 18, DIET_PLANT, DRV_CIV   },
     { "dwarf",     0,  5, 3, 10, 24, DIET_PLANT, DRV_CIV   },
     { "orc",       1,  7, 4, 13, 22, DIET_PLANT, DRV_CIV   },
-    { "troll",     1,  2, 1,  9, 26, DIET_PLANT, DRV_CIV   },
     /* --- grazers and prey --- */
     { "deer",      2,  4, 0, 16, 10, DIET_PLANT, DRV_BEAST },
     { "boar",      2,  5, 0, 12, 14, DIET_PLANT, DRV_BEAST },
@@ -191,10 +193,24 @@ static void kill(int i, int cause)
     mb_chron_death(i, cause);
     u->alive = 0;
     /* A corpse is a grave the world remembers, and the seed the undead rising
-     * needs — but only for the civ species, or the map would be all headstones. */
+     * needs — but only for the civ species, or the map would be all headstones.
+     *
+     * A GRAVE NEEDS ROOM. Without the neighbour test a settled village turned into
+     * a carpet of headstones — 59 of them in one 16x14 screen, a quarter of the
+     * ground, which is what "why is that town filled with ghosts?" was actually
+     * looking at. Refusing to bury where two neighbours are already buried turns
+     * the same deaths into a GRAVEYARD: clusters with gaps, which reads as a place
+     * that buries its dead rather than a place that lost a war. */
     if (u->sp < SP_DEER && mb_in(tx, ty) && mb_w.obj[AT(tx, ty)] == O_NONE
-        && mb_land(mb_w.biome[AT(tx, ty)]))
-        mb_w.obj[AT(tx, ty)] = O_GRAVE;
+        && mb_land(mb_w.biome[AT(tx, ty)])) {
+        int near = 0;
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++) {
+                int nx = tx + dx, ny = ty + dy;
+                if ((dx || dy) && mb_in(nx, ny) && mb_w.obj[AT(nx, ny)] == O_GRAVE) near++;
+            }
+        if (near < 2) mb_w.obj[AT(tx, ty)] = O_GRAVE;
+    }
 }
 
 void mb_unit_kill(int i, int cause) { kill(i, cause); }

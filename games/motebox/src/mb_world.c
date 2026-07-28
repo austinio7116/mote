@@ -256,11 +256,10 @@ void mb_world_gen(uint32_t seed)
             case B_GRASS:   if (roll <  22) ob[AT(x,y)] = O_TUFT;
                             else if (roll < 30) ob[AT(x,y)] = O_FLOWER;
                             else if (roll < 34) ob[AT(x,y)] = O_TREE; break;
-            case B_SWAMP:   if (roll <  60) ob[AT(x,y)] = pick & 1 ? O_DEAD : O_BUSH; break;
+            case B_SWAMP:   if (roll <  60) ob[AT(x,y)] = pick & 1 ? O_DEAD : O_REEDS; break;
             case B_SAVANNA: if (roll <  18) ob[AT(x,y)] = O_TUFT;
                             else if (roll < 26) ob[AT(x,y)] = O_DEAD; break;
-            case B_DESERT:  if (roll <  12) ob[AT(x,y)] = O_CACTUS;
-                            else if (roll < 20) ob[AT(x,y)] = O_ROCK; break;
+            case B_DESERT:  if (roll <  20) ob[AT(x,y)] = O_ROCK; break;
             case B_HILL:    if (roll <  30) ob[AT(x,y)] = O_ROCK;
                             else if (roll < 40) ob[AT(x,y)] = O_ORE;
                             else if (roll < 44) ob[AT(x,y)] = O_SILVER; break;
@@ -316,6 +315,25 @@ void mb_world_stats(void)
  * every 300 ticks (about six years), which is the right pace for a forest — and
  * it costs the same whether the world is pristine or ruined.
  */
+/* Graves weather on their own sweep, not on the random sample.
+ *
+ * WHY SEPARATELY. The regrowth sample visits 48 of 14336 cells a tick, so a cell
+ * waits ~300 ticks to be looked at; at any per-visit chance that reads as
+ * plausible, a headstone stood for a century of game time and every settled
+ * village silted up with them. A rotating cursor covers the whole map every 64
+ * ticks instead, so removal scales with how many graves there ARE, and a grave
+ * lasts about a decade — long enough that a battlefield is still readable the
+ * next time you look, short enough that peace clears it. */
+void mb_grave_step(void)
+{
+    static uint32_t cur;
+    for (int n = 0; n < NC / 64; n++) {
+        uint32_t i = cur++ % NC;
+        if (mb_w.obj[i] != O_GRAVE) continue;
+        if ((mb_rand(i * 2246822519u + 0x51edu) & 255) < 26) mb_w.obj[i] = O_NONE;
+    }
+}
+
 void mb_grow_step(void)
 {
     for (int t = 0; t < 48; t++) {
@@ -328,19 +346,19 @@ void mb_grow_step(void)
         /* 1. scarred ground heals up the ladder it was pushed down */
         switch (b) {
         case B_SCORCHED: if (roll < 40) mb_w.biome[i] = B_ASH;    continue;
-        case B_ASH:      if (roll < 30) mb_w.biome[i] = B_GRASS;  continue;
+        /* ASH HEALS FASTER THAN IT USED TO. At 30/256 on a sample that revisits a
+         * cell every ~300 ticks, a burnt tile lasted about fifty years, so a town
+         * two centuries after its last fire was still speckled with grey. */
+        case B_ASH:      if (roll < 90) mb_w.biome[i] = B_GRASS;  continue;
         case B_RUBBLE:   if (roll < 25) mb_w.biome[i] = B_HILL;   continue;
         case B_LAVA:     continue;                      /* only the CA cools lava */
         default: break;
         }
 
-        /* 2. graves weather away. Without this they only accumulate: a bad age left
-         * thirty-four headstones in a single screen and a settled world became a
-         * boneyard. Slow enough that a battlefield is still legible for years. */
-        if (o == O_GRAVE) {
-            if (roll < 12) mb_w.obj[i] = O_NONE;
-            continue;
-        }
+        /* 2. graves are swept separately (see mb_grave_step) — the 48-cell sample
+         * revisits a given cell about every 300 ticks, and at any believable
+         * per-visit chance that left headstones standing for over a century. */
+        if (o == O_GRAVE) continue;
 
         /* 3. vegetation returns, but only next to vegetation — so a burnt
          * continent regrows inward from its surviving edges instead of sprouting
@@ -372,10 +390,10 @@ void mb_grow_step(void)
             if (roll * 100 < 18 * fert) mb_w.obj[i] = O_TUFT;
             break;
         case B_DESERT:
-            if (roll < 6) mb_w.obj[i] = O_CACTUS;
+            if (roll < 4) mb_w.obj[i] = O_ROCK;
             break;
         case B_SWAMP:
-            if (roll * 100 < 30 * fert) mb_w.obj[i] = O_DEAD;
+            if (roll * 100 < 30 * fert) mb_w.obj[i] = (roll & 1) ? O_DEAD : O_REEDS;
             break;
         default: break;
         }

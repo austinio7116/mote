@@ -43,6 +43,7 @@
 #include "boulders.h"
 #include "treasure_ore.h"
 #include "ui_status.h"
+#include "tools.h"
 #include "crowns_fx.h"
 #include "fx_frost.h"
 #include "fx_acid.h"
@@ -200,6 +201,31 @@ void mb_draw_prepare(void)
 
 void mb_draw_init(void) { s_lut_sig = 0; s_lut_age = -1; mb_draw_prepare(); }
 
+/* Darken a rectangle of the framebuffer TOWARD a colour, by reading it back and
+ * blending. draw_rect can only fill opaquely, so a translucent panel has to be done
+ * a pixel at a time — which is fine for a UI overlay of a few thousand pixels, and it
+ * is the only way to keep the world readable underneath. */
+void mb_dim_rect(uint16_t *fb, int x0, int y0, int w, int h, uint16_t toward, int amt)
+{
+    if (x0 < 0) { w += x0; x0 = 0; }
+    if (y0 < 0) { h += y0; y0 = 0; }
+    if (x0 + w > MOTE_FB_W) w = MOTE_FB_W - x0;
+    if (y0 + h > VIEW_H)    h = VIEW_H - y0;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++) {
+#if MOTE_SS == 1
+            uint16_t *p = &fb[y * MOTE_FB_PW + x];
+            *p = blend565(*p, toward, amt);
+#else
+            for (int sy = 0; sy < MOTE_SS; sy++)
+                for (int sx = 0; sx < MOTE_SS; sx++) {
+                    uint16_t *p = &fb[(y * MOTE_SS + sy) * MOTE_FB_PW + x * MOTE_SS + sx];
+                    *p = blend565(*p, toward, amt);
+                }
+#endif
+        }
+}
+
 /* ------------------------------------------------------------ God's Eye ---
  * The engine hands us LOGICAL row bands; on device MOTE_SS == 1 so logical and
  * physical coincide, but the host screenshot tooling can supersample, so expand
@@ -307,84 +333,77 @@ void mb_god_units(uint16_t *fb, int y0, int y1)
  * these coordinates are the ones the labelled contact sheets show.
  */
 typedef struct { const MoteImage *img; uint8_t cx, cy; } ObjSpr;
+
+/* EVERY CELL BELOW IS THE LABEL SET'S OWN NAME FOR IT. Checked one at a time after
+ * a village turned out to be full of GHOSTS: the grave was drawing ui_status[11,3],
+ * which the labels call "ghost icon (grey, large)". The rest of the list was no
+ * better — the mine was a "station/shop" (a computer terminal), the dock was "train
+ * track corner", the fire pit was "hay" and the farm was "orange flowers". */
 static const ObjSpr MB_OBJ_SPR[O_N] = {
-    { 0, 0, 0 },                        /* none      */
-    { &nature_img,        6, 4 },       /* tree      */
-    { &nature_img,        7, 4 },       /* tree2     */
-    { &nature_img,        8, 4 },       /* dead tree */
-    { &nature_img,        4, 4 },       /* bush      */
-    { &nature_img,        2, 4 },       /* tuft      */
-    { &nature_img,        5, 4 },       /* rock      */
-    { &nature_img,        9, 3 },       /* cactus    */
-    { &nature_img,        0, 3 },       /* flower    */
-    { &treasure_ore_img,  1, 2 },       /* ore (copper pile)  */
-    { &treasure_ore_img,  1, 1 },       /* silver    */
-    { &treasure_ore_img,  1, 0 },       /* gold      */
-    { &treasure_ore_img,  7, 0 },       /* gem       */
-    { &boulders_img,      0, 1 },       /* boulder   */
-    { &boulders_img,      4, 1 },       /* snow peak */
-    { &ui_status_img,    11, 3 },       /* grave — the master's headstone */
+    { 0, 0, 0 },                        /* none                                  */
+    { &nature_img,        6, 4 },       /* tree      "tree (foliage on trunk)"   */
+    { &nature_img,        7, 4 },       /* tree2     "tree (foliage on trunk)"   */
+    { &nature_img,        8, 4 },       /* dead tree "tree trunk/dead tree"      */
+    { &nature_img,        4, 4 },       /* bush      "green bush"                */
+    { &nature_img,        2, 4 },       /* tuft      "grass tuft"                */
+    { &nature_img,        5, 4 },       /* rock      "brown rock/boulder"        */
+    { &nature_img,        9, 3 },       /* reeds     "reeds" — swamp, not desert */
+    { &nature_img,        0, 3 },       /* flower    "pink flower"               */
+    { &treasure_ore_img,  1, 2 },       /* iron                                  */
+    { &treasure_ore_img,  1, 1 },       /* silver                                */
+    { &treasure_ore_img,  1, 0 },       /* gold                                  */
+    { &treasure_ore_img,  7, 0 },       /* gems                                  */
+    { &boulders_img,      0, 1 },       /* boulder   "grey boulder"              */
+    { &boulders_img,      4, 1 },       /* crag      "mountain slope"            */
+    { &nature_img,       15, 0 },       /* grave     "tombstone"  (was a GHOST)  */
 };
-/* The same tripwire O_NAME has. This array was 15 entries long while the enum grew
- * past 30, so graves drew nothing: a battlefield with thirty-four dead on it showed
- * bare grass. A short array is silent, which is why it needs a check. */
+/* The tripwire O_NAME has. This array was 15 entries long while the enum grew past
+ * 30, so graves drew nothing at all: a battlefield with thirty-four dead showed bare
+ * grass. A short array is silent, which is exactly why it needs a check. */
 typedef char mb_objspr_covers_world[(sizeof MB_OBJ_SPR / sizeof MB_OBJ_SPR[0]) >= O_BUILD0 ? 1 : -1];
 
-/* One sprite per visible flux cell. Lava needs none — it IS the biome — so the
- * table covers the kinds that sit ON the ground rather than replacing it. */
+/* One sprite per visible flux cell. Lava needs none — it IS the biome — so the table
+ * covers only the kinds that sit ON the ground rather than replacing it. */
 typedef struct { const MoteImage *img; uint8_t cx, cy, frames; } FluxSpr;
 static const FluxSpr FLUX_SPR[FX_N] = {
     { 0, 0, 0, 0 },                       /* none  */
-    { &crowns_fx_img,  6, 7, 1 },         /* fire  — the master's flame burst */
+    { &crowns_fx_img,  6, 7, 1 },         /* fire  — "fire/explosion frame" */
     { 0, 0, 0, 0 },                       /* lava  — drawn as terrain */
     { &fx_frost_img,  13, 3, 3 },         /* water — spray */
     { &fx_acid_img,   13, 2, 3 },         /* acid  — hissing sparkle */
     { &fx_frost_img,  12, 4, 3 },         /* frost — twinkle */
 };
 
-/* Buildings draw from the buildings sheet, whose ROW is the kingdom colour — the
- * correction roguemote's ASSETS.md records (cols are door/open/house/extend, rows
- * are five colours) is exactly the per-kingdom building set a civ sim needs. */
+/* BUILDINGS, every cell confirmed against the label set.
+ *
+ * The buildings sheet is FOUR COLUMNS BY FIVE COLOUR ROWS: col 0 a full-tile walled
+ * face with a window, col 1 the same with the door open, col 2 a house with a
+ * narrower pitched roof, col 3 its wide continuation. The row is the kingdom's banner
+ * colour, so a village is visibly one kingdom's village.
+ *
+ * THE HALL IS THE SOLID BLOCK, THE HOUSE IS THE PITCHED ROOF — that is what lets you
+ * tell the centre of a village from its outskirts at eight pixels. */
 typedef struct { uint8_t sheet, cx, cy; } BldSpr;
-enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE };
-
-/* BUILDINGS THAT LOOK LIKE BUILDINGS, chosen by looking at the sheets.
- *
- * The first version pointed most of them at `props` cells that are planks, benches
- * and stone arches, so a village rendered as scattered debris and the honest
- * complaint was "where are the civilizations?". Only the house and the hall used
- * the buildings sheet at all.
- *
- * The buildings sheet is FOUR COLUMNS BY FIVE COLOUR ROWS: col 0 a walled front
- * with a door, col 1 the same with the door open, col 2 a pitched-roof house, col 3
- * its wide continuation. The row is the kingdom's banner colour, so every settled
- * structure below draws from it and a village is visibly one kingdom's village. The
- * few that genuinely are not houses (the campfire, the mine, the temple) take the
- * master's own prop for the thing they are.
- */
+enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE, BS_TOOLS };
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
-    /* THE HALL IS THE SOLID BLOCK, THE HOUSE IS THE PITCHED ROOF. Column 0 of the
-     * buildings sheet is a full-tile walled face with a window; column 2 is a house
-     * with a narrower roof over a body. Giving halls the block and houses the roof is
-     * what lets you tell the centre of a village from its outskirts at 8 px. */
-    { BS_PROPS,  3, 3 },   /* fire pit  — the master's bonfire */
-    { BS_BUILD,  2, 0 },   /* hall 1    — still just a house at tier one */
-    { BS_BUILD,  0, 0 },   /* hall 2    — a walled block: it grew */
-    { BS_BUILD,  0, 0 },   /* hall 3    — the keep */
-    { BS_BUILD,  2, 0 },   /* house 1   */
-    { BS_BUILD,  2, 0 },   /* house 2   */
-    { BS_BUILD,  3, 0 },   /* house 3   — the wide piece: a rich village looks denser */
-    { BS_NATURE, 4, 3 },   /* farm      — the master's orange crop cluster */
-    { BS_PROPS,  6, 2 },   /* mine      — the stone bench-and-anvil */
-    { BS_PROPS,  4, 1 },   /* woodcutter— cut planks */
-    { BS_BUILD,  0, 0 },   /* barracks  — a walled front, in the kingdom's colour */
-    { BS_PROPS,  2, 3 },   /* temple    — the master's statue */
-    { BS_PROPS,  7, 2 },   /* tower     — a lit torch on a post */
-    { BS_PROPS,  2, 2 },   /* dock      — the stone arch over water */
-    { BS_BUILD,  1, 0 },   /* wall      — the open-door front reads as a gate */
-    /* A HOLLOW SQUARE, which is what a plan looks like. (4,1) was a vertical bar
-     * from the same line-art set and rendered as unexplained white sticks. */
-    { BS_PLAN,   3, 2 },   /* the blueprint ghost */
+    { BS_NATURE,12, 0 },   /* fire pit  "fountain/well" — a village well marks a
+                            * founding better than the "hay" this used to be     */
+    { BS_BUILD,  2, 0 },   /* hall 1    — still just a house at tier one          */
+    { BS_BUILD,  0, 0 },   /* hall 2    — a walled block: it grew                 */
+    { BS_BUILD,  0, 0 },   /* hall 3    — the keep                                */
+    { BS_BUILD,  2, 0 },   /* house 1                                             */
+    { BS_BUILD,  2, 0 },   /* house 2                                             */
+    { BS_BUILD,  3, 0 },   /* house 3   — the wide piece: a rich village is denser */
+    { BS_NATURE, 3, 1 },   /* farm      "hay" — a haystack, not "orange flowers"  */
+    { BS_TOOLS,  0, 1 },   /* mine      "iron pickaxe", not a computer terminal   */
+    { BS_NATURE, 8, 4 },   /* woodcutter"tree trunk/dead tree" — a cut stump      */
+    { BS_BUILD,  0, 0 },   /* barracks  — a walled front in the kingdom's colour  */
+    { BS_NATURE,11, 0 },   /* temple    "stone pillars/columns"                   */
+    { BS_NATURE, 7, 0 },   /* tower     "lit torch" — a beacon                    */
+    { BS_PROPS,  7, 1 },   /* dock      "wooden barrel" — goods on a quay; the
+                            * master has no boat, and this was "train track corner" */
+    { BS_BUILD,  1, 0 },   /* wall      — the open-door front reads as a gate     */
+    { BS_PLAN,   3, 2 },   /* the blueprint ghost: a hollow square                */
 };
 
 void mb_draw_mortal(int cam_x, int cam_y)
@@ -392,47 +411,21 @@ void mb_draw_mortal(int cam_x, int cam_y)
     g_api->scene2d_begin(cam_x, cam_y);
     g_api->scene2d_set_autotiles(mb_w.biome, MW, MH, MB_TILES, B_COUNT);
 
-    /* One sprite per visible object. The visible window is 16x14 tiles plus a
-     * one-tile margin for partial scroll, so this is bounded at ~18x16 = 288
-     * whatever the world does. */
+    /* DRAW ORDER IS PRIORITY ORDER, not height order.
+     *
+     * scene2d holds MOTE_SCENE2D_MAX_SPRITES (128) and scene2d_add FAILS SOFT past
+     * that. A 16x14 window is 224 tiles, so a busy screen can always ask for more
+     * than the budget — and with ground clutter going in first, a settled village
+     * spent the entire budget on grass and headstones, and the sprites that got
+     * silently dropped were the BUILDINGS AND THE PEOPLE. A village with a castle,
+     * a temple, eighteen houses and twenty citizens drew as bare ground: that is
+     * what "why are there no buildings in the civilizations?" was looking at.
+     *
+     * So the order is what matters most first — buildings, people, disasters, flux,
+     * then clutter. The `layer` field still decides what draws ON TOP of what, so
+     * the picture is unchanged while there is room; past the cap you now lose a few
+     * tufts of grass instead of the town. */
     int c0 = cam_x / TILE, r0 = cam_y / TILE;
-    for (int r = r0; r <= r0 + MVH; r++) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = c0; c <= c0 + MVW; c++) {
-            if (c < 0 || c >= MW) continue;
-            uint8_t o = mb_w.obj[AT(c, r)];
-            if (!o || o >= O_N) continue;
-            const ObjSpr *s = &MB_OBJ_SPR[o];
-            if (!s->img) continue;
-            MoteSprite spr = {
-                s->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                (uint16_t)(s->cx * TILE), (uint16_t)(s->cy * TILE), TILE, TILE,
-                /* layer: draw order is height order, so ground clutter sits
-                 * under anything that walks (units land on layer 20+). */
-                10, 0
-            };
-            g_api->scene2d_add(&spr);
-        }
-    }
-
-    /* flux, on top of the ground it is consuming */
-    for (int r = r0; r <= r0 + MVH; r++) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = c0; c <= c0 + MVW; c++) {
-            if (c < 0 || c >= MW) continue;
-            uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
-            if (!k || k >= FX_N || !FLUX_SPR[k].img) continue;
-            const FluxSpr *f = &FLUX_SPR[k];
-            int fr = f->frames > 1 ? (int)((mb_w.tick + c + r) % f->frames) : 0;
-            MoteSprite spr = {
-                f->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                (uint16_t)((f->cx + fr) * TILE), (uint16_t)(f->cy * TILE), TILE, TILE,
-                50, 0
-            };
-            g_api->scene2d_add(&spr);
-        }
-    }
-
     /* buildings, above the ground and below the people */
     for (int r = r0; r <= r0 + MVH; r++) {
         if (r < 0 || r >= MH) continue;
@@ -443,7 +436,8 @@ void mb_draw_mortal(int cam_x, int cam_y)
             const BldSpr *B = &MB_BLD[o - O_BUILD0];
             const MoteImage *img = (B->sheet == BS_BUILD)  ? &buildings_img
                                  : (B->sheet == BS_PLAN)   ? &blueprint_img
-                                 : (B->sheet == BS_NATURE) ? &nature_img : &props_img;
+                                 : (B->sheet == BS_NATURE) ? &nature_img
+                                 : (B->sheet == BS_TOOLS)  ? &tools_img : &props_img;
             /* the row IS the kingdom colour for the buildings sheet */
             int row = B->cy;
             if (B->sheet == BS_BUILD) {
@@ -469,7 +463,6 @@ void mb_draw_mortal(int cam_x, int cam_y)
             }
         }
     }
-
     /* people and beasts, above their buildings so a crowd is never hidden */
     for (int i = 0; i < mb_nu; i++) {
         const Unit *u = &mb_u[i];
@@ -485,7 +478,6 @@ void mb_draw_mortal(int cam_x, int cam_y)
                            TILE, TILE, 40, 0 };
         g_api->scene2d_add(&spr);
     }
-
     /* the walking disasters: the master's smoke swirl for a tornado, its cone
      * for a vent, lifted a tile so they stand above the ground they are wrecking */
     for (int i = 0, n = mb_agent_max(); i < n; i++) {
@@ -495,5 +487,42 @@ void mb_draw_mortal(int cam_x, int cam_y)
         MoteSprite spr = { &crowns_fx_img, (int16_t)(ax * TILE), (int16_t)(ay * TILE - TILE),
                            (uint16_t)(cx * TILE), (uint16_t)(cy * TILE), TILE, TILE, 70, 0 };
         g_api->scene2d_add(&spr);
+    }
+    /* flux, on top of the ground it is consuming */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
+            if (!k || k >= FX_N || !FLUX_SPR[k].img) continue;
+            const FluxSpr *f = &FLUX_SPR[k];
+            int fr = f->frames > 1 ? (int)((mb_w.tick + c + r) % f->frames) : 0;
+            MoteSprite spr = {
+                f->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                (uint16_t)((f->cx + fr) * TILE), (uint16_t)(f->cy * TILE), TILE, TILE,
+                50, 0
+            };
+            g_api->scene2d_add(&spr);
+        }
+    }
+    /* LAST: ground clutter — trees, rocks, tufts, headstones. Whatever the cap
+     * eats, it eats here. */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t o = mb_w.obj[AT(c, r)];
+            if (!o || o >= O_N) continue;
+            const ObjSpr *s = &MB_OBJ_SPR[o];
+            if (!s->img) continue;
+            MoteSprite spr = {
+                s->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                (uint16_t)(s->cx * TILE), (uint16_t)(s->cy * TILE), TILE, TILE,
+                /* layer: draw order is height order, so ground clutter sits
+                 * under anything that walks (units land on layer 20+). */
+                10, 0
+            };
+            g_api->scene2d_add(&spr);
+        }
     }
 }

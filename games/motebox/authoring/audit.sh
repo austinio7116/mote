@@ -21,9 +21,10 @@ FAIL=0
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# Villages are dropped at a few spots; some seeds put ocean there, which is
-# correct behaviour and simply means that world has fewer founders.
-DROPS="50,60;74,66;40,44;62,30;86,74"
+# Five founding parties, placed on LAND by the game (MOTEBOX_SEEDN) rather than at
+# fixed coordinates. With fixed coordinates, ocean-heavy worlds put every party in
+# the sea, and half the audited worlds ran four hundred years empty and passed.
+DROPS=5
 
 echo "Motebox Empire Audit — $SEEDS seeds x $YEARS years"
 echo
@@ -32,7 +33,7 @@ for i in $(seq 1 "$SEEDS"); do
     SEED=$((i * 7919))
     OUT="$TMP/s$SEED.csv"
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy MOTE_AUTORUN=1 MOTE_DT_MS=33 \
-        MOTEBOX_SEED=$SEED MOTEBOX_SEEDV="$DROPS" MOTEBOX_YEARS=$YEARS \
+        MOTEBOX_SEED=$SEED MOTEBOX_SEEDN="$DROPS" MOTEBOX_YEARS=$YEARS \
         MOTE_SHOT=/dev/null MOTE_SHOT_FRAME=2 \
         ./tools/mote run games/motebox 2>"$OUT" >/dev/null
 

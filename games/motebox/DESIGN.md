@@ -778,10 +778,13 @@ defensible and globally wrong.
 | What it looked like | The actual cause |
 |---|---|
 | "They are not blob47 — just rubbish squares" | Attempts one and two were *fills*: one tile repeated with no idea what was next to it, so every boundary was a hard pixel step. A fill cannot look like terrain at any polish level, because terrain is mostly EDGES. |
-| "Giving it a single line border is not making a blob47 set" | Attempt three added a rim — but a rim around a square is still a square. **Every convex corner has to be CUT**: the corner pixel and a step along each edge chamfered back, so the silhouette is a 45° bevel. That is what makes coastlines shapely, islands round and a diagonal river read as a diagonal instead of a staircase. |
+| "Giving it a single line border is not making a blob47 set" | Attempt three added a rim — but a rim around a square is still a square. |
+| "blob47 works best if it really handles angles properly — these all still have sharp corners" | Attempts three and four both *reasoned* about what the geometry should be. Attempt five went and **dumped `hedge`'s pixels as a colour map**, which settles it in one glance: the interior is one flat colour, the rim is **2 px thick and brighter than the base**, convex corners round with a **single pixel**, and the rim thins to 1 px where opposite edges are both open. That last rule is the whole secret of round islands, shapely coasts and one-tile rivers. The three-pixel chamfer of attempt four was both heavier and less round than one pixel. |
+| Six versions of "the interiors still look like wallpaper" | Because they were textured at all. **`hedge` and `floor_jungle` have completely flat body cells** — every gram of character is in the edge cells. Effort spent on interior pattern with a 1 px edge is exactly backwards, and any lattice tiled over a continent reads as wallpaper no matter how regular it is. |
+| A map with visible mortar — a brick wall you could walk on | Four biomes used staggered `brickwork` on the argument that `wall_brick` is the most legible 8 px texture in the master. True, and beside the point: `wall_brick` is a **wall**. Ground has no joints. |
 | "The grey triangles are not a sea texture" | The sea was the master's chevron band inked in SLATE — a mauve — over BLUE: pink zigzags on cyan. Water is two blues, or blue with white foam. |
 | "Do you not see the difference vs the original tilesets" | Put side by side, `wall_brick` has a regular staggered interior and `hedge` is simply flat — and mine was random scatter, which reads as litter. The vocabulary is regular now, or plain. |
-| Every patch read as an outlined ribbon | Every biome rimmed itself, so each boundary carried two rims. Only materials with a real physical edge rim now; soft ground just stops. |
+| Every patch read as an outlined ribbon — *twice* | Every biome rimmed all four sides, so each boundary carried **two** bright bands and a continent of grass, savanna and sand read as a jigsaw. Fixed once by removing soft ground's rim entirely, which also removed its corner rounding. Fixed properly by lighting only the **south and east** of soft ground: one light direction, so exactly one of any two neighbours draws a band on the edge they share, and every patch still has a lit side and a shaped corner. |
 | Every river was a peach footpath | A one-tile-wide band is *entirely* rim, and shallow water's rim was sand-coloured. |
 | No style at all, "as if you selected randomly" | Biome textures were chosen by INK COVERAGE from the master's decorative line art, so six biomes wore one diagonal motif in six colours, snow was scattered with hearts and tundra with plus signs. The interiors now come from a vocabulary that says what a material is (§ASSETS.md 2). |
 | Every patch looked outlined, like a sticker | The first rim was *darker* than the field. A grass edge has to be a *lighter* green fringe; rock gets a light top and a dark underside, which is a cliff; lava gets a hot yellow edge. |
@@ -793,6 +796,10 @@ defensible and globally wrong.
 | A village was invisible on the world map | At 1 px/tile a building drawn in its kingdom's colour was indistinguishable from a person standing on claimed ground. Buildings are white; only the hall carries the banner. |
 | The map was strewn with confetti | Every tree, pebble and ore seam got a coloured pixel, so a settlement and an army had to compete with a thousand rocks. Only gold, gems and graves draw now. |
 | Unexplained white sticks in villages | The blueprint ghost used a vertical bar from the line-art set. It is a hollow square now, which is what a plan looks like. |
+| "Why are there no buildings in the civilizations?" — the second time, and this one was real | A census counted a castle, eight houses, eighteen cottages, four farms and a temple inside the drawn window, and the screen showed bare ground. `scene2d` holds **128 sprites and `scene2d_add` fails soft** past that; a 16×14 window is 224 tiles, and ground clutter went in **first**. It spent the whole budget on grass and headstones and the buildings and people were the sprites silently dropped. Draw order is now priority order — buildings, people, disasters, flux, then clutter — so the same cap costs a few tufts of grass instead of the town. |
+| "Why is that town filled with ghosts?" | Two faults wearing one symptom. The grave sprite was `ui_status[11,3]`, which the label set calls *"ghost icon (grey, large)"* — so the dead literally drew as ghosts. And there were **59 graves in a 224-tile window**, a quarter of the ground: a corpse was buried wherever it fell with no spacing rule, and weathering was folded into the 48-cell regrowth sample, which revisits a cell every ~300 ticks and left headstones standing for 120 years. Graves now need two clear neighbours to be dug, and sweep on their own rotating cursor — a decade, not a century. 59 → 12. |
+| "Your 5th race is a scorpion texture" | `monsters[2,1]` is labelled *"brown troll/ogre"* at LOW confidence, and low confidence meant wrong. There are four races now, every cell label-verified. |
+| "The 4-direction interface looks ugly" | It was `draw_rect` boxes over a scanline dim of the whole screen, which left bright terrain between dark lines and read as CRT interference. It is now a **translucent cross** — the shape the control actually is — blended toward navy so the world stays legible under the arms, with the master's own ring hub, cardinal arrows, button discs under each icon and a gold ring on the pick. An opaque disc was tried in between: clean, but it blacked out a third of the map. |
 | "The text overlaps so I cannot read it" | rogue8 is proportional and the HUD used hard-coded x positions, so at year 100 the year ran into the power name. Every field now declares a column and text is measured against the real glyph advances and truncated to fit it. Headlines were also written wider than the 21 characters a 128 px row holds. |
 
 ## 21. What the curves taught us
@@ -819,13 +826,25 @@ globally fatal, and only a long run says which.
 | Wildlife hit zero and stayed there in 5 of 6 worlds | Extinction is absorbing. The map is a piece of a bigger world, so animals now migrate in — but only below a floor, so healthy predator-prey cycles still swing. |
 | Every world was 70% deer or 58% people, never both | The two class caps summed to 104% of the array, so it filled and all births failed. |
 | The whole continent read yellow | Political tint at 25% over 23 biome colours could not be told from farmland. The border now carries almost all the colour, and it is a lookup table rather than 43,008 blends a frame. |
+| Half the audited worlds reported "ok" having never had a civilisation | The audit dropped founding parties at five **fixed coordinates**, and on an ocean-heavy world all five landed in the sea. Four of eight worlds ran 400 years empty and passed. `MOTEBOX_SEEDN` now has the game place parties on land, spread out — and the first run with it exposed a famine the empty worlds had been hiding. A test that passes because it tested nothing is worse than no test. |
+| 2251 starvation deaths in a world sitting at the population ceiling | **152 homeless dwarves.** When a village dies its citizens are set adrift (`village = 0`) and nothing ever picked them up: no granary, because a villager eats from the village store, but no housing gate either, so they bred without limit and starved. A people that loses its town now walks to the nearest one within about twenty tiles and joins it, or stops and founds a new one. 2251 → 6. |
+| A village of forty could never feed itself | The farm cap was a flat four, which feeds about a dozen. It scales with population now — and a lord will not roof an already-hungry village, because building beds you cannot feed is building the next famine. |
 | Putting the cursor on a house crashed the game | `O_NAME` had 15 entries after the enum grew to 31, and C will not tell you. There is a compile-time tripwire on it now. |
 
 ## 22. Where it stands
 
-Built, measured and committed. The device `.mote` cross-builds at 191 KB of flash;
-`authoring/audit.sh` passes 10 worlds × 600 years against 8 invariants; the God's
-Eye pass costs 45 µs and Mortal View 90 µs per frame on the host, one core.
+Built, measured and committed. The device `.mote` cross-builds at 246 KB of flash;
+`authoring/audit.sh` passes 8 worlds × 400 years against 8 invariants **and every one
+of those worlds now grows a real civilisation**, which was not true when the audit
+first went green. The God's Eye pass costs 45 µs and Mortal View 90 µs per frame on
+the host, one core.
+
+The visual work converged only once it stopped being reasoned about. Both remaining
+classes of fault had the same cure: **read the source of truth instead of arguing from
+first principles** — the artist's pixels for the tileset geometry, `labels_human.json`
+for every sprite cell, and a census of the drawn window for "the buildings are
+missing". Every round of "this still looks like rubbish" was a round where I had
+inferred the answer rather than looked it up.
 
 Not built, and honestly so:
 

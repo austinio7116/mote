@@ -22,6 +22,7 @@
 #include "monsters.h"
 #include "buildings.h"
 #include "treasure_ore.h"
+#include "ui_buttons.h"
 
 /* --- what a power is ---------------------------------------------------- */
 
@@ -70,7 +71,7 @@ static const Power P_LAND[8] = {
     { PW_GRASS,    "GRASS",    &ui_status_img,  9, 5, 3, 1,   2 },
     { PW_LOWER,    "LOWER",    &ui_gauges_img,  1, 3, 2, 1,   2 },
     { PW_WATER,    "WATER",    &ui_status_img,  7, 3, 2, 1,   4 },
-    { PW_DESERT,   "DESERT",   &nature_img,     9, 3, 3, 1,   3 },
+    { PW_DESERT,   "DESERT",   &nature_img,     5, 4, 3, 1,   3 },   /* a rock, not "reeds" */
     { PW_ROAD,     "ROAD",     &ui_status_img,  5, 5, 1, 1,   1 },
 };
 static const Power P_WRATH[8] = {
@@ -192,7 +193,7 @@ static void terra(int x, int y, int id)
     case PW_DESERT:
         if (!mb_land(*b)) break;
         *b = B_DESERT;
-        *o = ((mb_rand((uint32_t)i * 13u) & 15) < 2) ? O_CACTUS : O_NONE;
+        *o = ((mb_rand((uint32_t)i * 13u) & 15) < 2) ? O_REEDS : O_NONE;
         break;
     case PW_ROAD:
         if (!mb_land(*b)) break;
@@ -524,50 +525,132 @@ int mb_power_input(const MoteInput *in)
 
 #define WCX 64
 #define WCY (VIEW_H / 2)
-#define WR_NEAR 20
-#define WR_FAR  40
+#define WR_ARROW 12          /* the direction hint, just off the hub */
+#define WR_NEAR  23
+#define WR_FAR   37
 static const int8_t ARMX[4] = {  0, 1, 0, -1 };
 static const int8_t ARMY[4] = { -1, 0, 1,  0 };
+
+/* The four cardinal arrows out of ui_gauges, cream when live and grey when not:
+ * "arrow (up, cream)" [1,1] · right [2,2] · down [1,3] · left [0,2], and the grey
+ * set sits three columns over. The hub is its "ring/target icon". */
+static const uint8_t ARROW_CX[4] = { 1, 2, 1, 0 };
+static const uint8_t ARROW_CY[4] = { 1, 2, 3, 2 };
+
+/* ui_buttons "blank button (white)" [0,2] and "blank button (grey)" [0,3] — a real
+ * drawn disc to seat each icon on. The first version of this wheel seated them on
+ * draw_rect boxes, which is why it looked like a debug overlay. */
+#define BTN_LIT_CX 0
+#define BTN_LIT_CY 2
+#define BTN_DIM_CX 0
+#define BTN_DIM_CY 3
+
+static void slot_pos(int arm, int far, int *ox, int *oy)
+{
+    int r = far ? WR_FAR : WR_NEAR;
+    *ox = WCX + ARMX[arm] * r - 4;
+    *oy = WCY + ARMY[arm] * r - 4;
+}
 
 void mb_power_draw_wheel(uint16_t *fb, const MoteFont *font)
 {
     if (!s_wheel) return;
     const Power *tab = TABS[s_tab].p;
-    const uint16_t dim = MOTE_RGB565( 12,  14,  26);
-    const uint16_t rim = MOTE_RGB565(131, 118, 156);
-    const uint16_t hi  = MOTE_RGB565(255, 236,  39);
-    const uint16_t txt = MOTE_RGB565(255, 241, 232);
+    const uint16_t dim  = MOTE_RGB565( 12,  14,  26);
+    const uint16_t rim  = MOTE_RGB565(131, 118, 156);
+    const uint16_t hi   = MOTE_RGB565(255, 236,  39);
+    const uint16_t txt  = MOTE_RGB565(255, 241, 232);
 
-    /* Dim the world behind with scanlines rather than hiding it: you are choosing
-     * WHERE as much as WHAT, and the wheel is only up while LB is held. */
-    for (int y = 0; y < VIEW_H; y += 2)
-        g_api->draw_line(fb, 0, y, 127, y, dim, 0, VIEW_H);
+    /* A TRANSLUCENT CROSS, which is the shape the control actually is: two bars, one
+     * per axis, reaching to the far slots. Earlier tries were a scanline dim of the
+     * whole screen (bright terrain between dark lines — CRT interference) and then an
+     * opaque disc (clean, but it blacked out a third of the map). Blending toward navy
+     * at three quarters keeps the world legible under the arms, and the shape tells
+     * you what the d-pad does before you read a single label. */
+    const int BAR = 13, REACH = WR_FAR + 7;
+    /* Dim the cross ONCE — three rectangles that tile it with no overlap. Dimming two
+     * crossing bars instead put the centre through the blend twice, and the square
+     * where they met came out visibly darker than the arms: a seam right under the
+     * hub, which is the one place the eye is already looking. */
+    mb_dim_rect(fb, WCX - BAR,   WCY - REACH, BAR * 2,   REACH - BAR, dim, 190);
+    mb_dim_rect(fb, WCX - REACH, WCY - BAR,   REACH * 2, BAR * 2,     dim, 190);
+    mb_dim_rect(fb, WCX - BAR,   WCY + BAR,   BAR * 2,   REACH - BAR, dim, 190);
+    /* and outline the true cross perimeter — twelve segments, not two boxes */
+    const int L = WCX - REACH, R = WCX + REACH - 1, T = WCY - REACH, B = WCY + REACH - 1;
+    const int l = WCX - BAR,   r = WCX + BAR - 1,   t = WCY - BAR,   b = WCY + BAR - 1;
+    g_api->draw_line(fb, l, T, r, T, rim, 0, VIEW_H);       /* north cap  */
+    g_api->draw_line(fb, l, B, r, B, rim, 0, VIEW_H);       /* south cap  */
+    g_api->draw_line(fb, L, t, L, b, rim, 0, VIEW_H);       /* west cap   */
+    g_api->draw_line(fb, R, t, R, b, rim, 0, VIEW_H);       /* east cap   */
+    g_api->draw_line(fb, l, T, l, t, rim, 0, VIEW_H);       /* the eight  */
+    g_api->draw_line(fb, r, T, r, t, rim, 0, VIEW_H);       /* re-entrant */
+    g_api->draw_line(fb, l, b, l, B, rim, 0, VIEW_H);       /* sides that */
+    g_api->draw_line(fb, r, b, r, B, rim, 0, VIEW_H);       /* make it a  */
+    g_api->draw_line(fb, L, t, l, t, rim, 0, VIEW_H);       /* cross and  */
+    g_api->draw_line(fb, r, t, R, t, rim, 0, VIEW_H);       /* not a pair */
+    g_api->draw_line(fb, L, b, l, b, rim, 0, VIEW_H);       /* of boxes   */
+    g_api->draw_line(fb, r, b, R, b, rim, 0, VIEW_H);
 
-    for (int i = 0; i < 8; i++) {
-        int arm = i >> 1, far = i & 1;
-        int rr = far ? WR_FAR : WR_NEAR;
-        int x = WCX + ARMX[arm] * rr - 4, y = WCY + ARMY[arm] * rr - 4;
-        int on = (i == s_wheel_pick);
-        /* one spoke per arm, drawn with the near icon, so the two stops on an arm
-         * read as one arm with two steps out */
-        if (!far)
-            g_api->draw_line(fb, WCX, WCY, WCX + ARMX[arm] * (WR_FAR - 6),
-                             WCY + ARMY[arm] * (WR_FAR - 6), rim, 0, VIEW_H);
-        g_api->draw_rect(fb, x - 2, y - 2, 12, 12, on ? hi : dim, 1, 0, VIEW_H);
-        if (on) g_api->draw_rect(fb, x - 3, y - 3, 14, 14, txt, 0, 0, VIEW_H);
-        g_api->blit(fb, tab[i].icon, x, y, tab[i].ix * TILE, tab[i].iy * TILE,
+    int pick = (s_wheel_pick >= 0) ? s_wheel_pick : s_sel[s_tab];
+    int pick_arm = pick >> 1, pick_far = pick & 1;
+
+    /* the spokes, drawn first so every disc sits on top of them */
+    for (int arm = 0; arm < 4; arm++) {
+        int live = (arm == pick_arm);
+        g_api->draw_line(fb, WCX + ARMX[arm] * (WR_ARROW + 4),
+                             WCY + ARMY[arm] * (WR_ARROW + 4),
+                             WCX + ARMX[arm] * (WR_FAR - 5),
+                             WCY + ARMY[arm] * (WR_FAR - 5),
+                             live ? hi : rim, 0, VIEW_H);
+    }
+
+    /* the hub: the master's ring/target, which reads as a dial centre */
+    g_api->blit(fb, &ui_gauges_img, WCX - 4, WCY - 4, 1 * TILE, 2 * TILE,
+                TILE, TILE, 0, 0, VIEW_H);
+
+    /* a cardinal arrow per arm, so "press UP" is shown rather than remembered */
+    for (int arm = 0; arm < 4; arm++) {
+        int live = (arm == pick_arm);
+        int ax = WCX + ARMX[arm] * WR_ARROW - 4;
+        int ay = WCY + ARMY[arm] * WR_ARROW - 4;
+        g_api->blit(fb, &ui_gauges_img, ax, ay,
+                    (ARROW_CX[arm] + (live ? 0 : 3)) * TILE, ARROW_CY[arm] * TILE,
                     TILE, TILE, 0, 0, VIEW_H);
     }
 
-    /* LABELS AT THE EDGES, not in the hub. Three stacked 8 px lines through the
-     * middle overlapped each other AND sat exactly where the near icons on the east
-     * and west arms are, so half the wheel was unreadable. The frame has two empty
-     * strips and the wheel has none. */
+    /* the eight slots: a drawn button disc, the power icon on it, and a gold ring
+     * around the one that is picked */
+    for (int i = 0; i < 8; i++) {
+        int arm = i >> 1, far = i & 1, x, y;
+        slot_pos(arm, far, &x, &y);
+        int on = (i == pick);
+        g_api->blit(fb, &ui_buttons_img, x, y,
+                    (on ? BTN_LIT_CX : BTN_DIM_CX) * TILE,
+                    (on ? BTN_LIT_CY : BTN_DIM_CY) * TILE,
+                    TILE, TILE, 0, 0, VIEW_H);
+        g_api->blit(fb, tab[i].icon, x, y, tab[i].ix * TILE, tab[i].iy * TILE,
+                    TILE, TILE, 0, 0, VIEW_H);
+        if (on) {
+            g_api->draw_rect(fb, x - 2, y - 2, TILE + 4, TILE + 4, hi, 0, 0, VIEW_H);
+            g_api->draw_rect(fb, x - 3, y - 3, TILE + 6, TILE + 6, dim, 0, 0, VIEW_H);
+        }
+        /* the near slot of the live arm carries a hint that pressing again steps out */
+        if (arm == pick_arm && !far && !pick_far) {
+            int hx = WCX + ARMX[arm] * ((WR_NEAR + WR_FAR) / 2) - 4;
+            int hy = WCY + ARMY[arm] * ((WR_NEAR + WR_FAR) / 2) - 4;
+            g_api->blit(fb, &ui_gauges_img, hx, hy,
+                        ARROW_CX[arm] * TILE, ARROW_CY[arm] * TILE, TILE, TILE,
+                        0, 0, VIEW_H);
+        }
+    }
+
+    /* Labels on the two empty strips, never across the wheel: three stacked lines
+     * through the hub overlapped each other AND sat where the near icons are. */
     const char *tn = TABS[s_tab].name;
-    const char *pn = tab[s_wheel_pick >= 0 ? s_wheel_pick : s_sel[s_tab]].name;
+    const char *pn = tab[pick].name;
     g_api->draw_rect(fb, 0, 0, 128, 10, dim, 1, 0, VIEW_H);
     g_api->draw_rect(fb, 0, VIEW_H - 10, 128, 10, dim, 1, 0, VIEW_H);
-    g_api->text_font(fb, font, tn, WCX - (int)strlen(tn) * 3, 1, rim);
+    g_api->text_font(fb, font, tn, WCX - (int)strlen(tn) * 3, 1, txt);
     g_api->text_font(fb, font, "RB", 112, 1, rim);
     g_api->text_font(fb, font, pn, WCX - (int)strlen(pn) * 3, VIEW_H - 9, hi);
 }

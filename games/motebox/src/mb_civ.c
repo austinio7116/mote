@@ -297,20 +297,33 @@ static void lord_think(int v)
      * highest thing it can AFFORD, which is also just what a competent steward does.
      */
     int want_list[12], nwant = 0;
-    if (V->food < pop * 3 && count_build(v, O_FARM) < 4)      want_list[nwant++] = 3;
+    /* FARMS SCALE WITH MOUTHS. A flat cap of four farms fed about a dozen people, so
+     * any village that grew past that starved for ever — and the audit found a world
+     * that lost 2251 people to hunger while sitting at the population ceiling. Four
+     * farms is a hamlet's answer; a town of forty needs seven. */
+    int farm_cap = 2 + pop / 6;
+    if (farm_cap > 10) farm_cap = 10;
+    if (V->food < pop * 3 && count_build(v, O_FARM) < farm_cap) want_list[nwant++] = 3;
     /* BEDS FIRST when the village is over capacity. Housing gates breeding, so a
      * village with no spare bed has no children — and with the hall and the temple
      * ahead of houses in the list, every village in a test run spent its whole
      * founding generation on civic architecture and then aged out to nothing. A
      * fancy hall is an ambition; a full house is existential. */
-    if (pop >= housing)                                       want_list[nwant++] = 0;
+    /* BUT DO NOT BUILD A BED YOU CANNOT FEED. Housing gates breeding, so a lord that
+     * keeps roofing an already-hungry village is building the next famine: that is
+     * exactly how the 2251-death world worked, growing into the ceiling while the
+     * granary emptied. Requiring a person's worth of food per head before adding beds
+     * turns a runaway ramp into a village that stops growing when it runs short and
+     * starts again when the harvest is in — which is why a healthy population
+     * oscillates instead of climbing until it collapses. */
+    if (pop >= housing && V->food > pop)                      want_list[nwant++] = 0;
     if (V->wood < 20 && count_build(v, O_WOODCUT) < 2)        want_list[nwant++] = 4;
     if (V->stone < 20 && count_build(v, O_MINE) < 1)          want_list[nwant++] = 5;
     if (V->threat > 40 && count_build(v, O_BARRACKS) < 1)     want_list[nwant++] = 6;
     if (V->hall == 1)                                         want_list[nwant++] = 9;
     if (V->hall == 2)                                         want_list[nwant++] = 10;
     if (V->hall >= 2 && count_build(v, O_TEMPLE) < 1)         want_list[nwant++] = 7;
-    if (pop + 3 > housing)                                    want_list[nwant++] = 0;
+    if (pop + 3 > housing && V->food > pop * 2)               want_list[nwant++] = 0;
     if (V->threat > 25 && count_build(v, O_TOWER) < 3)        want_list[nwant++] = 8;
     if (V->hall == 3 && housing > 0)                          want_list[nwant++] = 1;
 
@@ -475,6 +488,62 @@ int mb_village_mustering(int v)
 /* Census: population, housing, mood and threat, gathered from the units and the
  * map rather than tracked incrementally — an incremental count drifts the moment
  * anything kills a unit outside the village's own code, and this is 384 reads. */
+/* HOMELESS PEOPLE MUST FIND A HOME.
+ *
+ * When a village dies its citizens are set adrift (village = 0) and nothing ever
+ * picked them up again. They then had no granary — a villager eats from the village
+ * store, and a person with no village can only find a bush — but they kept breeding,
+ * because the housing gate that limits a village's growth does not apply to somebody
+ * who has no housing to be gated by. The audit found a world running 400 years with
+ * 152 HOMELESS DWARVES: an entire people with no settlement anywhere, multiplying and
+ * starving, and starvation was a third of all deaths in that world.
+ *
+ * A people that loses its town does one of two things, so this does both: walk to the
+ * nearest one within a day's travel and join it, or, if there is nothing to walk to,
+ * stop and found a new one. Either way the population is answerable to housing and
+ * food again, which is what makes the curve level off instead of ramping into famine.
+ */
+void mb_civ_rehome(void)
+{
+    /* a slice per tick — this is a search per unit, and nobody's homelessness is
+     * urgent enough to pay for it every week */
+    for (int i = (int)(mb_w.tick & 15); i < mb_nu; i += 16) {
+        Unit *u = &mb_u[i];
+        if (!u->alive || u->sp >= SP_CIV_N || u->village) continue;
+        int ux = u->x >> 4, uy = u->y >> 4;
+
+        int best = 0, bestd = 21 * 21;
+        for (int v = 1; v < MAXV; v++) {
+            if (!mb_v[v].alive) continue;
+            int dx = mb_v[v].x - ux, dy = mb_v[v].y - uy;
+            int d = dx * dx + dy * dy;
+            if (d < bestd) { bestd = d; best = v; }
+        }
+        if (best) { u->village = (uint8_t)best; continue; }
+
+        /* Nothing within reach. Found one where they stand — but only if this is
+         * ground worth settling, and only for one wanderer per tick, or a scattered
+         * people would sprout forty hamlets in a single week. */
+        if ((mb_w.tick & 31) != 0) continue;
+        if (!mb_in(ux, uy) || !mb_land(mb_w.biome[AT(ux, uy)])) continue;
+        if (mb_w.biome[AT(ux, uy)] == B_LAVA || mb_w.biome[AT(ux, uy)] == B_ACID) continue;
+        int v = mb_village_found(u->sp, ux, uy, 0);
+        if (v) {
+            mb_v[v].food = 20; mb_v[v].wood = 8;
+            u->village = (uint8_t)v;
+            /* everyone else nearby joins the new settlement */
+            for (int j = 0; j < mb_nu; j++) {
+                Unit *w = &mb_u[j];
+                if (!w->alive || w->sp >= SP_CIV_N || w->village) continue;
+                int dx = (w->x >> 4) - ux, dy = (w->y >> 4) - uy;
+                if (dx * dx + dy * dy <= 12 * 12) w->village = (uint8_t)v;
+            }
+            mb_chron_found(v);
+        }
+    }
+}
+
+
 static void census(void)
 {
     for (int v = 1; v < MAXV; v++) {
@@ -490,6 +559,8 @@ static void census(void)
         V->happy = (int8_t)((V->happy * 3 + u->happy) / 4);
         if (u->job == JOB_FIGHT) V->soldiers++;
     }
+    mb_civ_rehome();
+
     for (int v = 1; v < MAXV; v++) {
         Village *V = &mb_v[v];
         if (!V->alive) continue;

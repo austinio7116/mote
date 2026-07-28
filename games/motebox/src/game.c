@@ -75,8 +75,8 @@ static const char *const FX_NAME[FX_N] = { "", "BURNING", "LAVA", "FLOOD", "ACID
  * version stopped at "crag" and every id after it read as a NULL pointer, so
  * putting the cursor on a house crashed the game. Keep this in step with the enum. */
 static const char *const O_NAME[O_N] = {
-    "", "tree", "tree", "dead tree", "bush", "grass", "rock", "cactus",
-    "flower", "iron", "silver", "gold", "gems", "boulder", "crag", "grave",
+    "", "tree", "tree", "dead tree", "bush", "grass", "rock", "reeds",
+    "reeds", "iron", "silver", "gold", "gems", "boulder", "crag", "grave",
     /* --- built --- */
     "campfire", "hall", "great hall", "castle",
     "house", "cottage", "manor",
@@ -270,6 +270,7 @@ static void fast_forward(int years)
             mb_unit_migrate();
             mb_civ_step();
             mb_grow_step();
+            mb_grave_step();
             mb_faith_step();
             mb_age_step();
         }
@@ -337,32 +338,122 @@ static void g_init(void)
                 if (*sv == ';') sv++; else break;
             }
         }
+        /* MOTEBOX_SEEDN=n drops n founding parties on LAND, spread across the map.
+         *
+         * The audit used to name five fixed coordinates, and on an ocean-heavy or
+         * archipelago world all five landed in the sea — so four of eight audited
+         * worlds ran four hundred years with nobody in them and reported "ok". A
+         * test that passes because it tested nothing is worse than no test. */
+        const char *sn = getenv("MOTEBOX_SEEDN");
+        if (sn) {
+            int want = atoi(sn), got = 0;
+            for (int step = 0; step < 4000 && got < want; step++) {
+                uint32_t r = mb_rand((uint32_t)step * 2654435761u + 0x5eedu);
+                int x = (int)(r % MW), y = (int)((r >> 11) % MH);
+                if (!mb_in(x, y) || !mb_land(mb_w.biome[AT(x, y)])) continue;
+                int clear = 1;                     /* keep founders apart */
+                for (int v = 0; v < MAXV && clear; v++)
+                    if (mb_v[v].alive) {
+                        int dx = mb_v[v].x - x, dy = mb_v[v].y - y;
+                        if (dx * dx + dy * dy < 18 * 18) clear = 0;
+                    }
+                if (!clear) continue;
+                if (mb_civ_drop_village((uint8_t)(SP_HUMAN + got % SP_CIV_N), x, y) >= 0) {
+                    fprintf(stderr, "drop village at %d,%d\n", x, y);
+                    got++;
+                }
+            }
+            fprintf(stderr, "seeded %d/%d founding parties\n", got, want);
+        }
+
         const char *yy = getenv("MOTEBOX_YEARS");
         if (yy && *yy) fast_forward(atoi(yy));
-        /* MOTEBOX_CENSUS=1 lists what is actually standing in the visible window,
-         * because "what does the screen show" and "what does the sim think" are two
-         * different questions and only the first one is the complaint. */
-        if (getenv("MOTEBOX_CENSUS")) {
-            int seen[SP_N] = { 0 }, build[O_N] = { 0 };
-            for (int i = 0; i < mb_nu; i++) {
-                if (!mb_u[i].alive) continue;
-                int ux = mb_u[i].x >> 4, uy = mb_u[i].y >> 4;
-                if (ux < s_cx - 8 || ux > s_cx + 8 || uy < s_cy - 7 || uy > s_cy + 7) continue;
-                seen[mb_u[i].sp]++;
-            }
-            for (int y = s_cy - 7; y <= s_cy + 7; y++)
-                for (int x = s_cx - 8; x <= s_cx + 8; x++)
-                    if (mb_in(x, y) && mb_w.obj[AT(x, y)] < O_N) build[mb_w.obj[AT(x, y)]]++;
-            fprintf(stderr, "census at %d,%d (16x14 window):\n", s_cx, s_cy);
-            for (int s = 0; s < SP_N; s++)
-                if (seen[s]) fprintf(stderr, "   %-10s %d\n", MB_SP[s].name, seen[s]);
-            for (int o = 1; o < O_N; o++)
-                if (build[o]) fprintf(stderr, "   obj %-12s %d\n", O_NAME[o], build[o]);
-        }
     }
 #endif
     mb_world_start(&s_cx, &s_cy);
 #if MOTE_HOST
+    /* MOTEBOX_CAM=x,y parks the camera on a tile, or CAM=v parks it on the biggest
+     * village. Without this every visual check landed wherever worldgen chose, which
+     * was usually empty wilderness — three rounds of "where are the civilisations?"
+     * were partly me photographing the wrong 16x14 tiles of a 96x96 world. */
+    {
+        const char *cv = getenv("MOTEBOX_CAM");
+        if (cv && *cv == 'v') {
+            int best = -1;
+            for (int i = 0; i < MAXV; i++)
+                if (mb_v[i].alive && (best < 0 || mb_v[i].pop > mb_v[best].pop)) best = i;
+            if (best >= 0) { s_cx = mb_v[best].x; s_cy = mb_v[best].y;
+                             fprintf(stderr, "cam -> village %d pop %d at %d,%d\n",
+                                     best, mb_v[best].pop, s_cx, s_cy); }
+            else fprintf(stderr, "cam -> no village alive\n");
+        } else if (cv) {
+            int x = 0, y = 0;
+            while (*cv >= '0' && *cv <= '9') x = x * 10 + (*cv++ - '0');
+            if (*cv == ',') cv++;
+            while (*cv >= '0' && *cv <= '9') y = y * 10 + (*cv++ - '0');
+            s_cx = x; s_cy = y;
+        }
+    }
+    /* MOTEBOX_VSTAT=1 dumps every living village's ledger. "Starvation is the top
+     * killer" has two completely different causes — granaries full and the feeding
+     * broken, or granaries empty and production short — and no amount of staring at
+     * the aggregate CSV tells them apart. */
+    if (getenv("MOTEBOX_VSTAT")) {
+        for (int i = 0; i < MAXV; i++) {
+            if (!mb_v[i].alive) continue;
+            int farms = 0, fields = 0;
+            for (int y = mb_v[i].y - 8; y <= mb_v[i].y + 8; y++)
+                for (int x = mb_v[i].x - 8; x <= mb_v[i].x + 8; x++)
+                    if (mb_in(x, y) && mb_w.claim[AT(x, y)] == i) {
+                        if (mb_w.obj[AT(x, y)] == O_FARM) farms++;
+                        if (mb_w.biome[AT(x, y)] == B_FARM) fields++;
+                    }
+            fprintf(stderr, "v%-3d pop=%-4d house=%-4d food=%-4d farms=%-3d fields=%-3d %s\n",
+                    i, mb_v[i].pop, mb_v[i].housing, mb_v[i].food, farms, fields,
+                    B_NAME[mb_w.biome[AT(mb_v[i].x, mb_v[i].y)]]);
+        }
+    }
+    /* MOTEBOX_CENSUS=1 lists what is actually standing in the visible window,
+     * because "what does the screen show" and "what does the sim think" are two
+     * different questions and only the first one is the complaint. */
+    if (getenv("MOTEBOX_VSTAT")) {
+        int homeless = 0, housed = 0, bysp[SP_N] = { 0 };
+        for (int i = 0; i < mb_nu; i++) {
+            if (!mb_u[i].alive || mb_u[i].sp >= SP_DEER) continue;
+            bysp[mb_u[i].sp]++;
+            int v = mb_u[i].village;
+            if (v > 0 && v < MAXV && mb_v[v].alive) housed++; else homeless++;
+        }
+        fprintf(stderr, "civ units: %d in a village, %d HOMELESS\n", housed, homeless);
+        for (int s = 0; s < SP_DEER; s++)
+            if (bysp[s]) fprintf(stderr, "   %-10s %d\n", MB_SP[s].name, bysp[s]);
+    }
+    if (getenv("MOTEBOX_CENSUS")) {
+        int seen[SP_N] = { 0 }, build[O_N] = { 0 };
+        for (int i = 0; i < mb_nu; i++) {
+            if (!mb_u[i].alive) continue;
+            int ux = mb_u[i].x >> 4, uy = mb_u[i].y >> 4;
+            if (ux < s_cx - 8 || ux > s_cx + 8 || uy < s_cy - 7 || uy > s_cy + 7) continue;
+            seen[mb_u[i].sp]++;
+        }
+        for (int y = s_cy - 7; y <= s_cy + 7; y++)
+            for (int x = s_cx - 8; x <= s_cx + 8; x++)
+                if (mb_in(x, y) && mb_w.obj[AT(x, y)] < O_N) build[mb_w.obj[AT(x, y)]]++;
+        fprintf(stderr, "census at %d,%d (16x14 window):\n", s_cx, s_cy);
+        for (int s = 0; s < SP_N; s++)
+            if (seen[s]) fprintf(stderr, "   %-10s %d\n", MB_SP[s].name, seen[s]);
+        for (int o = 1; o < O_N; o++)
+            if (build[o]) fprintf(stderr, "   obj %-12s %d\n", O_NAME[o], build[o]);
+        /* AND THE BIOMES. Objects alone are half the window: a screen full of grey
+         * squares was chased through the building tables twice before a biome
+         * histogram said what they actually were. */
+        int bio[B_N] = { 0 };
+        for (int y = s_cy - 7; y <= s_cy + 7; y++)
+            for (int x = s_cx - 8; x <= s_cx + 8; x++)
+                if (mb_in(x, y)) bio[mb_w.biome[AT(x, y)]]++;
+        for (int b = 0; b < B_N; b++)
+            if (bio[b]) fprintf(stderr, "   bio %-12s %d\n", B_NAME[b], bio[b]);
+    }
     if (s_stat) mb_world_stats();
 #endif
     view_set(1);
@@ -394,6 +485,7 @@ static void g_update(float dt)
                 mb_unit_migrate();
                 mb_civ_step();
                 mb_grow_step();
+                mb_grave_step();
                 mb_faith_step();
                 mb_age_step();
 #if MOTE_HOST
