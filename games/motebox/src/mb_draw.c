@@ -42,6 +42,7 @@
 #include "nature.h"
 #include "boulders.h"
 #include "treasure_ore.h"
+#include "ui_status.h"
 #include "crowns_fx.h"
 #include "fx_frost.h"
 #include "fx_acid.h"
@@ -322,7 +323,12 @@ static const ObjSpr MB_OBJ_SPR[O_N] = {
     { &treasure_ore_img,  7, 0 },       /* gem       */
     { &boulders_img,      0, 1 },       /* boulder   */
     { &boulders_img,      4, 1 },       /* snow peak */
+    { &ui_status_img,    11, 3 },       /* grave — the master's headstone */
 };
+/* The same tripwire O_NAME has. This array was 15 entries long while the enum grew
+ * past 30, so graves drew nothing: a battlefield with thirty-four dead on it showed
+ * bare grass. A short array is silent, which is why it needs a check. */
+typedef char mb_objspr_covers_world[(sizeof MB_OBJ_SPR / sizeof MB_OBJ_SPR[0]) >= O_BUILD0 ? 1 : -1];
 
 /* One sprite per visible flux cell. Lava needs none — it IS the biome — so the
  * table covers the kinds that sit ON the ground rather than replacing it. */
@@ -357,13 +363,17 @@ enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE };
  * master's own prop for the thing they are.
  */
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
+    /* THE HALL IS THE SOLID BLOCK, THE HOUSE IS THE PITCHED ROOF. Column 0 of the
+     * buildings sheet is a full-tile walled face with a window; column 2 is a house
+     * with a narrower roof over a body. Giving halls the block and houses the roof is
+     * what lets you tell the centre of a village from its outskirts at 8 px. */
     { BS_PROPS,  3, 3 },   /* fire pit  — the master's bonfire */
-    { BS_BUILD,  0, 0 },   /* hall 1    — a walled front with a door */
-    { BS_BUILD,  2, 0 },   /* hall 2    — a pitched roof: it grew */
-    { BS_BUILD,  3, 0 },   /* hall 3    — the wide piece reads as a keep */
+    { BS_BUILD,  2, 0 },   /* hall 1    — still just a house at tier one */
+    { BS_BUILD,  0, 0 },   /* hall 2    — a walled block: it grew */
+    { BS_BUILD,  0, 0 },   /* hall 3    — the keep */
     { BS_BUILD,  2, 0 },   /* house 1   */
     { BS_BUILD,  2, 0 },   /* house 2   */
-    { BS_BUILD,  3, 0 },   /* house 3   — wider, so a rich village looks denser */
+    { BS_BUILD,  3, 0 },   /* house 3   — the wide piece: a rich village looks denser */
     { BS_NATURE, 4, 3 },   /* farm      — the master's orange crop cluster */
     { BS_PROPS,  6, 2 },   /* mine      — the stone bench-and-anvil */
     { BS_PROPS,  4, 1 },   /* woodcutter— cut planks */

@@ -94,13 +94,18 @@ void mb_chron_init(void)
 
 static void render(char *out, int n, const Event *e);
 
-static Event *push(int type, int a, int b, int mag, uint16_t name, int x, int y)
+/* `extra` is a parameter, NOT something the caller pokes in afterwards. It used to
+ * be assigned by each caller on the returned Event — but push() renders the toast
+ * before returning, so a headline showed whatever the PREVIOUS event in that ring
+ * slot had left there. An age change announced itself as "the camp begins". */
+static Event *push(int type, int a, int b, int mag, uint16_t name, int x, int y,
+                   uint16_t extra)
 {
     Event *e = &s_ev[s_head];
     s_head = (s_head + 1) % NEV;
     if (s_n < NEV) s_n++;
     e->type = (uint8_t)type; e->a = (uint8_t)a; e->b = (uint8_t)b;
-    e->mag = (uint8_t)mag; e->name = name;
+    e->mag = (uint8_t)mag; e->name = name; e->extra = extra;
     e->year = (uint16_t)(mb_w.tick / 52);
     e->x = (uint8_t)x; e->y = (uint8_t)y;
     if (is_headline(type)) {
@@ -212,35 +217,31 @@ static uint16_t intern(const char *w)
 
 void mb_chron_found(int v)
 {
-    push(EV_FOUND, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y);
+    push(EV_FOUND, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, 0);
     mb_snd(SND_FOUND);
 }
 void mb_chron_fall(int v)
 {
-    push(EV_FALL, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y);
+    push(EV_FALL, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, 0);
 }
 void mb_chron_build(int v, const char *what)
 {
-    Event *e = push(EV_BUILD, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y);
-    e->extra = intern(what);
+    push(EV_BUILD, v, 0, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, intern(what));
     mb_snd(SND_BUILD);
 }
 void mb_chron_war(int a, int b)
 {
     Village *c = &mb_v[mb_k[a].capital];
-    Event *e = push(EV_WAR, a, b, 0, mb_k[a].name, c->x, c->y);
-    e->extra = mb_k[b].name;
+    push(EV_WAR, a, b, 0, mb_k[a].name, c->x, c->y, mb_k[b].name);
 }
 void mb_chron_peace(int a, int b)
 {
     Village *c = &mb_v[mb_k[a].capital];
-    Event *e = push(EV_PEACE, a, b, 0, mb_k[a].name, c->x, c->y);
-    e->extra = mb_k[b].name;
+    push(EV_PEACE, a, b, 0, mb_k[a].name, c->x, c->y, mb_k[b].name);
 }
 void mb_chron_rebel(int v, int from, int to)
 {
-    Event *e = push(EV_REBEL, from, to, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y);
-    e->extra = mb_k[to].name;
+    push(EV_REBEL, from, to, 0, mb_v[v].name, mb_v[v].x, mb_v[v].y, mb_k[to].name);
 }
 void mb_chron_birth(int child, int parent)
 {
@@ -250,28 +251,26 @@ void mb_chron_birth(int child, int parent)
      * species, and never toast. */
     if (mb_u[child].sp >= SP_CIV_N) return;
     push(EV_BIRTH, child, 0, 0, mb_name_person((uint32_t)child * 7919u + mb_w.seed),
-         mb_u[child].x >> 4, mb_u[child].y >> 4);
+         mb_u[child].x >> 4, mb_u[child].y >> 4, 0);
 }
 void mb_chron_death(int u, int cause)
 {
     if (mb_u[u].sp >= SP_CIV_N) return;
     push(EV_DEATH, u, 0, cause, mb_name_person((uint32_t)u * 7919u + mb_w.seed),
-         mb_u[u].x >> 4, mb_u[u].y >> 4);
+         mb_u[u].x >> 4, mb_u[u].y >> 4, 0);
 }
 void mb_chron_legend(int u, int why)
 {
     push(EV_LEGEND, u, 0, why, mb_name_person((uint32_t)u * 7919u + mb_w.seed),
-         mb_u[u].x >> 4, mb_u[u].y >> 4);
+         mb_u[u].x >> 4, mb_u[u].y >> 4, 0);
 }
 void mb_chron_disaster(const char *what, int x, int y)
 {
-    Event *e = push(EV_DISASTER, 0, 0, 0, 0, x, y);
-    e->extra = intern(what);
+    push(EV_DISASTER, 0, 0, 0, 0, x, y, intern(what));
 }
 void mb_chron_age(const char *name)
 {
-    Event *e = push(EV_AGE, 0, 0, 0, 0, MW / 2, MH / 2);
-    e->extra = intern(name);
+    push(EV_AGE, 0, 0, 0, 0, MW / 2, MH / 2, intern(name));
 }
 
 /* --- queries ------------------------------------------------------------ */

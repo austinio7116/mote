@@ -334,7 +334,15 @@ void mb_grow_step(void)
         default: break;
         }
 
-        /* 2. vegetation returns, but only next to vegetation — so a burnt
+        /* 2. graves weather away. Without this they only accumulate: a bad age left
+         * thirty-four headstones in a single screen and a settled world became a
+         * boneyard. Slow enough that a battlefield is still legible for years. */
+        if (o == O_GRAVE) {
+            if (roll < 12) mb_w.obj[i] = O_NONE;
+            continue;
+        }
+
+        /* 3. vegetation returns, but only next to vegetation — so a burnt
          * continent regrows inward from its surviving edges instead of sprouting
          * evenly, which is both true and much better to watch */
         if (o != O_NONE) continue;

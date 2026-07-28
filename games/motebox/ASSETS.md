@@ -73,73 +73,69 @@ reads as a plus sign at icon size.
 
 `authoring/terrain.py` + `authoring/biomes.py` → `tilesets/bio_*.{png,tileset}`
 
-**Every biome is a 47-cell blob47 autotile**, generated. Two earlier versions were
-*fills* — one tile, or a few variants, repeated over an area with no idea what was
-next to it — and that is why they looked like squares butted together: where grass
-met sand there was a hard pixel step, because nothing was drawn at the join. A fill
-cannot look like terrain at any level of texture polish, because **terrain is mostly
-edges**. roguemote's `wall_brick`, `hedge` and `floor_jungle` look right precisely
-because they are blob47 sets, and that is the standard.
+Every biome is a 47-cell blob47 autotile, generated. The mask→cell contract is
+**imported from `roguemote/authoring/blob47.py`**, never reimplemented, so there is
+one definition of "cell 23" in the repo. Layout is 8 × 6 = 48 cells (47 used) per
+variant block, stacked for `nvar`, matching how the engine steps variants.
 
-- The neighbour-mask → cell-index contract is **imported from
-  `roguemote/authoring/blob47.py`**, not reimplemented, so there is exactly one
-  definition of "cell 23" in the repo.
-- Layout is 8 cols × 6 rows = 48 cells (47 used) per variant block, stacked for
-  `nvar` — which is how the engine steps variants (`base_rows = rows / nvar`).
-- Each cell draws its interior texture plus a **rim** on the sides facing a different
-  terrain, with the eight **inner corners** picked out. Those inner-corner cells are
-  the whole reason a nine-slice looks wrong and a blob47 does not.
+Three things had to be true before it stopped looking like squares, and each was
+learned by shipping the failure:
 
-### The rim is the character of the material
+### 1. It has to actually be blob47 — with corners CUT
+
+A rim around a square tile is not a blob47 set. Every convex corner stays a hard
+right angle, so a coastline is a staircase and a diagonal river is a flight of steps.
+Each cell now **chamfers its outside corners**: where two adjacent edges are both
+open, the corner pixel and one step along each edge are cut back to a darker tone, so
+the silhouette reads as a 45° bevel. That single change is what gives shapely coasts,
+round islands and diagonal rivers.
+
+(The engine draws one terrain per cell with nothing beneath, so a cut cannot be
+transparent — it has to be a colour. A darker tone reads as cut, which is the trick
+hand-drawn sets use.)
+
+### 2. Interiors must have STRUCTURE, or be flat
+
+Compare the artist's own sets: `wall_brick`'s interior is a **regular staggered
+course** of blocks and mortar; `hedge`'s is simply **flat** with a bright rim. Both
+read perfectly. What does not read is random scatter — grains and blades sprinkled at
+random look like litter dropped on a flat colour.
+
+So the vocabulary is regular: `dashes` (offset courses — water, dunes, lava),
+`brickwork` (staggered courses — rock, strata), `specks` and `tufts` (a fixed
+lattice — grass, snow, ash), `stripes` (furrows — ploughed field), `capped` (light on
+the upper rows — peaks), `plain` (flat, and often the best answer), and `cracks` (the
+only irregular one, because a regular crack is a joint). Nothing is placed at random.
+
+Colour **pairs** matter as much as pattern: the sea was once drawn as SLATE — a mauve —
+on BLUE, which came out as pink zigzags on cyan. Water is two blues, or blue with
+white foam. Nothing else.
+
+### 3. Only some biomes rim
+
+When every biome rimmed itself, every boundary carried **two** rims — one from each
+side — and the map read as outlined ribbons. Soft ground (grass, snow, sand, ash,
+hill, swamp, savanna, tundra, rubble) now has `rim=None` and simply stops; water,
+rock, peak, ice, lava and ploughed land keep theirs, because those edges are
+physically real. Everything still cuts its corners.
+
+And a rim must survive a **one-tile-wide band**, which is entirely rim. Shallow water
+had a sand-coloured rim, so every river in the world rendered as a peach footpath.
 
 | Biome | Rim | Reads as |
 |---|---|---|
-| sea | white | surf on a coast |
-| ocean | pale blue | deep water meeting the shore |
-| lava | yellow | a hot edge glowing against what it is eating |
-| grass | *lighter* green | a grassy fringe |
-| savanna | yellow | dry grass |
-| rock, hill, peak | light top + dark underside (`rim_south`) | a cliff |
-| snow | soft grey | a snowfield has no hard edge |
-| ash, scorched | navy / dark grey | a burn scar |
-| farmland | dark grey + navy | a ploughed boundary |
+| sea | white | foam |
+| ocean | pale blue | deep water at the shore |
+| shallow | *none* | a one-tile river is still water |
+| lava | yellow | a hot edge glowing against what it eats |
+| rock, peak | light top + dark underside | a cliff |
+| farmland | dark grey | a ploughed boundary |
+| grass, sand, snow, ash… | *none* | the neighbour's edge is the edge |
 
-A *darker* rim was tried on grass first and every patch looked outlined, like a
-sticker; the fringe has to be lighter than the field.
-
-### The interior texture vocabulary (`biomes.py`)
-
-Seven generators, each saying what a material *is*. The first version of this file
-picked "texture cells" out of the master by **ink coverage** — any hand-drawn cell
-covering 18–55% of a tile was a candidate — and stamped the winner on a flat colour.
-Selection without looking, and it showed: six biomes wore the **same diagonal-chunk
-motif** in six colours, four more wore the same arrow-blob, snow was scattered with
-the master's **hearts** and tundra with its **plus signs**, and mountains were covered
-in neat **masonry brick**. Rows 47–49 are decorative line art for edging a dungeon
-room.
-
-| Generator | Says | Used by |
-|---|---|---|
-| `grains` | a surface of particles, two tones for depth | sand, ash, dust |
-| `ripple` | offset horizontal dashes — windswept | dunes, beach |
-| `blades` | upright 2 px marks: it stands up, so it reads as a plant | grass, savanna, tundra |
-| `clumps` | 2×2 with a shadow — smallest shape that reads as an object | pebbles, muck, rubble |
-| `facets` | diagonal light/shadow runs — stone is planes meeting at edges | mountain, rock |
-| `cracks` | a one-pixel line **with momentum** | ice, scorched |
-| `furrows` | widely spaced rows with crops standing between them | farmland |
-| `snowcap` | light on the upper edge — a peak has to have an *up* | peaks |
-
-Two were wrong on the first pass and each records why in its docstring: `cracks`
-turned on a coin flip every pixel and drew **L-shaped glyphs**, and `furrows` at
-period 3 with a dot grid read as **chain-link fence**.
-
-Where the master draws terrain better than we can, its art is the interior and only
-the rim is added: the **chevron wave band** (48,35) for ocean, sea, lava and acid, and
-the **sandbar blob** (56,34) for the shallows.
-
-Check it with `python3 authoring/preview_terrain_map.py`, which renders a synthetic
-coastline through the same mask→cell logic the engine uses — so the preview shows real
-transitions rather than one tile repeated.
+Check it with `python3 authoring/preview_terrain_map.py` — it renders a synthetic
+coastline, a diagonal river and a round island through the engine's own mask→cell
+logic. A preview that repeats one tile tells you nothing about a tileset whose entire
+job is edges, which is exactly how two versions of this shipped.
 
 ## 3. Synced blob47 rulesets — `tilesets/{hedge,floor_*,wall_*}`
 

@@ -18,15 +18,24 @@ hearts, scales, arches — drawn to edge a dungeon room, not to be ground. Tilin
 one motif identically across a continent reads as wallpaper however good the motif
 is, because real terrain has no repeating unit.
 
-So terrain is generated here instead, from a small vocabulary that says what a
-material IS: grains, ripples, blades, facets, cracks, furrows, dust. Every colour
-is still one of the master's sixteen, every pattern WRAPS at the tile edge so it is
-seamless, and each biome gets several variants (the engine picks one per cell by
-position hash) so a large area never shows a repeat.
+SECOND ATTEMPT, ALSO WRONG: random scatter. Grains, blades and clumps sprinkled at
+random positions read as litter dropped on a flat colour, not as a material. Put
+side by side with the artist's own sets the reason is obvious:
 
-Where the master DOES draw a terrain properly, we use its art and generate nothing:
-the chevron wave band is genuinely good water, and roguemote's six hand-drawn
-blob47 bands are better than anything here. See SYNC_TERRAIN in extract_box.py.
+  * wall_brick's interior is a REGULAR STAGGERED PATTERN — courses of navy blocks
+    with brown mortar. It has structure, and structure is what reads as a surface.
+  * hedge's interior is simply FLAT. Dark green, nothing else, with a bright green
+    rim. Also completely fine, because a clean flat field with a good edge reads
+    better than any amount of noise.
+
+So the vocabulary here is now REGULAR: offset dash courses, staggered brickwork,
+a lattice of specks on a fixed step. Nothing is placed at random. Every colour is
+one of the master's sixteen, every pattern WRAPS at the tile edge so it is seamless,
+and the rim (terrain.py) carries the material's identity at its boundary.
+
+And the colour PAIRS matter as much as the pattern. The second attempt drew the sea
+as SLATE (a mauve) on BLUE, which came out as pink zigzags on cyan. Water is two
+blues, or a blue with white foam. Nothing else.
 """
 from PIL import Image
 
@@ -64,113 +73,90 @@ def _put(px, x, y, c):
 
 
 # ------------------------------------------------------------- vocabulary ----
+# Everything below is REGULAR. Nothing is placed at random, because random reads as
+# litter. Compare wall_brick (staggered courses) and hedge (flat) — those are the two
+# things that work at eight pixels.
 
-def grains(base, light, dark, n_light, n_dark, seed):
-    """Loose single pixels of two tones. SAND, ASH, DUST — a surface of particles.
-    The two tones matter: one tone on a flat base reads as dirt on a wall, two
-    read as a material with depth."""
-    im, px = _new(base)
-    r = _rng(seed)
-    for _ in range(n_light):
-        _put(px, r() % TS, r() % TS, light)
-    for _ in range(n_dark):
-        _put(px, r() % TS, r() % TS, dark)
+def plain(base):
+    """Flat. hedge is flat and it looks better than anything textured here; for a
+    biome whose identity is its colour, this is the right answer."""
+    im, _ = _new(base)
     return im
 
 
-def ripple(base, ink, seed, rows=(1, 5), width=6):
-    """Short horizontal dashes on a couple of rows, offset per row. DUNES and
-    WIND-BLOWN ground: the eye reads horizontal breaks as a flat windswept plane."""
+def dashes(base, ink, seed, step=3, run=3, slip=3):
+    """Courses of short horizontal dashes, each row slipped along from the last.
+    WATER, DUNES, LAVA — a regular course reads as a surface in motion, and the slip
+    stops the columns lining up into a grid."""
     im, px = _new(base)
     r = _rng(seed)
-    for row in rows:
-        x0 = r() % TS
-        for i in range(width):
-            _put(px, x0 + i, row, ink)
-        # a second, shorter dash further along, so the row is not one solid bar
-        x1 = x0 + width + 1 + (r() % 3)
-        for i in range(2):
-            _put(px, x1 + i, row + 1, ink)
+    off = r() % step
+    for y in range(TS):
+        if (y + off) % step:
+            continue
+        x0 = (y // step) * slip + (r() % 2)
+        for i in range(run):
+            _put(px, x0 + i, y, ink)
+        for i in range(run):
+            _put(px, x0 + i + TS // 2 + 1, y, ink)
     return im
 
 
-def blades(base, ink, dark, n, seed):
-    """Upright two-pixel marks. GRASS, SAVANNA, TUNDRA — the mark reads as a plant
-    because it stands up, which a scattered dot never does."""
+def brickwork(base, ink, seed, bw=4, bh=2):
+    """Staggered courses, mortar between them. ROCK and STRATA — this is exactly
+    what wall_brick does, and it is the single most legible 8 px texture there is."""
     im, px = _new(base)
     r = _rng(seed)
-    for _ in range(n):
-        x, y = r() % TS, r() % TS
-        _put(px, x, y, ink)
-        _put(px, x, y + 1, ink)
-        if r() & 1:
-            _put(px, x + 1, y + 1, dark)      # a shadow at the base of the blade
+    off = r() % bw
+    for y in range(TS):
+        course = y // bh
+        if y % bh == bh - 1:                      # the mortar line under a course
+            for x in range(TS):
+                _put(px, x, y, ink)
+        else:
+            shift = off + (bw // 2 if course % 2 else 0)
+            for x in range(TS):
+                if (x + shift) % bw == 0:         # the vertical joint
+                    _put(px, x, y, ink)
     return im
 
 
-def clumps(base, mid, dark, n, seed):
-    """Two-by-two blocks with a shadow pixel. PEBBLES, MUCK, RUBBLE — a 2x2 is the
-    smallest shape that reads as an object rather than as noise."""
+def specks(base, ink, seed, step=4):
+    """One pixel on a fixed lattice, the row offset by half a step. GRASS, SNOW,
+    ASH — sparse and even, so it reads as a fine grain rather than as debris."""
     im, px = _new(base)
     r = _rng(seed)
-    for _ in range(n):
-        x, y = r() % TS, r() % TS
-        _put(px, x,     y,     mid)
-        _put(px, x + 1, y,     mid)
-        _put(px, x,     y + 1, mid)
-        _put(px, x + 1, y + 1, dark)
+    ox, oy = r() % step, r() % step
+    for y in range(TS):
+        if (y + oy) % step:
+            continue
+        half = (step // 2) if ((y + oy) // step) % 2 else 0
+        for x in range(TS):
+            if (x + ox + half) % step == 0:
+                _put(px, x, y, ink)
     return im
 
 
-def facets(base, light, dark, seed):
-    """Angular light-and-shadow wedges. ROCK — stone reads as flat planes meeting at
-    edges, so the texture is diagonal runs rather than scattered anything."""
+def tufts(base, ink, seed, step=4):
+    """The speck lattice, but each mark stands up two pixels. GRASS and REEDS — a
+    vertical pair reads as a plant, and on a lattice it reads as a field of them."""
     im, px = _new(base)
     r = _rng(seed)
-    for _ in range(3):
-        x, y = r() % TS, r() % TS
-        ln = 2 + (r() % 3)
-        dirn = 1 if (r() & 1) else -1
-        for i in range(ln):
-            _put(px, x + i, y + i * dirn, light)
-        # the shadow side of the same edge
-        for i in range(ln):
-            _put(px, x + i, y + i * dirn + 1, dark)
+    ox, oy = r() % step, r() % step
+    for y in range(TS):
+        if (y + oy) % step:
+            continue
+        half = (step // 2) if ((y + oy) // step) % 2 else 0
+        for x in range(TS):
+            if (x + ox + half) % step == 0:
+                _put(px, x, y, ink)
+                _put(px, x, y - 1, ink)
     return im
 
 
-def cracks(base, ink, seed, n=2):
-    """A thin wandering line with MOMENTUM. ICE and BAKED GROUND.
-
-    The first version turned on a coin flip every pixel, which produced tight
-    staircase corners that read as little L-shaped glyphs stamped on the ground
-    rather than as cracks. A crack keeps going: it only changes direction
-    occasionally, and that one property is the whole difference."""
-    im, px = _new(base)
-    r = _rng(seed)
-    for _ in range(n):
-        x, y = r() % TS, r() % TS
-        dx, dy = (1, 0) if (r() & 1) else (0, 1)
-        for _ in range(6 + (r() % 5)):
-            _put(px, x, y, ink)
-            x += dx; y += dy
-            if (r() % 5) == 0:                 # a kink, not a zigzag
-                if dx:
-                    dx, dy = 0, (1 if (r() & 1) else -1)
-                else:
-                    dx, dy = (1 if (r() & 1) else -1), 0
-    return im
-
-
-def furrows(base, ink, crop, seed, period=4):
-    """Two ploughed rows with crops standing in them. PLOUGHED FIELD — the one
-    biome that should look man-made, so it gets the only regular pattern here.
-
-    At period 3 with a dot every 3 rows this drew a lattice and read as CHAIN-LINK
-    FENCE, not as a field. A field is a few widely spaced furrows with things
-    growing between them, so: one dark furrow every four pixels, and the crop is an
-    upright two-pixel mark (the same shape the grass uses) rather than a dot in a
-    grid."""
+def stripes(base, ink, crop, seed, period=4):
+    """Vertical furrows with a crop standing between them. PLOUGHED FIELD — the one
+    biome that should look man-made."""
     im, px = _new(base)
     r = _rng(seed)
     off = r() % period
@@ -178,113 +164,118 @@ def furrows(base, ink, crop, seed, period=4):
         if (x + off) % period == 0:
             for y in range(TS):
                 _put(px, x, y, ink)
-    for _ in range(4):                          # crops between the furrows
-        x = (r() % TS)
-        if (x + off) % period == 0:
-            x = (x + 1) % TS
-        y = r() % TS
-        _put(px, x, y, crop)
-        _put(px, x, y + 1, crop)
+    if crop:
+        for y in range(1, TS, 3):
+            for x in range(TS):
+                if (x + off) % period == 2:
+                    _put(px, x, y, crop)
     return im
 
 
-def dimples(base, light, n, seed):
-    """Very sparse soft marks. SNOW — snow is nearly featureless and the texture's
-    job is only to stop a big white field looking like a hole in the screen."""
+def cracks(base, ink, seed, n=1):
+    """One thin line with momentum. ICE and BAKED GROUND — the only irregular thing
+    left in the vocabulary, because a crack that is regular is a joint."""
     im, px = _new(base)
     r = _rng(seed)
     for _ in range(n):
         x, y = r() % TS, r() % TS
-        _put(px, x,     y, light)
-        _put(px, x + 1, y, light)
+        dx, dy = (1, 0) if (r() & 1) else (0, 1)
+        for _ in range(6 + (r() % 4)):
+            _put(px, x, y, ink)
+            x += dx; y += dy
+            if (r() % 5) == 0:
+                dx, dy = (0, 1 if (r() & 1) else -1) if dx else (1 if (r() & 1) else -1, 0)
     return im
 
 
-def snowcap(base, snow, rock, seed):
-    """Light on the upper edge, rock below. PEAKS — a mountain top reads as a peak
-    because the snow sits on top of it, so the texture has to have an up."""
+def capped(base, snow, seed):
+    """Light across the upper rows. PEAKS — a mountain top reads as a peak because
+    the snow sits on top of it, so the texture has to have an up."""
     im, px = _new(base)
     r = _rng(seed)
     for x in range(TS):
-        h = 1 + ((r() % 3) if x % 2 else (r() % 2))
+        h = 1 + ((r() % 2) if x % 2 else 0)
         for y in range(h):
             _put(px, x, y, snow)
-    for _ in range(2):
-        _put(px, r() % TS, 4 + (r() % 4), rock)
     return im
 
 
 # ----------------------------------------------------------------- recipes ----
-# (name, base, [interior builders], [weights], rim, rim_south)
+# (name, base, [interior builders], [weights], rim, rim_south, cut)
 #
-# THE RIM IS THE POINT. These are blob47 sets (see terrain.py): every cell draws its
-# interior texture plus an edge on the sides facing a different terrain, so a
-# boundary between two biomes is DRAWN rather than being a hard pixel step. The rim
-# colour is the whole character of a material at a boundary:
+# `cut` is the colour of a chamfered outside corner — see terrain.py. A biome cuts
+# toward whatever it normally sits IN, so an island's corners read as shoreline and a
+# rock outcrop's as shadow, and a diagonal run of tiles reads as a diagonal.
 #
-#   water   a white foam line, so a coast reads as surf
-#   grass   a LIGHTER green, so the edge reads as a grassy fringe. A darker rim was
-#           tried and every patch looked outlined, like a sticker
-#   rock    a light top and a dark underside, which is a cliff
-#   lava    a hot yellow edge that glows against whatever it is eating
-#   snow    a soft grey shadow, because a snowfield has no hard edge
+# THE RIM IS HALF OF IT and the artist's own sets prove it: hedge is a flat green
+# field with a bright green rim, and it reads perfectly. So most biomes here are flat
+# or nearly flat, and their identity comes from colour plus edge. Only the materials
+# that genuinely have structure — rock, water, ploughed ground — carry a pattern, and
+# those patterns are regular.
 #
-# `rim_south` is optional and gives the bottom edge its own colour, which is what
-# turns a flat patch into something with a lit top and a shadowed underside.
+# BUT ONLY SOME BIOMES RIM. When every one of them rimmed itself, every boundary
+# carried two rims — one from each side — and the map read as a set of outlined
+# ribbons. So the soft ground (grass, snow, sand, ash, hill, swamp) has rim=None and
+# simply stops; water, rock, lava, ice and ploughed land keep theirs, because those
+# edges are physically real. Every biome still CUTS its outside corners, so shapes
+# stay rounded either way.
 
 def recipes():
     return [
-        #  name          base     interiors                                  weights      rim      rim_south
-        # --- ice and snow -------------------------------------------------
-        ("bio_ice",   WHITE,  [lambda v: cracks(WHITE, BLUE, 11 + v, n=1 + v),
-                               lambda v: grains(WHITE, BLUE, LTGREY, 2, 3, 13 + v)],
-                              [3, 2], BLUE, None),
-        ("bio_snow",  WHITE,  [lambda v: dimples(WHITE, LTGREY, 2 + v, 21 + v),
-                               lambda v: grains(WHITE, LTGREY, PEACH, 3, 1, 23 + v)],
-                              [4, 2], LTGREY, DKGREY),
-        ("bio_tundra", SLATE, [lambda v: blades(SLATE, DKGREEN, NAVY, 3 + v, 31 + v),
-                               lambda v: grains(SLATE, LTGREY, NAVY, 4, 3, 33 + v)],
-                              [3, 2], LTGREY, None),
+        #  name          base     interiors                                      weights   rim      rim_south
+        # --- water: TWO BLUES, or blue with white foam. Never a mauve. ------
+        ("bio_ice",   WHITE,  [lambda v: plain(WHITE),
+                               lambda v: cracks(WHITE, BLUE, 11 + v)],
+                              [3, 2], BLUE, None, BLUE),
+        ("bio_snow",  WHITE,  [lambda v: plain(WHITE),
+                               lambda v: specks(WHITE, LTGREY, 21 + v, step=4)],
+                              [3, 2], None, DKGREY, LTGREY),
+        ("bio_tundra", SLATE, [lambda v: plain(SLATE),
+                               lambda v: specks(SLATE, LTGREY, 31 + v, step=4)],
+                              [3, 2], None, None, DKGREY),
         # --- sand ----------------------------------------------------------
-        ("bio_beach", PEACH,  [lambda v: grains(PEACH, WHITE, ORANGE, 5 + v * 3, 3, 41 + v),
-                               lambda v: ripple(PEACH, WHITE, 43 + v)],
-                              [3, 2], ORANGE, BROWN),
-        ("bio_desert", YELLOW,[lambda v: ripple(YELLOW, ORANGE, 51 + v),
-                               lambda v: grains(YELLOW, WHITE, ORANGE, 3, 5, 53 + v)],
-                              [3, 2], ORANGE, BROWN),
+        ("bio_beach", PEACH,  [lambda v: plain(PEACH),
+                               lambda v: specks(PEACH, ORANGE, 41 + v, step=4)],
+                              [3, 2], None, BROWN, BROWN),
+        ("bio_desert", YELLOW,[lambda v: dashes(YELLOW, ORANGE, 51 + v, step=4, run=3),
+                               lambda v: specks(YELLOW, ORANGE, 53 + v, step=4)],
+                              [3, 2], None, BROWN, BROWN),
         # --- green ---------------------------------------------------------
-        ("bio_grass", DKGREEN,[lambda v: blades(DKGREEN, GREEN, NAVY, 4 + v * 3, 61 + v),
-                               lambda v: grains(DKGREEN, GREEN, NAVY, 3, 2, 63 + v)],
-                              [3, 2], GREEN, None),
-        ("bio_savanna", ORANGE,[lambda v: blades(ORANGE, DKGREEN, BROWN, 4 + v * 2, 71 + v),
-                               lambda v: grains(ORANGE, YELLOW, BROWN, 4, 3, 73 + v)],
-                              [3, 2], YELLOW, None),
-        ("bio_swamp", DKGREEN,[lambda v: clumps(DKGREEN, BROWN, NAVY, 2 + v, 81 + v),
-                               lambda v: blades(DKGREEN, DKGREY, NAVY, 4, 83 + v)],
-                              [3, 2], DKGREY, None),
-        # --- rock: a lit top and a shadowed underside is a cliff -----------
-        ("bio_hill",  BROWN,  [lambda v: clumps(BROWN, DKGREY, NAVY, 2 + v, 91 + v),
-                               lambda v: grains(BROWN, ORANGE, DKGREY, 3, 3, 93 + v)],
-                              [3, 2], ORANGE, NAVY),
-        ("bio_mountain", DKGREY,[lambda v: facets(DKGREY, LTGREY, NAVY, 101 + v),
-                                 lambda v: clumps(DKGREY, LTGREY, NAVY, 2, 103 + v)],
-                                [3, 2], LTGREY, NAVY),
-        ("bio_peak",  LTGREY, [lambda v: snowcap(LTGREY, WHITE, DKGREY, 111 + v),
-                               lambda v: facets(LTGREY, WHITE, DKGREY, 113 + v)],
-                              [3, 2], WHITE, DKGREY),
-        ("bio_rubble", LTGREY,[lambda v: clumps(LTGREY, DKGREY, NAVY, 3 + v, 121 + v),
-                               lambda v: facets(LTGREY, WHITE, DKGREY, 123 + v)],
-                              [2, 2], DKGREY, NAVY),
+        # PLAIN DOMINATES. hedge is a flat green field and it reads better than any
+        # amount of texture; the tufts are the occasional variant, not the rule.
+        ("bio_grass", DKGREEN,[lambda v: plain(DKGREEN),
+                               lambda v: tufts(DKGREEN, GREEN, 61 + v, step=4)],
+                              [4, 2], None, None, DKGREY),
+        ("bio_savanna", ORANGE,[lambda v: plain(ORANGE),
+                               lambda v: tufts(ORANGE, YELLOW, 71 + v, step=4)],
+                              [4, 2], None, None, BROWN),
+        ("bio_swamp", DKGREEN,[lambda v: specks(DKGREEN, DKGREY, 81 + v, step=3),
+                               lambda v: tufts(DKGREEN, DKGREY, 83 + v, step=4)],
+                              [3, 2], None, None, NAVY),
+        # --- rock: staggered courses, exactly like wall_brick ---------------
+        ("bio_hill",  BROWN,  [lambda v: brickwork(BROWN, DKGREY, 91 + v, bw=5, bh=4),
+                               lambda v: specks(BROWN, DKGREY, 93 + v, step=3)],
+                              [3, 2], None, NAVY, NAVY),
+        # bh=4 keeps the mortar to one row in four. At bh=2 the two greys were half
+        # the tile each and the rock read as noise instead of as courses.
+        ("bio_mountain", DKGREY,[lambda v: brickwork(DKGREY, LTGREY, 101 + v, bw=4, bh=4),
+                                 lambda v: brickwork(DKGREY, LTGREY, 103 + v, bw=5, bh=4)],
+                                [3, 2], LTGREY, NAVY, NAVY),
+        ("bio_peak",  LTGREY, [lambda v: capped(LTGREY, WHITE, 111 + v),
+                               lambda v: brickwork(LTGREY, WHITE, 113 + v, bw=5, bh=4)],
+                              [3, 2], WHITE, DKGREY, DKGREY),
+        ("bio_rubble", LTGREY,[lambda v: brickwork(LTGREY, DKGREY, 121 + v, bw=3, bh=3),
+                               lambda v: specks(LTGREY, DKGREY, 123 + v, step=3)],
+                              [2, 2], None, NAVY, NAVY),
         # --- burnt ---------------------------------------------------------
-        ("bio_ash",   DKGREY, [lambda v: grains(DKGREY, LTGREY, BLACK, 4 + v * 3, 4, 131 + v),
-                               lambda v: dimples(DKGREY, LTGREY, 3, 133 + v)],
-                              [3, 2], NAVY, None),
-        ("bio_scorched", MAROON,[lambda v: cracks(MAROON, BLACK, 141 + v, n=1),
-                                 lambda v: grains(MAROON, DKGREY, BLACK, 3, 4, 143 + v)],
-                                [3, 2], DKGREY, None),
+        ("bio_ash",   DKGREY, [lambda v: specks(DKGREY, LTGREY, 131 + v, step=4),
+                               lambda v: plain(DKGREY)],
+                              [3, 2], None, None, BLACK),
+        ("bio_scorched", MAROON,[lambda v: cracks(MAROON, BLACK, 141 + v),
+                                 lambda v: specks(MAROON, DKGREY, 143 + v, step=4)],
+                                [3, 2], None, None, BLACK),
         # --- worked land ---------------------------------------------------
-        ("bio_farm",  BROWN,  [lambda v: furrows(BROWN, DKGREY, YELLOW if v == 0 else GREEN, 151 + v),
-                               lambda v: furrows(BROWN, DKGREY, YELLOW, 153 + v, period=4)],
-                              [3, 2], DKGREY, NAVY),
+        ("bio_farm",  BROWN,  [lambda v: stripes(BROWN, DKGREY, YELLOW, 151 + v),
+                               lambda v: stripes(BROWN, DKGREY, GREEN, 153 + v)],
+                              [3, 2], DKGREY, NAVY, NAVY),
     ]
-
