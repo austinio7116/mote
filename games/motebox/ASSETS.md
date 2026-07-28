@@ -35,7 +35,27 @@ The rest keep their roguemote names: `characters`, `animals`, `monsters`, `bosse
 `treasure_ore`, `food`, `weapons`, `tools`, `devices`, `fx_mono`, `ui_status`, `ui_icons`,
 `ui_gauges`, `ui_buttons`, `panels`, `ui_symbols`, `font_cp437`.
 
-### Cells worth knowing (verified by eye, at 13× zoom)
+### Cells are picked from the LABEL SET, not by eye
+
+`roguemote/authoring/labels_{ai,human}.json` labels 1306 of the master's cells with a
+name, a category and a confidence, and `labels_human` wins. **Use it.** Two passes at
+the sprite tables guessed instead: the first drew sheep as the master's *chicken*,
+wolves as its *snake*, and bears and boars both as the same *cow face*; the second drew
+every civ race as a **portrait bust** from rows 5–6 (they are busts, not bodies) and
+the orc as *"witch/mage casting (purple)"*.
+
+**The five races are five humanoid peoples**, all full-body figures:
+`human` characters[2,3] "adult" · `elf` characters[7,3] "green-hooded ranger (pointed
+hat)" · `dwarf` characters[5,3] "dwarf" (human-labelled) · `orc` monsters[7,4] "goblin
+(green)" · `troll` monsters[2,1] "brown troll/ogre".
+
+**The wildlife is wild first.** The animals sheet is genuinely farm-heavy — the labels
+count dogs, pigs, chicks, hens, lambs, sheep, ducks and geese — so the wilderness is
+stocked from what *is* wild in it (deer, the navy wolf, snake, spider, bat, rat, frog)
+plus the goat off the monsters sheet, and **sheep and hens are livestock that only
+spawn beside a village**. A wilderness full of poultry is a farmyard, not a world.
+
+### Other cells worth knowing
 
 | Sprite | Cell |
 |---|---|
@@ -49,60 +69,77 @@ The rest keep their roguemote names: `characters`, `animals`, `monsters`, `bosse
 `crowns_fx` (5,7) is a **sparkle**, not an explosion — an easy and costly mix-up, since it
 reads as a plus sign at icon size.
 
-## 2. Biome fill tilesets — `tilesets/bio_*.{png,tileset}` → `src/bio_*.tiles.h`
+## 2. Biome terrain — real blob47 sets
 
-**Generated from a designed vocabulary** (`authoring/biomes.py`), not stamped from the
-master. The first version of this pipeline picked "texture cells" out of the master by
-**ink coverage** — any hand-drawn cell covering 18–55% of a tile was a candidate — and
-composited the winner over a flat colour. That is selection without looking, and it
-produced exactly what it deserved:
+`authoring/terrain.py` + `authoring/biomes.py` → `tilesets/bio_*.{png,tileset}`
 
-- six biomes (mountain, ash, scorched, tundra, peak, ice) wore the **same
-  diagonal-chunk motif** in six different colours, so none of them had an identity
-- four more (grass, savanna, desert, swamp) wore the same arrow-blob
-- snow was scattered with the master's **hearts**, tundra with its **plus signs**
-- mountains were covered in neat **masonry brick**
+**Every biome is a 47-cell blob47 autotile**, generated. Two earlier versions were
+*fills* — one tile, or a few variants, repeated over an area with no idea what was
+next to it — and that is why they looked like squares butted together: where grass
+met sand there was a hard pixel step, because nothing was drawn at the join. A fill
+cannot look like terrain at any level of texture polish, because **terrain is mostly
+edges**. roguemote's `wall_brick`, `hedge` and `floor_jungle` look right precisely
+because they are blob47 sets, and that is the standard.
 
-Rows 47–49 of the master are decorative **line art** — dashes, brackets, arrows,
-hearts, scales, arches — drawn to edge a dungeon room. One motif tiled across a
-continent is wallpaper however good the motif is, because real terrain has no
-repeating unit.
+- The neighbour-mask → cell-index contract is **imported from
+  `roguemote/authoring/blob47.py`**, not reimplemented, so there is exactly one
+  definition of "cell 23" in the repo.
+- Layout is 8 cols × 6 rows = 48 cells (47 used) per variant block, stacked for
+  `nvar` — which is how the engine steps variants (`base_rows = rows / nvar`).
+- Each cell draws its interior texture plus a **rim** on the sides facing a different
+  terrain, with the eight **inner corners** picked out. Those inner-corner cells are
+  the whole reason a nine-slice looks wrong and a blob47 does not.
 
-### The vocabulary
+### The rim is the character of the material
 
-Seven generators, each saying what a material *is*. Every colour is one of the
-master's sixteen; every pattern **wraps** at the tile edge, so it is seamless; each
-biome gets 3–4 variants and the engine picks one per cell by position hash, so a large
-area never shows a repeat.
+| Biome | Rim | Reads as |
+|---|---|---|
+| sea | white | surf on a coast |
+| ocean | pale blue | deep water meeting the shore |
+| lava | yellow | a hot edge glowing against what it is eating |
+| grass | *lighter* green | a grassy fringe |
+| savanna | yellow | dry grass |
+| rock, hill, peak | light top + dark underside (`rim_south`) | a cliff |
+| snow | soft grey | a snowfield has no hard edge |
+| ash, scorched | navy / dark grey | a burn scar |
+| farmland | dark grey + navy | a ploughed boundary |
+
+A *darker* rim was tried on grass first and every patch looked outlined, like a
+sticker; the fringe has to be lighter than the field.
+
+### The interior texture vocabulary (`biomes.py`)
+
+Seven generators, each saying what a material *is*. The first version of this file
+picked "texture cells" out of the master by **ink coverage** — any hand-drawn cell
+covering 18–55% of a tile was a candidate — and stamped the winner on a flat colour.
+Selection without looking, and it showed: six biomes wore the **same diagonal-chunk
+motif** in six colours, four more wore the same arrow-blob, snow was scattered with
+the master's **hearts** and tundra with its **plus signs**, and mountains were covered
+in neat **masonry brick**. Rows 47–49 are decorative line art for edging a dungeon
+room.
 
 | Generator | Says | Used by |
 |---|---|---|
 | `grains` | a surface of particles, two tones for depth | sand, ash, dust |
-| `ripple` | short offset horizontal dashes — windswept | dunes, beach |
+| `ripple` | offset horizontal dashes — windswept | dunes, beach |
 | `blades` | upright 2 px marks: it stands up, so it reads as a plant | grass, savanna, tundra |
-| `clumps` | 2×2 with a shadow — the smallest shape that reads as an object | pebbles, muck, rubble |
+| `clumps` | 2×2 with a shadow — smallest shape that reads as an object | pebbles, muck, rubble |
 | `facets` | diagonal light/shadow runs — stone is planes meeting at edges | mountain, rock |
 | `cracks` | a one-pixel line **with momentum** | ice, scorched |
 | `furrows` | widely spaced rows with crops standing between them | farmland |
 | `snowcap` | light on the upper edge — a peak has to have an *up* | peaks |
 
-**Variant 0 of every biome is the plain base**, weighted heaviest, so a biome reads as
-its colour first and its texture second. That ordering is most of what stops this
-becoming wallpaper again.
+Two were wrong on the first pass and each records why in its docstring: `cracks`
+turned on a coin flip every pixel and drew **L-shaped glyphs**, and `furrows` at
+period 3 with a dot grid read as **chain-link fence**.
 
-Two generators were wrong on the first pass and the fix is recorded in each
-docstring: `cracks` turned on a coin flip every pixel and drew **L-shaped glyphs**
-instead of cracks (it needed momentum), and `furrows` at period 3 with a dot grid read
-as **chain-link fence** instead of a field (it needed wide spacing and upright crops).
+Where the master draws terrain better than we can, its art is the interior and only
+the rim is added: the **chevron wave band** (48,35) for ocean, sea, lava and acid, and
+the **sandbar blob** (56,34) for the shallows.
 
-### What the master still draws better than we can
-
-Its **chevron wave band** (cell 48,35) is genuinely good water — drawn as flowing
-liquid, and it tiles. So ocean, sea, lava and acid are that cell over a palette flat
-and nothing is generated; the shallows keep its hand-drawn **sandbar blob** (56,34).
-And roguemote's six **blob47** bands beat anything here, so they are synced (§3). The
-coverage guard survives for the two cells we do take: the wave band continues into
-fully opaque body cells that look identical at thumbnail size.
+Check it with `python3 authoring/preview_terrain_map.py`, which renders a synthetic
+coastline through the same mask→cell logic the engine uses — so the preview shows real
+transitions rather than one tile repeated.
 
 ## 3. Synced blob47 rulesets — `tilesets/{hedge,floor_*,wall_*}`
 

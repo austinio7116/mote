@@ -215,82 +215,76 @@ def snowcap(base, snow, rock, seed):
 
 
 # ----------------------------------------------------------------- recipes ----
-# (name, base, [variant builders]) — variant 0 is the plainest, and the engine's
-# vweight makes it the common one, so a biome reads as its COLOUR first and its
-# texture second. That ordering is what stops any of this becoming wallpaper.
+# (name, base, [interior builders], [weights], rim, rim_south)
 #
-# `None` means the master's own art is used instead and nothing is generated here;
-# those live in extract_box.py's WAVE_FILLS and SYNC_TERRAIN.
+# THE RIM IS THE POINT. These are blob47 sets (see terrain.py): every cell draws its
+# interior texture plus an edge on the sides facing a different terrain, so a
+# boundary between two biomes is DRAWN rather than being a hard pixel step. The rim
+# colour is the whole character of a material at a boundary:
+#
+#   water   a white foam line, so a coast reads as surf
+#   grass   a LIGHTER green, so the edge reads as a grassy fringe. A darker rim was
+#           tried and every patch looked outlined, like a sticker
+#   rock    a light top and a dark underside, which is a cliff
+#   lava    a hot yellow edge that glows against whatever it is eating
+#   snow    a soft grey shadow, because a snowfield has no hard edge
+#
+# `rim_south` is optional and gives the bottom edge its own colour, which is what
+# turns a flat patch into something with a lit top and a shadowed underside.
 
 def recipes():
     return [
+        #  name          base     interiors                                  weights      rim      rim_south
         # --- ice and snow -------------------------------------------------
-        ("bio_ice",   WHITE,  [lambda: cracks(WHITE, BLUE, 11, n=1),
-                               lambda: cracks(WHITE, BLUE, 12, n=2),
-                               lambda: grains(WHITE, BLUE, LTGREY, 2, 3, 13)],
-                              [3, 2, 2]),
-        ("bio_snow",  WHITE,  [lambda: dimples(WHITE, LTGREY, 2, 21),
-                               lambda: dimples(WHITE, LTGREY, 3, 22),
-                               lambda: grains(WHITE, LTGREY, PEACH, 3, 1, 23)],
-                              [4, 2, 1]),
-        ("bio_tundra", SLATE, [lambda: blades(SLATE, DKGREEN, NAVY, 3, 31),
-                               lambda: blades(SLATE, DKGREEN, NAVY, 5, 32),
-                               lambda: grains(SLATE, LTGREY, NAVY, 4, 3, 33)],
-                              [3, 2, 2]),
+        ("bio_ice",   WHITE,  [lambda v: cracks(WHITE, BLUE, 11 + v, n=1 + v),
+                               lambda v: grains(WHITE, BLUE, LTGREY, 2, 3, 13 + v)],
+                              [3, 2], BLUE, None),
+        ("bio_snow",  WHITE,  [lambda v: dimples(WHITE, LTGREY, 2 + v, 21 + v),
+                               lambda v: grains(WHITE, LTGREY, PEACH, 3, 1, 23 + v)],
+                              [4, 2], LTGREY, DKGREY),
+        ("bio_tundra", SLATE, [lambda v: blades(SLATE, DKGREEN, NAVY, 3 + v, 31 + v),
+                               lambda v: grains(SLATE, LTGREY, NAVY, 4, 3, 33 + v)],
+                              [3, 2], LTGREY, None),
         # --- sand ----------------------------------------------------------
-        ("bio_beach", PEACH,  [lambda: grains(PEACH, WHITE, ORANGE, 5, 3, 41),
-                               lambda: grains(PEACH, WHITE, ORANGE, 8, 4, 42),
-                               lambda: ripple(PEACH, WHITE, 43)],
-                              [3, 2, 2]),
-        ("bio_desert", YELLOW,[lambda: ripple(YELLOW, ORANGE, 51),
-                               lambda: ripple(YELLOW, ORANGE, 52, rows=(2, 6)),
-                               lambda: grains(YELLOW, WHITE, ORANGE, 3, 5, 53)],
-                              [3, 3, 2]),
+        ("bio_beach", PEACH,  [lambda v: grains(PEACH, WHITE, ORANGE, 5 + v * 3, 3, 41 + v),
+                               lambda v: ripple(PEACH, WHITE, 43 + v)],
+                              [3, 2], ORANGE, BROWN),
+        ("bio_desert", YELLOW,[lambda v: ripple(YELLOW, ORANGE, 51 + v),
+                               lambda v: grains(YELLOW, WHITE, ORANGE, 3, 5, 53 + v)],
+                              [3, 2], ORANGE, BROWN),
         # --- green ---------------------------------------------------------
-        ("bio_grass", DKGREEN,[lambda: blades(DKGREEN, GREEN, NAVY, 4, 61),
-                               lambda: blades(DKGREEN, GREEN, NAVY, 7, 62),
-                               lambda: grains(DKGREEN, GREEN, NAVY, 3, 2, 63)],
-                              [3, 2, 2]),
-        ("bio_savanna", ORANGE,[lambda: blades(ORANGE, DKGREEN, BROWN, 4, 71),
-                               lambda: blades(ORANGE, DKGREEN, BROWN, 6, 72),
-                               lambda: grains(ORANGE, YELLOW, BROWN, 4, 3, 73)],
-                              [3, 2, 2]),
-        ("bio_swamp", DKGREEN,[lambda: clumps(DKGREEN, BROWN, NAVY, 2, 81),
-                               lambda: clumps(DKGREEN, BROWN, NAVY, 3, 82),
-                               lambda: blades(DKGREEN, DKGREY, NAVY, 4, 83)],
-                              [3, 2, 2]),
-        # --- rock ----------------------------------------------------------
-        ("bio_hill",  BROWN,  [lambda: clumps(BROWN, DKGREY, NAVY, 2, 91),
-                               lambda: clumps(BROWN, DKGREY, NAVY, 3, 92),
-                               lambda: grains(BROWN, ORANGE, DKGREY, 3, 3, 93)],
-                              [3, 2, 2]),
-        ("bio_mountain", DKGREY,[lambda: facets(DKGREY, LTGREY, NAVY, 101),
-                                 lambda: facets(DKGREY, LTGREY, NAVY, 102),
-                                 lambda: clumps(DKGREY, LTGREY, NAVY, 2, 103)],
-                                [3, 2, 2]),
-        ("bio_peak",  LTGREY, [lambda: snowcap(LTGREY, WHITE, DKGREY, 111),
-                               lambda: snowcap(LTGREY, WHITE, DKGREY, 112),
-                               lambda: facets(LTGREY, WHITE, DKGREY, 113)],
-                              [3, 3, 2]),
-        ("bio_rubble", LTGREY,[lambda: clumps(LTGREY, DKGREY, NAVY, 3, 121),
-                               lambda: clumps(LTGREY, DKGREY, NAVY, 4, 122),
-                               lambda: facets(LTGREY, WHITE, DKGREY, 123)],
-                              [2, 2, 2]),
+        ("bio_grass", DKGREEN,[lambda v: blades(DKGREEN, GREEN, NAVY, 4 + v * 3, 61 + v),
+                               lambda v: grains(DKGREEN, GREEN, NAVY, 3, 2, 63 + v)],
+                              [3, 2], GREEN, None),
+        ("bio_savanna", ORANGE,[lambda v: blades(ORANGE, DKGREEN, BROWN, 4 + v * 2, 71 + v),
+                               lambda v: grains(ORANGE, YELLOW, BROWN, 4, 3, 73 + v)],
+                              [3, 2], YELLOW, None),
+        ("bio_swamp", DKGREEN,[lambda v: clumps(DKGREEN, BROWN, NAVY, 2 + v, 81 + v),
+                               lambda v: blades(DKGREEN, DKGREY, NAVY, 4, 83 + v)],
+                              [3, 2], DKGREY, None),
+        # --- rock: a lit top and a shadowed underside is a cliff -----------
+        ("bio_hill",  BROWN,  [lambda v: clumps(BROWN, DKGREY, NAVY, 2 + v, 91 + v),
+                               lambda v: grains(BROWN, ORANGE, DKGREY, 3, 3, 93 + v)],
+                              [3, 2], ORANGE, NAVY),
+        ("bio_mountain", DKGREY,[lambda v: facets(DKGREY, LTGREY, NAVY, 101 + v),
+                                 lambda v: clumps(DKGREY, LTGREY, NAVY, 2, 103 + v)],
+                                [3, 2], LTGREY, NAVY),
+        ("bio_peak",  LTGREY, [lambda v: snowcap(LTGREY, WHITE, DKGREY, 111 + v),
+                               lambda v: facets(LTGREY, WHITE, DKGREY, 113 + v)],
+                              [3, 2], WHITE, DKGREY),
+        ("bio_rubble", LTGREY,[lambda v: clumps(LTGREY, DKGREY, NAVY, 3 + v, 121 + v),
+                               lambda v: facets(LTGREY, WHITE, DKGREY, 123 + v)],
+                              [2, 2], DKGREY, NAVY),
         # --- burnt ---------------------------------------------------------
-        ("bio_ash",   DKGREY, [lambda: grains(DKGREY, LTGREY, BLACK, 4, 4, 131),
-                               lambda: grains(DKGREY, LTGREY, BLACK, 7, 6, 132),
-                               lambda: dimples(DKGREY, LTGREY, 3, 133)],
-                              [3, 2, 2]),
-        # one crack per tile, not two or three: at three the kinks overlapped into
-        # thick junctions and the ground read as charcoal rubble rather than as
-        # scorched earth with a split in it
-        ("bio_scorched", MAROON,[lambda: cracks(MAROON, BLACK, 141, n=1),
-                                 lambda: cracks(MAROON, BLACK, 142, n=1),
-                                 lambda: grains(MAROON, DKGREY, BLACK, 3, 4, 143)],
-                                [3, 2, 2]),
+        ("bio_ash",   DKGREY, [lambda v: grains(DKGREY, LTGREY, BLACK, 4 + v * 3, 4, 131 + v),
+                               lambda v: dimples(DKGREY, LTGREY, 3, 133 + v)],
+                              [3, 2], NAVY, None),
+        ("bio_scorched", MAROON,[lambda v: cracks(MAROON, BLACK, 141 + v, n=1),
+                                 lambda v: grains(MAROON, DKGREY, BLACK, 3, 4, 143 + v)],
+                                [3, 2], DKGREY, None),
         # --- worked land ---------------------------------------------------
-        ("bio_farm",  BROWN,  [lambda: furrows(BROWN, DKGREY, YELLOW, 151),
-                               lambda: furrows(BROWN, DKGREY, GREEN, 152),
-                               lambda: furrows(BROWN, DKGREY, YELLOW, 153, period=4)],
-                              [3, 2, 2]),
+        ("bio_farm",  BROWN,  [lambda v: furrows(BROWN, DKGREY, YELLOW if v == 0 else GREEN, 151 + v),
+                               lambda v: furrows(BROWN, DKGREY, YELLOW, 153 + v, period=4)],
+                              [3, 2], DKGREY, NAVY),
     ]
+

@@ -93,14 +93,16 @@ enum { PK_SPARK = 0, PK_SMOKE, PK_RING, PK_BOLT, PK_GUST, PK_STAR, PK_N };
 #define MAXU 384
 
 enum {
-    SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC, SP_MUSH,       /* can found villages */
-    SP_DEER, SP_BOAR, SP_SHEEP, SP_CHICKEN, SP_RABBIT,     /* prey */
-    SP_WOLF, SP_BEAR, SP_SNAKE, SP_SPIDER,                 /* predators */
-    SP_FISH, SP_BEE, SP_RAT,                               /* swarm and vector */
-    SP_SKELETON, SP_GHOST, SP_DEMON,                       /* what the world raises */
+    /* FIVE HUMANOID PEOPLES, and they must stay first: `sp < SP_CIV_N` is the whole
+     * "can found a village" test. */
+    SP_HUMAN = 0, SP_ELF, SP_DWARF, SP_ORC, SP_TROLL,
+    SP_DEER, SP_BOAR, SP_SHEEP, SP_HEN, SP_GOAT,           /* grazers and prey */
+    SP_WOLF, SP_DOG, SP_SNAKE, SP_SPIDER,                  /* predators */
+    SP_FROG, SP_BAT, SP_RAT,                               /* water, swarm, vermin */
+    SP_WIGHT, SP_GHOST, SP_DEMON,                          /* what the world raises */
     SP_N
 };
-#define SP_CIV_N SP_DEER                     /* species below this build things */
+#define SP_CIV_N SP_DEER          /* five races: human, elf, dwarf, orc, troll */                     /* species below this build things */
 
 enum { DIET_PLANT = 0, DIET_MEAT };
 enum { DRV_CIV = 0, DRV_BEAST, DRV_FISH };   /* which drive set a species carries */

@@ -809,6 +809,15 @@ int mb_civ_drop_village(int sp, int x, int y)
             mb_u[u].age = (uint8_t)(span / 4 + (int)((r >> 12) & 3));
         }
     }
+    /* LIVESTOCK, and only here. Sheep and hens belong beside a settlement, not
+     * scattered across a wilderness — a world stocked with poultry is a farmyard.
+     * A few head by the founding fire is also the fastest way to make a new village
+     * read as inhabited rather than as four buildings. */
+    for (int i = 0; i < 5; i++) {
+        uint32_t lr = mb_rand((uint32_t)(i * 5171u + (uint32_t)mb_w.tick));
+        int lx = x + (int)(lr % 7) - 3, ly = y + (int)((lr >> 6) % 7) - 3;
+        mb_unit_spawn((lr & 1) ? SP_SHEEP : SP_HEN, lx, ly);
+    }
     mb_v[v].food = 30; mb_v[v].wood = 12; mb_v[v].stone = 6;
     /* Clear the immediate neighbourhood of predators. A settlement founded in the
      * middle of a wolf pack is not a story, it is a formality — and driving off

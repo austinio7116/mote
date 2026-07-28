@@ -19,6 +19,7 @@
 #include "characters.h"
 #include "animals.h"
 #include "bosses.h"
+#include "monsters.h"
 #include "buildings.h"
 #include "treasure_ore.h"
 
@@ -76,7 +77,7 @@ static const Power P_WRATH[8] = {
     { PW_FIRE,     "FIRE",     &ui_status_img, 10, 3, 2, 1,   8 },
     { PW_LIGHTNING,"LIGHTNING",&ui_status_img,  3, 3, 0, 0,  12 },
     { PW_METEOR,   "METEOR",   &crowns_fx_img,  4, 7, 3, 0, 120 },
-    { PW_VOLCANO,  "VOLCANO",  &crowns_fx_img,  5, 5, 1, 0, 200 },
+    { PW_VOLCANO,  "VOLCANO",  &crowns_fx_img,  6, 7, 1, 0, 200 },   /* fire/explosion, not the brown CROWN the old cell was */
     { PW_QUAKE,    "QUAKE",    &ui_status_img,  5, 3, 0, 0,  60 },
     { PW_TORNADO,  "TORNADO",  &ui_status_img,  2, 3, 0, 0,  90 },
     { PW_ACID,     "ACID",     &ui_status_img, 10, 5, 2, 1,  40 },
@@ -84,10 +85,10 @@ static const Power P_WRATH[8] = {
 };
 
 static const Power P_LIFE[8] = {
-    { PW_HUMAN,   "HUMANS",   &characters_img, 3, 3, 0, 0,  20 },
-    { PW_ELF,     "ELVES",    &characters_img, 5, 3, 0, 0,  20 },
-    { PW_DWARF,   "DWARVES",  &characters_img, 1, 6, 0, 0,  20 },
-    { PW_ORC,     "ORCS",     &characters_img, 7, 4, 0, 0,  20 },
+    { PW_HUMAN,   "HUMANS",   &characters_img, 2, 3, 0, 0,  20 },
+    { PW_ELF,     "ELVES",    &characters_img, 7, 3, 0, 0,  20 },
+    { PW_DWARF,   "DWARVES",  &characters_img, 5, 3, 0, 0,  20 },
+    { PW_ORC,     "ORCS",     &monsters_img,   7, 4, 0, 0,  20 },
     { PW_VILLAGE, "VILLAGE",  &buildings_img,  2, 2, 0, 0,  90 },
     { PW_HERD,    "HERD",     &animals_img,    0, 0, 1, 0,  10 },
     { PW_WOLVES,  "WOLVES",   &animals_img,    3, 1, 0, 0,  10 },
@@ -323,14 +324,14 @@ static void cast_at(int id, int r, int cx, int cy)
     case PW_HERD:
         for (int i = 0; i < 6; i++) {
             uint32_t rr = mb_rand((uint32_t)(i * 911u + (uint32_t)mb_w.tick));
-            static const uint8_t HERD[4] = { SP_DEER, SP_SHEEP, SP_BOAR, SP_CHICKEN };
+            static const uint8_t HERD[4] = { SP_DEER, SP_SHEEP, SP_BOAR, SP_HEN };
             mb_unit_spawn(HERD[rr & 3], cx + (int)((rr >> 3) % 7) - 3, cy + (int)((rr >> 7) % 7) - 3);
         }
         break;
     case PW_WOLVES:
         for (int i = 0; i < 3; i++) {
             uint32_t rr = mb_rand((uint32_t)(i * 313u + (uint32_t)mb_w.tick));
-            mb_unit_spawn((rr & 3) ? SP_WOLF : SP_BEAR, cx + (int)((rr >> 3) % 5) - 2,
+            mb_unit_spawn((rr & 3) ? SP_WOLF : SP_DOG, cx + (int)((rr >> 3) % 5) - 2,
                           cy + (int)((rr >> 7) % 5) - 2);
         }
         break;
@@ -441,7 +442,7 @@ static void cast_at(int id, int r, int cx, int cy)
     case PW_SWARM:
         for (int i = 0; i < 12; i++) {
             uint32_t rr = mb_rand((uint32_t)(i * 577u + (uint32_t)mb_w.tick));
-            mb_unit_spawn(SP_BEE, cx + (int)(rr % 7) - 3, cy + (int)((rr >> 4) % 7) - 3);
+            mb_unit_spawn(SP_BAT, cx + (int)(rr % 7) - 3, cy + (int)((rr >> 4) % 7) - 3);
         }
         mb_chron_disaster("a swarm", cx, cy);
         break;

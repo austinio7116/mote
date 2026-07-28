@@ -124,9 +124,9 @@ static void hud_text(uint16_t *fb, const char *s, int x, int y, int maxw,
 /* The columns. Two rows of 8 px in the 16 px strip, and every field's width is
  * declared here rather than discovered at runtime. */
 #define HC_SPEED_X   1
-#define HC_SPEED_W  14
-#define HC_YEAR_X   16
-#define HC_YEAR_W   30
+#define HC_SPEED_W  20     /* "x1" measures 16 px in rogue8; 14 clipped the digit */
+#define HC_YEAR_X   22
+#define HC_YEAR_W   26
 #define HC_POWER_X  48
 #define HC_POWER_W  58
 #define HC_VIEW_X  108
@@ -339,6 +339,26 @@ static void g_init(void)
         }
         const char *yy = getenv("MOTEBOX_YEARS");
         if (yy && *yy) fast_forward(atoi(yy));
+        /* MOTEBOX_CENSUS=1 lists what is actually standing in the visible window,
+         * because "what does the screen show" and "what does the sim think" are two
+         * different questions and only the first one is the complaint. */
+        if (getenv("MOTEBOX_CENSUS")) {
+            int seen[SP_N] = { 0 }, build[O_N] = { 0 };
+            for (int i = 0; i < mb_nu; i++) {
+                if (!mb_u[i].alive) continue;
+                int ux = mb_u[i].x >> 4, uy = mb_u[i].y >> 4;
+                if (ux < s_cx - 8 || ux > s_cx + 8 || uy < s_cy - 7 || uy > s_cy + 7) continue;
+                seen[mb_u[i].sp]++;
+            }
+            for (int y = s_cy - 7; y <= s_cy + 7; y++)
+                for (int x = s_cx - 8; x <= s_cx + 8; x++)
+                    if (mb_in(x, y) && mb_w.obj[AT(x, y)] < O_N) build[mb_w.obj[AT(x, y)]]++;
+            fprintf(stderr, "census at %d,%d (16x14 window):\n", s_cx, s_cy);
+            for (int s = 0; s < SP_N; s++)
+                if (seen[s]) fprintf(stderr, "   %-10s %d\n", MB_SP[s].name, seen[s]);
+            for (int o = 1; o < O_N; o++)
+                if (build[o]) fprintf(stderr, "   obj %-12s %d\n", O_NAME[o], build[o]);
+        }
     }
 #endif
     mb_world_start(&s_cx, &s_cy);

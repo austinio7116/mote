@@ -21,47 +21,55 @@
 
 /* Civ species come first so `sp < SP_DEER` is the whole "can build a village"
  * test, and the beasts follow in prey/predator order. */
-/* SPRITES CHOSEN BY LOOKING AT THEM, at 14x, one cell at a time.
+/* SPRITES FROM ROGUEMOTE'S LABEL SET, not from eyeballing indices.
  *
- * The first version of this table picked cells by plausible-looking index and got
- * it comprehensively wrong: sheep were drawn as the master's CHICKEN, wolves as its
- * SNAKE, and bears and boars both as the same front-facing COW FACE. Zooming in on
- * a village showed a menagerie of chickens and dogs with no relation to what the
- * simulation thought was there. There is no shortcut for this: every cell below was
- * confirmed against a labelled contact sheet (authoring/ catalogues).
+ * roguemote/authoring/labels_{ai,human}.json labels 1306 of the master's cells with
+ * a name, a category and a confidence, and labels_human wins. Two earlier passes at
+ * this table guessed instead, and both were badly wrong: the first drew sheep as the
+ * master's CHICKEN, wolves as its SNAKE and bears and boars both as the same COW
+ * FACE; the second drew every civ race as a PORTRAIT BUST from rows 5-6 and the orc
+ * as "witch/mage casting (purple)". The labels were right there the whole time.
  *
- * animals sheet: (4,0) stag · (5,0) pig · (10,0) sheep · (8,0) rooster ·
- *                (5,3) white rabbit · (11,0) brown canine · (12,3) brown beast ·
- *                (3,1) green snake · (15,2) brown spider · (4,4) fish ·
- *                (0,4) bee · (0,3) rat · (3,6) red mushroom-folk
- * characters:    (10,5) human · (11,4) green-robed elf · (3,6) bearded dwarf ·
- *                (12,3) dark brute orc · (3,5) crowned figure (a king)
- * monsters:      (0,3) white skeleton · (8,3) pale wisp · (0,7) red demon
+ * THE FIVE RACES ARE FIVE HUMANOID PEOPLES, all full-body figures from row 3 of the
+ * characters sheet (rows 0-1 and 5-6 are busts) or the monsters sheet:
+ *   human  characters[2,3]  "adult"
+ *   elf    characters[7,3]  "green-hooded ranger (pointed hat)"
+ *   dwarf  characters[5,3]  "dwarf"                      (human-labelled)
+ *   orc    monsters  [7,4]  "goblin (green)"
+ *   troll  monsters  [2,1]  "brown troll/ogre"
+ *
+ * THE WILDLIFE IS WILD FIRST. The animals sheet is genuinely farm-heavy — the labels
+ * count dogs, pigs, chicks, hens, lambs, sheep, ducks and geese — so the wilderness
+ * is stocked from what IS wild in it (deer, the navy wolf, owl, snake, spider, bat,
+ * rat, frog) plus the ox and goat off the monsters sheet, and the sheep and hens are
+ * livestock that only appear near a village (see mb_unit_seed_wildlife).
  */
 const MbSpecies MB_SP[SP_N] = {
     /*  name        sheet  cx cy  spd life  diet        drives      */
-    { "human",     0, 10, 5, 12, 20, DIET_PLANT, DRV_CIV   },
-    { "elf",       0, 11, 4, 11, 18, DIET_PLANT, DRV_CIV   },
-    { "dwarf",     0,  3, 6, 10, 24, DIET_PLANT, DRV_CIV   },
-    { "orc",       0, 12, 3, 13, 22, DIET_PLANT, DRV_CIV   },
-    { "mushfolk",  2,  3, 6,  9, 16, DIET_PLANT, DRV_CIV   },
+    { "human",     0,  2, 3, 12, 20, DIET_PLANT, DRV_CIV   },
+    { "elf",       0,  7, 3, 11, 18, DIET_PLANT, DRV_CIV   },
+    { "dwarf",     0,  5, 3, 10, 24, DIET_PLANT, DRV_CIV   },
+    { "orc",       1,  7, 4, 13, 22, DIET_PLANT, DRV_CIV   },
+    { "troll",     1,  2, 1,  9, 26, DIET_PLANT, DRV_CIV   },
+    /* --- grazers and prey --- */
     { "deer",      2,  4, 0, 16, 10, DIET_PLANT, DRV_BEAST },
     { "boar",      2,  5, 0, 12, 14, DIET_PLANT, DRV_BEAST },
     { "sheep",     2, 10, 0,  9, 10, DIET_PLANT, DRV_BEAST },
-    { "chicken",   2,  8, 0, 10,  6, DIET_PLANT, DRV_BEAST },
-    { "rabbit",    2,  5, 3, 15,  6, DIET_PLANT, DRV_BEAST },
-    { "wolf",      2, 11, 0, 17, 16, DIET_MEAT,  DRV_BEAST },
-    { "bear",      2, 12, 3, 13, 26, DIET_MEAT,  DRV_BEAST },
+    { "hen",       2,  8, 0, 10,  6, DIET_PLANT, DRV_BEAST },
+    { "goat",      1,  9, 3, 12,  9, DIET_PLANT, DRV_BEAST },
+    /* --- predators --- */
+    { "wolf",      2, 15, 3, 17, 16, DIET_MEAT,  DRV_BEAST },
+    { "wild dog",  2,  2, 0, 15, 14, DIET_MEAT,  DRV_BEAST },
     { "snake",     2,  3, 1, 11, 10, DIET_MEAT,  DRV_BEAST },
-    { "spider",    2, 15, 2, 12,  8, DIET_MEAT,  DRV_BEAST },
-    { "fish",      2,  4, 4, 12,  6, DIET_PLANT, DRV_FISH  },
-    { "bee",       2,  0, 4, 20,  4, DIET_PLANT, DRV_BEAST },
+    { "spider",    2,  0, 1, 12,  8, DIET_MEAT,  DRV_BEAST },
+    /* --- water, swarm, vermin --- */
+    { "frog",      2,  6, 4, 12,  6, DIET_PLANT, DRV_FISH  },
+    { "bat",       2,  5, 1, 20,  5, DIET_MEAT,  DRV_BEAST },
     { "rat",       2,  0, 3, 14,  6, DIET_PLANT, DRV_BEAST },
-    /* What the world raises rather than breeds: they eat the living, and the
-     * lifespan is long because nothing about them is alive to wear out. */
-    { "skeleton",  1,  0, 3, 12, 40, DIET_MEAT,  DRV_BEAST },
-    { "ghost",     1,  8, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
-    { "demon",     1,  0, 7, 15, 60, DIET_MEAT,  DRV_BEAST },
+    /* --- what the world raises rather than breeds --- */
+    { "wight",     0,  8, 5, 12, 40, DIET_MEAT,  DRV_BEAST },
+    { "ghost",     1,  0, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
+    { "demon",     1,  3, 7, 15, 60, DIET_MEAT,  DRV_BEAST },
 };
 
 /* Sheet index -> the actual sheet, resolved in mb_draw.c (which owns the images).
@@ -628,15 +636,25 @@ void mb_unit_seed_wildlife(void)
         int x = (int)(r % MW), y = (int)((r >> 10) % MH);
         uint8_t b = mb_w.biome[AT(x, y)];
         int sp = -1, roll = (int)((r >> 20) & 255);
+        /* WILD ANIMALS IN THE WILD. Sheep and hens are livestock and are seeded
+         * beside villages instead (mb_civ_drop_village), because a wilderness full
+         * of poultry is a farmyard, not a world. */
         switch (b) {
-        case B_FOREST:  sp = roll < 90 ? SP_DEER : (roll < 150 ? SP_RABBIT : (roll < 162 ? SP_WOLF : (roll < 168 ? SP_BEAR : -1))); break;
-        case B_MEADOW:  sp = roll < 80 ? SP_DEER : (roll < 135 ? SP_SHEEP : (roll < 155 ? SP_RABBIT : (roll < 161 ? SP_WOLF : -1))); break;
-        case B_GRASS:   sp = roll < 70 ? SP_SHEEP : (roll < 120 ? SP_CHICKEN : (roll < 140 ? SP_RABBIT : -1)); break;
-        case B_SAVANNA: sp = roll < 60 ? SP_BOAR : (roll < 100 ? SP_SNAKE : (roll < 120 ? SP_CHICKEN : -1)); break;
-        case B_SWAMP:   sp = roll < 70 ? SP_SNAKE : (roll < 120 ? SP_SPIDER : -1); break;
-        case B_DESERT:  sp = roll < 40 ? SP_SNAKE : -1; break;
-        case B_HILL:    sp = roll < 50 ? SP_BOAR : (roll < 62 ? SP_WOLF : -1); break;
-        case B_SEA: case B_SHALLOW: sp = roll < 110 ? SP_FISH : -1; break;
+        case B_FOREST:  sp = roll <  90 ? SP_DEER  : (roll < 140 ? SP_BAT   :
+                             roll < 158 ? SP_WOLF  : (roll < 170 ? SP_SPIDER : -1)); break;
+        case B_MEADOW:  sp = roll <  85 ? SP_DEER  : (roll < 130 ? SP_GOAT  :
+                             roll < 148 ? SP_WOLF  : -1); break;
+        case B_GRASS:   sp = roll <  70 ? SP_DEER  : (roll < 120 ? SP_DEER    :
+                             roll < 140 ? SP_RAT   : -1); break;
+        case B_SAVANNA: sp = roll <  70 ? SP_BOAR  : (roll < 115 ? SP_SNAKE :
+                             roll < 132 ? SP_DOG   : -1); break;
+        case B_SWAMP:   sp = roll <  70 ? SP_SNAKE : (roll < 120 ? SP_SPIDER :
+                             roll < 145 ? SP_FROG  : -1); break;
+        case B_DESERT:  sp = roll <  45 ? SP_SNAKE : (roll <  60 ? SP_BAT   : -1); break;
+        case B_HILL:    sp = roll <  55 ? SP_GOAT  : (roll <  75 ? SP_WOLF  : -1); break;
+        case B_MOUNTAIN:sp = roll <  30 ? SP_GOAT  : (roll <  42 ? SP_BAT   : -1); break;
+        case B_TUNDRA:  sp = roll <  40 ? SP_DEER  : (roll <  55 ? SP_WOLF  : -1); break;
+        case B_SEA: case B_SHALLOW: sp = roll < 70 ? SP_FROG : -1; break;
         default: break;
         }
         if (sp >= 0) mb_unit_spawn(sp, x, y);
@@ -732,7 +750,7 @@ int mb_unit_raise_dead(int cx, int cy, int r)
             if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
             mb_w.obj[AT(x, y)] = O_NONE;
             uint32_t rr = mb_rand((uint32_t)AT(x, y) * 733u);
-            int u = mb_unit_spawn((rr & 7) ? SP_SKELETON : SP_GHOST, x, y);
+            int u = mb_unit_spawn((rr & 7) ? SP_WIGHT : SP_GHOST, x, y);
             if (u >= 0) { mb_u[u].traits |= TR_ZOMBIE; n++; }
         }
     return n;
@@ -785,13 +803,13 @@ void mb_unit_migrate(void)
          * back before it needs wolves, or the wolves simply eat the seed stock */
         switch (b) {
         case B_FOREST: case B_MEADOW:
-            sp = roll < 120 ? SP_DEER : (roll < 200 ? SP_RABBIT : (roll < 230 ? SP_SHEEP : SP_WOLF));
+            sp = roll < 120 ? SP_DEER : (roll < 200 ? SP_GOAT : (roll < 235 ? SP_BAT : SP_WOLF));
             break;
         case B_GRASS: case B_SAVANNA:
-            sp = roll < 130 ? SP_SHEEP : (roll < 210 ? SP_CHICKEN : SP_BOAR);
+            sp = roll < 120 ? SP_DEER : (roll < 200 ? SP_BOAR : SP_GOAT);
             break;
         case B_SEA: case B_SHALLOW:
-            sp = SP_FISH;
+            sp = SP_FROG;
             break;
         default: break;
         }

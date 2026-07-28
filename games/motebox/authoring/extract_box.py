@@ -247,26 +247,45 @@ def write_tileset(name, tiles, weights, edge=1):
 
 
 def build_biomes():
-    """The artist's water, then the generated ground."""
-    import biomes
+    """Real blob47 sets, so every biome boundary is DRAWN.
 
-    for name, base, ink in WAVE_FILLS:
-        covr = coverage(WAVE)
-        if not (COV_MIN <= covr <= COV_MAX):
-            raise SystemExit(f"wave cell {WAVE}: {covr}% coverage, outside {COV_MIN}-{COV_MAX}%")
-        write_tileset(name, [flat(base, (WAVE, 0, 0), ink)], [1])
+    Two earlier versions of this were flat fills. Both looked like squares butted
+    together, because a fill has no idea what is next to it and terrain is mostly
+    edges. roguemote's hand-drawn bands look right precisely because they are 47-cell
+    blobs, and that is the standard this has to meet — so the interiors come from the
+    texture vocabulary and terrain.py wraps each one in a real blob47 set with rims
+    and inner corners. See terrain.py and biomes.py for the reasoning.
+    """
+    import biomes, terrain
 
-    # the shallows keep the master's sandbar, which is drawn as one
-    write_tileset("bio_shallow",
-                  [flat(BLUE), flat(BLUE, (FOAM, 0, 0), PEACH), flat(BLUE, (FOAM, 4, 4), PEACH)],
-                  [2, 1, 1])
+    # 1. WATER, LAVA, ACID: the artist's chevron band as the interior, with a foam or
+    #    hot rim on the sides facing land. The band is genuinely good flowing liquid;
+    #    only its edges were missing.
+    covr = coverage(WAVE)
+    if not (COV_MIN <= covr <= COV_MAX):
+        raise SystemExit(f"wave cell {WAVE}: {covr}% coverage, outside {COV_MIN}-{COV_MAX}%")
+    for name, base, ink, rim in (
+            ("bio_ocean", NAVY,  SLATE,  BLUE),    # a paler blue line at the shore
+            ("bio_sea",   BLUE,  SLATE,  WHITE),   # white surf
+            ("bio_lava",  RED,   ORANGE, YELLOW),  # a hot edge that glows
+            ("bio_acid",  GREEN, YELLOW, WHITE)):
+        interior = flat(base, (WAVE, 0, 0), ink)
+        sheet = terrain.build(lambda v, _i=interior: _i, rim, nvar=1)
+        terrain.write(TSETS, name, sheet, 1)
+        print(f"[blob47]  {name:20s} nvar=1  rim={rim}")
 
-    # Variant 0 of every generated biome is the PLAIN base, weighted heaviest, so a
-    # biome reads as its colour first and its texture second. That ordering is most of
-    # what stops any of this becoming wallpaper again.
-    for name, base, builders, weights in biomes.recipes():
-        tiles = [flat(base)] + [b() for b in builders]
-        write_tileset(name, tiles, [weights[0] + 1] + list(weights))
+    # 2. the shallows keep the master's sandbar, which is drawn as one
+    shal = [flat(BLUE), flat(BLUE, (FOAM, 0, 0), PEACH)]
+    sheet = terrain.build(lambda v: shal[v], PEACH, nvar=2)
+    terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[2, 1])
+    print(f"[blob47]  {'bio_shallow':20s} nvar=2")
+
+    # 3. everything else, from the vocabulary
+    for name, base, builders, weights, rim, rim_s in biomes.recipes():
+        nvar = len(builders)
+        sheet = terrain.build(lambda v: builders[v](v), rim, rim_s, nvar=nvar)
+        terrain.write(TSETS, name, sheet, nvar, vweight=weights)
+        print(f"[blob47]  {name:20s} nvar={nvar} weights={weights} rim={rim}")
 
 
 def sync_terrain():
