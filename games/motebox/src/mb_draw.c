@@ -94,20 +94,26 @@ static const uint16_t MB_COL[B_COUNT] = {
 /* Object dots in God's Eye. 0 = draw the biome colour (the object is too small
  * to matter at 1 px); anything else overrides the pixel, which is how ore veins
  * and treelines show up on the political map. */
+/* MOST OBJECTS DRAW NOTHING at one pixel per tile, and that is the point. The first
+ * version gave trees bright green, ore brown, silver light grey, gold yellow and gems
+ * red — so a continent was strewn with confetti and the important marks (a
+ * settlement, a fire, an army) had to compete with a thousand pebbles. The biome
+ * colour already says "forest"; only what a player would ACT on gets a pixel. */
 static const uint16_t MB_OBJ_COL[O_N] = {
     0,                       /* none      */
-    C_GREEN, C_GREEN,        /* tree      */
-    C_BROWN,                 /* dead      */
-    C_GREEN,                 /* bush      */
+    0, 0,                    /* tree, tree2 — the forest biome already reads green */
+    0,                       /* dead tree */
+    0,                       /* bush      */
     0,                       /* tuft      */
     0,                       /* rock      */
-    C_DKGREEN,               /* cactus    */
+    0,                       /* cactus    */
     0,                       /* flower    */
-    C_BROWN,                 /* ore       */
-    C_LTGREY,                /* silver    */
-    C_YELLOW,                /* gold      */
-    C_RED,                   /* gem       */
-    0, 0,                    /* boulder, peak rock */
+    0,                       /* iron      — too common to be news */
+    0,                       /* silver    */
+    C_ORANGE,                /* gold      — worth crossing a map for */
+    C_MAROON,                /* gems      */
+    0, 0,                    /* boulder, crag */
+    C_SLATE,                 /* grave     — a battlefield should be visible */
 };
 
 /* The five banner colours the buildings sheet is drawn in — so a kingdom's tint
@@ -246,9 +252,22 @@ void mb_god_band(uint16_t *fb, int y0, int y1)
 
             uint8_t o = orow[x];
             if (o && o < O_N) {
-                uint16_t oc = mb_is_build(o) ? mb_kingdom_colour(k) : MB_OBJ_COL[o];
-                if (mb_is_build(o) && !oc) oc = C_WHITE;   /* an unclaimed ruin */
-                if (oc) c = oc;
+                if (mb_is_build(o)) {
+                    /* A BUILDING IS WHITE WITH A COLOURED HALL, not another dot in
+                     * the kingdom's colour. At 1 px/tile a building drawn in the
+                     * banner colour was indistinguishable from a person walking on
+                     * claimed ground, so a village of thirty houses read as a
+                     * slightly denser crowd and the answer to "where are the
+                     * civilizations" was "nowhere visible". White reads as built,
+                     * and only the hall carries the banner. */
+                    int hall = (o == O_HALL1 || o == O_HALL2 || o == O_HALL3
+                                || o == O_FIRE_PIT);
+                    uint16_t kc = mb_kingdom_colour(k);
+                    c = (hall && kc) ? kc : C_WHITE;
+                } else {
+                    uint16_t oc = MB_OBJ_COL[o];
+                    if (oc) c = oc;
+                }
             }
 
             uint8_t fk = mb_fkind(frow[x]);
@@ -321,24 +340,41 @@ static const FluxSpr FLUX_SPR[FX_N] = {
  * correction roguemote's ASSETS.md records (cols are door/open/house/extend, rows
  * are five colours) is exactly the per-kingdom building set a civ sim needs. */
 typedef struct { uint8_t sheet, cx, cy; } BldSpr;
-enum { BS_BUILD = 0, BS_PROPS, BS_PLAN };
+enum { BS_BUILD = 0, BS_PROPS, BS_PLAN, BS_NATURE };
+
+/* BUILDINGS THAT LOOK LIKE BUILDINGS, chosen by looking at the sheets.
+ *
+ * The first version pointed most of them at `props` cells that are planks, benches
+ * and stone arches, so a village rendered as scattered debris and the honest
+ * complaint was "where are the civilizations?". Only the house and the hall used
+ * the buildings sheet at all.
+ *
+ * The buildings sheet is FOUR COLUMNS BY FIVE COLOUR ROWS: col 0 a walled front
+ * with a door, col 1 the same with the door open, col 2 a pitched-roof house, col 3
+ * its wide continuation. The row is the kingdom's banner colour, so every settled
+ * structure below draws from it and a village is visibly one kingdom's village. The
+ * few that genuinely are not houses (the campfire, the mine, the temple) take the
+ * master's own prop for the thing they are.
+ */
 static const BldSpr MB_BLD[O_N - O_BUILD0] = {
-    { BS_PROPS,  3, 3 },   /* fire pit: the master's bonfire */
-    { BS_BUILD,  2, 0 },   /* hall 1  */
-    { BS_BUILD,  2, 0 },   /* hall 2  */
-    { BS_BUILD,  3, 0 },   /* hall 3 (castle): the wide piece */
-    { BS_BUILD,  0, 0 },   /* house 1 */
-    { BS_BUILD,  0, 0 },   /* house 2 */
-    { BS_BUILD,  2, 0 },   /* house 3 */
-    { BS_PROPS,  5, 1 },   /* farm: planks read as a field frame */
-    { BS_PROPS,  6, 2 },   /* mine: the stone bench/anvil */
-    { BS_PROPS,  4, 1 },   /* woodcutter camp: cut planks */
-    { BS_PROPS,  0, 2 },   /* barracks: the gate */
-    { BS_PROPS,  2, 3 },   /* temple: the statue */
-    { BS_PROPS,  7, 2 },   /* tower: a lit torch on a post */
-    { BS_PROPS,  2, 2 },   /* dock: the stone arch over water */
-    { BS_PROPS,  0, 2 },   /* wall */
-    { BS_PLAN,   4, 1 },   /* the blueprint ghost */
+    { BS_PROPS,  3, 3 },   /* fire pit  — the master's bonfire */
+    { BS_BUILD,  0, 0 },   /* hall 1    — a walled front with a door */
+    { BS_BUILD,  2, 0 },   /* hall 2    — a pitched roof: it grew */
+    { BS_BUILD,  3, 0 },   /* hall 3    — the wide piece reads as a keep */
+    { BS_BUILD,  2, 0 },   /* house 1   */
+    { BS_BUILD,  2, 0 },   /* house 2   */
+    { BS_BUILD,  3, 0 },   /* house 3   — wider, so a rich village looks denser */
+    { BS_NATURE, 4, 3 },   /* farm      — the master's orange crop cluster */
+    { BS_PROPS,  6, 2 },   /* mine      — the stone bench-and-anvil */
+    { BS_PROPS,  4, 1 },   /* woodcutter— cut planks */
+    { BS_BUILD,  0, 0 },   /* barracks  — a walled front, in the kingdom's colour */
+    { BS_PROPS,  2, 3 },   /* temple    — the master's statue */
+    { BS_PROPS,  7, 2 },   /* tower     — a lit torch on a post */
+    { BS_PROPS,  2, 2 },   /* dock      — the stone arch over water */
+    { BS_BUILD,  1, 0 },   /* wall      — the open-door front reads as a gate */
+    /* A HOLLOW SQUARE, which is what a plan looks like. (4,1) was a vertical bar
+     * from the same line-art set and rendered as unexplained white sticks. */
+    { BS_PLAN,   3, 2 },   /* the blueprint ghost */
 };
 
 void mb_draw_mortal(int cam_x, int cam_y)
@@ -395,8 +431,9 @@ void mb_draw_mortal(int cam_x, int cam_y)
             uint8_t o = mb_w.obj[AT(c, r)];
             if (!mb_is_build(o)) continue;
             const BldSpr *B = &MB_BLD[o - O_BUILD0];
-            const MoteImage *img = (B->sheet == BS_BUILD) ? &buildings_img
-                                 : (B->sheet == BS_PLAN)  ? &blueprint_img : &props_img;
+            const MoteImage *img = (B->sheet == BS_BUILD)  ? &buildings_img
+                                 : (B->sheet == BS_PLAN)   ? &blueprint_img
+                                 : (B->sheet == BS_NATURE) ? &nature_img : &props_img;
             /* the row IS the kingdom colour for the buildings sheet */
             int row = B->cy;
             if (B->sheet == BS_BUILD) {
@@ -407,6 +444,19 @@ void mb_draw_mortal(int cam_x, int cam_y)
                                (uint16_t)(B->cx * TILE), (uint16_t)(row * TILE),
                                TILE, TILE, 30, 0 };
             g_api->scene2d_add(&spr);
+            /* A CAPITAL WEARS ITS CROWN. One 8x8 sprite from the master's five
+             * crowns, sat on the hall of a kingdom's seat: it is the only way to
+             * tell at a glance which of forty villages is the one that matters. */
+            if (o == O_HALL2 || o == O_HALL3) {
+                int v = mb_w.claim[AT(c, r)], k = mb_kingdom_of(v);
+                if (k && mb_k[k].alive && mb_k[k].capital == v) {
+                    MoteSprite cr = { &crowns_fx_img, (int16_t)(c * TILE),
+                                      (int16_t)(r * TILE - 5),
+                                      (uint16_t)((mb_k[k].colour % 5) * TILE),
+                                      (uint16_t)(5 * TILE), TILE, TILE, 34, 0 };
+                    g_api->scene2d_add(&cr);
+                }
+            }
         }
     }
 

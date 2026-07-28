@@ -51,36 +51,58 @@ reads as a plus sign at icon size.
 
 ## 2. Biome fill tilesets — `tilesets/bio_*.{png,tileset}` → `src/bio_*.tiles.h`
 
-The master contains exactly **three pure single-colour cells in 4096**, so there is no
-ready-made flat terrain art, and it has **no water at all** (roguemote's `extract.py` says
-so and ships nothing for it).
+**Generated from a designed vocabulary** (`authoring/biomes.py`), not stamped from the
+master. The first version of this pipeline picked "texture cells" out of the master by
+**ink coverage** — any hand-drawn cell covering 18–55% of a tile was a candidate — and
+composited the winner over a flat colour. That is selection without looking, and it
+produced exactly what it deserved:
 
-What it does have, in rows **35** and **47–49**, is ~40 hand-drawn **monochrome textures
-that tile seamlessly**: chevron wave bands, brick courses, pebble grids, hatching, dashes,
-plough furrows, scales. Each of the 20 biome fills is one of those textures **composited
-over a flat of a source palette colour**, with the ink recoloured to a second palette
-colour. Declared in one table (`BIOMES`), not painted:
+- six biomes (mountain, ash, scorched, tundra, peak, ice) wore the **same
+  diagonal-chunk motif** in six different colours, so none of them had an identity
+- four more (grass, savanna, desert, swamp) wore the same arrow-blob
+- snow was scattered with the master's **hearts**, tundra with its **plus signs**
+- mountains were covered in neat **masonry brick**
 
-```python
-("bio_ocean", NAVY, SLATE, [((48, 35), 0, 0)],                        [1]),
-("bio_grass", DKGREEN, GREEN, [None, ((0,47),0,0), ((9,47),0,0)], [5, 1, 1]),
-```
+Rows 47–49 of the master are decorative **line art** — dashes, brackets, arrows,
+hearts, scales, arches — drawn to edge a dungeon room. One motif tiled across a
+continent is wallpaper however good the motif is, because real terrain has no
+repeating unit.
 
-Two rules the script enforces, both learned by shipping the failure first:
+### The vocabulary
 
-- **`COV_MIN..COV_MAX` = 18–55% ink coverage.** The wave band continues into *fully opaque*
-  body cells (row 35 cols 50–55, row 34 cols 58–63) which look like more chevrons at
-  thumbnail size and paint the ink over the whole tile. `flat()` raises rather than emitting
-  the blotches; it caught two bad recipes.
-- **Flowing biomes are `nvar=1`.** Mixing a plain variant with a full-width chevron gave
-  hard-edged 8 px blocks — a chevron must meet another chevron to read as a surface. The
-  wave cell is a top-*edge* band, horizontally periodic but not vertically, so a y-roll
-  lifts the line off the seam. Ocean, sea, lava, acid and farm are one chevron line every
-  8 px. Still ground (grass, rock, snow, sand) gets a plain variant plus two sparse
-  textures, weighted so plain dominates.
+Seven generators, each saying what a material *is*. Every colour is one of the
+master's sixteen; every pattern **wraps** at the tile edge, so it is seamless; each
+biome gets 3–4 variants and the engine picks one per cell by position hash, so a large
+area never shows a repeat.
 
-`vweight` carries the weighting into the engine, which picks a variant per cell by a
-position hash (`mote__at_variant`), so large areas do not repeat.
+| Generator | Says | Used by |
+|---|---|---|
+| `grains` | a surface of particles, two tones for depth | sand, ash, dust |
+| `ripple` | short offset horizontal dashes — windswept | dunes, beach |
+| `blades` | upright 2 px marks: it stands up, so it reads as a plant | grass, savanna, tundra |
+| `clumps` | 2×2 with a shadow — the smallest shape that reads as an object | pebbles, muck, rubble |
+| `facets` | diagonal light/shadow runs — stone is planes meeting at edges | mountain, rock |
+| `cracks` | a one-pixel line **with momentum** | ice, scorched |
+| `furrows` | widely spaced rows with crops standing between them | farmland |
+| `snowcap` | light on the upper edge — a peak has to have an *up* | peaks |
+
+**Variant 0 of every biome is the plain base**, weighted heaviest, so a biome reads as
+its colour first and its texture second. That ordering is most of what stops this
+becoming wallpaper again.
+
+Two generators were wrong on the first pass and the fix is recorded in each
+docstring: `cracks` turned on a coin flip every pixel and drew **L-shaped glyphs**
+instead of cracks (it needed momentum), and `furrows` at period 3 with a dot grid read
+as **chain-link fence** instead of a field (it needed wide spacing and upright crops).
+
+### What the master still draws better than we can
+
+Its **chevron wave band** (cell 48,35) is genuinely good water — drawn as flowing
+liquid, and it tiles. So ocean, sea, lava and acid are that cell over a palette flat
+and nothing is generated; the shallows keep its hand-drawn **sandbar blob** (56,34).
+And roguemote's six **blob47** bands beat anything here, so they are synced (§3). The
+coverage guard survives for the two cells we do take: the wave band continues into
+fully opaque body cells that look identical at thumbnail size.
 
 ## 3. Synced blob47 rulesets — `tilesets/{hedge,floor_*,wall_*}`
 

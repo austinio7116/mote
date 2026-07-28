@@ -768,7 +768,26 @@ already stated.
 
 ---
 
-## 20. What the curves taught us
+## 20. What looking at it taught us
+
+The curves in §21 found the simulation's faults. These were found by a person looking
+at the screen and saying it was ugly, which no invariant would ever have caught — and
+every one of them has the same shape as the sim bugs: a rule that is locally
+defensible and globally wrong.
+
+| What it looked like | The actual cause |
+|---|---|
+| No style at all, "as if you selected randomly" | Biome textures were chosen by INK COVERAGE from the master's decorative line art, so six biomes wore one diagonal motif in six colours, snow was scattered with hearts and tundra with plus signs. Terrain is now generated from a vocabulary that says what a material is (§ASSETS.md 2). |
+| Farmland read as chain-link fence | Furrows at period 3 with a crop dot every 3 rows is a lattice. A field is a few wide furrows with things growing between them. |
+| Scorched ground was covered in little L glyphs | The crack generator turned on a coin flip every pixel. A crack keeps going and only occasionally kinks. |
+| "Chickens and dogs running around?" | Species sprites were picked by plausible-looking index: sheep were drawn as the master's chicken, wolves as its snake, and bears and boars as the same cow face. Every cell is now confirmed against a labelled contact sheet. |
+| "Where are the civilizations?" | Most buildings pointed at `props` cells that are planks, benches and stone arches, so a village rendered as debris. They now draw from the buildings sheet, whose row IS the kingdom colour, and a capital wears one of the master's five crowns. |
+| A village was invisible on the world map | At 1 px/tile a building drawn in its kingdom's colour was indistinguishable from a person standing on claimed ground. Buildings are white; only the hall carries the banner. |
+| The map was strewn with confetti | Every tree, pebble and ore seam got a coloured pixel, so a settlement and an army had to compete with a thousand rocks. Only gold, gems and graves draw now. |
+| Unexplained white sticks in villages | The blueprint ghost used a vertical bar from the line-art set. It is a hollow square now, which is what a plan looks like. |
+| "The text overlaps so I cannot read it" | rogue8 is proportional and the HUD used hard-coded x positions, so at year 100 the year ran into the power name. Every field now declares a column and text is measured against the real glyph advances and truncated to fit it. Headlines were also written wider than the 21 characters a 128 px row holds. |
+
+## 21. What the curves taught us
 
 Every one of these was found by `MOTEBOX_YEARS` printing a yearly CSV, and not one
 of them would have shown up in a screenshot. They are recorded because the *shape*
@@ -794,7 +813,7 @@ globally fatal, and only a long run says which.
 | The whole continent read yellow | Political tint at 25% over 23 biome colours could not be told from farmland. The border now carries almost all the colour, and it is a lookup table rather than 43,008 blends a frame. |
 | Putting the cursor on a house crashed the game | `O_NAME` had 15 entries after the enum grew to 31, and C will not tell you. There is a compile-time tripwire on it now. |
 
-## 21. Where it stands
+## 22. Where it stands
 
 Built, measured and committed. The device `.mote` cross-builds at 191 KB of flash;
 `authoring/audit.sh` passes 10 worlds × 600 years against 8 invariants; the God's
@@ -816,7 +835,7 @@ Not built, and honestly so:
   question, the political tint's legibility and the real frame cost all want the
   actual panel.
 
-## 22. Open questions and risks
+## 23. Open questions and risks
 
 - **Unit cap is a guess pending Phase 1.** 384 is what the arena and the cycle budget allow on
   paper; `redmote`'s 140 units at 30 fps on a 96×96 map is the only measured precedent, and its

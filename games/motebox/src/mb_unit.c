@@ -21,30 +21,47 @@
 
 /* Civ species come first so `sp < SP_DEER` is the whole "can build a village"
  * test, and the beasts follow in prey/predator order. */
+/* SPRITES CHOSEN BY LOOKING AT THEM, at 14x, one cell at a time.
+ *
+ * The first version of this table picked cells by plausible-looking index and got
+ * it comprehensively wrong: sheep were drawn as the master's CHICKEN, wolves as its
+ * SNAKE, and bears and boars both as the same front-facing COW FACE. Zooming in on
+ * a village showed a menagerie of chickens and dogs with no relation to what the
+ * simulation thought was there. There is no shortcut for this: every cell below was
+ * confirmed against a labelled contact sheet (authoring/ catalogues).
+ *
+ * animals sheet: (4,0) stag · (5,0) pig · (10,0) sheep · (8,0) rooster ·
+ *                (5,3) white rabbit · (11,0) brown canine · (12,3) brown beast ·
+ *                (3,1) green snake · (15,2) brown spider · (4,4) fish ·
+ *                (0,4) bee · (0,3) rat · (3,6) red mushroom-folk
+ * characters:    (10,5) human · (11,4) green-robed elf · (3,6) bearded dwarf ·
+ *                (12,3) dark brute orc · (3,5) crowned figure (a king)
+ * monsters:      (0,3) white skeleton · (8,3) pale wisp · (0,7) red demon
+ */
 const MbSpecies MB_SP[SP_N] = {
-    /*                 sheet cell  spd  hp  diet        drives      */
-    { "human",     0, 3, 3, 12, 20, DIET_PLANT, DRV_CIV   },
-    { "elf",       0, 5, 3, 11, 18, DIET_PLANT, DRV_CIV   },
-    { "dwarf",     0, 1, 6, 10, 24, DIET_PLANT, DRV_CIV   },
-    { "orc",       0, 7, 4, 13, 22, DIET_PLANT, DRV_CIV   },
-    { "mushfolk",  1, 4, 6, 9,  16, DIET_PLANT, DRV_CIV   },
-    { "deer",      2, 0, 0, 16, 10, DIET_PLANT, DRV_BEAST },
-    { "boar",      2, 6, 2, 12, 14, DIET_PLANT, DRV_BEAST },
-    { "sheep",     2, 8, 0, 9,  10, DIET_PLANT, DRV_BEAST },
-    { "chicken",   2, 4, 1, 10,  6, DIET_PLANT, DRV_BEAST },
-    { "rabbit",    2, 9, 3, 15,  6, DIET_PLANT, DRV_BEAST },
-    { "wolf",      2, 3, 1, 17, 16, DIET_MEAT,  DRV_BEAST },
-    { "bear",      2, 6, 2, 13, 26, DIET_MEAT,  DRV_BEAST },
-    { "snake",     2, 9, 2, 11, 10, DIET_MEAT,  DRV_BEAST },
-    { "spider",    2, 5, 3, 12,  8, DIET_MEAT,  DRV_BEAST },
-    { "fish",      2, 0, 1, 12,  6, DIET_PLANT, DRV_FISH  },
-    { "bee",       2, 0, 4, 20,  4, DIET_PLANT, DRV_BEAST },
-    { "rat",       2, 0, 3, 14,  6, DIET_PLANT, DRV_BEAST },
+    /*  name        sheet  cx cy  spd life  diet        drives      */
+    { "human",     0, 10, 5, 12, 20, DIET_PLANT, DRV_CIV   },
+    { "elf",       0, 11, 4, 11, 18, DIET_PLANT, DRV_CIV   },
+    { "dwarf",     0,  3, 6, 10, 24, DIET_PLANT, DRV_CIV   },
+    { "orc",       0, 12, 3, 13, 22, DIET_PLANT, DRV_CIV   },
+    { "mushfolk",  2,  3, 6,  9, 16, DIET_PLANT, DRV_CIV   },
+    { "deer",      2,  4, 0, 16, 10, DIET_PLANT, DRV_BEAST },
+    { "boar",      2,  5, 0, 12, 14, DIET_PLANT, DRV_BEAST },
+    { "sheep",     2, 10, 0,  9, 10, DIET_PLANT, DRV_BEAST },
+    { "chicken",   2,  8, 0, 10,  6, DIET_PLANT, DRV_BEAST },
+    { "rabbit",    2,  5, 3, 15,  6, DIET_PLANT, DRV_BEAST },
+    { "wolf",      2, 11, 0, 17, 16, DIET_MEAT,  DRV_BEAST },
+    { "bear",      2, 12, 3, 13, 26, DIET_MEAT,  DRV_BEAST },
+    { "snake",     2,  3, 1, 11, 10, DIET_MEAT,  DRV_BEAST },
+    { "spider",    2, 15, 2, 12,  8, DIET_MEAT,  DRV_BEAST },
+    { "fish",      2,  4, 4, 12,  6, DIET_PLANT, DRV_FISH  },
+    { "bee",       2,  0, 4, 20,  4, DIET_PLANT, DRV_BEAST },
+    { "rat",       2,  0, 3, 14,  6, DIET_PLANT, DRV_BEAST },
     /* What the world raises rather than breeds: they eat the living, and the
      * lifespan is long because nothing about them is alive to wear out. */
-    { "skeleton",  1, 0, 3, 12, 40, DIET_MEAT,  DRV_BEAST },
-    { "ghost",     1, 8, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
-    { "demon",     1, 0, 7, 15, 60, DIET_MEAT,  DRV_BEAST },
+    { "skeleton",  1,  0, 3, 12, 40, DIET_MEAT,  DRV_BEAST },
+    { "ghost",     1,  8, 3, 14, 40, DIET_MEAT,  DRV_BEAST },
+    { "demon",     1,  0, 7, 15, 60, DIET_MEAT,  DRV_BEAST },
 };
 
 /* Sheet index -> the actual sheet, resolved in mb_draw.c (which owns the images).

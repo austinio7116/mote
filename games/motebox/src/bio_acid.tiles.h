@@ -3,9 +3,9 @@
 #define MOTE_T_bio_acid_H
 #include "mote_tile.h"
 
-static const uint16_t bio_acid_pal[2] = { 0x042a,0x0726 };
+static const uint16_t bio_acid_pal[2] = { 0x0726,0xff64 };
 static const uint8_t bio_acid_idx[32] = {
-  17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,17,16,17,16,1,0,1,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,16,17,16,17,17,17,17,17,17,17,17,17,
 };
 static const MoteImage bio_acid_img = { 0, 8, 8, 0xF81F, 0, 1, bio_acid_idx, bio_acid_pal };  /* 4bpp indexed, 2 colours */
 static const MoteAutotile bio_acid_at = { &bio_acid_img, 8, 8, {

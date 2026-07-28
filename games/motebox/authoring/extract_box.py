@@ -140,53 +140,29 @@ SPRITE_SHEETS = {
 }
 
 # ------------------------------------------------------------ biome fills ----
-# (name, base, ink, [(cell, roll_x, roll_y) variants], [weights])
+# The master's chevron wave band IS good water: it is drawn as flowing liquid and it
+# tiles, so the four flowing biomes use the artist's art and generate nothing.
 #
-# A texture cell is a monochrome, seamlessly-tiling pattern from the master:
-#   row 35 col 48      chevron wave band   (water, lava, acid — anything flowing)
-#   row 47 cols 0-11   dashes, chevrons, brick courses, scatter, zigzag
-#   row 48 cols 0-11   bars, pebble grids, rungs, cross scatter, hatching
-#   row 49 cols 0-9    scatter, brick, scales, arches, waves
-#
-# TWO SHAPES OF RECIPE, because they fail differently:
-#
-# - STILL ground (grass, rock, snow, sand) gets a PLAIN variant plus two sparse
-#   textures, weighted so plain dominates. The texture reads as scattered detail.
-#
-# - FLOWING ground (ocean, sea, lava, acid, farm furrows) gets NO plain variant —
-#   only the same texture at two phases (a 4 px roll of the source cell). Mixing a
-#   plain cell with a full-width chevron band gave hard-edged blotches: a chevron
-#   has to meet another chevron to read as a surface. Equal coverage in every
-#   variant is what makes a continuous field.
-#
-# Only cells whose ink covers 20-55% of the tile work as an overlay. The master's
-# wave band continues into FULLY OPAQUE body cells (row 35 cols 50-55, row 34
-# cols 58-63) which look like more chevrons at thumbnail size and paint the ink
-# over the whole tile — build() refuses them rather than shipping the blotches.
-COV_MIN, COV_MAX = 18, 55
+# EVERYTHING ELSE IS GENERATED, from the vocabulary in authoring/biomes.py. The first
+# version of this file picked "texture cells" out of the master by ink coverage — any
+# hand-drawn cell covering 18-55% of a tile was a candidate — and stamped the winner
+# over a flat colour. Selection without looking, and it showed: six biomes wore the
+# same diagonal-chunk motif in six colours, four more wore the same arrow-blob, snow
+# was scattered with the master's HEARTS and tundra with its PLUS SIGNS, and mountains
+# were covered in neat masonry brick. Rows 47-49 are decorative line art for edging a
+# dungeon room, and one motif tiled across a continent is wallpaper however good the
+# motif is. See biomes.py for what replaced it.
+COV_MIN, COV_MAX = 18, 55         # still guards the two cells we DO take from the master
 
-BIOMES = [
-    ("bio_ocean",    NAVY,    SLATE,  [((48, 35), 0, 0)],                                     [1]),
-    ("bio_sea",      BLUE,    SLATE,  [((48, 35), 0, 0)],                                     [1]),
-    ("bio_shallow",  BLUE,    PEACH,  [None, ((56, 34), 0, 0), ((56, 34), 4, 4)],             [2, 1, 1]),
-    ("bio_ice",      WHITE,   BLUE,   [None, ((10, 48), 0, 0), ((11, 48), 0, 0)],             [3, 1, 1]),
-    ("bio_beach",    PEACH,   WHITE,  [None, (( 6, 48), 0, 0), (( 7, 48), 0, 0)],             [3, 1, 1]),
-    ("bio_desert",   YELLOW,  ORANGE, [None, (( 7, 48), 0, 0), (( 6, 48), 4, 4)],             [5, 1, 1]),
-    ("bio_savanna",  ORANGE,  DKGREEN,[None, (( 0, 47), 0, 0), (( 9, 47), 0, 0)],             [4, 1, 1]),
-    ("bio_grass",    DKGREEN, GREEN,  [None, (( 0, 47), 0, 0), (( 9, 47), 0, 0)],             [5, 1, 1]),
-    ("bio_swamp",    DKGREEN, BROWN,  [None, (( 1, 47), 0, 0), ((11, 47), 0, 0)],             [2, 1, 1]),
-    ("bio_hill",     BROWN,   DKGREY, [None, ((11, 47), 0, 0), (( 2, 47), 0, 0)],             [4, 1, 1]),
-    ("bio_mountain", DKGREY,  LTGREY, [None, (( 2, 47), 0, 0), (( 2, 49), 0, 0)],             [3, 1, 1]),
-    ("bio_peak",     LTGREY,  WHITE,  [None, (( 1, 47), 0, 0), (( 8, 49), 0, 0)],             [3, 1, 1]),
-    ("bio_tundra",   SLATE,   WHITE,  [None, (( 8, 48), 0, 0), (( 9, 48), 0, 0)],             [4, 1, 1]),
-    ("bio_snow",     WHITE,   LTGREY, [None, (( 0, 49), 0, 0), (( 1, 49), 0, 0)],             [5, 1, 1]),
-    ("bio_ash",      DKGREY,  LTGREY, [None, (( 6, 48), 0, 0), (( 0, 49), 0, 0)],             [3, 1, 1]),
-    ("bio_scorched", MAROON,  DKGREY, [None, ((10, 48), 0, 0), ((11, 48), 0, 0)],             [3, 1, 1]),
-    ("bio_lava",     RED,     ORANGE, [((48, 35), 0, 0)],                                     [1]),
-    ("bio_acid",     GREEN,   DKGREEN,[((48, 35), 0, 0)],                                     [1]),
-    ("bio_farm",     BROWN,   YELLOW, [(( 0, 48), 0, 0)],                                     [1]),
-    ("bio_rubble",   LTGREY,  DKGREY, [None, (( 2, 49), 0, 0), (( 9, 49), 0, 0)],             [1, 1, 1]),
+WAVE = (48, 35)                   # the one 37%-coverage chevron edge in the wave band
+WAVE_FILLS = [
+    ("bio_ocean",   NAVY,   SLATE),    # deep, cold, barely moving
+    ("bio_sea",     BLUE,   SLATE),    # lighter water, the same swell
+    ("bio_lava",    RED,    ORANGE),   # the same flow, read as heat
+    ("bio_acid",    GREEN,  YELLOW),
 ]
+FOAM = (56, 34)                   # the master's sandbar blob, for the shallows
+
 
 # Terrain roguemote already derives as a hand-drawn 47-cell blob set (or a
 # checked fill). Synced verbatim: gen_terrain.py in games/roguemote/authoring is
@@ -270,14 +246,27 @@ def write_tileset(name, tiles, weights, edge=1):
     print(f"[biome]   {name:20s} nvar={len(tiles)} weights={vw[:len(tiles)]}")
 
 
-def biome_tiles(name, base, ink, variants):
-    return [flat(base, v, ink) for v in variants]
-
-
 def build_biomes():
-    for name, base, ink, variants, weights in BIOMES:
-        assert len(variants) == len(weights), name
-        write_tileset(name, biome_tiles(name, base, ink, variants), weights)
+    """The artist's water, then the generated ground."""
+    import biomes
+
+    for name, base, ink in WAVE_FILLS:
+        covr = coverage(WAVE)
+        if not (COV_MIN <= covr <= COV_MAX):
+            raise SystemExit(f"wave cell {WAVE}: {covr}% coverage, outside {COV_MIN}-{COV_MAX}%")
+        write_tileset(name, [flat(base, (WAVE, 0, 0), ink)], [1])
+
+    # the shallows keep the master's sandbar, which is drawn as one
+    write_tileset("bio_shallow",
+                  [flat(BLUE), flat(BLUE, (FOAM, 0, 0), PEACH), flat(BLUE, (FOAM, 4, 4), PEACH)],
+                  [2, 1, 1])
+
+    # Variant 0 of every generated biome is the PLAIN base, weighted heaviest, so a
+    # biome reads as its colour first and its texture second. That ordering is most of
+    # what stops any of this becoming wallpaper again.
+    for name, base, builders, weights in biomes.recipes():
+        tiles = [flat(base)] + [b() for b in builders]
+        write_tileset(name, tiles, [weights[0] + 1] + list(weights))
 
 
 def sync_terrain():
@@ -378,23 +367,22 @@ def preview():
     out = "/tmp/motebox_assets"
     os.makedirs(out, exist_ok=True)
     rows = []
-    for name, base, ink, variants, weights in BIOMES:
-        tiles = biome_tiles(name, base, ink, variants)
-        # mimic the engine's weighted per-cell variant pick (mote__at_variant) so
-        # the preview shows what the map will look like, not one tile repeated
-        big = Image.new("RGBA", (8 * TS, 8 * TS))
-        total = sum(weights)
-        for r in range(8):
-            for c in range(8):
+    import glob
+    # Preview whatever build_biomes() actually wrote, rather than a second description
+    # of it that can drift from the first — the old preview re-derived the tiles and so
+    # could show something the game does not draw.
+    for path in sorted(glob.glob(os.path.join(TSETS, "bio_*.png"))):
+        name = os.path.basename(path)[:-4]
+        sheet = Image.open(path).convert("RGBA")
+        nvar = max(1, sheet.height // TS)
+        big = Image.new("RGBA", (10 * TS, 10 * TS))
+        for r in range(10):
+            for c in range(10):
                 h = ((c * 73856093) ^ (r * 19349663)) & 0xFFFFFFFF
                 h ^= h >> 13; h = (h * 1274126177) & 0xFFFFFFFF
-                pick = h % total; v = 0
-                for i, w in enumerate(weights):
-                    if pick < w: v = i; break
-                    pick -= w
-                big.paste(tiles[v], (c * TS, r * TS))
-        big = big.resize((8 * TS * 3, 8 * TS * 3), Image.NEAREST)
-        big.save(os.path.join(out, name + ".png"))
+                v = h % nvar
+                big.paste(sheet.crop((0, v * TS, TS, (v + 1) * TS)), (c * TS, r * TS))
+        big.resize((10 * TS * 3, 10 * TS * 3), Image.NEAREST).save(os.path.join(out, name + ".png"))
         rows.append(f'<figure><img src="{name}.png"><figcaption>{name}</figcaption></figure>')
     for f in sorted(os.listdir(SHEETS)):
         if not f.endswith(".png"): continue
@@ -418,10 +406,10 @@ def main():
     build_biomes()
     sync_terrain()
     build_icon()
-    print("\nbiome ruleset order (must match MB_BIOMES in src/mb.h):")
-    order = [n for n, *_ in BIOMES] + ["floor_jungle", "hedge", "floor_cobble"]
-    for i, n in enumerate(order, 1):
-        print(f"  {i:2d} {n}")
+    print("\nbiome tilesets written (the B_* enum in src/mb.h must match this order):")
+    import glob
+    for p in sorted(glob.glob(os.path.join(TSETS, "*.tileset"))):
+        print("  ", os.path.basename(p)[:-8])
     if "--preview" in sys.argv:
         preview()
 

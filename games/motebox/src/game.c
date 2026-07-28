@@ -86,6 +86,56 @@ static const char *const O_NAME[O_N] = {
 /* A compile-time tripwire for exactly the mistake above. */
 typedef char mb_onames_complete[(sizeof O_NAME / sizeof O_NAME[0]) == O_N ? 1 : -1];
 
+
+/* --- HUD text that cannot collide ---------------------------------------
+ * rogue8 is PROPORTIONAL, so "Y9" and "Y412" are different widths and a HUD laid
+ * out with hard-coded x positions collides as soon as a number grows a digit. It
+ * did: at year 100 the year ran into the power name, and a headline ran over both.
+ *
+ * So every field declares a COLUMN, and text is measured against the real glyph
+ * advances and truncated to fit it. Nothing can overlap anything, whatever the
+ * world does. */
+static int hud_w(const char *s)
+{
+    int w = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        int i = (int)*p - rogue8.first;
+        w += (i >= 0 && i < rogue8.count) ? rogue8.glyphs[i].adv : 4;
+    }
+    return w;
+}
+
+/* Draw `s` at (x,y), clipped to `maxw` pixels; returns the width actually used.
+ * align: -1 left, +1 right within the column. */
+static void hud_text(uint16_t *fb, const char *s, int x, int y, int maxw,
+                     uint16_t col, int align)
+{
+    char buf[48];
+    int n = 0;
+    for (const char *p = s; *p && n < (int)sizeof buf - 1; p++) {
+        buf[n] = *p; buf[n + 1] = 0;
+        if (hud_w(buf) > maxw) { buf[n] = 0; break; }
+        n++;
+    }
+    int w = hud_w(buf);
+    mote->text_font(fb, &rogue8, buf, align > 0 ? x + maxw - w : x, y, col);
+}
+
+/* The columns. Two rows of 8 px in the 16 px strip, and every field's width is
+ * declared here rather than discovered at runtime. */
+#define HC_SPEED_X   1
+#define HC_SPEED_W  14
+#define HC_YEAR_X   16
+#define HC_YEAR_W   30
+#define HC_POWER_X  48
+#define HC_POWER_W  58
+#define HC_VIEW_X  108
+#define HC_VIEW_W   19
+#define HC_INFO_X    1
+#define HC_INFO_W   88
+#define HC_FAITH_X  92
+#define HC_FAITH_W  35
+
 /* --- helpers ----------------------------------------------------------- */
 
 /* Mortal View camera: centre on the cursor, clamped so the view never leaves
@@ -520,46 +570,51 @@ static void g_overlay(uint16_t *fb)
                                br * TILE, C_CURS, 0, 0, VIEW_H);
     }
 
-    /* --- HUD --- */
+    /* --- HUD ---------------------------------------------------------- */
     mote->draw_rect(fb, 0, HUD_Y, 128, 128 - HUD_Y, C_HUDBG, 1, 0, 128);
-    snprintf(buf, sizeof buf, "%s Y%d", SPEED_NAME[s_speed], year);
-    mote->text_font(fb, &rogue8, buf, 1, HUD_Y, C_HI);
-    mote->text_font(fb, &rogue8, s_god ? "EYE" : "GND", 108, HUD_Y, C_TEXT);
 
-    /* Row two is the cursor's own report: what is under it, or what is happening
-     * to it. A burning cell says so, because that is the more urgent fact. */
-    uint8_t b = mb_w.biome[AT(s_cx, s_cy)];
-    uint8_t o = mb_w.obj[AT(s_cx, s_cy)];
-    uint8_t k = mb_fkind(mb_w.flux[AT(s_cx, s_cy)]);
-    if (k && k < FX_N)
-        snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], FX_NAME[k]);
-    else if (o && o < O_N && O_NAME[o][0])
-        snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], O_NAME[o]);
-    else
-        snprintf(buf, sizeof buf, "%s %d,%d", B_NAME[b < B_N ? b : 0], s_cx, s_cy);
-    mote->text_font(fb, &rogue8, buf, 1, HUD_Y + 8, k ? C_WARN : C_TEXT);
-
-    /* the selected power sits where the thumb is looking, with its price */
-    mote->text_font(fb, &rogue8, mb_power_name(), 40, HUD_Y, C_HI);
-    if (mb_mode() == MODE_PANTHEON) {
-        snprintf(buf, sizeof buf, "%d", mb_faith());
-        int w = (int)strlen(buf) * 6;
-        mote->text_font(fb, &rogue8, buf, 104 - w, HUD_Y + 8,
-                        mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN);
-    }
-
-    /* A HEADLINE takes the whole HUD for a few seconds. Interrupting the readout
-     * is the point: the story is more urgent than the coordinates. */
     const char *toast = mb_chron_toast();
     if (toast) {
-        /* The headline gets a LINE OF ITS OWN. Sharing row one with the year meant
-         * the two overlapped and the story was unreadable, which rather defeats it. */
-        mote->draw_rect(fb, 0, HUD_Y, 128, 128 - HUD_Y, C_DARK, 1, 0, 128);
-        snprintf(buf, sizeof buf, "Y%d %s", (int)(mb_w.tick / TPY), mb_age_name());
-        mote->text_font(fb, &rogue8, buf, 1, HUD_Y, C_TEXT);
-        mote->text_font(fb, &rogue8, toast, 1, HUD_Y + 8, C_CURS);
-    } else if (s_denied > 0.0f) {
-        mote->text_font(fb, &rogue8, "NOT ENOUGH FAITH", 1, HUD_Y + 8, C_WARN);
+        /* A HEADLINE TAKES THE WHOLE STRIP for a few seconds — interrupting the
+         * readout is the point, the story is more urgent than the coordinates —
+         * and it gets its own row so nothing sits on top of it. */
+        snprintf(buf, sizeof buf, "Y%d %s", year, mb_age_name());
+        hud_text(fb, buf, 1, HUD_Y, 126, C_TEXT, -1);
+        hud_text(fb, toast, 1, HUD_Y + 8, 126, C_CURS, -1);
+    } else {
+        /* row one: speed, year, the selected power, the view */
+        hud_text(fb, SPEED_NAME[s_speed], HC_SPEED_X, HUD_Y, HC_SPEED_W, C_HI, -1);
+        snprintf(buf, sizeof buf, "Y%d", year);
+        hud_text(fb, buf, HC_YEAR_X, HUD_Y, HC_YEAR_W, C_HI, -1);
+        hud_text(fb, mb_power_name(), HC_POWER_X, HUD_Y, HC_POWER_W, C_HI, -1);
+        hud_text(fb, s_god ? "EYE" : "GND", HC_VIEW_X, HUD_Y, HC_VIEW_W, C_TEXT, 1);
+
+        /* row two: what is under the cursor, and what casting costs. A burning cell
+         * says so, because that is the more urgent fact about it. */
+        uint8_t b = mb_w.biome[AT(s_cx, s_cy)];
+        uint8_t o = mb_w.obj[AT(s_cx, s_cy)];
+        uint8_t k = mb_fkind(mb_w.flux[AT(s_cx, s_cy)]);
+        int v = mb_w.claim[AT(s_cx, s_cy)];
+        if (k && k < FX_N)
+            snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], FX_NAME[k]);
+        else if (v && mb_v[v].alive) {
+            /* on someone's land, name the place: it is the most interesting fact */
+            char pl[24];
+            mb_name_str(pl, sizeof pl, 0, mb_v[v].name);
+            snprintf(buf, sizeof buf, "%s %d", pl, mb_v[v].pop);
+        } else if (o && o < O_N && O_NAME[o][0])
+            snprintf(buf, sizeof buf, "%s %s", B_NAME[b < B_N ? b : 0], O_NAME[o]);
+        else
+            snprintf(buf, sizeof buf, "%s %d,%d", B_NAME[b < B_N ? b : 0], s_cx, s_cy);
+        hud_text(fb, buf, HC_INFO_X, HUD_Y + 8, HC_INFO_W, k ? C_WARN : C_TEXT, -1);
+
+        if (s_denied > 0.0f) {
+            hud_text(fb, "NO FAITH", HC_FAITH_X, HUD_Y + 8, HC_FAITH_W, C_WARN, 1);
+        } else if (mb_mode() == MODE_PANTHEON) {
+            snprintf(buf, sizeof buf, "%d", mb_faith());
+            hud_text(fb, buf, HC_FAITH_X, HUD_Y + 8, HC_FAITH_W,
+                     mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN, 1);
+        }
     }
 
     mb_power_draw_wheel(fb, &rogue8);

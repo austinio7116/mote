@@ -136,7 +136,7 @@ static void render(char *out, int n, const Event *e)
         break;
     case EV_FALL:
         mb_name_str(n1, sizeof n1, NK_PLACE, e->name);
-        snprintf(out, (size_t)n, "%s is lost", n1);
+        snprintf(out, (size_t)n, "%s falls", n1);
         break;
     case EV_BUILD:
         mb_name_str(n1, sizeof n1, NK_PLACE, e->name);
@@ -145,7 +145,7 @@ static void render(char *out, int n, const Event *e)
     case EV_WAR:
         mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
         mb_name_str(n2, sizeof n2, NK_KINGDOM, e->extra);
-        snprintf(out, (size_t)n, "%s wars on %s", n1, n2);
+        snprintf(out, (size_t)n, "%s v %s", n1, n2);      /* two names, 21 chars */
         break;
     case EV_PEACE:
         mb_name_str(n1, sizeof n1, NK_KINGDOM, e->name);
