@@ -682,6 +682,64 @@ static void g_init(void)
             }
         }
     }
+    /* MOTEBOX_WILDFIRE=1 lights ONE forest cell and measures the front.
+     *
+     * "It moves too fast and stays burning in the centre too long" is a claim about a
+     * SHAPE, and a screenshot cannot settle it — a disc and a ring look similar in orange.
+     * So this prints, per tick, how many cells are alight, how far the front has got, and
+     * how THICK the burning band is: r_max - r_min. A wave is a thin band whose radius
+     * grows steadily; a disc is a band as thick as its own radius. That one number is the
+     * whole difference, and it is what the tuning below was fitted to.
+     */
+    if (getenv("MOTEBOX_WILDFIRE")) {
+        /* MOTEBOX_WILDFIRE=savanna picks a different fuel: fine fuel and coarse fuel are
+         * meant to burn with different characters now, so both have to be measurable. */
+        const char *wf = getenv("MOTEBOX_WILDFIRE");
+        uint8_t want = B_FOREST;
+        if (wf) {
+            if (!strcmp(wf, "savanna")) want = B_SAVANNA;
+            else if (!strcmp(wf, "grass")) want = B_GRASS;
+            else if (!strcmp(wf, "meadow")) want = B_MEADOW;
+        }
+        int fx0 = -1, fy0 = -1, bestn = 0;
+        for (int y = 4; y < MH - 4; y += 3) {          /* the deepest such fuel we can find */
+            for (int x = 4; x < MW - 4; x += 3) {
+                if (mb_w.biome[AT(x, y)] != want) continue;
+                int n = 0;
+                for (int dy = -4; dy <= 4; dy++)
+                    for (int dx = -4; dx <= 4; dx++)
+                        if (mb_w.biome[AT(x + dx, y + dy)] == want) n++;
+                if (n > bestn) { bestn = n; fx0 = x; fy0 = y; }
+            }
+        }
+        if (fx0 < 0) fprintf(stderr, "wildfire: no %s in this world\n", B_NAME[want]);
+        else {
+            fprintf(stderr, "wildfire at %d,%d (%d/81 %s around it)\n", fx0, fy0, bestn, B_NAME[want]);
+            mb_w.flux[AT(fx0, fy0)] = (uint8_t)((FX_FIRE << 4) | 12);
+            fprintf(stderr, "tick  burning   r_min r_max  band   burnt\n");
+            for (int t = 0; t <= 90; t++) {
+                if (t) { mb_flux_step(); mb_w.tick++; }
+                int burning = 0, burnt = 0, rmin = 999, rmax = 0;
+                for (int y = 0; y < MH; y++)
+                    for (int x = 0; x < MW; x++) {
+                        int i = AT(x, y);
+                        int dx = x - fx0, dy = y - fy0;
+                        int d2 = dx * dx + dy * dy, d = 0;
+                        while ((d + 1) * (d + 1) <= d2) d++;
+                        if (mb_fkind(mb_w.flux[i]) == FX_FIRE) {
+                            burning++;
+                            if (d < rmin) rmin = d;
+                            if (d > rmax) rmax = d;
+                        }
+                        if (mb_w.biome[i] == B_ASH || mb_w.biome[i] == B_SCORCHED) burnt++;
+                    }
+                if (t % 5 == 0)
+                    fprintf(stderr, "%4d %8d %7d %5d %5d %7d\n", t, burning,
+                            burning ? rmin : 0, rmax, burning ? rmax - rmin : 0, burnt);
+                if (!burning && t > 2) { fprintf(stderr, "out at tick %d\n", t); break; }
+            }
+        }
+    }
     /* MOTEBOX_DUMPBIOME=<path> writes the raw biome array, so the authoring side can
      * compare palettes on a REAL world instead of a synthetic one. */
     {

@@ -41,6 +41,7 @@
 
 #include "nature.h"
 #include "rocks.h"
+#include "blob47_same.h"
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
@@ -142,8 +143,8 @@ static const MoteAutotile *const MB_TILES[B_COUNT] = {
  * a constraint on one image, not on the world: the screen is RGB565, so soot can just be
  * soot. Ember is what still glows in it, and it is dull on purpose so the live fire
  * stays the brightest thing on the map. */
-#define C_CHAR    MOTE_RGB565( 44,  34,  36)
-#define C_EMBER   MOTE_RGB565(112,  46,  36)
+#define C_CHAR    MOTE_RGB565( 70,  52,  46)
+#define C_ASH     MOTE_RGB565(108, 100,  96)
 
 /* TERRAIN TRANSITIONS: which sheet each biome bleeds with, and how high it sits.
  *
@@ -173,7 +174,7 @@ static const uint16_t MB_COL[B_COUNT] = {
     C_WHITE,   /* ice      */ C_PEACH,  /* beach    */ C_YELLOW, /* desert   */
     C_ORANGE,  /* savanna  */ C_GRASS,  /* grass    */ C_GRASS,  /* swamp    */
     C_BROWN,   /* hill     */ C_DKGREY, /* mountain */ C_LTGREY, /* peak     */
-    C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_DKGREY, /* ash      */
+    C_BROWN,   /* tundra   */ C_WHITE,  /* snow     */ C_ASH,    /* ash      */
     C_CHAR,    /* scorched */ C_RED,    /* lava     */ C_GREEN,  /* acid     */
     C_BROWN,   /* farm     */ C_LTGREY, /* rubble   */ C_GRASS,  /* meadow   */
     C_GRASS,   /* forest   */ C_DKGREY, /* road     */
@@ -580,6 +581,14 @@ static MoteSprite s_defer[MB_MAXSPR];
 static int        s_ndefer;
 static int        s_cam_px, s_cam_py;   /* the camera the deferred positions are against */
 
+/* The engine picks an autotile variant from a position hash so a big area does not
+ * repeat; these patches are drawn by hand as sprites, so they need the same trick. */
+static inline unsigned mb__hash2(int x, int y)
+{
+    unsigned h = (unsigned)x * 73856093u ^ (unsigned)y * 19349663u;
+    h ^= h >> 13; return h * 1274126177u;
+}
+
 static void add(const MoteSprite *s)
 {
     s_spr_want++;
@@ -919,20 +928,49 @@ void mb_draw_mortal(int cam_x, int cam_y)
      * sprite, but as TERRAIN rather than as an effect — it is molten rock you can walk
      * into, not a puff of something. */
 
-    /* LAVA AND SCORCHED, the band that would not fit. Eight layers hold eight bands and
-     * there is no ninth, so the rarest pair moved to sprites — measured at 0.0-0.6% of a
-     * world, about one cell in view. They always carry flux and FX anyway. */
+    /* WHAT A FIRE LEAVES: lava, scorched earth and ash, as BLOB 47 PATCHES.
+     *
+     * These three are the band that would not fit — eight layers hold eight bands and
+     * there is no ninth — so they are drawn as sprites over whatever band they sit on.
+     * They are the right ones to move: measured at 0.0-0.6% of a world, and they always
+     * carry flux and FX particles anyway.
+     *
+     * But one opaque cell stamped per world cell pins the patch boundary to the TILE GRID,
+     * so a burn scar came out as a rectilinear blob of one flat dark tone — "it looks like
+     * black squares", and the squares were the bigger half of that complaint. So the cell
+     * is chosen the way the terrain bands choose theirs: from which of the eight
+     * neighbours are the same material, through MB_B47_SAME, with every open side fringed
+     * so the ground it burnt shows through at the rim.
+     *
+     * ASH IS HERE NOW TOO, and it had a worse bug than a square edge: it was a member of
+     * the ROCK band, so a burnt forest drew as LIGHT GREY STONE in Mortal View while God's
+     * Eye drew it dark. The two views disagreed about what a fire had done. */
     for (int r = r0; r <= r0 + MVH; r++) {
         if (r < 0 || r >= MH) continue;
         for (int c = c0; c <= c0 + MVW; c++) {
             if (c < 0 || c >= MW) continue;
             uint8_t b = mb_w.biome[AT(c, r)];
-            if (b != B_LAVA && b != B_SCORCHED) continue;
-            int col = (b == B_LAVA) ? 0 : 1;
-            int v = ((c * 7 + r * 3) & 1);
+            int blk;
+            if      (b == B_LAVA)     blk = 0;      /* row blocks, in burnt.py's ORDER */
+            else if (b == B_SCORCHED) blk = 1;
+            else if (b == B_ASH)      blk = 2;
+            else continue;
+
+            /* the mask: does this material carry on that way? Off-map counts as yes, so a
+             * scar running off the edge of the world is not fringed against nothing. */
+            int m = 0;
+            static const int8_t NX[8] = {  0,  1, 1, 1,  0, -1, -1, -1 };
+            static const int8_t NY[8] = { -1, -1, 0, 1,  1,  1,  0, -1 };
+            for (int k = 0; k < 8; k++) {
+                int nx = c + NX[k], ny = r + NY[k];
+                if (!mb_in(nx, ny) || mb_w.biome[AT(nx, ny)] == b) m |= 1 << k;
+            }
+            int cell = MB_B47_SAME[m];
+            int v = (int)(mb__hash2(c, r) % 3u);        /* three textures, position-picked */
+            int row = (blk * 3 + v) * MB_B47_ROWS + cell / MB_B47_COLS;
             MoteSprite spr = { &hot_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)(col * TILE), (uint16_t)(v * TILE),
-                               TILE, TILE, 13, 0 };
+                               (uint16_t)((cell % MB_B47_COLS) * TILE),
+                               (uint16_t)(row * TILE), TILE, TILE, 13, 0 };
             add(&spr);
         }
     }

@@ -530,8 +530,11 @@ BAND_LIST = [
     # GREEN now, which leaves his trees reading dark against it.
     ("bd_green",   mix(DKGREEN, GREEN, 0.30), GREEN, ["grass", "swamp", "acid", "meadow", "forest"]),
     ("bd_savanna", ORANGE,  YELLOW,  ["savanna"]),
-    ("bd_dry",     BROWN,   ORANGE,  ["farm", "hill", "tundra"]),
-    ("bd_rock",    LTGREY,  WHITE,   ["peak", "rubble", "ash", "road", "mountain"]),
+    # Ash and scorched sit on this band: their sprite fringes reveal BARE EARTH,
+    # which is what is under a burn. On the rock band a burnt forest showed light
+    # grey stone through its own edge.
+    ("bd_dry",     BROWN,   ORANGE,  ["farm", "hill", "tundra", "ash", "scorched"]),
+    ("bd_rock",    LTGREY,  WHITE,   ["peak", "rubble", "road", "mountain"]),
 ]
 
 
@@ -542,33 +545,23 @@ SOOT  = ( 24,  20,  24)
 
 
 def build_hot():
-    """Lava and scorched ground, as opaque sprites over whatever band they sit on.
+    """Ash, scorched earth and lava — see authoring/burnt.py.
 
-    These two are the band that would not fit: eight layers hold eight bands and there is
-    no ninth. They are the right pair to move because they are the RAREST — measured at
-    0.0 to 0.6% of a world across six real ones, about one sprite in a 16x14 view — and
-    because they always carry flux and FX particles anyway, so a sprite among sprites is
-    where they belong.
+    These three are the band that would not fit: eight layers hold eight bands and there
+    is no ninth, so the materials a fire leaves behind are drawn as sprites over whatever
+    band they sit on. They are the right ones to move because they are the RAREST — 0.0 to
+    0.6% of a world, measured across six — and because they always carry flux and FX
+    particles anyway, so a sprite among sprites is where they belong.
 
-    Getting this wrong was a real regression for one commit: the band map sent them to
-    "dry" as a base and the sprite pass did not exist yet, so a lava lake rendered as
-    plain brown earth.
+    They are BLOB 47 sets, not single cells. One opaque cell per world cell pinned every
+    burn scar to the tile grid, and "it looks like black squares" was exactly that: a
+    rectilinear blob of one flat dark tone. Now the cell comes from the eight-neighbour
+    mask and every open side is fringed, so a scar has a ragged edge with the ground it
+    burnt showing through — the same edge treatment as a coastline.
     """
-    import biomes
-    cells = [
-        ("lava",     RED,    [ORANGE, YELLOW]),
-        # CHARCOAL AND EMBER, not the artist's MAROON with RED through it: that pair drew
-        # burnt ground as bright pink brickwork, so the aftermath of a fire was the
-        # cheeriest thing on the map. These have to match MB_COL[B_SCORCHED] in mb_draw.c
-        # or the two views disagree about what a razed village looks like.
-        ("scorched", CHAR,   [EMBER,  SOOT]),
-    ]
-    sheet = Image.new("RGBA", (len(cells) * TS, 2 * TS))
-    for v in range(2):
-        for i, (_n, body, inks) in enumerate(cells):
-            sheet.paste(biomes.dashes(body, inks[0], 61 + v * 3, step=3, run=3,
-                                     ink2=inks[1]), (i * TS, v * TS))
-    save_sheet("hot", sheet)
+    import burnt
+    save_sheet("hot", burnt.build(nvar=3))
+    burnt.write_lut(os.path.join(GAME, "src", "blob47_same.h"))
 
 
 def build_bands():

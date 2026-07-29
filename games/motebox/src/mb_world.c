@@ -373,7 +373,7 @@ void mb_bands_rebuild(void)
          7,   /* peak     */
          6,   /* tundra   */
          1,   /* snow     */
-         7,   /* ash      */
+         6,   /* ash      — bare earth under its sprite, not stone */
          6,   /* scorched — dry under its sprite */
          6,   /* lava     — dry under its sprite */
          4,   /* acid     */

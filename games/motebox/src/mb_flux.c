@@ -110,6 +110,33 @@ static uint8_t acid_next(uint8_t b)
     }
 }
 
+/* RATE OF SPREAD IS NOT THE SAME THING AS FUEL LOAD, and conflating them was why the
+ * "dry grass is the fastest thing on the map" note above described behaviour the code did
+ * not have. One number drove both how fast fire jumped and how long a cell held its flame,
+ * so shortening the burn to get a thin front also stopped savanna spreading at all.
+ *
+ * Fire science splits them and so does this: FINE, CURED fuel carries a front fastest —
+ * grass and standing crop — while COARSE fuel burns hotter and longer but advances more
+ * slowly. So a grass fire is a fast, thin, brief tongue running downwind, and a forest
+ * fire is a slower, deeper, longer-lived band. Same model, two characters, and it comes
+ * out of the fuel type rather than out of a special case.
+ */
+static uint8_t spread_rate(uint8_t b, uint8_t o)
+{
+    switch (b) {
+    case B_SAVANNA: return 200;   /* cured grass: fine, dry, and it runs */
+    case B_FARM:    return 175;   /* a standing crop does the same */
+    case B_GRASS:   return 160;
+    case B_MEADOW:  return 150;
+    case B_FOREST:  return 110;   /* coarse: hotter and longer, but slower */
+    case B_SWAMP:   return  45;
+    case B_TUNDRA:  return  40;
+    default: break;
+    }
+    /* bare ground around a building carries nothing, but the building itself catches */
+    return (o && obj_fuel(o)) ? 90 : 0;
+}
+
 /* Fire intensity IS the fuel left to burn, so where it lands decides how long it
  * lives: a forest cell with a tree burns for 14 ticks, bare grass for 4. The
  * first model gave every cell a flat 10 and decayed it, which made a fire behave
@@ -118,8 +145,13 @@ static uint8_t acid_next(uint8_t b)
  * guttered out after ten ticks instead of running. */
 static int fuel_inten(int fuel)
 {
-    int i = fuel >> 5;
-    return i < 2 ? 2 : (i > 15 ? 15 : i);
+    /* Halved: a forest cell used to hold its flame for fourteen weeks and, with the
+     * front advancing a cell a week, everything within fourteen cells of the front was
+     * alight at the same time — a disc. Seven weeks against a front that now creeps is
+     * a band a couple of cells wide, which is what a wildfire looks like from above:
+     * a bright moving edge with its own black wake behind it. */
+    int i = fuel >> 6;
+    return i < 3 ? 3 : (i > 8 ? 8 : i);   /* three weeks is the shortest useful flame */
 }
 
 /* --- wind ---------------------------------------------------------------
@@ -282,16 +314,38 @@ void mb_flux_step(void)
                         int ni = AT(nx, ny);
                         int nf = biome_fuel(bio[ni]) + obj_fuel(ob[ni]);
                         if (!nf) continue;
+                        int sr = spread_rate(bio[ni], ob[ni]);
                         /* the chance depends on what is THERE and the wind, not on
                          * how much is left here — so a fire front does not weaken
                          * as it advances into fresh fuel */
                         int downwind = (DX4[k] == wdx && wdx) || (DY4[k] == wdy && wdy);
-                        int chance = (nf * (downwind ? 4 : 2)) >> 3;
+                        /* HALF THE OLD RATE, and the wind matters three times as much as
+                         * the still air rather than twice. At the old (nf*4)>>3 a downwind
+                         * forest neighbour caught with certainty every single tick, so the
+                         * front advanced a full cell a week and the whole thing was over
+                         * before you could look at it. A slower front is also the only way
+                         * a burning band can be THIN: its thickness is the burn duration
+                         * times the speed, so both had to come down together. */
+                        /* Downwind is worth two and a half times still air, which is what
+                         * gives a grass fire its long tongue: at 49% down and 20% across,
+                         * savanna runs with the wind and barely widens, while forest at
+                         * 27/11 spreads as a slow round front. */
+                        int chance = (sr * (downwind ? 5 : 2)) >> 3;
                         if ((int)((r >> (k * 4 + 6)) & 255) < chance)
                             add_to(next, nx, ny, FX_FIRE, fuel_inten(nf));
                     }
                 }
-                if (inten <= 0) bio[i0] = burnt_biome(b);
+                if (inten <= 0) {
+                    /* CONSUMED. The cell's biome went to ash but its OBJECT survived if
+                     * the destroy roll above never fired — so a burnt cell still held a
+                     * tree worth 220 fuel and its neighbours lit it again, and again.
+                     * MOTEBOX_WILDFIRE measured the result: r_min 0 at tick 90, i.e. the
+                     * origin of a forest fire was STILL BURNING ninety weeks later and
+                     * four hundred cells were alight at once. That is why it read as a
+                     * spreading disc instead of a front. Fire eats what it burns. */
+                    bio[i0] = burnt_biome(b);
+                    if (obj_fuel(o)) ob[i0] = O_NONE;
+                }
                 break;
 
             case FX_LAVA: {
