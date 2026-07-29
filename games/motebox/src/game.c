@@ -681,6 +681,16 @@ static void g_init(void)
             }
         }
     }
+    /* MOTEBOX_DUMPBIOME=<path> writes the raw biome array, so the authoring side can
+     * compare palettes on a REAL world instead of a synthetic one. */
+    {
+        const char *bp = getenv("MOTEBOX_DUMPBIOME");
+        if (bp && *bp) {
+            FILE *f = fopen(bp, "wb");
+            if (f) { fwrite(mb_w.biome, 1, NC, f); fclose(f);
+                     fprintf(stderr, "dumped %d biome cells to %s\n", NC, bp); }
+        }
+    }
     /* MOTEBOX_PWTEST=1 casts all forty-eight powers and reports what each did. */
     if (getenv("MOTEBOX_PWTEST")) mb_power_test_all(s_cx, s_cy);
     if (getenv("MOTEBOX_VSTAT")) {
