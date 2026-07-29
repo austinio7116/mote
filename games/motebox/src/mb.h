@@ -446,8 +446,6 @@ void mb_draw_sprite_load(int *want, int *lost);
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1);
 void mb_draw_mortal_sprites(uint16_t *fb);
 void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y);
-void mb_draw_pips(uint16_t *fb);
-int  mb_draw_pip_count(void);       /* status dots over the crowd, after the world */
 void mb_draw_mortal(int cam_x, int cam_y);           /* scene2d pass */
 uint16_t mb_biome_colour(uint8_t b);
 

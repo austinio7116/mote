@@ -351,63 +351,28 @@ static int s_cam_px, s_cam_py;
  * Deep ocean is the only terrain with no tileset: it is the scene BACKGROUND, which the
  * engine fills with one flat colour before the band stack draws over it. That is why it
  * paid nothing — and why it was a slab of plain navy with a textured coast sitting on it.
- *
  * A background CALLBACK costs the same as the fill it replaces, so the deep gets a real
- * surface for free. Two crossing SWELLS, not noise: a long one running one way and a
- * shorter one running the other, both scrolling with the camera and drifting with time.
- * Noise would give the sea a static speckle; crossing sinusoids give it the thing that
- * actually reads as open water from above — moving bands of light with interference
- * patches where the two trains meet, and a glint on the crest where they agree.
+ * surface for nothing.
  *
- * Everything is integer and table-driven: one add, two masks, two table reads and a
- * palette index per pixel, over a 128x112 frame the engine was going to write anyway.
+ * IT IS THE SHALLOW BAND'S PATTERN, DARKER. That is the whole specification and it is the
+ * right one: the deep and the shoals are the same sea, so they should be the same water
+ * with different light in it, and the ripple dashes bands.ripples() lays into the shallow
+ * tileset are already what a wave crest looks like from above. Two earlier attempts went
+ * looking for something cleverer and both were worse — crossing swells interfere into a
+ * regular diamond quilt, and swell BANDING over a handful of tones draws wide diagonal
+ * stripes whose edges are more visible than the swell. Neither was a thing water does.
+ *
+ * The lattice is the same 8 px pitch as a tile and the dashes are placed by a POSITION
+ * HASH, so it has no period, and it does not animate — nothing else in Mortal View does,
+ * and a surface sliding under a fixed coastline reads as the LAND moving.
  */
-/* WHAT OPEN WATER LOOKS LIKE FROM ABOVE, and the first attempt got it wrong in an
- * instructive way. Two crossing triangle swells, evaluated per pixel, tile perfectly —
- * so the deep came out as a regular diamond quilt. Interference between two periodic
- * trains IS a period; the eye finds it immediately and reads upholstery.
- *
- * Real water is not mostly texture. It is a large, nearly uniform dark field with a few
- * bright CRESTS scattered across it, drifting together on the current. So that is what
- * this is: one long, low-amplitude swell for the body — just enough that the field is not
- * dead flat — plus sparse crest dashes placed by a POSITION HASH, which has no period at
- * all. Density is the tuning knob, and it wants to be low: one dash per five cells of an
- * 8 px lattice covers a screen with about thirty of them.
- *
- * The dashes are horizontal because a crest seen from overhead is a line along the wave
- * front.
- *
- * IT DOES NOT ANIMATE. A drifting version came first and it was wrong: at eight pixels a
- * tile the whole surface sliding under a static coastline reads as the LAND moving, not
- * the water, and nothing else in Mortal View animates — the terrain is a still pattern, so
- * a crawling sea is the one thing on screen that twitches. It is a texture in world space
- * now, fixed to its own coordinates, exactly like every band tileset.
- */
-#define SEA_N 96
-/* FIVE steps, not three, and a gentler profile. With a +/-1 swell over three tones the
- * deep came out as three wide diagonal stripes with hard edges — the banding was more
- * visible than the swell. More tones with smaller gaps between them puts the same total
- * range into steps you cannot pick out individually. */
-static const int8_t SEA_SWELL[SEA_N] = {
-     0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,
-     2,  2,  2,  2,  2,  2,  1,  1,  1,  1,  1,  1,  1,  0,  0,  0,
-     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-     0,  0, -1, -1, -1, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -2,
-    -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1,  0,  0,  0,  0,
-     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+#define SEA_GRID   8          /* the lattice, one cell per tile, as in the tileset */
+#define SEA_DASHES 3          /* per cell — bands.ripples() lays three, so this lays three */
+static const uint16_t SEA_BODY  = MOTE_RGB565( 29,  43,  83);   /* C_NAVY: MB_COL[B_OCEAN] */
+static const uint16_t SEA_CREST[2] = {
+    MOTE_RGB565( 45,  63, 112),   /* the ripple */
+    MOTE_RGB565( 62,  84, 140),   /* and the odd brighter one, as in the shallows */
 };
-/* The body in five depths. The middle one is MB_COL[B_OCEAN] itself, so the God's Eye map
- * and the close-up agree about what colour the sea is. */
-static const uint16_t SEA_TONE[5] = {
-    MOTE_RGB565( 20,  31,  62),
-    MOTE_RGB565( 25,  37,  73),
-    MOTE_RGB565( 29,  43,  83),   /* the body: C_NAVY */
-    MOTE_RGB565( 34,  50,  93),
-    MOTE_RGB565( 39,  57, 104),
-};
-#define SEA_CREST_LO MOTE_RGB565( 58,  88, 142)
-#define SEA_CREST_HI MOTE_RGB565( 92, 132, 180)
-#define SEA_GRID 8                /* the lattice crests are hashed onto */
 
 void mb_draw_sea_band(uint16_t *fb, int y0, int y1)
 {
@@ -415,34 +380,32 @@ void mb_draw_sea_band(uint16_t *fb, int y0, int y1)
     if (y1 > MOTE_FB_H) y1 = MOTE_FB_H;
     const int cx = s_cam_px, cy = s_cam_py;
 
-    /* 1. the body */
     for (int y = y0; y < y1; y++) {
-        if (y >= VIEW_H) {                        /* HUD strip: the overlay owns it */
-            for (int x = 0; x < MW; x++) px_put(fb, x, y, MOTE_RGB565(12, 14, 26));
-            continue;
-        }
-        int r0 = (((y + cy) * 3) % SEA_N + SEA_N) % SEA_N;
-        for (int x = 0; x < MW; x++)
-            px_put(fb, x, y, SEA_TONE[2 + SEA_SWELL[(r0 + x + cx) % SEA_N]]);
+        uint16_t c = (y >= VIEW_H) ? MOTE_RGB565(12, 14, 26)   /* HUD strip: overlay's */
+                                   : SEA_BODY;
+        for (int x = 0; x < MW; x++) px_put(fb, x, y, c);
     }
 
-    /* 2. the crests, on a hashed lattice so nothing about them repeats */
     if (y0 >= VIEW_H) return;
-    int ylim = y1 < VIEW_H ? y1 : VIEW_H;
-    int gy0 = (y0 + cy) / SEA_GRID - 1, gy1 = (ylim + cy) / SEA_GRID + 1;
-    int gx0 = cx / SEA_GRID - 1, gx1 = (MW + cx) / SEA_GRID + 1;
+    const int ylim = y1 < VIEW_H ? y1 : VIEW_H;
+    /* One extra cell of margin each way: a dash starting just off screen still has to
+     * draw the part of itself that is on it. */
+    const int gy0 = (y0 + cy) / SEA_GRID - 1, gy1 = (ylim + cy) / SEA_GRID + 1;
+    const int gx0 = cx / SEA_GRID - 1,        gx1 = (MW + cx) / SEA_GRID + 1;
     for (int gy = gy0; gy <= gy1; gy++) {
         for (int gx = gx0; gx <= gx1; gx++) {
             unsigned h = mb__hash2(gx, gy);
-            if ((h & 7) >= 2) continue;                  /* two lattice cells in eight */
-            int sx = gx * SEA_GRID + (int)((h >> 3) & 7) - cx;
-            int sy = gy * SEA_GRID + (int)((h >> 6) & 7) - cy;
-            if (sy < y0 || sy >= ylim) continue;
-            int len = 2 + (int)((h >> 9) & 3);
-            uint16_t col = ((h >> 11) & 3) ? SEA_CREST_LO : SEA_CREST_HI;
-            for (int k = 0; k < len; k++) {
-                int xx = sx + k;
-                if (xx >= 0 && xx < MW) px_put(fb, xx, sy, col);
+            for (int d = 0; d < SEA_DASHES; d++) {
+                h = h * 1103515245u + 12345u;
+                int sy = gy * SEA_GRID + (int)((h >> 6) & 7) - cy;
+                if (sy < y0 || sy >= ylim) continue;
+                int sx  = gx * SEA_GRID + (int)((h >> 3) & 7) - cx;
+                int len = 2 + (int)((h >> 12) & 2);
+                uint16_t col = SEA_CREST[(h >> 14) & 3 ? 0 : 1];
+                for (int k = 0; k < len; k++) {
+                    int xx = sx + k;
+                    if (xx >= 0 && xx < MW) px_put(fb, xx, sy, col);
+                }
             }
         }
     }
@@ -670,7 +633,6 @@ static const BldSpr MB_BLD[O_N - O_BUILD0] = {
  * mature city measured 232 wanted, which is why the cap is not 224. */
 static int s_spr_want, s_spr_lost;
 void mb_draw_sprite_load(int *want, int *lost) { *want = s_spr_want; *lost = s_spr_lost; }
-int  mb_draw_pip_count(void);
 
 /* THE SPRITES ARE HELD BACK, and drawn by us after the shaded relief.
  *
@@ -714,26 +676,6 @@ void mb_draw_mortal_sprites(uint16_t *fb)
                         p->fx, p->fy, p->fw, p->fh, p->flags, 0, VIEW_H);
         }
 }
-
-/* --- STATUS PIPS ---------------------------------------------------------
- * Two pixels over a villager's head saying what they are doing. Collected while the
- * scene is built and drawn straight into the frame afterwards, because they are one
- * colour each and a sprite sheet for sixteen dots would be sillier than a rect.
- * Screen coordinates are baked in at collection time, so the drawing side needs to know
- * nothing about the camera. */
-#define MB_MAXPIP 96
-static struct { int16_t x, y; uint16_t col; } s_pip[MB_MAXPIP];
-static int s_npip;
-
-static void mb_pip_add_at(int sx, int sy, uint16_t col)
-{
-    if (s_npip >= MB_MAXPIP) return;
-    if (sx < 0 || sy < 0 || sx > 126 || sy > VIEW_H - 2) return;
-    s_pip[s_npip].x = (int16_t)sx; s_pip[s_npip].y = (int16_t)sy;
-    s_pip[s_npip].col = col; s_npip++;
-}
-
-int mb_draw_pip_count(void) { return s_npip; }
 
 /* --- SHADED RELIEF: mountains are HIGH GROUND WITH LIGHT ON IT ------------
  *
@@ -879,15 +821,8 @@ void mb_draw_relief(uint16_t *fb, int cam_x, int cam_y)
      */
 }
 
-void mb_draw_pips(uint16_t *fb)
-{
-    for (int i = 0; i < s_npip; i++)
-        g_api->draw_rect(fb, s_pip[i].x, s_pip[i].y, 2, 2, s_pip[i].col, 1, 0, VIEW_H);
-}
-
 void mb_draw_mortal(int cam_x, int cam_y)
 {
-    s_npip = 0;
     s_spr_want = s_spr_lost = 0;
     s_ndefer = 0;
     g_api->scene2d_begin(cam_x, cam_y);
@@ -974,44 +909,13 @@ void mb_draw_mortal(int cam_x, int cam_y)
                            TILE, TILE, 40, 0 };
         add(&spr);
 
-        /* --- WHAT THEY ARE DOING, in one pixel-ish -----------------------------
-         * The simulation already tracks all of this and none of it was drawn, so a
-         * crowd read as identical figures milling about. A carried sack, a fever, a
-         * raised weapon: a village stops being wallpaper the moment you can see which
-         * of them is doing what. Two pixels above the head, which is the only space a
-         * 8x8 sprite leaves free. */
-        int py2 = (int)(u->y >> 4 << 3) - 3;
-        uint16_t pip = 0;
-        /* EVERY ORDINARY JOB COUNTS, not only the emergencies. The first version pipped
-         * illness, fighting, firefighting and flight — and a settled town has none of
-         * those, so a peaceful village showed exactly zero pips and the crowd was still
-         * anonymous. What makes a village feel alive is seeing the ordinary work: this one
-         * is carrying grain, that one is off to the woods, those two are courting. */
-        if (u->sp >= SP_CIV_N)           pip = 0;               /* wildlife stays clean */
-        else if (u->sick)                pip = MOTE_RGB565(126,  37,  83);  /* fever    */
-        else if (u->job == JOB_FIGHT)    pip = MOTE_RGB565(255,   0,  77);  /* fighting */
-        else if (u->job == JOB_DOUSE)    pip = MOTE_RGB565( 41, 173, 255);  /* a bucket */
-        else if (u->job == JOB_FLEE)     pip = MOTE_RGB565(255, 236,  39);  /* alarm    */
-        else if (u->job == JOB_BREED)    pip = MOTE_RGB565(255, 119, 168);  /* courting */
-        else if (u->carry) {
-            /* the goods themselves, coloured by what they are */
-            static const uint16_t CARRY_COL[5] = {
-                MOTE_RGB565(255, 163,   0),   /* food   */
-                MOTE_RGB565(171,  82,  54),   /* wood   */
-                MOTE_RGB565(194, 195, 199),   /* stone  */
-                MOTE_RGB565( 95,  87,  79),   /* iron   */
-                MOTE_RGB565(255, 236,  39),   /* gold   */
-            };
-            pip = CARRY_COL[u->carry_kind < 5 ? u->carry_kind : 0];
-        }
-        else if (u->job == JOB_WORK)     pip = MOTE_RGB565(194, 195, 199);  /* at work  */
-        else if (u->job == JOB_FORAGE)   pip = MOTE_RGB565(  0, 228,  54);  /* gathering */
-        if (pip) {
-            /* drawn straight into the frame in the overlay pass would be simpler, but
-             * these have to sort with the crowd — so a 2x2 from the FX sheet's blank
-             * corner would cost a sheet. A rect is honest and costs nothing. */
-            mb_pip_add_at((int)(u->x >> 4 << 3) + 3 - cam_x, py2 - cam_y, pip);
-        }
+        /* NO STATUS PIPS. A coloured dot over each villager's head said what they were
+         * doing — carrying, foraging, courting, ill, fighting, fleeing, dousing — on the
+         * theory that a crowd of identical figures reads as wallpaper. It does, but a
+         * legend you have to learn is not the fix: on screen it was thirty coloured
+         * squares floating over a town, which is noise, and it made the settlement look
+         * LESS like a place. Life has to come from the simulation having more in it, not
+         * from annotating what it already has. */
     }
     /* the walking disasters: the master's smoke swirl for a tornado, its cone
      * for a vent, lifted a tile so they stand above the ground they are wrecking */

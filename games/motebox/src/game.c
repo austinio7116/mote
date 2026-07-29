@@ -1097,9 +1097,9 @@ static void g_overlay(uint16_t *fb)
             int want, lost;
             mb_draw_sprite_load(&want, &lost);
             fprintf(stderr, "     sprites wanted %d, dropped %d%s"
-                            "   cursor %d,%d idle %.1fs%s pips %d\n", want, lost,
+                            "   cursor %d,%d idle %.1fs%s\n", want, lost,
                     lost ? "  <-- SCENE FULL" : "", s_cx, s_cy, (double)s_idle,
-                    s_pan_x >= 0 ? "  PANNING" : "", mb_draw_pip_count());
+                    s_pan_x >= 0 ? "  PANNING" : "");
             acc = 0;
         }
     }
@@ -1126,7 +1126,6 @@ static void g_overlay(uint16_t *fb)
         mb_draw_mortal_sprites(fb);
         mb_fx_flux_render(fb, s_cam_x, s_cam_y);
         mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
-        mb_draw_pips(fb);
     }
 
     /* --- cursor ---
