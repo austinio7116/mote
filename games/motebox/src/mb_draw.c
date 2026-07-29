@@ -677,22 +677,14 @@ void mb_draw_mortal(int cam_x, int cam_y)
         add(&spr);
     }
     /* flux, on top of the ground it is consuming */
-    for (int r = r0; r <= r0 + MVH; r++) {
-        if (r < 0 || r >= MH) continue;
-        for (int c = c0; c <= c0 + MVW; c++) {
-            if (c < 0 || c >= MW) continue;
-            uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
-            if (!k || k >= FX_N || !FLUX_SPR[k].img) continue;
-            const FluxSpr *f = &FLUX_SPR[k];
-            int fr = f->frames > 1 ? (int)((mb_w.tick + c + r) % f->frames) : 0;
-            MoteSprite spr = {
-                f->img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                (uint16_t)((f->cx + fr) * TILE), (uint16_t)(f->cy * TILE), TILE, TILE,
-                50, 0
-            };
-            add(&spr);
-        }
-    }
+    /* NO FLUX TILE SPRITES. There used to be one 8x8 sprite per burning, flooded or
+     * frozen cell, so a firestorm rendered as a grid of identical explosion icons snapped
+     * to the terrain lattice — the effect was as blocky as the ground under it. The flux
+     * is drawn as PIXEL PARTICLES now (mb_fx_flux_emit / mb_fx_draw_mortal_px), so a fire
+     * front is a cloud of embers that does not know the tile grid exists. Lava keeps a
+     * sprite, but as TERRAIN rather than as an effect — it is molten rock you can walk
+     * into, not a puff of something. */
+
     /* LAVA AND SCORCHED, the band that would not fit. Eight layers hold eight bands and
      * there is no ninth, so the rarest pair moved to sprites — measured at 0.0-0.6% of a
      * world, about one cell in view. They always carry flux and FX anyway. */

@@ -287,7 +287,10 @@ void  mb_fx_shake(float amp);
 void  mb_fx_flash(float amt);
 float mb_fx_shake_amt(void);
 void  mb_fx_draw_god(uint16_t *fb);
-void  mb_fx_draw_mortal(int cam_x, int cam_y);
+void  mb_fx_flux_render(uint16_t *fb, int cam_x, int cam_y);
+void  mb_fx_draw_mortal_px(uint16_t *fb, int cam_x, int cam_y);
+void  mb_fx_flux_emit(int cam_x, int cam_y, float dt);
+void  mb_fx_spawn_v(float tx, float ty, float vx, float vy, int kind, int elem, float life);
 
 /* Deterministic per-(seed, tick, salt) randomness — the sim's only entropy, so
  * a world replays identically from its seed (DESIGN.md 5). */

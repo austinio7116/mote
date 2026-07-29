@@ -23,7 +23,10 @@
 #include "fx_holy.h"
 #include "fx_void.h"
 
-#define NPART 192
+/* A DISASTER IS A CLOUD OF PIXELS, NOT A GRID OF ICONS. Raised from 192 because fire,
+ * acid and spray all emit continuously now: the pool has to hold a whole burning treeline
+ * rather than a few impact bursts. 34 bytes each. */
+#define NPART 448
 
 typedef struct {
     float x, y;          /* world position, in TILES (so both views can map it) */
@@ -36,6 +39,7 @@ static Part s_pt[NPART];
 static int  s_next_pt;
 
 /* --- screen-level state ------------------------------------------------- */
+static float s_time;             /* animation clock for the flame turbulence */
 static float s_shake;            /* amplitude in px, decays */
 static float s_flash;            /* 0..1 white-out */
 static uint32_t s_rng = 1;
@@ -105,6 +109,21 @@ void mb_fx_spawn(float tx, float ty, int kind, int elem, float speed, float life
     p->elem = (uint8_t)elem;
 }
 
+/* Spawn with a velocity of our own choosing, in tiles a second. mb_fx_spawn scatters in a
+ * random direction, which is right for an impact burst and wrong for everything a disaster
+ * does continuously: an ember rises, spray flies outward, a bubble drifts up. Passing
+ * speed 0 to dodge that just left the particle sitting where it was born, which is why the
+ * first pixel fire had no plume at all. */
+void mb_fx_spawn_v(float tx, float ty, float vx, float vy, int kind, int elem, float life)
+{
+    Part *p = claim();
+    p->x = tx; p->y = ty;
+    p->vx = vx; p->vy = vy;
+    p->life = p->max = life;
+    p->kind = (uint8_t)kind;
+    p->elem = (uint8_t)elem;
+}
+
 void mb_fx_burst(float tx, float ty, int n, int kind, int elem, float speed, float life)
 {
     for (int i = 0; i < n; i++)
@@ -135,9 +154,13 @@ void mb_fx_step(float dt)
         if (p->life <= 0.0f) continue;
         p->life -= dt;
         p->x += p->vx * dt; p->y += p->vy * dt;
-        p->vx *= 0.90f; p->vy *= 0.90f;
-        if (p->kind == PK_SMOKE) p->vy -= 0.6f * dt;   /* smoke rises */
+        /* Sideways drag only. Damping the VERTICAL as hard killed every plume inside a
+         * tenth of a second — an ember that stops rising is just a dot. */
+        p->vx *= 0.90f;
+        if (p->kind == PK_SMOKE || p->kind == PK_SPARK) p->vy -= 1.1f * dt;
+        else p->vy *= 0.94f;
     }
+    s_time += dt;
     s_shake -= s_shake * 6.0f * dt; if (s_shake < 0.05f) s_shake = 0.0f;
     s_flash -= s_flash * 7.0f * dt; if (s_flash < 0.01f) s_flash = 0.0f;
 }
@@ -168,24 +191,330 @@ void mb_fx_draw_god(uint16_t *fb)
     }
 }
 
-/* --- Mortal View: sprites in the 2D scene ------------------------------- */
-void mb_fx_draw_mortal(int cam_x, int cam_y)
+/* --- Mortal View: PIXELS, straight into the frame -----------------------
+ *
+ * These were 8x8 sprites from the FX sheets, one per particle, and the disasters were one
+ * tile sprite per flux cell — so a forest fire rendered as a GRID of identical explosion
+ * icons snapped to the terrain lattice. At eight pixels a tile there is no room for a
+ * sprite to BE a flame; it can only be a symbol for one.
+ *
+ * So they are drawn the way Moita draws its own: single pixels blended into the frame,
+ * additive for anything glowing, with a one-pixel halo on the hottest. A hundred embers
+ * rising off a burning ridge cost a hundred stores and read as fire, where a hundred
+ * sprites cost a hundred blits and read as wallpaper.
+ */
+static inline uint16_t add565(uint16_t d, int r, int g, int b)
+{
+    int dr = ((d >> 11) & 31) + r, dg = ((d >> 5) & 63) + g, db = (d & 31) + b;
+    if (dr > 31) dr = 31;
+    if (dg > 63) dg = 63;
+    if (db > 31) db = 31;
+    return (uint16_t)((dr << 11) | (dg << 5) | db);
+}
+static inline uint16_t lerp565(uint16_t a, uint16_t b, float t)
+{
+    int ar = (a >> 11) & 31, ag = (a >> 5) & 63, ab = a & 31;
+    int br = (b >> 11) & 31, bg = (b >> 5) & 63, bb = b & 31;
+    return (uint16_t)((((int)(ar + (br - ar) * t)) << 11) |
+                      (((int)(ag + (bg - ag) * t)) << 5) |
+                       ((int)(ab + (bb - ab) * t)));
+}
+
+/* which elements GLOW (added to the frame) and which are matter (drawn over it) */
+static const uint8_t ELEM_ADD[FXE_N] = { 1, 0, 1, 0, 1, 1 };
+
+/* --- what a disaster BREATHES -------------------------------------------
+ *
+ * Each flux kind emits its own particles every frame from the cells you can actually see,
+ * which is what turns a field of tile icons into weather. Only the visible window is
+ * walked, so a continent-wide firestorm costs the same as a campfire.
+ *
+ * The emission rate is per SECOND and scaled by the cell's intensity, so a fire dying
+ * down visibly gutters instead of switching off, and a fresh one roars.
+ */
+void mb_fx_flux_emit(int cam_x, int cam_y, float dt)
+{
+    int c0 = cam_x / TILE, r0 = cam_y / TILE;
+    for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t fl = mb_w.flux[AT(c, r)];
+            uint8_t k = mb_fkind(fl);
+            if (!k) continue;
+            int inten = mb_fint(fl);
+
+            /* chance this cell emits this frame: intensity x rate x dt */
+            float rate;
+            switch (k) {
+            /* THE MATERIAL CARRIES THE EFFECT NOW, so particles are garnish: a few embers
+             * lifting clear of the flame, a little spray off water. At 26 a second they
+             * piled additive white streaks over the top of the fire and read as artefacts
+             * on something that was already doing the job. */
+            case FX_FIRE:  rate =  3.5f; break;   /* embers lifting off the top     */
+            case FX_LAVA:  rate =  1.5f; break;   /* the occasional spit            */
+            case FX_ACID:  rate =  1.5f; break;
+            case FX_WATER: rate =  4.0f; break;   /* spray genuinely leaves the water */
+            case FX_FROST: rate =  1.0f; break;
+            default:       rate =  0.0f; break;
+            }
+            if (frnd() > rate * dt * (0.35f + inten * 0.055f)) continue;
+
+            float x = (float)c + frnd(), y = (float)r + frnd();
+            switch (k) {
+            case FX_FIRE:
+                /* rise, wander, and live shorter the weaker the fire is */
+                mb_fx_spawn_v(x, y - 0.6f, frnd2() * 0.9f, -3.0f - frnd() * 2.0f,
+                              PK_SPARK, FXE_FIRE, 0.45f + 0.020f * inten);
+                break;
+            case FX_LAVA:   /* molten rock spits: slower, heavier, longer lived */
+                mb_fx_spawn_v(x, y, frnd2() * 0.4f, -1.1f - frnd(),
+                              PK_SPARK, FXE_FIRE, 0.7f);
+                break;
+            case FX_ACID:   /* bubbles rise and pop */
+                mb_fx_spawn_v(x, y, frnd2() * 0.3f, -1.4f - frnd() * 0.8f,
+                              PK_SPARK, FXE_ACID, 0.5f);
+                break;
+            case FX_WATER:  /* spray flies OUT, not up */
+                mb_fx_spawn_v(x, y, frnd2() * 3.0f, -1.0f + frnd2(),
+                              PK_RING, FXE_FROST, 0.35f);
+                break;
+            case FX_FROST:  /* crystals barely move; they just glint */
+                mb_fx_spawn_v(x, y, frnd2() * 0.2f, -0.2f,
+                              PK_STAR, FXE_FROST, 0.8f);
+                break;
+            default: break;
+            }
+        }
+    }
+}
+
+/* --- the ground a disaster is happening ON -------------------------------
+ *
+ * Embers alone were not enough, and the reason is worth writing down: additive light does
+ * nothing over a bright surface. Moita's fire reads because it glows in a dark cave; here
+ * it was glowing over lit grass, so a burning treeline came out as a few yellow-green
+ * specks. Fire needs something dark to be bright against.
+ *
+ * So the affected ground is TINTED first — scorched under flame, bleached under frost,
+ * stained under acid — by blending each pixel toward that element's dark tone. The
+ * strength is per-pixel and hashed, so the tint has a mottled organic edge and never
+ * reads as the 8x8 square it is computed over. That is the difference between this and
+ * the tile sprite it replaced: same grid underneath, no grid visible.
+ */
+static const uint16_t FLUX_DARK[FX_N] = {
+    0,
+    MOTE_RGB565(105,  35,  12),   /* fire  — scorched earth, WARM not black */
+    MOTE_RGB565( 90,  20,   0),   /* lava  — hot rock                   */
+    MOTE_RGB565( 20,  60, 110),   /* water — deep wet                   */
+    MOTE_RGB565( 10,  60,  20),   /* acid  — stained                    */
+    MOTE_RGB565(200, 220, 240),   /* frost — bleached pale              */
+};
+
+/* --- A DISASTER IS A MATERIAL THAT FILLS PIXELS ---------------------------
+ *
+ * Two earlier attempts were both too thin. First an 8x8 sprite per flux cell, which was a
+ * grid of icons. Then a sparse spray of particles over a faint tint — which the eye reads
+ * as spots on grass, not as fire, because additive light does nothing over a lit surface
+ * and forty particles cannot cover a burning ridge.
+ *
+ * Moita is thick because fire there is a MATERIAL: every pixel it occupies is filled,
+ * opaquely, from a heat lookup with per-pixel variation. That is the model here now. For
+ * every pixel in the affected region:
+ *
+ *   heat = smoothed cell intensity  +  scrolling turbulence  -  threshold
+ *
+ * and if that is positive the pixel is filled from the element's ramp. The turbulence is
+ * coarse value noise scrolled UPWARD with time, which is what gives a flame its licking
+ * ragged edge and its flicker; the smoothed intensity is what keeps the shape off the
+ * tile grid. Dense, animated, and it never shows a straight edge.
+ */
+/* Heat ramps, cold end first. Fire runs scorch -> ember -> flame -> white core, the way a
+ * real one does, so the HOTTEST part of a fire is its middle and not its outline. */
+#define RAMPN 6
+static const uint16_t RAMP_FIRE[RAMPN] = {
+    MOTE_RGB565( 70,  20,  10), MOTE_RGB565(130,  30,  10),
+    MOTE_RGB565(200,  55,   8), MOTE_RGB565(245, 120,  10),
+    MOTE_RGB565(255, 190,  35), MOTE_RGB565(255, 235, 130),
+};
+static const uint16_t RAMP_LAVA[RAMPN] = {
+    MOTE_RGB565( 50,  14,  10), MOTE_RGB565(110,  25,  10),
+    MOTE_RGB565(180,  45,   8), MOTE_RGB565(230,  95,  10),
+    MOTE_RGB565(255, 165,  30), MOTE_RGB565(255, 235, 150),
+};
+static const uint16_t RAMP_ACID[RAMPN] = {
+    MOTE_RGB565( 10,  40,  14), MOTE_RGB565( 20,  80,  22),
+    MOTE_RGB565( 40, 130,  30), MOTE_RGB565( 80, 180,  40),
+    MOTE_RGB565(150, 230,  70), MOTE_RGB565(215, 255, 160),
+};
+static const uint16_t RAMP_WATER[RAMPN] = {
+    MOTE_RGB565( 10,  34,  80), MOTE_RGB565( 16,  60, 130),
+    MOTE_RGB565( 26,  96, 180), MOTE_RGB565( 50, 140, 220),
+    MOTE_RGB565(120, 195, 245), MOTE_RGB565(225, 245, 255),
+};
+static const uint16_t RAMP_FROST[RAMPN] = {
+    MOTE_RGB565( 80, 120, 160), MOTE_RGB565(120, 165, 205),
+    MOTE_RGB565(160, 200, 230), MOTE_RGB565(200, 228, 245),
+    MOTE_RGB565(230, 245, 255), MOTE_RGB565(255, 255, 255),
+};
+/* what the ground looks like once the front has passed over it */
+static const uint16_t CHAR_COL[FX_N] = {
+    0,
+    MOTE_RGB565( 34,  20,  16),   /* fire  — charcoal */
+    MOTE_RGB565( 46,  22,  16),   /* lava  — cooling crust */
+    0,                            /* water leaves no scar */
+    MOTE_RGB565( 26,  46,  20),   /* acid  — dead stained ground */
+    MOTE_RGB565(210, 228, 240),   /* frost — rime */
+};
+
+static const uint16_t *const FLUX_RAMP[FX_N] = {
+    0, RAMP_FIRE, RAMP_LAVA, RAMP_WATER, RAMP_ACID, RAMP_FROST
+};
+
+/* how fast each material's turbulence scrolls, in tiles a second, and how coarse it is */
+static const float FLUX_RISE[FX_N]  = { 0, 5.5f, 1.4f, 2.2f, 2.6f, 0.35f };
+static const float FLUX_GRAIN[FX_N] = { 0, 2.4f, 3.0f, 2.6f, 2.6f, 3.4f };
+
+static inline float vnoise(float x, float y)
+{
+    int xi = (int)floorf(x), yi = (int)floorf(y);
+    float fx = x - (float)xi, fy = y - (float)yi;
+    fx = fx * fx * (3.0f - 2.0f * fx);          /* smoothstep, so it is not blocky */
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    #define H2(a, b) ({ unsigned h_ = (unsigned)((a) * 374761393 + (b) * 668265263); \
+                        h_ = (h_ ^ (h_ >> 13)) * 1274126177u;                        \
+                        (float)((h_ >> 8) & 0xFFFF) * (1.0f / 65535.0f); })
+    float a = H2(xi, yi),     b = H2(xi + 1, yi);
+    float c = H2(xi, yi + 1), d = H2(xi + 1, yi + 1);
+    #undef H2
+    float t = a + (b - a) * fx, u = c + (d - c) * fx;
+    return t + (u - t) * fy;
+}
+
+static inline int flux_at(int c, int r, uint8_t kind)
+{
+    if (c < 0 || r < 0 || c >= MW || r >= MH) return 0;
+    uint8_t fl = mb_w.flux[AT(c, r)];
+    return (mb_fkind(fl) == kind) ? mb_fint(fl) : 0;
+}
+
+void mb_fx_flux_render(uint16_t *fb, int cam_x, int cam_y)
+{
+    int c0 = cam_x / TILE, r0 = cam_y / TILE;
+    int minc = MW, maxc = -1, minr = MH, maxr = -1;
+    uint8_t kinds = 0;
+    for (int r = r0 - 1; r <= r0 + MVH + 1; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0 - 1; c <= c0 + MVW + 1; c++) {
+            if (c < 0 || c >= MW) continue;
+            uint8_t k = mb_fkind(mb_w.flux[AT(c, r)]);
+            if (!k || k >= FX_N || !FLUX_RAMP[k]) continue;
+            kinds |= (uint8_t)(1u << k);
+            if (c < minc) minc = c;
+            if (c > maxc) maxc = c;
+            if (r < minr) minr = r;
+            if (r > maxr) maxr = r;
+        }
+    }
+    if (maxc < 0) return;
+
+    for (uint8_t k = 1; k < FX_N; k++) {
+        if (!(kinds & (1u << k)) || !FLUX_RAMP[k]) continue;
+        const uint16_t *ramp = FLUX_RAMP[k];
+        float scroll = s_time * FLUX_RISE[k];
+        float grain  = FLUX_GRAIN[k];
+
+        int x0 = (minc - 1) * TILE - cam_x, x1 = (maxc + 2) * TILE - cam_x;
+        int y0 = (minr - 1) * TILE - cam_y, y1 = (maxr + 2) * TILE - cam_y;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > 128) x1 = 128;
+        if (y1 > VIEW_H) y1 = VIEW_H;
+
+        for (int sy = y0; sy < y1; sy++) {
+            float wy = (float)(sy + cam_y) / (float)TILE - 0.5f;
+            int rr = (int)floorf(wy);
+            float ty = wy - (float)rr;
+            for (int sx = x0; sx < x1; sx++) {
+                float wx = (float)(sx + cam_x) / (float)TILE - 0.5f;
+                int cc = (int)floorf(wx);
+                float tx = wx - (float)cc;
+                float i00 = (float)flux_at(cc,     rr,     k);
+                float i10 = (float)flux_at(cc + 1, rr,     k);
+                float i01 = (float)flux_at(cc,     rr + 1, k);
+                float i11 = (float)flux_at(cc + 1, rr + 1, k);
+                float top = i00 + (i10 - i00) * tx;
+                float bot = i01 + (i11 - i01) * tx;
+                /* NORMALISED BY WHAT A FIRE ACTUALLY REACHES, not by the field's width.
+                 * fuel_inten packs remaining fuel into four bits, so forest with deadwood
+                 * hits 15 — but plain GRASS only ever reaches about 4. Dividing by 15 meant
+                 * a grass fire peaked at 0.27 of the scale the thresholds were written
+                 * against, so nearly nothing passed the flame test and a burning meadow was
+                 * all char and three sparks. */
+                float inten = (top + (bot - top) * ty) * (1.0f / 7.0f);
+                if (inten > 1.0f) inten = 1.0f;
+                if (inten <= 0.03f) continue;
+
+                /* Sampled COARSER vertically than horizontally, so the noise features are
+                 * taller than they are wide and the flame licks upward. Equal grain in both
+                 * axes gave it a horizontal weave and the hottest cores read as white
+                 * streaks lying across the fire. */
+                float n = vnoise(wx * grain, wy * grain * 0.55f - scroll);
+                /* THE NOISE MODULATES, IT DOES NOT ADD.
+                 *
+                 * It used to be `inten * 1.45 + n * 0.75 - 0.62`, and that addition is what
+                 * made the whole thing a noise map: a spent cell with a lucky noise sample
+                 * flamed just as brightly as the front, so a fire was a uniform flickering
+                 * blob with no structure and no direction.
+                 *
+                 * Multiplying means noise can only shape fuel that is actually there. And
+                 * because this flux model stores intensity as REMAINING FUEL — a cell is
+                 * lit at full and counts down — high intensity IS the leading edge. So the
+                 * bright flame lands on the front by itself, and the burnt-out middle gets
+                 * the char pass below. A fire that starts in the middle and eats outwards,
+                 * with its own wake behind it. */
+                float shape = inten * (0.55f + 0.85f * n);
+                if (shape > 0.42f) {
+                    float heat = (shape - 0.42f) * 1.9f;
+                    if (heat > 1.0f) heat = 1.0f;
+                    fb[sy * 128 + sx] = ramp[(int)(heat * (float)(RAMPN - 1) + 0.5f)];
+                } else if (inten > 0.10f && CHAR_COL[k]) {
+                    /* THE WAKE. Behind the front the fuel is gone but the ground is not the
+                     * ground any more. Without this the interior showed untouched grass and
+                     * the fire read as a ring floating over a meadow. */
+                    float a = 0.35f + 0.5f * (1.0f - inten);
+                    if (a > 0.85f) a = 0.85f;
+                    fb[sy * 128 + sx] = lerp565(fb[sy * 128 + sx], CHAR_COL[k], a);
+                }
+            }
+        }
+    }
+}
+
+void mb_fx_draw_mortal_px(uint16_t *fb, int cam_x, int cam_y)
 {
     for (int i = 0; i < NPART; i++) {
         const Part *p = &s_pt[i];
         if (p->life <= 0.0f) continue;
         int px = (int)(p->x * TILE) - cam_x, py = (int)(p->y * TILE) - cam_y;
-        if (px < -TILE || py < -TILE || px > 128 || py > VIEW_H) continue;
-        const FxCell *c = &KIND_CELL[p->kind < PK_N ? p->kind : 0];
-        /* animate through the cell run over the particle's life */
-        float t = 1.0f - (p->life / (p->max > 0.001f ? p->max : 1.0f));
-        int fr = (int)(t * (float)c->frames);
-        if (fr >= c->frames) fr = c->frames - 1;
-        MoteSprite s = {
-            ELEM_IMG[p->elem], (int16_t)(px + cam_x), (int16_t)(py + cam_y),
-            (uint16_t)((c->cx + fr) * TILE), (uint16_t)(c->cy * TILE), TILE, TILE,
-            60, 0                       /* above ground clutter and units */
-        };
-        g_api->scene2d_add(&s);
+        if (px < 0 || py < 0 || px > 127 || py >= VIEW_H) continue;
+
+        float f = p->life / (p->max > 0.001f ? p->max : 1.0f);
+        int hot = (f > 0.45f);
+        uint16_t col = hot ? ELEM_HI[p->elem] : ELEM_LO[p->elem];
+
+        if (ELEM_ADD[p->elem]) {
+            /* Full brightness while hot, fading only as it dies. Scaling by 0.85 on top
+             * of the life fade left embers as pale specks on bright grass. */
+            float w = 0.45f + 0.55f * f;
+            int r = (int)(((col >> 11) & 31) * w);
+            int g = (int)(((col >> 5) & 63) * w);
+            int b = (int)((col & 31) * w);
+            fb[py * 128 + px] = add565(fb[py * 128 + px], r, g, b);
+            /* No halo. Over the flame material it blew straight out to white and read as
+             * a streak of damage rather than a spark. */
+        } else {
+            fb[py * 128 + px] = lerp565(fb[py * 128 + px], col, 0.35f + 0.6f * f);
+        }
     }
 }

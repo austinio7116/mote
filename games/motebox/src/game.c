@@ -415,7 +415,6 @@ static void god_menu(void)
      * nothing else, because founding a civilisation was a power you had to know about.
      * Boot into a living history instead. */
     mb_civ_seed_world(4);
-            mb_bands_rebuild();          /* the first frame needs a band map too */
     mb_world_start(&s_cx, &s_cy);
     /* AND OPEN ON A CIVILISATION. Worldgen picks a pleasant spot, which on a 96x96 map
      * is usually nobody's spot — so the first thing the player saw was empty coastline
@@ -777,6 +776,10 @@ static void g_init(void)
     }
     if (s_stat) mb_world_stats();
 #endif
+    /* THE FIRST FRAME NEEDS A BAND MAP. Without this the terrain is a navy void until the
+     * first world tick — which at 400 fps is a tenth of a second, long enough to be the
+     * first thing a screenshot catches and long enough to look like a bug. */
+    mb_bands_rebuild();
     view_set(1);
 }
 
@@ -989,7 +992,9 @@ static void g_update(float dt)
             s_cam_y += (int)((s_shake_ph >> 24) % (uint32_t)(2 * amp + 1)) - amp;
         }
         mb_draw_mortal(s_cam_x, s_cam_y);
-        mb_fx_draw_mortal(s_cam_x, s_cam_y);
+        /* disasters breathe particles from the cells in view, then get drawn as
+         * pixels in the overlay — no tile sprite anywhere in the chain */
+        mb_fx_flux_emit(s_cam_x, s_cam_y, dt);
     } else {
         mote->scene2d_begin(0, 0);               /* nothing but the background */
     }
@@ -1114,7 +1119,13 @@ static void g_overlay(uint16_t *fb)
         }
     }
 
-    if (!s_god) mb_draw_pips(fb);      /* who is carrying, ill, fighting, fleeing */
+    if (!s_god) {
+        /* the ground first, then what is burning on it, then the crowd */
+        mb_fx_flux_render(fb, s_cam_x, s_cam_y);
+        mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
+        mb_draw_pips(fb);
+    }
+    if (0) mb_draw_pips(fb);      /* who is carrying, ill, fighting, fleeing */
 
     mb_power_draw_wheel(fb, &rogue8);
 
