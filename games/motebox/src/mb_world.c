@@ -172,6 +172,7 @@ void mb_world_alloc(void)
     mb_w.obj   = (uint8_t *)g_api->alloc(NC);
     mb_w.flux  = (uint8_t *)g_api->alloc(NC);
     mb_w.claim = (uint8_t *)g_api->alloc(NC);
+    mb_w.road  = (uint8_t *)g_api->alloc(NC);
 }
 
 void mb_world_gen(uint32_t seed)
@@ -187,6 +188,7 @@ void mb_world_gen(uint32_t seed)
     mb_w.sea     = SH_SEA[mb_w.shape];
     memset(mb_w.flux,  0, NC);
     memset(mb_w.claim, 0, NC);
+    memset(mb_w.road,  0, NC);
     memset(ob,         0, NC);
 
     /* 1. elevation */

@@ -207,8 +207,11 @@ static void terra(int x, int y, int id)
         *o = ((mb_rand((uint32_t)i * 13u) & 15) < 2) ? O_REEDS : O_NONE;
         break;
     case PW_ROAD:
+        /* Paving no longer replaces the terrain: a road LIES ON the land, so it goes
+         * in its own layer and the grass, sand or field underneath stays. */
         if (!mb_land(*b)) break;
-        *b = B_ROAD; *o = O_NONE;
+        mb_w.road[i] = 1;
+        if (*o && !mb_is_build(*o)) *o = O_NONE;   /* clear the clutter, keep buildings */
         break;
     default: break;
     }

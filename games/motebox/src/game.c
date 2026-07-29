@@ -724,6 +724,9 @@ static void g_init(void)
                 if (mb_in(x, y)) bio[mb_w.biome[AT(x, y)]]++;
         for (int b = 0; b < B_N; b++)
             if (bio[b]) fprintf(stderr, "   bio %-12s %d\n", B_NAME[b], bio[b]);
+        int roads = 0;
+        for (int c = 0; c < NC; c++) if (mb_w.road[c]) roads++;
+        fprintf(stderr, "   road cells in the world: %d\n", roads);
         int want, lost;
         mb_draw_sprite_load(&want, &lost);
         fprintf(stderr, "   sprites wanted %d, DROPPED %d\n", want, lost);

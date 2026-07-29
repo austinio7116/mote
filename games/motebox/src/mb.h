@@ -224,7 +224,13 @@ typedef struct {
     uint8_t *elev;       /* 0..255; lava and water flow down it */
     uint8_t *obj;        /* O_* */
     uint8_t *flux;       /* kind:4 / intensity:4 — Phase 2 */
-    uint8_t *claim;      /* village id + development bits — Phase 4 */
+    uint8_t *claim;
+    /* ROADS ARE THEIR OWN LAYER, not a biome. B_ROAD replaced the ground, so paving a
+     * cell erased the grass or the field under it — and a terrain cell cannot be
+     * transparent, so a road could never lie ON the land. One byte per cell (14 KB of
+     * a 272 KB arena) buys a network that draws over any terrain and knows its own
+     * neighbours, which is what a corner needs. */
+    uint8_t *road;      /* village id + development bits — Phase 4 */
     uint32_t seed;
     int32_t  tick;       /* weeks since year 0 */
     uint8_t  shape;      /* SH_* — archipelago .. pangaea, rolled from the seed */

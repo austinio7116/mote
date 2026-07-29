@@ -351,6 +351,25 @@ static void lord_think(int v)
     if (B->obj != O_HALL2 && B->obj != O_HALL3) mb_w.obj[AT(x, y)] = O_PLAN;
 }
 
+/* Lay an L-shaped road from a new building back to the hall. */
+static void road_to_hall(int v, int bx, int by)
+{
+    Village *V = &mb_v[v];
+    int hx = V->x, hy = V->y;
+    int step = bx < hx ? 1 : -1;
+    for (int x = bx; x != hx + step; x += step) {
+        if (!mb_in(x, by)) break;
+        int i = AT(x, by);
+        if (mb_land(mb_w.biome[i]) && !mb_is_build(mb_w.obj[i])) mb_w.road[i] = 1;
+    }
+    step = by < hy ? 1 : -1;
+    for (int y = by; y != hy + step; y += step) {
+        if (!mb_in(hx, y)) break;
+        int i = AT(hx, y);
+        if (mb_land(mb_w.biome[i]) && !mb_is_build(mb_w.obj[i])) mb_w.road[i] = 1;
+    }
+}
+
 /* Pay for the plan if the store allows, and raise the building. */
 static void try_build(int v)
 {
@@ -361,6 +380,16 @@ static void try_build(int v)
         return;
     V->wood -= B->wood; V->stone -= B->stone; V->iron -= B->iron; V->gold -= B->gold;
     mb_w.obj[AT(V->plan_x, V->plan_y)] = V->plan_obj;
+    /* AND A ROAD TO IT. A village that builds a house and then a road to the house is
+     * the difference between a scatter of huts and a town: the network is what makes
+     * the buildings read as one settlement, and it grows exactly as the settlement
+     * does, so its shape is a record of the order things were built in.
+     *
+     * An L from the new building to the hall, horizontal then vertical — the simplest
+     * path that always connects, and the right-angle junctions are what the sixteen
+     * road cells are for. Water is not paved: a road stops at the bank, which is also
+     * why a river is a firebreak AND a bottleneck for an army. */
+    road_to_hall(v, V->plan_x, V->plan_y);
     if (V->plan_obj == O_HALL2) V->hall = 2;
     if (V->plan_obj == O_HALL3) V->hall = 3;
     V->dirty = 1;

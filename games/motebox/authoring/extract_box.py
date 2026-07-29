@@ -377,6 +377,34 @@ def build_ore():
     save_sheet("ore", out)
 
 
+def build_town():
+    """The settlement's own sprites — see authoring/build_sprites.py.
+
+    Sixteen buildings across, five banner colours down, each cell 8 wide by 14 TALL:
+    a building stands six pixels above its own tile so it has a roof with a pitch
+    instead of being a face-on box the size of a bush. The column index is
+    `obj - O_BUILD0`, so the C side needs no lookup table.
+    """
+    import build_sprites
+    save_sheet("town", build_sprites.build())
+
+
+def build_roads():
+    """The road network overlay — see authoring/roads.py for the reasoning.
+
+    Sixteen cells indexed by the four-neighbour mask, drawn as a four-pixel
+    carriageway inside an eight-pixel tile with a one-pixel kerb, so the ground shows
+    along both sides of every road in the world and a corner can round properly.
+
+    PEACH surface, ORANGE kerb, LIGHT GREY stones — chosen by rendering the same
+    network over grass, sand and beach and looking at all six. A grey cobble with a
+    dark grey kerb reads as an outlined ribbon, and a pale road with a pale kerb
+    disappears entirely the moment it crosses a beach.
+    """
+    import roads
+    save_sheet("road", roads.build(PEACH, ORANGE, LTGREY))
+
+
 def build_icon():
     """60x60 launcher icon: the world as a disc, with a meteor coming in.
 
@@ -478,6 +506,8 @@ def main():
     build_sprites()
     build_fx_recolours()
     build_ore()
+    build_roads()
+    build_town()
     build_biomes()
     sync_terrain()
     build_icon()

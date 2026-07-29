@@ -43,6 +43,18 @@
 #include "boulders.h"
 #include "treasure_ore.h"
 #include "ore.h"
+#include "road.h"
+#include "town.h"
+
+/* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
+ * its own tile. Must match authoring/build_sprites.py. */
+#define TOWN_W 8
+#define TOWN_H 14
+#define TOWN_ANCHOR_Y (-6)
+/* The sheet's column IS `obj - O_BUILD0`, which is fast and has no lookup table to
+ * drift — but it means adding an O_* without adding a column silently draws the wrong
+ * building for every id after it. This catches exactly that, at compile time. */
+typedef char mb_town_covers_builds[(town_W / TOWN_W) == (O_N - O_BUILD0) ? 1 : -1];
 #include "ui_status.h"
 #include "tools.h"
 #include "crowns_fx.h"
@@ -456,45 +468,43 @@ void mb_draw_mortal(int cam_x, int cam_y)
      * the picture is unchanged while there is room; past the cap you now lose a few
      * tufts of grass instead of the town. */
     int c0 = cam_x / TILE, r0 = cam_y / TILE;
-    /* buildings, above the ground and below the people */
-    for (int r = r0; r <= r0 + MVH; r++) {
+    /* BUILDINGS, from the game's OWN sprite sheet (authoring/build_sprites.py), and
+     * EIGHT BY FOURTEEN rather than eight by eight.
+     *
+     * The master's buildings rectangle offers two usable standalone fronts for a ladder
+     * of six dwelling and hall tiers plus a temple, a barracks, a tower, a barn, a mine
+     * and a dock — so most of the settlement shared art, and a castle looked like a
+     * great hall. These are drawn instead, one column per O_* id and one row per banner
+     * colour, so the column IS `o - O_BUILD0` and there is no lookup table to drift.
+     *
+     * The extra six pixels rise ABOVE the tile, which is the change that makes a town
+     * look like a town: at eight by eight every building is a face-on box the same size
+     * as a bush, and at eight by fourteen it has a pitched roof, a wall with a door in
+     * it and a silhouette. Rows are added north to south and scene2d keeps insertion
+     * order within a layer, so a southern roof correctly overlaps its northern
+     * neighbour and a street has depth. */
+    for (int r = r0; r <= r0 + MVH + 1; r++) {
         if (r < 0 || r >= MH) continue;
         for (int c = c0; c <= c0 + MVW; c++) {
             if (c < 0 || c >= MW) continue;
             uint8_t o = mb_w.obj[AT(c, r)];
             if (!mb_is_build(o)) continue;
-            const BldSpr *B = &MB_BLD[o - O_BUILD0];
-            const MoteImage *img = (B->sheet == BS_BUILD)  ? &buildings_img
-                                 : (B->sheet == BS_PLAN)   ? &blueprint_img
-                                 : (B->sheet == BS_NATURE) ? &nature_img
-                                 : (B->sheet == BS_TOOLS)  ? &tools_img : &props_img;
-            /* the row IS the kingdom colour for the buildings sheet */
-            int row = B->cy;
-            if (B->sheet == BS_BUILD) {
-                int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
-                row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;
-            }
-            /* THE COTTAGE IS THE HOUSE, MIRRORED. The sheet has only two standalone
-             * fronts (the walled block and the pitched roof); its other two columns
-             * are an open door and a WIDE CONTINUATION meant to sit beside column 2.
-             * Assigning that continuation to the cottage — the commonest building in
-             * any village — filled towns with lone continuation pieces, which read as
-             * a row of fences or crates rather than as homes. A horizontal flip costs
-             * no art, is unmistakably a different house, and makes a street look built
-             * rather than stamped. */
-            uint8_t flags = (o == O_HOUSE2) ? MOTE_SPR_HFLIP : 0;
-            MoteSprite spr = { img, (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)(B->cx * TILE), (uint16_t)(row * TILE),
-                               TILE, TILE, 30, flags };
+            int col = o - O_BUILD0;
+            int k = mb_kingdom_of(mb_w.claim[AT(c, r)]);
+            int row = (k && mb_k[k].alive) ? mb_k[k].colour % 5 : 4;   /* 4 = unclaimed grey */
+            MoteSprite spr = { &town_img, (int16_t)(c * TILE),
+                               (int16_t)(r * TILE + TOWN_ANCHOR_Y),
+                               (uint16_t)(col * TOWN_W), (uint16_t)(row * TOWN_H),
+                               TOWN_W, TOWN_H, 30, 0 };
             add(&spr);
-            /* A CAPITAL WEARS ITS CROWN. One 8x8 sprite from the master's five
-             * crowns, sat on the hall of a kingdom's seat: it is the only way to
-             * tell at a glance which of forty villages is the one that matters. */
+            /* A CAPITAL WEARS ITS CROWN — one 8x8 cell from the master's five crowns,
+             * above the roof of a kingdom's seat. It is the only way to tell at a glance
+             * which of forty villages is the one that matters. */
             if (o == O_HALL2 || o == O_HALL3) {
-                int v = mb_w.claim[AT(c, r)], k = mb_kingdom_of(v);
+                int v = mb_w.claim[AT(c, r)];
                 if (k && mb_k[k].alive && mb_k[k].capital == v) {
                     MoteSprite cr = { &crowns_fx_img, (int16_t)(c * TILE),
-                                      (int16_t)(r * TILE - 5),
+                                      (int16_t)(r * TILE + TOWN_ANCHOR_Y - 6),
                                       (uint16_t)((mb_k[k].colour % 5) * TILE),
                                       (uint16_t)(5 * TILE), TILE, TILE, 34, 0 };
                     add(&cr);
@@ -502,6 +512,7 @@ void mb_draw_mortal(int cam_x, int cam_y)
             }
         }
     }
+
     /* people and beasts, above their buildings so a crowd is never hidden */
     for (int i = 0; i < mb_nu; i++) {
         const Unit *u = &mb_u[i];
@@ -544,6 +555,26 @@ void mb_draw_mortal(int cam_x, int cam_y)
             add(&spr);
         }
     }
+    /* ROADS, over the terrain and under everything else. The cell is chosen from the
+     * FOUR-NEIGHBOUR MASK, because a road is a graph and not an area: what matters is
+     * only which cardinals it continues into. Sixteen cells cover every case exactly —
+     * a stone, four dead ends, two straights, four corners, four tees and a crossroads
+     * — where a 47-cell blob set would be answering the wrong question. */
+    for (int r = r0; r <= r0 + MVH; r++) {
+        if (r < 0 || r >= MH) continue;
+        for (int c = c0; c <= c0 + MVW; c++) {
+            if (c < 0 || c >= MW || !mb_w.road[AT(c, r)]) continue;
+            int m = 0;
+            if (r > 0      && mb_w.road[AT(c, r - 1)]) m |= 1;
+            if (c < MW - 1 && mb_w.road[AT(c + 1, r)]) m |= 2;
+            if (r < MH - 1 && mb_w.road[AT(c, r + 1)]) m |= 4;
+            if (c > 0      && mb_w.road[AT(c - 1, r)]) m |= 8;
+            MoteSprite spr = { &road_img, (int16_t)(c * TILE), (int16_t)(r * TILE),
+                               (uint16_t)(m * TILE), 0, TILE, TILE, 12, 0 };
+            add(&spr);
+        }
+    }
+
     /* LAST: ground clutter — trees, rocks, tufts, headstones. Whatever the cap
      * eats, it eats here. */
     for (int r = r0; r <= r0 + MVH; r++) {
