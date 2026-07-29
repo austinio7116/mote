@@ -1107,6 +1107,25 @@ static void g_overlay(uint16_t *fb)
      * pixel each, after the terrain, so they sit on top of it. */
     if (s_god) { mb_god_units(fb, 0, VIEW_H); mb_fx_draw_god(fb); }
 
+    /* THE WORLD IS FINISHED BEFORE THE UI STARTS. This pass used to run at the very
+     * end of the overlay, which was harmless while the engine drew the world's sprites —
+     * but they are deferred now so the hillshade cannot shade them, and deferring them
+     * past the cursor drew houses and burn scars ON TOP OF THE CROSSHAIR. The reticule is
+     * a tool, not scenery: nothing in the world may cover it. */
+    if (!s_god) {
+        /* THE GROUND, then the relief that shades it, THEN everything standing on it.
+         * The sprites are held back by mb_draw_mortal() precisely so the hillshade cannot
+         * reach them — a lit deer and a snow-capped house are what happens otherwise. */
+#if MOTE_HOST
+        if (!getenv("MOTEBOX_NORELIEF"))
+#endif
+            mb_draw_relief(fb, s_cam_x, s_cam_y);
+        mb_draw_mortal_sprites(fb);
+        mb_fx_flux_render(fb, s_cam_x, s_cam_y);
+        mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
+        mb_draw_pips(fb);
+    }
+
     /* --- cursor ---
      * Drawn as a box AROUND the target so the tile itself still shows, and in
      * TWO TONES — dark outside, light inside. A single light box disappeared
@@ -1178,21 +1197,6 @@ static void g_overlay(uint16_t *fb)
                      mb_faith_afford(mb_power_cost()) ? C_HI : C_WARN, 1);
         }
     }
-
-    if (!s_god) {
-        /* THE GROUND, then the relief that shades it, THEN everything standing on it.
-         * The sprites are held back by mb_draw_mortal() precisely so the hillshade cannot
-         * reach them — a lit deer and a snow-capped house are what happens otherwise. */
-#if MOTE_HOST
-        if (!getenv("MOTEBOX_NORELIEF"))
-#endif
-            mb_draw_relief(fb, s_cam_x, s_cam_y);
-        mb_draw_mortal_sprites(fb);
-        mb_fx_flux_render(fb, s_cam_x, s_cam_y);
-        mb_fx_draw_mortal_px(fb, s_cam_x, s_cam_y);
-        mb_draw_pips(fb);
-    }
-    if (0) mb_draw_pips(fb);      /* who is carrying, ill, fighting, fleeing */
 
     mb_power_draw_wheel(fb, &rogue8);
 
