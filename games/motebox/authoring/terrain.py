@@ -75,6 +75,21 @@ _CORNERS = (("NW", "N", "W", (0, 0)),
             ("SE", "S", "E", (TS - 1, TS - 1)))
 
 
+def flat(interior_fn, nvar=2):
+    """A ONE-CELL tileset, stacked for nvar.
+
+    The base layer draws no boundaries any more — the transition overlay draws all of
+    them — so there is nothing for 47 cells to disagree about, and emitting 47 copies of
+    the same flat fill was a blob47 set doing no work at all while costing 47 times the
+    flash. One cell per variant, and `write` pairs it with an all-zero LUT so every
+    neighbour arrangement maps to it.
+    """
+    sheet = Image.new("RGBA", (TS, TS * nvar))
+    for v in range(nvar):
+        sheet.paste(interior_fn(v), (0, v * TS))
+    return sheet
+
+
 def build(base, interior_fn, rim, nvar=2, sides="NSEW"):
     """A whole blob47 sheet, in the artist's own geometry (see the module docstring).
 
@@ -173,17 +188,23 @@ def _paint_rim(px, base, rim, open_e, mask, all_open=None):
             px[cx, cy + 2 * dy] = R
 
 
-def write(tsets_dir, name, sheet, nvar, edge=1, vweight=None):
-    """The .tileset beside it, carrying the canonical LUT."""
+def write(tsets_dir, name, sheet, nvar, edge=1, vweight=None, lut=None):
+    """The .tileset beside it, carrying the canonical LUT — or an all-zero one for a
+    flat single-cell set, where every arrangement of neighbours draws the same tile."""
     os.makedirs(tsets_dir, exist_ok=True)
     sheet.save(os.path.join(tsets_dir, name + ".png"))
     vw = (list(vweight or []) + [1] * 8)[:8]
     with open(os.path.join(tsets_dir, name + ".tileset"), "w") as f:
         f.write(f"sheet tilesets/{name}.png\n")
         f.write("tile 8\n")
+        # TYPE, STATED. Omitting it let Studio default to Blob 47 and pad the display
+        # to 47 slots, which is why a flat one-cell fill showed up in the editor as
+        # forty-seven identical brown squares.
+        f.write("type %d\n" % (0 if lut is None else 0))
+        f.write("cols %d\nrows %d\n" % (sheet.size[0] // 8, sheet.size[1] // 8))
         f.write(f"edge {edge}\n")
         f.write(f"nvar {nvar}\n")
-        f.write("lut " + " ".join(str(v) for v in blob47.LUT) + "\n")
+        f.write("lut " + " ".join(str(v) for v in (lut if lut is not None else blob47.LUT)) + "\n")
         f.write("xform " + " ".join(["0"] * 256) + "\n")
         f.write("vweight " + " ".join(str(v) for v in vw) + "\n")
 

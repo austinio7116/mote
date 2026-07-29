@@ -44,26 +44,27 @@
 #include "treasure_ore.h"
 #include "ore.h"
 #include "road.h"
-#include "tr_ocean.h"
-#include "tr_sea.h"
-#include "tr_shallow.h"
-#include "tr_ice.h"
-#include "tr_beach.h"
-#include "tr_desert.h"
-#include "tr_savanna.h"
-#include "tr_grass.h"
-#include "tr_swamp.h"
-#include "tr_hill.h"
-#include "tr_mountain.h"
-#include "tr_peak.h"
-#include "tr_tundra.h"
-#include "tr_snow.h"
-#include "tr_ash.h"
-#include "tr_scorched.h"
-#include "tr_lava.h"
-#include "tr_acid.h"
-#include "tr_farm.h"
-#include "tr_rubble.h"
+#include "blob47_lut.h"
+#include "tr_ocean.tiles.h"
+#include "tr_sea.tiles.h"
+#include "tr_shallow.tiles.h"
+#include "tr_ice.tiles.h"
+#include "tr_beach.tiles.h"
+#include "tr_desert.tiles.h"
+#include "tr_savanna.tiles.h"
+#include "tr_grass.tiles.h"
+#include "tr_swamp.tiles.h"
+#include "tr_hill.tiles.h"
+#include "tr_mountain.tiles.h"
+#include "tr_peak.tiles.h"
+#include "tr_tundra.tiles.h"
+#include "tr_snow.tiles.h"
+#include "tr_ash.tiles.h"
+#include "tr_scorched.tiles.h"
+#include "tr_lava.tiles.h"
+#include "tr_acid.tiles.h"
+#include "tr_farm.tiles.h"
+#include "tr_rubble.tiles.h"
 #include "town.h"
 
 /* The town sheet's geometry, in one place: 8 wide, 14 tall, drawn six pixels above
@@ -598,23 +599,30 @@ void mb_draw_mortal(int cam_x, int cam_y)
             add(&spr);
         }
     }
-    /* THE TRANSITION PASS. For each visible cell, find the highest-precedence terrain
-     * among its four neighbours; if it outranks this cell, draw that terrain's overlay
-     * with the mask of the sides it is on, so it creeps in over the flat field. One
-     * sprite per boundary cell, and it goes in BEFORE the ground clutter so that when
-     * the scene fills up it is a tuft of grass that gets dropped and never a coastline. */
+    /* THE TRANSITION PASS — a real blob47 lookup on all EIGHT neighbours.
+     *
+     * For each visible cell: find the highest-precedence terrain among its neighbours;
+     * if it outranks this cell, build the eight-bit mask of where that terrain actually
+     * is and look the cell up through blob47's own table. That is what buys the corners.
+     * A four-neighbour mask — which is what the first version of this used — cannot tell
+     * "it wraps round my corner" from "it stops short and leaves a notch", and fills
+     * both solid, which is the hard right angle the layering exists to remove.
+     *
+     * One sprite per boundary cell, added BEFORE the ground clutter, so when the scene
+     * fills up it is a tuft of grass that gets dropped and never a coastline. */
     for (int r = r0; r <= r0 + MVH; r++) {
         if (r < 0 || r >= MH) continue;
         for (int c = c0; c <= c0 + MVW; c++) {
             if (c < 0 || c >= MW) continue;
             uint8_t me = mb_w.biome[AT(c, r)];
             if (!me || me > B_COUNT) continue;
-            int myprec = MB_PREC[me - 1];
-            uint8_t win = 0; int winprec = myprec, mask = 0;
-            static const int8_t DX[4] = { 0, 1, 0, -1 };
-            static const int8_t DY[4] = { -1, 0, 1, 0 };
-            for (int k = 0; k < 4; k++) {
-                int nx = c + DX[k], ny = r + DY[k];
+
+            /* bit order must match authoring/transitions.py: N NE E SE S SW W NW */
+            static const int8_t DX8[8] = {  0,  1, 1, 1, 0, -1, -1, -1 };
+            static const int8_t DY8[8] = { -1, -1, 0, 1, 1,  1,  0, -1 };
+            uint8_t win = 0; int winprec = MB_PREC[me - 1];
+            for (int k = 0; k < 8; k++) {
+                int nx = c + DX8[k], ny = r + DY8[k];
                 if (!mb_in(nx, ny)) continue;
                 uint8_t nb = mb_w.biome[AT(nx, ny)];
                 if (!nb || nb > B_COUNT || nb == me) continue;
@@ -622,16 +630,22 @@ void mb_draw_mortal(int cam_x, int cam_y)
                 if (p > winprec) { winprec = p; win = nb; }
             }
             if (!win || !MB_TRANS[win - 1]) continue;
-            for (int k = 0; k < 4; k++) {
-                int nx = c + DX[k], ny = r + DY[k];
+
+            int mask = 0;
+            for (int k = 0; k < 8; k++) {
+                int nx = c + DX8[k], ny = r + DY8[k];
                 if (mb_in(nx, ny) && mb_w.biome[AT(nx, ny)] == win) mask |= 1 << k;
             }
-            if (!mask) continue;
-            /* two profiles, picked from the cell's own position, so a long shore
+            int cellno = MB_BLOB47[mask];
+            if (!cellno) continue;          /* cell 0 is "no contact worth drawing" */
+
+            /* two profiles, chosen from the cell's own position, so a long shore
              * undulates instead of repeating one scallop */
             int v = ((c * 7 + r * 3) & 1);
             MoteSprite spr = { MB_TRANS[win - 1], (int16_t)(c * TILE), (int16_t)(r * TILE),
-                               (uint16_t)(mask * TILE), (uint16_t)(v * TILE),
+                               (uint16_t)((cellno % MB_TR_COLS) * TILE),
+                               (uint16_t)((cellno / MB_TR_COLS) * TILE
+                                          + v * MB_TR_ROWS * TILE),
                                TILE, TILE, 11, 0 };
             add(&spr);
         }

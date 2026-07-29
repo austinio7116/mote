@@ -271,32 +271,29 @@ def build_biomes():
             ("bio_sea",   BLUE,  WHITE,  WHITE,  4),   # bright water, white foam
             ("bio_lava",  RED,   ORANGE, YELLOW, 3),   # the same course, read as heat
             ("bio_acid",  GREEN, YELLOW, YELLOW, 3)):
-        sheet = terrain.build(
-            base,
+        sheet = terrain.flat(
             lambda v, _b=base, _i=ink, _s=step: biomes.dashes(_b, _i, 7 + v, step=_s, run=3),
-            None, nvar=2)          # rim=None: the overlay owns every boundary
-        terrain.write(TSETS, name, sheet, 2, vweight=[1, 1])
-        print(f"[blob47]  {name:20s} nvar=2  flat")
+            nvar=2)
+        terrain.write(TSETS, name, sheet, 2, vweight=[1, 1], lut=[0] * 256)
+        print(f"[flat]    {name:20s} nvar=2")
 
     # 2. the shallows: brighter water, denser foam. It keeps a white rim now that the
     #    generator thins the band to one pixel where opposite edges are both open —
     #    which is exactly the one-tile river case. With a fixed 2 px rim a river was
     #    entirely rim, and an earlier sand-coloured version rendered every river in the
     #    world as a peach footpath.
-    sheet = terrain.build(BLUE,
-                          lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4),
-                          None, nvar=2)
-    terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[1, 1])
-    print(f"[blob47]  {'bio_shallow':20s} nvar=2  rim=foam")
+    sheet = terrain.flat(lambda v: biomes.dashes(BLUE, WHITE, 17 + v, step=3, run=4), nvar=2)
+    terrain.write(TSETS, "bio_shallow", sheet, 2, vweight=[1, 1], lut=[0] * 256)
+    print(f"[flat]    {'bio_shallow':20s} nvar=2")
 
     # 3. everything else, from the vocabulary — flat bases, bright rims
     for rec in biomes.recipes():
         name, base, builders, weights, rim = rec[:5]
         sides = rec[5] if len(rec) > 5 else "NSEW"
         nvar = len(builders)
-        sheet = terrain.build(base, lambda v: builders[v](v), rim, nvar=nvar, sides=sides)
-        terrain.write(TSETS, name, sheet, nvar, vweight=weights)
-        print(f"[blob47]  {name:20s} nvar={nvar} weights={weights} sides={sides}")
+        sheet = terrain.flat(lambda v: builders[v](v), nvar=nvar)
+        terrain.write(TSETS, name, sheet, nvar, vweight=weights, lut=[0] * 256)
+        print(f"[flat]    {name:20s} nvar={nvar} weights={weights}")
 
 
 def sync_terrain():
@@ -424,7 +421,19 @@ def build_transitions():
     """
     import transitions
     for name, _prec, body, shore in TRANSITIONS:
-        save_sheet("tr_" + name[4:], transitions.build(body, shore))
+        nm = "tr_" + name[4:]
+        # A .tileset SIDECAR, not a bare sheet: these are genuine Blob 47 rule tiles, so
+        # they belong in tilesets/ where Studio can open and edit them. `mote bake`
+        # emits both the MoteAutotile and the MoteImage from one .tileset, and the draw
+        # pass wants the image — so shipping it properly costs the game nothing.
+        transitions.write_tileset(TSETS, nm, transitions.build(body, shore), nvar=2,
+                                  vweight=[1, 1])
+        stale = os.path.join(SHEETS, nm + ".png")
+        if os.path.isfile(stale):
+            os.remove(stale)        # or bake emits two headers for one name
+    transitions.write_lut_header(os.path.join(GAME, "src", "blob47_lut.h"))
+    print("[blob47]  transition overlays: 47 cells x 2 variants x %d biomes"
+          % len(TRANSITIONS))
 
 
 def build_town():
